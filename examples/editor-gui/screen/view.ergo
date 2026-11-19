@@ -1,5 +1,5 @@
-import editor/edit
-import editor/piece
+import ergo.local/prototype/examples/editorgui/edit
+import ergo.local/prototype/examples/editorgui/piece
 import ui
 
 // Mono is the page's measure: a cell grid of 8 by 16 (the test host's;
@@ -71,7 +71,7 @@ func Pressed(p ui.PointerEvent, l ui.TextLayout, from int) Option[Signal] {
 	match p.Phase {
 	case ui.Down:
 		Some{Value: Do{Signal: edit.Goto{At: from + ui.OffsetAt(Mono, l, ui.Length(p.X), ui.Length(p.Y))}}}
-	case ui.Moved, ui.Up, ui.Wheel:
+	case ui.Moved, ui.Drag, ui.Up, ui.Wheel, ui.PointerEnter, ui.PointerLeave:
 		None
 	}
 }

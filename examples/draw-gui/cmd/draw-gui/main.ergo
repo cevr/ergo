@@ -15,9 +15,9 @@
 // files for the pictures, a seeded generator for gen.
 
 import actor
-import draw/canvas
-import draw/files
-import draw/script
+import ergo.local/prototype/examples/drawgui/canvas
+import ergo.local/prototype/examples/drawgui/files
+import ergo.local/prototype/examples/drawgui/script
 import flag
 import fs
 import io

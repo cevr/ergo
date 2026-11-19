@@ -238,6 +238,11 @@ func (c *checker) cellParts(t Type, path map[int32]bool) (*Named, bool) {
 	}
 	switch t := t.(type) {
 	case *Named:
+		if goConfinedRef(t) {
+			// A go.Ref to a Go value that is not safe for concurrent use
+			// (goconfined.go).
+			return t, false
+		}
 		if t.foreign || t.Obj == nil || t.Obj.Pkg.Host() {
 			return nil, false
 		}
@@ -305,18 +310,36 @@ type cellSite struct {
 	file *fileInfo
 	at   syntax.Node
 	arg  Type
+	of   []*TypeParam // the parameters the instantiation binds
 }
 
 // recordCellArgs records the type arguments of an instantiation.
-func (c *checker) recordCellArgs(targs []Type, at syntax.Node) {
+func (c *checker) recordCellArgs(tparams []*TypeParam, targs []Type, at syntax.Node) {
 	if c.silent > 0 || at == nil {
 		return
 	}
 	for _, a := range targs {
 		if a != nil {
-			c.cellSites = append(c.cellSites, cellSite{file: c.cur, at: at, arg: a})
+			c.cellSites = append(c.cellSites, cellSite{file: c.cur, at: at, arg: a, of: tparams})
 		}
 	}
+}
+
+// optionParams reports whether tparams are go.Ref's, or the prelude
+// Option's or Some's: each holds its value where the walk sees it, and
+// its code sends nothing to a task. It is asked only of a site that holds
+// a confined Go value, which no prelude declaration does, so the prelude
+// is built by then.
+func optionParams(tparams []*TypeParam) bool {
+	if r := universeOnce.ref; r != nil && len(r.TParams) == 1 && len(tparams) == 1 && tparams[0] == r.TParams[0] {
+		return true
+	}
+	for _, name := range []string{"Option", "Some"} {
+		if p := preludeType(name); p != nil && len(p.TParams) == 1 && len(tparams) == 1 && tparams[0] == p.TParams[0] {
+			return true
+		}
+	}
+	return false
 }
 
 // checkCells refuses a type argument and a package let that hold a cell.
@@ -327,9 +350,15 @@ func (c *checker) checkCells() {
 			continue
 		}
 		if h := c.holdsCell(s.arg); h != nil {
+			if goConfinedRef(h) && optionParams(s.of) {
+				// A go.Ref or an Option holds its value where the walk sees
+				// it: a Go function's *PCG result is an Option[go.Ref[PCG]]
+				// (goconfined.go).
+				continue
+			}
 			seen[s.at] = true
 			c.cur = s.file
-			c.errorf(s.at, CodeType, cellTypeArgText, s.arg, h)
+			c.errorf(s.at, CodeType, confinedText(h, cellTypeArgText, goConfinedTypeArgText), s.arg, h)
 		}
 	}
 	for _, f := range c.files {
@@ -346,7 +375,7 @@ func (c *checker) checkCells() {
 						continue
 					}
 					if h := c.holdsCell(v.Type); h != nil {
-						c.errorf(id, CodeType, cellLetText, id.Name, h)
+						c.errorf(id, CodeType, confinedText(h, cellLetText, goConfinedLetText), id.Name, h)
 					}
 				}
 			}
@@ -363,6 +392,6 @@ func (w *escWalk) cellCapture(id *syntax.Ident, v *Var) {
 		return
 	}
 	if h := w.c.holdsCell(v.Type); h != nil {
-		w.c.errorf(id, CodeType, cellCaptureText, id.Name, h)
+		w.c.errorf(id, CodeType, confinedText(h, cellCaptureText, goConfinedCaptureText), id.Name, h)
 	}
 }

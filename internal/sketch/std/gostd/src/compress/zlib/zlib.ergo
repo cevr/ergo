@@ -54,10 +54,10 @@ extern go compress/zlib.Writer type Writer {} implements Closer
 extern go compress/zlib.Writer.Close func (z own *Writer) Close() fails go.Error needs go.Foreign
 
 // ergo:go func (*Writer).Flush() error
-extern go compress/zlib.Writer.Flush func (z own *Writer) Flush() fails go.Error needs go.Foreign
+extern go compress/zlib.Writer.Flush func (z *Writer) Flush() fails go.Error needs go.Foreign
 
 // ergo:go func (*Writer).Reset(w io.Writer)
-extern go compress/zlib.Writer.Reset func (z own *Writer) Reset(w own io.Writer) needs go.Foreign
+extern go compress/zlib.Writer.Reset func (z *Writer) Reset(w own io.Writer) needs go.Foreign
 
 // ergo:go func (*Writer).Write(p []byte) (n int, err error)
-extern go compress/zlib.Writer.Write func (z own *Writer) Write(p []byte) int fails go.Error needs go.Foreign
+extern go compress/zlib.Writer.Write func (z *Writer) Write(p []byte) int fails go.Error needs go.Foreign

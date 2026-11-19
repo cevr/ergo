@@ -585,6 +585,49 @@ func TestHistoryReadingStepsNeverReplay(t *testing.T) {
 	}
 }
 
+// TestVetKeysGoSourcesAndEveryName: go vet replays after an edit of a file
+// it does not read (a std .ergo file, which a package embeds), and runs
+// again after an edit of a Go file, go.mod or go.sum, after a file is
+// added or removed anywhere (an embed pattern's matches), and after a Go
+// change. It catches gs21-vet-bases-ignored, gs21-vet-unlisted and
+// gs21-vet-go-dropped (scripts/gate's ledger).
+func TestVetKeysGoSourcesAndEveryName(t *testing.T) {
+	inputs := vetInputs()
+	root := fixture(t)
+	write(t, root, "go.mod", "module example.test/vet\n")
+	write(t, root, "lib/lib.go", "package lib\n")
+	write(t, root, "lib/std/fields.ergo", "package json\n")
+	withoutGo := *inputs
+	withoutGo.Tools = nil
+	if keyOf(t, root, inputs) == keyOf(t, root, &withoutGo) {
+		t.Fatal("the Go version did not join the key")
+	}
+	before := keyOf(t, root, inputs)
+	write(t, root, "lib/std/fields.ergo", "package json // edited\n")
+	if keyOf(t, root, inputs) != before {
+		t.Fatal("an edit of an embedded .ergo file ran vet again")
+	}
+	for _, change := range []struct {
+		what string
+		do   func()
+	}{
+		{"a Go edit", func() { write(t, root, "lib/lib.go", "package lib // edited\n") }},
+		{"a go.mod edit", func() { write(t, root, "go.mod", "module example.test/vet\n\ngo 1.24\n") }},
+		{"a new .ergo file", func() { write(t, root, "lib/std/more.ergo", "package json\n") }},
+		{"a removed .ergo file", func() {
+			if err := os.Remove(filepath.Join(root, "lib/std/fields.ergo")); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	} {
+		was := keyOf(t, root, inputs)
+		change.do()
+		if keyOf(t, root, inputs) == was {
+			t.Fatalf("%s replayed vet", change.what)
+		}
+	}
+}
+
 func TestWayfinderSnapshotCheckKeysOnTheSnapshotSourcesAndGo(t *testing.T) {
 	inputs := wayfinderSnapshotInputs()
 	for name, want := range map[string]bool{

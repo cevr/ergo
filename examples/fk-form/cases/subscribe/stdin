@@ -1,5 +1,6 @@
-# a submit of the empty form is ignored
+# a submit of the empty form: the button is disabled, and Enter is refused
 submit
+enter
 # the name: one letter is too short, two are enough
 name A
 name Alice
@@ -9,14 +10,22 @@ email
 # a well-formed address is checked against the list: this one is on it,
 # in another case of its letters
 email Test@Example.com
+wait 300
 note Hello there.
-submit
+enter
 # a new address is checked again, and the form can be sent
 email alice@example.com
+wait 300
 submit
+# while it is sent, an edit changes nothing
+name Bob
+wait 300
 # and sent again
 submit
+wait 300
 # the name is optional; the .invalid domain takes no mail
 name
 email bob@mail.invalid
+wait 300
 submit
+wait 300

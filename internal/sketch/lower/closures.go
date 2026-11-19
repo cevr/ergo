@@ -65,6 +65,44 @@ func (fc *funcCtx) snapshot(n syntax.Node, build func() string) string {
 	return closure
 }
 
+// envLowering, when "copy", writes a host callback's environment as a
+// fresh copy at each call, as before ENV-COPY: the reference lowering. A
+// whole build selects it with
+// -ldflags=-X=ergo.local/prototype/internal/sketch/lower.envLowering=copy.
+var envLowering string
+
+// envFrom is the environment's field that names the environment a copy
+// was made from (envMemoText), written only when a callback uses it.
+const envFrom = "from"
+
+// envMemoText is the start of a host callback (childEnv) that runs an
+// Ergo body on the host's task: it binds e to an environment whose task
+// is task and whose capabilities are outer's. That is outer itself when
+// the host calls back on outer's task (actor.ActorKeep, a release on the
+// releasing task); else the copy kept for the task (rt.Task.EnvMemo) when
+// it is that task's and was made from outer (an actor's step on the
+// actor's task, from the second signal on); else a new copy, which is then
+// kept. The runtime's slot may hold another task's copy, so both are
+// checked. Without
+// it every call copies the environment, and the copy, which the callee
+// takes by pointer, is on the heap. Sharing a copy is sound because no
+// lowering writes an environment once a body can see it: every write is
+// to a fresh copy (here, contextvalues.go, ir_with.go, the operations
+// conversions in calls.go). A copy holds outer through its from field, so
+// a new environment never has outer's address while the copy is held.
+func envMemoText(ind, e, outer, task, envType, c string) string {
+	return ind + e + " := " + outer + "\n" +
+		ind + "if " + taskOf(e) + " != " + task + " {\n" +
+		ind + "\t" + e + ", _ = " + task + ".EnvMemo().(*" + envType + ")\n" +
+		ind + "\tif " + e + " == nil || " + taskOf(e) + " != " + task + " || " + e + "." + envFrom + " != " + outer + " {\n" +
+		ind + "\t\t" + c + " := *" + outer + "\n" +
+		ind + "\t\t" + taskOf(c) + ", " + c + "." + envFrom + " = " + task + ", " + outer + "\n" +
+		ind + "\t\t" + e + " = &" + c + "\n" +
+		ind + "\t\t" + task + ".SetEnvMemo(" + e + ")\n" +
+		ind + "\t}\n" +
+		ind + "}\n"
+}
+
 type envBinding uint8
 
 const (
@@ -96,8 +134,18 @@ func (fc *funcCtx) envClosure(binding envBinding, name string, site syntax.Node,
 		copy := fc.scope.alloc(name)
 		param = task + " *" + fc.l.taskPkg() + ".Task"
 		ind := strings.Repeat("\t", fc.depth+1)
-		pre = ind + copy + " := *" + fc.envExpr(site) + "\n" + ind + taskOf(copy) + " = " + task + "\n"
-		env = "&" + copy
+		outer := fc.envExpr(site)
+		if envLowering == "copy" {
+			pre = ind + copy + " := *" + outer + "\n" + ind + taskOf(copy) + " = " + task + "\n"
+			env = "&" + copy
+		} else {
+			// ENV-COPY: on the maker's task, or on a task that already
+			// holds a copy of this environment, the callback makes none
+			// (envMemoText).
+			fc.l.envFrom = true
+			pre = envMemoText(ind, copy, outer, task, fc.l.env(), fc.scope.alloc("c"))
+			env = copy
+		}
 		bound = env
 	case capturedEnv:
 		env = fc.envExpr(site)

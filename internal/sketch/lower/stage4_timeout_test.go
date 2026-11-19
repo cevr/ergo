@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	v1 "ergo.local/prototype/runtime/v1"
 )
 
@@ -145,6 +145,11 @@ func (s *never) Sleep(t *rt.Task, d time.Duration) {
 	panic(rt.Interrupted)
 }
 
+// Alarms completes the Scheduler interface (HTTP-FAST-b); After never
+// arms an alarm, so neither fake is asked for one.
+func (*instant) Alarms(*rt.Task) *ergo.AlarmClock { return ergo.HostAlarms() }
+func (*never) Alarms(*rt.Task) *ergo.AlarmClock   { return ergo.HostAlarms() }
+
 // within runs f and waits for its end, an event: an After whose deadline
 // is not the program's Scheduler sleeps an hour, and go test's -timeout
 // panic names TestDeadline (fu-time-limits: no fixed bound).
@@ -197,7 +202,7 @@ func TestDeadline(t *testing.T) {
 // function the lowering cannot call. A body that takes the caller's
 // Scheduler needs a Scheduler in the Ergo signature (hiddenArgs).
 func TestStdExternsHaveBodies(t *testing.T) {
-	paths := std.Packages()
+	paths := stdlib.Packages()
 	if len(paths) == 0 {
 		t.Fatal("no std packages")
 	}

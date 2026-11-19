@@ -15,17 +15,17 @@ type Registry {
 	// PageIsSliceOfWhole: a page is the items offset to offset+limit of
 	// the whole answer, so pages agree with each other and with a search
 	// that asks for everything.
-	law PageIsSliceOfWhole(pick int, offset Offset, limit Limit) { PageIsSliceOfWhole(pick, offset, limit) },
+	law PageIsSliceOfWhole(pick Pick, offset Offset, limit Limit) { PageIsSliceOfWhole(pick, offset, limit) },
 
 	// SameAnswerTwice: the same search gives the same listings.
-	law SameAnswerTwice(pick int, offset Offset, limit Limit) { SameAnswerTwice(pick, offset, limit) },
+	law SameAnswerTwice(pick Pick, offset Offset, limit Limit) { SameAnswerTwice(pick, offset, limit) },
 
 	// FeaturedFirst: a whole answer lists the featured TLDs first, in
 	// their order, then every other TLD of the catalog in its order.
-	law FeaturedFirst(pick int) { FeaturedFirst(pick) },
+	law FeaturedFirst(pick Pick) { FeaturedFirst(pick) },
 
 	// AtMostLimit: a page holds at most limit listings.
-	law AtMostLimit(pick int, offset Offset, limit Limit) { AtMostLimit(pick, offset, limit) },
+	law AtMostLimit(pick Pick, offset Offset, limit Limit) { AtMostLimit(pick, offset, limit) },
 }
 
 // labels are the labels the laws search for: the four the sample data
@@ -33,11 +33,14 @@ type Registry {
 // has (one letter, digits, an inner hyphen, the longest).
 let labels = []Label{"foldkit", "google", "github", "vercel", "acme", "f", "x9", "a-b", "domains", "0", "abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0"}
 
+// Pick is the place of a label in labels. It has as many values as labels
+// has entries, so a law whose only parameter is a Pick (FeaturedFirst)
+// runs once for every label and is proved, rather than over 100 drawn
+// cases of the same eleven labels.
+type Pick int where 0 <= it && it <= 10
+
 // labelOf is the label a law's pick selects.
-func labelOf(pick int) Label {
-	let n = len(labels)
-	labels[((pick%n)+n)%n]
-}
+func labelOf(pick Pick) Label { labels[int(pick)] }
 
 func page(l Label, offset Offset, limit Limit) []Listing fails Down needs Registry {
 	try Registry.SearchDomains(l, json.Present[Offset]{Value: offset}, json.Present[Limit]{Value: limit})
@@ -61,7 +64,7 @@ func same(a []Listing, b []Listing) bool {
 
 // PageIsSliceOfWhole is the law of that name; a provider that is down
 // has no answer to compare, so Down passes.
-func PageIsSliceOfWhole(pick int, offset Offset, limit Limit) bool needs Registry {
+func PageIsSliceOfWhole(pick Pick, offset Offset, limit Limit) bool needs Registry {
 	let l = labelOf(pick)
 	let p = page(l, offset, limit) catch {
 	case Down:
@@ -80,7 +83,7 @@ func PageIsSliceOfWhole(pick int, offset Offset, limit Limit) bool needs Registr
 }
 
 // SameAnswerTwice is the law of that name.
-func SameAnswerTwice(pick int, offset Offset, limit Limit) bool needs Registry {
+func SameAnswerTwice(pick Pick, offset Offset, limit Limit) bool needs Registry {
 	let l = labelOf(pick)
 	let first = page(l, offset, limit) catch {
 	case Down:
@@ -94,7 +97,7 @@ func SameAnswerTwice(pick int, offset Offset, limit Limit) bool needs Registry {
 }
 
 // FeaturedFirst is the law of that name.
-func FeaturedFirst(pick int) bool needs Registry {
+func FeaturedFirst(pick Pick) bool needs Registry {
 	let all = whole(labelOf(pick)) catch {
 	case Down:
 		return true
@@ -112,7 +115,7 @@ func FeaturedFirst(pick int) bool needs Registry {
 }
 
 // AtMostLimit is the law of that name.
-func AtMostLimit(pick int, offset Offset, limit Limit) bool needs Registry {
+func AtMostLimit(pick Pick, offset Offset, limit Limit) bool needs Registry {
 	let p = page(labelOf(pick), offset, limit) catch {
 	case Down:
 		return true

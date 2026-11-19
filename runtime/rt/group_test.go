@@ -21,7 +21,7 @@ func TestGroupMembersLeave(t *testing.T) {
 	live := func() int {
 		v.mu.Lock()
 		defer v.mu.Unlock()
-		return v.live
+		return v.d.live
 	}
 	before := live()
 	g := NewGroup(parent, "requests")

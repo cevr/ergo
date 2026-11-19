@@ -6,6 +6,7 @@ import (
 	"maps"
 	"math/rand/v2"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -156,6 +157,9 @@ type valueGen struct {
 	pending []func() // prints of closures and tasks, run at the end
 	turn    int      // the moves written so far, which pick the next one's form (no draw)
 	kturn   int      // the kept-argument calls written so far (KEEP1), likewise
+	rturn   int      // repeatStmt's calls so far, which pick its turns (no draw)
+	aturn   int      // armsStmt's calls so far, which pick its turns (no draw)
+	oturn   int      // the kMaps writes written so far, every third a move over a kept part (moveOver)
 	refs    []*vref
 	h       *rand.Rand // the draws of the hand-over statements (values_hand_test.go)
 	hands   []handFn
@@ -406,6 +410,26 @@ func peekM(m Map[int, int], k int) int {
 	dm(c) + dm(m)
 }
 
+// upJ reads m in a callback apply runs, which ends before the bind: it
+// owns m (values.go, joinedBefore).
+func upJ(m Map[int, int], k int) Map[int, int] {
+	apply(func(j int) {
+		let _ = len(m) + j
+	})
+	let mut c = m
+	c[k] = k + 400
+	c
+}
+
+// peekJ binds a literal that reads m and calls it after its write: the
+// literal may run after the bind, so m is not owned.
+func peekJ(m Map[int, int], k int) int {
+	let g = func() int { dm(m) }
+	let mut c = m
+	c[k] = k + 500
+	dm(c) + g()
+}
+
 // cell is a Ref that holds m (V6: NewRef stores a value shared outside).
 func cell(m Map[int, int]) sync.Ref[Map[int, int]] { sync.NewRef[Map[int, int]](m) }
 
@@ -444,6 +468,133 @@ func dropS(p *[]int) {
 	if len(*p) > 1 {
 		*p = (*p)[1:]
 	}
+}
+
+// overM moves src whole into n past headM's kept part of it (moveOver,
+// wf10 ST X1): e is copied instead, so the write through n misses it.
+func headM(ms []Map[int, int]) Map[int, int] {
+	if len(ms) == 0 {
+		return Map[int, int]{}
+	}
+	ms[0]
+}
+
+func overM(ms []Map[int, int], k int, v int) int {
+	let r = sync.NewRef[[]Map[int, int]](ms)
+	sync.Modify(r, func(all []Map[int, int]) (int, []Map[int, int]) {
+		let e = headM(all)
+		let mut n = all
+		if len(n) > 0 {
+			n[0][k] = v
+		}
+		(dm(e) * 7 + dms(n), n)
+	})
+}
+
+// Uses split across arms (OWN1 arms, exclusive): a use in one arm of a
+// match or an if never follows one in another arm, unless a loop runs
+// the statement again (armsS, loopCell); the subject and an if's condition run
+// before every arm (subjS, condS);
+// each arm of splitM moves all past headM's kept part.
+func optS(s []int) Option[[]int] { Some[[]int]{Value: s} }
+
+func armsS(xs []int, n int, mode int) int {
+	let mut cur = xs
+	cur = cur.Append(mode)
+	let kept = sync.NewRef[[]int]([]int{})
+	for i in 0..n {
+		match (i + mode) % 3 {
+		case 0:
+			kept.Set(cur)
+		case 1:
+			if len(cur) > 0 {
+				cur[0] = cur[0] + i + 1
+			} else {
+				cur = cur.Append(i)
+			}
+		case _:
+			cur = cur.Append(i)
+		}
+	}
+	ds(kept.Get()) * 3 + ds(cur)
+}
+
+func subjS(xs []int, k int) int {
+	let mut cur = xs
+	match optS(cur) {
+	case Some[[]int] as h:
+		if len(cur) > 0 {
+			cur[0] = k
+		}
+		ds(h.Value) * 3 + ds(cur)
+	case None:
+		0
+	}
+}
+
+// loopCell's literal returns all from one arm of a match in a loop whose
+// other arm stored it in side on an earlier pass: the cell must not take
+// it as unshared, or the next owned Update writes side's slice.
+func loopCell(xs []int, n int) int {
+	let r = sync.NewRef[[]int](xs)
+	let side = sync.NewRef[[]int]([]int{})
+	r.Update(func(all []int) []int {
+		for i in 0..n {
+			match i % 2 {
+			case 0:
+				side.Set(all)
+			case _:
+				return all
+			}
+		}
+		[]int{7}
+	})
+	r.Update(func(all []int) []int {
+		let mut c = all
+		if len(c) > 0 {
+			c[0] = 99
+		}
+		c
+	})
+	ds(side.Get()) * 3 + ds(r.Get())
+}
+
+// condS keeps cur in r from an if's condition, then writes cur in its
+// branch: the condition runs before the branch, so the Set must copy.
+func stashS(r sync.Ref[[]int], s []int) bool {
+	r.Set(s)
+	len(s) > 0
+}
+
+func condS(xs []int, k int) int {
+	let r = sync.NewRef[[]int]([]int{})
+	let mut cur = xs
+	cur = cur.Append(k)
+	if stashS(r, cur) {
+		cur[0] = k + 50
+	}
+	ds(r.Get()) * 3 + ds(cur)
+}
+
+func splitM(ms []Map[int, int], k int, v int, deny bool) int {
+	let r = sync.NewRef[[]Map[int, int]](ms)
+	let got = sync.Modify(r, func(all []Map[int, int]) (int, []Map[int, int]) {
+		let e = headM(all)
+		match deny {
+		case true:
+			let mut opened = all
+			if len(opened) > 0 {
+				opened[0][k] = v
+			}
+			(dm(e), opened)
+		case false:
+			let mut next = all
+			next = next.Append(Map[int, int]{k: v})
+			next[0][k] = v + 1
+			(dm(e) * 3, next)
+		}
+	})
+	got * 7 + dms(r.Get())
 }
 
 // note1, pick and flushS keep nothing of their slice (KEEP1), and print,
@@ -763,6 +914,8 @@ func (g *valueGen) stmt() {
 		g.write()
 		g.hand()
 		g.sortStmt()
+		g.armsStmt()
+		g.repeatStmt()
 	case 5:
 		b := g.pick(func(b *vbind) bool { return true })
 		if b == nil {
@@ -791,6 +944,17 @@ func (g *valueGen) stmt() {
 			peek[key] = key + 300
 			g.line(fmt.Sprintf("Console.Println(\"\\(peekM(%s, %d))\")", b.name, key))
 			fmt.Fprintf(&g.want, "%d\n", dmModel(peek)+dmModel(b.val.m))
+			// A read in a callback that ended before the bind (upJ) and
+			// one in a literal that runs after the write (peekJ).
+			joined := maps.Clone(b.val.m)
+			joined[key] = key + 400
+			g.line(fmt.Sprintf("Console.Println(\"\\(dm(upJ(%s, %d)))\")", b.name, key))
+			fmt.Fprintf(&g.want, "%d\n", dmModel(joined))
+			late := maps.Clone(b.val.m)
+			late[key] = key + 500
+			g.line(fmt.Sprintf("Console.Println(\"\\(peekJ(%s, %d))\")", b.name, key))
+			fmt.Fprintf(&g.want, "%d\n", dmModel(late)+dmModel(b.val.m))
+			g.print(b.name, b.kind, b.val.digest(b.kind))
 			g.reached["own live"] = true
 			// maps.Update on a Map that stays live: a copy is updated.
 			key = g.keyOf(b.val.m)
@@ -1039,6 +1203,16 @@ func (g *valueGen) write() {
 			return
 		}
 		key := g.r.IntN(9)
+		if g.shared {
+			// A move past a kept part (moveOver), in turn: no new draw;
+			// the write below keeps the binding a let mut.
+			if g.oturn++; g.oturn%3 == 0 {
+				e, n := maps.Clone(b.val.ms[0]), b.val.copy()
+				n.ms[0][key] = v
+				g.printInt(fmt.Sprintf("overM(%s, %d, %d)", b.name, key, v), dmModel(e)*7+n.digest(kMaps))
+				g.reached["move over a kept part"] = true
+			}
+		}
 		g.line(fmt.Sprintf("%s[0][%d] = %d", b.name, key, v))
 		b.val.ms[0][key] = v
 		g.reached["write element"] = true
@@ -1129,6 +1303,147 @@ func (g *valueGen) moveField(b *vbind, v int) {
 		g.line(fmt.Sprintf("%s.S = %s.S[%d:]", b.name, b.name, from))
 		b.val.s = slices.Clone(b.val.s[from:])
 		g.reached["move reslice"] = true
+	}
+}
+
+// armsStmt calls, every third call in turn, armsS, subjS, loopCell or splitM (uses
+// split across arms) on the last binding of its kind, from a counter, not
+// a draw, so the seeds keep their paths; the model runs each on copies.
+func (g *valueGen) armsStmt() {
+	if !g.shared {
+		return
+	}
+	if g.aturn++; g.aturn%3 != 0 {
+		return
+	}
+	t := g.aturn / 3
+	last := func(k vkind) *vbind {
+		var b *vbind
+		for _, x := range g.binds {
+			if x.kind == k {
+				b = x
+			}
+		}
+		return b
+	}
+	// armsS runs at least three passes, from arm 0 or arm 2, so a Set
+	// comes before a write in another arm (a later pass).
+	k, n, mode := t%9, 3+(t/4)%2, 2*((t/4)%2)
+	switch t % 4 {
+	case 0:
+		b := last(kSlice)
+		if b == nil {
+			return
+		}
+		cur, kept := append(slices.Clone(b.val.s), mode), []int{}
+		for i := range n {
+			switch (i + mode) % 3 {
+			case 0:
+				kept = slices.Clone(cur)
+			case 1:
+				if len(cur) > 0 {
+					cur[0] += i + 1
+				} else {
+					cur = append(cur, i)
+				}
+			default:
+				cur = append(cur, i)
+			}
+		}
+		g.printInt(fmt.Sprintf("armsS(%s, %d, %d)", b.name, n, mode), dsModel(kept)*3+dsModel(cur))
+		g.reached["arms loop"] = true
+	case 1:
+		b := last(kSlice)
+		if b == nil {
+			return
+		}
+		h, cur := slices.Clone(b.val.s), slices.Clone(b.val.s)
+		if len(cur) > 0 {
+			cur[0] = k
+		}
+		g.printInt(fmt.Sprintf("subjS(%s, %d)", b.name, k), dsModel(h)*3+dsModel(cur))
+		g.reached["arms subject"] = true
+		// And an if's condition, which runs before its branch too.
+		side := append(slices.Clone(b.val.s), k)
+		c := slices.Clone(side)
+		c[0] = k + 50
+		g.printInt(fmt.Sprintf("condS(%s, %d)", b.name, k), dsModel(side)*3+dsModel(c))
+		g.reached["arms condition"] = true
+	case 2:
+		b := last(kSlice)
+		if b == nil {
+			return
+		}
+		side, cell := []int{}, []int{7}
+		if n >= 1 {
+			side = slices.Clone(b.val.s)
+		}
+		if n >= 2 {
+			cell = slices.Clone(b.val.s)
+		}
+		if len(cell) > 0 {
+			cell[0] = 99
+		}
+		g.printInt(fmt.Sprintf("loopCell(%s, %d)", b.name, n), dsModel(side)*3+dsModel(cell))
+		g.reached["arms loop return"] = true
+	default:
+		b := last(kMaps)
+		if b == nil {
+			return
+		}
+		all, v, deny := b.val.copy().ms, 10+t%7, t%2 == 0
+		e := map[int]int{}
+		if len(all) > 0 {
+			e = maps.Clone(all[0])
+		}
+		got := dmModel(e) * 3
+		if deny {
+			if len(all) > 0 {
+				all[0][k] = v
+			}
+			got = dmModel(e)
+		} else {
+			all = append(all, map[int]int{k: v})
+			all[0][k] = v + 1
+		}
+		g.printInt(fmt.Sprintf("splitM(%s, %d, %d, %v)", b.name, k, v, deny), got*7+mval{ms: all}.digest(kMaps))
+		g.reached["arms move"] = true
+	}
+}
+
+// repeatStmt writes, every third call, a slices.Repeat of a literal and a
+// constant count (repeat.go, PA3's filled form), bound to a let mut that a
+// write changes, then printed; and Repeat of a binding (the call form). It
+// counts its calls instead of drawing, so the seeds keep their paths.
+func (g *valueGen) repeatStmt() {
+	if g.rturn++; g.rturn%3 != 0 {
+		return
+	}
+	t := g.rturn / 3
+	m, n, k := 1+t%3, t%5, t%9
+	lit, elts := make([]string, m), make([]int, m)
+	for i := range m {
+		elts[i] = k + i
+		lit[i] = strconv.Itoa(k + i)
+	}
+	r := g.fresh()
+	g.line(fmt.Sprintf("let mut %s = slices.Repeat([]int{%s}, %d)", r, strings.Join(lit, ", "), n))
+	want := slices.Repeat(elts, n)
+	if len(want) > 0 {
+		g.line(fmt.Sprintf("%s[%d] = 77", r, len(want)-1))
+		want[len(want)-1] = 77
+	} else {
+		g.line(fmt.Sprintf("%s = %s.Append(77)", r, r))
+		want = append(want, 77)
+	}
+	g.print(r, kSlice, mval{s: want}.digest(kSlice))
+	g.reached["repeat literal"] = true
+	for _, b := range g.binds {
+		if b.kind == kSlice {
+			g.printInt(fmt.Sprintf("ds(slices.Repeat(%s, %d))", b.name, n), dsModel(slices.Repeat(b.val.s, n)))
+			g.reached["repeat binding"] = true
+			break
+		}
 	}
 }
 
@@ -1228,6 +1543,37 @@ func (g *valueGen) keepSlice(b *vbind, v int) {
 	g.reached["keep flush"] = true
 }
 
+// takes writes a Take (PRIM-3) from each Map binding, after the drawn
+// statements, so it draws nothing and the seeds keep their paths: from a
+// let mut, the rest rebound to it, which takes the key in place; from a
+// let, the rest with the source live, which keeps the key. Each prints the
+// rest and the source as the model has them.
+func (g *valueGen) takes() {
+	for _, b := range g.binds {
+		if b.kind != kMap {
+			continue
+		}
+		key := 0 // no draw: the smallest key, or one m does not have
+		if len(b.val.m) > 0 {
+			key = slices.Min(slices.Collect(maps.Keys(b.val.m)))
+		}
+		rest := g.fresh()
+		g.line(fmt.Sprintf("let _, %s = %s.Take(%d)", rest, b.name, key))
+		out := maps.Clone(b.val.m)
+		delete(out, key)
+		if b.mut {
+			g.line(fmt.Sprintf("%s = %s", b.name, rest))
+			b.val.m = out
+			b.written = true
+			g.reached["take in place"] = true
+		} else {
+			g.reached["take live"] = true
+		}
+		g.line(fmt.Sprintf("Console.Println(\"\\(dm(%s)) \\(dm(%s))\")", rest, b.name))
+		fmt.Fprintf(&g.want, "%d %d\n", dmModel(out), dmModel(b.val.m))
+	}
+}
+
 // valueProgram writes the program of seed, shared or not, and the lines
 // it must print.
 func valueProgram(seed uint64, shared bool, reached map[string]bool) (src, want string) {
@@ -1246,6 +1592,7 @@ func valueProgram(seed uint64, shared bool, reached map[string]bool) (src, want 
 	for _, f := range g.pending {
 		f()
 	}
+	g.takes()
 	if shared {
 		g.line("let mut two = Two{A: []int{}, B: []int{1, 2, 3}}")
 		g.line("Console.Println(\"\\(crossS(&two))\")")
@@ -1410,7 +1757,7 @@ var valuePaths = []string{
 	"bind", "reassign", "source literal", "source binding", "source field", "source element", "source result", "source fresh result",
 	"source append live", "source delete live", "source put live", "source append element", "source update",
 	"argument", "pure", "closure", "task", "loop kept", "literal write",
-	"write map", "delete in place", "put in place", "write loop", "write slice", "append in place",
+	"write map", "delete in place", "take live", "take in place", "put in place", "write loop", "write slice", "append in place",
 	"write field map", "write field slice", "append field", "write element",
 	"own rebind", "own loop", "own capture", "own slice", "own field", "own live",
 	"update rebind", "update rebind option", "update field", "update live",
@@ -1418,6 +1765,7 @@ var valuePaths = []string{
 	"ref kept", "ref pure read", "ref owned helper", "ref arms", "ref in place", "ref read after the bind", "ref plain update", "ref plain modify",
 	"ref store outside", "ref print",
 	"move take", "move kept", "move other place", "move reslice", "move take borrow", "move reslice borrow", "move reslice root",
+	"move over a kept part", "arms loop", "arms subject", "arms condition", "arms loop return", "arms move", "repeat literal", "repeat binding",
 	"keep none", "keep written in call", "keep held", "keep flush", "keep fn operand", "keep frame write", "keep held impure", "keep stashed", "keep alone",
 	"hand rebind", "hand field", "hand loop", "hand second", "sort live", "sort dead", "hand dot", "hand dot loop",
 	"move take", "move kept", "move other place", "move reslice", "move take borrow", "move reslice borrow", "move reslice root",

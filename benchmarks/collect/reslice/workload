@@ -1,0 +1,9 @@
+# scripts/opcount: `collectbench bench reslice N` builds a fresh line of 80
+# elements per 64 elements, collects 64 of them and grows the result by
+# one (GP-RESLICE); the cost of one element is the slope between the two
+# sizes. The control copies the part into a slice made to size, as Go
+# must when it cannot prove the line dead.
+unit element
+sizes 409600 2457600
+args bench reslice {n}
+control benchmarks/collect/testdata/control

@@ -1,7 +1,7 @@
 // A generated session: the workload of the program at any length, drawn
 // from the Random in the context, so a seed replays it.
 
-import dash/feed
+import ergo.local/prototype/examples/dashgui/feed
 import strings
 
 // Generate is a script of n steps: runs of the clock, pauses and resumes,

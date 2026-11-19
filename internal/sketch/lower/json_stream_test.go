@@ -237,6 +237,30 @@ test JsonStreamFindsTagAnywhere(v up, cuts []int) {
 	assert tagAnywhere(v, cuts)
 }
 
+func skipKeepsPlace(vs []up, cuts []int) bool {
+	let mut text = "["
+	for v in vs {
+		text = text + json.Encode(json.Codec[up]{MaxBytes: 0, MaxDepth: 0}, v) + ","
+	}
+	let r = json.NewStream(chunks(text+"true]", cuts), 0, 0)
+	r.BeginList() catch {
+	case _:
+		return false
+	}
+	for _ in vs {
+		r.Skip()
+	}
+	let _ = r.Int() catch {
+	case WireWrongKind as w:
+		return w.Path == "[" + strconv.Itoa(len(vs)) + "]"
+	}
+	false
+}
+
+test JsonStreamSkipKeepsPlace(vs []up, cuts []int) {
+	assert skipKeepsPlace(vs, cuts)
+}
+
 
 // The laws of Elements: the elements of an array, read one at a time
 // through a Stream cut anywhere, are what json.Decode reads into a slice, and
@@ -517,6 +541,7 @@ var jsonStreamLawStatements = map[string]string{
 	"json StreamAgreesWithDecode":   `StreamAgreesWithDecode(d doc, space int, splice int, at int, cuts []int, depth int) { agreesSpliced(d, space, splice, at, cuts, depth) }`,
 	"json StreamFindsTagAnywhere":   `StreamFindsTagAnywhere(v up, cuts []int) { tagAnywhere(v, cuts) }`,
 	"json StreamRoundTrips":         `StreamRoundTrips(v fleet, cuts []int) { streamRoundTrips(v, cuts) }`,
+	"json StreamSkipKeepsPlace":     `StreamSkipKeepsPlace(vs []up, cuts []int) { skipKeepsPlace(vs, cuts) }`,
 	"json ValuesRoundTrip":          `ValuesRoundTrip(vs []up, seps []int, cuts []int) { valuesRoundTrip(vs, seps, cuts) }`,
 	"json ValuesStopAtBreak":        `ValuesStopAtBreak(vs []up, seps []int, cut int, cuts []int) { valuesStopAtBreak(vs, seps, cut, cuts) }`,
 }

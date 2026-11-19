@@ -54,15 +54,12 @@ func F(c bool) int8 { H(if c { 1 } else { 2 }) }`, ""},
 	n
 }`, ""},
 		{"void-tail-escapes", `func F(c bool) fails E { if c { G() } }`, ""},
-		// N and S run a function value: a pure call's dropped result is
-		// S110 (lint/plan.md M2).
-		{"void-discards-arm", `let one = func() int { 1 }
-func N() int { one() }
-let str = func() string { "s" }
-func S() string { str() }
+		{"void-discards-arm", `func N() int { if one { 1 } else { Unreachable("N") } }
+func S() string { if one { "s" } else { Unreachable("S") } }
+let one = true
 func F(c bool) { if c { N() } else { S() } }`, ""},
-		{"void-value-arm", `let one = func() int { 1 }
-func N() int { one() }
+		{"void-value-arm", `func N() int { if one { 1 } else { Unreachable("N") } }
+let one = true
 func F(c bool) { if c { 1 } else { N() } }`, "S110:8"},
 		{"catch-arm-if", `func F(c bool) int {
 	G() catch {

@@ -33,6 +33,22 @@ func a() Payment {
 func b() {
 	Limit = 3
 }`, 3, "the package-level let Limit is immutable", ""},
+	// GBX3's smallest repro: an element write to a Go package variable
+	// (os.Args) passed, as its root is a package name, and wrote Go's
+	// memory.
+	{"a Go package variable is read-only", `import go os
+func b() needs go.Foreign {
+	os.Args[0] = "x"
+}`, 3, "os.Args is another package's variable, read-only in Ergo", ""},
+	// GBX5b: go.New(v) gives Go a T whose slice an Ergo value may share.
+	{"go.New of a Go struct that holds a slice", `import go os
+func b(env []string) go.Ref[os.ProcAttr] needs go.Foreign {
+	go.New(os.ProcAttr{Dir: "", Env: env, Sys: None})
+}`, 3, "go.New(v) of os.ProcAttr: its field Env holds a slice or Map", ""},
+	{"go.Zero of a resource", `import go os
+func b() os.File {
+	go.Zero[os.File]()
+}`, 3, "go.Zero[os.File]: os.File is a resource", ""},
 	// An operation-type value and a value that satisfies it through its
 	// functions (196m) do not compare: the lowered == has no meaning
 	// (round-1 review m7; D-E2 keeps the general rule for stage E).
