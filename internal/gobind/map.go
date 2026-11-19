@@ -62,7 +62,11 @@ type Decl struct {
 	// (gofacts.Effects; np4f-plan GBX6), acting on its guard line: the
 	// binding writes no needs row and an `// ergo:effect none (vouched:
 	// <reason>)` line.
-	Effect  string
+	Effect string
+	// Total: every platform proves the function total, no call of it
+	// panics (Derive's totalFact, total.go): the binding's
+	// `// ergo:total` line (GOBIND-TOTAL).
+	Total   bool
 	Refused string
 	// Writes is the binder of the parameter that Go writes in place
 	// (v1.GoWrites; GBX2), or "". The Ergo signature returns that
