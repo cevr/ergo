@@ -654,6 +654,76 @@
       "rule": "crc32.Update carries the checksum crc over s.",
       "anchor": {"tests":["lower:TestStdMatchesGo"]},
       "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "sq5-indexany-is-index",
+      "origin": "wf10 SQ5 (NS lane)",
+      "file": "internal/sketch/std/strings/strings.ergo",
+      "from": "{ strings.IndexAny(s, chars) }",
+      "to": "{ strings.Index(s, chars) }",
+      "rule": "stdlib.md strings 6: IndexAny is the first rune of s that chars holds, not the first chars.",
+      "anchor": {"tests":["lower:TestStdTextRuns2"]},
+      "killers": ["lower:TestStdTextRuns2"]
+    },
+    {
+      "name": "sq5-lastindexany-is-first",
+      "origin": "wf10 SQ5 (NS lane)",
+      "file": "internal/sketch/std/strings/strings.ergo",
+      "from": "{ strings.LastIndexAny(s, chars) }",
+      "to": "{ strings.IndexAny(s, chars) }",
+      "rule": "stdlib.md strings 6: LastIndexAny is the last rune of s that chars holds.",
+      "anchor": {"tests":["lower:TestStdTextRuns2"]},
+      "killers": ["lower:TestStdTextRuns2"]
+    },
+    {
+      "name": "sq5-trimfunc-left",
+      "origin": "wf10 SQ5 (NS lane)",
+      "file": "internal/sketch/std/strings/strings.ergo",
+      "from": "{ strings.TrimFunc(s, cut) }",
+      "to": "{ strings.TrimLeftFunc(s, cut) }",
+      "rule": "stdlib.md strings 6: TrimFunc trims both ends, as Go's.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "sq5-fieldsfunc-is-fields",
+      "origin": "wf10 SQ5 (NS lane)",
+      "file": "internal/sketch/std/strings/strings.ergo",
+      "from": "{ strings.FieldsFunc(s, sep) }",
+      "to": "{ strings.Fields(s) }",
+      "rule": "stdlib.md strings 6: FieldsFunc splits at the runes sep accepts.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "sq5-isdigit-is-number",
+      "origin": "wf10 SQ5 (NS lane)",
+      "file": "internal/sketch/std/utf8/utf8.ergo",
+      "from": "{ unicode.IsDigit(r) }",
+      "to": "{ unicode.IsNumber(r) }",
+      "rule": "stdlib.md strings 8: IsDigit is class Nd, not every number.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "sq5-isletter-is-upper",
+      "origin": "wf10 SQ5 (NS lane)",
+      "file": "internal/sketch/std/utf8/utf8.ergo",
+      "from": "{ unicode.IsLetter(r) }",
+      "to": "{ unicode.IsUpper(r) }",
+      "rule": "stdlib.md strings 8: IsLetter is category L.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "sq5-isspace-ascii",
+      "origin": "wf10 SQ5 (NS lane)",
+      "file": "internal/sketch/std/utf8/utf8.ergo",
+      "from": "{ unicode.IsSpace(r) }",
+      "to": "{ r == ' ' || r == '\\t' || r == '\\n' || r == '\\v' || r == '\\f' || r == '\\r' }",
+      "rule": "stdlib.md strings 8: IsSpace is Go's unicode.IsSpace, U+0085, U+00A0 and class Z included.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
     }
   ]
 }
