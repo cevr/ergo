@@ -87,6 +87,19 @@ func lowerSourceWith(name, src string, entry bool, imp check.Importer) *lowered 
 }
 
 // mainGo is the lowered main.go.
+// goHelper is the Go name of the generated entity whose base name is base
+// for a subject of the root package or of none (pkgnames.go, rule 3): a
+// test that looks for a generated function by name spells it so.
+func goHelper(base string) string { return HelperSpelling("", base) }
+
+// goHelperOf is goHelper for a subject of the package at path, a package
+// other than the root.
+func goHelperOf(path, base string) string { return HelperSpelling(pkgAlias(path), base) }
+
+// goOf is the Go name of the declaration name of the package at path, a
+// package other than the root (pkgnames.go, rule 2).
+func goOf(path, name string) string { return pkgAlias(path) + "__" + name }
+
 func (o *lowered) mainGo() string {
 	for _, f := range o.files {
 		if f.Path == "main.go" {
