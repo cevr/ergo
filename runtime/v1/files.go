@@ -216,6 +216,11 @@ func (b Bodies) Body(name string) (Body, error) {
 	if err != nil {
 		return Body{}, errors.New(strings.Replace(err.Error(), "runtime/v1: ", "", 1))
 	}
+	if body.Wait == "" && b.Effects(name) == "" {
+		// An effect-free body waits on nothing (LAWFFI LF2m): it needs
+		// no mark to say so.
+		body.Wait = "none"
+	}
 	switch {
 	case body.Wait == "":
 		return Body{}, fmt.Errorf("%s states no %sKIND (%s)", name, WaitMark, kindList(WaitKinds))
@@ -291,7 +296,10 @@ func hostMember(path, member string) bool {
 // user's import go reaches trusts Go); net/url's ParseQuery reads the
 // process's GODEBUG urlmaxqueryparams, a setting fixed for the process as
 // every Go program has it, not state that changes between calls.
-var PureImports = []string{"strings", "strconv", "unicode", "unicode/utf8", "unicode/utf16", "slices", "sort", "math", "math/bits", "path/filepath", "encoding/hex", "encoding/base64", "crypto/sha256", "hash/crc32", "crypto/sha512", "crypto/sha1", "crypto/hmac", "net/url", "net/netip"}
+// simd/archsimd (Go's GOEXPERIMENT=simd vector types and operations, LAWFFI
+// LF2m r3) computes on values in registers and reaches no host state; unsafe
+// stays out.
+var PureImports = []string{"strings", "strconv", "unicode", "unicode/utf8", "unicode/utf16", "slices", "sort", "math", "math/bits", "path/filepath", "encoding/hex", "encoding/base64", "crypto/sha256", "hash/crc32", "crypto/sha512", "crypto/sha1", "crypto/hmac", "net/url", "net/netip", "simd/archsimd"}
 
 // PureImportsExcept names, for a package of PureImports, its members that
 // reach host state. A marked body that names one is refused. filepath.Abs

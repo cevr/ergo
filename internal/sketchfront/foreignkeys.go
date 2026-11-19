@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"ergo.local/prototype/internal/gobind"
 	"ergo.local/prototype/internal/sketch/lower"
 	"ergo.local/prototype/internal/toolchain"
 )
@@ -26,19 +27,25 @@ var goToolchain = toolchain.Version
 // fsys (the host's when nil).
 func foreignKeys(a Analysis, fsys FS) lower.ForeignKeys {
 	src := lower.ForeignKeySource{Toolchain: goToolchain}
+	var platform gobind.Platform
 	if a.program != nil {
-		src.Module = a.program.goModule
+		src.Module, platform = a.program.goModule, a.program.platform
 	}
 	if fsys == nil {
 		fsys = hostFS{}
 	}
-	src.ReadDir = func(dir string) []lower.GoSourceFile { return readGoDir(fsys, dir) }
+	experiments := goExperiments()
+	src.ReadDir = func(dir string) []lower.GoSourceFile { return readGoDir(fsys, dir, platform, experiments) }
 	return src.Keys()
 }
 
-// readGoDir is the Go and assembly files of the package in dir, its tests
-// excluded; nil when dir cannot be read.
-func readGoDir(fsys FS, dir string) []lower.GoSourceFile {
+// readGoDir is the Go and assembly files of the package in dir that go
+// build compiles for platform and experiments (goBuilds), its tests
+// excluded; nil when dir cannot be read. A function's body is the one the
+// build compiles, so its key is too (U1 SIMD-SCAN): a law that reaches a
+// vector kernel in a GOEXPERIMENT=simd build has another key than the same
+// law over the stock twin, and neither verdict answers for the other.
+func readGoDir(fsys FS, dir string, platform gobind.Platform, experiments []string) []lower.GoSourceFile {
 	entries, err := fsys.ReadDir(filepath.FromSlash(dir))
 	if err != nil {
 		return nil
@@ -52,6 +59,9 @@ func readGoDir(fsys FS, dir string) []lower.GoSourceFile {
 		data, err := fsys.ReadFile(filepath.Join(filepath.FromSlash(dir), n))
 		if err != nil {
 			return nil
+		}
+		if !goBuilds(platform, experiments, n, data) {
+			continue // go build leaves the file out for this target
 		}
 		out = append(out, lower.GoSourceFile{Name: n, Data: data})
 	}

@@ -56,6 +56,7 @@ fact go regexp.Regexp.FindStringSubmatch fresh result validated by guard with go
 fact go regexp.Regexp.ReplaceAllFunc sync callbacks validated by guard with go1.27.4 h1:+1SnFQ5K9/RCKQ6vFX39bXV0c1m7uBYRV1uTx55T+Tw=
 fact go regexp.Regexp.ReplaceAllStringFunc sync callbacks validated by guard with go1.27.4 h1:/F5F7/7RbfxcBSd3csidiDPYMCWy2mPNV6m7RHJIJ/0=
 fact go regexp.Regexp.Split fresh result validated by guard with go1.27.4 h1:9CFg3jtV9jmBQh0qhu9NCSVm8xbmWSe1ATSZq9kuAiQ=
+fact go simd/archsimd pure members validated by guard with go1.27.4 h1:M5L7Mc1bxujCnkeWpNnY9q0hpfAFuuqrVtwNEMZmfO8=
 fact go slices pure members validated by guard with go1.27.4 h1:Fd/dtnQ99et7SDYk7lMpP4F3TkVf8oYZCu3TE1BxwZE=
 fact go slices.BinarySearchFunc sync callbacks validated by guard with go1.27.4 h1:f+qU9K7dOHJHApJMphx0YRbHYITcjg+Gzjrg59Cp4Nw=
 fact go slices.CompactFunc sync callbacks validated by guard with go1.27.4 h1:+pUpl7e9gfvvNMMO1upnlH6I5R7Fj8AHtLgnSBuXgBY=
