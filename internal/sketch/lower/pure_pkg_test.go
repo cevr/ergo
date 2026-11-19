@@ -6,10 +6,11 @@ import (
 )
 
 // The packages of TestPurityAcrossPackages, a chain main → a → b → c. In
-// c, Double is pure and Leaf is not (its row fails Bad). b.Twice calls
+// c, Double is pure and Leaf is not (its row fails Bad), but Leaf reads
+// no environment, so it is env-free (pure.go, isEnvFree). b.Twice calls
 // c.Double and b.Mid catches c.Leaf: no row, an empty footprint, so only
-// the callee's own purity decides. a.Quad and a.Top call those, so the
-// fact crosses three packages. a.Say needs Console.
+// the callee's own facts decide. a.Quad and a.Top call those, so the
+// facts cross three packages. a.Say needs Console.
 const (
 	purePkgC = `type Bad {}
 
@@ -69,9 +70,10 @@ func main() needs Console {
 
 // TestPurityAcrossPackages (batch-9 C3): a function is pure by its own
 // package's facts wherever it is declared. A caller of a std function with
-// an Ergo body (strings.Cut) and of a pure function of an imported user
-// package lowers with no environment, and so does that callee; a caller of
-// an impure one, at any depth of the import chain, keeps the environment.
+// an Ergo body (strings.Cut) and of a pure or env-free function of an
+// imported user package lowers with no environment, and so does that
+// callee, at any depth of the import chain; a caller of one that reads the
+// environment keeps it.
 // The program prints the same either way.
 //
 // It builds Go because it checks what the built program prints and how it
@@ -89,8 +91,8 @@ func TestPurityAcrossPackages(t *testing.T) {
 	code := o.mainGo()
 	checkEnvParams(t, pureModel{
 		name:   "purepkg",
-		pure:   []string{"halves", "Cut", "quad", "Quad", "Twice", "Double"},
-		impure: []string{"top", "Top", "Mid", "Leaf", "say", "Say", "main"},
+		pure:   []string{"halves", "Cut", "quad", "Quad", "Twice", "Double", "top", "Top", "Mid", "Leaf"},
+		impure: []string{"say", "Say", "main"},
 	}, code)
 	if t.Failed() {
 		t.Logf("emitted Go:\n%s", code)

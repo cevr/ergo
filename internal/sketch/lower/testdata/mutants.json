@@ -2,6 +2,9 @@
   "about": "The mutant ledger of internal/sketch/lower: edits of the package's source that some test, law or example must kill. Run it with go run ./scripts/mutants lower; docs/tooling.md, \"Mutant ledger\", says when a change must run it and how to add a mutant. Seeded from the test-speed plan (wf10, 2026-11-08) and the units' verify mutants.",
   "mutants": [
 
+    {"name":"env-free-fallible-keeps-env","origin":"wf10 ENV-FREE-FALLIBLE","file":"internal/sketch/lower/pure.go","from":"\tif !fails && len(rowElems(s.Errors)) > 0 || len(rowElems(s.Uses)) > 0 {","to":"\tif len(rowElems(s.Errors)) > 0 || len(rowElems(s.Uses)) > 0 {","rule":"isEnvFree: a failing body that reads no environment takes none; whether a function fails decides nothing.","killers":["internal/sketch/lower:TestEnvParamFollowsReads"]},
+    {"name":"env-free-callee-read-dropped","origin":"wf10 ENV-FREE-FALLIBLE","file":"internal/sketch/lower/pure.go","from":"\t\tmemo[g] = false\n\t\timpure = append(impure, callers[g]...)","to":"\t\tmemo[g] = false\n\t\tif !fails {\n\t\t\timpure = append(impure, callers[g]...)\n\t\t}","rule":"isEnvFree: a function that reads the environment through a callee keeps its environment parameter.","killers":["internal/sketch/lower:TestEnvParamFollowsReads"]},
+    {"name":"env-free-reference-ignored","origin":"wf10 ENV-FREE-FALLIBLE","file":"internal/sketch/lower/pure.go","from":"\tif envParamLowering == \"pure\" {\n\t\treturn l.isPure(f)","to":"\tif false {\n\t\treturn l.isPure(f)","rule":"envParamLowering \"pure\" is the reference: only a pure function takes no environment.","killers":["internal/sketch/lower:TestEnvParamFollowsReads"]},
     {"name":"unfold-test-build","origin":"wf10 ENCDEC","file":"internal/sketch/lower/ir_unfold.go","from":"\tif r == nil || r.test || r.every > 0 {","to":"\tif r == nil || r.every > 0 {","rule":"The test build keeps a fallible law's site as written.","killers":["internal/sketch/lower:TestUnfoldAtSites"]},
     {"name":"unfold-off-ignored","origin":"wf10 ENCDEC","file":"internal/sketch/lower/ir_unfold.go","from":"\t\tv, why := b.rwDecide(m)\n","to":"\t\tv, _ := b.rwDecide(m)\n\t\twhy := \"\"\n","rule":"A fallible law's site takes the run build's decision (-rewrites, the ledger).","killers":["internal/sketch/lower:TestUnfoldAtSites"]},
     {"name":"unfold-catch-unseen","origin":"wf10 ENCDEC","file":"internal/sketch/lower/ir_fail.go","from":"\tif upre, val, ok := b.unfoldAt(call); ok {","to":"\tif upre, val, ok := b.unfoldAt(call); ok && false {","rule":"A catch's fallible call is a site of a fallible law.","killers":["internal/sketch/lower:TestUnfoldAtSites"]},
@@ -799,8 +802,8 @@
       "name": "existing-27-pure-too-wide",
       "origin": "lower-v1/verify-s5abc/mutants.json",
       "file": "internal/sketch/lower/pure.go",
-      "from": "s := f.Sig\n\tif len(rowElems(s.Errors)) > 0 || len(rowElems(s.Uses)) > 0 {",
-      "to": "s := f.Sig\n\tif len(rowElems(s.Errors)) > 0 {",
+      "from": "s := f.Sig\n\tif !fails && len(rowElems(s.Errors)) > 0 || len(rowElems(s.Uses)) > 0 {",
+      "to": "s := f.Sig\n\tif !fails && len(rowElems(s.Errors)) > 0 {",
       "rule": "pureCandidate: pureCandidate reports whether f meets every rule of a pure function but the last's fixed point, with the Ergo-bodied functions its body calls, of any package; info is f's own package's Info.",
       "killers": [],
       "gap": "Equivalent in behaviour: a function whose needs row its body does not use has an empty footprint (the prelude's NewLiveScheduler, needs Ambient), so as a pure function it takes no Env and its output, failures and defects are the same (measured on the std-laws program, wf10 OPT4a r2; survived in the 16d merge, m7b.log). Its only killer was the golden of TestStdLawsAddNoGo, which pinned the Go text; the text is no promise (AGENTS.md Tests)."
@@ -809,8 +812,8 @@
       "name": "existing-28-pure-too-wide",
       "origin": "lower-v1/receipts/s5/mutants-s5c.json",
       "file": "internal/sketch/lower/pure.go",
-      "from": "\ts := f.Sig\n\tif len(rowElems(s.Errors)) > 0 || len(rowElems(s.Uses)) > 0 {",
-      "to": "\ts := f.Sig\n\tif len(rowElems(s.Uses)) > 0 && len(rowElems(s.Errors)) == 0 {\n\t\treturn nil, true\n\t}\n\tif len(rowElems(s.Errors)) > 0 || len(rowElems(s.Uses)) > 0 {",
+      "from": "\ts := f.Sig\n\tif !fails && len(rowElems(s.Errors)) > 0 || len(rowElems(s.Uses)) > 0 {",
+      "to": "\ts := f.Sig\n\tif len(rowElems(s.Uses)) > 0 && len(rowElems(s.Errors)) == 0 {\n\t\treturn nil, true\n\t}\n\tif !fails && len(rowElems(s.Errors)) > 0 || len(rowElems(s.Uses)) > 0 {",
       "rule": "pureCandidate: pureCandidate reports whether f meets every rule of a pure function but the last's fixed point, with the Ergo-bodied functions its body calls, of any package; info is f's own package's Info.",
       "killers": [
         "lower:TestStdLawsAddNoGo",
@@ -1529,8 +1532,8 @@
       "name": "t0-pure-ignores-capability-row",
       "origin": "wf10 T0 ts-mutant-ledger (rule of lower pure_test.go TestPureFunctionsTakeNoEnv)",
       "file": "internal/sketch/lower/pure.go",
-      "from": "\tif len(rowElems(s.Errors)) > 0 || len(rowElems(s.Uses)) > 0 {",
-      "to": "\tif len(rowElems(s.Errors)) > 0 {",
+      "from": "\tif !fails && len(rowElems(s.Errors)) > 0 || len(rowElems(s.Uses)) > 0 {",
+      "to": "\tif !fails && len(rowElems(s.Errors)) > 0 {",
       "rule": "pureCandidate: a function with a capability row is not pure and keeps its environment (spec D5; pure_test.go TestPureFunctionsTakeNoEnv, the needs variant)",
       "killers": [],
       "gap": "Equivalent in behaviour: a function whose needs row its body does not use has an empty footprint (the prelude's NewLiveScheduler, needs Ambient), so as a pure function it takes no Env and its output, failures and defects are the same (measured on the std-laws program, wf10 OPT4a r2; survived in the 16d merge, m7b.log). Its only killer was the golden of TestStdLawsAddNoGo, which pinned the Go text; the text is no promise (AGENTS.md Tests)."
