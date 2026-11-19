@@ -867,6 +867,13 @@
       "killers": [
         "internal/sketchfront:TestStdSnapshotIsCurrent"
       ]
-    }
+    },
+    {"name":"sq1-sin-is-cos","origin":"wf10 SQ1 (NS lane)","file":"internal/sketch/std/math/math.ergo","from":"func Sin(x float64) float64 { math.Sin(x) }","to":"func Sin(x float64) float64 { math.Cos(x) }","rule":"stdlib.md math 6: Sin is Go's math.Sin.","anchor":{"tests":["internal/sketch/stdlib:TestStdMathTrigLaws"]},"killers":["internal/sketch/stdlib:TestStdMathTrigLaws"]},
+    {"name":"sq1-atan2-swapped","origin":"wf10 SQ1 (NS lane)","file":"internal/sketch/std/math/math.ergo","from":"{ math.Atan2(y, x) }","to":"{ math.Atan2(x, y) }","rule":"stdlib.md math 6: Atan2 takes y, then x, as Go's.","anchor":{"tests":["internal/sketch/stdlib:TestStdMathTrigLaws"]},"killers":["internal/sketch/stdlib:TestStdMathTrigLaws"]},
+    {"name":"sq1-hypot-one-side","origin":"wf10 SQ1 (NS lane)","file":"internal/sketch/std/math/math.ergo","from":"{ math.Hypot(p, q) }","to":"{ math.Hypot(p, p) }","rule":"stdlib.md math 6: Hypot reads both sides.","anchor":{"tests":["internal/sketch/stdlib:TestStdMathTrigLaws"]},"killers":["internal/sketch/stdlib:TestStdMathTrigLaws"]},
+    {"name":"sq1-cbrt-is-sqrt","origin":"wf10 SQ1 (NS lane)","file":"internal/sketch/std/math/math.ergo","from":"func Cbrt(x float64) float64 { math.Cbrt(x) }","to":"func Cbrt(x float64) float64 { math.Sqrt(x) }","rule":"stdlib.md math 6: Cbrt is the cube root.","anchor":{"tests":["internal/sketch/stdlib:TestStdMathTrigLaws"]},"killers":["internal/sketch/stdlib:TestStdMathTrigLaws"]},
+    {"name":"sq1-log2-is-log","origin":"wf10 SQ1 (NS lane)","file":"internal/sketch/std/math/math.ergo","from":"func Log2(x float64) float64 { math.Log2(x) }","to":"func Log2(x float64) float64 { math.Log(x) }","rule":"stdlib.md math 6: Log2 is the binary logarithm.","anchor":{"tests":["internal/sketch/stdlib:TestStdMathTrigLaws"]},"killers":["internal/sketch/stdlib:TestStdMathTrigLaws"]},
+    {"name":"sq1-log10-is-log2","origin":"wf10 SQ1 (NS lane)","file":"internal/sketch/std/math/math.ergo","from":"func Log10(x float64) float64 { math.Log10(x) }","to":"func Log10(x float64) float64 { math.Log2(x) }","rule":"stdlib.md math 6: Log10 is Go's math.Log10 (MathIsGo; no law observes the base).","anchor":{"tests":["lower:TestStdMatchesGo"]},"killers":["lower:TestStdMatchesGo"]},
+    {"name":"sq1-acos-is-asin","origin":"wf10 SQ1 (NS lane)","file":"internal/sketch/std/math/math.ergo","from":"func Acos(x float64) float64 { math.Acos(x) }","to":"func Acos(x float64) float64 { math.Asin(x) }","rule":"stdlib.md math 6: Acos is Go's math.Acos, in [0, Pi].","anchor":{"tests":["internal/sketch/stdlib:TestStdMathTrigLaws"]},"killers":["internal/sketch/stdlib:TestStdMathTrigLaws"]}
   ]
 }

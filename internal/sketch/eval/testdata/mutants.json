@@ -2089,6 +2089,8 @@
       "rule": "The evaluator runs the operation s.Bytes(), so check-time evaluation of std's digests (sha256.Sum) agrees with the build.",
       "anchor": {"tests":["internal/sketch/eval:TestEvalAgreesWithLowering"]},
       "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
-    }
+    },
+    {"name":"sq1-eval-cbrt-is-sqrt","origin":"wf10 SQ1 (NS lane)","file":"internal/sketch/eval/nativesgo.go","from":"\"Cbrt\": math.Cbrt,","to":"\"Cbrt\": math.Sqrt,","rule":"ORACLE O20: check-time evaluation calls the same Go function a build does (eval's natives).","killers":["internal/sketch/stdlib:TestStdMathTrigLaws"]},
+    {"name":"sq1-eval-go-natives-unloaded","origin":"wf10 SQ1 (NS lane)","file":"internal/sketch/eval/nativesgo.go","from":"\tloadNatives()\n\tpath, name := fn.Decl.Extern.Split()","to":"\tpath, name := fn.Decl.Extern.Split()","rule":"ORACLE O20: a program whose first call is to an import go function runs it as eval's native, not skipped.","killers":["internal/sketch/stdlib:TestStdMathTrigLaws"]}
   ]
 }
