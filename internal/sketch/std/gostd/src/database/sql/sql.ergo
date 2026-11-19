@@ -80,7 +80,7 @@ extern go database/sql.DB.Close func (db own *DB) Close() fails go.Error needs g
 
 // ergo:go func (*DB).Conn(ctx context.Context) (*Conn, error)
 // ergo:context
-extern go database/sql.DB.Conn func (db *DB) Conn() go.Ref[Conn] fails go.Error needs go.Foreign
+extern go database/sql.DB.Conn func (db *DB) Conn() Option[go.Ref[Conn]] fails go.Error needs go.Foreign
 
 // ergo:go func (*DB).Driver() driver.Driver
 extern go database/sql.DB.Driver func (db *DB) Driver() driver.Driver needs go.Foreign
