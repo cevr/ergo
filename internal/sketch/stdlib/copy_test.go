@@ -270,10 +270,9 @@ func readStdCopy(t *testing.T) map[string]stdCopyRow {
 // when the rule landed. A package may leave; none may join, except once:
 // bench, dense, lint, ui and ui/layout joined with the batch-19/20
 // integration, units developed beside the rule (flat-union-std,
-// join-under-directive; lint is LINT4's); semver (SQ4) joined for
-// flat-union-std, its comparator Op being a union.
+// join-under-directive; lint is LINT4's).
 var stdCopyBaseline = []string{
-	"bench", "dense", "lint", "ui", "ui/layout", "semver",
+	"bench", "dense", "lint", "ui", "ui/layout",
 	"actor", "arena", "atomic", "base64", "bits", "cmp", "codec", "config",
 	"crc32", "csv", "embed", "exec", "explore", "filepath", "flag", "fs",
 	"fstest", "hex", "http", "io", "journal", "journal/memory", "json",
