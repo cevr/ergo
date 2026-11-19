@@ -124,7 +124,7 @@ var agreeApps = []string{"counter", "shelf", "form", "load", "lock"}
 // three bytes (a wide one too), so Backspace must take a rune, not a byte.
 var words = []string{"", "a", "bob", "é", "日本", "zé日"}
 
-func pick(r *rand.Rand, s ...string) string { return s[r.IntN(len(s))] }
+func pick[T any](r *rand.Rand, s ...T) T { return s[r.IntN(len(s))] }
 
 // genScript is the hostagree input of one seed: the app, then 4 to 19
 // steps its labels make meaningful, a few that name no node, and focus

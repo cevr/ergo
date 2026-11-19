@@ -39,6 +39,48 @@ extern go ergo.local/prototype/hosts/opentui/screen.Down let Down int
 // ergo:go const Drag int
 extern go ergo.local/prototype/hosts/opentui/screen.Drag let Drag int
 
+// ergo:go const EditAt untyped int
+extern go ergo.local/prototype/hosts/opentui/screen.EditAt let EditAt int
+
+// ergo:go const EditBackspace untyped int
+extern go ergo.local/prototype/hosts/opentui/screen.EditBackspace let EditBackspace int
+
+// ergo:go const EditDelete untyped int
+extern go ergo.local/prototype/hosts/opentui/screen.EditDelete let EditDelete int
+
+// ergo:go const EditEnd untyped int
+extern go ergo.local/prototype/hosts/opentui/screen.EditEnd let EditEnd int
+
+// ergo:go const EditHome untyped int
+extern go ergo.local/prototype/hosts/opentui/screen.EditHome let EditHome int
+
+// ergo:go const EditInsert untyped int
+extern go ergo.local/prototype/hosts/opentui/screen.EditInsert let EditInsert int
+
+// ergo:go const EditKillEnd untyped int
+extern go ergo.local/prototype/hosts/opentui/screen.EditKillEnd let EditKillEnd int
+
+// ergo:go const EditKillStart untyped int
+extern go ergo.local/prototype/hosts/opentui/screen.EditKillStart let EditKillStart int
+
+// ergo:go const EditLeft untyped int
+extern go ergo.local/prototype/hosts/opentui/screen.EditLeft let EditLeft int
+
+// ergo:go const EditRight untyped int
+extern go ergo.local/prototype/hosts/opentui/screen.EditRight let EditRight int
+
+// ergo:go const EditWordBack untyped int
+extern go ergo.local/prototype/hosts/opentui/screen.EditWordBack let EditWordBack int
+
+// ergo:go const EditWordLeft untyped int
+extern go ergo.local/prototype/hosts/opentui/screen.EditWordLeft let EditWordLeft int
+
+// ergo:go const EditWordRight untyped int
+extern go ergo.local/prototype/hosts/opentui/screen.EditWordRight let EditWordRight int
+
+// ergo:go const Editor untyped int
+extern go ergo.local/prototype/hosts/opentui/screen.Editor let Editor int
+
 // ergo:go var ErrClosed error
 extern go ergo.local/prototype/hosts/opentui/screen.ErrClosed let ErrClosed go.Error
 
@@ -130,6 +172,9 @@ extern go ergo.local/prototype/hosts/opentui/screen.Screen.Bytes func (s *Screen
 // ergo:go func (*Screen).Calls() int64
 extern go ergo.local/prototype/hosts/opentui/screen.Screen.Calls func (s *Screen) Calls() int64 needs go.Foreign
 
+// ergo:go func (*Screen).Caret(n int) int
+extern go ergo.local/prototype/hosts/opentui/screen.Screen.Caret func (s *Screen) Caret(n int) int needs go.Foreign
+
 // ergo:go func (*Screen).Cell(x int, y int) Cell
 extern go ergo.local/prototype/hosts/opentui/screen.Screen.Cell func (s *Screen) Cell(x int, y int) Cell needs go.Foreign
 
@@ -142,8 +187,14 @@ extern go ergo.local/prototype/hosts/opentui/screen.Screen.Count func (s *Screen
 // ergo:go func (*Screen).Create(n int, kind int)
 extern go ergo.local/prototype/hosts/opentui/screen.Screen.Create func (s *Screen) Create(n int, kind int) needs go.Foreign
 
+// ergo:go func (*Screen).Cursor() Spot
+extern go ergo.local/prototype/hosts/opentui/screen.Screen.Cursor func (s *Screen) Cursor() Spot needs go.Foreign
+
 // ergo:go func (*Screen).Destroy(n int)
 extern go ergo.local/prototype/hosts/opentui/screen.Screen.Destroy func (s *Screen) Destroy(n int) needs go.Foreign
+
+// ergo:go func (*Screen).Edit(n int, op int, col int, text string) (string, error)
+extern go ergo.local/prototype/hosts/opentui/screen.Screen.Edit func (s *Screen) Edit(n int, op int, col int, text string) string fails go.Error needs go.Foreign
 
 // ergo:go func (*Screen).EndInput()
 extern go ergo.local/prototype/hosts/opentui/screen.Screen.EndInput func (s *Screen) EndInput() needs go.Foreign
@@ -188,6 +239,9 @@ extern go ergo.local/prototype/hosts/opentui/screen.Screen.Rows func (s *Screen)
 // ergo:go func (*Screen).SetLook(n int, fg uint32, bg uint32, attr int)
 extern go ergo.local/prototype/hosts/opentui/screen.Screen.SetLook func (s *Screen) SetLook(n int, fg uint32, bg uint32, attr int) needs go.Foreign
 
+// ergo:go func (*Screen).SetPlaceholder(n int, text string)
+extern go ergo.local/prototype/hosts/opentui/screen.Screen.SetPlaceholder func (s *Screen) SetPlaceholder(n int, text string) needs go.Foreign
+
 // ergo:go func (*Screen).SetStyle(n int, prop int, edge int, value float64)
 extern go ergo.local/prototype/hosts/opentui/screen.Screen.SetStyle func (s *Screen) SetStyle(n int, prop int, edge int, value float64) needs go.Foreign
 
@@ -217,6 +271,13 @@ extern go ergo.local/prototype/hosts/opentui/screen.Scroller let Scroller int
 
 // ergo:go const Shrink untyped int
 extern go ergo.local/prototype/hosts/opentui/screen.Shrink let Shrink int
+
+// ergo:go type Spot struct
+extern go ergo.local/prototype/hosts/opentui/screen.Spot type Spot {
+	X     int,
+	Y     int,
+	Shown bool,
+}
 
 // ergo:go const Text untyped int
 extern go ergo.local/prototype/hosts/opentui/screen.Text let Text int

@@ -145,6 +145,7 @@ const (
 	opStyle
 	opLook
 	opFocus
+	opPlaceholder
 )
 
 // Screen is a terminal, or a headless renderer of a fixed size.
@@ -159,6 +160,7 @@ type Screen struct {
 	kinds    map[int]int
 	parent   map[int]int
 	children map[int][]int
+	edits    map[int]editor
 	focus    int
 	out      io.Writer
 	chunk    []byte
@@ -193,7 +195,7 @@ func newScreen(cols, rows int, out io.Writer) (*Screen, error) {
 	}
 	s := &Screen{
 		owner: ot.NewOwner(), nodes: map[int]ot.Handle{}, kinds: map[int]int{}, parent: map[int]int{},
-		children: map[int][]int{}, focus: -1, out: out, chunk: make([]byte, 64<<10),
+		children: map[int][]int{}, edits: map[int]editor{}, focus: -1, out: out, chunk: make([]byte, 64<<10),
 		records: make([]ot.InputEvent, 256), payload: make([]byte, 64<<10), start: time.Now(),
 		wake: make(chan struct{}, 1), cols: cols, rows: rows, inputClock: 1,
 	}
@@ -242,7 +244,7 @@ func (s *Screen) record(c command) {
 	s.mu.Unlock()
 }
 
-// Create adds a node of kind (Box or Text) numbered n (n >= 1), not yet in
+// Create adds a node of kind (Box, Text, Scroller or Editor) numbered n (n >= 1), not yet in
 // the tree.
 func (s *Screen) Create(n, kind int) { s.record(command{op: opCreate, node: n, kind: kind}) }
 
@@ -303,8 +305,11 @@ func color(c uint32) [4]uint16 {
 func (s *Screen) apply(c command) error {
 	if c.op == opCreate {
 		kind := ot.OT_SCENE_BOX
-		if c.kind == Text {
+		switch c.kind {
+		case Text:
 			kind = ot.OT_SCENE_TEXT
+		case Editor:
+			kind = ot.OT_SCENE_EDITOR
 		}
 		if _, ok := s.nodes[c.node]; ok || c.node < 1 {
 			return fmt.Errorf("screen: Create %d: the number is taken or not positive", c.node)
@@ -322,6 +327,9 @@ func (s *Screen) apply(c command) error {
 			if err := ot.SceneSetScroll(s.ctx, h, ot.SceneScrollOptions{Axes: ot.OT_SCENE_SCROLL_Y, Bars: [2]ot.SceneScrollBarOptions{{Policy: ot.OT_SCENE_SCROLL_BAR_NEVER, Thickness: 1}, bar}}); err != nil {
 				return fmt.Errorf("screen: Create %d: scroll: %w", c.node, err)
 			}
+		}
+		if c.kind == Editor {
+			return s.newEditor(c.node, h)
 		}
 		if c.kind == Text {
 			s.calls++
@@ -375,13 +383,24 @@ func (s *Screen) apply(c command) error {
 		s.unlink(c.node)
 		return s.destroy(c.node)
 	case opText:
+		if e, ok := s.edits[c.node]; ok {
+			if err := s.replace(e, c.text); err != nil {
+				return fmt.Errorf("screen: SetText %d: %w", c.node, err)
+			}
+			return nil
+		}
 		s.calls++
 		if err := ot.SceneSetText(s.ctx, h, []byte(c.text)); err != nil {
 			return fmt.Errorf("screen: SetText %d: %w", c.node, err)
 		}
 	case opStyle:
 		return s.style(c, h)
+	case opPlaceholder:
+		return s.placeholder(c.node, c.text)
 	case opLook:
+		if s.kinds[c.node] == Editor {
+			return s.editorLook(c.node, c.fg, c.bg, c.attr)
+		}
 		s.calls++
 		if s.kinds[c.node] == Text {
 			return ot.SceneSetTextOptions(s.ctx, h, ot.SceneTextOptions{
@@ -433,7 +452,7 @@ func (s *Screen) destroy(n int) error {
 	if err := ot.SceneDestroyNode(s.ctx, h); err != nil {
 		return fmt.Errorf("screen: Destroy %d: %w", n, err)
 	}
-	return nil
+	return s.dropEditor(n)
 }
 
 // placement is the OpenTUI value of a placement: 0 start, 1 centre, 2

@@ -31,8 +31,8 @@ func agree[E comparable, S](m Machine[S, E, int], view own func(f *ui.Frame[E], 
 	case ui.BadPatch as b:
 		Console.Println("differ 0: driver: \(b.Why)")
 		return
-	case go.Error as e:
-		Console.Println("differ 0: driver: \(e.Text)")
+	case tui.ScreenFailed as e:
+		Console.Println("differ 0: driver: \(e.Why)")
 		return
 	}
 	match compare(&h, &d, s, same) {
@@ -173,16 +173,19 @@ func run[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *tui.Driver[S, E, 
 	case "key":
 		let act = ui.KeyIn{Press: ui.KeyPress{Name: rest, Mods: ui.Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}}
 		// A character typed with a field focused goes into the field on the
-		// terminal; TestHost, which has no focus, types it there too.
+		// terminal, at its caret (here moved to the end with Ctrl+E first:
+		// TestFieldFollowsTheLineEditor holds the caret); TestHost, which
+		// has no focus, appends it there too.
 		match (tui.FocusId(d), tui.FocusNode(d)) {
 		case (Some[ui.Id[E]] as id, Some[ui.Node[E]] as n):
 			match n.Value {
 			case ui.InputNode as x:
 				if utf8.RuneCount(rest) == 1 && rest != " " {
-					let b = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | go.Error needs go.Foreign {
+					let b = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
+						try tui.Send(d, "\x05")
 						try tui.Play(d, []ui.Act{act})
 					})
-					let a = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | go.Error needs go.Foreign {
+					let a = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
 						try ui.TypeText(h, id.Value, x.Value+rest)
 					})
 					return (a, b)
@@ -211,16 +214,16 @@ func atoi(s string) int {
 
 // both plays one act on each host.
 func both[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *tui.Driver[S, E, D, F], act ui.Act) (result, result) needs go.Foreign {
-	let a = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | go.Error needs go.Foreign {
+	let a = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
 		try ui.Play(h, []ui.Act{act})
 	})
-	let b = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | go.Error needs go.Foreign {
+	let b = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
 		try tui.Play(d, []ui.Act{act})
 	})
 	(a, b)
 }
 
-func played(f func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | go.Error needs go.Foreign) result needs go.Foreign {
+func played(f func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign) result needs go.Foreign {
 	f() catch {
 	case ui.NoNode as n:
 		return Missing{Label: n.Label}
@@ -232,8 +235,8 @@ func played(f func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed |
 		return Broke{Why: b.Why}
 	case ui.Closed:
 		return Broke{Why: "closed"}
-	case go.Error as e:
-		return Broke{Why: e.Text}
+	case tui.ScreenFailed as e:
+		return Broke{Why: e.Why}
 	}
 	Done
 }
@@ -294,7 +297,7 @@ func focusPress[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *tui.Driver
 	for _ in 0..k {
 		keys = keys + "\t"
 	}
-	let b = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | go.Error needs go.Foreign {
+	let b = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
 		try tui.Send(d, keys)
 	})
 	// The order is TestHost's tree's, not the driver's.
@@ -316,18 +319,18 @@ func focusPress[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *tui.Driver
 	case (Some[ui.Id[E]] as id, Some[ui.Node[E]] as n):
 		match n.Value {
 		case ui.InputNode as x:
-			let b2 = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | go.Error needs go.Foreign {
+			let b2 = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
 				try tui.Send(d, "z")
 			})
-			let a = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | go.Error needs go.Foreign {
+			let a = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
 				try ui.TypeText(h, id.Value, x.Value+"z")
 			})
 			return (a, b2)
 		case _:
-			let b2 = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | go.Error needs go.Foreign {
+			let b2 = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
 				try tui.Send(d, "\r")
 			})
-			let a = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | go.Error needs go.Foreign {
+			let a = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
 				try ui.Tap(h, id.Value)
 			})
 			return (a, b2)

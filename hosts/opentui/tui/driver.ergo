@@ -66,12 +66,12 @@ type look { fg uint32, bg uint32, attr int }
 
 // New shows view of a's state on s with the default options. room is how
 // many fetch results may wait for the driver to take them.
-func New[E comparable, S, D, F](s go.Ref[screen.Screen], a actor.Actor[S, E, D, F], view own func(f *ui.Frame[E], st S), room int) Driver[S, E, D, F] fails ui.BadPatch | go.Error needs go.Foreign {
+func New[E comparable, S, D, F](s go.Ref[screen.Screen], a actor.Actor[S, E, D, F], view own func(f *ui.Frame[E], st S), room int) Driver[S, E, D, F] fails ui.BadPatch | ScreenFailed needs go.Foreign {
 	try NewWith(s, a, view, room, DefaultOptions())
 }
 
 // NewWith is New with the host's options.
-func NewWith[E comparable, S, D, F](s go.Ref[screen.Screen], a actor.Actor[S, E, D, F], view own func(f *ui.Frame[E], st S), room int, o Options) Driver[S, E, D, F] fails ui.BadPatch | go.Error needs go.Foreign {
+func NewWith[E comparable, S, D, F](s go.Ref[screen.Screen], a actor.Actor[S, E, D, F], view own func(f *ui.Frame[E], st S), room int, o Options) Driver[S, E, D, F] fails ui.BadPatch | ScreenFailed needs go.Foreign {
 	let posted = queue.New[ui.Event[E]](room)
 	try start(s, a, view, posted, o, func(ev ui.Event[E]) {
 		posted.Push(ev) catch {
@@ -81,7 +81,7 @@ func NewWith[E comparable, S, D, F](s go.Ref[screen.Screen], a actor.Actor[S, E,
 	})
 }
 
-func start[E comparable, S, D, F](s go.Ref[screen.Screen], a actor.Actor[S, E, D, F], view own func(f *ui.Frame[E], st S), posted queue.Queue[ui.Event[E]], o Options, post own func(ev ui.Event[E])) Driver[S, E, D, F] fails ui.BadPatch | go.Error needs go.Foreign {
+func start[E comparable, S, D, F](s go.Ref[screen.Screen], a actor.Actor[S, E, D, F], view own func(f *ui.Frame[E], st S), posted queue.Queue[ui.Event[E]], o Options, post own func(ev ui.Event[E])) Driver[S, E, D, F] fails ui.BadPatch | ScreenFailed needs go.Foreign {
 	let (first, ops) = ui.Start(a, view, post)
 	let mut session = first
 	let root = ui.SessionRoot(&session)
@@ -111,7 +111,7 @@ func start[E comparable, S, D, F](s go.Ref[screen.Screen], a actor.Actor[S, E, D
 }
 
 // show applies one pass's ops to the scene, then paints the screen.
-func show[E comparable, S, D, F](d *Driver[S, E, D, F], ops []ui.Op[E]) fails ui.BadPatch | go.Error needs go.Foreign {
+func show[E comparable, S, D, F](d *Driver[S, E, D, F], ops []ui.Op[E]) fails ui.BadPatch | ScreenFailed needs go.Foreign {
 	try ui.Apply(&d.mirror, ops)
 	for op in ops {
 		match op {
@@ -148,7 +148,7 @@ func show[E comparable, S, D, F](d *Driver[S, E, D, F], ops []ui.Op[E]) fails ui
 		}
 	case None:
 	}
-	try d.s.Present()
+	try present(d.s)
 }
 
 // create makes id's scene node, with its text, style and look; a
@@ -164,6 +164,13 @@ func create[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) needs go.Foreign {
 	case Some[string] as t:
 		if t.Value != "" {
 			d.s.SetText(n, t.Value)
+		}
+	case None:
+	}
+	match placeholderOf(node) {
+	case Some[string] as p:
+		if p.Value != "" {
+			d.s.SetPlaceholder(n, p.Value)
 		}
 	case None:
 	}
@@ -212,6 +219,13 @@ func reset[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], node ui.Node[E]) need
 			d.s.SetText(n, t.Value)
 		case None:
 		}
+	}
+	match placeholderOf(node) {
+	case Some[string] as p:
+		if placeholderOf(old.node) != (Some{Value: p.Value}) {
+			d.s.SetPlaceholder(n, p.Value)
+		}
+	case None:
 	}
 	restyle(d, n, Some{Value: old.node}, node)
 	relabel(d, id)
@@ -385,7 +399,7 @@ func unnumber[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) {
 // mouse press and release (a press of the node under them), a paste (the
 // focused field's text), a resize (laid out again). It fails ui.Closed at
 // the end of the input or on Ctrl+C.
-func Feed[E comparable, S, D, F](d *Driver[S, E, D, F], input screen.Input) fails ui.Closed | actor.Stopped | ui.BadPatch | go.Error needs go.Foreign {
+func Feed[E comparable, S, D, F](d *Driver[S, E, D, F], input screen.Input) fails ui.Closed | actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
 	if input.Kind == screen.Closed {
 		return ui.Closed
 	} else if input.Kind == screen.Key {
@@ -395,7 +409,7 @@ func Feed[E comparable, S, D, F](d *Driver[S, E, D, F], input screen.Input) fail
 	} else if input.Kind == screen.Paste {
 		try typed(d, oneLine(input.Text))
 	} else if input.Kind == screen.Resize {
-		try d.s.Present()
+		try present(d.s)
 	}
 }
 
@@ -404,10 +418,11 @@ func modsOf(bits int) ui.Mods {
 	ui.Mods{Shift: bits%2 == 1, Alt: (bits/2)%2 == 1, Ctrl: (bits/4)%2 == 1, Meta: (bits/8)%2 == 1 || (bits/32)%2 == 1}
 }
 
-// key routes a key: Ctrl+C closes; Tab and Shift+Tab move the focus; a
-// focused Input takes a character and Backspace; Enter and space press a
-// focused Pressable, Check or Toggle; the rest go to OnKey.
-func key[E comparable, S, D, F](d *Driver[S, E, D, F], input screen.Input) fails ui.Closed | actor.Stopped | ui.BadPatch | go.Error needs go.Foreign {
+// key routes a key: Ctrl+C closes; Tab and Shift+Tab move the focus (a
+// field reached has its caret at the end); a focused Input takes its
+// editing keys (EditOf); Enter and space press a focused Pressable, Check
+// or Toggle; the rest go to OnKey.
+func key[E comparable, S, D, F](d *Driver[S, E, D, F], input screen.Input) fails ui.Closed | actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
 	let mods = modsOf(input.Mods)
 	let chord = mods.Ctrl || mods.Alt || mods.Meta
 	let name = KeyName(input.Code, if chord { "" } else { input.Text })
@@ -424,7 +439,15 @@ func key[E comparable, S, D, F](d *Driver[S, E, D, F], input screen.Input) fails
 		}
 		let next = Cycle(len(order), at, mods.Shift)
 		setFocus(d, if next < 0 { None } else { Some{Value: order[next]} })
-		try d.s.Present()
+		if next >= 0 {
+			match fieldValue(d, order[next]) {
+			case Some[string] as v:
+				try edited(d, order[next], v.Value, screen.EditEnd, 0, "")
+				return
+			case None:
+			}
+		}
+		try present(d.s)
 		return
 	}
 	let press = ui.KeyPress{Name: name, Mods: mods}
@@ -438,15 +461,11 @@ func key[E comparable, S, D, F](d *Driver[S, E, D, F], input screen.Input) fails
 		}
 		match n.Value {
 		case ui.InputNode as x:
-			if name == "Backspace" && !chord {
-				if x.Value != "" {
-					try step(d, ui.Type[E]{Id: id, Text: withoutLast(x.Value)})
-				}
+			match EditOf(name, mods) {
+			case Some[int] as op:
+				try edited(d, id, x.Value, op.Value, 0, if op.Value == screen.EditInsert { name } else { "" })
 				return
-			}
-			if !chord && printable(name) {
-				try step(d, ui.Type[E]{Id: id, Text: x.Value + name})
-				return
+			case None:
 			}
 		case _:
 			if pressable(n.Value) && !chord && (name == "Enter" || name == " ") {
@@ -463,13 +482,13 @@ func key[E comparable, S, D, F](d *Driver[S, E, D, F], input screen.Input) fails
 // rune, not a functional key's name.
 func printable(name string) bool { len(runesOf(name)) == 1 && name != "\t" && name != "\r" }
 
-// typed types text into the focused Input, else gives each rune to OnKey.
-func typed[E comparable, S, D, F](d *Driver[S, E, D, F], text string) fails actor.Stopped | ui.BadPatch | go.Error needs go.Foreign {
+// typed inserts text at the focused Input's caret, else gives each rune to OnKey.
+func typed[E comparable, S, D, F](d *Driver[S, E, D, F], text string) fails actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
 	match (d.focus, focusedNode(d)) {
 	case (Some[ui.Id[E]] as id, Some[ui.Node[E]] as n):
 		match n.Value {
 		case ui.InputNode as x:
-			try step(d, ui.Type[E]{Id: id.Value, Text: x.Value + text})
+			try edited(d, id.Value, x.Value, screen.EditInsert, 0, text)
 			return
 		case _:
 		}
@@ -481,22 +500,31 @@ func typed[E comparable, S, D, F](d *Driver[S, E, D, F], text string) fails acto
 }
 
 // mouse handles a mouse press and release: a press focuses the node under
-// it that takes the focus (none under it clears the focus), and a release
+// it that takes the focus (none under it clears the focus) and puts a
+// field's caret at the cell it went down on, and a release
 // on the node the press went down on presses it.
-func mouse[E comparable, S, D, F](d *Driver[S, E, D, F], input screen.Input) fails actor.Stopped | ui.BadPatch | go.Error needs go.Foreign {
+func mouse[E comparable, S, D, F](d *Driver[S, E, D, F], input screen.Input) fails actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
 	if input.Action == screen.Down {
 		let hit = targetAt(d, input.X, input.Y)
 		d.pressed = hit
 		match hit {
 		case Some[ui.Id[E]] as id:
-			if focusable(nodeOf(d, id.Value)) && !disabled(d, id.Value) && d.focus != hit {
+			let usable = focusable(nodeOf(d, id.Value)) && !disabled(d, id.Value)
+			if usable && d.focus != hit {
 				setFocus(d, hit)
-				try d.s.Present()
+				try present(d.s)
+			}
+			match fieldValue(d, id.Value) {
+			case Some[string] as v:
+				if usable {
+					try edited(d, id.Value, v.Value, screen.EditAt, input.X-d.s.BoxOf(numOf(d, id.Value)).X, "")
+				}
+			case None:
 			}
 		case None:
 			if d.focus != None {
 				setFocus(d, None)
-				try d.s.Present()
+				try present(d.s)
 			}
 		}
 	} else if input.Action == screen.Up {
@@ -533,7 +561,7 @@ func targetAt[S, E, D, F](d *Driver[S, E, D, F], x int, y int) Option[ui.Id[E]] 
 }
 
 // step steps the session with ev and shows its patch.
-func step[E comparable, S, D, F](d *Driver[S, E, D, F], ev ui.Event[E]) fails actor.Stopped | ui.BadPatch | go.Error needs go.Foreign {
+func step[E comparable, S, D, F](d *Driver[S, E, D, F], ev ui.Event[E]) fails actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
 	let ops = try ui.Step(&d.session, ev)
 	if len(ops) > 0 {
 		try show(d, ops)
@@ -637,7 +665,7 @@ func takesInput[E](n ui.Node[E]) bool {
 }
 
 // Pump takes every fetch result posted so far, without waiting.
-func Pump[E comparable, S, D, F](d *Driver[S, E, D, F]) fails actor.Stopped | ui.BadPatch | go.Error needs go.Foreign {
+func Pump[E comparable, S, D, F](d *Driver[S, E, D, F]) fails actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
 	for {
 		match d.posted.Poll() {
 		case Some[ui.Event[E]] as ev:
@@ -650,7 +678,7 @@ func Pump[E comparable, S, D, F](d *Driver[S, E, D, F]) fails actor.Stopped | ui
 
 // Settle waits until no fetch is in flight and every posted result is
 // taken, as ui.Settle does.
-func Settle[E comparable, S, D, F](d *Driver[S, E, D, F]) fails actor.Stopped | ui.BadPatch | go.Error needs go.Foreign {
+func Settle[E comparable, S, D, F](d *Driver[S, E, D, F]) fails actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
 	for ui.InFlight(&d.session) > 0 || d.posted.Len() > 0 {
 		let ev = d.posted.Pop() catch {
 		case queue.Closed:
@@ -700,12 +728,12 @@ func Number[S, E, D, F](d *Driver[S, E, D, F], label string) Option[int] {
 // Run shows view of a's state on the live screen s until the input ends
 // or Ctrl+C, as ui.Run does on a ui.Host. A fetch's result reaches the
 // loop through the screen, which it wakes.
-func Run[E comparable, S, D, F](s go.Ref[screen.Screen], a actor.Actor[S, E, D, F], view own func(f *ui.Frame[E], st S)) fails actor.Stopped | ui.BadPatch | go.Error needs go.Foreign {
+func Run[E comparable, S, D, F](s go.Ref[screen.Screen], a actor.Actor[S, E, D, F], view own func(f *ui.Frame[E], st S)) fails actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
 	try RunWith(s, a, view, DefaultOptions())
 }
 
 // RunWith is Run with the host's options.
-func RunWith[E comparable, S, D, F](s go.Ref[screen.Screen], a actor.Actor[S, E, D, F], view own func(f *ui.Frame[E], st S), o Options) fails actor.Stopped | ui.BadPatch | go.Error needs go.Foreign {
+func RunWith[E comparable, S, D, F](s go.Ref[screen.Screen], a actor.Actor[S, E, D, F], view own func(f *ui.Frame[E], st S), o Options) fails actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
 	let fetched = queue.New[ui.Event[E]](64)
 	let posted = queue.New[ui.Event[E]](64)
 	let forward = task.Go() {
@@ -727,7 +755,7 @@ func RunWith[E comparable, S, D, F](s go.Ref[screen.Screen], a actor.Actor[S, E,
 		fetched.End()
 		let _ = forward.Wait()
 		return e
-	case go.Error as e:
+	case ScreenFailed as e:
 		fetched.End()
 		let _ = forward.Wait()
 		return e
@@ -740,9 +768,9 @@ func RunWith[E comparable, S, D, F](s go.Ref[screen.Screen], a actor.Actor[S, E,
 // mode (term.Raw), until the input ends or Ctrl+C. However it ends, the
 // screen quits (the alternate screen left, the cursor shown) and then the
 // terminal's mode is restored.
-func RunTerminal[E comparable, S, D, F](a actor.Actor[S, E, D, F], view own func(f *ui.Frame[E], st S), o Options) fails actor.Stopped | ui.BadPatch | go.Error | term.NotTerminal needs term.Terminal | go.Foreign {
+func RunTerminal[E comparable, S, D, F](a actor.Actor[S, E, D, F], view own func(f *ui.Frame[E], st S), o Options) fails actor.Stopped | ui.BadPatch | ScreenFailed | term.NotTerminal needs term.Terminal | go.Foreign {
 	try term.Raw() {
-		let s = try screen.Open()
+		let s = try open()
 		scope.OnExit() {
 			s.Quit() catch {
 			// ergo-lint-disable-next-line silent-catch -- the terminal is going away; Quit restores it as far as it can, and nothing is left to tell
@@ -766,9 +794,9 @@ func forwardAll[E](s go.Ref[screen.Screen], fetched queue.Queue[ui.Event[E]], po
 }
 
 // serve feeds the screen's input to d until the input ends or Ctrl+C.
-func serve[E comparable, S, D, F](d *Driver[S, E, D, F]) fails actor.Stopped | ui.BadPatch | go.Error needs go.Foreign {
+func serve[E comparable, S, D, F](d *Driver[S, E, D, F]) fails actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
 	for {
-		let next = try d.s.Next()
+		let next = try next(d.s)
 		Feed(d, next) catch {
 		case ui.Closed:
 			return
@@ -776,7 +804,7 @@ func serve[E comparable, S, D, F](d *Driver[S, E, D, F]) fails actor.Stopped | u
 			return e
 		case ui.BadPatch as e:
 			return e
-		case go.Error as e:
+		case ScreenFailed as e:
 			return e
 		}
 		try Pump(d)
