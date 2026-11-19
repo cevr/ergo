@@ -122,7 +122,7 @@ law InkShowsInTheScreenshot(seed int) {
 		}
 		let want = if k == PlainInk() { "" } else { " { ink" + parts + " }" }
 		let lines = strings.Split(Screenshot(&h), "\n")
-		len(lines) == 6 && lines[1] == "  text \"a\"" + want && lines[2] == "  readout \"rr\"" + want && lines[4] == "    text \"b\"" && LooksOf(&h, screen[0].Kids[0].Node) == Steady(Inked(k)) && LooksOf(&h, screen[0].Kids[1].Node) == Steady(Inked(k))
+		len(lines) == 6 && lines[1] == "  text \"a\"" + want && lines[2] == "  text \"r\"" + want && lines[4] == "    text \"b\"" && LooksOf(&h, screen[0].Kids[0].Node) == Steady(Inked(k)) && LooksOf(&h, screen[0].Kids[1].Node) == Steady(Inked(k))
 	}
 }
 
