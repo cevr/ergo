@@ -469,10 +469,13 @@ type irBuilder struct {
 	st     *irState
 	fn     *irFunc
 	locals map[*check.Var]int
-	next   int
-	env    int                      // the environment's local, or -1 in a pure function
-	wits   map[*check.TypeParam]int // each witness parameter's local (ir_witness.go)
-	result check.Type
+	// letInits are the values the body's lets bound to names that keep
+	// their value, for unfoldAt (ir_unfold.go).
+	letInits map[*check.Var]syntax.Expr
+	next     int
+	env      int                      // the environment's local, or -1 in a pure function
+	wits     map[*check.TypeParam]int // each witness parameter's local (ir_witness.go)
+	result   check.Type
 	// reasons are a census's reasons for this body, distinct, in order.
 	reasons []string
 	// loops is the depth of loops around the statement being built.
