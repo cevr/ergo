@@ -458,6 +458,18 @@ func goAnyArg(t check.Type) bool {
 	return check.IsGoAny(t)
 }
 
+// goPointerArg reports a Go parameter of Go's pointer to a Go type (`own
+// *Cookie`, Request.AddCookie's) or a go.Ref of one: its operand, a
+// go.Ref, is Go's *T as is, as the emitter's callArgs passes it
+// (IR-GOCALLS-4).
+func goPointerArg(t check.Type) bool {
+	if isGoRef(t) {
+		return true
+	}
+	p, ok := t.(*check.Pointer)
+	return ok && hostRecv(p)
+}
+
 // isGoErrorArg reports a parameter type goErrorArg converts.
 func isGoErrorArg(t check.Type) bool {
 	if s, ok := t.(*check.Slice); ok {

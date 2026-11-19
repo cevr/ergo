@@ -43,7 +43,7 @@ func (b *irBuilder) hostArgs(x *syntax.CallExpr, c *check.Call, f *check.Func, p
 			shapes[i] = b.callbackShape(cb, x)
 			continue
 		}
-		if !b.hostValue(q.Type) && !isGoErrorArg(q.Type) && !basicSlice(q.Type) && !goAnyArg(q.Type) { // ir_golib.go
+		if !b.hostValue(q.Type) && !isGoErrorArg(q.Type) && !basicSlice(q.Type) && !goAnyArg(q.Type) && !goPointerArg(q.Type) { // ir_golib.go
 			irNo("call of a Go package function")
 		}
 	}

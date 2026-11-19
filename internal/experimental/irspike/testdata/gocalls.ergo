@@ -32,6 +32,7 @@ import go bytes
 import go io
 import go os
 import go net/http
+import go strings
 
 func show(n int) string needs go.Foreign {
 	fmt.Sprint([]go.Any{"n=", n, " ", true, " ", 2.5})
@@ -111,12 +112,13 @@ func params(raw string) string fails go.Error needs go.Foreign {
 	"\(q.Get("a")) \(len(q)) \(host) \(u.Path)"
 }
 
-func emptyBody() io.Reader needs go.Foreign {
-	io.MultiReader([]io.Reader{})
-}
-
 func cookie() int fails go.Error needs go.Foreign {
-	let body = emptyBody()
+	let body = match strings.NewReader("") {
+	case Some{Value: b}:
+		b
+	case None:
+		return -2
+	}
 	let r = try http.NewRequest("GET", "http://h.example/", body)
 	let h = r.Header
 	r.Header.Set("Cookie", "a=1")

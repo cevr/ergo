@@ -27,6 +27,10 @@ import (
 //     Header, Method, TransferEncoding, and URL, an Option), which kept
 //     the IR from building (an internal compiler error: typeDecl of
 //     go.Ref).
+//   - goref (IR-GOCALLS-4): a go.Ref[strings.Reader] given to http's
+//     `own io.Reader` (an internal compiler error on the IR: no adapter),
+//     whose package io the program does not import, and a go.Ref given to
+//     an `own *Cookie` (Request.AddCookie).
 //   - vars (IR-GOCALLS-2): a Go package variable read through its getter
 //     (goVarGetter): an error sentinel (sql.ErrNoRows, io.EOF) as the
 //     go.Error that keeps it, a []string (os.Args), a constant
@@ -150,6 +154,23 @@ func header(r go.Ref[http.Request]) int needs go.Foreign {
 		0
 	}
 	len(h.Get("Accept")) + len(h) + len(r.Method) + len(r.TransferEncoding) + u
+}
+
+func main() needs go.Foreign {}
+`},
+		{"goref", `import go strings
+import go net/http
+
+func request() int fails go.Error needs go.Foreign {
+	let body = match strings.NewReader("x") {
+	case Some{Value: b}:
+		b
+	case None:
+		return 0
+	}
+	let r = try http.NewRequest("GET", "http://h.example/", body)
+	r.AddCookie(go.New[http.Cookie]())
+	len(r.Header)
 }
 
 func main() needs go.Foreign {}

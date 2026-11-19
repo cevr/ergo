@@ -803,6 +803,22 @@ func (l *lowerer) hostImportNames(pkgs []*check.Package) {
 			}
 		}
 	}
+	// The Go interface a Go value goes into (an `own io.Reader` parameter
+	// of a binding the program imports): the IR spells its conversion
+	// (opsConv, ir_with.go; IR-GOCALLS-4), though the program may not
+	// import its package.
+	for _, p := range pkgs {
+		for _, conv := range p.Info.Implicit {
+			n, ok := conv.To.(*check.Named)
+			if !ok || conv.Kind != check.ConvOperations || n.Obj == nil || !n.Obj.Pkg.Host() || goAdapterConv(conv) {
+				continue
+			}
+			if path := n.Obj.Pkg.Path; path != "time" && !seen[path] {
+				seen[path] = true
+				paths = append(paths, path)
+			}
+		}
+	}
 	// Every Go package the program reaches through import go (libraryPackages).
 	l.libraries()
 	for _, p := range l.goPkgs {
