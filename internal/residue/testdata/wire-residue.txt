@@ -476,9 +476,6 @@ examples/pipeline/pipeline/pipelinemcp/mcp.ergo	*
 examples/pipeline/surfaces/laws.ergo	*
 examples/pipeline/surfaces/surfaces.ergo	*
 examples/pipeline/README.md	the wire's `Request`
-examples/pipeline/README.md	over a generated transport's `Wire` to a context in th
-examples/pipeline/README.md	generated) | the transport's `Wire` carries every requ
-examples/pipeline/README.md	h each generated transport's `Wire` (command line, MCP
 examples/pipeline/testdata/mutants.json	*
 scripts/examples/module_test.go	walkrpc/wire.ergo
 examples/fk-domains/domains/domainsrpc/client.ergo	*
