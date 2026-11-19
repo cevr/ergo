@@ -63,18 +63,7 @@ func Load(dir string, env []string, p Platform, patterns ...string) ([]*types.Pa
 	cmd := exec.Command("go", args...)
 	cmd.Dir = dir
 	// The user's GOFLAGS stay (-modcacherw, build tags), but -mod is ours.
-	flags := []string{"-mod=readonly"}
-	for _, kv := range env {
-		if v, ok := strings.CutPrefix(kv, "GOFLAGS="); ok {
-			flags = []string{"-mod=readonly"}
-			for _, f := range strings.Fields(v) {
-				if !strings.HasPrefix(f, "-mod=") && !strings.HasPrefix(f, "--mod=") {
-					flags = append(flags, f)
-				}
-			}
-		}
-	}
-	cmd.Env = append(append([]string{}, env...), "GOOS="+p.GOOS, "GOARCH="+p.GOARCH, "CGO_ENABLED=0", "GOFLAGS="+strings.Join(flags, " "))
+	cmd.Env = goEnv(env, p)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
@@ -149,11 +138,46 @@ func rootRefusal(path, name string) string {
 }
 
 // Platforms are the GOOS/GOARCH pairs a binding holds for: a declaration
-// that differs between them is refused (interop.md). They are also Ergo's
-// target list: `ergo build` links for each of them and refuses any other
-// (EF110), so a program that checks against the bindings links on every
-// platform it may be built for.
+// that differs between them is refused (interop.md). With Phones they are
+// Ergo's target list: `ergo build` links for each of them, emits for each
+// phone, and refuses any other platform (EF110), so a program that checks
+// against the bindings links on every platform it may be built for.
 var Platforms = []Platform{{"darwin", "amd64"}, {"darwin", "arm64"}, {"linux", "amd64"}, {"linux", "arm64"}}
+
+// Phone is a phone platform of Ergo's target list. `ergo build` writes
+// its Go module and stops before the link: a phone program is linked by
+// its packager, as a library (a c-archive on iOS, a c-shared one on
+// Android) with the platform's own C compiler (interop.md, Platforms).
+// It checks against the bindings of Bindings, the platform of Platforms
+// that Go's build constraints read it as: GOOS=ios satisfies the darwin
+// tag and GOOS=android the linux tag, so every file of a binding's
+// package built for Bindings builds for the phone too. A declaration only
+// a file constrained to ios or android (or to !ios, !android) holds is
+// not in the binding; the emitted module's compile for the phone is the
+// check of that (cmd/ergo's TestPhoneModuleTypechecks). Bindings are not made for the
+// phones themselves: `go list -export` of a host's packages for a phone
+// needs cgo there (MyGo's purego and its phone glue).
+type Phone struct {
+	Platform, Bindings Platform
+}
+
+// Phones are the phone platforms: the iPhone, an Android phone, and the
+// Android emulator of an amd64 host.
+var Phones = []Phone{
+	{Platform{"ios", "arm64"}, Platform{"darwin", "arm64"}},
+	{Platform{"android", "arm64"}, Platform{"linux", "arm64"}},
+	{Platform{"android", "amd64"}, Platform{"linux", "amd64"}},
+}
+
+// PhoneOf is the phone platform p, and whether p is one.
+func PhoneOf(p Platform) (Phone, bool) {
+	for _, phone := range Phones {
+		if phone.Platform == p {
+			return phone, true
+		}
+	}
+	return Phone{}, false
+}
 
 // Bind writes the binding file of each Go package that patterns name, by
 // import path, loading them on every platform of Platforms. A package
@@ -164,11 +188,17 @@ func Bind(dir string, env []string, goVersion string, patterns ...string) (map[s
 	perPlatform := make([]map[string]*types.Package, len(Platforms))
 	var order []string
 	c := newCloser(Platforms)
+	var facts []Facts
 	for i, p := range Platforms {
 		pkgs, modules, err := Load(dir, env, p, patterns...)
 		if err != nil {
 			return nil, err
 		}
+		f, err := Derive(dir, env, p, patterns...)
+		if err != nil {
+			return nil, err
+		}
+		facts = append(facts, f)
 		if i == 0 {
 			c.modules = modules
 		}
@@ -180,6 +210,9 @@ func Bind(dir string, env []string, goVersion string, patterns ...string) (map[s
 			}
 		}
 	}
+	// The packages patterns name get the facts every platform derives; a
+	// package a binding only names gets none (no fact: the copy stays).
+	c.facts = meet(facts)
 	files := map[string]string{}
 	for i := range Platforms {
 		for _, pkg := range perPlatform[i] {

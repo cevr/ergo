@@ -11,7 +11,7 @@ import (
 	"unicode"
 
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -326,6 +326,7 @@ func Int(_ Mine, n int64)       {}
 func Uint(_ Mine, n uint64)     {}
 func Float(_ Mine, f float64)   {}
 func String(_ Mine, s string)   {}
+func StringBytes(_ Mine, b []byte) {}
 func BeginList(_ Mine, n int)   {}
 func EndList(_ Mine)            {}
 func BeginObject(_ Mine, n int) {}
@@ -342,6 +343,7 @@ func setComma(_ Mine, due bool)  {}
 func html(_ Mine) bool           { false }
 func keyBody(_ Mine, k string)   {}
 func stringBody(_ Mine, s string) {}
+func bytesBody(_ Mine, b []byte) {}
 func intBody(_ Mine, n int64)    {}
 func uintBody(_ Mine, n uint64)  {}
 func boolBody(_ Mine, b bool)    {}
@@ -366,6 +368,7 @@ func Int(_ Mine) int64               { 0 }
 func Uint(_ Mine) uint64             { 0 }
 func Float(_ Mine) float64           { 0.0 }
 func String(_ Mine) string           { "" }
+func StringBytes(_ Mine, into []byte) []byte { into }
 func BeginList(_ Mine) bool          { false }
 func BeginObject(_ Mine) bool        { false }
 func Tag(_ Mine) string              { "" }
@@ -554,6 +557,20 @@ func main() {
 	use(Mine)
 }
 `,
+	// std rand (std-spike D3): Secure is open, as Random is; a program
+	// provides its own (a fixed source for a test, a hardware one).
+	"rand.Secure": `import rand
+
+type Mine {} implements rand.Secure
+
+func Bytes(_ Mine, n int) string { "" }
+
+func use(s rand.Secure) { _ = s.Bytes(0) }
+
+func main() {
+	use(Mine)
+}
+`,
 	"prelude.Closer": `type Mine {} implements Closer
 
 func Close(_ Mine) {}
@@ -617,6 +634,7 @@ func Int(_ Mine, n int64) {}
 func Uint(_ Mine, n uint64) {}
 func Float(_ Mine, f float64) {}
 func String(_ Mine, s string) {}
+func StringBytes(_ Mine, b []byte) {}
 func BeginList(_ Mine, n int) {}
 func EndList(_ Mine) {}
 func BeginObject(_ Mine, n int) {}
@@ -641,6 +659,7 @@ func Int(_ Mine) int64 fails WireWrongKind { 0 }
 func Uint(_ Mine) uint64 fails WireWrongKind { 0 }
 func Float(_ Mine) float64 fails WireWrongKind { 0.0 }
 func String(_ Mine) string fails WireWrongKind { "" }
+func StringBytes(_ Mine, into []byte) []byte fails WireWrongKind { into }
 func BeginList(_ Mine) fails WireWrongKind {}
 func BeginObject(_ Mine) fails WireWrongKind {}
 func Tag(_ Mine) string fails WireMissingField { "" }
@@ -664,6 +683,43 @@ func Now(_ Mine) time.Time { time.Unix(0, 0) }
 func Elapsed(_ Mine, t time.Time) duration { 0s }
 
 func use(c time.Clock) { _ = c.Now() }
+
+func main() {
+	use(Mine)
+}
+`,
+	"log.Sink": `import log
+
+type Mine {} implements log.Sink
+
+func Enabled(_ Mine, l log.Level) bool { true }
+func Write(_ Mine, e log.Entry) {}
+
+func use(s log.Sink) { s.Write(log.Entry{Level: log.LevelInfo, Message: "x", Attrs: []log.Attr{}}) }
+
+func main() {
+	use(Mine)
+}
+`,
+	"tz.Zones": `import tz
+
+type Mine {} implements tz.Zones
+
+func Load(_ Mine, name string) tz.Zone fails tz.UnknownZone { tz.UTC() }
+
+func use(z tz.Zones) { _ = z.Load("UTC") catch { case tz.UnknownZone: tz.UTC() } }
+
+func main() {
+	use(Mine)
+}
+`,
+	"tz.Local": `import tz
+
+type Mine {} implements tz.Local
+
+func Zone(_ Mine) tz.Zone fails tz.UnknownZone { tz.UTC() }
+
+func use(l tz.Local) { _ = l.Zone() catch { case tz.UnknownZone: tz.UTC() } }
 
 func main() {
 	use(Mine)
@@ -1068,6 +1124,35 @@ func main() {
 	use(Mine)
 }
 `,
+	// The test's ambient (TH1): sealed by its unexported operation, as
+	// the prelude's Ambient is.
+	"prelude.TestAmbient": `type Mine {}
+
+func folder(_ Mine) string { "/" }
+
+func use(_ TestAmbient) {}
+
+func main() {
+	use(Mine)
+}
+`,
+	// fstest.Confined (TH1): open, an ordinary operation type with laws.
+	"fstest.Confined": `import fs
+import fstest
+
+type Mine {} implements fstest.Confined
+
+func Folder(_ Mine) string { "/" }
+func ReadFile(_ Mine, path string) string fails fs.Denied { fs.Denied{Path: path} }
+func ReadDir(_ Mine, path string) []string fails fs.Denied { fs.Denied{Path: path} }
+func WriteFile(_ Mine, path string, text string) fails fs.Denied { fs.Denied{Path: path} }
+
+func use(_ fstest.Confined) {}
+
+func main() {
+	use(Mine)
+}
+`,
 	// std fs Root (G1f): open; fstest.Tree is a program-side provider.
 	"fs.Root": `import fs
 
@@ -1154,6 +1239,84 @@ func main() {
 	use(Mine)
 }
 `,
+	// std code's operation types (SEMTOOLS SEM2): a program provides each
+	// one; these rows delegate to std code's own providers.
+	"code.Reader": `import code
+
+type Mine { s code.Scan } implements code.Reader
+
+func Describe(m Mine) code.Summary { m.s.Describe() }
+func Symbols(m Mine, q code.SymbolQuery) code.SymbolPage { m.s.Symbols(q) }
+func Symbol(m Mine, a string) code.Decl fails code.NoSymbol | code.Ambiguous { try m.s.Symbol(a) }
+func References(m Mine, q code.RefQuery) code.SitePage fails code.NoSymbol | code.Ambiguous { try m.s.References(q) }
+func Calls(m Mine, q code.CallQuery) code.CallPage fails code.NoSymbol | code.Ambiguous | code.NotCallable { try m.s.Calls(q) }
+func Api(m Mine, q code.ApiQuery) code.ApiView fails code.NoPackage { try m.s.Api(q) }
+func Reach(m Mine, q code.ReachQuery) code.ReachPage fails code.NoSymbol | code.Ambiguous { try m.s.Reach(q) }
+func MachineOf(m Mine, a string) code.MachineView fails code.NoSymbol | code.Ambiguous | code.NotMachine { try m.s.MachineOf(a) }
+
+func use(r code.Reader) { _ = r.Describe() }
+
+func main() {
+	use(Mine{s: code.NewScan(0)})
+}
+`,
+	"code.Files": `import code
+
+type Mine { d code.Disk } implements code.Files
+
+func Read(m Mine, path string) string fails code.Missing | code.IOFailed { try m.d.Read(path) }
+func Write(m Mine, path string, text string) fails code.IOFailed { try m.d.Write(path, text) }
+func Exchange(m Mine, a string, b string) fails code.Missing | code.IOFailed { try m.d.Exchange(a, b) }
+func Remove(m Mine, path string) fails code.IOFailed { try m.d.Remove(path) }
+func Exists(m Mine, path string) bool fails code.IOFailed { try m.d.Exists(path) }
+func Lock(m Mine) fails code.Busy | code.IOFailed { try m.d.Lock() }
+func Unlock(m Mine) fails code.IOFailed { try m.d.Unlock() }
+
+func use(f code.Files) { _ = f.Exists("a") catch { case code.IOFailed: false } }
+
+func main() {
+	use(Mine{d: code.NewDisk(0)})
+}
+`,
+	"code.Checker": `import code
+
+type Mine {} implements code.Checker
+
+func Check(_ Mine, sources []code.Source) code.Report fails code.CheckFailed { code.CheckFailed{Reason: "none"} }
+func Format(_ Mine, text string) string fails code.CheckFailed { text }
+
+func use(c code.Checker) { _ = c.Format("x") catch { case code.CheckFailed: "" } }
+
+func main() {
+	use(Mine)
+}
+`,
+	"code.Planner": `import code
+
+type Mine { s code.Session } implements code.Planner
+
+func Plan(m Mine, c code.Change) code.Planned fails code.BadChange | code.NameTaken | code.OutsideWorkspace | code.Capture { try m.s.Plan(c) }
+func PlanOf(m Mine, id string) code.Planned fails code.NoPlan { try m.s.PlanOf(id) }
+
+func use(p code.Planner) { _ = p.PlanOf("x") catch { case code.NoPlan: return } }
+
+func main() {
+	use(Mine{s: code.NewSession(0)})
+}
+`,
+	"code.Writer": `import code
+
+type Mine { a code.Applier } implements code.Writer
+
+func Apply(m Mine, id string) code.Receipt fails code.NoPlan | code.NotReady | code.Stale | code.Busy | code.IOFailed { try m.a.Apply(id) }
+func Recover(m Mine) code.Recovered fails code.Busy | code.IOFailed { try m.a.Recover() }
+
+func use(w code.Writer) { _ = w.Recover() catch { case code.Busy, code.IOFailed: return } }
+
+func main() {
+	use(Mine{a: code.NewApplier(0)})
+}
+`,
 	// ui GroupArgs (P-ui): the frame's memo of a component's arguments,
 	// runtimeOnly, made only by the composer.
 	"ui.GroupArgs": `import ui
@@ -1183,12 +1346,13 @@ func main() {
 // operation: a program value is refused at the use line by the sealedBy
 // text. The other runtime protocols declare runtimeOnly for the same rule.
 var unexportedStd = map[string]string{
-	"prelude.Ambient": "ambient is an unexported operation of prelude.Ambient, so only a type of package prelude implements it",
-	"prelude.Keeping": "drain is an unexported operation of prelude.Keeping, so only a type of package prelude implements it",
-	"http.Streaming":  "open is an unexported operation of http.Streaming, so only a type of package http implements it",
-	"fs.HostRoot":     "hostRooted is an unexported operation of fs.HostRoot, so only a type of package fs implements it",
-	"http.BodyFile":   "partOnly is an unexported operation of http.BodyFile, so only a type of package http implements it",
-	"json.Text":       "raw is an unexported operation of json.Text, so only a type of package json implements it",
+	"prelude.Ambient":     "ambient is an unexported operation of prelude.Ambient, so only a type of package prelude implements it",
+	"prelude.TestAmbient": "folder is an unexported operation of prelude.TestAmbient, so only a type of package prelude implements it",
+	"prelude.Keeping":     "drain is an unexported operation of prelude.Keeping, so only a type of package prelude implements it",
+	"http.Streaming":      "open is an unexported operation of http.Streaming, so only a type of package http implements it",
+	"fs.HostRoot":         "hostRooted is an unexported operation of fs.HostRoot, so only a type of package fs implements it",
+	"http.BodyFile":       "partOnly is an unexported operation of http.BodyFile, so only a type of package http implements it",
+	"json.Text":           "raw is an unexported operation of json.Text, so only a type of package json implements it",
 }
 
 // openStd records the operation types that did not use the old implicit
@@ -1201,6 +1365,7 @@ var openStd = map[string]bool{
 	"time.Clock":        true,
 	"testing.Stage":     true,
 	"prelude.Random":    true,
+	"rand.Secure":       true,
 	"prelude.Writer":    true,
 	"prelude.Reader":    true,
 	"os.Process":        true,
@@ -1208,6 +1373,7 @@ var openStd = map[string]bool{
 	"fs.Writes":         true,
 	"fs.Root":           true,
 	"net.Network":       true,
+	"fstest.Confined":   true,
 	"io.Stdout":         true,
 	"io.Stderr":         true,
 	"io.Stdin":          true,
@@ -1229,6 +1395,15 @@ var openStd = map[string]bool{
 	"ui/layout.Measure": true,
 	"io.Source":         true,
 	"bench.Meter":       true,
+	"code.Reader":       true,
+	"code.Files":        true,
+	"code.Checker":      true,
+	"code.Planner":      true,
+	"code.Writer":       true,
+	"log.Sink":          true,
+	"tz.Zones":          true,
+	"tz.Local":          true,
+	// The layout's text measure, which a host provides with its fonts.
 }
 
 // stdOperationTypes lists, as path.Name, every exported operation type
@@ -1237,9 +1412,9 @@ var openStd = map[string]bool{
 // the checker.
 func stdOperationTypes(t *testing.T) []string {
 	t.Helper()
-	sources := map[string]map[string]string{std.PreludePath: std.Prelude()}
-	for _, path := range std.Packages() {
-		files, ok := std.Package(path)
+	sources := map[string]map[string]string{stdlib.PreludePath: stdlib.Prelude()}
+	for _, path := range stdlib.Packages() {
+		files, ok := stdlib.Package(path)
 		if !ok {
 			t.Fatalf("std lists %s but does not serve it", path)
 		}
@@ -1643,7 +1818,7 @@ func main() { with W { A.Use() } }
 		if len(pkgs) != 1 || !pkgs[0].Std() {
 			t.Fatalf("the prelude package: %v", pkgs)
 		}
-		for _, path := range std.Packages() {
+		for _, path := range stdlib.Packages() {
 			pkg, err := check.Std.Import(path)
 			if err != nil {
 				t.Fatalf("%s: %v", path, err)

@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -87,7 +87,7 @@ func (l *lowerer) genBuilt(n *check.Named, b *check.Builder, r, d, ev string, sc
 func (l *lowerer) builtText(n *check.Named, b *check.Builder) string {
 	f := b.Func
 	text := f.Name
-	if p := f.Pkg; p != nil && p != l.pkg && p.Path != std.PreludePath {
+	if p := f.Pkg; p != nil && p != l.pkg && p.Path != stdlib.PreludePath {
 		text = l.importName(p) + "." + text
 	}
 	targs, _ := b.Instance(n)

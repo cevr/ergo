@@ -77,11 +77,17 @@ func NewVirtualTimeline(t *rt.Task, sec int64, nsec int64) *Timeline {
 }
 
 // Read is the timeline's time; Mono is the virtual time since the start.
+// It takes no lock and builds no time.Time: the clock's Unix nanoseconds,
+// split by floor division.
 //
 //ergo:wait none
 func (l *Timeline) Read() Reading {
-	n := time.Unix(0, int64(l.v.Now()))
-	return Reading{Sec: n.Unix(), Nsec: int64(n.Nanosecond()), Mono: int64(n.Sub(l.start))}
+	ns := int64(l.v.Now())
+	sec, nsec := ns/1e9, ns%1e9
+	if nsec < 0 {
+		sec, nsec = sec-1, nsec+1e9
+	}
+	return Reading{Sec: sec, Nsec: nsec, Mono: ns - l.start.UnixNano()}
 }
 
 // Wait suspends the caller's task t until Advance moves the time to d past
@@ -125,6 +131,17 @@ func (l *Timeline) Advance(t *rt.Task, d time.Duration) {
 //
 //ergo:wait none
 func (l *Timeline) Sleepers() int { return l.v.Pending() }
+
+// TimeAsleep is time.Asleep: whether the task of tk, or a task started
+// below it, sleeps on l. A task that ended sleeps on nothing (FK4-g2).
+//
+//ergo:wait none
+func TimeAsleep[T any](l *Timeline, tk *Task[T]) bool {
+	if tk == nil {
+		return false
+	}
+	return l.v.Asleep(tk.h.Task())
+}
 
 // Alarms is the timeline's AlarmClock (a Manual's or a VirtualClock's
 // Scheduler.Alarms): an alarm's deadline is armed on the timeline like a

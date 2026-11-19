@@ -24,7 +24,14 @@ func (l *lowerer) hotFunc(f *check.Func) bool {
 var hotLowering string
 
 // loopCalled walks the call graph from every function of the program's
-// source packages and returns the functions on a loop path. A function
+// own package and returns the functions on a loop path. A function of
+// another package is walked when the walk reaches it: a call, a reference
+// that takes it as a value, or an operations conversion that puts it in a
+// table. Those are the ways a library function is written into the
+// program (useFunc), the same for a std package and for a user one, so a
+// std package and its copy in a user module lower alike (SM-CODECOPY:
+// rooting the walk at every sourced package walked a user library's
+// functions that std's never were, and inlined more in the copy). A function
 // found on a loop path after its body was walked is walked again, so the
 // set is closed under calls. The body of a function literal is read as
 // part of its function: a literal is called where its function is, or
@@ -72,7 +79,7 @@ func (l *lowerer) loopCalled() map[*check.Func]bool {
 	tables := map[*check.Info]bool{}
 	pkgs := map[*check.Package]bool{}
 	for _, s := range l.srcs {
-		if s.pkg != nil && !pkgs[s.pkg] {
+		if s.pkg != nil && s.pkg == l.pkg && !pkgs[s.pkg] {
 			pkgs[s.pkg] = true
 			for _, f := range s.pkg.Funcs {
 				visit(f)
@@ -93,6 +100,7 @@ func (l *lowerer) loopCalled() map[*check.Func]bool {
 					for name, h := range conv.Table {
 						if h != nil {
 							impls[name] = append(impls[name], h)
+							visit(h)
 						}
 					}
 				}
@@ -110,6 +118,7 @@ func (l *lowerer) loopCalled() map[*check.Func]bool {
 					case *syntax.Ident:
 						if h, ok := info.Uses[m].(*check.Func); ok && !callee[m] {
 							values = append(values, h)
+							visit(h)
 						}
 					case *syntax.CallExpr:
 						if id := calleeIdent(m.Fun); id != nil {

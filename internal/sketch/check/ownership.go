@@ -133,6 +133,9 @@ type ownLocal struct {
 	root     *Var
 	lendEnd  *lendPoint // a binding lent from a subject temporary
 	loanOnly bool
+	// handle marks a binding lent from a declared root's handle (P3,
+	// handle.go): its type need not hold a resource.
+	handle bool
 	// t is the type of a temporary that is no expression of the tree: a
 	// field an update replaces (Info.Replaced).
 	t Type
@@ -161,7 +164,7 @@ func (w *ownWalk) refuse(i int, at syntax.Node, what string, format string, args
 	if !w.st.reached {
 		return
 	}
-	if t := w.typ(w.vars[i]); w.genericOnly(t) {
+	if t := w.typ(w.vars[i]); !w.vars[i].handle && w.genericOnly(t) {
 		w.copySite(t, at, what, false)
 		return
 	}
@@ -224,6 +227,10 @@ type ownWalk struct {
 	vars  []ownLocal
 	slot  map[*Var]int
 	depth int
+	// writeBack is the place an assignment being evaluated writes, such
+	// as b.xs in `b.xs = b.xs.Append(x)`: its own handle written back is
+	// no second owner (P3, handle.go).
+	writeBack string
 	// first is the frame's first slot; name its function's name; nested
 	// the text naming a nested frame ("" for a declaration).
 	first        int
@@ -286,7 +293,7 @@ func (c *checker) checkOwnership() {
 					continue
 				}
 				w.fn = f
-				w.frame(d.Body, takesOf(f), w.paramVars(d.Recv, d.Type.Params), d.Name.Name, "", f.Name == "Close" && c.pkg.Info.Closes[d] != nil)
+				w.frame(d.Body, takesOf(f), w.paramVars(d.Recv, d.Type.Params), d.Name.Name, "", c.pkg.Info.Closes[d] != nil)
 			case *syntax.TestDecl:
 				w.frame(d.Body, nil, w.paramVars(nil, d.Params), d.Name.Name, "", false)
 			case *syntax.LawDecl:
@@ -516,7 +523,11 @@ func (w *ownWalk) owned(l ownLocal) {
 		return // a taken parameter whose type has no release: refused where it is made
 	}
 	if d == nil {
-		w.reportCode(at, CodeType, "%s has no release: it holds %s, an operation type that keeps the values it takes and has no Close() operation, so nothing could release them (resources R1, R13); give it a Close() operation", t, bad)
+		repair, ok := w.c.closerRepair(bad)
+		if !ok {
+			repair = "use an operation type that includes Closer"
+		}
+		w.reportCode(at, CodeType, "%s has no release: it holds %s, an operation type that keeps the values it takes and does not include Closer, so nothing could release them (resources R1, R13); %s", t, bad, repair)
 		return
 	}
 	if l.v != nil {
@@ -830,8 +841,17 @@ func (w *ownWalk) rangeBinds(s *syntax.RangeStmt) func() {
 		return func() { w.acquireParts(parts, ownLocal{}, loans, s.Value) }
 	}
 	var out []ownLocal
+	handles := w.handleSource(s.X)
 	for _, v := range lp.Bindings {
-		if v == nil || !w.tracked(v.Type) {
+		if v == nil {
+			continue
+		}
+		if !w.tracked(v.Type) {
+			if handles && w.c.holdsHandle(v.Type) {
+				// An element of a declared root's handles is lent from
+				// that root (P3, handle.go).
+				out = append(out, ownLocal{v: v, lent: true, from: exprText(s.X), handle: true})
+			}
 			continue
 		}
 		root, _, _ := w.placeRoot(s.X)
@@ -995,12 +1015,19 @@ func (w *ownWalk) letSpec(s syntax.Stmt, spec *syntax.VarSpec) {
 	}
 	var bound []*Var
 	loans := map[*Var][]resourceLoan{}
+	// handles are the names bound to a declared root's handle: a let of
+	// one lends it, as a for-in does (P3, handle.go).
+	handles := map[*Var]string{}
 	w.region(spec, func() {
 		pair := len(spec.Values) == len(spec.Names) && spec.Pattern == nil
 		for i, x := range spec.Values {
 			mode := mMove
 			if pair && spec.Names[i].Name == "_" {
 				mode = mDiscard
+			}
+			if v, _ := w.info.Defs[spec.Names[i]].(*Var); pair && v != nil && mode == mMove && w.handleSource(x) {
+				handles[v] = w.handleFrom(x)
+				mode = mLend
 			}
 			w.expr(x, mode, hand{at: x, how: "let moves it"})
 			if pair {
@@ -1021,6 +1048,10 @@ func (w *ownWalk) letSpec(s syntax.Stmt, spec *syntax.VarSpec) {
 	_ = s
 	for _, id := range spec.Names {
 		if v, ok := w.info.Defs[id].(*Var); ok {
+			if from, ok := handles[v]; ok {
+				w.acquire(ownLocal{v: v, lent: true, from: from, handle: true})
+				continue
+			}
 			_, callable := under(v.Type).(*Signature)
 			if w.tracked(v.Type) || callable || len(loans[v]) > 0 {
 				bound = append(bound, v)
@@ -1113,8 +1144,18 @@ func (w *ownWalk) assign(s *syntax.AssignStmt) {
 		mode := mLend
 		if i < len(s.Lhs) && w.tracked(w.info.Types[s.Lhs[i]]) || len(s.Lhs) > 1 {
 			mode = mMove
+		} else if i < len(s.Lhs) && w.c.holdsHandle(w.info.Types[s.Lhs[i]]) {
+			// A handle stored into a place moves there (P3, handle.go).
+			mode = mMove
+		}
+		saved := w.writeBack
+		if i < len(s.Lhs) && len(s.Lhs) == len(s.Rhs) {
+			if _, direct := unparen(s.Lhs[i]).(*syntax.Ident); !direct {
+				w.writeBack = exprText(s.Lhs[i])
+			}
 		}
 		w.expr(x, mode, hand{at: x, how: "it is assigned"})
+		w.writeBack = saved
 		if i < len(s.Lhs) {
 			if _, k, ok := w.placeRoot(s.Lhs[i]); ok && w.st.reached {
 				if _, direct := unparen(s.Lhs[i]).(*syntax.Ident); direct {
@@ -1199,6 +1240,9 @@ type hand struct {
 	// record's other fields (R39).
 	root     bool
 	endLoans bool
+	// endKept marks the receiver of a Close: releasing a Go result ends the
+	// lend it keeps of its receiver (the keeps rule, hostKeptLoans).
+	endKept bool
 	// hostLend marks an argument lent to a Go function's interface
 	// parameter: a Go signature cannot move a value (IG9), so its
 	// conversion (Info.Implicit) moves nothing (convertedAt).
@@ -1481,6 +1525,9 @@ func (w *ownWalk) expr(x syntax.Expr, mode ownMode, h hand) {
 				return
 			}
 		}
+		if mode == mMove {
+			w.handleMove(x, h) // a declared root's handle (P3)
+		}
 		if w.selector(x, mode, h) {
 			return
 		}
@@ -1497,6 +1544,7 @@ func (w *ownWalk) expr(x syntax.Expr, mode ownMode, h hand) {
 		}
 		if mode == mMove {
 			w.checkLoanValue(x)
+			w.handleMove(x, h) // a declared root's handle (P3)
 			w.placeMove(x, "an element", "it is an element of %s, lent by the index; an element cannot be moved or taken out by index (resources R35, R36); hand off %s whole, or lend the element")
 		}
 		w.lendRoot(x.X, w.info.Types[x], mode, h)
@@ -1621,6 +1669,9 @@ func (w *ownWalk) expr(x syntax.Expr, mode ownMode, h hand) {
 		if !w.call(x, mode, h) {
 			w.callFailure(x, h)
 			w.produced(x, mode, h)
+		}
+		if mode == mMove {
+			w.checkKept(x)
 		}
 		return
 	case *syntax.FuncLit:
@@ -1814,7 +1865,13 @@ func (w *ownWalk) selector(x *syntax.SelectorExpr, mode ownMode, h hand) bool {
 		return false
 	}
 	if mode == mMove {
-		w.placeMove(x, "a field", "it is a field of %s; a field cannot be moved out of its record (resources R39); move %s whole, or lend the field")
+		// A pattern takes a field out where the record dies whole (GB1:
+		// match a fresh Option[go.Ref[T]] as Some{Value: c}).
+		hint := "or lend the field"
+		if n, ok := w.info.Types[x.X].(*Named); ok && n.Obj != nil {
+			hint = fmt.Sprintf("lend the field, or bind it where the record is matched: case %s{%s: name}", n.Obj.Name, x.Sel.Name)
+		}
+		w.placeMove(x, "a field", "it is a field of %s; a field cannot be moved out of its record (resources R39); move %s whole, "+hint)
 	}
 	h.root = true
 	w.lendRoot(x.X, w.info.Types[x], mode, h)
@@ -2453,6 +2510,9 @@ func (w *ownWalk) call(x *syntax.CallExpr, mode ownMode, h hand) bool {
 	hostFunc := call.Kind == CallFunc && call.Func != nil && call.Func.Pkg.Host()
 	hostCallee := hostFunc || call.Kind == CallOp && call.Recv != nil && isHostNamed(w.info.Types[call.Recv])
 	hostMethod := hostFunc && call.Func.Decl != nil && call.Func.Decl.Recv != nil
+	if w.hostTakes(x) {
+		selfTaken = true // the result may be the receiver (hostTakesRecv)
+	}
 	if hostMethod {
 		// A binding signature lists no receiver parameter. Its named
 		// receiver's takes is TakesSelf; explicit parameters start at 1
@@ -2498,7 +2558,7 @@ func (w *ownWalk) call(x *syntax.CallExpr, mode ownMode, h hand) bool {
 			if recv && w.fieldTake(a, hand{at: a, how: how}) {
 				return false // a field taken in place (R39, Gap 38)
 			}
-			w.expr(a, mMove, hand{at: a, how: how, endLoans: drains})
+			w.expr(a, mMove, hand{at: a, how: how, endLoans: drains, endKept: closes && recv})
 			_, local := unparen(a).(*syntax.Ident)
 			return !(held && local)
 		}
@@ -2522,7 +2582,9 @@ func (w *ownWalk) call(x *syntax.CallExpr, mode ownMode, h hand) bool {
 		w.expr(a, mLend, hand{hostLend: hostCallee, lend: lendTo})
 		w.textLoan(a, lendTo)
 		if len(w.valueLoans(a)) > 0 && !nonEscaping(pt) {
-			w.checkLoanValue(a)
+			// A Go callee may keep what Go keeps (GB1), and a borrow
+			// parameter keeps nothing past the call.
+			w.checkLoans(a, hostCallee || isPointer(pt))
 		}
 		return false
 	}
@@ -2652,7 +2714,7 @@ func (w *ownWalk) holdsTaken(call *Call) bool {
 	case call.Kind == CallOp && call.Op != nil && call.Op.Sig != nil && call.Recv != nil:
 		return len(call.Op.Sig.Takes) > 0 && OpBodyOf(w.info.Types[call.Recv], call.Op.Name).Runtime != ""
 	case call.Kind == CallFunc && call.Func != nil && call.Func.Sig != nil:
-		return len(call.Func.Sig.Takes) > 0 && BodyOf(call.Func).Runtime != ""
+		return HoldsTaken(call.Func) // a Go body, or a generic forwarder to one (B2)
 	}
 	return false
 }

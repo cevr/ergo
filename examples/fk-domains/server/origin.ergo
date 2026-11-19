@@ -143,7 +143,7 @@ func sameOutcome(want outcome, got outcome) string {
 // the same status, Content-Type and Cache-Control, and for a 200 the
 // same frames, a success with the same listings field for field.
 func agrees(c recordedCase) string {
-	let a = with context { domains.Registry: sample.NewSample(), http.Streaming: http.NewRecorder() } {
+	let a = with context { domains.Registry: sample.Sample, http.Streaming: http.NewRecorder() } {
 		Answer(requestOf(c))
 	}
 	if a.Status != c.Status {

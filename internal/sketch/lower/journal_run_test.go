@@ -123,7 +123,9 @@ func untimed(s int) Option[Timeout[int]] { None }
 
 func unworked(s int) Option[func(send func(e int))] { None }
 
-func tally() Machine[int, int, int] { Machine[int, int, int]{Initial: 0, Step: tallyStep, After: untimed, Work: unworked} }
+func unexited(s int) Option[func()] { None }
+
+func tally() Machine[int, int, int] { Machine[int, int, int]{Initial: 0, Step: tallyStep, After: untimed, Work: unworked, Exit: unexited} }
 
 func fold(signals []int) int {
 	let o = machines.From(tally(), 0, signals) catch {
@@ -189,7 +191,7 @@ func crashing() Crashing {
 
 func recovers(j journal.Journal[int, int], arm func(mode int), all func() []int, ops []int, every int) bool needs Scheduler {
 	let n = 1 + ((every % 3) + 3) % 3
-	let mut a = journal.Start(Machine[int, int, int]{Initial: 0, Step: tallyStep, After: untimed, Work: unworked}, j, n, 4, func(o int) {}) catch {
+	let mut a = journal.Start(Machine[int, int, int]{Initial: 0, Step: tallyStep, After: untimed, Work: unworked, Exit: unexited}, j, n, 4, func(o int) {}) catch {
 	case _:
 		return false
 	}
@@ -222,7 +224,7 @@ func recovers(j journal.Journal[int, int], arm func(mode int), all func() []int,
 			}
 		}
 		if crashed {
-			a = journal.Start(Machine[int, int, int]{Initial: 0, Step: tallyStep, After: untimed, Work: unworked}, j, n, 4, func(o int) {}) catch {
+			a = journal.Start(Machine[int, int, int]{Initial: 0, Step: tallyStep, After: untimed, Work: unworked, Exit: unexited}, j, n, 4, func(o int) {}) catch {
 			case _:
 				return false
 			}
@@ -276,7 +278,7 @@ func dropped(j journal.Journal[int, int]) bool needs Scheduler {
 			}
 		}}
 	}
-	let a = journal.Start(Machine[int, int, int]{Initial: 0, Step: relayStep, After: untimed, Work: relayWork}, j, 0, 4, func(o int) {
+	let a = journal.Start(Machine[int, int, int]{Initial: 0, Step: relayStep, After: untimed, Work: relayWork, Exit: unexited}, j, 0, 4, func(o int) {
 		gate.Push(1) catch {
 		case queue.Closed:
 		}
@@ -306,7 +308,7 @@ func dropped(j journal.Journal[int, int]) bool needs Scheduler {
 	case journal.Failed:
 		return false
 	}
-	let b = journal.Start(Machine[int, int, int]{Initial: 0, Step: relayStep, After: untimed, Work: relayWork}, j, 0, 4, func(o int) {}) catch {
+	let b = journal.Start(Machine[int, int, int]{Initial: 0, Step: relayStep, After: untimed, Work: relayWork, Exit: unexited}, j, 0, 4, func(o int) {}) catch {
 	case _:
 		return false
 	}

@@ -5,9 +5,11 @@
 extern go crypto/subtle.ConstantTimeByteEq func ConstantTimeByteEq(x uint8, y uint8) int needs go.Foreign
 
 // ergo:go func ConstantTimeCompare(x []byte, y []byte) int
+// ergo:reads x y
 extern go crypto/subtle.ConstantTimeCompare func ConstantTimeCompare(x []byte, y []byte) int needs go.Foreign
 
 // ergo:go func ConstantTimeCopy(v int, x []byte, y []byte)
+// ergo:reads y
 extern go crypto/subtle.ConstantTimeCopy func ConstantTimeCopy(v int, x []byte, y []byte) needs go.Foreign
 
 // ergo:go func ConstantTimeEq(x int32, y int32) int

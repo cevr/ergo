@@ -4,7 +4,9 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"os"
+	"path/filepath"
 	"syscall"
 )
 
@@ -26,4 +28,21 @@ func lockDev(path string) (unlock func(), err error) {
 		return nil, err
 	}
 	return func() { file.Close() }, nil
+}
+
+// viaShortPath calls use with path, or, when path is longer than a socket
+// may be, with /proc/self/fd/N/NAME: N an open descriptor of path's folder
+// and NAME its last element, which bind and connect resolve to the same
+// file (Linux; on a host without /proc the call fails with the error
+// use returns, never on another path).
+func viaShortPath(path string, use func(string) error) error {
+	if len(path) <= devSocketPathMax {
+		return use(path)
+	}
+	dir, err := os.Open(filepath.Dir(path))
+	if err != nil {
+		return err
+	}
+	defer dir.Close()
+	return use(fmt.Sprintf("/proc/self/fd/%d/%s", dir.Fd(), filepath.Base(path)))
 }

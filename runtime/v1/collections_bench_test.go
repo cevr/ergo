@@ -59,7 +59,7 @@ func BenchmarkSlicesSortFunc(b *testing.B) {
 		for b.Loop() {
 			_ = SlicesSortFunc[int](xs, func(p int, p_1 int) int {
 				r, _ := func(env_1 *benchEnv, a int, b int) (int, error) {
-					v := CmpCompare[int](b, a)
+					v := cmp.Compare(b, a)
 					return v, nil
 				}(env, p, p_1)
 				return r

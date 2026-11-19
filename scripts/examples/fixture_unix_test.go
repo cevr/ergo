@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"testing"
 
+	"ergo.local/prototype/internal/cases"
 	"ergo.local/prototype/internal/testwait"
 )
 
@@ -36,7 +37,7 @@ func TestCapFixturesWriteExactCountsWithBSDHead(t *testing.T) {
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	f := newFixture(t)
-	pairs := [][2]int{{0, outputCap - 1}, {outputCap - 1, 0}, {0, outputCap}, {outputCap, 0}, {0, 0}}
+	pairs := [][2]int{{0, cases.OutputCap - 1}, {cases.OutputCap - 1, 0}, {0, cases.OutputCap}, {cases.OutputCap, 0}, {0, 0}}
 	cases := map[string]map[string]string{}
 	for i, sizes := range pairs {
 		files := map[string]string{"args": fmt.Sprintf("%d\n%d\n", sizes[0], sizes[1]), "expected.out": string(make([]byte, sizes[0]))}

@@ -90,7 +90,7 @@ internal/sketch/lower/json_fields_test.go	g3-comma
 internal/sketch/lower/values_probe_test.go	t5-25
 internal/sketch/lower/wireform_test.go	user-owned
 internal/sketch/lower/wiretext_property_test.go	non-constant
-internal/sketch/std/copy_test.go	keeps-drain-read-by-name
+internal/sketch/stdlib/copy_test.go	keeps-drain-read-by-name
 internal/sketchfront/load_test.go	door-names-no-line
 internal/toolchain/inert_test.go	irt-patch-active-without-ergoir
 scripts/mutants/runner_test.go	fu-mutants-xpkg

@@ -187,11 +187,27 @@ func stdoutCase(seed uint64) (steps []string, err error) {
 				// it waits (WhenWaiting runs at its Done).
 				step = "Pop that waits"
 				q := New[int](1)
-				rt.WhenWaiting(task, func() {
-					go func() { _ = q.Push(rt.Root("feeder"), 1) }()
-				})
-				if _, err := q.Pop(task); err != nil {
-					return err
+				if rt.Exploring {
+					// A goroutine of its own is a step outside the explored
+					// scheduler, which then sees the Pop wait on nothing that
+					// can run (a deadlock). The feeder is a task there: the
+					// cooperative picker runs main until the Pop waits, then
+					// the feeder.
+					feeders := rt.NewScope(task)
+					rt.Go(&feeders, "feeder", func(f *rt.Task) (struct{}, error) {
+						return struct{}{}, q.Push(f, 1)
+					})
+					if _, err := q.Pop(task); err != nil {
+						return err
+					}
+					feeders.End(nil)
+				} else {
+					rt.WhenWaiting(task, func() {
+						go func() { _ = q.Push(rt.Root("feeder"), 1) }()
+					})
+					if _, err := q.Pop(task); err != nil {
+						return err
+					}
 				}
 				m.flush()
 			case 7:

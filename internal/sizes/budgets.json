@@ -490,7 +490,7 @@
     "relay": {
       "ergoOnly": 421862,
       "ergoOnlyStripped": 294912,
-      "goPackages": 73,
+      "goPackages": 74,
       "forbid": [
         "^time\\.Time\\.(String|Format|GoString)$",
         "^time\\.LoadLocation",
@@ -603,13 +603,38 @@
             "ergo.local/program/std/strings (package split)",
             "runtime/metrics (PACE1)"
           ]
+        },
+        {
+          "unit": "I19 split key (f11422723)",
+          "ergoOnly": 0,
+          "ergoOnlyStripped": 0,
+          "goPackages": 1,
+          "from": "1bf4b3242 with f11422723 reverted",
+          "to": "1bf4b3242",
+          "owners": [
+            {
+              "owner": "CS4 package split working again (f11422723: the split finds a declaration's package by its BS6 //line name): the program's own packages leave main, so their code moves (4104 bytes moved, net +0); the byte ceilings are unchanged",
+              "bytes": 4104,
+              "symbols": [
+                "ergo.local/program/pkg/relay/chat.Read +1209",
+                "main.Read -1209",
+                "ergo.local/program/pkg/relay/text.NoteText.Decode +622",
+                "main.NoteText.Decode -622",
+                "ergo.local/program/pkg/relay/chat.Forward +405"
+              ]
+            }
+          ],
+          "packages": [
+            "ergo.local/program/pkg/relay/chat (package split)",
+            "ergo.local/program/pkg/relay/text (package split)"
+          ]
         }
       ]
     },
     "kvstore": {
       "ergoOnly": 1111995,
       "ergoOnlyStripped": 771032,
-      "goPackages": 78,
+      "goPackages": 79,
       "forbid": [
         "^fmt\\.",
         "^internal/fmtsort\\.",
@@ -722,13 +747,39 @@
             "ergo.local/program/std/strings (package split)",
             "runtime/metrics (PACE1)"
           ]
+        },
+        {
+          "unit": "I19 split key (f11422723)",
+          "ergoOnly": 0,
+          "ergoOnlyStripped": 0,
+          "goPackages": 1,
+          "from": "1bf4b3242 with f11422723 reverted",
+          "to": "1bf4b3242",
+          "owners": [
+            {
+              "owner": "CS4 package split working again (f11422723: the split finds a declaration's package by its BS6 //line name): the program's own packages leave main, so their code moves (21843 bytes moved, net +11); the byte ceilings are unchanged",
+              "bytes": 21843,
+              "symbols": [
+                "ergo.local/program/pkg/kvstore/kv.Exec +2123",
+                "main.Exec -2123",
+                "ergo.local/program/pkg/kvstore/file.Open +2055",
+                "main.Open -2055",
+                "ergo.local/program/pkg/kvstore/kv.Answer +1817"
+              ]
+            }
+          ],
+          "packages": [
+            "ergo.local/program/pkg/kvstore/file (package split)",
+            "ergo.local/program/pkg/kvstore/kv (package split)",
+            "ergo.local/program/pkg/kvstore/memory (package split)"
+          ]
         }
       ]
     },
     "deploys": {
       "ergoOnly": 741360,
       "ergoOnlyStripped": 516588,
-      "goPackages": 75,
+      "goPackages": 79,
       "forbid": [
         "^time\\.Time\\.(String|Format|GoString)$",
         "^time\\.LoadLocation",
@@ -844,13 +895,41 @@
             "ergo.local/program/std/strings (package split)",
             "runtime/metrics (PACE1)"
           ]
+        },
+        {
+          "unit": "I19 split key (f11422723)",
+          "ergoOnly": 0,
+          "ergoOnlyStripped": 0,
+          "goPackages": 4,
+          "from": "1bf4b3242 with f11422723 reverted",
+          "to": "1bf4b3242",
+          "owners": [
+            {
+              "owner": "CS4 package split working again (f11422723: the split finds a declaration's package by its BS6 //line name): the program's own packages leave main, so their code moves (45692 bytes moved, net +8); the byte ceilings are unchanged",
+              "bytes": 45692,
+              "symbols": [
+                "ergo.local/program/pkg/deploys/api.Request.Handle +8746",
+                "main.Request.Handle -8746",
+                "ergo.local/program/pkg/deploys/http1.ReadRequest +2542",
+                "main.ReadRequest -2542",
+                "ergo.local/program/pkg/deploys/deploys.Apply +2285"
+              ]
+            }
+          ],
+          "packages": [
+            "ergo.local/program/pkg/deploys/api (package split)",
+            "ergo.local/program/pkg/deploys/deploys (package split)",
+            "ergo.local/program/pkg/deploys/http1 (package split)",
+            "ergo.local/program/pkg/deploys/jsontext (package split)",
+            "ergo.local/program/pkg/deploys/memory (package split)"
+          ]
         }
       ]
     },
     "pairing": {
       "ergoOnly": 1437784,
       "ergoOnlyStripped": 992461,
-      "goPackages": 80,
+      "goPackages": 83,
       "forbid": [
         "^ergo\\.local/prototype/runtime/v1\\.(RegisterMachine|RegisteredGraph)\\[",
         "^main\\.init\\.[1-9]",
@@ -961,6 +1040,33 @@
             "ergo.local/program/std/prelude (package split)",
             "ergo.local/program/std/time (package split)",
             "runtime/metrics (PACE1)"
+          ]
+        },
+        {
+          "unit": "I19 split key (f11422723)",
+          "ergoOnly": 0,
+          "ergoOnlyStripped": 0,
+          "goPackages": 3,
+          "from": "1bf4b3242 with f11422723 reverted",
+          "to": "1bf4b3242",
+          "owners": [
+            {
+              "owner": "CS4 package split working again (f11422723: the split finds a declaration's package by its BS6 //line name): the program's own packages leave main, so their code moves (48536 bytes moved, net +109); the byte ceilings are unchanged",
+              "bytes": 48536,
+              "symbols": [
+                "ergo.local/program/pkg/pairing/screen.Run_1 +6580",
+                "main.Run_1 -6565",
+                "ergo.local/program/pkg/pairing/pair.Step +5950",
+                "main.Step -5886",
+                "ergo.local/program/pkg/pairing/screen.Parse +2373"
+              ]
+            }
+          ],
+          "packages": [
+            "ergo.local/program/pkg/pairing/memory (package split)",
+            "ergo.local/program/pkg/pairing/pad (package split)",
+            "ergo.local/program/pkg/pairing/pair (package split)",
+            "ergo.local/program/pkg/pairing/screen (package split)"
           ]
         }
       ]

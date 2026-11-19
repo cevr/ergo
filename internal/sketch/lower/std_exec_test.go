@@ -258,19 +258,20 @@ func main() needs Console | Ambient {
 		// its actual status. The trap's 37 is not a guessed signal status
 		// (137 or 143). The wait with a deadline is exec.WaitFor (ESC1
 		// refuses the old timeout.After { p.Wait() } borrow; stdlib.md,
-		// exec, WaitFor): the program waits on its fifo, so the deadline
-		// passes first, Expired leaves it running, and Stop ends it.
-		// The shell waits in `wait`, not `read`: dash runs a trap that
-		// comes while `read` is about to block only once read returns, so
-		// a TERM in that window waited out the 15 s grace and the SIGKILL
-		// gave 137 (measured: 3 of 4,800 shells at load 40; `wait` blocks
-		// with the signal masked, 0 of 3,200). Stop's group SIGKILL ends
-		// the cat. Mutant: cu4-host-grace-lost (lower ledger).
-		{name: "postStopStatus", src: strings.NewReplacer("STOPFIFO", filepath.Join(dir, "stop.fifo")).Replace(`import exec
+		// exec, WaitFor): the program waits on a child sleep, so the
+		// deadline passes first, Expired leaves it running, and Stop ends
+		// it. It waits in `wait`, not in `read`: dash runs a pending trap
+		// only between commands or when a signal cuts a blocking wait, and
+		// a TERM that lands after its last check and before read(2) was
+		// never acted on (15 in 10,000 at load), so Stop's grace ran out
+		// and the status was 137 (finding-poststop-trap-race, batch 19).
+		// Stop's TERM to the group also reaches the sleep, so `wait`
+		// returns and dash runs the trap.
+		{name: "postStopStatus", src: `import exec
 import timeout
 
 func stoppedStatus() int fails exec.NotFound | exec.Denied | exec.Failed needs exec.Runner | Scheduler {
-	let p = try exec.Runner.Start(exec.New("/bin/sh", []string{"-c", "mkfifo 'STOPFIFO'; exec 3<> 'STOPFIFO'; trap 'exit 37' TERM; cat <&3 >/dev/null & echo ready; wait $!"}).WithGrace(15s), exec.Streams{Stdout: exec.ToCaller, Stderr: exec.Discard})
+	let p = try exec.Runner.Start(exec.New("/bin/sh", []string{"-c", "trap 'exit 37' TERM; echo ready; sleep 1000 & wait $!"}).WithGrace(15s), exec.Streams{Stdout: exec.ToCaller, Stderr: exec.Discard})
 	for line in p.Lines() {
 		if line.Text == "ready" { break }
 	}
@@ -289,7 +290,7 @@ func main() needs Ambient | Console {
 	}
 	Console.Println("status \(code)")
 }
-`), stdout: "status 37\n"},
+`, stdout: "status 37\n"},
 	})
 }
 

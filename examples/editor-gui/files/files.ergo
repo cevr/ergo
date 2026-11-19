@@ -2,7 +2,7 @@
 // host's disk. A save writes a new file beside the old one and renames it
 // over it (fs.WriteFile), so a reader sees the old text or the new text.
 
-import editor/edit
+import ergo.local/prototype/examples/editorgui/edit
 import fs
 
 // Disk keeps documents in the host's files. Only New makes one.

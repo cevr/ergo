@@ -15,8 +15,11 @@ import (
 // patch is not ported to (I19 full r2 B10), nor downloads ergo's managed
 // release (internal/toolchain) from the network.
 //
-// Mutant: an ERGO_GO default of "system" (the old rule) puts PATH's go,
-// not go.mod's release, in the step.
+// It is ERGO_GO=system with that go first on PATH, so a test's go stub put
+// before it on PATH still runs (I19 full r3).
+//
+// Mutant: no default (tc-gate-managed-go) leaves PATH's go, or ergo's
+// managed download, in the step.
 func TestStepsBuildWithTheModuleGo(t *testing.T) {
 	if realTools["go"] == "" {
 		t.Fatal("go is required")
@@ -26,10 +29,12 @@ func TestStepsBuildWithTheModuleGo(t *testing.T) {
 	defer func() { moduleGoCommand = saved }()
 	t.Setenv(ergoGo, "")
 	os.Unsetenv(ergoGo)
-	value, _ := environmentVariable(keyedEnvironment(), ergoGo)
-	if filepath.Base(value) != "go" || !filepath.IsAbs(value) {
-		t.Fatalf("with ERGO_GO unset a step gets ERGO_GO=%q, want the go command of go.mod's toolchain", value)
+	environment := keyedEnvironment()
+	if value, _ := environmentVariable(environment, ergoGo); value != "system" {
+		t.Fatalf("with ERGO_GO unset a step gets ERGO_GO=%q, want system", value)
 	}
+	path, _ := environmentVariable(environment, "PATH")
+	value := filepath.Join(filepath.SplitList(path)[0], "go")
 	root, err := repositoryRoot()
 	if err != nil {
 		t.Fatal(err)
@@ -46,7 +51,7 @@ func TestStepsBuildWithTheModuleGo(t *testing.T) {
 	command.Env = append(os.Environ(), "GOTOOLCHAIN=local")
 	out, err := command.Output()
 	if got := strings.TrimSpace(string(out)); err != nil || got != string(line[1]) {
-		t.Errorf("ERGO_GO=%s is %q (%v), want go.mod's toolchain %s", value, got, err, line[1])
+		t.Errorf("the go first on a step's PATH, %s, is %q (%v), want go.mod's toolchain %s", value, got, err, line[1])
 	}
 	t.Setenv(ergoGo, "managed")
 	if value, _ := environmentVariable(keyedEnvironment(), ergoGo); value != "managed" {

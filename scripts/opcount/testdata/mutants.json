@@ -1,0 +1,50 @@
+{
+  "about": "scripts/opcount: the program mode builds the Ergo side as the product does (ergo's patched release, each package's IR read with -ergoir, through build.Toolchain.Command) and reports per package how many function bodies came from IR. The ergo build -work / -go-text choice and the runs are checked by hand (OPCOUNT-IR round-1 request: opcount onebrc on both paths), not by a gate test: they build ergo and run Go.",
+  "mutants": [
+    {
+      "name": "opcount-ir-flag-dropped",
+      "origin": "wf10 OPCOUNT-IR (C0b: opcount could not build an IR module)",
+      "file": "scripts/opcount/main.go",
+      "from": "\treturn tc.Command(build.Module{Dir: dir}, bin)\n",
+      "to": "\treturn exec.Command(tc.Go, \"build\", \"-trimpath\", \"-mod=readonly\", \"-buildvcs=false\", \"-o\", bin, \".\")\n",
+      "rule": "Each package of the emitted module that has an IR file compiles with its own -ergoir, as ergo build compiles it.",
+      "killers": ["scripts/opcount:TestModuleBuildReadsEachPackagesIR"]
+    },
+    {
+      "name": "opcount-stock-go",
+      "origin": "wf10 OPCOUNT-IR",
+      "file": "scripts/opcount/main.go",
+      "from": "\ttc.Go, tc.Root = release.Go, release.Root\n",
+      "to": "\ttc.Go, tc.Root = \"go\", \"\"\n",
+      "rule": "The program builds with the release ergo builds with and its patched compile, the only compile that reads -ergoir.",
+      "killers": ["scripts/opcount:TestModuleBuildReadsEachPackagesIR"]
+    },
+    {
+      "name": "opcount-overlay-dropped",
+      "origin": "wf10 OPCOUNT-IR",
+      "file": "scripts/opcount/main.go",
+      "from": "\ttc.GOFLAGS = strings.TrimSpace(os.Getenv(\"GOFLAGS\") + \" '-overlay=\" + overlay + \"' -ldflags=-checklinkname=0\")\n",
+      "to": "\ttc.GOFLAGS = strings.TrimSpace(os.Getenv(\"GOFLAGS\") + \" -ldflags=-checklinkname=0\")\n",
+      "rule": "The measured binary carries the exit hook, added by the overlay.",
+      "killers": ["scripts/opcount:TestModuleBuildReadsEachPackagesIR"]
+    },
+    {
+      "name": "opcount-bodies-ir-uncounted",
+      "origin": "wf10 OPCOUNT-IR",
+      "file": "scripts/opcount/main.go",
+      "from": "\t\t\tat(rel).IR += len(ir.Funcs)\n",
+      "to": "\t\t\tat(rel).IR += 0\n",
+      "rule": "A package's IR count is the functions its IR file names.",
+      "killers": ["scripts/opcount:TestIRBodiesPerPackage"]
+    },
+    {
+      "name": "opcount-bodies-runtime-counted",
+      "origin": "wf10 OPCOUNT-IR",
+      "file": "scripts/opcount/main.go",
+      "from": "err == nil && p != dir {\n",
+      "to": "err == nil && false {\n",
+      "rule": "The runtime's nested module is no package of the program: its functions are not counted.",
+      "killers": ["scripts/opcount:TestIRBodiesPerPackage"]
+    }
+  ]
+}

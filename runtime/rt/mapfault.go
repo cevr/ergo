@@ -43,10 +43,12 @@ func (f MappedFault) Error() string {
 	return "fs: the mapped file " + f.Path + " changed under its mapping (another process truncated it?): no page at byte " + strconv.FormatUint(uint64(f.Offset), 10) + " (" + cause + ")"
 }
 
-// mapping is one live mapping: its address range and its file.
+// mapping is one live mapping: its address range and its file, or, for a
+// guarded copy (GuardRegister), the defect a fault inside it stands for.
 type mapping struct {
 	base, size uintptr
 	path       string
+	fault      func(off uintptr, cause error) any
 }
 
 var (
@@ -74,6 +76,26 @@ func MapRegister(base, size uintptr, path string) uint64 {
 	mappings[id] = mapping{base: base, size: size, path: path}
 	mappingsMu.Unlock()
 	faultValueOf.Store(&mappedFaultValue)
+	mappingsLive.Add(1)
+	panicOnFault(true)
+	return id
+}
+
+// GuardRegister records the pages of a guarded copy (v1.GuardBytes;
+// LAWFFI LF2b), size bytes at base, as MapRegister records a file: the
+// calling goroutine, and every task that starts while the copy is
+// registered, panics on a fault, and FaultValue gives fault's value for a
+// fault off bytes into the pages. MapUnregister forgets it.
+func GuardRegister(base, size uintptr, fault func(off uintptr, cause error) any) uint64 {
+	mappingsMu.Lock()
+	if mappings == nil {
+		mappings = map[uint64]mapping{}
+	}
+	mappingID++
+	id := mappingID
+	mappings[id] = mapping{base: base, size: size, fault: fault}
+	mappingsMu.Unlock()
+	faultValueOf.Store(&mappedFaultValue) // I-FLIP: LF2b x SIZE-HELLO
 	mappingsLive.Add(1)
 	panicOnFault(true)
 	return id
@@ -135,6 +157,9 @@ func mappedFault(p any) any {
 	defer mappingsMu.Unlock()
 	for _, m := range mappings {
 		if addr >= m.base && addr-m.base < m.size {
+			if m.fault != nil {
+				return m.fault(addr-m.base, e)
+			}
 			return MappedFault{Path: m.path, Offset: addr - m.base, Cause: e}
 		}
 	}

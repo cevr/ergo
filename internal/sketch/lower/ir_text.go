@@ -18,13 +18,17 @@ func (b *irBuilder) text(x *syntax.InterpolatedString, p irPos) *irExpr {
 	if len(x.Texts) != len(x.Exprs)+1 {
 		irNo("interpolated string form")
 	}
+	for _, e := range x.Exprs {
+		b.textType(e)
+	}
+	vals := b.inOrder(x.Exprs) // ir_order.go: the values in order, as interp.go spills them
 	var parts []*irExpr
 	for i, seg := range x.Texts {
 		if s := b.fc.segment(seg, i == 0, i == len(x.Texts)-1); s != "" {
 			parts = append(parts, &irExpr{K: "const", Pos: b.pos(seg, seg.Pos()), T: "string", V: irString(s)})
 		}
 		if i < len(x.Exprs) {
-			parts = append(parts, b.textOf(x.Exprs[i]))
+			parts = append(parts, b.textOf(x.Exprs[i], vals[i]))
 		}
 	}
 	if len(parts) == 0 {
@@ -37,8 +41,9 @@ func (b *irBuilder) text(x *syntax.InterpolatedString, p irPos) *irExpr {
 	return out
 }
 
-// textOf is the text of the interpolated value x.
-func (b *irBuilder) textOf(x syntax.Expr) *irExpr {
+// textType is the basic type of the interpolated value x, which its text
+// takes.
+func (b *irBuilder) textType(x syntax.Expr) *check.Basic {
 	t := b.l.info.Types[x]
 	b.goType(t, x)
 	// A named scalar's text is its basic type's, through a Go conversion
@@ -47,11 +52,16 @@ func (b *irBuilder) textOf(x syntax.Expr) *irExpr {
 	if bt == nil {
 		irNo("interpolated value of type %s", t)
 	}
-	named := basicOf(t) == nil
-	if named && bt.Kind == check.Duration {
+	if basicOf(t) == nil && bt.Kind == check.Duration {
 		irNo("interpolated named duration")
 	}
-	v := b.expr(x)
+	return bt
+}
+
+// textOf is the text of the interpolated value x, whose IR is v.
+func (b *irBuilder) textOf(x syntax.Expr, v *irExpr) *irExpr {
+	bt := b.textType(x)
+	named := basicOf(b.l.info.Types[x]) == nil
 	p := v.Pos
 	as := func(goType string) *irExpr {
 		if !named && bt.Name == goType {
@@ -86,6 +96,6 @@ func (b *irBuilder) textOf(x syntax.Expr) *irExpr {
 		prec := &irExpr{K: "const", Pos: p, T: "int", V: "-1"}
 		return strconvCall("FormatFloat", as("float64"), g, prec, &irExpr{K: "const", Pos: p, T: "int", V: bits})
 	}
-	irNo("interpolated value of type %s", t)
+	irNo("interpolated value of type %s", b.l.info.Types[x])
 	return nil
 }

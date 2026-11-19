@@ -241,7 +241,14 @@ func BenchmarkRpcUnary(b *testing.B) {
 	if err != nil || a.Root().Package == nil {
 		b.Fatalf("the contract does not check: %v %v", err, a.Diagnostics)
 	}
-	out, err := Generate(a.Root().Package, "bench/limits", "Limiter")
+	hub, err := GenerateAPI(a.Root().Package, "bench/limits", "Limiter")
+	if err != nil {
+		b.Fatal(err)
+	}
+	for name, src := range hub.Files {
+		writeFile(b, filepath.Join(dir, "limits", hub.Dir, name), src)
+	}
+	out, err := Generate(a.Root().Package, "bench/limits", "Limiter", "bench/limits/"+hub.Dir)
 	if err != nil {
 		b.Fatal(err)
 	}

@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	v1 "ergo.local/prototype/runtime/v1"
 )
 
@@ -202,7 +202,7 @@ func TestDeadline(t *testing.T) {
 // function the lowering cannot call. A body that takes the caller's
 // Scheduler needs a Scheduler in the Ergo signature (hiddenArgs).
 func TestStdExternsHaveBodies(t *testing.T) {
-	paths := std.Packages()
+	paths := stdlib.Packages()
 	if len(paths) == 0 {
 		t.Fatal("no std packages")
 	}

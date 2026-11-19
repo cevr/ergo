@@ -44,6 +44,9 @@ type Task struct {
 	// is in none. It is fixed before t runs, except for the task that
 	// makes an auto clock, which sets its own.
 	member atomic.Pointer[member]
+	// wake is t's park word (park.go): t's goroutine parks on it in a
+	// wait on one value, and a waker or a stop request wakes it.
+	wake parker
 
 	mu sync.Mutex
 	// stop is made on first use under mu, by the task's Done or by its Go
@@ -130,6 +133,35 @@ func (t *Task) ID() uint64 { return t.id }
 // Span is the span or definition ID the task was started under (G2).
 func (t *Task) Span() string { return t.span }
 
+// envMemos holds the copies of a program environment that host callbacks
+// made for tasks (EnvMemo), in a slot chosen by the task's ID. It lives
+// outside Task, which keeps its size class (trace_test.go). Two tasks that
+// share a slot take turns in it: a lookup that finds the other's copy
+// misses, and the caller copies again (the lowering checks the copy's
+// task). A held copy keeps its task live, so no new task has its address.
+var envMemos [envMemoSlots]atomic.Pointer[envMemo]
+
+const envMemoSlots = 256
+
+type envMemo struct{ env any }
+
+// EnvMemo is the value SetEnvMemo last stored for t, or a value stored for
+// another task, or nil: the caller checks it is t's. The lowering keeps
+// there the copy of a program environment that a host callback made to run
+// an Ergo body on t (internal/sketch/lower closures.go, envMemoText), so
+// the next callback on t with the same environment reuses it instead of
+// copying it again (ENV-COPY). Any goroutine may call it; a stored value
+// is never written.
+func (t *Task) EnvMemo() any {
+	if m := envMemos[t.id%envMemoSlots].Load(); m != nil {
+		return m.env
+	}
+	return nil
+}
+
+// SetEnvMemo stores e as t's EnvMemo.
+func (t *Task) SetEnvMemo(e any) { envMemos[t.id%envMemoSlots].Store(&envMemo{env: e}) }
+
 // Parent is the task that started t while t runs, and nil for a root or a
 // finished task. It is a live link, not a record: a defect keeps its ancestry
 // as copied frames. Safe from any goroutine.
@@ -171,6 +203,9 @@ func (t *Task) Interrupt() {
 			close(t.stop)
 		}
 		m.unlock()
+		// A wait parked on t's word ends on the stop: the wake comes after
+		// the flag, so the woken waiter sees it.
+		t.wake.unpark()
 		if t.waker {
 			if wake, ok := wakers.Load(t); ok {
 				wake.(StopWaker).Wake()
@@ -278,15 +313,7 @@ var wakers sync.Map
 // registered what it waits for (a Sleep after its timer is armed), so it is
 // also the point where WhenWaiting's hook runs.
 func (t *Task) Done() <-chan struct{} {
-	if waitFlush.pending.Load() {
-		waitFlush.flush()
-	}
-	if t.stopped.v.Load()&flagPolled != 0 {
-		t.firePollHook()
-	}
-	if waitHooks.n.Load() != 0 {
-		t.fireWaitHook()
-	}
+	t.Waits()
 	if t.regions.top != interruptible {
 		return nil
 	}
@@ -371,9 +398,16 @@ func IsOutputHeld() bool { return waitFlush.pending.Load() }
 // count is almost always zero and Done pays one atomic load. The hooks are
 // outside Task so that a task keeps its allocation size class
 // (TestTraceHookKeepsTaskSize).
+//
+// One hook at a time lives in the slot (one, its task in oneTask), the
+// rest in m: a hook is stored and removed with no allocation while it is
+// the only one (FU-timer-task-reuse: an actor arms one per timer).
 var waitHooks struct {
-	n atomic.Int64
-	m sync.Map // *Task -> func()
+	n       atomic.Int64
+	mu      sync.Mutex // guards one; oneTask is written under it
+	oneTask atomic.Pointer[Task]
+	one     func()
+	m       sync.Map // *Task -> func()
 }
 
 // WhenWaiting runs f once, on t's goroutine, when t first reaches a wait of
@@ -383,20 +417,55 @@ var waitHooks struct {
 // if it has not run; call it when t ends. Call WhenWaiting from t's own
 // goroutine.
 func WhenWaiting(t *Task, f func()) (cancel func()) {
-	waitHooks.m.Store(t, f)
-	waitHooks.n.Add(1)
-	return func() {
-		if _, ok := waitHooks.m.LoadAndDelete(t); ok {
-			waitHooks.n.Add(-1)
-		}
+	addWaitHook(t, f)
+	return func() { takeWaitHook(t) }
+}
+
+// ClearWaitHook is WhenWaiting's cancel for t, which a caller that keeps
+// no cancel calls when t ends. Call it from t's own goroutine.
+func ClearWaitHook(t *Task) { takeWaitHook(t) }
+
+// WhenWaitingHook is WhenWaiting with no cancel func to allocate: the
+// caller ends the hook with ClearWaitHook.
+func WhenWaitingHook(t *Task, f func()) { addWaitHook(t, f) }
+
+func addWaitHook(t *Task, f func()) {
+	waitHooks.mu.Lock()
+	if waitHooks.oneTask.Load() == nil {
+		waitHooks.one = f
+		waitHooks.oneTask.Store(t)
+	} else {
+		waitHooks.m.Store(t, f)
 	}
+	waitHooks.n.Add(1)
+	waitHooks.mu.Unlock()
+}
+
+// takeWaitHook removes t's hook and returns it, nil when t has none.
+func takeWaitHook(t *Task) func() {
+	if waitHooks.oneTask.Load() == t {
+		waitHooks.mu.Lock()
+		if waitHooks.oneTask.Load() == t {
+			f := waitHooks.one
+			waitHooks.one = nil
+			waitHooks.oneTask.Store(nil)
+			waitHooks.n.Add(-1)
+			waitHooks.mu.Unlock()
+			return f
+		}
+		waitHooks.mu.Unlock()
+	}
+	if f, ok := waitHooks.m.LoadAndDelete(t); ok {
+		waitHooks.n.Add(-1)
+		return f.(func())
+	}
+	return nil
 }
 
 // fireWaitHook runs and removes t's WhenWaiting hook, if t has one.
 func (t *Task) fireWaitHook() {
-	if f, ok := waitHooks.m.LoadAndDelete(t); ok {
-		waitHooks.n.Add(-1)
-		f.(func())()
+	if f := takeWaitHook(t); f != nil {
+		f()
 	}
 }
 
