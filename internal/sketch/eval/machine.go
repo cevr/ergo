@@ -15,8 +15,8 @@ import (
 
 // Machine laws at check time (L7 EV4; types.md, Laws 13). A reachability
 // law (`reaches V`, `never reaches V`, `path [V1, …]`) runs on the same
-// explorer the test build runs (runtime/explore: Search, Path, Moves and
-// the replay that rebuilds a frontier state from its run), with the
+// explorer the test build runs (runtime/explore: Search, Path and Moves),
+// with the
 // machine's step interpreted: Enter, Stay and Emit go to their Next;
 // Ignore, Reject and a step's typed failure keep the state; Done ends the
 // run, so it is no edge. States are keyed by the encoding the test build's
@@ -26,10 +26,13 @@ import (
 // build draws ($ExploreRuns, lower/machinelaws.go), from the same stream
 // and in the same order, so the two find the same run.
 //
-// Work is metered as everywhere in the evaluator: each call of the step
-// (a replay's too: the explorer rebuilds each state it expands by stepping
-// its run again, so its work is more than its edges), each target test and
-// each key component and byte costs steps. A search the step budget stops
+// Work is metered as everywhere in the evaluator: each call of the step,
+// each target test and each key component and byte costs steps. The search
+// holds its frontier's states (SearchHeld), so a whole search steps each
+// edge once; the test build's Search rebuilds each state it expands by
+// stepping its run again, to keep node indexes only, but check time has
+// paid for every state in its byte budget already (MX-VTLAWS: the replays
+// were 31,981 of vt's 75,651 step calls). A search the step budget stops
 // is incomplete, never proved; the budget of states (Budget.States, the
 // test build's --states) is the explorer's own bound, and past it a law is
 // not proved, as the test build says.
@@ -144,15 +147,17 @@ func (in *interp) machineLaw(law *check.Law, res Result) (out Result) {
 		out.Status, out.Reason = Skipped, why
 		return out
 	}
-	// An always or sometimes law (X2) reads each state through its
-	// predicate; check time searches only for named variants, so it
-	// leaves the law to ergo test.
-	if law.Decl.Reach.Pred != nil {
-		return skip("this " + law.Decl.Reach.Kind() + " law reads its states through a predicate, which check time does not search")
-	}
 	pre := preflight{in: in, seen: map[syntax.Node]bool{}}
 	if why := pre.function(fr, m.step); why != "" {
 		return skip(why)
+	}
+	// An always or sometimes law (X2) reads each state through its
+	// predicate, a pure Ergo function of the state the checker admitted
+	// (check/machinelaw.go); it runs where the step runs.
+	if law.Pred != nil {
+		if why := pre.function(fr, law.Pred); why != "" {
+			return skip(why)
+		}
 	}
 	std := ""
 	keyless := testplan.KeyWhy(m.state, func(n *check.Named) bool {
@@ -239,7 +244,27 @@ func (in *interp) machineLaw(law *check.Law, res Result) (out Result) {
 		names = append(names, t.Obj.Name)
 	}
 	kind := law.Decl.Reach.Kind()
-	l := &machineRun{in: in, fr: fr, m: m, g: g, targets: targets, names: names, ms: ms, res: &out}
+	broken := ""
+	if law.Pred != nil {
+		// As ergo test decides it (lower machinelaws.go): always p never
+		// reaches a state where p is false, and sometimes p reaches one
+		// where p holds. The predicate is called as the step is: a call
+		// that does not complete unwinds the search.
+		pred, holds := law.Pred, true
+		name := law.Decl.Reach.Pred.Name
+		if kind == "always" {
+			kind, holds = "never", false
+			names = append(names, "a state where "+name+" is false")
+			broken = ", where " + name + " is false"
+		} else {
+			kind = "reaches"
+			names = append(names, "a state where "+name+" holds")
+		}
+		targets = append(targets, func(s Value) bool {
+			return mustValue(in.call(fr, nil, pred, nil, []Value{s})).(bool) == holds
+		})
+	}
+	l := &machineRun{in: in, fr: fr, m: m, g: g, targets: targets, names: names, ms: ms, res: &out, broken: broken, invariant: law.Pred != nil}
 	note, bounded := "", false
 	if starts != nil && signals != nil {
 		if g.Key == nil {
@@ -278,6 +303,11 @@ type machineRun struct {
 	names   []string
 	ms      *MachineSearch
 	res     *Result
+	// broken is what a never law's counterexample breaks: ", where p is
+	// false" for an always law, else "". invariant marks an always or
+	// sometimes law (X2).
+	broken    string
+	invariant bool
 }
 
 func (l *machineRun) refute(why string) {
@@ -329,7 +359,7 @@ func (l *machineRun) all(kind string) (string, bool) {
 		}
 		return "no run follows the path in " + itoa(r.States) + " states", false
 	}
-	r := explore.Search(l.g, l.targets[0], budget)
+	r := explore.SearchHeld(l.g, l.targets[0], budget)
 	l.counters(r)
 	if r.Found >= 0 {
 		start, _, text := run(r)
@@ -339,7 +369,7 @@ func (l *machineRun) all(kind string) (string, bool) {
 		}
 		l.ms.Run = text
 		_, idx := r.Run(r.Found)
-		l.refute("the run " + text + " reaches " + l.in.argument(l.fr, l.m.state, explore.Replay(l.g, start, idx)))
+		l.refute("the run " + text + " reaches " + l.in.argument(l.fr, l.m.state, explore.Replay(l.g, start, idx)) + l.broken)
 		return "", true
 	}
 	if r.Complete {
@@ -427,7 +457,7 @@ func (l *machineRun) runs(kind string, startTypes []check.Type, note string) str
 			case kind == "never" && l.targets[0](nodes[k].s):
 				text, _ := trace(nodes, k)
 				l.ms.Run = text
-				l.refute("the run " + text + " reaches " + in.argument(fr, l.m.state, nodes[k].s))
+				l.refute("the run " + text + " reaches " + in.argument(fr, l.m.state, nodes[k].s) + l.broken)
 				return ""
 			case kind == "reaches" && l.targets[0](nodes[k].s):
 				text, _ := trace(nodes, k)
@@ -452,6 +482,12 @@ func (l *machineRun) runs(kind string, startTypes []check.Type, note string) str
 	}
 	if kind == "path" {
 		l.refute("no generated run follows the path [" + strings.Join(l.names, ", ") + "]")
+		return ""
+	}
+	if l.invariant {
+		// A sometimes law with no witness in the runs is not found: the
+		// graph was not decided, so no witness is no proof either way.
+		l.refute("not found: no generated run reaches " + l.names[0])
 		return ""
 	}
 	l.refute("no generated run reaches " + l.names[0])

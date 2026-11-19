@@ -1,0 +1,9 @@
+# scripts/opcount: toktree scans and builds N bytes of the repository's
+# own Ergo source on its stdin; the cost of one byte is the slope between
+# the two sizes. The control is the hand Go program of the same layout
+# (wf10 self-layout plan §2.3, SL1).
+unit byte
+sizes 4000000 32000000
+input go cmd/ergo/testdata/toktree/gen {n}
+args {input}
+control cmd/ergo/testdata/toktree/control

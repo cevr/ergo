@@ -1,0 +1,183 @@
+// Log keeps the records of commands in streams, one stream per aggregate
+// (or per context that one actor holds). Each stream's records have the
+// positions 1, 2, 3, … with no gap; an id names one command in every
+// stream, so a resend is answered with the first receipt and changes
+// nothing (sync-spike L1), and an id kept with another payload is refused
+// (L2). The state of an aggregate is the fold of its stream's events (L3:
+// Sourced).
+type Log[E comparable] {
+	// Append keeps the record of the command id with events at the next
+	// position of stream, when expected is the stream's last position (0
+	// for an empty stream), and is its receipt. A resend, the id kept
+	// before with this stream and these events, is the first receipt,
+	// whatever expected is, and keeps nothing. It fails Reused when the
+	// log kept id with another stream or other events, Conflict when
+	// expected is not the stream's last position, and Unkept when the
+	// provider could not keep the record.
+	Append(stream string, expected int, id CommandID, events []E) Receipt fails Conflict | Reused | Unkept,
+	// Read is the records of stream after the position from, in order.
+	Read(stream string, from int) []Recorded[E],
+	// Seen is the receipt of the command id, if the log kept it.
+	Seen(id CommandID) Option[Receipt],
+
+	// A law proves nothing in a case whose Append fails Unkept: the
+	// provider said it could not keep the record (a crash).
+
+	// AppendThenRead: an Append at the stream's last position keeps the
+	// record at the next one; Read after the old last gives it alone, and
+	// Seen gives its receipt.
+	law AppendThenRead(stream string, id CommandID, events []E) {
+		let at = lastOf(Read(stream, 0))
+		let r = Append(stream, at, id, events) catch {
+		case Reused:
+			// The case drew an id the provider kept before it: nothing
+			// to check (a provider from its builder holds none).
+			return true
+		case Conflict:
+			return false
+		case Unkept:
+			return true
+		}
+		let after = Read(stream, at)
+		r == Receipt{ID: id, Stream: stream, Position: at + 1} && after == []Recorded[E]{Recorded[E]{Position: at + 1, ID: id, Events: events}} && Seen(id) == Some[Receipt]{Value: r}
+	},
+	// PositionsAreDense: after any appends, the positions of a stream are
+	// 1, 2, …, its number of records, in order.
+	law PositionsAreDense(stream string, batches [][]E) {
+		for i, events in batches {
+			let id = CommandID("dense-\(len(Read(stream, 0)))-\(i)")
+			Append(stream, lastOf(Read(stream, 0)), id, events) catch {
+			case Reused:
+			case Conflict:
+				return false
+			case Unkept:
+				return true
+			}
+		}
+		dense(Read(stream, 0))
+	},
+	// ConflictOnStaleExpected: an Append whose expected is not the
+	// stream's last position fails Conflict with the last position, and
+	// keeps nothing.
+	law ConflictOnStaleExpected(stream string, id CommandID, events []E, off int) {
+		// One record first, so a stale position may be below the last.
+		Append(stream, lastOf(Read(stream, 0)), CommandID("\(id)-first"), events) catch {
+		case Conflict, Reused:
+			return false
+		case Unkept:
+			return true
+		}
+		let before = Read(stream, 0)
+		let at = lastOf(before)
+		let stale = staleOf(at, off)
+		Append(stream, stale, id, events) catch {
+		case Conflict as c:
+			return c == Conflict{Stream: stream, Expected: stale, Actual: at} && Read(stream, 0) == before && Seen(id) == None
+		case Reused:
+			return true
+		case Unkept:
+			return true
+		}
+		false
+	},
+	// ResendGivesFirstReceipt: an Append of a kept id with its stream and
+	// events, at the new last position or the old one, is the first
+	// receipt and keeps nothing.
+	law ResendGivesFirstReceipt(stream string, id CommandID, events []E) {
+		let at = lastOf(Read(stream, 0))
+		let first = Append(stream, at, id, events) catch {
+		case Reused:
+			return true
+		case Conflict:
+			return false
+		case Unkept:
+			return true
+		}
+		let kept = Read(stream, 0)
+		let again = Append(stream, at+1, id, events) catch {
+		case Conflict, Reused:
+			return false
+		case Unkept:
+			return true
+		}
+		let stale = Append(stream, at, id, events) catch {
+		case Conflict, Reused:
+			return false
+		case Unkept:
+			return true
+		}
+		again == first && stale == first && Read(stream, 0) == kept
+	},
+	// SameIdOtherPayloadIsRefused: an Append of a kept id with another
+	// stream, or with other events, fails Reused and keeps nothing.
+	law SameIdOtherPayloadIsRefused(stream string, id CommandID, events []E, other []E) {
+		let at = lastOf(Read(stream, 0))
+		Append(stream, at, id, events) catch {
+		case Reused:
+			return true
+		case Conflict:
+			return false
+		case Unkept:
+			return true
+		}
+		let elsewhere = stream + "+"
+		let kept = Read(stream, 0)
+		// A refused Append is the receipt at position 0, which no kept
+		// record has.
+		let moved = Append(elsewhere, 0, id, events) catch {
+		case Reused:
+			refused
+		case Conflict:
+			return false
+		case Unkept:
+			return true
+		}
+		if moved != refused || len(Read(elsewhere, 0)) != 0 {
+			return false
+		}
+		if other == events {
+			return true
+		}
+		let changed = Append(stream, at+1, id, other) catch {
+		case Reused:
+			refused
+		case Conflict:
+			return false
+		case Unkept:
+			return true
+		}
+		changed == refused && Read(stream, 0) == kept
+	},
+}
+
+// refused stands for an Append that failed Reused in a law: no receipt
+// of a kept record has the position 0.
+let refused = Receipt{ID: CommandID(""), Stream: "", Position: 0}
+
+// lastOf is the position of the last of records, 0 when there is none.
+func lastOf[E](records []Recorded[E]) int {
+	if len(records) == 0 {
+		return 0
+	}
+	records[len(records)-1].Position
+}
+
+// dense is whether records have the positions 1, 2, … in order.
+func dense[E](records []Recorded[E]) bool {
+	for i, r in records {
+		if r.Position != i+1 {
+			return false
+		}
+	}
+	true
+}
+
+// staleOf is a position that is not at: below it when off is odd and at
+// is positive, else above it.
+func staleOf(at int, off int) int {
+	let step = 1 + ((off/2)%3+3)%3
+	if off%2 != 0 && at > 0 {
+		return at - 1 - (((off/2)%at)+at)%at
+	}
+	at + step
+}

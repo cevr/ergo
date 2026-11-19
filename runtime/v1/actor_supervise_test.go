@@ -268,7 +268,7 @@ func supRun(t *testing.T, c supCase) supOutcome {
 	}
 	a := MachineSupervise(Site("supervised"), driver, releaser{make(chan sleep)}, nil, []int{}, fresh, c.limit, step,
 		func(*rt.Task, []int, []int) (rdec, error) { return rdec{kind: decideIgnore}, nil },
-		func([]int) time.Duration { return ActorNoTimer() }, noWork[[]int], func(struct{}) bool { return true }, work,
+		func([]int) time.Duration { return ActorNoTimer() }, noWork[[]int], func(struct{}) bool { return true }, work, nil, nil,
 		func(d rdec) int { return d.kind },
 		func(s []int, d rdec) []int {
 			if d.kind == decideStay {

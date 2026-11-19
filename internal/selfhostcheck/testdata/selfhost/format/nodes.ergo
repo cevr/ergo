@@ -798,6 +798,10 @@ func stmt(p *Printer, x int) {
 		p.token(p.at(x, "Assert"), "assert")
 		p.space()
 		p.expr(p.k(x, "X"))
+	case "SkipStmt":
+		p.token(p.at(x, "Skip"), "skip")
+		p.space()
+		p.tokenEnd(p.at(x, "ReasonPos"), p.s(x, "Reason"), p.at(x, "ReasonEnd"))
 	case "BlockStmt":
 		p.block(x, false)
 	case "IfStmt":

@@ -31,16 +31,16 @@ func lift[T](v T) T {
 
 // The wire types check clean: basic types, a refined type, a record, a
 // union, Option, a recursive record, a tuple and a wire type parameter.
-func clean[T wire](v T, s State, t Tree, o Option[Up], p Port) {
-	keep(true)
-	keep(1)
-	keep(2.5)
-	keep("x")
-	keep(p)
-	keep(s)
-	keep(t)
-	keep(o)
-	keep((1, "a"))
-	keep(v)
-	keep([]State{s})
+func clean[T wire](v T, s State, t Tree, o Option[Up], p Port) []T {
+	let _ = keep(true)
+	let _ = keep(1)
+	let _ = keep(2.5)
+	let _ = keep("x")
+	let _ = keep(p)
+	let _ = keep(s)
+	let _ = keep(t)
+	let _ = keep(o)
+	let _ = keep((1, "a"))
+	let _ = keep([]State{s})
+	[]T{keep(v)}
 }

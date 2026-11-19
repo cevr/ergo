@@ -110,6 +110,41 @@ func TestPlatformOfABuild(t *testing.T) {
 			}
 		}
 	}
+	// A phone platform (MB2) checks against the bindings of the platform
+	// Go's build constraints read it as, named by --platform or by GOOS and
+	// GOARCH alike; run and test refuse it, since a phone program is a
+	// library its packager links. Mutants: a phone mapped to another
+	// bindings platform; the refusal of run and test dropped.
+	for _, c := range []struct {
+		command      string
+		args         []string
+		goos, goarch string
+		checked      gobind.Platform
+		refused      string
+	}{
+		{"build", []string{"--platform", "ios/arm64"}, "", "", gobind.Platform{GOOS: "darwin", GOARCH: "arm64"}, ""},
+		{"build", []string{"--platform", "android/arm64"}, "", "", gobind.Platform{GOOS: "linux", GOARCH: "arm64"}, ""},
+		{"check", nil, "android", "amd64", gobind.Platform{GOOS: "linux", GOARCH: "amd64"}, ""},
+		{"test", nil, "ios", "arm64", gobind.Platform{}, "test does not run a program for ios/arm64, a phone platform"},
+		{"run", nil, "android", "arm64", gobind.Platform{}, "run does not run a program for android/arm64, a phone platform"},
+		{"build", []string{"--platform", "ios/amd64"}, "", "", gobind.Platform{}, "EF110: unsupported target go on ios/amd64"},
+	} {
+		t.Setenv("GOOS", c.goos)
+		t.Setenv("GOARCH", c.goarch)
+		opts, err := parseFileOptions(c.command, append(c.args, "main.ergo"))
+		if c.refused != "" {
+			if err == nil || !strings.HasPrefix(err.Error(), c.refused) {
+				t.Fatalf("%s %v with GOOS=%q GOARCH=%q: %v; want %q", c.command, c.args, c.goos, c.goarch, err, c.refused)
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatalf("%s %v with GOOS=%q GOARCH=%q: %v", c.command, c.args, c.goos, c.goarch, err)
+		}
+		if opts.platform != c.checked || opts.phone == (gobind.Platform{}) {
+			t.Fatalf("%s %v with GOOS=%q GOARCH=%q: checks %s for phone %s; want %s for a phone", c.command, c.args, c.goos, c.goarch, opts.platform, opts.phone, c.checked)
+		}
+	}
 }
 
 // executablePlatform reads the platform an executable's header names: an

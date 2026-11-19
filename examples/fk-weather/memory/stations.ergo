@@ -7,7 +7,10 @@ import fkweather/weather
 // cannot answer; any other zip has no place.
 type Stations {} implements weather.Forecast
 
-func Fetch(_ Stations, zip string) weather.Report fails weather.NotFound | weather.Unavailable {
+func Fetch(_ Stations, zip string) weather.Report fails weather.NotFound | weather.Unavailable { try fetchStation(zip) }
+
+// fetchStation is the report of the station at zip.
+func fetchStation(zip string) weather.Report fails weather.NotFound | weather.Unavailable {
 	if zip == "99999" {
 		return weather.Unavailable{Reason: "the station at 99999 is down"}
 	}

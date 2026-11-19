@@ -1,0 +1,6 @@
+# work.toml: the workspaces of this repository (work, ergo work).
+# Every key has a default; see modules/work/README.md. Lanes are made
+# with scripts/lanework/lanework.sh, which writes each lane's env.
+[work]
+# storage = "../.work/<base>"
+# leave_out = []          # a lane copies everything, as Rift's --copy-all did

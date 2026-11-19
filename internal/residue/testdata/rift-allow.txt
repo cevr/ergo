@@ -1,0 +1,5 @@
+# The files TestRunScriptsCallNoRift admits: each measures Rift against
+# work (SEMWS WS0 and WS9a). A row is `path<TAB>reason`; a row that admits
+# no Rift line fails the test.
+docs/receipts/work-race.md	the receipt of work's create/remove race, beside Rift's run of the same race
+docs/receipts/work.md	the parity receipt: each lane command of Rift beside its work command, measured

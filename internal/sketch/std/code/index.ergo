@@ -1,0 +1,385 @@
+import maps
+import strings
+
+// Index is the product reader: the tables, indexed once, so a question
+// reads the rows of its answer and a lookup per address, never every row.
+type Index {
+	tables Tables,
+	// decls is every declaration in table order; byHandle is each one's
+	// place in it.
+	decls    []Decl,
+	byHandle Map[string, int],
+	// sites is each declaration's sites in table order, by handle.
+	sites Map[string, []Site],
+	// at is the handle of the first site at each position.
+	at Map[string, string],
+	// short is the places in decls of the declarations each short name
+	// fits, in table order.
+	short   Map[string, []int],
+	summary Summary,
+	// callsOut and callsIn are the calls by caller and by callee, in
+	// table order.
+	callsOut Map[string, []Call],
+	callsIn  Map[string, []Call],
+	// needers is the functions that have each capability, failure or
+	// provider, brings the calls that bring or raise each by caller, and
+	// discharges the calls that discharge each, in table order; kinds is
+	// what each is, when not a capability.
+	needers    Map[string, []string],
+	brings     Map[string, Map[string, []Call]],
+	discharges Map[string, []Call],
+	kinds      Map[string, string],
+	// machines is the machine graphs by handle.
+	machines Map[string, MachineGraph],
+} implements Reader
+
+// IndexOf is the indexed reader of t.
+func IndexOf(t Tables) Index {
+	let mut decls = []Decl{}
+	let mut byHandle = Map[string, int]{}
+	let mut sites = Map[string, []Site]{}
+	let mut at = Map[string, string]{}
+	let mut short = Map[string, []int]{}
+	for p in t.Packages {
+		for d in p.Decls {
+			byHandle[d.Handle] = len(decls)
+			if strings.HasPrefix(d.Handle, d.Package + ".") {
+				let name = strings.TrimPrefix(d.Handle, d.Package + ".")
+				short[name] = maps.GetOr(short, name, []int{}).Append(len(decls))
+			}
+			decls = decls.Append(d)
+		}
+	}
+	for p in t.Packages {
+		for site in p.Sites {
+			sites[site.Symbol] = maps.GetOr(sites, site.Symbol, []Site{}).Append(site)
+			let pos = positionOf(site.File, site.Line, site.Column)
+			match at.Get(pos) {
+			case Some[string]:
+			case None:
+				at[pos] = site.Symbol
+			}
+		}
+	}
+	let mut callsOut = Map[string, []Call]{}
+	let mut callsIn = Map[string, []Call]{}
+	for c in edgesOf(t) {
+		callsOut[c.From] = maps.GetOr(callsOut, c.From, []Call{}).Append(c)
+		callsIn[c.To] = maps.GetOr(callsIn, c.To, []Call{}).Append(c)
+	}
+	let mut needers = Map[string, []string]{}
+	let mut kinds = Map[string, string]{}
+	for p in t.Packages {
+		for n in p.Needs {
+			needers[n.Capability] = maps.GetOr(needers, n.Capability, []string{}).Append(n.Of)
+		}
+		for f in p.Fails {
+			kinds[f.Failure] = "failure"
+			let have = maps.GetOr(needers, f.Failure, []string{})
+			if !has(have, f.Of) {
+				needers[f.Failure] = have.Append(f.Of)
+			}
+		}
+	}
+	let mut brings = Map[string, Map[string, []Call]]{}
+	let mut discharges = Map[string, []Call]{}
+	for c in edgesOf(t) {
+		for k in c.Brings {
+			let mut by = maps.GetOr(brings, k, Map[string, []Call]{})
+			by[c.From] = maps.GetOr(by, c.From, []Call{}).Append(c)
+			brings[k] = by
+		}
+		for k in c.Raises {
+			kinds[k] = "failure"
+			let mut by = maps.GetOr(brings, k, Map[string, []Call]{})
+			by[c.From] = maps.GetOr(by, c.From, []Call{}).Append(c)
+			brings[k] = by
+		}
+		for k in c.Discharged {
+			discharges[k] = maps.GetOr(discharges, k, []Call{}).Append(c)
+		}
+		for k in c.Caught {
+			kinds[k] = "failure"
+			discharges[k] = maps.GetOr(discharges, k, []Call{}).Append(c)
+		}
+		let mut providers = []string{}
+		for b in c.Bound {
+			if !has(providers, b.Provider) {
+				providers = providers.Append(b.Provider)
+				discharges[b.Provider] = maps.GetOr(discharges, b.Provider, []Call{}).Append(c)
+			}
+		}
+	}
+	for c in edgesOf(t) {
+		for b in c.Bound {
+			kinds[b.Provider] = "provider"
+			let have = maps.GetOr(needers, b.Provider, []string{})
+			if !has(have, c.From) {
+				needers[b.Provider] = have.Append(c.From)
+			}
+		}
+	}
+	Index{tables: t, decls: decls, byHandle: byHandle, sites: sites, at: at, short: short, summary: summaryOf(t), callsOut: callsOut, callsIn: callsIn, needers: needers, brings: brings, discharges: discharges, kinds: kinds, machines: machinesOf(t)}
+}
+
+// NewIndex is the indexed reader of the tables Generated(seed) makes: the
+// provider a law run builds.
+func NewIndex(seed int) Index { IndexOf(Generated(seed)) }
+
+func Describe(x Index) Summary { x.summary }
+
+func Api(x Index, q ApiQuery) ApiView fails NoPackage { apiOf(x.tables, q) }
+
+func MachineOf(x Index, a string) MachineView fails NoSymbol | Ambiguous | NotMachine {
+	let g = try machineTarget(a, try x.Symbol(a), x.machines)
+	MachineView{Revision: x.tables.Revision, Complete: x.summary.Complete, Graph: g, Reachable: reachableBySteps(g)}
+}
+
+func Reach(x Index, q ReachQuery) ReachPage fails NoSymbol | Ambiguous {
+	let s = try with context { Reader: x } { subjectOf(q, x.tables) }
+	reachPage(x.tables, q, s, maps.GetOr(x.kinds, s, "capability"), maps.GetOr(x.needers, s, []string{}), maps.GetOr(x.brings, s, Map[string, []Call]{}), maps.GetOr(x.discharges, s, []Call{}))
+}
+
+func Calls(x Index, q CallQuery) CallPage fails NoSymbol | Ambiguous | NotCallable {
+	let d = try callTarget(q, try x.Symbol(q.Of))
+	callPage(x.tables, q, callsByStep(if inward(q) { x.callsIn } else { x.callsOut }, d.Handle, depthOf(q), inward(q)))
+}
+
+func Symbols(x Index, q SymbolQuery) SymbolPage {
+	let mut fit = []Decl{}
+	for d in x.decls {
+		if fits(q, d) {
+			fit = fit.Append(d)
+		}
+	}
+	let (start, end, next) = window(len(fit), q.Offset, q.Limit)
+	SymbolPage{Revision: x.tables.Revision, Decls: fit[start:end], Total: len(fit), Next: next}
+}
+
+func Symbol(x Index, a string) Decl fails NoSymbol | Ambiguous {
+	match x.byHandle.Get(a) {
+	case Some[int] as i:
+		return x.decls[i.Value]
+	case None:
+	}
+	if isPosition(a) {
+		match x.at.Get(a) {
+		case Some[string] as h:
+			match x.byHandle.Get(h.Value) {
+			case Some[int] as i:
+				return x.decls[i.Value]
+			case None:
+			}
+		case None:
+		}
+		return NoSymbol{Address: a}
+	}
+	let places = maps.GetOr(x.short, a, []int{})
+	if len(places) == 0 {
+		return NoSymbol{Address: a}
+	}
+	if len(places) > 1 {
+		let mut handles = []string{}
+		for i in places {
+			handles = handles.Append(x.decls[i].Handle)
+		}
+		return Ambiguous{Address: a, Candidates: handles}
+	}
+	x.decls[places[0]]
+}
+
+func References(x Index, q RefQuery) SitePage fails NoSymbol | Ambiguous {
+	let d = try x.Symbol(q.Of)
+	let rows = maps.GetOr(x.sites, d.Handle, []Site{})
+	let mut fit = rows
+	if len(q.Kinds) > 0 {
+		fit = []Site{}
+		for site in rows {
+			if has(q.Kinds, site.Kind) {
+				fit = fit.Append(site)
+			}
+		}
+	}
+	let (start, end, next) = window(len(fit), q.Offset, q.Limit)
+	SitePage{Revision: x.tables.Revision, Complete: x.summary.Complete, Sites: fit[start:end], Total: len(fit), Next: next}
+}
+
+// IndexIsScan: on generated tables, the indexed reader and the reference
+// reader give equal answers to every question: Describe; Symbols by name,
+// prefix, part, kind and package, a page at a time; Symbol, References
+// and Calls (in and out, to depth 3) at every handle, every short name (an
+// Ambiguous one included), every position of a site, and addresses that
+// name nothing; Api of every package, of the root and of none; Reach of
+// every address and of Console, which no package declares; Machine of
+// every address.
+law IndexIsScan(seed int, size int) { indexIsScan(seed, size) }
+
+func indexIsScan(seed int, size int) bool {
+	let t = Generated(seed)
+	let indexed = with context { Reader: IndexOf(t) } { answers(t, size) }
+	let scanned = with context { Reader: ScanOf(t) } { answers(t, size) }
+	indexed == scanned
+}
+
+// Outcome is the answer to one question: a declaration, a page of sites,
+// of declarations or of calls, a summary, an Api view, or the failure's
+// name and candidates.
+type Outcome {
+	Question   string,
+	Decl       Option[Decl],
+	Sites      Option[SitePage],
+	Decls      Option[SymbolPage],
+	Summary    Option[Summary],
+	Calls      Option[CallPage],
+	Api        Option[ApiView],
+	Reach      Option[ReachPage],
+	Machine    Option[MachineView],
+	Failure    string,
+	Candidates []string,
+}
+
+// asked is the outcome of question with no answer yet.
+func asked(question string) Outcome {
+	Outcome{Question: question, Decl: None, Sites: None, Decls: None, Summary: None, Calls: None, Api: None, Reach: None, Machine: None, Failure: "", Candidates: []string{}}
+}
+
+// answers is the reader's answer to each question about the tables t,
+// with pages of 1 + size mod 7 rows.
+func answers(t Tables, size int) []Outcome needs Reader {
+	let step = 1 + slot(size, 7)
+	let mut out = []Outcome{Outcome{..asked("describe"), Summary: Some[Summary]{Value: Reader.Describe()}}}
+	let mut addresses = []string{"nosuch", "gen/p9.Run", "gen/p0/a.ergo:99:9", "Token.Nothing"}
+	for p in t.Packages {
+		for d in p.Decls {
+			addresses = addresses.Append(d.Handle)
+			addresses = addresses.Append(strings.TrimPrefix(d.Handle, d.Package + "."))
+			let q = SymbolQuery{Name: Some[string]{Value: head(d.Name, 2)}, Match: Some[string]{Value: "prefix"}, Kind: Some[string]{Value: d.Kind}, Package: None, Offset: None, Limit: Some[int]{Value: step}}
+			out = out.Append(listed("prefix " + d.Handle, q))
+			out = out.Append(listed("part " + d.Handle, SymbolQuery{Name: Some[string]{Value: tail(d.Name, 1)}, Match: Some[string]{Value: "part"}, Kind: None, Package: Some[string]{Value: d.Package}, Offset: Some[int]{Value: 1}, Limit: Some[int]{Value: step}}))
+			out = out.Append(listed("exact " + d.Handle, SymbolQuery{Name: Some[string]{Value: d.Name}, Match: None, Kind: None, Package: None, Offset: None, Limit: None}))
+		}
+		for s in p.Sites {
+			addresses = addresses.Append(positionOf(s.File, s.Line, s.Column))
+		}
+	}
+	for a in addresses {
+		out = out.Append(declAt(a))
+		out = out.Append(sitesAt(a, []string{}, step))
+		out = out.Append(sitesAt(a, []string{"call", "read", "def"}, step))
+		for depth in 1..4 {
+			out = out.Append(callsAt(a, "out", depth, step))
+			out = out.Append(callsAt(a, "in", depth, step))
+		}
+	}
+	for p in t.Packages {
+		out = out.Append(apiAt(Some[string]{Value: p.Path}))
+	}
+	out = out.Append(apiAt(None))
+	out = out.Append(apiAt(Some[string]{Value: "gen/none"}))
+	for a in addresses {
+		out = out.Append(reachAt(a, step))
+		out = out.Append(machineAt(a))
+	}
+	out = out.Append(reachAt("Console", step))
+	out = out.Append(reachAt("Fault", step))
+	out
+}
+
+// machineAt is the machine answer at a.
+func machineAt(a string) Outcome needs Reader {
+	let q = "machine " + a
+	let v = Reader.MachineOf(a) catch {
+	case NoSymbol:
+		return Outcome{..asked(q), Failure: "NoSymbol"}
+	case Ambiguous as m:
+		return Outcome{..asked(q), Failure: "Ambiguous", Candidates: m.Candidates}
+	case NotMachine as n:
+		return Outcome{..asked(q), Failure: "NotMachine " + n.Kind}
+	}
+	Outcome{..asked(q), Machine: Some[MachineView]{Value: v}}
+}
+
+// reachAt is the reach answer for the capability at a, read a page of
+// step at a time.
+func reachAt(a string, step int) Outcome needs Reader {
+	let q = "reach " + a
+	let mut reached = []Reached{}
+	let mut at = 0
+	let mut last = ReachPage{Revision: "", Complete: true, Of: "", Kind: "", Reached: []Reached{}, Discharges: []Call{}, Total: 0, Next: -1}
+	for at >= 0 {
+		last = Reader.Reach(ReachQuery{Of: a, Offset: Some[int]{Value: at}, Limit: Some[int]{Value: step}}) catch {
+		case NoSymbol:
+			return Outcome{..asked(q), Failure: "NoSymbol"}
+		case Ambiguous as m:
+			return Outcome{..asked(q), Failure: "Ambiguous", Candidates: m.Candidates}
+		}
+		for r in last.Reached {
+			reached = reached.Append(r)
+		}
+		at = last.Next
+	}
+	Outcome{..asked(q), Reach: Some[ReachPage]{Value: ReachPage{..last, Reached: reached, Next: -1}}}
+}
+
+// callsAt is the calls answer at a, read a page of step at a time.
+func callsAt(a string, direction string, depth int, step int) Outcome needs Reader {
+	let q = "calls \(direction) \(depth) " + a
+	let mut hops = []Hop{}
+	let mut at = 0
+	let mut last = CallPage{Revision: "", Complete: true, Hops: []Hop{}, Total: 0, Next: -1}
+	for at >= 0 {
+		last = Reader.Calls(CallQuery{Of: a, Direction: Some[string]{Value: direction}, Depth: Some[int]{Value: depth}, Offset: Some[int]{Value: at}, Limit: Some[int]{Value: step}}) catch {
+		case NoSymbol:
+			return Outcome{..asked(q), Failure: "NoSymbol"}
+		case Ambiguous as m:
+			return Outcome{..asked(q), Failure: "Ambiguous", Candidates: m.Candidates}
+		case NotCallable as n:
+			return Outcome{..asked(q), Failure: "NotCallable " + n.Kind}
+		}
+		for h in last.Hops {
+			hops = hops.Append(h)
+		}
+		at = last.Next
+	}
+	Outcome{..asked(q), Calls: Some[CallPage]{Value: CallPage{..last, Hops: hops, Next: -1}}}
+}
+
+// apiAt is the Api answer for the package p.
+func apiAt(p Option[string]) Outcome needs Reader {
+	let q = "api " + text(p)
+	let v = Reader.Api(ApiQuery{Package: p}) catch {
+	case NoPackage:
+		return Outcome{..asked(q), Failure: "NoPackage"}
+	}
+	Outcome{..asked(q), Api: Some[ApiView]{Value: v}}
+}
+
+// head is the first n bytes of s, or s when it is shorter.
+func head(s string, n int) string { if len(s) < n { s } else { strings.Slice(s, 0, n) } }
+
+// tail is s without its first n bytes, or "" when it is shorter.
+func tail(s string, n int) string { if len(s) < n { "" } else { strings.Slice(s, n, len(s)) } }
+
+func listed(question string, q SymbolQuery) Outcome needs Reader {
+	Outcome{..asked(question), Decls: Some[SymbolPage]{Value: Reader.Symbols(q)}}
+}
+
+func declAt(a string) Outcome needs Reader {
+	let d = Reader.Symbol(a) catch {
+	case NoSymbol:
+		return Outcome{..asked("symbol " + a), Failure: "NoSymbol"}
+	case Ambiguous as m:
+		return Outcome{..asked("symbol " + a), Failure: "Ambiguous", Candidates: m.Candidates}
+	}
+	Outcome{..asked("symbol " + a), Decl: Some[Decl]{Value: d}}
+}
+
+func sitesAt(a string, kinds []string, step int) Outcome needs Reader {
+	let page = All(a, kinds, step) catch {
+	case NoSymbol:
+		return Outcome{..asked("references " + a), Failure: "NoSymbol"}
+	case Ambiguous as m:
+		return Outcome{..asked("references " + a), Failure: "Ambiguous", Candidates: m.Candidates}
+	}
+	Outcome{..asked("references " + a), Sites: Some[SitePage]{Value: page}}
+}

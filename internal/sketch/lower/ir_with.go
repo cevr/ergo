@@ -109,6 +109,11 @@ func (b *irBuilder) withOperand(x *syntax.CallExpr, i int, w *check.With, ret bo
 		irNo("with that owns resources")
 	case w.Contexts[0].Lit == nil && !b.l.declaredContext(w.Contexts[0]):
 		irNo("with of an undeclared context")
+	case w.Contexts[0].TestAmbient != nil:
+		// The emitter opens the case's folder and removes it when the
+		// test's function returns (testAmbient, calls.go), a defer the IR
+		// has no form for.
+		irNo("with of a context that needs TestAmbient")
 	}
 	lit := w.Contexts[0].Lit != nil // an inline or a local context
 	p := b.pos(arg, arg.Pos())
