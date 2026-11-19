@@ -274,7 +274,11 @@ func (q *Queue[T]) Offer(v T) error {
 
 // Slide is q.Slide(v): v enters at the back now, never waiting; when the
 // queue holds its capacity, the value at the front leaves it first and is
-// dropped (Effect's sliding strategy: the newest values stay). Eviction and
+// given back, Some(old), so its caller owns it and releases it when it is a
+// resource (resources R42), as Poll's caller does (Effect's sliding
+// strategy: the newest values stay). The queue never releases it: a
+// release is the element type's Ergo code, which may need capabilities the
+// queue does not hold. Eviction and
 // entry are one step under the queue's lock, so v enters exactly once and
 // no other producer can take the room between them: a sliding value is
 // never lost while an older one stays. A Push still waiting for room keeps
@@ -285,9 +289,8 @@ func (q *Queue[T]) Offer(v T) error {
 // one lock to build it.
 //
 //ergo:wait none
-func (q *Queue[T]) Slide(v T) error {
-	_, _, err := q.slide(v)
-	return err
+func (q *Queue[T]) Slide(v T) (T, bool, error) {
+	return q.slide(v)
 }
 
 // slide is Slide, giving the value it dropped and whether it dropped one

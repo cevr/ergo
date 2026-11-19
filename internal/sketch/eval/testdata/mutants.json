@@ -2092,6 +2092,7 @@
       "anchor": {"tests":["internal/sketch/eval:TestEvalAgreesWithLowering"]},
       "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
     },
-    {"name":"evalifp-append-spread-one","origin":"wf10 EVAL-IFP","file":"internal/sketch/eval/interp.go","from":"\t\t\tif spreads {\n\t\t\t\treturn in.appendAll(","to":"\t\t\tif false {\n\t\t\t\treturn in.appendAll(","rule":"An extern of Go's append at its spread shape, [T](xs []T, ys []T) []T (slices.AppendAll), appends each element of ys, as Go's append(xs, ys...) does (check/builtin.go).","killers":["internal/sketch/eval:TestEvalAgreesWithModel"]}
+    {"name":"evalifp-append-spread-one","origin":"wf10 EVAL-IFP","file":"internal/sketch/eval/interp.go","from":"\t\t\tif spreads {\n\t\t\t\treturn in.appendAll(","to":"\t\t\tif false {\n\t\t\t\treturn in.appendAll(","rule":"An extern of Go's append at its spread shape, [T](xs []T, ys []T) []T (slices.AppendAll), appends each element of ys, as Go's append(xs, ys...) does (check/builtin.go).","killers":["internal/sketch/eval:TestEvalAgreesWithModel"]},
+    {"name":"slide-eval-evicted-dropped","origin":"wf10 SLIDE-RELEASE","file":"internal/sketch/eval/tasks.go","from":"\t\treturn in.option(fr, call, old, evicted)","to":"\t\treturn in.option(fr, call, old, false)","rule":"The evaluator's Slide gives the evicted value back, so the caller's scope releases it (SLIDE-RELEASE).","killers":["internal/sketch/eval:TestEvalSlideReleasesTheEvicted"]}
   ]
 }
