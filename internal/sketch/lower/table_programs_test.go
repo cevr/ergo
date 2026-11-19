@@ -32,6 +32,7 @@ var (
 	_ = declarePrograms("TestStdDecimalMatchesRat", entryProgram("decimalRat", decimalProgram))
 	_ = declarePrograms("TestStdArenaLawsRun", testBuildProgram("stdarena", stdArenaLawsProbe))
 	_ = declarePrograms("TestStdDenseLawsRun", testBuildProgram("stddense", stdDenseLawsProbe))
+	_ = declarePrograms("TestStdLLMLawsRun", testBuildProgram("stdllm", stdLLMLawsProbe))
 	_ = declarePrograms("TestUITreeModel", testBuildProgram("stduitree", stdUITreeProbe))
 	_ = declarePrograms("TestUILoadModel", testBuildProgram("stduiload", stdUILoadProbe))
 	_ = declarePrograms("TestUIHostModel", testBuildProgram("stduihost", stdUIHostProbe))

@@ -462,22 +462,27 @@ func fieldMembers(p *Printer, fieldList int, tight bool) {
 	}, tight)
 }
 
-// operationType prints the includes, operations and laws of an operation
-// type in source order: they may interleave.
-func operationType(p *Printer, t int) {
-	let mut nodes = []int{}
-	for group in [][]int{p.ks(t, "Includes"), p.ks(t, "Methods"), p.ks(t, "Laws")} {
-		for m in group {
-			// Insert by start, after every member that starts no later.
-			nodes = nodes.Append(m)
-			let mut at = len(nodes) - 1
-			for at > 0 && p.start(nodes[at-1]) > p.start(m) {
-				nodes[at] = nodes[at-1]
-				at -= 1
-			}
-			nodes[at] = m
+// bySource merges two lists of nodes, each in source order, into one.
+func bySource(p *Printer, a []int, b []int) []int {
+	let mut out = []int{}
+	let mut i = 0
+	let mut j = 0
+	for i < len(a) || j < len(b) {
+		if j == len(b) || i < len(a) && p.start(a[i]) < p.start(b[j]) {
+			out = out.Append(a[i])
+			i += 1
+			continue
 		}
+		out = out.Append(b[j])
+		j += 1
 	}
+	out
+}
+
+// operationType prints the includes, operations and laws of an operation
+// type in source order.
+func operationType(p *Printer, t int) {
+	let nodes = p.bySource(p.bySource(p.ks(t, "Includes"), p.ks(t, "Methods")), p.ks(t, "Laws"))
 	p.members(p.at(t, "Lbrace"), p.at(t, "Rbrace"), nodes, func(x int, aligned bool) {
 		let m = nodes[x]
 		if p.fam(m) == "LawDecl" {

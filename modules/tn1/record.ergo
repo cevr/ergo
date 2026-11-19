@@ -42,7 +42,9 @@ import strings
 // A Line's kind. A line with any code is Code, even with a comment after
 // the code. DocComment is a comment the host's syntax tree attaches to a
 // declaration or a member (an operation, a law, a field); Directive is a
-// tool's directive comment (ergo-lint-disable-next-line, //go:).
+// tool's directive comment (ergo-lint-disable-next-line, //go:; in
+// TypeScript, ts/record.ergo's list: suppressions, a licence, nosemgrep,
+// a source map URL and the rest).
 type Blank {}
 type Code {}
 type CommentOnly {}
