@@ -185,8 +185,17 @@ func valueTails(x syntax.Expr) []syntax.Expr {
 
 // valueDiff is the required values of want the Ergo side's got (its E
 // and L lines) misses or types otherwise, and the L lines of got the Go
-// checker has no let for; and the values excluded, by cause.
-func valueDiff(want []goValue, got, gotLets []string) (string, map[string]int) {
+// checker has no let for; and the values excluded, by cause: the Go
+// checker's form (forms, by key) of the first input, or the parent, the
+// Ergo side leaves untyped, so each excluded value is counted under one
+// cause.
+func valueDiff(want []goValue, got, gotLets []string, forms map[string]string) (string, map[string]int) {
+	formOf := func(key string) string {
+		if f := forms[key]; f != "" {
+			return f
+		}
+		return "a form the Go checker lists no type for"
+	}
 	byKey := map[string]string{}
 	for _, l := range got {
 		byKey[keyOf(l, 3)] = l
@@ -206,8 +215,8 @@ func valueDiff(want []goValue, got, gotLets []string) (string, map[string]int) {
 		wantKeys[k] = true
 		cause := ""
 		for _, in := range v.inputs {
-			if _, ok := byKey[in]; !ok {
-				cause = "an input the typer leaves untyped"
+			if _, ok := byKey[in]; !ok && cause == "" {
+				cause = "untyped input: " + formOf(in)
 			}
 		}
 		switch {
@@ -215,7 +224,7 @@ func valueDiff(want []goValue, got, gotLets []string) (string, map[string]int) {
 		case v.tailOf != "" && !required[v.tailOf]:
 			cause = "the tail of an excluded value"
 		case v.parent != "" && byKey[v.parent] == "":
-			cause = "under an expression the typer leaves untyped"
+			cause = "untyped parent: " + formOf(v.parent)
 		}
 		required[k] = cause == ""
 		g, ok := byKey[k]

@@ -144,7 +144,7 @@ func TestCompilerExprAgreesWithChecker(t *testing.T) {
 		if d := subsetDiff(fo.want, got, 3); d != "" {
 			t.Errorf("%s: expression types differ (go -, ergo +):\n%s", rel(fo.dir), d)
 		}
-		d, ex := valueDiff(fo.values, gotTypes[i], gotLets[i])
+		d, ex := valueDiff(fo.values, gotTypes[i], gotLets[i], fo.forms)
 		if d != "" {
 			t.Errorf("%s: value types differ (go -, ergo +):\n%s", rel(fo.dir), d)
 		}
@@ -191,7 +191,16 @@ func TestCompilerExprAgreesWithChecker(t *testing.T) {
 		lines = append(lines, fmt.Sprintf("%-28s %7d of %7d", form, r[0], r[1]))
 	}
 	sort.Strings(lines)
-	t.Logf("typed %d of %d expressions in %d folders; inferred %d of %d generic calls; %d package lets and value ifs, matches and catches, excluded %v:\n%s", all[0], all[1], len(folders), calls[0], calls[1], values, excluded, strings.Join(lines, "\n"))
+	// The excluded values by cause, logged and never pinned: each value
+	// under one cause, so the lines add up to the total.
+	var causes []string
+	total := 0
+	for c, n := range excluded {
+		total += n
+		causes = append(causes, fmt.Sprintf("%7d %s", n, c))
+	}
+	sort.Sort(sort.Reverse(sort.StringSlice(causes)))
+	t.Logf("typed %d of %d expressions in %d folders; inferred %d of %d generic calls; %d package lets and value ifs, matches and catches, %d excluded:\n%s\n%s", all[0], all[1], len(folders), calls[0], calls[1], values, total, strings.Join(causes, "\n"), strings.Join(lines, "\n"))
 	if all[0] == 0 || calls[0] == 0 {
 		t.Fatal("the Ergo side typed no expression or inferred no call")
 	}

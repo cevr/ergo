@@ -93,7 +93,7 @@ func TestCompilerExprProperty(t *testing.T) {
 		}
 		// Each value whose inputs the typer types has the Go checker's
 		// type (CHECK-VALUE-TYPES); a generated case's are all typed.
-		vd, excluded := valueDiff(goValues(pkg, "p.ergo"), got, lets)
+		vd, excluded := valueDiff(goValues(pkg, "p.ergo"), got, lets, forms)
 		if len(excluded) > 0 {
 			vd += fmt.Sprintf("excluded values %v\n", excluded)
 		}
