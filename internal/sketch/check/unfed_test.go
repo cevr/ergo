@@ -1,0 +1,65 @@
+package check_test
+
+import (
+	"fmt"
+	"strings"
+	"testing"
+)
+
+// TestUnfedLawIsAnError is the rule's text and position (LAW-UNFED): a law
+// no case can feed is a check-time error where the missing value is
+// declared, not a skip at test time. A provider with no generator is
+// refused at its implements entry, unless a named context of its package
+// builds it; a law's own parameter with no generator is refused at the
+// parameter. Mutants lu-provider-unreported, lu-provider-before-contexts
+// and lu-param-unreported are its kills.
+func TestUnfedLawIsAnError(t *testing.T) {
+	const shape = `type Shape {
+	Area() int,
+	law Positive() { Area() > 0 },
+}
+`
+	rows := []struct {
+		name, src string
+		want      []string
+	}{
+		{
+			name: "provider with no generator",
+			src: shape + `type Fn { f func(int) int } implements Shape
+func Area(s Fn) int { s.f(1) }
+`,
+			want: []string{"5:39 S108 law Shape.Positive cannot run at Fn: its values have no generator: func(int) int is a function type; bind one in a named context of a test file, let Name = context { Shape: … }, and the law runs under it (types.md, Laws 10)"},
+		},
+		{
+			name: "provider a named context builds",
+			src: shape + `type Fn { f func(int) int } implements Shape
+func Area(s Fn) int { s.f(1) }
+let Wired = context { Shape: Fn{f: func(n int) int { n }} }
+`,
+		},
+		{
+			name: "provider with a constructor",
+			src: shape + `type Fn { f func(int) int } implements Shape
+func NewFn() Fn { Fn{f: func(n int) int { n }} }
+func Area(s Fn) int { s.f(1) }
+`,
+		},
+		{
+			name: "top-level law parameter",
+			src: `law Applies(f func(int) int) { f(1) == f(1) }
+`,
+			want: []string{"1:13 S108 law Applies cannot run: its parameter f has no generator: func(int) int is a function type (types.md, Laws 10)"},
+		},
+	}
+	for _, row := range rows {
+		t.Run(row.name, func(t *testing.T) {
+			var got []string
+			for _, d := range checkDiagList(t, row.src) {
+				got = append(got, fmt.Sprintf("%d:%d %s %s", d.Line, d.Column, d.Code, d.Message))
+			}
+			if strings.Join(got, "\n") != strings.Join(row.want, "\n") {
+				t.Fatalf("got\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(row.want, "\n"))
+			}
+		})
+	}
+}

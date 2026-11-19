@@ -485,8 +485,11 @@ func (in *interp) listValue(fr *frame, v testplan.Value) Value {
 
 func (in *interp) generate(fr *frame, r *testgen.Stream, t check.Type, d int, ref *check.Refinement) Value {
 	mustCharge(in, fr, 1)
-	if d < -in.budget.Depth {
-		panic(fr.abrupt(ctlExhausted, fr.decl, nil, "generator depth bound reached"))
+	if d < -check.GenRankLimit {
+		// Past the plan's depth each step goes to a lower rank, and the
+		// checker refuses a type ranked past GenRankLimit, so a draw never
+		// gets here.
+		ice("generator depth past check.GenRankLimit at %s", t)
 	}
 	if ref != nil {
 		return in.genRefined(fr, r, t, d, ref)
