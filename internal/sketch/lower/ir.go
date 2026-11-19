@@ -80,6 +80,9 @@ type IRReport struct {
 	// DropBodies counts the variants with no result the IR built
 	// (IR-DROPBODY, ir_forms_drop.go).
 	DropBodies int `json:"-"`
+	// FailJumps counts the inlined failures that jump to their catch arm
+	// (FAIL-INLINE, ir_forms_failjump.go).
+	FailJumps int `json:"-"`
 	// DeadZeros counts the zero value sets dropped before an overwrite
 	// (ir_forms_zero.go).
 	DeadZeros int `json:"-"`

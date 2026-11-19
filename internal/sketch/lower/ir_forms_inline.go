@@ -97,6 +97,9 @@ type irInlSite struct {
 	result string
 	// anon is a call in a library body: its copy adds no inline site.
 	anon bool
+	// failLeaf is a fallible leaf inlined for its failures' jumps
+	// (FAIL-INLINE): it pays wherever it is.
+	failLeaf bool
 }
 
 // irStdInlLowering is "off" for the reference: a call in a library body
@@ -187,8 +190,15 @@ func (b *irBuilder) inlineMark(x *syntax.CallExpr, c *check.Call, fd *funcDecl, 
 	if f.Pkg == nil || !x.Pos().IsValid() || anon && (irStdInlLowering == "off" || b.l.isSourced(f.Pkg)) {
 		return e
 	}
+	// A fallible callee Go would inline itself (a leaf) is the IR's to
+	// copy too: its failures then jump to the catch arm that takes them,
+	// with no error value (FAIL-INLINE, ir_forms_failjump.go).
+	failLeaf := false
 	if !b.l.inlineBody(f) {
-		return e
+		if !fd.fallible || irFailJumpLowering == "off" || !b.l.inlineWithin(f, -inlineBudget) {
+			return e
+		}
+		failLeaf = true
 	}
 	if fp := f.Pkg.Info.Footprints[f.Decl]; !fp.Empty() && !b.l.knownClosed(f) {
 		return e
@@ -214,7 +224,7 @@ func (b *irBuilder) inlineMark(x *syntax.CallExpr, c *check.Call, fd *funcDecl, 
 	site := &irInlSite{
 		f: f, key: key, src: src, offset: int(x.Pos()), tsub: tsub,
 		size: inlineSize(f.Decl.Body), loop: b.loops > 0 || b.fc.hot,
-		leaf: goLeaf(f), sourced: b.l.isSourced(f.Pkg), fallible: fd.fallible, anon: anon,
+		leaf: goLeaf(f), sourced: b.l.isSourced(f.Pkg), fallible: fd.fallible, anon: anon, failLeaf: failLeaf,
 	}
 	if t := b.l.info.Types[x]; t != nil && len(f.Sig.Results) == 1 {
 		site.result = irTypeOrNone(func() string { return b.goType(t, x) })
@@ -225,7 +235,7 @@ func (b *irBuilder) inlineMark(x *syntax.CallExpr, c *check.Call, fd *funcDecl, 
 
 // pays is inline.go's pays for a site, on a loop path or not.
 func (s *irInlSite) pays(loop bool) bool {
-	if inlineCostLowering == "budget" {
+	if inlineCostLowering == "budget" || s.failLeaf {
 		return true
 	}
 	big := s.size > goSizeBudget
@@ -263,6 +273,7 @@ func (st *irState) inlineBodies(l *lowerer) {
 		// After coalesce: a copy's result local is then the match's own
 		// subject, which the copy's returns set (ir_forms_variant.go).
 		body = in.knownVariants(body)
+		body = in.failJumps(body)   // ir_forms_failjump.go
 		body = in.storeFields(body) // ir_forms_store.go
 		body = in.deadZeros(body)   // ir_forms_zero.go
 		fn.Locals = in.locals(fn.Locals)
@@ -283,6 +294,7 @@ type irInliner struct {
 	tagged map[int]bool
 	count  int
 	known  int // the known-variant sites rewritten, for unique labels (ir_forms_variant.go)
+	jumps  int // the checks failJumps rewrote, for unique labels (ir_forms_failjump.go)
 }
 
 func (in *irInliner) locals(base []irLocal) []irLocal {
