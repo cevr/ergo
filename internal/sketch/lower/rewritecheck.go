@@ -276,7 +276,7 @@ func hasFuncRewrites(u Unit) bool {
 	}
 	for _, p := range pkgs {
 		for _, law := range p.Laws {
-			if law.FuncRewrite != nil {
+			if law.TopRewrite() != nil {
 				return true
 			}
 		}

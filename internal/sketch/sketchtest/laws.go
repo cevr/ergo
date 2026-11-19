@@ -6,11 +6,13 @@ import (
 	"strings"
 )
 
-// The law corpus of law-top (top-level laws): the rule programs of the
-// checker's TestTopLevelLawRules (spec A2) and the generated law bodies of
-// TestTopLevelLawMatchesMember (spec A3). The lowering's erasure property
-// (lower/stage_lawtop_test.go, spec A5) reads the same programs, so the
-// corpus lives here, once, for both test packages.
+// The law corpus of law-top (top-level laws): the rule programs of spec A2
+// and the generated law bodies of TestTopLevelLawMatchesMember (spec A3).
+// The lowering's erasure property (lower/stage_lawtop_test.go, spec A5)
+// and the checker's fuzz seeds read the same programs, so the corpus lives
+// here for both test packages. The A2 rules themselves are checked by
+// `ergo check --want` over their fixture copies in
+// internal/sketch/check/testdata/fixtures/laws-top (TP-DIAG).
 
 // LawTopDecls are the declarations the top-level law programs share: a
 // record and a function over it, a fallible function, and a capability
@@ -106,7 +108,7 @@ type MoneyLaws { // want S108
 func main() {}
 `
 
-// LawTopCases are the programs of TestTopLevelLawRules (spec A2). Each
+// LawTopCases are the rule programs of spec A2. Each
 // marks every diagnostic it must get with `// want CODE`, and gets nothing
 // else. A program with no want line is clean. The rule numbers are
 // types.md Laws'.
