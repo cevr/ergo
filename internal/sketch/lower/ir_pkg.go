@@ -460,7 +460,7 @@ func (b *irBuilder) passesPointer(c *check.Call, x *syntax.CallExpr) bool {
 		}
 		recv = x.Args[0]
 	}
-	_, ptr := b.l.info.Types[recv].(*check.Pointer)
+	_, ptr := b.fc.boundType(b.l.info.Types[recv]).(*check.Pointer)
 	return ptr
 }
 

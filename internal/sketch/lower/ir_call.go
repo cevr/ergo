@@ -117,7 +117,8 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 	if c == nil {
 		irNo("call without a Calls entry")
 	}
-	c = b.knownField(x, c) // a known record's field in its copy (ir_known.go)
+	c = b.knownField(x, c)  // a known record's field in its copy (ir_known.go)
+	c = b.knownWitnessOp(c) // a known witness's operation in its copy (ir_witness.go)
 	// A trailing block is a function literal, the call's last operand:
 	// a call of a function with an Ergo body takes it as any function
 	// value (ir_closure.go), whichever package declares it (SP4: no std
