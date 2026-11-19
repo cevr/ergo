@@ -92,10 +92,26 @@ func Package(s store.Store, k expr.Pkg, t expr.Typer, paths []string, path strin
 	let alias = if root || path == "prelude" { "" } else { pkgAlias(path) }
 	let mut prelude = []string{}
 	if path != "prelude" {
-		for d in k.Ifaces {
-			if d.Path == "prelude" {
-				for x in d.Decls {
-					prelude = prelude.Append(x.Name)
+		// Its types and functions, exported or not (lower's namePrelude).
+		for d in k.Deps {
+			if d.Path != "prelude" {
+				continue
+			}
+			for p in d.K.Parsed {
+				let decls = match syntax.ViewOf(p.Tree, syntax.Root(p.Tree)) {
+				case syntax.File as pf:
+					pf.Decls
+				case _:
+					continue
+				}
+				for i in 0..syntax.Len(decls) {
+					match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, decls, i)) {
+					case syntax.FuncDecl as fd:
+						prelude = prelude.Append(nameText(p, fd.Name))
+					case syntax.TypeDecl as td:
+						prelude = prelude.Append(nameText(p, td.Name))
+					case _:
+					}
 				}
 			}
 		}
@@ -200,8 +216,8 @@ func plainRecord(st fnb, t dense.ID[store.TKey]) int {
 func structDecl(st fnb, name string) bool {
 	for p in st.k.Parsed {
 		let decls = match syntax.ViewOf(p.Tree, syntax.Root(p.Tree)) {
-		case syntax.File as root:
-			root.Decls
+		case syntax.File as pf:
+			pf.Decls
 		case _:
 			continue
 		}
@@ -274,7 +290,7 @@ func goName(st fnb, name string, first Option[dense.ID[store.TKey]]) string fail
 // a prelude declaration (rule 5) holds takes base_N in the package's own
 // numbering, which the slice does not port: it stops.
 func declName(st fnb, base string) string fails Unported {
-	if goReserved(base) || has(fixedNames, base) || has(st.prelude, base) {
+	if goReserved(base) || has(fixedNames, base) || has(st.prelude, base) || declCount(st, base) > 1 {
 		return stop("declaration name taken (name_N)")
 	}
 	if st.alias == "" { base } else { st.alias + "__" + base }
@@ -434,8 +450,8 @@ func typeCause(st fnb, t dense.ID[store.TKey]) string {
 func namedCause(st fnb, name string) string {
 	for p in st.k.Parsed {
 		let decls = match syntax.ViewOf(p.Tree, syntax.Root(p.Tree)) {
-		case syntax.File as root:
-			root.Decls
+		case syntax.File as pf:
+			pf.Decls
 		case _:
 			continue
 		}
@@ -618,16 +634,12 @@ func function(st mut fnb, b mut ir.Builder, f expr.Fn, path string) bool fails U
 	try ir.Begin(b, gname, fp, end)
 	let mut roots = []uint32{}
 	for l in lets {
-		// A let is its local and its def; a local no expression reads is
-		// then discarded (lower's irUseLocals).
+		// A let is its local and its def. Every let is read (S110), so
+		// lower's irUseLocals discards none.
 		try ir.AddLocal(b, l.name, l.typ, pos(*st, syntax.NodePos(p, l.at)))
 		let at = pos(*st, syntax.TokPos(p, l.tok))
 		let x = try value(*st, b, l.value)
 		roots = roots.Append(try ir.Row(b, ir.KindCode(ir.TStmt, "def"), at, []uint32{uint32(l.local), x}))
-		if !l.read {
-			let r = try ir.Row(b, ir.KindCode(ir.TExpr, "local"), at, []uint32{uint32(l.local)})
-			roots = roots.Append(try ir.Row(b, ir.KindCode(ir.TStmt, "discard"), at, []uint32{r}))
-		}
 	}
 	let x = try value(*st, b, tailX)
 	roots = roots.Append(try ir.Row(b, ir.KindCode(ir.TStmt, "ret"), pos(*st, syntax.NodePos(p, tailX)), []uint32{x}))
@@ -637,7 +649,7 @@ func function(st mut fnb, b mut ir.Builder, f expr.Fn, path string) bool fails U
 }
 
 // aLet is a let the slice builds: `let name = value` of a basic type.
-type aLet { tok int, at dense.ID[syntax.Node], name string, typ string, value dense.ID[syntax.Node], local int, read bool }
+type aLet { tok int, at dense.ID[syntax.Node], name string, typ string, value dense.ID[syntax.Node], local int }
 
 // statements checks the body list whole before the builder writes a row
 // (a stop leaves the builder as it was): its lets, each a local of the
@@ -667,15 +679,6 @@ func statements(st mut fnb, list syntax.List, n int) ([]aLet, dense.ID[syntax.No
 		return stop("statement form")
 	}
 	try check(*st, tailX)
-	// Which lets an expression after them reads (lower's irUseLocals).
-	for j in 0..len(lets) {
-		let at = bind.PNodeOf(st.k.Ps, st.file, lets[j].at)
-		let mut read = reads(*st, tailX, at)
-		for e in lets[j+1 : len(lets)] {
-			read = read || reads(*st, e.value, at)
-		}
-		lets[j].read = read
-	}
 	(lets, tailX)
 }
 
@@ -731,27 +734,36 @@ func letOf(st fnb, s dense.ID[syntax.Node], local int) aLet fails Unported {
 	if goReserved(name) || has(fixedNames, name) || has(st.prelude, name) || pkgDecl(st, name) {
 		return stop("let name taken (local name_N)")
 	}
-	aLet{tok: vd.Var, at: at, name: name, typ: gt, value: value, local: local, read: false}
+	aLet{tok: vd.Var, at: at, name: name, typ: gt, value: value, local: local}
 }
 
-// reads reports whether x reads the local declared at the name node at.
-func reads(st fnb, x dense.ID[syntax.Node], at dense.ID[store.PNode]) bool {
-	match syntax.ViewOf(st.p.Tree, x) {
-	case syntax.Name:
-		match bind.ResolutionOf(st.k.U, st.k.Ps, bind.PNodeOf(st.k.Ps, st.file, x)) {
-		case bind.Declared as d:
-			return d.At == at
+// declCount is the number of the package's declarations named name: two
+// (a type and the function T.name of the same spelling) share one
+// package-scope spelling, the second name_N in the naming order.
+func declCount(st fnb, name string) int {
+	let mut n = 0
+	for p in st.k.Parsed {
+		let decls = match syntax.ViewOf(p.Tree, syntax.Root(p.Tree)) {
+		case syntax.File as f:
+			f.Decls
 		case _:
-			return false
+			continue
 		}
-	case _:
-	}
-	for c in syntax.Children(st.p.Tree, x, []uint32{}) {
-		if reads(st, syntax.NodeAt(st.p.Tree, int(c)), at) {
-			return true
+		for i in 0..syntax.Len(decls) {
+			match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, decls, i)) {
+			case syntax.FuncDecl as fd:
+				if nameText(p, fd.Name) == name {
+					n = n + 1
+				}
+			case syntax.TypeDecl as td:
+				if nameText(p, td.Name) == name {
+					n = n + 1
+				}
+			case _:
+			}
 		}
 	}
-	false
+	n
 }
 
 // pkgDecl reports a declaration of the package named name: a function, a
@@ -759,8 +771,8 @@ func reads(st fnb, x dense.ID[syntax.Node], at dense.ID[store.PNode]) bool {
 func pkgDecl(st fnb, name string) bool {
 	for p in st.k.Parsed {
 		let decls = match syntax.ViewOf(p.Tree, syntax.Root(p.Tree)) {
-		case syntax.File as root:
-			root.Decls
+		case syntax.File as pf:
+			pf.Decls
 		case _:
 			continue
 		}
