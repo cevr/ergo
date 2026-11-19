@@ -2089,6 +2089,7 @@
       "rule": "The evaluator runs the operation s.Bytes(), so check-time evaluation of std's digests (sha256.Sum) agrees with the build.",
       "anchor": {"tests":["internal/sketch/eval:TestEvalAgreesWithLowering"]},
       "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
-    }
+    },
+    {"name":"hk-native-pads-swapped","origin":"wf10 HMAC-KEYED","file":"internal/sketch/eval/nativeshmac.go","from":"tuple{elems: []Value{state(0x36), state(0x5c)}}","to":"tuple{elems: []Value{state(0x5c), state(0x36)}}","rule":"The evaluator's hmac.keyState is runtime/v1's: inner pad 0x36, outer 0x5c.","killers":["internal/sketch/eval:TestNativesAgreeWithRuntime"]}
   ]
 }
