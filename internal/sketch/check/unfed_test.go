@@ -64,7 +64,7 @@ law Same(s Store) { s.Get() == s.Get() }
 type Fn { f func(int) int } implements Store
 func Get(s Fn) int { s.f(1) }
 `,
-			want: []string{"3:39 S108 law Same cannot run at Fn: its values have no generator: func(int) int is a function type; a func NewFn() Fn with no rows would build one for each case (types.md, Laws 10)"},
+			want: []string{"3:40 S108 law Same cannot run at Fn: its values have no generator: func(int) int is a function type; a func NewFn() Fn with no rows would build one for each case (types.md, Laws 10)"},
 		},
 		{
 			name: "parameter at the provider's instance",
