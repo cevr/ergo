@@ -2100,6 +2100,7 @@
       "anchor": {"tests":["internal/sketch/eval:TestEvalAgreesWithLowering"]},
       "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
     },
+    {"name":"hk-native-pads-swapped","origin":"wf10 HMAC-KEYED","file":"internal/sketch/eval/nativeshmac.go","from":"tuple{elems: []Value{state(0x36), state(0x5c)}}","to":"tuple{elems: []Value{state(0x5c), state(0x36)}}","rule":"The evaluator's hmac.keyState is runtime/v1's: inner pad 0x36, outer 0x5c.","killers":["internal/sketch/eval:TestNativesAgreeWithRuntime"]},
     {"name":"st4-native-missing","origin":"wf10 STD-SURVEY ST4","file":"internal/sketch/eval/nativespure.go","from":"\tpure(\"sha1.Sum\",","to":"\tpure(\"sha1.Sumz\",","rule":"Every pure std extern has an evaluator native, so a law over it runs at ergo check.","killers":["internal/sketch/eval:TestEveryPureStdExternHasANative"]},
     {"name":"st4-toint8-width","origin":"wf10 STD-SURVEY ST4","file":"internal/sketch/eval/nativespure.go","from":"\tconv(\"ToInt8\", 8, true,","to":"\tconv(\"ToInt8\", 9, true,","rule":"math.ToInt8 fails OutOfRange past int8's range, as runtime/v1's does.","killers":["internal/sketch/eval:TestNativesAgreeWithRuntime"]},
     {"name":"st4-touint-below-zero","origin":"wf10 STD-SURVEY ST4","file":"internal/sketch/eval/nativespure.go","from":"\t\tlo, hi := 0.0, math.Ldexp(1, n)","to":"\t\tlo, hi := -1.0, math.Ldexp(1, n)","rule":"An unsigned conversion of a value at or below -1 fails OutOfRange.","killers":["internal/sketch/eval:TestNativesAgreeWithRuntime"]},

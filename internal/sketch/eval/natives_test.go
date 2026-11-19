@@ -240,6 +240,15 @@ func nativeCases(g nativeGen) []nativeCase {
 	fl := g.floats()
 	x := int64(g.r.IntN(5) - 2)
 	key := []string{"apiToken", "server.port", "HTTPStatus", "v2Path", "aÉb", "a\xffB", "", "a..B"}[g.r.IntN(8)] + g.text()
+	// hmac's key states: a key of each length class (empty, short, past
+	// a block of either size), each hash, and sometimes a state that Key
+	// did not give (cut short).
+	alg := []int64{1, 256, 512}[g.r.IntN(3)]
+	hkey := s + strings.Repeat("k", []int{0, 60, 64, 65, 128, 129, 300}[g.r.IntN(7)])
+	hin, hout := v1digest.HmacKeyState(int(alg), hkey)
+	if g.r.IntN(8) == 0 {
+		hin = hin[:g.r.IntN(len(hin))]
+	}
 	dur := []string{"1h2m3.5s", "-1.5ms", "0", "", "1", "3µs", "9223372036854775807ns", "9223372036854775808ns", "1e3s", "1.h", ".5s", "+2us", "1d", "-0"}[g.r.IntN(14)]
 	ls := func(ss []string) Value {
 		vs := make([]Value, len(ss))
@@ -335,6 +344,8 @@ func nativeCases(g nativeGen) []nativeCase {
 		{name: "path/filepath.Clean", args: []Value{s}, v1: func() any { return filepath.Clean(s) }},
 		{name: "path/filepath.IsAbs", args: []Value{s}, v1: func() any { return filepath.IsAbs(s) }},
 		{name: "hex.Encode", args: []Value{s}, v1: func() any { return v1digest.HexEncode(s) }},
+		{name: "hmac.keyState", args: []Value{alg, hkey}, v1: func() any { a, b := v1digest.HmacKeyState(int(alg), hkey); return tuple{elems: []Value{a, b}} }},
+		{name: "hmac.keyedSum", args: []Value{alg, hin, hout, u}, anyDefect: true, v1: func() any { return v1digest.HmacKeyedSum(int(alg), hin, hout, u) }},
 		{name: "time.DurationText", args: []Value{d}, v1: func() any { return v1.TimeDurationText(durationOf(d)) }},
 		{name: "time.subMono", args: []Value{d, m}, v1: func() any { return int64(v1.TimeSubMono(d, m)) }},
 		{name: "time.subWall", args: []Value{d % (1 << 34), x, m % (1 << 34), int64(i)}, v1: func() any { return int64(v1.TimeSub(d%(1<<34), x, m%(1<<34), int64(i))) }},

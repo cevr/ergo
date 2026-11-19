@@ -66,33 +66,60 @@ func StepOf(p Params, t time.Time) int64 {
 // step as eight big-endian bytes, cut at the offset its last byte's low
 // four bits give, to 31 bits, then to p's digits with leading zeros.
 func CodeOf(p Params, secret string, step int64) string {
+	let n = numberAt(p, hmac.Key(hmac.SHA1, secret), step)
+	let text = strconv.Itoa(n)
+	strings.Repeat("0", p.digits - len(text)) + text
+}
+
+// numberAt is the number CodeOf writes for step, under a secret made
+// ready once (hmac.Key), so Verify hashes the secret's pads once for its
+// whole window and compares numbers, never texts.
+func numberAt(p Params, k hmac.Keyed, step int64) int {
 	let mut msg = []byte{}
 	for i in 0..8 {
 		msg = msg.Append(byte((step >> int64(56 - 8*i)) & 255))
 	}
-	let h = strings.Bytes(hmac.Sum(hmac.SHA1, secret, strings.FromBytes(msg)))
+	let h = hmac.Tag(k, strings.FromBytes(msg))
 	let off = int(h[19] & 15)
 	let bin = (int(h[off]) & 127) << 24 | int(h[off + 1]) << 16 | int(h[off + 2]) << 8 | int(h[off + 3])
+	bin % modOf(p)
+}
+
+// modOf is 10 to the power of p's digits.
+func modOf(p Params) int {
 	let mut mod = 1
 	for _ in 0..p.digits {
 		mod = mod * 10
 	}
-	let text = strconv.Itoa(bin % mod)
-	strings.Repeat("0", p.digits - len(text)) + text
+	mod
 }
 
 // Code is the code of the period that holds t.
 func Code(p Params, secret string, t time.Time) string { CodeOf(p, secret, StepOf(p, t)) }
 
 // Verify is the step whose code code is, among the steps of p's window
-// around now, or None. It compares with every step of the window, each
-// with hmac.Equal, so the time it takes says nothing of which matched.
+// around now, or None. A code that is not p's digits matches no step.
+// Otherwise it reads code's number once and compares it with every
+// step's, keying the secret once for the window: the time it takes says
+// nothing of which step matched.
 func Verify(p Params, secret string, code string, now time.Time) Option[int64] {
+	if len(code) != p.digits {
+		return None
+	}
+	let mut want = 0
+	for i in 0..len(code) {
+		let c = code[i]
+		if c < '0' || c > '9' {
+			return None
+		}
+		want = want * 10 + int(c - '0')
+	}
 	let at = StepOf(p, now)
+	let k = hmac.Key(hmac.SHA1, secret)
 	let mut found Option[int64] = None
 	for d in -p.window..p.window + 1 {
 		let step = at + int64(d)
-		if hmac.Equal(code, CodeOf(p, secret, step)) && found == None {
+		if numberAt(p, k, step) == want && found == None {
 			found = Some[int64]{Value: step}
 		}
 	}
@@ -205,6 +232,14 @@ law OutsideWindowFails(secret string, sec int64, far int) {
 		}
 	}
 	true
+}
+
+// ShortCodeFails: a code with its first digit cut does not verify, even
+// when that digit is 0 and the number is the same: a code is p's digits.
+law ShortCodeFails(secret string, sec int64) {
+	let p = Default()
+	let now = time.Unix(((sec%10000000000)+10000000000)%10000000000, 0)
+	Verify(p, secret, Code(p, secret, now)[1:], now) == None
 }
 
 // NewParamsBoundsTheWindow: NewParams refuses a window outside 0..2, and

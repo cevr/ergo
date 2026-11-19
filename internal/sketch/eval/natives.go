@@ -65,6 +65,7 @@ func buildNatives() nativeTables {
 	registerNativescsv(t)
 	registerNativesembed(t)
 	registerNativesgo(t)
+	registerNativeshmac(t)
 	registerNativeshttp(t)
 	registerNativesjson(t)
 	registerNativesmore(t)
