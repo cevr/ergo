@@ -28,8 +28,9 @@ func draw(seed uint64, k int, n int) int { int(mix(seed+uint64(k)*0x9e3779b97f4a
 // series: the exact null table costs about n^3/4 additions, and a law's
 // 100 cases stay inside check time's budget at 12 (BENCH-LAW-COST). No
 // branch of Decide needs more: every level a design asks is reached at
-// PairsFor(level), 7 at most, and the MatchesReference laws hold the
-// null tables, whose paths are the same at every n, to the reference.
+// PairsFor(level), 7 at most. Past 12 pairs, up to MaxPairs, a seeded
+// property of a built program holds SignedRankP and HodgesLehmann to the
+// reference (lower TestStdBenchMatchesReference, BENCH-PROP).
 func lawPairs() int { 12 }
 
 // unit is the k-th draw of seed in [0, 1).
