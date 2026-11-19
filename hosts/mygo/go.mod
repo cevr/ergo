@@ -2,6 +2,8 @@ module ergo.local/prototype/hosts/mygo
 
 go 1.27.3
 
+toolchain go1.27.4
+
 require (
 	github.com/egoist/mygo v0.10.0
 	github.com/egoist/mygo/drawing v0.0.0
