@@ -19,6 +19,7 @@ import compiler/check/store
 import compiler/check/types
 import compiler/syntax
 import dense
+import strings
 
 // Fn is one function declaration of the package with its signature: its
 // file, its declaration and name nodes, its bracket parameters and their
@@ -339,6 +340,42 @@ func Load(s *store.Store, files []bind.File, u bind.Uses, ps bind.Parents, ext0 
 		}
 	}
 	Pkg{Files: files, Parsed: parsed, U: u, Ps: ps, Kinds: kinds, Ext: ext, Foreign: foreign, Ifaces: deps, Fns: fns, Recs: recs, Deps: []Dep{}, fnBy: fnBy, named: named, sameName: sameName, recBy: recBy}
+}
+
+// TyperWorkPerFunctionIsConstant: each further function of one shape adds
+// the same steps, the same typed expressions and the same reserved slots,
+// whatever the package's size, so no expression's typing reads the whole
+// package and the package-sized tables grow by the function, not faster.
+law TyperWorkPerFunctionIsConstant(n int) {
+	let m = 1 + ((n%3)+3)%3
+	let (s1, e1, r1) = typedShape(m)
+	let (s2, e2, r2) = typedShape(2 * m)
+	let (s3, e3, r3) = typedShape(3 * m)
+	e2 > e1 && s2-s1 == s3-s2 && e2-e1 == e3-e2 && r2 > r1 && r2-r1 == r3-r2
+}
+
+// shaped is the source of a package of m functions of one shape, which
+// reaches the typer's forms: a written and an inferred let, a generic
+// call, an index, a range, a condition and a final value.
+func shaped(m int) string {
+	let mut b = strings.NewBuilder()
+	b.WriteString("func id[T](x T) T { x }\n")
+	for i in 0..m {
+		b.WriteString("\nfunc f\(i)(p int, q string, xs []int) int {\n\tlet mut acc = p + 1\n\tlet a = id(p)\n\tlet c int = xs[0] * 2\n\tfor j, e in xs {\n\t\tacc = acc + e - j\n\t}\n\tif acc > 3 && q != \"x\" {\n\t\tacc = acc + len(q)\n\t}\n\tacc + a + c\n}\n")
+	}
+	b.String()
+}
+
+// typedShape types the package of m shaped functions: the typer's steps,
+// its count of typed expressions and the slots it reserved.
+func typedShape(m int) (int, int, int) {
+	let files = []bind.File{bind.File{Name: "p.ergo", Parsed: syntax.Parse(shaped(m))}}
+	let ps = bind.BuildParents(files)
+	let (bound, u) = bind.Bind(bind.Collect("p", files), []store.Frozen{}, ps, files, 1)
+	let mut s = bound
+	let k = Load(&s, files, u, ps, []types.Ext{}, []types.Foreign{}, []types.Iface{}, false)
+	let t = Check(&s, k)
+	(Steps(t), len(t.Entries), Reserved(t))
 }
 
 // FnAt is the index in k.Fns of the function whose name node is the

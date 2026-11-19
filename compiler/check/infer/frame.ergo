@@ -28,6 +28,28 @@ type Call { at int, n int, base int }
 // NewFrame is an empty stack.
 func NewFrame() Frame { Frame{slots: []Slot{}, top: 0, steps: 0} }
 
+// FramesNest: an inference begun inside another, as a call's argument's
+// own call is, leaves the outer frame's bindings as they were, and the
+// outer frame's end cuts the stack to where it began.
+law FramesNest(picks []int) {
+	let mut s = store.New("p", []string{})
+	let mut f = NewFrame()
+	let outer = Begin(&f, []bool{false, true}, 5)
+	Bind(&f, outer, 0, store.TBasic(&s, 3))
+	let k = caseOf(&s, &f, picks)
+	let inner = Infer(&s, &f, k.callee, []dense.ID[store.TKey]{}, k.args)
+	let kept = match Binding(f, outer, 0) {
+	case Some[dense.ID[store.TKey]] as b:
+		b.Value == store.TBasic(&s, 3)
+	case None:
+		false
+	}
+	let unbound = isNone(Binding(f, outer, 1))
+	let depth = Depth(f)
+	End(&f, outer)
+	!isNone(inner) && kept && unbound && depth == 2 && Depth(f) == 0
+}
+
 // Steps is the count of unification steps taken on f.
 func Steps(f Frame) int { f.steps }
 

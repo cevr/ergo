@@ -93,3 +93,76 @@ func BuildParents(files []File) Parents {
 	ps.kids = kids
 	ps
 }
+
+// ParentsInvertChildren: each row's parent is the row whose children hold
+// it, a file's root has none, and the column writes one entry per row
+// that is a child: the rows less the files (C0/plan.md §2.7's guard).
+law ParentsInvertChildren(picks []int) {
+	let files = packageOf(picks)
+	let ps = BuildParents(files)
+	let mut ok = true
+	let mut rows = 0
+	let mut parsed = 0
+	let mut kids = []uint32{}
+	for f, file in files {
+		// Every assembly of the fragments parses, so the law is never
+		// vacuous.
+		if file.Parsed.Failed {
+			return false
+		}
+		parsed = parsed + 1
+		let t = file.Parsed.Tree
+		rows = rows + syntax.NumNodes(t)
+		for i in 0..syntax.NumNodes(t) {
+			let me = PNodeOf(ps, f, syntax.NodeAt(t, i))
+			kids = syntax.Children(t, syntax.NodeAt(t, i), kids[0:0])
+			// The column's children of the row are the tree's, in order.
+			let n = dense.Index(me)
+			ok = ok && numKids(ps, n) == len(kids)
+			for j, c in kids {
+				ok = ok && j < numKids(ps, n) && kidAt(ps, n, j) == int(c)
+			}
+			for c in kids {
+				ok = ok && ParentOf(ps, PNodeOf(ps, f, syntax.NodeAt(t, int(c)))) == dense.OptOf(me)
+			}
+		}
+		ok = ok && dense.Unpack(ParentOf(ps, PNodeOf(ps, f, syntax.Root(t)))) == None
+	}
+	ok && Written(ps) == rows-parsed
+}
+
+let fragments = []string{
+	"type P { X int, Y []int }\n",
+	"type U = A | B{x int}\n",
+	"func F(a int, b string) int { let c = a + 1; c }\n",
+	"let (x, y) = (1, 2)\n",
+	"func g(v int) int {\n\tmatch v {\n\tcase 0:\n\t\t1\n\tcase _:\n\t\tv\n\t}\n}\n",
+	"func h(xs []int) int { let mut s = 0; for i, v in xs { s = s + i + v }; s }\n",
+	"type R int where 0 <= it && it < 9\n",
+	"func k(m Map[string, int]) int { m[\"a\"] }\n",
+	"func s(a int) int {\n\tif a > 0 {\n\t\tlet a = 2\n\t\treturn a\n\t}\n\ta\n}\n",
+	"type Ops {\n\tGet(k string) int,\n\tlaw Same(k string) { Get(k) == Get(k) },\n}\n",
+	"func o(v U) int {\n\tmatch v {\n\tcase A:\n\t\t0\n\tcase B as b:\n\t\tb.x\n\t}\n}\n",
+	"func c(n int) func() int { func() int { let m = n; m + F(n, \"\") } }\n",
+	"func one() int { 1 }\n",
+	"func two() int { 2 }\n",
+}
+
+// packageOf is the files the picks assemble: a new file at each pick
+// divisible by 5, at most four.
+func packageOf(picks []int) []File { packageIn(picks, func(src string) string { src }) }
+
+// packageIn is packageOf with each file's source passed through layout.
+func packageIn(picks []int, layout func(string) string) []File {
+	let mut files = []File{}
+	let mut src = ""
+	for k in picks {
+		let n = len(fragments)
+		if k%5 == 0 && src != "" && len(files) < 3 {
+			files = files.Append(File{Name: "f\(len(files)).ergo", Parsed: syntax.Parse(layout(src))})
+			src = ""
+		}
+		src = src + fragments[((k%n)+n)%n]
+	}
+	files.Append(File{Name: "f\(len(files)).ergo", Parsed: syntax.Parse(layout(src))})
+}

@@ -119,6 +119,26 @@ func basic(s *store.Store, ty dense.ID[store.TKey]) int { store.BasicOrdinal(s, 
 // Entries.
 func Check(s *store.Store, k Pkg) Typer { checkAll(s, k, true) }
 
+// FusedWalkTypesAsCheck: the fused walk keeps no Entries table and types
+// what Check types, with its instances and type errors (S3d5).
+law FusedWalkTypesAsCheck(n int) {
+	fusedShape(1 + ((n%3)+3)%3)
+}
+
+// fusedShape types the package of m shaped functions both ways: Check's
+// entries, instances and type errors, and CheckFused's count, instances
+// and type errors.
+func fusedShape(m int) bool {
+	let files = []bind.File{bind.File{Name: "p.ergo", Parsed: syntax.Parse(shaped(m))}}
+	let ps = bind.BuildParents(files)
+	let (bound, u) = bind.Bind(bind.Collect("p", files), []store.Frozen{}, ps, files, 1)
+	let mut s = bound
+	let k = Load(&s, files, u, ps, []types.Ext{}, []types.Foreign{}, []types.Iface{}, false)
+	let t = Check(&s, k)
+	let f = CheckFused(&s, k)
+	len(f.Entries) == 0 && Typed(f) == len(t.Entries) && Typed(t) == len(t.Entries) && len(f.Insts) == len(t.Insts) && len(Diags(f)) == len(Diags(t)) && Steps(f) == Steps(t)
+}
+
 // CheckFused types every function body of k as Check does, with no Entries
 // table: the walk counts what it types (Typed) and reports its type errors
 // and instances, as a checker that only accepts or rejects does (S3d5).
