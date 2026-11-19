@@ -228,7 +228,9 @@ func (g *wireGen) union(t check.Type, u *check.Union, v *irExpr) []wireStep {
 	if fu != nil && fu.niche {
 		irNo("codec writer of a union by its pointer niche")
 	}
-	sw := &irStmt{K: "tswitch", Pos: g.p, End: g.p, X: v}
+	// A type switch's default clause, empty here, takes ElsePos: the
+	// decoder's scope for it needs a known position (JOBS-ICE).
+	sw := &irStmt{K: "tswitch", Pos: g.p, End: g.p, ElsePos: g.p, X: v}
 	if fu != nil {
 		sw = &irStmt{K: "switch", Pos: g.p, End: g.p, X: b.tagOf(v.I, g.p)}
 	}
