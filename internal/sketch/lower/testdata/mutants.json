@@ -6363,6 +6363,9 @@
       "killers": [
         "internal/sketch/lower:TestLinkedRuntimeHoldsEveryImport"
       ]
-    }
+    },
+    {"name":"nl-helper-unprefixed","origin":"wf10 NAME-LOCAL NL-1","file":"internal/sketch/lower/pkgnames.go","from":"\tif alias != \"\" {\n\t\tbase = alias + \"__\" + base\n\t}\n\treturn \"ergo__\" + base\n","to":"\treturn base\n","rule":"Rule 3: a generated entity is ergo__[alias__]base, a spelling under \"__\" that no Ergo declaration can take (S109), so a declaration named like a helper's base renames nothing.","killers":["lower:TestFunctionNamesIgnoreUnrelatedPackages"]},
+    {"name":"nl-decl-alias-dropped","origin":"wf10 NAME-LOCAL NL-1","file":"internal/sketch/lower/pkgnames.go","from":"\t\tname := pkgAlias(owner.Path) + \"__\" + l.pkgNamer(owner).alloc(base) // rule 2\n","to":"\t\tname := l.pkgNamer(owner).alloc(base) // rule 2\n","rule":"Rule 2: a non-root package's declaration is <alias>__<name>, so two packages may declare one spelling.","killers":["lower:TestFunctionNamesIgnoreUnrelatedPackages"]},
+    {"name":"nl-plain-scope-program","origin":"wf10 NAME-LOCAL NL-1","file":"internal/sketch/lower/pkgnames.go","from":"\tif f.Pkg == nil || f.Pkg == l.pkg || f.Pkg.Prelude() {\n\t\treturn l.names\n\t}\n\treturn l.pkgNamer(f.Pkg)\n","to":"\treturn l.names\n","rule":"A function's own body names its locals below its own package's names alone (plainScope), not the program's.","killers":["lower:TestFunctionNamesIgnoreUnrelatedPackages"]}
   ]
 }

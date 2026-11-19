@@ -21,6 +21,14 @@ import (
 // lowering's own helpers use (live, kept, rel, err, slot, env).
 var nameLocalPool = []string{"x", "count", "total", "item", "acc", "step", "live", "kept", "rel", "err", "slot", "env", "g", "h"}
 
+// nameLocalDefault is lib's D, whose let of Reg takes a generated default
+// (types.md, Zero values 3), and nameLocalHelperNames are that helper's
+// spellings without rule 3's ergo__ and alias: every added declaration
+// set holds them, so a helper spelled outside "__" meets one.
+const nameLocalDefault = "type Reg (int, Map[int, int])\n\nfunc D(k int) int {\n\tlet r Reg\n\tlet (_, m) = r\n\tlet mut w = m\n\tw[k] = 5\n\tlen(w)\n}\n\n"
+
+var nameLocalHelperNames = []string{"DefaultReg", "ergoDefaultReg"}
+
 // nameLocalProgram is a seeded program: package lib (a callee and a
 // function of lets that calls it), a main helper of lets, and, when
 // noise, an unrelated package noise that main imports, whose top-level
@@ -50,7 +58,7 @@ func genNameLocal(seed uint64) nameLocalProgram {
 		prev = l
 	}
 	fmt.Fprintf(&lib, "\t%s\n}\n", prev)
-	p.lib = lib.String()
+	p.lib = nameLocalDefault + lib.String()
 
 	var h strings.Builder
 	h.WriteString("func helper(n int) int {\n\tif n > 100 {\n\t\treturn helper(n - 100)\n\t}\n")
@@ -63,7 +71,7 @@ func genNameLocal(seed uint64) nameLocalProgram {
 	p.helper = h.String()
 
 	var noise strings.Builder
-	names := append([]string{p.callee}, p.locals...)
+	names := append(append([]string{p.callee}, p.locals...), nameLocalHelperNames...)
 	for _, n := range nameLocalPool {
 		if !slices.Contains(names, n) && r.IntN(2) == 0 {
 			names = append(names, n)
@@ -93,18 +101,18 @@ const (
 func (p nameLocalProgram) main(form int) string {
 	switch form {
 	case nameLocalPackage:
-		return "import lib\nimport noise\n\n" + p.helper + "\nfunc main() needs Console {\n\tConsole.Println(\"\\(lib.F(2) + helper(3) + noise.Touch())\")\n}\n"
+		return "import lib\nimport noise\n\n" + p.helper + "\nfunc main() needs Console {\n\tConsole.Println(\"\\(lib.F(2) + lib.D(1) + helper(3) + noise.Touch())\")\n}\n"
 	case nameLocalRoot:
-		return "import lib\n\n\n" + p.helper + "\nfunc main() needs Console {\n\tConsole.Println(\"\\(lib.F(2) + helper(3) + Touch())\")\n}\n\n" + p.noise
+		return "import lib\n\n\n" + p.helper + "\nfunc main() needs Console {\n\tConsole.Println(\"\\(lib.F(2) + lib.D(1) + helper(3) + Touch())\")\n}\n\n" + p.noise
 	}
-	return "import lib\n\n\n" + p.helper + "\nfunc main() needs Console {\n\tConsole.Println(\"\\(lib.F(2) + helper(3))\")\n}\n"
+	return "import lib\n\n\n" + p.helper + "\nfunc main() needs Console {\n\tConsole.Println(\"\\(lib.F(2) + lib.D(1) + helper(3))\")\n}\n"
 }
 
 // nameLocalFuncs lowers the program on the IR and as Go text and gives,
 // for each function declared at a position other than main's own main,
 // its IR (positions as paths) and its Go text, keyed by its declaration's
-// path:line:col.
-func nameLocalFuncs(t *testing.T, p nameLocalProgram, form int) (ir, text map[string]string) {
+// path:line:col, and the text path's program, to type-check.
+func nameLocalFuncs(t *testing.T, p nameLocalProgram, form int, name string) (ir, text map[string]string, prog *lowered) {
 	t.Helper()
 	imports := cxImporter{"lib": cxPackage(t, "lib", p.lib)}
 	if form == nameLocalPackage {
@@ -160,7 +168,7 @@ func nameLocalFuncs(t *testing.T, p nameLocalProgram, form int) (ir, text map[st
 			}
 		}
 	}
-	return ir, text
+	return ir, text, &lowered{name: name, src: src, file: f, pkg: pkg, files: files}
 }
 
 // irPathsOf is v with each position [file, line, col] spelled with its
@@ -240,8 +248,10 @@ func goFuncsByLine(text string) [][2]string {
 // own package (NAME-LOCAL; S4's naming rule): adding a package that the
 // function never names to the program leaves its IR and its Go text
 // byte-identical. The added package declares top-level functions with
-// the spellings of the function's locals and callee, and of the bases the
-// lowering's helpers take. ERGO_NAMELOCAL_SEED=<n> replays one seed.
+// the spellings of the function's locals and callee, of the bases the
+// lowering's helpers take, and of lib's generated default without its
+// ergo__ and alias (mutant helper-prefix-dropped); and every form's Go
+// type-checks. ERGO_NAMELOCAL_SEED=<n> replays one seed.
 func TestFunctionNamesIgnoreUnrelatedPackages(t *testing.T) {
 	seeds := []uint64{1, 2, 3, 4, 5, 6, 7, 8}
 	if s := os.Getenv("ERGO_NAMELOCAL_SEED"); s != "" {
@@ -251,12 +261,14 @@ func TestFunctionNamesIgnoreUnrelatedPackages(t *testing.T) {
 		}
 		seeds = []uint64{n}
 	}
+	var progs []*lowered
 	for _, seed := range seeds {
 		p := genNameLocal(seed)
 		mainLine := strings.Count(p.main(nameLocalBase)[:strings.Index(p.main(nameLocalBase), "func main(")], "\n") + 1
-		baseIR, baseText := nameLocalFuncs(t, p, nameLocalBase)
-		noiseIR, noiseText := nameLocalFuncs(t, p, nameLocalPackage)
-		rootIR, rootText := nameLocalFuncs(t, p, nameLocalRoot)
+		baseIR, baseText, bp := nameLocalFuncs(t, p, nameLocalBase, fmt.Sprintf("namelocal%d", seed))
+		noiseIR, noiseText, np := nameLocalFuncs(t, p, nameLocalPackage, fmt.Sprintf("namelocal%dpackage", seed))
+		rootIR, rootText, rp := nameLocalFuncs(t, p, nameLocalRoot, fmt.Sprintf("namelocal%droot", seed))
+		progs = append(progs, bp, np, rp)
 		for _, cmp := range []struct {
 			what       string
 			base, with map[string]string
@@ -288,4 +300,7 @@ func TestFunctionNamesIgnoreUnrelatedPackages(t *testing.T) {
 			}
 		}
 	}
+	// Every form builds: a name two packages spell alike, or a helper a
+	// declaration spells, is two Go names (mutant decl-alias-dropped).
+	typecheckGo(t, progs)
 }
