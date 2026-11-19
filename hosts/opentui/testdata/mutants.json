@@ -1,0 +1,8 @@
+{
+  "about": "Mutants of hosts/opentui (the schema of hosts/mygo's ledger). Each edit is applied to a copy of the module's file, then the killers run. A killer is dir:Test, where dir is a directory of this Go module (hosts/opentui/<pkg>).",
+  "mutants": [
+    {"name":"OT0-fetch-no-integrity","origin":"OT0","file":"hosts/opentui/ot/fetch.go","from":"if err := CheckIntegrity(data, want); err != nil {","to":"if err := CheckIntegrity(data, want); false && err != nil {","rule":"a tarball whose bytes differ from the pinned sha512 integrity is refused before it is read","killers":["hosts/opentui/ot:TestFetchChecksIntegrity"]},
+    {"name":"OT0-no-struct-size","origin":"OT0","file":"hosts/opentui/ot/opentui.go","from":"func (s *SessionRendererOptions) fill() {\n\ts.structSize = 24","to":"func (s *SessionRendererOptions) fill() {\n\ts.structSize = 0","rule":"every record carries its struct_size (bindc's autofill); OpenTUI refuses one without","killers":["hosts/opentui/ot:TestLoads","hosts/opentui/ot:TestFilesCurrent"]},
+    {"name":"OT0-any-abi","origin":"OT0","file":"hosts/opentui/ot/opentui.go","from":"if got := abi(); got != 2 {","to":"if got := abi(); false && got != 2 {","rule":"Load refuses a library of another ABI version; the check is generated, so a hand edit is refused","killers":["hosts/opentui/ot:TestFilesCurrent"]}
+  ]
+}
