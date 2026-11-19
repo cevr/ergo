@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -175,7 +177,82 @@ func (w *worker) applyChecked(ctx context.Context, m *Mutant, path string, origi
 	if restore == nil {
 		return nil, detail
 	}
-	return restore, w.compiles(ctx, m, path, original)
+	if detail := w.compiles(ctx, m, path, original); detail != "" {
+		return restore, detail
+	}
+	return w.regenerated(ctx, m, restore)
+}
+
+// regenerated runs a generator row's regenerate step on the mutated copy
+// (MUT-REGEN), after its edit was applied with restore; the restore it
+// returns also puts back what the step wrote. A row with no step, or a
+// -compiles sweep, returns restore as it is.
+func (w *worker) regenerated(ctx context.Context, m *Mutant, restore func()) (func(), string) {
+	g := m.Regenerate
+	if g == nil || w.e.compileOnly {
+		return restore, ""
+	}
+	undo := func() {
+		restore()
+		if err := w.restoreUnder(g.Dir); err != nil {
+			w.err = errors.Join(w.err, err)
+		}
+	}
+	return undo, w.regenerate(ctx, g)
+}
+
+// regenerate runs the row's regenerate step in the worker's copy. It
+// returns why it failed, or "".
+func (w *worker) regenerate(ctx context.Context, g *Regenerate) string {
+	if len(g.Argv) == 0 || g.Dir == "" || filepath.IsAbs(g.Dir) || strings.HasPrefix(path.Clean(g.Dir), "..") {
+		return fmt.Sprintf("regenerate %q in %q: want a command and a directory inside the checkout", g.Argv, g.Dir)
+	}
+	o := w.e.exec(ctx, filepath.Join(w.root, filepath.FromSlash(g.Dir)), g.Argv, w.e.env(), w.e.cfg.CoverDeadline)
+	if o.reason != "" {
+		return fmt.Sprintf("regenerate %q in %s: %s: %s", g.Argv, g.Dir, o.reason, lastLines(o.tail, 20))
+	}
+	// verifyCopy checks that restoreUnder put back what the step wrote.
+	prefix := path.Clean(g.Dir) + "/"
+	for _, f := range w.e.files {
+		if strings.HasPrefix(f.path, prefix) {
+			w.touched[f.path] = true
+		}
+	}
+	return ""
+}
+
+// restoreUnder puts every file of the checkout under dir back as the
+// checkout has it, and removes the files a step wrote there that the
+// checkout does not have.
+func (w *worker) restoreUnder(dir string) error {
+	prefix := path.Clean(dir) + "/"
+	known := map[string]bool{}
+	var errs []error
+	for _, f := range w.e.files {
+		if !strings.HasPrefix(f.path, prefix) || f.mode&fs.ModeSymlink != 0 {
+			continue
+		}
+		known[f.path] = true
+		p := filepath.Join(w.root, filepath.FromSlash(f.path))
+		if data, err := os.ReadFile(p); err == nil && bytes.Equal(data, f.data) {
+			continue
+		}
+		if err := os.WriteFile(p, f.data, f.mode.Perm()|0o200); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	base := filepath.Join(w.root, filepath.FromSlash(dir))
+	errs = append(errs, filepath.WalkDir(base, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		rel, err := filepath.Rel(w.root, p)
+		if err == nil && !known[filepath.ToSlash(rel)] {
+			err = os.Remove(p)
+		}
+		return err
+	}))
+	return errors.Join(errs...)
 }
 
 // CompileRows applies each selected row in a copy and compiles it, as judge

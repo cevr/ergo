@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"ergo.local/prototype/internal/testinputs"
 )
@@ -188,6 +189,13 @@ func TestKillerInAnotherSuiteIsRun(t *testing.T) {
 	if err != nil || len(cover) != 0 || len(suites) != 1 || suites[0].Module != "nested/m" || suites[0].Package != "./p" {
 		t.Errorf("a nested module's killer: cover %q, suites %+v, err %v; want the suite ./p of module nested/m and no cover package", cover, suites, err)
 	}
+	// The ledger of a nested module's package (hosts/mygo) is its own
+	// suite, built in that module too, and its killers name that suite
+	// (MUT-MODULES: the runner built ./hosts/mygo in the checkout's module).
+	cover, _, suites, err = suitesFor(root, []Job{{Path: ledgerPath(root, filepath.Join(root, "nested", "m", "p")), Ledger: nested}})
+	if err != nil || len(cover) != 0 || len(suites) != 1 || suites[0].Name != "nested/m/p" || suites[0].Module != "nested/m" || suites[0].Package != "./p" {
+		t.Errorf("a nested module's ledger: cover %q, suites %+v, err %v; want its own suite ./p of module nested/m and no cover package", cover, suites, err)
+	}
 	ledger := &Ledger{Mutants: []*Mutant{
 		{Name: "a", Killers: []string{"runtime/v1[ergoexplore]:TestA", "runtime/v1:TestB", "internal/sketchfront:TestF"}},
 		{Name: "b", Killers: []string{"lower:TestL", "runtime/v1:TestOwn (a note)"}, Anchor: &Anchor{Tests: []string{"runtime/v1[ergoexplore]:TestC"}}},
@@ -281,5 +289,22 @@ func TestLedgerEnvReachesItsOwnSuite(t *testing.T) {
 	}
 	if _, _, _, err := suitesFor(root, []Job{{Path: ledgerPath(root, "lower"), Ledger: &Ledger{Env: env}}}); err == nil {
 		t.Error("lower's ledger took an env")
+	}
+	// A test of a nested module's suite (hosts/mygo) gets an emission cache
+	// of its own, which internal/testinputs gives a test of the checkout's
+	// module; a ledger's ERGO_CACHE wins (MUT-MODULES).
+	var e engine
+	cache := func(s Suite) []string {
+		_, _, got := e.argv(&s, "/r", "/b", "TestX", time.Minute)
+		return slices.DeleteFunc(got, func(kv string) bool { return !strings.HasPrefix(kv, "ERGO_CACHE=") })
+	}
+	if got := cache(Suite{Name: "hosts/m", Module: "hosts/m", Package: "./"}); !slices.Equal(got, []string{"ERGO_CACHE=" + filepath.Join("/b", "ergo-cache", "hosts", "m", "TestX")}) {
+		t.Errorf("a nested module's test: ERGO_CACHE %q; want one under the work directory", got)
+	}
+	if got := cache(Suite{Name: "hosts/m", Module: "hosts/m", Package: "./", Env: []string{"ERGO_CACHE=/mine"}}); !slices.Equal(got, []string{"ERGO_CACHE=/mine"}) {
+		t.Errorf("a ledger's ERGO_CACHE: %q; want it alone", got)
+	}
+	if got := cache(Suite{Name: "p", Package: "./p"}); len(got) != 0 {
+		t.Errorf("a test of the checkout's module: ERGO_CACHE %q; want none (testinputs sets it)", got)
 	}
 }
