@@ -10,6 +10,7 @@ package v1
 
 import (
 	"math"
+	"math/bits"
 	"strconv"
 )
 
@@ -253,3 +254,30 @@ func MathToUintptr(f float64) (uintptr, error) {
 	}
 	return 0, MathOutOfRange{Value: f}
 }
+
+// BitsAdd64 is bits.Add64(x, y, carry): the sum and the carry out.
+//
+//ergo:pure
+//ergo:wait none
+func BitsAdd64(x, y, carry uint64) (uint64, uint64) { return bits.Add64(x, y, carry) }
+
+// BitsSub64 is bits.Sub64(x, y, borrow): the difference and the borrow
+// out.
+//
+//ergo:pure
+//ergo:wait none
+func BitsSub64(x, y, borrow uint64) (uint64, uint64) { return bits.Sub64(x, y, borrow) }
+
+// BitsMul64 is bits.Mul64(x, y): the high and low halves of the product.
+//
+//ergo:pure
+//ergo:wait none
+func BitsMul64(x, y uint64) (uint64, uint64) { return bits.Mul64(x, y) }
+
+// BitsDiv64 is bits.Div64(hi, lo, y): the quotient and remainder of the
+// 128-bit (hi, lo) by y. Like Go's, it is a defect (a panic) when y is 0
+// or not above hi, the quotient would not fit 64 bits.
+//
+//ergo:pure
+//ergo:wait none
+func BitsDiv64(hi, lo, y uint64) (uint64, uint64) { return bits.Div64(hi, lo, y) }

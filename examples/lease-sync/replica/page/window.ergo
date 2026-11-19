@@ -1,0 +1,196 @@
+// Package page is a window over a long list: the rows a view shows of a
+// list too long to hold, read by pages from a read model, plus the rows
+// that arrive live from the source and the client's own pending rows
+// (wf10 RPG1). A Window is a pure value: the program that reads the pages
+// keeps it in its state, and Rows is the view's list.
+//
+// Rows are known by their ID, not by their position: a row can come in a
+// page and in the live tail, and a pending row comes back confirmed with
+// the ID it had while pending. Each row is shown once.
+
+// Row is one row of the list: its key (the order of the list and the
+// cursor of a page), its ID and its value. Keys and IDs are unique in a
+// list.
+type Row[K, T] { Key K, ID string, Value T }
+
+// Page is one read of the list. It holds every row that the list held at
+// the read with a key above After and below Before, in key order. None is
+// no bound: a page with After None starts at the first row of the list,
+// and a page with Before None reaches its last row.
+type Page[K, T] { Rows []Row[K, T], After Option[K], Before Option[K] }
+
+// Pending is a row of one of the client's commands that the authority has
+// not confirmed: it has no key yet. Its ID is the ID that its row has
+// when it is confirmed.
+type Pending[T] { ID string, Value T }
+
+// Item is one row of the view. A Pending item is a row of the client's
+// own command that is not confirmed.
+type Item[T] { ID string, Value T, Pending bool }
+
+// Window is what a view knows of a list. Its rows are a part of the list
+// with no gap, in key order. start is set when the rows begin at the
+// list's first row; end is set when they reach its last row, and from
+// then on every live row joins them. A live row that comes before the
+// window reaches the end is held, and it joins the rows when the window
+// reaches the end: it is never shown inside a part that is not loaded.
+// local is the outbox's rows; failed is set when the last page failed.
+type Window[K, T] {
+	rows   []Row[K, T],
+	held   []Row[K, T],
+	local  []Pending[T],
+	start  bool,
+	end    bool,
+	failed bool,
+}
+
+// Empty is a window that has read nothing.
+func Empty[K, T]() Window[K, T] {
+	Window[K, T]{rows: []Row[K, T]{}, held: []Row[K, T]{}, local: []Pending[T]{}, start: false, end: false, failed: false}
+}
+
+// Next is the cursor of the next page after the window: the key of its
+// last row, or None for a window with no rows (a read from the start).
+func Next[K, T](w Window[K, T]) Option[K] {
+	if len(w.rows) == 0 {
+		return None
+	}
+	Some{Value: w.rows[len(w.rows)-1].Key}
+}
+
+// Prev is the cursor of the next page before the window: the key of its
+// first row, or None for a window with no rows (a read of the last rows).
+func Prev[K, T](w Window[K, T]) Option[K] {
+	if len(w.rows) == 0 {
+		return None
+	}
+	Some{Value: w.rows[0].Key}
+}
+
+// Started is true when the window holds the list's first row: there is
+// nothing more to read before it.
+func Started[K, T](w Window[K, T]) bool { w.start }
+
+// Ended is true when the window holds the list's last row: live rows join
+// it, and the outbox's rows show after it.
+func Ended[K, T](w Window[K, T]) bool { w.end }
+
+// Failed is true when the last page failed and no page came after it.
+func Failed[K, T](w Window[K, T]) bool { w.failed }
+
+// Extend adds a page that was read after the window (with After its Next)
+// and ExtendBack one that was read before it (with Before its Prev). Each
+// takes any page that touches the window, a late one too: the rows the
+// window already holds are not added again. A page that does not touch it
+// would leave a gap, and it changes nothing.
+func Extend[K ordered, T](w Window[K, T], p Page[K, T]) Window[K, T] { merge(w, p) }
+
+// ExtendBack adds a page read before the window; see Extend.
+func ExtendBack[K ordered, T](w Window[K, T], p Page[K, T]) Window[K, T] { merge(w, p) }
+
+// merge adds p when its range and the window's rows meet: p holds every
+// row between its bounds, and the window every row between its first and
+// last, so the union has no gap exactly when After is at most the last
+// key and Before at least the first.
+func merge[K ordered, T](w own Window[K, T], p Page[K, T]) Window[K, T] {
+	if len(w.rows) > 0 && !(atMost(p.After, w.rows[len(w.rows)-1].Key) && atLeast(p.Before, w.rows[0].Key)) {
+		return w
+	}
+	let mut rows = w.rows
+	for r in p.Rows {
+		rows = insert(rows, r)
+	}
+	let start = w.start || p.After == None
+	let end = w.end || p.Before == None
+	if !end {
+		return Window[K, T]{..w, rows: rows, start: start, failed: false}
+	}
+	for r in w.held {
+		rows = insert(rows, r)
+	}
+	Window[K, T]{..w, rows: rows, held: []Row[K, T]{}, start: start, end: true, failed: false}
+}
+
+func atMost[K ordered](b Option[K], k K) bool {
+	match b {
+	case Some[K] as s:
+		s.Value <= k
+	case None:
+		true
+	}
+}
+
+func atLeast[K ordered](b Option[K], k K) bool {
+	match b {
+	case Some[K] as s:
+		s.Value >= k
+	case None:
+		true
+	}
+}
+
+// insert puts r into rows in key order, unless rows already hold its ID
+// or its key.
+func insert[K ordered, T](rows own []Row[K, T], r own Row[K, T]) []Row[K, T] {
+	let mut out = []Row[K, T]{}
+	let mut put = false
+	for x in rows {
+		if x.ID == r.ID || x.Key == r.Key {
+			return rows
+		}
+		if !put && r.Key < x.Key {
+			out = out.Append(r)
+			put = true
+		}
+		out = out.Append(x)
+	}
+	if !put {
+		out = out.Append(r)
+	}
+	out
+}
+
+// Fail records a page that failed: the rows stay as they are.
+func Fail[K, T](w Window[K, T]) Window[K, T] { Window[K, T]{..w, failed: true} }
+
+// Tail adds a row that arrived live from the source. A window that holds
+// the list's last row shows it; any other window holds it until a page
+// reaches the end.
+func Tail[K ordered, T](w Window[K, T], r Row[K, T]) Window[K, T] {
+	if w.end {
+		return Window[K, T]{..w, rows: insert(w.rows, r)}
+	}
+	Window[K, T]{..w, held: w.held.Append(r)}
+}
+
+// Local sets the outbox's rows, in the outbox's order: the replica's
+// pending commands as rows.
+func Local[K, T](w Window[K, T], ps []Pending[T]) Window[K, T] { Window[K, T]{..w, local: ps} }
+
+// Rows is the view's list: the window's rows, then, when the window holds
+// the list's last row, each outbox row whose ID no row has yet. A pending
+// row that came back confirmed is shown once, as the confirmed row.
+func Rows[K, T](w Window[K, T]) []Item[T] {
+	let mut out = []Item[T]{}
+	for r in w.rows {
+		out = out.Append(Item[T]{ID: r.ID, Value: r.Value, Pending: false})
+	}
+	if !w.end {
+		return out
+	}
+	for p in w.local {
+		if !holds(w.rows, p.ID) {
+			out = out.Append(Item[T]{ID: p.ID, Value: p.Value, Pending: true})
+		}
+	}
+	out
+}
+
+func holds[K, T](rows []Row[K, T], id string) bool {
+	for r in rows {
+		if r.ID == id {
+			return true
+		}
+	}
+	false
+}

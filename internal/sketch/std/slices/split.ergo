@@ -1,0 +1,120 @@
+// Splitting a slice: Chunks, Windows and GroupBy (std-spike D1). Each part
+// is a new slice: a write to a part never reaches xs, nor xs a part.
+
+// Chunks is xs cut into slices of n elements, in order, the last holding
+// what remains (Go's slices.Chunk collected; Effect Array.chunksOf). An n
+// under one is taken as one, as Effect's is; Go's panics.
+func Chunks[T](xs []T, n int) [][]T {
+	let size = if n < 1 { 1 } else { n }
+	let mut out = [][]T{}
+	let mut i = 0
+	for i < len(xs) {
+		let j = if i+size < len(xs) { i + size } else { len(xs) }
+		out = out.Append(Clone(Slice(xs, i, j)))
+		i = j
+	}
+	out
+}
+
+// ChunksConcat: the chunks of xs, joined in order, are xs; each but the
+// last holds n elements and the last at least one.
+law ChunksConcat(xs []int, k int) {
+	let n = (k%5+5)%5 + 1
+	let cs = Chunks(xs, n)
+	let mut joined = []int{}
+	let mut ok = true
+	for i, c in cs {
+		joined = Concat(joined, c)
+		ok = ok && len(c) >= 1 && (i == len(cs)-1 || len(c) == n)
+	}
+	ok && Equal(joined, xs)
+}
+
+// Windows is every run of n neighbouring elements of xs, from the first
+// (Gleam list.window, Kotlin windowed): len(xs) - n + 1 of them, none when
+// xs is shorter than n or n is under one.
+func Windows[T](xs []T, n int) [][]T {
+	let mut out = [][]T{}
+	if n < 1 {
+		return out
+	}
+	for i in 0..len(xs)-n+1 {
+		out = out.Append(Clone(Slice(xs, i, i+n)))
+	}
+	out
+}
+
+// WindowsSlide: window i is xs[i : i+n], and there are len(xs) - n + 1.
+law WindowsSlide(xs []int, k int) {
+	let n = (k%4+4)%4 + 1
+	let ws = Windows(xs, n)
+	let want = if len(xs) < n { 0 } else { len(xs) - n + 1 }
+	let mut ok = len(ws) == want
+	for i, w in ws {
+		ok = ok && Equal(w, Slice(xs, i, i+n))
+	}
+	ok
+}
+
+// GroupBy is the elements of xs by their key, each group in the order of
+// xs (Effect Array.groupBy, Gleam list.group). key runs once on each
+// element. Its Map has no order; slices.Sorted(maps.Keys(g)) reads it in
+// one.
+func GroupBy[T, K comparable, E, R](xs []T, key func(x T) K fails E needs R) Map[K, []T] fails E needs R {
+	// A counting sort: each element's group number, then every group laid
+	// out in one array, each group a Slice of it (no room, so an Append to
+	// a group never writes the next). Growing a slice held in a Map or in
+	// an element would copy it on each Append (types.md, Bindings 2).
+	let mut at = Map[K, int]{}
+	let mut keys = []K{}
+	let mut counts = []int{}
+	let mut ids = WithCapacity[int](len(xs))
+	for x in xs {
+		let k = try key(x)
+		match at.Get(k) {
+		case Some[int] as i:
+			let j = i.Value
+			counts[j] = counts[j] + 1
+			ids = ids.Append(j)
+		case None:
+			at[k] = len(keys)
+			ids = ids.Append(len(keys))
+			keys = keys.Append(k)
+			counts = counts.Append(1)
+		}
+	}
+	let mut out = Map[K, []T]{}
+	if len(xs) == 0 {
+		return out
+	}
+	let mut next = WithCapacity[int](len(counts))
+	let mut total = 0
+	for c in counts {
+		next = next.Append(total)
+		total = total + c
+	}
+	let mut flat = Repeat(Slice(xs, 0, 1), len(xs))
+	for i, x in xs {
+		let j = ids[i]
+		flat[next[j]] = x
+		next[j] = next[j] + 1
+	}
+	for j, k in keys {
+		out[k] = Slice(flat, next[j]-counts[j], next[j])
+	}
+	out
+}
+
+// GroupByPartitions: every element is in the group of its key, the groups
+// together hold len(xs) elements, and each is the Filter of its key.
+law GroupByPartitions(xs []int) {
+	let key = func(x int) int { (x%3 + 3) % 3 }
+	let g = GroupBy(xs, key)
+	let mut total = 0
+	let mut ok = true
+	for k, group in g {
+		total = total + len(group)
+		ok = ok && Equal(group, Filter(xs, func(x int) bool { key(x) == k }))
+	}
+	ok && total == len(xs)
+}

@@ -59,6 +59,53 @@ The runner shrinks a failing case before it reports it: it replays the case with
 
 Integers shrink by their value, not by the generator's choice of small values or edges: the runner records a sign and magnitude after narrowing to the integer's width. It searches toward zero, then checks adjacent values, and revisits every component of a composite value until no pass improves it. Thus a monotone integer predicate such as `n < 5` shrinks to its boundary, `5`, when the replay budget is enough. The budget is 500 replays per failed case; reaching that limit can leave a non-minimal case. Arbitrary predicates have no global-minimum guarantee.
 
+### Two tiers: the evaluator and the test binary
+
+`ergo test PKG` first asks the check-time evaluator (the one `ergo check`
+runs, `internal/sketch/eval`). When it decides every test and law run of
+the package, `ergo test` prints the native test binary's output from it,
+line for line, with ` (evaluated)` after each verdict line, and exits with
+the binary's status (and its `error: K of N tests failed` line). Nothing
+is lowered, built or run. A passing run writes the law ledger as a native
+one does. Both tiers draw a property's or a law's cases from the same
+`--seed`, so a failure names the same case, shrunk the same way.
+
+The test binary answers the whole package (tier 2) when the evaluator
+leaves any obligation undecided: a run that outgrows its budget of steps,
+a skip line or a provider note, a defect (the binary stops at one), a
+machine's reachability law, a failure the evaluator does not write in the
+binary's words, or a host it does not have. `--native` always runs the
+binary; the gate and CI use it. So do `--receipt`, `--explore`, a
+schedule search and the selections `--law`, `--skip-law` and `--run`.
+`ergo test DIR/...` still runs the module's one test binary (TEST-one).
+`TestTiersAgree` (internal/sketch/eval) holds `ergo test` to
+`ergo test --native`: the same output but the marks, the same exit status
+and error line. The stage report counts `obligations_evaluated` and
+`eval_steps`.
+
+The evaluator keeps each passed test's and law run's verdict in the law
+verdict store (under the emission cache's root, `laws/`), keyed by its
+reach digest: the tokens of the test's declaration and of every
+declaration it reaches, in any package, with the seed. The next
+`ergo test` prints a verdict whose key still holds with ` (cached)` and
+does not run it, so after an edit of one function only the tests that
+reach it run again; a comment or a moved declaration runs none. A failure
+is never stored. When the evaluator leaves an obligation incomplete (its
+budget of steps runs out), it stores a route note under that obligation's
+key, and while the key holds the package goes straight to the test binary
+with no evaluation. Every key holds the compiler's identity, the digest
+of the `ergo` executable (its lowering, rewrite ledger, evaluator,
+standard library and runtime), so another compiler replays nothing. A law
+verdict the test binary wrote is also keyed by the Go toolchain that
+linked it, so another toolchain does not read it, and the evaluator
+(`ergo check`, tier 1) reads it only when that toolchain is the pinned
+release `ergo` would build with now (not under `ERGO_GO=system` or a path).
+`ergo test --native`, which the gate and CI run, reads no stored verdict:
+every test and law runs in the binary (it still stores what held, for
+the next default run). `TestStoredVerdictsAgree` (internal/sketchfront)
+holds the stored answers to a full evaluation under seeded edits. The
+stage report counts `obligations_stored` and `packages_routed`.
+
 ### A module of packages
 
 From a directory in a module, run `ergo test ./...` to select every package
@@ -105,9 +152,14 @@ obligations evaluated, it is named `main`, as checking it alone names it. A
 selected test package (its path a package's path with `test` after it) that
 another package imports is checked a second time, as `main`, because the
 builder rule reads its path. `ergo test` links one test binary that
-holds every selected package's test build and runs it once per package, so each
+holds every selected package's test build, lowered through IR as its own build is, and runs it once per package, so each
 package prints what `ergo test` of that package alone prints, with the same
-receipt and the same exit status rule (TEST-one). When the packages cannot share
+receipt and the same exit status rule (TEST-one). When the store already holds
+every package's own test binary (an earlier `ergo test DIR/...` linked them),
+each package runs its own and nothing is lowered, compiled or linked. When the
+build of the one binary fails, `ergo test` says so once on stderr with the go
+error's first line, and with `ERGO_SHARED_FALLBACK=fail` (set by the tests and
+the gate) the run fails instead. When the packages cannot share
 one load or one build (a diagnostic, a lowering refusal, a Go build failure, a
 module binding in `ergo.bind`), and for `-work`, `--explore` and a schedule
 search, each package is checked and built alone, as before, so a failure is
@@ -143,6 +195,19 @@ skip law Box.Keeps: its parameter v has no generator: T is not a generatable typ
 
 A refuted law's replay is a line of its own, which reruns that law alone (`--law`, X1b); a test's replay stays in its `FAIL` line.
 
+A test that cannot run on this host says so at run time with the statement `skip "reason"`, as Go's `t.Skip` does:
+
+```ergo
+test ClonesFromHost {
+	if !hasGit() {
+		skip "git is not on this host"
+	}
+	assert clone("origin") == "ok"
+}
+```
+
+`ergo test` prints `skip ClonesFromHost: git is not on this host`, runs no more of the test's cases, and counts it as a skip: `PASS (1 tests, 1 skipped)`. `ergo check` reports the obligation `skipped` with the reason and the statement's line. The statement stands only in a test or law body, and its reason is a string literal that is not blank. `skip` is a contextual keyword, so a function or a local named `skip` is still legal ([runtime](spec/runtime.md#tests), Tests 4).
+
 A law that cannot run prints a `skip` line with the reason, and the summary counts it: `PASS (2 tests, 1 skipped)`. A provider whose state is a std handle, such as a `sync.Ref`, has no generator; declare its constructor `func NewTally() Tally` (no rows) and each case builds the provider with it; a provider with a constructor is always built by it. The package of an operation type with no provider of its own prints `law Store.PutCountsOne runs where Store has a provider: none is in this package or its imports`. In `examples/`, a skip line that the program's `expected-skips` file does not list fails the gate. A law of a generic operation type is checked and not run yet. So a program need not restate a law as a property test.
 
 `ergo test DIR --receipt FILE` writes the run's law receipt to FILE: a JSON object with the schema version, the source, its revision, the seed, the target and one entry per law run, `proved` (a listed run, every value), `tested` with its case count, `refuted` with its counterexample, or `skipped` with the reason; a machine's reachability law has the search's report in place of a case count ([runtime](spec/runtime.md#tests), Tests 8). A drawn law that holds is tested, not proved. Without `--receipt` nothing is written.
@@ -157,8 +222,8 @@ For `ergo test DIR/... --receipt PATH`, PATH is a directory: each tested package
 
 The rules are the rules of `ergo test`, not a second test language:
 
-- A test with no parameters is an example and runs once (`evaluated`). A property or a law runs by the one rule of [Laws](#laws): every value of a type that can be listed (`proved`), else 100 cases drawn from the seed (`tested`). For one `--seed`, `ergo check` and `ergo test` draw the same cases, so a refuted law names the same first bad case at both.
-- A machine's reachability law is decided by the same explorer as in `ergo test` ([types.md](spec/types.md#laws), Laws 13). A law that a run proves (`reaches`, `path`) may stop at the shortest witness before it has seen the whole graph (`router-model`'s `CanStop` sees 9 of its 16 states); `never reaches` is proved only by a complete search.
+- A test with no parameters is an example and runs once (`evaluated`). A property or a law runs by the one rule of [Laws](#laws): every value of a type that can be listed (`proved`), else 100 cases drawn from the seed (`tested`). For one `--seed`, `ergo check` and `ergo test` draw the same cases, so a refuted law names the same first bad case at both. A refuted drawn case is shrunk as `ergo test` shrinks it (the same replays of its draws, at most 500), so both name the same smallest arguments, and the drawn ones beside them. The evaluator writes a failed assert's report as the test binary does: its site, its source text, and, for a comparison of printable values, `left` and `right` (with a line diff of strings over several lines).
+- A machine's reachability law is decided by the same explorer as in `ergo test` ([types.md](spec/types.md#laws), Laws 13). A law that a run proves (`reaches`, `path`) may stop at the shortest witness before it has seen the whole graph (`router-model`'s `CanStop` sees 9 of its 16 states); `never reaches` is proved only by a complete search. An invariant law (`always p`, `sometimes p`; X2) is decided as `ergo test` decides it: `always p` never reaches a state where `p` is false, and `sometimes p` reaches one where `p` holds. The predicate is a pure Ergo function of the state, and check time calls it at each state the search visits.
 - An imported package supplies definitions only: its own tests do not run. A law runs in the least package that sees the law and its provider, as in `ergo test`.
 - A record that did not pass has `replay`: the `ergo test` command that runs the same cases natively, `ergo test limit --seed 1 --law RefillNeverOverfills`.
 
@@ -181,17 +246,17 @@ The rules are the rules of `ergo test`, not a second test language:
 - a capability that no `with` of the run binds, and a task that a package initializer starts (it has no obligation's scheduler to run on);
 - a `tasks.Set` that logs its failures to standard error, `tasks.Race`, `tasks.Transform` and an actor's supervisor (Go functions with no native yet);
 - a release through a generic `Close`, a `Close` that borrows its receiver, or the values a std operation type holds; a `Context` value whose provider is a resource;
-- a Go function that has no native, an `extern go` function of the program, or a host function (`a Go function (ParseDuration), even a pure one`);
-- a function that borrows its receiver, a method, or a generic function whose type parameter an operation type constrains used as a value (a function literal, a package function and a generic one's instance are values, called where they are called), a call that passes its `CallSite`, a trailing block of a Go function that has no native, and a generic call whose type parameter an operation type constrains;
+- a Go function that has no native, an `extern go` function of the program (an extern of Go's `append` runs, as the prelude's `Append` and string concatenation do), or a host function (`a Go function (ParseDuration), even a pure one`);
+- a function that borrows its receiver, a method, or a generic function whose type parameter an operation type constrains used as a value (a function literal, a package function and a generic one's instance are values, called where they are called), a call that passes its `CallSite`, and a trailing block of a Go function that has no native (a generic call whose type parameter an operation type constrains runs: each operation on a value of the parameter calls the function the instance's witness names, as the test build does);
 - an outcome that the order of a `for` over a Map decides, and a `for` over a Map that the loop adds to (Go leaves the order unspecified, and may or may not visit an added entry). A run that ranged over a Map runs again with every Map visited in the opposite key order, and an outcome counts only when both runs reach it (`maporder.go`). Within a run the loop follows Go with no snapshot: each value is read when its entry is reached, and a deleted entry is not visited. A `for` over a Seq that a function makes, `Seq[T](f)`, calls it with a yield that runs one iteration and returns false once the body ended the loop, as Go's range over a function does;
-- a write that replaces the slice an active `for` ranges over (its place or a place on its path), a refined literal, a `testing.Script` or pointer provider, and a machine timer that is not positive (a machine declaration's value `X{}` converts to the prelude `Machine` or `InputMachine`, with its step, after and work functions, and a fold runs it);
+- a write that replaces the slice an active `for` ranges over (its place or a place on its path), a refined literal, a `testing.Script` (a derived provider whose field type is a runtime Go type; one whose field type is declared in Ergo runs, its `NewF` and `Call` as the test build calls them) or pointer provider, and a machine timer that is not positive (a machine declaration's value `X{}` converts to the prelude `Machine` or `InputMachine`, with its step, after and work functions, and a fold runs it);
 - a package initializer or a machine's initial value that cannot run: every obligation of the package is skipped, never run with invented values;
 - a machine state that holds a std type, whose key the test build may take from its runtime value;
 - a law with no binding in this package (`no binding of the law runs in this package`), and a parameter with no generator.
 
 A skip is not a pass. A package whose obligations are all skipped is listed in full, and its summary status is `skipped`.
 
-**Budgets.** The work is bounded by counts, never by time. `--eval-steps N` is the number of steps, 1,000,000 by default: each evaluated node, call, loop turn, drawn value, copied element and machine step (with the steps that the explorer replays to rebuild a state) costs a step before it is done, and a std function costs the bytes and elements Go's function reads (a substring reads none of its text, a prefix test its prefix). `--eval-bytes N` bounds the bytes of the values the evaluation builds, 64 MiB by default: a conservative count of the allocations, which is never freed, and not a measure of the process's memory. The call depth is at most 1024. `--seed N` selects the drawn cases, 1 by default, as for `ergo test`. Each option takes a positive decimal number (the seed may be 0); another value is an invalid invocation. The step and byte budgets bound the package's initializers and then each obligation apart, so an obligation that runs leaves the whole budget to the next. When a budget runs out, the obligation in progress is `incomplete`, and the next one runs; when the initializers' budget runs out, the first obligation is `incomplete` and each later one is `not run`, with the budget in the reason. Neither is a pass. The `steps` and `bytes` of the evaluation are the whole run's; `stepsLimit` and `bytesLimit` bound each obligation.
+**Budgets.** The work is bounded by counts, never by time. `--eval-steps N` is the number of steps, 1,000,000 by default: each evaluated node, call, loop turn, drawn value, copied element and machine step (each edge of a search is stepped once) costs a step before it is done, and a std function costs the bytes and elements Go's function reads (a substring reads none of its text, a prefix test its prefix). `--eval-bytes N` bounds the bytes of the values the evaluation builds, 64 MiB by default: a conservative count of the allocations, which is never freed, and not a measure of the process's memory. The call depth is at most 1024. `--seed N` selects the drawn cases, 1 by default, as for `ergo test`. Each option takes a positive decimal number (the seed may be 0); another value is an invalid invocation. The step and byte budgets bound the package's initializers and then each obligation apart, so an obligation that runs leaves the whole budget to the next. When a budget runs out, the obligation in progress is `incomplete`, and the next one runs; when the initializers' budget runs out, the first obligation is `incomplete` and each later one is `not run`, with the budget in the reason. Neither is a pass. The `steps` and `bytes` of the evaluation are the whole run's; `stepsLimit` and `bytesLimit` bound each obligation.
 
 **Statuses and exit.** An obligation is `passed`, `refuted` (a false assert or law body, or an escaping typed failure; the run goes on), `defect` (it stops the run, and the later obligations are `not run`), `skipped`, `incomplete` or `not run`. The summary status is the worst: `defect`, `refuted`, `incomplete`, `skipped`, `passed`, or `none` when the package has no obligation. `ergo check` exits 2 on a defect, 1 on a refutation (or when the source does not check), and 0 otherwise. A skipped or incomplete obligation leaves the exit status 0, but the summary never reads `passed` for it.
 

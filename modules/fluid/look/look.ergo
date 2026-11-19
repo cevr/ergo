@@ -1,0 +1,617 @@
+// Package look is the typed look vocabulary: a Style is a set of typed declarations, one per
+// property; a Look is a Style per interaction state, overlays on its rest Style; Merge decides
+// every conflict, and the last applied wins. No host resolves a conflict: the web host prints
+// the classes of a merged look and the GUI host paints it (spec §4.1).
+//
+// A declaration names a colour only through token.Ref, so a look cannot hold a raw colour,
+// and every property is a longhand or a shorthand no other declaration overlaps, so no two
+// declarations of one Style can set one CSS property.
+
+import ergo.dev/fluid/token
+import slices
+import strconv
+import strings
+
+// Disp is how a box lays out.
+type Disp = Block{} | Flex{} | InlineFlex{} | Grid{} | Gone{}
+
+// Axis is a flex box's main axis.
+type Axis = Across{} | Down{}
+
+// Place is an alignment.
+type Place = Start{} | Center{} | End{} | Stretch{} | Between{}
+
+// Pos is how a box is placed.
+type Pos = Relative{} | Absolute{}
+
+// Size is a length: pixels, a percentage, a percentage plus pixels, or the browser's choice.
+type Size = Px{N int} | Pct{N int} | PctPlus{Pct int, Px int} | Vh{N int} | Auto{}
+
+// Ov is what a box does with content past its edge.
+type Ov = Visible{} | Hidden{} | Scroll{}
+
+// Corner is a corner's radius: a radius step, or the step's inner radius (one pixel in).
+type Corner = Outer{R token.Radius} | Inner{R token.Radius} | Circle{}
+
+// Lift is a box shadow: a ring of a width in a token's colour, or a surface's shadow.
+type Lift = Ring{Px int, Color token.Ref} | Surface{L token.Level}
+
+// Decl is one declaration. Each variant is one CSS property (Key), so a Style that holds one
+// declaration per variant holds one per property.
+type Decl = Display{V Disp} | Direction{V Axis} | Wrap{} | Items{V Place} | Content{V Place} | GapX{Px int} | GapY{Px int} | Shrink{V int} | Grow{V int} | Position{V Pos} | Top{Px int} | Right{Px int} | Bottom{Px int} | Left{Px int} | Z{V int} | Isolate{} | Width{V Size} | Height{V Size} | MinHeight{V Size} | MaxWidth{V Size} | PadTop{Px int} | PadRight{Px int} | PadBottom{Px int} | PadLeft{Px int} | MarTop{V Size} | MarRight{V Size} | MarBottom{V Size} | MarLeft{V Size} | OverflowX{V Ov} | OverflowY{V Ov} | NoScrollbar{} | Gutter{} | MinWidth{V Size} | RowStart{V int} | ColStart{V int} | Fill{V token.Ref} | Ink{V token.Ref} | EdgeColor{V token.Ref} | EdgeTop{Px int} | EdgeRight{Px int} | EdgeBottom{Px int} | EdgeLeft{Px int} | RoundTL{V Corner} | RoundTR{V Corner} | RoundBR{V Corner} | RoundBL{V Corner} | Shadow{V Lift} | Opacity{Pct int} | NoOutline{} | Translate{X int, Y int} | FontPx{V int} | LinePx{V int} | Axes{Opsz int, Wght int} | Nowrap{} | Mono{} | FadeX{Px int} | Trim{} | Invisible{}
+
+// Key is the CSS property a declaration sets.
+func Key(d Decl) string {
+	match d {
+	case Display:
+		"display"
+	case Direction:
+		"flex-direction"
+	case Wrap:
+		"flex-wrap"
+	case Items:
+		"align-items"
+	case Content:
+		"justify-content"
+	case GapX:
+		"column-gap"
+	case GapY:
+		"row-gap"
+	case Shrink:
+		"flex-shrink"
+	case Grow:
+		"flex-grow"
+	case Position:
+		"position"
+	case Top:
+		"top"
+	case Right:
+		"right"
+	case Bottom:
+		"bottom"
+	case Left:
+		"left"
+	case Z:
+		"z-index"
+	case Isolate:
+		"isolation"
+	case Width:
+		"width"
+	case Height:
+		"height"
+	case MinHeight:
+		"min-height"
+	case MaxWidth:
+		"max-width"
+	case PadTop:
+		"padding-top"
+	case PadRight:
+		"padding-right"
+	case PadBottom:
+		"padding-bottom"
+	case PadLeft:
+		"padding-left"
+	case MarTop:
+		"margin-top"
+	case MarRight:
+		"margin-right"
+	case MarBottom:
+		"margin-bottom"
+	case MarLeft:
+		"margin-left"
+	case OverflowX:
+		"overflow-x"
+	case OverflowY:
+		"overflow-y"
+	case NoScrollbar:
+		"scrollbar-width"
+	case Gutter:
+		"scrollbar-gutter"
+	case MinWidth:
+		"min-width"
+	case RowStart:
+		"grid-row-start"
+	case ColStart:
+		"grid-column-start"
+	case Fill:
+		"background-color"
+	case Ink:
+		"color"
+	case EdgeColor:
+		"border-color"
+	case EdgeTop:
+		"border-top-width"
+	case EdgeRight:
+		"border-right-width"
+	case EdgeBottom:
+		"border-bottom-width"
+	case EdgeLeft:
+		"border-left-width"
+	case RoundTL:
+		"border-top-left-radius"
+	case RoundTR:
+		"border-top-right-radius"
+	case RoundBR:
+		"border-bottom-right-radius"
+	case RoundBL:
+		"border-bottom-left-radius"
+	case Shadow:
+		"box-shadow"
+	case Opacity:
+		"opacity"
+	case NoOutline:
+		"outline-style"
+	case Translate:
+		"transform"
+	case FontPx:
+		"font-size"
+	case LinePx:
+		"line-height"
+	case Axes:
+		"font-variation-settings"
+	case Nowrap:
+		"white-space"
+	case Mono:
+		"font-family"
+	case FadeX:
+		"mask-image"
+	case Trim:
+		"text-box"
+	case Invisible:
+		"visibility"
+	}
+}
+
+// Value is a declaration's value as CSS. A colour is its token's custom property, so the
+// value does not depend on the theme.
+func Value(d Decl) string {
+	match d {
+	case Display as x:
+		match x.V {
+		case Block:
+			"block"
+		case Flex:
+			"flex"
+		case InlineFlex:
+			"inline-flex"
+		case Grid:
+			"grid"
+		case Gone:
+			"none"
+		}
+	case Direction as x:
+		match x.V {
+		case Across:
+			"row"
+		case Down:
+			"column"
+		}
+	case Wrap:
+		"wrap"
+	case Items as x:
+		place(x.V)
+	case Content as x:
+		place(x.V)
+	case GapX as x:
+		px(x.Px)
+	case GapY as x:
+		px(x.Px)
+	case Shrink as x:
+		strconv.Itoa(x.V)
+	case Grow as x:
+		strconv.Itoa(x.V)
+	case Position as x:
+		match x.V {
+		case Relative:
+			"relative"
+		case Absolute:
+			"absolute"
+		}
+	case Top as x:
+		px(x.Px)
+	case Right as x:
+		px(x.Px)
+	case Bottom as x:
+		px(x.Px)
+	case Left as x:
+		px(x.Px)
+	case Z as x:
+		strconv.Itoa(x.V)
+	case Isolate:
+		"isolate"
+	case Width as x:
+		size(x.V)
+	case Height as x:
+		size(x.V)
+	case MinHeight as x:
+		size(x.V)
+	case MaxWidth as x:
+		size(x.V)
+	case PadTop as x:
+		px(x.Px)
+	case PadRight as x:
+		px(x.Px)
+	case PadBottom as x:
+		px(x.Px)
+	case PadLeft as x:
+		px(x.Px)
+	case MarTop as x:
+		size(x.V)
+	case MarRight as x:
+		size(x.V)
+	case MarBottom as x:
+		size(x.V)
+	case MarLeft as x:
+		size(x.V)
+	case OverflowX as x:
+		overflow(x.V)
+	case OverflowY as x:
+		overflow(x.V)
+	case NoScrollbar:
+		"none"
+	case Gutter:
+		"stable"
+	case MinWidth as x:
+		size(x.V)
+	case RowStart as x:
+		strconv.Itoa(x.V)
+	case ColStart as x:
+		strconv.Itoa(x.V)
+	case Fill as x:
+		token.Var(x.V)
+	case Ink as x:
+		token.Var(x.V)
+	case EdgeColor as x:
+		token.Var(x.V)
+	case EdgeTop as x:
+		px(x.Px)
+	case EdgeRight as x:
+		px(x.Px)
+	case EdgeBottom as x:
+		px(x.Px)
+	case EdgeLeft as x:
+		px(x.Px)
+	case RoundTL as x:
+		corner(x.V)
+	case RoundTR as x:
+		corner(x.V)
+	case RoundBR as x:
+		corner(x.V)
+	case RoundBL as x:
+		corner(x.V)
+	case Shadow as x:
+		match x.V {
+		case Ring as r:
+			"0 0 0 \(r.Px)px \(token.Var(r.Color))"
+		case Surface as s:
+			token.ShadowCSS(s.L)
+		}
+	case Opacity as x:
+		strconv.Itoa(x.Pct) + "%"
+	case NoOutline:
+		"none"
+	case Translate as x:
+		"translate(\(x.X)px,\(x.Y)px)"
+	case FontPx as x:
+		px(x.V)
+	case LinePx as x:
+		px(x.V)
+	case Axes as x:
+		"\"opsz\" \(x.Opsz), \"wght\" \(x.Wght)"
+	case Nowrap:
+		"nowrap"
+	case Mono:
+		"ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,\"Liberation Mono\",\"Courier New\",monospace"
+	case FadeX as x:
+		"linear-gradient(to right,#000 0,#000 \(x.Px)px,#000 calc(100% - \(x.Px)px),#000 100%)"
+	case Trim:
+		"trim-both cap alphabetic"
+	case Invisible:
+		"hidden"
+	}
+}
+
+func place(p Place) string {
+	match p {
+	case Start:
+		"flex-start"
+	case Center:
+		"center"
+	case End:
+		"flex-end"
+	case Stretch:
+		"stretch"
+	case Between:
+		"space-between"
+	}
+}
+
+func overflow(o Ov) string {
+	match o {
+	case Visible:
+		"visible"
+	case Hidden:
+		"hidden"
+	case Scroll:
+		"auto"
+	}
+}
+
+func px(n int) string { strconv.Itoa(n) + "px" }
+
+func size(s Size) string {
+	match s {
+	case Px as p:
+		px(p.N)
+	case Pct as p:
+		strconv.Itoa(p.N) + "%"
+	case PctPlus as p:
+		"calc(\(p.Pct)% + \(p.Px)px)"
+	case Vh as v:
+		"\(v.N)vh"
+	case Auto:
+		"auto"
+	}
+}
+
+func corner(c Corner) string {
+	match c {
+	case Outer as o:
+		token.Px(o.R)
+	case Inner as i:
+		token.Inner(i.R)
+	case Circle:
+		"50%"
+	}
+}
+
+// Ref is the colour token a declaration names, if any: what a sheet's check reads.
+func Ref(d Decl) Option[token.Ref] {
+	match d {
+	case Fill as x:
+		Some{x.V}
+	case Ink as x:
+		Some{x.V}
+	case EdgeColor as x:
+		Some{x.V}
+	case Shadow as x:
+		match x.V {
+		case Ring as r:
+			Some{r.Color}
+		case Surface:
+			None
+		}
+	case Display, Direction, Wrap, Items, Content, GapX, GapY, Shrink, Grow, Position, Top, Right, Bottom, Left, Z, Isolate, Width, Height, MinHeight, MaxWidth, PadTop, PadRight, PadBottom, PadLeft, MarTop, MarRight, MarBottom, MarLeft, OverflowX, OverflowY, NoScrollbar, Gutter, MinWidth, RowStart, ColStart, EdgeTop, EdgeRight, EdgeBottom, EdgeLeft, RoundTL, RoundTR, RoundBR, RoundBL, Opacity, NoOutline, Translate, FontPx, LinePx, Axes, Nowrap, Mono, FadeX, Trim, Invisible:
+		None
+	}
+}
+
+// Style is a set of declarations, at most one per property, ordered by property.
+type Style { decls []Decl }
+
+// Of is the style of ds: for a property ds sets more than once, the last one wins.
+func Of(ds []Decl) Style {
+	let mut byKey = Map[string, Decl]{}
+	for d in ds {
+		byKey[Key(d)] = d
+	}
+	let mut keys = []string{}
+	for k, _ in byKey {
+		keys = keys.Append(k)
+	}
+	let mut out = []Decl{}
+	for k in slices.Sort(keys) {
+		match byKey.Get(k) {
+		case Some as d:
+			out = out.Append(d.Value)
+		case None:
+		}
+	}
+	Style{decls: out}
+}
+
+// Empty sets nothing.
+func Empty() Style { Style{decls: []Decl{}} }
+
+// Decls is the style's declarations, ordered by property.
+func Decls(s Style) []Decl { s.decls }
+
+// Get is the declaration s sets for property key, if any.
+func Get(s Style, key string) Option[Decl] {
+	for d in s.decls {
+		if Key(d) == key {
+			return Some{d}
+		}
+	}
+	None
+}
+
+// Merge is a then b: every property b sets is b's; every other property a sets is a's.
+func Merge(a Style, b Style) Style {
+	let mut all = slices.Clone(a.decls)
+	for d in b.decls {
+		all = all.Append(d)
+	}
+	Of(all)
+}
+
+// Same reports whether two styles set the same properties to the same values.
+func Same(a Style, b Style) bool {
+	if len(a.decls) != len(b.decls) {
+		return false
+	}
+	for i in 0..len(a.decls) {
+		if Key(a.decls[i]) != Key(b.decls[i]) || Value(a.decls[i]) != Value(b.decls[i]) {
+			return false
+		}
+	}
+	true
+}
+
+// Helpers that set a group of longhands at once.
+
+// Pad sets the four paddings: vertical v, horizontal h.
+func Pad(v int, h int) []Decl { []Decl{PadTop{Px: v}, PadBottom{Px: v}, PadLeft{Px: h}, PadRight{Px: h}} }
+
+// Gap sets both gaps.
+func Gap(n int) []Decl { []Decl{GapX{Px: n}, GapY{Px: n}} }
+
+// Edge sets a border of width w on every side, in colour c.
+func Edge(w int, c token.Ref) []Decl {
+	[]Decl{EdgeTop{Px: w}, EdgeRight{Px: w}, EdgeBottom{Px: w}, EdgeLeft{Px: w}, EdgeColor{V: c}}
+}
+
+// Round sets every corner.
+func Round(c Corner) []Decl { []Decl{RoundTL{V: c}, RoundTR{V: c}, RoundBR{V: c}, RoundBL{V: c}} }
+
+// Inset places an absolute box at n pixels inside each edge of its container.
+func Inset(n int) []Decl { []Decl{Position{V: Absolute}, Top{Px: n}, Right{Px: n}, Bottom{Px: n}, Left{Px: n}} }
+
+// Text sets a type step at a density, with its optical size and weight.
+func Text(s token.Step, d token.Density, opsz int, wght int) []Decl {
+	let (size, line) = token.TextPx(s, d)
+	[]Decl{FontPx{V: size}, LinePx{V: line}, Axes{Opsz: opsz, Wght: wght}}
+}
+
+// State is an interaction state of a box: at rest, under the pointer, holding the focus
+// somewhere inside it, focused from the keyboard, pressed, disabled.
+type State = Rest{} | Hover{} | FocusWithin{} | FocusVisible{} | Active{} | Disabled{}
+
+// States is every state, in rank order: a later state's look wins over an earlier one's.
+func States() []State { []State{Rest, Hover, FocusWithin, FocusVisible, Active, Disabled} }
+
+// Source is whose state a look's overlays follow: the box's own, or its group's (an ancestor
+// marked as a group, such as a button whose background is a child box).
+type Source = Own{} | Group{}
+
+// Above is a style that holds when the viewport is at least Min pixels wide.
+type Above { Min int, Style Style }
+
+// Look is a box's look: its rest style, the overlays of the other states, whose state they
+// follow, the overlays at wider viewports (narrowest first), and whether the box is a group
+// for its descendants' looks.
+type Look { Rest Style, Hover Style, Within Style, Focus Style, Active Style, Disabled Style, From Source, Wide []Above, Marks bool }
+
+// Plain is a look with only a rest style.
+func Plain(ds []Decl) Look {
+	Look{Rest: Of(ds), Hover: Empty(), Within: Empty(), Focus: Empty(), Active: Empty(), Disabled: Empty(), From: Own, Wide: []Above{}, Marks: false}
+}
+
+// Overlay is the overlay of state s (empty for Rest).
+func Overlay(l Look, s State) Style {
+	match s {
+	case Rest:
+		Empty()
+	case Hover:
+		l.Hover
+	case FocusWithin:
+		l.Within
+	case FocusVisible:
+		l.Focus
+	case Active:
+		l.Active
+	case Disabled:
+		l.Disabled
+	}
+}
+
+// In is what holds in state s: the rest style with s's overlay on it.
+func In(l Look, s State) Style { Merge(l.Rest, Overlay(l, s)) }
+
+// Over is a then b, state by state: what a component does when a caller's look is laid over
+// its own. The wider-viewport overlays are a's then b's; b's marks and source win.
+func Over(a Look, b Look) Look {
+	let mut wide = []Above{}
+	for w in a.Wide {
+		wide = addAbove(wide, w)
+	}
+	for w in b.Wide {
+		wide = addAbove(wide, w)
+	}
+	Look{Rest: Merge(a.Rest, b.Rest), Hover: Merge(a.Hover, b.Hover), Within: Merge(a.Within, b.Within), Focus: Merge(a.Focus, b.Focus), Active: Merge(a.Active, b.Active), Disabled: Merge(a.Disabled, b.Disabled), From: b.From, Wide: wide, Marks: a.Marks || b.Marks}
+}
+
+// WideOf is the look's wider-viewport overlays, one per width, narrowest first: two overlays
+// of one width are merged, the later one winning.
+func WideOf(l Look) []Above {
+	let mut out = []Above{}
+	for w in l.Wide {
+		out = addAbove(out, w)
+	}
+	out
+}
+
+// addAbove is ws with w laid over the overlay of the same width, or added in width order.
+func addAbove(ws []Above, w Above) []Above {
+	let mut out = []Above{}
+	let mut placed = false
+	for x in ws {
+		if !placed && x.Min == w.Min {
+			out = out.Append(Above{Min: x.Min, Style: Merge(x.Style, w.Style)})
+			placed = true
+		} else if !placed && x.Min > w.Min {
+			out = out.Append(w)
+			out = out.Append(x)
+			placed = true
+		} else {
+			out = out.Append(x)
+		}
+	}
+	if !placed {
+		out = out.Append(w)
+	}
+	out
+}
+
+// Print is a style as CSS declarations, for a reader (a test, a receipt).
+func Print(s Style) string {
+	let mut b = strings.NewBuilder()
+	for d in s.decls {
+		b.WriteString(Key(d))
+		b.WriteString(":")
+		b.WriteString(Value(d))
+		b.WriteString(";")
+	}
+	b.String()
+}
+
+// LastWins: for every property, the merge holds b's declaration when b sets it, and a's
+// otherwise; and the merge sets no property neither sets.
+law LastWins(a []Decl, b []Decl, k int) {
+	let sa = Of(a)
+	let sb = Of(b)
+	let m = Merge(sa, sb)
+	let mut keys = []string{}
+	for d in a {
+		keys = keys.Append(Key(d))
+	}
+	for d in b {
+		keys = keys.Append(Key(d))
+	}
+	let mut ok = len(Decls(m)) <= len(a)+len(b)
+	for key in keys {
+		let want = match Get(sb, key) {
+		case Some as d:
+			Some{d.Value}
+		case None:
+			Get(sa, key)
+		}
+		ok = ok && sameDecl(Get(m, key), want)
+	}
+	ok && (k != 0 || Same(Merge(sa, Empty()), sa)) && Same(Merge(sa, sa), sa)
+}
+
+// sameDecl compares two optional declarations by property and value. (a law's helper)
+func sameDecl(a Option[Decl], b Option[Decl]) bool {
+	match a {
+	case Some as x:
+		match b {
+		case Some as y:
+			Key(x.Value) == Key(y.Value) && Value(x.Value) == Value(y.Value)
+		case None:
+			false
+		}
+	case None:
+		b == None
+	}
+}

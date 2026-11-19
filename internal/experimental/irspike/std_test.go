@@ -9,7 +9,7 @@ import (
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/lower"
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 )
 
 // TestIRStdMatchesSource is G5's agreement property: for generated
@@ -79,7 +79,7 @@ func stdBodyPositions(t *testing.T) []stdBodyAt {
 					}
 					line, _ := file.Position(f.Decl.Pos())
 					path := "std/" + p.Path + "/" + file.Name
-					if p.Path == std.PreludePath {
+					if p.Path == stdlib.PreludePath {
 						path = "std/" + file.Name
 					}
 					at = fmt.Sprintf("%s:%d", path, line)

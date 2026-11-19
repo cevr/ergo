@@ -47,9 +47,11 @@ func sweepsAfterWriters(steps []*Step, index map[string]int) ([][]int, error) {
 		}
 		writers = append(writers, i)
 	}
+	// A step that records its runs for a sweep (recordForSweep) stands for
+	// the sweep's run, so it starts after the writers too.
 	after := make([][]int, len(steps))
 	for i, step := range steps {
-		if step.Sweep != "" {
+		if step.Sweep != "" || recordsForSweep(step) {
 			after[i] = writers
 		}
 	}

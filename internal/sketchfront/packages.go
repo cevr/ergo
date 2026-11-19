@@ -30,6 +30,11 @@ type CheckedPackage struct {
 	Module  string
 	Trusted bool
 	Go      []string
+	// Partial is the checker's package also when it has diagnostics: its
+	// Info holds what the checker resolved (the fact tables of ergo code
+	// read it, with complete false). Nil when the package was not checked
+	// (it does not parse, or it imports a broken package).
+	Partial *check.Package
 }
 
 // CheckedFile is one source file of a CheckedPackage.
@@ -84,7 +89,7 @@ func (a Analysis) Packages() []CheckedPackage {
 	}
 	var out []CheckedPackage
 	for _, p := range append(append([]*loadedPackage{}, a.program.imports...), a.program.root) {
-		c := CheckedPackage{Path: p.path, Dir: p.dir, Go: p.goUses}
+		c := CheckedPackage{Path: p.path, Dir: p.dir, Go: p.goUses, Partial: p.pkg}
 		if p.mod != nil {
 			c.Module, c.Trusted = p.mod.name, slices.Contains(a.program.trust, p.mod.path)
 		}

@@ -36,8 +36,8 @@
     {
       "name": "fk4-id-repeated", "origin": "wf10/fk4a",
       "file": "examples/fk-transfers/board/board.ergo",
-      "from": "Child: child}), Next: b.Next + 1}",
-      "to": "Child: child}), Next: b.Next}",
+      "from": "\tb.Next = b.Next + 1\n",
+      "to": "\tb.Next = b.Next\n",
       "rule": "Each start gets a new id (law IdsNeverReused).",
       "anchor": {"tests": ["examples:fk-transfers"]}, "killers": ["examples:fk-transfers"]
     },
@@ -63,6 +63,62 @@
       "from": "if j.Due <= now && (k < 0 || j.Due < jobs[k].Due) {",
       "to": "if j.Due < now && (k < 0 || j.Due < jobs[k].Due) {",
       "rule": "A job due at the time of a press completes before the press, as the live board's timer fires before it (law ShapesAgree).",
+      "anchor": {"tests": ["examples:fk-transfers"]}, "killers": ["examples:fk-transfers"]
+    },
+    {
+      "name": "fk4b-view-restart-keeps-due", "origin": "wf10/fk4b",
+      "file": "examples/fk-transfers/desk/desk.ergo",
+      "from": "return Row{ID: r.ID, File: r.File, Transfer: next, Run: r.Run + 1, Due: None}",
+      "to": "return Row{ID: r.ID, File: r.File, Transfer: next, Run: r.Run + 1, Due: r.Due}",
+      "rule": "A restart sends the whole file again from the restart (law ShapesAgree, cases).",
+      "anchor": {"tests": ["examples:fk-transfers"]}, "killers": ["examples:fk-transfers"]
+    },
+    {
+      "name": "fk4b-view-latest-first", "origin": "wf10/fk4b",
+      "file": "examples/fk-transfers/desk/desk.ergo",
+      "from": "if time.Before(at, f.Value.At) {",
+      "to": "if time.Before(f.Value.At, at) {",
+      "rule": "The desk's work wakes for the first due row, so each row arrives at its own time (law ShapesAgree, cases).",
+      "anchor": {"tests": ["examples:fk-transfers"]}, "killers": ["examples:fk-transfers"]
+    },
+    {
+      "name": "fk4b-view-cancel-all-always", "origin": "wf10/fk4b",
+      "file": "examples/fk-transfers/screen/screen.ergo",
+      "from": "\t\tif anySending(d) {\n",
+      "to": "\t\tif true {\n",
+      "rule": "Cancel all is on the screen only while a transfer sends, as upstream's (case scenes).",
+      "anchor": {"tests": ["examples:fk-transfers"]}, "killers": ["examples:fk-transfers"]
+    },
+    {
+      "name": "fk4b-view-empty-always", "origin": "wf10/fk4b",
+      "file": "examples/fk-transfers/screen/screen.ergo",
+      "from": "\t\tif len(d.Rows) == 0 {\n",
+      "to": "\t\tif true {\n",
+      "rule": "The empty line shows only when there is no transfer (cases).",
+      "anchor": {"tests": ["examples:fk-transfers"]}, "killers": ["examples:fk-transfers"]
+    },
+    {
+      "name": "fk4b-view-restart-labelled-cancel", "origin": "wf10/fk4b",
+      "file": "examples/fk-transfers/screen/screen.ergo",
+      "from": "button(f, RestartLabel(r.ID), \"Restart\"",
+      "to": "button(f, CancelLabel(r.ID), \"Restart\"",
+      "rule": "A cancelled row's button is named Restart upload ID, as upstream's aria-label (case scenes, law ShapesAgree).",
+      "anchor": {"tests": ["examples:fk-transfers"]}, "killers": ["examples:fk-transfers"]
+    },
+    {
+      "name": "fk4c-same-key-drops-state", "origin": "wf10/fk4c",
+      "file": "examples/fk-transfers/screen/screen.ergo",
+      "from": "func SameKey(r desk.Row) ui.Key { ui.ByText(\"\\(r.ID)/\\(transfer.Word(r.Transfer))\") }",
+      "to": "func SameKey(r desk.Row) ui.Key { ui.ByText(\"\\(r.ID)\") }",
+      "rule": "A row's Same key holds all it shows: a row whose transfer changed runs again (cases, law ShapesAgree).",
+      "anchor": {"tests": ["examples:fk-transfers"]}, "killers": ["examples:fk-transfers"]
+    },
+    {
+      "name": "fk4c-same-removed", "origin": "wf10/fk5b",
+      "file": "examples/fk-transfers/screen/screen.ergo",
+      "from": "\t\t\tui.Same(f, SameKey(r)) {\n\t\t\t\trow(f, r)\n\t\t\t}\n",
+      "to": "\t\t\trow(f, r)\n",
+      "rule": "A press runs only the rows it changed, so its work is flat in the rows (UI HOT PATHS; test PressWorkIsFlat, the only killer: no output changes).",
       "anchor": {"tests": ["examples:fk-transfers"]}, "killers": ["examples:fk-transfers"]
     }
   ]

@@ -67,4 +67,8 @@ func TestBuildIdentityCarriesLevel(t *testing.T) {
 			t.Errorf("--platform %s: got %v, want the CPU level refusal", bad, err)
 		}
 	}
+	// A phone module is linked by its packager, which picks the levels.
+	if _, err := parseFileOptions("build", []string{"--platform", "ios/arm64/v8.2", dir}); err == nil || !strings.Contains(err.Error(), "takes no CPU level") {
+		t.Errorf("--platform ios/arm64/v8.2: got %v, want the phone refusal", err)
+	}
 }
