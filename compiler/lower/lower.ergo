@@ -317,6 +317,111 @@ func fieldOf(fields []expr.Field, name string) bool {
 	ok
 }
 
+// typeCause names what t is, for a signature type the slice does not
+// lower yet: its kind, an instance's or a foreign type's name, and why a
+// record is no plain one.
+func typeCause(st fnb, t dense.ID[store.TKey]) string {
+	let k = store.KindOfType(st.s, t)
+	if k == store.KBasic {
+		return if store.ArgOf(st.s, t) == 0 { "unset" } else { "duration or complex" }
+	}
+	if k == store.KNamed {
+		let name = store.TypeNameText(st.s, store.ArgOf(st.s, t))
+		for rec in st.k.Recs {
+			if rec.Name == name {
+				return if rec.Op { "operation type" } else if len(rec.Params) > 0 { "generic record" } else if len(rec.Fields) == 0 { "record without fields" } else if !structDecl(st, name) { "union variant or extern record" } else { "record with a field not basic" }
+			}
+		}
+		return namedCause(st, name)
+	}
+	if k == store.KParam {
+		return "type parameter"
+	}
+	if k == store.KSlice {
+		return "slice"
+	}
+	if k == store.KMap {
+		return "map"
+	}
+	if k == 6 {
+		return "function type"
+	}
+	if k == store.KRow {
+		return "row"
+	}
+	if k == store.KInstance {
+		return "instance " + originName(st, store.OriginOfType(st.s, t))
+	}
+	if k == store.KPointer {
+		return "mut (a borrow)"
+	}
+	if k == store.KTuple {
+		return if len(store.OperandsOf(st.s, t)) == 0 { "no value (unit)" } else { "tuple" }
+	}
+	if k == store.KOwn {
+		return "own"
+	}
+	if k == store.KArray {
+		return "array"
+	}
+	if k == store.KForeign {
+		let i = store.ArgOf(st.s, t)
+		return if i < len(st.k.Foreign) { "foreign " + st.k.Foreign[i].Qual + "." + st.k.Foreign[i].Name } else { "foreign" }
+	}
+	"kind " + strconv.Itoa(k)
+}
+
+// namedCause is what the package's type name declares, when it is no
+// record: a union (an interface of variants), a machine, or another type.
+func namedCause(st fnb, name string) string {
+	for p in st.k.Parsed {
+		let decls = match syntax.ViewOf(p.Tree, syntax.Root(p.Tree)) {
+		case syntax.File as root:
+			root.Decls
+		case _:
+			continue
+		}
+		for i in 0..syntax.Len(decls) {
+			match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, decls, i)) {
+			case syntax.TypeDecl as td:
+				if nameText(p, td.Name) != name {
+					continue
+				}
+				match dense.Unpack(td.Spec) {
+				case Some[dense.ID[syntax.Node]] as sp:
+					match syntax.ViewOf(p.Tree, sp.Value) {
+					case syntax.InterfaceType:
+						return "union"
+					case _:
+						return "named type of another form"
+					}
+				case None:
+					return "named type without a body"
+				}
+			case _:
+			}
+		}
+	}
+	"named type not declared here"
+}
+
+// originName is the name of the declaration o refers to: of the package,
+// of the foreign table, or of an import's interface.
+func originName(st fnb, o store.XRef) string {
+	let imp = int(o.Import)
+	let d = int(o.Decl)
+	if imp == store.ForeignBit {
+		return if d < len(st.k.Foreign) { st.k.Foreign[d].Qual + "." + st.k.Foreign[d].Name } else { "foreign" }
+	}
+	if imp == 0 {
+		return if d < store.NumDecls(st.s) { store.DeclText(st.s, d) } else { "local" }
+	}
+	if imp <= len(st.k.Ifaces) && d < len(st.k.Ifaces[imp-1].Decls) {
+		return st.k.Ifaces[imp-1].Name + "." + st.k.Ifaces[imp-1].Decls[d].Name
+	}
+	"imported"
+}
+
 let goKeywords = []string{"break", "case", "chan", "const", "continue", "default", "defer", "else", "fallthrough", "for", "func", "go", "goto", "if", "import", "interface", "map", "package", "range", "return", "select", "struct", "switch", "type", "var"}
 
 func goKeyword(name string) bool {
@@ -363,6 +468,10 @@ func function(st mut fnb, b mut ir.Builder, f expr.Fn, path string) bool fails U
 	let d = match syntax.ViewOf(p.Tree, f.Decl) {
 	case syntax.FuncDecl as d:
 		d
+	case syntax.LawDecl:
+		return stop("law (test and law lowering)")
+	case syntax.TestDecl:
+		return stop("test (test and law lowering)")
 	case _:
 		return stop("no function declaration")
 	}
@@ -392,15 +501,27 @@ func function(st mut fnb, b mut ir.Builder, f expr.Fn, path string) bool fails U
 		return stop("signature")
 	}
 	let n = len(ops) - 3
-	if !emptyRow(*st, ops[n+1]) || !emptyRow(*st, ops[n+2]) {
-		return stop("signature row")
+	let errs = !emptyRow(*st, ops[n+1])
+	let uses = !emptyRow(*st, ops[n+2])
+	if errs && uses {
+		return stop("signature: fails and needs rows")
 	}
+	if errs {
+		return stop("signature: fails row")
+	}
+	if uses {
+		return stop("signature: needs row")
+	}
+	// A signature type the slice does not lower stops the function after
+	// its body is checked too, so the stop says what the body would meet
+	// (" / body: <cause>", or " / body passes"): the next slice's reach.
+	let mut sig = ""
 	if basicGo(*st, ops[n]) == "" && plainRecord(*st, ops[n]) < 0 {
-		return stop("result neither basic nor a plain record")
+		sig = "result: " + typeCause(*st, ops[n])
 	}
 	for i in 0..n {
-		if basicGo(*st, ops[i]) == "" && plainRecord(*st, ops[i]) < 0 {
-			return stop("parameter neither basic nor a plain record")
+		if sig == "" && basicGo(*st, ops[i]) == "" && plainRecord(*st, ops[i]) < 0 {
+			sig = "parameter: " + typeCause(*st, ops[i])
 		}
 	}
 	if len(f.Names) != n {
@@ -422,6 +543,32 @@ func function(st mut fnb, b mut ir.Builder, f expr.Fn, path string) bool fails U
 	case _:
 		return stop("body that is no block")
 	}
+	let tailX = tail(*st, list) catch {
+	case Unported as u:
+		if sig != "" {
+			return stop(sig + " / body: " + u.Cause)
+		}
+		return u
+	}
+	if sig != "" {
+		return stop(sig + " / body passes")
+	}
+	st.fileIx = ir.FileOf(b, path)
+	let fp = pos(*st, syntax.TokPos(p, d.Func))
+	let end = pos(*st, syntax.TokPos(p, rbrace))
+	let gname = try goName(*st, name, if n > 0 { Some[dense.ID[store.TKey]]{Value: ops[0]} } else { None })
+	try ir.Begin(b, gname, fp, end)
+	let x = try value(*st, b, tailX)
+	let ret = try ir.Row(b, ir.KindCode(ir.TStmt, "ret"), pos(*st, syntax.NodePos(p, tailX)), []uint32{x})
+	try ir.End(b, ir.List(b, []uint32{ret}))
+	let _ = lbrace
+	true
+}
+
+// tail is the body's one tail expression, checked whole before the
+// builder writes a row (a stop leaves the builder as it was).
+func tail(st fnb, list syntax.List) dense.ID[syntax.Node] fails Unported {
+	let p = st.p
 	if syntax.Len(list) != 1 {
 		// A let's local takes a Go name the program decides today
 		// (selfhost S4c/naming.md, NAME-LOCAL).
@@ -440,19 +587,8 @@ func function(st mut fnb, b mut ir.Builder, f expr.Fn, path string) bool fails U
 	case _:
 		return stop("statement form")
 	}
-	// The body is checked whole before the builder writes a row: a stop
-	// leaves the builder as it was.
-	try check(*st, tailX)
-	st.fileIx = ir.FileOf(b, path)
-	let fp = pos(*st, syntax.TokPos(p, d.Func))
-	let end = pos(*st, syntax.TokPos(p, rbrace))
-	let gname = try goName(*st, name, if n > 0 { Some[dense.ID[store.TKey]]{Value: ops[0]} } else { None })
-	try ir.Begin(b, gname, fp, end)
-	let x = try value(*st, b, tailX)
-	let ret = try ir.Row(b, ir.KindCode(ir.TStmt, "ret"), pos(*st, syntax.NodePos(p, tailX)), []uint32{x})
-	try ir.End(b, ir.List(b, []uint32{ret}))
-	let _ = lbrace
-	true
+	try check(st, tailX)
+	tailX
 }
 
 func nameText(p syntax.Parsed, x dense.ID[syntax.Node]) string {
@@ -518,7 +654,7 @@ func check(st fnb, x dense.ID[syntax.Node]) fails Unported {
 	case syntax.Name:
 		let t = try typeOf(st, x, "Ident")
 		if basicGo(st, t) == "" && plainRecord(st, t) < 0 {
-			return stop("name of a type neither basic nor a plain record")
+			return stop("name of " + typeCause(st, t))
 		}
 		let _ = try paramLocal(st, x)
 	case syntax.CompositeLit as cl:
