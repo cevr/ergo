@@ -493,8 +493,8 @@
       "name": "sh-format-include-dropped",
       "origin": "wf10/selfhost/FMT-MODES",
       "file": "internal/selfhostcheck/testdata/selfhost/format/nodes.ergo",
-      "from": "\tlet nodes = p.bySource(p.bySource(p.ks(t, \"Includes\"), p.ks(t, \"Methods\")), p.ks(t, \"Laws\"))\n",
-      "to": "\tlet nodes = p.bySource(p.ks(t, \"Methods\"), p.ks(t, \"Laws\"))\n",
+      "from": "\tlet mut nodes = p.bySource(p.bySource(p.ks(t, \"Includes\"), p.ks(t, \"Methods\")), p.ks(t, \"Laws\"))\n",
+      "to": "\tlet mut nodes = p.bySource(p.ks(t, \"Methods\"), p.ks(t, \"Laws\"))\n",
       "rule": "An operation type's includes (..I) are printed among its members in source order.",
       "killers": [
         "internal/selfhostcheck:TestSelfhostFormatAgrees"
