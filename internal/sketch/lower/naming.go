@@ -231,6 +231,10 @@ func (l *lowerer) nameAll() {
 				continue
 			}
 			generated = append(generated, entry{pkgKey{"adapter", key}, "adapter " + key, base})
+			if c.Cell {
+				// The IR's cell of a direct writer (ir_codec_direct.go).
+				generated = append(generated, entry{pkgKey{"cell of", key}, "cell of " + key, "ergoCellOf" + base})
+			}
 			if prov := l.providerOf(c); prov != nil {
 				for _, f := range provs[prov.to] {
 					generated = append(generated, entry{provSpecKey(f, prov), "spec " + key + " " + f.Pkg.Path + "." + f.Name, provSpecBase(f, prov)})
