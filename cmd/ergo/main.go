@@ -720,7 +720,7 @@ func checkEnvelope(opts fileOptions, l loaded, fsys sketchfront.FS) (out []byte,
 	}
 	var buf bytes.Buffer
 	if !l.result.Checked {
-		if err := json.NewEncoder(&buf).Encode(l.result.CheckEnvelope()); err != nil {
+		if err := json.NewEncoder(&buf).Encode(featuredEnvelope(l.result)); err != nil {
 			return nil, nil, err
 		}
 		return buf.Bytes(), fmt.Errorf("check failed"), nil
@@ -759,7 +759,7 @@ func evaluatedEnvelope(opts fileOptions, l loaded, id producer.Identity, fsys sk
 	}
 	l.result.SetEvaluation(evaluation)
 	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(l.result.CheckEnvelope()); err != nil {
+	if err := json.NewEncoder(&buf).Encode(featuredEnvelope(l.result)); err != nil {
 		return nil, nil, err
 	}
 	exit = evaluationExit(evaluation)
@@ -767,6 +767,14 @@ func evaluatedEnvelope(opts fileOptions, l loaded, id producer.Identity, fsys sk
 		exit = undecidedExit(evaluation.Obligations)
 	}
 	return buf.Bytes(), exit, nil
+}
+
+// featuredEnvelope is what check prints: the result's envelope with this
+// ergo's features (versionFeatures).
+func featuredEnvelope(r *report.Result) report.CheckEnvelope {
+	env := r.CheckEnvelope()
+	env.Features = versionFeatures
+	return env
 }
 
 // evalBudget is check's evaluation budget: the editor default
