@@ -108,6 +108,33 @@ type Composer machine[Line, term.Key] {
 		let end = machines.Next(l, Edit(l, term.End))
 		c == "" || machines.Next(end, Edit(end, term.Char{Text: c})).Text == l.Text+c
 	},
+
+	// TypeThenBackspaceIsNoChange: a character typed and taken back with
+	// Backspace leaves the line as it was, wherever the cursor is; and a
+	// Backspace at the start of the line changes nothing.
+	law TypeThenBackspaceIsNoChange(l Line, c string) {
+		let line = Line{Text: l.Text, At: cursor(l)}
+		let one = runes(c, 0, 1)
+		let typedIn = machines.Next(line, Edit(line, term.Char{Text: one}))
+		let back = machines.Next(typedIn, Edit(typedIn, term.Backspace))
+		let start = Line{Text: l.Text, At: 0}
+		(one == "" || back == line) && machines.Next(start, Edit(start, term.Backspace)) == start
+	},
+
+	// PasteIsTyping: a paste of text with no line feed is the text typed
+	// a rune at a time (text that is UTF-8: a byte that is not is no
+	// rune to type).
+	law PasteIsTyping(l Line, text string) {
+		let flat = strings.ReplaceAll(strings.ReplaceAll(text, "\r", ""), "\n", "")
+		if !utf8.ValidString(flat) {
+			return true
+		}
+		let mut typedIn = l
+		for r in flat {
+			typedIn = machines.Next(typedIn, Edit(typedIn, term.Char{Text: utf8.RuneText(r)}))
+		}
+		machines.Next(l, Edit(l, term.Paste{Text: flat})) == typedIn
+	},
 }
 
 // onText reports whether l's cursor is on its text.

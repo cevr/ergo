@@ -98,14 +98,13 @@ func approving(s State) bool {
 	}
 }
 
-// Headless is a session that asks each of texts in turn, with no
-// terminal, and ends: its last state and its record. A text of spaces is
+// Headless asks each of texts in turn in the session s, with no
+// terminal, and stops it: its last state and its record. A text of spaces is
 // skipped. No person is there to answer a call the gate asks about, so
 // each is approved when allow says so up front (--allow-shell) and
 // declined otherwise: the machine still asks, and the record holds the
 // answer.
-func Headless(l Limits, texts []string, allow bool) (State, Recorded) needs Model | Tools | exec.Runner | Scheduler {
-	let s = Open(l)
+func Headless(s Session, texts []string, allow bool) (State, Recorded) needs Model | Tools | exec.Runner | Scheduler {
 	let answer Signal = if allow { Approve } else { Decline }
 	for text in texts {
 		if strings.TrimSpace(text) != "" {

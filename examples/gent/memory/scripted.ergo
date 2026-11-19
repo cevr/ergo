@@ -59,7 +59,7 @@ func NewScripted(first []string, cut bool, rest []Entry) Scripted {
 law ReplayIsTheRun(s Scripted, t Tree, texts []string, allow bool) {
 	let c = testing.NewVirtualClock(0)
 	let (live, record) = with context { agent.Model: s, agent.Tools: t, exec.Runner: exec.Script{Results: Map[string, exec.Result]{}}, Scheduler: c, time.Clock: c } {
-		agent.Headless(agent.Limits{MaxSteps: 4, MaxRetries: 2}, texts, allow)
+		agent.Headless(agent.Open(agent.Limits{MaxSteps: 4, MaxRetries: 2}), texts, allow)
 	}
 	agent.Replay(record) == live
 }

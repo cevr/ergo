@@ -1,7 +1,8 @@
-// The chat at a terminal: one loop draws. Two tasks feed it events, one
-// reading keys and one following the agent's states; the loop takes one
-// event at a time, edits the composer or sends the agent a signal, and
-// paints one frame. Nothing else writes to standard output.
+// The chat at a terminal: one loop draws. Three tasks feed it events, one
+// reading keys, one following the agent's states and one turning the
+// spinner; the loop takes one event at a time, edits the composer,
+// scrolls, or sends the agent a signal, and paints the lines of the frame
+// that changed. Nothing else writes to standard output.
 
 import exec
 import gent/agent
@@ -11,22 +12,29 @@ import io
 import machines
 import queue
 import slices
+import strconv
 import strings
 import task
 import term
 import testing
 import time
 
-// Event is what the loop takes: a key, or a state the agent committed.
-type Event = Pressed{Key term.Key} | Changed{State agent.State}
+// Event is what the loop takes: a key, a state the agent committed, or
+// the spinner's turn.
+type Event = Pressed{Key term.Key} | Changed{State agent.State} | Ticked{}
+
+// turn is how often the spinner turns while the agent works.
+let turn = 120ms
 
 // Chat runs the session s at the terminal until it ends, and stops it.
 func Chat(s agent.Session) needs io.Stdout | term.Terminal | Scheduler {
 	let events = queue.New[Event](64)
 	let keys = task.Go() { readKeys(events) }
 	let states = task.Go() { follow(s, events) }
-	let mut view = screen.View{State: s.Agent.State(), Line: screen.Line{Text: "", At: 0}}
-	paint(view)
+	let ticks = task.Go() { tick(events) }
+	let mut view = screen.View{State: s.Agent.State(), Line: screen.Line{Text: "", At: 0}, Scroll: screen.Stuck(), Detail: false, Tick: 0}
+	let mut shown = Shown{Window: size(), Lines: []string{}}
+	shown = paint(shown, view)
 	for {
 		let e = events.Pop() catch {
 		case queue.Closed:
@@ -46,12 +54,21 @@ func Chat(s agent.Session) needs io.Stdout | term.Terminal | Scheduler {
 				case _:
 				}
 				view = screen.View{..view, Line: screen.Line{Text: "", At: 0}}
+			case screen.Page as pg:
+				view = screen.Paged(view, pg.Up, size())
+			case screen.Toggle:
+				view = screen.View{..view, Detail: !view.Detail}
 			case screen.Nothing:
 			}
 		case Changed as c:
 			view = screen.View{..view, State: c.State}
+		case Ticked:
+			if screen.Spin(view.State, 0) == "" {
+				continue
+			}
+			view = screen.View{..view, Tick: view.Tick + 1}
 		}
-		paint(view)
+		shown = paint(shown, view)
 		if view.State.Phase == agent.Ended {
 			break
 		}
@@ -59,6 +76,7 @@ func Chat(s agent.Session) needs io.Stdout | term.Terminal | Scheduler {
 	events.End()
 	keys.Stop()
 	states.Stop()
+	ticks.Stop()
 	s.Agent.Stop()
 }
 
@@ -91,6 +109,17 @@ func follow(s agent.Session, events queue.Queue[Event]) {
 	}
 }
 
+// tick puts a Ticked in events every turn, until they end.
+func tick(events queue.Queue[Event]) needs Scheduler {
+	for {
+		Scheduler.Sleep(turn)
+		events.Push(Ticked) catch {
+		case queue.Closed:
+			return
+		}
+	}
+}
+
 // DrawsOnlyStatesThatExisted is the draw loop's model: keys and the
 // model's deltas reach the one loop in either order, and under every
 // schedule (the explore leg searches them: explored) each frame painted
@@ -113,24 +142,63 @@ test DrawsOnlyStatesThatExisted {
 	for k in 0..(len(record.Signals) + 1) {
 		let st = agent.Replay(agent.Recorded{Limits: record.Limits, Signals: record.Signals[0:k]})
 		for line in lines {
-			seen = seen.Append(screen.Paint(screen.Frame(screen.View{State: st, Line: line}, w)))
+			for spin in 0..4 {
+				seen = seen.Append(strings.Join(screen.Frame(screen.View{State: st, Line: line, Scroll: screen.Stuck(), Detail: false, Tick: spin}, w), "\n"))
+			}
 		}
 	}
-	let frames = strings.Split(out.Text(), "\x1b[H")
-	assert frames[0] == ""
-	for f in frames[1:] {
-		assert slices.Contains(seen, "\x1b[H"+f)
+	let paints = strings.Split(out.Text(), "\x1b[H")
+	assert paints[0] == ""
+	let mut at = []string{}
+	for p in paints[1:] {
+		at = painted(at, w.Rows, p)
+		assert slices.Contains(seen, strings.Join(at, "\n"))
 	}
-	let last = "\x1b[H" + frames[len(frames)-1]
 	let end = agent.Replay(record)
-	assert last == screen.Paint(screen.Frame(screen.View{State: end, Line: lines[0]}, w)) || last == screen.Paint(screen.Frame(screen.View{State: end, Line: lines[2]}, w))
+	let last = strings.Join(at, "\n")
+	assert last == strings.Join(screen.Frame(screen.View{State: end, Line: lines[0], Scroll: screen.Stuck(), Detail: false, Tick: 0}, w), "\n") || last == strings.Join(screen.Frame(screen.View{State: end, Line: lines[2], Scroll: screen.Stuck(), Detail: false, Tick: 0}, w), "\n")
 }
 
-// paint draws v in the terminal's window (80 by 24 when it has none).
-func paint(v screen.View) needs io.Stdout | term.Terminal {
-	let w = term.Terminal.Size() catch {
+// painted is the screen of rows lines that a shows after the bytes p of
+// one paint (screen.PaintChanges after its leading cursor home): each
+// write moves to a row, writes its text and clears the rest of it.
+func painted(a []string, rows int, p string) []string {
+	let mut ws = []screen.Write{}
+	for part in strings.Split(p, "\x1b[K") {
+		let at = strings.Index(part, ";1H")
+		if strings.HasPrefix(part, "\x1b[") && at > 2 {
+			let row = strconv.Atoi(strings.Slice(part, 2, at)) catch {
+			case _:
+				-1
+			}
+			ws = ws.Append(screen.Write{Row: row - 1, Text: strings.Slice(part, at+3, len(part))})
+		}
+	}
+	screen.Apply(a, rows, ws)
+}
+
+// Shown is what the terminal shows: the lines last painted, in the window
+// they were painted for.
+type Shown { Window term.Window, Lines []string }
+
+// size is the terminal's window (80 by 24 when it has none).
+func size() term.Window needs term.Terminal {
+	term.Terminal.Size() catch {
 	case term.NotTerminal:
 		term.Window{Cols: 80, Rows: 24}
 	}
-	io.Stdout.Print(screen.Paint(screen.Frame(v, w)))
+}
+
+// paint draws v over what the terminal shows: only the lines that
+// changed, or every line when the window changed size. It gives what the
+// terminal shows after.
+func paint(was Shown, v screen.View) Shown needs io.Stdout | term.Terminal {
+	let w = size()
+	let before = if w == was.Window { was.Lines } else { []string{} }
+	let lines = screen.Frame(v, w)
+	let ws = screen.Changes(before, lines)
+	if len(ws) > 0 {
+		io.Stdout.Print("\x1b[H" + screen.PaintChanges(ws))
+	}
+	Shown{Window: w, Lines: lines}
 }
