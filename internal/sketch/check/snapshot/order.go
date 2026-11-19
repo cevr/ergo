@@ -1,4 +1,4 @@
-package check
+package snapshot
 
 import (
 	"bytes"
@@ -8,7 +8,7 @@ import (
 )
 
 // The order of a map's entries in a snapshot (compile-speed CS1b). A Go
-// map ranges in a random order, so the generated map codecs (export_gen.go)
+// map ranges in a random order, so the generated map codecs (codec_gen.go)
 // write the entries in the order entryOrder gives. Ids are given in the
 // order the encoder meets objects, so a stable entry order makes every
 // later id, and every later byte, stable too.

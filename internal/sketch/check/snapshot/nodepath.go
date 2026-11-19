@@ -1,9 +1,10 @@
-package check
+package snapshot
 
 import (
 	"strconv"
 	"strings"
 
+	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/fingerprint"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
@@ -54,7 +55,7 @@ func declWalks(f *syntax.File) []declWalk {
 // nodePaths are the node paths of pkg's syntax nodes that a top-level
 // declaration with a key reaches. A node two declarations reach belongs to
 // the first, in file and declaration order.
-func nodePaths(pkg *Package) map[any]nodePath {
+func nodePaths(pkg *check.Package) map[any]nodePath {
 	out := map[any]nodePath{}
 	for _, f := range pkg.Files() {
 		seen := map[string]int{}
@@ -77,7 +78,7 @@ func nodePaths(pkg *Package) map[any]nodePath {
 
 // ResolveNodePath returns the syntax node the node path p (a CrossRef's
 // Path) names in pkg.
-func ResolveNodePath(pkg *Package, p string) (any, bool) {
+func ResolveNodePath(pkg *check.Package, p string) (any, bool) {
 	var r nodeResolver
 	return r.resolve(pkg, nodePath(p))
 }
@@ -88,7 +89,7 @@ type nodeResolver struct {
 }
 
 // resolve returns the node p names in pkg.
-func (r *nodeResolver) resolve(pkg *Package, p nodePath) (any, bool) {
+func (r *nodeResolver) resolve(pkg *check.Package, p nodePath) (any, bool) {
 	parts := strings.Split(string(p), "\x00")
 	if len(parts) != 4 {
 		return nil, false

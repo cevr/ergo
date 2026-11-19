@@ -2392,7 +2392,7 @@ The standard library is an ordinary set of packages ([NORTH_STAR.md](../../NORTH
 1. **The seam.** The compiler may know that std exists to find it, ship it, cache it and name it. These files hold that knowledge, and they change no meaning:
    - `internal/sketch/check/check.go`: loads the embedded prelude and std packages and marks them std.
    - `internal/sketch/check/decl.go`: a std import path always names std, so no package shadows it.
-   - `internal/sketch/check/export.go` and `internal/sketch/check/export_gen.go`: the checked std snapshot.
+   - `internal/sketch/check/snapshot/snapshot.go`: the checked std snapshot.
    - `internal/sketch/check/info.go`: the accessor of the std mark.
    - `internal/sketchfront/load.go`: std paths resolve to the embedded std, and a module path does not take a std package's name.
    - `internal/sketchfront/sketchfront.go`: the digest of std's sources is part of every build key.

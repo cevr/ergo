@@ -1,10 +1,11 @@
-package check
+package snapshot
 
 import (
 	"encoding/binary"
 	"fmt"
+	"slices"
 
-	"ergo.local/prototype/internal/sketch/stdlib"
+	"ergo.local/prototype/internal/sketch/check"
 )
 
 // CrossRef is one reference that a user package's segment makes to an
@@ -16,7 +17,7 @@ type CrossRef struct {
 	// Obj is the object referred to; nil for a syntax node, which Node
 	// holds when the segment names it by node path.
 	Obj, Node any
-	// Path is Obj's object path in To (ResolvePath), or Node's node path
+	// Path is Obj's object path in To (check.ResolvePath), or Node's node path
 	// (ResolveNodePath), taken right after To's check; HasPath is false
 	// when no path reaches it.
 	Path    string
@@ -42,14 +43,14 @@ type UserExport struct {
 	// pkgs are the packages of the user segments, and nodeTables their
 	// node paths, by segment index, each taken when a later segment first
 	// names one of its nodes (CS5b-4).
-	pkgs       map[int]*Package
+	pkgs       map[int]*check.Package
 	nodeTables map[int]map[any]nodePath
 	// stdObjs and stdNodes are std's objects and syntax nodes by id, for
 	// Decode, built on first use.
 	stdObjs *objTable
 	// tables are the object paths of each user segment's package, by
 	// segment index, taken when its segment is written.
-	tables map[int]map[any]objPath
+	tables map[int]map[any]string
 	// Record makes cross record Refs (the tests' measure).
 	Record bool
 	Refs   []CrossRef
@@ -59,10 +60,10 @@ type UserExport struct {
 	// loader's state, never checked again by an edit: a user segment names
 	// its objects by id, and Decode reads them as this process holds them
 	// (B7e).
-	sets []*GoBindings
+	sets []*check.GoBindings
 	host map[int]bool
 	// done is each binding package's host segment.
-	done map[*Package]int
+	done map[*check.Package]int
 }
 
 // fixed reports a segment of std or of a Go binding package.
@@ -70,18 +71,12 @@ func (u *UserExport) fixed(seg int) bool { return seg < u.first || u.host[seg] }
 
 // NewUserExport writes std's segments. importers are the values the user
 // packages' checkers hold as their importer (a loader): the export names
-// them as externals, as it names Std.
+// them as externals, as it names check.Std.
 func NewUserExport(importers ...any) (u *UserExport, err error) {
 	defer recoverExport(&err)
-	prelude()
 	// Every std package is in std's segments, so a user segment names std
 	// objects there and never writes one (the std snapshot holds them all).
-	for _, path := range stdlib.Packages() {
-		if _, err := Std.Import(path); err != nil {
-			return nil, err
-		}
-	}
-	s, err := stdSnapshotNow(nil, nil)
+	base, paths, packages, err := check.StdSnapshotNow()
 	if err != nil {
 		return nil, err
 	}
@@ -90,20 +85,20 @@ func NewUserExport(importers ...any) (u *UserExport, err error) {
 	for i, imp := range importers {
 		e.ext[imp] = uint64(len(externals()) + i)
 	}
-	u = &UserExport{e: e, first: len(s.packages) + 1, tables: map[int]map[any]objPath{}, nodeCross: map[int]bool{}, pkgs: map[int]*Package{}, nodeTables: map[int]map[any]nodePath{}, host: map[int]bool{}, done: map[*Package]int{}}
+	u = &UserExport{e: e, first: len(packages) + 1, tables: map[int]map[any]string{}, nodeCross: map[int]bool{}, pkgs: map[int]*check.Package{}, nodeTables: map[int]map[any]nodePath{}, host: map[int]bool{}, done: map[*check.Package]int{}}
 	for _, imp := range importers {
-		if set, ok := imp.(*GoBindings); ok {
+		if set, ok := imp.(*check.GoBindings); ok {
 			u.sets = append(u.sets, set)
 		}
 	}
-	u.segs = append(u.segs, e.segment("", func() { e.encPtrstdBase(s.base) }))
+	u.segs = append(u.segs, e.segment("", func() { e.encPtrstdBase(base) }))
 	u.paths = append(u.paths, "")
-	for i, pkg := range s.packages {
-		u.segs = append(u.segs, e.segment(s.paths[i], func() { e.encPtrPackage(pkg) }))
-		u.paths = append(u.paths, s.paths[i])
+	for i, pkg := range packages {
+		u.segs = append(u.segs, e.segment(paths[i], func() { e.encPtrPackage(pkg) }))
+		u.paths = append(u.paths, paths[i])
 	}
 	e.crossRef = func(seg int, v any) { u.cross(seg, v) }
-	e.symbolic = func(seg int, v any) (objPath, bool) {
+	e.symbolic = func(seg int, v any) (string, bool) {
 		cur := len(e.objStarts) - 1
 		if u.fixed(seg) || u.fixed(cur) || seg == cur {
 			return "", false
@@ -161,9 +156,7 @@ func (u *UserExport) cross(seg int, v any) {
 	if u.Record && !u.fixed(seg) && !u.fixed(cur) && seg != cur {
 		r := CrossRef{From: u.paths[cur], To: u.paths[seg], Obj: v}
 		if v != nil {
-			var p objPath
-			p, r.HasPath = u.tables[seg][v]
-			r.Path = string(p)
+			r.Path, r.HasPath = u.tables[seg][v]
 		}
 		u.Refs = append(u.Refs, r)
 	}
@@ -174,7 +167,7 @@ func (u *UserExport) cross(seg int, v any) {
 // then unusable, and its caller drops it. A derive record is not carried
 // (exportgen skipFields): a caller that decodes a segment does not add a
 // package whose record is not empty.
-func (u *UserExport) Add(pkg *Package) (seg int, err error) {
+func (u *UserExport) Add(pkg *check.Package) (seg int, err error) {
 	defer recoverExport(&err)
 	u.addHosts()
 	if k, ok := u.done[pkg]; ok {
@@ -182,7 +175,7 @@ func (u *UserExport) Add(pkg *Package) (seg int, err error) {
 	}
 	seg = len(u.e.objStarts)
 	u.paths = append(u.paths, pkg.Path)
-	u.tables[seg] = objectPaths(pkg)
+	u.tables[seg] = check.ObjectPaths(pkg)
 	u.pkgs[seg] = pkg
 	u.segs = append(u.segs, u.e.segment(pkg.Path, func() { u.e.encPtrPackage(pkg) }))
 	return seg, nil
@@ -218,8 +211,14 @@ func (u *UserExport) Release(seg int) {
 // of them reaches, made since, joins that segment.
 func (u *UserExport) addHosts() {
 	for _, set := range u.sets {
-		for _, path := range sortedKeys(set.pkgs) {
-			p := set.pkgs[path]
+		pkgs := set.HostBindings()
+		paths := make([]string, 0, len(pkgs))
+		for path := range pkgs {
+			paths = append(paths, path)
+		}
+		slices.Sort(paths)
+		for _, path := range paths {
+			p := pkgs[path]
 			if _, ok := u.done[p]; p == nil || ok {
 				continue
 			}
@@ -237,7 +236,7 @@ func (u *UserExport) addHosts() {
 // into them resolve by object path there. importers are the importers the
 // decoded checkers hold, as NewUserExport's. It runs in the process that
 // wrote the export, which reads std's objects as it holds them.
-func (u *UserExport) Decode(path string, current func(path string) *Package, importers ...any) (pkg *Package, err error) {
+func (u *UserExport) Decode(path string, current func(path string) *check.Package, importers ...any) (pkg *check.Package, err error) {
 	i := -1
 	for k := u.first; k < len(u.segs); k++ {
 		if u.paths[k] == path {
@@ -251,7 +250,7 @@ func (u *UserExport) Decode(path string, current func(path string) *Package, imp
 }
 
 // DecodeSegment is Decode of the segment Add returned.
-func (u *UserExport) DecodeSegment(i int, current func(path string) *Package, importers ...any) (pkg *Package, err error) {
+func (u *UserExport) DecodeSegment(i int, current func(path string) *check.Package, importers ...any) (pkg *check.Package, err error) {
 	path := u.paths[i]
 	if i < u.first || i >= len(u.segs) || u.segs[i].data == nil {
 		return nil, fmt.Errorf("check: segment %d of %s is released", i, path)
@@ -288,7 +287,7 @@ func (u *UserExport) DecodeSegment(i int, current func(path string) *Package, im
 	ext := externals()
 	ext = append(ext, withGoBindings(importers)...)
 	d := &decoder{buf: seg.data[k+int(n):], ext: ext, nodes: nodes, table: u.stdObjs, seg: i, start: seg.objStart, userNodes: true}
-	d.imports = func(s int) *Package {
+	d.imports = func(s int) *check.Package {
 		if s < u.first || s >= i {
 			return nil
 		}
@@ -310,7 +309,7 @@ func (u *UserExport) DecodeSegment(i int, current func(path string) *Package, im
 func withGoBindings(importers []any) []any {
 	out := append([]any(nil), importers...)
 	for _, imp := range importers {
-		if gi, ok := imp.(GoImporter); ok && gi.GoBindings() != nil {
+		if gi, ok := imp.(check.GoImporter); ok && gi.GoBindings() != nil {
 			out = append(out, gi.GoBindings())
 		}
 	}

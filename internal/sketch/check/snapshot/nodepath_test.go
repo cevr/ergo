@@ -1,8 +1,9 @@
-package check
+package snapshot
 
 import (
 	"testing"
 
+	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -12,21 +13,21 @@ import (
 // alone (cs5b4-key-shape-only), so the path resolves to the inserted
 // declaration's node.
 func TestNodePathSurvivesSameShapeInsert(t *testing.T) {
-	check := func(src string) *Package {
+	checked := func(src string) *check.Package {
 		t.Helper()
 		f, err := syntax.Parse(src)
 		if err != nil {
 			t.Fatal(err)
 		}
 		f.Name = "a.ergo"
-		pkg, ds := Check("a", []*syntax.File{f}, nil)
+		pkg, ds := check.Check("a", []*syntax.File{f}, nil)
 		if len(ds) > 0 {
 			t.Fatal(ds)
 		}
 		return pkg
 	}
-	before := check("func Two(n int) int {\n\tn * 2\n}\n")
-	after := check("func One(n int) int {\n\tn * 1\n}\n\nfunc Two(n int) int {\n\tn * 2\n}\n")
+	before := checked("func Two(n int) int {\n\tn * 2\n}\n")
+	after := checked("func One(n int) int {\n\tn * 1\n}\n\nfunc Two(n int) int {\n\tn * 2\n}\n")
 	name := before.Files()[0].Decls[0].(*syntax.FuncDecl).Name
 	p, ok := nodePaths(before)[name]
 	if !ok {

@@ -575,7 +575,6 @@ var stdPrivilegesBaseline = []string{
 	"internal/sketch/check/durable.go:checker.durableStep",
 	"internal/sketch/check/durable.go:checker.recordDurable",
 	"internal/sketch/check/entry.go:IsStdEvery",
-	"internal/sketch/check/export_user.go:NewUserExport",
 	"internal/sketch/check/lintfacts.go:IsSchedulerSleep",
 	"internal/sketch/check/lintfacts.go:IsTimeoutPackage",
 	"internal/sketch/check/lintfacts.go:ProgramType",

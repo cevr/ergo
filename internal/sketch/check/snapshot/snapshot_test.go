@@ -1,13 +1,17 @@
-package check
+package snapshot
 
 import (
 	"bytes"
 	"crypto/sha256"
 	"runtime/debug"
+	"slices"
+	"strings"
 	"testing"
 	"unsafe"
 
+	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/stdlib"
+	"ergo.local/prototype/internal/sketch/syntax"
 )
 
 // stdFreeProgram imports no std package.
@@ -15,6 +19,53 @@ const stdFreeProgram = `func main() needs Console {
 	Console.Println("hello")
 }
 `
+
+// budgetProgram imports one std package, calls its externs and binds a
+// provider of a std operation type (check's TestCheckWorkGrowsWithImports
+// checks the same program).
+const budgetProgram = `import time
+
+let Manual = context { Scheduler: time.NewManual(0) }
+
+func main() needs Console {
+	let m = time.NewManual(0)
+	Console.Println("\(m.Now().UnixSeconds())")
+	Console.Println(with Manual { "bound" })
+}
+`
+
+// stdClosure is the std import closure of the std package root, sorted,
+// read from the import declarations of its sources.
+func stdClosure(t *testing.T, root string) []string {
+	var out []string
+	var visit func(p string)
+	visit = func(p string) {
+		if slices.Contains(out, p) {
+			return
+		}
+		srcs, ok := stdlib.Package(p)
+		if !ok {
+			return // a Go import
+		}
+		out = append(out, p)
+		for _, src := range srcs {
+			f, err := syntax.Parse(src)
+			if err != nil {
+				t.Fatalf("std package %s does not parse: %v", p, err)
+			}
+			for _, d := range f.Decls {
+				if id, ok := d.(*syntax.ImportDecl); ok {
+					for _, s := range id.Specs {
+						visit(strings.Trim(s.Path.Value, "\"`"))
+					}
+				}
+			}
+		}
+	}
+	visit(root)
+	slices.Sort(out)
+	return out
+}
 
 // TestStdDecodeGrowsWithImports is the counted budget of an installed
 // snapshot (CHK1b round 2, audit-3 F3): a process decodes the std packages
@@ -32,8 +83,8 @@ const stdFreeProgram = `func main() needs Console {
 // decodes the same model and passes every other test, but holds the whole
 // std in memory for a program that imports none of it.
 func TestStdDecodeGrowsWithImports(t *testing.T) {
-	ResetStdForTest()
-	defer ResetStdForTest()
+	check.ResetStdForTest()
+	defer check.ResetStdForTest()
 	data, err := ExportStd()
 	if err != nil {
 		t.Fatal(err)
@@ -45,15 +96,15 @@ func TestStdDecodeGrowsWithImports(t *testing.T) {
 	var fixed int64
 	install := func() {
 		t.Helper()
-		ResetStdForTest()
+		check.ResetStdForTest()
 		installBytes(t, data)
-		fixed = WorkDone().StdSnapshotBytesRead
+		fixed = check.WorkDone().StdSnapshotBytesRead
 		if before := int64(snap.segs[1].off); fixed > before {
 			t.Fatalf("the install read %d bytes; want at most the %d before the first package segment", fixed, before)
 		}
 	}
-	want := func(closure []string) Work {
-		w := Work{StdPackagesDecoded: int64(len(closure)), StdSnapshotBytesRead: fixed}
+	want := func(closure []string) check.Work {
+		w := check.Work{StdPackagesDecoded: int64(len(closure)), StdSnapshotBytesRead: fixed}
 		for _, p := range closure {
 			w.StdSnapshotBytesRead += int64(snap.segs[snap.byPath[p]].size)
 		}
@@ -64,20 +115,20 @@ func TestStdDecodeGrowsWithImports(t *testing.T) {
 		closure   []string
 	}{{"std-free", stdFreeProgram, nil}, {"budget", budgetProgram, stdClosure(t, "time")}} {
 		install()
-		if _, ds := CheckSource(c.src); len(ds) != 0 {
+		if _, ds := check.CheckSource(c.src); len(ds) != 0 {
 			t.Fatalf("%s: %v", c.name, ds)
 		}
-		if got, want := WorkDone(), want(c.closure); got != want {
+		if got, want := check.WorkDone(), want(c.closure); got != want {
 			t.Errorf("a check of the %s program did %+v; want %+v, the std closure %v alone", c.name, got, want, c.closure)
 		}
 	}
 	for _, path := range stdlib.Packages() {
 		install()
-		if _, err := Std.Import(path); err != nil {
+		if _, err := check.Std.Import(path); err != nil {
 			t.Fatal(err)
 		}
 		closure := stdClosure(t, path)
-		if got, want := WorkDone(), want(closure); got != want {
+		if got, want := check.WorkDone(), want(closure); got != want {
 			t.Errorf("importing %s did %+v; want %+v, its std closure %v alone", path, got, want, closure)
 		}
 	}
@@ -97,17 +148,17 @@ func TestStdDecodeGrowsWithImports(t *testing.T) {
 // stack-not-grown and stack-pad-small: each checks the same model and
 // passes every other test.
 func TestInstallGrowsTheStackOnce(t *testing.T) {
-	ResetStdForTest()
-	defer ResetStdForTest()
+	check.ResetStdForTest()
+	defer check.ResetStdForTest()
 	data, err := ExportStd()
 	if err != nil {
 		t.Fatal(err)
 	}
-	ResetStdForTest()
+	check.ResetStdForTest()
 	defer debug.SetGCPercent(debug.SetGCPercent(-1))
 	type result struct {
 		err                   error
-		ds                    []Diagnostic
+		ds                    []check.Diagnostic
 		installed, afterCheck uintptr
 	}
 	done := make(chan result)
@@ -117,7 +168,7 @@ func TestInstallGrowsTheStackOnce(t *testing.T) {
 		r.err = InstallStd(bytes.NewReader(data), int64(len(data)))
 		r.installed = uintptr(unsafe.Pointer(&frame))
 		if r.err == nil {
-			_, r.ds = CheckSource(budgetProgram)
+			_, r.ds = check.CheckSource(budgetProgram)
 		}
 		r.afterCheck = uintptr(unsafe.Pointer(&frame))
 		done <- r
@@ -139,16 +190,16 @@ func installBytes(t *testing.T, data []byte) {
 	}
 }
 
-// TestExportIsDeterministic checks Law ExportIsDeterministic
-// (export_order.go): std checked from source twice in one process exports
-// the same bytes, and so does an export that writes each run of tied map
-// keys in the reverse order. The second check starts from nothing, so the
-// law covers the checker's own state as well as the encoder's map order. It
-// kills cs-snap-map-order, cs-snap-memo-exported, cs-snap-tree-unreached,
+// TestExportIsDeterministic checks Law ExportIsDeterministic (order.go):
+// std checked from source twice in one process exports the same bytes,
+// and so does an export that writes each run of tied map keys in the
+// reverse order. The second check starts from nothing, so the law covers
+// the checker's own state as well as the encoder's map order. It kills
+// cs-snap-map-order, cs-snap-memo-exported, cs-snap-tree-unreached,
 // cs-snap-ties-shallow and cs-check-map-order.
 func TestExportIsDeterministic(t *testing.T) {
-	ResetStdForTest()
-	defer ResetStdForTest()
+	check.ResetStdForTest()
+	defer check.ResetStdForTest()
 	export := func(what string) []byte {
 		t.Helper()
 		data, err := ExportStd()
@@ -168,7 +219,7 @@ func TestExportIsDeterministic(t *testing.T) {
 		}
 	}
 	first := export("the first export")
-	ResetStdForTest()
+	check.ResetStdForTest()
 	second := export("the export of a second check")
 	same("two checks of std export different bytes", first, second)
 	reverseTiesForTest = true
@@ -186,13 +237,13 @@ func TestExportIsDeterministic(t *testing.T) {
 // and install-overwrites-live;
 // source-only checker tests never install bytes.
 func TestStdSnapshotInstall(t *testing.T) {
-	ResetStdForTest()
-	defer ResetStdForTest()
+	check.ResetStdForTest()
+	defer check.ResetStdForTest()
 	data, err := ExportStd()
 	if err != nil {
 		t.Fatal(err)
 	}
-	ResetStdForTest()
+	check.ResetStdForTest()
 	snap, _, err := openSnapshot(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
 		t.Fatal(err)
@@ -212,32 +263,32 @@ func TestStdSnapshotInstall(t *testing.T) {
 	corrupt[len(corrupt)-1] ^= 1
 	installBytes(t, corrupt)
 	last := snap.segs[len(snap.segs)-1].path
-	if p, err := Std.Import(last); err != nil || p == nil || p.Path != last {
+	if p, err := check.Std.Import(last); err != nil || p == nil || p.Path != last {
 		t.Fatalf("%s from a corrupt segment: %v, %v", last, p, err)
 	}
-	if got := WorkDone(); got.StdPackagesChecked != 1 || got.StdPackagesDecoded != int64(len(stdClosure(t, last))-1) {
+	if got := check.WorkDone(); got.StdPackagesChecked != 1 || got.StdPackagesDecoded != int64(len(stdClosure(t, last))-1) {
 		t.Fatalf("a corrupt segment of %s did %+v; want it checked from source, its imports decoded", last, got)
 	}
-	ResetStdForTest()
+	check.ResetStdForTest()
 	installBytes(t, data)
 	for _, path := range stdlib.Packages() {
-		p, err := Std.Import(path)
+		p, err := check.Std.Import(path)
 		if err != nil || p == nil || p.Path != path {
 			t.Fatalf("installed %s: %v, %v", path, p, err)
 		}
 	}
-	if _, ds := CheckSource(budgetProgram); len(ds) != 0 {
+	if _, ds := check.CheckSource(budgetProgram); len(ds) != 0 {
 		t.Fatal(ds)
 	}
-	got := WorkDone()
-	if want := (Work{StdPackagesDecoded: int64(len(stdlib.Packages())), StdSnapshotBytesRead: got.StdSnapshotBytesRead}); got != want {
+	got := check.WorkDone()
+	if want := (check.Work{StdPackagesDecoded: int64(len(stdlib.Packages())), StdSnapshotBytesRead: got.StdSnapshotBytesRead}); got != want {
 		t.Fatalf("warm snapshot did %+v; want %+v, no source work", got, want)
 	}
-	u, p := universe(), prelude().scope
-	if err := InstallStd(bytes.NewReader(data), int64(len(data))); err != ErrInstalled {
+	u, p := check.LiveScopesForTest()
+	if err := InstallStd(bytes.NewReader(data), int64(len(data))); err != check.ErrInstalled {
 		t.Fatalf("late install: %v; want ErrInstalled", err)
 	}
-	if universe() != u || prelude().scope != p {
+	if u2, p2 := check.LiveScopesForTest(); u2 != u || p2 != p {
 		t.Fatal("late install replaced live identities")
 	}
 }
@@ -249,19 +300,11 @@ func TestStdSnapshotInstall(t *testing.T) {
 // decoder that forgets the callback. The format carries the whole checker
 // graph, not just the currently forced part of std.
 func TestStdSnapshotRestoresDeferredRows(t *testing.T) {
-	c, ds := checkForInfer(`type Failed {}
-func apply[E](f func() fails E) { try f() }
-`)
-	if len(ds) != 0 {
-		t.Fatal(ds)
+	base, solution, err := check.DeferredRowForTest()
+	if err != nil {
+		t.Fatal(err)
 	}
-	f := c.pkg.Funcs[0]
-	failed := c.pkg.Types[0].Type
-	bound := &RowArg{Row: newRow().with(c.types, failed)}
-	view := c.subst(f.errVar, map[*TypeParam]Type{f.Sig.TParams[0]: bound}).(*RowVar)
-	// ref is a graph root; under holds the deferred row and ctx reaches
-	// its owning checker. Do not force Solution before encoding it.
-	data, err := encodeSnapshot(&stdSnapshot{base: &stdBase{ref: &Named{under: view}}})
+	data, err := encodeSnapshot(&stdSnapshot{base: base})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -269,8 +312,8 @@ func apply[E](f func() fails E) { try f() }
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := view.Solution().String()
-	if got := decoded.ref.under.(*RowVar).Solution().String(); got != want {
+	want := solution(base)
+	if got := solution(decoded); got != want {
 		t.Fatalf("deferred row after round trip: %s; from source: %s", got, want)
 	}
 }
