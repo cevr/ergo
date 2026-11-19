@@ -256,6 +256,7 @@ type lowerer struct {
 	// (record.go): they take copyGrowth.
 	copyScopes  map[*namer]bool
 	inlineSites []inlineSite
+	inlineKeys  map[string]bool // the keys of inlineSites
 	lastDir     string
 	// coverMarks is Unit.CoverMarks: std bodies write cover marks.
 	coverMarks bool
