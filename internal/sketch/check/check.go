@@ -829,16 +829,14 @@ func prelude() preludeResult {
 				panic("check: the prelude does not parse: " + err.Error())
 			}
 			f.Name = name // the embedded name, which the lowering reports (Files)
+			if name == collFileName {
+				collFile = f // the language's operations (collop.go)
+			}
 			files = append(files, f)
 		}
-		// The slice and Map operations, the language's own file (collop.go).
-		f, err := syntax.Parse(collSource())
-		if err != nil {
-			panic("check: the slice and Map operations do not parse: " + err.Error())
+		if collFile == nil {
+			panic("check: the prelude has no " + collFileName)
 		}
-		f.Name = collFileName
-		collFile = f
-		files = append(files, f)
 		c := newChecker(stdlib.PreludePath, nil, u)
 		c.pkg.std = true
 		c.pkg.trusted = true // the toolchain vouches for what it ships
