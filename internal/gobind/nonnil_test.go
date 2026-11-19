@@ -44,6 +44,22 @@ var nnEarly = []nnForm{
 	{"guard-and", "if err := errOf(A); err != nil && A > 3 { return nil, err }", true},
 	{"guard-or", "if err := errOf(A); err != nil || A > 3 { return nil, err }", false},
 	{"closure", "_ = func() (*S, error) { return nil, nil }", true},
+	// GOBIND-PROVE.
+	{"conversion", "return nil, Code(A)", true},
+	{"interface-conversion", "return nil, EI(errOf(A))", false}, // type EI error: an interface
+	{"const-error", "return nil, ErrConst", true},
+	{"error-func", "return nil, wrapped(A)", true},
+	{"typed-nil", "if A > 1 { var pe *E; return nil, pe }", true}, // a nil *E in an error is no nil error
+	{"interface-var", "if A > 1 { var ie EI = errOf(A); return nil, ie }", false},
+	{"path-guard", "if t0.err != nil { return nil, t0.err }", true},
+	{"path-guard-late", "if t0.err != nil { t0.reset(); return nil, t0.err }", false},
+	// The variable rule reads a name across the whole body, so a guard's
+	// init variables take names no last statement uses.
+	{"init-guard", "if q, err := mk(A); err == nil { return q, nil }", true},
+	{"init-guard-maybe", "if q, err := mkMaybe(A); err == nil { return q, nil }", false},
+	{"init-guard-neq", "if q, err := mk(A); err != nil { return q, nil }", false},
+	{"nonnil-guard", "if p := maybe(A); p != nil { return p, nil }", true},
+	{"nil-guard", "if p := maybe(A); p == nil { return p, nil }", false},
 }
 
 // nnFinal are the last statements.
@@ -54,7 +70,14 @@ var nnFinal = []nnForm{
 	{"func-value", "return hook(A)", false}, // a function value: ProxyFromEnvironment
 	{"checked", "s, err := mk(A)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\treturn s, nil", true},
 	{"checked-maybe", "s, err := mkMaybe(A)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\treturn s, nil", false},
-	{"unchecked", "s, err := mk(A)\n\treturn s, err", false}, // safe, but the rule asks for the check
+	{"pair", "s, err := mk(A)\n\treturn s, err", true}, // one proven call's two results
+	{"pair-maybe", "s, err := mkMaybe(A)\n\treturn s, err", false},
+	{"pair-broken", "s, err := mk(A)\n\terr = errOf(A)\n\treturn s, err", false},
+	{"pkg-pointer", "return defaultS, nil", true},
+	{"pkg-pointer-set", "return movedS, nil", false}, // resetS() assigns it nil
+	{"method-local", "b := &builder{}\n\treturn b.build(A)", true},
+	{"method-local-maybe", "b := &builder{}\n\treturn b.buildMaybe(A)", false},
+	{"method-pkgvar", "return defaultB.build(A)", true},
 	{"var-maybe", "var s *S\n\tif A > 1 {\n\t\ts = &S{}\n\t}\n\treturn s, nil", false},
 	{"var-lit", "s := &S{}\n\ts.X = A\n\treturn s, nil", true},
 	{"var-rebound", "s := &S{}\n\tif A > 2 {\n\t\ts = maybe(A)\n\t}\n\treturn s, nil", false},
@@ -77,7 +100,10 @@ var nnFinal = []nnForm{
 // gobind-nonnil-any-call, gobind-nonnil-unguarded-err, gobind-nonnil-or-guard,
 // gobind-nonnil-guard-reassigned, gobind-nonnil-var-any-assign,
 // gobind-nonnil-moved-sentinel, gobind-nonnil-unchecked-call,
-// gobind-nonnil-greatest-fixpoint, gobind-nonnil-type-promises.
+// gobind-nonnil-greatest-fixpoint, gobind-nonnil-type-promises, and the
+// gobind-prove-* rows of GOBIND-PROVE (interface conversions and values,
+// constants, error functions, typed nils, field-path and init guards,
+// pairs, package pointers, nil fixes).
 func TestNonNilResultsProperty(t *testing.T) {
 	seeds := []uint64{1, 2, 3}
 	if s := os.Getenv("ERGO_NONNIL_SEED"); s != "" {
@@ -212,6 +238,43 @@ var hook = mk
 
 func keep(p **S) { *p = nil }
 
+type Code int
+
+func (c Code) Error() string { return fmt.Sprint(int(c)) }
+
+type EI error
+
+const ErrConst = Code(7)
+
+func wrapped(a int) error { return fmt.Errorf("w%d", a) }
+
+type holder struct{ err error }
+
+func (h *holder) reset() { h.err = nil }
+
+var t0 = &holder{}
+
+var defaultS = &S{}
+
+var movedS = &S{}
+
+func resetS() { movedS = nil }
+
+var _ = resetS
+
+type builder struct{}
+
+func (b *builder) build(a int) (*S, error) { return &S{X: a}, nil }
+
+func (b *builder) buildMaybe(a int) (*S, error) {
+	if a > 0 {
+		return nil, nil
+	}
+	return &S{}, nil
+}
+
+var defaultB = &builder{}
+
 `)
 	model := map[string]bool{}
 	// Each package reaches every form as the subject of a function whose
@@ -270,5 +333,13 @@ func keep(p **S) { *p = nil }
 	b.WriteString("func Named(a int) (r *S, err error) {\n\tr = &S{X: a}\n\treturn\n}\n\n")
 	b.WriteString("type Maker interface{ Make() (*S, error) }\n\n")
 	model["S.Self"], model["Named"] = false, false
+	// A parameter's nil default fixed at the top level (GOBIND-PROVE):
+	// after `if s == nil { s = &S{} }` s is non-nil, unless the fix may
+	// set nil or a return comes before it.
+	b.WriteString("func Fix(s *S) (*S, error) {\n\tif s == nil {\n\t\ts = &S{}\n\t}\n\treturn s, nil\n}\n\n")
+	b.WriteString("func FixMaybe(s *S, a int) (*S, error) {\n\tif s == nil {\n\t\ts = maybe(a)\n\t}\n\treturn s, nil\n}\n\n")
+	b.WriteString("func FixAfter(s *S, a int) (*S, error) {\n\tif a > 0 {\n\t\treturn s, nil\n\t}\n\tif s == nil {\n\t\treturn nil, errors.New(\"nil\")\n\t}\n\treturn s, nil\n}\n\n")
+	b.WriteString("func FixEnds(s *S) (*S, error) {\n\tif s == nil {\n\t\treturn nil, errors.New(\"nil\")\n\t}\n\treturn s, nil\n}\n\n")
+	model["Fix"], model["FixMaybe"], model["FixAfter"], model["FixEnds"] = true, false, false, true
 	return b.String(), model
 }

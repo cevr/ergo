@@ -45,7 +45,7 @@ A declaration that does not map is listed in the binding with its reason, so the
 | `map[K]V` | `Map[K, V]` | as `[]T` |
 | `[N]T` | `[N]T` ([types.md](types.md#arrays)) | Go copies an array whole, so it crosses with no copy; an array whose elements hold a slice or a Map (`[2][]int`) is refused: v1 copies no element at the boundary (batch-14) |
 | `*S`, `S` a named non-interface type, as a parameter | `*S` | a borrow (types.md Borrows); a `go.Ref[S]` is accepted too (q38) |
-| `*S` as the one result beside a last `error`, proven non-nil | `go.Ref[S]` | `ergo bind go` proves from the Go source that every return gives a non-nil pointer or a non-nil error (`gobind/nonnil.go`; GOBIND-NIL) |
+| `*S` as the one result beside a last `error`, proven non-nil | `go.Ref[S]` | `ergo bind go` proves from the Go source that every return gives a non-nil pointer or a non-nil error, through the helpers and methods it calls (`gobind/nonnil.go`; GOBIND-NIL, GOBIND-PROVE). A non-nil error includes Go's typed nil: a value of a concrete type, `syscall.EINVAL`, `KeySizeError(k)`. Ergo writes no Go package variable, so a pointer variable no Go function assigns (`time.UTC`) counts as set once. |
 | `*S` as the one result beside a last `error`, unproven (an interface method, a function value's call, `return nil, nil`) | `Option[go.Ref[S]]` | nil with a nil error is `None`: `http.ProxyFromEnvironment` returns `nil, nil` for a request that takes no proxy |
 | `*S` as another result or a field | `Option[go.Ref[S]]` | nil is `None` |
 | `*S` in an element, a Map value or a callback result; a pointer to an unnamed type or an interface | none | refused: a pointer there may be nil, and v1 maps a pointer only as a parameter, a result or a field |
