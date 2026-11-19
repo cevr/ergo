@@ -98,12 +98,12 @@ func TestModuleGoBodiesHonourBuildConstraints(t *testing.T) {
 	const good = "//go:build !goexperiment.simd\n\npackage kern\n\n//ergo:wait none\nfunc Index(s string, c uint8) int { return -1 }\n"
 	const bad = "\npackage kern\n\n//ergo:wait none\nfunc Index(s string) int { return -1 }\n"
 	files := map[string]string{
-		"go.mod":           "module example.com/app\n\ngo 1.27\n",
-		"ergo.mod":         "module app\ntrust go app\n",
-		"kern/a.go":        good,
-		"kern/z_plan9.go":  bad,
-		"kern/z_simd.go":   "//go:build goexperiment.simd" + bad,
-		"main.ergo":        "import strconv\n\nextern go example.com/app/kern.Index func index(s string, c byte) int\n\nfunc main() needs Console {\n\tConsole.Println(strconv.Itoa(index(\"ab\", 98)))\n}\n",
+		"go.mod":          "module example.com/app\n\ngo 1.27\n",
+		"ergo.mod":        "module app\ntrust go app\n",
+		"kern/a.go":       good,
+		"kern/z_plan9.go": bad,
+		"kern/z_simd.go":  "//go:build goexperiment.simd" + bad,
+		"main.ergo":       "import strconv\n\nextern go example.com/app/kern.Index func index(s string, c byte) int\n\nfunc main() needs Console {\n\tConsole.Println(strconv.Itoa(index(\"ab\", 98)))\n}\n",
 	}
 	root := writeTree(t, files)
 	t.Setenv("GOEXPERIMENT", "")
