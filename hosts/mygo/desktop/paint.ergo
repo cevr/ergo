@@ -146,6 +146,12 @@ func styleOf[E](n ui.Node[E], line float32) layout.Style {
 		let mut s = boxStyle(x.Style, layout.Column)
 		s.Content = layout.Text{Value: x.Value, Size: textSize}
 		s
+	case ui.ReadoutNode as x:
+		// A readout lays out by its reserve, whatever it reads, so a new
+		// reading moves nothing.
+		let mut s = boxStyle(x.Style, layout.Column)
+		s.Content = layout.Text{Value: x.Reserve, Size: textSize}
+		s
 	case ui.PressableNode[E] as x:
 		let mut s = boxStyle(x.Style, layout.Row)
 		if noPadding(s.Padding) {
@@ -180,6 +186,8 @@ func textOf[E](n ui.Node[E]) string {
 	match n {
 	case ui.TextNode as x:
 		x.Value
+	case ui.ReadoutNode as x:
+		x.Reserve
 	case ui.CheckNode[E] as x:
 		x.Label
 	case ui.ToggleNode as x:
@@ -670,6 +678,21 @@ func drawNode[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], laid layout.Box, b
 		access(d, id, screen.RoleText, x.Value, "", b, false, false)
 		let st = styleOf(n, line)
 		lines(d, x.Value, b.X+st.Padding[3], b.Y+st.Padding[0], b.W-st.Padding[1]-st.Padding[3], ink)
+	case ui.ReadoutNode as x:
+		// What the readout reads now, on one line, clipped to the
+		// reserve's box.
+		let reading = match ui.ReadingIn(&d.session, x.Readout) {
+		case Some[string] as r:
+			r.Value
+		case None:
+			x.Reserve
+		}
+		access(d, id, screen.RoleText, reading, "", b, false, false)
+		let st = styleOf(n, line)
+		let inner = cut(clip, b)
+		d.w.Clip(float64(inner.X), float64(inner.Y), float64(inner.W), float64(inner.H))
+		d.w.Text(float64(b.X+st.Padding[3]), float64(b.Y+st.Padding[0]), reading, float64(textSize), ink)
+		d.w.Unclip()
 	case ui.PressableNode[E] as x:
 		d.spots = d.spots.Append(s)
 		if focus {

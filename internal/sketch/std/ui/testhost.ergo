@@ -467,7 +467,7 @@ func Now[S, E, D, F](h *TestHost[S, E, D, F]) time.Time { h.clock.Now() }
 func FocusOf[S, E, D, F](h *TestHost[S, E, D, F]) Option[Id[E]] { SessionFocus(&h.session) }
 
 // Screen is what the host shows, built only from the patches.
-func Screen[S, E, D, F](h *TestHost[S, E, D, F]) []Shape[E] { MirrorShape(&h.mirror) }
+func Screen[S, E, D, F](h *TestHost[S, E, D, F]) []Shape[E] { ShownShapesIn(&h.session, MirrorShape(&h.mirror)) }
 
 // LooksOf is the Looks the host holds for a node of its screen: its
 // LookId's in the host's table (look.ergo).
@@ -903,6 +903,8 @@ func nodeText[E](n Node[E]) string {
 		"zone \(keyText(x.Key))"
 	case LiveNode as x:
 		"live \"\(x.Text)\""
+	case ReadoutNode as x:
+		"readout \"\(x.Reserve)\""
 	case TransitionNode as x:
 		"transition \(keyText(x.Key)) \(motionText(x.Motion)) \(x.T)"
 	case TrackNode as x:

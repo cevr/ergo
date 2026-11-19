@@ -538,6 +538,31 @@ func step[E comparable, S, D, F](d *Driver[S, E, D, F], ev ui.Event[E]) fails ac
 	} else if markOf(d) != was {
 		paint(d)
 	}
+	match ev {
+	case ui.Published as p:
+		reread(d, p.Readout)
+	case _:
+	}
+}
+
+// reread paints the window again when a node reads readout id, which
+// the damage paint draws anew (soiled): a readout's box is its
+// reserve's, which its reading never changes.
+func reread[S, E, D, F](d *Driver[S, E, D, F], id int) needs go.Foreign {
+	let mut any = false
+	for n, h in d.nodes {
+		match h.node {
+		case ui.ReadoutNode as x:
+			if x.Readout == id {
+				any = true
+				d.soiled[n] = true
+			}
+		case _:
+		}
+	}
+	if any {
+		paint(d)
+	}
 }
 
 // lookMark is what a step can change in the looks with no op (UG3): the
@@ -790,7 +815,7 @@ func Settle[E comparable, S, D, F](d *Driver[S, E, D, F]) fails actor.Stopped | 
 }
 
 // Screen is what the window shows, as the patches built it.
-func Screen[S, E, D, F](d *Driver[S, E, D, F]) []ui.Shape[E] { ui.MirrorShape(&d.mirror) }
+func Screen[S, E, D, F](d *Driver[S, E, D, F]) []ui.Shape[E] { ui.ShownShapesIn(&d.session, ui.MirrorShape(&d.mirror)) }
 
 // StateOf is the actor's state.
 func StateOf[S, E, D, F](d *Driver[S, E, D, F]) S { d.actor.State() }
