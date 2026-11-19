@@ -413,7 +413,8 @@
       "from": "if len(words) > 0 && spaced(p, words) && ",
       "to": "if len(words) > 0 && ",
       "rule": "A paragraph is its own line only when it is its runs one space apart: one with two spaces between runs is the runs joined by one",
-      "killers": ["hosts/mygo/desktop:law FitIsBroken"]
+      "killers": [],
+      "gap": "Killed by law FitIsBroken (metrics.ergo), run as `ergo test ./desktop --law FitIsBroken` in hosts/mygo; the runner has no suite for a host module's laws (as CountIsLines above)."
     },
     {
       "name": "ru17-fit-tab-spaced",
@@ -422,7 +423,8 @@
       "from": "n == len(p) && strings.Count(p, \" \") == len(words)-1",
       "to": "n == len(p)",
       "rule": "Runs a tab apart are not one space apart: the line joins them by a space",
-      "killers": ["hosts/mygo/desktop:law FitIsBroken"]
+      "killers": [],
+      "gap": "Killed by law FitIsBroken (metrics.ergo), run as `ergo test ./desktop --law FitIsBroken` in hosts/mygo; the runner has no suite for a host module's laws (as CountIsLines above)."
     },
     {
       "name": "ru17-fit-width-no-space",
@@ -431,7 +433,8 @@
       "from": "at = if i == 0 { n } else { at + space + n }",
       "to": "at = if i == 0 { n } else { at + n }",
       "rule": "A paragraph fits when its runs and the spaces between them fit, summed as the greedy breaker sums them",
-      "killers": ["hosts/mygo/desktop:law FitIsBroken"]
+      "killers": [],
+      "gap": "Killed by law FitIsBroken (metrics.ergo), run as `ergo test ./desktop --law FitIsBroken` in hosts/mygo; the runner has no suite for a host module's laws (as CountIsLines above)."
     },
     {
       "name": "GPo-pass-offset-ignored",

@@ -108,8 +108,8 @@
     {
       "name": "px2-server-maps-rejection", "origin": "wf10/domain PX2",
       "file": "examples/pipeline/pipeline/pipelinerpc/server.ergo",
-      "from": "\t\tlet v = pipeline.Pipeline.Submit(r.C) catch {\n\t\tcase run.WrongState as e:\n\t\t\treturn rpc.Failed{Text: rpc.Tagged(\"WrongState\", rpc.Encode(e))}\n",
-      "to": "\t\tlet v = pipeline.Pipeline.Submit(r.C) catch {\n\t\tcase run.WrongState as e:\n\t\t\treturn rpc.Failed{Text: rpc.Tagged(\"Closed\", rpc.Encode(run.Closed{Status: e.Status}))}\n",
+      "from": "\t\tcase pipelineapi.WrongState as failure:\n\t\t\tlet e = failure.E\n\t\t\treturn rpc.Failed{Text: rpc.Tagged(\"WrongState\", rpc.Encode(e))}\n",
+      "to": "\t\tcase pipelineapi.WrongState as failure:\n\t\t\tlet e = failure.E\n\t\t\treturn rpc.Failed{Text: rpc.Tagged(\"Closed\", rpc.Encode(e))}\n",
       "rule": "The wire answers each rejection as itself: SurfacesAgree (the wire against the model).",
       "anchor": {"tests": ["examples:pipeline"]}, "killers": ["examples:pipeline"]
     },
