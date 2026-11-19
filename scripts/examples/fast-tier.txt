@@ -36,6 +36,7 @@ fk-weather
 fk-wizard
 flattree
 fluid-gallery
+gent
 jobq
 jobs
 jsonparse

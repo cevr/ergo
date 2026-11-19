@@ -380,6 +380,11 @@ func (g *fgen) tail() {
 
 func (g *fgen) main() {
 	g.b.WriteString("func main() needs Console {\n\twith context { Log: Prov } {\n")
+	// First, as no defect can end the run before it: a partial catch whose
+	// untaken failure fires. passOn passes E2 on to main's catch, so its
+	// default returns the failure, never the defect (FAIL-ELIDE). Fixed
+	// text, no draw: the seeds' other parts are unchanged.
+	g.b.WriteString("\t\tlet rp = passOn(1) catch {\n\t\tcase E1:\n\t\t\t-5\n\t\tcase E2 as x:\n\t\t\tConsole.Println(\"passOn E2 \\(x.Why)\")\n\t\t\t0\n\t\t}\n\t\tlet rq = passOn(2) catch {\n\t\tcase E1:\n\t\t\t-5\n\t\tcase E2:\n\t\t\t-6\n\t\t}\n\t\tConsole.Println(\"passOn \\(rp + rq)\")\n")
 	funcs := g.funcs
 	if g.order {
 		// GenerateOrder's forced function runs first: an earlier
@@ -414,5 +419,7 @@ func (g *fgen) main() {
 		}
 		fmt.Fprintf(&g.b, "\t\tlet r%s = %s catch {\n%s\t\t}\n\t\tConsole.Println(\"%s \\(r%s)\")\n", f.name, call, strings.Join(arms, ""), f.name, f.name)
 	}
-	g.b.WriteString("\t}\n}\n")
+	g.b.WriteString("\t}\n}\n\n")
+	g.b.WriteString("func both(n int) int fails E1 | E2 {\n\tif n == 0 {\n\t\treturn E1{Code: 0}\n\t}\n\tif n == 1 {\n\t\treturn E2{Why: \"passed on\"}\n\t}\n\tn\n}\n\n")
+	g.b.WriteString("func passOn(n int) int fails E1 | E2 {\n\tlet v = try both(n) catch {\n\tcase E1:\n\t\t-1\n\t}\n\tv + 1\n}\n")
 }

@@ -4,6 +4,11 @@
 # runs the same body against it.
 skip law Pipeline.DuplicateIsNoop for Model: its values have no generator: actor.Actor[domain.Ledger[Desk, Entry], Signal, Decision[domain.Ledger[Desk, Entry], domain.Receipt], NoSuchRun | run.BadLength | run.Closed | run.WrongStage | run.WrongState] is an operation type with no builder: neither actor nor actortest, as this package sees them, declares a New<X> with no row whose X provides it; bind one in a named context of a test file, let Name = context { Pipeline: … }, and the law runs under it
 # ergo test cannot build the generated Client (an rpc.Conn comes only from
-# rpc.Dial or rpc.Loopback). surfaces/laws.ergo's LoopbackTakesEachCommandOnce
+# rpc.Dial or rpc.Loopback). surfaces/laws.ergo's TransportsTakeEachCommandOnce
 # serves a Model in process and runs the same body against its Client.
 skip law pipeline.Pipeline.DuplicateIsNoop for Client: its values have no generator: rpc.Conn has an unexported field, so only package rpc builds it; use rpc.Dial or rpc.Loopback; bind one in a named context of a test file, let Name = context { pipeline.Pipeline: … }, and the law runs under it
+# ergo test cannot build the hub's Client (its send is a function value,
+# which has no generator). The hub's law ClientIsCall holds that a Client
+# whose send is Call answers as the bound provider does, and each
+# transport's law Agrees holds its Wire to Call (AF0, AF1).
+skip law pipeline.Pipeline.DuplicateIsNoop for Client: its values have no generator: func(Request) Outcome is a function type; bind one in a named context of a test file, let Name = context { pipeline.Pipeline: … }, and the law runs under it

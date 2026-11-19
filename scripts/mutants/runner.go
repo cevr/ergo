@@ -879,10 +879,21 @@ func (e *engine) buildSuite(ctx context.Context, root, bin string, s *Suite, cov
 // TestReapEndedLeavesTheHelperAndRunningChildren) fails at once without
 // it, so it judged nothing (MUT-names r2). Its own timeout also names the
 // stuck test before the runner stops the run.
+// ergoCacheVariable is the ergo CLI's emission cache root (build.RootVariable).
+const ergoCacheVariable = "ERGO_CACHE"
+
 func (e *engine) argv(s *Suite, root, bin, test string, deadline time.Duration) ([]string, string, []string) {
 	var env []string
 	for _, kv := range s.Env {
 		env = append(env, expand(kv, bin, root, test))
+	}
+	// A test of the checkout's module gets an emission cache of its own
+	// from internal/testinputs; one of a nested module (hosts/mygo) has no
+	// such harness, and the ergo it starts refuses the user's cache under
+	// a Go test. The runner gives each such test a cache under its work
+	// directory, unless the ledger's env names one (MUT-MODULES).
+	if s.Module != "" && s.Package != "" && !slices.ContainsFunc(env, func(kv string) bool { return strings.HasPrefix(kv, ergoCacheVariable+"=") }) {
+		env = append(env, ergoCacheVariable+"="+filepath.Join(bin, "ergo-cache", filepath.FromSlash(s.Name), test))
 	}
 	if s.Package != "" {
 		run := "^" + regexp.QuoteMeta(test) + "$"

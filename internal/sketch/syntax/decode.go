@@ -322,12 +322,12 @@ func (d *rowDecoder) node(r uint32) Node {
 	case kTestDecl:
 		return &TestDecl{Doc: d.doc(d.fixed(r, 4, 0)), Test: d.pos(t), Name: one[*Ident](d, d.fixed(r, 4, 1)), Params: opt[*FieldList](d, d.fixed(r, 4, 2)), Body: one[*BlockStmt](d, d.fixed(r, 4, 3))}
 	case kLawDecl:
-		l := &LawDecl{Doc: d.doc(d.fixed(r, 8, 0)), Law: d.pos(t), Name: one[*Ident](d, d.fixed(r, 8, 1)), Params: opt[*FieldList](d, d.fixed(r, 8, 2)), Body: opt[*BlockStmt](d, d.fixed(r, 8, 3)), Reach: opt[*LawReach](d, d.fixed(r, 8, 4))}
-		switch d.fixed(r, 8, 5) {
+		l := &LawDecl{Doc: d.doc(d.fixed(r, 9, 0)), Law: d.pos(t), Name: one[*Ident](d, d.fixed(r, 9, 1)), TypeParams: opt[*FieldList](d, d.fixed(r, 9, 2)), Params: opt[*FieldList](d, d.fixed(r, 9, 3)), Body: opt[*BlockStmt](d, d.fixed(r, 9, 4)), Reach: opt[*LawReach](d, d.fixed(r, 9, 5))}
+		switch d.fixed(r, 9, 6) {
 		case 1:
-			l.Rewrite = &LawRewrite{When: d.opos(d.fixed(r, 8, 6)), Eq: d.opos(d.fixed(r, 8, 7))}
+			l.Rewrite = &LawRewrite{When: d.opos(d.fixed(r, 9, 7)), Eq: d.opos(d.fixed(r, 9, 8))}
 		case 2:
-			equation(l, d.opos(d.fixed(r, 8, 7)))
+			equation(l, d.opos(d.fixed(r, 9, 8)))
 		}
 		return l
 	case kLawReach:

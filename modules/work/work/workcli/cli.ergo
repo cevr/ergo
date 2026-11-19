@@ -5,31 +5,40 @@
 // command per operation, Parse and Print between a command line and a
 // Request, and Run, which calls the provider the caller binds.
 
+import api
 import flag
+import fs
+import io
+import prompt
 import rpc
+import strings
+import term
 import github.com/cevr/ergo/modules/work/work
 import github.com/cevr/ergo/modules/work/work/workapi
 
 // Request is one call of work.Api: the hub's Request.
 type Request = workapi.Request
 
-// Output is what Run prints: Out to standard output, Err to standard
-// error, and the exit status.
-type Output { Out string, Err string, Code int }
+// Output is what Run prints: std api's Output (Out to standard output,
+// Err to standard error, and the exit status).
+type Output = api.Output
 
 // Commands are the commands of work.Api, one per operation, in its order.
 func Commands() []flag.Command[Request] {
 	[]flag.Command[Request]{commandInit(), commandNew(), commandAdopt(), commandAdoptRift(), commandList(), commandRm(), commandGc(), commandPin(), commandUnpin(), commandDu(), commandReady(), commandSync(), commandEnv(), commandMergeFile(), commandMergeFolders(), commandDerive(), commandDeps(), commandTrust(), commandDoctor(), commandPluginTest(), commandRefresh(), commandBases(), commandShellInit(), commandImportRift()}
 }
 
-// commandInit is the command of Init.
+// commandInit is the command of Init; its help is the operation's doc
+// comment (the hub's Doc).
 func commandInit() flag.Command[Request] {
-	flag.Command[Request]{Name: "init", Usage: "Init() string fails work.BadConfig | work.Unkept | fs.Denied | fs.Failed", Set: flag.Set{Name: "init", Usage: "Init() string fails work.BadConfig | work.Unkept | fs.Denied | fs.Failed", Flags: []flag.Flag{}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+	let usage = workapi.Doc(workapi.InitOp)
+	flag.Command[Request]{Name: "init", Usage: usage, Set: flag.Set{Name: "init", Usage: usage, Flags: []flag.Flag{}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
 		workapi.InitRequest
 	}, Commands: []flag.Command[Request]{}}
 }
 
-// commandNew is the command of New.
+// commandNew is the command of New; its help is the operation's doc
+// comment (the hub's Doc).
 func commandNew() flag.Command[Request] {
 	let a0 = flag.Arg("name", "name (string)")
 	let f2 = flag.Bool("copy", false, "o.Copy (bool)")
@@ -37,117 +46,142 @@ func commandNew() flag.Command[Request] {
 	let f4 = flag.OptionalString("branch", "o.Branch (Option[string])")
 	let f5 = flag.OptionalString("on", "o.On (Option[string])")
 	let f6 = flag.OptionalString("token", "o.Token (Option[string])")
-	flag.Command[Request]{Name: "new", Usage: "New(name string, o work.NewOptions) work.Created fails work.HookFailed | work.BadConfig | work.Unkept | work.NoBase | work.BadName | work.NameTaken | work.NoWorkspace | work.NoRevision | work.Diverged | work.CopyRefused | work.NotSameVolume | work.Unsupported | work.Exists | work.Missing | work.NoSpace | work.CloneFailed | work.VcsFailed | work.Locked | work.Busy", Set: flag.Set{Name: "new", Usage: "New(name string, o work.NewOptions) work.Created fails work.HookFailed | work.BadConfig | work.Unkept | work.NoBase | work.BadName | work.NameTaken | work.NoWorkspace | work.NoRevision | work.Diverged | work.CopyRefused | work.NotSameVolume | work.Unsupported | work.Exists | work.Missing | work.NoSpace | work.CloneFailed | work.VcsFailed | work.Locked | work.Busy", Flags: []flag.Flag{f2, f3, f4, f5, f6}, Args: []flag.ArgSpec{a0}}, Build: func(v flag.Values) Request fails flag.Failure {
+	let usage = workapi.Doc(workapi.NewOp)
+	flag.Command[Request]{Name: "new", Usage: usage, Set: flag.Set{Name: "new", Usage: usage, Flags: []flag.Flag{f2, f3, f4, f5, f6}, Args: []flag.ArgSpec{a0}}, Build: func(v flag.Values) Request fails flag.Failure {
 		let t1 = argText(a0, v)
 		workapi.NewRequest{Name: t1, O: work.NewOptions{Copy: f2.Get(v), From: f3.Get(v), Branch: f4.Get(v), On: f5.Get(v), Token: f6.Get(v)}}
 	}, Commands: []flag.Command[Request]{}}
 }
 
-// commandAdopt is the command of Adopt.
+// commandAdopt is the command of Adopt; its help is the operation's doc
+// comment (the hub's Doc).
 func commandAdopt() flag.Command[Request] {
 	let a0 = flag.Arg("dir", "dir (string)")
 	let f2 = flag.OptionalString("name", "o.Name (Option[string])")
-	flag.Command[Request]{Name: "adopt", Usage: "Adopt(dir string, o work.AdoptOptions) work.Workspace fails work.Unkept | work.NoBase | work.BadName | work.NameTaken | work.Missing | work.VcsFailed | work.Locked", Set: flag.Set{Name: "adopt", Usage: "Adopt(dir string, o work.AdoptOptions) work.Workspace fails work.Unkept | work.NoBase | work.BadName | work.NameTaken | work.Missing | work.VcsFailed | work.Locked", Flags: []flag.Flag{f2}, Args: []flag.ArgSpec{a0}}, Build: func(v flag.Values) Request fails flag.Failure {
+	let usage = workapi.Doc(workapi.AdoptOp)
+	flag.Command[Request]{Name: "adopt", Usage: usage, Set: flag.Set{Name: "adopt", Usage: usage, Flags: []flag.Flag{f2}, Args: []flag.ArgSpec{a0}}, Build: func(v flag.Values) Request fails flag.Failure {
 		let t1 = argText(a0, v)
 		workapi.AdoptRequest{Dir: t1, O: work.AdoptOptions{Name: f2.Get(v)}}
 	}, Commands: []flag.Command[Request]{}}
 }
 
-// commandAdoptRift is the command of AdoptRift.
+// commandAdoptRift is the command of AdoptRift; its help is the operation's doc
+// comment (the hub's Doc).
 func commandAdoptRift() flag.Command[Request] {
 	let f0 = flag.OptionalString("registry", "o.Registry (Option[string])")
-	flag.Command[Request]{Name: "adopt-rift", Usage: "AdoptRift(o work.RiftOptions) work.RiftAdopted fails work.Unkept | work.NoBase | work.VcsFailed | work.Locked | work.RiftUnread", Set: flag.Set{Name: "adopt-rift", Usage: "AdoptRift(o work.RiftOptions) work.RiftAdopted fails work.Unkept | work.NoBase | work.VcsFailed | work.Locked | work.RiftUnread", Flags: []flag.Flag{f0}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+	let usage = workapi.Doc(workapi.AdoptRiftOp)
+	flag.Command[Request]{Name: "adopt-rift", Usage: usage, Set: flag.Set{Name: "adopt-rift", Usage: usage, Flags: []flag.Flag{f0}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
 		workapi.AdoptRiftRequest{O: work.RiftOptions{Registry: f0.Get(v)}}
 	}, Commands: []flag.Command[Request]{}}
 }
 
-// commandList is the command of List.
+// commandList is the command of List; its help is the operation's doc
+// comment (the hub's Doc).
 func commandList() flag.Command[Request] {
-	flag.Command[Request]{Name: "list", Usage: "List() []work.Workspace fails work.Unkept | work.NoBase", Set: flag.Set{Name: "list", Usage: "List() []work.Workspace fails work.Unkept | work.NoBase", Flags: []flag.Flag{}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+	let usage = workapi.Doc(workapi.ListOp)
+	flag.Command[Request]{Name: "list", Usage: usage, Set: flag.Set{Name: "list", Usage: usage, Flags: []flag.Flag{}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
 		workapi.ListRequest
 	}, Commands: []flag.Command[Request]{}}
 }
 
-// commandRm is the command of Rm.
+// commandRm is the command of Rm; its help is the operation's doc
+// comment (the hub's Doc).
 func commandRm() flag.Command[Request] {
 	let a0 = flag.Arg("name", "name (string)")
 	let f2 = flag.Bool("abandon", false, "o.Abandon (bool)")
 	let f3 = flag.OptionalString("expect", "o.Expect (Option[string])")
 	let f4 = flag.Bool("tree", false, "o.Tree (bool)")
-	flag.Command[Request]{Name: "rm", Usage: "Rm(name string, o work.RmOptions) []work.Removed fails work.HookFailed | work.BadConfig | work.Unkept | work.NoBase | work.NoWorkspace | work.Exists | work.Missing | work.CloneFailed | work.VcsFailed | work.Locked | work.Busy | work.NotHeld | work.IdMismatch | work.HasDescendants", Set: flag.Set{Name: "rm", Usage: "Rm(name string, o work.RmOptions) []work.Removed fails work.HookFailed | work.BadConfig | work.Unkept | work.NoBase | work.NoWorkspace | work.Exists | work.Missing | work.CloneFailed | work.VcsFailed | work.Locked | work.Busy | work.NotHeld | work.IdMismatch | work.HasDescendants", Flags: []flag.Flag{f2, f3, f4}, Args: []flag.ArgSpec{a0}}, Build: func(v flag.Values) Request fails flag.Failure {
+	let usage = workapi.Doc(workapi.RmOp)
+	flag.Command[Request]{Name: "rm", Usage: usage, Set: flag.Set{Name: "rm", Usage: usage, Flags: []flag.Flag{f2, f3, f4}, Args: []flag.ArgSpec{a0}}, Build: func(v flag.Values) Request fails flag.Failure {
 		let t1 = argText(a0, v)
 		workapi.RmRequest{Name: t1, O: work.RmOptions{Abandon: f2.Get(v), Expect: f3.Get(v), Tree: f4.Get(v)}}
 	}, Commands: []flag.Command[Request]{}}
 }
 
-// commandGc is the command of Gc.
+// commandGc is the command of Gc; its help is the operation's doc
+// comment (the hub's Doc).
 func commandGc() flag.Command[Request] {
 	let f0 = flag.OptionalString("older", "o.Older (Option[string])")
 	let f1 = flag.OptionalString("id", "o.Id (Option[string])")
 	let f2 = flag.OptionalString("idle", "o.Idle (Option[string])")
 	let f3 = flag.Bool("archive", false, "o.Archive (bool)")
-	flag.Command[Request]{Name: "gc", Usage: "Gc(o work.GcOptions) work.Collected fails work.HookFailed | work.BadConfig | work.Unkept | work.NoBase | work.NoWorkspace | work.Exists | work.Missing | work.CloneFailed | work.VcsFailed | work.Locked | work.BadAge", Set: flag.Set{Name: "gc", Usage: "Gc(o work.GcOptions) work.Collected fails work.HookFailed | work.BadConfig | work.Unkept | work.NoBase | work.NoWorkspace | work.Exists | work.Missing | work.CloneFailed | work.VcsFailed | work.Locked | work.BadAge", Flags: []flag.Flag{f0, f1, f2, f3}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+	let usage = workapi.Doc(workapi.GcOp)
+	flag.Command[Request]{Name: "gc", Usage: usage, Set: flag.Set{Name: "gc", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
 		workapi.GcRequest{O: work.GcOptions{Older: f0.Get(v), Id: f1.Get(v), Idle: f2.Get(v), Archive: f3.Get(v)}}
 	}, Commands: []flag.Command[Request]{}}
 }
 
-// commandPin is the command of Pin.
+// commandPin is the command of Pin; its help is the operation's doc
+// comment (the hub's Doc).
 func commandPin() flag.Command[Request] {
 	let a0 = flag.Arg("name", "name (string)")
-	flag.Command[Request]{Name: "pin", Usage: "Pin(name string) work.Workspace fails work.Unkept | work.NoBase | work.NoWorkspace | work.Locked", Set: flag.Set{Name: "pin", Usage: "Pin(name string) work.Workspace fails work.Unkept | work.NoBase | work.NoWorkspace | work.Locked", Flags: []flag.Flag{}, Args: []flag.ArgSpec{a0}}, Build: func(v flag.Values) Request fails flag.Failure {
+	let usage = workapi.Doc(workapi.PinOp)
+	flag.Command[Request]{Name: "pin", Usage: usage, Set: flag.Set{Name: "pin", Usage: usage, Flags: []flag.Flag{}, Args: []flag.ArgSpec{a0}}, Build: func(v flag.Values) Request fails flag.Failure {
 		let t1 = argText(a0, v)
 		workapi.PinRequest{Name: t1}
 	}, Commands: []flag.Command[Request]{}}
 }
 
-// commandUnpin is the command of Unpin.
+// commandUnpin is the command of Unpin; its help is the operation's doc
+// comment (the hub's Doc).
 func commandUnpin() flag.Command[Request] {
 	let a0 = flag.Arg("name", "name (string)")
-	flag.Command[Request]{Name: "unpin", Usage: "Unpin(name string) work.Workspace fails work.Unkept | work.NoBase | work.NoWorkspace | work.Locked", Set: flag.Set{Name: "unpin", Usage: "Unpin(name string) work.Workspace fails work.Unkept | work.NoBase | work.NoWorkspace | work.Locked", Flags: []flag.Flag{}, Args: []flag.ArgSpec{a0}}, Build: func(v flag.Values) Request fails flag.Failure {
+	let usage = workapi.Doc(workapi.UnpinOp)
+	flag.Command[Request]{Name: "unpin", Usage: usage, Set: flag.Set{Name: "unpin", Usage: usage, Flags: []flag.Flag{}, Args: []flag.ArgSpec{a0}}, Build: func(v flag.Values) Request fails flag.Failure {
 		let t1 = argText(a0, v)
 		workapi.UnpinRequest{Name: t1}
 	}, Commands: []flag.Command[Request]{}}
 }
 
-// commandDu is the command of Du.
+// commandDu is the command of Du; its help is the operation's doc
+// comment (the hub's Doc).
 func commandDu() flag.Command[Request] {
-	flag.Command[Request]{Name: "du", Usage: "Du() []work.Space fails work.Unkept | work.NoBase | work.Unsupported | work.Missing | work.CloneFailed", Set: flag.Set{Name: "du", Usage: "Du() []work.Space fails work.Unkept | work.NoBase | work.Unsupported | work.Missing | work.CloneFailed", Flags: []flag.Flag{}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+	let usage = workapi.Doc(workapi.DuOp)
+	flag.Command[Request]{Name: "du", Usage: usage, Set: flag.Set{Name: "du", Usage: usage, Flags: []flag.Flag{}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
 		workapi.DuRequest
 	}, Commands: []flag.Command[Request]{}}
 }
 
-// commandReady is the command of Ready.
+// commandReady is the command of Ready; its help is the operation's doc
+// comment (the hub's Doc).
 func commandReady() flag.Command[Request] {
 	let f0 = flag.OptionalString("name", "o.Name (Option[string])")
-	flag.Command[Request]{Name: "ready", Usage: "Ready(o work.ReadyOptions) work.Handed fails work.Unkept | work.NoBase | work.NoWorkspace | work.VcsFailed | work.Locked | work.Busy | work.NotHere | work.Detached | work.NotFastForward | work.Moved", Set: flag.Set{Name: "ready", Usage: "Ready(o work.ReadyOptions) work.Handed fails work.Unkept | work.NoBase | work.NoWorkspace | work.VcsFailed | work.Locked | work.Busy | work.NotHere | work.Detached | work.NotFastForward | work.Moved", Flags: []flag.Flag{f0}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+	let usage = workapi.Doc(workapi.ReadyOp)
+	flag.Command[Request]{Name: "ready", Usage: usage, Set: flag.Set{Name: "ready", Usage: usage, Flags: []flag.Flag{f0}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
 		workapi.ReadyRequest{O: work.ReadyOptions{Name: f0.Get(v)}}
 	}, Commands: []flag.Command[Request]{}}
 }
 
-// commandSync is the command of Sync.
+// commandSync is the command of Sync; its help is the operation's doc
+// comment (the hub's Doc).
 func commandSync() flag.Command[Request] {
 	let f0 = flag.OptionalString("name", "o.Name (Option[string])")
-	flag.Command[Request]{Name: "sync", Usage: "Sync(o work.SyncOptions) work.Synced fails work.BadConfig | work.Unkept | work.NoBase | work.NoWorkspace | work.VcsFailed | work.Locked | work.Busy | work.NotHere | work.Detached | work.Dirty | work.Conflicted", Set: flag.Set{Name: "sync", Usage: "Sync(o work.SyncOptions) work.Synced fails work.BadConfig | work.Unkept | work.NoBase | work.NoWorkspace | work.VcsFailed | work.Locked | work.Busy | work.NotHere | work.Detached | work.Dirty | work.Conflicted", Flags: []flag.Flag{f0}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+	let usage = workapi.Doc(workapi.SyncOp)
+	flag.Command[Request]{Name: "sync", Usage: usage, Set: flag.Set{Name: "sync", Usage: usage, Flags: []flag.Flag{f0}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
 		workapi.SyncRequest{O: work.SyncOptions{Name: f0.Get(v)}}
 	}, Commands: []flag.Command[Request]{}}
 }
 
-// commandEnv is the command of Env.
+// commandEnv is the command of Env; its help is the operation's doc
+// comment (the hub's Doc).
 func commandEnv() flag.Command[Request] {
 	let f0 = flag.OptionalString("name", "o.Name (Option[string])")
-	flag.Command[Request]{Name: "env", Usage: "Env(o work.EnvOptions) string fails work.BadConfig | work.Unkept | work.NoBase | work.NoWorkspace | work.NotHere", Set: flag.Set{Name: "env", Usage: "Env(o work.EnvOptions) string fails work.BadConfig | work.Unkept | work.NoBase | work.NoWorkspace | work.NotHere", Flags: []flag.Flag{f0}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+	let usage = workapi.Doc(workapi.EnvOp)
+	flag.Command[Request]{Name: "env", Usage: usage, Set: flag.Set{Name: "env", Usage: usage, Flags: []flag.Flag{f0}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
 		workapi.EnvRequest{O: work.EnvOptions{Name: f0.Get(v)}}
 	}, Commands: []flag.Command[Request]{}}
 }
 
-// commandMergeFile is the command of MergeFile.
+// commandMergeFile is the command of MergeFile; its help is the operation's doc
+// comment (the hub's Doc).
 func commandMergeFile() flag.Command[Request] {
 	let a0 = flag.Arg("class", "class (string)")
 	let a2 = flag.Arg("base", "base (string)")
 	let a4 = flag.Arg("ours", "ours (string)")
 	let a6 = flag.Arg("theirs", "theirs (string)")
 	let f8 = flag.OptionalString("path", "o.Path (Option[string])")
-	flag.Command[Request]{Name: "merge-file", Usage: "MergeFile(class string, base string, ours string, theirs string, o work.MergeFileOptions) work.FileMerged fails work.BadConfig | fs.Denied | fs.Failed | work.BadClass | work.MergeConflict | fs.NotFound", Set: flag.Set{Name: "merge-file", Usage: "MergeFile(class string, base string, ours string, theirs string, o work.MergeFileOptions) work.FileMerged fails work.BadConfig | fs.Denied | fs.Failed | work.BadClass | work.MergeConflict | fs.NotFound", Flags: []flag.Flag{f8}, Args: []flag.ArgSpec{a0, a2, a4, a6}}, Build: func(v flag.Values) Request fails flag.Failure {
+	let usage = workapi.Doc(workapi.MergeFileOp)
+	flag.Command[Request]{Name: "merge-file", Usage: usage, Set: flag.Set{Name: "merge-file", Usage: usage, Flags: []flag.Flag{f8}, Args: []flag.ArgSpec{a0, a2, a4, a6}}, Build: func(v flag.Values) Request fails flag.Failure {
 		let t1 = argText(a0, v)
 		let t3 = argText(a2, v)
 		let t5 = argText(a4, v)
@@ -156,13 +190,15 @@ func commandMergeFile() flag.Command[Request] {
 	}, Commands: []flag.Command[Request]{}}
 }
 
-// commandMergeFolders is the command of MergeFolders.
+// commandMergeFolders is the command of MergeFolders; its help is the operation's doc
+// comment (the hub's Doc).
 func commandMergeFolders() flag.Command[Request] {
 	let a0 = flag.Arg("base", "base (string)")
 	let a2 = flag.Arg("ours", "ours (string)")
 	let a4 = flag.Arg("theirs", "theirs (string)")
 	let a6 = flag.Arg("out", "out (string)")
-	flag.Command[Request]{Name: "merge-folders", Usage: "MergeFolders(base string, ours string, theirs string, out string) work.TreeMerged fails work.Untrusted | work.BadConfig | fs.Denied | fs.Failed | fs.NotFound | work.DeriveFailed", Set: flag.Set{Name: "merge-folders", Usage: "MergeFolders(base string, ours string, theirs string, out string) work.TreeMerged fails work.Untrusted | work.BadConfig | fs.Denied | fs.Failed | fs.NotFound | work.DeriveFailed", Flags: []flag.Flag{}, Args: []flag.ArgSpec{a0, a2, a4, a6}}, Build: func(v flag.Values) Request fails flag.Failure {
+	let usage = workapi.Doc(workapi.MergeFoldersOp)
+	flag.Command[Request]{Name: "merge-folders", Usage: usage, Set: flag.Set{Name: "merge-folders", Usage: usage, Flags: []flag.Flag{}, Args: []flag.ArgSpec{a0, a2, a4, a6}}, Build: func(v flag.Values) Request fails flag.Failure {
 		let t1 = argText(a0, v)
 		let t3 = argText(a2, v)
 		let t5 = argText(a4, v)
@@ -171,75 +207,93 @@ func commandMergeFolders() flag.Command[Request] {
 	}, Commands: []flag.Command[Request]{}}
 }
 
-// commandDerive is the command of Derive.
+// commandDerive is the command of Derive; its help is the operation's doc
+// comment (the hub's Doc).
 func commandDerive() flag.Command[Request] {
 	let f0 = flag.OptionalString("name", "o.Name (Option[string])")
-	flag.Command[Request]{Name: "derive", Usage: "Derive(o work.DeriveOptions) work.Derived fails work.Untrusted | work.BadConfig | work.Unkept | work.NoBase | work.NoWorkspace | work.NotHere | work.DeriveFailed", Set: flag.Set{Name: "derive", Usage: "Derive(o work.DeriveOptions) work.Derived fails work.Untrusted | work.BadConfig | work.Unkept | work.NoBase | work.NoWorkspace | work.NotHere | work.DeriveFailed", Flags: []flag.Flag{f0}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+	let usage = workapi.Doc(workapi.DeriveOp)
+	flag.Command[Request]{Name: "derive", Usage: usage, Set: flag.Set{Name: "derive", Usage: usage, Flags: []flag.Flag{f0}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
 		workapi.DeriveRequest{O: work.DeriveOptions{Name: f0.Get(v)}}
 	}, Commands: []flag.Command[Request]{}}
 }
 
-// commandDeps is the command of Deps.
+// commandDeps is the command of Deps; its help is the operation's doc
+// comment (the hub's Doc).
 func commandDeps() flag.Command[Request] {
 	let f0 = flag.OptionalString("name", "o.Name (Option[string])")
-	flag.Command[Request]{Name: "deps", Usage: "Deps(o work.DepsOptions) work.DepsDone fails work.Untrusted | work.DepsFailed | work.BadConfig | work.Unkept | work.NoBase | work.NoWorkspace | work.Locked | work.NotHere", Set: flag.Set{Name: "deps", Usage: "Deps(o work.DepsOptions) work.DepsDone fails work.Untrusted | work.DepsFailed | work.BadConfig | work.Unkept | work.NoBase | work.NoWorkspace | work.Locked | work.NotHere", Flags: []flag.Flag{f0}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+	let usage = workapi.Doc(workapi.DepsOp)
+	flag.Command[Request]{Name: "deps", Usage: usage, Set: flag.Set{Name: "deps", Usage: usage, Flags: []flag.Flag{f0}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
 		workapi.DepsRequest{O: work.DepsOptions{Name: f0.Get(v)}}
 	}, Commands: []flag.Command[Request]{}}
 }
 
-// commandTrust is the command of Trust.
+// commandTrust is the command of Trust; its help is the operation's doc
+// comment (the hub's Doc).
 func commandTrust() flag.Command[Request] {
-	flag.Command[Request]{Name: "trust", Usage: "Trust() work.Trusted fails work.BadConfig | work.Unkept | fs.Denied | fs.Failed | work.NoBase | fs.NotFound", Set: flag.Set{Name: "trust", Usage: "Trust() work.Trusted fails work.BadConfig | work.Unkept | fs.Denied | fs.Failed | work.NoBase | fs.NotFound", Flags: []flag.Flag{}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+	let usage = workapi.Doc(workapi.TrustOp)
+	flag.Command[Request]{Name: "trust", Usage: usage, Set: flag.Set{Name: "trust", Usage: usage, Flags: []flag.Flag{}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
 		workapi.TrustRequest
 	}, Commands: []flag.Command[Request]{}}
 }
 
-// commandDoctor is the command of Doctor.
+// commandDoctor is the command of Doctor; its help is the operation's doc
+// comment (the hub's Doc).
 func commandDoctor() flag.Command[Request] {
 	let f0 = flag.Bool("rift", false, "o.Rift (bool)")
 	let f1 = flag.OptionalString("registry", "o.Registry (Option[string])")
-	flag.Command[Request]{Name: "doctor", Usage: "Doctor(o work.DoctorOptions) work.Report fails work.BadConfig | work.Unkept | work.NoBase | work.VcsFailed | work.RiftUnread", Set: flag.Set{Name: "doctor", Usage: "Doctor(o work.DoctorOptions) work.Report fails work.BadConfig | work.Unkept | work.NoBase | work.VcsFailed | work.RiftUnread", Flags: []flag.Flag{f0, f1}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+	let usage = workapi.Doc(workapi.DoctorOp)
+	flag.Command[Request]{Name: "doctor", Usage: usage, Set: flag.Set{Name: "doctor", Usage: usage, Flags: []flag.Flag{f0, f1}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
 		workapi.DoctorRequest{O: work.DoctorOptions{Rift: f0.Get(v), Registry: f1.Get(v)}}
 	}, Commands: []flag.Command[Request]{}}
 }
 
-// commandPluginTest is the command of PluginTest.
+// commandPluginTest is the command of PluginTest; its help is the operation's doc
+// comment (the hub's Doc).
 func commandPluginTest() flag.Command[Request] {
 	let a0 = flag.Arg("command", "command (string)")
 	let f2 = flag.OptionalString("files", "o.Files (Option[string])")
 	let f3 = flag.OptionalInt("max", "o.Max (Option[int])")
 	let f4 = flag.OptionalInt("seed", "o.Seed (Option[int])")
-	flag.Command[Request]{Name: "plugin-test", Usage: "PluginTest(command string, o work.PluginTestOptions) work.PluginAdmitted fails work.Untrusted | work.BadConfig | work.NoBase | work.VcsFailed | work.PluginRefused", Set: flag.Set{Name: "plugin-test", Usage: "PluginTest(command string, o work.PluginTestOptions) work.PluginAdmitted fails work.Untrusted | work.BadConfig | work.NoBase | work.VcsFailed | work.PluginRefused", Flags: []flag.Flag{f2, f3, f4}, Args: []flag.ArgSpec{a0}}, Build: func(v flag.Values) Request fails flag.Failure {
+	let usage = workapi.Doc(workapi.PluginTestOp)
+	flag.Command[Request]{Name: "plugin-test", Usage: usage, Set: flag.Set{Name: "plugin-test", Usage: usage, Flags: []flag.Flag{f2, f3, f4}, Args: []flag.ArgSpec{a0}}, Build: func(v flag.Values) Request fails flag.Failure {
 		let t1 = argText(a0, v)
 		workapi.PluginTestRequest{Command: t1, O: work.PluginTestOptions{Files: f2.Get(v), Max: f3.Get(v), Seed: f4.Get(v)}}
 	}, Commands: []flag.Command[Request]{}}
 }
 
-// commandRefresh is the command of Refresh.
+// commandRefresh is the command of Refresh; its help is the operation's doc
+// comment (the hub's Doc).
 func commandRefresh() flag.Command[Request] {
-	flag.Command[Request]{Name: "refresh", Usage: "Refresh() int fails work.Unkept | work.NoBase | work.VcsFailed", Set: flag.Set{Name: "refresh", Usage: "Refresh() int fails work.Unkept | work.NoBase | work.VcsFailed", Flags: []flag.Flag{}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+	let usage = workapi.Doc(workapi.RefreshOp)
+	flag.Command[Request]{Name: "refresh", Usage: usage, Set: flag.Set{Name: "refresh", Usage: usage, Flags: []flag.Flag{}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
 		workapi.RefreshRequest
 	}, Commands: []flag.Command[Request]{}}
 }
 
-// commandBases is the command of Bases.
+// commandBases is the command of Bases; its help is the operation's doc
+// comment (the hub's Doc).
 func commandBases() flag.Command[Request] {
-	flag.Command[Request]{Name: "bases", Usage: "Bases() []string fails work.Unkept", Set: flag.Set{Name: "bases", Usage: "Bases() []string fails work.Unkept", Flags: []flag.Flag{}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+	let usage = workapi.Doc(workapi.BasesOp)
+	flag.Command[Request]{Name: "bases", Usage: usage, Set: flag.Set{Name: "bases", Usage: usage, Flags: []flag.Flag{}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
 		workapi.BasesRequest
 	}, Commands: []flag.Command[Request]{}}
 }
 
-// commandShellInit is the command of ShellInit.
+// commandShellInit is the command of ShellInit; its help is the operation's doc
+// comment (the hub's Doc).
 func commandShellInit() flag.Command[Request] {
-	flag.Command[Request]{Name: "shell-init", Usage: "ShellInit() string", Set: flag.Set{Name: "shell-init", Usage: "ShellInit() string", Flags: []flag.Flag{}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+	let usage = workapi.Doc(workapi.ShellInitOp)
+	flag.Command[Request]{Name: "shell-init", Usage: usage, Set: flag.Set{Name: "shell-init", Usage: usage, Flags: []flag.Flag{}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
 		workapi.ShellInitRequest
 	}, Commands: []flag.Command[Request]{}}
 }
 
-// commandImportRift is the command of ImportRift.
+// commandImportRift is the command of ImportRift; its help is the operation's doc
+// comment (the hub's Doc).
 func commandImportRift() flag.Command[Request] {
 	let f0 = flag.OptionalString("file", "o.File (Option[string])")
-	flag.Command[Request]{Name: "import-rift", Usage: "ImportRift(o work.ImportRiftOptions) string fails work.BadConfig | fs.Denied | fs.Failed | fs.NotFound", Set: flag.Set{Name: "import-rift", Usage: "ImportRift(o work.ImportRiftOptions) string fails work.BadConfig | fs.Denied | fs.Failed | fs.NotFound", Flags: []flag.Flag{f0}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+	let usage = workapi.Doc(workapi.ImportRiftOp)
+	flag.Command[Request]{Name: "import-rift", Usage: usage, Set: flag.Set{Name: "import-rift", Usage: usage, Flags: []flag.Flag{f0}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
 		workapi.ImportRiftRequest{O: work.ImportRiftOptions{File: f0.Get(v)}}
 	}, Commands: []flag.Command[Request]{}}
 }
@@ -476,49 +530,60 @@ func RoundTrips(r Request) bool {
 // ArgsRoundTrip: Parse reads what Print writes as the same Request.
 law ArgsRoundTrip(r Request) { RoundTrips(r) }
 
+// Policy is what a binary decides of its command line: Code, the exit
+// status of a typed failure (default 1); Text, the text of a value
+// without --json (default None: a basic value as its text, else its
+// JSON; --json never calls it); Confirm, the question a call asks before
+// it runs (default None: none; --yes answers it).
+type Policy { Code func(f workapi.Failure) int, Text func(r workapi.Reply) Option[string], Confirm func(r Request) Option[string] }
+
+// Defaults is the Policy of a binary that decides nothing.
+func Defaults() Policy {
+	Policy{Code: func(f workapi.Failure) int { 1 }, Text: func(r workapi.Reply) Option[string] { None }, Confirm: func(r Request) Option[string] { None }}
+}
+
 // answer is the Output of a value: its text, or its JSON with --json.
 func answer(asJSON bool, plain string, encoded string) Output {
 	if asJSON {
 		Output{Out: encoded + "\n", Err: "", Code: 0}
-	} else if plain == "" {
-		Output{Out: "", Err: "", Code: 0}
 	} else {
-		Output{Out: plain + "\n", Err: "", Code: 0}
+		Output{Out: line(plain), Err: "", Code: 0}
 	}
+}
+
+// line is s as a line of output: nothing for an empty s.
+func line(s string) string {
+	if s == "" {
+		return ""
+	}
+	s + "\n"
 }
 
 // failed is the Output of a typed failure, from its tagged JSON: on
 // standard output with --json, else its tag and JSON on standard error;
-// status 1.
-func failed(asJSON bool, tagged string) Output {
+// the status the policy gives it.
+func failed(asJSON bool, tagged string, status int) Output {
 	if asJSON {
-		Output{Out: tagged + "\n", Err: "", Code: 1}
+		Output{Out: tagged + "\n", Err: "", Code: status}
 	} else {
-		Output{Out: "", Err: rpc.TagOf(tagged) + ": " + tagged + "\n", Code: 1}
+		Output{Out: "", Err: rpc.TagOf(tagged) + ": " + tagged + "\n", Code: status}
 	}
 }
 
-// Run reads args as [--json] COMMAND ARGS..., calls the operation on
-// the work.Api the caller binds, and is what to print: the value (its
-// text when it is a basic value, else its JSON; its JSON with --json), or
-// a typed failure (failed), or the help (status 0) or a usage error
-// (status 2) of the command line.
-func Run(args []string) Output needs work.Api {
-	let asJSON = len(args) > 0 && (args[0] == "--json" || args[0] == "-json")
-	let mut rest = []string{}
-	for i, a in args {
-		if i > 0 || !asJSON {
-			rest = rest.Append(a)
-		}
-	}
-	let r = Parse(rest) catch {
-	case flag.Help as h:
-		return Output{Out: h.Text, Err: "", Code: 0}
-	case err:
-		return Output{Out: "", Err: flag.Describe(err) + "\n", Code: 2}
-	}
-	match workapi.Call(r) {
+// Show is what Run prints of the outcome o under the policy p: the value
+// (p's Text when it has one and there is no --json; else its text when it
+// is a basic value, else its JSON; its JSON with --json), or a typed
+// failure (failed) with p's Code.
+func Show(o workapi.Outcome, asJSON bool, p Policy) Output {
+	match o {
 	case workapi.Done as done:
+		if !asJSON {
+			match p.Text(done.Reply) {
+			case Some[string] as s:
+				return Output{Out: line(s.Value), Err: "", Code: 0}
+			case None:
+			}
+		}
 		match done.Reply {
 		case workapi.InitReply as reply:
 			let v = reply.Value
@@ -613,85 +678,637 @@ func Run(args []string) Output needs work.Api {
 			answer(asJSON, "\(v)", rpc.Encode(v))
 		}
 	case workapi.Rejected as rejected:
+		let status = p.Code(rejected.Failure)
 		match rejected.Failure {
 		case workapi.BadConfig as failure:
-			failed(asJSON, rpc.Tagged("BadConfig", rpc.Encode(failure.E)))
+			failed(asJSON, rpc.Tagged("BadConfig", rpc.Encode(failure.E)), status)
 		case workapi.Unkept as failure:
-			failed(asJSON, rpc.Tagged("Unkept", rpc.Encode(failure.E)))
+			failed(asJSON, rpc.Tagged("Unkept", rpc.Encode(failure.E)), status)
 		case workapi.Denied as failure:
-			failed(asJSON, rpc.Tagged("Denied", rpc.Encode(failure.E)))
+			failed(asJSON, rpc.Tagged("Denied", rpc.Encode(failure.E)), status)
 		case workapi.Failed as failure:
-			failed(asJSON, rpc.Tagged("Failed", rpc.Encode(failure.E)))
+			failed(asJSON, rpc.Tagged("Failed", rpc.Encode(failure.E)), status)
 		case workapi.HookFailed as failure:
-			failed(asJSON, rpc.Tagged("HookFailed", rpc.Encode(failure.E)))
+			failed(asJSON, rpc.Tagged("HookFailed", rpc.Encode(failure.E)), status)
 		case workapi.NoBase as failure:
-			failed(asJSON, rpc.Tagged("NoBase", rpc.Encode(failure.E)))
+			failed(asJSON, rpc.Tagged("NoBase", rpc.Encode(failure.E)), status)
 		case workapi.BadName as failure:
-			failed(asJSON, rpc.Tagged("BadName", rpc.Encode(failure.E)))
+			failed(asJSON, rpc.Tagged("BadName", rpc.Encode(failure.E)), status)
 		case workapi.NameTaken as failure:
-			failed(asJSON, rpc.Tagged("NameTaken", rpc.Encode(failure.E)))
+			failed(asJSON, rpc.Tagged("NameTaken", rpc.Encode(failure.E)), status)
 		case workapi.NoWorkspace as failure:
-			failed(asJSON, rpc.Tagged("NoWorkspace", rpc.Encode(failure.E)))
+			failed(asJSON, rpc.Tagged("NoWorkspace", rpc.Encode(failure.E)), status)
 		case workapi.NoRevision as failure:
-			failed(asJSON, rpc.Tagged("NoRevision", rpc.Encode(failure.E)))
+			failed(asJSON, rpc.Tagged("NoRevision", rpc.Encode(failure.E)), status)
 		case workapi.Diverged as failure:
-			failed(asJSON, rpc.Tagged("Diverged", rpc.Encode(failure.E)))
+			failed(asJSON, rpc.Tagged("Diverged", rpc.Encode(failure.E)), status)
 		case workapi.CopyRefused as failure:
-			failed(asJSON, rpc.Tagged("CopyRefused", rpc.Encode(failure.E)))
+			failed(asJSON, rpc.Tagged("CopyRefused", rpc.Encode(failure.E)), status)
 		case workapi.NotSameVolume as failure:
-			failed(asJSON, rpc.Tagged("NotSameVolume", rpc.Encode(failure.E)))
+			failed(asJSON, rpc.Tagged("NotSameVolume", rpc.Encode(failure.E)), status)
 		case workapi.Unsupported as failure:
-			failed(asJSON, rpc.Tagged("Unsupported", rpc.Encode(failure.E)))
+			failed(asJSON, rpc.Tagged("Unsupported", rpc.Encode(failure.E)), status)
 		case workapi.Exists as failure:
-			failed(asJSON, rpc.Tagged("Exists", rpc.Encode(failure.E)))
+			failed(asJSON, rpc.Tagged("Exists", rpc.Encode(failure.E)), status)
 		case workapi.Missing as failure:
-			failed(asJSON, rpc.Tagged("Missing", rpc.Encode(failure.E)))
+			failed(asJSON, rpc.Tagged("Missing", rpc.Encode(failure.E)), status)
 		case workapi.NoSpace as failure:
-			failed(asJSON, rpc.Tagged("NoSpace", rpc.Encode(failure.E)))
+			failed(asJSON, rpc.Tagged("NoSpace", rpc.Encode(failure.E)), status)
 		case workapi.CloneFailed as failure:
-			failed(asJSON, rpc.Tagged("CloneFailed", rpc.Encode(failure.E)))
+			failed(asJSON, rpc.Tagged("CloneFailed", rpc.Encode(failure.E)), status)
 		case workapi.VcsFailed as failure:
-			failed(asJSON, rpc.Tagged("VcsFailed", rpc.Encode(failure.E)))
+			failed(asJSON, rpc.Tagged("VcsFailed", rpc.Encode(failure.E)), status)
 		case workapi.Locked as failure:
-			failed(asJSON, rpc.Tagged("Locked", rpc.Encode(failure.E)))
+			failed(asJSON, rpc.Tagged("Locked", rpc.Encode(failure.E)), status)
 		case workapi.Busy as failure:
-			failed(asJSON, rpc.Tagged("Busy", rpc.Encode(failure.E)))
+			failed(asJSON, rpc.Tagged("Busy", rpc.Encode(failure.E)), status)
 		case workapi.RiftUnread as failure:
-			failed(asJSON, rpc.Tagged("RiftUnread", rpc.Encode(failure.E)))
+			failed(asJSON, rpc.Tagged("RiftUnread", rpc.Encode(failure.E)), status)
 		case workapi.NotHeld as failure:
-			failed(asJSON, rpc.Tagged("NotHeld", rpc.Encode(failure.E)))
+			failed(asJSON, rpc.Tagged("NotHeld", rpc.Encode(failure.E)), status)
 		case workapi.IdMismatch as failure:
-			failed(asJSON, rpc.Tagged("IdMismatch", rpc.Encode(failure.E)))
+			failed(asJSON, rpc.Tagged("IdMismatch", rpc.Encode(failure.E)), status)
 		case workapi.HasDescendants as failure:
-			failed(asJSON, rpc.Tagged("HasDescendants", rpc.Encode(failure.E)))
+			failed(asJSON, rpc.Tagged("HasDescendants", rpc.Encode(failure.E)), status)
 		case workapi.BadAge as failure:
-			failed(asJSON, rpc.Tagged("BadAge", rpc.Encode(failure.E)))
+			failed(asJSON, rpc.Tagged("BadAge", rpc.Encode(failure.E)), status)
 		case workapi.NotHere as failure:
-			failed(asJSON, rpc.Tagged("NotHere", rpc.Encode(failure.E)))
+			failed(asJSON, rpc.Tagged("NotHere", rpc.Encode(failure.E)), status)
 		case workapi.Detached as failure:
-			failed(asJSON, rpc.Tagged("Detached", rpc.Encode(failure.E)))
+			failed(asJSON, rpc.Tagged("Detached", rpc.Encode(failure.E)), status)
 		case workapi.NotFastForward as failure:
-			failed(asJSON, rpc.Tagged("NotFastForward", rpc.Encode(failure.E)))
+			failed(asJSON, rpc.Tagged("NotFastForward", rpc.Encode(failure.E)), status)
 		case workapi.Moved as failure:
-			failed(asJSON, rpc.Tagged("Moved", rpc.Encode(failure.E)))
+			failed(asJSON, rpc.Tagged("Moved", rpc.Encode(failure.E)), status)
 		case workapi.Dirty as failure:
-			failed(asJSON, rpc.Tagged("Dirty", rpc.Encode(failure.E)))
+			failed(asJSON, rpc.Tagged("Dirty", rpc.Encode(failure.E)), status)
 		case workapi.Conflicted as failure:
-			failed(asJSON, rpc.Tagged("Conflicted", rpc.Encode(failure.E)))
+			failed(asJSON, rpc.Tagged("Conflicted", rpc.Encode(failure.E)), status)
 		case workapi.BadClass as failure:
-			failed(asJSON, rpc.Tagged("BadClass", rpc.Encode(failure.E)))
+			failed(asJSON, rpc.Tagged("BadClass", rpc.Encode(failure.E)), status)
 		case workapi.MergeConflict as failure:
-			failed(asJSON, rpc.Tagged("MergeConflict", rpc.Encode(failure.E)))
+			failed(asJSON, rpc.Tagged("MergeConflict", rpc.Encode(failure.E)), status)
 		case workapi.NotFound as failure:
-			failed(asJSON, rpc.Tagged("NotFound", rpc.Encode(failure.E)))
+			failed(asJSON, rpc.Tagged("NotFound", rpc.Encode(failure.E)), status)
 		case workapi.Untrusted as failure:
-			failed(asJSON, rpc.Tagged("Untrusted", rpc.Encode(failure.E)))
+			failed(asJSON, rpc.Tagged("Untrusted", rpc.Encode(failure.E)), status)
 		case workapi.DeriveFailed as failure:
-			failed(asJSON, rpc.Tagged("DeriveFailed", rpc.Encode(failure.E)))
+			failed(asJSON, rpc.Tagged("DeriveFailed", rpc.Encode(failure.E)), status)
 		case workapi.DepsFailed as failure:
-			failed(asJSON, rpc.Tagged("DepsFailed", rpc.Encode(failure.E)))
+			failed(asJSON, rpc.Tagged("DepsFailed", rpc.Encode(failure.E)), status)
 		case workapi.PluginRefused as failure:
-			failed(asJSON, rpc.Tagged("PluginRefused", rpc.Encode(failure.E)))
+			failed(asJSON, rpc.Tagged("PluginRefused", rpc.Encode(failure.E)), status)
 		}
+	}
+}
+
+// Read is the outcome of r that the Output of Run with --json says: its
+// value's JSON on standard output with status 0, or its failure's tagged
+// JSON with status 1. Any other Output is not an answer to r, a defect.
+func Read(r Request, out Output) workapi.Outcome {
+	let text = strings.TrimSuffix(out.Out, "\n")
+	if out.Code == 0 {
+		match r {
+		case workapi.InitRequest:
+			let v = rpc.Decode[string]("value", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered Init with a value it cannot read: " + t.Reason)
+			}
+			workapi.Done{Reply: workapi.InitReply{Value: v}}
+		case workapi.NewRequest:
+			let v = rpc.Decode[work.Created]("value", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered New with a value it cannot read: " + t.Reason)
+			}
+			workapi.Done{Reply: workapi.NewReply{Value: v}}
+		case workapi.AdoptRequest:
+			let v = rpc.Decode[work.Workspace]("value", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered Adopt with a value it cannot read: " + t.Reason)
+			}
+			workapi.Done{Reply: workapi.AdoptReply{Value: v}}
+		case workapi.AdoptRiftRequest:
+			let v = rpc.Decode[work.RiftAdopted]("value", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered AdoptRift with a value it cannot read: " + t.Reason)
+			}
+			workapi.Done{Reply: workapi.AdoptRiftReply{Value: v}}
+		case workapi.ListRequest:
+			let v = rpc.Decode[[]work.Workspace]("value", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered List with a value it cannot read: " + t.Reason)
+			}
+			workapi.Done{Reply: workapi.ListReply{Value: v}}
+		case workapi.RmRequest:
+			let v = rpc.Decode[[]work.Removed]("value", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered Rm with a value it cannot read: " + t.Reason)
+			}
+			workapi.Done{Reply: workapi.RmReply{Value: v}}
+		case workapi.GcRequest:
+			let v = rpc.Decode[work.Collected]("value", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered Gc with a value it cannot read: " + t.Reason)
+			}
+			workapi.Done{Reply: workapi.GcReply{Value: v}}
+		case workapi.PinRequest:
+			let v = rpc.Decode[work.Workspace]("value", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered Pin with a value it cannot read: " + t.Reason)
+			}
+			workapi.Done{Reply: workapi.PinReply{Value: v}}
+		case workapi.UnpinRequest:
+			let v = rpc.Decode[work.Workspace]("value", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered Unpin with a value it cannot read: " + t.Reason)
+			}
+			workapi.Done{Reply: workapi.UnpinReply{Value: v}}
+		case workapi.DuRequest:
+			let v = rpc.Decode[[]work.Space]("value", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered Du with a value it cannot read: " + t.Reason)
+			}
+			workapi.Done{Reply: workapi.DuReply{Value: v}}
+		case workapi.ReadyRequest:
+			let v = rpc.Decode[work.Handed]("value", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered Ready with a value it cannot read: " + t.Reason)
+			}
+			workapi.Done{Reply: workapi.ReadyReply{Value: v}}
+		case workapi.SyncRequest:
+			let v = rpc.Decode[work.Synced]("value", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered Sync with a value it cannot read: " + t.Reason)
+			}
+			workapi.Done{Reply: workapi.SyncReply{Value: v}}
+		case workapi.EnvRequest:
+			let v = rpc.Decode[string]("value", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered Env with a value it cannot read: " + t.Reason)
+			}
+			workapi.Done{Reply: workapi.EnvReply{Value: v}}
+		case workapi.MergeFileRequest:
+			let v = rpc.Decode[work.FileMerged]("value", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered MergeFile with a value it cannot read: " + t.Reason)
+			}
+			workapi.Done{Reply: workapi.MergeFileReply{Value: v}}
+		case workapi.MergeFoldersRequest:
+			let v = rpc.Decode[work.TreeMerged]("value", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered MergeFolders with a value it cannot read: " + t.Reason)
+			}
+			workapi.Done{Reply: workapi.MergeFoldersReply{Value: v}}
+		case workapi.DeriveRequest:
+			let v = rpc.Decode[work.Derived]("value", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered Derive with a value it cannot read: " + t.Reason)
+			}
+			workapi.Done{Reply: workapi.DeriveReply{Value: v}}
+		case workapi.DepsRequest:
+			let v = rpc.Decode[work.DepsDone]("value", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered Deps with a value it cannot read: " + t.Reason)
+			}
+			workapi.Done{Reply: workapi.DepsReply{Value: v}}
+		case workapi.TrustRequest:
+			let v = rpc.Decode[work.Trusted]("value", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered Trust with a value it cannot read: " + t.Reason)
+			}
+			workapi.Done{Reply: workapi.TrustReply{Value: v}}
+		case workapi.DoctorRequest:
+			let v = rpc.Decode[work.Report]("value", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered Doctor with a value it cannot read: " + t.Reason)
+			}
+			workapi.Done{Reply: workapi.DoctorReply{Value: v}}
+		case workapi.PluginTestRequest:
+			let v = rpc.Decode[work.PluginAdmitted]("value", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered PluginTest with a value it cannot read: " + t.Reason)
+			}
+			workapi.Done{Reply: workapi.PluginTestReply{Value: v}}
+		case workapi.RefreshRequest:
+			let v = rpc.Decode[int]("value", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered Refresh with a value it cannot read: " + t.Reason)
+			}
+			workapi.Done{Reply: workapi.RefreshReply{Value: v}}
+		case workapi.BasesRequest:
+			let v = rpc.Decode[[]string]("value", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered Bases with a value it cannot read: " + t.Reason)
+			}
+			workapi.Done{Reply: workapi.BasesReply{Value: v}}
+		case workapi.ShellInitRequest:
+			let v = rpc.Decode[string]("value", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered ShellInit with a value it cannot read: " + t.Reason)
+			}
+			workapi.Done{Reply: workapi.ShellInitReply{Value: v}}
+		case workapi.ImportRiftRequest:
+			let v = rpc.Decode[string]("value", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered ImportRift with a value it cannot read: " + t.Reason)
+			}
+			workapi.Done{Reply: workapi.ImportRiftReply{Value: v}}
+		}
+	} else if out.Code == 1 {
+		match rpc.TagOf(text) {
+		case "BadConfig":
+			let e = rpc.Decode[work.BadConfig]("failure", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+			}
+			workapi.Rejected{Failure: workapi.BadConfig{E: e}}
+		case "Unkept":
+			let e = rpc.Decode[work.Unkept]("failure", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+			}
+			workapi.Rejected{Failure: workapi.Unkept{E: e}}
+		case "Denied":
+			let e = rpc.Decode[fs.Denied]("failure", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+			}
+			workapi.Rejected{Failure: workapi.Denied{E: e}}
+		case "Failed":
+			let e = rpc.Decode[fs.Failed]("failure", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+			}
+			workapi.Rejected{Failure: workapi.Failed{E: e}}
+		case "HookFailed":
+			let e = rpc.Decode[work.HookFailed]("failure", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+			}
+			workapi.Rejected{Failure: workapi.HookFailed{E: e}}
+		case "NoBase":
+			let e = rpc.Decode[work.NoBase]("failure", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+			}
+			workapi.Rejected{Failure: workapi.NoBase{E: e}}
+		case "BadName":
+			let e = rpc.Decode[work.BadName]("failure", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+			}
+			workapi.Rejected{Failure: workapi.BadName{E: e}}
+		case "NameTaken":
+			let e = rpc.Decode[work.NameTaken]("failure", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+			}
+			workapi.Rejected{Failure: workapi.NameTaken{E: e}}
+		case "NoWorkspace":
+			let e = rpc.Decode[work.NoWorkspace]("failure", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+			}
+			workapi.Rejected{Failure: workapi.NoWorkspace{E: e}}
+		case "NoRevision":
+			let e = rpc.Decode[work.NoRevision]("failure", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+			}
+			workapi.Rejected{Failure: workapi.NoRevision{E: e}}
+		case "Diverged":
+			let e = rpc.Decode[work.Diverged]("failure", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+			}
+			workapi.Rejected{Failure: workapi.Diverged{E: e}}
+		case "CopyRefused":
+			let e = rpc.Decode[work.CopyRefused]("failure", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+			}
+			workapi.Rejected{Failure: workapi.CopyRefused{E: e}}
+		case "NotSameVolume":
+			let e = rpc.Decode[work.NotSameVolume]("failure", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+			}
+			workapi.Rejected{Failure: workapi.NotSameVolume{E: e}}
+		case "Unsupported":
+			let e = rpc.Decode[work.Unsupported]("failure", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+			}
+			workapi.Rejected{Failure: workapi.Unsupported{E: e}}
+		case "Exists":
+			let e = rpc.Decode[work.Exists]("failure", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+			}
+			workapi.Rejected{Failure: workapi.Exists{E: e}}
+		case "Missing":
+			let e = rpc.Decode[work.Missing]("failure", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+			}
+			workapi.Rejected{Failure: workapi.Missing{E: e}}
+		case "NoSpace":
+			let e = rpc.Decode[work.NoSpace]("failure", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+			}
+			workapi.Rejected{Failure: workapi.NoSpace{E: e}}
+		case "CloneFailed":
+			let e = rpc.Decode[work.CloneFailed]("failure", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+			}
+			workapi.Rejected{Failure: workapi.CloneFailed{E: e}}
+		case "VcsFailed":
+			let e = rpc.Decode[work.VcsFailed]("failure", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+			}
+			workapi.Rejected{Failure: workapi.VcsFailed{E: e}}
+		case "Locked":
+			let e = rpc.Decode[work.Locked]("failure", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+			}
+			workapi.Rejected{Failure: workapi.Locked{E: e}}
+		case "Busy":
+			let e = rpc.Decode[work.Busy]("failure", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+			}
+			workapi.Rejected{Failure: workapi.Busy{E: e}}
+		case "RiftUnread":
+			let e = rpc.Decode[work.RiftUnread]("failure", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+			}
+			workapi.Rejected{Failure: workapi.RiftUnread{E: e}}
+		case "NotHeld":
+			let e = rpc.Decode[work.NotHeld]("failure", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+			}
+			workapi.Rejected{Failure: workapi.NotHeld{E: e}}
+		case "IdMismatch":
+			let e = rpc.Decode[work.IdMismatch]("failure", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+			}
+			workapi.Rejected{Failure: workapi.IdMismatch{E: e}}
+		case "HasDescendants":
+			let e = rpc.Decode[work.HasDescendants]("failure", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+			}
+			workapi.Rejected{Failure: workapi.HasDescendants{E: e}}
+		case "BadAge":
+			let e = rpc.Decode[work.BadAge]("failure", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+			}
+			workapi.Rejected{Failure: workapi.BadAge{E: e}}
+		case "NotHere":
+			let e = rpc.Decode[work.NotHere]("failure", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+			}
+			workapi.Rejected{Failure: workapi.NotHere{E: e}}
+		case "Detached":
+			let e = rpc.Decode[work.Detached]("failure", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+			}
+			workapi.Rejected{Failure: workapi.Detached{E: e}}
+		case "NotFastForward":
+			let e = rpc.Decode[work.NotFastForward]("failure", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+			}
+			workapi.Rejected{Failure: workapi.NotFastForward{E: e}}
+		case "Moved":
+			let e = rpc.Decode[work.Moved]("failure", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+			}
+			workapi.Rejected{Failure: workapi.Moved{E: e}}
+		case "Dirty":
+			let e = rpc.Decode[work.Dirty]("failure", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+			}
+			workapi.Rejected{Failure: workapi.Dirty{E: e}}
+		case "Conflicted":
+			let e = rpc.Decode[work.Conflicted]("failure", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+			}
+			workapi.Rejected{Failure: workapi.Conflicted{E: e}}
+		case "BadClass":
+			let e = rpc.Decode[work.BadClass]("failure", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+			}
+			workapi.Rejected{Failure: workapi.BadClass{E: e}}
+		case "MergeConflict":
+			let e = rpc.Decode[work.MergeConflict]("failure", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+			}
+			workapi.Rejected{Failure: workapi.MergeConflict{E: e}}
+		case "NotFound":
+			let e = rpc.Decode[fs.NotFound]("failure", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+			}
+			workapi.Rejected{Failure: workapi.NotFound{E: e}}
+		case "Untrusted":
+			let e = rpc.Decode[work.Untrusted]("failure", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+			}
+			workapi.Rejected{Failure: workapi.Untrusted{E: e}}
+		case "DeriveFailed":
+			let e = rpc.Decode[work.DeriveFailed]("failure", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+			}
+			workapi.Rejected{Failure: workapi.DeriveFailed{E: e}}
+		case "DepsFailed":
+			let e = rpc.Decode[work.DepsFailed]("failure", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+			}
+			workapi.Rejected{Failure: workapi.DepsFailed{E: e}}
+		case "PluginRefused":
+			let e = rpc.Decode[work.PluginRefused]("failure", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+			}
+			workapi.Rejected{Failure: workapi.PluginRefused{E: e}}
+		case _:
+			Unreachable("the command line answered a failure no operation has: " + text)
+		}
+	} else {
+		Unreachable("the command line answered status \(out.Code): " + out.Err)
+	}
+}
+
+// front is a command line read up to its call: the call and the global
+// flags before it (--json, --yes), or the Output that ends the run first
+// (the help, status 0; a usage error, status 2, which no policy changes).
+type front = asked{R Request, JSON bool, Yes bool} | ended{O Output}
+
+func frontOf(args []string) front {
+	let mut asJSON = false
+	let mut yes = false
+	let mut globals = true
+	let mut rest = []string{}
+	for a in args {
+		if globals && (a == "--json" || a == "-json") {
+			asJSON = true
+		} else if globals && (a == "--yes" || a == "-yes") {
+			yes = true
+		} else {
+			globals = false
+			rest = rest.Append(a)
+		}
+	}
+	let r = Parse(rest) catch {
+	case flag.Help as h:
+		return ended{O: Output{Out: h.Text, Err: "", Code: 0}}
+	case err:
+		return ended{O: Output{Out: "", Err: flag.Describe(err) + "\n", Code: 2}}
+	}
+	asked{R: r, JSON: asJSON, Yes: yes}
+}
+
+// needsYes is the end of a call whose question no one can answer here.
+func needsYes(question string) Output {
+	Output{Out: "", Err: question + " (no terminal to ask on: pass --yes to answer yes)\n", Code: 2}
+}
+
+// declined is the end of a call whose question was answered no.
+func declined(question string) Output {
+	Output{Out: "", Err: question + ": not confirmed\n", Code: 1}
+}
+
+// runOver reads args as [--json] [--yes] COMMAND ARGS..., answers the
+// Request with answer and is what to print (Show) under p; a call p asks a
+// question of, with no --yes, ends with status 2 (needsYes): runOver has
+// no terminal (RunOnTerminal has).
+func runOver[R](args []string, p Policy, answer func(r Request) workapi.Outcome needs R) Output needs R {
+	match frontOf(args) {
+	case ended as e:
+		e.O
+	case asked as a:
+		if !a.Yes {
+			match p.Confirm(a.R) {
+			case Some[string] as q:
+				return needsYes(q.Value)
+			case None:
+			}
+		}
+		Show(answer(a.R), a.JSON, p)
+	}
+}
+
+// Run reads args as [--json] [--yes] COMMAND ARGS..., answers the call
+// through the hub's Call on the work.Api the caller binds, and is what to
+// print under the policy p: the value, a typed failure with p's Code, the
+// help (status 0) or a usage error (status 2). It asks nothing: a call p
+// asks a question of needs --yes (status 2 without it).
+func Run(args []string, p Policy) Output needs work.Api {
+	runOver(args, p, workapi.Call)
+}
+
+// RunOnTerminal is Run that asks p's question on the terminal (std
+// prompt) when there is no --yes: a yes runs the call, a no or a cancel
+// ends with status 1, and standard input that is not a terminal ends with
+// status 2, as Run does.
+func RunOnTerminal(args []string, p Policy) Output needs work.Api | term.Terminal | io.Stderr {
+	match frontOf(args) {
+	case ended as e:
+		e.O
+	case asked as a:
+		if !a.Yes {
+			match p.Confirm(a.R) {
+			case Some[string] as q:
+				let yes = prompt.Confirm(q.Value, false) catch {
+				case prompt.NotInteractive:
+					return needsYes(q.Value)
+				case prompt.Cancelled:
+					return declined(q.Value)
+				case io.ReadFailed:
+					return Output{Out: "", Err: q.Value + ": the answer could not be read\n", Code: 2}
+				}
+				if !yes {
+					return declined(q.Value)
+				}
+			case None:
+			}
+		}
+		Show(workapi.Call(a.R), a.JSON, p)
+	}
+}
+
+// Completion is the script that completes work's commands in shell.
+func Completion(shell api.Shell) string {
+	api.Completion("work", shell, []api.Entry{api.Entry{Name: workapi.Name(workapi.InitOp), Doc: workapi.Doc(workapi.InitOp)}, api.Entry{Name: workapi.Name(workapi.NewOp), Doc: workapi.Doc(workapi.NewOp)}, api.Entry{Name: workapi.Name(workapi.AdoptOp), Doc: workapi.Doc(workapi.AdoptOp)}, api.Entry{Name: workapi.Name(workapi.AdoptRiftOp), Doc: workapi.Doc(workapi.AdoptRiftOp)}, api.Entry{Name: workapi.Name(workapi.ListOp), Doc: workapi.Doc(workapi.ListOp)}, api.Entry{Name: workapi.Name(workapi.RmOp), Doc: workapi.Doc(workapi.RmOp)}, api.Entry{Name: workapi.Name(workapi.GcOp), Doc: workapi.Doc(workapi.GcOp)}, api.Entry{Name: workapi.Name(workapi.PinOp), Doc: workapi.Doc(workapi.PinOp)}, api.Entry{Name: workapi.Name(workapi.UnpinOp), Doc: workapi.Doc(workapi.UnpinOp)}, api.Entry{Name: workapi.Name(workapi.DuOp), Doc: workapi.Doc(workapi.DuOp)}, api.Entry{Name: workapi.Name(workapi.ReadyOp), Doc: workapi.Doc(workapi.ReadyOp)}, api.Entry{Name: workapi.Name(workapi.SyncOp), Doc: workapi.Doc(workapi.SyncOp)}, api.Entry{Name: workapi.Name(workapi.EnvOp), Doc: workapi.Doc(workapi.EnvOp)}, api.Entry{Name: workapi.Name(workapi.MergeFileOp), Doc: workapi.Doc(workapi.MergeFileOp)}, api.Entry{Name: workapi.Name(workapi.MergeFoldersOp), Doc: workapi.Doc(workapi.MergeFoldersOp)}, api.Entry{Name: workapi.Name(workapi.DeriveOp), Doc: workapi.Doc(workapi.DeriveOp)}, api.Entry{Name: workapi.Name(workapi.DepsOp), Doc: workapi.Doc(workapi.DepsOp)}, api.Entry{Name: workapi.Name(workapi.TrustOp), Doc: workapi.Doc(workapi.TrustOp)}, api.Entry{Name: workapi.Name(workapi.DoctorOp), Doc: workapi.Doc(workapi.DoctorOp)}, api.Entry{Name: workapi.Name(workapi.PluginTestOp), Doc: workapi.Doc(workapi.PluginTestOp)}, api.Entry{Name: workapi.Name(workapi.RefreshOp), Doc: workapi.Doc(workapi.RefreshOp)}, api.Entry{Name: workapi.Name(workapi.BasesOp), Doc: workapi.Doc(workapi.BasesOp)}, api.Entry{Name: workapi.Name(workapi.ShellInitOp), Doc: workapi.Doc(workapi.ShellInitOp)}, api.Entry{Name: workapi.Name(workapi.ImportRiftOp), Doc: workapi.Doc(workapi.ImportRiftOp)}})
+}
+
+// carry is c through the command line: printed with --json, read back
+// by Run's own reader, answered by answer, shown under Defaults, and read
+// back (Read).
+func carry(c Request, answer func(c Request) workapi.Outcome) workapi.Outcome {
+	let mut args = []string{"--json"}
+	for a in Print(c) {
+		args = args.Append(a)
+	}
+	Read(c, runOver(args, Defaults(), answer))
+}
+
+// Wire is the command line as a transport of the hub's calls.
+type Wire {} implements api.Transport[Request, workapi.Outcome]
+
+// Carry is carry.
+func Carry(w Wire, c Request, answer own func(c Request) workapi.Outcome) workapi.Outcome { carry(c, answer) }
+
+// Agrees: the command line carries every call and every outcome the
+// call can have unchanged.
+law Agrees(r Request, g workapi.Given) { api.Agrees(Wire, r, workapi.OutcomeOf(r, g)) }
+
+// CodeIsThePolicy: a call's status is 0 for a value and the policy's
+// Code for a typed failure.
+law CodeIsThePolicy(r Request, g workapi.Given, k int) {
+	let status = 1 + ((k%125)+125)%125
+	let d = Defaults()
+	let p = Policy{..d, Code: func(f workapi.Failure) int { status }}
+	let o = workapi.OutcomeOf(r, g)
+	let out = runOver(Print(r), p, func(c Request) workapi.Outcome { o })
+	match o {
+	case workapi.Done:
+		out.Code == 0
+	case workapi.Rejected:
+		out.Code == status
+	}
+}
+
+// TextIsThePolicy: without --json a value prints as the policy's Text;
+// with --json every outcome prints as the wire's JSON, whatever Text says.
+law TextIsThePolicy(r Request, g workapi.Given, t string) {
+	let d = Defaults()
+	let p = Policy{..d, Text: func(reply workapi.Reply) Option[string] { Some[string]{Value: t} }}
+	let o = workapi.OutcomeOf(r, g)
+	let same = Show(o, true, p) == Show(o, true, d)
+	match o {
+	case workapi.Done:
+		same && Show(o, false, p).Out == line(t)
+	case workapi.Rejected:
+		same && Show(o, false, p) == Show(o, false, d)
 	}
 }
