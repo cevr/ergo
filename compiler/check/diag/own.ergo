@@ -248,6 +248,14 @@ func language(k expr.Pkg, o store.XRef) bool {
 	(f.Path == "prelude" && (f.Name == "Option" || f.Name == "Some")) || (f.Qual == "go" && f.Name == "Ref")
 }
 
+// languageType is whether g, a generic type of the package s, is a
+// language type whose parameter admits a resource with no mark: Option and
+// Some in the prelude itself, as language reads them from an importer
+// (decl.go's lang; builtin.ergo's Take returns Option[V] of an own V).
+func languageType(s store.Store, g string) bool {
+	store.PathOf(s) == "prelude" && (g == "Option" || g == "Some")
+}
+
 // resources is each type name of the package that holds a resource: one
 // that implements Closer, a record a field of which holds one, a union a
 // variant of which does (resources R1, R13). It is the least fixpoint, so
@@ -370,6 +378,9 @@ func typeMarks(s store.Store, k expr.Pkg, res Map[string, bool], p syntax.Parsed
 			let a = syntax.Item(p.Tree, ix.Indices, j)
 			let tp = gi.params[j]
 			if !gi.own[j] {
+				if languageType(s, g) {
+					continue
+				}
 				let text = typeText(p, a)
 				if text != "" && synHolds(s, k, res, p, infos, encl, a) {
 					out = out.Append(Diag{File: f, Offset: at, Length: syntax.NodeEnd(p, x) - at, Code: CodeType, Message: "\(g) cannot take \(text) as its \(tp): \(tp) is not marked own, so it binds plain data only; write [\(tp) own] where \(g) declares it, which holds its body to a resource's rules (types.md, Generics 9)"})

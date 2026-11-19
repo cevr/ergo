@@ -38,7 +38,28 @@ func predeclared(s store.Store, k Pkg, text string) bool {
 		return true
 	}
 	let p = depOf(k, "prelude")
-	p >= 0 && inScope(k.Deps[p].S, text)
+	p >= 0 && inScope(k.Deps[p].S, text) && !receiverOp(k.Deps[p], text)
+}
+
+// receiverOp is whether text names an operation of the language reached
+// from a receiver (xs.Append(x)), not a name in scope: a function of the
+// prelude's builtin.ergo whose first parameter is a slice, Map, string or
+// rune. MakeSlice, called by name like len, is in scope (check.go's
+// prelude scope).
+func receiverOp(d Dep, text string) bool {
+	let mut i = fnNamed(d.S, d.K, text)
+	for i >= 0 {
+		let f = d.K.Fns[i]
+		let ops = store.OperandsOf(d.S, f.Sig)
+		if operation(d.K.Files, f) && len(ops) > 3 {
+			let kind = store.KindOfType(d.S, receiverBase(d.S, ops[0]))
+			if kind == store.KSlice || kind == store.KMap || operandBasic(d.S, receiverBase(d.S, ops[0])) {
+				return true
+			}
+		}
+		i = d.K.sameName[i]
+	}
+	false
 }
 
 // inScope is whether s's package scope declares text.

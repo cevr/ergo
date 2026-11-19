@@ -326,7 +326,7 @@
     {
       "name": "gs9-prelude-unobserved", "origin": "wf10 GS9",
       "file": "internal/sketch/stdlib/std.go",
-      "from": "\tobserve(\"prelude.ergo\")\n", "to": "",
+      "from": "\t\tobserve(entry.Name())\n", "to": "",
       "rule": "Prelude observes the prelude it reads.",
       "killers": ["internal/sketch/stdlib:TestObserveOpensTheCheckoutCopy"]
     },
