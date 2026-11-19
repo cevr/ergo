@@ -181,7 +181,7 @@ func TestSpeedPresetOnExamples(t *testing.T) {
 	}
 	root := filepath.Join("..", "..", "..", "examples")
 	got := append(layoutFindings(t, filepath.Join(root, "jobs"), conf), layoutFindings(t, filepath.Join(root, "confparse"), conf)...)
-	for _, want := range []string{"api/laws.ergo:249 concat-in-loop", "config/laws.ergo:56 concat-in-loop"} {
+	for _, want := range []string{"api/routes.ergo:268 concat-in-loop", "config/encode.ergo:26 concat-in-loop"} {
 		if !slices.ContainsFunc(got, func(g string) bool { return strings.HasSuffix(g, want) }) {
 			t.Errorf("the speed preset does not name %s; it found %v", want, got)
 		}
