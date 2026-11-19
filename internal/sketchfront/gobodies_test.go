@@ -40,13 +40,13 @@ func Unmarked(t *rt.Task) int { return 0 }
 		"go.mod":           "module example.com/app\n\ngo 1.27\n",
 		"gohost/gohost.go": goSrc,
 		"main.ergo": "import strconv\n\n" +
-			"extern go example.com/app/gohost.Mark func mark(s string) string\n" +
-			"extern go example.com/app/gohost.Poll func poll(n int) int\n\n" +
-			"func main() needs Console {\n\tConsole.Println(mark(\"here\"))\n\tConsole.Println(strconv.Itoa(poll(41)))\n}\n",
+			"extern go example.com/app/gohost.Mark func mark(s string) string needs go.Foreign\n" +
+			"extern go example.com/app/gohost.Poll func poll(n int) int needs go.Foreign\n\n" +
+			"func main() needs Console | go.Foreign {\n\tConsole.Println(mark(\"here\"))\n\tConsole.Println(strconv.Itoa(poll(41)))\n}\n",
 	}
 	for _, c := range []struct{ mod, extra, want string }{
-		{"module app\ntrust go app\n", "", ""},
-		{"module app\ntrust go app\n", "extern go example.com/app/gohost.Unmarked func unmarked() int\n", "main.ergo S108 3:1 extern go example.com/app/gohost.Unmarked: Unmarked states no //ergo:wait KIND"},
+		{"module app\n", "", ""},
+		{"module app\n", "extern go example.com/app/gohost.Unmarked func unmarked() int needs go.Foreign\n", "main.ergo S108 3:1 extern go example.com/app/gohost.Unmarked: Unmarked states no //ergo:wait KIND"},
 	} {
 		files["ergo.mod"] = c.mod
 		main := files["main.ergo"]

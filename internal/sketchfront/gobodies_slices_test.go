@@ -22,14 +22,13 @@ func IndexByte(s []byte, c byte) int {
 }
 `
 
-// TestModuleBodyEffects (LAWFFI LF2m; docs/spec/interop.md, Trusted Go 3;
-// types.md, Laws 14 rule 4) pins the refusals of a module body that is not
-// effect-free: with no trust line its binding is refused, naming the
-// effect and the line to write (a body that writes a package variable; a body written in
-// assembly, which has no Go body to read); with the trust line it binds,
-// and a law over it is no rewrite. Mutants (sketchfront mutants.json):
-// lf2m-effectful-untrusted-bound, lf2m-asm-body-effect-free,
-// lf2m-effectful-law-in-scope.
+// TestModuleBodyEffects (LAWFFI LF2m r2; docs/spec/interop.md, Trusted Go
+// 3) pins the refusals of a module body that is not effect-free and whose
+// extern declares no go.Foreign: they name the effect and the row to
+// write (a body that writes a package variable; a body written in
+// assembly, which has no Go body to read). TestModuleGoBodies binds such
+// bodies with the row. Mutants (sketchfront mutants.json):
+// lf2m-effectful-unforeign-bound, lf2m-asm-body-effect-free.
 func TestModuleBodyEffects(t *testing.T) {
 	const goSrc = `package gohost
 
@@ -44,14 +43,11 @@ func Bump(n int) int {
 //ergo:wait none
 func Count(s []byte, c byte) int
 `
-	const law = "func bumpRef(n int) int { n }\n\nlaw BumpIsRef(n int) { bumpRef(n) } == { bump(n) }\n"
 	for _, c := range []struct{ mod, extern, law, want string }{
 		{"module app\n", "extern go example.com/app/gohost.Bump func bump(n int) int\n", "",
-			"main.ergo S108 1:1 extern go example.com/app/gohost.Bump: its Go body is not effect-free (its body names total, a top-level function or variable of the package)"},
+			"main.ergo S108 1:1 extern go example.com/app/gohost.Bump: its Go body is not effect-free (its body names total, a top-level function or variable of the package); declare needs go.Foreign"},
 		{"module app\n", "extern go example.com/app/gohost.Count func count(s []byte, c byte) int\n", "",
-			"main.ergo S108 1:1 extern go example.com/app/gohost.Count: its Go body is not effect-free (it has no Go body to read (assembly)), and a package binds such a body of its module's own Go only when the root module trusts its Go; write the line `trust go app`"},
-		{"module app\ntrust go app\n", "extern go example.com/app/gohost.Bump func bump(n int) int\n", law,
-			"law BumpIsRef is no rewrite: bump is a Go body of the module that is not effect-free (its body names total"},
+			"main.ergo S108 1:1 extern go example.com/app/gohost.Count: its Go body is not effect-free (it has no Go body to read (assembly)); declare needs go.Foreign"},
 	} {
 		files := map[string]string{
 			"go.mod":           "module example.com/app\n\ngo 1.27\n",

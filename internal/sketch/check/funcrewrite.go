@@ -241,14 +241,13 @@ func rewriteImpure(call *Call) string {
 		return fmt.Sprintf("%s needs %s, and a rewrite's functions are pure", f.Name, rowText(call.Needs))
 	}
 	if f.Decl != nil && f.Decl.Extern != nil || f.Pkg.Host() {
-		if why, own := moduleBodyEffects(f); own && !pureStd(f) {
-			// A module's own Go body (LAWFFI LF2m): in scope when its
-			// source is effect-free; the lowering admits the rewrite
-			// only on the law's current validated entry, so the law is
-			// what makes the body pure, never a review.
-			if why != "" {
-				return fmt.Sprintf("%s is a Go body of the module that is not effect-free (%s), and a rewrite's functions are pure", f.Name, why)
-			}
+		if _, own := ModuleBody(f); own && !pureStd(f) {
+			// A module's own Go body (LAWFFI LF2m) with an empty needs
+			// row: the checker bound it as effect-free (moduleDoor; one
+			// with effects declares go.Foreign, refused above). The
+			// lowering admits the rewrite only on the law's current
+			// validated entry, so the law makes the body pure, never a
+			// review.
 			return ""
 		}
 		if !pureStd(f) {

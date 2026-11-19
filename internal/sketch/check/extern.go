@@ -252,8 +252,9 @@ func (c *checker) runtimeDoor(f *Func) string {
 // waiting policy (v1.Bodies.Body), with an Ergo signature the body's Go
 // parameters and result spell (moduleShape); the checker records it for
 // the lowering (ModuleBody). The Go is the module's own, so it needs no
-// trust line (LAWFFI LF2m), and no call of it is pure until a validated
-// law makes it so.
+// trust line (LAWFFI LF2m): an effect-free body (v1.Bodies.Effects) is
+// pure only where a validated law makes it so, and any other declares
+// needs go.Foreign on its extern.
 func (c *checker) moduleDoor(f *Func) (msg string, own bool) {
 	src, ok := c.imp.(GoSource)
 	if !ok {
@@ -266,8 +267,8 @@ func (c *checker) moduleDoor(f *Func) (msg string, own bool) {
 	}
 	target := path + "." + name
 	// The module's own Go needs no trust line (LAWFFI LF2m; owner,
-	// 2026-11-19: "least amount of ceremony"): the module wrote it, and a
-	// call of it is never pure until a validated law makes it so.
+	// 2026-11-19: "least amount of ceremony"): an effect-free body is pure
+	// only by a validated law, and any other declares needs go.Foreign.
 	bodies, err := v1.ReadBodies(fsys)
 	if err != nil {
 		return fmt.Sprintf("extern go %s: its Go package does not parse: %v", target, err), true
@@ -280,16 +281,17 @@ func (c *checker) moduleDoor(f *Func) (msg string, own bool) {
 		return fmt.Sprintf("extern go %s: %s (docs/spec/interop.md, Trusted Go)", target, why), true
 	}
 	effects := bodies.Effects(name)
-	if effects != "" && !c.pkg.trusted {
-		return fmt.Sprintf("extern go %s: its Go body is not effect-free (%s), and a package binds such a body of its module's own Go only when the root module trusts its Go; write the line `trust go %s` in the root module's ergo.mod (docs/spec/interop.md, Trusted Go)", target, effects, c.pkg.module), true
+	if effects != "" && (f.Sig.Uses == nil || !goForeignRow(f.Sig.Uses)) {
+		// Public effect contracts are explicit (AGENTS.md; LAWFFI LF2m r2):
+		// a body with effects shows them in its own signature, where its
+		// callers see them, never through a module-wide trust line.
+		return fmt.Sprintf("extern go %s: its Go body is not effect-free (%s); declare needs go.Foreign (only main provides it) (docs/spec/interop.md, Trusted Go)", target, effects), true
 	}
 	if c.pkg.goBodies == nil {
 		c.pkg.goBodies = map[string]v1.Body{}
-		c.pkg.goEffects = map[string]string{}
 		c.pkg.goSource = map[string]GoBodySource{}
 	}
 	c.pkg.goBodies[target] = body
-	c.pkg.goEffects[target] = effects
 	if decl, imports, ok := bodies.Source(name); ok {
 		c.pkg.goSource[target] = GoBodySource{Target: target, Name: name, Decl: decl, Imports: imports, Body: body}
 	}
@@ -328,16 +330,6 @@ func ModuleBodySources(pkg *Package) []GoBodySource {
 	}
 	slices.SortFunc(out, func(a, b GoBodySource) int { return strings.Compare(a.Target, b.Target) })
 	return out
-}
-
-// moduleBodyEffects is why the module body f binds may not be pure ("" for
-// an effect-free one), and whether f binds a module body.
-func moduleBodyEffects(f *Func) (string, bool) {
-	if _, ok := ModuleBody(f); !ok {
-		return "", false
-	}
-	path, name := f.Decl.Extern.Split()
-	return f.Pkg.goEffects[path+"."+name], true
 }
 
 // moduleShape is why the Go body cannot stand for the extern's signature
