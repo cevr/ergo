@@ -5,116 +5,66 @@ import utf8
 // writer is the state of one Write: the file it reads and the text so far.
 type writer { file File, b strings.Builder }
 
-// Write is the IR file of f as the Go IR builder writes it: encoding/json's
-// Marshal of the builder's irFile, byte for byte. A pool it cannot read
-// fails Malformed at the first word that is wrong.
+// Write is the IR file of file as the Go IR builder writes it:
+// encoding/json's Marshal of the builder's irFile, byte for byte. IR it
+// cannot read fails Malformed at the first row or word that is wrong.
 func Write(file File) string fails Malformed {
-	if len(file.Words) < 2 {
-		return Malformed{At: 0, Why: "no header"}
-	}
-	if file.Words[0] != Version {
-		return Malformed{At: 0, Why: "version " + strconv.Itoa(int(file.Words[0]))}
+	if len(file.Strs) == 0 || len(file.Strs[0]) != 0 {
+		return Malformed{At: 0, Why: "Strs[0] is not \"\""}
 	}
 	let mut w = writer{file: file, b: strings.NewBuilder()}
-	w.b.Grow(8 * len(file.Words))
-	try node(&w, int(file.Words[1]), TFile)
+	w.b.WriteString("{\"v\":")
+	w.b.WriteString(strconv.FormatInt(file.V, 10))
+	w.b.WriteString(",\"files\":")
+	if file.FilesNil {
+		w.b.WriteString("null")
+	} else {
+		w.b.WriteByte('[')
+		for i in 0..len(file.Files) {
+			if i > 0 {
+				w.b.WriteByte(',')
+			}
+			w.b.WriteString(Quote(file.Files[i]))
+		}
+		w.b.WriteByte(']')
+	}
+	w.b.WriteString(",\"funcs\":")
+	if file.FuncsNil {
+		w.b.WriteString("null")
+	} else {
+		w.b.WriteByte('[')
+		for i in 0..len(file.Funcs) {
+			if i > 0 {
+				w.b.WriteByte(',')
+			}
+			try function(&w, i)
+		}
+		w.b.WriteByte(']')
+	}
+	if len(file.Shared) > 0 {
+		w.b.WriteString(",\"shared\":[")
+		for i in 0..len(file.Shared) {
+			if i > 0 {
+				w.b.WriteByte(',')
+			}
+			w.b.WriteString(Quote(file.Shared[i]))
+		}
+		w.b.WriteByte(']')
+	}
+	w.b.WriteByte('}')
 	w.b.String()
 }
 
-// word is Words[i], or Malformed past the end.
-func word(w *writer, i int) uint32 fails Malformed {
-	if i < 0 || i >= len(w.file.Words) {
-		return Malformed{At: i, Why: "past the end"}
-	}
-	w.file.Words[i]
-}
-
-// node writes the record at o, of struct type t, as encoding/json writes a
-// struct: the fields in order, each that omitempty does not drop, between
-// braces.
-func node(w *writer, o int, t uint8) fails Malformed {
-	let have = try word(w, o)
-	if have != uint32(t) {
-		return Malformed{At: o, Why: "type " + strconv.Itoa(int(have)) + ", want " + strconv.Itoa(int(t))}
-	}
-	let mask = try word(w, o+1)
-	let fs = Fields(t)
-	if len(fs) < 32 && mask>>uint32(len(fs)) != 0 {
-		return Malformed{At: o + 1, Why: "a bit past the fields"}
-	}
-	let mut p = o + 2
-	let mut next = byte('{')
-	for j in 0..len(fs) {
-		let fd = fs[j]
-		let set = mask&(uint32(1)<<uint32(j)) != 0
-		let at = p
-		if set {
-			p += Width(fd.Kind)
-		}
-		if fd.Omit {
-			if !set {
-				continue
-			}
-			let none = try empty(w, fd.Kind, at)
-			if none {
-				continue
-			}
-		}
-		w.b.WriteByte(next)
-		next = byte(',')
-		w.b.WriteString(fd.Key)
-		try value(w, fd, set, at)
-	}
-	if next == byte('{') {
-		w.b.WriteString("{}")
-	} else {
-		w.b.WriteByte('}')
-	}
-}
-
-// empty reports whether the set field of kind k at word at holds what
-// omitempty drops: "", 0, false or an empty list. A pointer is never empty.
-func empty(w *writer, k uint8, at int) bool fails Malformed {
-	match k {
-	case 1:
-		let s = try text(w, at)
-		len(s) == 0
-	case 2:
-		let lo = try word(w, at)
-		let hi = try word(w, at+1)
-		lo == 0 && hi == 0
-	case 3:
-		false
-	case 8, 9, 10:
-		let q = try word(w, at)
-		let n = try word(w, int(q))
-		n == 0
-	case _:
-		false
-	}
-}
-
-// text is the string whose index is the word at at.
-func text(w *writer, at int) string fails Malformed {
-	let id = try word(w, at)
+// text is Strs[id], or Malformed past the end.
+func text(w *writer, id uint32) string fails Malformed {
 	if int(id) >= len(w.file.Strs) {
-		return Malformed{At: at, Why: "no text " + strconv.Itoa(int(id))}
+		return Malformed{At: int(id), Why: "no text " + strconv.Itoa(int(id))}
 	}
 	w.file.Strs[int(id)]
 }
 
-// integer is the int64 whose halves are the two words at at.
-func integer(w *writer, at int) int64 fails Malformed {
-	let lo = try word(w, at)
-	let hi = try word(w, at+1)
-	int64(uint64(lo) | uint64(hi)<<uint64(32))
-}
-
-// pos writes the three words at at as a JSON array, as Go writes [3]int.
-func pos(w *writer, at int) fails Malformed {
-	let a = try word(w, at)
-	let b = try word(w, at+1)
-	let c = try word(w, at+2)
+// pos writes a position as Go writes [3]int.
+func pos(w *writer, a uint32, b uint32, c uint32) {
 	w.b.WriteByte('[')
 	w.b.WriteString(strconv.Itoa(int(a)))
 	w.b.WriteByte(',')
@@ -124,78 +74,206 @@ func pos(w *writer, at int) fails Malformed {
 	w.b.WriteByte(']')
 }
 
-// value writes field fd, set or not, whose words start at at.
-func value(w *writer, fd Field, set bool, at int) fails Malformed {
-	match fd.Kind {
-	case 1:
-		if set {
-			let s = try text(w, at)
-			w.b.WriteString(Quote(s))
-		} else {
-			w.b.WriteString("\"\"")
+// function writes Funcs[fi] as Go writes an irFunc.
+func function(w *writer, fi int) fails Malformed {
+	w.b.WriteString("{\"name\":")
+	let name = try text(w, w.file.Funcs[fi].Name)
+	w.b.WriteString(Quote(name))
+	w.b.WriteString(",\"pos\":")
+	let p = w.file.Funcs[fi].Pos
+	pos(w, p.File, p.Line, p.Col)
+	w.b.WriteString(",\"end\":")
+	let e = w.file.Funcs[fi].End
+	pos(w, e.File, e.Line, e.Col)
+	let nl = len(w.file.Funcs[fi].Locals)
+	if nl > 0 {
+		w.b.WriteString(",\"locals\":[")
+		for i in 0..nl {
+			if i > 0 {
+				w.b.WriteByte(',')
+			}
+			let l = w.file.Funcs[fi].Locals[i]
+			let ln = try text(w, l.Name)
+			let lt = try text(w, l.Type)
+			w.b.WriteString("{\"name\":")
+			w.b.WriteString(Quote(ln))
+			w.b.WriteString(",\"type\":")
+			w.b.WriteString(Quote(lt))
+			w.b.WriteString(",\"pos\":")
+			pos(w, l.Pos.File, l.Pos.Line, l.Pos.Col)
+			w.b.WriteByte('}')
 		}
-	case 2, 5:
-		if set {
-			let n = try integer(w, at)
-			w.b.WriteString(strconv.FormatInt(n, 10))
-		} else if fd.Kind == FIntPtr {
-			w.b.WriteString("null")
-		} else {
-			w.b.WriteByte('0')
-		}
-	case 3:
-		if set {
-			w.b.WriteString("true")
-		} else {
-			w.b.WriteString("false")
-		}
-	case 4, 6:
-		if set {
-			try pos(w, at)
-		} else if fd.Kind == FPosPtr {
-			w.b.WriteString("null")
-		} else {
-			w.b.WriteString("[0,0,0]")
-		}
-	case 7:
-		if set {
-			let o = try word(w, at)
-			try node(w, int(o), fd.Of)
-		} else {
-			w.b.WriteString("null")
-		}
-	case _:
-		if set {
-			try list(w, fd, at)
-		} else {
-			w.b.WriteString("null")
-		}
+		w.b.WriteByte(']')
 	}
+	w.b.WriteString(",\"body\":")
+	let roots = w.file.Funcs[fi].Body.Roots
+	if roots == 0 {
+		w.b.WriteString("null")
+	} else {
+		try rows(w, fi, roots, TStmt)
+	}
+	w.b.WriteByte('}')
 }
 
-// list writes the list field fd whose offset is the word at at.
-func list(w *writer, fd Field, at int) fails Malformed {
-	let q = int(try word(w, at))
-	let n = int(try word(w, q))
+// extra is Funcs[fi].Body.Extra[at], or Malformed past the end. Offset 0
+// is never a list or a position.
+func extra(w *writer, fi int, at int) uint32 fails Malformed {
+	if at <= 0 || at >= len(w.file.Funcs[fi].Body.Extra) {
+		return Malformed{At: at, Why: "past the extra pool"}
+	}
+	w.file.Funcs[fi].Body.Extra[at]
+}
+
+// rows writes the row list at Extra offset q, rows of struct type t; an
+// id of 0 is a nil element, written null.
+func rows(w *writer, fi int, q uint32, t uint8) fails Malformed {
+	let n = int(try extra(w, fi, int(q)))
 	w.b.WriteByte('[')
 	for i in 0..n {
 		if i > 0 {
 			w.b.WriteByte(',')
 		}
-		match fd.Kind {
-		case 8:
-			let o = try word(w, q+1+i)
-			if o == 0 {
-				w.b.WriteString("null")
-			} else {
-				try node(w, int(o), fd.Of)
+		let id = try extra(w, fi, int(q)+1+i)
+		if id == 0 {
+			w.b.WriteString("null")
+		} else {
+			try row(w, fi, int(id), t)
+		}
+	}
+	w.b.WriteByte(']')
+}
+
+// row writes row id of Funcs[fi]'s body, which must be of struct type t,
+// as encoding/json writes the struct: every field in the type's order but
+// those omitempty drops, a field outside the kind's slots being Go's zero.
+func row(w *writer, fi int, id int, t uint8) fails Malformed {
+	if id <= 0 || id > len(w.file.Funcs[fi].Body.Kind) {
+		return Malformed{At: id, Why: "no row"}
+	}
+	let c = w.file.Funcs[fi].Body.Kind[id-1]
+	if int(c) >= NumKinds() || c == 0 {
+		return Malformed{At: id, Why: "kind " + strconv.Itoa(int(c))}
+	}
+	let kd = KindOf(c)
+	if kd.Class != t {
+		return Malformed{At: id, Why: "kind " + kd.Name + " where its struct type is not the field's"}
+	}
+	let fs = Fields(t)
+	let ns = len(kd.Slots)
+	let mut si = 0
+	let mut next = byte('{')
+	for j in 0..len(fs) {
+		let fd = fs[j]
+		let mut v = uint32(0)
+		if si < ns && int(kd.Slots[si]) == j {
+			v = try Slot(&w.file.Funcs[fi].Body, id, si, ns)
+			si += 1
+		}
+		if fd.Omit {
+			let none = try empty(w, fi, fd.Kind, v)
+			if none {
+				continue
 			}
-		case 9:
-			let s = try text(w, q+1+i)
+		}
+		w.b.WriteByte(next)
+		next = byte(',')
+		w.b.WriteString(fd.Key)
+		try value(w, fi, id, fd, kd, v)
+	}
+	w.b.WriteByte('}')
+}
+
+// empty reports whether a field of kind k whose slot word is v holds what
+// omitempty drops: "", 0, false, nil or an empty list.
+func empty(w *writer, fi int, k uint8, v uint32) bool fails Malformed {
+	if v == 0 {
+		return true
+	}
+	match k {
+	case 1:
+		let s = try text(w, v)
+		len(s) == 0
+	case 8, 9, 10:
+		let n = try extra(w, fi, int(v))
+		n == 0
+	case _:
+		false
+	}
+}
+
+// value writes the field fd of row id, whose slot word is v (0 when the
+// kind has no slot for it).
+func value(w *writer, fi int, id int, fd Field, kd Kind, v uint32) fails Malformed {
+	match fd.Kind {
+	case 11:
+		w.b.WriteString(kd.Quoted)
+	case 12:
+		pos(w, w.file.Funcs[fi].Body.File[id-1], w.file.Funcs[fi].Body.Line[id-1], w.file.Funcs[fi].Body.Col[id-1])
+	case 1:
+		let s = try text(w, v)
+		w.b.WriteString(Quote(s))
+	case 2:
+		w.b.WriteString(strconv.Itoa(int(int32(v))))
+	case 5:
+		if v == 0 {
+			w.b.WriteString("null")
+		} else {
+			w.b.WriteString(strconv.Itoa(int(v) - 1))
+		}
+	case 3:
+		if v != 0 {
+			w.b.WriteString("true")
+		} else {
+			w.b.WriteString("false")
+		}
+	case 4, 6:
+		if v == 0 {
+			if fd.Kind == FPos {
+				w.b.WriteString("[0,0,0]")
+			} else {
+				w.b.WriteString("null")
+			}
+		} else {
+			let a = try extra(w, fi, int(v))
+			let b = try extra(w, fi, int(v)+1)
+			let c = try extra(w, fi, int(v)+2)
+			pos(w, a, b, c)
+		}
+	case 7:
+		if v == 0 {
+			w.b.WriteString("null")
+		} else {
+			try row(w, fi, int(v), fd.Of)
+		}
+	case 8:
+		if v == 0 {
+			w.b.WriteString("null")
+		} else {
+			try rows(w, fi, v, fd.Of)
+		}
+	case _:
+		if v == 0 {
+			w.b.WriteString("null")
+		} else {
+			try list(w, fi, fd.Kind, v)
+		}
+	}
+}
+
+// list writes the Strs or Ints list at Extra offset q.
+func list(w *writer, fi int, k uint8, q uint32) fails Malformed {
+	let n = int(try extra(w, fi, int(q)))
+	w.b.WriteByte('[')
+	for i in 0..n {
+		if i > 0 {
+			w.b.WriteByte(',')
+		}
+		let e = try extra(w, fi, int(q)+1+i)
+		if k == FStrs {
+			let s = try text(w, e)
 			w.b.WriteString(Quote(s))
-		case _:
-			let v = try integer(w, q+1+2*i)
-			w.b.WriteString(strconv.FormatInt(v, 10))
+		} else {
+			w.b.WriteString(strconv.Itoa(int(int32(e))))
 		}
 	}
 	w.b.WriteByte(']')
@@ -307,20 +385,39 @@ law QuoteIsSafe(s string) {
 	ok && i == len(q)-1
 }
 
-// WriteDropsOnlyOmitEmpty: a file record with no bit set is written as Go
-// writes a zero irFile, and with every bit set over zero values (an empty
-// shared list, version 0) only shared, the omitempty field, is dropped,
-// while the lists that are not omitempty are written empty.
-law WriteDropsOnlyOmitEmpty(v uint32) {
-	let zero = File{Words: []uint32{Version, 2, uint32(TFile), 0}, Strs: []string{}}
-	let all = File{Words: []uint32{Version, 2, uint32(TFile), 15, v, 0, 9, 9, 9, 0}, Strs: []string{}}
-	let a = Write(zero) catch {
+// WriteZeroesUnslottedFields: a statement of a kind with no slots is
+// written with its kind, its position and the three positions that are
+// not omitempty as Go's zero, and nothing else; a file of no functions
+// writes Go's nil and empty lists apart.
+law WriteZeroesUnslottedFields(line uint32) {
+	let mut body = Body{
+		Kind:  []uint8{0},
+		A:     []uint32{0},
+		B:     []uint32{0},
+		File:  []uint32{0},
+		Line:  []uint32{line},
+		Col:   []uint32{3},
+		Extra: []uint32{0, 1, 1},
+		Roots: 1,
+	}
+	let mut cont = 0
+	for c in 1..NumKinds() {
+		if KindOf(uint8(c)).Name == "continue" {
+			cont = c
+		}
+	}
+	body.Kind[0] = uint8(cont)
+	let fn = Func{Name: 0, Pos: Pos{File: 0, Line: 1, Col: 1}, End: Pos{File: 0, Line: 2, Col: 1}, Locals: []Local{}, Body: body}
+	let file = File{V: 1, Files: []string{}, FilesNil: false, Funcs: []Func{fn}, FuncsNil: false, Shared: []string{}, Strs: []string{""}}
+	let empty = File{V: 0, Files: []string{}, FilesNil: true, Funcs: []Func{}, FuncsNil: false, Shared: []string{}, Strs: []string{""}}
+	let a = Write(file) catch {
 	case Malformed:
 		return false
 	}
-	let b = Write(all) catch {
+	let b = Write(empty) catch {
 	case Malformed:
 		return false
 	}
-	a == "{\"v\":0,\"files\":null,\"funcs\":null}" && b == "{\"v\":"+strconv.Itoa(int(v))+",\"files\":[],\"funcs\":[]}"
+	let stmt = "{\"k\":\"continue\",\"pos\":[0," + strconv.Itoa(int(line)) + ",3],\"end\":[0,0,0],\"epos\":[0,0,0],\"eend\":[0,0,0]}"
+	a == "{\"v\":1,\"files\":[],\"funcs\":[{\"name\":\"\",\"pos\":[0,1,1],\"end\":[0,2,1],\"body\":["+stmt+"]}]}" && b == "{\"v\":0,\"files\":null,\"funcs\":[]}"
 }

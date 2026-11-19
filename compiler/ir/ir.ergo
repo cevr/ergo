@@ -1,56 +1,83 @@
 // Package ir is the IR of the self-hosted compiler (capstone S4): the
 // bodies the patched Go compiler reads (its cmd/compile/internal/ergoir
-// reads the IR file, ergoir.json), held as rows of words in one pool per
-// file, and written as the IR file byte for byte as the Go IR builder
-// (internal/sketch/lower, ir.go) writes it with encoding/json. Every
-// function is pure.
+// reads the IR file, ergoir.json), and Write, which writes the IR file
+// byte for byte as the Go IR builder (internal/sketch/lower, ir.go) writes
+// it with encoding/json. Every function is pure.
 //
-// The pool is SELFLAYOUT's layout (capstone §3a.9): a node is a record of
-// words at an offset of File.Words, and a node refers to another by its
-// offset, so the IR holds no pointer. A record is its struct type, a
-// presence mask with one bit per field of the type (Fields order), then
-// the words of each field whose bit is set, in that order:
+// A function's body is SELFLAYOUT's rows (capstone §3a.9): one row per
+// statement, expression and switch case, as columns (Body). A row is its
+// kind (one byte; kinds.ergo), two words a and b, and its position
+// (file, line, column). What a and b hold is fixed by the kind's slots:
+// the fields the kind sets, in the Go type's field order. A kind with at
+// most two slots holds them in a and b; a kind with more holds the first
+// in a and the others in Extra, from the offset in b on. A slot is one
+// word:
 //
-//	Str     1 word, an index of File.Strs
-//	Int     2 words, the low and high halves of an int64
-//	Bool    no word: the bit is the value
-//	Pos     3 words, a position (file, line, column), each at most 2^32-1
-//	IntPtr  2 words, as Int: a pointer to an int that is not nil
-//	PosPtr  3 words, as Pos: a pointer to a position that is not nil
-//	Node    1 word, the offset of the node's record
-//	Nodes   1 word, the offset of a list: its length, then one offset per
-//	        node, 0 for a nil element (Go writes null)
-//	Strs    1 word, the offset of a list: its length, then one Str per text
-//	Ints    1 word, the offset of a list: its length, then two words per int
+//	Str     an index of File.Strs; 0 is "" (Strs[0] is "")
+//	Int     an int32
+//	IntPtr  0 for nil, else the int plus one (the int is at least 0)
+//	Bool    0 or 1
+//	Pos     0 for the zero position, else the offset of 3 words in Extra
+//	PosPtr  0 for nil, else the offset of 3 words in Extra
+//	Node    0 for nil, else a row's id (its index plus one)
+//	Nodes   0 for nil, else the offset in Extra of the length and one id
+//	        per element, 0 for a nil element (Go writes null)
+//	Strs    0 for nil, else the offset in Extra of the length and the Strs
+//	Ints    0 for nil, else the offset in Extra of the length and the int32s
 //
-// A clear bit is Go's zero value: "" and 0 and false, and nil for a
-// pointer or a list. A set bit over a zero value is allowed, and the writer
-// writes what Go's encoding/json writes for that value (omitempty drops an
-// empty list whether it is nil or not). Words[0] is Version and Words[1]
-// the offset of the file's record.
+// Extra[0] is never an offset, so 0 means nil. Rows refer to rows by id,
+// so the IR holds no pointer and no Map, and a field a kind never sets has
+// no word.
 
 import strings
 
-// Version is Words[0] of a File this package reads; a host that packs
-// another layout is refused.
-let Version = uint32(1)
+// File is one IR file: Go's irFile. FilesNil and FuncsNil keep Go's nil
+// apart from an empty list, which encoding/json writes apart (null, []).
+type File {
+	V        int64,
+	Files    []string,
+	FilesNil bool,
+	Funcs    []Func,
+	FuncsNil bool,
+	Shared   []string,
+	Strs     []string,
+}
 
-// File is one IR file as rows: the words of its records and its texts.
-type File { Words []uint32, Strs []string }
+// Func is one function's IR: Go's irFunc. Its body is Body's rows.
+type Func { Name uint32, Pos Pos, End Pos, Locals []Local, Body Body }
 
-// Malformed is a File the writer cannot read: the word at At, and why. A
-// pool is never repaired: a host that packs it wrong gets this.
+// Local is a function's local: Go's irLocal.
+type Local { Name uint32, Type uint32, Pos Pos }
+
+// Pos is a position: the index of its file in File.Files, its line and
+// its column.
+type Pos { File uint32, Line uint32, Col uint32 }
+
+// Body is a function's statements as rows: the columns of every row, the
+// extra pool, and Roots, the offset in Extra of the body's statement list
+// (0: Go's nil body, written null).
+type Body {
+	Kind  []uint8,
+	A     []uint32,
+	B     []uint32,
+	File  []uint32,
+	Line  []uint32,
+	Col   []uint32,
+	Extra []uint32,
+	Roots uint32,
+}
+
+// Malformed is IR the writer cannot read: the word or row at At, and why.
+// IR is never repaired: a host that packs it wrong gets this.
 type Malformed { At int, Why string }
 
-// The struct types of the IR file, one per Go type of the IR builder.
-let TFile = uint8(1)  // irFile
-let TFunc = uint8(2)  // irFunc
-let TLocal = uint8(3) // irLocal
-let TStmt = uint8(4)  // irStmt
-let TExpr = uint8(5)  // irExpr
-let TCase = uint8(6)  // irCase
+// The struct types of the IR file whose fields the tables below give.
+let TStmt = uint8(4) // irStmt
+let TExpr = uint8(5) // irExpr
+let TCase = uint8(6) // irCase
 
-// The kinds of a field's value.
+// The kinds of a field's value; FK and FRow are a row's kind and position,
+// read from its columns.
 let FStr = uint8(1)
 let FInt = uint8(2)
 let FBool = uint8(3)
@@ -61,6 +88,8 @@ let FNode = uint8(7)
 let FNodes = uint8(8)
 let FStrs = uint8(9)
 let FInts = uint8(10)
+let FK = uint8(11)
+let FRow = uint8(12)
 
 // Field is one field of a struct type: its JSON key as encoding/json writes
 // it (quoted, with the colon), its kind, whether its tag says omitempty,
@@ -71,32 +100,11 @@ func f(name string, kind uint8, omit bool, of uint8) Field {
 	Field{Key: "\"" + name + "\":", Kind: kind, Omit: omit, Of: of}
 }
 
-// The fields of each struct type in the Go type's declaration order, which
-// is the order encoding/json writes them in.
-let fileFields = []Field{
-	f("v", FInt, false, 0),
-	f("files", FStrs, false, 0),
-	f("funcs", FNodes, false, TFunc),
-	f("shared", FStrs, true, 0),
-}
-
-let funcFields = []Field{
-	f("name", FStr, false, 0),
-	f("pos", FPos, false, 0),
-	f("end", FPos, false, 0),
-	f("locals", FNodes, true, TLocal),
-	f("body", FNodes, false, TStmt),
-}
-
-let localFields = []Field{
-	f("name", FStr, false, 0),
-	f("type", FStr, false, 0),
-	f("pos", FPos, false, 0),
-}
-
+// The fields of each row's struct type in the Go type's declaration order,
+// which is the order encoding/json writes them in.
 let stmtFields = []Field{
-	f("k", FStr, false, 0),
-	f("pos", FPos, false, 0),
+	f("k", FK, false, 0),
+	f("pos", FRow, false, 0),
 	f("local", FInt, true, 0),
 	f("key", FIntPtr, true, 0),
 	f("val", FIntPtr, true, 0),
@@ -115,8 +123,8 @@ let stmtFields = []Field{
 }
 
 let exprFields = []Field{
-	f("k", FStr, false, 0),
-	f("pos", FPos, false, 0),
+	f("k", FK, false, 0),
+	f("pos", FRow, false, 0),
 	f("i", FInt, true, 0),
 	f("t", FStr, true, 0),
 	f("v", FStr, true, 0),
@@ -133,7 +141,7 @@ let exprFields = []Field{
 }
 
 let caseFields = []Field{
-	f("pos", FPos, false, 0),
+	f("pos", FRow, false, 0),
 	f("types", FStrs, false, 0),
 	f("body", FNodes, true, TStmt),
 	f("vals", FNodes, true, TExpr),
@@ -142,16 +150,9 @@ let caseFields = []Field{
 
 let noFields = []Field{}
 
-// Fields is the fields of struct type t, none for a byte that names no
-// type.
+// Fields is the fields of row struct type t, none for another byte.
 func Fields(t uint8) []Field {
 	match t {
-	case 1:
-		fileFields
-	case 2:
-		funcFields
-	case 3:
-		localFields
 	case 4:
 		stmtFields
 	case 5:
@@ -163,32 +164,17 @@ func Fields(t uint8) []Field {
 	}
 }
 
-// Width is the number of words a set field of kind k takes in its record.
-func Width(k uint8) int {
-	match k {
-	case 2, 5:
-		2
-	case 3:
-		0
-	case 4, 6:
-		3
-	case _:
-		1
-	}
-}
-
-// FieldsFitTheMask: every struct type has fields, at most 32 (one bit
-// each in the mask word), keys that need no escape, and a struct type on
-// exactly its Node and Nodes fields.
-law FieldsFitTheMask(t uint8) {
+// KeysAreQuoted: every field's key is its name quoted as Quote quotes it,
+// with the colon, and a field names a struct type exactly when it holds
+// rows.
+law KeysAreQuoted(t uint8) {
 	let fs = Fields(t)
-	let named = t >= TFile && t <= TCase
-	let mut ok = named == (len(fs) > 0) && len(fs) <= 32
+	let mut ok = (t >= TStmt && t <= TCase) == (len(fs) > 0)
 	for i in 0..len(fs) {
 		let x = fs[i]
-		let links = x.Kind == FNode || x.Kind == FNodes
 		let name = strings.Slice(x.Key, 1, len(x.Key)-2)
-		ok = ok && links == (x.Of != 0) && Quote(name) == strings.Slice(x.Key, 0, len(x.Key)-1)
+		let links = x.Kind == FNode || x.Kind == FNodes
+		ok = ok && links == (x.Of != 0) && Quote(name)+":" == x.Key
 	}
 	ok
 }
