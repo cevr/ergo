@@ -1,0 +1,303 @@
+// Package ansi is the escape codes of a terminal (docs/spec/stdlib.md,
+// ansi): styles and colours (the 16 basic colours, the 256 indexed ones
+// and RGB), the cursor's moves and the screen's clears, and Strip, which
+// takes every escape sequence out of a text. A style is painted only
+// where colour is on: Paint needs Colors, whose providers are Always,
+// Never and Detect's (NO_COLOR, TERM=dumb, and whether standard output is
+// a terminal), so a program that pipes its output, or a person who set
+// NO_COLOR, gets plain text with no change to the program.
+//
+// The codes are ECMA-48's (SGR, CUU and the rest) as xterm reads them.
+// Prior art: Go has no standard package (fatih/color and lipgloss read
+// NO_COLOR; x/term only sizes); Effect's cli has a colour flag on its
+// output; Bun has Bun.color and Bun.stripANSI; Rust's anstyle and
+// anstream split the style from the stream that decides colour, as
+// Paint and Colors do here. https://no-color.org: a NO_COLOR present
+// and not empty turns colour off.
+
+import io
+import os
+import strings
+
+// Color is a text's or a background's colour: the terminal's own
+// (DefaultColor), one of the 16 basic colours (Basic), one of the 256
+// indexed colours (Indexed), or an RGB colour (RGB). Its builders hold a
+// number to its range, so two colours that paint the same are equal. It
+// is a record, not a union, so a colour is two words and a style no
+// pointer (a std union lowers to an interface).
+type Color { kind int, value int }
+
+// DefaultColor is the terminal's own colour.
+let DefaultColor = Color{kind: 0, value: 0}
+
+// Basic is basic colour n: 0 to 7, and 8 to 15 the bright ones.
+func Basic(n int) Color { Color{kind: 1, value: clamp(n, 15)} }
+
+// Indexed is indexed colour n, 0 to 255.
+func Indexed(n int) Color { Color{kind: 2, value: clamp(n, 255)} }
+
+// RGB is the colour of red, green and blue, each 0 to 255.
+func RGB(r int, g int, b int) Color { Color{kind: 3, value: clamp(r, 255)*65536 + clamp(g, 255)*256 + clamp(b, 255)} }
+
+// The basic colours by name.
+let Black = Color{kind: 1, value: 0}
+let Red = Color{kind: 1, value: 1}
+let Green = Color{kind: 1, value: 2}
+let Yellow = Color{kind: 1, value: 3}
+let Blue = Color{kind: 1, value: 4}
+let Magenta = Color{kind: 1, value: 5}
+let Cyan = Color{kind: 1, value: 6}
+let White = Color{kind: 1, value: 7}
+
+// Style is how a text is painted: its colour, its background, and its
+// attributes.
+type Style { Fg Color, Bg Color, Bold bool, Dim bool, Italic bool, Underline bool, Reverse bool, Strike bool }
+
+// Plain is the style with no colour and no attribute: Paint writes the
+// text alone.
+let Plain = Style{Fg: DefaultColor, Bg: DefaultColor, Bold: false, Dim: false, Italic: false, Underline: false, Reverse: false, Strike: false}
+
+// Colors decides whether a style is painted.
+type Colors {
+	// On is whether colour is on.
+	On() bool,
+
+	// OnIsStable: two asks agree.
+	law OnIsStable() { On() == On() },
+}
+
+// Always is the Colors provider with colour on.
+type Always {} implements Colors
+
+// On is true.
+func On(_ Always) bool { true }
+
+// Never is the Colors provider with colour off.
+type Never {} implements Colors
+
+// On is false.
+func On(_ Never) bool { false }
+
+// Detected is the Colors provider Detect decides once.
+type Detected { on bool } implements Colors
+
+// On is what Detect decided.
+func On(d Detected) bool { d.on }
+
+// Detect is colour as the environment asks: off when NO_COLOR is set and
+// not empty, when TERM is dumb, or when standard output is not a
+// terminal; on otherwise.
+func Detect() Detected needs os.Process | io.Stdout {
+	Decide(os.Process.Getenv("NO_COLOR"), os.Process.Getenv("TERM"), io.Stdout.IsTerminal())
+}
+
+// Decide is colour for NO_COLOR's and TERM's values and whether
+// standard output is a terminal, as Detect decides; for a program that
+// reads them itself.
+func Decide(noColor Option[string], term Option[string], terminal bool) Detected {
+	let off = match noColor {
+	case Some[string] as v:
+		v.Value != ""
+	case None:
+		false
+	}
+	let dumb = match term {
+	case Some[string] as v:
+		v.Value == "dumb"
+	case None:
+		false
+	}
+	Detected{on: !off && !dumb && terminal}
+}
+
+// Paint is text in style s when colour is on: s's codes (SGR), text, and
+// the reset. With colour off, or s Plain, it is text.
+func Paint(s Style, text string) string needs Colors {
+	if s == Plain || !Colors.On() {
+		return text
+	}
+	let mut b = strings.NewBuilder()
+	writeSGR(&b, s)
+	b.WriteString(text)
+	b.WriteString(Reset)
+	b.String()
+}
+
+// WritePaint writes Paint(s, text) to b.
+func WritePaint(b *strings.Builder, s Style, text string) needs Colors {
+	if s == Plain || !Colors.On() {
+		b.WriteString(text)
+		return
+	}
+	writeSGR(b, s)
+	b.WriteString(text)
+	b.WriteString(Reset)
+}
+
+// SGR is s's codes: the one sequence that sets s's colours and
+// attributes; "" for Plain. It is no capability's: a caller that writes
+// it decides colour itself.
+func SGR(s Style) string {
+	if s == Plain {
+		return ""
+	}
+	let mut b = strings.NewBuilder()
+	writeSGR(&b, s)
+	b.String()
+}
+
+// Reset is the sequence that ends every style.
+let Reset = "\x1b[0m"
+
+// writeSGR writes s's codes to b: ESC [, the codes split by ';', m.
+func writeSGR(b *strings.Builder, s Style) {
+	b.WriteString("\x1b[")
+	let mut first = true
+	let attrs = [](bool, int){(s.Bold, 1), (s.Dim, 2), (s.Italic, 3), (s.Underline, 4), (s.Reverse, 7), (s.Strike, 9)}
+	for a in attrs {
+		let (on, code) = a
+		if on {
+			first = sep(b, first)
+			writeInt(b, code)
+		}
+	}
+	first = writeColor(b, s.Fg, 30, first)
+	let _ = writeColor(b, s.Bg, 40, first)
+	b.WriteByte('m')
+}
+
+// sep writes ';' unless first; it is false.
+func sep(b *strings.Builder, first bool) bool {
+	if !first {
+		b.WriteByte(';')
+	}
+	false
+}
+
+// writeColor writes the codes of c as a foreground (base 30) or a
+// background (base 40), and is whether nothing is written yet.
+func writeColor(b *strings.Builder, c Color, base int, first bool) bool {
+	if c.kind == 0 {
+		return first
+	}
+	let _ = sep(b, first)
+	let n = c.value
+	if c.kind == 1 {
+		writeInt(b, if n < 8 { base + n } else { base + 60 + n - 8 })
+		return false
+	}
+	writeInt(b, base+8)
+	if c.kind == 2 {
+		b.WriteString(";5;")
+		writeInt(b, n)
+		return false
+	}
+	b.WriteString(";2;")
+	writeInt(b, n/65536)
+	b.WriteByte(';')
+	writeInt(b, n/256%256)
+	b.WriteByte(';')
+	writeInt(b, n%256)
+	false
+}
+
+// clamp is n held to [0, most].
+func clamp(n int, most int) int { if n < 0 { 0 } else if n > most { most } else { n } }
+
+// writeInt writes n, which is 0 or more, in decimal.
+func writeInt(b *strings.Builder, n int) {
+	if n >= 10 {
+		writeInt(b, n/10)
+	}
+	b.WriteByte(byte('0' + n%10))
+}
+
+// Up, Down, Forward and Back move the cursor n cells (n under 1 is 1).
+func Up(n int) string { move(n, 'A') }
+
+func Down(n int) string { move(n, 'B') }
+
+func Forward(n int) string { move(n, 'C') }
+
+func Back(n int) string { move(n, 'D') }
+
+func move(n int, final byte) string {
+	let mut b = strings.NewBuilder()
+	b.WriteString("\x1b[")
+	writeInt(&b, if n < 1 { 1 } else { n })
+	b.WriteByte(final)
+	b.String()
+}
+
+// MoveTo moves the cursor to row and col, counted from 1 at the top left
+// (under 1 is 1).
+func MoveTo(row int, col int) string {
+	let mut b = strings.NewBuilder()
+	b.WriteString("\x1b[")
+	writeInt(&b, if row < 1 { 1 } else { row })
+	b.WriteByte(';')
+	writeInt(&b, if col < 1 { 1 } else { col })
+	b.WriteByte('H')
+	b.String()
+}
+
+// The screen's and the cursor's other sequences.
+let ClearScreen = "\x1b[2J"
+let ClearLine = "\x1b[2K"
+let ClearToEnd = "\x1b[0J"
+let Home = "\x1b[H"
+let HideCursor = "\x1b[?25l"
+let ShowCursor = "\x1b[?25h"
+let AltScreen = "\x1b[?1049h"
+let MainScreen = "\x1b[?1049l"
+
+// Strip is s with every escape sequence taken out: CSI (ESC [, parameter
+// and intermediate bytes, a final byte in 0x40-0x7e), OSC (ESC ], up to a
+// BEL or ESC \), and ESC with one byte after it. A sequence that s ends
+// inside is taken out to the end.
+func Strip(s string) string {
+	if strings.IndexByte(s, 0x1b) < 0 {
+		return s
+	}
+	let mut b = strings.NewBuilder()
+	let mut i = 0
+	for i < len(s) {
+		if s[i] != 0x1b {
+			let j = strings.IndexByte(s[i:], 0x1b)
+			let end = if j < 0 { len(s) } else { i + j }
+			b.WriteString(s[i:end])
+			i = end
+			continue
+		}
+		i = i + sequenceLen(s[i:])
+	}
+	b.String()
+}
+
+// sequenceLen is the length of the escape sequence at the front of s,
+// which starts with ESC.
+func sequenceLen(s string) int {
+	if len(s) < 2 {
+		return len(s)
+	}
+	if s[1] == '[' {
+		for i in 2..len(s) {
+			if s[i] >= 0x40 && s[i] <= 0x7e {
+				return i + 1
+			}
+		}
+		return len(s)
+	}
+	if s[1] == ']' {
+		for i in 2..len(s) {
+			if s[i] == 0x07 {
+				return i + 1
+			}
+			if s[i] == 0x1b && i+1 < len(s) && s[i+1] == '\\' {
+				return i + 2
+			}
+		}
+		return len(s)
+	}
+	2
+}

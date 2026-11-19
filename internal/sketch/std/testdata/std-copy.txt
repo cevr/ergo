@@ -6,6 +6,7 @@
 # join (stdCopyBaseline).
 
 actor	same
+ansi	same
 arena	differs	lower: joinResult joins a call into its assignment only in a body with no line directives (std's), so a std body stays small enough for Go to inline	follow-up join-under-directive
 atomic	same
 base64	differs	lower: a union of a user package lowers to the flat form, a std union to an interface (flatunion.go keys on isSourced)	follow-up flat-union-std
