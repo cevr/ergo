@@ -2705,7 +2705,7 @@ func (w *valueWalk) needsCopy(vv *vvar, o *vocc) bool {
 		return false
 	}
 	for _, wr := range vv.writes {
-		if wr.frame != vv.frame {
+		if wr.frame != vv.frame && !w.returnsPast(vv, o, wr) {
 			return true // a write in another frame can run at any time
 		}
 	}
@@ -2721,6 +2721,31 @@ func (w *valueWalk) needsCopy(vv *vvar, o *vocc) bool {
 		}
 	}
 	return false
+}
+
+// returnLowering "copy" selects the reference of the return rule
+// (returnsPast): a return of a root that another frame writes copies.
+// Empty in every build.
+var returnLowering string
+
+// returnsPast reports whether the write wr, in a frame nested in vv's, can
+// run no more once o returns vv's value from vv's own frame (KEPT-MOVE): o
+// ends the frame, and wr's frame and each frame between it and vv's are
+// not escaping (check/escaping.go), so each runs only inside the call it
+// is passed to, which has returned. The returned value is then the
+// binding's last use, and it moves, as a return of a root no frame writes
+// does: kidsOf's `change(f, r, func(n) { kids = n.kids }); kids` returns
+// kids with no copy.
+func (w *valueWalk) returnsPast(vv *vvar, o *vocc, wr *vocc) bool {
+	if returnLowering == "copy" || o.kind != occReturn || o.frame != vv.frame {
+		return false
+	}
+	for f := wr.frame; f != vv.frame; f = f.parent {
+		if f == nil || f.escaping {
+			return false
+		}
+	}
+	return true
 }
 
 // snapshotted reports whether frame f sees a copy of vv taken when an
