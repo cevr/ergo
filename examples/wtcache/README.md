@@ -7,6 +7,7 @@ A write-through cache of text settings. `set KEY VALUE` writes the value through
 - `settings`: the domain. It holds the operation type `Backing` with its law `ReadsTheLastWrite`, the codec `Encode` and `Decode` with the law `RoundTrips`, and the `Cache`.
 - `memory`: `Lines`, a `Backing` in a map, and the tests that run the law and the write-through against it.
 - `cmd/wtcache`: the binary, the only place that chooses the backing.
+- `cmd/wtbench`: the workload of the receipt `benchmarks/laws/encdec/count.sh [CHECKOUT] [RUNS]`. It counts this program built with and without rewrites against hand Go and the floor (`benchmarks/laws/encdec/hand`).
 
 ## What it shows: a law that sees through functions
 
