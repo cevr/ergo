@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/check"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 	"ergo.local/prototype/internal/sketch/testplan"
 	"ergo.local/prototype/runtime/testgen"
@@ -37,7 +38,7 @@ func lawTargets(pkg *check.Package, run check.LawRun) []lawTarget {
 
 func qualifiedLaw(pkg *check.Package, law *check.Law) string {
 	n := lawName(law)
-	if law.Pkg != pkg {
+	if law.Pkg != pkg && law.Pkg.Path != stdlib.PreludePath { // a prelude law is named bare (check.Law.Title)
 		n = "law " + law.Pkg.Name + "." + strings.TrimPrefix(n, "law ")
 	}
 	return n
