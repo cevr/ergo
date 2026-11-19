@@ -412,9 +412,14 @@ func writeLedger(opts fileOptions, l loaded) error {
 	if err != nil {
 		return err
 	}
-	tc, err := buildAction(opts)
-	if err != nil {
-		return err
+	// A library's ledger takes no build (sketchfront.HasMain), so its
+	// write resolves no toolchain: no go command, and no patched compile
+	// built into a cold cache (GATE-CORE-COST).
+	var tc build.Toolchain
+	if sketchfront.HasMain(l.analysis.Root().Package) {
+		if tc, err = buildAction(opts); err != nil {
+			return err
+		}
 	}
 	changed, err := sketchfront.UpdateLedger(l.analysis, sketchfront.BuildRequest{
 		Mode:      build.ModeBuild,

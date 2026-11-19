@@ -722,6 +722,15 @@ func checkEnvelope(opts fileOptions, l loaded, fsys sketchfront.FS) (out []byte,
 		}
 		return buf.Bytes(), fmt.Errorf("check failed"), nil
 	}
+	return evaluatedEnvelope(opts, l, id, fsys)
+}
+
+// evaluatedEnvelope is the check envelope of a loaded package that
+// checks, with its evaluation, and check's exit status; id is the
+// producer identity the envelope was qualified with, and fsys the file
+// system the ledger is read through (a warm request's Recorder; nil reads
+// the host).
+func evaluatedEnvelope(opts fileOptions, l loaded, id producer.Identity, fsys sketchfront.FS) (out []byte, exit, err error) {
 	// Only a source that checks is evaluated (L7): in process, with no Go
 	// build and no child.
 	budget := evalBudget(opts)
@@ -746,6 +755,7 @@ func checkEnvelope(opts fileOptions, l loaded, fsys sketchfront.FS) (out []byte,
 		return nil, nil, err
 	}
 	l.result.SetEvaluation(evaluation)
+	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(l.result.CheckEnvelope()); err != nil {
 		return nil, nil, err
 	}

@@ -145,7 +145,7 @@ func UpdateLedger(a Analysis, req BuildRequest) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	if hasMain(unit.Package) {
+	if HasMain(unit.Package) {
 		// RewriteChecks runs nothing when neither the root nor an import
 		// has a rewrite law: an import's provider is checked at the
 		// root's sites. A library has no run build, so no site of its
@@ -378,8 +378,10 @@ func GuardFactEntries() []lower.LedgerEntry {
 	return out
 }
 
-// hasMain reports whether pkg declares main, the run build's entry.
-func hasMain(pkg *check.Package) bool {
+// HasMain reports whether pkg declares main, the run build's entry. Only
+// such a package's ledger takes a build (UpdateLedger's RewriteChecks), so
+// only its writer needs a toolchain.
+func HasMain(pkg *check.Package) bool {
 	for _, f := range pkg.Funcs {
 		if f.Name == "main" {
 			return true
