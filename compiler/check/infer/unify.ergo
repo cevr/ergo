@@ -37,39 +37,87 @@ let exact = 2
 func elemMode(mode int) int { if mode&assign != 0 { mode | exact } else { mode } }
 
 // Unions is the unions inference may meet, each with its variants
-// (types.md, Unions): by the union's type id, the place of its variants.
-// A generic union's instance is in no table yet (its variants would be
-// instances of the variants' declarations at the same arguments).
-type Unions { at dense.Side[store.TKey, int], variants [][]dense.ID[store.TKey] }
+// (types.md, Unions), as the Go checker's asUnion reads them from a named
+// type's underlying union. A union with no type parameters is held by its
+// type id, with its variants. A generic one is held by its declaration
+// (its origin), with each variant as a template over the union's
+// parameters, Param(0) to Param(n-1): an instance's variants are the
+// templates at its arguments, as under(Option[int]) is Some[int] | None.
+type Unions { at dense.Side[store.TKey, int], variants [][]dense.ID[store.TKey], origins []store.XRef, templates [][]dense.ID[store.TKey] }
 
 // NoUnions is the table of no union.
-func NoUnions() Unions { Unions{at: dense.NewSide[store.TKey, int](-1), variants: [][]dense.ID[store.TKey]{}} }
+func NoUnions() Unions {
+	Unions{at: dense.NewSide[store.TKey, int](-1), variants: [][]dense.ID[store.TKey]{}, origins: []store.XRef{}, templates: [][]dense.ID[store.TKey]{}}
+}
 
-// AddUnion records t as a union of the variants vs.
+// AddUnion records t, a union with no type parameters, as a union of the
+// variants vs.
 func AddUnion(u mut Unions, t dense.ID[store.TKey], vs []dense.ID[store.TKey]) {
 	dense.SideSet(&u.at, t, len(u.variants))
 	u.variants = u.variants.Append(vs)
 }
 
-// VariantsOf is the variants of t when u holds t as a union, else none.
-func VariantsOf(u Unions, t dense.ID[store.TKey]) []dense.ID[store.TKey] {
-	let i = dense.SideOf(u.at, t)
-	if i < 0 { []dense.ID[store.TKey]{} } else { u.variants[i] }
+// AddGeneric records the generic union declared at origin, its variants
+// the templates ts over its parameters.
+func AddGeneric(u mut Unions, origin store.XRef, ts []dense.ID[store.TKey]) {
+	u.origins = u.origins.Append(origin)
+	u.templates = u.templates.Append(ts)
 }
 
-// isUnion is whether t is a union of u.
-func isUnion(u Unions, t dense.ID[store.TKey]) bool { dense.SideOf(u.at, t) >= 0 }
-
-// variantOf is whether v is a variant of the union t of u: Go's
-// vn.origin() == yn.origin(), which for a union with no type arguments is
-// identity.
-func variantOf(u Unions, t dense.ID[store.TKey], v dense.ID[store.TKey]) bool {
-	for x in VariantsOf(u, t) {
-		if x == v {
-			return true
+// VariantsOf is the variants of t when t is a union u holds, or an
+// instance of a generic one (its templates at t's arguments), else none.
+func VariantsOf(s mut store.Store, u Unions, t dense.ID[store.TKey]) []dense.ID[store.TKey] {
+	let i = dense.SideOf(u.at, t)
+	if i >= 0 {
+		return u.variants[i]
+	}
+	if store.KindOfType(*s, t) != store.KInstance || len(store.OperandsOf(*s, t)) == 0 {
+		return []dense.ID[store.TKey]{}
+	}
+	let o = store.OriginOfType(*s, t)
+	for j, g in u.origins {
+		if g == o {
+			let args = store.OperandsOf(*s, t)
+			let mut out = []dense.ID[store.TKey]{}
+			for v in u.templates[j] {
+				out = out.Append(store.TSubst(s, v, args))
+			}
+			return out
 		}
 	}
-	false
+	[]dense.ID[store.TKey]{}
+}
+
+// sameOrigin is Go's x.origin() == y.origin(): one type, or two instances
+// of one declaration.
+func sameOrigin(s store.Store, x dense.ID[store.TKey], y dense.ID[store.TKey]) bool {
+	x == y || store.KindOfType(s, x) == store.KInstance && store.KindOfType(s, y) == store.KInstance && store.OriginOfType(s, x) == store.OriginOfType(s, y)
+}
+
+// matched is whether the union rule applied and matched.
+func matched(o Option[bool]) bool {
+	match o {
+	case Some[bool] as m:
+		m.Value
+	case None:
+		false
+	}
+}
+
+// unionMatch is unify.go's named-union rule, x a union of u's: x matches
+// y of another origin when a variant of x has y's origin and matches y
+// exactly; y of x's origin is left to the structural rules (none).
+func unionMatch(s mut store.Store, f mut Frame, u Unions, c Call, x dense.ID[store.TKey], y dense.ID[store.TKey], d int) Option[bool] {
+	let vs = VariantsOf(s, u, x)
+	if len(vs) == 0 || sameOrigin(*s, x, y) {
+		return None
+	}
+	for v in vs {
+		if sameOrigin(*s, v, y) {
+			return Some[bool]{Value: nify(s, f, u, c, v, y, exact, d)}
+		}
+	}
+	Some[bool]{Value: false}
 }
 
 // NoValue is the binding of a result parameter matched against a function
@@ -122,6 +170,44 @@ law InferWidensVariantsToTheirUnion(picks []int) {
 	infers(appends, ut) && infers(variantFirst, ut) && infers(unionFirst, ut) && isNone(stranger) && isNone(invariant) && Depth(f) == 0
 }
 
+// InferWidensGenericVariants: a generic union's instance has its
+// templates at its arguments as variants (under(Opt[E]) is Sm[E] | Nn), and
+// the union rules compare origins: xs.Append(Sm[E]) and xs.Append(Nn) on
+// []Opt[E] infer Opt[E], a variant before or after its union infers the
+// union, a parameter Opt[T] matched against Sm[E] binds T to E, and a
+// variant at other arguments than the union's conflicts.
+law InferWidensGenericVariants(picks []int) {
+	let mut s = store.New("p", []string{})
+	let mut f = NewFrame()
+	// Stand-ins: Opt[T] = Sm[T] | Nn, declarations 9 and 10 of the package.
+	let opt = store.XRef{Import: uint32(0), Decl: uint32(9)}
+	let sm = store.XRef{Import: uint32(0), Decl: uint32(10)}
+	let nn = store.TBasic(&s, 37)
+	let mut u = NoUnions()
+	AddGeneric(&u, opt, []dense.ID[store.TKey]{store.TInstance(&s, sm, []dense.ID[store.TKey]{store.TParam(&s, 0)}), nn})
+	let e = store.TBasic(&s, 2+at(picks, 0)%5)
+	let other = store.TBasic(&s, 8)
+	let oe = store.TInstance(&s, opt, []dense.ID[store.TKey]{e})
+	let se = store.TInstance(&s, sm, []dense.ID[store.TKey]{e})
+	let base = 1 + at(picks, 1)%3
+	let c = Begin(&f, []bool{false}, base)
+	let t = Param(&s, c, 0)
+	let ts = store.TSlice(&s, t)
+	let ot = store.TInstance(&s, opt, []dense.ID[store.TKey]{t})
+	End(&f, c)
+	let none = []dense.ID[store.TKey]{}
+	let rows = []bool{false}
+	let pair = Callee{Params: []dense.ID[store.TKey]{t, t}, Rows: rows, Base: base}
+	let appendTo = Callee{Params: []dense.ID[store.TKey]{ts, t}, Rows: rows, Base: base}
+	let v = if at(picks, 2)%2 == 0 { se } else { nn }
+	let appends = Infer(&s, &f, u, appendTo, none, []Arg{Typed{T: store.TSlice(&s, oe)}, Typed{T: v}})
+	let variantFirst = Infer(&s, &f, u, pair, none, []Arg{Typed{T: v}, Typed{T: oe}})
+	let unionFirst = Infer(&s, &f, u, pair, none, []Arg{Typed{T: oe}, Typed{T: v}})
+	let unwraps = Infer(&s, &f, u, Callee{Params: []dense.ID[store.TKey]{ot}, Rows: rows, Base: base}, none, []Arg{Typed{T: se}})
+	let conflict = Infer(&s, &f, u, pair, none, []Arg{Typed{T: se}, Typed{T: store.TInstance(&s, opt, []dense.ID[store.TKey]{other})}})
+	infers(appends, oe) && infers(variantFirst, oe) && infers(unionFirst, oe) && infers(unwraps, e) && isNone(conflict) && Depth(f) == 0
+}
+
 // infers is whether o is the one type argument t.
 func infers(o Option[[]dense.ID[store.TKey]], t dense.ID[store.TKey]) bool {
 	match o {
@@ -171,7 +257,7 @@ func nify(s mut store.Store, f mut Frame, u Unions, c Call, x0 dense.ID[store.TK
 			// when a later argument names the union (G-exup-2): the
 			// variant is assignable to it. The union first then the
 			// variant matches by the union rule below.
-			if mode&exact == 0 && isUnion(u, y) && b != y && variantOf(u, y, b) {
+			if mode&exact == 0 && matched(unionMatch(s, f, u, c, y, b, d)) {
 				Bind(f, c, k, y)
 				return true
 			}
@@ -179,8 +265,12 @@ func nify(s mut store.Store, f mut Frame, u Unions, c Call, x0 dense.ID[store.TK
 		}
 	}
 	// A union matches one of its variants (types.md, Unions).
-	if mode&exact == 0 && isUnion(u, x) {
-		return variantOf(u, x, y)
+	if mode&exact == 0 {
+		match unionMatch(s, f, u, c, x, y, d) {
+		case Some[bool] as m:
+			return m.Value
+		case None:
+		}
 	}
 	let kx = store.KindOfType(*s, x)
 	let ky = store.KindOfType(*s, y)

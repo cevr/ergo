@@ -462,10 +462,11 @@ func goTypes(pkg *check.Package) (fields, foreign []string) {
 				return
 			}
 			// A generic union lists only the variants that take its
-			// parameters in their order (Option's Some[T]): the Ergo side
-			// instantiates such a variant with the union's arguments when
+			// parameters in their order, and those that take none (None):
+			// Option's Some[T] and None. The Ergo side
+			// instantiates one that takes them with the union's arguments when
 			// a bare name's context fixes them (types.Elided).
-			if len(n.TParams) > 0 && !takesParams(vn, n.TParams) {
+			if len(n.TParams) > 0 && len(vn.TArgs) > 0 && !takesParams(vn, n.TParams) {
 				continue
 			}
 			vs = append(vs, vn.Obj.Name)
