@@ -106,7 +106,7 @@ func apiEchoed(args []string) api.Output {
 test ApiSessionIsEachLine(script [][]string) {
 	let mut lines = []string{}
 	for a in script {
-		lines = lines.Append("  " + api.Line(a))
+		lines = lines.Append(" " + api.Line(a))
 		lines = lines.Append("# " + api.Line(a))
 		lines = lines.Append("")
 	}
@@ -577,7 +577,7 @@ var stdLawsStatements = map[string]string{
 	"api AgreesSeesTheLoss":                `AgreesSeesTheLoss(c string, o int) { Agrees(echo, c, o) && !Agrees(dropping, c+"!", o) }`,
 	"api CompletionNamesEachCommand":       `CompletionNamesEachCommand(words []string, shell Shell) { let mut commands = []Entry{} for w in words { commands = commands.Append(Entry{Name: word(w), Doc: "does " + w + "\nmore"}) } let text = Completion("prog", shell, commands) let mut at = 0 for c in commands { let i = strings.Index(text[at:], c.Name) if i < 0 { return false } at = at + i + len(c.Name) } !strings.Contains(text, "\nmore") }`,
 	"api WordsReadLine":                    `WordsReadLine(args []string) { let back = Words(Line(args)) catch { case Unclosed: return false } back == args }`,
-	"api SessionIsEachLine":                `SessionIsEachLine(script [][]string) { let mut lines = []string{} for a in script { lines = lines.Append("  " + Line(a)) lines = lines.Append("# " + Line(a)) lines = lines.Append("") } let mut want = []Step{} for k, a in script { if len(a) == 0 { continue } let o = echoed(a) want = want.Append(Step{Line: 3*k + 1, Text: Line(a), Output: o}) if o.Code != 0 { break } } Session(lines, echoed) == want }`,
+	"api SessionIsEachLine":                `SessionIsEachLine(script [][]string) { let mut lines = []string{} for a in script { lines = lines.Append(" " + Line(a)) lines = lines.Append("# " + Line(a)) lines = lines.Append("") } let mut want = []Step{} for k, a in script { if len(a) == 0 { continue } let o = echoed(a) want = want.Append(Step{Line: 3*k + 1, Text: Line(a), Output: o}) if o.Code != 0 { break } } Session(lines, echoed) == want }`,
 	"os CodeWhere":                         `CodeWhere(v Code) { let it = int(v) (1 <= it && it <= 125) && try ParseCode(it) == v }`,
 	"atomic InitialValues":                 `InitialValues(value int64, flag bool) { NewInt64(value).Load() == value && NewBool(flag).Load() == flag }`,
 	"atomic Int64.StoresAndAdds":           `StoresAndAdds(a int64, b int64) { Store(a) let sum = Add(b) let seen = Load() let previous = Swap(a) let changed = CompareAndSwap(a, b) let unchanged = !CompareAndSwap(b+1, a) sum == a+b && seen == sum && previous == sum && changed && unchanged && Load() == b }`,
