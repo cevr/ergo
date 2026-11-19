@@ -1,5 +1,5 @@
 {
-  "name": "@cevr/work-typescript",
+  "name": "@cvr/work-typescript",
   "version": "0.1.0",
   "private": true,
   "description": "work's TypeScript language plugin, level 1: a Splitter by oxc-parser that speaks work's plugin protocol (SEMWS WG4).",
