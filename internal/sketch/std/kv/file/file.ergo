@@ -23,6 +23,7 @@
 // append-only log under a mutex, replayed into a map at start.
 
 import fs
+import fstest
 import kv
 import kv/memory
 import strconv
@@ -156,4 +157,78 @@ func unquote(field string, bad kv.Failed) string fails kv.Failed {
 	case strconv.Malformed:
 		return bad
 	}
+}
+
+// The laws of the file store against the memory store, over an
+// fstest.Memory disk: FileIsMemory is the model-based property, a
+// generated script of puts, deletes, compactions and reopens, ended by a
+// crash that cuts an append; OpenRefusesABrokenLine holds that a whole
+// line that is not a record breaks the log.
+
+// step is one step of a FileIsMemory script. A key is one of four, so
+// the steps meet on keys.
+type step = putStep{Key int, Value string} | deleteStep{Key int} | compactStep{} | reopenStep{}
+
+// keyOf is the key of a step's number.
+func keyOf(n int) string { "k\(((n%4)+4)%4)" }
+
+// entries is every entry of s, by key.
+func entries(s kv.Store) []kv.Entry fails kv.Failed {
+	let mut out = []kv.Entry{}
+	let all = try s.Scan("")
+	all(func(e kv.Entry) bool {
+		out = out.Append(e)
+		true
+	})
+	out
+}
+
+// FileIsMemory: a file store answers a script of puts, deletes,
+// compactions and reopens as a memory store does, and so does the store
+// a reopen gives after a crash cut its last append (torn, a part of a
+// line with no line feed), also after one more put.
+law FileIsMemory(steps []step, torn string) {
+	let disk = fstest.NewMemory()
+	let want = memory.New()
+	let mut got = try Open(disk, disk, "kv.log")
+	for st in steps {
+		match st {
+		case putStep as p:
+			try want.Put(keyOf(p.Key), p.Value)
+			try got.Put(keyOf(p.Key), p.Value)
+		case deleteStep as d:
+			if try want.Delete(keyOf(d.Key)) != try got.Delete(keyOf(d.Key)) {
+				return false
+			}
+		case compactStep:
+			try got.Compact()
+		case reopenStep:
+			got = try Open(disk, disk, "kv.log")
+		}
+	}
+	if try entries(got) != try entries(want) {
+		return false
+	}
+	try disk.AppendFile("kv.log", "put\t" + strings.ReplaceAll(torn, "\n", ""))
+	let back = try Open(disk, disk, "kv.log")
+	if try entries(back) != try entries(want) {
+		return false
+	}
+	try back.Put("after", torn)
+	try want.Put("after", torn)
+	try entries(try Open(disk, disk, "kv.log")) == try entries(want)
+}
+
+// OpenRefusesABrokenLine: a whole line that is not a record, after good
+// ones, makes Open fail.
+law OpenRefusesABrokenLine(key string, value string, line string) {
+	let disk = fstest.NewMemory()
+	let s = try Open(disk, disk, "kv.log")
+	try s.Put(key, value)
+	try disk.AppendFile("kv.log", "x" + strings.ReplaceAll(line, "\n", "") + "\n")
+	let _ = Open(disk, disk, "kv.log") catch {
+	case kv.Failed:
+		return true
+	}
+	false
 }
