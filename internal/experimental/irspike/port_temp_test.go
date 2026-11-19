@@ -23,7 +23,10 @@ import (
 // port-temp-op-old-refused) and a field through or the target of a let
 // mut pointer (Box.moved, port-temp-place-refused); and a float local's
 // x *= v with "op-assignment of a value with statements" (scaledOwned,
-// port-temp-float-product-refused).
+// port-temp-float-product-refused); a *T function called on a T place
+// whose operands run statements with "call on a receiver's address that
+// operands with statements may move" (Outer.bumped,
+// port-temp-recv-refused).
 // TestIRReprosMatchSource/mapkey runs the program by both paths for the
 // order of the calls.
 func TestIRStoreIndexesHaveBodies(t *testing.T) {
@@ -35,7 +38,7 @@ func TestIRStoreIndexesHaveBodies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, f := range []string{"keyed", "indexed", "slotted", "both", "Grid.gridded", "stepped", "added", "scaledOwned", "Box.moved"} {
+	for _, f := range []string{"keyed", "indexed", "slotted", "both", "Grid.gridded", "stepped", "added", "scaledOwned", "Box.moved", "Outer.bumped"} {
 		if !slices.Contains(rep.IR, f) {
 			t.Errorf("%s has no IR body (IR bodies: %v; fallbacks: %v)", f, rep.IR, rep.Fallback)
 		}

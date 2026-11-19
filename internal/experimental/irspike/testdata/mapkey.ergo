@@ -134,6 +134,30 @@ func moved(r *Box, k int) int needs Console {
 	r.n * 100 + other.n
 }
 
+// add and bumped call a *Box function on a Box place whose index or
+// pointer the call's operands move: the call writes the place they picked
+// before (the emitter's &target, fixed first).
+func add(b *Box, k int) {
+	b.n = b.n * 10 + k
+}
+
+type Outer { inner Box }
+
+func bumped(o *Outer, k int) int needs Console {
+	let mut boxes = []Box{Box{n: 1}, Box{n: 2}, Box{n: 3}}
+	let mut j = 0
+	boxes[j].add(step(&j))
+	let mut other = Outer{inner: Box{n: 0}}
+	let mut p = o
+	p.inner.add(if k > 1 {
+		p = &other
+		seen(4)
+	} else {
+		k
+	})
+	boxes[0].n * 10000 + boxes[1].n * 100 + other.inner.n
+}
+
 type Grid { cells []int }
 
 func gridded(g *Grid, n int) needs Console {
@@ -196,6 +220,8 @@ func main() needs Console {
 	let mut box = Box{n: 0}
 	Console.Println("moved \(moved(&box, 3)) \(box.n)")
 	Console.Println("moved \(moved(&box, 1)) \(box.n)")
+	let mut out = Outer{inner: Box{n: 7}}
+	Console.Println("bumped \(bumped(&out, 3)) \(out.inner.n)")
 	let mut grid = Grid{cells: []int{0, 0, 0}}
 	let g = &grid
 	gridded(g, 2)
