@@ -7133,6 +7133,8 @@ test UiSecondFingerWaits(seed int) {
 
 test UiReachPicksTheNearest(seed int) {
 	assert lawReachPicksTheNearest(seed)
+}
+
 test UiTrackEqualsAnimate(seed int) {
 	assert lawTrackEqualsAnimate(seed)
 }
