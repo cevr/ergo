@@ -281,6 +281,7 @@ func paint[S, E, D, F](d *Driver[S, E, D, F]) needs go.Foreign {
 	d.canvases = []spot[E]{}
 	d.boxes = Map[ui.Id[E], layout.Box]{}
 	d.looked = []lookProbe{}
+	d.covers = []cover{}
 	d.semantics = []ui.Id[E]{}
 	d.under = Some{Value: paper}
 	d.shadowed = false

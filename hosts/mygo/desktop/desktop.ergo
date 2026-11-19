@@ -52,6 +52,9 @@ type Driver[S, E, D, F] {
 	looked   []lookProbe,
 	under    Option[uint32],
 	shadowed bool,
+	// covers is what the last paint's layers painted over what came
+	// before them (layer.ergo): no probe reads a pixel one covers.
+	covers []cover,
 	// semantics is the Semantic nodes the last paint put in the
 	// accessibility tree (semantics.ergo).
 	semantics []ui.Id[E],
@@ -107,6 +110,7 @@ func start[E comparable, S, D, F](w go.Ref[screen.Window], a actor.Actor[S, E, D
 		looked:    []lookProbe{},
 		under:     None,
 		shadowed:  false,
+		covers:    []cover{},
 		semantics: []ui.Id[E]{},
 	}
 	d.nodes[root] = held[E]{node: ui.BoxNode{Style: ui.Plain()}, kids: []ui.Id[E]{}}
@@ -273,6 +277,27 @@ func Feed[E comparable, S, D, F](d *Driver[S, E, D, F], input screen.Input) fail
 	} else if input.Kind == screen.Down {
 		let hit = hitAt(d, x, y)
 		d.pressed = None
+		let back = match hit {
+		case Some[spot[E]] as s:
+			s.Value.id == d.root
+		case None:
+			true
+		}
+		if back {
+			// A Down over no node or over a scrim is a click on the
+			// window's background, as ui.ClickNowhere is: the pointer
+			// leaves every node, the focus every node, and the Down goes
+			// to the root, outside every layer, so the top layer with a
+			// dismiss signal sends it (UG4); its Up goes to the root too.
+			try nowhere(d)
+			d.pressed = Some{Value: d.root}
+			if ui.SessionFocus(&d.session) != None {
+				ui.FocusSession(&d.session, None)
+			}
+			try step(d, ui.Point[E]{Id: d.root, Pointer: ui.PointerEvent{Phase: ui.Down, X: 0, Y: 0, Zone: None}, Over: None})
+			paint(d)
+			return
+		}
 		match hit {
 		case Some[spot[E]] as s:
 			d.pressed = Some{Value: s.Value.id}
@@ -283,16 +308,16 @@ func Feed[E comparable, S, D, F](d *Driver[S, E, D, F], input screen.Input) fail
 			try pointed(d, s.Value, ui.Down, x, y)
 			paint(d)
 		case None:
-			try nowhere(d)
-			if ui.SessionFocus(&d.session) != None {
-				ui.FocusSession(&d.session, None)
-				paint(d)
-			}
 		}
 	} else if input.Kind == screen.Up {
 		match d.pressed {
 		case Some[ui.Id[E]] as p:
 			d.pressed = None
+			if p.Value == d.root {
+				try step(d, ui.Point[E]{Id: d.root, Pointer: ui.PointerEvent{Phase: ui.Up, X: 0, Y: 0, Zone: None}, Over: None})
+				paint(d)
+				return
+			}
 			match spotOf(d, p.Value) {
 			case Some[spot[E]] as s:
 				try pointed(d, s.Value, ui.Up, x, y)
@@ -402,6 +427,14 @@ func scroll[E comparable, S, D, F](d *Driver[S, E, D, F], x float32, y float32, 
 	let mut target Option[spot[E]] = None
 	let mut area Option[spot[E]] = None
 	for s in d.spots {
+		if s.id == d.root {
+			// A scrim, over every spot before it: the wheel over it
+			// scrolls nothing under it, as the frame takes no event of a
+			// node it covers (UG4).
+			target = None
+			area = None
+			continue
+		}
 		if inside(s, x, y) {
 			match s.node {
 			case ui.ScrollNode, ui.RowsNode:
@@ -630,7 +663,7 @@ type Probe { Label string, X int, Y int, Color uint32 }
 // cuts, in paint order.
 func Probes[S, E, D, F](d *Driver[S, E, D, F]) []Probe {
 	let mut out = lookProbes(d)
-	for s in d.spots {
+	for i, s in d.spots {
 		let b = s.box
 		let mut x = b.X + b.W/2
 		let mut y = b.Y + 3
@@ -656,7 +689,7 @@ func Probes[S, E, D, F](d *Driver[S, E, D, F]) []Probe {
 		let cx = float32(int(x))
 		let cy = float32(int(y))
 		let c = s.clip
-		if cx >= c.X && cy >= c.Y && cx < c.X+c.W && cy < c.Y+c.H {
+		if cx >= c.X && cy >= c.Y && cx < c.X+c.W && cy < c.Y+c.H && !coveredSpot(d, i, int(x), int(y)) {
 			out = out.Append(Probe{Label: label, X: int(x), Y: int(y), Color: color})
 		}
 	}
