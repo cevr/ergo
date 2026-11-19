@@ -1,6 +1,6 @@
 # counter-list
 
-A list of counters: add a row, remove one, and click each row's `+` and `-`, which change that row only. It is a port of Foldkit's `counters` example (`conformance/upstream/foldkit-d21db423/examples/counters`, MIT), stage b of FK2: the model and its view, on std ui's test host. The program runs a script of clicks on the screen and shows the screen after each one.
+A list of counters: add a row, remove one, and click each row's `+` and `-`, which change that row only. The program runs a script of clicks on the screen and shows the screen after each one.
 
 Tag: `default`.
 
@@ -18,11 +18,7 @@ Tag: `default`.
 
   After each line it prints the screen in screen order: texts, `[button]`s, and `counter-N{...}` for each row. A click whose locator finds no node, or more than one (NS7's `Ambiguous`), clicks nothing and says so.
 
-Upstream joins the child with `Update.foldChild({update, read, write, toParentMessage})` and a hand-written `GotCounterMessage` variant (`main.ts` 30 to 57). Its view embeds the child with `h.submodel({view, toParentMessage})`. Here the variant is `At{Key, Sig}`, and the join is one `match` arm that steps the matching row through `slices.Transform`. The view's join is the function argument `to`: a `ui.Frame[rows.Signal]` is passed to the child's view as it is, with no frame of the child's signal and no mapping of one frame into another. The blocks design's Binding is not used (owner, 2026-11-12).
-
-## Upstream tests
-
-Each upstream story and scene test, and what restates it, is a line of `origin/tests.txt`, which the examples runner checks against the vendored files. The five scene tests are the case `scenes`. Upstream's `nth(all.role('button', {name: '+'}), 1)` becomes the `+` within the row's group, because std ui has `First` and `Within` but no `Nth`.
+The variant that carries a row's signal is `At{Key, Sig}`, and the join is one `match` arm that steps the matching row through `slices.Transform`. The view's join is the function argument `to`: a `ui.Frame[rows.Signal]` is passed to the child's view as it is, with no frame of the child's signal and no mapping of one frame into another. The blocks design's Binding is not used (owner, 2026-11-12).
 
 ## Laws
 
@@ -36,5 +32,5 @@ Each law of `rows` runs over every state that generated adds, removes and clicks
 ## Cases
 
 - `rows`: clicks routed to their rows, an add with the next key, a remove that keeps the others, a removed row with no buttons left, keys not reused after the last row goes, and an empty list.
-- `scenes`: upstream's five scene tests, one `given` each, and a bare `+` among two rows that is ambiguous.
+- `scenes`: the five scene tests, one `given` each, and a bare `+` among two rows that is ambiguous.
 - `badscript`: a row number that is not a number; the program says which line and exits 1.

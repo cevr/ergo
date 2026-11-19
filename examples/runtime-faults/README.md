@@ -5,7 +5,7 @@ Two small apps that show what the runtime does when a program goes wrong or is s
 - **crash**: one button whose step defects. The window then shows the app's crash view, the app's report logs the crash, and Reload starts the app afresh.
 - **lab**: four buttons. Each makes one phase of a pass do more counted work than its budget allows: the step, the view, the patch, or the subscriptions' dependencies. The session sends a warning back for each slow pass, and the lab logs it.
 
-It is a port of Foldkit's `crash-view` and `slow-warnings` examples (`conformance/upstream/foldkit-d21db423/examples/`, MIT). This is stage b of FK13. Both apps already have their views, because the crash view (H6a) and the slow warnings (H6b) are features of a window's session, and a session needs a view. The program plays a scene script on the test host (`ui.TestHost`), which steps the same session a window steps, and prints what the screen shows.
+This is stage b of FK13. Both apps already have their views, because the crash view (H6a) and the slow warnings (H6b) are features of a window's session, and a session needs a view. The program plays a scene script on the test host (`ui.TestHost`), which steps the same session a window steps, and prints what the screen shows.
 
 Tag: `default`.
 
@@ -20,7 +20,7 @@ runtime-faults < cases/lab/stdin
 - Package `script` reads a scene script (`app crash` or `app lab`, then `tap LABEL`, `frame`, `settle`, `screen`, `find TEXT`, `stats`, `reports`, `crashed`, `warnings`) and plays it on the test host on a `time.Manual`. A frame moves the clock by one frame period.
 - `cmd/runtime-faults` chooses the clock.
 
-Upstream's workloads burn CPU for some milliseconds, and the runtime times each phase. Here every phase's work is counted (`ui.Stats`), so a warning is the same on every run and every host, and the laws need no timing:
+Every phase's work is counted (`ui.Stats`), so a warning is the same on every run and every host, and the laws need no timing:
 
 | Workload | Its work | Counter, bound | Count |
 | --- | --- | --- | --- |
@@ -30,17 +30,6 @@ Upstream's workloads burn CPU for some milliseconds, and the runtime times each 
 | Run dependency extraction | 8 loads, one per dependency | `Fetches`, 4 | 8 |
 
 Each workload is over one bound only. The patch's rows fit the view's bound, and the view work's nodes make no ops.
-
-Differences from upstream:
-
-- **The view work is counted in nodes.** Upstream burns CPU for some milliseconds; here the view work writes more nodes than the view's bound allows, and that bound is set above the 4,026 nodes the patch's 4,000 rows write, so each workload is over one bound only.
-- **The update work needs a frame.** A step cannot report its own work, so the update work is a burst of signals in one frame.
-- **The crash view shows where the defect was raised.** A defect's reason is the runtime's text, which starts with the position of the `Unreachable` (`unreachable at crash.ergo:19:2: This is a simulated crash!`). Upstream shows the thrown error's message only.
-- **No browser report.** Upstream's report logs to the console. Here it adds a line to a log that the script prints.
-
-## Upstream tests
-
-Each upstream story and scene test, and what restates it, is a line of `origin/tests.txt`, which the examples runner checks against the vendored files. No story or scene is an Ergo test. The laws and the cases kill every mutant that such a test would kill.
 
 ## Laws
 

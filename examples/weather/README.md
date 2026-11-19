@@ -1,6 +1,6 @@
 # weather
 
-A weather lookup: type a zip code, submit it, and see the current weather there, or why there is none. It is a port of Foldkit's `weather` example (`conformance/upstream/foldkit-d21db423/examples/weather`, MIT), stage b of FK3: the model and its view, on std ui's test host. The program plays a script of form events on the screen and shows the screen after each event.
+A weather lookup: type a zip code, submit it, and see the current weather there, or why there is none. The program plays a script of form events on the screen and shows the screen after each event.
 
 Tag: `default`.
 
@@ -15,17 +15,17 @@ Tag: `default`.
 - Package `memory` has two Forecasts:
   - `Stations`, four fixed reports; the zip 99999 is a station that is down.
   - `Slow`, which answers as `Stations` does after a wait that `main` gives it: a sleep on the script's clock.
-- Package `web` is `OpenMeteo`, a Forecast over one `http.Network` whose origin policy names the two open-meteo services: the geocoding service finds the place of the zip, and the forecast service gives the weather there, as upstream's `fetchWeatherEffect` does. `Live` builds it with `http.NewNet`. Its tests give it an `http.InMemoryNetwork` that routes by origin and path, as upstream's one mock routes by the URL, and answers with upstream's fixtures.
-- Package `screen` is the view, as upstream's:
+- Package `web` is `OpenMeteo`, a Forecast over one `http.Network` whose origin policy names the two open-meteo services: the geocoding service finds the place of the zip, and the forecast service gives the weather there. `Live` builds it with `http.NewNet`. Its tests give it an `http.InMemoryNetwork` that routes by origin and path, and answers with upstream's fixtures.
+- Package `screen` is the view:
   - the zip field (placeholder `Enter a zip code`);
   - the button, which reads `Get Weather`, or `Loading...` in a disabled fieldset while a fetch is under way;
-  - the panel. `Panel` reads the lookup's report with `try ui.Await` in a `ui.Boundary`, whose catch shows `Fetching weather...` for `ui.Pending` and the reason for the failure. The report is a region (upstream's article) with the zip as its heading.
+  - the panel. `Panel` reads the lookup's report with `try ui.Await` in a `ui.Boundary`, whose catch shows `Fetching weather...` for `ui.Pending` and the reason for the failure. The report is a region with the zip as its heading.
   - `PanelMatched` is the same panel as an exhaustive `match`, the other form. The law `BoundaryIsTheMatch` holds the two to one screen.
 - Package `script` plays lines on `ui.NewTestHost`:
   - `type TEXT` fills the zip field;
   - `submit` clicks `Get Weather`;
   - `click LABEL` clicks a button;
-  - `wait MS` moves the clock, so `Slow`'s fetch answers (upstream's `Command.resolve`);
+  - `wait MS` moves the clock, so `Slow`'s fetch answers;
   - `stats` prints the work of the act before it.
 
   After each line it prints the screen: `<DRAFT>`, `[button]`, `Weather report{# ZIP …}` or the panel's text.
@@ -35,11 +35,7 @@ Tag: `default`.
 
   Only the first runs in the cases.
 
-Upstream keeps the panel as `AsyncData` (`Idle | Loading | Success | Failure`) beside the input text, and its `FetchWeather` command carries the zip. Here the same two parts are a record, and `Loading`'s entry owns the fetch, so no command value and no "is this answer still wanted" check exists. Upstream sends an empty zip to the command, which fails with "Zip code required"; here the step fails it with no fetch. Upstream's view matches `AsyncData` with `matchDataSplitEmpty`; here the panel is a boundary over `ui.Await`, and the match is the reference it equals.
-
-## Upstream tests
-
-Each upstream story and scene test, and what restates it, is a line of `origin/tests.txt`, which the examples runner checks against the vendored files. The six scene tests are the case `scenes`. Upstream's `label('Zip code')` is the field's placeholder here, because a `ui.Input` has no label of its own (gap FK3-g5).
+The input text and the panel are a record, and `Loading`'s entry owns the fetch, so no command value and no "is this answer still wanted" check exists.
 
 ## Laws
 
@@ -56,7 +52,7 @@ The mutants these kill are in `testdata/mutants.json`.
 
 ## Cases
 
-- `ask`: upstream's full flow, a second ask after typing, a submit while loading (no `Get Weather` to click), an empty draft, a zip with no place, and a station that is down.
+- `ask`: the full flow, a second ask after typing, a submit while loading (no `Get Weather` to click), an empty draft, a zip with no place, and a station that is down.
 - `trim`: a draft with a space before the zip asks the trimmed zip; a negative temperature.
-- `scenes`: upstream's six scene tests, in order on one screen.
+- `scenes`: the six scene tests, in order on one screen.
 - `badscript`: an unknown line; the program says which line and exits 1.
