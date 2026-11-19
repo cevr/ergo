@@ -3389,6 +3389,7 @@
       "killers": [
         "internal/sketchfront:TestStdSnapshotIsCurrent"
       ]
-    }
+    },
+    {"name":"inf-row-not-error-unnamed","origin":"wf10 CN INFER-IMPORT-ROW","file":"internal/sketch/check/unify.go","from":"\t\t\t\tin.notError = y\n\t\t\t\treturn false","to":"\t\t\t\treturn false","rule":"A free error row parameter that meets a type no error row of the package names says so (types.md, Error types 1; D6).","killers":["check:TestInferErrorRowNamesTheCause"]}
   ]
 }
