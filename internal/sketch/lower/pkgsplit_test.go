@@ -182,6 +182,12 @@ test Line { assert line() == line() }
 test Fails { try oops() }
 
 law Ident(n int) { left.Boxed(n) == n + left.N }
+
+type scan { cands []int }
+
+func repair(n int) scan { scan{cands: []int{n, Total}} }
+
+law Repair(n int) { len(repair(n).cands) == 2 }
 `, k(), k(), k(), k(), k(), k(), k(), k(), k(), k(), k(), k(), k())
 	return p
 }

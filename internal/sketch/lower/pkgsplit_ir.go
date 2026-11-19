@@ -95,6 +95,46 @@ func (s *irSplit) foreign(p int, name string) {
 	s.uses[p][name] = true
 }
 
+// forwardedNames are the package-scope names (keys of groupOf) that
+// foreignDecls spells in the declaration it writes for n in another
+// package: a plain function's parameter and result types, a let's type
+// (its getter's result). A generic function or type, and a type alias,
+// spell none.
+func forwardedNames(n ast.Node, groupOf map[string]int) []string {
+	var types []ast.Expr
+	switch n := n.(type) {
+	case *ast.FuncDecl:
+		if n.Type.TypeParams == nil {
+			for _, list := range []*ast.FieldList{n.Type.Params, n.Type.Results} {
+				if list != nil {
+					for _, f := range list.List {
+						types = append(types, f.Type) // not its names
+					}
+				}
+			}
+		}
+	case *ast.ValueSpec:
+		if len(n.Values) == 0 && n.Type != nil {
+			types = append(types, n.Type)
+		}
+	}
+	var out []string
+	for _, x := range types {
+		ast.Inspect(x, func(m ast.Node) bool {
+			switch m := m.(type) {
+			case *ast.SelectorExpr:
+				return false // another Go package's name
+			case *ast.Ident: // a nested field's name too: one more export, never a missing one
+				if _, ok := groupOf[m.Name]; ok {
+					out = append(out, m.Name)
+				}
+			}
+			return true
+		})
+	}
+	return out
+}
+
 // forwardedInsts are the instances that the forwarding functions
 // foreignDecls writes name in their signatures, each in the package it
 // writes the forwarder into: Go compiles them there too, so the shared

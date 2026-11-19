@@ -748,6 +748,16 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 				if groups[groupOf[name]].pkg != p {
 					cross[name] = true
 					irs.foreign(p, name)
+					// Its forwarder in p spells its signature, so each
+					// package-scope name the signature names of another
+					// package crosses too (SHARD-PRIVATE: a law run from
+					// main calls the root's function of an unexported
+					// record).
+					for _, n := range forwardedNames(defOf.node[name], groupOf) {
+						if groups[groupOf[n]].pkg != p {
+							cross[n] = true
+						}
+					}
 				}
 			}
 		}
