@@ -28,6 +28,8 @@ type StyleBackend = impl.StyleBackend
 
 type WindowButtonsBackend = impl.WindowButtonsBackend
 
+type ExitBackend = impl.ExitBackend
+
 type AppOptions = impl.AppOptions
 
 type AppHandler = impl.AppHandler
@@ -115,6 +117,22 @@ const (
 
 type Menu = impl.Menu
 
+type BadgeAlignment = impl.BadgeAlignment
+
+const (
+	BadgeAlignLeft   = impl.BadgeAlignLeft
+	BadgeAlignCenter = impl.BadgeAlignCenter
+	BadgeAlignRight  = impl.BadgeAlignRight
+)
+
+type BadgeShape = impl.BadgeShape
+
+const (
+	BadgeShapeSquare  = impl.BadgeShapeSquare
+	BadgeShapeRounded = impl.BadgeShapeRounded
+	BadgeShapePill    = impl.BadgeShapePill
+)
+
 type MenuItem = impl.MenuItem
 
 type FileFilter = impl.FileFilter
@@ -169,6 +187,7 @@ const (
 	MediaNext            = impl.MediaNext
 	MediaPrevious        = impl.MediaPrevious
 	MediaSeek            = impl.MediaSeek
+	MediaRaise           = impl.MediaRaise
 )
 
 type NowPlayingInfo = impl.NowPlayingInfo
@@ -188,3 +207,32 @@ type Tray = impl.Tray
 type Notification = impl.Notification
 
 type NotificationSender = impl.NotificationSender
+
+type DeviceBackend = impl.DeviceBackend
+
+type PluginBackend = impl.PluginBackend
+
+type PluginError = impl.PluginError
+
+const (
+	OrientationPortrait           = impl.OrientationPortrait
+	OrientationPortraitUpsideDown = impl.OrientationPortraitUpsideDown
+	OrientationLandscapeLeft      = impl.OrientationLandscapeLeft
+	OrientationLandscapeRight     = impl.OrientationLandscapeRight
+)
+
+type ShareRequest = impl.ShareRequest
+
+type BatteryStatus = impl.BatteryStatus
+
+type BarItem = impl.BarItem
+
+type NavigationBackend = impl.NavigationBackend
+
+type Tab = impl.Tab
+
+type TabBar = impl.TabBar
+
+type TabsHandler = impl.TabsHandler
+
+type NavigationHandler = impl.NavigationHandler
