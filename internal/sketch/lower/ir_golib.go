@@ -261,8 +261,8 @@ func (b *irBuilder) goNilCheck(f *check.Func, t check.Type, r, errL int, site sy
 	}
 	b.keepImport("var _ " + b.l.rt() + ".GoNilDefect")
 	defect := &irExpr{K: "addr", Pos: p, X: &irExpr{K: "lit", Pos: p, T: b.spelling(b.l.rt() + ".GoNilDefect"), Keys: []string{"Func", "At"}, Elems: []*irExpr{
-		{K: "const", Pos: p, T: "string", V: irString(name)},
-		{K: "const", Pos: p, T: "string", V: irString(b.l.siteText(site))},
+		irStringConst(p, "string", name),
+		irStringConst(p, "string", b.l.siteText(site)),
 	}}}
 	return &irStmt{K: "if", Pos: p, End: p, X: cond, Then: []*irStmt{{K: "panic", Pos: p, X: defect}}}
 }
