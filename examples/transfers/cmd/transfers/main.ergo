@@ -1,4 +1,4 @@
-// transfers is a port of Foldkit's interrupting-commands example
+// transfers is an interruptible-transfer program
 // (stage b: the view on std ui's test host): file transfers that a user
 // starts, cancels one by one or all at once, and restarts. It runs a
 // script of timed presses on a manual clock, clicks each press's button on

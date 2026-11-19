@@ -1,4 +1,4 @@
-// echo-chat is a port of Foldkit's websocket-chat example (stage a: the
+// echo-chat is a chat program (stage a: the
 // model, with no view): a chat with an echo server over one connection,
 // which the chat's state owns from the dial to its end. It plays a script
 // of the user's acts and the server's on an in-process server and shows

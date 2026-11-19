@@ -1,5 +1,5 @@
 // The sink of shape B as a pure model: the keyed registry of transfers in
-// flight on a clock the caller moves, as Foldkit's runtime keeps one for
+// flight on a clock the caller moves, as a UI runtime keeps one for
 // interruptible commands.
 
 import transfers/transfer

@@ -1,4 +1,4 @@
-// stopwatch is a port of Foldkit's stopwatch example (stage a: the
+// stopwatch is a stopwatch program (stage a: the
 // model, with no view). It runs a script of timed button presses on a
 // virtual clock and shows the watch after each press. Package watch is the
 // machine, whose Running state owns the tick; package script reads the

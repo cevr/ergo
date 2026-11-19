@@ -1,4 +1,4 @@
-// signup-form is a port of Foldkit's form example (stage b: the view on std
+// signup-form is a form program (stage b: the view on std
 // ui's test host), re-themed as a subscription for a project's release
 // notes. It plays a script of form events (type in a field, submit, wait)
 // on the form's screen and shows the screen after each one. Package

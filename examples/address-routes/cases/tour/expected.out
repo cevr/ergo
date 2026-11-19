@@ -7,7 +7,7 @@
   page: # People | ?dev? | [Search] | Recent searches: dev | 2 results for “dev” | <Bob Smith> | Developer | <David Wilson> | Developer
 > key GH
   address: / (1 behind)
-  page: # Welcome Home | This is a routing example built with foldkit. Navigate using the links above to see different routes in action.
+  page: # Welcome Home | This is a routing example built with Ergo. Navigate using the links above to see different routes in action.
 > key GP
   address: /people (2 behind)
   page: # People | ?? | [Search] | Recent searches: dev | Searching…
@@ -60,7 +60,7 @@
   page: # People | ?a b? | [Search] | Recent searches: a b, bob smith, dev | Searching…
 > key GH
   address: / (16 behind)
-  page: # Welcome Home | This is a routing example built with foldkit. Navigate using the links above to see different routes in action.
+  page: # Welcome Home | This is a routing example built with Ergo. Navigate using the links above to see different routes in action.
 > wait 300
 > key GP
   address: /people (17 behind)
@@ -79,7 +79,7 @@
   page: # People | ?? | [Search] | Recent searches: Developer, a b, bob smith, dev | Click on any person to view their details: | <Alice Johnson> | Designer | <Bob Smith> | Developer | <Carol Davis> | Manager | <David Wilson> | Developer | <Eva Brown> | Designer
 > back
   address: / (16 behind)
-  page: # Welcome Home | This is a routing example built with foldkit. Navigate using the links above to see different routes in action.
+  page: # Welcome Home | This is a routing example built with Ergo. Navigate using the links above to see different routes in action.
 > back
   address: /people?searchText=a%20b (15 behind)
   page: # People | ?a b? | [Search] | Recent searches: a b, Developer, bob smith, dev | Searching…

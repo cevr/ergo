@@ -1,7 +1,7 @@
 // Package emitted is the same board in shape B, upstream's: one machine
 // whose state holds every transfer's status, and whose steps emit
 // commands (start a transfer, interrupt one) for a sink to run. The sink
-// keeps the keyed registry of transfers in flight, as Foldkit's runtime
+// keeps the keyed registry of transfers in flight, as a UI runtime
 // does, and answers an interrupt with Interrupted or NotFound. Registry is
 // that sink as a pure model on a clock the caller moves, so the shape runs
 // as a fold.

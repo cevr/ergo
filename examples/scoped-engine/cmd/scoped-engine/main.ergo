@@ -1,4 +1,4 @@
-// scoped-engine is a port of Foldkit's managed-resource-layer example (stage
+// scoped-engine is a scoped-resource program (stage
 // b: the view on std ui's test host): a compute engine that exists only
 // while the screen says so. It runs a script of timed presses on a manual
 // clock, clicks each press's button on the screen, and shows the screen

@@ -3,7 +3,7 @@
 // count of rows and the overscan to the rows to build and the two spacers
 // around them. A row has one fixed height (decision 4, Flutter's
 // itemExtent), so the window is a division and needs no measuring pass,
-// and its work does not depend on the count. The original's is Foldkit's
+// and its work does not depend on the count. The original's is a
 // VirtualList with measured heights (resultsList.ts).
 
 // Spec is what the window is computed from, in pixels and rows.

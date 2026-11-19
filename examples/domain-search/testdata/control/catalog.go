@@ -1,6 +1,6 @@
 package main
 
-// catalog is foldkit-domains' catalog at 039c941a (src/shared/tld.ts and
+// catalog is the original's catalog at 039c941a (src/shared/tld.ts and
 // domain.ts; MIT, Copyright (c) 2025 Devin Jameson): the 24 featured
 // TLDs first, then the others, 556 in all. Generated from those files,
 // as examples/domain-search/domains/catalog.ergo is.

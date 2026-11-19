@@ -1,4 +1,4 @@
-// Package lab is the slow-warnings lab (Foldkit's slow-warnings): four
+// Package lab is the slow-warnings lab: four
 // buttons that each make one phase of a pass do more counted work than
 // its budget allows, and a log of the warnings the session sends back
 // (ui.OnSlow). Upstream burns CPU for some milliseconds and the runtime

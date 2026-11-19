@@ -1,5 +1,5 @@
-// Package drag is drag and drop for sortable lists in containers, a port
-// of the model of @foldkit/ui's DragAndDrop: the machine Dragger, which a
+// Package drag is drag and drop for sortable lists in containers:
+// the machine Dragger, which a
 // pointer or the keyboard drives. A drag that ends on a target gives the
 // output Reordered, and one given up gives Cancelled; the parent reads
 // them as upstream's OutMessage. The machine knows no page: where a

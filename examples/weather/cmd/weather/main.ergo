@@ -1,4 +1,4 @@
-// weather is a port of Foldkit's weather example (stage b: the view on
+// weather is a weather lookup (stage b: the view on
 // std ui's test host). It plays a script of form events (type, submit,
 // wait) on the lookup's screen and shows the screen after each one.
 // Package weather is the machine, whose Loading state owns the fetch;

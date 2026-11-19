@@ -31,7 +31,7 @@ func Screen(f *ui.Frame[explorer.Signal], p explorer.Page) {
 	ui.OnURL(f, func(u ui.URL) Option[explorer.Signal] { Some[explorer.Signal]{Value: explorer.OnTable{Signal: table.Navigated{Path: ui.Href(u)}}} })
 	keys(f, p)
 	ui.Column(f, ui.Plain()) {
-		ui.Text(f, "foldkit")
+		ui.Text(f, "ergo")
 		ui.Text(f, "query-sync example")
 		match p.Route {
 		case query.Browse as b:

@@ -1,4 +1,4 @@
-// address-routes is a port of Foldkit's routing example (stage b: the view
+// address-routes is a routing program (stage b: the view
 // on std ui's test host): screens chosen by the address, with a URL
 // parameter, a query, nested and rest segments, and a not-found screen. It
 // plays a script of the user's acts on the screen and shows what changes

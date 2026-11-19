@@ -1,4 +1,4 @@
-// gallery is a port of Foldkit's route-transitions example (stage b:
+// gallery shows route transitions (stage b:
 // the view on std ui's test host): a gallery site whose navigations carry
 // data work. It plays a script of timed acts on the site's screen and
 // shows what changed after each. Package gallery is the site as a

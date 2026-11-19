@@ -33,7 +33,7 @@ func page(f *ui.Frame[app.Signal], a app.App) {
 	match a.Route {
 	case route.Home:
 		heading(f, "Welcome Home", 1)
-		ui.Text(f, "This is a routing example built with foldkit. Navigate using the links above to see different routes in action.")
+		ui.Text(f, "This is a routing example built with Ergo. Navigate using the links above to see different routes in action.")
 	case route.Nested:
 		heading(f, "Very Nested Route!", 1)
 		ui.Text(f, "You found the deeply nested route at \(route.NestedPath)")

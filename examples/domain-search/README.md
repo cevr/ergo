@@ -5,7 +5,7 @@ A domain search. This is stage a of plan §20: the domain, its Api and the serve
 Tag: `default`.
 
 ```sh
-domain-search search foldkit 0 4     # one listing a line
+domain-search search github 0 4     # one listing a line
 domain-search serve 127.0.0.1:8787   # POST /rpc, SearchDomains
 domain-search bench 1000             # the P11 workload (below)
 ```
@@ -49,7 +49,7 @@ domain-search bench 1000             # the P11 workload (below)
 
 ## Cases
 
-- `search-top`: the top four for `foldkit`. `.com` and `.dev` are taken.
-- `not-a-label`: `Foldkit` is refused.
+- `search-top`: the top four for `github`. `.com` and `.dev` are taken.
+- `not-a-label`: `GitHub` is refused.
 
 The mutants these kill are in `testdata/mutants.json`.

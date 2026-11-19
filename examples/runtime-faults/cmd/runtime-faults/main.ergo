@@ -1,4 +1,4 @@
-// runtime-faults is a port of Foldkit's crash-view and slow-warnings examples:
+// runtime-faults shows a crash view and slow warnings:
 // an app whose button defects, shown by its crash view, and a lab whose
 // workloads each make one phase of a pass do more counted work than its
 // budget allows. It plays a scene script from stdin on the test host and

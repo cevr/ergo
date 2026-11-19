@@ -1,4 +1,4 @@
-// domain-search is the port of foldkit-domains. Stage a has no pages yet:
+// domain-search is a domain-name search. Stage a has no pages yet:
 //
 //	domain-search serve [ADDR]                  serve the registry over Effect RPC at /rpc
 //	domain-search search LABEL [OFFSET [LIMIT]]  print a search, one listing a line

@@ -1,7 +1,7 @@
 > start /
   address: / (0 behind)
   nav: <Home> <People> <Files> <Nested>
-  page: # Welcome Home | This is a routing example built with foldkit. Navigate using the links above to see different routes in action.
+  page: # Welcome Home | This is a routing example built with Ergo. Navigate using the links above to see different routes in action.
 > link Nested
   address: /nested/route/is/very/nested (1 behind)
   page: # Very Nested Route! | You found the deeply nested route at /nested/route/is/very/nested
@@ -39,7 +39,7 @@
   page: # 404 - Page Not Found | The path "/missing" was not found. | <← Go Home>
 > link ← Go Home
   address: / (12 behind)
-  page: # Welcome Home | This is a routing example built with foldkit. Navigate using the links above to see different routes in action.
+  page: # Welcome Home | This is a routing example built with Ergo. Navigate using the links above to see different routes in action.
 > link People
   address: /people (13 behind)
   page: # People | ?? | [Search] | Searching…
@@ -55,5 +55,5 @@
   page: # People | ?? | [Search] | Recent searches: designer | Searching…
 > back
   address: / (12 behind)
-  page: # Welcome Home | This is a routing example built with foldkit. Navigate using the links above to see different routes in action.
+  page: # Welcome Home | This is a routing example built with Ergo. Navigate using the links above to see different routes in action.
 > stop

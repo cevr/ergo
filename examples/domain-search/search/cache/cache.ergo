@@ -1,6 +1,6 @@
 // Package cache is domain-search' keyed cache of answers (plan §20.2,
 // decision 1), a value in the search machine's state: the original's
-// Foldkit KeyedQuery (domainsQuery.ts: a freshness of one minute, at most
+// KeyedQuery (domainsQuery.ts: a freshness of one minute, at most
 // 100 settled entries) as pure functions. The time is an argument, so the
 // cache needs no clock.
 //

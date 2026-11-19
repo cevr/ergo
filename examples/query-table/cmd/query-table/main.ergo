@@ -1,4 +1,4 @@
-// query-table is a port of Foldkit's query-sync example (stage b: the view
+// query-table is a query-synced table (stage b: the view
 // on std ui's test host): a table of dinosaurs whose every control, the
 // search, the sorting and two list-box filters, lives in the address's
 // query, so the address alone says what the table shows. It plays a

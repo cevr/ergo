@@ -1,4 +1,4 @@
-// canvas-scenes is a port of Foldkit's canvas-art and generative-art examples
+// canvas-scenes is a canvas program
 // (stage b: the view on std ui's test host): one program with two
 // scenes, balls that bounce where the canvas is pressed, and particles
 // that drift on a moving noise field and burst from a press, each drawn

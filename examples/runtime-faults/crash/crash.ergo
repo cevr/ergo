@@ -1,4 +1,4 @@
-// Package crash is the crash app (Foldkit's crash-view): one button whose
+// Package crash is the crash app: one button whose
 // step defects, the app's crash view with a Reload button, and its crash
 // report.
 
