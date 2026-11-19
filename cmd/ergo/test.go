@@ -85,6 +85,9 @@ func testCommand(args []string) error {
 	if trace && (recursivePattern(opts.file) || len(opts.more) > 0 || opts.explore || opts.search.mode != "") {
 		return invalidInvocation(fmt.Errorf("ergo test: --trace takes one package, played plainly, not a pattern or --explore"))
 	}
+	if opts.affected.on {
+		return affectedTestCommand(opts, os.Stdout, func(o fileOptions, l loaded) error { return testLoadedPackage(o, l, nil) })
+	}
 	if opts.emitted && opts.json {
 		// Each package's check envelope and emitted digests, one JSON
 		// line each, from one process (emittedjson.go, gate-speed GS31b).

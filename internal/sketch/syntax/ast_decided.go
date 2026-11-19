@@ -94,12 +94,15 @@ func (*TestDecl) declNode()  {}
 // `law Name reaches V`, `law Name never reaches V` or `law Name path [V1,
 // V2]`, with Reach set and no parameters and no body.
 type LawDecl struct {
-	Doc    *CommentGroup
-	Law    Pos
-	Name   *Ident
-	Params *FieldList
-	Body   *BlockStmt // nil for a reachability law
-	Reach  *LawReach  // nil unless a reachability law
+	Doc  *CommentGroup
+	Law  Pos
+	Name *Ident
+	// TypeParams are a top-level rewrite law's type parameters (`law
+	// L[T, U](…) { lhs } == { rhs }`, owner q234), nil without a list.
+	TypeParams *FieldList
+	Params     *FieldList
+	Body       *BlockStmt // nil for a reachability law
+	Reach      *LawReach  // nil unless a reachability law
 	// Rewrite is the rewrite form of a member law (types.md, Laws 14):
 	// `law L(params) [when R() == C] { lhs } == { rhs }`, or nil.
 	// Body then holds the guard, when there is one, as an ExprStmt, then

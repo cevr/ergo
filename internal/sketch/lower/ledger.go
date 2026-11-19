@@ -391,6 +391,13 @@ func TargetDigest(pkg *check.Package, law *check.Law, binding []check.LawProvide
 
 // targetDigest is TargetDigest and the walk that made it.
 func targetDigest(pkg *check.Package, law *check.Law, binding []check.LawProvider) (*digester, string) {
+	d, slots := targetWalk(law, binding)
+	return d, d.sum(pkg, slots)
+}
+
+// targetWalk is TargetDigest's walk: the digester holding what the run
+// reaches, and its slots.
+func targetWalk(law *check.Law, binding []check.LawProvider) (*digester, []string) {
 	d := newDigester()
 	d.derived = true
 	switch {
@@ -420,17 +427,7 @@ func targetDigest(pkg *check.Package, law *check.Law, binding []check.LawProvide
 		}
 		slots = append(slots, fmt.Sprintf("%d %s %s %t", k, p.Type, closed, p.Value))
 	}
-	return d, d.sum(pkg, slots)
-}
-
-// TestDigest is the digest of every input of the verdict of test t of pkg
-// (TESTSPEED FT2), TargetDigest's rule for a test: the test's declaration
-// and every declaration it reaches, at any depth and in any package, and
-// the generator of every type it reached (its parameters' among them).
-func TestDigest(pkg *check.Package, t *check.Test) string {
-	d := newDigester()
-	d.decl("test "+pkg.Path+"."+t.Name, pkg, t.Decl)
-	return d.sum(pkg, nil)
+	return d, slots
 }
 
 // ContextDigest is the digest of every input of the verdict of the run of
@@ -449,6 +446,13 @@ func ContextDigest(pkg *check.Package, law *check.Law, lc check.LawContext) stri
 
 // contextDigest is ContextDigest and the walk that made it.
 func contextDigest(pkg *check.Package, law *check.Law, lc check.LawContext) (*digester, string) {
+	d, slots := contextWalk(law, lc)
+	return d, d.sum(pkg, slots)
+}
+
+// contextWalk is ContextDigest's walk: the digester holding what the run
+// reaches, and its slots.
+func contextWalk(law *check.Law, lc check.LawContext) (*digester, []string) {
 	d := newDigester()
 	d.derived = true
 	d.typ(law.Owner)
@@ -479,7 +483,7 @@ func contextDigest(pkg *check.Package, law *check.Law, lc check.LawContext) (*di
 		}
 	}
 	slots = append(slots, "context "+lc.Context.Name, "unrun "+lc.Unrun)
-	return d, d.sum(pkg, slots)
+	return d, slots
 }
 
 // context adds the declaration of the named context c, and of each
@@ -666,6 +670,8 @@ type digester struct {
 	indexed map[*check.Package]bool
 	// foreign are the `extern go` targets the walk reached.
 	foreign map[string]bool
+	// nodes are the declarations the walk added, in walk order (reach.go).
+	nodes []ReachedDecl
 	// inputs are the declarations decl added, in the order the walk met
 	// them: the graph rows' Input edges (RunTarget.Inputs).
 	inputs []Input
@@ -789,7 +795,9 @@ func (d *digester) let(v *check.Var) {
 
 // decl adds the declaration n of p under key and walks it.
 func (d *digester) decl(key string, p *check.Package, n syntax.Node) {
-	d.decls[key+"\n"+syntax.TokenText(declText(p, n))] = true
+	text := syntax.TokenText(declText(p, n))
+	d.decls[key+"\n"+text] = true
+	d.nodes = append(d.nodes, ReachedDecl{Key: key, Text: text, Pkg: p, Node: n})
 	d.inputs = append(d.inputs, Input{Pkg: p, Decl: n})
 	d.walk(p, n)
 }
