@@ -1,0 +1,131 @@
+// Package scan finds bytes in a text: the first of one byte, of either of
+// two, the first outside a range, and the count of one byte (U1
+// SIMD-SCAN). Each operation has a reference written here in Ergo, a plain
+// byte loop that is its specification, and a vector body in this module's
+// Go package kernel (docs/spec/interop.md, Trusted Go 3), which runs only
+// in a build with GOEXPERIMENT=simd on a CPU that has the vectors. A law
+// beside each operation holds the operation, so the kernel in a vector
+// build, to the reference on texts of every length from empty to three
+// vectors and a tail, with the needle at every offset or absent. A plain
+// go build runs the reference (docs/decisions.md, the 2026-11-02 SIMD
+// rule and its 2026-11-18 and 2026-11-19 lines).
+
+import strings
+
+extern go github.com/cevr/ergo/modules/simd/kernel.Enabled func vectors() bool
+
+extern go github.com/cevr/ergo/modules/simd/kernel.IndexByte func kernelIndexByte(s string, c byte) int
+
+extern go github.com/cevr/ergo/modules/simd/kernel.IndexAny2 func kernelIndexAny2(s string, a byte, b byte) int
+
+extern go github.com/cevr/ergo/modules/simd/kernel.IndexOutside func kernelIndexOutside(s string, lo byte, hi byte) int
+
+extern go github.com/cevr/ergo/modules/simd/kernel.CountByte func kernelCountByte(s string, c byte) int
+
+// IndexByte is the first index of c in s, or -1.
+func IndexByte(s string, c byte) int {
+	if vectors() { kernelIndexByte(s, c) } else { indexByte(s, c) }
+}
+
+// indexByte is IndexByte's reference.
+func indexByte(s string, c byte) int {
+	let mut i = 0
+	for i < len(s) {
+		if s[i] == c {
+			return i
+		}
+		i = i + 1
+	}
+	-1
+}
+
+// IndexByteIsTheReference: on a text with the needle after a run of
+// filler and a drawn prefix, and on a drawn text, IndexByte is its
+// reference.
+law IndexByteIsTheReference(pad int, fill byte, a string, c byte, b string) {
+	let s = padded(pad, fill, a, c, b)
+	IndexByte(s, c) == indexByte(s, c) && IndexByte(a, c) == indexByte(a, c)
+}
+
+// IndexAny2 is the first index of a or b in s, or -1.
+func IndexAny2(s string, a byte, b byte) int {
+	if vectors() { kernelIndexAny2(s, a, b) } else { indexAny2(s, a, b) }
+}
+
+// indexAny2 is IndexAny2's reference.
+func indexAny2(s string, a byte, b byte) int {
+	let mut i = 0
+	for i < len(s) {
+		if s[i] == a || s[i] == b {
+			return i
+		}
+		i = i + 1
+	}
+	-1
+}
+
+// IndexAny2IsTheReference: as IndexByteIsTheReference, with either
+// needle placed.
+law IndexAny2IsTheReference(pad int, fill byte, x string, a byte, b byte, y string) {
+	let s = padded(pad, fill, x, a, y)
+	let t = padded(pad, fill, x, b, y)
+	IndexAny2(s, a, b) == indexAny2(s, a, b) && IndexAny2(t, a, b) == indexAny2(t, a, b) && IndexAny2(x, a, b) == indexAny2(x, a, b)
+}
+
+// IndexOutside is the first index of a byte below lo or above hi, or -1.
+func IndexOutside(s string, lo byte, hi byte) int {
+	if vectors() { kernelIndexOutside(s, lo, hi) } else { indexOutside(s, lo, hi) }
+}
+
+// indexOutside is IndexOutside's reference.
+func indexOutside(s string, lo byte, hi byte) int {
+	let mut i = 0
+	for i < len(s) {
+		if s[i] < lo || s[i] > hi {
+			return i
+		}
+		i = i + 1
+	}
+	-1
+}
+
+// IndexOutsideIsTheReference: on a run of filler inside the range and a
+// drawn byte after it, and on a drawn text, IndexOutside is its
+// reference.
+law IndexOutsideIsTheReference(pad int, lo byte, hi byte, a string, c byte, b string) {
+	let s = padded(pad, lo, a, c, b)
+	IndexOutside(s, lo, hi) == indexOutside(s, lo, hi) && IndexOutside(a, lo, hi) == indexOutside(a, lo, hi)
+}
+
+// CountByte is the number of bytes of s equal to c.
+func CountByte(s string, c byte) int {
+	if vectors() { kernelCountByte(s, c) } else { countByte(s, c) }
+}
+
+// countByte is CountByte's reference.
+func countByte(s string, c byte) int {
+	let mut n = 0
+	let mut i = 0
+	for i < len(s) {
+		if s[i] == c {
+			n = n + 1
+		}
+		i = i + 1
+	}
+	n
+}
+
+// CountByteIsTheReference: on a run of the counted byte itself and on a
+// drawn text, CountByte is its reference.
+law CountByteIsTheReference(pad int, a string, c byte, b string) {
+	let s = padded(pad, c, a, c, b)
+	CountByte(s, c) == countByte(s, c) && CountByte(a, c) == countByte(a, c)
+}
+
+// padded is a run of fill, 0 to 127 bytes long by pad, then a, the
+// needle c and b: a needle at every offset of the vector loop and its
+// tail, for the laws above.
+func padded(pad int, fill byte, a string, c byte, b string) string {
+	let n = ((pad % 128) + 128) % 128
+	strings.Repeat(strings.FromBytes([]byte{fill}), n) + a + strings.FromBytes([]byte{c}) + b
+}
