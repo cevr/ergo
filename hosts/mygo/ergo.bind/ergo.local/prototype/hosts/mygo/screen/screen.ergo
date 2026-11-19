@@ -233,6 +233,8 @@ extern go ergo.local/prototype/hosts/mygo/screen.Window.Shadow func (w own *Wind
 // ergo:go func (*Window).Size() (float64, float64)
 extern go ergo.local/prototype/hosts/mygo/screen.Window.Size func (w own *Window) Size() (float64, float64) needs go.Foreign
 
+// ergo:go func (*Window).Slanted() int
+extern go ergo.local/prototype/hosts/mygo/screen.Window.Slanted func (w own *Window) Slanted() int needs go.Foreign
 // ergo:go func (*Window).StrokeBegin(width float64, color uint32)
 extern go ergo.local/prototype/hosts/mygo/screen.Window.StrokeBegin func (w own *Window) StrokeBegin(width float64, color uint32) needs go.Foreign
 
@@ -244,6 +246,9 @@ extern go ergo.local/prototype/hosts/mygo/screen.Window.StrokeTo func (w own *Wi
 
 // ergo:go func (*Window).Text(x float64, y float64, s string, size float64, color uint32)
 extern go ergo.local/prototype/hosts/mygo/screen.Window.Text func (w own *Window) Text(x float64, y float64, s string, size float64, color uint32) needs go.Foreign
+
+// ergo:go func (*Window).TextSlanted(x float64, y float64, s string, size float64, color uint32)
+extern go ergo.local/prototype/hosts/mygo/screen.Window.TextSlanted func (w own *Window) TextSlanted(x float64, y float64, s string, size float64, color uint32) needs go.Foreign
 
 // ergo:go func (*Window).TextWidth(s string, size float64) float64
 extern go ergo.local/prototype/hosts/mygo/screen.Window.TextWidth func (w own *Window) TextWidth(s string, size float64) float64 needs go.Foreign

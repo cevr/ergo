@@ -125,6 +125,9 @@ func compare[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *desktop.Drive
 	case _:
 	}
 	let _ = w.Render()
+	if w.Slanted() != desktop.Slants(d) {
+		return Some{Value: "the window slanted \(w.Slanted()) runs, the driver drew \(desktop.Slants(d)) italic"}
+	}
 	for p in desktop.Probes(d) {
 		let got = w.Pixel(p.X, p.Y)
 		if got != p.Color {
@@ -137,6 +140,11 @@ func compare[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *desktop.Drive
 	case None:
 	}
 	match accessDiffers(d, w) {
+	case Some[string] as why:
+		return why
+	case None:
+	}
+	match inksDiffer(h, d) {
 	case Some[string] as why:
 		return why
 	case None:

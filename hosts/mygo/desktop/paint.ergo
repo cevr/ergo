@@ -276,6 +276,9 @@ func paint[S, E, D, F](d *Driver[S, E, D, F]) needs go.Foreign {
 	d.lastSpot = d.spots
 	d.lastCanv = d.canvases
 	d.lastSem = d.semantics
+	d.lastLook = d.looked
+	d.lastUnder = d.underlines
+	d.lastInks = d.inks
 	if d.rebuild {
 		// The reference: every node drawn, nothing kept from the last
 		// paint.
@@ -319,6 +322,9 @@ func drawAll[S, E, D, F](d *Driver[S, E, D, F], line float32, soiled Map[ui.Id[E
 	d.canvases = []spot[E]{}
 	d.drawn = 0
 	d.looked = []lookProbe{}
+	d.underlines = []Probe{}
+	d.slants = 0
+	d.inks = []InkAt{}
 	d.covers = []cover{}
 	d.semantics = []ui.Id[E]{}
 	d.under = Some{Value: paper}
@@ -396,7 +402,7 @@ func sameSpots[E](a []spot[E], b []spot[E]) bool {
 // drawn is what a node's last draw was given (its box, the offsets its
 // tracks moved and its Scrolls lifted it by, its clip and the line height) and the spots and
 // canvases it added, as ranges of the paint's lists.
-type drawn { box layout.Box, dx float32, dy float32, clip layout.Box, line float32, opacity float64, under Option[uint32], shadow bool, s0 int, s1 int, c0 int, c1 int, m0 int, m1 int }
+type drawn { box layout.Box, dx float32, dy float32, clip layout.Box, line float32, opacity float64, under Option[uint32], shadow bool, s0 int, s1 int, c0 int, c1 int, m0 int, m1 int, l0 int, l1 int, u0 int, u1 int, i0 int, i1 int, slants int }
 
 // keyOf is id's key in the window's list (Mark, Again).
 func keyOf[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) int {
@@ -534,7 +540,7 @@ func build[S, E, D, F](d *Driver[S, E, D, F], t *layout.Tree, id ui.Id[E], into 
 // again, a node none of soiled names (no pass, scroll or focus changed it
 // or a node below it) given the box, offset, clip and line height of its
 // last draw takes that draw again from the window's last list, with the
-// spots it added then: its subtree lays out as it did, so it paints as it
+// spots, looks, underlines, inks and italic runs it added then: its subtree lays out as it did, so it paints as it
 // did. Any other node is drawn anew and counted (Drawn).
 func draw[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], dx float32, dy float32, clip layout.Box, line float32, soiled Map[ui.Id[E], bool], again bool) needs go.Foreign {
 	let laid = match d.lids.Get(id) {
@@ -565,7 +571,20 @@ func draw[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], dx float32, dy float32
 				for i in was.c0..was.c1 {
 					d.canvases = d.canvases.Append(d.lastCanv[i])
 				}
-				d.drew[id] = drawn{..was, s0: s0, s1: len(d.spots), c0: c0, c1: len(d.canvases), m0: m0, m1: len(d.semantics)}
+				let l0 = len(d.looked)
+				let u0 = len(d.underlines)
+				let i0 = len(d.inks)
+				for i in was.l0..was.l1 {
+					d.looked = d.looked.Append(d.lastLook[i])
+				}
+				for i in was.u0..was.u1 {
+					d.underlines = d.underlines.Append(d.lastUnder[i])
+				}
+				for i in was.i0..was.i1 {
+					d.inks = d.inks.Append(d.lastInks[i])
+				}
+				d.slants = d.slants + was.slants
+				d.drew[id] = drawn{..was, s0: s0, s1: len(d.spots), c0: c0, c1: len(d.canvases), m0: m0, m1: len(d.semantics), l0: l0, l1: len(d.looked), u0: u0, u1: len(d.underlines), i0: i0, i1: len(d.inks)}
 				return
 			}
 		case None:
@@ -574,6 +593,10 @@ func draw[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], dx float32, dy float32
 	let s0 = len(d.spots)
 	let c0 = len(d.canvases)
 	let m0 = len(d.semantics)
+	let l0 = len(d.looked)
+	let u0 = len(d.underlines)
+	let i0 = len(d.inks)
+	let k0 = d.slants
 	// A look's opacity and the colour under it reach the whole subtree
 	// (look.ergo), so a kept draw is taken again only under the same
 	// ones, and says whether it painted a shadow.
@@ -588,7 +611,7 @@ func draw[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], dx float32, dy float32
 	d.shadowed = shadowed || shadow
 	d.drawn = d.drawn + 1
 	if again {
-		d.drew[id] = drawn{box: b, dx: dx, dy: dy, clip: clip, line: line, opacity: opacity, under: under, shadow: shadow, s0: s0, s1: len(d.spots), c0: c0, c1: len(d.canvases), m0: m0, m1: len(d.semantics)}
+		d.drew[id] = drawn{box: b, dx: dx, dy: dy, clip: clip, line: line, opacity: opacity, under: under, shadow: shadow, s0: s0, s1: len(d.spots), c0: c0, c1: len(d.canvases), m0: m0, m1: len(d.semantics), l0: l0, l1: len(d.looked), u0: u0, u1: len(d.underlines), i0: i0, i1: len(d.inks), slants: d.slants - k0}
 	}
 }
 
@@ -677,7 +700,9 @@ func drawNode[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], laid layout.Box, b
 	case ui.TextNode as x:
 		access(d, id, screen.RoleText, x.Value, "", b, false, false)
 		let st = styleOf(n, line)
-		lines(d, x.Value, b.X+st.Padding[3], b.Y+st.Padding[0], b.W-st.Padding[1]-st.Padding[3], ink)
+		let k = lookOf(d, id, n).Ink
+		d.inks = d.inks.Append(InkAt{Label: x.Value, Ink: k})
+		inkedLines(d, x.Value, b.X+st.Padding[3], b.Y+st.Padding[0], b.W-st.Padding[1]-st.Padding[3], k, clip)
 	case ui.ReadoutNode as x:
 		// What the readout reads now, on one line, clipped to the
 		// reserve's box.
@@ -691,7 +716,9 @@ func drawNode[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], laid layout.Box, b
 		let st = styleOf(n, line)
 		let inner = cut(clip, b)
 		d.w.Clip(float64(inner.X), float64(inner.Y), float64(inner.W), float64(inner.H))
-		d.w.Text(float64(b.X+st.Padding[3]), float64(b.Y+st.Padding[0]), reading, float64(textSize), ink)
+		let k = lookOf(d, id, n).Ink
+		d.inks = d.inks.Append(InkAt{Label: reading, Ink: k})
+		inkedRun(d, reading, b.X+st.Padding[3], b.Y+st.Padding[0], k, inner)
 		d.w.Unclip()
 	case ui.PressableNode[E] as x:
 		d.spots = d.spots.Append(s)
@@ -778,6 +805,60 @@ func lines[S, E, D, F](d *Driver[S, E, D, F], text string, x float32, y float32,
 	for i, l in Lines(d.metrics, text, textSize, wide) {
 		d.w.Text(float64(x), float64(y+float32(i)*step), l, float64(textSize), color)
 	}
+}
+
+// inkedLines draws a Text's lines in its look's ink (OpenTUI gap 1), one
+// inkedRun a line.
+func inkedLines[S, E, D, F](d *Driver[S, E, D, F], text string, x float32, y float32, wide float32, k ui.Ink, clip layout.Box) needs go.Foreign {
+	let step = lineHeight(d.metrics, textSize)
+	for i, l in Lines(d.metrics, text, textSize, wide) {
+		inkedRun(d, l, x, y+float32(i)*step, k, clip)
+	}
+}
+
+// inkedRun draws one line of text in ink k: in its colour, or the
+// window's ink when transparent; bold as the run drawn twice, a dip apart
+// (the window has one face); italic as that face sheared (TextSlanted,
+// a synthetic oblique), counted in slants so a test reads that the window
+// slanted each italic run; underlined as a fill of a dip under the run,
+// on a whole pixel row. An opaque underline inside clip is a probe
+// (Probes), so a test reads the ink's colour off the window.
+func inkedRun[S, E, D, F](d *Driver[S, E, D, F], l string, x float32, at float32, k ui.Ink, clip layout.Box) needs go.Foreign {
+	let color = if k.Color.A != 0 { rgba(k.Color) } else { ink }
+	let opaque = (k.Color.A == 0 || k.Color.A == 255) && d.w.Opacity() == 1.0
+	let step = lineHeight(d.metrics, textSize)
+	let passes = if k.Bold { 2 } else { 1 }
+	for p in 0..passes {
+		let px = float64(x + float32(p))
+		if k.Italic {
+			d.w.TextSlanted(px, float64(at), l, float64(textSize), color)
+		} else {
+			d.w.Text(px, float64(at), l, float64(textSize), color)
+		}
+	}
+	if k.Italic {
+		d.slants = d.slants + passes
+	}
+	if k.Underline {
+		let under = layout.Box{X: fceil(x), Y: fceil(at + step - 3), W: float32(int(float32(d.w.TextWidth(l, float64(textSize))))), H: 1}
+		fill(d, under, 0, color)
+		let px = int(under.X) + 1
+		let py = int(under.Y)
+		if opaque && under.W >= 3 && probeShows(clip, px, py) {
+			// The probe's colour is the look's, read apart from what was
+			// drawn, as lookProbes reads a fill's.
+			d.underlines = d.underlines.Append(Probe{Label: l + " underline", X: px, Y: py, Color: inkColor(k)})
+		}
+	}
+}
+
+// inkColor is the colour a look's ink draws in: its own, or the window's
+// ink when transparent.
+func inkColor(k ui.Ink) uint32 {
+	if k.Color.A != 0 {
+		return rgba(k.Color)
+	}
+	ink
 }
 
 func fill[S, E, D, F](d *Driver[S, E, D, F], b layout.Box, radius float32, color uint32) needs go.Foreign {

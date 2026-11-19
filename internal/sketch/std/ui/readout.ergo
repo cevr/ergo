@@ -67,13 +67,19 @@ func Reading(r Readout) string { r.text.Get() }
 // text. The node is the same across passes while r and reserve are, so a
 // pass that writes it again changes nothing.
 func ReadoutText[E](f *Frame[E], r Readout, reserve string, at CallSite) {
+	ReadoutStyled(f, r, reserve, Plain(), at)
+}
+
+// ReadoutStyled is ReadoutText with a Style: its layout, and its look,
+// whose Ink draws the reading (look.ergo).
+func ReadoutStyled[E](f *Frame[E], r Readout, reserve string, style Style, at CallSite) {
 	if f.nreadouts < len(f.readouts) {
 		f.readouts[f.nreadouts] = r
 	} else {
 		f.readouts = f.readouts.Append(r)
 	}
 	f.nreadouts = f.nreadouts + 1
-	let _ = put(f, ReadoutNode{Readout: r.id, Reserve: reserve, Style: Plain()}, None, None, at)
+	let _ = put(f, ReadoutNode{Readout: r.id, Reserve: reserve, Style: style}, None, None, at)
 }
 
 // watched is a readout a session watches and the flag of its Published.

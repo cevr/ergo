@@ -173,6 +173,8 @@ type glyphText struct {
 	color       scene.Color
 	clip        scene.Rect
 	transformed bool
+	// slant draws the run sheared, as an oblique face (TextSlanted).
+	slant bool
 }
 
 // seg is the part of a list one key drew: its ops, its lines of text and
@@ -831,6 +833,35 @@ func (w *Window) Text(x, y float64, s string, size float64, color uint32) {
 	w.mu.Unlock()
 }
 
+// TextSlanted is Text drawn oblique: the window has one face, so an
+// italic run is that face sheared, its tops leaning right by slant of
+// their height above the baseline, as a renderer synthesizes an oblique
+// face for a family with no italic.
+func (w *Window) TextSlanted(x, y float64, s string, size float64, color uint32) {
+	w.mu.Lock()
+	w.glyphs = append(w.glyphs, glyphText{at: len(w.pending), x: float32(x), y: float32(y), s: s, size: float32(size), color: w.faded(rgba(color)), slant: true})
+	w.mu.Unlock()
+}
+
+// Slanted is how many slanted runs the list made since Begin (or Hold)
+// holds: those TextSlanted added and those a kept part (Again) took
+// again.
+func (w *Window) Slanted() int {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	n := 0
+	for _, g := range w.glyphs {
+		if g.slant {
+			n++
+		}
+	}
+	return n
+}
+
+// slant is the shear of an oblique run: x moves by slant of the height
+// above the baseline (about 11 degrees, a common synthetic oblique).
+const slant = 0.2
+
 // Access adds a node of the accessibility tree: id names it from frame to
 // frame (1 or more), parent is the index of its parent among the nodes
 // added since Begin (-1 at the top).
@@ -1312,7 +1343,13 @@ func (w *Window) glyphLine(s *scene.Scene, t glyphText, scale float32) {
 		}
 	}
 	if end := int32(len(s.Glyphs)); end > start {
-		s.Ops = append(s.Ops, scene.Op{Kind: scene.OpGlyphs, Start: start, End: end, Transform: scene.Translation(0, 0)})
+		m := scene.Translation(0, 0)
+		if t.slant {
+			// x' = x - slant*(y - baseline): the baseline stays, a
+			// glyph's top leans right.
+			m = scene.Matrix(1, 0, -slant, 1, slant*baseline, 0)
+		}
+		s.Ops = append(s.Ops, scene.Op{Kind: scene.OpGlyphs, Start: start, End: end, Transform: m})
 	}
 }
 
