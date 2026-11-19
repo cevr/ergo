@@ -83,6 +83,9 @@ type IRReport struct {
 	// FailJumps counts the inlined failures that jump to their catch arm
 	// (FAIL-INLINE, ir_forms_failjump.go).
 	FailJumps int `json:"-"`
+	// CatchTreeDefects counts the full catches with patterns whose tree's
+	// exit panics with the unreachable defect (FAIL-ELIDE-PAT, ir_fail.go).
+	CatchTreeDefects int `json:"-"`
 	// FailLeaves counts the fallible leaves copied only for their
 	// failures' jumps (FAIL-INLINE, ir_forms_inline.go).
 	FailLeaves int `json:"-"`
