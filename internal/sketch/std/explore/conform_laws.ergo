@@ -453,11 +453,23 @@ func fitName(f Fit) string {
 	}
 }
 
+// fitAgrees is FitFastAgreesWithDecode for one case.
+func fitAgrees(a uint64, b uint64, mask uint64) bool {
+	let v = fRec(a)
+	let obs = fProject(valueOf(fRec(b)), mask)
+	fitName(FitOf(v, obs)) == fitName(fitDecode(v, valueOf(v), obs))
+}
+
 // FitFastAgreesWithDecode (MODELCHECK T2b): FitOf, which answers from the
 // wire forms when it can, says what the decode alone (fitDecode) says, for
 // an observation of another value with members left out, a member of the
-// wrong kind, or one the type does not have.
+// wrong kind, or one the type does not have. The case where a differing
+// nested tag alone decides (Idle observed as Busy with its k left out,
+// mask 3), which generated masks seldom reach, is always run.
 law FitFastAgreesWithDecode(a uint64, b uint64, mask uint64) {
+	if !fitAgrees(0, 1, 3) || !fitAgrees(1, 0, 3) {
+		return false
+	}
 	let v = fRec(a)
 	let obs = fProject(valueOf(fRec(b)), mask)
 	fitName(FitOf(v, obs)) == fitName(fitDecode(v, valueOf(v), obs))
