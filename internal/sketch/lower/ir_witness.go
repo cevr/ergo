@@ -29,10 +29,15 @@ package lower
 // callText does: the IR never passes a witness the emitter's call does
 // not.
 //
-// Still gated: a codec parameter (its witness is a codec, read by the
-// codec calls), and in a copy for a known witness (fc.static, whose body
-// "copy for an instance" keeps the emitter's until G4) an operation call
-// on that witness, which the copy makes a direct call (witnessCall).
+// A codec parameter (PORT-WITNESS) is a witness local too: the codec
+// calls read its Enc and Dec fields and pass it to a generic codec
+// function (ir_codec.go), and a call passes it on as any other.
+//
+// Still gated: in a copy for a known witness (fc.static, whose body "copy
+// for an instance" keeps the emitter's until G4) an operation call on
+// that witness, which the copy makes a direct call (witnessCall); and a
+// witness built from the caller's own for another type (a codec of []T
+// passed to a callee), a literal the IR does not build yet.
 //
 // Prior art: Swift emits a protocol witness table for each concrete
 // conformance once, as a global constant, and passes its address; GHC
@@ -155,7 +160,7 @@ func (b *irBuilder) passedWitnesses(f *check.Func, inst *check.Instance, params 
 	for i, tp := range params {
 		own, isParam := instArg(f, inst, tp, f.Decl).(*check.TypeParam)
 		l, has := b.wits[own]
-		if !isParam || !has || isWireParam(tp) || b.fc.witnessType(tp, own) != b.fc.witnessType(own, own) {
+		if !isParam || !has || b.fc.witnessType(tp, own) != b.fc.witnessType(own, own) {
 			irNo("call that passes the caller's witness")
 		}
 		out[i] = &irExpr{K: "local", Pos: p, I: l}
@@ -163,20 +168,14 @@ func (b *irBuilder) passedWitnesses(f *check.Func, inst *check.Instance, params 
 	return out
 }
 
-// witnessGate stops a body with witness parameters that the IR does not
-// take yet: a codec parameter's (isWireParam). A copy for a
-// known witness keeps its own gate, "copy for an instance" (G4), and its
-// operation calls on the known witness theirs (witnessOpCall).
+// witnessGate stops a body with witness parameters when the callee side
+// is off (witnessIR). A codec parameter's witness is a local as any
+// other's (PORT-WITNESS), read by the codec calls (codecCall). A copy for
+// a known witness keeps its own gate, "copy for an instance" (G4), and
+// its operation calls on the known witness theirs (witnessOpCall).
 func (b *irBuilder) witnessGate() {
 	if witnessIR == "off" {
 		b.gate("witness parameter")
-		return
-	}
-	for tp := range b.fc.witness {
-		if isWireParam(tp) {
-			b.gate("witness parameter")
-			return
-		}
 	}
 }
 

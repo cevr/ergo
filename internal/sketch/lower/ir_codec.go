@@ -7,12 +7,16 @@ package lower
 //	encodeT(env, w, v)
 //	v, err := decodeT(env, r)
 //
-// after the interruption point. A direct or cell writer (wiredirect.go,
-// wiretext.go), a type the emitter writes inline (a basic value's one
-// event) and a type that holds type parameters (codec witnesses) keep the
-// source body.
+// after the interruption point. A type parameter's codec is its witness's
+// field, `wT.Enc(env, w, v)` and `v, err := wT.Dec(env, r)`, and a type
+// that holds type parameters passes their witnesses after the environment
+// (PORT-WITNESS; ir_witness.go). A direct or cell writer (wiredirect.go,
+// wiretext.go) and a type the emitter writes inline (a basic value's one
+// event) keep the source body.
 
 import (
+	"strings"
+
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
@@ -27,8 +31,6 @@ func (b *irBuilder) codecCall(x *syntax.CallExpr, c *check.Call, p irPos) ([]*ir
 		irNo("codec call form")
 	case b.env < 0:
 		irNo("codec call from a pure function")
-	case len(freeTypeParams(c.Type)) > 0:
-		irNo("codec of a type that holds type parameters")
 	case b.l.wireInline(c.Type):
 		irNo("codec of a type written inline")
 	}
@@ -52,6 +54,38 @@ func (b *irBuilder) codecCall(x *syntax.CallExpr, c *check.Call, p irPos) ([]*ir
 		args = []*irExpr{args[1], args[0]} // the writer, then the value
 	}
 	env := &irExpr{K: "local", Pos: p, I: b.env}
+	if tp, ok := c.Type.(*check.TypeParam); ok {
+		// The codec of a type parameter is its witness's (wireOf):
+		// Enc or Dec, a function value of the uniform shape, as the
+		// emitter's wireEvents.param and wireCall call it.
+		field := "Enc"
+		if dir == "decode" {
+			field = "Dec"
+		}
+		fn := &irExpr{K: "field", Pos: p, Name: field, X: b.codecWitness(tp, p)}
+		return pre, &irExpr{K: "vcall", Pos: p, X: fn, Args: append([]*irExpr{env}, args...)}, true
+	}
+	lead := []*irExpr{env}
+	var targs []string
+	for _, tp := range freeTypeParams(c.Type) {
+		// A generic codec function takes a witness per type parameter
+		// after the environment (wireWits), and its call names its type
+		// arguments, the body's own parameters (wireFunc's typeParams),
+		// never left to Go's inference (ir_pkg.go).
+		lead = append(lead, b.codecWitness(tp, p))
+		targs = append(targs, b.goType(tp, x))
+	}
 	name := b.l.wireFunc(dir, c.Type, x)
-	return pre, &irExpr{K: "call", Pos: p, Name: name, Args: append([]*irExpr{env}, args...)}, true
+	return pre, &irExpr{K: "call", Pos: p, Name: name, T: strings.Join(targs, ", "), Args: append(lead, args...)}, true
+}
+
+// codecWitness is the codec witness of tp in this body: its witness
+// parameter's local (witnessSlots), as the emitter's wireOf reads
+// fc.witness.
+func (b *irBuilder) codecWitness(tp *check.TypeParam, p irPos) *irExpr {
+	l, ok := b.wits[tp]
+	if !ok || !isWireParam(tp) {
+		irNo("codec of a type parameter with no codec witness here")
+	}
+	return &irExpr{K: "local", Pos: p, I: l}
 }
