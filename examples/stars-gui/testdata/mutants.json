@@ -2,6 +2,30 @@
   "about": "stars-gui's application mutants (wf10 corpus wave GP1a, GP1b, GP1x): edits of the example, each with the law or the test that kills it. A killer examples/stars-gui/PKG:law L is `ergo test examples/stars-gui/PKG --law L`; scripts/examples:stars-gui is the program's cases (`go run ./scripts/examples stars-gui`), killed when a case's output differs; cmd/ergo:TestStarsGuiAgreesWithControl is the seeded agreement property against the reference model and the hand Go control, which kills the mutants no law sees.",
   "mutants": [
     {
+      "name": "stars-fold-not-refreshed", "origin": "wf10 GP stars gap 11",
+      "file": "examples/stars-gui/catalog/table.ergo",
+      "from": "\t\tfolds[e.Row] = FoldOf(rows[e.Row])\n",
+      "to": "\t\tfolds[e.Row] = folds[e.Row]\n",
+      "rule": "An edit refreshes its row's fold, so a filter matches the edited name.",
+      "killers": ["examples:stars-gui law catalog.Table.WholeIsOrder"]
+    },
+    {
+      "name": "stars-fold-skips-constellation", "origin": "wf10 GP stars gap 11",
+      "file": "examples/stars-gui/catalog/view.ergo",
+      "from": "if strings.Contains(k.Name, f) || strings.Contains(k.Constellation, f) {",
+      "to": "if strings.Contains(k.Name, f) || strings.Contains(k.Name, f+f) {",
+      "rule": "A filter matches the constellation too, as Matches does.",
+      "killers": ["examples:stars-gui law catalog.Table.ViewIsOrder"]
+    },
+    {
+      "name": "stars-fold-not-lowered", "origin": "wf10 GP stars gap 11",
+      "file": "examples/stars-gui/catalog/view.ergo",
+      "from": "Fold{Name: strings.ToLower(s.Name),",
+      "to": "Fold{Name: s.Name,",
+      "rule": "A row's kept fold is its name case folded, as the filter is.",
+      "killers": ["examples:stars-gui", "cmd/ergo:TestStarsGuiAgreesWithControl"]
+    },
+    {
       "name": "stars-sort-keeps-the-whole", "origin": "wf10 GP1x",
       "file": "examples/stars-gui/catalog/table.ergo",
       "from": "Whole: kept(g.Filter, view), Key: key",
@@ -12,16 +36,16 @@
     {
       "name": "stars-edit-keeps-the-whole", "origin": "wf10 GP1x",
       "file": "examples/stars-gui/catalog/table.ergo",
-      "from": "Rows: rows, View: view, Whole: kept(g.Filter, view)",
-      "to": "Rows: rows, View: view, Whole: g.Whole",
+      "from": "Rows: rows, Folds: folds, View: view, Whole: kept(g.Filter, view)",
+      "to": "Rows: rows, Folds: folds, View: view, Whole: g.Whole",
       "rule": "An edit may move its star, so the kept order of the whole catalogue goes.",
       "killers": ["examples:stars-gui"]
     },
     {
       "name": "stars-widen-narrows-the-view", "origin": "wf10 GP1x",
       "file": "examples/stars-gui/catalog/table.ergo",
-      "from": "View: Narrow(g.Rows, all, filter)",
-      "to": "View: Narrow(g.Rows, g.View, filter)",
+      "from": "View: NarrowFolded(g.Folds, all, filter)",
+      "to": "View: NarrowFolded(g.Folds, g.View, filter)",
       "rule": "A widening filter filters the whole catalogue, not the narrower view.",
       "killers": ["examples:stars-gui"]
     },

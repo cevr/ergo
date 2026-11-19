@@ -25,8 +25,8 @@ func reaperMain([]string) {
 	os.Exit(sandboxExit)
 }
 
-func runWithin(*exec.Cmd, time.Duration) (bool, []string, error) {
-	return false, nil, errUnsupported
+func runWithin(*exec.Cmd, time.Duration, time.Time, func() int64) (watchOutcome, []string, error) {
+	return watchExited, nil, errUnsupported
 }
 
 func openProcess(int) (int, bool, error) { return -1, false, errUnsupported }

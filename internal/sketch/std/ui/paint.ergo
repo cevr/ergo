@@ -1,3 +1,5 @@
+import slices
+
 // Canvas (H5c): a node whose content is a paint list, values a host
 // replays: paths filled and stroked, under transforms and clips that nest.
 // The list is part of the node, so a pass that paints the same list
@@ -44,41 +46,89 @@ type PaintOp = FillOp{Path Path, Color Color} | StrokeOp{Path Path, Color Color,
 type PopPaint {}
 
 // Paint is where a canvas's draw function paints. Only Canvas makes one,
-// and it lives for one call of that function.
-type Paint { ops []PaintOp }
+// and it lives for one call of that function. A Frame's canvases all
+// paint into the Frame's one Paint, a scratch kept from canvas to canvas
+// and pass to pass: the ops, the segments of their paths in segs, and for
+// each op the end of its path in segs. Canvas copies out what its draw
+// added and cuts the scratch back, so a canvas costs its list and its
+// segments, and a path built for one call (RectPath) is copied in and
+// never kept.
+type Paint { ops []PaintOp, segs []Seg, ends []int }
 
 // Fill fills path with c.
 func Fill(p *Paint, path Path, c Color) {
-	p.ops = p.ops.Append(FillOp{Path: path, Color: c})
+	p.segs = slices.AppendAll(p.segs, path.Segs)
+	add(p, FillOp{Path: Path{Segs: []Seg{}}, Color: c})
 }
 
 // Stroke strokes path with c, width wide.
 func Stroke(p *Paint, path Path, c Color, width float64) {
-	p.ops = p.ops.Append(StrokeOp{Path: path, Color: c, Width: width})
+	p.segs = slices.AppendAll(p.segs, path.Segs)
+	add(p, StrokeOp{Path: Path{Segs: []Seg{}}, Color: c, Width: width})
+}
+
+// add writes op, whose path is the segments added since the last op.
+func add(p *Paint, op PaintOp) {
+	p.ops = p.ops.Append(op)
+	p.ends = p.ends.Append(len(p.segs))
 }
 
 // Transformed paints body under m, composed with the transforms around
 // it.
 func Transformed(p *Paint, m Affine, body func()) {
-	p.ops = p.ops.Append(PushTransform{M: m})
+	add(p, PushTransform{M: m})
 	body()
-	p.ops = p.ops.Append(PopPaint)
+	add(p, PopPaint)
 }
 
 // Clipped paints body inside the rectangle at x, y of w by h, in the
 // coordinates of the transforms around it.
 func Clipped(p *Paint, x float64, y float64, w float64, h float64, body func()) {
-	p.ops = p.ops.Append(PushClip{X: x, Y: y, W: w, H: h})
+	add(p, PushClip{X: x, Y: y, W: w, H: h})
 	body()
-	p.ops = p.ops.Append(PopPaint)
+	add(p, PopPaint)
 }
 
 // Canvas writes a canvas of width by height whose content is what draw
-// paints, a leaf named label. draw runs during the pass, once.
+// paints, a leaf named label. draw runs during the pass, once. It paints
+// into f's scratch after what is there (an enclosing canvas's ops, when
+// this one is written inside another's draw), and the canvas's list is
+// what it added (paintList).
 func Canvas[E](f *Frame[E], label string, width Length, height Length, draw func(p *Paint), at CallSite) {
-	let mut p = Paint{ops: []PaintOp{}}
-	draw(&p)
-	let _ = put(f, CanvasNode{Label: label, Width: width, Height: height, Paint: p.ops}, None, None, at)
+	let from = len(f.paint.ops)
+	let segsFrom = len(f.paint.segs)
+	draw(&f.paint)
+	let ops = paintList(&f.paint, from, segsFrom)
+	let _ = put(f, CanvasNode{Label: label, Width: width, Height: height, Paint: ops}, None, None, at)
+}
+
+// paintList is the list of p's ops from from on, each path its own
+// segments from segsFrom on, in a list of ops and a list of segments of
+// its own; p is cut back to from and segsFrom.
+func paintList(p *Paint, from int, segsFrom int) []PaintOp {
+	let segs = p.segs[segsFrom:]
+	let mut out = slices.WithCapacity[PaintOp](len(p.ops) - from)
+	let mut at = 0
+	for i in from..len(p.ops) {
+		let end = p.ends[i] - segsFrom
+		match p.ops[i] {
+		case FillOp as x:
+			out = out.Append(FillOp{Path: Path{Segs: segs[at:end]}, Color: x.Color})
+		case StrokeOp as x:
+			out = out.Append(StrokeOp{Path: Path{Segs: segs[at:end]}, Color: x.Color, Width: x.Width})
+		case PushTransform as x:
+			out = out.Append(PushTransform{M: x.M})
+		case PushClip as x:
+			out = out.Append(PushClip{X: x.X, Y: x.Y, W: x.W, H: x.H})
+		case PopPaint:
+			out = out.Append(PopPaint)
+		}
+		at = end
+	}
+	p.ops = p.ops[0:from]
+	p.segs = p.segs[0:segsFrom]
+	p.ends = p.ends[0:from]
+	out
 }
 
 // PaintOf is the paint list of a canvas node, empty for any other node.

@@ -1,0 +1,197 @@
+// Rounding: Round to a scale and Div at a scale, each by a RoundingMode.
+
+// HalfUp rounds to the nearer neighbour, a tie away from zero (2.5 to 3,
+// -2.5 to -3): Java's HALF_UP, Effect's "half-from-zero".
+type HalfUp {}
+
+// HalfEven rounds to the nearer neighbour, a tie to the even one (2.5 to
+// 2, 3.5 to 4): banker's rounding, IEEE 754's default.
+type HalfEven {}
+
+// Down drops the digits: toward zero.
+type Down {}
+
+// Up rounds away from zero when any digit is dropped.
+type Up {}
+
+// Floor rounds toward negative infinity.
+type Floor {}
+
+// Ceil rounds toward positive infinity.
+type Ceil {}
+
+// RoundingMode is how Round and Div drop the digits past the scale.
+type RoundingMode = HalfUp | HalfEven | Down | Up | Floor | Ceil
+
+// bumps is whether the magnitude kept goes up by one, by mode, on a value
+// whose sign is neg: odd is whether the kept magnitude is odd, half is -1,
+// 0 or 1 as the dropped part is under, at or past half a unit, and exact
+// is whether nothing is dropped.
+func bumps(mode RoundingMode, neg bool, odd bool, half int, exact bool) bool {
+	if exact {
+		return false
+	}
+	match mode {
+	case HalfUp:
+		half >= 0
+	case HalfEven:
+		half > 0 || half == 0 && odd
+	case Down:
+		false
+	case Up:
+		true
+	case Floor:
+		neg
+	case Ceil:
+		!neg
+	}
+}
+
+// finish is the quotient q of a division with remainder r by dv, rounded
+// by mode, at scale.
+func finish(mode RoundingMode, neg bool, q u128, r u128, dv u128, scale int) Decimal fails Overflow {
+	// r against dv - r: under, at or past half without forming 2r, which
+	// may not fit.
+	if !bumps(mode, neg, q.lo%2 == 1, cmp128(r, sub128(dv, r)), isZero(r)) {
+		return build(neg, q, scale)
+	}
+	let (up, over) = add128(q, small(1))
+	if over {
+		return Overflow
+	}
+	build(neg, up, scale)
+}
+
+// Round is d at scale by mode: exact when scale is at least d's, the
+// coefficient then multiplied out (Overflow when it no longer fits), and
+// otherwise the neighbour at scale that mode picks. Scale is 0 to
+// MaxScale, else Overflow.
+func Round(d Decimal, scale int, mode RoundingMode) Decimal fails Overflow {
+	if scale < 0 || scale > MaxScale() {
+		return Overflow
+	}
+	if scale >= d.scale {
+		return build(d.neg, try rescale(d.coef, d.scale, scale), scale)
+	}
+	let dv = pow10(d.scale - scale)
+	let (q, r) = divmod128(d.coef, dv)
+	try finish(mode, d.neg, q, r, dv, scale)
+}
+
+// Div is a / b at scale, rounded by mode. It fails with DivideByZero for
+// a zero b, and with Overflow when the quotient does not fit or when a's
+// coefficient times 10^(scale + b's scale - a's scale), which it divides,
+// is over 128 bits.
+func Div(a Decimal, b Decimal, scale int, mode RoundingMode) Decimal fails DivideByZero | Overflow {
+	if isZero(b.coef) {
+		return DivideByZero
+	}
+	if scale < 0 || scale > MaxScale() {
+		return Overflow
+	}
+	let neg = a.neg != b.neg
+	let e = scale + b.scale - a.scale
+	if e >= 0 {
+		if e > MaxScale() && !isZero(a.coef) {
+			return Overflow
+		}
+		let num = try rescale(a.coef, 0, e)
+		let (q, r) = divmod128(num, b.coef)
+		return try finish(mode, neg, q, r, b.coef, scale)
+	}
+	// The divisor is b's coefficient times 10^k.
+	let k = -e
+	if k <= MaxScale() {
+		let (dv, over) = mul128(b.coef, pow10(k))
+		if !over {
+			let (q, r) = divmod128(a.coef, dv)
+			return try finish(mode, neg, q, r, dv, scale)
+		}
+	}
+	// Past 128 bits the divisor is over every coefficient: the quotient is
+	// 0 and the remainder a's, which rounds against half the divisor,
+	// b·5·10^(k-1), exact as an integer, and over a when it does not fit.
+	let half = if k > MaxScale() { -1 } else { halfOf(a.coef, b.coef, k) }
+	build(neg, small(if bumps(mode, neg, false, half, isZero(a.coef)) { 1 } else { 0 }), scale)
+}
+
+// halfOf is -1, 0 or 1 as a is under, at or over b·5·10^(k-1), for k from
+// 1 to MaxScale; a product past 128 bits is over a.
+func halfOf(a u128, b u128, k int) int {
+	let (five, o1) = mul64(b, 5)
+	let (h, o2) = mul128(five, pow10(k-1))
+	if o1 || o2 { -1 } else { cmp128(a, h) }
+}
+
+// modes is each RoundingMode, for the laws.
+func modes() []RoundingMode { []RoundingMode{HalfUp, HalfEven, Down, Up, Floor, Ceil} }
+
+// RoundIsNearest: Round to a smaller scale lands on a neighbour of d at
+// that scale, the one each mode names: within one unit of the last
+// place, within half of it for HalfUp and HalfEven, toward zero for Down,
+// away for Up, below for Floor, above for Ceil.
+law RoundIsNearest(x int64, i int, k int) {
+	let d = dec(x, i)
+	let s = (k%7 + 7) % 7
+	if s >= Scale(d) {
+		return Equal(try Round(d, s, Down), d) && Scale(try Round(d, s, Down)) == s
+	}
+	let unit = try New(1, s)
+	let halfUnit = try Div(unit, FromInt(2), s+1, Down)
+	for m in modes() {
+		let r = try Round(d, s, m)
+		let gap = Abs(try Sub(r, d))
+		if Scale(r) != s || Cmp(gap, unit) >= 0 {
+			return false
+		}
+		let ok = match m {
+		case HalfUp, HalfEven:
+			Cmp(gap, halfUnit) <= 0
+		case Down:
+			Cmp(Abs(r), Abs(d)) <= 0
+		case Up:
+			Cmp(Abs(r), Abs(d)) >= 0
+		case Floor:
+			Cmp(r, d) <= 0
+		case Ceil:
+			Cmp(r, d) >= 0
+		}
+		if !ok {
+			return false
+		}
+	}
+	true
+}
+
+// HalfUpDiffersFromHalfEvenOnlyAtTies: HalfUp and HalfEven round d alike
+// unless d is exactly halfway between its neighbours.
+law HalfUpDiffersFromHalfEvenOnlyAtTies(x int64, i int, k int) {
+	let d = dec(x, i)
+	let s = (k%7 + 7) % 7
+	if s >= Scale(d) {
+		return true
+	}
+	let down = try Round(d, s, Down)
+	let halfUnit = try Div(try New(1, s), FromInt(2), s+1, Down)
+	let tie = Equal(Abs(try Sub(d, down)), halfUnit)
+	let same = try Round(d, s, HalfUp) == try Round(d, s, HalfEven)
+	same || tie
+}
+
+// DivUndoesMul: a product divided by a nonzero factor at the product's
+// scale is the other factor, in every mode, and the quotient times the
+// divisor is within one divisor of the dividend.
+law DivUndoesMul(x int64, i int, y int64, j int) {
+	let a = dec(x, i)
+	let b = dec(y, j)
+	if Sign(b) == 0 {
+		return true
+	}
+	let p = try Mul(a, b)
+	for m in modes() {
+		if !Equal(try Div(p, b, Scale(a), m), a) {
+			return false
+		}
+	}
+	true
+}

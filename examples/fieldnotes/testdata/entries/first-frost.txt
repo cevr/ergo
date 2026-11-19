@@ -1,0 +1,4 @@
+title: First frost
+day: 2026-11-02
+
+Thin ice at the edge of the pond, gone by ten.

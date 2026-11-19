@@ -29,6 +29,10 @@
 # are the binding's, so G9-extern-allowlist.neg expects S108 (no needs go.Foreign),
 # S109 (fmt.Sprint, refused by its binding) and S104 (strings/x, no binding);
 # the source rule under g9/accept carries the same bytes.
+# GB2 (go.Any): fmt.Sprint binds now (its ...any is []go.Any), so
+# G9-extern-allowlist.neg's S109 is os/signal.Stop, whose channel parameter
+# its binding refuses; the source rule takes the same change when the
+# orchestrator syncs it.
 # L6 (batch 12, owner q30): D3-prelude-names.neg refuses `type true` in place
 # of `type Option`, which a package may now declare; the source rule takes the
 # same change when the orchestrator syncs it.
@@ -125,7 +129,7 @@ c1f91f94a70d53a83e9180ebcbffed0fd84eed9eeb048f701aff0faa50068caf  Esub2-task-typ
 f284fe3e358d033626af8fe8375d7574a5229c0f3fe7d3a68f79ac664f93eda1  Esub4-extern-call-only.pos.ergo
 fa8dfff36b4a68d40da780f455167b783e29cee33cc1127618a6539ef6deecec  Esub5-context-charge.neg.ergo
 e77eaf0581a635ea1e4b3a1fdaf9764c9de78175e7ecedf92c6a2cdeb3d5eef6  Esub5-context-charge.pos.ergo
-7adbeee04f893887a9e1c28d67d9269cd5785913807c383050528e18ec8e58dd  G9-extern-allowlist.neg.ergo
+2917d6ad940364798b32059bafaf0f3bfda63470eb2cc64806a5672f89b1ec36  G9-extern-allowlist.neg.ergo
 c5ae4909018425d11e3ebd7ffb4af48108083205dcff9897a39493e6e555b8de  G9-extern-allowlist.pos.ergo
 fccb7545dbf9c96ea89db46314c079e85b6bca9b0e418a311b098931582d5057  L8-C1-lends.neg.ergo
 bf0e3110c40e649aa2a4257fb43cb2d9bacc4876dd812fc1d506508e68bac469  L8-captures.neg.ergo

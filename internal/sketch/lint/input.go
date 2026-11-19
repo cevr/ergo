@@ -12,7 +12,7 @@ func InputOf(a sketchfront.Analysis) Input {
 		packages = append(packages, a.Root())
 	}
 	for _, p := range packages {
-		unit := Unit{Package: p.Package}
+		unit := Unit{Package: p.Package, Path: p.Path, Dependency: p.Module != ""}
 		for _, f := range p.Files {
 			unit.Files = append(unit.Files, File{Rel: f.Rel, Syntax: f.Syntax})
 		}

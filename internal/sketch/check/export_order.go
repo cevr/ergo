@@ -2,10 +2,9 @@ package check
 
 import (
 	"bytes"
-	"encoding/binary"
-	"math"
-	"reflect"
 	"slices"
+
+	"ergo.local/prototype/internal/sketch/reflectread"
 )
 
 // The order of a map's entries in a snapshot (compile-speed CS1b). A Go
@@ -56,7 +55,7 @@ func (e *encoder) entryOrder(n int, entry func(i int) (key, value any)) []int {
 	ranks := make([][]byte, n)
 	for i := range ranks {
 		k, v := entry(i)
-		ranks[i] = e.rank(e.rank(nil, reflect.ValueOf(k).Elem(), rankDepth), reflect.ValueOf(v).Elem(), rankDepth)
+		ranks[i] = reflectread.Rank(reflectread.Rank(nil, k, rankDepth, e.known), v, rankDepth, e.known)
 	}
 	slices.SortFunc(order, func(a, b int) int { return bytes.Compare(ranks[a], ranks[b]) })
 	if reverseTiesForTest {
@@ -72,82 +71,18 @@ func (e *encoder) entryOrder(n int, entry func(i int) (key, value any)) []int {
 	return order
 }
 
-// rank appends v's rank to b. depth is how many pointers below v a rank
-// may follow to an object that has no id yet.
-func (e *encoder) rank(b []byte, v reflect.Value, depth int) []byte {
-	switch v.Kind() {
-	case reflect.Invalid:
-		return append(b, 0)
-	case reflect.Interface:
-		if v.IsNil() {
-			return append(b, 0)
-		}
-		return e.rank(b, v.Elem(), depth)
-	case reflect.Pointer:
-		if v.IsNil() {
-			return append(b, 0)
-		}
-		// A pointer read from an unexported field cannot be an interface
-		// value; one made at the same address can.
-		x := reflect.NewAt(v.Type().Elem(), v.UnsafePointer()).Interface()
-		if i, ok := e.ext[x]; ok {
-			return binary.BigEndian.AppendUint64(append(b, 1), i)
-		}
-		if id, ok := e.ids[x]; ok {
-			return binary.BigEndian.AppendUint64(append(b, 2), id)
-		}
-		if id, ok := e.nodes.Has(x); ok {
-			return binary.BigEndian.AppendUint64(append(b, 3), id)
-		}
-		b = rankString(append(b, 4), v.Type().String())
-		if depth == 0 {
-			return b
-		}
-		return e.rank(b, v.Elem(), depth-1)
-	case reflect.Struct:
-		b = append(b, 5)
-		for i := range v.NumField() {
-			b = e.rank(b, v.Field(i), depth)
-		}
-		return b
-	case reflect.Slice:
-		if v.IsNil() {
-			return append(b, 0)
-		}
-		b = binary.BigEndian.AppendUint64(append(b, 6), uint64(v.Len()))
-		for i := range v.Len() {
-			b = e.rank(b, v.Index(i), depth)
-		}
-		return b
-	case reflect.Array:
-		b = append(b, 6)
-		for i := range v.Len() {
-			b = e.rank(b, v.Index(i), depth)
-		}
-		return b
-	case reflect.String:
-		return rankString(append(b, 7), v.String())
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		return binary.BigEndian.AppendUint64(append(b, 8), uint64(v.Int())^(1<<63))
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
-		return binary.BigEndian.AppendUint64(append(b, 8), v.Uint())
-	case reflect.Bool:
-		if v.Bool() {
-			return append(b, 8, 1)
-		}
-		return append(b, 8, 0)
-	case reflect.Float32, reflect.Float64:
-		return binary.BigEndian.AppendUint64(append(b, 8), math.Float64bits(v.Float()))
-	case reflect.Map:
-		// A map has no order to rank its entries by: its length alone.
-		return binary.BigEndian.AppendUint64(append(b, 9), uint64(v.Len()))
-	default:
-		// A function or a channel.
-		return append(b, 9)
+// known is the tag and id of a pointer the encoder already knows: an
+// external's index (1), the id of an object written before (2), the id of
+// a syntax node (3).
+func (e *encoder) known(x any) (byte, uint64, bool) {
+	if i, ok := e.ext[x]; ok {
+		return 1, i, true
 	}
-}
-
-func rankString(b []byte, s string) []byte {
-	b = binary.BigEndian.AppendUint64(b, uint64(len(s)))
-	return append(b, s...)
+	if id, ok := e.ids[x]; ok {
+		return 2, id, true
+	}
+	if id, ok := e.nodes.Has(x); ok {
+		return 3, id, true
+	}
+	return 0, 0, false
 }

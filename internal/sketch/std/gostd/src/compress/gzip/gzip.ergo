@@ -52,13 +52,13 @@ extern go compress/gzip.Reader type Reader {
 extern go compress/gzip.Reader.Close func (z own *Reader) Close() fails go.Error needs go.Foreign
 
 // ergo:go func (*Reader).Multistream(ok bool)
-extern go compress/gzip.Reader.Multistream func (z own *Reader) Multistream(ok bool) needs go.Foreign
+extern go compress/gzip.Reader.Multistream func (z *Reader) Multistream(ok bool) needs go.Foreign
 
 // ergo:go func (*Reader).Read(p []byte) (n int, err error)
-extern go compress/gzip.Reader.Read func (z own *Reader) Read(p []byte) int fails go.Error needs go.Foreign
+extern go compress/gzip.Reader.Read func (z *Reader) Read(p []byte) int fails go.Error needs go.Foreign
 
 // ergo:go func (*Reader).Reset(r io.Reader) error
-extern go compress/gzip.Reader.Reset func (z own *Reader) Reset(r own io.Reader) fails go.Error needs go.Foreign
+extern go compress/gzip.Reader.Reset func (z *Reader) Reset(r own io.Reader) fails go.Error needs go.Foreign
 
 // ergo:go type Writer struct
 extern go compress/gzip.Writer type Writer {
@@ -69,10 +69,10 @@ extern go compress/gzip.Writer type Writer {
 extern go compress/gzip.Writer.Close func (z own *Writer) Close() fails go.Error needs go.Foreign
 
 // ergo:go func (*Writer).Flush() error
-extern go compress/gzip.Writer.Flush func (z own *Writer) Flush() fails go.Error needs go.Foreign
+extern go compress/gzip.Writer.Flush func (z *Writer) Flush() fails go.Error needs go.Foreign
 
 // ergo:go func (*Writer).Reset(w io.Writer)
-extern go compress/gzip.Writer.Reset func (z own *Writer) Reset(w own io.Writer) needs go.Foreign
+extern go compress/gzip.Writer.Reset func (z *Writer) Reset(w own io.Writer) needs go.Foreign
 
 // ergo:go func (*Writer).Write(p []byte) (int, error)
-extern go compress/gzip.Writer.Write func (z own *Writer) Write(p []byte) int fails go.Error needs go.Foreign
+extern go compress/gzip.Writer.Write func (z *Writer) Write(p []byte) int fails go.Error needs go.Foreign

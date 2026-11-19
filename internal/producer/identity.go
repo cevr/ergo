@@ -11,6 +11,8 @@ import (
 	"io"
 	"runtime/debug"
 	"sync"
+
+	"ergo.local/prototype/internal/ergoversion"
 )
 
 // Identity is passive, bounded metadata. Artifact identity qualifies reuse; the
@@ -149,7 +151,7 @@ func declaration(info *debug.BuildInfo, ok bool) Declaration {
 		}
 		return value
 	}
-	d := Declaration{GoVersion: bounded(info.GoVersion), Module: bounded(info.Main.Path), Version: bounded(info.Main.Version)}
+	d := Declaration{GoVersion: bounded(info.GoVersion), Module: bounded(info.Main.Path), Version: bounded(ergoversion.Of(info))}
 	for _, setting := range info.Settings {
 		switch setting.Key {
 		case "vcs.revision":

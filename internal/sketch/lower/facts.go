@@ -110,6 +110,11 @@ type Fact struct {
 	Evidence string `json:"evidence"`
 	// Reason is what proves it.
 	Reason string `json:"reason"`
+	// Law and Use belong to a foreign fact (fact-go-reads, gofacts.go):
+	// the id of the law that guards a vouched fact, and what the lowering
+	// did with the fact at the site.
+	Law string `json:"law,omitempty"`
+	Use string `json:"use,omitempty"`
 }
 
 // factSet is the facts a build exported, once each, in the order met.
@@ -171,7 +176,7 @@ func (fc *funcCtx) addFact(n syntax.Node, f Fact) bool {
 
 // factList is the exported facts by position, then kind and subjects.
 func (l *lowerer) factList() []Fact {
-	ps := append([]placedFact(nil), l.facts.list...)
+	ps := append(append([]placedFact(nil), l.facts.list...), l.foreign...)
 	sort.SliceStable(ps, func(i, j int) bool {
 		a, b := ps[i], ps[j]
 		switch {
@@ -211,7 +216,11 @@ func Facts(u Unit) ([]Fact, error) {
 func FactsText(facts []Fact) string {
 	var b strings.Builder
 	for _, f := range facts {
-		b.WriteString(f.At + "  " + f.Kind + "  " + f.Func + "  " + f.Holds + "  (" + f.Evidence + ": " + f.Reason + ")\n")
+		b.WriteString(f.At + "  " + f.Kind + "  " + f.Func + "  " + f.Holds + "  (" + f.Evidence + ": " + f.Reason + ")")
+		if f.Use != "" {
+			b.WriteString("  " + f.Use)
+		}
+		b.WriteString("\n")
 	}
 	return b.String()
 }

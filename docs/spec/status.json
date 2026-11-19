@@ -39,6 +39,15 @@
       ]
     },
     {
+      "file": "inspect.md",
+      "heading": "Forms",
+      "status": "implemented",
+      "text": " for the passes on the line today: the memo, merge and fold passes (IR-FORMS IRF-6). Unlike the API view, this view lowers the program to the IR in process; it runs no Go tool.",
+      "witnesses": [
+        "cmd/ergo:TestInspectFormsRows"
+      ]
+    },
+    {
       "file": "interop.md",
       "heading": "Go interop: `import go`, bindings and adapters",
       "status": "implemented",
@@ -106,6 +115,17 @@
       "text": ": the inventory below is normative, and `TestInsertedOpsAgree` (internal/sketch/check) checks the rule for the rows marked \"elaborated\". Owners of the open rows are named in the last column.",
       "witnesses": [
         "internal/sketch/check:TestInsertedOpsAgree"
+      ]
+    },
+    {
+      "file": "code.md",
+      "heading": "Code: questions about a workspace's code",
+      "status": "partly implemented",
+      "text": ": the fact tables (SEMTOOLS SEM0), `Reader` (`Describe`, `Symbols`, `Symbol`, `References`), its providers `Index` and `Scan`, and `ergo code` (SEM1); `Planner`, `Writer` and the `Checker` and `Files` seams with their memory providers `Model` and `Disk` (SEM4a); `Rename` with the proof `Alpha` and the refusals `NameTaken`, `OutsideWorkspace` and `Capture`, over `Model` (SEM5's core); `Calls` and `Api`, a plan's contract impact, `ergo code calls|api`, and `ergo inspect api` as a view of `Api` (SEM2a); `Reach` and `MachineOf`, `ergo code reach|machine-of`, and `ergo inspect machine` as a view of `MachineOf` (SEM2b); `Reach` of a failure and of a provider, and `ergo inspect machine --json` (SEM2c, SEM2d, SEM2e). The server on `ergo dev`, MCP and HTTP (SEM3), the product `Checker` and `Files`, `ergo code plan|apply` and `ergo fix` on plans (SEM4b, after README Gap 17; with them rename covers parameters, locals, variants, laws and tests), patterns (SEM6) and rewrites (SEM7) are designed (`semtools/plan.md` of the wf10 run).",
+      "witnesses": [
+        "cmd/ergo:TestCodeAnswersAgreeWithTheTables",
+        "internal/sketch/lower:TestStdCodeLawsRun",
+        "internal/sketch/facts:TestTablesAgreeWithScan"
       ]
     }
   ],

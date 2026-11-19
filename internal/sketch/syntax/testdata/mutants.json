@@ -1,308 +1,33 @@
 {
   "about": "The mutant ledger of internal/sketch/syntax: edits of the parser's derived forms that the package's tests must kill. Run it with go run ./scripts/mutants ./internal/sketch/syntax; a unit that cannot afford the coverage pass applies each edit by hand and runs the killer. Seeded by wf10 batch-15 fix-r2 (L11b M1).",
   "mutants": [
-    {
-      "name": "entry-clause-not-printed",
-      "origin": "wf10 STD-NOPRIV NP3b",
-      "file": "compiler/format/nodes.ergo",
-      "from": "\tif f.Entry >= 0 {\n\t\tp.token(p.tp(f.Entry), \"entry\")",
-      "to": "\tif false {\n\t\tp.token(p.tp(f.Entry), \"entry\")",
-      "rule": "The formatter keeps a function type's entry prefix, so formatting keeps the tree.",
-      "killers": [
-        "internal/hostsyntax:TestFormatIdempotent"
-      ]
-    },
-    {
-      "name": "pure-clause-not-printed",
-      "origin": "wf10 STD-NOPRIV NP3a",
-      "file": "compiler/format/nodes.ergo",
-      "from": "\t\tif f.PurePos >= 0 {\n\t\t\tp.space()\n\t\t\tp.token(p.tp(f.PurePos), \"pure\")",
-      "to": "\t\tif false {\n\t\t\tp.space()\n\t\t\tp.token(p.tp(f.PurePos), \"pure\")",
-      "rule": "The formatter keeps a parameter's pure clause, so formatting keeps the tree.",
-      "killers": [
-        "internal/hostsyntax:TestFormatIdempotent"
-      ]
-    },
-    {
-      "name": "l11b-s1",
-      "origin": "wf10 v1-lang-B L11b",
-      "file": "internal/sketch/syntax/pair.go",
-      "from": "\td := types[name]\n\tif d == nil ||",
-      "to": "\td := types[name]\n\tif true || d == nil ||",
-      "rule": "types.md Codecs 7: the round-trip law of an open X draws x itself.",
-      "killers": [
-        "internal/sketch/syntax:TestPairLawDraws"
-      ]
-    },
-    {
-      "name": "l11b-inline-variant-closed",
-      "origin": "wf10 batch-15 fix-r2 (L11b M1)",
-      "file": "internal/sketch/syntax/pair.go",
-      "from": "\t\t\t\tif v.TypeArgs != nil || !openFields(v.Fields) {",
-      "to": "\t\t\t\tif true {",
-      "rule": "types.md Codecs 7: a union of inline records of exported fields is open, so its law draws x.",
-      "killers": [
-        "internal/sketch/syntax:TestPairLawDraws"
-      ]
-    },
-    {
-      "name": "l11b-unexported-field-open",
-      "origin": "wf10 batch-15 fix-r2 (L11b M1)",
-      "file": "internal/sketch/syntax/pair.go",
-      "from": "\t\t\tif !isExportedName(n.Name) {\n\t\t\t\treturn false",
-      "to": "\t\t\tif !isExportedName(n.Name) && false {\n\t\t\t\treturn false",
-      "rule": "types.md Codecs 7: a record with an unexported field is built only by its package; its law draws b through ParseX.",
-      "killers": [
-        "internal/sketch/syntax:TestPairLawDraws"
-      ]
-    },
-    {
-      "name": "rc4b-format-drops-derive",
-      "origin": "wf10 RC4b",
-      "file": "compiler/format/nodes.ergo",
-      "from": "\t\tp.space()\n\t\tp.expr(the(x.Derive))\n",
-      "to": "\t\tp.space()\n",
-      "rule": "ergo fmt prints a derive as written (patterns.md, Derivation; the decided fixture derive.ergo formats to itself).",
-      "killers": [
-        "internal/hostsyntax:TestFormatIdempotent"
-      ]
-    },
-    {
-      "name": "ex3-lent-modifier-unprinted",
-      "origin": "wf10 EXPLICIT EX3 r2",
-      "file": "compiler/format/nodes.ergo",
-      "from": "\t\t\tp.token(p.start(the(f.Lent)), \"lent\")\n",
-      "to": "",
-      "rule": "The formatter keeps the lent mark before a constraint.",
-      "killers": [
-        "internal/selfhostcheck:TestSelfhostFormatLaws"
-      ]
-    },
-    {
-      "name": "exm1-writes-takes-fn",
-      "origin": "wf10 EXM1",
-      "file": "internal/sketch/syntax/ast.go",
-      "from": "\t\t\tif _, fn := unparenType(f.Type).(*FuncType); f.Own != nil && !fn {\n",
-      "to": "\t\t\tif f.Own != nil {\n",
-      "rule": "own on a function-typed parameter takes nothing, so a literal that writes only it still takes its expected type's clause (q168).",
-      "killers": [
-        "internal/sketch/fix:TestOwnSpellsTheOldModes"
-      ]
-    },
-    {
-      "name": "orp-first-alt-only",
-      "origin": "wf10 FK7a",
-      "file": "internal/sketch/syntax/orpattern.go",
-      "from": "\t\tfor _, a := range x.Alts {\n\t\t\tout = append(out, expandPattern(a)...)",
-      "to": "\t\tfor _, a := range x.Alts[:1] {\n\t\t\tout = append(out, expandPattern(a)...)",
-      "rule": "An or-pattern means each of its alternatives (FK7a).",
-      "killers": [
-        "check:TestNestedAlternativesMatchTheirExpansion"
-      ]
-    },
-    {
-      "name": "orp-product-drops",
-      "origin": "wf10 FK7a",
-      "file": "internal/sketch/syntax/orpattern.go",
-      "from": "\t\tcombos = next\n",
-      "to": "\t\tcombos = next[:1]\n",
-      "rule": "A tuple or record pattern with alternatives in several elements means every combination of them (FK7a).",
-      "killers": [
-        "check:TestNestedAlternativesMatchTheirExpansion"
-      ]
-    },
-    {
-      "name": "orp-field-unexpanded",
-      "origin": "wf10 FK7a",
-      "file": "internal/sketch/syntax/orpattern.go",
-      "from": "\t\t\tc.Value = v\n",
-      "to": "\t\t\tc.Value = x.Value\n",
-      "rule": "A record field's alternatives are expanded like a tuple element's (FK7a).",
-      "killers": [
-        "check:TestNestedAlternativesMatchTheirExpansion"
-      ]
-    },
-    {
-      "name": "orp-group-unexpanded",
-      "origin": "wf10 FK7a",
-      "file": "internal/sketch/syntax/orpattern.go",
-      "from": "\tcase *ParenExpr:\n\t\treturn each(",
-      "to": "\tcase *ParenExpr:\n\t\treturn []Expr{x}\n\t\treturn each(",
-      "rule": "A parenthesised group's alternatives are expanded, under as too (FK7a).",
-      "killers": [
-        "check:TestNestedAlternativesMatchTheirExpansion"
-      ]
-    },
-    {
-      "name": "orp-format-one-alt",
-      "origin": "wf10 FK7a",
-      "file": "compiler/format/nodes.ergo",
-      "from": "let alts = p.ids(syntax.OrPatternOf(p.P.Tree, x).Alts)",
-      "to": "let alts = p.ids(syntax.OrPatternOf(p.P.Tree, x).Alts)[:1]",
-      "rule": "The formatter prints every alternative of an or-pattern (FK7a).",
-      "killers": [
-        "check:TestNestedAlternativesMatchTheirExpansion"
-      ]
-    },
-    {
-      "name": "orp-covered-sibling-text",
-      "origin": "wf10 FK7a",
-      "file": "internal/sketch/check/match.go",
-      "from": "o.Pos() == at.Pos() && o.End() == at.End() {",
-      "to": "o != nil && false {",
-      "rule": "An alternative covered by its sibling says so, not that an earlier case covers it (FK7a).",
-      "killers": [
-        "check:TestOrPatternMessages"
-      ]
-    },
-    {
-      "name": "tskip-format-drops-reason",
-      "origin": "wf10 TSKIP",
-      "file": "compiler/format/nodes.ergo",
-      "from": "\t\tp.tokenEnd(p.tp(s.Reason), p.text(s.Reason), syntax.TokEnd(p.P, s.Reason))\n\t} else if k == syntax.KBlockStmt {",
-      "to": "\t} else if k == syntax.KBlockStmt {",
-      "rule": "The formatter prints a skip's reason, so formatting keeps the program.",
-      "killers": [
-        "internal/hostsyntax:TestCommentsAtEveryBoundary"
-      ]
-    },
-    {
-      "name": "decode-refinement-shares-base",
-      "origin": "wf10 selfhost S2d",
-      "file": "internal/sketch/syntax/decode.go",
-      "from": "\tbase := func() Expr { return opt[Expr](d, spec) }",
-      "to": "\tbase := func() Expr { _ = spec; return td.Spec }",
-      "rule": "A refinement's parse function and law hold fresh copies of the base type, as the parser's again() does: no node stands twice in a file.",
-      "killers": [
-        "internal/sketch/syntax:TestDecodedTreeSharesNoNode"
-      ]
-    },
-    {
-      "name": "decode-pair-law-shares-type",
-      "origin": "wf10 selfhost S2d",
-      "file": "internal/sketch/syntax/decode.go",
-      "from": "\tif r, ok := d.typeRow[t]; ok {",
-      "to": "\tif r, ok := d.typeRow[t]; ok && false {",
-      "rule": "A codec pair's law holds a fresh copy of B (pair.go again).",
-      "killers": [
-        "internal/sketch/syntax:TestDecodedTreeSharesNoNode"
-      ]
-    },
-    {
-      "name": "decode-written-dropped",
-      "origin": "wf10 selfhost S2d",
-      "file": "internal/sketch/syntax/decode.go",
-      "from": "\t\t\treturn out, list\n",
-      "to": "\t\t\treturn out, nil\n",
-      "rule": "A case that holds an or-pattern keeps its patterns as written beside the expansion (orpattern.go).",
-      "killers": [
-        "internal/sketch/syntax:TestDecodeAgreesWithView",
-        "internal/sketch/syntax:TestDecodedTreeSharesNoNode",
-        "internal/sketch/syntax:TestFormatParseRoundTrip",
-        "internal/sketch/syntax:TestFormatIsTheCorpusFixpoint"
-      ]
-    },
-    {
-      "name": "decode-case-unexpanded",
-      "origin": "wf10 selfhost S2d",
-      "file": "internal/sketch/syntax/decode.go",
-      "from": "\t\t\treturn out, list\n",
-      "to": "\t\t\treturn list, list\n",
-      "rule": "A case's list is the expansion of its or-patterns, which the checker matches.",
-      "killers": [
-        "check:TestNestedAlternativesMatchTheirExpansion"
-      ]
-    },
-    {
-      "name": "decode-machine-after-is-work",
-      "origin": "wf10 selfhost S2d",
-      "file": "internal/sketch/syntax/decode.go",
-      "from": "\t\t\t\tcase \"work\":\n\t\t\t\t\tx.Work = m.Value\n\t\t\t\tdefault:\n\t\t\t\t\tx.After = m.Value",
-      "to": "\t\t\t\tdefault:\n\t\t\t\t\tx.Work = m.Value",
-      "rule": "A machine's entries are set by their names: after is the timers, work the work.",
-      "killers": [
-        "internal/sketch/syntax:TestDecodedTreeSharesNoNode"
-      ]
-    },
-    {
-      "name": "decode-import-go-named",
-      "origin": "wf10 selfhost S2d",
-      "file": "internal/sketch/syntax/decode.go",
-      "from": "\t\t\tcase GO:\n\t\t\t\ts.Kind = ImportGo\n",
-      "to": "\t\t\tcase GO:\n\t\t\t\ts.Kind = ImportNamed\n",
-      "rule": "import go \"path\" is a Go package (ImportGo).",
-      "killers": [
-        "internal/sketch/syntax:TestDecodeAgreesWithView",
-        "internal/sketch/syntax:TestFormatParseRoundTrip",
-        "internal/sketch/syntax:TestFormatIsTheCorpusFixpoint"
-      ]
-    },
-    {
-      "name": "decode-doc-dropped",
-      "origin": "wf10 selfhost S2d",
-      "file": "internal/sketch/syntax/decode.go",
-      "from": "\t\treturn &ImportDecl{Doc: d.doc(b),",
-      "to": "\t\treturn &ImportDecl{Doc: nil,",
-      "rule": "A declaration's doc comment is the group the file lists, the same node (Doc and File.Comments share it).",
-      "killers": [
-        "internal/sketch/syntax:TestDecodeAgreesWithView"
-      ]
-    },
-    {
-      "name": "decode-raw-string-keeps-cr",
-      "origin": "wf10 selfhost S2d",
-      "file": "internal/sketch/syntax/tokens.go",
-      "from": "\t\t\tlit = strings.ReplaceAll(src[pos:end], \"\\r\", \"\")",
-      "to": "\t\t\tlit = src[pos:end]",
-      "rule": "A raw string's value has no carriage returns (scanner.go), so a CRLF file means what an LF file means.",
-      "killers": [
-        "internal/sketch/syntax:TestDecodeAgreesWithView",
-        "internal/sketch/syntax:TestFormatParseRoundTrip"
-      ]
-    },
-    {
-      "name": "decode-block-comment-keeps-cr",
-      "origin": "wf10 selfhost S2d",
-      "file": "internal/sketch/syntax/decode.go",
-      "from": "\t\t\ttext = strings.ReplaceAll(text, \"\\r\", \"\")",
-      "to": "\t\t\ttext = text",
-      "rule": "A comment's text has no carriage returns (scanner.go).",
-      "killers": [
-        "internal/sketch/syntax:TestFormatParseRoundTrip"
-      ]
-    },
-    {
-      "name": "decode-failure-line-column-swapped",
-      "origin": "wf10 selfhost S2d",
-      "file": "internal/sketch/syntax/decode.go",
-      "from": "Line: n(f[3]), Column: n(f[4])",
-      "to": "Line: n(f[4]), Column: n(f[3])",
-      "rule": "A failed parse is the Go parser's *Error, every field.",
-      "killers": [
-        "internal/sketch/syntax:TestDecodeAgreesWithView"
-      ]
-    },
-    {
-      "name": "decode-bars-at-alt",
-      "origin": "wf10 selfhost S2d",
-      "file": "internal/sketch/syntax/decode.go",
-      "from": "\t\t\tx.Bars = append(x.Bars, d.toks[d.tokenAt(alt.Pos())-1].pos)",
-      "to": "\t\t\tx.Bars = append(x.Bars, alt.Pos())",
-      "rule": "An or-pattern's Bars are the positions of its | tokens, which the formatter prints.",
-      "killers": [
-        "internal/sketch/syntax:TestDecodeAgreesWithView"
-      ]
-    },
-    {
-      "name": "parsefiles-decodes-the-first",
-      "origin": "wf10/selfhost/S2e",
-      "file": "internal/sketch/syntax/decode.go",
-      "from": "\tfor i, cols := range all {\n",
-      "to": "\tfor i, cols := range all {\n\t\tcols = all[0]\n",
-      "rule": "ParseFiles decodes each file from its own columns.",
-      "killers": [
-        "internal/sketchfront:TestLoaderOrderIsTheNames"
-      ]
-    }
+    {"name":"entry-clause-not-printed","origin":"wf10 STD-NOPRIV NP3b","file":"compiler/format/nodes.ergo","from":"\tif f.Entry >= 0 {\n\t\tp.token(p.tp(f.Entry), \"entry\")","to":"\tif false {\n\t\tp.token(p.tp(f.Entry), \"entry\")","rule":"The formatter keeps a function type's entry prefix, so formatting keeps the tree.","killers":["internal/hostsyntax:TestFormatIdempotent"]},
+    {"name":"pure-clause-not-printed","origin":"wf10 STD-NOPRIV NP3a","file":"compiler/format/nodes.ergo","from":"\t\tif f.PurePos >= 0 {\n\t\t\tp.space()\n\t\t\tp.token(p.tp(f.PurePos), \"pure\")","to":"\t\tif false {\n\t\t\tp.space()\n\t\t\tp.token(p.tp(f.PurePos), \"pure\")","rule":"The formatter keeps a parameter's pure clause, so formatting keeps the tree.","killers":["internal/hostsyntax:TestFormatIdempotent"]},
+    {"name":"rc4b-format-drops-derive","origin":"wf10 RC4b","file":"compiler/format/nodes.ergo","from":"\t\tp.space()\n\t\tp.expr(the(x.Derive))\n","to":"\t\tp.space()\n","rule":"ergo fmt prints a derive as written (patterns.md, Derivation; the decided fixture derive.ergo formats to itself).","killers":["internal/hostsyntax:TestFormatIdempotent"]},
+    {"name":"ex3-lent-modifier-unprinted","origin":"wf10 EXPLICIT EX3 r2","file":"compiler/format/nodes.ergo","from":"\t\t\tp.token(p.start(the(f.Lent)), \"lent\")\n","to":"","rule":"The formatter keeps the lent mark before a constraint.","killers":["internal/selfhostcheck:TestSelfhostFormatLaws"]},
+    {"name":"exm1-writes-takes-fn","origin":"wf10 EXM1","file":"internal/sketch/syntax/ast.go","from":"\t\t\tif _, fn := unparenType(f.Type).(*FuncType); f.Own != nil && !fn {\n","to":"\t\t\tif f.Own != nil {\n","rule":"own on a function-typed parameter takes nothing, so a literal that writes only it still takes its expected type's clause (q168).","killers":["internal/sketch/fix:TestOwnSpellsTheOldModes"]},
+    {"name":"orp-first-alt-only","origin":"wf10 FK7a","file":"internal/sketch/syntax/orpattern.go","from":"\t\tfor _, a := range x.Alts {\n\t\t\tout = append(out, expandPattern(a)...)","to":"\t\tfor _, a := range x.Alts[:1] {\n\t\t\tout = append(out, expandPattern(a)...)","rule":"An or-pattern means each of its alternatives (FK7a).","killers":["check:TestNestedAlternativesMatchTheirExpansion"]},
+    {"name":"orp-product-drops","origin":"wf10 FK7a","file":"internal/sketch/syntax/orpattern.go","from":"\t\tcombos = next\n","to":"\t\tcombos = next[:1]\n","rule":"A tuple or record pattern with alternatives in several elements means every combination of them (FK7a).","killers":["check:TestNestedAlternativesMatchTheirExpansion"]},
+    {"name":"orp-field-unexpanded","origin":"wf10 FK7a","file":"internal/sketch/syntax/orpattern.go","from":"\t\t\tc.Value = v\n","to":"\t\t\tc.Value = x.Value\n","rule":"A record field's alternatives are expanded like a tuple element's (FK7a).","killers":["check:TestNestedAlternativesMatchTheirExpansion"]},
+    {"name":"orp-group-unexpanded","origin":"wf10 FK7a","file":"internal/sketch/syntax/orpattern.go","from":"\tcase *ParenExpr:\n\t\treturn each(","to":"\tcase *ParenExpr:\n\t\treturn []Expr{x}\n\t\treturn each(","rule":"A parenthesised group's alternatives are expanded, under as too (FK7a).","killers":["check:TestNestedAlternativesMatchTheirExpansion"]},
+    {"name":"orp-format-one-alt","origin":"wf10 FK7a","file":"compiler/format/nodes.ergo","from":"let alts = p.ids(syntax.OrPatternOf(p.P.Tree, x).Alts)","to":"let alts = p.ids(syntax.OrPatternOf(p.P.Tree, x).Alts)[:1]","rule":"The formatter prints every alternative of an or-pattern (FK7a).","killers":["check:TestNestedAlternativesMatchTheirExpansion"]},
+    {"name":"orp-covered-sibling-text","origin":"wf10 FK7a","file":"internal/sketch/check/match.go","from":"o.Pos() == at.Pos() && o.End() == at.End() {","to":"o != nil && false {","rule":"An alternative covered by its sibling says so, not that an earlier case covers it (FK7a).","killers":["check:TestOrPatternMessages"]},
+    {"name":"tskip-format-drops-reason","origin":"wf10 TSKIP","file":"compiler/format/nodes.ergo","from":"\t\tp.tokenEnd(p.tp(s.Reason), p.text(s.Reason), syntax.TokEnd(p.P, s.Reason))\n\t} else if k == syntax.KBlockStmt {","to":"\t} else if k == syntax.KBlockStmt {","rule":"The formatter prints a skip's reason, so formatting keeps the program.","killers":["internal/hostsyntax:TestCommentsAtEveryBoundary"]},
+    {"name":"decode-refinement-shares-base","origin":"wf10 selfhost S2d","file":"internal/sketch/syntax/decode.go","from":"\tbase := func() Expr { return opt[Expr](d, spec) }","to":"\tbase := func() Expr { _ = spec; return td.Spec }","rule":"A refinement's parse function and law hold fresh copies of the base type, as the parser's again() does: no node stands twice in a file.","killers":["internal/sketch/syntax:TestDecodedTreeSharesNoNode"]},
+    {"name":"decode-written-dropped","origin":"wf10 selfhost S2d","file":"internal/sketch/syntax/decode.go","from":"\t\t\treturn out, list\n","to":"\t\t\treturn out, nil\n","rule":"A case that holds an or-pattern keeps its patterns as written beside the expansion (orpattern.go).","killers":["internal/sketch/syntax:TestDecodeAgreesWithView","internal/sketch/syntax:TestDecodedTreeSharesNoNode","internal/sketch/syntax:TestFormatParseRoundTrip","internal/sketch/syntax:TestFormatIsTheCorpusFixpoint"]},
+    {"name":"decode-case-unexpanded","origin":"wf10 selfhost S2d","file":"internal/sketch/syntax/decode.go","from":"\t\t\treturn out, list\n","to":"\t\t\treturn list, list\n","rule":"A case's list is the expansion of its or-patterns, which the checker matches.","killers":["check:TestNestedAlternativesMatchTheirExpansion"]},
+    {"name":"decode-machine-after-is-work","origin":"wf10 selfhost S2d","file":"internal/sketch/syntax/decode.go","from":"\t\t\t\tcase \"work\":\n\t\t\t\t\tx.Work = m.Value\n\t\t\t\tcase \"exit\":\n\t\t\t\t\tx.Exit = m.Value\n\t\t\t\tdefault:\n\t\t\t\t\tx.After = m.Value","to":"\t\t\t\tcase \"exit\":\n\t\t\t\t\tx.Exit = m.Value\n\t\t\t\tdefault:\n\t\t\t\t\tx.Work = m.Value","rule":"A machine's entries are set by their names: after is the timers, work the work.","killers":["internal/sketch/syntax:TestDecodedTreeSharesNoNode"]},
+    {"name":"decode-import-go-named","origin":"wf10 selfhost S2d","file":"internal/sketch/syntax/decode.go","from":"\t\t\tcase GO:\n\t\t\t\ts.Kind = ImportGo\n","to":"\t\t\tcase GO:\n\t\t\t\ts.Kind = ImportNamed\n","rule":"import go \"path\" is a Go package (ImportGo).","killers":["internal/sketch/syntax:TestDecodeAgreesWithView","internal/sketch/syntax:TestFormatParseRoundTrip","internal/sketch/syntax:TestFormatIsTheCorpusFixpoint"]},
+    {"name":"decode-doc-dropped","origin":"wf10 selfhost S2d","file":"internal/sketch/syntax/decode.go","from":"\t\treturn &ImportDecl{Doc: d.doc(b),","to":"\t\treturn &ImportDecl{Doc: nil,","rule":"A declaration's doc comment is the group the file lists, the same node (Doc and File.Comments share it).","killers":["internal/sketch/syntax:TestDecodeAgreesWithView"]},
+    {"name":"decode-raw-string-keeps-cr","origin":"wf10 selfhost S2d","file":"internal/sketch/syntax/tokens.go","from":"\t\t\tlit = strings.ReplaceAll(src[pos:end], \"\\r\", \"\")","to":"\t\t\tlit = src[pos:end]","rule":"A raw string's value has no carriage returns (scanner.go), so a CRLF file means what an LF file means.","killers":["internal/sketch/syntax:TestDecodeAgreesWithView","internal/sketch/syntax:TestFormatParseRoundTrip"]},
+    {"name":"decode-block-comment-keeps-cr","origin":"wf10 selfhost S2d","file":"internal/sketch/syntax/decode.go","from":"\t\t\ttext = strings.ReplaceAll(text, \"\\r\", \"\")","to":"\t\t\ttext = text","rule":"A comment's text has no carriage returns (scanner.go).","killers":["internal/sketch/syntax:TestFormatParseRoundTrip"]},
+    {"name":"decode-failure-line-column-swapped","origin":"wf10 selfhost S2d","file":"internal/sketch/syntax/decode.go","from":"Line: n(f[3]), Column: n(f[4])","to":"Line: n(f[4]), Column: n(f[3])","rule":"A failed parse is the Go parser's *Error, every field.","killers":["internal/sketch/syntax:TestDecodeAgreesWithView"]},
+    {"name":"decode-bars-at-alt","origin":"wf10 selfhost S2d","file":"internal/sketch/syntax/decode.go","from":"\t\t\tx.Bars = append(x.Bars, d.toks[d.tokenAt(alt.Pos())-1].pos)","to":"\t\t\tx.Bars = append(x.Bars, alt.Pos())","rule":"An or-pattern's Bars are the positions of its | tokens, which the formatter prints.","killers":["internal/sketch/syntax:TestDecodeAgreesWithView"]},
+    {"name":"parsefiles-decodes-the-first","origin":"wf10/selfhost/S2e","file":"internal/sketch/syntax/decode.go","from":"\tfor i, cols := range all {\n","to":"\tfor i, cols := range all {\n\t\tcols = all[0]\n","rule":"ParseFiles decodes each file from its own columns.","killers":["internal/sketchfront:TestLoaderOrderIsTheNames"]},
+    {"name":"gx11-pair-append-no-law","origin":"wf10 GX11","file":"internal/sketch/syntax/pair.go","from":"\tif len(params) == 2 && len(params[0].Names) == 1 && len(params[1].Names) == 1 {\n\t\tappends = true","to":"\tif len(params) == 2 && len(params[0].Names) == 1 && len(params[1].Names) == 1 {\n\t\treturn nil, nil, false, false","rule":"types.md Codecs 7: the append form of a pair derives the round-trip law too (GX11).","killers":["internal/sketch/syntax:TestPairLawDraws"]},
+    {"name":"gx11-pair-append-no-into","origin":"wf10 GX11","file":"internal/sketch/syntax/pair.go","from":"\tif appends {\n\t\tinto = []Expr{","to":"\tif false {\n\t\tinto = []Expr{","rule":"types.md Codecs 7: the append form's law calls Wire with an empty buffer (GX11).","killers":["internal/sketch/syntax:TestPairLawDraws"]},
+    {"name":"decode-machine-exit-dropped","origin":"wf10 SELFHOST-MERGE (FK9-g1c on S1)","file":"internal/sketch/syntax/decode.go","from":"\t\t\t\tcase \"exit\":\n\t\t\t\t\tx.Exit = m.Value\n","to":"","rule":"grammar.md Declarations 6: a machine's exit entry is its Exit, not its After.","killers":["check:TestMachineExitDiagnostics"]},
+    {"name":"decode-equation-dropped","origin":"wf10 SELFHOST-MERGE (LF6a on S1)","file":"internal/sketch/syntax/decode.go","from":"\t\tcase 2:\n\t\t\tequation(l, ","to":"\t\tcase 3:\n\t\t\tequation(l, ","rule":"types.md Laws 14: a top-level rewrite law (rewrite word 2) is LawDecl.Equation with the Body lhs == rhs.","killers":["check:TestFunctionRewriteRows"]},
+    {"name":"format-equation-as-block","origin":"wf10 SELFHOST-MERGE (LF6a on S1)","file":"compiler/format/nodes.ergo","from":"\t\tif x.Rewrite {\n\t\t\t// The rewrite form (types.md, Laws 14; LF6a)","to":"\t\tif false {\n\t\t\t// The rewrite form (types.md, Laws 14; LF6a)","rule":"A top-level rewrite law prints as its two blocks joined by ==, so formatting keeps the tree.","killers":["internal/hostsyntax:TestFormatIdempotent"]}
   ]
 }

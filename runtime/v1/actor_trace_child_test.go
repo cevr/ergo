@@ -27,7 +27,7 @@ func TestActorTracesChildren(t *testing.T) {
 		func(s int) bool { return s == 0 }, func(w bool) bool { return w },
 		func(wt *rt.Task, _ bool, _ func(int)) {
 			_ = MachineChild(Site("child"), wt, sl, nil, nil, 0, ignore, nil, noTimer,
-				noWork[int], hasNoWork, runNoWork[int], kind, next, func(*rt.Task, int, func(int)) {}, 1)
+				noWork[int], hasNoWork, runNoWork[int], nil, nil, kind, next, func(*rt.Task, int, func(int)) {}, 1)
 			close(started)
 			<-wt.Done()
 			panic(rt.Interrupted)

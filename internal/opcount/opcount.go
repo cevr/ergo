@@ -1,6 +1,7 @@
 // Package opcount counts the work of a program run: the user-space
-// instructions of its whole process tree (the repository's one
-// perf_event_open site, counter_linux.go), its rusage, and whether it
+// instructions of its whole process tree (the repository's
+// perf_event_open site, counter_linux.go and sample_linux.go), the
+// parts of those instructions (share.go), its rusage, and whether it
 // finished. scripts/opcount builds receipts on it (bench.v1, receipt.go),
 // internal/experimental/irspike and cmd/ergo's counted guards measure with
 // it, and scripts/examples reads a program's workload file with it
@@ -20,6 +21,13 @@
 //     killed by a signal, or left a process of its group running. A run
 //     that failed is not a fast run (run-dir check-cpu.sh's `|| true` read
 //     a failed `ergo check` as a fast one).
+//
+// CountShares also splits the count into parts (share.go): it samples the
+// run's user instructions every Period of them on every CPU and finds each
+// sample's function in the binary. The samples give each part's share,
+// and the sampling events' own count gives the whole, so the parts are
+// counted work, not time; they are refused (NoSampler, PartsShort) when
+// the sampling events did not count the whole run.
 package opcount
 
 import (
@@ -38,6 +46,13 @@ const (
 	RunIncomplete Refusal = "RunIncomplete"
 	NotEquivalent Refusal = "NotEquivalent"
 	NoMetric      Refusal = "NoMetric"
+	// NoSampler: the host does not sample user instructions into a ring
+	// buffer (perf_event_open, or its buffer's mmap under
+	// perf_event_mlock_kb, failed), so a run has no parts.
+	NoSampler Refusal = "NoSampler"
+	// PartsShort: the sampling events lost samples or did not count the
+	// run the counting event counted (Shares.Check).
+	PartsShort Refusal = "PartsShort"
 )
 
 // Run is what Count measured of one run of a program.

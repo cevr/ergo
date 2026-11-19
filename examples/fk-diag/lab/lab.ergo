@@ -36,7 +36,7 @@ type Signal = Run{Phase Phase} | Clear{} | Recorded{Slow ui.Slow} | Burn{} | Der
 let MaxWarnings = 8
 
 // PatchRowCount is how many keyed rows the patch work mounts.
-let PatchRowCount = 120
+let PatchRowCount = 4000
 
 // Initial is the lab before any press.
 func Initial() Lab { Lab{Active: Idle, NextID: 1, Warnings: []Warning{}, PatchRows: 0, PatchRun: 0} }
@@ -79,18 +79,20 @@ func Newest(w Warning, log []Warning) []Warning {
 	out
 }
 
-// PhaseOf is the phase whose counter is named counter (ui.Slow.Counter).
-func PhaseOf(counter string) Option[Phase] {
+// PhaseOf is the phase of a Slow pass's counter (ui.Slow.Counter). The
+// match names every counter, so a counter ui adds is a case to place here
+// (FK13-g4).
+func PhaseOf(counter ui.Counter) Option[Phase] {
 	match counter {
-	case "Signals":
+	case ui.SignalsCounter:
 		Some{UpdatePhase}
-	case "Written":
+	case ui.WrittenCounter:
 		Some{ViewPhase}
-	case "Ops":
+	case ui.OpsCounter:
 		Some{PatchPhase}
-	case "Fetches":
+	case ui.FetchesCounter:
 		Some{DependencyPhase}
-	case _:
+	case ui.CommittedCounter, ui.PaintedCounter:
 		None
 	}
 }

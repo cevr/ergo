@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
@@ -70,6 +71,12 @@ func TestExecSpawnOutlivesItsStarter(t *testing.T) {
 	}
 	if ExecAlive(pid, start+1) {
 		t.Errorf("a Detached with another start time names the program %d", pid)
+	}
+	// The program leads a process group of its own, the one Kill signals
+	// (mutant spawn-no-setsid: since Kill also signals the program itself,
+	// only this check sees a program left in its starter's group).
+	if group, err := syscall.Getpgid(pid); err != nil || group != pid {
+		t.Errorf("the spawned program %d is in process group %d (%v), want its own", pid, group, err)
 	}
 	ExecKill(rt.Root("spawn kill"), pid, start, 50*time.Millisecond)
 	if ExecAlive(pid, start) {
@@ -150,7 +157,14 @@ func TestExecSpawnStopped(t *testing.T) {
 // dropped from the wait). The test waits on Kill's return; the test's
 // deadline only names a hung Kill.
 func TestExecKillStopped(t *testing.T) {
-	d, err := ExecSpawn(rt.Root("kill stopped spawn"), "sh", []string{"-c", `trap "" TERM; sleep 120`}, nil, "", "", execDiscard, "", false, execDiscard, "", false)
+	// The program says it ignores SIGTERM through a FIFO, and Kill starts
+	// only after: a SIGTERM before the trap ended the program, so the
+	// mutant passed (I19 r10, a mutant run).
+	ready := filepath.Join(t.TempDir(), "ready")
+	if err := syscall.Mkfifo(ready, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	d, err := ExecSpawn(rt.Root("kill stopped spawn"), "sh", []string{"-c", `trap "" TERM; echo ready > "$0"; sleep 120`, ready}, nil, "", "", execDiscard, "", false, execDiscard, "", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,6 +173,19 @@ func TestExecKillStopped(t *testing.T) {
 			_ = syscall.Kill(-d.Pid, syscall.SIGKILL)
 		}
 	})
+	said := make(chan error, 1)
+	go func() {
+		_, err := os.ReadFile(ready) // opens when the program opens its end
+		said <- err
+	}()
+	select {
+	case err := <-said:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-testwait.After(t):
+		t.Fatal("the program never said it ignores SIGTERM")
+	}
 	stopped := rt.Root("stopped killer")
 	stopped.Interrupt()
 	done := make(chan struct{})

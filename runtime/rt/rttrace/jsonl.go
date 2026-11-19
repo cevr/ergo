@@ -41,6 +41,9 @@ type Line struct {
 	// "decide epoch=1 state=Idle signal=Tick decision=Enter arm=a.ergo:9
 	// next=Busy".
 	Machine string `json:"machine,omitempty"`
+	// Step is a step event's line (rt.Event.Step), such as `step 1 TapOn
+	// "add": ran 1, ...`: what std ui's PlayTrace returns for that act.
+	Step string `json:"step,omitempty"`
 }
 
 // Reason is one reason of a body-exit cause, the outcome of a call-exit, or
@@ -105,6 +108,8 @@ func Lines(recs []Record, sites map[string]string) []Line {
 			if m := r.Event.Machine(); m != nil {
 				l.Machine = m.String()
 			}
+		case rt.TraceStep:
+			l.Step = r.Event.Step()
 		}
 		out[i] = l
 	}

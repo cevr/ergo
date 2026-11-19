@@ -1,0 +1,91 @@
+// The pin protocol between the ergo repository and one downstream
+// repository (cevr/work, cevr/tn1-lint or cevr/orrery). Scope: two
+// breaking language changes (versions 0, 1, 2); every change is breaking,
+// the worst case: a downstream commit written for version n builds only
+// with ergo version n. The downstream check (scripts/downstream,
+// downstream/pins; docs/tooling.md, Downstream check) is the gate's half
+// of it: Land below.
+//
+// Ergo side: Main is origin/main; Batch is the local batch head. Each
+// holds a pin: the version the pinned downstream commit is written for.
+// Downstream side: DSource is its main (the version of its source) and
+// DPin the ergo version its own pin names; Next is the branch ergo-next,
+// 0 when there is none.
+//
+// Safe, at every state:
+//   A. ergo main's pinned downstream commit builds with ergo main;
+//   B. downstream main builds with the ergo it pins, and that ergo is on
+//      origin/main (a user can install it).
+type Signal = Break{} | Port{} | Bump{} | Land{} | Merge{}
+type World {
+	Main     int,
+	MainPin  int,
+	Batch    int,
+	BatchPin int,
+	DSource  int,
+	DPin     int,
+	Next     int,
+}
+type State = Live{W World} | Broken{Why string} | Caught{}
+func initial() State {
+	return Live{W: World{Main: 0, MainPin: 0, Batch: 0, BatchPin: 0, DSource: 0, DPin: 0, Next: 0}}
+}
+func safe(w World) string {
+	if w.MainPin != w.Main { return "ergo main pins a downstream commit it cannot build" }
+	if w.DSource != w.DPin { return "downstream main does not build with the ergo it pins" }
+	if w.DPin > w.Main { return "downstream main pins an ergo commit that is not on origin/main" }
+	return ""
+}
+// mutant 1: Land does not run the downstream check.
+// mutant 2: Merge does not wait for ergo's push.
+// mutant 3: the pin floats: ergo pins downstream main, not a commit.
+func step(s State, sig Signal, mutant int, witness bool) Decision[State, string] {
+	match s {
+	case Live as live:
+		let mut w = live.W
+		match sig {
+		case Break:
+			// A lane's unit changes the language on the batch head.
+			if w.Batch != w.Main || w.Batch >= 2 { return Ignore }
+			w.Batch = w.Batch + 1
+		case Port:
+			// The same unit ports the downstream source on branch ergo-next.
+			if w.Batch == w.Main || w.Next == w.Batch { return Ignore }
+			w.Next = w.Batch
+		case Bump:
+			// The same unit points the batch's pin at that commit.
+			if mutant == 3 || w.Next != w.Batch || w.BatchPin == w.Next { return Ignore }
+			w.BatchPin = w.Next
+		case Land:
+			// The batch gate runs the downstream check, then main moves.
+			if w.Batch == w.Main { return Ignore }
+			let pinned = if mutant == 3 { w.DSource } else { w.BatchPin }
+			if mutant != 1 && pinned != w.Batch { return Ignore }
+			w.Main = w.Batch
+			w.MainPin = pinned
+		case Merge:
+			// Downstream main takes ergo-next and pins the new ergo.
+			if w.Next == 0 || w.Next == w.DSource { return Ignore }
+			if mutant != 2 && w.Main != w.Next { return Ignore }
+			w.DSource = w.Next
+			w.DPin = w.Next
+		}
+		if mutant == 3 { w.MainPin = w.DSource }
+		let why = safe(w)
+		if why != "" { return Enter{Broken{Why: why}} }
+		if witness && w.Main == 2 && w.DSource == 2 { return Enter{Caught} }
+		return Enter{Live{W: w}}
+	case _:
+		return Ignore
+	}
+}
+func design(s State, sig Signal) Decision[State, string]     { return step(s, sig, 0, false) }
+func progress(s State, sig Signal) Decision[State, string]   { return step(s, sig, 0, true) }
+func noCheck(s State, sig Signal) Decision[State, string]    { return step(s, sig, 1, false) }
+func earlyMerge(s State, sig Signal) Decision[State, string] { return step(s, sig, 2, false) }
+func floating(s State, sig Signal) Decision[State, string]   { return step(s, sig, 3, true) }
+type Design machine[State, Signal] { initial: initial(), step: design, law Safe never reaches Broken }
+type Progress machine[State, Signal] { initial: initial(), step: progress, law BothArrive reaches Caught }
+type LandUnchecked machine[State, Signal] { initial: initial(), step: noCheck, law Breaks reaches Broken }
+type MergeEarly machine[State, Signal] { initial: initial(), step: earlyMerge, law Breaks reaches Broken }
+type FloatingPin machine[State, Signal] { initial: initial(), step: floating, law NeverArrives never reaches Caught }

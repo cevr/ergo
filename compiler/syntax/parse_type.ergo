@@ -554,9 +554,20 @@ func parseType1(p *parser, ctx int) uint32 {
 		errorf(p, "expected a type, found \"needs\": "+needsKeywordText)
 		return noNode
 	}
+	if isKeyword(k) && typeStarts(peek(p, 1)) {
+		// A keyword followed by a type was meant as a parameter's or a
+		// field's name (`in []int`; PKG G5): say that it is a keyword.
+		let kw = tokenName(k)
+		errorf(p, "expected a type, found "+quote(kw)+": "+kw+" is a keyword and is not a name; choose another name")
+		return noNode
+	}
 	expected(p, "expected a type, found ")
 	noNode
 }
+
+// typeStarts reports whether a type may start with k: a name, a slice or
+// array, a pointer, or a function type (the Go parser's startsType).
+func typeStarts(k uint8) bool { k == Ident || k == LBrack || k == Mul || k == Func || k == Escaping }
 
 func parseFuncType(p *parser, ctx int) uint32 {
 	let fn = want(p, Func)

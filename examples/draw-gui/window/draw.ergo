@@ -3,7 +3,7 @@
 // the selection's colour; a shape being drawn or a band being dragged is
 // drawn over the picture.
 
-import draw/canvas
+import ergo.local/prototype/examples/drawgui/canvas
 import ui
 
 // Draw paints s's picture as the window shows it.

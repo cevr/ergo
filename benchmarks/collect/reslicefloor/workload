@@ -1,0 +1,6 @@
+# scripts/opcount: GP-RESLICE's program against the floor: the control
+# takes the dead line's part itself, with no copy, as the reslice does.
+unit element
+sizes 409600 2457600
+args bench reslicefloor {n}
+control benchmarks/collect/testdata/control

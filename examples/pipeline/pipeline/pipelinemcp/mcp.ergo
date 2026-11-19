@@ -10,11 +10,10 @@ import json
 import rpc
 import github.com/cevr/ergo/modules/mcp
 import pipeline/pipeline
-import pipeline/pipeline/pipelinerpc
-import pipeline/run
+import pipeline/pipeline/pipelineapi
 
-// Request is one call of pipeline.Pipeline: the rpc package's Request.
-type Request = pipelinerpc.Request
+// Request is one call of pipeline.Pipeline: the hub's Request.
+type Request = pipelineapi.Request
 
 // valueOf is the JSON value text spells: the wire's text, so JSON.
 func valueOf(text string) json.Value {
@@ -48,38 +47,39 @@ func untagged(v json.Value) json.Value {
 let Names = []string{"submit", "cancel", "retry", "board", "run-of"}
 
 // Description is what the tool name does: its operation's doc comment,
-// or its signature.
+// or its signature (the hub's Doc).
 func Description(name string) string {
 	match name {
 	case "submit":
-		"Submit starts a new run of 1 to 9 stages; a resend of the ID gets the first receipt."
+		pipelineapi.Doc(pipelineapi.SubmitOp)
 	case "cancel":
-		"Cancel stops a run that has not ended, with the reason why."
+		pipelineapi.Doc(pipelineapi.CancelOp)
 	case "retry":
-		"Retry tries the failed stage of a run now, without waiting for its backoff."
+		pipelineapi.Doc(pipelineapi.RetryOp)
 	case "board":
-		"Board is every run by column: queued, running, failing, passed, stopped."
+		pipelineapi.Doc(pipelineapi.BoardOp)
 	case "run-of":
-		"RunOf is the state of the run named id."
+		pipelineapi.Doc(pipelineapi.RunOfOp)
 	case _:
 		""
 	}
 }
 
-// Input is the JSON schema of the tool name's arguments (an object
-// schema with no properties for a name that is no tool's).
+// Input is the JSON schema of the tool name's arguments (the hub's
+// Schema; an object schema with no properties for a name that is no
+// tool's).
 func Input(name string) json.Value {
 	match name {
 	case "submit":
-		valueOf("{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"},\"run\":{\"type\":\"string\"},\"stages\":{\"type\":\"integer\"}},\"required\":[\"id\",\"run\",\"stages\"]}")
+		pipelineapi.Schema(pipelineapi.SubmitOp)
 	case "cancel":
-		valueOf("{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"},\"run\":{\"type\":\"string\"},\"why\":{\"type\":\"string\"}},\"required\":[\"id\",\"run\",\"why\"]}")
+		pipelineapi.Schema(pipelineapi.CancelOp)
 	case "retry":
-		valueOf("{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"},\"run\":{\"type\":\"string\"},\"stage\":{\"type\":\"integer\"}},\"required\":[\"id\",\"run\",\"stage\"]}")
+		pipelineapi.Schema(pipelineapi.RetryOp)
 	case "board":
-		valueOf("{\"type\":\"object\",\"properties\":{}}")
+		pipelineapi.Schema(pipelineapi.BoardOp)
 	case "run-of":
-		valueOf("{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"]}")
+		pipelineapi.Schema(pipelineapi.RunOfOp)
 	case _:
 		valueOf("{\"type\":\"object\",\"properties\":{}}")
 	}
@@ -113,81 +113,52 @@ func Call(name string, arguments json.Value) Request fails mcp.ToolError | mcp.U
 // them as r again.
 func Arguments(r Request) (string, json.Value) {
 	match r {
-	case pipelinerpc.SubmitRequest as x:
+	case pipelineapi.SubmitRequest as x:
 		("submit", untagged(valueOf(rpc.Encode(x.C))))
-	case pipelinerpc.CancelRequest as x:
+	case pipelineapi.CancelRequest as x:
 		("cancel", untagged(valueOf(rpc.Encode(x.C))))
-	case pipelinerpc.RetryRequest as x:
+	case pipelineapi.RetryRequest as x:
 		("retry", untagged(valueOf(rpc.Encode(x.C))))
-	case pipelinerpc.BoardRequest:
+	case pipelineapi.BoardRequest:
 		("board", json.Object{Members: []json.Member{}})
-	case pipelinerpc.RunOfRequest as x:
+	case pipelineapi.RunOfRequest as x:
 		("run-of", untagged(valueOf(rpc.Encode(x))))
 	}
 }
 
-// Answer calls the operation r asks for on the bound pipeline.Pipeline: its
+// Answer answers r through the hub's Call on the bound pipeline.Pipeline: its
 // value as JSON (null for none), or its typed failure as a ToolError
 // whose message is the failure's tagged JSON.
 func Answer(r Request) json.Value fails mcp.ToolError needs pipeline.Pipeline {
-	match r {
-	case pipelinerpc.SubmitRequest as x:
-		let v = pipeline.Pipeline.Submit(x.C) catch {
-		case run.WrongState as e:
-			return mcp.ToolError{Message: rpc.Tagged("WrongState", rpc.Encode(e))}
-		case run.WrongStage as e:
-			return mcp.ToolError{Message: rpc.Tagged("WrongStage", rpc.Encode(e))}
-		case run.Closed as e:
-			return mcp.ToolError{Message: rpc.Tagged("Closed", rpc.Encode(e))}
-		case run.BadLength as e:
-			return mcp.ToolError{Message: rpc.Tagged("BadLength", rpc.Encode(e))}
-		case pipeline.NoSuchRun as e:
-			return mcp.ToolError{Message: rpc.Tagged("NoSuchRun", rpc.Encode(e))}
-		case pipeline.Unavailable as e:
-			return mcp.ToolError{Message: rpc.Tagged("Unavailable", rpc.Encode(e))}
+	match pipelineapi.Call(r) {
+	case pipelineapi.Done as done:
+		match done.Reply {
+		case pipelineapi.SubmitReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case pipelineapi.CancelReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case pipelineapi.RetryReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case pipelineapi.BoardReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case pipelineapi.RunOfReply as reply:
+			valueOf(rpc.Encode(reply.Value))
 		}
-		valueOf(rpc.Encode(v))
-	case pipelinerpc.CancelRequest as x:
-		let v = pipeline.Pipeline.Cancel(x.C) catch {
-		case run.WrongState as e:
-			return mcp.ToolError{Message: rpc.Tagged("WrongState", rpc.Encode(e))}
-		case run.WrongStage as e:
-			return mcp.ToolError{Message: rpc.Tagged("WrongStage", rpc.Encode(e))}
-		case run.Closed as e:
-			return mcp.ToolError{Message: rpc.Tagged("Closed", rpc.Encode(e))}
-		case run.BadLength as e:
-			return mcp.ToolError{Message: rpc.Tagged("BadLength", rpc.Encode(e))}
-		case pipeline.NoSuchRun as e:
-			return mcp.ToolError{Message: rpc.Tagged("NoSuchRun", rpc.Encode(e))}
-		case pipeline.Unavailable as e:
-			return mcp.ToolError{Message: rpc.Tagged("Unavailable", rpc.Encode(e))}
+	case pipelineapi.Rejected as rejected:
+		match rejected.Failure {
+		case pipelineapi.WrongState as failure:
+			return mcp.ToolError{Message: rpc.Tagged("WrongState", rpc.Encode(failure.E))}
+		case pipelineapi.WrongStage as failure:
+			return mcp.ToolError{Message: rpc.Tagged("WrongStage", rpc.Encode(failure.E))}
+		case pipelineapi.Closed as failure:
+			return mcp.ToolError{Message: rpc.Tagged("Closed", rpc.Encode(failure.E))}
+		case pipelineapi.BadLength as failure:
+			return mcp.ToolError{Message: rpc.Tagged("BadLength", rpc.Encode(failure.E))}
+		case pipelineapi.NoSuchRun as failure:
+			return mcp.ToolError{Message: rpc.Tagged("NoSuchRun", rpc.Encode(failure.E))}
+		case pipelineapi.Unavailable as failure:
+			return mcp.ToolError{Message: rpc.Tagged("Unavailable", rpc.Encode(failure.E))}
 		}
-		valueOf(rpc.Encode(v))
-	case pipelinerpc.RetryRequest as x:
-		let v = pipeline.Pipeline.Retry(x.C) catch {
-		case run.WrongState as e:
-			return mcp.ToolError{Message: rpc.Tagged("WrongState", rpc.Encode(e))}
-		case run.WrongStage as e:
-			return mcp.ToolError{Message: rpc.Tagged("WrongStage", rpc.Encode(e))}
-		case run.Closed as e:
-			return mcp.ToolError{Message: rpc.Tagged("Closed", rpc.Encode(e))}
-		case run.BadLength as e:
-			return mcp.ToolError{Message: rpc.Tagged("BadLength", rpc.Encode(e))}
-		case pipeline.NoSuchRun as e:
-			return mcp.ToolError{Message: rpc.Tagged("NoSuchRun", rpc.Encode(e))}
-		case pipeline.Unavailable as e:
-			return mcp.ToolError{Message: rpc.Tagged("Unavailable", rpc.Encode(e))}
-		}
-		valueOf(rpc.Encode(v))
-	case pipelinerpc.BoardRequest:
-		let v = pipeline.Pipeline.Board()
-		valueOf(rpc.Encode(v))
-	case pipelinerpc.RunOfRequest as x:
-		let v = pipeline.Pipeline.RunOf(x.Id) catch {
-		case pipeline.NoSuchRun as e:
-			return mcp.ToolError{Message: rpc.Tagged("NoSuchRun", rpc.Encode(e))}
-		}
-		valueOf(rpc.Encode(v))
 	}
 }
 

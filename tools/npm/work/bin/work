@@ -1,0 +1,22 @@
+#!/bin/sh
+# work: until install.js runs (an install with --ignore-scripts), this
+# finds the platform package's binary and runs it in place of itself.
+# install.js replaces this file with the binary, so the bin is the native
+# program and no shell or Node process starts before it.
+here=$(dirname "$0")
+case "$(uname -s)-$(uname -m)" in
+Linux-x86_64) pkg=work-linux-x64 ;;
+Linux-aarch64 | Linux-arm64) pkg=work-linux-arm64 ;;
+Darwin-arm64) pkg=work-darwin-arm64 ;;
+*)
+	echo "work: no prebuilt binary for $(uname -s) $(uname -m); build one with ergo build examples/work/cmd/work" >&2
+	exit 1
+	;;
+esac
+for dir in "$here/../node_modules/@cevr/$pkg" "$here/../../$pkg" "$here/../../../@cevr/$pkg"; do
+	if [ -x "$dir/bin/work" ]; then
+		exec "$dir/bin/work" "$@"
+	fi
+done
+echo "work: the package @cevr/$pkg is not installed (an install without optional dependencies)" >&2
+exit 1
