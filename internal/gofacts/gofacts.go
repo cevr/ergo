@@ -31,6 +31,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // Row is one vouched fact.
@@ -109,25 +110,25 @@ var Rows = []Row{
 	}},
 	{Target: "regexp.Regexp.FindAllString", Fact: "fresh", Param: "result", Reason: "it is slices.Collect over allString, which appends each match's substring to a nil slice", Source: "e0b9bb9db7ad", Result: func(r *rand.Rand) func() any {
 		s, n := text(r), r.IntN(4)-1
-		return func() any { return freshRE.FindAllString(s, n) }
+		return func() any { return freshRE().FindAllString(s, n) }
 	}},
 	{Target: "regexp.Regexp.FindStringSubmatch", Fact: "fresh", Param: "result", Reason: "it makes the result with make from the match's indexes", Source: "d6982e2c79d9", Result: func(r *rand.Rand) func() any {
 		s := text(r)
-		return func() any { return freshRE.FindStringSubmatch(s) }
+		return func() any { return freshRE().FindStringSubmatch(s) }
 	}},
 	{Target: "regexp.Regexp.FindAllStringSubmatch", Fact: "fresh", Param: "result", Reason: "it is slices.Collect over allStringSubmatch, which makes each match's slice with make", Source: "670036968b42", Result: func(r *rand.Rand) func() any {
 		s, n := text(r), r.IntN(4)-1
-		return func() any { return freshRE.FindAllStringSubmatch(s, n) }
+		return func() any { return freshRE().FindAllStringSubmatch(s, n) }
 	}},
 	{Target: "regexp.Regexp.Split", Fact: "fresh", Param: "result", Reason: "it makes the result with make and appends substrings of s", Source: "f9bf7fc8970d", Result: func(r *rand.Rand) func() any {
 		s, n := text(r), r.IntN(4)-1
-		return func() any { return freshRE.Split(s, n) }
+		return func() any { return freshRE().Split(s, n) }
 	}},
 }
 
 // freshRE is the receiver of the regexp rows' guards: a group, so a
 // submatch has two strings.
-var freshRE = regexp.MustCompile(`a(b*)`)
+var freshRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`a(b*)`) })
 
 // seps are the separators the fresh guards split on.
 var seps = []string{"", ",", "ab", " "}

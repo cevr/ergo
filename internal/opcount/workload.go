@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // WorkloadFile is the name of a program folder's workload file
@@ -70,8 +71,8 @@ func (p Problem) String() string {
 }
 
 var (
-	unitName    = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
-	placeholder = regexp.MustCompile(`\{[^}]*\}`)
+	unitName    = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[a-z][a-z0-9-]*$`) })
+	placeholder = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\{[^}]*\}`) })
 )
 
 // ParseWorkload reads a workload file. It returns every problem, each
@@ -87,7 +88,7 @@ func ParseWorkload(text string) (Workload, []Problem) {
 	sized := false
 	words := func(line int, fields []string, inputOK bool) {
 		for _, f := range fields {
-			for _, p := range placeholder.FindAllString(f, -1) {
+			for _, p := range placeholder().FindAllString(f, -1) {
 				switch {
 				case p == "{n}":
 					sized = true
@@ -114,7 +115,7 @@ func ParseWorkload(text string) (Workload, []Problem) {
 		seen[key] = line
 		switch key {
 		case "unit":
-			if len(rest) != 1 || !unitName.MatchString(rest[0]) {
+			if len(rest) != 1 || !unitName().MatchString(rest[0]) {
 				bad(line, "unit takes one lower-case name, such as op or row")
 				continue
 			}

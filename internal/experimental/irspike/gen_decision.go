@@ -3,6 +3,7 @@ package irspike
 import (
 	"regexp"
 	"strings"
+	"sync"
 
 	"ergo.local/prototype/internal/sketch/std"
 )
@@ -29,7 +30,7 @@ func (v decisionVariant) at(s, o string) string {
 	if v.args == "" {
 		return v.name
 	}
-	return v.name + decisionParam.ReplaceAllStringFunc(v.args, func(p string) string {
+	return v.name + decisionParam().ReplaceAllStringFunc(v.args, func(p string) string {
 		if p == "S" {
 			return s
 		}
@@ -57,7 +58,7 @@ func decisionLit(v decisionVariant, next, out string) string {
 	return v.at("MS", "E3") + "{" + strings.Join(fs, ", ") + "}"
 }
 
-var decisionParam = regexp.MustCompile(`\b[SO]\b`)
+var decisionParam = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b[SO]\b`) })
 
 // decisionVariants are Decision's variants in the union's order, so the
 // generator's literals and its match arms follow the prelude: a variant
