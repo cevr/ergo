@@ -1,13 +1,16 @@
-// Package script plays a script of timed button presses on both shapes of
-// the board: shape A (board, live actors on a time.Manual) and shape B
-// (emitted, a fold with its registry), and shows shape A after each press.
+// Package script plays a script of timed button presses on three forms of
+// the board: shape A (board, live actors on a time.Manual), shape B
+// (emitted, a fold with its registry), and the desk's screen on std ui's
+// test host (host.ergo), and shows the screen after each press.
 
+import actor
 import fktransfers/board
 import fktransfers/emitted
 import io
 import strconv
 import strings
 import time
+import ui
 
 // Press is a button: start the next transfer, cancel one, cancel all, or
 // restart one.
@@ -91,7 +94,7 @@ func PlayA(lines []Line, end duration, clock time.Manual) [][]string needs Sched
 		now = l.At
 		match l.Press {
 		case Start:
-			b = board.Start(b)
+			b.Start()
 		case Cancel as c:
 			board.Cancel(b, c.ID)
 		case CancelAll:
@@ -103,7 +106,6 @@ func PlayA(lines []Line, end duration, clock time.Manual) [][]string needs Sched
 	}
 	time.Advance(clock, end-now)
 	out = out.Append(board.Lines(b))
-	board.Shutdown(b)
 	out
 }
 
@@ -132,10 +134,13 @@ func PlayB(lines []Line, end duration) [][]string {
 	out.Append(emitted.Lines(w))
 }
 
-// Run reads the script from io.Stdin and shows shape A after each press
-// and at the end: `@MS` and then one `  ID NAME WORD` line per transfer.
-// It returns the exit status: 0, or 1 when the script is refused.
-func Run(clock time.Manual) int needs Console | io.Stdin | Scheduler {
+// Run reads the script from io.Stdin and plays it on the desk's screen
+// (PlayScreen). It shows the screen before the first press, after each
+// press and at the end: `@MS WHAT`, the line above the list (the heading,
+// the buttons and the empty line), and one `  ID NAME WORD [BUTTON]` line
+// per transfer; with stats, also the work of the press. It returns the
+// exit status: 0, or 1 when the script is refused or the screen fails.
+func Run(clock time.Manual, stats bool) int needs Console | io.Stdin | Scheduler {
 	let mut text = []string{}
 	for line in io.Stdin.Lines() {
 		text = text.Append(line)
@@ -145,14 +150,26 @@ func Run(clock time.Manual) int needs Console | io.Stdin | Scheduler {
 		Console.Println("? line \(b.Line): \(b.Why)")
 		return 1
 	}
-	let shown = PlayA(s.Lines, s.End, clock)
-	for i, rows in shown {
-		let at = if i < len(s.Lines) { s.Lines[i].At } else { s.End }
-		let what = if i < len(s.Lines) { Name(s.Lines[i].Press) } else { "end" }
+	let mut i = 0
+	PlayScreen(s.Lines, s.End, clock, func(f Frame) needs Console {
+		let at = if i == 0 { 0s } else if i <= len(s.Lines) { s.Lines[i-1].At } else { s.End }
+		let what = if i == 0 { "open" } else if i <= len(s.Lines) { Name(s.Lines[i-1].Press) } else { "end" }
+		i = i + 1
 		Console.Println("@\(time.Count(at, 1ms)) \(what)")
-		for r in rows {
-			Console.Println("  \(r)")
+		Console.Println("  \(strings.Join(f.Top, " "))")
+		for j, r in f.Rows {
+			Console.Println(if f.Actions[j] == "" { "  \(r)" } else { "  \(r) \(f.Actions[j])" })
 		}
+		if stats {
+			Console.Println("  stats: \(ui.CountsLine(f.Counts))")
+		}
+	}) catch {
+	case actor.Stopped:
+		Console.Println("? the desk stopped")
+		return 1
+	case ui.BadPatch as p:
+		Console.Println("? the screen: \(p.Why)")
+		return 1
 	}
 	0
 }

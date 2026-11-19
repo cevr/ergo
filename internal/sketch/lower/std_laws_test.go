@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"ergo.local/prototype/internal/lawledger"
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -37,6 +37,7 @@ import trace
 import log
 import strings
 import testing
+import pace
 
 test OsCodeWhere(v os.Code) {
 	let it = int(v)
@@ -262,6 +263,198 @@ test TaskStopIsIdempotent() {
 	assert true
 }
 
+test TimeoutAfterKeepsWhatTheBodyTook(c int, w int) {
+	let m = time.NewManual(0)
+	let ok = with context { Scheduler: m } {
+		let n = 40
+		let q = queue.New[int](((c % 3) + 3) % 3)
+		let kept = queue.New[int](n)
+		let producer = task.Go() {
+			for i in 0..n {
+				Scheduler.Sleep(1ms)
+				q.Push(i) catch {
+				case queue.Closed:
+				}
+			}
+			q.End()
+		}
+		let consumer = task.Go() {
+			let mut done = false
+			for !done {
+				let v = timeout.After(time.Times(1ms, 1+((w%3)+3)%3)) { try q.Pop() } catch {
+				case timeout.Expired:
+					-1
+				case queue.Closed:
+					-2
+				}
+				if v == -2 {
+					done = true
+				} else if v >= 0 {
+					kept.Push(v) catch {
+					case queue.Closed:
+					}
+				}
+			}
+			kept.End()
+		}
+		for _ in 0..n+2 {
+			m.Advance(1ms)
+		}
+		producer.Wait()
+		consumer.Wait()
+		let mut next = 0
+		for v in kept.Values() {
+			if v == next {
+				next = next + 1
+			}
+		}
+		next == n
+	}
+	assert ok
+}
+
+test TimeoutPopWithinWaitsUpToD(g int, w int) {
+	let m = time.NewManual(0)
+	let gap = ((g % 60) + 60) % 60
+	let d = ((w % 59) + 59) % 59 + 1
+	let start = m.Now()
+	let ok = with context { Scheduler: m } {
+		let q = queue.New[int](1)
+		let got = queue.New[int](3)
+		let producer = task.Go() {
+			Scheduler.Sleep(time.Times(1ms, gap))
+			q.Push(7) catch {
+			case queue.Closed:
+			}
+		}
+		let consumer = task.Go() {
+			let v = timeout.PopWithin(q, time.Times(1ms, d)) catch {
+			case timeout.Expired:
+				-1
+			case queue.Closed:
+				-2
+			}
+			got.Push(v) catch {
+			case queue.Closed:
+			}
+			got.Push(time.Count(m.Elapsed(start), 1ms)) catch {
+			case queue.Closed:
+			}
+			got.Push(m.Sleepers()) catch {
+			case queue.Closed:
+			}
+		}
+		m.Advance(120ms)
+		producer.Wait()
+		consumer.Wait()
+		let v = got.Poll()
+		let at = got.Poll()
+		let asleep = got.Poll()
+		let took = v == Some[int]{Value: 7} && at == Some[int]{Value: gap} && q.Len() == 0 && asleep == Some[int]{Value: 0}
+		let expired = v == Some[int]{Value: -1} && at == Some[int]{Value: d} && q.Len() == 1
+		if gap < d {
+			took
+		} else if gap > d {
+			expired
+		} else {
+			took || expired
+		}
+	}
+	assert ok
+}
+
+test TimeoutPopWithinTakesWhatIsThere(v int) {
+	let ok = with context { Scheduler: time.NewManual(0) } {
+		let q = queue.New[int](1)
+		try q.Push(v)
+		q.End()
+		let first = try timeout.PopWithin(q, 0ns)
+		let then = timeout.PopWithin(q, 0ns) catch {
+		case queue.Closed:
+			-1
+		case timeout.Expired:
+			-2
+		}
+		first == v && then == -1 && q.Len() == 0
+	}
+	assert ok
+}
+
+test TimeoutPopBeforeKeepsTheDeadline(gaps []int, w int) {
+	let m = time.NewManual(0)
+	let big = 2*(((w%30)+30)%30) + 1
+	let n = len(gaps)
+	let start = m.Now()
+	let ok = with context { Scheduler: m } {
+		let q = queue.New[int](n + 1)
+		let got = queue.New[int](n + 4)
+		let producer = task.Go() {
+			for i, g in gaps {
+				Scheduler.Sleep(time.Times(1ms, 2*(((g%10)+10)%10)))
+				q.Push(i) catch {
+				case queue.Closed:
+				}
+			}
+			Scheduler.Sleep(time.Times(1ms, 2*big))
+			q.End()
+		}
+		let consumer = task.Go() {
+			let dl = timeout.NewDeadline()
+			dl.Arm(time.Times(1ms, big))
+			got.Push(if dl.Armed() { 1 } else { 0 }) catch {
+			case queue.Closed:
+			}
+			let mut open = true
+			for open {
+				let v = timeout.PopBefore(q, dl) catch {
+				case timeout.Expired:
+					-1
+				case queue.Closed:
+					-2
+				}
+				if v >= 0 {
+					got.Push(v) catch {
+					case queue.Closed:
+					}
+				} else {
+					open = false
+					got.Push(v) catch {
+					case queue.Closed:
+					}
+					got.Push(time.Count(m.Elapsed(start), 1ms)) catch {
+					case queue.Closed:
+					}
+					got.Push(if dl.Armed() { 1 } else { 0 }) catch {
+					case queue.Closed:
+					}
+				}
+			}
+			got.End()
+		}
+		m.Advance(time.Times(1ms, 20*n+4*big+2))
+		producer.Wait()
+		consumer.Wait()
+		let mut want = []int{1}
+		let mut at = 0
+		for i, g in gaps {
+			at = at + 2*(((g%10)+10)%10)
+			if at < big {
+				want = want.Append(i)
+			}
+		}
+		let left = n - (len(want) - 1)
+		want = want.Append(-1).Append(big).Append(0)
+		let mut same = true
+		let mut k = 0
+		for v in got.Values() {
+			same = same && k < len(want) && v == want[k]
+			k = k + 1
+		}
+		same && k == len(want) && q.Len() == left
+	}
+	assert ok
+}
+
 test TimeoutQuickBodyWins(n int) {
 	let v = with context { Scheduler: time.NewManual(0) } {
 		try timeout.After(1h) { n }
@@ -284,6 +477,131 @@ test TimeoutDeadlineFirstExpires() {
 		}
 	}
 	assert expired
+}
+
+func paceWithin(n int, lo int, hi int) int {
+	let span = hi - lo + 1
+	let r = n % span
+	if r < 0 { lo + (r + span) } else { lo + r }
+}
+
+func paceKeeps(xs []int, s string) bool needs pace.Pacing {
+	let kept = xs.Append(len(s))
+	let text = s + "."
+	pace.Pacing.Edge()
+	let mut same = len(kept) == len(xs)+1 && kept[len(xs)] == len(s) && text == s+"."
+	for i, x in xs {
+		same = same && kept[i] == x
+	}
+	same
+}
+
+test PacePacingEdgeKeepsValues(xs []int, s string) {
+	assert with context { pace.Pacing: pace.Default } { paceKeeps(xs, s) }
+	assert with context { pace.Pacing: pace.NewCounting() } { paceKeeps(xs, s) }
+}
+
+test PaceDefaultReachesNothing(xs []int, n int) {
+	let kept = xs.Append(n)
+	with context { pace.Pacing: pace.Default } {
+		for _ in 0..paceWithin(n, 0, 64) {
+			pace.Pacing.Edge()
+		}
+	}
+	assert len(kept) == len(xs) + 1 && kept[len(xs)] == n
+}
+
+test PaceNextReadLeavesRoom(grown int64, edges int64, room int64) {
+	let g = int64(paceWithin(int(grown % 1000000000), 0, 999999999))
+	let e = int64(paceWithin(int(edges % 1000), 1, 1000))
+	let perEdge = if g / e < 1 { int64(1) } else { g / e }
+	let r = perEdge*int64(paceWithin(int(room%1000), -2, 600)) + int64(paceWithin(int(room%7), 0, 6))
+	let next = pace.NextRead(g, e, r)
+	assert 1 <= next && next <= pace.MaxSpan && (next == 1 || g == 0 || next * perEdge <= r / 2)
+}
+
+test PaceCountingCountsEachEdge(n int) {
+	let k = paceWithin(n, 0, 64)
+	let c = pace.NewCounting()
+	let before = c.Edges()
+	with context { pace.Pacing: c } {
+		for _ in 0..k {
+			pace.Pacing.Edge()
+		}
+	}
+	assert before == 0 && c.Edges() == int64(k)
+}
+
+func paceHoldKeeps(xs []int, n int) bool needs pace.Pacing {
+	let kept = xs.Append(n)
+	pace.Pacing.Hold()
+	pace.Pacing.Edge()
+	pace.Pacing.Release()
+	len(kept) == len(xs)+1 && kept[len(xs)] == n
+}
+
+test PacePacingHoldKeepsValues(xs []int, n int) {
+	assert with context { pace.Pacing: pace.Default } { paceHoldKeeps(xs, n) }
+	assert with context { pace.Pacing: pace.NewCounting() } { paceHoldKeeps(xs, n) }
+}
+
+test PaceHoldsOweTheLastClose(ops []int) {
+	let h = pace.NewHolds()
+	let mut depth = 0
+	let mut owed = false
+	let mut same = true
+	for op in ops {
+		let kind = paceWithin(op, 0, 2)
+		if kind == 0 {
+			h.Open()
+			depth = depth + 1
+		} else if kind == 1 && depth > 0 {
+			let collects = h.Close()
+			depth = depth - 1
+			same = same && collects == (depth == 0 && owed)
+			if depth == 0 {
+				owed = false
+			}
+		} else if kind == 2 {
+			same = same && h.Owe() == (depth > 0)
+			owed = owed || depth > 0
+		}
+		same = same && h.Depth() == int64(depth)
+	}
+	assert same
+}
+
+type paceStopped {}
+
+func paceNest(depth int, edges int, stop bool) fails paceStopped needs pace.Pacing {
+	pace.Held() { try paceInner(depth, edges, stop) }
+}
+
+func paceInner(depth int, edges int, stop bool) fails paceStopped needs pace.Pacing {
+	if depth > 1 {
+		try paceNest(depth-1, edges, stop)
+		return
+	}
+	for _ in 0..edges {
+		pace.Pacing.Edge()
+	}
+	if stop {
+		return paceStopped
+	}
+}
+
+test PaceHeldDefersToTheLastRelease(n int, k int, stop bool) {
+	let edges = paceWithin(n, 0, 16)
+	let depth = paceWithin(k, 1, 4)
+	let c = pace.NewCounting()
+	with context { pace.Pacing: c } {
+		paceNest(depth, edges, stop) catch {
+		case paceStopped:
+		}
+		pace.Pacing.Edge()
+	}
+	let owed = if edges > 0 { int64(1) } else { int64(0) }
+	assert c.Edges() == int64(edges+1) && c.HeldEdges() == int64(edges) && c.Deferred() == owed
 }
 
 test TraceInnerSpanShadows(outer string, inner string) {
@@ -447,6 +765,32 @@ test TestingScriptNamesTheHeldCall(k string) {
 		assert testing.Unanswered() == ""
 	}
 }
+
+test TestingWorldSharesEachPair(text string, n int64) {
+	let d = duration(1 + (n%1099511627775+1099511627775)%1099511627775)
+	with testing.World() {
+		try fs.Writes.WriteFile("f", text)
+		let back = try fs.Files.ReadFile("f")
+		let before = time.Clock.Now()
+		Scheduler.Sleep(d)
+		assert back == text && time.Clock.Now().Sub(before) == d
+	}
+}
+
+test TestingWorldsAreFresh(text string) {
+	with testing.World() {
+		try fs.Writes.WriteFile("f", text)
+	}
+	with testing.World() {
+		fs.Files.Stat("f") catch {
+		case fs.NotFound:
+			return
+		case fs.Denied, fs.Failed:
+			assert false
+		}
+		assert false
+	}
+}
 `
 
 // stdLawsTestName is the probe test that restates the law of a ledger row.
@@ -482,10 +826,23 @@ var stdLawsStatements = map[string]string{
 	"testing HeldCallWaitsForRelease":      `HeldCallWaitsForRelease(k string, a int) { let s = Script[probe]{} s.Get.Answer(func(key string) int fails Absent { a }) s.Get.Hold() let c = NewVirtualClock(0) with context { probe: s, Scheduler: c } { let t = task.Go() { probe.Get(k) } Scheduler.Sleep(1s) let held = s.Get.Held() let waited = len(held) == 1 && held[0] == k && len(s.Get.Calls()) == 1 s.Get.Release(func(key string) int fails Absent { a + 1 }) let got = t.Wait() catch { case Absent: a } s.Get.Answer(func(key string) int fails Absent { a + 2 }) let later = probe.Get(k) catch { case Absent: a } waited && got == a + 1 && later == a + 2 && len(s.Get.Held()) == 0 } }`,
 	"testing ReleaseAnswersOldestFirst":    `ReleaseAnswersOldestFirst(k string, j string, a int) { let s = Script[probe]{} s.Get.Hold() let c = NewVirtualClock(0) with context { probe: s, Scheduler: c } { let first = task.Go() { probe.Get(k) } Scheduler.Sleep(1s) let second = task.Go() { probe.Get(j) } Scheduler.Sleep(1s) let held = s.Get.Held() let order = len(held) == 2 && held[0] == k && held[1] == j s.Get.Release(func(key string) int fails Absent { a }) s.Get.Release(func(key string) int fails Absent { a + 1 }) let one = first.Wait() catch { case Absent: a - 1 } let two = second.Wait() catch { case Absent: a - 1 } s.Get.Release(func(key string) int fails Absent { a + 2 }) let three = probe.Get(k) catch { case Absent: a - 1 } order && one == a && two == a + 1 && three == a + 2 && len(s.Get.Held()) == 0 } }`,
 	"testing ScriptNamesTheHeldCall":       `ScriptNamesTheHeldCall(k string) { let s = Script[probe]{} s.Get.Hold() let c = NewVirtualClock(0) with context { probe: s, Scheduler: c } { let t = task.Go() { probe.Get(k) } Scheduler.Sleep(1s) let report = Unanswered() let named = strings.HasPrefix(report, "testing.Script[") && strings.HasSuffix(report, "probe]: Get has a held call that no Release answered") let unread = len(s.Get.Unread()) == 1 && len(s.Get.Calls()) == 1 && len(s.Get.Unread()) == 0 s.Get.Release(func(key string) int fails Absent { 0 }) let _ = t.Wait() catch { case Absent: 0 } named && unread && Unanswered() == "" } }`,
+	"timeout AfterKeepsWhatTheBodyTook":    `AfterKeepsWhatTheBodyTook(c int, w int) { let m = time.NewManual(0) with context { Scheduler: m } { let n = 40 let q = queue.New[int](((c % 3) + 3) % 3) let kept = queue.New[int](n) let producer = task.Go() { for i in 0..n { Scheduler.Sleep(1ms) q.Push(i) catch { case queue.Closed: } } q.End() } let consumer = task.Go() { let mut done = false for !done { let v = After(time.Times(1ms, 1+((w%3)+3)%3)) { try q.Pop() } catch { case Expired: -1 case queue.Closed: -2 } if v == -2 { done = true } else if v >= 0 { kept.Push(v) catch { case queue.Closed: } } } kept.End() } for _ in 0..n+2 { m.Advance(1ms) } producer.Wait() consumer.Wait() let mut next = 0 for v in kept.Values() { if v == next { next = next + 1 } } next == n } }`,
+	"timeout PopWithinWaitsUpToD":          `PopWithinWaitsUpToD(g int, w int) { let m = time.NewManual(0) let gap = ((g % 60) + 60) % 60 let d = ((w % 59) + 59) % 59 + 1 let start = m.Now() with context { Scheduler: m } { let q = queue.New[int](1) let got = queue.New[int](3) let producer = task.Go() { Scheduler.Sleep(time.Times(1ms, gap)) q.Push(7) catch { case queue.Closed: } } let consumer = task.Go() { let v = PopWithin(q, time.Times(1ms, d)) catch { case Expired: -1 case queue.Closed: -2 } got.Push(v) catch { case queue.Closed: } got.Push(time.Count(m.Elapsed(start), 1ms)) catch { case queue.Closed: } got.Push(m.Sleepers()) catch { case queue.Closed: } } m.Advance(120ms) producer.Wait() consumer.Wait() let v = got.Poll() let at = got.Poll() let asleep = got.Poll() let took = v == Some[int]{Value: 7} && at == Some[int]{Value: gap} && q.Len() == 0 && asleep == Some[int]{Value: 0} let expired = v == Some[int]{Value: -1} && at == Some[int]{Value: d} && q.Len() == 1 if gap < d { took } else if gap > d { expired } else { took || expired } } }`,
+	"timeout PopWithinTakesWhatIsThere":    `PopWithinTakesWhatIsThere(v int) { with context { Scheduler: time.NewManual(0) } { let q = queue.New[int](1) try q.Push(v) q.End() let first = try PopWithin(q, 0ns) let then = PopWithin(q, 0ns) catch { case queue.Closed: -1 case Expired: -2 } first == v && then == -1 && q.Len() == 0 } }`,
+	"timeout PopBeforeKeepsTheDeadline":    `PopBeforeKeepsTheDeadline(gaps []int, w int) { let m = time.NewManual(0) let big = 2*(((w%30)+30)%30) + 1 let n = len(gaps) let start = m.Now() with context { Scheduler: m } { let q = queue.New[int](n + 1) let got = queue.New[int](n + 4) let producer = task.Go() { for i, g in gaps { Scheduler.Sleep(time.Times(1ms, 2*(((g%10)+10)%10))) q.Push(i) catch { case queue.Closed: } } Scheduler.Sleep(time.Times(1ms, 2*big)) q.End() } let consumer = task.Go() { let dl = NewDeadline() dl.Arm(time.Times(1ms, big)) got.Push(if dl.Armed() { 1 } else { 0 }) catch { case queue.Closed: } let mut open = true for open { let v = PopBefore(q, dl) catch { case Expired: -1 case queue.Closed: -2 } if v >= 0 { got.Push(v) catch { case queue.Closed: } } else { open = false got.Push(v) catch { case queue.Closed: } got.Push(time.Count(m.Elapsed(start), 1ms)) catch { case queue.Closed: } got.Push(if dl.Armed() { 1 } else { 0 }) catch { case queue.Closed: } } } got.End() } m.Advance(time.Times(1ms, 20*n+4*big+2)) producer.Wait() consumer.Wait() let mut want = []int{1} let mut at = 0 for i, g in gaps { at = at + 2*(((g%10)+10)%10) if at < big { want = want.Append(i) } } let left = n - (len(want) - 1) want = want.Append(-1).Append(big).Append(0) let mut same = true let mut k = 0 for v in got.Values() { same = same && k < len(want) && v == want[k] k = k + 1 } same && k == len(want) && q.Len() == left } }`,
 	"timeout DeadlineFirstExpires":         `DeadlineFirstExpires() { let m = time.NewManual(0) with context { Scheduler: m } { After(1ms) { for m.Sleepers() == 0 { } m.Advance(1ms) Scheduler.Sleep(1h) false } catch { case Expired: true } } }`,
 	"testing ScriptAnswersByTheLastAnswer": `ScriptAnswersByTheLastAnswer(k string, a int, b int) { let s = Script[probe]{} s.Size.Answer(func() int { a }) s.Get.Answer(func(key string) int fails Absent { Absent{Key: key} }) with context { probe: s } { let first = probe.Size() s.Size.Answer(func() int { b }) let second = probe.Size() let got = probe.Get(k) catch { case Absent as e: if e.Key == k { -1 } else { -2 } } first == a && second == b && got == -1 && len(s.Size.Calls()) == 2 && s.Size.Calls()[0] == NoArgs && s.Get.Calls()[0] == k } }`,
+	"testing WorldSharesEachPair":          `WorldSharesEachPair(text string, n int64) { let d = span(n) with World() { try fs.Writes.WriteFile("f", text) let back = try fs.Files.ReadFile("f") let before = time.Clock.Now() Scheduler.Sleep(d) back == text && time.Clock.Now().Sub(before) == d } }`,
+	"testing WorldsAreFresh":               `WorldsAreFresh(text string) { with World() { try fs.Writes.WriteFile("f", text) } with World() { fs.Files.Stat("f") catch { case fs.NotFound: return true case fs.Denied, fs.Failed: return false } false } }`,
 	"testing ScriptRecordsEachCall":        `ScriptRecordsEachCall(ks []string, n int) { let s = Script[probe]{} s.Has.Answer(func(k string) bool { len(k) > 0 }) with context { probe: s } { for i, k in ks { probe.Put(k, n + i) let _ = probe.Has(k) } } let puts = s.Put.Calls() let mut same = len(puts) == len(ks) && len(s.Has.Calls()) == len(ks) && len(s.Size.Calls()) == 0 for i, k in ks { same = same && puts[i] == (k, n + i) && s.Has.Calls()[i] == k } same }`,
 	"timeout QuickBodyWins":                `QuickBodyWins(n int) { with context { Scheduler: time.NewManual(0) } { try After(1h) { n } == n } }`,
+	"pace Pacing.EdgeKeepsValues":          `EdgeKeepsValues(xs []int, s string) { let kept = xs.Append(len(s)) let text = s + "." Edge() let mut same = len(kept) == len(xs)+1 && kept[len(xs)] == len(s) && text == s+"." for i, x in xs { same = same && kept[i] == x } same }`,
+	"pace DefaultReachesNothing":           `DefaultReachesNothing(xs []int, n int) { let kept = xs.Append(n) with context { Pacing: Default } { for _ in 0..within(n, 0, 64) { Pacing.Edge() } } len(kept) == len(xs)+1 && kept[len(xs)] == n }`,
+	"pace NextReadLeavesRoom":              `NextReadLeavesRoom(grown int64, edges int64, room int64) { let g = int64(within(int(grown%1000000000), 0, 999999999)) let e = int64(within(int(edges%1000), 1, 1000)) let perEdge = if g/e < 1 { int64(1) } else { g / e } let r = perEdge*int64(within(int(room%1000), -2, 600)) + int64(within(int(room%7), 0, 6)) let next = NextRead(g, e, r) 1 <= next && next <= MaxSpan && (next == 1 || g == 0 || next*perEdge <= r/2) }`,
+	"pace CountingCountsEachEdge":          `CountingCountsEachEdge(n int) { let k = within(n, 0, 64) let c = NewCounting() let before = c.Edges() with context { Pacing: c } { for _ in 0..k { Pacing.Edge() } } before == 0 && c.Edges() == int64(k) }`,
+	"pace Pacing.HoldKeepsValues":          `HoldKeepsValues(xs []int, n int) { let kept = xs.Append(n) Hold() Edge() Release() len(kept) == len(xs)+1 && kept[len(xs)] == n }`,
+	"pace HoldsOweTheLastClose":            `HoldsOweTheLastClose(ops []int) { let h = NewHolds() let mut depth = 0 let mut owed = false let mut same = true for op in ops { let kind = within(op, 0, 2) if kind == 0 { h.Open() depth = depth + 1 } else if kind == 1 && depth > 0 { let collects = h.Close() depth = depth - 1 same = same && collects == (depth == 0 && owed) if depth == 0 { owed = false } } else if kind == 2 { same = same && h.Owe() == (depth > 0) owed = owed || depth > 0 } same = same && h.Depth() == int64(depth) } same }`,
+	"pace HeldDefersToTheLastRelease":      `HeldDefersToTheLastRelease(n int, k int, stop bool) { let edges = within(n, 0, 16) let depth = within(k, 1, 4) let c = NewCounting() with context { Pacing: c } { nest(depth, edges, stop) catch { case stopped: } Pacing.Edge() } let owed = if edges > 0 { int64(1) } else { int64(0) } c.Edges() == int64(edges+1) && c.HeldEdges() == int64(edges) && c.Deferred() == owed }`,
 	"trace InnerSpanShadows":               `InnerSpanShadows(outer string, inner string) { with Span(outer) { with Span(inner) { Current() == Some[string]{Value: inner} } } }`,
 	"trace SpanEndRestores":                `SpanEndRestores(name string) { let before = Current() with Span(name) { Current() } Current() == before }`,
 }
@@ -623,7 +980,7 @@ law OnlyALawUsesThem(s string, n int) {
 func TestStdLawsAddNoGo(t *testing.T) {
 	names := map[string]bool{"OnlyALawUsesThem": true}
 	for _, p := range []string{"queue", "task", "timeout", "scope", "trace", "log"} {
-		files, ok := std.Package(p)
+		files, ok := stdlib.Package(p)
 		if !ok {
 			t.Fatalf("no std package %s", p)
 		}

@@ -65,9 +65,10 @@ var i1FrameKinds = []i1FrameKind{
 		return "test Subject {\n" + i1Discard(body) + "}\n"
 	}},
 	// A law body is a frame of the test build only (#162 law-run-1): the
-	// test build runs it, the run build emits none.
+	// test build runs it, the run build emits none. Its parameter's type
+	// Case is its subject (S115).
 	{name: "top-law", goClass: "decl", testBuild: true, sites: map[string]int{"lawFrame": 1}, program: func(_, _, _ string, body string) string {
-		return "law Subject() {\n" + i1Discard(body) + "true\n}\n"
+		return "type Case {}\nlaw Subject(_ Case) {\n" + i1Discard(body) + "true\n}\n"
 	}},
 	{name: "initializer", goClass: "lit", sites: map[string]int{"packageVar": 2, "packagePattern": 1}, program: func(_, _, _ string, body string) string {
 		// A binding, a destructuring initializer and a discarded value

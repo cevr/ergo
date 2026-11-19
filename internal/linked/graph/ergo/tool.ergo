@@ -1,0 +1,360 @@
+// Package graphtool is `ergo graph`'s queries: each command is one std
+// codegraph function over the rows the checker wrote (docs/spec/graph.md),
+// printed one line per answer, or as JSON with --json. The ergo binary
+// links its lowered Go (internal/linked/graph; docs/tooling.md, Linked
+// Ergo packages): it checks the program, writes the rows as JSON, and
+// calls Run. A project's own workflow reads the same rows with the same
+// functions; this package holds no query of its own.
+
+import codegraph
+import json
+import strconv
+import strings
+
+// Run is the output of `ergo graph COMMAND ARGS` over the rows whose JSON
+// text is rows, and for affected the rows at the base, old (empty for
+// none): its exit status, its standard output and its standard error, in
+// that order.
+func Run(args []string, rows string, old string) []string {
+	let r = codegraph.Decode(rows) catch {
+	case codegraph.BadRows as b:
+		return []string{"1", "", "ergo graph: \(b.Reason)\n"}
+	}
+	if old == "" {
+		return runRows(args, r, noRows())
+	}
+	let base = codegraph.Decode(old) catch {
+	case codegraph.BadRows as b:
+		return []string{"1", "", "ergo graph: the base's rows: \(b.Reason)\n"}
+	}
+	runRows(args, r, base)
+}
+
+// noRows is the rows of no program.
+func noRows() codegraph.Rows { codegraph.Rows{Version: 1, Nodes: []codegraph.NodeRow{}, Edges: []codegraph.EdgeRow{}} }
+
+// RunColumns is Run over the rows as columns, the form the ergo binary
+// hands over with no JSON written or read (GRAPH-FAST; a Go caller can
+// pass slices of basic types, not records). The rows of the program and
+// then, for affected, those of the base follow one another: for each,
+// ints holds its node count and edge count, then each node's parent and
+// subject, then each edge's from and to; strs holds each node's kind,
+// sub-kind, name and digest, then each edge's kind and how. Positions are
+// left out (no query reads them): File is -1 in every row.
+func RunColumns(args []string, strs []string, ints []int) []string {
+	let r = fromColumns(strs, ints, 0, 0)
+	let base = if r.Ints < len(ints) { fromColumns(strs, ints, r.Strs, r.Ints) } else { columnsOf(noRows(), 0, 0) }
+	runRows(args, r.Rows, base.Rows)
+}
+
+// Columns is rows read from columns and where the next rows start.
+type Columns { Rows codegraph.Rows, Strs int, Ints int }
+
+func columnsOf(r codegraph.Rows, s int, i int) Columns { Columns{Rows: r, Strs: s, Ints: i} }
+
+// fromColumns is the rows whose columns start at s in strs and at i in
+// ints (RunColumns' layout).
+func fromColumns(strs []string, ints []int, s int, i int) Columns {
+	let n = ints[i]
+	let m = ints[i + 1]
+	let mut nodes = []codegraph.NodeRow{}
+	for k in 0..n {
+		let at = s + 4 * k
+		let p = i + 2 + 2 * k
+		nodes = nodes.Append(codegraph.NodeRow{Id: k, Kind: strs[at], Sub: strs[at + 1], Parent: ints[p], Name: strs[at + 2], Digest: strs[at + 3], Subject: ints[p + 1], File: -1, Offset: 0, Line: 0, Column: 0})
+	}
+	let mut edges = []codegraph.EdgeRow{}
+	for k in 0..m {
+		let at = s + 4 * n + 2 * k
+		let p = i + 2 + 2 * n + 2 * k
+		edges = edges.Append(codegraph.EdgeRow{Kind: strs[at], How: strs[at + 1], From: ints[p], To: ints[p + 1], File: -1, Offset: 0, Line: 0, Column: 0})
+	}
+	columnsOf(codegraph.Rows{Version: 1, Nodes: nodes, Edges: edges}, s + 4 * n + 2 * m, i + 2 + 2 * n + 2 * m)
+}
+
+// runRows is Run over rows already read: r, and for affected the rows at
+// the base.
+func runRows(args []string, r codegraph.Rows, base codegraph.Rows) []string {
+	let o = options(args)
+	if o.Bad != "" {
+		return []string{"2", "", "ergo graph: \(o.Bad)\n"}
+	}
+	let words = o.Words
+	if len(words) == 0 {
+		return usage("supply a command: export, cycles, why, affected, hidden, chains, fan, layers")
+	}
+	match words[0] {
+	case "cycles":
+		if len(words) != 1 {
+			return usage("cycles takes no argument")
+		}
+		cycles(r, o)
+	case "why":
+		if len(words) != 3 {
+			return usage("why takes two names: why A B")
+		}
+		why(r, o, words[1], words[2])
+	case "affected":
+		if len(words) != 2 {
+			return usage("affected takes one base: affected BASE")
+		}
+		affected(r, o, codegraph.Changed(base, r))
+	case "hidden":
+		if len(words) != 1 {
+			return usage("hidden takes no argument")
+		}
+		hidden(r, o)
+	case "chains":
+		if len(words) != 1 {
+			return usage("chains takes no argument; the length is --min N")
+		}
+		chains(r, o)
+	case "fan":
+		if len(words) != 1 {
+			return usage("fan takes no argument")
+		}
+		fan(r, o)
+	case "layers":
+		if len(words) < 2 {
+			return usage("layers takes the layering, from the top down: layers PATTERN...")
+		}
+		layers(r, o, words[1:len(words)])
+	case _:
+		usage("unknown command \(words[0])")
+	}
+}
+
+// usage is the output of an invalid invocation.
+func usage(why string) []string { []string{"2", "", "ergo graph: \(why)\n"} }
+
+// Options are the flags of a command and its other words.
+type Options {
+	Json  bool,
+	Tests bool,
+	Level codegraph.Level,
+	Min   int,
+	Words []string,
+	Bad   string,
+}
+
+// options reads --json, --tests, --level package|file|decl and --min N
+// from args; every other argument is a word.
+func options(args []string) Options {
+	let mut o = Options{Json: false, Tests: false, Level: codegraph.Packages, Min: 2, Words: []string{}, Bad: ""}
+	let mut i = 0
+	for i < len(args) {
+		let a = args[i]
+		i = i + 1
+		match a {
+		case "--json":
+			o.Json = true
+		case "--tests":
+			o.Tests = true
+		case "--level":
+			if i >= len(args) {
+				o.Bad = "--level takes package, file or decl"
+				return o
+			}
+			let v = args[i]
+			i = i + 1
+			match v {
+			case "package":
+				o.Level = codegraph.Packages
+			case "file":
+				o.Level = codegraph.Files
+			case "decl":
+				o.Level = codegraph.Decls
+			case _:
+				o.Bad = "--level takes package, file or decl, not \(v)"
+				return o
+			}
+		case "--min":
+			if i >= len(args) {
+				o.Bad = "--min takes a number"
+				return o
+			}
+			let n = strconv.Atoi(args[i]) catch {
+			case _:
+				o.Bad = "--min takes a number, not \(args[i])"
+				return o
+			}
+			i = i + 1
+			o.Min = n
+		case _:
+			if strings.HasPrefix(a, "-") {
+				o.Bad = "unknown option \(a)"
+				return o
+			}
+			o.Words = o.Words.Append(a)
+		}
+	}
+	o
+}
+
+// names is the names of the rows' nodes ids.
+func names(r codegraph.Rows, ids []int) []string {
+	let mut out = []string{}
+	for i in ids {
+		out = out.Append(codegraph.NameOf(r, i))
+	}
+	out
+}
+
+// CycleOut is a cycle by name: its nodes and a closed path.
+type CycleOut { Nodes []string, Path []string }
+
+func cycles(r codegraph.Rows, o Options) []string {
+	let mut out = []CycleOut{}
+	for c in codegraph.Cycles(r, o.Level, o.Tests) {
+		out = out.Append(CycleOut{Nodes: names(r, c.Nodes), Path: names(r, c.Path)})
+	}
+	if o.Json {
+		return ok(json.Encode(json.Codec[[]CycleOut]{MaxBytes: 1 << 40, MaxDepth: 16}, out) + "\n")
+	}
+	let mut b = ""
+	for c in out {
+		b = b + strings.Join(c.Path, " -> ") + "\n"
+	}
+	ok(if len(out) == 0 { "no cycle\n" } else { b })
+}
+
+// StepOut is a step by name: its kind and its ends.
+type StepOut { Kind string, From string, To string }
+
+func stepsOut(r codegraph.Rows, steps []codegraph.Step) []StepOut {
+	let mut out = []StepOut{}
+	for s in steps {
+		out = out.Append(StepOut{Kind: s.Kind, From: codegraph.NameOf(r, s.From), To: codegraph.NameOf(r, s.To)})
+	}
+	out
+}
+
+func stepsText(steps []StepOut) string {
+	let mut b = ""
+	for s in steps {
+		b = b + "\(s.From) \(s.Kind) \(s.To)\n"
+	}
+	b
+}
+
+// Missing is a name that names no node or several, with the output that
+// says so.
+type Missing { Out []string }
+
+// one is the single node name a names, or Missing.
+func one(r codegraph.Rows, a string) int fails Missing {
+	let found = codegraph.Find(r, a)
+	if len(found) == 0 {
+		return Missing{Out: []string{"1", "", "ergo graph: no node is named \(a)\n"}}
+	}
+	if len(found) > 1 {
+		return Missing{Out: []string{"1", "", "ergo graph: \(len(found)) nodes are named \(a)\n"}}
+	}
+	found[0]
+}
+
+func why(r codegraph.Rows, o Options, a string, b string) []string {
+	let x = one(r, a) catch {
+	case Missing as m:
+		return m.Out
+	}
+	let y = one(r, b) catch {
+	case Missing as m:
+		return m.Out
+	}
+	match codegraph.Why(r, x, y) {
+	case Some[[]codegraph.Step] as w:
+		let steps = stepsOut(r, w.Value)
+		if o.Json {
+			return ok(json.Encode(json.Codec[[]StepOut]{MaxBytes: 1 << 40, MaxDepth: 16}, steps) + "\n")
+		}
+		ok(if len(steps) == 0 { "\(a) is \(b)\n" } else { stepsText(steps) })
+	case None:
+		if o.Json {
+			return ok("null\n")
+		}
+		ok("\(a) does not depend on \(b)\n")
+	}
+}
+
+// ReachedOut is a node a change affects, by name, and the step that
+// reached it (none for a changed node).
+type ReachedOut { Node string, Kind string, By string }
+
+func affected(r codegraph.Rows, o Options, changed []int) []string {
+	let mut out = []ReachedOut{}
+	for x in codegraph.Affected(r, changed) {
+		out = out.Append(ReachedOut{Node: codegraph.NameOf(r, x.Node), Kind: x.By.Kind, By: if x.By.Kind == "" { "" } else { codegraph.NameOf(r, x.By.To) }})
+	}
+	if o.Json {
+		return ok(json.Encode(json.Codec[[]ReachedOut]{MaxBytes: 1 << 40, MaxDepth: 16}, out) + "\n")
+	}
+	let mut b = ""
+	for x in out {
+		b = b + (if x.Kind == "" { "\(x.Node) changed\n" } else { "\(x.Node) \(x.Kind) \(x.By)\n" })
+	}
+	ok(if len(out) == 0 { "nothing changed\n" } else { b })
+}
+
+// HiddenOut is a hidden use by name: the user, the declaration it uses,
+// the package no file of the user's imports, and the re-export it goes
+// through ("" for none), and how it uses it.
+type HiddenOut { From string, To string, Package string, Via string, How string }
+
+func hidden(r codegraph.Rows, o Options) []string {
+	let mut out = []HiddenOut{}
+	for h in codegraph.Hidden(r) {
+		out = out.Append(HiddenOut{From: codegraph.NameOf(r, h.From), To: codegraph.NameOf(r, h.To), Package: codegraph.NameOf(r, h.Package), Via: if h.Via < 0 { "" } else { codegraph.NameOf(r, h.Via) }, How: h.How})
+	}
+	if o.Json {
+		return ok(json.Encode(json.Codec[[]HiddenOut]{MaxBytes: 1 << 40, MaxDepth: 16}, out) + "\n")
+	}
+	let mut b = ""
+	for h in out {
+		b = b + "\(h.From) uses \(h.To) (\(h.How)) without importing \(h.Package)" + (if h.Via == "" { "" } else { " (through \(h.Via))" }) + "\n"
+	}
+	ok(if len(out) == 0 { "no hidden use\n" } else { b })
+}
+
+func chains(r codegraph.Rows, o Options) []string {
+	let mut out = [][]string{}
+	for c in codegraph.Chains(r, o.Min) {
+		out = out.Append(names(r, c))
+	}
+	if o.Json {
+		return ok(json.Encode(json.Codec[[][]string]{MaxBytes: 1 << 40, MaxDepth: 16}, out) + "\n")
+	}
+	let mut b = ""
+	for c in out {
+		b = b + "\(len(c)) " + strings.Join(c, " -> ") + "\n"
+	}
+	ok(if len(out) == 0 { "no chain of \(o.Min)\n" } else { b })
+}
+
+// FanOut is a node by name and its fan in and out.
+type FanOut { Node string, In int, Out int }
+
+func fan(r codegraph.Rows, o Options) []string {
+	let mut out = []FanOut{}
+	for f in codegraph.Fan(r, o.Level, o.Tests) {
+		out = out.Append(FanOut{Node: codegraph.NameOf(r, f.Node), In: f.In, Out: f.Out})
+	}
+	if o.Json {
+		return ok(json.Encode(json.Codec[[]FanOut]{MaxBytes: 1 << 40, MaxDepth: 16}, out) + "\n")
+	}
+	let mut b = ""
+	for f in out {
+		b = b + "\(f.In) \(f.Out) \(f.Node)\n"
+	}
+	ok(b)
+}
+
+func layers(r codegraph.Rows, o Options, patterns []string) []string {
+	let out = stepsOut(r, codegraph.Up(r, patterns))
+	if o.Json {
+		return ok(json.Encode(json.Codec[[]StepOut]{MaxBytes: 1 << 40, MaxDepth: 16}, out) + "\n")
+	}
+	ok(if len(out) == 0 { "no import goes up\n" } else { stepsText(out) })
+}
+
+func ok(text string) []string { []string{"0", text, ""} }

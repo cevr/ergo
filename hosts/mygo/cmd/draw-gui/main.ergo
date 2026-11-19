@@ -149,6 +149,8 @@ func headless(pic canvas.Picture, name string, check bool) fails os.Exit needs c
 					out.Println("? no node " + x.Label)
 				case ui.Mismatch as miss:
 					out.Println("? want " + miss.Want + ", got " + miss.Got)
+				case ui.Ambiguous as amb:
+					out.Println("? \(amb.Count) nodes at " + amb.At)
 				case ui.Closed, actor.Stopped:
 					return os.Exit{Code: 1, Message: "draw-gui: the app stopped"}
 				case ui.BadPatch as b:

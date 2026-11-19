@@ -17,7 +17,7 @@ var decidedFamilies = []string{
 	"defined type", "refinement", "type parameters", "ordered constraint",
 	"fails and needs", "escaping", "tuple type", "tuple value", "Map type",
 	"first-parameter function", "extern",
-	"test", "assert",
+	"test", "assert", "skip",
 	"if value", "match value", "value match", "type match", "tuple subject",
 	"record pattern", "as pattern", "nested as pattern",
 	"catch arm", "catch-all binding", "or pattern",
@@ -369,6 +369,12 @@ test Adds {
 }
 func main() {}
 `, nil},
+	{"skip", "skip in a function body (runtime.md, Tests 4: S108 outside a test or law)", `
+func f() {
+	skip "no host"
+}
+func main() {}
+`, []string{"S108:3"}},
 	{"assert", "assert in a function body (196l: S108 outside a test or law)", `
 func f() {
 	assert true
@@ -828,6 +834,17 @@ func half(s string) string { s[:len(s) / 2] }
 law HalfTwice(s string) { half(twice(s)) } == { s }
 func main() {}
 `, nil},
+	{"law", "a rewrite law over function parameters, with type parameters of its own (types.md, Laws 14; FUSION)", `
+func Transform[T, U, E, R](xs []T, f func(x T) U fails E needs R) []U fails E needs R {
+	let mut out = []U{}
+	for x in xs {
+		out = out.Append(try f(x))
+	}
+	out
+}
+law TransformFuses[T, U, V comparable](xs []T, f func(x T) U, g func(x U) V) { Transform(Transform(xs, f), g) } == { Transform(xs, func(x T) V { g(f(x)) }) }
+func main() {}
+`, nil},
 	{"law", "a documented top-level law", `
 func add(a int, b int) int { a + b }
 // AddCommutes: the order of the operands does not matter.
@@ -947,10 +964,12 @@ func probe(s State) Option[machines.Work[Signal]] {
 		return None
 	}
 }
+func leave(s State) Option[func()] { None }
 type Breaker machine[State, Signal] {
 	initial: Closed,
 	step:    step,
 	work:    probe,
+	exit:    leave,
 }
 func main() {}
 `, nil},

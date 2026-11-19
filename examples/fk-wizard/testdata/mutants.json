@@ -110,7 +110,7 @@
       "file": "examples/fk-wizard/desk/desk.ergo",
       "from": "\t\tStay[Desk]{Next: Logged(d, ",
       "to": "\t\tEnter[Desk]{Next: Logged(d, ",
-      "rule": "An ignored signal keeps the stage's entry, so the filing's timer runs on (case tour: a cancel while filing).",
+      "rule": "An ignored signal keeps the stage's entry, so the filing's timer runs on (law IgnoredIsAStay; the screen sends no ignored signal).",
       "anchor": {"tests": ["examples:fk-wizard"]}, "killers": ["examples:fk-wizard"]
     },
     {
@@ -119,6 +119,38 @@
       "from": "\"\\(StageName(d.Stage)) -> \\(StageName(next)) on \\(SignalName(sig))\"",
       "to": "\"\\(SignalName(sig)) ignored in \\(StageName(d.Stage))\"+StageName(next)[0:0]",
       "rule": "A transition is logged from, to and on what (case tour).",
+      "anchor": {"tests": ["examples:fk-wizard"]}, "killers": ["examples:fk-wizard"]
+    },
+    {
+      "name": "fk7b-review-back-files", "origin": "wf10/fk7b",
+      "file": "examples/fk-wizard/screen/screen.ergo",
+      "from": "button(f, label, permit.File)\n\t\t}\n\t\tbutton(f, BackLabel, permit.Back)",
+      "to": "button(f, label, permit.File)\n\t\t}\n\t\tbutton(f, BackLabel, permit.File)",
+      "rule": "Every enabled control is a step of the permit: the review's Back goes back (law ScreenOffersOnlyTransitions; no case clicks it).",
+      "anchor": {"tests": ["examples:fk-wizard"]}, "killers": ["examples:fk-wizard"]
+    },
+    {
+      "name": "fk7b-file-enabled-unagreed", "origin": "wf10/fk7b",
+      "file": "examples/fk-wizard/screen/screen.ergo",
+      "from": "ui.Fieldset(f, !(r.Leader && r.Agreed), \"\")",
+      "to": "ui.Fieldset(f, !r.Leader, \"\")",
+      "rule": "File is disabled until the rules are agreed, as upstream's Place order (case scenes, law ScreenOffersOnlyTransitions).",
+      "anchor": {"tests": ["examples:fk-wizard"]}, "killers": ["examples:fk-wizard"]
+    },
+    {
+      "name": "fk7b-typed-dropped", "origin": "wf10/fk7b",
+      "file": "examples/fk-wizard/desk/desk.ergo",
+      "from": "(Desk{..d0, Code: t.Text}, permit.Edited)",
+      "to": "(Desk{..d0, Code: t.Text[0:0]}, permit.Edited)",
+      "rule": "The code field shows what was typed, and Apply applies it (cases).",
+      "anchor": {"tests": ["examples:fk-wizard"]}, "killers": ["examples:fk-wizard"]
+    },
+    {
+      "name": "fk7b-allowance-added", "origin": "wf10/fk7b",
+      "file": "examples/fk-wizard/screen/screen.ergo",
+      "from": "fee - Off(g.Allowance, fee)",
+      "to": "fee + Off(g.Allowance, fee)",
+      "rule": "The file button's fee is the fee less the allowance, as upstream's Place order total (case scenes).",
       "anchor": {"tests": ["examples:fk-wizard"]}, "killers": ["examples:fk-wizard"]
     }
   ]

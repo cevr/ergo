@@ -1,9 +1,9 @@
 diff --git a/src/cmd/compile/internal/ergoir/ergoir.go b/src/cmd/compile/internal/ergoir/ergoir.go
 new file mode 100644
-index 0000000..4327a15
+index 0000000..76b1438
 --- /dev/null
 +++ b/src/cmd/compile/internal/ergoir/ergoir.go
-@@ -0,0 +1,290 @@
+@@ -0,0 +1,293 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -141,6 +141,9 @@ index 0000000..4327a15
 +	// tparams are the type parameters of the function being decoded, its
 +	// receiver's then its own (F1): a type spelling names them first.
 +	tparams []*types2.TypeParam
++	// tdef is the call a "tdef" binds, whose several results call
++	// admits (ergoir_tuple.go).
++	tdef *ergoExpr
 +}
 +
 +// ergoAttach gives every function the IR file names its checked body.
@@ -424,7 +427,7 @@ index 0000000..d16dcaa
 +}
 diff --git a/src/cmd/compile/internal/ergoir/ergoir_call.go b/src/cmd/compile/internal/ergoir/ergoir_call.go
 new file mode 100644
-index 0000000..f5d5868
+index 0000000..be785d3
 --- /dev/null
 +++ b/src/cmd/compile/internal/ergoir/ergoir_call.go
 @@ -0,0 +1,68 @@
@@ -461,13 +464,13 @@ index 0000000..f5d5868
 +
 +// call checks the arguments of a call of fun, whose signature is sig.
 +func (c *ergoChecker) call(x *ergoExpr, fun syntax.Expr, sig *types2.Signature) (syntax.Expr, types2.Type) {
-+	// A package function may return several values, which only a tdef
-+	// binds (ergoir_tuple.go).
++	// A function may return several values, which only a tdef binds
++	// (ergoir_tuple.go): a package call, or the call a tdef holds.
 +	// A variadic Go function takes its last argument spread, f(xs...),
 +	// when the IR's Op says "..." (FLIP F7 FORK-GOLIB): types2's last
 +	// parameter is then the slice.
 +	dots := x.Op == "..." && sig.Variadic()
-+	if sig.Variadic() != dots || sig.Params().Len() != len(x.Args) || !ergoSigOK(sig) && x.K != "pcall" {
++	if sig.Variadic() != dots || sig.Params().Len() != len(x.Args) || !ergoSigOK(sig) && x.K != "pcall" && x != c.tdef {
 +		c.errorf(x.Pos, "ergoir: call of %s with %d arguments", x.Name, len(x.Args))
 +		return nil, nil
 +	}
@@ -725,10 +728,10 @@ index 0000000..2995f1c
 +}
 diff --git a/src/cmd/compile/internal/ergoir/ergoir_expr.go b/src/cmd/compile/internal/ergoir/ergoir_expr.go
 new file mode 100644
-index 0000000..4798b5a
+index 0000000..ca3e2a9
 --- /dev/null
 +++ b/src/cmd/compile/internal/ergoir/ergoir_expr.go
-@@ -0,0 +1,470 @@
+@@ -0,0 +1,496 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -740,6 +743,7 @@ index 0000000..4798b5a
 +import (
 +	"go/constant"
 +	"go/token"
++	"strconv"
 +	"strings"
 +
 +	"cmd/compile/internal/syntax"
@@ -772,7 +776,18 @@ index 0000000..4798b5a
 +		if t == nil {
 +			return nil, nil
 +		}
-+		v := ergoConstant(t, x.V)
++		val := x.V
++		if x.Op == "quoted" {
++			// A string constant that is not UTF-8, which the JSON file
++			// cannot carry: its Go quoted form (CW-IR, CBOR's bytes).
++			s, err := strconv.Unquote(x.V)
++			if err != nil || !ergoIsString(t) {
++				c.errorf(x.Pos, "ergoir: quoted constant %s of type %v", x.V, t)
++				return nil, nil
++			}
++			val = s
++		}
++		v := ergoConstant(t, val)
 +		if v == nil {
 +			c.errorf(x.Pos, "ergoir: constant %q of type %v", x.V, t)
 +			return nil, nil
@@ -1000,8 +1015,22 @@ index 0000000..4798b5a
 +		if xs == nil || i == nil {
 +			return nil, nil
 +		}
++		if m, ok := types2.CoreType(xt).(*types2.Map); ok {
++			// A Map's value by its key, read only (CW-IR: a codec
++			// writer reads each entry by a key of WireKeys).
++			if !types2.Identical(it, m.Key()) {
++				c.errorf(x.Pos, "ergoir: index of %v by %v", xt, it)
++				return nil, nil
++			}
++			e := &syntax.IndexExpr{X: xs, Index: i}
++			e.SetPos(pos)
++			ergoValue(e, m.Elem(), nil)
++			return e, m.Elem()
++		}
++		// Go indexes by a value of any integer type (red #31: a string
++		// by a byte).
 +		elem := ergoIndexElem(xt) // ergoir_f7.go
-+		if elem == nil || !types2.Identical(it, types2.Typ[types2.Int]) {
++		if elem == nil || !ergoIsInteger(it) {
 +			c.errorf(x.Pos, "ergoir: index of %v by %v", xt, it)
 +			return nil, nil
 +		}
@@ -2253,7 +2282,7 @@ index 0000000..c4434f6
 +}
 diff --git a/src/cmd/compile/internal/ergoir/ergoir_slice.go b/src/cmd/compile/internal/ergoir/ergoir_slice.go
 new file mode 100644
-index 0000000..4743a17
+index 0000000..f90510c
 --- /dev/null
 +++ b/src/cmd/compile/internal/ergoir/ergoir_slice.go
 @@ -0,0 +1,58 @@
@@ -2305,7 +2334,7 @@ index 0000000..4743a17
 +		if v == nil {
 +			return nil, nil
 +		}
-+		if !types2.Identical(vt, types2.Typ[types2.Int]) {
++		if !ergoIsInteger(vt) { // any integer type, as an index (red #31)
 +			c.errorf(a.Pos, "ergoir: slice index of type %v", vt)
 +			return nil, nil
 +		}
@@ -3432,10 +3461,10 @@ index 0000000..9868cc4
 +}
 diff --git a/src/cmd/compile/internal/ergoir/ergoir_text_shape.go b/src/cmd/compile/internal/ergoir/ergoir_text_shape.go
 new file mode 100644
-index 0000000..9efef14
+index 0000000..0f3af44
 --- /dev/null
 +++ b/src/cmd/compile/internal/ergoir/ergoir_text_shape.go
-@@ -0,0 +1,516 @@
+@@ -0,0 +1,522 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -3535,9 +3564,15 @@ index 0000000..9efef14
 +// and results dropped: they are not part of a type's identity (the Go
 +// spec), and the IR's function types name none where the text's
 +// function literal names its parameters, or the writer names a result
-+// #rv1 where Go's instance leaves it unnamed (IRFIX-TEXT).
++// #rv1 where Go's instance leaves it unnamed (IRFIX-TEXT). It is also t
++// without aliases, at any depth, and with each basic type by its kind:
++// an alias is its type (the Go spec), so the IR's *T and the text's
++// alias of it (an import an IR body names), or []uint8 and []byte, are
++// one type and shape alike (TEXT-SHAPE).
 +func ergoShapeUnnamed(t types2.Type) types2.Type {
-+	switch t := t.(type) {
++	switch t := types2.Unalias(t).(type) {
++	case *types2.Basic:
++		return types2.Typ[t.Kind()]
 +	case *types2.Tuple:
 +		if t == nil {
 +			return t
@@ -3954,10 +3989,10 @@ index 0000000..9efef14
 +}
 diff --git a/src/cmd/compile/internal/ergoir/ergoir_tuple.go b/src/cmd/compile/internal/ergoir/ergoir_tuple.go
 new file mode 100644
-index 0000000..882ee23
+index 0000000..4d8201c
 --- /dev/null
 +++ b/src/cmd/compile/internal/ergoir/ergoir_tuple.go
-@@ -0,0 +1,111 @@
+@@ -0,0 +1,117 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -3966,9 +4001,10 @@ index 0000000..882ee23
 +//
 +// An Ergo tuple is an unnamed struct, spelled as Go spells it,
 +// "struct{F0 T0; F1 T1}": "lit" builds one and "field" reads one, as for
-+// a named record. "tdef" binds the results of a call of a package
-+// function with several results to locals, in order: l0, l1, … := f(…);
-+// a local of -1 is Go's blank.
++// a named record. "tdef" binds the results of a call with several
++// results (of a function of a package or of this one, a Go method or a
++// function value) to locals, in order: l0, l1, … := f(…); a local of -1
++// is Go's blank.
 +
 +package ergoir
 +
@@ -4024,16 +4060,21 @@ index 0000000..882ee23
 +	return types2.NewStruct(fields, nil)
 +}
 +
++// ergoTdefCall are the call kinds a tdef binds.
++var ergoTdefCall = map[string]bool{"pcall": true, "call": true, "mcall": true, "vcall": true}
++
 +// tupleStmt decodes a "tdef"; ok is false for any other kind.
 +func (c *ergoChecker) tupleStmt(s *ergoStmt) (st syntax.Stmt, ok bool) {
 +	if s.K != "tdef" {
 +		return nil, false
 +	}
-+	if s.X == nil || s.X.K != "pcall" || len(s.Ls) < 2 {
-+		c.errorf(s.Pos, "ergoir: tdef of a value that is not a package call")
++	if s.X == nil || !ergoTdefCall[s.X.K] || len(s.Ls) < 2 {
++		c.errorf(s.Pos, "ergoir: tdef of a value that is not a call")
 +		return nil, true
 +	}
++	c.tdef = s.X
 +	x, t := c.expr(s.X)
++	c.tdef = nil
 +	if x == nil {
 +		return nil, true
 +	}

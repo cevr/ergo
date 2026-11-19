@@ -67,9 +67,37 @@ type entry struct {
 	prev, next *entry
 	action     func()
 	own        func()
+	// exit is the exit action this entry is part of (OnExit), nil for
+	// any other entry.
+	exit *exitAction
+	// self is the release of a value that holds this entry itself (a
+	// Task's first owner; selfOwned), in place of own: no closure (PARK2).
+	self selfOwned
 	// taken is the fields of an owned record taken in place (TakeField):
 	// its generated release skips them (#197 L8 B2; R39, Gap 38).
 	taken uint64
+}
+
+// owned says the entry is an owned value's release, not an exit action.
+func (e *entry) owned() bool { return e.own != nil || e.self != nil }
+
+// release runs the owned value's release.
+func (e *entry) release() {
+	if e.self != nil {
+		e.self.releaseOwned()
+		return
+	}
+	e.own()
+}
+
+// selfOwned is an owned value that holds the entry of its first owner, so
+// Owning makes neither an entry nor a closure for it (PARK2): *Task.
+type selfOwned interface {
+	// ownedEntry is the value's own entry, bound to rel (a func of the
+	// value's type), or nil when it has had an owner before or rel is
+	// not its release type; then Owning makes an entry as for any value.
+	ownedEntry(rel any) *entry
+	releaseOwned()
 }
 
 // NewScope is the frame scope of a frame that runs on task t.
@@ -285,8 +313,10 @@ func (s *Scope) release() {
 	for s.last != nil {
 		x := s.last
 		s.remove(x)
-		if x.own != nil {
+		if x.owned() {
 			s.runOwn(x) // a checked Close, which masks itself, or OwnErr's release
+		} else if x.exit != nil {
+			x.exit.run(s) // an exit action, through release
 		} else {
 			x.action() // a release of its own, through release
 		}
@@ -316,33 +346,51 @@ func OnExit(s *Scope, body func()) {
 	if s.ended {
 		panic("scope.OnExit: the frame that would run this exit action has returned")
 	}
+	a := &exitAction{body: body}
+	a.entry.exit = a
+	s.push(&a.entry)
+}
+
+// exitAction is one exit action of a frame: its entry in the frame's
+// list, the block, and the frame the block runs as, in one allocation per
+// registration. Before ONEXIT-COST the entry, a closure over the block
+// and the frame, and the block's frame were three, and the frame's own
+// scope escaped through the closure (std cache: 5 allocations per miss).
+type exitAction struct {
+	entry entry
+	body  func()
+	frame Scope
+}
+
+// run runs the exit action at the end of s, the frame it was registered
+// on (Scope.release).
+func (a *exitAction) run(s *Scope) {
 	t := s.s.Task()
-	s.push(&entry{action: func() {
-		action := &Scope{s: rt.NewScope(t)}
-		prev := s.action
-		s.action = action
-		// The route to the action's frame stays through the block and
-		// through the frame's own release, where nested exit actions run.
-		defer func() { s.action = prev }()
-		// The block and its frame's release are one release of s, which
-		// release reports on a traced tree: the block's frame ends
-		// inside it, so its nested releases report before its own release
-		// event. A panic of the block is recorded by rt as a release defect
-		// after the release-local unwind and before the block's frame ends
-		// with that exit's carried part (after), so the panic event comes
-		// before the nested releases it causes.
-		var nested error
-		release(t, &s.exits, func() {
-			body()
-			nested = action.end(nil)
-		}, func(carried error) error {
-			if action.ended {
-				return carried // the frame's end itself panicked
-			}
-			return action.end(carried)
-		})
-		s.exits.Add(nested)
-	}})
+	action := &a.frame // zero: the action runs once
+	action.s.Begin(t)
+	prev := s.action
+	s.action = action
+	// The route to the action's frame stays through the block and
+	// through the frame's own release, where nested exit actions run.
+	defer func() { s.action = prev }()
+	// The block and its frame's release are one release of s, which
+	// release reports on a traced tree: the block's frame ends
+	// inside it, so its nested releases report before its own release
+	// event. A panic of the block is recorded by rt as a release defect
+	// after the release-local unwind and before the block's frame ends
+	// with that exit's carried part (after), so the panic event comes
+	// before the nested releases it causes.
+	var nested error
+	release(t, &s.exits, func() {
+		a.body()
+		nested = action.end(nil)
+	}, func(carried error) error {
+		if action.ended {
+			return carried // the frame's end itself panicked
+		}
+		return action.end(carried)
+	})
+	s.exits.Add(nested)
 }
 
 // Task is a started task, Ergo's Task[T, E]. Its methods are the prelude's
@@ -353,7 +401,11 @@ func OnExit(s *Scope, body func()) {
 // a return, into a field, a container or a queue, and released by Close at
 // its owner's end when no Wait took it.
 type Task[T any] struct {
-	h    *rt.Handle[T]
+	// h is the task's handle, held in the Task (rt.Start), so the Task and
+	// its handle are one allocation (PARK1).
+	h rt.Handle[T]
+	// body is the block the task runs, until it starts (taskBody.Run).
+	body func(*rt.Task) (T, error)
 	task *rt.Task // the task that started it
 	used bool     // Wait, Stop or Close ran
 	// out is the value the body returned, kept past rt's stop-wins, which
@@ -364,7 +416,22 @@ type Task[T any] struct {
 	// follows it.
 	out   T
 	ended bool
+	// ent is the entry of the Task's first owner (selfOwned), released
+	// by rel; a later owner makes an entry of its own (PARK2).
+	ent entry
+	rel func(*Task[T])
 }
+
+func (t *Task[T]) ownedEntry(rel any) *entry {
+	f, ok := rel.(func(*Task[T]))
+	if t == nil || !ok || t.ent.self != nil {
+		return nil
+	}
+	t.ent.self, t.rel = t, f
+	return &t.ent
+}
+
+func (t *Task[T]) releaseOwned() { t.rel(t) }
 
 // Site is the Ergo identity of a call: the calling function, the called
 // declaration and the call's source position, such as "main calls task.Go
@@ -392,18 +459,66 @@ func Go[T any](s *Scope, span Site, body func(*rt.Task) (T, error)) *Task[T] {
 	if s.ended {
 		panic("task.Go: the frame that would own this task has returned (law R9)")
 	}
-	// rt registers the handle on the scope it is given. That scope is a
-	// throwaway: the Task's owner releases it through its own entry.
-	holder := rt.NewScope(s.s.Task())
-	t := &Task[T]{task: s.s.Task()}
-	t.h = rt.Go(&holder, string(span), func(ct *rt.Task) (T, error) {
-		v, err := guarded(ct, body)
-		if err == nil {
-			t.out, t.ended = v, true
-		}
-		return v, err
-	})
+	// The Task's owner releases it through its own entry, so rt registers
+	// the handle on no scope (rt.Start), and the Task itself is the body,
+	// so no closure carries it.
+	t := &Task[T]{task: s.s.Task(), body: body}
+	rt.Start(&t.h, t.task, string(span), (*taskBody[T])(t))
 	return t
+}
+
+// taskBody is a Task as the body rt runs: the block, under the defect
+// guard, keeping the value it returns past stop-wins (out, ended).
+type taskBody[T any] Task[T]
+
+func (b *taskBody[T]) Run(ct *rt.Task) (T, error) {
+	body := b.body
+	b.body = nil // the block runs once; the Task keeps nothing it captured
+	v, err := guarded(ct, body)
+	if err == nil {
+		b.out, b.ended = v, true
+	}
+	return v, err
+}
+
+// GoWith is Go for a block whose captures the lowering gathers in c: body
+// captures nothing and reads them through its second argument, and the
+// Task, its handle and c are one allocation, so a spawn allocates the
+// Task and rt's goroutine start, what Go's own go statement and channel
+// allocate (GP-SPAWN2). The block's semantics are Go's; c is zeroed when
+// the block returns, so the Task keeps nothing it captured. A lowering
+// helper: no Ergo declaration binds it.
+//
+//ergo:wait none
+func GoWith[T, C any](s *Scope, span Site, c C, body func(*rt.Task, *C) (T, error)) *Task[T] {
+	s = s.current()
+	if s.ended {
+		panic("task.Go: the frame that would own this task has returned (law R9)")
+	}
+	x := &taskWith[T, C]{c: c, fn: body}
+	x.t.task = s.s.Task()
+	rt.Start(&x.t.h, x.t.task, string(span), x)
+	return &x.t
+}
+
+// taskWith is GoWith's allocation: the Task, the block's captures and the
+// block.
+type taskWith[T, C any] struct {
+	t  Task[T]
+	c  C
+	fn func(*rt.Task, *C) (T, error)
+}
+
+func (x *taskWith[T, C]) Run(ct *rt.Task) (T, error) {
+	fn := x.fn
+	x.fn = nil
+	v, err := guarded(ct, func(ct *rt.Task) (T, error) { return fn(ct, &x.c) })
+	var zero C
+	x.c = zero
+	if err == nil {
+		x.t.out, x.t.ended = v, true
+	}
+	return v, err
 }
 
 // Wait waits for the task to end and consumes it. It returns the task's
@@ -471,6 +586,16 @@ func (t *Task[T]) Close(ct *rt.Task) {
 		}
 	})
 }
+
+// ReleaseTask is t's release in its first owner's list: Close on the task
+// that started it, which is the owner's (the frame scope task.Go takes is
+// the scope that registers the Task), so the IR's release literal of a
+// Task captures nothing and Go makes it no closure (GP-SPAWN). A lowering
+// helper, as StringAt is: no Ergo declaration binds it. It waits as Close
+// does.
+//
+//ergo:wait none
+func ReleaseTask[T any](t *Task[T]) { t.Close(t.task) }
 
 // Drain is the rest of the release of a Task whose value holds a resource
 // (#197 L8 B3t, B4; Q5, Gap 47, resources R13): after Close, it gives the
@@ -809,6 +934,12 @@ func (s *Scope) Owner() *Owned { return &Owned{s: s} }
 //
 //ergo:wait none
 func Owning[T any](h *Owned, v T, rel func(T)) T {
+	if so, ok := any(v).(selfOwned); ok {
+		if e := so.ownedEntry(rel); e != nil {
+			h.s, h.e = h.s.add(e), e
+			return v
+		}
+	}
 	o := h.s.own(func() { rel(v) })
 	h.s, h.e = o.s, o.e
 	return v
@@ -825,6 +956,29 @@ func OwningParts[T any](h *Owned, v T, rel func(T, uint64)) T {
 	e = o.e
 	h.s, h.e = o.s, o.e
 	return v
+}
+
+// OwningAt makes h's entry, just registered, release the value at p when
+// it runs, not the value it was registered with: an owned local that the
+// code writes in place, through a *T function or a field, is released
+// with its writes (EXH1; resources R17). The registration keeps the step
+// that receives the value (R8); this only moves where the release reads.
+//
+//ergo:wait none
+func OwningAt[T any](h *Owned, p *T, rel func(T)) {
+	if h != nil && h.e != nil {
+		h.e.own = func() { rel(*p) }
+	}
+}
+
+// OwningPartsAt is OwningAt for a generated release (OwningParts).
+//
+//ergo:wait none
+func OwningPartsAt[T any](h *Owned, p *T, rel func(T, uint64)) {
+	if h != nil && h.e != nil {
+		e := h.e
+		e.own = func() { rel(*p, e.taken) }
+	}
 }
 
 // TakeField marks field k of h's value taken in place: its owner's
@@ -881,13 +1035,19 @@ func (d *Drop) End() {
 // own adds a release entry to s, or to the frame of the exit action that
 // code at s runs now.
 func (s *Scope) own(rel func()) *Owned {
+	e := &entry{own: rel}
+	return &Owned{s: s.add(e), e: e}
+}
+
+// add pushes the release entry e on s, or on the frame of the exit action
+// that code at s runs now, and returns that frame.
+func (s *Scope) add(e *entry) *Scope {
 	s = s.current()
 	if s.ended {
 		panic("ownership: the frame that would own this value has returned")
 	}
-	e := &entry{own: rel}
 	s.push(e)
-	return &Owned{s: s, e: e}
+	return s
 }
 
 // OwnErr registers a release that reports a failure, the Close() error of
@@ -982,7 +1142,7 @@ func (h *Owned) Release() {
 	}
 	e := h.e
 	h.drop()
-	e.own()
+	e.release()
 }
 
 // ReleaseLatestFirst releases the values of hs at a scope's end, last
@@ -1029,7 +1189,7 @@ func (s *Scope) runOwn(e *entry) {
 			s.exits.Add(capture(t, p))
 		}
 	}()
-	e.own()
+	e.release()
 }
 
 // settleKept ends the values the frame returned (Returned): on a failed

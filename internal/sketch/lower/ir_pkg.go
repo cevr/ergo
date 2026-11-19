@@ -116,8 +116,8 @@ func (b *irBuilder) namesTypeParam(s string) bool {
 			i++
 			continue
 		}
-		for _, name := range b.fc.params {
-			if s[i:j] == name {
+		for tp, name := range b.fc.params {
+			if s[i:j] == name && b.rwBound[tp] == nil { // a law's type parameter at a site is a Go type (ir_fusion.go)
 				return true
 			}
 		}
@@ -305,9 +305,11 @@ func (b *irBuilder) mapLit(x *syntax.CompositeLit) []*irExpr {
 
 // admitOps admits a value of a program's operation type: the Go interface
 // the lowering declares for it (decls.go, kindOps), whose methods take the
-// running task first; a std operation type (sync.Ref, queue.Queue) is its
-// runtime type, a pointer to a runtime/v1 struct (runtimeType), whose
-// operations are its methods (stdOpCall).
+// running task first; an operation type whose declaration binds a
+// runtime/v1 Go type (`extern go …/runtime/v1.Ref type Ref[T]`: std's
+// sync.Ref, or a trusted module's copy) is that type, a pointer to a
+// runtime/v1 struct (runtimeType), whose operations are its methods
+// (boundOpCall).
 func (b *irBuilder) admitOps(t *check.Named) {
 	b.admitArgs(t, 0)
 }
@@ -339,7 +341,7 @@ func (b *irBuilder) opCall(x *syntax.CallExpr, c *check.Call, p irPos) ([]*irStm
 		return b.ownedRefCall(x, c, s, append([]syntax.Expr{c.Recv}, x.Args...), n, p) // ir_refown.go
 	}
 	if b.l.runtimeType(n, x) != "" {
-		return b.stdOpCall(x, c, n, p)
+		return b.boundOpCall(x, c, n, p)
 	}
 	pre, vals := b.operands(append([]syntax.Expr{c.Recv}, x.Args...))
 	env := &irExpr{K: "local", Pos: p, I: b.env}
@@ -561,6 +563,7 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 	}
 	hidden := b.hidden(body, x, c, p)
 	pre, args := b.operands(x.Args)
+	mark := b.next // the block's locals and its adapter's are numbered from here (spawnWith)
 	if x.Trailing != nil {
 		args = append(args, b.closureLit(nil, x)) // the block, the last operand
 	}
@@ -593,6 +596,9 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 		pkg = runtimeImport
 	}
 	call := &irExpr{K: "pcall", Pos: p, T: pkg, Name: name, V: targs, Args: append(hidden, args...)}
+	if name == "Go" && pkg == runtimeImport && x.Trailing != nil && targs != "" {
+		call = b.spawnWith(call, targs, mark, p) // ir_spawn.go: task.Go's block, its captures in the Task (GP-SPAWN2)
+	}
 	if isExit {
 		b.noteExit(call, x) // ir_exits.go: the defer form, if the frame keeps it
 	}
@@ -722,11 +728,15 @@ func (b *irBuilder) hidden(body v1.Body, x *syntax.CallExpr, c *check.Call, p ir
 	return out
 }
 
-// stdOpCall is the call x of the operation c.Op on a value of a std
-// operation type n (sync.Ref, queue.Queue): the runtime/v1 method of
-// the value's Go type, its hidden arguments first, as the emitter's opCall
-// writes it through runtimeCall, when the method needs no adapter.
-func (b *irBuilder) stdOpCall(x *syntax.CallExpr, c *check.Call, n *check.Named, p irPos) ([]*irStmt, *irExpr, bool) {
+// boundOpCall is the call x of the operation c.Op on a value of an
+// operation type n whose declaration binds a runtime/v1 Go type: the
+// method of that Go type, its hidden arguments first, as the emitter's
+// opCall writes it through runtimeCall, when the method needs no adapter.
+// It reads the declaration and the body contract (runtimeBody, keyed by
+// the type's and the operation's names as check.OpBodyOf is), never std
+// membership: a trusted module's copy of std's type gets the same call
+// (TestStdOpCallCopyAgreesOnIR, internal/sketch/std).
+func (b *irBuilder) boundOpCall(x *syntax.CallExpr, c *check.Call, n *check.Named, p irPos) ([]*irStmt, *irExpr, bool) {
 	name := n.Obj.Name + "." + c.Op.Name
 	if _, bound := runtimeBindings()[name]; !bound {
 		irNo("std call with no runtime binding")

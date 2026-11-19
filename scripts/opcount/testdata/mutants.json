@@ -23,8 +23,8 @@
       "name": "opcount-overlay-dropped",
       "origin": "wf10 OPCOUNT-IR",
       "file": "scripts/opcount/main.go",
-      "from": "\ttc.GOFLAGS = \"'-overlay=\" + overlay + \"' -ldflags=-checklinkname=0\"\n",
-      "to": "\ttc.GOFLAGS = \"-ldflags=-checklinkname=0\"\n",
+      "from": "\ttc.GOFLAGS = strings.TrimSpace(os.Getenv(\"GOFLAGS\") + \" '-overlay=\" + overlay + \"' -ldflags=-checklinkname=0\")\n",
+      "to": "\ttc.GOFLAGS = strings.TrimSpace(os.Getenv(\"GOFLAGS\") + \" -ldflags=-checklinkname=0\")\n",
       "rule": "The measured binary carries the exit hook, added by the overlay.",
       "killers": ["scripts/opcount:TestModuleBuildReadsEachPackagesIR"]
     },

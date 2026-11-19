@@ -67,7 +67,7 @@ func Inspect(n Node, f func(Node) bool) {
 	case *TestDecl:
 		walk(n.Name, n.Params, n.Body)
 	case *LawDecl:
-		walk(n.Name, n.Params, n.Body)
+		walk(n.Name, n.TypeParams, n.Params, n.Body)
 		if n.Reach != nil {
 			idents(n.Reach.Targets)
 			if n.Reach.Pred != nil {
@@ -76,6 +76,7 @@ func Inspect(n Node, f func(Node) bool) {
 		}
 	case *AssertStmt:
 		walk(n.X)
+	case *SkipStmt:
 	case *VariantSpec:
 		walk(n.Name, n.TypeArgs, n.Fields)
 	case *AsPattern:

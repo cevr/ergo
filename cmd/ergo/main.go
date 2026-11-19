@@ -155,6 +155,10 @@ type fileOptions struct {
 	// debug is build's, run's and test's --debug: the link keeps the symbol
 	// table and DWARF, which it leaves out by default (compile-speed CS7).
 	debug bool
+	// goTrace is build's, run's and test's --go-trace: the program links
+	// runtime/obs (the ergogotrace tag), and ERGO_GO_TRACE then shows its
+	// task tree to Go's tracer and pprof (RT-OBS).
+	goTrace bool
 	// explore is test's --explore: the tests run under the controlled
 	// scheduler (runtime.md, Explored schedules). search is its mode
 	// (dfs, pct, random, or replay with --schedule) and bounds; with no
@@ -182,22 +186,42 @@ type fileOptions struct {
 	// uncached is test's --count 1: the run neither replays nor keeps a
 	// cached result (testcache.go), as go test -count=1.
 	uncached bool
-	file     string
+	// affected is test's --affected [BASE], --list and --why (affected.go).
+	affected affectedOptions
+	// trace is test's --trace: after the run, the steps of every scene
+	// script played (printSteps). A traced run is never cached.
+	trace bool
+	// native is test's --native: every obligation runs in the native test binary
+	// (tier 2), never on the check-time evaluator (TESTSPEED FT1). The gate
+	// and CI use it.
+	native bool
+	file   string
+	// more are test's targets after the first (`ergo test A B C/...`),
+	// each a file, a folder or a pattern; none for every other command.
+	more []string
 	// args are run's program arguments: every word after the source, as
 	// go run passes them, less one "--" right after the source.
 	args []string
 	// platform is the GOOS/GOARCH the command checks for (platformOf).
 	platform gobind.Platform
+	// phone is the phone platform a build is for (gobind.Phones), whose
+	// bindings are platform's; zero for any other platform. A phone build
+	// writes the module and stops before the link (buildPhone).
+	phone gobind.Platform
 	// goText is build's -go-text DIR: build through IR and write the Go
 	// text of what was compiled into DIR (buildGoText).
 	goText string
-	// report is build's -report KIND: "copies" prints the form of each
-	// Append and Concat site (in place, one extender or copy, and why) on
-	// stderr (OWN1); empty prints none.
+	// report is build's -report KIND: "copies" prints the copy report on
+	// stderr (OWN1, REUSE RU0; the sites of ergo inspect copies); empty
+	// prints none.
 	report string
 	// noViews is build's -views=off: no Go call takes a view of a
 	// string's bytes (LAWFFI LF2b; lower.Unit.NoViews).
 	noViews bool
+	// noFallback is build's -fallback=off, or ERGO_FALLBACK=off: a body
+	// the IR builder cannot lower is an error naming it and its reason,
+	// not a text body (FALLBACK-OFF; lower.Unit.NoFallback).
+	noFallback bool
 	// rewrites is build's -rewrites=on|proved|off|canary[=N] (lower.Unit.Rewrites):
 	// which rewrites over functions the run build applies; empty is on.
 	rewrites string
@@ -251,6 +275,13 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 		}
 		if value, ok := strings.CutPrefix(args[i], "--run="); ok {
 			opts.run, ran = value, true
+			continue
+		}
+		if value, ok := strings.CutPrefix(args[i], "--affected="); ok {
+			opts.affected.on, opts.affected.base = true, value
+			if value == "" || strings.HasPrefix(value, "-") {
+				return opts, fmt.Errorf("--affected= takes a commit, not %q", value)
+			}
 			continue
 		}
 		if value, ok := strings.CutPrefix(args[i], "--count="); ok {
@@ -329,6 +360,18 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 				opts.seed, seeded = args[i+1], true
 			}
 			i++
+		case "--affected":
+			// BASE is the next word once the source is given and the word
+			// is no option: `ergo test ./... --affected main`.
+			opts.affected.on = true
+			if len(positional) > 0 && i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+				opts.affected.base = args[i+1]
+				i++
+			}
+		case "--list":
+			opts.affected.list = true
+		case "--why":
+			opts.affected.why = true
 		case "--strict":
 			opts.strict = true
 		case "--json":
@@ -339,10 +382,16 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 			opts.locked = true
 		case "-views=off":
 			opts.noViews = true
+		case "-fallback=off":
+			opts.noFallback = true
 		case "--emitted":
 			opts.emitted = true
 		case "--debug":
 			opts.debug = true
+		case "--native":
+			opts.native = true
+		case "--go-trace":
+			opts.goTrace = true
 		case "--explore":
 			opts.explore = true
 			if i+1 < len(args) && slices.Contains(exploreModes, args[i+1]) {
@@ -364,8 +413,8 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 		return opts, fmt.Errorf("source file required")
 	case opts.strict && command != "diagnostics" && command != "lint":
 		return opts, fmt.Errorf("--strict is only supported by diagnostics and lint")
-	case opts.json && command != "diagnostics" && command != "lint" && command != "run" && command != "test":
-		return opts, fmt.Errorf("--json is only supported by diagnostics, lint, run and test")
+	case opts.json && command != "diagnostics" && command != "lint" && command != "run" && command != "test" && command != "inspect machine":
+		return opts, fmt.Errorf("--json is only supported by diagnostics, lint, run, test and inspect machine")
 	case opts.output != "" && command != "build":
 		return opts, fmt.Errorf("-o is only supported by build")
 	case platformed && command != "build":
@@ -374,6 +423,8 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 		return opts, fmt.Errorf("-go-text is only supported by build")
 	case opts.noViews && command != "build":
 		return opts, fmt.Errorf("-views=off is only supported by build")
+	case opts.noFallback && command != "build":
+		return opts, fmt.Errorf("-fallback=off is only supported by build")
 	case opts.report != "" && command != "build":
 		return opts, fmt.Errorf("-report is only supported by build")
 	case opts.rewrites != "" && command != "build":
@@ -388,6 +439,10 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 		return opts, fmt.Errorf("--emitted is only supported by build and test")
 	case opts.debug && command != "build" && command != "run" && command != "test":
 		return opts, fmt.Errorf("--debug is only supported by build, run and test")
+	case opts.native && command != "test":
+		return opts, fmt.Errorf("--native is only supported by test")
+	case opts.goTrace && command != "build" && command != "run" && command != "test":
+		return opts, fmt.Errorf("--go-trace is only supported by build, run and test")
 	case opts.receipt != "" && command != "test":
 		return opts, fmt.Errorf("--receipt is only supported by test")
 	case (opts.explore || searched) && command != "test":
@@ -418,14 +473,31 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 		return opts, fmt.Errorf("--eval-bytes takes a positive decimal number of bytes, not %q", opts.evalBytes)
 	case selected && command != "test":
 		return opts, fmt.Errorf("--law and --skip-law are only supported by test")
+	case opts.affected.on && command != "test":
+		return opts, fmt.Errorf("--affected is only supported by test")
+	case (opts.affected.list || opts.affected.why) && !opts.affected.on:
+		return opts, fmt.Errorf("--list and --why need --affected")
+	case opts.affected.on && (selected || ran || opts.receipt != "" || opts.emitted || opts.explore || searched || opts.work):
+		return opts, fmt.Errorf("--affected selects the obligations itself: it takes no --law, --skip-law, --run, --receipt, --emitted, --explore or -work")
 	case selected && (!validLaw(opts.law) || !validLaw(opts.skipLaw) || opts.law+opts.skipLaw == ""):
 		return opts, fmt.Errorf("--law and --skip-law take a law's name, as a report shows it (Design.Safe)")
-	case len(positional) != 1:
+	case len(positional) > 1 && command != "test" && command != "check", len(positional) == 0 && command != "test":
 		return opts, fmt.Errorf("incorrect arguments for %s", command)
 	}
+	if len(positional) > 1 {
+		if err := severalTargets(command, opts, positional); err != nil {
+			return opts, err
+		}
+		opts.more = positional[1:]
+	}
 	var err error
-	if opts.platform, err = platformOf(platform, platformed, os.Getenv("GOOS"), os.Getenv("GOARCH")); err != nil {
+	if opts.platform, opts.phone, err = targetPlatforms(platform, platformed, os.Getenv("GOOS"), os.Getenv("GOARCH")); err != nil {
 		return opts, err
+	}
+	if opts.phone != (gobind.Platform{}) && (command == "run" || command == "test") {
+		// A phone program is a library its packager links; nothing here
+		// can run it.
+		return opts, fmt.Errorf("%s does not run a program for %s, a phone platform; ergo build writes its module", command, opts.phone)
 	}
 	opts.file = positional[0]
 	opts.uncached = counted
@@ -578,11 +650,11 @@ func checkCommand(args []string) error {
 	if err != nil {
 		return err
 	}
+	if len(opts.more) > 0 {
+		return manyCheckCommand(opts)
+	}
 	if recursivePattern(opts.file) {
-		if shared, err := sharedCheckCommand(opts); shared {
-			return err
-		}
-		return recursiveCommand(opts, nil, checkPackage)
+		return recursiveCheckCommand(opts)
 	}
 	// A daemon of this release serving the working directory answers a
 	// warm check with no work here (ergo dev).
@@ -593,6 +665,43 @@ func checkCommand(args []string) error {
 		}
 	}
 	return checkPackage(opts)
+}
+
+// recursiveCheckCommand is `ergo check DIR/...`: one shared load of the
+// module when it can, else each package alone.
+func recursiveCheckCommand(opts fileOptions) error {
+	if shared, err := sharedCheckCommand(opts); shared {
+		return err
+	}
+	return recursiveCommand(opts, nil, checkPackage)
+}
+
+// manyCheckCommand is `ergo check A B ...` (PKG G9): each target in the
+// order given, a file or folder as `ergo check A` prints it, a DIR/...
+// pattern as `ergo check DIR/...` does. A target that does not check does
+// not stop the later ones; a defect, a signal or a usage error does. The
+// run exits 1 when a target failed. No ergo dev daemon answers it.
+func manyCheckCommand(opts fileOptions) error {
+	failed := false
+	for _, target := range append([]string{opts.file}, opts.more...) {
+		one := opts
+		one.file, one.more = target, nil
+		var err error
+		if recursivePattern(target) {
+			err = recursiveCheckCommand(one)
+		} else {
+			err = checkPackage(one)
+		}
+		stop, fail := packageOutcome(target, err)
+		if stop != nil {
+			return stop
+		}
+		failed = failed || fail
+	}
+	if failed {
+		return exitStatusError{code: 1, handled: true}
+	}
+	return nil
 }
 
 func checkPackage(opts fileOptions) error {
@@ -611,15 +720,34 @@ func checkPackage(opts fileOptions) error {
 // checkLoaded prints the check envelope of a loaded package, evaluated
 // when it checks, and returns check's exit status.
 func checkLoaded(opts fileOptions, l loaded, w *warm) error {
-	id := producer.Current()
-	if err := l.result.Qualify(id); err != nil {
+	out, exit, err := checkEnvelope(opts, l, w.fsys())
+	if err != nil {
 		return err
 	}
+	if _, err := os.Stdout.Write(out); err != nil {
+		return err
+	}
+	if exit == nil && l.result.Checked {
+		w.record(sketchfront.WarmAnswer{Stdout: out})
+	}
+	return exit
+}
+
+// checkEnvelope is the check envelope check prints for a loaded package,
+// one JSON line, evaluated when the package checks, and check's exit
+// status (exit); err is a failure to produce it. test --emitted --json
+// prints the same envelope (emittedjson.go).
+func checkEnvelope(opts fileOptions, l loaded, fsys sketchfront.FS) (out []byte, exit, err error) {
+	id := producer.Current()
+	if err := l.result.Qualify(id); err != nil {
+		return nil, nil, err
+	}
+	var buf bytes.Buffer
 	if !l.result.Checked {
-		if err := printProjectionJSON(l.result.CheckEnvelope()); err != nil {
-			return err
+		if err := json.NewEncoder(&buf).Encode(l.result.CheckEnvelope()); err != nil {
+			return nil, nil, err
 		}
-		return fmt.Errorf("check failed")
+		return buf.Bytes(), fmt.Errorf("check failed"), nil
 	}
 	// Only a source that checks is evaluated (L7): in process, with no Go
 	// build and no child.
@@ -632,31 +760,23 @@ func checkLoaded(opts fileOptions, l loaded, w *warm) error {
 	if compiler, err := build.IdentityOf(id); err == nil {
 		store = lawStoreOf(compiler)
 	}
-	budget.Verdicts = l.analysis.EvalVerdicts(store, budget.Seed, budget.States)
+	budget.Verdicts = l.analysis.EvalVerdicts(store, budget.Seed, budget.States, pinnedToolchain(opts.platform))
 	evaluation, err := l.analysis.Evaluation(budget, opts.file)
 	boundLaws(store)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 	// A rewrite law in scope that its ledger does not license yet gets
 	// advice (LF6c). The ledger is read through the warm recorder, so a
 	// changed ergo.laws changes the warm key.
-	if err := l.analysis.AdviseLicences(&evaluation, w.fsys(), ledgerPath(opts.file)); err != nil {
-		return err
+	if err := l.analysis.AdviseLicences(&evaluation, fsys, ledgerPath(opts.file)); err != nil {
+		return nil, nil, err
 	}
 	l.result.SetEvaluation(evaluation)
-	var out bytes.Buffer
-	if err := json.NewEncoder(&out).Encode(l.result.CheckEnvelope()); err != nil {
-		return err
+	if err := json.NewEncoder(&buf).Encode(l.result.CheckEnvelope()); err != nil {
+		return nil, nil, err
 	}
-	if _, err := os.Stdout.Write(out.Bytes()); err != nil {
-		return err
-	}
-	exit := evaluationExit(evaluation)
-	if exit == nil {
-		w.record(sketchfront.WarmAnswer{Stdout: out.Bytes()})
-	}
-	return exit
+	return buf.Bytes(), evaluationExit(evaluation), nil
 }
 
 // evalBudget is check's evaluation budget: the editor default

@@ -1,3 +1,4 @@
+import json
 import slices
 import strings
 
@@ -25,6 +26,29 @@ func Success[T](route Route[T], body string) Response {
 		return Response{Status: route.Status, Header: []Field{}, Body: ""}
 	}
 	Response{Status: route.Status, Header: []Field{Field{Name: "Content-Type", Value: "application/json"}}, Body: body}
+}
+
+// SuccessJSON answers as Success(route, json.Encode(c, v)) does, with
+// v's text written straight to the connection (SendBytes), never made a
+// string: a 204 or a 205 has no body, as Success has none.
+func SuccessJSON[T, V wire](route Route[T], c json.Codec[V], v V) Response needs Streaming | wired[V] {
+	if route.Status == 205 || route.Status == 204 { return Success(route, "") }
+	json.EncodeWith(c, v, func(text []byte) Response needs Streaming {
+		SendBytes(route.Status, []Field{Field{Name: "Content-Type", Value: "application/json"}}, text)
+	})
+}
+
+// SuccessJSONIsSuccess: under a Recorder, SuccessJSON answers as Success
+// answers with the value's Encode text, for each success status, 204 and
+// 205 (no body) among them.
+law SuccessJSONIsSuccess(pick int, items []string) {
+	let statuses = []int{200, 201, 202, 204, 205, 299}
+	let status = statuses[((pick%len(statuses))+len(statuses))%len(statuses)]
+	let route = Route{Value: "reply", Method: "GET", Path: "/", Status: status}
+	let c = json.Codec[[]string]{MaxBytes: 0, MaxDepth: 0}
+	let sent = with context { Streaming: NewRecorder() } { SuccessJSON(route, c, items) }
+	let want = Success(route, json.Encode(c, items))
+	sent.Status == want.Status && sent.Body == want.Body && slices.Equal(sent.Header, want.Header)
 }
 
 // SuccessUsesRoute catches a reply that defaults to 200, drops its body, or
