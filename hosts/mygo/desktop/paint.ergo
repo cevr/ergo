@@ -575,10 +575,21 @@ func inkedLines[S, E, D, F](d *Driver[S, E, D, F], text string, x float32, y flo
 			let px = int(under.X) + 1
 			let py = int(under.Y)
 			if opaque && under.W >= 3 && probeShows(clip, px, py) {
-				d.underlines = d.underlines.Append(Probe{Label: l + " underline", X: px, Y: py, Color: color})
+				// The probe's colour is the look's, read apart from what was
+				// drawn, as lookProbes reads a fill's.
+				d.underlines = d.underlines.Append(Probe{Label: l + " underline", X: px, Y: py, Color: inkColor(k)})
 			}
 		}
 	}
+}
+
+// inkColor is the colour a look's ink draws in: its own, or the window's
+// ink when transparent.
+func inkColor(k ui.Ink) uint32 {
+	if k.Color.A != 0 {
+		return rgba(k.Color)
+	}
+	ink
 }
 
 func fill[S, E, D, F](d *Driver[S, E, D, F], b layout.Box, radius float32, color uint32) needs go.Foreign {
