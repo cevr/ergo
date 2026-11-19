@@ -1,4 +1,5 @@
 import fkflow/seed
+import math
 
 func near(a float64, b float64) bool { a-b < 0.000001 && b-a < 0.000001 }
 
@@ -81,7 +82,7 @@ law SlidersKeepTheirSteps(n uint64, hundredths int) {
 	let f = SetScale(SetStrength(New(seed.Of(n)), v), v)
 	let onStep = func(got float64, lo float64, hi float64, step float64) bool {
 		let k = (got - lo) / step
-		got >= lo && got <= hi && near(k, floor(k+0.5)) && (got-clamp(v, lo, hi) <= step/2.0+0.000001) && (clamp(v, lo, hi)-got <= step/2.0+0.000001)
+		got >= lo && got <= hi && near(k, math.Floor(k+0.5)) && (got-clamp(v, lo, hi) <= step/2.0+0.000001) && (clamp(v, lo, hi)-got <= step/2.0+0.000001)
 	}
 	onStep(f.Strength, StrengthMin, StrengthMax, StrengthStep) && onStep(f.Scale, ScaleMin, ScaleMax, ScaleStep)
 }

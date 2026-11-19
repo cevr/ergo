@@ -3,9 +3,7 @@
 // bounce off the canvas's edges.
 
 import fkflow/seed
-
-extern go math.Cos func cos(x float64) float64
-extern go math.Sin func sin(x float64) float64
+import math
 
 // Width and Height are the canvas's size.
 let Width = 600.0
@@ -43,7 +41,7 @@ func Drop(f Field, x float64, y float64) Field {
 	let speed, s2 = seed.Between(s1, speedMin, speedMax)
 	let radius, s3 = seed.Between(s2, radiusMin, radiusMax)
 	let color, s4 = seed.Below(s3, len(Palette))
-	let b = Ball{ID: f.NextID, X: x, Y: y, VX: cos(angle) * speed, VY: sin(angle) * speed, Radius: radius, Color: Palette[color]}
+	let b = Ball{ID: f.NextID, X: x, Y: y, VX: math.Cos(angle) * speed, VY: math.Sin(angle) * speed, Radius: radius, Color: Palette[color]}
 	Field{Balls: f.Balls.Append(b), NextID: f.NextID + 1, Seed: s4}
 }
 
