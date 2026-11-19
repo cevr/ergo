@@ -172,7 +172,7 @@ func firstList[E](f *Frame[E], r arena.Ref[node[E]]) Option[edgeList[E]] {
 			}
 		case _:
 		}
-		match firstList(f, k) {
+		match firstList[E](f, k) {
 		case Some[edgeList[E]] as l:
 			return l
 		case None:
