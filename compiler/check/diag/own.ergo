@@ -39,12 +39,13 @@ func OwnMarks(s store.Store, k expr.Pkg, t expr.Typer) []Diag {
 	let res = resources(s, k, infos, names)
 	let mut out = []Diag{}
 	for c in t.Insts {
-		let caller = k.Fns[c.Fn]
+		// A package let's call (Fn -1) has no type parameters of its own.
+		let (callerOwn, callerParams) = if c.Fn >= 0 { (k.Fns[c.Fn].Own, k.Fns[c.Fn].Params) } else { ([]bool{}, []string{}) }
 		let callee = c.Callee
 		for i, a in c.Args {
 			// A row parameter, and one whose mark the callee does not
 			// say, admits any argument.
-			if i >= len(callee.Rows) || callee.Rows[i] || i >= len(callee.Own) || callee.Own[i] || !holds(s, k, res, caller.Own, a) {
+			if i >= len(callee.Rows) || callee.Rows[i] || i >= len(callee.Own) || callee.Own[i] || !holds(s, k, res, callerOwn, a) {
 				continue
 			}
 			let (f, row) = bind.RowOf(k.Ps, c.Call)
@@ -53,7 +54,7 @@ func OwnMarks(s store.Store, k expr.Pkg, t expr.Typer) []Diag {
 			let (nf, nrow) = bind.RowOf(k.Ps, c.At)
 			let name = textAt(k.Parsed[nf], syntax.NodeAt(k.Parsed[nf].Tree, nrow))
 			let tp = callee.Params[i]
-			let arg = types.Text(s, types.Names{Params: caller.Params, Foreign: k.Foreign, Pkg: "", Deps: k.Ifaces}, a)
+			let arg = types.Text(s, types.Names{Params: callerParams, Foreign: k.Foreign, Pkg: "", Deps: k.Ifaces}, a)
 			let at = syntax.NodePos(p, call)
 			out = out.Append(Diag{File: f, Offset: at, Length: syntax.NodeEnd(p, call) - at, Code: CodeType, Message: "\(name) cannot take \(arg) as its \(tp): \(tp) is not marked own, so it binds plain data only; write [\(tp) own] where \(name) declares it, which holds its body to a resource's rules (types.md, Generics 9)"})
 		}

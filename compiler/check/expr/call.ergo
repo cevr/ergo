@@ -104,11 +104,9 @@ func emptiedFails(s store.Store, t dense.ID[store.TKey], targs []dense.ID[store.
 	false
 }
 
-// resultOf is a call's type from its signature's result: none when it has
-// none.
-func resultOf(s store.Store, r dense.ID[store.TKey]) Option[dense.ID[store.TKey]] {
-	if store.KindOfType(s, r) == store.KTuple && len(store.OperandsOf(s, r)) == 0 { None } else { some(r) }
-}
+// resultOf is a call's type from its signature's result: no value (the
+// empty tuple) when it has none, as the Go checker's NoValue.
+func resultOf(s store.Store, r dense.ID[store.TKey]) Option[dense.ID[store.TKey]] { some(r) }
 
 // args types a call's arguments against params (Unsure past them).
 func args(s mut store.Store, k Pkg, t mut Typer, c syntax.CallExpr, params []dense.ID[store.TKey]) {
@@ -318,8 +316,8 @@ func generic(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], c s
 	let m = if isSome(recv) { 1 } else { 0 }
 	let (params, r) = sigParts(*s, k, f.Sig, n+m)
 	arity(k, t, x, n+m, len(params))
-	let me = k.Fns[t.fn]
-	let base = len(me.Params)
+	let mine = ownParams(k, *t)
+	let base = len(mine)
 	let mut rename = []dense.ID[store.TKey]{}
 	for i in 0..len(f.Params) {
 		rename = rename.Append(store.TParam(s, base+i))
@@ -352,7 +350,7 @@ func generic(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], c s
 			ins = ins.Append(infer.Unknown)
 		}
 	}
-	let env = types.NewEnv(*s, k.Parsed, k.Parsed[t.file], me.Params, k.Kinds, k.Ext, k.Foreign, k.Ifaces)
+	let env = types.NewEnv(*s, k.Parsed, k.Parsed[t.file], mine, k.Kinds, k.Ext, k.Foreign, k.Ifaces)
 	let mut explicit = []dense.ID[store.TKey]{}
 	for w in written {
 		explicit = explicit.Append(types.Resolve(s, env, w))

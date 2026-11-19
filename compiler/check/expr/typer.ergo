@@ -28,7 +28,8 @@ type Exactly { T dense.ID[store.TKey] }
 type Unsure {}
 
 // Entry is one typed expression: its node, its type and the function it
-// is in (whose bracket parameters its type may name).
+// is in (whose bracket parameters its type may name), -1 for a package
+// let's value.
 type Entry { At dense.ID[store.PNode], T dense.ID[store.TKey], Fn int }
 
 // Inst is one inferred call to a generic function: the callee's name
@@ -56,10 +57,15 @@ type Typer {
 	Insts   []Inst,
 	Calls   []CallTo,
 	defs    dense.Col[store.PNode, dense.Opt[store.TKey]],
-	frame   infer.Frame,
-	file    int,
-	fn      int,
-	res     Option[dense.ID[store.TKey]],
+	// lets is the package's lets, typed in use order (letState: 0 not
+	// yet, 1 being typed, 2 typed); letAt maps a let's name row to it.
+	lets     []pkgLet,
+	letState []int,
+	letAt    Map[int, int],
+	frame    infer.Frame,
+	file     int,
+	fn       int,
+	res      Option[dense.ID[store.TKey]],
 	// boolT is bool, interned once per check.
 	boolT dense.ID[store.TKey],
 	steps int,
@@ -148,7 +154,17 @@ func checkAll(s mut store.Store, k Pkg, record bool) Typer {
 		dense.Push(&defs, dense.NoID[store.TKey]())
 	}
 	let entries = if record { rows } else { 0 }
-	let mut t = Typer{Entries: slices.WithCapacity[Entry](entries), Diags: []Diag{}, Insts: slices.WithCapacity[Inst](calls), Calls: []CallTo{}, defs: defs, frame: infer.NewFrame(), boolT: store.TBasic(s, bBool), file: 0, fn: 0, res: None, steps: 0, typed: 0, record: record, reserved: entries + rows + calls}
+	let (lets, letAt) = packageLets(k)
+	let mut states = []int{}
+	for _ in lets {
+		states = states.Append(0)
+	}
+	let mut t = Typer{Entries: slices.WithCapacity[Entry](entries), Diags: []Diag{}, Insts: slices.WithCapacity[Inst](calls), Calls: []CallTo{}, defs: defs, lets: lets, letState: states, letAt: letAt, frame: infer.NewFrame(), boolT: store.TBasic(s, bBool), file: 0, fn: 0, res: None, steps: 0, typed: 0, record: record, reserved: entries + rows + calls}
+	// The package's lets first, each when its value's names are typed
+	// (a let a function or an earlier let uses is typed at that use).
+	for i in 0..len(t.lets) {
+		packageLet(s, k, &t, i)
+	}
 	for i, f in k.Fns {
 		match dense.Unpack(f.Body) {
 		case Some[dense.ID[syntax.Node]] as b:
@@ -219,7 +235,7 @@ func result(s store.Store, k Pkg, t Typer) Option[dense.ID[store.TKey]] { t.res 
 
 // envOf is the resolver's environment at the function in hand.
 func envOf(s store.Store, k Pkg, t Typer) types.Env {
-	types.NewEnv(s, k.Parsed, k.Parsed[t.file], k.Fns[t.fn].Params, k.Kinds, k.Ext, k.Foreign, k.Ifaces)
+	types.NewEnv(s, k.Parsed, k.Parsed[t.file], ownParams(k, t), k.Kinds, k.Ext, k.Foreign, k.Ifaces)
 }
 
 // valid is whether t names no invalid type, and no instance with an
@@ -433,7 +449,18 @@ func stmt(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node]) {
 	let tr = tree(k, t.file)
 	let kd = syntax.KindOf(tr, x)
 	if kd == syntax.KExprStmt {
-		expr(s, k, t, syntax.ExprStmtOf(tr, x).X, Free)
+		let e = syntax.ExprStmtOf(tr, x).X
+		if syntax.KindOf(tr, e) == syntax.KCatchExpr {
+			// A catch statement discards its value, and its arms theirs.
+			t.steps = t.steps + 1
+			match caught(s, k, t, syntax.CatchExprOf(tr, e), Free, true) {
+			case Some[dense.ID[store.TKey]] as r:
+				note(k, t, e, r.Value)
+			case None:
+			}
+		} else {
+			expr(s, k, t, e, Free)
+		}
 	} else if kd == syntax.KDeclStmt {
 		let d = syntax.DeclStmtOf(tr, x)
 		if syntax.KindOf(tr, d.Decl) == syntax.KVarDecl {
@@ -747,6 +774,12 @@ func exprType(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], w 
 	if kd == syntax.KBinaryExpr {
 		return binary(s, k, t, syntax.BinaryExprOf(tr, x), w)
 	}
+	if kd == syntax.KIfStmt || kd == syntax.KSwitchStmt || kd == syntax.KTypeSwitchStmt {
+		return branches(s, k, t, x, w)
+	}
+	if kd == syntax.KCatchExpr {
+		return caught(s, k, t, syntax.CatchExprOf(tr, x), w, false)
+	}
 	match syntax.ViewOf(tr, x) {
 	case syntax.ParenExpr as pe:
 		expr(s, k, t, pe.X, w)
@@ -897,6 +930,12 @@ func ident(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node]) Optio
 		match dense.Unpack(dense.Of(t.defs, d.At)) {
 		case Some[dense.ID[store.TKey]] as ty:
 			return ty
+		case None:
+		}
+		match t.letAt.Get(dense.Index(d.At)) {
+		case Some[int] as l:
+			packageLet(s, k, t, l.Value)
+			return dense.Unpack(dense.Of(t.defs, d.At))
 		case None:
 		}
 		let f = fnOf(k, t, d.At)

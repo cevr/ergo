@@ -26,6 +26,9 @@
 // With -corpus, each package's "O FILE OFFSET LENGTH CODE MESSAGE" lines
 // are compiler/check/diag's own-mark diagnostics (MODES-OWN-CHECK).
 //
+// "L FILE START END TYPE" lines give each package let's name its type
+// (CHECK-VALUE-TYPES), in both forms.
+//
 // It is the Ergo side of S3d's expression agreement
 // (internal/selfhostcheck's TestCompilerExprAgreesWithChecker) and of the
 // own-mark agreement (TestCompilerOwnMarksAgreeWithChecker).
@@ -288,8 +291,42 @@ func write(b mut strings.Builder, u Unit, d Typed, calls bool, prefix string) {
 // the package k; "no value" for none. A function, not a closure over k:
 // a closure would own the package and copy it, its imports with it, per
 // call.
+// A package let's value is of no function (fn -1).
 func typeText(s store.Store, k expr.Pkg, u Unit, none dense.ID[store.TKey], ty dense.ID[store.TKey], fn int) string {
-	if ty == none { "no value" } else { types.Text(s, types.Names{Params: k.Fns[fn].Params, Foreign: k.Foreign, Pkg: u.tab.pkgName, Deps: k.Ifaces}, ty) }
+	if ty == none { "no value" } else { types.Text(s, types.Names{Params: if fn >= 0 { k.Fns[fn].Params } else { []string{} }, Foreign: k.Foreign, Pkg: u.tab.pkgName, Deps: k.Ifaces}, ty) }
+}
+
+// writeLets prints the type of each package let's name the typer gives
+// one, "FILE START END TYPE" after prefix (CHECK-VALUE-TYPES).
+func writeLets(b mut strings.Builder, u Unit, d Typed, prefix string) {
+	let mut s = d.s
+	let none = infer.NoValue(&s)
+	for f in 0..len(u.files) {
+		let p = u.files[f].Parsed
+		if p.Failed {
+			continue
+		}
+		let decls = syntax.FileOf(p.Tree, syntax.Root(p.Tree)).Decls
+		for i in 0..syntax.Len(decls) {
+			let dc = syntax.Item(p.Tree, decls, i)
+			if syntax.KindOf(p.Tree, dc) != syntax.KVarDecl {
+				continue
+			}
+			let spec = syntax.VarDeclOf(p.Tree, dc).Spec
+			if syntax.KindOf(p.Tree, spec) != syntax.KVarSpec {
+				continue
+			}
+			let names = syntax.VarSpecOf(p.Tree, spec).Names
+			for j in 0..syntax.Len(names) {
+				let id = syntax.Item(p.Tree, names, j)
+				match expr.DefType(d.t, bind.PNodeOf(d.k.Ps, f, id)) {
+				case Some[dense.ID[store.TKey]] as ty:
+					b.WriteString("\(prefix)\(u.files[f].Name) \(syntax.NodePos(p, id)) \(syntax.NodeEnd(p, id)) \(typeText(s, d.k, u, none, ty.Value, -1))\n")
+				case None:
+				}
+			}
+		}
+	}
 }
 
 // writeOwn prints the own-mark diagnostics of one typed package, "FILE
@@ -353,6 +390,7 @@ func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 			writeDiags(&b, units[i], typed[i], "D ")
 			writeOwn(&b, units[i], typed[i], "O ")
 			writeFlow(&b, units[i], typed[i], "W ")
+			writeLets(&b, units[i], typed[i], "L ")
 		}
 		io.Stdout.Print(b.String())
 		return
@@ -378,6 +416,7 @@ func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 	write(&b, units[0], typed[0], calls, "")
 	if !calls {
 		writeDiags(&b, units[0], typed[0], "D ")
+		writeLets(&b, units[0], typed[0], "L ")
 	}
 	io.Stdout.Print(b.String())
 }

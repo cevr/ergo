@@ -1,0 +1,87 @@
+// The branch join (the Go checker's join.go, K3; rows.md, Totality 3), for
+// unions with no type parameters: branches of an if or match with no
+// expected type that are variants of one declared union have that
+// union's type. A generic union's instance (Some[int] and None to
+// Option[int]) is not joined here: those branches stay unjoined.
+
+import compiler/check/store
+import dense
+
+// Variants is the variants of t when it is a declared union of the
+// package or of an Ergo import with no type parameters; none for any
+// other type.
+func Variants(s mut store.Store, e Env, t dense.ID[store.TKey]) []dense.ID[store.TKey] {
+	let ms = members(s, e, t)
+	if len(ms) == 1 && ms[0] == t { []dense.ID[store.TKey]{} } else { ms }
+}
+
+// Join is the union the branch types cur and next join to (unionJoin):
+// next when it is a declared union that lists cur; none when either is
+// another declared union; else the one union, declared in the package of
+// cur's record, that lists both.
+func Join(s mut store.Store, e Env, cur dense.ID[store.TKey], next dense.ID[store.TKey]) Option[dense.ID[store.TKey]] {
+	let nv = Variants(s, e, next)
+	if len(nv) > 0 {
+		return if Has(nv, cur) { Some[dense.ID[store.TKey]]{Value: next} } else { None }
+	}
+	if len(Variants(s, e, cur)) > 0 {
+		return None
+	}
+	let cands = listing(s, e, cur, next)
+	if len(cands) == 1 { Some[dense.ID[store.TKey]]{Value: cands[0]} } else { None }
+}
+
+// Has is whether ts holds t.
+func Has(ts []dense.ID[store.TKey], t dense.ID[store.TKey]) bool {
+	for x in ts {
+		if x == t {
+			return true
+		}
+	}
+	false
+}
+
+// listing is every union declared in the package of a's record (an
+// import's exported ones) that lists both a and b.
+func listing(s mut store.Store, e Env, a dense.ID[store.TKey], b dense.ID[store.TKey]) []dense.ID[store.TKey] {
+	let mut out = []dense.ID[store.TKey]{}
+	let k = store.KindOfType(*s, a)
+	if k == store.KNamed {
+		for i in 0..store.NumDecls(*s) {
+			let d = store.DeclAt(*s, i)
+			if store.KindName(int(store.DeclOf(*s, d).Kind)) != "type" || !isSome(unionMembers(*s, e.files, d)) {
+				continue
+			}
+			let u = store.TNamed(s, d)
+			let vs = Variants(s, e, u)
+			if Has(vs, a) && Has(vs, b) {
+				out = out.Append(u)
+			}
+		}
+	} else if k == store.KInstance && len(store.OperandsOf(*s, a)) == 0 {
+		let o = store.OriginOfType(*s, a)
+		if o.Import == uint32(0) || int(o.Import) == store.ForeignBit || int(o.Import) > len(e.deps) {
+			return out
+		}
+		for j, dd in e.deps[int(o.Import)-1].Decls {
+			if len(dd.Variants) == 0 || dd.Name[0] < 65 || dd.Name[0] > 90 {
+				continue
+			}
+			let u = store.TInstance(s, store.XRef{Import: o.Import, Decl: uint32(j)}, []dense.ID[store.TKey]{})
+			let vs = Variants(s, e, u)
+			if Has(vs, a) && Has(vs, b) {
+				out = out.Append(u)
+			}
+		}
+	}
+	out
+}
+
+func isSome[T](o Option[T]) bool {
+	match o {
+	case Some[T]:
+		true
+	case None:
+		false
+	}
+}

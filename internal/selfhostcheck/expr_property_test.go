@@ -68,7 +68,7 @@ func TestCompilerExprProperty(t *testing.T) {
 		writeLines(t, e, ext)
 		writeLines(t, f, foreign)
 		writeLines(t, file, []string{src})
-		got, diags := splitDiags(runDump(t, ctx, bin, e, f, file))
+		got, diags, lets := splitDiags(runDump(t, ctx, bin, e, f, file))
 		gotCalls := runDump(t, ctx, bin, "-calls", e, f, file)
 		if len(diags) > 0 {
 			failed++
@@ -81,7 +81,7 @@ func TestCompilerExprProperty(t *testing.T) {
 		bad, which := genBad(seed)
 		if _, bds := check.CheckSource(bad); len(bds) > 0 {
 			writeLines(t, file, []string{bad})
-			_, badDiags := splitDiags(runDump(t, ctx, bin, e, f, file))
+			_, badDiags, _ := splitDiags(runDump(t, ctx, bin, e, f, file))
 			if len(badDiags) == 0 {
 				failed++
 				if failed <= 3 {
@@ -91,7 +91,13 @@ func TestCompilerExprProperty(t *testing.T) {
 				caught[which]++
 			}
 		}
-		d := subsetDiff(want, got, 3) + subsetDiff(wantCalls, gotCalls, 2)
+		// Each value whose inputs the typer types has the Go checker's
+		// type (CHECK-VALUE-TYPES); a generated case's are all typed.
+		vd, excluded := valueDiff(goValues(pkg, "p.ergo"), got, lets)
+		if len(excluded) > 0 {
+			vd += fmt.Sprintf("excluded values %v\n", excluded)
+		}
+		d := subsetDiff(want, got, 3) + subsetDiff(wantCalls, gotCalls, 2) + vd
 		if d != "" {
 			failed++
 			if failed <= 3 {
@@ -107,6 +113,7 @@ func TestCompilerExprProperty(t *testing.T) {
 		if len(gotCalls) > 0 {
 			reached["generic call"]++
 		}
+		reached["package let"] += len(lets)
 	}
 	if ran < 150 {
 		t.Errorf("the Go checker refused %d of 200 cases (%s); first:\n%s", 200-ran, replay(base), refused)
@@ -123,18 +130,20 @@ func TestCompilerExprProperty(t *testing.T) {
 	}
 }
 
-// splitDiags separates exprdump's "D …" lines (type errors) from its
-// expression lines.
-func splitDiags(lines []string) ([]string, []string) {
-	var types, diags []string
+// splitDiags separates exprdump's "D …" lines (type errors) and "L …"
+// lines (package lets' types) from its expression lines.
+func splitDiags(lines []string) ([]string, []string, []string) {
+	var types, diags, lets []string
 	for _, l := range lines {
 		if d, ok := strings.CutPrefix(l, "D "); ok {
 			diags = append(diags, d)
+		} else if d, ok := strings.CutPrefix(l, "L "); ok {
+			lets = append(lets, d)
 		} else {
 			types = append(types, l)
 		}
 	}
-	return types, diags
+	return types, diags, lets
 }
 
 // badStmts are statements with one error, each one the typer reports: a
@@ -177,7 +186,7 @@ func genBad(seed uint32) (string, int) {
 
 // exprForms are the syntax forms (and inferred generic calls) the cases
 // must get typed.
-var exprForms = []string{"Ident", "BasicLit", "BinaryExpr", "UnaryExpr", "ParenExpr", "CallExpr", "CompositeLit", "SelectorExpr", "IndexExpr", "InterpolatedString", "FuncLit", "generic call"}
+var exprForms = []string{"Ident", "BasicLit", "BinaryExpr", "UnaryExpr", "ParenExpr", "CallExpr", "CompositeLit", "SelectorExpr", "IndexExpr", "InterpolatedString", "FuncLit", "generic call", "IfStmt", "SwitchStmt", "TypeSwitchStmt", "CatchExpr", "package let"}
 
 // genExpr is the source of the expression case seed: a few functions whose
 // bodies draw statements from a pool of the typer's forms, each local
@@ -189,11 +198,32 @@ func genExpr(seed uint32) string {
 		"type Shape = Dot | Sq{W int}",
 		"type Dot {}",
 		"type Box[T] { v T }",
+		"type Mark = Tick{N int} | Tock{N int}",
 		"",
 		"func id[T](x T) T { x }",
 		"func first[T](xs []T, d T) T { if len(xs) > 0 { xs[0] } else { d } }",
 		"func boxed[T](x T) Box[T] { Box[T]{v: x} }",
 		"func twice(x int) int { x * 2 }",
+		"",
+		"type Oops {}",
+		"",
+		"func get(n int) int fails Oops {",
+		"\tif n > 3 {",
+		"\t\treturn Oops",
+		"\t}",
+		"\tn",
+		"}",
+		"",
+		"func put(n int) fails Oops {",
+		"\tif n > 3 {",
+		"\t\treturn Oops",
+		"\t}",
+		"}",
+		"",
+		"let base = 3",
+		"let label string = \"x\"",
+		"let made = twice(2)",
+		"let marked = if base > 2 { Tick{N: base} } else { Tock{N: 1} }",
 		"",
 	}
 	k := func() string { return strconv.Itoa(1 + r.n(9)) }
@@ -211,7 +241,7 @@ func genExpr(seed uint32) string {
 				continue
 			}
 			x := local()
-			switch r.n(18) {
+			switch r.n(28) {
 			case 0:
 				add("\tlet "+x+" = p + "+k(), "\tacc = acc + "+x)
 			case 1:
@@ -249,6 +279,35 @@ func genExpr(seed uint32) string {
 				add("\tlet "+x+" = []int{p, "+k()+", acc}", "\tacc = acc + "+x+"[1]")
 			case 17:
 				add("\tlet "+x+" = Box[string]{v: q}", "\tacc = acc + len("+x+".v)")
+			// The values CHECK-VALUE-TYPES types: a value if (one type, a
+			// leaving arm, an Unreachable arm, a union join), a value
+			// match, a value catch and a catch of no value, and the
+			// package's lets.
+			case 18:
+				add("\tlet "+x+" = if p > "+k()+" { p } else { "+k()+" }", "\tacc = acc + "+x)
+			case 19:
+				add("\tlet "+x+" = if p > "+k()+" { "+k()+" } else { return acc }", "\tacc = acc + "+x)
+			case 20:
+				add("\tlet "+x+" = if q == \"a\" { acc } else { Unreachable(\"no\") }", "\tacc = acc + "+x)
+			case 21:
+				b := local()
+				add("\tlet "+x+" = match sh {", "\tcase Sq as "+b+":", "\t\t"+b+".W", "\tcase Dot:", "\t\t"+k(), "\t}", "\tacc = acc + "+x)
+			case 27:
+				// A variant after its union keeps the union.
+				b := local()
+				add("\tlet "+x+" = if p > "+k()+" { marked } else { Tick{N: p} }", "\tmatch "+x+" {", "\tcase Tick as "+b+":", "\t\tacc = acc + "+b+".N", "\tcase Tock:", "\t}")
+			case 26:
+				add("\tput(p) catch {", "\tcase Oops:", "\t\tacc = acc + 1", "\t}")
+			case 25:
+				add("\tlet "+x+" = match p {", "\tcase "+k()+":", "\t\t"+k(), "\tcase _:", "\t\tp", "\t}", "\tacc = acc + "+x)
+			case 22:
+				add("\tlet "+x+" = get(p) catch {", "\tcase Oops:", "\t\t"+k(), "\t}", "\tacc = acc + "+x)
+			case 23:
+				b := local()
+				add("\tlet "+x+" = if p > "+k()+" { Tick{N: p} } else { Tock{N: "+k()+"} }", "\tmatch "+x+" {", "\tcase Tick as "+b+":", "\t\tacc = acc + "+b+".N", "\tcase Tock:", "\t}")
+			case 24:
+				b := local()
+				add("\tacc = acc + base + made + len(label)", "\tmatch marked {", "\tcase Tick as "+b+":", "\t\tacc = acc + "+b+".N", "\tcase Tock:", "\t}")
 			}
 		}
 		add("\tacc + " + k())
