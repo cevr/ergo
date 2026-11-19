@@ -1148,6 +1148,15 @@
       "killers": ["internal/sketch/eval:TestEvalTasksAgreeWithModel"]
     },
     {
+      "name": "oracle-o3-native-submono-wraps",
+      "origin": "wf10 ORACLE O3",
+      "file": "internal/sketch/eval/tasks.go",
+      "from": "\t\tcase d < 0 && a > b:\n\t\t\td = math.MaxInt64",
+      "to": "\t\tcase false:\n\t\t\td = math.MaxInt64",
+      "rule": "The duration between two monotonic readings saturates at the largest duration where a - b overflows (runtime/v1 TimeSubMono; time.go, Sub).",
+      "killers": ["internal/sketch/eval:TestNativesAgreeWithRuntime"]
+    },
+    {
       "name": "oracle-o3-scheduler-host-order",
       "origin": "wf10 ORACLE O3",
       "file": "internal/sketch/eval/sched.go",

@@ -245,6 +245,8 @@ time	hostMono	library	HOST-ROW: time.Since through import go charges go.Foreign,
 time	hostNow	library	HOST-ROW: time.Now through import go charges go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; needs a reviewed fact row that charges the provider's own capability (Ambient) instead
 time	newTimeline	provider
 time	parse	library	GBX6 rows for time (time.ParseInLocation, Time.Unix, Time.Nanosecond bind needs go.Foreign) and GBX3 (time.UTC is a Go variable)
+time	subMono	computation	NP4f-7
+time	subWall	computation	NP4f-7
 timeout	After	provider
 timeout	Expired	type
 toml	Malformed	type
