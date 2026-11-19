@@ -171,7 +171,7 @@ func trackedWrong[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *desktop.
 						case None:
 							return Some{Value: "TestHost runs no track for \(p.Label)"}
 						}
-						match desktop.BoxOf(d, p.Label) {
+						match desktop.LaidOf(d, p.Label) {
 						case Some[layout.Box] as lb:
 							let want = int(lb.Value.X + float32(v) + lb.Value.W/2)
 							let mut seen = false

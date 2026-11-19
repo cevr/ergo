@@ -5100,6 +5100,8 @@ func lawReachPicksTheNearest(seed int) bool {
 		return got == None
 	}
 	got == (Some{Value: near})
+}
+
 // TRACKS: track.ergo's laws restated.
 // aims are the targets a law's taps set.
 let aims = []float64{-200.0, -50.0, 80.0, 250.0}
