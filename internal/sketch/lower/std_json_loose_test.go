@@ -312,11 +312,12 @@ func lawNoiseIsReported(v up, pre int, post int, fence bool, comma bool, bare bo
 		return false
 	}
 	let want = if before { 1 } else { 0 }
+	let of = 1 + (if before { 1 } else { 0 }) + (if after && !cut { 1 } else { 0 })
 	let mut index = true
 	for f in r.Fixes {
 		match f {
 		case json.Chose as c:
-			index = c.Index == want
+			index = c.Index == want && c.Of == of
 		case _:
 		}
 	}
@@ -475,7 +476,7 @@ func looseCaseTests() string {
 // key; lawledger.Run holds it equal to the ledger.
 var stdJSONLooseLawStatements = map[string]string{
 	"json StrictTextsAgree":       `StrictTextsAgree(v fleet, w up) { let r = DecodeLoose(codec(), Encode(codec(), v)) catch { case _: return false } let _ = DecodeLoose(codec(), Encode(looseCodec(), w)) catch { case Malformed: return false case _: return r.Value == v && len(r.Fixes) == 0 } false }`,
-	"json NoiseIsReported":        `NoiseIsReported(v up, pre int, post int, fence bool, comma bool, bare bool, single bool, comment bool, cut bool, before bool, after bool) { let w = looseTricky(v) let n = looseNoisy(w, pre, post, fence, comma, bare, single, comment, cut, before, after) let r = DecodeLoose(looseCodec(), n.text) catch { case _: return false } let want = if before { 1 } else { 0 } let mut index = true for f in r.Fixes { match f { case Chose as c: index = c.Index == want case _: } } r.Value == w && looseKinds(r.Fixes) == n.kinds && index }`,
+	"json NoiseIsReported":        `NoiseIsReported(v up, pre int, post int, fence bool, comma bool, bare bool, single bool, comment bool, cut bool, before bool, after bool) { let w = looseTricky(v) let n = looseNoisy(w, pre, post, fence, comma, bare, single, comment, cut, before, after) let r = DecodeLoose(looseCodec(), n.text) catch { case _: return false } let want = if before { 1 } else { 0 } let of = 1 + (if before { 1 } else { 0 }) + (if after && !cut { 1 } else { 0 }) let mut index = true for f in r.Fixes { match f { case Chose as c: index = c.Index == want && c.Of == of case _: } } r.Value == w && looseKinds(r.Fixes) == n.kinds && index }`,
 	"json NoFixMeansStrict":       `NoFixMeansStrict(v up, at int, op int, ch int, at2 int, op2 int, ch2 int) { let text = looseMutated(v, at, op, ch, at2, op2, ch2) let r = DecodeLoose(looseCodec(), text) catch { case _: return true } if len(r.Fixes) > 0 { return true } let s = Decode(looseCodec(), text) catch { case _: return false } s == r.Value }`,
 	"json RepairIsIdempotent":     `RepairIsIdempotent(v up, at int, op int, ch int, at2 int, op2 int, ch2 int) { let r = DecodeLoose(looseCodec(), looseMutated(v, at, op, ch, at2, op2, ch2)) catch { case _: return true } let again = DecodeLoose(looseCodec(), Encode(looseCodec(), r.Value)) catch { case _: return false } again.Value == r.Value && len(again.Fixes) == 0 }`,
 	"json FixesNameTheirText":     `FixesNameTheirText(v up, pre int, fence bool, comma bool, bare bool, comment bool, cut bool, at int, op int, ch int, at2 int, op2 int, ch2 int) { let a = looseNoisy(looseTricky(v), pre, pre, fence, comma, bare, !bare, comment, cut, false, true).text let b = looseMutated(v, at, op, ch, at2, op2, ch2) looseNamed(a) && looseNamed(b) }`,

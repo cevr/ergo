@@ -119,8 +119,8 @@ type looseCand { start int, end int, text string, fixes []Fix, fenced bool }
 type looseMark { fence bool, cand int }
 
 // looseScan is the repair of a whole text: its values and the marks, in
-// text order.
-type looseScan { cands []looseCand, marks []looseMark }
+// text order, and steps, the bytes the pass moved over (RepairIsOnePass).
+type looseScan { cands []looseCand, marks []looseMark, steps int }
 
 // looseAlone is whether value k stands alone: no mark but its own fence
 // (the one just before it, when it is fenced, and the one just after).
@@ -153,6 +153,7 @@ func looseRepair(text string) looseScan {
 	let mut fenceEnd = -1
 	// prose: the last mark is a run of prose.
 	let mut prose = false
+	let mut steps = 0
 	let mut i = 0
 	for i < len(text) {
 		let c = text[i]
@@ -165,6 +166,7 @@ func looseRepair(text string) looseScan {
 			marks = marks.Append(looseMark{fence: false, cand: len(cands)})
 			prose = false
 			cands = cands.Append(looseCand{start: i, end: f.i, text: looseText(&f, i), fixes: f.fixes, fenced: fence >= 0})
+			steps = steps + (f.i - i)
 			i = f.i
 		} else if c == '`' && i+2 < len(text) && text[i+1] == '`' && text[i+2] == '`' {
 			let mut j = i + 3
@@ -179,16 +181,33 @@ func looseRepair(text string) looseScan {
 			}
 			marks = marks.Append(looseMark{fence: true, cand: -1})
 			prose = false
+			steps = steps + (j - i)
 			i = j
 		} else {
 			if !prose && !looseSpace(c) {
 				marks = marks.Append(looseMark{fence: false, cand: -1})
 				prose = true
 			}
+			steps = steps + 1
 			i = i + 1
 		}
 	}
-	looseScan{cands: cands, marks: marks}
+	looseScan{cands: cands, marks: marks, steps: steps}
+}
+
+// looseSample is a text with every repair: prose, a fence, a comment, a
+// bare and a single-quoted key, a trailing comma, two values, a cut.
+let looseSample = "Here:\n```json\n{a: 1, 'b': [2, /* c */ 3,], \"d\": \"{x}\"}\n```\nand [4, {\"e\": \"f"
+
+// looseSteps is the bytes looseRepair moves over in text.
+func looseSteps(text string) int { looseRepair(text).steps }
+
+// RepairIsOnePass: the repair moves over each byte of the text once,
+// whatever the text: its count of bytes is the text's length (the growth
+// guard: a second pass over a value would count its bytes twice).
+law RepairIsOnePass(text string) {
+	let t = text + looseSample + text
+	looseSteps(t) == len(t) && looseSteps(looseSample) == len(looseSample)
 }
 
 // looseFixer repairs one value of src from i. A repair splices: out is the
@@ -618,11 +637,12 @@ law NoiseIsReported(v up, pre int, post int, fence bool, comma bool, bare bool, 
 		return false
 	}
 	let want = if before { 1 } else { 0 }
+	let of = 1 + (if before { 1 } else { 0 }) + (if after && !cut { 1 } else { 0 })
 	let mut index = true
 	for f in r.Fixes {
 		match f {
 		case Chose as c:
-			index = c.Index == want
+			index = c.Index == want && c.Of == of
 		case _:
 		}
 	}
