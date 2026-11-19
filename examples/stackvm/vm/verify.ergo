@@ -238,17 +238,34 @@ func checkedEnded(program []Instr, fuel int) Ended {
 // ends on Checked, with the same result or the same trap, for any fuel.
 // The programs are drawn well formed (Stacked), well formed with one
 // instruction replaced (Bent, which Verify often refuses), at random
-// (Program), as a loop (Countdown), and as a stack of 60 to 67 values
-// (Tower, across the depth Verify allows).
+// (Program), as a loop (Countdown), as two paths that meet at another
+// depth (Joined), as a printing loop given just the fuel to halt, so that
+// it leaves Exec for the checked loop on its last backward jump
+// (Printing), and as a stack of 60 to 67 values (Tower, across the depth
+// Verify allows).
 law ExecAgreesWithChecked(seed int, fuel int) {
 	let f = if fuel < 0 { -(fuel + 1) % 48 } else { fuel % 48 }
 	let n = if seed < 0 { -(seed + 1) } else { seed }
-	for p in [][]Instr{Stacked(seed, 16), Bent(seed, 16), Program(seed, 16), Countdown(seed % 8)} {
+	for p in [][]Instr{Stacked(seed, 16), Bent(seed, 16), Program(seed, 16), Countdown(seed % 8), Joined(n % 2)} {
 		if !agrees(p, f) {
 			return false
 		}
 	}
-	n%4 != 0 || agrees(Tower(60+n/4%8), 2*(60+n/4%8)+1)
+	let k = 2 + n%6
+	agrees(Printing(k), 6*k+2) && (n%4 != 0 || agrees(Tower(60+n/4%8), 2*(60+n/4%8)+1))
+}
+
+// Joined jumps over a pop when a is 0, so its Print finds one value on
+// the path Verify walks first and none on the other: Verify must refuse
+// it, and when a is not 0 the run takes the path with none.
+func Joined(a int) []Instr {
+	[]Instr{Push{N: 9}, Push{N: a}, JumpIfNot{To: 4}, Pop, Print}
+}
+
+// Printing prints k down to 1 by a loop and halts after 6k+2
+// instructions.
+func Printing(k int) []Instr {
+	[]Instr{Push{N: k}, Dup, Print, Push{N: 1}, Sub, Dup, JumpIf{To: 1}, Pop}
 }
 
 // agrees is the check of ExecAgreesWithChecked for one program.

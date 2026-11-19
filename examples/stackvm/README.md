@@ -21,7 +21,7 @@ stackvm bench 3000000      # a counting loop of 39 million instructions
 - **Exhaustive match.** The loop matches on all 20 instructions; `Opcode`, `Mnemonic`, `Describe`, `Explain`, `Eval` and `emit` each cover their union, so a new instruction does not compile until every one of them handles it.
 - **Typed failures.** A trap is a value with a cause union, not a string or a panic; `Decode`, `Assemble` and `Eval` each fail with their own record.
 - **Construction authority.** A `Verified` program is a value only `vm.Verify` makes, so the loop that skips the checks cannot be handed an unchecked program.
-- **Laws.** `vm.ExecAgreesWithChecked` (a verified program ends on `Exec` as on `Checked`, with the same result or trap, for any fuel, on well-formed, near-miss, random, looping and 60-to-67-deep programs); `vm.VerifyAcceptsStacked` (the well-formed generator's programs verify, so the first law reaches `Exec`); `vm.DecodeInvertsEncode`; `vm.FuelBoundsSteps` (fuel bounds a run exactly, on generated programs and on a countdown loop); `asm.AssembleInvertsDisassemble` (any program, with out-of-range targets); `asm.LayoutIsIgnored` (indentation, comments and blank lines change nothing); `expr.CompiledAgrees` (a generated expression compiled and run on the vm gives the tree walk's value, or both divide by zero). `ergo test` runs them, and `GeneratorCoversTheLanguage` shows the generator reaches every kind of expression and the failure.
+- **Laws.** `vm.ExecAgreesWithChecked` (a verified program ends on `Exec` as on `Checked`, with the same result or trap, for any fuel, on well-formed, near-miss, random, looping, joined-at-two-depths, low-on-fuel printing and 60-to-67-deep programs); `vm.VerifyAcceptsStacked` (the well-formed generator's programs verify, so the first law reaches `Exec`); `vm.DecodeInvertsEncode`; `vm.FuelBoundsSteps` (fuel bounds a run exactly, on generated programs and on a countdown loop); `asm.AssembleInvertsDisassemble` (any program, with out-of-range targets); `asm.LayoutIsIgnored` (indentation, comments and blank lines change nothing); `expr.CompiledAgrees` (a generated expression compiled and run on the vm gives the tree walk's value, or both divide by zero). `ergo test` runs them, and `GeneratorCoversTheLanguage` shows the generator reaches every kind of expression and the failure.
 
 ## Cases
 
@@ -32,6 +32,8 @@ stackvm bench 3000000      # a counting loop of 39 million instructions
 `stackvm bench N` runs the counting loop `Loop` for N rounds. The control, a hand-written Go loop that switches on int opcodes over the same bytecode, is in the run dir (`bench-pending-ex-f.md`).
 
 ## Limits found
+
+From SVM-VERIFY (wf10): `Verify` proves facts that the compiler cannot carry to `Exec` yet. The stack's depth stays under 64, so `Exec` indexes its `[64]int` under the mask `& 63`, a no-op that only lets Go drop the bounds check. And every target is in `0..len(code)`, but Go still checks `code[at]` once per instruction (one `panicBounds` site in `Exec`), because it cannot see that `pc` is never negative. The fix is a record invariant on `Verified` (`where`, docs/spec/facts.md, designed, not built) whose proved facts reach gc's `Bounded` flag (FORK's FACT-BOUNDED). Then the mask goes and the check on `code[at]` goes. The floor (testdata/floor) pays the same check.
 
 New gaps (`gaps-ex-f.md`):
 

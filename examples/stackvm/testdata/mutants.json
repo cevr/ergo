@@ -6,8 +6,8 @@
       "origin": "wf10 SVM-VERIFY",
       "file": "examples/stackvm/vm/verify.ergo",
       "from": "\t\tif d < need || after > 63 {",
-      "to": "\t\tif after > 63 {",
-      "rule": "ExecAgreesWithChecked: Verify admits a program that pops below the bottom (a Bent near miss), and Exec reads a value Checked traps on as Underflow.",
+      "to": "\t\tif d+1 < need || after > 63 {",
+      "rule": "ExecAgreesWithChecked: Verify admits an instruction that finds one value fewer than it pops (Joined(0)'s Print at depth 0, or a Bent near miss), and Exec reads a value where Checked traps on Underflow.",
       "anchor": {"tests": ["examples:stackvm"]},
       "killers": ["examples:stackvm"]
     },
@@ -16,8 +16,8 @@
       "origin": "wf10 SVM-VERIFY",
       "file": "examples/stackvm/vm/verify.ergo",
       "from": "\t\tif d < need || after > 63 {",
-      "to": "\t\tif d < need || after > 64 {",
-      "rule": "ExecAgreesWithChecked: Tower(64) is admitted, its 64th push lands on stack[0] under the mask, and its sum differs from Checked's.",
+      "to": "\t\tif d < need || after > 65 {",
+      "rule": "ExecAgreesWithChecked: Tower(65) is admitted, its 65th push lands on stack[0] under the mask, and its sum differs from Checked's. (after > 64 is an equivalent mutant: 64 values fit the [64]int, so the bound 63 keeps one spare slot.)",
       "anchor": {"tests": ["examples:stackvm"]},
       "killers": ["examples:stackvm"]
     },
@@ -27,7 +27,7 @@
       "file": "examples/stackvm/vm/verify.ergo",
       "from": "\tw.at[pc] == d\n}",
       "to": "\ttrue\n}",
-      "rule": "ExecAgreesWithChecked: a jump that reaches an instruction with another depth (a Bent or a random Program) is admitted, and the second path underflows where Checked traps.",
+      "rule": "ExecAgreesWithChecked: Joined(0), whose two paths meet at its Print with depths 0 and 1, is admitted, and its jump path prints a value where Checked traps on Underflow.",
       "anchor": {"tests": ["examples:stackvm"]},
       "killers": ["examples:stackvm"]
     },
@@ -55,9 +55,9 @@
       "name": "svm-exec-resume-drops-printed",
       "origin": "wf10 SVM-VERIFY",
       "file": "examples/stackvm/vm/verify.ergo",
-      "from": "\t\t\tpc = j.To\n\t\t\tif pc <= at && fuel-steps <= end {\n\t\t\t\treturn try resume(code, fuel, paused{stack: held(stack, sp), printed: printed,",
-      "to": "\t\t\tpc = j.To\n\t\t\tif pc <= at && fuel-steps <= end {\n\t\t\t\treturn try resume(code, fuel, paused{stack: held(stack, sp), printed: []int{},",
-      "rule": "ExecAgreesWithChecked: a Stacked loop that prints and then runs low on fuel at a backward Jump goes on in resume without what it printed.",
+      "from": "\t\tcase JumpIf as j:\n\t\t\tsp -= 1\n\t\t\tif stack[sp&63] != 0 {\n\t\t\t\tpc = j.To\n\t\t\t\tif pc <= at && fuel-steps <= end {\n\t\t\t\t\treturn try resume(code, fuel, paused{stack: held(stack, sp), printed: printed,",
+      "to": "\t\tcase JumpIf as j:\n\t\t\tsp -= 1\n\t\t\tif stack[sp&63] != 0 {\n\t\t\t\tpc = j.To\n\t\t\t\tif pc <= at && fuel-steps <= end {\n\t\t\t\t\treturn try resume(code, fuel, paused{stack: held(stack, sp), printed: []int{},",
+      "rule": "ExecAgreesWithChecked: Printing(k), given exactly the fuel to halt, leaves Exec at its last backward JumpIf and, with this mutant, halts in the checked loop without the values it printed.",
       "anchor": {"tests": ["examples:stackvm"]},
       "killers": ["examples:stackvm"]
     }
