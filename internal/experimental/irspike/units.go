@@ -175,6 +175,10 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"Option's pointer niche", "G4"},
 	{"append form", "G4"},
 	{"append to a defined slice type", "G4"},
+	// slices.AppendAll, Go's append(xs, ys...): ir_builtin.go falls back to
+	// the text body (I22); the bulk append lowers with NB-ROLE (NO-BUILTINS
+	// findings §7).
+	{"append of a slice's elements", "NB-ROLE"},
 	{"Map write form", "G4"},
 	{"Map write to a defined Map type", "G4"},
 	// IRG4 calls other packages' functions and std externs with a plain
