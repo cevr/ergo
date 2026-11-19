@@ -3,7 +3,6 @@
 package v1
 
 import (
-	"fmt"
 	"os"
 	"runtime/trace"
 	"strings"
@@ -25,25 +24,25 @@ func goTraceSink() (sink rt.Tracer, done func()) {
 	if path, ok := strings.CutPrefix(spec, "flight:"); ok {
 		f, err := obs.StartFlight()
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "ergo: go trace:", err)
+			goTraceFailed(err)
 			return nil, func() {}
 		}
 		return obs.New(func() { dumpFlight(f, path) }), f.Stop
 	}
 	out, err := os.Create(spec)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "ergo: go trace:", err)
+		goTraceFailed(err)
 		return nil, func() {}
 	}
 	if err := trace.Start(out); err != nil {
-		fmt.Fprintln(os.Stderr, "ergo: go trace:", err)
+		goTraceFailed(err)
 		out.Close()
 		return nil, func() {}
 	}
 	return obs.New(nil), func() {
 		trace.Stop()
 		if err := out.Close(); err != nil {
-			fmt.Fprintln(os.Stderr, "ergo: go trace:", err)
+			goTraceFailed(err)
 		}
 	}
 }
@@ -52,13 +51,21 @@ func goTraceSink() (sink rt.Tracer, done func()) {
 func dumpFlight(f *obs.Flight, path string) {
 	out, err := os.Create(path)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "ergo: go trace:", err)
+		goTraceFailed(err)
 		return
 	}
 	if _, err := f.Dump(out); err != nil {
-		fmt.Fprintln(os.Stderr, "ergo: go trace:", err)
+		goTraceFailed(err)
 	}
 	if err := out.Close(); err != nil {
-		fmt.Fprintln(os.Stderr, "ergo: go trace:", err)
+		goTraceFailed(err)
 	}
+}
+
+// goTraceFailed reports a failure of the Go trace on standard error, one
+// line, written as the panic writer writes: no fmt, whose init roots and
+// size a --go-trace build, still an Ergo program, does not take on
+// (TestCoreHasNoInitRoots).
+func goTraceFailed(err error) {
+	os.Stderr.WriteString("ergo: go trace: " + err.Error() + "\n")
 }
