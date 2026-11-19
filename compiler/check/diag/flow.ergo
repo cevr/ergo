@@ -149,7 +149,8 @@ func Flow(s store.Store, k expr.Pkg, t expr.Typer, srcs []string) []Diag {
 	for src in srcs {
 		lines = lines.Append(syntax.LinesOf(src))
 	}
-	let mut w = walker{res: res, types: ts, calls: cs, fn: 0, file: 0, lines: lines, st: state{reached: false, slots: []slot{}}, vars: []local{}, depth: 0, first: 0, name: "", nested: "", loops: []loopFrame{}, catches: [][]state{}, memos: Map[int, memo]{}, diags: []fdiag{}, tl: frameTail(), serial: 0, active: []int{}, lenders: Map[int, string]{}, pkgLets: heldLets(s, k, res)}
+	let mut w = walker{res: res, types: ts, calls: cs, fn: 0, file: 0, lines: lines, st: state{reached: false, slots: []slot{}}, vars: []local{}, depth: 0, first: 0, name: "", nested: "", loops: []loopFrame{}, catches: [][]state{}, memos: Map[int, memo]{}, diags: []fdiag{}, tl: frameTail(), serial: 0, active: []int{}, lenders: Map[int, string]{}, pkgLets: []int{}}
+	w.pkgLets = letsHolding(&w, s, k, t)
 	let mut out = []Diag{}
 	for fi, f in k.Fns {
 		match dense.Unpack(f.Body) {
@@ -343,7 +344,7 @@ func tracked(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, t Option[
 	}
 }
 
-func trackedAt(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.ID[syntax.Node]) bool { tracked(w, ws, wk, wt, valueType(w, ws, wk, wt, x)) }
+func trackedAt(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.ID[syntax.Node]) bool { tracked(w, ws, wk, wt, typeOf(w, ws, wk, wt, un(w, ws, wk, wt, x))) }
 
 // text is the Go checker's text of t, a type of the package unqualified.
 func text(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, t dense.ID[store.TKey]) string {
@@ -864,78 +865,11 @@ func letSpec(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, spec dens
 			continue
 		}
 		let d = bind.PNodeOf(wk.Ps, w.file, id)
-		// The typer gives a let of an if, match or catch it does not type
-		// no type, or the unset one: its value's arms say.
-		let mut ty = defType(w, ws, wk, wt, d)
-		if !tracked(w, ws, wk, wt, ty) && count == 1 {
-			ty = valueType(w, ws, wk, wt, value)
-		}
+		let ty = defType(w, ws, wk, wt, d)
 		if tracked(w, ws, wk, wt, ty) {
 			acquire(w, ws, wk, wt, local{decl: dense.Index(d), name: name, lent: false, depth: 0, param: 0, ty: ty})
 		}
 	}
-}
-
-// valueType is the type of a value x as the walk tracks it: the typer's
-// when it holds a resource; for a local the walk typed from its value,
-// that type; for an if, match or catch the typer does not type, the first
-// arm's tail that holds one (or the caught call's). Else the typer's.
-func valueType(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x0 dense.ID[syntax.Node]) Option[dense.ID[store.TKey]] {
-	let x = un(w, ws, wk, wt, x0)
-	let t = typeOf(w, ws, wk, wt, x)
-	if tracked(w, ws, wk, wt, t) {
-		return t
-	}
-	let kind = syntax.KindOf(wk.Parsed[w.file].Tree, x)
-	if kind == syntax.KIdent {
-		// A local the walk typed from its value.
-		let i = slotOf(w, ws, wk, wt, x)
-		return if i >= 0 { w.vars[i].ty } else { t }
-	}
-	let mut arms = []syntax.List{}
-	if kind == syntax.KIfStmt {
-		let is = syntax.IfStmtOf(wk.Parsed[w.file].Tree, x)
-		arms = arms.Append(syntax.BlockStmtOf(wk.Parsed[w.file].Tree, is.Body).List)
-		match dense.Unpack(is.Else) {
-		case Some[dense.ID[syntax.Node]] as e:
-			if syntax.KindOf(wk.Parsed[w.file].Tree, e.Value) == syntax.KBlockStmt {
-				arms = arms.Append(syntax.BlockStmtOf(wk.Parsed[w.file].Tree, e.Value).List)
-			} else {
-				return valueType(w, ws, wk, wt, e.Value)
-			}
-		case None:
-		}
-	} else if kind == syntax.KSwitchStmt || kind == syntax.KTypeSwitchStmt {
-		let l = if kind == syntax.KSwitchStmt { syntax.SwitchStmtOf(wk.Parsed[w.file].Tree, x).Clauses } else { syntax.TypeSwitchStmtOf(wk.Parsed[w.file].Tree, x).Clauses }
-		for i in 0..syntax.Len(l) {
-			let c = syntax.Item(wk.Parsed[w.file].Tree, l, i)
-			if syntax.KindOf(wk.Parsed[w.file].Tree, c) == syntax.KCaseClause {
-				arms = arms.Append(syntax.CaseClauseOf(wk.Parsed[w.file].Tree, c).Body)
-			}
-		}
-	} else if kind == syntax.KCatchExpr {
-		let ce = syntax.CatchExprOf(wk.Parsed[w.file].Tree, x)
-		let tx = typeOf(w, ws, wk, wt, ce.X)
-		if tracked(w, ws, wk, wt, tx) {
-			return tx
-		}
-	}
-	for l in arms {
-		let n = syntax.Len(l)
-		if n == 0 {
-			continue
-		}
-		let last = syntax.Item(wk.Parsed[w.file].Tree, l, n-1)
-		let lk = syntax.KindOf(wk.Parsed[w.file].Tree, last)
-		let at = if lk == syntax.KExprStmt { syntax.ExprStmtOf(wk.Parsed[w.file].Tree, last).X } else { last }
-		if lk == syntax.KExprStmt || lk == syntax.KIfStmt || lk == syntax.KSwitchStmt || lk == syntax.KTypeSwitchStmt {
-			let ty = valueType(w, ws, wk, wt, at)
-			if tracked(w, ws, wk, wt, ty) {
-				return ty
-			}
-		}
-	}
-	t
 }
 
 // defType is the type of the local declared at the row d.
@@ -1183,13 +1117,10 @@ func pkgLetMove(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dens
 	reportAt(w, ws, wk, wt, x, "\(textAt(wk.Parsed[w.file], x)) is a package let, which has no owner to hand it off (\(h.how)) (resources R11, R15); lend it, or make a new value", 0)
 }
 
-// heldLets is the rows of the names of the package's lets that hold a
-// resource (a use of one resolves to its name's row). The typer does not
-// type a package let, so this reads what its declaration writes: a type
-// of the package that holds one, or a lone name's value, a literal of
-// such a type or a call of a function of the package whose result holds
-// one. Any other let is not tracked.
-func heldLets(s store.Store, k expr.Pkg, res Map[string, bool]) []int {
+// letsHolding is the rows of the names of the package's lets whose type,
+// as the typer gives it, holds a resource (a use of one resolves to its
+// name's row).
+func letsHolding(w mut walker, s store.Store, k expr.Pkg, t expr.Typer) []int {
 	let mut out = []int{}
 	for f, p in k.Parsed {
 		if p.Failed {
@@ -1200,63 +1131,15 @@ func heldLets(s store.Store, k expr.Pkg, res Map[string, bool]) []int {
 				continue
 			}
 			let vs = syntax.VarSpecOf(p.Tree, syntax.VarDeclOf(p.Tree, d).Spec)
-			let count = syntax.Len(vs.Names)
-			let held = match dense.Unpack(vs.Type) {
-			case Some[dense.ID[syntax.Node]] as ty:
-				namesHolder(p, res, ty.Value)
-			case None:
-				match dense.Unpack(vs.Value) {
-				case Some[dense.ID[syntax.Node]] as v:
-					count == 1 && valueHolds(s, k, res, p, v.Value)
-				case None:
-					false
+			for i in 0..syntax.Len(vs.Names) {
+				let n = bind.PNodeOf(k.Ps, f, syntax.Item(p.Tree, vs.Names, i))
+				if tracked(w, s, k, t, expr.DefType(t, n)) {
+					out = out.Append(dense.Index(n))
 				}
-			}
-			if !held {
-				continue
-			}
-			for i in 0..count {
-				out = out.Append(dense.Index(bind.PNodeOf(k.Ps, f, syntax.Item(p.Tree, vs.Names, i))))
 			}
 		}
 	}
 	out
-}
-
-// namesHolder is whether the type x is the name of a type of the package
-// that holds a resource.
-func namesHolder(p syntax.Parsed, res Map[string, bool], x dense.ID[syntax.Node]) bool {
-	syntax.KindOf(p.Tree, x) == syntax.KIdent && holder(res, textAt(p, x))
-}
-
-// valueHolds is whether a package let's value x holds a resource as its
-// declaration writes it: a literal of a holder type, or a call of a
-// function of the package whose result holds one.
-func valueHolds(s store.Store, k expr.Pkg, res Map[string, bool], p syntax.Parsed, x dense.ID[syntax.Node]) bool {
-	let kind = syntax.KindOf(p.Tree, x)
-	if kind == syntax.KCompositeLit {
-		return match dense.Unpack(syntax.CompositeLitOf(p.Tree, x).Type) {
-		case Some[dense.ID[syntax.Node]] as ty:
-			namesHolder(p, res, ty.Value)
-		case None:
-			false
-		}
-	}
-	if kind != syntax.KCallExpr {
-		return false
-	}
-	let fun = syntax.CallExprOf(p.Tree, x).Fun
-	if syntax.KindOf(p.Tree, fun) != syntax.KIdent {
-		return false
-	}
-	let name = textAt(p, fun)
-	for f in k.Fns {
-		if textAt(k.Parsed[f.File], f.Name) == name && len(f.Params) == 0 {
-			let ops = store.OperandsOf(s, f.Sig)
-			return len(ops) >= 3 && holds(s, k, res, []bool{}, ops[len(ops)-3])
-		}
-	}
-	false
 }
 
 // produced owns or refuses a new value x of a resource type, a call's
@@ -1405,55 +1288,7 @@ func callee(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.ID
 		return None
 	}
 	let i = dense.Of(w.calls, n)
-	if i >= 0 {
-		return Some[expr.CallTo]{Value: wt.Calls[i]}
-	}
-	method(w, ws, wk, wt, n, syntax.CallExprOf(wk.Parsed[w.file].Tree, x).Fun)
-}
-
-// method is the callee of x.f(…) the typer did not resolve because it
-// gives x, a local of an if, match or catch value, no type: the function
-// f of the package whose first parameter is x's type (or a borrow of it).
-// Functions share a name only when their first parameters are distinct
-// named types of the package, so it is the one x.f names.
-func method(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, n dense.ID[store.PNode], fun0 dense.ID[syntax.Node]) Option[expr.CallTo] {
-	let fun = un(w, ws, wk, wt, fun0)
-	if syntax.KindOf(wk.Parsed[w.file].Tree, fun) != syntax.KSelectorExpr {
-		return None
-	}
-	let se = syntax.SelectorExprOf(wk.Parsed[w.file].Tree, fun)
-	let x = un(w, ws, wk, wt, se.X)
-	if syntax.KindOf(wk.Parsed[w.file].Tree, x) != syntax.KIdent {
-		return None
-	}
-	let i = slotOf(w, ws, wk, wt, x)
-	if i < 0 {
-		return None
-	}
-	let t = match w.vars[i].ty {
-	case Some[dense.ID[store.TKey]] as v:
-		v.Value
-	case None:
-		return None
-	}
-	let name = textAt(wk.Parsed[w.file], se.Sel)
-	for f in wk.Fns {
-		if len(f.Params) != 0 || textAt(wk.Parsed[f.File], f.Name) != name {
-			continue
-		}
-		let ops = store.OperandsOf(ws, f.Sig)
-		if len(ops) < 4 {
-			continue
-		}
-		let mut r = ops[0]
-		if store.KindOfType(ws, r) == store.KPointer {
-			r = store.OperandsOf(ws, r)[0]
-		}
-		if r == t {
-			return Some[expr.CallTo]{Value: expr.CallTo{Call: n, Callee: f, Recv: true}}
-		}
-	}
-	None
+	if i >= 0 { Some[expr.CallTo]{Value: wt.Calls[i]} } else { None }
 }
 
 // calleeName is the name a call writes for its callee: f in f(…), pkg.f(…)
