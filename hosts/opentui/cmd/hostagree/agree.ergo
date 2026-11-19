@@ -133,7 +133,7 @@ func kept[E comparable, S, D, F](d *tui.Driver[S, E, D, F], shapes []ui.Shape[E]
 				let (off, want) = (float64(v.Value.Offset), float64(x.Offset))
 				let most = maxOffset(shapes, x.Label, float64(v.Value.Height))
 				if off != want && !(want > most && off == most) {
-					return Some{Value: "list (x.Label): the pass chose offset (float64(x.Offset)), the terminal shows (float64(v.Value.Offset))"}
+					return Some{Value: "list \(x.Label): the pass chose offset \(want), the terminal shows \(off)"}
 				}
 			case None:
 			}
