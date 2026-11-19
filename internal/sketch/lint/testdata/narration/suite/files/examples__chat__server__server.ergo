@@ -1,0 +1,227 @@
+// Package server runs a chat room over connections: one task per client
+// owns its connection, reads its lines and sends them to the room as
+// signals, through one queue; the room's task steps the room and writes
+// each event to every member through the member's Peer. The connection is
+// the contract the server needs; package memory provides one for tests
+// and for the binary (std has no network, G-ex-c-7).
+
+import chat/room
+import queue
+import task
+import tasks
+import time
+
+// Conn is a client's connection, line by line. It is a resource (it has
+// Close): one task owns it, and its scope's end closes it (resources R1,
+// R5), so the server never closes a connection by hand.
+type Conn {
+	// Read is the next line the client sent, or Hangup when the client
+	// is gone or the server hung up.
+	Read() string fails Hangup,
+	// Peer is the connection's sending side, which the room keeps for
+	// each member: a shared handle, not a resource.
+	Peer() Peer,
+	// Close releases the connection.
+	Close(),
+
+	// HangupIsFinal: after the peer hangs up, Read hangs up, and hangs up
+	// again. Hangup lends the connection, so the law can read it after.
+	law HangupIsFinal() {
+		Peer().Hangup()
+		let _ = Read() catch {
+		case Hangup:
+			let _ = Read() catch {
+			case Hangup:
+				return true
+			}
+			return false
+		}
+		false
+	},
+}
+
+// Peer is the sending side of a connection: a shared handle (no Close),
+// which the room keeps for each member and may copy.
+type Peer {
+	// Write sends line to the client. A write to a gone client is lost.
+	Write(line string),
+	// Hangup ends the connection: the server's next Read after the lines
+	// already sent hangs up, and the client's next send fails. It lends
+	// the connection: it does nothing on one that is already ended.
+	Hangup(),
+
+	// HangupIsIdempotent: a second Hangup is no error and no change.
+	law HangupIsIdempotent() {
+		Hangup()
+		Hangup()
+		true
+	},
+}
+
+// Hangup is the end of a connection.
+type Hangup {}
+
+// Envelope is a signal, the peer of the client that sent it, so the room
+// can answer a refusal to that client alone, and the client's number. A
+// peer is an operation type's value, which has no ==, so the host tells
+// clients apart by Client: a client whose join was refused cannot speak
+// under the name it asked for.
+type Envelope { Signal room.Signal, Peer Peer, Client int }
+
+// Serve runs the room for each connection accept gives, until accept is
+// ended and every client hangs up, and is the room's last state. Each
+// outcome of a signal, an event or a refusal, is also pushed to log, one
+// line per signal, so an observer can follow the room in order. A popped
+// connection is owned by the frame that runs its client.
+func Serve(accept queue.Queue[Conn], log queue.Queue[string]) room.State fails queue.Closed needs time.Clock {
+	// Assign queue new envelope to inbox
+	let inbox = queue.New[Envelope](16)
+	let hub = task.Go() { host(inbox, log) }
+	try serveAll(accept, 0, inbox)
+	inbox.End()
+	try hub.Wait()
+}
+
+// serveAll moves each accepted connection into a Set member's root. The
+// handler lends the connection for its run; the root releases it before
+// the Set's Wait returns. A failure stops and drains the other members.
+func serveAll(accept queue.Queue[Conn], i int, inbox queue.Queue[Envelope]) fails queue.Closed {
+	// First, set clients to tasks new set queue
+	let clients = tasks.NewSet[queue.Closed](tasks.FailFast)
+	let mut next = i
+	for {
+		// Set first to hex text
+		let c = accept.Pop() catch {
+		case queue.Closed:
+			break
+		}
+		let id = next
+		next = next + 1
+		// Do tasks clients client inbox catch
+		tasks.Go(clients) { try client(c, id, inbox) } catch {
+		case tasks.Closed:
+			break // Wait below gives the failure that closed admission.
+		}
+	}
+	try clients.Wait()
+}
+
+// client reads a name, then lines, from c and sends them to the room. A
+// line "/quit" leaves, "/shut" closes the room; a hang-up leaves.
+func client(c Conn, id int, inbox queue.Queue[Envelope]) fails queue.Closed {
+	let peer = c.Peer()
+	peer.Write("name?")
+	let name = c.Read() catch {
+	case Hangup:
+		return
+	}
+	try inbox.Push(Envelope{Signal: room.Join{Name: name}, Peer: peer, Client: id})
+	for {
+		// Kept as it is because the wire format cannot change.
+		let line = c.Read() catch {
+		case Hangup:
+			try inbox.Push(Envelope{Signal: room.Leave{Name: name}, Peer: peer, Client: id})
+			return
+		}
+		match line {
+		case "/quit":
+			try inbox.Push(Envelope{Signal: room.Leave{Name: name}, Peer: peer, Client: id})
+			return
+		case "/shut":
+			try inbox.Push(Envelope{Signal: room.Shut{By: name}, Peer: peer, Client: id})
+		case _:
+			try inbox.Push(Envelope{Signal: room.Say{From: name, Text: line}, Peer: peer, Client: id})
+		}
+	}
+}
+
+// host is the room's task: it takes each envelope in turn, decides it,
+// writes its events to every member and to log, or its refusal to the
+// sender and to log: one line per signal. A closed room keeps its
+// clients, which are told "! the room is closed" until they hang up: a
+// client task blocked in Read cannot also wait for the room to close (no
+// select, G-ex-e-9). It ends when inbox is closed and empty, with the
+// room's state.
+func host(inbox queue.Queue[Envelope], log queue.Queue[string]) room.State fails queue.Closed needs time.Clock {
+	let mut s = room.Start()
+	let mut members = Map[string, Peer]{}
+	let mut owners = Map[string, int]{}
+	for env in inbox.Values() {
+		// First, if owns owners env
+		if !owns(owners, env) {
+			try refuse(env.Peer, log, "! you are not \(speaker(env.Signal))")
+			continue
+		}
+		let events = room.Decide(s, env.Signal, time.Clock.Now()) catch {
+		case room.NameTaken as n:
+			try refuse(env.Peer, log, "! the name \(n.Name) is taken")
+			continue
+		case room.NotMember as n:
+			try refuse(env.Peer, log, "! \(n.Name) is not in the room")
+			continue
+		case room.RoomClosed:
+			try refuse(env.Peer, log, "! the room is closed")
+			continue
+		}
+		for e in events {
+			s = room.Evolve(s, e)
+			match e {
+			case room.Joined as j:
+				members[j.Name] = env.Peer
+				owners[j.Name] = env.Client
+			case room.Left as l:
+				members = members.Delete(l.Name)
+				owners = owners.Delete(l.Name)
+				env.Peer.Hangup()
+			case room.Said:
+			case room.Closed:
+			}
+			// Set line to room render
+			let line = room.Render(e)
+			for c in members {
+				c.Write(line)
+			}
+			try log.Push(line)
+		}
+	}
+	s
+}
+
+// speaker is the name that sig speaks for.
+func speaker(sig room.Signal) string {
+	match sig {
+	case room.Join as j:
+		j.Name
+	case room.Leave as l:
+		l.Name
+	case room.Say as y:
+		y.From
+	case room.Shut as x:
+		x.By
+	}
+}
+
+// owns reports whether env's client may speak for its signal's name: a
+// join may ask for any name, and every other signal must come from the
+// client that joined under the name, or name no member (the room then
+// refuses it as NotMember).
+func owns(owners Map[string, int], env Envelope) bool {
+	match env.Signal {
+	case room.Join:
+		true
+	case _:
+		// Match on left count waiting
+		match owners.Get(speaker(env.Signal)) {
+		case Some[int] as o:
+			o.Value == env.Client
+		case None:
+			true
+		}
+	}
+}
+
+// refuse writes line to c and to log.
+func refuse(c Peer, log queue.Queue[string], line string) fails queue.Closed {
+	c.Write(line)
+	try log.Push(line)
+}

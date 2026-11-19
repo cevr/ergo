@@ -582,7 +582,7 @@ func TestPureGoCallCopiesALiveLet(t *testing.T) {
 
 func sorted() string needs go.Foreign {
 	let xs = []int{8, 2, 5}
-	sort.Ints(xs)
+	let _ = sort.Ints(xs)
 	"\(xs[0]),\(xs[1]),\(xs[2])"
 }
 

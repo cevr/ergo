@@ -7,12 +7,15 @@
 // tasks.Repeat read the time only through the context's one clock
 // (runtime.md, Machines and actors 9.6).
 
+import cron
 import math
+import time
+import tz
 
-// Schedule is a policy. Build one with Spaced, Exponential, Recurs and
-// Forever, and combine them with And, Or, UpTo and Jitter. Its variants
+// Schedule is a policy. Build one with Spaced, Exponential, Recurs,
+// Forever and Cron, and combine them with And, Or, UpTo and Jitter. Its variants
 // are this package's own, so every Schedule is one these functions made.
-type Schedule = spaced | exponential | recurs | upTo | jitter | both | either
+type Schedule = spaced | exponential | recurs | upTo | jitter | both | either | cronAt
 
 type spaced { every duration }
 
@@ -27,6 +30,8 @@ type jitter { inner Schedule, low float64, high float64, seed uint64 }
 type both { first Schedule, second Schedule }
 
 type either { first Schedule, second Schedule }
+
+type cronAt { expr cron.Expr, zone tz.Zone, start time.Time }
 
 // Next is a schedule's decision after a run: run again after a delay, or
 // stop.
@@ -81,6 +86,30 @@ func factorIn(f float64) float64 {
 	if f >= 0.0 { f } else { 0.0 }
 }
 
+// Cron continues at each firing of e in z (Effect's Schedule.cron):
+// after a run, it waits until e's next firing after start plus the time
+// elapsed, where start is the instant the first run began; it stops when e
+// fires no more (cron.Next is None). The time stays an argument, so the
+// schedule is still a pure value: tasks.Repeat(Cron(e, z, now), f) with
+// now from the context's clock runs f at each firing.
+func Cron(e cron.Expr, z tz.Zone, start time.Time) Schedule { cronAt{expr: e, zone: z, start: start} }
+
+// CronWaitsForAFiring: after any run, Cron waits a positive time that
+// ends at a minute e fires at, and no more than e's longest gap (three
+// days for a weekday job).
+law CronWaitsForAFiring(sec int64, wait int64, runs int) {
+	let e = try cron.Parse("0 9 * * mon-fri")
+	let start = time.Unix(within(sec, 0, 4102444800), 0)
+	let elapsed = duration(within(wait, 0, 864000) * 1000000000)
+	match Decide(Cron(e, tz.UTC(), start), runs, elapsed) {
+	case Continue as c:
+		let at = time.Add(time.Add(start, elapsed), c.After)
+		c.After > 0s && c.After <= 72h && cron.Matches(e, tz.Civil(tz.UTC(), at)) && time.UnixSeconds(at)%60 == 0
+	case Stop:
+		false
+	}
+}
+
 // And continues while both continue, after the longer of their delays
 // (Effect intersect).
 func And(a Schedule, b Schedule) Schedule { both{first: a, second: b} }
@@ -128,6 +157,14 @@ func Decide(s Schedule, runs int, elapsed duration) Next {
 		case (Continue as x, Continue as y):
 			if x.After >= y.After { x } else { y }
 		case _:
+			Stop
+		}
+	case cronAt as c:
+		let now = time.Add(c.start, elapsed)
+		match cron.Next(c.expr, c.zone, now) {
+		case Some[time.Time] as n:
+			Continue{After: time.Sub(n.Value, now)}
+		case None:
 			Stop
 		}
 	case either as e:

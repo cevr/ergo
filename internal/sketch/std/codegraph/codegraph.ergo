@@ -1,0 +1,988 @@
+// Package codegraph reads the graph of an Ergo program, the rows the
+// checker writes (`ergo graph export --json`; docs/spec/graph.md), and
+// answers what depends on what: the cycles at the package, file or
+// declaration level, why one node depends on another, what a change
+// affects, the uses that arrive without an import, the long import
+// chains, the imports that go up a declared layering, the fan of each
+// node, the imports another import already covers, and how much of a
+// package's use stays inside it (CI-SELECT §12).
+//
+// It holds no analysis of its own: every answer is a function of the
+// rows, so `ergo graph`, the affected selector, the layout lint and a
+// project's own workflow agree by construction. The algorithms are std
+// graph's, over the level graphs this package derives from the rows.
+// Nothing here names a std package or any other path (STD HAS NO
+// PRIVILEGES): a project reads its own graph with the same functions.
+//
+// Prior art: Turborepo's `turbo query` exposes its package graph only as a
+// query language (no library a workflow imports); Nx's project graph is
+// data and a plugin API; Elixir's `mix xref graph --format cycles` reads
+// labelled edges its compiler records.
+
+import graph
+import json
+import slices
+import strings
+
+// NodeRow is one node row: its id (its index), its kind (module, package,
+// file, decl, task), its sub-kind, its parent (-1 for none), its name,
+// its digest, a task's subject (-1 for none), and its position (file -1
+// for none).
+type NodeRow {
+	Id      int,
+	Kind    string,
+	Sub     string,
+	Parent  int,
+	Name    string,
+	Digest  string,
+	Subject int,
+	File    int,
+	Offset  int,
+	Line    int,
+	Column  int,
+}
+
+// EdgeRow is one edge row: its kind, a use's how, its ends and its
+// position (file -1 for none).
+type EdgeRow {
+	Kind   string,
+	How    string,
+	From   int,
+	To     int,
+	File   int,
+	Offset int,
+	Line   int,
+	Column int,
+}
+
+// Rows is the graph of a program, as `ergo graph export --json` writes it.
+type Rows {
+	Version int,
+	Nodes   []NodeRow,
+	Edges   []EdgeRow,
+}
+
+// BadRows is a text that is not the rows, and why.
+type BadRows { Reason string }
+
+// Decode is the rows whose JSON text is text.
+func Decode(text string) Rows fails BadRows {
+	let r = json.Decode(json.Codec[Rows]{MaxBytes: 1 << 40, MaxDepth: 16}, text) catch {
+	case json.Malformed as m:
+		return BadRows{Reason: "not JSON at \(m.Offset): \(m.Reason)"}
+	case _:
+		return BadRows{Reason: "the JSON is not the graph rows"}
+	}
+	if r.Version != 1 {
+		return BadRows{Reason: "rows of version \(r.Version); this reader reads version 1"}
+	}
+	for i, n in r.Nodes {
+		if n.Id != i || n.Parent >= len(r.Nodes) || n.Subject >= len(r.Nodes) {
+			return BadRows{Reason: "node \(i) names a node outside the rows"}
+		}
+	}
+	for e in r.Edges {
+		if e.From < 0 || e.To < 0 || e.From >= len(r.Nodes) || e.To >= len(r.Nodes) {
+			return BadRows{Reason: "an edge names a node outside the rows"}
+		}
+	}
+	r
+}
+
+// Node is a node row's view: what it is, with its names.
+type Node = Module{Path string}
+	| Package{Path string}
+	| File{Path string}
+	| Decl{Package int, Name string, Kind string}
+	| Task{Kind string, Subject int}
+
+// View is the view of the node id of r.
+func View(r Rows, id int) Node {
+	let n = r.Nodes[id]
+	match n.Kind {
+	case "module":
+		Module{Path: n.Name}
+	case "package":
+		Package{Path: n.Name}
+	case "file":
+		File{Path: n.Name}
+	case "task":
+		Task{Kind: n.Sub, Subject: n.Subject}
+	case _:
+		Decl{Package: packageOf(r, id), Name: n.Name, Kind: n.Sub}
+	}
+}
+
+// packageOf is the package node that holds id, or -1.
+func packageOf(r Rows, id int) int {
+	let mut n = id
+	for n >= 0 {
+		if r.Nodes[n].Kind == "package" {
+			return n
+		}
+		n = r.Nodes[n].Parent
+	}
+	-1
+}
+
+// topOf is the top-level declaration that holds a declaration (itself
+// when it is one), or id for a node that is no declaration.
+func topOf(r Rows, id int) int {
+	let mut n = id
+	for r.Nodes[n].Kind == "decl" && r.Nodes[n].Parent >= 0 && r.Nodes[r.Nodes[n].Parent].Kind == "decl" {
+		n = r.Nodes[n].Parent
+	}
+	n
+}
+
+// fileOf is the file node that holds a declaration, or -1.
+func fileOf(r Rows, id int) int {
+	let mut n = id
+	for n >= 0 {
+		if r.Nodes[n].Kind == "file" {
+			return n
+		}
+		n = r.Nodes[n].Parent
+	}
+	-1
+}
+
+// NameOf is the name a person gives the node id: a declaration's package
+// path, a dot and its name; any other node's name.
+func NameOf(r Rows, id int) string {
+	let n = r.Nodes[id]
+	if n.Kind != "decl" {
+		return n.Name
+	}
+	let p = packageOf(r, id)
+	if p < 0 { n.Name } else { "\(r.Nodes[p].Name).\(n.Name)" }
+}
+
+// Find is the nodes NameOf names name: a declaration's full name, or a
+// module, package, file or task by its name; in id order.
+func Find(r Rows, name string) []int {
+	let mut out = []int{}
+	for i in 0..len(r.Nodes) {
+		if NameOf(r, i) == name {
+			out = out.Append(i)
+		}
+	}
+	out
+}
+
+// Level is a level of the graph the level queries read: packages and the
+// imports between them, files of one package and the uses between them,
+// or top-level declarations and the uses between them.
+type Level = Packages{} | Files{} | Decls{}
+
+// LevelGraph is a level's graph and, by its ids, the rows' node ids.
+type LevelGraph {
+	Graph graph.Graph,
+	Nodes []int,
+}
+
+// LevelOf is r's graph at level. At the package level an edge is an
+// import from a file of one package to another package, once per pair;
+// without tests, an import whose every use (and there is one) comes from
+// a test or a law is left out. At the file level an edge is a use from a
+// declaration of one file to one of another file of the same package; at
+// the declaration level, a use between two top-level declarations.
+func LevelOf(r Rows, level Level, tests bool) LevelGraph {
+	let kind = match level {
+	case Packages:
+		"package"
+	case Files:
+		"file"
+	case Decls:
+		"decl"
+	}
+	let mut index = []int{}
+	let mut nodes = []int{}
+	for i, n in r.Nodes {
+		let top = n.Kind == "decl" && (n.Parent < 0 || r.Nodes[n.Parent].Kind != "decl")
+		if n.Kind == kind && (kind != "decl" || top) {
+			index = index.Append(len(nodes))
+			nodes = nodes.Append(i)
+		} else {
+			index = index.Append(-1)
+		}
+	}
+	let mut seen = Map[int, bool]{}
+	let mut edges = []graph.Edge{}
+	for e in r.Edges {
+		let (a, b) = levelPair(r, level, e)
+		if a < 0 || b < 0 || a == b && kind != "decl" || seen.Get(a * len(r.Nodes) + b) != None {
+			continue
+		}
+		if kind == "package" && !tests && testOnly(r, a, b) {
+			continue
+		}
+		seen[a * len(r.Nodes) + b] = true
+		edges = edges.Append(graph.Edge{From: index[a], To: index[b]})
+	}
+	LevelGraph{Graph: graph.Of(len(nodes), edges), Nodes: nodes}
+}
+
+// levelPair is the rows' nodes an edge row joins at level, or (-1, -1).
+func levelPair(r Rows, level Level, e EdgeRow) (int, int) {
+	match level {
+	case Packages:
+		if e.Kind != "imports" {
+			return (-1, -1)
+		}
+		(packageOf(r, e.From), e.To)
+	case Files:
+		if e.Kind != "uses" {
+			return (-1, -1)
+		}
+		let a = fileOf(r, e.From)
+		let b = fileOf(r, e.To)
+		if a < 0 || b < 0 || packageOf(r, a) != packageOf(r, b) {
+			return (-1, -1)
+		}
+		(a, b)
+	case Decls:
+		if e.Kind != "uses" || r.Nodes[e.From].Kind != "decl" || r.Nodes[e.To].Kind != "decl" {
+			return (-1, -1)
+		}
+		let a = topOf(r, e.From)
+		let b = topOf(r, e.To)
+		if a == b {
+			return (-1, -1)
+		}
+		(a, b)
+	}
+}
+
+// testOnly reports whether every use from a declaration of package a to
+// one of package b comes from a test or a law, and there is one.
+func testOnly(r Rows, a int, b int) bool {
+	let mut any = false
+	for e in r.Edges {
+		if e.Kind != "uses" || packageOf(r, e.From) != a || packageOf(r, e.To) != b {
+			continue
+		}
+		let s = r.Nodes[topOf(r, e.From)].Sub
+		if s != "test" && s != "law" {
+			return false
+		}
+		any = true
+	}
+	any
+}
+
+// WithoutTestsDropsTestImports: the package level without tests has the
+// same nodes as with them, and keeps an import exactly when some use
+// across it comes from a declaration that is no test or law, or no use
+// crosses it at all.
+law WithoutTestsDropsTestImports(seed int, size int) { withoutTestsDropsTestImports(seed, size) }
+
+func withoutTestsDropsTestImports(seed int, size int) bool {
+	let r = drawnRows(seed, size)
+	let all = LevelOf(r, Packages, true)
+	let some = LevelOf(r, Packages, false)
+	if some.Nodes != all.Nodes {
+		return false
+	}
+	for e in graph.Edges(all.Graph) {
+		let a = all.Nodes[e.From]
+		let b = all.Nodes[e.To]
+		let mut uses = 0
+		let mut fromTests = 0
+		for x in r.Edges {
+			if x.Kind == "uses" && packageOf(r, x.From) == a && packageOf(r, x.To) == b {
+				uses = uses + 1
+				let s = r.Nodes[topOf(r, x.From)].Sub
+				if s == "test" || s == "law" {
+					fromTests = fromTests + 1
+				}
+			}
+		}
+		if slices.Contains(graph.Succ(some.Graph, e.From), e.To) == (uses > 0 && uses == fromTests) {
+			return false
+		}
+	}
+	for e in graph.Edges(some.Graph) {
+		if !slices.Contains(graph.Succ(all.Graph, e.From), e.To) {
+			return false
+		}
+	}
+	true
+}
+
+// Cycle is a cycle of the level graph in the rows' node ids: its nodes,
+// and a closed path through its least that starts and ends there.
+type Cycle { Nodes []int, Path []int }
+
+// Cycles is each set of nodes at level that depend on one another, with
+// one closing path (graph.Cycles over LevelOf).
+func Cycles(r Rows, level Level, tests bool) []Cycle {
+	let lg = LevelOf(r, level, tests)
+	let mut out = []Cycle{}
+	for c in graph.Cycles(lg.Graph) {
+		out = out.Append(Cycle{Nodes: rowIds(lg, c.Nodes), Path: rowIds(lg, c.Path)})
+	}
+	out
+}
+
+// rowIds is the rows' ids of level ids.
+func rowIds(lg LevelGraph, ids []int) []int {
+	let mut out = []int{}
+	for i in ids {
+		out = out.Append(lg.Nodes[i])
+	}
+	out
+}
+
+// CyclesAreImportCycles: at the package level with tests, every cycle's
+// path steps along import rows from a file of one package to the next,
+// and the rows hold a cycle exactly when the import closure says some
+// package reaches itself.
+law CyclesAreImportCycles(seed int, size int) { cyclesAreImportCycles(seed, size) }
+
+func cyclesAreImportCycles(seed int, size int) bool {
+	let r = drawnRows(seed, size)
+	let cycles = Cycles(r, Packages, true)
+	for c in cycles {
+		for i in 1..len(c.Path) {
+			if !imports(r, c.Path[i - 1], c.Path[i]) {
+				return false
+			}
+		}
+	}
+	let lg = LevelOf(r, Packages, true)
+	let mut selfReach = false
+	for n in 0..lg.Graph.Size {
+		for m in graph.Succ(lg.Graph, n) {
+			selfReach = selfReach || graph.Reach(lg.Graph, []int{m})[n]
+		}
+	}
+	(len(cycles) > 0) == selfReach
+}
+
+// imports reports whether a file of package a imports package b.
+func imports(r Rows, a int, b int) bool {
+	for e in r.Edges {
+		if e.Kind == "imports" && packageOf(r, e.From) == a && e.To == b {
+			return true
+		}
+	}
+	false
+}
+
+// Step is one edge of a dependency: its kind (an edge row's, or "part"
+// for a member and the declaration that holds it), and its ends.
+type Step { Kind string, From int, To int }
+
+// depends is r's dependency graph over every node: each edge row but
+// contains, from its From to its To, and each member declaration to the
+// declaration that holds it (a part). Steps holds each graph edge's
+// step, in graph.Edges' order.
+type depends { Graph graph.Graph, Steps []Step }
+
+func dependsOf(r Rows) depends {
+	let mut steps = []Step{}
+	for e in r.Edges {
+		if e.Kind != "contains" {
+			steps = steps.Append(Step{Kind: e.Kind, From: e.From, To: e.To})
+		}
+	}
+	for i, n in r.Nodes {
+		if n.Kind == "decl" && n.Parent >= 0 && r.Nodes[n.Parent].Kind == "decl" {
+			steps = steps.Append(Step{Kind: "part", From: i, To: n.Parent})
+		}
+	}
+	let mut edges = []graph.Edge{}
+	for s in steps {
+		edges = edges.Append(graph.Edge{From: s.From, To: s.To})
+	}
+	let g = graph.Of(len(r.Nodes), edges)
+	// Of keeps each source's edges in the order given; Edges lists them
+	// by source, so the steps are reordered the same way.
+	let mut bySource = [][]Step{}
+	for _ in 0..len(r.Nodes) {
+		bySource = bySource.Append([]Step{})
+	}
+	for s in steps {
+		bySource[s.From] = bySource[s.From].Append(s)
+	}
+	let mut inOrder = []Step{}
+	for l in bySource {
+		inOrder = slices.Concat(inOrder, l)
+	}
+	depends{Graph: g, Steps: inOrder}
+}
+
+// stepOf is the first step from a to b of d.
+func stepOf(d depends, a int, b int) Step {
+	for s in d.Steps {
+		if s.From == a && s.To == b {
+			return s
+		}
+	}
+	Step{Kind: "", From: a, To: b}
+}
+
+// Why is a shortest chain of steps by which a depends on b: a uses,
+// imports, needs, fails, provides, re-exports, tests, states a law of or
+// reads (a task's input) a node that leads on to b; a member leads on to
+// the declaration that holds it. None when a does not depend on b; empty
+// when a is b.
+func Why(r Rows, a int, b int) Option[[]Step] {
+	let d = dependsOf(r)
+	match graph.Path(d.Graph, a, b) {
+	case Some[[]int] as p:
+		let mut out = []Step{}
+		for i in 1..len(p.Value) {
+			out = out.Append(stepOf(d, p.Value[i - 1], p.Value[i]))
+		}
+		Some[[]Step]{Value: out}
+	case None:
+		None
+	}
+}
+
+// WhyIsAPath: each chain Why gives starts at a, ends at b, joins each
+// step to the next, and each step is an edge row (or a member's part).
+law WhyIsAPath(seed int, size int, x int, y int) { whyIsAPath(seed, size, x, y) }
+
+func whyIsAPath(seed int, size int, x int, y int) bool {
+	let r = drawnRows(seed, size)
+	if len(r.Nodes) == 0 {
+		return true
+	}
+	let a = (x % len(r.Nodes) + len(r.Nodes)) % len(r.Nodes)
+	let b = (y % len(r.Nodes) + len(r.Nodes)) % len(r.Nodes)
+	match Why(r, a, b) {
+	case Some[[]Step] as w:
+		let mut at = a
+		for s in w.Value {
+			if s.From != at || !isStep(r, s) {
+				return false
+			}
+			at = s.To
+		}
+		at == b
+	case None:
+		a != b
+	}
+}
+
+// isStep reports whether s is an edge row other than contains, or a
+// member's part.
+func isStep(r Rows, s Step) bool {
+	if s.Kind == "part" {
+		return r.Nodes[s.From].Kind == "decl" && r.Nodes[s.From].Parent == s.To && r.Nodes[s.To].Kind == "decl"
+	}
+	for e in r.Edges {
+		if e.Kind == s.Kind && e.From == s.From && e.To == s.To && e.Kind != "contains" {
+			return true
+		}
+	}
+	false
+}
+
+// Reached is a node a change affects and the first step by which it
+// depends on a changed node (By.Kind "" for a changed node itself).
+type Reached { Node int, By Step }
+
+// Affected is every node that depends on a node of changed, by zero or
+// more steps (Why), with the step that first reached it from the changed
+// side: the changed nodes first, then breadth first, each node once.
+func Affected(r Rows, changed []int) []Reached {
+	let d = dependsOf(r)
+	let rev = graph.Reverse(d.Graph)
+	let mut seen = []bool{}
+	for _ in 0..len(r.Nodes) {
+		seen = seen.Append(false)
+	}
+	let mut out = []Reached{}
+	for c in changed {
+		if c >= 0 && c < len(r.Nodes) && !seen[c] {
+			seen[c] = true
+			out = out.Append(Reached{Node: c, By: Step{Kind: "", From: c, To: c}})
+		}
+	}
+	let mut head = 0
+	for head < len(out) {
+		let n = out[head].Node
+		head = head + 1
+		for m in graph.Succ(rev, n) {
+			if !seen[m] {
+				seen[m] = true
+				out = out.Append(Reached{Node: m, By: stepOf(d, m, n)})
+			}
+		}
+	}
+	out
+}
+
+// AffectedGrowsWithChanges: what one change affects, a larger change
+// affects too; each reached node's step leads to a node reached before
+// it (or it is changed).
+law AffectedGrowsWithChanges(seed int, size int, x int, y int) { affectedGrowsWithChanges(seed, size, x, y) }
+
+func affectedGrowsWithChanges(seed int, size int, x int, y int) bool {
+	let r = drawnRows(seed, size)
+	if len(r.Nodes) == 0 {
+		return true
+	}
+	let a = (x % len(r.Nodes) + len(r.Nodes)) % len(r.Nodes)
+	let b = (y % len(r.Nodes) + len(r.Nodes)) % len(r.Nodes)
+	let small = Affected(r, []int{a})
+	let large = Affected(r, []int{a, b})
+	let mut inLarge = Map[int, bool]{}
+	for got in large {
+		if got.By.Kind != "" && inLarge.Get(got.By.To) == None || got.By.Kind == "" && got.Node != a && got.Node != b {
+			return false
+		}
+		inLarge[got.Node] = true
+	}
+	for want in small {
+		if inLarge.Get(want.Node) == None {
+			return false
+		}
+	}
+	true
+}
+
+// WhyExistsIffAffected: a node depends on a changed node (Why is Some)
+// exactly when Affected reaches it.
+law WhyExistsIffAffected(seed int, size int, x int) { whyExistsIffAffected(seed, size, x) }
+
+func whyExistsIffAffected(seed int, size int, x int) bool {
+	let r = drawnRows(seed, size)
+	if len(r.Nodes) == 0 {
+		return true
+	}
+	let c = (x % len(r.Nodes) + len(r.Nodes)) % len(r.Nodes)
+	let mut reached = Map[int, bool]{}
+	for a in Affected(r, []int{c}) {
+		reached[a.Node] = true
+	}
+	for n in 0..len(r.Nodes) {
+		if (Why(r, n, c) != None) != (reached.Get(n) != None) {
+			return false
+		}
+	}
+	true
+}
+
+// Changed is the top-level declarations of new that old has no
+// declaration of the same name and tokens (digest) for, in id order: what
+// a change touched, for Affected. A name may name several declarations
+// (the providers of one operation), so a name and a digest are the key.
+func Changed(old Rows, new Rows) []int {
+	let mut before = Map[string, bool]{}
+	for i, n in old.Nodes {
+		if n.Kind == "decl" && n.Digest != "" {
+			before["\(NameOf(old, i)) \(n.Digest)"] = true
+		}
+	}
+	let mut out = []int{}
+	for i, n in new.Nodes {
+		if n.Kind == "decl" && n.Digest != "" && before.Get("\(NameOf(new, i)) \(n.Digest)") == None {
+			out = out.Append(i)
+		}
+	}
+	out
+}
+
+// ChangedIsTheEdit: the rows changed against themselves change nothing,
+// and with one declaration's tokens edited they change exactly it.
+law ChangedIsTheEdit(seed int, size int, x int) { changedIsTheEdit(seed, size, x) }
+
+func changedIsTheEdit(seed int, size int, x int) bool {
+	let r = drawnRows(seed, size)
+	if len(Changed(r, r)) != 0 {
+		return false
+	}
+	let k = (x % len(r.Nodes) + len(r.Nodes)) % len(r.Nodes)
+	if r.Nodes[k].Kind != "decl" || r.Nodes[k].Digest == "" {
+		return true
+	}
+	let mut nodes = r.Nodes
+	let mut edited = nodes[k]
+	edited.Digest = "edited"
+	nodes[k] = edited
+	Changed(r, Rows{Version: 1, Nodes: nodes, Edges: r.Edges}) == []int{k}
+}
+
+// HiddenUse is a use from a declaration of one package of a declaration
+// of another (Package) that no file of the first imports: through a
+// value of its type (a dot call), or through a let of a third package
+// that re-exports it (Via, -1 for none), and the use row's how
+// (a call, a field, a type, ...).
+type HiddenUse { From int, To int, Package int, Via int, How string }
+
+// Hidden is every hidden use of r, in edge row order: a use row whose
+// target's package no file of the user's package imports, and a use of a
+// re-exporting let, whose target's package no file of the user's
+// imports, at the let's target.
+func Hidden(r Rows) []HiddenUse {
+	let mut imported = Map[int, bool]{}
+	let width = len(r.Nodes)
+	let mut reexport = Map[int, int]{}
+	for e in r.Edges {
+		if e.Kind == "imports" {
+			imported[packageOf(r, e.From) * width + e.To] = true
+		}
+		if e.Kind == "reexports" {
+			reexport[e.From] = e.To
+		}
+	}
+	let mut out = []HiddenUse{}
+	for e in r.Edges {
+		if e.Kind != "uses" {
+			continue
+		}
+		let a = packageOf(r, e.From)
+		let c = packageOf(r, e.To)
+		if a >= 0 && c >= 0 && a != c && imported.Get(a * width + c) == None {
+			out = out.Append(HiddenUse{From: e.From, To: e.To, Package: c, Via: -1, How: e.How})
+		}
+		match reexport.Get(e.To) {
+		case Some[int] as t:
+			let d = packageOf(r, t.Value)
+			if a >= 0 && d >= 0 && a != d && imported.Get(a * width + d) == None {
+				out = out.Append(HiddenUse{From: e.From, To: t.Value, Package: d, Via: e.To, How: e.How})
+			}
+		case None:
+		}
+	}
+	out
+}
+
+// HiddenHasNoImport: no hidden use's package is one a file of its user's
+// package imports, and every use row from one package to another it does
+// not import is a hidden use.
+law HiddenHasNoImport(seed int, size int) { hiddenHasNoImport(seed, size) }
+
+func hiddenHasNoImport(seed int, size int) bool {
+	let r = drawnRows(seed, size)
+	let hidden = Hidden(r)
+	for h in hidden {
+		if imports(r, packageOf(r, h.From), h.Package) || packageOf(r, h.To) != h.Package {
+			return false
+		}
+	}
+	for e in r.Edges {
+		let a = packageOf(r, e.From)
+		let c = packageOf(r, e.To)
+		if e.Kind == "uses" && a != c && a >= 0 && c >= 0 && !imports(r, a, c) {
+			let mut found = false
+			for h in hidden {
+				found = found || h.From == e.From && h.To == e.To && h.Via < 0
+			}
+			if !found {
+				return false
+			}
+		}
+	}
+	true
+}
+
+// Chains is the import chains of at least min packages: for each package
+// no other imports, a longest chain of imports from it (graph.Chains over
+// the package level with tests), in the rows' ids.
+func Chains(r Rows, min int) [][]int {
+	let lg = LevelOf(r, Packages, true)
+	let mut out = [][]int{}
+	for c in graph.Chains(lg.Graph, min) {
+		out = out.Append(rowIds(lg, c))
+	}
+	out
+}
+
+// ChainsAreImports: each step of a chain is an import row, and a chain
+// holds at least min packages.
+law ChainsAreImports(seed int, size int, min int) { chainsAreImports(seed, size, min) }
+
+func chainsAreImports(seed int, size int, min int) bool {
+	let r = drawnRows(seed, size)
+	let atLeast = (min % 4 + 4) % 4
+	for c in Chains(r, atLeast) {
+		if len(c) < atLeast {
+			return false
+		}
+		for i in 1..len(c) {
+			if !imports(r, c[i - 1], c[i]) {
+				return false
+			}
+		}
+	}
+	true
+}
+
+// layerOf is the index of the first layer that names path: the path
+// itself, or with a trailing "/..." every path under its prefix; -1 when
+// none does.
+func layerOf(layers []string, path string) int {
+	for i, l in layers {
+		if l == path || strings.HasSuffix(l, "/...") && strings.HasPrefix(path, strings.TrimSuffix(l, "...")) {
+			return i
+		}
+	}
+	-1
+}
+
+// Up is each package import that goes up a declared layering: layers
+// lists package patterns from the top (the binaries) down, and an import
+// from a package to one of an earlier layer goes up. A package no layer
+// names is outside the layering. In edge row order, once per pair.
+func Up(r Rows, layers []string) []Step {
+	let lg = LevelOf(r, Packages, true)
+	let mut out = []Step{}
+	for e in graph.Edges(lg.Graph) {
+		let a = lg.Nodes[e.From]
+		let b = lg.Nodes[e.To]
+		let la = layerOf(layers, r.Nodes[a].Name)
+		let lb = layerOf(layers, r.Nodes[b].Name)
+		if la >= 0 && lb >= 0 && lb < la {
+			out = out.Append(Step{Kind: "imports", From: a, To: b})
+		}
+	}
+	out
+}
+
+// UpIsEmptyForAnOrder: when the packages have an order (no cycle), the
+// layering that lists them in that order has no import going up, and the
+// layering that lists them in the reverse order has every import between
+// two packages going up.
+law UpIsEmptyForAnOrder(seed int, size int) { upIsEmptyForAnOrder(seed, size) }
+
+func upIsEmptyForAnOrder(seed int, size int) bool {
+	let r = drawnRows(seed, size)
+	let lg = LevelOf(r, Packages, true)
+	match graph.Order(lg.Graph) {
+	case Some[[]int] as o:
+		let mut down = []string{}
+		for n in o.Value {
+			down = down.Append(r.Nodes[lg.Nodes[n]].Name)
+		}
+		len(Up(r, down)) == 0 && len(Up(r, slices.Reverse(down))) == len(graph.Edges(lg.Graph))
+	case None:
+		true
+	}
+}
+
+// FanRow is a node of a level and how many of the level's edges enter
+// and leave it.
+type FanRow { Node int, In int, Out int }
+
+// Fan is every node of level's fan, in the rows' id order.
+func Fan(r Rows, level Level, tests bool) []FanRow {
+	let lg = LevelOf(r, level, tests)
+	let f = graph.FanOf(lg.Graph)
+	let mut out = []FanRow{}
+	for i, n in lg.Nodes {
+		out = out.Append(FanRow{Node: n, In: f.In[i], Out: f.Out[i]})
+	}
+	out
+}
+
+// FanCountsImports: at the package level with tests, a package's fan out
+// is the packages its files import (other than itself), its fan in the
+// packages whose files import it, and both sum to the level's edges.
+law FanCountsImports(seed int, size int) { fanCountsImports(seed, size) }
+
+func fanCountsImports(seed int, size int) bool {
+	let r = drawnRows(seed, size)
+	let rows = Fan(r, Packages, true)
+	let mut ins = 0
+	let mut outs = 0
+	for f in rows {
+		let mut o = 0
+		let mut i = 0
+		for p in 0..len(r.Nodes) {
+			if r.Nodes[p].Kind == "package" && p != f.Node {
+				if imports(r, f.Node, p) {
+					o = o + 1
+				}
+				if imports(r, p, f.Node) {
+					i = i + 1
+				}
+			}
+		}
+		if o != f.Out || i != f.In {
+			return false
+		}
+		ins = ins + f.In
+		outs = outs + f.Out
+	}
+	ins == outs && ins == len(graph.Edges(LevelOf(r, Packages, true).Graph))
+}
+
+// Reduce is each package import that another import of the same package
+// already reaches (graph.Reduce over the package level with tests).
+func Reduce(r Rows) []Step {
+	let lg = LevelOf(r, Packages, true)
+	let mut out = []Step{}
+	for e in graph.Reduce(lg.Graph) {
+		out = out.Append(Step{Kind: "imports", From: lg.Nodes[e.From], To: lg.Nodes[e.To]})
+	}
+	out
+}
+
+// ReducedImportsKeepReach: dropping any one import Reduce names leaves
+// every package reaching what it reached.
+law ReducedImportsKeepReach(seed int, size int) { reducedImportsKeepReach(seed, size) }
+
+func reducedImportsKeepReach(seed int, size int) bool {
+	let r = drawnRows(seed, size)
+	let lg = LevelOf(r, Packages, true)
+	let mut before = [][]bool{}
+	for n in 0..lg.Graph.Size {
+		before = before.Append(graph.Reach(lg.Graph, []int{n}))
+	}
+	for s in Reduce(r) {
+		let mut kept = []graph.Edge{}
+		for e in graph.Edges(lg.Graph) {
+			if lg.Nodes[e.From] != s.From || lg.Nodes[e.To] != s.To {
+				kept = kept.Append(e)
+			}
+		}
+		let g = graph.Of(lg.Graph.Size, kept)
+		for n in 0..g.Size {
+			if graph.Reach(g, []int{n}) != before[n] {
+				return false
+			}
+		}
+	}
+	true
+}
+
+// Cohesion is the share, in thousandths, of the use rows from a
+// declaration of package pkg whose target is in pkg too; 1000 for a
+// package with no use.
+func Cohesion(r Rows, pkg int) int {
+	let mut inside = 0
+	let mut all = 0
+	for e in r.Edges {
+		if e.Kind == "uses" && packageOf(r, e.From) == pkg {
+			all = all + 1
+			if packageOf(r, e.To) == pkg {
+				inside = inside + 1
+			}
+		}
+	}
+	if all == 0 { 1000 } else { inside * 1000 / all }
+}
+
+// CohesionIsBounded: every package's cohesion is between 0 and 1000, it
+// is 1000 exactly when no use leaves the package, and 0 when every use
+// does.
+law CohesionIsBounded(seed int, size int) { cohesionIsBounded(seed, size) }
+
+func cohesionIsBounded(seed int, size int) bool {
+	let r = drawnRows(seed, size)
+	for p, n in r.Nodes {
+		if n.Kind != "package" {
+			continue
+		}
+		let c = Cohesion(r, p)
+		let mut leaves = 0
+		let mut stays = 0
+		for e in r.Edges {
+			if e.Kind == "uses" && packageOf(r, e.From) == p {
+				if packageOf(r, e.To) == p {
+					stays = stays + 1
+				} else {
+					leaves = leaves + 1
+				}
+			}
+		}
+		if c < 0 || c > 1000 || (c == 1000) != (leaves == 0) || stays == 0 && leaves > 0 && c != 0 {
+			return false
+		}
+	}
+	true
+}
+
+// drawnRows is the rows of a small program drawn from seed and size, for
+// the laws: a module of 1 to 4 packages, each of 1 or 2 files of 1 to 3
+// top-level declarations (a func, a test or a let), some with a member;
+// imports from files to other packages; uses between declarations (some
+// across packages with no import, some of a member); a task per test with
+// inputs; and a re-export from a let.
+func drawnRows(seed int, size int) Rows {
+	let mut x = (seed % 2147483648 + 2147483648) % 2147483648
+	let mut nodes = []NodeRow{nodeRow(0, "module", "", -1, "m")}
+	let pkgs = (size % 4 + 4) % 4 + 1
+	let mut decls = []int{}
+	let mut files = []int{}
+	let mut packages = []int{}
+	for p in 0..pkgs {
+		let pid = len(nodes)
+		packages = packages.Append(pid)
+		nodes = nodes.Append(nodeRow(pid, "package", "", 0, "m/p\(p)"))
+		x = next(x)
+		for f in 0..(x / 16) % 2 + 1 {
+			let fid = len(nodes)
+			files = files.Append(fid)
+			nodes = nodes.Append(nodeRow(fid, "file", "", pid, "p\(p)/f\(f).ergo"))
+			x = next(x)
+			for d in 0..(x / 16) % 3 + 1 {
+				x = next(x)
+				let sub = []string{"func", "test", "let"}[(x / 16) % 3]
+				let did = len(nodes)
+				decls = decls.Append(did)
+				let mut row = nodeRow(did, "decl", sub, fid, "D\(d)")
+				row.Digest = "t\(x % 97)"
+				nodes = nodes.Append(row)
+				x = next(x)
+				if (x / 16) % 3 == 0 {
+					let mid = len(nodes)
+					decls = decls.Append(mid)
+					nodes = nodes.Append(nodeRow(mid, "decl", "field", did, "D\(d).M"))
+				}
+			}
+		}
+	}
+	let mut edges = []EdgeRow{}
+	for f in files {
+		for p in packages {
+			x = next(x)
+			if p != packageOf(Rows{Version: 1, Nodes: nodes, Edges: edges}, f) && (x / 16) % 3 == 0 {
+				edges = edges.Append(edgeRow("imports", "", f, p))
+			}
+		}
+	}
+	x = next(x)
+	for _ in 0..(x / 16) % (2 * len(decls) + 1) {
+		x = next(x)
+		let a = decls[(x / 16) % len(decls)]
+		x = next(x)
+		let b = decls[(x / 16) % len(decls)]
+		edges = edges.Append(edgeRow("uses", "call", a, b))
+	}
+	for d in decls {
+		if nodes[d].Sub == "test" {
+			let tid = len(nodes)
+			let mut task = nodeRow(tid, "task", "test", packageOf(Rows{Version: 1, Nodes: nodes, Edges: edges}, d), "test \(nodes[d].Name)")
+			task.Subject = d
+			nodes = nodes.Append(task)
+			edges = edges.Append(edgeRow("input", "", tid, d))
+			x = next(x)
+			edges = edges.Append(edgeRow("input", "", tid, decls[(x / 16) % len(decls)]))
+		}
+		if nodes[d].Sub == "let" {
+			x = next(x)
+			if (x / 16) % 2 == 0 {
+				edges = edges.Append(edgeRow("reexports", "", d, decls[(x / 16) % len(decls)]))
+			}
+		}
+	}
+	Rows{Version: 1, Nodes: nodes, Edges: edges}
+}
+
+// next is the generator's next state.
+func next(x int) int { (x * 1103515245 + 12345) % 2147483648 }
+
+func nodeRow(id int, kind string, sub string, parent int, name string) NodeRow {
+	NodeRow{Id: id, Kind: kind, Sub: sub, Parent: parent, Name: name, Digest: "", Subject: -1, File: -1, Offset: 0, Line: 0, Column: 0}
+}
+
+func edgeRow(kind string, how string, from int, to int) EdgeRow {
+	EdgeRow{Kind: kind, How: how, From: from, To: to, File: -1, Offset: 0, Line: 0, Column: 0}
+}

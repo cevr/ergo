@@ -147,12 +147,48 @@ func AppendPoison[T any](xs []T, x T) []T {
 	return out
 }
 
+// SlicesInsert is xs with ys before index i, in a new array: Go's
+// slices.Insert(xs, i, ys...) writes xs's array when it has room, so the
+// body concatenates instead, and the result shares no array with xs or
+// ys. An i outside 0..len(xs) panics, as Go's does: a defect.
+//
+//ergo:pure
+//ergo:wait none
+func SlicesInsert[T any](xs []T, i int, ys []T) []T { return slices.Concat(xs[:i:i], ys, xs[i:]) }
+
+// SlicesDelete is xs without xs[i:j], in a new array: Go's
+// slices.Delete(xs, i, j) shifts xs's own elements and zeroes its tail, so
+// the body concatenates instead. A bound outside 0..len(xs), or an i after
+// j, panics: a defect.
+//
+//ergo:pure
+//ergo:wait none
+func SlicesDelete[T any](xs []T, i int, j int) []T {
+	_ = xs[i:j]
+	return slices.Concat(xs[:i:i], xs[j:])
+}
+
 // SlicesRepeat is slices.Repeat(xs, n): xs n times over, in a new array.
 // A negative n, or a length past int, panics, as Go's does: a defect.
 //
 //ergo:pure
 //ergo:wait none
 func SlicesRepeat[T any](xs []T, n int) []T { return slices.Repeat(xs, n) }
+
+// SlicesFill is slices.Repeat(xs, n) written into out, which the caller
+// makes with length len(xs)*n, a constant (wf10 OWN1 PA3): the caller's
+// make of constant length stays on its stack when the result does not
+// escape, as hand Go's `var a [12]int` does. xs is not kept. It returns
+// out.
+//
+//ergo:pure
+//ergo:wait none
+func SlicesFill[T any](out []T, xs []T) []T {
+	for i := 0; i < len(out); i += len(xs) {
+		copy(out[i:], xs)
+	}
+	return out
+}
 
 // SlicesSlice is xs[i:j:j], the full slice expression: no room after j,
 // so an append to the result copies and never writes xs[j]. A bound out

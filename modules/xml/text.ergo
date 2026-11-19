@@ -208,6 +208,10 @@ func String(t *text, s string) {
 	t.close()
 }
 
+// StringBytes writes the string whose bytes are b, as String does (the
+// prelude Writer's StringBytes, GX10).
+func StringBytes(t *text, b []byte) { t.String(utf8.String(b)) }
+
 func BeginList(t *text, n int) {
 	t.enter()
 	t.nest(true)

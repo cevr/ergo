@@ -1,0 +1,336 @@
+// The rule of a zone after its table's last change: the POSIX TZ string
+// at the end of a TZif file (RFC 8536 3.3), such as EST5EDT,M3.2.0,M11.1.0.
+// It is read and applied as Go's time package applies it (tzset), so a
+// zone read here and the same bytes read by Go give one offset at every
+// instant; TestStdTzMatchesGo holds the two equal.
+
+import strings
+
+// rule is a zone's offsets after its last change: none, one offset, or a
+// standard and a daylight saving offset with the two days a year that
+// start and end daylight saving time.
+type rule = noRule | always | seasonal
+
+// noRule is a zone with no rule: its last change's offset holds after it.
+type noRule {}
+
+// always is a rule with one offset.
+type always { Offset Offset }
+
+// seasonal is a rule with daylight saving time from Start to End each
+// year, in the offsets in force before each.
+type seasonal { Std Offset, Dst Offset, Start when, End when }
+
+// when is a change of a rule: a day of the year and the local time of day
+// in seconds, which may be negative or past 24 hours.
+type when { On day, Time int }
+
+// day is a day of a rule: Jn (1 to 365, 29 February never counted), n (0
+// to 365, counted) or Mm.w.d (weekday d of week w of month m, week 5 the
+// last).
+type day = julian | ordinal | weekday
+
+type julian { Day int }
+
+type ordinal { Day int }
+
+type weekday { Month int, Week int, Weekday int }
+
+// parseRule is the rule the TZ string s states, or noRule when s is empty
+// or is not a TZ string, where Go's tzset ignores it the same way.
+func parseRule(s string) rule {
+	if len(s) == 0 {
+		return noRule
+	}
+	let stdName, a = ruleName(s, 0)
+	if a < 0 {
+		return noRule
+	}
+	let stdOff, b = ruleOffset(s, a)
+	if b < 0 {
+		return noRule
+	}
+	let std = Offset{Seconds: -stdOff, DST: false, Abbreviation: stdName}
+	if b == len(s) || s[b] == ',' {
+		return always{Offset: std}
+	}
+	let dstName, c = ruleName(s, b)
+	if c < 0 {
+		return noRule
+	}
+	let mut dstOff = stdOff - 3600
+	let mut d = c
+	if c < len(s) && s[c] != ',' {
+		let o, e = ruleOffset(s, c)
+		if e < 0 {
+			return noRule
+		}
+		dstOff = o
+		d = e
+	}
+	let dst = Offset{Seconds: -dstOff, DST: true, Abbreviation: dstName}
+	let rest = if d == len(s) { ",M3.2.0,M11.1.0" } else { strings.Slice(s, d, len(s)) }
+	if rest[0] != ',' && rest[0] != ';' {
+		return noRule
+	}
+	let start, f = ruleWhen(rest, 1)
+	if f < 0 || f == len(rest) || rest[f] != ',' {
+		return noRule
+	}
+	let end, g = ruleWhen(rest, f + 1)
+	if g != len(rest) {
+		return noRule
+	}
+	seasonal{Std: std, Dst: dst, Start: start, End: end}
+}
+
+// ruleName reads a zone abbreviation of s from i: three or more bytes up
+// to a digit, a comma or a sign, or a quoted <...>. It gives the name and
+// the index after it, or -1.
+func ruleName(s string, i int) (string, int) {
+	if i >= len(s) {
+		return ("", -1)
+	}
+	if s[i] == '<' {
+		for j in i + 1..len(s) {
+			if s[j] == '>' {
+				return (strings.Slice(s, i + 1, j), j + 1)
+			}
+		}
+		return ("", -1)
+	}
+	for j in i..len(s) {
+		let c = s[j]
+		if c >= '0' && c <= '9' || c == ',' || c == '-' || c == '+' {
+			if j - i < 3 {
+				return ("", -1)
+			}
+			return (strings.Slice(s, i, j), j)
+		}
+	}
+	if len(s) - i < 3 {
+		return ("", -1)
+	}
+	(strings.Slice(s, i, len(s)), len(s))
+}
+
+// ruleNumber reads decimal digits of s from i, at least one, whose value
+// is lo to hi. It gives the number and the index after it, or -1.
+func ruleNumber(s string, i int, lo int, hi int) (int, int) {
+	let mut n = 0
+	let mut j = i
+	for j < len(s) && s[j] >= '0' && s[j] <= '9' {
+		n = n * 10 + int(s[j] - '0')
+		if n > hi {
+			return (0, -1)
+		}
+		j += 1
+	}
+	if j == i || n < lo {
+		return (0, -1)
+	}
+	(n, j)
+}
+
+// ruleOffset reads [+-]hh[:mm[:ss]] of s from i, hours up to 167 as Go
+// allows. It gives the seconds, west of UTC as TZ strings count them,
+// and the index after it, or -1.
+func ruleOffset(s string, i int) (int, int) {
+	if i >= len(s) {
+		return (0, -1)
+	}
+	let neg = s[i] == '-'
+	let at = if s[i] == '-' || s[i] == '+' { i + 1 } else { i }
+	let h, a = ruleNumber(s, at, 0, 24 * 7)
+	if a < 0 {
+		return (0, -1)
+	}
+	let mut off = h * 3600
+	let mut j = a
+	if j < len(s) && s[j] == ':' {
+		let m, b = ruleNumber(s, j + 1, 0, 59)
+		if b < 0 {
+			return (0, -1)
+		}
+		off += m * 60
+		j = b
+		if j < len(s) && s[j] == ':' {
+			let sec, c = ruleNumber(s, j + 1, 0, 59)
+			if c < 0 {
+				return (0, -1)
+			}
+			off += sec
+			j = c
+		}
+	}
+	(if neg { -off } else { off }, j)
+}
+
+// ruleWhen reads a change of s from i: Jn, n or Mm.w.d, then /time (2:00
+// when absent). It gives the change and the index after it, or -1.
+func ruleWhen(s string, i int) (when, int) {
+	let none = when{On: ordinal{Day: 0}, Time: 0}
+	if i >= len(s) {
+		return (none, -1)
+	}
+	let mut on = none.On
+	let mut j = i
+	if s[i] == 'J' {
+		let n, a = ruleNumber(s, i + 1, 1, 365)
+		if a < 0 {
+			return (none, -1)
+		}
+		on = julian{Day: n}
+		j = a
+	} else if s[i] == 'M' {
+		let m, a = ruleNumber(s, i + 1, 1, 12)
+		if a < 0 || a == len(s) || s[a] != '.' {
+			return (none, -1)
+		}
+		let w, b = ruleNumber(s, a + 1, 1, 5)
+		if b < 0 || b == len(s) || s[b] != '.' {
+			return (none, -1)
+		}
+		let d, c = ruleNumber(s, b + 1, 0, 6)
+		if c < 0 {
+			return (none, -1)
+		}
+		on = weekday{Month: m, Week: w, Weekday: d}
+		j = c
+	} else {
+		let n, a = ruleNumber(s, i, 0, 365)
+		if a < 0 {
+			return (none, -1)
+		}
+		on = ordinal{Day: n}
+		j = a
+	}
+	if j == len(s) || s[j] != '/' {
+		return (when{On: on, Time: 7200}, j)
+	}
+	let t, k = ruleOffset(s, j + 1)
+	if k < 0 {
+		return (none, -1)
+	}
+	(when{On: on, Time: t}, k)
+}
+
+// ruleOffsetAt is the offset r gives at the Unix second sec, as Go's
+// tzset gives it: the changes of the UTC year of sec, Start in the
+// standard offset and End in the daylight saving one; when End comes
+// first in the year (the southern hemisphere), the year is daylight
+// saving time outside them.
+func ruleOffsetAt(r rule, sec int64) Option[Offset] {
+	match r {
+	case noRule:
+		None
+	case always as a:
+		Some{a.Offset}
+	case seasonal as s:
+		let y, yday = yearAndDay(floorDiv(sec, 86400))
+		let ysec = yday * 86400 + (sec - floorDiv(sec, 86400) * 86400)
+		let start = ruleTime(y, s.Start, s.Std.Seconds)
+		let end = ruleTime(y, s.End, s.Dst.Seconds)
+		if end < start {
+			Some{if ysec < end || ysec >= start { s.Dst } else { s.Std }}
+		} else {
+			Some{if ysec < start || ysec >= end { s.Std } else { s.Dst }}
+		}
+	}
+}
+
+// ruleBound is the k-th of the UTC instants, in Unix seconds, at which
+// ruleOffsetAt can change within year y: the start of y (k = 0) and, for
+// a seasonal rule, its two changes (k = 1, 2). ruleBoundCount is how many
+// there are.
+func ruleBound(r rule, y int64, k int) int64 {
+	let ystart = daysFromCivil(y, 1, 1) * 86400
+	match r {
+	case seasonal as s:
+		if k == 1 {
+			ystart + ruleTime(y, s.Start, s.Std.Seconds)
+		} else if k == 2 {
+			ystart + ruleTime(y, s.End, s.Dst.Seconds)
+		} else {
+			ystart
+		}
+	case noRule, always:
+		ystart
+	}
+}
+
+func ruleBoundCount(r rule) int {
+	match r {
+	case seasonal:
+		3
+	case noRule, always:
+		1
+	}
+}
+// ruleTime is the seconds from the start of year y, in UTC, to the change
+// w, whose time of day is in the offset off: Go's tzruleTime.
+func ruleTime(y int64, w when, off int) int64 {
+	let d = match w.On {
+	case julian as j:
+		int64(j.Day - 1) + (if isLeap(y) && j.Day >= 60 { int64(1) } else { int64(0) })
+	case ordinal as o:
+		int64(o.Day)
+	case weekday as k:
+		// The weekday of the month's first day, then the k.Week-th
+		// k.Weekday, the last when the month has no k.Week-th.
+		let first = floorMod(daysFromCivil(y, int64(k.Month), 1) + 4, 7)
+		let mut dd = int64(k.Weekday) - first
+		if dd < 0 {
+			dd += 7
+		}
+		let n = monthDays(y, int64(k.Month))
+		let mut i = 1
+		for i < k.Week && dd + 7 < n {
+			dd += 7
+			i += 1
+		}
+		dd + daysFromCivil(y, int64(k.Month), 1) - daysFromCivil(y, 1, 1)
+	}
+	d * 86400 + int64(w.Time) - int64(off)
+}
+
+// isLeap reports whether year y of the proleptic Gregorian calendar has
+// 366 days.
+func isLeap(y int64) bool { y % 4 == 0 && (y % 100 != 0 || y % 400 == 0) }
+
+// monthDays is the number of days of month m of year y.
+func monthDays(y int64, m int64) int64 {
+	if m == 2 {
+		return if isLeap(y) { 29 } else { 28 }
+	}
+	if m == 4 || m == 6 || m == 9 || m == 11 { 30 } else { 31 }
+}
+
+// floorMod is a mod b in 0 to b-1; b > 0.
+func floorMod(a int64, b int64) int64 { a - floorDiv(a, b) * b }
+
+// daysFromCivil is the day number from 1970-01-01 of y-m-d (Howard
+// Hinnant's days_from_civil), for every year.
+func daysFromCivil(y int64, m int64, d int64) int64 {
+	let yy = if m <= 2 { y - 1 } else { y }
+	let era = floorDiv(yy, 400)
+	let yoe = yy - era * 400
+	let mp = if m > 2 { m - 3 } else { m + 9 }
+	let doy = (153 * mp + 2) / 5 + d - 1
+	let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy
+	era * 146097 + doe - 719468
+}
+
+// yearAndDay is the year of the day number n and its day of the year from
+// 0 (Hinnant's civil_from_days), for every n.
+func yearAndDay(n int64) (int64, int64) {
+	let z = n + 719468
+	let era = floorDiv(z, 146097)
+	let doe = z - era * 146097
+	let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365
+	let doy = doe - (365 * yoe + yoe / 4 - yoe / 100)
+	let mp = (5 * doy + 2) / 153
+	let m = if mp < 10 { mp + 3 } else { mp - 9 }
+	let y = yoe + era * 400 + (if m <= 2 { int64(1) } else { int64(0) })
+	(y, n - daysFromCivil(y, 1, 1))
+}

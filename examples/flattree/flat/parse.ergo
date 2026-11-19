@@ -1,5 +1,6 @@
 import flattree/dense
 import flattree/tree
+import slices
 import strconv
 import strings
 
@@ -189,7 +190,10 @@ func array(r *reader) {
 		return
 	}
 	let src = r.t.src
-	let mut items = []dense.ID[Node]{}
+	// Room for a typical container's children: gathering them grows no
+	// slice. (dense.Stack with marks, a scratch stack shared by every
+	// container as the control has, comes with std dense.)
+	let mut items = slices.WithCapacity[dense.ID[Node]](8)
 	if r.pos < len(src) && src[r.pos] == ']' {
 		r.pos += 1
 		r.depth -= 1
@@ -227,7 +231,8 @@ func object(r *reader) {
 		return
 	}
 	let src = r.t.src
-	let mut members = []Member{}
+	// Room for a typical object's members, as array's items.
+	let mut members = slices.WithCapacity[Member](8)
 	if r.pos < len(src) && src[r.pos] == '}' {
 		r.pos += 1
 		r.depth -= 1

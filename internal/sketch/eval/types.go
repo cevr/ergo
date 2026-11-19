@@ -18,6 +18,9 @@ type tenv struct {
 	// generic declaration has few, so a scan finds one (ORACLE O33).
 	tps  []*check.TypeParam
 	args []rtype
+	// wits are the operation witnesses of the call's constrained type
+	// parameters (witness.go), nil for most calls.
+	wits map[*check.TypeParam]*witnessV
 }
 
 // bind makes tp stand for r.
@@ -263,7 +266,9 @@ func zeroOf(r rtype) (Value, bool) {
 	u := r.under()
 	switch t := u.t.(type) {
 	case *check.Slice:
-		return newSlice(nil), true
+		s := newSlice(nil)
+		s.b.elem = goSize(rtype{t.Elem, u.env})
+		return s, true
 	case *check.Map:
 		return newMap(), true
 	case *check.Array:
@@ -277,6 +282,7 @@ func zeroOf(r rtype) (Value, bool) {
 		}
 		s := newSlice(elems)
 		s.array = true
+		s.b.elem = goSize(rtype{t.Elem, u.env})
 		return s, true
 	case *check.Struct:
 		n, ok := r.t.(*check.Named)

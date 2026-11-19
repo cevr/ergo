@@ -8,6 +8,7 @@
 
 import strings
 import sync
+import utf8
 
 extern go ergo.local/prototype/runtime/v1/http.HTTPListenFailed type ListenFailed { Addr string, Reason string }
 extern go ergo.local/prototype/runtime/v1/http.HTTPInvalidLimits type InvalidLimits { MaxBodyBytes int, MaxHeaderBytes int, IdleTimeout duration, ReadHeaderTimeout duration, ReadBodyTimeout duration }
@@ -111,6 +112,17 @@ func Write(w BodyWriter, text string) fails WriteFailed { try w.put(text) }
 type Streaming {
 	open(status int, header []Field) BodyWriter,
 	close() string,
+	reply(status int, header []Field, body []byte) string,
+}
+
+// SendBytes answers the request with status, header and body, of body's
+// length. Under Serve it writes body to the connection where it is, with
+// no string of it, and the result's Body is empty; under a Recorder the
+// Body is body's text. A response that has started (a Stream or a
+// SendBytes before) is a defect. json.EncodeWith lends a value's text as
+// bytes, so a JSON body is written once, into a pooled buffer (GX9).
+func SendBytes(status int, header []Field, body []byte) Response needs Streaming {
+	Response{Status: status, Header: header, Body: Streaming.reply(status, header, body)}
 }
 
 // Stream answers the request with status and header, then a body that
@@ -138,6 +150,9 @@ extern go ergo.local/prototype/runtime/v1/http.Exchange type Exchange {
 	Begin(status int, header []Field),
 	Write(text string) fails WriteFailed,
 	End(),
+	// Send writes status, header and body as the whole response, with its
+	// length.
+	Send(status int, header []Field, body []byte),
 }
 
 // live is Serve's Streaming provider for one request.
@@ -150,6 +165,11 @@ func open(l live, status int, header []Field) BodyWriter {
 
 func close(l live) string {
 	l.x.End()
+	""
+}
+
+func reply(l live, status int, header []Field, body []byte) string {
+	l.x.Send(status, header, body)
 	""
 }
 
@@ -178,4 +198,12 @@ func open(r Recorder, status int, header []Field) BodyWriter {
 func close(r Recorder) string {
 	r.state.Set(2)
 	r.text.Get()
+}
+
+func reply(r Recorder, status int, header []Field, body []byte) string {
+	if r.state.Get() != 0 {
+		Unreachable("http.SendBytes: the response has already started")
+	}
+	r.state.Set(2)
+	utf8.String(body)
 }

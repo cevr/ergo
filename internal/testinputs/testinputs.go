@@ -49,6 +49,19 @@ const ToolDigest = testenv.ToolDigest
 // runs twice, in the observing process and in the test process.
 func Main(m *testing.M) int { return MainFunc(m, m.Run) }
 
+// makesNamespaces is set by MakesNamespaces.
+var makesNamespaces bool
+
+// MakesNamespaces declares, before Main or MainFunc in TestMain, that the
+// package's tests make user namespaces (a sandbox, unshare, bwrap). Such a
+// package does not record its run for the closure sweep (RecordVariable):
+// the record's view, the sweep's (no user namespace), would make those
+// tests fail or skip, so the run would no longer test what it tests. The
+// sweep runs the package itself. internal/residue's
+// TestNamespaceTestsDeclareIt finds a package that makes namespaces
+// without saying so.
+func MakesNamespaces() { makesNamespaces = true }
+
 // MainFunc is Main for a TestMain that prepares the test process: run does
 // the preparation, calls m.Run and returns its exit code. It runs only in
 // the process that runs the tests.
@@ -58,12 +71,40 @@ func Main(m *testing.M) int { return MainFunc(m, m.Run) }
 // downloads its pinned Go (internal/toolchain), so no test needs the
 // network. A caller's ERGO_GO stands.
 func MainFunc(m *testing.M, run func() int) int {
+	log := testLog(os.Args[1:])
+	if base := os.Getenv(RecordVariable); base != "" && !observed && impostor == "" && log == "" && !makesNamespaces {
+		if why := boxRecording(); why != "" {
+			fmt.Fprintln(os.Stderr, "testinputs: the recorded run lacks the sweep's view, so the sweep will run these tests itself:", why)
+		}
+		r, recordLog, err := startRecording(base)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "testinputs: record the run:", err)
+			return 1
+		}
+		return r.finish(mainFunc(run, recordLog))
+	}
+	// The record is the recording process's alone. The process its observer
+	// runs the tests in (observed) drops the variable, so the tests see the
+	// environment of a swept run, and a test binary they start again does
+	// not record itself under the observer's filter, where its namespace
+	// probe would end the observation ("unobserved: clone").
+	os.Unsetenv(RecordVariable)
+	return mainFunc(run, log)
+}
+
+// mainFunc is MainFunc after the record's preparation, with the test log
+// cmd/go or the record passed.
+func mainFunc(run func() int, log string) int {
 	if _, set := os.LookupEnv("ERGO_GO"); !set {
 		os.Setenv("ERGO_GO", "system")
 	}
 	run = withPrivateCache(run)
+	// A test's `ergo test DIR/...` whose module test binary does not build
+	// fails instead of testing each package alone (cmd/ergo, TEST-one).
+	if _, set := os.LookupEnv("ERGO_SHARED_FALLBACK"); !set {
+		os.Setenv("ERGO_SHARED_FALLBACK", "fail")
+	}
 	raiseOOMScore()
-	log := testLog(os.Args[1:])
 	if observed || log == "" {
 		return run() // the observed test process, or cmd/go is not caching
 	}
