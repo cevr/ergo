@@ -35,7 +35,8 @@ type typeInfo { closer bool, variants []string, params []string, own []bool }
 // parameter of the declaration fills; in the Go checker's order. A type
 // of the package prints unqualified, as the Go checker's message writes it.
 func OwnMarks(s store.Store, k expr.Pkg, t expr.Typer) []Diag {
-	let infos = typeInfos(k)
+	let (infos, names) = typeInfos(k)
+	let res = resources(s, k, infos, names)
 	let mut out = []Diag{}
 	for c in t.Insts {
 		let caller = k.Fns[c.Fn]
@@ -43,7 +44,7 @@ func OwnMarks(s store.Store, k expr.Pkg, t expr.Typer) []Diag {
 		for i, a in c.Args {
 			// A row parameter, and one whose mark the callee does not
 			// say, admits any argument.
-			if i >= len(callee.Rows) || callee.Rows[i] || i >= len(callee.Own) || callee.Own[i] || !holds(s, k, infos, caller.Own, a, []string{}) {
+			if i >= len(callee.Rows) || callee.Rows[i] || i >= len(callee.Own) || callee.Own[i] || !holds(s, k, res, caller.Own, a) {
 				continue
 			}
 			let (f, row) = bind.RowOf(k.Ps, c.Call)
@@ -59,15 +60,17 @@ func OwnMarks(s store.Store, k expr.Pkg, t expr.Typer) []Diag {
 	}
 	for f, p in k.Parsed {
 		if !p.Failed {
-			out = typeMarks(s, k, p, f, infos, out)
+			out = typeMarks(s, k, res, p, f, infos, out)
 		}
 	}
 	Sorted(out)
 }
 
-// typeInfos is each type declaration of the package by its name.
-func typeInfos(k expr.Pkg) Map[string, typeInfo] {
+// typeInfos is each type declaration of the package by its name, and the
+// names in declaration order.
+func typeInfos(k expr.Pkg) (Map[string, typeInfo], []string) {
 	let mut out = Map[string, typeInfo]{}
+	let mut names = []string{}
 	for p in k.Parsed {
 		if p.Failed {
 			continue
@@ -102,25 +105,25 @@ func typeInfos(k expr.Pkg) Map[string, typeInfo] {
 					([]string{}, []bool{})
 				}
 				out[textAt(p, td.Name)] = typeInfo{closer: closer, variants: variants, params: params, own: own}
+				names = names.Append(textAt(p, td.Name))
 			case _:
 			}
 		}
 	}
-	out
+	(out, names)
 }
 
 // holds is whether t holds a resource, as far as this part reads (see the
 // package comment above): own marks the caller's type parameters that
-// count as one, and path the names whose walk is open, so a recursive
-// type holds one only when a member does directly (resources R13).
-func holds(s store.Store, k expr.Pkg, infos Map[string, typeInfo], own []bool, t dense.ID[store.TKey], path []string) bool {
+// count as one, and res is the package's types that hold one (resources).
+func holds(s store.Store, k expr.Pkg, res Map[string, bool], own []bool, t dense.ID[store.TKey]) bool {
 	let kind = store.KindOfType(s, t)
 	if kind == store.KParam {
 		let i = store.ArgOf(s, t)
 		return i < len(own) && own[i]
 	}
 	if kind == store.KNamed {
-		return named(s, k, infos, store.TypeNameText(s, store.ArgOf(s, t)), path)
+		return holder(res, store.TypeNameText(s, store.ArgOf(s, t)))
 	}
 	if kind == store.KInstance {
 		let o = store.OriginOfType(s, t)
@@ -129,20 +132,30 @@ func holds(s store.Store, k expr.Pkg, infos Map[string, typeInfo], own []bool, t
 			return false
 		}
 		for a in store.OperandsOf(s, t) {
-			if holds(s, k, infos, own, a, path) {
+			if holds(s, k, res, own, a) {
 				return true
 			}
 		}
-		return local && named(s, k, infos, store.DeclText(s, int(o.Decl)), path)
+		return local && holder(res, store.DeclText(s, int(o.Decl)))
 	}
 	if kind == store.KSlice || kind == store.KArray || kind == store.KMap || kind == store.KTuple || kind == store.KRowValue {
 		for a in store.OperandsOf(s, t) {
-			if holds(s, k, infos, own, a, path) {
+			if holds(s, k, res, own, a) {
 				return true
 			}
 		}
 	}
 	false
+}
+
+// holder is whether res says the package's type name holds a resource.
+func holder(res Map[string, bool], name string) bool {
+	match res.Get(name) {
+	case Some[bool] as h:
+		h.Value
+	case None:
+		false
+	}
 }
 
 // language is whether the foreign origin o is a language type whose
@@ -156,37 +169,57 @@ func language(k expr.Pkg, o store.XRef) bool {
 	(f.Path == "prelude" && (f.Name == "Option" || f.Name == "Some")) || (f.Qual == "go" && f.Name == "Ref")
 }
 
-// named is whether the package's type name holds a resource: it
-// implements Closer, or a field of its record, or of a record a variant
-// of its union names, holds one. Its bracket parameters count as plain
-// data: the instance's arguments are read apart.
-func named(s store.Store, k expr.Pkg, infos Map[string, typeInfo], name string, path []string) bool {
-	if slices.Contains(path, name) {
-		return false
-	}
-	let inner = path.Append(name)
-	match infos.Get(name) {
-	case Some[typeInfo] as ti:
-		if ti.Value.closer {
-			return true
-		}
-		for v in ti.Value.variants {
-			if v != name && named(s, k, infos, v, inner) {
-				return true
+// resources is each type name of the package that holds a resource: one
+// that implements Closer, a record a field of which holds one, a union a
+// variant of which does (resources R1, R13). It is the least fixpoint, so
+// a recursive type holds one only when a member does directly; a generic
+// declaration's own parameters count as plain data here (an instance's
+// arguments are read apart). Solved once, each pass reads every field and
+// variant once.
+func resources(s store.Store, k expr.Pkg, infos Map[string, typeInfo], names []string) Map[string, bool] {
+	let mut res = Map[string, bool]{}
+	for name in names {
+		match infos.Get(name) {
+		case Some[typeInfo] as ti:
+			if ti.Value.closer {
+				res[name] = true
 			}
+		case None:
 		}
-	case None:
 	}
-	for r in k.Recs {
-		if r.Name == name && !r.Op {
+	let mut changed = true
+	for changed {
+		changed = false
+		for r in k.Recs {
+			if r.Op || holder(res, r.Name) {
+				continue
+			}
 			for fd in r.Fields {
-				if holds(s, k, infos, []bool{}, fd.T, inner) {
-					return true
+				if holds(s, k, res, []bool{}, fd.T) {
+					res[r.Name] = true
+					changed = true
+					break
 				}
 			}
 		}
+		for name in names {
+			if holder(res, name) {
+				continue
+			}
+			match infos.Get(name) {
+			case Some[typeInfo] as ti:
+				for v in ti.Value.variants {
+					if v != name && holder(res, v) {
+						res[name] = true
+						changed = true
+						break
+					}
+				}
+			case None:
+			}
+		}
 	}
-	false
+	res
 }
 
 // typeMarks adds to out the S108s of the generic types of the package
@@ -201,7 +234,7 @@ func named(s store.Store, k expr.Pkg, infos Map[string, typeInfo], name string, 
 //     package.
 // An argument is read from its syntax: a name, an instance, a slice, an
 // array or a Map; an imported generic type is not read yet.
-func typeMarks(s store.Store, k expr.Pkg, p syntax.Parsed, f int, infos Map[string, typeInfo], out0 []Diag) []Diag {
+func typeMarks(s store.Store, k expr.Pkg, res Map[string, bool], p syntax.Parsed, f int, infos Map[string, typeInfo], out0 []Diag) []Diag {
 	let mut out = out0
 	// The generic declarations of the file: their span and their
 	// parameters with their marks.
@@ -252,7 +285,7 @@ func typeMarks(s store.Store, k expr.Pkg, p syntax.Parsed, f int, infos Map[stri
 			let tp = gi.params[j]
 			if !gi.own[j] {
 				let text = typeText(p, a)
-				if text != "" && synHolds(s, k, p, infos, encl, a) {
+				if text != "" && synHolds(s, k, res, p, infos, encl, a) {
 					out = out.Append(Diag{File: f, Offset: at, Length: syntax.NodeEnd(p, x) - at, Code: CodeType, Message: "\(g) cannot take \(text) as its \(tp): \(tp) is not marked own, so it binds plain data only; write [\(tp) own] where \(g) declares it, which holds its body to a resource's rules (types.md, Generics 9)"})
 				}
 				continue
@@ -273,7 +306,7 @@ func typeMarks(s store.Store, k expr.Pkg, p syntax.Parsed, f int, infos Map[stri
 
 // synHolds is holds on the type expression x of the file p, written in
 // the generic declaration encl (none: no parameters).
-func synHolds(s store.Store, k expr.Pkg, p syntax.Parsed, infos Map[string, typeInfo], encl span, x dense.ID[syntax.Node]) bool {
+func synHolds(s store.Store, k expr.Pkg, res Map[string, bool], p syntax.Parsed, infos Map[string, typeInfo], encl span, x dense.ID[syntax.Node]) bool {
 	match syntax.ViewOf(p.Tree, x) {
 	case syntax.Name:
 		let name = textAt(p, x)
@@ -281,7 +314,7 @@ func synHolds(s store.Store, k expr.Pkg, p syntax.Parsed, infos Map[string, type
 		if qi >= 0 {
 			return qi < len(encl.own) && encl.own[qi]
 		}
-		named(s, k, infos, name, []string{})
+		holder(res, name)
 	case syntax.IndexExpr as ix:
 		if syntax.KindOf(p.Tree, ix.X) != syntax.KIdent {
 			return false
@@ -292,17 +325,17 @@ func synHolds(s store.Store, k expr.Pkg, p syntax.Parsed, infos Map[string, type
 			return false
 		}
 		for j in 0..syntax.Len(ix.Indices) {
-			if synHolds(s, k, p, infos, encl, syntax.Item(p.Tree, ix.Indices, j)) {
+			if synHolds(s, k, res, p, infos, encl, syntax.Item(p.Tree, ix.Indices, j)) {
 				return true
 			}
 		}
-		local && named(s, k, infos, g, []string{})
+		local && holder(res, g)
 	case syntax.ArrayType as at:
-		synHolds(s, k, p, infos, encl, at.Elt)
+		synHolds(s, k, res, p, infos, encl, at.Elt)
 	case syntax.MapType as mt:
-		synHolds(s, k, p, infos, encl, mt.Key) || synHolds(s, k, p, infos, encl, mt.Value)
+		synHolds(s, k, res, p, infos, encl, mt.Key) || synHolds(s, k, res, p, infos, encl, mt.Value)
 	case syntax.ParenExpr as pe:
-		synHolds(s, k, p, infos, encl, pe.X)
+		synHolds(s, k, res, p, infos, encl, pe.X)
 	case _:
 		false
 	}
