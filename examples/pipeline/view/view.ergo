@@ -4,7 +4,7 @@
 // and the page hosts later (PX3b, PX4).
 
 import pipeline/pipeline
-import pipeline/pipeline/pipelinerpc
+import pipeline/pipeline/pipelineapi
 import pipeline/run
 import pipeline/screen
 import ui
@@ -12,30 +12,30 @@ import ui
 // SubmitOf, CancelOf, RetryOf and ShowOf are the requests of the form: what
 // the buttons "submit", "cancel", "retry" and "show" ask.
 func SubmitOf(f screen.Form) screen.Request {
-	pipelinerpc.SubmitRequest{C: pipeline.SubmitRun{ID: f.ID, Run: f.Run, Stages: screen.Number(f)}}
+	pipelineapi.SubmitRequest{C: pipeline.SubmitRun{ID: f.ID, Run: f.Run, Stages: screen.Number(f)}}
 }
 
 func CancelOf(f screen.Form) screen.Request {
-	pipelinerpc.CancelRequest{C: pipeline.CancelRun{ID: f.ID, Run: f.Run, Why: f.Why}}
+	pipelineapi.CancelRequest{C: pipeline.CancelRun{ID: f.ID, Run: f.Run, Why: f.Why}}
 }
 
 func RetryOf(f screen.Form) screen.Request {
-	pipelinerpc.RetryRequest{C: pipeline.RetryRun{ID: f.ID, Run: f.Run, Stage: screen.Number(f)}}
+	pipelineapi.RetryRequest{C: pipeline.RetryRun{ID: f.ID, Run: f.Run, Stage: screen.Number(f)}}
 }
 
-func ShowOf(f screen.Form) screen.Request { pipelinerpc.RunOfRequest{Id: f.Run} }
+func ShowOf(f screen.Form) screen.Request { pipelineapi.RunOfRequest{Id: f.Run} }
 
 // Call is the reply of api to the command r. A read is not a command: its
 // reply is Unavailable (the step never sends one).
 func Call(api pipeline.Pipeline, r screen.Request) screen.Reply {
 	let receipt = match r {
-	case pipelinerpc.SubmitRequest as x:
+	case pipelineapi.SubmitRequest as x:
 		api.Submit(x.C)
-	case pipelinerpc.CancelRequest as x:
+	case pipelineapi.CancelRequest as x:
 		api.Cancel(x.C)
-	case pipelinerpc.RetryRequest as x:
+	case pipelineapi.RetryRequest as x:
 		api.Retry(x.C)
-	case pipelinerpc.BoardRequest, pipelinerpc.RunOfRequest:
+	case pipelineapi.BoardRequest, pipelineapi.RunOfRequest:
 		return screen.Refused{Why: screen.Unavailable{Cause: pipeline.Unavailable}}
 	} catch {
 	case run.WrongState as e:
@@ -89,13 +89,13 @@ func rejection(r screen.Rejection) string {
 // Sending is the line the screen shows while the command r is in flight.
 func Sending(r screen.Request) string {
 	match r {
-	case pipelinerpc.SubmitRequest as x:
+	case pipelineapi.SubmitRequest as x:
 		"sending submit \(x.C.ID)"
-	case pipelinerpc.CancelRequest as x:
+	case pipelineapi.CancelRequest as x:
 		"sending cancel \(x.C.ID)"
-	case pipelinerpc.RetryRequest as x:
+	case pipelineapi.RetryRequest as x:
 		"sending retry \(x.C.ID)"
-	case pipelinerpc.BoardRequest, pipelinerpc.RunOfRequest:
+	case pipelineapi.BoardRequest, pipelineapi.RunOfRequest:
 		"reading"
 	}
 }
@@ -185,7 +185,7 @@ func Board(f *ui.Frame[screen.Signal], s screen.Screen, api pipeline.Pipeline) {
 			button(f, "cancel", CancelOf(form))
 			button(f, "retry", RetryOf(form))
 			button(f, "show", ShowOf(form))
-			button(f, "refresh", pipelinerpc.BoardRequest)
+			button(f, "refresh", pipelineapi.BoardRequest)
 		}
 		ui.Text(f, status)
 		match sh.Board {

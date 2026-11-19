@@ -134,6 +134,28 @@ func main() {
 	}
 	ok("struct by value")
 
+	// Record kinds: C reads the whole record the kind names, and checks that
+	// struct_size is that record's size (the binding sets it). A nil record
+	// passes NULL.
+	shapes := []struct {
+		rec  fixture.ShapeHeaderRecord
+		want int64
+	}{
+		{fixture.ShapeHeader{Kind: fixture.FX_SHAPE_NONE}, 0},
+		{fixture.ShapeDot{Header: fixture.ShapeHeader{Kind: fixture.FX_SHAPE_DOT}, Weight: -7}, -7},
+		{fixture.ShapeRect{Header: fixture.ShapeHeader{Kind: fixture.FX_SHAPE_RECT}, Width: 3, Height: 5}, 15},
+	}
+	for _, s := range shapes {
+		if a, err := fixture.ShapeArea(ctx, s.rec); err != nil || a != s.want {
+			fail("ShapeArea(%+v): %d %v, want %d", s.rec, a, err, s.want)
+		}
+	}
+	_, err = fixture.ShapeArea(ctx, fixture.ShapeHeader{Kind: fixture.FX_SHAPE_RECT})
+	wantStatus("ShapeArea of a header that names RECT", err, fixture.StatusUnsupportedVersion)
+	_, err = fixture.ShapeArea(ctx, nil)
+	wantStatus("ShapeArea(nil)", err, fixture.StatusInvalidArgument)
+	ok("record kinds")
+
 	done := make(chan error)
 	go func() {
 		runtime.LockOSThread()

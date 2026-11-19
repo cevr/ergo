@@ -5,3 +5,10 @@
 skip law limits.Limiter.NeverOverdraws for Client: its values have no generator: rpc.Conn has an unexported field, so only package rpc builds it; use rpc.Dial or rpc.Loopback; bind one in a named context of a test file, let Name = context { limits.Limiter: … }, and the law runs under it
 skip law limits.Limiter.RetryAfterIsExact for Client: its values have no generator: rpc.Conn has an unexported field, so only package rpc builds it; use rpc.Dial or rpc.Loopback; bind one in a named context of a test file, let Name = context { limits.Limiter: … }, and the law runs under it
 skip law limits.Limiter.LimitedTakesNothing for Client: its values have no generator: rpc.Conn has an unexported field, so only package rpc builds it; use rpc.Dial or rpc.Loopback; bind one in a named context of a test file, let Name = context { limits.Limiter: … }, and the law runs under it
+# ergo test cannot build the hub's Client (its send is a function value,
+# which has no generator). The hub's law ClientIsCall holds that a Client
+# whose send is Call answers as the bound provider does, and each
+# transport's law Agrees holds its Wire to Call (AF0, AF1).
+skip law limits.Limiter.NeverOverdraws for Client: its values have no generator: func(Request) Outcome is a function type; bind one in a named context of a test file, let Name = context { limits.Limiter: … }, and the law runs under it
+skip law limits.Limiter.RetryAfterIsExact for Client: its values have no generator: func(Request) Outcome is a function type; bind one in a named context of a test file, let Name = context { limits.Limiter: … }, and the law runs under it
+skip law limits.Limiter.LimitedTakesNothing for Client: its values have no generator: func(Request) Outcome is a function type; bind one in a named context of a test file, let Name = context { limits.Limiter: … }, and the law runs under it

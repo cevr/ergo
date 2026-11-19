@@ -358,6 +358,15 @@
       "killers": ["internal/sketch/eval:TestEvalAgreesWithModel"]
     },
     {
+      "name": "mc-map-order",
+      "origin": "wf10/mc/E1",
+      "file": "internal/sketch/eval/codecwalk.go",
+      "from": "\t\tsort.Slice(keys, func(i, j int) bool { return keys[i].(string) < keys[j].(string) })",
+      "to": "\t\tsort.Slice(keys, func(i, j int) bool { return false && keys[i].(string) < keys[j].(string) })",
+      "rule": "A Map encodes its keys in sorted order, so equal Maps have one wire form and one explore key (MODELCHECK risk 5).",
+      "killers": ["std:TestKeyEqualsEquality"]
+    },
+    {
       "name": "machine-done-is-edge",
       "origin": "wf10/l7-eval/EV4",
       "file": "internal/sketch/eval/machine.go",
