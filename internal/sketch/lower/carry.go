@@ -58,6 +58,34 @@ const paramCarry = true
 // useBytes is the memory bound of a union flat by use (above).
 const useBytes = 128
 
+// msb3Lowering "off" is the reference of MSB3: a machine's signal keeps
+// the bounds (stateFlat), a union with a variant that is an error type is
+// an interface (flatunion.go's flatShape), and so is every std union, as
+// before MSB3. Set by a test or by a build with
+// -ldflags=-X=ergo.local/prototype/internal/sketch/lower.msb3Lowering=off.
+var msb3Lowering string
+
+// A machine's state is flat past both bounds (MSB2). A step is a function
+// value std's run calls, so its state is carried by every step, and each
+// step that returns a new state of a variant with fields boxed it: one
+// allocation per signal (router's Idle, a courier's Open). Flat, the state
+// travels inline in the step's Decision (genericunion.go, no size bound)
+// and in the actor's field: a copy of its bytes where the box cost an
+// allocation and a load. An actor holds one state, so the use bound,
+// which bounds a slice's waste, does not apply; a slice of states pays
+// the widest form per element, as Rust's and Swift's enums do.
+//
+// A machine's signal is flat past both bounds too (MSB3): std's run sends
+// each signal through the actor's mailbox and hands it to a step, a
+// function value, so it is carried, and each signal of a variant with
+// fields boxed (router's Told{Delivered}, three strings).
+//
+// The reference is unionBound "register" too: there a state or a signal
+// follows the register bound alone, as before R3b and MSB2.
+func (l *lowerer) stateFlat(tn *check.TypeName, states map[*check.TypeName]bool) bool {
+	return unionBound != "register" && states[tn]
+}
+
 // flatByUse reports whether the union tn may be flat past the register
 // bound: no call carries a value of it, and the reference is not chosen.
 func (l *lowerer) flatByUse(tn *check.TypeName) bool {
@@ -71,7 +99,7 @@ func (l *lowerer) carriedUnions() map[*check.TypeName]bool {
 		return l.carried
 	}
 	l.carried = map[*check.TypeName]bool{}
-	for _, p := range l.sourcedPkgs() {
+	for _, p := range l.unionPkgs() { // std's calls carry std's unions too
 		info := p.Info
 		for _, f := range p.Files() {
 			// called are the names a call calls, seen at the call before
@@ -172,7 +200,8 @@ func (l *lowerer) carryPayload(t check.Type, seen map[check.Type]bool) {
 // carryResults marks carried every union a parameter or a result of sig
 // is: a function value is called by a caller the lowering cannot see,
 // which passes its arguments and takes its result by value (a machine's
-// step, called by std's run with the signal).
+// step, called by std's run with the signal). A union inside a tuple
+// result is not (tupleCarry, below).
 func (l *lowerer) carryResults(sig *check.Signature) {
 	types := append([]check.Type{}, sig.Results...)
 	if paramCarry {
@@ -180,7 +209,12 @@ func (l *lowerer) carryResults(sig *check.Signature) {
 			types = append(types, p.Type)
 		}
 	}
-	for _, t := range types {
+	for i := 0; i < len(types); i++ {
+		t := types[i]
+		if tu, ok := t.(*check.Tuple); ok && tupleCarry {
+			types = append(types, tu.Types...)
+			continue
+		}
 		if u, ok := t.(*check.Named); ok {
 			if _, union := u.Underlying().(*check.Union); union {
 				l.carried[u.Obj] = true
@@ -188,6 +222,17 @@ func (l *lowerer) carryResults(sig *check.Signature) {
 		}
 	}
 }
+
+// tupleCarry is true only under the mutant msb3b-tuple-carried. A union in
+// a function value's tuple result is not carried (MSB3b): sync.Modify's
+// literal returns (R, T), and Go's RefModify hands R back once, so a flat
+// R is one copy where a boxed one is an allocation per call. Measured on
+// coord's shape (stores EX5a: memory/leases.ergo's stepped, an 88-byte
+// union, 10^6 turns): flat 330M instructions and no allocation per turn,
+// boxed 490M and 0.69. A union a function value returns alone stays
+// carried: through tasks.Transform, which collects each result, the flat
+// form ran 87 % more instructions (MSB3b probes, dod/msb3b).
+const tupleCarry = false
 
 // passCarries reports whether operand j of the call c is carried on by its
 // callee (above).

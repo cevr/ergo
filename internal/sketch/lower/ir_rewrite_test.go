@@ -96,7 +96,7 @@ func Loop(t string) int {
 }
 
 func St(t string) int {
-	Dec(Enc(t))
+	let _ = Dec(Enc(t))
 	1
 }
 

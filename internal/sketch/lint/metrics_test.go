@@ -82,7 +82,7 @@ func (m *bodyModel) inc(depth int) {
 // (cognitive's level).
 func (m *bodyModel) stmts(depth, nesting int) {
 	for i := 0; i < 1+m.r.IntN(3); i++ {
-		kind := m.r.IntN(5)
+		kind := m.r.IntN(6)
 		if depth > 3 {
 			kind = 0
 		}
@@ -139,6 +139,29 @@ func (m *bodyModel) stmts(depth, nesting int) {
 			m.line(depth, "case _:") // a wildcard pattern, no operand
 			m.stmts(depth+1, nesting+1)
 			m.line(depth, "}")
+		case 5:
+			// A match over a union is one dispatch (LHP2): the match is
+			// one decision and one increment, and its arms add only the
+			// most any one of them adds, as if each were a function.
+			m.op("match")
+			m.op("case")
+			m.cyclomatic++
+			m.cognitive += 1 + nesting
+			m.operand("id o")
+			m.line(depth, "match o {")
+			cyc, cog := m.cyclomatic, m.cognitive
+			bestCyc, bestCog := 0, 0
+			arm := func(pattern string) {
+				m.cyclomatic, m.cognitive = 0, 0
+				m.line(depth, "case "+pattern+":")
+				m.stmts(depth+1, nesting+1)
+				bestCyc, bestCog = max(bestCyc, m.cyclomatic), max(bestCog, m.cognitive)
+			}
+			m.operand("id None")
+			arm("None")
+			arm("_")
+			m.cyclomatic, m.cognitive = cyc+bestCyc, cog+bestCog
+			m.line(depth, "}")
 		}
 	}
 }
@@ -152,7 +175,7 @@ type generatedFunc struct {
 
 func generateFunc(r *rand.Rand, name string) generatedFunc {
 	m := &bodyModel{r: r, cyclomatic: 1, operators: map[string]bool{}, operands: map[string]bool{}}
-	m.line(0, "func "+name+"(n int, p bool, q bool, r bool, xs []int) int {")
+	m.line(0, "func "+name+"(n int, p bool, q bool, r bool, xs []int, o Option[int]) int {")
 	m.line(1, "let mut count = 0")
 	m.op("let")
 	m.operand("id count")

@@ -6,7 +6,7 @@ import (
 	"ergo.local/prototype/internal/lawledger"
 )
 
-// stdAnsiLawsProbe restates the laws of std ansi's laws.ergo as Ergo
+// stdAnsiLawsProbe restates the top-level laws of std ansi as Ergo
 // property tests (UC2), with the package's law helpers (drawStyle,
 // drawColor) written out again.
 const stdAnsiLawsProbe = `import ansi
@@ -42,12 +42,12 @@ func lawSGRIsTheTable() bool {
 	let p = ansi.Plain
 		ansi.SGR(p) == "" &&
 		ansi.SGR(ansi.Style{..p, Fg: ansi.Red}) == "\x1b[31m" &&
-		ansi.SGR(ansi.Style{..p, Fg: ansi.Basic(9)}) == "\x1b[91m" &&
+		ansi.SGR(ansi.Style{..p, Fg: ansi.Basic{N: 9}}) == "\x1b[91m" &&
 		ansi.SGR(ansi.Style{..p, Bg: ansi.Blue}) == "\x1b[44m" &&
-		ansi.SGR(ansi.Style{..p, Bg: ansi.Basic(15)}) == "\x1b[107m" &&
-		ansi.SGR(ansi.Style{..p, Fg: ansi.Indexed(208)}) == "\x1b[38;5;208m" &&
-		ansi.SGR(ansi.Style{..p, Bg: ansi.Indexed(300)}) == "\x1b[48;5;255m" &&
-		ansi.SGR(ansi.Style{..p, Fg: ansi.RGB(255, 128, -4)}) == "\x1b[38;2;255;128;0m" &&
+		ansi.SGR(ansi.Style{..p, Bg: ansi.Basic{N: 15}}) == "\x1b[107m" &&
+		ansi.SGR(ansi.Style{..p, Fg: ansi.Indexed{N: 208}}) == "\x1b[38;5;208m" &&
+		ansi.SGR(ansi.Style{..p, Bg: ansi.Indexed{N: 300}}) == "\x1b[48;5;255m" &&
+		ansi.SGR(ansi.Style{..p, Fg: ansi.RGB{R: 255, G: 128, B: -4}}) == "\x1b[38;2;255;128;0m" &&
 		ansi.SGR(ansi.Style{..p, Bold: true}) == "\x1b[1m" &&
 		ansi.SGR(ansi.Style{..p, Bold: true, Underline: true, Fg: ansi.Green, Bg: ansi.Black}) == "\x1b[1;4;32;40m" &&
 		ansi.SGR(ansi.Style{..p, Dim: true, Italic: true, Reverse: true, Strike: true}) == "\x1b[2;3;7;9m"
@@ -98,11 +98,11 @@ func drawColor(k int, n int) ansi.Color {
 	case 0:
 		ansi.DefaultColor
 	case 1:
-		ansi.Basic(v % 20)
+		ansi.Basic{N: v % 20}
 	case 2:
-		ansi.Indexed(v)
+		ansi.Indexed{N: v}
 	case _:
-		ansi.RGB(v, 255-v, v/2)
+		ansi.RGB{R: v, G: 255 - v, B: v / 2}
 	}
 }
 
@@ -145,7 +145,7 @@ var stdAnsiLawStatements = map[string]string{
 	"ansi StripUndoesPaint":       `StripUndoesPaint(seed int, text string) { let t = Strip(text) let s = drawStyle(seed) let painted = with context { Colors: Always } { Paint(s, t) } Strip(painted) == t && Strip(t) == t }`,
 	"ansi NeverPaints":            `NeverPaints(seed int, text string) { let s = drawStyle(seed) with context { Colors: Never } { let mut b = strings.NewBuilder() WritePaint(&b, s, text) Paint(s, text) == text && b.String() == text } }`,
 	"ansi PaintIsSGRAndReset":     `PaintIsSGRAndReset(seed int, text string) { let s = drawStyle(seed) with context { Colors: Always } { let mut b = strings.NewBuilder() WritePaint(&b, s, text) let want = if s == Plain { text } else { SGR(s) + text + Reset } Paint(s, text) == want && b.String() == want } }`,
-	"ansi SGRIsTheTable":          `SGRIsTheTable() { let p = Plain SGR(p) == "" && SGR(Style{..p, Fg: Red}) == "\x1b[31m" && SGR(Style{..p, Fg: Basic(9)}) == "\x1b[91m" && SGR(Style{..p, Bg: Blue}) == "\x1b[44m" && SGR(Style{..p, Bg: Basic(15)}) == "\x1b[107m" && SGR(Style{..p, Fg: Indexed(208)}) == "\x1b[38;5;208m" && SGR(Style{..p, Bg: Indexed(300)}) == "\x1b[48;5;255m" && SGR(Style{..p, Fg: RGB(255, 128, -4)}) == "\x1b[38;2;255;128;0m" && SGR(Style{..p, Bold: true}) == "\x1b[1m" && SGR(Style{..p, Bold: true, Underline: true, Fg: Green, Bg: Black}) == "\x1b[1;4;32;40m" && SGR(Style{..p, Dim: true, Italic: true, Reverse: true, Strike: true}) == "\x1b[2;3;7;9m" }`,
+	"ansi SGRIsTheTable":          `SGRIsTheTable() { let p = Plain SGR(p) == "" && SGR(Style{..p, Fg: Red}) == "\x1b[31m" && SGR(Style{..p, Fg: Basic{N: 9}}) == "\x1b[91m" && SGR(Style{..p, Bg: Blue}) == "\x1b[44m" && SGR(Style{..p, Bg: Basic{N: 15}}) == "\x1b[107m" && SGR(Style{..p, Fg: Indexed{N: 208}}) == "\x1b[38;5;208m" && SGR(Style{..p, Bg: Indexed{N: 300}}) == "\x1b[48;5;255m" && SGR(Style{..p, Fg: RGB{R: 255, G: 128, B: -4}}) == "\x1b[38;2;255;128;0m" && SGR(Style{..p, Bold: true}) == "\x1b[1m" && SGR(Style{..p, Bold: true, Underline: true, Fg: Green, Bg: Black}) == "\x1b[1;4;32;40m" && SGR(Style{..p, Dim: true, Italic: true, Reverse: true, Strike: true}) == "\x1b[2;3;7;9m" }`,
 	"ansi StripIsTheTable":        `StripIsTheTable() { Strip("a\x1b[1;31mb\x1b[0mc") == "abc" && Strip("\x1b[2J\x1b[Hx\x1b[10;4H") == "x" && Strip("\x1b[?25lhi\x1b[?1049h") == "hi" && Strip("\x1b]0;title\x07t") == "t" && Strip("\x1b]8;;https://e.org\x1b\\link\x1b]8;;\x1b\\") == "link" && Strip("\x1b7a\x1b8") == "a" && Strip("a\x1b[2@b") == "ab" && Strip("ok\x1b[38;5") == "ok" && Strip("界\x1b[4mé") == "界é" && Strip("plain") == "plain" }`,
 	"ansi DetectIsTheEnvironment": `DetectIsTheEnvironment(noColor int, term int, terminal bool) { let nc = []Option[string]{None, Some[string]{Value: ""}, Some[string]{Value: "1"}}[(noColor%3+3)%3] let tm = []Option[string]{None, Some[string]{Value: "xterm-256color"}, Some[string]{Value: "dumb"}}[(term%3+3)%3] let off = nc == (Some[string]{Value: "1"}) || tm == (Some[string]{Value: "dumb"}) || !terminal Decide(nc, tm, terminal).On() == !off }`,
 	"ansi Colors.OnIsStable":      `OnIsStable() { On() == On() }`,

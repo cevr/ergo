@@ -68,9 +68,12 @@ func (l liveTimer) Stop() bool        { return l.stop() }
 type Virtual struct {
 	// mu is the clock's lock; the clocks of one domain share their
 	// domain's (idle.go), so a wait checks its event and parks in one step.
-	mu     *sync.Mutex
-	armed  *sync.Cond
-	now    Instant
+	mu    *sync.Mutex
+	armed *sync.Cond
+	now   Instant
+	// at is now, written with it under mu (setNow) and read without
+	// it, so a read of the clock takes no lock.
+	at     atomic.Int64
 	seq    uint64
 	timers []*virtualTimer // sorted by (when, seq)
 	// d is the domain of a clock that has one (idle.go: an auto clock or
@@ -103,21 +106,24 @@ type virtualTimer struct {
 	// the sleeper's park word (FU-virtual-sleep).
 	task  *Task
 	fired atomic.Bool
+	f     func() // an AfterFunc's function, which its fire starts; c is nil
 }
 
 // NewVirtual returns a virtual clock that reads start.
 func NewVirtual(start time.Time) *Virtual {
 	v := &Virtual{now: Instant(start.UnixNano()), mu: new(sync.Mutex)}
+	v.at.Store(start.UnixNano())
 	v.armed = sync.NewCond(v.mu)
 	return v
 }
 
 // Now returns the virtual time.
-func (v *Virtual) Now() Instant {
-	v.mu.Lock()
-	now := v.now
-	v.mu.Unlock() // no defer: Now is read on every timer fire
-	return now
+func (v *Virtual) Now() Instant { return Instant(v.at.Load()) }
+
+// setNow moves the time to i; v.mu is held.
+func (v *Virtual) setNow(i Instant) {
+	v.now = i
+	v.at.Store(int64(i))
 }
 
 // NewTimer arms a timer d after the virtual now. A deadline at or before now
@@ -129,6 +135,30 @@ func (v *Virtual) NewTimer(d Span) Timer {
 	t := &virtualTimer{v: v, when: v.now + Instant(d), seq: v.seq, c: make(chan Instant, 1)}
 	if d <= 0 {
 		t.c <- v.now
+		return t
+	}
+	i := sort.Search(len(v.timers), func(i int) bool { return t.before(v.timers[i]) })
+	v.timers = append(v.timers, nil)
+	copy(v.timers[i+1:], v.timers[i:])
+	v.timers[i] = t
+	v.armed.Broadcast()
+	return t
+}
+
+// AfterFunc arms f to run on its own goroutine once the virtual time is d
+// past now, as time.AfterFunc does on the host's clock; a d of zero or
+// less starts it at once. The result's Stop disarms it and reports
+// whether it was still armed. Its deadline is armed like a Sleep's, so an
+// auto clock moves to it when its domain is idle, and Pending counts it.
+// f runs on a goroutine of its own, never under the clock's lock: it may
+// arm and stop timers of the clock.
+func (v *Virtual) AfterFunc(d Span, f func()) Timer {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.seq++
+	t := &virtualTimer{v: v, when: v.now + Instant(d), seq: v.seq, f: f}
+	if d <= 0 {
+		v.runAlarm(f)
 		return t
 	}
 	i := sort.Search(len(v.timers), func(i int) bool { return t.before(v.timers[i]) })
@@ -177,10 +207,10 @@ func (v *Virtual) Advance(d Span) {
 	for len(v.timers) > 0 && v.timers[0].when <= target {
 		t := v.timers[0]
 		v.popFirst()
-		v.now = t.when
+		v.setNow(t.when)
 		v.fire(t)
 	}
-	v.now = target
+	v.setNow(target)
 	v.armed.Broadcast()
 }
 
@@ -221,14 +251,14 @@ func (v *Virtual) AdvanceSettled(t *Task, d Span) error {
 		v.mu.Lock()
 		if len(v.timers) == 0 || v.timers[0].when > target {
 			if target > v.now {
-				v.now = target
+				v.setNow(target)
 			}
 			v.armed.Broadcast()
 			v.mu.Unlock()
 			return nil
 		}
 		when := v.timers[0].when
-		v.now = when
+		v.setNow(when)
 		for len(v.timers) > 0 && v.timers[0].when == when {
 			tm := v.timers[0]
 			v.popFirst()
@@ -258,7 +288,7 @@ func (v *Virtual) Settle(t *Task) error {
 		if m != nil && !m.parked {
 			self = 1
 		}
-		if d.parked >= d.live-self {
+		if d.parked >= d.live-self && d.running == 0 {
 			v.mu.Unlock()
 			return nil
 		}
@@ -308,6 +338,21 @@ func (v *Virtual) Pending() int {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	return len(v.timers)
+}
+
+// Asleep reports whether t, or a task started below it, sleeps on v: a
+// timer of a domain clock's Sleep holds its sleeper (FK4-g2).
+func (v *Virtual) Asleep(t *Task) bool {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	for _, tm := range v.timers {
+		for s := tm.task; s != nil; s = s.parent.Load() {
+			if s == t {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // AwaitTimers blocks until exactly n timers are armed.

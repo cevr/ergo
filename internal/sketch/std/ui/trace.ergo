@@ -1,0 +1,12 @@
+// The trace of a scene script (`ergo test --trace`): Play records each
+// act's line as a step event of the running task's trace (rt.TraceStep),
+// which the trace sink ERGO_TRACE binds keeps. Like a span, it is
+// instrumentation: it changes no value the program sees, so it needs no
+// host authority (stdlib.md, Host packages 7).
+
+// traced is whether the running task's tree records a trace.
+extern go ergo.local/prototype/runtime/v1.UITraced func traced() bool
+
+// traceStep records line as a step event of the running task: trace
+// instrumentation, which changes no value the program sees.
+extern go ergo.local/prototype/runtime/v1.UITraceStep func traceStep(line string)

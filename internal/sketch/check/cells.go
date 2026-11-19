@@ -188,7 +188,8 @@ func (c *checker) holdsCell(t Type) *Named {
 }
 
 // cellDepth bounds holdsCell's path. A valid program's types nest less
-// deeply; an instance chain past it is an instantiation cycle (mono.go).
+// deeply; the walk reads only written types (cellParts walks an instance
+// through its declaration), so the bound is a backstop.
 const cellDepth = 128
 
 // cellWalk is holdsCell's walk over interned types (a type built twice is
@@ -207,7 +208,8 @@ func (c *checker) cellWalk(t Type, path map[int32]bool) (h *Named, cut bool) {
 	if h, ok := c.cellHolds[id]; ok {
 		return h, false
 	}
-	if path[id] || len(path) > cellDepth {
+	c.cellSteps++
+	if path[id] || len(path) > cellDepth || (c.cellBudget > 0 && c.cellSteps > c.cellBudget) {
 		// A cycle, or an instance chain that grows without end (an
 		// instantiation cycle, which mono.go refuses): stop here.
 		return nil, true
@@ -257,7 +259,16 @@ func (c *checker) cellParts(t Type, path map[int32]bool) (*Named, bool) {
 			// holds one converts to it (cellHideText).
 			return nil, cut
 		}
-		h := visit(t.underlying())
+		// An instance's fields are its declaration's with the type
+		// arguments put in, and the arguments are walked above: a cell
+		// in the fields is one of an argument or one the declaration
+		// holds whatever its arguments. So the walk reads the
+		// declaration's fields, never the instance's: an instance chain
+		// that grows on every round (an instantiation cycle, mono.go)
+		// is not built, and the walk stays within the written types
+		// (CK-MAPGROW: a walk of the instances, cut only at cellDepth,
+		// took exponential time).
+		h := visit(t.origin().underlying())
 		return h, cut
 	case *Struct:
 		for _, f := range t.Fields {

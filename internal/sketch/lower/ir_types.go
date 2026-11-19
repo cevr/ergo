@@ -77,6 +77,16 @@ func (b *irBuilder) admit(t check.Type, depth int) {
 			irNo("function type with several results")
 		}
 		for _, p := range t.Params {
+			// A pointer to a record, a function value's parameter (std
+			// html's Writer, func(b *strings.Builder)): the IR carries the
+			// function value and spells its type; a body that reads through
+			// the pointer is refused where it does (CF1).
+			if pt, ok := p.Type.(*check.Pointer); ok {
+				if n, ok := pt.Elem.(*check.Named); ok {
+					b.admit(n, depth+1)
+					continue
+				}
+			}
 			b.admit(p.Type, depth+1)
 		}
 		for _, r := range t.Results {

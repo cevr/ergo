@@ -97,19 +97,37 @@ package of this Go module and the Ergo half binds it.
   checks, and `TestStarsGuiOnTheDesktop` runs the window binary with
   `-check`. `TestDesktopKeepsItsLayout` is the growth guard: adding a row
   to the shelf app lays out the same few boxes after 10 rows as after 40.
+- The paint is a damage paint (`desktop/paint.ergo`): a node no pass,
+  scroll or focus change touched, itself or below it, whose box, offset,
+  clip and line height are those of its last draw takes that draw again
+  from the window's last list (`Window.Again`: its ops, its lines of text
+  and its accessibility nodes, as `Mark` and `Seal` bounded them), with
+  the spots it added. Only the rest is drawn anew (`desktop.Drawn` counts
+  them). The full paint stays the reference: `desktop.Reference` draws
+  every node, and `desktop.Check` draws the full list first, puts it aside
+  (`Window.Hold`) and holds the damage paint's list and spots to it
+  (`Window.Differs`). `TestDesktopDrawsOnlyWhatChanged` is the growth
+  guard: adding a row to the shelf app draws the same few nodes after 10
+  rows as after 40.
 - A virtual list (`ui.Rows`, H5b) scrolls as a Scroll does, over its
   count of rows; each row it wrote is out of the flow at its index's place.
   A list with no height of its own takes the window below its top. After
   each paint the driver reports a list's viewport (its offset and its
   height) as `ui.Scrolled` when it moved, so the next pass writes the rows
-  the window shows; `desktop.Viewport` is the last one reported.
+  the window shows; `desktop.Viewport` is the last one reported. A pass
+  whose list offset is not the window's (`ui.RowsKeeping` brought its row
+  into view) scrolls the window there, and the next report says so.
   `ui.ScrollOn` in a script turns the wheel on the list to its offset; the
   height is the window's.
 - A canvas (`ui.Canvas`, H5c) replays its paint list (`desktop/canvas.ergo`):
   paths are flattened under the transforms in effect; a fill is one
   rectangle when its path is one on the axes, else spans one DIP high
-  under the nonzero rule; a stroke is one `Window.Line` a segment, round
-  capped; a clip is the box around its transformed rectangle. Edges are
+  under the nonzero rule; a stroke's contour is one polyline
+  (`Window.StrokeBegin`, `StrokeTo`, `StrokeEnd`) that the frame
+  rasterizes once into a mask of MyGo's atlas, keyed by its points, as
+  MyGo's `Painter.StrokePath` does, with round caps and joins; a mask
+  over 511 pixels a side is drawn as tiles of it, as `Painter.pathTiles`
+  does (a `Line` a segment when the atlas cannot hold them); a clip is the box around its transformed rectangle. Edges are
   not smoothed: the drawing layer has no path fill a host can reach.
 
 The driver is not a `ui.Host` provider: an operation type's method cannot
@@ -118,13 +136,16 @@ need `go.Foreign` (README Gap 17), so `Run` drives the session itself, as
 state `needs MainThread` (H1, not built).
 
 `TestMyGoHostAgreesWithTestHost` builds `cmd/hostagree` and plays seeded
-scene scripts of seven apps on `ui.TestHost` and, through a headless window,
+scene scripts of ten apps on `ui.TestHost` and, through a headless window,
 on the driver: after every step both hold the same tree and app state, and
 each filled node shows its color in the rendered frame where the driver
-laid it out (a canvas's last opaque fill at its centre). In the `list`
-app TestHost takes the viewport the window reports, and each row the
-window wrote must show at the list's top plus its index's rows, less the
-offset. Taps are a press and a release at the node's centre, so they
+laid it out (a canvas's last opaque fill at its centre; a look's fill
+below its top edge, and the colour under it outside a top-left corner of
+9 or more: `desktop/look.ergo`). In the `list`
+app TestHost takes the viewport the window reports, the window shows the
+list at the offset its pass wrote (a cursor the list keeps in view moves
+with Down and Up), and each row the window wrote must show at the list's
+top plus its index's rows, less the offset. Taps are a press and a release at the node's centre, so they
 pass the layout, the paint list and the hit test. `-agree.seed=N` replays
 one seed. `TestMyGoHostPrimitivesOnly` scans this module's Go with
 `go/types` and refuses any MyGo object but the drawing layer's and
@@ -235,6 +256,38 @@ widgets and each panel's plot painted with MyGo's `Painter` and its chart
 package (`chart.MinMax`, `chart.LineInto`). `TestDashGuiOnTheDesktop`
 holds both to the example's `dash-gui scene` on 24 seeded sensors, frame
 counts and scene scripts (`-dash.seed=N` replays one).
+
+Headless, `Drain` takes what the session posted (`Pump`) after each frame,
+as the window's own loop does after every input and as `ui.Advance` does,
+so both hosts take a work's reply at the same frame (F-GP4c-1). The
+session's watcher reads `LatestChanges`, so a blocked watcher holds one
+state (std ui's `WatcherHoldsOneState`).
+
+## The flow's control: `controls/fk-flow` (FK12c)
+
+`examples/fk-flow` makes the one perf claim of the Foldkit ports (plan
+§18.3 FK12), so it has a MyGo-direct control. `controls/fk-flow` is the
+hand-Go model, paint and script host of
+`examples/fk-flow/testdata/control` (`model.go`, copied), with the window
+on MyGo's widgets: the scene switch, the buttons and the count are
+MyGo's `Button` and `Text`, and the canvas is a box whose `Draw` replays
+the scene's paint with MyGo's `Painter`. A rectangle is `Fill`, a circle
+a path of four cubics and `FillPath`, and a trail `StrokePath`. In a
+window, a running scene asks for the next display frame
+(`Painter.AnimationFrame`) and takes it as a frame of the program. A press
+on the canvas is not wired, as draw-gui's picture is not. Headless, a
+line goes to the model, and `ui.Tester` lays the window out and paints it
+after each frame and act; it prints what `fk-flow` prints on
+`ui.TestHost`, and with `-last` only the last screen.
+
+`TestFkFlowControlAgrees` holds it to `examples/fk-flow` on 24 seeded
+scripts, output and exit status (`-flow.seed=N` replays one), and holds
+the two copies of the model to one file. `scripts/opcount` measures the
+program against `examples/fk-flow/testdata/control` on its workload: a
+frame of about 600 trails. That control is the same model with no ui
+package, because opcount builds a control as a module of its own with no
+dependencies. There is no Ergo window binary for fk-flow yet: the example
+runs on `ui.TestHost` only.
 
 ## Pins and checks
 

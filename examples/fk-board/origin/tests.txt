@@ -15,10 +15,10 @@ src/story.test.ts: reorders within column -> `board` law `ReorderIsAPermutation`
 src/story.test.ts: moves card to a different column -> `board` law `ReorderIsAPermutation`
 src/story.test.ts: moves card to end of another column -> `board` law `ReorderIsAPermutation` (draws positions past the end)
 src/story.test.ts: assigns valid sortKeys after reorder -> `board` law `SortKeysStrictlyIncrease`; `sortkey` law `BetweenIsStrictlyBetween`
-src/scene.test.ts: board renders columns with correct names -> not restated: stage a has no view (FK11b, after H4, H4r, H5a and H5g)
-src/scene.test.ts: columns show card counts from test data -> not restated: stage a has no view (FK11b); the cases' `show` prints the counts
-src/scene.test.ts: card titles are rendered within their columns -> not restated: stage a has no view (FK11b)
-src/scene.test.ts: clicking add card shows the form within the column -> not restated: stage a has no view (FK11b)
-src/scene.test.ts: typing a card title updates the input -> not restated: stage a has no view (FK11b)
-src/scene.test.ts: submitting the form adds a card to the column -> not restated: stage a has no view (FK11b)
-src/scene.test.ts: cancelling closes the form and restores the add card button -> not restated: stage a has no view (FK11b)
+src/scene.test.ts: board renders columns with correct names -> case `scenes` (the first screen: each column zone with its name)
+src/scene.test.ts: columns show card counts from test data -> case `scenes` (the first screen: 2, 1, 0)
+src/scene.test.ts: card titles are rendered within their columns -> case `scenes` (each card zone inside its column zone); law `PointerDropLandsWhereShown` (the columns the screen shows)
+src/scene.test.ts: clicking add card shows the form within the column -> case `scenes` (add todo: the input inside the To Do zone)
+src/scene.test.ts: typing a card title updates the input -> case `scenes` (input "Buy groceries")
+src/scene.test.ts: submitting the form adds a card to the column -> case `scenes` (the id asked for and the save, then the card in To Do)
+src/scene.test.ts: cancelling closes the form and restores the add card button -> case `scenes` (the last screen: no input, and + Add card in To Do)

@@ -1,0 +1,1 @@
+work: PluginRefused: {"_tag":"PluginRefused","command":"sh -c false","law":"Answers","file":"a.txt","why":"it ended with status 1"}

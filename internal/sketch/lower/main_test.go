@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"ergo.local/prototype/internal/proclimit"
+	"ergo.local/prototype/internal/sketch/build"
 	"ergo.local/prototype/internal/testinputs"
 )
 
@@ -65,6 +66,10 @@ func TestMain(m *testing.M) {
 	if reachLowering == "" {
 		reachLowering = "all"
 	}
+	// The mutant runner's coverage pass (GATE2 GT7b): std bodies get
+	// cover marks, and buildDispatch links a coverage copy.
+	coverGo = os.Getenv(build.CoverVariable)
+	coverMarksAll = coverGo != ""
 	code := testinputs.Main(m)
 	removeProgramTables()
 	if testCLI.dir != "" {

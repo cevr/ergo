@@ -91,3 +91,20 @@ law CountIsWholeUnits(d duration, unit duration) {
 	let c = Count(d, unit)
 	Times(unit, c) <= d && d-Times(unit, c) < unit
 }
+
+// DurationISO is d as ISO 8601's duration of time, as Temporal writes it:
+// "PT1H30M", "-PT0.5S", "PT0S". It writes hours, never days: a day of a
+// zone is not always 24 hours, so a count of days is a civil.Period
+// (civil.PeriodText).
+extern go ergo.local/prototype/runtime/v1.TimeDurationISO func DurationISO(d duration) string
+
+// ParseDurationISO is the duration s writes as ISO 8601's duration of
+// time: an optional sign, PT, then hours, minutes and seconds (H, M, S, in
+// that order, each at most once; a fraction on the seconds only). A date
+// part fails ParseError, so "P1M" (a month) is never read as a minute;
+// civil.ParsePeriod reads it.
+extern go ergo.local/prototype/runtime/v1.TimeParseDurationISO func ParseDurationISO(s string) duration fails ParseError
+
+// DurationISORoundTrips: ParseDurationISO reads DurationISO's text of d
+// back to d, for every duration.
+law DurationISORoundTrips(d duration) { try ParseDurationISO(DurationISO(d)) == d }
