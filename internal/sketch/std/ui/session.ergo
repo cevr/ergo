@@ -267,7 +267,7 @@ func stepEvent[E comparable, S, D, F](s *Session[S, E, D, F], ev Event[E]) []Op[
 	if done.Changed || len(crossed) > 0 {
 		return judgedPass(s)
 	}
-	[]Op[E]{}
+	done.Ops
 }
 
 // judgedPass is a pass an event of the loop caused (an input, a fetch's

@@ -1,4 +1,6 @@
+import actor
 import arena
+import time
 
 // View-local state and loads (stdlib.md, UI 5 and 6).
 //
@@ -424,9 +426,11 @@ func loadsOf[E](m Map[arena.Ref[node[E]], Map[ident, slot]], r arena.Ref[node[E]
 	}
 }
 
-// Handled is what an event did: the signal it sends to the program, and
-// whether it changed view-local state (so the view must render again).
-type Handled[E] { Signal Option[E], Changed bool }
+// Handled is what an event did: the signal it sends to the program,
+// whether it changed view-local state (so the view must render again),
+// and, when it did not, the changes it made to the kept tree itself,
+// which a host applies as a pass's (SCROLL-COST: a list's new offset).
+type Handled[E] { Signal Option[E], Changed bool, Ops []Op[E] }
 
 // Handle applies a host event to f: a press sends a Pressable's or a
 // Check's signal, flips a Toggle and empties a Submit's draft; a text
@@ -434,11 +438,13 @@ type Handled[E] { Signal Option[E], Changed bool }
 // sends its signal while its load is live (Arrive); a pointer event
 // sends its Area's signal, and a key press the first OnKey's. A Tick
 // sends nothing here: a Session sends the signal of each Animate. A
-// list's viewport (Scrolled) becomes its cell and sends nothing. A press
+// list's viewport (Scrolled) becomes its cell and sends nothing; when the
+// list shows the same rows at it (Visible), the kept list takes the new
+// offset with no pass (one Set), else the view renders again. A press
 // or a text on a node under a disabled Fieldset does nothing. An event
 // on a node f no longer holds (it raced a commit) does nothing.
 func Handle[E](f *Frame[E], event Event[E]) Handled[E] {
-	let mut out = Handled[E]{Signal: None, Changed: false}
+	let mut out = Handled[E]{Signal: None, Changed: false, Ops: []Op[E]{}}
 	if len(f.crossed) > 0 {
 		f.crossed = []E{}
 	}
@@ -560,22 +566,36 @@ func Handle[E](f *Frame[E], event Event[E]) Handled[E] {
 			return out
 		}
 		match n.node {
-		case RowsNode:
+		case RowsNode as list:
 			match n.binds {
 			case Some[bound[E]] as d:
 				// A scroll keeps the row the list last brought into view
 				// (RowsKeeping), so the list does not bring it back.
 				let mut follow = -1
+				let mut was = Viewport{Offset: 0, Height: 0}
 				match cellOf(f, d.Value.owner, d.Value.id) {
 				case Some[Cell] as old:
 					match old.Value {
 					case ViewCell as v:
 						follow = v.Follow
+						was = Viewport{Offset: v.Offset, Height: v.Height}
 					case _:
 					}
 				case None:
 				}
-				out.Changed = write(f, d.Value, ViewCell{Offset: x.Offset, Height: x.Height, Follow: follow})
+				let now = Viewport{Offset: x.Offset, Height: x.Height}
+				if !write(f, d.Value, ViewCell{Offset: x.Offset, Height: x.Height, Follow: follow}) {
+					return out
+				}
+				// The same rows at the new viewport: the pass would write
+				// what it wrote, but the offset (SCROLL-COST).
+				if Visible(list.Count, list.RowHeight, was) == Visible(list.Count, list.RowHeight, now) {
+					let moved = RowsNode{Label: list.Label, Count: list.Count, RowHeight: list.RowHeight, First: list.First, Offset: x.Offset}
+					change(f, x.Id.ref, func(k *node[E]) { k.node = moved })
+					out.Ops = []Op[E]{Set{Id: x.Id, Node: moved}}
+				} else {
+					out.Changed = true
+				}
 			case None:
 			}
 		case _:
@@ -599,5 +619,72 @@ func write[E](f *Frame[E], b bound[E], c Cell) bool {
 		old.Value != c
 	case None:
 		false
+	}
+}
+
+// ScrollCostsNoViewPass: over drawn lists (a count, a row height, a
+// header above them) and drawn wheel steps and resizes, a scroll whose
+// viewport shows the same rows (Visible) as the last runs no pass (the
+// step's Counts are none), and every scroll leaves the screen the header
+// and the list cut at its viewport, with the offset the host scrolled to:
+// what a pass would have written.
+law ScrollCostsNoViewPass(seed int, steps int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let mut r = seeded(seed)
+		let n = []int{0, 1, 20, 10000}[draw(&r, 4)]
+		let rh = float64(draw(&r, 30) + 10)
+		let view = func(f *Frame[int], s int) {
+			Text(f, "head \(s)")
+			Rows(f, "list", n, Length(rh), func(i int) Key { ByInt(i) }) func(i int) {
+				Text(f, "row \(i)")
+			}
+		}
+		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {})
+		let mut h = NewTestHost(a, view, m, 4) catch {
+		case BadPatch:
+			return false
+		}
+		let most = float64(n) * rh
+		let mut off = 0.0
+		let mut height = float64(draw(&r, 400) + 1)
+		let mut was = Visible(n, Length(rh), Viewport{Offset: 0, Height: 0})
+		for k in 0..(steps%40+40)%40+1 {
+			// The first step reports a height; then mostly wheel steps of
+			// under three rows, sometimes a resize.
+			if k > 0 && draw(&r, 8) == 0 {
+				height = float64(draw(&r, 400) + 1)
+			} else if k > 0 {
+				off = off + float64(draw(&r, int(6.0*rh)+1)) - 3.0*rh
+			}
+			if off < 0.0 {
+				off = 0.0
+			}
+			if off > most {
+				off = most
+			}
+			Play(&h, []Act{ScrollOn{Label: "list", Offset: Length(off), Height: Length(height)}}) catch {
+			case _:
+				return false
+			}
+			let now = Visible(n, Length(rh), Viewport{Offset: Length(off), Height: Length(height)})
+			if now == was && Counts(&h) != NoCounts() {
+				return false
+			}
+			let (first, last) = now
+			let mut rows = []Shape[int]{}
+			for i in first..last {
+				rows = rows.Append(Shape[int]{Node: TextNode{Value: "row \(i)", Style: Plain()}, Kids: []Shape[int]{}})
+			}
+			let want = []Shape[int]{
+				Shape[int]{Node: TextNode{Value: "head 0", Style: Plain()}, Kids: []Shape[int]{}},
+				Shape[int]{Node: RowsNode{Label: "list", Count: n, RowHeight: Length(rh), First: first, Offset: Length(off)}, Kids: rows},
+			}
+			if !SameShapes(Screen(&h), want) {
+				return false
+			}
+			was = now
+		}
+		true
 	}
 }

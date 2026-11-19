@@ -6479,6 +6479,72 @@ test UiLiveEqualsRerun(seed int, steps int) {
 	assert lawLiveEqualsRerun(seed, steps)
 }
 
+// SCROLL-COST: state.ergo's ScrollCostsNoViewPass restated.
+func lawScrollCostsNoViewPass(seed int, steps int) bool {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let mut r = seeded(seed)
+		let n = []int{0, 1, 20, 10000}[draw(&r, 4)]
+		let rh = float64(draw(&r, 30) + 10)
+		let view = func(f *ui.Frame[int], s int) {
+			ui.Text(f, "head \(s)")
+			ui.Rows(f, "list", n, ui.Length(rh), func(i int) ui.Key { ui.ByInt(i) }) func(i int) {
+				ui.Text(f, "row \(i)")
+			}
+		}
+		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {})
+		let mut h = ui.NewTestHost(a, view, m, 4) catch {
+		case ui.BadPatch:
+			return false
+		}
+		let most = float64(n) * rh
+		let mut off = 0.0
+		let mut height = float64(draw(&r, 400) + 1)
+		let mut was = ui.Visible(n, ui.Length(rh), ui.Viewport{Offset: 0, Height: 0})
+		for k in 0..(steps%40+40)%40+1 {
+			// The first step reports a height; then mostly wheel steps of
+			// under three rows, sometimes a resize.
+			if k > 0 && draw(&r, 8) == 0 {
+				height = float64(draw(&r, 400) + 1)
+			} else if k > 0 {
+				off = off + float64(draw(&r, int(6.0*rh)+1)) - 3.0*rh
+			}
+			if off < 0.0 {
+				off = 0.0
+			}
+			if off > most {
+				off = most
+			}
+			ui.Play(&h, []ui.Act{ui.ScrollOn{Label: "list", Offset: ui.Length(off), Height: ui.Length(height)}}) catch {
+			case _:
+				return false
+			}
+			let now = ui.Visible(n, ui.Length(rh), ui.Viewport{Offset: ui.Length(off), Height: ui.Length(height)})
+			if now == was && ui.Counts(&h) != ui.NoCounts() {
+				return false
+			}
+			let (first, last) = now
+			let mut rows = []ui.Shape[int]{}
+			for i in first..last {
+				rows = rows.Append(ui.Shape[int]{Node: ui.TextNode{Value: "row \(i)", Style: ui.Plain()}, Kids: []ui.Shape[int]{}})
+			}
+			let want = []ui.Shape[int]{
+				ui.Shape[int]{Node: ui.TextNode{Value: "head 0", Style: ui.Plain()}, Kids: []ui.Shape[int]{}},
+				ui.Shape[int]{Node: ui.RowsNode{Label: "list", Count: n, RowHeight: ui.Length(rh), First: first, Offset: ui.Length(off)}, Kids: rows},
+			}
+			if !ui.SameShapes(ui.Screen(&h), want) {
+				return false
+			}
+			was = now
+		}
+		true
+	}
+}
+
+test UiScrollCostsNoViewPass(seed int, steps int) {
+	assert lawScrollCostsNoViewPass(seed, steps)
+}
+
 test UiLocationPushThenBackRestores(path string) {
 	let h = ui.NewMemoryHistory(ui.URL{Path: "/", Query: "", Fragment: ""})
 	let u = ui.URL{Path: "/" + path, Query: "", Fragment: ""}
@@ -6574,6 +6640,7 @@ var stdUIHostStatements = map[string]string{
 	"ui TabWalksTheFocusables":             `TabWalksTheFocusables(seed int, steps int) { let mut r = seeded(seed) let m = time.NewManual(0) with context { Scheduler: m } { let mut kinds = []int{} let mut order = []string{} for i in 0..draw(&r, 6)+3 { let k = draw(&r, 7) kinds = kinds.Append(k) if k >= 1 && k <= 4 { order = order.Append("f\(i)") } } let ks = kinds let view = func(f *Frame[int], s int) { tabScreen(f, s, ks) } let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } let n = len(order) let mut at = -1 for _ in 0..(steps%10+10)%10+4 { let act = draw(&r, 4) if act == 3 && n > 0 { let j = draw(&r, n) Play(&h, []Act{ClickOn{At: WithLabel{Label: order[j]}}}) catch { case _: return false } at = j } else { let back = act == 2 if !tabKey(&h, back) { return false } if n > 0 { at = if at < 0 { if back { n - 1 } else { 0 } } else if back { (at + n - 1) % n } else { (at + 1) % n } } } match FocusOf(&h) { case Some[Id[int]] as id: if at < 0 || AccessAt(&h, id.Value).Name != order[at] { return false } case None: if at >= 0 { return false } } } true } }`,
 	"ui LiveCostsNoPass":                   `LiveCostsNoPass(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { let mut r = seeded(seed) let n = draw(&r, 4) + 1 let rs = readoutsOf(n) let view = func(f *Frame[int], s int) { readoutRows(f, s, n, func(i int) { ReadoutText(f, rs[i], "--:--") }) } let a = actor.StartMachine(dialMachine(), 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } Settle(&h) catch { case _: return false } let before = Counts(&h) for _ in 0..(steps%16+16)%16+1 { let i = draw(&r, n) let mut word = readWords[draw(&r, len(readWords))] let was = Reading(rs[i]) if draw(&r, 2) == 0 { Publish(rs[i], word) } else { let first = word let t = task.Go() { Publish(rs[i], first) true } let _ = t.Wait() } let woke = if word == was { 0 } else { 1 } if Posted(&h) != woke { return false } // A second text before the host takes the first posts no more. if woke == 1 && draw(&r, 2) == 0 { word = readWords[draw(&r, len(readWords))] Publish(rs[i], word) if Posted(&h) != 1 { return false } } Pump(&h) catch { case _: return false } if Posted(&h) != 0 || Counts(&h) != before || Reading(rs[i]) != word { return false } let mut want = []string{"at 0", "next"} for k in 0..n { want = want.Append("r\(k)") want = want.Append(Reading(rs[k])) } if texts(Screen(&h)) != want { return false } } true } }`,
 	"ui LiveEqualsRerun":                   `LiveEqualsRerun(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { let mut r = seeded(seed) let n = draw(&r, 4) + 1 let rs = readoutsOf(n) let live = func(f *Frame[int], s int) { readoutRows(f, s, n, func(i int) { ReadoutText(f, rs[i], "--:--") }) } let mut zero = []int{} for _ in 0..n { zero = zero.Append(0) } let rerun = func(f *Frame[int], s readState) { OnKey(f, func(k KeyPress) Option[int] { for e in 100..100+10*n { if k.Name == "\(e)" { return Some{Value: e} } } None }) readoutRows(f, s.layout, n, func(i int) { Text(f, readWords[s.words[i]]) }) } let a = actor.StartMachine(dialMachine(), 1, func(o int) {}) let b = actor.StartMachine(Machine[readState, int, int]{Initial: readState{layout: 0, words: zero}, Step: readStep, After: readTimer, Work: readWork}, 1, func(o int) {}) let mut ha = NewTestHost(a, live, m, 4) catch { case BadPatch: return false } let mut hb = NewTestHost(b, rerun, m, 4) catch { case BadPatch: return false } let mods = Mods{Shift: false, Ctrl: false, Alt: false, Meta: false} for _ in 0..(steps%20+20)%20+1 { if draw(&r, 3) == 0 { Play(&ha, []Act{TapOn{Label: "next"}, SettleAll}) catch { case _: return false } Play(&hb, []Act{TapOn{Label: "next"}, SettleAll}) catch { case _: return false } } else { let i = draw(&r, n) let w = draw(&r, len(readWords)) Publish(rs[i], readWords[w]) Settle(&ha) catch { case _: return false } PressKey(&hb, KeyPress{Name: "\(100 + 10*i + w)", Mods: mods}) catch { case _: return false } Settle(&hb) catch { case _: return false } } if Screen(&ha) != Screen(&hb) { return false } } true } }`,
+	"ui ScrollCostsNoViewPass": `ScrollCostsNoViewPass(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { let mut r = seeded(seed) let n = []int{0, 1, 20, 10000}[draw(&r, 4)] let rh = float64(draw(&r, 30) + 10) let view = func(f *Frame[int], s int) { Text(f, "head \(s)") Rows(f, "list", n, Length(rh), func(i int) Key { ByInt(i) }) func(i int) { Text(f, "row \(i)") } } let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } let most = float64(n) * rh let mut off = 0.0 let mut height = float64(draw(&r, 400) + 1) let mut was = Visible(n, Length(rh), Viewport{Offset: 0, Height: 0}) for k in 0..(steps%40+40)%40+1 { // The first step reports a height; then mostly wheel steps of // under three rows, sometimes a resize. if k > 0 && draw(&r, 8) == 0 { height = float64(draw(&r, 400) + 1) } else if k > 0 { off = off + float64(draw(&r, int(6.0*rh)+1)) - 3.0*rh } if off < 0.0 { off = 0.0 } if off > most { off = most } Play(&h, []Act{ScrollOn{Label: "list", Offset: Length(off), Height: Length(height)}}) catch { case _: return false } let now = Visible(n, Length(rh), Viewport{Offset: Length(off), Height: Length(height)}) if now == was && Counts(&h) != NoCounts() { return false } let (first, last) = now let mut rows = []Shape[int]{} for i in first..last { rows = rows.Append(Shape[int]{Node: TextNode{Value: "row \(i)", Style: Plain()}, Kids: []Shape[int]{}}) } let want = []Shape[int]{ Shape[int]{Node: TextNode{Value: "head 0", Style: Plain()}, Kids: []Shape[int]{}}, Shape[int]{Node: RowsNode{Label: "list", Count: n, RowHeight: Length(rh), First: first, Offset: Length(off)}, Kids: rows}, } if !SameShapes(Screen(&h), want) { return false } was = now } true } }`,
 	"ui Location.PushThenBackRestores":     `PushThenBackRestores(u URL) { let before = Current() Push(u) let there = Current() Back() && there == u && Current() == before }`,
 	"ui Location.ReplaceKeepsDepth":        `ReplaceKeepsDepth(u URL, v URL) { let before = Current() Push(u) Replace(v) let there = Current() Back() && there == v && Current() == before }`,
 	"ui Location.BackStopsAtTheStart":      `BackStopsAtTheStart(u URL) { Replace(u) for Back() { } let first = Current() !Back() && Current() == first }`,
