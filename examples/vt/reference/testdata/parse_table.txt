@@ -1,17 +1,17 @@
-# The VT parser's transition table, transcribed from Ghostty's
-# src/terminal/parse_table.zig (genTable) at commit cf3a8a6594ee, one line
+# The VT parser's transition table, transcribed from another implementation's
+# table generator (conformance/upstream records which, and the commit), one line
 # per call of single or range, in the order the source makes them. A later
 # line overrides an earlier one for the same state and byte, and a pair no
-# line sets stays in its state with the action none, as genTable's final
+# line sets stays in its state with the action none, as the generator's final
 # loop does. "anywhere" stands for the loop over every state.
 #
 #   single BYTE FROM TO ACTION
 #   range  LOW HIGH FROM TO ACTION      (both bytes included)
 #
-# The law StepMatchesTable (ghostty/table.ergo) holds the parser's step to this
+# The law StepMatchesTable (reference/table.ergo) holds the parser's step to this
 # table for every state and every byte.
 #
-# Ghostty's notice, which covers the transcribed table:
+# The source's notice, which covers the transcribed table:
 #
 # MIT License
 #
