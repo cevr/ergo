@@ -252,7 +252,10 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		if wc := b.witnessCopy(x, c); wc != "" && known == "" { // ir_witness.go
 			return pre, mark(&irExpr{K: "call", Pos: p, Name: wc, Args: irArgs}), !fd.pure
 		}
-		if wits := b.witnessArgs(f, x, p); len(wits) > 0 { // ir_witness.go
+		if known == "" && b.copyTakesNoWitness(x, c, fd) {
+			// A copy for an instance whose witnesses are known (mono.go
+			// monoWitnesses): its operations are its own.
+		} else if wits := b.witnessArgs(f, x, p); len(wits) > 0 { // ir_witness.go
 			// After the environment, before the operands (witnessArgs).
 			at := 0
 			if !fd.pure {

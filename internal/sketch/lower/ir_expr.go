@@ -4,6 +4,7 @@ package lower
 
 import (
 	"go/constant"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -328,9 +329,6 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 				return b.machineLit(x, lit) // ir_machine.go
 			}
 			s := tt.Underlying().(*check.Struct)
-			if len(x.Elts) != len(s.Fields) {
-				irNo("record literal without every field")
-			}
 			var values []syntax.Expr
 			var fts []check.Type
 			var names []string
@@ -382,6 +380,9 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 			}
 			if plain {
 				lit.FT = b.recordFieldTypes(fts, x) // ir_forms_store.go
+			}
+			if len(names) != len(s.Fields) {
+				b.omittedFields(lit, td, s, names, x, p)
 			}
 		default:
 			irNo("literal of %T", t)
@@ -451,4 +452,28 @@ func (b *irBuilder) constant(t check.Type, v constant.Value, x syntax.Expr, p ir
 	}
 	irNo("constant kind %s", v.Kind())
 	return nil
+}
+
+// omittedFields gives the record literal lit of td (the record s) each
+// field its elements do not set, the emitter's fieldDefaults: a field
+// whose default is Go's zero value is left out of the keyed literal, and
+// a Map field is an empty Go map. The checker writes such a literal for a
+// Map with a provider, Map[K, V, H]{} (check/mapprovider.go); a program's
+// literal sets every field. Any other default that holds a Map (built by a
+// function) keeps the emitter's body.
+func (b *irBuilder) omittedFields(lit *irExpr, td *typeDecl, s *check.Struct, set []string, x *syntax.CompositeLit, p irPos) {
+	for _, f := range s.Fields {
+		if slices.Contains(set, f.Name) || !b.l.holdsMap(f.Type) {
+			continue
+		}
+		if _, ok := f.Type.(*check.Map); !ok {
+			irNo("record literal without a field whose default holds a Map")
+		}
+		name, ok := td.fieldName[f.Name]
+		if !ok {
+			irNo("record literal without a field of its record")
+		}
+		lit.Keys = append(lit.Keys, name)
+		lit.Elems = append(lit.Elems, &irExpr{K: "lit", Pos: p, T: b.goType(f.Type, x)})
+	}
 }

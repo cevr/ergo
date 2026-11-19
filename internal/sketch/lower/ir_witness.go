@@ -172,16 +172,13 @@ func (b *irBuilder) passedWitnesses(f *check.Func, inst *check.Instance, params 
 // is the caller's own witness for its type parameter own: the same Go
 // struct. A constraint that names only its own parameter compares by its
 // witness type. One that names other parameters of the callee
-// (`O Ord[T]`) compares, in a copy for an instance, where every type is a
-// Go type, by its operation type and its type arguments at inst; outside
-// a copy the callee's T is no Go type of the caller, and the call keeps
-// its gate.
+// (`O Ord[T]`) compares by its operation type and its type arguments at
+// inst, each a type of the caller: in a copy for an instance a Go type,
+// and in a generic caller its own type parameters too (the callee's T is
+// read at inst, never written in the caller).
 func (b *irBuilder) sameWitness(f *check.Func, inst *check.Instance, tp, own *check.TypeParam) bool {
 	if witnessClosed(tp) {
 		return b.fc.witnessType(tp, own) == b.fc.witnessType(own, own)
-	}
-	if !b.fc.mono {
-		return false
 	}
 	cn, ok := tp.Constraint.(*check.Named)
 	on, ok2 := own.Constraint.(*check.Named)
@@ -271,13 +268,13 @@ func (b *irBuilder) witnessCopy(x *syntax.CallExpr, c *check.Call) string {
 // result has the uniform shape, (value, error), as a function value's:
 // call and try bind it so (ir_call.go, ir_fail.go).
 func (b *irBuilder) witnessOpCall(x *syntax.CallExpr, c *check.Call, tp *check.TypeParam, ptr bool, p irPos) ([]*irStmt, *irExpr, bool) {
+	if pre, e, effect, ok := b.directOp(x, c, tp, ptr, p); ok {
+		return pre, e, effect // a copy for an instance (ir_instance.go)
+	}
 	if b.fc.static[tp] != nil {
 		// A copy for a known witness calls the implementing function
 		// (witnessCall); its body is the emitter's until G4 builds copies.
 		irNo("operation call on a known witness")
-	}
-	if pre, e, effect, ok := b.directOp(x, c, tp, ptr, p); ok {
-		return pre, e, effect // a copy for an instance (ir_instance.go)
 	}
 	w, ok := b.wits[tp]
 	if !ok || b.fc.refSiteOf(x) != nil {

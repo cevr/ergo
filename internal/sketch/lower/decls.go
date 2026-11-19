@@ -1162,7 +1162,7 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 	}
 	fc.frame = newFrame(nil, fd.fallible, false)
 	if fd.extern == "" && f.Decl.Body != nil {
-		fc.frame.polls = framePolls(f.Pkg.Info, f.Decl)
+		fc.frame.polls = framePolls(f.Pkg.Info, f.Decl) && !copyIsPure(f, sp)
 	}
 	// A type parameter a method set constrains takes its operations as a
 	// witness, after the environment and the destination (witness.go).
@@ -1175,6 +1175,15 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 			// A copy for a known witness (witspec.go): no parameter; a
 			// use of the witness itself takes one built in the copy.
 			fc.static = map[*check.TypeParam]*check.Witness{tp: sp.wit}
+			continue
+		}
+		if sp != nil && sp.wits[tp] != nil {
+			// A copy for an instance whose witnesses are known (mono.go
+			// monoWitnesses): the same, for each of them.
+			if fc.static == nil {
+				fc.static = map[*check.TypeParam]*check.Witness{}
+			}
+			fc.static[tp] = sp.wits[tp]
 			continue
 		}
 		parts = append(parts, fc.witness[tp]+" "+fc.witnessType(tp, tp))
@@ -1331,6 +1340,15 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 		if w := fc.witness[sp.wit.Param]; namesIdent(body, w) {
 			fc.depth = 1
 			body = "\t" + w + " := " + fc.witnessValue(sp.wit, site) + "\n" + body
+		}
+	}
+	if sp != nil && sp.wits != nil {
+		// In witness parameter order, so the text is deterministic.
+		for _, tp := range slices.Backward(witnessParams(f.Sig)) {
+			if w := fc.witness[tp]; namesIdent(body, w) {
+				fc.depth = 1
+				body = "\t" + w + " := " + fc.witnessValue(sp.wits[tp], site) + "\n" + body
+			}
 		}
 	}
 	b.WriteString(directive + head.String() + " {\n" + body + "}\n\n")

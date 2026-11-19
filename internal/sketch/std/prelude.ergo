@@ -392,7 +392,10 @@ func grown[K comparable, H Hashing[K], V](t hashTable[K, H, V]) hashTable[K, H, 
 	for size * 3 < (t.count + 1) * 4 {
 		size = size * 2
 	}
-	let mut slots = MakeSlice[Option[keyEntry[K, V]]](size)
+	// Append, not MakeSlice: Append is a pure body and MakeSlice is not
+	// (stdlib.md, Pure bodies 5), so a copy of grown for a provider whose
+	// operations are pure stays pure and polls no task (C5d).
+	let mut slots = []Option[keyEntry[K, V]]{}
 	for len(slots) < size {
 		slots = slots.Append(None)
 	}
