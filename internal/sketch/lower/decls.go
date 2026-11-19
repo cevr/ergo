@@ -77,9 +77,13 @@ type funcDecl struct {
 	extern   string
 	library  bool
 	emitted  bool
-	// pure is a function with no environment parameter, called with none
-	// (pure.go, D-S5-10).
-	pure bool
+	// pure is a pure function (pure.go, D-S5-10): no failure, no
+	// environment, the fact tabulation, memo, folding and facts read.
+	// envFree is a function with no environment parameter, called with
+	// none: one that nothing it runs reads the environment of, failing or
+	// not (pure.go, ENV-FREE-FALLIBLE). Every pure function is envFree.
+	pure    bool
+	envFree bool
 	// lowered is set when the Go body has been written, and readsEnv then
 	// says whether that body names its environment parameter: the fact a
 	// machine plan's Step reads to decide whether it takes one (machine.go).
@@ -730,12 +734,13 @@ func (l *lowerer) funcDecl(f *check.Func) *funcDecl {
 	l.funcs[f] = fd
 	fd.fallible = len(rowElems(f.Sig.Errors)) > 0
 	fd.pure = l.isPure(f) || l.pureIntrinsic(f)
+	fd.envFree = fd.pure || l.isEnvFree(f)
 	if f.Decl != nil && f.Decl.Extern != nil && f.Decl.Extern.Target != nil {
 		fd.extern = strings.Trim(f.Decl.Extern.Target.Value, "\"`")
 	}
 	if td, ptr := l.methodReceiver(f); td != nil {
 		fd.method, fd.ptr, fd.name = td, ptr, memberName(f.Name)
-		if fd.pure {
+		if fd.envFree {
 			fd.name = l.protocolFreeName(f, td, fd.name)
 		}
 		return fd
@@ -1177,7 +1182,7 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 	// body binds none (pure.go, D-S5-10), so a read of it is a located ICE
 	// (envExpr).
 	var parts []string
-	if !fd.pure {
+	if !fd.envFree {
 		fc.env = scope.alloc("env")
 		parts = append(parts, fc.env+" *"+l.env())
 		args = append(args, fc.env)

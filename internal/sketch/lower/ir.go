@@ -704,12 +704,12 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	for i, v := range params {
 		if v == nil {
 			// An unnamed parameter (`_ T`) has its slot; no body reads it.
-			if i == 0 && !fd.pure && fd.method == nil {
+			if i == 0 && !fd.envFree && fd.method == nil {
 				b.env = b.next
 				b.next++
 			}
 			b.next++
-			if i == 0 && fd.method != nil && !fd.pure {
+			if i == 0 && fd.method != nil && !fd.envFree {
 				b.env = b.next
 				b.next++
 			}
@@ -718,13 +718,13 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 		if i == 0 && fd.method != nil {
 			b.locals[v] = b.next
 			b.next++
-			if !fd.pure {
+			if !fd.envFree {
 				b.env = b.next
 				b.next++
 			}
 			continue
 		}
-		if i == 0 && !fd.pure {
+		if i == 0 && !fd.envFree {
 			b.env = b.next
 			b.next++
 		}
@@ -732,7 +732,7 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 		b.next++
 		b.part(func() { b.goType(v.Type, f.Decl) })
 	}
-	if len(params) == 0 && !fd.pure {
+	if len(params) == 0 && !fd.envFree {
 		b.env = b.next
 		b.next++
 	}

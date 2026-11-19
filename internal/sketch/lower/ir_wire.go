@@ -334,7 +334,7 @@ func (g *wireGen) funcCall(f *check.Func, args []*irExpr) *irExpr {
 	if fd.extern != "" || len(witnessParams(f.Sig)) > 0 || len(f.Sig.TParams) > 0 {
 		irNo("codec writer's call of %s", f.Name)
 	}
-	if !fd.pure {
+	if !fd.envFree {
 		at := 0
 		if fd.method != nil {
 			at = 1

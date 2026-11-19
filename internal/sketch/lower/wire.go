@@ -608,7 +608,7 @@ func (l *lowerer) wireFunc(dir string, t check.Type, site syntax.Node) string {
 func (l *lowerer) wireCallFunc(f *check.Func, env string, site syntax.Node, args ...string) string {
 	fd := l.useFunc(f, site)
 	lead := []string{}
-	if !fd.pure {
+	if !fd.envFree {
 		lead = []string{env}
 	}
 	if fd.method != nil {

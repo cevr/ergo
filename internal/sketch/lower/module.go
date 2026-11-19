@@ -268,6 +268,7 @@ type lowerer struct {
 	types  map[*check.TypeName]*typeDecl
 	funcs  map[*check.Func]*funcDecl
 	pure   map[*check.Func]bool       // the program's pure functions (pure.go), once computed
+	free   map[*check.Func]bool       // the program's env-free functions (pure.go, isEnvFree), once computed
 	known  map[*check.Func]knownState // known-callback variant decisions (known.go)
 	closed map[*check.Func]knownState // closed-frame decisions (known.go)
 	deps   map[*check.Func][]bool     // result-alias summaries (alias.go)

@@ -360,7 +360,7 @@ func (fc *funcCtx) inlineField(x *syntax.CallExpr, c *check.Call, g *check.Func,
 	if len(g.Sig.Results) == 1 && fc.noValue(x) {
 		return false // a result a block with no value binds: struct{}
 	}
-	if !gd.pure && fc.env == "" {
+	if !gd.envFree && fc.env == "" {
 		return false
 	}
 	if !fc.grow(inlineSize(g.Decl.Body)) {
@@ -414,7 +414,7 @@ func (fc *funcCtx) recordCallText(x *syntax.CallExpr, c *check.Call, sig *check.
 	}
 	gd = fc.l.useFunc(g, x)
 	vals := fc.callArgs(x.Args, x)
-	if !gd.pure {
+	if !gd.envFree {
 		vals = append([]string{fc.envExpr(x)}, vals...)
 	}
 	return gd.name + "(" + strings.Join(vals, ", ") + ")", len(sig.Results) > 0, gd.fallible, true

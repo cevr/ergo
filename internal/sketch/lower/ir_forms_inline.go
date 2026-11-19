@@ -131,7 +131,7 @@ func (st *irState) inlineCallee(b *irBuilder, fd *funcDecl, params []*check.Var)
 	}
 	st.inlState()
 	n := len(params)
-	if !fd.pure {
+	if !fd.envFree {
 		n++
 	}
 	body := &irInlBody{f: fd.fn, params: make([]string, n), tps: map[*check.TypeParam]string{}, env: b.env}

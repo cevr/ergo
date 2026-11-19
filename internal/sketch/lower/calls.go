@@ -350,7 +350,7 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 		if sp != nil && sp.wit != nil && !known {
 			lead = nil // the copy for a known witness takes none (witspec.go)
 		}
-		if !fd.pure {
+		if !fd.envFree {
 			lead = append(fc.taskDestArgs(x, c, c.Func.Sig), lead...)
 		}
 		rest = append(lead, rest...)
@@ -972,7 +972,7 @@ func (fc *funcCtx) funcValue(f *check.Func, t check.Type, site syntax.Node, inst
 	// The value has the one Go shape of every function value; for a pure
 	// function the closure discards its environment (pure.go).
 	envParam := "env"
-	if fd.pure {
+	if fd.envFree {
 		envParam = "_"
 	}
 	return fc.envClosure(callerEnv, envParam, site, func(env string) (params []string, results, body string) {
@@ -1640,7 +1640,7 @@ func (fc *funcCtx) operations(conv check.Conversion, val string, site syntax.Nod
 			task := locals.alloc("t")
 			params := []string{task + " *" + l.taskPkg() + ".Task"}
 			pre, e := "", ""
-			if fd.pure {
+			if fd.envFree {
 				// A pure table function takes no environment (pure.go).
 				params[0] = "_ *" + l.taskPkg() + ".Task"
 			} else {
