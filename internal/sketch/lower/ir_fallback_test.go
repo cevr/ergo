@@ -16,7 +16,9 @@ import (
 // as without. It catches the ledger's mutant fallback-off-ignored (the
 // switch never records a body). First's type, a named slice, is a known
 // stop ("type defined over a non-basic type"): when the IR covers it, the
-// test says so and needs another known stop.
+// test says so and needs another known stop. The program without stops
+// drops Twice's value, so its variant with no result is the IR's
+// (DROPPED-IR; I-FLIP #35: it fell back as "variant with no result").
 func TestFallbackOffRefuses(t *testing.T) {
 	const stops = `type Ids []int
 
@@ -76,8 +78,7 @@ func Twice(p P) P {
 }
 
 func main() {
-	let q = Twice(P{A: 1, B: 2})
-	let _ = q.A
+	let _ = Twice(P{A: 1, B: 2})
 }
 `
 	want, rep, err := LowerIR(factsUnit(t, none))

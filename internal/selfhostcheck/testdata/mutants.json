@@ -572,6 +572,28 @@
       "killers": [
         "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
       ]
+    },
+    {
+      "name": "sh-format-union-ends-decl",
+      "origin": "wf10/selfhost/FMT-IMPLEMENTS (SELFHOST-MERGE x batch 23: on compiler/format; killer to judge at the batch)",
+      "file": "compiler/format/nodes.ergo",
+      "from": "\t\t\tp.unionType(spec)\n\t\t} else {\n",
+      "to": "\t\t\tp.unionType(spec)\n\t\t\treturn\n\t\t} else {\n",
+      "rule": "A union declaration still prints its where and implements clauses.",
+      "killers": [
+        "internal/sketch/syntax:TestFormatIsTheCorpusFixpoint"
+      ]
+    },
+    {
+      "name": "sh-format-include-dropped",
+      "origin": "wf10/selfhost/FMT-MODES (SELFHOST-MERGE x batch 23: on compiler/format; killer to judge at the batch)",
+      "file": "compiler/format/nodes.ergo",
+      "from": "\t\tif f.Dots >= 0 {\n\t\t\tp.fieldMember(m, aligned)\n\t\t\treturn\n\t\t}\n",
+      "to": "\t\tif f.Dots >= 0 {\n\t\t\treturn\n\t\t}\n",
+      "rule": "An operation type's includes (..I) are printed among its members in source order.",
+      "killers": [
+        "internal/sketch/syntax:TestFormatIsTheCorpusFixpoint"
+      ]
     }
   ]
 }
