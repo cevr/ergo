@@ -47,6 +47,7 @@ import (
 //go:embed http/*.ergo
 //go:embed actor/*.ergo
 //go:embed journal/*.ergo journal/memory/*.ergo journal/file/*.ergo
+//go:embed llm/*.ergo llm/memory/*.ergo
 //go:embed lint/*.ergo
 //go:embed bench/*.ergo
 //go:embed ui/layout/*.ergo
