@@ -670,9 +670,9 @@ func scroll[E comparable, S, D, F](d *Driver[S, E, D, F], x float32, y float32, 
 func fmin(a float32, b float32) float32 { if a < b { a } else { b } }
 
 // key handles a key press: Enter and space press the focused Pressable,
-// Check, Toggle or sending Semantic, Backspace deletes the last rune of
-// the focused Input, and the rest go to the session, where Tab and
-// Shift+Tab move the focus when no key function takes them (UC-TAB).
+// Check, Toggle or sending Semantic, a key that edits the focused Input
+// (ui.KeyEdit) is an Edit of it, and the rest go to the session, where Tab
+// and Shift+Tab move the focus when no key function takes them (UC-TAB).
 func key[E comparable, S, D, F](d *Driver[S, E, D, F], k ui.KeyPress) fails actor.Stopped | ui.BadPatch needs go.Foreign {
 	if k.Name == "Tab" {
 		try step(d, ui.KeyDown{Press: k})
@@ -683,11 +683,17 @@ func key[E comparable, S, D, F](d *Driver[S, E, D, F], k ui.KeyPress) fails acto
 	case Some[spot[E]] as s:
 		match s.Value.node {
 		case ui.InputNode as x:
-			if k.Name == "Backspace" {
-				if x.Value != "" {
-					try step(d, ui.Type[E]{Id: s.Value.id, Text: withoutLast(x.Value)})
+			// A key that edits the field or moves its caret is an Edit
+			// (ui.KeyEdit, OpenTUI gap 2); one that changes nothing is
+			// taken all the same, as a field takes Backspace at its start.
+			let was = ui.EditingOf(x)
+			match ui.KeyEdit(was, k, x.Lines) {
+			case Some[ui.Editing] as e:
+				if e.Value != was {
+					try step(d, ui.Edit[E]{Id: s.Value.id, Text: e.Value.Text, Caret: e.Value.Caret, Anchor: e.Value.Anchor})
 				}
 				return
+			case None:
 			}
 		case _:
 			if pressable(s.Value.node) && (k.Name == "Enter" || k.Name == " ") {
@@ -712,7 +718,9 @@ func typed[E comparable, S, D, F](d *Driver[S, E, D, F], text string, mods ui.Mo
 	case Some[spot[E]] as s:
 		match s.Value.node {
 		case ui.InputNode as x:
-			try step(d, ui.Type[E]{Id: s.Value.id, Text: x.Value + text})
+			// The text goes in at the caret, over the selection.
+			let e = ui.Insert(ui.EditingOf(x), text)
+			try step(d, ui.Edit[E]{Id: s.Value.id, Text: e.Text, Caret: e.Caret, Anchor: e.Anchor})
 			return
 		case _:
 		}

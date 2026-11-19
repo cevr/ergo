@@ -8,6 +8,7 @@
 import arena
 import go ergo.local/prototype/hosts/mygo/screen
 import ui
+import strings
 import ui/layout
 
 // textSize is the font size of every text, in DIPs.
@@ -28,6 +29,9 @@ let danger = uint32(0xcf222eff)
 let track = uint32(0xc6ccd3ff)
 
 let paper = uint32(0xffffffff)
+
+// selection is the fill behind the selected text of a focused Input.
+let selection = uint32(0xb6e3ffff)
 
 // mark is the size of a Check's box; switchW and switchH a Toggle's track.
 let mark = float32(18)
@@ -171,11 +175,11 @@ func styleOf[E](n ui.Node[E], line float32) layout.Style {
 		s.Content = layout.Text{Value: x.Label, Size: textSize}
 		s
 	case ui.InputNode as x:
-		// A label above the field and a description under it take a line
-		// each.
+		// The field is Lines lines high (OpenTUI gap 2); a label above the
+		// field and a description under it take a line each.
 		let mut s = plainStyle()
 		s.Width = layout.Px{Value: fieldW}
-		s.Height = layout.Px{Value: line + 12 + labelRoom(x, line) + describeRoom(x, line)}
+		s.Height = layout.Px{Value: float32(x.Lines)*line + 12 + labelRoom(x, line) + describeRoom(x, line)}
 		s.Padding = [4]float32{6, 8, 6, 8}
 		s
 	}
@@ -223,6 +227,45 @@ func labelOf[E](n ui.Node[E]) Option[string] {
 	case _:
 		None
 	}
+}
+
+// fieldText draws an Input's value, a line of it per line, under the
+// selection the model holds (OpenTUI gap 2) when the field has the focus:
+// a fill behind each line's selected part.
+func fieldText[S, E, D, F](d *Driver[S, E, D, F], x ui.InputNode, inner layout.Box, line float32, focus bool) needs go.Foreign {
+	let (lo, hi) = ui.Selected(ui.EditingOf(x))
+	let mut start = 0
+	let mut row = 0
+	for l in strings.Split(x.Value, "\n") {
+		let y = inner.Y + float32(row)*line
+		let end = start + len(l)
+		if focus && lo != hi && lo <= end && hi >= start {
+			let a = if lo > start { lo - start } else { 0 }
+			let z = if hi < end { hi - start } else { len(l) }
+			let ax = width(d.metrics, l[0:a], textSize)
+			let zx = width(d.metrics, l[0:z], textSize)
+			fill(d, layout.Box{X: inner.X + ax, Y: y, W: fmax(zx-ax, 2), H: line}, 0, selection)
+		}
+		d.w.Text(float64(inner.X), float64(y), l, float64(textSize), ink)
+		start = end + 1
+		row = row + 1
+	}
+}
+
+// caretAt is where the caret at byte caret of value stands in its field:
+// across its line and down by the lines before it.
+func caretAt[S, E, D, F](d *Driver[S, E, D, F], value string, caret int, line float32) (float32, float32) {
+	let mut start = 0
+	let mut row = 0
+	for l in strings.Split(value, "\n") {
+		let end = start + len(l)
+		if caret <= end {
+			return (width(d.metrics, l[0:caret-start], textSize), float32(row) * line)
+		}
+		start = end + 1
+		row = row + 1
+	}
+	(0, float32(row) * line)
 }
 
 // fieldName is an Input's accessible name: its label, or its placeholder
@@ -774,14 +817,16 @@ func drawNode[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], laid layout.Box, b
 		if x.Value == "" {
 			d.w.Text(float64(inner.X), float64(inner.Y), x.Placeholder, float64(textSize), faint)
 		} else {
-			d.w.Text(float64(inner.X), float64(inner.Y), x.Value, float64(textSize), ink)
+			fieldText(d, x, inner, line, focus)
 		}
 		d.w.Unclip()
 		access(d, id, screen.RoleField, fieldName(x), x.Value, b, false, focus)
 		if focus {
-			let caret = fmin(width(d.metrics, x.Value, textSize), inner.W)
-			d.w.Editing(x.Value, ui.KeyboardName(x.Hints.Keyboard), d.edited, float64(inner.X+caret), float64(inner.Y), 1, float64(line))
-			fill(d, layout.Box{X: inner.X + caret, Y: inner.Y, W: 1, H: line}, 0, ink)
+			// The caret the model holds (OpenTUI gap 2), on its line.
+			let (cx, cy) = caretAt(d, x.Value, x.Caret, line)
+			let caret = fmin(cx, inner.W)
+			d.w.Editing(x.Value, ui.KeyboardName(x.Hints.Keyboard), d.edited, float64(inner.X+caret), float64(inner.Y+cy), 1, float64(line))
+			fill(d, layout.Box{X: inner.X + caret, Y: inner.Y + cy, W: 1, H: line}, 0, ink)
 		}
 	}
 	unpaint(d, look)

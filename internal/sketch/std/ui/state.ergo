@@ -107,6 +107,12 @@ func LabelledField[E](f *Frame[E], label FieldLabel, d Draft, placeholder string
 	let _ = put(f, InputNode{Value: d.Value, Placeholder: placeholder, Label: label.Text, Description: label.Description, Invalid: label.Invalid, Hints: PlainHints, Lines: 1, Caret: 0, Anchor: 0}, None, Some{Value: d.at}, at)
 }
 
+// FieldLines is a Field of lines lines, as InputLines is an Input of them
+// (OpenTUI gap 2): a multi-line draft, such as a prompt.
+func FieldLines[E](f *Frame[E], d Draft, placeholder string, lines int, at CallSite) {
+	let _ = put(f, InputNode{Value: d.Value, Placeholder: placeholder, Label: "", Description: "", Invalid: false, Hints: PlainHints, Lines: lines, Caret: 0, Anchor: 0}, None, Some{Value: d.at}, at)
+}
+
 // HintedField is a LabelledField that tells a phone's keyboard what it
 // takes (Hints), as HintedInput does.
 func HintedField[E](f *Frame[E], label FieldLabel, hints Hints, d Draft, placeholder string, at CallSite) {

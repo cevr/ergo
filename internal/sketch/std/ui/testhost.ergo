@@ -236,6 +236,15 @@ func TypeText[E comparable, S, D, F](h *TestHost[S, E, D, F], id Id[E], text str
 	try apply(h, Type[E]{Id: id, Text: text})
 }
 
+// EditText sends the field id an Edit (OpenTUI gap 2): its text with the
+// caret at caret and the selection's other end at anchor, as a host does
+// for each edit or move of the caret in a focused field. The field takes
+// the focus; no click goes first, since the caret moves with the
+// keyboard.
+func EditText[E comparable, S, D, F](h *TestHost[S, E, D, F], id Id[E], text string, caret int, anchor int) fails actor.Stopped | BadPatch {
+	try apply(h, Edit[E]{Id: id, Text: text, Caret: caret, Anchor: anchor})
+}
+
 // Pump takes every result a fetch has posted, without waiting.
 func Pump[E comparable, S, D, F](h *TestHost[S, E, D, F]) fails actor.Stopped | BadPatch {
 	for {
@@ -890,6 +899,16 @@ func nodeText[E](n Node[E]) string {
 		}
 		if x.Invalid {
 			out = out + " invalid"
+		}
+		if x.Lines > 1 {
+			out = out + " lines \(x.Lines)"
+		}
+		// The caret and the selection, unless both are at the end.
+		if x.Caret != x.Anchor {
+			let (lo, hi) = Selected(EditingOf(x))
+			out = out + " selected \(lo)..\(hi) caret \(x.Caret)"
+		} else if x.Caret != len(x.Value) {
+			out = out + " caret \(x.Caret)"
 		}
 		out
 	case FieldsetNode as x:

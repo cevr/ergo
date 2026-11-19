@@ -675,6 +675,14 @@ func LabelledInput[E](f *Frame[E], label FieldLabel, value string, placeholder s
 	let _ = put(f, InputNode{Value: value, Placeholder: placeholder, Label: label.Text, Description: label.Description, Invalid: label.Invalid, Hints: PlainHints, Lines: 1, Caret: 0, Anchor: 0}, Some{Value: onText}, None, at)
 }
 
+// InputLines is an Input of lines lines (OpenTUI gap 2): a box that many
+// lines high whose text holds newlines (Enter types one), and whose
+// caret moves by line (Up, Down). Its caret and selection are the
+// model's, as every Input's are (edit.ergo).
+func InputLines[E](f *Frame[E], value string, placeholder string, lines int, onText own func(t string) E, at CallSite) {
+	let _ = put(f, InputNode{Value: value, Placeholder: placeholder, Label: "", Description: "", Invalid: false, Hints: PlainHints, Lines: lines, Caret: 0, Anchor: 0}, Some{Value: onText}, None, at)
+}
+
 // HintedInput is a LabelledInput that tells a phone's keyboard what it
 // takes (Hints, MB5): an email field asks for EmailKeys, a search field
 // for ReturnSearch.
