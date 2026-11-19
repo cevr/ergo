@@ -48,13 +48,17 @@ func lookStatesDiffer[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *desk
 // than the test host shows it in (OpenTUI gap 1), None when they agree:
 // the test host's ink is the look of the node it shows for that text (a
 // Readout shows as a Text of its reading, with its Style), in the
-// node's state. A text the test host shows more than once is skipped.
+// node's state (rest, for a node the locator does not find). A text the
+// test host shows more than once is skipped.
 func inksDiffer[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *desktop.Driver[S, E, D, F]) Option[string] {
 	for at in desktop.Inks(d) {
 		let ids = ui.Locate(h, ui.WithLabel{Label: at.Label})
 		let shown = textsShowing(ui.Screen(h), at.Label)
-		if len(ids) == 1 && len(shown) == 1 {
-			let want = ui.LookNow(ui.LooksOf(h, shown[0]), ui.LookStateAt(h, ids[0])).Ink
+		if len(shown) == 1 {
+			// A Readout is no locator target (its node is not a Text in the
+			// tree): it is in its rest state.
+			let state = if len(ids) == 1 { ui.LookStateAt(h, ids[0]) } else { ui.Rest }
+			let want = ui.LookNow(ui.LooksOf(h, shown[0]), state).Ink
 			if at.Ink != want {
 				return Some{Value: "ink of \(at.Label) differs from the test host's"}
 			}
