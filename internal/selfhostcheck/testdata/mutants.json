@@ -616,6 +616,17 @@
       "killers": [
         "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
       ]
+    },
+    {
+      "name": "lower-call-name-bare",
+      "origin": "wf10/selfhost/S4c7",
+      "file": "compiler/lower/lower.ergo",
+      "from": "ir.Text(b, try declName(st, name)), ir.List(b, ids)",
+      "to": "ir.Text(b, name), ir.List(b, ids)",
+      "rule": "A call names its callee by the callee's Go name: alias__name outside the build's root (NAME-LOCAL).",
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ]
     }
   ]
 }
