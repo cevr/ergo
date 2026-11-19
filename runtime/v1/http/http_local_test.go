@@ -20,7 +20,7 @@ import (
 type localCase struct {
 	method, path, rawQuery, body string
 	header                       []HTTPField
-	query                        []HTTPField // the fields rawQuery encodes (httpEncodeQuery), nil when it is written
+	query                        []HTTPField // the fields rawQuery encodes (HTTPEncodeQuery), nil when it is written
 	status                       int
 	answer                       string
 	answerHeader                 []HTTPField
@@ -100,7 +100,7 @@ var errLocalSink = errors.New("sink refused")
 // and the streamed form with its accepted statuses and a failing sink.
 // Only Date is left out. A failing seed prints the case and both
 // outcomes; ERGO_HTTP_LOCAL_SEED=n replays it. An encoded query
-// (httpEncodeQuery) arrives as its fields. Mutants (runtime/v1 ledger):
+// (HTTPEncodeQuery) arrives as its fields. Mutants (runtime/v1 ledger):
 // local-key-kept, local-answer-unlike-serve, local-header-budget-lost,
 // local-no-keepalive, local-origin-raw, encode-query-unescaped.
 func TestHTTPLocalMatchesLoopback(t *testing.T) {
@@ -297,7 +297,7 @@ func localCaseOf(r *rand.Rand) localCase {
 		for range r.IntN(4) {
 			c.query = append(c.query, HTTPField{text(1 + r.IntN(4)), text(r.IntN(5))})
 		}
-		c.rawQuery = httpEncodeQuery(c.query)
+		c.rawQuery = HTTPEncodeQuery(c.query)
 	}
 	if c.method == "POST" || c.method == "PUT" || c.method == "PATCH" || r.IntN(4) == 0 {
 		c.body = text(r.IntN(64))

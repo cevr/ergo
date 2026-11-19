@@ -587,7 +587,7 @@ func (s *httpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer s.workers.Done()
 	in := httpIncoming{Method: r.Method, Path: r.URL.Path, Header: httpFields(r.Header)}
 	if r.URL.RawQuery != "" {
-		in.Query = httpParseQuery(r.URL.RawQuery)
+		in.Query = HTTPParseQuery(r.URL.RawQuery)
 	}
 	ctx := r.Context()
 	conn, _ := ctx.Value(connKey{}).(*httpConn)
@@ -699,10 +699,12 @@ func (s *httpServer) fail(err error) {
 	}
 }
 
-// httpParseQuery is the Query of every request Serve gives a handler, as
-// std http's ParseQuery (Ergo) reads it: url.ParseQuery's pairs, a pair with a malformed
+// HTTPParseQuery is std http.ParseQuery and the Query of every request
+// Serve gives a handler: url.ParseQuery's pairs, a pair with a malformed
 // escape dropped as Request.URL.Query drops it.
-func httpParseQuery(raw string) []HTTPField {
+//
+//ergo:wait none
+func HTTPParseQuery(raw string) []HTTPField {
 	values, _ := url.ParseQuery(raw)
 	return httpFields(values)
 }

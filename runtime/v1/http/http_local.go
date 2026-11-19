@@ -105,7 +105,7 @@ func httpLocalServe(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		panic(http.ErrAbortHandler)
 	}
-	c := &httpLocalCall{method: r.Method, path: r.URL.Path, query: httpParseQuery(r.URL.RawQuery), header: httpFields(r.Header), body: string(body), out: make(chan HTTPResponse, 1)}
+	c := &httpLocalCall{method: r.Method, path: r.URL.Path, query: HTTPParseQuery(r.URL.RawQuery), header: httpFields(r.Header), body: string(body), out: make(chan HTTPResponse, 1)}
 	select {
 	case l.in <- c:
 	case <-l.done:

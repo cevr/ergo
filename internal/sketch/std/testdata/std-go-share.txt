@@ -102,6 +102,7 @@ hex	Decode	library	LF2b (FK2): the string is copied for DecodeString and the res
 hex	Encode	library	LF2b (FK2): the string's bytes are copied for EncodeToString (strings.Bytes), 1.038x the body; a view of a string as []byte removes the copy
 hex	Malformed	type
 http	BodyFile	type
+http	EncodeQuery	computation	NP4f-7
 http	Exchange	type
 http	Field	type
 http	IntoFile	library	GB3, GB4 and HOST-ROW, as fetch; it writes through fs.HostRoot (GBX1b)
@@ -112,6 +113,7 @@ http	Listen	library	HOST-ROW: net.Listen through import go charges go.Foreign, a
 http	ListenFailed	type
 http	Listener	type
 http	OriginRefused	type
+http	ParseQuery	computation	NP4f-7
 http	RedirectLimit	type
 http	Response	type
 http	SendFailed	type
