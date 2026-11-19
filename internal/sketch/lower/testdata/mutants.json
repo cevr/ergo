@@ -6363,6 +6363,8 @@
       "killers": [
         "internal/sketch/lower:TestLinkedRuntimeHoldsEveryImport"
       ]
-    }
+    },
+    {"name":"keptmove-live-source","origin":"wf10 FLIP F7 LY KEPT-MOVE","file":"internal/sketch/lower/values.go","from":"\tif o.kind == occReturn && o.frame == vv.frame {\n","to":"\tif o.kind == occReturn {\n","rule":"A move where the source is still live: a literal's return of a let mut of an enclosing frame copies, since another literal may write it after (pick2(func() { v }, func(i) { v[0] = … })); only the binding's return from its own frame moves (KEPT-MOVE).","killers":["lower:TestReturnMoveAgrees","lower:TestReturnMoveCounts"]},
+    {"name":"keptmove-moves","origin":"wf10 FLIP F7 LY KEPT-MOVE","file":"internal/sketch/lower/values.go","from":"\t\treturn returnLowering == \"copy\" && w.writtenElsewhere(vv)\n","to":"\t\treturn w.writtenElsewhere(vv)\n","rule":"A let mut that only non-escaping literals write moves at its return from its own frame (std/ui kidsOf: one Ref-list clone fewer per node a commit walks).","killers":["lower:TestReturnMoveCounts"]}
   ]
 }
