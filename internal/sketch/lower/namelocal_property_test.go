@@ -81,9 +81,21 @@ func genNameLocal(seed uint64) nameLocalProgram {
 	return p
 }
 
-func (p nameLocalProgram) main(noise bool) string {
-	if noise {
+// The forms of the program: without the added declarations, with them as
+// the package noise, and with them in the root package itself, after main
+// so no position of the root moves.
+const (
+	nameLocalBase = iota
+	nameLocalPackage
+	nameLocalRoot
+)
+
+func (p nameLocalProgram) main(form int) string {
+	switch form {
+	case nameLocalPackage:
 		return "import lib\nimport noise\n\n" + p.helper + "\nfunc main() needs Console {\n\tConsole.Println(\"\\(lib.F(2) + helper(3) + noise.Touch())\")\n}\n"
+	case nameLocalRoot:
+		return "import lib\n\n\n" + p.helper + "\nfunc main() needs Console {\n\tConsole.Println(\"\\(lib.F(2) + helper(3) + Touch())\")\n}\n\n" + p.noise
 	}
 	return "import lib\n\n\n" + p.helper + "\nfunc main() needs Console {\n\tConsole.Println(\"\\(lib.F(2) + helper(3))\")\n}\n"
 }
@@ -92,13 +104,13 @@ func (p nameLocalProgram) main(noise bool) string {
 // for each function declared at a position other than main's own main,
 // its IR (positions as paths) and its Go text, keyed by its declaration's
 // path:line:col.
-func nameLocalFuncs(t *testing.T, p nameLocalProgram, noise bool) (ir, text map[string]string) {
+func nameLocalFuncs(t *testing.T, p nameLocalProgram, form int) (ir, text map[string]string) {
 	t.Helper()
 	imports := cxImporter{"lib": cxPackage(t, "lib", p.lib)}
-	if noise {
+	if form == nameLocalPackage {
 		imports["noise"] = cxPackage(t, "noise", p.noise)
 	}
-	src := p.main(noise)
+	src := p.main(form)
 	f, err := syntax.Parse(src)
 	if err != nil {
 		t.Fatal(err)
@@ -241,15 +253,20 @@ func TestFunctionNamesIgnoreUnrelatedPackages(t *testing.T) {
 	}
 	for _, seed := range seeds {
 		p := genNameLocal(seed)
-		mainLine := strings.Count(p.main(false)[:strings.Index(p.main(false), "func main(")], "\n") + 1
-		baseIR, baseText := nameLocalFuncs(t, p, false)
-		noiseIR, noiseText := nameLocalFuncs(t, p, true)
+		mainLine := strings.Count(p.main(nameLocalBase)[:strings.Index(p.main(nameLocalBase), "func main(")], "\n") + 1
+		baseIR, baseText := nameLocalFuncs(t, p, nameLocalBase)
+		noiseIR, noiseText := nameLocalFuncs(t, p, nameLocalPackage)
+		rootIR, rootText := nameLocalFuncs(t, p, nameLocalRoot)
 		for _, cmp := range []struct {
 			what       string
 			base, with map[string]string
-		}{{"IR", baseIR, noiseIR}, {"Go text", baseText, noiseText}} {
+			libOnly    bool // the root changed: only lib's functions are another package's
+		}{{"IR", baseIR, noiseIR, false}, {"Go text", baseText, noiseText, false}, {"Go text (declarations added to the root)", baseText, rootText, true}, {"IR (declarations added to the root)", baseIR, rootIR, true}} {
 			n := 0
 			for key, b := range cmp.base {
+				if cmp.libOnly && !strings.Contains(key, "/lib/") {
+					continue
+				}
 				if line, ok := strings.CutPrefix(key, testSourcePath+":"); ok {
 					if n, _ := strconv.Atoi(line[:strings.Index(line, ":")]); n >= mainLine {
 						continue // main's own main, which calls noise
@@ -265,7 +282,7 @@ func TestFunctionNamesIgnoreUnrelatedPackages(t *testing.T) {
 					t.Errorf("seed %d: the %s of the function at %s changes when an unrelated package declaring %v is added: %s\nlib:\n%s\nreplay: ERGO_NAMELOCAL_SEED=%d", seed, cmp.what, key, p.noiseNames, nameDiff(b, w), p.lib, seed)
 				}
 			}
-			if n == 0 {
+			if n == 0 && !cmp.libOnly {
 				keys := slices.Sorted(maps.Keys(cmp.base))
 				t.Errorf("seed %d: no %s function besides main's main to compare; functions at %v", seed, cmp.what, keys)
 			}
