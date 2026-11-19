@@ -4615,7 +4615,7 @@ func lawRelationsNameHeldNodes(seed int) bool {
 	}
 }
 
-// MB4: laws_touch.ergo restated.
+// MB4: touch.ergo's laws restated.
 // tms is n milliseconds. (a law's helper)
 func tms(n int) duration { duration(int64(n) * int64(1ms)) }
 
