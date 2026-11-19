@@ -925,6 +925,7 @@ extern go net/http.StatusTeapot let StatusTeapot int
 extern go net/http.StatusTemporaryRedirect let StatusTemporaryRedirect int
 
 // ergo:go func StatusText(code int) string
+// ergo:total
 extern go net/http.StatusText func StatusText(code int) string needs go.Foreign
 
 // ergo:go const StatusTooEarly untyped int
