@@ -52,6 +52,66 @@ func JSONOpen(text string, maxBytes int, maxDepth int) (*Cursor, error) {
 	return &Cursor{s: text}, nil
 }
 
+// JSONOpenChecked is JSONOpen in one pass (JSON-VALUE-DECODE): it checks
+// only maxBytes, and gives a Cursor whose reads check the grammar of each
+// token, separator and skipped value they take, so a decode reads the text
+// once. JSONSettle then gives what JSONOpen gives for the text: nil when
+// the cursor took the whole text and met no break, else JSONOpen's own
+// answer, its offset and reason. A decode that settles, after its value or
+// its failure, is the two-phase decode: no value comes from a text that is
+// not JSON, and a text that is not JSON fails as JSONOpen fails it.
+//
+//ergo:wait none
+func JSONOpenChecked(text string, maxBytes int, maxDepth int) (*Cursor, error) {
+	if maxBytes > 0 && len(text) > maxBytes {
+		return nil, JSONMalformed{Offset: maxBytes, Reason: "the text is longer than MaxBytes " + strconv.Itoa(maxBytes)}
+	}
+	if maxDepth <= 0 {
+		maxDepth = JSONDefaultDepth
+	}
+	return &Cursor{s: text, check: true, max: maxDepth}, nil
+}
+
+// JSONSettle is nil when c, a checked Cursor, read its text whole as one
+// value and met no break; else JSONOpen's answer for the text (nil when
+// the text is JSON: the decode's own failure stands).
+//
+//ergo:wait none
+func JSONSettle(c *Cursor) error {
+	if c.check && !c.bad {
+		c.ws()
+		// A read that fails takes nothing, so a text of white space only
+		// is the one a failed root read leaves with c.i at its end.
+		if c.root && len(c.frames) == 0 && c.i == len(c.s) && !jsonBlank(c.s) {
+			return nil
+		}
+	}
+	if _, err := JSONOpen(c.s, 0, c.max); err != nil {
+		return err
+	}
+	return nil
+}
+
+// JSONIsNumber reports that text is one JSON number, with nothing around
+// it: the texts JSONOpen accepts whose one value is a number and that have
+// no white space.
+//
+//ergo:wait none
+func JSONIsNumber(text string) bool {
+	if text == "" {
+		return false // num reads the first byte
+	}
+	v := jsonValidator{s: text}
+	return v.num() && v.i == len(text)
+}
+
+// jsonBlank reports that s is white space only.
+func jsonBlank(s string) bool {
+	v := jsonValidator{s: s}
+	v.ws()
+	return v.i == len(s)
+}
+
 func (e JSONMalformed) Error() string {
 	return "json: " + e.Reason + " at offset " + strconv.Itoa(e.Offset)
 }
@@ -260,6 +320,13 @@ type Cursor struct {
 	frames []jsonFrame
 	root   bool // the root value has been read or begun
 	wrong  bool // the last read met a value of another kind
+	// check: the text was not validated (JSONOpenChecked), so each read
+	// checks what it takes; bad: a read met a break of the grammar (the
+	// decode goes on or fails, and JSONSettle finds the break); max: the
+	// nesting limit.
+	check bool
+	bad   bool
+	max   int
 }
 
 // jsonFrame is an open list or object: for a list, how many elements were
@@ -343,6 +410,18 @@ func (c *Cursor) readBool() (bool, bool) {
 // number is the text of the number at the cursor, taken, or false.
 func (c *Cursor) number() (string, bool) {
 	start := c.i
+	if c.check {
+		if c.i >= len(c.s) || !(c.s[c.i] == '-' || c.s[c.i] >= '0' && c.s[c.i] <= '9') {
+			return "", false
+		}
+		v := jsonValidator{s: c.s, i: c.i}
+		if !v.num() {
+			c.bad = true
+			return "", false
+		}
+		c.i = v.i
+		return c.s[start:c.i], true
+	}
 	for c.i < len(c.s) {
 		switch ch := c.s[c.i]; {
 		case ch >= '0' && ch <= '9', ch == '-', ch == '+', ch == '.', ch == 'e', ch == 'E':
@@ -422,6 +501,9 @@ func (c *Cursor) str() string {
 		if ch == '\\' {
 			break
 		}
+		if ch < 0x20 && c.check {
+			c.bad = true
+		}
 		c.i++
 	}
 	return string(c.unescape([]byte(c.s[start:c.i])))
@@ -434,6 +516,9 @@ func (c *Cursor) strBytes(dst []byte) []byte {
 	c.i++
 	start := c.i
 	for c.i < len(c.s) && c.s[c.i] != '"' && c.s[c.i] != '\\' {
+		if c.s[c.i] < 0x20 && c.check {
+			c.bad = true
+		}
 		c.i++
 	}
 	return c.unescape(append(dst, c.s[start:c.i]...))
@@ -451,6 +536,10 @@ func (c *Cursor) unescape(b []byte) []byte {
 			return b
 		case ch == '\\':
 			c.i++
+			if c.i >= len(c.s) {
+				c.bad = true
+				return b
+			}
 			e := c.s[c.i]
 			c.i++
 			switch e {
@@ -483,21 +572,37 @@ func (c *Cursor) unescape(b []byte) []byte {
 				default:
 					b = utf8.AppendRune(b, r)
 				}
-			default: // '"', '\\', '/'
+			case '"', '\\', '/':
+				b = append(b, e)
+			default:
+				c.bad = true // JSONOpen refuses any other escape
 				b = append(b, e)
 			}
 		default:
+			if ch < 0x20 && c.check {
+				c.bad = true
+			}
 			b = append(b, ch)
 			c.i++
 		}
 	}
+	c.bad = true // the text ends inside the string
 	return b
 }
 
 func (c *Cursor) hex4() rune {
+	if len(c.s)-c.i < 4 {
+		c.bad = true
+		c.i = len(c.s)
+		return utf8.RuneError
+	}
 	var r rune
 	for k := 0; k < 4; k++ {
-		r = r<<4 | rune(jsonUnhex(c.s[c.i+k]))
+		h := jsonUnhex(c.s[c.i+k])
+		if h < 0 {
+			c.bad = true
+		}
+		r = r<<4 | rune(h&0xf)
 	}
 	c.i += 4
 	return r
@@ -506,6 +611,12 @@ func (c *Cursor) hex4() rune {
 func (c *Cursor) begin(open byte, list bool) bool {
 	c.at()
 	if c.i >= len(c.s) || c.s[c.i] != open {
+		return false
+	}
+	if c.check && len(c.frames) >= c.max {
+		// Too deep: refuse the list or object, so that a decode stops here
+		// instead of going down a text JSONOpen would refuse.
+		c.bad = true
 		return false
 	}
 	c.i++
@@ -528,6 +639,12 @@ func (c *Cursor) TakeNull() bool {
 		return false
 	}
 	c.at()
+	if c.check {
+		if !c.word("null") {
+			c.bad = true
+		}
+		return true
+	}
 	c.i += len("null") // JSONOpen already validated this value.
 	return true
 }
@@ -563,6 +680,9 @@ func (c *Cursor) readTag() (string, bool) {
 //
 //ergo:wait none
 func (c *Cursor) More() bool {
+	if c.check {
+		return c.moreChecked()
+	}
 	c.ws()
 	if c.i < len(c.s) && c.s[c.i] == ',' {
 		c.i++
@@ -581,6 +701,73 @@ func (c *Cursor) More() bool {
 	return true
 }
 
+// moreChecked is More on a text not validated: between two elements a
+// comma, after the last the frame's own closer (which End takes), and a
+// member's key is a string with a colon after it.
+// A break sets bad and ends the frame.
+func (c *Cursor) moreChecked() bool {
+	c.ws()
+	n := len(c.frames)
+	if n == 0 || c.i >= len(c.s) {
+		c.bad = true
+		return false
+	}
+	f := &c.frames[n-1]
+	closer := byte('}')
+	if f.list {
+		closer = ']'
+	}
+	ch := c.s[c.i]
+	if ch == closer {
+		return false
+	}
+	if f.has {
+		if ch != ',' {
+			c.bad = true
+			return false
+		}
+		c.i++
+		c.ws()
+		if c.i >= len(c.s) {
+			c.bad = true
+			return false
+		}
+		ch = c.s[c.i]
+	}
+	// A list element that is a comma or a closer (a trailing comma, a
+	// closer of the other kind) needs no check here: every read of it
+	// fails (Kind is end, Skip's check fails), so the decode fails with
+	// the list still open and JSONSettle asks JSONOpen.
+	if !f.list {
+		if ch != '"' {
+			c.bad = true
+			return false
+		}
+		f.key = c.str()
+		f.has = true
+		c.ws()
+		if c.i >= len(c.s) || c.s[c.i] != ':' {
+			c.bad = true
+			return false
+		}
+		c.i++
+	}
+	return true
+}
+
+// skipChecked passes the next value whole, checking it as JSONOpen does,
+// at the depth of the frames open around it.
+func (c *Cursor) skipChecked() {
+	c.ws()
+	v := jsonValidator{s: c.s, i: c.i, max: c.max}
+	if !v.value(len(c.frames)) {
+		c.bad = true
+		c.i = len(c.s)
+		return
+	}
+	c.i = v.i
+}
+
 // Key is the key of the member More reached.
 //
 //ergo:wait none
@@ -596,6 +783,10 @@ func (c *Cursor) Key() string {
 //ergo:wait none
 func (c *Cursor) Skip() {
 	c.at()
+	if c.check {
+		c.skipChecked()
+		return
+	}
 	c.skip()
 }
 
@@ -652,6 +843,10 @@ func (c *Cursor) skip() {
 //
 //ergo:wait none
 func (c *Cursor) End() {
+	if c.check {
+		c.endChecked()
+		return
+	}
 	for c.More() {
 		c.skip()
 	}
@@ -661,6 +856,30 @@ func (c *Cursor) End() {
 	if n := len(c.frames); n > 0 {
 		c.frames = c.frames[:n-1]
 	}
+}
+
+// endChecked is End on a text not validated: the members left are
+// checked as they are passed, and the frame's own closer must follow.
+func (c *Cursor) endChecked() {
+	for c.moreChecked() {
+		c.at() // the element begins, as Skip begins it, so a comma follows
+		c.skipChecked()
+	}
+	n := len(c.frames)
+	if n == 0 {
+		c.bad = true
+		return
+	}
+	closer := byte('}')
+	if c.frames[n-1].list {
+		closer = ']'
+	}
+	if !c.bad && c.i < len(c.s) && c.s[c.i] == closer {
+		c.i++
+	} else {
+		c.bad = true
+	}
+	c.frames = c.frames[:n-1]
 }
 
 // The reads of std json's Cursor give the value and set Wrong, which says

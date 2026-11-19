@@ -308,6 +308,9 @@ type lowerer struct {
 	// directWriters are the sealed std types whose values encode writes
 	// on directly (wiredirect.go), in typeKey order.
 	directWriters []check.Type
+	// directReaders are the types whose values decode reads directly
+	// (wirereader.go), in typeKey order.
+	directReaders []directReader
 	// cellRewrites are the rewriters of std cell writers' laws, by
 	// package (wiretext.go).
 	cellRewrites map[*check.Package]*rewriter

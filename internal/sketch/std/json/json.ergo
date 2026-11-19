@@ -2,11 +2,14 @@
 // (docs/spec/stdlib.md, json; types.md, Codecs; S-json). Text is a Writer
 // that writes the text, Reader reads a text Open has validated whole, and
 // Codec[T] puts them together: Encode(c, v) is v's text, Decode(c, text)
-// is the T a text writes. Decoding is two phases, as Effect's
+// is the T a text writes. Decoding gives what two phases give, as Effect's
 // Schema.parseJson and Go's encoding/json: Open checks the whole text
 // against the limits and the JSON grammar and fails Malformed (phase 1),
 // then decode[T] builds a T and fails only on its shape (phase 2), so no T
-// is built from a text that is not JSON.
+// comes from a text that is not JSON. Decode reads the text once
+// (JSON-VALUE-DECODE): its Cursor checks the grammar of what each read
+// takes, and settleText, after the value or the failure, gives Open's own
+// Malformed for a text that is not JSON (DecodeIsOpenThenDecode).
 //
 // The form (owner q81): a record is an object whose keys are its field
 // names with the first letter lowered, a union value an object whose
@@ -335,6 +338,17 @@ extern go ergo.local/prototype/runtime/v1.Cursor type Cursor {
 // open validates text and gives a Cursor at its start (phase 1).
 extern go ergo.local/prototype/runtime/v1.JSONOpen func open(text string, maxBytes int, maxDepth int) Cursor fails Malformed
 
+// openChecked checks only maxBytes and gives a Cursor whose reads check
+// the grammar of what they take, for Decode's one pass; settleText then fails
+// as open fails for the text, or not at all when the text is JSON.
+extern go ergo.local/prototype/runtime/v1.JSONOpenChecked func openChecked(text string, maxBytes int, maxDepth int) Cursor fails Malformed
+
+extern go ergo.local/prototype/runtime/v1.JSONSettle func settleText(c Cursor) fails Malformed
+
+// isNumber reports that text is one JSON number and nothing else, no white
+// space around it (ParseNum's fast path; JVD-DIRECT).
+extern go ergo.local/prototype/runtime/v1.JSONIsNumber func isNumber(text string) bool
+
 // Reader reads a JSON text for decode[T](r).
 type Reader { c Cursor } implements Reader
 
@@ -504,8 +518,84 @@ func EncodeWith[T wire, U, R](c Codec[T], v T, use func(text []byte) U needs R) 
 }
 
 // Decode is the T that text writes: Malformed when the text breaks
-// Open's rules, else the failures of decode[T] on its shape.
+// Open's rules, else the failures of decode[T] on its shape. It reads the
+// text once: a failed decode settles first, so a break of the text, not
+// the shape failure it caused, is the failure (DecodeIsOpenThenDecode).
 func Decode[T wire](c Codec[T], text string) T fails Malformed | wired[T] needs wired[T] {
+	let r = Reader{c: try openChecked(text, c.MaxBytes, c.MaxDepth)}
+	let v = decode[T](r) catch {
+	case err:
+		try settleText(r.c)
+		return err
+	}
+	try settleText(r.c)
+	v
+}
+
+// decodeOpened is Decode in two phases, Open's whole check and then
+// decode[T]: the reference Decode's one pass keeps.
+func decodeOpened[T wire](c Codec[T], text string) T fails Malformed | wired[T] needs wired[T] {
 	let r = try Open(text, c.MaxBytes, c.MaxDepth)
 	try decode[T](r)
+}
+
+// DecodeIsOpenThenDecode: Decode, which checks the grammar as it reads,
+// gives what Open and then decode[T] give: the same value, the same shape
+// failure, or Open's Malformed at its offset with its reason, as a Value
+// and as a fleet, on texts spelled from docs, with a piece spliced in, and
+// made of pieces (mostly not JSON), under nesting limits.
+law DecodeIsOpenThenDecode(d doc, space int, splice int, at int, parts []int, depth int) { decodesAsOpened(d, space, splice, at, parts, depth) }
+
+func decodesAsOpened(d doc, space int, splice int, at int, parts []int, depth int) bool {
+	let spaces = []string{"", " ", "\n\t", " \r\n "}
+	let mut text = spell(d, spaces[nat(space)%len(spaces)])
+	if splice >= 0 {
+		let k = nat(at) % (len(text) + 1)
+		text = text[:k] + pieces[splice%len(pieces)] + text[k:]
+	}
+	let mut broken = ""
+	for p in parts {
+		let piece = pieces[nat(p)%len(pieces)]
+		if !asOpened("{\"states\":["+piece+"],\"nested\":[["+piece+"]]}", 0) {
+			return false
+		}
+		broken = broken + piece
+	}
+	asOpened(text, nat(depth)%6) && asOpened(broken, nat(depth)%4)
+}
+
+// asOpened: text decodes in one pass as in two, as a Value and as a fleet.
+func asOpened(text string, maxDepth int) bool {
+	let cv = Codec[Value]{MaxBytes: 0, MaxDepth: maxDepth}
+	let cf = Codec[fleet]{MaxBytes: 0, MaxDepth: maxDepth}
+	wholeValue(cv, text) == openedValue(cv, text) && wholeFleet(cf, text) == openedFleet(cf, text)
+}
+
+// openedValue and openedFleet are wholeValue and wholeFleet in two phases.
+func openedValue(c Codec[Value], text string) string {
+	let v = decodeOpened(c, text) catch {
+	case Malformed as m:
+		return said(m)
+	case WireWrongKind as e:
+		return "kind " + e.Path + " " + e.Want
+	case WireMissingField as e:
+		return "missing " + e.Path + " " + e.Field
+	case WireUnknownTag as e:
+		return "tag " + e.Path + " " + e.Tag
+	}
+	"ok " + Encode(c, v)
+}
+
+func openedFleet(c Codec[fleet], text string) string {
+	let v = decodeOpened(c, text) catch {
+	case Malformed as m:
+		return said(m)
+	case WireWrongKind as e:
+		return "kind " + e.Path + " " + e.Want
+	case WireMissingField as e:
+		return "missing " + e.Path + " " + e.Field
+	case WireUnknownTag as e:
+		return "tag " + e.Path + " " + e.Tag
+	}
+	"ok " + Encode(c, v)
 }
