@@ -42,7 +42,9 @@ func TestIRUnaryOperandsMatchSource(t *testing.T) {
 //     ledger's note names: red #31);
 //   - sleeper (PORT-CALLS-2): a std body's hidden scheduler, the
 //     runtime's v1.Sleeper, from the program's Scheduler interface
-//     (timeout.PopWithin; mutant pc2-scheduler-unasserted).
+//     (timeout.PopWithin; mutant pc2-scheduler-unasserted);
+//   - substr (PORT-SLICE): a substring of a string and of a named type over
+//     one, its bounds checked (mutant ps-string-slice-refused).
 //
 // It builds Go for the reason TestIRUnaryOperandsMatchSource does.
 func TestIRReprosMatchSource(t *testing.T) {
@@ -50,7 +52,7 @@ func TestIRReprosMatchSource(t *testing.T) {
 	for _, r := range []struct {
 		name string
 		fns  []string
-	}{{"notand", []string{"pick"}}, {"rowslot", []string{"held", "run"}}, {"byteindex", []string{"hex", "pick", "tail"}}, {"sleeper", []string{"pop"}}} {
+	}{{"notand", []string{"pick"}}, {"rowslot", []string{"held", "run"}}, {"byteindex", []string{"hex", "pick", "tail"}}, {"sleeper", []string{"pop"}}, {"substr", []string{"tail", "cut", "head"}}} {
 		t.Run(r.name, func(t *testing.T) {
 			text, err := os.ReadFile(filepath.Join("testdata", r.name+".ergo"))
 			if err != nil {

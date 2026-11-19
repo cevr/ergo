@@ -33,12 +33,16 @@ import "testing"
 //     (sha256.Sum256's [32]byte; "Go call with a result of another type";
 //     mutant pc2-array-result-refused).
 //
+// PORT-SLICE: a substring, s[lo:hi] of a string or a named type over one
+// ("expression *syntax.SliceExpr"; PF's r01; mutant ps-string-slice-refused).
+//
 // The programs reach other stops (witness parameters, instance copies),
 // which are not these families: the test reads the report's fallback
 // reasons, not that every body lowers.
 func TestPortCallsTakeIRBodies(t *testing.T) {
 	families := []string{"std call with a converted operand", "std call with a converted result", "dot call of a std function", "task call",
-		"type argument with no value", "statement that releases owned values", "with of a context entry outside the program's sources", "Go call with a result of another type"}
+		"type argument with no value", "statement that releases owned values", "with of a context entry outside the program's sources", "Go call with a result of another type",
+		"expression *syntax.SliceExpr"}
 	for _, row := range []struct{ name, src string }{
 		{"leaf", `import http
 import io
@@ -107,6 +111,20 @@ func first(b []byte) int needs go.Foreign {
 
 func main() needs go.Foreign {
 	let _ = first([]byte{1})
+}
+`},
+		{"substr", `type Code string
+
+func tail(s string) string { s[1:] }
+
+func cut(s string, a int, b int) string { s[a:b] }
+
+func head(c Code) Code { c[:2] }
+
+func main() {
+	let _ = tail("abc")
+	let _ = cut("abcd", 1, 3)
+	let _ = head(Code("xyz"))
 }
 `},
 		{"taskset", `import io
