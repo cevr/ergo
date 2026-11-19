@@ -1,5 +1,6 @@
 # scripts/opcount: `totpbench bench verify N` runs N TOTP checks with std
-# totp.Verify, a window of one period on each side (AU3); the cost of one
+# totp.VerifyKey under a secret keyed once (TOTP-FLOOR; AU3 used
+# Verify), a window of one period on each side; the cost of one
 # check is the slope between the two sizes. The control is hand Go with a
 # new hmac.New a step and a formatted code; the floor is one keyed HMAC
 # Reset a step into a fixed array and a numeric compare.

@@ -1,5 +1,6 @@
 // totpbench is AU3's receipt program: N TOTP checks with std totp's
-// Verify, six digits, a period of 30 seconds and a window of one period
+// VerifyKey under the secret keyed once (KeyOf; TOTP-FLOOR), as the floor
+// keys its HMAC once, six digits, a period of 30 seconds and a window of one period
 // on each side, so three HMAC-SHA-1s a check. Its hand Go twin and the Go
 // floor are in ../../testdata; the workload is ../../verify (go run
 // ./scripts/opcount -control -rounds 5 benchmarks/totp/verify).
@@ -19,6 +20,7 @@ import totp
 func bench(n int) int {
 	let p = totp.Default()
 	let secret = "12345678901234567890"
+	let key = totp.KeyOf(secret)
 	let mut codes = []string{}
 	for k in 0..1024 {
 		codes = codes.Append(totp.Code(p, secret, time.Unix(int64(30*k), 0)))
@@ -26,7 +28,7 @@ func bench(n int) int {
 	let mut found = 0
 	for i in 0..n {
 		let k = i % 1024
-		match totp.Verify(p, secret, codes[k], time.Unix(int64(30*k+31), 0)) {
+		match totp.VerifyKey(p, key, codes[k], time.Unix(int64(30*k+31), 0)) {
 		case Some[int64]:
 			found += 1
 		case None:

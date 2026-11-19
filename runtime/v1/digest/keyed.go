@@ -163,6 +163,75 @@ func HmacKeyedSum(alg int, inner string, outer string, message string) string {
 	return string(s)
 }
 
+// HotpKeyState is std totp.KeyOf's body: the states of HMAC-SHA-1's
+// inner and outer hash after RFC 2104's pads of secret (hashed first
+// when it is longer than a block), as sha1's MarshalBinary writes them,
+// as HmacKeyState(1, secret) gives them. They are bytes, not strings, so
+// HotpNumber resumes them with no copy. A pure body names no other
+// function, so the pads are written here as in HmacKeyState.
+//
+//ergo:pure
+//ergo:wait none
+func HotpKeyState(secret string) ([]byte, []byte) {
+	k := []byte(secret)
+	if len(k) > sha1.BlockSize {
+		s := sha1.Sum(k)
+		k = s[:]
+	}
+	var pad [sha1.BlockSize]byte
+	copy(pad[:], k)
+	for i := range pad {
+		pad[i] ^= 0x36
+	}
+	inner := sha1.New()
+	inner.Write(pad[:])
+	for i := range pad {
+		pad[i] ^= 0x36 ^ 0x5c
+	}
+	outer := sha1.New()
+	outer.Write(pad[:])
+	type marshaler interface{ MarshalBinary() ([]byte, error) }
+	a, errA := inner.(marshaler).MarshalBinary()
+	b, errB := outer.(marshaler).MarshalBinary()
+	if errA != nil || errB != nil {
+		panic("totp: a hash state that does not marshal")
+	}
+	return a, b
+}
+
+// HotpNumber is RFC 4226's HOTP value of counter (std totp's step) under
+// the key whose states HotpKeyState gave: the HMAC-SHA-1 of counter's
+// eight big-endian bytes, the inner state resumed for them and the outer
+// for the inner sum, then dynamically truncated: the four bytes at the
+// offset the tag's last byte's low four bits give, to 31 bits. The states
+// are read in place and the counter and the tag stay on the stack, so it
+// copies no state and allocates nothing. A state HotpKeyState did not
+// give is a defect.
+//
+//ergo:pure
+//ergo:wait none
+func HotpNumber(inner []byte, outer []byte, counter int64) int {
+	type unmarshaler interface{ UnmarshalBinary([]byte) error }
+	var buf [sha1.Size]byte
+	var msg [8]byte
+	for i := range msg {
+		msg[i] = byte(uint64(counter) >> (56 - 8*i))
+	}
+	d := sha1.New()
+	if d.(unmarshaler).UnmarshalBinary(inner) != nil {
+		panic("totp: a key state that totp.KeyOf did not give")
+	}
+	d.Write(msg[:])
+	in := d.Sum(buf[:0])
+	if d.(unmarshaler).UnmarshalBinary(outer) != nil {
+		panic("totp: a key state that totp.KeyOf did not give")
+	}
+	d.Write(in)
+	h := d.Sum(buf[:0])
+	off := h[19] & 15
+	return int(uint32(h[off]&0x7f)<<24 | uint32(h[off+1])<<16 | uint32(h[off+2])<<8 | uint32(h[off+3]))
+}
+
 // HmacEqual is hmac.Equal of the bytes of a and b: whether they are equal,
 // in a time that depends on their lengths only, never on where they differ.
 //

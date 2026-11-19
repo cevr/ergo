@@ -16,6 +16,7 @@ import proof
 import proof/file
 import proof/memory
 import rand
+import strconv
 import strings
 import task
 import time
@@ -226,6 +227,35 @@ func lawVerifyOfCode(secret string, sec int64, drift int) bool {
 
 test TotpVerifyOfCode(secret string, sec int64, drift int) {
 	assert lawVerifyOfCode(secret, sec, drift)
+}
+
+func lawSameWorkForEveryCode(secret string, sec int64, w int) bool {
+	let p = totp.NewParams(6, 30s, ((w%3)+3)%3) catch {
+	case totp.BadParams:
+		return false
+	}
+	let now = time.Unix(((sec%10000000000)+10000000000)%10000000000, 0)
+	let at = totp.StepOf(p, now)
+	let k = totp.KeyOf(secret)
+	let first = totp.CodeOf(p, secret, at - int64(totp.Window(p)))
+	let last = totp.CodeOf(p, secret, at + int64(totp.Window(p)))
+	let mut none = "000000"
+	for n in 0..2*totp.Window(p) + 2 {
+		let text = strconv.Itoa(n)
+		let c = strings.Repeat("0", 6 - len(text)) + text
+		let found, _ = totp.VerifyWork(p, k, c, now)
+		if found == None {
+			none = c
+		}
+	}
+	let a, wa = totp.VerifyWork(p, k, first, now)
+	let b, wb = totp.VerifyWork(p, k, last, now)
+	let c, wc = totp.VerifyWork(p, k, none, now)
+	a != None && b != None && c == None && wa == 2*totp.Window(p) + 1 && wb == wa && wc == wa
+}
+
+test TotpSameWorkForEveryCode(secret string, sec int64, w int) {
+	assert lawSameWorkForEveryCode(secret, sec, w)
 }
 
 func lawOutsideWindowFails(secret string, sec int64, far int) bool {
@@ -547,6 +577,7 @@ test FileLogHoldsNoCode(code string) {
 var stdProofLawStatements = map[string]string{
 	"totp MatchesRFC6238":               `MatchesRFC6238() { let p = NewParams(8, 30s, 1) catch { case BadParams: return false } let rows = []vector{ vector{Sec: 59, Code: "94287082"}, vector{Sec: 1111111109, Code: "07081804"}, vector{Sec: 1111111111, Code: "14050471"}, vector{Sec: 1234567890, Code: "89005924"}, vector{Sec: 2000000000, Code: "69279037"}, vector{Sec: 20000000000, Code: "65353130"}, } for r in rows { if Code(p, "12345678901234567890", time.Unix(r.Sec, 0)) != r.Code { return false } } true }`,
 	"totp VerifyOfCode":                 `VerifyOfCode(secret string, sec int64, drift int) { let p = Default() let t = time.Unix(((sec%10000000000)+10000000000)%10000000000, 0) let step = StepOf(p, t) let code = Code(p, secret, t) let later = t.Add(time.Times(30s, ((drift%2)+2)%2)) match Verify(p, secret, code, later) { case Some[int64] as s: s.Value == step || CodeOf(p, secret, s.Value) == code case None: false } }`,
+	"totp SameWorkForEveryCode":         `SameWorkForEveryCode(secret string, sec int64, w int) { let p = NewParams(6, 30s, ((w%3)+3)%3) catch { case BadParams: return false } let now = time.Unix(((sec%10000000000)+10000000000)%10000000000, 0) let at = StepOf(p, now) let k = KeyOf(secret) let first = CodeOf(p, secret, at - int64(Window(p))) let last = CodeOf(p, secret, at + int64(Window(p))) let mut none = "000000" for n in 0..2*Window(p) + 2 { let text = strconv.Itoa(n) let c = strings.Repeat("0", 6 - len(text)) + text let found, _ = VerifyWork(p, k, c, now) if found == None { none = c } } let a, wa = VerifyWork(p, k, first, now) let b, wb = VerifyWork(p, k, last, now) let c, wc = VerifyWork(p, k, none, now) a != None && b != None && c == None && wa == 2*Window(p) + 1 && wb == wa && wc == wa }`,
 	"totp OutsideWindowFails":           `OutsideWindowFails(secret string, sec int64, far int) { let p = Default() let now = time.Unix(((sec%10000000000)+10000000000)%10000000000, 0) let at = StepOf(p, now) let k = int64(2 + ((far%20)+20)%20) for sign in []int64{-1, 1} { let code = CodeOf(p, secret, at + sign*k) let same = CodeOf(p, secret, at - 1) == code || CodeOf(p, secret, at) == code || CodeOf(p, secret, at + 1) == code if !same && Verify(p, secret, code, now) != None { return false } } true }`,
 	"totp ShortCodeFails":               `ShortCodeFails(secret string, sec int64) { let p = Default() let now = time.Unix(((sec%10000000000)+10000000000)%10000000000, 0) Verify(p, secret, Code(p, secret, now)[1:], now) == None }`,
 	"totp NewParamsBoundsTheWindow":     `NewParamsBoundsTheWindow(window int) { let w = ((window%40)+40)%40 - 20 let _ = NewParams(6, 30s, w) catch { case BadParams: return w < 0 || w > 2 } w >= 0 && w <= 2 }`,

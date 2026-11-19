@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"crypto/sha512"
 	"encoding"
+	"encoding/binary"
 	"hash"
 
 	"ergo.local/prototype/internal/sketch/check"
@@ -15,7 +16,9 @@ import (
 // hash states after RFC 2104's key pads, as the hash's MarshalBinary
 // writes them, and keyedSum resumes them for a message. Written from the
 // std doc comments with Go's crypto, never by calling runtime/v1 (ORACLE
-// O1); TestNativesAgreeWithRuntime holds both to runtime/v1's.
+// O1); TestNativesAgreeWithRuntime holds both to runtime/v1's. std totp
+// binds the same key state for SHA-1 (TOTP-FLOOR), and hotpNumber resumes
+// it for one step and truncates the tag (RFC 4226 5.3).
 func registerNativeshmac(t nativeTables) {
 	natives := t.std
 	hashOf := func(alg int64) (func() hash.Hash, int) {
@@ -67,6 +70,48 @@ func registerNativeshmac(t nativeTables) {
 			return string(s)
 		}
 		return tuple{elems: []Value{state(0x36), state(0x5c)}}
+	})
+	// totp's states are []byte, held as slices of uint8 values.
+	bytesOf := func(v Value) []byte {
+		b, ok := byteString(v.(sliceV))
+		if !ok {
+			panic("totp: a key state that is not bytes")
+		}
+		return []byte(b)
+	}
+	sliceOf := func(s string) Value {
+		out := make([]Value, len(s))
+		for i := range len(s) {
+			out[i] = s[i]
+		}
+		return newSlice(out)
+	}
+	hmacKeyState := natives["hmac.keyState"]
+	natives["totp.keyState"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		v, ab := hmacKeyState(in, fr, at, fn, []Value{int64(1), args[0]})
+		if ab != nil {
+			return nil, ab
+		}
+		st := v.(tuple)
+		return tuple{elems: []Value{sliceOf(st.elems[0].(string)), sliceOf(st.elems[1].(string))}}, nil
+	}
+	natives["totp.hotpNumber"] = run(func(a []Value) Value {
+		resume := func(s []byte) hash.Hash {
+			d := sha1.New()
+			if d.(encoding.BinaryUnmarshaler).UnmarshalBinary(s) != nil {
+				panic("totp: a key state that totp.KeyOf did not give")
+			}
+			return d
+		}
+		var msg [8]byte
+		binary.BigEndian.PutUint64(msg[:], uint64(a[2].(int64)))
+		inner := resume(bytesOf(a[0]))
+		inner.Write(msg[:])
+		outer := resume(bytesOf(a[1]))
+		outer.Write(inner.Sum(nil))
+		h := outer.Sum(nil)
+		off := h[len(h)-1] & 15
+		return int64(binary.BigEndian.Uint32(h[off:off+4]) & 0x7fffffff)
 	})
 	natives["hmac.keyedSum"] = run(func(a []Value) Value {
 		newHash, _ := hashOf(a[0].(int64))
