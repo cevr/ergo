@@ -1,8 +1,8 @@
 # fk-wizard
 
-An expedition permit, filled in step by step. You plan the trip, pack supplies (an overnight trip only), name the permit's leader, review the permit, and file it. The office confirms the permit a second later. You can cancel at any step on the way, and start over after either end. An inspector logs every transition. It is a port of Foldkit's `state-machine` example (`conformance/upstream/foldkit-d21db423/examples/state-machine`, MIT), whose checkout becomes the permit. This is stage a of FK7: the model, with no view yet.
+An expedition permit, filled in step by step. You plan the trip, pack supplies (an overnight trip only), name the permit's leader, review the permit, and file it. The office confirms the permit a second later. You can cancel at any step on the way, and start over after either end. An inspector logs every transition. It is a port of Foldkit's `state-machine` example (`conformance/upstream/foldkit-d21db423/examples/state-machine`, MIT), whose checkout becomes the permit. This is stage b of FK7: the model and its view, on std ui's test host.
 
-The program runs the desk as an actor on a manual clock and plays a script of the user's acts. After each act it shows the stage when it changed and the log's new lines.
+The program runs the desk as an actor on a manual clock, shows its screen on std ui's test host, and plays a script of the user's acts on the screen: clicks by role and name, and text typed in the code field. After each act it prints the screen in two lines: the permit's step, and the inspector with the newest log line.
 
 Tag: `default`.
 
@@ -10,7 +10,7 @@ Tag: `default`.
 fk-wizard < cases/tour/stdin
 ```
 
-The script's words are listed in `script/script.ergo`: `trip`, `continue`, `back`, `leader`, `agree`, `code`, `apply`, `file`, `cancel`, `startover` and `wait`.
+The script's words are listed in `script/script.ergo`: `click LABEL`, `check LABEL`, `code TEXT`, `wait MS` and `stats`. A click on a control that is not on the screen prints `? no node`; one on a disabled control does nothing.
 
 ## The shape
 
@@ -20,8 +20,15 @@ The script's words are listed in `script/script.ergo`: `trip`, `continue`, `back
   - The match names every stage, so a new stage stops the build until its arms are written. This replaces upstream's `deadTransitions()` and `unreachableStates()` checks.
   - **The office is a timer.** `Filing`'s timer gives `Filed` after `FilingTakes` (1 s), and the runner owns it. Upstream's `PlaceOrder` command sleeps a second and answers.
   - **A typed code is parsed at the edge.** `ParseCode` trims the code and reads it in any case. The machine takes `Applied{Allowance}` or `Unknown`, and the field's text stays the host's. So the signals can be listed, and `ergo test` decides the machine's laws on the whole graph (53 states).
-- Package `desk` adds the inspector's log. `Track` steps the permit and logs "from -> to on signal", or "signal ignored in stage". An ignored signal is a `Stay` of the desk, so a filing's timer runs on through it. The log keeps the newest 20. Upstream's `update` wraps `checkoutMachine.step` the same way.
-- Package `script` is the host. It starts `desk.Inspector` with `actor.StartMachine`, asks each act, and moves the manual clock on `wait`.
+- Package `desk` adds the inspector's log and the code field's text. Its signal is `Do{permit.Signal}` or `Typed{Text}`: a typed text is kept as the desk's `Code` and reaches the permit as `Edited`, so the permit's signals still carry no text.
+- Package `desk`'s log: `Track` steps the permit and logs "from -> to on signal", or "signal ignored in stage". An ignored signal is a `Stay` of the desk, so a filing's timer runs on through it. The log keeps the newest 20. Upstream's `update` wraps `checkoutMachine.step` the same way.
+- Package `screen` is upstream's view, the checkout made a permit:
+  - each step with its heading, its controls, and Continue, Back and Cancel;
+  - the trip's kind as two check boxes (upstream's radio group);
+  - `Review permit` in a `ui.Fieldset` disabled until a leader is named, and `File permit · $FEE` disabled until the rules are agreed too;
+  - the code field and Apply, the fee and the allowance's line;
+  - the inspector: the stage and the log, newest first, each row a `ui.Same`.
+- Package `script` is the host. It starts `desk.Inspector` with `actor.StartMachine`, puts `screen.Screen` on `ui.NewTestHost`, and plays each act with `ui.Play`.
 
 ## The graph
 
@@ -45,13 +52,14 @@ Upstream draws its machine with `toMermaid()`. Here the graph comes from `ergo i
 
 How the port differs from upstream:
 
-- **The code field is the host's.** Upstream keeps `promoCodeInput` in the `Review` state. Here, `Edited` tells the machine that the field changed, which clears a refusal as upstream does.
-- **No edition radio group.** Upstream's `RadioGroup` child is part of the view. Here, `trip` sends `Chose` directly, and the radio group waits for FK7b.
-- **No prices.** The order total and the discount line are the view's (FK7b). The allowance's percent shows in the inspector's line.
+- **The code field is the desk's.** Upstream keeps `promoCodeInput` in the `Review` state. Here the desk keeps it as `Code`, and the permit takes `Edited`, which clears a refusal as upstream does. The permit's signals carry no text, so its laws stay decided on the graph.
+- **No radio group.** Upstream's `RadioGroup` child is a component. Here the trip's kind is two check boxes that send `Chose`.
+- **Prices are the view's.** An overnight permit's fee is $40.00, a day trip's $25.00; the file button shows the fee less the allowance.
+- **No graph on the screen.** Upstream's inspector shows `toMermaid()`'s text. Here the graph is `ergo inspect machine ./permit`.
 
 ## Upstream tests
 
-`origin/tests.txt` has a line for each of upstream's 8 story tests and 3 scene tests. No story is an Ergo test, because a law or the `tour` case already kills every mutant that a test of it would. The scene tests need a view and are stage b.
+`origin/tests.txt` has a line for each of upstream's 8 story tests and 3 scene tests. No story is an Ergo test, because a law or the `tour` case already kills every mutant that a test of it would. The scene tests are the case `scenes`.
 
 ## Laws
 
@@ -66,6 +74,9 @@ How the port differs from upstream:
   - `FilingTakesASecond` (on a virtual clock): the permit is confirmed a second after the filing, not before.
 - `desk`:
   - `LogKeepsTheNewest`: the log keeps the newest 20, newest first.
+  - `IgnoredIsAStay`: a signal the permit ignores is a Stay of the desk, so a timer runs on. The screen never sends one, so this law, not a case, holds it.
+- `script`, over generated walks on the screen:
+  - `ScreenOffersOnlyTransitions`: every enabled control the screen offers is a step of the permit, never a signal the machine ignores.
 
 The mutants these laws and the cases kill are in `testdata/mutants.json`.
 
@@ -74,8 +85,10 @@ The mutants these laws and the cases kill are in `testdata/mutants.json`.
 - `tour`: the upstream stories in one script. It covers:
   - an overnight trip packing supplies, there and back;
   - a day trip skipping them;
-  - a cancel, an ignored file, and a start over that keeps the trip's kind;
+  - a cancel, a file button that is gone, and a start over that keeps the trip's kind;
   - a known code, an unknown code and an edit that clears the refusal;
-  - a file refused until the rules are agreed;
-  - the office's answer, a second after the filing, with an ignored cancel meanwhile.
-- `badscript`: a bad `leader` word. The program says which line and exits 1.
+  - a review button disabled until the leader, and a file button disabled until the rules are agreed;
+  - the office's answer, a second after the filing, with no Cancel meanwhile;
+  - the work of the filing click (`stats`).
+- `scenes`: upstream's three scene tests, on one screen in order.
+- `badscript`: an unknown word. The program says which line and exits 1.

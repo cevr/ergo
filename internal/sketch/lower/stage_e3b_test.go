@@ -145,9 +145,9 @@ var lawFacts = []lawFact{
 		decls: "type Store9 {\n\tGet9() int,\n}\n\ntype Mem9 {} implements Store9\n\nfunc Get9(_ Mem9) int {\n\t9\n}\n\nfunc run9[F](f func() int needs F) int needs F {\n\tf()\n}\n",
 		law:   "law L() { with context { Store9: Mem9 } { run9() { Store9.Get9() } } == 9 }"},
 	// A library only a law uses; the erasure property blanks the import
-	// with the law.
-	{name: "library-import", canary: "WithCapacity", imports: "import slices\n\n",
-		law: "law L(s string) {\n\t\tlet xs = slices.WithCapacity[int](len(s))\n\t\tlen(xs) == 0\n\t}"},
+	// with the law. None10 is the law's subject (S115).
+	{name: "library-import", canary: "WithCapacity", imports: "import slices\n\n", decls: "func None10() int {\n\t0\n}\n",
+		law: "law L(s string) {\n\t\tlet xs = slices.WithCapacity[int](len(s))\n\t\tlen(xs) == None10()\n\t}"},
 	// A tuple type only a law uses, holding a defined type whose default
 	// holds a Map: a build that walks the tuple reserves the default's name.
 	{name: "tuple", canary: "ergoDefaultReg12",

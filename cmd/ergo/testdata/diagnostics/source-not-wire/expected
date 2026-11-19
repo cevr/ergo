@@ -1,0 +1,1 @@
+source-not-wire/secret.ergo:18:29: S108 Vault does not satisfy wire: Vault does not satisfy wire: its part Vault.Key, of type sync.Ref[string], is an operation type (types.md, Codecs 1)

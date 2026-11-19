@@ -1,0 +1,58 @@
+// Package site is fieldnotes as a web site: its routes (route.ergo), its
+// pages, what each loads and how each looks (page.ergo, view.ergo), and
+// its feed (feed.ergo). It reads entries only through journal.Journal, so
+// the same site is built from files by cmd/fieldnotes and from memory by
+// its laws.
+
+import github.com/cevr/ergo/modules/web
+import html
+import ui
+
+// Route is a place of the site: the index, an entry by its slug, or the
+// feed.
+type Index {}
+type Entry { Slug string }
+type Feed {}
+type Route = Index | Entry | Feed
+
+// Map is the site's route map.
+type Map {} implements web.Routes[Route]
+
+func Href(_ Map, r Route) ui.URL {
+	match r {
+	case Index:
+		ui.URL{Path: "/", Query: "", Fragment: ""}
+	case Entry as e:
+		ui.URL{Path: ui.PathOf([]string{"entries", e.Slug}), Query: "", Fragment: ""}
+	case Feed:
+		ui.URL{Path: "/feed.xml", Query: "", Fragment: ""}
+	}
+}
+
+// Parse reads /entries as the entry of the empty slug, which is where
+// Href puts it: ui.Segments skips the empty segment.
+func Parse(_ Map, u ui.URL) Option[Route] {
+	let s = ui.Segments(u)
+	if len(s) == 0 {
+		return Some[Route]{Value: Index}
+	}
+	if len(s) == 1 && s[0] == "feed.xml" {
+		return Some[Route]{Value: Feed}
+	}
+	if len(s) == 1 && s[0] == "entries" {
+		return Some[Route]{Value: Entry{Slug: ""}}
+	}
+	if len(s) == 2 && s[0] == "entries" {
+		return Some[Route]{Value: Entry{Slug: s[1]}}
+	}
+	None
+}
+
+// HrefParses (the link form): every route parses back from the link the
+// site prints for it, html.Href of web.To, not only from its place. A
+// place a browser would read as another host's (//feed.xml) is printed
+// as another path, and fails here though web.Routes' own HrefParses
+// holds.
+law HrefParses(r Route) {
+	Parse(Map, ui.ParseURL(html.URLText(web.To(Map, r)))) == Some{r}
+}

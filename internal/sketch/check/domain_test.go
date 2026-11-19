@@ -451,6 +451,11 @@ func f[T](x T) { f(Box[T]{x}) }`},
 	{"type-by-value", `type L[T] { next L[[]T] }`},
 	{"type-mutual", `type A[T] { b []B[[]T] }
 type B[T] { a []A[T] }`},
+	// CK-MAPGROW: the check never ended on it (the cell walk built
+	// instances that grow). Map[int, A] gives A to B with weight 0 before
+	// Map[string, Map[int, A]] gives it with weight 1, so the heavier edge
+	// must replace the lighter one.
+	{"type-swap-nested", `type Map[A comparable, B] { f0 Option[Map[B, B]], f1 Map[string, Map[int, A]] }`},
 }
 
 func TestExpandingInstantiation(t *testing.T) {

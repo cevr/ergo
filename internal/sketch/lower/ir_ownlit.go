@@ -122,7 +122,8 @@ func (b *irBuilder) ownedSiteCall(x *syntax.CallExpr, c *check.Call, s *refSite,
 	} else {
 		b.keepImport("var _ = " + b.l.rtRef(name))
 	}
-	return pre, &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: name, V: targs, Args: args}, !owned.Pure
+	// The caller's task and the other hidden operands come first (REF-MASK: f runs masked on it).
+	return pre, &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: name, V: targs, Args: append(b.hidden(owned, x, c, p), args...)}, !owned.Pure
 }
 
 // inPlaceLit is the in-place literal of the owned site s (refown.go,

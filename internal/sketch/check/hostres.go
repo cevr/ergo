@@ -40,7 +40,7 @@ func (c *checker) hostClose(n *Named) *Func {
 		// The binding declares the release (implements Closer).
 		return nil
 	}
-	f := n.method("Close")
+	f := n.method(c.closeName())
 	if f == nil {
 		return nil
 	}
@@ -49,7 +49,7 @@ func (c *checker) hostClose(n *Named) *Func {
 
 // hostCloseFunc returns f when it is a Go method of the release shape.
 func (c *checker) hostCloseFunc(f *Func) *Func {
-	if f == nil || f.Name != "Close" || f.Pkg == nil || !f.Pkg.Host() || f.Decl == nil || f.Decl.Recv == nil {
+	if f == nil || f.Name != c.closeName() || f.Pkg == nil || !f.Pkg.Host() || f.Decl == nil || f.Decl.Recv == nil {
 		return nil
 	}
 	sig := c.funcSig(f)
@@ -79,11 +79,11 @@ func isGoErrorType(t Type) bool {
 // hostCloseOp returns the Close operation of a Go interface type it (an
 // io.Closer, an io.ReadCloser): a Close with no parameters and results
 // whose error row is empty or go.Error. nil for none.
-func hostCloseOp(n *Named, it *Interface) *Method {
+func (c *checker) hostCloseOp(n *Named, it *Interface) *Method {
 	if n == nil || n.Obj == nil || !n.Obj.Pkg.Host() || it == nil {
 		return nil
 	}
-	m := it.method("Close")
+	m := it.method(c.closeName())
 	if !closeShape(m) || !hostReleaseRow(m.Sig.Errors) {
 		return nil
 	}

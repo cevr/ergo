@@ -1,7 +1,7 @@
 package check
 
 import (
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	v1 "ergo.local/prototype/runtime/v1"
 	"fmt"
 	"slices"
@@ -124,7 +124,7 @@ const runtimeModule = "ergo.local/prototype/runtime"
 // predeclaredExtern reports an extern of the prelude: a language intrinsic
 // whose body the lowering writes (lower/decls.go intrinsic), not a binding.
 func predeclaredExtern(f *Func) bool {
-	return f.Pkg.Path == std.PreludePath
+	return f.Pkg.Path == stdlib.PreludePath
 }
 
 // BindsRuntime reports an extern whose Go target is in the Ergo runtime, or a

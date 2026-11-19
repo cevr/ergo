@@ -1,0 +1,21 @@
+// The smallest repro of red #31 (NP4f-15, http's query.ergo): the IR
+// decoder refused a string indexed by a byte, "ergoir: index of string by
+// uint8", which Ergo's checker and Go accept for any integer index; a
+// slice expression's bounds had the same rule (tail: a string's slice
+// stays on the text path, ir_slice.go, so the repro slices a slice).
+
+func hex(c byte) byte {
+	"0123456789ABCDEF"[c >> 4]
+}
+
+func pick(xs []int, c byte) int {
+	xs[c & 3]
+}
+
+func tail(xs []int, c byte) int {
+	len(xs[c:])
+}
+
+func main() needs Console {
+	Console.Println("\(int(hex(200))) \(pick([]int{5, 6, 7, 8}, 6)) \(tail([]int{1, 2, 3, 4, 5, 6}, 4))")
+}

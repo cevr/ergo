@@ -128,6 +128,22 @@
       "to": "\t\t\"\\(n) change(s)\"\n",
       "rule": "the plan's text ends with its count of changes: memory's CommandLineSession.",
       "anchor": {"tests": ["examples:modules/infra"]}, "killers": ["examples:modules/infra"]
+    },
+    {
+      "name": "px7-destroy-keeps-outputs", "origin": "wf10/domain PX7",
+      "file": "modules/infra/cli.ergo",
+      "from": "\t\td.Writes.Remove(path) catch {",
+      "to": "\t\td.Writes.Remove(path + \".kept\") catch {",
+      "rule": "A destroy removes the stage's outputs: memory's CommandLineSession (readBack after destroy -yes).",
+      "anchor": {"tests": ["examples:modules/infra"]}, "killers": ["examples:modules/infra"]
+    },
+    {
+      "name": "px7-plan-twice", "origin": "wf10/domain PX7",
+      "file": "modules/infra/engine.ergo",
+      "from": "\t\tif again {\n",
+      "to": "\t\tif false && again {\n",
+      "rule": "A plan records an object ensured twice with the same props once: memory.PlanCountsEachObjectOnce.",
+      "anchor": {"tests": ["examples:modules/infra"]}, "killers": ["examples:modules/infra"]
     }
   ]
 }

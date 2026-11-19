@@ -28,8 +28,9 @@ const cliSeedVariable = "ERGO_CLI_SEED"
 // rows of zero to three records), the package ergo gen cli writes checks,
 // and its law ArgsRoundTrip holds over the Requests the law's generator
 // draws (100 cases a contract): Parse reads what Print writes as the same
-// Request. An odd contract has its rpc package too, so its cli package
-// names the rpc package's Request. For each operation, Run of the printed
+// Request. Every contract has its hub (ergo gen api), whose Request the cli
+// package names; an odd contract has its rpc package too, whose Request
+// is the same type. For each operation, Run of the printed
 // Request against a provider that answers a fixed value or failure is what
 // Run's rule says: the value's JSON with --json, its text when it is a
 // basic value, the failure's tagged JSON with status 1. Contract c0 always
@@ -83,18 +84,24 @@ func roundTrip(t *testing.T, seed uint64, cache string) {
 			t.Fatalf("seed %d: contract %s does not check: %v %v\n%s", seed, c.pkg(), err, a.Diagnostics, sources(files))
 		}
 		path := "loop/" + c.pkg()
-		rpcPath := ""
+		hub, err := rpcgen.GenerateAPI(a.Root().Package, path, "Svc")
+		if err != nil {
+			t.Fatalf("seed %d: ergo gen api %s: %v\n%s", seed, c.pkg(), err, sources(files))
+		}
+		for name, src := range hub.Files {
+			writeFile(t, filepath.Join(pkgDir, hub.Dir, name), src)
+		}
+		apiPath := path + "/" + hub.Dir
 		if c.withRPC {
-			out, err := rpcgen.Generate(a.Root().Package, path, "Svc")
+			out, err := rpcgen.Generate(a.Root().Package, path, "Svc", apiPath)
 			if err != nil {
 				t.Fatalf("seed %d: ergo gen rpc %s: %v\n%s", seed, c.pkg(), err, sources(files))
 			}
 			for name, src := range out.Files {
 				writeFile(t, filepath.Join(pkgDir, out.Dir, name), src)
 			}
-			rpcPath = path + "/" + out.Dir
 		}
-		out, err := cligen.Generate(a.Root().Package, path, "Svc", rpcPath)
+		out, err := cligen.Generate(a.Root().Package, path, "Svc", apiPath)
 		if err != nil {
 			t.Fatalf("seed %d: ergo gen cli %s: %v\n%s\n%s", seed, c.pkg(), err, sources(files), replay)
 		}
@@ -541,7 +548,7 @@ func (p *program) probeSource() string {
 	var b strings.Builder
 	b.WriteString("// Package probe runs the generated cli packages' round trip and Run.\n\nimport rpc\n")
 	for _, c := range p.contracts {
-		fmt.Fprintf(&b, "import loop/%s\nimport loop/%s/%scli\n", c.pkg(), c.pkg(), c.pkg())
+		fmt.Fprintf(&b, "import loop/%s\nimport loop/%s/%sapi\nimport loop/%s/%scli\n", c.pkg(), c.pkg(), c.pkg(), c.pkg(), c.pkg())
 		if c.withRPC {
 			fmt.Fprintf(&b, "import loop/%s/%srpc\n", c.pkg(), c.pkg())
 		}
@@ -550,7 +557,7 @@ func (p *program) probeSource() string {
 		cli := c.pkg() + "cli"
 		q := c.pkg() + "."
 		fmt.Fprintf(&b, "\nlaw C%dArgsRoundTrip(r %s.Request) { %s.RoundTrips(r) }\n", c.i, cli, cli)
-		variants := cli + "."
+		variants := c.pkg() + "api."
 		if c.withRPC {
 			variants = c.pkg() + "rpc."
 		}

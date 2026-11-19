@@ -1,0 +1,73 @@
+import fieldnotes/journal
+import github.com/cevr/ergo/modules/web
+import html
+
+// View is page p as a document: the index lists every entry, an entry
+// page shows its paragraphs and links to the entries it points to, and
+// the feed is the feed's XML. The match names every page, so a new page
+// does not build until it has a view.
+func View(origin string, p Page) html.Node {
+	match p {
+	case IndexPage as i:
+		layout("Field notes", []html.Child{
+			html.H1([]html.Child{html.Text("Field notes")}),
+			html.Ul([]html.Child{html.Each(i.Entries, func(e journal.Entry) html.Node {
+				html.Li([]html.Child{html.Time([]html.Child{html.Text(e.Day)}), html.Text(" "), link(e)})
+			})}),
+		})
+	case EntryPage as e:
+		layout(e.Entry.Title, []html.Child{
+			html.Article([]html.Child{
+				html.H1([]html.Child{html.Text(e.Entry.Title)}),
+				html.Time([]html.Child{html.Text(e.Entry.Day)}),
+				html.Each(e.Entry.Body, func(para string) html.Node { html.P([]html.Child{html.Text(para)}) }),
+			}),
+			html.When(len(e.Related) > 0, html.Nav([]html.Child{
+				html.H2([]html.Child{html.Text("See also")}),
+				html.Ul([]html.Child{html.Each(e.Related, func(r journal.Entry) html.Node { html.Li([]html.Child{link(r)}) })}),
+			})),
+		})
+	case FeedPage as f:
+		html.Raw(html.Trust(FeedText(origin, f.Entries)))
+	}
+}
+
+// link is a link to entry e, its title as its text.
+func link(e journal.Entry) html.Node {
+	html.A([]html.Child{html.Href(web.To(Map, Entry{Slug: e.Slug})), html.Text(e.Title)})
+}
+
+// layout is a page of the site: its title, a header that links home and
+// to the feed, and main.
+func layout(title string, main []html.Child) html.Node {
+	html.Doc(html.Html([]html.Child{
+		html.Lang("en"),
+		html.Head([]html.Child{
+			html.Meta([]html.Attr{html.Charset("utf-8")}),
+			html.Title([]html.Child{html.Text(title)}),
+			html.Link([]html.Attr{html.Rel("stylesheet"), html.Href(web.Link(sheet))}),
+		}),
+		html.Body([]html.Child{
+			html.Header([]html.Child{html.Nav([]html.Child{
+				html.A([]html.Child{html.Href(web.To(Map, Index)), html.Text("Field notes")}),
+				html.Text(" "),
+				html.A([]html.Child{html.Href(web.To(Map, Feed)), html.Text("Feed")}),
+			})}),
+			html.Main(main),
+		}),
+	}))
+}
+
+// sheet is the site's style sheet, served at a place named by its bytes.
+let sheet = web.Stylesheet("notes.css", "body { max-width: 40rem; margin: 2rem auto; font-family: Georgia, serif; line-height: 1.5 }\ntime { color: #666 }\n")
+
+// missingPage is the page of an entry the journal lacks.
+func missingPage(slug string) html.Node {
+	layout("No such entry", []html.Child{html.P([]html.Child{html.Text("There is no entry " + slug + ".")})})
+}
+
+// notFoundPage is the page of a path that is no route. It names no path:
+// a static host serves one 404.html for every path.
+func notFoundPage(_ string) html.Node {
+	layout("Not found", []html.Child{html.P([]html.Child{html.Text("There is no page here.")})})
+}

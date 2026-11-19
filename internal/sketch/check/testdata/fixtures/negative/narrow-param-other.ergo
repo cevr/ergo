@@ -1,0 +1,23 @@
+// CK-FAILPARAM: a row value of Boom narrows only to Boom, and a narrowed
+// function's result stays the type's (types.md, Assignability clause 5).
+type Boom { Run int }
+
+type Other { Run int }
+
+type Fate { Text string }
+
+type Classed[E] { Of func(e E) Fate }
+
+func serve[E](c Classed[E], h func() int fails E) string {
+	let v = h() catch {
+	case err:
+		return c.Of(err).Text
+	}
+	"\(v)"
+}
+
+func use() string {
+	let a = Classed[Boom]{Of: func(e Other) Fate { Fate{Text: "o"} }} // want S108
+	let b = Classed[Boom]{Of: func(e Boom) Other { Other{Run: e.Run} }} // want S108
+	serve(a, func() int fails Boom { 1 }) + serve(b, func() int fails Boom { 2 })
+}

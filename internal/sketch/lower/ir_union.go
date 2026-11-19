@@ -130,7 +130,12 @@ func (b *irBuilder) convert(conv check.Conversion, e *irExpr, x syntax.Expr) *ir
 	case check.ConvRow:
 		// The row value (a Go error) holds one of the union's error
 		// variants, which implement its sealed interface (the emitter's
-		// convert, D-C3).
+		// convert, D-C3). A flat union (MSB3) is no interface: the emitter
+		// builds its variant by a type switch, which the IR does not write
+		// yet (I22: FLIP's IR x MSB3).
+		if b.l.flatUnionOf(conv.To) != nil {
+			irNo("row into a flat union")
+		}
 		return &irExpr{K: "assert", Pos: e.Pos, T: b.goType(conv.To, x), X: e}
 	case check.ConvOperations:
 		return b.opsConv(conv, e, x) // ir_with.go
