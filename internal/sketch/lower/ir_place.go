@@ -97,7 +97,42 @@ func (b *irBuilder) store(s *syntax.AssignStmt, op string) []*irStmt {
 	if len(pre) > 0 && (op != "" || !b.fixed(lhs)) {
 		irNo("store to a place a value with statements may move")
 	}
+	if b.roundsOpAssign(s, op) { // ir_order.go
+		// p *= v of floats is p = T(p * v), as the emitter writes it
+		// (body.go assign). The place is read twice, so both it and v
+		// must be reads alone: then no call between the reads can move
+		// the place or change its value.
+		if !readsOnly(to) || !readsOnly(x) {
+			irNo("product op-assignment to a place with a call")
+		}
+		return append(pre, &irStmt{K: "store", Pos: b.pos(s, s.Pos()), X: to, Y: b.roundedOp(s, op, copyRead(to), x)})
+	}
 	return append(pre, &irStmt{K: "store", Pos: b.pos(s, s.Pos()), X: to, Y: x, Op: op})
+}
+
+// readsOnly reports an expression that only reads: locals, globals,
+// constants, fields, elements, dereferences and operators over them, no
+// call and no form that runs code of its own.
+func readsOnly(e *irExpr) bool {
+	if e == nil {
+		return true
+	}
+	switch e.K {
+	case "local", "global", "const", "zero", "field", "index", "deref", "un", "bin", "conv":
+		return len(e.Args) == 0 && len(e.Elems) == 0 && len(e.Body) == 0 && readsOnly(e.X) && readsOnly(e.Y)
+	}
+	return false
+}
+
+// copyRead is a copy of e, an expression readsOnly admits, so that the
+// IR tree shares no node.
+func copyRead(e *irExpr) *irExpr {
+	if e == nil {
+		return nil
+	}
+	c := *e
+	c.X, c.Y = copyRead(e.X), copyRead(e.Y)
+	return &c
 }
 
 // addrRecv reports whether c calls a *T function on a T receiver, which

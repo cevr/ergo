@@ -78,6 +78,35 @@ func (b *irBuilder) ordered(list []syntax.Expr, pres [][]*irStmt, vals []*irExpr
 	return pre
 }
 
+// rounded is e, the IR of x, under a conversion to x's Go type when x is
+// a product of floats (roundsProduct, expr.go: the text emitter's rule):
+// T(a * b) rounds the product, so gc cannot fuse it into a sum at any
+// CPU level (GOAMD64=v3 and up, arm64). The conversion costs no
+// instruction: gc's Round64F lowers to nothing but stops the FMA rules.
+func (b *irBuilder) rounded(x *syntax.BinaryExpr, e *irExpr) *irExpr {
+	if x.Op != syntax.MUL || !b.fc.roundsProduct(x) {
+		return e
+	}
+	return &irExpr{K: "conv", Pos: e.Pos, T: b.goType(b.l.info.Types[x], x), X: e}
+}
+
+// roundsOpAssign reports an op-assignment p *= v of floats, which lowers
+// as p = T(p * v) (the emitter's assign, body.go), never Go's *=.
+func (b *irBuilder) roundsOpAssign(s *syntax.AssignStmt, op string) bool {
+	return op == "*" && floatLowering != "fuse" && isFloatType(b.l.info.Types[s.Lhs[0]])
+}
+
+// roundedOp is old op v, the value of the op-assignment s, rounded when
+// s is a product of floats (roundsOpAssign).
+func (b *irBuilder) roundedOp(s *syntax.AssignStmt, op string, old, v *irExpr) *irExpr {
+	p := b.pos(s, s.Pos())
+	e := &irExpr{K: "bin", Pos: p, Op: op, X: old, Y: v}
+	if !b.roundsOpAssign(s, op) {
+		return e
+	}
+	return &irExpr{K: "conv", Pos: p, T: b.goType(b.l.info.Types[s.Lhs[0]], s), X: e}
+}
+
 // binaryOf is the binary expression x: its operands in order, or for a
 // && or || whose right operand runs statements, the emitter's temporary
 // (binary): r := X; if r (or !r) { Y's statements; r = Y }.
@@ -85,7 +114,7 @@ func (b *irBuilder) binaryOf(x *syntax.BinaryExpr, op string) *irExpr {
 	p := b.pos(x, x.OpPos)
 	if op != "&&" && op != "||" {
 		xs := b.inOrder([]syntax.Expr{x.X, x.Y})
-		return &irExpr{K: "bin", Pos: p, Op: op, X: xs[0], Y: xs[1]}
+		return b.rounded(x, &irExpr{K: "bin", Pos: p, Op: op, X: xs[0], Y: xs[1]})
 	}
 	l := b.expr(x.X)
 	pre, r := b.collect(func() ([]*irStmt, *irExpr) { return nil, b.expr(x.Y) })

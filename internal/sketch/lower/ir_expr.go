@@ -76,7 +76,8 @@ func (b *irBuilder) valueOf(x syntax.Expr) ([]*irStmt, *irExpr) {
 		b.operator(op, b.l.info.Types[y.X], y)
 		var vals []*irExpr
 		pre, vals = b.operands([]syntax.Expr{y.X, y.Y}) // ir_fail.go
-		e = &irExpr{K: "bin", Pos: b.pos(y, y.OpPos), Op: op, X: vals[0], Y: vals[1]}
+		// A product of floats rounds (rounded, ir_order.go).
+		e = b.rounded(y, &irExpr{K: "bin", Pos: b.pos(y, y.OpPos), Op: op, X: vals[0], Y: vals[1]})
 	default:
 		return nil, b.expr(x) // expr converts
 	}
