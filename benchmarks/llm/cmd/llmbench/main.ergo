@@ -1,4 +1,4 @@
-// llmbench holds std llm's counted probes (wf10 L1, L2), each with a hand Go
+// llmbench holds std llm's counted probes (wf10 L1 to L3), each with a hand Go
 // twin in ../../testdata/control and a floor in ../../testdata/floor; a
 // workload per kind in ../../KIND (go run ./scripts/opcount -control
 // -rounds 5 benchmarks/llm/KIND).
@@ -12,9 +12,15 @@
 // KIND policy: N asks by Generate through Metered{Retry{Fallback{
 // Scripted}}}, each a one-delta reply that succeeds at once. One unit is
 // one ask: the cost of the three policies around a model that answers.
+//
+// KIND replay: N times, one recorded exchange (eight text deltas) read
+// from its line by recorded.Read and its request asked of a Replay by
+// Generate. One unit is one exchange: the cost of a replayed ask from
+// its line to its turn.
 
 import llm
 import llm/memory
+import llm/recorded
 import os
 import schedule
 import strconv
@@ -53,6 +59,26 @@ func bench(kind string, n int) int needs Ambient {
 			t = t + len(turn.Text)
 		}
 		t = t + llm.Used(m).Output
+	}
+	if kind == "replay" {
+		let r = llm.Request{System: "", Messages: []llm.Message{llm.User{Text: "q"}}, Tools: []llm.ToolSpec{}, Choice: llm.Auto, Format: llm.Prose, MaxTokens: 0}
+		let mut ds = []llm.Delta{}
+		for i in 0..8 {
+			ds = ds.Append(llm.Text{Text: words[i]})
+		}
+		let turn = llm.Turn{Text: llm.Fold(ds).Text, Calls: []llm.Call{}, Stop: llm.Ended, Usage: llm.Usage{Input: 1, Output: 8, CacheRead: 0, CacheWrite: 0}}
+		let line = recorded.Write([]recorded.Exchange{recorded.Exchange{Digest: recorded.Digest(r), Deltas: ds, End: recorded.Answered{Turn: turn}}})
+		for _ in 0..n {
+			let xs = recorded.Read(line) catch {
+			case _:
+				return -1
+			}
+			let got = recorded.NewReplay(xs).Generate(r) catch {
+			case _:
+				return -1
+			}
+			t = t + len(got.Text)
+		}
 	}
 	t
 }

@@ -4,7 +4,9 @@
 // reply after the first. A stream reader that hands each text span to its
 // sink does this work and no less. KIND policy is the inner call (the
 // script's reply, made once) and one compare per wrapper: a policy around
-// a model that answers costs no less.
+// a model that answers costs no less. KIND replay is one pass over the
+// line's bytes, the text spans counted (wf10 L3): a reader of the line
+// does this work and no less.
 package main
 
 import (
@@ -41,6 +43,25 @@ func main() {
 	}
 	t := 0
 	var b []byte
+	if os.Args[2] == "replay" {
+		var line []byte
+		line = append(line, `{"Digest":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef","Deltas":[`...)
+		for i := 0; i < 8; i++ {
+			line = append(line, `{"_tag":"Text","Text":"`...)
+			line = append(line, words[i]...)
+			line = append(line, `"},`...)
+		}
+		line = append(line, `],"End":{"_tag":"Answered"}}`...)
+		for i := 0; i < n; i++ {
+			quotes := 0
+			for _, c := range line {
+				if c == '"' {
+					quotes++
+				}
+			}
+			t += quotes & 1
+		}
+	}
 	if os.Args[2] == "policy" {
 		replies := []turn{{text: "ok", input: 1, output: 1}}
 		used := 0

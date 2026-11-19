@@ -5,10 +5,15 @@
 // switch that appends each text to one buffer. KIND policy asks a script
 // N times as a person writing Go wraps a model call: a fallback loop over
 // the members, a retry loop with a switch on the error's class, and a
-// usage sum (wf10 L2).
+// usage sum (wf10 L2). KIND replay reads a recorded exchange's JSON line
+// with encoding/json, compares the request's SHA-256 digest and joins the
+// deltas' text (wf10 L3).
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -127,6 +132,42 @@ func ask(members [][][]delta, ms []message, retries int, used *usage) (turn, err
 	}
 }
 
+// The replay kind: one exchange as its line holds it.
+
+type exchange struct {
+	Digest string `json:"Digest"`
+	Deltas []struct {
+		Tag  string `json:"_tag"`
+		Text string `json:"Text"`
+	} `json:"Deltas"`
+	End struct {
+		Tag  string `json:"_tag"`
+		Turn struct {
+			Text string `json:"Text"`
+		} `json:"Turn"`
+	} `json:"End"`
+}
+
+// digest is the request's name in a recording: SHA-256 of its form.
+func digest(form string) string {
+	d := sha256.Sum256([]byte(form))
+	return hex.EncodeToString(d[:])
+}
+
+func replay(line []byte, form string) (string, bool) {
+	var x exchange
+	if err := json.Unmarshal(line, &x); err != nil || x.Digest != digest(form) {
+		return "", false
+	}
+	var b []byte
+	for i := range x.Deltas {
+		if x.Deltas[i].Tag == "Text" {
+			b = append(b, x.Deltas[i].Text...)
+		}
+	}
+	return string(b), true
+}
+
 func main() {
 	if len(os.Args) != 4 || os.Args[1] != "bench" {
 		fmt.Fprintln(os.Stderr, "usage: control bench KIND N")
@@ -137,6 +178,25 @@ func main() {
 		os.Exit(2)
 	}
 	t := 0
+	if os.Args[2] == "replay" {
+		form := "r0:1;u1:q0;AP0;"
+		x := exchange{Digest: digest(form)}
+		for i := 0; i < 8; i++ {
+			x.Deltas = append(x.Deltas, struct {
+				Tag  string `json:"_tag"`
+				Text string `json:"Text"`
+			}{"Text", words[i]})
+		}
+		x.End.Tag = "Answered"
+		line, _ := json.Marshal(x)
+		for i := 0; i < n; i++ {
+			text, ok := replay(line, form)
+			if !ok {
+				os.Exit(1)
+			}
+			t += len(text)
+		}
+	}
 	if os.Args[2] == "policy" {
 		members := [][][]delta{{{{kind: text, text: "ok"}}}}
 		ms := []message{{text: "q"}}
