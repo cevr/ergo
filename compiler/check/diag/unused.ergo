@@ -120,9 +120,9 @@ func isSome[T](o Option[T]) bool {
 type Binder = Let{} | ArmName{} | ArmAs{} | CatchRest{} | Unreported{}
 
 // binderOf is what binds the local that row n declares: the nearest row
-// above it that decides. A function decides first for its parameters (of
-// a declaration, of a literal, which a let may hold, or of a function
-// type, which a pattern's type argument may hold).
+// above it that decides. A parameter's is its function type (of a
+// declaration, of a literal, which a let may hold, or written in a
+// pattern's type argument), before any let or arm.
 func binderOf(files []bind.File, ps bind.Parents, n dense.ID[store.PNode]) Binder {
 	let (nf, nrow) = bind.RowOf(ps, n)
 	let t = files[nf].Parsed.Tree
@@ -139,7 +139,7 @@ func binderOf(files []bind.File, ps bind.Parents, n dense.ID[store.PNode]) Binde
 			if k == syntax.KVarSpec || k == syntax.KRangeStmt {
 				return if named { Unreported } else { Let }
 			}
-			if k == syntax.KFuncDecl || k == syntax.KFuncLit || k == syntax.KFuncType {
+			if k == syntax.KFuncType {
 				return Unreported
 			}
 			if k == syntax.KAsPattern {
