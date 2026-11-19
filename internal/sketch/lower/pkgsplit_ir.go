@@ -306,7 +306,7 @@ func (s *irSplit) files(pkgOf func(i int) int, rename map[string]string, plan *s
 		}
 		fn.walk(own, renamed)
 		if err := pcalls(fn, s.qual[p]); err != nil {
-			return nil, 0, err // refused above (valueOfForeignGeneric): unreachable
+			return nil, 0, err // after the rename: the lowering fails (SplitReport.err)
 		}
 		if get := s.getters[p]; len(get) > 0 {
 			fn.exprs(func(x *irExpr) {
@@ -362,36 +362,6 @@ func pcalls(fn *irFunc, qual map[string]string) error {
 		}
 	})
 	return err
-}
-
-// refusal is why the split cannot write ir's bodies by package, "" when
-// it can. It runs before files: files renames the IR in place, so the
-// one-package IR is gone after it and a refusal there could not fall
-// back.
-func (s *irSplit) refusal(pkgOf func(i int) int) string {
-	for i := range s.ir.Funcs {
-		qual := s.qual[pkgOf(i)]
-		if name := valueOfForeignGeneric(&s.ir.Funcs[i], qual); name != "" {
-			return "an IR body uses the generic function " + qual[name] + " of another package as a value"
-		}
-	}
-	return ""
-}
-
-// valueOfForeignGeneric is the first name, as fn spells it before the
-// split renames it, of a generic function of another package (a key of
-// qual) that fn uses as a value, which pcalls refuses; "" for none.
-func valueOfForeignGeneric(fn *irFunc, qual map[string]string) string {
-	found := ""
-	if len(qual) == 0 {
-		return found
-	}
-	fn.exprs(func(x *irExpr) {
-		if _, ok := qual[x.Name]; ok && x.K == "global" && found == "" {
-			found = x.Name
-		}
-	})
-	return found
 }
 
 // exprs calls f on every expression of fn's body, outer first.

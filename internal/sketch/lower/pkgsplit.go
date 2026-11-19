@@ -983,11 +983,7 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 	rep := SplitReport{Packages: len(used), Pulled: pulled, Renamed: len(rename), Std: stdPkgs, Foreign: foreign, Shards: shards}
 	rep.Instances = instances
 	if irs != nil {
-		pkgOf := func(i int) int { return groups[irs.owner[i]].pkg }
-		if why := irs.refusal(pkgOf); why != "" {
-			return nil, SplitReport{Reason: why}
-		}
-		files, withIR, err := irs.files(pkgOf, rename, plan, shared)
+		files, withIR, err := irs.files(func(i int) int { return groups[irs.owner[i]].pkg }, rename, plan, shared)
 		if err != nil {
 			return nil, SplitReport{Reason: err.Error(), err: err}
 		}
