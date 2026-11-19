@@ -411,9 +411,15 @@ func run[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *desktop.Driver[S,
 			return (a, b)
 		}
 		let beyond = if f[0] == "near" { float32(10) } else { float32(0) }
-		let a = played(func() fails ui.NoNode | ui.Ambiguous | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch needs go.Foreign {
-			try ui.Play(h, []ui.Act{ui.TapOn{Label: f[1]}})
-		})
+		// The test host taps with the finger too: a finger does not hover.
+		let a = match ui.Find(h, f[1]) {
+		case Some[ui.Id[E]] as id:
+			played(func() fails ui.NoNode | ui.Ambiguous | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch needs go.Foreign {
+				try ui.TapWith(h, id.Value, desktop.TheFinger)
+			})
+		case None:
+			Missing{Label: f[1]}
+		}
 		let b = played(func() fails ui.NoNode | ui.Ambiguous | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch needs go.Foreign {
 			try desktop.FingerTap(d, f[1], beyond)
 		})

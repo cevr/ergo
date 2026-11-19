@@ -142,13 +142,19 @@ func Counts[S, E, D, F](h *TestHost[S, E, D, F]) StepCounts { h.step }
 // corner, then the press, as the desktop host sends them. Over a node a
 // layer's scrim covers, the click lands on the scrim: no press (UG4).
 func Tap[E comparable, S, D, F](h *TestHost[S, E, D, F], id Id[E]) fails actor.Stopped | BadPatch {
+	try TapWith(h, id, MousePointer)
+}
+
+// TapWith is Tap by the pointer p: a finger's tap (Finger) presses as the
+// mouse's does but leaves the hover where it was (MB4).
+func TapWith[E comparable, S, D, F](h *TestHost[S, E, D, F], id Id[E], p Pointer) fails actor.Stopped | BadPatch {
 	h.captured = None
 	if Shielded(&h.session.frame, id) {
 		try scrimClick(h)
 		return
 	}
-	try point(h, id, None, PointerEvent{Pointer: MousePointer, Phase: Down, X: 0, Y: 0, Zone: None})
-	try point(h, id, None, PointerEvent{Pointer: MousePointer, Phase: Up, X: 0, Y: 0, Zone: None})
+	try point(h, id, None, PointerEvent{Pointer: p, Phase: Down, X: 0, Y: 0, Zone: None})
+	try point(h, id, None, PointerEvent{Pointer: p, Phase: Up, X: 0, Y: 0, Zone: None})
 	try apply(h, Press[E]{Id: id})
 }
 
