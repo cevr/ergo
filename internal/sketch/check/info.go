@@ -1104,6 +1104,15 @@ type Law struct {
 	// p`; X2): a pure package function from the machine's state to bool.
 	// nil when the law has none or the predicate was refused.
 	Pred *Func
+	// FuncsRewrite is the checked form of a rewrite over function
+	// parameters (funcrewrite.go, FuncRewrite.OverFuncs), nil for any
+	// other law; FuncRewrite is then nil.
+	FuncsRewrite *FuncRewrite
+	// TParams are a top-level rewrite law's own type parameters (`law
+	// L[T, U](…) { lhs } == { rhs }`, owner q234): a site's types
+	// instantiate them. nil for any other law (a member law is generic in
+	// its owner's).
+	TParams []*TypeParam
 	// Params are its parameters, in source order; a field with no name
 	// holds one "_".
 	Params []*Var

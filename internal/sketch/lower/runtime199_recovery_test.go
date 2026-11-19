@@ -97,6 +97,7 @@ func TestRuntime199DefectRecovery(t *testing.T) {
 	allowed := map[string]string{
 		"runOn -> Run":           "guarded",
 		"Go -> Start":            "guarded", // PARK1: v1.Go starts its Task in place (rt.Start)
+		"GoWith -> Start":        "guarded", // GP-SPAWN2: v1.GoWith starts its taskWith in place, as Go does
 		"Scope.end -> Scope.End": "",
 		"release -> Release":     "classify",
 		// The static exit form (STATIC-EXIT, exits.go): the frame's end and
@@ -273,6 +274,12 @@ func bodyRunsGuarded(v1 *typedSource, a ast.Expr, v1Func func(ast.Expr) string) 
 // in the same function: directly, or through the variable it is assigned.
 func recoverFlows(t *testing.T, src *typedSource, owner string, decl ast.Decl) {
 	t.Helper()
+	if owner == "FuseOr" {
+		// FuseOr drops a fresh defect of the fused loop and runs the left
+		// side, whose own defect reaches capture; it re-raises a carried
+		// exit as it came (runtime/v1 fuse.go, TestFuseOrPassesACarriedExit).
+		return
+	}
 	isCall := func(e ast.Expr, name string) bool {
 		c, ok := ast.Unparen(e).(*ast.CallExpr)
 		if !ok {
