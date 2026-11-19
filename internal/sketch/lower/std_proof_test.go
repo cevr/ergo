@@ -247,6 +247,16 @@ test TotpOutsideWindowFails(secret string, sec int64, far int) {
 	assert lawOutsideWindowFails(secret, sec, far)
 }
 
+func lawShortCodeFails(secret string, sec int64) bool {
+	let p = totp.Default()
+	let now = time.Unix(((sec%10000000000)+10000000000)%10000000000, 0)
+	totp.Verify(p, secret, totp.Code(p, secret, now)[1:], now) == None
+}
+
+test TotpShortCodeFails(secret string, sec int64) {
+	assert lawShortCodeFails(secret, sec)
+}
+
 func lawNewParamsBoundsTheWindow(window int) bool {
 	let w = ((window%40)+40)%40 - 20
 	let _ = totp.NewParams(6, 30s, w) catch {
@@ -538,6 +548,7 @@ var stdProofLawStatements = map[string]string{
 	"totp MatchesRFC6238":               `MatchesRFC6238() { let p = NewParams(8, 30s, 1) catch { case BadParams: return false } let rows = []vector{ vector{Sec: 59, Code: "94287082"}, vector{Sec: 1111111109, Code: "07081804"}, vector{Sec: 1111111111, Code: "14050471"}, vector{Sec: 1234567890, Code: "89005924"}, vector{Sec: 2000000000, Code: "69279037"}, vector{Sec: 20000000000, Code: "65353130"}, } for r in rows { if Code(p, "12345678901234567890", time.Unix(r.Sec, 0)) != r.Code { return false } } true }`,
 	"totp VerifyOfCode":                 `VerifyOfCode(secret string, sec int64, drift int) { let p = Default() let t = time.Unix(((sec%10000000000)+10000000000)%10000000000, 0) let step = StepOf(p, t) let code = Code(p, secret, t) let later = t.Add(time.Times(30s, ((drift%2)+2)%2)) match Verify(p, secret, code, later) { case Some[int64] as s: s.Value == step || CodeOf(p, secret, s.Value) == code case None: false } }`,
 	"totp OutsideWindowFails":           `OutsideWindowFails(secret string, sec int64, far int) { let p = Default() let now = time.Unix(((sec%10000000000)+10000000000)%10000000000, 0) let at = StepOf(p, now) let k = int64(2 + ((far%20)+20)%20) for sign in []int64{-1, 1} { let code = CodeOf(p, secret, at + sign*k) let same = CodeOf(p, secret, at - 1) == code || CodeOf(p, secret, at) == code || CodeOf(p, secret, at + 1) == code if !same && Verify(p, secret, code, now) != None { return false } } true }`,
+	"totp ShortCodeFails":               `ShortCodeFails(secret string, sec int64) { let p = Default() let now = time.Unix(((sec%10000000000)+10000000000)%10000000000, 0) Verify(p, secret, Code(p, secret, now)[1:], now) == None }`,
 	"totp NewParamsBoundsTheWindow":     `NewParamsBoundsTheWindow(window int) { let w = ((window%40)+40)%40 - 20 let _ = NewParams(6, 30s, w) catch { case BadParams: return w < 0 || w > 2 } w >= 0 && w <= 2 }`,
 	"totp StepsAreWholePeriods":         `StepsAreWholePeriods(sec int64) { let p = Default() let s = sec % 100000000000 let step = StepOf(p, time.Unix(s, 0)) step * 30 <= s && s < (step + 1) * 30 }`,
 	"totp URIOfTheRFCSecret":            `URIOfTheRFCSecret() { URI(Default(), "Example Co", "a@b.c", "12345678901234567890") == "otpauth://totp/Example%20Co:a%40b.c?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&issuer=Example%20Co&algorithm=SHA1&digits=6&period=30" }`,
