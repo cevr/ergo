@@ -17,5 +17,6 @@ internal/residue/testdata/*.txt merge=ergo-lines
 internal/sketch/check/testdata/provenance-manifest.txt merge=ergo-lines
 # derived: generated files are made again, never merged (ours is kept).
 *_gen.go merge=ergo-derived
+**/testdata/kills.json merge=ergo-derived
 tools/ts/bun.lock merge=ergo-derived
 toolchain/pin/lock merge=ergo-derived

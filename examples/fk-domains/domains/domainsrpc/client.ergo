@@ -4,6 +4,7 @@
 import json
 import rpc
 import fk-domains/domains
+import fk-domains/domains/domainsapi
 
 // Client is domains.Registry over the wire: each operation is one call to the
 // server its Conn names. <Op>Checked fails the wire's failures as typed
@@ -19,7 +20,7 @@ func NewClient(conn rpc.Conn) Client { Client{conn: conn} }
 // SearchDomainsChecked calls domains.Registry's SearchDomains on the server; the wire's failures are
 // typed failures.
 func SearchDomainsChecked(client Client, label domains.Label, offset json.Optional[domains.Offset], limit json.Optional[domains.Limit]) []domains.Listing fails domains.Down | rpc.Unrepresentable | rpc.Transport {
-	let p = SearchDomainsRequest{Label: label, Offset: offset, Limit: limit}
+	let p = domainsapi.SearchDomainsRequest{Label: label, Offset: offset, Limit: limit}
 	try exactSearchDomainsRequest(p)
 	let text = try rpc.Call(client.conn, "SearchDomains", rpc.Encode(p)) catch {
 	case rpc.Failed as f:

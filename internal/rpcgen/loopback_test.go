@@ -1197,7 +1197,7 @@ func (p *program) mainSource() string {
 	b.WriteString("import http\nimport json\nimport os\nimport rpc\nimport strings\n")
 	var caps []string
 	for _, c := range p.contracts {
-		fmt.Fprintf(&b, "import loop/c%d\nimport loop/c%d/c%drpc\n", c.i, c.i, c.i)
+		fmt.Fprintf(&b, "import loop/c%d\nimport loop/c%d/c%dapi\nimport loop/c%d/c%drpc\n", c.i, c.i, c.i, c.i, c.i)
 		caps = append(caps, fmt.Sprintf("c%d.Svc", c.i))
 	}
 	needs := strings.Join(caps, " | ")
@@ -1300,7 +1300,7 @@ func (p *program) mainSource() string {
 		for i, prm := range cl.op.params {
 			fs = append(fs, FieldName(prm.name)+": "+cl.args[i])
 		}
-		req := fmt.Sprintf("c%drpc.%sRequest", c.i, cl.op.name)
+		req := fmt.Sprintf("c%dapi.%sRequest", c.i, cl.op.name)
 		if len(fs) > 0 {
 			req += "{" + strings.Join(fs, ", ") + "}"
 		}
