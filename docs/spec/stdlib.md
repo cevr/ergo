@@ -2182,7 +2182,7 @@ The standard library is an ordinary set of packages ([NORTH_STAR.md](../../NORTH
 
 The reviewed facts of a Go body (pure, host, inert, its hidden arguments, moves only, a moving callback and its keeper, a release that stops running code, an operation that drains lends) are read in one place, `check.BodyOf` and `check.OpBodyOf`, by the body the extern's declaration names. An extern of any package that binds the same body gets the same facts; the declaring package is never read (`TestBodyFactsFollowTheBody`). Whether a package may bind the runtime at all is the extern rule's question, not the facts'.
 
-Every other read of std membership or a std name is debt, listed with the change that removes it in `internal/residue/testdata/std-privileges.txt`; the list only shrinks. `TestCompilerReadsNoStdMembership` holds the source to these lists. The proof is the copy: a std package copied into a user module checks, lowers and counts the same (`TestStdCopyAgrees`, with the packages that still differ and why in `internal/sketch/std/testdata/std-copy.txt`).
+Every other read of std membership or a std name is debt, listed with the change that removes it in `internal/residue/testdata/std-privileges.txt`; the list only shrinks. `TestCompilerReadsNoStdMembership` holds the source to these lists. The proof is the copy: a std package copied into a user module checks, lowers and counts the same (`TestStdCopyAgrees`: every std package's copy is the same).
 
 ## The body contract
 

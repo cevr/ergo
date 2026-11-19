@@ -28,7 +28,7 @@ import (
 //     class below its ceiling fails until the ceiling is lowered to it:
 //     the counts only fall.
 //
-// It is a one-way ledger, as std-copy.txt is, not a pinned count of a
+// It is a one-way ledger, not a pinned count of a
 // generated corpus: each row is a declaration a person reads.
 func TestStdGoShareOnlyFalls(t *testing.T) {
 	rows := readStdGoShare(t, "testdata/std-go-share.txt")
@@ -46,7 +46,7 @@ var stdGoShareCeiling = map[string]int{
 	"library":     77, // I22: +14 batch-22 externs (I22-B22CLASS rows)
 	"language":    3,  // I22: +2 batch-22 externs
 	"computation": 53, // I22: +5 batch-22 externs
-	"type":        79, // I22: +4 batch-22 externs
+	"type":        80, // I22: +4 batch-22 externs; STD-COPY-SAME: +1 fs.Text, which names the runtime's MappedText (extern go), not the path fs
 }
 
 // stdGoShareClasses are the classes a row may name; the true ones need a
