@@ -2,11 +2,7 @@
 // bits, so no low bits are lost for large products, as they are when the
 // product is taken in doubles and truncated.
 
-extern go math.Cos func cos(x float64) float64
-extern go math.Sin func sin(x float64) float64
-extern go math.Atan2 func atan2(y float64, x float64) float64
-extern go math.Hypot func hypot(x float64, y float64) float64
-extern go math.Floor func floor(x float64) float64
+import math
 
 let twoPi = 6.283185307179586
 
@@ -23,14 +19,14 @@ func gradientAngle(ix int, iy int) float64 {
 
 func dotGradient(ix int, iy int, dx float64, dy float64) float64 {
 	let a = gradientAngle(ix, iy)
-	cos(a)*dx + sin(a)*dy
+	math.Cos(a)*dx + math.Sin(a)*dy
 }
 
 // Perlin is the noise at (x, y): smooth, in about [-0.71, 0.71], the same
 // for the same point.
 func Perlin(x float64, y float64) float64 {
-	let fx0 = floor(x)
-	let fy0 = floor(y)
+	let fx0 = math.Floor(x)
+	let fy0 = math.Floor(y)
 	let x0 = int(fx0)
 	let y0 = int(fy0)
 	let fx = x - fx0

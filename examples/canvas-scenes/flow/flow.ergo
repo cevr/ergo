@@ -6,6 +6,7 @@
 // born with is drawn from the scene's own stream.
 
 import canvasscenes/seed
+import math
 
 // Width and Height are the canvas's size.
 let Width = 960.0
@@ -174,7 +175,7 @@ func burstOne(f Field, x float64, y float64, angle float64, anchor float64) Fiel
 	add(Field{..f, Seed: s7}, p)
 }
 
-func mod(a float64, b float64) float64 { a - b*floor(a/b) }
+func mod(a float64, b float64) float64 { a - b*math.Floor(a/b) }
 
 // Burst is f with 22 particles born at (x, y), heading out evenly round
 // the circle, their hues near one that turns with the scene's time.
@@ -198,7 +199,7 @@ func Reset(f Field) Field { Field{..f, Particles: []Particle{}, Pointer: None} }
 func Toggle(f Field) Field { Field{..f, Running: !f.Running} }
 
 func snap(v float64, lo float64, hi float64, step float64) float64 {
-	clamp(lo+floor((clamp(v, lo, hi)-lo)/step+0.5)*step, lo, hi)
+	clamp(lo+math.Floor((clamp(v, lo, hi)-lo)/step+0.5)*step, lo, hi)
 }
 
 // SetStrength is f with the flow strength at v, kept in the slider's
@@ -217,9 +218,9 @@ func fieldAngle(at Point, elapsed float64, strength float64, scale float64) floa
 }
 
 func blend(a float64, b float64, t float64) float64 {
-	let ax = cos(a)
-	let ay = sin(a)
-	atan2(ay+(sin(b)-ay)*t, ax+(cos(b)-ax)*t)
+	let ax = math.Cos(a)
+	let ay = math.Sin(a)
+	math.Atan2(ay+(math.Sin(b)-ay)*t, ax+(math.Cos(b)-ax)*t)
 }
 
 func swirl(angle float64, at Point, pointer Option[Point]) float64 {
@@ -229,11 +230,11 @@ func swirl(angle float64, at Point, pointer Option[Point]) float64 {
 	case Some[Point] as m:
 		let dx = at.X - m.Value.X
 		let dy = at.Y - m.Value.Y
-		let distance = hypot(dx, dy)
+		let distance = math.Hypot(dx, dy)
 		if distance > pointerRadius {
 			return angle
 		}
-		let radial = atan2(dy, dx)
+		let radial = math.Atan2(dy, dx)
 		blend(angle, blend(radial+halfPi, radial, radialBias), 1.0-distance/pointerRadius)
 	}
 }
@@ -258,7 +259,7 @@ func step(p Particle, seconds float64, f Field, elapsed float64) Option[Particle
 		blend(a.Value, fieldWise, 1.0-b)
 	}
 	let speed = p.Speed * (1.0 + (p.InitialSpeedScale-1.0)*b)
-	let next = Point{X: at.X + cos(angle)*speed*seconds, Y: at.Y + sin(angle)*speed*seconds}
+	let next = Point{X: at.X + math.Cos(angle)*speed*seconds, Y: at.Y + math.Sin(angle)*speed*seconds}
 	let age = p.AgeMs + seconds*1000.0
 	if age >= p.LifespanMs || Outside(next) {
 		return None

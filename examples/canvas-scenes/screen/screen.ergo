@@ -15,9 +15,6 @@ import math
 import strconv
 import ui
 
-extern go math.Sin func sin(x float64) float64
-extern go math.Cos func cos(x float64) float64
-
 // SliderWidth is the width of a slider's track, in pixels: a press or a
 // drag at x on it sets the value at x / SliderWidth of its range.
 let SliderWidth = 200.0
@@ -140,8 +137,8 @@ func paintFlow(pt *ui.Paint, fl flow.Field) {
 	let glows = []ui.Color{rgba(120, 35, 200, 0.18), rgba(28, 90, 200, 0.16), rgba(220, 30, 140, 0.13)}
 	for i in 0..3 {
 		let phase = float64(i) / 3.0 * twoPi
-		let x = flow.Width*offX[i] + sin(fl.Elapsed*speeds[i]+phase)*ampX[i]
-		let y = flow.Height*offY[i] + cos(fl.Elapsed*speeds[i]+phase)*ampY[i]
+		let x = flow.Width*offX[i] + math.Sin(fl.Elapsed*speeds[i]+phase)*ampX[i]
+		let y = flow.Height*offY[i] + math.Cos(fl.Elapsed*speeds[i]+phase)*ampY[i]
 		ui.Fill(pt, Circle(x, y, 280.0), glows[i])
 	}
 	for p in fl.Particles {
