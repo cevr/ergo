@@ -50,6 +50,8 @@ prompt	differs	lower: joinResult joins a call into its assignment only in a body
 pubsub	same
 queue	same
 rand	same
+ratelimit	same
+ratelimit/memory	same
 rpc	differs	lower: a std package's declarations are emitted in another order than a sourced package's (the first differing line is another declaration)	follow-up emit-order-std
 schedule	same
 scope	differs	lower: no exported function a caller can take as a value	follow-up copy-by-call
