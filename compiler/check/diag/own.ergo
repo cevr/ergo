@@ -344,12 +344,16 @@ func typeMarks(s store.Store, k expr.Pkg, res Map[string, bool], p syntax.Parsed
 		}
 		match dense.Unpack(tps) {
 		case Some[dense.ID[syntax.Node]] as tp:
-			spans = spans.Append(span{from: syntax.NodePos(p, d), to: syntax.NodeEnd(p, d), params: bracketNames(p, tp.Value), own: expr.BracketOwn(p, tp.Value)})
+			spans = spans.Append(span{from: syntax.NodePos(p, d), to: syntax.NodeEnd(p, d), params: bracketNames(p, tp.Value), own: expr.BracketOwn(p, tp.Value), keys: bracketKeys(p, tp.Value)})
 		case None:
 		}
 	}
 	for i in 0..syntax.NumNodes(p.Tree) {
 		let x = syntax.NodeAt(p.Tree, i)
+		if syntax.KindOf(p.Tree, x) == syntax.KMapType {
+			out = mapKey(s, k, res, p, f, infos, spans, syntax.MapTypeOf(p.Tree, x).Key, out)
+			continue
+		}
 		if syntax.KindOf(p.Tree, x) != syntax.KIndexExpr {
 			continue
 		}
@@ -365,7 +369,7 @@ func typeMarks(s store.Store, k expr.Pkg, res Map[string, bool], p syntax.Parsed
 			continue
 		}
 		let at = syntax.NodePos(p, x)
-		let mut encl = span{from: 0, to: 0, params: []string{}, own: []bool{}}
+		let mut encl = span{from: 0, to: 0, params: []string{}, own: []bool{}, keys: []bool{}}
 		for sp in spans {
 			if sp.from <= at && at < sp.to {
 				encl = sp
@@ -399,6 +403,34 @@ func typeMarks(s store.Store, k expr.Pkg, res Map[string, bool], p syntax.Parsed
 		}
 	}
 	out
+}
+
+// mapKey adds to out S112 for the key type x of a Map written in the file
+// p when it may hold a resource: a resource, or an own type parameter of
+// the enclosing generic declaration (resources R40; types.md, Generics 9;
+// decl.go mapKeySite, resource.go checkResourceTypes). A key the Go checker
+// refuses as not comparable is not one: a type parameter's constraint
+// must be comparable or ordered as written; a record's fields are not
+// read for it.
+func mapKey(s store.Store, k expr.Pkg, res Map[string, bool], p syntax.Parsed, f int, infos Map[string, typeInfo], spans []span, x dense.ID[syntax.Node], out []Diag) []Diag {
+	let at = syntax.NodePos(p, x)
+	let mut encl = span{from: 0, to: 0, params: []string{}, own: []bool{}, keys: []bool{}}
+	for sp in spans {
+		if sp.from <= at && at < sp.to {
+			encl = sp
+		}
+	}
+	let text = typeText(p, x)
+	if text == "" || !synHolds(s, k, res, p, infos, encl, x) {
+		return out
+	}
+	if syntax.KindOf(p.Tree, x) == syntax.KIdent {
+		let qi = slices.Index(encl.params, text)
+		if qi >= 0 && !(qi < len(encl.keys) && encl.keys[qi]) {
+			return out
+		}
+	}
+	out.Append(Diag{File: f, Offset: at, Length: syntax.NodeEnd(p, x) - at, Code: "S112", Message: "map key type \(text) holds a resource, and a map key has no owner to release it (resources R40); key the map by a plain value, such as an id"})
 }
 
 // synHolds is holds on the type expression x of the file p, written in
@@ -469,7 +501,7 @@ func typeText(p syntax.Parsed, x dense.ID[syntax.Node]) string {
 
 // span is a generic declaration of a file: its byte span and its bracket
 // parameters with their own marks.
-type span { from int, to int, params []string, own []bool }
+type span { from int, to int, params []string, own []bool, keys []bool }
 
 // topDecls is the file's top-level declarations, in order.
 func topDecls(p syntax.Parsed) []dense.ID[syntax.Node] {
@@ -494,6 +526,32 @@ func headName(p syntax.Parsed, x dense.ID[syntax.Node]) string {
 }
 
 // bracketNames is the names of the bracket list l, in order.
+// bracketKeys is whether each name of the bracket list l may key a Map:
+// its constraint is comparable or ordered, as written.
+func bracketKeys(p syntax.Parsed, l dense.ID[syntax.Node]) []bool {
+	let mut out = []bool{}
+	match syntax.ViewOf(p.Tree, l) {
+	case syntax.FieldList as fl:
+		for i in 0..syntax.Len(fl.List) {
+			match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, fl.List, i)) {
+			case syntax.Field as fd:
+				let key = match dense.Unpack(fd.Type) {
+				case Some{Value: c}:
+					syntax.KindOf(p.Tree, c) == syntax.KIdent && (textAt(p, c) == "comparable" || textAt(p, c) == "ordered")
+				case None:
+					false
+				}
+				for _ in 0..syntax.Len(fd.Names) {
+					out = out.Append(key)
+				}
+			case _:
+			}
+		}
+	case _:
+	}
+	out
+}
+
 func bracketNames(p syntax.Parsed, l dense.ID[syntax.Node]) []string {
 	let mut out = []string{}
 	match syntax.ViewOf(p.Tree, l) {
