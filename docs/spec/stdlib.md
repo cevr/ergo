@@ -1172,6 +1172,15 @@ both against net/http's `DetectContentType`.
     drawn cuts; `WriteThenRead`, `ChunkingDoesNotMatter` and
     `CutIsNotAnEvent` hold the writer and the reader to each other.
 
+    Speed (SSE-FLOOR): a line costs no copy of the text before it. The
+    reader takes each line as a span of the part, reads it into the
+    reader in place (a borrow, no record copy), keeps an event of one data
+    line as that line, and joins the open event's text (`Truncated`'s)
+    once per part, not once per line. `internal/sketch/lower.BenchmarkStdSSE`
+    holds `ReadEvents` and 4 KiB `Feed`s to a hand-Go reader of the same
+    rules and to a scan for line ends (the floor): one allocation per
+    event, as hand Go.
+
     *Prior art* (from the libraries' documentation as remembered, not re-read for this unit): Effect's `Sse` module (`@effect/experimental` `Sse`,
     a `makeParser` callback over chunks, then an `Event` with `event`,
     `id`, `data` and `retry`) gives the behaviour; Ergo keeps it as a
