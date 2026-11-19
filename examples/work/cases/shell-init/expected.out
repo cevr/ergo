@@ -1,0 +1,9 @@
+work() {
+	if [ "$1" = new ]; then
+		out=$(command work --json "$@") || { printf '%s\n' "$out"; return 1; }
+		printf '%s\n' "$out"
+		cd "$(printf '%s\n' "$out" | sed -n 's/.*"path":"\([^"]*\)".*/\1/p')" || return
+	else
+		command work "$@"
+	fi
+}

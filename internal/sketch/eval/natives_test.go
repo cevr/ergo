@@ -6,10 +6,12 @@ import (
 	"math"
 	"math/rand/v2"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -32,7 +34,8 @@ import (
 // Mutants only it kills (testdata/mutants.json): oracle-o1-native-pad-bytes,
 // oracle-o1-native-parse-range, oracle-o1-native-times-wraps,
 // oracle-o1-native-intn-modulo, oracle-o1-native-splitn-count,
-// oracle-o1-native-split-empty-sep.
+// oracle-o1-native-split-empty-sep, evbuilder-appendfrom-whole-run,
+// evbuilder-appendfrom-end-start, evbuilder-appendbytes-drops-last.
 // The tests read natives directly; a run loads them on first lookup.
 func init() { loadNatives() }
 
@@ -64,6 +67,9 @@ func TestNativesAgreeWithRuntime(t *testing.T) {
 		for _, c := range nativeCases(g) {
 			in.steps, in.bytes = 0, 0
 			nat := natives[c.name]
+			if nat == nil {
+				nat = goNatives[c.name]
+			}
 			if nat == nil {
 				t.Fatalf("no native %s", c.name)
 			}
@@ -106,32 +112,41 @@ func TestNativesAgreeWithRuntime(t *testing.T) {
 // 8 bytes and of 800, as Go's own functions read only the prefix and
 // share the text (natives.go, readsOf and shares). Charged as the whole
 // text, a parser that slices the rest of its input at each token would
-// pay steps quadratic in its input. Mutants only it kills
-// (testdata/mutants.json): oracle-o22-slice-reads-all,
-// oracle-o22-prefix-reads-all, oracle-o22-slice-allocates.
+// pay steps quadratic in its input. IndexByte reads up to the byte it
+// finds (std io's lines call it on the rest of the text at each line).
+// Mutants only it kills (testdata/mutants.json): oracle-o22-slice-reads-all,
+// oracle-o22-prefix-reads-all, oracle-o22-slice-allocates,
+// evbuilder-indexbyte-reads-all.
 func TestNativeWorkIsWhatGoReads(t *testing.T) {
 	pkg := checked(t, "import strings\n\ntest T {\n\tassert strings.Slice(\"ab\", 0, 1) == \"a\"\n}\n")
 	in := &interp{budget: DefaultBudget()}
 	fr := in.newFrame(pkg, pkg.Tests[0].Decl)
 	work := func(name string, s string) (steps, bytes int64) {
 		args := []Value{s, "ab"}
-		if name == "strings.Slice" {
+		switch name {
+		case "strings.Slice":
 			args = []Value{s, int64(1), int64(5)}
+		case "strings.IndexByte":
+			args = []Value{s, uint8('b')}
 		}
 		in.steps, in.bytes = 0, 0
-		if _, ab := natives[name](in, fr, fr.decl, nil, args); ab != nil {
+		nat := natives[name]
+		if nat == nil {
+			nat = goNatives[name] // reached through std's import go strings
+		}
+		if _, ab := nat(in, fr, fr.decl, nil, args); ab != nil {
 			t.Fatalf("%s: %s", name, ab.msg)
 		}
 		return in.steps, in.bytes
 	}
 	short, long := "ab"+strings.Repeat("x", 4)+"ab", "ab"+strings.Repeat("x", 796)+"ab"
-	for _, name := range []string{"strings.Slice", "strings.HasPrefix", "strings.HasSuffix", "strings.TrimPrefix", "strings.TrimSuffix"} {
+	for _, name := range []string{"strings.Slice", "strings.HasPrefix", "strings.HasSuffix", "strings.TrimPrefix", "strings.TrimSuffix", "strings.IndexByte"} {
 		s1, b1 := work(name, short)
 		s2, b2 := work(name, long)
 		if s1 != s2 {
 			t.Errorf("%s spends %d steps on %d bytes and %d on %d", name, s1, len(short), s2, len(long))
 		}
-		if name != "strings.HasPrefix" && name != "strings.HasSuffix" && (b1 != 0 || b2 != 0) {
+		if name != "strings.HasPrefix" && name != "strings.HasSuffix" && name != "strings.IndexByte" && (b1 != 0 || b2 != 0) {
 			t.Errorf("%s allocates %d and %d value bytes for a view of its text", name, b1, b2)
 		}
 	}
@@ -192,22 +207,21 @@ func nativeCases(g nativeGen) []nativeCase {
 	s, u, w := g.text(), g.text(), g.text()
 	i, j := g.small(), g.small()
 	rn := g.runeV()
-	c := []byte("a\n \xc3x")[g.r.IntN(5)]
+	c := []uint8{'a', 'b', ' ', '\n', 0xff}[g.r.IntN(5)]
 	xs := g.texts()
 	big := []int64{0, 1, -1, 7, math.MaxInt64, math.MinInt64, 1 << 40, -(1 << 33)}
 	d, m := big[g.r.IntN(len(big))], big[g.r.IntN(len(big))]
 	base, bits := g.r.IntN(40)-1, g.r.IntN(70)-2
 	fmtc := []byte("efgxbEG?")[g.r.IntN(8)]
 	f := []float64{0, 1.5, -2.25, 1e21, math.NaN(), math.Inf(-1), 123456.789}[g.r.IntN(7)]
+	// cmp.Max and Min's float operands reach Go's special cases: NaN
+	// and the two zeros (EVAL-BUILDER).
+	edge := []float64{0, math.Copysign(0, -1), math.NaN(), 1.5, -2.25, math.Inf(1)}
+	fa, fb := edge[g.r.IntN(len(edge))], edge[g.r.IntN(len(edge))]
 	num := []string{"12", "-0", "+7", "9223372036854775807", "9223372036854775808", "-9223372036854775809", "0x1f", "1e3", "1_000", "", "-", "abc", "1.5", "1e400", "true", "F", "\"a\\tb\"", "`x`", "'c'"}[g.r.IntN(19)]
 	ints, ints2 := g.ints(), g.ints()
 	fl := g.floats()
-	fa, fb := 0.0, 0.0
-	if f2 := g.floats(); len(f2) > 1 {
-		fa, fb = f2[0], f2[1]
-	}
 	x := int64(g.r.IntN(5) - 2)
-	half := []float64{0.5, 2.5, -2.5, -0.5, 3, 4.75, 0, math.Copysign(0, -1), math.Inf(1)}[g.r.IntN(9)]
 	key := []string{"apiToken", "server.port", "HTTPStatus", "v2Path", "aÉb", "a\xffB", "", "a..B"}[g.r.IntN(8)] + g.text()
 	dur := []string{"1h2m3.5s", "-1.5ms", "0", "", "1", "3µs", "9223372036854775807ns", "9223372036854775808ns", "1e3s", "1.h", ".5s", "+2us", "1d", "-0"}[g.r.IntN(14)]
 	ls := func(ss []string) Value {
@@ -247,13 +261,6 @@ func nativeCases(g nativeGen) []nativeCase {
 	if g.r.IntN(4) == 0 {
 		text = text[:g.r.IntN(len(text)+1)]
 	}
-	// slices.largest takes a list with an element; a float list mixes
-	// both zeros, which Go's max orders.
-	nonEmpty := append([]int64{x}, ints...)
-	zeros := append([]float64{math.Copysign(0, -1)}, fl...)
-	if g.r.IntN(2) == 0 {
-		zeros = append(zeros, 0)
-	}
 	// SortStableFunc by the remainder mod 3, so equal keys keep their
 	// order only when the sort is stable.
 	byMod3 := &nativeFunc{name: "byMod3", call: func(in *interp, fr *frame, at syntax.Node, args []Value) (Value, *abrupt) {
@@ -262,78 +269,56 @@ func nativeCases(g nativeGen) []nativeCase {
 	return []nativeCase{
 		{name: "time.format", args: []Value{sec, nsec, lay}, v1: func() any { return v1.TimeFormat(sec, nsec, lay) }},
 		{name: "time.parse", args: []Value{lay, text}, v1: func() any { return result(v1.TimeParse(lay, text)) }},
-		{name: "math.Round", args: []Value{half}, v1: func() any { return v1.MathRound(half) }},
-		{name: "math.Sqrt", args: []Value{half}, v1: func() any { return v1.MathSqrt(half) }},
-		{name: "math.Log", args: []Value{half}, v1: func() any { return v1.MathLog(half) }},
-		{name: "math.Exp", args: []Value{f}, v1: func() any { return v1.MathExp(f) }},
-		{name: "math.Pow", args: []Value{half, f}, v1: func() any { return v1.MathPow(half, f) }},
-		{name: "math.Mod", args: []Value{f, half}, v1: func() any { return v1.MathMod(f, half) }},
-		{name: "math.IsInf", args: []Value{f, x}, v1: func() any { return v1.MathIsInf(f, int(x)) }},
 		{name: "config.flagName", args: []Value{key}, v1: func() any { return v1.ConfigFlagName(key) }},
 		{name: "config.envName", args: []Value{w, key}, v1: func() any { return v1.ConfigEnvName(w, key) }},
 		{name: "config.flagKey", args: []Value{s}, v1: func() any { return v1.ConfigFlagKey(s) }},
 		{name: "config.envKey", args: []Value{u}, v1: func() any { return v1.ConfigEnvKey(u) }},
-		{name: "strings.Compare", args: []Value{s, u}, v1: func() any { return int64(v1.StringsCompare(s, u)) }},
-		{name: "strings.PadLeft", args: []Value{s, int64(i), rn}, v1: func() any { return v1.StringsPadLeft(s, i, rn) }},
-		{name: "strings.PadRight", args: []Value{s, int64(j), rn}, v1: func() any { return v1.StringsPadRight(s, j, rn) }},
-		{name: "strings.Split", args: []Value{s, u}, v1: func() any { return v1.StringsSplit(s, u) }},
+		{name: "strings.Compare", args: []Value{s, u}, v1: func() any { return int64(strings.Compare(s, u)) }},
+		{name: "strings.Split", args: []Value{s, u}, v1: func() any { return strings.Split(s, u) }},
 		{name: "strings.Join", args: []Value{ls(xs), u}, v1: func() any { return v1.StringsJoin(xs, u) }},
-		{name: "strings.HasPrefix", args: []Value{s, u}, v1: func() any { return v1.StringsHasPrefix(s, u) }},
-		{name: "strings.HasSuffix", args: []Value{s, u}, v1: func() any { return v1.StringsHasSuffix(s, u) }},
-		{name: "strings.TrimSpace", args: []Value{s}, v1: func() any { return v1.StringsTrimSpace(s) }},
-		{name: "strings.TrimPrefix", args: []Value{s, u}, v1: func() any { return v1.StringsTrimPrefix(s, u) }},
-		{name: "strings.TrimSuffix", args: []Value{s, u}, v1: func() any { return v1.StringsTrimSuffix(s, u) }},
-		{name: "strings.Fields", args: []Value{s}, v1: func() any { return v1.StringsFields(s) }},
-		{name: "strings.Repeat", args: []Value{s, int64(i)}, v1: func() any { return v1.StringsRepeat(s, i) }},
-		{name: "strings.ToLower", args: []Value{s}, v1: func() any { return v1.StringsToLower(s) }},
-		{name: "strings.ToUpper", args: []Value{s}, v1: func() any { return v1.StringsToUpper(s) }},
-		{name: "strings.Index", args: []Value{s, u}, v1: func() any { return int64(v1.StringsIndex(s, u)) }},
-		// The Builder's externs (strings/builder.ergo) on generated
-		// buffers: an out-of-range WriteFrom or a negative Grow is a
-		// defect on both sides.
-		{name: "strings.builderAppend", args: []Value{bytesValue(s), u}, v1: func() any { return v1.StringsBuilderAppend([]byte(s), u) }},
-		{name: "strings.builderAppendByte", args: []Value{bytesValue(s), c}, v1: func() any { return v1.StringsBuilderAppendByte([]byte(s), c) }},
+		{name: "strings.HasPrefix", args: []Value{s, u}, v1: func() any { return strings.HasPrefix(s, u) }},
+		{name: "strings.HasSuffix", args: []Value{s, u}, v1: func() any { return strings.HasSuffix(s, u) }},
+		{name: "strings.TrimSpace", args: []Value{s}, v1: func() any { return strings.TrimSpace(s) }},
+		{name: "strings.TrimPrefix", args: []Value{s, u}, v1: func() any { return strings.TrimPrefix(s, u) }},
+		{name: "strings.TrimSuffix", args: []Value{s, u}, v1: func() any { return strings.TrimSuffix(s, u) }},
+		{name: "strings.Fields", args: []Value{s}, v1: func() any { return strings.Fields(s) }},
+		{name: "strings.Repeat", args: []Value{s, int64(i)}, v1: func() any { return strings.Repeat(s, i) }},
+		{name: "strings.ToLower", args: []Value{s}, v1: func() any { return strings.ToLower(s) }},
+		{name: "strings.ToUpper", args: []Value{s}, v1: func() any { return strings.ToUpper(s) }},
+		{name: "strings.Index", args: []Value{s, u}, v1: func() any { return int64(strings.Index(s, u)) }},
+		{name: "strings.IndexByte", args: []Value{s, c}, v1: func() any { return int64(strings.IndexByte(s, c)) }},
 		{name: "strings.builderAppendBytes", args: []Value{bytesValue(s), bytesValue(u)}, v1: func() any { return v1.StringsBuilderAppendBytes([]byte(s), []byte(u)) }},
-		{name: "strings.builderAppendFrom", args: []Value{bytesValue(s), int64(i), int64(j)}, anyDefect: true, v1: func() any { return v1.StringsBuilderAppendFrom([]byte(s), i, j) }},
-		{name: "strings.builderGrow", args: []Value{bytesValue(s), int64(i)}, anyDefect: true, v1: func() any { return v1.StringsBuilderGrow([]byte(s), i) }},
-		{name: "strings.builderText", args: []Value{bytesValue(s)}, v1: func() any { return v1.StringsBuilderText([]byte(s)) }},
-		{name: "strings.stringsBytes", args: []Value{s}, v1: func() any { return v1.StringsBytes(s) }},
-		{name: "strings.IndexByte", args: []Value{s, c}, v1: func() any { return int64(v1.StringsIndexByte(s, c)) }},
-		{name: "strings.Contains", args: []Value{s, u}, v1: func() any { return v1.StringsContains(s, u) }},
+		{name: "strings.builderAppendFrom", args: []Value{bytesValue(s), int64(i), int64(j)}, v1: func() any { return v1.StringsBuilderAppendFrom([]byte(s), i, j) }},
+		{name: "strings.Contains", args: []Value{s, u}, v1: func() any { return strings.Contains(s, u) }},
 		{name: "strings.Slice", args: []Value{s, int64(i), int64(j)}, v1: func() any { return v1.StringsSlice(s, i, j) }},
-		{name: "strings.ReplaceAll", args: []Value{s, u, w}, v1: func() any { return v1.StringsReplaceAll(s, u, w) }},
-		{name: "strings.LastIndex", args: []Value{s, u}, v1: func() any { return int64(v1.StringsLastIndex(s, u)) }},
-		{name: "strings.Count", args: []Value{s, u}, v1: func() any { return int64(v1.StringsCount(s, u)) }},
-		{name: "strings.SplitN", args: []Value{s, u, int64(i)}, v1: func() any { return v1.StringsSplitN(s, u, i) }},
-		{name: "strings.EqualFold", args: []Value{s, u}, v1: func() any { return v1.StringsEqualFold(s, u) }},
-		{name: "strings.ContainsRune", args: []Value{s, rn}, v1: func() any { return v1.StringsContainsRune(s, rn) }},
-		{name: "strings.ToValidUTF8", args: []Value{s, u}, v1: func() any { return v1.StringsToValidUTF8(s, u) }},
-		{name: "utf8.RuneCount", args: []Value{s}, v1: func() any { return int64(v1.UTF8RuneCount(s)) }},
+		{name: "strings.ReplaceAll", args: []Value{s, u, w}, v1: func() any { return strings.ReplaceAll(s, u, w) }},
+		{name: "strings.LastIndex", args: []Value{s, u}, v1: func() any { return int64(strings.LastIndex(s, u)) }},
+		{name: "strings.Count", args: []Value{s, u}, v1: func() any { return int64(strings.Count(s, u)) }},
+		{name: "strings.SplitN", args: []Value{s, u, int64(i)}, v1: func() any { return strings.SplitN(s, u, i) }},
+		{name: "strings.EqualFold", args: []Value{s, u}, v1: func() any { return strings.EqualFold(s, u) }},
+		{name: "strings.ContainsRune", args: []Value{s, rn}, v1: func() any { return strings.ContainsRune(s, rn) }},
+		{name: "strings.ToValidUTF8", args: []Value{s, u}, v1: func() any { return strings.ToValidUTF8(s, u) }},
 		{name: "utf8.RuneText", args: []Value{rn}, v1: func() any { return v1.UTF8RuneText(rn) }},
-		{name: "utf8.ValidString", args: []Value{s}, v1: func() any { return v1.UTF8ValidString(s) }},
-		{name: "utf8.ValidRune", args: []Value{rn}, v1: func() any { return v1.UTF8ValidRune(rn) }},
-		{name: "utf8.RuneLen", args: []Value{rn}, v1: func() any { return int64(v1.UTF8RuneLen(rn)) }},
+		{name: "unicode/utf8.RuneLen", args: []Value{rn}, v1: func() any { return int64(utf8.RuneLen(rn)) }},
 		{name: "utf8.DecodeRuneInString", args: []Value{s}, v1: func() any { return v1.UTF8DecodeRuneInString(s) }},
 		{name: "utf8.AppendRune", args: []Value{bytesValue(s), rn}, v1: func() any { return v1.UTF8AppendRune([]byte(s), rn) }},
-		{name: "strconv.Itoa", args: []Value{d}, v1: func() any { return v1.StrconvItoa(int(d)) }},
-		{name: "strconv.FormatInt", args: []Value{d, int64(base)}, v1: func() any { return v1.StrconvFormatInt(d, base) }},
-		{name: "strconv.FormatBool", args: []Value{i > 4}, v1: func() any { return v1.StrconvFormatBool(i > 4) }},
-		{name: "strconv.FormatFloat", args: []Value{f, fmtc, int64(i)}, v1: func() any { return v1.StrconvFormatFloat(f, fmtc, i) }},
-		{name: "strconv.Quote", args: []Value{s}, v1: func() any { return v1.StrconvQuote(s) }},
+		{name: "strconv.Itoa", args: []Value{d}, v1: func() any { return strconv.Itoa(int(d)) }},
+		{name: "strconv.FormatInt", args: []Value{d, int64(base)}, v1: func() any { return strconv.FormatInt(d, base) }},
+		{name: "strconv.FormatBool", args: []Value{i > 4}, v1: func() any { return strconv.FormatBool(i > 4) }},
+		{name: "strconv.FormatFloat", args: []Value{f, fmtc, int64(i), int64(64)}, v1: func() any { return strconv.FormatFloat(f, fmtc, i, 64) }},
+		{name: "strconv.Quote", args: []Value{s}, v1: func() any { return strconv.Quote(s) }},
 		{name: "strconv.Atoi", args: []Value{num}, v1: func() any { return result(v1.StrconvAtoi(num)) }},
 		{name: "strconv.ParseInt", args: []Value{num, int64(base), int64(bits)}, v1: func() any { return result(v1.StrconvParseInt(num, base, bits)) }},
 		{name: "strconv.ParseFloat", args: []Value{num}, v1: func() any { return result(v1.StrconvParseFloat(num)) }},
-		{name: "strconv.ParseBool", args: []Value{num}, v1: func() any { return result(v1.StrconvParseBool(num)) }},
 		{name: "strconv.Unquote", args: []Value{num}, v1: func() any { return result(v1.StrconvUnquote(num)) }},
 		{name: "filepath.Join", args: []Value{ls(xs)}, v1: func() any { return v1.FilepathJoin(xs) }},
-		{name: "filepath.Base", args: []Value{s}, v1: func() any { return v1.FilepathBase(s) }},
-		{name: "filepath.Dir", args: []Value{s}, v1: func() any { return v1.FilepathDir(s) }},
+		{name: "path/filepath.Base", args: []Value{s}, v1: func() any { return filepath.Base(s) }},
+		{name: "path/filepath.Dir", args: []Value{s}, v1: func() any { return filepath.Dir(s) }},
 		{name: "filepath.Ext", args: []Value{s}, v1: func() any { return v1.FilepathExt(s) }},
-		{name: "filepath.Clean", args: []Value{s}, v1: func() any { return v1.FilepathClean(s) }},
-		{name: "filepath.IsAbs", args: []Value{s}, v1: func() any { return v1.FilepathIsAbs(s) }},
+		{name: "path/filepath.Clean", args: []Value{s}, v1: func() any { return filepath.Clean(s) }},
+		{name: "path/filepath.IsAbs", args: []Value{s}, v1: func() any { return filepath.IsAbs(s) }},
 		{name: "hex.Encode", args: []Value{s}, v1: func() any { return v1digest.HexEncode(s) }},
 		{name: "time.DurationText", args: []Value{d}, v1: func() any { return v1.TimeDurationText(durationOf(d)) }},
-		{name: "time.Times", args: []Value{d, m}, v1: func() any { return int64(v1.TimeTimes(durationOf(d), int(m))) }},
 		{name: "time.subMono", args: []Value{d, m}, v1: func() any { return int64(v1.TimeSubMono(d, m)) }},
 		{name: "time.subWall", args: []Value{d % (1 << 34), x, m % (1 << 34), int64(i)}, v1: func() any { return int64(v1.TimeSub(d%(1<<34), x, m%(1<<34), int64(i))) }},
 		{name: "time.Divide", args: []Value{d, m}, anyDefect: true, v1: func() any { return int64(v1.TimeDivide(durationOf(d), int(m))) }},
@@ -342,30 +327,19 @@ func nativeCases(g nativeGen) []nativeCase {
 		{name: "slices.Take", args: []Value{li(ints), x}, anyDefect: true, v1: func() any { return takeOf(v1.SlicesTake(ints, int(x))) }},
 		{name: "slices.Clone", args: []Value{li(ints)}, v1: func() any { return v1.SlicesClone(ints) }},
 		{name: "slices.Concat", args: []Value{li(ints), li(ints2)}, v1: func() any { return v1.SlicesConcat(ints, ints2) }},
-		// AppendAll is an extern of Go's builtin append (slices.ergo):
-		// the reference is append itself.
-		{name: "slices.AppendAll", args: []Value{li(ints), li(ints2)}, v1: func() any { return append(ints[:len(ints):len(ints)], ints2...) }},
 		{name: "slices.Reverse", args: []Value{ls(xs)}, v1: func() any { return v1.SlicesReverse(xs) }},
 		{name: "slices.Sort", args: []Value{li(ints)}, v1: func() any { return v1.SlicesSort(ints) }},
 		{name: "slices.Sort", args: []Value{lf(fl)}, v1: func() any { return v1.SlicesSort(fl) }},
 		{name: "slices.Sort", args: []Value{ls(xs)}, v1: func() any { return v1.SlicesSort(xs) }},
-		{name: "slices.Contains", args: []Value{li(ints), x}, v1: func() any { return v1.SlicesContains(ints, x) }},
-		{name: "slices.Index", args: []Value{li(ints), x}, v1: func() any { return int64(v1.SlicesIndex(ints, x)) }},
-		{name: "slices.Equal", args: []Value{li(ints), li(ints2)}, v1: func() any { return v1.SlicesEqual(ints, ints2) }},
-		{name: "slices.Slice", args: []Value{li(ints), si, sj}, anyDefect: true, v1: func() any { return v1.SlicesSlice(ints, int(si), int(sj)) }},
-		{name: "slices.largest", args: []Value{li(nonEmpty)}, v1: func() any { return v1.SlicesMax(nonEmpty) }},
-		{name: "slices.largest", args: []Value{lf(zeros)}, v1: func() any { return v1.SlicesMax(zeros) }},
-		{name: "slices.SortStableFunc", args: []Value{li(ints), byMod3}, v1: func() any {
-			return v1.SlicesSortStableFunc(ints, func(a, b int64) int { return cmp.Compare(mod3(a), mod3(b)) })
-		}},
-		{name: "math.Trunc", args: []Value{f}, v1: func() any { return v1.MathTrunc(f) }},
-		{name: "machines.notPositive", args: []Value{d, m}, v1: func() any { v1.MachineTimerNotPositiveAt(durationOf(d), durationOf(m)); return nil }},
 		{name: "cmp.Max", args: []Value{fa, fb}, v1: func() any { return v1.CmpMax(fa, fb) }},
 		{name: "cmp.Min", args: []Value{fa, fb}, v1: func() any { return v1.CmpMin(fa, fb) }},
 		{name: "cmp.Max", args: []Value{s, u}, v1: func() any { return v1.CmpMax(s, u) }},
 		{name: "cmp.Min", args: []Value{d, m}, v1: func() any { return v1.CmpMin(d, m) }},
-		{name: "cmp.Compare", args: []Value{fa, fb}, v1: func() any { return int64(v1.CmpCompare(fa, fb)) }},
-		{name: "cmp.Compare", args: []Value{s, u}, v1: func() any { return int64(v1.CmpCompare(s, u)) }},
+		{name: "slices.Slice", args: []Value{li(ints), si, sj}, anyDefect: true, v1: func() any { return v1.SlicesSlice(ints, int(si), int(sj)) }},
+		{name: "slices.SortStableFunc", args: []Value{li(ints), byMod3}, v1: func() any {
+			return v1.SlicesSortStableFunc(ints, func(a, b int64) int { return cmp.Compare(mod3(a), mod3(b)) })
+		}},
+		{name: "machines.notPositive", args: []Value{d, m}, v1: func() any { v1.MachineTimerNotPositiveAt(durationOf(d), durationOf(m)); return nil }},
 	}
 }
 

@@ -109,6 +109,11 @@ func (b *irBuilder) withOperand(x *syntax.CallExpr, i int, w *check.With, ret bo
 		irNo("with that owns resources")
 	case w.Contexts[0].Lit == nil && !b.l.declaredContext(w.Contexts[0]):
 		irNo("with of an undeclared context")
+	case w.Contexts[0].TestAmbient != nil:
+		// The emitter opens the case's folder and removes it when the
+		// test's function returns (testAmbient, calls.go), a defer the IR
+		// has no form for.
+		irNo("with of a context that needs TestAmbient")
 	}
 	lit := w.Contexts[0].Lit != nil // an inline or a local context
 	p := b.pos(arg, arg.Pos())
@@ -179,6 +184,12 @@ func (b *irBuilder) opsConv(conv check.Conversion, e *irExpr, x syntax.Expr) *ir
 		irNo("operations conversion without an adapter")
 	}
 	p := e.Pos
+	if goAdapterConv(conv) {
+		// goInterface's v1.GoHanded: Go may call the value's methods from
+		// a goroutine of its own (rt.Alone).
+		b.keepImport("var _ = " + l.rt() + ".GoHanded")
+		b.runFirst([]*irStmt{{K: "expr", Pos: p, X: &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: "GoHanded"}}})
+	}
 	lit := &irExpr{K: "lit", Pos: p, T: name, Keys: []string{"v"}, Elems: []*irExpr{e}}
 	if !sealed {
 		env := &irExpr{K: "zero", Pos: p, T: "*" + l.env()}

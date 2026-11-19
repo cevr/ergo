@@ -9,7 +9,7 @@ import (
 
 	format "ergo.local/prototype/internal/hostsyntax"
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -211,7 +211,7 @@ func (e *editor) spell(file string, pkgFiles []string, pkg, typeName string, op 
 			name := o.Obj.Name
 			switch p := o.Obj.Pkg; {
 			case p.Path == pkg && !p.Host():
-			case p.Path == std.PreludePath:
+			case p.Path == stdlib.PreludePath:
 				if e.declares(pkgFiles, name) && name != typeName {
 					return "", fmt.Sprintf("the package declares its own %s, which hides the prelude's", name)
 				}

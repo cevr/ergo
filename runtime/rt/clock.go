@@ -4,6 +4,7 @@ import (
 	"errors"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -65,20 +66,25 @@ func (l liveTimer) Stop() bool        { return l.stop() }
 // which fires each due timer in deadline order, ties in arming order. Tests
 // call AwaitTimers to know a task has armed its deadline before advancing.
 type Virtual struct {
-	mu     sync.Mutex
-	armed  *sync.Cond
-	now    Instant
+	// mu is the clock's lock; the clocks of one domain share their
+	// domain's (idle.go), so a wait checks its event and parks in one step.
+	mu    *sync.Mutex
+	armed *sync.Cond
+	now   Instant
+	// at is now, written with it under mu (setNow) and read without
+	// it, so a read of the clock takes no lock.
+	at     atomic.Int64
 	seq    uint64
 	timers []*virtualTimer // sorted by (when, seq)
-	// A clock with a domain (idle.go: an auto clock or a manual one)
-	// counts its live members and the parked ones; an auto clock also
-	// moves when every live member is parked, and steps counts those
-	// moves. change is closed when a member parks or leaves, so a Settle
-	// looks again.
-	domain, auto bool
-	live, parked int
-	steps        int
-	change       chan struct{}
+	// d is the domain of a clock that has one (idle.go: an auto clock or
+	// a manual one), nil otherwise. An auto clock moves when every live
+	// member of its domain is parked, and steps counts those moves.
+	d     *domain
+	auto  bool
+	steps int
+	// spare is a sleep's timer that its sleep no longer uses, for the
+	// next sleep on v (FU-sleep-timer-reuse): a sleep allocates no timer.
+	spare atomic.Pointer[virtualTimer]
 	// advancing is set while an AdvanceSettled runs: one at a time.
 	advancing bool
 }
@@ -94,22 +100,30 @@ type virtualTimer struct {
 	v    *Virtual
 	when Instant
 	seq  uint64
-	c    chan Instant
-	task *Task // the sleeper of an auto clock's Sleep, nil otherwise
+	c    chan Instant // nil for a sleep's timer
+	// task is the sleeper of a Sleep on a clock with a domain, nil
+	// otherwise. Its timer has no channel: fire sets fired and resumes
+	// the sleeper's park word (FU-virtual-sleep).
+	task  *Task
+	fired atomic.Bool
+	f     func() // an AfterFunc's function, which its fire starts; c is nil
 }
 
 // NewVirtual returns a virtual clock that reads start.
 func NewVirtual(start time.Time) *Virtual {
-	v := &Virtual{now: Instant(start.UnixNano())}
-	v.armed = sync.NewCond(&v.mu)
+	v := &Virtual{now: Instant(start.UnixNano()), mu: new(sync.Mutex)}
+	v.at.Store(start.UnixNano())
+	v.armed = sync.NewCond(v.mu)
 	return v
 }
 
 // Now returns the virtual time.
-func (v *Virtual) Now() Instant {
-	v.mu.Lock()
-	defer v.mu.Unlock()
-	return v.now
+func (v *Virtual) Now() Instant { return Instant(v.at.Load()) }
+
+// setNow moves the time to i; v.mu is held.
+func (v *Virtual) setNow(i Instant) {
+	v.now = i
+	v.at.Store(int64(i))
 }
 
 // NewTimer arms a timer d after the virtual now. A deadline at or before now
@@ -129,6 +143,39 @@ func (v *Virtual) NewTimer(d Span) Timer {
 	v.timers[i] = t
 	v.armed.Broadcast()
 	return t
+}
+
+// AfterFunc arms f to run on its own goroutine once the virtual time is d
+// past now, as time.AfterFunc does on the host's clock; a d of zero or
+// less starts it at once. The result's Stop disarms it and reports
+// whether it was still armed. Its deadline is armed like a Sleep's, so an
+// auto clock moves to it when its domain is idle, and Pending counts it.
+// f runs on a goroutine of its own, never under the clock's lock: it may
+// arm and stop timers of the clock.
+func (v *Virtual) AfterFunc(d Span, f func()) Timer {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.seq++
+	t := &virtualTimer{v: v, when: v.now + Instant(d), seq: v.seq, f: f}
+	if d <= 0 {
+		v.runAlarm(f)
+		return t
+	}
+	i := sort.Search(len(v.timers), func(i int) bool { return t.before(v.timers[i]) })
+	v.timers = append(v.timers, nil)
+	copy(v.timers[i+1:], v.timers[i:])
+	v.timers[i] = t
+	v.armed.Broadcast()
+	return t
+}
+
+// popFirst removes the earliest timer. It keeps the slice's room at its
+// front, so a steady arm and fire allocates nothing (a reslice from the
+// front would give the room up). v.mu is held.
+func (v *Virtual) popFirst() {
+	n := copy(v.timers, v.timers[1:])
+	v.timers[n] = nil
+	v.timers = v.timers[:n]
 }
 
 func (t *virtualTimer) before(u *virtualTimer) bool {
@@ -159,11 +206,11 @@ func (v *Virtual) Advance(d Span) {
 	target := v.now + Instant(d)
 	for len(v.timers) > 0 && v.timers[0].when <= target {
 		t := v.timers[0]
-		v.timers = v.timers[1:]
-		v.now = t.when
+		v.popFirst()
+		v.setNow(t.when)
 		v.fire(t)
 	}
-	v.now = target
+	v.setNow(target)
 	v.armed.Broadcast()
 }
 
@@ -179,7 +226,7 @@ func (v *Virtual) Advance(d Span) {
 // One runs at a time: a call while another runs returns AdvanceRunning at
 // once and moves nothing.
 func (v *Virtual) AdvanceSettled(t *Task, d Span) error {
-	if !v.domain {
+	if v.d == nil {
 		v.Advance(d)
 		return nil
 	}
@@ -204,17 +251,17 @@ func (v *Virtual) AdvanceSettled(t *Task, d Span) error {
 		v.mu.Lock()
 		if len(v.timers) == 0 || v.timers[0].when > target {
 			if target > v.now {
-				v.now = target
+				v.setNow(target)
 			}
 			v.armed.Broadcast()
 			v.mu.Unlock()
 			return nil
 		}
 		when := v.timers[0].when
-		v.now = when
+		v.setNow(when)
 		for len(v.timers) > 0 && v.timers[0].when == when {
 			tm := v.timers[0]
-			v.timers = v.timers[1:]
+			v.popFirst()
 			v.fire(tm)
 		}
 		v.armed.Broadcast()
@@ -227,46 +274,62 @@ func (v *Virtual) AdvanceSettled(t *Task, d Span) error {
 // waits on anything else, keeps it waiting. With no domain it returns at
 // once. A stop of t ends it with Interrupted.
 func (v *Virtual) Settle(t *Task) error {
-	if !v.domain {
+	d := v.d
+	if d == nil {
 		return nil
 	}
 	v.mu.Lock()
+	m := t.member.Load()
+	if m != nil && m.d != d {
+		m = nil
+	}
 	for {
 		self := 0
-		if m := t.member.Load(); m != nil && m.v == v && !m.parked {
+		if m != nil && !m.parked {
 			self = 1
 		}
-		if v.parked >= v.live-self {
+		if d.parked >= d.live-self && d.running == 0 {
 			v.mu.Unlock()
 			return nil
 		}
-		if v.change == nil {
-			v.change = make(chan struct{})
-		}
-		ch := v.change
+		// The caller waits on its park word until a member parks or
+		// leaves (idle resumes every settler) or it is stopped
+		// (FU-settle-word): no channel and no select. A wake meant for
+		// another wait costs one more look.
+		g := d.settles.Load()
+		d.settlers = append(d.settlers, t)
 		v.mu.Unlock()
-		stop := t.Done()
+		t.Waits()
+		stoppable := !t.Masked()
 		if Exploring {
 			// The settle is a wait the clock does not see: under the
 			// explored scheduler the caller gives the baton away until a
 			// member parks or leaves, or it is stopped.
-			Await(t, func() bool {
-				select {
-				case <-ch:
-					return true
-				case <-stop:
-					return true
-				default:
-					return false
-				}
-			})
+			Await(t, func() bool { return d.settles.Load() != g || stoppable && t.stopped.Load() })
 		}
-		select {
-		case <-ch:
-		case <-stop:
-			return Interrupted
+		for d.settles.Load() == g && !(stoppable && t.stopped.Load()) {
+			t.Suspend()
 		}
 		v.mu.Lock()
+		if d.settles.Load() == g {
+			// Stopped before a member parked or left: t is still a settler.
+			d.dropSettler(t)
+			v.mu.Unlock()
+			return Interrupted
+		}
+	}
+}
+
+// dropSettler takes t out of d's settlers. d.mu is held.
+func (d *domain) dropSettler(t *Task) {
+	for i, w := range d.settlers {
+		if w == t {
+			last := len(d.settlers) - 1
+			d.settlers[i] = d.settlers[last]
+			d.settlers[last] = nil
+			d.settlers = d.settlers[:last]
+			return
+		}
 	}
 }
 
@@ -275,6 +338,21 @@ func (v *Virtual) Pending() int {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	return len(v.timers)
+}
+
+// Asleep reports whether t, or a task started below it, sleeps on v: a
+// timer of a domain clock's Sleep holds its sleeper (FK4-g2).
+func (v *Virtual) Asleep(t *Task) bool {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	for _, tm := range v.timers {
+		for s := tm.task; s != nil; s = s.parent.Load() {
+			if s == t {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // AwaitTimers blocks until exactly n timers are armed.
@@ -294,7 +372,7 @@ func Sleep(t *Task, s Scheduler, d time.Duration) error {
 	if t.Stopped() {
 		return Interrupted
 	}
-	if v, ok := s.(*Virtual); ok && v.domain {
+	if v, ok := s.(*Virtual); ok && v.d != nil {
 		return v.sleep(t, Span(d))
 	}
 	if _, ok := s.(Live); ok {

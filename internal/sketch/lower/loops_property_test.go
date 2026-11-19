@@ -292,7 +292,7 @@ func TestLoopIdiomsAgree(t *testing.T) {
 		on, onErr, onCode := runExe(t, exes[fmt.Sprintf("loops%d", seed)])
 		off, offErr, offCode := runExe(t, exes[fmt.Sprintf("loops%dplain", seed)])
 		ended := (onCode != 0) == defects[seed] && strings.Count(on, "\n") == loopCases
-		if on != off || onErr != offErr || onCode != offCode || !ended {
+		if on != off || !sameReport(onErr, offErr) || onCode != offCode || !ended {
 			t.Errorf("seed %d: the idioms and the reference differ (or the defect case did not end the program)\nReplay: go test -run '^TestLoopIdiomsAgree$' ./internal/sketch/lower -args -loops.seed=%d\n%s\n--- idioms (exit %d)\n%s%s\n--- reference (exit %d)\n%s%s", seed, seed, sources[seed], onCode, on, onErr, offCode, off, offErr)
 		}
 	}

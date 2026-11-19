@@ -263,8 +263,8 @@ func (m *mModel) source() string {
 // When the signals can be listed, a law is proved exactly when the model
 // says it holds, and refuted otherwise; a whole search reports the
 // model's states, edges (Done is no edge) and depth, and its step calls
-// are the model's states times the signals plus, for each state, the run
-// the explorer replays to rebuild it. When the signals cannot be listed,
+// are the model's states times the signals: the search holds its
+// frontier, so it steps each edge once (MX-VTLAWS). When the signals cannot be listed,
 // a law runs over generated runs: a verdict never contradicts the model,
 // and a law whose target is the initial state is decided by the run's
 // first state. A run cut short by the step budget reports the law it was
@@ -273,7 +273,7 @@ func (m *mModel) source() string {
 //
 // Mutants it kills (testdata/mutants.json): machine-done-is-edge,
 // machine-initial-unchecked, machine-key-negative-zero,
-// machine-fuel-stop-complete, machine-replay-unmetered.
+// machine-fuel-stop-complete, vtlaws-search-replays.
 func TestMachineLawsAgreeWithModel(t *testing.T) {
 	n := 60
 	if testing.Short() {
@@ -335,7 +335,7 @@ func TestMachineLawsAgreeWithModel(t *testing.T) {
 						var steps int64
 						maxDepth := 0
 						for s, d := range depth {
-							steps += int64(m.signals + d)
+							steps += int64(m.signals)
 							maxDepth = max(maxDepth, d)
 							for e := 0; e < m.signals; e++ {
 								if _, ok := m.edge(s, e); ok {

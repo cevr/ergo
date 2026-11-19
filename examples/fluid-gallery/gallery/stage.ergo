@@ -1,0 +1,146 @@
+// Package gallery is the docs gallery of ergo.dev/fluid: a page per component, each page a set
+// of stages (specimens), each stage a bordered box with the docs' header (a Preview and Code
+// tab list and an Inspect switch) over the demo. The pages are drawn with the library's
+// looks, so the gallery's sheet is built the way a site's is.
+
+import ergo.dev/fluid/look
+import ergo.dev/fluid/token
+import ergo.dev/fluid/web
+import html
+
+// Kit is the classes of the gallery's own boxes, resolved once when the program starts.
+type Kit {
+	Html        string,
+	Shell       string,
+	Main        string,
+	Column      string,
+	Stage       string,
+	Header      string,
+	Tabs        string,
+	Tab         string,
+	TabOn       string,
+	TabText     string,
+	Sizer       string,
+	TabLabelOn  string,
+	TabLabel    string,
+	Inspect     string,
+	InspectBox  string,
+	Switch      string,
+	Knob        string,
+	InspectText string,
+	Body        string,
+	Demo        string,
+	DemoTall    string,
+	Tail        string,
+}
+
+// chrome is the gallery's own looks, in Kit's field order.
+func chrome() []look.Look {
+	[]look.Look{
+		look.Plain([]look.Decl{look.Gutter, look.Fill{V: token.Page}}),
+		look.Look{..look.Plain([]look.Decl{look.Display{V: look.Flex}}), Wide: []look.Above{look.Above{Min: 1024, Style: look.Of([]look.Decl{look.PadLeft{Px: 264}})}, look.Above{Min: 1280, Style: look.Of([]look.Decl{look.PadRight{Px: 272}})}}},
+		look.Plain([]look.Decl{look.Grow{V: 1}, look.Shrink{V: 1}, look.MinWidth{V: look.Px{N: 0}}, look.Fill{V: token.Page}}),
+		look.Look{..look.Plain(join([][]look.Decl{[]look.Decl{look.Display{V: look.Flex}, look.Direction{V: look.Down}, look.MaxWidth{V: look.Px{N: 680}}, look.MarLeft{V: look.Auto}, look.MarRight{V: look.Auto}, look.MarTop{V: look.Px{N: 48}}, look.PadTop{Px: 80}, look.PadBottom{Px: 80}, look.PadLeft{Px: 24}, look.PadRight{Px: 24}}, look.Gap(32)})), Wide: []look.Above{look.Above{Min: 640, Style: look.Of([]look.Decl{look.PadTop{Px: 112}, look.PadBottom{Px: 112}})}, look.Above{Min: 1024, Style: look.Of([]look.Decl{look.MarTop{V: look.Px{N: 0}}})}}},
+		look.Look{
+			..look.Plain(join([][]look.Decl{[]look.Decl{look.Display{V: look.Flex}, look.Direction{V: look.Down}, look.Isolate, look.Position{V: look.Relative}}, look.Edge(1, token.Edge), look.Round(look.Outer{R: token.Large})})),
+			Within: look.Of([]look.Decl{look.EdgeColor{V: token.EdgeFocus}}),
+		},
+		look.Plain(join([][]look.Decl{[]look.Decl{look.Display{V: look.Flex}, look.Items{V: look.Center}, look.MinHeight{V: look.Px{N: 52}}, look.Fill{V: token.Page}, look.EdgeBottom{Px: 1}, look.EdgeColor{V: token.Edge}, look.RoundTL{V: look.Outer{R: token.Large}}, look.RoundTR{V: look.Outer{R: token.Large}}, look.Position{V: look.Relative}, look.Z{V: 70}}, look.Pad(12, 12)})),
+		look.Plain(join([][]look.Decl{[]look.Decl{look.Display{V: look.Flex}, look.Items{V: look.Center}, look.MarTop{V: look.Px{N: -4}}, look.MarRight{V: look.Px{N: -4}}, look.MarBottom{V: look.Px{N: -4}}, look.MarLeft{V: look.Px{N: -4}}, look.MaxWidth{V: look.PctPlus{Pct: 100, Px: 8}}, look.OverflowX{V: look.Scroll}, look.OverflowY{V: look.Scroll}, look.NoScrollbar, look.Position{V: look.Relative}}, look.Pad(4, 4)})),
+		tab(false),
+		tab(true),
+		look.Plain([]look.Decl{look.Display{V: look.Grid}, look.FontPx{V: 13}, look.LinePx{V: 20}, look.Nowrap}),
+		look.Plain([]look.Decl{look.RowStart{V: 1}, look.ColStart{V: 1}, look.Trim, look.Axes{Opsz: 18, Wght: 550}, look.Invisible}),
+		look.Plain([]look.Decl{look.RowStart{V: 1}, look.ColStart{V: 1}, look.Trim, look.Axes{Opsz: 18, Wght: 550}}),
+		look.Plain([]look.Decl{look.RowStart{V: 1}, look.ColStart{V: 1}, look.Trim, look.Axes{Opsz: 14, Wght: 400}, look.Ink{V: token.Muted}}),
+		look.Plain(join([][]look.Decl{[]look.Decl{look.Display{V: look.Flex}, look.Items{V: look.Center}, look.MarLeft{V: look.Auto}}, look.Gap(4)})),
+		look.Plain(join([][]look.Decl{[]look.Decl{look.Display{V: look.Flex}, look.Items{V: look.Center}, look.Height{V: look.Px{N: 32}}, look.Position{V: look.Relative}, look.Z{V: 10}}, look.Gap(8), look.Pad(8, 8), look.Round(look.Outer{R: token.Small})})),
+		look.Plain(join([][]look.Decl{[]look.Decl{look.Display{V: look.Block}, look.Position{V: look.Relative}, look.Width{V: look.Px{N: 34}}, look.Height{V: look.Px{N: 20}}, look.Fill{V: token.Track}, look.Shrink{V: 0}, look.NoOutline}, look.Round(look.Outer{R: token.Round})})),
+		look.Plain(join([][]look.Decl{[]look.Decl{look.Display{V: look.Block}, look.Position{V: look.Absolute}, look.Top{Px: 0}, look.Left{Px: 0}, look.Width{V: look.Px{N: 16}}, look.Height{V: look.Px{N: 16}}, look.Fill{V: token.Knob}, look.Shadow{V: look.Surface{L: token.Raised}}, look.Translate{X: 2, Y: 2}}, look.Round(look.Outer{R: token.Round})})),
+		look.Plain([]look.Decl{look.FontPx{V: 13}, look.LinePx{V: 20}, look.Ink{V: token.Muted}, look.Trim}),
+		look.Plain(join([][]look.Decl{[]look.Decl{look.OverflowX{V: look.Hidden}, look.OverflowY{V: look.Hidden}}, []look.Decl{look.RoundBL{V: look.Outer{R: token.Large}}, look.RoundBR{V: look.Outer{R: token.Large}}}})),
+		demo(120),
+		demo(280),
+		look.Plain([]look.Decl{look.Height{V: look.Vh{N: 100}}}),
+	}
+}
+
+// tab is a tab of the stage's header: selected or not.
+func tab(on bool) look.Look {
+	let mut ds = join([][]look.Decl{[]look.Decl{look.Display{V: look.Flex}, look.Items{V: look.Center}, look.Height{V: look.Px{N: 36}}, look.PadLeft{Px: 12}, look.PadRight{Px: 12}, look.Position{V: look.Relative}, look.Z{V: 10}, look.NoOutline}, look.Gap(8), look.Round(look.Outer{R: token.Medium})})
+	if on {
+		ds = ds.Append(look.Fill{V: token.Selected})
+	}
+	look.Plain(ds)
+}
+
+// demo is a stage's demo area at least minimum pixels tall.
+func demo(minimum int) look.Look {
+	let l = look.Plain([]look.Decl{look.Display{V: look.Flex}, look.Items{V: look.Center}, look.Content{V: look.Center}, look.MinHeight{V: look.Px{N: minimum}}, look.PadTop{Px: 48}, look.PadBottom{Px: 48}, look.PadLeft{Px: 16}, look.PadRight{Px: 16}, look.Fill{V: token.Page}, look.Position{V: look.Relative}, look.NoOutline})
+	look.Look{..l, Wide: []look.Above{look.Above{Min: 640, Style: look.Of([]look.Decl{look.PadLeft{Px: 32}, look.PadRight{Px: 32}})}}}
+}
+
+// join is the declarations of parts, in order.
+func join(parts [][]look.Decl) []look.Decl {
+	let mut out = []look.Decl{}
+	for p in parts {
+		for d in p {
+			out = out.Append(d)
+		}
+	}
+	out
+}
+
+// kitOf resolves the gallery's looks to classes.
+func kitOf() Kit {
+	let ls = chrome()
+	let c = func(i int) string { web.Named(names, ls[i]) }
+	Kit{
+		Html:    c(0), Shell: c(1), Main: c(2), Column: c(3),
+		Stage:   c(4), Header: c(5), Tabs: c(6), Tab: c(7), TabOn: c(8), TabText: c(9), Sizer: c(10), TabLabelOn: c(11), TabLabel: c(12),
+		Inspect: c(13), InspectBox: c(14), Switch: c(15), Knob: c(16), InspectText: c(17),
+		Body:    c(18), Demo: c(19), DemoTall: c(20), Tail: c(21),
+	}
+}
+
+// kit is the gallery's classes, resolved once.
+let kit = kitOf()
+
+// node is an element: tag's builder with a class and other children.
+func classed(class string, kids []html.Child) []html.Child {
+	let mut out = []html.Child{html.Class(class)}
+	for k in kids {
+		out = out.Append(k)
+	}
+	out
+}
+
+// tabOf is one tab of the header.
+func tabOf(label string, on bool) html.Node {
+	html.Button(classed(if on { kit.TabOn } else { kit.Tab }, []html.Child{
+		html.Attribute("type", "button"),
+		html.Attribute("role", "tab"),
+		html.Aria("selected", if on { "true" } else { "false" }),
+		html.Span(classed(kit.TabText, []html.Child{
+			html.Span(classed(kit.Sizer, []html.Child{html.Aria("hidden", "true"), html.Text(label)})),
+			html.Span(classed(if on { kit.TabLabelOn } else { kit.TabLabel }, []html.Child{html.Text(label)})),
+		})),
+	}))
+}
+
+// Stage is specimen id: the header, then demo in the demo area (tall: the playground's).
+func Stage(id string, tall bool, demo html.Node) html.Node {
+	html.Div(classed(kit.Stage, []html.Child{
+		html.Data("ff-specimen", id),
+		html.Div(classed(kit.Header, []html.Child{
+			html.Div(classed(kit.Tabs, []html.Child{html.Attribute("role", "tablist"), tabOf("Preview", true), tabOf("Code", false)})),
+			html.Div(classed(kit.Inspect, []html.Child{
+				html.Label(classed(kit.InspectBox, []html.Child{
+					html.Button(classed(kit.Switch, []html.Child{html.Attribute("type", "button"), html.Attribute("role", "switch"), html.Aria("checked", "false"), html.Span(classed(kit.Knob, []html.Child{}))})),
+					html.Span(classed(kit.InspectText, []html.Child{html.Text("Inspect")})),
+				})),
+			})),
+		})),
+		html.Div(classed(kit.Body, []html.Child{html.Div(classed(if tall { kit.DemoTall } else { kit.Demo }, []html.Child{demo}))})),
+	}))
+}

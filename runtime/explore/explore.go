@@ -198,6 +198,16 @@ func Search[S, E any](g Graph[S, E], target func(S) bool, budget int) Result {
 	return search(g, target, budget, false)
 }
 
+// SearchHeld is Search that holds the states of its pending layers instead
+// of stepping each run again to rebuild them: each edge is stepped once.
+// It is for a caller whose states are already paid for, such as check
+// time, whose byte budget bounds every value its steps build; a test build
+// calls Search, whose layers keep node indexes only. The two agree
+// (TestSearchAgreesWithReference).
+func SearchHeld[S, E any](g Graph[S, E], target func(S) bool, budget int) Result {
+	return search(g, target, budget, true)
+}
+
 // retain selects the old whole-frontier implementation as a reference in
 // the seeded property. Production reconstructs each state from its run.
 func search[S, E any](g Graph[S, E], target func(S) bool, budget int, retain bool) Result {

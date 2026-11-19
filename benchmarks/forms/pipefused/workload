@@ -1,0 +1,7 @@
+# scripts/opcount: `irforms bench pipefused N` runs N units of the floor
+# pipefused; the cost of one unit is the slope between the two sizes
+# (IR-FORMS §2).
+unit op
+sizes 409600 2457600
+args bench pipefused {n}
+control benchmarks/forms/testdata/control

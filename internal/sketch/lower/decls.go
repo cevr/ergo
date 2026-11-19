@@ -91,6 +91,11 @@ type funcDecl struct {
 	// dropped is the Go name of the variant with no result once it is
 	// queued (forms.go, droppedName).
 	dropped string
+	// slot is the Go name of the slot variant once it is queued, and
+	// slotOK the callee's slot decision: 1 yes, 2 no (slot.go).
+	slot     string
+	slotOK   int8
+	emitSlot bool // emitBody writes the slot variant
 }
 
 // declareNames gives every package-level declaration of the user package its
@@ -850,20 +855,21 @@ func (l *lowerer) intrinsic(f *check.Func) func(fc *funcCtx, params []string) st
 	if bridge := l.hostBlockingIntrinsic(f); bridge != nil {
 		return bridge
 	}
-	// The functions on slices and Maps (D-D6): Append and Put call
-	// their runtime/v1 bodies; Get builds the program's Option, which the
-	// lowering emits in each program, so its body is written here.
+	// The operations of the slice and Map types (D-D6; check.CollOpOf,
+	// never a name): Append and Put call their runtime/v1 bodies; Get
+	// builds the program's Option, which the lowering emits in each
+	// program, so its body is written here.
 	if len(s.Params) < 2 || len(s.Params) > 3 || len(s.Results) != 1 {
 		return nil
 	}
 	switch {
-	case f.Name == "Put" && len(s.Params) == 3 && len(s.TParams) == 2 && isMapOf(s.Params[0].Type, s.TParams[0], s.TParams[1]) && s.Params[1].Type == s.TParams[0] && s.Params[2].Type == s.TParams[1] && isMapOf(s.Results[0], s.TParams[0], s.TParams[1]):
+	case check.CollOpOf(f) == check.CollPut && len(s.Params) == 3 && len(s.TParams) == 2 && isMapOf(s.Params[0].Type, s.TParams[0], s.TParams[1]) && s.Params[1].Type == s.TParams[0] && s.Params[2].Type == s.TParams[1] && isMapOf(s.Results[0], s.TParams[0], s.TParams[1]):
 		return func(_ *funcCtx, params []string) string {
 			return "\treturn " + l.rt() + ".Put(" + params[0] + ", " + params[1] + ", " + params[2] + ")\n"
 		}
 	case len(s.Params) != 2:
 		return nil
-	case f.Name == "Append" && len(s.TParams) == 1 && isSliceOf(s.Params[0].Type, s.TParams[0]) && s.Params[1].Type == s.TParams[0] && isSliceOf(s.Results[0], s.TParams[0]):
+	case check.CollOpOf(f) == check.CollAppend && len(s.TParams) == 1 && isSliceOf(s.Params[0].Type, s.TParams[0]) && s.Params[1].Type == s.TParams[0] && isSliceOf(s.Results[0], s.TParams[0]):
 		return func(_ *funcCtx, params []string) string {
 			return "\treturn " + l.rt() + ".Append(" + params[0] + ", " + params[1] + ")\n"
 		}
@@ -871,16 +877,28 @@ func (l *lowerer) intrinsic(f *check.Func) func(fc *funcCtx, params []string) st
 		return func(fc *funcCtx, params []string) string {
 			return fc.optionReturn(s.Results[0], "\t", params[0]+"["+params[1]+"]", fc.site)
 		}
-	case f.Name == "Take" && len(s.TParams) == 2 && isMapOf(s.Params[0].Type, s.TParams[0], s.TParams[1]) && s.Params[1].Type == s.TParams[0]:
+	case check.CollOpOf(f) == check.CollTake && len(s.TParams) == 2 && isMapOf(s.Params[0].Type, s.TParams[0], s.TParams[1]) && s.Params[1].Type == s.TParams[0]:
 		tuple, ok := s.Results[0].(*check.Tuple)
 		if !ok || len(tuple.Types) != 2 || !isPreludeType(tuple.Types[0], "Option") || !isMapOf(tuple.Types[1], s.TParams[0], s.TParams[1]) {
 			return nil
 		}
 		return func(fc *funcCtx, params []string) string {
 			v, found, rest, option := fc.temp("value"), fc.temp("found"), fc.temp("rest"), fc.temp("option")
-			call := fc.runtimeCall("MapTake", fc.ownBinding("MapTake", fc.site), "", "", params, "", nil, nil, fc.site)
+			var take string
+			if valueRule() {
+				// The value rule passes a copy of a Map that stays live
+				// (valueSource, PRIM-3), so the body takes k out of its
+				// argument in place: one read and one delete, where
+				// runtime/v1's MapTake, the reference, copies every entry.
+				take = "\t" + v + ", " + found + " := " + params[0] + "[" + params[1] + "]\n" +
+					"\tdelete(" + params[0] + ", " + params[1] + ")\n" +
+					"\t" + rest + " := " + params[0] + "\n"
+			} else {
+				call := fc.runtimeCall("MapTake", fc.ownBinding("MapTake", fc.site), "", "", params, "", nil, nil, fc.site)
+				take = "\t" + v + ", " + found + ", " + rest + " := " + call + "\n"
+			}
 			// optionNone and optionSome: the Option's Go form (flat or not).
-			return "\t" + v + ", " + found + ", " + rest + " := " + call + "\n" +
+			return take +
 				"\tvar " + option + " " + fc.goType(tuple.Types[0]) + " = " + fc.optionNone(tuple.Types[0], fc.site) + "\n" +
 				"\tif " + found + " { " + option + " = " + fc.optionSome(tuple.Types[0], v, fc.site) + " }\n" +
 				"\treturn " + fc.goType(tuple) + "{" + option + ", " + rest + "}\n"
@@ -991,8 +1009,11 @@ func (l *lowerer) emitFuncBody(fd *funcDecl) { l.emitBody(fd, false, nil, false)
 // known-callback variant (known.go): its callback parameters plain and no
 // entry poll; with sp, fd's copy for a known record (record.go); with
 // drop, fd's variant with no result (drop.go): each return evaluates its
-// value for its effects and returns nothing.
+// value for its effects and returns nothing. While fd.emitSlot is set it
+// writes fd's slot variant (slot.go): its result written through the slot
+// pointers, its tag returned.
 func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
+	slot := fd.emitSlot
 	l.bodies++
 	f := fd.fn
 	l.readsOf(f)
@@ -1017,6 +1038,9 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 	scope := newNamer(l.names)
 	site := syntax.Node(f.Decl.Name)
 	fc := newFuncCtx(l, scope, directives)
+	// A library body, lowered without //line directives, writes cover
+	// marks in a coverage build (GT7b).
+	fc.marks = !directives && l.coverMarks
 	fc.hot = l.hotFunc(f)
 	fc.owner = f.Name
 	if fd.method != nil {
@@ -1103,6 +1127,12 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 		}
 		bodyName, methodName = fd.dropped, fd.dropped
 	}
+	if slot {
+		if known || sp != nil || drop || owned || fd.extern != "" || fd.method != nil || fd.slot == "" {
+			ice(site, "the slot variant of %s is not a plain function", f.Name)
+		}
+		bodyName = fd.slot
+	}
 
 	if fd.method != nil && sp == nil {
 		tps := map[*check.TypeParam]string{}
@@ -1187,6 +1217,10 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 		}
 		args = append(args, paramNames[i])
 	}
+	if slot {
+		// The slot pointers, last (slot.go).
+		fc.frame.slot = fc.slotParams(f, &parts)
+	}
 	head.WriteString(strings.Join(parts, ", ") + ")")
 	wrapParams = strings.Join(parts, ", ") + ")"
 	if sp != nil && sp.prov != nil && params[sp.param] != nil {
@@ -1235,6 +1269,11 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 	case needsFrame && fd.fallible:
 		frameErr = scope.alloc("err")
 		results = fc.namedResults(fc.frame.result, frameErr)
+	case slot:
+		results = " uint8"
+		if fd.fallible {
+			results = " (uint8, error)"
+		}
 	default:
 		results = fc.resultList(fc.frame.result, fd.fallible)
 	}
@@ -1254,19 +1293,25 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 	fc.scalarSet = l.scalarVars(f)
 	if l.ir != nil {
 		// LowerIR and CensusIR only (ir.go): a body in the IR builder's
-		// subset leaves its Go declaration without a body.
+		// subset leaves its Go declaration without a body, or with the
+		// placeholder a generic one needs (ir_placeholder.go).
 		var gates []string
 		for _, g := range []struct {
 			on     bool
 			reason string
-		}{{known, "known-callback variant"}, {sp != nil, "copy for a known record"}, {drop, "variant with no result"}, {isClose(f), "checked Close (closeBody masks it)"}, {owned, "owned parameters"}, {needsFrame, "body that needs a frame"}, {len(own) > 0, "generic body"}} {
+		}{{irInstanceCopy(sp), "copy for an instance"}, {drop, "variant with no result"}, {slot, "slot variant (UNI2)"}, {needsFrame && !irFrame(fc), "body that needs a frame"}} {
 			if g.on {
 				gates = append(gates, g.reason)
 			}
 		}
 		if l.ir.body(fc, fd, params, gates, drop) {
 			fd.lowered, fd.readsEnv = true, fc.env != ""
-			b.WriteString(directive + head.String() + "\n\n")
+			// A generic declaration takes the placeholder body (ir_placeholder.go).
+			b.WriteString(directive + head.String() + irHeadEnd(fc.goGeneric) + "\n\n")
+
+			if owned && !l.ir.ownedWrapper(fc, fd, wrapHead, wrapParams, results, bodyName, typeArgs, args, recvName, site) { // the IR body is bodyName's (ir_own.go ownedBodyName); f's name copies into it
+				l.gen.WriteString(fc.ownedWrapper(f, wrapHead, wrapParams, results, bodyName, typeArgs, args, recvName, site))
+			}
 			return
 		}
 	}
@@ -1300,7 +1345,7 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 		fc.out.Reset()
 		fc.out.WriteString(body)
 	}
-	if !known && sp == nil && !drop {
+	if !known && sp == nil && !drop && !slot {
 		fd.lowered, fd.readsEnv = true, fc.env != "" && namesIdent(fc.out.String(), fc.env)
 	}
 	body := fc.out.String()
@@ -1311,9 +1356,10 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 		}
 	}
 	b.WriteString(directive + head.String() + " {\n" + body + "}\n\n")
-	if owned {
+	if owned && (l.ir == nil || !l.ir.ownedWrapper(fc, fd, wrapHead, wrapParams, results, bodyName, typeArgs, args, recvName, site)) {
 		// The wrapper stands in the generated part, before the first
-		// //line directive: a defect names no Ergo frame for it.
+		// //line directive: a defect names no Ergo frame for it. On the
+		// IR path it is IR beside a source body too (ir_own.go).
 		l.gen.WriteString(fc.ownedWrapper(f, wrapHead, wrapParams, results, bodyName, typeArgs, args, recvName, site))
 	}
 }
@@ -1518,7 +1564,7 @@ func (l *lowerer) packageVar(spec *syntax.VarSpec, id *syntax.Ident, x syntax.Ex
 	l.addInit(x, id, fc.out.String(), []string{name + " = " + val})
 }
 
-// constLet reports whether the package let v, of spec, lowers to a Go
+// constValueLet reports whether the package let v, of spec, lowers to a Go
 // constant (wf10 1BRC): a single name whose initializer the checker
 // evaluated to a constant, of type bool, string or an integer type. A Go
 // package variable is a load at every read, and Go folds no expression
@@ -1729,6 +1775,9 @@ func (l *lowerer) envType(b *strings.Builder) {
 	b.WriteString("\t" + envTask + " *" + l.taskPkg() + ".Task\n")
 	if l.holdsRows() {
 		b.WriteString("\t" + envWith + " *" + l.rt() + ".Scope\n") // inforce.go
+	}
+	if l.envFrom {
+		b.WriteString("\t" + envFrom + " *" + l.envName + "\n") // closures.go, envMemoText
 	}
 	for _, cap := range l.envOrder {
 		b.WriteString("\t" + cap.field + " " + cap.goType + "\n")

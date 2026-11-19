@@ -136,6 +136,18 @@ func decl(p *Printer, d dense.ID[syntax.Node]) {
 		p.ident(x.Name)
 		p.fieldList(the(x.Params), "(", ")")
 		p.space()
+		if x.Rewrite {
+			// The rewrite form (types.md, Laws 14; LF6a): its Body holds the
+			// two blocks, printed as written with == between them.
+			let stmts = p.ids(syntax.BlockStmtOf(p.P.Tree, the(x.Body)).List)
+			let n = len(stmts)
+			p.block(stmts[n-2], true)
+			p.space()
+			p.token(p.tp(x.Eq), "==")
+			p.space()
+			p.block(stmts[n-1], true)
+			return
+		}
 		p.block(the(x.Body), true)
 	}
 }

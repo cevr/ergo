@@ -1,0 +1,178 @@
+// The reader of TZif, the IANA's binary form of a zone (RFC 8536), in
+// Ergo. It refuses what Go's time.LoadLocationFromTZData refuses and reads
+// what it reads: the version 2 and 3 data when there is some, and the
+// footer's TZ string, so the zones it builds agree with Go's at every
+// instant (TestStdTzMatchesGo, over every zone of tz/iana).
+
+import strings
+
+// BadData is the failure of FromTZif: data is not a TZif zone. Reason says
+// where it breaks.
+type BadData { Name string, Reason string }
+
+// FromTZif is the zone named name that the TZif bytes data hold. Std reads
+// zones from its own copy of the IANA database (tz/iana) this way, and a
+// program can read its own. Leap second records are skipped, as Go skips
+// them: an instant is POSIX time.
+func FromTZif(name string, data string) Zone fails BadData {
+	if len(data) < 44 || strings.Slice(data, 0, 4) != "TZif" {
+		return BadData{Name: name, Reason: "no TZif header"}
+	}
+	let version = data[4]
+	if version != 0 && version != '2' && version != '3' {
+		return BadData{Name: name, Reason: "unknown version"}
+	}
+	let mut n = counts(data, 20)
+	let mut p = int64(44)
+	let mut size = int64(4)
+	if version != 0 {
+		p = p + blockSize(n, 4) + 20
+		if p + 24 > int64(len(data)) {
+			return BadData{Name: name, Reason: "truncated"}
+		}
+		n = counts(data, int(p))
+		p = p + 24
+		size = 8
+	}
+	if p + blockSize(n, size) > int64(len(data)) {
+		return BadData{Name: name, Reason: "truncated"}
+	}
+	let times = int(p)
+	let indices = times + int(n[3] * size)
+	let types = indices + int(n[3])
+	let names = types + int(n[4] * 6)
+	let end = int(p + blockSize(n, size))
+	if n[4] == 0 {
+		return BadData{Name: name, Reason: "no offsets"}
+	}
+	let mut kinds = []Offset{}
+	for i in 0..int(n[4]) {
+		let at = types + i * 6
+		let b = int(data[at + 5])
+		if b >= int(n[5]) {
+			return BadData{Name: name, Reason: "an abbreviation outside the table"}
+		}
+		let mut stop = names + b
+		for stop < names + int(n[5]) && data[stop] != 0 {
+			stop += 1
+		}
+		kinds = kinds.Append(Offset{Seconds: int(int32(u32(data, at))), DST: data[at + 4] != 0, Abbreviation: strings.Slice(data, names + b, stop)})
+	}
+	let mut at = []int64{}
+	let mut kind = []int{}
+	for i in 0..int(n[3]) {
+		let k = int(data[indices + i])
+		if k >= len(kinds) {
+			return BadData{Name: name, Reason: "a change to an offset outside the table"}
+		}
+		let t = if size == 4 { int64(int32(u32(data, times + i * 4))) } else { u64(data, times + i * 8) }
+		at = at.Append(t)
+		kind = kind.Append(k)
+	}
+	let rest = strings.Slice(data, end, len(data))
+	let footer = if len(rest) > 2 && rest[0] == '\n' && rest[len(rest) - 1] == '\n' { strings.Slice(rest, 1, len(rest) - 1) } else { "" }
+	build(name, at, kind, kinds, parseRule(footer))
+}
+
+// FromTZifRefusesGarbage: a zone's bytes with its magic changed, or cut
+// inside the header, are BadData with the name; the bytes themselves read
+// back as the zone.
+law FromTZifRefusesGarbage(i int64, k int64) {
+	let names = ianaNames()
+	let name = names[int(within(i, 0, int64(len(names) - 1)))]
+	let data = ianaZone(name)
+	let cut = strings.Slice(data, 0, int(within(k, 0, 43)))
+	let bad = "Tzif" + strings.Slice(data, 4, len(data))
+	let _ = FromTZif(name, data) catch {
+	case BadData:
+		return false
+	}
+	let _ = FromTZif(name, cut) catch {
+	case BadData as e:
+		let _ = FromTZif(name, bad) catch {
+		case BadData as f:
+			return e.Name == name && f.Name == name
+		}
+		return false
+	}
+	false
+}
+
+// build is the zone of a change table and a rule. The offset before the
+// first change is chosen as Go's lookupFirstZone chooses it: the first
+// offset when no change is to it, else the standard offset before the
+// first change's when that is daylight saving time, else the first
+// standard offset, else the first.
+func build(name string, at []int64, kind []int, kinds []Offset, r rule) Zone {
+	let mut used = false
+	for k in kind {
+		if k == 0 {
+			used = true
+		}
+	}
+	let mut first = 0
+	if used {
+		let mut found = false
+		if len(kind) > 0 && kinds[kind[0]].DST {
+			let mut i = kind[0] - 1
+			for i >= 0 && !found {
+				if !kinds[i].DST {
+					first = i
+					found = true
+				}
+				i -= 1
+			}
+		}
+		let mut j = 0
+		for j < len(kinds) && !found {
+			if !kinds[j].DST {
+				first = j
+				found = true
+			}
+			j += 1
+		}
+	}
+	let mut least = int64(kinds[0].Seconds)
+	let mut most = least
+	let mut all = kinds
+	match r {
+	case seasonal as s:
+		all = all.Append(s.Std).Append(s.Dst)
+	case always as a:
+		all = all.Append(a.Offset)
+	case noRule:
+	}
+	for o in all {
+		if int64(o.Seconds) < least {
+			least = int64(o.Seconds)
+		}
+		if int64(o.Seconds) > most {
+			most = int64(o.Seconds)
+		}
+	}
+	Zone{name: name, at: at, kind: kind, kinds: kinds, first: first, rule: r, least: least, most: most}
+}
+
+// counts is the six counts of the TZif header whose counts start at i:
+// isutcnt, isstdcnt, leapcnt, timecnt, typecnt, charcnt.
+func counts(data string, i int) []int64 {
+	let mut out = []int64{}
+	for k in 0..6 {
+		out = out.Append(u32(data, i + k * 4))
+	}
+	out
+}
+
+// blockSize is the bytes of a TZif data block with the counts n and
+// times of size bytes.
+func blockSize(n []int64, size int64) int64 {
+	n[3] * size + n[3] + n[4] * 6 + n[5] + n[2] * (size + 4) + n[1] + n[0]
+}
+
+// u32 is the big-endian unsigned 32-bit number at data[i].
+func u32(data string, i int) int64 {
+	int64(data[i]) << 24 | int64(data[i + 1]) << 16 | int64(data[i + 2]) << 8 | int64(data[i + 3])
+}
+
+// u64 is the big-endian 64-bit number at data[i], as an int64.
+func u64(data string, i int) int64 { u32(data, i) << 32 | u32(data, i + 4) }

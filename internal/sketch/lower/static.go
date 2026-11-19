@@ -76,6 +76,9 @@ func (l *lowerer) staticPlan(params []*check.Var, body []syntax.Stmt) bool {
 		if d.Glue() || d.Close == nil {
 			ok = false
 		}
+		if v, isVar := key.(*check.Var); isVar && l.writtenInPlace(v) {
+			ok = false // a slot is a copy; the list form releases the local
+		}
 		keys[key] = true
 	}
 	for _, v := range params {

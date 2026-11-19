@@ -1,0 +1,69 @@
+import fs
+
+// Confined is a file system confined to one folder, a fresh one for each
+// case (TestAmbient; docs/spec/rows.md, Test's ambient): what it writes stays
+// in it, and it starts empty. Its laws state the confinement of
+// fs.NewTestHost; they run under any context that binds Confined, which
+// only NewFolder provides.
+type Confined {
+	// Folder is the absolute path of the folder.
+	Folder() string,
+	ReadFile(path string) string fails fs.NotFound | fs.Denied | fs.Failed,
+	ReadDir(path string) []string fails fs.NotFound | fs.Denied | fs.Failed,
+	WriteFile(path string, text string) fails fs.NotFound | fs.Denied | fs.Failed,
+
+	// OutsideIsDenied: a write to a path out of the folder, relative or
+	// absolute, is Denied and writes nothing.
+	law OutsideIsDenied(name string) {
+		WriteFile("../"+name, "probe") catch {
+		case fs.Denied:
+			WriteFile(Folder()+"/../"+name, "probe") catch {
+			case fs.Denied:
+				return true
+			case fs.NotFound, fs.Failed:
+				return false
+			}
+			return false
+		case fs.NotFound, fs.Failed:
+			return false
+		}
+		false
+	},
+
+	// InsideIsWritten: a write to a path in the folder, absolute or
+	// relative, is read back by the other spelling.
+	law InsideIsWritten(text string) {
+		try WriteFile(Folder()+"/inside", text)
+		try ReadFile("inside") == text
+	},
+
+	// EachCaseStartsEmpty: the folder holds nothing when a case starts, so
+	// no case sees the files of another. Each case leaves a file behind,
+	// which the next case does not see.
+	law EachCaseStartsEmpty(text string) {
+		let names = try ReadDir(".")
+		try WriteFile("left-by-a-case", text)
+		len(names) == 0
+	},
+}
+
+// Folder is the file system fs.NewTestHost gives, with its folder, as a
+// Confined. Its fields give this package the construction authority, so
+// only NewFolder makes one, and its files are never the host's own,
+// unconfined.
+type Folder { files fs.Files, writes fs.Writes, root string } implements Confined
+
+// NewFolder is the Confined of the case's folder: the Host fs.NewTestHost
+// gives, in the same folder. It needs the test's ambient, as that does.
+func NewFolder() Folder needs TestAmbient {
+	let host = fs.NewTestHost()
+	Folder{files: host, writes: host, root: TestFolder()}
+}
+
+func Folder(f Folder) string { f.root }
+
+func ReadFile(f Folder, path string) string fails fs.NotFound | fs.Denied | fs.Failed { try f.files.ReadFile(path) }
+
+func ReadDir(f Folder, path string) []string fails fs.NotFound | fs.Denied | fs.Failed { try f.files.ReadDir(path) }
+
+func WriteFile(f Folder, path string, text string) fails fs.NotFound | fs.Denied | fs.Failed { try f.writes.WriteFile(path, text) }

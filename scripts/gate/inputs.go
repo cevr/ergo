@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -317,8 +318,9 @@ func exportCommit(source, head, dir string) error {
 // offline to build from a go.sum-pinned cache, and writes its own .ziphash
 // into the run's cache. A file the host lacks is left out (a build that
 // needs it fails: GOPROXY is off). A mismatch, a go.mod that requires a
-// module with no go.sum beside it, or a go.work anywhere in the commit (the
-// steps run with GOWORK=off) fails closed. It returns the number of files
+// module no local directory replaces with no go.sum beside it
+// (unverifiedRequire), or a go.work anywhere in the commit (the steps run
+// with GOWORK=off) fails closed. It returns the number of files
 // written.
 func seedModules(source, head, hostModCache, dest string) (int, error) {
 	listing, err := hostGit("/", "--git-dir="+source, "ls-tree", "-r", "-z", "--name-only", head)
@@ -339,8 +341,8 @@ func seedModules(source, head, hostModCache, dest string) (int, error) {
 			if err != nil {
 				return seeded, err
 			}
-			if requiresModules(content) && !slices.Contains(files, path.Join(path.Dir(name), "go.sum")) {
-				return seeded, fmt.Errorf("%s requires modules and has no go.sum beside it: the merge tier verifies every module against go.sum", name)
+			if module, ok := unverifiedRequire(content); ok && !slices.Contains(files, path.Join(path.Dir(name), "go.sum")) {
+				return seeded, fmt.Errorf("%s requires modules and has no go.sum beside it (%s): the merge tier verifies every module against go.sum", name, module)
 			}
 		case "go.sum":
 			content, err := read(name)
@@ -357,14 +359,73 @@ func seedModules(source, head, hostModCache, dest string) (int, error) {
 	return seeded, nil
 }
 
-// requiresModules reports whether a go.mod has a require directive.
-func requiresModules(goMod []byte) bool {
+// unverifiedRequire is the first module a go.mod requires that go.sum
+// must pin: one that no replace with a local directory covers. Go keeps no
+// go.sum line for a directory replacement (its files are the commit's
+// own), as Gleam, ReScript and Elixir lock no path dependency; a
+// replacement by another module is still a download (I19 verify r3 M1:
+// examples/catalog and examples/pipeline).
+func unverifiedRequire(goMod []byte) (string, bool) {
+	var required []string
+	local := map[string]bool{}
+	block := ""
 	for line := range strings.SplitSeq(string(goMod), "\n") {
-		if fields := strings.Fields(line); len(fields) > 0 && (fields[0] == "require" || strings.HasPrefix(fields[0], "require(")) {
-			return true
+		line, _, _ = strings.Cut(line, "//")
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		verb := block
+		switch {
+		case block != "" && fields[0] == ")":
+			block = ""
+			continue
+		case block == "" && (fields[0] == "require" || fields[0] == "replace"):
+			verb, fields = fields[0], fields[1:]
+			if len(fields) > 0 && fields[0] == "(" {
+				block = verb
+				continue
+			}
+		case block == "":
+			continue
+		}
+		if len(fields) == 0 {
+			continue
+		}
+		module := unquoteModule(fields[0])
+		switch verb {
+		case "require":
+			required = append(required, module)
+		case "replace":
+			if _, target, ok := strings.Cut(strings.Join(fields, " "), "=>"); ok {
+				if to := strings.Fields(target); len(to) == 1 && isDirectoryPath(unquoteModule(to[0])) {
+					local[module] = true
+				}
+			}
 		}
 	}
-	return false
+	for _, module := range required {
+		if !local[module] {
+			return module, true
+		}
+	}
+	return "", false
+}
+
+// unquoteModule is a go.mod token without its quotes.
+func unquoteModule(token string) string {
+	if unquoted, err := strconv.Unquote(token); err == nil {
+		return unquoted
+	}
+	return token
+}
+
+// isDirectoryPath reports whether a replace target is a file system path,
+// as Go's modfile reads it: absolute, or starting with ./ or ../ (or .\
+// and ..\), or . or .. alone.
+func isDirectoryPath(p string) bool {
+	return p == "." || p == ".." || filepath.IsAbs(p) || strings.HasPrefix(p, "/") ||
+		strings.HasPrefix(p, "./") || strings.HasPrefix(p, "../") || strings.HasPrefix(p, ".\\") || strings.HasPrefix(p, "..\\")
 }
 
 func seedGoSum(name string, content []byte, hostModCache, dest string) (int, error) {

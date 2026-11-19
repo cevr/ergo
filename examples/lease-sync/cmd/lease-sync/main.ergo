@@ -1,0 +1,201 @@
+// lease-sync plays a script of two users, a and b, who share a pool of
+// two named leases through a sync replica each, and one authority. A user
+// presses take or give; the press shows at once; the script decides when
+// the network carries it: push sends a user's pending commands, pull
+// reads the log from the user's cursor, offline and online cut the link,
+// dropcache forgets the cache. Each line prints what that user's screen
+// would show. This binary is the only place that chooses the provider:
+// the authority runs in the same process (replica/memory).
+
+import lease-sync/lease
+import lease-sync/replica
+import lease-sync/replica/memory
+import io
+import os
+import strings
+import time
+
+type Client = replica.State[lease.Pool, lease.Cmd, lease.Refusal]
+type Sig = replica.Signal[lease.Pool, lease.Cmd, lease.Event, lease.Refusal]
+
+let source = replica.Source[lease.Pool, lease.Cmd, lease.Event, lease.Refusal]{Initial: lease.Empty(2), Decide: lease.Decide, Evolve: lease.Evolve, Schema: "lease/1"}
+
+let at = time.Unix(0, 0)
+
+// User is one user's replica and whether its link is up.
+type User { State Client, Up bool }
+
+func step(st Client, sig Sig) Client {
+	match replica.Step(source, st, sig) {
+	case Stay[Client] as s:
+		s.Next
+	case _:
+		st
+	}
+}
+
+func user(id string) User {
+	User{State: step(replica.Fresh[lease.Pool, lease.Cmd, lease.Refusal](lease.Empty(2)), replica.Hello{ID: replica.ClientID(id), By: id, At: at}), Up: true}
+}
+
+func pool(p lease.Pool) string {
+	let mut parts = []string{}
+	for h in p.Held {
+		parts = parts.Append("\(h.Name):\(h.By)")
+	}
+	"[\(strings.Join(parts, " "))]"
+}
+
+func command(c lease.Cmd) string {
+	match c {
+	case lease.Take as t:
+		"take \(t.Name)"
+	case lease.Give as g:
+		"give \(g.Name)"
+	}
+}
+
+func reason(r lease.Reason) string {
+	match r {
+	case lease.Exhausted as e:
+		"all \(e.Cap) leases are held"
+	case lease.InUse as u:
+		"\(u.Name) is held by \(u.By)"
+	case lease.NotHeld as n:
+		"\(n.Name) is not yours"
+	}
+}
+
+func conn(c replica.Conn) string {
+	match c {
+	case replica.Connecting:
+		"connecting"
+	case replica.Live:
+		"live"
+	case replica.Offline:
+		"offline"
+	case replica.NeedsAuth:
+		"needs sign-in"
+	case replica.Broken as b:
+		"broken: \(b.Why)"
+	}
+}
+
+// screen is what a user's screen shows.
+func screen(name string, u User) []string {
+	let st = u.State
+	let mut out = []string{}
+	let view = match st.Status {
+	case replica.Loading:
+		"loading"
+	case replica.Ready[lease.Pool] as r:
+		pool(r.View)
+	}
+	out = out.Append("\(name) \(conn(st.Conn)): \(view)")
+	for m in st.Pending {
+		out = out.Append("  pending \(command(m.Command))")
+	}
+	for r in st.Refused {
+		out = out.Append("  refused \(command(r.Envelope.Command)): \(reason(r.Why.Reason))")
+	}
+	out
+}
+
+// BadLine is a script line that is not a step.
+type BadLine { Line int, Why string }
+
+// play runs the script against the authority auth.
+func play(lines []string, auth memory.Leases) []string fails BadLine {
+	let mut a = user("a")
+	let mut b = user("b")
+	let mut out = []string{}
+	for i, line in lines {
+		let f = strings.Fields(line)
+		if len(f) == 0 {
+			continue
+		}
+		if len(f) == 1 && f[0] == "state" {
+			out = out.Append("authority: \(pool(memory.Server(auth).State()))")
+			continue
+		}
+		let name = f[0]
+		if name != "a" && name != "b" || len(f) < 2 {
+			return BadLine{Line: i + 1, Why: "want a or b, then a step"}
+		}
+		let u = if name == "a" { a } else { b }
+		let next = try act(u, f, auth, i+1)
+		if name == "a" {
+			a = next
+		} else {
+			b = next
+		}
+		out = out.Append("> \(line)")
+		for l in screen(name, next) {
+			out = out.Append(l)
+		}
+	}
+	out
+}
+
+func act(u User, f []string, auth memory.Leases, line int) User fails BadLine {
+	let verb = f[1]
+	if (verb == "take" || verb == "give") && len(f) == 3 {
+		let cmd = if verb == "take" { lease.Take{Name: f[2]} } else { lease.Give{Name: f[2]} }
+		return User{..u, State: step(u.State, replica.Submit[lease.Cmd]{Cmd: cmd})}
+	}
+	if len(f) != 2 {
+		return BadLine{Line: line, Why: "unknown step"}
+	}
+	if verb == "push" {
+		if !u.Up {
+			return u
+		}
+		for m in u.State.Pending {
+			let _ = memory.Push(auth, m) catch {
+			case replica.Unavailable, replica.Unauthorized, replica.OutOfOrder, replica.IDConflict:
+				break
+			}
+		}
+		return u
+	}
+	if verb == "pull" {
+		if !u.Up {
+			return u
+		}
+		let frame = memory.Pull(auth, replica.Peek(u.State).ID, replica.Peek(u.State).Cursor) catch {
+		case replica.Unavailable, replica.Unauthorized:
+			return u
+		}
+		return User{..u, State: step(u.State, replica.Pulled[lease.Pool, lease.Event, lease.Refusal]{Frame: frame, At: at})}
+	}
+	if verb == "offline" || verb == "online" {
+		let c = if verb == "offline" { replica.Offline{Attempt: 1} } else { replica.Live }
+		return User{State: step(u.State, replica.Link{Conn: c, At: at}), Up: verb == "online"}
+	}
+	if verb == "dismiss" {
+		if len(u.State.Refused) == 0 {
+			return u
+		}
+		return User{..u, State: step(u.State, replica.Dismiss{ID: u.State.Refused[0].Envelope.ID})}
+	}
+	if verb == "dropcache" {
+		return User{..u, State: step(u.State, replica.DropCache)}
+	}
+	BadLine{Line: line, Why: "unknown step \(verb)"}
+}
+
+func main() fails os.Exit needs Console | Ambient {
+	let mut lines = []string{}
+	with context { io.Stdin: io.NewStdin() } {
+		for line in io.Stdin.Lines() {
+			lines = lines.Append(line)
+		}
+	}
+	let out = play(lines, memory.NewLeases()) catch {
+	case BadLine as b:
+		return os.Exit{Code: 2, Message: "lease-sync: line \(b.Line): \(b.Why)"}
+	}
+	for l in out {
+		Console.Println(l)
+	}
+}

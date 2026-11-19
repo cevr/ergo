@@ -6,7 +6,6 @@ import (
 	"slices"
 	"sort"
 
-	"ergo.local/prototype/internal/sketch/std"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -587,7 +586,14 @@ func (fp *footprinter) call(n *fpNode, x *syntax.CallExpr, c *Call) {
 		return
 	}
 	switch c.Kind {
-	case CallConversion, CallLen, CallPrelude, CallGoError, CallEmbed, CallPattern:
+	case CallGoError:
+		if c.Name == "go.New" {
+			// go.New makes a Go value with identity, which no pure frame
+			// may create; with no row (GBX1b) it is opaque as a
+			// memory-only call is.
+			n.opaque = true
+		}
+	case CallConversion, CallLen, CallPrelude, CallEmbed, CallPattern:
 		// These calls add no footprint of their own. CallPrelude is
 		// retained compatibility metadata, never produced by the checker.
 	case CallProviderOp:
@@ -872,7 +878,9 @@ func pureStd(f *Func) bool {
 // q35, reversing stdlib.md Pure bodies 3 for the reviewed list), and its
 // caller needs no environment or entry poll for it, as hand Go has none.
 func pureGo(f *Func) bool {
-	if f == nil || !f.Pkg.Host() || f.Sig == nil || !f.Sig.Uses.Empty() {
+	if f == nil || !f.Pkg.Host() || f.Sig == nil || !f.Sig.Uses.Empty() || GoEffect(f) {
+		// A memory-only call (GBX6) charges nothing and is still not
+		// pure: it reads or writes memory its arguments reach.
 		return false
 	}
 	for _, p := range f.Sig.Params {
@@ -896,13 +904,11 @@ func PureStd(f *Func) bool { return pureStd(f) }
 // and a test with SetPureCollectionsForTest.
 var pureCollections string
 
-// preludeCollection reports the prelude's Append, Get, Delete or Put.
+// preludeCollection reports the slice or Map operation Append, Get,
+// Delete or Put (collop.go).
 func preludeCollection(f *Func) bool {
-	if f.Pkg == nil || f.Pkg.Path != std.PreludePath {
-		return false
-	}
-	switch f.Name {
-	case "Append", "Get", "Delete", "Put":
+	switch CollOpOf(f) {
+	case CollAppend, CollGet, CollDelete, CollPut:
 		return true
 	}
 	return false

@@ -53,15 +53,16 @@ type View =
 	| ContextDecl{Doc int, Let int, Context int, Name dense.ID[Node], Provides dense.Opt[Node], Needs dense.Opt[Node], Body dense.ID[Node]}
 	| TestDecl{Doc int, Test int, Name dense.ID[Node], Params dense.Opt[Node], Body dense.ID[Node]}
 	| LawDecl{
-		Doc     int,
-		Law     int,
-		Name    dense.ID[Node],
-		Params  dense.Opt[Node],
-		Body    dense.Opt[Node],
-		Reach   dense.Opt[Node],
-		Rewrite bool,
-		When    int,
-		Eq      int,
+		Doc      int,
+		Law      int,
+		Name     dense.ID[Node],
+		Params   dense.Opt[Node],
+		Body     dense.Opt[Node],
+		Reach    dense.Opt[Node],
+		Rewrite  bool,
+		Equation bool,
+		When     int,
+		Eq       int,
 	}
 	| LawReach{Never int, Word int, Path bool, Lbrack int, Targets List, Rbrack int, Invariant bool, Pred dense.Opt[Node]}
 	| ExternSpec{Extern int, Go int, Target dense.ID[Node]}
@@ -412,7 +413,7 @@ func Put(t *Tree, v View) dense.ID[Node] {
 	case TestDecl as x:
 		mkTestDecl(t, m, wtok(x.Doc), x.Test, wid(x.Name), wopt(x.Params), wid(x.Body))
 	case LawDecl as x:
-		mkLawDecl(t, m, wtok(x.Doc), x.Law, wid(x.Name), wopt(x.Params), wopt(x.Body), wopt(x.Reach), x.Rewrite, wtok(x.When), wtok(x.Eq))
+		mkLawDecl(t, m, wtok(x.Doc), x.Law, wid(x.Name), wopt(x.Params), wopt(x.Body), wopt(x.Reach), if x.Equation { uint32(2) } else { wflag(x.Rewrite) }, wtok(x.When), wtok(x.Eq))
 	case LawReach as x:
 		pushList(t, x.Targets)
 		mkLawReach(t, m, wtok(x.Never), x.Word, x.Path, wtok(x.Lbrack), wtok(x.Rbrack), x.Invariant, wopt(x.Pred))
@@ -617,13 +618,13 @@ func mkTestDecl(t *Tree, m int, doc uint32, testW int, name uint32, params uint3
 	rec(t, KTestDecl, uint32(testW), m)
 }
 
-func mkLawDecl(t *Tree, m int, doc uint32, lawW int, name uint32, params uint32, body uint32, reach uint32, rewrite bool, when uint32, eq uint32) uint32 {
+func mkLawDecl(t *Tree, m int, doc uint32, lawW int, name uint32, params uint32, body uint32, reach uint32, rewrite uint32, when uint32, eq uint32) uint32 {
 	pushW(t, doc)
 	pushW(t, name)
 	pushW(t, params)
 	pushW(t, body)
 	pushW(t, reach)
-	pushW(t, wflag(rewrite))
+	pushW(t, rewrite)
 	pushW(t, when)
 	pushW(t, eq)
 	rec(t, KLawDecl, uint32(lawW), m)

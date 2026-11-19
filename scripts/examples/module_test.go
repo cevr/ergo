@@ -11,9 +11,10 @@ import (
 )
 
 // A program of packages (196b) is a folder with ergo.mod: the runner
-// formats every .ergo file of its packages, builds cmd/NAME (a folder), runs
-// one ergo test and one ergo check over every package folder (TEST-one),
-// reports each package's leg, and runs its cases.
+// formats every .ergo file of its packages, builds cmd/NAME (a folder) and
+// each other binary cmd/OTHER, runs one ergo test and one ergo check over
+// every package folder (TEST-one), reports each package's leg, and runs its
+// cases.
 func TestModuleProgram(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
@@ -22,6 +23,7 @@ func TestModuleProgram(t *testing.T) {
 	f.write(dir+"/README.md", "# walker\n")
 	f.write(dir+"/tags", "default\n")
 	f.write(dir+"/cmd/walker/main.ergo", "#!/bin/sh\necho hi\n")
+	f.write(dir+"/cmd/walkd/main.ergo", "#!/bin/sh\necho served\n")
 	f.write(dir+"/walk/game.ergo", "func f() {}\n")
 	f.write(dir+"/walk/tests.ergo", "test Walks {\n}\n")
 	f.write(dir+"/walk/deep/more.ergo", "test Deep {\n}\n")
@@ -39,7 +41,7 @@ func TestModuleProgram(t *testing.T) {
 	root := filepath.Join(f.root, dir)
 	calls := readCalls(t, f)
 	wantFmt := "fmt --check " + strings.Join([]string{
-		filepath.Join(root, "cmd/walker/main.ergo"), filepath.Join(root, "frame/frame.ergo"),
+		filepath.Join(root, "cmd/walkd/main.ergo"), filepath.Join(root, "cmd/walker/main.ergo"), filepath.Join(root, "frame/frame.ergo"),
 		filepath.Join(root, "walk/deep/more.ergo"), filepath.Join(root, "walk/game.ergo"), filepath.Join(root, "walk/tests.ergo"),
 	}, " ")
 	for _, want := range []string{wantFmt, "test " + filepath.Join(root, "..."), "check " + filepath.Join(root, "...")} {
@@ -47,15 +49,19 @@ func TestModuleProgram(t *testing.T) {
 			t.Errorf("no call %q in\n%q", want, calls)
 		}
 	}
-	build := false
 	for _, call := range calls {
 		if strings.HasPrefix(call, "check ") && call != "check "+filepath.Join(root, "...") {
 			t.Errorf("a package checked alone after one check of the module: %q", call)
 		}
-		build = build || strings.HasPrefix(call, "build "+filepath.Join(root, "cmd", "walker")+" -o ")
 	}
-	if !build {
-		t.Errorf("no build of cmd/walker in\n%q", calls)
+	for _, binary := range []string{"walker", "walkd"} {
+		build := false
+		for _, call := range calls {
+			build = build || strings.HasPrefix(call, "build "+filepath.Join(root, "cmd", binary)+" -o ")
+		}
+		if !build {
+			t.Errorf("no build of cmd/%s in\n%q", binary, calls)
+		}
 	}
 }
 
@@ -120,16 +126,21 @@ func TestModuleProgramJudgesEachPackage(t *testing.T) {
 // and arguments): the runner admits one that reads and names the line of
 // one that does not, as a layout error. internal/opcount's property covers
 // the kinds of bad line; this test covers that the runner reads the file.
-// Mutants: examples-workload-unexpected, examples-workload-unchecked.
+// A workload package holds the file as workload/workload, and one without
+// it is a layout error, so opcount counts every program with a workload.
+// Mutants: examples-workload-unexpected, examples-workload-unchecked,
+// examples-workload-package-unchecked.
 func TestModuleProgramWorkload(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
-		workload string
-		code     int
-		want     string
+		at, workload string
+		code         int
+		want         string
 	}{
-		{"unit op\nsizes 10 20\nargs bench {n}\n", 0, "ok walker/basic ("},
-		{"unit op\nsizes 20 10\nargs bench {n}\n", 2, "examples/walker: workload: line 2: sizes 20 10"},
+		{"workload", "unit op\nsizes 10 20\nargs bench {n}\n", 0, "ok walker/basic ("},
+		{"workload", "unit op\nsizes 20 10\nargs bench {n}\n", 2, "examples/walker: workload: line 2: sizes 20 10"},
+		{"workload/workload", "unit op\nsizes 10 20\nargs bench {n}\n", 0, "ok walker/basic ("},
+		{"workload/workload.ergo", "func Doc(n int) string { \"\" }\n", 2, "examples/walker: workload/workload: a workload package holds its workload file"},
 	} {
 		f := newFixture(t)
 		dir := "examples/walker"
@@ -138,7 +149,10 @@ func TestModuleProgramWorkload(t *testing.T) {
 		f.write(dir+"/tags", "default\n")
 		f.write(dir+"/cmd/walker/main.ergo", "#!/bin/sh\necho hi\n")
 		f.write(dir+"/cases/basic/expected.out", "hi\n")
-		f.write(dir+"/workload", c.workload)
+		f.write(dir+"/"+c.at, c.workload)
+		if c.at == "workload/workload" {
+			f.write(dir+"/workload/workload.ergo", "func Doc(n int) string { \"\" }\n")
+		}
 		code, out := f.run()
 		if code != c.code || !strings.Contains(out, c.want) {
 			t.Errorf("workload %q: exit %d, want %d and %q\n%s", c.workload, code, c.code, c.want, out)
@@ -251,9 +265,27 @@ func TestModuleProgramTestsItsLocalModule(t *testing.T) {
 	}
 }
 
+// A package folder named workload is a package, not opcount's workload
+// file: the bug was examples/vt's workload package read as a workload
+// file that is not a regular file (SL1, merging opcount with DT1).
+func TestModuleProgramWorkloadPackage(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	dir := "examples/walker"
+	f.write(dir+"/ergo.mod", "module walker\n")
+	f.write(dir+"/README.md", "# walker\n")
+	f.write(dir+"/tags", "default\n")
+	f.write(dir+"/cmd/walker/main.ergo", "#!/bin/sh\necho hi\n")
+	f.write(dir+"/cases/basic/expected.out", "hi\n")
+	f.write(dir+"/workload/load.ergo", "func f() {}\n")
+	if code, out := f.run(); code != 0 || !strings.Contains(out, "ok walker: test workload") {
+		t.Errorf("a workload package folder: exit %d\n%s", code, out)
+	}
+}
+
 // The layout of a program of packages: its binary is cmd/NAME/main.ergo,
-// every other folder of cmd is a binary too, and a package folder holds
-// .ergo files and package folders only.
+// cmd holds only binaries' folders, each with its main.ergo, and a package
+// folder holds .ergo files and package folders only.
 func TestModuleProgramLayout(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -261,7 +293,9 @@ func TestModuleProgramLayout(t *testing.T) {
 		want  string
 	}{
 		{map[string]string{"walk/a.ergo": "func f() {}\n"}, "a program of packages has no cmd/walker/main.ergo"},
-		{map[string]string{"cmd/other/main.ergo": "#!/bin/sh\n"}, "no cmd/walker/main.ergo, the program's binary"},
+		{map[string]string{"cmd/other/main.ergo": "#!/bin/sh\n"}, "cmd holds the program's binary, cmd/walker"},
+		{map[string]string{"cmd/walker/main.ergo": "#!/bin/sh\n", "cmd/other/lib.ergo": "#!/bin/sh\n"}, "no cmd/other/main.ergo"},
+		{map[string]string{"cmd/walker/main.ergo": "#!/bin/sh\n", "cmd/notes.txt": "x\n"}, "cmd/notes.txt is not a folder"},
 		{map[string]string{"cmd/walker/lib.ergo": "#!/bin/sh\n"}, "no cmd/walker/main.ergo"},
 		{map[string]string{"cmd/walker/main.ergo": "#!/bin/sh\n", "cmd/serve/lib.ergo": "#!/bin/sh\n"}, "no cmd/serve/main.ergo"},
 		{map[string]string{"cmd/walker/main.ergo": "#!/bin/sh\n", "walk/notes.txt": "x\n"}, "unexpected walk/notes.txt; a package folder holds .ergo files and package folders"},

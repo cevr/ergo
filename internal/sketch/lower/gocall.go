@@ -19,8 +19,9 @@ import (
 //     decision, goArgs): Go may write or keep what it is given;
 //     SetHostCopyAlwaysForTest copies every one, the reference lowering;
 //   - the last argument of a variadic Go function is spread (xs...);
-//   - a result that holds a Map or slice is copied unless the reviewed
-//     table freshGoResults says Go made it new (strings.Split), or another
+//   - a result that holds a Map or slice is copied unless a validated
+//     fresh row of internal/gofacts says Go made it new (strings.Split;
+//     goFresh), or another
 //     Go call takes it as an operand (w.Header().Set: goShares), when it
 //     is never an Ergo value and stays Go's, so a write reaches Go;
 //   - a nullable Go result (a pointer, an interface) whose Ergo type is
@@ -47,18 +48,6 @@ func SetHostCopyAlwaysForTest(always bool) func() {
 	old := hostCopyAlways
 	hostCopyAlways = always
 	return func() { hostCopyAlways = old }
-}
-
-// freshGoResults are the Go functions of the standard library whose slice
-// or Map result is new on every call, reviewed against their source at
-// go1.27: the result shares no memory with an argument or with state Go
-// keeps, so it needs no copy.
-var freshGoResults = map[string]bool{
-	"strings.Split": true, "strings.SplitN": true, "strings.SplitAfter": true, "strings.Fields": true,
-	"strings.FieldsFunc": true, "bytes.Split": false,
-	"regexp.Regexp.FindAllString": true, "regexp.Regexp.FindStringSubmatch": true,
-	"regexp.Regexp.FindAllStringSubmatch": true, "regexp.Regexp.Split": true,
-	"regexp.Regexp.SubexpNames": false,
 }
 
 // goImportCall reports a call of a Go function or method of import go;
@@ -138,7 +127,7 @@ func (fc *funcCtx) goSig(c *check.Call, site syntax.Node) (sig *check.Signature,
 		return f.Sig, "." + m, path + "." + typ + "." + m, check.GoVariadic(f)
 	}
 	path, goName := f.Decl.Extern.Split()
-	return f.Sig, fc.l.hostPkg(path, site) + "." + goName, path + "." + goName, check.GoVariadic(f)
+	return f.Sig, fc.hostTarget(site, f), path + "." + goName, check.GoVariadic(f)
 }
 
 // hostFuncRef is the Go function of import go that x names, in any
@@ -200,6 +189,7 @@ func (fc *funcCtx) goCall(x *syntax.CallExpr, c *check.Call) operand {
 	if c.Recv != nil {
 		list = append([]syntax.Expr{c.Recv}, list...)
 	}
+	mark := len(fc.goCompare)
 	vals := fc.callArgs(list, x)
 	if c.Recv != nil {
 		head, vals = vals[0]+head, vals[1:]
@@ -210,12 +200,28 @@ func (fc *funcCtx) goCall(x *syntax.CallExpr, c *check.Call) operand {
 	if variadic && len(vals) > 0 {
 		vals[len(vals)-1] += "..."
 	}
+	// A Go function that writes its slice argument in place (GBX2;
+	// check/gowrites.go): Go gets the operand the value rule gave (a copy,
+	// or the dead local itself), and the call's value is what Go wrote.
+	written := ""
+	if c.Kind == check.CallFunc && c.Recv == nil {
+		if i, ok := check.GoWrites(c.Func); ok && i < len(vals) {
+			written = fc.temp("w")
+			fc.line(written + " := " + vals[i])
+			vals[i] = written
+		}
+	}
 	ctx := c.Kind != check.CallOp && check.GoContext(c.Func)
 	if ctx {
 		vals = append([]string{fc.goContext(x)}, vals...)
 	}
 	text := head + "(" + strings.Join(vals, ", ") + ")"
 	defer fc.identify(x, c)()
+	if written != "" {
+		fc.line(text)
+		fc.afterGoContext(x, ctx)
+		return operand{val: written}
+	}
 	var goResults []check.Type
 	if len(sig.Results) == 1 {
 		if t, ok := sig.Results[0].(*check.Tuple); ok {
@@ -236,10 +242,12 @@ func (fc *funcCtx) goCall(x *syntax.CallExpr, c *check.Call) operand {
 	}
 	if len(lhs) == 0 {
 		fc.line(text)
+		fc.compareReads(mark)
 		fc.afterGoContext(x, ctx)
 		return operand{}
 	}
 	fc.line(strings.Join(lhs, ", ") + " := " + text)
+	fc.compareReads(mark)
 	fc.afterGoContext(x, ctx)
 	switch {
 	case e != "" && tunnels:
@@ -382,8 +390,8 @@ func (fc *funcCtx) goResult(x syntax.Node, t check.Type, r, e, name string) stri
 		fc.line("\tpanic(&" + fc.l.rt() + ".GoNilDefect{Func: " + strconv.Quote(name) + ", At: " + strconv.Quote(fc.l.siteText(x)) + "})")
 		fc.line("}")
 		return r
-	case fc.l.holdsValue(t) && !freshGoResults[name] && valueRule() && !fc.goShares(x):
-		return fc.cloneDeep(t, r, x) // Go may still write an entry (V8)
+	case fc.l.holdsValue(t) && !goFresh(x, name) && valueRule() && !fc.goShares(x):
+		return fc.reportCopy(x, fc.cloneDeep(t, r, x), whyGoResult) // Go may still write an entry (V8)
 	}
 	return r
 }
@@ -516,11 +524,32 @@ func (fc *funcCtx) goErrorOf(x syntax.Expr, e string) {
 // (v1.GoIs), and go.As[T](e), errors.As into a T (v1.GoAs), Some when Go
 // finds one (IG5; check/goerror.go).
 func (fc *funcCtx) goErrorCall(x *syntax.CallExpr, c *check.Call) operand {
+	if c.Name == "go.New" && len(x.Args) == 1 {
+		// go.New(v) is a new Go T holding a copy of v (GBX5b;
+		// check/gonew.go): &n of a fresh n, as hand Go writes &T{…}.
+		v := fc.assigned(x.Args[0])
+		n := fc.temp("n")
+		fc.line(n + " := " + v)
+		return operand{val: "&" + n}
+	}
+	if c.Name == "go.New" {
+		// go.New[T]() is Go's new(T) (GBX1; check/gonew.go).
+		return operand{val: "new(" + fc.goType(c.Type) + ")"}
+	}
+	if c.Name == "go.Zero" {
+		// go.Zero[T]() is Go's zero T (GBX5b).
+		return operand{val: "*new(" + fc.goType(c.Type) + ")"}
+	}
 	args := fc.operands(x.Args, true)
 	if c.Name == "go.Is" {
 		return operand{val: fc.l.rt() + ".GoIs(" + args[0] + ", " + args[1] + ")"}
 	}
 	v, ok := fc.temp("v"), fc.temp("ok")
+	if check.IsGoAny(fc.typeOf(x.Args[0])) {
+		// go.As[T] on a go.Any is Go's type assertion (GB2).
+		fc.line(v + ", " + ok + " := " + args[0] + ".(" + fc.goType(c.Type) + ")")
+		return operand{val: fc.someWhen(x, fc.typeOf(x), ok, v)}
+	}
 	fc.line(v + ", " + ok + " := " + fc.l.rt() + ".GoAs[" + fc.goType(c.Type) + "](" + args[0] + ")")
 	return operand{val: fc.someWhen(x, fc.typeOf(x), ok, v)}
 }

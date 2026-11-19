@@ -20,7 +20,7 @@ import (
 // generated cases (EV3 draws them; this row said skipped before). Mutants eval-bypassed (Evaluate reports without running
 // the obligations) and skip-as-pass are caught here and nowhere else.
 func TestEvaluateRefutesFalseExample(t *testing.T) {
-	src := "func twice(n int) int { n + n }\n\ntest ExampleRefuted {\n\tassert twice(2) == 5\n}\n\nlaw Refuted(n int) { twice(n) - n != n }\n"
+	src := "func Twice(n int) int { n + n }\n\ntest ExampleRefuted {\n\tassert Twice(2) == 5\n}\n\nlaw Refuted(n int) { Twice(n) - n != n }\n"
 	a := Check(src)
 	if len(a.Diagnostics) != 0 {
 		t.Fatalf("the program does not check: %v", a.Diagnostics)

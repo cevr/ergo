@@ -152,7 +152,7 @@ func hostScript(t *testing.T, seed int64, n int, rng *rand.Rand, reached map[str
 		MachineChild(Site("screen"), wt, sl, nil, h, entry,
 			func(*rt.Task, int, int) (int, error) { return decideIgnore, nil }, nil,
 			func(int) time.Duration { return ActorNoTimer() },
-			noWork[int], hasNoWork, runNoWork[int], childKind, childNext, func(*rt.Task, int, func(hsig)) {}, 1)
+			noWork[int], hasNoWork, runNoWork[int], nil, nil, childKind, childNext, func(*rt.Task, int, func(hsig)) {}, 1)
 	}
 	work := func(wt *rt.Task, s hst, _ func(hsig)) {
 		// A pause that is no runtime wait, so a runner that publishes

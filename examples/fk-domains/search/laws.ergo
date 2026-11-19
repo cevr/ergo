@@ -512,27 +512,42 @@ law ReachesShowing(ops []int) {
 }
 
 // BurstMakesOneSearch: keys inside the debounce start exactly the
-// requests of the last label: two, {0,4} and {4,56} (target P1).
-law BurstMakesOneSearch(keys int where 1 <= keys && keys <= 12, gap int where 0 <= gap && gap <= 149) {
-	let text = "foldkitfoldk"[0:keys]
-	let m = Settle(Type(Open("/", domains.Catalog, 15), text, gap))
-	len(m.Fetches) == 2 && m.Fetches[0].Label == text && m.Fetches[1].Label == text && Holds(m, []string{"NoWastedRequest"})
+// requests of the last label: two, {0,4} and {4,56} (target P1). The
+// machine reads a key count and a gap only against the debounce, so the
+// edges of each range stand for it: one key and two (the first key a
+// later one replaces) and twelve, a gap of 0 and 1 and 149 (the last
+// inside the 150 ms).
+test BurstMakesOneSearch {
+	for keys in []int{1, 2, 12} {
+		for gap in []int{0, 1, 149} {
+			let text = "foldkitfoldk"[0:keys]
+			let m = Settle(Type(Open("/", domains.Catalog, 15), text, gap))
+			assert len(m.Fetches) == 2 && m.Fetches[0].Label == text && m.Fetches[1].Label == text && Holds(m, []string{"NoWastedRequest"})
+		}
+	}
 }
 
 // SettledQueryMakesTwoRequests: a cold query asks for the top four, then
-// the rest of the first page, and shows them.
-law SettledQueryMakesTwoRequests(gap int where 150 <= gap && gap <= 60000) {
-	let m = Settle(Wait(Feed(Open("/", domains.Catalog, 15), Typed{Text: "acme"}), gap))
-	len(m.Fetches) == 2 && m.Fetches[0].Offset == 0 && m.Fetches[0].Limit == 4 && m.Fetches[1].Offset == 4 && m.Fetches[1].Limit == 56 && m.S.Checked == 60
+// the rest of the first page, and shows them, after any wait past the
+// debounce: its edge (150 and 151 ms) and a minute.
+test SettledQueryMakesTwoRequests {
+	for gap in []int{150, 151, 60000} {
+		let m = Settle(Wait(Feed(Open("/", domains.Catalog, 15), Typed{Text: "acme"}), gap))
+		assert len(m.Fetches) == 2 && m.Fetches[0].Offset == 0 && m.Fetches[0].Limit == 4 && m.Fetches[1].Offset == 4 && m.Fetches[1].Limit == 56 && m.S.Checked == 60
+	}
 }
 
 // WarmQueryMakesNone: a query typed again within the freshness makes no
-// request and shows what it showed.
-law WarmQueryMakesNone(away int where 0 <= away && away <= 58000) {
-	let first = Settle(Type(Open("/", domains.Catalog, 15), "acme", 200))
-	let other = Settle(Wait(Feed(first, Typed{Text: "beta"}), away))
-	let back = Settle(Feed(other, Typed{Text: "acme"}))
-	len(back.Fetches) == len(other.Fetches) && back.S.Checked == 60 && len(back.Broken) == 0
+// request and shows what it showed: at once, a millisecond later, and at
+// the last wait the freshness still covers (58 s away, with the typing
+// and the debounce inside the minute).
+test WarmQueryMakesNone {
+	for away in []int{0, 1, 58000} {
+		let first = Settle(Type(Open("/", domains.Catalog, 15), "acme", 200))
+		let other = Settle(Wait(Feed(first, Typed{Text: "beta"}), away))
+		let back = Settle(Feed(other, Typed{Text: "acme"}))
+		assert len(back.Fetches) == len(other.Fetches) && back.S.Checked == 60 && len(back.Broken) == 0
+	}
 }
 
 // RetryLoadsOnlyTheFailedRange: with the top four loaded and the rest of
