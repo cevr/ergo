@@ -1,0 +1,483 @@
+// Package a11y is the access tree and the library's rules over it (spec §6). Of gives the tree a
+// part.Node means; each host's projection must give the same tree (OfHTML reads the web
+// projector's markup back); Check finds the nodes that break a rule, by tables that are total
+// functions of part.Role (WAI-ARIA 1.2).
+//
+// The tree is what a reader is offered: hidden subtrees are gone, a generic box that states
+// nothing is spliced into its parent (readers skip it), adjacent text joins, and while a modal
+// layer is shown it is the whole tree.
+
+import ergo.dev/fluid/part
+import slices
+import strconv
+import strings
+
+// Tree is a node a reader is offered. Text is set on a text leaf (role Generic, nothing else).
+// Reach is how the node takes focus (read from the part tree; markup does not carry it); TabStop
+// and Focusable are what Tab and a click reach; Keyed is a node with a keyboard map; Native is a
+// control the browser runs (a button, an input).
+type Tree { Role part.Role, Name string, Key string, Text string, States []part.State, Rels []part.Rel, Reach part.Reach, TabStop bool, Focusable bool, Keyed bool, Native bool, Kids []Tree }
+
+// leaf is a text leaf.
+func leaf(s string) Tree {
+	Tree{Role: part.Generic, Name: "", Key: "", Text: s, States: []part.State{}, Rels: []part.Rel{}, Reach: part.Out, TabStop: false, Focusable: false, Keyed: false, Native: false, Kids: []Tree{}}
+}
+
+// box is an empty node of role r. (the rules' laws build trees from it)
+func box(r part.Role) Tree { Tree{..leaf(""), Role: r} }
+
+// Of is the access tree of a part tree. While a modal layer is shown, the branches beside the
+// ones that hold it are inert, as the web projector marks them.
+func Of[E](n part.Node[E]) Tree { Tree{..box(part.Generic), Kids: joined(nodes[E](n))} }
+
+// nodes is what one part node offers a reader: none, one tree, or (a spliced box) its kids.
+func nodes[E](n part.Node[E]) []Tree {
+	match n {
+	case part.Box as b:
+		if b.Sem.Hidden {
+			return []Tree{}
+		}
+		let kids = joined(all[E](b.Kids))
+		let t = Tree{..box(b.Sem.Role), Name: nameOf(b.Sem, kids), Key: b.Sem.Key, States: b.Sem.States, Rels: b.Sem.Rels, Reach: b.Sem.Reach, TabStop: tabStop(b.Sem.Reach, true), Focusable: focusable(b.Sem.Reach, true), Keyed: len(b.Keys) > 0, Kids: kids}
+		if spliced(t) {
+			return kids
+		}
+		[]Tree{t}
+	case part.Text as t:
+		if t.Value == "" { []Tree{} } else { []Tree{leaf(t.Value)} }
+	case part.Glyph, part.Host:
+		hostOf[E](n)
+	case part.Press as p:
+		if p.Sem.Hidden {
+			return []Tree{}
+		}
+		let on = !has(p.Sem.States, part.Disabled) && match p.On {
+		case Some:
+			true
+		case None:
+			false
+		}
+		let kids = joined(all[E](p.Kids))
+		let role = match p.Sem.Role {
+		case part.Generic:
+			part.Button
+		case _:
+			p.Sem.Role
+		}
+		let reach = match p.Sem.Reach {
+		case part.Roving:
+			p.Sem.Reach
+		case _:
+			part.Native
+		}
+		let mut states = p.Sem.States
+		if !on && !has(states, part.Disabled) {
+			states = states.Append(part.Disabled)
+		}
+		[]Tree{Tree{..box(role), Name: nameOf(part.Sem{..p.Sem, Role: role}, kids), Key: p.Sem.Key, States: states, Rels: p.Sem.Rels, Reach: reach, TabStop: tabStop(reach, on), Focusable: focusable(reach, on), Native: true, Kids: kids}}
+	case part.Field as f:
+		if f.Sem.Hidden {
+			return []Tree{}
+		}
+		let role = match f.Sem.Role {
+		case part.Generic:
+			part.TextBox
+		case _:
+			f.Sem.Role
+		}
+		[]Tree{Tree{..box(role), Name: f.Sem.Name, Key: f.Sem.Key, States: f.Sem.States, Rels: f.Sem.Rels, Reach: part.Native, TabStop: !has(f.Sem.States, part.Disabled), Focusable: !has(f.Sem.States, part.Disabled), Native: true}}
+	case part.Scale as s:
+		if s.Sem.Hidden {
+			return []Tree{}
+		}
+		let role = match s.Sem.Role {
+		case part.Generic:
+			part.Slider
+		case _:
+			s.Sem.Role
+		}
+		let states = withValue(s.Sem.States, s.Value, s.Min, s.Max)
+		[]Tree{Tree{..box(role), Name: s.Sem.Name, Key: s.Sem.Key, States: states, Rels: s.Sem.Rels, Reach: part.Native, TabStop: !has(states, part.Disabled), Focusable: !has(states, part.Disabled), Native: true}}
+	case part.Layer as l:
+		joined(all[E](l.Kids))
+	case part.Keyed as k:
+		nodes[E](k.Node)
+	case part.Live as l:
+		let role = if l.Assertive { part.Alert } else { part.Status }
+		[]Tree{Tree{..box(role), Kids: joined([]Tree{leaf(l.Text)})}}
+	}
+}
+
+// hostOf is a host leaf's tree, read from its markup; a glyph is hidden.
+func hostOf[E](n part.Node[E]) []Tree {
+	match n {
+	case part.Host as h:
+		OfHTML(h.Web).Kids
+	case _:
+		[]Tree{}
+	}
+}
+
+func all[E](kids []part.Node[E]) []Tree {
+	let shown = part.Shown[E](kids)
+	let mut out = []Tree{}
+	for i in 0..len(kids) {
+		if shown[i] {
+			for t in nodes[E](kids[i]) {
+				out = out.Append(t)
+			}
+		}
+	}
+	out
+}
+
+// withValue is states with the scale's value, unless they state one.
+func withValue(states []part.State, now float64, min float64, max float64) []part.State {
+	for s in states {
+		match s {
+		case part.Value:
+			return states
+		case _:
+		}
+	}
+	states.Append(part.Value{Now: now, Min: min, Max: max, Text: ""})
+}
+
+// spliced reports whether a node states nothing a reader is told, so its kids take its place.
+func spliced(t Tree) bool {
+	let generic = match t.Role {
+	case part.Generic:
+		true
+	case _:
+		false
+	}
+	generic && t.Text == "" && t.Name == "" && t.Key == "" && len(t.States) == 0 && len(t.Rels) == 0 && !t.TabStop && !t.Focusable && !t.Keyed
+}
+
+// joined is trees with adjacent text leaves joined and empty ones dropped.
+func joined(ts []Tree) []Tree {
+	let mut out = []Tree{}
+	for t in ts {
+		let text = isLeaf(t)
+		if text && t.Text == "" {
+			continue
+		}
+		if text && len(out) > 0 && isLeaf(out[len(out)-1]) {
+			let last = out[len(out)-1]
+			out = slices.Clone(out[0 : len(out)-1]).Append(leaf(last.Text + t.Text))
+			continue
+		}
+		out = out.Append(t)
+	}
+	out
+}
+
+func isLeaf(t Tree) bool { t.Text != "" || (spliced(t) && len(t.Kids) == 0) }
+
+// nameOf is a node's name: its stated name, else its text when its role is named by content.
+func nameOf(s part.Sem, kids []Tree) string {
+	if s.Name != "" {
+		return s.Name
+	}
+	if FromContent(s.Role) { textOf(kids) } else { "" }
+}
+
+// textOf is the text of trees.
+func textOf(ts []Tree) string {
+	let mut b = strings.NewBuilder()
+	for t in ts {
+		b.WriteString(t.Text)
+		b.WriteString(textOf(t.Kids))
+	}
+	b.String()
+}
+
+func tabStop(r part.Reach, enabled bool) bool {
+	match r {
+	case part.Native:
+		enabled
+	case part.Stop:
+		true
+	case part.Roving as v:
+		v.Here
+	case part.Out, part.Descendant:
+		false
+	}
+}
+
+func focusable(r part.Reach, enabled bool) bool {
+	match r {
+	case part.Native:
+		enabled
+	case part.Stop, part.Roving:
+		true
+	case part.Out, part.Descendant:
+		false
+	}
+}
+
+// has reports whether states holds s's kind.
+func has(states []part.State, s part.State) bool {
+	for x in states {
+		if StateName(x) == StateName(s) {
+			return true
+		}
+	}
+	false
+}
+
+// StateName is a state's ARIA attribute ("disabled" for Disabled).
+func StateName(s part.State) string {
+	match s {
+	case part.Disabled:
+		"disabled"
+	case part.Busy:
+		"busy"
+	case part.Invalid:
+		"invalid"
+	case part.Checked:
+		"checked"
+	case part.Selected:
+		"selected"
+	case part.Expanded:
+		"expanded"
+	case part.Pressed:
+		"pressed"
+	case part.Current:
+		"current"
+	case part.Modal:
+		"modal"
+	case part.MultiSelectable:
+		"multiselectable"
+	case part.Value:
+		"value"
+	}
+}
+
+// StateValue is a state's ARIA value ("true", "mixed", a number).
+func StateValue(s part.State) string {
+	match s {
+	case part.Disabled, part.Busy, part.Invalid, part.Modal, part.MultiSelectable:
+		"true"
+	case part.Checked as c:
+		match c.Value {
+		case part.Off:
+			"false"
+		case part.On:
+			"true"
+		case part.Mixed:
+			"mixed"
+		}
+	case part.Selected as x:
+		yes(x.Yes)
+	case part.Expanded as x:
+		yes(x.Yes)
+	case part.Pressed as x:
+		yes(x.Yes)
+	case part.Current as c:
+		c.Kind
+	case part.Value as v:
+		numeral(v.Now) + " " + numeral(v.Min) + " " + numeral(v.Max) + " " + v.Text
+	}
+}
+
+func yes(b bool) string { if b { "true" } else { "false" } }
+
+// numeral is a float as the markup prints it: the shortest decimal.
+func numeral(f float64) string { strconv.FormatFloat(f, 'g', -1) }
+
+// RoleName is a role's ARIA name.
+func RoleName(r part.Role) string {
+	match r {
+	case part.Generic:
+		"generic"
+	case part.Button:
+		"button"
+	case part.Link:
+		"link"
+	case part.Checkbox:
+		"checkbox"
+	case part.Radio:
+		"radio"
+	case part.RadioGroup:
+		"radiogroup"
+	case part.Switch:
+		"switch"
+	case part.Slider:
+		"slider"
+	case part.SpinButton:
+		"spinbutton"
+	case part.TextBox:
+		"textbox"
+	case part.SearchBox:
+		"searchbox"
+	case part.Tab:
+		"tab"
+	case part.TabList:
+		"tablist"
+	case part.TabPanel:
+		"tabpanel"
+	case part.Dialog:
+		"dialog"
+	case part.Menu:
+		"menu"
+	case part.MenuItem:
+		"menuitem"
+	case part.MenuItemCheckbox:
+		"menuitemcheckbox"
+	case part.ListBox:
+		"listbox"
+	case part.Choice:
+		"option"
+	case part.ComboBox:
+		"combobox"
+	case part.Grid:
+		"grid"
+	case part.Row:
+		"row"
+	case part.GridCell:
+		"gridcell"
+	case part.ColumnHeader:
+		"columnheader"
+	case part.RowHeader:
+		"rowheader"
+	case part.Table:
+		"table"
+	case part.Group:
+		"group"
+	case part.Region:
+		"region"
+	case part.Navigation:
+		"navigation"
+	case part.List:
+		"list"
+	case part.ListItem:
+		"listitem"
+	case part.Separator:
+		"separator"
+	case part.Tooltip:
+		"tooltip"
+	case part.Status:
+		"status"
+	case part.Alert:
+		"alert"
+	case part.Image:
+		"img"
+	case part.Toolbar:
+		"toolbar"
+	case part.Heading:
+		"heading"
+	}
+}
+
+// Roles is every role (a heading at each level), in RoleName's order: the domain the tables'
+// laws draw and the markup reader parses.
+func Roles() []part.Role {
+	let mut out = []part.Role{part.Generic, part.Button, part.Link, part.Checkbox, part.Radio, part.RadioGroup, part.Switch, part.Slider, part.SpinButton, part.TextBox, part.SearchBox, part.Tab, part.TabList, part.TabPanel, part.Dialog, part.Menu, part.MenuItem, part.MenuItemCheckbox, part.ListBox, part.Choice, part.ComboBox, part.Grid, part.Row, part.GridCell, part.ColumnHeader, part.RowHeader, part.Table, part.Group, part.Region, part.Navigation, part.List, part.ListItem, part.Separator, part.Tooltip, part.Status, part.Alert, part.Image, part.Toolbar}
+	for l in 1..7 {
+		out = out.Append(part.Heading{Level: l})
+	}
+	out
+}
+
+// RelName is a relation's ARIA attribute; RelValue its value.
+func RelName(r part.Rel) string {
+	match r {
+	case part.Controls:
+		"controls"
+	case part.LabelledBy:
+		"labelledby"
+	case part.DescribedBy:
+		"describedby"
+	case part.ActiveDescendant:
+		"activedescendant"
+	case part.HasPopup:
+		"haspopup"
+	}
+}
+
+func RelValue(r part.Rel) string {
+	match r {
+	case part.Controls as x:
+		x.Key
+	case part.LabelledBy as x:
+		x.Key
+	case part.DescribedBy as x:
+		x.Key
+	case part.ActiveDescendant as x:
+		x.Key
+	case part.HasPopup as x:
+		match x.Role {
+		case part.Menu, part.ListBox, part.Dialog, part.Grid:
+			RoleName(x.Role)
+		case _:
+			"true"
+		}
+	}
+}
+
+// relKey is the key a relation names; "" for one that names none.
+func relKey(r part.Rel) string {
+	match r {
+	case part.HasPopup:
+		""
+	case _:
+		RelValue(r)
+	}
+}
+
+// Print is a tree as text, one node a line, two spaces of indent a level: what two trees are
+// compared by (a host's tree equals Of's when their prints are equal) and what a failing law
+// prints. Reach is not printed: markup does not carry it.
+func Print(t Tree) string {
+	let mut b = strings.NewBuilder()
+	printTo(&b, t, 0)
+	b.String()
+}
+
+func printTo(b mut strings.Builder, t Tree, depth int) {
+	for _ in 0..depth {
+		b.WriteString("  ")
+	}
+	if t.Text != "" {
+		b.WriteString(strconv.Quote(t.Text))
+	} else {
+		b.WriteString(RoleName(t.Role))
+		match t.Role {
+		case part.Heading as h:
+			b.WriteString("\(h.Level)")
+		case _:
+		}
+		if t.Name != "" {
+			b.WriteString(" " + strconv.Quote(t.Name))
+		}
+		if t.Key != "" {
+			b.WriteString(" #" + t.Key)
+		}
+		let mut attrs = []string{}
+		for s in t.States {
+			attrs = attrs.Append(StateName(s) + "=" + StateValue(s))
+		}
+		for r in t.Rels {
+			attrs = attrs.Append(RelName(r) + "=" + RelValue(r))
+		}
+		for a in slices.Sort(attrs) {
+			b.WriteString(" " + a)
+		}
+		if t.TabStop {
+			b.WriteString(" tab")
+		} else if t.Focusable {
+			b.WriteString(" focus")
+		}
+		if t.Keyed {
+			b.WriteString(" keys")
+		}
+		if t.Native {
+			b.WriteString(" native")
+		}
+	}
+	b.WriteString("\n")
+	for k in t.Kids {
+		printTo(b, k, depth+1)
+	}
+}

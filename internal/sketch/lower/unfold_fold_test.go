@@ -40,6 +40,7 @@ func Int(t mut tape, n int64) { t.raw("i") }
 func Uint(t mut tape, n uint64) { t.raw("u") }
 func Float(t mut tape, f float64) { t.raw("f") }
 func String(t mut tape, s string) { t.raw(s) }
+func StringBytes(t mut tape, b []byte) { t.raw("s") }
 func BeginList(t mut tape, n int) { t.raw("[") }
 func EndList(t mut tape) { t.raw("]") }
 func BeginObject(t mut tape, n int) { t.raw("{") }

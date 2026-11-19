@@ -22,6 +22,14 @@ func (b *irBuilder) poll(site syntax.Node) *irStmt {
 // pre-statement, which earlier operands spill around (operands, inOrder in
 // ir_order.go).
 func (b *irBuilder) call(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr) {
+	if !stmt {
+		if e := b.fold(x); e != nil {
+			return nil, e
+		}
+		if pre, e := b.template(x); e != nil { // ir_template.go
+			return pre, e
+		}
+	}
 	if b.fallibleCall(x) != nil {
 		if b.tries == 0 {
 			irNo("untried fallible call")
@@ -34,8 +42,16 @@ func (b *irBuilder) call(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr) {
 		}
 		return pre, v
 	}
+	if b.asWrittenCall(x) {
+		// A call tree inside AsWritten is kept as written (ir_rewrite.go).
+		b.keep++
+		defer func() { b.keep-- }()
+	}
 	pre, e, effect := b.callParts(x, stmt)
 	b.markPure(x, e) // ir_merge.go
+	if e != nil {
+		b.callFacts(x, e, stmt) // ir_rewrite_pass.go: the rewrite passes read them
+	}
 	if e != nil && (e.K == "vcall" && !b.plainCallee(x) || b.dropsErr[e] && (!stmt || b.hasValue(x))) {
 		// A function value returns its (value, error) pair (ir_closure.go;
 		// a known callback's is plain, ir_kcb.go),
@@ -233,7 +249,7 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 			return pre, mark(&irExpr{K: "call", Pos: p, Name: known, T: targs, Args: irArgs}), !fd.pure
 		}
 		if fd.method != nil {
-			return pre, mark(&irExpr{K: "mcall", Pos: p, Name: b.ownedCallName(x, f, fd.name), X: irArgs[0], Args: irArgs[1:]}), !fd.pure
+			return pre, b.droppedCall(x, c, fd, b.inlineMark(x, c, fd, mark(&irExpr{K: "mcall", Pos: p, Name: b.ownedCallName(x, f, fd.name), X: irArgs[0], Args: irArgs[1:]}))), !fd.pure // ir_forms_inline.go, ir_forms_drop.go
 		}
 		// Append is Go's builtin append on the value rule's operands
 		// (FLIP F3): Go then sees a place appended back to itself.
@@ -246,14 +262,14 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 			// The copy for the known record: one instance (ir_known.go).
 			return pre, mark(&irExpr{K: "call", Pos: p, Name: sp, Args: irArgs}), !fd.pure
 		}
-		return pre, mark(&irExpr{K: "call", Pos: p, Name: b.ownedCallName(x, f, fd.name), T: b.typeArgs(c, x), Args: irArgs}), !fd.pure
+		return pre, b.droppedCall(x, c, fd, b.inlineMark(x, c, fd, mark(&irExpr{K: "call", Pos: p, Name: b.ownedCallName(x, f, fd.name), T: b.typeArgs(c, x), Args: irArgs}))), !fd.pure // ir_forms_inline.go, ir_forms_drop.go
 	case check.CallOp:
 		return b.opCall(x, c, p) // ir_pkg.go
 	case check.CallConversion:
 		return b.conversion(x, c, p) // ir_pkg.go
 	case check.CallEncode, check.CallDecode:
 		return b.codecCall(x, c, p) // ir_codec.go
-	case check.CallProviderOp:
+	case check.CallProviderOp, check.CallLawOp:
 		switch {
 		case b.env < 0 || c.Op == nil:
 			irNo("operation call form")
@@ -262,13 +278,16 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		}
 		// A test build calls a capability's operation as a program does
 		// (calls.go: only a law's own operation, CallLawOp, differs).
-		sel, ok := unparen(x.Fun).(*syntax.SelectorExpr)
-		if !ok {
-			irNo("operation call spelling")
-		}
-		named, ok := b.l.info.Types[sel.X].(*check.Named)
-		if !ok {
-			irNo("capability without a named type")
+		named := b.lawOpCap(c) // ir_assert.go: a law's bare operation call
+		if named == nil {
+			sel, ok := unparen(x.Fun).(*syntax.SelectorExpr)
+			if !ok {
+				irNo("operation call spelling")
+			}
+			named, ok = b.l.info.Types[sel.X].(*check.Named)
+			if !ok {
+				irNo("capability without a named type")
+			}
 		}
 		// The interruption point, before the operands (callText).
 		var pre []*irStmt

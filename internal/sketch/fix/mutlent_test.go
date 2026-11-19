@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
+	format "ergo.local/prototype/internal/hostsyntax"
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/fix"
-	"ergo.local/prototype/internal/sketch/format"
 )
 
 // TestMutDropsLent (MODES-4; SIMPLIFY U2, owner q169, q223) is a seeded

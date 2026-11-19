@@ -19,6 +19,7 @@
 
 import go math
 import strings
+import utf8
 
 // Item is CBOR being written: the prelude's Writer events. The private
 // operations are the parts of the events: raw appends bytes as they are,
@@ -120,6 +121,10 @@ func Float(t mut item, f float64) {
 }
 
 func String(t mut item, s string) { t.text(s) }
+
+// StringBytes writes the string whose bytes are b, as String does (the
+// prelude Writer's StringBytes, GX10).
+func StringBytes(t mut item, b []byte) { t.text(utf8.String(b)) }
 
 func Null(t mut item) { t.raw("\xf6") }
 

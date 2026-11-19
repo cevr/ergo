@@ -6,9 +6,8 @@
 
 import dense
 
-// The kinds of a token: the Go scanner's Token numbers
-// (internal/sketch/syntax/token.go), so the two scanners agree on the
-// number (ScanAgreesWithGo).
+// The kinds of a token: the Token numbers of the Go AST
+// (internal/sketch/syntax/token.go), which the decoder reads as they are.
 let Illegal = uint8(0)
 let EOF = uint8(1)
 let Comment = uint8(2)
@@ -124,12 +123,13 @@ type Tok {}
 // covers no byte.
 //
 // The columns are plain slices with room past the last token (at least two
-// words: the parser puts a failed scan's ILLEGAL and EOF there), indexed
+// words: a failed scan puts its ILLEGAL and EOF there), indexed
 // by the token's id; ids counts the tokens.
 type Toks {
 	ids   dense.Count[Tok],
-	kind  []uint8,
+	kind  []uint32,
 	start []uint32,
+	end   []uint32,
 }
 
 // NumToks is the number of tokens.
@@ -139,10 +139,14 @@ func NumToks(t Toks) int { dense.Total(t.ids) }
 func TokAt(t Toks, i int) dense.ID[Tok] { dense.IDAt(t.ids, i) }
 
 // Kind is the kind of token id.
-func Kind(t Toks, id dense.ID[Tok]) uint8 { t.kind[dense.Index(id)] }
+func Kind(t Toks, id dense.ID[Tok]) uint8 { uint8(t.kind[dense.Index(id)]) }
 
 // Start is the offset of token id's first byte.
 func Start(t Toks, id dense.ID[Tok]) int { int(t.start[dense.Index(id)]) }
+
+// TokEndOf is the offset after token id's last byte, as the scan stored it
+// (End, which scans the token again, gives the same: law EndsAreStored).
+func TokEndOf(t Toks, id dense.ID[Tok]) int { int(t.end[dense.Index(id)]) }
 
 // opLen is the length of an operator or punctuation kind: the three-byte
 // operators, the two-byte ones, else one byte.
@@ -157,8 +161,8 @@ func opLen(kind uint8) int {
 }
 
 // End is the end of the token of kind kind that starts at start in src:
-// the token scanned again (Zig's tokenizer). It is the Go scanner's end
-// for every token (ScanAgreesWithGo checks each one).
+// the token scanned again (Zig's tokenizer), the end the Go scanner
+// gave every token (law EndRescans).
 func End(src string, kind uint8, start int) int {
 	if kind == EOF {
 		return start
@@ -267,6 +271,18 @@ law StartsAdvance(src string) {
 // EndRescans: a token of a kind that depends on no context (an
 // identifier, a keyword, a number, an operator, a whole string or rune)
 // scans alone, from its start to its End, to itself and EOF.
+// EndsAreStored: the end the scan stores for each token is End's, the
+// token scanned again.
+law EndsAreStored(src string) {
+	let t = Scan(src).Toks
+	let mut ok = true
+	for i in 0..NumToks(t) {
+		let id = TokAt(t, i)
+		ok = ok && TokEndOf(t, id) == End(src, Kind(t, id), Start(t, id))
+	}
+	ok
+}
+
 law EndRescans(src string) {
 	let s = Scan(src)
 	let t = s.Toks

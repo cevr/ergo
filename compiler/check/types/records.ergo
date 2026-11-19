@@ -28,15 +28,15 @@ func Records(p syntax.Parsed, prelude bool) []Record {
 		match syntax.ViewOf(p.Tree, d) {
 		case syntax.TypeDecl as td:
 			let params = match dense.Unpack(td.TypeParams) {
-			case Some[dense.ID[syntax.Node]] as tp:
-				let (names, _) = bracketNames(p, tp.Value)
+			case Some{Value: tp}:
+				let (names, _) = bracketNames(p, tp)
 				names
 			case None:
 				[]string{}
 			}
 			match dense.Unpack(td.Spec) {
-			case Some[dense.ID[syntax.Node]] as sp:
-				match syntax.ViewOf(p.Tree, sp.Value) {
+			case Some{Value: sp}:
+				match syntax.ViewOf(p.Tree, sp) {
 				case syntax.StructType as st:
 					if prelude && nameText(p, td.Name) == "Never" && len(params) == 0 && fieldCount(p, st.Fields) == 0 {
 						continue
@@ -79,20 +79,20 @@ func Defined(p syntax.Parsed) []DefinedType {
 		match syntax.ViewOf(p.Tree, d) {
 		case syntax.TypeDecl as td:
 			let params = match dense.Unpack(td.TypeParams) {
-			case Some[dense.ID[syntax.Node]] as tp:
-				let (names, _) = bracketNames(p, tp.Value)
+			case Some{Value: tp}:
+				let (names, _) = bracketNames(p, tp)
 				names
 			case None:
 				[]string{}
 			}
 			match dense.Unpack(td.Spec) {
-			case Some[dense.ID[syntax.Node]] as sp:
-				match syntax.ViewOf(p.Tree, sp.Value) {
+			case Some{Value: sp}:
+				match syntax.ViewOf(p.Tree, sp) {
 				case syntax.StructType:
 				case syntax.InterfaceType:
 				case syntax.MachineType:
 				case _:
-					out = out.Append(DefinedType{Name: nameText(p, td.Name), Params: params, Base: sp.Value})
+					out = out.Append(DefinedType{Name: nameText(p, td.Name), Params: params, Base: sp})
 				}
 			case None:
 			}
@@ -116,11 +116,11 @@ func Refined(p syntax.Parsed) []RefinedType {
 		match syntax.ViewOf(p.Tree, d) {
 		case syntax.TypeDecl as td:
 			match dense.Unpack(td.Where) {
-			case Some[dense.ID[syntax.Node]]:
+			case Some:
 				match dense.Unpack(td.Spec) {
-				case Some[dense.ID[syntax.Node]] as sp:
+				case Some{Value: sp}:
 					let name = nameText(p, td.Name)
-					out = out.Append(RefinedType{Name: name, Parse: parseName(name), Base: sp.Value})
+					out = out.Append(RefinedType{Name: name, Parse: parseName(name), Base: sp})
 				case None:
 				}
 			case None:

@@ -4,8 +4,9 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
+	"reflect"
+	"slices"
 	"strconv"
-	"strings"
 	"testing"
 
 	"ergo.local/prototype/internal/sketch/check"
@@ -15,7 +16,9 @@ import (
 // generator's model: taking, the own mark, export-only and plain-data
 // changes. Mutants: omitted mark, a dropped mark not breaking (an added one
 // breaking), plain change breaking, and an extern's mark omitted.
-// This seam tests checked docs and diff, not the lowering or Go execution.
+// This seam tests the projected contracts, not the lowering or Go
+// execution; diff is the reference below (std code's ApiText and ApiDiff
+// have their own laws, ApiDiffBreaksOnANewTake).
 func TestOwnershipAPIModel(t *testing.T) {
 	// An extern's mark is its signature's: slices.Clone writes none, and
 	// WithCapacity, whose Go body runtime/v1 reviews as moving its values
@@ -28,7 +31,7 @@ func TestOwnershipAPIModel(t *testing.T) {
 		if f.Name == "Clone" && len(f.Own) != 0 {
 			t.Fatalf("Clone reported as own: %+v", f)
 		}
-		if f.Name == "WithCapacity" && (len(f.Own) != 1 || f.Own[0] != "T" || !strings.Contains(Text([]Function{f}), "own T")) {
+		if f.Name == "WithCapacity" && (len(f.Own) != 1 || f.Own[0] != "T") {
 			t.Fatalf("WithCapacity's mark lost: %+v", f)
 		}
 	}
@@ -85,19 +88,12 @@ func TestOwnershipAPIModel(t *testing.T) {
 				if (len(f.Own) > 0) != newOwn {
 					fail("own: %+v", f)
 				}
-				if newOwn != strings.Contains(Text(next), "own T") {
-					fail("docs and the mark disagree: %s", Text(next))
-				}
 			}
-			if f.Name == "Res.Hand" && ((len(f.Takes) > 0) != newTake || !strings.Contains(Text([]Function{f}), "takes ")) {
+			if f.Name == "Res.Hand" && ((len(f.Takes) > 0) != newTake) {
 				fail("takes: %+v", f)
 			}
 		}
-		changes := Diff(old, next)
-		got := map[string]bool{}
-		for _, c := range changes {
-			got[c.Name] = c.BreaksResourceCallers
-		}
+		got := diff(old, next)
 		want := map[string]bool{}
 		if oldOwn != newOwn {
 			want["Inspect"] = oldOwn // dropping the mark breaks a caller that binds a resource
@@ -112,7 +108,41 @@ func TestOwnershipAPIModel(t *testing.T) {
 			want["Plain"] = false
 		}
 		if fmt.Sprint(got) != fmt.Sprint(want) {
-			fail("diff %+v, model %v; docs:\n%s", changes, want, DiffText(changes))
+			fail("diff %v, model %v", got, want)
 		}
 	}
+}
+
+// diff is the reference diff of two projections: each name whose contract
+// differs, with whether the new side takes a parameter or self the old did
+// not, or drops an own mark the old wrote (a caller binding a resource
+// breaks).
+func diff(old, next []Function) map[string]bool {
+	before := map[string]Function{}
+	for _, f := range old {
+		before[f.Name] = f
+	}
+	out := map[string]bool{}
+	for _, f := range next {
+		a, had := before[f.Name]
+		delete(before, f.Name)
+		if had && reflect.DeepEqual(a, f) {
+			continue
+		}
+		breaks := false
+		if had {
+			breaks = f.TakesSelf && !a.TakesSelf
+			for _, p := range f.TakesParameters {
+				breaks = breaks || !slices.Contains(a.TakesParameters, p)
+			}
+			for _, n := range a.Own {
+				breaks = breaks || !slices.Contains(f.Own, n)
+			}
+		}
+		out[f.Name] = breaks
+	}
+	for n := range before {
+		out[n] = false
+	}
+	return out
 }

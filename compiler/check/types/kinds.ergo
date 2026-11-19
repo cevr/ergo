@@ -7,10 +7,12 @@
 // the kinds of all the declarations are one system of equalities, solved
 // by union-find.
 
+import compiler/check/bind
 import compiler/check/store
 import compiler/syntax
 import dense
 import slices
+import strings
 
 // The kinds, as bits of a position set.
 let kindType = 1
@@ -815,4 +817,75 @@ func solveFuncs(s store.Store, files []syntax.Parsed, ext []Ext, decls Kinds) ([
 		}
 	}
 	(out, setups)
+}
+
+// chain is a package of n generic records, each passing its parameter
+// to the next, the last putting it in an error row: one equivalence class
+// of n variables, the deepest path union-find can build.
+func chain(n int) string {
+	let mut b = strings.NewBuilder()
+	for i in 0..n {
+		if i == n-1 {
+			b.WriteString("type G\(i)[A] { f func() int fails A }\n")
+		} else {
+			b.WriteString("type G\(i)[A] { f G\(i + 1)[A] }\n")
+		}
+	}
+	b.String()
+}
+
+// solveChain is the solved kinds of chain(n).
+func solveChain(n int) Kinds {
+	let p = syntax.Parse(chain(n))
+	let s = bind.Collect("main", []bind.File{bind.File{Name: "a.ergo", Parsed: p}})
+	SolveKinds(s, []syntax.Parsed{p}, []Ext{})
+}
+
+// KindSolveWorkIsNearLinear: the union-find steps of a chain of 2n
+// declarations are at most twice those of n plus 2n (n log n passes;
+// a find without path compression is quadratic and does not), and every
+// parameter of the chain takes the error row's kind.
+law KindSolveWorkIsNearLinear(xs []int) {
+	let n = 8 + len(xs)%24
+	let a = solveChain(n)
+	let b = solveChain(2 * n)
+	let mut ok = b.Steps <= 2*a.Steps+2*n
+	for ks in b.Of {
+		ok = ok && len(ks) == 1 && ks[0] == kindErrors
+	}
+	ok
+}
+
+// funcs is a package of a generic record and n functions taking it,
+// each passing its parameter on and naming it in an error row.
+func funcs(n int) string {
+	let mut b = strings.NewBuilder()
+	b.WriteString("type G[A] { f A }\n")
+	for i in 0..n {
+		b.WriteString("func f\(i)[X](g G[X]) int fails X { 0 }\n")
+	}
+	b.String()
+}
+
+// solveFuncsOf is the function kinds of funcs(n) and the solves set up.
+func solveFuncsOf(n int) ([]FuncKinds, int) {
+	let p = syntax.Parse(funcs(n))
+	let files = []syntax.Parsed{p}
+	let s = bind.Collect("main", []bind.File{bind.File{Name: "a.ergo", Parsed: p}})
+	solveFuncs(s, files, []Ext{}, SolveKinds(s, files, []Ext{}))
+}
+
+// FuncKindSetupIsShared: the function kinds of n and of 2n functions set
+// up one solve each (a solve per function copies the package once per
+// function: quadratic setup), and every function's parameter is an error
+// row.
+law FuncKindSetupIsShared(xs []int) {
+	let n = 4 + len(xs)%12
+	let (a, sa) = solveFuncsOf(n)
+	let (b, sb) = solveFuncsOf(2 * n)
+	let mut ok = sa == 1 && sb == 1 && len(a) == n && len(b) == 2*n
+	for fk in b {
+		ok = ok && len(fk.Kinds) == 1 && fk.Kinds[0] == kindErrors
+	}
+	ok
 }

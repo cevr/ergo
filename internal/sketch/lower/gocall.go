@@ -127,7 +127,7 @@ func (fc *funcCtx) goSig(c *check.Call, site syntax.Node) (sig *check.Signature,
 		return f.Sig, "." + m, path + "." + typ + "." + m, check.GoVariadic(f)
 	}
 	path, goName := f.Decl.Extern.Split()
-	return f.Sig, fc.l.hostPkg(path, site) + "." + goName, path + "." + goName, check.GoVariadic(f)
+	return f.Sig, fc.hostTarget(site, f), path + "." + goName, check.GoVariadic(f)
 }
 
 // hostFuncRef is the Go function of import go that x names, in any
@@ -200,12 +200,28 @@ func (fc *funcCtx) goCall(x *syntax.CallExpr, c *check.Call) operand {
 	if variadic && len(vals) > 0 {
 		vals[len(vals)-1] += "..."
 	}
+	// A Go function that writes its slice argument in place (GBX2;
+	// check/gowrites.go): Go gets the operand the value rule gave (a copy,
+	// or the dead local itself), and the call's value is what Go wrote.
+	written := ""
+	if c.Kind == check.CallFunc && c.Recv == nil {
+		if i, ok := check.GoWrites(c.Func); ok && i < len(vals) {
+			written = fc.temp("w")
+			fc.line(written + " := " + vals[i])
+			vals[i] = written
+		}
+	}
 	ctx := c.Kind != check.CallOp && check.GoContext(c.Func)
 	if ctx {
 		vals = append([]string{fc.goContext(x)}, vals...)
 	}
 	text := head + "(" + strings.Join(vals, ", ") + ")"
 	defer fc.identify(x, c)()
+	if written != "" {
+		fc.line(text)
+		fc.afterGoContext(x, ctx)
+		return operand{val: written}
+	}
 	var goResults []check.Type
 	if len(sig.Results) == 1 {
 		if t, ok := sig.Results[0].(*check.Tuple); ok {
@@ -375,7 +391,7 @@ func (fc *funcCtx) goResult(x syntax.Node, t check.Type, r, e, name string) stri
 		fc.line("}")
 		return r
 	case fc.l.holdsValue(t) && !goFresh(x, name) && valueRule() && !fc.goShares(x):
-		return fc.cloneDeep(t, r, x) // Go may still write an entry (V8)
+		return fc.reportCopy(x, fc.cloneDeep(t, r, x), whyGoResult) // Go may still write an entry (V8)
 	}
 	return r
 }
@@ -508,9 +524,21 @@ func (fc *funcCtx) goErrorOf(x syntax.Expr, e string) {
 // (v1.GoIs), and go.As[T](e), errors.As into a T (v1.GoAs), Some when Go
 // finds one (IG5; check/goerror.go).
 func (fc *funcCtx) goErrorCall(x *syntax.CallExpr, c *check.Call) operand {
+	if c.Name == "go.New" && len(x.Args) == 1 {
+		// go.New(v) is a new Go T holding a copy of v (GBX5b;
+		// check/gonew.go): &n of a fresh n, as hand Go writes &T{…}.
+		v := fc.assigned(x.Args[0])
+		n := fc.temp("n")
+		fc.line(n + " := " + v)
+		return operand{val: "&" + n}
+	}
 	if c.Name == "go.New" {
 		// go.New[T]() is Go's new(T) (GBX1; check/gonew.go).
 		return operand{val: "new(" + fc.goType(c.Type) + ")"}
+	}
+	if c.Name == "go.Zero" {
+		// go.Zero[T]() is Go's zero T (GBX5b).
+		return operand{val: "*new(" + fc.goType(c.Type) + ")"}
 	}
 	args := fc.operands(x.Args, true)
 	if c.Name == "go.Is" {

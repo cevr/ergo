@@ -2,6 +2,7 @@ package v1
 
 import (
 	"errors"
+	"fmt"
 	"math"
 	"math/big"
 	"math/rand/v2"
@@ -82,7 +83,8 @@ func intAny(r *rand.Rand) int {
 }
 
 // saturated is d * n over the integers, clamped to the range of a
-// duration: the reference for TimeTimes.
+// duration: Times' meaning, which the duration laws run on (std's Times
+// is an Ergo body, held to the same reference by lower's TestStdMatchesGo).
 func saturated(d time.Duration, n int) time.Duration {
 	p := new(big.Int).Mul(big.NewInt(int64(d)), big.NewInt(int64(n)))
 	switch {
@@ -97,8 +99,7 @@ func saturated(d time.Duration, n int) time.Duration {
 // TestStdDurationMatchesGo (std-duration): ParseDuration gives Go's
 // time.ParseDuration's duration, or its message in a ParseError with the
 // text as Value, on 10,000 seeded texts, valid and not; DurationText is
-// Go's Duration.String; Times is the exact product clamped to the range
-// of a duration (Go's wraps); Divide and Count are Go's quotients except
+// Go's Duration.String; Divide and Count are Go's quotients except
 // the one that overflows, which saturates.
 func TestStdDurationMatchesGo(t *testing.T) {
 	r := rand.New(rand.NewPCG(7, 11))
@@ -121,9 +122,6 @@ func TestStdDurationMatchesGo(t *testing.T) {
 			t.Fatalf("case %d: DurationText(%d) = %q", i, d, TimeDurationText(d))
 		}
 		n := intAny(r)
-		if got, want := TimeTimes(d, n), saturated(d, n); got != want {
-			t.Fatalf("case %d: Times(%d, %d) = %d; want %d", i, d, n, got, want)
-		}
 		if n != 0 {
 			want := d / time.Duration(n)
 			if d == math.MinInt64 && n == -1 {
@@ -178,11 +176,11 @@ var durationLaws = map[string]func(r *rand.Rand) (bool, any){
 		d, n := durationAny(r), intAny(r)
 		small := TimeDivide(d, 1000000)
 		k := n % 1000
-		return k == 0 || TimeDivide(TimeTimes(small, k), k) == small, []any{d, n}
+		return k == 0 || TimeDivide(saturated(small, k), k) == small, []any{d, n}
 	},
 	"time TimesKeepsTheSign": func(r *rand.Rand) (bool, any) {
 		d, n := durationAny(r), intAny(r)
-		p := TimeTimes(d, n)
+		p := saturated(d, n)
 		if d == 0 || n == 0 {
 			return p == 0, []any{d, n}
 		}
@@ -194,15 +192,21 @@ var durationLaws = map[string]func(r *rand.Rand) (bool, any){
 			return true, []any{d, unit}
 		}
 		c := TimeCount(d, unit)
-		return TimeTimes(unit, c) <= d && d-TimeTimes(unit, c) < unit, []any{d, unit}
+		return saturated(unit, c) <= d && d-saturated(unit, c) < unit, []any{d, unit}
+	},
+	"time DurationISORoundTrips": func(r *rand.Rand) (bool, any) {
+		d := durationAny(r)
+		back, err := TimeParseDurationISO(TimeDurationISO(d))
+		return err == nil && back == d, d
 	},
 }
 
 var durationLawStatements = map[string]string{
-	"time DurationTextRoundTrips": `DurationTextRoundTrips(d duration) { try ParseDuration(DurationText(d)) == d }`,
+	"time DurationTextRoundTrips": `DurationTextRoundTrips(d duration) { try ParseDuration(DurationText(d)) } == { d }`,
 	"time DivideInvertsTimes":     `DivideInvertsTimes(d duration, n int) { let small = Divide(d, 1000000) let k = n % 1000 if k == 0 { return true } Divide(Times(small, k), k) == small }`,
 	"time TimesKeepsTheSign":      `TimesKeepsTheSign(d duration, n int) { let p = Times(d, n) if d == 0ns || n == 0 { return p == 0ns } (p > 0ns) == ((d > 0ns) == (n > 0)) }`,
 	"time CountIsWholeUnits":      `CountIsWholeUnits(d duration, unit duration) { if d < 0ns || unit <= 0ns { return true } let c = Count(d, unit) Times(unit, c) <= d && d-Times(unit, c) < unit }`,
+	"time DurationISORoundTrips":  `DurationISORoundTrips(d duration) { try ParseDurationISO(DurationISO(d)) == d }`,
 }
 
 // TestStdDurationLaws runs the duration laws over the Go bodies, each on
@@ -233,7 +237,6 @@ func BenchmarkDuration(b *testing.B) {
 	}{
 		{"ParseDuration", func() { sink, _ = TimeParseDuration("1h30m1.5s") }, func() { sink, _ = time.ParseDuration("1h30m1.5s") }},
 		{"DurationText", func() { sink = TimeDurationText(d) }, func() { sink = d.String() }},
-		{"Times", func() { sink = TimeTimes(d, 7) }, func() { sink = d * 7 }},
 		{"Divide", func() { sink = TimeDivide(d, 7) }, func() { sink = d / 7 }},
 		{"Count", func() { sink = TimeCount(d, time.Millisecond) }, func() { sink = d.Milliseconds() }},
 	} {
@@ -251,4 +254,54 @@ func BenchmarkDuration(b *testing.B) {
 		})
 	}
 	_ = sink
+}
+
+// isoModel is the reference of TimeDurationISO, in big integers: the
+// size of d split into hours, minutes, seconds and nanoseconds, written
+// with fmt, the fraction's trailing zeros dropped.
+func isoModel(d time.Duration) string {
+	if d == 0 {
+		return "PT0S"
+	}
+	n := big.NewInt(int64(d))
+	out := "PT"
+	if d < 0 {
+		out = "-PT"
+		n.Neg(n)
+	}
+	var parts [4]big.Int
+	rest := new(big.Int).Set(n)
+	for i, u := range []int64{int64(time.Hour), int64(time.Minute), int64(time.Second)} {
+		parts[i].DivMod(rest, big.NewInt(u), rest)
+	}
+	parts[3].Set(rest)
+	for i, letter := range []string{"H", "M"} {
+		if parts[i].Sign() != 0 {
+			out += parts[i].String() + letter
+		}
+	}
+	if parts[2].Sign() != 0 || parts[3].Sign() != 0 {
+		out += parts[2].String()
+		if parts[3].Sign() != 0 {
+			out += "." + strings.TrimRight(fmt.Sprintf("%09d", parts[3].Int64()), "0")
+		}
+		out += "S"
+	}
+	return out
+}
+
+// TestTimeDurationISOMatchesModel (std-spike T5): TimeDurationISO writes
+// isoModel's text for 20,000 seeded durations of every size (seed 5;
+// a failure prints the case and both texts). The round-trip law cannot
+// catch a text that reads back but is not the canonical one (hours written
+// as minutes, PT90M; a zero part written, PT1H0M); the model can. Mutants
+// t5-iso-hours-as-minutes and t5-iso-zero-part-written.
+func TestTimeDurationISOMatchesModel(t *testing.T) {
+	r := rand.New(rand.NewPCG(5, 5))
+	for i := range 20_000 {
+		d := durationAny(r)
+		if got, want := TimeDurationISO(d), isoModel(d); got != want {
+			t.Fatalf("case %d: TimeDurationISO(%d) = %q, model %q", i, int64(d), got, want)
+		}
+	}
 }

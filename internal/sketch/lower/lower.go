@@ -67,6 +67,13 @@ type Unit struct {
 	// Rewrite is the evidence of the law runs the run build may rewrite
 	// with (rewrite.go); nil rewrites nothing. The test build ignores it.
 	Rewrite RewriteEvidence
+	// Rewrites is ergo build's -rewrites switch for the rewrites over
+	// functions of the IR path (ir_rewrite.go): "" or "on" (proved and
+	// validated laws), "proved" (proved laws only), "off" (the reference:
+	// every site keeps its left side), "canary[=N]" (on, and each N-th
+	// call at a rewritten site checks the left side too; ParseRewrites).
+	// The test build ignores it: it shadows every matched site.
+	Rewrites string
 	// AllLaws asks RewriteChecks for every rewrite and post law of the
 	// unit, not only those its run build's sites use: std's ledger
 	// (FreshStdLedger) holds each law proved once, for every program.
@@ -79,15 +86,56 @@ type Unit struct {
 	// Copies, when set, receives the form of each Append and owned-form
 	// site the lowering decides (handover.go; ergo build -report copies).
 	Copies *CopyReport
+	// Raw writes the emitted Go as the lowerer lays it out, without
+	// go/format, for the dev and test profile (test-speed FT5): go/format
+	// is the largest part of a lowering (LW1), and its output is the
+	// input's tokens laid out again. The //line mapping is the same
+	// (anchorLines runs on either).
+	Raw bool
+	// CoverMarks writes a cover mark (CoverMark) where a std body would
+	// write a //line directive if it had them (GATE2 GT7b): a full-line
+	// comment, which changes no Go position, so the mutant runner's
+	// coverage pass can map a std body's Go lines to its .ergo lines. Only
+	// a coverage build sets it (internal/sketch/build CoverVariable); its
+	// emission key holds CoverMarkFlag. Without it the emitted Go is as
+	// before, byte for byte.
+	CoverMarks bool
 	// NoViews is ergo build -views=off: no Go call takes a view of a
 	// string's bytes, in the run build or the test build (view.go).
 	NoViews bool
+	// NoFallback is ergo build -fallback=off (ERGO_FALLBACK=off): an IR
+	// lowering that keeps any body on the text path is refused with a
+	// FallbackRefused naming each (ir_fallback.go; F8's precondition).
+	NoFallback bool
+}
+
+// coverMarksAll lowers every unit with CoverMarks. Only this package's
+// TestMain sets it, in the mutant runner's coverage pass (the build
+// package's CoverVariable set), whose programs the test harness links
+// with -cover (support_test.go).
+var coverMarksAll bool
+
+// CoverMarkFlag is the emission flag (build.Input.Flags) of a unit lowered
+// with CoverMarks.
+const CoverMarkFlag = "cover-marks"
+
+// coverMarkPrefix starts a cover mark.
+const coverMarkPrefix = "//ergo:cover "
+
+// CoverMark is the cover mark of path, line and column: a comment on a
+// line of its own; the Go lines after it come from that .ergo line on,
+// as after a //line directive, until the next mark or directive.
+func CoverMark(path string, line, column int) string {
+	return fmt.Sprintf("%s%s:%d:%d\n", coverMarkPrefix, path, line, column)
 }
 
 // Validate reports a unit whose files and sources are not aligned, whose
 // source paths cannot be anchored or are admitted twice, or whose imports
 // are not distinct user packages with flat units.
 func (u Unit) Validate() error {
+	if _, _, err := ParseRewrites(u.Rewrites); err != nil {
+		return fmt.Errorf("lower: %w", err)
+	}
 	seen := map[string]bool{}
 	if err := u.validateFiles(seen); err != nil {
 		return err

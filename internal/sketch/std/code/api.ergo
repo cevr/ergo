@@ -1,0 +1,316 @@
+import maps
+import slices
+import strings
+
+// The public contracts of a package (SEMTOOLS SEM2): each exported
+// function and method, with its signature, its rows, what it takes and the
+// type parameters it marks own, as the checker gives them. `ergo inspect api` prints a package's
+// view and the diff of two; a plan reports the diff of its base and its
+// result as its contract impact.
+
+// Contract is an exported function's contract: its name (Type.Name for a
+// method), its signature, its type parameters, its fails and needs rows,
+// the parameters it takes ("self" for a bare operation's take), whether
+// the takes are inferred, and the type parameters written [T own], which a
+// resource may bind (types.md, Generics 9).
+type Contract {
+	Name            string,
+	Signature       string,
+	TypeParameters  []string,
+	Fails           string,
+	Needs           string,
+	Takes           []string,
+	TakesParameters []int,
+	TakesSelf       bool,
+	TakesInferred   bool,
+	Own             []string,
+}
+
+// ApiQuery asks for the contracts of a package, the root package (the
+// program's own) when Package is None.
+type ApiQuery {
+	Package Option[string],
+}
+
+// ApiView is a package's contracts in name order.
+type ApiView {
+	Revision  string,
+	Package   string,
+	Functions []Contract,
+}
+
+// NoPackage is the failure of a package the tables do not hold.
+type NoPackage { Package string }
+
+// ApiChange is a changed contract, with both sides: Old is None for a new
+// function, New None for a removed one. A new take or a newly copying type
+// parameter breaks a caller that passes a resource.
+type ApiChange {
+	Name                  string,
+	Old                   Option[Contract],
+	New                   Option[Contract],
+	BreaksResourceCallers bool,
+}
+
+// apiOf is the view of q over t.
+func apiOf(t Tables, q ApiQuery) ApiView fails NoPackage {
+	let want = match q.Package {
+	case Some[string] as p:
+		p.Value
+	case None:
+		t.Root
+	}
+	for p in t.Packages {
+		if p.Path == want {
+			return ApiView{Revision: t.Revision, Package: p.Path, Functions: slices.SortFunc(p.Contracts, func(a Contract, b Contract) int { strings.Compare(a.Name, b.Name) })}
+		}
+	}
+	NoPackage{Package: want}
+}
+
+// ApiDiff is the changed contracts from old to new, in name order.
+func ApiDiff(old []Contract, new []Contract) []ApiChange {
+	let mut before = Map[string, Contract]{}
+	for f in old {
+		before[f.Name] = f
+	}
+	let mut after = Map[string, Contract]{}
+	for f in new {
+		after[f.Name] = f
+	}
+	let mut names = Map[string, bool]{}
+	for f in old {
+		names[f.Name] = true
+	}
+	for f in new {
+		names[f.Name] = true
+	}
+	let mut out = []ApiChange{}
+	for n in slices.Sorted(maps.Keys(names)) {
+		let a = before.Get(n)
+		let b = after.Get(n)
+		if a == b {
+			continue
+		}
+		let mut breaks = false
+		match (a, b) {
+		case (Some[Contract] as x, Some[Contract] as y):
+			if y.Value.TakesSelf && !x.Value.TakesSelf {
+				breaks = true
+			}
+			for t in y.Value.TakesParameters {
+				if !slices.Contains(x.Value.TakesParameters, t) {
+					breaks = true
+				}
+			}
+			// A dropped mark refuses the callers that bind a resource.
+			for mark in x.Value.Own {
+				if !slices.Contains(y.Value.Own, mark) {
+					breaks = true
+				}
+			}
+		case _:
+		}
+		out = out.Append(ApiChange{Name: n, Old: a, New: b, BreaksResourceCallers: breaks})
+	}
+	out
+}
+
+// ApiText is the docs view of contracts: each function's name and
+// signature, its type parameters, what it takes, and its own marks.
+func ApiText(fs []Contract) string {
+	let mut b = ""
+	for f in fs {
+		b = b + "\(f.Name) \(f.Signature)"
+		if len(f.TypeParameters) > 0 {
+			b = b + " [" + strings.Join(f.TypeParameters, ", ") + "]"
+		}
+		let taken = if len(f.Takes) > 0 { strings.Join(f.Takes, ", ") } else { "nothing" }
+		let origin = if f.TakesInferred { "inferred" } else { "written" }
+		b = b + "\n  takes \(taken) (\(origin))\n"
+		for n in f.Own {
+			b = b + "  own \(n) (a resource may bind it)\n"
+		}
+	}
+	if len(fs) == 0 {
+		b = b + "no exported function\n"
+	}
+	b
+}
+
+// ApiDiffText is the changed contracts as text, both sides of each.
+func ApiDiffText(changes []ApiChange) string {
+	let mut b = ""
+	for c in changes {
+		b = b + "\(c.Name): API change"
+		if c.BreaksResourceCallers {
+			b = b + "; breaks callers that pass a resource"
+		}
+		b = b + "\n"
+		match c.Old {
+		case Some[Contract] as o:
+			b = b + "- " + ApiText([]Contract{o.Value})
+		case None:
+		}
+		match c.New {
+		case Some[Contract] as n:
+			b = b + "+ " + ApiText([]Contract{n.Value})
+		case None:
+		}
+	}
+	if len(changes) == 0 {
+		b = b + "no API change\n"
+	}
+	b
+}
+
+// impactOf is the contract impact of a change from base to after: the
+// diff of each workspace package's contracts, the package path before
+// each name.
+func impactOf(base Tables, after Tables, workspace []string) []ApiChange {
+	let mut out = []ApiChange{}
+	let mut paths = []string{}
+	for p in base.Packages {
+		paths = paths.Append(p.Path)
+	}
+	for p in after.Packages {
+		if !has(paths, p.Path) {
+			paths = paths.Append(p.Path)
+		}
+	}
+	for path in slices.Sort(paths) {
+		if !has(workspace, path) {
+			continue
+		}
+		for c in ApiDiff(contractsIn(base, path), contractsIn(after, path)) {
+			out = out.Append(ApiChange{Name: path + "." + c.Name, Old: c.Old, New: c.New, BreaksResourceCallers: c.BreaksResourceCallers})
+		}
+	}
+	out
+}
+
+// contractsIn is the contracts of the package path in t, none when t has
+// no such package.
+func contractsIn(t Tables, path string) []Contract {
+	for p in t.Packages {
+		if p.Path == path {
+			return p.Contracts
+		}
+	}
+	[]Contract{}
+}
+
+// ApiDiffOfItselfIsEmpty: contracts compared with themselves change
+// nothing.
+law ApiDiffOfItselfIsEmpty(seed int) { len(ApiDiff(allContracts(seed), allContracts(seed))) == 0 }
+
+// allContracts is every contract Generated(seed) holds.
+func allContracts(seed int) []Contract {
+	let mut out = []Contract{}
+	for p in Generated(seed).Packages {
+		for c in p.Contracts {
+			out = out.Append(c)
+		}
+	}
+	out
+}
+
+// ApiDiffBreaksOnANewTake: one contract changed one way is one change,
+// with its old and new sides; it breaks resource callers exactly when the
+// new side takes a parameter, or self, the old did not, or drops a type
+// parameter's own mark the old wrote.
+law ApiDiffBreaksOnANewTake(seed int, pick int, how int) { apiDiffBreaksOnANewTake(seed, pick, how) }
+
+func apiDiffBreaksOnANewTake(seed int, pick int, how int) bool {
+	let all = allContracts(seed)
+	if len(all) == 0 {
+		return true
+	}
+	let f = all[slot(pick, len(all))]
+	let (g, breaks) = match slot(how, 6) {
+	case 0:
+		(Contract{..f, Takes: f.Takes.Append("q"), TakesParameters: f.TakesParameters.Append(len(f.TakesParameters) + 7)}, true)
+	case 1:
+		(Contract{..f, TakesSelf: true}, !f.TakesSelf)
+	case 2:
+		(Contract{..f, Own: []string{}}, len(f.Own) > 0)
+	case 3:
+		(Contract{..f, Signature: f.Signature + " needs Clock"}, false)
+	case 4:
+		(Contract{..f, Takes: []string{}, TakesParameters: []int{}, TakesSelf: false}, false)
+	case _:
+		(Contract{..f, TakesInferred: !f.TakesInferred}, false)
+	}
+	let changes = ApiDiff([]Contract{f}, []Contract{g})
+	if f == g {
+		return len(changes) == 0
+	}
+	let removed = ApiDiff([]Contract{f}, []Contract{})
+	let added = ApiDiff([]Contract{}, []Contract{g})
+		len(changes) == 1 && changes[0] == ApiChange{Name: f.Name, Old: Some[Contract]{Value: f}, New: Some[Contract]{Value: g}, BreaksResourceCallers: breaks} &&
+		removed == []ApiChange{ApiChange{Name: f.Name, Old: Some[Contract]{Value: f}, New: None, BreaksResourceCallers: false}} &&
+		added == []ApiChange{ApiChange{Name: g.Name, Old: None, New: Some[Contract]{Value: g}, BreaksResourceCallers: false}}
+}
+
+// ImpactIsTheChangedContracts: a plan's contract impact names each
+// exported function of the workspace whose signature or needs row the
+// change alters, adds or removes, by its package and name, and no other;
+// read off the sources' lines, not off the checker's tables.
+law ImpactIsTheChangedContracts(seed int, pick int, word int) { impactIsTheChangedContracts(seed, pick, word) }
+
+func impactIsTheChangedContracts(seed int, pick int, word int) bool {
+	let sources = Sample(seed)
+	let t = trialOf(sources, SampleChange(pick, word))
+	if !t.Ok {
+		return true
+	}
+	let before = contractLines(sources)
+	let after = contractLines(appliedTo(sources, t.Plan))
+	let mut want = []string{}
+	for k in slices.Sorted(maps.Keys(before)) {
+		if after.Get(k) != before.Get(k) {
+			want = want.Append(k)
+		}
+	}
+	for k in slices.Sorted(maps.Keys(after)) {
+		if before.Get(k) == None {
+			want = want.Append(k)
+		}
+	}
+	let mut got = []string{}
+	for c in t.Plan.Impact {
+		got = got.Append(c.Name)
+	}
+	slices.Sort(got) == slices.Sort(want)
+}
+
+// contractLines is, by package and name, the sig and needs lines of each
+// exported top-level func of sources; the first of a name only.
+func contractLines(sources []Source) Map[string, string] {
+	let mut out = Map[string, string]{}
+	for s in sources {
+		let mut key = ""
+		for line in strings.Split(s.Text, "\n") {
+			let ws = wordsOf(line, 0)
+			if strings.HasPrefix(line, "func ") || strings.HasPrefix(line, "type ") {
+				key = ""
+				if len(ws) >= 2 && strings.HasPrefix(line, "func ") && !strings.Contains(ws[1].Text, ".") && exportedName(ws[1].Text) {
+					let k = packageOf(s.File) + "." + ws[1].Text
+					if out.Get(k) == None {
+						key = k
+						out[k] = ""
+					}
+				}
+				continue
+			}
+			if key != "" && len(ws) > 0 && (ws[0].Text == "sig" || ws[0].Text == "needs") {
+				let mut words = []string{}
+				for w in wordsOf(beforeComment(line), 0) {
+					words = words.Append(w.Text)
+				}
+				out[key] = maps.GetOr(out, key, "") + strings.Join(words, " ") + ";"
+			}
+		}
+	}
+	out
+}

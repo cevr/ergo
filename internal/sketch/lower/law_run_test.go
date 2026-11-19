@@ -375,6 +375,50 @@ func TestLawRunLeastPackage(t *testing.T) {
 	}
 }
 
+// TestLawUnderAContextTakesTheOneRule: a run under a context takes its
+// cases by the one rule, its values being the law's parameters alone (the
+// context builds the provider): a law with none runs once and is proved,
+// one whose parameters can be listed takes every value, and one with an
+// int still draws 100 (types.md, Laws 10; mutants lawctx-noparams-draws,
+// lawctx-listed-draws). Before, each ran 100 cases, so a host law under a
+// test's ambient started its processes 100 times (WG1 r3).
+// It builds Go because the case count is the built test binary's report.
+func TestLawUnderAContextTakesTheOneRule(t *testing.T) {
+	needsBuild(t)
+	src := `type Shape {
+	Area() int,
+	law Positive() { Area() >= 0 },
+	law Signs(b bool) { if b { Area() >= 0 } else { -Area() <= 0 } },
+	law Scales(n int) { Area() * n == n * Area() },
+}
+
+type Sq { n int } implements Shape
+
+func Area(s Sq) int { s.n % 2 + 1 }
+
+let Live = context { Shape: Sq{n: 2} }
+
+func main() {}
+`
+	exes := buildAll(t, []*lowered{lowerTestBuild(t, "lawctx_onerule", src)}, true)
+	if exes == nil {
+		return
+	}
+	stdout, stderr, code := runExe(t, exes["lawctx_onerule"])
+	want := []string{
+		"ok law Shape.Positive for Sq (100 cases)",
+		"ok law Shape.Positive under Live (proved: 1 case)",
+		"ok law Shape.Signs for Sq (100 cases)",
+		"ok law Shape.Signs under Live (proved: all 2 cases)",
+		"ok law Shape.Scales for Sq (100 cases)",
+		"ok law Shape.Scales under Live (100 cases)",
+		"PASS (6 tests)",
+	}
+	if code != 0 || !slices.Equal(verdicts(stdout), want) {
+		t.Errorf("exit %d, stdout:\n%s\nwant:\n%s\nstderr:\n%s", code, stdout, strings.Join(want, "\n"), firstLines(stderr, 8))
+	}
+}
+
 // TestLawRunSkips: a law that cannot run says why, and the summary counts
 // it as skipped, never as a test (fs4). A run under a context whose build
 // acquires a provider with a Close releases it at the end of each case,
@@ -434,7 +478,9 @@ type Fns {} implements Box[func(int) int]
 
 func Put(_ Fns, v own func(int) int) {}
 
-law Calls(f func(int) int) { f(1) == f(1) }
+func Apply(f func(int) int) int { f(1) }
+
+law Calls(f func(int) int) { Apply(f) == Apply(f) }
 
 type Res { n int } implements Shape, Closer
 
@@ -552,14 +598,14 @@ func main() {}
 		"ok law Shape.Positive for Res (100 cases)",
 		"ok law Shape.Positive for Gate (100 cases)",
 		"ok law Shape.Positive for Sq (100 cases)",
-		"ok law Shape.Positive under Held (100 cases)",
-		"ok law Shape.Positive under Kept (100 cases)",
+		"ok law Shape.Positive under Held (proved: 1 case)",
+		"ok law Shape.Positive under Kept (proved: 1 case)",
 		"skip law Shape.Positive under Latched: its provider's release needs Console; a law case has no capability to release it with",
-		"ok law Shape.Positive under Locked (100 cases)",
+		"ok law Shape.Positive under Locked (proved: 1 case)",
 		"skip law Shape.Positive under Needy: its provider's release needs Console; a law case has no capability to release it with",
 		"skip law Shape.Positive under Pinned: its provider names the package let pinned, which a case's release would close for every later case",
-		"ok law Shape.Positive under Sized (100 cases)",
-		"ok law Shape.Positive under Wired (100 cases)",
+		"ok law Shape.Positive under Sized (proved: 1 case)",
+		"ok law Shape.Positive under Wired (proved: 1 case)",
 		"skip law Shape.Positive under Witnessed: its provider's generic Close takes witnesses for a type parameter constrained by operations, and a case has no instance to pass (#197)",
 		"skip law Box.Keeps for Fns: its parameter v has no generator at Box[func(int) int]: func(int) int is a function type",
 		"skip law Runner.Runs: its operation type Runner has the row parameter E, and a run binds only type parameters",
@@ -756,11 +802,13 @@ func main() {}
 // fails the run.
 func TestLawRunNoParams(t *testing.T) {
 	needsBuild(t)
-	src := `law Holds() { 1 + 1 == 2 }
+	src := `law Holds() { Two() == 2 }
 
-law Breaks() { 1 + 1 == 3 }
+law Breaks() { Two() == 3 }
 
 func main() {}
+
+func Two() int { 1 + 1 }
 `
 	exes := buildAll(t, []*lowered{lowerTestBuild(t, "lawrun_noparams", src)}, true)
 	if exes == nil {
@@ -890,13 +938,14 @@ func genLawRunProgram(r *rand.Rand, i int) lawRunProgram {
 	}
 	top := r.Intn(2) == 0
 	if top {
-		b.WriteString("law Top(a int, b int) { a + b == b + a }\n\n")
+		b.WriteString("law Top(a int, b int) { Sum(a, b) == Sum(b, a) }\n\n")
 		want = append(want, "ok law Top (100 cases)")
 	} else {
-		b.WriteString("law Top(a int, b int) { a - b == b - a }\n\n")
+		b.WriteString("law Top(a int, b int) { Sum(a, -b) == Sum(b, -a) }\n\n")
 		want = append(want, "FAIL law Top (case ")
 		failed++
 	}
+	b.WriteString("func Sum(a int, b int) int { a + b }\n\n")
 	b.WriteString("func main() {}\n")
 	total := providers + 1
 	exit := 0

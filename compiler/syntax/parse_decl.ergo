@@ -623,7 +623,7 @@ func parseVariant(p mut parser) uint32 {
 }
 
 // parseMachineType parses `machine[S, E] { initial: x, step: f }`, with
-// optional after and work entries, then the machine's laws.
+// optional after, work and exit entries, then the machine's laws.
 func parseMachineType(p mut parser) uint32 {
 	let mach = want(p, KwMachine)
 	let _ = want(p, LBrack)
@@ -640,6 +640,7 @@ func parseMachineType(p mut parser) uint32 {
 	let mut step = false
 	let mut after = false
 	let mut work = false
+	let mut exit = false
 	for p.tk != RBrace {
 		let doc = leadComment(p)
 		if p.tk == Law {
@@ -658,11 +659,12 @@ func parseMachineType(p mut parser) uint32 {
 		let isStep = isWord(p, "step")
 		let isAfter = isWord(p, "after")
 		let isWork = isWord(p, "work")
-		if !(isInitial || isStep || isAfter || isWork) {
-			expected(p, "expected initial, step, after or work, found ")
+		let isExit = isWord(p, "exit")
+		if !(isInitial || isStep || isAfter || isWork || isExit) {
+			expected(p, "expected initial, step, after, work or exit, found ")
 			break
 		}
-		if (isInitial && initial) || (isStep && step) || (isAfter && after) || (isWork && work) {
+		if (isInitial && initial) || (isStep && step) || (isAfter && after) || (isWork && work) || (isExit && exit) {
 			errorf(p, lit(p, at)+" is set twice")
 		}
 		next(p)
@@ -674,6 +676,8 @@ func parseMachineType(p mut parser) uint32 {
 			step = true
 		} else if isWork {
 			work = true
+		} else if isExit {
+			exit = true
 		} else {
 			after = true
 		}
@@ -747,7 +751,7 @@ func parseMachineLaw(p mut parser, doc uint32) uint32 {
 		expected(p, "expected (, reaches, never reaches, path, always or sometimes after a machine law's name, found ")
 	}
 	let r = mkLawReach(&p.t, m, never, word, path, lbrack, rbrack, invariant, pred)
-	mkLawDecl(&p.t, mark(p.t), doc, lawTok, name, none, none, some(r), false, none, none)
+	mkLawDecl(&p.t, mark(p.t), doc, lawTok, name, none, none, some(r), uint32(0), none, none)
 }
 
 func parseFuncDecl(p mut parser, doc uint32) uint32 {
@@ -902,6 +906,9 @@ func parseTestDecl(p mut parser, doc uint32) uint32 {
 // parseLawDecl parses `law Name(params) { body }`, top-level (top) or a
 // member of an operation type, and the rewrite form `law L(params) [when
 // R() == C] { lhs } == { rhs }`, whose body holds the guard, lhs and rhs.
+// A top-level rewrite law (types.md, Laws 14; LAWFFI LF6a) takes no when
+// and holds one expression on each side; its rewrite word is 2, so the
+// Go tree reads it as LawDecl.Equation.
 func parseLawDecl(p mut parser, doc uint32, top bool) uint32 {
 	let lawTok = want(p, Law)
 	let name = parseIdent(p)
@@ -921,10 +928,10 @@ func parseLawDecl(p mut parser, doc uint32, top bool) uint32 {
 	}
 	let lhs = parseBlock(p)
 	if p.tk != Eql && when == none {
-		return mkLawDecl(&p.t, mark(p.t), doc, lawTok, name, some(params), some(lhs), none, false, none, none)
+		return mkLawDecl(&p.t, mark(p.t), doc, lawTok, name, some(params), some(lhs), none, uint32(0), none, none)
 	}
-	if top {
-		errorAt(p, tpos(p, lawTok), 3, "a rewrite law is a member of an operation type; a top-level law has no operations to rewrite")
+	if top && when != none {
+		errorAt(p, tpos(p, int(when)-1), 4, "a top-level rewrite law takes no when: a law over functions has no guard in v1, and a law true only under a guard stays a property")
 	}
 	if p.tk != Eql {
 		errorAt(p, pos(p), 1, "expected == { … } after a guarded law's block; a law with when is a rewrite law, { lhs } == { rhs }")
@@ -936,6 +943,13 @@ func parseLawDecl(p mut parser, doc uint32, top bool) uint32 {
 	if p.failed {
 		return noNode
 	}
+	if top {
+		oneSide(p, lhs)
+		oneSide(p, rhs)
+		if p.failed {
+			return noNode
+		}
+	}
 	let bm = mark(p.t)
 	if guard != noNode {
 		pushW(&p.t, row(&p.t, KExprStmt, uint32(0), guard, none))
@@ -943,7 +957,17 @@ func parseLawDecl(p mut parser, doc uint32, top bool) uint32 {
 	pushW(&p.t, lhs)
 	pushW(&p.t, rhs)
 	let body = mkBlock(&p.t, bm, int(p.t.tok[int(lhs)]), int(fixed(p.t, rhs, 1, 0)))
-	mkLawDecl(&p.t, mark(p.t), doc, lawTok, name, some(params), some(body), none, true, when, eq)
+	mkLawDecl(&p.t, mark(p.t), doc, lawTok, name, some(params), some(body), none, if top { uint32(2) } else { uint32(1) }, when, eq)
+}
+
+// oneSide refuses a side of a top-level rewrite law that is not one
+// expression statement.
+func oneSide(p mut parser, b uint32) {
+	let l = listAt(p.t, b, 0, items(p.t, b, 1))
+	if Len(l) == 1 && kindAt(p, wid(Item(p.t, l, 0))) == KExprStmt {
+		return
+	}
+	errorAt(p, tpos(p, int(p.t.tok[int(b)])), 1, "a top-level rewrite law has one expression on each side: law L(x T) { f(g(x)) } == { x }")
 }
 
 // parseLetDecl parses `let [mut] Pattern {, Pattern} [Type] [= e]`. At

@@ -34,7 +34,8 @@ import (
 // Mutants only it kills (testdata/mutants.json): oracle-o1-native-pad-bytes,
 // oracle-o1-native-parse-range, oracle-o1-native-times-wraps,
 // oracle-o1-native-intn-modulo, oracle-o1-native-splitn-count,
-// oracle-o1-native-split-empty-sep.
+// oracle-o1-native-split-empty-sep, evbuilder-appendfrom-whole-run,
+// evbuilder-appendfrom-end-start, evbuilder-appendbytes-drops-last.
 // The tests read natives directly; a run loads them on first lookup.
 func init() { loadNatives() }
 
@@ -111,17 +112,22 @@ func TestNativesAgreeWithRuntime(t *testing.T) {
 // 8 bytes and of 800, as Go's own functions read only the prefix and
 // share the text (natives.go, readsOf and shares). Charged as the whole
 // text, a parser that slices the rest of its input at each token would
-// pay steps quadratic in its input. Mutants only it kills
-// (testdata/mutants.json): oracle-o22-slice-reads-all,
-// oracle-o22-prefix-reads-all, oracle-o22-slice-allocates.
+// pay steps quadratic in its input. IndexByte reads up to the byte it
+// finds (std io's lines call it on the rest of the text at each line).
+// Mutants only it kills (testdata/mutants.json): oracle-o22-slice-reads-all,
+// oracle-o22-prefix-reads-all, oracle-o22-slice-allocates,
+// evbuilder-indexbyte-reads-all.
 func TestNativeWorkIsWhatGoReads(t *testing.T) {
 	pkg := checked(t, "import strings\n\ntest T {\n\tassert strings.Slice(\"ab\", 0, 1) == \"a\"\n}\n")
 	in := &interp{budget: DefaultBudget()}
 	fr := in.newFrame(pkg, pkg.Tests[0].Decl)
 	work := func(name string, s string) (steps, bytes int64) {
 		args := []Value{s, "ab"}
-		if name == "strings.Slice" {
+		switch name {
+		case "strings.Slice":
 			args = []Value{s, int64(1), int64(5)}
+		case "strings.IndexByte":
+			args = []Value{s, uint8('b')}
 		}
 		in.steps, in.bytes = 0, 0
 		nat := natives[name]
@@ -134,13 +140,13 @@ func TestNativeWorkIsWhatGoReads(t *testing.T) {
 		return in.steps, in.bytes
 	}
 	short, long := "ab"+strings.Repeat("x", 4)+"ab", "ab"+strings.Repeat("x", 796)+"ab"
-	for _, name := range []string{"strings.Slice", "strings.HasPrefix", "strings.HasSuffix", "strings.TrimPrefix", "strings.TrimSuffix"} {
+	for _, name := range []string{"strings.Slice", "strings.HasPrefix", "strings.HasSuffix", "strings.TrimPrefix", "strings.TrimSuffix", "strings.IndexByte"} {
 		s1, b1 := work(name, short)
 		s2, b2 := work(name, long)
 		if s1 != s2 {
 			t.Errorf("%s spends %d steps on %d bytes and %d on %d", name, s1, len(short), s2, len(long))
 		}
-		if name != "strings.HasPrefix" && name != "strings.HasSuffix" && (b1 != 0 || b2 != 0) {
+		if name != "strings.HasPrefix" && name != "strings.HasSuffix" && name != "strings.IndexByte" && (b1 != 0 || b2 != 0) {
 			t.Errorf("%s allocates %d and %d value bytes for a view of its text", name, b1, b2)
 		}
 	}
@@ -201,6 +207,7 @@ func nativeCases(g nativeGen) []nativeCase {
 	s, u, w := g.text(), g.text(), g.text()
 	i, j := g.small(), g.small()
 	rn := g.runeV()
+	c := []uint8{'a', 'b', ' ', '\n', 0xff}[g.r.IntN(5)]
 	xs := g.texts()
 	big := []int64{0, 1, -1, 7, math.MaxInt64, math.MinInt64, 1 << 40, -(1 << 33)}
 	d, m := big[g.r.IntN(len(big))], big[g.r.IntN(len(big))]
@@ -275,6 +282,9 @@ func nativeCases(g nativeGen) []nativeCase {
 		{name: "strings.ToLower", args: []Value{s}, v1: func() any { return strings.ToLower(s) }},
 		{name: "strings.ToUpper", args: []Value{s}, v1: func() any { return strings.ToUpper(s) }},
 		{name: "strings.Index", args: []Value{s, u}, v1: func() any { return int64(strings.Index(s, u)) }},
+		{name: "strings.IndexByte", args: []Value{s, c}, v1: func() any { return int64(strings.IndexByte(s, c)) }},
+		{name: "strings.builderAppendBytes", args: []Value{bytesValue(s), bytesValue(u)}, v1: func() any { return v1.StringsBuilderAppendBytes([]byte(s), []byte(u)) }},
+		{name: "strings.builderAppendFrom", args: []Value{bytesValue(s), int64(i), int64(j)}, v1: func() any { return v1.StringsBuilderAppendFrom([]byte(s), i, j) }},
 		{name: "strings.Contains", args: []Value{s, u}, v1: func() any { return strings.Contains(s, u) }},
 		{name: "strings.Slice", args: []Value{s, int64(i), int64(j)}, v1: func() any { return v1.StringsSlice(s, i, j) }},
 		{name: "strings.ReplaceAll", args: []Value{s, u, w}, v1: func() any { return strings.ReplaceAll(s, u, w) }},
@@ -305,7 +315,6 @@ func nativeCases(g nativeGen) []nativeCase {
 		{name: "path/filepath.IsAbs", args: []Value{s}, v1: func() any { return filepath.IsAbs(s) }},
 		{name: "hex.Encode", args: []Value{s}, v1: func() any { return v1digest.HexEncode(s) }},
 		{name: "time.DurationText", args: []Value{d}, v1: func() any { return v1.TimeDurationText(durationOf(d)) }},
-		{name: "time.Times", args: []Value{d, m}, v1: func() any { return int64(v1.TimeTimes(durationOf(d), int(m))) }},
 		{name: "time.subMono", args: []Value{d, m}, v1: func() any { return int64(v1.TimeSubMono(d, m)) }},
 		{name: "time.subWall", args: []Value{d % (1 << 34), x, m % (1 << 34), int64(i)}, v1: func() any { return int64(v1.TimeSub(d%(1<<34), x, m%(1<<34), int64(i))) }},
 		{name: "time.Divide", args: []Value{d, m}, anyDefect: true, v1: func() any { return int64(v1.TimeDivide(durationOf(d), int(m))) }},

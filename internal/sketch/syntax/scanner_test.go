@@ -1,15 +1,50 @@
 package syntax
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	gotoken "go/token"
 	"slices"
 	"strings"
 	"testing"
 	"unicode/utf8"
 
+	linked "ergo.local/prototype/internal/linked/compiler"
 	"ergo.local/prototype/internal/sketch/sketchtest"
 )
+
+// scanned is one scan of compiler/syntax's scanner as its parser reads it:
+// the tokens (dump.Tokens), and for a failed scan (dump.Scan's E line) the
+// ILLEGAL and EOF the parser adds (compiler/syntax/parse.ergo, Parse) and
+// Parse's error, which is the scan's own when the parse fails no earlier.
+type scanned struct {
+	toks []token
+	err  *Error
+}
+
+func scan(src string) scanned {
+	s := scanned{toks: scanTokens(src)}
+	dump, err := linked.Scan(context.Background(), src)
+	if err != nil {
+		panic(err)
+	}
+	lines := strings.Split(strings.TrimSuffix(dump, "\n"), "\n")
+	var code string
+	var at, length int
+	if n, _ := fmt.Sscanf(lines[len(lines)-1], "E %s %d %d", &code, &at, &length); n != 3 {
+		return s
+	}
+	end := at + length
+	if n := len(s.toks); n > 0 && int(s.toks[n-1].end) > at {
+		at, end = int(s.toks[n-1].end), int(s.toks[n-1].end)
+	}
+	s.toks = append(s.toks, token{tok: ILLEGAL, pos: Pos(at), end: Pos(end)}, token{tok: EOF, pos: Pos(end), end: Pos(end)})
+	if _, err := Parse(src); !errors.As(err, &s.err) {
+		s.err = &Error{Code: code, Offset: at, Message: fmt.Sprintf("the scan failed, the parse did not: %v", err)}
+	}
+	return s
+}
 
 // TestIdentifierRunesMatchGo sweeps every non-ASCII code point, in the first
 // and in a later position, and requires the scanner to admit exactly the

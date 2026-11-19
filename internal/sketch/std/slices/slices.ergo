@@ -49,6 +49,8 @@ extern go ergo.local/prototype/runtime/v1.SlicesSortFunc func SortFunc[T](xs []T
 extern go ergo.local/prototype/runtime/v1.SlicesSortStableFunc func SortStableFunc[T](xs []T, compare func(a T, b T) int) []T
 
 // Contains reports whether x is in xs.
+//
+// Scans: xs, element by element until it finds x.
 func Contains[T comparable](xs []T, x T) bool {
 	for y in xs {
 		if y == x {
@@ -59,6 +61,8 @@ func Contains[T comparable](xs []T, x T) bool {
 }
 
 // Index is the index of the first x in xs, or -1.
+//
+// Scans: xs, element by element until it finds x.
 func Index[T comparable](xs []T, x T) int {
 	for i, y in xs {
 		if y == x {
@@ -152,6 +156,47 @@ func Concat[T](a []T, b []T) []T { a.Concat(b) }
 // clipped xs elsewhere. An empty ys does no work. It is an extern of Go's
 // builtin, which any module can declare the same way (check/builtin.go).
 extern go append func AppendAll[T](xs []T, ys []T) []T
+
+// Insert is xs with the elements of ys before index i, in a new array:
+// Go's slices.Insert(xs, i, ys...) (Effect's Array.insertAt, for one
+// element). It never writes xs or ys, as Concat does not. An i outside
+// 0..len(xs) is a defect, as Go's panics.
+extern go ergo.local/prototype/runtime/v1.SlicesInsert func Insert[T](xs []T, i int, ys []T) []T
+
+// Delete is xs without the elements from index i up to j, j excluded, in
+// a new array: Go's slices.Delete(xs, i, j) (Effect's Array.remove, for
+// one element). It never writes xs. A bound outside 0..len(xs), or an i
+// after j, is a defect.
+extern go ergo.local/prototype/runtime/v1.SlicesDelete func Delete[T](xs []T, i int, j int) []T
+
+// InsertPlaces: Insert(xs, i, ys) is xs up to i, then ys, then the rest
+// of xs; an Append to a slice with room after it, before or after, never
+// changes the other.
+law InsertPlaces(xs []int, ys []int, i int, x int) {
+	let n = len(xs) + 1
+	let k = (i%n + n) % n
+	let mut roomy = WithCapacity[int](len(xs) + len(ys) + 1)
+	for v in xs {
+		roomy = roomy.Append(v)
+	}
+	let r = Insert(roomy, k, ys)
+	let before = Clone(r)
+	let grown = roomy.Append(x)
+	len(r) == len(xs)+len(ys) && Equal(Slice(r, 0, k), Slice(xs, 0, k)) && Equal(Slice(r, k, k+len(ys)), ys) && Equal(Slice(r, k+len(ys), len(r)), Slice(xs, k, len(xs))) && Equal(r, before) && Equal(Slice(grown, 0, len(xs)), xs)
+}
+
+// DeleteUndoesInsert: Delete(xs, i, j) is xs without xs[i:j], xs is left
+// as it was, and inserting those elements back at i gives xs again.
+law DeleteUndoesInsert(xs []int, i int, j int) {
+	let n = len(xs) + 1
+	let a = (i%n + n) % n
+	let b = (j%n + n) % n
+	let lo = if a < b { a } else { b }
+	let hi = if a < b { b } else { a }
+	let before = Clone(xs)
+	let d = Delete(xs, lo, hi)
+	len(d) == len(xs)-(hi-lo) && Equal(xs, before) && Equal(Slice(d, 0, lo), Slice(xs, 0, lo)) && Equal(Insert(d, lo, Slice(before, lo, hi)), before)
+}
 
 // Repeat is the elements of xs, n times over, in a new array: Go's
 // slices.Repeat. Effect's Array.replicate(x, n) is Repeat([]T{x}, n). A

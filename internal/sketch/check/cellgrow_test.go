@@ -94,7 +94,7 @@ func cgDraw(rng *rand.Rand) cgProgram {
 	}
 	var b strings.Builder
 	b.WriteString(`type Bag {
-	Add(n int),
+	mut Add(n int),
 	seal(),
 }
 

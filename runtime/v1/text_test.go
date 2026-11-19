@@ -194,12 +194,12 @@ var textLaws = map[string]func(r *rand.Rand) (bool, any){
 // restatement above is changed with it.
 var textLawStatements = map[string]string{
 	"strconv AppendsFormat":          `AppendsFormat(n int64, u uint64, f float64, b int) { let base = 2 + (b%35+35)%35 let out = AppendInt(AppendFloat(AppendUint(AppendInt([]byte{}, n, base), u>>1, base), f, 'g', -1), n, base) strings.FromBytes(out) == FormatInt(n, base)+FormatInt(int64(u>>1), base)+FormatFloat(f, 'g', -1)+FormatInt(n, base) }`,
-	"strconv AtoiInvertsItoa":        `AtoiInvertsItoa(n int) { try Atoi(Itoa(n)) == n }`,
+	"strconv AtoiInvertsItoa":        `AtoiInvertsItoa(n int) { try Atoi(Itoa(n)) } == { n }`,
 	"strconv FormatFloatRoundTrips":  `FormatFloatRoundTrips(f float64) { if f != f { return true } try ParseFloat(FormatFloat(f, 'g', -1)) == f }`,
 	"strconv ItoaInvertsAtoi":        `ItoaInvertsAtoi(s string) { let n = Atoi(s) catch { case Malformed, OutOfRange: return true } try Atoi(Itoa(n)) == n }`,
-	"strconv ParseBoolInvertsFormat": `ParseBoolInvertsFormat(b bool) { try ParseBool(FormatBool(b)) == b }`,
-	"strconv ParseIntInvertsFormat":  `ParseIntInvertsFormat(n int) { try ParseInt(Itoa(n), 10, 64) == int64(n) }`,
-	"strconv UnquoteInvertsQuote":    `UnquoteInvertsQuote(s string) { try Unquote(Quote(s)) == s }`,
+	"strconv ParseBoolInvertsFormat": `ParseBoolInvertsFormat(b bool) { try ParseBool(FormatBool(b)) } == { b }`,
+	"strconv ParseIntInvertsFormat":  `ParseIntInvertsFormat(n int) { try ParseInt(Itoa(n), 10, 64) } == { int64(n) }`,
+	"strconv UnquoteInvertsQuote":    `UnquoteInvertsQuote(s string) { try Unquote(Quote(s)) } == { s }`,
 	"strings CountMatchesSplit":      `CountMatchesSplit(s string, sep string) { if sep == "" { return true } Count(s, sep) == len(Split(s, sep))-1 }`,
 	"strings EqualFoldIsSymmetric":   `EqualFoldIsSymmetric(s string, t string) { EqualFold(s, s) && EqualFold(s, t) == EqualFold(t, s) }`,
 	"strings FieldsHaveNoSpace":      `FieldsHaveNoSpace(s string) { for f in Fields(s) { let again = Fields(f) if len(again) != 1 || Join(again, "") != f { return false } } true }`,
@@ -208,8 +208,8 @@ var textLawStatements = map[string]string{
 	"strings JoinInvertsSplit":       `JoinInvertsSplit(s string, sep string) { if sep == "" { return true } Join(Split(s, sep), sep) == s }`,
 	"strings RepeatLength":           `RepeatLength(s string, n int) { if n < 0 || n > 64 { return true } len(Repeat(s, n)) == n*len(s) }`,
 	"strings ReplaceAllLength":       `ReplaceAllLength(s string, old string, repl string) { if old == "" { return true } len(ReplaceAll(s, old, repl)) == len(s)+Count(s, old)*(len(repl)-len(old)) }`,
-	"strings ToLowerIsIdempotent":    `ToLowerIsIdempotent(s string) { ToLower(ToLower(s)) == ToLower(s) }`,
-	"strings TrimSpaceIsIdempotent":  `TrimSpaceIsIdempotent(s string) { TrimSpace(TrimSpace(s)) == TrimSpace(s) }`,
+	"strings ToLowerIsIdempotent":    `ToLowerIsIdempotent(s string) { ToLower(ToLower(s)) } == { ToLower(s) }`,
+	"strings TrimSpaceIsIdempotent":  `TrimSpaceIsIdempotent(s string) { TrimSpace(TrimSpace(s)) } == { TrimSpace(s) }`,
 	"utf8 RuneCountAddsRune":         `RuneCountAddsRune(s string) { RuneCount(s+"é") == RuneCount(s)+1 }`,
 	"utf8 RuneCountAtMostLen":        `RuneCountAtMostLen(s string) { RuneCount(s) <= len(s) && RuneCount(s) >= 0 }`,
 	"utf8 RuneCountOfConcat":         `RuneCountOfConcat(a string, b string) { RuneCount(a+b) <= RuneCount(a)+RuneCount(b) }`,
@@ -236,6 +236,12 @@ func textBenches() []textBench {
 	goBuilt.WriteString(s)
 	return []textBench{
 		{"Join", "StringsJoin", func() { textSink = StringsJoin(xs, ";") }, func() { textSink = strings.Join(xs, ";") }},
+		{"String", "UTF8String", func() { textSink = UTF8String(buf[:8]) }, func() { textSink = string(buf[:8]) }},
+		// std build's fold queries: a built program answers false, as Go's
+		// constant does.
+		{"InFold", "BuildInFold", func() { textSink = BuildInFold() }, func() { textSink = false }},
+		{"Known", "BuildKnown", func() { textSink = BuildKnown(len(s)) }, func() { textSink = false }},
+		{"Hole", "BuildHole", func() { textSink = BuildHole(s) }, func() { textSink = false }},
 		// The builder bodies against Go's strings.Builder: a loop of
 		// writes, a Grow, and the text of a built buffer (Go's String
 		// shares its bytes; StringsBuilderText copies them).

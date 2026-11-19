@@ -58,6 +58,35 @@ func (n *NodeEncoder) ID(x any) uint64 {
 	return id
 }
 
+// Known returns the id x has, without giving it one and without Below.
+func (n *NodeEncoder) Known(x any) (uint64, bool) {
+	id, ok := n.ids[x]
+	return id, ok
+}
+
+// IsObject reports whether x is a syntax object the table can hold.
+func IsObject(x any) bool { return objTag(x) != 0 }
+
+// Objects are the syntax objects a table of root alone holds, in id order,
+// root first: the canonical walk of root that names a node of it by its
+// index (compile-speed/cs5b.md §3, Node). Head is that table's head, its
+// count and each object's tag: the walk's shape, which an edit of a
+// position, a name or a literal leaves alone.
+func Objects(root any) (objs []any, head []byte) {
+	n := NewNodeEncoder()
+	n.ID(root)
+	body := &encoder{table: n}
+	for i := 0; i < len(n.objs); i++ {
+		body.encObj(n.objs[i])
+	}
+	h := &encoder{}
+	h.uint(uint64(len(n.objs)))
+	for _, x := range n.objs {
+		h.uint(objTag(x))
+	}
+	return n.objs, h.buf
+}
+
 // Lookup returns the id of x when x is a syntax object, giving it one the
 // first time, and false when it is not.
 func (n *NodeEncoder) Lookup(x any) (uint64, bool) {
@@ -107,13 +136,15 @@ func (n *NodeEncoder) Bytes() []byte {
 	return append(head.buf, body.buf...)
 }
 
-// Table is a NodeTable whose segments are the ones starts bounds, the
-// first n of them holding the very objects this encoder named (a decoder
+// Table is a NodeTable whose segments are the ones starts bounds, those
+// written reports holding the very objects this encoder named (a decoder
 // in the same process reads them); the others are not decoded yet.
-func (n *NodeEncoder) Table(starts []uint64, written int) *NodeTable {
+func (n *NodeEncoder) Table(starts []uint64, written func(seg int) bool) *NodeTable {
 	t := NewNodeTable(starts)
-	for i := range written {
-		t.segs[i] = n.objs[starts[i]-1 : starts[i+1]-1]
+	for i := range len(starts) - 1 {
+		if written(i) {
+			t.segs[i] = n.objs[starts[i]-1 : starts[i+1]-1]
+		}
 	}
 	return t
 }

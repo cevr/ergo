@@ -353,7 +353,7 @@ law RestartRunsAgain(n int) {
 	case Closed:
 	}
 	set.Wait()
-	runs.Get() == limit + 1
+	runs.Get() == limit+1
 }
 
 // limitOf is a limit from 1 to 4, drawn from k.

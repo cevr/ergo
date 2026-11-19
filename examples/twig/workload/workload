@@ -1,0 +1,9 @@
+# scripts/opcount: `twig run -stats` runs the twig program of N rounds that
+# `twig gen -seed 1 -n N` writes; the cost of one round is the slope
+# between the two sizes. The control is the hand Go interpreter of the
+# same design, which prints the same counters.
+unit round
+sizes 200 1600
+input self gen -seed 1 -n {n}
+args run -stats {input}
+control cmd/ergo/testdata/twig/control

@@ -10,7 +10,7 @@ import (
 	"unicode/utf8"
 
 	"ergo.local/prototype/internal/sketch/derive"
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -108,6 +108,7 @@ func check(path string, files []*syntax.File, imp Importer, under *Package, opts
 	c.derive = derived
 	c.pkg.module, c.pkg.trusted = module, trusted
 	c.pkg.testOf = under
+	c.placeLaws = lawPlacementReported || opts.placeLaws
 	pkg := c.run(met)
 	for _, d := range derivedDiags {
 		d.File = rank[d.File]
@@ -156,6 +157,10 @@ type checker struct {
 	// neverOrigins caches, per union origin, whether a variant holds a
 	// Never (switchUnion.mayHoldNever; types.md, Never).
 	neverOrigins map[*Union]bool
+	// placeLaws reports S115 (lawplace.go, lawPlacementReported).
+	placeLaws bool
+	// closeOp is the release contract's operation name (closeName).
+	closeOp string
 	// caught is the call a catch being checked catches (handlers.go).
 	caught   *caughtCall
 	cover    tryCover // tries in operand position (cover.go)
@@ -216,9 +221,14 @@ type checker struct {
 	// pureArgs are the arguments of pure parameters (durable.go), which
 	// checkPureArgs judges once the footprints are known.
 	pureArgs []pureArg
-	// discarded are the calls whose result a statement drops, which
-	// checkDiscardedCalls judges once the footprints are known (stmt.go).
-	discarded []discardedCall
+	// dropped are the calls whose result a statement discards, which
+	// checkDroppedResults judges once the footprints are known.
+	dropped []droppedCall
+	// raises memoizes raisesByName.
+	raises map[*Func]bool
+	// unassigned are the never-reassigned let mut locals, which
+	// checkDroppedResults reports once the dropped calls are judged.
+	unassigned []unassignedLocal
 	// lawPreds are the invariant laws whose predicate checkLawPreds judges
 	// pure once the footprints are known (machinelaw.go).
 	lawPreds []*Law
@@ -280,8 +290,10 @@ type checker struct {
 	// resMemo caches holdsResource, mayHoldResource and mayHoldAny (the
 	// walk's modes) by interned type id; resSteps counts the walk's visits
 	// (resource.go).
-	resMemo  [3]map[int32]bool
-	resSteps int
+	resMemo [3]map[int32]bool
+	// handleMemo caches holdsHandle by interned type id (handle.go).
+	handleMemo map[int32]bool
+	resSteps   int
 	// ownSteps counts the ownership pass's work: nodes visited and state
 	// slots copied or joined (ownership.go), for the growth guard.
 	ownSteps int
@@ -562,6 +574,7 @@ func newChecker(path string, imp Importer, universe *Scope) *checker {
 	pkg := &Package{Path: path, Scope: newScope(universe), Contexts: map[string]*Context{}, Info: newInfo()}
 	c := &checker{
 		pkg:            pkg,
+		placeLaws:      lawPlacementReported,
 		imp:            imp,
 		universe:       universe,
 		seen:           map[string]bool{},
@@ -759,6 +772,9 @@ func universe() *Scope {
 		goPkg.Scope.insert("As", &Builtin{Name: "go.As"})
 		// go.New[T]() is Go's new(T), held as a go.Ref[T] (GBX1, gonew.go).
 		goPkg.Scope.insert("New", &Builtin{Name: "go.New"})
+		// go.Zero[T]() is Go's zero T, the base a Go struct literal
+		// spreads from (GBX5b, gonew.go).
+		goPkg.Scope.insert("Zero", &Builtin{Name: "go.Zero"})
 		// go.Ref[T] is a Go pointer that is stored, returned or held in a
 		// collection: an opaque handle, never nil (owner q32, q38;
 		// docs/spec/interop.md). Ergo's own *T stays a borrow.
@@ -807,8 +823,8 @@ func prelude() preludeResult {
 	preludeOnce.Do(func() {
 		u := universe()
 		var files []*syntax.File
-		for _, name := range sortedKeys(std.Prelude()) {
-			f, err := syntax.Parse(std.Prelude()[name])
+		for _, name := range sortedKeys(stdlib.Prelude()) {
+			f, err := syntax.Parse(stdlib.Prelude()[name])
 			if err != nil {
 				panic("check: the prelude does not parse: " + err.Error())
 			}
@@ -823,7 +839,7 @@ func prelude() preludeResult {
 		f.Name = collFileName
 		collFile = f
 		files = append(files, f)
-		c := newChecker(std.PreludePath, nil, u)
+		c := newChecker(stdlib.PreludePath, nil, u)
 		c.pkg.std = true
 		c.pkg.trusted = true // the toolchain vouches for what it ships
 		pkg := c.run(files)
@@ -876,6 +892,9 @@ type stdImporter struct {
 	// (checked or decoded), so each follows its imports (ExportStd).
 	order []string
 	ready map[string]bool
+	// sources reads a package's files; nil reads the embedded std
+	// (stdlib.Package). A test gives a library of its own.
+	sources func(path string) (map[string]string, bool)
 }
 
 // stdEntry is one std package, checked once.
@@ -980,14 +999,24 @@ func (s *stdImporter) count(files, packages int64) {
 
 // load checks the std package at path.
 func (s *stdImporter) load(path string) (*Package, error) {
-	sources, ok := std.Package(path)
+	read := s.sources
+	if read == nil {
+		read = stdlib.Package
+	}
+	sources, ok := read(path)
 	if !ok {
 		return nil, fmt.Errorf("no package %q", path)
 	}
 	s.count(int64(len(sources)), 1)
 	var files []*syntax.File
-	for _, name := range sortedKeys(sources) {
-		f, err := syntax.Parse(sources[name])
+	names := sortedKeys(sources)
+	texts := make([]string, len(names))
+	for i, name := range names {
+		texts[i] = sources[name]
+	}
+	parsed, errs := syntax.ParseFiles(texts)
+	for i, name := range names {
+		f, err := parsed[i], errs[i]
 		if err != nil {
 			return nil, fmt.Errorf("std package %q does not parse: %v", path, err)
 		}
@@ -1001,7 +1030,15 @@ func (s *stdImporter) load(path string) (*Package, error) {
 	pkg := c.run(files)
 	var err error
 	if len(c.diags) > 0 {
-		err = fmt.Errorf("std package %q has diagnostics: %s", path, c.sorted()[0])
+		// The importer says why, with the first diagnostic and its file, so
+		// the import does not read as an unknown package (TM: actor's
+		// "unknown package tasks" hid tasks' S101).
+		d := c.sorted()[0]
+		at := ""
+		if d.File >= 0 && d.File < len(files) {
+			at = files[d.File].Name + ":"
+		}
+		err = &ImportError{Path: path, Reason: fmt.Sprintf("%s%s", at, d), Broken: true}
 	}
 	return pkg, err
 }
@@ -1028,7 +1065,7 @@ func (s *stdImporter) testOf(path string) *Package {
 	if !ok {
 		return nil
 	}
-	if _, isStd := std.Package(base); !isStd {
+	if _, isStd := stdlib.Package(base); !isStd {
 		return nil
 	}
 	under, err := s.Import(base)

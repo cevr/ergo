@@ -105,6 +105,13 @@ type LawDecl struct {
 	// Body then holds the guard, when there is one, as an ExprStmt, then
 	// Rewrite.Lhs and Rewrite.Rhs, so a walk of Body sees every name.
 	Rewrite *LawRewrite
+	// Equation is the rewrite form of a top-level law over functions
+	// (types.md, Laws 14; LAWFFI LF6a): `law L(params) { lhs } == { rhs
+	// }`, each side one expression, or nil. Body then holds one statement,
+	// `lhs == rhs` (a BinaryExpr at Equation.Eq), so the law is checked,
+	// run and lowered as the property it states; EquationSides gives the
+	// sides, and the formatter prints the two blocks.
+	Equation *LawEquation
 	// Derived is the refined type whose `where` the parser derived this
 	// law from (refine.go), or nil for a written one. The formatter does
 	// not print it.
@@ -131,6 +138,21 @@ func (*LawDecl) declNode() {}
 type LawRewrite struct {
 	When Pos
 	Eq   Pos
+}
+
+// LawEquation is the rewrite form of a top-level law (LawDecl.Equation):
+// the braces of its two blocks. The == is the BinaryExpr of the law's
+// Body.
+type LawEquation struct {
+	LhsLbrace, LhsRbrace Pos
+	RhsLbrace, RhsRbrace Pos
+}
+
+// EquationSides are the left and right expressions of a top-level rewrite
+// law (LawDecl.Equation), and the == between them.
+func (d *LawDecl) EquationSides() (lhs, rhs Expr, eq *BinaryExpr) {
+	b := d.Body.List[0].(*ExprStmt).X.(*BinaryExpr)
+	return b.X, b.Y, b
 }
 
 // RewriteGuard is the `R() == C` of a rewrite law's `when`, nil without one.

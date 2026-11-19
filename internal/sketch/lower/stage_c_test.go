@@ -27,13 +27,19 @@ func ergoRun(t *testing.T, src string) (string, error) {
 	cmd := exec.Command(ergoCLI(t), "run", path)
 	cmd.Dir = filepath.Dir(path)
 	out, err := cmd.CombinedOutput()
-	// The first build in the test process's cache builds the IR compiler
-	// and says so first; which test makes it depends on the order the
-	// tests run in, and the note is no output of the program.
-	if note, rest, ok := strings.Cut(string(out), "\n"); ok && strings.HasPrefix(note, toolchain.BuildNote) {
-		out = []byte(rest)
-	}
+	out = withoutBuildNote(out)
 	return string(out), err
+}
+
+// withoutBuildNote is out without the line the first build in the test
+// process's cache writes first when it builds the IR compiler: which test
+// makes that build depends on the order the tests run in, and the note is
+// no output of the program (CS10, TRC).
+func withoutBuildNote(out []byte) []byte {
+	if note, rest, ok := strings.Cut(string(out), "\n"); ok && strings.HasPrefix(note, toolchain.BuildNote) {
+		return []byte(rest)
+	}
+	return out
 }
 
 func wantRun(t *testing.T, src, want string) {
@@ -51,9 +57,9 @@ func value() int { 42 }
 func small() int8 { -128 }
 func early(n int) int { if n < 0 { return 0 }; n }
 func literal() int { let f = func() int { 7 }; f() }
-func n123() int { 123 }
+func n123() int { let one = true; if one { 123 } else { Unreachable("never") } }
 func ignored() { n123() }
-func id[T](v T) T { return v }
+func id[T](v T) T { let one = true; if one { v } else { Unreachable("never") } }
 func ignoredFunction() { id[int](5) }
 func fail() int fails Failed { Failed{Code: 3} }
 func through() int fails Failed { fail() }

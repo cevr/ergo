@@ -1,0 +1,263 @@
+// Project against a model: seeded projects whose graph the generator
+// knows (which file imports which, how, and how often it uses each name),
+// and the record version 3 items Project must give them.
+
+import ergo.dev/tn1
+import rand
+import strings
+
+let dirs = []string{"core", "core/util", "app", "web"}
+let verbs = []string{"load", "parse", "store", "render", "count", "merge"}
+let nouns = []string{"Order", "Menu", "Price", "Table", "Guest", "Shift"}
+
+// genDecl is one exported function of a generated file: its name, the
+// line it is on, and the uses of it from each package (by index).
+type genDecl { Name string, Line int, From []int }
+
+// genFile is one generated file: its package, its path, its source, its
+// decls, the files it imports and its uses of each package's names.
+type genFile {
+	Pkg     int,
+	Path    string,
+	Decls   []genDecl,
+	Imports []int,
+	UsesOf  []int,
+	Lines   []string,
+	Users   int,
+}
+
+// relative is the specifier from a file in dir from to path (no
+// extension), with ext added.
+func relative(from string, path string, ext string) string {
+	if PackageOf(path) == from {
+		return "./" + baseName(path) + ext
+	}
+	let up = strings.Count(from, "/") + 1
+	strings.Repeat("../", up) + path + ext
+}
+
+// genProject is a seeded project of 1 to 4 packages; a file imports only
+// from files before it (an earlier package, or earlier in its own), so
+// the graph has no cycle and its depths have one answer.
+func genProject(seed int) []genFile {
+	with context { Random: rand.Seeded(uint64(seed)) } {
+		let pkgs = 1 + Random.IntN(len(dirs))
+		let mut files = []genFile{}
+		let mut name = 0
+		for p in 0..pkgs {
+			for j in 0..1+Random.IntN(3) {
+				let mut f = genFile{Pkg: p, Path: dirs[p] + "/f\(j).ts", Decls: []genDecl{}, Imports: []int{}, UsesOf: []int{}, Lines: []string{}, Users: 0}
+				for _ in 0..pkgs {
+					f.UsesOf = f.UsesOf.Append(0)
+				}
+				let mut body = []string{}
+				for t in 0..len(files) {
+					if Random.IntN(3) != 0 {
+						continue
+					}
+					let target = files[t]
+					let ext = if Random.IntN(2) == 0 { "" } else { ".js" }
+					let spec = relative(dirs[p], strings.TrimSuffix(target.Path, ".ts"), ext)
+					let picked = 1 + Random.IntN(len(target.Decls))
+					match Random.IntN(3) {
+					case 0:
+						let mut names = []string{}
+						for m in 0..picked {
+							names = names.Append(target.Decls[m].Name)
+						}
+						f.Lines = f.Lines.Append("import { \(strings.Join(names, ", ")) } from \"\(spec)\";")
+						for m in 0..picked {
+							let uses = 1 + Random.IntN(3)
+							for _ in 0..uses {
+								body = body.Append("  \(names[m])(1);")
+								files[t].Decls[m].From[p] += 1
+								f.UsesOf[target.Pkg] += 1
+							}
+						}
+					case 1:
+						let mut names = []string{}
+						for m in 0..picked {
+							names = names.Append("\(target.Decls[m].Name) as local\(t)x\(m)")
+						}
+						f.Lines = f.Lines.Append("import { \(strings.Join(names, ", ")) } from \"\(spec)\";")
+						for m in 0..picked {
+							body = body.Append("  local\(t)x\(m)(2);")
+							files[t].Decls[m].From[p] += 1
+							f.UsesOf[target.Pkg] += 1
+						}
+					case _:
+						f.Lines = f.Lines.Append("import * as space\(t) from \"\(spec)\";")
+						for m in 0..picked {
+							body = body.Append("  space\(t).\(target.Decls[m].Name)(3);")
+							files[t].Decls[m].From[p] += 1
+							f.UsesOf[target.Pkg] += 1
+						}
+					}
+					f.Imports = f.Imports.Append(t)
+				}
+				for _ in 0..1+Random.IntN(3) {
+					let n = "\(verbs[name%len(verbs)])\(nouns[(name/len(verbs))%len(nouns)])\(name)"
+					name += 1
+					f.Lines = f.Lines.Append("export function \(n)(n: number): number { return n + 1; }")
+					let mut from = []int{}
+					for _ in 0..len(dirs) {
+						from = from.Append(0)
+					}
+					f.Decls = f.Decls.Append(genDecl{Name: n, Line: len(f.Lines), From: from})
+				}
+				if len(body) > 0 {
+					f.Lines = f.Lines.Append("function useAll() {")
+					for b in body {
+						f.Lines = f.Lines.Append(b)
+					}
+					f.Lines = f.Lines.Append("}")
+					f.Users = 1
+				}
+				files = files.Append(f)
+			}
+		}
+		files
+	}
+}
+
+func modelDepth(files []genFile, p int) int {
+	let mut best = 0
+	for f in files {
+		if f.Pkg != p {
+			continue
+		}
+		for t in f.Imports {
+			let q = files[t].Pkg
+			if q != p {
+				let d = 1 + modelDepth(files, q)
+				if d > best {
+					best = d
+				}
+			}
+		}
+	}
+	best
+}
+
+func share(part int, whole int) int {
+	if whole == 0 {
+		return 0
+	}
+	part * 1000 / whole
+}
+
+// ProjectIsTheModel: on a seeded project, each file's F item, its
+// package's P item and its functions' caller counts are what the
+// generator wrote.
+law ProjectIsTheModel(seed int) {
+	let files = genProject(seed)
+	let mut named = []tn1.Named{}
+	for f in files {
+		named = named.Append(tn1.Named{Name: f.Path, Text: strings.Join(f.Lines, "\n") + "\n"})
+	}
+	let records = Project(named)
+	if len(records) != len(files) {
+		return false
+	}
+	for i in 0..len(files) {
+		let f = files[i]
+		let r = records[i]
+		if r.Version != 3 || len(r.Files) != 1 || len(r.Packages) != 1 {
+			return false
+		}
+		let fi = r.Files[0]
+		let mut fanIn = 0
+		for g in files {
+			for t in g.Imports {
+				if t == i {
+					fanIn += 1
+				}
+			}
+		}
+		let total = slicesSum(f.UsesOf)
+		let mut best = 0
+		for q in 0..len(f.UsesOf) {
+			if q != f.Pkg && f.UsesOf[q] > best {
+				best = f.UsesOf[q]
+			}
+		}
+		if fi.FanIn != fanIn || fi.FanOut != len(f.Imports) || fi.UsesInPackage != f.UsesOf[f.Pkg] || fi.UsesOut != total-f.UsesOf[f.Pkg] || fi.BestOtherPackageShare != share(best, total) || fi.Decls != len(f.Decls)+f.Users || fi.NameWords != tn1.SketchOf(baseName(f.Path)) {
+			return false
+		}
+		// The package.
+		let p = r.Packages[0]
+		let mut pFiles = 0
+		let mut decls = 0
+		let mut exported = 0
+		let mut internal = 0
+		let mut external = 0
+		let mut out = []bool{}
+		let mut inn = []bool{}
+		for _ in dirs {
+			out = out.Append(false)
+			inn = inn.Append(false)
+		}
+		for g in files {
+			if g.Pkg == f.Pkg {
+				pFiles += 1
+				decls += len(g.Decls) + g.Users
+				exported += len(g.Decls)
+				internal += g.UsesOf[f.Pkg]
+				external += slicesSum(g.UsesOf) - g.UsesOf[f.Pkg]
+			}
+			for t in g.Imports {
+				let q = files[t].Pkg
+				if g.Pkg == f.Pkg && q != f.Pkg {
+					out[q] = true
+				}
+				if q == f.Pkg && g.Pkg != f.Pkg {
+					inn[g.Pkg] = true
+				}
+			}
+		}
+		if p.Files != pFiles || p.Decls != decls || p.Exported != exported || p.InternalUses != internal || p.ExternalUses != external || p.FanOut != trues(out) || p.FanIn != trues(inn) || p.Depth != modelDepth(files, f.Pkg) || p.UpEdges != 0 || p.ChurnTogether != 0 {
+			return false
+		}
+		// The callers of each exported function, found by its line.
+		for d in f.Decls {
+			let mut found = false
+			for n in r.Nodes {
+				if n.Line == d.Line && n.Kind == tn1.Function {
+					found = true
+					let outside = slicesSum(d.From) - d.From[f.Pkg]
+					let mut top = 0
+					for q in 0..len(d.From) {
+						if q != f.Pkg && d.From[q] > top {
+							top = d.From[q]
+						}
+					}
+					if n.CallersInPackage != d.From[f.Pkg] || n.CallersOut != outside || n.TopCallerPackageShare != share(top, outside) {
+						return false
+					}
+				}
+			}
+			if !found {
+				return false
+			}
+		}
+	}
+	true
+}
+
+func slicesSum(xs []int) int {
+	let mut s = 0
+	for x in xs {
+		s += x
+	}
+	s
+}
+
+func trues(xs []bool) int {
+	let mut n = 0
+	for x in xs {
+		if x {
+			n += 1
+		}
+	}
+	n
+}

@@ -60,6 +60,14 @@ func (b *irBuilder) goBuiltinCall(x *syntax.CallExpr, c *check.Call, f *check.Fu
 		if len(args) != 2 {
 			irNo("append form")
 		}
+		if len(f.Sig.Params) == 2 {
+			if _, ok := underEqual(f.Sig.Params[1].Type).(*check.Slice); ok {
+				// slices.AppendAll is Go's append(xs, ys...), which the IR
+				// kind "append" (one element) and "builtin" append (a
+				// string's bytes) do not spell (toolchain/ir builtinExpr). (I22)
+				irNo("append of a slice's elements")
+			}
+		}
 		return pre, &irExpr{K: "append", Pos: p, Args: args}, false
 	case "len":
 		if len(args) != 1 {

@@ -53,7 +53,7 @@ func registerTasks() {
 		if ab := in.build(fr, at, 1, 4, 0); ab != nil {
 			return nil, ab
 		}
-		return &queueV{capacity: n, closed: stdRecord(fn, "Closed", nil).t}, nil
+		return &queueV{capacity: n, closed: stdRecord(fn, "Closed", nil).t, full: stdRecord(fn, "Full", nil).t}, nil
 	}
 	timeline := func(auto bool) native {
 		return func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
@@ -326,6 +326,7 @@ type queueV struct {
 	pushers  []*pushWait
 	ended    bool
 	closed   *check.Named // queue.Closed
+	full     *check.Named // queue.Full; nil for an actor's inbox
 }
 
 // pushWait is one Push waiting for room: in once its value entered,
@@ -407,6 +408,44 @@ func (q *queueV) opCall(in *interp, fr *frame, at syntax.Node, name string, args
 	case "End":
 		q.end()
 		return unit{}, nil
+	case "Offer":
+		// Offer never waits: it enters now or fails (Queues, Offer).
+		switch {
+		case q.ended:
+			return nil, q.closedFailure(fr, at)
+		case len(q.pushers) > 0 || int64(len(q.buf)) >= q.capacity:
+			if q.full == nil {
+				ice("an Offer on a queue with no Full record")
+			}
+			return nil, fr.abrupt(ctlFail, at, &record{t: q.full}, "")
+		}
+		q.buf = append(q.buf, args[0])
+		return unit{}, nil
+	case "Slide":
+		// Slide never waits: the oldest value leaves and v enters in one
+		// step, so v enters exactly once (Queues, Offer and Cap; q5). A
+		// Push still waiting for room keeps waiting.
+		switch {
+		case q.capacity == 0:
+			return nil, fr.defect(at, "queue.Slide: a queue of capacity 0 has no room to slide into")
+		case q.ended:
+			return nil, q.closedFailure(fr, at)
+		}
+		var old Value
+		evicted := int64(len(q.buf)) >= q.capacity
+		if evicted {
+			old = q.buf[0]
+			q.buf = q.buf[1:]
+		}
+		q.buf = append(q.buf, args[0])
+		call, isCall := at.(*syntax.CallExpr)
+		if !isCall {
+			ice("a Slide with no call")
+		}
+		// The evicted value goes back to the caller, who owns it (R42).
+		return in.option(fr, call, old, evicted)
+	case "Cap":
+		return q.capacity, nil
 	case "Poll":
 		v, ok := q.take()
 		call, isCall := at.(*syntax.CallExpr)
@@ -483,6 +522,10 @@ type queueValues struct{ q *queueV }
 type seqSource interface {
 	next(in *interp, fr *frame, at syntax.Node) (v Value, more bool, ab *abrupt)
 }
+
+// seqDone is a seqSource that holds something while a loop runs it (an
+// actor's subscription): done releases it when the loop ends, however.
+type seqDone interface{ done() }
 
 func (s *queueValues) next(in *interp, fr *frame, at syntax.Node) (Value, bool, *abrupt) {
 	return in.queuePop(fr, at, s.q)

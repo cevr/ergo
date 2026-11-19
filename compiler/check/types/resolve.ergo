@@ -100,7 +100,40 @@ func parentDecl(p syntax.Parsed, node int) dense.Opt[syntax.Node] {
 // A non-generic one also has its text and its sort key as the Go
 // checker prints them (an alias's are its target's), and, when it is a
 // union, its variants, as indices of the table.
-type Foreign { Qual string, Name string, Arity int, Path string, Print string, Key string }
+type Foreign { Qual string, Name string, Arity int, Path string, Print string, Key string, Variants []int }
+
+// WithUnions is foreign with each union's variants, read from text's
+// "@union QUAL NAME VARIANT,…" lines: the indexes in foreign of the
+// variants, types of the union's package, in their declared order (a
+// generic union lists only the variants that take its parameters in their
+// order; types.Elided instantiates them with the union's arguments).
+func WithUnions(foreign []Foreign, text string) []Foreign {
+	let mut out = foreign
+	for line in strings.Split(text, "\n") {
+		let parts = strings.Fields(line)
+		if len(parts) != 4 || parts[0] != "@union" {
+			continue
+		}
+		let mut vs = []int{}
+		let mut at = -1
+		for i, f in out {
+			if f.Qual == parts[1] && f.Name == parts[2] {
+				at = i
+			}
+		}
+		for v in strings.Split(parts[3], ",") {
+			for i, f in out {
+				if f.Qual == parts[1] && f.Name == v {
+					vs = vs.Append(i)
+				}
+			}
+		}
+		if at >= 0 {
+			out[at].Variants = vs
+		}
+	}
+	out
+}
 
 // Env is what resolving one declaration's type expressions reads: the
 // file, the declaration's bracket parameter names in order, the solved

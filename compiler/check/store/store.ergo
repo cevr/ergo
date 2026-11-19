@@ -56,8 +56,8 @@ func Declare(s mut Store, n dense.ID[dense.Str], file int, node int, o Object) d
 	let d = dense.Put(&s.decls, Decl{Kind: uint8(KindOf(r)), Name: n, File: uint32(file), Node: uint32(node), Obj: r})
 	dense.Push(&s.prints, Prints{Fp: Print{Hi: uint64(0), Lo: uint64(0)}, Ifp: Print{Hi: uint64(0), Lo: uint64(0)}})
 	let bind = match dense.Unpack(dense.Of(s.scope, n)) {
-	case Some[dense.ID[Decl]] as prev:
-		KindOf(r) == kTypeName && int(DeclOf(*s, prev.Value).Kind) == kFunc
+	case Some{Value: prev}:
+		KindOf(r) == kTypeName && int(DeclOf(*s, prev).Kind) == kFunc
 	case None:
 		true
 	}
@@ -70,8 +70,8 @@ func Declare(s mut Store, n dense.ID[dense.Str], file int, node int, o Object) d
 // KindOfName is the object kind the package scope binds text to, or 0.
 func KindOfName(s Store, text string) int {
 	match Lookup(s, text) {
-	case Some[dense.ID[Decl]] as d:
-		int(DeclOf(s, d.Value).Kind)
+	case Some{Value: d}:
+		int(DeclOf(s, d).Kind)
 	case None:
 		0
 	}
@@ -80,8 +80,8 @@ func KindOfName(s Store, text string) int {
 // Lookup is the package-level declaration of text, if any.
 func Lookup(s Store, text string) Option[dense.ID[Decl]] {
 	match dense.FindText(s.names, text) {
-	case Some[dense.ID[dense.Str]] as n:
-		dense.Unpack(dense.Of(s.scope, n.Value))
+	case Some{Value: n}:
+		dense.Unpack(dense.Of(s.scope, n))
 	case None:
 		None
 	}

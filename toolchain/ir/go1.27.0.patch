@@ -1,9 +1,9 @@
 diff --git a/src/cmd/compile/internal/ergoir/ergoir.go b/src/cmd/compile/internal/ergoir/ergoir.go
 new file mode 100644
-index 0000000..4327a15
+index 0000000..76b1438
 --- /dev/null
 +++ b/src/cmd/compile/internal/ergoir/ergoir.go
-@@ -0,0 +1,290 @@
+@@ -0,0 +1,293 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -141,6 +141,9 @@ index 0000000..4327a15
 +	// tparams are the type parameters of the function being decoded, its
 +	// receiver's then its own (F1): a type spelling names them first.
 +	tparams []*types2.TypeParam
++	// tdef is the call a "tdef" binds, whose several results call
++	// admits (ergoir_tuple.go).
++	tdef *ergoExpr
 +}
 +
 +// ergoAttach gives every function the IR file names its checked body.
@@ -424,10 +427,10 @@ index 0000000..d16dcaa
 +}
 diff --git a/src/cmd/compile/internal/ergoir/ergoir_call.go b/src/cmd/compile/internal/ergoir/ergoir_call.go
 new file mode 100644
-index 0000000..a5cd3fc
+index 0000000..be785d3
 --- /dev/null
 +++ b/src/cmd/compile/internal/ergoir/ergoir_call.go
-@@ -0,0 +1,64 @@
+@@ -0,0 +1,68 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -461,13 +464,17 @@ index 0000000..a5cd3fc
 +
 +// call checks the arguments of a call of fun, whose signature is sig.
 +func (c *ergoChecker) call(x *ergoExpr, fun syntax.Expr, sig *types2.Signature) (syntax.Expr, types2.Type) {
-+	// A package function may return several values, which only a tdef
-+	// binds (ergoir_tuple.go).
-+	if sig.Variadic() || sig.Params().Len() != len(x.Args) || !ergoSigOK(sig) && x.K != "pcall" {
++	// A function may return several values, which only a tdef binds
++	// (ergoir_tuple.go): a package call, or the call a tdef holds.
++	// A variadic Go function takes its last argument spread, f(xs...),
++	// when the IR's Op says "..." (FLIP F7 FORK-GOLIB): types2's last
++	// parameter is then the slice.
++	dots := x.Op == "..." && sig.Variadic()
++	if sig.Variadic() != dots || sig.Params().Len() != len(x.Args) || !ergoSigOK(sig) && x.K != "pcall" && x != c.tdef {
 +		c.errorf(x.Pos, "ergoir: call of %s with %d arguments", x.Name, len(x.Args))
 +		return nil, nil
 +	}
-+	call := &syntax.CallExpr{Fun: fun}
++	call := &syntax.CallExpr{Fun: fun, HasDots: dots}
 +	call.SetPos(c.pos(x.Pos))
 +	for i, a := range x.Args {
 +		e, t := c.expr(a)
@@ -721,10 +728,10 @@ index 0000000..2995f1c
 +}
 diff --git a/src/cmd/compile/internal/ergoir/ergoir_expr.go b/src/cmd/compile/internal/ergoir/ergoir_expr.go
 new file mode 100644
-index 0000000..4798b5a
+index 0000000..bafcb87
 --- /dev/null
 +++ b/src/cmd/compile/internal/ergoir/ergoir_expr.go
-@@ -0,0 +1,470 @@
+@@ -0,0 +1,472 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -996,8 +1003,10 @@ index 0000000..4798b5a
 +		if xs == nil || i == nil {
 +			return nil, nil
 +		}
++		// Go indexes by a value of any integer type (red #31: a string
++		// by a byte).
 +		elem := ergoIndexElem(xt) // ergoir_f7.go
-+		if elem == nil || !types2.Identical(it, types2.Typ[types2.Int]) {
++		if elem == nil || !ergoIsInteger(it) {
 +			c.errorf(x.Pos, "ergoir: index of %v by %v", xt, it)
 +			return nil, nil
 +		}
@@ -2188,10 +2197,10 @@ index 0000000..0fc996c
 +}
 diff --git a/src/cmd/compile/internal/ergoir/ergoir_placeholder.go b/src/cmd/compile/internal/ergoir/ergoir_placeholder.go
 new file mode 100644
-index 0000000..cb33a2b
+index 0000000..c4434f6
 --- /dev/null
 +++ b/src/cmd/compile/internal/ergoir/ergoir_placeholder.go
-@@ -0,0 +1,59 @@
+@@ -0,0 +1,55 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -2216,10 +2225,6 @@ index 0000000..cb33a2b
 +	"cmd/compile/internal/syntax"
 +	"cmd/compile/internal/types2"
 +)
-+
-+// ergoPlaceholderText is the placeholder as the lowering writes it after
-+// the signature.
-+const ergoPlaceholderText = `{ panic("ergoir: no IR body") }`
 +
 +// ergoPlaceholder reports a body that is exactly the placeholder: one call
 +// of the universe's panic with the placeholder's string.
@@ -2253,7 +2258,7 @@ index 0000000..cb33a2b
 +}
 diff --git a/src/cmd/compile/internal/ergoir/ergoir_slice.go b/src/cmd/compile/internal/ergoir/ergoir_slice.go
 new file mode 100644
-index 0000000..4743a17
+index 0000000..f90510c
 --- /dev/null
 +++ b/src/cmd/compile/internal/ergoir/ergoir_slice.go
 @@ -0,0 +1,58 @@
@@ -2305,7 +2310,7 @@ index 0000000..4743a17
 +		if v == nil {
 +			return nil, nil
 +		}
-+		if !types2.Identical(vt, types2.Typ[types2.Int]) {
++		if !ergoIsInteger(vt) { // any integer type, as an index (red #31)
 +			c.errorf(a.Pos, "ergoir: slice index of type %v", vt)
 +			return nil, nil
 +		}
@@ -2683,10 +2688,10 @@ index 0000000..a54bb61
 +}
 diff --git a/src/cmd/compile/internal/ergoir/ergoir_text.go b/src/cmd/compile/internal/ergoir/ergoir_text.go
 new file mode 100644
-index 0000000..6646456
+index 0000000..9868cc4
 --- /dev/null
 +++ b/src/cmd/compile/internal/ergoir/ergoir_text.go
-@@ -0,0 +1,713 @@
+@@ -0,0 +1,743 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -2717,14 +2722,15 @@ index 0000000..6646456
 +	"cmd/compile/internal/types2"
 +)
 +
-+// ergoBodiless is every function declared without a body, or with the
-+// placeholder a generic one has (ergoir_placeholder.go).
-+func ergoBodiless(noders []*noder) map[*syntax.FuncDecl]bool {
-+	out := map[*syntax.FuncDecl]bool{}
++// ergoBodiless is every function declared without a body (nil), or with
++// the placeholder a generic one has (ergoir_placeholder.go), which it
++// keeps: its span is where the IR body's text goes.
++func ergoBodiless(noders []*noder) map[*syntax.FuncDecl]*syntax.BlockStmt {
++	out := map[*syntax.FuncDecl]*syntax.BlockStmt{}
 +	for _, p := range noders {
 +		for _, d := range p.file.DeclList {
 +			if fd, ok := d.(*syntax.FuncDecl); ok && (fd.Body == nil || ergoPlaceholder(nil, fd.Body)) {
-+				out[fd] = true
++				out[fd] = fd.Body
 +			}
 +		}
 +	}
@@ -2733,10 +2739,10 @@ index 0000000..6646456
 +
 +// ergoTextOut writes the text (-ergoirtext) and the structure
 +// (-ergoirshape) of the bodies ergoAttach gave the functions of bodiless.
-+func ergoTextOut(pkg *types2.Package, info *types2.Info, noders []*noder, bodiless map[*syntax.FuncDecl]bool) {
++func ergoTextOut(pkg *types2.Package, info *types2.Info, noders []*noder, bodiless map[*syntax.FuncDecl]*syntax.BlockStmt) {
 +	attached := map[*syntax.FuncDecl]bool{}
-+	for fd := range bodiless {
-+		if fd.Body != nil {
++	for fd, old := range bodiless {
++		if fd.Body != nil && fd.Body != old {
 +			attached[fd] = true
 +		}
 +	}
@@ -2764,7 +2770,7 @@ index 0000000..6646456
 +		if err != nil {
 +			base.Fatalf("ergoir: %v", err)
 +		}
-+		text, err := ergoFileText(pkg, info, p.file, string(src), decls)
++		text, err := ergoFileText(pkg, info, p.file, string(src), decls, bodiless)
 +		if err != nil {
 +			base.Fatalf("ergoir: %s: %v", name, err)
 +		}
@@ -2775,8 +2781,8 @@ index 0000000..6646456
 +}
 +
 +// ergoFileText is src with each of decls' bodies printed after its
-+// signature, which ends its line.
-+func ergoFileText(pkg *types2.Package, info *types2.Info, file *syntax.File, src string, decls []*syntax.FuncDecl) (string, error) {
++// signature, which ends its line, or over its placeholder (placeholders).
++func ergoFileText(pkg *types2.Package, info *types2.Info, file *syntax.File, src string, decls []*syntax.FuncDecl, placeholders map[*syntax.FuncDecl]*syntax.BlockStmt) (string, error) {
 +	p := &ergoPrinter{pkg: pkg, info: info, imports: map[string]string{}}
 +	for _, d := range file.DeclList {
 +		if id, ok := d.(*syntax.ImportDecl); ok && id.LocalPkgName != nil && id.Path != nil {
@@ -2787,7 +2793,36 @@ index 0000000..6646456
 +	}
 +	lines := strings.Split(src, "\n")
 +	bodies := map[int]string{} // line index -> the body to append
++	skip := map[int]bool{}     // the lines of a placeholder after its first
 +	for _, fd := range decls {
++		if ph := placeholders[fd]; ph != nil {
++			// The placeholder's span, from its { to its }, whatever its
++			// layout: on the signature's line, split by gofmt, with
++			// position comments, after a tuple's multi-line struct result
++			// (red #24: lru, snake/play, vt Parse.Advance).
++			lb, rb := ph.Pos(), ph.Rbrace
++			h, r := int(lb.Line())-1, int(rb.Line())-1
++			if lb.FileBase() != file.Pos().FileBase() || rb.FileBase() != file.Pos().FileBase() || h < 0 || r < h || r >= len(lines) ||
++				int(lb.Col()) > len(lines[h]) || lines[h][lb.Col()-1] != '{' || int(rb.Col()) > len(lines[r]) || lines[r][rb.Col()-1] != '}' {
++				return "", fmt.Errorf("%s: the placeholder %v-%v is not in the file", fd.Name.Value, lb, rb)
++			}
++			p.b.Reset()
++			p.reads = ergoReads(info, fd.Body)
++			p.block(fd.Body.List, 1)
++			// The lines after the body keep their positions: the line after
++			// the placeholder's } is that }'s next line.
++			p.b.WriteString(fmt.Sprintf("}\n//line %s:%d", rb.RelFilename(), int(rb.RelLine())+1))
++			rest := strings.TrimSpace(lines[r][rb.Col():]) // a comment after the }
++			lines[h] = strings.TrimRight(lines[h][:lb.Col()-1], " \t")
++			if rest != "" {
++				lines[h] += " " + rest
++			}
++			for i := h + 1; i <= r; i++ {
++				skip[i] = true
++			}
++			bodies[h] = p.b.String()
++			continue
++		}
 +		end := syntax.EndPos(fd.Type)
 +		if end.FileBase() != file.Pos().FileBase() || end.Line() == 0 || int(end.Line()) > len(lines) {
 +			return "", fmt.Errorf("%s: the signature's end %v is not in the file", fd.Name.Value, end)
@@ -2808,13 +2843,13 @@ index 0000000..6646456
 +	}
 +	var out strings.Builder
 +	for i, l := range lines {
++		if skip[i] {
++			continue
++		}
 +		body, ok := bodies[i]
 +		if !ok {
 +			out.WriteString(l)
 +		} else {
-+			if head, ok := strings.CutSuffix(strings.TrimRight(l, " \t"), ergoPlaceholderText); ok {
-+				l = strings.TrimRight(head, " \t") // the placeholder the IR body replaced
-+			}
 +			comment := ""
 +			if j := strings.Index(l, "//"); j >= 0 {
 +				l, comment = strings.TrimRight(l[:j], " \t"), " "+l[j:]
@@ -3402,10 +3437,10 @@ index 0000000..6646456
 +}
 diff --git a/src/cmd/compile/internal/ergoir/ergoir_text_shape.go b/src/cmd/compile/internal/ergoir/ergoir_text_shape.go
 new file mode 100644
-index 0000000..9efef14
+index 0000000..0f3af44
 --- /dev/null
 +++ b/src/cmd/compile/internal/ergoir/ergoir_text_shape.go
-@@ -0,0 +1,516 @@
+@@ -0,0 +1,522 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -3505,9 +3540,15 @@ index 0000000..9efef14
 +// and results dropped: they are not part of a type's identity (the Go
 +// spec), and the IR's function types name none where the text's
 +// function literal names its parameters, or the writer names a result
-+// #rv1 where Go's instance leaves it unnamed (IRFIX-TEXT).
++// #rv1 where Go's instance leaves it unnamed (IRFIX-TEXT). It is also t
++// without aliases, at any depth, and with each basic type by its kind:
++// an alias is its type (the Go spec), so the IR's *T and the text's
++// alias of it (an import an IR body names), or []uint8 and []byte, are
++// one type and shape alike (TEXT-SHAPE).
 +func ergoShapeUnnamed(t types2.Type) types2.Type {
-+	switch t := t.(type) {
++	switch t := types2.Unalias(t).(type) {
++	case *types2.Basic:
++		return types2.Typ[t.Kind()]
 +	case *types2.Tuple:
 +		if t == nil {
 +			return t
@@ -3924,10 +3965,10 @@ index 0000000..9efef14
 +}
 diff --git a/src/cmd/compile/internal/ergoir/ergoir_tuple.go b/src/cmd/compile/internal/ergoir/ergoir_tuple.go
 new file mode 100644
-index 0000000..882ee23
+index 0000000..4d8201c
 --- /dev/null
 +++ b/src/cmd/compile/internal/ergoir/ergoir_tuple.go
-@@ -0,0 +1,111 @@
+@@ -0,0 +1,117 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -3936,9 +3977,10 @@ index 0000000..882ee23
 +//
 +// An Ergo tuple is an unnamed struct, spelled as Go spells it,
 +// "struct{F0 T0; F1 T1}": "lit" builds one and "field" reads one, as for
-+// a named record. "tdef" binds the results of a call of a package
-+// function with several results to locals, in order: l0, l1, … := f(…);
-+// a local of -1 is Go's blank.
++// a named record. "tdef" binds the results of a call with several
++// results (of a function of a package or of this one, a Go method or a
++// function value) to locals, in order: l0, l1, … := f(…); a local of -1
++// is Go's blank.
 +
 +package ergoir
 +
@@ -3994,16 +4036,21 @@ index 0000000..882ee23
 +	return types2.NewStruct(fields, nil)
 +}
 +
++// ergoTdefCall are the call kinds a tdef binds.
++var ergoTdefCall = map[string]bool{"pcall": true, "call": true, "mcall": true, "vcall": true}
++
 +// tupleStmt decodes a "tdef"; ok is false for any other kind.
 +func (c *ergoChecker) tupleStmt(s *ergoStmt) (st syntax.Stmt, ok bool) {
 +	if s.K != "tdef" {
 +		return nil, false
 +	}
-+	if s.X == nil || s.X.K != "pcall" || len(s.Ls) < 2 {
-+		c.errorf(s.Pos, "ergoir: tdef of a value that is not a package call")
++	if s.X == nil || !ergoTdefCall[s.X.K] || len(s.Ls) < 2 {
++		c.errorf(s.Pos, "ergoir: tdef of a value that is not a call")
 +		return nil, true
 +	}
++	c.tdef = s.X
 +	x, t := c.expr(s.X)
++	c.tdef = nil
 +	if x == nil {
 +		return nil, true
 +	}

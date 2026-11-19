@@ -20,6 +20,7 @@ import compiler/check/types
 import compiler/syntax
 import dense
 import slices
+import strings
 
 // Fn is one function declaration of the package with its signature: its
 // file, its declaration and name nodes, its bracket parameters and their
@@ -165,13 +166,13 @@ func declared(s mut store.Store, env types.Env, p syntax.Parsed, file int, decl 
 	let mut ts = []dense.ID[store.TKey]{}
 	let mut names = []dense.Opt[syntax.Node]{}
 	match dense.Unpack(params) {
-	case Some[dense.ID[syntax.Node]] as l:
-		for f in fieldsOf(s, env, p, l.Value) {
+	case Some{Value: l}:
+		for f in fieldsOf(s, env, p, l) {
 			ts = ts.Append(f.T)
 		}
 		// A law's function-typed parameter has a row the law's draw
 		// leaves open, which the pool does not write: it is not declared.
-		for i, n in listNames(p, l.Value) {
+		for i, n in listNames(p, l) {
 			names = names.Append(if i < len(ts) && hasSig(*s, ts[i]) { dense.NoID[syntax.Node]() } else { n })
 		}
 	case None:
@@ -313,8 +314,8 @@ func opTypes(s mut store.Store, p syntax.Parsed, parsed []syntax.Parsed, kinds t
 					continue
 				}
 				match dense.Unpack(td.Spec) {
-				case Some[dense.ID[syntax.Node]] as sp:
-					match syntax.ViewOf(p.Tree, sp.Value) {
+				case Some{Value: sp}:
+					match syntax.ViewOf(p.Tree, sp) {
 					case syntax.InterfaceType as it:
 						let mut ops = []Field{}
 						let mut any = false
@@ -322,10 +323,10 @@ func opTypes(s mut store.Store, p syntax.Parsed, parsed []syntax.Parsed, kinds t
 							match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, it.Members, j)) {
 							case syntax.Field as fd:
 								match dense.Unpack(fd.Type) {
-								case Some[dense.ID[syntax.Node]] as ft:
-									if syntax.KindOf(p.Tree, ft.Value) == syntax.KFuncType && syntax.Len(fd.Names) == 1 {
+								case Some{Value: ft}:
+									if syntax.KindOf(p.Tree, ft) == syntax.KFuncType && syntax.Len(fd.Names) == 1 {
 										any = true
-										ops = ops.Append(Field{Name: types.NameText(p, syntax.Item(p.Tree, fd.Names, 0)), T: types.Resolve(s, env, ft.Value)})
+										ops = ops.Append(Field{Name: types.NameText(p, syntax.Item(p.Tree, fd.Names, 0)), T: types.Resolve(s, env, ft)})
 									}
 								case None:
 								}
@@ -359,8 +360,8 @@ func fieldsOf(s mut store.Store, env types.Env, p syntax.Parsed, l dense.ID[synt
 					continue
 				}
 				match dense.Unpack(fd.Type) {
-				case Some[dense.ID[syntax.Node]] as t:
-					let ty = types.Resolve(s, env, t.Value)
+				case Some{Value: t}:
+					let ty = types.Resolve(s, env, t)
 					for j in 0..syntax.Len(fd.Names) {
 						out = out.Append(Field{Name: types.NameText(p, syntax.Item(p.Tree, fd.Names, j)), T: ty})
 					}
@@ -454,7 +455,13 @@ func Load(s mut store.Store, files []bind.File, u bind.Uses, ps bind.Parents, ex
 				match syntax.ViewOf(p.Tree, d) {
 				case syntax.LawDecl as ld:
 					if ld.Body != dense.NoID[syntax.Node]() {
-						fns = fns.Append(declared(s, env, p, file, d, ld.Name, ld.Params, store.TBasic(s, bBool), ld.Body))
+						// A top-level rewrite law, { lhs } == { rhs }, is
+						// a block of its two sides, and the checker types
+						// it as lhs == rhs: no side is the law's bool, so
+						// its body has no result to want (TUPLE-WANT's
+						// tail blocks would type the right side as one).
+						let result = if ld.Equation { store.TTuple(s, []dense.ID[store.TKey]{}) } else { store.TBasic(s, bBool) }
+						fns = fns.Append(declared(s, env, p, file, d, ld.Name, ld.Params, result, ld.Body))
 					}
 				case syntax.TestDecl as td:
 					fns = fns.Append(declared(s, env, p, file, d, td.Name, td.Params, store.TTuple(s, []dense.ID[store.TKey]{}), dense.OptOf(td.Body)))
@@ -548,17 +555,17 @@ func Load(s mut store.Store, files []bind.File, u bind.Uses, ps bind.Parents, ex
 	for i, f in fns {
 		sameName = sameName.Append(-1)
 		match store.FindName(*s, types.NameText(parsed[f.File], f.Name)) {
-		case Some[dense.ID[dense.Str]] as n:
-			sameName[i] = dense.SideOf(named, n.Value)
-			dense.SideSet(&named, n.Value, i)
+		case Some{Value: n}:
+			sameName[i] = dense.SideOf(named, n)
+			dense.SideSet(&named, n, i)
 		case None:
 		}
 	}
 	let mut recBy = dense.NewSide[store.Decl, int](-1)
 	for i, r in recs {
 		match store.Lookup(*s, r.Name) {
-		case Some[dense.ID[store.Decl]] as d:
-			dense.SideSet(&recBy, d.Value, i)
+		case Some{Value: d}:
+			dense.SideSet(&recBy, d, i)
 		case None:
 		}
 	}
@@ -577,6 +584,42 @@ func parseFn(k Pkg, at dense.ID[store.PNode]) Option[Fn] {
 	None
 }
 
+// TyperWorkPerFunctionIsConstant: each further function of one shape adds
+// the same steps, the same typed expressions and the same reserved slots,
+// whatever the package's size, so no expression's typing reads the whole
+// package and the package-sized tables grow by the function, not faster.
+law TyperWorkPerFunctionIsConstant(n int) {
+	let m = 1 + ((n%3)+3)%3
+	let (s1, e1, r1) = typedShape(m)
+	let (s2, e2, r2) = typedShape(2 * m)
+	let (s3, e3, r3) = typedShape(3 * m)
+	e2 > e1 && s2-s1 == s3-s2 && e2-e1 == e3-e2 && r2 > r1 && r2-r1 == r3-r2
+}
+
+// shaped is the source of a package of m functions of one shape, which
+// reaches the typer's forms: a written and an inferred let, a generic
+// call, an index, a range, a condition and a final value.
+func shaped(m int) string {
+	let mut b = strings.NewBuilder()
+	b.WriteString("func id[T](x T) T { x }\n")
+	for i in 0..m {
+		b.WriteString("\nfunc f\(i)(p int, q string, xs []int) int {\n\tlet mut acc = p + 1\n\tlet a = id(p)\n\tlet c int = xs[0] * 2\n\tfor j, e in xs {\n\t\tacc = acc + e - j\n\t}\n\tif acc > 3 && q != \"x\" {\n\t\tacc = acc + len(q)\n\t}\n\tacc + a + c\n}\n")
+	}
+	b.String()
+}
+
+// typedShape types the package of m shaped functions: the typer's steps,
+// its count of typed expressions and the slots it reserved.
+func typedShape(m int) (int, int, int) {
+	let files = []bind.File{bind.File{Name: "p.ergo", Parsed: syntax.Parse(shaped(m))}}
+	let ps = bind.BuildParents(files)
+	let (bound, u) = bind.Bind(bind.Collect("p", files), []store.Frozen{}, ps, files, 1)
+	let mut s = bound
+	let k = Load(&s, files, u, ps, []types.Ext{}, []types.Foreign{}, []types.Iface{}, false)
+	let t = Check(&s, k)
+	(Steps(t), len(t.Entries), Reserved(t))
+}
+
 // FnAt is the index in k.Fns of the function whose name node is the
 // package node at, -1 when none is.
 func FnAt(k Pkg, at dense.ID[store.PNode]) int { if dense.In(k.fnBy, at) { dense.Of(k.fnBy, at) } else { -1 } }
@@ -584,8 +627,8 @@ func FnAt(k Pkg, at dense.ID[store.PNode]) int { if dense.In(k.fnBy, at) { dense
 // recOf is the index in k.Recs of the record named name, -1 when none is.
 func recOf(s store.Store, k Pkg, name string) int {
 	match store.Lookup(s, name) {
-	case Some[dense.ID[store.Decl]] as d:
-		dense.SideOf(k.recBy, d.Value)
+	case Some{Value: d}:
+		dense.SideOf(k.recBy, d)
 	case None:
 		-1
 	}

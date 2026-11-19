@@ -135,7 +135,7 @@ func (w *resWalk) visit(t Type) (bool, int) {
 			if c.hostClose(t) != nil {
 				return true, noLow
 			}
-			if it := asInterface(t); it != nil && hostCloseOp(t, it) != nil {
+			if it := asInterface(t); it != nil && c.hostCloseOp(t, it) != nil {
 				return true, noLow
 			}
 			return false, noLow
@@ -290,7 +290,7 @@ func (c *checker) closeMethod(n *Named) *Func {
 // closeFunc is n's function Close of the release shape, declared or not:
 // the release a Closer clause names (checkImplementsClauses).
 func (c *checker) closeFunc(n *Named) *Func {
-	f := n.method("Close")
+	f := n.method(c.closeName())
 	if f == nil || f.owner == nil {
 		return nil
 	}
@@ -478,9 +478,41 @@ func (c *checker) providerAssignability(v, t Type) (assignment, string) {
 }
 
 // resourceIntoCrossingText is R22's refusal: a resource converted to an
-// operation type that crosses would never be released.
-func resourceIntoCrossingText(v, t Type) string {
-	return fmt.Sprintf("%s is a resource and %s has no Close, so the value would never be released (resources R22); give %s a Close() operation", v, t, t)
+// operation type that crosses would never be released. Only an operation
+// type that includes Closer releases (R1), whatever operations it lists,
+// so the repair it names is `..Closer` in that type: at its declaration
+// when this package declares it, in its package otherwise, and a type
+// that includes it when the target has no declaration of its own.
+func (c *checker) resourceIntoCrossingText(v, t Type) string {
+	repair, ok := c.closerRepair(t)
+	if !ok {
+		repair = fmt.Sprintf("convert it to an operation type that includes Closer instead of %s", t)
+	}
+	return fmt.Sprintf("%s is a resource and %s does not include Closer, so the value would never be released (resources R22); %s", v, t, repair)
+}
+
+// closerRepair is the repair of an operation type t that releases nothing
+// because it does not include Closer (R1; R13, R22): `..Closer` in t, at
+// its declaration when this package declares it, in its package otherwise.
+// ok is false when t has no declaration of its own.
+func (c *checker) closerRepair(t Type) (string, bool) {
+	n, ok := t.(*Named)
+	if !ok || n.origin().Obj == nil {
+		return "", false
+	}
+	tn := n.origin().Obj
+	switch {
+	case tn.Pkg == c.pkg && tn.Decl != nil && tn.file != nil:
+		line, col := tn.file.syntax.Position(tn.Decl.Name.Pos())
+		at := fmt.Sprintf("%d:%d", line, col)
+		if name := tn.file.syntax.Name; name != "" {
+			at = name + ":" + at
+		}
+		return fmt.Sprintf("add ..Closer to %s (%s)", tn.Name, at), true
+	case tn.Pkg != nil:
+		return fmt.Sprintf("add ..Closer to %s in package %s", tn.Name, tn.Pkg.Path), true
+	}
+	return "", false
 }
 
 // R22 at an instantiation (16a fix r4). A type parameter whose
@@ -583,10 +615,10 @@ func (c *checker) checkOwnershipSites() {
 		if c.mayHoldResource(s.from) && !c.releasable(s.to) {
 			c.cur = s.file
 			if s.tp == nil {
-				c.errorf(s.at, CodeType, "%s; its type parameter is marked own (types.md, Generics 9)", resourceIntoCrossingText(s.from, s.to))
+				c.errorf(s.at, CodeType, "%s; its type parameter is marked own (types.md, Generics 9)", c.resourceIntoCrossingText(s.from, s.to))
 				continue
 			}
-			c.errorf(s.at, CodeType, "%s does not satisfy the constraint %s of %s: %s (types.md, Generics 2)", s.from, s.to, s.tp.Name, resourceIntoCrossingText(s.from, s.to))
+			c.errorf(s.at, CodeType, "%s does not satisfy the constraint %s of %s: %s (types.md, Generics 2)", s.from, s.to, s.tp.Name, c.resourceIntoCrossingText(s.from, s.to))
 		}
 	}
 	c.checkOwnMarks()

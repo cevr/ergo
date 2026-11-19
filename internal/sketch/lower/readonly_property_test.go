@@ -16,7 +16,8 @@ import (
 // and a named slice, nums(*r)) into a read-only context (len, an index
 // read, an index read under len, a comparison, a field read, a for loop
 // whose body writes only a local, a call or a method call that
-// returns a basic value), then writes the store and returns the value
+// returns a basic value or a result that does not depend on it (lens,
+// beside a fresh slice)), then writes the store and returns the value
 // read with a digest of the store. The model: the lowering copies
 // nothing in such a function. TestReadOnlyUsesCopyNothing counts the
 // copies in each function's Go.
@@ -136,6 +137,8 @@ func setv(p mut int) int {
 	0
 }
 
+func lens(xs []int, out []int) []int { out }
+
 `
 
 // roProducer is a call whose result shares the store: its Ergo text over
@@ -161,7 +164,7 @@ const roLoop = "let mut n = 0\n\tfor v in X {\n\t\tn = n * 3 + v\n\t}"
 
 // roContexts are the read-only contexts of a result X of each kind.
 var roContexts = map[string][][2]string{
-	"s": {{"len", "len(X)"}, {"index", "X[1]"}, {"compare", "if X == []int{1, 2, 3} { 1 } else { 2 }"}, {"loop", roLoop}, {"call", "total(X)"}},
+	"s": {{"len", "len(X)"}, {"index", "X[1]"}, {"compare", "if X == []int{1, 2, 3} { 1 } else { 2 }"}, {"loop", roLoop}, {"call", "total(X)"}, {"call out", "len(lens(X, []int{1}))"}},
 	"o": {{"len", "len(X)"}, {"index len", "len(X[0])"}, {"compare", "if X == [][]int{[]int{4}} { 1 } else { 2 }"}, {"loop len", "let mut n = 0\n\tfor o in X {\n\t\tn = n + len(o)\n\t}"}},
 	"m": {{"len", "len(X)"}, {"loop", "let mut n = 0\n\tfor k, v in X {\n\t\tn = n + k + len(v)\n\t}"}},
 	"g": {{"len", "len(X)"}, {"index len", "len(X[0])"}, {"compare", "if X == []string{\"a,\", \"b\"} { 1 } else { 2 }"}, {"call", "glen(X)"}},

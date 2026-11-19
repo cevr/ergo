@@ -17,13 +17,16 @@ import (
 	"ergo.local/prototype/internal/testwait"
 )
 
-// unusedTemplates are the S110 messages compiler/check/diag reports
-// (S3-DIAG): an unread local, and an import nothing reads. The agreement
-// compares the Go checker's S110 lines whose message has one of these
-// forms; its other messages are later units'.
+// unusedTemplates are the S110 messages compiler/check/diag reports: an
+// unread local, and an import nothing reads (S3-DIAG); a match or catch
+// arm's binding its arm never reads, plain, `as` or a catch's rest, with
+// the hint of a capitalised name (S3-DIAG2). The agreement compares the Go
+// checker's S110 lines whose message has one of these forms; its other
+// messages are later units'.
 var unusedTemplates = []*regexp.Regexp{
 	regexp.MustCompile(`^\S+ is declared and not used$`),
 	regexp.MustCompile(`^package \S+ is imported and not used$`),
+	regexp.MustCompile(`^the binding \S+ is read nowhere in its arm; (write _ in its place|drop ` + "`as \\S+`" + `|write case _)(; no type is named \S+, so the pattern binds a new name)? \(rows\.md, Totality 1\)$`),
 }
 
 // goUnused is the Go checker's diagnostics of ds that compiler/check/diag
@@ -61,14 +64,52 @@ type unusedCase struct {
 }
 
 // d3Exempt is the "FILE L:C" of each local of src whose let's value holds
-// a diagnostic of ds other than S110.
+// a diagnostic of ds other than S110, and of each name of an arm whose
+// patterns hold one: the Go checker binds a refused pattern's names at the
+// invalid type, as placeholders, so they add no S110 (D3).
 func d3Exempt(file, src string, ds []check.Diagnostic) map[string]bool {
 	out := map[string]bool{}
 	f, err := syntax.Parse(src)
 	if err != nil {
 		return out
 	}
+	holds := func(from, to int) bool {
+		for _, g := range ds {
+			if g.Code != check.CodeUnused && g.Offset >= from && g.Offset < to {
+				return true
+			}
+		}
+		return false
+	}
+	exemptNames := func(pats []syntax.Expr) {
+		for _, x := range pats {
+			syntax.Inspect(x, func(n syntax.Node) bool {
+				if id, ok := n.(*syntax.Ident); ok {
+					line, col := lineCol(src, int(id.Pos()))
+					out[fmt.Sprintf("%s %d:%d", file, line, col)] = true
+				}
+				return true
+			})
+		}
+	}
+	arm := func(list, written []syntax.Expr, colon syntax.Pos) {
+		pats := list
+		if written != nil {
+			pats = written
+		}
+		if len(pats) > 0 && holds(int(pats[0].Pos()), int(colon)) {
+			exemptNames(pats)
+		}
+	}
 	syntax.Inspect(f, func(n syntax.Node) bool {
+		switch n := n.(type) {
+		case *syntax.CaseClause:
+			arm(n.List, n.Written, n.Colon)
+			return true
+		case *syntax.CatchArm:
+			arm(n.Types, n.Written, n.Colon)
+			return true
+		}
 		d, ok := n.(*syntax.VarDecl)
 		if !ok {
 			return true
@@ -77,12 +118,7 @@ func d3Exempt(file, src string, ds []check.Diagnostic) map[string]bool {
 			if len(sp.Values) == 0 {
 				continue
 			}
-			from, to := int(sp.Values[0].Pos()), int(sp.Values[len(sp.Values)-1].End())
-			bad := false
-			for _, g := range ds {
-				bad = bad || (g.Code != check.CodeUnused && g.Offset >= from && g.Offset < to)
-			}
-			if !bad {
+			if !holds(int(sp.Values[0].Pos()), int(sp.Values[len(sp.Values)-1].End())) {
 				continue
 			}
 			for _, id := range sp.Names {
@@ -249,7 +285,7 @@ func TestCompilerUnusedAgreesWithChecker(t *testing.T) {
 		}
 		t.Error(msg)
 	}
-	t.Logf("%d corpus folders, %d fixtures, %d seeds; %d Go lines compared; %d Ergo lines dropped as D3 (a local bound to an erroneous value); %d cases differ", corpus, fixtures, seeds, reported, dropped, failed)
+	t.Logf("%d corpus folders, %d fixtures, %d seeds; %d Go lines compared; %d Ergo lines dropped as D3 (a local bound to an erroneous value, or a name of a refused pattern); %d cases differ", corpus, fixtures, seeds, reported, dropped, failed)
 	if reported == 0 {
 		t.Fatal("no unused diagnostic was compared")
 	}
@@ -347,8 +383,10 @@ var unusedImports = []string{"strings", "slices", "maps", "strconv", "cmp", "mat
 // import by its path or under a name (with the package-level let that
 // makes the name clash), an unread import with an unread let, an
 // unread let of a match whose case binding is unread, or an unread let
-// beside a refused alias. False when the seed's form does not apply to
-// its file.
+// beside a refused alias; or an arm binding nothing reads: a match arm's
+// plain or `as` binding, a catch arm's rest, the later arm of an
+// or-pattern, or a capitalised name. False when the seed's form does not
+// apply to its file.
 func perturbUnused(pool []unusedFile, seed uint32) (string, bool) {
 	r := rand.New(rand.NewPCG(uint64(seed), 0x5333))
 	u := pool[r.IntN(len(pool))]
@@ -367,7 +405,33 @@ func perturbUnused(pool []unusedFile, seed uint32) (string, bool) {
 		sort.Strings(out)
 		return out[r.IntN(len(out))]
 	}
-	switch seed % 8 {
+	// at is a body's start, for the forms that add a statement there.
+	at := u.bodies[r.IntN(len(u.bodies))]
+	switch seed % 13 {
+	case 8:
+		// A match arm's binding its arm never reads.
+		return insert(at, "\n\tlet _ = match 0 {\n\tcase "+name+"b:\n\t\t1\n\t}\n"), true
+	case 9:
+		// An `as` name its arm never reads.
+		return insert(at, "\n\tlet "+name+"o = Map[string, int]{}\n\tlet _ = match "+name+"o.Get(\"a\") {\n\tcase Some[int] as "+name+"q:\n\t\t1\n\tcase None:\n\t\t0\n\t}\n"), true
+	case 10:
+		// A catch arm's rest its arm never reads (with the import it
+		// needs, added after the body text so the offset holds).
+		out := insert(at, "\n\tlet _ = strconv.Atoi(\"1\") catch {\n\tcase "+name+"e:\n\t\t0\n\t}\n")
+		if contains(u.imports, "strconv") {
+			return out, true
+		}
+		if u.afterImports == 0 {
+			return "import strconv\n\n" + out, true
+		}
+		return out[:u.afterImports] + "\nimport strconv" + out[u.afterImports:], true
+	case 11:
+		// An or-pattern: its name is read through the body, so no line;
+		// a later arm's binding is unread.
+		return insert(at, "\n\tlet _ = match (1, 2) {\n\tcase (0, "+name+"n), ("+name+"n, 0):\n\t\t"+name+"n\n\tcase ("+name+"a, _):\n\t\t0\n\t}\n"), true
+	case 12:
+		// A capitalised binding: no type has its name, so it binds (the hint).
+		return insert(at, "\n\tlet _ = match 0 {\n\tcase Z"+name+"B:\n\t\t1\n\t}\n"), true
 	case 7:
 		// An alias with no name clash is refused (S108) and counts as read.
 		p := free()

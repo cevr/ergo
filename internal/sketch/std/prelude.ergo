@@ -23,10 +23,48 @@ type Ambient {
 	ambient(),
 }
 
-// Scheduler suspends the calling task.
-// law-exempt: Sleep returns nothing, and a law over Scheduler alone sees no clock, so it cannot observe a sleep; the sleep laws are on time.Manual, which provides Scheduler and time.Clock together (TestManualClockModel).
+// TestAmbient is the test's ambient (docs/spec/rows.md, Test's ambient;
+// runtime.md, Tests 11): the authority a test has to reach the host,
+// confined to a fresh temporary folder per case, which only the test
+// runner provides. It is never the host's Ambient, which a test never
+// holds. A named context whose header says `needs TestAmbient` may make
+// the confined host providers (fs.NewTestHost, exec.NewTestHost,
+// os.NewTestHost) while it is built:
+//
+//	let onHost = context needs TestAmbient { exec.Runner: exec.NewTestHost() }
+//
+// Each build of such a context, a with of it in a test or one case of a
+// law run under it, gets a fresh empty folder under the test's temporary
+// directory (TMPDIR), and the runner removes the folder and all it holds
+// when the case ends. Its one operation is unexported, so no program type
+// implements it and no context entry binds it.
+// law-exempt: its one operation is unexported, so no law can call it; the confinement it gives is stated by the laws of fstest.Confined, which run over fstest.NewFolder, the Host of fs.NewTestHost in the same folder.
+type TestAmbient {
+	folder() string,
+}
+
+// TestFolder is the absolute path of the case's folder, with its symbolic
+// links resolved. It exists and is empty when the case starts.
+func TestFolder() string needs TestAmbient { TestAmbient.folder() }
+
+// Scheduler suspends the calling task. Alarms is the same time as the
+// runtime's own waits use it: an AlarmClock, on which a wait that runs no
+// Ergo code (http.Serve's bound on each read phase) arms a deadline with
+// no task and no sleep. A provider gives the AlarmClock of the time it
+// sleeps on.
+// law-exempt: Sleep returns nothing, and a law over Scheduler alone sees no clock, so it cannot observe a sleep; the sleep laws are on time.Manual, which provides Scheduler and time.Clock together (TestManualClockModel). An AlarmClock has no operation an Ergo law can call: only the runtime arms an alarm.
 type Scheduler {
 	Sleep(d duration),
+	Alarms() AlarmClock,
+}
+
+// AlarmClock is a Scheduler's time as the runtime's waits use it
+// (Scheduler.Alarms). Only the runtime makes one: LiveScheduler's is the
+// host's timers, and a time.Manual's or a testing.VirtualClock's is its
+// timeline.
+// law-exempt: its one operation is the unexported runtimeOnly, so no law can call it; the runtime's After is held against NewTimer by TestVirtualAfterFuncIsTimer (runtime/rt).
+extern go ergo.local/prototype/runtime/v1.AlarmClock type AlarmClock {
+	runtimeOnly(),
 }
 
 // LiveScheduler is the host's Scheduler provider: Sleep below is its
@@ -46,6 +84,11 @@ func NewLiveScheduler() LiveScheduler needs Ambient { LiveScheduler{live: liveOn
 
 // Sleep suspends the calling task for d on the host's clock.
 extern go ergo.local/prototype/runtime/rt.Sleep func Sleep(s LiveScheduler, d duration)
+
+// Alarms is the host's timers, as the runtime arms them.
+func Alarms(s LiveScheduler) AlarmClock { hostAlarms() }
+
+extern go ergo.local/prototype/runtime/v1.HostAlarms func hostAlarms() AlarmClock
 
 // Random draws random numbers, with the names and meaning of Go's
 // math/rand/v2 (Effect Random). Uint64 is 64 random bits; IntN(n) is in
@@ -119,6 +162,11 @@ type Writer {
 	mut Uint(n uint64),
 	mut Float(f float64),
 	mut String(s string),
+	// StringBytes writes the string whose UTF-8 bytes are b, as String
+	// does (GX10): a by-name pair's append form writes its text through
+	// it, so no string of the text is made. The writer reads b during the
+	// call only and keeps none of it.
+	mut StringBytes(b []byte),
 	mut BeginList(n int),
 	mut EndList(),
 	mut BeginObject(n int),
@@ -151,6 +199,11 @@ type Reader {
 	mut Uint() uint64 fails WireWrongKind,
 	mut Float() float64 fails WireWrongKind,
 	mut String() string fails WireWrongKind,
+	// StringBytes reads the next string as String does and gives into with
+	// its UTF-8 bytes added (GX12): an append-form pair's decode lends a
+	// buffer and gives its ParseX the bytes, so no string of the text is
+	// made. The reader keeps none of into.
+	mut StringBytes(into []byte) []byte fails WireWrongKind,
 	mut BeginList() fails WireWrongKind,
 	mut BeginObject() fails WireWrongKind,
 	mut Tag() string fails WireMissingField,
@@ -190,9 +243,9 @@ type WireMembers {}
 
 // The rows of these functions make the shape failures error types of the
 // prelude, as unsatisfied does for Unsatisfied.
-func wireWrongKind(e WireWrongKind) fails WireWrongKind { e }
+func wireWrongKind(e WireWrongKind) fails WireWrongKind          { e }
 func wireMissingField(e WireMissingField) fails WireMissingField { e }
-func wireUnknownTag(e WireUnknownTag) fails WireUnknownTag { e }
+func wireUnknownTag(e WireUnknownTag) fails WireUnknownTag       { e }
 
 // Range is the integers from Start up to End, End excluded: `a..b` builds
 // one, and `for i in r` counts through it (#196, one for). A for and `..`
@@ -260,7 +313,7 @@ law TakeIsGetAndDelete(m Map[int, int], k int) {
 // AppendIsLast: Append adds one element, at the end.
 law AppendIsLast(xs []int, x int) {
 	let ys = xs.Append(x)
-	len(ys) == len(xs) + 1 && ys[len(xs)] == x
+	len(ys) == len(xs)+1 && ys[len(xs)] == x
 }
 
 // TakeAtIsIndexAndRest: TakeAt is the element at i and xs without it, in
@@ -270,9 +323,9 @@ law TakeAtIsIndexAndRest(xs []int, i int) {
 		return true
 	}
 	let x, rest = xs.TakeAt(i)
-	let mut ok = x == xs[i] && len(rest) == len(xs) - 1
+	let mut ok = x == xs[i] && len(rest) == len(xs)-1
 	for k, y in rest {
-		ok = ok && (k < i && y == xs[k] || k >= i && y == xs[k + 1])
+		ok = ok && (k < i && y == xs[k] || k >= i && y == xs[k+1])
 	}
 	ok
 }
@@ -283,9 +336,9 @@ law SliceIsWindow(xs []int, i int, j int) {
 		return true
 	}
 	let w = xs.Slice(i, j)
-	let mut ok = len(w) == j - i
+	let mut ok = len(w) == j-i
 	for k, y in w {
-		ok = ok && y == xs[i + k]
+		ok = ok && y == xs[i+k]
 	}
 	ok
 }
@@ -325,6 +378,12 @@ func sameEntry(a Option[int], b Option[int]) bool {
 // as the last statement of a body or branch it yields no value and joins
 // any type, as return does (docs/spec/types.md, Unreachable).
 extern go ergo.local/prototype/runtime/v1.Unreachable func Unreachable(reason string)
+
+// AsWritten is v. A call tree inside it is kept as written: a rewrite law
+// over functions never takes it as its root or a part of its match
+// (docs/spec/types.md, Laws 14). The lowering knows it by its body's mark
+// (//ergo:aswritten), never by its name.
+extern go ergo.local/prototype/runtime/v1.AsWritten func AsWritten[T](v T) T
 
 // Seq is an iterator: it calls yield with each value in turn and stops
 // when yield returns false. `for v in s` runs the loop body as yield, and a
@@ -374,7 +433,8 @@ type Never {}
 // match on Infallible). It is how a branch that holds a Never fits where a
 // T is wanted.
 func Absurd[T](n Never) T {
-	match n {}
+	match n {
+	}
 }
 
 // Timeout is a state's timer: when an entry of the state lasts In, the
@@ -396,11 +456,20 @@ type Timeout[E] { In duration, Signal E }
 // runner needs both. A Machine is also an ordinary record: a test may build
 // one from parts. The work's type is std machines.Work, not a prelude
 // name: every prelude name is one a program cannot declare.
+//
+// Exit is each state's exit action (FK9-g1; runtime.md, Machines and
+// actors 12a): when an entry ends, the runner calls Exit with the state
+// the entry holds then (its last commit, never the next entry's) and, on
+// Some, runs the action, masked, once its children, timer and work ended
+// and before the next entry opens; a Stay ends no entry. A machine with no
+// `exit` entry gives every state None. The action's row is part of W; a
+// fold runs no exit action.
 type Machine[S, E, O, F, R, W] {
 	Initial S,
-	Step func(s S, e E) Decision[S, O] fails F needs R,
-	After func(s S) Option[Timeout[E]],
-	Work func(s S) Option[func(send func(e E)) needs W],
+	Step    func(s S, e E) Decision[S, O] fails F needs R,
+	After   func(s S) Option[Timeout[E]],
+	Work    func(s S) Option[func(send func(e E)) needs W],
+	Exit    func(s S) Option[func() needs W],
 }
 
 // InputMachine is a machine whose initial state is a function of an input
@@ -410,9 +479,10 @@ type Machine[S, E, O, F, R, W] {
 // from Start(input).
 type InputMachine[I, S, E, O, F, R, W] {
 	Start func(input I) S,
-	Step func(s S, e E) Decision[S, O] fails F needs R,
+	Step  func(s S, e E) Decision[S, O] fails F needs R,
 	After func(s S) Option[Timeout[E]],
-	Work func(s S) Option[func(send func(e E)) needs W],
+	Work  func(s S) Option[func(send func(e E)) needs W],
+	Exit  func(s S) Option[func() needs W],
 }
 
 // Closer is the release contract (resources R1): a type that implements

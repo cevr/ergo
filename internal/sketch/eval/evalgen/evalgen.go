@@ -70,7 +70,7 @@ var Hosts = []string{"func", "test", "literal", "law"}
 // Kinds lists every form a run of seeds must reach.
 var Kinds = []string{
 	"int-assign", "int-op-assign", "narrow-wrap", "conversion",
-	"slice-append-handover", "slice-append-other", "slice-alias", "slice-index-write", "slice-slice",
+	"slice-append-handover", "slice-append-other", "slice-append-all", "slice-alias", "slice-index-write", "slice-slice",
 	"grid-nested-write", "grid-row-alias", "grid-append",
 	"map-write", "map-delete", "map-put", "map-alias", "map-get-match",
 	"array-write", "array-alias", "array-default",
@@ -251,6 +251,9 @@ const record = "Out{n: i0 + 31 * i1 + 7 * i2 + sumArr(a0) + 3 * sumArr(a1) + ran
 // whose tail is record == want.
 func (g *gen) source(want, host string) string {
 	var b strings.Builder
+	if g.kinds["slice-append-all"] > 0 {
+		b.WriteString("import slices\n\n") // an unused import is S110
+	}
 	b.WriteString(decls(int(g.m.base - 10)))
 	body := func(depth int) {
 		tabs := strings.Repeat("\t", depth)
@@ -802,6 +805,19 @@ func (g *gen) simple(c int) (stmt, bool) {
 		if len(g.ranged) > 0 {
 			return stmt{}, false
 		}
+		if g.r.IntN(3) == 0 {
+			// slices.AppendAll is an extern of Go's append at its spread
+			// shape, append(o, p...) (EVAL-IFP: the evaluator ran it as
+			// the one-element shape, appending ys as one element). ys is
+			// two elements, so a loop grows s as Append does, never
+			// doubling it.
+			e2 := g.intExpr(2)
+			g.kind("slice-append-all")
+			return stmt{line(s + " = slices.AppendAll(" + o + ", []int{" + e.text + ", " + e2.text + "})"), func(m *model) {
+				v, v2 := e.val(m), e2.val(m)
+				m.slices[s] = append(cloneInts(m.slices[o]), v, v2)
+			}}, true
+		}
 		g.kind("slice-append-other")
 		return stmt{line(s + " = " + o + ".Append(" + e.text + ")"), func(m *model) {
 			v := e.val(m)
@@ -1142,11 +1158,20 @@ func (g *gen) compound(c, d int) (stmt, bool) {
 	case 33:
 		g.kind("union-match")
 		v, e := g.pick(intVars), g.intExpr(1)
-		text := fmt.Sprintf("match sh0 {\ncase Dot:\n\t%s += 1\ncase Line{n: k}:\n\t%s = %s + k\ncase Grid{cells: cs}:\n\tsh0 = Line{n: len(cs) + %s}\n}", v, v, v, e.text)
+		// Dot's arm is a value match: a literal subject, a case of two
+		// constants and a wildcard (the compiled value match, ORACLE O35).
+		text := fmt.Sprintf("match sh0 {\ncase Dot:\n\tmatch %s %% 3 {\n\tcase 0:\n\t\t%s += 1\n\tcase 1, 2:\n\t\t%s += 2\n\tcase _:\n\t\t%s += 3\n\t}\ncase Line{n: k}:\n\t%s = %s + k\ncase Grid{cells: cs}:\n\tsh0 = Line{n: len(cs) + %s}\n}", v, v, v, v, v, v, e.text)
 		return stmt{line(text), func(m *model) {
 			switch m.sh.kind {
 			case "Dot":
-				m.ints[v]++
+				switch m.ints[v] % 3 {
+				case 0:
+					m.ints[v]++
+				case 1, 2:
+					m.ints[v] += 2
+				default:
+					m.ints[v] += 3
+				}
 			case "Line":
 				m.ints[v] += m.sh.n
 			default:

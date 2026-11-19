@@ -4,8 +4,6 @@ import (
 	"cmp"
 	"encoding/hex"
 	"fmt"
-	"math"
-	"math/bits"
 	"math/rand/v2"
 	"path/filepath"
 	"slices"
@@ -230,7 +228,6 @@ func registerNatives() {
 	goPure("path/filepath.IsAbs", func(a []Value) Value { return filepath.IsAbs(str(a[0])) })
 	pure("hex.Encode", func(a []Value) Value { return hex.EncodeToString([]byte(str(a[0]))) })
 	pure("time.DurationText", func(a []Value) Value { return time.Duration(a[0].(int64)).String() })
-	pure("time.Times", func(a []Value) Value { return times(a[0].(int64), a[1].(int64)) })
 
 	// The slices and maps functions copy: an Ergo collection is a value,
 	// so a result never shares a store a caller can write (coll.go).
@@ -260,14 +257,14 @@ func registerNatives() {
 			return nil, fr.unsupported(at, "a slice bound past the length, which reads the Go target's capacity")
 		}
 		if i < 0 || j < i || j > int64(xs.n) {
-			return nil, fr.defect(at, "slice bounds out of range [%d:%d] with length %d", i, j, xs.n)
+			return nil, fr.defect(at, "runtime error: slice bounds out of range [%d:%d] with length %d", i, j, xs.n)
 		}
 		return newSlice(append([]Value{}, xs.elems()[i:j]...)), nil
 	}
 	natives["slices.Take"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		xs, i := args[0].(sliceV).elems(), args[1].(int64)
 		if i < 0 || i >= int64(len(xs)) {
-			return nil, fr.defect(at, "index out of range [%d] with length %d", i, len(xs))
+			return nil, fr.defect(at, "runtime error: index out of range [%d] with length %d", i, len(xs))
 		}
 		if ab := in.build(fr, at, int64(len(xs)), int64(len(xs)), 0); ab != nil {
 			return nil, ab
@@ -379,6 +376,7 @@ var collNatives = map[check.CollOp]string{
 	check.CollText:       "strings.builderText",
 	check.CollRuneText:   "utf8.RuneText",
 	check.CollMakeSlice:  "slices.WithCapacity",
+	check.CollBytes:      "strings.stringsBytes",
 }
 
 // nativeOf is fn's native, nil when the evaluator has none.
@@ -416,6 +414,14 @@ var readsOf = map[string]func(a []Value) int64{
 	"strings.HasSuffix":  func(a []Value) int64 { return int64(len(a[1].(string))) },
 	"strings.TrimPrefix": func(a []Value) int64 { return int64(len(a[1].(string))) },
 	"strings.TrimSuffix": func(a []Value) int64 { return int64(len(a[1].(string))) },
+	// IndexByte reads up to the byte it finds (std io's lines: one call
+	// per line on the rest of the text).
+	"strings.IndexByte": func(a []Value) int64 {
+		if i := strings.IndexByte(a[0].(string), a[1].(uint8)); i >= 0 {
+			return int64(i) + 1
+		}
+		return int64(len(a[0].(string)))
+	},
 }
 
 // shares names the pure natives whose result is a view of an argument's
@@ -504,37 +510,6 @@ func sortAs[T cmp.Ordered](xs []Value) Value {
 		out[i] = t
 	}
 	return newSlice(out)
-}
-
-// times is d*n, saturating at the bounds of duration on overflow
-// (stdlib.md, time: Times never wraps).
-func times(d, n int64) int64 {
-	if d == 0 || n == 0 {
-		return 0
-	}
-	neg := (d < 0) != (n < 0)
-	hi, lo := bits.Mul64(abs64(d), abs64(n))
-	limit := uint64(math.MaxInt64)
-	if neg {
-		limit++
-	}
-	if hi != 0 || lo > limit {
-		if neg {
-			return math.MinInt64
-		}
-		return math.MaxInt64
-	}
-	if neg {
-		return int64(-lo)
-	}
-	return int64(lo)
-}
-
-func abs64(x int64) uint64 {
-	if x < 0 {
-		return uint64(-x)
-	}
-	return uint64(x)
 }
 
 // stdRecord is a value of the record type name of fn's std package.

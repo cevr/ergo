@@ -83,7 +83,7 @@ func (b *irBuilder) typeMatch(s *syntax.TypeSwitchStmt, ret bool, to *yieldTo) [
 	if len(b.l.info.Releases[s.Subjects[0]]) > 0 || len(b.l.info.Releases[x]) > 0 {
 		irNo("match subject that releases owned values")
 	}
-	if out, ok := b.viewMatch(s, ret, to); ok { // ir_view.go
+	if out, ok := b.fuseMatch(s, ret, to); ok { // ir_forms_match.go
 		return out
 	}
 	st := b.l.info.Types[x]
@@ -115,7 +115,7 @@ func (b *irBuilder) typeMatch(s *syntax.TypeSwitchStmt, ret bool, to *yieldTo) [
 		// slot (the emitter's scalarTags).
 		sw.K, sw.X = "switch", &irExpr{K: "local", Pos: p, I: sc.tag}
 	case fu != nil:
-		sw.K, sw.X = "switch", b.tagOf(subj, p)
+		sw.K, sw.X = "switch", b.flatTag(fu, subj, p, x) // ir_golib.go: a niche's tag too
 	default:
 		sw.X = &irExpr{K: "local", Pos: p, I: subj}
 	}

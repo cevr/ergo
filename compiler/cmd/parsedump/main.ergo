@@ -1,6 +1,6 @@
 // parsedump parses files with compiler/syntax and prints each tree through
-// its view, in the canonical dump of the Go parser agreement check
-// (compiler/syntax/dump.Parse; internal/sketch/syntax, TestParseAgreesWithGo):
+// its view, in the canonical dump of the decoder property
+// (compiler/syntax/dump.Parse; internal/sketch/syntax, TestDecodeAgreesWithView):
 //
 //	parsedump FILE...      per file: "F path", then "G pos end n" per
 //	                       comment group and a line per node, or the

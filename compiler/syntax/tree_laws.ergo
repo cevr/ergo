@@ -43,7 +43,7 @@ func program(picks []int) string {
 func children(t Tree, x uint32, out []uint32) []uint32 {
 	let mut o = out
 	let i = int(x)
-	let k = t.kind[i]
+	let k = uint8(t.kind[i])
 	let a = t.a[i]
 	let b = t.b[i]
 	if k == KIdent || k == KBasicLit || k == KBranchStmt || k == KSkipStmt {
@@ -279,11 +279,11 @@ law RootLast(picks []int) {
 	let t = p.Tree
 	let mut files = 0
 	for i in 0..t.n {
-		if t.kind[i] == KFile {
+		if uint8(t.kind[i]) == KFile {
 			files = files + 1
 		}
 	}
-	t.n > 0 && t.kind[t.n-1] == KFile && files == 1
+	t.n > 0 && uint8(t.kind[t.n-1]) == KFile && files == 1
 }
 
 // ViewRoundTrips: Put of a row's view writes the row again: the same kind
@@ -306,8 +306,8 @@ law ViewRoundTrips(picks []int) {
 
 // sameRow reports rows x and y of t encoded alike.
 func sameRow(t Tree, x uint32, y uint32) bool {
-	let k = t.kind[int(x)]
-	if k != t.kind[int(y)] || t.tok[int(x)] != t.tok[int(y)] {
+	let k = uint8(t.kind[int(x)])
+	if k != uint8(t.kind[int(y)]) || t.tok[int(x)] != t.tok[int(y)] {
 		return false
 	}
 	if !recorded(k) {
@@ -334,7 +334,7 @@ law ExtraTiles(picks []int) {
 	let t = p.Tree
 	let mut words = 0
 	for i in 0..t.n {
-		if recorded(t.kind[i]) {
+		if recorded(uint8(t.kind[i])) {
 			words = words + int(t.b[i])
 		}
 	}

@@ -19,7 +19,7 @@ import (
 // blocks are the plain ones: a run of adjacent lines with one indentation
 // that all have a cell in the column and another after it, padded to the
 // widest cell plus one, an all-empty column taking no width. The long-cell
-// section rules are the format property's (TestSelfhostFormatAgrees).
+// section rules are the format property's (TestSelfhostFormatLaws).
 //
 // Mutants it alone catches: testdata/mutants.json, killer
 // selfhostcheck:TestSelfhostLayoutModel.

@@ -318,6 +318,28 @@ func (c *checker) mutPattern(d *syntax.VarDecl) {
 	c.errorIn(d, d.Mut, d.Mut+3, CodeType, "let mut binds names, and a pattern's bindings are immutable: write let mut v = e, then destructure v with let or match (#196, 196v)")
 }
 
+// packageRoot returns "P.V" when x, through parentheses, fields and
+// indexes, is rooted at the variable V of the package P names, else "".
+func (c *checker) packageRoot(x syntax.Expr) string {
+	for {
+		switch e := x.(type) {
+		case *syntax.ParenExpr:
+			x = e.X
+		case *syntax.IndexExpr:
+			x = e.X
+		case *syntax.SelectorExpr:
+			if id, ok := e.X.(*syntax.Ident); ok {
+				if _, pkg := c.lookup(id.Name).(*PkgName); pkg {
+					return id.Name + "." + e.Sel.Name
+				}
+			}
+			x = e.X
+		default:
+			return ""
+		}
+	}
+}
+
 // rootKind is what an assignment target or a borrow is rooted at.
 type rootKind int
 
@@ -396,6 +418,13 @@ func (c *checker) markReassigned(x syntax.Expr) {
 }
 
 func (c *checker) checkRoot(at syntax.Node, x syntax.Expr, borrow string) {
+	if v := c.packageRoot(x); v != "" {
+		// `os.Args[0] = "x"`, `&os.Args`: another package's variable, a
+		// Go one included (GBX3), is read-only; a write would change Go's
+		// memory or another package's let.
+		c.errorf(at, CodeType, "%s is another package's variable, read-only in Ergo; copy it into a let mut first", v)
+		return
+	}
 	id, kind := c.assignRoot(x)
 	if kind == rootOther && borrow == "" {
 		// `xs()[0] = 5`, `[]int{1, 2}[0] = 3`: the write is lost or
@@ -470,12 +499,36 @@ func renamed(name string) string { return name + "2" }
 
 // reportNeverReassigned reports each `let mut` local of fc that is read but
 // never reassigned (S110, Q3). An unread one already has its unused S110,
-// and one of an invalid type has its own diagnostic (D3).
+// and one of an invalid type has its own diagnostic (D3). The report waits
+// for checkDroppedResults: a local whose only write was meant to be a
+// dropped xs.Append(x) gets that one diagnostic and its one remedy,
+// xs = xs.Append(…), not also "write let xs" (M2-APPEND).
 func (c *checker) reportNeverReassigned(fc *funcCtx) {
+	if c.silent > 0 {
+		return
+	}
 	for _, v := range fc.locals {
 		if !v.mut || v.reassigned || !v.used || v.Name == "_" || isInvalid(v.Type) || v.undiagnosed {
 			continue
 		}
-		c.errorf(v.id, CodeUnused, "%s is never reassigned; write let %s (#196, 196v)", v.Name, v.Name)
+		c.unassigned = append(c.unassigned, unassignedLocal{v: v, file: c.cur})
+	}
+}
+
+// unassignedLocal is a let mut local never reassigned, in its file.
+type unassignedLocal struct {
+	v    *Var
+	file *fileInfo
+}
+
+// reportUnassigned reports each never-reassigned local but those that
+// receive a refused dropped call (dropRoots).
+func (c *checker) reportUnassigned(dropRoots map[*Var]bool) {
+	for _, u := range c.unassigned {
+		if dropRoots[u.v] {
+			continue
+		}
+		c.cur = u.file
+		c.errorf(u.v.id, CodeUnused, "%s is never reassigned; write let %s (#196, 196v)", u.v.Name, u.v.Name)
 	}
 }

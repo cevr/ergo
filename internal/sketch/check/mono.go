@@ -51,7 +51,7 @@ func (c *checker) recordInstantiation(name string, tparams []*TypeParam, targs [
 	c.recordOwnership(name, tparams, targs, at)
 	c.recordOwnMark(name, tparams, targs, at)
 	// And no type argument holds a provider cell (cells.go).
-	c.recordCellArgs(targs, at)
+	c.recordCellArgs(tparams, targs, at)
 	if len(c.mono.owner) == 0 || at == nil {
 		return
 	}

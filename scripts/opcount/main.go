@@ -22,9 +22,15 @@
 // user instructions per unit (and with GOGC=off), allocations and bytes
 // per unit, the GC share of instructions ((default - off) / default), GC
 // cycles, the runtime's GC CPU share, the live heap after a final
-// collection and the peak resident set (VmHWM) at the large size. With
+// collection and the peak resident set (VmHWM) at the large size, and the
+// parts of the instructions per unit (internal/opcount, share.go: the
+// program, Ergo's runtime, Go's collector, allocation, barriers,
+// scheduler, stacks and the rest of its runtime), with Go's runtime share
+// of them and the samples they rest on. With
 // -control the control must print what the program prints on the small
-// input, or every comparison is refused (NotEquivalent).
+// input, or every comparison is refused (NotEquivalent). -control also
+// measures the workload's floor, the hand-optimized Go-runtime floor, when
+// it names one, under the same rule, and compares the program with each.
 //
 // Command mode compares two commands on each target:
 //
@@ -32,7 +38,7 @@
 //
 // runs `BIN ARGS…` with {} in ARGS replaced by each target the glob
 // matches, the two binaries alternating, and writes user instructions, CPU
-// time and peak resident set per side and target. It replaces run-dir
+// time, peak resident set and the parts per side and target. It replaces run-dir
 // check-cpu.sh, which timed at 10 ms and read a failed `ergo check` as a
 // fast one (`|| true`): here a run that does not exit 0 is RunIncomplete.
 //
@@ -90,7 +96,7 @@ func run(args []string, stdout, stderr io.Writer) (int, error) {
 	var memory string
 	flags := flag.NewFlagSet("opcount", flag.ContinueOnError)
 	flags.SetOutput(stderr)
-	flags.BoolVar(&o.control, "control", false, "also measure the workload's hand Go control, and compare")
+	flags.BoolVar(&o.control, "control", false, "also measure the workload's hand Go control and Go-runtime floor (each it names), and compare")
 	flags.BoolVar(&o.text, "text", false, "build the program's IR bodies as Go text (ergo build -go-text), for comparison with the IR build")
 	flags.BoolVar(&o.cmd, "cmd", false, "command mode: compare -base and -head on each target")
 	flags.IntVar(&o.rounds, "rounds", 3, "rounds; each runs every side once, in alternating order")
@@ -217,12 +223,15 @@ type result struct {
 	refused *opcount.Refused
 }
 
-// counters is the catalogue of program mode: name, kind, per unit.
-var counters = []struct {
+type counter struct {
 	name    string
 	kind    opcount.Kind
 	perUnit bool
-}{
+}
+
+// counters is the catalogue of program mode: name, kind, per unit. The
+// parts' counters (opcount.Parts) and RuntimeShare follow the hook's.
+var counters = append([]counter{
 	{"Instructions", opcount.Counted, true},
 	{"InstructionsGCOff", opcount.Counted, true},
 	{"GCShare", opcount.Counted, false},
@@ -232,6 +241,50 @@ var counters = []struct {
 	{"GCCPUShare", opcount.Timed, false},
 	{"LiveHeapBytes", opcount.Timed, false},
 	{"PeakRSSKiB", opcount.Timed, false},
+}, partCounters(true)...)
+
+// partCounters are the parts' instructions (per unit in program mode),
+// Go's runtime share of them, and the samples the large run took.
+func partCounters(perUnit bool) []counter {
+	var out []counter
+	for _, p := range opcount.Parts {
+		out = append(out, counter{p.Counter(), opcount.Sampled, perUnit})
+	}
+	return append(out, counter{"RuntimeShare", opcount.Sampled, false}, counter{"Samples", opcount.Exact, false})
+}
+
+// parts sets the parts' counters of out from the runs at the two sizes
+// (small is nil in command mode, where a part is the run's whole): each
+// part's instructions, per unit between the sizes; RuntimeShare, the five
+// runtime parts' sum over all parts'; and Samples, the large run's. A run
+// whose parts are refused refuses them all.
+func parts(out sample, small *opcount.Shares, large opcount.Shares, smallN, largeN int) {
+	runs := []opcount.Shares{large}
+	if small != nil {
+		runs = append(runs, *small)
+	}
+	for _, s := range runs {
+		if s.Refused != "" {
+			for _, k := range partCounters(false) {
+				out[k.name] = result{refused: &opcount.Refused{ID: s.Refused, Reason: s.Why}}
+			}
+			return
+		}
+	}
+	var all, rt float64
+	for _, p := range opcount.Parts {
+		v := large.Instructions(p)
+		if small != nil {
+			v = opcount.Slope(small.Instructions(p), v, smallN, largeN)
+		}
+		out[p.Counter()] = result{value: v}
+		all += v
+		if slices.Contains(opcount.RuntimeParts, p) {
+			rt += v
+		}
+	}
+	out["RuntimeShare"] = result{value: rt / all}
+	out["Samples"] = result{value: float64(large.Total())}
 }
 
 // programCase measures examples/NAME, or the folder NAME when it holds a
@@ -262,15 +315,20 @@ func programCase(o options, name string, log io.Writer) (opcount.Case, error) {
 	if !ok {
 		return opcount.Case{}, fmt.Errorf("%s has no %s file (run from the repository root)", rel, opcount.WorkloadFile)
 	}
+	file, err := filepath.Rel(root, opcount.Path(dir))
+	if err != nil {
+		return opcount.Case{}, err
+	}
+	file = filepath.ToSlash(file)
 	if len(problems) > 0 {
 		var lines []string
 		for _, p := range problems {
-			lines = append(lines, fmt.Sprintf("%s/%s: %s", rel, opcount.WorkloadFile, p))
+			lines = append(lines, fmt.Sprintf("%s: %s", file, p))
 		}
 		return opcount.Case{}, errors.New(strings.Join(lines, "\n"))
 	}
-	if o.control && w.Control == "" {
-		return opcount.Case{}, fmt.Errorf("%s/%s names no control", rel, opcount.WorkloadFile)
+	if o.control && w.Control == "" && w.Floor == "" {
+		return opcount.Case{}, fmt.Errorf("%s names no control and no floor", file)
 	}
 	release, err := patchedRelease(log)
 	if err != nil {
@@ -284,11 +342,17 @@ func programCase(o options, name string, log io.Writer) (opcount.Case, error) {
 	program, goLine := ergoSide.bin, ergoSide.goLine
 	sides := []side{{"ergo", program}}
 	if o.control {
-		bin, err := b.goPackage(w.Control, "control", goLine, true)
-		if err != nil {
-			return opcount.Case{}, err
+		// The hand Go control and the Go-runtime floor, each the workload names.
+		for _, ref := range []struct{ name, dir string }{{"control", w.Control}, {"floor", w.Floor}} {
+			if ref.dir == "" {
+				continue
+			}
+			bin, err := b.goPackage(ref.dir, ref.name, goLine, true)
+			if err != nil {
+				return opcount.Case{}, err
+			}
+			sides = append(sides, side{ref.name, bin})
 		}
-		sides = append(sides, side{"control", bin})
 	}
 	inputs := map[int]string{}
 	if w.InputKind != "" {
@@ -339,8 +403,11 @@ func programCase(o options, name string, log io.Writer) (opcount.Case, error) {
 		}
 	}
 	if o.control {
-		for i := range counters {
-			c.Comparisons = append(c.Comparisons, opcount.Compare(c.Series[len(counters)+i], c.Series[i]))
+		// The program against each reference side: ergo/control, ergo/floor.
+		for k := 1; k < len(sides); k++ {
+			for i := range counters {
+				c.Comparisons = append(c.Comparisons, opcount.Compare(c.Series[k*len(counters)+i], c.Series[i]))
+			}
 		}
 		if equivalence != nil {
 			c.Refuse(*equivalence)
@@ -385,6 +452,7 @@ type measurer struct {
 // exit hook's lines.
 type one struct {
 	run     opcount.Run
+	shares  opcount.Shares
 	metrics map[string]float64
 }
 
@@ -421,15 +489,18 @@ func (m measurer) once(bin string, n int, gcOff bool) (one, error) {
 	} else {
 		cmd.Env = append(cmd.Env, opcount.HookVariable+"="+out)
 	}
-	r, err := opcount.Count(cmd, m.o.memory)
+	if gcOff {
+		r, err := opcount.Count(cmd, m.o.memory)
+		if err != nil {
+			return one{}, fmt.Errorf("%s: %w", bin, err)
+		}
+		return one{run: r}, nil
+	}
+	r, shares, err := opcount.CountShares(cmd, m.o.memory, bin)
 	if err != nil {
 		return one{}, fmt.Errorf("%s: %w", bin, err)
 	}
-	got := one{run: r}
-	if !gcOff {
-		got.metrics = readMetrics(out)
-	}
-	return got, nil
+	return one{run: r, shares: shares, metrics: readMetrics(out)}, nil
 }
 
 // readMetrics reads the hook's "NAME VALUE" lines; nil when it wrote none.
@@ -512,6 +583,7 @@ func (m measurer) round(s side) (sample, error) {
 	metric("GCCPUShare", "gc_cpu_share", false)
 	metric("LiveHeapBytes", "live_heap_bytes", false)
 	metric("PeakRSSKiB", "peak_rss_kib", false)
+	parts(out, &small.shares, large.shares, m.w.Small, m.w.Large)
 	return out, nil
 }
 
@@ -581,7 +653,12 @@ func commandCases(o options, args []string, log io.Writer) ([]opcount.Case, erro
 				}
 				cmd := exec.Command(s.bin, argv...)
 				cmd.Stdout, cmd.Stderr = null, null
-				got, err := opcount.Count(cmd, o.memory)
+				bin, err := exec.LookPath(s.bin)
+				if err != nil {
+					null.Close()
+					return nil, err
+				}
+				got, shares, err := opcount.CountShares(cmd, o.memory, bin)
 				null.Close()
 				if err != nil {
 					return nil, fmt.Errorf("%s: %w", s.bin, err)
@@ -597,6 +674,14 @@ func commandCases(o options, args []string, log io.Writer) ([]opcount.Case, erro
 				values[s.name]["Instructions"] = append(values[s.name]["Instructions"], float64(got.Instructions))
 				values[s.name]["CPUSeconds"] = append(values[s.name]["CPUSeconds"], (got.UserCPU + got.SysCPU).Seconds())
 				values[s.name]["MaxRSSKiB"] = append(values[s.name]["MaxRSSKiB"], float64(got.MaxRSSKiB))
+				ps := sample{}
+				parts(ps, nil, shares, 0, 0)
+				for k, v := range ps {
+					if v.refused != nil {
+						refused[s.name+"/"+k] = v.refused
+					}
+					values[s.name][k] = append(values[s.name][k], v.value)
+				}
 			}
 		}
 		name := t
@@ -605,10 +690,7 @@ func commandCases(o options, args []string, log io.Writer) ([]opcount.Case, erro
 		}
 		fmt.Fprintf(log, "measured %s\n", name)
 		c := opcount.Case{Case: name, Rounds: o.rounds}
-		kinds := []struct {
-			name string
-			kind opcount.Kind
-		}{{"Instructions", opcount.Counted}, {"CPUSeconds", opcount.Timed}, {"MaxRSSKiB", opcount.Timed}}
+		kinds := append([]counter{{"Instructions", opcount.Counted, false}, {"CPUSeconds", opcount.Timed, false}, {"MaxRSSKiB", opcount.Timed, false}}, partCounters(false)...)
 		for _, s := range sides {
 			for _, k := range kinds {
 				why := refused[s.name+"/*"]
@@ -735,13 +817,15 @@ func (b builder) program(cmdDir, name string) (built, error) {
 
 // moduleBuild is ergo's go build action (build.Toolchain.Command) of the
 // emitted module at dir with release, unstripped, the overlay and
-// -checklinkname=0 (the exit hook's linkname) in GOFLAGS: each package
-// that has an IR file is compiled with its -ergoir.
+// -checklinkname=0 (the exit hook's linkname) in GOFLAGS, after the
+// caller's own GOFLAGS (such as -tags=ergo_stockpark, the runtime's stock
+// park body: PARK1): each package that has an IR file is compiled with its
+// -ergoir.
 func moduleBuild(release toolchain.Patched, dir, overlay, bin string) *exec.Cmd {
 	tc := build.HostToolchain()
 	tc.Go, tc.Root = release.Go, release.Root
 	tc.GOOS, tc.GOARCH = runtime.GOOS, runtime.GOARCH
-	tc.GOFLAGS = "'-overlay=" + overlay + "' -ldflags=-checklinkname=0"
+	tc.GOFLAGS = strings.TrimSpace(os.Getenv("GOFLAGS") + " '-overlay=" + overlay + "' -ldflags=-checklinkname=0")
 	tc.GoBuild = true
 	return tc.Command(build.Module{Dir: dir}, bin)
 }
@@ -879,18 +963,6 @@ func (b builder) exec(dir, name string, args ...string) error {
 	return b.run(cmd)
 }
 
-// run runs a build step, bounded, logging its command line.
-func (b builder) run(cmd *exec.Cmd) error {
-	var out bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &out, &out
-	line := strings.Join(cmd.Args, " ")
-	fmt.Fprintln(b.log, line)
-	if err := proclimit.Run(cmd, b.o.memory); err != nil {
-		return fmt.Errorf("%s: %v\n%s", line, err, out.Bytes())
-	}
-	return nil
-}
-
 func commit() string {
 	head, err := exec.Command("git", "--no-optional-locks", "rev-parse", "HEAD").Output()
 	if err != nil {
@@ -904,7 +976,7 @@ func commit() string {
 }
 
 func host() opcount.Host {
-	h := opcount.Host{OS: runtime.GOOS, Arch: runtime.GOARCH, CPUs: runtime.NumCPU(), GoVersion: runtime.Version(), Counter: "user instructions"}
+	h := opcount.Host{OS: runtime.GOOS, Arch: runtime.GOARCH, CPUs: runtime.NumCPU(), GoVersion: runtime.Version(), Counter: "user instructions", SamplePeriod: opcount.Period()}
 	if out, err := exec.Command("go", "env", "GOVERSION").Output(); err == nil {
 		h.GoVersion = strings.TrimSpace(string(out))
 	}
@@ -938,4 +1010,15 @@ func priority() int {
 		}
 	}
 	return 0
+}
+
+// run runs cmd under the memory limit, logging its words.
+func (b builder) run(cmd *exec.Cmd) error {
+	var out bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &out
+	fmt.Fprintf(b.log, "%s\n", strings.Join(cmd.Args, " "))
+	if err := proclimit.Run(cmd, b.o.memory); err != nil {
+		return fmt.Errorf("%s: %v\n%s", strings.Join(cmd.Args, " "), err, out.Bytes())
+	}
+	return nil
 }

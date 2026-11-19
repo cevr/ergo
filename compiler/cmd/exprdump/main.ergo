@@ -102,9 +102,9 @@ func tables(extText string, foreignText string) Tables {
 		case _:
 			0
 		}
-		foreign = foreign.Append(types.Foreign{Qual: parts[0], Name: parts[1], Arity: n, Path: parts[3], Print: strings.ReplaceAll(parts[4], "^", " "), Key: parts[5]})
+		foreign = foreign.Append(types.Foreign{Qual: parts[0], Name: parts[1], Arity: n, Path: parts[3], Print: strings.ReplaceAll(parts[4], "^", " "), Key: parts[5], Variants: []int{}})
 	}
-	Tables{ext: ext, foreign: foreign, pkgName: pkgName, pkgPath: pkgPath}
+	Tables{ext: ext, foreign: types.WithUnions(foreign, foreignText), pkgName: pkgName, pkgPath: pkgPath}
 }
 
 func parseAll(paths []string) ([]bind.File, []string) fails os.Exit needs fs.Files {
@@ -162,12 +162,11 @@ func outside(units []Unit, std string) []types.Iface needs fs.Files {
 	have
 }
 
-// typeAll binds the units as package tasks in import waves (check/task:
-// each binds against its imports' frozen stores), loads each once, its
+// loadAll binds the units as package tasks in import waves (check/task:
+// each binds against its imports' frozen stores) and loads each once, its
 // imports' interfaces (types.Iface) done first (those of have, the
-// imports outside the run), then types each with its imports' loaded
-// packages as its deps (S3d3, S3d12).
-func typeAll(units []Unit, have0 []types.Iface) []Typed {
+// imports outside the run) (S3d3, S3d12).
+func loadAll(units []Unit, have0 []types.Iface) []expr.Dep {
 	let mut pkgs = []task.Package{}
 	for u in units {
 		pkgs = pkgs.Append(task.Package{Path: u.path, Files: u.files})
@@ -235,31 +234,34 @@ func typeAll(units []Unit, have0 []types.Iface) []Typed {
 		case None:
 		}
 	}
-	let mut out = []Typed{}
-	for d in loaded {
-		// The prelude is every package's: its Append, Get, Put and Delete
-		// are functions on slices and Maps (types.md, Methods 7).
-		let mut deps = []expr.Dep{}
-		for e in loaded {
-			if e.Path == "prelude" && d.Path != "prelude" {
-				deps = deps.Append(e)
+	loaded
+}
+
+// typeOne types the loaded package i with its imports' loaded packages
+// as its deps. Each typed package holds a copy of its deps, so a corpus
+// types and writes one at a time.
+func typeOne(loaded []expr.Dep, i int) Typed {
+	// The prelude is every package's: its Append, Get, Put and Delete
+	// are functions on slices and Maps (types.md, Methods 7).
+	let mut deps = []expr.Dep{}
+	for j in 0..len(loaded) {
+		if loaded[j].Path == "prelude" && loaded[i].Path != "prelude" {
+			deps = deps.Append(loaded[j])
+			break
+		}
+	}
+	for path in store.ImportPaths(loaded[i].S) {
+		for j in 0..len(loaded) {
+			if loaded[j].Path == path {
+				deps = deps.Append(loaded[j])
 				break
 			}
 		}
-		for path in store.ImportPaths(d.S) {
-			for e in loaded {
-				if e.Path == path {
-					deps = deps.Append(e)
-					break
-				}
-			}
-		}
-		let mut s = d.S
-		let k = expr.WithDeps(d.K, deps)
-		let t = expr.Check(&s, k)
-		out = out.Append(Typed{s: s, k: k, t: t})
 	}
-	out
+	let mut s = loaded[i].S
+	let k = expr.WithDeps(loaded[i].K, deps)
+	let t = expr.Check(&s, k)
+	Typed{s: s, k: k, t: t}
 }
 
 // write prints one typed package's lines: its expressions' types, or
@@ -380,17 +382,17 @@ func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 				units = units.Append(u)
 			}
 		}
-		let typed = typeAll(units, outside(units, std))
-		// By index: a loop's element binding would copy each package, its
-		// imports' with it.
-		for i in 0..len(typed) {
+		let loaded = loadAll(units, outside(units, std))
+		// By index: a loop's element binding would copy each package.
+		for i in 0..len(loaded) {
+			let d = typeOne(loaded, i)
 			b.WriteString("@pkg \(i)\n")
-			write(&b, units[i], typed[i], false, "E ")
-			write(&b, units[i], typed[i], true, "C ")
-			writeDiags(&b, units[i], typed[i], "D ")
-			writeOwn(&b, units[i], typed[i], "O ")
-			writeFlow(&b, units[i], typed[i], "W ")
-			writeLets(&b, units[i], typed[i], "L ")
+			write(&b, units[i], d, false, "E ")
+			write(&b, units[i], d, true, "C ")
+			writeDiags(&b, units[i], d, "D ")
+			writeOwn(&b, units[i], d, "O ")
+			writeFlow(&b, units[i], d, "W ")
+			writeLets(&b, units[i], d, "L ")
 		}
 		io.Stdout.Print(b.String())
 		return
@@ -412,11 +414,11 @@ func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 	for g in groups {
 		units = units.Append(try unitOf(g))
 	}
-	let typed = typeAll(units, outside(units, std))
-	write(&b, units[0], typed[0], calls, "")
+	let d = typeOne(loadAll(units, outside(units, std)), 0)
+	write(&b, units[0], d, calls, "")
 	if !calls {
-		writeDiags(&b, units[0], typed[0], "D ")
-		writeLets(&b, units[0], typed[0], "L ")
+		writeDiags(&b, units[0], d, "D ")
+		writeLets(&b, units[0], d, "L ")
 	}
 	io.Stdout.Print(b.String())
 }

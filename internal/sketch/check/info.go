@@ -100,6 +100,15 @@ type Package struct {
 	// member, a duplicate name included (stage E3b, 196l; law-top). The
 	// run build never runs one; the test build runs them through LawRuns.
 	Laws []*Law
+	// LawExportedHelpers are the exported functions that would be law
+	// helpers (lawplace.go, rule 2) if they were not exported: every user
+	// in the package is a law, a test or a helper, declared in a file of
+	// laws (one with nothing else). ergo fix unexports the ones no other
+	// package names. In source order.
+	LawExportedHelpers []*syntax.FuncDecl
+	// LawHelpers are the declarations ergo fix moves beside their first
+	// user (lawplace.go), in source order.
+	LawHelpers []LawHelper
 	// LawRuns are the laws the package's test build runs or reports
 	// (laws.go, rule 7): its own laws and the laws of its imports that it
 	// is the least package to see bound to a provider.
@@ -291,6 +300,12 @@ type Info struct {
 	// is not Empty (runtime.md, I1) and never derives a footprint again.
 	// Added for #199 stage 1 (additive).
 	Footprints map[syntax.Node]Footprint
+	// Reads is, for each function of the package with a body, keyed by
+	// its *syntax.FuncDecl, what the body reads of each parameter, one
+	// ReadSet per parameter in order (reads.go). The lowering compares
+	// only the read fields of a component's record argument (NS2b;
+	// stdlib.md, UI 13). Added in NS2b (additive).
+	Reads map[syntax.Node][]ReadSet
 	// Instances is every instantiation of a generic function (D-E1; stage
 	// B round 2 m6): a call of one, keyed by the *syntax.CallExpr, whether
 	// its type arguments are written, inferred or bound by a dot call's
@@ -520,6 +535,7 @@ func newInfo() *Info {
 		Withs:         map[*syntax.CallExpr]*With{},
 		ContextValues: map[syntax.Expr]*With{},
 		Footprints:    map[syntax.Node]Footprint{},
+		Reads:         map[syntax.Node][]ReadSet{},
 		Instances:     map[syntax.Expr]*Instance{},
 
 		ReturnedValues: map[syntax.Expr]bool{},
@@ -814,6 +830,12 @@ const (
 	// Machine[S, E, O, F, R, W] (README Gap 46): Table["Step"] is the
 	// machine's step function.
 	ConvMachine
+	// ConvNarrow puts a function value into a function type whose
+	// parameters it takes, except that where the type's parameter is a row
+	// value of one error type the value's parameter is that type
+	// (narrowsRowParams): the type's function narrows each such row value to
+	// its one type and calls the value.
+	ConvNarrow
 )
 
 // Conversion is an implicit conversion at an assignment site: From's value
@@ -1090,6 +1112,18 @@ type Law struct {
 	// Rewrite is the checked form of a rewrite law (Decl.Rewrite; types.md,
 	// Laws 14), nil for any other law or one whose shape was refused.
 	Rewrite *Rewrite
+	// Subjects are a top-level law's subjects (lawplace.go, rule 1), the
+	// ones it names first, then the ones its helpers name; nil for a member,
+	// machine or derived law.
+	Subjects []LawSubject
+	// FixSubjects are its subjects as ergo fix reads them: with the
+	// exported declarations of a file of laws that only laws and tests use
+	// read as helpers too (Package.LawHelpers).
+	FixSubjects []LawSubject
+	// FuncRewrite is the checked form of a top-level rewrite law over
+	// functions (Decl.Equation; funcrewrite.go), nil for any other law or
+	// one outside the rewrite's scope.
+	FuncRewrite *FuncRewrite
 
 	file *fileInfo // the declaring file, selected while the law is checked
 }
@@ -1356,7 +1390,7 @@ func (c *checker) finishInfo() {
 			call.StartsTask = c.running(c.pkg.Info.Types[x]) != nil
 		}
 		if call.Kind == CallFunc && releasesResult(call.Func) {
-			if d, bad := c.dropOf(c.pkg.Info.Types[x]); d != nil && bad == "" {
+			if d, bad := c.dropOf(c.pkg.Info.Types[x]); d != nil && bad == nil {
 				c.pkg.Info.ResultDrops[x] = d
 			}
 		}

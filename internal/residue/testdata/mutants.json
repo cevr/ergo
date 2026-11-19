@@ -71,22 +71,13 @@
       "killers": ["internal/residue:TestCompilerReadsNoStdMembership"],
       "anchor": {"tests": ["internal/residue:TestCompilerReadsNoStdMembership"]}
     },
-    {
-      "name": "residue-debt-grows",
-      "origin": "wf10 STD-NOPRIV NP1",
-      "file": "internal/residue/testdata/std-privileges.txt",
-      "from": "language\tinternal/sketch/lower/gocall.go:isOptionType\tOption at the Go boundary\t-\n",
-      "to": "debt\tinternal/sketch/lower/gocall.go:isOptionType\tOption at the Go boundary\tNP6\n",
-      "rule": "The debt list only shrinks: a row may not join it.",
-      "killers": ["internal/residue:TestCompilerReadsNoStdMembership"],
-      "anchor": {"tests": ["internal/residue:TestCompilerReadsNoStdMembership"]}
-    },
+    {"name":"residue-debt-grows","origin":"wf10 STD-NOPRIV NP1","file":"internal/residue/testdata/std-privileges.txt","from":"language\tinternal/sketch/lower/gocall.go:isOptionType\tOption at the Go boundary\t-\n","to":"debt\tinternal/sketch/lower/gocall.go:isOptionType\tOption at the Go boundary\tNP6\n","rule":"The debt list only shrinks: a row may not join it.","killers":["internal/residue:TestCompilerReadsNoStdMembership"],"anchor":{"tests":["internal/residue:TestCompilerReadsNoStdMembership"]}},
     {
       "name": "residue-scan-skips-package",
       "origin": "wf10 STD-NOPRIV NP1",
       "file": "internal/residue/std_membership_test.go",
-      "from": "\"internal/sketch/format\", \"internal/sketchfront\", \"internal/tsproj\",\n",
-      "to": "\"internal/sketch/format\", \"internal/sketchfront\",\n",
+      "from": "\"internal/hostsyntax\", \"internal/sketchfront\", \"internal/tsproj\",\n",
+      "to": "\"internal/hostsyntax\", \"internal/sketchfront\",\n",
       "rule": "The rule reads every compiler package: a package left out of the scan would hide its reads.",
       "killers": ["internal/residue:TestCompilerReadsNoStdMembership"],
       "anchor": {"tests": ["internal/residue:TestCompilerReadsNoStdMembership"]}
@@ -123,6 +114,9 @@
     {"name":"tempdir-place-ignored","origin":"wf10 GS18","file":"internal/residue/tempdir_test.go","from":"&& len(call.Args) > 0 && inSystemTemp(call.Args[0])\n","to":"&& len(call.Args) > 0\n","rule":"Only a file made in the system temporary directory counts; one made under a test's own directory is that directory's.","killers":["internal/residue:TestTempLeakRule"]},
     {"name":"tempdir-any-removal","origin":"wf10 GS18","file":"internal/residue/tempdir_test.go","from":"(m.name != \"\" && m.name != \"_\" && removed[m.name])","to":"len(removed) > 0","rule":"Removing some other directory does not remove the one the function made.","killers":["internal/residue:TestTempLeakRule"]},
     {"name":"gs18-cmd-cache-kept","origin":"wf10 GS18","file":"cmd/ergo/main_test.go","from":"\t\tdefer os.RemoveAll(cache)\n","to":"\t\t_ = cache\n","rule":"cmd/ergo's tests remove the private cache they make in /tmp (68 GB of leaked directories, 2026-11-13).","killers":["internal/residue:TestTestsRemoveTheirTemporaryFiles"]},
+    {"name":"ws9a-lane-script-calls-rift","origin":"wf10/semws WS9a","file":"scripts/lanework/lanework.sh","from":"  inbase rm -abandon -expect \"$id\" \"$name\" >/dev/null\n","to":"  rift remove \"$lane\"\n","rule":"No run script runs Rift: a lane is removed with work rm.","killers":["internal/residue:TestRunScriptsCallNoRift"],"anchor":{"tests":["internal/residue:TestRunScriptsCallNoRift"]}},
+    {"name":"ws9a-agents-says-use-rift","origin":"wf10/semws WS9a","file":"AGENTS.md","from":"- Make isolated repository changes in a lane:","to":"- Use Rift for isolated repository changes, in a lane:","rule":"No tracked doc tells the run to use Rift.","killers":["internal/residue:TestRunScriptsCallNoRift"],"anchor":{"tests":["internal/residue:TestRunScriptsCallNoRift"]}},
+    {"name":"ds-moved-hash-unchecked","origin":"wf10 SPLIT E3","file":"internal/residue/moved_test.go","from":"\t\tcase strings.TrimSpace(string(out)) != l.tree:","to":"\t\tcase false:","rule":"A path that moved at F keeps its tree at F, or is gone; an edit names the repository it moved to.","killers":["internal/residue:TestMovedPathRule"]},
     {"name":"patch-hook-unlisted","origin":"wf10 PATCH-MIN","file":"toolchain/ir/hooks","from":"\nsrc/cmd/compile/internal/noder/unified.go | +1 -0 |","to":"\n# src/cmd/compile/internal/noder/unified.go | +1 -0 |","rule":"Every hunk of the IR compiler patch in a file Go already has is a line of toolchain/ir/hooks with its reason (MINIMAL FORK PATCH).","killers":["internal/residue:TestPatchHooksBudgeted"],"anchor":{"tests":["internal/residue:TestPatchHooksBudgeted"]}},
     {"name":"patch-hook-grown","origin":"wf10 PATCH-MIN","file":"toolchain/ir/go1.27.0.patch","from":"+\tergoStub(m, pkg, info, noders)","to":"+\t// grown\n+\tergoStub(m, pkg, info, noders)","rule":"A hook that grows past its line's count in toolchain/ir/hooks fails until its line says so: the changed lines in Go's own files are a tracked number.","killers":["internal/residue:TestPatchHooksBudgeted"],"anchor":{"tests":["internal/residue:TestPatchHooksBudgeted"]}},
     {"name":"view-without-inventory-line","origin":"wf10 LAWFFI LF2b","file":"internal/residue/testdata/unsafe.txt","from":"runtime/v1/view.go BytesView |","to":"runtime/v1/view.go BytesViewGone |","rule":"interop.md Foreign facts 8: BytesView is a line of the unsafe inventory.","killers":["internal/residue:TestUnsafeBodiesListed"]}

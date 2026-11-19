@@ -1,11 +1,13 @@
 // Package api projects public contracts from a checked package. It does not
 // infer ownership: takes and the own marks are facts of the checker, not of
-// docs.
+// docs. The projection is the producer of std code's Contract rows
+// (cmd/ergo writes them into the tables); their text, their diff and the
+// diff's text are std code's ApiText, ApiDiff and ApiDiffText (SEMTOOLS
+// SEM2), and Function and Change stay as the shape of `ergo inspect api
+// --json`.
 package api
 
 import (
-	"fmt"
-	"reflect"
 	"slices"
 	"strings"
 	"unicode"
@@ -83,113 +85,13 @@ func Functions(p *check.Package) []Function {
 	return out
 }
 
-// Text is the docs view until a separate doc generator exists.
-func Text(fs []Function) string {
-	var b strings.Builder
-	for _, f := range fs {
-		fmt.Fprintf(&b, "%s %s", f.Name, f.Signature)
-		if len(f.TypeParameters) > 0 {
-			fmt.Fprintf(&b, " [%s]", strings.Join(f.TypeParameters, ", "))
-		}
-		takes := "nothing"
-		if len(f.Takes) > 0 {
-			takes = strings.Join(f.Takes, ", ")
-		}
-		origin := "written"
-		if f.TakesInferred {
-			origin = "inferred"
-		}
-		fmt.Fprintf(&b, "\n  takes %s (%s)\n", takes, origin)
-		for _, name := range f.Own {
-			fmt.Fprintf(&b, "  own %s (a resource may bind it)\n", name)
-		}
-	}
-	if len(fs) == 0 {
-		b.WriteString("no exported function\n")
-	}
-	return b.String()
-}
-
-// Change is an API change, with both contracts retained for JSON clients.
-// Moving a copy site changes docs but does not newly exclude resources.
+// Change is an API change, with both contracts retained for JSON clients
+// (the JSON of std code's ApiChange, read back by ergo inspect api).
+// Adding an own mark excludes no caller; dropping one breaks the callers
+// that bind a resource to it.
 type Change struct {
 	Name                  string
 	Old                   *Function
 	New                   *Function
 	BreaksResourceCallers bool
-}
-
-// Diff compares checked summaries. A new taking parameter or a newly
-// copying type parameter changes what an existing resource caller may do.
-func Diff(old, next []Function) []Change {
-	before, after := map[string]Function{}, map[string]Function{}
-	for _, f := range old {
-		before[f.Name] = f
-	}
-	for _, f := range next {
-		after[f.Name] = f
-	}
-	names := map[string]bool{}
-	for n := range before {
-		names[n] = true
-	}
-	for n := range after {
-		names[n] = true
-	}
-	out := []Change{}
-	for n := range names {
-		a, had := before[n]
-		b, has := after[n]
-		if had && has && reflect.DeepEqual(a, b) {
-			continue
-		}
-		c := Change{Name: n}
-		if had {
-			c.Old = &a
-		}
-		if has {
-			c.New = &b
-		}
-		if had && has {
-			if b.TakesSelf && !a.TakesSelf {
-				c.BreaksResourceCallers = true
-			}
-			for _, t := range b.TakesParameters {
-				if !slices.Contains(a.TakesParameters, t) {
-					c.BreaksResourceCallers = true
-				}
-			}
-			// A dropped mark refuses the callers that bind a resource.
-			for _, name := range a.Own {
-				if !slices.Contains(b.Own, name) {
-					c.BreaksResourceCallers = true
-				}
-			}
-		}
-		out = append(out, c)
-	}
-	slices.SortFunc(out, func(a, b Change) int { return strings.Compare(a.Name, b.Name) })
-	return out
-}
-
-// DiffText renders changed declarations, not unchanged implementation text.
-func DiffText(changes []Change) string {
-	var b strings.Builder
-	for _, c := range changes {
-		fmt.Fprintf(&b, "%s: API change", c.Name)
-		if c.BreaksResourceCallers {
-			b.WriteString("; breaks callers that pass a resource")
-		}
-		b.WriteByte('\n')
-		if c.Old != nil {
-			fmt.Fprintf(&b, "- %s", Text([]Function{*c.Old}))
-		}
-		if c.New != nil {
-			fmt.Fprintf(&b, "+ %s", Text([]Function{*c.New}))
-		}
-	}
-	if len(changes) == 0 {
-		b.WriteString("no API change\n")
-	}
-	return b.String()
 }

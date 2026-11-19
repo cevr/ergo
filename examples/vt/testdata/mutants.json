@@ -2,6 +2,50 @@
   "about": "vt's application mutants (DOD track DT1 to DT3). A mutant of the program is judged by the example's laws and cases (scripts/examples vt); a mutant of the hand-Go control (cmd/ergo/testdata/vt/control, DT3) by TestVTAgreesWithControl, which plays the program and the control on 200 seeds. The rule of each names the law, the case or the test that kills it.",
   "mutants": [
     {
+      "name": "vtgap-csi-run-off",
+      "origin": "wf10/VT-GAP",
+      "file": "examples/vt/vt/stream.ergo",
+      "from": "\t\t\tif p.fast && b == 0x1b {\n",
+      "to": "\t\t\tif false && p.fast && b == 0x1b {\n",
+      "rule": "A whole CSI in the ground state is taken in one loop, with no step of the machine (the events are the same: FastPathMatchesStep). Killed by test vt.FastPathsTakeNoSteps, the work counter.",
+      "killers": [
+        "examples:vt"
+      ]
+    },
+    {
+      "name": "vtgap-csi-run-last-param",
+      "origin": "wf10/VT-GAP",
+      "file": "examples/vt/vt/stream.ergo",
+      "from": "\tp.acc = acc\n\tp.parse = Parse{At: Ground, Counts: completed(k)}\n",
+      "to": "\tp.acc = 0\n\tp.parse = Parse{At: Ground, Counts: completed(k)}\n",
+      "rule": "The CSI fast path completes the parameter being read, as the dispatch does. Killed by law vt.FastPathMatchesStep.",
+      "killers": [
+        "examples:vt"
+      ]
+    },
+    {
+      "name": "vtgap-csi-run-keeps-too-many",
+      "origin": "wf10/VT-GAP",
+      "file": "examples/vt/vt/stream.ergo",
+      "from": "\tif params >= MaxParams {\n\t\tp.Tally.Dropped += 1\n\t\treturn j + 1\n\t}\n",
+      "to": "",
+      "rule": "The CSI fast path drops a sequence with more than MaxParams parameters, as the dispatch does. Killed by law vt.FastPathMatchesStep.",
+      "killers": [
+        "examples:vt"
+      ]
+    },
+    {
+      "name": "vtgap-csi-run-no-clamp",
+      "origin": "wf10/VT-GAP",
+      "file": "examples/vt/vt/stream.ergo",
+      "from": "\t\t\tacc = if v > MaxParam { MaxParam } else { v }\n\t\t\tdigits = true\n",
+      "to": "\t\t\tacc = v\n\t\t\tdigits = true\n",
+      "rule": "The CSI fast path clamps a parameter to MaxParam, as the collector does. Killed by law vt.FastPathMatchesStep.",
+      "killers": [
+        "examples:vt"
+      ]
+    },
+    {
       "name": "dt1-csi-param-colon",
       "origin": "wf10/dod/DT1",
       "file": "examples/vt/vt/state.ergo",
@@ -397,27 +441,7 @@
         "cmd/ergo:TestVTAgreesWithControl"
       ]
     },
-    {
-      "name": "vk1-flush-keeps-events",
-      "origin": "wf10/dod/VK1",
-      "file": "examples/vt/vt/play.ergo",
-      "from": "\tApply(s, p.out, &u)\n\tp.Clear()\n",
-      "to": "\tApply(s, p.out, &u)\n",
-      "rule": "Flush forgets the events it gave the screen: the next piece's events are given once. Killed by the replay cases.",
-      "killers": [
-        "examples:vt"
-      ]
-    },
-    {
-      "name": "vk1-clear-keeps-first",
-      "origin": "wf10/dod/VK1",
-      "file": "examples/vt/vt/stream.ergo",
-      "from": "func Clear(p mut Stream) { p.out = p.out[0:0] }",
-      "to": "func Clear(p mut Stream) { if len(p.out) > 0 { p.out = p.out[0:1] } }",
-      "rule": "Clear forgets every event kept, not all but the first. Killed by the replay cases.",
-      "killers": [
-        "examples:vt"
-      ]
-    }
+    {"name":"vk1-flush-keeps-events","origin":"wf10/dod/VK1","file":"examples/vt/vt/play.ergo","from":"\tApply(s, p.out, &u)\n\tp.Clear()\n","to":"\tApply(s, p.out, &u)\n","rule":"Flush forgets the events it gave the screen: the next piece's events are given once. Killed by the replay cases.","killers":["examples:vt"]},
+    {"name":"vk1-clear-keeps-first","origin":"wf10/dod/VK1","file":"examples/vt/vt/stream.ergo","from":"func Clear(p mut Stream) { p.out = p.out[0:0] }","to":"func Clear(p mut Stream) { if len(p.out) > 0 { p.out = p.out[0:1] } }","rule":"Clear forgets every event kept, not all but the first. Killed by the replay cases.","killers":["examples:vt"]}
   ]
 }

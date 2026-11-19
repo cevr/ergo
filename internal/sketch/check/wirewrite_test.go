@@ -21,6 +21,7 @@ func Int(p mut pen, n int64) { p.n = p.n + 1 }
 func Uint(p mut pen, n uint64) { p.n = p.n + 1 }
 func Float(p mut pen, f float64) { p.n = p.n + 1 }
 func String(p mut pen, s string) { p.n = p.n + 1 }
+func StringBytes(p mut pen, b []byte) { p.n = p.n + 1 }
 func BeginList(p mut pen, n int) { p.n = p.n + 1 }
 func EndList(p mut pen) { p.n = p.n + 1 }
 func BeginObject(p mut pen, n int) { p.n = p.n + 1 }

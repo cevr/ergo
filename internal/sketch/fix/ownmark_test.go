@@ -5,9 +5,9 @@ import (
 	"path/filepath"
 	"testing"
 
+	format "ergo.local/prototype/internal/hostsyntax"
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/fix"
-	"ergo.local/prototype/internal/sketch/format"
 )
 
 // TestFixWritesOwnMarks is the smallest program of the own mark's

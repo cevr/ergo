@@ -1,4 +1,6 @@
+import slices
 import strings
+import tasks
 
 // noNode is what a parse function returns when the parse failed before it
 // built its node: no row has this index, and every reader of a row treats
@@ -19,13 +21,14 @@ type Parsed {
 	Line    int,
 	Column  int,
 	src     string,
-	kinds   []uint8,
+	kinds   []uint32,
 	starts  []uint32,
-	nreal   int,
-	vend    int,
+	ends    []uint32,
 	cmts    Comments,
 	gFirst  []int,
 	gLast   []int,
+	// cmt0 is the start of the first comment, -1 for none.
+	cmt0 int,
 }
 
 // parser is the state of one parse: the token columns, the position in
@@ -34,11 +37,10 @@ type Parsed {
 // reads as EOF and no token is consumed, so every loop ends and the parse
 // returns along its normal paths (the Go parser's bailout panic).
 type parser {
-	src         string,
-	kinds       []uint8,
-	starts      []uint32,
-	nreal       int,
-	vend        int,
+	src string,
+	// toks is the scan's columns, whole: ntok of them are the parse's
+	// tokens.
+	toks        Toks,
 	ntok        int,
 	cmts        Comments,
 	scanFailed  bool,
@@ -75,50 +77,23 @@ type parser {
 // declarations and the expansion of or-patterns left out: the tree is the
 // tree as written).
 func Parse(src string) Parsed {
-	let s = Scan(src)
-	let n = NumToks(s.Toks)
-	// The parser reads the scan's columns in place: they have room for
-	// the two tokens a failed scan adds.
-	let mut kinds = s.Toks.kind
-	let mut starts = s.Toks.start
-	let mut ntok = n
-	let mut vend = 0
-	if s.Failed {
-		// The ILLEGAL and EOF of the Go scanner's fail: at the failure, or
-		// at the end of the last token when that is past it.
-		let mut at = s.Offset
-		let mut end = s.Offset + s.Length
-		if n > 0 {
-			let k = kinds[n-1]
-			let last = End(src, k, int(starts[n-1]))
-			if last > at {
-				at = last
-				end = last
-			}
-		}
-		kinds[n] = Illegal
-		starts[n] = uint32(at)
-		kinds[n+1] = EOF
-		starts[n+1] = uint32(end)
-		vend = end
-		ntok = n + 2
-	}
-	kinds = kinds[:ntok]
-	starts = starts[:ntok]
+	let s = scanAll(src)
+	let n = NumToks(s.toks)
+	// The parser reads the scan's columns in place, a failed scan's
+	// ILLEGAL and EOF past its tokens (Scan), and takes them whole as the
+	// last use of s, so they are not copied (scanAll).
+	let ntok = if s.failed { n + 2 } else { n }
+	let tk = uint8(s.toks.kind[0])
 	let mut p = parser{
 		src:         src,
-		kinds:       kinds,
-		starts:      starts,
-		nreal:       n,
-		vend:        vend,
 		ntok:        ntok,
-		cmts:        s.Comments,
-		scanFailed:  s.Failed,
-		scanOffset:  s.Offset,
-		scanLength:  s.Length,
-		scanMessage: s.Message,
+		cmts:        s.comments,
+		scanFailed:  s.failed,
+		scanOffset:  s.at,
+		scanLength:  s.length,
+		scanMessage: s.message,
 		i:           0,
-		tk:          kinds[0],
+		tk:          tk,
 		exprLev:     0,
 		orAllowed:   false,
 		nest:        0,
@@ -146,12 +121,14 @@ func Parse(src string) Parsed {
 		entTop:   0,
 		quiet:    0,
 		gHint:    0,
+		toks:     s.toks,
 	}
 	groupComments(&p)
 	parseFile(&p)
 	// A failure reports its line and column, from a line table built for it
 	// alone; a parse that succeeds builds none.
 	let pos = if p.failed { PositionOf(LinesOf(src), p.eoff) } else { Position{Line: 0, Column: 0} }
+	let c0 = if NumComments(p.cmts) > 0 { cmtStart(&p, 0) } else { -1 }
 	Parsed{
 		Tree:    p.t,
 		Failed:  p.failed,
@@ -162,24 +139,145 @@ func Parse(src string) Parsed {
 		Line:    pos.Line,
 		Column:  pos.Column,
 		src:     src,
-		kinds:   p.kinds,
-		starts:  p.starts,
-		nreal:   p.nreal,
-		vend:    p.vend,
+		kinds:   p.toks.kind[:p.ntok],
+		starts:  p.toks.start[:p.ntok],
+		ends:    p.toks.end[:p.ntok],
 		cmts:    p.cmts,
 		gFirst:  p.gFirst,
 		gLast:   p.gLast,
+		cmt0:    c0,
 	}
+}
+
+// ParseAll is the parse of each source, in the order of srcs, on at most
+// workers tasks at once (capstone S2e, CAP-par). A parse shares nothing
+// with another: it reads its own source and builds its own columns and
+// tree, and its task hands them back whole, so the join is the results in
+// file order and no parse writes a table of another (there is no
+// interner: names stay offsets into the source). A workers below 1 is a
+// defect, as Transform's limit.
+func ParseAll(srcs []string, workers int) []Parsed { EachRun(srcs, workers, RunLeast, Parse) }
+
+// RunLeast is the source bytes a run must reach before a task of its own
+// pays for itself: a task starts on a small stack that the recursive
+// descent grows again, and that growth was a third of the instructions of
+// a corpus's ColumnsAll at four workers (capstone S2f), where most
+// packages are a few kilobytes.
+let RunLeast = 32768
+
+// EachRun is f of each source, in the order of srcs: on the caller's
+// stack, which has grown already, when the sources do not fill two runs of
+// least bytes; else on at most workers tasks at once, each a run of
+// adjacent files (Chunks), no more runs than the sources fill. A workers
+// below 1 is a defect, as Transform's limit.
+func EachRun[T](srcs []string, workers int, least int, f own func(src string) T) []T {
+	let mut total = 0
+	for s in srcs {
+		total = total + len(s)
+	}
+	let fill = if least < 1 { total } else { total / least }
+	let runs = if fill < workers { fill } else { workers }
+	if workers >= 1 && runs < 2 {
+		let mut out = slices.WithCapacity[T](len(srcs))
+		for s in srcs {
+			out = out.Append(f(s))
+		}
+		return out
+	}
+	let parts = tasks.Transform(Chunks(len(srcs), runs), workers, func(c Chunk) []T {
+		let mut out = slices.WithCapacity[T](c.To - c.From)
+		for i in c.From..c.To {
+			out = out.Append(f(srcs[i]))
+		}
+		out
+	})
+	let mut all = slices.WithCapacity[T](len(srcs))
+	for part in parts {
+		all = slices.AppendAll(all, part)
+	}
+	all
+}
+
+// Chunk is the files [From, To) one task parses, in order.
+type Chunk { From int, To int }
+
+// Chunks splits n files into at most workers runs of adjacent files, in
+// order, as even in count as they can be. A task parses a run, not one
+// file: a parse's task starts with a small stack and the recursive descent
+// grows it, so a task per file pays the growth once per file (about a
+// third of the parse's instructions, measured in S2e), and a task per run
+// once per worker.
+func Chunks(n int, workers int) []Chunk {
+	let k = if workers < 1 { 1 } else if workers > n { n } else { workers }
+	let mut out = slices.WithCapacity[Chunk](k)
+	let mut from = 0
+	for j in 0..k {
+		let to = from + (n-from)/(k-j)
+		out = out.Append(Chunk{From: from, To: to})
+		from = to
+	}
+	out
+}
+
+// ChunksTile: the runs cover 0..n in order with no gap and no overlap, no
+// run is empty, and there are at most workers of them.
+law ChunksTile(n int, workers int) {
+	let m = (n%500 + 500) % 500
+	let w = (workers%20+20)%20 + 1
+	let cs = Chunks(m, w)
+	let mut ok = len(cs) <= w
+	let mut at = 0
+	for c in cs {
+		ok = ok && c.From == at && c.To > c.From
+		at = c.To
+	}
+	ok && at == m
+}
+
+// ParseAllIsEachParse: the parses are each file's own parse, in file
+// order, on the caller's stack and on tasks (a run of one byte splits the
+// sources into as many runs as the workers): the rows, the extra words,
+// the tokens, the comments and the failure are the same bytes.
+law ParseAllIsEachParse(picks []int) {
+	let srcs = sourcesOf(picks)
+	let one = ParseAll(srcs, 1)
+	let many = EachRun(srcs, 8, 1, Parse)
+	let mut ok = len(one) == len(srcs) && len(many) == len(srcs)
+	for i in 0..len(srcs) {
+		let own = Columns(Parse(srcs[i]))
+		ok = ok && slices.Equal(Columns(one[i]), own) && slices.Equal(Columns(many[i]), own) && one[i].Message == many[i].Message
+	}
+	ok
+}
+
+// sourcesOf is a few sources from picks: programs of its rotations, and a
+// source that fails, so a failed parse sits among parses that succeed.
+func sourcesOf(picks []int) []string {
+	let mut srcs = []string{}
+	let n = len(picks)
+	for k in 0..n%6+2 {
+		let mut rot = []int{}
+		for j in 0..n {
+			rot = rot.Append(picks[(j+k)%n])
+		}
+		srcs = srcs.Append(program(rot))
+		if k == 1 {
+			srcs = srcs.Append("func f( {\n")
+		}
+	}
+	srcs
 }
 
 // ---------------------------------------------------------------- tokens
 
 // next advances to the next token. It stops at EOF and at the ILLEGAL
-// token of a lexical error, and after a failure.
+// token of a lexical error, and after a failure: Illegal and EOF are the
+// two kinds below every other, so one comparison stops at both (capstone
+// S2f).
 func next(p mut parser) {
-	if p.tk != EOF && p.tk != Illegal {
+	if p.tk > EOF {
 		p.i = p.i + 1
-		p.tk = p.kinds[p.i]
+		p.tk = uint8(p.toks.kind[p.i])
 	}
 }
 
@@ -188,32 +286,27 @@ func next(p mut parser) {
 func peek(p mut parser, n int) uint8 {
 	let j = p.i + n
 	if j < p.ntok {
-		return p.kinds[j]
+		return uint8(p.toks.kind[j])
 	}
-	p.kinds[p.ntok-1]
+	uint8(p.toks.kind[p.ntok-1])
 }
 
 // tpos is the offset of token j.
-func tpos(p mut parser, j int) int { int(p.starts[j]) }
+func tpos(p mut parser, j int) int { int(p.toks.start[j]) }
 
 // tend is the end of token j.
-func tend(p mut parser, j int) int {
-	if j >= p.nreal {
-		return p.vend
-	}
-	End(p.src, p.kinds[j], int(p.starts[j]))
-}
+func tend(p mut parser, j int) int { int(p.toks.end[j]) }
 
 // pos and end are the current token's.
-func pos(p mut parser) int { int(p.starts[p.i]) }
+func pos(p mut parser) int { int(p.toks.start[p.i]) }
 
-func tokLen(p mut parser) int { tend(p, p.i) - int(p.starts[p.i]) }
+func tokLen(p mut parser) int { tend(p, p.i) - int(p.toks.start[p.i]) }
 
 // lit is the source text of token j (a raw string without its carriage
 // returns, as the Go scanner's literal).
 func lit(p mut parser, j int) string {
 	let s = p.src[tpos(p, j):tend(p, j)]
-	if p.kinds[j] == String && len(s) > 0 && s[0] == '`' {
+	if uint8(p.toks.kind[j]) == String && len(s) > 0 && s[0] == '`' {
 		return dropCR(s)
 	}
 	s
@@ -236,22 +329,22 @@ func isWord(p mut parser, w string) bool {
 	if p.tk != Ident {
 		return false
 	}
-	let at = int(p.starts[p.i])
+	let at = int(p.toks.start[p.i])
 	at+len(w) <= len(p.src) && p.src[at:at+len(w)] == w && identEnd(p.src, at) == at+len(w)
 }
 
 // wordAt reports token j an identifier spelled w.
 func wordAt(p mut parser, j int, w string) bool {
-	if j >= p.ntok || p.kinds[j] != Ident {
+	if j >= p.ntok || uint8(p.toks.kind[j]) != Ident {
 		return false
 	}
-	let at = int(p.starts[j])
+	let at = int(p.toks.start[j])
 	at+len(w) <= len(p.src) && p.src[at:at+len(w)] == w && identEnd(p.src, at) == at+len(w)
 }
 
 // inserted reports an inserted semicolon (a newline's).
 func inserted(p mut parser, j int) bool {
-	p.kinds[j] == Semicolon && !(int(p.starts[j]) < len(p.src) && p.src[int(p.starts[j])] == ';')
+	uint8(p.toks.kind[j]) == Semicolon && !(int(p.toks.start[j]) < len(p.src) && p.src[int(p.toks.start[j])] == ';')
 }
 
 // atLineEnd reports whether the current token is an inserted semicolon.
@@ -259,7 +352,7 @@ func atLineEnd(p mut parser) bool { p.tk == Semicolon && inserted(p, p.i) }
 
 func backtrack(p mut parser, j int) {
 	p.i = j
-	p.tk = p.kinds[j]
+	p.tk = uint8(p.toks.kind[j])
 }
 
 // want consumes a token of kind k and returns its index.
@@ -491,7 +584,7 @@ func groupComments(p mut parser) {
 		let from = ti
 		let mut step = 1
 		let mut hi = ti
-		for hi < p.ntok && int(p.starts[hi]) < slash {
+		for hi < p.ntok && int(p.toks.start[hi]) < slash {
 			ti = hi + 1
 			hi = hi + step
 			step = step * 2
@@ -501,14 +594,14 @@ func groupComments(p mut parser) {
 		}
 		for ti < hi {
 			let mid = (ti + hi) / 2
-			if int(p.starts[mid]) < slash {
+			if int(p.toks.start[mid]) < slash {
 				ti = mid + 1
 			} else {
 				hi = mid
 			}
 		}
 		let mut j = ti - 1
-		for j >= from && (inserted(p, j) || p.kinds[j] == EOF) {
+		for j >= from && (inserted(p, j) || uint8(p.toks.kind[j]) == EOF) {
 			j = j - 1
 		}
 		if j >= from {
@@ -582,7 +675,7 @@ func kindAt(p mut parser, x uint32) uint8 {
 	if x >= uint32(p.t.n) {
 		return uint8(0)
 	}
-	p.t.kind[int(x)]
+	uint8(p.t.kind[int(x)])
 }
 
 // ident appends the Ident row of token j.
@@ -606,7 +699,7 @@ func nodeEnd(p mut parser, x uint32) int { endOf(p.t, toks(p), x) }
 // toks is the parser's tokens, to read spans from.
 func toks(p mut parser) tokens {
 	let c0 = if NumComments(p.cmts) > 0 { cmtStart(p, 0) } else { -1 }
-	tokens{src: p.src, kinds: p.kinds, starts: p.starts, nreal: p.nreal, vend: p.vend, cmt0: c0}
+	tokens{src: p.src, kinds: p.toks.kind, starts: p.toks.start, ends: p.toks.end, cmt0: c0}
 }
 
 // errorNode reports message at the span of row x.

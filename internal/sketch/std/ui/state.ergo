@@ -13,7 +13,7 @@ import arena
 // which Ergo has no type for.
 
 // Cell is one piece of view-local state.
-type Cell = TextCell{Value string} | FlagCell{On bool} | ViewCell{Offset Length, Height Length, Follow int}
+type Cell = TextCell{Value string} | FlagCell{On bool} | ViewCell{Offset Length, Height Length, Follow int} | PresenceCell{Items []presenceItem, Fresh bool}
 
 // cellAt names a cell in a pass: the identity of the call that read it,
 // under parent spec parent (-1 the root).
@@ -66,6 +66,8 @@ func cellKind(c Cell) int {
 		1
 	case ViewCell:
 		2
+	case PresenceCell:
+		3
 	}
 }
 
@@ -94,7 +96,13 @@ func NewFlag[E](f mut Frame[E], init bool, at CallSite) Flag {
 // Field shows a text field over d: a text the host takes in it becomes the
 // draft's value at the next pass, and sends no signal.
 func Field[E](f mut Frame[E], d Draft, placeholder string, at CallSite) {
-	let _ = put(f, InputNode{Value: d.Value, Placeholder: placeholder}, None, Some{Value: d.at}, at)
+	let _ = put(f, InputNode{Value: d.Value, Placeholder: placeholder, Label: "", Description: "", Invalid: false}, None, Some{Value: d.at}, at)
+}
+
+// LabelledField is a Field that says what it is (FieldLabel), as
+// LabelledInput is an Input that does.
+func LabelledField[E](f mut Frame[E], label FieldLabel, d Draft, placeholder string, at CallSite) {
+	let _ = put(f, InputNode{Value: d.Value, Placeholder: placeholder, Label: label.Text, Description: label.Description, Invalid: label.Invalid}, None, Some{Value: d.at}, at)
 }
 
 // Toggle shows a check box over fl: a press flips the flag and sends no
@@ -107,7 +115,7 @@ func Toggle[E](f mut Frame[E], fl Flag, label string, at CallSite) {
 // (made from d's value by the view) and the draft is "" at the next pass.
 func Submit[E, F, R](f mut Frame[E], d Draft, label string, on E, body func() fails F needs R, at CallSite) fails F needs R {
 	let m = markOf(f)
-	f.parent = put(f, PressableNode{Label: label, On: on, Style: Plain()}, None, Some{Value: d.at}, at)
+	f.parent = put(f, PressableNode{Label: label, On: on, Style: PressStyle()}, None, Some{Value: d.at}, at)
 	body() catch {
 	case err:
 		cut(f, m)
@@ -258,7 +266,6 @@ func settle[E](f mut Frame[E]) {
 		m[l.id] = s
 		loads[o] = m
 	}
-	let mut skipped = Map[arena.Ref[node[E]], bool]{}
 	f.skips = 0
 	for i in 0..f.nspecs {
 		let s = f.specs[i]
@@ -270,8 +277,9 @@ func settle[E](f mut Frame[E]) {
 		}
 		if s.skip {
 			// A skipped Same keeps what its last run stored (UC-4).
-			skipped[s.ref] = true
-			f.skips = f.skips + 1
+			if !s.again {
+				f.skips = f.skips + 1
+			}
 		} else {
 			let up = memoRef(f, s.parent)
 			change(f, s.ref, func(n mut node[E]) {
@@ -297,23 +305,25 @@ func settle[E](f mut Frame[E]) {
 	for p, _ in f.stopped {
 		parks[made(f, p)] = true
 	}
-	keep(f, f.root, cells, loads, parks, skipped)
+	keep(f, f.root, cells, loads, parks)
+	for i in 0..f.nspecs {
+		if !f.specs[i].skip {
+			keep(f, f.specs[i].ref, cells, loads, parks)
+		}
+	}
 }
 
-// keep walks the tree: each node gets this pass's cells and loads, and each
-// load it held that this pass does not keep is cancelled.
+// keep gives the node r names this pass's cells and loads, and cancels
+// each load it held that this pass does not keep. settle keeps the root
+// and the node of each spec not skipped, in the order of the specs: the
+// tree's nodes in its order (a pass writes a node before its children,
+// and Commit makes the children of a node its child specs' nodes), less
+// a skipped Same and what is under it, which keep what they hold.
 // A node that holds no cell or load and gets none keeps its empty maps:
 // only the nodes with state are written (GP frame cost, UC-2).
-// A skipped Same and what is under it keep what they hold.
-func keep[E](f mut Frame[E], r arena.Ref[node[E]], cells Map[arena.Ref[node[E]], Map[ident, Cell]], loads Map[arena.Ref[node[E]], Map[ident, slot]], parks Map[arena.Ref[node[E]], bool], skipped Map[arena.Ref[node[E]], bool]) {
-	if has(skipped, r) {
-		return
-	}
+func keep[E](f mut Frame[E], r arena.Ref[node[E]], cells Map[arena.Ref[node[E]], Map[ident, Cell]], loads Map[arena.Ref[node[E]], Map[ident, slot]], parks Map[arena.Ref[node[E]], bool]) {
 	if hasState(f, r) || has(cells, r) || has(loads, r) {
 		store(f, r, cells, loads, has(parks, r))
-	}
-	for i in 0..kidCount(f, r) {
-		keep[E](f, kidAt(f, r, i), cells, loads, parks, skipped)
 	}
 }
 
@@ -431,8 +441,14 @@ type Handled[E] { Signal Option[E], Changed bool }
 // on a node f no longer holds (it raced a commit) does nothing.
 func Handle[E](f mut Frame[E], event Event[E]) Handled[E] {
 	let mut out = Handled[E]{Signal: None, Changed: false}
+	if len(f.crossed) > 0 {
+		f.crossed = []E{}
+	}
 	match event {
 	case Press[E] as p:
+		// A press is a pointer's (or a key's) press and release: no move
+		// after it is a drag until the next Down (FK12-g1).
+		f.down = arena.Null[node[E]]()
 		let n = f.nodes.Get(p.Id.ref) catch {
 		case arena.Stale:
 			return out
@@ -440,6 +456,9 @@ func Handle[E](f mut Frame[E], event Event[E]) Handled[E] {
 		if n.off {
 			return out
 		}
+		// A key's press (Enter on the focused node) keeps the focus look a
+		// key showed; a pointer's Down hid it already (UG3).
+		focusTo(f, p.Id.ref, f.visible && f.focus == p.Id.ref)
 		match n.node {
 		case PressableNode[E] as x:
 			out.Signal = Some{Value: x.On}
@@ -450,6 +469,10 @@ func Handle[E](f mut Frame[E], event Event[E]) Handled[E] {
 			}
 		case CheckNode[E] as x:
 			out.Signal = Some{Value: x.On}
+		case SemanticNode[E] as x:
+			if !x.Access.Disabled {
+				out.Signal = x.On
+			}
 		case ToggleNode as x:
 			match n.binds {
 			case Some[bound[E]] as d:
@@ -466,6 +489,7 @@ func Handle[E](f mut Frame[E], event Event[E]) Handled[E] {
 		if n.off {
 			return out
 		}
+		focusTo(f, x.Id.ref, false)
 		match n.onText {
 		case Some[func(t string) E] as g:
 			out.Signal = Some{Value: g.Value(x.Text)}
@@ -487,7 +511,16 @@ func Handle[E](f mut Frame[E], event Event[E]) Handled[E] {
 			out.Signal = Some{Value: a.Signal}
 		}
 	case Point[E] as p:
+		hovered(f, p.Id, p.Pointer)
+		// A pointer's press hides the focus look until a key moves the
+		// focus (focus-visible, UG3).
+		match p.Pointer.Phase {
+		case Down:
+			f.visible = false
+		case _:
+		}
 		let mut pe = p.Pointer
+		pe.Phase = gripped(f, p.Id, p.Pointer.Phase)
 		pe.Zone = None
 		match p.Over {
 		case Some[ZoneBox[E]] as o:
@@ -497,6 +530,20 @@ func Handle[E](f mut Frame[E], event Event[E]) Handled[E] {
 		out.Signal = pointed(f, p.Id, pe)
 	case KeyDown as k:
 		out.Signal = keyed(f, k.Press)
+		// Tab's default (UC-TAB): with no key function taking it, Tab moves
+		// the focus to the next focusable node and Shift+Tab to the one
+		// before, as a browser's does after an unprevented keydown.
+		let m = k.Press.Mods
+		match out.Signal {
+		case None:
+			if k.Press.Name == "Tab" && !m.Ctrl && !m.Alt && !m.Meta {
+				focusTo(f, nextFocus(f, m.Shift), true)
+			} else {
+				// A roving group's arrows, Home and End (UG3).
+				let _ = rove(f, k.Press)
+			}
+		case Some[E]:
+		}
 	case URLChanged as u:
 		out.Signal = routed(f, u.URL)
 	case Committed:

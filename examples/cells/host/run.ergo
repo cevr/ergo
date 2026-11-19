@@ -1,0 +1,89 @@
+// The host on a terminal: Run reads a key, feeds it, and writes the
+// frames it drew, one write a frame, until the input ends.
+
+import actor
+import ergo.local/prototype/examples/cells/grid
+import io
+import strings
+import term
+import time
+import ui
+
+// Run writes the host's first frame, then reads each key, feeds it, takes
+// the results the view's fetches posted, and writes each frame drawn
+// since: one Print a frame, so the terminal reads a pass whole. It ends at
+// the end of the input or on Ctrl-C, and fails when the actor stopped.
+func Run[E comparable, S, D, F](h mut Host[S, E, D, F]) fails actor.Stopped | ui.BadPatch needs term.Terminal | io.Stdout {
+	flush(h)
+	for {
+		let k = term.Terminal.ReadKey() catch {
+		case io.ReadFailed:
+			return
+		}
+		Feed(h, k) catch {
+		case ui.Closed:
+			return
+		case actor.Stopped as e:
+			return e
+		case ui.BadPatch as e:
+			return e
+		}
+		try Pump(h)
+		flush(h)
+	}
+}
+
+// PatchIsOneFrame: on a fake terminal, a run of drawn keys over a
+// generated view writes each frame whole (one write, the update marks at
+// its two ends only), no more frames than the patches and the host's own
+// redraws, so no draw falls between two ops of one patch; and a terminal
+// that reads the writes shows the host's grid.
+law PatchIsOneFrame(seed int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		oneFramePerPatch(seed)
+	}
+}
+
+func oneFramePerPatch(seed int) bool needs Scheduler {
+	let mut r = rng{s: (seed%2147483648 + 2147483648) % 2147483648}
+	let choices = []term.Key{term.Tab, term.Return, term.Char{Text: " "}, term.Char{Text: "q"}, term.Backspace, term.Up}
+	// Tab, Return press "more" first: a patch of several ops
+	let mut keys = []term.Key{term.Tab, term.Return}
+	for _ in 0..pick(&r, 12) {
+		keys = keys.Append(choices[pick(&r, len(choices))])
+	}
+	let fake = NewFake(keys, 140, 40)
+	let a = actor.StartMachine(SampleMachine(seed), 4, func(o int) {})
+	let mut h = New(a, 140, 40, 4, SampleView) catch {
+	case ui.BadPatch:
+		return false
+	}
+	with context { term.Terminal: fake, io.Stdout: fake } {
+		Run(&h) catch {
+		case _:
+			return false
+		}
+	}
+	let mut screen = grid.New(140, 40)
+	let mut writes = 0
+	for l in Log(fake) {
+		match l {
+		case Wrote as w:
+			if !strings.HasPrefix(w.Text, grid.Begin) || !strings.HasSuffix(w.Text, grid.End) || strings.Count(w.Text, grid.Begin) != 1 {
+				return false
+			}
+			screen = grid.Replay(screen, w.Text)
+			writes = writes + 1
+		case Read:
+		}
+	}
+	writes <= Patches(&h)+Redraws(&h) && screen == Grid(&h)
+}
+
+// flush writes the frames drawn since the last flush.
+func flush[S, E, D, F](h mut Host[S, E, D, F]) needs io.Stdout {
+	for f in Take(h) {
+		io.Stdout.Print(f)
+	}
+}

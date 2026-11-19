@@ -49,10 +49,7 @@ func (b *irBuilder) admitNamed(t *check.Named, depth int) {
 		if !ok {
 			irNo("union without its variants")
 		}
-		if fu := b.flatOf(t); fu != nil && fu.niche {
-			irNo("Option's pointer niche")
-		}
-		if b.admitted == nil {
+		if b.admitted == nil { // a niche Option too (ir_golib.go, FORK-GOLIB)
 			b.admitted = map[*check.TypeName]bool{}
 		}
 		b.admitted[t.Obj] = true
@@ -133,7 +130,12 @@ func (b *irBuilder) convert(conv check.Conversion, e *irExpr, x syntax.Expr) *ir
 	case check.ConvRow:
 		// The row value (a Go error) holds one of the union's error
 		// variants, which implement its sealed interface (the emitter's
-		// convert, D-C3).
+		// convert, D-C3). A flat union (MSB3) is no interface: the emitter
+		// builds its variant by a type switch, which the IR does not write
+		// yet (I22: FLIP's IR x MSB3).
+		if b.l.flatUnionOf(conv.To) != nil {
+			irNo("row into a flat union")
+		}
 		return &irExpr{K: "assert", Pos: e.Pos, T: b.goType(conv.To, x), X: e}
 	case check.ConvOperations:
 		return b.opsConv(conv, e, x) // ir_with.go
@@ -164,6 +166,9 @@ func (b *irBuilder) variantInto(from, to check.Type, e *irExpr, site syntax.Node
 		return e
 	}
 	if fu := b.flatOf(to); fu != nil {
+		if fu.niche && b.goType(fu.inst, site) == gt && fu.tagOf(from) >= 0 {
+			return b.nicheValue(fu, gt, fu.tagOf(from), e) // ir_golib.go
+		}
 		if fu.niche || b.goType(fu.own(), site) != gt { // own: ir_pkg.go
 			irNo("value of a type defined over a flat union")
 		}
@@ -196,6 +201,9 @@ func (b *irBuilder) bareRecord(tn *check.TypeName, t check.Type, site syntax.Nod
 // narrow is variant k of the flat union fu, read from the local s: its
 // slot, or the variant's zero record when it has no fields (flatNarrow).
 func (b *irBuilder) narrow(fu *flatUnion, s int, k int, p irPos, site syntax.Node) *irExpr {
+	if fu.niche {
+		return b.nicheNarrow(fu, s, k, p, site) // ir_golib.go
+	}
 	if !fu.slot[k] {
 		return &irExpr{K: "zero", Pos: p, T: b.goType(fu.variants[k], site)}
 	}

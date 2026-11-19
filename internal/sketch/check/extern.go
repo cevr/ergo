@@ -1,7 +1,7 @@
 package check
 
 import (
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	v1 "ergo.local/prototype/runtime/v1"
 	"fmt"
 	"slices"
@@ -124,7 +124,7 @@ const runtimeModule = "ergo.local/prototype/runtime"
 // predeclaredExtern reports an extern of the prelude: a language intrinsic
 // whose body the lowering writes (lower/decls.go intrinsic), not a binding.
 func predeclaredExtern(f *Func) bool {
-	return f.Pkg.Path == std.PreludePath
+	return f.Pkg.Path == stdlib.PreludePath
 }
 
 // BindsRuntime reports an extern whose Go target is in the Ergo runtime, or a
@@ -463,6 +463,11 @@ func (c *checker) externAdapter(f *Func) (string, string) {
 		return fmt.Sprintf("extern go %s: Go package %s has no exported function %s", target, path, name), CodeUnknown
 	case !isFunc || bf.Sig == nil:
 		return fmt.Sprintf("extern go %s names a Go type, constant or variable; a user extern binds a function", target), CodeType
+	}
+	if _, w := GoWrites(bf); w {
+		// GBX2: the binding returns the slice Go writes, a form no user
+		// extern's adapter states; the import go call is the one form.
+		return fmt.Sprintf("extern go %s writes its slice argument in place; call it through import go, whose value is the slice Go wrote (docs/spec/interop.md, Go writes in place)", target), CodeOutside
 	}
 	w, level1 := f.Sig, bf.Sig
 	if sigHasInvalid(w) {

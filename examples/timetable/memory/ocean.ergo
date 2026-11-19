@@ -1,0 +1,44 @@
+// Package memory is a timetable held in memory: the Ocean, an overnight
+// line from Halifax to Montréal across the Atlantic and Eastern zones,
+// with a day train and two night trains that leave on Sunday at the hours
+// a clock change touches.
+
+import civil
+import time
+import timetable/timetable
+
+// Timetable is a timetable held in memory.
+type Timetable { line timetable.Line, services []timetable.Service } implements timetable.Timetable
+
+// NewTimetable is the Ocean's timetable.
+func NewTimetable() Timetable {
+	Timetable{
+		line: timetable.Line{Name: "Ocean", Stops: []timetable.Stop{
+			timetable.Stop{Name: "Halifax", Zone: "America/Halifax", After: 0s},
+			timetable.Stop{Name: "Truro", Zone: "America/Halifax", After: 1h + 25m},
+			timetable.Stop{Name: "Moncton", Zone: "America/Moncton", After: 4h + 5m},
+			timetable.Stop{Name: "Campbellton", Zone: "America/Moncton", After: 9h + 40m},
+			timetable.Stop{Name: "Rimouski", Zone: "America/Toronto", After: 12h + 50m},
+			timetable.Stop{Name: "Montreal", Zone: "America/Toronto", After: 20h + 30m},
+		}},
+		services: []timetable.Service{
+			timetable.Service{Number: "14", Leaves: at(13, 0), Days: []time.Weekday{time.Wednesday, time.Friday, time.Sunday}},
+			timetable.Service{Number: "16", Leaves: at(2, 30), Days: []time.Weekday{time.Sunday}},
+			timetable.Service{Number: "18", Leaves: at(1, 30), Days: []time.Weekday{time.Sunday}},
+		},
+	}
+}
+
+// at is the time of day hour:minute.
+func at(hour int, minute int) civil.TimeOfDay {
+	civil.NewTimeOfDay(hour, minute, 0, 0) catch {
+	case civil.NoSuchTime:
+		Unreachable("the timetable's times are times of day")
+	}
+}
+
+// Line is the Ocean.
+func Line(t Timetable) timetable.Line { t.line }
+
+// Services is the Ocean's services.
+func Services(t Timetable) []timetable.Service { t.services }

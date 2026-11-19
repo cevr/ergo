@@ -38,6 +38,8 @@ func keep[S, E, D, F](d mut Driver[S, E, D, F], ops []ui.Op[E]) needs go.Foreign
 			// A list's First places its rows.
 			touched[x.Id] = true
 		case ui.Remove[E]:
+		case ui.Define:
+			// A look's definition lays nothing out (look.ergo).
 		}
 	}
 	let line = lineHeight(d.metrics, textSize)

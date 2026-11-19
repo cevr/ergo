@@ -6,7 +6,7 @@ import (
 
 	"ergo.local/prototype/internal/gofacts"
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -74,7 +74,7 @@ func TestEffectRowsActOnlyValidated(t *testing.T) {
 	t.Cleanup(func() { check.FactLedger = saved })
 	target := "math/rand/v2.PCG.Uint64"
 	key := gofacts.EffectKey(target)
-	current, ok := gofacts.Find(std.Ledger(), key)
+	current, ok := gofacts.Find(stdlib.Ledger(), key)
 	if !ok || current.Verdict != "validated" {
 		t.Fatalf("the shipped ledger has no validated line for %s: %+v", key, current)
 	}
@@ -83,7 +83,7 @@ func TestEffectRowsActOnlyValidated(t *testing.T) {
 	for _, c := range []struct {
 		name, ledger, want string
 	}{
-		{"validated", std.Ledger(), ""},
+		{"validated", stdlib.Ledger(), ""},
 		{"missing", withLine(key, ""), target + " is bound as memory-only without a reviewed row that acts (the std ledger has no guard line for " + key},
 		{"refuted", withLine(key, refuted.Line()), target + " is bound as memory-only, and its reviewed row does not hold: its guard refuted it"},
 	} {

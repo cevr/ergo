@@ -26,7 +26,8 @@ extern go sort.Float64Slice.Sort func (x Float64Slice) Sort()
 extern go sort.Float64Slice.Swap func (x Float64Slice) Swap(i int, j int)
 
 // ergo:go func Float64s(x []float64)
-extern go sort.Float64s func Float64s(x []float64)
+// ergo:writes x
+extern go sort.Float64s func Float64s(x []float64) []float64
 
 // ergo:go func Float64sAreSorted(x []float64) bool
 // ergo:reads x
@@ -61,7 +62,8 @@ extern go sort.Interface type Interface {
 }
 
 // ergo:go func Ints(x []int)
-extern go sort.Ints func Ints(x []int)
+// ergo:writes x
+extern go sort.Ints func Ints(x []int) []int
 
 // ergo:go func IntsAreSorted(x []int) bool
 // ergo:reads x
@@ -125,7 +127,8 @@ extern go sort.StringSlice.Sort func (x StringSlice) Sort()
 extern go sort.StringSlice.Swap func (x StringSlice) Swap(i int, j int)
 
 // ergo:go func Strings(x []string)
-extern go sort.Strings func Strings(x []string)
+// ergo:writes x
+extern go sort.Strings func Strings(x []string) []string
 
 // ergo:go func StringsAreSorted(x []string) bool
 // ergo:reads x

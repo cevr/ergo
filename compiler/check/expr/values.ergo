@@ -159,7 +159,7 @@ func yieldStmt(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], k
 			return
 		}
 		let ty = expr(s, k, t, e, tailWant(*kk))
-		tail(s, k, *t, kk, ty)
+		joinBranch(s, k, *t, kk, ty)
 	} else if kd == syntax.KIfStmt {
 		let i = syntax.IfStmtOf(tr, x)
 		expr(s, k, t, i.Cond, Exactly{T: store.TBasic(s, bBool)})
@@ -176,20 +176,21 @@ func yieldStmt(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], k
 			kk.bad = true
 		}
 	} else if kd == syntax.KSwitchStmt || kd == syntax.KTypeSwitchStmt {
+		// A match's subject fixes the arguments of a generic pattern
+		// written bare; a match on a value's case values bind nothing.
+		let subj = if kd == syntax.KTypeSwitchStmt { header(s, k, t, syntax.TypeSwitchStmtOf(tr, x).Subject) } else { None }
 		let l = if kd == syntax.KSwitchStmt {
 			let ss = syntax.SwitchStmtOf(tr, x)
 			expr(s, k, t, ss.Tag, Unsure)
 			ss.Clauses
 		} else {
-			let ts = syntax.TypeSwitchStmtOf(tr, x)
-			header(s, k, t, ts.Subject)
-			ts.Clauses
+			syntax.TypeSwitchStmtOf(tr, x).Clauses
 		}
 		for i in 0..syntax.Len(l) {
 			let c = syntax.Item(tr, l, i)
 			if syntax.KindOf(tr, c) == syntax.KCaseClause {
 				let cc = syntax.CaseClauseOf(tr, c)
-				patterns(s, k, t, cc.List)
+				patterns(s, k, t, cc.List, subj)
 				yieldList(s, k, t, cc.Body, kk)
 			} else {
 				stmt(s, k, t, c)
@@ -215,21 +216,22 @@ func yieldBlock(s mut store.Store, k Pkg, t mut Typer, b dense.ID[syntax.Node], 
 }
 
 // header types a match's subject as walk would: an expression in a
-// context the typer does not read.
-func header(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node]) {
+// context the typer does not read. It is the subject's type, if known.
+func header(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node]) Option[dense.ID[store.TKey]] {
 	let kind = syntax.KindOf(tree(k, t.file), x)
 	if kind >= syntax.KIdent && kind <= syntax.KCatchExpr && kind != syntax.KFuncLit && kind != syntax.KKeyValueExpr || kind == syntax.KTupleExpr || kind == syntax.KInterpolatedString {
 		expr(s, k, t, x, Unsure)
 	} else {
 		stmt(s, k, t, x)
+		None
 	}
 }
 
-// tail joins a branch's value ty into kk: with an expected type any value
+// joinBranch joins a branch's value ty into kk: with an expected type any value
 // goes; the first value fixes the join; a later one is the join's type, a
 // variant of the union it is, or a variant of one union with it, which
 // becomes the join (types.Join).
-func tail(s mut store.Store, k Pkg, t Typer, kk mut sink, ty Option[dense.ID[store.TKey]]) {
+func joinBranch(s mut store.Store, k Pkg, t Typer, kk mut sink, ty Option[dense.ID[store.TKey]]) {
 	if isSome(kk.want) {
 		kk.valued = true
 		return
@@ -337,7 +339,7 @@ func caught(s mut store.Store, k Pkg, t mut Typer, ce syntax.CatchExpr, w Want, 
 			continue
 		}
 		let ca = syntax.CatchArmOf(tr, a)
-		patterns(s, k, t, ca.Types)
+		patterns(s, k, t, ca.Types, None)
 		let read = match w {
 		case Unsure:
 			false

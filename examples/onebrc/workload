@@ -6,3 +6,4 @@ sizes 1000000 11000000
 input go cmd/ergo/testdata/onebrc/gen {n} 7
 args {input} 1
 control cmd/ergo/testdata/onebrc/control
+floor examples/onebrc/testdata/floor

@@ -48,6 +48,28 @@ func printsOf(p syntax.Parsed, d dense.ID[syntax.Node]) store.Prints {
 	store.Prints{Fp: fp, Ifp: printOf(all[0:m1] + "cut;" + all[m2:len(all)])}
 }
 
+// IfpCutsBodies: two functions that differ in their bodies alone have one
+// interface print, unless the function is generic (an importer
+// instantiates its body), and one Fp only when the bodies are one body; a
+// test's body is cut as a function's is.
+law IfpCutsBodies(i int, j int) {
+	let a = bodies[((i%4)+4)%4]
+	let b = bodies[((j%4)+4)%4]
+	let plain = func(body string) store.Prints { firstPrints("func f(n int) int " + body + "\n") }
+	let generic = func(body string) store.Prints { firstPrints("func f[T](n T) T " + body + "\n") }
+	let atTest = func(body string) store.Prints { firstPrints("test t(n int) " + body + "\n") }
+	plain(a).Ifp == plain(b).Ifp && atTest(a).Ifp == atTest(b).Ifp && (generic(a).Ifp == generic(b).Ifp) == (a == b) && (plain(a).Fp == plain(b).Fp) == (a == b)
+}
+
+let bodies = []string{"{ n }", "{ n + 1 }", "{ let m = n; m }", "{\n\treturn n\n}"}
+
+// firstPrints is the prints of the first top-level row of src (a test
+// is no declaration of the store, so the row's prints are read directly).
+func firstPrints(src string) store.Prints {
+	let p = syntax.Parse(src)
+	printsOf(p, topDecls(p)[0])
+}
+
 // firstToken is the first token at or after offset at (a node starts at
 // a token, so this is that token).
 func firstToken(p syntax.Parsed, at int) int { syntax.TokStartingAt(p, at) }
@@ -78,8 +100,8 @@ func cutOf(p syntax.Parsed, d dense.ID[syntax.Node]) (int, int) {
 			return (0, 0)
 		}
 		match dense.Unpack(fd.Body) {
-		case Some[dense.ID[syntax.Node]] as body:
-			(syntax.NodePos(p, body.Value), syntax.NodeEnd(p, body.Value))
+		case Some{Value: body}:
+			(syntax.NodePos(p, body), syntax.NodeEnd(p, body))
 		case None:
 			(0, 0)
 		}

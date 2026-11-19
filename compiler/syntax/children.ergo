@@ -1,7 +1,0 @@
-import dense
-
-// Children appends the child rows of row id to out, by index: the rows
-// View reads as node ids, required or present (tree_laws.ergo's children).
-// The checker's parent column and its walks read a row's children through
-// it (capstone S3b).
-func Children(t Tree, id dense.ID[Node], out []uint32) []uint32 { children(t, uint32(dense.Index(id)), out) }

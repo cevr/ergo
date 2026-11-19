@@ -401,9 +401,9 @@ func Mark(n Num) int { 3 }
 ` + elem.decl("B") + queueB.decl("QB[E]") + helper + "func h" + tp + "(" + params + ") {\n" + extra + esc + "\n}\nfunc Body() {\nlet q = queue.New[" + inst + "](1)\n" + call + "\n}\nfunc main() {}\n"
 	// The reference.
 	const (
-		notOwn = "is not marked own"          // Generics 9: a resource bound to an unmarked T
-		marks  = "is marked own"              // Generics 9: a refusal in a marked body
-		r22    = "has no Close, so the value" // R22 at the instantiation
+		notOwn = "is not marked own"                     // Generics 9: a resource bound to an unmarked T
+		marks  = "is marked own"                         // Generics 9: a refusal in a marked body
+		r22    = "does not include Closer, so the value" // R22 at the instantiation
 	)
 	var wantBad bool
 	want := []string{notOwn}

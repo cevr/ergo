@@ -1,4 +1,4 @@
-// Package view is the list's screen: a field and its add button, the
+// Package view is the list's screen: a labelled field and its add button, the
 // items the filter shows (a check box to mark each, a button to remove
 // it), the open count, the filters and clear. The field's draft is the
 // view's own cell; everything else it reads from the list.
@@ -17,7 +17,7 @@ func View(f mut ui.Frame[todo.Op], l todo.List) {
 		row.Align = ui.AlignCenter
 		ui.Row(f, row) {
 			let draft = ui.NewDraft(f, "")
-			ui.Field(f, draft, "new item")
+			ui.LabelledField(f, ui.FieldLabel{Text: "new item", Description: "Add puts it on the list", Invalid: false}, draft, "what needs doing")
 			ui.Submit(f, draft, "add", todo.Add{Text: draft.Value}) {
 				ui.Text(f, "Add")
 			}

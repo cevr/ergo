@@ -34,8 +34,13 @@ type Stream {
 	text   utf,
 	fast   bool,
 	out    []Event,
+	steps  int,
 	Tally  Tally,
 }
+
+// Steps is how many bytes p has run through the machine one by one: the
+// work the fast paths save (test FastPathsTakeNoSteps).
+func Steps(p Stream) int { p.steps }
 
 // idle is the decoder with no character begun.
 let idle = utf{need: 0, seen: 0, cp: 0, lower: 0x80, upper: 0xbf}
@@ -56,6 +61,7 @@ func NewStream(fast bool) Stream {
 		text:   idle,
 		fast:   fast,
 		out:    []Event{},
+		steps:  0,
 		Tally:  Tally{Bytes: 0, Dropped: 0, BadText: 0, OscCut: 0},
 	}
 }
@@ -97,6 +103,13 @@ func Feed(p mut Stream, input string) {
 				i += 1
 				continue
 			}
+			if p.fast && b == 0x1b {
+				let j = p.csiRun(input, i)
+				if j > i {
+					i = j
+					continue
+				}
+			}
 			if p.fast && b >= 0x20 && b < 0x7f {
 				let mut j = i + 1
 				for j < n && input[j] >= 0x20 && input[j] < 0x7f {
@@ -121,6 +134,56 @@ func Feed(p mut Stream, input string) {
 		p.step(b)
 		i += 1
 	}
+}
+
+// csiRun is the CSI fast path of the ground state: a whole
+// `ESC [ params final` at input[i], its parameters digits and semicolons
+// only, taken in one loop. It does what the machine does byte by byte
+// (ground to escape to CSI entry to CSI param, each entry clearing the
+// collector, then the dispatch back to ground) and returns the place past
+// it. A sequence of any other shape, or one the piece cuts, returns i: the
+// machine takes it.
+func csiRun(p mut Stream, input string, i int) int {
+	let n = len(input)
+	if i+2 >= n || input[i+1] != '[' {
+		return i
+	}
+	let mut params = 0
+	let mut acc = 0
+	let mut digits = false
+	let mut j = i + 2
+	for j < n {
+		let c = input[j]
+		if c >= '0' && c <= '9' {
+			let v = acc*10 + int(c-'0')
+			acc = if v > MaxParam { MaxParam } else { v }
+			digits = true
+		} else if c == ';' {
+			if params < MaxParams {
+				p.params[params] = acc
+				params += 1
+			}
+			acc = 0
+			digits = false
+		} else {
+			break
+		}
+		j += 1
+	}
+	if j == n || input[j] < 0x40 || input[j] > 0x7e {
+		return i
+	}
+	let k = Counts{Params: params, Inter: 0, Digits: digits}
+	p.inter = ""
+	p.colons = 0
+	p.acc = acc
+	p.parse = Parse{At: Ground, Counts: completed(k)}
+	if params >= MaxParams {
+		p.Tally.Dropped += 1
+		return j + 1
+	}
+	p.emit(Csi{Params: p.complete(k), Colons: 0, Inter: "", Final: input[j]})
+	j + 1
 }
 
 // Finish ends the stream: a character left unfinished is bad.
@@ -176,6 +239,7 @@ func keep(p mut Stream, data string) {
 // leaves, the transition's action, and the entry action of the state it
 // enters, in that order.
 func step(p mut Stream, b byte) {
+	p.steps += 1
 	let from = p.parse
 	let t, k = Advance(from, ClassOf(b))
 	let moved = t.To != from.At

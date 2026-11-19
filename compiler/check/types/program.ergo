@@ -159,7 +159,7 @@ func AliasEntries(s store.Store, deps []Iface) []Foreign {
 		let dep = deps[imp-1]
 		for x in dep.Decls {
 			if x.Alias && declOf(dep, x.Name) >= 0 {
-				out = out.Append(Foreign{Qual: store.DeclText(s, i), Name: x.Name, Arity: 0, Path: dep.Path, Print: x.Print, Key: x.Key})
+				out = out.Append(Foreign{Qual: store.DeclText(s, i), Name: x.Name, Arity: 0, Path: dep.Path, Print: x.Print, Key: x.Key, Variants: []int{}})
 			}
 		}
 	}

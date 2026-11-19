@@ -742,6 +742,7 @@ type (
 		Step    Expr
 		After   Expr       // nil when the machine has no after entry
 		Work    Expr       // nil when the machine has no work entry
+		Exit    Expr       // nil when the machine has no exit entry (FK9-g1)
 		Laws    []*LawDecl // the machine's laws, in source order (MU6)
 	}
 
@@ -754,11 +755,12 @@ type (
 	}
 )
 
-// MachineEntry is `initial: x`, `step: f` or `after: g`.
+// MachineEntry is `initial: x`, `step: f`, `after: g`, `work: w` or
+// `exit: x`.
 type MachineEntry struct {
 	Doc     *CommentGroup
 	NamePos Pos
-	Name    string // "initial", "step", "after" or "work"
+	Name    string // "initial", "step", "after", "work" or "exit"
 	Colon   Pos
 	Value   Expr
 }
