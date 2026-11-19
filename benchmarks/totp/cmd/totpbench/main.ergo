@@ -26,7 +26,7 @@ func bench(n int) int {
 	let mut found = 0
 	for i in 0..n {
 		let k = i % 1024
-		match totp.Verify(p, secret, codes[k], time.Unix(int64(30*k + 31), 0)) {
+		match totp.Verify(p, secret, codes[k], time.Unix(int64(30*k+31), 0)) {
 		case Some[int64]:
 			found += 1
 		case None:
