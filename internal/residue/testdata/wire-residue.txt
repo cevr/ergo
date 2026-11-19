@@ -386,6 +386,7 @@ internal/sketch/check/testdata/corpus/corpus-01.txtar	*
 examples/cborpack/cbor/cbor.ergo	// The form: a record is a map of its wire keys, a union value the map of
 modules/xml/xml.ergo	type Codec[T wire] { Root string, MaxBytes int, MaxDepth int }
 internal/experimental/irspike/gen_codec_witness.go	*
+internal/experimental/irspike/gen_direct_encode.go	*
 internal/sketchfront/ledger_import_test.go	// RawJoins the build rewrites by, and Show, which encodes any wire value
 internal/sketchfront/ledger_import_test.go	func Show[T wire](v T) string needs wired[T] {
 examples/confparse/README.md	| `config/` | The domain. `config.ergo` (`Config`, `Listen`, the union `Level` with its by-name codec pair `ParseLevel`/`Wire`, whose round-trip law `LevelRound
