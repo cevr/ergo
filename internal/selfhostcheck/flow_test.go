@@ -220,6 +220,27 @@ func fail(n int) int fails Bad {
 	n
 }
 
+type Worse {}
+
+func failBW(n int) int fails Bad | Worse {
+	if n > 5 {
+		return Bad
+	}
+	if n > 3 {
+		return Worse
+	}
+	n
+}
+
+func failTake(n int, r own Res) int fails Bad {
+	if n > 5 {
+		keep(r)
+		return Bad
+	}
+	keep(r)
+	n
+}
+
 func cond(n int) bool { n > 2 }
 
 func run(f func()) { f() }
@@ -355,6 +376,16 @@ func flowProgram(seed uint32) string {
 	return flowPrint(g.program(5), g.bare, g.generic)
 }
 
+// The forms of a try statement (flowStmt.form of an fTry).
+const (
+	tryOne      = iota // let _ = try fail(n)
+	tryTwo             // let _ = try fail(fail(n)): two failures in one try
+	tryTakes           // let _ = try failTake(fail(n), Y): Y handed off between them
+	tryCatchArg        // try failTake(try failBW(n) catch { case Worse: 0 }, Y)
+	tryCatchArm        // let _ = try failBW(n) catch { case Worse: … 0 }
+	tryForms
+)
+
 // flowGenericPrelude is the declarations a generic body uses: the core
 // callees over an own type parameter. keep hands its value back, so a
 // keep in the body drops a value of the caller's T (not refused, plan
@@ -378,6 +409,27 @@ func fail(n int) int fails Bad {
 	if n > 5 {
 		return Bad
 	}
+	n
+}
+
+type Worse {}
+
+func failBW(n int) int fails Bad | Worse {
+	if n > 5 {
+		return Bad
+	}
+	if n > 3 {
+		return Worse
+	}
+	n
+}
+
+func failTake[T own](n int, r own T) int fails Bad {
+	if n > 5 {
+		let _ = keep(r)
+		return Bad
+	}
+	let _ = keep(r)
 	n
 }
 
@@ -557,6 +609,26 @@ func (g *flowGen) stmt(depth, nest int, inLoop bool) *flowStmt {
 		}
 		s := &flowStmt{kind: k}
 		switch k {
+		case fTry:
+			// One failing call, two in one try, a value handed off
+			// between two failures, and a try around a catch that passes
+			// on what its arms do not handle, inside a call or with an
+			// arm of its own (the Go checker's onFailure and catch's
+			// Partial).
+			s.form = g.r.IntN(tryForms)
+			if (s.form == tryTakes || s.form == tryCatchArg) && !g.hasRes() {
+				s.form = tryTwo
+			}
+			if s.form == tryTakes || s.form == tryCatchArg {
+				s.y = g.pick()
+			}
+			if s.form == tryCatchArm {
+				if nest >= 3 {
+					s.form = tryOne
+				} else {
+					s.body = g.block(3, depth, nest+1, inLoop)
+				}
+			}
 		case fDecl, fDeclMove:
 			if k == fDeclMove {
 				s.y = g.pick()
@@ -789,7 +861,25 @@ func flowPrint(body []*flowStmt, bare, generic bool) string {
 			case fReturn:
 				emit(depth, "return")
 			case fTry:
-				emit(depth, "let _ = try fail(n)")
+				switch s.form {
+				case tryOne:
+					emit(depth, "let _ = try fail(n)")
+				case tryTwo:
+					emit(depth, "let _ = try fail(fail(n))")
+				case tryTakes:
+					emit(depth, "let _ = try failTake(fail(n), "+s.y+")")
+				case tryCatchArg:
+					emit(depth, "let _ = try failTake(try failBW(n) catch {")
+					emit(depth, "case Worse:")
+					emit(depth+1, "0")
+					emit(depth, "}, "+s.y+")")
+				case tryCatchArm:
+					emit(depth, "let _ = try failBW(n) catch {")
+					emit(depth, "case Worse:")
+					walk(s.body, depth+1)
+					emit(depth+1, "0")
+					emit(depth, "}")
+				}
 			case fShort:
 				switch {
 				case s.temp:
