@@ -211,7 +211,7 @@ type Store {
 
 // Op is one change of a store, as a value: the log of session/file keeps
 // them, and Apply runs them.
-type Op = Establish{Digest Digest, Subject string, Revision int, Now time.Time} | Rotate{Old Digest, New Digest, Now time.Time} | Revoke{Digest Digest} | RevokeAll{Subject string, Revision int}
+type Op = EstablishOp{Digest Digest, Subject string, Revision int, Now time.Time} | RotateOp{Old Digest, New Digest, Now time.Time} | RevokeOp{Digest Digest} | RevokeAllOp{Subject string, Revision int}
 
 // Outcome is what Apply of an Op gave.
 type Outcome = Kept{} | Moved{Record Record} | Refused{} | Ended{Held bool}
@@ -259,13 +259,13 @@ func liveOf(v Verdict) Option[Record] {
 func Apply(p Policy, s State, op Op) (Outcome, State, bool) {
 	let mut st = s
 	match op {
-	case Establish as e:
+	case EstablishOp as e:
 		if st.sessions.Get(e.Digest.sum) != None {
 			return (Refused, st, false)
 		}
 		st.sessions[e.Digest.sum] = Record{Subject: e.Subject, Revision: e.Revision, Created: e.Now, Renewed: e.Now}
 		(Kept, st, true)
-	case Rotate as r:
+	case RotateOp as r:
 		if st.sessions.Get(r.New.sum) != None {
 			return (Refused, st, false)
 		}
@@ -278,13 +278,13 @@ func Apply(p Policy, s State, op Op) (Outcome, State, bool) {
 		case None:
 			(Refused, st, false)
 		}
-	case Revoke as v:
+	case RevokeOp as v:
 		if st.sessions.Get(v.Digest.sum) == None {
 			return (Ended{Held: false}, st, false)
 		}
 		st.sessions = st.sessions.Delete(v.Digest.sum)
 		(Ended{Held: true}, st, true)
-	case RevokeAll as a:
+	case RevokeAllOp as a:
 		if a.Revision > floorOf(st, a.Subject) {
 			st.floors[a.Subject] = a.Revision
 		}
@@ -335,7 +335,7 @@ law RenewalStaysUnderMaxAge(gaps []int) {
 	let start = time.Unix(0, 0)
 	let mut s = Empty()
 	let mut d = DigestOf(TokenOf("0"))
-	let (_, s0, _) = Apply(p, s, Establish{Digest: d, Subject: "a", Revision: 0, Now: start})
+	let (_, s0, _) = Apply(p, s, EstablishOp{Digest: d, Subject: "a", Revision: 0, Now: start})
 	s = s0
 	let mut now = start
 	let mut renewed = start
@@ -358,7 +358,7 @@ law RenewalStaysUnderMaxAge(gaps []int) {
 				return false
 			}
 			let next = DigestOf(TokenOf("\(i + 1)"))
-			let (o, s1, _) = Apply(p, s, Rotate{Old: d, New: next, Now: now})
+			let (o, s1, _) = Apply(p, s, RotateOp{Old: d, New: next, Now: now})
 			s = s1
 			if o != (Moved{Record: Record{Subject: "a", Revision: 0, Created: start, Renewed: now}}) {
 				return false

@@ -30,7 +30,7 @@ func apply(s Store, op session.Op) session.Outcome {
 
 // Establish keeps a new session under d.
 func Establish(s Store, d session.Digest, subject string, revision int, now time.Time) fails session.Conflict | session.Failed {
-	match apply(s, session.Establish{Digest: d, Subject: subject, Revision: revision, Now: now}) {
+	match apply(s, session.EstablishOp{Digest: d, Subject: subject, Revision: revision, Now: now}) {
 	case session.Refused:
 		return session.Conflict
 	case _:
@@ -45,7 +45,7 @@ func Verify(s Store, d session.Digest, now time.Time) session.Verdict fails sess
 
 // Rotate moves the live session under old to new.
 func Rotate(s Store, old session.Digest, new session.Digest, now time.Time) session.Record fails session.Conflict | session.Failed {
-	match apply(s, session.Rotate{Old: old, New: new, Now: now}) {
+	match apply(s, session.RotateOp{Old: old, New: new, Now: now}) {
 	case session.Moved as m:
 		m.Record
 	case _:
@@ -55,7 +55,7 @@ func Rotate(s Store, old session.Digest, new session.Digest, now time.Time) sess
 
 // Revoke ends the session under d.
 func Revoke(s Store, d session.Digest) bool fails session.Failed {
-	match apply(s, session.Revoke{Digest: d}) {
+	match apply(s, session.RevokeOp{Digest: d}) {
 	case session.Ended as e:
 		e.Held
 	case _:
@@ -65,7 +65,7 @@ func Revoke(s Store, d session.Digest) bool fails session.Failed {
 
 // RevokeAll ends the sessions of subject below revision.
 func RevokeAll(s Store, subject string, revision int) fails session.Failed {
-	let _ = apply(s, session.RevokeAll{Subject: subject, Revision: revision})
+	let _ = apply(s, session.RevokeAllOp{Subject: subject, Revision: revision})
 }
 
 // RotateHasOneWinner: two tasks that rotate one session at once, each to
