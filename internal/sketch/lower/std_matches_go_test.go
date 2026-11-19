@@ -34,6 +34,7 @@ func TestStdMatchesGo(t *testing.T) {
 	cases = append(cases, stdGo7Cases(r, n)...)
 	cases = append(cases, stdGo9Cases(r, n)...)
 	cases = append(cases, stdGo15Cases(r, n)...)
+	cases = append(cases, stdGo16Cases(r, n)...)
 	compareBodies(t, "TestStdMatchesGo", seed, cases)
 }
 
