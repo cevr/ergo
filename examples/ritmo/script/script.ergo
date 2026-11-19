@@ -89,11 +89,11 @@ func Bind(keys string, line string) topdown.Controls fails Unknown {
 func sign(n int) int { if n < 0 { -1 } else if n > 0 { 1 } else { 0 } }
 
 // Run answers each line of standard input until its end or quit, from
-// a new game, and is how many lines failed.
-func Run() int needs io.Stdin | io.Stdout | topdown.Saves {
-	let mut s = topdown.Begin()
+// a new game that keeps keep ticks to rewind, and is how many lines failed.
+func Run(keep int) int needs io.Stdin | io.Stdout | topdown.Saves {
+	let mut s = topdown.Begin(keep)
 	let mut failed = 0
-	io.Stdout.Println(screen.Status(s.Now))
+	io.Stdout.Println(screen.Status(s.Now()))
 	for line in io.Stdin.Lines() {
 		if strings.TrimSpace(line) == "quit" {
 			break
@@ -107,10 +107,9 @@ func Run() int needs io.Stdin | io.Stdout | topdown.Saves {
 			failed = failed + 1
 			continue
 		}
-		let mut last = s.Now
 		let mut shown = false
 		for r in requests {
-			let next, reply = topdown.Handle(s, r) catch {
+			let reply = topdown.Handle(&s, r) catch {
 			case topdown.TooFar as t:
 				io.Stdout.Println("! cannot rewind \(t.Asked) ticks: \(t.Kept) kept")
 				failed = failed + 1
@@ -124,26 +123,24 @@ func Run() int needs io.Stdin | io.Stdout | topdown.Saves {
 				failed = failed + 1
 				break
 			}
-			s = next
 			match reply {
-			case topdown.Stepped as st:
-				last = st.W
+			case topdown.Stepped:
 				shown = true
-			case topdown.Kept as k:
+			case topdown.Saved as k:
 				io.Stdout.Println("saved \(k.Slot)")
 			case topdown.Restored as r2:
 				io.Stdout.Println("loaded \(r2.Slot)")
-				io.Stdout.Println(screen.Status(r2.W))
+				io.Stdout.Println(screen.Status(s.Now()))
 			case topdown.Rewound as rw:
 				io.Stdout.Println("rewound \(rw.Ticks)")
-				io.Stdout.Println(screen.Status(rw.W))
-			case topdown.Seen as v:
-				io.Stdout.Println(strings.TrimSuffix(screen.Room(v.W), "\n"))
-				io.Stdout.Println(screen.Status(v.W))
+				io.Stdout.Println(screen.Status(s.Now()))
+			case topdown.Seen:
+				io.Stdout.Println(strings.TrimSuffix(screen.Room(s.Now()), "\n"))
+				io.Stdout.Println(screen.Status(s.Now()))
 			}
 		}
 		if shown {
-			io.Stdout.Println(screen.Status(last))
+			io.Stdout.Println(screen.Status(s.Now()))
 		}
 	}
 	failed

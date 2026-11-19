@@ -55,8 +55,8 @@ func Move(w World) World {
 		let at = PositionOf(w, p.Value)
 		let box = BoxOf(w, p.Value)
 		let walls = WallsOf(w)
-		let x = Across(at, v.X / Hz, box, walls)
-		let y = Along(Vec{X: x, Y: at.Y}, v.Y / Hz, box, walls)
+		let x = Across(at, v.X/Hz, box, walls)
+		let y = Along(Vec{X: x, Y: at.Y}, v.Y/Hz, box, walls)
 		World{..w, Pos: w.Pos.Set(p.Value, Vec{X: x, Y: y})}
 	}
 }
@@ -167,7 +167,7 @@ func WallsOf(w World) []Block {
 // Overlaps reports whether two centred boxes overlap; touching edges do
 // not (ritmo's intersects).
 func Overlaps(a Vec, s Size, b Vec, t Size) bool {
-	abs(a.X - b.X)*2 < s.W + t.W && abs(a.Y - b.Y)*2 < s.H + t.H
+	abs(a.X-b.X)*2 < s.W+t.W && abs(a.Y-b.Y)*2 < s.H+t.H
 }
 
 // Across is the x the box at at reaches moving dx: inside the room, and
@@ -178,14 +178,14 @@ func Across(at Vec, dx int, box Size, walls []Block) int {
 		return at.X
 	}
 	let half = box.W / 2
-	let mut x = clamp(at.X + dx, half, WorldWidth - half)
+	let mut x = clamp(at.X+dx, half, WorldWidth-half)
 	for b in walls {
 		if !Overlaps(Vec{X: x, Y: at.Y}, box, b.At, b.Box) {
 			continue
 		}
 		x = if dx > 0 { b.At.X - b.Box.W/2 - half } else { b.At.X + b.Box.W/2 + half }
 	}
-	clamp(x, half, WorldWidth - half)
+	clamp(x, half, WorldWidth-half)
 }
 
 // Along is Across for y (ritmo's resolveVerticalMovement).
@@ -194,14 +194,14 @@ func Along(at Vec, dy int, box Size, walls []Block) int {
 		return at.Y
 	}
 	let half = box.H / 2
-	let mut y = clamp(at.Y + dy, half, WorldHeight - half)
+	let mut y = clamp(at.Y+dy, half, WorldHeight-half)
 	for b in walls {
 		if !Overlaps(Vec{X: at.X, Y: y}, box, b.At, b.Box) {
 			continue
 		}
 		y = if dy > 0 { b.At.Y - b.Box.H/2 - half } else { b.At.Y + b.Box.H/2 + half }
 	}
-	clamp(y, half, WorldHeight - half)
+	clamp(y, half, WorldHeight-half)
 }
 
 func clamp(n int, lo int, hi int) int {

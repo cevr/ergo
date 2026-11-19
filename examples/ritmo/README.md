@@ -5,7 +5,7 @@ A port of ritmo's top-down game ([typeonce-dev/ritmo](https://github.com/typeonc
 The game reads one request per line from standard input, so a game replays from a file:
 
 ```sh
-ritmo [-store memory|disk] [-dir DIR] < SCRIPT
+ritmo [-store memory|disk] [-dir DIR] [-keep TICKS] < SCRIPT
 ```
 
 | line | what it does |
@@ -13,7 +13,7 @@ ritmo [-store memory|disk] [-dir DIR] < SCRIPT
 | `KEYS[*N]` | N fixed ticks (1 when `*N` is left out) holding KEYS: `w a s d` walk, `e` interacts, `.` is no key. Prints the status after the last tick. |
 | `look` | The room (`#` wall, `*` pickup, `@` player, 100 units a character), then the status |
 | `save NAME`, `load NAME` | Keep the world under NAME, and go on from it. `-store disk` writes `DIR/NAME.json`. |
-| `rewind N` | Go back N ticks, at most 600. |
+| `rewind N` | Go back N ticks, at most `-keep` (600 by default). |
 | `quit` | Stop. |
 
 A line that fails prints `?` (not a request) or `!` (a typed failure: `TooFar`, `Missing`, `Broken`). The run then ends with status 1 after the last line.
@@ -25,7 +25,7 @@ Tag: `default`. It is a port without `origin` and `record.sh`. The original's le
 | folder | what it holds |
 | --- | --- |
 | `ecs/` | ritmo's core as values: `Entity`, `Column[T]` (one component's values by entity) and `Command[D]` (a spawn or a despawn queued for the Apply step). Laws on the column. |
-| `topdown/` | The domain. `world.ergo` holds the components, the drafts and the `World`. `machines.ergo` holds the `Facing` and `Locomotion` machines. `systems.ergo` holds the systems and the two schedules. `api.ergo` holds the Api (`Session`, `Request`, `Reply`, `Handle`, the failures) and the `Saves` contract with its laws. `laws.ergo` holds ritmo's invariants and its fuzzer as laws. |
+| `topdown/` | The domain. `world.ergo` holds the components, the drafts and the `World`. `machines.ergo` holds the `Facing` and `Locomotion` machines. `systems.ergo` holds the systems and the two schedules. `api.ergo` holds the Api (`Session`, `Request`, `Reply`, `Handle`, the failures) and the `Saves` contract with its laws. `laws.ergo` holds ritmo's invariants and its fuzzer as laws, and `rewind.ergo` the ring's laws. |
 | `memory/` | `Shelf`, the in-memory `topdown.Saves`. |
 | `disk/` | `Folder`, the `topdown.Saves` over std `fs` and `json`. |
 | `screen/` | The world as text, in place of ritmo's renderer adapters. |
@@ -40,7 +40,7 @@ Tag: `default`. It is a port without `origin` and `record.sh`. The original's le
   - **Apply** makes the queued spawns and despawns (`applyDeferred`).
   - **Commit** steps each machine on its queued signal (`applyStateTransitions`).
 - **State machines:** `machine[Dir, Turn]` and `machine[Gait, Stride]`. Each has an exhaustive step and a law that `ergo test` decides on the whole graph.
-- **Checkpoint and rewind:** a session keeps the worlds of its last 600 ticks. A world is a value, so a rewind is going back to one. ritmo's checkpoint has to record ids, change ticks, queued states and read positions to do the same. The law `RewindReplays` holds ritmo's promise: replaying the same input after a rewind gives the same world, bit for bit.
+- **Checkpoint and rewind:** a session keeps the worlds of its last `-keep` ticks (600 by default) in a ring, and a tick writes one slot of it. A world is a value, so a rewind is going back to one. ritmo's checkpoint has to record ids, change ticks, queued states and read positions to do the same. The law `RewindReplays` holds ritmo's promise: replaying the same input after a rewind gives the same world, bit for bit.
 - **Invariants and the fuzzer:** these are laws over 400 ticks of seeded input:
   - `PlayerStaysInTheWorld`;
   - `NeverInsideAWall`;

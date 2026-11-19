@@ -124,23 +124,23 @@ func pickup(x int, y int, label string) PickupDraft {
 // Empty is a world with no entity, before Setup.
 func Empty() World {
 	World{
-		Tick: 0,
-		Next: 1,
-		Pos: ecs.Empty[Vec](),
-		Vel: ecs.Empty[Vec](),
-		Box: ecs.Empty[Size](),
-		Players: ecs.Empty[Player](),
-		Walls: ecs.Empty[Wall](),
-		Pickups: ecs.Empty[Pickup](),
-		Input: Idle,
-		Focus: Nothing,
-		Collected: 0,
-		Total: len(PickupLayout),
-		Facing: Down,
-		Gait: Standing,
+		Tick:       0,
+		Next:       1,
+		Pos:        ecs.Empty[Vec](),
+		Vel:        ecs.Empty[Vec](),
+		Box:        ecs.Empty[Size](),
+		Players:    ecs.Empty[Player](),
+		Walls:      ecs.Empty[Wall](),
+		Pickups:    ecs.Empty[Pickup](),
+		Input:      Idle,
+		Focus:      Nothing,
+		Collected:  0,
+		Total:      len(PickupLayout),
+		Facing:     Down,
+		Gait:       Standing,
 		TurnQueued: None,
 		StepQueued: None,
-		Queue: []ecs.Command[Draft]{},
+		Queue:      []ecs.Command[Draft]{},
 	}
 }
 
@@ -197,11 +197,11 @@ func Spawn(w World, d Draft) World {
 func Despawn(w World, e ecs.Entity) World {
 	World{
 		..w,
-		Pos: w.Pos.Remove(e),
-		Vel: w.Vel.Remove(e),
-		Box: w.Box.Remove(e),
+		Pos:     w.Pos.Remove(e),
+		Vel:     w.Vel.Remove(e),
+		Box:     w.Box.Remove(e),
 		Players: w.Players.Remove(e),
-		Walls: w.Walls.Remove(e),
+		Walls:   w.Walls.Remove(e),
 		Pickups: w.Pickups.Remove(e),
 	}
 }

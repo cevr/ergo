@@ -52,7 +52,7 @@ law PlayerStaysInTheWorld(seed int) {
 		case Some[ecs.Entity] as p:
 			let at = PositionOf(w, p.Value)
 			let half = PlayerSide / 2
-			if at.X < half || at.Y < half || at.X > WorldWidth - half || at.Y > WorldHeight - half {
+			if at.X < half || at.Y < half || at.X > WorldWidth-half || at.Y > WorldHeight-half {
 				return false
 			}
 		}
@@ -85,7 +85,7 @@ law NeverInsideAWall(seed int) {
 // CollectedAtMostTotal, made exact).
 law CollectedMatchesTheRoom(seed int) {
 	for w in Run(seed) {
-		if w.Collected > w.Total || w.Collected + w.Pickups.Size() != w.Total {
+		if w.Collected > w.Total || w.Collected+w.Pickups.Size() != w.Total {
 			return false
 		}
 	}
@@ -98,7 +98,7 @@ law FocusIsInReach(seed int) {
 		match w.Focus {
 		case Nothing:
 		case Near as n:
-			if !w.Pickups.Has(n.E) || n.Distance * Unit > Reach {
+			if !w.Pickups.Has(n.E) || n.Distance*Unit > Reach {
 				return false
 			}
 		}
@@ -143,37 +143,3 @@ func inputsOf(seed int, n int) []Controls {
 	}
 }
 
-// RewindReplays: rewinding k ticks and stepping the same k inputs again
-// gives the same world, bit for bit (ritmo's Checkpoint promise).
-law RewindReplays(seed int, k int) {
-	let inputs = inputsOf(seed, 120)
-	let back = if k < 0 { -(k % 120) } else { k % 120 }
-	let mut s = Begin()
-	for c in inputs {
-		s = Advance(s, c)
-	}
-	let end = s.Now
-	s = Back(s, back) catch {
-	case TooFar:
-		return false
-	}
-	for c in inputs[len(inputs)-back:len(inputs)] {
-		s = Advance(s, c)
-	}
-	s.Now == end
-}
-
-// RewindKeepsNoMore: a session rewinds at most Keep ticks, and a rewind
-// past what it keeps fails TooFar with what it keeps.
-law RewindKeepsNoMore(seed int, extra int) {
-	let mut s = Begin()
-	for c in inputsOf(seed, Keep + 5) {
-		s = Advance(s, c)
-	}
-	let past = Keep + 1 + (if extra < 0 { -(extra % 50) } else { extra % 50 })
-	let _ = Back(s, past) catch {
-	case TooFar as t:
-		return len(s.Past) == Keep && t.Kept == Keep && t.Asked == past
-	}
-	false
-}

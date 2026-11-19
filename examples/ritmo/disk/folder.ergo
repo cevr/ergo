@@ -36,7 +36,7 @@ func Put(f Folder, slot string, w topdown.World) fails topdown.Broken {
 	case fs.Failed as x:
 		return topdown.Broken{Slot: slot, Why: x.Path + ": " + x.Reason}
 	}
-	f.writes.WriteFile(path(f, slot), json.Encode(codec(), w) + "\n") catch {
+	f.writes.WriteFile(path(f, slot), json.Encode(codec(), w)+"\n") catch {
 	case fs.NotFound as n:
 		return topdown.Broken{Slot: slot, Why: "no folder for " + n.Path}
 	case fs.Denied as d:

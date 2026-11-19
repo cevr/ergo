@@ -41,7 +41,7 @@ func glyph(w topdown.World, walls []topdown.Block, centre topdown.Vec) string {
 		}
 	}
 	for b in walls {
-		if topdown.Overlaps(centre, topdown.Size{W: 2, H: 2}, b.At, b.Box) {
+		if topdown.Overlaps(centre, topdown.Size{W: Cell, H: Cell}, b.At, b.Box) {
 			return "#"
 		}
 	}
@@ -51,7 +51,7 @@ func glyph(w topdown.World, walls []topdown.Block, centre topdown.Vec) string {
 // inCell reports whether p is in the cell around centre.
 func inCell(p topdown.Vec, centre topdown.Vec) bool {
 	let half = Cell / 2
-	p.X >= centre.X - half && p.X < centre.X + half && p.Y >= centre.Y - half && p.Y < centre.Y + half
+	p.X >= centre.X-half && p.X < centre.X+half && p.Y >= centre.Y-half && p.Y < centre.Y+half
 }
 
 // Status is one line of what a world shows beside the room: the tick,

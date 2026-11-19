@@ -18,25 +18,26 @@ import ritmo/topdown
 
 let storeFlag = flag.Choice("store", "memory", []string{"memory", "disk"}, "where saves live")
 let dirFlag = flag.String("dir", "saves", "the `directory` of the disk store")
+let keepFlag = flag.Int("keep", 600, "the `ticks` a session keeps to rewind")
 
-let set = flag.Set{Name: "ritmo", Usage: "", Flags: []flag.Flag{storeFlag, dirFlag}, Args: []flag.ArgSpec{}}
+let set = flag.Set{Name: "ritmo", Usage: "", Flags: []flag.Flag{storeFlag, dirFlag, keepFlag}, Args: []flag.ArgSpec{}}
 
 // run plays standard input on args. A line that fails ends the run with
 // status 1 after the last line.
 func run(args []string, files fs.Files, writes fs.Writes) fails os.Exit needs io.Stdout | io.Stdin {
 	let v = flag.Parse(set, args) catch {
 	case err:
-		try flag.Exit(err, "usage: ritmo [-store memory|disk] [-dir DIR] < SCRIPT")
+		try flag.Exit(err, "usage: ritmo [-store memory|disk] [-dir DIR] [-keep TICKS] < SCRIPT")
 		return
 	}
 	let failed = match storeFlag.Get(v) {
 	case "disk":
 		with context { topdown.Saves: disk.At(dirFlag.Get(v), files, writes) } {
-			script.Run()
+			script.Run(keepFlag.Get(v))
 		}
 	case _:
 		with context { topdown.Saves: memory.NewShelf() } {
-			script.Run()
+			script.Run(keepFlag.Get(v))
 		}
 	}
 	if failed > 0 {

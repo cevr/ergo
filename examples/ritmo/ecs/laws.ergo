@@ -32,7 +32,7 @@ law RemoveForgets(ids []int, vals []int, id int) {
 	let c = columnOf(ids, vals)
 	let e = Entity{Id: id}
 	let after = c.Remove(e)
-	after.Get(e) == None && !after.Has(e) && after.Size() == c.Size() - (if c.Has(e) { 1 } else { 0 })
+	after.Get(e) == None && !after.Has(e) && after.Size() == c.Size()-(if c.Has(e) { 1 } else { 0 })
 }
 
 // OneValueAnEntity: however often an entity is set, the column holds it
