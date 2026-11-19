@@ -3391,6 +3391,12 @@
       "killers": [
         "internal/sketchfront:TestStdSnapshotIsCurrent"
       ]
-    }
+    },
+    {"name":"np4furl-fresh-passed-on","origin":"wf10 NP4f-URL (NS lane)","file":"internal/sketch/check/gofresh.go","from":"\t\t\tif n.Name == name && n != decl && !operands[n] && !sels[n] {\n\t\t\t\tok = false\n","to":"\t\t\tif false {\n\t\t\t\tok = false\n","rule":"interop.md Checking 4: a go.Ref the frame passes on (an argument, a result, a stored value) is no fresh handle; a field read through it charges go.Foreign.","anchor":{"tests":["check:TestGoFreshRefFields"]},"killers":["check:TestGoFreshRefFields"]},
+    {"name":"np4furl-fresh-mut","origin":"wf10 NP4f-URL (NS lane)","file":"internal/sketch/check/gofresh.go","from":"\tif v == nil || v.mut || c.fn == nil","to":"\tif v == nil || c.fn == nil","rule":"interop.md Checking 4: a let mut go.Ref is no fresh handle.","anchor":{"tests":["check:TestGoFreshRefFields"]},"killers":["check:TestGoFreshRefFields"]},
+    {"name":"np4furl-fresh-not-go-call","origin":"wf10 NP4f-URL (NS lane)","file":"internal/sketch/check/gofresh.go","from":"\tif call == nil || !c.goCall(call) {\n","to":"\tif call == nil {\n","rule":"interop.md Checking 4: a go.Ref an Ergo function returns is no fresh handle; only a pure-tier Go call's result is.","anchor":{"tests":["check:TestGoFreshRefFields"]},"killers":["check:TestGoFreshRefFields"]},
+    {"name":"np4furl-fresh-foreign-call","origin":"wf10 NP4f-URL (NS lane)","file":"internal/sketch/check/gofresh.go","from":"\tif sig == nil || !sig.Uses.Empty() {\n","to":"\tif sig == nil {\n","rule":"interop.md Checking 4: a go.Ref a Go call that needs go.Foreign returns is no fresh handle.","anchor":{"tests":["check:TestGoFreshRefFields"]},"killers":["check:TestGoFreshRefFields"]},
+    {"name":"np4furl-fresh-captured","origin":"wf10 NP4f-URL (NS lane)","file":"internal/sketch/check/gofresh.go","from":"\t\t\t\tif id, is := m.(*syntax.Ident); is && id.Name == name {\n\t\t\t\t\tok = false\n","to":"\t\t\t\tif id, is := m.(*syntax.Ident); is && id.Name == name && false {\n\t\t\t\t\tok = false\n","rule":"interop.md Checking 4: a go.Ref a function literal captures is no fresh handle.","anchor":{"tests":["check:TestGoFreshRefFields"]},"killers":["check:TestGoFreshRefFields"]},
+    {"name":"np4furl-fresh-never","origin":"wf10 NP4f-URL (NS lane)","file":"internal/sketch/check/gobinding.go","from":"\t\t\tif shared && !c.freshOperand(x.X) {\n","to":"\t\t\tif shared {\n","rule":"interop.md Checking 4: a field read through a fresh handle charges nothing.","anchor":{"tests":["check:TestGoFreshRefFields"]},"killers":["check:TestGoFreshRefFields"]}
   ]
 }

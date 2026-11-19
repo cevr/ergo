@@ -286,8 +286,12 @@ func hostMember(path, member string) bool {
 
 // PureImports are the Go packages a file may import when one of its bodies
 // is marked pure: packages that compute on values and reach no host state,
-// except the members PureImportsExcept names.
-var PureImports = []string{"strings", "strconv", "unicode", "unicode/utf8", "unicode/utf16", "slices", "sort", "math", "math/bits", "path/filepath", "encoding/hex", "encoding/base64", "crypto/sha256", "hash/crc32", "crypto/sha512", "crypto/sha1", "crypto/hmac"}
+// except the members PureImportsExcept names. net/url and net/netip parse
+// and format text (NP4f-URL, G2: an entry keyed by Go path that any
+// user's import go reaches trusts Go); net/url's ParseQuery reads the
+// process's GODEBUG urlmaxqueryparams, a setting fixed for the process as
+// every Go program has it, not state that changes between calls.
+var PureImports = []string{"strings", "strconv", "unicode", "unicode/utf8", "unicode/utf16", "slices", "sort", "math", "math/bits", "path/filepath", "encoding/hex", "encoding/base64", "crypto/sha256", "hash/crc32", "crypto/sha512", "crypto/sha1", "crypto/hmac", "net/url", "net/netip"}
 
 // PureImportsExcept names, for a package of PureImports, its members that
 // reach host state. A marked body that names one is refused. filepath.Abs
@@ -404,7 +408,7 @@ var Leaves = []string{"csv", "digest", "exec", "http", "rand", "redacted", "rpc"
 // HostText is the import path of the gofmt leaf, which makes fmt the
 // runtime's text of a value the core cannot write without it (rt.Text,
 // rt.TypedText; binsize BS2). It declares no body: a program imports it
-// for its init alone, when it imports go or names a body of hostTextUsers.
+// for its init alone, when it names a body of hostTextUsers.
 const HostText = Path + "/gofmt"
 
 // hostTextUsers are the exported declarations of runtime/v1 that can

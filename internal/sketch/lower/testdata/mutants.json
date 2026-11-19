@@ -4489,17 +4489,6 @@
       ]
     },
     {
-      "name": "bs2-hook-never",
-      "origin": "wf10 binsize BS2",
-      "file": "internal/sketch/lower/calls.go",
-      "from": "\tl.hostText = true // a Go package's panic value may need fmt's text\n",
-      "to": "",
-      "rule": "stdlib.md Types 4 (binsize BS2): a program that imports go imports the gofmt leaf, so a Go value of any type is written as fmt writes it.",
-      "killers": [
-        "lower:TestMainImportsOnlyTheRuntimeLeavesItCalls"
-      ]
-    },
-    {
       "name": "bs8-walk-always",
       "origin": "wf10 binsize BS8",
       "file": "internal/sketch/lower/module.go",
@@ -6301,6 +6290,7 @@
     {"name":"cp-list-from-start","origin":"wf10 CANVAS-PATHS","file":"internal/sketch/std/ui/paint.ergo","from":"\tfor i in from..len(p.ops) {\n","to":"\tfor i in 0..len(p.ops) {\n","rule":"A canvas's list starts at its own first op, not at the enclosing canvas's.","killers":["lower:TestUIHostModel"],"anchor":{"tests":["lower:TestUIHostModel"]}},
     {"name":"cp-path-from-start","origin":"wf10 CANVAS-PATHS","file":"internal/sketch/std/ui/paint.ergo","from":"\t\tat = end\n","to":"\t\tat = 0\n","rule":"Each painted path holds only its own segments.","killers":["lower:TestUIHostModel"],"anchor":{"tests":["lower:TestUIHostModel"]}},
     {"name":"cp-path-end-unshifted","origin":"wf10 CANVAS-PATHS","file":"internal/sketch/std/ui/paint.ergo","from":"\t\tlet end = p.ends[i] - segsFrom\n","to":"\t\tlet end = p.ends[i]\n","rule":"A canvas's paths are counted from its own first segment.","killers":["lower:TestUIHostModel"],"anchor":{"tests":["lower:TestUIHostModel"]}},
+    {"name":"np4furl-report-misaligned","origin":"wf10 NP4f-URL (NS lane)","file":"internal/sketch/lower/std_bodies_test.go","from":"\t\tk := first\n","to":"\t\tk := first * 0\n","rule":"np4f-plan §6.1: each case of the comparing law reads its own lines, so an agreeing case after a difference is not reported.","anchor":{"tests":["lower:TestBodyDisagreementsAlign"]},"killers":["lower:TestBodyDisagreementsAlign"]},
     {"name":"literal-let-never-static","origin":"wf10 LITERAL-LET","file":"internal/sketch/lower/decls.go","from":"fc.out.Len() == 0 && staticLiteral(l.info, x) && !strings.Contains(val, fc.env)","to":"false && fc.out.Len() == 0 && staticLiteral(l.info, x)","rule":"a package let of constant data lowers to a Go variable's literal initializer, with no init code (LITERAL-LET)","killers":["lower:TestLiteralLetsAreStaticData"]},
     {"name":"literal-let-update-static","origin":"wf10 LITERAL-LET","file":"internal/sketch/lower/decls.go","from":"\t\tif e.Base != nil {\n\t\t\treturn false\n\t\t}","to":"\t\tif false {\n\t\t\treturn false\n\t\t}","rule":"a record update reads its base, so it is no constant data","killers":["lower:TestLiteralLetsAreStaticData"]},
     {"name":"literal-let-map-static","origin":"wf10 LITERAL-LET","file":"internal/sketch/lower/decls.go","from":"\t\tcase *check.Slice, *check.Array, *check.Struct:\n\t\tdefault:\n\t\t\treturn false\n\t\t}","to":"\t\tdefault:\n\t\t}","rule":"a Map literal lowers to work at start, not static data","killers":["lower:TestLiteralLetsAreStaticData"]},

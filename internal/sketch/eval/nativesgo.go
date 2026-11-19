@@ -101,7 +101,10 @@ func goNativeOf(fn *check.Func) native {
 	// filled it, and an entry registered there read as missing.
 	loadNatives()
 	path, name := fn.Decl.Extern.Split()
-	return goNatives[path+"."+name]
+	if nat := goNatives[path+"."+name]; nat != nil {
+		return nat
+	}
+	return goReflectNative(fn) // gohost.go
 }
 
 // goBits is a one-argument conversion of basic values, one step.

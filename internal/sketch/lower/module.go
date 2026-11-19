@@ -336,9 +336,9 @@ type lowerer struct {
 	// by import path.
 	rtLeaves map[string]bool
 	// hostText is set when main.go imports the gofmt leaf of runtime/v1
-	// (v1.HostText) for its init: the program uses a Go package (hostPkg),
-	// whose values only fmt can write, or names a body that writes a
-	// machine state (v1.NeedsHostText).
+	// (v1.HostText) for its init: the program names a body that writes a
+	// machine state (v1.NeedsHostText). A Go package's values need no fmt:
+	// rt.Text writes any value.
 	hostText bool
 	// hostWalk is set when main.go imports the hostwalk leaf of runtime/v1
 	// (v1.HostWalk) for its init: the program names a body that makes an

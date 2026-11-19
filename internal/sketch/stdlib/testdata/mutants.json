@@ -175,7 +175,7 @@
       "anchor": {"tests": ["internal/sketch/stdlib:TestStdStrengthsFixtures"]},
       "killers": ["internal/sketch/stdlib:TestStdStrengthsFixtures"]
     },
-    {"name":"ss1-host-elapsed-mono","origin":"wf10 std-speed-1","file":"internal/sketch/std/time/clock.ergo","from":"subMono(hostMono(), t.mono)","to":"subMono(t.mono, hostMono())","rule":"stdlib.md time, Clock.ElapsedIsNowSub: the host's Elapsed of a time with a monotonic reading is the monotonic read less t's.","killers":["lower:TestTimeRuns"]},
+    {"name":"ss1-host-elapsed-mono","origin":"wf10 std-speed-1","file":"internal/sketch/std/time/clock.ergo","from":"let m = now - t.mono","to":"let m = t.mono - now","rule":"stdlib.md time, Clock.ElapsedIsNowSub: the host's Elapsed of a time with a monotonic reading is the monotonic read less t's.","killers":["lower:TestTimeRuns"]},
     {"name":"ss1-host-elapsed-wall","origin":"wf10 std-speed-1","file":"internal/sketch/std/time/clock.ergo","from":"\t\th.Now().Sub(t)","to":"\t\tt.Sub(h.Now())","rule":"stdlib.md time, Clock.ElapsedIsNowSub: the host's Elapsed of a time with no monotonic reading is Now().Sub(t) by the wall.","killers":["lower:TestTimeRuns"]},
     {"name":"ss1-input-lines-feed","origin":"wf10 std-speed-1","file":"internal/sketch/std/io/io.ergo","from":"strings.IndexByte(rest, '\\n')","to":"strings.IndexByte(rest, ' ')","rule":"stdlib.md io: Input's Lines splits at each line feed.","killers":["lower:TestInputLinesMatchesModel"]},
     {
@@ -962,6 +962,316 @@
       "killers": [
         "internal/sketchfront:TestStdSnapshotIsCurrent"
       ]
+    },
+    {
+      "name": "np4f15-parse-semicolon-kept",
+      "origin": "wf10 NP4f-15 (NS lane)",
+      "file": "internal/sketch/std/http/query.ergo",
+      "from": "if part == \"\" || strings.IndexByte(part, ';') >= 0 {",
+      "to": "if part == \"\" {",
+      "rule": "std http.ParseQuery reads as Go's url.ParseQuery: a pair with a \";\" in it is dropped.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f15-parse-unstable",
+      "origin": "wf10 NP4f-15 (NS lane)",
+      "file": "internal/sketch/std/http/query.ergo",
+      "from": "\tslices.SortStableFunc(fields, func(a Field, b Field) int { strings.Compare(a.Name, b.Name) })\n}",
+      "to": "\tslices.SortStableFunc(fields, func(a Field, b Field) int { strings.Compare(a.Name+a.Value, b.Name+b.Value) })\n}",
+      "rule": "std http.ParseQuery keeps each key's values in the order they came.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f15-unescape-plus",
+      "origin": "wf10 NP4f-15 (NS lane)",
+      "file": "internal/sketch/std/http/query.ergo",
+      "from": "\t\t\tb = b.Append(' ')\n",
+      "to": "\t\t\tb = b.Append('+')\n",
+      "rule": "std http.ParseQuery reads \"+\" as a space, as Go's url.QueryUnescape.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f15-unescape-truncated",
+      "origin": "wf10 NP4f-15 (NS lane)",
+      "file": "internal/sketch/std/http/query.ergo",
+      "from": "if i+2 >= len(s) || !isHex(s[i+1])",
+      "to": "if i+2 > len(s) || !isHex(s[i+1])",
+      "rule": "std http.ParseQuery drops a pair whose \"%\" is not followed by two hex digits.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f15-unhex-lower",
+      "origin": "wf10 NP4f-15 (NS lane)",
+      "file": "internal/sketch/std/http/query.ergo",
+      "from": "\tc - 'a' + 10\n",
+      "to": "\tc - 'a' + 9\n",
+      "rule": "std http.ParseQuery reads a lower-case %xx escape as its byte.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f15-encode-lower-hex",
+      "origin": "wf10 NP4f-15 (NS lane)",
+      "file": "internal/sketch/std/http/query.ergo",
+      "from": "\"0123456789ABCDEF\"[int(c>>4)]",
+      "to": "\"0123456789abcdef\"[int(c>>4)]",
+      "rule": "std http.EncodeQuery escapes as Go's url.QueryEscape: %XX in upper case.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f15-encode-tilde",
+      "origin": "wf10 NP4f-15 (NS lane)",
+      "file": "internal/sketch/std/http/query.ergo",
+      "from": " || c == '.' || c == '~' {",
+      "to": " || c == '.' {",
+      "rule": "std http.EncodeQuery keeps the unreserved \"~\" as it is, as Go's url.QueryEscape.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f15-encode-space",
+      "origin": "wf10 NP4f-15 (NS lane)",
+      "file": "internal/sketch/std/http/query.ergo",
+      "from": "\t\t\tout = out.Append('+')\n",
+      "to": "\t\t\tout = out.Append('%').Append('2').Append('0')\n",
+      "rule": "std http.EncodeQuery writes a space as \"+\", as Go's url.QueryEscape.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f15-parse-unsorted",
+      "origin": "wf10 NP4f-15 (NS lane)",
+      "file": "internal/sketch/std/http/query.ergo",
+      "from": "func(a Field, b Field) int { strings.Compare(a.Name, b.Name) })\n}",
+      "to": "func(a Field, b Field) int { 0 })\n}",
+      "rule": "std http.ParseQuery gives the fields in key order, each key's values in the order they came.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f16-toint-lower",
+      "origin": "wf10 NP4f-16 (NS lane)",
+      "file": "internal/sketch/std/math/math.ergo",
+      "from": "func ToInt(f float64) int fails OutOfRange {\n\tif f < 9223372036854775808.0 && f >= -9223372036854775808.0 {",
+      "to": "func ToInt(f float64) int fails OutOfRange {\n\tif f < 9223372036854775808.0 && f > -9223372036854775808.0 {",
+      "rule": "std math.ToInt fails OutOfRange exactly outside the open interval where T(f)'s truncation fits, as the old runtime/v1 body did.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f16-toint-upper",
+      "origin": "wf10 NP4f-16 (NS lane)",
+      "file": "internal/sketch/std/math/math.ergo",
+      "from": "func ToInt(f float64) int fails OutOfRange {\n\tif f < 9223372036854775808.0 && f >= -9223372036854775808.0 {",
+      "to": "func ToInt(f float64) int fails OutOfRange {\n\tif f <= 9223372036854775808.0 && f >= -9223372036854775808.0 {",
+      "rule": "std math.ToInt fails OutOfRange exactly outside the open interval where T(f)'s truncation fits, as the old runtime/v1 body did.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f16-toint64-lower",
+      "origin": "wf10 NP4f-16 (NS lane)",
+      "file": "internal/sketch/std/math/math.ergo",
+      "from": "func ToInt64(f float64) int64 fails OutOfRange {\n\tif f < 9223372036854775808.0 && f >= -9223372036854775808.0 {",
+      "to": "func ToInt64(f float64) int64 fails OutOfRange {\n\tif f < 9223372036854775808.0 && f > -9223372036854775808.0 {",
+      "rule": "std math.ToInt64 fails OutOfRange exactly outside the open interval where T(f)'s truncation fits, as the old runtime/v1 body did.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f16-toint64-upper",
+      "origin": "wf10 NP4f-16 (NS lane)",
+      "file": "internal/sketch/std/math/math.ergo",
+      "from": "func ToInt64(f float64) int64 fails OutOfRange {\n\tif f < 9223372036854775808.0 && f >= -9223372036854775808.0 {",
+      "to": "func ToInt64(f float64) int64 fails OutOfRange {\n\tif f <= 9223372036854775808.0 && f >= -9223372036854775808.0 {",
+      "rule": "std math.ToInt64 fails OutOfRange exactly outside the open interval where T(f)'s truncation fits, as the old runtime/v1 body did.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f16-touint-lower",
+      "origin": "wf10 NP4f-16 (NS lane)",
+      "file": "internal/sketch/std/math/math.ergo",
+      "from": "func ToUint(f float64) uint fails OutOfRange {\n\tif f > -1.0 && f < 18446744073709551616.0 {",
+      "to": "func ToUint(f float64) uint fails OutOfRange {\n\tif f > -2.0 && f < 18446744073709551616.0 {",
+      "rule": "std math.ToUint fails OutOfRange exactly outside the open interval where T(f)'s truncation fits, as the old runtime/v1 body did.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f16-touint-upper",
+      "origin": "wf10 NP4f-16 (NS lane)",
+      "file": "internal/sketch/std/math/math.ergo",
+      "from": "func ToUint(f float64) uint fails OutOfRange {\n\tif f > -1.0 && f < 18446744073709551616.0 {",
+      "to": "func ToUint(f float64) uint fails OutOfRange {\n\tif f > -1.0 && f <= 18446744073709551616.0 {",
+      "rule": "std math.ToUint fails OutOfRange exactly outside the open interval where T(f)'s truncation fits, as the old runtime/v1 body did.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f16-touint64-lower",
+      "origin": "wf10 NP4f-16 (NS lane)",
+      "file": "internal/sketch/std/math/math.ergo",
+      "from": "func ToUint64(f float64) uint64 fails OutOfRange {\n\tif f > -1.0 && f < 18446744073709551616.0 {",
+      "to": "func ToUint64(f float64) uint64 fails OutOfRange {\n\tif f > -2.0 && f < 18446744073709551616.0 {",
+      "rule": "std math.ToUint64 fails OutOfRange exactly outside the open interval where T(f)'s truncation fits, as the old runtime/v1 body did.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f16-touint64-upper",
+      "origin": "wf10 NP4f-16 (NS lane)",
+      "file": "internal/sketch/std/math/math.ergo",
+      "from": "func ToUint64(f float64) uint64 fails OutOfRange {\n\tif f > -1.0 && f < 18446744073709551616.0 {",
+      "to": "func ToUint64(f float64) uint64 fails OutOfRange {\n\tif f > -1.0 && f <= 18446744073709551616.0 {",
+      "rule": "std math.ToUint64 fails OutOfRange exactly outside the open interval where T(f)'s truncation fits, as the old runtime/v1 body did.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f16-touintptr-lower",
+      "origin": "wf10 NP4f-16 (NS lane)",
+      "file": "internal/sketch/std/math/math.ergo",
+      "from": "func ToUintptr(f float64) uintptr fails OutOfRange {\n\tif f > -1.0 && f < 18446744073709551616.0 {",
+      "to": "func ToUintptr(f float64) uintptr fails OutOfRange {\n\tif f > -2.0 && f < 18446744073709551616.0 {",
+      "rule": "std math.ToUintptr fails OutOfRange exactly outside the open interval where T(f)'s truncation fits, as the old runtime/v1 body did.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f16-touintptr-upper",
+      "origin": "wf10 NP4f-16 (NS lane)",
+      "file": "internal/sketch/std/math/math.ergo",
+      "from": "func ToUintptr(f float64) uintptr fails OutOfRange {\n\tif f > -1.0 && f < 18446744073709551616.0 {",
+      "to": "func ToUintptr(f float64) uintptr fails OutOfRange {\n\tif f > -1.0 && f <= 18446744073709551616.0 {",
+      "rule": "std math.ToUintptr fails OutOfRange exactly outside the open interval where T(f)'s truncation fits, as the old runtime/v1 body did.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f17-sub-no-internal-offset",
+      "origin": "wf10 NP4f-17 (NS lane)",
+      "file": "internal/sketch/std/time/time.ergo",
+      "from": "\tlet ts = t.sec + unixToInternal\n\tlet us = u.sec + unixToInternal\n",
+      "to": "\tlet ts = t.sec\n\tlet us = u.sec\n",
+      "rule": "std time's Sub of two times with no monotonic reading works on Go's internal seconds, which wrap where Unix seconds plus 62135596800 overflow, as Go's Time.Sub.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f17-sub-saturates-up-below",
+      "origin": "wf10 NP4f-17 (NS lane)",
+      "file": "internal/sketch/std/time/time.ergo",
+      "from": "\tif ts < us || ts == us && t.nsec < u.nsec {\n\t\treturn duration(minDuration)\n",
+      "to": "\tif ts < us || ts == us && t.nsec < u.nsec {\n\t\treturn duration(maxDuration)\n",
+      "rule": "std time's Sub past the range is the smallest duration when t is before u, as Go's.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f17-sub-carry-short",
+      "origin": "wf10 NP4f-17 (NS lane)",
+      "file": "internal/sketch/std/time/time.ergo",
+      "from": "\t\tdsec = dsec + 1\n\t\tn = n - 1000000000\n",
+      "to": "\t\tdsec = dsec + 1\n\t\tn = n - 999999999\n",
+      "rule": "std time's Sub checks u + d as Go's Add does, carrying a second out of the nanoseconds.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f17-sub-addsec-wraps",
+      "origin": "wf10 NP4f-17 (NS lane)",
+      "file": "internal/sketch/std/time/time.ergo",
+      "from": "\tif (s > us) != (dsec > 0) {\n",
+      "to": "\tif false {\n",
+      "rule": "std time's Sub checks u + d with Go's Add, whose seconds saturate where they would overflow.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f17-sub-mono-reversed",
+      "origin": "wf10 NP4f-17 (NS lane)",
+      "file": "internal/sketch/std/time/time.ergo",
+      "from": "\t\tlet m = t.mono - u.mono\n",
+      "to": "\t\tlet m = u.mono - t.mono\n",
+      "rule": "std time's Sub of two times with monotonic readings is t's reading less u's.",
+      "killers": ["lower:TestTimeRuns"],
+      "gap": "Only a lowered program runs it, so the std ledger judges it uncovered (docs/tooling.md, Mutant ledger); its killer is run by hand: red at NP4f-17, 2026-11-18."
+    },
+    {
+      "name": "np4furl-query-default-limit",
+      "origin": "wf10 NP4f-URL (NS lane)",
+      "file": "internal/sketch/std/http/query.ergo",
+      "from": "\tif !queryWithinMax(strings.Count(raw, \"&\")) {\n",
+      "to": "\tif strings.Count(raw, \"&\") >= 10000 {\n",
+      "rule": "stdlib.md http: ParseQuery gives no fields past Go's limit on pairs, GODEBUG urlmaxqueryparams as Go's url.ParseQuery reads it.",
+      "anchor": {"tests":["internal/sketch/eval:TestParseQueryReadsGODEBUG"]},
+      "killers": ["internal/sketch/eval:TestParseQueryReadsGODEBUG"]
+    },
+    {
+      "name": "np4furl-origin-limits-timeouts",
+      "origin": "wf10 NP4f-URL (NS lane)",
+      "file": "internal/sketch/std/http/origin.ergo",
+      "from": "limits.MaxBodyBytes > 0 && limits.MaxHeaderBytes > 0 && limits.IdleTimeout > 0s && limits.ReadHeaderTimeout > 0s && limits.ReadBodyTimeout > 0s",
+      "to": "limits.MaxBodyBytes > 0 && limits.MaxHeaderBytes > 0",
+      "rule": "stdlib.md http: shared Limits reject a non-positive timeout at NewClient and for a Network policy too (was e4b-client/network-timeouts-unchecked).",
+      "anchor": {"tests":["internal/sketch/eval:TestHTTPPolicyAgreesWithRuntime"]},
+      "killers": ["internal/sketch/eval:TestHTTPPolicyAgreesWithRuntime"]
+    },
+    {
+      "name": "np4furl-origin-user-allowed",
+      "origin": "wf10 NP4f-URL (NS lane)",
+      "file": "internal/sketch/std/http/origin.ergo",
+      "from": "\tif host == \"\" || user {\n",
+      "to": "\tif host == \"\" {\n",
+      "rule": "stdlib.md http: an origin with user information is not a host and port.",
+      "anchor": {"tests":["internal/sketch/eval:TestHTTPPolicyAgreesWithRuntime"]},
+      "killers": ["internal/sketch/eval:TestHTTPPolicyAgreesWithRuntime"]
+    },
+    {
+      "name": "np4furl-origin-force-query",
+      "origin": "wf10 NP4f-URL (NS lane)",
+      "file": "internal/sketch/std/http/origin.ergo",
+      "from": "rawQuery != \"\" || fragment != \"\" || forceQuery {",
+      "to": "rawQuery != \"\" || fragment != \"\" {",
+      "rule": "stdlib.md http: an origin ending in a bare \"?\" has a query.",
+      "anchor": {"tests":["internal/sketch/eval:TestHTTPPolicyAgreesWithRuntime"]},
+      "killers": ["internal/sketch/eval:TestHTTPPolicyAgreesWithRuntime"]
+    },
+    {
+      "name": "np4furl-origin-zone-lowered",
+      "origin": "wf10 NP4f-URL (NS lane)",
+      "file": "internal/sketch/std/http/origin.ergo",
+      "from": "\t\t\thost = host + \"%\" + parts.After\n",
+      "to": "\t\t\thost = host + \"%\" + strings.ToLower(parts.After)\n",
+      "rule": "stdlib.md http: an IPv6 zone keeps its case in the canonical origin.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4furl-origin-default-port-kept",
+      "origin": "wf10 NP4f-URL (NS lane)",
+      "file": "internal/sketch/std/http/origin.ergo",
+      "from": "\tif port == \"80\" && scheme == \"http\" || port == \"443\" && scheme == \"https\" {\n",
+      "to": "\tif port == \"80\" && scheme == \"https\" || port == \"443\" && scheme == \"http\" {\n",
+      "rule": "stdlib.md http: the canonical origin drops the scheme's own default port.",
+      "anchor": {"tests":["internal/sketch/eval:TestHTTPPolicyAgreesWithRuntime"]},
+      "killers": ["internal/sketch/eval:TestHTTPPolicyAgreesWithRuntime"]
+    },
+    {
+      "name": "np4furl-origin-port-unparsed",
+      "origin": "wf10 NP4f-URL (NS lane)",
+      "file": "internal/sketch/std/http/origin.ergo",
+      "from": "\t\tport = strconv.FormatUint(n, 10)\n",
+      "to": "\t\tlet _ = n\n",
+      "rule": "stdlib.md http: a zero-padded port is the number's canonical form.",
+      "anchor": {"tests":["internal/sketch/eval:TestHTTPPolicyAgreesWithRuntime"]},
+      "killers": ["internal/sketch/eval:TestHTTPPolicyAgreesWithRuntime"]
     },
     {"name":"runner-needs-work-row","origin":"wf10 TP-DIAG (named by fumb-e F1); killer by kill matrix, ST-0 pending (TP-DIAG)","file":"internal/sketch/std/actor/actor.ergo","from":"sink own func(o O) needs R) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler {","to":"sink own func(o O) needs R) Actor[S, E, Decision[S, O], F] needs R | Scheduler {","rule":"runtime.md, Machines and actors 12: the runner actor.StartMachine runs the work, so it needs the work row W as well as R.","killers":["cmd/ergo:TestCheckerFixtures"]},
     {"name":"llm-stream-drops-last-delta","origin":"wf10 LLM L1","file":"internal/sketch/std/llm/memory/scripted.ergo","from":"\tcase Says as y:\n\t\tfor d in y.Deltas {\n\t\t\ttry put(d)\n\t\t}","to":"\tcase Says as y:\n\t\tfor i, d in y.Deltas {\n\t\t\tif i+1 < len(y.Deltas) {\n\t\t\t\ttry put(d)\n\t\t\t}\n\t\t}","rule":"Stream gives put every delta of the reply: its turn is the Fold of what it streamed.","anchor":{"tests":["lower:TestStdLLMLawsRun"]},"killers":["lower:TestStdLLMLawsRun"]},
