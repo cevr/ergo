@@ -70,8 +70,8 @@ func packageOf(file string) string {
 // declLine is the kind and name a line declares, or ("", "").
 func declLine(text string) (string, string) {
 	for kind in []string{"func", "type"} {
-		if strings.HasPrefix(text, kind + " ") {
-			let rest = strings.Slice(text, len(kind) + 1, len(text))
+		if strings.HasPrefix(text, kind+" ") {
+			let rest = strings.Slice(text, len(kind)+1, len(text))
 			let name = firstWord(rest)
 			if name != "" {
 				return (kind, name)
@@ -97,7 +97,7 @@ func parsed(src Source) []mdecl {
 	let mut cur = mdecl{Name: "", Kind: "", File: src.File, Pkg: packageOf(src.File), Line: 0, Start: 0, End: 0, Lines: []mline{}, Header: true}
 	for i, text in lines {
 		let (kind, name) = declLine(text)
-		let end = if i == len(lines) - 1 { at + len(text) } else { at + len(text) + 1 }
+		let end = if i == len(lines)-1 { at + len(text) } else { at + len(text) + 1 }
 		if kind != "" {
 			if !cur.Header {
 				out = out.Append(cur)
@@ -120,7 +120,7 @@ func parsed(src Source) []mdecl {
 // lastElement is the last element of a package path.
 func lastElement(path string) string {
 	let at = strings.LastIndex(path, "/")
-	if at < 0 { path } else { strings.Slice(path, at + 1, len(path)) }
+	if at < 0 { path } else { strings.Slice(path, at+1, len(path)) }
 }
 
 // modelCheck is Model's Check.
@@ -202,7 +202,7 @@ func modelCheck(sources []Source) Report {
 			case None:
 				""
 			}
-			let name = if owner == "" { d.Name } else { strings.Slice(d.Name, len(owner) + 1, len(d.Name)) }
+			let name = if owner == "" { d.Name } else { strings.Slice(d.Name, len(owner)+1, len(d.Name)) }
 			let at = if owner == "" { col } else { col + len(owner) + 1 }
 			pd = pd.Append(Decl{Handle: handle, Kind: d.Kind, Name: name, Package: p, Exported: exportedName(name), File: d.File, Line: d.Line, Column: at})
 			ps = ps.Append(Site{Symbol: handle, Kind: "def", Package: p, File: d.File, Line: d.Line, Column: at, In: handle})
@@ -253,9 +253,9 @@ func modelCheck(sources []Source) Report {
 					ps = ps.Append(Site{Symbol: q + "." + n, Kind: "provides", Package: p, File: d.File, Line: l.Line, Column: c, In: handle})
 					binds = binds.Append(Bind{Op: q + "." + n, By: handle})
 					for key in slices.Sorted(maps.Keys(theirs)) {
-						if strings.HasPrefix(key, n + ".") && maps.GetOr(theirs, key, "") == "operation" {
-							let op = strings.Slice(key, len(n) + 1, len(key))
-							if maps.GetOr(names, d.Name + "." + op, "") != "func" {
+						if strings.HasPrefix(key, n+".") && maps.GetOr(theirs, key, "") == "operation" {
+							let op = strings.Slice(key, len(n)+1, len(key))
+							if maps.GetOr(names, d.Name+"."+op, "") != "func" {
 								diags = diags.Append(Diagnostic{Code: "M6", Message: "\(d.Name) provides \(n) but has no \(op)", File: d.File, Line: l.Line, Column: w.Column, Fix: []Edit{}})
 								errs = errs + 1
 							}
@@ -305,7 +305,7 @@ func modelCheck(sources []Source) Report {
 							continue
 						}
 						ps = ps.Append(Site{Symbol: p + "." + t, Kind: "construct", Package: p, File: d.File, Line: l.Line, Column: column, In: handle})
-						if maps.GetOr(names, t + "." + f, "") == "field" {
+						if maps.GetOr(names, t+"."+f, "") == "field" {
 							ps = ps.Append(Site{Symbol: p + "." + t + "." + f, Kind: "write", Package: p, File: d.File, Line: l.Line, Column: column + len(t) + 1, In: handle})
 						} else {
 							diags = diags.Append(Diagnostic{Code: "M5", Message: "\(t) has no field \(f)", File: d.File, Line: l.Line, Column: column + len(t) + 1, Fix: []Edit{}})
@@ -350,7 +350,7 @@ func modelCheck(sources []Source) Report {
 			}
 			code = code + "\n"
 			if d.Kind == "func" && owner == "" && exportedName(name) {
-				cs = cs.Append(Contract{Name: name, Signature: sig, TypeParameters: []string{}, Fails: "", Needs: row, Takes: []string{}, TakesParameters: []int{}, TakesSelf: false, TakesInferred: false, Copies: []CopySite{}})
+				cs = cs.Append(Contract{Name: name, Signature: sig, TypeParameters: []string{}, Fails: "", Needs: row, Takes: []string{}, TakesParameters: []int{}, TakesSelf: false, TakesInferred: false, Own: []string{}})
 			}
 		}
 		for x in diags {
@@ -366,7 +366,7 @@ func modelCheck(sources []Source) Report {
 		}
 		packages = packages.Append(Package{Path: p, Complete: errs == 0, Diagnostics: errs, Decls: pd, Sites: ps, Contracts: cs, Calls: calls, Needs: []Need{}, Fails: []Failing{}, Machines: []MachineGraph{}})
 	}
-	Report{Tables: Tables{Revision: revisionOf(sources), Root: if len(pkgs) > 0 { pkgs[len(pkgs) - 1] } else { "" }, Packages: packages}, Extents: extents, Diagnostics: diags, Code: revision(code), Binds: binds, Workspace: workspace}
+	Report{Tables: Tables{Revision: revisionOf(sources), Root: if len(pkgs) > 0 { pkgs[len(pkgs)-1] } else { "" }, Packages: packages}, Extents: extents, Diagnostics: diags, Code: revision(code), Binds: binds, Workspace: workspace}
 }
 
 // siteKindOf is the kind of a site that names a declaration of kind k.
@@ -470,11 +470,11 @@ func Sample(seed int) []Source {
 	let mut files = []int{}
 	for i in 0..packages {
 		let mut mine = []string{}
-		let n = 1 + roll(seed, 10 + i, 2)
+		let n = 1 + roll(seed, 10+i, 2)
 		files = files.Append(n)
 		for f in 0..n {
-			for k in 0..1 + roll(seed, 20 + i*7 + f, 3) {
-				let mut name = pool[roll(seed, 100 + i*31 + f*11 + k*3, len(pool))]
+			for k in 0..1+roll(seed, 20+i*7+f, 3) {
+				let mut name = pool[roll(seed, 100+i*31+f*11+k*3, len(pool))]
 				if has(mine, name) {
 					name = name + "\(i)\(f)\(k)"
 				}
@@ -490,27 +490,27 @@ func Sample(seed int) []Source {
 		let mut seen = 0
 		for f in 0..files[i] {
 			let mut text = "// file \(f) of \(path)\n"
-			for k in 0..1 + roll(seed, 20 + i*7 + f, 3) {
+			for k in 0..1+roll(seed, 20+i*7+f, 3) {
 				let salt = 100 + i*31 + f*11 + k*3
 				let name = names[i][seen]
-				let kind = if roll(seed, salt + 1, 3) == 0 { "type" } else { "func" }
-				let ugly = roll(seed, salt + 2, 4) == 0
+				let kind = if roll(seed, salt+1, 3) == 0 { "type" } else { "func" }
+				let ugly = roll(seed, salt+2, 4) == 0
 				let indent = if ugly { "  " } else { "\t" }
 				text = text + "\n\(kind) \(name)\n"
 				for j in 0..seen {
-					if roll(seed, salt + 5 + j, 2) == 0 {
+					if roll(seed, salt+5+j, 2) == 0 {
 						text = text + indent + "use \(names[i][j])  \n"
 					}
 				}
-				let theirs = names[o][roll(seed, salt + 3, len(names[o]))]
+				let theirs = names[o][roll(seed, salt+3, len(names[o]))]
 				text = text + indent + "call p\(o).\(theirs)\n"
-				if roll(seed, salt + 4, 5) == 0 {
+				if roll(seed, salt+4, 5) == 0 {
 					text = text + "\tfix ?\(name)\n"
 				}
-				if roll(seed, salt + 6, 7) == 0 {
+				if roll(seed, salt+6, 7) == 0 {
 					text = text + "\tshout !\(name) ?it\n"
 				}
-				if roll(seed, salt + 7, 11) == 0 {
+				if roll(seed, salt+7, 11) == 0 {
 					text = text + "\tcall p\(o).Nothing\n"
 				}
 				if ugly {
@@ -530,7 +530,7 @@ func isBlank(c string) bool { c == " " || c == "\t" }
 // trimLeft is s without its leading spaces and tabs.
 func trimLeft(s string) string {
 	let mut i = 0
-	for i < len(s) && isBlank(strings.Slice(s, i, i + 1)) {
+	for i < len(s) && isBlank(strings.Slice(s, i, i+1)) {
 		i = i + 1
 	}
 	strings.Slice(s, i, len(s))
@@ -539,7 +539,7 @@ func trimLeft(s string) string {
 // trimRight is s without its trailing spaces and tabs.
 func trimRight(s string) string {
 	let mut j = len(s)
-	for j > 0 && isBlank(strings.Slice(s, j - 1, j)) {
+	for j > 0 && isBlank(strings.Slice(s, j-1, j)) {
 		j = j - 1
 	}
 	strings.Slice(s, 0, j)
@@ -576,7 +576,8 @@ type pdecl {
 // tok is one word of a body line: a word that names no symbol, a symbol
 // by its name, a symbol of another package under a qualifier, a member
 // (`T.n`), or a record literal's key (`T{n}`).
-type tok = tword{Text string}
+type tok =
+	| tword{Text string}
 	| tuse{Symbol string}
 	| tqual{Prefix string, Symbol string}
 	| tmember{Symbol string}
@@ -621,13 +622,13 @@ func Program(seed int) prog {
 	let pool0 = []string{"Run", "Parse", "Load", "Emit"}
 	let pool1 = []string{"Run", "Walk", "Load"}
 	let mut f0 = []string{}
-	for k in 0..2 + roll(seed, 4, 2) {
+	for k in 0..2+roll(seed, 4, 2) {
 		let id = "gen/p0." + pool0[k]
 		kinds[id] = "func"
 		f0 = f0.Append(id)
 	}
 	let mut f1 = []string{}
-	for k in 0..1 + roll(seed, 5, 3) {
+	for k in 0..1+roll(seed, 5, 3) {
 		let id = "gen/p1." + pool1[k]
 		kinds[id] = "func"
 		f1 = f1.Append(id)
@@ -636,9 +637,9 @@ func Program(seed int) prog {
 	let mut owners = Map[string, string]{}
 	for id in maps.Keys(kinds) {
 		let dot = strings.Index(id, ".")
-		let rest = strings.Slice(id, dot + 1, len(id))
+		let rest = strings.Slice(id, dot+1, len(id))
 		let last = strings.LastIndex(id, ".")
-		names[id] = strings.Slice(id, last + 1, len(id))
+		names[id] = strings.Slice(id, last+1, len(id))
 		if strings.Contains(rest, ".") {
 			owners[id] = strings.Slice(id, 0, last)
 		}
@@ -664,7 +665,7 @@ func Program(seed int) prog {
 	}
 	let mut funcs0 = []pdecl{}
 	for k, id in f0 {
-		funcs0 = funcs0.Append(pdecl{Symbol: id, Lines: bodyOf(seed, 100 + k * 17, f0, k, "p1", f1, []string{"gen/p0.Disk.Path", "gen/p0.Files.Read", "gen/p0.Mem.Write"}, "gen/p0.Disk.Path", names)})
+		funcs0 = funcs0.Append(pdecl{Symbol: id, Lines: bodyOf(seed, 100+k*17, f0, k, "p1", f1, []string{"gen/p0.Disk.Path", "gen/p0.Files.Read", "gen/p0.Mem.Write"}, "gen/p0.Disk.Path", names)})
 	}
 	let types1 = []pdecl{
 		pdecl{Symbol: "gen/p1.Fake", Lines: [][]tok{[]tok{tword{Text: "provides"}, tqual{Prefix: pre, Symbol: "gen/p0.Files"}}}},
@@ -674,7 +675,7 @@ func Program(seed int) prog {
 	}
 	let mut funcs1 = []pdecl{}
 	for k, id in f1 {
-		funcs1 = funcs1.Append(pdecl{Symbol: id, Lines: bodyOf(seed, 300 + k * 17, f1, k, pre, f0, []string{"gen/p1.Node.Kind", "gen/p1.Fake.Read"}, "gen/p1.Node.Kind", names)})
+		funcs1 = funcs1.Append(pdecl{Symbol: id, Lines: bodyOf(seed, 300+k*17, f1, k, pre, f0, []string{"gen/p1.Node.Kind", "gen/p1.Fake.Read"}, "gen/p1.Node.Kind", names)})
 	}
 	// The order of declarations in a file is drawn too.
 	let files = []pfile{
@@ -699,40 +700,40 @@ func bodyOf(seed int, salt int, mine []string, k int, theirs string, other []str
 		lines = lines.Append([]tok{tword{Text: "let"}, tword{Text: "Tmp"}})
 	}
 	for j in 0..len(mine) {
-		if j != k && roll(seed, salt + 1 + j, 2) == 0 {
+		if j != k && roll(seed, salt+1+j, 2) == 0 {
 			let mut line = []tok{tword{Text: "use"}, tuse{Symbol: mine[j]}}
-			if roll(seed, salt + 5 + j, 2) == 0 {
+			if roll(seed, salt+5+j, 2) == 0 {
 				line = line.Append(tword{Text: "// " + maps.GetOr(names, mine[j], "") + " runs first"})
 			}
 			lines = lines.Append(line)
 		}
 	}
 	if len(other) > 0 {
-		let id = other[roll(seed, salt + 9, len(other))]
+		let id = other[roll(seed, salt+9, len(other))]
 		let mut line = []tok{tword{Text: "call"}, tqual{Prefix: theirs, Symbol: id}}
-		if roll(seed, salt + 10, 3) == 0 {
+		if roll(seed, salt+10, 3) == 0 {
 			line = line.Append(tword{Text: "// see \(theirs).\(maps.GetOr(names, id, ""))"})
 		}
 		lines = lines.Append(line)
 	}
 	for j, m in members {
-		if roll(seed, salt + 11 + j, 2) == 0 {
+		if roll(seed, salt+11+j, 2) == 0 {
 			lines = lines.Append([]tok{tword{Text: "get"}, tmember{Symbol: m}})
 		}
 	}
-	if roll(seed, salt + 14, 2) == 0 {
+	if roll(seed, salt+14, 2) == 0 {
 		lines = lines.Append([]tok{tword{Text: "make"}, tkey{Symbol: key}})
 	}
 	if local {
 		lines = lines.Append([]tok{tword{Text: "use"}, tword{Text: "Tmp"}})
 	}
-	if roll(seed, salt + 15, 3) == 0 {
+	if roll(seed, salt+15, 3) == 0 {
 		lines = lines.Append([]tok{tword{Text: "note"}, tword{Text: "Zap"}})
 	}
-	if roll(seed, salt + 16, 3) == 0 {
+	if roll(seed, salt+16, 3) == 0 {
 		lines = lines.Append([]tok{tword{Text: "// Run, Path and Read are names here"}})
 	}
-	if roll(seed, salt + 17, 3) == 0 {
+	if roll(seed, salt+17, 3) == 0 {
 		lines = lines.Append([]tok{tword{Text: "call"}, tqual{Prefix: "lib", Symbol: "dep/lib.Helper"}})
 	}
 	if len(lines) == 0 {

@@ -20,7 +20,7 @@ let RemoveLabel = "Remove"
 // takes only its own nodes; and its body is a Same keyed by its key and
 // its count, all it shows and sends, so a click runs the body of its own
 // row only and keeps every other row.
-func Screen(f *ui.Frame[rows.Signal], r rows.Rows) {
+func Screen(f mut ui.Frame[rows.Signal], r rows.Rows) {
 	ui.Column(f, ui.Plain()) {
 		ui.Text(f, Title)
 		ui.Each(f, r.Items, func(x rows.Row) ui.Key { ui.ByInt(x.Key) }) func(x rows.Row) {

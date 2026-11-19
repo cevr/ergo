@@ -38,7 +38,7 @@ func isVoid(tag string) bool {
 }
 
 // parseKids reads nodes up to the end tag of `until` (or the end of the text) and past it.
-func parseKids(p *Parser, until string) []Dom {
+func parseKids(p mut Parser, until string) []Dom {
 	let mut out = []Dom{}
 	for p.at < len(p.s) {
 		if p.s[p.at] == '<' {
@@ -64,7 +64,7 @@ func parseKids(p *Parser, until string) []Dom {
 }
 
 // parseEl reads an element at '<'.
-func parseEl(p *Parser) Dom {
+func parseEl(p mut Parser) Dom {
 	p.at = p.at + 1
 	let tag = word(p)
 	let mut attrs = []Attr{}
@@ -115,7 +115,7 @@ func parseEl(p *Parser) Dom {
 	El{Tag: tag, Attrs: attrs, Kids: parseKids(p, tag)}
 }
 
-func word(p *Parser) string {
+func word(p mut Parser) string {
 	let from = p.at
 	for p.at < len(p.s) {
 		let c = p.s[p.at]
@@ -127,7 +127,7 @@ func word(p *Parser) string {
 	strings.ToLower(strings.Slice(p.s, from, p.at))
 }
 
-func skipSpace(p *Parser) {
+func skipSpace(p mut Parser) {
 	for p.at < len(p.s) && (p.s[p.at] == ' ' || p.s[p.at] == '\n' || p.s[p.at] == '\t') {
 		p.at = p.at + 1
 	}

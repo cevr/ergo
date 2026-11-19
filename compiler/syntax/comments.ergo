@@ -19,7 +19,7 @@ func newComments(n int) Comments {
 	Comments{ids: dense.NewCount[Cmt](), start: dense.ColWithCap[Cmt, uint32](n), end: dense.ColWithCap[Cmt, uint32](n)}
 }
 
-func addComment(c *Comments, start int, end int) {
+func addComment(c mut Comments, start int, end int) {
 	let _ = dense.Next(&c.ids)
 	dense.Push(&c.start, uint32(start))
 	dense.Push(&c.end, uint32(end))

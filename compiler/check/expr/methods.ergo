@@ -1,0 +1,219 @@
+// Functions on a type (types.md, Methods; 196m): `x.f(a)` calls the
+// package function f, in the package that declares x's type, whose first
+// parameter is x's type (T, *T, or a generic T[A, B] of f's own
+// parameters), and the prelude's Append, Get, Put and Delete on an
+// unnamed slice or Map (Methods 7). The selector's type is f's signature
+// without its first parameter; a generic f is inferred with x as its
+// first argument (S3d3).
+
+import compiler/check/bind
+import compiler/check/infer
+import compiler/check/store
+import compiler/check/types
+import compiler/syntax
+import dense
+
+// ownerOf is the package that declares base's type, base a receiver's
+// type with its pointer and marks taken off: -1 for the package itself,
+// a dep's index, or -2 for none. An unnamed slice or Map is the
+// prelude's.
+func ownerOf(s store.Store, k Pkg, base dense.ID[store.TKey]) int {
+	let kind = store.KindOfType(s, base)
+	if kind == store.KNamed {
+		return -1
+	}
+	if kind == store.KInstance {
+		let o = store.OriginOfType(s, base)
+		if int(o.Import) == 0 {
+			return -1
+		}
+		if int(o.Import) == store.ForeignBit {
+			return if int(o.Decl) < len(k.Foreign) { depOf(k, k.Foreign[int(o.Decl)].Path) } else { -2 }
+		}
+		// An Ergo import's type, generic or not: an XRef into its
+		// interface.
+		return if int(o.Import) <= len(k.Ifaces) { depOf(k, k.Ifaces[int(o.Import)-1].Path) } else { -2 }
+	}
+	if kind == store.KForeign {
+		let f = store.ArgOf(s, base)
+		return if f < len(k.Foreign) { depOf(k, k.Foreign[f].Path) } else { -2 }
+	}
+	if kind == store.KSlice || kind == store.KMap {
+		return depOf(k, "prelude")
+	}
+	-2
+}
+
+// receiverBase is t with its marks and one pointer taken off.
+func receiverBase(s store.Store, t dense.ID[store.TKey]) dense.ID[store.TKey] {
+	let u = infer.Unmarked(s, t)
+	if store.KindOfType(s, u) == store.KPointer { store.OperandsOf(s, u)[0] } else { u }
+}
+
+// sameHead is whether the first parameter's base p names base's type:
+// the same named type, the same origin (a generic first parameter's
+// arguments are f's own parameters, which the call binds), or for the
+// prelude the same unnamed form.
+func sameHead(s store.Store, p dense.ID[store.TKey], base dense.ID[store.TKey]) bool {
+	let pk = store.KindOfType(s, p)
+	let bk = store.KindOfType(s, base)
+	if pk != bk {
+		return false
+	}
+	if pk == store.KNamed || pk == store.KForeign {
+		return p == base
+	}
+	if pk == store.KInstance {
+		if store.OriginOfType(s, p) != store.OriginOfType(s, base) {
+			return false
+		}
+		for a in store.OperandsOf(s, p) {
+			if store.KindOfType(s, a) != store.KParam {
+				return false
+			}
+		}
+		return true
+	}
+	pk == store.KSlice || pk == store.KMap
+}
+
+// methodOf is the function name on the type of the receiver xt, with its
+// signature in s's pool; none when the package that declares the type
+// declares no such function, or its signature does not port.
+func methodOf(s mut store.Store, k Pkg, t mut Typer, xt dense.ID[store.TKey], name string) Option[Fn] {
+	let base = receiverBase(*s, xt)
+	let owner = ownerOf(*s, k, base)
+	if owner == -2 {
+		return None
+	}
+	if owner == -1 {
+		let mut i = fnNamed(*s, k, name)
+		for i >= 0 {
+			t.steps = t.steps + 1
+			let f = k.Fns[i]
+			let ops = store.OperandsOf(*s, f.Sig)
+			if len(ops) > 3 && sameHead(*s, receiverBase(*s, ops[0]), base) {
+				return Some{Value: f}
+			}
+			i = k.sameName[i]
+		}
+		return None
+	}
+	let d = k.Deps[owner]
+	if d.Path == "prelude" && name != "Append" && name != "Get" && name != "Put" && name != "Delete" {
+		return None
+	}
+	let mut i = fnNamed(d.S, d.K, name)
+	for i >= 0 {
+		t.steps = t.steps + 1
+		let f = d.K.Fns[i]
+		let ops = store.OperandsOf(d.S, f.Sig)
+		if len(ops) > 3 {
+			match port(s, k, d, f.Sig) {
+			case Some{Value: sig}:
+				if sameHead(*s, receiverBase(*s, store.OperandsOf(*s, sig)[0]), base) {
+					let mut out = f
+					out.Sig = sig
+					return Some{Value: out}
+				}
+			case None:
+			}
+		}
+		i = d.K.sameName[i]
+	}
+	None
+}
+
+// opTypeAt is the type of the name x, declared at the package node at,
+// when it names an operation type of the package: a capability the
+// function needs, used as the value its operations are called on
+// (Console.Println(s)).
+func opTypeAt(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], at dense.ID[store.PNode]) Option[dense.ID[store.TKey]] {
+	let text = types.NameText(k.Parsed[t.file], x)
+	let r = recOf(*s, k, text)
+	if r < 0 || !k.Recs[r].Op {
+		return None
+	}
+	match store.Lookup(*s, text) {
+	case Some{Value: d}:
+		let decl = store.DeclOf(*s, d)
+		let here = bind.PNodeOf(k.Ps, int(decl.File), syntax.NodeAt(k.Parsed[int(decl.File)].Tree, int(decl.Node)))
+		if here == at { some(store.TNamed(s, d)) } else { None }
+	case None:
+		None
+	}
+}
+
+// opReceiver is the type of x when x names an operation type, of the
+// package or of an import.
+func opReceiver(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node]) Option[dense.ID[store.TKey]] {
+	let tr = k.Parsed[t.file].Tree
+	match syntax.ViewOf(tr, x) {
+	case syntax.SelectorExpr as se:
+		importedOp(s, k, t, se.Sel)
+	case _:
+		if syntax.KindOf(tr, x) != syntax.KIdent {
+			return None
+		}
+		match bind.ResolutionOf(k.U, k.Ps, pnode(k, t.file, x)) {
+		case bind.Declared as d:
+			if isSome(dense.Unpack(dense.Of(t.defs, d.At))) { None } else { opTypeAt(s, k, t, x, d.At) }
+		case _:
+			None
+		}
+	}
+}
+
+// importedOp is the type of the selector name sel when it names an
+// operation type of an import (io.Stdout): the importer's reference into
+// the import's interface.
+func importedOp(s mut store.Store, k Pkg, t mut Typer, sel dense.ID[syntax.Node]) Option[dense.ID[store.TKey]] {
+	if len(k.Deps) == 0 {
+		return None
+	}
+	match bind.ResolutionOf(k.U, k.Ps, pnode(k, t.file, sel)) {
+	case bind.Imported as im:
+		let i = int(im.Ref.Import) - 1
+		let paths = store.ImportPaths(*s)
+		if i < 0 || i >= len(paths) {
+			return None
+		}
+		let di = depOf(k, paths[i])
+		if di < 0 {
+			return None
+		}
+		let d = k.Deps[di]
+		let text = store.DeclText(d.S, int(im.Ref.Decl))
+		let r = recOf(d.S, d.K, text)
+		if r < 0 || !d.K.Recs[r].Op {
+			return None
+		}
+		match types.ImportRef(*s, k.Ifaces, d.Path, text) {
+		case Some[store.XRef] as ref:
+			some(store.TInstance(s, ref.Value, []dense.ID[store.TKey]{}))
+		case None:
+			None
+		}
+	case _:
+		None
+	}
+}
+
+// fnNamed is the index in k.Fns of the last function named name (the
+// others of the name follow through k.sameName), -1 when none is.
+func fnNamed(s store.Store, k Pkg, name string) int {
+	match store.FindName(s, name) {
+	case Some{Value: n}:
+		dense.SideOf(k.named, n)
+	case None:
+		-1
+	}
+}
+
+// withoutFirst is the signature sig without its first parameter: the type
+// of a selector that calls a function on a type.
+func withoutFirst(s mut store.Store, sig dense.ID[store.TKey]) dense.ID[store.TKey] {
+	let ops = store.OperandsOf(*s, sig)
+	let n = len(ops)
+	store.TSig(s, ops[1:n-3], ops[n-3], ops[n-2], ops[n-1])
+}

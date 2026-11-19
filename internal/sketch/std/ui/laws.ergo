@@ -22,7 +22,7 @@ type Missing { V int }
 // rng is the laws' generator (a linear congruence).
 type rng { x int }
 
-func draw(r *rng, n int) int {
+func draw(r mut rng, n int) int {
 	r.x = (r.x*1103515245 + 12345) % 2147483648
 	(r.x / 65536) % n
 }
@@ -31,7 +31,7 @@ func seeded(seed int) rng { rng{x: (seed%2147483648 + 2147483648) % 2147483648} 
 
 let slots = 6
 
-func genProg(r *rng, depth int, bounded bool) prog {
+func genProg(r mut rng, depth int, bounded bool) prog {
 	let kind = draw(r, 12)
 	if kind == 9 && bounded {
 		return pRead{slot: draw(r, slots)}
@@ -72,7 +72,7 @@ func genProg(r *rng, depth int, bounded bool) prog {
 	}
 }
 
-func genState(r *rng) []int {
+func genState(r mut rng) []int {
 	let mut s = []int{}
 	for _ in 0..slots {
 		s = s.Append(draw(r, 64))
@@ -109,7 +109,7 @@ func described(v int) string {
 }
 
 // swap writes a Text or a Check at its caller's site.
-func swap(f *Frame[int], v int, at CallSite) {
+func swap(f mut Frame[int], v int, at CallSite) {
 	if v%2 == 0 {
 		Text(f, "even \(v)", at)
 	} else {
@@ -117,7 +117,7 @@ func swap(f *Frame[int], v int, at CallSite) {
 	}
 }
 
-func render(f *Frame[int], p prog, s []int, row int) fails Missing | Pending {
+func render(f mut Frame[int], p prog, s []int, row int) fails Missing | Pending {
 	match p {
 	case pText as x:
 		Text(f, "t\(s[x.slot] + row)")
@@ -226,7 +226,7 @@ func render(f *Frame[int], p prog, s []int, row int) fails Missing | Pending {
 // sameBody is what a pSame writes: an OnKey whose signal is its key, a
 // Toggle of its own, a Box with a Toggle (a cell its Same does not own),
 // and its kids.
-func sameBody(f *Frame[int], kids []prog, s []int, row int, dig int) fails Missing | Pending {
+func sameBody(f mut Frame[int], kids []prog, s []int, row int, dig int) fails Missing | Pending {
 	OnKey(f, func(k KeyPress) Option[int] { Some{Value: dig} })
 	let fl = NewFlag(f, false)
 	Toggle(f, fl, "same")
@@ -542,8 +542,8 @@ func boundRows(x pBound, s []int, row int) []int {
 func leaf(n Node[int]) Shape[int] { Shape[int]{Node: n, Kids: []Shape[int]{}} }
 
 // pass renders the programs ps at state s as one pass of f.
-func pass(f *Frame[int], ps []prog, s []int) []Op[int] {
-	Render(f, func(g *Frame[int], st []int) {
+func pass(f mut Frame[int], ps []prog, s []int) []Op[int] {
+	Render(f, func(g mut Frame[int], st []int) {
 		for p in ps {
 			render(g, p, st, 0) catch {
 			case Missing:
@@ -555,7 +555,7 @@ func pass(f *Frame[int], ps []prog, s []int) []Op[int] {
 	}, s)
 }
 
-func genRoot(r *rng) []prog {
+func genRoot(r mut rng) []prog {
 	let mut ps = []prog{}
 	for _ in 0..draw(r, 4)+1 {
 		ps = ps.Append(genProg(r, 3, false))
@@ -621,7 +621,7 @@ law IdempotentCommit(seed int) {
 	len(pass(&f, ps, s1)) == 0
 }
 
-func shuffled(xs []int, r *rng) []int {
+func shuffled(xs []int, r mut rng) []int {
 	let mut out = xs
 	for i in 0..len(out) {
 		let j = i + draw(r, len(out)-i)
@@ -632,7 +632,7 @@ func shuffled(xs []int, r *rng) []int {
 	out
 }
 
-func keyedRows(f *Frame[int], xs []int) {
+func keyedRows(f mut Frame[int], xs []int) {
 	Column(f, Plain()) {
 		Each(f, xs, func(x int) Key { ByInt(x) }) func(x int) {
 			Text(f, "row \(x)")
@@ -646,7 +646,7 @@ func keyedRows(f *Frame[int], xs []int) {
 
 // rowIds is the Ids of each key's two nodes, by key, in the column the
 // view writes.
-func rowIds(f *Frame[int], xs []int) Map[int, (Id[int], Id[int])] {
+func rowIds(f mut Frame[int], xs []int) Map[int, (Id[int], Id[int])] {
 	let mut out = Map[int, (Id[int], Id[int])]{}
 	let col = Kids(f, Root(f))
 	if len(col) != 1 {
@@ -665,7 +665,7 @@ func rowIds(f *Frame[int], xs []int) Map[int, (Id[int], Id[int])] {
 
 // keyedLines is keyed rows of one node each, so two rows that swap are
 // two neighbours whose old positions differ by one.
-func keyedLines(f *Frame[int], xs []int) {
+func keyedLines(f mut Frame[int], xs []int) {
 	Column(f, Plain()) {
 		Each(f, xs, func(x int) Key { ByInt(x) }) func(x int) {
 			Text(f, "line \(x)")
@@ -781,7 +781,7 @@ func sent(o Option[int]) int {
 	}
 }
 
-func signalsAgree(f *Frame[int], id Id[int], off bool) bool {
+func signalsAgree(f mut Frame[int], id Id[int], off bool) bool {
 	let mut ok = true
 	let mut under = off
 	let pressed = sent(Handle(f, Press[int]{Id: id}).Signal)
@@ -954,7 +954,7 @@ func wants(loc Locator, x seen) bool {
 	}
 }
 
-func matches(m *Mirror[int], loc Locator, is Matcher) bool {
+func matches(m mut Mirror[int], loc Locator, is Matcher) bool {
 	ExpectIn(m, loc, is) catch {
 	case Mismatch:
 		return false
@@ -967,7 +967,7 @@ func matches(m *Mirror[int], loc Locator, is Matcher) bool {
 // labelled Input (FK3-g5, FK5-g3), with labels, a description and an
 // invalid state read from the state, inside a disabled Fieldset for an
 // odd state value.
-func extras(f *Frame[int], v int) {
+func extras(f mut Frame[int], v int) {
 	Fieldset(f, v%2 == 1, "x\(v)") {
 		let on = NewFlag(f, true)
 		Toggle(f, on, "tg\(v % 3)")
@@ -975,7 +975,7 @@ func extras(f *Frame[int], v int) {
 		Area(f, "area\(v % 2)", Plain(), func(p PointerEvent) Option[int] { None }) {
 			Text(f, "in area")
 		}
-		Canvas(f, "c\(v % 4)", 4, 4) func(p *Paint) {}
+		Canvas(f, "c\(v % 4)", 4, 4) func(p mut Paint) {}
 		Rows(f, "rows", 0, 10, func(i int) Key { ByInt(i) }) func(i int) {}
 		Semantic(f, extraSem(v), None, Plain()) {
 			Text(f, "in sem")
@@ -1032,7 +1032,7 @@ law LocatorAgreesWithAccessTree(seed int) {
 	let mut m = NewMirror[int](Root(&f))
 	for _ in 0..3 {
 		let s = genState(&r)
-		let ops = Render(&f, func(g *Frame[int], st []int) {
+		let ops = Render(&f, func(g mut Frame[int], st []int) {
 			for p in ps {
 				render(g, p, st, 0) catch {
 				case Missing:
@@ -1127,7 +1127,7 @@ func opsEqual(a []Op[int], b []Op[int]) bool {
 // signalsMatch is whether a press and a text on each node of f under id
 // send what they send on the node of g at the same place, and the trees
 // have one shape. A Toggle is not pressed: its press writes its flag.
-func signalsMatch(f *Frame[int], g *Frame[int], a Id[int], b Id[int]) bool {
+func signalsMatch(f mut Frame[int], g mut Frame[int], a Id[int], b Id[int]) bool {
 	if NodeOf(f, a) != NodeOf(g, b) {
 		return false
 	}
@@ -1160,7 +1160,7 @@ func signalsMatch(f *Frame[int], g *Frame[int], a Id[int], b Id[int]) bool {
 }
 
 // toggles is the Toggles under id, in tree order.
-func toggles(f *Frame[int], id Id[int], out []Id[int]) []Id[int] {
+func toggles(f mut Frame[int], id Id[int], out []Id[int]) []Id[int] {
 	let mut all = out
 	match NodeOf(f, id) {
 	case Some[Node[int]] as n:
@@ -1211,14 +1211,14 @@ func gbKeep(a gbArgs) gbArgs {
 	gbArgs{n: a.n, xs: ys}
 }
 
-func gbBody(f *Frame[int], a gbArgs) {
+func gbBody(f mut Frame[int], a gbArgs) {
 	Text(f, "n \(a.n)")
 	for x in a.xs {
 		Text(f, "x \(x)")
 	}
 }
 
-func gbGrouped(f *Frame[int], a gbArgs) {
+func gbGrouped(f mut Frame[int], a gbArgs) {
 	groupBy(f, a, gbSame, gbCheap, gbKeep, func() { gbBody(f, a) })
 }
 
@@ -1325,7 +1325,7 @@ law SameEqualsRecompute(seed int, steps int) {
 // value its body reads.
 type grArgs { n int, on bool }
 
-func grBody(f *Frame[int], a grArgs) {
+func grBody(f mut Frame[int], a grArgs) {
 	Text(f, "n \(a.n)")
 	if a.on {
 		Box(f, Plain()) {
@@ -1336,7 +1336,7 @@ func grBody(f *Frame[int], a grArgs) {
 
 // grGrouped writes grBody through group, as the compiler writes a
 // component call.
-func grGrouped(f *Frame[int], a grArgs) {
+func grGrouped(f mut Frame[int], a grArgs) {
 	group(f, a, func() { grBody(f, a) })
 }
 

@@ -205,7 +205,7 @@ func slicesOf(counts []int) []string {
 
 // Shown is the screen in a line, in screen order: each text, each button
 // as [LABEL], and each named group as NAME{...}.
-func Shown(h *Host) string { strings.Join(tokens(ui.Screen(h)), " ") }
+func Shown(h mut Host) string { strings.Join(tokens(ui.Screen(h)), " ") }
 
 func tokens(shapes []ui.Shape[rows.Signal]) []string {
 	let mut out = []string{}
