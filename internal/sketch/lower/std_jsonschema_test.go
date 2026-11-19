@@ -53,6 +53,43 @@ func quoted(s string) string { json.Encode(json.Codec[string]{MaxBytes: 0, MaxDe
 // pointer is key as a JSON pointer's token.
 func pointer(key string) string { strings.ReplaceAll(strings.ReplaceAll(key, "~", "~0"), "/", "~1") }
 
+func lawEncodedIsTheSchema(key string, n int) bool {
+	let s = parsed("{\"type\":\"object\",\"properties\":{" + quoted(key) + ":{\"type\":\"integer\",\"const\":\(n)}},\"required\":[" + quoted(key) + "]}")
+	let e = jsonschema.Encode(s)
+	let back = jsonschema.Parse(jsonschema.TextOf(e)) catch {
+	case jsonschema.Invalid:
+		return false
+	}
+	jsonschema.TextOf(e) == jsonschema.Text(s) && jsonschema.SchemaOf(e) == s && back == s
+}
+
+test JsonschemaEncodedIsTheSchema(key string, n int) { assert lawEncodedIsTheSchema(key, n) }
+
+func lawNewEncodedRequiresItsKeys(keys []string, s string) bool {
+	let e = jsonschema.NewEncoded(keys)
+	let back = jsonschema.Parse(jsonschema.TextOf(e)) catch {
+	case jsonschema.Invalid:
+		return false
+	}
+	let mut members = []json.Member{}
+	for k in keys {
+		members = members.Append(json.Member{Key: k, Value: json.Str{Value: s}})
+	}
+	let mut fits = back == jsonschema.SchemaOf(e) && jsonschema.Conforms(jsonschema.SchemaOf(e), json.Object{Members: members})
+	if len(keys) > 0 {
+		let mut rest = []json.Member{}
+		for m in members {
+			if m.Key != keys[0] {
+				rest = rest.Append(m)
+			}
+		}
+		fits = fits && !jsonschema.Conforms(jsonschema.SchemaOf(e), json.Object{Members: rest})
+	}
+	fits
+}
+
+test JsonschemaNewEncodedRequiresItsKeys(keys []string, s string) { assert lawNewEncodedRequiresItsKeys(keys, s) }
+
 func lawRequiredKeyIsRequired(key string, keys []string) bool {
 	let schema = parsed("{\"type\":\"object\",\"required\":[" + quoted(key) + "]}")
 	let mut members = []json.Member{}
@@ -176,16 +213,18 @@ test JsonschemaKeywordsAreChecked(key string) { assert lawKeywordsAreChecked(key
 // stdJSONSchemaLawStatements is the statement of each jsonschema law, by
 // ledger key; lawledger.Run holds it equal to the ledger.
 var stdJSONSchemaLawStatements = map[string]string{
-	"jsonschema RequiredKeyIsRequired":   `RequiredKeyIsRequired(key string, keys []string) { let schema = parsed("{\"type\":\"object\",\"required\":[" + quoted(key) + "]}") let mut members = []json.Member{} let mut has = false for k in keys { members = members.Append(json.Member{Key: k, Value: json.Null}) has = has || k == key } Conforms(schema, json.Object{Members: members}) == has }`,
-	"jsonschema PropertiesAreChecked":    `PropertiesAreChecked(n int, s string) { let schema = parsed("{\"type\":\"object\",\"properties\":{\"n\":{\"type\":\"integer\"}},\"additionalProperties\":{\"type\":\"string\"}}") let good = json.Object{Members: []json.Member{json.Member{Key: "n", Value: json.IntNumber(int64(n))}, json.Member{Key: "m", Value: json.Str{Value: s}}}} let bad = json.Object{Members: []json.Member{json.Member{Key: "n", Value: json.Str{Value: s}}}} let extra = json.Object{Members: []json.Member{json.Member{Key: "m", Value: json.IntNumber(int64(n))}}} Conforms(schema, good) && !Conforms(schema, bad) && !Conforms(schema, extra) }`,
-	"jsonschema IntegerHasNoFraction":    `IntegerHasNoFraction(n int) { let integer = parsed("{\"type\":\"integer\"}") let num = parsed("{\"type\":\"number\"}") let frac = value("\(n).5") let whole = value("\(n).0") let exp = value("\(n)e1") let small = value("\(n).25e1") let moved = value("\(n).20e1") Conforms(integer, json.IntNumber(int64(n))) && !Conforms(integer, frac) && Conforms(integer, whole) && Conforms(integer, exp) && !Conforms(integer, small) && Conforms(integer, moved) && Conforms(num, frac) && Conforms(num, small) }`,
-	"jsonschema AnyOfIsOneOfItsSchemas":  `AnyOfIsOneOfItsSchemas(s string) { let schema = parsed("{\"anyOf\":[{\"const\":\"A\"},{\"const\":\"B\"}]}") Conforms(schema, json.Str{Value: s}) == (s == "A" || s == "B") }`,
-	"jsonschema ConstIsOneValue":         `ConstIsOneValue(s string, t string, n int) { let schema = parsed("{\"const\":{\"s\":" + quoted(s) + ",\"n\":\(n)}}") let other = json.Object{Members: []json.Member{json.Member{Key: "s", Value: json.Str{Value: t}}, json.Member{Key: "n", Value: json.IntNumber(int64(n))}}} Conforms(schema, value("{\"s\":"+quoted(s)+",\"n\":\(n)}")) && Conforms(schema, other) == (s == t) && !Conforms(schema, json.Str{Value: s}) }`,
-	"jsonschema PrefixItemsFixTheLength": `PrefixItemsFixTheLength(xs []string) { let schema = parsed("{\"type\":\"array\",\"prefixItems\":[{\"type\":\"string\"},{\"type\":\"integer\"}]}") let mut items = []json.Value{} for x in xs { items = items.Append(json.Str{Value: x}) } let mixed = json.Array{Items: []json.Value{json.Str{Value: "a"}, json.IntNumber(1)}} let swapped = json.Array{Items: []json.Value{json.IntNumber(1), json.Str{Value: "a"}}} let longer = json.Array{Items: mixed.Items.Append(json.Str{Value: "c"})} !Conforms(schema, json.Array{Items: items}) && Conforms(schema, mixed) && !Conforms(schema, swapped) && !Conforms(schema, longer) }`,
-	"jsonschema ItemsAreEachChecked":     `ItemsAreEachChecked(ns []int) { let schema = parsed("{\"type\":\"array\",\"items\":{\"type\":\"integer\"},\"minItems\":1,\"maxItems\":3}") let mut items = []json.Value{} for n in ns { items = items.Append(json.IntNumber(int64(n))) } Conforms(schema, json.Array{Items: items}) == (len(ns) >= 1 && len(ns) <= 3) && !Conforms(schema, json.Array{Items: items.Append(json.Str{Value: "x"})}) }`,
-	"jsonschema RefsAreLocal":            `RefsAreLocal(name string, host string, s string) { let defs = "{\"$defs\":{" + quoted(name) + ":{\"type\":\"string\"}},\"$ref\":" + quoted("#/$defs/"+pointer(name)) + "}" let local = Parse(defs) catch { case Invalid: return false } let remote = refusal("{\"$ref\":" + quoted("https://"+host+"/schema.json") + "}") Conforms(local, json.Str{Value: s}) && !Conforms(local, json.IntNumber(1)) && remote == Some[string]{Value: "/$ref"} }`,
-	"jsonschema RefsRecurse":             `RefsRecurse(n int) { let schema = parsed("{\"$defs\":{\"list\":{\"anyOf\":[{\"type\":\"null\"},{\"type\":\"object\",\"properties\":{\"next\":{\"$ref\":\"#/$defs/list\"}},\"required\":[\"next\"]}]}},\"$ref\":\"#/$defs/list\"}") let mut good = "null" let mut bad = "1" for _ in 0..(n%3+3)%3 { good = "{\"next\":" + good + "}" bad = "{\"next\":" + bad + "}" } Conforms(schema, value(good)) && !Conforms(schema, value(bad)) && !Conforms(parsed("{\"$defs\":{\"a\":{\"$ref\":\"#\"}},\"$ref\":\"#/$defs/a\"}"), value(good)) }`,
-	"jsonschema KeywordsAreChecked":      `KeywordsAreChecked(key string) { let at = "/properties/" + pointer(key) let bad = []string{"{\"type\":\"text\"}", "{\"required\":\"a\"}", "{\"required\":[1]}", "{\"items\":1}", "{\"anyOf\":[]}", "{\"minItems\":-1}", "{\"$ref\":1}"} let mut all = true for b in bad { let refused = match refusal("{\"properties\":{" + quoted(key) + ":" + b + "}}") { case Some[string] as path: strings.HasPrefix(path.Value, at+"/") case None: false } all = all && refused } all }`,
+	"jsonschema EncodedIsTheSchema":        `EncodedIsTheSchema(key string, n int) { let s = parsed("{\"type\":\"object\",\"properties\":{" + quoted(key) + ":{\"type\":\"integer\",\"const\":\(n)}},\"required\":[" + quoted(key) + "]}") let e = Encode(s) let back = Parse(TextOf(e)) catch { case Invalid: return false } TextOf(e) == Text(s) && SchemaOf(e) == s && back == s }`,
+	"jsonschema NewEncodedRequiresItsKeys": `NewEncodedRequiresItsKeys(keys []string, s string) { let e = NewEncoded(keys) let back = Parse(TextOf(e)) catch { case Invalid: return false } let mut members = []json.Member{} for k in keys { members = members.Append(json.Member{Key: k, Value: json.Str{Value: s}}) } let mut fits = back == SchemaOf(e) && Conforms(SchemaOf(e), json.Object{Members: members}) if len(keys) > 0 { let mut rest = []json.Member{} for m in members { if m.Key != keys[0] { rest = rest.Append(m) } } fits = fits && !Conforms(SchemaOf(e), json.Object{Members: rest}) } fits }`,
+	"jsonschema RequiredKeyIsRequired":     `RequiredKeyIsRequired(key string, keys []string) { let schema = parsed("{\"type\":\"object\",\"required\":[" + quoted(key) + "]}") let mut members = []json.Member{} let mut has = false for k in keys { members = members.Append(json.Member{Key: k, Value: json.Null}) has = has || k == key } Conforms(schema, json.Object{Members: members}) == has }`,
+	"jsonschema PropertiesAreChecked":      `PropertiesAreChecked(n int, s string) { let schema = parsed("{\"type\":\"object\",\"properties\":{\"n\":{\"type\":\"integer\"}},\"additionalProperties\":{\"type\":\"string\"}}") let good = json.Object{Members: []json.Member{json.Member{Key: "n", Value: json.IntNumber(int64(n))}, json.Member{Key: "m", Value: json.Str{Value: s}}}} let bad = json.Object{Members: []json.Member{json.Member{Key: "n", Value: json.Str{Value: s}}}} let extra = json.Object{Members: []json.Member{json.Member{Key: "m", Value: json.IntNumber(int64(n))}}} Conforms(schema, good) && !Conforms(schema, bad) && !Conforms(schema, extra) }`,
+	"jsonschema IntegerHasNoFraction":      `IntegerHasNoFraction(n int) { let integer = parsed("{\"type\":\"integer\"}") let num = parsed("{\"type\":\"number\"}") let frac = value("\(n).5") let whole = value("\(n).0") let exp = value("\(n)e1") let small = value("\(n).25e1") let moved = value("\(n).20e1") Conforms(integer, json.IntNumber(int64(n))) && !Conforms(integer, frac) && Conforms(integer, whole) && Conforms(integer, exp) && !Conforms(integer, small) && Conforms(integer, moved) && Conforms(num, frac) && Conforms(num, small) }`,
+	"jsonschema AnyOfIsOneOfItsSchemas":    `AnyOfIsOneOfItsSchemas(s string) { let schema = parsed("{\"anyOf\":[{\"const\":\"A\"},{\"const\":\"B\"}]}") Conforms(schema, json.Str{Value: s}) == (s == "A" || s == "B") }`,
+	"jsonschema ConstIsOneValue":           `ConstIsOneValue(s string, t string, n int) { let schema = parsed("{\"const\":{\"s\":" + quoted(s) + ",\"n\":\(n)}}") let other = json.Object{Members: []json.Member{json.Member{Key: "s", Value: json.Str{Value: t}}, json.Member{Key: "n", Value: json.IntNumber(int64(n))}}} Conforms(schema, value("{\"s\":"+quoted(s)+",\"n\":\(n)}")) && Conforms(schema, other) == (s == t) && !Conforms(schema, json.Str{Value: s}) }`,
+	"jsonschema PrefixItemsFixTheLength":   `PrefixItemsFixTheLength(xs []string) { let schema = parsed("{\"type\":\"array\",\"prefixItems\":[{\"type\":\"string\"},{\"type\":\"integer\"}]}") let mut items = []json.Value{} for x in xs { items = items.Append(json.Str{Value: x}) } let mixed = json.Array{Items: []json.Value{json.Str{Value: "a"}, json.IntNumber(1)}} let swapped = json.Array{Items: []json.Value{json.IntNumber(1), json.Str{Value: "a"}}} let longer = json.Array{Items: mixed.Items.Append(json.Str{Value: "c"})} !Conforms(schema, json.Array{Items: items}) && Conforms(schema, mixed) && !Conforms(schema, swapped) && !Conforms(schema, longer) }`,
+	"jsonschema ItemsAreEachChecked":       `ItemsAreEachChecked(ns []int) { let schema = parsed("{\"type\":\"array\",\"items\":{\"type\":\"integer\"},\"minItems\":1,\"maxItems\":3}") let mut items = []json.Value{} for n in ns { items = items.Append(json.IntNumber(int64(n))) } Conforms(schema, json.Array{Items: items}) == (len(ns) >= 1 && len(ns) <= 3) && !Conforms(schema, json.Array{Items: items.Append(json.Str{Value: "x"})}) }`,
+	"jsonschema RefsAreLocal":              `RefsAreLocal(name string, host string, s string) { let defs = "{\"$defs\":{" + quoted(name) + ":{\"type\":\"string\"}},\"$ref\":" + quoted("#/$defs/"+pointer(name)) + "}" let local = Parse(defs) catch { case Invalid: return false } let remote = refusal("{\"$ref\":" + quoted("https://"+host+"/schema.json") + "}") Conforms(local, json.Str{Value: s}) && !Conforms(local, json.IntNumber(1)) && remote == Some[string]{Value: "/$ref"} }`,
+	"jsonschema RefsRecurse":               `RefsRecurse(n int) { let schema = parsed("{\"$defs\":{\"list\":{\"anyOf\":[{\"type\":\"null\"},{\"type\":\"object\",\"properties\":{\"next\":{\"$ref\":\"#/$defs/list\"}},\"required\":[\"next\"]}]}},\"$ref\":\"#/$defs/list\"}") let mut good = "null" let mut bad = "1" for _ in 0..(n%3+3)%3 { good = "{\"next\":" + good + "}" bad = "{\"next\":" + bad + "}" } Conforms(schema, value(good)) && !Conforms(schema, value(bad)) && !Conforms(parsed("{\"$defs\":{\"a\":{\"$ref\":\"#\"}},\"$ref\":\"#/$defs/a\"}"), value(good)) }`,
+	"jsonschema KeywordsAreChecked":        `KeywordsAreChecked(key string) { let at = "/properties/" + pointer(key) let bad = []string{"{\"type\":\"text\"}", "{\"required\":\"a\"}", "{\"required\":[1]}", "{\"items\":1}", "{\"anyOf\":[]}", "{\"minItems\":-1}", "{\"$ref\":1}"} let mut all = true for b in bad { let refused = match refusal("{\"properties\":{" + quoted(key) + ":" + b + "}}") { case Some[string] as path: strings.HasPrefix(path.Value, at+"/") case None: false } all = all && refused } all }`,
 }
 
 // TestStdJSONSchemaLawsRun runs std jsonschema's laws as the probe's tests

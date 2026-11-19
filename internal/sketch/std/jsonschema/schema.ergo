@@ -47,6 +47,78 @@ func Text(s Schema) string { json.Encode(json.Codec[json.Value]{MaxBytes: 0, Max
 // Conforms is whether v is an instance of s.
 func Conforms(s Schema, v json.Value) bool { fits(s.root, s.root, v, 0) }
 
+// Encoded is a Schema with its JSON text, written once: what a tool spec
+// or a response format carries, so a provider splices the text into each
+// request with no encode, and no text that is not a Schema reaches it.
+// Only Encode makes one.
+type Encoded { schema Schema, text string }
+
+// Encode is s with its text.
+func Encode(s Schema) Encoded { Encoded{schema: s, text: Text(s)} }
+
+// TextOf is e's JSON text.
+func TextOf(e Encoded) string { e.text }
+
+// SchemaOf is e's Schema.
+func SchemaOf(e Encoded) Schema { e.schema }
+
+// NewEncoded is the object schema whose properties are the keys, each a
+// string and each required, encoded: the simplest tool input, and the
+// constructor a law's generator calls for an Encoded (a Request with
+// tools).
+func NewEncoded(keys []string) Encoded {
+	let mut props = []json.Member{}
+	let mut required = []json.Value{}
+	for k in keys {
+		if member(json.Object{Members: props}, k) == None {
+			props = props.Append(json.Member{Key: k, Value: json.Object{Members: []json.Member{json.Member{Key: "type", Value: json.Str{Value: "string"}}}}})
+			required = required.Append(json.Str{Value: k})
+		}
+	}
+	let mut members = []json.Member{json.Member{Key: "type", Value: json.Str{Value: "object"}}, json.Member{Key: "properties", Value: json.Object{Members: props}}}
+	if len(required) > 0 {
+		members = members.Append(json.Member{Key: "required", Value: json.Array{Items: required}})
+	}
+	Encode(Schema{root: json.Object{Members: members}})
+}
+
+// EncodedIsTheSchema: an Encoded's text is its schema's, and parses back
+// as the same schema.
+law EncodedIsTheSchema(key string, n int) {
+	let s = parsed("{\"type\":\"object\",\"properties\":{" + quoted(key) + ":{\"type\":\"integer\",\"const\":\(n)}},\"required\":[" + quoted(key) + "]}")
+	let e = Encode(s)
+	let back = Parse(TextOf(e)) catch {
+	case Invalid:
+		return false
+	}
+	TextOf(e) == Text(s) && SchemaOf(e) == s && back == s
+}
+
+// NewEncodedRequiresItsKeys: NewEncoded's schema is a Schema that an
+// object of a string per key fits, and an object without a key does not.
+law NewEncodedRequiresItsKeys(keys []string, s string) {
+	let e = NewEncoded(keys)
+	let back = Parse(TextOf(e)) catch {
+	case Invalid:
+		return false
+	}
+	let mut members = []json.Member{}
+	for k in keys {
+		members = members.Append(json.Member{Key: k, Value: json.Str{Value: s}})
+	}
+	let mut fits = back == SchemaOf(e) && Conforms(SchemaOf(e), json.Object{Members: members})
+	if len(keys) > 0 {
+		let mut rest = []json.Member{}
+		for m in members {
+			if m.Key != keys[0] {
+				rest = rest.Append(m)
+			}
+		}
+		fits = fits && !Conforms(SchemaOf(e), json.Object{Members: rest})
+	}
+	fits
+}
+
 // fits is whether v is an instance of schema, a part of the document
 // root. hops is the $refs followed since the last step into a member or
 // an item: a chain of more than the document's definitions never steps
