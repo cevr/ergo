@@ -392,8 +392,8 @@ func Mark(n Num) int { 3 }
 ` + elem.decl("B") + queueB.decl("QB[E]") + helper + "func h" + tp + "(" + params + ") {\n" + extra + esc + "\n}\nfunc Body() {\nlet q = queue.New[" + inst + "](1)\n" + call + "\n}\nfunc main() {}\n"
 	// The reference.
 	const (
-		copies = "copies its"                 // R44: a copy site of the type parameter
-		r22    = "has no Close, so the value" // R22 at the instantiation
+		copies = "copies its"                            // R44: a copy site of the type parameter
+		r22    = "does not include Closer, so the value" // R22 at the instantiation
 	)
 	var wantBad bool
 	want := []string{copies}

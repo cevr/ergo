@@ -1,0 +1,19 @@
+# Upstream's five scene tests (src/scene.test.ts), one given each.
+# renders one Counter row per entry: two rows, each with -, + and Remove.
+given 0 0
+# clicking + on a Counter dispatches through h.submodel back to the right
+# row: the second row's + (upstream's nth 1) counts 1, the first stays 0.
+inc 1
+# A + alone names two buttons: the click is ambiguous and clicks nothing.
+press +
+# clicking - on a Counter dispatches through h.submodel and decrements.
+given 3
+press -
+# Add Counter creates a new row with a fresh Counter: three rows at 0.
+given 0 0
+add
+# Remove deletes a row and routes future events to surviving rows: the
+# first Remove drops the 5; the one + left is the 10's, which counts 11.
+given 5 10
+press first Remove
+press +

@@ -113,6 +113,54 @@
       "to": "@]+.[^",
       "rule": "The domain has a dot with text on both sides, not any rune there (law EmailIsThePattern).",
       "anchor": {"tests": ["examples:fk-form"]}, "killers": ["examples:fk-form"]
+    },
+    {
+      "name": "fk5b-button-enabled-unready", "origin": "wf10/fk5b",
+      "file": "examples/fk-form/screen/screen.ergo",
+      "from": "ui.Fieldset(f, sending || !subscribe.Ready(s), \"\")",
+      "to": "ui.Fieldset(f, sending, \"\")",
+      "rule": "The submit button is disabled until the form may be sent, as upstream's canSubmit (cases).",
+      "anchor": {"tests": ["examples:fk-form"]}, "killers": ["examples:fk-form"]
+    },
+    {
+      "name": "fk5b-no-sending-label", "origin": "wf10/fk5b",
+      "file": "examples/fk-form/screen/screen.ergo",
+      "from": "let label = if sending { SendingLabel } else { SubmitLabel }",
+      "to": "let label = SubmitLabel",
+      "rule": "While a submit is under way the button reads Subscribing... (case scenes, upstream's Joining...).",
+      "anchor": {"tests": ["examples:fk-form"]}, "killers": ["examples:fk-form"]
+    },
+    {
+      "name": "fk5b-enter-ignored", "origin": "wf10/fk5b",
+      "file": "examples/fk-form/screen/screen.ergo",
+      "from": "if k.Name == \"Enter\" {",
+      "to": "if k.Name == \"Return\" {",
+      "rule": "Enter in the form submits it, as upstream's submit(role('form')) (cases).",
+      "anchor": {"tests": ["examples:fk-form"]}, "killers": ["examples:fk-form"]
+    },
+    {
+      "name": "fk5b-checking-undescribed", "origin": "wf10/fk5b",
+      "file": "examples/fk-form/screen/screen.ergo",
+      "from": "\tcase subscribe.Checking[subscribe.Email]:\n\t\tCheckingText\n",
+      "to": "\tcase subscribe.Checking[subscribe.Email]:\n\t\t\"\"\n",
+      "rule": "An address under check is described as Checking... (case scenes).",
+      "anchor": {"tests": ["examples:fk-form"]}, "killers": ["examples:fk-form"]
+    },
+    {
+      "name": "fk5b-refused-as-status", "origin": "wf10/fk5b",
+      "file": "examples/fk-form/screen/screen.ergo",
+      "from": "named(ui.Alert, \"\", None)",
+      "to": "named(ui.Status, \"\", None)",
+      "rule": "A refused subscription is an alert, as upstream's role alert (cases).",
+      "anchor": {"tests": ["examples:fk-form"]}, "killers": ["examples:fk-form"]
+    },
+    {
+      "name": "fk5b-slow-skips-the-wait", "origin": "wf10/fk5b",
+      "file": "examples/fk-form/memory/slow.ergo",
+      "from": "\ts.Wait()\n\tList.Taken(e)\n",
+      "to": "\tList.Taken(e)\n",
+      "rule": "A slow list answers after the script moves the clock, so the screen shows the check under way (case scenes).",
+      "anchor": {"tests": ["examples:fk-form"]}, "killers": ["examples:fk-form"]
     }
   ]
 }

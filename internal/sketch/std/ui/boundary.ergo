@@ -35,13 +35,12 @@ func Boundary[E, F, R](f *Frame[E], body func() fails F needs R, at CallSite) fa
 }
 
 // mark is where a pass stood when a group started: the lengths of the
-// pass's lists, the identity counts taken (the nodes' and the component
-// groups', group.ergo), the parent and its last child, and the row a group
-// in an Each started in.
-type mark { nspecs int, ncells int, nloads int, nkeys int, nurls int, nanims int, nseen int, ngroups int, ngroupLog int, parent int, last int, each CallSite, key Key }
+// pass's lists, the identity counts taken, the parent, its last child and
+// how many it had, and the row a group in an Each started in.
+type mark { ngroups int, nspecs int, ncells int, nloads int, nkeys int, nurls int, nanims int, nseen int, parent int, last int, nkids int, each CallSite, key Key }
 
 func markOf[E](f *Frame[E]) mark {
-	mark{nspecs: f.nspecs, ncells: f.ncells, nloads: f.nloads, nkeys: f.nkeys, nurls: f.nurls, nanims: f.nanims, nseen: f.nseen, ngroups: len(f.groups), ngroupLog: f.ngroupLog, parent: f.parent, last: lastKid(f, f.parent), each: f.each, key: f.key}
+	mark{ngroups: f.ngroups, nspecs: f.nspecs, ncells: f.ncells, nloads: f.nloads, nkeys: f.nkeys, nurls: f.nurls, nanims: f.nanims, nseen: f.nseen, parent: f.parent, last: lastKid(f, f.parent), nkids: kidsWritten(f, f.parent), each: f.each, key: f.key}
 }
 
 // cut takes the pass back to m: the specs, cells, key and frame
@@ -55,18 +54,20 @@ func markOf[E](f *Frame[E]) mark {
 // node, which is parked, or moves to the parent when the old node does
 // not hold it.
 func cut[E](f *Frame[E], m mark) {
-	for i in m.nseen..f.nseen {
-		let s = f.seenLog[i]
-		let c = count(f.seen, s)
-		if c <= 1 {
-			f.seen = f.seen.Delete(s)
-		} else {
-			f.seen[s] = c - 1
+	// The groups written since go with their specs (group.ergo), and a
+	// slot one of them took new is freed.
+	for i in m.ngroups..f.ngroups {
+		if f.groups[i].fresh {
+			argsFree(f.args, f.groups[i].slot)
 		}
 	}
+	f.ngroups = m.ngroups
+	giveBack(f, m.nspecs)
+	for i in m.nseen..f.nseen {
+		let s = f.seenLog[i]
+		f.seen[s] = tally{pass: f.pass, n: seenOf(f, s) - 1}
+	}
 	f.nseen = m.nseen
-	cutGroups(f, m.ngroups, m.ngroupLog)
-	f.cuts = f.cuts + 1
 	f.ncells = m.ncells
 	let mut v = m.nloads
 	for i in m.nloads..f.nloads {
@@ -110,8 +111,10 @@ func cut[E](f *Frame[E], m mark) {
 	}
 	if m.parent < 0 {
 		f.last = m.last
+		f.nroot = m.nkids
 	} else {
 		f.specs[m.parent].last = m.last
+		f.specs[m.parent].nkids = m.nkids
 	}
 	f.stopped[m.parent] = true
 }

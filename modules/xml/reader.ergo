@@ -277,6 +277,10 @@ func Peek(r *reader) WireKind {
 
 func String(r *reader) string fails WireWrongKind { try read(r, r.c, "string") }
 
+// StringBytes is into with the next string's bytes added, as String reads
+// them (the prelude Reader's StringBytes, GX12).
+func StringBytes(r *reader, into []byte) []byte fails WireWrongKind { appendString(into, try r.String()) }
+
 func Number(r *reader) string fails WireWrongKind { strings.TrimSpace(try read(r, r.c, "number")) }
 
 func Bool(r *reader) bool fails WireWrongKind {

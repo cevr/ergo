@@ -66,6 +66,16 @@ type domain struct {
 	settles      atomic.Uint64
 	settlers     []*Task
 	clocks       []*Virtual
+	// running counts the AfterFunc functions of its clocks started and
+	// not yet returned. The domain is not settled, and no auto clock
+	// moves, while one runs: its function may wake a parked member (an
+	// alarm's waiter, timeout.PopBefore's), which then runs before the
+	// time moves on.
+	running int
+	// made is the domain's number in the order domains were made
+	// (stall.go): a number, not a pointer, so the task's type graph
+	// reaches no package weak (BS3).
+	made uint64
 }
 
 // member is a task's place in a domain. Its fields after d are guarded
@@ -109,6 +119,7 @@ func newDomain(t *Task, start time.Time) *Virtual {
 	}
 	v.d = &domain{mu: v.mu, live: 1, clocks: []*Virtual{v}}
 	t.member.Store(&member{d: v.d})
+	domainMade(v.d) // stall.go
 	return v
 }
 
@@ -130,8 +141,12 @@ func (m *member) leave() {
 	d.mu.Lock()
 	m.release()
 	d.live--
+	empty := d.live == 0
 	d.idle()
 	d.mu.Unlock()
+	if empty {
+		domainEmpty(d) // stall.go; outside d.mu, which the watch takes after its own
+	}
 }
 
 // release clears m's parked flag. d.mu is held.
@@ -246,6 +261,16 @@ func Park(t *Task, src any, stop <-chan struct{}, ready func() bool) Parked {
 	return Parked{park(t, src, nil, stop, ready)}
 }
 
+// ParkEither is Park on two sources: the wait ends on an event of src or
+// of other (a timer whose fire wakes through Wake with itself as src), or
+// on t's stop. timeout.PopWithin parks on its queue and its deadline.
+func ParkEither(t *Task, src, other any, stop <-chan struct{}, ready func() bool) Parked {
+	if t.member.Load() == nil {
+		return Parked{}
+	}
+	return Parked{park(t, src, other, stop, ready)}
+}
+
 // Parked is a parked wait (Park).
 type Parked struct{ m *member }
 
@@ -279,7 +304,8 @@ func (d *domain) idle() {
 		}
 		d.settlers = d.settlers[:0]
 	}
-	if d.live == 0 || d.parked < d.live {
+	kickStalls() // stall.go
+	if d.live == 0 || d.parked < d.live || d.running > 0 {
 		return
 	}
 	var next *Virtual
@@ -298,7 +324,7 @@ func (d *domain) idle() {
 func (v *Virtual) move() {
 	when := v.timers[0].when
 	if when > v.now {
-		v.now = when
+		v.setNow(when)
 	}
 	v.steps++
 	schedTick(v)
@@ -309,8 +335,34 @@ func (v *Virtual) move() {
 	v.armed.Broadcast()
 }
 
+// runAlarm starts f, an AfterFunc's function, on a goroutine of its own,
+// never under v.mu. Its domain's running counts it until it returns, so a
+// Settle waits for it and an auto clock does not move under it: a member
+// that f wakes runs before the time moves on. v.mu is held.
+func (v *Virtual) runAlarm(f func()) {
+	d := v.d
+	if d != nil {
+		d.running++
+	}
+	go func() {
+		defer func() {
+			if d != nil {
+				d.mu.Lock()
+				d.running--
+				d.idle()
+				d.mu.Unlock()
+			}
+		}()
+		f()
+	}()
+}
+
 // fire wakes the sleeper of t, if any, and delivers t's time. v.mu is held.
 func (v *Virtual) fire(t *virtualTimer) {
+	if t.f != nil {
+		v.runAlarm(t.f)
+		return
+	}
 	if task := t.task; task != nil {
 		if m := task.member.Load(); m != nil && m.d == v.d && m.parked && m.on[0] == any(t) {
 			m.release()

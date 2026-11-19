@@ -423,7 +423,7 @@ test DecodeNamesControls(token string) {
 	assert ok
 }
 
-// UC1: laws_keys.ergo restated.
+// UC1: the key laws of keys.ergo and term.ergo restated.
 // recorded is one key's bytes as a terminal sends them and its key. (a
 // law's helper)
 type recorded { bytes string, key term.Key }

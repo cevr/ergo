@@ -1,0 +1,10 @@
+# scripts/opcount: tn1-lint writes the feature record of N bytes of
+# TypeScript (the conformance vectors' sources, repeated); the cost of one
+# byte is the slope between the two sizes. The control is the hand Go
+# program of the same algorithm (wf10 TS2-COUNT), whose record must be
+# byte-equal.
+unit byte
+sizes 200000 1600000
+input go cmd/ergo/testdata/tn1lint/gen {n}
+args record {input}
+control cmd/ergo/testdata/tn1lint/control

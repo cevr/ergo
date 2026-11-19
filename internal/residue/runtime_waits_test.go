@@ -27,7 +27,8 @@ const runtimeWaitsAllow = "testdata/runtime-waits-allow.txt"
 // outside a select, a select with no default, or a call of a method Wait
 // with no arguments: a sync.WaitGroup's, a sync.Cond's, a process's; or
 // of a task's Suspend, its park word: PARK1)
-// also parks its task (calls rt.Park), so the wait is the clock's. A wait
+// also parks its task (calls rt.Park, or rt.ParkEither for a wait on two
+// sources), so the wait is the clock's. A wait
 // that needs no park is a row of the allow list with its reason: one that
 // ends when a task that runs reaches its next wait, so no clock and no
 // caller holds it (a handshake); one on the host (a process, an input),
@@ -132,7 +133,7 @@ func unparkedWaits(t *testing.T, name string, src []byte) []unparkedWait {
 				if !ok {
 					break
 				}
-				if pkg, ok := sel.X.(*ast.Ident); ok && pkg.Name == "rt" && sel.Sel.Name == "Park" {
+				if pkg, ok := sel.X.(*ast.Ident); ok && pkg.Name == "rt" && (sel.Sel.Name == "Park" || sel.Sel.Name == "ParkEither") {
 					parks = true
 				}
 				if (sel.Sel.Name == "Wait" || sel.Sel.Name == "Suspend") && len(n.Args) == 0 && first == nil {

@@ -187,3 +187,24 @@ extern go ergo.local/prototype/runtime/v1.TermPeeked type peeked { Bytes string,
 extern go ergo.local/prototype/runtime/v1.TermPeek func hostPeek(have int) peeked fails io.ReadFailed
 extern go ergo.local/prototype/runtime/v1.TermDrop func hostDrop(n int)
 extern go ergo.local/prototype/runtime/v1.TermGetSize func hostSize() Window fails NotTerminal
+
+// ScriptResizes: a Script's Size is its window until it plays a Resized,
+// and that Resized's window after.
+law ScriptResizes(cols int, rows int) {
+	let w = Window{Cols: (cols%300+300)%300 + 1, Rows: (rows%100+100)%100 + 1}
+	let s = NewScript([]Key{Char{Text: "a"}, Resized{Window: w}, Char{Text: "b"}}, Window{Cols: 80, Rows: 24})
+	let mut sizes = []Window{}
+	with context { Terminal: s } {
+		for _ in 0..3 {
+			let _ = Terminal.ReadKey() catch {
+			case io.ReadFailed:
+				EndOfInput
+			}
+			sizes = sizes.Append(Terminal.Size() catch {
+			case NotTerminal:
+				Window{Cols: 0, Rows: 0}
+			})
+		}
+	}
+	sizes == []Window{Window{Cols: 80, Rows: 24}, w, w}
+}

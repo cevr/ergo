@@ -114,6 +114,18 @@ func isBinaryOp(t Token) bool {
 	return false
 }
 
+// ConstructorName is the name of the constructor of the type name, the
+// function a generator builds its values with (runtime.md, Tests 6):
+// NewHost for Host, newHost for host, unexported as the type is and named
+// as ParseName names its parse (GX12b; it was New+name, so Newhost).
+func ConstructorName(name string) string {
+	r, n := utf8.DecodeRuneInString(name)
+	if unicode.IsUpper(r) {
+		return "New" + name
+	}
+	return "new" + string(unicode.ToUpper(r)) + name[n:]
+}
+
 // ParseName is the name of the parse function a refinement of the type
 // name derives: ParsePort for Port, parsePort for port.
 func ParseName(name string) string {

@@ -1,19 +1,27 @@
-// Package script plays a script of timed visits on the site: the host of
-// stage a. It steps gallery.Site, runs what the site asks (a catalog load
-// takes 600 ms, a painting 400 ms, a save 300 ms, as upstream's sleeps),
-// pushes the site's own links as the next URL, and shows the page after
-// each line and each answer. Time is a count of milliseconds: nothing
-// waits.
+// Package script plays a script of timed acts on the site's screen: the
+// host of stage b. The site runs as an actor on a manual clock with its
+// screen on std ui's test host, whose history is the browser's. The host
+// shows what the site asks (its work runs the loads and the save: the
+// host only moves the clock to each one due), follows the site's own links
+// as a browser does (a push, then the address change, which the screen's
+// OnURL gives the site as Arrived), and shows what changed after each
+// line and each answer.
 
+import actor
 import fkgallery/gallery
+import fkgallery/screen
 import io
+import queue
 import strconv
 import strings
+import sync
+import time
+import ui
 
-// Act is a line's act: the page opened at a URL (a cold load or a
-// reload), a link of the site followed, a link elsewhere followed, the
-// studio's field set to a text, or the history moved to a URL.
-type Act = Open{URL string} | Follow{URL string} | Away{Href string} | Write{Text string} | Back{URL string}
+// Act is a line's act: an address typed (a cold load or a reload), a
+// link of the screen clicked, a link elsewhere followed, the studio's
+// field typed in, or the browser's Back.
+type Act = Open{URL string} | Follow{Label string} | Away{Href string} | Write{Text string} | Back{}
 
 // Line is an act at a time since the start.
 type Line { At int, Act Act }
@@ -24,10 +32,10 @@ type Script { Lines []Line, End int }
 // BadLine is a line the script cannot read.
 type BadLine { Line int, Why string }
 
-// Read reads the lines of a script: `@MS open URL`, `@MS go PATH`,
+// Read reads the lines of a script: `@MS open URL`, `@MS link LABEL`,
 // `@MS away HREF`, `@MS type TEXT` (the rest of the line, maybe empty),
-// `@MS back PATH`, and `@MS end`, which must be last. The times never go
-// back. A blank line or a line that starts with # is skipped.
+// `@MS back` and `@MS end`, which must be last. The times never go back.
+// A blank line or a line that starts with # is skipped.
 func Read(text []string) Script fails BadLine {
 	let mut lines = []Line{}
 	let mut last = 0
@@ -52,14 +60,14 @@ func Read(text []string) Script fails BadLine {
 			return Script{Lines: lines, End: at}
 		case "open":
 			Open{URL: rest}
-		case "go":
-			Follow{URL: rest}
+		case "link":
+			Follow{Label: rest}
 		case "away":
 			Away{Href: rest}
 		case "type":
 			Write{Text: rest}
 		case "back":
-			Back{URL: rest}
+			Back
 		case _:
 			return BadLine{Line: n, Why: "unknown word \(words[1])"}
 		}
@@ -81,107 +89,170 @@ func count(n int, word string) int fails BadLine {
 	v
 }
 
-// Due is an answer the host owes the site, and when.
-type Due { At int, Signal gallery.Signal }
+// Site is the running site.
+type Site = actor.Actor[gallery.Site, gallery.Signal, Decision[gallery.Site, []gallery.Command]]
 
-// Host is the site and what the host owes it.
-type Host { Site gallery.Site, Owed []Due, Out []string }
+// Host is the site on the test host.
+type Host = ui.TestHost[gallery.Site, gallery.Signal, Decision[gallery.Site, []gallery.Command]]
 
-// Takes is how long the host takes to answer a command, in ms.
-func Takes(c gallery.Command) int {
-	match c {
-	case gallery.LoadCatalog:
-		600
-	case gallery.LoadPainting:
-		400
-	case gallery.SaveDraft:
-		300
-	case gallery.Push, gallery.Leave:
-		0
-	}
-}
+// Ran is what the host saw of the site's commands: how many jobs the site
+// has asked for so far, and how each command since shows.
+type Ran { Seen int, Asks []string }
 
-// step steps the site with sig at now, runs what it asks, and shows it
-// under the heading head.
-func step(h Host, now int, head string, sig gallery.Signal) Host {
-	let d = gallery.Step(h.Site, sig)
-	let mut at = Host{..h, Site: gallery.After(h.Site, d), Out: h.Out.Append(head)}
-	let mut asks = []string{}
-	let mut then = []gallery.Signal{}
-	for c in gallery.Commands(d) {
-		asks = asks.Append(Ask(c))
-		match c {
-		case gallery.LoadCatalog:
-			at = Host{..at, Owed: at.Owed.Append(Due{At: now + Takes(c), Signal: gallery.CatalogLoaded})}
-		case gallery.LoadPainting as p:
-			at = Host{..at, Owed: at.Owed.Append(Due{At: now + Takes(c), Signal: gallery.PaintingLoaded{ID: p.ID}})}
-		case gallery.SaveDraft as s:
-			at = Host{..at, Owed: at.Owed.Append(Due{At: now + Takes(c), Signal: gallery.DraftSaved{Draft: s.Draft}})}
-		case gallery.Push as p:
-			then = then.Append(gallery.Arrived{URL: p.URL})
-		case gallery.Leave:
+// Frame is what a line or an answer shows: its heading, what the site
+// asked, and the screen's lines, with the work of the step.
+type Frame { Head string, Asks []string, Lines []string, Counts ui.StepCounts }
+
+// PlayScreen plays s on the site's screen, on the test host over clock,
+// and gives each frame to show: one per line, one per answer, and one at
+// the end.
+func PlayScreen[R](s Script, clock time.Manual, show func(f Frame) needs R) fails actor.Stopped | ui.BadPatch needs R | time.Clock | Scheduler | gallery.Drafts {
+	let gone = queue.New[[]gallery.Command](64)
+	let site = actor.StartMachine(gallery.Gallerist{}, 16, func(cs []gallery.Command) {
+		gone.Push(cs) catch {
+		case queue.Closed:
 		}
+	})
+	played(site, gone, s, clock, show) catch {
+	case err:
+		site.Stop()
+		return err
 	}
-	if len(asks) > 0 {
-		at = Host{..at, Out: at.Out.Append("  asks: " + strings.Join(asks, ", "))}
-	}
-	at = Host{..at, Out: at.Out.Append("  " + Page(at.Site))}
-	for sig2 in then {
-		at = step(at, now, "@\(now) arrive", sig2)
-	}
-	at
+	site.Stop()
 }
 
-// settle answers, in time order, what the host owes by until.
-func settle(h Host, until int) Host {
-	let mut at = h
-	for {
-		let mut k = -1
-		for i, o in at.Owed {
-			if o.At <= until && (k < 0 || o.At < at.Owed[k].At) {
-				k = i
+func played[R](site Site, gone queue.Queue[[]gallery.Command], s Script, clock time.Manual, show func(f Frame) needs R) fails actor.Stopped | ui.BadPatch needs R | Scheduler {
+	let mut h = try ui.NewTestHost(site, screen.Screen, clock, 16)
+	let start = clock.Now()
+	let mut seen = 0
+	let mut now = 0
+	for i in 0..len(s.Lines)+1 {
+		let until = if i < len(s.Lines) { s.Lines[i].At } else { s.End }
+		// The site's work answers its jobs as the clock reaches them: the
+		// host moves the clock to each job due by then, in time order, and
+		// shows what its answer changed.
+		for {
+			let mut next Option[gallery.Job] = None
+			let mut at = 0
+			for j in ui.StateOf(&h).Jobs {
+				match j.Due {
+				case Some[time.Time] as d:
+					let ms = int(int64(d.Value.Sub(start)) / int64(1000000))
+					let first = match next {
+					case Some[gallery.Job]:
+						ms < at
+					case None:
+						true
+					}
+					if ms <= until && first {
+						next = Some[gallery.Job]{Value: j}
+						at = ms
+					}
+				case None:
+				}
 			}
-		}
-		if k < 0 {
-			return at
-		}
-		let o = at.Owed[k]
-		let mut rest = []Due{}
-		for i, x in at.Owed {
-			if i != k {
-				rest = rest.Append(x)
+			let j = match next {
+			case Some[gallery.Job] as n:
+				n.Value
+			case None:
+				break
 			}
+			try ui.Advance(&h, time.Times(1ms, at-now))
+			now = at
+			try ui.Settle(&h)
+			let ran = try run(&h, gone, seen)
+			seen = ran.Seen
+			show(Frame{Head: "@\(now) \(Answer(gallery.Answer(j.Do)))", Asks: ran.Asks, Lines: View(&h), Counts: ui.Counts(&h)})
 		}
-		at = step(Host{..at, Owed: rest}, o.At, "@\(o.At) \(Answer(o.Signal))", o.Signal)
-	}
-}
-
-// Play plays the script and gives what it shows.
-func Play(s Script) []string {
-	let mut h = Host{Site: gallery.Blank, Owed: []Due{}, Out: []string{}}
-	for l in s.Lines {
-		h = settle(h, l.At)
-		let head = "@\(l.At) \(Word(l.Act))"
-		h = match l.Act {
-		case Open as o:
-			step(h, l.At, head, gallery.Arrived{URL: o.URL})
-		case Follow as f:
-			step(h, l.At, head, gallery.Clicked{Link: gallery.Internal{URL: f.URL}})
+		try ui.Advance(&h, time.Times(1ms, until-now))
+		try ui.Settle(&h)
+		now = until
+		if i == len(s.Lines) {
+			show(Frame{Head: "@\(now) end", Asks: []string{}, Lines: View(&h), Counts: ui.Counts(&h)})
+			return
+		}
+		let l = s.Lines[i]
+		let mut missing = ""
+		match l.Act {
 		case Away as a:
-			step(h, l.At, head, gallery.Clicked{Link: gallery.External{Href: a.Href}})
-		case Write as w:
-			step(h, l.At, head, gallery.Drafted{Text: w.Text})
-		case Back as b:
-			step(h, l.At, head, gallery.Arrived{URL: b.URL})
+			let _ = try site.Ask(gallery.Clicked{Link: gallery.External{Href: a.Href}})
+			try ui.Settle(&h)
+		case Open, Follow, Write, Back:
+			let act ui.Act = match l.Act {
+			case Open as o:
+				ui.NavigateTo{Href: o.URL}
+			case Follow as fl:
+				ui.ClickOn{At: ui.WithRole{Role: ui.Link, Name: fl.Label}}
+			case Write as w:
+				ui.FillIn{At: ui.WithPlaceholder{Text: screen.DraftPlaceholder}, Text: w.Text}
+			case Back, Away:
+				ui.GoBack
+			}
+			ui.Play(&h, []ui.Act{act, ui.SettleAll}) catch {
+			case ui.NoNode as no:
+				missing = "no node: \(no.Label)"
+			case ui.Ambiguous as m:
+				missing = "\(m.Count) nodes: \(m.At)"
+			case ui.Mismatch:
+				missing = "no match"
+			case actor.Stopped as st:
+				return st
+			case ui.BadPatch as b:
+				return b
+			}
 		}
+		let ran = try run(&h, gone, seen)
+		seen = ran.Seen
+		let asks = if missing == "" { ran.Asks } else { ran.Asks.Append("? " + missing) }
+		show(Frame{Head: "@\(now) \(Word(l.Act))", Asks: asks, Lines: View(&h), Counts: ui.Counts(&h)})
 	}
-	h = settle(h, s.End)
-	h.Out.Append("@\(s.End) end").Append("  " + Page(h.Site)).Append("  log: " + Log(h.Site))
 }
 
-// Run reads the script from io.Stdin and prints what it shows. It returns
-// the exit status: 0, or 1 when the script is refused.
-func Run() int needs Console | io.Stdin {
+// run shows what the site asked since the host last looked, seen jobs
+// ago: the jobs it added (its work runs them), and what its step gave the
+// host. A push of the site's own URL is followed at once, and what that
+// navigation asks shows next; a page elsewhere is left for.
+func run(h *Host, gone queue.Queue[[]gallery.Command], seen int) Ran fails actor.Stopped | ui.BadPatch {
+	let mut ran = asked(h, Ran{Seen: seen, Asks: []string{}})
+	for {
+		let cs = match gone.Poll() {
+		case Some[[]gallery.Command] as x:
+			x.Value
+		case None:
+			return ran
+		}
+		for c in cs {
+			ran = Ran{..ran, Asks: ran.Asks.Append(Ask(c))}
+			match c {
+			case gallery.Push as p:
+				try ui.Navigate(h, p.URL)
+				try ui.Settle(h)
+				ran = asked(h, ran)
+			case gallery.Leave:
+			case gallery.LoadCatalog, gallery.LoadPainting:
+				Unreachable("script: a job is never the step's output")
+			}
+		}
+	}
+}
+
+// asked adds to r the jobs the site asked for after the first r.Seen.
+func asked(h *Host, r Ran) Ran {
+	let s = ui.StateOf(h)
+	let mut asks = r.Asks
+	for j in s.Jobs {
+		if j.Seq > r.Seen {
+			asks = asks.Append(Ask(j.Do))
+		}
+	}
+	Ran{Seen: s.Asked, Asks: asks}
+}
+
+// Run reads the script from io.Stdin, plays it on the screen and prints
+// each frame: its heading, what the site asked, and the screen's lines
+// that changed; with stats, the work of each step too. It returns the
+// exit status: 0, or 1 when the script is refused or the screen fails.
+func Run(clock time.Manual, stats bool) int needs Console | io.Stdin | time.Clock | Scheduler | gallery.Drafts {
 	let mut text = []string{}
 	for line in io.Stdin.Lines() {
 		text = text.Append(line)
@@ -191,10 +262,81 @@ func Run() int needs Console | io.Stdin {
 		Console.Println("? line \(b.Line): \(b.Why)")
 		return 1
 	}
-	for line in Play(s) {
-		Console.Println(line)
+	let shown = sync.NewRef[[]string]([]string{})
+	PlayScreen(s, clock, func(f Frame) needs Console {
+		Console.Println(f.Head)
+		if len(f.Asks) > 0 {
+			Console.Println("  asks: " + strings.Join(f.Asks, ", "))
+		}
+		let before = shown.Get()
+		for k, l in f.Lines {
+			if k >= len(before) || before[k] != l {
+				Console.Println("  " + l)
+			}
+		}
+		shown.Set(f.Lines)
+		if stats {
+			Console.Println("  stats: \(ui.CountsLine(f.Counts))")
+		}
+	}) catch {
+	case actor.Stopped:
+		Console.Println("? the site stopped")
+		return 1
+	case ui.BadPatch as p:
+		Console.Println("? a patch is refused: \(p.Why)")
+		return 1
 	}
 	0
+}
+
+// View is the screen in three lines: the address and its depth, the page
+// (a heading as # NAME, a link as <NAME>, the field as ?TEXT?, each text
+// itself), and the log's newest entry.
+func View(h *Host) []string {
+	let all = tokens(ui.Screen(h))
+	let mut page = []string{}
+	let mut log = ""
+	let mut inLog = false
+	for t in all {
+		if t == "# \(screen.LogTitle)" {
+			inLog = true
+		} else if inLog {
+			if log == "" {
+				log = t
+			}
+		} else {
+			page = page.Append(t)
+		}
+	}
+	let at = ui.History(h)
+	[]string{"address: \(ui.Href(ui.Current(at))) (\(ui.Depth(at)) behind)", "page: " + strings.Join(page, " | "), "log: " + log}
+}
+
+func tokens(shapes []ui.Shape[gallery.Signal]) []string {
+	let mut out = []string{}
+	for s in shapes {
+		match s.Node {
+		case ui.TextNode as t:
+			out = out.Append(t.Value)
+		case ui.InputNode as i:
+			out = out.Append("?\(i.Value)?")
+		case ui.SemanticNode as g:
+			if g.Access.Role == ui.Heading {
+				out = out.Append("# \(g.Access.Name)")
+			} else if g.Access.Role == ui.Link {
+				out = out.Append("<\(g.Access.Name)>")
+			} else {
+				for t in tokens(s.Kids) {
+					out = out.Append(t)
+				}
+			}
+		case _:
+			for t in tokens(s.Kids) {
+				out = out.Append(t)
+			}
+		}
+	}
+	out
 }
 
 // Word is how an act shows.
@@ -203,13 +345,13 @@ func Word(a Act) string {
 	case Open as o:
 		"open \(o.URL)"
 	case Follow as f:
-		"go \(f.URL)"
+		"link \(f.Label)"
 	case Away as aw:
 		"away \(aw.Href)"
 	case Write as w:
 		"type \"\(w.Text)\""
-	case Back as b:
-		"back \(b.URL)"
+	case Back:
+		"back"
 	}
 }
 
@@ -220,8 +362,6 @@ func Ask(c gallery.Command) string {
 		"load the catalog"
 	case gallery.LoadPainting as p:
 		"load painting \(p.ID)"
-	case gallery.SaveDraft as s:
-		"save \"\(s.Draft)\""
 	case gallery.Push as p:
 		"push \(p.URL)"
 	case gallery.Leave as l:
@@ -236,64 +376,7 @@ func Answer(sig gallery.Signal) string {
 		"catalog loaded"
 	case gallery.PaintingLoaded as p:
 		"painting \(p.ID) loaded"
-	case gallery.DraftSaved as d:
-		"saved \"\(d.Draft)\""
-	case gallery.Arrived, gallery.Clicked, gallery.Drafted:
+	case gallery.Arrived, gallery.Clicked, gallery.Drafted, gallery.Recalled, gallery.Dated, gallery.Answered:
 		"signal"
 	}
-}
-
-// Page is the page the site shows: the route, the catalog, the painting
-// (its title once loaded), the draft and the draft saved.
-func Page(s gallery.Site) string {
-	let route = match s.Route {
-	case Some[gallery.Route] as r:
-		gallery.Label(r.Value)
-	case None:
-		"blank"
-	}
-	let catalog = match s.Catalog {
-	case gallery.Idle:
-		"idle"
-	case gallery.Loading:
-		"loading"
-	case gallery.Ready:
-		"ready"
-	}
-	let painting = match s.Painting {
-	case gallery.NoPainting:
-		"none"
-	case gallery.LoadingPainting as p:
-		"\(p.ID) loading"
-	case gallery.ReadyPainting as p:
-		match gallery.Find(p.ID) {
-		case Some[gallery.Work] as w:
-			"\(p.ID) \"\(w.Value.Title)\" by \(w.Value.Artist)"
-		case None:
-			"\(p.ID) not in the gallery"
-		}
-	}
-	let saved = match s.Saved {
-	case Some[string] as d:
-		"\"\(d.Value)\""
-	case None:
-		"none"
-	}
-	"\(route); catalog \(catalog); painting \(painting); draft \"\(s.Draft)\"; saved \(saved)"
-}
-
-// Log is the site's log, oldest first: `N FROM->TO`.
-func Log(s gallery.Site) string {
-	let mut out = []string{}
-	for i in 0..len(s.Log) {
-		let l = s.Log[len(s.Log)-1-i]
-		let from = match l.From {
-		case Some[gallery.Route] as r:
-			gallery.Label(r.Value)
-		case None:
-			"cold"
-		}
-		out = out.Append("\(l.Seq) \(from)->\(gallery.Label(l.To))")
-	}
-	strings.Join(out, ", ")
 }
