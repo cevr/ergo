@@ -35,8 +35,8 @@ func main() fails os.Exit needs Ambient | go.Foreign {
 			return os.Exit{Code: 1, Message: "todo-tui: standard input is not a terminal (try -headless)"}
 		case ui.BadPatch as b:
 			return os.Exit{Code: 1, Message: "todo-tui: \(b.Why)"}
-		case go.Error as e:
-			return os.Exit{Code: 1, Message: "todo-tui: \(e.Text)"}
+		case tui.ScreenFailed as e:
+			return os.Exit{Code: 1, Message: "todo-tui: \(e.Why)"}
 		}
 	}
 }
@@ -65,8 +65,8 @@ func headless() fails os.Exit needs Ambient | go.Foreign {
 		let mut d = tui.New(s, a, view.View, 64) catch {
 		case ui.BadPatch as b:
 			return os.Exit{Code: 1, Message: "todo-tui: \(b.Why)"}
-		case go.Error as e:
-			return os.Exit{Code: 1, Message: "todo-tui: \(e.Text)"}
+		case tui.ScreenFailed as e:
+			return os.Exit{Code: 1, Message: "todo-tui: \(e.Why)"}
 		}
 		for i, act in steps {
 			tui.Play(&d, []ui.Act{act}) catch {
@@ -80,8 +80,8 @@ func headless() fails os.Exit needs Ambient | go.Foreign {
 				return os.Exit{Code: 1, Message: "todo-tui: the screen closed"}
 			case ui.BadPatch as b:
 				return os.Exit{Code: 1, Message: "todo-tui: \(b.Why)"}
-			case go.Error as e:
-				return os.Exit{Code: 1, Message: "todo-tui: \(e.Text)"}
+			case tui.ScreenFailed as e:
+				return os.Exit{Code: 1, Message: "todo-tui: \(e.Why)"}
 			}
 			out.Println("\(i + 1): \(todo.Summary(tui.StateOf(&d)))")
 		}
