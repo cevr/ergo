@@ -15,7 +15,8 @@ import (
 // encoded fleets, and on a union whose "_tag" comes last; Elements reads
 // an array element by element as Decode reads it into a slice, a sequence
 // stream's values back as written and stops at a break, and holds one
-// window however long the text. The std mutants sj1-* and sj2-*
+// window however long the text; and Decode, which reads the text once,
+// gives what Open and then decode[T] give (DecodeIsOpenThenDecode). The std mutants sj1-* and sj2-*
 // (internal/sketch/std/testdata/mutants.json) are its kills.
 const jsonStreamProbe = `import io
 import json
@@ -207,6 +208,70 @@ test JsonStreamAgreesOnPieces(parts []int, cuts []int, bytes int, depth int) {
 	assert agreesOnPieces(parts, cuts, bytes, depth)
 }
 
+// openedValue and openedFleet are Decode in two phases, Open then
+// decode[T]: what Decode's one pass (JSON-VALUE-DECODE) must give.
+func openedValue(c json.Codec[json.Value], text string) string {
+	let r = json.Open(text, c.MaxBytes, c.MaxDepth) catch {
+	case json.Malformed as m:
+		return said(m)
+	}
+	let v = decode[json.Value](r) catch {
+	case json.Malformed as m:
+		return said(m)
+	case WireWrongKind as e:
+		return "kind " + e.Path + " " + e.Want
+	case WireMissingField as e:
+		return "missing " + e.Path + " " + e.Field
+	case WireUnknownTag as e:
+		return "tag " + e.Path + " " + e.Tag
+	}
+	"ok " + json.Encode(c, v)
+}
+
+func openedFleet(c json.Codec[fleet], text string) string {
+	let r = json.Open(text, c.MaxBytes, c.MaxDepth) catch {
+	case json.Malformed as m:
+		return said(m)
+	}
+	let v = decode[fleet](r) catch {
+	case WireWrongKind as e:
+		return "kind " + e.Path + " " + e.Want
+	case WireMissingField as e:
+		return "missing " + e.Path + " " + e.Field
+	case WireUnknownTag as e:
+		return "tag " + e.Path + " " + e.Tag
+	}
+	"ok " + json.Encode(c, v)
+}
+
+func asOpened(text string, maxDepth int) bool {
+	let cv = json.Codec[json.Value]{MaxBytes: 0, MaxDepth: maxDepth}
+	let cf = json.Codec[fleet]{MaxBytes: 0, MaxDepth: maxDepth}
+	wholeValue(cv, text) == openedValue(cv, text) && wholeFleet(cf, text) == openedFleet(cf, text)
+}
+
+func decodesAsOpened(d doc, space int, splice int, at int, parts []int, depth int) bool {
+	let spaces = []string{"", " ", "\n\t", " \r\n "}
+	let mut text = spell(d, spaces[nat(space)%len(spaces)])
+	if splice >= 0 {
+		let k = nat(at) % (len(text) + 1)
+		text = text[:k] + pieces[splice%len(pieces)] + text[k:]
+	}
+	let mut broken = ""
+	for p in parts {
+		let piece = pieces[nat(p)%len(pieces)]
+		if !asOpened("{\"states\":["+piece+"],\"nested\":[["+piece+"]]}", 0) {
+			return false
+		}
+		broken = broken + piece
+	}
+	asOpened(text, nat(depth)%6) && asOpened(broken, nat(depth)%4)
+}
+
+test JsonDecodeIsOpenThenDecode(d doc, space int, splice int, at int, parts []int, depth int) {
+	assert decodesAsOpened(d, space, splice, at, parts, depth)
+}
+
 func streamRoundTrips(v fleet, cuts []int) bool {
 	let text = json.Encode(codec(), v)
 	let want = wholeFleet(codec(), text)
@@ -235,6 +300,30 @@ func tagAnywhere(v up, cuts []int) bool {
 
 test JsonStreamFindsTagAnywhere(v up, cuts []int) {
 	assert tagAnywhere(v, cuts)
+}
+
+func skipKeepsPlace(vs []up, cuts []int) bool {
+	let mut text = "["
+	for v in vs {
+		text = text + json.Encode(json.Codec[up]{MaxBytes: 0, MaxDepth: 0}, v) + ","
+	}
+	let r = json.NewStream(chunks(text+"true]", cuts), 0, 0)
+	r.BeginList() catch {
+	case _:
+		return false
+	}
+	for _ in vs {
+		r.Skip()
+	}
+	let _ = r.Int() catch {
+	case WireWrongKind as w:
+		return w.Path == "[" + strconv.Itoa(len(vs)) + "]"
+	}
+	false
+}
+
+test JsonStreamSkipKeepsPlace(vs []up, cuts []int) {
+	assert skipKeepsPlace(vs, cuts)
 }
 
 
@@ -513,10 +602,12 @@ var jsonStreamLawStatements = map[string]string{
 	"json ElementsEqualWholeDecode": `ElementsEqualWholeDecode(d doc, space int, splice int, at int, cuts []int, depth int) { elementsSpliced(d, space, splice, at, cuts, depth) }`,
 	"json ElementsHoldOneWindow":    `ElementsHoldOneWindow(v up, n int, size int) { holdsOneWindow(v, n, size) }`,
 	"json ElementsRoundTrip":        `ElementsRoundTrip(vs []up, cuts []int) { elementsRoundTrip(vs, cuts) }`,
+	"json DecodeIsOpenThenDecode":   `DecodeIsOpenThenDecode(d doc, space int, splice int, at int, parts []int, depth int) { decodesAsOpened(d, space, splice, at, parts, depth) }`,
 	"json StreamAgreesOnPieces":     `StreamAgreesOnPieces(parts []int, cuts []int, bytes int, depth int) { agreesOnPieces(parts, cuts, bytes, depth) }`,
 	"json StreamAgreesWithDecode":   `StreamAgreesWithDecode(d doc, space int, splice int, at int, cuts []int, depth int) { agreesSpliced(d, space, splice, at, cuts, depth) }`,
 	"json StreamFindsTagAnywhere":   `StreamFindsTagAnywhere(v up, cuts []int) { tagAnywhere(v, cuts) }`,
 	"json StreamRoundTrips":         `StreamRoundTrips(v fleet, cuts []int) { streamRoundTrips(v, cuts) }`,
+	"json StreamSkipKeepsPlace":     `StreamSkipKeepsPlace(vs []up, cuts []int) { skipKeepsPlace(vs, cuts) }`,
 	"json ValuesRoundTrip":          `ValuesRoundTrip(vs []up, seps []int, cuts []int) { valuesRoundTrip(vs, seps, cuts) }`,
 	"json ValuesStopAtBreak":        `ValuesStopAtBreak(vs []up, seps []int, cut int, cuts []int) { valuesStopAtBreak(vs, seps, cut, cuts) }`,
 }

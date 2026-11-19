@@ -104,6 +104,80 @@ The [support table](support.md) lists the exact support of the build, one family
 | Value-tied facts: `given`, `gives`, `keeps`; record invariants `type T { … } where P(it)` | Designed, not yet implemented: the parser refuses the clauses and a `where` after a record type with S001 | [facts](facts.md) |
 | Derived types `type T derive E`: type plans, plan functions and typed byte patterns | Parsed, checked and lowered: `Pattern` and `Refine` plans, plan functions of any package, typed captures and their matchers; the derived laws are designed | [patterns](patterns.md) |
 
+## Surface
+
+The size of the language, counted from the parser and this specification by `scripts/surface` (LANG-HEALTH 4.3; the owner's probation rule, q228). `go run ./scripts/surface -check docs/spec/README.md` runs in the gate and fails when a count below differs from the parser or the spec: a unit that adds a keyword, a contextual word, a production, a clause kind or a rule runs `go run ./scripts/surface -write docs/spec/README.md` and says why in its request. A planned row the grammar does not quote (a form the spec describes in prose and the parser refuses) is written here by hand and kept.
+
+<!-- surface: go run ./scripts/surface -write docs/spec/README.md -->
+
+| Measure | Count | Members |
+| --- | --- | --- |
+| Keywords | 29 | `break`, `case`, `continue`, `else`, `for`, `func`, `if`, `import`, `return`, `type`, `try`, `catch`, `needs`, `provides`, `context`, `machine`, `let`, `mut`, `in`, `match`, `escaping`, `fails`, `test`, `law`, `assert`, `extern`, `with`, `takes`, `as` |
+| Reserved Go keywords | 15 | `chan`, `const`, `default`, `defer`, `fallthrough`, `go`, `goto`, `interface`, `map`, `package`, `range`, `select`, `struct`, `switch`, `var` |
+| Contextual words (the parser reads them by spelling) | 18 | `after`, `always`, `derive`, `entry`, `implements`, `initial`, `lent`, `never`, `own`, `path`, `pure`, `reaches`, `replace`, `sometimes`, `step`, `when`, `where`, `work` |
+| Planned words (specified, not built) | 3 | `given`, `gives`, `keeps` |
+| Productions (grammar.md) | 86 |  |
+| Signature clause kinds | 4 | `fails`, `needs`, `provides`, `takes` |
+| Diagnostic rule bullets (diagnostics.md) | 75 |  |
+| Spec words (docs/spec) | 295974 |  |
+
+Uses count tokens, so neither a comment nor a string, in the 1514 `.ergo` files under `examples/`, `internal/sketch/std/` and `modules/` (testdata left out; 0 that do not parse are not counted). A contextual word the syntax tree keeps as a name counts under Names, not as a use. A built form under 10 uses at two counts in a row is for the owner: delete or teach.
+
+| Form | Kind | Uses | Names | Previous | Note |
+| --- | --- | --- | --- | --- | --- |
+| `break` | keyword | 115 |  |  |  |
+| `case` | keyword | 15307 |  |  |  |
+| `continue` | keyword | 420 |  |  |  |
+| `else` | keyword | 2266 |  |  |  |
+| `for` | keyword | 4388 |  |  |  |
+| `func` | keyword | 14703 |  |  |  |
+| `if` | keyword | 8339 |  |  |  |
+| `import` | keyword | 3496 |  |  |  |
+| `return` | keyword | 7668 |  |  |  |
+| `type` | keyword | 4387 |  |  |  |
+| `try` | keyword | 3236 |  |  |  |
+| `catch` | keyword | 2527 |  |  |  |
+| `needs` | keyword | 5533 |  |  |  |
+| `provides` | keyword | 0 |  |  |  |
+| `context` | keyword | 526 |  |  |  |
+| `machine` | keyword | 94 |  |  |  |
+| `let` | keyword | 20784 |  |  |  |
+| `mut` | keyword | 4549 |  |  |  |
+| `in` | keyword | 3862 |  |  |  |
+| `match` | keyword | 3596 |  |  |  |
+| `escaping` | keyword | 0 |  |  |  |
+| `fails` | keyword | 3707 |  |  |  |
+| `test` | keyword | 595 |  |  |  |
+| `law` | keyword | 1575 |  |  |  |
+| `assert` | keyword | 1699 |  |  |  |
+| `extern` | keyword | 9466 |  |  |  |
+| `with` | keyword | 537 |  |  |  |
+| `takes` | keyword | 0 |  |  |  |
+| `as` | keyword | 6128 |  |  |  |
+| `after` | word | 19 | 317 |  |  |
+| `always` | word | 5 | 9 |  |  |
+| `derive` | word | 2 | 0 |  |  |
+| `entry` | word | 13 | 157 |  |  |
+| `implements` | word | 287 | 0 |  |  |
+| `initial` | word | 94 | 20 |  |  |
+| `lent` | word | 11 | 1 |  |  |
+| `never` | word | 1 | 0 |  |  |
+| `own` | word | 3843 | 28 |  |  |
+| `path` | word | 14 | 1376 |  |  |
+| `pure` | word | 3 | 6 |  |  |
+| `reaches` | word | 7 | 10 |  |  |
+| `replace` | word | 2 | 4 |  |  |
+| `sometimes` | word | 5 | 0 |  |  |
+| `step` | word | 94 | 169 |  |  |
+| `when` | word | 0 | 8 |  |  |
+| `where` | word | 88 | 38 |  |  |
+| `work` | word | 16 | 1332 |  |  |
+| `given` | planned | 0 |  | 0 | specified, not built |
+| `gives` | planned | 0 |  | 0 | specified, not built |
+| `keeps` | planned | 0 |  | 0 | specified, not built |
+
+<!-- surface end -->
+
 ## Pillars
 
 | Pillar | Where this specification serves it |

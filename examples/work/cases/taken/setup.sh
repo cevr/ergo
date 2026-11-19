@@ -11,4 +11,4 @@ printf '[work]\n' > base/work.toml
 git -C base add work.toml
 git -C base -c user.email=case@ergo.invalid -c user.name=case commit -q -m work
 : > .work/base/.registry
-printf 'put\t"a"\t".work/base/a"\t"base"\t"main"\t"reflink"\ttrashed\t10\n' >> .work/base/.registry
+printf 'put\t"a"\t".work/base/a"\t"base"\t"main"\t"reflink"\tactive\t10\n' >> .work/base/.registry

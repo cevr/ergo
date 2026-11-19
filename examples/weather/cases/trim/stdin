@@ -1,0 +1,7 @@
+# the draft keeps the spaces after the word; the ask is the trimmed draft
+type  60601
+submit
+wait 500
+type 98101
+submit
+wait 500

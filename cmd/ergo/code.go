@@ -34,6 +34,15 @@ current folder by default) from its fact tables: std code's Reader, as
   references --of ADDRESS [--kinds K]...
                            the sites that name the declaration
 
+  plan CHANGE              plan a change and keep the plan in .ergo/plans;
+                           it writes no source file. CHANGE is text:
+                           replace ADDRESS "TEXT", insert after ADDRESS
+                           "TEXT", delete ADDRESS, fixes [RULE...],
+                           rename ADDRESS to "NAME", script (CHANGE; ...);
+                           or a code.Change as JSON
+  apply ID                 write a kept, ready plan, all or nothing
+  recover                  undo or finish an apply that stopped
+
 Lists are paged with --offset and --limit (100 by default, at most 1000).
 With --json the answer is its JSON; a failure (NoSymbol, Ambiguous) is
 its tagged JSON. A package that does not check gives the rows the checker
@@ -70,6 +79,18 @@ func codeCommand(args []string) error {
 	abs, err := filepath.Abs(dir)
 	if err != nil {
 		return exitStatusError{code: 1, message: "ergo code: " + err.Error()}
+	}
+	asJSON := false
+	for i, arg := range args {
+		if arg == "--json" {
+			asJSON = true
+			continue
+		}
+		switch arg {
+		case "plan", "apply", "recover":
+			return codePlanCommand(abs, arg, args[i+1:], asJSON)
+		}
+		break
 	}
 	a, err := sketchfront.CheckDir(abs)
 	if err != nil {
@@ -197,6 +218,7 @@ type (
 		Arms    []codeArm   `json:"arms"`
 		Timers  []codeTimer `json:"timers"`
 		Work    []codePlace `json:"work"`
+		Exit    []codePlace `json:"exit"`
 		Unsure  []string    `json:"unsure"`
 	}
 	codeArm struct {
@@ -405,7 +427,7 @@ func codeMachineOf(m facts.MachineGraph, handle, name string) codeMachine {
 		return vs
 	}
 	place := func(p facts.Place) codePlace { return codePlace(p) }
-	out := codeMachine{Handle: handle, Name: name, States: list(m.States), Signals: list(m.Signals), Initial: m.Initial, Arms: []codeArm{}, Timers: []codeTimer{}, Work: []codePlace{}, Unsure: list(m.Unsure)}
+	out := codeMachine{Handle: handle, Name: name, States: list(m.States), Signals: list(m.Signals), Initial: m.Initial, Arms: []codeArm{}, Timers: []codeTimer{}, Work: []codePlace{}, Exit: []codePlace{}, Unsure: list(m.Unsure)}
 	for _, a := range m.Arms {
 		arm := codeArm{At: place(a.At), States: list(a.States), AnyState: a.States == nil, Signals: list(a.Signals), AnySignal: a.Signals == nil, Partial: a.Partial, Edges: []codeTransition{}, Alts: []codeAlt{}}
 		for _, x := range a.Alts {
@@ -421,6 +443,9 @@ func codeMachineOf(m facts.MachineGraph, handle, name string) codeMachine {
 	}
 	for _, w := range m.Work {
 		out.Work = append(out.Work, place(w))
+	}
+	for _, x := range m.Exit {
+		out.Exit = append(out.Exit, place(x))
 	}
 	return out
 }

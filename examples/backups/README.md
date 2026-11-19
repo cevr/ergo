@@ -1,6 +1,6 @@
 # backups
 
-An event-sourced backup service (a backup is planned with its files, stored, verified or aborted), modelled as the alchemy-domain skill describes (an aggregate that decides commands into events, rejections as typed failures, a view, a policy and a saga), in Ergo's own constructs: unions and exhaustive `match`, typed failures, an operation type with laws, contexts and a machine.
+An event-sourced backup service (a backup is planned with its files, stored, verified or aborted), modelled as a domain (an aggregate that decides commands into events, rejections as typed failures, a view, a policy and a saga), in Ergo's own constructs: unions and exhaustive `match`, typed failures, an operation type with laws, contexts and a machine.
 
 ```sh
 go build -o bin/ergo ./cmd/ergo

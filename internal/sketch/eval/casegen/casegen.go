@@ -44,6 +44,11 @@ func Generate(seed uint64) Program {
 	// Box has no constructor, so it is drawn field by field, and its field
 	// is an operation type that its builder NewHeld draws (MX-EVLAW).
 	h := target("law Cell.Kept for Box", 1)
+	// Shelf is drawn field by field too; its field Wrap is built by its
+	// constructor, whose record holds an operation type, so a case shows
+	// the constructor's call (testplan.ByConstructor; CASEFIX2). Its law
+	// is false on the first case.
+	first["law Shelves.Empty for Shelf"] = 1
 	// Bounds straddle the finite-type cap; the expected evidence comes from
 	// integer-domain cardinality, not from testplan.Domain.
 	cap := 255 + int(seed%2)
@@ -75,6 +80,11 @@ func Get(h Held) int { h.N }
 type Cell { Got() int, law Kept() { Got() != %d } }
 type Box { r Inner } implements Cell
 func Got(b Box) int { b.r.Get() }
+type Wrap { r Inner }
+func NewWrap(n int) Wrap { Wrap{r: NewHeld(n)} }
+type Shelves { Size() int, law Empty() { Size() < 0 } }
+type Shelf { w Wrap } implements Shelves
+func Size(s Shelf) int { s.w.r.Get() * 0 }
 type Left { L() int }
 type Right { R() int }
 type Twin { N int } implements Left, Right

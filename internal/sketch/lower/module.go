@@ -139,7 +139,11 @@ func Lower(u Unit) ([]File, error) {
 // ledger: it names the ledgers and the rewrites applied (ledger.go).
 func (l *lowerer) withRecord(u Unit, files []File) []File {
 	if ev, ok := u.Rewrite.(*LedgerEvidence); ok && l.rewrite != nil && HasRewriteLaws(u) {
-		files = append(files, File{Path: "ergo_laws.go", Data: ev.record(l, l.rewrite.applied)})
+		var levels map[string]int
+		if l.ir != nil {
+			levels = l.ir.funcApplied // the IR path's rewrites over functions
+		}
+		files = append(files, File{Path: "ergo_laws.go", Data: ev.record(l, l.rewrite.applied, levels)})
 	}
 	return files
 }
@@ -203,6 +207,9 @@ type lowerer struct {
 	srcs    []srcFile                // every source file in canonical order (canon.srcs)
 	tpSrc   map[*check.TypeParam]int // each type parameter's source file (paramFile)
 	nodeIDs map[syntax.Node]int      // node identities for keys (nodeID)
+	// groups is the group function of each generic frame type, nil for
+	// one with none (uigroup.go, groupFrame).
+	groups map[*check.Named]*check.Func
 	// owned is the Go name of each owned value's entry (release.go, B1):
 	// keyed by its *check.Var or its temporary's syntax.Expr.
 	owned map[any]string
@@ -247,11 +254,16 @@ type lowerer struct {
 	copyScopes  map[*namer]bool
 	inlineSites []inlineSite
 	lastDir     string
+	// coverMarks is Unit.CoverMarks: std bodies write cover marks.
+	coverMarks bool
 	// fresh holds the fresh temporaries (forms.go).
 	fresh map[freshKey]bool
-	// letUses counts each package let's uses and its uses where a Go
-	// constant is safe (forms.go, constFold).
+	// letUses counts each let's uses and its uses where a Go constant is
+	// safe (forms.go, constFold).
 	letUses map[*check.Var][2]int
+	// localVals are the local lets that may be Go constants, by value
+	// (forms.go, localLets).
+	localVals map[*check.Var]constant.Value
 
 	types  map[*check.TypeName]*typeDecl
 	funcs  map[*check.Func]*funcDecl
@@ -286,6 +298,7 @@ type lowerer struct {
 	equals   map[pkgKey]bool          // generated equality functions emitted (equal.go)
 	wires    map[pkgKey]bool          // generated codec functions emitted (wire.go)
 	clones   map[pkgKey]bool          // generated copy functions emitted (values.go)
+	machines map[pkgKey]string        // generated machine value functions emitted, to their Go result (ir_machine.go)
 	vals     *valueFacts              // the value rule's decisions (values.go)
 	sets     map[check.TypeSet]string // generated constraint interfaces emitted (decls.go, constraint)
 	holds    map[*check.Named]holdState
@@ -470,6 +483,8 @@ func newLowerer(u Unit) *lowerer { return newBuildLowerer(u, nil) }
 // test build, which decides the facts it reads (owners.go).
 func newBuildLowerer(u Unit, tests *testLowering) *lowerer {
 	l := lowererOf(canonicalize(u), u.Package, u.Go, tests)
+	l.coverMarks = u.CoverMarks || coverMarksAll
+	l.canon.funcRw = newFuncRewrites(u, tests != nil)
 	if tests == nil && u.Rewrite != nil {
 		l.rewrite = newRewriter(u.Package, u.Rewrite)
 	}
@@ -675,6 +690,9 @@ func (l *lowerer) program() ([]byte, error) {
 	entryText := l.fillInitSlot(entry.String())
 	if len(l.refusals) > 0 {
 		return nil, &Refused{Refusals: sortedRefusals(l.refusals)}
+	}
+	if l.ir != nil {
+		l.ir.inlineBodies(l) // ir_forms_inline.go: before the call table, which writes the inline table
 	}
 	table := l.callTable()   // before the imports: it may name the runtime package
 	table += l.lineageDecl() // likewise (handover.go)

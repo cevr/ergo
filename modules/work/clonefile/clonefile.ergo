@@ -28,10 +28,36 @@ func KeepsInodes(_ Cloner) bool { false }
 
 func Clone(c Cloner, from string, to string) fails work.NotSameVolume | work.Unsupported | work.Exists | work.Missing | work.NoSpace | work.CloneFailed {
 	try system.Prepare(c.trees, "clonefile", from, to)
+	try OnAPFS(system.FileSystemOf(c.trees, from), from)
 	let r = try system.Run(c.trees, "clonefile", "cp", []string{"-c", "-pPR", from, to})
 	if r.Status != 0 {
 		system.Leave(c.trees, to)
 		try system.Failure("clonefile", from, to, r.Stderr, unsupported)
+	}
+}
+
+// OnAPFS refuses a clone from a folder on a file system fs that is not
+// APFS: there macOS cp -c copies each file and exits 0 (clonefile(2)
+// fails, cp falls back), so the clone would be a silent full copy (the
+// Mac's U1, on HFS+).
+func OnAPFS(fs string, from string) fails work.Unsupported {
+	if fs != "apfs" {
+		return work.Unsupported{Cloner: "clonefile", Why: "\(from) is on \(if fs == "" { "a file system work cannot name" } else { fs }), not APFS: cp -c would copy each file"}
+	}
+}
+
+// HFSIsNotCloned: the smallest repro of U1, the decision on HFS+ (the
+// Mac's hdiutil probe runs the whole new).
+test HFSIsNotCloned {
+	let mut why = ""
+	OnAPFS("hfs", "/Volumes/h/base") catch {
+	case work.Unsupported as u:
+		why = u.Why
+	}
+	assert why == "/Volumes/h/base is on hfs, not APFS: cp -c would copy each file"
+	OnAPFS("apfs", "/Users/c/base") catch {
+	case work.Unsupported:
+		assert false
 	}
 }
 

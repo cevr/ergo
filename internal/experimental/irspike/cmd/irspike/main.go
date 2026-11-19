@@ -10,6 +10,8 @@
 //	irspike genfail SEED                  the failure program of SEED (TestIRFailuresMatchSource)
 //	irspike genunion SEED                 the union program of SEED (TestIRUnionsMatchSource)
 //	irspike gengeneric SEED               the generic-union program of SEED (TestIRGenericUnionsMatchSource)
+//	irspike gentuple SEED                 the tuple program of SEED (TestIRTuplesMatchSource)
+//	irspike genplace SEED                 the place program of SEED (TestIRPlacesMatchSource)
 //
 // The toolchains come from ERGO_IRSPIKE_GOROOT_SOURCE, ERGO_IRSPIKE_GOROOT_IR
 // and ERGO_IRSPIKE_CACHE.
@@ -76,6 +78,25 @@ func main() {
 		if _, err = fmt.Sscan(os.Args[2], &seed); err == nil {
 			fmt.Print(irspike.GenerateFail(seed))
 		}
+	case "geninline":
+		var seed uint64
+		if len(os.Args) != 3 {
+			fail(fmt.Errorf("usage: irspike geninline SEED"))
+		}
+		if _, err = fmt.Sscan(os.Args[2], &seed); err == nil {
+			fmt.Print(irspike.GenerateInline(seed))
+		}
+	case "exitforms":
+		if len(os.Args) != 3 {
+			fail(fmt.Errorf("usage: irspike exitforms ROOT"))
+		}
+		var forms map[string][]string
+		if forms, err = irspike.ExitForms(os.Args[2], os.Stderr); err == nil {
+			for _, form := range []string{"scope", "slots", "defer", "quiet"} {
+				fmt.Printf("%s\t%d\t%s\n", form, len(forms[form]), strings.Join(forms[form], " "))
+			}
+			fmt.Printf("unbuilt\t%s\n", forms["unbuilt"][0])
+		}
 	case "genunion":
 		var seed uint64
 		if len(os.Args) != 3 {
@@ -99,6 +120,22 @@ func main() {
 		}
 		if _, err = fmt.Sscan(os.Args[2], &seed); err == nil {
 			fmt.Print(irspike.GenerateStd(seed))
+		}
+	case "gentuple":
+		var seed uint64
+		if len(os.Args) != 3 {
+			fail(fmt.Errorf("usage: irspike gentuple SEED"))
+		}
+		if _, err = fmt.Sscan(os.Args[2], &seed); err == nil {
+			fmt.Print(irspike.GenerateTuple(seed))
+		}
+	case "genplace":
+		var seed uint64
+		if len(os.Args) != 3 {
+			fail(fmt.Errorf("usage: irspike genplace SEED"))
+		}
+		if _, err = fmt.Sscan(os.Args[2], &seed); err == nil {
+			fmt.Print(irspike.GeneratePlace(seed))
 		}
 	default:
 		err = fmt.Errorf("unknown command %q", os.Args[1])

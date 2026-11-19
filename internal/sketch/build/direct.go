@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"go/build"
 	"io"
@@ -54,8 +55,9 @@ import (
 // cache; Gleam's and Mix's incremental compilers, which also skip the host
 // build tool and call the host compiler per module.
 
-// directSchema versions every key and plan this file writes.
-const directSchema = "ergo-go-direct-3"
+// directSchema versions every key and plan this file writes (4: the
+// compile runs in the package's folder, FT6).
+const directSchema = "ergo-go-direct-4"
 
 // GoBuildVariable set to "go" in the environment selects go build, the
 // reference path, for every build of the process.
@@ -97,6 +99,9 @@ func (r Report) String() string {
 // go build (Command); otherwise it takes the direct path, falling back to
 // go build when the direct path refuses or fails.
 func (t Toolchain) Build(c Cache, module Module, output string, stderr io.Writer) (Report, error) {
+	if t.Cover != "" {
+		return t.coverBuild(module, output, stderr)
+	}
 	var report Report
 	if t.GoBuild {
 		report.Refused = "go build selected"
@@ -111,6 +116,9 @@ func (t Toolchain) Build(c Cache, module Module, output string, stderr io.Writer
 		report.Refused = err.Error()
 		report.Executable = ""
 	}
+	if t.Stored {
+		return report, ErrNotStored
+	}
 	child := t.Command(module, output)
 	child.Stdout, child.Stderr = stderr, stderr
 	stage.Add(stage.GoCommands, 1)
@@ -120,6 +128,9 @@ func (t Toolchain) Build(c Cache, module Module, output string, stderr io.Writer
 	}
 	return report, nil
 }
+
+// ErrNotStored ends a Toolchain.Stored build that would run a tool.
+var ErrNotStored = errors.New("build: not in the store")
 
 // refusal is a reason the direct path does not build a module.
 type refusal string
@@ -735,6 +746,9 @@ func (d *direct) compile(p *goPackage) error {
 		stage.Add(stage.GoCompilesReused, 1) // reused from the set, as from the store
 		return d.record(key, a.Digest, a.Export)
 	}
+	if d.t.Stored {
+		return ErrNotStored
+	}
 	pkgPath := p.ImportPath
 	if pkgPath == d.mainPath() {
 		pkgPath = "main"
@@ -762,7 +776,13 @@ func (d *direct) compile(p *goPackage) error {
 	}
 	defer release()
 	cmd := exec.Command(d.plan.Compile.Path, args...)
-	cmd.Dir = d.module.Dir
+	// In the package's folder, as go build runs it: the compile reads a
+	// relative source name of the package's IR file (ergoIR) from its
+	// working folder, and -trimpath rewrites only names under p.Dir, so
+	// the folder makes a frame of an IR body read ProgramModule/<pkg>/
+	// <file>, as the runtime's source map expects (test-speed FT6: the
+	// test build's root package is not the module's folder).
+	cmd.Dir = p.Dir
 	cmd.Env = d.toolEnv(d.plan.GOROOT)
 	stage.Add(stage.GoCompiles, 1)
 	stage.Add(stage.Processes, 1)
@@ -786,7 +806,17 @@ func (d *direct) compile(p *goPackage) error {
 // back-end concurrency of a compile slot (slot.go) that the caller
 // releases when the compile ends.
 func (d *direct) compileArgs(p *goPackage, pkgPath, key, objdir string) (args []string, release func(), err error) {
-	args = []string{"-o", filepath.Join(objdir, "_pkg_.a"), "-trimpath", p.Dir + "=>" + p.Trim + ";" + objdir + "=>",
+	trim := p.Dir + "=>" + p.Trim + ";" + objdir + "=>"
+	if p.Dir != d.module.Dir && strings.HasPrefix(p.Dir, d.module.Dir+string(filepath.Separator)) {
+		// A package below the module root (the package split, CS4) names
+		// its sources relative to that root (emitName, BS6): the patched
+		// compile resolves its IR file's names against its working
+		// directory, the root. Trimmed as the root package's are, the
+		// object holds no path of the build's directory, so a build in
+		// another cache makes the same archive (TestWarmAnswerAgreesWithFullBuild).
+		trim += ";" + d.module.Dir + "=>" + d.mainPath()
+	}
+	args = []string{"-o", filepath.Join(objdir, "_pkg_.a"), "-trimpath", trim,
 		"-p", pkgPath, "-lang=go" + p.Lang, "-complete", "-buildid", buildID(key, 2),
 		"-goversion", d.plan.Version}
 	c, release := compileSlot(d.c.Root)
@@ -909,6 +939,8 @@ func (d *direct) link(tg *target) error {
 	if ok && len(fields) == 1 {
 		digest = fields[0]
 		stage.Add(stage.LinksReused, 1)
+	} else if d.t.Stored {
+		return ErrNotStored
 	} else {
 		var cfg strings.Builder
 		cfg.WriteString("# import config\n")

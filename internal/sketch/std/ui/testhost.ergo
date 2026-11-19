@@ -30,6 +30,10 @@ type TestHost[S, E, D, F] {
 	said []string,
 	// step is the counts of the passes since the last input (NS3).
 	step StepCounts,
+	// opened is whether the user has gone to an address (Navigate,
+	// ReplaceOn): before it, the history's one entry is the host's "/",
+	// which the first navigation replaces (FK9b).
+	opened bool,
 }
 
 // NoNode is the failure of a script step whose label names no node on the
@@ -60,7 +64,7 @@ func hostOf[E comparable, S, D, F](s own Session[S, E, D, F], first []Op[E], pos
 	let mut session = s
 	let mut m = NewMirror[E](Root(&session.frame))
 	try Apply(&m, first)
-	TestHost[S, E, D, F]{clock: clock, start: clock.Now(), period: 16ms, owed: duration(int64(0)), frames: 0, posted: posted, mirror: m, session: session, history: NewMemoryHistory(URL{Path: "/", Query: "", Fragment: ""}), captured: None, said: []string{}, step: NoCounts()}
+	TestHost[S, E, D, F]{clock: clock, start: clock.Now(), period: 16ms, owed: duration(int64(0)), frames: 0, posted: posted, mirror: m, session: session, history: NewMemoryHistory(URL{Path: "/", Query: "", Fragment: ""}), captured: None, said: []string{}, step: NoCounts(), opened: false}
 }
 
 // apply steps one event and shows its patch. An input starts a step:
@@ -132,13 +136,25 @@ func isInput[E](ev Event[E]) bool {
 // it ran.
 func Counts[S, E, D, F](h *TestHost[S, E, D, F]) StepCounts { h.step }
 
-// Tap presses the node id.
+// Tap presses the node id. A tap is a pointer's press and release on it,
+// so it ends any capture (FK12-g1), as a window's click on a button does,
+// and the pointer stays over it (UG3): a Down and an Up at its top left
+// corner, then the press, as the desktop host sends them.
 func Tap[E comparable, S, D, F](h *TestHost[S, E, D, F], id Id[E]) fails actor.Stopped | BadPatch {
+	h.captured = None
+	try point(h, id, None, PointerEvent{Phase: Down, X: 0, Y: 0, Zone: None})
+	try point(h, id, None, PointerEvent{Phase: Up, X: 0, Y: 0, Zone: None})
 	try apply(h, Press[E]{Id: id})
 }
 
-// TypeText types text into the node id.
+// TypeText types text into the node id after a click on it, so the
+// pointer stays over it (UG3).
 func TypeText[E comparable, S, D, F](h *TestHost[S, E, D, F], id Id[E], text string) fails actor.Stopped | BadPatch {
+	// A click on the node first, as a window's typing into a field does:
+	// the pointer stays over it (UG3).
+	h.captured = None
+	try point(h, id, None, PointerEvent{Phase: Down, X: 0, Y: 0, Zone: None})
+	try point(h, id, None, PointerEvent{Phase: Up, X: 0, Y: 0, Zone: None})
 	try apply(h, Type[E]{Id: id, Text: text})
 }
 
@@ -347,8 +363,54 @@ func PressKey[E comparable, S, D, F](h *TestHost[S, E, D, F], k KeyPress) fails 
 // Now is the clock's time.
 func Now[S, E, D, F](h *TestHost[S, E, D, F]) time.Time { h.clock.Now() }
 
+// FocusOf is the node the keyboard is on (Focused): the last one pressed
+// or typed into, or the one Tab moved to.
+func FocusOf[S, E, D, F](h *TestHost[S, E, D, F]) Option[Id[E]] { SessionFocus(&h.session) }
+
 // Screen is what the host shows, built only from the patches.
 func Screen[S, E, D, F](h *TestHost[S, E, D, F]) []Shape[E] { MirrorShape(&h.mirror) }
+
+// LooksOf is the Looks the host holds for a node of its screen: its
+// LookId's in the host's table (look.ergo).
+func LooksOf[S, E, D, F](h *TestHost[S, E, D, F], n Node[E]) Looks { LooksIn(MirrorLooks(&h.mirror), LookIdOf(n)) }
+
+// PointNowhere moves the pointer off every node, as a pointer that
+// leaves the window does: a Moved to the root (UG3).
+func PointNowhere[E comparable, S, D, F](h *TestHost[S, E, D, F]) fails actor.Stopped | BadPatch {
+	try point(h, SessionRoot(&h.session), None, PointerEvent{Phase: Moved, X: 0, Y: 0, Zone: None})
+}
+
+// ClickNowhere clicks where no node is, as a click on a window's
+// background does: the pointer leaves every node and the focus every
+// node (UG3). A click ends any hold, as any Down elsewhere does.
+func ClickNowhere[E comparable, S, D, F](h *TestHost[S, E, D, F]) fails actor.Stopped | BadPatch {
+	h.captured = None
+	try PointNowhere(h)
+	FocusSession(&h.session, None)
+}
+
+// Activate presses the node id from the keyboard, as Tab to it and Enter
+// do: the focus moves to it and shows, and the pointer stays where it is
+// (UG3).
+func Activate[E comparable, S, D, F](h *TestHost[S, E, D, F], id Id[E]) fails actor.Stopped | BadPatch {
+	h.captured = None
+	focusTo(&h.session.frame, id.ref, true)
+	try apply(h, Press[E]{Id: id})
+}
+
+// LookStateAt is the state whose look the node id shows (UG3).
+func LookStateAt[S, E, D, F](h *TestHost[S, E, D, F], id Id[E]) LookState { SessionLookState(&h.session, id) }
+
+// LookShownAt is the look the node id shows now: its Looks' look of its
+// LookStateAt, from the mirror's table (UG3).
+func LookShownAt[S, E, D, F](h *TestHost[S, E, D, F], id Id[E]) Look {
+	match entryOf(&h.mirror, id) {
+	case Some[mirrored[E]] as e:
+		LookNow(LooksOf(h, e.Value.node), LookStateAt(h, id))
+	case None:
+		Bare()
+	}
+}
 
 // StateOf is the actor's state.
 func StateOf[S, E, D, F](h *TestHost[S, E, D, F]) S { h.session.actor.State() }
@@ -404,7 +466,7 @@ func labelOf[E](n Node[E]) Option[string] {
 	case TextNode as x:
 		Some{Value: x.Value}
 	case InputNode as x:
-		Some{Value: x.Placeholder}
+		Some{Value: fieldName(x)}
 	case _:
 		None
 	}
@@ -412,15 +474,41 @@ func labelOf[E](n Node[E]) Option[string] {
 
 // History is the test host's history, at "/" when the host starts: the
 // Location a test binds for the program (H7), and the one the user's
-// navigations (Navigate, GoBackOn) move.
+// navigations (Navigate, ReplaceOn, GoBackOn) move.
 func History[S, E, D, F](h *TestHost[S, E, D, F]) MemoryHistory { h.history }
 
 // Navigate is the user going to href, as a typed address or a link the
-// host follows: a Push of the history, then URLChanged.
+// host follows: a Push of the history, then URLChanged. The first one of a
+// fresh session (FK9b) replaces the host's "/" instead, as a browser tab
+// opened on an address has no entry before it: Back then does nothing.
 func Navigate[E comparable, S, D, F](h *TestHost[S, E, D, F], href string) fails actor.Stopped | BadPatch {
 	let u = ParseURL(href)
-	Push(h.history, u)
+	if h.opened {
+		Push(h.history, u)
+	} else {
+		Replace(h.history, u)
+		h.opened = true
+	}
 	try apply(h, URLChanged{URL: u})
+}
+
+// ReplaceOn is the address changing to href in place (FK10-g1), as a
+// redirect or history.replaceState does: a Replace of the history, then
+// URLChanged, so the program hears it through OnURL as it hears a push.
+func ReplaceOn[E comparable, S, D, F](h *TestHost[S, E, D, F], href string) fails actor.Stopped | BadPatch {
+	let u = ParseURL(href)
+	Replace(h.history, u)
+	h.opened = true
+	try apply(h, URLChanged{URL: u})
+}
+
+// OpenAt is the tab opened on href before the program hears anything:
+// the history's one entry becomes href and the session is opened, so the
+// next navigation pushes (FK9b's first-navigation replace is for a host
+// no address opened). No URLChanged: the program starts at href already.
+func OpenAt[S, E, D, F](h *TestHost[S, E, D, F], href string) {
+	Replace(h.history, ParseURL(href))
+	h.opened = true
 }
 
 // GoBackOn is the user pressing back: when the history moves, URLChanged
@@ -439,6 +527,10 @@ func Locate[S, E, D, F](h *TestHost[S, E, D, F], loc Locator) []Id[E] { LocateIn
 
 // AccessAt is the node id names on the screen as a locator reads it.
 func AccessAt[S, E, D, F](h *TestHost[S, E, D, F], id Id[E]) Access { AccessOf(&h.mirror, id) }
+
+// RelationsAt is the relations of the node id names on the screen, each
+// with the node it names (RelationsIn, UG2).
+func RelationsAt[S, E, D, F](h *TestHost[S, E, D, F], id Id[E]) []Related[E] { RelationsIn(&h.mirror, id) }
 
 // Expect checks is against what loc finds on the screen.
 func Expect[S, E, D, F](h *TestHost[S, E, D, F], loc Locator, is Matcher) fails Mismatch {
@@ -496,14 +588,17 @@ func played[E comparable, S, D, F](h *TestHost[S, E, D, F], script []Act, lines 
 }
 
 // fetchesAsleep says whether each fetch in flight is asleep on the
-// host's clock, so only an Advance wakes it.
+// host's clock, so only an Advance wakes it. It looks at every fetch
+// rather than stop at the first awake one, so the steps it takes do not
+// hang on the Map's order.
 func fetchesAsleep[E comparable, S, D, F](h *TestHost[S, E, D, F]) bool {
+	let mut asleep = 0
 	for _, t in h.session.inflight {
-		if !time.Asleep(h.clock, t) {
-			return false
+		if time.Asleep(h.clock, t) {
+			asleep = asleep + 1
 		}
 	}
-	true
+	asleep == len(h.session.inflight)
 }
 
 // waitText is what a SettleAll left in flight, waiting on the clock:
@@ -629,22 +724,24 @@ func withLabel[E](m *Mirror[E], id Id[E], label string, acc []Id[E]) []Id[E] {
 
 // Screenshot is the screen as text, one node a line, indented by depth:
 // what an agent reads. A canvas's paint list follows it, one op a line.
+// A node whose looks are not its kind's default shows them after it, in
+// braces (look.ergo).
 func Screenshot[S, E, D, F](h *TestHost[S, E, D, F]) string {
 	let mut out = ""
-	for line in shotLines(Screen(h), "") {
+	for line in shotLines(Screen(h), MirrorLooks(&h.mirror), "") {
 		out = out + line + "\n"
 	}
 	out
 }
 
-func shotLines[E](shapes []Shape[E], indent string) []string {
+func shotLines[E](shapes []Shape[E], looks []Looks, indent string) []string {
 	let mut out = []string{}
 	for s in shapes {
-		out = out.Append(indent + nodeText(s.Node))
+		out = out.Append(indent + nodeText(s.Node) + looksText(s.Node, looks))
 		for l in paintLines(PaintOf(s.Node), indent+"  ") {
 			out = out.Append(l)
 		}
-		for l in shotLines[E](s.Kids, indent+"  ") {
+		for l in shotLines[E](s.Kids, looks, indent+"  ") {
 			out = out.Append(l)
 		}
 	}
@@ -682,7 +779,17 @@ func nodeText[E](n Node[E]) string {
 		}
 		"(off) \"\(x.Label)\""
 	case InputNode as x:
-		"input \"\(x.Value)\" (\(x.Placeholder))"
+		let mut out = "input \"\(x.Value)\" (\(x.Placeholder))"
+		if x.Label != "" {
+			out = out + " label \"\(x.Label)\""
+		}
+		if x.Description != "" {
+			out = out + " \"\(x.Description)\""
+		}
+		if x.Invalid {
+			out = out + " invalid"
+		}
+		out
 	case FieldsetNode as x:
 		let mut out = "fieldset"
 		if x.Disabled {
@@ -1014,5 +1121,70 @@ law AmbiguousActFails(seed int) {
 		}
 		let firsts = Locate(&h, First{At: WithLabel{Label: "dup"}})
 		StateOf(&h) == 100 && len(firsts) == 1 && Find(&h, "dup") == (Some{Value: firsts[0]})
+	}
+}
+
+// typedLabel is the label of the i-th field of TypeIntoNamesTheField, as
+// seed draws it: none, or "lab<i>". (a law's helper)
+func typedLabel(seed int, i int) string {
+	if (seed/(i+1))%2 == 0 {
+		return ""
+	}
+	"lab\(i)"
+}
+
+// TypeIntoNamesTheField (FK3-g5): over screens of 2 to 5 text fields,
+// each labelled or not as drawn, a script's TypeInto names a field by its
+// accessible name, its label or, for a field with none, its placeholder,
+// and types into that field alone; the placeholder of a labelled field
+// names no node.
+law TypeIntoNamesTheField(seed int, count int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let n = (count%4+4)%4 + 2
+		let s = (seed%64 + 64) % 64
+		let view = func(f *Frame[int], st int) {
+			Column(f, Plain()) {
+				for i in 0..n {
+					LabelledInput(f, FieldLabel{Text: typedLabel(s, i), Description: "", Invalid: false}, "", "ph\(i)", func(t string) int { i*1000 + len(t) })
+				}
+			}
+		}
+		let a = actor.StartMachine(Machine[int, int, int]{Initial: -1, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})
+		let mut h = NewTestHost(a, view, m, 4) catch {
+		case BadPatch:
+			return false
+		}
+		for i in 0..n {
+			let label = typedLabel(s, i)
+			let mut name = label
+			if name == "" {
+				name = "ph\(i)"
+			}
+			let mut text = ""
+			for _ in 0..i+1 {
+				text = text + "x"
+			}
+			Play(&h, []Act{TypeInto{Label: name, Text: text}, SettleAll}) catch {
+			case _:
+				return false
+			}
+			if StateOf(&h) != i*1000+i+1 {
+				return false
+			}
+			if label != "" {
+				let mut missing = false
+				Play(&h, []Act{TypeInto{Label: "ph\(i)", Text: "y"}}) catch {
+				case NoNode:
+					missing = true
+				case _:
+					return false
+				}
+				if !missing || StateOf(&h) != i*1000+i+1 {
+					return false
+				}
+			}
+		}
+		true
 	}
 }

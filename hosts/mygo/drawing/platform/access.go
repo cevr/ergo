@@ -10,6 +10,8 @@ type AccessTree = impl.AccessTree
 
 type AccessNode = impl.AccessNode
 
+type AccessLineBox = impl.AccessLineBox
+
 type AccessTextRun = impl.AccessTextRun
 
 type AccessRole = impl.AccessRole

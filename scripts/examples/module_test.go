@@ -1,10 +1,13 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+
+	"ergo.local/prototype/internal/sketchfront"
 )
 
 // A program of packages (196b) is a folder with ergo.mod: the runner
@@ -62,10 +65,43 @@ func TestModuleProgram(t *testing.T) {
 	}
 }
 
+// TestModuleProgramLoadsItsPackagesOnce: the runner reads a program of
+// packages (examples/calc, an example) with one load of its package
+// folders, and gets the same program as with each folder checked alone:
+// sources, targets, main and no problem. A growth guard on the loads
+// sketchfront counts (gate-speed GS31a). It catches gs31a-folders-unshared,
+// which reads every folder alone again; not parallel, so the count is
+// this load's.
+func TestModuleProgramLoadsItsPackagesOnce(t *testing.T) {
+	dir, err := filepath.Abs("../../examples/calc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	load := func() (*program, []string, int64) {
+		t.Helper()
+		before := sketchfront.WorkDone().Loads
+		p, problems := loadProgram(dir, "calc", false)
+		return p, problems, sketchfront.WorkDone().Loads - before
+	}
+	shared, sharedProblems, sharedLoads := load()
+	prior := loadPackageFolders
+	loadPackageFolders = func(string, []os.DirEntry) map[string]sketchfront.Analysis { return nil }
+	alone, aloneProblems, aloneLoads := load()
+	loadPackageFolders = prior
+	if shared == nil || alone == nil || len(sharedProblems)+len(aloneProblems) > 0 {
+		t.Fatalf("calc does not load: %q / %q", sharedProblems, aloneProblems)
+	}
+	if !slices.Equal(shared.sources, alone.sources) || !slices.Equal(shared.tests, alone.tests) || shared.main != alone.main {
+		t.Errorf("one load reads another program than a check of each folder:\n%v %v %s\n%v %v %s", shared.sources, shared.tests, shared.main, alone.sources, alone.tests, alone.main)
+	}
+	if sharedLoads != 1 {
+		t.Errorf("calc's load read its packages %d times (each folder alone: %d); want 1", sharedLoads, aloneLoads)
+	}
+}
+
 // One ergo test of a program of packages still judges each package's part
-// of the report: its check-time verdicts against its native ones, and its
-// skip lines against expected-skips (TEST-one). It kills one-module-
-// ignores-evaluation and one-module-ignores-skips.
+// of the report: its check-time verdicts against its native ones
+// (TEST-one). It kills one-module-ignores-evaluation.
 func TestModuleProgramJudgesEachPackage(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
@@ -75,10 +111,9 @@ func TestModuleProgramJudgesEachPackage(t *testing.T) {
 	f.write(dir+"/tags", "default\n")
 	f.write(dir+"/cmd/walker/main.ergo", "#!/bin/sh\necho hi\n")
 	f.write(dir+"/walk/walk.ergo", "// CHECKJSON {\"checked\":true,\"evaluation\":{\"schemaVersion\":1,\"status\":\"passed\",\"obligations\":[{\"name\":\"Fixture\",\"status\":\"passed\",\"evidence\":\"evaluated\",\"cases\":1}]}}\n// NATIVE ok Different\nfunc w() {}\n")
-	f.write(dir+"/keep/keep.ergo", "// TESTSKIP\nfunc k() {}\n")
 	f.write(dir+"/cases/basic/expected.out", "hi\n")
 	code, out := f.run()
-	for _, want := range []string{"FAIL walker: check walk: Fixture: ", "FAIL walker: test keep: 1 unexpected skips"} {
+	for _, want := range []string{"FAIL walker: check walk: Fixture: "} {
 		if code == 0 || !strings.Contains(out, want) {
 			t.Errorf("exit %d, want a failure with %q\n%s", code, want, out)
 		}

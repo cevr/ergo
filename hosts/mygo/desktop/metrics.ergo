@@ -151,10 +151,92 @@ func linesIn(k known, text string, size float32, wide float32) []string {
 	let mut any = false
 	for p in strings.Split(text, "\n") {
 		let words = strings.Fields(p)
+		if len(words) > 0 && spaced(p, words) && widthOf(k, words, space, size) <= wide {
+			// The paragraph fits on one line and is its runs one space
+			// apart: it is that line, with no line built run by run.
+			any = true
+			out = out.Append(p)
+			continue
+		}
 		let mut line = ""
 		let mut at = float32(0)
 		let mut open = false
 		for w in words {
+			any = true
+			let n = widthIn(k, w, size)
+			if !open {
+				line = w
+				at = n
+				open = true
+			} else if at+space+n <= wide {
+				line = line + " " + w
+				at = at + space + n
+			} else {
+				out = out.Append(line)
+				line = w
+				at = n
+			}
+		}
+		out = out.Append(line)
+	}
+	if !any {
+		return []string{}
+	}
+	out
+}
+
+// spaced is whether p is words one space apart, with no other space: the
+// line Lines would build of them is p itself.
+func spaced(p string, words []string) bool {
+	let mut n = len(words) - 1
+	for w in words {
+		n = n + len(w)
+	}
+	n == len(p) && strings.Count(p, " ") == len(words)-1
+}
+
+// widthOf is the width of words on one line, summed as linesIn sums a
+// line's runs, so a paragraph widthOf says fits is one linesIn would not
+// break.
+func widthOf(k known, words []string, space float32, size float32) float32 {
+	let mut at = float32(0)
+	for i, w in words {
+		let n = widthIn(k, w, size)
+		at = if i == 0 { n } else { at + space + n }
+	}
+	at
+}
+
+// FitIsBroken: linesIn is the lines the greedy breaker builds run by run
+// (byRun), for paragraphs of runs of the widths drawn, one or more spaces
+// or a tab apart, at any width.
+law FitIsBroken(words []int, gaps []int, widths []int, wide int) {
+	let seps = []string{" ", " ", "  ", "\t", "\n"}
+	let mut text = ""
+	let mut runs = Map[run, float32]{run{text: " ", size: 13}: 3}
+	for i in 0..len(words) {
+		let w = "w" + strings.Repeat("x", ((words[i]%6)+6)%6)
+		let gap = if i < len(gaps) { seps[((gaps[i]%5)+5)%5] } else { " " }
+		text = if i == 0 { w } else { text + gap + w }
+		let v = if i < len(widths) { ((widths[i] % 40) + 40) % 40 } else { 10 }
+		runs = runs.Put(run{text: w, size: 13}, float32(v))
+	}
+	let k = known{runs: runs, lines: Map[float32, float32]{}}
+	let at = float32(((wide % 120) + 120) % 120)
+	slices.Equal(linesIn(k, text, 13, at), byRun(k, text, 13, at))
+}
+
+// byRun is linesIn building every line run by run, the reference for
+// FitIsBroken.
+func byRun(k known, text string, size float32, wide float32) []string {
+	let space = widthIn(k, " ", size)
+	let mut out = []string{}
+	let mut any = false
+	for p in strings.Split(text, "\n") {
+		let mut line = ""
+		let mut at = float32(0)
+		let mut open = false
+		for w in strings.Fields(p) {
 			any = true
 			let n = widthIn(k, w, size)
 			if !open {

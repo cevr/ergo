@@ -175,7 +175,37 @@ func finish[S, E, D, F](s *Session[S, E, D, F], epoch int) {
 // shows the crash view from then on, and a signal of the crash view
 // starts a fresh actor (a reload). Step fails Stopped when the actor
 // ended and it is not a crash.
+//
+// The Slow signals a pass sent (judge) are drawn before any other event
+// is taken (UC-SIGNALS-FLAKE): their Committed and a fetch's result are
+// posted by tasks of their own, in an order the scheduler picks, and a
+// result taken first would fold its signal into the pass that shows the
+// warning. So an event that finds the session's own signals not yet
+// drawn runs their pass first, and the result is both passes' patches,
+// in order; their Committed then finds the state drawn.
 func Step[E comparable, S, D, F](s *Session[S, E, D, F], ev Event[E]) []Op[E] fails actor.Stopped {
+	let mut first = []Op[E]{}
+	match ev {
+	case Committed, Ended:
+	case _:
+		if s.signals > 0 {
+			first = runPass(s)
+		}
+	}
+	let ops = try stepEvent(s, ev)
+	if len(first) == 0 {
+		return ops
+	}
+	let mut all = first
+	for o in ops {
+		all = all.Append(o)
+	}
+	all
+}
+
+// stepEvent is Step's handling of ev, once the session's own signals are
+// drawn.
+func stepEvent[E comparable, S, D, F](s *Session[S, E, D, F], ev Event[E]) []Op[E] fails actor.Stopped {
 	match ev {
 	case Arrived[E] as x:
 		finish(s, x.Epoch)
@@ -211,13 +241,20 @@ func Step[E comparable, S, D, F](s *Session[S, E, D, F], ev Event[E]) []Op[E] fa
 	case _:
 	}
 	let done = Handle(&s.frame, ev)
+	// The Leave and Enter a pointer event made go first (UG3).
+	let crossed = Crossed(&s.frame)
+	for e in crossed {
+		if !(try signal(s, e)) {
+			return judgedPass(s)
+		}
+	}
 	match done.Signal {
 	case Some[E] as e:
 		let _ = try signal(s, e.Value)
 		return judgedPass(s)
 	case None:
 	}
-	if done.Changed {
+	if done.Changed || len(crossed) > 0 {
 		return judgedPass(s)
 	}
 	[]Op[E]{}
@@ -227,9 +264,24 @@ func Step[E comparable, S, D, F](s *Session[S, E, D, F], ev Event[E]) []Op[E] fa
 // patch's top nodes: a host's mirror starts from it.
 func SessionRoot[S, E, D, F](s *Session[S, E, D, F]) Id[E] { Root(&s.frame) }
 
+// SessionHovered is the node the pointer is over in s's frame (Hovered,
+// UG3).
+func SessionHovered[S, E, D, F](s *Session[S, E, D, F]) Option[Id[E]] { Hovered(&s.frame) }
+
+// SessionLookState is the state whose look a host paints for the node id
+// (LookStateIn, UG3).
+func SessionLookState[S, E, D, F](s *Session[S, E, D, F], id Id[E]) LookState { LookStateIn(&s.frame, id) }
+
 // SessionAnimates is whether s's last pass made an Animate: whether its
 // host should send frames (Run's Host.Frames).
 func SessionAnimates[S, E, D, F](s *Session[S, E, D, F]) bool { Animating(&s.frame) }
+
+// SessionFocus is the node the keyboard is on in s's frame (Focused),
+// for a host that draws the focus.
+func SessionFocus[S, E, D, F](s *Session[S, E, D, F]) Option[Id[E]] { Focused(&s.frame) }
+
+// FocusSession puts the focus of s's frame on id, or nowhere (FocusOn).
+func FocusSession[S, E, D, F](s *Session[S, E, D, F], id Option[Id[E]]) { FocusOn(&s.frame, id) }
 
 // judgedPass is a pass an event of the loop caused (an input, a fetch's
 // result, a frame), whose Slow signals the session sends (judge). A pass
@@ -282,7 +334,9 @@ func signal[E comparable, S, D, F](s *Session[S, E, D, F], e E) bool fails actor
 }
 
 // judge sends the Slow signals of the pass just rendered, when the view
-// asked for them (OnSlow).
+// asked for them (OnSlow). Each is a signal the actor steps, so it counts
+// in the Signals of the pass that shows it (UC-SIGNALS0), as an input's
+// signal does.
 func judge[E comparable, S, D, F](s *Session[S, E, D, F]) {
 	match s.frame.slow {
 	case Some[slowWatch[E]] as w:
@@ -292,6 +346,7 @@ func judge[E comparable, S, D, F](s *Session[S, E, D, F]) {
 			case actor.Stopped:
 				return
 			}
+			s.signals = s.signals + 1
 		}
 	case None:
 	}

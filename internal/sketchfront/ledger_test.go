@@ -12,9 +12,11 @@ import (
 	"strings"
 	"testing"
 
+	"ergo.local/prototype/internal/gofacts/hostguard"
 	"ergo.local/prototype/internal/sketch/build"
 	"ergo.local/prototype/internal/sketch/lower"
 	"ergo.local/prototype/internal/sketch/stdlib"
+	"ergo.local/prototype/internal/toolchain"
 )
 
 // ledgerProgram is a generated program with one rewrite law, Counter.Joins,
@@ -780,7 +782,7 @@ func TestStdLedgerFresh(t *testing.T) {
 	compilerIdentity = func() (string, error) { return "test", nil }
 	defer func() { compilerIdentity = saved }()
 	root := t.TempDir()
-	fresh, err := FreshStdLedger(BuildRequest{Cache: build.Cache{Root: root}, Toolchain: build.HostToolchain()})
+	fresh, err := FreshStdLedger(BuildRequest{Cache: build.Cache{Root: root}, Toolchain: build.HostToolchain()}, hostguard.Entries(toolchain.Version))
 	if err != nil {
 		t.Fatal(err)
 	}

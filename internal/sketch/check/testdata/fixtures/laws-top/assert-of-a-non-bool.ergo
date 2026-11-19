@@ -1,0 +1,4 @@
+law Asserts(n int) {
+	assert 1 // want S108
+	true
+}

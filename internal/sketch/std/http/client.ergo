@@ -109,7 +109,7 @@ func Send(c Client, r Request) Response fails RequestFailed {
 	case BodyTooLarge, BodyReadFailed:
 		return RequestFailed{Cause: Malformed{Reason: "a request sends a Buffered body"}}
 	}
-	send(c.origin, c.limits, r.Method, r.Path, r.Query, r.Header, text) catch {
+	send(c.origin, c.limits, r.Method, r.Path, r.RawPath, r.Query, r.Header, text) catch {
 	case SendFailed as f:
 		return RequestFailed{Cause: causeOf(f.Kind, f.Reason, f.Limit)}
 	}
@@ -124,13 +124,13 @@ func SendInto(c Client, r Request, accept Accept, put func(part string) fails Si
 	case BodyTooLarge, BodyReadFailed:
 		return RequestFailed{Cause: Malformed{Reason: "a request sends a Buffered body"}}
 	}
-	try sendInto(c.origin, c.limits, r.Method, r.Path, r.Query, r.Header, text, func(status int) bool { Accepts(accept, status) }, put) catch {
+	try sendInto(c.origin, c.limits, r.Method, r.Path, r.RawPath, r.Query, r.Header, text, func(status int) bool { Accepts(accept, status) }, put) catch {
 	case SendFailed as f:
 		return RequestFailed{Cause: causeOf(f.Kind, f.Reason, f.Limit)}
 	}
 }
 
-extern go ergo.local/prototype/runtime/v1/http.HTTPDoInto func sendInto(origin string, limits Limits, method string, path string, query []Field, header []Field, body string, accepts func(status int) bool, put func(part string) fails SinkFailed) Response fails SendFailed | StatusRefused | SinkFailed
+extern go ergo.local/prototype/runtime/v1/http.HTTPDoInto func sendInto(origin string, limits Limits, method string, path string, rawPath string, query []Field, header []Field, body string, accepts func(status int) bool, put func(part string) fails SinkFailed) Response fails SendFailed | StatusRefused | SinkFailed
 
 // SendFailed is the host's form of a RequestFailed: one record for the four
 // causes (a Go type cannot be a union variant), which Send turns into the
@@ -149,7 +149,7 @@ func causeOf(kind int, reason string, limit int) Cause {
 	}
 }
 
-extern go ergo.local/prototype/runtime/v1/http.HTTPDo func send(origin string, limits Limits, method string, path string, query []Field, header []Field, body string) Response fails SendFailed
+extern go ergo.local/prototype/runtime/v1/http.HTTPDo func send(origin string, limits Limits, method string, path string, rawPath string, query []Field, header []Field, body string) Response fails SendFailed
 
 // Handler is a Net with no socket: Send calls handle under a Recorder, as
 // Serve would call it, and never fails. A test binds it so a client is

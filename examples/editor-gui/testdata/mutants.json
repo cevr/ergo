@@ -7,7 +7,7 @@
       "from": "lastRune(f.Query))\n\t\tStay[State]{Next: Searching{D: Doc{..d, Caret: FirstFrom(d, q, f.Origin)}, Query: q, Origin: f.Origin, Count: piece.Count(d.Buf, q)}}",
       "to": "lastRune(f.Query))\n\t\tStay[State]{Next: Searching{D: Doc{..d, Caret: FirstFrom(d, q, f.Origin)}, Query: q, Origin: f.Origin, Count: f.Count}}",
       "rule": "A query taken back counts its matches again.",
-      "killers": ["examples/editor-gui/edit:law Editor.CountIsMatches"]
+      "killers": ["examples:editor-gui law edit.Editor.CountIsMatches"]
     },
     {
       "name": "editor-count-of-the-old-query", "origin": "wf10 GP editor gap 14",
@@ -15,7 +15,7 @@
       "from": "let q = f.Query + t.Text\n\t\tStay[State]{Next: Searching{D: Doc{..d, Caret: FirstFrom(d, q, f.Origin)}, Query: q, Origin: f.Origin, Count: piece.Count(d.Buf, q)}}",
       "to": "let q = f.Query + t.Text\n\t\tStay[State]{Next: Searching{D: Doc{..d, Caret: FirstFrom(d, q, f.Origin)}, Query: q, Origin: f.Origin, Count: piece.Count(d.Buf, f.Query)}}",
       "rule": "A letter typed counts the matches of the new query.",
-      "killers": ["examples/editor-gui/edit:law Editor.CountIsMatches"]
+      "killers": ["examples:editor-gui law edit.Editor.CountIsMatches"]
     },
     {
       "name": "editor-search-window-one-short", "origin": "wf10 GP2c",

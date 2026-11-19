@@ -1,0 +1,69 @@
+// Package disk holds Folder, a topdown.Saves that keeps each world as a
+// JSON file in a folder, SLOT.json. std json derives both directions from
+// the world's record types (ritmo's Snapshot, whose saved form its
+// schemas give), so the file's shape cannot drift from them.
+
+import fs
+import json
+import ritmo/topdown
+import strings
+
+// Folder is a topdown.Saves in the folder dir. It holds the file system
+// it reads and writes as values (as fk-board's Sheet does).
+type Folder { dir string, files fs.Files, writes fs.Writes } implements topdown.Saves
+
+// NewFolder is the Folder "saves" in the working directory.
+func NewFolder(files fs.Files, writes fs.Writes) Folder { At("saves", files, writes) }
+
+// At is the Folder dir.
+func At(dir string, files fs.Files, writes fs.Writes) Folder { Folder{dir: dir, files: files, writes: writes} }
+
+// codec reads a world of up to four megabytes; a world nests six deep.
+func codec() json.Codec[topdown.World] { json.Codec[topdown.World]{MaxBytes: 4 << 20, MaxDepth: 12} }
+
+// path is the file of slot.
+func path(f Folder, slot string) string { f.dir + "/" + slot + ".json" }
+
+// Put writes w as slot's file, making the folder when it is not there.
+// A slot is a plain name: no separator and no leading dot.
+func Put(f Folder, slot string, w topdown.World) fails topdown.Broken {
+	if slot == "" || strings.Contains(slot, "/") || strings.HasPrefix(slot, ".") {
+		return topdown.Broken{Slot: slot, Why: "a slot is a plain name"}
+	}
+	f.writes.MkdirAll(f.dir) catch {
+	case fs.Denied as d:
+		return topdown.Broken{Slot: slot, Why: "permission denied: " + d.Path}
+	case fs.Failed as x:
+		return topdown.Broken{Slot: slot, Why: x.Path + ": " + x.Reason}
+	}
+	f.writes.WriteFile(path(f, slot), json.Encode(codec(), w)+"\n") catch {
+	case fs.NotFound as n:
+		return topdown.Broken{Slot: slot, Why: "no folder for " + n.Path}
+	case fs.Denied as d:
+		return topdown.Broken{Slot: slot, Why: "permission denied: " + d.Path}
+	case fs.Failed as x:
+		return topdown.Broken{Slot: slot, Why: x.Path + ": " + x.Reason}
+	}
+}
+
+// Get reads slot's file.
+func Get(f Folder, slot string) topdown.World fails topdown.Missing | topdown.Broken {
+	let text = f.files.ReadFile(path(f, slot)) catch {
+	case fs.NotFound:
+		return topdown.Missing{Slot: slot}
+	case fs.Denied as d:
+		return topdown.Broken{Slot: slot, Why: "permission denied: " + d.Path}
+	case fs.Failed as x:
+		return topdown.Broken{Slot: slot, Why: x.Path + ": " + x.Reason}
+	}
+	json.Decode(codec(), text) catch {
+	case json.Malformed as m:
+		return topdown.Broken{Slot: slot, Why: "offset \(m.Offset): \(m.Reason)"}
+	case WireMissingField as m:
+		return topdown.Broken{Slot: slot, Why: m.Path + "." + m.Field + " is missing"}
+	case WireWrongKind as k:
+		return topdown.Broken{Slot: slot, Why: k.Path + " is not " + k.Want}
+	case WireUnknownTag as u:
+		return topdown.Broken{Slot: slot, Why: u.Path + " has no case " + u.Tag}
+	}
+}

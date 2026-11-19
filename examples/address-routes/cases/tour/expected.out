@@ -1,0 +1,86 @@
+> start /people?searchText=dev
+  address: /people?searchText=dev (0 behind)
+  nav: <Home> <People> <Files> <Nested>
+  page: # People | ?dev? | [Search] | Recent searches: dev | Searching…
+> wait 299
+> wait 1
+  page: # People | ?dev? | [Search] | Recent searches: dev | 2 results for “dev” | <Bob Smith> | Developer | <David Wilson> | Developer
+> key GH
+  address: / (1 behind)
+  page: # Welcome Home | This is a routing example built with Ergo. Navigate using the links above to see different routes in action.
+> key GP
+  address: /people (2 behind)
+  page: # People | ?? | [Search] | Recent searches: dev | Searching…
+> wait 300
+  page: # People | ?? | [Search] | Recent searches: dev | Click on any person to view their details: | <Alice Johnson> | Designer | <Bob Smith> | Developer | <Carol Davis> | Manager | <David Wilson> | Developer | <Eva Brown> | Designer
+> key GF
+  address: /files (3 behind)
+  page: # Files | Every path under /files parses into a single route that captures the remaining segments with rest. | <documents> | 2 items | <photos> | 1 item | <notes.txt> | 1.2 KB
+> key GN
+  address: /nested/route/is/very/nested (4 behind)
+  page: # Very Nested Route! | You found the deeply nested route at /nested/route/is/very/nested
+> visit /people/3
+  address: /people/3 (5 behind)
+  page: <← Back to People> | # Carol Davis | ID: 3 | Role: Manager
+> visit /people/9
+  address: /people/9 (6 behind)
+  page: # Person Not Found | No person found with ID: 9 | <← Back to People>
+> visit /people/x
+  address: /people/x (7 behind)
+  page: # 404 - Page Not Found | The path "/people/x" was not found. | <← Go Home>
+> visit /files/photos/vacation
+  address: /files/photos/vacation (8 behind)
+  page: <Files> | <photos> | vacation | <beach.jpg> | 2.2 MB | <sunset.jpg> | 1.9 MB
+> visit /files/notes.txt
+  address: /files/notes.txt (9 behind)
+  page: <Files> | notes.txt | # notes.txt | 1.2 KB
+> visit /files/documents/taxes/2025.pdf
+  address: /files/documents/taxes/2025.pdf (10 behind)
+  page: <Files> | <documents> | <taxes> | 2025.pdf | # 2025.pdf | 192.2 KB
+> visit /files/nope
+  address: /files/nope (11 behind)
+  page: <Files> | nope | # Nothing Here | No file or directory at "nope". | <← Back to Files>
+> visit /nowhere?searchText=dev
+  address: /nowhere?searchText=dev (12 behind)
+  page: # 404 - Page Not Found | The path "/nowhere?searchText=dev" was not found. | <← Go Home>
+> visit /people?searchText=bob+smith
+  address: /people?searchText=bob+smith (13 behind)
+  page: # People | ?bob smith? | [Search] | Recent searches: bob smith, dev | Searching…
+> wait 300
+  page: # People | ?bob smith? | [Search] | Recent searches: bob smith, dev | 1 result for “bob smith” | <Bob Smith> | Developer
+> visit /people
+  address: /people (14 behind)
+  page: # People | ?? | [Search] | Recent searches: bob smith, dev | Searching…
+> type Data Smith
+  page: # People | ?Data Smith? | [Search] | Recent searches: bob smith, dev | Searching…
+> type a b
+  page: # People | ?a b? | [Search] | Recent searches: bob smith, dev | Searching…
+> click Search
+  address: /people?searchText=a%20b (15 behind)
+  page: # People | ?a b? | [Search] | Recent searches: a b, bob smith, dev | Searching…
+> key GH
+  address: / (16 behind)
+  page: # Welcome Home | This is a routing example built with Ergo. Navigate using the links above to see different routes in action.
+> wait 300
+> key GP
+  address: /people (17 behind)
+  page: # People | ?? | [Search] | Recent searches: a b, bob smith, dev | Searching…
+> type Developer
+  page: # People | ?Developer? | [Search] | Recent searches: a b, bob smith, dev | Searching…
+> click Search
+  address: /people?searchText=Developer (18 behind)
+  page: # People | ?Developer? | [Search] | Recent searches: Developer, a b, bob smith, dev | Searching…
+> wait 300
+  page: # People | ?Developer? | [Search] | Recent searches: Developer, a b, bob smith, dev | 2 results for “Developer” | <Bob Smith> | Developer | <David Wilson> | Developer
+> back
+  address: /people (17 behind)
+  page: # People | ?? | [Search] | Recent searches: Developer, a b, bob smith, dev | Searching…
+> wait 300
+  page: # People | ?? | [Search] | Recent searches: Developer, a b, bob smith, dev | Click on any person to view their details: | <Alice Johnson> | Designer | <Bob Smith> | Developer | <Carol Davis> | Manager | <David Wilson> | Developer | <Eva Brown> | Designer
+> back
+  address: / (16 behind)
+  page: # Welcome Home | This is a routing example built with Ergo. Navigate using the links above to see different routes in action.
+> back
+  address: /people?searchText=a%20b (15 behind)
+  page: # People | ?a b? | [Search] | Recent searches: a b, Developer, bob smith, dev | Searching…
+> stop

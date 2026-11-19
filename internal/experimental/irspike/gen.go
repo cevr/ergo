@@ -568,10 +568,12 @@ func (g *gen) expr(t gtype, d int) string {
 		if v == "" {
 			return g.leaf(tU8)
 		}
-		ops := []string{"+", "-", "*", "&", "|", "^", "<<"}
+		// >> here too: after F1 and F2 merged, int64's shifts alone left
+		// the 16-seed run without one (TestIRMatchesSource's reach).
+		ops := []string{"+", "-", "*", "&", "|", "^", "<<", ">>"}
 		op := ops[g.n(len(ops))]
-		if op == "<<" {
-			return "(" + v + " << (" + g.expr(tU8, d-1) + " & 7))"
+		if op == "<<" || op == ">>" {
+			return "(" + v + " " + op + " (" + g.expr(tU8, d-1) + " & 7))"
 		}
 		return "(" + v + " " + op + " " + g.expr(tU8, d-1) + ")"
 	case tF64:

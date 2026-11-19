@@ -48,11 +48,15 @@ extern go ergo.local/prototype/runtime/v1.Actor type Actor[S, E, D, F] {
 	// actor dropped instead of stepping them (runner rules 6 and 11).
 	Dropped() int,
 	// LatestChanges is the actor's state when the loop begins, then its
-	// latest state each time the loop reads after a commit: a loop slower
-	// than the actor skips the states between, so it holds at most one
-	// state however long it does not read (F-GP4c-1). It ends after the
-	// actor ends and it gave the last state, also one a stop overtook. A
-	// break ends it. A loop that needs every state reads Changes(a, room).
+	// latest state each time the loop reads after a commit (Enter, Stay,
+	// Emit, Tell): a loop slower than the actor skips the states between,
+	// so it holds at most one state however long it does not read
+	// (F-GP4c-1). It ends after the actor ends and it gave the last state,
+	// also one a stop overtook. A break ends it. A loop that needs every
+	// state reads Changes(a, room).
+	//
+	// Unbounded: it ends only when the actor ends, so a loop that collects
+	// it all waits for the actor's end.
 	LatestChanges() Seq[S],
 	// Held is how many committed states its loops (Changes, LatestChanges)
 	// hold and have not given yet, summed: a loop that stops reading keeps
@@ -535,6 +539,9 @@ type Change[S] = Changed[S] | Overflowed
 // does not read holds room states, never one per commit (F-GP4c-1; owner,
 // 2026-11-15). A break ends it. A loop that wants only the current state
 // reads a.LatestChanges().
+//
+// Unbounded: it ends only when the actor ends, so a loop that collects it
+// all waits for the actor's end.
 func Changes[S, E, D, F](a Actor[S, E, D, F], room int) Seq[Change[S]] {
 	changesOf(a, room, changedOf[S], overflowedOf[S])
 }

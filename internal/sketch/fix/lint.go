@@ -35,7 +35,7 @@ type Linted struct {
 // run. The rounds are bounded by the first round's findings + 1: a safe
 // fix removes its finding and adds none.
 func RunLint(texts map[string]string, chk Checker, lintr Linter) (Result, error) {
-	res, err := rows(texts, chk, true)
+	res, err := Rows(texts, chk)
 	if err != nil || lintr == nil || len(res.Remaining) > 0 {
 		return res, err
 	}
@@ -63,7 +63,15 @@ func RunLint(texts map[string]string, chk Checker, lintr Linter) (Result, error)
 		if err != nil {
 			return Result{}, err
 		}
-		if dropped, ok := dropUnused(next, out.Diagnostics, unused); ok {
+		// A check stops at the first package with an error, so a package
+		// that imports it shows its own unused import only after the
+		// first is dropped: drop until a check names no more. Each round
+		// removes an import, so the loop ends.
+		for {
+			dropped, ok := dropUnused(next, out.Diagnostics, unused)
+			if !ok {
+				break
+			}
 			next = dropped
 			if out, err = chk(next, check.Options{}); err != nil {
 				return Result{}, err

@@ -1,0 +1,22 @@
+# upstream's full flow: type a zip code, get the weather, see the result
+type 90210
+submit
+wait 500
+# typing keeps the last report shown until the next submit
+type 1
+type 10001
+submit
+# while the fetch is under way the button reads Loading... and is
+# disabled, so there is no Get Weather to click
+submit
+wait 500
+# an empty draft fails at once: no fetch starts, so nothing to wait for
+type
+submit
+# a zip with no place, and a station that is down
+type 00000
+submit
+wait 500
+type 99999
+submit
+wait 500

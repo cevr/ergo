@@ -47,9 +47,9 @@ type Timer { State string, Signal string, At Place }
 
 // MachineGraph is one machine declaration's graph: its handle and name,
 // its states and signals in declaration order, the initial state ("*"
-// when the source does not fix it), the arms in match order, the timers
-// and the work by state in the states' order, and the states whose timer
-// or work the reading cannot decide.
+// when the source does not fix it), the arms in match order, the timers,
+// the work and the exit actions by state in the states' order, and the
+// states whose timer, work or exit action the reading cannot decide.
 type MachineGraph {
 	Handle  string,
 	Name    string,
@@ -59,6 +59,7 @@ type MachineGraph {
 	Arms    []Arm,
 	Timers  []Timer,
 	Work    []Place,
+	Exit    []Place,
 	Unsure  []string,
 }
 
@@ -270,8 +271,8 @@ func placeText(p Place) string { "\(p.File):\(p.Line)" }
 
 // MachineText draws a machine view as `ergo inspect machine` prints it,
 // one fact per line: the machine, its states and signals, each arm with
-// its edges, the timers and the work by state in state name order, the
-// unsure states, then each reachable pair with the arms that may step it.
+// its edges, the timers, the work and the exit actions by state in state
+// name order, the unsure states, then each reachable pair with the arms that may step it.
 func MachineText(v MachineView) string {
 	let g = v.Graph
 	let list = func(any bool, vs []string) string { if any { "*" } else { strings.Join(vs, "|") } }
@@ -295,8 +296,12 @@ func MachineText(v MachineView) string {
 	for w in work {
 		b = b + "  work \(w.What) at \(placeText(w))\n"
 	}
+	let exit = slices.SortFunc(slices.Clone(g.Exit), func(x Place, y Place) int { strings.Compare(x.What, y.What) })
+	for x in exit {
+		b = b + "  exit \(x.What) at \(placeText(x))\n"
+	}
 	for s in g.Unsure {
-		b = b + "  unsure \(s): its timer or work is not a literal\n"
+		b = b + "  unsure \(s): its timer, work or exit action is not a literal\n"
 	}
 	for p in v.Reachable {
 		let mut sites = []string{}

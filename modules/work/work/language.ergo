@@ -256,7 +256,7 @@ func LayerFiles(layer []FileEdit) Map[string, string] {
 		case Some[string] as t:
 			out[f.Path] = t.Value
 		case None:
-			out.Delete(f.Path)
+			out = out.Delete(f.Path)
 		}
 	}
 	out

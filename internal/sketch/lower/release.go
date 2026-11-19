@@ -879,7 +879,8 @@ func (fc *funcCtx) holdTaken(x *syntax.CallExpr, c *check.Call) []string {
 	switch {
 	case c.Kind == check.CallOp && c.Op != nil && c.Op.Sig != nil && fc.stdOp(c):
 		takes = c.Op.Sig.Takes
-	case c.Kind == check.CallFunc && c.Func != nil && c.Func.Sig != nil && check.BodyOf(c.Func).Runtime != "":
+	case c.Kind == check.CallFunc && c.Func != nil && c.Func.Sig != nil && check.HoldsTaken(c.Func):
+		// A Go body, or a generic forwarder to one (check.HoldsTaken, B2).
 		takes = c.Func.Sig.Takes
 		if c.Recv != nil {
 			args = append([]syntax.Expr{c.Recv}, args...)

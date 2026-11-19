@@ -178,6 +178,16 @@ type Failed struct {
 // Error is the failure's text, as NotFound's is.
 func (e Failed) Error() string { return "fs.Failed{Path:" + e.Path + " Reason:" + e.Reason + "}" }
 
+// CrossDevice is fs.CrossDevice: a hard link from From to To cannot be
+// made, because the two paths are on different file systems (EXDEV).
+type CrossDevice struct {
+	From string
+	To   string
+}
+
+// Error is the failure's text, as NotFound's is.
+func (e CrossDevice) Error() string { return "fs.CrossDevice{From:" + e.From + " To:" + e.To + "}" }
+
 // Info is fs.Info: the last element of a path, its size in bytes,
 // whether it is a directory, and its permission bits.
 type Info struct {
@@ -422,7 +432,14 @@ func (r *HostRoot) ReadFile(_ *rt.Task, path string) (string, error) {
 	var text string
 	err := r.in(path, func(root *os.Root) error {
 		data, err := root.ReadFile(path)
-		text = string(data)
+		// The text is data itself, not a copy (HTTP-FAST-c9): the slice
+		// ReadFile made is held by nothing else and is never written again.
+		// A read under half the slice's room (a small file in os's
+		// 512-byte minimum) is copied, so its text keeps only its bytes.
+		text = unsafe.String(unsafe.SliceData(data), len(data))
+		if len(data) < cap(data)/2 {
+			text = string(data)
+		}
 		return err
 	})
 	return text, err
@@ -742,6 +759,79 @@ func FSRename(from string, to string) error {
 	}
 	return fsErr(from, err)
 }
+
+// FSExchange is the body of fs.Host's Exchange: the files at a and b
+// trade places in one host call, so a reader of either path sees the old
+// file or the new one and never no file (Linux's renameat2 with
+// RENAME_EXCHANGE). Both must be there: a missing one is NotFound,
+// naming it, and nothing moves. A host or a file system that has no
+// atomic exchange is Failed "no atomic exchange on this host", never a
+// sequence of renames that a reader could see half done (SEMTOOLS SEM4b;
+// code.md, Apply).
+//
+//ergo:host
+//ergo:wait none
+func FSExchange(a string, b string) error {
+	err := exchangePaths(a, b)
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, errNoExchange):
+		return Failed{Path: a, Reason: errNoExchange.Error()}
+	case errors.Is(err, fs.ErrNotExist):
+		if _, lerr := os.Lstat(a); lerr != nil {
+			return NotFound{Path: a}
+		}
+		return NotFound{Path: b}
+	}
+	return fsErr(a, err)
+}
+
+// FSLink is the body of fs.Host's Link (G6): a hard link at to of the
+// file at from (os.Link), so both names are one file. A file at to is
+// Failed ("file exists"): Link never replaces one. Two file systems are
+// CrossDevice, never a copy.
+//
+//ergo:host
+//ergo:wait none
+func FSLink(from string, to string) error {
+	err := os.Link(from, to)
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, syscall.EXDEV):
+		return CrossDevice{From: from, To: to}
+	case errors.Is(err, fs.ErrNotExist):
+		if _, lerr := os.Lstat(from); lerr != nil {
+			return NotFound{Path: from}
+		}
+		return NotFound{Path: to}
+	}
+	return fsErr(to, err)
+}
+
+// FSSameFile is the body of fs.Host's SameFile (G6): whether the paths a
+// and b name one file, after symbolic links, by the host's identity of a
+// file (os.SameFile: the device and the inode on Unix), not by name or
+// bytes. A path with no file is NotFound, naming it.
+//
+//ergo:host
+//ergo:wait none
+func FSSameFile(a string, b string) (bool, error) {
+	fa, err := os.Stat(a)
+	if err != nil {
+		return false, fsErr(a, err)
+	}
+	fb, err := os.Stat(b)
+	if err != nil {
+		return false, fsErr(b, err)
+	}
+	return os.SameFile(fa, fb), nil
+}
+
+// errNoExchange is exchangePaths's failure on a host or a file system with
+// no atomic exchange.
+var errNoExchange = errors.New("no atomic exchange on this host")
 
 // FSRemove is the body of fs.Host's Remove: os.Remove, which removes a
 // file, a symbolic link (not what it names) or an empty directory.
@@ -1110,10 +1200,10 @@ func (l *lineReader) readAll(t *rt.Task) (string, error) {
 	defer l.mu.Unlock()
 	var all strings.Builder
 	if f, ok := l.r.(*os.File); ok {
-		if info, err := f.Stat(); err == nil && info.Mode().IsRegular() && info.Size() > 0 {
+		if size := regularSize(f); size > 0 {
 			// A hint: the offset may be past 0, so this may be more than
 			// the rest, never less unless the file grows.
-			all.Grow(len(l.buf) + int(info.Size()) + 1)
+			all.Grow(len(l.buf) + int(size) + 1)
 		}
 	}
 	growWrite(&all, l.buf)

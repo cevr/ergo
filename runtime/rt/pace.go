@@ -3,12 +3,9 @@ package rt
 import (
 	"math"
 	"os"
-	"path"
 	"runtime"
-	"runtime/debug"
 	"runtime/metrics"
 	"strconv"
-	"strings"
 	"sync/atomic"
 )
 
@@ -100,7 +97,7 @@ func ceilDiv(a, b uint64) uint64 { return (a + b - 1) / b }
 func Pace() {
 	_, gogcSet := os.LookupEnv("GOGC")
 	limit := uint64(math.MaxUint64)
-	if l := debug.SetMemoryLimit(-1); l > 0 && l < math.MaxInt64 {
+	if l := memoryLimit(-1); l > 0 && l < math.MaxInt64 {
 		limit = uint64(l)
 	}
 	if l := cgroupMemoryLimit("/proc/self/cgroup", "/sys/fs/cgroup"); l > 0 {
@@ -116,9 +113,11 @@ func Pace() {
 	newPacer(floor, nil).cycle()
 }
 
-// pacer recomputes the GC percent after each cycle: a cleanup on a
+// pacer recomputes the GC percent after each cycle: a finalizer on a
 // sentinel object runs once the cycle that finds the sentinel unreachable
-// has swept it, and arms the next sentinel. A sentinel armed while a cycle
+// has swept it, and arms the next sentinel (a finalizer, not
+// runtime.AddCleanup: os links SetFinalizer into every program already,
+// and AddCleanup's queue is about 3 KB more of every binary; SIZE-HELLO). A sentinel armed while a cycle
 // marks is allocated live and outlasts that cycle, so the pacer then
 // acts one cycle later. Only the cleanup goroutine runs cycle after the
 // first call.
@@ -133,7 +132,7 @@ type pacer struct {
 }
 
 // paceSentinel has a pointer, so the tiny allocator, whose objects may
-// never be cleaned up, does not hold it.
+// never be finalized, does not hold it.
 type paceSentinel struct{ _ *byte }
 
 func newPacer(floor uint64, observe func(uint64, int, bool)) *pacer {
@@ -156,8 +155,8 @@ func (p *pacer) cycle() {
 	want := pacePercent(live, roots, p.floor)
 	// The swap tells whether the program set its own percent since the
 	// last cycle; then it wins, and the pacer puts it back and stops.
-	if old := debug.SetGCPercent(want); p.set != -2 && int64(old) != p.set {
-		debug.SetGCPercent(old)
+	if old := gcPercent(want); p.set != -2 && int64(old) != p.set {
+		gcPercent(old)
 		p.stopped.Store(true)
 		if p.observe != nil {
 			p.observe(cycles, old, false)
@@ -168,7 +167,7 @@ func (p *pacer) cycle() {
 	if p.observe != nil {
 		p.observe(cycles, want, true)
 	}
-	runtime.AddCleanup(&paceSentinel{}, (*pacer).cycle, p)
+	runtime.SetFinalizer(&paceSentinel{}, func(*paceSentinel) { p.cycle() })
 }
 
 // stop ends the pacing at the next cycle; the percent stays as it is.
@@ -179,14 +178,20 @@ func (p *pacer) stop() { p.stopped.Store(true) }
 // the files cannot be read (cgroup v1, or not Linux). self is the
 // process's cgroup file (/proc/self/cgroup), root the cgroup v2 mount.
 func cgroupMemoryLimit(self, root string) uint64 {
-	data, err := os.ReadFile(self)
+	data, err := readSmall(self)
 	if err != nil {
 		return 0
 	}
 	dir := ""
-	for line := range strings.Lines(string(data)) {
-		if rest, ok := strings.CutPrefix(strings.TrimSpace(line), "0::"); ok {
-			dir = path.Clean("/" + rest)
+	for len(data) > 0 {
+		end := 0
+		for end < len(data) && data[end] != '\n' {
+			end++
+		}
+		line := data[:end]
+		data = data[min(end+1, len(data)):]
+		if s := trimSpace(string(line)); len(s) >= 3 && s[:3] == "0::" {
+			dir = cleanDir(s[3:])
 			break
 		}
 	}
@@ -195,14 +200,65 @@ func cgroupMemoryLimit(self, root string) uint64 {
 	}
 	var limit uint64
 	for {
-		if b, err := os.ReadFile(root + dir + "/memory.max"); err == nil {
-			if n, err := strconv.ParseUint(strings.TrimSpace(string(b)), 10, 64); err == nil && n > 0 && (limit == 0 || n < limit) {
+		if b, err := readSmall(root + dir + "/memory.max"); err == nil {
+			if n, err := strconv.ParseUint(trimSpace(string(b)), 10, 64); err == nil && n > 0 && (limit == 0 || n < limit) {
 				limit = n
 			}
 		}
 		if dir == "/" {
 			return limit
 		}
-		dir = path.Dir(dir)
+		dir = parentDir(dir)
 	}
+}
+
+// trimSpace is strings.TrimSpace for the ASCII text of a proc or cgroup
+// file, without the Unicode tables strings.TrimSpace links (SIZE-HELLO).
+func trimSpace(s string) string {
+	for len(s) > 0 && (s[0] == ' ' || s[0] == '\t' || s[0] == '\n' || s[0] == '\r') {
+		s = s[1:]
+	}
+	for len(s) > 0 && (s[len(s)-1] == ' ' || s[len(s)-1] == '\t' || s[len(s)-1] == '\n' || s[len(s)-1] == '\r') {
+		s = s[:len(s)-1]
+	}
+	return s
+}
+
+// cleanDir is the absolute cgroup path of rest, the text after "0::" in
+// /proc/self/cgroup: rooted, with no empty, "." or trailing element (the
+// kernel writes it clean; this keeps the walk finite on any text), as
+// path.Clean would give for a path without "..", which a cgroup name
+// cannot be.
+func cleanDir(rest string) string {
+	out := make([]byte, 0, len(rest)+1)
+	for len(rest) > 0 {
+		i := 0
+		for i < len(rest) && rest[i] != '/' {
+			i++
+		}
+		if elem := rest[:i]; elem != "" && elem != "." {
+			out = append(append(out, '/'), elem...)
+		}
+		if i == len(rest) {
+			break
+		}
+		rest = rest[i+1:]
+	}
+	if len(out) == 0 {
+		return "/"
+	}
+	return string(out)
+}
+
+// parentDir is the cgroup above dir, a path cleanDir made: "/" above a
+// top-level cgroup.
+func parentDir(dir string) string {
+	i := len(dir) - 1
+	for i > 0 && dir[i] != '/' {
+		i--
+	}
+	if i == 0 {
+		return "/"
+	}
+	return dir[:i]
 }

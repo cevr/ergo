@@ -1,0 +1,50 @@
+{
+ "replies": [
+  {
+   "_tag": "Says",
+   "pieces": [],
+   "calls": [
+    {
+     "id": "c1",
+     "name": "list",
+     "arguments": "{\"dir\":\".\"}"
+    }
+   ],
+   "end": {
+    "_tag": "ToolUse"
+   }
+  },
+  {
+   "_tag": "Says",
+   "pieces": [],
+   "calls": [
+    {
+     "id": "c2",
+     "name": "list",
+     "arguments": "{\"dir\":\".\"}"
+    }
+   ],
+   "end": {
+    "_tag": "ToolUse"
+   }
+  },
+  {
+   "_tag": "Says",
+   "pieces": [],
+   "calls": [
+    {
+     "id": "c3",
+     "name": "list",
+     "arguments": "{\"dir\":\".\"}"
+    }
+   ],
+   "end": {
+    "_tag": "ToolUse"
+   }
+  }
+ ],
+ "files": {
+  "a.txt": "a\n"
+ },
+ "shell": {}
+}

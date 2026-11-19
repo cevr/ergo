@@ -79,7 +79,7 @@ var Kinds = []string{
 	"union-assign", "union-match",
 	"for-cond", "for-slice", "for-array", "for-string", "for-range", "break", "continue",
 	"if", "literal-capture", "literal-value",
-	"generic-call", "package-let", "recursion", "float-text",
+	"generic-call", "fails-param-match", "package-let", "recursion", "float-text",
 	"defect-index", "defect-divide", "slice-bound",
 	"host-func", "host-test", "host-literal", "host-law",
 }
@@ -174,6 +174,31 @@ func pick[T](xs []T, i int, d T) T {
 		return d
 	}
 	xs[idx(len(xs), i)]
+}
+
+type FBox[F] = FEmpty{} | FBad{Error F}
+
+type Oops { V int }
+
+func boxWhich[F](b FBox[F], f F) int fails F {
+	match b {
+	case FEmpty:
+		return 0
+	case FBad[F]:
+		return 2
+	}
+	return f
+}
+
+func boxArm(n int) int {
+	let mut b FBox[Oops] = FEmpty
+	if n % 2 == 0 {
+		b = FBad{Error: Oops{V: n}}
+	}
+	boxWhich[Oops](b, Oops{V: n}) catch {
+	case Oops:
+		-1
+	}
 }
 
 func unbox[T](o Option[T], d T) T {
@@ -706,6 +731,20 @@ func (g *gen) intExpr(d int) iexpr {
 		return ie("runes(t0)", func(m *model) int64 { return runes(m.str) })
 	case 11:
 		g.kind("union-match")
+		if g.r.IntN(3) == 0 {
+			// A generic function whose fails row names its parameter F
+			// matches FBad[F]: F is bound to a row, whose one member names
+			// the type itself (rows.md, Error rows 8, One member;
+			// EVAL-FAILS-PARAM: the evaluator read it as a union).
+			i := g.intExpr(d - 1)
+			g.kind("fails-param-match")
+			return ie("boxArm("+i.text+")", func(m *model) int64 {
+				if i.val(m)%2 == 0 {
+					return 2
+				}
+				return 0
+			})
+		}
 		return ie("area(sh0)", func(m *model) int64 { return area(m.sh) })
 	case 12:
 		g.kind("conversion")
@@ -1142,11 +1181,20 @@ func (g *gen) compound(c, d int) (stmt, bool) {
 	case 33:
 		g.kind("union-match")
 		v, e := g.pick(intVars), g.intExpr(1)
-		text := fmt.Sprintf("match sh0 {\ncase Dot:\n\t%s += 1\ncase Line{n: k}:\n\t%s = %s + k\ncase Grid{cells: cs}:\n\tsh0 = Line{n: len(cs) + %s}\n}", v, v, v, e.text)
+		// Dot's arm is a value match: a literal subject, a case of two
+		// constants and a wildcard (the compiled value match, ORACLE O35).
+		text := fmt.Sprintf("match sh0 {\ncase Dot:\n\tmatch %s %% 3 {\n\tcase 0:\n\t\t%s += 1\n\tcase 1, 2:\n\t\t%s += 2\n\tcase _:\n\t\t%s += 3\n\t}\ncase Line{n: k}:\n\t%s = %s + k\ncase Grid{cells: cs}:\n\tsh0 = Line{n: len(cs) + %s}\n}", v, v, v, v, v, v, e.text)
 		return stmt{line(text), func(m *model) {
 			switch m.sh.kind {
 			case "Dot":
-				m.ints[v]++
+				switch m.ints[v] % 3 {
+				case 0:
+					m.ints[v]++
+				case 1, 2:
+					m.ints[v] += 2
+				default:
+					m.ints[v] += 3
+				}
 			case "Line":
 				m.ints[v] += m.sh.n
 			default:

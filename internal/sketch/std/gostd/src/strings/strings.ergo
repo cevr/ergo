@@ -8,32 +8,32 @@ import go unicode
 extern go strings.Builder type Builder {}
 
 // ergo:go func (*Builder).Cap() int
-extern go strings.Builder.Cap func (b own *Builder) Cap() int
+extern go strings.Builder.Cap func (b *Builder) Cap() int
 
 // ergo:go func (*Builder).Grow(n int)
-extern go strings.Builder.Grow func (b own *Builder) Grow(n int)
+extern go strings.Builder.Grow func (b *Builder) Grow(n int)
 
 // ergo:go func (*Builder).Len() int
-extern go strings.Builder.Len func (b own *Builder) Len() int
+extern go strings.Builder.Len func (b *Builder) Len() int
 
 // ergo:go func (*Builder).Reset()
-extern go strings.Builder.Reset func (b own *Builder) Reset()
+extern go strings.Builder.Reset func (b *Builder) Reset()
 
 // ergo:go func (*Builder).String() string
-extern go strings.Builder.String func (b own *Builder) String() string
+extern go strings.Builder.String func (b *Builder) String() string
 
 // ergo:go func (*Builder).Write(p []byte) (int, error)
 // ergo:reads p
-extern go strings.Builder.Write func (b own *Builder) Write(p []byte) int fails go.Error
+extern go strings.Builder.Write func (b *Builder) Write(p []byte) int fails go.Error
 
 // ergo:go func (*Builder).WriteByte(c byte) error
-extern go strings.Builder.WriteByte func (b own *Builder) WriteByte(c byte) fails go.Error
+extern go strings.Builder.WriteByte func (b *Builder) WriteByte(c byte) fails go.Error
 
 // ergo:go func (*Builder).WriteRune(r rune) (int, error)
-extern go strings.Builder.WriteRune func (b own *Builder) WriteRune(r rune) int fails go.Error
+extern go strings.Builder.WriteRune func (b *Builder) WriteRune(r rune) int fails go.Error
 
 // ergo:go func (*Builder).WriteString(s string) (int, error)
-extern go strings.Builder.WriteString func (b own *Builder) WriteString(s string) int fails go.Error
+extern go strings.Builder.WriteString func (b *Builder) WriteString(s string) int fails go.Error
 
 // ergo:go func Clone(s string) string
 extern go strings.Clone func Clone(s string) string
@@ -105,6 +105,7 @@ extern go strings.IndexFunc func IndexFunc[CR](s string, f func(rune) bool needs
 extern go strings.IndexRune func IndexRune(s string, r rune) int
 
 // ergo:go func Join(elems []string, sep string) string
+// ergo:reads elems (vouched: Go reports only that an element string flows to the result (leaking param: elems to result level=1): the slice's array is neither written nor kept, and a string is immutable)
 extern go strings.Join func Join(elems []string, sep string) string
 
 // ergo:go func LastIndex(s string, substr string) int
@@ -136,37 +137,37 @@ extern go strings.NewReplacer func NewReplacer(oldnew []string) Option[go.Ref[Re
 extern go strings.Reader type Reader {}
 
 // ergo:go func (*Reader).Len() int
-extern go strings.Reader.Len func (r own *Reader) Len() int
+extern go strings.Reader.Len func (r *Reader) Len() int
 
 // ergo:go func (*Reader).Read(b []byte) (n int, err error)
-extern go strings.Reader.Read func (r own *Reader) Read(b []byte) int fails go.Error
+extern go strings.Reader.Read func (r *Reader) Read(b []byte) int fails go.Error
 
 // ergo:go func (*Reader).ReadAt(b []byte, off int64) (n int, err error)
-extern go strings.Reader.ReadAt func (r own *Reader) ReadAt(b []byte, off int64) int fails go.Error
+extern go strings.Reader.ReadAt func (r *Reader) ReadAt(b []byte, off int64) int fails go.Error
 
 // ergo:go func (*Reader).ReadByte() (byte, error)
-extern go strings.Reader.ReadByte func (r own *Reader) ReadByte() byte fails go.Error
+extern go strings.Reader.ReadByte func (r *Reader) ReadByte() byte fails go.Error
 
 // ergo:go func (*Reader).ReadRune() (ch rune, size int, err error)
-extern go strings.Reader.ReadRune func (r own *Reader) ReadRune() (rune, int) fails go.Error
+extern go strings.Reader.ReadRune func (r *Reader) ReadRune() (rune, int) fails go.Error
 
 // ergo:go func (*Reader).Reset(s string)
-extern go strings.Reader.Reset func (r own *Reader) Reset(s string)
+extern go strings.Reader.Reset func (r *Reader) Reset(s string)
 
 // ergo:go func (*Reader).Seek(offset int64, whence int) (int64, error)
-extern go strings.Reader.Seek func (r own *Reader) Seek(offset int64, whence int) int64 fails go.Error
+extern go strings.Reader.Seek func (r *Reader) Seek(offset int64, whence int) int64 fails go.Error
 
 // ergo:go func (*Reader).Size() int64
-extern go strings.Reader.Size func (r own *Reader) Size() int64
+extern go strings.Reader.Size func (r *Reader) Size() int64
 
 // ergo:go func (*Reader).UnreadByte() error
-extern go strings.Reader.UnreadByte func (r own *Reader) UnreadByte() fails go.Error
+extern go strings.Reader.UnreadByte func (r *Reader) UnreadByte() fails go.Error
 
 // ergo:go func (*Reader).UnreadRune() error
-extern go strings.Reader.UnreadRune func (r own *Reader) UnreadRune() fails go.Error
+extern go strings.Reader.UnreadRune func (r *Reader) UnreadRune() fails go.Error
 
 // ergo:go func (*Reader).WriteTo(w io.Writer) (n int64, err error)
-extern go strings.Reader.WriteTo func (r own *Reader) WriteTo(w own io.Writer) int64 fails go.Error
+extern go strings.Reader.WriteTo func (r *Reader) WriteTo(w own io.Writer) int64 fails go.Error
 
 // ergo:go func Repeat(s string, count int) string
 extern go strings.Repeat func Repeat(s string, count int) string
@@ -181,10 +182,10 @@ extern go strings.ReplaceAll func ReplaceAll(s string, old string, new string) s
 extern go strings.Replacer type Replacer {}
 
 // ergo:go func (*Replacer).Replace(s string) string
-extern go strings.Replacer.Replace func (r own *Replacer) Replace(s string) string
+extern go strings.Replacer.Replace func (r *Replacer) Replace(s string) string
 
 // ergo:go func (*Replacer).WriteString(w io.Writer, s string) (n int, err error)
-extern go strings.Replacer.WriteString func (r own *Replacer) WriteString(w own io.Writer, s string) int fails go.Error
+extern go strings.Replacer.WriteString func (r *Replacer) WriteString(w own io.Writer, s string) int fails go.Error
 
 // ergo:go func Split(s string, sep string) []string
 extern go strings.Split func Split(s string, sep string) []string

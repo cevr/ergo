@@ -599,7 +599,8 @@ var stdPrivilegesBaseline = []string{
 	"internal/sketch/check/work.go:checker.workLit",
 	"internal/sketch/check/work.go:checker.workLitForm",
 	"internal/sketch/check/work.go:isWorkType",
-	"internal/sketch/eval/expr.go:interp.callOf",
+	// ORACLE O38 moved callOf's std check (takes) into planOf (FT1 merge).
+	"internal/sketch/eval/plan.go:interp.planOf",
 	"internal/sketch/eval/machine.go:interp.machineLaw",
 	"internal/sketch/eval/machinevalue.go:interp.machineOption",
 	"internal/sketch/eval/natives.go:nativeOf",
@@ -635,7 +636,6 @@ var stdPrivilegesBaseline = []string{
 	"internal/sketch/lower/handover.go:funcCtx.ownedFormAt",
 	"internal/sketch/lower/handover.go:lowerer.checkedOwnedForm",
 	"internal/sketch/lower/handover.go:lowerer.checkedOwnedForm",
-	"internal/sketch/lower/hook.go:hookFunc", // B22-NP (RT-HOOK, batch 22 integration)
 	"internal/sketch/lower/ir.go:irState.body",
 	"internal/sketch/lower/ir.go:irState.body",
 	"internal/sketch/lower/ir.go:irState.intrinsic",
@@ -662,8 +662,6 @@ var stdPrivilegesBaseline = []string{
 	"internal/sketch/lower/std.go:lowerer.stdBody",
 	"internal/sketch/lower/std.go:opBody",
 	"internal/sketch/lower/types.go:lowerer.foreignOwner",
-	"internal/sketch/lower/uigroup.go:funcCtx.uiGroup",
-	"internal/sketch/lower/uigroup.go:groupFrame",
 	"internal/sketch/lower/values.go:lowerer.ownedForm",
 	"internal/sketch/lower/wirefields.go:jsonWrapper",
 	"internal/sketchfront/inspect.go:InspectGo",
@@ -671,7 +669,6 @@ var stdPrivilegesBaseline = []string{
 	"internal/sketchfront/rewrite.go:FreshStdLedger",
 	"internal/tsproj/http.go:httpFailureStatuses",
 	"internal/tsproj/http.go:httpTables",
-	"internal/tsproj/project.go:stdJSON",
 }
 
 // stringConsts are the lowering's package-level constants whose value is

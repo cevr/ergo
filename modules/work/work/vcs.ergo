@@ -18,6 +18,10 @@ type NotFastForward { Ref string, Parent string }
 // Conflicted is a merge that changed the same files on both sides.
 type Conflicted { Files []string }
 
+// Local is a local ref of a checkout and its commit: a branch
+// (refs/heads/NAME) or a stash entry (refs/stash/N, the newest 0).
+type Local { Ref string, Commit string }
+
 // Pushed is one ref a push writes in the parent: From in the checkout (a
 // ref, or HEAD) to the parent's ref To; only a Force push may replace a
 // commit To holds that From does not contain.
@@ -63,10 +67,21 @@ type Vcs {
 	// descendant.
 	Contains(root string, commit string, ancestor string) bool fails VcsFailed,
 	// Start makes branch at commit and switches the checkout to it,
-	// carrying its uncommitted and untracked files, and stops pushes to
-	// the checkout's origin. At the checkout's own head it writes two refs
-	// and leaves the index as it is.
+	// carrying its uncommitted and untracked files. At the checkout's own
+	// head it writes two refs and leaves the index as it is.
 	Start(root string, branch string, commit string) fails VcsFailed,
+	// GuardPushes stops every push from the checkout to each of its remotes.
+	GuardPushes(root string) fails VcsFailed,
+	// Locals is each local branch and each stash entry of the checkout.
+	Locals(root string) []Local fails VcsFailed,
+	// Tracked reports whether the checkout's index holds path.
+	Tracked(root string, path string) bool fails VcsFailed,
+	// Exclude adds the pattern to the checkout's own ignore list
+	// (.git/info/exclude, never committed) unless it is there already.
+	Exclude(root string, pattern string) fails VcsFailed,
+	// Remote reports whether a remote-tracking ref of the checkout
+	// (refs/remotes/...) contains commit.
+	Remote(root string, commit string) bool fails VcsFailed,
 	// Configure sets key to value in the checkout's own configuration.
 	Configure(root string, key string, value string) fails VcsFailed,
 	// StatDirty is the number of tracked files whose stat the index does
@@ -188,14 +203,36 @@ type Outline { Head string, Branch string, Clean bool }
 // ref, or sets it to one of two values from what it last read.
 type Write { Writer int, Read bool, Value int }
 
-// Kept reports whether the work of the checkout at root is safe in its
-// parent: it is clean and its head is on a branch of the parent, or its
-// snapshot is the one ready last handed to the parent (latest, which the
-// parent's ref snapshotRef still names). A workspace whose work is not
-// kept is removed only when it is abandoned.
+// Kept reports whether the work of the checkout at root is safe: every
+// local branch and stash entry is held (Unheld is empty), and it is clean
+// with its head held, or its snapshot is the one ready last handed to the
+// parent (latest, which the parent's ref snapshotRef still names). A
+// workspace whose work is not kept is removed only when it is abandoned.
 func Kept(root string, parent string, latest string, snapshotRef string) bool fails VcsFailed needs Vcs {
-	if try Vcs.Clean(root) && try Vcs.Holds(parent, try Vcs.Head(root)) {
+	if len(try Unheld(root, parent)) > 0 {
+		return false
+	}
+	if try Vcs.Clean(root) && try Held(root, parent, try Vcs.Head(root)) {
 		return true
 	}
 	latest != "" && try Vcs.Snapshot(root) == latest && try Vcs.Ref(parent, snapshotRef) != ""
+}
+
+// Held reports whether commit of the checkout at root is safe without it:
+// a branch of parent contains it, or a remote-tracking ref of root does
+// (it is on a remote already).
+func Held(root string, parent string, commit string) bool fails VcsFailed needs Vcs {
+	try Vcs.Holds(parent, commit) || try Vcs.Remote(root, commit)
+}
+
+// Unheld is each local branch and stash entry of the checkout at root
+// whose commit is not Held: the work that only this checkout has.
+func Unheld(root string, parent string) []Local fails VcsFailed needs Vcs {
+	let mut out = []Local{}
+	for l in try Vcs.Locals(root) {
+		if !try Held(root, parent, l.Commit) {
+			out = out.Append(l)
+		}
+	}
+	out
 }

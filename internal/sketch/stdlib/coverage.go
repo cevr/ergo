@@ -25,31 +25,36 @@ var coverage = map[string][]string{
 	"fstest":   {"testing/fstest"},
 	"hex":      {"encoding/hex"},
 	"hmac":     {"crypto/hmac"},
+	"html":     {"html", "html/template"},
 	"http":     {"net/http"},
 	"json":     {"encoding/json"},
 	"log":      {"log", "log/slog"},
 	"maps":     {"maps"},
+	"net":      {"net"},
 	"math":     {"math"},
 	"os":       {"os"},
 	"rand":     {"math/rand", "math/rand/v2"},
 	"sha1":     {"crypto/sha1"},
 	"sha256":   {"crypto/sha256"},
 	"sha512":   {"crypto/sha512"},
+	"sql":      {"database/sql"},
 	"slices":   {"slices", "sort"},
 	"strconv":  {"strconv"},
 	"strings":  {"strings"},
 	"sync":     {"sync"},
 	"testing":  {"testing"},
 	"time":     {"time"},
+	"url":      {"net/url"},
 	"utf8":     {"unicode/utf8"},
 }
 
 // coversNone are the std packages that replace no Go standard-library
 // package: Ergo constructs (machines, actors, rows, schedules), or a Go
-// counterpart outside the standard library (errgroup, x/term).
+// counterpart outside the standard library (errgroup, x/term, x/mod's
+// semver).
 var coversNone = []string{
-	"actor", "api", "arena", "bench", "cache", "civil", "code", "codec", "codegraph", "config", "decimal", "dense", "explore", "graph", "io", "journal", "journal/file",
-	"journal/memory", "lint", "machines", "prompt", "pubsub", "queue", "rpc", "schedule", "scope", "set", "stream",
+	"actor", "ansi", "api", "arena", "bench", "build", "cache", "civil", "code", "codec", "codegraph", "config", "cron", "decimal", "dense", "explore", "graph", "io", "journal", "journal/file",
+	"journal/memory", "lint", "llm", "llm/memory", "llm/recorded", "machines", "nettest", "pace", "prompt", "pubsub", "queue", "rpc", "schedule", "scope", "semver", "set", "sqltest", "stream",
 	"task", "tasks", "term", "text", "timeout", "toml", "trace", "tz", "tz/host", "tz/iana", "ui", "ui/layout", "uuid",
 }
 

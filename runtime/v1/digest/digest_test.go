@@ -48,7 +48,8 @@ var digestLaws = map[string]func(r *rand.Rand) (bool, any){
 	},
 	"sha256 SumIs32Bytes": func(r *rand.Rand) (bool, any) {
 		s := digestText(r)
-		return len(Sha256Sum(s)) == 32, s
+		d := sha256.Sum256([]byte(s))
+		return len(string(d[:])) == 32, s
 	},
 	"sha512 SumIs64Bytes": func(r *rand.Rand) (bool, any) {
 		s := digestText(r)
@@ -60,17 +61,17 @@ var digestLaws = map[string]func(r *rand.Rand) (bool, any){
 	},
 	"crc32 UpdateChains": func(r *rand.Rand) (bool, any) {
 		a, b := digestText(r), digestText(r)
-		return Crc32Update(Crc32Checksum(a), b) == Crc32Checksum(a+b), [2]string{a, b}
+		return Crc32Update(crc32.ChecksumIEEE([]byte(a)), b) == crc32.ChecksumIEEE([]byte(a+b)), [2]string{a, b}
 	},
 	"crc32 UpdateFromZero": func(r *rand.Rand) (bool, any) {
 		s := digestText(r)
-		return Crc32Update(0, s) == Crc32Checksum(s), s
+		return Crc32Update(0, s) == crc32.ChecksumIEEE([]byte(s)), s
 	},
 }
 
 var digestLawStatements = map[string]string{
-	"hex DecodeInvertsEncode":    `DecodeInvertsEncode(s string) { try Decode(Encode(s)) == s }`,
-	"hex EncodeDoublesLength":    `EncodeDoublesLength(s string) { len(Encode(s)) == 2 * len(s) }`,
+	"hex DecodeInvertsEncode":    `DecodeInvertsEncode(s string) { try Decode(Encode(s)) } == { s }`,
+	"hex EncodeDoublesLength":    `EncodeDoublesLength(s string) { len(Encode(s)) } == { 2 * len(s) }`,
 	"base64 DecodeInvertsEncode": `DecodeInvertsEncode(s string) { let std = try Decode(StdEncoding, Encode(StdEncoding, s)) let url = try Decode(URLEncoding, Encode(URLEncoding, s)) std == s && url == s }`,
 	"base64 EncodedLength":       `EncodedLength(s string) { len(Encode(StdEncoding, s)) == (len(s) + 2) / 3 * 4 }`,
 	"sha256 SumIs32Bytes":        `SumIs32Bytes(s string) { len(Sum(s)) == 32 }`,
@@ -106,17 +107,6 @@ func BenchmarkDigest(b *testing.B) {
 	for len(s) < 1024 {
 		s += s + "x"
 	}
-	b.Run("Sha256Sum", func(b *testing.B) {
-		for b.Loop() {
-			_ = Sha256Sum(s)
-		}
-	})
-	b.Run("GoSum256", func(b *testing.B) {
-		for b.Loop() {
-			d := sha256.Sum256([]byte(s))
-			_ = string(d[:])
-		}
-	})
 	b.Run("Sha512Sum", func(b *testing.B) {
 		for b.Loop() {
 			_ = Sha512Sum(s)
@@ -149,16 +139,6 @@ func BenchmarkDigest(b *testing.B) {
 			m := hmac.New(sha256.New, []byte("key"))
 			m.Write([]byte(s))
 			_ = string(m.Sum(nil))
-		}
-	})
-	b.Run("Crc32Checksum", func(b *testing.B) {
-		for b.Loop() {
-			_ = Crc32Checksum(s)
-		}
-	})
-	b.Run("GoChecksumIEEE", func(b *testing.B) {
-		for b.Loop() {
-			_ = crc32.ChecksumIEEE([]byte(s))
 		}
 	})
 	b.Run("HexEncode", func(b *testing.B) {

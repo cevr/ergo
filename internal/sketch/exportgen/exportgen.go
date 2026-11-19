@@ -67,12 +67,18 @@ var skipFields = map[string]string{
 	"check.checker.contextLimit": "test hook",
 	"check.checker.withLimit":    "test hook",
 	"check.checker.nodeCheck":    "test hook",
+	"check.stdImporter.sources":  "test hook: a test's library (TestStdImportNamesBrokenPackage)",
 	"check.checker.elidedAs":     "set only while an elided literal is checked",
 	"check.checker.nodeOrder":    "a memo of the source order, rebuilt on use",
 	"check.checker.neverOrigins": "a memo per union origin (never.go), rebuilt on use",
+	"check.cellSite.of":          "read only by checkCells, which ran before the export (cells.go, GB-RACE)",
 	// A module package's importer serves its check alone (check/export.go,
 	// ModuleImporter); the decoded wrapper imports nothing.
 	"check.moduleImporter.next": "the loader of the process that checked the package",
+	// A std package that imports Go (NP4f) holds its own GoBindings, read
+	// from Go's standard library; decoded, a nil lookup reads the same
+	// (GoBindings.Package).
+	"check.GoBindings.lookup": "Go's standard library bindings, nil when decoded",
 	// The derive record (internal/sketch/derive). Std declares no plan
 	// function or derive, so its record is empty and nil means the same;
 	// check.ExportStd refuses a std package whose record is not empty.
@@ -90,7 +96,6 @@ var skipTypes = map[string]string{
 	"UserExport":   "the measure of user segments (export_user.go), never in the model",
 	"CrossRef":     "a reference UserExport records, never in the model",
 	"pathRef":      "a decoder's cache key (export.go), never in the model",
-	"pathWalker":   "the object path walk (objpath.go), never in the model",
 	"declWalk":     "a node path resolver's walk of a declaration (nodepath.go), never in the model",
 	"nodeRef":      "a decoder's cache key (export.go), never in the model",
 	"nodeResolver": "a decoder's node path resolver (nodepath.go), never in the model",

@@ -95,7 +95,9 @@ func ExampleTargets(root string) (mains, tests []string, err error) {
 		if err != nil {
 			return err
 		}
-		if d.IsDir() && d.Name() == "testdata" {
+		// ergo.bind holds a module's generated Go bindings, no test target
+		// (scripts/examples laws.go skips it too; FORK-GOLIB examples/admit).
+		if d.IsDir() && (d.Name() == "testdata" || d.Name() == "ergo.bind") {
 			return filepath.SkipDir
 		}
 		if d.IsDir() {

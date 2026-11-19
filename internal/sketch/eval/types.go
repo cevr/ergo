@@ -18,6 +18,9 @@ type tenv struct {
 	// generic declaration has few, so a scan finds one (ORACLE O33).
 	tps  []*check.TypeParam
 	args []rtype
+	// wits are the operation witnesses of the call's constrained type
+	// parameters (witness.go), nil for most calls.
+	wits map[*check.TypeParam]*witnessV
 }
 
 // bind makes tp stand for r.
@@ -130,6 +133,10 @@ func writeKey(b *strings.Builder, r rtype) {
 		}
 		b.WriteByte(')')
 	case *check.Union:
+		if t.Row != nil {
+			writeRowKey(b, rowMembers(t.Variants, r.env, nil))
+			return
+		}
 		b.WriteByte('<')
 		for i, v := range t.Variants {
 			if i > 0 {
@@ -138,6 +145,8 @@ func writeKey(b *strings.Builder, r rtype) {
 			writeKey(b, rtype{v, r.env})
 		}
 		b.WriteByte('>')
+	case *check.RowArg:
+		writeRowKey(b, rowMembers(t.Row.Elems(), r.env, nil))
 	case *check.Signature:
 		// A function type is its Go type: its parameters and results read
 		// in the frame; its rows are no part of it (a Go func type has
@@ -163,6 +172,50 @@ func writeKey(b *strings.Builder, r rtype) {
 	default:
 		b.WriteString(r.t.String())
 	}
+}
+
+// rowMembers appends to out the members of a row read in env: a row
+// parameter bound to a row (a RowArg, or a row value) stands for its own
+// members, read in the env that bound it.
+func rowMembers(elems []check.Type, env *tenv, out []rtype) []rtype {
+	for _, e := range elems {
+		r := env.resolve(e)
+		switch t := r.t.(type) {
+		case *check.RowArg:
+			out = rowMembers(t.Row.Elems(), r.env, out)
+		case *check.Union:
+			if t.Row != nil {
+				out = rowMembers(t.Variants, r.env, out)
+				continue
+			}
+			out = append(out, r)
+		default:
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// writeRowKey is the key of a row value's type: a row of one error type
+// names that type itself (rows.md, Error rows 8, One member; the checker
+// normalises an instance's arguments the same way, check.slotArgs), so a
+// Bad[F] read where F is bound to the row Oops is Bad[Oops]; any other
+// row is the union of its members (EVAL-FAILS-PARAM).
+func writeRowKey(b *strings.Builder, ms []rtype) {
+	if len(ms) == 1 {
+		if _, named := ms[0].t.(*check.Named); named {
+			writeKey(b, ms[0])
+			return
+		}
+	}
+	b.WriteByte('<')
+	for i, m := range ms {
+		if i > 0 {
+			b.WriteByte('|')
+		}
+		writeKey(b, m)
+	}
+	b.WriteByte('>')
 }
 
 // argsKey is the key of a nominal type's arguments: "" for a type with
@@ -263,7 +316,9 @@ func zeroOf(r rtype) (Value, bool) {
 	u := r.under()
 	switch t := u.t.(type) {
 	case *check.Slice:
-		return newSlice(nil), true
+		s := newSlice(nil)
+		s.b.elem = goSize(rtype{t.Elem, u.env})
+		return s, true
 	case *check.Map:
 		return newMap(), true
 	case *check.Array:
@@ -277,6 +332,7 @@ func zeroOf(r rtype) (Value, bool) {
 		}
 		s := newSlice(elems)
 		s.array = true
+		s.b.elem = goSize(rtype{t.Elem, u.env})
 		return s, true
 	case *check.Struct:
 		n, ok := r.t.(*check.Named)

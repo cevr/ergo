@@ -1,0 +1,114 @@
+  # Get the Release Notes
+  Name<>
+  Email<>
+  Anything you'd like to share with us?<>
+  [Subscribe, disabled]
+> email ada@example.org
+  # Get the Release Notes
+  Name<>
+  Email<ada@example.org> (Checking...)
+  Anything you'd like to share with us?<>
+  [Subscribe, disabled]
+> wait 300
+  # Get the Release Notes
+  Name<>
+  Email<ada@example.org>
+  Anything you'd like to share with us?<>
+  [Subscribe]
+> name A
+  # Get the Release Notes
+  Name<A> (Name must be at least 2 characters)
+  Email<ada@example.org>
+  Anything you'd like to share with us?<>
+  [Subscribe, disabled]
+> submit
+  # Get the Release Notes
+  Name<A> (Name must be at least 2 characters)
+  Email<ada@example.org>
+  Anything you'd like to share with us?<>
+  [Subscribe, disabled]
+> enter
+  # Get the Release Notes
+  Name<A> (Name must be at least 2 characters)
+  Email<ada@example.org>
+  Anything you'd like to share with us?<>
+  [Subscribe, disabled]
+> email ada@example
+  # Get the Release Notes
+  Name<A> (Name must be at least 2 characters)
+  Email<ada@example> (Please enter a valid email address)
+  Anything you'd like to share with us?<>
+  [Subscribe, disabled]
+> email ada@.org
+  # Get the Release Notes
+  Name<A> (Name must be at least 2 characters)
+  Email<ada@.org> (Please enter a valid email address)
+  Anything you'd like to share with us?<>
+  [Subscribe, disabled]
+> email ada@example.
+  # Get the Release Notes
+  Name<A> (Name must be at least 2 characters)
+  Email<ada@example.> (Please enter a valid email address)
+  Anything you'd like to share with us?<>
+  [Subscribe, disabled]
+> email ada lovelace@example.org
+  # Get the Release Notes
+  Name<A> (Name must be at least 2 characters)
+  Email<ada lovelace@example.org> (Please enter a valid email address)
+  Anything you'd like to share with us?<>
+  [Subscribe, disabled]
+> email ada@home@example.org
+  # Get the Release Notes
+  Name<A> (Name must be at least 2 characters)
+  Email<ada@home@example.org> (Please enter a valid email address)
+  Anything you'd like to share with us?<>
+  [Subscribe, disabled]
+> email @example.org
+  # Get the Release Notes
+  Name<A> (Name must be at least 2 characters)
+  Email<@example.org> (Please enter a valid email address)
+  Anything you'd like to share with us?<>
+  [Subscribe, disabled]
+> name Ad
+  # Get the Release Notes
+  Name<Ad>
+  Email<@example.org> (Please enter a valid email address)
+  Anything you'd like to share with us?<>
+  [Subscribe, disabled]
+> enter
+  # Get the Release Notes
+  Name<Ad>
+  Email<@example.org> (Please enter a valid email address)
+  Anything you'd like to share with us?<>
+  [Subscribe, disabled]
+> email ada@example.org
+  # Get the Release Notes
+  Name<Ad>
+  Email<ada@example.org> (Checking...)
+  Anything you'd like to share with us?<>
+  [Subscribe, disabled]
+> enter
+  # Get the Release Notes
+  Name<Ad>
+  Email<ada@example.org> (Checking...)
+  Anything you'd like to share with us?<>
+  [Subscribe, disabled]
+> wait 300
+  # Get the Release Notes
+  Name<Ad>
+  Email<ada@example.org>
+  Anything you'd like to share with us?<>
+  [Subscribe]
+> enter
+  # Get the Release Notes
+  Name<Ad>
+  Email<ada@example.org>
+  Anything you'd like to share with us?<>
+  [Subscribing..., disabled]
+> wait 300
+  # Get the Release Notes
+  Name<Ad>
+  Email<ada@example.org>
+  Anything you'd like to share with us?<>
+  [Subscribe]
+  status{Welcome to the release notes, Ad! The next notes arrive with the next release.}

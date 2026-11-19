@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -232,10 +233,13 @@ func shardLowered(t *testing.T, o *lowered, u Unit, name string, tests bool, sh 
 // (compile-speed CS4): on generated programs of several Ergo packages, the
 // one-package lowering (the reference) and its split into Go packages
 // print the same, fail the same and exit the same, in the run build and in
-// the test build; and every program splits (the split is not vacuous). A
-// one-package program does not split (its groups all start in the root,
-// and nothing below the root uses them), so every corpus program agrees by
-// identity. The declaration shards (test-speed FT9) are a third lowering
+// the test build, where the program's root is a package of its own below
+// the harness in main (test-speed FT6); and every program splits (the
+// split is not vacuous). A one-package run build does not split (its
+// groups all start in the root, and nothing below the root uses them), so
+// every corpus program's run build agrees by identity; its test build
+// splits into the harness and the root, which the examples' test runs
+// check. The declaration shards (test-speed FT9) are a third lowering
 // of each program, with every component its own shard (everyShard), and
 // agree with the reference too.
 //
@@ -282,12 +286,26 @@ func TestSplitLoweringAgrees(t *testing.T) {
 			// imports' and in file order, so the split keeps every init of
 			// the reference in the root, in the reference's order (the
 			// splices keep declaration order), and no other package has one.
+			// A test build's root is its own package below the harness
+			// in main (FT6), so its inits are there.
 			const goInit = "\nfunc init() {"
-			if n, m := strings.Count(ref.mainGo(), goInit), strings.Count(split.mainGo(), goInit); n != m {
+			root, rootPath := split.mainGo(), "main.go"
+			if tests {
+				rootPath = "p/" + split.name + "/" + rootDir + "/" + rootDir + ".go"
+				i := slices.IndexFunc(split.extra, func(f File) bool { return f.Path == rootPath })
+				if i < 0 {
+					t.Fatalf("seed %d: the test build has no root package %s beside the harness", seed, rootPath)
+				}
+				root = string(split.extra[i].Data)
+				if strings.Contains(split.mainGo(), goInit) {
+					t.Fatalf("seed %d: the harness has a Go init, which would run after the root's", seed)
+				}
+			}
+			if n, m := strings.Count(ref.mainGo(), goInit), strings.Count(root, goInit); n != m {
 				t.Fatalf("seed %d tests=%v: the reference has %d Go inits and the split root %d", seed, tests, n, m)
 			}
 			for _, f := range split.extra {
-				if strings.Contains(string(f.Data), goInit) {
+				if f.Path != rootPath && strings.Contains(string(f.Data), goInit) {
 					t.Fatalf("seed %d tests=%v: %s has a Go init, which would run before the root's", seed, tests, f.Path)
 				}
 			}

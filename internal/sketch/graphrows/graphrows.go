@@ -124,7 +124,7 @@ const (
 	// Uses: declaration -> declaration, at the name; How is the site's
 	// kind (facts.SiteKind: call, read, typeuse, construct, ...).
 	Uses
-	// Needs: function -> capability of its needs row, as derived.
+	// Needs: function -> capability in its derived needs row.
 	Needs
 	// Fails: function -> failure of its error row, as derived.
 	Fails

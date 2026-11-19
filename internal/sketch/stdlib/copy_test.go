@@ -317,6 +317,13 @@ const copyRoot = "/ergo-copy/"
 // checkCopy checks the std package at path and its copy, copy/<path>.
 func checkCopy(t *testing.T, path string) copyPair {
 	t.Helper()
+	return checkCopyEdited(t, path, nil)
+}
+
+// checkCopyEdited is checkCopy with edit, when not nil, applied to the
+// text of each of the copy's files (the std package stays as it ships).
+func checkCopyEdited(t *testing.T, path string, edit func(name, text string) string) copyPair {
+	t.Helper()
 	srcs := copySources(t, path)
 	parse := func(prefix string) ([]*syntax.File, []lower.Source) {
 		var files []*syntax.File
@@ -346,6 +353,13 @@ func checkCopy(t *testing.T, path string) copyPair {
 			t.Fatalf("check.Std.Import(%q): %v", path, err)
 		}
 		pair.std = p
+	}
+	if edit != nil {
+		edited := make([]copySource, len(srcs))
+		for i, s := range srcs {
+			edited[i] = copySource{s.name, edit(s.name, s.text)}
+		}
+		srcs = edited
 	}
 	files, sources := parse(copyRoot + "std/" + path + "/")
 	var under *check.Package

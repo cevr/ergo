@@ -144,7 +144,7 @@ func modelCheck(sources []Source) Report {
 			let names = maps.GetOr(declared, pkg, Map[string, string]{})
 			match names.Get(d.Name) {
 			case Some[string]:
-				diags = diags.Append(Diagnostic{Code: "M4", Message: "\(d.Name) is declared twice", File: d.File, Line: d.Line, Column: 6, Fix: None})
+				diags = diags.Append(Diagnostic{Code: "M4", Message: "\(d.Name) is declared twice", File: d.File, Line: d.Line, Column: 6, Fix: []Edit{}})
 			case None:
 				let mut next = names
 				next[d.Name] = d.Kind
@@ -155,7 +155,7 @@ func modelCheck(sources []Source) Report {
 							let key = d.Name + "." + ws[1].Text
 							match next.Get(key) {
 							case Some[string]:
-								diags = diags.Append(Diagnostic{Code: "M4", Message: "\(key) is declared twice", File: d.File, Line: l.Line, Column: ws[1].Column, Fix: None})
+								diags = diags.Append(Diagnostic{Code: "M4", Message: "\(key) is declared twice", File: d.File, Line: l.Line, Column: ws[1].Column, Fix: []Edit{}})
 							case None:
 								next[key] = if ws[0].Text == "field" { "field" } else { "operation" }
 							}
@@ -210,7 +210,7 @@ func modelCheck(sources []Source) Report {
 				if maps.GetOr(names, owner, "") == "type" {
 					ps = ps.Append(Site{Symbol: p + "." + owner, Kind: "typeuse", Package: p, File: d.File, Line: d.Line, Column: col, In: handle})
 				} else {
-					diags = diags.Append(Diagnostic{Code: "M3", Message: "\(owner) is not a type", File: d.File, Line: d.Line, Column: col, Fix: None})
+					diags = diags.Append(Diagnostic{Code: "M3", Message: "\(owner) is not a type", File: d.File, Line: d.Line, Column: col, Fix: []Edit{}})
 					errs = errs + 1
 				}
 			}
@@ -246,7 +246,7 @@ func modelCheck(sources []Source) Report {
 					}
 					let theirs = maps.GetOr(declared, q, Map[string, string]{})
 					if q == "" || maps.GetOr(theirs, n, "") != "type" {
-						diags = diags.Append(Diagnostic{Code: "M3", Message: "\(w.Text) is not a type", File: d.File, Line: l.Line, Column: w.Column, Fix: None})
+						diags = diags.Append(Diagnostic{Code: "M3", Message: "\(w.Text) is not a type", File: d.File, Line: l.Line, Column: w.Column, Fix: []Edit{}})
 						errs = errs + 1
 						continue
 					}
@@ -256,7 +256,7 @@ func modelCheck(sources []Source) Report {
 						if strings.HasPrefix(key, n + ".") && maps.GetOr(theirs, key, "") == "operation" {
 							let op = strings.Slice(key, len(n) + 1, len(key))
 							if maps.GetOr(names, d.Name + "." + op, "") != "func" {
-								diags = diags.Append(Diagnostic{Code: "M6", Message: "\(d.Name) provides \(n) but has no \(op)", File: d.File, Line: l.Line, Column: w.Column, Fix: None})
+								diags = diags.Append(Diagnostic{Code: "M6", Message: "\(d.Name) provides \(n) but has no \(op)", File: d.File, Line: l.Line, Column: w.Column, Fix: []Edit{}})
 								errs = errs + 1
 							}
 						}
@@ -283,12 +283,12 @@ func modelCheck(sources []Source) Report {
 					let word = w.Text
 					let column = w.Column
 					if strings.HasPrefix(word, "?") && len(word) > 1 {
-						diags = diags.Append(Diagnostic{Code: "M1", Message: "\(word) is not declared", File: d.File, Line: l.Line, Column: column, Fix: Some[Edit]{Value: Edit{File: d.File, Start: w.At, End: w.At + len(word), Text: strings.Slice(word, 1, len(word))}}})
+						diags = diags.Append(Diagnostic{Code: "M1", Message: "\(word) is not declared", File: d.File, Line: l.Line, Column: column, Fix: []Edit{Edit{File: d.File, Start: w.At, End: w.At + len(word), Text: strings.Slice(word, 1, len(word))}}})
 						errs = errs + 1
 						continue
 					}
 					if strings.HasPrefix(word, "!") && len(word) > 1 {
-						diags = diags.Append(Diagnostic{Code: "M2", Message: "\(word) shouts", File: d.File, Line: l.Line, Column: column, Fix: Some[Edit]{Value: Edit{File: d.File, Start: l.At, End: l.At + len(l.Text), Text: "\t" + strings.Slice(word, 1, len(word))}}})
+						diags = diags.Append(Diagnostic{Code: "M2", Message: "\(word) shouts", File: d.File, Line: l.Line, Column: column, Fix: []Edit{Edit{File: d.File, Start: l.At, End: l.At + len(l.Text), Text: "\t" + strings.Slice(word, 1, len(word))}}})
 						errs = errs + 1
 						continue
 					}
@@ -300,7 +300,7 @@ func modelCheck(sources []Source) Report {
 						let t = h.Value.Before
 						let f = strings.TrimSuffix(h.Value.After, "}")
 						if maps.GetOr(names, t, "") != "type" {
-							diags = diags.Append(Diagnostic{Code: "M3", Message: "\(t) is not a type", File: d.File, Line: l.Line, Column: column, Fix: None})
+							diags = diags.Append(Diagnostic{Code: "M3", Message: "\(t) is not a type", File: d.File, Line: l.Line, Column: column, Fix: []Edit{}})
 							errs = errs + 1
 							continue
 						}
@@ -308,7 +308,7 @@ func modelCheck(sources []Source) Report {
 						if maps.GetOr(names, t + "." + f, "") == "field" {
 							ps = ps.Append(Site{Symbol: p + "." + t + "." + f, Kind: "write", Package: p, File: d.File, Line: l.Line, Column: column + len(t) + 1, In: handle})
 						} else {
-							diags = diags.Append(Diagnostic{Code: "M5", Message: "\(t) has no field \(f)", File: d.File, Line: l.Line, Column: column + len(t) + 1, Fix: None})
+							diags = diags.Append(Diagnostic{Code: "M5", Message: "\(t) has no field \(f)", File: d.File, Line: l.Line, Column: column + len(t) + 1, Fix: []Edit{}})
 							errs = errs + 1
 						}
 						continue
@@ -323,7 +323,7 @@ func modelCheck(sources []Source) Report {
 								ps = ps.Append(Site{Symbol: p + "." + before, Kind: "typeuse", Package: p, File: d.File, Line: l.Line, Column: column, In: handle})
 								ps = ps.Append(Site{Symbol: p + "." + word, Kind: siteKindOf(k.Value), Package: p, File: d.File, Line: l.Line, Column: column + len(before) + 1, In: handle})
 							case None:
-								diags = diags.Append(Diagnostic{Code: "M3", Message: "\(word) is not declared", File: d.File, Line: l.Line, Column: column, Fix: None})
+								diags = diags.Append(Diagnostic{Code: "M3", Message: "\(word) is not declared", File: d.File, Line: l.Line, Column: column, Fix: []Edit{}})
 								errs = errs + 1
 							}
 							continue
@@ -336,7 +336,7 @@ func modelCheck(sources []Source) Report {
 						case Some[string] as k:
 							ps = ps.Append(Site{Symbol: q + "." + h.Value.After, Kind: siteKindOf(k.Value), Package: p, File: d.File, Line: l.Line, Column: column + len(before) + 1, In: handle})
 						case None:
-							diags = diags.Append(Diagnostic{Code: "M3", Message: "\(word) is not declared", File: d.File, Line: l.Line, Column: column, Fix: None})
+							diags = diags.Append(Diagnostic{Code: "M3", Message: "\(word) is not declared", File: d.File, Line: l.Line, Column: column, Fix: []Edit{}})
 							errs = errs + 1
 						}
 					case None:

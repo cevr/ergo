@@ -29,6 +29,13 @@ func (fc *funcCtx) goCallbacks(sig *check.Signature, args []syntax.Expr, vals []
 			continue // D2: already in Go's own calling convention.
 		}
 		tunnels = tunnels || cb.Fallible
+		if !cb.NonEscaping {
+			// An escaping callback may run on a goroutine of Go's: the
+			// program is no longer alone (rt.Alone, v1.GoHanded). A
+			// non-escaping one runs during the call, on its caller's
+			// goroutine (v1.GoSyncCallbacks).
+			fc.line(fc.l.rt() + ".GoHanded()")
+		}
 		vals[i] = fc.spill(fc.goCallback(fc.bindFunc(vals[i]), fc.argSig(args[i], site), cb.Fallible, site))
 	}
 	return tunnels

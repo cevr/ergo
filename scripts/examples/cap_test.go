@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"ergo.local/prototype/internal/cases"
 	"ergo.local/prototype/internal/testwait"
 )
 
@@ -16,7 +17,7 @@ import (
 // of N on each stream, then seeded picks from the boundary set {0, 1, N-1,
 // N, N+1, 2N+7} and from [0, 2N].
 func sizePairs(seed uint64, count int) [][2]int {
-	const n = outputCap
+	const n = cases.OutputCap
 	random := rand.New(rand.NewPCG(seed, 3))
 	boundary := []int{0, 1, n - 1, n, n + 1, 2*n + 7}
 	pick := func() int {
@@ -47,13 +48,13 @@ const writer = "#!/bin/sh\n[ \"$1\" -eq 0 ] || head -c \"$1\" /dev/zero\n[ \"$2\
 // for the runner's goroutine to run and to take live.mu
 // (TestOutputCapLateStopNamesBothStreams makes that wait certain).
 func wantOver(sizes [2]int) []string {
-	out, err := fmt.Sprintf("stdout over %d bytes", outputCap), fmt.Sprintf("stderr over %d bytes", outputCap)
+	out, err := fmt.Sprintf("stdout over %d bytes", cases.OutputCap), fmt.Sprintf("stderr over %d bytes", cases.OutputCap)
 	switch {
-	case sizes[0] > outputCap && sizes[1] > outputCap:
+	case sizes[0] > cases.OutputCap && sizes[1] > cases.OutputCap:
 		return []string{out, out + "; " + err}
-	case sizes[0] > outputCap:
+	case sizes[0] > cases.OutputCap:
 		return []string{out}
-	case sizes[1] > outputCap:
+	case sizes[1] > cases.OutputCap:
 		return []string{err}
 	}
 	return nil
@@ -70,7 +71,7 @@ func verdictIn(got string, want []string) bool {
 	return false
 }
 
-// Each stream of a command holds at most outputCap bytes. A case, a recorded
+// Each stream of a command holds at most cases.OutputCap bytes. A case, a recorded
 // original and an ergo test that write within the cap on both streams behave
 // as before; one that writes more fails with a line of its own that names
 // each stream over the cap and only those, prints no diff and no output,
@@ -88,8 +89,8 @@ func TestOutputCap(t *testing.T) {
 	}
 	// Two streams that both went over before the stop (writers in a race)
 	// are both named, stdout first.
-	both := outcome{stdoutOver: true, stderrOver: true}.overCap()
-	if want := fmt.Sprintf("stdout over %d bytes; stderr over %d bytes", outputCap, outputCap); both != want {
+	both := outcome{StdoutOver: true, StderrOver: true}.OverCap()
+	if want := fmt.Sprintf("stdout over %d bytes; stderr over %d bytes", cases.OutputCap, cases.OutputCap); both != want {
 		t.Errorf("both streams over: %q, want %q", both, want)
 	}
 
@@ -135,7 +136,7 @@ func TestOutputCap(t *testing.T) {
 		for i, sizes := range pairs {
 			cases[label(i)] = map[string]string{"args": fmt.Sprintf("%d\n%d\n", sizes[0], sizes[1]), "expected.out": "keep\n"}
 		}
-		dir := f.program("rec", "#!/bin/sh\necho port\n", "slow\n", cases, map[string]string{"record.sh": writer, "origin": "a fixture original\n"})
+		dir := f.program("rec", "#!/bin/sh\necho port\n", "slow\n", cases, map[string]string{"record.sh": writer})
 		code, out := f.run("-timeout", caseTimeout(t), "-record", "rec")
 		small(t, "-record", out)
 		_, fails := verdicts(out)
@@ -230,13 +231,13 @@ func TestOutputCapStopsTheGroupAtOnce(t *testing.T) {
 			f := newFixture(t)
 			ticks := filepath.Join(t.TempDir(), "ticks")
 			redirect := map[string]string{"stdout": "", "stderr": " >&2"}[stream]
-			f.program("flood", "#!/bin/sh\n"+ticker(`"$TICKS"`)+fmt.Sprintf("head -c %d /dev/zero%s\n", 4*outputCap, redirect)+caseSleep, "slow\n",
+			f.program("flood", "#!/bin/sh\n"+ticker(`"$TICKS"`)+fmt.Sprintf("head -c %d /dev/zero%s\n", 4*cases.OutputCap, redirect)+caseSleep, "slow\n",
 				map[string]map[string]string{"out": {"env": "TICKS=" + ticks + "\n", "expected.out": ""}}, nil)
 			started := time.Now()
 			code, out := f.run("-timeout", caseTimeout(t), "flood")
 			took := time.Since(started)
 			_, fails := verdicts(out)
-			want := fmt.Sprintf(" %s over %d bytes", stream, outputCap)
+			want := fmt.Sprintf(" %s over %d bytes", stream, cases.OutputCap)
 			if code != 1 || fails["flood/out"] != want {
 				t.Fatalf("want exit 1 and FAIL flood/out:%s; exit %d\n%.2000s", want, code, out)
 			}
@@ -251,7 +252,7 @@ func TestOutputCapStopsTheGroupAtOnce(t *testing.T) {
 }
 
 // A stream that a process outside the group holds (it called setsid) holds
-// the runner at most about streamDelay after the group stopped, and a case
+// the runner at most about cases.StreamDelay after the group stopped, and a case
 // whose leader exits while its own child holds stdout does not hold it.
 func TestAStreamHolderOutsideTheGroupDoesNotHoldTheRunner(t *testing.T) {
 	t.Parallel()

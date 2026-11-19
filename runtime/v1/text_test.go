@@ -2,7 +2,6 @@ package v1
 
 import (
 	"errors"
-	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -63,26 +62,26 @@ func randomFloat(r *rand.Rand) float64 {
 var textLaws = map[string]func(r *rand.Rand) (bool, any){
 	"strings JoinInvertsSplit": func(r *rand.Rand) (bool, any) {
 		s, sep := randomString(r), randomString(r)
-		return sep == "" || StringsJoin(StringsSplit(s, sep), sep) == s, []string{s, sep}
+		return sep == "" || StringsJoin(strings.Split(s, sep), sep) == s, []string{s, sep}
 	},
 	"strings CountMatchesSplit": func(r *rand.Rand) (bool, any) {
 		s, sep := randomString(r), randomString(r)
-		return sep == "" || StringsCount(s, sep) == len(StringsSplit(s, sep))-1, []string{s, sep}
+		return sep == "" || strings.Count(s, sep) == len(strings.Split(s, sep))-1, []string{s, sep}
 	},
 	"strings EqualFoldIsSymmetric": func(r *rand.Rand) (bool, any) {
 		s, t := randomString(r), randomString(r)
 		if r.IntN(2) == 0 { // often a case change of s
-			t = []func(string) string{StringsToUpper, StringsToLower}[r.IntN(2)](s)
+			t = []func(string) string{strings.ToUpper, strings.ToLower}[r.IntN(2)](s)
 		}
-		return StringsEqualFold(s, s) && StringsEqualFold(s, t) == StringsEqualFold(t, s), []string{s, t}
+		return strings.EqualFold(s, s) && strings.EqualFold(s, t) == strings.EqualFold(t, s), []string{s, t}
 	},
 	"strings TrimSpaceIsIdempotent": func(r *rand.Rand) (bool, any) {
 		s := randomString(r)
-		return StringsTrimSpace(StringsTrimSpace(s)) == StringsTrimSpace(s), s
+		return strings.TrimSpace(strings.TrimSpace(s)) == strings.TrimSpace(s), s
 	},
 	"strings ToLowerIsIdempotent": func(r *rand.Rand) (bool, any) {
 		s := randomString(r)
-		return StringsToLower(StringsToLower(s)) == StringsToLower(s), s
+		return strings.ToLower(strings.ToLower(s)) == strings.ToLower(s), s
 	},
 	"strings IndexFinds": func(r *rand.Rand) (bool, any) {
 		s, sub := randomString(r), randomString(r)
@@ -90,32 +89,32 @@ var textLaws = map[string]func(r *rand.Rand) (bool, any){
 			i := r.IntN(len(s))
 			sub = s[i : i+r.IntN(len(s)-i+1)]
 		}
-		i, j := StringsIndex(s, sub), StringsLastIndex(s, sub)
+		i, j := strings.Index(s, sub), strings.LastIndex(s, sub)
 		// StringsIndexByte, Lines' line-feed scan, is Index of one byte.
-		if len(sub) > 0 && StringsIndexByte(s, sub[0]) != StringsIndex(s, sub[:1]) {
+		if len(sub) > 0 && strings.IndexByte(s, sub[0]) != strings.Index(s, sub[:1]) {
 			return false, []string{s, sub}
 		}
 		if i < 0 {
-			return j < 0 && !StringsContains(s, sub), []string{s, sub}
+			return j < 0 && !strings.Contains(s, sub), []string{s, sub}
 		}
 		if sub == "" {
 			return i == 0 && j == len(s), []string{s, sub}
 		}
 		return StringsSlice(s, i, i+len(sub)) == sub && StringsSlice(s, j, j+len(sub)) == sub && i <= j &&
-			StringsLastIndex(StringsSlice(s, 0, i+len(sub)-1), sub) < 0 && StringsIndex(StringsSlice(s, j+1, len(s)), sub) < 0, []string{s, sub}
+			strings.LastIndex(StringsSlice(s, 0, i+len(sub)-1), sub) < 0 && strings.Index(StringsSlice(s, j+1, len(s)), sub) < 0, []string{s, sub}
 	},
 	"strings HasPrefixOfConcat": func(r *rand.Rand) (bool, any) {
 		p, s := randomString(r), randomString(r)
-		return StringsHasPrefix(p+s, p) && StringsHasSuffix(p+s, s), []string{p, s}
+		return strings.HasPrefix(p+s, p) && strings.HasSuffix(p+s, s), []string{p, s}
 	},
 	"strings RepeatLength": func(r *rand.Rand) (bool, any) {
 		s, n := randomString(r), r.IntN(80)-8
-		return n < 0 || n > 64 || len(StringsRepeat(s, n)) == n*len(s), []any{s, n}
+		return n < 0 || n > 64 || len(strings.Repeat(s, n)) == n*len(s), []any{s, n}
 	},
 	"strings FieldsHaveNoSpace": func(r *rand.Rand) (bool, any) {
 		s := randomString(r)
-		for _, f := range StringsFields(s) {
-			again := StringsFields(f)
+		for _, f := range strings.Fields(s) {
+			again := strings.Fields(f)
 			if len(again) != 1 || StringsJoin(again, "") != f {
 				return false, s
 			}
@@ -128,23 +127,23 @@ var textLaws = map[string]func(r *rand.Rand) (bool, any){
 			i := r.IntN(len(s))
 			old = s[i : i+r.IntN(len(s)-i+1)]
 		}
-		return old == "" || len(StringsReplaceAll(s, old, repl)) == len(s)+StringsCount(s, old)*(len(repl)-len(old)), []string{s, old, repl}
+		return old == "" || len(strings.ReplaceAll(s, old, repl)) == len(s)+strings.Count(s, old)*(len(repl)-len(old)), []string{s, old, repl}
 	},
 	"utf8 RuneCountAtMostLen": func(r *rand.Rand) (bool, any) {
 		s := randomString(r)
-		return UTF8RuneCount(s) <= len(s) && UTF8RuneCount(s) >= 0, s
+		return utf8.RuneCountInString(s) <= len(s) && utf8.RuneCountInString(s) >= 0, s
 	},
 	"utf8 RuneCountOfConcat": func(r *rand.Rand) (bool, any) {
 		a, b := randomString(r), randomString(r)
-		return UTF8RuneCount(a+b) <= UTF8RuneCount(a)+UTF8RuneCount(b), []string{a, b}
+		return utf8.RuneCountInString(a+b) <= utf8.RuneCountInString(a)+utf8.RuneCountInString(b), []string{a, b}
 	},
 	"utf8 RuneCountAddsRune": func(r *rand.Rand) (bool, any) {
 		s := randomString(r)
-		return UTF8RuneCount(s+"é") == UTF8RuneCount(s)+1, s
+		return utf8.RuneCountInString(s+"é") == utf8.RuneCountInString(s)+1, s
 	},
 	"strconv AtoiInvertsItoa": func(r *rand.Rand) (bool, any) {
 		n := int(r.Int64()) >> r.IntN(64)
-		m, err := StrconvAtoi(StrconvItoa(n))
+		m, err := StrconvAtoi(strconv.Itoa(n))
 		return err == nil && m == n, n
 	},
 	"strconv ItoaInvertsAtoi": func(r *rand.Rand) (bool, any) {
@@ -155,17 +154,17 @@ var textLaws = map[string]func(r *rand.Rand) (bool, any){
 			var o OutOfRange
 			return errors.As(err, &m) || errors.As(err, &o), s
 		}
-		m, err := StrconvAtoi(StrconvItoa(n))
+		m, err := StrconvAtoi(strconv.Itoa(n))
 		return err == nil && m == n, s
 	},
 	"strconv UnquoteInvertsQuote": func(r *rand.Rand) (bool, any) {
 		s := randomString(r)
-		u, err := StrconvUnquote(StrconvQuote(s))
+		u, err := StrconvUnquote(strconv.Quote(s))
 		return err == nil && u == s, s
 	},
 	"strconv ParseBoolInvertsFormat": func(r *rand.Rand) (bool, any) {
 		b := r.IntN(2) == 0
-		got, err := StrconvParseBool(StrconvFormatBool(b))
+		got, err := strconv.ParseBool(strconv.FormatBool(b))
 		return err == nil && got == b, b
 	},
 	"strconv FormatFloatRoundTrips": func(r *rand.Rand) (bool, any) {
@@ -173,18 +172,18 @@ var textLaws = map[string]func(r *rand.Rand) (bool, any){
 		if f != f {
 			return true, f
 		}
-		got, err := StrconvParseFloat(StrconvFormatFloat(f, 'g', -1))
+		got, err := StrconvParseFloat(strconv.FormatFloat(f, 'g', -1, 64))
 		return err == nil && got == f, f
 	},
 	"strconv AppendsFormat": func(r *rand.Rand) (bool, any) {
 		n, u, f := r.Int64()>>r.IntN(64), r.Uint64()>>r.IntN(64), randomFloat(r)
 		base := 2 + r.IntN(35)
 		out := StrconvAppendInt(StrconvAppendFloat(StrconvAppendUint(StrconvAppendInt([]byte{}, n, base), u>>1, base), f, 'g', -1), n, base)
-		return string(out) == StrconvFormatInt(n, base)+StrconvFormatInt(int64(u>>1), base)+StrconvFormatFloat(f, 'g', -1)+StrconvFormatInt(n, base), []any{n, u, f, base}
+		return string(out) == strconv.FormatInt(n, base)+strconv.FormatInt(int64(u>>1), base)+strconv.FormatFloat(f, 'g', -1, 64)+strconv.FormatInt(n, base), []any{n, u, f, base}
 	},
 	"strconv ParseIntInvertsFormat": func(r *rand.Rand) (bool, any) {
 		n := int(r.Int64()) >> r.IntN(64)
-		got, err := StrconvParseInt(StrconvItoa(n), 10, 64)
+		got, err := StrconvParseInt(strconv.Itoa(n), 10, 64)
 		return err == nil && got == int64(n), n
 	},
 }
@@ -195,12 +194,12 @@ var textLaws = map[string]func(r *rand.Rand) (bool, any){
 // restatement above is changed with it.
 var textLawStatements = map[string]string{
 	"strconv AppendsFormat":          `AppendsFormat(n int64, u uint64, f float64, b int) { let base = 2 + (b%35+35)%35 let out = AppendInt(AppendFloat(AppendUint(AppendInt([]byte{}, n, base), u>>1, base), f, 'g', -1), n, base) strings.FromBytes(out) == FormatInt(n, base)+FormatInt(int64(u>>1), base)+FormatFloat(f, 'g', -1)+FormatInt(n, base) }`,
-	"strconv AtoiInvertsItoa":        `AtoiInvertsItoa(n int) { try Atoi(Itoa(n)) == n }`,
+	"strconv AtoiInvertsItoa":        `AtoiInvertsItoa(n int) { try Atoi(Itoa(n)) } == { n }`,
 	"strconv FormatFloatRoundTrips":  `FormatFloatRoundTrips(f float64) { if f != f { return true } try ParseFloat(FormatFloat(f, 'g', -1)) == f }`,
 	"strconv ItoaInvertsAtoi":        `ItoaInvertsAtoi(s string) { let n = Atoi(s) catch { case Malformed, OutOfRange: return true } try Atoi(Itoa(n)) == n }`,
-	"strconv ParseBoolInvertsFormat": `ParseBoolInvertsFormat(b bool) { try ParseBool(FormatBool(b)) == b }`,
-	"strconv ParseIntInvertsFormat":  `ParseIntInvertsFormat(n int) { try ParseInt(Itoa(n), 10, 64) == int64(n) }`,
-	"strconv UnquoteInvertsQuote":    `UnquoteInvertsQuote(s string) { try Unquote(Quote(s)) == s }`,
+	"strconv ParseBoolInvertsFormat": `ParseBoolInvertsFormat(b bool) { try ParseBool(FormatBool(b)) } == { b }`,
+	"strconv ParseIntInvertsFormat":  `ParseIntInvertsFormat(n int) { try ParseInt(Itoa(n), 10, 64) } == { int64(n) }`,
+	"strconv UnquoteInvertsQuote":    `UnquoteInvertsQuote(s string) { try Unquote(Quote(s)) } == { s }`,
 	"strings CountMatchesSplit":      `CountMatchesSplit(s string, sep string) { if sep == "" { return true } Count(s, sep) == len(Split(s, sep))-1 }`,
 	"strings EqualFoldIsSymmetric":   `EqualFoldIsSymmetric(s string, t string) { EqualFold(s, s) && EqualFold(s, t) == EqualFold(t, s) }`,
 	"strings FieldsHaveNoSpace":      `FieldsHaveNoSpace(s string) { for f in Fields(s) { let again = Fields(f) if len(again) != 1 || Join(again, "") != f { return false } } true }`,
@@ -209,8 +208,8 @@ var textLawStatements = map[string]string{
 	"strings JoinInvertsSplit":       `JoinInvertsSplit(s string, sep string) { if sep == "" { return true } Join(Split(s, sep), sep) == s }`,
 	"strings RepeatLength":           `RepeatLength(s string, n int) { if n < 0 || n > 64 { return true } len(Repeat(s, n)) == n*len(s) }`,
 	"strings ReplaceAllLength":       `ReplaceAllLength(s string, old string, repl string) { if old == "" { return true } len(ReplaceAll(s, old, repl)) == len(s)+Count(s, old)*(len(repl)-len(old)) }`,
-	"strings ToLowerIsIdempotent":    `ToLowerIsIdempotent(s string) { ToLower(ToLower(s)) == ToLower(s) }`,
-	"strings TrimSpaceIsIdempotent":  `TrimSpaceIsIdempotent(s string) { TrimSpace(TrimSpace(s)) == TrimSpace(s) }`,
+	"strings ToLowerIsIdempotent":    `ToLowerIsIdempotent(s string) { ToLower(ToLower(s)) } == { ToLower(s) }`,
+	"strings TrimSpaceIsIdempotent":  `TrimSpaceIsIdempotent(s string) { TrimSpace(TrimSpace(s)) } == { TrimSpace(s) }`,
 	"utf8 RuneCountAddsRune":         `RuneCountAddsRune(s string) { RuneCount(s+"é") == RuneCount(s)+1 }`,
 	"utf8 RuneCountAtMostLen":        `RuneCountAtMostLen(s string) { RuneCount(s) <= len(s) && RuneCount(s) >= 0 }`,
 	"utf8 RuneCountOfConcat":         `RuneCountOfConcat(a string, b string) { RuneCount(a+b) <= RuneCount(a)+RuneCount(b) }`,
@@ -232,20 +231,17 @@ func textBenches() []textBench {
 	s := strings.Repeat("alpha,beta,gamma ", 8)
 	xs := strings.Split(s, ",")
 	buf := make([]byte, 0, 8)
-	bad := s + "\xff\xe4\xb8" + s
 	built := []byte(s)
 	goBuilt := &strings.Builder{}
 	goBuilt.WriteString(s)
 	return []textBench{
-		{"Split", "StringsSplit", func() { textSink = StringsSplit(s, ",") }, func() { textSink = strings.Split(s, ",") }},
 		{"Join", "StringsJoin", func() { textSink = StringsJoin(xs, ";") }, func() { textSink = strings.Join(xs, ";") }},
-		{"HasPrefix", "StringsHasPrefix", func() { textSink = StringsHasPrefix(s, "alpha,") }, func() { textSink = strings.HasPrefix(s, "alpha,") }},
-		{"HasSuffix", "StringsHasSuffix", func() { textSink = StringsHasSuffix(s, "gamma ") }, func() { textSink = strings.HasSuffix(s, "gamma ") }},
-		{"TrimSpace", "StringsTrimSpace", func() { textSink = StringsTrimSpace(s) }, func() { textSink = strings.TrimSpace(s) }},
-		{"TrimPrefix", "StringsTrimPrefix", func() { textSink = StringsTrimPrefix(s, "alpha,") }, func() { textSink = strings.TrimPrefix(s, "alpha,") }},
-		{"TrimSuffix", "StringsTrimSuffix", func() { textSink = StringsTrimSuffix(s, "gamma ") }, func() { textSink = strings.TrimSuffix(s, "gamma ") }},
-		{"TrimLeft", "StringsTrimLeft", func() { textSink = StringsTrimLeft(" \t"+s, " \t") }, func() { textSink = strings.TrimLeft(" \t"+s, " \t") }},
-		{"TrimRight", "StringsTrimRight", func() { textSink = StringsTrimRight(s, " ma") }, func() { textSink = strings.TrimRight(s, " ma") }},
+		{"String", "UTF8String", func() { textSink = UTF8String(buf[:8]) }, func() { textSink = string(buf[:8]) }},
+		// std build's fold queries: a built program answers false, as Go's
+		// constant does.
+		{"InFold", "BuildInFold", func() { textSink = BuildInFold() }, func() { textSink = false }},
+		{"Known", "BuildKnown", func() { textSink = BuildKnown(len(s)) }, func() { textSink = false }},
+		{"Hole", "BuildHole", func() { textSink = BuildHole(s) }, func() { textSink = false }},
 		// The builder bodies against Go's strings.Builder: a loop of
 		// writes, a Grow, and the text of a built buffer (Go's String
 		// shares its bytes; StringsBuilderText copies them).
@@ -315,48 +311,20 @@ func textBenches() []textBench {
 		{"Bytes", "StringsBytes", func() { textSink = len(StringsBytes(s)) }, func() { textSink = len([]byte(s)) }},
 		{"BuilderText", "StringsBuilderText", func() { textSink = StringsBuilderText(built) }, func() { textSink = goBuilt.String() }},
 		{"BuilderTextOwned", "StringsBuilderTextOwned", func() { textSink = StringsBuilderTextOwned(built) }, func() { textSink = goBuilt.String() }},
-		{"Fields", "StringsFields", func() { textSink = StringsFields(s) }, func() { textSink = strings.Fields(s) }},
-		{"Repeat", "StringsRepeat", func() { textSink = StringsRepeat("ab", 64) }, func() { textSink = strings.Repeat("ab", 64) }},
-		{"ToLower", "StringsToLower", func() { textSink = StringsToLower("ALPHA,Beta") }, func() { textSink = strings.ToLower("ALPHA,Beta") }},
-		{"ToUpper", "StringsToUpper", func() { textSink = StringsToUpper(s) }, func() { textSink = strings.ToUpper(s) }},
-		{"Index", "StringsIndex", func() { textSink = StringsIndex(s, "gamma alpha") }, func() { textSink = strings.Index(s, "gamma alpha") }},
-		{"IndexByte", "StringsIndexByte", func() { textSink = StringsIndexByte(s, '\n') }, func() { textSink = strings.IndexByte(s, '\n') }},
-		{"Contains", "StringsContains", func() { textSink = StringsContains(s, "delta") }, func() { textSink = strings.Contains(s, "delta") }},
 		{"Slice", "StringsSlice", func() { textSink = StringsSlice(s, 6, 10) }, func() { textSink = s[6:10] }},
-		{"ReplaceAll", "StringsReplaceAll", func() { textSink = StringsReplaceAll(s, ",", ";") }, func() { textSink = strings.ReplaceAll(s, ",", ";") }},
-		{"Count", "StringsCount", func() { textSink = StringsCount(s, "a") }, func() { textSink = strings.Count(s, "a") }},
-		{"LastIndex", "StringsLastIndex", func() { textSink = StringsLastIndex(s, "beta") }, func() { textSink = strings.LastIndex(s, "beta") }},
-		{"SplitN", "StringsSplitN", func() { textSink = StringsSplitN(s, ",", 4) }, func() { textSink = strings.SplitN(s, ",", 4) }},
-		{"EqualFold", "StringsEqualFold", func() { textSink = StringsEqualFold(s, strings.ToUpper(s)) }, func() { textSink = strings.EqualFold(s, strings.ToUpper(s)) }},
-		{"ContainsRune", "StringsContainsRune", func() { textSink = StringsContainsRune(s, 'é') }, func() { textSink = strings.ContainsRune(s, 'é') }},
-		{"RuneCount", "UTF8RuneCount", func() { textSink = UTF8RuneCount(s) }, func() { textSink = utf8.RuneCountInString(s) }},
 		{"DecodeRuneInString", "UTF8DecodeRuneInString", func() { textSink = UTF8DecodeRuneInString("世界").Size }, func() { _, textSink = utf8.DecodeRuneInString("世界") }},
 		{"RuneText", "UTF8RuneText", func() { textSink = UTF8RuneText('世') }, func() { textSink = string(rune('世')) }},
 		{"AppendRune", "UTF8AppendRune", func() { textSink = len(UTF8AppendRune(buf[:0], '世')) }, func() { textSink = len(utf8.AppendRune(buf[:0], '世')) }},
-		{"ValidString", "UTF8ValidString", func() { textSink = UTF8ValidString(s) }, func() { textSink = utf8.ValidString(s) }},
-		{"String", "UTF8String", func() { textSink = UTF8String(buf[:8]) }, func() { textSink = string(buf[:8]) }},
-		{"ValidRune", "UTF8ValidRune", func() { textSink = UTF8ValidRune(0xD800) }, func() { textSink = utf8.ValidRune(0xD800) }},
-		{"RuneLen", "UTF8RuneLen", func() { textSink = UTF8RuneLen('世') }, func() { textSink = utf8.RuneLen('世') }},
-		{"ToValidUTF8", "StringsToValidUTF8", func() { textSink = StringsToValidUTF8(bad, "\uFFFD") }, func() { textSink = strings.ToValidUTF8(bad, "\uFFFD") }},
-		{"FormatInt", "StrconvFormatInt", func() { textSink = StrconvFormatInt(-1234567890, 36) }, func() { textSink = strconv.FormatInt(-1234567890, 36) }},
-		{"Itoa", "StrconvItoa", func() { textSink = StrconvItoa(-1234567890) }, func() { textSink = strconv.Itoa(-1234567890) }},
 		{"Atoi", "StrconvAtoi", func() { textSink, _ = StrconvAtoi("-1234567890") }, func() { textSink, _ = strconv.Atoi("-1234567890") }},
 		{"AtoiFails", "StrconvAtoi", func() { _, textSink = StrconvAtoi("12x") }, func() { _, textSink = strconv.Atoi("12x") }},
 		{"ParseInt", "StrconvParseInt", func() { textSink, _ = StrconvParseInt("-1234567890", 10, 64) }, func() { textSink, _ = strconv.ParseInt("-1234567890", 10, 64) }},
 		{"ParseIntFails", "StrconvParseInt", func() { _, textSink = StrconvParseInt("12x", 10, 64) }, func() { _, textSink = strconv.ParseInt("12x", 10, 64) }},
 		{"ParseIntHex", "StrconvParseInt", func() { textSink, _ = StrconvParseInt("0x1f2e3d", 0, 64) }, func() { textSink, _ = strconv.ParseInt("0x1f2e3d", 0, 64) }},
 		{"ParseFloat", "StrconvParseFloat", func() { textSink, _ = StrconvParseFloat("3.14159e10") }, func() { textSink, _ = strconv.ParseFloat("3.14159e10", 64) }},
-		{"ParseBool", "StrconvParseBool", func() { textSink, _ = StrconvParseBool("false") }, func() { textSink, _ = strconv.ParseBool("false") }},
-		{"FormatBool", "StrconvFormatBool", func() { textSink = StrconvFormatBool(true) }, func() { textSink = strconv.FormatBool(true) }},
 		{"AppendInt", "StrconvAppendInt", func() { buf = StrconvAppendInt(buf[:0], -1234567890, 10) }, func() { buf = strconv.AppendInt(buf[:0], -1234567890, 10) }},
 		{"AppendUint", "StrconvAppendUint", func() { buf = StrconvAppendUint(buf[:0], 1234567890, 16) }, func() { buf = strconv.AppendUint(buf[:0], 1234567890, 16) }},
 		{"AppendFloat", "StrconvAppendFloat", func() { buf = StrconvAppendFloat(buf[:0], 3.14159e10, 'g', -1) }, func() { buf = strconv.AppendFloat(buf[:0], 3.14159e10, 'g', -1, 64) }},
-		{"FormatFloat", "StrconvFormatFloat", func() { textSink = StrconvFormatFloat(3.14159e10, 'g', -1) }, func() { textSink = strconv.FormatFloat(3.14159e10, 'g', -1, 64) }},
 		{"Unquote", "StrconvUnquote", func() { textSink, _ = StrconvUnquote(`"a\tb\u00e9"`) }, func() { textSink, _ = strconv.Unquote(`"a\tb\u00e9"`) }},
-		{"Quote", "StrconvQuote", func() { textSink = StrconvQuote("a\tb\u00e9\xff") }, func() { textSink = strconv.Quote("a\tb\u00e9\xff") }},
-		{"Compare", "StringsCompare", func() { textSink = StringsCompare(s, xs[0]) }, func() { textSink = strings.Compare(s, xs[0]) }},
-		{"PadLeft", "StringsPadLeft", func() { textSink = StringsPadLeft("alpha", 24, ' ') }, func() { textSink = fmt.Sprintf("%*s", 24, "alpha") }},
-		{"PadRight", "StringsPadRight", func() { textSink = StringsPadRight("alpha", 24, ' ') }, func() { textSink = fmt.Sprintf("%-*s", 24, "alpha") }},
 	}
 }
 
@@ -366,25 +334,6 @@ func textBenches() []textBench {
 // bit size 0 to 64, and on the edges of each size (the largest and
 // smallest values, one past them, with signs, leading zeros and a bad
 // byte after an overflow).
-// TestStrconvQuoteMatchesGo: StrconvQuote, Quote's body written out so
-// it inlines (B1-Q), is Go's strconv.Quote on 100,000 seeded texts of the
-// whole alphabet (control bytes, multi-byte and invalid UTF-8, quotes and
-// backslashes). It kills strconv-quote-ascii-only, which the round trip
-// UnquoteInvertsQuote does not: an all-ASCII quote unquotes back too.
-func TestStrconvQuoteMatchesGo(t *testing.T) {
-	alphabet := append([]string{"\x00", "\x01", "\x7f", "\u00ad", "\U0001f600"}, textAlphabet...)
-	r := rand.New(rand.NewPCG(7, 11))
-	for i := range 100_000 {
-		var b strings.Builder
-		for range r.IntN(12) {
-			b.WriteString(alphabet[r.IntN(len(alphabet))])
-		}
-		if got, want := StrconvQuote(b.String()), strconv.Quote(b.String()); got != want {
-			t.Fatalf("case %d (seed 7, 11): StrconvQuote(%q) = %s, Go's %s", i, b.String(), got, want)
-		}
-	}
-}
-
 func TestStrconvBase10MatchesGo(t *testing.T) {
 	class := func(err error) string {
 		var m Malformed
@@ -467,7 +416,7 @@ func TestTextBodiesHaveBenchmarks(t *testing.T) {
 			t.Errorf("%s is an //ergo:pure body of text.go with no BenchmarkText case", f.Name.Name)
 		}
 	}
-	if n < 30 {
+	if n < 15 {
 		t.Errorf("found %d pure bodies in text.go; the directive scan is broken", n)
 	}
 }
@@ -555,17 +504,11 @@ func TestStrconvFailures(t *testing.T) {
 	if _, err := StrconvParseFloat("1.2.3"); !malformed(err, "1.2.3") {
 		t.Errorf("ParseFloat(1.2.3): %v", err)
 	}
-	if _, err := StrconvParseBool("maybe"); !malformed(err, "maybe") {
-		t.Errorf("ParseBool(maybe): %v", err)
-	}
 	if _, err := StrconvUnquote(`"a`); !malformed(err, `"a`) {
 		t.Errorf("Unquote: %v", err)
 	}
 	if got := (OutOfRange{Text: "9"}).Error(); got != "strconv.OutOfRange{Text:9}" {
 		t.Errorf("OutOfRange text %q", got)
-	}
-	if parts := StringsSplitN("a,b,c", ",", 0); parts == nil || len(parts) != 0 {
-		t.Errorf("SplitN n=0 = %#v, want an empty slice", parts)
 	}
 	defer func() {
 		if recover() == nil {

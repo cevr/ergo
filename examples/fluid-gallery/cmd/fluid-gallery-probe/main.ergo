@@ -1,0 +1,32 @@
+// fluid-gallery-probe renders the button docs page N times and prints its bytes: the receipt's
+// subject (instructions per render, counted at N and 1 by perf; never a time). FORM is tree (the
+// buttons are part trees projected by fluid/web), writer (written straight to HTML) or page (the
+// tree form built by a function of its own, buttonPage, which a fold can make one constant).
+
+import fluidgallery/gallery
+import html
+import os
+import strconv
+
+// Usage: the arguments are not FORM N.
+type Usage { Text string }
+
+func main() fails Usage needs Console | Ambient {
+	let args = with context { os.Process: os.NewHost() } { os.Process.Args() }
+	if len(args) != 2 || (args[0] != "tree" && args[0] != "writer" && args[0] != "page") {
+		return Usage{Text: "usage: fluid-gallery-probe tree|writer|page N"}
+	}
+	let n = strconv.Atoi(args[1]) catch {
+	case _:
+		return Usage{Text: "N is not a number"}
+	}
+	let mut bytes = 0
+	for _ in 0..n {
+		let page = if args[0] == "page" { buttonPage() } else if args[0] == "tree" { gallery.View(gallery.ButtonDocs) } else { gallery.Written(gallery.ButtonDocs) }
+		bytes = len(html.Render(page))
+	}
+	Console.Println("\(bytes)")
+}
+
+// buttonPage is the button docs page, tree form.
+func buttonPage() html.Node { gallery.View(gallery.ButtonDocs) }

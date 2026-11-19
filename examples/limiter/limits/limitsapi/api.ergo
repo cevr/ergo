@@ -10,7 +10,7 @@ import sync
 import limiter/limits
 
 // Request is one call of limits.Limiter: a variant per operation, whose fields
-// are the operation's parameters. It is the wire's request.
+// are the operation's parameters. It is the request every transport carries.
 type Request = TakeRequest{Key string, Cost int} | HoldRequest{Key string, Cost int} | PeekRequest{Key string} | AdvanceRequest{Ms int} | BucketsRequest{}
 
 // Op is an operation of limits.Limiter: what a policy matches on.
@@ -20,7 +20,7 @@ type Op = TakeOp{} | HoldOp{} | PeekOp{} | AdvanceOp{} | BucketsOp{}
 type Reply = TakeReply{Value limits.Grant} | HoldReply{Value limits.Grant} | PeekReply{Value Option[limits.Level]} | AdvanceReply{} | BucketsReply{Value []string}
 
 // Failure is a failure of an operation: a variant per failure type of
-// any row, named like the type (its tag on the wire).
+// any row, named like the type (its JSON tag).
 type Failure = Limited{E limits.Limited} | UnknownBucket{E limits.UnknownBucket} | BadCost{E limits.BadCost}
 
 // Outcome is what one call ends in: its operation's value or one of
@@ -84,7 +84,7 @@ func valueOf(text string) json.Value {
 }
 
 // Schema is the JSON schema of op's arguments: an object whose keys are
-// its parameters' wire keys, or the fields of its one record parameter.
+// its parameters' JSON keys, or the fields of its one record parameter.
 func Schema(op Op) json.Value {
 	match op {
 	case TakeOp:

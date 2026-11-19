@@ -12,11 +12,6 @@
 //
 // Like the MyGo desktop driver, it is not a ui.Host provider: it steps the
 // Session itself, so a script is synchronous (ui.TestHost's choice, H4).
-//
-// Prior art: ratatui and Bubble Tea redraw a buffer per frame and write
-// its difference; Textual and Ink lay out a tree with flexbox and round
-// to cells; notcurses and Ghostty's renderer use mode 2026 to show a
-// frame whole.
 
 import actor
 import arena
@@ -135,6 +130,8 @@ func apply[E comparable, S, D, F](h *Host[S, E, D, F], op ui.Op[E]) {
 			h.nodes[x.Id] = held[E]{node: x.Node, kids: n.Value.kids}
 		case None:
 		}
+	case ui.Define:
+		// A look's definition: this host draws no looks.
 	}
 }
 

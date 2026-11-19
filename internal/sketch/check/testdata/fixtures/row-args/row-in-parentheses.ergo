@@ -1,0 +1,10 @@
+type A { Ping() int }
+type B { Pong() int }
+
+type Job[R] { Run func() int needs R }
+
+func run[R](j Job[R]) int needs R { j.Run() }
+
+func sum() int needs A | B { A.Ping() + B.Pong() }
+
+func f(j Job[(A | B)]) {} // want S001 "a row takes no parentheses"

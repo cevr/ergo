@@ -6,8 +6,10 @@ import (
 	context "context"
 	rt "ergo.local/prototype/runtime/rt"
 	ergo "ergo.local/prototype/runtime/v1"
+	_ "ergo.local/prototype/runtime/v1/gofmt"
 	slices "slices"
 	strconv "strconv"
+	strings "strings"
 )
 
 // Run calls the Ergo function Run for a Go caller (IG11): on the
@@ -1510,7 +1512,7 @@ func (old Rows) Changed(new_1 Rows) []int {
 				}
 			}
 		inl:
-			;
+			_ = 0
 			t[(v_1 + " " + n.Digest)] = true
 		}
 	}
@@ -1538,7 +1540,7 @@ func (old Rows) Changed(new_1 Rows) []int {
 				}
 			}
 		inl_1:
-			;
+			_ = 0
 			v_6 := Get[string, bool](t_1, (v_4 + " " + n_2.Digest))
 			b = (v_6 == (Option[bool]{}).of1((None{})))
 		}
@@ -1567,6 +1569,11 @@ func (Level) of1(_ Files) Level    { return Level{tag: 1} }
 func (Level) of2(_ Decls) Level    { return Level{tag: 2} }
 
 func (x Level) ErgoVariant() string { return [...]string{"Packages", "Files", "Decls"}[x.tag] }
+
+func HasPrefix(s string, prefix string) bool {
+	r := strings.HasPrefix(s, prefix)
+	return r
+}
 
 func (r Rows) NameOf(id int) string {
 	var n NodeRow = r.Nodes[id]
@@ -1925,7 +1932,7 @@ func (r Rows) Find(name string) []int {
 			}
 		}
 	inl:
-		;
+		_ = 0
 		if v_1 == name {
 			out = Append[int](out, i_1)
 		}
@@ -1959,7 +1966,7 @@ func (r Rows) Why(a int, b int) Option[[]Step] {
 		}
 		return (Option[[]Step]{}).of0(Some[[]Step]{Value: out})
 	case 1:
-		return (Option[[]Step]{}).of1(None{})
+		return (Option[[]Step]{tag: 1})
 	default:
 		panic("ergo: defect: no case of the match at std/codegraph/codegraph.ergo:433:2 matched")
 	}
@@ -2131,7 +2138,7 @@ func EncodeMono_i4(env *Env, wT struct {
 }
 
 func (r Rows) Chains(min_1 int) [][]int {
-	v := (r).LevelOf((Level{}).of0(Packages{}), true)
+	v := (r).LevelOf((Level{tag: 0}), true)
 	var out [][]int = [][]int{}
 	v_1 := (v.Graph).Chains(min_1)
 	out = ergo.Reserve(out, len(v_1))
@@ -2213,7 +2220,7 @@ func (t *text) intBody(n int64) {
 }
 
 func (r Rows) Up(layers_1 []string) []Step {
-	v := (r).LevelOf((Level{}).of0(Packages{}), true)
+	v := (r).LevelOf((Level{tag: 0}), true)
 	var out []Step = []Step{}
 	v_1 := (v.Graph).Edges()
 	for _, v_2 := range v_1 {
@@ -2469,16 +2476,30 @@ func Decode_1[T any](env *Env, wT struct {
 	}
 }, c_1 Codec[T], text_1 string) (T, error) {
 	env.task.Check()
-	v, err := Open(env, text_1, c_1.MaxBytes, c_1.MaxDepth)
+	v, err := ergo.JSONOpenChecked(text_1, c_1.MaxBytes, c_1.MaxDepth)
 	if err != nil {
 		return *new(T), err
 	}
+	var r Reader = Reader{c: v}
 	env.task.Check()
-	v_1, err_1 := wT.Dec(env, &opsReaderAsReader{v: v, env: env})
+	v_1, err_1 := wT.Dec(env, &opsReaderAsReader{v: r, env: env})
+	var v_2 T
 	if err_1 != nil {
-		return *new(T), err_1
+		err_2 := err_1
+		err_3 := ergo.JSONSettle(r.c)
+		if err_3 != nil {
+			return *new(T), err_3
+		}
+		return *new(T), err_2
+	} else {
+		v_2 = v_1
 	}
-	return v_1, nil
+	var v_3 T = v_2
+	err_4 := ergo.JSONSettle(r.c)
+	if err_4 != nil {
+		return *new(T), err_4
+	}
+	return v_3, nil
 }
 
 func DecodeMono_i1(env *Env, wT struct {
@@ -2494,16 +2515,30 @@ func DecodeMono_i1(env *Env, wT struct {
 	}
 }, c_1 Codec[Rows], text_1 string) (Rows, error) {
 	env.task.Check()
-	v, err := Open(env, text_1, c_1.MaxBytes, c_1.MaxDepth)
+	v, err := ergo.JSONOpenChecked(text_1, c_1.MaxBytes, c_1.MaxDepth)
 	if err != nil {
 		return *new(Rows), err
 	}
+	var r Reader = Reader{c: v}
 	env.task.Check()
-	v_1, err_1 := wT.Dec(env, &opsReaderAsReader{v: v, env: env})
+	v_1, err_1 := wT.Dec(env, &opsReaderAsReader{v: r, env: env})
+	var v_2 Rows
 	if err_1 != nil {
-		return *new(Rows), err_1
+		err_2 := err_1
+		err_3 := ergo.JSONSettle(r.c)
+		if err_3 != nil {
+			return *new(Rows), err_3
+		}
+		return *new(Rows), err_2
+	} else {
+		v_2 = v_1
 	}
-	return v_1, nil
+	var v_3 Rows = v_2
+	err_4 := ergo.JSONSettle(r.c)
+	if err_4 != nil {
+		return *new(Rows), err_4
+	}
+	return v_3, nil
 }
 
 func textBadRows(v BadRows) string {
@@ -2514,7 +2549,7 @@ func Get[K comparable, V any](m map[K]V, k K) Option[V] {
 	if v, ok_1 := m[k]; ok_1 {
 		return (Option[V]{}).of0(Some[V]{Value: v})
 	}
-	return (Option[V]{}).of1(None{})
+	return (Option[V]{tag: 1})
 }
 
 type Option[T any] struct {
@@ -2600,7 +2635,7 @@ func (g Graph) Cycles() []Cycle_1 {
 		b := (len(c_1) == int(1))
 		if b {
 			v_2 := (g).Succ(first)
-			v_3 := ergo.SlicesContains[int](v_2, first)
+			v_3 := ContainsMono_i1(v_2, first)
 			b = (!v_3)
 		}
 		if b {
@@ -2664,7 +2699,7 @@ type Text_2 interface {
 }
 
 func (t *text) Written() string {
-	v := ergo.JSONBytesText(t.out)
+	v := ergo.StringsBuilderText(t.out)
 	return v
 }
 
@@ -2723,7 +2758,7 @@ func (t *text) Null() {
 		}
 	}
 inl:
-	;
+	_ = 0
 	(t).raw("null")
 	(t).setComma(true)
 	return
@@ -2737,7 +2772,7 @@ func (t *text) Number(text_1 string) {
 		}
 	}
 inl:
-	;
+	_ = 0
 	(t).raw(text_1)
 	(t).setComma(true)
 	return
@@ -2751,7 +2786,7 @@ func (t *text) Bool(b bool) {
 		}
 	}
 inl:
-	;
+	_ = 0
 	(t).boolBody(b)
 	(t).setComma(true)
 	return
@@ -2765,7 +2800,7 @@ func (t *text) Int(n int64) {
 		}
 	}
 inl:
-	;
+	_ = 0
 	(t).intBody(n)
 	(t).setComma(true)
 	return
@@ -2779,7 +2814,7 @@ func (t *text) Uint(n uint64) {
 		}
 	}
 inl:
-	;
+	_ = 0
 	(t).uintBody(n)
 	(t).setComma(true)
 	return
@@ -2793,7 +2828,7 @@ func (t *text) Float(f float64) {
 		}
 	}
 inl:
-	;
+	_ = 0
 	(t).floatBody(f)
 	(t).setComma(true)
 	return
@@ -2807,7 +2842,7 @@ func (t *text) String_(s string) {
 		}
 	}
 inl:
-	;
+	_ = 0
 	(t).stringBody(s)
 	(t).setComma(true)
 	return
@@ -2821,7 +2856,7 @@ func (t *text) StringBytes(b []uint8) {
 		}
 	}
 inl:
-	;
+	_ = 0
 	(t).bytesBody(b)
 	(t).setComma(true)
 	return
@@ -2835,7 +2870,7 @@ func (t *text) BeginList(n int) {
 		}
 	}
 inl:
-	;
+	_ = 0
 	(t).raw("[")
 	(t).setComma(false)
 	return
@@ -2855,7 +2890,7 @@ func (t *text) BeginObject(n int) {
 		}
 	}
 inl:
-	;
+	_ = 0
 	(t).raw("{")
 	(t).setComma(false)
 	return
@@ -2869,7 +2904,7 @@ func (t *text) Tag(name string) {
 		}
 	}
 inl:
-	;
+	_ = 0
 	(t).raw("\"_tag\":")
 	{
 		v := plain(name)
@@ -2882,7 +2917,7 @@ inl:
 		}
 	}
 inl_1:
-	;
+	_ = 0
 	(t).setComma(true)
 	return
 }
@@ -2895,7 +2930,7 @@ func (t *text) Key(k string) {
 		}
 	}
 inl:
-	;
+	_ = 0
 	{
 		v := plain(k)
 		if v {
@@ -2907,7 +2942,7 @@ inl:
 		}
 	}
 inl_1:
-	;
+	_ = 0
 	(t).raw(":")
 	(t).setComma(false)
 	return
@@ -3000,17 +3035,22 @@ func (r Rows) dependsOf() depends {
 		t_1[t_2] = Append[Step](bySource[s_1.From], s_1)
 	}
 	var inOrder []Step = []Step{}
-	inOrder = ergo.Reserve(inOrder, len(bySource))
 	for _, v_10 := range bySource {
 		var l []Step = v_10
-		inOrder = ergo.SlicesConcatOwned[Step](inOrder, l)
+		var v_11 []Step
+		{
+			var a []Step = inOrder
+			v_11 = ergo.SlicesConcatOwned[Step](a, l)
+
+		}
+		inOrder = v_11
 	}
 	return depends{Graph: v_6, Steps: inOrder}
 }
 
 func (g Graph) Path(a int, b int) Option[[]int] {
 	if (((a < int(0)) || (a >= g.Size)) || (b < int(0))) || (b >= g.Size) {
-		return (Option[[]int]{}).of1(None{})
+		return (Option[[]int]{tag: 1})
 	}
 	if a == b {
 		return (Option[[]int]{}).of0(Some[[]int]{Value: []int{a}})
@@ -3035,7 +3075,7 @@ func (g Graph) Path(a int, b int) Option[[]int] {
 			}
 		}
 	}
-	return (Option[[]int]{}).of1(None{})
+	return (Option[[]int]{tag: 1})
 }
 
 func (d depends) stepOf(a int, b int) Step {
@@ -3169,12 +3209,12 @@ func layerOf(layers_1 []string, path_1 string) int {
 		var l string = v
 		b := (l == path_1)
 		if !b {
-			v_1 := ergo.StringsHasSuffix(l, "/...")
+			v_1 := HasSuffix(l, "/...")
 			b_1 := v_1
 			if b_1 {
 				t := path_1
-				v_2 := ergo.StringsTrimSuffix(l, "...")
-				v_3 := ergo.StringsHasPrefix(t, v_2)
+				v_2 := TrimSuffix(l, "...")
+				v_3 := HasPrefix(t, v_2)
 				b_1 = v_3
 			}
 			b = b_1
@@ -3190,15 +3230,6 @@ type Reader struct {
 	c *ergo.Cursor
 }
 
-func Open(env *Env, text_1 string, maxBytes int, maxDepth int) (Reader, error) {
-	env.task.Check()
-	v, err := ergo.JSONOpen(text_1, maxBytes, maxDepth)
-	if err != nil {
-		return *new(Reader), err
-	}
-	return Reader{c: v}, nil
-}
-
 func (r Reader) TakeNull(env *Env) bool {
 	env.task.Check()
 	v := (r.c).TakeNull()
@@ -3208,25 +3239,21 @@ func (r Reader) TakeNull(env *Env) bool {
 func (r Reader) Peek(env *Env) WireKind {
 	env.task.Check()
 	v := (r.c).Kind()
-	if v == int(0) {
-		return (WireKind{}).of0(WireNull{})
+	switch v {
+	case int(0):
+		return (WireKind{tag: 0})
+	case int(1):
+		return (WireKind{tag: 1})
+	case int(2):
+		return (WireKind{tag: 2})
+	case int(3):
+		return (WireKind{tag: 3})
+	case int(4):
+		return (WireKind{tag: 4})
+	case int(5):
+		return (WireKind{tag: 5})
 	}
-	if v == int(1) {
-		return (WireKind{}).of1(WireBool{})
-	}
-	if v == int(2) {
-		return (WireKind{}).of2(WireNumber{})
-	}
-	if v == int(3) {
-		return (WireKind{}).of3(WireString{})
-	}
-	if v == int(4) {
-		return (WireKind{}).of4(WireList{})
-	}
-	if v == int(5) {
-		return (WireKind{}).of5(WireObject{})
-	}
-	return (WireKind{}).of6(WireEnd{})
+	return (WireKind{tag: 6})
 }
 
 func (r Reader) Number(env *Env) (string, error) {
@@ -3574,13 +3601,33 @@ func (g Graph) Components() [][]int {
 	return v_14
 }
 
+func Contains[T comparable](xs []T, x T) bool {
+	for _, v := range xs {
+		var y T = v
+		if y == x {
+			return true
+		}
+	}
+	return false
+}
+
+func ContainsMono_i1(xs []int, x int) bool {
+	for _, v := range xs {
+		var y int = v
+		if y == x {
+			return true
+		}
+	}
+	return false
+}
+
 func (g Graph) closedPath(c_1 []int) []int {
 	var first int = c_1[int(0)]
 	var best []int = []int{}
 	v := (g).Succ(first)
 	for _, v_1 := range v {
 		var m int = v_1
-		v_2 := ergo.SlicesContains[int](c_1, m)
+		v_2 := ContainsMono_i1(c_1, m)
 		if !v_2 {
 			continue
 		}
@@ -3593,7 +3640,14 @@ func (g Graph) closedPath(c_1 []int) []int {
 		case 0:
 			p := s.v0
 			if (len(best) == int(0)) || ((len(p.Value) + int(1)) < len(best)) {
-				best = ergo.SlicesConcat[int](slices.Clip([]int{first}), p.Value)
+				var v_4 []int
+				{
+					var a []int = []int{first}
+					var b []int = p.Value
+					v_4 = ergo.SlicesConcatOwned[int](a, b)
+
+				}
+				best = v_4
 			}
 		case 1:
 		}
@@ -3620,6 +3674,15 @@ func FromBytesOwned(bs []uint8) string {
 
 func FromBytes(bs []uint8) string {
 	return FromBytesOwned(slices.Clone(bs))
+}
+
+func ConcatOwned[T any](a []T, b []T) []T {
+	v := ergo.SlicesConcatOwned[T](a, b)
+	return v
+}
+
+func Concat_1[T any](a []T, b []T) []T {
+	return ConcatOwned[T](slices.Clone(a), b)
 }
 
 func filled(n int, v int) []int {
@@ -3668,11 +3731,18 @@ func (g Graph) Order() Option[[]int] {
 			}
 		}
 		var n_1 int = ready[least]
-		ready = ergo.SlicesConcat[int](slices.Clip(ready[int(0):least]), slices.Clone(ready[(least+int(1)):len(ready)]))
+		var v_6 []int
+		{
+			var a []int = slices.Clone(ready[int(0):least])
+			var b []int = ready[(least + int(1)):len(ready)]
+			v_6 = ergo.SlicesConcatOwned[int](a, b)
+
+		}
+		ready = slices.Clone(v_6)
 		out = Append[int](out, n_1)
-		v_8 := (g).Succ(n_1)
-		for _, v_9 := range v_8 {
-			var m int = v_9
+		v_9 := (g).Succ(n_1)
+		for _, v_10 := range v_9 {
+			var m int = v_10
 			v[m] = (v[m] - int(1))
 			if v[m] == int(0) {
 				ready = Append[int](ready, m)
@@ -3680,10 +3750,20 @@ func (g Graph) Order() Option[[]int] {
 		}
 	}
 	if len(out) < g.Size {
-		return (Option[[]int]{}).of1(None{})
+		return (Option[[]int]{tag: 1})
 	} else {
 		return (Option[[]int]{}).of0(Some[[]int]{Value: out})
 	}
+}
+
+func HasSuffix(s string, suffix string) bool {
+	r := strings.HasSuffix(s, suffix)
+	return r
+}
+
+func TrimSuffix(s string, suffix string) string {
+	r := strings.TrimSuffix(s, suffix)
+	return r
 }
 
 type WireWrongKind struct {
@@ -4236,7 +4316,7 @@ type Options struct {
 //line tool.ergo:142:1
 func options(args []string) Options {
 //line tool.ergo:143:2
-	var o Options = Options{Json: false, Tests: false, Level: (Level{}).of0(Packages{}), Min: int(2), Words: []string{}, Bad: ""}
+	var o Options = Options{Json: false, Tests: false, Level: (Level{tag: 0}), Min: int(2), Words: []string{}, Bad: ""}
 //line tool.ergo:144:2
 	var i int = int(0)
 //line tool.ergo:145:2
@@ -4272,15 +4352,15 @@ func options(args []string) Options {
 			switch v {
 			/*line tool.ergo:160:4*/ case "package":
 //line tool.ergo:162:5
-				o.Level = (Level{}).of0(Packages{})
+				o.Level = (Level{tag: 0})
 				/*line tool.ergo:162:5*/
 			case "file":
 //line tool.ergo:164:5
-				o.Level = (Level{}).of1(Files{})
+				o.Level = (Level{tag: 1})
 				/*line tool.ergo:164:5*/
 			case "decl":
 //line tool.ergo:166:5
-				o.Level = (Level{}).of2(Decls{})
+				o.Level = (Level{tag: 2})
 				/*line tool.ergo:166:5*/
 			default:
 //line tool.ergo:168:5
@@ -4323,7 +4403,7 @@ func options(args []string) Options {
 		default:
 //line tool.ergo:184:4
 //line tool.ergo:184:7
-			v_3 := ergo.StringsHasPrefix(a, "-")
+			v_3 := HasPrefix(a, "-")
 //line tool.ergo:184:4
 			if v_3 {
 //line tool.ergo:185:5
@@ -4376,7 +4456,7 @@ func names(r Rows, ids []int) []string {
 			/*line tool.ergo:198:20*/
 		}
 		/*line tool.ergo:198:20*/ inl:
-		;
+		/*line tool.ergo:198:20*/ _ = 0
 //line tool.ergo:198:9
 		v_3 := Append[string](t, v_1)
 //line tool.ergo:198:20
@@ -4538,7 +4618,7 @@ func stepsOut(r Rows, steps []Step) []StepOut {
 			/*line tool.ergo:227:48*/
 		}
 		/*line tool.ergo:227:48*/ inl:
-		;
+		/*line tool.ergo:227:48*/ _ = 0
 		/*line tool.ergo:227:48*/ t_2 := v_1
 //line tool.ergo:227:81
 		var v_3 string
@@ -4563,7 +4643,7 @@ func stepsOut(r Rows, steps []Step) []StepOut {
 			/*line tool.ergo:227:81*/
 		}
 		/*line tool.ergo:227:81*/ inl_1:
-		;
+		/*line tool.ergo:227:81*/ _ = 0
 //line tool.ergo:227:9
 		v_5 := Append[StepOut](t, StepOut{Kind: t_1, From: t_2, To: v_3})
 //line tool.ergo:227:81
@@ -4800,7 +4880,7 @@ func affected(env *Env, r Rows, o Options, changed []int) []string {
 			/*line tool.ergo:287:37*/
 		}
 		/*line tool.ergo:287:37*/ inl:
-		;
+		/*line tool.ergo:287:37*/ _ = 0
 		/*line tool.ergo:287:37*/ t_1 := v_2
 		/*line tool.ergo:287:37*/ t_2 := x.By.Kind
 		/*line tool.ergo:287:37*/ var v_4 string
@@ -4834,7 +4914,7 @@ func affected(env *Env, r Rows, o Options, changed []int) []string {
 				/*line tool.ergo:287:120*/
 			}
 			/*line tool.ergo:287:120*/ inl_1:
-			;
+			/*line tool.ergo:287:120*/ _ = 0
 			/*line tool.ergo:287:120*/ v_4 = v_5
 			/*line tool.ergo:287:120*/
 		}
@@ -4973,7 +5053,7 @@ func hidden(env *Env, r Rows, o Options) []string {
 			/*line tool.ergo:307:36*/
 		}
 		/*line tool.ergo:307:36*/ inl:
-		;
+		/*line tool.ergo:307:36*/ _ = 0
 		/*line tool.ergo:307:36*/ t_1 := v_2
 //line tool.ergo:307:69
 		var v_4 string
@@ -4998,7 +5078,7 @@ func hidden(env *Env, r Rows, o Options) []string {
 			/*line tool.ergo:307:69*/
 		}
 		/*line tool.ergo:307:69*/ inl_1:
-		;
+		/*line tool.ergo:307:69*/ _ = 0
 		/*line tool.ergo:307:69*/ t_2 := v_4
 //line tool.ergo:307:105
 		var v_6 string
@@ -5023,7 +5103,7 @@ func hidden(env *Env, r Rows, o Options) []string {
 			/*line tool.ergo:307:105*/
 		}
 		/*line tool.ergo:307:105*/ inl_2:
-		;
+		/*line tool.ergo:307:105*/ _ = 0
 		/*line tool.ergo:307:105*/ t_3 := v_6
 		/*line tool.ergo:307:105*/ var v_8 string
 //line tool.ergo:307:142
@@ -5056,7 +5136,7 @@ func hidden(env *Env, r Rows, o Options) []string {
 				/*line tool.ergo:307:169*/
 			}
 			/*line tool.ergo:307:169*/ inl_3:
-			;
+			/*line tool.ergo:307:169*/ _ = 0
 			/*line tool.ergo:307:169*/ v_8 = v_9
 			/*line tool.ergo:307:169*/
 		}
@@ -5290,7 +5370,7 @@ func fan(env *Env, r Rows, o Options) []string {
 			/*line tool.ergo:340:33*/
 		}
 		/*line tool.ergo:340:33*/ inl:
-		;
+		/*line tool.ergo:340:33*/ _ = 0
 //line tool.ergo:340:9
 		v_4 := Append[FanOut](t, FanOut{Node: v_2, In: f.In, Out: f.Out})
 //line tool.ergo:340:33

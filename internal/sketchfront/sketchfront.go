@@ -312,6 +312,9 @@ type BuildRequest struct {
 	// Patch). Every ergo command's build sets it (plan-tier §1.1); the
 	// source lowering stays the test-time reference.
 	IR bool
+	// Rewrites is ergo build's -rewrites switch (lower.Unit.Rewrites): on
+	// (""), proved or off.
+	Rewrites string
 	// Stderr receives the go command's output.
 	Stderr io.Writer
 	// Ledger is the path of the law ledger, ergo.laws beside ergo.mod
@@ -321,6 +324,10 @@ type BuildRequest struct {
 	// Locked refuses a run build that needs a stale or missing ledger
 	// entry (ergo build --locked; owner q122).
 	Locked bool
+	// NoViews is ergo build -views=off (lower.Unit.NoViews).
+	NoViews bool
+	// NoFallback is ergo build -fallback=off (lower.Unit.NoFallback).
+	NoFallback bool
 	// Inputs, when set, is the file system the build reads the ledger
 	// through (a warm request's Recorder); nil reads the host.
 	Inputs FS
@@ -394,6 +401,10 @@ func Build(a Analysis, req BuildRequest) (build.Module, error) {
 		}
 	}
 	module, err := req.Cache.Module(input, func() ([]build.File, error) {
+		if req.Toolchain.Stored {
+			// A build from the store lowers nothing either.
+			return nil, build.ErrNotStored
+		}
 		files := ledgered
 		if files == nil {
 			var err error
@@ -444,6 +455,15 @@ func link(module build.Module, req BuildRequest) error {
 	if req.Report != nil {
 		*req.Report = report
 	}
+	if err == nil {
+		// Each executable by its module's lowering (TEQb): every ergo
+		// build lowers through IR, the source text being the reference.
+		if req.IR {
+			stage.Add(stage.BinariesIR, 1)
+		} else {
+			stage.Add(stage.BinariesText, 1)
+		}
+	}
 	return err
 }
 
@@ -462,7 +482,13 @@ func buildInput(a Analysis, req BuildRequest) (lower.Unit, build.Input, error) {
 	if err != nil {
 		return lower.Unit{}, build.Input{}, err
 	}
+	// A coverage build (build.CoverVariable) lowers std bodies with cover
+	// marks; its key says so, so no other build reuses that module.
+	unit.CoverMarks = req.Toolchain.Cover != ""
 	input, err := unitInput(unit, analysisDependencies(a), req)
+	if unit.CoverMarks {
+		input.Flags = append(input.Flags, lower.CoverMarkFlag)
+	}
 	return unit, input, err
 }
 
@@ -505,6 +531,20 @@ func unitInput(unit lower.Unit, dependencies []build.Dependency, req BuildReques
 	emitter := emitterRevision
 	if req.IR {
 		emitter += "+ir"
+	}
+	if req.NoViews {
+		// -views=off lowers other Go (LF2b): its module is another key.
+		emitter += "+noviews"
+	}
+	if req.NoFallback {
+		// -fallback=off refuses what an IR build would link: a cached
+		// module never answers it (FALLBACK-OFF).
+		emitter += "+nofallback"
+	}
+	if unit.Rewrites != "" && unit.Rewrites != "on" {
+		// The switch decides the lowered module (lower.Unit.Rewrites), so
+		// it keys it: an off build never reuses an on build's module.
+		emitter += "+rewrites=" + unit.Rewrites
 	}
 	input := build.Input{
 		Dependencies: dependencies,
@@ -605,6 +645,9 @@ func emission(a Analysis, req BuildRequest) (lower.Unit, func(lower.Unit) ([]low
 	// The dev profile's module skips go/format (test-speed FT5); unitInput
 	// keys it apart.
 	unit.Raw = req.Toolchain.Profile == build.Dev
+	unit.NoViews = req.NoViews
+	unit.NoFallback = req.NoFallback
+	unit.Rewrites = req.Rewrites
 	how := buildLowering(req, func() string {
 		in, err := unitInput(unit, analysisDependencies(a), req)
 		if err != nil {
@@ -684,37 +727,54 @@ func ledgerLowered(a Analysis, unit lower.Unit, req BuildRequest, split bool) (*
 }
 
 // EmittedDigest is the SHA-256 of the Go module a Build of req would link:
-// the runtime and the lowered files, by path and bytes, and the mode. Two
+// the runtime packages it imports and the lowered files, by path and bytes, and the mode. Two
 // compilers that emit the same module for a program give the same digest,
 // so a cache keyed on it replays across a compiler edit that does not
 // change that program's Go (the examples runner, gate-speed GS8). It writes
 // nothing and runs no Go tool.
 func EmittedDigest(a Analysis, req BuildRequest) (string, error) {
-	unit, lowering, how, err := emission(a, req)
+	files, err := emittedFiles(a, req)
 	if err != nil {
 		return "", err
+	}
+	return emittedDigest(req.Mode, lower.Runtime(), files), nil
+}
+
+// emittedFiles are the lowered files of the module a Build of req links,
+// without the runtime.
+func emittedFiles(a Analysis, req BuildRequest) ([]lower.File, error) {
+	unit, lowering, how, err := emission(a, req)
+	if err != nil {
+		return nil, err
 	}
 	split := how != lowerSingle
 	var files []lower.File
 	if req.Mode == build.ModeBuild {
 		if _, files, err = ledgerLowered(a, unit, req, split); err != nil {
-			return "", err
+			return nil, err
 		}
 	}
 	if files == nil {
 		if files, err = lowerUnit(a, unit, lowering); err != nil {
-			return "", err
+			return nil, err
 		}
 	}
-	all := append(slices.Clone(lower.Runtime()), files...)
+	return files, nil
+}
+
+// emittedDigest is EmittedDigest of the lowered files: the mode, the files
+// and the part of runtime they can link (lower.LinkedRuntime, CS-CUTOFF),
+// by path and bytes.
+func emittedDigest(mode build.Mode, runtime, files []lower.File) string {
+	all := append(lower.LinkedRuntime(runtime, files), files...)
 	slices.SortFunc(all, func(x, y lower.File) int { return strings.Compare(x.Path, y.Path) })
 	hash := sha256.New()
-	fmt.Fprintf(hash, "mode %s\n", req.Mode)
+	fmt.Fprintf(hash, "mode %s\n", mode)
 	for _, f := range all {
 		fmt.Fprintf(hash, "%d:%s%d:", len(f.Path), f.Path, len(f.Data))
 		hash.Write(f.Data)
 	}
-	return hex.EncodeToString(hash.Sum(nil)), nil
+	return hex.EncodeToString(hash.Sum(nil))
 }
 
 // stdDependencies summarises the bundled standard library: the prelude and

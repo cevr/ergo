@@ -18,7 +18,7 @@ extern go crypto/ed25519.Options type Options {
 }
 
 // ergo:go func (*Options).HashFunc() crypto.Hash
-extern go crypto/ed25519.Options.HashFunc func (o own *Options) HashFunc() crypto.Hash needs go.Foreign
+extern go crypto/ed25519.Options.HashFunc func (o *Options) HashFunc() crypto.Hash needs go.Foreign
 
 // ergo:go type PrivateKey []byte
 extern go crypto/ed25519.PrivateKey type PrivateKey []byte

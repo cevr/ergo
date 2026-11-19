@@ -1,5 +1,5 @@
 project site
   needs web ^2.1
 
-package web 2.1
-  needs log >=1.x
+package web 2.1.0
+  needs log >=1.y

@@ -1,3 +1,4 @@
+import exec
 import filepath
 import fs
 import json
@@ -30,12 +31,17 @@ type Report {
 type DoctorOptions { Rift bool, Registry Option[string] }
 
 // mountOf is the file system type and options of the mount that holds
-// path, from /proc/mounts (the longest mount point that is a prefix);
-// ("", "") when the host has no such file.
+// path, from /proc/mounts (the longest mount point that is a prefix); on
+// a host with no such file (macOS), from mount(8)'s list (mountedOf);
+// ("", "") when neither answers.
 func mountOf(t Tool, path string) (string, string) {
 	let text = t.files.ReadFile("/proc/mounts") catch {
 	case fs.NotFound, fs.Denied, fs.Failed:
-		return ("", "")
+		let r = t.runner.Run(exec.New("mount", []string{})) catch {
+		case exec.NotFound, exec.Denied, exec.Failed:
+			return ("", "")
+		}
+		return if r.Status == 0 { mountedOf(r.Stdout, path) } else { ("", "") }
 	}
 	let abs = filepath.Clean(path)
 	let mut best = ""
@@ -55,6 +61,43 @@ func mountOf(t Tool, path string) (string, string) {
 		}
 	}
 	(kind, opts)
+}
+
+// mountedOf is the type and options of the mount that holds path in the
+// list BSD's and macOS's mount(8) prints, a line a mount:
+// "DEVICE on POINT (TYPE, OPTION, ...)", the point possibly with spaces;
+// the options are given comma-separated, as /proc/mounts gives them.
+func mountedOf(text string, path string) (string, string) {
+	let abs = filepath.Clean(path)
+	let mut best = ""
+	let mut kind = ""
+	let mut opts = ""
+	for line in strings.Split(text, "\n") {
+		let on = strings.Index(line, " on ")
+		let paren = strings.LastIndex(line, " (")
+		if on < 0 || paren < on+4 || !strings.HasSuffix(line, ")") {
+			continue
+		}
+		let at = line[on+4 : paren]
+		let parts = strings.Split(line[paren+2:len(line)-1], ", ")
+		let under = abs == at || at == "/" || strings.HasPrefix(abs, at+"/")
+		if under && len(at) >= len(best) {
+			best = at
+			kind = parts[0]
+			opts = strings.Join(parts[1:], ",")
+		}
+	}
+	(kind, opts)
+}
+
+// MacMountsNameAPFS: the smallest repro of the doctor that named no file
+// system on a Mac (it read only /proc/mounts): mount(8)'s list, with a
+// volume whose point has a space, gives the mount that holds the path.
+test MacMountsNameAPFS {
+	let list = "/dev/disk3s1s1 on / (apfs, sealed, local, read-only, journaled)\n/dev/disk3s5 on /System/Volumes/Data (apfs, local, journaled, nobrowse, protect, root data)\nmap auto_home on /System/Volumes/Data/home (autofs, automounted, nobrowse)\n/dev/disk5s1 on /Volumes/My Disk (msdos, local, nodev, nosuid, noowners)\n"
+	assert mountedOf(list, "/System/Volumes/Data/Users/c/Developer") == ("apfs", "local,journaled,nobrowse,protect,root data")
+	assert mountedOf(list, "/Volumes/My Disk/x") == ("msdos", "local,nodev,nosuid,noowners")
+	assert mountedOf(list, "/opt/x") == ("apfs", "sealed,local,read-only,journaled")
 }
 
 // Doctor reports on the base.

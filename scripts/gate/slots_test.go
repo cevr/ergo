@@ -165,10 +165,12 @@ func TestLongestStepTakesTheFirstFreedSlot(t *testing.T) {
 // weight, each sharded test step weighs the recorded cost of its tests
 // (shardCosts), the other packages' step theirs, a closure sweep
 // sweepWeightFactor times its package's (a host package's the stated
-// default), and the closure sweep of internal/sketch/lower is the heaviest
-// step after the writers, so it takes the first slot the writers free
-// (batch-10: it started at 381 s of the merge tier and was its longest
-// step).
+// default). Which step is heaviest follows from those records, and the
+// slots take the heaviest waiting step first (TestSlotsRunHeaviestFirst's
+// order), so the longest sweep takes the first slot the writers free
+// (batch-10: lower's sweep started at 381 s of the merge tier). The test
+// names no package as the heaviest: a pinned name went red when
+// irspike's recorded tests passed lower's (GT-WEIGH).
 func TestStepsWeighTheirRecordedTime(t *testing.T) {
 	host := sweepOS
 	t.Cleanup(func() { sweepOS = host })
@@ -199,10 +201,8 @@ func TestStepsWeighTheirRecordedTime(t *testing.T) {
 	for i, step := range steps {
 		index[step.Name] = i
 	}
-	writers := writerPath(steps, index)
-	var heaviest *Step
 	shards := map[string]float64{}
-	for i, step := range steps {
+	for _, step := range steps {
 		if step.Sweep != "" {
 			// Each test package has one sweep step: its package needs
 			// rows, from which its test steps weigh; only a host
@@ -227,12 +227,6 @@ func TestStepsWeighTheirRecordedTime(t *testing.T) {
 		if pkg := step.Argv[len(step.Argv)-1]; strings.HasPrefix(step.Name, "go test ./") && strings.Contains(step.Name, "/") && strings.Contains(step.Name, "[") {
 			shards[pkg] += step.Weight
 		}
-		if !writers[i] && step.Weight > 0 && (heaviest == nil || step.Weight > heaviest.Weight) {
-			heaviest = step
-		}
-	}
-	if heaviest == nil || heaviest.Name != "closure sweep ./internal/sketch/lower" {
-		t.Errorf("the heaviest step after the writers is %v; want the closure sweep of internal/sketch/lower", heaviest)
 	}
 	if len(shards) == 0 {
 		t.Fatal("no sharded test step")

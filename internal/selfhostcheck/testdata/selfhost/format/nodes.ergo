@@ -61,16 +61,33 @@ func decl(p *Printer, d int) {
 		}
 		p.space()
 		let spec = p.k(d, "Spec")
-		if p.fam(spec) == "InterfaceType" && len(p.ks(spec, "Union")) > 0 {
+		if p.hasK(d, "Derive") {
+			// As written: the bundle it derives is not printed.
+			p.token(p.at(d, "DerivePos"), "derive")
+			p.space()
+			p.expr(p.k(d, "Derive"))
+		} else if p.fam(spec) == "InterfaceType" && len(p.ks(spec, "Union")) > 0 {
 			p.unionType(spec)
-			return
+		} else {
+			p.expr(spec)
 		}
-		p.expr(spec)
 		if p.hasK(d, "Where") {
 			p.space()
 			p.token(p.at(d, "WherePos"), "where")
 			p.space()
 			p.expr(p.k(d, "Where"))
+		}
+		let implements = p.ks(d, "Implements")
+		if len(implements) > 0 {
+			p.space()
+			p.token(p.at(d, "ImplementsPos"), "implements")
+			for i, x in implements {
+				if i > 0 {
+					p.synth(",")
+				}
+				p.space()
+				p.typ(x)
+			}
 		}
 	case "FuncDecl":
 		p.externSpec(d)
@@ -305,8 +322,23 @@ func fieldList(p *Printer, l int, open string, close string) {
 			p.space()
 			p.token(p.at(f, "Any"), "any")
 		}
-		if p.hasK(f, "Type") {
+		if p.at(f, "Lent") > 0 {
+			p.space()
+			p.token(p.at(f, "Lent"), "lent")
+		}
+		if p.fl(f, "Pure") {
+			p.space()
+			p.token(p.at(f, "PurePos"), "pure")
+		}
+		let own = p.hasK(f, "Own")
+		if own {
 			if len(names) > 0 {
+				p.space()
+			}
+			p.token(p.at(p.k(f, "Own"), "At"), "own")
+		}
+		if p.hasK(f, "Type") {
+			if len(names) > 0 || own {
 				p.space()
 			}
 			p.typ(p.k(f, "Type"))
@@ -430,28 +462,40 @@ func fieldMembers(p *Printer, fieldList int, tight bool) {
 	}, tight)
 }
 
-// operationType prints the operations and laws of an operation type in
-// source order.
-func operationType(p *Printer, t int) {
-	let methods = p.ks(t, "Methods")
-	let laws = p.ks(t, "Laws")
-	let mut nodes = []int{}
+// bySource merges two lists of nodes, each in source order, into one.
+func bySource(p *Printer, a []int, b []int) []int {
+	let mut out = []int{}
 	let mut i = 0
 	let mut j = 0
-	for i < len(methods) || j < len(laws) {
-		if j == len(laws) || i < len(methods) && p.start(methods[i]) < p.start(laws[j]) {
-			nodes = nodes.Append(methods[i])
+	for i < len(a) || j < len(b) {
+		if j == len(b) || i < len(a) && p.start(a[i]) < p.start(b[j]) {
+			out = out.Append(a[i])
 			i += 1
 			continue
 		}
-		nodes = nodes.Append(laws[j])
+		out = out.Append(b[j])
 		j += 1
 	}
+	out
+}
+
+// operationType prints the includes, operations and laws of an operation
+// type in source order.
+func operationType(p *Printer, t int) {
+	let nodes = p.bySource(p.bySource(p.ks(t, "Includes"), p.ks(t, "Methods")), p.ks(t, "Laws"))
 	p.members(p.at(t, "Lbrace"), p.at(t, "Rbrace"), nodes, func(x int, aligned bool) {
 		let m = nodes[x]
 		if p.fam(m) == "LawDecl" {
 			p.memberLaw(m)
 			return
+		}
+		if p.fl(m, "Include") {
+			p.fieldMember(m, aligned)
+			return
+		}
+		if p.hasK(m, "Own") {
+			p.token(p.at(p.k(m, "Own"), "At"), "own")
+			p.space()
 		}
 		p.ident(p.ks(m, "Names")[0])
 		p.signature(p.k(m, "Type"))
@@ -759,6 +803,10 @@ func stmt(p *Printer, x int) {
 		p.token(p.at(x, "Assert"), "assert")
 		p.space()
 		p.expr(p.k(x, "X"))
+	case "SkipStmt":
+		p.token(p.at(x, "Skip"), "skip")
+		p.space()
+		p.tokenEnd(p.at(x, "ReasonPos"), p.s(x, "Reason"), p.at(x, "ReasonEnd"))
 	case "BlockStmt":
 		p.block(x, false)
 	case "IfStmt":
@@ -850,7 +898,7 @@ func clauses(p *Printer, lbrace int, arms []int, patterns string, rbrace int) {
 		} else {
 			p.newlineNoBlank()
 		}
-		p.caseHead(p.at(arm, "Case"), p.ks(arm, patterns), p.at(arm, "Colon"))
+		p.caseHead(p.at(arm, "Case"), p.written(arm, patterns), p.at(arm, "Colon"))
 		p.L.step(SetIndent{To: base + 1})
 		p.stmtList(p.ks(arm, "Body"))
 	}
@@ -863,6 +911,14 @@ func clauses(p *Printer, lbrace int, arms []int, patterns string, rbrace int) {
 	p.flushComments(rbrace)
 	p.newlineNoBlank()
 	p.token(rbrace, "}")
+}
+
+// written is an arm's patterns as the source wrote them: the parser
+// expands nested alternatives into the list patterns and keeps the
+// written ones in Written.
+func written(p *Printer, arm int, patterns string) []int {
+	let w = p.ks(arm, "Written")
+	if len(w) > 0 { w } else { p.ks(arm, patterns) }
 }
 
 // caseHead prints `case P, Q:`, or `case _:` for an empty list.
@@ -996,6 +1052,16 @@ func expr1(p *Printer, x int, depth int) {
 		}, p.at(x, "Rbrace"), "}")
 	case "KeyValueExpr":
 		p.element(x)
+	case "OrPattern":
+		let bars = poss(p.T, x, "Bars")
+		for i, a in p.ks(x, "Alts") {
+			if i > 0 {
+				p.space()
+				p.token(bars[i-1], "|")
+				p.space()
+			}
+			p.expr1(a, depth)
+		}
 	case "AsPattern":
 		p.expr1(p.k(x, "X"), depth)
 		p.space()
@@ -1092,6 +1158,10 @@ func call(p *Printer, x int, depth int) {
 func funcType(p *Printer, t int) {
 	if p.at(t, "Escaping") >= 0 {
 		p.token(p.at(t, "Escaping"), "escaping")
+		p.space()
+	}
+	if p.fl(t, "Entry") {
+		p.token(p.at(t, "EntryPos"), "entry")
 		p.space()
 	}
 	if p.at(t, "Func") >= 0 {

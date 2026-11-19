@@ -45,7 +45,7 @@ func spelled(d TreeDigits) string {
 }
 
 // Lawful is the std Value t spells, with each string made valid UTF-8:
-// the printers write invalid UTF-8 as U+FFFD, as jq does, so only a valid
+// the printers write invalid UTF-8 as U+FFFD, so only a valid
 // string prints back to itself. ParseNum fails only if spelled makes a
 // text that is not a number; the failure then refutes the law that drew t.
 func Lawful(t Tree) json.Value fails json.Malformed {

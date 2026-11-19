@@ -1,0 +1,43 @@
+{
+  "name": "@cvr/tn1-lint",
+  "version": "0.1.0",
+  "description": "TN1's advisory linter for TypeScript: small all-integer networks decide the judgement lints exact rules cannot, beside oxlint, with findings in oxlint's JSON form. Deterministic, local, free.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cevr/ergo.git",
+    "directory": "tools/npm/tn1-lint"
+  },
+  "main": "lint.js",
+  "exports": {
+    ".": "./lint.js",
+    "./lint": "./lint.js",
+    "./wire": {
+      "types": "./wire.d.ts",
+      "default": "./wire.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "tn1-lint": "bin/tn1-lint"
+  },
+  "scripts": {
+    "postinstall": "node install.js"
+  },
+  "files": [
+    "bin/tn1-lint",
+    "install.js",
+    "lint.js",
+    "worker.js",
+    "wire.js",
+    "wire.d.ts",
+    "README.md"
+  ],
+  "optionalDependencies": {
+    "@cvr/tn1-lint-linux-x64": "0.1.0",
+    "@cvr/tn1-lint-linux-arm64": "0.1.0",
+    "@cvr/tn1-lint-darwin-arm64": "0.1.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

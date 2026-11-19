@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"ergo.local/prototype/internal/opcount"
+	"ergo.local/prototype/internal/opcount/hooked"
 	"ergo.local/prototype/internal/proclimit"
 )
 
@@ -26,7 +27,7 @@ import (
 // go line of the emitted module, so one toolchain compiles both. Each
 // program runs bounded by proclimit, and the test waits for its exit.
 //
-// Method: TestOneBRCCountsAsHandGo's (internal/opcount's counter, one
+// Method: TestStationStatsCountsAsHandGo's (internal/opcount's counter, one
 // worker, GOMAXPROCS=1): a run on 20,000 events is subtracted from one on
 // 220,000, which leaves 200,000 events and none of the start-up or the
 // report; the programs alternate over 5 rounds and the medians are
@@ -199,7 +200,7 @@ func buildEventsHooked(t *testing.T, work, dir string) string {
 	overlayFile := filepath.Join(dir, "overlay.json")
 	writeFile(t, overlayFile, string(overlay))
 	bin := filepath.Join(dir, "events-hooked")
-	command, err := opcount.HookedBuild(work, overlayFile, bin)
+	command, err := hooked.Build(work, overlayFile, bin)
 	if err != nil {
 		t.Fatal(err)
 	}

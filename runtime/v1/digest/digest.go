@@ -1,7 +1,8 @@
 package digest
 
-// The Go bodies of the std packages hex, base64, sha256 and crc32 (docs/
-// spec/stdlib.md, encodings and digests; G3 std-digest). Ergo's string
+// The Go bodies of the std packages hex, base64 and crc32 (docs/spec/
+// stdlib.md, encodings and digests; G3 std-digest); sha256.Sum and
+// crc32.Checksum call Go through import go (NP4f-5). Ergo's string
 // holds bytes (types.md, Strings 1), so each body takes and returns
 // strings: Go's own function runs on the bytes, valid UTF-8 or not. Each is
 // marked pure: encoding/hex, encoding/base64, crypto/sha256 and hash/crc32
@@ -13,7 +14,6 @@ package digest
 // module works on Uint8Array or string.
 
 import (
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"hash/crc32"
@@ -106,21 +106,6 @@ func Base64URLDecode(s string) (string, error) {
 	}
 	return string(b), nil
 }
-
-// Sha256Sum is the 32 bytes of sha256.Sum256 of the bytes of s.
-//
-//ergo:pure
-//ergo:wait none
-func Sha256Sum(s string) string {
-	d := sha256.Sum256([]byte(s))
-	return string(d[:])
-}
-
-// Crc32Checksum is crc32.ChecksumIEEE of the bytes of s.
-//
-//ergo:pure
-//ergo:wait none
-func Crc32Checksum(s string) uint32 { return crc32.ChecksumIEEE([]byte(s)) }
 
 // Crc32Update is crc32.Update(crc, crc32.IEEETable, the bytes of s).
 //

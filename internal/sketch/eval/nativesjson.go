@@ -45,6 +45,68 @@ func registerNativesjson() {
 		return args[0], in.charge(fr, at, 1)
 	}
 	natives["strings.builderText"] = bytesText
+	// std build's InFold, Known and Hole (CF1, CF2): the evaluator is what
+	// computes a build-time fold, so in a fold InFold is true, where
+	// runtime/v1.BuildInFold, the built program's, is false; a value is
+	// known unless it holds a template's hole (a symbol). Outside a fold (a
+	// law at check time) they answer as a built program does. They are no
+	// parity rows: the two differ by design, and a function that branches
+	// on them states a law that its branches agree (std/build).
+	natives["build.InFold"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		return in.fold, in.charge(fr, at, 1)
+	}
+	holeNative("build.Known", func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		return in.fold && !symbolic(args[0]), in.charge(fr, at, 1)
+	})
+	holeNative("build.Hole", func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		_, hole := args[0].(*symbol)
+		return in.fold && hole, in.charge(fr, at, 1)
+	})
+	// std strings' Builder writes (SSR WEB3: std hmac builds its blocks
+	// with them): WriteString and WriteByte append as Go's append grows
+	// the buffer; Grow keeps no room here, so it is the buffer unchanged,
+	// and a negative count is Go's panic.
+	natives["strings.builderAppend"] = jsonAppend(func(args []Value) string { return args[0].(string) })
+	natives["strings.builderAppendByte"] = jsonAppend(func(args []Value) string { return string([]byte{args[0].(uint8)}) })
+	natives["strings.builderGrow"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		if args[1].(int64) < 0 {
+			return nil, fr.defect(at, "strings.Builder.Grow: negative count")
+		}
+		return args[0], in.charge(fr, at, 1)
+	}
+	// MX-EVBUILDER: the rest of the Builder's writes, and std civil's
+	// buffer, on the same appends.
+	natives["strings.builderAppendBytes"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		out, ok := args[0].(sliceV)
+		if !ok {
+			return nil, fr.unsupported(at, "%s on bytes the evaluator does not hold", fn.Name)
+		}
+		var v Value = out
+		for _, c := range args[1].(sliceV).elems() {
+			var ab *abrupt
+			if v, ab = in.appendTo(fr, at, v.(sliceV), c, nil); ab != nil {
+				return nil, ab
+			}
+		}
+		return v, nil
+	}
+	natives["strings.builderAppendFrom"] = builderAppendFrom
+	natives["civil.buffer"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		// Go's make([]byte, 0, n) for civil's constant n: the room is
+		// the Go target's, so an empty buffer, as strings.Borrow's.
+		return newSlice(nil), in.charge(fr, at, 1)
+	}
+	natives["civil.bytesText"] = bytesText
+	// openChecked and settleText are Decode's one pass (JSON-VALUE-DECODE).
+	// The evaluator checks the text whole as open does, so a text that is
+	// not JSON fails before the decode, which is the outcome settleText gives,
+	// and settleText has nothing left to find.
+	natives["json.openChecked"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		return natives["json.open"](in, fr, at, fn, args)
+	}
+	natives["json.settleText"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		return unit{}, in.charge(fr, at, 1)
+	}
 	natives["json.open"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		if ab := in.charge(fr, at, 1+argWork(args)); ab != nil {
 			return nil, ab

@@ -156,6 +156,10 @@ type Evaluation struct {
 // bad case and Arguments its values; Replay is the native command that
 // runs the same cases (ergo test draws the same ones for the same seed).
 type Obligation struct {
+	// Advice is ergo check's advice at a top-level rewrite law in scope
+	// whose ledger entry is not current and validated (LF6c): it changes
+	// no code until ergo test's licence run validates it.
+	Advice      string         `json:"advice,omitempty"`
 	Arguments   []Argument     `json:"arguments,omitempty"`
 	Cached      bool           `json:"cached,omitempty"`
 	Case        int            `json:"case,omitempty"`
@@ -239,15 +243,20 @@ func (r *Result) Evaluation() *Evaluation { return r.evaluation }
 // Evaluation is present only when the source checked and its obligations
 // ran (Evaluation).
 type CheckEnvelope struct {
-	Checked              bool                  `json:"checked"`
-	Diagnostics          []Diagnostic          `json:"diagnostics"`
-	DiagnosticsTruncated bool                  `json:"diagnosticsTruncated"`
-	Evaluation           *Evaluation           `json:"evaluation,omitempty"`
-	Producer             producer.Identity     `json:"producer,omitzero"`
-	Revision             string                `json:"revision"`
-	SchemaVersion        int                   `json:"schemaVersion"`
-	Snapshot             SnapshotQualification `json:"snapshot,omitzero"`
-	Target               string                `json:"target"`
+	Checked              bool         `json:"checked"`
+	Diagnostics          []Diagnostic `json:"diagnostics"`
+	DiagnosticsTruncated bool         `json:"diagnosticsTruncated"`
+	Evaluation           *Evaluation  `json:"evaluation,omitempty"`
+	// Features are the abilities of the ergo that wrote the envelope, the
+	// list ergo version --json prints, so a tool that drives check reads
+	// them from its answer and runs no version probe (MODELCHECK
+	// FEATURES-JSON). The command sets them; empty, they are left out.
+	Features      []string              `json:"features,omitempty"`
+	Producer      producer.Identity     `json:"producer,omitzero"`
+	Revision      string                `json:"revision"`
+	SchemaVersion int                   `json:"schemaVersion"`
+	Snapshot      SnapshotQualification `json:"snapshot,omitzero"`
+	Target        string                `json:"target"`
 }
 
 // CheckEnvelope lists at most MaxCheckDiagnostics diagnostics and says when

@@ -52,7 +52,7 @@ law FilesAsksBeneath(steps []int, prefixed bool) {
 	let path = if prefixed { "/static/" + rest } else { "/" + rest }
 	let method = if len(steps)%2 == 0 { "GET" } else { "HEAD" }
 	let root = filesProbe{paths: sync.NewRef[[]string]([]string{})}
-	let response = Files(root, "/static/", Request{Method: method, Path: path, Query: []Field{}, Header: []Field{}, Body: Buffered{Text: ""}})
+	let response = Files(root, "/static/", Request{Method: method, Path: path, RawPath: path, Query: []Field{}, Header: []Field{}, Body: Buffered{Text: ""}})
 	let asked = root.paths.Get()
 	if len(asked) > 1 || (dotdot || !prefixed) && len(asked) != 0 {
 		return false
@@ -104,7 +104,7 @@ law InMemorySendIntoIsSend(status int, body string, long bool, explicit bool, li
 	}
 	let h = InMemory(func(r Request) Response needs Streaming { Response{Status: status, Header: []Field{}, Body: text} })
 	let got = sync.NewRef[string]("")
-	let r = Request{Method: "GET", Path: "/", Query: []Field{}, Header: []Field{}, Body: Buffered{Text: ""}}
+	let r = Request{Method: "GET", Path: "/", RawPath: "/", Query: []Field{}, Header: []Field{}, Body: Buffered{Text: ""}}
 	let response = h.SendInto(r, accept, func(part string) fails SinkFailed { got.Update(func(s string) string { s + part }) }) catch {
 	case StatusRefused as s:
 		let want = if len(text) > 1024 { text[0:1024] } else { text }
@@ -131,4 +131,36 @@ law WriteAfterStreamFails(text string) {
 		}
 	}
 	false
+}
+
+// RawPathDecodesToPath: a request sent through an InMemoryNetwork, so
+// through Go's client and server as Serve reads one, reaches its handler
+// with RawPath as the URL wrote the path and Path that RawPath's
+// DecodePath: a "/" inside a segment stays "%2F" in RawPath and only Path
+// splits there. segments are the path's segments, each escaped in upper
+// or lower case hex, every other one with its unreserved bytes plain.
+law RawPathDecodesToPath(segments []string, upper bool) {
+	let mut raw = ""
+	for i, s in segments {
+		let seg = if s == "" { "-" } else { s }
+		raw = raw + "/" + queryEscape(seg, i%2 == 0, upper)
+	}
+	if raw == "" {
+		raw = "/"
+	}
+	let n = InMemoryNetwork(AnyOrigin, Limits{MaxBodyBytes: 1 << 16, MaxHeaderBytes: 1 << 16, IdleTimeout: 30s, ReadHeaderTimeout: 10s, ReadBodyTimeout: 10s}, NoRedirects, func(origin string, r Request) Response needs Streaming {
+		Response{Status: 200, Header: []Field{}, Body: r.RawPath + "\n" + r.Path}
+	}) catch {
+	case InvalidClient, InvalidLimits:
+		return false
+	}
+	let got = n.SendURL(URLRequest{URL: "http://raw.test" + raw, Method: "GET", Header: []Field{}, Credentials: []Credential{}, Body: ""}) catch {
+	case RequestFailed, OriginRefused, RedirectLimit:
+		return false
+	}
+	let decoded = DecodePath(raw) catch {
+	case BadEscape:
+		return false
+	}
+	got.Body == raw + "\n" + decoded
 }

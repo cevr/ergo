@@ -1,0 +1,83 @@
+# WebSocket Chat Echo server demo {Disconnected} No messages yet Send a message to get started! [Connect to Chat]
+> type Hello
+  ? no node: placeholder "Type a message..."
+# WebSocket Chat Echo server demo {Disconnected} No messages yet Send a message to get started! [Connect to Chat]
+> submit
+  ? no node: role button "Send"
+# WebSocket Chat Echo server demo {Disconnected} No messages yet Send a message to get started! [Connect to Chat]
+> refuse Connection refused
+# WebSocket Chat Echo server demo {Disconnected} No messages yet Send a message to get started! [Connect to Chat]
+> connect
+# WebSocket Chat Echo server demo {Error} No messages yet Send a message to get started! {Connection Error Connection refused} [Try Again]
+> held
+  lines held: 0; dialed: 0
+> connect
+# WebSocket Chat Echo server demo {Connected} No messages yet Send a message to get started! <> [Send, disabled]
+> held
+  lines held: 1; dialed: 1
+> type
+# WebSocket Chat Echo server demo {Connected} No messages yet Send a message to get started! <> [Send, disabled]
+> submit
+# WebSocket Chat Echo server demo {Connected} No messages yet Send a message to get started! <> [Send, disabled]
+> type
+# WebSocket Chat Echo server demo {Connected} No messages yet Send a message to get started! <   > [Send, disabled]
+> submit
+# WebSocket Chat Echo server demo {Connected} No messages yet Send a message to get started! <   > [Send, disabled]
+> enter
+# WebSocket Chat Echo server demo {Connected} No messages yet Send a message to get started! <   > [Send, disabled]
+> wait 1500
+# WebSocket Chat Echo server demo {Connected} No messages yet Send a message to get started! <   > [Send, disabled]
+> type   Hello there
+# WebSocket Chat Echo server demo {Connected} No messages yet Send a message to get started! <  Hello there  > [Send]
+> submit
+# WebSocket Chat Echo server demo {Connected} sent{Hello there 00:00:01} received{Hello there 00:00:01} <> [Send, disabled]
+> wait 61000
+# WebSocket Chat Echo server demo {Connected} sent{Hello there 00:00:01} received{Hello there 00:00:01} <> [Send, disabled]
+> push Welcome to the observatory
+# WebSocket Chat Echo server demo {Connected} sent{Hello there 00:00:01} received{Hello there 00:00:01} received{Welcome to the observatory 00:01:02} <> [Send, disabled]
+> push Clear skies tonight
+# WebSocket Chat Echo server demo {Connected} sent{Hello there 00:00:01} received{Hello there 00:00:01} received{Welcome to the observatory 00:01:02} received{Clear skies tonight 00:01:02} <> [Send, disabled]
+> type And the moon?
+# WebSocket Chat Echo server demo {Connected} sent{Hello there 00:00:01} received{Hello there 00:00:01} received{Welcome to the observatory 00:01:02} received{Clear skies tonight 00:01:02} <And the moon?> [Send]
+> enter
+# WebSocket Chat Echo server demo {Connected} sent{Hello there 00:00:01} received{Hello there 00:00:01} received{Welcome to the observatory 00:01:02} received{Clear skies tonight 00:01:02} sent{And the moon? 00:01:02} received{And the moon? 00:01:02} <> [Send, disabled]
+> wait 6000
+# WebSocket Chat Echo server demo {Connected} sent{Hello there 00:00:01} received{Hello there 00:00:01} received{Welcome to the observatory 00:01:02} received{Clear skies tonight 00:01:02} sent{And the moon? 00:01:02} received{And the moon? 00:01:02} <> [Send, disabled]
+> held
+  lines held: 1; dialed: 1
+> hangup
+# WebSocket Chat Echo server demo {Disconnected} No messages yet Send a message to get started! [Connect to Chat]
+> held
+  lines held: 0; dialed: 1
+> connect
+# WebSocket Chat Echo server demo {Connected} No messages yet Send a message to get started! <> [Send, disabled]
+> type One more
+# WebSocket Chat Echo server demo {Connected} No messages yet Send a message to get started! <One more> [Send]
+> submit
+# WebSocket Chat Echo server demo {Connected} sent{One more 00:01:08} received{One more 00:01:08} <> [Send, disabled]
+> break Connection error
+# WebSocket Chat Echo server demo {Error} No messages yet Send a message to get started! {Connection Error Connection error} [Try Again]
+> held
+  lines held: 0; dialed: 2
+> stall
+# WebSocket Chat Echo server demo {Error} No messages yet Send a message to get started! {Connection Error Connection error} [Try Again]
+> connect
+# WebSocket Chat Echo server demo {Connecting...} No messages yet Send a message to get started! Connecting...
+> wait 4999
+# WebSocket Chat Echo server demo {Connecting...} No messages yet Send a message to get started! Connecting...
+> wait 1
+# WebSocket Chat Echo server demo {Error} No messages yet Send a message to get started! {Connection Error Connection timeout} [Try Again]
+> held
+  lines held: 0; dialed: 2
+> connect
+# WebSocket Chat Echo server demo {Connected} No messages yet Send a message to get started! <> [Send, disabled]
+> vanish
+# WebSocket Chat Echo server demo {Connected} No messages yet Send a message to get started! <> [Send, disabled]
+> type Anyone?
+# WebSocket Chat Echo server demo {Connected} No messages yet Send a message to get started! <Anyone?> [Send]
+> submit
+# WebSocket Chat Echo server demo {Error} No messages yet Send a message to get started! {Connection Error Socket unavailable} [Try Again]
+> connect
+# WebSocket Chat Echo server demo {Connected} No messages yet Send a message to get started! <> [Send, disabled]
+> stop
+  lines held: 1; dialed: 4
