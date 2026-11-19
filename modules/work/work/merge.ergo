@@ -17,8 +17,13 @@ import strings
 // the key paths a json file merges as sets, the command that makes a
 // derived file again (By, run in the merged tree), and a driver's command
 // (%O, %A, %B and %P are the base, ours, theirs and the path; it writes
-// its merge into %A).
-type ClassLine { Match string, Kind string, Sets []string, By string, Driver string }
+// its merge into %A). A driver line that is a Candidate is tried only
+// where Git's line merge conflicts, its result kept only when its Check
+// (a command on %A that ends with status 0 and prints nothing, as
+// `gofmt -l %A` does for a file that parses and is formatted) holds; a
+// Version pins its tool (`TOOL --version` prints it), and a tool missing
+// or of another version leaves the merge to lines (MergeCandidate).
+type ClassLine { Match string, Kind string, Sets []string, By string, Driver string, Candidate bool, Check string, Version string }
 
 // ClassKinds are the kinds a class line can name.
 let ClassKinds = []string{"json", "derived", "rows", "measured", "lines", "driver"}
@@ -49,11 +54,11 @@ func PresetLines(lines []ClassLine, present []string) []ClassLine {
 		}
 		any = true
 		if ClassOf(out, p.Lock) == None {
-			out = out.Append(ClassLine{Match: p.Lock, Kind: "derived", Sets: []string{}, By: p.By, Driver: ""})
+			out = out.Append(ClassLine{Match: p.Lock, Kind: "derived", Sets: []string{}, By: p.By, Driver: "", Candidate: false, Check: "", Version: ""})
 		}
 	}
 	if any && ClassOf(out, "package.json") == None {
-		out = out.Append(ClassLine{Match: "package.json", Kind: "json", Sets: []string{}, By: "", Driver: ""})
+		out = out.Append(ClassLine{Match: "package.json", Kind: "json", Sets: []string{}, By: "", Driver: "", Candidate: false, Check: "", Version: ""})
 	}
 	out
 }
@@ -66,7 +71,7 @@ law PresetPicksTheLockThatExists(which int) {
 	let lines = PresetLines([]ClassLine{}, []string{p.Lock, "README.md"})
 	let lock = ClassOf(lines, p.Lock)
 	let manifest = ClassOf(lines, "packages/app/package.json")
-	lock == Some[ClassLine]{Value: ClassLine{Match: p.Lock, Kind: "derived", Sets: []string{}, By: p.By, Driver: ""}} && manifest != None && kindOf(manifest) == "json" && ClassOf(lines, "README.md") == None
+	lock == Some[ClassLine]{Value: ClassLine{Match: p.Lock, Kind: "derived", Sets: []string{}, By: p.By, Driver: "", Candidate: false, Check: "", Version: ""}} && manifest != None && kindOf(manifest) == "json" && ClassOf(lines, "README.md") == None
 }
 
 func kindOf(line Option[ClassLine]) string {
@@ -174,12 +179,14 @@ func MergeByPath(t Tool, c Config, path string, base string, ours string, theirs
 	match ClassOf(c.Classes, path) {
 	case Some[ClassLine] as l:
 		let line = l.Value
+		if line.Kind == "driver" && line.Candidate {
+			return try MergeCandidate(t, c, line, path, base, ours, theirs)
+		}
 		if line.Kind == "driver" {
 			if !trusted(t, c) {
 				return MergeConflict{Path: path, Class: "driver", Units: []string{}, Why: "the driver of \(line.Match) runs only after work trust"}
 			}
-			let command = strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(line.Driver, "%O", quoted(base)), "%A", quoted(ours)), "%B", quoted(theirs)), "%P", quoted(path))
-			let r = t.runner.Run(exec.New("sh", []string{"-c", command}).WithDir(t.here)) catch {
+			let r = t.runner.Run(exec.New("sh", []string{"-c", withFiles(line.Driver, path, base, ours, theirs)}).WithDir(t.here)) catch {
 			case exec.NotFound, exec.Denied:
 				return MergeConflict{Path: path, Class: "driver", Units: []string{}, Why: "sh could not start"}
 			case exec.Failed as f:
@@ -204,6 +211,103 @@ func MergeByPath(t Tool, c Config, path string, base string, ours string, theirs
 			try mergeLines(t, path, base, ours, theirs)
 		}
 	}
+}
+
+// withFiles is a driver's or a check's command with %O, %A, %B and %P
+// replaced by the base, ours, theirs and the path, each one word of sh.
+func withFiles(command string, path string, base string, ours string, theirs string) string {
+	strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(command, "%O", quoted(base)), "%A", quoted(ours)), "%B", quoted(theirs)), "%P", quoted(path))
+}
+
+// MergeCandidate merges path by a candidate driver line, never worse
+// than Git: where Git's line merge is clean it is the merge and the
+// driver never runs. Where it conflicts, the driver's merge in ours is
+// taken (class "candidate") when work trust allows the line, its tool
+// answers its pinned version, it ends with status 0, its text holds no
+// conflict marker and the line's check holds on it. The driver's own
+// conflict (another status) keeps its text, conflicted. Anything else
+// (no trust, the tool missing or of another version, a hidden conflict,
+// a failed check) withdraws the candidate: ours is Git's line merge,
+// conflicted, and the conflict says why.
+func MergeCandidate(t Tool, c Config, line ClassLine, path string, base string, ours string, theirs string) FileMerged fails MergeConflict | fs.NotFound | fs.Denied | fs.Failed {
+	let b = try t.files.ReadFile(base)
+	let a = try t.files.ReadFile(ours)
+	let other = try t.files.ReadFile(theirs)
+	let h = classes.MergeText(b, a, other)
+	if h.Clashes == 0 {
+		try t.writes.WriteFile(ours, classes.Text(h))
+		return FileMerged{Path: path, Class: "text", Regenerate: false}
+	}
+	let run = try candidate(t, c, line, path, base, ours, theirs)
+	match run {
+	case CandidateTaken:
+		FileMerged{Path: path, Class: "candidate", Regenerate: false}
+	case CandidateConflicted as own:
+		MergeConflict{Path: path, Class: "candidate", Units: []string{}, Why: own.Why}
+	case CandidateWithdrawn as w:
+		try t.writes.WriteFile(ours, classes.Text(h))
+		MergeConflict{Path: path, Class: "candidate", Units: []string{}, Why: "\(w.Why): the candidate is withdrawn, the file is Git's line merge"}
+	}
+}
+
+// CandidateCommandsAreTrusted: a candidate line's driver and check are
+// both commands work trust allows, so a changed check asks again.
+law CandidateCommandsAreTrusted(n int, m int) {
+	let c = ParseConfig("[[class]]\nmatch = \"*.go\"\nkind = \"driver\"\ndriver = \"drv \(n)\"\ncandidate = true\ncheck = \"chk \(m)\"\n") catch {
+	case BadConfig:
+		return false
+	}
+	Commands(c) == []string{"class.*.go.driver: drv \(n)", "class.*.go.check: chk \(m)"}
+}
+
+// CandidateRun is what a candidate driver's run gave: its merge taken,
+// its own conflict, or a candidate withdrawn and why.
+type CandidateTaken {}
+type CandidateConflicted { Why string }
+type CandidateWithdrawn { Why string }
+type CandidateRun = CandidateTaken | CandidateConflicted | CandidateWithdrawn
+
+// candidate runs line's driver on the three files, its version probe
+// first and its check after.
+func candidate(t Tool, c Config, line ClassLine, path string, base string, ours string, theirs string) CandidateRun fails fs.NotFound | fs.Denied | fs.Failed {
+	if !trusted(t, c) {
+		return CandidateWithdrawn{Why: "the driver of \(line.Match) runs only after work trust"}
+	}
+	let words = strings.Fields(line.Driver)
+	let tool = if len(words) > 0 { words[0] } else { "" }
+	if line.Version != "" {
+		let v = t.runner.Run(exec.New("sh", []string{"-c", tool + " --version"}).WithDir(t.here)) catch {
+		case exec.NotFound, exec.Denied, exec.Failed:
+			return CandidateWithdrawn{Why: "sh could not start"}
+		}
+		if v.Status != 0 || !strings.Contains(v.Stdout, line.Version) {
+			return CandidateWithdrawn{Why: "\(tool) is not version \(line.Version) (status \(v.Status): \(strings.TrimSpace(v.Stdout)))"}
+		}
+	}
+	let r = t.runner.Run(exec.New("sh", []string{"-c", withFiles(line.Driver, path, base, ours, theirs)}).WithDir(t.here)) catch {
+	case exec.NotFound, exec.Denied, exec.Failed:
+		return CandidateWithdrawn{Why: "sh could not start"}
+	}
+	if r.Status == 127 {
+		return CandidateWithdrawn{Why: "the driver's tool \(tool) is missing (status 127)"}
+	}
+	if r.Status != 0 {
+		return CandidateConflicted{Why: "the driver ended with status \(r.Status): \(strings.TrimSpace(r.Stderr))"}
+	}
+	let text = try t.files.ReadFile(ours)
+	if strings.HasPrefix(text, "<<<<<<<") || strings.Contains(text, "\n<<<<<<<") {
+		return CandidateWithdrawn{Why: "the driver ended with status 0 and left a conflict marker"}
+	}
+	if line.Check != "" {
+		let k = t.runner.Run(exec.New("sh", []string{"-c", withFiles(line.Check, path, base, ours, theirs)}).WithDir(t.here)) catch {
+		case exec.NotFound, exec.Denied, exec.Failed:
+			return CandidateWithdrawn{Why: "sh could not start"}
+		}
+		if k.Status != 0 || strings.TrimSpace(k.Stdout) != "" {
+			return CandidateWithdrawn{Why: "its check \(line.Check) failed (status \(k.Status): \(strings.TrimSpace(k.Stdout + k.Stderr)))"}
+		}
+	}
+	CandidateTaken
 }
 
 // LanguageOf is the first [language.NAME] whose files take path.
@@ -588,7 +692,7 @@ law AttributesKeepOtherLines(n int, m int) {
 	let mk = func(k int) []ClassLine {
 		let mut out = []ClassLine{}
 		for i in 0..(((k % 3) + 3) % 3) {
-			out = out.Append(ClassLine{Match: "f\(i).json", Kind: "json", Sets: []string{}, By: "", Driver: ""})
+			out = out.Append(ClassLine{Match: "f\(i).json", Kind: "json", Sets: []string{}, By: "", Driver: "", Candidate: false, Check: "", Version: ""})
 		}
 		out
 	}

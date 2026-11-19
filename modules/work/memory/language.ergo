@@ -417,10 +417,15 @@ func configuredDisk(lines Lines, files Map[string, string], config string, trust
 // configuredWith is configuredDisk with the runner sv (a plugin's, or
 // any command's).
 func configuredWith(sv exec.Runner, files Map[string, string], config string, trusted bool) (work.Tool, fstest.Memory) {
+	configuredOn(sv, fstest.NewMemory(), files, config, trusted)
+}
+
+// configuredOn is configuredWith on the disk disk (one the runner sv
+// writes too).
+func configuredOn(sv exec.Runner, disk fstest.Memory, files Map[string, string], config string, trusted bool) (work.Tool, fstest.Memory) {
 	let trees = NewCloner()
 	let vcs = VcsOver(trees)
 	Repo(vcs, theBase, "main", files, "c0")
-	let disk = fstest.NewMemory()
 	let home = work.Home(theBase, "")
 	disk.MkdirAll(theBase) catch {
 	case fs.Denied, fs.Failed:

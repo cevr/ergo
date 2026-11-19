@@ -100,11 +100,14 @@ type languageTable {
 }
 
 type classTable {
-	Match  json.Optional[string] "match",
-	Kind   json.Optional[string] "kind",
-	Sets   json.Optional[[]string] "sets",
-	By     json.Optional[string] "by",
-	Driver json.Optional[string] "driver",
+	Match     json.Optional[string] "match",
+	Kind      json.Optional[string] "kind",
+	Sets      json.Optional[[]string] "sets",
+	By        json.Optional[string] "by",
+	Driver    json.Optional[string] "driver",
+	Candidate json.Optional[bool] "candidate",
+	Check     json.Optional[string] "check",
+	Version   json.Optional[string] "version",
 }
 
 type workTable {
@@ -175,7 +178,7 @@ func ParseConfig(text string) Config fails BadConfig {
 	case json.Present[[]classTable] as list:
 		let mut lines = []ClassLine{}
 		for k in list.Value {
-			let line = ClassLine{Match: orText(k.Match), Kind: orText(k.Kind), Sets: or(k.Sets), By: orText(k.By), Driver: orText(k.Driver)}
+			let line = ClassLine{Match: orText(k.Match), Kind: orText(k.Kind), Sets: or(k.Sets), By: orText(k.By), Driver: orText(k.Driver), Candidate: orFalse(k.Candidate), Check: orText(k.Check), Version: orText(k.Version)}
 			if line.Match == "" {
 				return BadConfig{Line: 0, Why: "a [[class]] needs a match"}
 			}
@@ -184,6 +187,9 @@ func ParseConfig(text string) Config fails BadConfig {
 			}
 			if line.Kind == "driver" && line.Driver == "" {
 				return BadConfig{Line: 0, Why: "[[class]] \(line.Match): a driver needs its command"}
+			}
+			if line.Kind != "driver" && (line.Candidate || line.Check != "" || line.Version != "") {
+				return BadConfig{Line: 0, Why: "[[class]] \(line.Match): candidate, check and version are a driver's"}
 			}
 			lines = lines.Append(line)
 		}
@@ -280,6 +286,9 @@ func Commands(c Config) []string {
 		}
 		if line.Driver != "" {
 			out = out.Append("class.\(line.Match).driver: \(line.Driver)")
+		}
+		if line.Check != "" {
+			out = out.Append("class.\(line.Match).check: \(line.Check)")
 		}
 	}
 	for l in c.Languages {
