@@ -620,6 +620,7 @@ func Conform[S wire, E wire](g Graph[S, E], trace []Obs, o Options, laws []Invar
 			}
 		case None:
 		}
+		let whole = wholeOf(ob.State)
 		let mut next = noCandidates[S]()
 		let mut steps = []string{}
 		let mut nearest = ""
@@ -627,7 +628,7 @@ func Conform[S wire, E wire](g Graph[S, E], trace []Obs, o Options, laws []Invar
 		for i in 0..len(c.states) {
 			let s = c.states[i]
 			if o.Stutter && isNone(ob.Signal) {
-				match fitState(s, ob.State) {
+				match fitWhole(s, ob.State, whole) {
 				case Fits:
 					put(&next, s, c.nodes[i], bk)
 				case Differs:
@@ -639,7 +640,7 @@ func Conform[S wire, E wire](g Graph[S, E], trace []Obs, o Options, laws []Invar
 				match g.Step(s, g.Signals[e]) {
 				case None:
 				case Some[S] as t:
-					match fitState(t.Value, ob.State) {
+					match fitWhole(t.Value, ob.State, whole) {
 					case Fits:
 						taken[e] = true
 						let node = addNode(&tr, c.nodes[i], e)
@@ -717,6 +718,29 @@ func isNone(x Option[string]) bool {
 	case Some[string]:
 		false
 	}
+}
+
+// wholeOf is an observed state's compact text, or "" when the line logs
+// no state.
+func wholeOf(obs Option[json.Value]) string {
+	match obs {
+	case None:
+		""
+	case Some[json.Value] as v:
+		json.Encode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, v.Value)
+	}
+}
+
+// fitWhole is fitState with the observation's text whole (wholeOf) at
+// hand: a line that logs the state whole, as the codec writes it, has
+// the text of s exactly when s fits, so equal texts fit with no valueOf
+// (a text decodes to one value, and Decode(Encode(x)) is x); any other
+// line goes to fitState. Law ConformAgreesWithReference holds it.
+func fitWhole[S wire](s S, obs Option[json.Value], whole string) Fit needs wired[S] {
+	if whole != "" && json.Encode(json.Codec[S]{MaxBytes: 0, MaxDepth: 0}, s) == whole {
+		return Fits
+	}
+	fitState(s, obs)
 }
 
 // fitState fits a state to an observation's state, which may be absent.
