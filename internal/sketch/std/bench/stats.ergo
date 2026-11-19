@@ -436,7 +436,12 @@ func nullOf(ranks []int, upto int) []float64 {
 			s = s - 1
 		}
 	}
-	let scale = math.Pow(0.5, float64(len(ranks)))
+	// 2^-n, exact: n halvings of 1 stay normal floats for n up to
+	// MaxPairs.
+	let mut scale = 1.0
+	for _ in ranks {
+		scale = scale * 0.5
+	}
 	for s in 0..u+1 {
 		c[s] = c[s] * scale
 	}
