@@ -35,8 +35,8 @@ func (b *irBuilder) codecCall(x *syntax.CallExpr, c *check.Call, p irPos) ([]*ir
 		irNo("codec of a type written inline")
 	}
 	if dir == "encode" {
-		if _, direct := b.l.directWriter(b.l.info, x.Args[1]); direct {
-			irNo("encode on a direct writer")
+		if via, direct := b.l.directWriter(b.l.info, x.Args[1]); direct {
+			return b.directEncode(x, c, via, p) // ir_codec_direct.go
 		}
 	} else if !failsHere(c) {
 		irNo("fallible call with an empty row at its site")
