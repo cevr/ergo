@@ -68,6 +68,10 @@ func genNameLocal(seed uint64) nameLocalProgram {
 		prev = l
 	}
 	fmt.Fprintf(&h, "\t%s\n}\n", prev)
+	// use calls lib on a parameter: main's call of it is a constant the
+	// IR folds (ir_constfold.go), but use's own body keeps lib's
+	// functions reached, so they are IR bodies too.
+	h.WriteString("\nfunc use(k int) int { lib.F(k) + lib.D(k) }\n")
 	p.helper = h.String()
 
 	var noise strings.Builder
@@ -101,11 +105,11 @@ const (
 func (p nameLocalProgram) main(form int) string {
 	switch form {
 	case nameLocalPackage:
-		return "import lib\nimport noise\n\n" + p.helper + "\nfunc main() needs Console {\n\tConsole.Println(\"\\(lib.F(2) + lib.D(1) + helper(3) + noise.Touch())\")\n}\n"
+		return "import lib\nimport noise\n\n" + p.helper + "\nfunc main() needs Console {\n\tConsole.Println(\"\\(use(2) + helper(3) + noise.Touch())\")\n}\n"
 	case nameLocalRoot:
-		return "import lib\n\n\n" + p.helper + "\nfunc main() needs Console {\n\tConsole.Println(\"\\(lib.F(2) + lib.D(1) + helper(3) + Touch())\")\n}\n\n" + p.noise
+		return "import lib\n\n\n" + p.helper + "\nfunc main() needs Console {\n\tConsole.Println(\"\\(use(2) + helper(3) + Touch())\")\n}\n\n" + p.noise
 	}
-	return "import lib\n\n\n" + p.helper + "\nfunc main() needs Console {\n\tConsole.Println(\"\\(lib.F(2) + lib.D(1) + helper(3))\")\n}\n"
+	return "import lib\n\n\n" + p.helper + "\nfunc main() needs Console {\n\tConsole.Println(\"\\(use(2) + helper(3))\")\n}\n"
 }
 
 // nameLocalFuncs lowers the program on the IR and as Go text and gives,
@@ -274,7 +278,7 @@ func TestFunctionNamesIgnoreUnrelatedPackages(t *testing.T) {
 			base, with map[string]string
 			libOnly    bool // the root changed: only lib's functions are another package's
 		}{{"IR", baseIR, noiseIR, false}, {"Go text", baseText, noiseText, false}, {"Go text (declarations added to the root)", baseText, rootText, true}, {"IR (declarations added to the root)", baseIR, rootIR, true}} {
-			n := 0
+			n, libs := 0, 0
 			for key, b := range cmp.base {
 				if cmp.libOnly && !strings.Contains(key, "/lib/") {
 					continue
@@ -290,13 +294,16 @@ func TestFunctionNamesIgnoreUnrelatedPackages(t *testing.T) {
 					continue
 				}
 				n++
+				if strings.Contains(key, "/lib/") {
+					libs++
+				}
 				if b != w {
 					t.Errorf("seed %d: the %s of the function at %s changes when an unrelated package declaring %v is added: %s\nlib:\n%s\nreplay: ERGO_NAMELOCAL_SEED=%d", seed, cmp.what, key, p.noiseNames, nameDiff(b, w), p.lib, seed)
 				}
 			}
-			if n == 0 && !cmp.libOnly {
+			if n == 0 || libs == 0 {
 				keys := slices.Sorted(maps.Keys(cmp.base))
-				t.Errorf("seed %d: no %s function besides main's main to compare; functions at %v", seed, cmp.what, keys)
+				t.Errorf("seed %d: %d %s functions besides main's main to compare, %d of them lib's; want lib's too; functions at %v", seed, n, cmp.what, libs, keys)
 			}
 		}
 	}
