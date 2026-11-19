@@ -1,0 +1,10 @@
+type A { Ping() int }
+type B { Pong() int }
+
+type Job[R] { Run func() int needs R }
+
+func run[R](j Job[R]) int needs R { j.Run() }
+
+func sum() int needs A | B { A.Ping() + B.Pong() }
+
+func f(o Option[A | B]) {} // want S104 "A is not an error type"

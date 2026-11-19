@@ -18,7 +18,7 @@ import (
 // Ascending other than Ascend is refused, and the ways that make no new
 // value check clean. The check fixture
 // internal/sketch/check/testdata/fixtures/negative/ascending-is-the-only-way-in.ergo
-// mirrors it for TestFixtures.
+// mirrors it for `ergo check --want`.
 func TestAscendingIsTheOnlyWayIn(t *testing.T) {
 	const head = "import slices\n\ntype Mine slices.Ascending[int]\n\n"
 	const tail = "\nfunc main() {}\n"

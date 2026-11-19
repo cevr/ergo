@@ -17,12 +17,12 @@ import "embed"
 //go:embed fs/*.ergo fstest/*.ergo
 //go:embed io/*.ergo term/*.ergo prompt/*.ergo
 //go:embed utf8/*.ergo
-//go:embed flag/*.ergo
+//go:embed flag/*.ergo api/*.ergo
 //go:embed maps/*.ergo cmp/*.ergo set/*.ergo
 //go:embed rand/*.ergo
 //go:embed sync/*.ergo
 //go:embed embed/*.ergo
-//go:embed atomic/*.ergo
+//go:embed atomic/*.ergo pace/*.ergo
 //go:embed filepath/*.ergo
 //go:embed exec/*.ergo
 //go:embed math/*.ergo bits/*.ergo decimal/*.ergo
@@ -35,6 +35,7 @@ import "embed"
 //go:embed http/*.ergo
 //go:embed actor/*.ergo
 //go:embed journal/*.ergo journal/memory/*.ergo journal/file/*.ergo
+//go:embed llm/*.ergo llm/memory/*.ergo llm/recorded/*.ergo
 //go:embed time/*.ergo civil/*.ergo tz/*.ergo tz/iana/*.ergo tz/host/*.ergo cache/*.ergo
 //go:embed arena/*.ergo dense/*.ergo
 //go:embed ui/*.ergo

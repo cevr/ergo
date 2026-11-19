@@ -1,6 +1,6 @@
 # work against Rift (SEMWS WG0)
 
-What: the cost of a workspace's create, remove and purge, and of the first `git status` in a new workspace, for Rift 0.0.13 through its npm wrapper (`rift`, what `workrift` runs), Rift's native binary, `work`, and `work` through the npm package's bin (`@cevr/work`, installed from the packed tarballs). Counts only: user-mode instructions (`perf_event_open`, children included), system calls (`strace -f -c`) and bytes (`btrfs filesystem du --raw`). Wall times in the raw rows are labelled loaded and are not claims.
+What: the cost of a workspace's create, remove and purge, and of the first `git status` in a new workspace, for Rift 0.0.13 through its npm wrapper (`rift`, what `workrift` runs), Rift's native binary, `work`, and `work` through the npm package's bin (`@cvr/work`, installed from the packed tarballs). Counts only: user-mode instructions (`perf_event_open`, children included), system calls (`strace -f -c`) and bytes (`btrfs filesystem du --raw`). Wall times in the raw rows are labelled loaded and are not claims.
 
 How: `scripts/workcost/workcost.sh TREE` with `cnt` from `scripts/workcost/cnt`, on 2026-11-15, every run inside `systemd-run --user --scope -q -p MemoryMax=8G -p MemorySwapMax=0 -- nice -n 19`. The source is a btrfs subvolume, so both tools clone it with one snapshot. Rift ran with `--copy-all --no-hooks` (a full copy, as `work`'s default) and its own registry in the scratch folder. Loads at start: 47.9 (this repository) and 22.7 (the Bun monorepo).
 

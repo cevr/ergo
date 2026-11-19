@@ -6,8 +6,11 @@
 
 import ergo.local/prototype/examples/dashgui/feed
 import ergo.local/prototype/examples/dashgui/panel
+import ergo.local/prototype/examples/dashgui/synth
 import io
+import pace
 import queue
+import slices
 import strconv
 import strings
 import tasks
@@ -132,8 +135,13 @@ func fits(c Command) bool {
 }
 
 // Play runs the script lines on a new board, with a source task for each
-// panel, and ends the tasks when the script ends.
-func Play(lines Seq[string]) fails queue.Closed | tasks.Closed needs feed.Sensors | io.Stdout {
+// panel, and ends the tasks when the script ends. Each frame is one unit
+// of work: Play marks its end with pace.Pacing.Edge(), so the pacing main
+// binds may collect between frames, never inside one. A run of at most
+// hold frames is one request (a step the driver waits on, as a user
+// stepping the dashboard does): Play holds the pacing over it
+// (pace.Held), so its collection runs once, after its last frame.
+func Play(lines Seq[string], hold int) fails queue.Closed | tasks.Closed needs feed.Sensors | io.Stdout | pace.Pacing {
 	let crew = tasks.NewSet[queue.Closed](tasks.FailFast)
 	let w = try feed.Start(len(feed.Kinds()), crew)
 	let mut b = feed.NewBoard()
@@ -148,12 +156,11 @@ func Play(lines Seq[string]) fails queue.Closed | tasks.Closed needs feed.Sensor
 		}
 		match c {
 		case Run as r:
-			for _ in 0..r.Frames {
-				let s = try feed.Advance(b, w)
-				b = s.Board
-				for n in s.Notes {
-					io.Stdout.Println(Note(n))
-				}
+			if r.Frames <= hold {
+				let start = b
+				b = try pace.Held() { try frames(start, w, r.Frames) }
+			} else {
+				b = try frames(b, w, r.Frames)
 			}
 		case Pause as p:
 			b = sent(b, p.Panel, panel.Pause, line)
@@ -180,6 +187,49 @@ func Play(lines Seq[string]) fails queue.Closed | tasks.Closed needs feed.Sensor
 	}
 	feed.Stop(w)
 	try crew.Wait()
+}
+
+// frames is b after n frames, each written and paced.
+func frames(b feed.Board, w feed.Pipes, n int) feed.Board fails queue.Closed needs feed.Sensors | io.Stdout | pace.Pacing {
+	let mut out = b
+	for _ in 0..n {
+		let s = try feed.Advance(out, w)
+		out = s.Board
+		for note in s.Notes {
+			io.Stdout.Println(Note(note))
+		}
+		pace.Pacing.Edge()
+	}
+	out
+}
+
+// PlayPacesEachFrame: Play marks one pacing edge per frame it runs, and
+// none for a line that runs no frame. The frames of a run of at most hold
+// are held, and each such run with a frame defers one collection to its
+// end.
+law PlayPacesEachFrame(seed int, a int, b int, h int) {
+	let x = (a%40 + 40) % 40
+	let y = (b%40 + 40) % 40
+	let hold = (h%50+50)%50 - 5
+	let c = pace.NewCounting()
+	let lines = []string{"run \(x)", "show", "pause 1", "run \(y)", "drops"}
+	with context { feed.Sensors: synth.Bank{Seed: seed}, io.Stdout: io.NewRecorder(), pace.Pacing: c } {
+		Play(slices.Values(lines), hold) catch {
+		case queue.Closed, tasks.Closed:
+			return false
+		}
+	}
+	let mut held = 0
+	let mut deferred = 0
+	for n in []int{x, y} {
+		if n <= hold {
+			held = held + n
+			if n > 0 {
+				deferred = deferred + 1
+			}
+		}
+	}
+	c.Edges() == int64(x+y) && c.HeldEdges() == int64(held) && c.Deferred() == int64(deferred)
 }
 
 // sent is b with e given to panel i, writing a refusal.

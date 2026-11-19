@@ -134,6 +134,9 @@ func decl(p mut Printer, d dense.ID[syntax.Node]) {
 		p.token(p.tp(x.Law), "law")
 		p.space()
 		p.ident(x.Name)
+		if some(x.TypeParams) {
+			p.fieldList(the(x.TypeParams), "[", "]")
+		}
 		p.fieldList(the(x.Params), "(", ")")
 		p.space()
 		if x.Rewrite {

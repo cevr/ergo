@@ -155,6 +155,11 @@ func (g macroGen) leaf(earlier []string) []string {
 		if g.r.IntN(3) == 0 {
 			lit = fmt.Sprintf("0x%X", v)
 		}
+		// A signed INTn_C takes a negated literal, as OpenTUI 0.9.3's
+		// INT32_C(-1) (BINDC-OT).
+		if strings.HasPrefix(c.name, "INT") && g.r.IntN(4) == 0 {
+			return []string{c.name, "(", "-", lit, ")"}
+		}
 		return []string{c.name, "(", lit, ")"}
 	}
 }
@@ -182,14 +187,38 @@ func (g macroGen) body(earlier []string, depth int) []string {
 	return toks
 }
 
-// chain returns n #define lines with names prefix0, prefix1, ...
+// chain returns n #define lines with names prefix0, prefix1, ... Some
+// bodies are continued over lines with a backslash-newline between two
+// tokens, as OpenTUI 0.9.3's OT_KITTY_KEYBOARD_ALL (BINDC-OT).
 func (g macroGen) chain(prefix string, n int) (defs, names []string) {
 	for i := 0; i < n; i++ {
 		name := fmt.Sprintf("%s%d", prefix, i)
-		defs = append(defs, "#define "+name+" "+strings.Join(g.body(names, 2), " "))
+		var b strings.Builder
+		b.WriteString("#define " + name)
+		for _, tok := range g.body(names, 2) {
+			if g.r.IntN(8) == 0 {
+				b.WriteString(" \\\n   ")
+			}
+			b.WriteString(" " + tok)
+		}
+		defs = append(defs, b.String())
 		names = append(names, name)
 	}
 	return defs, names
+}
+
+// defineAt is the index of the define of defs that holds line (1-based)
+// of a header that is first lines of other text and then defs, one per
+// line, each maybe continued over several.
+func defineAt(defs []string, first, line int) int {
+	at := first
+	for k, d := range defs {
+		at += strings.Count(d, "\n") + 1
+		if line < at {
+			return k
+		}
+	}
+	return -1
 }
 
 var ccFileError = regexp.MustCompile(`(?m)^([^:\s]+\.c):\d+:\d+: error`)
@@ -273,8 +302,8 @@ func TestMacroExpansionProperty(t *testing.T) {
 		}
 		// The chain is in the subset, so the only refusal is a value C
 		// does not define; the first diagnostic names its macro (line k+2).
-		k := ds[0].Pos.Line - 2
-		if ds[0].Code != CodeConstantRange || k < 0 || k >= len(defs) {
+		k := defineAt(defs, 2, ds[0].Pos.Line)
+		if ds[0].Code != CodeConstantRange || k < 0 {
 			if wrong++; wrong <= 3 {
 				t.Errorf("case %d: a chain of the subset gives %v\n%s", i, err, numbered(src))
 			}
