@@ -475,7 +475,7 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 		if lp != nil && lp.Domain == check.LoopRange {
 			return b.memoLoop(s, func() []*irStmt { return b.countLoop(s, lp) }) // ir_pkg.go, ir_memo.go
 		}
-		seq := lp != nil && lp.Domain == check.LoopSeq && irSeqRangeLowering != "off"
+		seq := b.seqLoop(s)                           // ir_seq.go
 		if lp == nil || !goRange(lp.Domain) && !seq { // ir_pkg.go
 			b.gate("for-in over a non-slice")
 		}

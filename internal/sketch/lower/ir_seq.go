@@ -36,6 +36,12 @@ var irSeqRangeLowering string
 // reach check).
 func IRSeqRangeOn() bool { return irSeqRangeLowering != "off" }
 
+// seqLoop reports a for-in over a Seq that lowers on the IR.
+func (b *irBuilder) seqLoop(s *syntax.RangeStmt) bool {
+	lp := b.l.info.Loops[s]
+	return lp != nil && lp.Domain == check.LoopSeq && irSeqRangeLowering != "off"
+}
+
 // seqRange is the range domain of the Seq loop s over the Seq value x:
 // the statement that binds x once, and the adapter literal.
 func (b *irBuilder) seqRange(s *syntax.RangeStmt, lp *check.Loop, x *irExpr) ([]*irStmt, *irExpr) {
