@@ -21,13 +21,19 @@ import (
 // lowering's own helpers use (live, kept, rel, err, slot, env).
 var nameLocalPool = []string{"x", "count", "total", "item", "acc", "step", "live", "kept", "rel", "err", "slot", "env", "g", "h"}
 
-// nameLocalDefault is lib's D, whose let of Reg takes a generated default
-// (types.md, Zero values 3), and nameLocalHelperNames are that helper's
-// spellings without rule 3's ergo__ and alias: every added declaration
-// set holds them, so a helper spelled outside "__" meets one.
-const nameLocalDefault = "type Reg (int, Map[int, int])\n\nfunc D(k int) int {\n\tlet r Reg\n\tlet (_, m) = r\n\tlet mut w = m\n\tw[k] = 5\n\tlen(w)\n}\n\n"
+// nameLocalDefault is lib's fixed part. D's let of Reg takes a generated
+// default (types.md, Zero values 3) and its call of id a monomorphic copy
+// (mono.go); H calls a Go package (a host import); G, which only the reach
+// form calls, takes another copy of id. nameLocalHelperNames are the
+// spellings of D's default without rule 3's ergo__ and alias, and the host
+// import's: every added declaration set holds them, so a helper or an
+// import spelled outside "__" meets one.
+const nameLocalDefault = "import go strings\n\ntype Reg (int, Map[int, int])\n\nfunc id[T](v T) T { v }\n\n" +
+	"func G(k int) int {\n\tlet s = id(\"x\")\n\tlen(s) + k\n}\n\n" +
+	"func D(k int) int {\n\tlet r Reg\n\tlet (_, m) = r\n\tlet mut w = m\n\tw[id(k)] = 5\n\tlen(w)\n}\n\n" +
+	"func H(s string) int needs go.Foreign { strings.Count(s, \"a\") }\n\n"
 
-var nameLocalHelperNames = []string{"DefaultReg", "ergoDefaultReg"}
+var nameLocalHelperNames = []string{"DefaultReg", "ergoDefaultReg", "strings"}
 
 // nameLocalProgram is a seeded program: package lib (a callee and a
 // function of lets that calls it), a main helper of lets, and, when
@@ -68,10 +74,6 @@ func genNameLocal(seed uint64) nameLocalProgram {
 		prev = l
 	}
 	fmt.Fprintf(&h, "\t%s\n}\n", prev)
-	// use calls lib on a parameter: main's call of it is a constant the
-	// IR folds (ir_constfold.go), but use's own body keeps lib's
-	// functions reached, so they are IR bodies too.
-	h.WriteString("\nfunc use(k int) int { lib.F(k) + lib.D(k) }\n")
 	p.helper = h.String()
 
 	var noise strings.Builder
@@ -94,22 +96,37 @@ func genNameLocal(seed uint64) nameLocalProgram {
 }
 
 // The forms of the program: without the added declarations, with them as
-// the package noise, and with them in the root package itself, after main
-// so no position of the root moves.
+// the package noise, with them in the root package itself, after main so
+// no position of the root moves, and, in the reach form, without them but
+// with lib's G reached first.
 const (
 	nameLocalBase = iota
 	nameLocalPackage
 	nameLocalRoot
+	nameLocalReach
 )
+
+// nameLocalUse is the root's use, which calls lib on a parameter: main's
+// call of it is a constant the IR folds (ir_constfold.go), but use's own
+// body keeps lib's functions reached, so they are IR bodies too. In the
+// reach form it calls G first; its line holds the change, so no other
+// position of the root moves.
+func nameLocalUse(form int) string {
+	g := ""
+	if form == nameLocalReach {
+		g = "lib.G(k) + "
+	}
+	return "\nfunc use(k int) int needs go.Foreign { " + g + "lib.F(k) + lib.D(k) + lib.H(\"aa\") }\n"
+}
 
 func (p nameLocalProgram) main(form int) string {
 	switch form {
 	case nameLocalPackage:
-		return "import lib\nimport noise\n\n" + p.helper + "\nfunc main() needs Console {\n\tConsole.Println(\"\\(use(2) + helper(3) + noise.Touch())\")\n}\n"
+		return "import lib\nimport noise\n\n" + p.helper + nameLocalUse(form) + "\nfunc main() needs Console | go.Foreign {\n\tConsole.Println(\"\\(use(2) + helper(3) + noise.Touch())\")\n}\n"
 	case nameLocalRoot:
-		return "import lib\n\n\n" + p.helper + "\nfunc main() needs Console {\n\tConsole.Println(\"\\(use(2) + helper(3) + Touch())\")\n}\n\n" + p.noise
+		return "import lib\n\n\n" + p.helper + nameLocalUse(form) + "\nfunc main() needs Console | go.Foreign {\n\tConsole.Println(\"\\(use(2) + helper(3) + Touch())\")\n}\n\n" + p.noise
 	}
-	return "import lib\n\n\n" + p.helper + "\nfunc main() needs Console {\n\tConsole.Println(\"\\(use(2) + helper(3))\")\n}\n"
+	return "import lib\n\n\n" + p.helper + nameLocalUse(form) + "\nfunc main() needs Console | go.Foreign {\n\tConsole.Println(\"\\(use(2) + helper(3))\")\n}\n"
 }
 
 // nameLocalFuncs lowers the program on the IR and as Go text and gives,
@@ -272,12 +289,13 @@ func TestFunctionNamesIgnoreUnrelatedPackages(t *testing.T) {
 		baseIR, baseText, bp := nameLocalFuncs(t, p, nameLocalBase, fmt.Sprintf("namelocal%d", seed))
 		noiseIR, noiseText, np := nameLocalFuncs(t, p, nameLocalPackage, fmt.Sprintf("namelocal%dpackage", seed))
 		rootIR, rootText, rp := nameLocalFuncs(t, p, nameLocalRoot, fmt.Sprintf("namelocal%droot", seed))
-		progs = append(progs, bp, np, rp)
+		reachIR, reachText, xp := nameLocalFuncs(t, p, nameLocalReach, fmt.Sprintf("namelocal%dreach", seed))
+		progs = append(progs, bp, np, rp, xp)
 		for _, cmp := range []struct {
 			what       string
 			base, with map[string]string
-			libOnly    bool // the root changed: only lib's functions are another package's
-		}{{"IR", baseIR, noiseIR, false}, {"Go text", baseText, noiseText, false}, {"Go text (declarations added to the root)", baseText, rootText, true}, {"IR (declarations added to the root)", baseIR, rootIR, true}} {
+			libOnly    bool // the root changed: only lib's functions are compared
+		}{{"IR", baseIR, noiseIR, false}, {"Go text", baseText, noiseText, false}, {"Go text (declarations added to the root)", baseText, rootText, true}, {"IR (declarations added to the root)", baseIR, rootIR, true}, {"Go text (lib reaches more)", baseText, reachText, true}, {"IR (lib reaches more)", baseIR, reachIR, true}} {
 			n, libs := 0, 0
 			for key, b := range cmp.base {
 				if cmp.libOnly && !strings.Contains(key, "/lib/") {
