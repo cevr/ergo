@@ -98,6 +98,7 @@ func Delete(s Store, key string) bool fails kv.Failed {
 }
 
 // Scan is the entries under prefix, by key, from the index.
+// seq-exempt: it is this provider's kv.Store.Scan, whose member law Store.ScanStops states its stop, and FileIsMemory runs it
 func Scan(s Store, prefix string) Seq[kv.Entry] fails kv.Failed { try s.index.Scan(prefix) }
 
 // Compact rewrites the log as one put per key, in key order: the puts
