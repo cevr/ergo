@@ -167,6 +167,13 @@ func create[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) needs go.Foreign {
 		}
 	case None:
 	}
+	match placeholderOf(node) {
+	case Some[string] as p:
+		if p.Value != "" {
+			d.s.SetPlaceholder(n, p.Value)
+		}
+	case None:
+	}
 	restyle(d, n, None, node)
 	relook(d, id)
 	relabel(d, id)
@@ -212,6 +219,13 @@ func reset[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], node ui.Node[E]) need
 			d.s.SetText(n, t.Value)
 		case None:
 		}
+	}
+	match placeholderOf(node) {
+	case Some[string] as p:
+		if placeholderOf(old.node) != (Some{Value: p.Value}) {
+			d.s.SetPlaceholder(n, p.Value)
+		}
+	case None:
 	}
 	restyle(d, n, Some{Value: old.node}, node)
 	relabel(d, id)
@@ -404,9 +418,10 @@ func modsOf(bits int) ui.Mods {
 	ui.Mods{Shift: bits%2 == 1, Alt: (bits/2)%2 == 1, Ctrl: (bits/4)%2 == 1, Meta: (bits/8)%2 == 1 || (bits/32)%2 == 1}
 }
 
-// key routes a key: Ctrl+C closes; Tab and Shift+Tab move the focus; a
-// focused Input takes a character and Backspace; Enter and space press a
-// focused Pressable, Check or Toggle; the rest go to OnKey.
+// key routes a key: Ctrl+C closes; Tab and Shift+Tab move the focus (a
+// field reached has its caret at the end); a focused Input takes its
+// editing keys (EditOf); Enter and space press a focused Pressable, Check
+// or Toggle; the rest go to OnKey.
 func key[E comparable, S, D, F](d *Driver[S, E, D, F], input screen.Input) fails ui.Closed | actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
 	let mods = modsOf(input.Mods)
 	let chord = mods.Ctrl || mods.Alt || mods.Meta
@@ -424,6 +439,14 @@ func key[E comparable, S, D, F](d *Driver[S, E, D, F], input screen.Input) fails
 		}
 		let next = Cycle(len(order), at, mods.Shift)
 		setFocus(d, if next < 0 { None } else { Some{Value: order[next]} })
+		if next >= 0 {
+			match fieldValue(d, order[next]) {
+			case Some[string] as v:
+				try edited(d, order[next], v.Value, screen.EditEnd, 0, "")
+				return
+			case None:
+			}
+		}
 		try present(d.s)
 		return
 	}
@@ -438,15 +461,11 @@ func key[E comparable, S, D, F](d *Driver[S, E, D, F], input screen.Input) fails
 		}
 		match n.Value {
 		case ui.InputNode as x:
-			if name == "Backspace" && !chord {
-				if x.Value != "" {
-					try step(d, ui.Type[E]{Id: id, Text: withoutLast(x.Value)})
-				}
+			match EditOf(name, mods) {
+			case Some[int] as op:
+				try edited(d, id, x.Value, op.Value, 0, if op.Value == screen.EditInsert { name } else { "" })
 				return
-			}
-			if !chord && printable(name) {
-				try step(d, ui.Type[E]{Id: id, Text: x.Value + name})
-				return
+			case None:
 			}
 		case _:
 			if pressable(n.Value) && !chord && (name == "Enter" || name == " ") {
@@ -463,13 +482,13 @@ func key[E comparable, S, D, F](d *Driver[S, E, D, F], input screen.Input) fails
 // rune, not a functional key's name.
 func printable(name string) bool { len(runesOf(name)) == 1 && name != "\t" && name != "\r" }
 
-// typed types text into the focused Input, else gives each rune to OnKey.
+// typed inserts text at the focused Input's caret, else gives each rune to OnKey.
 func typed[E comparable, S, D, F](d *Driver[S, E, D, F], text string) fails actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
 	match (d.focus, focusedNode(d)) {
 	case (Some[ui.Id[E]] as id, Some[ui.Node[E]] as n):
 		match n.Value {
 		case ui.InputNode as x:
-			try step(d, ui.Type[E]{Id: id.Value, Text: x.Value + text})
+			try edited(d, id.Value, x.Value, screen.EditInsert, 0, text)
 			return
 		case _:
 		}
@@ -481,7 +500,8 @@ func typed[E comparable, S, D, F](d *Driver[S, E, D, F], text string) fails acto
 }
 
 // mouse handles a mouse press and release: a press focuses the node under
-// it that takes the focus (none under it clears the focus), and a release
+// it that takes the focus (none under it clears the focus) and puts a
+// field's caret at the cell it went down on, and a release
 // on the node the press went down on presses it.
 func mouse[E comparable, S, D, F](d *Driver[S, E, D, F], input screen.Input) fails actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
 	if input.Action == screen.Down {
@@ -489,9 +509,17 @@ func mouse[E comparable, S, D, F](d *Driver[S, E, D, F], input screen.Input) fai
 		d.pressed = hit
 		match hit {
 		case Some[ui.Id[E]] as id:
-			if focusable(nodeOf(d, id.Value)) && !disabled(d, id.Value) && d.focus != hit {
+			let usable = focusable(nodeOf(d, id.Value)) && !disabled(d, id.Value)
+			if usable && d.focus != hit {
 				setFocus(d, hit)
 				try present(d.s)
+			}
+			match fieldValue(d, id.Value) {
+			case Some[string] as v:
+				if usable {
+					try edited(d, id.Value, v.Value, screen.EditAt, input.X-d.s.BoxOf(numOf(d, id.Value)).X, "")
+				}
+			case None:
 			}
 		case None:
 			if d.focus != None {

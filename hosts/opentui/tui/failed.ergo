@@ -33,6 +33,14 @@ func reveal(s go.Ref[screen.Screen], n int) fails ScreenFailed needs go.Foreign 
 	}
 }
 
+// edit applies one edit to the field n and is its text after it.
+func edit(s go.Ref[screen.Screen], n int, op int, col int, text string) string fails ScreenFailed needs go.Foreign {
+	s.Edit(n, op, col, text) catch {
+	case go.Error as e:
+		return ScreenFailed{Why: e.Text}
+	}
+}
+
 // next waits for the screen's next input.
 func next(s go.Ref[screen.Screen]) screen.Input fails ScreenFailed needs go.Foreign {
 	s.Next() catch {

@@ -7,7 +7,6 @@
 import actor
 import go ergo.local/prototype/hosts/opentui/screen
 import ui
-import utf8
 
 // Drain feeds the screen's queued input to d.
 func Drain[E comparable, S, D, F](d *Driver[S, E, D, F]) fails ui.Closed | actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
@@ -94,19 +93,11 @@ func tapOn[E comparable, S, D, F](d *Driver[S, E, D, F], id ui.Id[E], label stri
 	try Send(d, Click(b.X, b.Y))
 }
 
-// typeInto taps the field id, deletes its text with Backspace and types
-// text.
+// typeInto taps the field id, moves its caret to the end (Ctrl+E),
+// deletes its text (Ctrl+U) and types text.
 func typeInto[E comparable, S, D, F](d *Driver[S, E, D, F], id ui.Id[E], label string, text string) fails ui.NoNode | ui.Closed | actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
 	try tapOn(d, id, label)
-	let old = match nodeOf(d, id) {
-	case ui.InputNode as f:
-		f.Value
-	case _:
-		""
-	}
-	for _ in 0..utf8.RuneCount(old) {
-		try Send(d, "\x7f")
-	}
+	try Send(d, "\x05\x15")
 	if text != "" {
 		try Send(d, text)
 	}

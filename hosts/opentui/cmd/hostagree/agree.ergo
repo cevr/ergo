@@ -173,13 +173,16 @@ func run[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *tui.Driver[S, E, 
 	case "key":
 		let act = ui.KeyIn{Press: ui.KeyPress{Name: rest, Mods: ui.Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}}
 		// A character typed with a field focused goes into the field on the
-		// terminal; TestHost, which has no focus, types it there too.
+		// terminal, at its caret (here moved to the end with Ctrl+E first:
+		// TestFieldFollowsTheLineEditor holds the caret); TestHost, which
+		// has no focus, appends it there too.
 		match (tui.FocusId(d), tui.FocusNode(d)) {
 		case (Some[ui.Id[E]] as id, Some[ui.Node[E]] as n):
 			match n.Value {
 			case ui.InputNode as x:
 				if utf8.RuneCount(rest) == 1 && rest != " " {
 					let b = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
+						try tui.Send(d, "\x05")
 						try tui.Play(d, []ui.Act{act})
 					})
 					let a = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
