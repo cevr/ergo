@@ -87,6 +87,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 	flags.StringVar(&cfg.Coverage, "coverage", "", "read the coverage from `FILE` instead of measuring it")
 	flags.DurationVar(&cfg.CoverDeadline, "cover-deadline", time.Hour, "deadline of each child of the coverage pass")
 	flags.StringVar(&jsonOut, "json", "", "write one JSON result per mutant to `FILE`")
+	var alpha bool
+	var alphaOut, failLogs string
+	flags.BoolVar(&alpha, "alpha", false, "judge every killer of each row the packages' tests can kill (the kill matrix, testdata/kills.json) and print one row per test of the packages: class, seconds, unique and total kills, change coupling, failures, ranked as a deletion list (CS-ALPHA)")
+	flags.StringVar(&alphaOut, "o", "", "-alpha: write the table to `FILE`")
+	flags.StringVar(&failLogs, "fail-logs", "", "-alpha: count each test's failures in the go test logs under `DIR`")
 	flags.Usage = func() {
 		fmt.Fprintln(stderr, "usage: go run ./scripts/mutants [flags] PACKAGE...   (PACKAGE: check, lower, a package dir or a ledger file)")
 		flags.PrintDefaults()
@@ -151,6 +156,20 @@ func run(args []string, stdout, stderr io.Writer) int {
 				fmt.Fprintf(stderr, "mutants: %v\n", err)
 			}
 		}
+	}
+	if alpha {
+		if !fresh {
+			if store, err := openCoverStore(); err == nil {
+				cfg.CoverStore = store.Dir
+			}
+		}
+		ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+		defer cancel()
+		if err := runAlpha(ctx, cfg, jobs, alphaOut, failLogs, stdout); err != nil {
+			fmt.Fprintf(stderr, "mutants: %v\n", err)
+			return 2
+		}
+		return 0
 	}
 	if compileOnly {
 		ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
