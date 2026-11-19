@@ -396,7 +396,12 @@
       "rule": "A type declaration's implements clause is printed; dropped, the formatted text loses it.",
       "killers": [
         "internal/selfhostcheck:TestSelfhostFormatAgrees"
-      ]
+      ],
+      "anchor": {
+        "tests": [
+          "internal/selfhostcheck:TestSelfhostFormatAgrees"
+        ]
+      }
     },
     {
       "name": "sh-format-derive-as-spec",
@@ -407,7 +412,12 @@
       "rule": "A derived type declaration prints derive and its bundle, not a missing spec.",
       "killers": [
         "internal/selfhostcheck:TestSelfhostFormatAgrees"
-      ]
+      ],
+      "anchor": {
+        "tests": [
+          "internal/selfhostcheck:TestSelfhostFormatAgrees"
+        ]
+      }
     },
     {
       "name": "sh-format-union-ends-decl",
@@ -418,7 +428,12 @@
       "rule": "A union declaration still prints its where and implements clauses.",
       "killers": [
         "internal/selfhostcheck:TestSelfhostFormatAgrees"
-      ]
+      ],
+      "anchor": {
+        "tests": [
+          "internal/selfhostcheck:TestSelfhostFormatAgrees"
+        ]
+      }
     }
   ]
 }
