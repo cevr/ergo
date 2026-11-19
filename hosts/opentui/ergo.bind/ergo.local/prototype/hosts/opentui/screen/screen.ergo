@@ -24,9 +24,6 @@ extern go ergo.local/prototype/hosts/opentui/screen.Cell type Cell {
 	Attr int,
 }
 
-// ergo:go const Clip untyped int
-extern go ergo.local/prototype/hosts/opentui/screen.Clip let Clip int
-
 // ergo:go const Closed untyped int
 extern go ergo.local/prototype/hosts/opentui/screen.Closed let Closed int
 
@@ -95,6 +92,9 @@ extern go ergo.local/prototype/hosts/opentui/screen.Mouse let Mouse int
 // ergo:go const Move int
 extern go ergo.local/prototype/hosts/opentui/screen.Move let Move int
 
+// ergo:go const None untyped int
+extern go ergo.local/prototype/hosts/opentui/screen.None let None int
+
 // ergo:go func Open() (*Screen, error)
 extern go ergo.local/prototype/hosts/opentui/screen.Open func Open() go.Ref[Screen] fails go.Error needs go.Foreign
 
@@ -119,7 +119,7 @@ extern go ergo.local/prototype/hosts/opentui/screen.Rect type Rect {
 extern go ergo.local/prototype/hosts/opentui/screen.Resize let Resize int
 
 // ergo:go type Screen struct
-extern go ergo.local/prototype/hosts/opentui/screen.Screen type Screen {} implements Closer
+extern go ergo.local/prototype/hosts/opentui/screen.Screen type Screen {}
 
 // ergo:go func (*Screen).BoxOf(n int) Rect
 extern go ergo.local/prototype/hosts/opentui/screen.Screen.BoxOf func (s *Screen) BoxOf(n int) Rect needs go.Foreign
@@ -133,8 +133,11 @@ extern go ergo.local/prototype/hosts/opentui/screen.Screen.Calls func (s *Screen
 // ergo:go func (*Screen).Cell(x int, y int) Cell
 extern go ergo.local/prototype/hosts/opentui/screen.Screen.Cell func (s *Screen) Cell(x int, y int) Cell needs go.Foreign
 
-// ergo:go func (*Screen).Close() error
-extern go ergo.local/prototype/hosts/opentui/screen.Screen.Close func (s own *Screen) Close() fails go.Error needs go.Foreign
+// ergo:go func (*Screen).Cols() int
+extern go ergo.local/prototype/hosts/opentui/screen.Screen.Cols func (s *Screen) Cols() int needs go.Foreign
+
+// ergo:go func (*Screen).Count() int
+extern go ergo.local/prototype/hosts/opentui/screen.Screen.Count func (s *Screen) Count() int needs go.Foreign
 
 // ergo:go func (*Screen).Create(n int, kind int)
 extern go ergo.local/prototype/hosts/opentui/screen.Screen.Create func (s *Screen) Create(n int, kind int) needs go.Foreign
@@ -154,6 +157,9 @@ extern go ergo.local/prototype/hosts/opentui/screen.Screen.Focus func (s *Screen
 // ergo:go func (*Screen).HitTest(x int, y int) int
 extern go ergo.local/prototype/hosts/opentui/screen.Screen.HitTest func (s *Screen) HitTest(x int, y int) int needs go.Foreign
 
+// ergo:go func (*Screen).Lines() int
+extern go ergo.local/prototype/hosts/opentui/screen.Screen.Lines func (s *Screen) Lines() int needs go.Foreign
+
 // ergo:go func (*Screen).Move(n int, parent int, index int)
 extern go ergo.local/prototype/hosts/opentui/screen.Screen.Move func (s *Screen) Move(n int, parent int, index int) needs go.Foreign
 
@@ -167,8 +173,14 @@ extern go ergo.local/prototype/hosts/opentui/screen.Screen.Poll func (s *Screen)
 // ergo:go func (*Screen).Present() error
 extern go ergo.local/prototype/hosts/opentui/screen.Screen.Present func (s *Screen) Present() fails go.Error needs go.Foreign
 
+// ergo:go func (*Screen).Quit() error
+extern go ergo.local/prototype/hosts/opentui/screen.Screen.Quit func (s *Screen) Quit() fails go.Error needs go.Foreign
+
 // ergo:go func (*Screen).Resize(cols int, rows int) error
 extern go ergo.local/prototype/hosts/opentui/screen.Screen.Resize func (s *Screen) Resize(cols int, rows int) fails go.Error needs go.Foreign
+
+// ergo:go func (*Screen).Reveal(n int) error
+extern go ergo.local/prototype/hosts/opentui/screen.Screen.Reveal func (s *Screen) Reveal(n int) fails go.Error needs go.Foreign
 
 // ergo:go func (*Screen).Rows() []string
 extern go ergo.local/prototype/hosts/opentui/screen.Screen.Rows func (s *Screen) Rows() []string needs go.Foreign
@@ -185,11 +197,23 @@ extern go ergo.local/prototype/hosts/opentui/screen.Screen.SetText func (s *Scre
 // ergo:go func (*Screen).Settle()
 extern go ergo.local/prototype/hosts/opentui/screen.Screen.Settle func (s *Screen) Settle() needs go.Foreign
 
+// ergo:go func (*Screen).Shown(n int) bool
+extern go ergo.local/prototype/hosts/opentui/screen.Screen.Shown func (s *Screen) Shown(n int) bool needs go.Foreign
+
 // ergo:go func (*Screen).Size() (int, int)
 extern go ergo.local/prototype/hosts/opentui/screen.Screen.Size func (s *Screen) Size() (int, int) needs go.Foreign
 
+// ergo:go func (*Screen).Take() Input
+extern go ergo.local/prototype/hosts/opentui/screen.Screen.Take func (s *Screen) Take() Input needs go.Foreign
+
+// ergo:go func (*Screen).Wake()
+extern go ergo.local/prototype/hosts/opentui/screen.Screen.Wake func (s *Screen) Wake() needs go.Foreign
+
 // ergo:go const Scroll int
 extern go ergo.local/prototype/hosts/opentui/screen.Scroll let Scroll int
+
+// ergo:go const Scroller untyped int
+extern go ergo.local/prototype/hosts/opentui/screen.Scroller let Scroller int
 
 // ergo:go const Shrink untyped int
 extern go ergo.local/prototype/hosts/opentui/screen.Shrink let Shrink int
@@ -202,6 +226,9 @@ extern go ergo.local/prototype/hosts/opentui/screen.Underline let Underline int
 
 // ergo:go const Up int
 extern go ergo.local/prototype/hosts/opentui/screen.Up let Up int
+
+// ergo:go const Wake untyped int
+extern go ergo.local/prototype/hosts/opentui/screen.Wake let Wake int
 
 // ergo:go const Width untyped int
 extern go ergo.local/prototype/hosts/opentui/screen.Width let Width int

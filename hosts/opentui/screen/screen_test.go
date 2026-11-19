@@ -35,7 +35,7 @@ func headless(t *testing.T, cols, rows int) *Screen {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		if err := s.Close(); err != nil {
+		if err := s.Quit(); err != nil {
 			t.Error(err)
 		}
 	})
@@ -396,7 +396,7 @@ func TestClosedRestoresTheTerminal(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer s.Close()
+			defer s.Quit()
 			s.Create(1, Text)
 			s.SetText(1, "hello")
 			s.Move(1, 0, 0)
