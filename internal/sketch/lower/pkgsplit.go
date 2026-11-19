@@ -673,8 +673,19 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 	shards := 0
 	if sh != nil {
 		name := func(g int) string { return declName(f.Decls[groups[g].decls[0]], groups[g].decls[0]) }
+		// A group's bytes are its Go text and, on the IR path, its IR
+		// bodies: a function the IR carries is a bodiless declaration in
+		// the Go text, and its body is what the compile spends on
+		// (SHARD-ROOT-CUT: with the bodies on the IR, no package reached
+		// the cut, and nothing was sharded).
+		irBytes := map[int]int{}
+		if irs != nil {
+			for i := range ir.Funcs {
+				irBytes[irs.owner[i]] += irBodyBytes(&ir.Funcs[i])
+			}
+		}
 		size := func(g int) int {
-			n := 0
+			n := irBytes[g]
 			for _, i := range groups[g].decls {
 				n += segEnd[i] - segStart[i]
 			}
