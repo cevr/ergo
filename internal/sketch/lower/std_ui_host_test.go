@@ -4975,8 +4975,9 @@ func layerBody(f *ui.Frame[int], s layerApp, i int, kinds []int, scrims []bool, 
 }
 
 // layerScreen is three Pressables "f0" to "f2" sending 100 to 102, in a
-// zone keyed 0, an OnKey sending 900 on Escape, and the open layers. (a
-// law's helper)
+// zone keyed 0, an OnKey sending 900 on Escape, and the open layers, each
+// top one keyed by its index, so a layer that closes leaves the next one's
+// nodes their identity. (a law's helper)
 func layerScreen(f *ui.Frame[int], s layerApp, kinds []int, scrims []bool, dismiss []bool, parents []int) {
 	ui.OnKey(f, func(k ui.KeyPress) Option[int] {
 		if k.Name == "Escape" { Some{Value: 900} } else { None }
@@ -4988,10 +4989,14 @@ func layerScreen(f *ui.Frame[int], s layerApp, kinds []int, scrims []bool, dismi
 			}
 		}
 	}
+	let mut tops = []int{}
 	for i in 0..len(kinds) {
 		if parents[i] < 0 {
-			layerBody(f, s, i, kinds, scrims, dismiss, parents)
+			tops = tops.Append(i)
 		}
+	}
+	ui.Each(f, tops, func(i int) ui.Key { ui.ByInt(i) }) func(i int) {
+		layerBody(f, s, i, kinds, scrims, dismiss, parents)
 	}
 }
 
