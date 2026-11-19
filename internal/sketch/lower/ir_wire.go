@@ -134,7 +134,7 @@ func (st *irState) wireCell(l *lowerer, name string, t check.Type, em wireEvents
 	body := append(g.decls, w.steps(steps)...)
 	body = append(w.flush(body), &irStmt{K: "ret", Pos: g.p, X: g.local(g.wv)})
 	b.fn.Pos, b.fn.End = g.p, g.p
-	b.fn.Body = irScopesIncrease(irUseLocals(body)) // ir_end.go
+	b.fn.Body = irScopesIncrease(irUseLocals(body), b.fn.Pos) // ir_end.go
 	st.out.Funcs = append(st.out.Funcs, *b.fn)
 	return true
 }
