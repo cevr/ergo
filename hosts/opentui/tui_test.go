@@ -117,8 +117,8 @@ func play(bin, script string, args ...string) (string, error) {
 	return string(out), err
 }
 
-// agreeApps are the apps of cmd/hostagree; seed s plays app s mod 5.
-var agreeApps = []string{"counter", "shelf", "form", "load", "lock"}
+// agreeApps are the apps of cmd/hostagree; seed s plays app s mod 7.
+var agreeApps = []string{"counter", "shelf", "form", "load", "lock", "pad", "list"}
 
 // words are texts a script types: empty, ASCII, and runes of two and
 // three bytes (a wide one too), so Backspace must take a rune, not a byte.
@@ -137,6 +137,13 @@ func genScript(r *rand.Rand, app string) string {
 			lines = append(lines, "tap add")
 		}
 	}
+	if app == "list" {
+		// a turn of the wheel while the list (60 rows) has room to move
+		lines = append(lines, fmt.Sprintf("wheel list %d", 1+r.IntN(3)))
+	}
+	// held: a pad's pointer went down and has not come up. A person's
+	// mouse cannot press a button or Tab then, so the script does not.
+	held := false
 	for range 4 + r.IntN(16) {
 		var step string
 		switch app {
@@ -151,9 +158,32 @@ func genScript(r *rand.Rand, app string) string {
 			step = pick(r, "tap next", "settle", "settle")
 		case "lock":
 			step = pick(r, "tap locked", "tap bump", "tap after", "type word\t"+pick(r, words...))
+		case "pad":
+			// whole cells of the pad (8 by 16 DIPs), below its text and
+			// its button; a wheel turn is 3 rows (48 DIPs) down
+			x := 8 * r.IntN(25)
+			if r.IntN(5) == 0 {
+				step = fmt.Sprintf("point pad wheel %d 48", x)
+			} else {
+				step = fmt.Sprintf("point pad %s %d %d", pick(r, "down", "up", "move", "move"), x, 16*(2+r.IntN(5)))
+			}
+			if r.IntN(8) == 0 && !held {
+				step = "tap clear"
+			}
+		case "list":
+			// the wheel turns down more than up, so it moves a list that
+			// starts at its top
+			wheel := fmt.Sprintf("wheel list %d", pick(r, -2, -1, 1, 2, 3))
+			step = pick(r, "tap more", "tap less", "tap note", fmt.Sprintf("scroll list %d", 16*r.IntN(190)),
+				wheel, wheel, fmt.Sprintf("tap row %d", r.IntN(90)), fmt.Sprintf("tap row %d", r.IntN(20)))
 		}
-		if r.IntN(5) == 0 {
+		if r.IntN(5) == 0 && !held {
 			step = fmt.Sprintf("focus %d", r.IntN(6))
+		}
+		if strings.HasPrefix(step, "point pad down ") {
+			held = true
+		} else if strings.HasPrefix(step, "point pad up ") {
+			held = false
 		}
 		lines = append(lines, step)
 	}
@@ -162,10 +192,16 @@ func genScript(r *rand.Rand, app string) string {
 
 // TestTuiHostAgreesWithTestHost: the terminal driver (tui), fed terminal
 // bytes through a headless screen, agrees with ui.TestHost on seeded scene
-// scripts of five apps (one with a disabled Fieldset). After every step
-// both hold the same tree (ui.SameShapes) and the same app state, the
-// scene holds a node for each of the driver's, and every text's words are
-// on the screen's rows its box covers. A tap is the SGR mouse bytes of a
+// scripts of seven apps (one with a disabled Fieldset, a pointer pad and
+// a virtual list). After every step both hold the same tree
+// (ui.SameShapes) and the same app state, an Area holds the pointer on
+// both or on neither (ui.Captured), the scene holds a node for each of the
+// driver's, each written row of a list is at the list's top plus its
+// index's rows less the offset the terminal reported (TestHost takes that
+// viewport), and every text's words are on the screen's rows its box
+// covers. A pointer step is the SGR mouse bytes of a press, a release, a
+// move (a drag while an Area holds the pointer) or a wheel turn; a scroll
+// moves the list's scene offset; a wheel step turns the wheel on the list. A tap is the SGR mouse bytes of a
 // press and a release at the node's first cell, once it shows (a shelf
 // row below its list's fold scrolls into view first), so it passes
 // OpenTUI's input parser, its layout and its hit test and the driver's

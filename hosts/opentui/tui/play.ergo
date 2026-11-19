@@ -110,7 +110,7 @@ func pointOn[E comparable, S, D, F](d *Driver[S, E, D, F], id ui.Id[E], label st
 	case ui.Wheel as w:
 		let (code, by, unit) = if w.DY != 0 { (if w.DY > 0 { 65 } else { 64 }, w.DY, c.H) } else { (if w.DX > 0 { 67 } else { 66 }, w.DX, c.W) }
 		let turn = float64(WheelRows) * unit
-		let mut n = int((if by < 0 { -by } else { by }) / turn + 0.5)
+		let mut n = int((if by < 0 { -by } else { by })/turn + 0.5)
 		if n < 1 && by != 0 {
 			n = 1
 		}
@@ -125,7 +125,7 @@ func pointOn[E comparable, S, D, F](d *Driver[S, E, D, F], id ui.Id[E], label st
 // viewport.
 func scrollOn[E comparable, S, D, F](d *Driver[S, E, D, F], id ui.Id[E], offset ui.Length) fails ui.BadPatch | ScreenFailed needs go.Foreign {
 	let rows = float64(offset) / d.options.Cell.H
-	try scrollTo(d.s, numOf(d, id), int(rows + 0.5), false)
+	try scrollTo(d.s, numOf(d, id), int(rows+0.5), false)
 	try repaint(d)
 }
 
