@@ -526,7 +526,7 @@
       "origin": "wf10 FK9-g1c",
       "file": "compiler/syntax/parse_decl.ergo",
       "from": " || (isExit && exit) {",
-      "to": " {",
+      "to": " || (isExit && exit && false) {",
       "rule": "grammar.md Declarations 6: each machine entry is set once; exit is set twice is S001.",
       "anchor": {
         "tests": [
@@ -564,7 +564,7 @@
       "origin": "wf10 SELFHOST-MERGE (LF6a on S1)",
       "file": "compiler/syntax/parse_decl.ergo",
       "from": "\tif Len(l) == 1 && kindAt(p, wid(Item(p.t, l, 0))) == KExprStmt {",
-      "to": "\tif true {",
+      "to": "\tif Len(l) >= 0 {",
       "rule": "A top-level rewrite law has one expression on each side.",
       "killers": [
         "check:TestFunctionRewriteRows"
