@@ -393,6 +393,14 @@ func (g *irGo) expr(e *irgExpr) string {
 			name += "[" + g.typ(e.V) + "]"
 		}
 		return name + "(" + g.exprs(e.Args) + ")"
+	case "call":
+		// A call of a function of main.go by its Go name, with its Go
+		// type arguments (PORT-CALLS: a task call of an Ergo body).
+		name := e.Name
+		if e.T != "" {
+			name += "[" + g.typ(e.T) + "]"
+		}
+		return name + "(" + g.exprs(e.Args) + ")"
 	case "mcall":
 		return g.expr(e.X) + "." + e.Name + "(" + g.exprs(e.Args) + ")"
 	case "vcall":
