@@ -85,13 +85,13 @@ func add(p *Paint, op PaintOp) {
 // reads a PNG or JPEG file) into the rectangle at x, y of w by h,
 // stretched to fill it. An image the host cannot read draws nothing.
 func DrawImage(p *Paint, src string, x float64, y float64, w float64, h float64) {
-	p.ops = p.ops.Append(ImageOp{Src: src, Part: WholeImage, X: x, Y: y, W: w, H: h})
+	add(p, ImageOp{Src: src, Part: WholeImage, X: x, Y: y, W: w, H: h})
 }
 
 // DrawSprite draws the region part of the image at src into the
 // rectangle at x, y of w by h, as DrawImage does.
 func DrawSprite(p *Paint, src string, part ImageRegion, x float64, y float64, w float64, h float64) {
-	p.ops = p.ops.Append(ImageOp{Src: src, Part: part, X: x, Y: y, W: w, H: h})
+	add(p, ImageOp{Src: src, Part: part, X: x, Y: y, W: w, H: h})
 }
 
 // Transformed paints body under m, composed with the transforms around
@@ -143,6 +143,8 @@ func paintList(p *Paint, from int, segsFrom int) []PaintOp {
 			out = out.Append(PushClip{X: x.X, Y: x.Y, W: x.W, H: x.H})
 		case PopPaint:
 			out = out.Append(PopPaint)
+		case ImageOp as x:
+			out = out.Append(ImageOp{Src: x.Src, Part: x.Part, X: x.X, Y: x.Y, W: x.W, H: x.H})
 		}
 		at = end
 	}
