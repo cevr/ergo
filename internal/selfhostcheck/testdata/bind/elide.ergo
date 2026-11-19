@@ -93,7 +93,7 @@ func two8() (Option[int8], int) { (Some{Value: 1}, 2) }
 // Shelf is a generic record with a function on its type, as lru's Cache.
 type Shelf[K comparable, V] { key K, item V }
 
-func Take[K comparable, V](s *Shelf[K, V], k K) Option[V] {
+func Take[K comparable, V](s mut Shelf[K, V], k K) Option[V] {
 	if s.key == k { Some{Value: s.item} } else { None }
 }
 
