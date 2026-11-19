@@ -53,6 +53,9 @@ type Driver[S, E, D, F] {
 	// underlines is where the last paint drew an opaque underline
 	// (inkedLines), as probes.
 	underlines []Probe,
+	// slants is the italic runs the last paint asked the window to
+	// slant (inkedRun); the window counts what it slanted (Slanted).
+	slants int,
 	under    Option[uint32],
 	shadowed bool,
 	// semantics is the Semantic nodes the last paint put in the
@@ -109,6 +112,7 @@ func start[E comparable, S, D, F](w go.Ref[screen.Window], a actor.Actor[S, E, D
 		painted:   0,
 		looked:    []lookProbe{},
 		underlines: []Probe{},
+		slants: 0,
 		under:     None,
 		shadowed:  false,
 		semantics: []ui.Id[E]{},
@@ -651,6 +655,10 @@ func FocusNode[S, E, D, F](d *Driver[S, E, D, F]) Option[ui.Node[E]] {
 // Toggle's track, a canvas's last opaque fill (canvasProbe), an
 // opaque underline under a Text's run (inkedLines).
 type Probe { Label string, X int, Y int, Color uint32 }
+
+// Slants is how many italic runs the last paint asked the window to draw
+// slanted; the window's Slanted is how many it did.
+func Slants[S, E, D, F](d *Driver[S, E, D, F]) int { d.slants }
 
 // Probes are the probes of the nodes on screen whose probe point no clip
 // cuts, in paint order.

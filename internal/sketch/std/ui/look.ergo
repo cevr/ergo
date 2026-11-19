@@ -34,8 +34,8 @@ type Look { Fill Color, Border Border, Corners Corners, Shadows [4]Shadow, Opaci
 
 // Ink is how a node draws its own text (OpenTUI gap 1): in Color (a
 // transparent Color is the host's own text colour), bold, italic,
-// underlined. Only a node that draws text of its own uses it, a Text
-// (TextStyled gives one a look); it is not inherited, as no part of a Look is, so a Text
+// underlined. Only a node that draws text of its own uses it, a Text or a
+// Readout (TextStyled and ReadoutStyled give one a look); it is not inherited, as no part of a Look is, so a Text
 // inside a Box drawn in red is in the host's colour unless its own look
 // says otherwise. Like the rest of a Look it is per interaction state, so
 // a focused or hovered text can change ink with no pass.
@@ -78,18 +78,21 @@ func drawInk(r *rng) Ink {
 // InkShowsInTheScreenshot (OpenTUI gap 1): over drawn inks k, a Text
 // given Inked(k) holds that look in the test host, and its screenshot
 // line names k's colour (when it is not transparent) and each of bold,
-// italic and underline that k has, and nothing when k is PlainInk; a Text
-// inside a Box whose look has ink k shows no ink: ink is not inherited.
+// italic and underline that k has, and nothing when k is PlainInk; a
+// Readout given Inked(k) holds and shows it the same; a Text inside a Box
+// whose look has ink k shows no ink: ink is not inherited.
 law InkShowsInTheScreenshot(seed int) {
 	let m = time.NewManual(0)
 	with context { Scheduler: m } {
 		let mut r = seeded(seed)
 		let k = if draw(&r, 4) == 0 { PlainInk() } else { drawInk(&r) }
+		let rd = NewReadout("r")
 		let view = func(f *Frame[int], s int) {
 			let mut inked = Plain()
 			inked.Look = LookFor(f, Steady(Inked(k)))
 			Column(f, Plain()) {
 				TextStyled(f, "a", inked)
+				ReadoutStyled(f, rd, "rr", inked)
 				Box(f, inked) {
 					Text(f, "b")
 				}
@@ -101,7 +104,7 @@ law InkShowsInTheScreenshot(seed int) {
 			return false
 		}
 		let screen = Screen(&h)
-		if len(screen) != 1 || len(screen[0].Kids) != 2 || len(screen[0].Kids[1].Kids) != 1 {
+		if len(screen) != 1 || len(screen[0].Kids) != 3 || len(screen[0].Kids[2].Kids) != 1 {
 			return false
 		}
 		let mut parts = ""
@@ -119,7 +122,7 @@ law InkShowsInTheScreenshot(seed int) {
 		}
 		let want = if k == PlainInk() { "" } else { " { ink" + parts + " }" }
 		let lines = strings.Split(Screenshot(&h), "\n")
-		len(lines) == 5 && lines[1] == "  text \"a\"" + want && lines[3] == "    text \"b\"" && LooksOf(&h, screen[0].Kids[0].Node) == Steady(Inked(k))
+		len(lines) == 6 && lines[1] == "  text \"a\"" + want && lines[2] == "  readout \"rr\"" + want && lines[4] == "    text \"b\"" && LooksOf(&h, screen[0].Kids[0].Node) == Steady(Inked(k)) && LooksOf(&h, screen[0].Kids[1].Node) == Steady(Inked(k))
 	}
 }
 
@@ -271,6 +274,8 @@ func StyleOf[E](n Node[E]) Option[Style] {
 	case ScrollNode as x:
 		Some{Value: x.Style}
 	case TextNode as x:
+		Some{Value: x.Style}
+	case ReadoutNode as x:
 		Some{Value: x.Style}
 	case PressableNode[E] as x:
 		Some{Value: x.Style}

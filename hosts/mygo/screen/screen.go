@@ -91,6 +91,8 @@ type Window struct {
 	width   float64
 	height  float64
 	painted int
+	// slanted is the runs TextSlanted added since Begin.
+	slanted int
 	// opacity multiplies the alpha of what is painted from now on
 	// (SetOpacity); 1 at Begin.
 	opacity float64
@@ -115,6 +117,8 @@ type glyphText struct {
 	color       scene.Color
 	clip        scene.Rect
 	transformed bool
+	// slant draws the run sheared, as an oblique face (TextSlanted).
+	slant bool
 }
 
 func newWindow(width, height float64) *Window {
@@ -368,7 +372,7 @@ func rect(x, y, width, height float64) scene.Rect {
 // Begin starts the next display list; Present shows it.
 func (w *Window) Begin() {
 	w.mu.Lock()
-	w.pending, w.glyphs, w.clips, w.access = w.pending[:0], nil, 0, nil
+	w.pending, w.glyphs, w.clips, w.access, w.slanted = w.pending[:0], nil, 0, nil, 0
 	w.focus, w.field = 0, platform.TextInputState{}
 	w.opacity = 1
 	w.mu.Unlock()
@@ -509,6 +513,28 @@ func (w *Window) Text(x, y float64, s string, size float64, color uint32) {
 	w.mu.Unlock()
 }
 
+// TextSlanted is Text drawn oblique: the window has one face, so an
+// italic run is that face sheared, its tops leaning right by slant of
+// their height above the baseline, as a renderer synthesizes an oblique
+// face for a family with no italic.
+func (w *Window) TextSlanted(x, y float64, s string, size float64, color uint32) {
+	w.mu.Lock()
+	w.glyphs = append(w.glyphs, glyphText{at: len(w.pending), x: float32(x), y: float32(y), s: s, size: float32(size), color: w.faded(rgba(color)), slant: true})
+	w.slanted++
+	w.mu.Unlock()
+}
+
+// Slanted is how many runs TextSlanted added since Begin.
+func (w *Window) Slanted() int {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.slanted
+}
+
+// slant is the shear of an oblique run: x moves by slant of the height
+// above the baseline (about 11 degrees, a common synthetic oblique).
+const slant = 0.2
+
 // Access adds a node of the accessibility tree: id names it from frame to
 // frame (1 or more), parent is the index of its parent among the nodes
 // added since Begin (-1 at the top).
@@ -646,7 +672,13 @@ func (w *Window) glyphLine(s *scene.Scene, t glyphText, scale float32) {
 		}
 	}
 	if end := int32(len(s.Glyphs)); end > start {
-		s.Ops = append(s.Ops, scene.Op{Kind: scene.OpGlyphs, Start: start, End: end, Transform: scene.Translation(0, 0)})
+		m := scene.Translation(0, 0)
+		if t.slant {
+			// x' = x - slant*(y - baseline): the baseline stays, a
+			// glyph's top leans right.
+			m = scene.Matrix(1, 0, -slant, 1, slant*baseline, 0)
+		}
+		s.Ops = append(s.Ops, scene.Op{Kind: scene.OpGlyphs, Start: start, End: end, Transform: m})
 	}
 }
 

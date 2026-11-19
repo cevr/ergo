@@ -307,6 +307,9 @@ func sketchView(f *ui.Frame[int], s sketch) {
 // corners, a shadow, opacity) where both hosts hold the same Looks.
 type looksApp { theme int, dim bool }
 
+// inkedReading is the looks app's readout, drawn in the theme's ink.
+let inkedReading = ui.NewReadout("reading")
+
 func looksStep(s looksApp, e int) Decision[looksApp, int] {
 	if e == 0 {
 		return Enter[looksApp]{Next: looksApp{theme: (s.theme + 1) % 3, dim: s.dim}}
@@ -334,9 +337,12 @@ func looksView(f *ui.Frame[int], s looksApp) {
 	col.Padding = ui.All(16)
 	ui.Column(f, col) {
 		ui.Text(f, "theme \(s.theme)")
-		// A Text in the theme's ink, underlined (bold in theme 1): the
-		// window's underline is a probe of the ink's colour.
-		ui.TextStyled(f, "inked", looked(f, ui.Inked(ui.Ink{Color: ui.Rgb(accents[s.theme]), Bold: s.theme == 1, Italic: false, Underline: true}), 0))
+		// A Text and a Readout in the theme's ink, underlined (bold in
+		// theme 1, italic in theme 2): the window's underline is a probe
+		// of the ink's colour, and its count of slanted runs is checked.
+		let inked = ui.Inked(ui.Ink{Color: ui.Rgb(accents[s.theme]), Bold: s.theme == 1, Italic: s.theme == 2, Underline: true})
+		ui.TextStyled(f, "inked", looked(f, inked, 0))
+		ui.ReadoutStyled(f, inkedReading, "reading", looked(f, inked, 0))
 		ui.Pressable(f, "next", 0) {
 			ui.Text(f, "Next")
 		}

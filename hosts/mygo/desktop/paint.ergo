@@ -290,6 +290,7 @@ func paint[S, E, D, F](d *Driver[S, E, D, F]) needs go.Foreign {
 	d.boxes = Map[ui.Id[E], layout.Box]{}
 	d.looked = []lookProbe{}
 	d.underlines = []Probe{}
+	d.slants = 0
 	d.semantics = []ui.Id[E]{}
 	d.under = Some{Value: paper}
 	d.shadowed = false
@@ -463,7 +464,7 @@ func draw[S, E, D, F](d *Driver[S, E, D, F], t *layout.Tree, ids Map[ui.Id[E], l
 		let st = styleOf(n, line)
 		let inner = cut(clip, b)
 		d.w.Clip(float64(inner.X), float64(inner.Y), float64(inner.W), float64(inner.H))
-		d.w.Text(float64(b.X+st.Padding[3]), float64(b.Y+st.Padding[0]), reading, float64(textSize), ink)
+		inkedRun(d, reading, b.X+st.Padding[3], b.Y+st.Padding[0], lookOf(d, id, n).Ink, inner)
 		d.w.Unclip()
 	case ui.PressableNode[E] as x:
 		d.spots = d.spots.Append(s)
@@ -552,33 +553,47 @@ func lines[S, E, D, F](d *Driver[S, E, D, F], text string, x float32, y float32,
 	}
 }
 
-// inkedLines draws a Text's lines in its look's ink (OpenTUI gap 1): its
-// colour, or the window's ink when transparent; bold as the run drawn
-// twice, a dip apart (the window has one face); underlined as a fill of
-// a dip under each line's run, on a whole pixel row. The window has no
-// slanted face, so italic is drawn upright. An opaque underline inside
-// clip is a probe (Probes), so a test reads the ink's colour off the
-// window.
+// inkedLines draws a Text's lines in its look's ink (OpenTUI gap 1), one
+// inkedRun a line.
 func inkedLines[S, E, D, F](d *Driver[S, E, D, F], text string, x float32, y float32, wide float32, k ui.Ink, clip layout.Box) needs go.Foreign {
+	let step = lineHeight(d.metrics, textSize)
+	for i, l in Lines(d.metrics, text, textSize, wide) {
+		inkedRun(d, l, x, y+float32(i)*step, k, clip)
+	}
+}
+
+// inkedRun draws one line of text in ink k: in its colour, or the
+// window's ink when transparent; bold as the run drawn twice, a dip apart
+// (the window has one face); italic as that face sheared (TextSlanted,
+// a synthetic oblique), counted in slants so a test reads that the window
+// slanted each italic run; underlined as a fill of a dip under the run,
+// on a whole pixel row. An opaque underline inside clip is a probe
+// (Probes), so a test reads the ink's colour off the window.
+func inkedRun[S, E, D, F](d *Driver[S, E, D, F], l string, x float32, at float32, k ui.Ink, clip layout.Box) needs go.Foreign {
 	let color = if k.Color.A != 0 { rgba(k.Color) } else { ink }
 	let opaque = (k.Color.A == 0 || k.Color.A == 255) && d.w.Opacity() == 1.0
 	let step = lineHeight(d.metrics, textSize)
-	for i, l in Lines(d.metrics, text, textSize, wide) {
-		let at = y + float32(i)*step
-		d.w.Text(float64(x), float64(at), l, float64(textSize), color)
-		if k.Bold {
-			d.w.Text(float64(x+1), float64(at), l, float64(textSize), color)
+	let passes = if k.Bold { 2 } else { 1 }
+	for p in 0..passes {
+		let px = float64(x + float32(p))
+		if k.Italic {
+			d.w.TextSlanted(px, float64(at), l, float64(textSize), color)
+		} else {
+			d.w.Text(px, float64(at), l, float64(textSize), color)
 		}
-		if k.Underline {
-			let under = layout.Box{X: fceil(x), Y: fceil(at + step - 3), W: float32(int(float32(d.w.TextWidth(l, float64(textSize))))), H: 1}
-			fill(d, under, 0, color)
-			let px = int(under.X) + 1
-			let py = int(under.Y)
-			if opaque && under.W >= 3 && probeShows(clip, px, py) {
-				// The probe's colour is the look's, read apart from what was
-				// drawn, as lookProbes reads a fill's.
-				d.underlines = d.underlines.Append(Probe{Label: l + " underline", X: px, Y: py, Color: inkColor(k)})
-			}
+	}
+	if k.Italic {
+		d.slants = d.slants + passes
+	}
+	if k.Underline {
+		let under = layout.Box{X: fceil(x), Y: fceil(at + step - 3), W: float32(int(float32(d.w.TextWidth(l, float64(textSize))))), H: 1}
+		fill(d, under, 0, color)
+		let px = int(under.X) + 1
+		let py = int(under.Y)
+		if opaque && under.W >= 3 && probeShows(clip, px, py) {
+			// The probe's colour is the look's, read apart from what was
+			// drawn, as lookProbes reads a fill's.
+			d.underlines = d.underlines.Append(Probe{Label: l + " underline", X: px, Y: py, Color: inkColor(k)})
 		}
 	}
 }
