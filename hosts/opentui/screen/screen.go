@@ -144,6 +144,7 @@ type command struct {
 	text         string
 	fg, bg       uint32
 	attr         int
+	data         []byte
 }
 
 const (
@@ -155,6 +156,7 @@ const (
 	opLook
 	opFocus
 	opPlaceholder
+	opPixels
 )
 
 // Screen is a terminal, or a headless renderer of a fixed size.
@@ -172,15 +174,17 @@ type Screen struct {
 	edits    map[int]editor
 	// inner is each Lister's content box; fills the height each Lister
 	// with no Height of its own was given (0 before the first frame).
-	inner   map[int]ot.Handle
-	fills   map[int]int
-	focus   int
-	out     io.Writer
-	chunk   []byte
-	records []ot.InputEvent
-	payload []byte
-	start   time.Time
-	live    bool
+	inner map[int]ot.Handle
+	fills map[int]int
+	// pictures is each canvas's pixels (canvas.go).
+	pictures map[int]picture
+	focus    int
+	out      io.Writer
+	chunk    []byte
+	records  []ot.InputEvent
+	payload  []byte
+	start    time.Time
+	live     bool
 	// inputClock is the parser's clock of a headless screen (ns); deadline
 	// the parser's last timeout, or 0.
 	inputClock, deadline uint64
@@ -210,7 +214,7 @@ func newScreen(cols, rows int, out io.Writer) (*Screen, error) {
 	}
 	s := &Screen{
 		owner: ot.NewOwner(), nodes: map[int]ot.Handle{}, kinds: map[int]int{}, parent: map[int]int{},
-		children: map[int][]int{}, edits: map[int]editor{}, inner: map[int]ot.Handle{}, fills: map[int]int{}, focus: -1, out: out, chunk: make([]byte, 64<<10),
+		children: map[int][]int{}, edits: map[int]editor{}, inner: map[int]ot.Handle{}, fills: map[int]int{}, pictures: map[int]picture{}, focus: -1, out: out, chunk: make([]byte, 64<<10),
 		records: make([]ot.InputEvent, 256), payload: make([]byte, 64<<10), start: time.Now(),
 		wake: make(chan struct{}, 1), cols: cols, rows: rows, inputClock: 1,
 	}
@@ -432,6 +436,8 @@ func (s *Screen) apply(c command) error {
 		return s.style(c, h)
 	case opPlaceholder:
 		return s.placeholder(c.node, c.text)
+	case opPixels:
+		return s.pixels(c)
 	case opLook:
 		if s.kinds[c.node] == Editor {
 			return s.editorLook(c.node, c.fg, c.bg, c.attr)
@@ -476,6 +482,7 @@ func (s *Screen) destroy(n int) error {
 		}
 	}
 	delete(s.children, n)
+	delete(s.pictures, n)
 	if in, ok := s.inner[n]; ok {
 		delete(s.inner, n)
 		delete(s.fills, n)
@@ -641,6 +648,11 @@ func (s *Screen) paint() (ot.SceneFrameRequest, error) {
 			return req, err
 		}
 		if !changed {
+			if err := s.draw(&req); err != nil {
+				s.calls++
+				_ = ot.SceneFrameCancel(s.ctx, s.session, req.FrameId)
+				return req, err
+			}
 			return req, nil
 		}
 	}

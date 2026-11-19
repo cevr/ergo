@@ -118,7 +118,7 @@ func play(bin, script string, args ...string) (string, error) {
 }
 
 // agreeApps are the apps of cmd/hostagree; seed s plays app s mod 7.
-var agreeApps = []string{"counter", "shelf", "form", "load", "lock", "pad", "list"}
+var agreeApps = []string{"counter", "shelf", "form", "load", "lock", "pad", "list", "sketch"}
 
 // words are texts a script types: empty, ASCII, and runes of two and
 // three bytes (a wide one too), so Backspace must take a rune, not a byte.
@@ -141,7 +141,7 @@ func genScript(r *rand.Rand, app string) string {
 		// a turn of the wheel while the list (60 rows) has room to move
 		lines = append(lines, fmt.Sprintf("wheel list %d", 1+r.IntN(3)))
 	}
-	// held: a pad's pointer went down and has not come up. A person's
+	// held: a pad's or a sketch's pointer went down and has not come up. A person's
 	// mouse cannot press a button or Tab then, so the script does not.
 	held := false
 	for range 4 + r.IntN(16) {
@@ -170,6 +170,8 @@ func genScript(r *rand.Rand, app string) string {
 			if r.IntN(8) == 0 && !held {
 				step = "tap clear"
 			}
+		case "sketch":
+			step = fmt.Sprintf("point sketch %s %d %d", pick(r, "down", "down", "up", "move"), 8*r.IntN(25), 16*r.IntN(10))
 		case "list":
 			// the wheel turns down more than up, so it moves a list that
 			// starts at its top
@@ -180,9 +182,9 @@ func genScript(r *rand.Rand, app string) string {
 		if r.IntN(5) == 0 && !held {
 			step = fmt.Sprintf("focus %d", r.IntN(6))
 		}
-		if strings.HasPrefix(step, "point pad down ") {
+		if strings.HasPrefix(step, "point pad down ") || strings.HasPrefix(step, "point sketch down ") {
 			held = true
-		} else if strings.HasPrefix(step, "point pad up ") {
+		} else if strings.HasPrefix(step, "point pad up ") || strings.HasPrefix(step, "point sketch up ") {
 			held = false
 		}
 		lines = append(lines, step)

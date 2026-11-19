@@ -190,6 +190,8 @@ func create[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) needs go.Foreign {
 	match node {
 	case ui.RowsNode as x:
 		content(d, id, x.Count, x.RowHeight)
+	case ui.CanvasNode as x:
+		drawCanvas(d, n, x)
 	case _:
 	}
 	relook(d, id)
@@ -248,6 +250,8 @@ func reset[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], node ui.Node[E]) need
 	match node {
 	case ui.RowsNode as x:
 		content(d, id, x.Count, x.RowHeight)
+	case ui.CanvasNode as x:
+		drawCanvas(d, n, x)
 	case _:
 	}
 	relabel(d, id)

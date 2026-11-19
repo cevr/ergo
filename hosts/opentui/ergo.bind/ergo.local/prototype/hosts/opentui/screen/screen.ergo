@@ -257,6 +257,10 @@ extern go ergo.local/prototype/hosts/opentui/screen.Screen.ScrollTo func (s *Scr
 // ergo:go func (*Screen).SetLook(n int, fg uint32, bg uint32, attr int)
 extern go ergo.local/prototype/hosts/opentui/screen.Screen.SetLook func (s *Screen) SetLook(n int, fg uint32, bg uint32, attr int) needs go.Foreign
 
+// ergo:go func (*Screen).SetPixels(n int, width int, data []byte)
+// ergo:reads data
+extern go ergo.local/prototype/hosts/opentui/screen.Screen.SetPixels func (s *Screen) SetPixels(n int, width int, data []byte) needs go.Foreign
+
 // ergo:go func (*Screen).SetPlaceholder(n int, text string)
 extern go ergo.local/prototype/hosts/opentui/screen.Screen.SetPlaceholder func (s *Screen) SetPlaceholder(n int, text string) needs go.Foreign
 

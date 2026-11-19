@@ -105,6 +105,11 @@ func compare[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *tui.Driver[S,
 	if held != (tui.Captured(d) != None) {
 		return Some{Value: "an Area holds the pointer on TestHost: \(held); on the terminal: \(!held)"}
 	}
+	match inked(d, s, tui.Screen(d)) {
+	case Some[string] as why:
+		return why
+	case None:
+	}
 	match kept(d, tui.Screen(d)) {
 	case Some[string] as why:
 		return why
