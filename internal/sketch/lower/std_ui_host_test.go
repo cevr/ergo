@@ -6266,7 +6266,7 @@ test UiTabWalksTheFocusables(seed int, steps int) {
 }
 
 
-// LIVE: laws_readout.ergo restated.
+// LIVE: readout.ergo's laws restated.
 // readWords is the texts the readout laws publish: equal, longer and
 // shorter than the reserve, and empty. (a law's helper)
 let readWords = []string{"00:00", "00:01", "12:34", "", "a reading far wider than its reserve", "9"}
