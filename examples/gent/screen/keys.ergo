@@ -126,7 +126,7 @@ func cursor(l Line) int {
 
 // Action is what a key does: edit the composer, send the agent a signal,
 // send the composer's line, or nothing.
-type Action = Type{Key term.Key} | Send{Signal agent.Signal} | SendLine{} | Nothing{}
+type Action = Type{Key term.Key} | Send{Signal agent.Signal} | SendLine{} | Page{Up bool} | Toggle{} | Nothing{}
 
 // Intent is what k does in phase p. Ctrl-C quits when idle and stops the
 // turn otherwise; Esc stops the turn; Enter sends the line when idle; y
@@ -160,7 +160,13 @@ func Intent(k term.Key, p agent.Phase) Action {
 		}
 	case (_, term.Char), (_, term.Backspace), (_, term.Delete), (_, term.Left), (_, term.Right), (_, term.Home), (_, term.End), (_, term.Paste):
 		Type{Key: k}
-	case (_, term.Return), (_, term.Tab), (_, term.Up), (_, term.Down), (_, term.Insert), (_, term.PageUp), (_, term.PageDown), (_, term.F), (_, term.Chord), (_, term.Wheel), (_, term.Resized), (_, term.Other):
+	case (_, term.PageUp):
+		Page{Up: true}
+	case (_, term.PageDown):
+		Page{Up: false}
+	case (_, term.Tab):
+		Toggle
+	case (_, term.Return), (_, term.Up), (_, term.Down), (_, term.Insert), (_, term.F), (_, term.Chord), (_, term.Wheel), (_, term.Resized), (_, term.Other):
 		Nothing
 	}
 }
@@ -210,7 +216,7 @@ func Status(s agent.State) string {
 	case agent.Asking:
 		"thinking · " + steps + " · esc stop"
 	case agent.Waiting as w:
-		"retry \(w.Try) in \(w.In) · " + steps + " · esc stop"
+		"retry \(w.Try) in \(agent.Wait(w.Ms)) · " + steps + " · esc stop"
 	case agent.Approving as a:
 		"run " + a.Call.Name + "? · " + steps + " · n no · y yes · esc stop"
 	case agent.Running as r:
@@ -238,7 +244,7 @@ law EveryStateShowsItsExit(s agent.State) {
 		match Intent(k.Value, s.Phase) {
 		case Send as send:
 			machines.Can(agent.Step, s, send.Signal)
-		case Type, SendLine, Nothing:
+		case Type, SendLine, Page, Toggle, Nothing:
 			false
 		}
 	}
