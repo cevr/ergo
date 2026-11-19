@@ -59,6 +59,8 @@
             [
               "{ergo}",
               "check",
+              "--eval-steps",
+              "400000000",
               "examples/jsonparse/agree",
               "--seed",
               "{seed}"
@@ -239,6 +241,8 @@
             [
               "{ergo}",
               "check",
+              "--eval-steps",
+              "400000000",
               "compiler/probes/tprobe/diagnostics"
             ]
           ]
@@ -391,6 +395,8 @@
             [
               "{ergo}",
               "check",
+              "--eval-steps",
+              "400000000",
               "compiler/probes/tprobe/property"
             ]
           ]
