@@ -114,6 +114,7 @@ var externPlaceRows = map[string]externPlaceRow{
 	"LawReach.Targets":     {guardType, machineGuard("initial: Idle,\n\tstep: step,\n\tlaw L reaches @Upper,")},
 	"MapType.Key":          {guardType, "func f(m Map[@Upper, int]) {}\n"},
 	"MapType.Value":        {guardType, "func f(m Map[int, @Upper]) {}\n"},
+	"MapType.Hashing":      {guardType, "func f(m Map[int, int, @Upper]) {}\n"},
 	"NeedsClause.Names":    {guardType, "func f() needs @Upper {}\n"},
 	"ProvidesClause.Names": {guardType, "type C { M() }\ntype P {} implements C\nfunc M(_ P) {}\nfunc f() { with context provides @Upper { C: P } { C.M() } }\n"},
 	"StarExpr.X":           {guardType, "func f(p *@Upper) {}\n"},

@@ -339,6 +339,13 @@ func f(m Map[string, int64], xs []int64) []int64 {
 }
 func main() {}
 `, nil},
+	{"Map type", "a Map with a provider", `
+type Fold {} implements Hashing[string]
+func Hash(_ Fold, k string) uint64 { hash(k) }
+func Equal(_ Fold, a string, b string) bool { a == b }
+func f(m Map[string, int, Fold]) int { len(m) }
+func main() {}
+`, nil},
 	{"Map type", "append checks its elements", `
 func f(xs []int64) []int64 { return xs.Append("a") }
 func main() {}
