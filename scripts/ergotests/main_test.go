@@ -6,7 +6,11 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"ergo.local/prototype/internal/testinputs"
 )
+
+func TestMain(m *testing.M) { os.Exit(testinputs.Main(m)) }
 
 // TestErgoTestsJudgeEachObligation: ergotests is the gate's and the mutant
 // runner's way to run a package's Ergo tests (ST-0). A refuted test fails
@@ -28,9 +32,9 @@ func TestErgoTestsJudgeEachObligation(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	write("a/a.ergo", "extern go strings.ToUpper func upper(s string) string\n\nfunc twice(n int) int { n + n }\n\n"+
+	write("a/a.ergo", "func twice(n int) int { n + n }\n\n"+
 		"test Good {\n\tassert twice(2) == 4\n}\n\ntest Bad {\n\tassert twice(2) == 5\n}\n\n"+
-		"test Skips {\n\tassert upper(\"q\") == \"Q\"\n}\n\nlaw Doubles(n int) { twice(n) - n == n }\n")
+		"test Skips {\n\tskip \"not on this host\"\n}\n\nlaw Doubles(n int) { twice(n) - n == n }\n")
 	write("a/b/b.ergo", "test Nested {\n\tassert 1 + 1 == 2\n}\n")
 	write("a/testdata/bad/bad.ergo", "this does not parse\n")
 	dir := filepath.Join(root, "a")
