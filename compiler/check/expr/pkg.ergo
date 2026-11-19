@@ -310,7 +310,13 @@ func Load(s mut store.Store, files []bind.File, u bind.Uses, ps bind.Parents, ex
 				match syntax.ViewOf(p.Tree, d) {
 				case syntax.LawDecl as ld:
 					if ld.Body != dense.NoID[syntax.Node]() {
-						fns = fns.Append(declared(s, env, p, file, d, ld.Name, ld.Params, store.TBasic(s, bBool), ld.Body))
+						// A top-level rewrite law, { lhs } == { rhs }, is
+						// a block of its two sides, and the checker types
+						// it as lhs == rhs: no side is the law's bool, so
+						// its body has no result to want (TUPLE-WANT's
+						// tail blocks would type the right side as one).
+						let result = if ld.Equation { store.TTuple(s, []dense.ID[store.TKey]{}) } else { store.TBasic(s, bBool) }
+						fns = fns.Append(declared(s, env, p, file, d, ld.Name, ld.Params, result, ld.Body))
 					}
 				case syntax.TestDecl as td:
 					fns = fns.Append(declared(s, env, p, file, d, td.Name, td.Params, store.TTuple(s, []dense.ID[store.TKey]{}), dense.OptOf(td.Body)))

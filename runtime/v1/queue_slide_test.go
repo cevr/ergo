@@ -17,7 +17,8 @@ import (
 // evicted as if it were the oldest. Slide evicts the front under the
 // queue's lock and enters v in the same step, so the waiting Push keeps
 // waiting and fails Closed at End, never delivered and dropped. Mutant
-// slide-two-step.
+// slide-two-step. Slide gives the evicted front back to its caller, who
+// owns it (resources R42): mutant slide-evicted-not-given-back.
 func TestQueueSlideIsOneStep(t *testing.T) {
 	q := New[int](1)
 	push(t, q, 1)
@@ -41,8 +42,12 @@ func TestQueueSlideIsOneStep(t *testing.T) {
 			runtime.Gosched()
 		}
 	}
-	if err := q.Slide(3); err != nil {
+	old, evicted, err := q.Slide(3)
+	if err != nil {
 		t.Fatalf("Slide(3) failed with %v", err)
+	}
+	if !evicted || old != 1 {
+		t.Fatalf("Slide(3) gave back %v, %v; want 1, the evicted front, for its caller to own (SLIDE-RELEASE)", old, evicted)
 	}
 	if v, ok := poll(t, q); !ok || v != 3 {
 		t.Fatalf("after Slide(3) Poll gives %v, %v; want 3: the slid value is the newest", v, ok)
