@@ -95,12 +95,70 @@ func compare[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *desktop.Drive
 			return Some{Value: "pixel of \(p.Label) at \(p.X),\(p.Y) is \(strconv.FormatInt(int64(got), 16)), want \(strconv.FormatInt(int64(p.Color), 16))"}
 		}
 	}
+	match trackedWrong(h, d, desktop.Screen(d)) {
+	case Some[string] as why:
+		return why
+	case None:
+	}
 	match accessDiffers(d, w) {
 	case Some[string] as why:
 		return why
 	case None:
 	}
 	lookStatesDiffer(h, d)
+}
+
+// trackedWrong is why a Pressable on an x track is painted elsewhere than
+// TestHost's track value puts it (TRACKS): its look's probe, which sits
+// where the window painted the body, is at the middle of its laid box
+// moved by the value; None when every one is there.
+func trackedWrong[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *desktop.Driver[S, E, D, F], shapes []ui.Shape[E]) Option[string] needs go.Foreign {
+	for s in shapes {
+		match s.Node {
+		case ui.TrackNode as x:
+			match x.Prop {
+			case ui.TrackX:
+				for k in s.Kids {
+					match k.Node {
+					case ui.PressableNode[E] as p:
+						let v = match ui.TrackedValue(h, x.Key) {
+						case Some[float64] as t:
+							t.Value
+						case None:
+							return Some{Value: "TestHost runs no track for \(p.Label)"}
+						}
+						match desktop.BoxOf(d, p.Label) {
+						case Some[layout.Box] as lb:
+							let want = int(lb.Value.X + float32(v) + lb.Value.W/2)
+							let mut seen = false
+							for pr in desktop.Probes(d) {
+								if pr.Label == p.Label {
+									seen = true
+									if pr.X != want {
+										return Some{Value: "\(p.Label) on a track at \(v) is painted at x \(pr.X), want \(want)"}
+									}
+								}
+							}
+							if !seen {
+								return Some{Value: "\(p.Label) on a track has no look probe"}
+							}
+						case None:
+							return Some{Value: "\(p.Label) on a track has no box"}
+						}
+					case _:
+					}
+				}
+			case _:
+			}
+		case _:
+		}
+		match trackedWrong[E, S, D, F](h, d, s.Kids) {
+		case Some[string] as why:
+			return why
+		case None:
+		}
+	}
+	None
 }
 
 // maxOffset is how far the list labelled label scrolls in a viewport
