@@ -11,7 +11,7 @@ go run ./scripts/examples -tags slow,net       # the programs with either tag
 
 The runner runs `-jobs` programs at once. The default is `GOMAXPROCS` when the environment sets it (the gate sets each step's `GOMAXPROCS` to its CPU budget, `ERGO_GATE_CPUS`), else half the usable CPUs: never every CPU of the host. Each program's lines stay together and print in name order, whatever order the programs end in (`TestProgramsRunAtOnceAndPrintInOrder`), and each FAIL line names its program. Each built program still runs under its own memory limit (`ERGO_PROGRAM_MEMORY`, 2 GiB by default; docs/tooling.md, "Test memory"), which the kernel enforces.
 
-One folder is not a program: `editions` (edition fixtures that Go tests pin). Any other folder that is not a program is an error. Go interop is shown by `gointerop`, an `import go` program of Go's standard library, and by `admit`, which imports a third-party Go module (`golang.org/x/sync`, a committed copy under its `testdata/`).
+One folder is not a program: `editions` (edition fixtures that Go tests pin). Any other folder that is not a program is an error. Go interop is shown by `gointerop`, an `import go` program of Go's standard library, and by `admit`, which imports a third-party Go module (`golang.org/x/sync`, a committed copy under its `testdata/`). A terminal program over std `term` is shown by `gent`, an agent whose loop is a machine with a pure step: its model and tools are operation types with laws, and a recorded run replays with no model.
 
 ## Layout
 

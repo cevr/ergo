@@ -35,6 +35,7 @@ import "embed"
 //go:embed http/*.ergo
 //go:embed actor/*.ergo
 //go:embed journal/*.ergo journal/memory/*.ergo journal/file/*.ergo
+//go:embed llm/*.ergo llm/memory/*.ergo llm/recorded/*.ergo
 //go:embed time/*.ergo civil/*.ergo tz/*.ergo tz/iana/*.ergo tz/host/*.ergo cache/*.ergo
 //go:embed arena/*.ergo dense/*.ergo
 //go:embed ui/*.ergo
