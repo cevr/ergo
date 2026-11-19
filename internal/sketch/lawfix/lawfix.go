@@ -156,6 +156,7 @@ func Plan(pkg *check.Package, files []*syntax.File) (Result, error) {
 			res.Helpers = append(res.Helpers, fmt.Sprintf("%s beside %s in %s", declName(h.Decl), declName(h.User), dest.Name))
 		}
 	}
+	joinLeftoverTests(&res, files, moving, put)
 	for _, mv := range moves {
 		if mv.From != mv.To || len(mv.Helpers) > 0 {
 			res.Moves = append(res.Moves, *mv)
@@ -219,6 +220,57 @@ func Plan(pkg *check.Package, files []*syntax.File) (Result, error) {
 	renameLawsFiles(&res, files, edits)
 	sort.Strings(res.Deleted)
 	return res, nil
+}
+
+// joinLeftoverTests moves the tests of each file of laws that the moves
+// leave holding only tests into the package's tests.ergo, when it has one
+// that keeps a declaration, after that file's last one: the file of laws
+// then holds nothing and goes, where renameLawsFiles would keep its laws
+// name, tests.ergo being taken. put moves a declaration after an anchor.
+func joinLeftoverTests(res *Result, files []*syntax.File, moving map[syntax.Decl]bool, put func(anchor, d syntax.Decl)) {
+	for _, f := range files {
+		if !lawsFileName(f.Name) {
+			continue
+		}
+		var tests []syntax.Decl
+		var names []string
+		only := true
+		for _, d := range f.Decls {
+			if _, imp := d.(*syntax.ImportDecl); imp || moving[d] {
+				continue
+			}
+			t, ok := d.(*syntax.TestDecl)
+			if !ok {
+				only = false
+				break
+			}
+			tests = append(tests, d)
+			names = append(names, t.Name.Name)
+		}
+		if !only || len(tests) == 0 {
+			continue
+		}
+		var anchor syntax.Decl
+		var to *syntax.File
+		for _, g := range files {
+			if g == f || g.Name != path.Join(path.Dir(f.Name), "tests.ergo") {
+				continue
+			}
+			for _, d := range g.Decls {
+				if _, imp := d.(*syntax.ImportDecl); !imp && !moving[d] {
+					anchor, to = d, g
+				}
+			}
+		}
+		if anchor == nil {
+			continue
+		}
+		for _, t := range tests {
+			put(anchor, t)
+			anchor = t
+		}
+		res.Helpers = append(res.Helpers, fmt.Sprintf("tests %s from %s to %s", strings.Join(names, ", "), f.Name, to.Name))
+	}
 }
 
 // lawsFileName reports a file named for laws: laws.ergo, tree_laws.ergo.

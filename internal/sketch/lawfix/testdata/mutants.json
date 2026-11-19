@@ -81,6 +81,15 @@
       "to": "if true || !renamed[name] {",
       "rule": "ergo fix reports a renamed file as renamed, not as deleted with no declaration left.",
       "killers": ["internal/sketch/lawfix:TestLawsFileLeftWithTestsIsTests"]
+    },
+    {
+      "name": "fix-leftover-tests-file-ignored",
+      "origin": "wf10 FIX-LEFTOVER r2 (dray: tests.ergo already there)",
+      "file": "internal/sketch/lawfix/lawfix.go",
+      "from": "\tjoinLeftoverTests(&res, files, moving, put)\n",
+      "to": "\t_ = joinLeftoverTests\n",
+      "rule": "A file of laws left holding only tests joins its tests to the package's tests.ergo when there is one, rather than keeping its laws name.",
+      "killers": ["internal/sketch/lawfix:TestLeftoverTestsJoinTestsFile"]
     }
   ]
 }
