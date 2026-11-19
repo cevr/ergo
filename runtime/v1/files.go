@@ -535,7 +535,8 @@ type GoType struct {
 	// or one of its leaves (Leaves).
 	Package string
 	// Basic is the predeclared Go type a defined type is over
-	// (`type Code int`), or "".
+	// (`type Code int`), or that an alias names (`type MappedText =
+	// string`), or "".
 	Basic string
 }
 
@@ -576,7 +577,7 @@ func (d goDecls) goType(name string) (GoType, bool) {
 			t.Fields = fields
 		}
 	}
-	if id, ok := g.typ.Type.(*ast.Ident); ok && !g.typ.Assign.IsValid() && types.Universe.Lookup(id.Name) != nil {
+	if id, ok := g.typ.Type.(*ast.Ident); ok && types.Universe.Lookup(id.Name) != nil {
 		if _, basic := types.Universe.Lookup(id.Name).Type().(*types.Basic); basic {
 			t.Basic = id.Name
 		}

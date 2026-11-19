@@ -290,7 +290,7 @@ func readStdCopy(t *testing.T) map[string]stdCopyRow {
 // join. When it is empty, it goes, with the differs rows (owner: std has
 // no privileges; STD-COPY-SAME left it holding only the differs rows).
 var stdCopyBaseline = []string{
-	"exec", "fs", "journal", "json", "machines", "prompt",
+	"exec", "journal", "json", "machines", "prompt",
 	"rpc", "scope", "task", "tasks", "timeout", "toml",
 }
 
@@ -818,6 +818,27 @@ func TestQueueCopyKeepsItsValues(t *testing.T) {
 	for _, d := range pair.diags {
 		if strings.Contains(d.Message, "has no release") {
 			t.Errorf("the queue copy: %s %s", d.Code, d.Message)
+		}
+	}
+}
+
+// TestFSCopyBorrowsItsText is STD-COPY-SAME's acceptance for fs: a
+// program that holds a Text of the copy of fs in a field is refused as one
+// that holds std fs's is (types.md, Borrows 8, rule 1). The borrow rule
+// reads the declaration of Text (it names the runtime's MappedText), not
+// the path fs. Mutant mapped-text-read-by-name (IsMappedText asks for std
+// fs) lets the copy's field through.
+func TestFSCopyBorrowsItsText(t *testing.T) {
+	pair := checkCopy(t, "fs")
+	const src = "import fs\n\ntype Keep { text fs.Text }\n\nfunc main() {}\n"
+	for _, copied := range []bool{false, true} {
+		_, ds := checkMain(src, pair, copied)
+		found := false
+		for _, d := range ds {
+			found = found || strings.Contains(d.Message, "is a borrow of its Mapped")
+		}
+		if !found {
+			t.Errorf("a field of fs.Text (copy %v): no borrow refusal; diagnostics %v", copied, ds)
 		}
 	}
 }

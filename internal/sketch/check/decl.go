@@ -1313,7 +1313,7 @@ func (c *checker) lookupType(name string, ctx *typeCtx) Object {
 // suppresses every diagnostic that would follow from it (D3).
 func (c *checker) typExpr(x syntax.Expr, ctx *typeCtx) Type {
 	t := c.typExpr0(x, ctx)
-	if IsMappedText(t) && !c.textPlacement(x, ctx) {
+	if IsMappedText(t) && !c.textPlacement(x, ctx, t) {
 		return invalid
 	}
 	if n, ok := t.(*Named); ok && n.Orig == nil && len(n.TParams) > 0 {

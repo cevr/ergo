@@ -29,7 +29,7 @@ exec	differs	lower: joinResult joins a call into its assignment only in a body w
 explore	same
 filepath	same
 flag	same
-fs	differs	lower: a parameter of type Text lowers to string in std, to the named type Text in the copy	follow-up std-text-named
+fs	same
 fstest	same
 graph	same
 hex	same

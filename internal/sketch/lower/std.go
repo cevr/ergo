@@ -27,7 +27,8 @@ import (
 // The body contract; check.GoTypeOf) is that Go type: a record is the
 // struct, and a sealed operation type is a pointer to the type, whose
 // methods are its operations. A defined basic type (os.Code) is the Go
-// defined type. The checker holds the declaration to the Go type's shape
+// defined type, or the alias it names (fs.Text, v1.MappedText, a string
+// the borrow rule keeps). The checker holds the declaration to the Go type's shape
 // (check/body.go runtimeTypeRefusal), so the lowering reads the
 // declaration and never a std name. Every other type of every package is
 // a declaration of the program.
@@ -49,12 +50,6 @@ func (l *lowerer) runtimeType(n *check.Named, site syntax.Node) string {
 			return "*" + ref(goName)
 		}
 		return ref(goName)
-	}
-	// A mapped text is the Go string of its Mapped (v1.Mapped.Text): the
-	// checker's borrow rule (types.md, Borrows 8) is what keeps it, so its
-	// Go form is the plain string every string operation reads.
-	if obj.Pkg.Std() && obj.Pkg.Path == "fs" && obj.Name == "Text" {
-		return "string"
 	}
 	return ""
 }

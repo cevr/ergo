@@ -310,6 +310,15 @@
       "killers": ["std:TestStdCopyAgrees"]
     },
     {
+      "name": "mapped-text-read-by-name", "origin": "wf10/ir-forms/STD-COPY-SAME",
+      "file": "internal/sketch/check/mappedtext.go",
+      "from": "func IsMappedText(t Type) bool { return namesRuntimeType(t, \"MappedText\") }",
+      "to": "func IsMappedText(t Type) bool {\n\tn, ok := t.(*Named)\n\treturn ok && namesRuntimeType(t, \"MappedText\") && n.Obj.Pkg.Std() && n.Obj.Pkg.Path == \"fs\"\n}",
+      "rule": "STD HAS NO PRIVILEGES: a mapped text is the type whose declaration names the runtime's MappedText (types.md, Borrows 8), so a trusted copy of fs borrows its text as fs does.",
+      "anchor": {"tests": ["std:TestFSCopyBorrowsItsText"]},
+      "killers": ["std:TestFSCopyBorrowsItsText"]
+    },
+    {
       "name": "copy-normalise-file-root-kept", "origin": "wf10/ir-forms/STD-COPY-SAME",
       "file": "internal/sketch/stdlib/copy_test.go",
       "from": "\t\t\tb.Value = strings.Replace(b.Value, `\"`+copyRoot+\"std/\", `\"std/`, 1)\n",

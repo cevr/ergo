@@ -722,6 +722,7 @@ var typeTable = []typeRow{
 	{"MachineTimerDefect", GoType{Struct: true, Fields: []string{"Machine", "State", "At", "In"}, Package: Path}},
 	{"Malformed", GoType{Struct: true, Fields: []string{"Text"}, Package: Path}},
 	{"Mapped", GoType{Struct: true, Fields: []string{"text", "data", "id"}, Package: Path}},
+	{"MappedText", GoType{Basic: "string", Package: Path}},
 	{"MathOutOfRange", GoType{Struct: true, Fields: []string{"Value"}, Package: Path}},
 	{"MemoFlag", GoType{Struct: true, Fields: []string{"n"}, Package: Path}},
 	{"NoAnswerDefect", GoType{Struct: true, Fields: []string{"Script", "Op"}, Package: Path}},
