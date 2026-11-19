@@ -11,8 +11,8 @@ import (
 // in every seed.
 var codecWitnessSites = []string{"enc", "dec", "back", "one", "many"}
 
-// GenerateCodecWitness is a program of generic functions over wire type
-// parameters, whose codec witnesses are parameters of their bodies
+// GenerateCodecWitness is a program of generic functions over type
+// parameters under the codec constraint, whose codec witnesses are parameters of their bodies
 // (PORT-WITNESS, the codec side of B-WITNESS):
 //   - enc and dec pass their own witness on to json.Encode and json.Decode
 //     (a call that passes the caller's codec witness), and back passes its
@@ -58,10 +58,12 @@ func GenerateCodecWitness(seed uint64) string {
 	b.WriteString("\tConsole.Println(enc(p))\n\tConsole.Println(enc(q))\n")
 	b.WriteString("\tlet bq = back(q) catch {\n\tcase _:\n\t\tQ{Xs: []int{}, N: false, In: p}\n\t}\n\tConsole.Println(showQ(bq))\n")
 	b.WriteString("\tlet bp = back(p) catch {\n\tcase _:\n\t\tP{A: -1, B: \"lost\"}\n\t}\n\tConsole.Println(showP(bp))\n")
-	text := fmt.Sprintf("{\\\"A\\\": %d, \\\"B\\\": \\\"w\\\"}", n(90))
+	// The keys are the codec's (a, b); a text cut short is malformed.
+	text := fmt.Sprintf(`{"a": %d, "b": "w"}`, n(90))
 	if n(3) == 0 {
 		text = text[:len(text)-1-n(4)]
 	}
+	text = strings.ReplaceAll(text, `"`, `\"`)
 	fmt.Fprintf(&b, "\tlet d = dec[P](\"%s\") catch {\n\tcase json.Malformed:\n\t\tP{A: -2, B: \"malformed\"}\n\tcase _:\n\t\tP{A: -3, B: \"wired\"}\n\t}\n\tConsole.Println(showP(d))\n", text)
 	b.WriteString("\tlet o = one(q) catch {\n\tcase _:\n\t\tQ{Xs: []int{}, N: false, In: p}\n\t}\n\tConsole.Println(showQ(o))\n")
 	fmt.Fprintf(&b, "\tlet (ys, f) = many([]P{%s}) catch {\n\tcase _:\n\t\t([]P{}, None)\n\t}\n", strings.Join(ps[:n(4)], ", "))

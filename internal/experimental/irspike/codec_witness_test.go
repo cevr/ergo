@@ -3,7 +3,7 @@ package irspike
 import "testing"
 
 // TestIRCodecWitnessesMatchSource is the seeded property over generic
-// bodies whose type parameters are under wire (PORT-WITNESS,
+// bodies whose type parameters are under the codec constraint (PORT-WITNESS,
 // GenerateCodecWitness): each program prints the same under both
 // lowerings, and each site has an IR body. A failing seed prints the Ergo
 // source, both outcomes and its replay command.
