@@ -2,17 +2,24 @@ import compiler/check/bind
 import compiler/check/store
 import compiler/syntax
 import dense
+import go unicode
+import go unicode/utf8
 import slices
 import strings
 
 // Unused is S110 for the package's unread locals and imports, in the Go
-// checker's order (rows.go reportUnused, decl.go checkUnusedImports):
+// checker's order (rows.go reportUnused, match.go unusedBindings,
+// handlers.go, decl.go checkUnusedImports):
 //   - "NAME is declared and not used" at a local's name: a name a let or a
 //     range binds that no row of the package reads. A parameter, a
-//     type parameter and an operation's name are read by their callers; a
-//     case's or a catch arm's binding and an as-pattern's name have
-//     messages of their own (later units); `_` binds nothing (bind
-//     declares no local for it).
+//     type parameter and an operation's name are read by their callers;
+//     `_` binds nothing (bind declares no local for it).
+//   - "the binding NAME is read nowhere in its arm; …" at a name a match
+//     or catch arm's first pattern binds that no row reads: "write _ in
+//     its place", "drop `as NAME`" for an as-pattern's name, "write case
+//     _" for a catch arm's rest (`case err:`); a capitalised name adds
+//     that no type is so named. A case's later patterns bind the same
+//     names, and a read through any of them reads the first's.
 //   - "package NAME is imported and not used" at an import: a name the
 //     import binds that no row of its file reads. An import reaches only
 //     its own file (the Go checker's file scope). An import of a path in
@@ -62,14 +69,28 @@ func Unused(files []bind.File, s store.Store, u bind.Uses, ps bind.Parents, miss
 	}
 	let mut out = []Diag{}
 	for n in locals {
-		if read[dense.Index(n)] || !reportable(files, ps, n) {
+		if read[dense.Index(n)] {
 			continue
 		}
 		let (f, row) = bind.RowOf(ps, n)
 		let p = files[f].Parsed
 		let id = syntax.NodeAt(p.Tree, row)
 		let name = textAt(p, id)
-		out = out.Append(Diag{File: f, Offset: syntax.NodePos(p, id), Length: len(name), Code: CodeUnused, Message: "\(name) is declared and not used"})
+		let arm = "the binding \(name) is read nowhere in its arm; "
+		let tail = "\(hint(name)) (rows.md, Totality 1)"
+		let message = match binderOf(files, ps, n) {
+		case Let:
+			"\(name) is declared and not used"
+		case ArmName:
+			arm + "write _ in its place" + tail
+		case ArmAs:
+			arm + "drop `as \(name)`" + tail
+		case CatchRest:
+			arm + "write case _" + tail
+		case Unreported:
+			continue
+		}
+		out = out.Append(Diag{File: f, Offset: syntax.NodePos(p, id), Length: len(name), Code: CodeUnused, Message: message})
 	}
 	for f, file in files {
 		let ims = imports(file.Parsed)
@@ -92,29 +113,62 @@ func isSome[T](o Option[T]) bool {
 	}
 }
 
-// reportable is whether the local that row n declares has the unused
-// message of a local: the nearest row above it that decides is a let
-// (VarSpec) or a range, not a case's or a catch arm's pattern or an
-// as-pattern, and not a function: a parameter (of a declaration or of a
-// literal, which a let may hold) meets its function before any let.
-func reportable(files []bind.File, ps bind.Parents, n dense.ID[store.PNode]) bool {
-	let mut at = n
+// Binder is what binds a local, which decides its unused message: a let
+// or a range; a name of a match or catch arm's first pattern, an
+// as-pattern's name there, or a catch arm's rest; or nothing reported (a
+// parameter, a later pattern's name, an as-pattern in a let).
+type Binder = Let{} | ArmName{} | ArmAs{} | CatchRest{} | Unreported{}
+
+// binderOf is what binds the local that row n declares: the nearest row
+// above it that decides. A function decides first for its parameters (of
+// a declaration, of a literal, which a let may hold, or of a function
+// type, which a pattern's type argument may hold).
+func binderOf(files []bind.File, ps bind.Parents, n dense.ID[store.PNode]) Binder {
+	let (nf, nrow) = bind.RowOf(ps, n)
+	let t = files[nf].Parsed.Tree
+	// named: the local is an as-pattern's name.
+	let mut named = false
+	// from is the row the climb came from: at an arm, its pattern.
+	let mut from = n
 	for {
-		match dense.Unpack(bind.ParentOf(ps, at)) {
+		match dense.Unpack(bind.ParentOf(ps, from)) {
 		case Some[dense.ID[store.PNode]] as up:
-			let (f, row) = bind.RowOf(ps, up.Value)
-			let k = syntax.KindOf(files[f].Parsed.Tree, syntax.NodeAt(files[f].Parsed.Tree, row))
+			let (_, row) = bind.RowOf(ps, up.Value)
+			let id = syntax.NodeAt(t, row)
+			let k = syntax.KindOf(t, id)
 			if k == syntax.KVarSpec || k == syntax.KRangeStmt {
-				return true
+				return if named { Unreported } else { Let }
 			}
-			if k == syntax.KAsPattern || k == syntax.KCaseClause || k == syntax.KCatchArm || k == syntax.KFuncDecl || k == syntax.KFuncLit {
-				return false
+			if k == syntax.KFuncDecl || k == syntax.KFuncLit || k == syntax.KFuncType {
+				return Unreported
 			}
-			at = up.Value
+			if k == syntax.KAsPattern {
+				named = named || syntax.AsPatternOf(t, id).Name == syntax.NodeAt(t, nrow)
+			}
+			if k == syntax.KCaseClause || k == syntax.KCatchArm {
+				let pats = if k == syntax.KCaseClause { syntax.CaseClauseOf(t, id).List } else { syntax.CatchArmOf(t, id).Types }
+				let (_, prow) = bind.RowOf(ps, from)
+				if syntax.Len(pats) == 0 || syntax.Item(t, pats, 0) != syntax.NodeAt(t, prow) {
+					return Unreported
+				}
+				if named {
+					return ArmAs
+				}
+				return if k == syntax.KCatchArm && from == n { CatchRest } else { ArmName }
+			}
+			from = up.Value
 		case None:
-			return false
+			return Unreported
 		}
 	}
+}
+
+// hint is what a capitalised binding's message adds (match.go
+// capitalisedBinderHint): the name looks like a type's, but no type is
+// named so.
+func hint(name string) string {
+	let (r, _) = utf8.DecodeRuneInString(name)
+	if unicode.IsUpper(r) { "; no type is named \(name), so the pattern binds a new name" } else { "" }
 }
 
 // refusedAlias is whether im is an alias the Go checker refuses (decl.go

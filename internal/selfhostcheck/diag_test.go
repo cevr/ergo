@@ -64,14 +64,52 @@ type unusedCase struct {
 }
 
 // d3Exempt is the "FILE L:C" of each local of src whose let's value holds
-// a diagnostic of ds other than S110.
+// a diagnostic of ds other than S110, and of each name of an arm whose
+// patterns hold one: the Go checker binds a refused pattern's names at the
+// invalid type, as placeholders, so they add no S110 (D3).
 func d3Exempt(file, src string, ds []check.Diagnostic) map[string]bool {
 	out := map[string]bool{}
 	f, err := syntax.Parse(src)
 	if err != nil {
 		return out
 	}
+	holds := func(from, to int) bool {
+		for _, g := range ds {
+			if g.Code != check.CodeUnused && g.Offset >= from && g.Offset < to {
+				return true
+			}
+		}
+		return false
+	}
+	exemptNames := func(pats []syntax.Expr) {
+		for _, x := range pats {
+			syntax.Inspect(x, func(n syntax.Node) bool {
+				if id, ok := n.(*syntax.Ident); ok {
+					line, col := lineCol(src, int(id.Pos()))
+					out[fmt.Sprintf("%s %d:%d", file, line, col)] = true
+				}
+				return true
+			})
+		}
+	}
+	arm := func(list, written []syntax.Expr, colon syntax.Pos) {
+		pats := list
+		if written != nil {
+			pats = written
+		}
+		if len(pats) > 0 && holds(int(pats[0].Pos()), int(colon)) {
+			exemptNames(pats)
+		}
+	}
 	syntax.Inspect(f, func(n syntax.Node) bool {
+		switch n := n.(type) {
+		case *syntax.CaseClause:
+			arm(n.List, n.Written, n.Colon)
+			return true
+		case *syntax.CatchArm:
+			arm(n.Types, n.Written, n.Colon)
+			return true
+		}
 		d, ok := n.(*syntax.VarDecl)
 		if !ok {
 			return true
@@ -80,12 +118,7 @@ func d3Exempt(file, src string, ds []check.Diagnostic) map[string]bool {
 			if len(sp.Values) == 0 {
 				continue
 			}
-			from, to := int(sp.Values[0].Pos()), int(sp.Values[len(sp.Values)-1].End())
-			bad := false
-			for _, g := range ds {
-				bad = bad || (g.Code != check.CodeUnused && g.Offset >= from && g.Offset < to)
-			}
-			if !bad {
+			if !holds(int(sp.Values[0].Pos()), int(sp.Values[len(sp.Values)-1].End())) {
 				continue
 			}
 			for _, id := range sp.Names {
@@ -252,7 +285,7 @@ func TestCompilerUnusedAgreesWithChecker(t *testing.T) {
 		}
 		t.Error(msg)
 	}
-	t.Logf("%d corpus folders, %d fixtures, %d seeds; %d Go lines compared; %d Ergo lines dropped as D3 (a local bound to an erroneous value); %d cases differ", corpus, fixtures, seeds, reported, dropped, failed)
+	t.Logf("%d corpus folders, %d fixtures, %d seeds; %d Go lines compared; %d Ergo lines dropped as D3 (a local bound to an erroneous value, or a name of a refused pattern); %d cases differ", corpus, fixtures, seeds, reported, dropped, failed)
 	if reported == 0 {
 		t.Fatal("no unused diagnostic was compared")
 	}
