@@ -1,0 +1,5 @@
+# The explore leg searches these tests' schedules (scripts/examples, explored.go).
+# Two creates race on one Table: both read the count before either adds, so
+# both name the same ID; Create takes the next ID again when the Store says
+# it is taken (testdata/mutants.json: "create takes a taken ID as invalid").
+memory TwoCreatesAtOnceBothLand --explore dfs --preempt 1
