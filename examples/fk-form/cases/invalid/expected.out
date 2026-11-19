@@ -1,30 +1,114 @@
-name "" | email "" | note "" | not sent
+  # Get the Release Notes
+  Name<>
+  Email<>
+  Anything you'd like to share with us?<>
+  [Subscribe, disabled]
 > email ada@example.org
-name "" | email "ada@example.org" checking... | note "" | not sent
-name "" | email "ada@example.org" ok | note "" | not sent
+  # Get the Release Notes
+  Name<>
+  Email<ada@example.org> (Checking...)
+  Anything you'd like to share with us?<>
+  [Subscribe, disabled]
+> wait 300
+  # Get the Release Notes
+  Name<>
+  Email<ada@example.org>
+  Anything you'd like to share with us?<>
+  [Subscribe]
 > name A
-name "A" (Name must be at least 2 characters) | email "ada@example.org" ok | note "" | not sent
+  # Get the Release Notes
+  Name<A> (Name must be at least 2 characters)
+  Email<ada@example.org>
+  Anything you'd like to share with us?<>
+  [Subscribe, disabled]
 > submit
-  (ignored)
+  # Get the Release Notes
+  Name<A> (Name must be at least 2 characters)
+  Email<ada@example.org>
+  Anything you'd like to share with us?<>
+  [Subscribe, disabled]
+> enter
+  # Get the Release Notes
+  Name<A> (Name must be at least 2 characters)
+  Email<ada@example.org>
+  Anything you'd like to share with us?<>
+  [Subscribe, disabled]
 > email ada@example
-name "A" (Name must be at least 2 characters) | email "ada@example" (Please enter a valid email address) | note "" | not sent
+  # Get the Release Notes
+  Name<A> (Name must be at least 2 characters)
+  Email<ada@example> (Please enter a valid email address)
+  Anything you'd like to share with us?<>
+  [Subscribe, disabled]
 > email ada@.org
-name "A" (Name must be at least 2 characters) | email "ada@.org" (Please enter a valid email address) | note "" | not sent
+  # Get the Release Notes
+  Name<A> (Name must be at least 2 characters)
+  Email<ada@.org> (Please enter a valid email address)
+  Anything you'd like to share with us?<>
+  [Subscribe, disabled]
 > email ada@example.
-name "A" (Name must be at least 2 characters) | email "ada@example." (Please enter a valid email address) | note "" | not sent
+  # Get the Release Notes
+  Name<A> (Name must be at least 2 characters)
+  Email<ada@example.> (Please enter a valid email address)
+  Anything you'd like to share with us?<>
+  [Subscribe, disabled]
 > email ada lovelace@example.org
-name "A" (Name must be at least 2 characters) | email "ada lovelace@example.org" (Please enter a valid email address) | note "" | not sent
+  # Get the Release Notes
+  Name<A> (Name must be at least 2 characters)
+  Email<ada lovelace@example.org> (Please enter a valid email address)
+  Anything you'd like to share with us?<>
+  [Subscribe, disabled]
 > email ada@home@example.org
-name "A" (Name must be at least 2 characters) | email "ada@home@example.org" (Please enter a valid email address) | note "" | not sent
+  # Get the Release Notes
+  Name<A> (Name must be at least 2 characters)
+  Email<ada@home@example.org> (Please enter a valid email address)
+  Anything you'd like to share with us?<>
+  [Subscribe, disabled]
 > email @example.org
-name "A" (Name must be at least 2 characters) | email "@example.org" (Please enter a valid email address) | note "" | not sent
+  # Get the Release Notes
+  Name<A> (Name must be at least 2 characters)
+  Email<@example.org> (Please enter a valid email address)
+  Anything you'd like to share with us?<>
+  [Subscribe, disabled]
 > name Ad
-name "Ad" ok | email "@example.org" (Please enter a valid email address) | note "" | not sent
-> submit
-  (ignored)
+  # Get the Release Notes
+  Name<Ad>
+  Email<@example.org> (Please enter a valid email address)
+  Anything you'd like to share with us?<>
+  [Subscribe, disabled]
+> enter
+  # Get the Release Notes
+  Name<Ad>
+  Email<@example.org> (Please enter a valid email address)
+  Anything you'd like to share with us?<>
+  [Subscribe, disabled]
 > email ada@example.org
-name "Ad" ok | email "ada@example.org" checking... | note "" | not sent
-name "Ad" ok | email "ada@example.org" ok | note "" | not sent
-> submit
-name "Ad" ok | email "ada@example.org" ok | note "" | sending...
-name "Ad" ok | email "ada@example.org" ok | note "" | Welcome to the release notes, Ad! The next notes arrive with the next release.
+  # Get the Release Notes
+  Name<Ad>
+  Email<ada@example.org> (Checking...)
+  Anything you'd like to share with us?<>
+  [Subscribe, disabled]
+> enter
+  # Get the Release Notes
+  Name<Ad>
+  Email<ada@example.org> (Checking...)
+  Anything you'd like to share with us?<>
+  [Subscribe, disabled]
+> wait 300
+  # Get the Release Notes
+  Name<Ad>
+  Email<ada@example.org>
+  Anything you'd like to share with us?<>
+  [Subscribe]
+> enter
+  # Get the Release Notes
+  Name<Ad>
+  Email<ada@example.org>
+  Anything you'd like to share with us?<>
+  [Subscribing..., disabled]
+> wait 300
+  # Get the Release Notes
+  Name<Ad>
+  Email<ada@example.org>
+  Anything you'd like to share with us?<>
+  [Subscribe]
+  status{Welcome to the release notes, Ad! The next notes arrive with the next release.}

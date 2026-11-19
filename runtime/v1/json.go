@@ -424,13 +424,31 @@ func (c *Cursor) str() string {
 		}
 		c.i++
 	}
-	b := []byte(c.s[start:c.i])
+	return string(c.unescape([]byte(c.s[start:c.i])))
+}
+
+// strBytes is str's bytes added to dst, with no string made (the Reader's
+// StringBytes, GX12): the run before the first escape is copied as it is,
+// and unescape adds the rest.
+func (c *Cursor) strBytes(dst []byte) []byte {
+	c.i++
+	start := c.i
+	for c.i < len(c.s) && c.s[c.i] != '"' && c.s[c.i] != '\\' {
+		c.i++
+	}
+	return c.unescape(append(dst, c.s[start:c.i]...))
+}
+
+// unescape reads the rest of the string at the cursor, from c.i to its
+// closing quote, which it takes, and gives b with its bytes added, its
+// escapes read as str reads them.
+func (c *Cursor) unescape(b []byte) []byte {
 	for c.i < len(c.s) {
 		ch := c.s[c.i]
 		switch {
 		case ch == '"':
 			c.i++
-			return string(b)
+			return b
 		case ch == '\\':
 			c.i++
 			e := c.s[c.i]
@@ -473,7 +491,7 @@ func (c *Cursor) str() string {
 			c.i++
 		}
 	}
-	return string(b)
+	return b
 }
 
 func (c *Cursor) hex4() rune {
@@ -688,6 +706,20 @@ func (c *Cursor) String() string {
 	v, ok := c.readString()
 	c.wrong = !ok
 	return v
+}
+
+// StringBytes is into with the next string's bytes added, as String reads
+// them; into is given back unchanged when the next value is no string.
+//
+//ergo:wait none
+func (c *Cursor) StringBytes(into []byte) []byte {
+	c.at()
+	if c.i >= len(c.s) || c.s[c.i] != '"' {
+		c.wrong = true
+		return into
+	}
+	c.wrong = false
+	return c.strBytes(into)
 }
 
 // The kinds Kind reports, in the order of the prelude's WireKind.

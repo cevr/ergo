@@ -1,0 +1,10 @@
+{
+  "about": "The mutant ledger of scripts/gs25-move-std-api: edits of the move that TestMoveAppliesToTheOldLayout must kill (GS25).",
+  "mutants": [
+    {"name":"gs25-move-skips-go-files","origin":"wf10 GS25","file":"scripts/gs25-move-std-api/main.go","from":"\t\tcase !e.IsDir() && strings.HasSuffix(name, \".go\") && name != embedFile:\n","to":"\t\tcase false:\n","rule":"Every Go file of std but embed.go moves to stdlib.","killers":["scripts/gs25-move-std-api:TestMoveAppliesToTheOldLayout"]},
+    {"name":"gs25-embed-lines-kept","origin":"wf10 GS25","file":"scripts/gs25-move-std-api/main.go","from":"\tedits = append(edits, edit{first, end, \"\"})\n","to":"\tedits = append(edits, edit{first, first + 0*end, \"\"})\n","rule":"The embed lines and their variable leave stdlib.","killers":["scripts/gs25-move-std-api:TestMoveAppliesToTheOldLayout"]},
+    {"name":"gs25-sources-unread","origin":"wf10 GS25","file":"scripts/gs25-move-std-api/main.go","from":"\"std.\" + sources})","to":"\"sources\"})","rule":"stdlib reads the embedded files as std.Sources.","killers":["scripts/gs25-move-std-api:TestMoveAppliesToTheOldLayout"]},
+    {"name":"gs25-package-unrenamed","origin":"wf10 GS25","file":"scripts/gs25-move-std-api/main.go","from":"\"std_test\": \"stdlib_test\"}[file.Name.Name]","to":"\"std_test\": \"stdlib_test\"}[\"\"]","rule":"The moved files are package stdlib and stdlib_test.","killers":["scripts/gs25-move-std-api:TestMoveAppliesToTheOldLayout"]},
+    {"name":"gs25-importer-kept","origin":"wf10 GS25","file":"scripts/gs25-move-std-api/main.go","from":"fset.Position(spec.Path.End()).Offset, strconv.Quote(apiPath)}}","to":"fset.Position(spec.Path.End()).Offset, strconv.Quote(leafPath)}}","rule":"An importer of std imports stdlib.","killers":["scripts/gs25-move-std-api:TestMoveAppliesToTheOldLayout"]}
+  ]
+}

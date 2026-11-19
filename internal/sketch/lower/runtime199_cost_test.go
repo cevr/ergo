@@ -88,7 +88,7 @@ func main() {
 		dispatch(1)
 		impure(2)
 	}
-	pure(3)
+	let _ = pure(3)
 }
 `
 

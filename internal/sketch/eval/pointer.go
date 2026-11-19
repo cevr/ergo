@@ -100,12 +100,13 @@ func (in *interp) receiver(fr *frame, recv syntax.Expr, fn *check.Func) (Value, 
 
 // placeThrough is the place a borrow x points to, as place gives it: its
 // root and a copy of its path.
-func (in *interp) placeThrough(fr *frame, x syntax.Expr) (*slot, []step, *abrupt) {
+func (in *interp) placeThrough(fr *frame, x syntax.Expr) (*slot, *abrupt) {
 	p, ab := in.pointerOf(fr, x)
 	if ab != nil {
-		return nil, nil, ab
+		return nil, ab
 	}
-	return p.root, append([]step(nil), p.path...), nil
+	in.stepStack = append(in.stepStack, p.path...) // placePush's stack
+	return p.root, nil
 }
 
 func isPointer(t check.Type) bool {

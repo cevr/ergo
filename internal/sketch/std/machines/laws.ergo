@@ -31,7 +31,9 @@ func untimed(s int) Option[Timeout[int]] { None }
 
 func unworked(s int) Option[func(send func(e int))] { None }
 
-func tally() Machine[int, int, int] { Machine[int, int, int]{Initial: 0, Step: tallyStep, After: untimed, Work: unworked} }
+func unexited(s int) Option[func()] { None }
+
+func tally() Machine[int, int, int] { Machine[int, int, int]{Initial: 0, Step: tallyStep, After: untimed, Work: unworked, Exit: unexited} }
 
 // ints is the text of xs.
 func ints(xs []int) string {
@@ -224,6 +226,8 @@ func bellTimer(b Bell) Option[Timeout[int]] { Some[Timeout[int]]{Value: Timeout[
 
 func bellWork(b Bell) Option[func(send func(e int))] { None }
 
+func bellExit(b Bell) Option[func()] { None }
+
 // rung is the count when bell, deciding each poke by kind, rang, and its
 // outputs, after pokes at 1s, 2s, … for the first pokes % 10 of them and
 // one at 10.5s; a count of -1 when it did not ring.
@@ -233,7 +237,7 @@ func rung(kind int, pokes int) (int, []int) {
 		trace = trace.Append(Timed[int]{At: duration(int64(i+1) * int64(1s)), Signal: 1})
 	}
 	trace = trace.Append(Timed[int]{At: 10s + 500ms, Signal: 1})
-	let m = Machine[Bell, int, int]{Initial: Bell{Count: 0, Kind: kind}, Step: bellStep, After: bellTimer, Work: bellWork}
+	let m = Machine[Bell, int, int]{Initial: Bell{Count: 0, Kind: kind}, Step: bellStep, After: bellTimer, Work: bellWork, Exit: bellExit}
 	let c = testing.NewVirtualClock(0)
 	let o = with context { Scheduler: c, time.Clock: c } { RunTimed(m, trace, 60s) } catch {
 	case Rejected:

@@ -1,6 +1,7 @@
 // The uniform grid: the world cut into square cells of Cell units, each
-// holding the ids of the shapes whose box, grown by Tolerance, overlaps
-// it. A hit test reads the one cell under the point, so it tests only the
+// holding the ids of the shapes that reach it: a rectangle or an ellipse
+// in the cells its box, grown by Tolerance, overlaps; a line or a stroke
+// in the cells its segments, grown by Tolerance, cross. A hit test reads the one cell under the point, so it tests only the
 // shapes near it.
 
 import maps
@@ -33,10 +34,65 @@ func keys(b Box) []int {
 	out
 }
 
+// Reach is the keys of the cells shape s reaches, each once: the cells
+// of a rectangle's or an ellipse's box grown by Tolerance, and for a line
+// and each segment of a stroke the cells the segment, grown by
+// Tolerance, crosses, so a long diagonal line is in a band of cells, not
+// in every cell of its box (draw-gui gap 3; law LineCellsFollowTheLine).
+func Reach(s Shape) []int {
+	match s {
+	case Line as l:
+		let (out, _) = segmentKeys(l.From, l.To, []int{}, Map[int, bool]{})
+		out
+	case Stroke as k:
+		let mut out = []int{}
+		let mut seen = Map[int, bool]{}
+		for i in 0..len(k.Points) {
+			let a = if i == 0 { k.Points[0] } else { k.Points[i-1] }
+			let (o, s2) = segmentKeys(a, k.Points[i], out, seen)
+			out = o
+			seen = s2
+		}
+		out
+	case Rect, Ellipse:
+		keys(Grow(BoxOf(s), Tolerance))
+	}
+}
+
+// segmentKeys is out and seen with the keys of the cells the segment a b,
+// grown by Tolerance, crosses, each not in seen: in each column the
+// segment comes within Tolerance of, the rows between the segment's
+// lowest and highest y over the column's span grown by Tolerance, grown
+// by Tolerance and by one for the rounding of yAt.
+func segmentKeys(a Point, b Point, out []int, seen Map[int, bool]) ([]int, Map[int, bool]) {
+	let mut o = out
+	let mut s = seen
+	let lo = least(a.X, b.X)
+	let hi = most(a.X, b.X)
+	for cx in cellOf(lo-Tolerance)..cellOf(hi+Tolerance)+1 {
+		let x0 = most(cx*Cell-Tolerance, lo)
+		let x1 = least(cx*Cell+Cell-1+Tolerance, hi)
+		let y0 = if a.X == b.X { a.Y } else { yAt(a, b, x0) }
+		let y1 = if a.X == b.X { b.Y } else { yAt(a, b, x1) }
+		for cy in cellOf(least(y0, y1)-1-Tolerance)..cellOf(most(y0, y1)+1+Tolerance)+1 {
+			let k = keyOf(cx, cy)
+			if !maps.GetOr(s, k, false) {
+				s = s.Put(k, true)
+				o = o.Append(k)
+			}
+		}
+	}
+	(o, s)
+}
+
+// yAt is the y of the line through a and b (a.X != b.X) at x, rounded
+// toward zero.
+func yAt(a Point, b Point, x int) int { a.Y + (x-a.X)*(b.Y-a.Y)/(b.X-a.X) }
+
 // Index is g with shape id, whose shape is s, in every cell it reaches.
 func Index(g Grid, id int, s Shape) Grid {
 	let mut cells = g.Cells
-	for k in keys(Grow(BoxOf(s), Tolerance)) {
+	for k in Reach(s) {
 		let ids = maps.GetOr(cells, k, []int{})
 		cells = cells.Put(k, ids.Append(id))
 	}
@@ -46,7 +102,7 @@ func Index(g Grid, id int, s Shape) Grid {
 // Unindex is g without shape id, whose shape is s.
 func Unindex(g Grid, id int, s Shape) Grid {
 	let mut cells = g.Cells
-	for k in keys(Grow(BoxOf(s), Tolerance)) {
+	for k in Reach(s) {
 		let ids = maps.GetOr(cells, k, []int{})
 		let mut kept = []int{}
 		for i in ids {

@@ -276,10 +276,15 @@ func notEvaluatedReason(st *RuleStatus) string {
 func (c *Configuration) Inspect() []sdk.RuleInfo {
 	var out []sdk.RuleInfo
 	for _, rule := range c.registry.rules {
-		out = append(out, sdk.RuleInfo{
-			Rule: rule.Name, Builtin: true, Code: rule.Code, Description: rule.Doc,
+		info := sdk.RuleInfo{
+			Rule: rule.Name, Builtin: true, Code: rule.Code, Description: rule.Doc, Instead: rule.Instead,
 			DefaultSeverity: sdk.Severity(rule.Default.String()), Severity: sdk.Severity(c.severity[rule.Name].String()),
-		})
+		}
+		if m, ok := MeasureOf(rule.Name); ok && m.Read > 0 {
+			info.Precision = m.Precision().Value()
+			info.Sample = fmt.Sprintf("%d of %d true, %s, read at %s", m.True, m.Read, m.Source, m.Commit)
+		}
+		out = append(out, info)
 	}
 	if c.packs != nil {
 		out = append(out, c.packs.config.Inspect()...)

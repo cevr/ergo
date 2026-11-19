@@ -9,14 +9,12 @@ var foreignErrorPublic = &Rule{
 	Name:    "foreign-error-public",
 	Code:    "L102",
 	Doc:     "An exported function whose written fails row holds go.Error passes Go's open error to its callers; map it to a closed union of error types.",
+	Instead: "map it to a closed union of error types at this boundary (docs/spec/interop.md)",
 	Default: Warning,
 	Check:   checkForeignErrorPublic,
 }
 
 func checkForeignErrorPublic(p *Pass) {
-	if p.Package.Std() || p.Package.Host() {
-		return
-	}
 	inFile := map[any]bool{}
 	for _, d := range p.File.Decls {
 		inFile[d] = true
@@ -29,7 +27,7 @@ func checkForeignErrorPublic(p *Pass) {
 		}
 		for _, t := range f.Sig.Errors.Elems() {
 			if n, ok := t.(*check.Named); ok && check.IsGoError(n) {
-				p.Report(f.Decl.Name.Pos(), f.Decl.Name.End(), "exported "+f.Name+" fails with go.Error, Go's open error; map it to a closed union of error types at this boundary (docs/spec/interop.md)")
+				p.Report(f.Decl.Name.Pos(), f.Decl.Name.End(), "exported "+f.Name+" fails with go.Error, Go's open error")
 				break
 			}
 		}

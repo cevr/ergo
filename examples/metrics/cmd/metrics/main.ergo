@@ -2,6 +2,8 @@
 //
 //	metrics report WIDTH       tumbling windows of WIDTH ms: count, sum,
 //	                           min, max, p50 and p95
+//	metrics calendar UNIT      a line per day, week (from Monday) or month
+//	                           of the samples, in UTC: count and sum
 //	metrics alert THRESHOLD    alert when the mean of the last 10 s is above
 //	                           THRESHOLD, at most 2 alerts a minute
 //
@@ -9,6 +11,7 @@
 // binary is the only place that chooses the providers: the host's input
 // and arguments.
 
+import civil
 import io
 import metrics/alert
 import metrics/series
@@ -18,7 +21,7 @@ import strings
 import time
 
 // Usage is the text of a usage failure.
-let Usage = "usage: metrics report WIDTH | metrics alert THRESHOLD"
+let Usage = "usage: metrics report WIDTH | metrics calendar day|week|month | metrics alert THRESHOLD"
 
 // Policy is the alert rate: at most 2 alerts in any minute.
 let Policy = alert.Policy{Limit: 2, Window: 60000}
@@ -27,7 +30,7 @@ let Policy = alert.Policy{Limit: 2, Window: 60000}
 let Smoothing = int64(10000)
 
 // Command is what the arguments ask for.
-type Command = Report{Width int64} | Alert{Threshold float64}
+type Command = Report{Width int64} | Calendar{Unit civil.Unit} | Alert{Threshold float64}
 
 // Parse is the command of args.
 func Parse(args []string) Command fails os.Exit {
@@ -41,6 +44,17 @@ func Parse(args []string) Command fails os.Exit {
 			return os.Exit{Code: 2, Message: "metrics: \(strconv.Quote(args[1])) is not a width\n\(Usage)"}
 		}
 		Report{Width: w}
+	case "calendar":
+		match args[1] {
+		case "day":
+			Calendar{Unit: civil.Days}
+		case "week":
+			Calendar{Unit: civil.Weeks{First: time.Monday}}
+		case "month":
+			Calendar{Unit: civil.Months}
+		case _:
+			return os.Exit{Code: 2, Message: "metrics: \(strconv.Quote(args[1])) is not day, week or month\n\(Usage)"}
+		}
 	case "alert":
 		let t = strconv.ParseFloat(args[1]) catch {
 		case strconv.Malformed, strconv.OutOfRange:
@@ -66,6 +80,20 @@ func ReportLines(samples []series.Sample, width int64) []string fails series.Bad
 			out = out.Append("\(b.Start) count \(b.Count) sum \(Num(b.Sum)) min \(Num(b.Min)) max \(Num(b.Max)) p50 \(Num(m.Value)) p95 \(Num(h.Value))")
 		case (_, _):
 		}
+	}
+	out
+}
+
+// CalendarLines is a line per period of unit u over the days of samples:
+// its first and last day, count and sum.
+func CalendarLines(samples []series.Sample, u civil.Unit) []string {
+	let mut out = []string{}
+	match series.Days(samples) {
+	case Some[civil.Span] as s:
+		for p in series.Calendar(samples, s.Value, u) {
+			out = out.Append("\(civil.Text(civil.From(p.Span))) \(civil.Text(civil.To(p.Span))) count \(p.Count) sum \(Num(p.Sum))")
+		}
+	case None:
 	}
 	out
 }
@@ -137,6 +165,8 @@ func main() fails os.Exit needs Console | Ambient {
 			case series.BadWidth as b:
 				return os.Exit{Code: 2, Message: "metrics: the width must be at least 1, not \(b.Width)"}
 			}
+		case Calendar as c:
+			CalendarLines(samples, c.Unit)
 		case Alert as a:
 			AlertLines(samples, a.Threshold)
 		}
@@ -149,6 +179,7 @@ func main() fails os.Exit needs Console | Ambient {
 test ParseReadsEachCommand {
 	assert try Parse([]string{"report", "1000"}) == Report{Width: 1000}
 	assert try Parse([]string{"alert", "2.5"}) == Alert{Threshold: 2.5}
+	assert try Parse([]string{"calendar", "month"}) == Calendar{Unit: civil.Months}
 }
 
 // A live feed under a virtual clock: a value every 2 s, stamped from a

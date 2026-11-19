@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 )
 
 // TestBodyFactsFollowTheBody holds the body contract to its rule (GLOSSARY
@@ -125,7 +125,7 @@ func stdPackages(t *testing.T) []*check.Package {
 	if len(out) != 1 {
 		t.Fatal("no prelude package behind LiveScheduler")
 	}
-	for _, path := range std.Packages() {
+	for _, path := range stdlib.Packages() {
 		pkg, err := check.Std.Import(path)
 		if err != nil {
 			t.Fatalf("check.Std.Import(%q): %v", path, err)

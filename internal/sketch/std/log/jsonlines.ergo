@@ -1,0 +1,40 @@
+import io
+import json
+import time
+
+// JSONLines is the Sink of slog's JSONHandler: each entry is one line of
+// JSON on standard error, `{"time":…,"level":…,"msg":…}` and then each
+// attribute as a member of its key, in order. The time is the clock's
+// reading when the entry is written, in RFC 3339 with nanoseconds, as
+// slog writes it. Strings are json's: a byte of invalid UTF-8 is the
+// surrogate escape json reads back (slog writes U+FFFD for it); every
+// other text is slog's.
+type JSONLines { out io.Stderr, clock time.Clock, least Level } implements Sink
+
+// NewJSONLines is the JSONLines that writes to out, stamps each entry with
+// clock's time, and writes the entries whose level ranks at or above
+// least.
+func NewJSONLines(out io.Stderr, clock time.Clock, least Level) JSONLines {
+	JSONLines{out: out, clock: clock, least: least}
+}
+
+// Enabled reports that j writes entries of level l.
+func Enabled(j JSONLines, l Level) bool { Admits(j.least, l) }
+
+// Write writes e as one line of JSON, in one write.
+func Write(j JSONLines, e Entry) {
+	let t = json.NewText()
+	t.BeginObject(3 + len(e.Attrs))
+	t.Key("time")
+	t.String(j.clock.Now().Format(time.RFC3339Nano))
+	t.Key("level")
+	t.String(e.Level.Name())
+	t.Key("msg")
+	t.String(e.Message)
+	for a in e.Attrs {
+		t.Key(a.Key)
+		t.String(a.Text)
+	}
+	t.EndObject()
+	j.out.Eprintln(t.Written())
+}
