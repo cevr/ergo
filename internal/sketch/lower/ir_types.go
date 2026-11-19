@@ -32,6 +32,9 @@ func (b *irBuilder) goType(t check.Type, site syntax.Node) string {
 }
 
 func (b *irBuilder) admit(t check.Type, depth int) {
+	if t == check.NoValue {
+		return // a type parameter bound by a block with no value: Go's struct{} (goType), which the decoder spells (PORT-CALLS-2)
+	}
 	switch t := t.(type) {
 	case *check.Basic:
 		switch t.Kind {

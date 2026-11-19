@@ -19,11 +19,26 @@ import "testing"
 //   - a call of a function with an Ergo body whose result holds a running
 //     task (tasks.NewSet; "task call"; mutant pc-task-body-call-refused).
 //
+// PORT-CALLS-2, the stops r07 reached past those:
+//   - task.Go's T bound by a block with no value, Go's struct{} ("type
+//     argument with no value"; mutants pc2-novalue-targ-refused and
+//     pc2-novalue-admit-refused);
+//   - a with whose block owns values (a Task), released at the block's
+//     end ("statement that releases owned values"; mutant
+//     pc2-with-scope-dropped);
+//   - a with of a context literal in a std body (http.Serve's Streaming;
+//     "with of a context entry outside the program's sources"; mutant
+//     pc2-std-with-entry-refused, row leaf);
+//   - a Go call whose result is a Go array of basic values
+//     (sha256.Sum256's [32]byte; "Go call with a result of another type";
+//     mutant pc2-array-result-refused).
+//
 // The programs reach other stops (witness parameters, instance copies),
 // which are not these families: the test reads the report's fallback
 // reasons, not that every body lowers.
 func TestPortCallsTakeIRBodies(t *testing.T) {
-	families := []string{"std call with a converted operand", "std call with a converted result", "dot call of a std function", "task call"}
+	families := []string{"std call with a converted operand", "std call with a converted result", "dot call of a std function", "task call",
+		"type argument with no value", "statement that releases owned values", "with of a context entry outside the program's sources", "Go call with a result of another type"}
 	for _, row := range []struct{ name, src string }{
 		{"leaf", `import http
 import io
@@ -69,6 +84,29 @@ func main() fails os.Exit needs Ambient {
 
 func main() {
 	let _ = text([]byte{104, 105})
+}
+`},
+		{"spawn", `import io
+import os
+import task
+
+func main() fails os.Exit needs Ambient {
+	with context { io.Stdout: io.NewHost(), Scheduler: NewLiveScheduler() } {
+		let bg = task.Go() { Scheduler.Sleep(1s) }
+		io.Stdout.Println("started")
+		bg.Stop()
+	}
+}
+`},
+		{"array", `import go crypto/sha256
+
+func first(b []byte) int needs go.Foreign {
+	let d = sha256.Sum256(b)
+	int(d[0])
+}
+
+func main() needs go.Foreign {
+	let _ = first([]byte{1})
 }
 `},
 		{"taskset", `import io

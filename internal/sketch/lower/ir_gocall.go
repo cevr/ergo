@@ -163,6 +163,9 @@ func (b *irBuilder) hostValue(t check.Type) bool {
 	if hostBasic(t) {
 		return true
 	}
+	if a, ok := t.(*check.Array); ok && hostBasic(a.Elem) {
+		return true // a Go array of basic values ([32]byte, sha256.Sum256): a value (PORT-CALLS-2)
+	}
 	n, ok := t.(*check.Named)
 	return ok && n.Obj != nil && n.Obj.Pkg.Host() && !check.IsGoError(n) && !isGoRef(n) && len(n.TArgs) == 0 && !b.l.holdsValue(n)
 }
