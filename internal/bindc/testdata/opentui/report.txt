@@ -190,7 +190,7 @@ typed functions (242):
   ot_buffer_create: func BufferCreate(context *Context, options BufferOptions) (Handle, error)
   ot_buffer_destroy: func BufferDestroy(context *Context, buffer Handle) error
   ot_buffer_resize: func BufferResize(context *Context, buffer Handle, width uint32, height uint32) error
-  ot_buffer_draw: func BufferDraw(context *Context, target Handle, frame SceneFrameRequest, options BufferDrawHeader, source Handle, text []byte, bottomTitle []byte) error
+  ot_buffer_draw: func BufferDraw(context *Context, target Handle, frame SceneFrameRequest, options BufferDrawHeaderRecord, source Handle, text []byte, bottomTitle []byte) error
   ot_buffer_draw_grid: func BufferDrawGrid(context *Context, target Handle, frame SceneFrameRequest, options BufferGridOptions, columns []int32, rows []int32) error
   ot_buffer_draw_packed: func BufferDrawPacked(context *Context, handle Handle, sceneFrameRequest SceneFrameRequest, data []byte, x int32, y int32, width uint32, height uint32) error
   ot_buffer_draw_supersample: func BufferDrawSupersample(context *Context, handle Handle, sceneFrameRequest SceneFrameRequest, data []byte, x int32, y int32, format uint32, stride uint32) error
