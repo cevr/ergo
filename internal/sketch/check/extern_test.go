@@ -1123,6 +1123,18 @@ func main() {
 	use(Mine)
 }
 `,
+	// std pace (PACE1): open; a program provides it (pace.Default,
+	// pace.Percent).
+	"pace.Pacing": `import pace
+type Mine {} implements pace.Pacing
+func Edge(_ Mine) {}
+func Hold(_ Mine) {}
+func Release(_ Mine) {}
+func use(p pace.Pacing) { p.Edge() }
+func main() {
+	use(Mine)
+}
+`,
 }
 
 // unexportedStd is the std operation types sealed by an unexported
@@ -1175,6 +1187,7 @@ var openStd = map[string]bool{
 	"ui/layout.Measure": true,
 	"io.Source":         true,
 	"bench.Meter":       true,
+	"pace.Pacing":       true,
 }
 
 // stdOperationTypes lists, as path.Name, every exported operation type

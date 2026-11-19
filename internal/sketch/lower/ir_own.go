@@ -328,7 +328,7 @@ func (b *irBuilder) startedHere(value syntax.Expr) bool {
 // (task.Go, tasks.NewSet; needsFrame), so the scope owns what it starts.
 // Any other call whose result holds a Task keeps its source body.
 func (b *irBuilder) startsOnFrame(c *check.Call) bool {
-	if c.Kind != check.CallFunc || c.Func == nil || !c.Func.Pkg.Std() || c.Func.Decl == nil || c.Func.Decl.Extern == nil {
+	if c.Kind != check.CallFunc || c.Func == nil || c.Func.Pkg.Host() || c.Func.Decl == nil || c.Func.Decl.Extern == nil {
 		return false
 	}
 	body, _, ok := b.l.stdBody(b.l.funcDecl(c.Func))

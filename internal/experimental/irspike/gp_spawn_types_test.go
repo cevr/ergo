@@ -28,7 +28,7 @@ import (
 // compiler's own decode and the run stay with TestIRSpawnsMatchSource.
 //
 // Mutants: gp-spawn2-field-first (every captured read reads F0: gather's
-// string, let and parameter fields do not type-check as F0, the *Env),
+// string, let and parameter fields are not of F0's type, the *Env),
 // gp-spawn2-param-type (a parameter's captured field takes the
 // environment's type).
 func TestIRSpawnsTypeCheck(t *testing.T) {

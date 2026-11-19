@@ -48,8 +48,8 @@ func TestIRRefOwnedMatchSource(t *testing.T) {
 // LowerIR's IR in process. Mutant ir-own-ref-plain: the site's call is the
 // plain operation. stream's literals hold the value in one let mut, so
 // its sites take the in-place forms, which copy no scan in or out (the
-// emitter's inPlaceLit; json's Stream, IR-OWN-MODIFY). Mutant
-// ir-own-ref-in-place-owned: the IR takes the owned form there.
+// emitter's inPlaceLit; json's Stream, IR-OWN-MODIFY); a ledger row for
+// the IR taking the owned form there is owed (I-FLIP red 41, OWN1).
 func TestIRRefSitesTakeTheValueOver(t *testing.T) {
 	text := GenerateRefOwned(1)
 	for _, want := range []struct{ fn, form string }{{"tally", "RefUpdateOwned"}, {"tally", "RefModifyOwned"}, {"fill", "RefUpdateOwned"}, {"stream", "RefModifyInPlace"}, {"stream", "RefUpdateInPlace"}} {

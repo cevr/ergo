@@ -21,6 +21,7 @@ var warmKeyExempt = map[string]string{
 	"receipt":  "a --receipt test takes no warm answer (testCacheable)",
 	"uncached": "a --count 1 test takes no warm answer (testCacheable)",
 	"args":     "run's program arguments: the warm answer is the executable, which they do not change",
+	"affected": "--affected selects which packages run; each selected package runs as `ergo test` runs it (affected.go)",
 }
 
 // TestWarmKeyCoversOptions: every option of fileOptions changes the warm
