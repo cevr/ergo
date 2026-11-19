@@ -4574,7 +4574,7 @@ func caretModel(seed int, m time.Manual) bool needs Scheduler {
 		return false
 	}
 	let kept = ui.OneLine(ui.Editing{Text: text, Caret: len(text), Anchor: len(text)}, lines)
-	if fieldAt(ui.Screen(&h), 0) != Some{Value: kept} {
+	if fieldAt(ui.Screen(&h), 0) != (Some{Value: kept}) {
 		return false
 	}
 	// An Edit moves the caret and selects: the pass shows both, and the
@@ -4584,14 +4584,14 @@ func caretModel(seed int, m time.Manual) bool needs Scheduler {
 	case _:
 		return false
 	}
-	if fieldAt(ui.Screen(&h), 0) != Some{Value: moved} {
+	if fieldAt(ui.Screen(&h), 0) != (Some{Value: moved}) {
 		return false
 	}
 	ui.EditText(&h, own[0], "fixed", 2, 1) catch {
 	case _:
 		return false
 	}
-	if fieldAt(ui.Screen(&h), 0) != Some{Value: moved} || fieldAt(ui.Screen(&h), 1) != Some{Value: ui.Editing{Text: "fixed", Caret: 2, Anchor: 1}} {
+	if fieldAt(ui.Screen(&h), 0) != (Some{Value: moved}) || fieldAt(ui.Screen(&h), 1) != (Some{Value: ui.Editing{Text: "fixed", Caret: 2, Anchor: 1}}) {
 		return false
 	}
 	// The program changes the own field's value: the caret goes to its end.
