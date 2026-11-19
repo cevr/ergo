@@ -126,6 +126,9 @@ type Window struct {
 	// opacity multiplies the alpha of what is painted from now on
 	// (SetOpacity); 1 at Begin.
 	opacity float64
+	// slanted is the slanted runs of the list made since Begin (or
+	// Hold), those a kept part took again among them (Slanted).
+	slanted int
 
 	// The damage paint (Mark, Seal, Again): the parts of the list being
 	// made and of the shown one each key drew, the parts still open, and
@@ -484,6 +487,7 @@ func (w *Window) Begin() {
 func (w *Window) begin() {
 	w.pending, w.glyphs, w.clips, w.access = w.pending[:0], w.glyphs[:0], 0, w.access[:0]
 	w.strokes, w.pts, w.inStroke = w.strokes[:0], w.pts[:0], false
+	w.slanted = 0
 	w.focus, w.field, w.keyboard = 0, platform.TextInputState{}, ""
 	w.opacity = 1
 	clear(w.segs)
@@ -527,6 +531,9 @@ func (w *Window) Again(key int) bool {
 	for _, g := range w.texts[s.gl0:s.gl1] {
 		g.at += t.op0 - s.op0
 		w.glyphs = append(w.glyphs, g)
+		if g.slant {
+			w.slanted++
+		}
 	}
 	for _, k := range w.shownStrokes[s.st0:s.st1] {
 		k.at += t.op0 - s.op0
@@ -840,6 +847,7 @@ func (w *Window) Text(x, y float64, s string, size float64, color uint32) {
 func (w *Window) TextSlanted(x, y float64, s string, size float64, color uint32) {
 	w.mu.Lock()
 	w.glyphs = append(w.glyphs, glyphText{at: len(w.pending), x: float32(x), y: float32(y), s: s, size: float32(size), color: w.faded(rgba(color)), slant: true})
+	w.slanted++
 	w.mu.Unlock()
 }
 
@@ -849,13 +857,7 @@ func (w *Window) TextSlanted(x, y float64, s string, size float64, color uint32)
 func (w *Window) Slanted() int {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	n := 0
-	for _, g := range w.glyphs {
-		if g.slant {
-			n++
-		}
-	}
-	return n
+	return w.slanted
 }
 
 // slant is the shear of an oblique run: x moves by slant of the height
