@@ -16,6 +16,7 @@ var (
 	_ = declarePrograms("TestStdConfigLawsRun", testBuildProgram("stdconfig", stdConfigLawsProbe))
 	_ = declarePrograms("TestStdCodecLawsRun", testBuildProgram("stdcodec", stdCodecLawsProbe))
 	_ = declarePrograms("TestStdJSONLawsRun", testBuildProgram("stdjson", stdJSONLawsProbe))
+	_ = declarePrograms("TestStdJSONLooseLawsRun", testBuildProgram("stdjsonloose", stdJSONLooseLawsProbe))
 	_ = declarePrograms("TestStdHTTPLawsRun", testBuildProgram("stdhttp", stdHTTPLawsProbe))
 	_ = declarePrograms("TestStdHTMLLawsRun", testBuildProgram("stdhtml", stdHTMLLawsProbe))
 	_ = declarePrograms("TestStdBuildLawsRun", testBuildProgram("stdbuild", stdBuildLawsProbe))
