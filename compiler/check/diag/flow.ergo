@@ -24,14 +24,18 @@
 //
 // This part reads what the package says: a resource is a type of the
 // package that holds one (resources, own.ergo), a callee's takes are its
-// declaration's. Where it cannot tell, it says nothing: an untyped value is
-// not tracked, an unknown callee lends its arguments, and these forms are
-// not walked yet: a pattern's bindings (a match on a resource, a let
-// pattern, a for-in's elements), a field or element taken or moved out, a
-// with's providers, a conversion to an operation type, a function literal
-// or block that may escape, and the lends a value keeps (R31). A later
-// unit's; the Go checker's release plan is the lowering's and is not built
-// here.
+// declaration's. A resource converted to an operation type moves into the
+// interface value (R23); a with owns the resource providers of an inline
+// context whose capabilities its block names (withProviders); a match
+// clause that binds a resource by name from a whole local this frame owns
+// moves the local into the binding (patternClauses). Where it cannot tell,
+// it says nothing: an untyped value is not tracked, an unknown callee lends
+// its arguments, and these forms are not walked yet: another pattern's
+// bindings (a lent subject's, a let pattern's, a for-in's elements, a
+// field pattern's), a field or element taken or moved out, a provider its
+// with's block reaches only through a callee's needs, a function literal
+// or block that may escape, and the lends a value keeps (R31). The Go
+// checker's release plan is the lowering's and is not built here.
 
 import compiler/check/bind
 import compiler/check/expr
@@ -93,7 +97,9 @@ type memo { entry state, out state, diags []fdiag }
 type fdiag { at int, length int, msg string, take int }
 
 type walker {
-	res     Map[string, bool],
+	res Map[string, bool],
+	// infos is the package's type declarations by name (typeInfos).
+	infos   Map[string, typeInfo],
 	types   dense.Col[store.PNode, dense.Opt[store.TKey]],
 	calls   dense.Col[store.PNode, int],
 	fn      int,
@@ -149,7 +155,7 @@ func Flow(s store.Store, k expr.Pkg, t expr.Typer, srcs []string) []Diag {
 	for src in srcs {
 		lines = lines.Append(syntax.LinesOf(src))
 	}
-	let mut w = walker{res: res, types: ts, calls: cs, fn: 0, file: 0, lines: lines, st: state{reached: false, slots: []slot{}}, vars: []local{}, depth: 0, first: 0, name: "", nested: "", loops: []loopFrame{}, catches: [][]state{}, memos: Map[int, memo]{}, diags: []fdiag{}, tl: frameTail(), serial: 0, active: []int{}, lenders: Map[int, string]{}, pkgLets: []int{}}
+	let mut w = walker{res: res, infos: infos, types: ts, calls: cs, fn: 0, file: 0, lines: lines, st: state{reached: false, slots: []slot{}}, vars: []local{}, depth: 0, first: 0, name: "", nested: "", loops: []loopFrame{}, catches: [][]state{}, memos: Map[int, memo]{}, diags: []fdiag{}, tl: frameTail(), serial: 0, active: []int{}, lenders: Map[int, string]{}, pkgLets: []int{}}
 	w.pkgLets = letsHolding(&w, s, k, t)
 	let mut out = []Diag{}
 	for fi, f in k.Fns {
@@ -725,11 +731,10 @@ func stmt(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, s dense.ID[s
 		region(w, ws, wk, wt, ss.Tag, mLend, noHand())
 		clauses(w, ws, wk, wt, ss.Clauses, yield)
 	} else if kind == syntax.KTypeSwitchStmt {
-		// A pattern's bindings are not walked yet: the subjects are lent.
 		let ts = syntax.TypeSwitchStmtOf(wk.Parsed[w.file].Tree, s)
 		let first = len(w.vars)
 		eval(w, ws, wk, wt, ts.Subject, mLend, noHand())
-		clauses(w, ws, wk, wt, ts.Clauses, yield)
+		patternClauses(w, ws, wk, wt, ts.Subject, ts.Clauses, yield)
 		close(w, ws, wk, wt, first)
 	} else if kind == syntax.KForStmt {
 		let fs = syntax.ForStmtOf(wk.Parsed[w.file].Tree, s)
@@ -746,6 +751,49 @@ func stmt(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, s dense.ID[s
 
 // clauses walks a match's clauses from one entry state; they meet after
 // it.
+// patternClauses walks a match's clauses on subject (ownpattern.go
+// patternClauses): where the subject is a whole local this frame owns and
+// a clause's first pattern binds a resource by name (`case Res as v`),
+// the clause moves the subject into the binding, which owns it there.
+// Another binding (of a lent subject, or a resource part of a pattern
+// that names fields) is not walked yet: it is not tracked.
+func patternClauses(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, subject dense.ID[syntax.Node], l syntax.List, yield bool) {
+	let count = syntax.Len(l)
+	if count == 0 {
+		return
+	}
+	let tr = wk.Parsed[w.file].Tree
+	let subj = un(w, ws, wk, wt, subject)
+	let n = len(w.vars)
+	let entry = w.st
+	let mut out = unreached()
+	for i in 0..count {
+		let c = syntax.Item(tr, l, i)
+		w.st = entry
+		if syntax.KindOf(tr, c) == syntax.KCaseClause {
+			let cc = syntax.CaseClauseOf(tr, c)
+			let first = len(w.vars)
+			if syntax.Len(cc.List) > 0 {
+				match syntax.ViewOf(tr, syntax.Item(tr, cc.List, 0)) {
+				case syntax.AsPattern as ap:
+					let d = bind.PNodeOf(wk.Ps, w.file, ap.Name)
+					let ty = defType(w, ws, wk, wt, d)
+					let si = if syntax.KindOf(tr, subj) == syntax.KIdent { slotOf(w, ws, wk, wt, subj) } else { -1 }
+					if tracked(w, ws, wk, wt, ty) && si >= 0 && !w.vars[si].lent && w.vars[si].depth == w.depth && w.st.reached {
+						move(w, ws, wk, wt, si, subj, handAt(at(w, ws, wk, wt, subj), "the match pattern moves it"))
+						acquire(w, ws, wk, wt, local{decl: dense.Index(d), name: textAt(wk.Parsed[w.file], ap.Name), lent: false, depth: 0, param: 0, ty: ty})
+					}
+				case _:
+				}
+			}
+			block(w, ws, wk, wt, cc.Body, yield)
+			close(w, ws, wk, wt, first)
+		}
+		out = join(w, ws, wk, wt, out, w.st, n)
+	}
+	w.st = out
+}
+
 func clauses(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, l syntax.List, yield bool) {
 	let count = syntax.Len(l)
 	if count == 0 {
@@ -1420,7 +1468,117 @@ func operand(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, a dense.I
 		eval(w, ws, wk, wt, a, mMove, handAt(at(w, ws, wk, wt, a), how))
 		return
 	}
+	match converted(w, ws, wk, wt, a, f, i) {
+	case Some[dense.ID[store.TKey]] as pt:
+		// R23: a resource converted to an operation type moves into the
+		// interface value, which the statement owns (R43).
+		eval(w, ws, wk, wt, a, mMove, handAt(at(w, ws, wk, wt, a), "converting it to \(text(w, ws, wk, wt, pt.Value)) moves it"))
+		if w.st.reached {
+			let _ = temp(w, ws, wk, wt)
+		}
+		return
+	case None:
+	}
 	eval(w, ws, wk, wt, a, mLend, hand{at: -1, how: "", lend: id, yieldRoot: false, failed: 0, root: false})
+}
+
+// converted is the parameter type the argument a for the parameter i of f
+// is converted to when that moves it (ownership.go converts, R23): an
+// operation type that holds a resource, a's own type one that holds a
+// resource and is no operation type.
+func converted(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, a dense.ID[syntax.Node], f expr.Fn, i int) Option[dense.ID[store.TKey]] {
+	let ops = store.OperandsOf(ws, f.Sig)
+	if i >= len(ops)-3 {
+		return None
+	}
+	let pt = ops[i]
+	if !opType(*w, ws, pt) || !tracked(w, ws, wk, wt, Some[dense.ID[store.TKey]]{Value: pt}) {
+		return None
+	}
+	match typeOf(w, ws, wk, wt, un(w, ws, wk, wt, a)) {
+	case Some[dense.ID[store.TKey]] as t:
+		if tracked(w, ws, wk, wt, Some[dense.ID[store.TKey]]{Value: t.Value}) && !opType(*w, ws, t.Value) { Some[dense.ID[store.TKey]]{Value: pt} } else { None }
+	case None:
+		None
+	}
+}
+
+// opType is whether t is an operation type of the package.
+func opType(w walker, ws store.Store, t dense.ID[store.TKey]) bool {
+	if store.KindOfType(ws, t) != store.KNamed {
+		return false
+	}
+	match w.infos.Get(store.TypeNameText(ws, store.ArgOf(ws, t))) {
+	case Some[typeInfo] as ti:
+		ti.Value.op
+	case None:
+		false
+	}
+}
+
+// providers walks the entries of the inline context cl a with builds
+// (ownership.go withProviders): an entry whose capability the with's block
+// names (Store.Get()) is acquired, and its provider, a resource, moves
+// into the with, which owns it; a provider of no resource is lent. An
+// entry the block does not name may be acquired through a callee's needs,
+// which this part does not read: it is not walked (no diagnostic).
+func providers(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, cl syntax.ContextLit, body dense.Opt[syntax.Node]) {
+	let p = wk.Parsed[w.file]
+	let b = match dense.Unpack(body) {
+	case Some[dense.ID[syntax.Node]] as v:
+		v.Value
+	case None:
+		return
+	}
+	match syntax.ViewOf(p.Tree, cl.Body) {
+	case syntax.ContextBody as cb:
+		for i in 0..syntax.Len(cb.Entries) {
+			match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, cb.Entries, i)) {
+			case syntax.ContextEntry as e:
+				match dense.Unpack(e.Value) {
+				case Some[dense.ID[syntax.Node]] as v:
+					let mut named = namesCap(p, b, headName(p, e.Key))
+					for j in 0..syntax.Len(e.Keys) {
+						named = named || namesCap(p, b, headName(p, syntax.Item(p.Tree, e.Keys, j)))
+					}
+					if !named {
+						continue
+					}
+					// A package let has no owner: the with does not own
+					// it (R11).
+					let unowned = syntax.KindOf(p.Tree, un(w, ws, wk, wt, v.Value)) == syntax.KIdent && slotOf(w, ws, wk, wt, un(w, ws, wk, wt, v.Value)) < 0
+					if trackedAt(w, ws, wk, wt, v.Value) && !unowned {
+						eval(w, ws, wk, wt, v.Value, mMove, handAt(at(w, ws, wk, wt, v.Value), "the with owns it"))
+					} else {
+						eval(w, ws, wk, wt, v.Value, mLend, noHand())
+					}
+				case None:
+				}
+			case _:
+			}
+		}
+	case _:
+	}
+}
+
+// namesCap is whether the node x of p names the capability key as a
+// receiver: a token key followed by a dot.
+func namesCap(p syntax.Parsed, x dense.ID[syntax.Node], key string) bool {
+	if key == "" {
+		return false
+	}
+	let hi = syntax.NodeEnd(p, x)
+	let mut j = syntax.TokStartingAt(p, syntax.NodePos(p, x))
+	if j < 0 {
+		return false
+	}
+	for syntax.TokPos(p, j) < hi {
+		if syntax.TokKind(p, j) == syntax.Ident && syntax.TokText(p, j) == key && syntax.TokText(p, j+1) == "." {
+			return true
+		}
+		j = j + 1
+	}
+	false
 }
 
 // withCall walks `with E { body }`: its contexts are lent, and its block is
@@ -1444,6 +1602,13 @@ func withCall(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.
 		let a = syntax.Item(wk.Parsed[w.file].Tree, c.Args, i)
 		if syntax.KindOf(wk.Parsed[w.file].Tree, a) != syntax.KContextLit {
 			eval(w, ws, wk, wt, a, mLend, noHand())
+		}
+	}
+	for i in 0..syntax.Len(c.Args) {
+		match syntax.ViewOf(wk.Parsed[w.file].Tree, syntax.Item(wk.Parsed[w.file].Tree, c.Args, i)) {
+		case syntax.ContextLit as cl:
+			providers(w, ws, wk, wt, cl, c.Trailing)
+		case _:
 		}
 	}
 	match dense.Unpack(c.Trailing) {

@@ -185,9 +185,10 @@ func TestCompilerFlowAgreesWithChecker(t *testing.T) {
 }
 
 // flowPrelude is the declarations every drawn body uses: the Go model's
-// (ownership_model_test.go ofPrelude) without its aggregates, queues and
-// operation types, which the walk does not read yet.
-const flowPrelude = `type Res { id int } implements Closer
+// (ownership_model_test.go ofPrelude).
+const flowPrelude = `import queue
+
+type Res { id int } implements Closer, Closes, Store
 
 type Bad {}
 
@@ -218,7 +219,27 @@ func cond(n int) bool { n > 2 }
 
 func run(f func()) { f() }
 
+type Box { r Res, n int }
+
+type Empty {}
+
+type Held = Res | Empty
+
+type Closes { ..Closer }
+
+type Store { Get() int }
+
+func Get(r Res) int { r.id }
+
+func lendBox(b Box) {}
+
+func keepBox(b own Box) {}
+
+func lendCloser(c Closes) {}
+
 let shared = Res{id: 0}
+
+func newQueue() queue.Queue[Res] { queue.New[Res](2) }
 
 `
 
@@ -247,6 +268,27 @@ const (
 	fCatch
 	fValue
 	fShared
+	// Aggregates, containers, unions, conversions, with providers and
+	// queues (ofGen's A4 kinds): a Box{r Res, n int}, a []Res, a Held =
+	// Res | Empty, a queue.Queue[Res].
+	fBoxNew     // let bN = Box{r: Y, n: 1}
+	fBoxLend    // lendBox(B)
+	fBoxKeep    // keepBox(B)
+	fFieldClose // B.r.Close(): a field taken in place
+	fFieldLend  // lend(B.r)
+	fFieldKeep  // keep(B.r): a field moved out (R39)
+	fListNew    // let lN = []Res{Y}
+	fIndexLend  // lend(L[0])
+	fIndexClose // L[0].Close(): a take by index (R35)
+	fForIn      // for eN in L { keep(eN) } or { lend(eN) }: lent elements
+	fHeldNew    // let hN Held = Y
+	fMatchHeld  // match H { case Res as vN: keep(vN) or lend(vN); case Empty: }
+	fWithMove   // with context { Store: Y } { … }: Y moves into the with
+	fConvert    // lendCloser(Y): a conversion to an operation type moves
+	fLitLend    // lendBox(Box{r: Y, n: 0}): a lent literal moves its parts
+	fWithShared // with context { Store: shared } { … }: a package let
+	fQueueNew   // let uN = newQueue()
+	fQueueLoop  // for eN in U.Values() { … }: owned elements (Q7)
 	fTail
 )
 
@@ -273,6 +315,8 @@ const (
 type flowStmt struct {
 	kind       int
 	x, y       string
+	z          string // the binding of a for-in or a match arm
+	alt        bool   // keep, not lend, the binding
 	mut        bool
 	op         string
 	left, temp bool
@@ -286,6 +330,7 @@ type flowVar struct {
 	name  string
 	mut   bool
 	depth int
+	kind  string // "" a Res, "box", "list", "held", "queue"
 }
 
 type flowGen struct {
@@ -328,11 +373,30 @@ func (g *flowGen) program(size int) []*flowStmt {
 	return body
 }
 
-func (g *flowGen) pick() string {
-	if len(g.vars) == 0 {
+func (g *flowGen) pick() string { return g.pickKind("") }
+
+// hasRes is whether a live Res name is there to pick.
+func (g *flowGen) hasRes() bool {
+	for _, v := range g.vars {
+		if v.kind == "" {
+			return true
+		}
+	}
+	return false
+}
+
+// pickKind is a live name of a kind, or "" when there is none.
+func (g *flowGen) pickKind(kind string) string {
+	var names []string
+	for _, v := range g.vars {
+		if v.kind == kind {
+			names = append(names, v.name)
+		}
+	}
+	if len(names) == 0 {
 		return ""
 	}
-	return g.vars[g.r.IntN(len(g.vars))].name
+	return names[g.r.IntN(len(names))]
 }
 
 func (g *flowGen) block(size, depth, nest int, inLoop bool) []*flowStmt {
@@ -370,12 +434,12 @@ func (g *flowGen) arm(form, depth, nest int, inLoop bool) []*flowStmt {
 		if t.tk == tfNested && nest >= 2 {
 			t.tk = tfTake
 		}
-		if t.tk == tfTake && len(g.vars) == 0 {
+		if t.tk == tfTake && !g.hasRes() {
 			t.tk = tfCond
 		}
 	} else {
 		t.tk = []int{tfName, tfOpen}[g.r.IntN(2)]
-		if len(g.vars) == 0 {
+		if !g.hasRes() {
 			t.tk = tfOpen
 		}
 	}
@@ -396,8 +460,8 @@ func (g *flowGen) stmt(depth, nest int, inLoop bool) *flowStmt {
 			k = []int{fIf, fMatch, fLoop, fCatch, fValue}[g.r.IntN(5)]
 		}
 		switch k {
-		case fDeclMove, fLend, fClose, fKeep, fBoth, fShort:
-			if len(g.vars) == 0 {
+		case fDeclMove, fLend, fClose, fKeep, fBoth, fShort, fBoxNew, fListNew, fHeldNew, fWithMove, fConvert, fLitLend:
+			if !g.hasRes() {
 				continue
 			}
 		}
@@ -483,6 +547,45 @@ func (g *flowGen) stmt(depth, nest int, inLoop bool) *flowStmt {
 			s.body = g.block(3, depth, nest+1, inLoop)
 		case fRun:
 			s.body = g.block(3, depth+1, nest+1, false)
+		case fQueueNew:
+			g.n++
+			s.x = fmt.Sprintf("u%d", g.n)
+			g.vars = append(g.vars, flowVar{name: s.x, depth: depth, kind: "queue"})
+		case fQueueLoop:
+			if s.y = g.pickKind("queue"); s.y == "" {
+				continue
+			}
+		case fBoxNew, fListNew, fHeldNew:
+			s.y = g.pick()
+			kind := map[int]string{fBoxNew: "box", fListNew: "list", fHeldNew: "held"}[k]
+			g.n++
+			s.x = fmt.Sprintf("%c%d", kind[0], g.n)
+			g.vars = append(g.vars, flowVar{name: s.x, depth: depth, kind: kind})
+		case fBoxLend, fBoxKeep, fFieldClose, fFieldLend, fFieldKeep:
+			if s.y = g.pickKind("box"); s.y == "" {
+				continue
+			}
+		case fIndexLend, fIndexClose, fForIn:
+			if s.y = g.pickKind("list"); s.y == "" {
+				continue
+			}
+		case fMatchHeld:
+			if s.y = g.pickKind("held"); s.y == "" {
+				continue
+			}
+		case fWithShared:
+			s.y = "shared"
+		case fWithMove, fConvert, fLitLend:
+			s.y = g.pick()
+		}
+		if k == fForIn || k == fMatchHeld || k == fQueueLoop {
+			g.n++
+			prefix := "e"
+			if k == fMatchHeld {
+				prefix = "v"
+			}
+			s.z = fmt.Sprintf("%s%d", prefix, g.n)
+			s.alt = g.r.IntN(2) == 0
 		}
 		return s
 	}
@@ -535,6 +638,54 @@ func flowPrint(body []*flowStmt, bare bool) string {
 				emit(depth, "keep("+s.y+")")
 			case fShared:
 				emit(depth, "keep(shared)")
+			case fBoxNew, fListNew, fHeldNew, fWithMove, fConvert, fLitLend, fWithShared:
+				p := map[int]string{
+					fBoxNew:     fmt.Sprintf("let %s = Box{r: ", s.x),
+					fListNew:    fmt.Sprintf("let %s = []Res{", s.x),
+					fHeldNew:    fmt.Sprintf("let %s Held = ", s.x),
+					fWithMove:   "with context { Store: ",
+					fWithShared: "with context { Store: ",
+					fConvert:    "lendCloser(",
+					fLitLend:    "lendBox(Box{r: ",
+				}[s.kind]
+				q := map[int]string{fBoxNew: ", n: 1}", fListNew: "}", fHeldNew: "", fWithMove: " } {", fWithShared: " } {", fConvert: ")", fLitLend: ", n: 0})"}[s.kind]
+				emit(depth, p+s.y+q)
+				if s.kind == fWithMove || s.kind == fWithShared {
+					emit(depth+1, "let _ = Store.Get()")
+					emit(depth, "}")
+				}
+			case fBoxLend, fBoxKeep, fFieldLend, fFieldKeep, fIndexLend:
+				p := map[int]string{fBoxLend: "lendBox(", fBoxKeep: "keepBox(", fFieldLend: "lend(", fFieldKeep: "keep(", fIndexLend: "lend("}[s.kind]
+				q := map[int]string{fBoxLend: ")", fBoxKeep: ")", fFieldLend: ".r)", fFieldKeep: ".r)", fIndexLend: "[0])"}[s.kind]
+				emit(depth, p+s.y+q)
+			case fFieldClose:
+				emit(depth, s.y+".r.Close()")
+			case fIndexClose:
+				emit(depth, s.y+"[0].Close()")
+			case fQueueNew:
+				emit(depth, fmt.Sprintf("let %s = newQueue()", s.x))
+			case fQueueLoop, fForIn:
+				use := "lend("
+				if s.alt {
+					use = "keep("
+				}
+				over := s.y
+				if s.kind == fQueueLoop {
+					over += ".Values()"
+				}
+				emit(depth, fmt.Sprintf("for %s in %s {", s.z, over))
+				emit(depth+1, use+s.z+")")
+				emit(depth, "}")
+			case fMatchHeld:
+				use := "lend("
+				if s.alt {
+					use = "keep("
+				}
+				emit(depth, "match "+s.y+" {")
+				emit(depth, "case Res as "+s.z+":")
+				emit(depth+1, use+s.z+")")
+				emit(depth, "case Empty:")
+				emit(depth, "}")
 			case fAssign:
 				k++
 				emit(depth, fmt.Sprintf("%s = open(%d)", s.x, k))
