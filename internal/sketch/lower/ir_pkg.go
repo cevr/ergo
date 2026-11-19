@@ -478,6 +478,12 @@ func derefNamed(t check.Type) (*check.Named, bool) {
 	if p, ok := t.(*check.Pointer); ok {
 		t = p.Elem
 	}
+	// A go.Ref[T] is Go's *T (gocall.go): its fields are T's. The Ref
+	// itself is never a declaration, so the naming pass gives it no name
+	// (std pace's stats.HeapAlloc stopped the census on that, NAMING-ICE).
+	if e, ok := check.GoRefElem(t); ok {
+		t = e
+	}
 	n, ok := t.(*check.Named)
 	return n, ok
 }
