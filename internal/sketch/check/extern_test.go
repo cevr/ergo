@@ -1215,6 +1215,20 @@ func main() {
 	use(Mine{s: code.NewScan(0)})
 }
 `,
+	// std api's Transport (API-FIRST AF1): each generated transport package
+	// provides it (its Wire), so a program provides it too.
+	"api.Transport": `import api
+
+type Mine {} implements api.Transport[string, int]
+
+func Carry(_ Mine, c string, answer own func(c string) int) int { answer(c) }
+
+func use(t api.Transport[string, int]) { _ = t.Carry("x", func(c string) int { len(c) }) }
+
+func main() {
+	use(Mine)
+}
+`,
 	"code.Files": `import code
 
 type Mine { d code.Disk } implements code.Files
@@ -1327,6 +1341,7 @@ var unexportedStd = map[string]string{
 // std seal at the migration base. Some already have private operations,
 // listed in unexportedStd. Every other entry now declares its seal.
 var openStd = map[string]bool{
+	"api.Transport":     true,
 	"prelude.Closer":    true,
 	"prelude.Console":   true,
 	"prelude.Scheduler": true,
