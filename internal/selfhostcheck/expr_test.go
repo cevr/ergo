@@ -107,7 +107,7 @@ func TestCompilerExprAgreesWithChecker(t *testing.T) {
 	}
 	m := filepath.Join(tmp, "manifest")
 	writeLines(t, m, manifest)
-	gotTypes, gotCalls, gotDiags := make([][]string, len(folders)), make([][]string, len(folders)), make([][]string, len(folders))
+	gotTypes, gotCalls, gotDiags, gotOwn := make([][]string, len(folders)), make([][]string, len(folders)), make([][]string, len(folders)), make([][]string, len(folders))
 	at := -1
 	for _, l := range runDump(t, ctx, bin, "-std", stdDir(), "-corpus", m) {
 		switch {
@@ -119,6 +119,8 @@ func TestCompilerExprAgreesWithChecker(t *testing.T) {
 			gotCalls[at] = append(gotCalls[at], l[2:])
 		case at >= 0 && at < len(folders) && strings.HasPrefix(l, "D "):
 			gotDiags[at] = append(gotDiags[at], l[2:])
+		case at >= 0 && at < len(folders) && strings.HasPrefix(l, "O "):
+			gotOwn[at] = append(gotOwn[at], l[2:])
 		}
 	}
 	if at != len(folders)-1 {
@@ -147,6 +149,10 @@ func TestCompilerExprAgreesWithChecker(t *testing.T) {
 		// of the Ergo side is a false one (S3d5).
 		if len(gotDiags[i]) > 0 {
 			t.Errorf("%s: the Go checker accepts the package, the Ergo side reports %d type errors: %s", rel(fo.dir), len(gotDiags[i]), strings.Join(gotDiags[i][:min(3, len(gotDiags[i]))], "; "))
+		}
+		// And no own-mark S108 (MODES-OWN-CHECK).
+		if len(gotOwn[i]) > 0 {
+			t.Errorf("%s: the Go checker accepts the package, the Ergo side reports %d own-mark errors: %s", rel(fo.dir), len(gotOwn[i]), strings.Join(gotOwn[i][:min(3, len(gotOwn[i]))], "; "))
 		}
 		if d := subsetDiff(fo.wantCalls, gotCalls[i], 2); d != "" {
 			t.Errorf("%s: inferred type arguments differ (go -, ergo +):\n%s", rel(fo.dir), d)
