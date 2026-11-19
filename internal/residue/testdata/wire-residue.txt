@@ -448,9 +448,6 @@ docs/spec/rpc.md	*
 docs/decisions.md	- **Effect RPC as a wire projection, not a target
 docs/decisions.md	TypeScript is a peer on the wire
 docs/design.md	Reopened 2026-11-10 as a wire projection, not a target
-docs/interop.md	Reopened 2026-11-10 as a wire projection, not a target
-docs/interop.md	TypeScript calls an Ergo service over Effect RPC's HTTP wire
-docs/interop.md	a TypeScript value reaches Ergo only as wire JSON
 docs/design.md	the projection of its checked operation type that Effect RPC's wire carries
 docs/spec/README.md	9. [rpc.md](rpc.md): std `rpc`, Effect RPC's HTTP wire
 docs/spec/stdlib.md	The package, the wire and the int rule are in [rpc.md](rpc.md).
