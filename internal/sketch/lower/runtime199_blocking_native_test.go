@@ -169,7 +169,7 @@ var actorWaitLaws = map[string]bool{"Actor.Send": true, "Actor.Ask": true, "Acto
 // exchange, httpDoVia and httpStreamVia, over a pipe: the stop laws above
 // are those functions', and the handler they call runs on the caller's
 // task, which observes the stop itself.
-// TermReadKey (std term, CU2) waits for a key through io's shared reader:
+// TermPeek (std term, CU2, UC1) waits for a key through io's shared reader:
 // lower TestTermModesRestore stops a program that waits in it and checks
 // that the terminal is restored.
 // ExecStart, Running.Lines, Running.Chunks and Running.Wait (std exec's
@@ -182,7 +182,7 @@ var actorWaitLaws = map[string]bool{"Actor.Send": true, "Actor.Ask": true, "Acto
 // program: runtime/v1/exec/exec_spawn_test.go TestExecSpawnStopped states that
 // a stopped caller's Spawn starts nothing, and TestExecKillStopped that a
 // stop during Kill's grace goes on to SIGKILL and returns.
-var hostWaitLaws = map[string]bool{"ExecRun": true, "ExecSpawn": true, "ExecKill": true, "ExecStart": true, "Running.Lines": true, "Running.Chunks": true, "Running.Wait": true, "IOReadAll": true, "IOLines": true, "IORead": true, "RPCCall": true, "Exchange.Write": true, "HTTPDo": true, "HTTPFetch": true, "HTTPFetchInto": true, "HTTPDoInto": true, "HTTPFetchLocal": true, "HTTPFetchLocalInto": true, "TermReadKey": true}
+var hostWaitLaws = map[string]bool{"ExecRun": true, "ExecSpawn": true, "ExecKill": true, "ExecStart": true, "Running.Lines": true, "Running.Chunks": true, "Running.Wait": true, "IOReadAll": true, "IOLines": true, "IORead": true, "RPCCall": true, "Exchange.Write": true, "HTTPDo": true, "HTTPFetch": true, "HTTPFetchInto": true, "HTTPDoInto": true, "HTTPFetchLocal": true, "HTTPFetchLocalInto": true, "TermPeek": true}
 
 // blockingRoutes is the route axis of a binding (runtime.md, I1): the
 // waiting task of a callerWait binding is the task that invokes the call,
