@@ -4,19 +4,20 @@ An Ergo module of this repository (`modules/`): byte scans with vector bodies (U
 
 | Package | What |
 | --- | --- |
-| `scan` | `IndexByte`, `IndexAny2`, `IndexOutside`, `CountByte` over a string. Each has its Ergo reference, a plain byte loop that is its specification, and a law beside it that holds the operation to the reference. |
-| `kernel` (Go) | The vector bodies, bound by `scan` through the door of the module's own Go bodies (docs/spec/interop.md, Trusted Go 3). `vector_amd64.go` (`goexperiment.simd && amd64`) uses `simd/archsimd`'s AVX2 vectors; `stock.go` answers `Enabled() == false` in every other build, so a plain `go build` runs the Ergo reference. |
+| `scan` | `IndexByte`, `IndexAny2`, `IndexOutside`, `CountByte` over a `[]byte`. Each is its Ergo reference, a plain byte loop that is its specification. Beside each sit a rewrite law, the operation `==` its kernel, which `ergo test`'s licence run validates so the build calls the kernel (docs/spec/interop.md, Trusted Go 5), and a law that holds the kernel to the reference with the needle at every offset of the vector loop and its tail. |
+| `kernel` (Go) | The kernels, bound by `scan` through the door of the module's own Go bodies (Trusted Go 3). `vector_amd64.go` (`goexperiment.simd && amd64`) scans 32 bytes at a time with `simd/archsimd`'s AVX2 vectors on a CPU that has them; `stock.go` is the scalar loop in every other build, so a plain `go build` is correct. |
 
-Another program takes it once a module's Go body may be bound from another module (LAWFFI LF2m: a body with no effects whose law validates). Nothing in the compiler names this module: any module may ship kernels the same way.
+Nothing in the compiler names this module: any module may ship kernels the same way.
 
 ## Builds
 
-- `ergo test ./scan` runs the laws in the stock build (the reference against itself, and the module's wiring).
-- `GOEXPERIMENT=simd ergo test ./scan` runs them against the AVX2 kernels. `GOEXPERIMENT` is read from the environment and enters Go's build identity; the direct build path refuses a set `GOEXPERIMENT`, so such a build takes `go build`.
+- `ergo test ./scan` runs the laws and the licence run in the stock build; `ergo.laws` holds the validated entries.
+- `GOEXPERIMENT=simd ergo test ./scan` runs them against the AVX2 kernels. `GOEXPERIMENT` is read from the environment or the go env file; it selects the kernel file the checker reads and is in every cache key.
+- `GOEXPERIMENT=simd go test ./kernel` runs `TestNoReadPastTheEnd`: each slice ends where the next page is unreadable and its capacity runs on into it, so a read one byte past the length faults.
 
 ## Decided
 
-- The kernels take a string and view its bytes in place for the vector loads (`kernel.load`), with the safety invariant named in a comment: every load is inside the string, and nothing is stored. A copy into a `[]byte` would cost more than the scan. Reverse by: taking `[]byte` once a module body admits slices (LAWFFI LF2m).
-- `kernel.TestNoReadPastTheEnd` (vector build, linux) puts each text at the end of a page whose next page is unreadable, so a read one byte past the end faults. Run it with `GOEXPERIMENT=simd go test ./kernel` in this folder.
+- The kernels take `[]uint8` and load with `archsimd.LoadUint8x32(s[i : i+32])`: no `unsafe`, and every import is effect-free (LF2m's PureImports, `simd/archsimd` among them), so a validated law makes each pure.
+- Each kernel checks `archsimd.X86.AVX2()` itself and falls back to the scalar loop: there is no `Enabled` extern.
 - arm64 Neon is not built: go1.27.4's `archsimd.Mask8x16` has no `ToBits`. arm64 builds take `stock.go`.
-- A kernel is not pure yet: a module body's purity is earned by its law once LF2m lands (2026-11-19 ruling). Until then each call is opaque in a footprint.
+- `ergo.laws`'s entries are keyed by the kernel file of the build that validated them (Foreign keys): the stock build's entries are committed; a vector build validates its own on its first `ergo test`.

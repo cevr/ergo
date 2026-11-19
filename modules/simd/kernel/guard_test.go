@@ -6,11 +6,10 @@ import (
 	"runtime/debug"
 	"syscall"
 	"testing"
-	"unsafe"
 )
 
 // TestNoReadPastTheEnd: no kernel reads a byte after its text. Each text
-// ends at the last byte of a mapped page whose next page is unreadable, so
+// (a []byte) ends at the last byte of a mapped page whose next page is unreadable, so
 // a load of even one byte past the end faults, and the fault is a panic
 // the test reports (debug.SetPanicOnFault). It runs every length from 0 to
 // three vectors and a tail, with the needle absent so each kernel scans to
@@ -32,11 +31,10 @@ func TestNoReadPastTheEnd(t *testing.T) {
 		mem[i] = 'a'
 	}
 	defer debug.SetPanicOnFault(debug.SetPanicOnFault(true))
-	for n := 0; n <= 3*width+width-1; n++ {
-		s := unsafe.String(&mem[page-n], n)
-		if n == 0 {
-			s = ""
-		}
+	for n := 0; n <= 4*32-1; n++ {
+		// The slice's capacity runs on into the unreadable page, so a
+		// kernel that reslices past len(s) reads it and faults.
+		s := mem[page-n : page]
 		for _, k := range []struct {
 			name string
 			run  func() int

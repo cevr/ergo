@@ -1,34 +1,37 @@
-// Package scan finds bytes in a text: the first of one byte, of either of
-// two, the first outside a range, and the count of one byte (U1
-// SIMD-SCAN). Each operation has a reference written here in Ergo, a plain
-// byte loop that is its specification, and a vector body in this module's
-// Go package kernel (docs/spec/interop.md, Trusted Go 3), which runs only
-// in a build with GOEXPERIMENT=simd on a CPU that has the vectors. A law
-// beside each operation holds the operation, so the kernel in a vector
-// build, to the reference on texts of every length from empty to three
-// vectors and a tail, with the needle at every offset or absent. A plain
-// go build runs the reference (docs/decisions.md, the 2026-11-02 SIMD
-// rule and its 2026-11-18 and 2026-11-19 lines).
+// Package scan finds bytes: the first of one byte, of either of two, the
+// first outside a range, and the count of one byte (U1 SIMD-SCAN). Each
+// operation is written here in Ergo as a plain byte loop, its reference
+// and specification, and has a kernel in this module's Go package kernel
+// (docs/spec/interop.md, Trusted Go 3), which scans 32 bytes at a time
+// with AVX2 in a GOEXPERIMENT=simd build and is the same scalar loop in
+// every other. Two laws sit beside each operation:
+//
+//   - a rewrite law, the operation == its kernel (Trusted Go 5, pure by a
+//     law): once `ergo test` validates it, the build calls the kernel
+//     wherever the operation is called;
+//   - a law that holds the kernel to the reference on texts long enough
+//     for the vector loop: a run of filler from 0 to 127 bytes, a drawn
+//     text, the needle and another drawn text, so the needle lands at
+//     every offset of the loop and of its tail.
+//
+// A plain go build is correct with no experiment (docs/decisions.md, the
+// 2026-11-02 SIMD rule and its 2026-11-18 and 2026-11-19 lines).
 
 import strings
 
-extern go github.com/cevr/ergo/modules/simd/kernel.Enabled func vectors() bool
+extern go github.com/cevr/ergo/modules/simd/kernel.IndexByte func kernelIndexByte(s []byte, c byte) int
 
-extern go github.com/cevr/ergo/modules/simd/kernel.IndexByte func kernelIndexByte(s string, c byte) int
+extern go github.com/cevr/ergo/modules/simd/kernel.IndexAny2 func kernelIndexAny2(s []byte, a byte, b byte) int
 
-extern go github.com/cevr/ergo/modules/simd/kernel.IndexAny2 func kernelIndexAny2(s string, a byte, b byte) int
+extern go github.com/cevr/ergo/modules/simd/kernel.IndexOutside func kernelIndexOutside(s []byte, lo byte, hi byte) int
 
-extern go github.com/cevr/ergo/modules/simd/kernel.IndexOutside func kernelIndexOutside(s string, lo byte, hi byte) int
-
-extern go github.com/cevr/ergo/modules/simd/kernel.CountByte func kernelCountByte(s string, c byte) int
+extern go github.com/cevr/ergo/modules/simd/kernel.CountByte func kernelCountByte(s []byte, c byte) int
 
 // IndexByte is the first index of c in s, or -1.
-func IndexByte(s string, c byte) int {
-	if vectors() { kernelIndexByte(s, c) } else { indexByte(s, c) }
-}
+func IndexByte(s []byte, c byte) int { indexByte(s, c) }
 
 // indexByte is IndexByte's reference.
-func indexByte(s string, c byte) int {
+func indexByte(s []byte, c byte) int {
 	let mut i = 0
 	for i < len(s) {
 		if s[i] == c {
@@ -39,21 +42,21 @@ func indexByte(s string, c byte) int {
 	-1
 }
 
-// IndexByteIsTheReference: on a text with the needle after a run of
-// filler and a drawn prefix, and on a drawn text, IndexByte is its
-// reference.
-law IndexByteIsTheReference(pad int, fill byte, a string, c byte, b string) {
+// IndexByteIsTheKernel licenses the kernel for IndexByte.
+law IndexByteIsTheKernel(s []byte, c byte) { IndexByte(s, c) } == { kernelIndexByte(s, c) }
+
+// IndexByteKernelIsTheReference: the kernel is the reference with the
+// needle at every offset of the vector loop and its tail.
+law IndexByteKernelIsTheReference(pad int, fill byte, a string, c byte, b string) {
 	let s = padded(pad, fill, a, c, b)
-	IndexByte(s, c) == indexByte(s, c) && IndexByte(a, c) == indexByte(a, c)
+	kernelIndexByte(s, c) == indexByte(s, c)
 }
 
 // IndexAny2 is the first index of a or b in s, or -1.
-func IndexAny2(s string, a byte, b byte) int {
-	if vectors() { kernelIndexAny2(s, a, b) } else { indexAny2(s, a, b) }
-}
+func IndexAny2(s []byte, a byte, b byte) int { indexAny2(s, a, b) }
 
 // indexAny2 is IndexAny2's reference.
-func indexAny2(s string, a byte, b byte) int {
+func indexAny2(s []byte, a byte, b byte) int {
 	let mut i = 0
 	for i < len(s) {
 		if s[i] == a || s[i] == b {
@@ -64,21 +67,22 @@ func indexAny2(s string, a byte, b byte) int {
 	-1
 }
 
-// IndexAny2IsTheReference: as IndexByteIsTheReference, with either
-// needle placed.
-law IndexAny2IsTheReference(pad int, fill byte, x string, a byte, b byte, y string) {
+// IndexAny2IsTheKernel licenses the kernel for IndexAny2.
+law IndexAny2IsTheKernel(s []byte, a byte, b byte) { IndexAny2(s, a, b) } == { kernelIndexAny2(s, a, b) }
+
+// IndexAny2KernelIsTheReference: as IndexByteKernelIsTheReference, with
+// either needle placed.
+law IndexAny2KernelIsTheReference(pad int, fill byte, x string, a byte, b byte, y string) {
 	let s = padded(pad, fill, x, a, y)
 	let t = padded(pad, fill, x, b, y)
-	IndexAny2(s, a, b) == indexAny2(s, a, b) && IndexAny2(t, a, b) == indexAny2(t, a, b) && IndexAny2(x, a, b) == indexAny2(x, a, b)
+	kernelIndexAny2(s, a, b) == indexAny2(s, a, b) && kernelIndexAny2(t, a, b) == indexAny2(t, a, b)
 }
 
 // IndexOutside is the first index of a byte below lo or above hi, or -1.
-func IndexOutside(s string, lo byte, hi byte) int {
-	if vectors() { kernelIndexOutside(s, lo, hi) } else { indexOutside(s, lo, hi) }
-}
+func IndexOutside(s []byte, lo byte, hi byte) int { indexOutside(s, lo, hi) }
 
 // indexOutside is IndexOutside's reference.
-func indexOutside(s string, lo byte, hi byte) int {
+func indexOutside(s []byte, lo byte, hi byte) int {
 	let mut i = 0
 	for i < len(s) {
 		if s[i] < lo || s[i] > hi {
@@ -89,21 +93,21 @@ func indexOutside(s string, lo byte, hi byte) int {
 	-1
 }
 
-// IndexOutsideIsTheReference: on a run of filler inside the range and a
-// drawn byte after it, and on a drawn text, IndexOutside is its
-// reference.
-law IndexOutsideIsTheReference(pad int, lo byte, hi byte, a string, c byte, b string) {
+// IndexOutsideIsTheKernel licenses the kernel for IndexOutside.
+law IndexOutsideIsTheKernel(s []byte, lo byte, hi byte) { IndexOutside(s, lo, hi) } == { kernelIndexOutside(s, lo, hi) }
+
+// IndexOutsideKernelIsTheReference: on a run of filler inside the range
+// (lo itself) and a drawn byte after it, the kernel is the reference.
+law IndexOutsideKernelIsTheReference(pad int, lo byte, hi byte, a string, c byte, b string) {
 	let s = padded(pad, lo, a, c, b)
-	IndexOutside(s, lo, hi) == indexOutside(s, lo, hi) && IndexOutside(a, lo, hi) == indexOutside(a, lo, hi)
+	kernelIndexOutside(s, lo, hi) == indexOutside(s, lo, hi)
 }
 
 // CountByte is the number of bytes of s equal to c.
-func CountByte(s string, c byte) int {
-	if vectors() { kernelCountByte(s, c) } else { countByte(s, c) }
-}
+func CountByte(s []byte, c byte) int { countByte(s, c) }
 
 // countByte is CountByte's reference.
-func countByte(s string, c byte) int {
+func countByte(s []byte, c byte) int {
 	let mut n = 0
 	let mut i = 0
 	for i < len(s) {
@@ -115,17 +119,19 @@ func countByte(s string, c byte) int {
 	n
 }
 
-// CountByteIsTheReference: on a run of the counted byte itself and on a
-// drawn text, CountByte is its reference.
-law CountByteIsTheReference(pad int, a string, c byte, b string) {
+// CountByteIsTheKernel licenses the kernel for CountByte.
+law CountByteIsTheKernel(s []byte, c byte) { CountByte(s, c) } == { kernelCountByte(s, c) }
+
+// CountByteKernelIsTheReference: on a run of the counted byte itself, so
+// every vector counts, the kernel is the reference.
+law CountByteKernelIsTheReference(pad int, a string, c byte, b string) {
 	let s = padded(pad, c, a, c, b)
-	CountByte(s, c) == countByte(s, c) && CountByte(a, c) == countByte(a, c)
+	kernelCountByte(s, c) == countByte(s, c)
 }
 
 // padded is a run of fill, 0 to 127 bytes long by pad, then a, the
-// needle c and b: a needle at every offset of the vector loop and its
-// tail, for the laws above.
-func padded(pad int, fill byte, a string, c byte, b string) string {
+// needle c and b, as bytes.
+func padded(pad int, fill byte, a string, c byte, b string) []byte {
 	let n = ((pad % 128) + 128) % 128
-	strings.Repeat(strings.FromBytes([]byte{fill}), n) + a + strings.FromBytes([]byte{c}) + b
+	strings.Bytes(strings.Repeat(strings.FromBytes([]byte{fill}), n) + a + strings.FromBytes([]byte{c}) + b)
 }

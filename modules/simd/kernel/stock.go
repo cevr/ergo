@@ -2,17 +2,11 @@
 
 package kernel
 
-// Enabled reports whether the vector kernels run. In this build they do
-// not: package scan runs its Ergo reference, and gc removes the call.
+// IndexByte is the first index of c in s, or -1. In this build the kernel
+// is the scalar loop the Ergo reference is.
 //
 //ergo:wait none
-func Enabled() bool { return false }
-
-// IndexByte is never called in this build (Enabled is false); it answers
-// as the reference does, so a call by mistake is still correct.
-//
-//ergo:wait none
-func IndexByte(s string, c uint8) int {
+func IndexByte(s []uint8, c uint8) int {
 	for i := 0; i < len(s); i++ {
 		if s[i] == c {
 			return i
@@ -21,10 +15,10 @@ func IndexByte(s string, c uint8) int {
 	return -1
 }
 
-// IndexAny2 is IndexByte for either of two bytes.
+// IndexAny2 is the first index of a or b in s, or -1.
 //
 //ergo:wait none
-func IndexAny2(s string, a uint8, b uint8) int {
+func IndexAny2(s []uint8, a uint8, b uint8) int {
 	for i := 0; i < len(s); i++ {
 		if s[i] == a || s[i] == b {
 			return i
@@ -36,7 +30,7 @@ func IndexAny2(s string, a uint8, b uint8) int {
 // IndexOutside is the first index of a byte below lo or above hi, or -1.
 //
 //ergo:wait none
-func IndexOutside(s string, lo uint8, hi uint8) int {
+func IndexOutside(s []uint8, lo uint8, hi uint8) int {
 	for i := 0; i < len(s); i++ {
 		if s[i] < lo || s[i] > hi {
 			return i
@@ -48,7 +42,7 @@ func IndexOutside(s string, lo uint8, hi uint8) int {
 // CountByte is the number of bytes of s equal to c.
 //
 //ergo:wait none
-func CountByte(s string, c uint8) int {
+func CountByte(s []uint8, c uint8) int {
 	n := 0
 	for i := 0; i < len(s); i++ {
 		if s[i] == c {
