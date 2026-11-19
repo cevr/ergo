@@ -27,6 +27,8 @@ func kindOf[E](n ui.Node[E]) int {
 		screen.Editor
 	case ui.ScrollNode:
 		screen.Scroller
+	case ui.RowsNode:
+		screen.Lister
 	case _:
 		screen.Box
 	}

@@ -27,6 +27,9 @@ extern go ergo.local/prototype/hosts/opentui/screen.Cell type Cell {
 // ergo:go const Closed untyped int
 extern go ergo.local/prototype/hosts/opentui/screen.Closed let Closed int
 
+// ergo:go const Content untyped int
+extern go ergo.local/prototype/hosts/opentui/screen.Content let Content int
+
 // ergo:go const Dim int
 extern go ergo.local/prototype/hosts/opentui/screen.Dim let Dim int
 
@@ -124,6 +127,9 @@ extern go ergo.local/prototype/hosts/opentui/screen.Justify let Justify int
 
 // ergo:go const Key untyped int
 extern go ergo.local/prototype/hosts/opentui/screen.Key let Key int
+
+// ergo:go const Lister untyped int
+extern go ergo.local/prototype/hosts/opentui/screen.Lister let Lister int
 
 // ergo:go const Margin untyped int
 extern go ergo.local/prototype/hosts/opentui/screen.Margin let Margin int
@@ -242,6 +248,12 @@ extern go ergo.local/prototype/hosts/opentui/screen.Screen.Rows func (s *Screen)
 // ergo:go func (*Screen).Said() []string
 extern go ergo.local/prototype/hosts/opentui/screen.Screen.Said func (s *Screen) Said() []string needs go.Foreign
 
+// ergo:go func (*Screen).ScrollOf(n int) ScrollState
+extern go ergo.local/prototype/hosts/opentui/screen.Screen.ScrollOf func (s *Screen) ScrollOf(n int) ScrollState needs go.Foreign
+
+// ergo:go func (*Screen).ScrollTo(n int, y int, by bool) error
+extern go ergo.local/prototype/hosts/opentui/screen.Screen.ScrollTo func (s *Screen) ScrollTo(n int, y int, by bool) fails go.Error needs go.Foreign
+
 // ergo:go func (*Screen).SetLook(n int, fg uint32, bg uint32, attr int)
 extern go ergo.local/prototype/hosts/opentui/screen.Screen.SetLook func (s *Screen) SetLook(n int, fg uint32, bg uint32, attr int) needs go.Foreign
 
@@ -271,6 +283,13 @@ extern go ergo.local/prototype/hosts/opentui/screen.Screen.Wake func (s *Screen)
 
 // ergo:go const Scroll int
 extern go ergo.local/prototype/hosts/opentui/screen.Scroll let Scroll int
+
+// ergo:go type ScrollState struct
+extern go ergo.local/prototype/hosts/opentui/screen.ScrollState type ScrollState {
+	Offset  int,
+	Height  int,
+	Content int,
+}
 
 // ergo:go const Scroller untyped int
 extern go ergo.local/prototype/hosts/opentui/screen.Scroller let Scroller int

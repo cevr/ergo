@@ -15,9 +15,12 @@ replace ergo.local/prototype => ../..
 // model, the view and the script of each).
 require (
 	ergo.local/prototype/examples/countergui v0.0.0
+	ergo.local/prototype/examples/starsgui v0.0.0
 	ergo.local/prototype/examples/todogui v0.0.0
 )
 
 replace ergo.local/prototype/examples/countergui => ../../examples/counter-gui
+
+replace ergo.local/prototype/examples/starsgui => ../../examples/stars-gui
 
 replace ergo.local/prototype/examples/todogui => ../../examples/todo-gui

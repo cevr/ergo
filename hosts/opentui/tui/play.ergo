@@ -78,14 +78,63 @@ func Box[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) screen.Rect needs go.Fo
 
 // Click is the bytes of a left button press and release at column x, row
 // y (SGR mouse form, 1-based on the wire).
-func Click(x int, y int) string { "\x1b[<0;\(x + 1);\(y + 1)M\x1b[<0;\(x + 1);\(y + 1)m" }
+func Click(x int, y int) string { Mouse(0, x, y, true) + Mouse(0, x, y, false) }
+
+// Mouse is the bytes of one SGR mouse report of button code b at column
+// x, row y: a press or a motion (down), else a release. Code 0 is the left
+// button, 32 a drag of it, 35 a move with no button, 64 and 65 a turn of
+// the wheel up and down, 66 and 67 left and right.
+func Mouse(b int, x int, y int, down bool) string { "\x1b[<\(b);\(x + 1);\(y + 1)\(if down { "M" } else { "m" })" }
+
+// pointOn sends the pointer event p at the Area id as the mouse bytes
+// that make it, at the cell of p's place in the Area's box (DIPs to cells
+// by the host's Cell): a Down a press, an Up a release, a Moved a drag
+// while an Area holds the pointer and a move with no button otherwise, a
+// Wheel a turn of the wheel for each WheelRows rows (or columns) of its
+// DY (DX), at least one.
+func pointOn[E comparable, S, D, F](d *Driver[S, E, D, F], id ui.Id[E], label string, p ui.PointerEvent) fails ui.NoNode | ui.Closed | actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
+	if !d.s.Shown(numOf(d, id)) {
+		return ui.NoNode{Label: label}
+	}
+	let c = d.options.Cell
+	let b = Box(d, id)
+	let x = b.X + int(p.X/c.W)
+	let y = b.Y + int(p.Y/c.H)
+	match p.Phase {
+	case ui.Down:
+		try Send(d, Mouse(0, x, y, true))
+	case ui.Up:
+		try Send(d, Mouse(0, x, y, false))
+	case ui.Moved:
+		try Send(d, Mouse(if Captured(d) != None { 32 } else { 35 }, x, y, true))
+	case ui.Wheel as w:
+		let (code, by, unit) = if w.DY != 0 { (if w.DY > 0 { 65 } else { 64 }, w.DY, c.H) } else { (if w.DX > 0 { 67 } else { 66 }, w.DX, c.W) }
+		let turn = float64(WheelRows) * unit
+		let mut n = int((if by < 0 { -by } else { by })/turn + 0.5)
+		if n < 1 && by != 0 {
+			n = 1
+		}
+		for _ in 0..n {
+			try Send(d, Mouse(code, x, y, true))
+		}
+	}
+}
+
+// scrollOn scrolls the list (or Scroll) id to offset (DIPs, whole rows
+// by the host's Cell), as a person drags its bar there, and reports its
+// viewport.
+func scrollOn[E comparable, S, D, F](d *Driver[S, E, D, F], id ui.Id[E], offset ui.Length) fails ui.BadPatch | ScreenFailed needs go.Foreign {
+	let rows = float64(offset) / d.options.Cell.H
+	try scrollTo(d.s, numOf(d, id), int(rows+0.5), false)
+	try repaint(d)
+}
 
 // tapOn taps id at the first cell of its box, after the Scrolls around it
 // scrolled it into view, as a person scrolls to a row below the fold;
 // NoNode names it by label when it shows in no cell.
 func tapOn[E comparable, S, D, F](d *Driver[S, E, D, F], id ui.Id[E], label string) fails ui.NoNode | ui.Closed | actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
 	try reveal(d.s, numOf(d, id))
-	try present(d.s)
+	try repaint(d)
 	if !d.s.Shown(numOf(d, id)) {
 		return ui.NoNode{Label: label}
 	}
@@ -109,9 +158,10 @@ func typeInto[E comparable, S, D, F](d *Driver[S, E, D, F], id ui.Id[E], label s
 // the text; KeyIn sends the key's bytes; SettleAll settles; ClickOn and
 // FillIn act as TapOn and TypeInto on the first node the locator finds,
 // ExpectOn checks its matcher there, and NavigateTo and GoBack move the
-// history and send URLChanged, as ui.TestHost does. AdvanceBy does
-// nothing. PointOn and ScrollOn come with areas and lists (OT4); until
-// then they find no node.
+// history and send URLChanged, as ui.TestHost does. PointOn sends the
+// mouse bytes of its pointer event at the Area (pointOn); ScrollOn
+// scrolls the list to its offset (its height is the screen's, which the
+// list reports). AdvanceBy does nothing.
 func Play[E comparable, S, D, F](d *Driver[S, E, D, F], script []ui.Act) fails ui.NoNode | ui.Mismatch | ui.Closed | actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
 	for act in script {
 		match act {
@@ -132,9 +182,19 @@ func Play[E comparable, S, D, F](d *Driver[S, E, D, F], script []ui.Act) fails u
 		case ui.KeyIn as x:
 			try Send(d, Bytes(x.Press))
 		case ui.PointOn as x:
-			return ui.NoNode{Label: x.Label}
+			match Find(d, x.Label) {
+			case Some[ui.Id[E]] as id:
+				try pointOn(d, id.Value, x.Label, x.Pointer)
+			case None:
+				return ui.NoNode{Label: x.Label}
+			}
 		case ui.ScrollOn as x:
-			return ui.NoNode{Label: x.Label}
+			match Find(d, x.Label) {
+			case Some[ui.Id[E]] as id:
+				try scrollOn(d, id.Value, x.Offset)
+			case None:
+				return ui.NoNode{Label: x.Label}
+			}
 		case ui.SettleAll:
 			try Settle(d)
 		case ui.AdvanceBy:
@@ -155,6 +215,9 @@ func Play[E comparable, S, D, F](d *Driver[S, E, D, F], script []ui.Act) fails u
 		}
 	}
 }
+
+// Locate is the nodes of the tree loc finds, in tree order.
+func Locate[S, E, D, F](d *Driver[S, E, D, F], loc ui.Locator) []ui.Id[E] { ui.LocateIn(&d.mirror, loc) }
 
 // located is the first node of the tree loc finds.
 func located[E comparable, S, D, F](d *Driver[S, E, D, F], loc ui.Locator) ui.Id[E] fails ui.NoNode {

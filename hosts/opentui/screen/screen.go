@@ -39,7 +39,14 @@ const (
 	// a bar while they are taller (ot_scene_set_scroll). Its Direction,
 	// Padding, Gap, AlignItems and Justify are its content's.
 	Scroller = 2
+	// Lister: a Scroller of rows (a virtual list). Its children lie in a
+	// content box Content cells high, each placed by its Inset (Absolute);
+	// with no Height of its own it takes the rows below its top.
+	Lister = 4
 )
+
+// scrolls is whether a node of kind scrolls its children.
+func scrolls(kind int) bool { return kind == Scroller || kind == Lister }
 
 // The kinds of an Input.
 const (
@@ -103,6 +110,8 @@ const (
 	Justify
 	// Absolute: 1 takes the node out of the flow.
 	Absolute
+	// Content: the height of a Lister's content box.
+	Content
 )
 
 // The attributes of SetLook.
@@ -161,13 +170,17 @@ type Screen struct {
 	parent   map[int]int
 	children map[int][]int
 	edits    map[int]editor
-	focus    int
-	out      io.Writer
-	chunk    []byte
-	records  []ot.InputEvent
-	payload  []byte
-	start    time.Time
-	live     bool
+	// inner is each Lister's content box; fills the height each Lister
+	// with no Height of its own was given (0 before the first frame).
+	inner   map[int]ot.Handle
+	fills   map[int]int
+	focus   int
+	out     io.Writer
+	chunk   []byte
+	records []ot.InputEvent
+	payload []byte
+	start   time.Time
+	live    bool
 	// inputClock is the parser's clock of a headless screen (ns); deadline
 	// the parser's last timeout, or 0.
 	inputClock, deadline uint64
@@ -197,7 +210,7 @@ func newScreen(cols, rows int, out io.Writer) (*Screen, error) {
 	}
 	s := &Screen{
 		owner: ot.NewOwner(), nodes: map[int]ot.Handle{}, kinds: map[int]int{}, parent: map[int]int{},
-		children: map[int][]int{}, edits: map[int]editor{}, focus: -1, out: out, chunk: make([]byte, 64<<10),
+		children: map[int][]int{}, edits: map[int]editor{}, inner: map[int]ot.Handle{}, fills: map[int]int{}, focus: -1, out: out, chunk: make([]byte, 64<<10),
 		records: make([]ot.InputEvent, 256), payload: make([]byte, 64<<10), start: time.Now(),
 		wake: make(chan struct{}, 1), cols: cols, rows: rows, inputClock: 1,
 	}
@@ -322,13 +335,30 @@ func (s *Screen) apply(c command) error {
 			return fmt.Errorf("screen: Create %d: %w", c.node, err)
 		}
 		s.nodes[c.node], s.kinds[c.node], s.parent[c.node] = h, c.kind, -1
-		if c.kind == Scroller {
+		if scrolls(c.kind) {
 			s.calls++
 			bar := ot.SceneScrollBarOptions{Policy: ot.OT_SCENE_SCROLL_BAR_AUTO, Placement: ot.OT_SCENE_SCROLL_BAR_INSET, Thickness: 1,
 				TrackForeground: [4]uint16{128, 128, 128, 255}}
 			if err := ot.SceneSetScroll(s.ctx, h, ot.SceneScrollOptions{Axes: ot.OT_SCENE_SCROLL_Y, Bars: [2]ot.SceneScrollBarOptions{{Policy: ot.OT_SCENE_SCROLL_BAR_NEVER, Thickness: 1}, bar}}); err != nil {
 				return fmt.Errorf("screen: Create %d: scroll: %w", c.node, err)
 			}
+		}
+		if c.kind == Lister {
+			// The content box hits as the list does (its public number) and
+			// is as wide as the list: its rows lie in it out of the flow, so
+			// they give it no width.
+			s.calls += 3
+			in, err := ot.SceneCreateNode(s.ctx, s.session, ot.OT_SCENE_BOX, uint32(c.node+1))
+			if err == nil {
+				err = ot.SceneMoveNode(s.ctx, in, h, 0)
+			}
+			if err == nil {
+				err = ot.SceneSetStyle(s.ctx, in, ot.OT_STYLE_DIMENSION, ot.OT_STYLE_VALUE_WIDTH, ot.OT_EDGE_NONE, ot.OT_UNIT_PERCENT, 100, 0)
+			}
+			if err != nil {
+				return fmt.Errorf("screen: Create %d: content: %w", c.node, err)
+			}
+			s.inner[c.node], s.fills[c.node] = in, 0
 		}
 		if c.kind == Editor {
 			return s.newEditor(c.node, h)
@@ -370,6 +400,9 @@ func (s *Screen) apply(c command) error {
 		if c.parent != 0 {
 			if p, ok = s.nodes[c.parent]; !ok {
 				return fmt.Errorf("screen: Move %d: parent %d is not on the screen", c.node, c.parent)
+			}
+			if in, ok := s.inner[c.parent]; ok {
+				p = in
 			}
 		}
 		s.calls++
@@ -443,6 +476,14 @@ func (s *Screen) destroy(n int) error {
 		}
 	}
 	delete(s.children, n)
+	if in, ok := s.inner[n]; ok {
+		delete(s.inner, n)
+		delete(s.fills, n)
+		s.calls++
+		if err := ot.SceneDestroyNode(s.ctx, in); err != nil {
+			return fmt.Errorf("screen: Destroy %d: content: %w", n, err)
+		}
+	}
 	h := s.nodes[n]
 	delete(s.nodes, n)
 	delete(s.kinds, n)
@@ -498,6 +539,19 @@ func (s *Screen) style(c command, h ot.Handle) error {
 		group, kind, edge = ot.OT_STYLE_DIMENSION, ot.OT_STYLE_VALUE_WIDTH, ot.OT_EDGE_NONE
 	case Height:
 		group, kind, edge = ot.OT_STYLE_DIMENSION, ot.OT_STYLE_VALUE_HEIGHT, ot.OT_EDGE_NONE
+		if s.kinds[c.node] == Lister {
+			if math.IsNaN(c.value) {
+				s.fills[c.node] = 0
+			} else {
+				delete(s.fills, c.node)
+			}
+		}
+	case Content:
+		in, ok := s.inner[c.node]
+		if !ok {
+			return fmt.Errorf("screen: SetStyle %d: Content of a node that is no Lister", c.node)
+		}
+		group, kind, edge, h = ot.OT_STYLE_DIMENSION, ot.OT_STYLE_VALUE_HEIGHT, ot.OT_EDGE_NONE, in
 	case Padding:
 		group, kind = ot.OT_STYLE_VALUE, ot.OT_STYLE_VALUE_PADDING
 	case Margin:
@@ -522,7 +576,7 @@ func (s *Screen) style(c command, h ot.Handle) error {
 		return fmt.Errorf("screen: SetStyle %d: no property %d", c.node, c.kind)
 	}
 	flags := uint32(0)
-	if s.kinds[c.node] == Scroller {
+	if scrolls(s.kinds[c.node]) {
 		switch c.kind {
 		case Direction, Padding, Gap, AlignItems, Justify:
 			flags = ot.OT_STYLE_CONTENT
@@ -540,10 +594,9 @@ func (s *Screen) style(c command, h ot.Handle) error {
 // once the queue drained, so the last state is never dropped.
 func (s *Screen) frame() error {
 	for attempt := 0; attempt < 2; attempt++ {
-		s.calls++
-		req, err := ot.ScenePaint(s.ctx, s.session, [4]uint16{0, 0, 0, 0}, 1, 0)
+		req, err := s.paint()
 		if err != nil {
-			return fmt.Errorf("screen: paint: %w", err)
+			return err
 		}
 		s.calls++
 		st, err := ot.SceneFrameCommit(s.ctx, s.session, req, 0)
@@ -563,6 +616,64 @@ func (s *Screen) frame() error {
 		}
 	}
 	return errors.New("screen: the frame was skipped twice under output pressure")
+}
+
+// paint paints a frame (owner thread). When a Lister that fills the rows
+// below it moved in the frame painted, it is given its new height and the
+// frame is painted again, so the frame drawn has every list's height
+// right; one more paint at most for each list that fills.
+func (s *Screen) paint() (ot.SceneFrameRequest, error) {
+	for tries := 0; ; tries++ {
+		s.calls++
+		req, err := ot.ScenePaint(s.ctx, s.session, [4]uint16{0, 0, 0, 0}, 1, 0)
+		if err != nil {
+			return req, fmt.Errorf("screen: paint: %w", err)
+		}
+		changed, err := s.fill()
+		// A list placed by another that fills settles in as many paints
+		// as there are lists; past that the frame keeps what it has.
+		changed = changed && tries < len(s.fills)
+		if err != nil || changed {
+			s.calls++
+			_ = ot.SceneFrameCancel(s.ctx, s.session, req.FrameId)
+		}
+		if err != nil {
+			return req, err
+		}
+		if !changed {
+			return req, nil
+		}
+	}
+}
+
+// fill gives each Lister with no Height of its own the rows below its
+// top, where the frame being prepared places it, and reports whether a
+// height changed (owner thread).
+func (s *Screen) fill() (bool, error) {
+	changed := false
+	if len(s.fills) == 0 {
+		return false, nil
+	}
+	s.mu.Lock()
+	rows := s.rows
+	s.mu.Unlock()
+	for n, was := range s.fills {
+		s.calls++
+		l, err := ot.SceneGetLayout(s.ctx, s.nodes[n], ot.OT_LAYOUT_PAINT)
+		if err != nil {
+			return false, fmt.Errorf("screen: layout of %d: %w", n, err)
+		}
+		want := max(rows-int(math.Round(l.ScreenY)), 1)
+		if want == was {
+			continue
+		}
+		s.fills[n], changed = want, true
+		s.calls++
+		if err := ot.SceneSetStyle(s.ctx, s.nodes[n], ot.OT_STYLE_DIMENSION, ot.OT_STYLE_VALUE_HEIGHT, ot.OT_EDGE_NONE, ot.OT_UNIT_POINT, float32(want), 0); err != nil {
+			return false, fmt.Errorf("screen: fill %d: %w", n, err)
+		}
+	}
+	return changed, nil
 }
 
 // flush writes every queued output byte to the terminal (owner thread).
@@ -721,7 +832,7 @@ func (s *Screen) Reveal(n int) error {
 			return
 		}
 		for p := s.parent[n]; p > 0; p = s.parent[p] {
-			if s.kinds[p] != Scroller {
+			if !scrolls(s.kinds[p]) {
 				continue
 			}
 			s.calls++
@@ -746,7 +857,7 @@ func (s *Screen) Shown(n int) bool {
 	var outer []int
 	s.do(func() {
 		for p := s.parent[n]; p > 0; p = s.parent[p] {
-			if s.kinds[p] == Scroller {
+			if scrolls(s.kinds[p]) {
 				outer = append(outer, p)
 			}
 		}
@@ -758,6 +869,51 @@ func (s *Screen) Shown(n int) bool {
 		}
 	}
 	return true
+}
+
+// ScrollState is a Scroller's or a Lister's vertical scroll, in cells:
+// the offset, the viewport's height, and the content's height.
+type ScrollState struct {
+	Offset, Height, Content int
+}
+
+// ScrollOf is node n's scroll after the last Present (zeros for a node
+// that does not scroll).
+func (s *Screen) ScrollOf(n int) ScrollState {
+	var st ScrollState
+	s.do(func() {
+		h, ok := s.nodes[n]
+		if !ok || !scrolls(s.kinds[n]) {
+			return
+		}
+		s.calls++
+		g, err := ot.SceneGetScroll(s.ctx, h)
+		if err != nil {
+			panic(fmt.Errorf("screen: ScrollOf %d: %w", n, err))
+		}
+		st = ScrollState{int(math.Round(g.Offset[1])), int(math.Round(g.Viewport[3])), int(math.Round(g.Content[3]))}
+	})
+	return st
+}
+
+// ScrollTo scrolls node n to offset y (cells), inside its content; by
+// scrolls it by y from where it is. The next Present paints it there.
+func (s *Screen) ScrollTo(n, y int, by bool) error {
+	var err error
+	s.do(func() {
+		h, ok := s.nodes[n]
+		if !ok || !scrolls(s.kinds[n]) {
+			err = fmt.Errorf("screen: ScrollTo %d: no node that scrolls", n)
+			return
+		}
+		flags := uint32(0)
+		if by {
+			flags = ot.OT_SCENE_SCROLL_RELATIVE_Y
+		}
+		s.calls++
+		_, err = ot.SceneScrollTo(s.ctx, h, 0, float64(y), flags)
+	})
+	return err
 }
 
 // HitTest is the number of the node painted last at column x, row y, 0
