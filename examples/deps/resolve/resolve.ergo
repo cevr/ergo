@@ -18,6 +18,25 @@ type Want { By string, Want Constraint }
 // the first dead end of the search where that is so.
 type NoVersion { Name string, Wants []Want }
 
+// NoVersionIsHonest: when no version of a package keeps its wants, no
+// version of it in the registry keeps them all.
+law NoVersionIsHonest(entries []Entry, root []Need) {
+	let t = TableOf(entries)
+	with context { Index: t } {
+		let _ = Resolve(RootOf(root)) catch {
+		case NoVersion as n:
+			let vs = t.Versions(n.Name) catch {
+			case UnknownPackage:
+				return false
+			}
+			return slices.IndexFunc(vs, func(v semver.Version) bool { keepsAll(n.Wants, v) }) < 0
+		case _:
+			return true
+		}
+		true
+	}
+}
+
 // NoPlan is a search that tried every version of every package and found
 // no choice that keeps every want, with no single package to blame: each
 // dead end was a mix of choices.

@@ -9,6 +9,7 @@
 
 import machines
 import time
+import testing
 
 func at(t duration, b Button) machines.Timed[Button] { machines.Timed[Button]{At: t, Signal: b} }
 
@@ -29,6 +30,20 @@ test StartEntersRunningFromTheShownTime {
 	assert Step(Stopped{Elapsed: 2s}, Pressed{Button: Start, At: reading(0s)}) == Enter[Watch]{Next: n} && armed(n)
 }
 
+// tick is the timer of a running watch's entry: after TickEvery, Ticked
+// at the clock's reading when it fires.
+func tick(w Watch) Option[machines.Every[Signal]] {
+	match w {
+	case Running:
+		Some{machines.Every[Signal]{In: TickEvery, Signal: tickedAt}}
+	case Stopped, Starting, Stopping:
+		None
+	}
+}
+
+// tickedAt is the tick at the reading at.
+func tickedAt(at time.Time) Signal { Ticked{At: at} }
+
 test StartRunsTheWatchOnTheClock {
 	// CompletedDetermineStartTime stores the offset start time and starts
 	// running: started at 500ms, the watch runs from then, and 50ms later
@@ -36,6 +51,13 @@ test StartRunsTheWatchOnTheClock {
 	// shown, and the test above covers a shown time.)
 	let w = run([]machines.Timed[Button]{at(time.Times(1ms, 500), Start)}, time.Times(1ms, 550))
 	assert ElapsedOf(w) == time.Times(1ms, 50) && IsRunning(w)
+}
+
+// run is the watch over trace until end on a fresh VirtualClock, whose
+// timers fire on time: its last state.
+func run(trace []machines.Timed[Button], end duration) Watch {
+	let c = testing.NewVirtualClock(0)
+	with context { Scheduler: c, time.Clock: c } { Replay(trace, end) }
 }
 
 test StopKeepsTheTime {

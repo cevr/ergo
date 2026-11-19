@@ -92,7 +92,7 @@ func without(m Model, key int) []Entry[int, int] { slices.Filter(m.entries, func
 // ModelAgrees: over a run of operations drawn from seed, the cache gives
 // each outcome the model gives, and holds the model's entries in order.
 law ModelAgrees(n int, seed int) {
-	let size = SizeOf(n)
+	let size = sizeOf(n)
 	let mut c = New[int, int](size) catch {
 	case BadCapacity:
 		return false

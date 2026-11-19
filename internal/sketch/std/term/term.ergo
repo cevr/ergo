@@ -43,6 +43,40 @@ extern go ergo.local/prototype/runtime/v1.TermWindow type Window { Cols int, Row
 // here, by its bytes. The bytes of each are in keys.ergo (Cut, Decode).
 type Key = Char{Text string} | Return{} | Backspace{} | Tab{} | Escape{} | Up{} | Down{} | Left{} | Right{} | Home{} | End{} | Insert{} | Delete{} | PageUp{} | PageDown{} | F{N int} | Chord{Mods Mods, Name string} | Paste{Text string} | Wheel{Up bool, Col int, Row int} | Resized{Window Window} | Interrupt{} | EndOfInput{} | Other{Bytes string}
 
+// ScriptPlaysKeys: a script's ReadKey gives its keys in order, then
+// EndOfInput.
+law ScriptPlaysKeys(texts []string) {
+	let mut keys []Key = []Key{}
+	for t in texts {
+		keys = keys.Append(Char{Text: t})
+	}
+	let s = NewScript(keys, Window{Cols: 1, Rows: 1})
+	let mut ok = true
+	with context { Terminal: s } {
+		for t in texts {
+			match Terminal.ReadKey() catch {
+			case io.ReadFailed:
+				EndOfInput
+			} {
+			case Char as c:
+				ok = ok && c.Text == t
+			case _:
+				ok = false
+			}
+		}
+		match Terminal.ReadKey() catch {
+		case io.ReadFailed:
+			Return
+		} {
+		case EndOfInput:
+			ok = ok
+		case _:
+			ok = false
+		}
+	}
+	ok
+}
+
 // Terminal is the terminal of standard input.
 // law-exempt: SetMode and Restore change the host's terminal, which no law over the operations alone can read back; Script carries the scope laws (RawRestores, NestedRestoresInOrder) and the pty model TestTermModesRestore (lower) checks the host's state.
 type Terminal {
@@ -65,6 +99,36 @@ func Raw[T, E, R](body func() T fails E needs R) T fails E | NotTerminal needs R
 	try Terminal.SetMode(RawMode)
 	scope.OnExit() { Terminal.Restore() }
 	try body()
+}
+
+// RawRestores: after Raw ends, by a value or by a failure of its block,
+// the script holds no mode, and inside it holds RawMode alone.
+law RawRestores(fail bool) {
+	let s = NewScript([]Key{}, Window{Cols: 80, Rows: 24})
+	let mut inside = 0
+	let got = with context { Terminal: s } {
+		Raw() {
+			inside = len(s.Modes())
+			try failWhen(fail)
+		} catch {
+		case failed:
+			-1
+		case NotTerminal:
+			-2
+		}
+	}
+	inside == 1 && len(s.Modes()) == 0 && got == (if fail { -1 } else { 0 })
+}
+
+// failed is the failure a law's block raises to leave by a failure.
+type failed {}
+
+// failWhen fails when fail is true and is 0 otherwise.
+func failWhen(fail bool) int fails failed {
+	if fail {
+		return failed
+	}
+	0
 }
 
 // NoEcho runs body with the terminal in NoEchoMode and restores the state
@@ -136,6 +200,39 @@ type Script { keys []Key, window sync.Ref[Window], at sync.Ref[int], modes sync.
 // NewScript is the Script that plays keys and has the size window.
 func NewScript(keys []Key, window Window) Script {
 	Script{keys: keys, window: sync.NewRef[Window](window), at: sync.NewRef[int](0), modes: sync.NewRef[[]Mode]([]Mode{})}
+}
+
+// NestedRestoresInOrder: a NoEcho inside a Raw holds both modes, the
+// outer first, and each block's end drops its own mode alone.
+law NestedRestoresInOrder() {
+	let s = NewScript([]Key{}, Window{Cols: 80, Rows: 24})
+	let mut seen = ""
+	with context { Terminal: s } {
+		Raw() {
+			try NoEcho() { seen = seen + names(s.Modes()) }
+			seen = seen + "|" + names(s.Modes())
+		} catch {
+		case NotTerminal:
+			seen = "not a terminal"
+		}
+	}
+	seen == "raw,noecho|raw" && len(s.Modes()) == 0
+}
+
+func names(modes []Mode) string {
+	let mut out = ""
+	for m in modes {
+		if out != "" {
+			out = out + ","
+		}
+		match m {
+		case RawMode:
+			out = out + "raw"
+		case NoEchoMode:
+			out = out + "noecho"
+		}
+	}
+	out
 }
 
 // SetMode keeps m.

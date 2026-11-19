@@ -209,14 +209,7 @@
       "rule": "A cold search asks for {0,4} then {4,56} (law FirstIsFourThenFiftySix).",
       "anchor": {"tests": ["examples:domain-search"]}, "killers": ["examples:domain-search"]
     },
-    {
-      "name": "fd2-plan-price-pages", "origin": "wf10/fd2a",
-      "file": "examples/domain-search/search/plan/plan.ergo",
-      "from": "\tcase route.PriceAscending, route.PriceDescending:\n\t\ttrue\n",
-      "to": "\tcase route.PriceAscending, route.PriceDescending:\n\t\tavailableOnly\n",
-      "rule": "A price order loads the whole catalog in one range (law PriceOrderLoadsWhole).",
-      "anchor": {"tests": ["examples:domain-search"]}, "killers": ["examples:domain-search"]
-    },
+    {"name":"fd2-plan-price-pages","origin":"wf10/fd2a","file":"examples/domain-search/search/plan/plan.ergo","from":"\tcase route.PriceAscending, route.PriceDescending:\n\t\ttrue\n\tcase route.Relevance, route.Length, route.Alphabetical:\n\t\tavailableOnly\n\t}\n}","to":"\tcase route.PriceAscending, route.PriceDescending:\n\t\tavailableOnly\n\tcase route.Relevance, route.Length, route.Alphabetical:\n\t\tavailableOnly\n\t}\n}","rule":"A price order loads the whole catalog in one range (law PriceOrderLoadsWhole).","anchor":{"tests":["examples:domain-search"]},"killers":["examples:domain-search"]},
     {
       "name": "fd2-plan-asks-loaded-again", "origin": "wf10/fd2a",
       "file": "examples/domain-search/search/plan/plan.ergo",

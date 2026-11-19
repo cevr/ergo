@@ -1,4 +1,5 @@
 import strings
+import html
 
 // Unescape is the text that html.Escape wrote as s: each of the five entities
 // back to its byte, &amp; last, so "&amp;lt;" is "&lt;".
@@ -24,4 +25,23 @@ func Inert(s string) bool {
 		}
 	}
 	true
+}
+
+// EscapingIsTotal: every text has an escape that holds no markup, and the
+// escape reads back to the text.
+law EscapingIsTotal(s string) {
+	let text = spice(s)
+	Inert(html.Escape(text)) && Unescape(html.Escape(text)) == text
+}
+
+// spice is s with the bytes of the property generator's alphabet that
+// HTML reads as text turned into markup: a is <, b is >, z is &, _ is "
+// and - is '. The generator draws from a fixed alphabet with none of them
+// (G-ex-d-4).
+func spice(s string) string {
+	let a = strings.ReplaceAll(s, "a", "<")
+	let b = strings.ReplaceAll(a, "b", ">")
+	let z = strings.ReplaceAll(b, "z", "&")
+	let q = strings.ReplaceAll(z, "_", "\"")
+	strings.ReplaceAll(q, "-", "'")
 }

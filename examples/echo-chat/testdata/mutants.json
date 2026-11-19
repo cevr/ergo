@@ -41,14 +41,7 @@
       "rule": "The server's close leaves Offline (law DisconnectReleasesTheConnection).",
       "anchor": {"tests": ["examples:echo-chat"]}, "killers": ["examples:echo-chat"]
     },
-    {
-      "name": "fk14-failure-reason-changed", "origin": "wf10/fk14a",
-      "file": "examples/echo-chat/talk/session.ergo",
-      "from": "Link: Broken{Why: f.Why}",
-      "to": "Link: Broken{Why: f.Why + \"!\"}",
-      "rule": "A failure shows its reason (law DisconnectReleasesTheConnection).",
-      "anchor": {"tests": ["examples:echo-chat"]}, "killers": ["examples:echo-chat"]
-    },
+    {"name":"fk14-failure-reason-changed","origin":"wf10/fk14a","file":"examples/echo-chat/talk/session.ergo","from":"Link: Broken{Why: f.Why}}}\n\tcase (","to":"Link: Broken{Why: f.Why + \"!\"}}}\n\tcase (","rule":"A failure shows its reason (law DisconnectReleasesTheConnection).","anchor":{"tests":["examples:echo-chat"]},"killers":["examples:echo-chat"]},
     {
       "name": "fk14-received-as-mine", "origin": "wf10/fk14a",
       "file": "examples/echo-chat/talk/session.ergo",

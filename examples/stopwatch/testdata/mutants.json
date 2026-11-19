@@ -1,14 +1,7 @@
 {
   "about": "stopwatch's application mutants; each is judged by the example's tests, laws and cases (scripts/examples), not by a compiler test.",
   "mutants": [
-    {
-      "name": "fk1-tick-never-armed", "origin": "wf10/fk1a",
-      "file": "examples/stopwatch/watch/watch.ergo",
-      "from": "\tcase Running:\n\t\tSome{machines.Every[Signal]{In: TickEvery, Signal: tickedAt}}\n",
-      "to": "\tcase Running:\n\t\tNone\n",
-      "rule": "The Running state owns the tick: its entry arms Ticked after TickEvery.",
-      "anchor": {"tests": ["examples:stopwatch"]}, "killers": ["examples:stopwatch"]
-    },
+    {"name":"fk1-tick-never-armed","origin":"wf10/fk1a","file":"examples/stopwatch/watch/tests.ergo","from":"\tcase Running:\n\t\tSome{machines.Every[Signal]{In: TickEvery, Signal: tickedAt}}\n","to":"\tcase Running:\n\t\tNone\n","rule":"The Running state owns the tick: its entry arms Ticked after TickEvery.","anchor":{"tests":["examples:stopwatch"]},"killers":["examples:stopwatch"]},
     {
       "name": "fk1-start-while-running-reenters", "origin": "wf10/fk1a",
       "file": "examples/stopwatch/watch/watch.ergo",
@@ -97,7 +90,7 @@
       "rule": "The screen shows the watch's time (case laps).",
       "anchor": {"tests": ["examples:stopwatch"]}, "killers": ["examples:stopwatch"]
     },
-    {"name":"fkg1-tick-reads-start", "origin":"wf10 FKG1", "file":"examples/stopwatch/watch/watch.ergo", "from":"func tickedAt(at time.Time) Signal { Ticked{At: at} }", "to":"func tickedAt(at time.Time) Signal { Ticked{At: time.Unix(0, 0)} }", "rule":"A tick carries the reading it fired at (machines.Every), so a running watch shows the clock's time at its last tick.", "anchor":{"tests":["examples:stopwatch"]},"killers":["examples:stopwatch"]},
+    {"name":"fkg1-tick-reads-start","origin":"wf10 FKG1","file":"examples/stopwatch/watch/tests.ergo","from":"func tickedAt(at time.Time) Signal { Ticked{At: at} }","to":"func tickedAt(at time.Time) Signal { Ticked{At: time.Unix(0, 0)} }","rule":"A tick carries the reading it fired at (machines.Every), so a running watch shows the clock's time at its last tick.","anchor":{"tests":["examples:stopwatch"]},"killers":["examples:stopwatch"]},
     {
       "name": "fkg1g5-start-click-forgets-the-time", "origin": "wf10/fkg1-g5",
       "file": "examples/stopwatch/watch/watch.ergo",

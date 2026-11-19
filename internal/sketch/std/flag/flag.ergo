@@ -41,6 +41,35 @@ type ChoiceFlag { name string, def string, choices []string, usage string, alias
 // Flag is any flag handle.
 type Flag = StringFlag | IntFlag | BoolFlag | ChoiceFlag | DurationFlag | OptionalStringFlag | OptionalIntFlag | RepeatedStringFlag | RepeatedIntFlag | RepeatedBoolFlag | RepeatedDurationFlag | RepeatedChoiceFlag
 
+// HelpNamesEveryFlag: the help has a line for each flag of the set.
+law HelpNamesEveryFlag(names []string) {
+	let mut flags = []Flag{}
+	let mut seen Map[string, bool]
+	for name in names {
+		match seen.Get(name) {
+		case Some[bool]:
+		case None:
+			seen[name] = true
+			flags = flags.Append(String(name, "", "u"))
+		}
+	}
+	let help = Usage(Set{Name: "law", Usage: "", Flags: flags, Args: []ArgSpec{}})
+	for name in names {
+		if !strings.Contains(help, "\n  -"+name+" string\n") {
+			return false
+		}
+	}
+	true
+}
+
+// FlagCrossesPositional: a flag before or after a positional argument
+// gives the same values (owner, 2026-11-06: flags may follow positional
+// arguments).
+law FlagCrossesPositional(p string, a string) {
+	let before = try Parse(lawSet(), []string{"p" + p, "-s=" + a})
+	Equal(before, try Parse(lawSet(), []string{"-s=" + a, "p" + p}))
+}
+
 // ArgSpec is the handle of a positional argument.
 type ArgSpec { name string, usage string, arity arity }
 
@@ -305,6 +334,13 @@ func heldFlag(f Flag, v Values) int {
 // Rest is the positional arguments that the Remaining spec took.
 func Rest(v Values) []string { v.rest }
 
+// DoubleDashEndsFlags: after "--", an argument that looks like a flag is
+// positional.
+law DoubleDashEndsFlags(x string) {
+	let rest = Rest(try Parse(lawSet(), []string{"--", "-" + x}))
+	len(rest) == 1 && rest[0] == "-"+x
+}
+
 // Given is a flag the command line gave: its long name and the text of
 // each occurrence it keeps, in input order (one for a scalar or optional
 // flag, its last; every one for a repeated flag).
@@ -365,6 +401,39 @@ func Render(v Values) []string {
 	out
 }
 
+// RenderParseRoundTrip: what parses, rendered and parsed again, gives the
+// same value to every read.
+law RenderParseRoundTrip(args []string) {
+	let v = Parse(lawArgsSet(), args) catch {
+	case _:
+		return true
+	}
+	sameReads(try Parse(lawArgsSet(), Render(v)), v)
+}
+
+let lawText = String("s", "d", "a text")
+
+let lawNumber = Int("n", 0, "a number")
+
+let lawSwitch = Bool("b", false, "a switch")
+
+let lawFirst = Arg("first", "the first")
+
+let lawSecond = OptionalArg("second", "the second")
+
+// lawArgsSet is lawSet with a required and an optional positional argument
+// before the remaining ones.
+func lawArgsSet() Set {
+	Set{Name: "law", Usage: "", Flags: []Flag{lawText, lawNumber, lawSwitch}, Args: []ArgSpec{lawFirst, lawSecond, Remaining("rest", "the rest")}}
+}
+
+// sameReads reports whether a and b give the same value to each read of
+// lawArgsSet: each flag's Get, each argument's Get and Rest. It reads
+// through the handles, not through Render or Equal.
+func sameReads(a Values, b Values) bool {
+	lawText.Get(a) == lawText.Get(b) && lawNumber.Get(a) == lawNumber.Get(b) && lawSwitch.Get(a) == lawSwitch.Get(b) && sameArg(lawFirst.Get(a), lawFirst.Get(b)) && sameArg(lawSecond.Get(a), lawSecond.Get(b)) && sameStrings(Rest(a), Rest(b))
+}
+
 // Equal reports whether a and b have sets with the same flags and
 // argument specs, and hold the same value for each flag and the same
 // positional arguments. It reads each value with its handle's Get, not
@@ -384,6 +453,15 @@ func Equal(a Values, b Values) bool {
 		}
 	}
 	sameStrings(a.rest, b.rest)
+}
+
+// ShortAndLongAgree: -name and --name are one flag.
+law ShortAndLongAgree(v string) {
+	Equal(try Parse(lawSet(), []string{"-s=" + v}), try Parse(lawSet(), []string{"--s=" + v}))
+}
+
+law DeclaredShortAndLongAgree(text string) {
+	Equal(try Parse(treeSet(), []string{"-t=" + text}), try Parse(treeSet(), []string{"--text=" + text}))
 }
 
 // sameStrings reports whether x and y hold the same texts in order.
@@ -610,8 +688,43 @@ func notInSet(name string) string {
 // declare h or help): Text is the help. Exit prints it to standard output.
 type Help { Text string }
 
+// HelpWinsInEveryForm: -h, --h, -help and --help, bare or with "=…",
+// fail Help wherever they stand before "--", after a flag whose value is
+// any text ("--" too) and before an unknown flag.
+law HelpWinsInEveryForm(k int, x string) {
+	let forms = []string{"-h", "--h", "-help", "--help", "-h=" + x, "--help=" + x}
+	let form = forms[((k%6)+6)%6]
+	asksHelp([]string{"-s", x, form, "-q"}) && asksHelp([]string{"-s", "--", form, "-q"})
+}
+
+// asksHelp reports whether Parse of lawSet fails Help on args.
+func asksHelp(args []string) bool {
+	Parse(lawSet(), args) catch {
+	case Help:
+		return true
+	case _:
+		return false
+	}
+	false
+}
+
 // Unknown is a flag the set does not declare.
 type Unknown { Name string }
+
+// UnknownNamesTheFlag: a flag the set does not declare fails Unknown with
+// its name.
+law UnknownNamesTheFlag(name string) {
+	if name == "" || name == "h" || name == "help" || name == "s" || name == "n" || name == "b" || strings.Contains(name, "=") || strings.HasPrefix(name, "-") {
+		return true
+	}
+	Parse(lawSet(), []string{"-" + name}) catch {
+	case Unknown as u:
+		return u.Name == name
+	case _:
+		return false
+	}
+	false
+}
 
 // NeedsValue is a flag with no value: it was the last argument.
 type NeedsValue { Name string }
@@ -631,6 +744,30 @@ type Extra { Text string }
 // names from the root to the level that looked it up: empty at the root,
 // ["auth"] for `tool auth bogus`.
 type UnknownCommand { Name string, Known []string, Group []string }
+
+// UnknownCommandNamesItsGroup: a word that names no child of a level with
+// no own leaf, or no word, fails UnknownCommand with the word and the
+// path of group names to that level.
+law UnknownCommandNamesItsGroup(n int, word string) {
+	let depth = treeDepth(n)
+	let groups = treeGroupPath(depth)
+	let name = if word == "read" || word == "group" || strings.HasPrefix(word, "-") { "" } else { word }
+	let args = if name == "" { groups } else { groups.Append(name) }
+	let _ = ParseCommand("tree", "", treeGroups(depth), args) catch {
+	case UnknownCommand as u:
+		return u.Name == name && sameStrings(u.Group, groups)
+	case Help, Unknown, NeedsValue, Invalid, Missing, Extra:
+		return false
+	}
+	false
+}
+
+// treeGroups is treeCommands with no level's own leaf.
+func treeGroups(depth int) []Command[Values] {
+	let leaf = Command[Values]{Name: "read", Usage: "read", Set: treeSet(), Build: treeBuild, Commands: []Command[Values]{}}
+	if depth == 0 { return []Command[Values]{leaf} }
+	[]Command[Values]{leaf, Group("group", "a group", treeGroups(depth-1))}
+}
 
 // Failure is every failure of Parse and ParseCommand.
 type Failure = Help | Unknown | NeedsValue | Invalid | Missing | Extra | UnknownCommand

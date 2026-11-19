@@ -13,7 +13,7 @@ import domain-search/domains
 import domain-search/search/plan
 import domain-search/search/route
 
-func page() Sim { Open("/", domains.Catalog, 15) }
+func page() Sim { open("/", domains.Catalog, 15) }
 
 func fetched(m Sim, i int, label string, offset int, limit int) bool {
 	i < len(m.Fetches) && m.Fetches[i].Label == label && m.Fetches[i].Offset == offset && m.Fetches[i].Limit == limit

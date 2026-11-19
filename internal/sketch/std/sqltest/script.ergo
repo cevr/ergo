@@ -8,6 +8,10 @@
 
 import sql
 import sync
+import slices
+import queue
+import task
+import time
 
 // Rule is how a Script answers a statement: with rows and a count of rows
 // changed, or with a failure. A rule's Statement is the statement's text,
@@ -24,6 +28,208 @@ type Script { log sync.Ref[[]string], rules []Rule } implements sql.DB, sql.Conn
 
 // NewScript is a script with an empty log that answers by rules.
 func NewScript(rules []Rule) Script { Script{log: sync.NewRef[[]string]([]string{}), rules: rules} }
+
+// CommitsOnce: a block that ends normally runs between BEGIN and one
+// COMMIT, its statements through Tx and through DB alike, and its value is
+// the Transaction's.
+law CommitsOnce(a string, b string, n int) {
+	let s = NewScript([]Rule{})
+	let got = with context { sql.DB: s } {
+		sql.Transaction() {
+			let _ = try sql.Tx.Exec(a, []sql.Value{})
+			let _ = try sql.DB.Exec(b, []sql.Value{sql.Int{N: int64(n)}})
+			n
+		} catch {
+		case _:
+			return false
+		}
+	}
+	got == n && slices.Equal(s.Log(), []string{"BEGIN", a, b, "COMMIT"})
+}
+
+// RollsBackOnFailure: a block that fails rolls back and never commits,
+// and its failure is the Transaction's; so is a statement's failure.
+law RollsBackOnFailure(a string, constraint string) {
+	let s = NewScript([]Rule{})
+	let first = with context { sql.DB: s } {
+		sql.Transaction() {
+			let _ = try sql.Tx.Exec(a, []sql.Value{})
+			try stop()
+			false
+		} catch {
+		case halt:
+			true
+		case _:
+			false
+		}
+	}
+	let refused = NewScript([]Rule{Refuse{Statement: a, With: sql.Unique{Constraint: constraint}}})
+	let second = with context { sql.DB: refused } {
+		sql.Transaction() {
+			let _ = try sql.Tx.Exec(a, []sql.Value{})
+			true
+		} catch {
+		case sql.Unique as u:
+			u.Constraint == constraint
+		case _:
+			false
+		}
+	}
+	let want = []string{"BEGIN", a, "ROLLBACK"}
+	first && second && slices.Equal(s.Log(), want) && slices.Equal(refused.Log(), want)
+}
+
+// halt is a failure of a law's block, of no package's.
+type halt {}
+
+// stop fails halt.
+func stop() fails halt { halt }
+
+// CommitFailureEndsIt: a COMMIT that fails is the Transaction's failure,
+// and no ROLLBACK follows it: a failed commit has ended the transaction.
+law CommitFailureEndsIt(a string, message string) {
+	let s = NewScript([]Rule{Refuse{Statement: "COMMIT", With: sql.Serialization{Message: message}}})
+	let failed = with context { sql.DB: s } {
+		sql.Transaction() {
+			let _ = try sql.Tx.Exec(a, []sql.Value{})
+			false
+		} catch {
+		case sql.Serialization as x:
+			x.Message == message
+		case _:
+			false
+		}
+	}
+	failed && slices.Equal(s.Log(), []string{"BEGIN", a, "COMMIT"})
+}
+
+// RollsBackOnInterrupt: a block whose task is stopped while it waits rolls
+// back, and never commits.
+law RollsBackOnInterrupt(a string) {
+	let s = NewScript([]Rule{})
+	let started = queue.New[bool](1)
+	let t = with context { sql.DB: s, Scheduler: time.NewManual(0) } {
+		task.Go() {
+			sql.Transaction() {
+				let _ = try sql.Tx.Exec(a, []sql.Value{})
+				try started.Push(true)
+				Scheduler.Sleep(1h)
+			} catch {
+			case _:
+			}
+		}
+	}
+	let _ = started.Pop() catch {
+	case queue.Closed:
+		return false
+	}
+	t.Stop()
+	slices.Equal(s.Log(), []string{"BEGIN", a, "ROLLBACK"})
+}
+
+// NestedFailureKeepsTheOuter: a Transaction inside another is a savepoint;
+// when its block fails, the outer transaction goes back to the savepoint,
+// releases it, goes on and commits.
+law NestedFailureKeepsTheOuter(a string, b string, c string) {
+	let s = NewScript([]Rule{})
+	let ok = with context { sql.DB: s } {
+		sql.Transaction() {
+			let _ = try sql.Tx.Exec(a, []sql.Value{})
+			sql.Transaction() {
+				let _ = try sql.Tx.Exec(b, []sql.Value{})
+				try stop()
+			} catch {
+			case _:
+			}
+			let _ = try sql.DB.Exec(c, []sql.Value{})
+			true
+		} catch {
+		case _:
+			false
+		}
+	}
+	ok && slices.Equal(s.Log(), []string{"BEGIN", a, "SAVEPOINT ergo_savepoint", b, "ROLLBACK TO SAVEPOINT ergo_savepoint", "RELEASE SAVEPOINT ergo_savepoint", c, "COMMIT"})
+}
+
+// NestedCommitReleases: a savepoint whose block ends normally is released,
+// and a savepoint inside it has a name of its own.
+law NestedCommitReleases(a string) {
+	let s = NewScript([]Rule{})
+	let ok = with context { sql.DB: s } {
+		sql.Transaction() {
+			try sql.Transaction() {
+				try sql.Transaction() {
+					let _ = try sql.Tx.Exec(a, []sql.Value{})
+				}
+			}
+			true
+		} catch {
+		case _:
+			false
+		}
+	}
+	ok && slices.Equal(s.Log(), []string{"BEGIN", "SAVEPOINT ergo_savepoint", "SAVEPOINT ergo_savepoint_ergo_savepoint", a, "RELEASE SAVEPOINT ergo_savepoint_ergo_savepoint", "RELEASE SAVEPOINT ergo_savepoint", "COMMIT"})
+}
+
+// RowsReadEachRow: Rows parses every row in the order the database gives
+// them, One the first, and a query with no row is NoRows naming its
+// statement. Each At reads the kind it names and refuses another kind or
+// a column the row does not have.
+law RowsReadEachRow(a string, n int64, s string) {
+	let rows = []sql.Row{sql.Row{Columns: []string{"id", "name"}, Values: []sql.Value{sql.Int{N: n}, sql.Text{S: s}}}, sql.Row{Columns: []string{"id", "name"}, Values: []sql.Value{sql.Int{N: n + 1}, sql.Null}}}
+	let script = NewScript([]Rule{Answer{Statement: a, Rows: rows, Affected: 0}})
+	with context { sql.DB: script } {
+		let all = sql.Rows(a, []sql.Value{}, first) catch {
+		case _:
+			return false
+		}
+		let one = sql.One(a, []sql.Value{}, first) catch {
+		case _:
+			return false
+		}
+		let text = sql.TextAt(rows[0], 1) catch {
+		case sql.Mismatch:
+			return false
+		}
+		let null = sql.IsNull(rows[1], 1) catch {
+		case sql.Mismatch:
+			return false
+		}
+		slices.Equal(all, []int64{n, n + 1}) && one == n && noRows(a+" ") && text == s && null && textRefused(rows[0], 0) && intRefused(rows[0], 2)
+	}
+}
+
+// first is column 0 of r as an integer.
+func first(r sql.Row) int64 fails sql.Mismatch { try sql.IntAt(r, 0) }
+
+// noRows is whether One of stmt fails NoRows naming stmt.
+func noRows(stmt string) bool needs sql.DB {
+	let _ = sql.One(stmt, []sql.Value{}, first) catch {
+	case sql.NoRows as x:
+		return x.Statement == stmt
+	case _:
+		return false
+	}
+	false
+}
+
+// textRefused is whether TextAt of column i of r fails Mismatch naming i.
+func textRefused(r sql.Row, i int) bool {
+	let _ = sql.TextAt(r, i) catch {
+	case sql.Mismatch as m:
+		return m.Column == i && m.Want == "text"
+	}
+	false
+}
+
+// intRefused is whether IntAt of column i of r fails Mismatch naming i.
+func intRefused(r sql.Row, i int) bool {
+	let _ = sql.IntAt(r, i) catch {
+	case sql.Mismatch as m:
+		return m.Column == i && m.Want == "int"
+	}
+	false
+}
 
 // Log is every line the script kept: each statement's text, and BEGIN,
 // COMMIT, ROLLBACK and the savepoint lines, in the order they came.

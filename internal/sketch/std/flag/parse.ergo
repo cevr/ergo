@@ -117,6 +117,45 @@ func Parse(s Set, args []string) Values fails Help | Unknown | NeedsValue | Inva
 	Values{set: s, slots: slots, args: named, rest: rest}
 }
 
+// IndependentFlagsCommute: the order of two different flags does not
+// matter.
+law IndependentFlagsCommute(a string, n int) {
+	let first = try Parse(lawSet(), []string{"-s=" + a, "-n=" + strconv.Itoa(n)})
+	Equal(first, try Parse(lawSet(), []string{"-n=" + strconv.Itoa(n), "-s=" + a}))
+}
+
+// lawSet is the set the laws parse with.
+func lawSet() Set {
+	Set{Name: "law", Usage: "", Flags: []Flag{lawText, lawNumber, lawSwitch}, Args: []ArgSpec{Remaining("rest", "the rest")}}
+}
+
+// LastWins: of a repeated flag, the last value counts.
+law LastWins(a string, b string) {
+	let v = try Parse(lawSet(), []string{"-s", a, "-s", b})
+	lawText.Get(v) == b
+}
+
+// DefaultWhenAbsent: an absent flag has its default, and an absent
+// required flag fails Missing with its name.
+law DefaultWhenAbsent() {
+	let v = try Parse(lawSet(), []string{})
+	let required = Set{Name: "law", Usage: "", Flags: []Flag{lawText, lawRequired}, Args: []ArgSpec{}}
+	Parse(required, []string{}) catch {
+	case Missing as m:
+		return m.Name == "r" && lawText.Get(v) == "d" && lawNumber.Get(v) == 0 && !lawSwitch.Get(v)
+	case _:
+		return false
+	}
+	false
+}
+
+let lawRequired = RequiredString("r", "a required text")
+
+law AbsentIsNone() {
+	let v = try Parse(treeSet(), []string{})
+	treeText.Get(v) == None && treeNumber.Get(v) == None
+}
+
 // mayAskHelp reports whether an argument could ask for help: -h, -help,
 // --h or --help, with or without "=…". It reads no flag of the set, so
 // most command lines skip helpAsked's second pass (FLAG-FLOOR); helpAsked

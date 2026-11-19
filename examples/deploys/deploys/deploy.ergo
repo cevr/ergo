@@ -5,6 +5,7 @@
 // status codes.
 
 import machines
+import slices
 
 // Unit is one image of a deploy: the Image, how many replicas, and the
 // memory of one replica in MiB.
@@ -70,6 +71,11 @@ func Total(units []Unit) int {
 		sum = sum + l.Replicas*l.Mem
 	}
 	sum
+}
+
+// TotalIsTheSumOfUnits: a total is additive over the units.
+law TotalIsTheSumOfUnits(a []Unit, b []Unit) {
+	Total(slices.Concat(a, b)) == Total(a)+Total(b)
 }
 
 // Create adds the deploy d describes to the Store, with the next ID, and

@@ -54,6 +54,29 @@ func Handle(r Request) Response needs deploys.Store {
 	}
 }
 
+// CreateThenShow: for any Store, a valid draft posted is 201 with a
+// Location, and a GET of the Location is 200 with the same body; an
+// invalid one is 422.
+law CreateThenShow(store deploys.Store, d deploys.Draft) { createThenShowHolds(store, d) }
+
+// createThenShowHolds checks CreateThenShow.
+func createThenShowHolds(store deploys.Store, d deploys.Draft) bool {
+	with context { deploys.Store: store } {
+		let created = Handle(Request{Method: "POST", Path: "/deploys", Headers: []Header{}, Body: DraftText(d)})
+		deploys.Validate(d) catch {
+		case deploys.Invalid:
+			return created.Status == 422
+		}
+		match HeaderOf(created.Headers, "Location") {
+		case Some[string] as at:
+			let shown = Handle(Request{Method: "GET", Path: at.Value, Headers: []Header{}, Body: ""})
+			created.Status == 201 && shown.Status == 200 && shown.Body == created.Body
+		case None:
+			false
+		}
+	}
+}
+
 // Unsupported is a body of another media type.
 type Unsupported { Type string }
 
