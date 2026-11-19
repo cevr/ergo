@@ -211,7 +211,10 @@ func (b *irBuilder) recvAddrCall(c *check.Call, args []syntax.Expr) ([]*irStmt, 
 	}
 	argPre, vals := b.operands(args)
 	if len(argPre) > 0 && isPlace && !b.fixed(c.Recv) {
-		irNo("call on a receiver's address that operands with statements may move")
+		// The emitter's place takes &target(x, later): the receiver's
+		// pointers, slices and indexes are fixed before the operands'
+		// statements, so they cannot move it (fixPlace, FLIP F7 PORT-TEMP).
+		pre = b.fixPlace(c.Recv, recv.X)
 	}
 	return append(pre, argPre...), append([]*irExpr{recv}, vals...)
 }

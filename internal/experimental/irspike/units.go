@@ -74,8 +74,7 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"assignment to a non-local", "G1"},
 	// F2 lowers places (stores, &p, *p, pointer receivers); these remain.
 	{"store to a place of the IR kind *", "F2"}, // PORT-TEMP's fixPlace: a place form it does not know
-	{"call on a receiver's address that operands with statements may move", "F2"},
-	{"place that is not addressable", "F2"}, // a Map entry: Maps are G4's
+	{"place that is not addressable", "F2"},     // a Map entry: Maps are G4's
 	{"place of the IR kind *", "F2"},
 	{"place with a conversion", "F2"},
 	{"place of a handed-off local", "G2"},            // a Close through its address
