@@ -520,6 +520,7 @@ func (w *Window) publishAccess() {
 
 // TextWidth is the width of s set on one line at font size size.
 func (w *Window) TextWidth(s string, size float64) float64 {
+	shaping()
 	l := w.sys.Shape(text.Params{Text: s, Style: text.Style{Size: float32(size)}, NoWrap: true, KeepSpaces: true})
 	return float64(l.Width)
 }
@@ -568,6 +569,7 @@ func (w *Window) draw() {
 func (w *Window) glyphLine(s *scene.Scene, t glyphText, scale float32) {
 	style := text.Style{Size: t.size}
 	ascent, _, lineHeight := w.sys.Metrics(style)
+	shaping()
 	l := w.sys.Shape(text.Params{Text: t.s, Style: style, NoWrap: true, KeepSpaces: true})
 	shade := text.ShadeOf(t.color.R, t.color.G, t.color.B)
 	top := t.y + (float32(math.Ceil(float64(lineHeight)))-lineHeight)/2

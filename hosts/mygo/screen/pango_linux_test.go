@@ -199,6 +199,29 @@ func TestFastPangoShapesAsMyGo(t *testing.T) {
 	}
 }
 
+// TestSlowPangoShapesAreCounted: once MyGo loads its table again (its
+// binding back in pangoLib), the window's layouts count as slow, and while
+// the fast binding is in place they do not. Mutant
+// (PUREGO-CALL-reload-unseen): pangoBound always true.
+func TestSlowPangoShapesAreCounted(t *testing.T) {
+	_, fast := shapers(t, pangoText)
+	if !fastPangoCalls {
+		t.Skip("the reference binding")
+	}
+	_, before := PangoCalls()
+	shaping()
+	if _, n := PangoCalls(); n != before {
+		t.Fatalf("a layout under the fast binding counted as slow")
+	}
+	saved := *fast.l
+	*fast.l = pangoRef // as MyGo's loadPango writes it
+	shaping()
+	*fast.l = saved
+	if _, n := PangoCalls(); n != before+1 {
+		t.Fatalf("a layout under MyGo's reloaded binding: slow count %d, want %d", n, before+1)
+	}
+}
+
 // TestFastPangoCallsAllocateNothing: the rebound calls of a whole layout
 // allocate nothing, where MyGo's binding allocates for each. Mutant
 // (PUREGO-CALL-off): fastPangoCalls false.

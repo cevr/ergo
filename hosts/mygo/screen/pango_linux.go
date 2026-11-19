@@ -5,6 +5,7 @@ package screen
 import (
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"unsafe"
 
 	"github.com/ebitengine/purego"
@@ -180,11 +181,13 @@ type words [4]uintptr
 var wordPool = sync.Pool{New: func() any { return new(words) }}
 
 func call0(fn uintptr) uintptr {
+	fastCalls.Add(1)
 	r, _, _ := purego.SyscallN(fn)
 	return r
 }
 
 func call(fn uintptr, n int, a, b, c, d uintptr) uintptr {
+	fastCalls.Add(1)
 	w := wordPool.Get().(*words)
 	w[0], w[1], w[2], w[3] = a, b, c, d
 	r, _, _ := purego.SyscallN(fn, w[:n]...)
@@ -198,6 +201,41 @@ var fastPangoOnce sync.Once
 
 // pangoRef is MyGo's own binding of the table, as fastPango found it.
 var pangoRef pangoTable
+
+// fastCalls counts the calls through the fast binding; fastLayoutNew is
+// the closure fastPango put in the table's layoutNew, by which
+// pangoBound tells that MyGo has not loaded the table again since.
+var (
+	fastCalls     atomic.Uint64
+	fastLayoutNew unsafe.Pointer
+)
+
+// funcWord is the closure a func value points at.
+func funcWord(f *func(uintptr) uintptr) unsafe.Pointer { return *(*unsafe.Pointer)(unsafe.Pointer(f)) }
+
+// pangoBound reports whether MyGo's table still holds the fast binding. A
+// text System made after the window's (its engine loads the table again)
+// puts MyGo's binding back, and every call is slow again: the window
+// counts the layouts it shapes then (PangoCalls), so that shows as a
+// number. The read is of one word MyGo writes only while it loads.
+func pangoBound() bool {
+	return fastLayoutNew != nil && funcWord(&pangoLib.layoutNew) == fastLayoutNew
+}
+
+// PangoCalls is how many Pango calls went through the fast binding, and
+// how many layouts the window shaped while MyGo's own binding was in the
+// table (0 unless MyGo loaded it again, or fastPangoCalls is false).
+func PangoCalls() (fast, slow uint64) { return fastCalls.Load(), slowShapes.Load() }
+
+var slowShapes atomic.Uint64
+
+// shaping counts a layout the window shapes, as slow when the fast
+// binding is not in the table.
+func shaping() {
+	if !pangoBound() {
+		slowShapes.Add(1)
+	}
+}
 
 // fastPango rebinds the shaping path's entries of MyGo's Pango table, once
 // the engine has loaded it (sys's first Metrics loads it), and before any
@@ -238,6 +276,7 @@ func fastPango(load func()) {
 		}
 		if f := sym(pango, "pango_layout_new"); f != 0 {
 			l.layoutNew = func(context uintptr) uintptr { return call(f, 1, context, 0, 0, 0) }
+			fastLayoutNew = funcWord(&l.layoutNew)
 		}
 		if f := sym(pango, "pango_layout_set_text"); f != 0 {
 			l.layoutSetText = func(layout uintptr, text *byte, length int32) {
