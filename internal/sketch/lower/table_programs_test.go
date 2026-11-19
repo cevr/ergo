@@ -11,6 +11,7 @@ var (
 	_ = declarePrograms("TestStdLawsRun", testBuildProgram("stdlaws", stdLawsProbe))
 	_ = declarePrograms("TestStdMachinesLawsRun", testBuildProgram("stdmachines", machinesLawsProbe))
 	_ = declarePrograms("TestStdCSVLawsRun", testBuildProgram("stdcsv", stdCSVLawsProbe))
+	_ = declarePrograms("TestStdAnsiLawsRun", testBuildProgram("stdansi", stdAnsiLawsProbe))
 	_ = declarePrograms("TestStdLintLawsRun", testBuildProgram("stdlint", stdLintLawsProbe))
 	_ = declarePrograms("TestStdConfigLawsRun", testBuildProgram("stdconfig", stdConfigLawsProbe))
 	_ = declarePrograms("TestStdCodecLawsRun", testBuildProgram("stdcodec", stdCodecLawsProbe))

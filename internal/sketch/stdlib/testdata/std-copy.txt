@@ -6,6 +6,7 @@
 # join (stdCopyBaseline).
 
 actor	same
+ansi	same
 arena	same
 atomic	same
 base64	same

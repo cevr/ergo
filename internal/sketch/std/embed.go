@@ -15,7 +15,7 @@ import "embed"
 //go:embed prelude.ergo timeout/*.ergo task/*.ergo scope/*.ergo slices/*.ergo queue/*.ergo log/*.ergo trace/*.ergo strings/*.ergo strconv/*.ergo
 //go:embed os/*.ergo
 //go:embed fs/*.ergo fstest/*.ergo
-//go:embed io/*.ergo term/*.ergo prompt/*.ergo
+//go:embed io/*.ergo term/*.ergo prompt/*.ergo ansi/*.ergo
 //go:embed utf8/*.ergo url/*.ergo
 //go:embed flag/*.ergo api/*.ergo
 //go:embed maps/*.ergo cmp/*.ergo set/*.ergo
