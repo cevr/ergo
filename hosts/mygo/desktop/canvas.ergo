@@ -3,7 +3,8 @@
 // effect: a fill is one rectangle when its path is a rectangle on the
 // axes, else spans of one DIP's height under the nonzero rule; a stroke
 // is one Window.Line a segment, with round caps; a clip is the box around
-// its transformed rectangle. The window has no path of its own to fill,
+// its transformed rectangle; an image is the window's, under the transform
+// in effect. The window has no path of its own to fill,
 // so a fill's edges are not smoothed.
 
 import ui
@@ -36,6 +37,14 @@ func paintCanvas[S, E, D, F](d *Driver[S, E, D, F], ops []ui.PaintOp, b layout.B
 					d.w.Line(c[i-1].X, c[i-1].Y, c[i].X, c[i].Y, width, colorOf(x.Color))
 				}
 			}
+		case ui.ImageOp as x:
+			let (sx, sy, sw, sh) = match x.Part {
+			case ui.WholeImage:
+				(0.0, 0.0, 0.0, 0.0)
+			case ui.ImageRegion as r:
+				(r.X, r.Y, r.W, r.H)
+			}
+			d.w.Image(x.Src, sx, sy, sw, sh, m.A, m.B, m.C, m.D, m.E, m.F, x.X, x.Y, x.W, x.H)
 		case ui.PushTransform as x:
 			stack = stack.Append(pushed{was: m, clip: false})
 			m = compose(m, x.M)
@@ -279,7 +288,7 @@ func canvasProbe(ops []ui.PaintOp, b layout.Box) Option[shown] {
 					last = Some{Value: shown{at: pt{X: (lo.X + hi.X) / 2, Y: (lo.Y + hi.Y) / 2}, color: colorOf(x.Color)}}
 				}
 			}
-		case ui.StrokeOp:
+		case ui.StrokeOp, ui.ImageOp:
 			last = None
 		case ui.PushTransform as x:
 			stack = stack.Append(m)

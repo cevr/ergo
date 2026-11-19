@@ -14,7 +14,11 @@ package screen
 import (
 	"context"
 	"errors"
+	"image"
+	_ "image/jpeg"
+	_ "image/png"
 	"math"
+	"os"
 	"sync"
 	"time"
 
@@ -99,6 +103,10 @@ type Window struct {
 	r    raster.Renderer
 	sc   scene.Scene
 	sys  *text.System
+
+	// images are the images Image decoded, by source; nil for one it
+	// could not read.
+	images map[string]*scene.Image
 
 	// fake is the surface of a Headless window.
 	fake *fake.Surface
@@ -410,6 +418,51 @@ func (w *Window) Line(x0, y0, x1, y1, width float64, color uint32) {
 	w.mu.Lock()
 	w.add(scene.Op{Kind: scene.OpFill, Rect: rect(-hw, -hw, length+width, width), Transform: m, Radii: scene.Uniform(float32(hw)), Color: rgba(color)})
 	w.mu.Unlock()
+}
+
+// Image draws the region sx, sy, sw, sh of the image at src (all of it
+// when sw or sh is 0) into the rectangle at x, y of width by height,
+// under the affine a, b, c, d, e, f (x' = a*x + c*y + e, y' = b*x + d*y +
+// f). The window decodes a PNG or JPEG file at src once and keeps it; an
+// image it cannot read draws nothing.
+func (w *Window) Image(src string, sx, sy, sw, sh, a, b, c, d, e, f, x, y, width, height float64) {
+	if width == 0 || height == 0 {
+		return
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	img, ok := w.images[src]
+	if !ok {
+		img = decodeImage(src)
+		if w.images == nil {
+			w.images = map[string]*scene.Image{}
+		}
+		w.images[src] = img
+	}
+	if img == nil {
+		return
+	}
+	part := scene.Rect{X: float32(sx), Y: float32(sy), W: float32(sw), H: float32(sh)}
+	if sw == 0 || sh == 0 {
+		part = scene.Rect{W: float32(img.W), H: float32(img.H)}
+	}
+	m := scene.Matrix(float32(a), float32(b), float32(c), float32(d), float32(e), float32(f))
+	w.add(scene.Op{Kind: scene.OpImage, Rect: rect(x, y, width, height), Transform: m, Image: img, Src: part})
+}
+
+// decodeImage is the image of the file at path, nil when it cannot be
+// read or decoded.
+func decodeImage(path string) *scene.Image {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer file.Close()
+	img, _, err := image.Decode(file)
+	if err != nil {
+		return nil
+	}
+	return scene.NewImage(img)
 }
 
 // add appends a painting op under the opacity in effect; w.mu is held.
