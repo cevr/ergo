@@ -31,7 +31,7 @@ func (c *checker) isPreludeName(name string) bool {
 }
 
 // declaredMap is the package's own type named Map, if it declares one
-// (preludeTypeName): there `Map[K, V]` names that type, not the map type.
+// (D-D3): there `Map[K, V]` names that type, not the map type.
 func (c *checker) declaredMap() *TypeName {
 	tn, _ := c.pkg.Scope.names["Map"].(*TypeName)
 	return tn
