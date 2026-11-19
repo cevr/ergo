@@ -68,9 +68,7 @@ func TestLoads(t *testing.T) {
 		const width, height = 40, 4
 		must("SessionAttachRenderer", SessionAttachRenderer(ctx, session, SessionRendererOptions{Width: width, Height: height, Remote: 1}))
 		// A scene of a padded root holding one text node, painted on a
-		// blue background. (An owned buffer's
-		// ot_buffer_draw needs a NULL frame, which the typed BufferDraw
-		// cannot pass yet: a bindc gap of the request.)
+		// blue background.
 		const words = "Hello, Ergo \u2713 \u65e5\u672c"
 		root, err := SceneCreateNode(ctx, session, OT_SCENE_ROOT, 1)
 		must("SceneCreateNode root", err)
