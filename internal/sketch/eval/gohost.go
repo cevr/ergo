@@ -178,13 +178,15 @@ func toGo(v Value, t reflect.Type) (reflect.Value, bool) {
 }
 
 // toGoField is a struct field's Go value: an Option of a go.Ref is Go's
-// pointer, nil for None.
+// pointer, nil for None. A record where Go holds a pointer is that Option
+// (the checker's Go boundary admits no other): its variant with no field
+// is nil, and the one with a field is the pointer it holds.
 func toGoField(v Value, t reflect.Type) (reflect.Value, bool) {
 	if r, ok := v.(*record); ok && t.Kind() == reflect.Pointer {
-		switch r.t.Obj.Name {
-		case "None":
+		switch len(r.fields) {
+		case 0:
 			return reflect.Zero(t), true
-		case "Some":
+		case 1:
 			return toGo(r.fields[0], t)
 		}
 	}
@@ -212,7 +214,7 @@ func fromGo(v reflect.Value, t rtype) (Value, bool) {
 		}
 		return nil, false
 	}
-	if n, ok := t.t.(*check.Named); ok && n.Obj.Name == "Option" && v.Kind() == reflect.Pointer {
+	if _, ok := optionElem(t); ok && v.Kind() == reflect.Pointer {
 		if v.IsNil() {
 			return optionOf(t, nil, false), true
 		}
@@ -282,7 +284,7 @@ func goZero(t rtype) (Value, bool) {
 	rec := &record{t: n, fields: make([]Value, len(s.Fields))}
 	for i, f := range s.Fields {
 		ft := rtype{t: f.Type}
-		if fn, isNamed := f.Type.(*check.Named); isNamed && fn.Obj.Name == "Option" {
+		if _, isOption := optionElem(ft); isOption {
 			rec.fields[i] = optionOf(ft, nil, false)
 			continue
 		}

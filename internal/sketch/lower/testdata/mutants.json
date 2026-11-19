@@ -4625,9 +4625,20 @@
       "name": "bs2-hook-never",
       "origin": "wf10 binsize BS2",
       "file": "internal/sketch/lower/calls.go",
-      "from": "\tl.hostText = true // a Go package's panic value may need fmt's text\n",
-      "to": "",
+      "from": "\t\tl.hostText = true\n\t}\n",
+      "to": "\t}\n",
       "rule": "stdlib.md Types 4 (binsize BS2): a program that imports go imports the gofmt leaf, so a Go value of any type is written as fmt writes it.",
+      "killers": [
+        "lower:TestMainImportsOnlyTheRuntimeLeavesItCalls"
+      ]
+    },
+    {
+      "name": "bs2-pure-links-fmt",
+      "origin": "wf10 NP4f-15 reland (NS lane)",
+      "file": "internal/sketch/lower/calls.go",
+      "from": "\tif !slices.Contains(v1.PureImports, path) {\n",
+      "to": "\tif true {\n",
+      "rule": "stdlib.md Types 4 (binsize BS2): a program whose Go packages are all of the pure tier (v1.PureImports, whose panics are texts and errors) links no gofmt leaf.",
       "killers": [
         "lower:TestMainImportsOnlyTheRuntimeLeavesItCalls"
       ]

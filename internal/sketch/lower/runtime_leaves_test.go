@@ -14,8 +14,9 @@ import (
 // import runtime/v1 and runtime/rt and no leaf, and a program that calls
 // hex.Encode and reads a csv.ParseError imports exactly the digest and csv
 // leaves. The gofmt leaf, which links fmt for its init alone (binsize
-// BS2), is imported by a program that imports go and by one with a
-// machine timer, whose defect writes the state with fmt, and by no
+// BS2), is imported by a program that imports a Go package outside the
+// pure tier (v1.PureImports, whose panics are texts and errors) and by one
+// with a machine timer, whose defect writes the state with fmt, and by no
 // other. The hostwalk leaf (binsize BS8), which links reflect for its
 // init alone, is imported by a program that makes an actor's host, whose
 // recovered state the runtime walks for hosts, and by no other; the http
@@ -24,7 +25,8 @@ import (
 // Mutants: bs1-import-all-leaves (main.go imports every leaf),
 // bs1-leaf-in-core (rtRef names every declaration through runtime/v1),
 // bs2-hook-always (every program imports gofmt), bs2-hook-never (a
-// program that imports go does not), bs8-walk-always (every program
+// program that imports go does not), bs2-pure-links-fmt (a program whose
+// Go packages are pure imports gofmt), bs8-walk-always (every program
 // imports hostwalk), bs8-walk-never (a program that makes a host does
 // not) and bs8-probe-imports (a test whether a std type is the runtime's
 // names it, importing its leaf).
@@ -36,7 +38,10 @@ func TestMainImportsOnlyTheRuntimeLeavesItCalls(t *testing.T) {
 	}{
 		{"hello", "func main() needs Console {\n\tConsole.Println(\"hello\")\n}\n", nil},
 		{"digest and csv", "import csv\nimport hex\n\nfunc main() needs Console {\n\tlet rows = csv.ReadAll(hex.Encode(\"a\")) catch {\n\t\tcase csv.ParseError: [][]string{}\n\t}\n\tConsole.Println(\"\\(len(rows))\")\n}\n", []string{leaf + "csv", leaf + "digest"}},
-		{"import go", "import go strconv\n\nfunc main() needs Console {\n\tlet n = strconv.ParseInt(\"12\", 10, 64) catch { case go.Error: -1 }\n\tConsole.Println(\"\\(n)\")\n}\n", []string{leaf + "gofmt"}},
+		{"import go", "import go os\n\nfunc main() needs Console | go.Foreign {\n\tConsole.Println(\"\\(os.Getpid() > 0)\")\n}\n", []string{leaf + "gofmt"}},
+		// A pure-tier Go package panics only with a text or an error,
+		// which the core writes: no gofmt.
+		{"import go pure", "import go strconv\n\nfunc main() needs Console {\n\tlet n = strconv.ParseInt(\"12\", 10, 64) catch { case go.Error: -1 }\n\tConsole.Println(\"\\(n)\")\n}\n", nil},
 		{"machine timer", machineTimerProgram(1, false), []string{leaf + "gofmt"}},
 		{"actor host", "import actor\n\nfunc main() needs Console {\n\tlet _ = actor.NewHost[int]()\n\tConsole.Println(\"x\")\n}\n", []string{leaf + "hostwalk"}},
 		{"http", "import http\n\nfunc main() needs Console {\n\tConsole.Println(\"\\(len(http.ParseQuery(\"a=1\")))\")\n}\n", []string{leaf + "http"}},

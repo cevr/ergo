@@ -783,7 +783,12 @@ func (l *lowerer) hostPkg(path string, site syntax.Node) string {
 		l.hostImports = map[string]bool{}
 	}
 	l.hostImports[path] = true
-	l.hostText = true // a Go package's panic value may need fmt's text
+	// A Go package's panic value may need fmt's text (rt.Text). A package
+	// of the pure tier (v1.PureImports) panics only with a text or an
+	// error, which the core writes without fmt, so it links no gofmt leaf.
+	if !slices.Contains(v1.PureImports, path) {
+		l.hostText = true
+	}
 	return l.pkgName(pkgKey{"import", path}, hostBase(path))
 }
 

@@ -290,8 +290,10 @@ func hostMember(path, member string) bool {
 // and format text (NP4f-URL, G2: an entry keyed by Go path that any
 // user's import go reaches trusts Go); net/url's ParseQuery reads the
 // process's GODEBUG urlmaxqueryparams, a setting fixed for the process as
-// every Go program has it, not state that changes between calls.
-// except the members PureImportsExcept names.
+// every Go program has it, not state that changes between calls. Each
+// panics only with a text or an error, which rt.Text writes without fmt:
+// a program whose only Go packages are these links no gofmt leaf (lower's
+// hostPkg).
 var PureImports = []string{"strings", "strconv", "unicode", "unicode/utf8", "unicode/utf16", "slices", "sort", "math", "math/bits", "path/filepath", "encoding/hex", "encoding/base64", "crypto/sha256", "hash/crc32", "crypto/sha512", "crypto/sha1", "crypto/hmac", "net/url", "net/netip"}
 
 // PureImportsExcept names, for a package of PureImports, its members that
