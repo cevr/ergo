@@ -6,11 +6,9 @@
 // it tells the host what to fetch, cancel and write in the URL (Effect),
 // and the host gives each answer back as a signal (Loaded or Failed).
 //
-// The original's model, messages and update. Where
-// the original sends a command and waits for its completion message
-// (ReadCurrentTime; 14 of its 46 messages are empty completions), the
-// step reads the clock itself; where it sleeps 150 ms inside the request,
-// the machine waits in Debouncing, whose timer gives Quiet. The design is
+// The step reads the clock itself, with no command and completion
+// message to read it; the debounce is not a sleep inside the request: the
+// machine waits in Debouncing, whose timer gives Quiet. The design is
 // models/domainsearch: a request is taken only while the cache holds its
 // key as pending for its generation; a change of the query cuts the load
 // in flight; a value is shown from the cache only while it is fresh.
@@ -82,8 +80,8 @@ type Effect = Fetch{Key Key} | Cancel{Key Key} | Replace{URL string} | ScrollToT
 type Opening { URL string, Catalog []string, Viewport int }
 
 // Freshness is how long, in milliseconds, an answer is shown from the
-// cache (the original's staleTime of one minute); Capacity is how many
-// settled answers the cache keeps (maxSettledEntries).
+// cache (one minute); Capacity is how many settled answers the cache
+// keeps.
 func Freshness() int { 60000 }
 
 func Capacity() int { 100 }
@@ -98,8 +96,8 @@ func RowHeight() int { 48 }
 func Overscan() int { 4 }
 
 // Begin is the machine's first state: the page of o.URL, with nothing
-// loaded. A URL with a query waits for the debounce, as the original's
-// first range does (its fetch sleeps 150 ms).
+// loaded. A URL with a query waits for the debounce before its
+// first range.
 func Begin(o Opening) Search {
 	let r = route.Parse(o.URL)
 	let s = Search{
@@ -140,8 +138,7 @@ func Query(r route.Route) string {
 	}
 }
 
-// Normalize is the label a query searches, as the original's
-// queryToMaybeDomainLabel: trimmed, lower case, an http(s):// prefix
+// Normalize is the label a query searches: trimmed, lower case, an http(s):// prefix
 // dropped, and cut at the first dot or slash; None when that is not a
 // domains.Label.
 func Normalize(query string) Option[string] {

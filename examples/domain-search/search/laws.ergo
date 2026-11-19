@@ -46,8 +46,8 @@ type Sim {
 	Broken  []string,
 }
 
-// DebounceMs is the debounce the laws hold the machine to: the
-// original's 150 ms, written here apart from Debounce().
+// DebounceMs is the debounce the laws hold the machine to: 150
+// ms, written here apart from Debounce().
 let DebounceMs = 150
 
 // Open is the page of url on a manual clock at 0, over catalog, with a

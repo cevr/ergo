@@ -36,14 +36,12 @@ func prefixes(m Sim, texts []string, gap int) Sim {
 	at
 }
 
-// P1: the original's four typing scripts. A settled cold query makes 2
-// requests and a burst 2 (BurstMakesOneSearch); seven prefixes each left
-// to settle make 14; three backspaces and the same three keys, each
-// settling, inside the minute, make none: every range is a fresh hit.
-// The original made 1 there (origin/measure, section 3; 11 of its 12
-// range reads came from the cache, and which one missed is not
-// recorded); the port's count is 0 and does not depend on the host.
-test TypingScriptsMakeTheOriginalsRequests {
+// P1: four typing scripts. A settled cold query makes 2 requests and a
+// burst 2 (BurstMakesOneSearch); seven prefixes each left to settle make
+// 14; three backspaces and the same three keys, each settling, inside the
+// minute, make none: every range is a fresh hit, and the count does not
+// depend on the host.
+test TypingScriptsMakeFewRequests {
 	let cold = Settle(Feed(page(), Typed{Text: "foldkit"}))
 	assert len(cold.Fetches) == 2
 	let settled = prefixes(page(), []string{"f", "fo", "fol", "fold", "foldk", "foldki", "foldkit"}, 250)

@@ -1,7 +1,7 @@
 import strings
 
 // The cache's laws (plan §20.4): a model-based property against a list,
-// and one law for each rule the original's KeyedQuery keeps.
+// and one law for each rule the cache keeps.
 
 // Row is the reference model's entry: a key, whether its load runs (and
 // of which generation), its value and time, and Used, the step at which

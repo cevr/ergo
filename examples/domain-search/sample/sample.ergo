@@ -1,5 +1,5 @@
-// Package sample is the provider of domains.Registry with the original's
-// deterministic sample data: a fixed price per featured TLD,
+// Package sample is the provider of domains.Registry with deterministic
+// sample data: a fixed price per featured TLD,
 // 19.99 for every other, a one-year quote that is never premium, and
 // four labels whose .com and .dev are taken.
 
@@ -13,7 +13,7 @@ import slices
 // be listed (FeaturedFirst) runs every case and is proved.
 type Sample {} implements domains.Registry
 
-// prices are the original's demo prices, by TLD.
+// prices are the sample prices, by TLD.
 let prices = Map[string, float64]{
 	"com":    12.0, "dev": 12.0, "app": 9.99, "io": 34.99, "ai": 80.0, "xyz": 2.99,
 	"org":    9.99, "me": 13.99, "net": 13.5, "tech": 7.99, "space": 1.99, "cloud": 7.99,

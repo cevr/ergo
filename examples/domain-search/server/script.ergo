@@ -14,7 +14,7 @@ let scriptLabels = []string{"foldkit", "acme", "google", "f", "domains", "x9"}
 let scriptLimits = []int{4, 56, 60, 556}
 
 // ScriptBody is the body of request i: an Effect RPC Request envelope of
-// SearchDomains, as the original's client sends it.
+// SearchDomains, as a client sends it.
 func ScriptBody(i int) string {
 	let label = scriptLabels[i%len(scriptLabels)]
 	let offset = (i * 61) % 556

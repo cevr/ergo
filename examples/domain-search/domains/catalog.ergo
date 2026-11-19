@@ -9,8 +9,8 @@ let Featured = []string{
 	"site", "online", "store", "agency", "world", "run", "page", "tools",
 }
 
-// others are the supported TLDs that are not featured, in the original's
-// (alphabetical) order.
+// others are the supported TLDs that are not featured, in alphabetical
+// order.
 let others = []string{
 	"ac", "academy", "accountant", "accountants", "actor", "adult", "ag", "airforce",
 	"am", "apartments", "archi", "army", "art", "asia", "associates", "attorney",

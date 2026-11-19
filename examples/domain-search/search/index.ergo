@@ -1,6 +1,5 @@
 // The derived list: the index of catalog positions the page shows, in
-// the order and the filters of the route (the original's
-// filterAndSortDomainListings). It is kept in the state and built again
+// the order and the filters of the route. It is kept in the state and built again
 // only by the signals that change what it lists: an answer, the order, a
 // filter, a new route; never by a scroll or a resize (target P3).
 
@@ -86,8 +85,7 @@ func rebuild(s Search) Search {
 }
 
 // taken is whether position p is loaded and taken (the available filter
-// keeps the positions not loaded yet, as the original keeps unchecked
-// names).
+// keeps the positions not loaded yet: a name not checked is not taken).
 func taken(s Search, p int) bool {
 	match ListingAt(s, p) {
 	case Some[domains.Listing] as l:

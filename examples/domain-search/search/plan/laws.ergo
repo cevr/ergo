@@ -1,7 +1,7 @@
 import domain-search/search/route
 
 // The planner's laws (plan §20.4). The catalog's size is drawn, up to
-// 100,000 listings, so no law holds only at the original's 556.
+// 100,000 listings, so no law holds only at the sample's 556.
 
 // fresh is the input of a catalog of n with nothing loaded and the window
 // showing wanted.
@@ -72,8 +72,8 @@ law PlanCoversWindow(n int where 1 <= n && n <= 20000, start int where 0 <= star
 }
 
 // FirstIsFourThenFiftySix: a cold search of a catalog of more than a page
-// asks for the top four, then the rest of the first page (the original's
-// {0,4} then {4,56}, fact 3 of §20.1).
+// asks for the top four, then the rest of the first page ({0,4}
+// then {4,56}, fact 3 of §20.1).
 law FirstIsFourThenFiftySix(n int where 61 <= n && n <= 100000, count int where 5 <= count && count <= 80) {
 	let st = fresh(n, rows(n, 0, count), false)
 	let first = Next(st).Next

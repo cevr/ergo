@@ -3,27 +3,25 @@
 // Registry with its laws. Nothing here knows the wire or a host.
 
 // Label is the name a search offers under each TLD: 1 to 63 bytes of
-// a to z, 0 to 9 and inner hyphens, the original's DomainLabel pattern
-// (types.md, Refinements 11). The where derives ParseLabel, so a Label on
+// a to z, 0 to 9 and inner hyphens (types.md, Refinements 11). The where derives ParseLabel, so a Label on
 // the wire is decoded through it and an upper-case or dotted label fails
 // to decode.
 type Label string where matches(it, `[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?`)
 
 // Offset is the index of a search's first listing: 0 to the catalog's
-// last index (the original's DomainCandidateRange.offset).
+// last index.
 type Offset int where 0 <= it && it <= 555
 
 // Limit is how many listings a search gives at most: 1 to the catalog's
-// size (the original's DomainCandidateRange.limit).
+// size.
 type Limit int where 1 <= it && it <= 556
 
 // Listing is a domain, label.tld, as a search offers it: Available with
 // its quote, or Unavailable (taken).
 type Listing = Available{Name string, TLD string, Price float64, RenewalPrice float64, Years int, IsPremium bool} | Unavailable{Name string, TLD string}
 
-// Down is a search that could not be answered (the original's
-// SearchError, whose one variant it names Unavailable, a name a Listing
-// already takes here).
+// Down is a search that could not be answered (on the wire, the error
+// Unavailable; here a Listing already takes that name).
 type Down {}
 
 // TLDOf is the TLD a listing is under.

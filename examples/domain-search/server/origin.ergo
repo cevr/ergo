@@ -7,7 +7,7 @@ import strings
 import domain-search/domains
 import domain-search/sample
 
-// Recorded is the original's server wire (MIT): 20 requests
+// Recorded is a recorded server wire (MIT): 20 requests
 // that recorded/wire.mjs sent to its worker, each response, and
 // recorded/index.json with each case's status and headers.
 let Recorded = embedded[embed.FS]("recorded")
@@ -139,7 +139,7 @@ func sameOutcome(want outcome, got outcome) string {
 	}
 }
 
-// agrees is "" when the port's server answers c as the original did:
+// agrees is "" when the server answers c as the recording did:
 // the same status, Content-Type and Cache-Control, and for a 200 the
 // same frames, a success with the same listings field for field.
 func agrees(c recordedCase) string {
@@ -165,8 +165,8 @@ func agrees(c recordedCase) string {
 	""
 }
 
-// WireAgreesWithOrigin: for each of the 20 recorded cases the port's
-// server gives the original's status and headers, and for a 200 the same
+// WireAgreesWithOrigin: for each of the 20 recorded cases the
+// server gives the recorded status and headers, and for a 200 the same
 // frames.
 test WireAgreesWithOrigin {
 	let ix = try rpc.Decode[index]("index", read("recorded/index.json"))

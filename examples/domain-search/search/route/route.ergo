@@ -2,8 +2,8 @@
 // source of the query, the TLD filter, the availability filter and the
 // order, and Parse and Print go between it and the URL's path and query.
 // An invalid parameter is its default (FK10's rule): a pasted link with a
-// typo still opens the search. The original keeps only the
-// query in the URL; the port keeps the filters and the order there too.
+// typo still opens the search. The URL keeps the filters and the order as
+// well as the query.
 
 import hex
 import http

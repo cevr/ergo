@@ -1,7 +1,7 @@
 // Package cache is domain-search' keyed cache of answers (plan §20.2,
-// decision 1), a value in the search machine's state: the original's
-// keyed query (a freshness of one minute, at most 100 settled entries) as pure functions. The time is an argument, so the
-// cache needs no clock.
+// decision 1), a value in the search machine's state: a
+// keyed query (a freshness of one minute, at most 100 settled entries) as
+// pure functions. The time is an argument, so the cache needs no clock.
 //
 // An entry is Pending (a load runs for it) or Settled (a value and the
 // time it came). Each Begin gets a generation no Begin had before, and a

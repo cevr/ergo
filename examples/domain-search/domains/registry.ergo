@@ -1,11 +1,11 @@
 import json
 
-// Registry is the Api of domain-search: one operation, the original's
-// SearchDomains RPC, named as the original's wire names it so a stock
-// client of the original calls the port's server. It lists label under
-// the catalog's TLDs from offset (0 when absent), at most limit of them
-// (the whole catalog when absent). The range is optional on the wire,
-// as the original's payload {label, offset?, limit?} is.
+// Registry is the Api of domain-search: one operation, the
+// SearchDomains RPC, named as the recorded wire names it so a client of
+// that wire calls this server. It lists label under the catalog's TLDs
+// from offset (0 when absent), at most limit of them (the whole catalog
+// when absent). The range is optional on the wire: the payload is
+// {label, offset?, limit?}.
 //
 // Its laws run against every provider: sample in process, and the
 // generated client through rpc.Loopback (package loopback).
