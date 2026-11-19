@@ -10362,7 +10362,7 @@ func text(o Option[string]) string {
 	case 1:
 		return ""
 	default:
-		panic("ergo: defect: no case of the match at std/code/code.ergo:336:2 matched")
+		panic("ergo: defect: no case of the match at std/code/code.ergo:450:2 matched")
 	}
 }
 
@@ -11669,7 +11669,7 @@ func or(o Option[int], d int) int {
 	case 1:
 		return d
 	default:
-		panic("ergo: defect: no case of the match at std/code/code.ergo:326:2 matched")
+		panic("ergo: defect: no case of the match at std/code/code.ergo:440:2 matched")
 	}
 }
 
@@ -13711,7 +13711,7 @@ func Describe_3(f Failure_1) string {
 		}
 	default:
 		_ = v
-		panic("ergo: defect: no case of the match at std/flag/flag.ergo:640:2 matched")
+		panic("ergo: defect: no case of the match at std/flag/flag.ergo:777:2 matched")
 	}
 }
 
@@ -14679,10 +14679,10 @@ func (s Set) Parse(env *Env, args []string) (Values_1, error) {
 		switch s_1.tag {
 		case 0:
 			d := s_1.v0
-			panic(ergo.UnreachableAt(("flag: a flag spelling is declared twice: " + d.Value), "std/flag/parse.ergo:233:3"))
+			panic(ergo.UnreachableAt(("flag: a flag spelling is declared twice: " + d.Value), "std/flag/parse.ergo:272:3"))
 		case 1:
 		default:
-			panic("ergo: defect: no case of the match at std/flag/parse.ergo:231:2 matched")
+			panic("ergo: defect: no case of the match at std/flag/parse.ergo:270:2 matched")
 		}
 	}
 	v_1 := mayAskHelp(args)
@@ -15601,7 +15601,7 @@ func read(env *Env, f Flag, name string, given string) (item, error) {
 		return item{text: given, n: int(0), b: false, d: time.Duration(0)}, nil
 	default:
 		_ = v
-		panic("ergo: defect: no case of the match at std/flag/parse.ergo:181:2 matched")
+		panic("ergo: defect: no case of the match at std/flag/parse.ergo:220:2 matched")
 	}
 }
 
@@ -15670,7 +15670,7 @@ func nameOf_1(f Flag) string {
 		return c_2.base.name
 	default:
 		_ = v
-		panic("ergo: defect: no case of the match at std/flag/flag.ergo:470:2 matched")
+		panic("ergo: defect: no case of the match at std/flag/flag.ergo:548:2 matched")
 	}
 }
 
@@ -15847,7 +15847,7 @@ func parseLevel[C any](env *Env, name string, usage string, groups []string, com
 		own_1 := s.v0
 		var leaf Command[C] = own_1.Value
 		if len(leaf.Commands) > int(0) {
-			return ergo.Never[C]("flag: a group's own leaf has no children", "std/flag/command.ergo:97:11"), nil
+			return ergo.Never[C]("flag: a group's own leaf has no children", "std/flag/command.ergo:234:11"), nil
 		}
 		u_1 := leaf.Set
 		u_1.Name = name
@@ -15952,7 +15952,7 @@ func parseLevelMono_i1(env *Env, name string, usage string, groups []string, com
 		own_1 := s.v0
 		var leaf Command[Request] = own_1.Value
 		if len(leaf.Commands) > int(0) {
-			return ergo.Never[Request]("flag: a group's own leaf has no children", "std/flag/command.ergo:97:11"), nil
+			return ergo.Never[Request]("flag: a group's own leaf has no children", "std/flag/command.ergo:234:11"), nil
 		}
 		u_1 := leaf.Set
 		u_1.Name = name
@@ -16080,7 +16080,7 @@ func spellings(f Flag) struct {
 		}{F0: c_2.base.name, F1: c_2.base.alias}
 	default:
 		_ = v
-		panic("ergo: defect: no case of the match at std/flag/flag.ergo:198:2 matched")
+		panic("ergo: defect: no case of the match at std/flag/flag.ergo:227:2 matched")
 	}
 }
 
@@ -16191,7 +16191,7 @@ func Defaults_1(flags []Flag) string {
 							goto kn_6
 						default:
 							_ = v_7
-							panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:34:2 matched")
+							panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:40:2 matched")
 						}
 					}
 				kn_3:
@@ -16286,7 +16286,7 @@ func Defaults_1(flags []Flag) string {
 							goto kn_12
 						default:
 							_ = v_10
-							panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:34:2 matched")
+							panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:40:2 matched")
 						}
 					}
 				kn_9:
@@ -16603,7 +16603,7 @@ func aliasOf(f Flag) string {
 		return c_2.base.alias
 	default:
 		_ = v
-		panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:183:2 matched")
+		panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:189:2 matched")
 	}
 }
 
@@ -16680,7 +16680,7 @@ func defaultOf(f Flag) string {
 			goto kn_3
 		default:
 			_ = v_3
-			panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:34:2 matched")
+			panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:40:2 matched")
 		}
 	}
 kn:
@@ -16880,12 +16880,12 @@ func sameHandle(a Flag, b Flag) bool {
 		}
 	default:
 		_ = v
-		panic("ergo: defect: no case of the match at std/flag/flag.ergo:513:2 matched")
+		panic("ergo: defect: no case of the match at std/flag/flag.ergo:591:2 matched")
 	}
 }
 
 func notInSet(name string) string {
-	panic(ergo.UnreachableAt((("flag -" + name) + " is not a flag of the parsed set"), "std/flag/flag.ergo:604:2"))
+	panic(ergo.UnreachableAt((("flag -" + name) + " is not a flag of the parsed set"), "std/flag/flag.ergo:682:2"))
 }
 
 func commandHelp[C any](name string, prefix string, commands []Command[C]) string {
