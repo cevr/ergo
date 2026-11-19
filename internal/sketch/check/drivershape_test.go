@@ -2,12 +2,11 @@ package check_test
 
 import (
 	"fmt"
-	"go/ast"
-	"go/parser"
-	"go/token"
-	"go/types"
+	"maps"
 	"math/rand/v2"
 	"os"
+	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -48,21 +47,28 @@ func (drvImporter) Import(path string) (*check.Package, error) {
 
 func (d drvImporter) GoBindings() *check.GoBindings { return d.set }
 
-// newDrvImporter binds drvGo with ergo bind's own generator.
+// newDrvImporter binds drvGo as ergo bind does, from its source in a
+// module of its own (gobind.Bind), so each result's Go-nil case is what
+// the binder derives: Dial, Cmd and Query return a fresh pointer when
+// the error is nil (go.Ref), and Clone returns its receiver, which a
+// method called on a nil pointer may be (Option; GOBIND-NIL). It builds
+// Go because Bind's facts come from go list and the compiler's -m output
+// (gobind.Derive), which no in-process check gives.
 func newDrvImporter(t *testing.T) drvImporter {
 	t.Helper()
-	fs := token.NewFileSet()
-	f, err := parser.ParseFile(fs, "drv.go", drvGo, 0)
+	dir := t.TempDir()
+	for name, text := range map[string]string{"go.mod": "module drv\n\ngo 1.27\n", "drv.go": drvGo} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	files, err := gobind.Bind(dir, os.Environ(), "go1.27", ".")
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkg, err := (&types.Config{IgnoreFuncBodies: true}).Check("drv", fs, []*ast.File{f}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	binding, err := gobind.File([]*types.Package{pkg}, []gobind.Platform{{GOOS: "linux", GOARCH: "amd64"}}, "go1.27")
-	if err != nil {
-		t.Fatal(err)
+	binding, ok := files["drv"]
+	if !ok {
+		t.Fatalf("ergo bind wrote no binding for drv: %v", slices.Sorted(maps.Keys(files)))
 	}
 	// The checker takes Clone's receiver whatever the binding writes
 	// (hostTakesRecv): an old or edited binding without the own gobind
@@ -183,11 +189,16 @@ func (m *dsModel) block(depth int) {
 			}
 		case 6:
 			if !m.kept(c.name) {
+				// Clone's result is Option (the receiver may be a nil
+				// pointer); the clone is a handle in its Some arm only.
 				v := m.name("c")
-				m.w("let %s = try %s.Clone()", v, c.name)
-				m.w("try %s.Ping()", v)
+				m.w("match try %s.Clone() {", c.name)
+				m.w("case None:")
+				m.w("\tsink(\"none\")")
+				m.w("case Some[go.Ref[drv.Client]] as %s:", v)
+				m.w("\ttry %s.Value.Ping()", v)
+				m.w("}")
 				c.dead = true
-				m.add(dsVar{name: v, kind: 'c'})
 			}
 		case 7:
 			if ks := m.vars('k', false); len(ks) > 0 {
@@ -256,7 +267,13 @@ const dsHeader = 9
 // method takes its receiver by default (gb1-recv-taken); no receiver is
 // taken for a result that may hold it (gb1-no-alias-take); a Go method's
 // result keeps nothing (gb1-no-keeps).
+//
+// It builds Go because the binding is ergo bind's from drvGo's source
+// (newDrvImporter): the non-nil facts come from the Go toolchain.
 func TestDriverHandleIsLent(t *testing.T) {
+	if testing.Short() {
+		t.Skip("full tier: builds Go")
+	}
 	imp := newDrvImporter(t)
 	first, n := 1, 160
 	if s := os.Getenv("ERGO_SEED"); s != "" {
