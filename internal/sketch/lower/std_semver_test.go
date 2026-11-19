@@ -7,7 +7,7 @@ import (
 	"ergo.local/prototype/internal/lawledger"
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/eval"
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -25,7 +25,7 @@ var stdSemverLaws = map[string]string{
 // runs each law; lawledger.Run holds that this runner restates exactly
 // the ledger's semver laws and that each passed.
 func TestStdSemverLaws(t *testing.T) {
-	sources, ok := std.Package("semver")
+	sources, ok := stdlib.Package("semver")
 	if !ok {
 		t.Fatal("no std package semver")
 	}

@@ -25,13 +25,13 @@ wait 300
 visit /people
 type Data Smith
 type a b
-search
+click Search
 # Another route while the search answers: the answer still comes.
 key GH
 wait 300
 key GP
 type Developer
-search
+click Search
 wait 300
 # Back returns to the searches before, which search again.
 back

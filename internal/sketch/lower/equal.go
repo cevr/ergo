@@ -252,6 +252,24 @@ func (l *lowerer) reserveEquals(pkgs []*check.Package, reserve func(key pkgKey, 
 		if p.Info == nil {
 			continue
 		}
+		// A component call's group compares its arguments, and the
+		// records' fields, by their equality (NS2c; uigroup.go): each
+		// argument of a call whose first is a frame.
+		for x, c := range p.Info.Calls {
+			if c.Kind != check.CallFunc || len(x.Args) < 2 || !l.readsFact(p, x) {
+				continue
+			}
+			if t, ok := typedIn(p.Info, x.Args[0]); !ok {
+				continue
+			} else if _, g := l.groupFrame(t); g == nil {
+				continue
+			}
+			for _, a := range x.Args[1:] {
+				if t, ok := typedIn(p.Info, a); ok {
+					walk(t)
+				}
+			}
+		}
 		for x := range p.Info.Types {
 			b, ok := x.(*syntax.BinaryExpr)
 			if !ok || (b.Op != syntax.EQL && b.Op != syntax.NEQ) || !l.readsFact(p, x) {

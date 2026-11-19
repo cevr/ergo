@@ -7,7 +7,7 @@ grammar.md	SPEC1b
 interop.md	SPEC1e
 resources.md	SPEC1d
 rows.md	SPEC1b
-rpc.md	SPEC1e
+api.md	SPEC1e
 runtime.md	SPEC1d
 stdlib.md	SPEC1e
 types.md	SPEC1c

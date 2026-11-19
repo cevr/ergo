@@ -15,14 +15,12 @@ var knownValueWidening = &Rule{
 	Name:    "known-value-widening",
 	Code:    "L110",
 	Doc:     "A let whose written union type widens a value of one known variant drops what the value states; write no type, or the variant's.",
+	Instead: "write no type, so the binding keeps the variant",
 	Default: Warning,
 	Check:   checkKnownValueWidening,
 }
 
 func checkKnownValueWidening(p *Pass) {
-	if p.Package.Std() || p.Package.Host() {
-		return
-	}
 	syntax.Inspect(p.File, func(n syntax.Node) bool {
 		d, ok := n.(*syntax.DeclStmt)
 		if !ok || d.Decl.Mut.IsValid() {
@@ -33,7 +31,7 @@ func checkKnownValueWidening(p *Pass) {
 				continue
 			}
 			if conv, ok := p.Info.Implicit[s.Values[0]]; ok && conv.Kind == check.ConvVariant {
-				p.Report(s.Type.Pos(), s.Type.End(), "this type widens a value whose variant is known; write no type, so the binding keeps the variant")
+				p.Report(s.Type.Pos(), s.Type.End(), "this type widens a value whose variant is known")
 			}
 		}
 		return true

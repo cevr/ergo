@@ -1,11 +1,11 @@
-@0 00:00.00 running
-@1234 00:01.23 stopped
-@1500 00:01.23 stopped
-@2000 00:01.23 running
-@2005 00:01.23 running
-@2777 00:02.01 stopped
-@3000 00:00.00 stopped
-@3000 00:00.00 running
-@3100 00:00.10 stopped
-@3500 00:00.10 running
-@65432 01:02.03 running
+@0 00:00.00 [Reset] [Stop]
+@1234 00:01.23 [Reset] [Start]
+@1500 no Stop button
+@2000 00:01.23 [Reset] [Stop]
+@2005 no Start button
+@2777 00:02.01 [Reset] [Start]
+@3000 00:00.00 [Reset] [Start]
+@3000 00:00.00 [Reset] [Stop]
+@3100 00:00.10 [Reset] [Start]
+@3500 00:00.10 [Reset] [Stop]
+@65432 01:02.03 [Reset] [Stop]

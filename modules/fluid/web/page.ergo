@@ -1,0 +1,126 @@
+import ergo.dev/fluid/part
+import html
+import strings
+import ui
+
+// Page is a page whose state travels in its URL (spec §3.2): the state S is the query, a control
+// whose signal steps the state is a link to the next state's page, and the server renders the
+// page of the state the URL holds. No session and no server memory; the back button undoes; a
+// state can be linked to.
+//
+// StateHref is this module's helper until module web's (WG2) lands; then it is that one.
+type Page[S, E] { Path string, Initial S, Step func(s S, e E) S, View func(s S) part.Node[E] }
+
+// StateHref is the URL of path with state s in its query.
+func StateHref[S wire](path string, s S) html.URL fails ui.QueryShape needs wired[S] {
+	let u = try ui.WithQuery(ui.URL{Path: path, Query: "", Fragment: ""}, s)
+	html.LocalURL(ui.Href(u))
+}
+
+// StateOf is the state u's query holds, or the page's first state when the query holds none it
+// can read (a hand-edited or stale URL starts over).
+func StateOf[S wire, E](p Page[S, E], u ui.URL) S needs wired[S] {
+	if u.Query == "" {
+		return p.Initial
+	}
+	ui.QueryOf[S](u) catch {
+	case _:
+		p.Initial
+	}
+}
+
+// Render is the page at u: the view of u's state, each control a link to the state its signal
+// steps to. It fails when the state has no query form.
+func Render[S wire, E](p Page[S, E], u ui.URL) html.Node fails ui.QueryShape needs wired[S] {
+	let s = StateOf(p, u)
+	try StateHref(p.Path, s)
+	Node[E, wired[S]](p.View(s), func(e E) Act needs wired[S] {
+		let next = StateHref(p.Path, p.Step(s, e)) catch {
+		case ui.QueryShape:
+			return Inert
+		}
+		Go{URL: next}
+	})
+}
+
+// tabsState is the laws' page state: a row of tabs, one selected, and a note. (a law's helper)
+type tabsState { Selected int, Count int, Note string }
+
+// tabsPage is the laws' page: a tab list whose arrows move the selection and whose last tab
+// (of three or more) is stated disabled while it still sends. (a law's helper)
+func tabsPage() Page[tabsState, int] {
+	Page[tabsState, int]{
+		Path:    "/tabs",
+		Initial: tabsState{Selected: 0, Count: 2, Note: ""},
+		Step:    func(s tabsState, e int) tabsState {
+			if e >= 0 && e < s.Count { tabsState{..s, Selected: e} } else { s }
+		},
+		View: func(s tabsState) part.Node[int] {
+			let mut tabs = []part.Node[int]{}
+			for i in 0..s.Count {
+				let off = s.Count > 2 && i == s.Count-1
+				tabs = tabs.Append(part.Press{Sem: part.Sem{..part.Of(part.Tab), Key: part.Join(part.Root("tab"), "\(i)"), States: if off { []part.State{part.Selected{Yes: i == s.Selected}, part.Disabled} } else { []part.State{part.Selected{Yes: i == s.Selected}} }, Reach: part.Roving{Here: i == s.Selected}}, Skin: part.Control{Root: part.Bare(), Plate: part.Bare(), Content: part.Bare()}, On: Some[int]{Value: i}, Kids: []part.Node[int]{part.Text{Value: "Tab \(i)", Skin: part.Bare()}}})
+			}
+			let next = (s.Selected + 1) % s.Count
+			let prev = (s.Selected + s.Count - 1) % s.Count
+			part.Box{Sem: part.Of(part.TabList), Skin: part.Bare(), Inline: false, Keys: []part.Binding[int]{part.Binding[int]{Key: "ArrowRight", On: next}, part.Binding[int]{Key: "ArrowLeft", On: prev}}, Kids: tabs}
+		},
+	}
+}
+
+// hrefs is the href values of markup, in order. (a law's helper)
+func hrefs(markup string) []string {
+	let mut out = []string{}
+	let mut rest = markup
+	for {
+		let at = strings.Index(rest, " href=\"")
+		if at < 0 {
+			return out
+		}
+		let from = strings.Slice(rest, at+7, len(rest))
+		let end = strings.Index(from, "\"")
+		out = out.Append(strings.ReplaceAll(strings.Slice(from, 0, end), "&amp;", "&"))
+		rest = strings.Slice(from, end, len(from))
+	}
+}
+
+// LinkIsStep: every link of a rendered page leads to the state its signal steps to: the key
+// links to the arrows' states, each enabled tab to its selection; a disabled tab is no link.
+law LinkIsStep(selected int, count int, note string) {
+	let p = tabsPage()
+	let n = 2 + ((count%4)+4)%4
+	let s = tabsState{Selected: ((selected % n) + n) % n, Count: n, Note: note}
+	let here = StateHref(p.Path, s) catch {
+	case ui.QueryShape:
+		return false
+	}
+	let markup = html.Render(Render(p, ui.ParseURL(html.URLText(here))) catch {
+	case ui.QueryShape:
+		return false
+	})
+	let mut want = []tabsState{p.Step(s, (s.Selected+1)%n), p.Step(s, (s.Selected+n-1)%n)}
+	for i in 0..n {
+		if !(n > 2 && i == n-1) {
+			want = want.Append(p.Step(s, i))
+		}
+	}
+	let got = hrefs(markup)
+	let mut ok = len(got) == len(want)
+	for i in 0..len(got) {
+		ok = ok && i < len(want) && StateOf(p, ui.ParseURL(got[i])) == want[i]
+	}
+	ok
+}
+
+// StateRoundTrips: the state a URL is made from is the state read back from it, for every
+// selection, count and note (any bytes).
+law StateRoundTrips(selected int, count int, note string) {
+	let p = tabsPage()
+	let s = tabsState{Selected: selected, Count: count, Note: note}
+	let u = StateHref(p.Path, s) catch {
+	case ui.QueryShape:
+		return false
+	}
+	let back = ui.ParseURL(html.URLText(u))
+	back.Path == p.Path && StateOf(p, back) == s
+}
