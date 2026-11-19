@@ -103,7 +103,7 @@ fact go sync/atomic.Int64.Swap effect none validated by guard with go1.27.4 h1:Y
 fact go unicode pure members validated by guard with go1.27.4 h1:xrgHefhY5L5swJnkimY6OhFgKm95mni5O5fTGHr8NXU=
 fact go unicode/utf16 pure members validated by guard with go1.27.4 h1:K4aT3aUE7yWhZc1b6BS8ydNOtgVDCAJ1L9aTgSqJp8Q=
 fact go unicode/utf8 pure members validated by guard with go1.27.4 h1:5gjyDHvaVojxyercf1zdUm+G09IguET6X0RIacP+gjo=
-law bits.RotateKeepsOnes skipped with go1.27.4 h1:jkq3gVnp5Rq0awjyucsBiOSHOpCngoSLaiUJihHHHU0=
+law bits.RotateKeepsOnes validated by eval with go1.27.4 h1:jkq3gVnp5Rq0awjyucsBiOSHOpCngoSLaiUJihHHHU0=
 law hex.DecodeInvertsEncode skipped with runtime/v1/digest@e958cc1575e5 h1:UJzfQ3vrqrlxZ4R3DGQ6F/kStZDUN6SxjC0+9FLvGHs=
 law hex.EncodeDoublesLength validated by eval with runtime/v1/digest@0f15dcb98673 h1:49MQOBirv5pqUuWxq+KUVTfOzjxVyZYIM3arp7Z+m+s=
 law json.Text.PlainIsRaw for json.text at ("None") proved by native with go1.27.4,runtime/v1@6bc65d994543 h1:MuIoS0b0zfYw2fX5/QGe7xvZOkyJmsJ46IUHBm/VkAc=
