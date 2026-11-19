@@ -55,6 +55,7 @@ func loadNatives() {
 		registerNativesjson()
 		registerNativesmore()
 		registerNativesnet()
+		registerNativespure()
 		registerNativestime()
 		registerNativestimeout()
 		registerNativestoml()
