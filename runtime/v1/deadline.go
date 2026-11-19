@@ -46,9 +46,11 @@ type Deadline struct {
 // that is not armed, on the AlarmClock of s, the program's Scheduler. A
 // Scheduler gives its AlarmClock (Alarmer): every program's does, since
 // Alarms is an operation of the prelude's Scheduler. A Go Sleeper of a
-// test with no Alarms is a defect.
+// test with no Alarms is a defect. It takes t only to ask s for its
+// AlarmClock, and never waits: its wait policy is none, which
+// TestRuntime199NoWaitBindings checks (BLOCKING-DEADLINE).
 //
-//ergo:wait caller
+//ergo:wait none
 func NewDeadline(t *rt.Task, s Sleeper) *Deadline {
 	a, ok := s.(Alarmer)
 	if !ok {

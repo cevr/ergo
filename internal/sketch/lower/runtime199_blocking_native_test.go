@@ -255,6 +255,20 @@ func blockingNative(t *testing.T, name, route string) {
 	case "value Timeline.Wait":
 		maker = "func maker(_ queue.Queue[int]) func(duration) { let m = time.NewManual(0); func(d duration) { m.Sleep(d) } }"
 		param, body = "f func(duration)", "f(1h); 7"
+	// PopBefore and PopWithin (DEADLINE) wait on the queue as Pop does,
+	// and on a deadline an hour away on the live Scheduler's AlarmClock
+	// (host alarms, which no run reaches): the harness parks and readies
+	// them as it does Pop's, and a stop must take nothing.
+	case "direct PopBefore":
+		body = "with context { Scheduler: NewLiveScheduler() } { let dl = timeout.NewDeadline(); dl.Arm(1h); let v = try timeout.PopBefore(q, dl); dl.Stop(); v }"
+	case "value PopBefore":
+		maker = "func maker(q queue.Queue[int]) (func() int fails queue.Closed | timeout.Expired) needs Ambient { with context { Scheduler: NewLiveScheduler() } { let dl = timeout.NewDeadline(); dl.Arm(1h); func() int fails queue.Closed | timeout.Expired { let v = try timeout.PopBefore(q, dl); dl.Stop(); v } } }"
+		param, body = "f func() int fails queue.Closed | timeout.Expired", "try f()"
+	case "direct PopWithin":
+		body = "with context { Scheduler: NewLiveScheduler() } { try timeout.PopWithin(q, 1h) }"
+	case "value PopWithin":
+		maker = "func maker(q queue.Queue[int]) (func() int fails queue.Closed | timeout.Expired) needs Ambient { let s = NewLiveScheduler(); func() int fails queue.Closed | timeout.Expired { with context { Scheduler: s } { try timeout.PopWithin(q, 1h) } } }"
+		param, body = "f func() int fails queue.Closed | timeout.Expired", "try f()"
 	default:
 		t.Fatalf("new primitive route %s %s needs its native source and readiness law", route, name)
 	}
@@ -285,11 +299,16 @@ func blockingNative(t *testing.T, name, route string) {
 		launchRow = " needs Ambient"
 	}
 	imports := "import queue\nimport task\n"
+	fails, failsTask := "queue.Closed", "queue.Closed"
 	if strings.HasPrefix(name, "Timeline.") {
 		imports += "import time\n"
 	}
-	src := imports + maker + "\nfunc subject(" + param + ") int fails queue.Closed" + subjRow + " { " + body + " }\n" +
-		"func launch(q queue.Queue[int]) Task[int, queue.Closed]" + launchRow + " { task.Go() { " + child + " } }\nfunc main() {}\n"
+	if name == "PopBefore" || name == "PopWithin" {
+		imports += "import timeout\n"
+		fails, failsTask = "queue.Closed | timeout.Expired", "queue.Closed | timeout.Expired"
+	}
+	src := imports + maker + "\nfunc subject(" + param + ") int fails " + fails + subjRow + " { " + body + " }\n" +
+		"func launch(q queue.Queue[int]) Task[int, " + failsTask + "]" + launchRow + " { task.Go() { " + child + " } }\nfunc main() {}\n"
 	o := mustLower(t, "blocking", src)
 	if maker != "" && !envParams(t, o.mainGo())["maker"] {
 		arg = "maker(q)" // a pure maker takes no environment (pure.go, D-S5-10)
@@ -327,6 +346,13 @@ func blockingNative(t *testing.T, name, route string) {
 				{"func (q *Queue[T]) Push(t *rt.Task, v T) error {", "Queue.Push"},
 				{"func (q *Queue[T]) Pop(t *rt.Task) (T, error) {", "Queue.Pop"},
 				{"func (q *Queue[T]) Values(t *rt.Task) iter.Seq[T] {", "Queue.Values"},
+			} {
+				data = replace(data, op.sig, op.sig+"\n\tdefer BlockingEnter("+fmt.Sprintf("%q", op.name)+", t)()")
+			}
+		case "ergo/runtime/v1/deadline.go":
+			for _, op := range []struct{ sig, name string }{
+				{"func PopBefore[T any](t *rt.Task, q *Queue[T], dl *Deadline) (T, error) {", "PopBefore"},
+				{"func PopWithin[T any](t *rt.Task, s Sleeper, q *Queue[T], d time.Duration) (T, error) {", "PopWithin"},
 			} {
 				data = replace(data, op.sig, op.sig+"\n\tdefer BlockingEnter("+fmt.Sprintf("%q", op.name)+", t)()")
 			}
@@ -583,7 +609,7 @@ func drive(t *testing.T, phase string, masked, moved bool) {
  count := 0; for _, v := range remaining { if v == 7 { count++ } }
  if primitive == "Queue.Push" {
   want := 1; if interrupted { want = 0 }; if count != want { t.Fatalf("stopped/accepted Push conservation: %+v, queue %v",out,remaining) }
- } else if primitive == "Queue.Pop" || primitive == "Queue.Values" {
+ } else if primitive == "Queue.Pop" || primitive == "Queue.Values" || primitive == "PopBefore" || primitive == "PopWithin" {
   want := 0; if madeReady && interrupted { want = 1 }; if count != want { t.Fatalf("stopped Pop/Values took a value: %+v, queue %v",out,remaining) }
  }
 }
