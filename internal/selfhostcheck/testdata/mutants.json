@@ -517,6 +517,28 @@
       "killers": [
         "internal/selfhostcheck:TestIRWriteAgreesWithGo"
       ]
+    },
+    {
+      "name": "lower-param-local-zero",
+      "origin": "wf10/selfhost/S4c2",
+      "file": "compiler/lower/lower.ergo",
+      "from": "st.locals = st.locals.Append(i)",
+      "to": "st.locals = st.locals.Append(0)",
+      "rule": "A pure function's parameter is the local of its place in the parameter list.",
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ]
+    },
+    {
+      "name": "lower-bin-pos-start",
+      "origin": "wf10/selfhost/S4c2",
+      "file": "compiler/lower/lower.ergo",
+      "from": "pos(st, syntax.TokPos(p, be.Op))",
+      "to": "at",
+      "rule": "A binary expression's IR position is its operator's.",
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ]
     }
   ]
 }

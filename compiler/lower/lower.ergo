@@ -1,0 +1,494 @@
+// Package lower is the IR builder of the self-hosted compiler (capstone
+// S4): it reads a checked package (compiler/check: the store, bind's
+// uses and check/expr's types) and writes each function's IR body with
+// compiler/ir's Builder, as the Go IR builder (internal/sketch/lower,
+// ir*.go) writes it. Every function is pure.
+//
+// The builder ports the Go builder slice by slice (selfhost S4c plan). A
+// function it cannot build yet stops with a cause: an expression
+// check/expr left untyped ("untyped <form>"), or a form or a decider not
+// ported yet. A stop is no failure; a body it builds must be the Go
+// builder's, byte for byte (internal/selfhostcheck,
+// TestCompilerIRAgreesWithBuilder).
+//
+// Slice S4c2, leaf bodies: a function that is no method, no generic, no
+// extern, not main and not Close, whose parameters and result are basic
+// types and whose signature has no error or capability row, and whose
+// body is one tail expression of parameters, literals, true and false,
+// and the unary and binary operators on basic types. Such a body calls
+// nothing, so the function is pure (lower's pure.go: no row, an empty
+// footprint, no call), takes no environment and no entry poll, owns no
+// value (no owned or handed-off local, no clone, no implicit conversion:
+// each is of a non-basic type), and every pass after the build leaves it
+// as it is (fold and merge read calls, the forms passes forms, the end
+// passes locals); and Go builds its body (no gate of the emitter holds).
+
+import compiler/check/bind
+import compiler/check/expr
+import compiler/check/store
+import compiler/ir
+import compiler/syntax
+import dense
+import strconv
+import strings
+import utf8
+
+// Stop is a function the builder did not build: its file, the offset of
+// its declaration and why.
+type Stop { File int, At int, Cause string }
+
+// Site is a function the builder built: its file and the offset of its
+// declaration, in the order of File.Funcs.
+type Site { File int, At int }
+
+// Out is a package's IR: the file the builder wrote (its Files are the
+// package's file paths, in the order given), each built function's site,
+// and each stop.
+type Out { File ir.File, Sites []Site, Stops []Stop }
+
+// Unported is a function the builder stops at.
+type Unported { Cause string }
+
+// fnb is the state of one function's build.
+type fnb {
+	k      expr.Pkg,
+	s      store.Store,
+	types  dense.Side[store.PNode, dense.Opt[store.TKey]],
+	file   int,
+	p      syntax.Parsed,
+	lines  syntax.Lines,
+	fileIx uint32,
+	// params are the parameters' name rows and their locals.
+	params []dense.ID[store.PNode],
+	locals []int,
+}
+
+// Package builds the IR of every function of the checked package k; paths
+// are its files' paths, File.Files' entries.
+func Package(s store.Store, k expr.Pkg, t expr.Typer, paths []string) Out {
+	let mut types = dense.NewSide[store.PNode, dense.Opt[store.TKey]](dense.NoID[store.TKey]())
+	for e in t.Entries {
+		dense.SideSet(&types, e.At, dense.OptOf(e.T))
+	}
+	let mut b = ir.NewBuilder(1)
+	let mut lines = []syntax.Lines{}
+	for p in k.Parsed {
+		lines = lines.Append(syntax.LinesOf(syntax.SourceOf(p)))
+	}
+	let mut sites = []Site{}
+	let mut stops = []Stop{}
+	for f in k.Fns {
+		let p = k.Parsed[f.File]
+		let at = syntax.NodePos(p, f.Decl)
+		let mut st = fnb{k: k, s: s, types: types, file: f.File, p: p, lines: lines[f.File], fileIx: uint32(0), params: []dense.ID[store.PNode]{}, locals: []int{}}
+		let built = function(&st, &b, f, paths[f.File]) catch {
+		case Unported as u:
+			stops = stops.Append(Stop{File: f.File, At: at, Cause: u.Cause})
+			false
+		case ir.Malformed as m:
+			stops = stops.Append(Stop{File: f.File, At: at, Cause: "malformed IR: " + m.Why})
+			false
+		}
+		if built {
+			sites = sites.Append(Site{File: f.File, At: at})
+		}
+	}
+	let file = ir.Finish(b) catch {
+	case ir.Malformed:
+		ir.File{V: 1, Files: []string{}, FilesNil: true, Funcs: []ir.Func{}, FuncsNil: true, Shared: []string{}, Strs: []string{""}}
+	}
+	Out{File: file, Sites: sites, Stops: stops}
+}
+
+func stop(cause string) Unported { Unported{Cause: cause} }
+
+// pos is the IR position of offset in the function's file.
+func pos(st fnb, offset int) ir.Pos {
+	let q = syntax.PositionOf(st.lines, offset)
+	ir.Pos{File: st.fileIx, Line: uint32(q.Line), Col: uint32(q.Column)}
+}
+
+// typeOf is check/expr's type of node x, or Unported when it left x
+// untyped.
+func typeOf(st fnb, x dense.ID[syntax.Node], form string) dense.ID[store.TKey] fails Unported {
+	match dense.Unpack(dense.SideOf(st.types, bind.PNodeOf(st.k.Ps, st.file, x))) {
+	case Some[dense.ID[store.TKey]] as t:
+		t.Value
+	case None:
+		return stop("untyped " + form)
+	}
+}
+
+// basicGo is the Go spelling of t when it is a basic type the slice
+// lowers (no complex type, no duration), else "".
+func basicGo(st fnb, t dense.ID[store.TKey]) string {
+	if store.KindOfType(st.s, t) != store.KBasic {
+		return ""
+	}
+	let n = store.ArgOf(st.s, t)
+	if n < 1 || n > 15 {
+		return ""
+	}
+	basicNames[n]
+}
+
+let basicNames = []string{"", "bool", "string", "int", "int8", "int16", "int32", "int64", "uint", "uint8", "uint16", "uint32", "uint64", "uintptr", "float32", "float64"}
+
+// emptyRow reports a row with no member: a signature's error or
+// capability row of a function that fails nothing and needs nothing.
+func emptyRow(st fnb, t dense.ID[store.TKey]) bool {
+	store.KindOfType(st.s, t) == store.KRow && len(store.OperandsOf(st.s, t)) == 0
+}
+
+func function(st mut fnb, b mut ir.Builder, f expr.Fn, path string) bool fails Unported | ir.Malformed {
+	let p = st.p
+	let d = match syntax.ViewOf(p.Tree, f.Decl) {
+	case syntax.FuncDecl as d:
+		d
+	case _:
+		return stop("no function declaration")
+	}
+	if dense.Unpack(d.Extern) != None {
+		return stop("extern")
+	}
+	if dense.Unpack(d.Recv) != None {
+		return stop("method")
+	}
+	if dense.Unpack(d.TypeParams) != None {
+		return stop("generic")
+	}
+	let name = nameText(p, d.Name)
+	if name == "main" || name == "Close" {
+		return stop("main or Close")
+	}
+	let body = match dense.Unpack(d.Body) {
+	case Some[dense.ID[syntax.Node]] as x:
+		x.Value
+	case None:
+		return stop("no body")
+	}
+	// The signature: the parameters, the result, the error row and the
+	// capability row.
+	let ops = store.OperandsOf(st.s, f.Sig)
+	if store.KindOfType(st.s, f.Sig) != store.KSig || len(ops) < 3 {
+		return stop("signature")
+	}
+	let n = len(ops) - 3
+	if !emptyRow(*st, ops[n+1]) || !emptyRow(*st, ops[n+2]) {
+		return stop("signature row")
+	}
+	if basicGo(*st, ops[n]) == "" {
+		return stop("result not basic")
+	}
+	for i in 0..n {
+		if basicGo(*st, ops[i]) == "" {
+			return stop("parameter not basic")
+		}
+	}
+	if len(f.Names) != n {
+		return stop("parameter names")
+	}
+	// Go parameter order, a pure function: each parameter its local, an
+	// unnamed one its slot (lower's irState.body).
+	for i in 0..n {
+		match dense.Unpack(f.Names[i]) {
+		case Some[dense.ID[syntax.Node]] as x:
+			st.params = st.params.Append(bind.PNodeOf(st.k.Ps, st.file, x.Value))
+			st.locals = st.locals.Append(i)
+		case None:
+		}
+	}
+	let (lbrace, list, rbrace) = match syntax.ViewOf(p.Tree, body) {
+	case syntax.BlockStmt as bl:
+		(bl.Lbrace, bl.List, bl.Rbrace)
+	case _:
+		return stop("body that is no block")
+	}
+	if syntax.Len(list) != 1 {
+		return stop("body of several statements")
+	}
+	let tailX = match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, list, 0)) {
+	case syntax.ExprStmt as es:
+		es.X
+	case _:
+		return stop("statement form")
+	}
+	// The body is checked whole before the builder writes a row: a stop
+	// leaves the builder as it was.
+	try check(*st, tailX)
+	st.fileIx = ir.FileOf(b, path)
+	let fp = pos(*st, syntax.TokPos(p, d.Func))
+	let end = pos(*st, syntax.TokPos(p, rbrace))
+	try ir.Begin(b, name, fp, end)
+	let x = try value(*st, b, tailX)
+	let ret = try ir.Row(b, ir.KindCode(ir.TStmt, "ret"), pos(*st, syntax.NodePos(p, tailX)), []uint32{x})
+	try ir.End(b, ir.List(b, []uint32{ret}))
+	let _ = lbrace
+	true
+}
+
+func nameText(p syntax.Parsed, x dense.ID[syntax.Node]) string {
+	match syntax.ViewOf(p.Tree, x) {
+	case syntax.Name as nm:
+		syntax.TokText(p, nm.Tok)
+	case _:
+		""
+	}
+}
+
+// The binary operators of the IR: Go's, on the basic types (lower's
+// irOps).
+let irOps = []string{"+", "-", "*", "/", "%", "&", "|", "^", "&^", "<<", ">>", "==", "!=", "<", "<=", ">", ">=", "&&", "||"}
+
+func isIROp(op string) bool {
+	let mut ok = false
+	for o in irOps {
+		ok = ok || o == op
+	}
+	ok
+}
+
+// isConst reports a constant expression: Go's checker gives it a value,
+// so the Go builder writes it as one folded constant.
+func isConst(st fnb, x dense.ID[syntax.Node]) bool {
+	match syntax.ViewOf(st.p.Tree, x) {
+	case syntax.BasicLit:
+		true
+	case syntax.Name as nm:
+		let t = syntax.TokText(st.p, nm.Tok)
+		(t == "true" || t == "false") && outside(st, x)
+	case syntax.ParenExpr as pe:
+		isConst(st, pe.X)
+	case syntax.UnaryExpr as u:
+		isConst(st, u.X)
+	case syntax.BinaryExpr as be:
+		isConst(st, be.X) && isConst(st, be.Y)
+	case _:
+		false
+	}
+}
+
+func outside(st fnb, x dense.ID[syntax.Node]) bool {
+	match bind.ResolutionOf(st.k.U, st.k.Ps, bind.PNodeOf(st.k.Ps, st.file, x)) {
+	case bind.Outside:
+		true
+	case _:
+		false
+	}
+}
+
+// check stops at the first form of x the slice does not lower, before a
+// row is written.
+func check(st fnb, x dense.ID[syntax.Node]) fails Unported {
+	let p = st.p
+	match syntax.ViewOf(p.Tree, x) {
+	case syntax.BasicLit as bl:
+		let t = try typeOf(st, x, "BasicLit")
+		let _ = try literal(st, bl.Tok, t, false)
+	case syntax.Name:
+		let _ = try typeOf(st, x, "Ident")
+		if isConst(st, x) {
+			return
+		}
+		let _ = try paramLocal(st, x)
+	case syntax.ParenExpr as pe:
+		if isConst(st, x) {
+			return stop("constant expression")
+		}
+		try check(st, pe.X)
+	case syntax.UnaryExpr as u:
+		let t = try typeOf(st, x, "UnaryExpr")
+		let op = syntax.TokText(p, u.Op)
+		if isConst(st, x) {
+			match syntax.ViewOf(p.Tree, u.X) {
+			case syntax.BasicLit as bl:
+				if op == "-" {
+					let _ = try literal(st, bl.Tok, t, true)
+					return
+				}
+			case _:
+			}
+			return stop("constant expression")
+		}
+		if op != "!" && op != "-" && op != "+" && op != "^" {
+			return stop("unary " + op)
+		}
+		try check(st, u.X)
+	case syntax.BinaryExpr as be:
+		let _ = try typeOf(st, x, "BinaryExpr")
+		if isConst(st, x) {
+			return stop("constant expression")
+		}
+		let op = syntax.TokText(p, be.Op)
+		if !isIROp(op) {
+			return stop("operator " + op)
+		}
+		let lt = try typeOf(st, be.X, "operand")
+		if basicGo(st, lt) == "" {
+			return stop("operator on a non-basic type")
+		}
+		try check(st, be.X)
+		try check(st, be.Y)
+	case _:
+		return stop("expression form")
+	}
+}
+
+// paramLocal is the local of the parameter the name x names.
+func paramLocal(st fnb, x dense.ID[syntax.Node]) int fails Unported {
+	match bind.ResolutionOf(st.k.U, st.k.Ps, bind.PNodeOf(st.k.Ps, st.file, x)) {
+	case bind.Declared as d:
+		for i, at in st.params {
+			if at == d.At {
+				return st.locals[i]
+			}
+		}
+		return stop("name that is no parameter")
+	case _:
+		return stop("name that is no parameter")
+	}
+}
+
+// value writes the rows of x, checked by check, and is its row.
+func value(st fnb, b mut ir.Builder, x dense.ID[syntax.Node]) uint32 fails Unported | ir.Malformed {
+	let p = st.p
+	let at = pos(st, syntax.NodePos(p, x))
+	match syntax.ViewOf(p.Tree, x) {
+	case syntax.BasicLit as bl:
+		let t = try typeOf(st, x, "BasicLit")
+		let v = try literal(st, bl.Tok, t, false)
+		try constRow(b, at, basicGo(st, t), v)
+	case syntax.Name as nm:
+		if isConst(st, x) {
+			return try constRow(b, at, "bool", syntax.TokText(p, nm.Tok))
+		}
+		let i = try paramLocal(st, x)
+		try ir.Row(b, ir.KindCode(ir.TExpr, "local"), at, []uint32{uint32(i)})
+	case syntax.ParenExpr as pe:
+		try value(st, b, pe.X)
+	case syntax.UnaryExpr as u:
+		let t = try typeOf(st, x, "UnaryExpr")
+		let op = syntax.TokText(p, u.Op)
+		if isConst(st, x) {
+			match syntax.ViewOf(p.Tree, u.X) {
+			case syntax.BasicLit as bl:
+				let v = try literal(st, bl.Tok, t, true)
+				return try constRow(b, at, basicGo(st, t), v)
+			case _:
+				return stop("constant expression")
+			}
+		}
+		let y = try value(st, b, u.X)
+		try ir.Row(b, ir.KindCode(ir.TExpr, "un"), at, []uint32{ir.Text(b, op), y})
+	case syntax.BinaryExpr as be:
+		let op = syntax.TokText(p, be.Op)
+		let l = try value(st, b, be.X)
+		let r = try value(st, b, be.Y)
+		try ir.Row(b, ir.KindCode(ir.TExpr, "bin"), pos(st, syntax.TokPos(p, be.Op)), []uint32{ir.Text(b, op), l, r})
+	case _:
+		return stop("expression form")
+	}
+}
+
+func constRow(b mut ir.Builder, at ir.Pos, t string, v string) uint32 fails ir.Malformed {
+	try ir.Row(b, ir.KindCode(ir.TExpr, "const"), at, []uint32{ir.Text(b, t), ir.Text(b, v)})
+}
+
+// literal is the value text of the literal token tok of type t, as the Go
+// builder spells a constant (lower's constant): an integer type's exact
+// integer, a string's text, negated when neg. The slice stops at a float,
+// at an escape it does not read, and at an integer past int64.
+func literal(st fnb, tok int, t dense.ID[store.TKey], neg bool) string fails Unported {
+	let gt = basicGo(st, t)
+	if gt == "" {
+		return stop("constant of a non-basic type")
+	}
+	let text = syntax.TokText(st.p, tok)
+	let kind = syntax.TokKind(st.p, tok)
+	if gt == "float32" || gt == "float64" {
+		return stop("float constant")
+	}
+	if kind == syntax.String {
+		if neg || gt != "string" {
+			return stop("string constant")
+		}
+		return try stringText(text)
+	}
+	if gt == "string" || gt == "bool" {
+		return stop("constant kind")
+	}
+	let mut n = int64(0)
+	if kind == syntax.Int {
+		n = strconv.ParseInt(text, 0, 64) catch {
+		case _:
+			return stop("integer constant past int64")
+		}
+	} else if kind == syntax.Rune {
+		n = int64(try runeValue(text))
+	} else {
+		return stop("constant kind")
+	}
+	if neg {
+		n = -n
+	}
+	strconv.FormatInt(n, 10)
+}
+
+// stringText is the text of a string literal with no escape.
+func stringText(lit string) string fails Unported {
+	if len(lit) < 2 {
+		return stop("string constant")
+	}
+	let inner = lit[1 : len(lit)-1]
+	if lit[0] == '`' {
+		if strings.Contains(inner, "\r") {
+			return stop("raw string with a carriage return")
+		}
+		return inner
+	}
+	if strings.Contains(inner, "\\") {
+		return stop("escaped string constant")
+	}
+	inner
+}
+
+// runeValue is the code point of a rune literal: one character, or one of
+// the single-letter escapes.
+func runeValue(lit string) int fails Unported {
+	if len(lit) < 3 {
+		return stop("rune constant")
+	}
+	let inner = lit[1 : len(lit)-1]
+	if inner[0] != '\\' {
+		let d = utf8.DecodeRuneInString(inner)
+		if d.Size != len(inner) || (d.Rune == 0xFFFD && d.Size == 1) {
+			return stop("rune constant")
+		}
+		return int(d.Rune)
+	}
+	if len(inner) != 2 {
+		return stop("escaped rune constant")
+	}
+	match inner[1] {
+	case 'a':
+		7
+	case 'b':
+		8
+	case 'f':
+		12
+	case 'n':
+		10
+	case 'r':
+		13
+	case 't':
+		9
+	case 'v':
+		11
+	case '\\':
+		92
+	case '\'':
+		39
+	case _:
+		return stop("escaped rune constant")
+	}
+}

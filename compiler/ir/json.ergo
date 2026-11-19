@@ -55,6 +55,16 @@ func Write(file File) string fails Malformed {
 	w.b.String()
 }
 
+// WriteFunc is Funcs[fi] as Write writes it inside the file's text.
+func WriteFunc(file File, fi int) string fails Malformed {
+	if fi < 0 || fi >= len(file.Funcs) {
+		return Malformed{At: fi, Why: "no function"}
+	}
+	let mut w = writer{file: file, b: strings.NewBuilder()}
+	try function(&w, fi)
+	w.b.String()
+}
+
 // text is Strs[id], or Malformed past the end.
 func text(w mut writer, id uint32) string fails Malformed {
 	if int(id) >= len(w.file.Strs) {

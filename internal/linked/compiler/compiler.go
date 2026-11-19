@@ -849,16 +849,16 @@ var ergoDecls = [...]ergoDecl{
 	{Name: "noFields", File: "ir/ir.ergo", Line: 151, End: 151},
 	{Name: "Fields", File: "ir/ir.ergo", Line: 154, End: 165},
 	{Name: "File.Write", File: "ir/json.ergo", Line: 11, End: 56},
-	{Name: "writer.text", File: "ir/json.ergo", Line: 59, End: 64},
-	{Name: "writer.pos", File: "ir/json.ergo", Line: 67, End: 75},
-	{Name: "writer.function", File: "ir/json.ergo", Line: 78, End: 116},
-	{Name: "writer.extra", File: "ir/json.ergo", Line: 120, End: 125},
-	{Name: "writer.rows", File: "ir/json.ergo", Line: 129, End: 144},
-	{Name: "writer.row", File: "ir/json.ergo", Line: 149, End: 184},
-	{Name: "writer.empty", File: "ir/json.ergo", Line: 188, End: 202},
-	{Name: "writer.value", File: "ir/json.ergo", Line: 206, End: 261},
-	{Name: "writer.list", File: "ir/json.ergo", Line: 264, End: 280},
-	{Name: "Quote", File: "ir/json.ergo", Line: 291, End: 353},
+	{Name: "writer.text", File: "ir/json.ergo", Line: 69, End: 74},
+	{Name: "writer.pos", File: "ir/json.ergo", Line: 77, End: 85},
+	{Name: "writer.function", File: "ir/json.ergo", Line: 88, End: 126},
+	{Name: "writer.extra", File: "ir/json.ergo", Line: 130, End: 135},
+	{Name: "writer.rows", File: "ir/json.ergo", Line: 139, End: 154},
+	{Name: "writer.row", File: "ir/json.ergo", Line: 159, End: 194},
+	{Name: "writer.empty", File: "ir/json.ergo", Line: 198, End: 212},
+	{Name: "writer.value", File: "ir/json.ergo", Line: 216, End: 271},
+	{Name: "writer.list", File: "ir/json.ergo", Line: 274, End: 290},
+	{Name: "Quote", File: "ir/json.ergo", Line: 301, End: 363},
 	{Name: "k", File: "ir/kinds.ergo", Line: 16, End: 18},
 	{Name: "kinds", File: "ir/kinds.ergo", Line: 26, End: 79},
 	{Name: "NumKinds", File: "ir/kinds.ergo", Line: 82, End: 82},
@@ -6641,125 +6641,125 @@ var ergoCalls = [...]ergoCall{
 	{Func: 329, Callee: 69, File: 330, Line: 52, Column: 3},
 	{Func: 329, Callee: 69, File: 330, Line: 54, Column: 2},
 	{Func: 329, Callee: 59, File: 330, Line: 55, Column: 2},
-	{Func: 334, Callee: 320, File: 330, Line: 61, Column: 51},
-	{Func: 335, Callee: 69, File: 330, Line: 68, Column: 2},
-	{Func: 335, Callee: 70, File: 330, Line: 69, Column: 2},
-	{Func: 335, Callee: 320, File: 330, Line: 69, Column: 18},
-	{Func: 335, Callee: 69, File: 330, Line: 70, Column: 2},
-	{Func: 335, Callee: 70, File: 330, Line: 71, Column: 2},
-	{Func: 335, Callee: 320, File: 330, Line: 71, Column: 18},
-	{Func: 335, Callee: 69, File: 330, Line: 72, Column: 2},
-	{Func: 335, Callee: 70, File: 330, Line: 73, Column: 2},
-	{Func: 335, Callee: 320, File: 330, Line: 73, Column: 18},
-	{Func: 335, Callee: 69, File: 330, Line: 74, Column: 2},
-	{Func: 336, Callee: 70, File: 330, Line: 79, Column: 2},
-	{Func: 336, Callee: 337, File: 330, Line: 80, Column: 17},
-	{Func: 336, Callee: 70, File: 330, Line: 81, Column: 2},
-	{Func: 336, Callee: 332, File: 330, Line: 81, Column: 18},
-	{Func: 336, Callee: 70, File: 330, Line: 82, Column: 2},
-	{Func: 336, Callee: 338, File: 330, Line: 84, Column: 2},
-	{Func: 336, Callee: 70, File: 330, Line: 85, Column: 2},
-	{Func: 336, Callee: 338, File: 330, Line: 87, Column: 2},
-	{Func: 336, Callee: 70, File: 330, Line: 90, Column: 3},
-	{Func: 336, Callee: 69, File: 330, Line: 93, Column: 5},
-	{Func: 336, Callee: 337, File: 330, Line: 96, Column: 17},
-	{Func: 336, Callee: 337, File: 330, Line: 97, Column: 17},
-	{Func: 336, Callee: 70, File: 330, Line: 98, Column: 4},
-	{Func: 336, Callee: 70, File: 330, Line: 99, Column: 4},
-	{Func: 336, Callee: 332, File: 330, Line: 99, Column: 20},
-	{Func: 336, Callee: 70, File: 330, Line: 100, Column: 4},
-	{Func: 336, Callee: 70, File: 330, Line: 101, Column: 4},
-	{Func: 336, Callee: 332, File: 330, Line: 101, Column: 20},
-	{Func: 336, Callee: 70, File: 330, Line: 102, Column: 4},
-	{Func: 336, Callee: 338, File: 330, Line: 103, Column: 4},
-	{Func: 336, Callee: 69, File: 330, Line: 104, Column: 4},
-	{Func: 336, Callee: 69, File: 330, Line: 106, Column: 3},
-	{Func: 336, Callee: 70, File: 330, Line: 108, Column: 2},
-	{Func: 336, Callee: 70, File: 330, Line: 111, Column: 3},
-	{Func: 336, Callee: 339, File: 330, Line: 113, Column: 7},
-	{Func: 336, Callee: 69, File: 330, Line: 115, Column: 2},
-	{Func: 340, Callee: 341, File: 330, Line: 130, Column: 18},
-	{Func: 340, Callee: 69, File: 330, Line: 131, Column: 2},
-	{Func: 340, Callee: 69, File: 330, Line: 134, Column: 4},
-	{Func: 340, Callee: 341, File: 330, Line: 136, Column: 16},
-	{Func: 340, Callee: 70, File: 330, Line: 138, Column: 4},
-	{Func: 340, Callee: 342, File: 330, Line: 140, Column: 8},
-	{Func: 340, Callee: 69, File: 330, Line: 143, Column: 2},
-	{Func: 343, Callee: 45, File: 330, Line: 154, Column: 15},
-	{Func: 343, Callee: 320, File: 330, Line: 155, Column: 43},
-	{Func: 343, Callee: 46, File: 330, Line: 157, Column: 11},
-	{Func: 343, Callee: 344, File: 330, Line: 161, Column: 11},
-	{Func: 343, Callee: 345, File: 330, Line: 169, Column: 12},
-	{Func: 343, Callee: 346, File: 330, Line: 173, Column: 19},
-	{Func: 343, Callee: 69, File: 330, Line: 178, Column: 3},
-	{Func: 343, Callee: 70, File: 330, Line: 180, Column: 3},
-	{Func: 343, Callee: 347, File: 330, Line: 181, Column: 7},
-	{Func: 343, Callee: 69, File: 330, Line: 183, Column: 2},
-	{Func: 348, Callee: 337, File: 330, Line: 194, Column: 15},
-	{Func: 348, Callee: 341, File: 330, Line: 197, Column: 15},
-	{Func: 349, Callee: 70, File: 330, Line: 209, Column: 3},
-	{Func: 349, Callee: 338, File: 330, Line: 211, Column: 3},
-	{Func: 349, Callee: 337, File: 330, Line: 213, Column: 15},
-	{Func: 349, Callee: 70, File: 330, Line: 214, Column: 3},
-	{Func: 349, Callee: 332, File: 330, Line: 214, Column: 19},
-	{Func: 349, Callee: 70, File: 330, Line: 216, Column: 3},
-	{Func: 349, Callee: 320, File: 330, Line: 216, Column: 19},
-	{Func: 349, Callee: 70, File: 330, Line: 219, Column: 4},
-	{Func: 349, Callee: 70, File: 330, Line: 221, Column: 4},
-	{Func: 349, Callee: 320, File: 330, Line: 221, Column: 20},
-	{Func: 349, Callee: 70, File: 330, Line: 225, Column: 4},
-	{Func: 349, Callee: 70, File: 330, Line: 227, Column: 4},
-	{Func: 349, Callee: 70, File: 330, Line: 232, Column: 5},
-	{Func: 349, Callee: 70, File: 330, Line: 234, Column: 5},
-	{Func: 349, Callee: 341, File: 330, Line: 237, Column: 16},
-	{Func: 349, Callee: 341, File: 330, Line: 238, Column: 16},
-	{Func: 349, Callee: 341, File: 330, Line: 239, Column: 16},
-	{Func: 349, Callee: 338, File: 330, Line: 240, Column: 4},
-	{Func: 349, Callee: 70, File: 330, Line: 244, Column: 4},
-	{Func: 349, Callee: 342, File: 330, Line: 246, Column: 8},
-	{Func: 349, Callee: 70, File: 330, Line: 250, Column: 4},
-	{Func: 349, Callee: 339, File: 330, Line: 252, Column: 8},
-	{Func: 349, Callee: 70, File: 330, Line: 256, Column: 4},
-	{Func: 349, Callee: 350, File: 330, Line: 258, Column: 8},
-	{Func: 351, Callee: 341, File: 330, Line: 265, Column: 18},
-	{Func: 351, Callee: 69, File: 330, Line: 266, Column: 2},
-	{Func: 351, Callee: 69, File: 330, Line: 269, Column: 4},
-	{Func: 351, Callee: 341, File: 330, Line: 271, Column: 15},
-	{Func: 351, Callee: 337, File: 330, Line: 273, Column: 16},
-	{Func: 351, Callee: 70, File: 330, Line: 274, Column: 4},
-	{Func: 351, Callee: 332, File: 330, Line: 274, Column: 20},
-	{Func: 351, Callee: 70, File: 330, Line: 276, Column: 4},
-	{Func: 351, Callee: 320, File: 330, Line: 276, Column: 20},
-	{Func: 351, Callee: 69, File: 330, Line: 279, Column: 2},
-	{Func: 352, Callee: 68, File: 330, Line: 293, Column: 2},
-	{Func: 352, Callee: 69, File: 330, Line: 294, Column: 2},
-	{Func: 352, Callee: 70, File: 330, Line: 305, Column: 4},
-	{Func: 352, Callee: 25, File: 330, Line: 305, Column: 18},
-	{Func: 352, Callee: 69, File: 330, Line: 308, Column: 5},
-	{Func: 352, Callee: 69, File: 330, Line: 309, Column: 5},
-	{Func: 352, Callee: 70, File: 330, Line: 311, Column: 5},
-	{Func: 352, Callee: 70, File: 330, Line: 313, Column: 5},
-	{Func: 352, Callee: 70, File: 330, Line: 315, Column: 5},
-	{Func: 352, Callee: 70, File: 330, Line: 317, Column: 5},
-	{Func: 352, Callee: 70, File: 330, Line: 319, Column: 5},
+	{Func: 334, Callee: 320, File: 330, Line: 71, Column: 51},
+	{Func: 335, Callee: 69, File: 330, Line: 78, Column: 2},
+	{Func: 335, Callee: 70, File: 330, Line: 79, Column: 2},
+	{Func: 335, Callee: 320, File: 330, Line: 79, Column: 18},
+	{Func: 335, Callee: 69, File: 330, Line: 80, Column: 2},
+	{Func: 335, Callee: 70, File: 330, Line: 81, Column: 2},
+	{Func: 335, Callee: 320, File: 330, Line: 81, Column: 18},
+	{Func: 335, Callee: 69, File: 330, Line: 82, Column: 2},
+	{Func: 335, Callee: 70, File: 330, Line: 83, Column: 2},
+	{Func: 335, Callee: 320, File: 330, Line: 83, Column: 18},
+	{Func: 335, Callee: 69, File: 330, Line: 84, Column: 2},
+	{Func: 336, Callee: 70, File: 330, Line: 89, Column: 2},
+	{Func: 336, Callee: 337, File: 330, Line: 90, Column: 17},
+	{Func: 336, Callee: 70, File: 330, Line: 91, Column: 2},
+	{Func: 336, Callee: 332, File: 330, Line: 91, Column: 18},
+	{Func: 336, Callee: 70, File: 330, Line: 92, Column: 2},
+	{Func: 336, Callee: 338, File: 330, Line: 94, Column: 2},
+	{Func: 336, Callee: 70, File: 330, Line: 95, Column: 2},
+	{Func: 336, Callee: 338, File: 330, Line: 97, Column: 2},
+	{Func: 336, Callee: 70, File: 330, Line: 100, Column: 3},
+	{Func: 336, Callee: 69, File: 330, Line: 103, Column: 5},
+	{Func: 336, Callee: 337, File: 330, Line: 106, Column: 17},
+	{Func: 336, Callee: 337, File: 330, Line: 107, Column: 17},
+	{Func: 336, Callee: 70, File: 330, Line: 108, Column: 4},
+	{Func: 336, Callee: 70, File: 330, Line: 109, Column: 4},
+	{Func: 336, Callee: 332, File: 330, Line: 109, Column: 20},
+	{Func: 336, Callee: 70, File: 330, Line: 110, Column: 4},
+	{Func: 336, Callee: 70, File: 330, Line: 111, Column: 4},
+	{Func: 336, Callee: 332, File: 330, Line: 111, Column: 20},
+	{Func: 336, Callee: 70, File: 330, Line: 112, Column: 4},
+	{Func: 336, Callee: 338, File: 330, Line: 113, Column: 4},
+	{Func: 336, Callee: 69, File: 330, Line: 114, Column: 4},
+	{Func: 336, Callee: 69, File: 330, Line: 116, Column: 3},
+	{Func: 336, Callee: 70, File: 330, Line: 118, Column: 2},
+	{Func: 336, Callee: 70, File: 330, Line: 121, Column: 3},
+	{Func: 336, Callee: 339, File: 330, Line: 123, Column: 7},
+	{Func: 336, Callee: 69, File: 330, Line: 125, Column: 2},
+	{Func: 340, Callee: 341, File: 330, Line: 140, Column: 18},
+	{Func: 340, Callee: 69, File: 330, Line: 141, Column: 2},
+	{Func: 340, Callee: 69, File: 330, Line: 144, Column: 4},
+	{Func: 340, Callee: 341, File: 330, Line: 146, Column: 16},
+	{Func: 340, Callee: 70, File: 330, Line: 148, Column: 4},
+	{Func: 340, Callee: 342, File: 330, Line: 150, Column: 8},
+	{Func: 340, Callee: 69, File: 330, Line: 153, Column: 2},
+	{Func: 343, Callee: 45, File: 330, Line: 164, Column: 15},
+	{Func: 343, Callee: 320, File: 330, Line: 165, Column: 43},
+	{Func: 343, Callee: 46, File: 330, Line: 167, Column: 11},
+	{Func: 343, Callee: 344, File: 330, Line: 171, Column: 11},
+	{Func: 343, Callee: 345, File: 330, Line: 179, Column: 12},
+	{Func: 343, Callee: 346, File: 330, Line: 183, Column: 19},
+	{Func: 343, Callee: 69, File: 330, Line: 188, Column: 3},
+	{Func: 343, Callee: 70, File: 330, Line: 190, Column: 3},
+	{Func: 343, Callee: 347, File: 330, Line: 191, Column: 7},
+	{Func: 343, Callee: 69, File: 330, Line: 193, Column: 2},
+	{Func: 348, Callee: 337, File: 330, Line: 204, Column: 15},
+	{Func: 348, Callee: 341, File: 330, Line: 207, Column: 15},
+	{Func: 349, Callee: 70, File: 330, Line: 219, Column: 3},
+	{Func: 349, Callee: 338, File: 330, Line: 221, Column: 3},
+	{Func: 349, Callee: 337, File: 330, Line: 223, Column: 15},
+	{Func: 349, Callee: 70, File: 330, Line: 224, Column: 3},
+	{Func: 349, Callee: 332, File: 330, Line: 224, Column: 19},
+	{Func: 349, Callee: 70, File: 330, Line: 226, Column: 3},
+	{Func: 349, Callee: 320, File: 330, Line: 226, Column: 19},
+	{Func: 349, Callee: 70, File: 330, Line: 229, Column: 4},
+	{Func: 349, Callee: 70, File: 330, Line: 231, Column: 4},
+	{Func: 349, Callee: 320, File: 330, Line: 231, Column: 20},
+	{Func: 349, Callee: 70, File: 330, Line: 235, Column: 4},
+	{Func: 349, Callee: 70, File: 330, Line: 237, Column: 4},
+	{Func: 349, Callee: 70, File: 330, Line: 242, Column: 5},
+	{Func: 349, Callee: 70, File: 330, Line: 244, Column: 5},
+	{Func: 349, Callee: 341, File: 330, Line: 247, Column: 16},
+	{Func: 349, Callee: 341, File: 330, Line: 248, Column: 16},
+	{Func: 349, Callee: 341, File: 330, Line: 249, Column: 16},
+	{Func: 349, Callee: 338, File: 330, Line: 250, Column: 4},
+	{Func: 349, Callee: 70, File: 330, Line: 254, Column: 4},
+	{Func: 349, Callee: 342, File: 330, Line: 256, Column: 8},
+	{Func: 349, Callee: 70, File: 330, Line: 260, Column: 4},
+	{Func: 349, Callee: 339, File: 330, Line: 262, Column: 8},
+	{Func: 349, Callee: 70, File: 330, Line: 266, Column: 4},
+	{Func: 349, Callee: 350, File: 330, Line: 268, Column: 8},
+	{Func: 351, Callee: 341, File: 330, Line: 275, Column: 18},
+	{Func: 351, Callee: 69, File: 330, Line: 276, Column: 2},
+	{Func: 351, Callee: 69, File: 330, Line: 279, Column: 4},
+	{Func: 351, Callee: 341, File: 330, Line: 281, Column: 15},
+	{Func: 351, Callee: 337, File: 330, Line: 283, Column: 16},
+	{Func: 351, Callee: 70, File: 330, Line: 284, Column: 4},
+	{Func: 351, Callee: 332, File: 330, Line: 284, Column: 20},
+	{Func: 351, Callee: 70, File: 330, Line: 286, Column: 4},
+	{Func: 351, Callee: 320, File: 330, Line: 286, Column: 20},
+	{Func: 351, Callee: 69, File: 330, Line: 289, Column: 2},
+	{Func: 352, Callee: 68, File: 330, Line: 303, Column: 2},
+	{Func: 352, Callee: 69, File: 330, Line: 304, Column: 2},
+	{Func: 352, Callee: 70, File: 330, Line: 315, Column: 4},
+	{Func: 352, Callee: 25, File: 330, Line: 315, Column: 18},
+	{Func: 352, Callee: 69, File: 330, Line: 318, Column: 5},
+	{Func: 352, Callee: 69, File: 330, Line: 319, Column: 5},
 	{Func: 352, Callee: 70, File: 330, Line: 321, Column: 5},
-	{Func: 352, Callee: 69, File: 330, Line: 322, Column: 5},
-	{Func: 352, Callee: 69, File: 330, Line: 323, Column: 5},
-	{Func: 352, Callee: 353, File: 330, Line: 330, Column: 11},
-	{Func: 352, Callee: 25, File: 330, Line: 330, Column: 35},
-	{Func: 352, Callee: 70, File: 330, Line: 332, Column: 4},
-	{Func: 352, Callee: 25, File: 330, Line: 332, Column: 18},
-	{Func: 352, Callee: 69, File: 330, Line: 333, Column: 4},
-	{Func: 352, Callee: 69, File: 330, Line: 334, Column: 4},
-	{Func: 352, Callee: 69, File: 330, Line: 335, Column: 4},
-	{Func: 352, Callee: 70, File: 330, Line: 341, Column: 4},
-	{Func: 352, Callee: 25, File: 330, Line: 341, Column: 18},
+	{Func: 352, Callee: 70, File: 330, Line: 323, Column: 5},
+	{Func: 352, Callee: 70, File: 330, Line: 325, Column: 5},
+	{Func: 352, Callee: 70, File: 330, Line: 327, Column: 5},
+	{Func: 352, Callee: 70, File: 330, Line: 329, Column: 5},
+	{Func: 352, Callee: 70, File: 330, Line: 331, Column: 5},
+	{Func: 352, Callee: 69, File: 330, Line: 332, Column: 5},
+	{Func: 352, Callee: 69, File: 330, Line: 333, Column: 5},
+	{Func: 352, Callee: 353, File: 330, Line: 340, Column: 11},
+	{Func: 352, Callee: 25, File: 330, Line: 340, Column: 35},
 	{Func: 352, Callee: 70, File: 330, Line: 342, Column: 4},
+	{Func: 352, Callee: 25, File: 330, Line: 342, Column: 18},
 	{Func: 352, Callee: 69, File: 330, Line: 343, Column: 4},
-	{Func: 352, Callee: 70, File: 330, Line: 350, Column: 2},
-	{Func: 352, Callee: 25, File: 330, Line: 350, Column: 16},
-	{Func: 352, Callee: 69, File: 330, Line: 351, Column: 2},
-	{Func: 352, Callee: 59, File: 330, Line: 352, Column: 2},
+	{Func: 352, Callee: 69, File: 330, Line: 344, Column: 4},
+	{Func: 352, Callee: 69, File: 330, Line: 345, Column: 4},
+	{Func: 352, Callee: 70, File: 330, Line: 351, Column: 4},
+	{Func: 352, Callee: 25, File: 330, Line: 351, Column: 18},
+	{Func: 352, Callee: 70, File: 330, Line: 352, Column: 4},
+	{Func: 352, Callee: 69, File: 330, Line: 353, Column: 4},
+	{Func: 352, Callee: 70, File: 330, Line: 360, Column: 2},
+	{Func: 352, Callee: 25, File: 330, Line: 360, Column: 16},
+	{Func: 352, Callee: 69, File: 330, Line: 361, Column: 2},
+	{Func: 352, Callee: 59, File: 330, Line: 362, Column: 2},
 	{Func: 354, Callee: 332, File: 355, Line: 17, Column: 27},
 	{Func: 356, Callee: 357, File: 355, Line: 27, Column: 2},
 	{Func: 356, Callee: 357, File: 355, Line: 28, Column: 2},
@@ -12422,79 +12422,79 @@ const FPosPtr uint8 = uint8(6)
 //line ir/ir.ergo:83:5
 const FBool uint8 = uint8(3)
 
-//line ir/json.ergo:291:1
+//line ir/json.ergo:301:1
 func Quote(env *Env, s string) string {
-	/*line ir/json.ergo:292:2*/ b := Builder{buf: []uint8{}}
-	/*line ir/json.ergo:293:2*/ (&b).Grow((len(s) + 2))
-	/*line ir/json.ergo:294:2*/ (&b).WriteByte_(uint8(34))
-	/*line ir/json.ergo:295:2*/ start_1 := 0
-	/*line ir/json.ergo:296:2*/ i := 0
-	/*line ir/json.ergo:297:2*/ n := len(s)
-	/*line ir/json.ergo:298:2*/ for i < n {
-		/*line ir/json.ergo:299:3*/ c := s[i]
-		/*line ir/json.ergo:300:3*/ if c < uint8(128) {
-			/*line ir/json.ergo:301:4*/ if (((((c >= uint8(32)) && (c != uint8(34))) && (c != uint8(92))) && (c != uint8(60))) && (c != uint8(62))) && (c != uint8(38)) {
-				/*line ir/json.ergo:302:5*/ i += 1
-				/*line ir/json.ergo:303:5*/ continue
+	/*line ir/json.ergo:302:2*/ b := Builder{buf: []uint8{}}
+	/*line ir/json.ergo:303:2*/ (&b).Grow((len(s) + 2))
+	/*line ir/json.ergo:304:2*/ (&b).WriteByte_(uint8(34))
+	/*line ir/json.ergo:305:2*/ start_1 := 0
+	/*line ir/json.ergo:306:2*/ i := 0
+	/*line ir/json.ergo:307:2*/ n := len(s)
+	/*line ir/json.ergo:308:2*/ for i < n {
+		/*line ir/json.ergo:309:3*/ c := s[i]
+		/*line ir/json.ergo:310:3*/ if c < uint8(128) {
+			/*line ir/json.ergo:311:4*/ if (((((c >= uint8(32)) && (c != uint8(34))) && (c != uint8(92))) && (c != uint8(60))) && (c != uint8(62))) && (c != uint8(38)) {
+				/*line ir/json.ergo:312:5*/ i += 1
+				/*line ir/json.ergo:313:5*/ continue
 			}
-			/*line ir/json.ergo:305:4*/ (&b).WriteString(Slice_3(s, start_1, i))
-			/*line ir/json.ergo:306:4*/ switch c {
+			/*line ir/json.ergo:315:4*/ (&b).WriteString(Slice_3(s, start_1, i))
+			/*line ir/json.ergo:316:4*/ switch c {
 			case uint8(34), uint8(92):
-				/*line ir/json.ergo:308:5*/ (&b).WriteByte_(uint8(92))
-				/*line ir/json.ergo:309:5*/ (&b).WriteByte_(c)
+				/*line ir/json.ergo:318:5*/ (&b).WriteByte_(uint8(92))
+				/*line ir/json.ergo:319:5*/ (&b).WriteByte_(c)
 			case uint8(8):
-				/*line ir/json.ergo:311:5*/ (&b).WriteString("\\b")
+				/*line ir/json.ergo:321:5*/ (&b).WriteString("\\b")
 			case uint8(12):
-				/*line ir/json.ergo:313:5*/ (&b).WriteString("\\f")
+				/*line ir/json.ergo:323:5*/ (&b).WriteString("\\f")
 			case uint8(10):
-				/*line ir/json.ergo:315:5*/ (&b).WriteString("\\n")
+				/*line ir/json.ergo:325:5*/ (&b).WriteString("\\n")
 			case uint8(13):
-				/*line ir/json.ergo:317:5*/ (&b).WriteString("\\r")
+				/*line ir/json.ergo:327:5*/ (&b).WriteString("\\r")
 			case uint8(9):
-				/*line ir/json.ergo:319:5*/ (&b).WriteString("\\t")
+				/*line ir/json.ergo:329:5*/ (&b).WriteString("\\t")
 			default:
-				/*line ir/json.ergo:321:5*/ (&b).WriteString("\\u00")
-				/*line ir/json.ergo:322:5*/ (&b).WriteByte_("0123456789abcdef"[int((c >> 4))])
-				/*line ir/json.ergo:323:5*/ (&b).WriteByte_("0123456789abcdef"[int((c & uint8(15)))])
+				/*line ir/json.ergo:331:5*/ (&b).WriteString("\\u00")
+				/*line ir/json.ergo:332:5*/ (&b).WriteByte_("0123456789abcdef"[int((c >> 4))])
+				/*line ir/json.ergo:333:5*/ (&b).WriteByte_("0123456789abcdef"[int((c & uint8(15)))])
 			}
-			/*line ir/json.ergo:325:4*/ i += 1
-			/*line ir/json.ergo:326:4*/ start_1 = i
-			/*line ir/json.ergo:327:4*/ continue
+			/*line ir/json.ergo:335:4*/ i += 1
+			/*line ir/json.ergo:336:4*/ start_1 = i
+			/*line ir/json.ergo:337:4*/ continue
 		}
-		/*line ir/json.ergo:329:13*/ var if7 int
-		/*line ir/json.ergo:329:13*/ if (i + 4) < n {
-			/*line ir/json.ergo:329:26*/ if7 = (i + 4)
+		/*line ir/json.ergo:339:13*/ var if7 int
+		/*line ir/json.ergo:339:13*/ if (i + 4) < n {
+			/*line ir/json.ergo:339:26*/ if7 = (i + 4)
 		} else {
-			/*line ir/json.ergo:329:41*/ if7 = n
+			/*line ir/json.ergo:339:41*/ if7 = n
 		}
-		/*line ir/json.ergo:329:3*/ end := if7
-		/*line ir/json.ergo:330:3*/ d := ergo.UTF8DecodeRuneInString(Slice_3(s, i, end))
-		/*line ir/json.ergo:331:3*/ if (d.Rune == int32(65533)) && (d.Size == 1) {
-			/*line ir/json.ergo:332:4*/ (&b).WriteString(Slice_3(s, start_1, i))
-			/*line ir/json.ergo:333:4*/ (&b).WriteByte_(uint8(239))
-			/*line ir/json.ergo:334:4*/ (&b).WriteByte_(uint8(191))
-			/*line ir/json.ergo:335:4*/ (&b).WriteByte_(uint8(189))
-			/*line ir/json.ergo:336:4*/ i += 1
-			/*line ir/json.ergo:337:4*/ start_1 = i
-			/*line ir/json.ergo:338:4*/ continue
+		/*line ir/json.ergo:339:3*/ end := if7
+		/*line ir/json.ergo:340:3*/ d := ergo.UTF8DecodeRuneInString(Slice_3(s, i, end))
+		/*line ir/json.ergo:341:3*/ if (d.Rune == int32(65533)) && (d.Size == 1) {
+			/*line ir/json.ergo:342:4*/ (&b).WriteString(Slice_3(s, start_1, i))
+			/*line ir/json.ergo:343:4*/ (&b).WriteByte_(uint8(239))
+			/*line ir/json.ergo:344:4*/ (&b).WriteByte_(uint8(191))
+			/*line ir/json.ergo:345:4*/ (&b).WriteByte_(uint8(189))
+			/*line ir/json.ergo:346:4*/ i += 1
+			/*line ir/json.ergo:347:4*/ start_1 = i
+			/*line ir/json.ergo:348:4*/ continue
 		}
-		/*line ir/json.ergo:340:3*/ if (d.Rune == int32(8232)) || (d.Rune == int32(8233)) {
-			/*line ir/json.ergo:341:4*/ (&b).WriteString(Slice_3(s, start_1, i))
-			/*line ir/json.ergo:342:4*/ (&b).WriteString("\\u202")
-			/*line ir/json.ergo:343:4*/ (&b).WriteByte_("0123456789abcdef"[int((d.Rune & int32(15)))])
-			/*line ir/json.ergo:344:4*/ i += d.Size
-			/*line ir/json.ergo:345:4*/ start_1 = i
-			/*line ir/json.ergo:346:4*/ continue
+		/*line ir/json.ergo:350:3*/ if (d.Rune == int32(8232)) || (d.Rune == int32(8233)) {
+			/*line ir/json.ergo:351:4*/ (&b).WriteString(Slice_3(s, start_1, i))
+			/*line ir/json.ergo:352:4*/ (&b).WriteString("\\u202")
+			/*line ir/json.ergo:353:4*/ (&b).WriteByte_("0123456789abcdef"[int((d.Rune & int32(15)))])
+			/*line ir/json.ergo:354:4*/ i += d.Size
+			/*line ir/json.ergo:355:4*/ start_1 = i
+			/*line ir/json.ergo:356:4*/ continue
 		}
-		/*line ir/json.ergo:348:3*/ i += d.Size
+		/*line ir/json.ergo:358:3*/ i += d.Size
 	}
-	/*line ir/json.ergo:350:2*/ (&b).WriteString(Slice_3(s, start_1, n))
-	/*line ir/json.ergo:351:2*/ (&b).WriteByte_(uint8(34))
-	/*line ir/json.ergo:352:2*/ v := b.StringOwned(env)
-	/*line ir/json.ergo:352:2*/ return v
+	/*line ir/json.ergo:360:2*/ (&b).WriteString(Slice_3(s, start_1, n))
+	/*line ir/json.ergo:361:2*/ (&b).WriteByte_(uint8(34))
+	/*line ir/json.ergo:362:2*/ v := b.StringOwned(env)
+	/*line ir/json.ergo:362:2*/ return v
 }
 
-//line ir/json.ergo:292
+//line ir/json.ergo:302
 
 //line ir/kinds.ergo:16:1
 func k(env *Env, name string, class uint8, slots []uint8) Kind {
@@ -19766,134 +19766,134 @@ type Body struct {
 	/*line ir/ir.ergo:59:1*/
 }
 
-//line ir/json.ergo:78:1
+//line ir/json.ergo:88:1
 func (w *writer) function(env *Env, fi int) error {
-	/*line ir/json.ergo:79:2*/ (&w.b).WriteString("{\"name\":")
-	/*line ir/json.ergo:80:17*/ var name string
-	/*line ir/json.ergo:80:17*/ var err error
-	/*line ir/json.ergo:80:17*/ {
-		/*line ir/json.ergo:80:42*/ p2_inl567 := w.file.Funcs[fi].Name
-		/*line ir/json.ergo:80:17*/ if int(p2_inl567) >= len(w.file.Strs) {
-			/*line ir/json.ergo#ergo-inline-567:61:3*/ err = error(Malformed{At: int(p2_inl567), Why: ("no text " + Itoa(int(p2_inl567)))})
-			/*line ir/json.ergo#ergo-inline-567:61:3*/ goto inl567
+	/*line ir/json.ergo:89:2*/ (&w.b).WriteString("{\"name\":")
+	/*line ir/json.ergo:90:17*/ var name string
+	/*line ir/json.ergo:90:17*/ var err error
+	/*line ir/json.ergo:90:17*/ {
+		/*line ir/json.ergo:90:42*/ p2_inl567 := w.file.Funcs[fi].Name
+		/*line ir/json.ergo:90:17*/ if int(p2_inl567) >= len(w.file.Strs) {
+			/*line ir/json.ergo#ergo-inline-567:71:3*/ err = error(Malformed{At: int(p2_inl567), Why: ("no text " + Itoa(int(p2_inl567)))})
+			/*line ir/json.ergo#ergo-inline-567:71:3*/ goto inl567
 		}
-		/*line ir/json.ergo#ergo-inline-567:63:2*/ name = w.file.Strs[int(p2_inl567)]
+		/*line ir/json.ergo#ergo-inline-567:73:2*/ name = w.file.Strs[int(p2_inl567)]
 	}
-	/*line ir/json.ergo:80:17*/ inl567:
-	/*line ir/json.ergo:80:17*/ {
+	/*line ir/json.ergo:90:17*/ inl567:
+	/*line ir/json.ergo:90:17*/ {
 	}
-	/*line ir/json.ergo:80:17*/ if err != error(nil) {
-		/*line ir/json.ergo:80:17*/ return err
+	/*line ir/json.ergo:90:17*/ if err != error(nil) {
+		/*line ir/json.ergo:90:17*/ return err
 	}
-	/*line ir/json.ergo:81:18*/ v_1 := Quote(env, name)
-	/*line ir/json.ergo:81:2*/ (&w.b).WriteString(v_1)
-	/*line ir/json.ergo:82:2*/ (&w.b).WriteString(",\"pos\":")
-	/*line ir/json.ergo:83:2*/ p := w.file.Funcs[fi].Pos
-	/*line ir/json.ergo:84:2*/ {
-		/*line ir/json.ergo:84:11*/ p1_inl568 := p.File
-		/*line ir/json.ergo:84:19*/ p2_inl568 := p.Line
-		/*line ir/json.ergo:84:27*/ p3_inl568 := p.Col
-		/*line ir/json.ergo#ergo-inline-568:68:2*/ (&w.b).WriteByte_(uint8(91))
-		/*line ir/json.ergo#ergo-inline-568:69:2*/ (&w.b).WriteString(Itoa(int(p1_inl568)))
-		/*line ir/json.ergo#ergo-inline-568:70:2*/ (&w.b).WriteByte_(uint8(44))
-		/*line ir/json.ergo#ergo-inline-568:71:2*/ (&w.b).WriteString(Itoa(int(p2_inl568)))
-		/*line ir/json.ergo#ergo-inline-568:72:2*/ (&w.b).WriteByte_(uint8(44))
-		/*line ir/json.ergo#ergo-inline-568:73:2*/ (&w.b).WriteString(Itoa(int(p3_inl568)))
-		/*line ir/json.ergo#ergo-inline-568:74:2*/ (&w.b).WriteByte_(uint8(93))
+	/*line ir/json.ergo:91:18*/ v_1 := Quote(env, name)
+	/*line ir/json.ergo:91:2*/ (&w.b).WriteString(v_1)
+	/*line ir/json.ergo:92:2*/ (&w.b).WriteString(",\"pos\":")
+	/*line ir/json.ergo:93:2*/ p := w.file.Funcs[fi].Pos
+	/*line ir/json.ergo:94:2*/ {
+		/*line ir/json.ergo:94:11*/ p1_inl568 := p.File
+		/*line ir/json.ergo:94:19*/ p2_inl568 := p.Line
+		/*line ir/json.ergo:94:27*/ p3_inl568 := p.Col
+		/*line ir/json.ergo#ergo-inline-568:78:2*/ (&w.b).WriteByte_(uint8(91))
+		/*line ir/json.ergo#ergo-inline-568:79:2*/ (&w.b).WriteString(Itoa(int(p1_inl568)))
+		/*line ir/json.ergo#ergo-inline-568:80:2*/ (&w.b).WriteByte_(uint8(44))
+		/*line ir/json.ergo#ergo-inline-568:81:2*/ (&w.b).WriteString(Itoa(int(p2_inl568)))
+		/*line ir/json.ergo#ergo-inline-568:82:2*/ (&w.b).WriteByte_(uint8(44))
+		/*line ir/json.ergo#ergo-inline-568:83:2*/ (&w.b).WriteString(Itoa(int(p3_inl568)))
+		/*line ir/json.ergo#ergo-inline-568:84:2*/ (&w.b).WriteByte_(uint8(93))
 	}
-	/*line ir/json.ergo:85:2*/ (&w.b).WriteString(",\"end\":")
-	/*line ir/json.ergo:86:2*/ e := w.file.Funcs[fi].End
-	/*line ir/json.ergo:87:2*/ {
-		/*line ir/json.ergo:87:11*/ p1_inl569 := e.File
-		/*line ir/json.ergo:87:19*/ p2_inl569 := e.Line
-		/*line ir/json.ergo:87:27*/ p3_inl569 := e.Col
-		/*line ir/json.ergo#ergo-inline-569:68:2*/ (&w.b).WriteByte_(uint8(91))
-		/*line ir/json.ergo#ergo-inline-569:69:2*/ (&w.b).WriteString(Itoa(int(p1_inl569)))
-		/*line ir/json.ergo#ergo-inline-569:70:2*/ (&w.b).WriteByte_(uint8(44))
-		/*line ir/json.ergo#ergo-inline-569:71:2*/ (&w.b).WriteString(Itoa(int(p2_inl569)))
-		/*line ir/json.ergo#ergo-inline-569:72:2*/ (&w.b).WriteByte_(uint8(44))
-		/*line ir/json.ergo#ergo-inline-569:73:2*/ (&w.b).WriteString(Itoa(int(p3_inl569)))
-		/*line ir/json.ergo#ergo-inline-569:74:2*/ (&w.b).WriteByte_(uint8(93))
+	/*line ir/json.ergo:95:2*/ (&w.b).WriteString(",\"end\":")
+	/*line ir/json.ergo:96:2*/ e := w.file.Funcs[fi].End
+	/*line ir/json.ergo:97:2*/ {
+		/*line ir/json.ergo:97:11*/ p1_inl569 := e.File
+		/*line ir/json.ergo:97:19*/ p2_inl569 := e.Line
+		/*line ir/json.ergo:97:27*/ p3_inl569 := e.Col
+		/*line ir/json.ergo#ergo-inline-569:78:2*/ (&w.b).WriteByte_(uint8(91))
+		/*line ir/json.ergo#ergo-inline-569:79:2*/ (&w.b).WriteString(Itoa(int(p1_inl569)))
+		/*line ir/json.ergo#ergo-inline-569:80:2*/ (&w.b).WriteByte_(uint8(44))
+		/*line ir/json.ergo#ergo-inline-569:81:2*/ (&w.b).WriteString(Itoa(int(p2_inl569)))
+		/*line ir/json.ergo#ergo-inline-569:82:2*/ (&w.b).WriteByte_(uint8(44))
+		/*line ir/json.ergo#ergo-inline-569:83:2*/ (&w.b).WriteString(Itoa(int(p3_inl569)))
+		/*line ir/json.ergo#ergo-inline-569:84:2*/ (&w.b).WriteByte_(uint8(93))
 	}
-	/*line ir/json.ergo:88:2*/ nl := len(w.file.Funcs[fi].Locals)
-	/*line ir/json.ergo:89:2*/ if nl > 0 {
-		/*line ir/json.ergo:90:3*/ (&w.b).WriteString(",\"locals\":[")
-		/*line ir/json.ergo:91:3*/ r := Range[int]{Start: 0, End: nl}
-		/*line ir/json.ergo:91:3*/ for i := r.Start; i < r.End; i++ {
-			/*line ir/json.ergo:92:4*/ if i > 0 {
-				/*line ir/json.ergo:93:5*/ (&w.b).WriteByte_(uint8(44))
+	/*line ir/json.ergo:98:2*/ nl := len(w.file.Funcs[fi].Locals)
+	/*line ir/json.ergo:99:2*/ if nl > 0 {
+		/*line ir/json.ergo:100:3*/ (&w.b).WriteString(",\"locals\":[")
+		/*line ir/json.ergo:101:3*/ r := Range[int]{Start: 0, End: nl}
+		/*line ir/json.ergo:101:3*/ for i := r.Start; i < r.End; i++ {
+			/*line ir/json.ergo:102:4*/ if i > 0 {
+				/*line ir/json.ergo:103:5*/ (&w.b).WriteByte_(uint8(44))
 			}
-			/*line ir/json.ergo:95:4*/ l := w.file.Funcs[fi].Locals[i]
-			/*line ir/json.ergo:96:17*/ var ln_1 string
-			/*line ir/json.ergo:96:17*/ var err_1 error
-			/*line ir/json.ergo:96:17*/ {
-				/*line ir/json.ergo:96:27*/ p2_inl570 := l.Name
-				/*line ir/json.ergo:96:17*/ if int(p2_inl570) >= len(w.file.Strs) {
-					/*line ir/json.ergo#ergo-inline-570:61:3*/ err_1 = error(Malformed{At: int(p2_inl570), Why: ("no text " + Itoa(int(p2_inl570)))})
-					/*line ir/json.ergo#ergo-inline-570:61:3*/ goto inl570
+			/*line ir/json.ergo:105:4*/ l := w.file.Funcs[fi].Locals[i]
+			/*line ir/json.ergo:106:17*/ var ln_1 string
+			/*line ir/json.ergo:106:17*/ var err_1 error
+			/*line ir/json.ergo:106:17*/ {
+				/*line ir/json.ergo:106:27*/ p2_inl570 := l.Name
+				/*line ir/json.ergo:106:17*/ if int(p2_inl570) >= len(w.file.Strs) {
+					/*line ir/json.ergo#ergo-inline-570:71:3*/ err_1 = error(Malformed{At: int(p2_inl570), Why: ("no text " + Itoa(int(p2_inl570)))})
+					/*line ir/json.ergo#ergo-inline-570:71:3*/ goto inl570
 				}
-				/*line ir/json.ergo#ergo-inline-570:63:2*/ ln_1 = w.file.Strs[int(p2_inl570)]
+				/*line ir/json.ergo#ergo-inline-570:73:2*/ ln_1 = w.file.Strs[int(p2_inl570)]
 			}
-			/*line ir/json.ergo:96:17*/ inl570:
-			/*line ir/json.ergo:96:17*/ {
+			/*line ir/json.ergo:106:17*/ inl570:
+			/*line ir/json.ergo:106:17*/ {
 			}
-			/*line ir/json.ergo:96:17*/ if err_1 != error(nil) {
-				/*line ir/json.ergo:96:17*/ return err_1
+			/*line ir/json.ergo:106:17*/ if err_1 != error(nil) {
+				/*line ir/json.ergo:106:17*/ return err_1
 			}
-			/*line ir/json.ergo:97:17*/ var lt string
-			/*line ir/json.ergo:97:17*/ var err_2 error
-			/*line ir/json.ergo:97:17*/ {
-				/*line ir/json.ergo:97:27*/ p2_inl571 := l.Type
-				/*line ir/json.ergo:97:17*/ if int(p2_inl571) >= len(w.file.Strs) {
-					/*line ir/json.ergo#ergo-inline-571:61:3*/ err_2 = error(Malformed{At: int(p2_inl571), Why: ("no text " + Itoa(int(p2_inl571)))})
-					/*line ir/json.ergo#ergo-inline-571:61:3*/ goto inl571
+			/*line ir/json.ergo:107:17*/ var lt string
+			/*line ir/json.ergo:107:17*/ var err_2 error
+			/*line ir/json.ergo:107:17*/ {
+				/*line ir/json.ergo:107:27*/ p2_inl571 := l.Type
+				/*line ir/json.ergo:107:17*/ if int(p2_inl571) >= len(w.file.Strs) {
+					/*line ir/json.ergo#ergo-inline-571:71:3*/ err_2 = error(Malformed{At: int(p2_inl571), Why: ("no text " + Itoa(int(p2_inl571)))})
+					/*line ir/json.ergo#ergo-inline-571:71:3*/ goto inl571
 				}
-				/*line ir/json.ergo#ergo-inline-571:63:2*/ lt = w.file.Strs[int(p2_inl571)]
+				/*line ir/json.ergo#ergo-inline-571:73:2*/ lt = w.file.Strs[int(p2_inl571)]
 			}
-			/*line ir/json.ergo:97:17*/ inl571:
-			/*line ir/json.ergo:97:17*/ {
+			/*line ir/json.ergo:107:17*/ inl571:
+			/*line ir/json.ergo:107:17*/ {
 			}
-			/*line ir/json.ergo:97:17*/ if err_2 != error(nil) {
-				/*line ir/json.ergo:97:17*/ return err_2
+			/*line ir/json.ergo:107:17*/ if err_2 != error(nil) {
+				/*line ir/json.ergo:107:17*/ return err_2
 			}
-			/*line ir/json.ergo:98:4*/ (&w.b).WriteString("{\"name\":")
-			/*line ir/json.ergo:99:20*/ v_4 := Quote(env, ln_1)
-			/*line ir/json.ergo:99:4*/ (&w.b).WriteString(v_4)
-			/*line ir/json.ergo:100:4*/ (&w.b).WriteString(",\"type\":")
-			/*line ir/json.ergo:101:20*/ v_5 := Quote(env, lt)
-			/*line ir/json.ergo:101:4*/ (&w.b).WriteString(v_5)
-			/*line ir/json.ergo:102:4*/ (&w.b).WriteString(",\"pos\":")
-			/*line ir/json.ergo:103:4*/ {
-				/*line ir/json.ergo:103:17*/ p1_inl572 := l.Pos.File
-				/*line ir/json.ergo:103:29*/ p2_inl572 := l.Pos.Line
-				/*line ir/json.ergo:103:41*/ p3_inl572 := l.Pos.Col
-				/*line ir/json.ergo#ergo-inline-572:68:2*/ (&w.b).WriteByte_(uint8(91))
-				/*line ir/json.ergo#ergo-inline-572:69:2*/ (&w.b).WriteString(Itoa(int(p1_inl572)))
-				/*line ir/json.ergo#ergo-inline-572:70:2*/ (&w.b).WriteByte_(uint8(44))
-				/*line ir/json.ergo#ergo-inline-572:71:2*/ (&w.b).WriteString(Itoa(int(p2_inl572)))
-				/*line ir/json.ergo#ergo-inline-572:72:2*/ (&w.b).WriteByte_(uint8(44))
-				/*line ir/json.ergo#ergo-inline-572:73:2*/ (&w.b).WriteString(Itoa(int(p3_inl572)))
-				/*line ir/json.ergo#ergo-inline-572:74:2*/ (&w.b).WriteByte_(uint8(93))
+			/*line ir/json.ergo:108:4*/ (&w.b).WriteString("{\"name\":")
+			/*line ir/json.ergo:109:20*/ v_4 := Quote(env, ln_1)
+			/*line ir/json.ergo:109:4*/ (&w.b).WriteString(v_4)
+			/*line ir/json.ergo:110:4*/ (&w.b).WriteString(",\"type\":")
+			/*line ir/json.ergo:111:20*/ v_5 := Quote(env, lt)
+			/*line ir/json.ergo:111:4*/ (&w.b).WriteString(v_5)
+			/*line ir/json.ergo:112:4*/ (&w.b).WriteString(",\"pos\":")
+			/*line ir/json.ergo:113:4*/ {
+				/*line ir/json.ergo:113:17*/ p1_inl572 := l.Pos.File
+				/*line ir/json.ergo:113:29*/ p2_inl572 := l.Pos.Line
+				/*line ir/json.ergo:113:41*/ p3_inl572 := l.Pos.Col
+				/*line ir/json.ergo#ergo-inline-572:78:2*/ (&w.b).WriteByte_(uint8(91))
+				/*line ir/json.ergo#ergo-inline-572:79:2*/ (&w.b).WriteString(Itoa(int(p1_inl572)))
+				/*line ir/json.ergo#ergo-inline-572:80:2*/ (&w.b).WriteByte_(uint8(44))
+				/*line ir/json.ergo#ergo-inline-572:81:2*/ (&w.b).WriteString(Itoa(int(p2_inl572)))
+				/*line ir/json.ergo#ergo-inline-572:82:2*/ (&w.b).WriteByte_(uint8(44))
+				/*line ir/json.ergo#ergo-inline-572:83:2*/ (&w.b).WriteString(Itoa(int(p3_inl572)))
+				/*line ir/json.ergo#ergo-inline-572:84:2*/ (&w.b).WriteByte_(uint8(93))
 			}
-			/*line ir/json.ergo:104:4*/ (&w.b).WriteByte_(uint8(125))
+			/*line ir/json.ergo:114:4*/ (&w.b).WriteByte_(uint8(125))
 		}
-		/*line ir/json.ergo:106:3*/ (&w.b).WriteByte_(uint8(93))
+		/*line ir/json.ergo:116:3*/ (&w.b).WriteByte_(uint8(93))
 	}
-	/*line ir/json.ergo:108:2*/ (&w.b).WriteString(",\"body\":")
-	/*line ir/json.ergo:109:2*/ roots := w.file.Funcs[fi].Body.Roots
-	/*line ir/json.ergo:110:2*/ if roots == uint32(0) {
-		/*line ir/json.ergo:111:3*/ (&w.b).WriteString("null")
+	/*line ir/json.ergo:118:2*/ (&w.b).WriteString(",\"body\":")
+	/*line ir/json.ergo:119:2*/ roots := w.file.Funcs[fi].Body.Roots
+	/*line ir/json.ergo:120:2*/ if roots == uint32(0) {
+		/*line ir/json.ergo:121:3*/ (&w.b).WriteString("null")
 	} else {
-		/*line ir/json.ergo:113:7*/ err_3 := w.rows(env, fi, roots, uint8(4))
-		/*line ir/json.ergo:113:7*/ if err_3 != error(nil) {
-			/*line ir/json.ergo:113:7*/ return err_3
+		/*line ir/json.ergo:123:7*/ err_3 := w.rows(env, fi, roots, uint8(4))
+		/*line ir/json.ergo:123:7*/ if err_3 != error(nil) {
+			/*line ir/json.ergo:123:7*/ return err_3
 		}
 	}
-	/*line ir/json.ergo:115:2*/ (&w.b).WriteByte_(uint8(125))
-	/*line ir/json.ergo:116:1*/ return error(nil)
+	/*line ir/json.ergo:125:2*/ (&w.b).WriteByte_(uint8(125))
+	/*line ir/json.ergo:126:1*/ return error(nil)
 }
 
-//line ir/json.ergo:79
+//line ir/json.ergo:89
 
 //line ir/ir.ergo:50:1
 type Local struct {
@@ -23995,61 +23995,61 @@ func (l *Layout) build(env *Env, c Grid, first int) string {
 
 //line format/align.ergo:92
 
-//line ir/json.ergo:59:1
+//line ir/json.ergo:69:1
 func (w *writer) text(env *Env, id uint32) (string, error) {
-	/*line ir/json.ergo:60:2*/ if int(id) >= len(w.file.Strs) {
-		/*line ir/json.ergo:61:3*/ return "", Malformed{At: int(id), Why: ("no text " + Itoa(int(id)))}
+	/*line ir/json.ergo:70:2*/ if int(id) >= len(w.file.Strs) {
+		/*line ir/json.ergo:71:3*/ return "", Malformed{At: int(id), Why: ("no text " + Itoa(int(id)))}
 	}
-	/*line ir/json.ergo:63:2*/ return w.file.Strs[int(id)], error(nil)
+	/*line ir/json.ergo:73:2*/ return w.file.Strs[int(id)], error(nil)
 }
 
-//line ir/json.ergo:60
+//line ir/json.ergo:70
 
-//line ir/json.ergo:67:1
+//line ir/json.ergo:77:1
 func (w *writer) pos(a uint32, b uint32, c uint32) {
-	/*line ir/json.ergo:68:2*/ (&w.b).WriteByte_(uint8(91))
-	/*line ir/json.ergo:69:2*/ (&w.b).WriteString(Itoa(int(a)))
-	/*line ir/json.ergo:70:2*/ (&w.b).WriteByte_(uint8(44))
-	/*line ir/json.ergo:71:2*/ (&w.b).WriteString(Itoa(int(b)))
-	/*line ir/json.ergo:72:2*/ (&w.b).WriteByte_(uint8(44))
-	/*line ir/json.ergo:73:2*/ (&w.b).WriteString(Itoa(int(c)))
-	/*line ir/json.ergo:74:2*/ (&w.b).WriteByte_(uint8(93))
+	/*line ir/json.ergo:78:2*/ (&w.b).WriteByte_(uint8(91))
+	/*line ir/json.ergo:79:2*/ (&w.b).WriteString(Itoa(int(a)))
+	/*line ir/json.ergo:80:2*/ (&w.b).WriteByte_(uint8(44))
+	/*line ir/json.ergo:81:2*/ (&w.b).WriteString(Itoa(int(b)))
+	/*line ir/json.ergo:82:2*/ (&w.b).WriteByte_(uint8(44))
+	/*line ir/json.ergo:83:2*/ (&w.b).WriteString(Itoa(int(c)))
+	/*line ir/json.ergo:84:2*/ (&w.b).WriteByte_(uint8(93))
 }
 
-//line ir/json.ergo:68
+//line ir/json.ergo:78
 
-//line ir/json.ergo:129:1
+//line ir/json.ergo:139:1
 func (w *writer) rows(env *Env, fi int, q uint32, t uint8) error {
-	/*line ir/json.ergo:130:18*/ v, err := w.extra(env, fi, int(q))
-	/*line ir/json.ergo:130:18*/ if err != error(nil) {
-		/*line ir/json.ergo:130:18*/ return err
+	/*line ir/json.ergo:140:18*/ v, err := w.extra(env, fi, int(q))
+	/*line ir/json.ergo:140:18*/ if err != error(nil) {
+		/*line ir/json.ergo:140:18*/ return err
 	}
-	/*line ir/json.ergo:130:2*/ n := int(v)
-	/*line ir/json.ergo:131:2*/ (&w.b).WriteByte_(uint8(91))
-	/*line ir/json.ergo:132:2*/ r := Range[int]{Start: 0, End: n}
-	/*line ir/json.ergo:132:2*/ for i := r.Start; i < r.End; i++ {
-		/*line ir/json.ergo:133:3*/ if i > 0 {
-			/*line ir/json.ergo:134:4*/ (&w.b).WriteByte_(uint8(44))
+	/*line ir/json.ergo:140:2*/ n := int(v)
+	/*line ir/json.ergo:141:2*/ (&w.b).WriteByte_(uint8(91))
+	/*line ir/json.ergo:142:2*/ r := Range[int]{Start: 0, End: n}
+	/*line ir/json.ergo:142:2*/ for i := r.Start; i < r.End; i++ {
+		/*line ir/json.ergo:143:3*/ if i > 0 {
+			/*line ir/json.ergo:144:4*/ (&w.b).WriteByte_(uint8(44))
 		}
-		/*line ir/json.ergo:136:16*/ v_1, err_1 := w.extra(env, fi, ((int(q) + 1) + i))
-		/*line ir/json.ergo:136:16*/ if err_1 != error(nil) {
-			/*line ir/json.ergo:136:16*/ return err_1
+		/*line ir/json.ergo:146:16*/ v_1, err_1 := w.extra(env, fi, ((int(q) + 1) + i))
+		/*line ir/json.ergo:146:16*/ if err_1 != error(nil) {
+			/*line ir/json.ergo:146:16*/ return err_1
 		}
-		/*line ir/json.ergo:136:3*/ id := v_1
-		/*line ir/json.ergo:137:3*/ if id == uint32(0) {
-			/*line ir/json.ergo:138:4*/ (&w.b).WriteString("null")
+		/*line ir/json.ergo:146:3*/ id := v_1
+		/*line ir/json.ergo:147:3*/ if id == uint32(0) {
+			/*line ir/json.ergo:148:4*/ (&w.b).WriteString("null")
 		} else {
-			/*line ir/json.ergo:140:8*/ err_2 := w.row(env, fi, int(id), t)
-			/*line ir/json.ergo:140:8*/ if err_2 != error(nil) {
-				/*line ir/json.ergo:140:8*/ return err_2
+			/*line ir/json.ergo:150:8*/ err_2 := w.row(env, fi, int(id), t)
+			/*line ir/json.ergo:150:8*/ if err_2 != error(nil) {
+				/*line ir/json.ergo:150:8*/ return err_2
 			}
 		}
 	}
-	/*line ir/json.ergo:143:2*/ (&w.b).WriteByte_(uint8(93))
-	/*line ir/json.ergo:144:1*/ return error(nil)
+	/*line ir/json.ergo:153:2*/ (&w.b).WriteByte_(uint8(93))
+	/*line ir/json.ergo:154:1*/ return error(nil)
 }
 
-//line ir/json.ergo:130
+//line ir/json.ergo:140
 
 //line syntax/tree.ergo:150:1
 func zeros32(n int) []uint32 {
@@ -30891,68 +30891,68 @@ func (l *Layout) closeCell(trim bool) {
 //line format/align.ergo:28:5
 var alignRatio float64 = float64((5.0 / 2))
 
-//line ir/json.ergo:120:1
+//line ir/json.ergo:130:1
 func (w *writer) extra(env *Env, fi int, at_1 int) (uint32, error) {
-	/*line ir/json.ergo:121:2*/ if (at_1 <= 0) || (at_1 >= len(w.file.Funcs[fi].Body.Extra)) {
-		/*line ir/json.ergo:122:3*/ return uint32(0), Malformed{At: at_1, Why: "past the extra pool"}
+	/*line ir/json.ergo:131:2*/ if (at_1 <= 0) || (at_1 >= len(w.file.Funcs[fi].Body.Extra)) {
+		/*line ir/json.ergo:132:3*/ return uint32(0), Malformed{At: at_1, Why: "past the extra pool"}
 	}
-	/*line ir/json.ergo:124:2*/ return w.file.Funcs[fi].Body.Extra[at_1], error(nil)
+	/*line ir/json.ergo:134:2*/ return w.file.Funcs[fi].Body.Extra[at_1], error(nil)
 }
 
-//line ir/json.ergo:121
+//line ir/json.ergo:131
 
-//line ir/json.ergo:149:1
+//line ir/json.ergo:159:1
 func (w *writer) row(env *Env, fi int, id int, t uint8) error {
-	/*line ir/json.ergo:150:2*/ if (id <= 0) || (id > len(w.file.Funcs[fi].Body.Kind)) {
-		/*line ir/json.ergo:151:3*/ return Malformed{At: id, Why: "no row"}
+	/*line ir/json.ergo:160:2*/ if (id <= 0) || (id > len(w.file.Funcs[fi].Body.Kind)) {
+		/*line ir/json.ergo:161:3*/ return Malformed{At: id, Why: "no row"}
 	}
-	/*line ir/json.ergo:153:2*/ c := w.file.Funcs[fi].Body.Kind[(id - 1)]
-	/*line ir/json.ergo:154:2*/ if (int(c) >= NumKinds()) || (c == uint8(0)) {
-		/*line ir/json.ergo:155:3*/ return Malformed{At: id, Why: ("kind " + Itoa(int(c)))}
+	/*line ir/json.ergo:163:2*/ c := w.file.Funcs[fi].Body.Kind[(id - 1)]
+	/*line ir/json.ergo:164:2*/ if (int(c) >= NumKinds()) || (c == uint8(0)) {
+		/*line ir/json.ergo:165:3*/ return Malformed{At: id, Why: ("kind " + Itoa(int(c)))}
 	}
-	/*line ir/json.ergo:157:2*/ kd := KindOf(c)
-	/*line ir/json.ergo:158:2*/ if kd.Class != t {
-		/*line ir/json.ergo:159:3*/ return Malformed{At: id, Why: (("kind " + kd.Name) + " where its struct type is not the field's")}
+	/*line ir/json.ergo:167:2*/ kd := KindOf(c)
+	/*line ir/json.ergo:168:2*/ if kd.Class != t {
+		/*line ir/json.ergo:169:3*/ return Malformed{At: id, Why: (("kind " + kd.Name) + " where its struct type is not the field's")}
 	}
-	/*line ir/json.ergo:161:2*/ fs := Fields_1(t)
-	/*line ir/json.ergo:162:2*/ ns := len(kd.Slots)
-	/*line ir/json.ergo:163:2*/ si := 0
-	/*line ir/json.ergo:164:2*/ next_2 := uint8(123)
-	/*line ir/json.ergo:165:2*/ r := Range[int]{Start: 0, End: len(fs)}
-	/*line ir/json.ergo:165:2*/ for j := r.Start; j < r.End; j++ {
-		/*line ir/json.ergo:166:3*/ fd := fs[j]
-		/*line ir/json.ergo:167:3*/ v := uint32(0)
-		/*line ir/json.ergo:168:3*/ if (si < ns) && (int(kd.Slots[si]) == j) {
-			/*line ir/json.ergo:169:12*/ v_1, err := (&w.file.Funcs[fi].Body).Slot(env, id, si, ns)
-			/*line ir/json.ergo:169:12*/ if err != error(nil) {
-				/*line ir/json.ergo:169:12*/ return err
+	/*line ir/json.ergo:171:2*/ fs := Fields_1(t)
+	/*line ir/json.ergo:172:2*/ ns := len(kd.Slots)
+	/*line ir/json.ergo:173:2*/ si := 0
+	/*line ir/json.ergo:174:2*/ next_2 := uint8(123)
+	/*line ir/json.ergo:175:2*/ r := Range[int]{Start: 0, End: len(fs)}
+	/*line ir/json.ergo:175:2*/ for j := r.Start; j < r.End; j++ {
+		/*line ir/json.ergo:176:3*/ fd := fs[j]
+		/*line ir/json.ergo:177:3*/ v := uint32(0)
+		/*line ir/json.ergo:178:3*/ if (si < ns) && (int(kd.Slots[si]) == j) {
+			/*line ir/json.ergo:179:12*/ v_1, err := (&w.file.Funcs[fi].Body).Slot(env, id, si, ns)
+			/*line ir/json.ergo:179:12*/ if err != error(nil) {
+				/*line ir/json.ergo:179:12*/ return err
 			}
-			/*line ir/json.ergo:169:4*/ v = v_1
-			/*line ir/json.ergo:170:4*/ si += 1
+			/*line ir/json.ergo:179:4*/ v = v_1
+			/*line ir/json.ergo:180:4*/ si += 1
 		}
-		/*line ir/json.ergo:172:3*/ if fd.Omit {
-			/*line ir/json.ergo:173:19*/ v_2, err_1 := w.empty(env, fi, fd.Kind, v)
-			/*line ir/json.ergo:173:19*/ if err_1 != error(nil) {
-				/*line ir/json.ergo:173:19*/ return err_1
+		/*line ir/json.ergo:182:3*/ if fd.Omit {
+			/*line ir/json.ergo:183:19*/ v_2, err_1 := w.empty(env, fi, fd.Kind, v)
+			/*line ir/json.ergo:183:19*/ if err_1 != error(nil) {
+				/*line ir/json.ergo:183:19*/ return err_1
 			}
-			/*line ir/json.ergo:173:4*/ none_1 := v_2
-			/*line ir/json.ergo:174:4*/ if none_1 {
-				/*line ir/json.ergo:175:5*/ continue
+			/*line ir/json.ergo:183:4*/ none_1 := v_2
+			/*line ir/json.ergo:184:4*/ if none_1 {
+				/*line ir/json.ergo:185:5*/ continue
 			}
 		}
-		/*line ir/json.ergo:178:3*/ (&w.b).WriteByte_(next_2)
-		/*line ir/json.ergo:179:3*/ next_2 = uint8(44)
-		/*line ir/json.ergo:180:3*/ (&w.b).WriteString(fd.Key)
-		/*line ir/json.ergo:181:7*/ err_2 := w.value(env, fi, id, fd, kd, v)
-		/*line ir/json.ergo:181:7*/ if err_2 != error(nil) {
-			/*line ir/json.ergo:181:7*/ return err_2
+		/*line ir/json.ergo:188:3*/ (&w.b).WriteByte_(next_2)
+		/*line ir/json.ergo:189:3*/ next_2 = uint8(44)
+		/*line ir/json.ergo:190:3*/ (&w.b).WriteString(fd.Key)
+		/*line ir/json.ergo:191:7*/ err_2 := w.value(env, fi, id, fd, kd, v)
+		/*line ir/json.ergo:191:7*/ if err_2 != error(nil) {
+			/*line ir/json.ergo:191:7*/ return err_2
 		}
 	}
-	/*line ir/json.ergo:183:2*/ (&w.b).WriteByte_(uint8(125))
-	/*line ir/json.ergo:184:1*/ return error(nil)
+	/*line ir/json.ergo:193:2*/ (&w.b).WriteByte_(uint8(125))
+	/*line ir/json.ergo:194:1*/ return error(nil)
 }
 
-//line ir/json.ergo:150
+//line ir/json.ergo:160
 
 //line syntax/scan.ergo:220:1
 func (s *scanner) fail(pos_2 int, length int, message string) {
@@ -41698,154 +41698,154 @@ func (body *Body) Slot(env *Env, id int, j int, n int) (uint32, error) {
 
 //line ir/kinds.ergo:92
 
-//line ir/json.ergo:188:1
+//line ir/json.ergo:198:1
 func (w *writer) empty(env *Env, fi int, k_1 uint8, v uint32) (bool, error) {
-	/*line ir/json.ergo:189:2*/ if v == uint32(0) {
-		/*line ir/json.ergo:190:3*/ return true, error(nil)
+	/*line ir/json.ergo:199:2*/ if v == uint32(0) {
+		/*line ir/json.ergo:200:3*/ return true, error(nil)
 	}
-	/*line ir/json.ergo:192:2*/ switch k_1 {
+	/*line ir/json.ergo:202:2*/ switch k_1 {
 	case uint8(1):
-		/*line ir/json.ergo:194:15*/ var s string
-		/*line ir/json.ergo:194:15*/ var err error
-		/*line ir/json.ergo:194:15*/ {
-			/*line ir/json.ergo:194:15*/ if int(v) >= len(w.file.Strs) {
-				/*line ir/json.ergo#ergo-inline-2234:61:3*/ err = error(Malformed{At: int(v), Why: ("no text " + Itoa(int(v)))})
-				/*line ir/json.ergo#ergo-inline-2234:61:3*/ goto inl2234
+		/*line ir/json.ergo:204:15*/ var s string
+		/*line ir/json.ergo:204:15*/ var err error
+		/*line ir/json.ergo:204:15*/ {
+			/*line ir/json.ergo:204:15*/ if int(v) >= len(w.file.Strs) {
+				/*line ir/json.ergo#ergo-inline-2234:71:3*/ err = error(Malformed{At: int(v), Why: ("no text " + Itoa(int(v)))})
+				/*line ir/json.ergo#ergo-inline-2234:71:3*/ goto inl2234
 			}
-			/*line ir/json.ergo#ergo-inline-2234:63:2*/ s = w.file.Strs[int(v)]
+			/*line ir/json.ergo#ergo-inline-2234:73:2*/ s = w.file.Strs[int(v)]
 		}
-		/*line ir/json.ergo:194:15*/ inl2234:
-		/*line ir/json.ergo:194:15*/ {
+		/*line ir/json.ergo:204:15*/ inl2234:
+		/*line ir/json.ergo:204:15*/ {
 		}
-		/*line ir/json.ergo:194:15*/ if err != error(nil) {
-			/*line ir/json.ergo:194:15*/ return false, err
+		/*line ir/json.ergo:204:15*/ if err != error(nil) {
+			/*line ir/json.ergo:204:15*/ return false, err
 		}
-		/*line ir/json.ergo:195:3*/ return (len(s) == 0), error(nil)
+		/*line ir/json.ergo:205:3*/ return (len(s) == 0), error(nil)
 	case uint8(8), uint8(9), uint8(10):
-		/*line ir/json.ergo:197:15*/ n, err_1 := w.extra(env, fi, int(v))
-		/*line ir/json.ergo:197:15*/ if err_1 != error(nil) {
-			/*line ir/json.ergo:197:15*/ return false, err_1
+		/*line ir/json.ergo:207:15*/ n, err_1 := w.extra(env, fi, int(v))
+		/*line ir/json.ergo:207:15*/ if err_1 != error(nil) {
+			/*line ir/json.ergo:207:15*/ return false, err_1
 		}
-		/*line ir/json.ergo:198:3*/ return (n == uint32(0)), error(nil)
+		/*line ir/json.ergo:208:3*/ return (n == uint32(0)), error(nil)
 	default:
-		/*line ir/json.ergo:200:3*/ return false, error(nil)
+		/*line ir/json.ergo:210:3*/ return false, error(nil)
 	}
 }
 
-//line ir/json.ergo:189
+//line ir/json.ergo:199
 
-//line ir/json.ergo:206:1
+//line ir/json.ergo:216:1
 func (w *writer) value(env *Env, fi int, id int, fd Field_1, kd Kind, v uint32) error {
-	/*line ir/json.ergo:207:2*/ switch fd.Kind {
+	/*line ir/json.ergo:217:2*/ switch fd.Kind {
 	case uint8(11):
-		/*line ir/json.ergo:209:3*/ (&w.b).WriteString(kd.Quoted)
+		/*line ir/json.ergo:219:3*/ (&w.b).WriteString(kd.Quoted)
 	case uint8(12):
-		/*line ir/json.ergo:211:3*/ {
-			/*line ir/json.ergo:211:10*/ p1_inl2235 := w.file.Funcs[fi].Body.File[(id - 1)]
-			/*line ir/json.ergo:211:44*/ p2_inl2235 := w.file.Funcs[fi].Body.Line[(id - 1)]
-			/*line ir/json.ergo:211:78*/ p3_inl2235 := w.file.Funcs[fi].Body.Col[(id - 1)]
-			/*line ir/json.ergo#ergo-inline-2235:68:2*/ (&w.b).WriteByte_(uint8(91))
-			/*line ir/json.ergo#ergo-inline-2235:69:2*/ (&w.b).WriteString(Itoa(int(p1_inl2235)))
-			/*line ir/json.ergo#ergo-inline-2235:70:2*/ (&w.b).WriteByte_(uint8(44))
-			/*line ir/json.ergo#ergo-inline-2235:71:2*/ (&w.b).WriteString(Itoa(int(p2_inl2235)))
-			/*line ir/json.ergo#ergo-inline-2235:72:2*/ (&w.b).WriteByte_(uint8(44))
-			/*line ir/json.ergo#ergo-inline-2235:73:2*/ (&w.b).WriteString(Itoa(int(p3_inl2235)))
-			/*line ir/json.ergo#ergo-inline-2235:74:2*/ (&w.b).WriteByte_(uint8(93))
+		/*line ir/json.ergo:221:3*/ {
+			/*line ir/json.ergo:221:10*/ p1_inl2235 := w.file.Funcs[fi].Body.File[(id - 1)]
+			/*line ir/json.ergo:221:44*/ p2_inl2235 := w.file.Funcs[fi].Body.Line[(id - 1)]
+			/*line ir/json.ergo:221:78*/ p3_inl2235 := w.file.Funcs[fi].Body.Col[(id - 1)]
+			/*line ir/json.ergo#ergo-inline-2235:78:2*/ (&w.b).WriteByte_(uint8(91))
+			/*line ir/json.ergo#ergo-inline-2235:79:2*/ (&w.b).WriteString(Itoa(int(p1_inl2235)))
+			/*line ir/json.ergo#ergo-inline-2235:80:2*/ (&w.b).WriteByte_(uint8(44))
+			/*line ir/json.ergo#ergo-inline-2235:81:2*/ (&w.b).WriteString(Itoa(int(p2_inl2235)))
+			/*line ir/json.ergo#ergo-inline-2235:82:2*/ (&w.b).WriteByte_(uint8(44))
+			/*line ir/json.ergo#ergo-inline-2235:83:2*/ (&w.b).WriteString(Itoa(int(p3_inl2235)))
+			/*line ir/json.ergo#ergo-inline-2235:84:2*/ (&w.b).WriteByte_(uint8(93))
 		}
 	case uint8(1):
-		/*line ir/json.ergo:213:15*/ var s string
-		/*line ir/json.ergo:213:15*/ var err error
-		/*line ir/json.ergo:213:15*/ {
-			/*line ir/json.ergo:213:15*/ if int(v) >= len(w.file.Strs) {
-				/*line ir/json.ergo#ergo-inline-2236:61:3*/ err = error(Malformed{At: int(v), Why: ("no text " + Itoa(int(v)))})
-				/*line ir/json.ergo#ergo-inline-2236:61:3*/ goto inl2236
+		/*line ir/json.ergo:223:15*/ var s string
+		/*line ir/json.ergo:223:15*/ var err error
+		/*line ir/json.ergo:223:15*/ {
+			/*line ir/json.ergo:223:15*/ if int(v) >= len(w.file.Strs) {
+				/*line ir/json.ergo#ergo-inline-2236:71:3*/ err = error(Malformed{At: int(v), Why: ("no text " + Itoa(int(v)))})
+				/*line ir/json.ergo#ergo-inline-2236:71:3*/ goto inl2236
 			}
-			/*line ir/json.ergo#ergo-inline-2236:63:2*/ s = w.file.Strs[int(v)]
+			/*line ir/json.ergo#ergo-inline-2236:73:2*/ s = w.file.Strs[int(v)]
 		}
-		/*line ir/json.ergo:213:15*/ inl2236:
-		/*line ir/json.ergo:213:15*/ {
+		/*line ir/json.ergo:223:15*/ inl2236:
+		/*line ir/json.ergo:223:15*/ {
 		}
-		/*line ir/json.ergo:213:15*/ if err != error(nil) {
-			/*line ir/json.ergo:213:15*/ return err
+		/*line ir/json.ergo:223:15*/ if err != error(nil) {
+			/*line ir/json.ergo:223:15*/ return err
 		}
-		/*line ir/json.ergo:214:19*/ v_2 := Quote(env, s)
-		/*line ir/json.ergo:214:3*/ (&w.b).WriteString(v_2)
+		/*line ir/json.ergo:224:19*/ v_2 := Quote(env, s)
+		/*line ir/json.ergo:224:3*/ (&w.b).WriteString(v_2)
 	case uint8(2):
-		/*line ir/json.ergo:216:3*/ (&w.b).WriteString(Itoa(int(int32(v))))
+		/*line ir/json.ergo:226:3*/ (&w.b).WriteString(Itoa(int(int32(v))))
 	case uint8(5):
-		/*line ir/json.ergo:218:3*/ if v == uint32(0) {
-			/*line ir/json.ergo:219:4*/ (&w.b).WriteString("null")
+		/*line ir/json.ergo:228:3*/ if v == uint32(0) {
+			/*line ir/json.ergo:229:4*/ (&w.b).WriteString("null")
 		} else {
-			/*line ir/json.ergo:221:4*/ (&w.b).WriteString(Itoa((int(v) - 1)))
+			/*line ir/json.ergo:231:4*/ (&w.b).WriteString(Itoa((int(v) - 1)))
 		}
 	case uint8(3):
-		/*line ir/json.ergo:224:3*/ if v != uint32(0) {
-			/*line ir/json.ergo:225:4*/ (&w.b).WriteString("true")
+		/*line ir/json.ergo:234:3*/ if v != uint32(0) {
+			/*line ir/json.ergo:235:4*/ (&w.b).WriteString("true")
 		} else {
-			/*line ir/json.ergo:227:4*/ (&w.b).WriteString("false")
+			/*line ir/json.ergo:237:4*/ (&w.b).WriteString("false")
 		}
 	case uint8(4), uint8(6):
-		/*line ir/json.ergo:230:3*/ if v == uint32(0) {
-			/*line ir/json.ergo:231:4*/ if fd.Kind == uint8(4) {
-				/*line ir/json.ergo:232:5*/ (&w.b).WriteString("[0,0,0]")
+		/*line ir/json.ergo:240:3*/ if v == uint32(0) {
+			/*line ir/json.ergo:241:4*/ if fd.Kind == uint8(4) {
+				/*line ir/json.ergo:242:5*/ (&w.b).WriteString("[0,0,0]")
 			} else {
-				/*line ir/json.ergo:234:5*/ (&w.b).WriteString("null")
+				/*line ir/json.ergo:244:5*/ (&w.b).WriteString("null")
 			}
 		} else {
-			/*line ir/json.ergo:237:16*/ a, err_1 := w.extra(env, fi, int(v))
-			/*line ir/json.ergo:237:16*/ if err_1 != error(nil) {
-				/*line ir/json.ergo:237:16*/ return err_1
+			/*line ir/json.ergo:247:16*/ a, err_1 := w.extra(env, fi, int(v))
+			/*line ir/json.ergo:247:16*/ if err_1 != error(nil) {
+				/*line ir/json.ergo:247:16*/ return err_1
 			}
-			/*line ir/json.ergo:238:16*/ b, err_2 := w.extra(env, fi, (int(v) + 1))
-			/*line ir/json.ergo:238:16*/ if err_2 != error(nil) {
-				/*line ir/json.ergo:238:16*/ return err_2
+			/*line ir/json.ergo:248:16*/ b, err_2 := w.extra(env, fi, (int(v) + 1))
+			/*line ir/json.ergo:248:16*/ if err_2 != error(nil) {
+				/*line ir/json.ergo:248:16*/ return err_2
 			}
-			/*line ir/json.ergo:239:16*/ c, err_3 := w.extra(env, fi, (int(v) + 2))
-			/*line ir/json.ergo:239:16*/ if err_3 != error(nil) {
-				/*line ir/json.ergo:239:16*/ return err_3
+			/*line ir/json.ergo:249:16*/ c, err_3 := w.extra(env, fi, (int(v) + 2))
+			/*line ir/json.ergo:249:16*/ if err_3 != error(nil) {
+				/*line ir/json.ergo:249:16*/ return err_3
 			}
-			/*line ir/json.ergo:240:4*/ {
-				/*line ir/json.ergo#ergo-inline-2237:68:2*/ (&w.b).WriteByte_(uint8(91))
-				/*line ir/json.ergo#ergo-inline-2237:69:2*/ (&w.b).WriteString(Itoa(int(a)))
-				/*line ir/json.ergo#ergo-inline-2237:70:2*/ (&w.b).WriteByte_(uint8(44))
-				/*line ir/json.ergo#ergo-inline-2237:71:2*/ (&w.b).WriteString(Itoa(int(b)))
-				/*line ir/json.ergo#ergo-inline-2237:72:2*/ (&w.b).WriteByte_(uint8(44))
-				/*line ir/json.ergo#ergo-inline-2237:73:2*/ (&w.b).WriteString(Itoa(int(c)))
-				/*line ir/json.ergo#ergo-inline-2237:74:2*/ (&w.b).WriteByte_(uint8(93))
+			/*line ir/json.ergo:250:4*/ {
+				/*line ir/json.ergo#ergo-inline-2237:78:2*/ (&w.b).WriteByte_(uint8(91))
+				/*line ir/json.ergo#ergo-inline-2237:79:2*/ (&w.b).WriteString(Itoa(int(a)))
+				/*line ir/json.ergo#ergo-inline-2237:80:2*/ (&w.b).WriteByte_(uint8(44))
+				/*line ir/json.ergo#ergo-inline-2237:81:2*/ (&w.b).WriteString(Itoa(int(b)))
+				/*line ir/json.ergo#ergo-inline-2237:82:2*/ (&w.b).WriteByte_(uint8(44))
+				/*line ir/json.ergo#ergo-inline-2237:83:2*/ (&w.b).WriteString(Itoa(int(c)))
+				/*line ir/json.ergo#ergo-inline-2237:84:2*/ (&w.b).WriteByte_(uint8(93))
 			}
 		}
 	case uint8(7):
-		/*line ir/json.ergo:243:3*/ if v == uint32(0) {
-			/*line ir/json.ergo:244:4*/ (&w.b).WriteString("null")
+		/*line ir/json.ergo:253:3*/ if v == uint32(0) {
+			/*line ir/json.ergo:254:4*/ (&w.b).WriteString("null")
 		} else {
-			/*line ir/json.ergo:246:8*/ err_4 := w.row(env, fi, int(v), fd.Of)
-			/*line ir/json.ergo:246:8*/ if err_4 != error(nil) {
-				/*line ir/json.ergo:246:8*/ return err_4
+			/*line ir/json.ergo:256:8*/ err_4 := w.row(env, fi, int(v), fd.Of)
+			/*line ir/json.ergo:256:8*/ if err_4 != error(nil) {
+				/*line ir/json.ergo:256:8*/ return err_4
 			}
 		}
 	case uint8(8):
-		/*line ir/json.ergo:249:3*/ if v == uint32(0) {
-			/*line ir/json.ergo:250:4*/ (&w.b).WriteString("null")
+		/*line ir/json.ergo:259:3*/ if v == uint32(0) {
+			/*line ir/json.ergo:260:4*/ (&w.b).WriteString("null")
 		} else {
-			/*line ir/json.ergo:252:8*/ err_5 := w.rows(env, fi, v, fd.Of)
-			/*line ir/json.ergo:252:8*/ if err_5 != error(nil) {
-				/*line ir/json.ergo:252:8*/ return err_5
+			/*line ir/json.ergo:262:8*/ err_5 := w.rows(env, fi, v, fd.Of)
+			/*line ir/json.ergo:262:8*/ if err_5 != error(nil) {
+				/*line ir/json.ergo:262:8*/ return err_5
 			}
 		}
 	default:
-		/*line ir/json.ergo:255:3*/ if v == uint32(0) {
-			/*line ir/json.ergo:256:4*/ (&w.b).WriteString("null")
+		/*line ir/json.ergo:265:3*/ if v == uint32(0) {
+			/*line ir/json.ergo:266:4*/ (&w.b).WriteString("null")
 		} else {
-			/*line ir/json.ergo:258:8*/ err_6 := w.list(env, fi, fd.Kind, v)
-			/*line ir/json.ergo:258:8*/ if err_6 != error(nil) {
-				/*line ir/json.ergo:258:8*/ return err_6
+			/*line ir/json.ergo:268:8*/ err_6 := w.list(env, fi, fd.Kind, v)
+			/*line ir/json.ergo:268:8*/ if err_6 != error(nil) {
+				/*line ir/json.ergo:268:8*/ return err_6
 			}
 		}
 	}
-	/*line ir/json.ergo:261:1*/ return error(nil)
+	/*line ir/json.ergo:271:1*/ return error(nil)
 }
 
-//line ir/json.ergo:207
+//line ir/json.ergo:217
 
 //line syntax/scan.ergo:119:1
 func (s *scanner) growToks() {
@@ -49591,50 +49591,50 @@ func fixedWords(k_1 uint8) int {
 
 //line syntax/tree_laws.ergo:91
 
-//line ir/json.ergo:264:1
+//line ir/json.ergo:274:1
 func (w *writer) list(env *Env, fi int, k_1 uint8, q uint32) error {
-	/*line ir/json.ergo:265:18*/ v, err := w.extra(env, fi, int(q))
-	/*line ir/json.ergo:265:18*/ if err != error(nil) {
-		/*line ir/json.ergo:265:18*/ return err
+	/*line ir/json.ergo:275:18*/ v, err := w.extra(env, fi, int(q))
+	/*line ir/json.ergo:275:18*/ if err != error(nil) {
+		/*line ir/json.ergo:275:18*/ return err
 	}
-	/*line ir/json.ergo:265:2*/ n := int(v)
-	/*line ir/json.ergo:266:2*/ (&w.b).WriteByte_(uint8(91))
-	/*line ir/json.ergo:267:2*/ r := Range[int]{Start: 0, End: n}
-	/*line ir/json.ergo:267:2*/ for i := r.Start; i < r.End; i++ {
-		/*line ir/json.ergo:268:3*/ if i > 0 {
-			/*line ir/json.ergo:269:4*/ (&w.b).WriteByte_(uint8(44))
+	/*line ir/json.ergo:275:2*/ n := int(v)
+	/*line ir/json.ergo:276:2*/ (&w.b).WriteByte_(uint8(91))
+	/*line ir/json.ergo:277:2*/ r := Range[int]{Start: 0, End: n}
+	/*line ir/json.ergo:277:2*/ for i := r.Start; i < r.End; i++ {
+		/*line ir/json.ergo:278:3*/ if i > 0 {
+			/*line ir/json.ergo:279:4*/ (&w.b).WriteByte_(uint8(44))
 		}
-		/*line ir/json.ergo:271:15*/ e, err_1 := w.extra(env, fi, ((int(q) + 1) + i))
-		/*line ir/json.ergo:271:15*/ if err_1 != error(nil) {
-			/*line ir/json.ergo:271:15*/ return err_1
+		/*line ir/json.ergo:281:15*/ e, err_1 := w.extra(env, fi, ((int(q) + 1) + i))
+		/*line ir/json.ergo:281:15*/ if err_1 != error(nil) {
+			/*line ir/json.ergo:281:15*/ return err_1
 		}
-		/*line ir/json.ergo:272:3*/ if k_1 == uint8(9) {
-			/*line ir/json.ergo:273:16*/ var s string
-			/*line ir/json.ergo:273:16*/ var err_2 error
-			/*line ir/json.ergo:273:16*/ {
-				/*line ir/json.ergo:273:16*/ if int(e) >= len(w.file.Strs) {
-					/*line ir/json.ergo#ergo-inline-2950:61:3*/ err_2 = error(Malformed{At: int(e), Why: ("no text " + Itoa(int(e)))})
-					/*line ir/json.ergo#ergo-inline-2950:61:3*/ goto inl2950
+		/*line ir/json.ergo:282:3*/ if k_1 == uint8(9) {
+			/*line ir/json.ergo:283:16*/ var s string
+			/*line ir/json.ergo:283:16*/ var err_2 error
+			/*line ir/json.ergo:283:16*/ {
+				/*line ir/json.ergo:283:16*/ if int(e) >= len(w.file.Strs) {
+					/*line ir/json.ergo#ergo-inline-2950:71:3*/ err_2 = error(Malformed{At: int(e), Why: ("no text " + Itoa(int(e)))})
+					/*line ir/json.ergo#ergo-inline-2950:71:3*/ goto inl2950
 				}
-				/*line ir/json.ergo#ergo-inline-2950:63:2*/ s = w.file.Strs[int(e)]
+				/*line ir/json.ergo#ergo-inline-2950:73:2*/ s = w.file.Strs[int(e)]
 			}
-			/*line ir/json.ergo:273:16*/ inl2950:
-			/*line ir/json.ergo:273:16*/ {
+			/*line ir/json.ergo:283:16*/ inl2950:
+			/*line ir/json.ergo:283:16*/ {
 			}
-			/*line ir/json.ergo:273:16*/ if err_2 != error(nil) {
-				/*line ir/json.ergo:273:16*/ return err_2
+			/*line ir/json.ergo:283:16*/ if err_2 != error(nil) {
+				/*line ir/json.ergo:283:16*/ return err_2
 			}
-			/*line ir/json.ergo:274:20*/ v_3 := Quote(env, s)
-			/*line ir/json.ergo:274:4*/ (&w.b).WriteString(v_3)
+			/*line ir/json.ergo:284:20*/ v_3 := Quote(env, s)
+			/*line ir/json.ergo:284:4*/ (&w.b).WriteString(v_3)
 		} else {
-			/*line ir/json.ergo:276:4*/ (&w.b).WriteString(Itoa(int(int32(e))))
+			/*line ir/json.ergo:286:4*/ (&w.b).WriteString(Itoa(int(int32(e))))
 		}
 	}
-	/*line ir/json.ergo:279:2*/ (&w.b).WriteByte_(uint8(93))
-	/*line ir/json.ergo:280:1*/ return error(nil)
+	/*line ir/json.ergo:289:2*/ (&w.b).WriteByte_(uint8(93))
+	/*line ir/json.ergo:290:1*/ return error(nil)
 }
 
-//line ir/json.ergo:265
+//line ir/json.ergo:275
 
 //line syntax/scan.ergo:851:1
 func baseOf(c uint8) int {
