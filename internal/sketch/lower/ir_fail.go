@@ -236,6 +236,9 @@ func (b *irBuilder) failExpr(x syntax.Expr) ([]*irStmt, *irExpr) {
 
 // try is try call: its value, after a failure leaves the frame.
 func (b *irBuilder) try(call *syntax.CallExpr) ([]*irStmt, *irExpr) {
+	if pre, val, ok := b.unfoldAt(call); ok {
+		return pre, val // a fallible law's right side, which cannot fail (ir_unfold.go)
+	}
 	pre, v, e := b.bind(call)
 	p := b.pos(call, call.Pos())
 	pre = append(pre, b.propagate(e, p))
@@ -253,6 +256,19 @@ func (b *irBuilder) bind(call *syntax.CallExpr) (pre []*irStmt, v, e int) {
 	}
 	if pre, v, e, ok := b.hostBind(call); ok { // ir_golib.go: a fallible Go call
 		return pre, v, e
+	}
+	if upre, val, ok := b.unfoldAt(call); ok {
+		// A fallible law's right side, which cannot fail: its error is
+		// nil (ir_unfold.go).
+		p := b.pos(call, call.Pos())
+		e = b.temp("err", "error", p)
+		upre = append(upre, &irStmt{K: "var", Pos: p, Local: e})
+		v = -1
+		if t := b.l.info.Types[call]; t != nil && !isNoValue(t) {
+			v = b.temp("v", b.goType(t, call), p)
+			upre = append(upre, &irStmt{K: "def", Pos: p, Local: v, X: val})
+		}
+		return upre, v, e
 	}
 	pre, x := b.rawCall(call)
 	p := b.pos(call, call.Pos())

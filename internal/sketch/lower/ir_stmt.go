@@ -320,6 +320,7 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 			if !ok {
 				irNo("let without a variable")
 			}
+			b.recordLet(v, spec.Values[0]) // ir_unfold.go
 			if sl, ok := b.scalarLet(v, spec.Values[0], s.Decl.Mut.IsValid(), b.pos(s.Decl, s.Decl.Pos())); ok {
 				out = append(out, sl...) // ir_scalar.go
 				continue
