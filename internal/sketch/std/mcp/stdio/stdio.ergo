@@ -3,7 +3,7 @@
 // input, and each answer is a line of standard output. A program's
 // cmd/<name>/main.ergo makes it, since only main holds Ambient.
 
-import github.com/cevr/ergo/modules/mcp
+import mcp
 import io
 
 // Transport is standard input and output.
