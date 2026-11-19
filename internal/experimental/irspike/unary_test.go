@@ -40,9 +40,10 @@ func TestIRUnaryOperandsMatchSource(t *testing.T) {
 //     a string or slice indexed by a byte, and a slice expression's byte
 //     bound (two derivative edits of the fork patch, which the irspike
 //     ledger's note names: red #31);
-//   - mapkey (FLIP F7 PORT-TEMP, pipeline's failing): a Map key whose
-//     calls run statements runs them after the map and before the value's
-//     (mutant port-temp-key-after-value).
+//   - mapkey (FLIP F7 PORT-TEMP, pipeline's failing): a Map key or a
+//     slice index whose calls run statements runs them after the map or
+//     slice and before the value's, and the element is fixed before the
+//     value's (mutants port-temp-key-after-value, port-temp-elem-unbound).
 //
 // It builds Go for the reason TestIRUnaryOperandsMatchSource does.
 func TestIRReprosMatchSource(t *testing.T) {
@@ -50,7 +51,7 @@ func TestIRReprosMatchSource(t *testing.T) {
 	for _, r := range []struct {
 		name string
 		fns  []string
-	}{{"notand", []string{"pick"}}, {"rowslot", []string{"held", "run"}}, {"byteindex", []string{"hex", "pick", "tail"}}, {"mapkey", []string{"keyed", "indexed"}}} {
+	}{{"notand", []string{"pick"}}, {"rowslot", []string{"held", "run"}}, {"byteindex", []string{"hex", "pick", "tail"}}, {"mapkey", []string{"keyed", "indexed", "slotted", "both", "Grid.gridded", "stepped"}}} {
 		t.Run(r.name, func(t *testing.T) {
 			text, err := os.ReadFile(filepath.Join("testdata", r.name+".ergo"))
 			if err != nil {
