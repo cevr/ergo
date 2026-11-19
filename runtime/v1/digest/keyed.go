@@ -163,6 +163,39 @@ func HmacKeyedSum(alg int, inner string, outer string, message string) string {
 	return string(s)
 }
 
+// HotpNumber is RFC 4226's HOTP value of counter (std totp's step) under
+// the SHA-1 key whose states HmacKeyState(1, …) gave: the HMAC-SHA-1 of
+// counter's eight big-endian bytes, resumed from both states as
+// HmacKeyedSum does, then dynamically truncated: the four bytes at the
+// offset the tag's last byte's low four bits give, to 31 bits. The
+// counter, the states' copies and the tag stay on the stack, so it
+// allocates nothing. A state HmacKeyState did not give is a defect.
+//
+//ergo:pure
+//ergo:wait none
+func HotpNumber(inner string, outer string, counter int64) int {
+	type unmarshaler interface{ UnmarshalBinary([]byte) error }
+	var state [128]byte
+	var buf [sha1.Size]byte
+	var msg [8]byte
+	for i := range msg {
+		msg[i] = byte(uint64(counter) >> (56 - 8*i))
+	}
+	d := sha1.New()
+	if d.(unmarshaler).UnmarshalBinary(state[:copy(state[:], inner)]) != nil {
+		panic("totp: a key state that totp.KeyOf did not give")
+	}
+	d.Write(msg[:])
+	in := d.Sum(buf[:0])
+	if d.(unmarshaler).UnmarshalBinary(state[:copy(state[:], outer)]) != nil {
+		panic("totp: a key state that totp.KeyOf did not give")
+	}
+	d.Write(in)
+	h := d.Sum(buf[:0])
+	off := h[19] & 15
+	return int(uint32(h[off]&0x7f)<<24 | uint32(h[off+1])<<16 | uint32(h[off+2])<<8 | uint32(h[off+3]))
+}
+
 // HmacEqual is hmac.Equal of the bytes of a and b: whether they are equal,
 // in a time that depends on their lengths only, never on where they differ.
 //

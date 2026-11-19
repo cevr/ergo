@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"crypto/sha512"
 	"encoding"
+	"encoding/binary"
 	"hash"
 
 	"ergo.local/prototype/internal/sketch/check"
@@ -15,7 +16,9 @@ import (
 // hash states after RFC 2104's key pads, as the hash's MarshalBinary
 // writes them, and keyedSum resumes them for a message. Written from the
 // std doc comments with Go's crypto, never by calling runtime/v1 (ORACLE
-// O1); TestNativesAgreeWithRuntime holds both to runtime/v1's.
+// O1); TestNativesAgreeWithRuntime holds both to runtime/v1's. std totp
+// binds the same key state for SHA-1 (TOTP-FLOOR), and hotpNumber resumes
+// it for one step and truncates the tag (RFC 4226 5.3).
 func registerNativeshmac() {
 	hashOf := func(alg int64) (func() hash.Hash, int) {
 		switch alg {
@@ -66,6 +69,25 @@ func registerNativeshmac() {
 			return string(s)
 		}
 		return tuple{elems: []Value{state(0x36), state(0x5c)}}
+	})
+	natives["totp.keyState"] = natives["hmac.keyState"]
+	natives["totp.hotpNumber"] = run(func(a []Value) Value {
+		resume := func(s string) hash.Hash {
+			d := sha1.New()
+			if d.(encoding.BinaryUnmarshaler).UnmarshalBinary([]byte(s)) != nil {
+				panic("totp: a key state that totp.KeyOf did not give")
+			}
+			return d
+		}
+		var msg [8]byte
+		binary.BigEndian.PutUint64(msg[:], uint64(a[2].(int64)))
+		inner := resume(a[0].(string))
+		inner.Write(msg[:])
+		outer := resume(a[1].(string))
+		outer.Write(inner.Sum(nil))
+		h := outer.Sum(nil)
+		off := h[len(h)-1] & 15
+		return int64(binary.BigEndian.Uint32(h[off:off+4]) & 0x7fffffff)
 	})
 	natives["hmac.keyedSum"] = run(func(a []Value) Value {
 		newHash, _ := hashOf(a[0].(int64))

@@ -228,6 +228,7 @@ func nativeCases(g nativeGen) []nativeCase {
 	if g.r.IntN(8) == 0 {
 		hin = hin[:g.r.IntN(len(hin))]
 	}
+	step := int64(g.r.Uint64())
 	dur := []string{"1h2m3.5s", "-1.5ms", "0", "", "1", "3µs", "9223372036854775807ns", "9223372036854775808ns", "1e3s", "1.h", ".5s", "+2us", "1d", "-0"}[g.r.IntN(14)]
 	ls := func(ss []string) Value {
 		vs := make([]Value, len(ss))
@@ -324,6 +325,8 @@ func nativeCases(g nativeGen) []nativeCase {
 		{name: "path/filepath.IsAbs", args: []Value{s}, v1: func() any { return filepath.IsAbs(s) }},
 		{name: "hex.Encode", args: []Value{s}, v1: func() any { return v1digest.HexEncode(s) }},
 		{name: "hmac.keyState", args: []Value{alg, hkey}, v1: func() any { a, b := v1digest.HmacKeyState(int(alg), hkey); return tuple{elems: []Value{a, b}} }},
+		{name: "totp.keyState", args: []Value{int64(1), hkey}, v1: func() any { a, b := v1digest.HmacKeyState(1, hkey); return tuple{elems: []Value{a, b}} }},
+		{name: "totp.hotpNumber", args: []Value{hin, hout, step}, anyDefect: true, v1: func() any { return int64(v1digest.HotpNumber(hin, hout, step)) }},
 		{name: "hmac.keyedSum", args: []Value{alg, hin, hout, u}, anyDefect: true, v1: func() any { return v1digest.HmacKeyedSum(int(alg), hin, hout, u) }},
 		{name: "time.DurationText", args: []Value{d}, v1: func() any { return v1.TimeDurationText(durationOf(d)) }},
 		{name: "time.subMono", args: []Value{d, m}, v1: func() any { return int64(v1.TimeSubMono(d, m)) }},

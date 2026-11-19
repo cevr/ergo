@@ -261,6 +261,7 @@ var bodyTable = []bodyRow{
 	{"HostRoot.ReadDir", bodyFact{body: Body{Hidden: []Hidden{"task"}, Params: []Param{{Type: "string"}}, Results: []string{"[]string", "error"}, Host: true, Wait: "none", Package: Path}}},
 	{"HostRoot.ReadFile", bodyFact{body: Body{Hidden: []Hidden{"task"}, Params: []Param{{Type: "string"}}, Results: []string{"string", "error"}, Host: true, Wait: "none", Package: Path}}},
 	{"HostRoot.Stat", bodyFact{body: Body{Hidden: []Hidden{"task"}, Params: []Param{{Type: "string"}}, Results: []string{"Info", "error"}, Host: true, Wait: "none", Package: Path}}},
+	{"HotpNumber", bodyFact{body: Body{Params: []Param{{Type: "string"}, {Type: "string"}, {Type: "int64"}}, Results: []string{"int"}, Pure: true, Wait: "none", Package: Path + "/digest"}}},
 	{"IOEprint", bodyFact{body: Body{Params: []Param{{Type: "string"}}, Host: true, Wait: "none", Package: Path}}},
 	{"IOIsTerminal", bodyFact{body: Body{Results: []string{"bool"}, Host: true, Wait: "none", Package: Path}}},
 	{"IOLines", bodyFact{body: Body{Hidden: []Hidden{"task"}, Results: []string{"iter.Seq[string]"}, Host: true, Wait: "caller", Package: Path}}},

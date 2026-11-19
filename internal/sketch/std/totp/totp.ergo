@@ -11,7 +11,6 @@
 // pquerna/otp package's totp.GenerateCode and totp.Validate; yielded/auth
 // and better-auth's two-factor plugin keep the same three parameters.
 
-import hmac
 import strconv
 import strings
 import time
@@ -62,28 +61,36 @@ func StepOf(p Params, t time.Time) int64 {
 	sec / per
 }
 
+// Key is a secret made ready once (KeyOf): the states of HMAC-SHA-1's
+// inner and outer hash after the secret's pads (RFC 2104), never the
+// secret. A server that checks many codes of one secret keys it once and
+// verifies with VerifyKey, so a check costs the window's hashes alone.
+// A Key is a value: two tasks may verify with one at once.
+type Key { inner string, outer string }
+
+// KeyOf is secret made ready for VerifyKey.
+func KeyOf(secret string) Key {
+	let inner, outer = keyState(1, secret)
+	Key{inner: inner, outer: outer}
+}
+
+// keyState is hmac.Key's body for SHA-1 (alg 1); hotpNumber resumes its
+// two states for one step and truncates the tag (RFC 4226 5.3) with no
+// allocation.
+extern go ergo.local/prototype/runtime/v1/digest.HmacKeyState func keyState(alg int, key string) (string, string)
+extern go ergo.local/prototype/runtime/v1/digest.HotpNumber func hotpNumber(inner string, outer string, counter int64) int
+
 // CodeOf is the code of step under p and secret: the HMAC-SHA-1 of the
 // step as eight big-endian bytes, cut at the offset its last byte's low
 // four bits give, to 31 bits, then to p's digits with leading zeros.
 func CodeOf(p Params, secret string, step int64) string {
-	let n = numberAt(p, hmac.Key(hmac.SHA1, secret), step)
-	let text = strconv.Itoa(n)
+	let text = strconv.Itoa(numberAt(p, KeyOf(secret), step))
 	strings.Repeat("0", p.digits - len(text)) + text
 }
 
-// numberAt is the number CodeOf writes for step, under a secret made
-// ready once (hmac.Key), so Verify hashes the secret's pads once for its
-// whole window and compares numbers, never texts.
-func numberAt(p Params, k hmac.Keyed, step int64) int {
-	let mut msg = []byte{}
-	for i in 0..8 {
-		msg = msg.Append(byte((step >> int64(56 - 8*i)) & 255))
-	}
-	let h = hmac.Tag(k, strings.FromBytes(msg))
-	let off = int(h[19] & 15)
-	let bin = (int(h[off]) & 127) << 24 | int(h[off + 1]) << 16 | int(h[off + 2]) << 8 | int(h[off + 3])
-	bin % modOf(p)
-}
+// numberAt is the number CodeOf writes for step under k: the step's
+// truncated HMAC to p's digits, so Verify compares numbers, never texts.
+func numberAt(p Params, k Key, step int64) int { hotpNumber(k.inner, k.outer, step) % modOf(p) }
 
 // modOf is 10 to the power of p's digits.
 func modOf(p Params) int {
@@ -98,11 +105,16 @@ func modOf(p Params) int {
 func Code(p Params, secret string, t time.Time) string { CodeOf(p, secret, StepOf(p, t)) }
 
 // Verify is the step whose code code is, among the steps of p's window
-// around now, or None. A code that is not p's digits matches no step.
-// Otherwise it reads code's number once and compares it with every
-// step's, keying the secret once for the window: the time it takes says
-// nothing of which step matched.
-func Verify(p Params, secret string, code string, now time.Time) Option[int64] {
+// around now, or None: VerifyKey under the secret keyed for this call.
+func Verify(p Params, secret string, code string, now time.Time) Option[int64] { VerifyKey(p, KeyOf(secret), code, now) }
+
+// VerifyKey is Verify under a secret keyed once; Verify is it, so
+// Verify's laws state it.
+// A code that is not p's digits matches no step. Otherwise it reads
+// code's number once and compares it with every step's of the window,
+// with no early exit: the time it takes says nothing of which step
+// matched.
+func VerifyKey(p Params, k Key, code string, now time.Time) Option[int64] {
 	if len(code) != p.digits {
 		return None
 	}
@@ -115,7 +127,6 @@ func Verify(p Params, secret string, code string, now time.Time) Option[int64] {
 		want = want * 10 + int(c - '0')
 	}
 	let at = StepOf(p, now)
-	let k = hmac.Key(hmac.SHA1, secret)
 	let mut found Option[int64] = None
 	for d in -p.window..p.window + 1 {
 		let step = at + int64(d)
