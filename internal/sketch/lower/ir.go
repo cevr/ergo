@@ -641,6 +641,11 @@ func (b *irBuilder) part(f func()) {
 func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []string, drop bool) (ok bool) {
 	f := fd.fn
 	b := &irBuilder{fc: fc, l: fc.l, st: st, locals: map[*check.Var]int{}, env: -1, result: fc.frame.result}
+	b.factLocals() // ir_bounds.go
+	// A body that falls back is the emitter's, whose walk starts with no
+	// facts: none of this walk's stays (deferred first, so it runs after
+	// finish has recovered the reason).
+	defer func() { fc.bounds, fc.factLocal = nil, nil }()
 	if f != nil && f.Decl != nil {
 		b.decl, b.pkg = f.Decl, f.Pkg
 	}

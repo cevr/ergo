@@ -24,6 +24,9 @@ import (
 
 // sliceOf is the slice expression x of a slice or a string.
 func (b *irBuilder) sliceOf(x *syntax.SliceExpr, p irPos) *irExpr {
+	if e, ok := b.uncheckedCut(x, p); ok { // ir_bounds.go
+		return e
+	}
 	switch t := underEqual(b.l.info.Types[x.X]).(type) {
 	case *check.Slice:
 	case *check.Basic:

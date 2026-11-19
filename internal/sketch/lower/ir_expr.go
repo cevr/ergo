@@ -282,6 +282,9 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 		if len(x.Indices) != 1 {
 			irNo("index form")
 		}
+		if e, ok := b.uncheckedIndex(x, p); ok { // ir_bounds.go
+			return e
+		}
 		if _, ok := b.l.info.Types[x.X].(*check.Slice); !ok {
 			return b.indexOther(x, p) // ir_index.go
 		}
