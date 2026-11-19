@@ -25,7 +25,7 @@ func (b *irBuilder) text(x *syntax.InterpolatedString, p irPos) *irExpr {
 	var parts []*irExpr
 	for i, seg := range x.Texts {
 		if s := b.fc.segment(seg, i == 0, i == len(x.Texts)-1); s != "" {
-			parts = append(parts, &irExpr{K: "const", Pos: b.pos(seg, seg.Pos()), T: "string", V: irString(s)})
+			parts = append(parts, irStringConst(b.pos(seg, seg.Pos()), "string", s))
 		}
 		if i < len(x.Exprs) {
 			parts = append(parts, b.textOf(x.Exprs[i], vals[i]))

@@ -33,6 +33,17 @@ import (
 // function itself.
 var irDropLowering string
 
+// irDropBodyLowering is "off" for the reference: the variant's body is the
+// emitter's Go text. Otherwise the IR builds it (IR-DROPBODY), as any body
+// with no result: each return evaluates its value for its effects alone
+// (retOf, discard), and the inliner and its passes reach the hot loop's
+// discarded calls (lru's PutDropped).
+var irDropBodyLowering string
+
+// IRDropBodyOn reports that the IR builds the variants with no result
+// (the property's reach check).
+func IRDropBodyOn() bool { return irDropBodyLowering != "off" }
+
 // IRDropOn reports that discarded calls name the variant with no result
 // (the property's reach check).
 func IRDropOn() bool { return irDropLowering != "off" }

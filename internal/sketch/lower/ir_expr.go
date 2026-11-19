@@ -12,9 +12,18 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// irString is the string constant s as the IR file holds it: JSON text,
-// which carries only UTF-8 (encoding/json writes U+FFFD for any other
-// byte), so a constant that is not stays the emitter's.
+// irStringConst is the string constant s of the Go type t as the IR file
+// holds it: JSON text, which carries only UTF-8 (encoding/json writes
+// U+FFFD for any other byte), so a constant that is not (CBOR's bytes) is
+// its Go quoted form, op "quoted", which the reader unquotes
+// (ergoir_expr.go).
+func irStringConst(p irPos, t, s string) *irExpr {
+	if utf8.ValidString(s) {
+		return &irExpr{K: "const", Pos: p, T: t, V: s}
+	}
+	return &irExpr{K: "const", Pos: p, T: t, V: strconv.Quote(s), Op: "quoted"}
+}
+
 // fieldType is the type of record s's field name, or nil.
 func fieldType(s *check.Struct, name string) check.Type {
 	for _, f := range s.Fields {
@@ -38,13 +47,6 @@ func (b *irBuilder) intoRow(want check.Type, x syntax.Expr, e *irExpr) *irExpr {
 		return e
 	}
 	return &irExpr{K: "toiface", Pos: e.Pos, T: gt, X: e}
-}
-
-func irString(s string) string {
-	if !utf8.ValidString(s) {
-		irNo("string constant that is not UTF-8")
-	}
-	return s
 }
 
 // value is x as an IR expression, after the statements that must run
@@ -362,6 +364,7 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 				lit.Keys = append(lit.Keys, td.fieldName[name])
 			}
 			lit.Elems = b.inOrder(values) // ir_order.go
+			plain := true                 // every element as written: no field conversion or slot adapter
 			for i, e := range lit.Elems {
 				// A variant that joins a union field goes into it as the
 				// emitter's Go assignment puts it (assignedTo, ir_union.go:
@@ -375,6 +378,10 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 					lit.Elems[i] = b.intoField(values[i], e, fts[i]) // ir_field.go
 				}
 				lit.Elems[i] = b.intoSlot(td, t, names[i], values[i], lit.Elems[i]) // ir_field.go (OPC-ADAPT2)
+				plain = plain && lit.Elems[i] == e
+			}
+			if plain {
+				lit.FT = b.recordFieldTypes(fts, x) // ir_forms_store.go
 			}
 		default:
 			irNo("literal of %T", t)
@@ -425,7 +432,7 @@ func (b *irBuilder) constant(t check.Type, v constant.Value, x syntax.Expr, p ir
 	case constant.Bool:
 		return b.constValue(&irExpr{K: "const", Pos: p, T: gt, V: strconv.FormatBool(constant.BoolVal(v))}, v)
 	case constant.String:
-		return b.constValue(&irExpr{K: "const", Pos: p, T: gt, V: irString(constant.StringVal(v))}, v)
+		return b.constValue(irStringConst(p, gt, constant.StringVal(v)), v)
 	case constant.Int, constant.Float:
 		switch {
 		case isInteger(t) || bt.Kind == check.Duration:
