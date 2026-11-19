@@ -104,9 +104,9 @@ type Window struct {
 	access  []platform.AccessNode
 	focus   uint64
 	field   platform.TextInputState
-	z      vec.Rasterizer
-	frames bool
-	start  time.Time
+	z       vec.Rasterizer
+	frames  bool
+	start   time.Time
 	// doc is the focused field's document as the input methods see it,
 	// and keyboard the keyboard the field asked for (textclient.go).
 	doc      document
