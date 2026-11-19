@@ -284,11 +284,13 @@ func TestScheduleAgreesWithModel(t *testing.T) {
 // Retry and Repeat, whose runner is TestStdScheduleLawsRun, as Ergo tests
 // over the exported API: within, draw, gen and lawSchedule are the
 // packages' own helpers, restated.
-const stdScheduleLawsProbe = `import schedule
+const stdScheduleLawsProbe = `import cron
+import schedule
 import sync
 import tasks
 import testing
 import time
+import tz
 
 func within(n int64, lo int64, hi int64) int64 {
 	let span = hi - lo + 1
@@ -387,6 +389,19 @@ test ScheduleJitterInBounds(seed uint64, every int64, runs int64) {
 	}
 }
 
+test ScheduleCronWaitsForAFiring(sec int64, wait int64, runs int) {
+	let e = try cron.Parse("0 9 * * mon-fri")
+	let start = time.Unix(within(sec, 0, 4102444800), 0)
+	let elapsed = duration(within(wait, 0, 864000) * 1000000000)
+	match schedule.Decide(schedule.Cron(e, tz.UTC(), start), runs, elapsed) {
+	case schedule.Continue as c:
+		let at = time.Add(time.Add(start, elapsed), c.After)
+		assert c.After > 0s && c.After <= 72h && cron.Matches(e, tz.Civil(tz.UTC(), at)) && time.UnixSeconds(at)%60 == 0
+	case schedule.Stop:
+		assert false
+	}
+}
+
 test ScheduleAndIsMaxOrIsMin(a uint64, b uint64, runs int64, at int64) {
 	let x = gen(a, 2)
 	let y = gen(b, 2)
@@ -480,6 +495,7 @@ test TasksRepeatFollowsDecide(work int, k int, limit int) {
 // stdScheduleLawStatements is the statement of each law the probe
 // restates, as the ledger writes it, by ledger key.
 var stdScheduleLawStatements = map[string]string{
+	"schedule CronWaitsForAFiring":  `CronWaitsForAFiring(sec int64, wait int64, runs int) { let e = try cron.Parse("0 9 * * mon-fri") let start = time.Unix(within(sec, 0, 4102444800), 0) let elapsed = duration(within(wait, 0, 864000) * 1000000000) match Decide(Cron(e, tz.UTC(), start), runs, elapsed) { case Continue as c: let at = time.Add(time.Add(start, elapsed), c.After) c.After > 0s && c.After <= 72h && cron.Matches(e, tz.Civil(tz.UTC(), at)) && time.UnixSeconds(at)%60 == 0 case Stop: false } }`,
 	"schedule RecursStopsAfter":     `RecursStopsAfter(n int64, at int64) { let k = int(within(n, 0, 64)) let e = duration(within(at, 0, 1000000000000)) let s = Recurs(k) let mut ok = Decide(s, k+1, e) == Stop for runs in 1..k+1 { ok = ok && Decide(s, runs, e) == Continue{After: 0s} } ok }`,
 	"schedule UpToNeverPassesLimit": `UpToNeverPassesLimit(seed uint64, limit int64, runs int64, at int64) { let l = duration(within(limit, 0, 10000000000)) let e = duration(within(at, 0, 20000000000)) match Decide(UpTo(gen(seed, 3), l), int(within(runs, 1, 20)), e) { case Continue as c: e+c.After <= l case Stop: true } }`,
 	"schedule ExponentialUnderCap":  `ExponentialUnderCap(base int64, cap int64, factor int64, runs int64) { let c = duration(within(cap, 0, 1000000000000)) let s = Exponential(duration(within(base, 0, 1000000000000)), 1.0+float64(within(factor, 0, 40))/10.0, c) let r = int(within(runs, 1, 200)) match (Decide(s, r, 0s), Decide(s, r+1, 0s)) { case (Continue as x, Continue as y): x.After <= c && x.After <= y.After case _: false } }`,

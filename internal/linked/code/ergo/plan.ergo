@@ -1,0 +1,208 @@
+// `ergo code plan`, `ergo code apply` and `ergo code recover`: std code's
+// Planner and Writer over the workspace, with the product providers
+// (SEMTOOLS SEM4b). The Checker is the Go checker and formatter, which
+// the ergo binary answers through a Go io.ReadWriter (GoChecker); the
+// Files are the workspace folder on the host (code.HostFiles).
+
+import code
+import fs
+import json
+import strings
+import go bytes
+import go io
+
+// GoChecker is the product Checker: the ergo binary's Go checker and
+// formatter, asked through rw. Each request is an ask, written as JSON;
+// the answer, read to its end, is a reply as JSON. Its operations call
+// Go, so it captures go.Foreign where it is built (README Gap 17).
+type GoChecker { rw io.ReadWriter } implements code.Checker
+
+// ask is a request to the Go checker: check the sources (an overlay of
+// the workspace), or format a declaration's text.
+type ask = askCheck{Sources []code.Source} | askFormat{Text string}
+
+// reply is the Go checker's answer.
+type reply = replyReport{Report code.Report} | replyText{Text string} | replyFailed{Reason string}
+
+func Check(c GoChecker, sources []code.Source) code.Report fails code.CheckFailed needs go.Foreign {
+	match try askGo(c.rw, askCheck{Sources: sources}) {
+	case replyReport as r:
+		r.Report
+	case replyText:
+		return code.CheckFailed{Reason: "the checker answered a check with a text"}
+	case replyFailed as f:
+		return code.CheckFailed{Reason: f.Reason}
+	}
+}
+
+func Format(c GoChecker, text string) string fails code.CheckFailed needs go.Foreign {
+	match try askGo(c.rw, askFormat{Text: text}) {
+	case replyText as r:
+		r.Text
+	case replyReport:
+		return code.CheckFailed{Reason: "the checker answered a format with a report"}
+	case replyFailed as f:
+		return code.CheckFailed{Reason: f.Reason}
+	}
+}
+
+// askGo writes a to rw and reads the reply.
+func askGo(rw io.ReadWriter, a ask) reply fails code.CheckFailed needs go.Foreign {
+	let request = json.Encode(json.Codec[ask]{MaxBytes: 1 << 40, MaxDepth: 64}, a)
+	let _ = io.WriteString(rw, request) catch {
+	case go.Error:
+		return code.CheckFailed{Reason: "the checker took no request"}
+	}
+	let answer = io.ReadAll(rw) catch {
+	case go.Error:
+		return code.CheckFailed{Reason: "the checker gave no answer"}
+	}
+	let text = match bytes.NewBuffer(answer) {
+	case Some[go.Ref[bytes.Buffer]] as b:
+		b.Value.String()
+	case None:
+		""
+	}
+	json.Decode(json.Codec[reply]{MaxBytes: 1 << 40, MaxDepth: 64}, text) catch {
+	case json.Malformed as m:
+		return code.CheckFailed{Reason: "the checker's answer is not JSON at \(m.Offset): \(m.Reason)"}
+	case WireWrongKind as w:
+		return code.CheckFailed{Reason: "the checker's answer is not \(w.Want) at \(w.Path)"}
+	case WireMissingField as w:
+		return code.CheckFailed{Reason: "the checker's answer has no \(w.Field) at \(w.Path)"}
+	case _:
+		return code.CheckFailed{Reason: "the checker's answer does not decode"}
+	}
+}
+
+// Plan is `ergo code plan`: the plan of the change written as text
+// (code.ParseChange) or as JSON (code.Change's codec), over the
+// workspace's sources (JSON of []code.Source), checked by the ergo binary
+// through rw. Its exit status, standard output (code.PlanText, or the
+// plan's JSON with asJSON), standard error, and the plan's JSON, which
+// the binary keeps for apply ("" when no plan was made).
+func Plan(rw io.ReadWriter, sources string, change string, asJSON bool) []string needs go.Foreign {
+	let srcs = json.Decode(json.Codec[[]code.Source]{MaxBytes: 1 << 40, MaxDepth: 16}, sources) catch {
+	case _:
+		return []string{"1", "", "ergo code plan: the workspace's sources do not decode\n", ""}
+	}
+	let c = changeOf(change) catch {
+	case code.BadChange as b:
+		return []string{"2", "", "ergo code plan: \(b.Reason)\n", ""}
+	}
+	let checker code.Checker = GoChecker{rw: rw}
+	let p = code.Open(srcs, checker, code.NewStore()).Plan(c) catch {
+	case code.BadChange as b:
+		return refusal(asJSON, "BadChange", b.Reason)
+	case code.NameTaken as t:
+		return refusal(asJSON, "NameTaken", "\(t.To) is taken in the scope of \(t.Handle) by \(t.By)")
+	case code.OutsideWorkspace as o:
+		return refusal(asJSON, "OutsideWorkspace", "\(o.Handle) is outside the workspace")
+	case code.Capture as x:
+		let mut rows = ""
+		for r in x.Rows {
+			rows = rows + "\n  " + r
+		}
+		return refusal(asJSON, "Capture", "renaming \(x.Handle) to \(x.To) changes what names resolve to:" + rows)
+	}
+	let text = json.Encode(json.Codec[code.Planned]{MaxBytes: 1 << 40, MaxDepth: 64}, p)
+	[]string{"0", if asJSON { text + "\n" } else { code.PlanText(p) }, "", text}
+}
+
+// changeOf is the change written as text or, starting with {, as JSON.
+func changeOf(text string) code.Change fails code.BadChange {
+	if strings.HasPrefix(text, "{") {
+		return json.Decode(json.Codec[code.Change]{MaxBytes: 1 << 40, MaxDepth: 64}, text) catch {
+		case _:
+			return code.BadChange{Reason: "the change is not the JSON of a code.Change"}
+		}
+	}
+	try code.ParseChange(text)
+}
+
+// refusal is the output of a change that was not planned: exit status 1,
+// the reason, as text or as tagged JSON.
+func refusal(asJSON bool, tag string, reason string) []string {
+	let str = json.Codec[string]{MaxBytes: 1 << 40, MaxDepth: 4}
+	if asJSON {
+		return []string{"1", "{\"_tag\":" + json.Encode(str, tag) + ",\"reason\":" + json.Encode(str, reason) + "}\n", "", ""}
+	}
+	[]string{"1", "", "ergo code plan: \(tag): \(reason)\n", ""}
+}
+
+// Apply is `ergo code apply`: the plan whose JSON is plan, written into
+// the workspace folder root through the host's file system, by std
+// code's apply protocol. Its exit status, standard output and standard
+// error.
+func Apply(root string, plan string) []string needs Ambient {
+	let p = json.Decode(json.Codec[code.Planned]{MaxBytes: 1 << 40, MaxDepth: 64}, plan) catch {
+	case _:
+		return []string{"1", "", "ergo code apply: the kept plan does not decode\n"}
+	}
+	applied("ergo code apply", code.HostFilesOf(fs.NewHost(), root), p)
+}
+
+// Rewrite is `ergo fix`'s write (SEMTOOLS SEM4c): the files of the
+// workspace folder root whose text changes from before to after (each a
+// JSON []code.Source, paths relative to root, in one order), written as
+// one plan (code.Rewritten) by std code's apply protocol, so a file that
+// changed since the fix read it is refused Stale and nothing is written.
+// The lock and the journal are in the folder state, outside root
+// (code.HostFilesIn), so the user's folder holds what it held, but for
+// the fixed files; each keeps its mode.
+func Rewrite(root string, state string, before string, after string) []string needs Ambient {
+	let codec = json.Codec[[]code.Source]{MaxBytes: 1 << 40, MaxDepth: 16}
+	let b = json.Decode(codec, before) catch {
+	case _:
+		return []string{"1", "", "ergo fix: the sources before do not decode\n"}
+	}
+	let a = json.Decode(codec, after) catch {
+	case _:
+		return []string{"1", "", "ergo fix: the sources after do not decode\n"}
+	}
+	let p = code.Rewritten("fix", b, a) catch {
+	case code.BadChange as x:
+		return []string{"1", "", "ergo fix: \(x.Reason)\n"}
+	}
+	applied("ergo fix", code.HostFilesIn(fs.NewHost(), root, state), p)
+}
+
+// applied is p written through files: the exit status, standard output
+// and standard error of the command named by.
+func applied(by string, files code.Files, p code.Planned) []string {
+	let r = code.ApplierOf(files, code.StoreOf([]code.Planned{p})).Apply(p.ID) catch {
+	case code.NoPlan as n:
+		return []string{"1", "", "\(by): no plan \(n.ID)\n"}
+	case code.NotReady as n:
+		return []string{"1", "", "\(by): plan \(n.ID) is blocked by \(len(n.Diagnostics)) diagnostics\n"}
+	case code.Stale as s:
+		let mut names = ""
+		for f in s.Files {
+			names = names + " " + f
+		}
+		return []string{"1", "", "\(by): plan \(s.ID) is stale; changed since it was made:\(names)\n"}
+	case code.Busy:
+		return []string{"1", "", "\(by): another apply holds the workspace's lock\n"}
+	case code.IOFailed as e:
+		return []string{"1", "", "\(by): \(e.Reason)\n"}
+	}
+	let mut out = "applied \(r.ID)\n"
+	for f in r.Files {
+		out = out + "  \(f.File) \(f.Revision)\n"
+	}
+	[]string{"0", out, ""}
+}
+
+// Recover is `ergo code recover`: what a dead applier left in the
+// workspace folder root, undone or finished.
+func Recover(root string) []string needs Ambient {
+	let files code.Files = code.HostFilesOf(fs.NewHost(), root)
+	let r = code.ApplierOf(files, code.NewStore()).Recover() catch {
+	case code.Busy:
+		return []string{"1", "", "ergo code recover: another apply holds the workspace's lock\n"}
+	case code.IOFailed as e:
+		return []string{"1", "", "ergo code recover: \(e.Reason)\n"}
+	}
+	[]string{"0", "recovered: \(r.Outcome)\n", ""}
+}
+

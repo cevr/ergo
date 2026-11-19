@@ -163,6 +163,19 @@ func Test(t *check.Test) Plan {
 	return makePlan(ins)
 }
 
+// Context is the plan of a law run under a named context (types.md, Laws
+// 10): the context binds the owner, so only the law's parameters are
+// drawn, at types (the context's instance of them), by the one rule ergo
+// test follows: one case for none, every value when all can be listed,
+// Cases cases otherwise.
+func Context(params []*check.Var, types []check.Type) Plan {
+	ins := make([]Input, len(params))
+	for i, v := range params {
+		ins[i] = Input{Name: v.Name, Type: types[i], Param: i}
+	}
+	return makePlan(ins)
+}
+
 func Law(l *check.Law, bd []check.LawProvider) Plan {
 	if len(bd) != len(l.Slots) {
 		return Plan{Reason: "no binding of the law runs in this package"}

@@ -65,6 +65,19 @@ func TestMain(m *testing.M) {
 			return 2
 		}
 		defer os.RemoveAll(cache)
+		processCache = cache
+		if store := os.Getenv(goStoreVariable); store != "" {
+			// The outer run's Go action store, outside the HOME it
+			// watches (TestPackageNeverWritesUnderHome, GS26b).
+			if err := os.MkdirAll(filepath.Join(cache, "ergo"), 0o755); err != nil {
+				fmt.Fprintln(os.Stderr, "cmd/ergo tests: go store:", err)
+				return 2
+			}
+			if err := os.Symlink(store, filepath.Join(cache, "ergo", "go")); err != nil {
+				fmt.Fprintln(os.Stderr, "cmd/ergo tests: go store:", err)
+				return 2
+			}
+		}
 		// The CLI builds in the process's own environment, before any test
 		// overrides Go variables with t.Setenv.
 		testCLI.environment = os.Environ()
@@ -258,7 +271,7 @@ func TestFileCommandsRefuseOptionsTheyDoNotTake(t *testing.T) {
 		{[]string{"run", "-o", "out", path}, "-o is only supported by build"},
 		{[]string{"build", path, "--receipt", "receipt.json"}, "--receipt is only supported by test"},
 		{[]string{"build", path, "--target", "wasm"}, "EF110: unsupported target wasm; the only target is go"},
-		{[]string{"build", path, "--platform", "windows/amd64"}, "EF110: unsupported target go on windows/amd64; the platforms are darwin/amd64, darwin/arm64, linux/amd64, linux/arm64"},
+		{[]string{"build", path, "--platform", "windows/amd64"}, "EF110: unsupported target go on windows/amd64; the platforms are darwin/amd64, darwin/arm64, linux/amd64, linux/arm64, ios/arm64, android/arm64, android/amd64"},
 		{[]string{"build", path, "--platform", "linux"}, `--platform takes OS/ARCH, such as linux/arm64, not "linux"`},
 		{[]string{"run", "--platform", "linux/arm64", path}, "--platform is only supported by build"},
 		{[]string{"check"}, "source file required"},

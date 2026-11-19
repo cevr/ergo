@@ -1,0 +1,40 @@
+// Greeter says hello.
+type Greeter {
+	Greet(name string) string,
+}
+
+// Plain is the Greeter that says hello.
+type Plain {} implements Greeter
+
+func Greet(_ Plain, name string) string { "hello, " + name }
+
+// Greeting is what a letter starts with.
+func Greeting(name string) string {
+	"dear " + name
+}
+
+// Shape is a figure.
+type Shape = Circle{R int} | Square{Side int}
+
+// Area is the area of s, roughly.
+func Area(s Shape) int {
+	match s {
+	case Circle as c:
+		let rr = c.R * c.R
+		3 * rr
+	case Square as q:
+		q.Side * q.Side
+	}
+}
+
+law AreaIsNotNegative(side int) { Area(Square{Side: side * side}) >= 0 }
+
+test AUnitSquare {
+	assert Area(Square{Side: 1}) == 1
+}
+
+func main() needs Console {
+	with context { Greeter: Plain } {
+		Console.Println(Greeter.Greet("you") + Greeting("x") + "\(Area(Circle{R: 2}))")
+	}
+}

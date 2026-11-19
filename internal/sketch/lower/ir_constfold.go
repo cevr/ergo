@@ -1,224 +1,302 @@
 package lower
 
+// IR builder: build-time folding (CF1). A call of a function whose row is
+// empty (no needs, no failure: eval.Rowless reads the checker's row, never
+// a list of names) whose arguments are constants, transitively (literals,
+// constants, record and list literals of them, other such calls, and
+// package functions passed as values), is computed at build time by the
+// evaluator (eval.FoldValue) and built as its constant: a basic value, or
+// a record, a list or a union's variant of constants. A call that reads a
+// local, that runs past the fold budget, or whose value holds a function,
+// a pointer, a map or a cell stays as written. std html's static subtree is
+// such a call: its value is one Node of one string (stdlib.md, HTML 4).
+//
+// The fold runs on the IR path only; the text emitter, frozen, never
+// folds. constFoldLowering = "off" (-ldflags -X or SetConstFoldLoweringForTest)
+// keeps every call as written: the reference the fold property compares
+// against (TestFoldPrintsWhatTheCallPrints).
+
 import (
-	"go/constant"
-	"go/token"
-	"math"
+	"os"
+	"os/exec"
+	"runtime"
+	"strings"
+	"sync"
 
 	"ergo.local/prototype/internal/sketch/check"
+	"ergo.local/prototype/internal/sketch/eval"
 	"ergo.local/prototype/internal/sketch/syntax"
+	"ergo.local/prototype/internal/toolchain"
 )
 
-// Constant folding before gc (PATCH-MIN M6). A package let whose value is
-// a checked constant is an IR constant where it is read (exprOf, constLet),
-// and the checker folds no expression over it, so `K * 2` reaches the IR
-// as a bin of two constants. Go folds such an expression of typed
-// constants into one constant; the derivative's reader did the same
-// (ergoir_fold.go). The builder now folds it, so the IR it writes holds no
-// operation the reader would fold, and the reader's fold can leave the
-// patch (MINIMAL FORK PATCH: decide before gc).
-//
-// The rules are Go's for typed constants, the reader's set of operators:
-//   - + - * / % & | ^ &^ of two constants of the operation's type; an
-//     integer / truncates; a division or a remainder by zero, and % of
-//     floats, stay operations (the run's defect, or Go's own float rule);
-//   - unary - + of a number and ! of a bool; unary ^ stays;
-//   - a conversion between basic types of a constant: to an integer only
-//     when the value is an integer, to a float rounded;
-//   - + of two strings;
-//   - every integer result must fit its type, or the operation stays (an
-//     overflow wraps when the program runs, which a constant cannot);
-//   - every float result is rounded to its type, as Go rounds each typed
-//     constant operation (types2 representable). An IEEE operation is
-//     correctly rounded, so the folded value is the one the operation
-//     would compute when the program runs.
-//
-// Comparisons, logical operators and shifts are not folded, as the reader
-// did not fold them. int and uint are 64 bits wide (the reader's bounds).
-//
-// The reference is constFoldLowering "off": no fold, the reader folds as
-// before this unit.
-//
-// Prior art: every compiler to a host folds before the host where it can:
-// Gleam folds nothing and leaves it to Erlang's or JavaScript's compiler;
-// ReScript folds integer arithmetic in its Lambda passes (Lam_compile_const)
-// with OCaml's wrapping int semantics; Elixir's compiler leaves it to the
-// Erlang compiler's sys_core_fold. Ergo folds with the host's typed
-// constant rules so the result is the one gc would have computed.
+// constFoldLowering selects the fold: "" folds, "off" keeps every call.
+var constFoldLowering = ""
 
-// constFoldLowering selects the fold: "" (on) or "off" (the reference),
-// set by
-// -ldflags=-X=ergo.local/prototype/internal/sketch/lower.constFoldLowering=off.
-var constFoldLowering string
+// SetConstFoldLoweringForTest selects the fold ("" or "off") and returns the
+// previous one.
+func SetConstFoldLoweringForTest(mode string) string {
+	prev := constFoldLowering
+	constFoldLowering = mode
+	return prev
+}
 
-// ConstFoldOn reports that the fold is on, for the property that checks
-// its reach.
-func ConstFoldOn() bool { return constFoldLowering != "off" }
+// The evaluator runs a Go-backed std function through its native, the
+// compiler's Go's code (Unicode tables, strconv's formatting). So a fold
+// runs only when the Go that builds the program and the Go the compiler
+// runs on are both the pinned release (toolchain.Version); otherwise, or
+// when the build's Go cannot say, every call stays. This is LF3c r2's one
+// check (wf10/lf3c ir_fold.go foldGoAgrees, by the orchestrator's ruling
+// of 2026-11-17), written here until the lines merge, when this pass calls
+// that one instead.
+//
+// constFoldBuildGo follows toolchain.Select's rule for ERGO_GO: unset or
+// "managed" is the pinned release, built with GOTOOLCHAIN=local so no
+// go.mod line chooses another; "system" or a path is the release that go
+// command reports (go env GOVERSION), asked once per choice; "" when it
+// cannot say.
+var (
+	constFoldCompilerGo = runtime.Version()
+	constFoldBuildGo    = constFoldBuildRelease
+)
 
-// irConsts are the values of a body's IR constants.
-type irConsts map[*irExpr]constant.Value
+var (
+	constFoldReleaseMu sync.Mutex
+	constFoldReleases  = map[string]string{}
+)
 
-// constValue records v as the value of the IR constant e (constant).
-func (b *irBuilder) constValue(e *irExpr, v constant.Value) *irExpr {
-	if b.consts == nil {
-		b.consts = irConsts{}
+// constFoldBuildRelease is the release of the Go the build selects.
+func constFoldBuildRelease() string {
+	t, _ := toolchain.Status(os.Getenv, "")
+	if t.Mode == "managed" {
+		return toolchain.Version
 	}
-	b.consts[e] = v
+	constFoldReleaseMu.Lock()
+	defer constFoldReleaseMu.Unlock()
+	v, ok := constFoldReleases[t.Go]
+	if !ok {
+		cmd := exec.Command(t.Go, "env", "GOVERSION")
+		cmd.Env = append(os.Environ(), "GOTOOLCHAIN=local")
+		if b, err := cmd.Output(); err == nil {
+			v = strings.TrimSpace(string(b))
+		}
+		constFoldReleases[t.Go] = v
+	}
+	return v
+}
+
+// SetConstFoldBuildGoForTest makes the lowerings that follow see the
+// program built by the Go release v, and returns what restores the one
+// before it.
+func SetConstFoldBuildGoForTest(v string) (restore func()) {
+	prev := constFoldBuildGo
+	constFoldBuildGo = func() string { return v }
+	return func() { constFoldBuildGo = prev }
+}
+
+// SetConstFoldCompilerGoForTest makes the lowerings that follow see the
+// compiler running on the Go release v, and returns what restores the one
+// before it.
+func SetConstFoldCompilerGoForTest(v string) (restore func()) {
+	prev := constFoldCompilerGo
+	constFoldCompilerGo = v
+	return func() { constFoldCompilerGo = prev }
+}
+
+// foldGoPinned reports a build whose Go and whose compiler's Go are the
+// pinned release.
+func foldGoPinned() bool {
+	return constFoldCompilerGo == toolchain.Version && constFoldBuildGo() == toolchain.Version
+}
+
+// constFoldBudget bounds one fold: a call that needs more stays as written.
+// The fluid gallery's button page, a 28 KB tree, takes 0.5M to 1M.
+var constFoldBudget = eval.Budget{Steps: 2_000_000, Depth: 64}
+
+// SetConstFoldBudgetForTest sets the steps of one fold and returns the
+// previous steps.
+func SetConstFoldBudgetForTest(steps int64) int64 {
+	prev := constFoldBudget.Steps
+	constFoldBudget.Steps = steps
+	return prev
+}
+
+// FoldCounts are the fold's outcomes over a lowering's IR bodies: the
+// calls built as constants, the candidates the evaluator could not finish
+// within the budget, and the other candidates it refused (a value that is
+// no constant, a form it does not run), in the bodies that took IR. It is
+// a count, never a time. Templates counts the calls built as templates and
+// TemplateRefused the candidates that made none (ir_template.go).
+type FoldCounts struct {
+	Folded          int `json:"folded"`
+	OverBudget      int `json:"overBudget"`
+	Refused         int `json:"refused"`
+	Templates       int `json:"templates"`
+	TemplateRefused int `json:"templateRefused"`
+}
+
+func (c *FoldCounts) add(d FoldCounts) {
+	c.Folded += d.Folded
+	c.OverBudget += d.OverBudget
+	c.Refused += d.Refused
+	c.Templates += d.Templates
+	c.TemplateRefused += d.TemplateRefused
+}
+
+// fold is the call x built as its constant, or nil when x is no candidate
+// or does not fold.
+func (b *irBuilder) fold(x *syntax.CallExpr) (out *irExpr) {
+	if constFoldLowering == "off" || !foldGoPinned() || b.decl == nil || b.pkg == nil || b.law != nil {
+		return nil
+	}
+	c := b.l.info.Calls[x]
+	if c == nil || c.Kind != check.CallFunc || c.Func == nil || x.Trailing != nil || len(c.TypeArgs) > 0 || c.StartsTask {
+		return nil
+	}
+	if c.Func.Pkg == nil || c.Func.Pkg.Host() || !eval.Rowless(c.Func) {
+		return nil
+	}
+	// A call of an extern stays: the built program runs its Go body, which
+	// may answer otherwise than the evaluator's native by design (std
+	// html's inFold is false there and true in a fold). A fold of an Ergo
+	// function still runs the externs it calls.
+	if d := c.Func.Decl; d == nil || d.Body == nil || d.Extern != nil {
+		return nil
+	}
+	t := b.l.info.Types[x]
+	if t == nil || !b.closed(x) {
+		return nil
+	}
+	counts := &b.foldCounts
+	v, why, over := eval.FoldValue(b.pkg, b.decl, x, constFoldBudget)
+	if why != "" {
+		if over {
+			counts.OverBudget++
+		} else {
+			counts.Refused++
+		}
+		return nil
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			if _, isNo := r.(irUnsupported); !isNo {
+				panic(r)
+			}
+			// A constant the IR cannot spell: the call stays.
+			counts.Refused++
+			out = nil
+		}
+	}()
+	e := b.constOf(v, t, x, b.pos(x, x.Pos()))
+	counts.Folded++
 	return e
 }
 
-// foldConst is e, the IR of x, folded into one constant when x is an
-// operation or a conversion of constants that Go folds (above); else e.
-func (b *irBuilder) foldConst(x syntax.Expr, e *irExpr) *irExpr {
-	if constFoldLowering == "off" || e == nil || b.consts == nil {
-		return e
+// closed reports whether x reads no local: its operands are literals,
+// constants, record and list literals, calls and package functions, all
+// closed in turn. The evaluator decides the rest.
+func (b *irBuilder) closed(x syntax.Expr) bool {
+	info := b.l.info
+	if _, ok := info.Values[x]; ok {
+		return true
 	}
-	var v constant.Value
-	switch e.K {
-	case "bin":
-		v = foldBin(e.Op, b.consts[e.X], b.consts[e.Y], b.scalarBasic(b.l.info.Types[x]))
-	case "un":
-		v = foldUn(e.Op, b.consts[e.X], b.scalarBasic(b.l.info.Types[x]))
-	case "conv":
-		v = foldConv(b.consts[e.X], b.scalarBasic(b.l.info.Types[x]))
-	}
-	if v == nil {
-		return e
-	}
-	b.st.report.ConstFolds++
-	return b.constant(b.l.info.Types[x], v, x, e.Pos)
-}
-
-var foldTokens = map[string]token.Token{
-	"+": token.ADD, "-": token.SUB, "*": token.MUL, "/": token.QUO, "%": token.REM,
-	"&": token.AND, "|": token.OR, "^": token.XOR, "&^": token.AND_NOT,
-}
-
-// foldBin is l op r of the basic type t, or nil.
-func foldBin(op string, l, r constant.Value, t *check.Basic) constant.Value {
-	tok, ok := foldTokens[op]
-	if l == nil || r == nil || t == nil || !ok {
-		return nil
-	}
-	switch {
-	case t.Kind == check.String:
-		if tok != token.ADD || l.Kind() != constant.String || r.Kind() != constant.String {
-			return nil
+	switch x := x.(type) {
+	case *syntax.BasicLit:
+		return true
+	case *syntax.ParenExpr:
+		return b.closed(x.X)
+	case *syntax.Ident:
+		switch info.Uses[x].(type) {
+		case *check.Func, *check.TypeName:
+			return true
 		}
-		return constant.BinaryOp(l, tok, r)
-	case foldInteger(t):
-		if l.Kind() != constant.Int || r.Kind() != constant.Int {
-			return nil
+		return false
+	case *syntax.SelectorExpr:
+		// pkg.F, a function or a type of an imported package.
+		switch check.QualifiedMember(info, x).(type) {
+		case *check.Func, *check.TypeName:
+			return true
 		}
-		if (tok == token.QUO || tok == token.REM) && constant.Sign(r) == 0 {
-			return nil
+		return false
+	case *syntax.CompositeLit:
+		if x.Base != nil {
+			return false
 		}
-		if tok == token.QUO {
-			tok = token.QUO_ASSIGN // integer division
-		}
-		return foldFit(constant.BinaryOp(l, tok, r), t)
-	case t.Kind == check.Float32 || t.Kind == check.Float64:
-		switch tok {
-		case token.ADD, token.SUB, token.MUL:
-		case token.QUO:
-			if constant.Sign(r) == 0 {
-				return nil
+		for _, e := range x.Elts {
+			if kv, ok := e.(*syntax.KeyValueExpr); ok {
+				e = kv.Value
 			}
-		default:
-			return nil
+			if !b.closed(e) {
+				return false
+			}
 		}
-		return foldFit(constant.BinaryOp(constant.ToFloat(l), tok, constant.ToFloat(r)), t)
+		return true
+	case *syntax.CallExpr:
+		if x.Trailing != nil || !b.closed(x.Fun) {
+			return false
+		}
+		for _, a := range x.Args {
+			if !b.closed(a) {
+				return false
+			}
+		}
+		return true
+	case *syntax.UnaryExpr:
+		return b.closed(x.X)
+	case *syntax.BinaryExpr:
+		return b.closed(x.X) && b.closed(x.Y)
 	}
+	return false
+}
+
+// constOf is the IR of the folded value v in a place of type t.
+func (b *irBuilder) constOf(v eval.Const, t check.Type, site syntax.Expr, p irPos) *irExpr {
+	switch v.Kind {
+	case eval.ConstHole:
+		return b.holeInto(v.Hole, t, site) // ir_template.go
+	case eval.ConstBasic:
+		return b.constant(t, v.Basic, site, p)
+	case eval.ConstSlice:
+		s, ok := t.(*check.Slice)
+		if !ok {
+			irNo("folded list of type %s", t)
+		}
+		lit := &irExpr{K: "lit", Pos: p, T: b.goType(t, site)}
+		for _, e := range v.Elems {
+			lit.Elems = append(lit.Elems, b.constOf(e, s.Elem, site, p))
+		}
+		return lit
+	case eval.ConstRecord:
+		n, ok := t.(*check.Named)
+		if !ok {
+			irNo("folded record of type %s", t)
+		}
+		if n.Obj == v.Named.Obj {
+			s, ok := n.Underlying().(*check.Struct)
+			if !ok || len(s.Fields) != len(v.Elems) {
+				irNo("folded record's fields")
+			}
+			if len(s.Fields) == 0 {
+				return &irExpr{K: "zero", Pos: p, T: b.goType(t, site)}
+			}
+			td := b.l.typeDecl(n.Obj, site)
+			lit := &irExpr{K: "lit", Pos: p, T: b.goType(t, site)}
+			for i, f := range s.Fields {
+				lit.Keys = append(lit.Keys, td.fieldName[f.Name])
+				lit.Elems = append(lit.Elems, b.constOf(v.Elems[i], f.Type, site, p))
+			}
+			return lit
+		}
+		u, ok := n.Underlying().(*check.Union)
+		if !ok {
+			irNo("folded record into %s", t)
+		}
+		for _, vt := range u.Variants {
+			if vn, ok := vt.(*check.Named); ok && vn.Obj == v.Named.Obj {
+				return b.variantInto(vt, t, b.constOf(v, vt, site, p), site)
+			}
+		}
+		irNo("folded variant of %s", t)
+	}
+	irNo("folded value of kind %d", v.Kind)
 	return nil
-}
-
-// foldUn is op x of the basic type t, or nil.
-func foldUn(op string, x constant.Value, t *check.Basic) constant.Value {
-	if x == nil || t == nil {
-		return nil
-	}
-	switch {
-	case op == "!" && t.Kind == check.Bool && x.Kind() == constant.Bool:
-		return constant.UnaryOp(token.NOT, x, 0)
-	case (op == "-" || op == "+") && (foldInteger(t) || t.Kind == check.Float32 || t.Kind == check.Float64):
-		tok := token.SUB
-		if op == "+" {
-			tok = token.ADD
-		}
-		return foldFit(constant.UnaryOp(tok, x, 0), t)
-	}
-	return nil
-}
-
-// foldConv is t(x), or nil.
-func foldConv(x constant.Value, t *check.Basic) constant.Value {
-	if x == nil || t == nil {
-		return nil
-	}
-	switch {
-	case foldInteger(t):
-		if v := constant.ToInt(x); v.Kind() == constant.Int {
-			return foldFit(v, t)
-		}
-	case t.Kind == check.Float32 || t.Kind == check.Float64:
-		if v := constant.ToFloat(x); v.Kind() == constant.Float || v.Kind() == constant.Int {
-			return foldFit(v, t)
-		}
-	case t.Kind == check.String && x.Kind() == constant.String, t.Kind == check.Bool && x.Kind() == constant.Bool:
-		return x
-	}
-	return nil
-}
-
-// foldInteger reports an integer basic type, a Duration's int64 among them.
-func foldInteger(t *check.Basic) bool {
-	return t.Kind >= check.Int && t.Kind <= check.Uintptr || t.Kind == check.Duration
-}
-
-// foldFit is v as a constant of t: an integer that t holds, a float
-// rounded to t's precision; nil when t cannot hold it.
-func foldFit(v constant.Value, t *check.Basic) constant.Value {
-	if v == nil || v.Kind() == constant.Unknown {
-		return nil
-	}
-	// A float is rounded to t where it becomes an IR constant (constant
-	// records the rounded value), so a chain folds as Go rounds each
-	// typed operation; here only a value past t's range stays an
-	// operation.
-	switch t.Kind {
-	case check.Float64:
-		if f, _ := constant.Float64Val(constant.ToFloat(v)); math.IsInf(f, 0) {
-			return nil
-		}
-		return v
-	case check.Float32:
-		if f, _ := constant.Float32Val(constant.ToFloat(v)); math.IsInf(float64(f), 0) {
-			return nil
-		}
-		return v
-	}
-	if v.Kind() != constant.Int {
-		return nil
-	}
-	lo, hi := constant.MakeInt64(math.MinInt64), constant.MakeUint64(math.MaxInt64)
-	switch t.Kind {
-	case check.Int8:
-		lo, hi = constant.MakeInt64(math.MinInt8), constant.MakeUint64(math.MaxInt8)
-	case check.Int16:
-		lo, hi = constant.MakeInt64(math.MinInt16), constant.MakeUint64(math.MaxInt16)
-	case check.Int32:
-		lo, hi = constant.MakeInt64(math.MinInt32), constant.MakeUint64(math.MaxInt32)
-	case check.Uint8:
-		lo, hi = constant.MakeInt64(0), constant.MakeUint64(math.MaxUint8)
-	case check.Uint16:
-		lo, hi = constant.MakeInt64(0), constant.MakeUint64(math.MaxUint16)
-	case check.Uint32:
-		lo, hi = constant.MakeInt64(0), constant.MakeUint64(math.MaxUint32)
-	case check.Uint, check.Uint64, check.Uintptr:
-		lo, hi = constant.MakeInt64(0), constant.MakeUint64(math.MaxUint64)
-	}
-	if constant.Compare(v, token.LSS, lo) || constant.Compare(v, token.GTR, hi) {
-		return nil
-	}
-	return v
 }

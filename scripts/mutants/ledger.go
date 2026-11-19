@@ -21,8 +21,15 @@ type Ledger struct {
 	// killers need (ERGO_TS_TEST=1 for tsproj's TS leg), so that a plain
 	// `go run ./scripts/mutants DIR` judges them. Only a package ledger
 	// has one; check and lower share the ergo suites.
-	Env     []string  `json:"env,omitempty"`
-	Mutants []*Mutant `json:"mutants"`
+	Env []string `json:"env,omitempty"`
+	// Commands are killers that are not a go test: a row names one as
+	// command:NAME, and the runner runs its words in the mutated copy (the
+	// words {root} and {bin:TOOL} as a suite's; a ledger's tool is one of
+	// its scope). A command that fails kills, as a test does: the closure
+	// sweep of cmd/ergo (rm-cgo-link-input) is one. A command runs only for
+	// the rows that name it, in phase A, never in the coverage pass.
+	Commands map[string][]string `json:"commands,omitempty"`
+	Mutants  []*Mutant           `json:"mutants"`
 }
 
 // Mutant is one edit of the package's source that some test must notice.
@@ -78,6 +85,11 @@ func readLedger(path string) (*Ledger, error) {
 	for _, kv := range l.Env {
 		if name, _, ok := strings.Cut(kv, "="); !ok || name == "" {
 			return nil, fmt.Errorf("%s: env entry %q is not NAME=VALUE", path, kv)
+		}
+	}
+	for name, words := range l.Commands {
+		if name == "" || strings.ContainsAny(name, ": ") || len(words) == 0 {
+			return nil, fmt.Errorf("%s: command %q needs a name without a colon or a space, and words", path, name)
 		}
 	}
 	seen := map[string]bool{}

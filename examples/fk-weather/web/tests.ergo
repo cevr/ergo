@@ -82,8 +82,8 @@ test NoPlaceIsNotFound {
 }
 
 // ContractHoldsOverTheFixture: the Forecast laws hold for OpenMeteo over
-// the fixture Nets (the law runner cannot build an OpenMeteo itself: an
-// http.Net has no generator).
+// the fixture network (the law runner cannot build an OpenMeteo itself: an
+// http.Network has no generator).
 test ContractHoldsOverTheFixture(n int) {
 	with context { weather.Forecast: fixture() } {
 		assert weather.ReportIsForTheZip(n) && weather.NotFoundNamesTheZip(n)

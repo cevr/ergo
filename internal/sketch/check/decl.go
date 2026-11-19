@@ -9,7 +9,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -111,6 +111,8 @@ func (c *checker) runOnce(files []*syntax.File) *Package {
 		c.checkTests,
 		c.checkLaws,
 		c.planLaws,
+		// After planLaws: a provider the laws run against moves with them.
+		c.checkLawPlacement,
 		c.checkTypeDecls,
 		c.checkImplementsClauses,
 		c.checkContexts,
@@ -137,9 +139,13 @@ func (c *checker) runOnce(files []*syntax.File) *Package {
 		// After every body: the cell types are declarations (cells.go).
 		c.checkCells,
 		c.footprints,
+		// After every body: what each function reads of its parameters.
+		c.readSets,
 		// After the footprints: the argument of a pure parameter runs a
 		// pure function (Footprints 6), a durable machine's step (MU9).
 		c.checkPureArgs,
+		// After the footprints: a dropped result of a pure call (discard.go).
+		c.checkDroppedResults,
 		// After the footprints: an invariant law's predicate is pure (X2).
 		c.checkLawPreds,
 		// After the footprints: a top-level rewrite law's functions are
@@ -150,6 +156,9 @@ func (c *checker) runOnce(files []*syntax.File) *Package {
 		c.reportWithBudget,
 		// Last: every lazy read of a binding is done (gobinding.go).
 		c.checkGoImports,
+		// After every other pass: S115 only in a package with no other
+		// diagnostic (lawplace.go).
+		c.reportLawPlacements,
 	} {
 		c.cur = nil
 		pass()
@@ -594,7 +603,7 @@ func (c *checker) importSpec(fi *fileInfo, spec *syntax.ImportSpec) {
 		return
 	}
 	imp := c.imp
-	if _, isStd := std.Package(path); isStd {
+	if _, isStd := stdlib.Package(path); isStd {
 		// A std path always names std, whatever importer Check was given:
 		// a program package cannot shadow log or queue (C30).
 		imp = Std
@@ -603,7 +612,9 @@ func (c *checker) importSpec(fi *fileInfo, spec *syntax.ImportSpec) {
 	if err != nil || pkg == nil {
 		// An importer may wrap its *ImportError (fmt.Errorf %w,
 		// errors.Join); findImportError searches the chain.
-		if reason := findImportError(err); reason != nil {
+		if reason := findImportError(err); reason != nil && reason.Broken {
+			c.errorf(spec.Path, CodeUnknown, "package %q does not check: %s", reason.Path, reason.Reason)
+		} else if reason != nil {
 			c.errorf(spec.Path, CodeUnknown, "unknown package %q: %s", path, reason.Reason)
 		} else {
 			c.errorf(spec.Path, CodeUnknown, "unknown package %q", path)
@@ -760,6 +771,9 @@ func importName(element string) bool {
 type ImportError struct {
 	Path   string
 	Reason string
+	// Broken marks a package that exists and does not check: Reason is its
+	// first diagnostic, and the import says so instead of "unknown".
+	Broken bool
 }
 
 func (e *ImportError) Error() string { return fmt.Sprintf("package %q: %s", e.Path, e.Reason) }
@@ -1093,7 +1107,7 @@ func (c *checker) interfaceType(spec *syntax.InterfaceType, ctx *typeCtx, owner 
 			c.hostClauses(c.pkg.Path+"."+owner+"."+name.Name, sig, m)
 		}
 		if c.pkg.host == nil {
-			closeOpTakes(name.Name, sig)
+			c.closeOpTakes(name.Name, sig)
 		}
 		if ft.Needs != nil && c.pkg.host == nil {
 			// A Go interface's method runs Go code: its binding charges
@@ -2341,6 +2355,9 @@ func (c *checker) funcSig(f *Func) *Signature {
 	c.closeTakes(f)
 	if c.pkg.Host() && d.Extern != nil {
 		c.hostClauses(d.Extern.Target.Value, sig, d)
+	}
+	if d.Extern != nil {
+		c.externRows(d, sig)
 	}
 	if d.Body == nil {
 		// A bodiless (extern) function's parameters are declared here; a

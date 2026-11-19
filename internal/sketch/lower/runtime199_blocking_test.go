@@ -51,6 +51,7 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"funcCtx.taskCaptureRoot": "a Set member's synthetic root owner, on the child's task (NewOwnerScope; R12)",
 			"funcCtx.poll":            "the interruption point (Check)",
 			"funcCtx.envClosure":      "a task callback's Env copy",
+			"envMemoText":             "a task callback's Env: the maker's on its task, else the task's kept copy (ENV-COPY)",
 			"funcCtx.operations":      "an operation adapter's copy of the converting frame's Env, on the caller's task (OWGEN round 3)",
 			"funcCtx.goContext":       "rt.GoContext, the task as the hidden context.Context of a Go call; it neither waits nor releases (IG10)",
 			"funcCtx.everyTimers":     "a machines.Every After's firing mark (MachineFiringNow, no wait) and the Clock's Now through the Env's provider field, as callText's (FKG1)",
@@ -281,7 +282,7 @@ func TestRuntime199BlockingOwner(t *testing.T) {
 		"GoHanded": true,
 		// S-json: the fast path appends a string to a json Text; no wait.
 		"JSONAppendTextString": true,
-		// 1BRC: a read of a let lowered as a Go constant (constLet), an
+		// 1BRC: a read of a let lowered as a Go constant (constValueLet), an
 		// identity; no wait.
 		"Let": true,
 		// BCE1: unchecked loads under a bounds fact (bounds.go,
@@ -303,6 +304,10 @@ func TestRuntime199BlockingOwner(t *testing.T) {
 		// FKG1: a machines.Every After reads the task's firing mark, a
 		// field read; no wait.
 		"MachineFiringNow": true,
+		// TH1: the test runner's folder of one case (testhost.go), made
+		// before a context's build and removed by a defer; frame
+		// plumbing of the test harness, no wait and no release.
+		"TestFolderOpen": true, "TestFolderRemove": true,
 		// LF1: the test build's compare of a reads operand after its Go
 		// call (gofacts.go); a loop of compares, no wait.
 		"GoReadsCheck": true,

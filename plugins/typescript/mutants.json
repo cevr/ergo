@@ -1,0 +1,82 @@
+{
+  "about": "The TypeScript plugin's mutant ledger (SEMWS WG4): each row is a fault of split.js or main.js and the test of split.test.js that alone kills it. Run: bun mutants.js [NAME...].",
+  "mutants": [
+    {
+      "name": "ts-key-by-offset",
+      "file": "split.js",
+      "from": "    out.push({ key, kind, text: unitText,",
+      "to": "    out.push({ key: `${key}@${start}`, kind, text: unitText,",
+      "rule": "A unit is keyed by its declared names, never by its offset (the plan's 'a unit keyed by its position'; row: a key is the declared names)."
+    },
+    {
+      "name": "ts-overloads-apart",
+      "file": "split.js",
+      "from": "    if (name !== null && last && last.fn === name && last.open) {",
+      "to": "    if (false) {",
+      "rule": "An overload set is one unit, not two with one key (row: an overload set is one unit)."
+    },
+    {
+      "name": "ts-leading-comment-lost",
+      "file": "split.js",
+      "from": "    if (text[p] === \"\\n\") return p + 1;",
+      "to": "    if (false) return p + 1;",
+      "rule": "The comment above a statement belongs to its unit, not to the unit before (row: a leading comment belongs to its unit)."
+    },
+    {
+      "name": "ts-cut-in-a-comment",
+      "file": "split.js",
+      "from": "    const c = commentAt.get(p);",
+      "to": "    const c = undefined;",
+      "rule": "A unit's end never falls inside a comment that spans a line break (row: a leading comment belongs to its unit)."
+    },
+    {
+      "name": "ts-tsx-as-ts",
+      "file": "split.js",
+      "from": "  return path.endsWith(\".tsx\") ? \"tsx\" : \"ts\";",
+      "to": "  return \"ts\";",
+      "rule": "A .tsx file parses as TSX (row: a .tsx file is parsed as TSX)."
+    },
+    {
+      "name": "ts-module-cut-in-two",
+      "file": "split.js",
+      "from": "  const groups = grouped(r.program.body);",
+      "to": "  const groups = grouped(r.program.body.flatMap((s) => (s.type === \"TSModuleDeclaration\" && s.body && s.body.body ? s.body.body : [s])));",
+      "rule": "A declare module block is one unit, not one a statement (the plan's 'a declare module block cut in two'; row: a declare module block is one unit)."
+    },
+    {
+      "name": "ts-no-members",
+      "file": "split.js",
+      "from": "  if (!p || p.nodes.length === 0) return [];",
+      "to": "  if (true) return [];",
+      "rule": "Classes, interfaces, enums, objects and imports have members (row: members by name)."
+    },
+    {
+      "name": "ts-duplicate-keys",
+      "file": "split.js",
+      "from": "  if (!seen.has(key)) return key;",
+      "to": "  return key;",
+      "rule": "A name declared twice (interface merging) keys its later declarations apart (KeysAreUnique on the corpus)."
+    },
+    {
+      "name": "ts-code-after-neighbour",
+      "file": "split.js",
+      "from": "    key = unique(seen, key === \"\" ? codeKey(g.nodes[0], text) : key);",
+      "to": "    key = unique(seen, key === \"\" ? `${codeKey(g.nodes[0], text)} after ${out.length ? out[out.length - 1].key : \"\"}` : key);",
+      "rule": "A statement with no name is not keyed by the unit before it, whose rename would move its key (EditStaysInItsUnit on seeded edits)."
+    },
+    {
+      "name": "ts-sites-empty",
+      "file": "main.js",
+      "from": "  if (request._tag !== \"UnitsOf\") return { _tag: \"NotProvided\", op: request._tag.replace(/Of$/, \"\") };",
+      "to": "  if (request._tag !== \"UnitsOf\") return { _tag: \"SitesAre\", sites: [] };",
+      "rule": "A level-1 plugin asked for Sites answers NotProvided, never an empty list (row: the protocol)."
+    },
+    {
+      "name": "ts-code-by-count",
+      "file": "split.js",
+      "from": "  if (a && a.type === \"Literal\" && typeof a.value === \"string\") return `code ${named} ${JSON.stringify(a.value)}`;",
+      "to": "  if (a && a.type === \"Literal\" && typeof a.value === \"string\") return `code ${named}`;",
+      "rule": "A call is keyed by the string it names, so each test of a test file is its own unit and an added test moves no other (row: a key is the declared names; found by mergereplay)."
+    }
+  ]
+}

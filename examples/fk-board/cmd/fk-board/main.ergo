@@ -13,10 +13,12 @@ import fkboard/script
 import fs
 import io
 import os
+import time
 
 func main() fails os.Exit needs Console | Ambient {
 	let host = fs.NewHost()
-	let status = with context { io.Stdin: io.NewStdin(), board.Store: file.NewSheet(host, host) } { script.Run() }
+	let clock = time.NewManual(0)
+	let status = with context { io.Stdin: io.NewStdin(), board.Store: file.NewSheet(host, host), Scheduler: clock } { script.Run(clock) }
 	if status != 0 {
 		return os.Exit{Code: 1, Message: "fk-board: the script did not run"}
 	}
