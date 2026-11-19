@@ -34,6 +34,21 @@ func TypeSchema(pkg *check.Package, typeName string) (string, error) {
 	return s, nil
 }
 
+// ArgumentSchema is the JSON schema text of op's arguments, an operation
+// of the operation type opName of pkg: the text the hub's Schema(op)
+// holds, so `ergo gen llm` writes each tool's input as the hub does.
+func ArgumentSchema(pkg *check.Package, path, opName string, op Op) (string, error) {
+	g := &hubGen{pkg: pkg, path: path, op: opName}
+	s := g.arguments(op)
+	if g.err != nil {
+		return "", g.err
+	}
+	return s, nil
+}
+
+// Lit is s as an Ergo string literal, as the hub writes one.
+func Lit(s string) string { return lit(s) }
+
 // wireNamed is the declared, non-generic type typeName of pkg.
 func wireNamed(pkg *check.Package, typeName string) (*check.Named, error) {
 	for _, t := range pkg.Types {
