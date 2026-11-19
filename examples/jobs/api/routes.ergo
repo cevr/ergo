@@ -1,6 +1,6 @@
 import http
-import jobs/api/endpoint
-import jobs/jobs
+import jobsapp/api/endpoint
+import jobsapp/jobs
 import json
 
 // Endpoint carries only a route's identity; Jobs declares what it asks and

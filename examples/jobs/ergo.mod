@@ -1,1 +1,1 @@
-module jobs
+module jobsapp
