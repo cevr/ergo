@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/token"
 	"maps"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -25,14 +26,18 @@ import (
 //     a pointer method) or `*x` evaluates, x is non-nil, since a nil x
 //     panics there.
 //   - Branches join by intersection; a loop runs to a fixed point; a
-//     break or a continue carries its state to its target. A goto
-//     leaves the function unproven.
+//     break or a continue carries its state to its target. A goto's
+//     label knows nothing.
 //   - Names resolve by scope: each declaration is its own variable.
 //
-// A variable whose address is taken loses its facts at every call; one a
+// A variable whose address is taken loses its facts at every call. One a
 // function literal assigns loses them where a function literal is
-// written or a local variable holding one is called: a closure is
-// assumed to run there. A parameter cannot hold a closure of this call.
+// written or a local variable holding one is called, when the flow sees
+// every run of that literal (it is called where it is written, deferred,
+// or held by variables used only by direct calls); a literal that
+// escapes (passed, stored, returned, started with go) makes what it
+// assigns unknown in the whole function (escapes, GOBIND-CLOSURE-SOUND).
+// A parameter cannot hold a closure of this call.
 //
 // A deferred function runs after the return: one that may recover (a
 // literal or a listed function calling recover) returns whatever the
@@ -436,6 +441,7 @@ func (p *nnProof) body() bool {
 		}
 	}
 	f.scan(owner)
+	f.escapes(owner)
 	if !f.ok {
 		return false
 	}
@@ -520,6 +526,173 @@ func (f *nnFlow) scan(owner map[string]*ast.FuncLit) {
 	for _, r := range f.results {
 		if f.addr[r] && hasDefer(p.fn.fd.Body) {
 			f.ok = false // a deferred call may write it through its address
+		}
+	}
+}
+
+// escapes makes a variable a function literal assigns unknown for the
+// whole function where the flow cannot see each run of that literal
+// (GOBIND-CLOSURE-SOUND). The flow sees a literal called where it is
+// written (`func() { … }()`, or deferred: the defer rule judges it), or
+// held in a local variable whose every use is a direct call; a literal
+// passed, stored, returned, started with go, or held by a variable used
+// otherwise (`k := g`, `run(g)`, `defer g()`) escapes, and so does every
+// literal inside one that escapes. Each mention of an unknown variable
+// gets an id of its own, so no fact reaches from one mention to
+// another; an escaping literal that assigns a named result leaves the
+// function unproven, since it may run after the return.
+func (f *nnFlow) escapes(owner map[string]*ast.FuncLit) {
+	p := f.p
+	type use struct {
+		id   string
+		in   *ast.FuncLit
+		call bool
+	}
+	parent := map[*ast.FuncLit]*ast.FuncLit{}
+	esc := map[*ast.FuncLit]bool{}
+	held := map[*ast.FuncLit][]string{}
+	writes := map[*ast.FuncLit][]string{}
+	var uses []use
+	var stack []ast.Node
+	var lits []*ast.FuncLit
+	at := func(i int) ast.Node { // the i-th node above the current one
+		if len(stack) < i {
+			return nil
+		}
+		return stack[len(stack)-i]
+	}
+	ast.Inspect(p.fn.fd.Body, func(n ast.Node) bool {
+		if n == nil {
+			if _, ok := stack[len(stack)-1].(*ast.FuncLit); ok {
+				lits = lits[:len(lits)-1]
+			}
+			stack = stack[:len(stack)-1]
+			return true
+		}
+		var in *ast.FuncLit
+		if len(lits) > 0 {
+			in = lits[len(lits)-1]
+		}
+		write := func(x ast.Expr) {
+			if id := p.id(x); id != "" && in != nil && owner[id] != in {
+				writes[in] = append(writes[in], id)
+			}
+		}
+		switch n := n.(type) {
+		case *ast.FuncLit:
+			parent[n] = in
+			esc[n] = true
+			switch up := at(1).(type) {
+			case *ast.CallExpr:
+				if up.Fun == n {
+					_, goes := at(2).(*ast.GoStmt)
+					esc[n] = goes
+				}
+			case *ast.AssignStmt:
+				for i, r := range up.Rhs {
+					if r == n && len(up.Lhs) == len(up.Rhs) {
+						if id := p.id(up.Lhs[i]); id != "" {
+							esc[n] = false
+							held[n] = append(held[n], id)
+						}
+					}
+				}
+			case *ast.ValueSpec:
+				for i, v := range up.Values {
+					if v == n && i < len(up.Names) && len(up.Names) == len(up.Values) {
+						if id := p.ids[up.Names[i]]; id != "" {
+							esc[n] = false
+							held[n] = append(held[n], id)
+						}
+					}
+				}
+			}
+			lits = append(lits, n)
+		case *ast.AssignStmt:
+			for _, l := range n.Lhs {
+				write(l)
+			}
+		case *ast.IncDecStmt:
+			write(n.X)
+		case *ast.RangeStmt:
+			if n.Tok == token.ASSIGN {
+				write(n.Key)
+				write(n.Value)
+			}
+		case *ast.Ident:
+			id := p.ids[n]
+			if id == "" || !f.closures[id] {
+				break
+			}
+			switch up := at(1).(type) {
+			case *ast.AssignStmt:
+				if slices.Contains(up.Lhs, ast.Expr(n)) {
+					stack = append(stack, n)
+					return true // a write, not a use
+				}
+			case *ast.ValueSpec:
+				if slices.Contains(up.Names, n) {
+					stack = append(stack, n)
+					return true
+				}
+			case *ast.CallExpr:
+				if up.Fun == n {
+					switch at(2).(type) {
+					case *ast.GoStmt, *ast.DeferStmt:
+					default:
+						uses = append(uses, use{id, in, true})
+						stack = append(stack, n)
+						return true
+					}
+				}
+			}
+			uses = append(uses, use{id, in, false})
+		}
+		stack = append(stack, n)
+		return true
+	})
+	varEsc := map[string]bool{}
+	for _, u := range uses {
+		if !u.call {
+			varEsc[u.id] = true
+		}
+	}
+	for changed := true; changed; {
+		changed = false
+		for l := range parent {
+			if esc[l] {
+				continue
+			}
+			if parent[l] != nil && esc[parent[l]] || slices.ContainsFunc(held[l], func(id string) bool { return varEsc[id] }) {
+				esc[l], changed = true, true
+			}
+		}
+		for _, u := range uses {
+			if !varEsc[u.id] && u.in != nil && esc[u.in] {
+				varEsc[u.id], changed = true, true
+			}
+		}
+	}
+	unknown := map[string]bool{}
+	for l, ids := range writes {
+		if esc[l] {
+			for _, id := range ids {
+				unknown[id] = true
+			}
+		}
+	}
+	for _, r := range f.results {
+		if unknown[r] {
+			f.ok = false
+		}
+	}
+	n := 0
+	for ident, id := range p.ids {
+		if unknown[id] {
+			n++
+			fresh := id + "!" + strconv.Itoa(n)
+			p.ids[ident] = fresh
+			f.closures[fresh] = f.closures[id]
 		}
 	}
 }

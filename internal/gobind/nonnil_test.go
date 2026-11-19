@@ -112,6 +112,15 @@ var nnFinal = []nnForm{
 	{"field-set", "h := &holder{}\n\th.err = wrapped(A)\n\treturn nil, h.err", true},
 	{"field-set-call", "h := &holder{}\n\th.err = wrapped(A)\n\th.reset()\n\treturn nil, h.err", false},
 	{"recover", "defer func() { recover() }()\n\treturn fresh(A), nil", false}, // safe here, but a recovered panic returns nil, nil
+	// GOBIND-CLOSURE-SOUND: a literal the flow cannot see run makes what
+	// it assigns unknown everywhere.
+	{"closure-held", "s := maybe(A)\n\tg := func() { s = &S{} }\n\tg()\n\tif s == nil {\n\t\treturn nil, errors.New(\"nil\")\n\t}\n\treturn s, nil", true},
+	{"closure-stored", "s := &S{}\n\tb := &box{}\n\tb.f = func() { s = maybe(A) }\n\ts = &S{}\n\tb.f()\n\treturn s, nil", false},
+	{"closure-aliased", "s := &S{}\n\tg := func() { s = maybe(A) }\n\tk := g\n\ts = &S{}\n\tk()\n\treturn s, nil", false},
+	{"closure-passed", "s := &S{}\n\tg := func() { s = maybe(A) }\n\ts = &S{}\n\trun(g)\n\treturn s, nil", false},
+	{"closure-nested", "s := &S{}\n\tg := func() { s = maybe(A) }\n\tb := &box{f: func() { g() }}\n\ts = &S{}\n\tb.f()\n\treturn s, nil", false},
+	{"closure-inner", "s := &S{}\n\tb := &box{}\n\tb.f = func() { func() { s = maybe(A) }() }\n\ts = &S{}\n\tb.f()\n\treturn s, nil", false},
+	{"closure-go", "s := &S{}\n\tgo func() { s = maybe(A) }()\n\ts = &S{}\n\treturn s, nil", false},
 }
 
 // TestNonNilResultsProperty generates Go packages of (*S, error)
@@ -133,7 +142,8 @@ var nnFinal = []nnForm{
 // constants, error functions, typed nils, field paths, pairs, package
 // pointers), and the gobind-flow-* rows of GOBIND-FLOW (joins, loops,
 // breaks, dead nil checks, pair refinement, dereferences, closures,
-// gotos, defers, field stores, open switches, scopes, panics).
+// gotos, defers, field stores, open switches, scopes, panics), and the
+// gobind-closure-* rows of GOBIND-CLOSURE-SOUND (escaping literals).
 func TestNonNilResultsProperty(t *testing.T) {
 	seeds := []uint64{1, 2, 3}
 	if s := os.Getenv("ERGO_NONNIL_SEED"); s != "" {
@@ -305,6 +315,10 @@ func (b *builder) buildMaybe(a int) (*S, error) {
 
 var defaultB = &builder{}
 
+type box struct{ f func() }
+
+func run(f func()) { f() }
+
 `)
 	model := map[string]bool{}
 	// Each package reaches every form as the subject of a function whose
@@ -373,6 +387,10 @@ var defaultB = &builder{}
 	model["S.Self"], model["Named"], model["NamedEarly"], model["NamedDefer"], model["NamedDeferNil"] = false, true, false, true, false
 	b.WriteString("func NamedBlank(a int) (_ *S, err error) {\n\th := &holder{}\n\tdefer func() {\n\t\th.err = nil\n\t}()\n\treturn &S{X: a}, nil\n}\n\n")
 	model["NamedDeferClose"], model["NamedDeferAny"], model["NamedBlank"] = true, false, true
+	// A literal deferred through a variable may set a named result after
+	// the return (GOBIND-CLOSURE-SOUND).
+	b.WriteString("func NamedDeferHeld(a int) (r *S, err error) {\n\tg := func() { r = nil }\n\tdefer g()\n\treturn &S{X: a}, nil\n}\n\n")
+	model["NamedDeferHeld"] = false
 	// A parameter's nil default fixed at the top level (GOBIND-PROVE):
 	// after `if s == nil { s = &S{} }` s is non-nil, unless the fix may
 	// set nil or a return comes before it.
