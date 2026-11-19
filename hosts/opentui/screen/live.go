@@ -17,7 +17,7 @@ import (
 // Open is a screen on the process's terminal: it reads standard input and
 // writes standard output, and follows the terminal's size (SIGWINCH). The
 // caller sets raw mode (std term.Raw) around it; while it is open nothing
-// else may read standard input. Close restores the terminal.
+// else may read standard input. Quit restores the terminal.
 func Open() (*Screen, error) {
 	cols, rows, err := termSize(os.Stdout)
 	if err != nil {
@@ -71,7 +71,7 @@ func OpenOn(in, out *os.File, cols, rows int) (*Screen, error) {
 	})
 	if err != nil {
 		s.live = false
-		s.Close()
+		s.Quit()
 		return nil, fmt.Errorf("screen: terminal setup: %w", err)
 	}
 	// One reader of the input: its bytes go to the parser on the owner

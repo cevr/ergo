@@ -35,6 +35,10 @@ import (
 const (
 	Box  = 0
 	Text = 1
+	// Scroller: a box whose children scroll vertically inside it, with
+	// a bar while they are taller (ot_scene_set_scroll). Its Direction,
+	// Padding, Gap, AlignItems and Justify are its content's.
+	Scroller = 2
 )
 
 // The kinds of an Input.
@@ -53,6 +57,10 @@ const (
 	Resize
 	// Focus: the terminal gained (Action 1) or lost (0) the focus.
 	Focus
+	// Wake: Wake was called (a result waits for the reader elsewhere).
+	Wake
+	// None: no Input waits (Take).
+	None
 )
 
 // The mouse actions.
@@ -75,7 +83,7 @@ type Input struct {
 }
 
 // The style properties of SetStyle. Lengths are in cells; a NaN length is
-// auto. Enumerations take OpenTUI's OT_* values.
+// auto.
 const (
 	// Direction: 0 column, 1 row.
 	Direction = iota
@@ -89,13 +97,12 @@ const (
 	Margin
 	Inset
 	Gap
-	// AlignItems and Justify take OT_ALIGN_* and OT_JUSTIFY_*.
+	// AlignItems and Justify: 0 start, 1 centre, 2 end, 3 stretch
+	// (AlignItems) or space between (Justify).
 	AlignItems
 	Justify
 	// Absolute: 1 takes the node out of the flow.
 	Absolute
-	// Clip: 1 hides what overflows the node's box.
-	Clip
 )
 
 // The attributes of SetLook.
@@ -308,6 +315,14 @@ func (s *Screen) apply(c command) error {
 			return fmt.Errorf("screen: Create %d: %w", c.node, err)
 		}
 		s.nodes[c.node], s.kinds[c.node], s.parent[c.node] = h, c.kind, -1
+		if c.kind == Scroller {
+			s.calls++
+			bar := ot.SceneScrollBarOptions{Policy: ot.OT_SCENE_SCROLL_BAR_AUTO, Placement: ot.OT_SCENE_SCROLL_BAR_INSET, Thickness: 1,
+				TrackForeground: [4]uint16{128, 128, 128, 255}}
+			if err := ot.SceneSetScroll(s.ctx, h, ot.SceneScrollOptions{Axes: ot.OT_SCENE_SCROLL_Y, Bars: [2]ot.SceneScrollBarOptions{{Policy: ot.OT_SCENE_SCROLL_BAR_NEVER, Thickness: 1}, bar}}); err != nil {
+				return fmt.Errorf("screen: Create %d: scroll: %w", c.node, err)
+			}
+		}
 		if c.kind == Text {
 			s.calls++
 			if err := ot.SceneSetTextOptions(s.ctx, h, ot.SceneTextOptions{Foreground: [4]uint16{255, 255, 255, 255}, WrapMode: ot.OT_SCENE_WRAP_WORD}); err != nil {
@@ -421,6 +436,20 @@ func (s *Screen) destroy(n int) error {
 	return nil
 }
 
+// placement is the OpenTUI value of a placement: 0 start, 1 centre, 2
+// end, 3 stretch (AlignItems) or between (Justify); another is start.
+func placement(v float64, start, centre, end, last uint32) uint32 {
+	switch v {
+	case 1:
+		return centre
+	case 2:
+		return end
+	case 3:
+		return last
+	}
+	return start
+}
+
 var edges = [...]uint32{ot.OT_EDGE_LEFT, ot.OT_EDGE_TOP, ot.OT_EDGE_RIGHT, ot.OT_EDGE_BOTTOM, ot.OT_EDGE_ALL}
 
 func (s *Screen) style(c command, h ot.Handle) error {
@@ -458,25 +487,28 @@ func (s *Screen) style(c command, h ot.Handle) error {
 		group, kind, edge = ot.OT_STYLE_VALUE, ot.OT_STYLE_VALUE_GAP, ot.OT_GUTTER_ALL
 	case AlignItems:
 		group, kind, unit, edge = ot.OT_STYLE_ENUM, ot.OT_STYLE_ENUM_ALIGN_ITEMS, ot.OT_UNIT_UNDEFINED, ot.OT_EDGE_NONE
+		v = float32(placement(c.value, ot.OT_ALIGN_FLEX_START, ot.OT_ALIGN_CENTER, ot.OT_ALIGN_FLEX_END, ot.OT_ALIGN_STRETCH))
 	case Justify:
 		group, kind, unit, edge = ot.OT_STYLE_ENUM, ot.OT_STYLE_ENUM_JUSTIFY_CONTENT, ot.OT_UNIT_UNDEFINED, ot.OT_EDGE_NONE
+		v = float32(placement(c.value, ot.OT_JUSTIFY_FLEX_START, ot.OT_JUSTIFY_CENTER, ot.OT_JUSTIFY_FLEX_END, ot.OT_JUSTIFY_SPACE_BETWEEN))
 	case Absolute:
 		group, kind, unit, edge = ot.OT_STYLE_ENUM, ot.OT_STYLE_ENUM_POSITION_TYPE, ot.OT_UNIT_UNDEFINED, ot.OT_EDGE_NONE
 		v = float32(ot.OT_POSITION_RELATIVE)
 		if c.value == 1 {
 			v = float32(ot.OT_POSITION_ABSOLUTE)
 		}
-	case Clip:
-		group, kind, unit, edge = ot.OT_STYLE_ENUM, ot.OT_STYLE_ENUM_OVERFLOW, ot.OT_UNIT_UNDEFINED, ot.OT_EDGE_NONE
-		v = float32(ot.OT_OVERFLOW_VISIBLE)
-		if c.value == 1 {
-			v = float32(ot.OT_OVERFLOW_HIDDEN)
-		}
 	default:
 		return fmt.Errorf("screen: SetStyle %d: no property %d", c.node, c.kind)
 	}
+	flags := uint32(0)
+	if s.kinds[c.node] == Scroller {
+		switch c.kind {
+		case Direction, Padding, Gap, AlignItems, Justify:
+			flags = ot.OT_STYLE_CONTENT
+		}
+	}
 	s.calls++
-	if err := ot.SceneSetStyle(s.ctx, h, group, kind, edge, unit, v, 0); err != nil {
+	if err := ot.SceneSetStyle(s.ctx, h, group, kind, edge, unit, v, flags); err != nil {
 		return fmt.Errorf("screen: SetStyle %d (property %d, edge %d, %v): %w", c.node, c.kind, c.edge, c.value, err)
 	}
 	return nil
@@ -657,6 +689,56 @@ func (s *Screen) BoxOf(n int) Rect {
 	return r
 }
 
+// Reveal scrolls each Scroller that holds node n, the innermost first, so
+// n's box is inside its viewport (moving it the least); the next Present
+// paints it there.
+func (s *Screen) Reveal(n int) error {
+	var err error
+	s.do(func() {
+		h, ok := s.nodes[n]
+		if !ok {
+			return
+		}
+		for p := s.parent[n]; p > 0; p = s.parent[p] {
+			if s.kinds[p] != Scroller {
+				continue
+			}
+			s.calls++
+			if _, err = ot.SceneScrollRequest(s.ctx, s.nodes[p], ot.OT_SCENE_SCROLL_REQUEST_INTO_VIEW, h, ot.OT_SCENE_SCROLL_ALIGN_NEAREST, 0); err != nil {
+				err = fmt.Errorf("screen: Reveal %d in %d: %w", n, p, err)
+				return
+			}
+		}
+	})
+	return err
+}
+
+// Shown reports whether the first cell of node n's box is on the screen
+// and inside the box of each Scroller that holds it: a cell a person sees
+// the node in, after the last Present.
+func (s *Screen) Shown(n int) bool {
+	b := s.BoxOf(n)
+	cols, rows := s.Size()
+	if b.Width <= 0 || b.Height <= 0 || b.X < 0 || b.Y < 0 || b.X >= cols || b.Y >= rows {
+		return false
+	}
+	var outer []int
+	s.do(func() {
+		for p := s.parent[n]; p > 0; p = s.parent[p] {
+			if s.kinds[p] == Scroller {
+				outer = append(outer, p)
+			}
+		}
+	})
+	for _, p := range outer {
+		v := s.BoxOf(p)
+		if b.X < v.X || b.Y < v.Y || b.X >= v.X+v.Width || b.Y >= v.Y+v.Height {
+			return false
+		}
+	}
+	return true
+}
+
 // HitTest is the number of the node painted last at column x, row y, 0
 // for the root, or -1 for none.
 func (s *Screen) HitTest(x, y int) int {
@@ -702,6 +784,10 @@ func (s *Screen) push(in ...Input) {
 	default:
 	}
 }
+
+// Wake queues an Input of kind Wake, so a reader waiting in Next looks at
+// what another goroutine posted for it.
+func (s *Screen) Wake() { s.push(Input{Kind: Wake}) }
 
 // Feed parses terminal bytes into Inputs. A sequence cut at the end of b
 // waits in OpenTUI's parser for the next Feed. A headless screen's input
@@ -798,6 +884,37 @@ func (s *Screen) Poll() (Input, bool) {
 	return in, true
 }
 
+// Take returns the next Input if one waits, else an Input of kind None.
+// (Poll's two results, as one: Ergo's IR lowering refuses a tuple result
+// of a method on a Go value in the driver, "tdef of a value that is not a
+// package call".)
+func (s *Screen) Take() Input {
+	if in, ok := s.Poll(); ok {
+		return in
+	}
+	return Input{Kind: None}
+}
+
+// Count is how many nodes the scene holds, the root aside, after the
+// last Present.
+func (s *Screen) Count() int {
+	n := 0
+	s.do(func() { n = len(s.nodes) })
+	return n
+}
+
+// Cols is the screen's width in cells.
+func (s *Screen) Cols() int {
+	c, _ := s.Size()
+	return c
+}
+
+// Lines is the screen's height in cells.
+func (s *Screen) Lines() int {
+	_, r := s.Size()
+	return r
+}
+
 // Next waits for the next Input. After the input ends it returns Closed.
 func (s *Screen) Next(ctx context.Context) (Input, error) {
 	for {
@@ -824,10 +941,13 @@ func (s *Screen) EndInput() {
 	}
 }
 
-// Close restores the terminal (a live screen's output ends with the
+// Quit restores the terminal (a live screen's output ends with the
 // sequences that leave the alternate screen and show the cursor), then
-// frees the scene. A second Close does nothing.
-func (s *Screen) Close() error {
+// frees the scene. A second Quit does nothing. It is not named Close: the
+// Ergo driver keeps the screen in its Driver, which a closable resource
+// (a Go Closer) cannot be stored in; the binary that opens a screen quits
+// it on every exit (scope.OnExit).
+func (s *Screen) Quit() error {
 	s.mu.Lock()
 	if s.done {
 		s.mu.Unlock()
