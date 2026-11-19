@@ -1417,8 +1417,8 @@ var openStd = map[string]bool{
 	"log.Sink":          true,
 	"tz.Zones":          true,
 	"tz.Local":          true,
-	"testing.Allocs": true,
-	"llm.Model": true,
+	"testing.Allocs":    true,
+	"llm.Model":         true,
 	// The layout's text measure, which a host provides with its fonts.
 }
 
