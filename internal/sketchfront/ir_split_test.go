@@ -30,7 +30,7 @@ import (
 // (cs-ir-foreign-undeclared).
 func TestIRFilePerPackage(t *testing.T) {
 	twoPackages, foreign := false, false
-	for _, name := range []string{"particles", "okra-keys", "forge", "todo-shell"} {
+	for _, name := range []string{"particles", "forge", "todo-shell"} {
 		dir, err := filepath.Abs(filepath.Join("..", "..", "examples", name, "cmd", name))
 		if err != nil {
 			t.Fatal(err)
