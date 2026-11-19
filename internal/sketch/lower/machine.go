@@ -650,6 +650,44 @@ func (fc *funcCtx) machineWork(conv check.Conversion, site syntax.Node) string {
 	})
 }
 
+// machineExit is the Exit of a machine value's Machine (ConvMachine;
+// FK9-g1, runtime.md, Machines and actors 12a): a function that calls the
+// machine's exit function and gives its action as the field's type, or,
+// when it has none, a function that gives every state None (no exit
+// action). The exit function has no rows of its own (checkMachineExit), so
+// its error is always nil.
+//
+//	func(env *Env, s S) (Option[func(…)], error) {
+//		o, _ := exit(env, s)
+//		if x, ok := o.(Some[func(…)]); ok {
+//			return Some[func(…)]{Value: x.Value}, nil
+//		}
+//		return None{}, nil
+//	}
+func (fc *funcCtx) machineExit(conv check.Conversion, site syntax.Node) string {
+	exit := conv.Table["Exit"]
+	if exit == nil {
+		return fc.machineNone(conv, "Exit", site)
+	}
+	sig := fc.machineField(conv, "Exit", site)
+	if len(exit.Sig.Params) != 1 || len(exit.Sig.Results) != 1 {
+		ice(site, "the exit function %s is not func(S) Option[func() needs R]", exit.Name)
+	}
+	g := fc.funcValue(exit, exit.Sig, site, nil)
+	gv, o, x := fc.scope.alloc("exit"), fc.scope.alloc("o"), fc.scope.alloc("x")
+	return fc.envClosure(callerEnv, "env", site, func(env string) ([]string, string, string) {
+		s := fc.scope.alloc("s")
+		ind := strings.Repeat("\t", fc.depth+1)
+		return []string{s + " " + fc.goType(sig.Params[0].Type)}, fc.valueResults(sig.Results[0]),
+			ind + gv + " := " + g + "\n" +
+				ind + o + ", _ := " + gv + "(" + env + ", " + s + ")\n" +
+				ind + "if " + fc.optionSomeIf(exit.Sig.Results[0], o, x, site) + " {\n" +
+				ind + "\treturn " + fc.optionSome(sig.Results[0], x+".Value", site) + ", nil\n" +
+				ind + "}\n" +
+				ind + "return " + fc.optionNone(sig.Results[0], site) + ", nil\n"
+	})
+}
+
 // machineField is the type of the prelude Machine's field name, a
 // function func(S) Option[…].
 func (fc *funcCtx) machineField(conv check.Conversion, name string, site syntax.Node) *check.Signature {

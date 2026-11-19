@@ -171,13 +171,17 @@ func (b *builder) machines(files []File, encls map[syntax.Decl]uint32) {
 			}
 			m.Arms = append(m.Arms, arm)
 		}
-		// Timers and work are maps: list them in the states' order.
+		// Timers, work and exit actions are maps: list them in the
+		// states' order.
 		for _, s := range m.States {
 			if tm, ok := g.Timers[s]; ok {
 				m.Timers = append(m.Timers, Timer{State: s, Signal: tm.Signal, At: place("", tm.Site)})
 			}
 			if w, ok := g.Work[s]; ok {
 				m.Work = append(m.Work, place(s, w))
+			}
+			if x, ok := g.Exit[s]; ok {
+				m.Exit = append(m.Exit, place(s, x))
 			}
 		}
 		b.t.Machines = append(b.t.Machines, m)

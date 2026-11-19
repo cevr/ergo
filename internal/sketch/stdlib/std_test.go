@@ -205,6 +205,11 @@ func TestEachExternHasItsGoBody(t *testing.T) {
 			}
 			externs++
 			target, name := f.Decl.Extern.Split()
+			if target == "" {
+				// A Go builtin (append, cap): no runtime/v1 body; the
+				// lowering writes it (interop.md, Lowering 13).
+				continue
+			}
 			if target != v1Path {
 				t.Errorf("%s.%s binds %s.%s; a v1 package binds %s", path, f.Name, target, name, v1Path)
 				continue
@@ -246,7 +251,9 @@ func TestEachExternHasItsGoBody(t *testing.T) {
 			t.Errorf("std package %s declares no extern", path)
 		}
 	}
-	for _, name := range []string{"Go", "OnExit", "New", "WithCapacity", "Queue.Push", "Queue.Pop", "Queue.End", "Task.Wait", "Task.Stop", "ContextBound", "ContextValue"} {
+	// WithCapacity binds the language's MakeSlice now (check/collop.go,
+	// PRIM-4), no std declaration.
+	for _, name := range []string{"Go", "OnExit", "New", "Queue.Push", "Queue.Pop", "Queue.End", "Task.Wait", "Task.Stop", "ContextBound", "ContextValue"} {
 		if !bound[name] {
 			t.Errorf("the Go body %s binds no std declaration", name)
 		}
@@ -266,6 +273,7 @@ func TestEachExternHasItsGoBody(t *testing.T) {
 // or in TestStdTypesBindRuntimeTypes fails.
 var errorValues = map[string]error{
 	"queue.Closed": v1.Closed{},
+	"queue.Full":   v1.Full{},
 }
 
 // TestStdTypesBindRuntimeTypes: a record type declared in a v1 package,
@@ -645,7 +653,7 @@ func TestStdHostProvidersHaveAuthority(t *testing.T) {
 	// built, and only Dial's reaches the host (rpc.Loopback's runs in
 	// process). Dial's authority is TestStdExternCallersHoldAuthority's:
 	// Dial without Ambient fails it (measured, R3b).
-	if want := []string{"config.Host", "exec.Host", "fs.Host", "host.Local", "host.Zones", "http.Client", "http.Listener", "http.Remote", "io.Errors", "io.Host", "io.In", "os.Host", "prelude.LiveScheduler", "rand.Host", "term.Host", "time.Host"}; !slices.Equal(found, want) {
+	if want := []string{"config.Host", "exec.Host", "fs.Host", "host.Local", "host.Zones", "http.Client", "http.Listener", "http.Remote", "io.Errors", "io.Host", "io.In", "os.Host", "prelude.LiveScheduler", "rand.Host", "rand.SecureHost", "term.Host", "time.Host"}; !slices.Equal(found, want) {
 		t.Errorf("host providers %v, want %v: a new one follows the rule, and this list names it", found, want)
 	}
 	for name, unit := range unguardedHosts {

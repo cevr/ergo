@@ -92,6 +92,9 @@ type knownStats struct {
 	Unkept int
 	// ResultCopies is the call results copied instead of their argument.
 	ResultCopies int
+	// RepeatFills is the slices.Repeat calls of a constant length made in
+	// the caller (repeat.go).
+	RepeatFills int
 	// BorrowCopies is the generic results through a borrow copied at the
 	// caller (alias.go, borrowResult).
 	BorrowCopies int
@@ -119,6 +122,9 @@ type knownStats struct {
 	// Substituted the literals written where an inlined body calls them.
 	Inlined     int
 	Substituted int
+	// ColdCalls is the inlined bodies whose growth guard calls the
+	// function out of line (coldhead.go).
+	ColdCalls int
 	// Specialized is the copies for known records made (record.go).
 	Specialized int
 	// Providers is the copies for known providers made (provider.go).

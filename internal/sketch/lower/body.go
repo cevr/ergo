@@ -107,6 +107,10 @@ type loopCtx struct {
 	// next labels the back-edge poll that ends each iteration of a polling
 	// loop: a continue jumps to it (loopBody). Empty until a continue needs it.
 	next string
+	// polled: every iteration that reaches the back edge has polled
+	// through a callee, so the loop takes no back-edge poll and its
+	// continue is Go's (pollplace.go).
+	polled bool
 }
 
 // funcCtx writes one Go function body.
@@ -140,8 +144,12 @@ type funcCtx struct {
 	stmtCall   *syntax.CallExpr     // the call callStmt lowers, whose value is dropped (drop.go, builtin delete)
 	env        string               // the current environment pointer, which every Go function the lowering writes binds
 	goDirect   map[syntax.Node]bool // Go functions of import go passed as Go's own to a Go function parameter (goCall)
+	goCompare  []readsCompare       // the test build's compares of reads operands, written after their Go call (gofacts.go)
 	directives bool
-	loops      []*loopCtx
+	// marks writes a cover mark where a body with directives writes its
+	// //line directive (Unit.CoverMarks): a std body of a coverage build.
+	marks bool
+	loops []*loopCtx
 	// tries counts the try expressions being lowered: inside one, every
 	// fallible value propagates (196r: try covers the expression to its
 	// right).
@@ -251,7 +259,7 @@ func newFuncCtx(l *lowerer, scope *namer, directives bool) *funcCtx {
 // type bindings and witnesses. These facts and captured local names are
 // shared; execution state (environment, frame, loops and tries) is fresh.
 func (fc *funcCtx) innerFuncCtx() *funcCtx {
-	return &funcCtx{typeCtx: fc.typeCtx, out: &strings.Builder{}, scope: fc.scope, locals: fc.locals, directives: fc.directives, owner: fc.owner, witness: fc.witness, static: fc.static, hot: fc.onLoopPath()}
+	return &funcCtx{typeCtx: fc.typeCtx, out: &strings.Builder{}, scope: fc.scope, locals: fc.locals, directives: fc.directives, marks: fc.marks, owner: fc.owner, witness: fc.witness, static: fc.static, hot: fc.onLoopPath()}
 }
 
 // line writes one Go line at the current depth.
@@ -267,6 +275,10 @@ func (fc *funcCtx) at(n syntax.Node) {
 		_, src, line, column := fc.l.at(n, n.Pos())
 		fc.writeDir(Directive(fc.tagPath(src), line, column))
 		fc.lastPos, fc.lastNode = n.Pos(), n
+	} else if fc.marks && n != nil && n.Pos().IsValid() {
+		if path, line, column, ok := fc.l.find(n, n.Pos()); ok {
+			fc.out.WriteString(CoverMark(path, line, column))
+		}
 	}
 }
 
@@ -326,6 +338,12 @@ func (fc *funcCtx) stmts(list []syntax.Stmt) bool {
 			terminates = false
 			continue
 		}
+		if n := fc.chainSwitch(list, i); n > 0 {
+			// A run of comparisons of one value, as one switch (chainswitch.go).
+			i += n - 1
+			terminates = false
+			continue
+		}
 		s := list[i]
 		terminates = fc.stmt(s)
 		if !terminates {
@@ -381,6 +399,8 @@ func (fc *funcCtx) stmt(s syntax.Stmt) bool {
 		return fc.rangeStmt(s)
 	case *syntax.AssertStmt:
 		fc.assert(s) // the test build only (tests.go)
+	case *syntax.SkipStmt:
+		fc.skip(s) // the test build only (tests.go)
 	default:
 		unreachable(s, ruleParser, "a statement of the kind %T", s)
 	}
@@ -432,7 +452,13 @@ func (fc *funcCtx) let(d *syntax.VarDecl) {
 			continue
 		} else {
 			val := fc.assigned(spec.Values[0])
-			if !d.Mut.IsValid() && fc.noteCell(v, spec.Values[0], val) { // cells.go
+			if !d.Mut.IsValid() && fc.l.localConst(v) {
+				// A constant read only where Go's fold cannot fail
+				// (forms.go, localConst), written as its checked value: the
+				// initializer's text may read a package let through v1.Let.
+				fc.l.stats.Consts++
+				fc.line("const " + fc.declare(v) + " " + goType + " = " + fc.constant(v.Type, fc.l.info.Values[spec.Values[0]], spec.Values[0]))
+			} else if !d.Mut.IsValid() && fc.noteCell(v, spec.Values[0], val) { // cells.go
 				// The cell's adapter, by its own Go type (cellLocal).
 				name := fc.declare(v)
 				fc.line(name + " := " + val)
@@ -496,6 +522,9 @@ func (fc *funcCtx) assign(s *syntax.AssignStmt) {
 	product := op == "*" && floatLowering != "fuse" && isFloatType(fc.typeOf(s.Lhs[0]))
 	target := fc.target(s.Lhs[0], rhsEmits || product)
 	if op == "" {
+		if fc.updateSelf(s, target) {
+			return
+		}
 		mark := fc.out.Len()
 		val := fc.assigned(s.Rhs[0])
 		if fc.reassignOwned(s.Lhs[0], target, val) {
@@ -909,6 +938,9 @@ func (fc *funcCtx) discard(x syntax.Expr) {
 		fc.unreachableStmt(call)
 		return
 	}
+	if call, ok := x.(*syntax.CallExpr); ok && fc.dropHook(call) {
+		return // a named point outside the test build (hook.go)
+	}
 	if call, ok := x.(*syntax.CallExpr); ok {
 		if c := fc.l.info.Calls[call]; c != nil && c.Kind != check.CallWith && c.Kind != check.CallConversion && c.Kind != check.CallLen && c.Kind != check.CallGoError && !(fc.tries > 0 && fc.fallibleExpr(call)) {
 			if text := fc.callStmt(call); text != "" {
@@ -938,7 +970,7 @@ func (fc *funcCtx) forStmt(s *syntax.ForStmt) bool {
 	fc.killWritten(s.Body)
 	mark := fc.factMark()
 	defer fc.factReset(mark)
-	loop := &loopCtx{}
+	loop := &loopCtx{polled: fc.iterationPolls(s.Body)} // pollplace.go
 	fc.loops = append(fc.loops, loop)
 	saved := fc.out
 	fc.out = &strings.Builder{}
@@ -1014,7 +1046,7 @@ func (fc *funcCtx) rangeStmt(s *syntax.RangeStmt) bool {
 			fc.line("}")
 		}()
 	}
-	loop := &loopCtx{}
+	loop := &loopCtx{polled: fc.iterationPolls(s.Body)} // pollplace.go
 	fc.loops = append(fc.loops, loop)
 	saved := fc.out
 	fc.out = &strings.Builder{}
@@ -1118,7 +1150,7 @@ func (fc *funcCtx) loopBody(s syntax.Stmt, loop *loopCtx, body *syntax.BlockStmt
 	} else {
 		terminates = false
 	}
-	if fc.frame.polls && !terminates {
+	if fc.frame.polls && !terminates && !loop.polled {
 		fc.depth++
 		fc.at(s)
 		fc.poll(s)
@@ -1210,7 +1242,7 @@ func (fc *funcCtx) branch(s *syntax.BranchStmt) {
 	}
 	fc.releaseAt(s) // what the iterations' scopes still own (R6)
 	loop := fc.loops[len(fc.loops)-1]
-	if s.Tok == syntax.CONTINUE && fc.frame.polls {
+	if s.Tok == syntax.CONTINUE && fc.frame.polls && !loop.polled {
 		// The back-edge poll ends the iteration (loopBody), so a continue
 		// jumps to it rather than past it.
 		if loop.next == "" {
@@ -1373,8 +1405,10 @@ func (fc *funcCtx) typeMatchBody(s *syntax.TypeSwitchStmt, d dest) bool {
 			terminates = terminates && t
 		}
 		if ended {
-			// The empty statement: the label may end a case clause.
-			fc.line(end + ": ;")
+			// A statement for the label, which may end a case clause: `_ =
+			// 0` on a line of its own, which gofmt keeps as written (FT5).
+			fc.line(end + ":")
+			fc.line("_ = 0")
 		}
 		return terminates
 	}
@@ -1534,8 +1568,11 @@ func (fc *funcCtx) isInterface(t check.Type) bool {
 		return true // a row value, a Go error
 	}
 	n, ok := t.(*check.Named)
-	if !ok || fc.l.runtimeNamed(n, fc.site) {
-		return false // a std type is the runtime's concrete Go type
+	if !ok || isGoRef(n) || fc.l.runtimeNamed(n, fc.site) {
+		// A std type is the runtime's concrete Go type; go.Ref[T] is Go's
+		// *T, which has no declaration of its own (GB1: a record pattern
+		// Some{Value: c} on an Option[go.Ref[T]] reaches here).
+		return false
 	}
 	td := fc.l.typeDecl(n.Obj, fc.site)
 	if td.kind == kindDefined {

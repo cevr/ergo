@@ -2,6 +2,7 @@ package lower
 
 import (
 	"bytes"
+	"cmp"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -107,6 +108,10 @@ const (
 	splitDir  = "pkg"
 	sharedDir = "shared"
 	stdDir    = "std"
+	// rootDir is the folder, and the Go package name, of a test build's
+	// root Ergo package, which the harness in main imports (test-speed
+	// FT6).
+	rootDir = "ergoroot"
 )
 
 // isMainGo reports the lowering's one Go file, main.go (a file name of
@@ -151,7 +156,7 @@ func lowerSplit(u Unit, tests bool, base string, sh *shardOpts) ([]File, SplitRe
 	if !tests {
 		files = l.withRecord(u, files)
 	}
-	out, rep := splitFiles(u, files, l.stdOrigins(), base, sh)
+	out, rep := splitFiles(u, files, l.stdOrigins(), l.harnessNames(), base, sh)
 	return out, rep, nil
 }
 
@@ -175,13 +180,32 @@ func (l *lowerer) stdOrigins() map[string]*check.Package {
 	return out
 }
 
+// harnessNames are the package-scope Go names of a test build's harness:
+// its tests and law runs (testFunc, lawFunc), whose //line directives name
+// the program's source, the runner and its helpers (testHelpers), and the
+// generators, literals and assertion renderers the tests use. nil when l
+// lowers no test build, so the split keeps the root package whole.
+func (l *lowerer) harnessNames() map[string]bool {
+	if l.tests == nil {
+		return nil
+	}
+	out := map[string]bool{}
+	for key, name := range l.pkgNames {
+		switch key.kind {
+		case "test", "law", "test helper", "gen", "literal", "assert show", "law refuted":
+			out[name] = true
+		}
+	}
+	return out
+}
+
 // splitFiles splits files, the lowering of u, by the std origins.
-func splitFiles(u Unit, files []File, origins map[string]*check.Package, base string, sh *shardOpts) ([]File, SplitReport) {
+func splitFiles(u Unit, files []File, origins map[string]*check.Package, harness map[string]bool, base string, sh *shardOpts) ([]File, SplitReport) {
 	i := slices.IndexFunc(files, func(f File) bool { return isMainGo(f.Path) })
 	if i < 0 {
 		return files, SplitReport{Packages: 1, Reason: "no main.go"}
 	}
-	out, rep := splitMain(u, files[i].Data, base, origins, nil, sh)
+	out, rep := splitMain(u, files[i].Data, base, origins, harness, nil, sh)
 	if out == nil {
 		if rep.Packages == 0 {
 			rep.Packages = 1
@@ -207,6 +231,9 @@ type splitPkg struct {
 // part of the split that the source path and the IR path share.
 type splitPlan struct {
 	pkgs []splitPkg // 0 is the shared package, 1 the root
+	// root is the package of a test build's root Ergo package, its own Go
+	// package below main (test-speed FT6); 1, main, otherwise.
+	root int
 }
 
 // can reports whether package a may import package b (or is b).
@@ -234,6 +261,7 @@ type splitGroup struct {
 	decls   []int // indexes into the file's Decls
 	natural int   // the package of its source, -1 for none
 	pin     bool  // stays in the root: main, init, an embedded asset
+	harness bool  // a test build's test or law run: starts in main (FT6)
 	embed   bool
 	generic bool // a generic function or type: its users compile its instantiations
 	pkg     int
@@ -246,11 +274,12 @@ type splitGroup struct {
 // the program it names: in the one of their packages that sees all the
 // others (an equality helper with its type, a machine's graph
 // registration with its machine), else in the root. It never starts in a
-// std package, which holds only std declarations.
+// std package, which holds only std declarations. In a test build (FT6) a
+// test or law run starts in main, the harness's package.
 func (p *splitPlan) start(groups []splitGroup) {
 	for g := range groups {
 		switch {
-		case groups[g].pin:
+		case groups[g].pin, groups[g].harness:
 			groups[g].pkg = 1
 		case groups[g].natural >= 0:
 			groups[g].pkg = groups[g].natural
@@ -311,7 +340,7 @@ func (p *splitPlan) place(groups []splitGroup) string {
 // each IR body counts as its function's references, and each package
 // gets the IR file of its functions (pkgsplit_ir.go). With sh, each big
 // package of the program is cut into shards after placement (pkgshard.go).
-func splitMain(u Unit, src []byte, base string, origins map[string]*check.Package, ir *irFile, sh *shardOpts) ([]File, SplitReport) {
+func splitMain(u Unit, src []byte, base string, origins map[string]*check.Package, harness map[string]bool, ir *irFile, sh *shardOpts) ([]File, SplitReport) {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, "main.go", src, parser.ParseComments)
 	if err != nil {
@@ -320,7 +349,7 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 	tf := fset.File(f.Pos())
 	off := func(p token.Pos) int { return tf.Offset(p) }
 
-	plan, ofSource, ofStd := splitPackages(u, origins)
+	plan, ofSource, ofStd := splitPackages(u, origins, harness != nil)
 	scope := f.Scope
 
 	// Groups: each non-method declaration, then each method joins its
@@ -345,8 +374,19 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 		g := splitGroup{decls: []int{i}, natural: -1}
 		switch d := d.(type) {
 		case *ast.FuncDecl:
-			if name := d.Name.Name; name == "main" || isGoInit(name) {
+			switch name := d.Name.Name; {
+			case name == "main":
 				g.pin = true
+			case isGoInit(name) && plan.root != 1:
+				// A test build's init registers the source tables of
+				// the program's code, so it joins the root package
+				// (FT6): a body edit then changes no text of main.
+				g.natural = plan.root
+			case isGoInit(name):
+				g.pin = true
+			}
+			if harness[d.Name.Name] {
+				g.harness = true
 			}
 			g.generic = d.Type.TypeParams != nil
 			if !isGoInit(d.Name.Name) {
@@ -626,7 +666,7 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 	}
 	pulled := 0
 	for _, g := range groups {
-		if g.natural >= 0 && g.pkg != g.natural {
+		if g.natural >= 0 && g.pkg != g.natural && !g.harness {
 			pulled++
 		}
 	}
@@ -714,7 +754,8 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 	if irs != nil && instShared {
 		finder = newSplitInsts(f, groups, groupOf)
 		var names map[string]bool
-		insts, names = finder.shared(finder.collect(f, declGroup), plan, base, minUsers(shards))
+		found := append(finder.collect(f, declGroup), irs.forwardedInsts(defOf, finder)...)
+		insts, names = finder.shared(found, plan, base, minUsers(shards))
 		if len(insts) > 0 {
 			instPkg = len(plan.pkgs)
 			plan.pkgs = append(plan.pkgs, splitPkg{dir: instDir, name: instName, sees: map[int]bool{}})
@@ -826,7 +867,14 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 			}
 			return plan.pkgs[to].alias + "." + name
 		}
-		if reason := irs.foreignDecls(defOf, taken, text, qualified, extra); reason != "" {
+		// goPath is a name of another package as an IR body of k spells
+		// it, by the other package's import path (foreignDecls' generic
+		// names); k imports that package blank, below.
+		goPath := func(k int, name string) string {
+			to := groups[groupOf[name]].pkg
+			return base + "/" + plan.pkgs[to].dir + "." + cmp.Or(rename[name], name)
+		}
+		if reason := irs.foreignDecls(defOf, taken, text, qualified, goPath, extra); reason != "" {
 			return nil, SplitReport{Reason: reason}
 		}
 		// A Go package an IR body names (strconv, the runtime) is imported
@@ -841,6 +889,14 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 			local[p] = name
 		}
 		irImports = irs.importPaths(func(i int) int { return groups[irs.owner[i]].pkg }, local)
+		for k, names := range irs.qual {
+			for _, q := range names {
+				if irImports[k] == nil {
+					irImports[k] = map[string]bool{}
+				}
+				irImports[k][q[:strings.LastIndex(q, ".")]] = true
+			}
+		}
 	}
 	var shared map[int][]string
 	instances := 0
@@ -940,8 +996,8 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 // splitPackages is the plan's packages for u and the std packages of
 // origins, the package of each source path its //line directives name,
 // and the package of each std package.
-func splitPackages(u Unit, origins map[string]*check.Package) (*splitPlan, map[string]int, map[*check.Package]int) {
-	plan := &splitPlan{pkgs: []splitPkg{{dir: sharedDir, name: "ergoshared"}}}
+func splitPackages(u Unit, origins map[string]*check.Package, tests bool) (*splitPlan, map[string]int, map[*check.Package]int) {
+	plan := &splitPlan{pkgs: []splitPkg{{dir: sharedDir, name: "ergoshared"}}, root: 1}
 	ofSource := map[string]int{}
 	units := []Unit{u}
 	imps := slices.Clone(u.Imports)
@@ -956,9 +1012,26 @@ func splitPackages(u Unit, origins map[string]*check.Package) (*splitPlan, map[s
 		}
 		index[un.Package] = len(plan.pkgs)
 		for _, s := range un.Sources {
+			// A //line directive names the emitted path (emitName,
+			// relative to the root unit's Root), not the admitted one.
 			ofSource[s.Path] = len(plan.pkgs)
+			ofSource[emitName(u.Root, s.Path)] = len(plan.pkgs)
 		}
 		plan.pkgs = append(plan.pkgs, p)
+	}
+	if tests {
+		// A test build's root Ergo package is its own Go package (the
+		// user's root, rootDir), below main, which keeps the harness
+		// (test-speed FT6): an edit of the program's bodies compiles the
+		// root again, and main only when the root's export data changes.
+		r := len(plan.pkgs)
+		index[u.Package] = r
+		for _, s := range u.Sources {
+			ofSource[s.Path] = r
+			ofSource[emitName(u.Root, s.Path)] = r
+		}
+		plan.pkgs = append(plan.pkgs, splitPkg{ergo: u.Package, dir: rootDir, name: rootDir, sees: map[int]bool{}})
+		plan.root = r
 	}
 	users := len(plan.pkgs)
 	// The std packages: those of the origins and every std package they

@@ -1,5 +1,6 @@
 import filepath
 import fs
+import slices
 
 // Making is a workspace new is making, between its three steps: the
 // reservation (under the lock), the clone (with no lock but its own
@@ -164,7 +165,8 @@ func reserve(t Tool, m Making, on Option[string]) Reserved fails NameTaken | NoW
 		}
 	case None:
 	}
-	try t.registry.Put(Workspace{Name: m.Name, Id: m.Id, Path: m.Path, Parent: m.Parent, Branch: m.Branch, Cloner: "", State: Creating, Since: now(t), Base: m.Start, Latest: "", Deps: "", Token: m.Token, Moving: ""})
+	try freeName(t, m.Name)
+	try t.registry.Put(Workspace{Name: m.Name, Id: m.Id, Path: m.Path, Parent: m.Parent, Branch: m.Branch, Cloner: "", State: Creating, Since: now(t), Base: m.Start, Latest: "", Deps: "", Token: m.Token, Moving: "", Pinned: false, Until: 0})
 	if !try t.lock.Hold(m.Id) {
 		return Unkept{Reason: "the lock of the reservation \(m.Id) is held by another work"}
 	}
@@ -172,9 +174,9 @@ func reserve(t Tool, m Making, on Option[string]) Reserved fails NameTaken | NoW
 }
 
 // Fill is new's second step: the clone, with no lock but the
-// reservation's held, the folders work.toml leaves out, the marker, the
-// branch and the stat settings. A failure deletes what it made and the
-// reservation.
+// reservation's held, the folders work.toml leaves out, the branch and
+// the stat settings, the cloner on the reservation (under the lock), and
+// last the marker. A failure deletes what it made and the reservation.
 func Fill(t Tool, m Making) Making fails NotSameVolume | Unsupported | CopyRefused | Exists | Missing | NoSpace | CloneFailed | VcsFailed | Unkept | Locked {
 	let by = cloned(t, m.Parent, m.Path, m.Copy) catch {
 	case NotSameVolume as e:
@@ -209,6 +211,25 @@ func Fill(t Tool, m Making) Making fails NotSameVolume | Unsupported | CopyRefus
 			}
 		}
 	}
+	startIn(t, by, m.Path, m.Branch, m.Start) catch {
+	case VcsFailed as e:
+		try discarded(by, m.Path)
+		try unreserve(t, m)
+		return e
+	}
+	// The marker comes last: a clone that carries it is whole, on its
+	// branch, and its reservation names its cloner, so gc can activate
+	// it when its maker dies before Activate (Collect).
+	recordCloner(t, m, by.Name()) catch {
+	case Unkept as e:
+		try discarded(by, m.Path)
+		try unreserve(t, m)
+		return e
+	case Locked as e:
+		try discarded(by, m.Path)
+		try unreserve(t, m)
+		return e
+	}
 	let marked = mark(t, m.Path, m.Id) catch {
 	case fs.NotFound, fs.Denied, fs.Failed:
 		false
@@ -218,13 +239,27 @@ func Fill(t Tool, m Making) Making fails NotSameVolume | Unsupported | CopyRefus
 		try unreserve(t, m)
 		return CloneFailed{Cloner: by.Name(), Reason: "\(m.Path): the marker \(MarkerFile) could not be written"}
 	}
-	startIn(t, by, m.Path, m.Branch, m.Start) catch {
-	case VcsFailed as e:
-		try discarded(by, m.Path)
-		try unreserve(t, m)
+	Making{..m, Cloner: by.Name()}
+}
+
+// recordCloner writes, under the lock, the cloner that made the clone
+// into m's reservation, while it is still m's.
+func recordCloner(t Tool, m Making, cloner string) fails Unkept | Locked {
+	try hold(t)
+	let all = t.registry.All() catch {
+	case Unkept as e:
+		t.lock.Release("")
 		return e
 	}
-	Making{..m, Cloner: by.Name()}
+	let i = slices.IndexFunc(all, func(w Workspace) bool { w.Name == m.Name && w.Id == m.Id && StateName(w.State) == "creating" })
+	if i >= 0 {
+		t.registry.Put(Workspace{..all[i], Cloner: cloner}) catch {
+		case Unkept as e:
+			t.lock.Release("")
+			return e
+		}
+	}
+	t.lock.Release("")
 }
 
 // Activate is new's last step: under the lock the record becomes Active
@@ -232,9 +267,10 @@ func Fill(t Tool, m Making) Making fails NotSameVolume | Unsupported | CopyRefus
 // postcreate hooks run, with no lock.
 func Activate(t Tool, m Making) Created fails Unkept | Locked {
 	// A clone carries its parent's installed packages, which the parent's
-	// lock describes; one that left folders out installs.
-	let installedAs = if len(m.Config.LeaveOut) == 0 { lockDigest(t, m.Path, m.Config) } else { "" }
-	let creating = Workspace{Name: m.Name, Id: m.Id, Path: m.Path, Parent: m.Parent, Branch: m.Branch, Cloner: m.Cloner, State: Creating, Since: now(t), Base: m.Start, Latest: "", Deps: installedAs, Token: m.Token, Moving: ""}
+	// lock describes, not the lock of the branch it now has: a branch whose
+	// lock differs installs, as one that left folders out does.
+	let installedAs = if len(m.Config.LeaveOut) == 0 { lockDigest(t, m.Parent, m.Config) } else { "" }
+	let creating = Workspace{Name: m.Name, Id: m.Id, Path: m.Path, Parent: m.Parent, Branch: m.Branch, Cloner: m.Cloner, State: Creating, Since: now(t), Base: m.Start, Latest: "", Deps: installedAs, Token: m.Token, Moving: "", Pinned: false, Until: 0}
 	let active = moved(creating, Cloned, now(t)) catch {
 	case Busy:
 		Unreachable("a workspace being created takes Cloned")

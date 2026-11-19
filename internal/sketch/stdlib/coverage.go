@@ -24,6 +24,7 @@ var coverage = map[string][]string{
 	"fs":       {"io/fs"},
 	"fstest":   {"testing/fstest"},
 	"hex":      {"encoding/hex"},
+	"hmac":     {"crypto/hmac"},
 	"html":     {"html", "html/template"},
 	"http":     {"net/http"},
 	"json":     {"encoding/json"},
@@ -32,7 +33,9 @@ var coverage = map[string][]string{
 	"math":     {"math"},
 	"os":       {"os"},
 	"rand":     {"math/rand", "math/rand/v2"},
+	"sha1":     {"crypto/sha1"},
 	"sha256":   {"crypto/sha256"},
+	"sha512":   {"crypto/sha512"},
 	"slices":   {"slices", "sort"},
 	"strconv":  {"strconv"},
 	"strings":  {"strings"},
@@ -46,9 +49,9 @@ var coverage = map[string][]string{
 // package: Ergo constructs (machines, actors, rows, schedules), or a Go
 // counterpart outside the standard library (errgroup, x/term).
 var coversNone = []string{
-	"actor", "arena", "bench", "cache", "civil", "code", "codec", "config", "dense", "explore", "io", "journal", "journal/file",
-	"journal/memory", "lint", "machines", "prompt", "queue", "rpc", "schedule", "scope",
-	"task", "tasks", "term", "text", "timeout", "toml", "trace", "tz", "tz/host", "tz/iana", "ui", "ui/layout",
+	"actor", "arena", "bench", "build", "cache", "civil", "code", "codec", "codegraph", "config", "cron", "decimal", "dense", "explore", "graph", "io", "journal", "journal/file",
+	"journal/memory", "lint", "machines", "prompt", "pubsub", "queue", "rpc", "schedule", "scope", "set", "stream",
+	"task", "tasks", "term", "text", "timeout", "toml", "trace", "tz", "tz/host", "tz/iana", "ui", "ui/layout", "uuid",
 }
 
 // covered maps a Go path to the std package that covers it. It is built on

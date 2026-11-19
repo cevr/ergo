@@ -11,7 +11,7 @@ go run ./scripts/examples -tags slow,net       # the programs with either tag
 
 The runner runs `-jobs` programs at once. The default is `GOMAXPROCS` when the environment sets it (the gate sets each step's `GOMAXPROCS` to its CPU budget, `ERGO_GATE_CPUS`), else half the usable CPUs: never every CPU of the host. Each program's lines stay together and print in name order, whatever order the programs end in (`TestProgramsRunAtOnceAndPrintInOrder`), and each FAIL line names its program. Each built program still runs under its own memory limit (`ERGO_PROGRAM_MEMORY`, 2 GiB by default; docs/tooling.md, "Test memory"), which the kernel enforces.
 
-One folder is not a program: `editions` (edition fixtures that Go tests pin). Any other folder that is not a program is an error. Go interop is shown by `gointerop`, an `import go` program.
+One folder is not a program: `editions` (edition fixtures that Go tests pin). Any other folder that is not a program is an error. Go interop is shown by `gointerop`, an `import go` program of Go's standard library, and by `admit`, which imports a third-party Go module (`golang.org/x/sync`, a committed copy under its `testdata/`).
 
 ## Layout
 
@@ -35,7 +35,7 @@ A program of packages (196b; the Go layout of `AGENTS.md`) holds `ergo.mod` in p
 - package folders: any other folder except `cases/` and `testdata/`. A package folder holds `.ergo` files and package folders only.
 - top-level `.ergo` files, if any: the module root's package.
 - `README.md`, `tags`, `cases/`, and optionally `origin` with `record.sh` (or the folder `origin/`), `expected-skips`, `explored`, `testdata/` and `ergo.laws`, as above.
-- `workload`, optional: how `scripts/opcount` runs the program at two sizes for its counted receipt (see "Workload"). The runner reads it and does not run it; a line that does not read is a layout error, `examples/<name>: workload: line N: …`.
+- `workload`, optional: how `scripts/opcount` runs the program at two sizes for its counted receipt (see "Workload"). The runner reads it and does not run it; a line that does not read is a layout error, `examples/<name>: workload: line N: …`. When `workload` is a package folder (the program's `gen` documents), the file is `workload/workload` in it, and a workload package without it is a layout error, so `scripts/opcount` counts every program that has a workload.
 
 `ergo fmt --check` checks every `.ergo` file of its packages, and `ergo fix --check <package folder>` checks every package folder's clauses. A file that `ergo gen rpc` or `ergo gen cli` wrote (its first line says so, its second names the contract) is checked by `ergo gen KIND --check <package folder>.<OpType>`, once per contract, before the build: a stale file fails the program (`FAIL <program>: gen rpc <folder>.<OpType>`). The test leg runs `ergo test <package folder>` for every package folder, printing `ok <program>: test <folder>`. A package's test build runs the laws of every operation type it sees against every provider it sees, wherever each is declared, in the least package that sees them all (law-xpkg): the laws `kv.Store` declares run in package `memory` against `memory.Table`, and the std `fs.Writes` laws run there against `memory.Full`. A provider is built by its `New<P>` constructor when its package declares one, else generated.
 
@@ -61,6 +61,8 @@ Each case runs in a fresh empty directory, which is also its `HOME`. Its environ
 
 A case passes when stdout, stderr and the status all equal the recorded ones. A failure names each stream that differs and shows a unified diff (`--- want`, `+++ got`). The runner prints `ok <program>/<case> (<time>)` or `FAIL <program>/<case>: <what>`, and exits 0 when every case passes, 1 when a program or a case fails, and 2 on a usage or layout error.
 
+The case loop is `internal/cases`, which `ergo test PKG --cases DIR` also runs ([tooling](../docs/tooling.md#recorded-cases-ergo-test---cases)), so a program outside this repository keeps its cases beside its binary (`cmd/NAME/cases/`) and runs them with the same rules: one runner, one verdict.
+
 ## Workload
 
 A program's `workload` file tells `scripts/opcount` (docs/tooling.md, "Counted receipts") how to run it at a small and a large size, so that the cost of one unit of work is the slope between the two runs and start-up cancels. One `KEY VALUE…` line per key; blank lines and `#` lines are skipped:
@@ -72,8 +74,9 @@ A program's `workload` file tells `scripts/opcount` (docs/tooling.md, "Counted r
 - `procs N`: `GOMAXPROCS` of each run (default 1).
 - `input self WORD…`: the input is what the program prints with these arguments (a `gen` subcommand); `input go DIR WORD…`: what the Go main package `DIR` (from the repository root) prints. With an input and no `{input}` in `args`, the input is the program's stdin.
 - `control DIR`: the hand Go control, a Go main package `DIR` from the repository root, run with the same arguments and input; `opcount -control` measures it beside the program and requires the same output.
+- `floor DIR`: the Go-runtime floor, a Go main package `DIR` that does the same job at the least work the Go runtime allows (packed data, no interface call or allocation it can avoid), run with the same arguments and input; `opcount -control` measures it beside the program and the control, requires the same output, and prints the program's ratio to it beside the ratio to the control.
 
-`{n}` must appear in `args` or in the input's arguments. `lru`, `stackvm`, `onebrc` and `vt` hold one.
+`{n}` must appear in `args` or in the input's arguments. `lru`, `stackvm`, `onebrc`, `vt`, `toktree` and `tn1-lint` hold one; `flattree`, `jsonparse`, `mdhtml`, `tomlparse` and `twig` keep theirs in their `workload` package, as `workload/workload`. A package folder named `workload` (the DOD programs' document writers, as `twig`'s) is a package, not this file.
 
 ## TypeScript leg
 

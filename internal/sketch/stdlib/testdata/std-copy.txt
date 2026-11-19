@@ -11,14 +11,17 @@ atomic	same
 base64	same
 bench	same
 bits	same
+build	same
 cache	same
 civil	same
 code	same
-cmp	differs	lower: no exported function a caller can take as a value	follow-up copy-by-call
+cmp	same
 codec	same
+codegraph	same
 config	same
 copyfixture	same
 crc32	same
+cron	same
 csv	same
 dense	same
 embed	same
@@ -28,6 +31,7 @@ filepath	same
 flag	differs	lower: a union of a user package lowers to the flat form, a std union to an interface (flatunion.go keys on isSourced)	follow-up flat-union-std
 fs	differs	lower: a union of a user package lowers to the flat form, a std union to an interface (flatunion.go keys on isSourced)	follow-up flat-union-std
 fstest	differs	lower: joinResult joins a call into its assignment only in a body with no line directives (std's)	follow-up join-under-directive
+graph	same
 hex	same
 html	same
 http	same
@@ -43,6 +47,7 @@ maps	same
 math	same
 os	same
 prompt	differs	lower: joinResult joins a call into its assignment only in a body with no line directives (std's)	follow-up join-under-directive
+pubsub	same
 queue	same
 rand	same
 rpc	differs	lower: a std package's declarations are emitted in another order than a sourced package's (the first differing line is another declaration)	follow-up emit-order-std
@@ -51,8 +56,9 @@ scope	differs	lower: no exported function a caller can take as a value	follow-up
 sha256	same
 slices	same
 strconv	same
+stream	same
 strings	same
-sync	differs	lower: no exported function a caller can take as a value	follow-up copy-by-call
+sync	same
 task	differs	lower: no exported function a caller can take as a value	follow-up copy-by-call
 tasks	differs	lower: no exported function a caller can take as a value	follow-up copy-by-call
 term	same
@@ -68,3 +74,9 @@ tz/iana	same
 ui	differs	lower: a union of a user package lowers to the flat form, a std union to an interface (flatunion.go keys on isSourced)	follow-up flat-union-std
 ui/layout	differs	lower: a union of a user package lowers to the flat form, a std union to an interface (flatunion.go keys on isSourced)	follow-up flat-union-std
 utf8	same
+decimal	same
+hmac	same
+set	same
+sha1	same
+sha512	same
+uuid	same

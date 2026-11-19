@@ -1,0 +1,45 @@
+{
+  "about": "toktree's mutants (wf10 SL1): each law's mutant, killed by `ergo test` of its package (the examples runner); the case sample kills the summary's.",
+  "mutants": [
+    {
+      "name": "toktree-start-after-scan", "origin": "wf10 SL1",
+      "file": "examples/toktree/token/token.ergo",
+      "from": "dense.Push(&t.start, uint32(start))",
+      "to": "dense.Push(&t.start, uint32(i))",
+      "rule": "A token's start is its first byte, not the byte after it (law token.StartsAdvance).",
+      "killers": ["examples:toktree"]
+    },
+    {
+      "name": "toktree-close-is-punct", "origin": "wf10 SL1",
+      "file": "examples/toktree/token/token.ergo",
+      "from": "} else if c == 41 || c == 93 || c == 125 {",
+      "to": "} else if c == 41 || c == 93 {",
+      "rule": "A close brace is a Close token (law token.BracketsAreTheirOwnTokens through tree.GroupsAreOpens and the case sample).",
+      "killers": ["examples:toktree"]
+    },
+    {
+      "name": "toktree-group-keeps-stack", "origin": "wf10 SL1, SL2",
+      "file": "examples/toktree/tree/tree.ergo",
+      "from": "\t\t\tadd(&tr, Group, opens[open], dense.PutSince(&tr.pool, &stack, marks[open]))\n",
+      "to": "\t\t\tadd(&tr, Group, opens[open], dense.PutList(&tr.pool, dense.Since(stack, marks[open])))\n",
+      "rule": "A closed group takes its children off the stack, so each row has one parent (law tree.OneParentRootLast).",
+      "killers": ["examples:toktree"]
+    },
+    {
+      "name": "toktree-comment-is-leaf", "origin": "wf10 SL1",
+      "file": "examples/toktree/tree/tree.ergo",
+      "from": "\t\tif k == token.Comment {\n\t\t\tcontinue\n\t\t}\n",
+      "to": "",
+      "rule": "A comment is no row of the tree (law tree.GroupsAreOpens).",
+      "killers": ["examples:toktree"]
+    },
+    {
+      "name": "toktree-unclosed-group-dropped", "origin": "wf10 SL1",
+      "file": "examples/toktree/tree/tree.ergo",
+      "from": "\tfor open > 0 {\n\t\topen = open - 1",
+      "to": "\tfor open > 99999 {\n\t\topen = open - 1",
+      "rule": "An unclosed group closes at the end (law tree.GroupsAreOpens).",
+      "killers": ["examples:toktree"]
+    }
+  ]
+}

@@ -9,8 +9,10 @@ import time
 // a Region, a Canvas an Image, a list of Rows a List, a live region
 // (Announce) a Status, and a Box, Row, Column, Scroll or Zone Generic.
 // The other roles are the kit's (NS4): a Semantic node declares one,
-// with the ARIA states its control has.
-type Role = Button | Checkbox | Switch | TextBox | Static | Group | Region | Image | List | Status | Generic | Tab | TabList | TabPanel | Dialog | Menu | MenuItem | Tree | TreeItem | Heading | Alert | Link | Table | TableRow | TableCell
+// with the ARIA states its control has. Radios and Select declare the
+// choice roles (choice.ergo): RadioGroup and Radio, ListBox and
+// ListOption.
+type Role = Button | Checkbox | Switch | TextBox | Static | Group | Region | Image | List | Status | Generic | Tab | TabList | TabPanel | Dialog | Menu | MenuItem | Tree | TreeItem | Heading | Alert | Link | Table | TableRow | TableCell | RadioGroup | Radio | ListBox | ListOption | Slider | SpinButton | SearchBox | MenuItemCheckbox | ComboBox | Grid | GridCell | ColumnHeader | RowHeader | Navigation | ListItem | Separator | Tooltip
 
 // Button is the role of a Pressable (and a Submit).
 type Button {}
@@ -87,6 +89,60 @@ type TableRow {}
 // TableCell is a cell of a table.
 type TableCell {}
 
+// RadioGroup is a group of radio buttons, one of them checked (Radios).
+type RadioGroup {}
+
+// Radio is a radio button of a RadioGroup: Checked says whether it is the
+// group's value.
+type Radio {}
+
+// ListBox is a list of options, one of them selected (Select): its Value
+// is the selected option's name, as a screen reader announces it.
+type ListBox {}
+
+// ListOption is an option of a ListBox (ARIA's "option"): Selected says
+// whether it is the list's value.
+type ListOption {}
+
+// Slider is a value in a range the user moves (its Range) (UG2).
+type Slider {}
+
+// SpinButton is a value in a range the user steps (its Range) (UG2).
+type SpinButton {}
+
+// SearchBox is a text box for a search (UG2).
+type SearchBox {}
+
+// MenuItemCheckbox is an item of a menu that is checked or not (UG2).
+type MenuItemCheckbox {}
+
+// ComboBox is a text box or button with a popup of options (UG2).
+type ComboBox {}
+
+// Grid is a table whose cells the keyboard moves through (UG2).
+type Grid {}
+
+// GridCell is a cell of a Grid (UG2).
+type GridCell {}
+
+// ColumnHeader is the header cell of a column (UG2).
+type ColumnHeader {}
+
+// RowHeader is the header cell of a row (UG2).
+type RowHeader {}
+
+// Navigation is a landmark of links that navigate (UG2).
+type Navigation {}
+
+// ListItem is an item of a List (UG2).
+type ListItem {}
+
+// Separator is a line between groups of content (UG2).
+type Separator {}
+
+// Tooltip is a popup that describes the node that shows it (UG2).
+type Tooltip {}
+
 // Access is a node as a locator and an assistive technology read it: its
 // role; its accessible name (the label its primitive was given, a Text's
 // value, an Input's placeholder; empty for a container); whether it is a
@@ -96,8 +152,22 @@ type TableCell {}
 // node declares the rest (NS4, after WAI-ARIA's states): whether it is
 // selected (a tab, a tree item), expanded (a menu, a tree item; None for
 // a node that does not expand) or pressed (a toggle button), invalid,
-// busy, whether it opens a popup, and a heading's level.
-type Access { Role Role, Name string, Disabled bool, Description string, Checked Option[bool], Value Option[string], Selected Option[bool], Expanded Option[bool], Pressed Option[bool], Invalid bool, Busy bool, HasPopup bool, Level Option[int] }
+// busy, whether it opens a popup, and a heading's level. UG2 adds, after
+// WAI-ARIA: Mixed (a checkbox neither checked nor unchecked,
+// aria-checked="mixed"), Current (which current item it is, as "page" or
+// "step", aria-current), Modal (a dialog that blocks the rest), and
+// MultiSelectable (a list or grid whose user chooses several), Range (a
+// slider's or spin button's value in its range); Key, the node's own key,
+// which other nodes' relations name, NoKey for none; and Rels, its
+// relations (relate.ergo).
+type Access { Role Role, Name string, Disabled bool, Description string, Checked Option[bool], Value Option[string], Selected Option[bool], Expanded Option[bool], Pressed Option[bool], Invalid bool, Busy bool, HasPopup bool, Level Option[int], Mixed bool, Current Option[string], Modal bool, MultiSelectable bool, Range Option[Range], Key Key, Rels []Rel }
+
+// Named is the Access of a node of role named name, with no state (FK2-g1):
+// a container's declaration, written as one call; a view sets the states
+// its control has on the copy it gets.
+func Named(role Role, name string) Access {
+	Access{Role: role, Name: name, Disabled: false, Description: "", Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: NoKey, Rels: []Rel{}}
+}
 
 // Locator finds nodes on a screen, as Testing Library's queries do: by
 // role and name (an empty Name matches any), by the label a primitive
@@ -106,7 +176,10 @@ type Access { Role Role, Name string, Disabled bool, Description string, Checked
 // key (H5g). Names match exactly. First{At} finds the first node At
 // finds, in tree order, or none: an act on a locator that finds more than
 // one node fails Ambiguous (NS7), and First says which one is meant.
-type Locator = WithRole{Role Role, Name string} | WithLabel{Label string} | WithPlaceholder{Text string} | WithText{Text string} | WithZone{Key Key} | First{At Locator}
+// Within{In, At} finds the nodes At finds that are under a node In finds,
+// in tree order (FK11-g6): a scene names a column by its heading's
+// region, then a card within it.
+type Locator = WithRole{Role Role, Name string} | WithLabel{Label string} | WithPlaceholder{Text string} | WithText{Text string} | WithZone{Key Key} | First{At Locator} | Within{In Locator, At Locator}
 
 // Matcher is what a scene expects of a locator's nodes, after
 // Playwright's and Testing Library's matchers: that some node matches,
@@ -161,6 +234,18 @@ func LocateIn[E](m *Mirror[E], loc Locator) []Id[E] {
 			return all
 		}
 		return []Id[E]{all[0]}
+	case Within as x:
+		let mut outer = Map[Id[E], bool]{}
+		for o in LocateIn[E](m, x.In) {
+			outer[o] = true
+		}
+		let mut out = []Id[E]{}
+		for id in LocateIn[E](m, x.At) {
+			if under(m, id, outer) {
+				out = out.Append(id)
+			}
+		}
+		return out
 	case _:
 	}
 	match entryOf(m, m.root) {
@@ -169,6 +254,18 @@ func LocateIn[E](m *Mirror[E], loc Locator) []Id[E] {
 	case None:
 		[]Id[E]{}
 	}
+}
+
+// under is whether a node above id, below the root, is in outer.
+func under[E](m *Mirror[E], id Id[E], outer Map[Id[E], bool]) bool {
+	let mut at = entry(m, refOf(m, id)).parent
+	for at != m.root {
+		if outer.Get(at) != None {
+			return true
+		}
+		at = entry(m, refOf(m, at)).parent
+	}
+	false
 }
 
 // locateFrom walks the siblings from at and their subtrees, in tree
@@ -237,7 +334,7 @@ func AccessOf[E](m *Mirror[E], id Id[E]) Access {
 // access is n as a locator reads it, under a disabled Fieldset when off,
 // with the description desc.
 func access[E](n Node[E], off bool, desc string) Access {
-	let mut a = Access{Role: Generic, Name: "", Disabled: false, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None}
+	let mut a = Access{Role: Generic, Name: "", Disabled: false, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: NoKey, Rels: []Rel{}}
 	match n {
 	case PressableNode[E] as x:
 		a.Role = Button
@@ -255,9 +352,13 @@ func access[E](n Node[E], off bool, desc string) Access {
 		a.Checked = Some{Value: x.On}
 	case InputNode as x:
 		a.Role = TextBox
-		a.Name = x.Placeholder
+		a.Name = fieldName(x)
 		a.Disabled = off
 		a.Value = Some{Value: x.Value}
+		if x.Description != "" {
+			a.Description = x.Description
+		}
+		a.Invalid = x.Invalid
 	case TextNode as x:
 		a.Role = Static
 		a.Name = x.Value
@@ -280,6 +381,15 @@ func access[E](n Node[E], off bool, desc string) Access {
 	case _:
 	}
 	a
+}
+
+// fieldName is an Input's accessible name: its label, or its placeholder
+// when it has none.
+func fieldName(x InputNode) string {
+	if x.Label != "" {
+		return x.Label
+	}
+	x.Placeholder
 }
 
 // declared is what a Semantic node declared, disabled also under a
@@ -315,6 +425,8 @@ func finds[E](loc Locator, n Node[E], a Access) bool {
 			l.Label == x.Label
 		case SemanticNode[E] as s:
 			s.Access.Name == x.Label
+		case InputNode as i:
+			i.Label != "" && i.Label == x.Label
 		case _:
 			false
 		}
@@ -341,6 +453,9 @@ func finds[E](loc Locator, n Node[E], a Access) bool {
 		}
 	case First as x:
 		// LocateIn takes the first; a node it finds is one At finds.
+		finds[E](x.At, n, a)
+	case Within as x:
+		// LocateIn keeps those under In; a node it finds is one At finds.
 		finds[E](x.At, n, a)
 	}
 }
@@ -455,6 +570,8 @@ func locatorText(loc Locator) string {
 		"zone \(keyText(x.Key))"
 	case First as x:
 		"first \(locatorText(x.At))"
+	case Within as x:
+		"\(locatorText(x.At)) within \(locatorText(x.In))"
 	}
 }
 
@@ -469,6 +586,11 @@ func keyText(k Key) string {
 		"none"
 	}
 }
+
+// RoleName is a role's WAI-ARIA name ("tab", "menuitemcheckbox"; a
+// Static is "static", a TableRow "row", a ListOption "option"), as a
+// host's accessibility tree names it (UG2).
+func RoleName(r Role) string { roleText(r) }
 
 func roleText(r Role) string {
 	match r {
@@ -522,6 +644,40 @@ func roleText(r Role) string {
 		"row"
 	case TableCell:
 		"cell"
+	case RadioGroup:
+		"radiogroup"
+	case Radio:
+		"radio"
+	case ListBox:
+		"listbox"
+	case ListOption:
+		"option"
+	case Slider:
+		"slider"
+	case SpinButton:
+		"spinbutton"
+	case SearchBox:
+		"searchbox"
+	case MenuItemCheckbox:
+		"menuitemcheckbox"
+	case ComboBox:
+		"combobox"
+	case Grid:
+		"grid"
+	case GridCell:
+		"gridcell"
+	case ColumnHeader:
+		"columnheader"
+	case RowHeader:
+		"rowheader"
+	case Navigation:
+		"navigation"
+	case ListItem:
+		"listitem"
+	case Separator:
+		"separator"
+	case Tooltip:
+		"tooltip"
 	}
 }
 
@@ -560,7 +716,7 @@ func matcherText(is Matcher) string {
 
 // semRoles is every role a Semantic may declare. (a law's helper)
 func semRoles() []Role {
-	[]Role{Button, Checkbox, Switch, TextBox, Static, Group, Region, Image, List, Status, Generic, Tab, TabList, TabPanel, Dialog, Menu, MenuItem, Tree, TreeItem, Heading, Alert, Link, Table, TableRow, TableCell}
+	[]Role{Button, Checkbox, Switch, TextBox, Static, Group, Region, Image, List, Status, Generic, Tab, TabList, TabPanel, Dialog, Menu, MenuItem, Tree, TreeItem, Heading, Alert, Link, Table, TableRow, TableCell, RadioGroup, Radio, ListBox, ListOption, Slider, SpinButton, SearchBox, MenuItemCheckbox, ComboBox, Grid, GridCell, ColumnHeader, RowHeader, Navigation, ListItem, Separator, Tooltip}
 }
 
 // semMaybe is a drawn Option[bool]. (a law's helper)
@@ -591,7 +747,23 @@ func semDecls(seed int, n int) []Access {
 		if draw(&r, 2) == 0 {
 			desc = "d\(draw(&r, 9))"
 		}
-		out = out.Append(Access{Role: roles[draw(&r, len(roles))], Name: "n\(i)", Disabled: draw(&r, 4) == 0, Description: desc, Checked: semMaybe(&r), Value: value, Selected: semMaybe(&r), Expanded: semMaybe(&r), Pressed: semMaybe(&r), Invalid: draw(&r, 2) == 0, Busy: draw(&r, 2) == 0, HasPopup: draw(&r, 2) == 0, Level: level})
+		let mut d = Access{Role: roles[draw(&r, len(roles))], Name: "n\(i)", Disabled: draw(&r, 4) == 0, Description: desc, Checked: semMaybe(&r), Value: value, Selected: semMaybe(&r), Expanded: semMaybe(&r), Pressed: semMaybe(&r), Invalid: draw(&r, 2) == 0, Busy: draw(&r, 2) == 0, HasPopup: draw(&r, 2) == 0, Level: level, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: NoKey, Rels: []Rel{}}
+		d.Mixed = draw(&r, 4) == 0
+		if draw(&r, 2) == 0 {
+			d.Current = Some{Value: "page"}
+		}
+		d.Modal = draw(&r, 4) == 0
+		d.MultiSelectable = draw(&r, 4) == 0
+		if draw(&r, 2) == 0 {
+			d.Range = Some{Value: Range{Now: float64(draw(&r, 10)), Min: 0, Max: 10}}
+		}
+		if draw(&r, 2) == 0 {
+			d.Key = ByInt(i)
+		}
+		for _ in 0..draw(&r, 3) {
+			d.Rels = d.Rels.Append(drawRel(&r, n))
+		}
+		out = out.Append(d)
 	}
 	out
 }
@@ -650,7 +822,7 @@ law AccessIsWhatWasDeclared(seed int, count int) {
 				}
 			}
 		}
-		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {})
+		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(s int) Option[func()] { None }}, 1, func(o int) {})
 		let mut h = NewTestHost(a, view, m, 4) catch {
 		case BadPatch:
 			return false
@@ -694,5 +866,104 @@ law AccessIsWhatWasDeclared(seed int, count int) {
 			}
 		}
 		true
+	}
+}
+
+// withinLabel is the card label of slot j: two of the four labels, so
+// cards of one column and of two columns share them. (a law's helper)
+func withinLabel(j int) string {
+	"card \(j % 2)"
+}
+
+// WithinFindsUnder (FK11-g6): over drawn boards of 1 to 4 columns, each a
+// Region named "col i" holding a Heading and 0 to 4 cards (half of them in
+// a Box, a level below), whose labels repeat within and across columns,
+// Within{In: the column, At: a button} finds exactly that column's cards
+// in tree order, Within a name no column has finds none, no column is
+// within a column, a nested Within
+// finds what the inner one does, and a ClickOn of First within a column
+// presses that column's first card of that label.
+law WithinFindsUnder(seed int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let mut r = seeded(seed)
+		let mut board = [][]int{}
+		for _ in 0..draw(&r, 4)+1 {
+			let mut col = []int{}
+			for _ in 0..draw(&r, 5) {
+				col = col.Append(draw(&r, 8))
+			}
+			board = board.Append(col)
+		}
+		let none Option[int] = None
+		let decl = func(role Role, name string, level Option[int]) Access {
+			Access{Role: role, Name: name, Disabled: false, Description: "", Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: level, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: NoKey, Rels: []Rel{}}
+		}
+		let view = func(f *Frame[int], s int) {
+			Column(f, Plain()) {
+				for i, col in board {
+					Semantic(f, decl(Region, "col \(i)", None), none, Plain()) {
+						Semantic(f, decl(Heading, "col \(i)", Some{Value: 2}), none, Plain()) {
+							Text(f, "col \(i)")
+						}
+						for j, c in col {
+							if c%2 == 0 {
+								Pressable(f, withinLabel(c/2), 100*i+j) {
+									Text(f, "x")
+								}
+							} else {
+								Box(f, Plain()) {
+									Pressable(f, withinLabel(c/2), 100*i+j) {
+										Text(f, "x")
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+		let a = actor.StartMachine(Machine[int, int, int]{Initial: -1, Step: semStep, After: semTimer, Work: semWork, Exit: func(s int) Option[func()] { None }}, 1, func(o int) {})
+		let mut h = NewTestHost(a, view, m, 4) catch {
+		case BadPatch:
+			return false
+		}
+		for i, col in board {
+			let column = WithRole{Role: Region, Name: "col \(i)"}
+			let found = Locate(&h, Within{In: column, At: WithRole{Role: Button, Name: ""}})
+			if len(found) != len(col) {
+				return false
+			}
+			for j, c in col {
+				if AccessAt(&h, found[j]).Name != withinLabel(c/2) {
+					return false
+				}
+			}
+			let nested = Locate(&h, Within{In: WithRole{Role: Region, Name: ""}, At: Within{In: column, At: WithRole{Role: Button, Name: ""}}})
+			if nested != found {
+				return false
+			}
+			for j, c in col {
+				let label = withinLabel(c / 2)
+				let mut first = j
+				for k in 0..j {
+					if withinLabel(col[k]/2) == label && first == j {
+						first = k
+					}
+				}
+				if first == j {
+					Play(&h, []Act{ClickOn{At: First{At: Within{In: column, At: WithLabel{Label: label}}}}, SettleAll}) catch {
+					case _:
+						return false
+					}
+					if StateOf(&h) != 100*i+j {
+						return false
+					}
+				}
+			}
+		}
+		// A column is not within itself, nor within another: none nests.
+		let regions = WithRole{Role: Region, Name: ""}
+		len(Locate(&h, Within{In: WithRole{Role: Region, Name: "col 9"}, At: WithRole{Role: Button, Name: ""}})) == 0 && len(Locate(&h, Within{In: regions, At: regions})) == 0
 	}
 }

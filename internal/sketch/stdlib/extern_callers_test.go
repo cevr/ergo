@@ -261,12 +261,12 @@ func TestStdExternCallersHoldAuthority(t *testing.T) {
 		}
 	}
 	slices.Sort(hosts)
-	want := []string{"config.hostEnviron", "exec.confine", "exec.confineSink", "exec.hostAlive", "exec.hostKill", "exec.hostRun", "exec.hostRunIn", "exec.hostSpawn", "exec.hostStart", "exec.hostStartIn", "fs.OpenRoot", "fs.confine", "fs.hostAppendFile", "fs.hostChmod", "fs.hostLockFile", "fs.hostMapFile", "fs.hostMkdirAll", "fs.hostMkdirAllMode",
+	want := []string{"config.hostEnviron", "exec.confine", "exec.confineSink", "exec.hostAlive", "exec.hostKill", "exec.hostRun", "exec.hostRunIn", "exec.hostSpawn", "exec.hostStart", "exec.hostStartIn", "fs.OpenRoot", "fs.confine", "fs.hostAppendFile", "fs.hostChmod", "fs.hostExchange", "fs.hostLockFile", "fs.hostMapFile", "fs.hostMkdirAll", "fs.hostMkdirAllMode",
 		"fs.hostReadDir", "fs.hostReadFile", "fs.hostRemove", "fs.hostRename", "fs.hostStat", "fs.hostUnlockFile", "fs.hostWriteFile", "fs.hostWriteFileMode", "host.hostEnv", "host.hostLocal", "host.hostZone",
 		"http.IntoFile", "http.Listen", "http.fetch", "http.fetchInto", "http.send", "http.sendInto", "http.serve",
 		"io.hostEprint", "io.hostIsTerminal", "io.hostLines", "io.hostPrint", "io.hostRead", "io.hostReadAll", "io.hostStderrIsTerminal", "io.hostStdinIsTerminal",
-		"os.hostArgs", "os.hostGetenv", "os.hostGetwd", "os.hostHasEnv", "prelude.Sleep",
-		"rand.hostFloat64", "rand.hostIntN", "rand.hostUint64", "rpc.call",
+		"os.hostArgs", "os.hostGetenv", "os.hostGetwd", "os.hostHasEnv", "prelude.Sleep", "prelude.hostAlarms",
+		"rand.hostFloat64", "rand.hostIntN", "rand.hostUint64", "rand.secureBytes", "rpc.call",
 		"term.hostEnterNoEcho", "term.hostEnterRaw", "term.hostLeave", "term.hostReadKey", "term.hostSize", "time.hostMono", "time.hostNow"}
 	if !slices.Equal(hosts, want) {
 		t.Errorf("host externs %v, want %v", hosts, want)

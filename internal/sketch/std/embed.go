@@ -18,20 +18,20 @@ import "embed"
 //go:embed io/*.ergo term/*.ergo prompt/*.ergo
 //go:embed utf8/*.ergo
 //go:embed flag/*.ergo
-//go:embed maps/*.ergo cmp/*.ergo
+//go:embed maps/*.ergo cmp/*.ergo set/*.ergo
 //go:embed rand/*.ergo
 //go:embed sync/*.ergo
 //go:embed embed/*.ergo
 //go:embed atomic/*.ergo
 //go:embed filepath/*.ergo
 //go:embed exec/*.ergo
-//go:embed math/*.ergo bits/*.ergo
-//go:embed hex/*.ergo base64/*.ergo sha256/*.ergo crc32/*.ergo
+//go:embed math/*.ergo bits/*.ergo decimal/*.ergo
+//go:embed hex/*.ergo base64/*.ergo sha256/*.ergo crc32/*.ergo sha512/*.ergo sha1/*.ergo hmac/*.ergo uuid/*.ergo
 //go:embed machines/*.ergo
 //go:embed csv/*.ergo codec/*.ergo json/*.ergo toml/*.ergo rpc/*.ergo config/*.ergo
 //go:embed testing/*.ergo explore/*.ergo
-//go:embed tasks/*.ergo
-//go:embed schedule/*.ergo
+//go:embed tasks/*.ergo pubsub/*.ergo stream/*.ergo
+//go:embed schedule/*.ergo cron/*.ergo
 //go:embed http/*.ergo
 //go:embed actor/*.ergo
 //go:embed journal/*.ergo journal/memory/*.ergo journal/file/*.ergo
@@ -43,7 +43,9 @@ import "embed"
 //go:embed bench/*.ergo
 //go:embed ui/layout/*.ergo
 //go:embed code/*.ergo
+//go:embed graph/*.ergo codegraph/*.ergo
 //go:embed html/*.ergo
+//go:embed build/*.ergo
 var Sources embed.FS
 
 // LedgerText is the std law ledger (runtime.md, Tests 10), as

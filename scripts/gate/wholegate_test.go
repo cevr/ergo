@@ -455,6 +455,8 @@ var declaredSources = map[string]string{
 	"TestSandboxArgvBindsAdmittedRoots argv[0]":               "a probe script wrapped by the sandbox: its nsenter",
 	"TestSandboxModuleZipIsConstructed argv[0]":               "a probe script wrapped by the sandbox: its nsenter",
 	"moduleHost goTool":                                       "the real go of TestMain (realTools)",
+	"moduleGo moduleGoCommand":                                "go on PATH (the host program go), or in a test the real go of TestMain (realTools)",
+	"TestStepsBuildWithTheModuleGo value":                     "the go first on a step's PATH, which the test checks is go.mod's release",
 	"TestMergeTierInputContractRegression prime[0]":           "the regression step's own program, launched outside the gate to prime the host cache",
 	"TestGateStopsItsStepsOnSignal argv[0]":                   "this test binary, run as the helper gate under the RSS watch (TestGateStopHelper)",
 	"runOracleHelper os.Args[0]":                              "this test binary, re-run as a step of the output-oracle helper gate (TestBudgetScopeHelper)",

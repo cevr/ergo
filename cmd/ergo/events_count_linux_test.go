@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"ergo.local/prototype/internal/opcount"
+	"ergo.local/prototype/internal/opcount/hooked"
 	"ergo.local/prototype/internal/proclimit"
 )
 
@@ -199,7 +200,7 @@ func buildEventsHooked(t *testing.T, work, dir string) string {
 	overlayFile := filepath.Join(dir, "overlay.json")
 	writeFile(t, overlayFile, string(overlay))
 	bin := filepath.Join(dir, "events-hooked")
-	command, err := opcount.HookedBuild(work, overlayFile, bin)
+	command, err := hooked.Build(work, overlayFile, bin)
 	if err != nil {
 		t.Fatal(err)
 	}

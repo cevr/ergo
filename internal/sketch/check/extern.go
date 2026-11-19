@@ -376,7 +376,7 @@ func PureGoPackages() []string {
 // The empty path is Go's universe: an extern of a Go builtin (builtin.go),
 // which calls no Ergo code and no host.
 func PureGoPackage(path string) bool {
-	return path == "" || slices.Contains(v1.PureImports, path)
+	return path == "" || PureActs(path)
 }
 
 // ---------------------------------------------------------------- Level 2 adapters (IG4)
@@ -463,6 +463,11 @@ func (c *checker) externAdapter(f *Func) (string, string) {
 		return fmt.Sprintf("extern go %s: Go package %s has no exported function %s", target, path, name), CodeUnknown
 	case !isFunc || bf.Sig == nil:
 		return fmt.Sprintf("extern go %s names a Go type, constant or variable; a user extern binds a function", target), CodeType
+	}
+	if _, w := GoWrites(bf); w {
+		// GBX2: the binding returns the slice Go writes, a form no user
+		// extern's adapter states; the import go call is the one form.
+		return fmt.Sprintf("extern go %s writes its slice argument in place; call it through import go, whose value is the slice Go wrote (docs/spec/interop.md, Go writes in place)", target), CodeOutside
 	}
 	w, level1 := f.Sig, bf.Sig
 	if sigHasInvalid(w) {

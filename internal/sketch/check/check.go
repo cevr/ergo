@@ -221,6 +221,14 @@ type checker struct {
 	// pureArgs are the arguments of pure parameters (durable.go), which
 	// checkPureArgs judges once the footprints are known.
 	pureArgs []pureArg
+	// dropped are the calls whose result a statement discards, which
+	// checkDroppedResults judges once the footprints are known.
+	dropped []droppedCall
+	// raises memoizes raisesByName.
+	raises map[*Func]bool
+	// unassigned are the never-reassigned let mut locals, which
+	// checkDroppedResults reports once the dropped calls are judged.
+	unassigned []unassignedLocal
 	// lawPreds are the invariant laws whose predicate checkLawPreds judges
 	// pure once the footprints are known (machinelaw.go).
 	lawPreds []*Law
@@ -303,6 +311,10 @@ type checker struct {
 	cellTypes map[*Named]bool
 	cellHolds map[int32]*Named
 	cellSites []cellSite
+	// cellSteps counts holdsCell's walk steps, the cost the tests bound;
+	// cellBudget, set only by a test, stops the walk past that many steps
+	// (cellWalk; CK-MAPGROW).
+	cellSteps, cellBudget int
 	// encodeLend is set while encode's writer operand, or decode's reader
 	// operand, is converted to the Writer or the Reader: neither keeps
 	// it, so a value that holds a cell may cross to it there (types.md,
@@ -704,6 +716,7 @@ type universeState struct {
 	errorName *TypeName
 	goPkg     *Package
 	ref       *Named // go.Ref
+	any       *Named // go.Any
 }
 
 var universeOnce universeState
@@ -753,6 +766,11 @@ func universe() *Scope {
 		// go.Is and go.As read a go.Error's native chain (IG5, goerror.go).
 		goPkg.Scope.insert("Is", &Builtin{Name: "go.Is"})
 		goPkg.Scope.insert("As", &Builtin{Name: "go.As"})
+		// go.New[T]() is Go's new(T), held as a go.Ref[T] (GBX1, gonew.go).
+		goPkg.Scope.insert("New", &Builtin{Name: "go.New"})
+		// go.Zero[T]() is Go's zero T, the base a Go struct literal
+		// spreads from (GBX5b, gonew.go).
+		goPkg.Scope.insert("Zero", &Builtin{Name: "go.Zero"})
 		// go.Ref[T] is a Go pointer that is stored, returned or held in a
 		// collection: an opaque handle, never nil (owner q32, q38;
 		// docs/spec/interop.md). Ergo's own *T stays a borrow.
@@ -761,6 +779,14 @@ func universe() *Scope {
 		ref.Type = &Named{Obj: ref, TParams: []*TypeParam{refT}, under: &Pointer{Elem: refT}, state: 2}
 		goPkg.Scope.insert("Ref", ref)
 		universeOnce.ref = ref.Type.(*Named)
+		// go.Any is Go's empty interface at the import go boundary (GB2;
+		// docs/spec/interop.md, Type mapping): a value with a Go form goes
+		// in (goany.go), and only go.As[T] takes one out. Ergo has no any:
+		// no operator, match or Ergo record field takes a go.Any.
+		anyName := &TypeName{Name: "Any", Pkg: goPkg, id: newID()}
+		anyName.Type = &Named{Obj: anyName, under: &Interface{}, state: 2}
+		goPkg.Scope.insert("Any", anyName)
+		universeOnce.any = anyName.Type.(*Named)
 		universeOnce.goPkg = goPkg
 		s.insert("go", &PkgName{Name: "go", Pkg: goPkg, used: true})
 		universeOnce.scope = s
@@ -800,6 +826,14 @@ func prelude() preludeResult {
 			f.Name = name // the embedded name, which the lowering reports (Files)
 			files = append(files, f)
 		}
+		// The slice and Map operations, the language's own file (collop.go).
+		f, err := syntax.Parse(collSource())
+		if err != nil {
+			panic("check: the slice and Map operations do not parse: " + err.Error())
+		}
+		f.Name = collFileName
+		collFile = f
+		files = append(files, f)
 		c := newChecker(stdlib.PreludePath, nil, u)
 		c.pkg.std = true
 		c.pkg.trusted = true // the toolchain vouches for what it ships
@@ -853,6 +887,9 @@ type stdImporter struct {
 	// (checked or decoded), so each follows its imports (ExportStd).
 	order []string
 	ready map[string]bool
+	// sources reads a package's files; nil reads the embedded std
+	// (stdlib.Package). A test gives a library of its own.
+	sources func(path string) (map[string]string, bool)
 }
 
 // stdEntry is one std package, checked once.
@@ -957,7 +994,11 @@ func (s *stdImporter) count(files, packages int64) {
 
 // load checks the std package at path.
 func (s *stdImporter) load(path string) (*Package, error) {
-	sources, ok := stdlib.Package(path)
+	read := s.sources
+	if read == nil {
+		read = stdlib.Package
+	}
+	sources, ok := read(path)
 	if !ok {
 		return nil, fmt.Errorf("no package %q", path)
 	}
@@ -978,7 +1019,15 @@ func (s *stdImporter) load(path string) (*Package, error) {
 	pkg := c.run(files)
 	var err error
 	if len(c.diags) > 0 {
-		err = fmt.Errorf("std package %q has diagnostics: %s", path, c.sorted()[0])
+		// The importer says why, with the first diagnostic and its file, so
+		// the import does not read as an unknown package (TM: actor's
+		// "unknown package tasks" hid tasks' S101).
+		d := c.sorted()[0]
+		at := ""
+		if d.File >= 0 && d.File < len(files) {
+			at = files[d.File].Name + ":"
+		}
+		err = &ImportError{Path: path, Reason: fmt.Sprintf("%s%s", at, d), Broken: true}
 	}
 	return pkg, err
 }

@@ -174,7 +174,7 @@ func pointer(b kanban.Board) func(p ui.PointerEvent) Option[kanban.Signal] {
 			case None:
 				None
 			}
-		case ui.Moved:
+		case ui.Moved, ui.Drag:
 			match drag.Item(b.Drag.State) {
 			case Some[string] as item:
 				let target = match spotOf(b, p.Zone, item.Value) {
@@ -194,7 +194,7 @@ func pointer(b kanban.Board) func(p ui.PointerEvent) Option[kanban.Signal] {
 			case drag.Idle, drag.Lifted:
 				None
 			}
-		case ui.Wheel:
+		case ui.Wheel, ui.PointerEnter, ui.PointerLeave:
 			None
 		}
 	}

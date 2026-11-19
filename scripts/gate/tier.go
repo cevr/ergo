@@ -69,9 +69,10 @@ const fullBuildStep = "go test build"
 
 // sizeCutoff is the size rule (gate-fast decision D3): a test whose
 // recorded serial wall time (durationsFile) is this long or longer is large
-// and runs only in the full tier. A test with no recorded time runs in the
-// fast tier until the next record. The rule reads measured times, so a test
-// that grows leaves the fast tier at the next -record-durations.
+// and runs only in the full tier. The fast tier reads the times its own
+// and full runs observed over the record (testSeconds, GS33b): a test with
+// no time runs in the fast tier once, a test that grows leaves it at the
+// next run, and one whose last full runs are under the cutoff comes back.
 const sizeCutoff = 2.0
 
 // fastFlag is what every fast-tier test step adds: properties and growth
@@ -93,7 +94,7 @@ func stepsFor(root, tier string) ([]*Step, error) {
 	if tier == fastTier {
 		return fastSteps(root)
 	}
-	return gateSteps(root)
+	return fullSteps(root)
 }
 
 // listedPackage is the part of `go list -json` the fast tier reads.
@@ -364,7 +365,7 @@ const fastExamplesFile = "scripts/examples/fast-tier.txt"
 // row: 147 of the step's 208 ergo test runs, 261 s (gate-speed.md).
 // A missing or empty list is an error, never a silent full or empty run;
 // a module with no runner (a test's fixture) has no list to read, and
-// the step, if it runs there, fails (examplesRunnerInputs).
+// the step, if it runs there, fails (runnerInputs).
 func fastExamples(root string, steps []*Step) error {
 	i := slices.IndexFunc(steps, func(s *Step) bool { return s.Name == examplesStepName })
 	if i < 0 {
@@ -397,7 +398,7 @@ func fastExamples(root string, steps []*Step) error {
 // (classFastSteps), and one keyed -short step per test package or shard
 // but the host packages' and the full-tier-only packages' (fullTierOnly).
 func fastSteps(root string) ([]*Step, error) {
-	steps, _, err := fastStepsSelected(root, nil)
+	steps, _, err := fastStepsSelected(root, "", nil)
 	return steps, err
 }
 
@@ -411,7 +412,9 @@ type selector func(p testPackage, env, names []string) selection
 // not know still runs.
 // A package whose every fast test the selection skips has no step; dropped
 // says so, one line per package, for the gate to print.
-func fastStepsSelected(root string, choose selector) (steps []*Step, dropped []string, err error) {
+// The size rule reads the times of cacheDir's store over durationsFile's
+// (testSeconds); fastSteps reads durationsFile alone.
+func fastStepsSelected(root, cacheDir string, choose selector) (steps []*Step, dropped []string, err error) {
 	packages, problem, err := testPackages(root)
 	if err != nil {
 		return nil, nil, err
@@ -424,7 +427,7 @@ func fastStepsSelected(root string, choose selector) (steps []*Step, dropped []s
 	if err != nil {
 		return nil, nil, err
 	}
-	durations, err := readDurations(root)
+	durations, err := testSeconds(root, cacheDir)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -524,7 +527,7 @@ func fastStepsSelected(root string, choose selector) (steps []*Step, dropped []s
 			// runs the tests (scripts/langmigrate's TestTryParensIsIdempotent).
 			continue
 		}
-		base := []string{"go", "test", fastFlag}
+		base := []string{"go", "test", fastFlag, "-json"}
 		n := 1
 		if slices.Contains(slowPackages, pkg) {
 			total := 0.0
@@ -536,7 +539,7 @@ func fastStepsSelected(root string, choose selector) (steps []*Step, dropped []s
 		groups := shard(fast, measured, n)
 		selections, weights := fastShardArgs(groups, large), shardWeights(groups, measured)
 		for i, selection := range selections {
-			step := &Step{Name: name, Needs: needs, Argv: append(append(append(slices.Clone(base), testTimeoutFor(weights[i])), selection...), pkg), Env: env, ToolEnv: testTools, GoStore: slices.Contains(goStorePackages, pl.relative), Package: p.closure, PackageProblem: problem, Weight: weights[i], Class: classFast, Note: note}
+			step := &Step{Name: name, Needs: needs, Argv: append(append(append(slices.Clone(base), testTimeoutFor(weights[i])), selection...), pkg), Env: env, ToolEnv: testTools, Observe: true, GoStore: slices.Contains(goStorePackages, pl.relative), Package: p.closure, PackageProblem: problem, Weight: weights[i], Class: classFast, Note: note}
 			if len(selections) > 1 {
 				step.Name = fmt.Sprintf("go test %s [%d/%d] (fast)", pkg, i+1, len(selections))
 			}
@@ -680,7 +683,7 @@ func writeFastCPU(root string, limit limiter, packages []string) error {
 			if err != nil {
 				return err
 			}
-			table[pkg] = math.Round(cpu*10) / 10
+			table[pkg] = cpuTenths(cpu)
 			continue
 		}
 		dir := strings.TrimPrefix(path.Clean(pkg), "./")
@@ -699,13 +702,21 @@ func writeFastCPU(root string, limit limiter, packages []string) error {
 		if ran == 0 {
 			return fmt.Errorf("%s: no fast-tier step runs this package", pkg)
 		}
-		table[module+"/"+dir] = math.Round(cpu*10) / 10
+		table[module+"/"+dir] = cpuTenths(cpu)
 	}
 	data, err := json.MarshalIndent(table, "", "  ")
 	if err != nil {
 		return err
 	}
 	return os.WriteFile(filepath.Join(root, fastCPUFile), append(data, '\n'), 0644)
+}
+
+// cpuTenths is a measured CPU time as fastCPUFile records it, in tenths of
+// a second, rounded up: a step that used any CPU keeps a positive row. A
+// warm `go run` of a small program uses under 0.05 s, which rounding to the
+// nearest tenth recorded as 0 (merge tier r4b, batch 19).
+func cpuTenths(seconds float64) float64 {
+	return math.Ceil(seconds*10) / 10
 }
 
 // replayPackage is the recorded pass of a package step at key, or nil when
@@ -750,7 +761,7 @@ func (g *gate) recordPackages(out io.Writer, results []*result, objects []*repla
 }
 
 // packageIdentity names a package step in its key: its name, argv and
-// variables.
+// variables, and its KeyParts.
 func packageIdentity(step *Step) []string {
-	return []string{step.Name, fmt.Sprintf("%q", step.Argv), fmt.Sprintf("%q", step.Env)}
+	return append([]string{step.Name, fmt.Sprintf("%q", step.Argv), fmt.Sprintf("%q", step.Env)}, step.KeyParts...)
 }

@@ -258,6 +258,11 @@ func (fc *funcCtx) stdCall(x *syntax.CallExpr, c *check.Call, args []syntax.Expr
 	} else if body.Owned != "" && fc.l.checkedOwnedForm(f) {
 		fc.copySite(x, "copy", "the first operand may be read again")
 	}
+	if name == "SlicesRepeat" {
+		if text, ok := fc.repeatFill(x, args); ok {
+			return text, true, false
+		}
+	}
 	vals := fc.callArgs(args, x)
 	// An appender's operand is clipped where it is not written in place
 	// (V3), as the prelude's Append's is: two appends to one buffer never

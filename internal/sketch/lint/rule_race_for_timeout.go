@@ -16,6 +16,7 @@ var raceForTimeout = &Rule{
 	Name:    "race-for-timeout",
 	Code:    "L106",
 	Doc:     "A tasks.Race of a block against a block that only sleeps and gives a fallback is a timeout; write timeout.After(d, block) and catch timeout.Expired.",
+	Instead: "write timeout.After(d, block) and catch timeout.Expired with the fallback",
 	Default: Hint,
 	Check:   checkRaceForTimeout,
 	SafeFix: true,
@@ -28,9 +29,6 @@ type sleeper struct {
 }
 
 func checkRaceForTimeout(p *Pass) {
-	if p.Package.Std() || p.Package.Host() {
-		return
-	}
 	caught := map[syntax.Expr]bool{}
 	syntax.Inspect(p.File, func(n syntax.Node) bool {
 		if c, ok := n.(*syntax.CatchExpr); ok {
@@ -67,7 +65,7 @@ func checkRaceForTimeout(p *Pass) {
 		if sleeps[0] == nil {
 			timer, body = 1, 0
 		}
-		message := "this race against a sleep is a timeout: write timeout.After(d, block) and catch timeout.Expired with the fallback"
+		message := "this race against a sleep is a timeout"
 		var fix *report.Fix
 		if !caught[x] && !failsExpired(call) {
 			fix = timeoutFixOf(p, x, blocks[body], sleeps[timer])

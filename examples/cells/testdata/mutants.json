@@ -160,6 +160,22 @@
       "killers": [
         "examples:cells"
       ]
+    },
+    {
+      "name": "ugb22-field-by-placeholder",
+      "origin": "wf10 UG-B22",
+      "file": "examples/cells/host/look.ergo",
+      "from": "Some{Value: if x.Label != \"\" { x.Label } else { x.Placeholder }}",
+      "to": "Some{Value: x.Placeholder}",
+      "rule": "A script names a labelled field by its label, as ui.Find does (law TodoAgrees; case todo-play).",
+      "anchor": {
+        "tests": [
+          "examples:cells"
+        ]
+      },
+      "killers": [
+        "examples:cells"
+      ]
     }
   ]
 }

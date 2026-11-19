@@ -133,6 +133,95 @@ func writesTakes(f *Func) bool {
 	return f.Sig != nil && (len(f.Sig.Takes) > 0 || f.Sig.TakesSelf)
 }
 
+// HoldsTaken reports whether a call of f leaves the values it takes on the
+// caller's frame until it returns (D-C, Q7): the caller hands them off
+// when the call returns, and a defect inside it leaves them to the
+// caller's frame, which releases them. It holds for f with a runtime Go
+// body, which owns no frame entry, and for f with an Ergo body that is
+// generic in each value it takes and only forwards those values to such a
+// call, its whole body (B2, PRIM-4): a generic body has no release of a
+// value of its type parameter (#197 Gap 42), so the forwarded value would
+// otherwise have no owner while the inner call runs. A forwarder runs
+// nothing after the inner call, so on every path the value is the inner
+// call's or the caller's, never both. It reads declarations, never a
+// package or function name.
+func HoldsTaken(f *Func) bool { return holdsTakenFunc(f, map[*Func]bool{}) }
+
+func holdsTakenFunc(f *Func, seen map[*Func]bool) bool {
+	takes := takesOf(f)
+	if len(takes) == 0 {
+		return false
+	}
+	if BodyOf(f).Runtime != "" {
+		return true
+	}
+	if seen[f] || f.Decl == nil || f.Decl.Extern != nil || f.Decl.Body == nil || f.Sig.Fallible || f.Pkg == nil || f.Pkg.Info == nil {
+		return false
+	}
+	seen[f] = true
+	if len(f.Decl.Body.List) != 1 {
+		return false
+	}
+	es, ok := f.Decl.Body.List[0].(*syntax.ExprStmt)
+	if !ok {
+		return false
+	}
+	x, ok := unparen(es.X).(*syntax.CallExpr)
+	if !ok {
+		return false
+	}
+	inner := f.Pkg.Info.Calls[x]
+	if inner == nil || inner.Kind != CallFunc || !holdsTakenFunc(inner.Func, seen) {
+		return false
+	}
+	args := x.Args
+	if inner.Recv != nil {
+		args = append([]syntax.Expr{inner.Recv}, args...)
+	}
+	innerTakes := takesOf(inner.Func)
+	for _, i := range takes {
+		if i >= len(f.Sig.Params) {
+			return false
+		}
+		p := f.Sig.Params[i]
+		generic := false
+		for _, tp := range f.Sig.TParams {
+			generic = generic || typeMentions(p.Type, tp)
+		}
+		if !generic {
+			return false // the body owns and releases a value of its own type
+		}
+		// p's one use is an operand the inner call takes.
+		uses := 0
+		syntax.Inspect(f.Decl.Body, func(n syntax.Node) bool {
+			if id, ok := n.(*syntax.Ident); ok && isParam(f.Pkg.Info, id, p) {
+				uses++
+			}
+			return true
+		})
+		forwarded := false
+		for _, j := range innerTakes {
+			if j < len(args) {
+				if id, ok := unparen(args[j]).(*syntax.Ident); ok && isParam(f.Pkg.Info, id, p) {
+					forwarded = true
+				}
+			}
+		}
+		if uses != 1 || !forwarded {
+			return false
+		}
+	}
+	return true
+}
+
+// isParam reports whether id refers to the parameter p of a forwarder:
+// its body is one call, which declares no name, so a variable of p's name
+// is p (the body's parameter object is not the signature's Var).
+func isParam(info *Info, id *syntax.Ident, p *Var) bool {
+	v, ok := info.Uses[id].(*Var)
+	return ok && id.Name == p.Name && v.Name == p.Name
+}
+
 // takesOf is the clause of f: the written one, or the inferred one.
 func takesOf(f *Func) []int {
 	if f == nil || f.Sig == nil {

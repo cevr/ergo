@@ -21,6 +21,42 @@ func Matches(s Star, filter string) bool {
 	strings.Contains(strings.ToLower(s.Name), f) || strings.Contains(strings.ToLower(s.Constellation), f)
 }
 
+// Fold is a star's name and constellation case folded: what a filter
+// matches. A Grid keeps one per row (Folds), refreshed with its row, so a
+// letter typed folds the filter and no row (stars-gui gap 11).
+type Fold { Name string, Constellation string }
+
+// FoldOf is s's Fold.
+func FoldOf(s Star) Fold { Fold{Name: strings.ToLower(s.Name), Constellation: strings.ToLower(s.Constellation)} }
+
+// FoldAll is each row's Fold, by id.
+func FoldAll(rows []Star) []Fold {
+	let mut folds = slices.WithCapacity[Fold](len(rows))
+	for s in rows {
+		folds = folds.Append(FoldOf(s))
+	}
+	folds
+}
+
+// NarrowFolded is Narrow on the rows' kept folds (folds[id] is
+// FoldOf(rows[id])): the ids of view that filter keeps, in view's order,
+// folding only the filter. The table's laws ViewIsOrder and WholeIsOrder
+// hold every view it makes to Order, which folds each row anew.
+func NarrowFolded(folds []Fold, view []int, filter string) []int {
+	if filter == "" {
+		return view
+	}
+	let f = strings.ToLower(filter)
+	let mut ids = slices.WithCapacity[int](len(view))
+	for id in view {
+		let k = folds[id]
+		if strings.Contains(k.Name, f) || strings.Contains(k.Constellation, f) {
+			ids = ids.Append(id)
+		}
+	}
+	ids
+}
+
 // Before is the order of the stars of ids a and b under key: -1, 0 or 1.
 func Before(rows []Star, key SortKey, a int, b int) int {
 	let c = CompareCells(CellOf(rows[a], key.Column), CellOf(rows[b], key.Column))

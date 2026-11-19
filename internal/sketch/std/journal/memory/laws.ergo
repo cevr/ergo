@@ -37,7 +37,9 @@ func untimed(s int) Option[Timeout[int]] { None }
 
 func unworked(s int) Option[func(send func(e int))] { None }
 
-func tally() Machine[int, int, int] { Machine[int, int, int]{Initial: 0, Step: tallyStep, After: untimed, Work: unworked} }
+func unexited(s int) Option[func()] { None }
+
+func tally() Machine[int, int, int] { Machine[int, int, int]{Initial: 0, Step: tallyStep, After: untimed, Work: unworked, Exit: unexited} }
 
 // fold is machines.From over the signals from tally's initial state: the
 // state a recovery must reach.
@@ -194,7 +196,7 @@ func relay(gate queue.Queue[int], sent queue.Queue[int]) Machine[int, int, int] 
 			case queue.Closed:
 			}
 		}}
-	}}
+	}, Exit: unexited}
 }
 
 // dropped runs relay so that a Ping of entry 0 is sent after Go ended

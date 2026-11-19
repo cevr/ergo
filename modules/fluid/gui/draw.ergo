@@ -137,7 +137,7 @@ func disabled(ss []part.State) bool {
 // accessOf is a node's semantics as ui.Access: its role (generic for a role ui lacks), name and
 // the states ui carries; off adds Disabled.
 func accessOf(s part.Sem, role part.Role, off bool) ui.Access {
-	let mut a = ui.Access{Role: ui.Generic, Name: s.Name, Disabled: off, Description: "", Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None}
+	let mut a = ui.Access{..ui.Named(ui.Generic, s.Name), Disabled: off}
 	match a11y.UIRole(role) {
 	case Some as r:
 		a.Role = r.Value

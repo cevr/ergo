@@ -9,12 +9,12 @@ import (
 	"io"
 	"math"
 	"math/big"
-	"reflect"
 	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
 
+	"ergo.local/prototype/internal/sketch/reflectread"
 	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
@@ -37,6 +37,7 @@ type stdBase struct {
 	errorName *TypeName
 	goPkg     *Package
 	ref       *Named
+	any       *Named // go.Any (GB2)
 	prelude   preludeResult
 	nextID    int
 }
@@ -105,6 +106,7 @@ func stdSnapshotNow(pkgs []*Package, keys []string) (*stdSnapshot, error) {
 		errorName: universeOnce.errorName,
 		goPkg:     universeOnce.goPkg,
 		ref:       universeOnce.ref,
+		any:       universeOnce.any,
 		prelude:   preludeOnce.r,
 	}}
 	// The order the packages became available is an order where every
@@ -345,6 +347,7 @@ func InstallStd(r io.ReaderAt, size int64) error {
 		universeOnce.errorName = base.errorName
 		universeOnce.goPkg = base.goPkg
 		universeOnce.ref = base.ref
+		universeOnce.any = base.any
 	})
 	if !installed {
 		return ErrInstalled
@@ -767,7 +770,7 @@ func (e *encoder) failf(format string, args ...any) {
 // external is x's index among the encoder's externals, for an interface
 // value of a type the codec has no case for.
 func (e *encoder) external(x any) (uint64, bool) {
-	if !reflect.TypeOf(x).Comparable() {
+	if !reflectread.Comparable(x) {
 		return 0, false
 	}
 	i, ok := e.ext[x]

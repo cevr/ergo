@@ -361,7 +361,7 @@ func model(p prog, s []int, row int) outcome {
 	case pText as x:
 		done([]ui.Shape[int]{leaf(ui.TextNode{Value: "t\(s[x.slot] + row)", Style: ui.Plain()})})
 	case pInput as x:
-		done([]ui.Shape[int]{leaf(ui.InputNode{Value: "v\(s[x.slot] + row)", Placeholder: "type"})})
+		done([]ui.Shape[int]{leaf(ui.InputNode{Value: "v\(s[x.slot] + row)", Placeholder: "type", Label: "", Description: "", Invalid: false})})
 	case pCheck as x:
 		done([]ui.Shape[int]{leaf(ui.CheckNode{Label: "c", Checked: s[x.slot]%2 == 0, On: s[x.slot] + row})})
 	case pSwap as x:
@@ -387,7 +387,7 @@ func model(p prog, s []int, row int) outcome {
 		if o.fail != 0 {
 			return o
 		}
-		done([]ui.Shape[int]{ui.Shape[int]{Node: ui.PressableNode{Label: "press", On: s[x.slot]%4 + row, Style: ui.Plain()}, Kids: o.shapes}})
+		done([]ui.Shape[int]{ui.Shape[int]{Node: ui.PressableNode{Label: "press", On: s[x.slot]%4 + row, Style: ui.PressStyle()}, Kids: o.shapes}})
 	case pFieldset as x:
 		let o = outcomes(x.kids, s, row)
 		if o.fail != 0 {
@@ -582,6 +582,33 @@ func rowIds(f *ui.Frame[int], xs []int) Map[int, (ui.Id[int], ui.Id[int])] {
 	out
 }
 
+func keyedLines(f *ui.Frame[int], xs []int) {
+	ui.Column(f, ui.Plain()) {
+		ui.Each(f, xs, func(x int) ui.Key { ui.ByInt(x) }) func(x int) {
+			ui.Text(f, "line \(x)")
+		}
+	}
+}
+
+func longestRise(xs []int) int {
+	let mut best = []int{}
+	let mut most = 0
+	for i, x in xs {
+		let mut b = 1
+		for j in 0..i {
+			if xs[j] < x && best[j]+1 > b {
+				b = best[j] + 1
+			}
+		}
+		best = best.Append(b)
+		if b > most {
+			most = b
+		}
+	}
+	most
+}
+
+
 
 func sent(o Option[int]) int {
 	match o {
@@ -649,26 +676,36 @@ func accessModel(shapes []ui.Shape[int], off bool, desc string) []seen {
 }
 
 func readAs(n ui.Node[int], off bool, desc string) ui.Access {
-	let base = ui.Access{Role: ui.Generic, Name: "", Disabled: false, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None}
+	let base = ui.Access{Role: ui.Generic, Name: "", Disabled: false, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: ui.NoKey, Rels: []ui.Rel{}}
 	match n {
 	case ui.PressableNode[int] as x:
-		ui.Access{Role: ui.Button, Name: x.Label, Disabled: off, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None}
+		ui.Access{Role: ui.Button, Name: x.Label, Disabled: off, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: ui.NoKey, Rels: []ui.Rel{}}
 	case ui.CheckNode[int] as x:
-		ui.Access{Role: ui.Checkbox, Name: x.Label, Disabled: off, Description: desc, Checked: Some{Value: x.Checked}, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None}
+		ui.Access{Role: ui.Checkbox, Name: x.Label, Disabled: off, Description: desc, Checked: Some{Value: x.Checked}, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: ui.NoKey, Rels: []ui.Rel{}}
 	case ui.ToggleNode as x:
-		ui.Access{Role: ui.Switch, Name: x.Label, Disabled: off, Description: desc, Checked: Some{Value: x.On}, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None}
+		ui.Access{Role: ui.Switch, Name: x.Label, Disabled: off, Description: desc, Checked: Some{Value: x.On}, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: ui.NoKey, Rels: []ui.Rel{}}
 	case ui.InputNode as x:
-		ui.Access{Role: ui.TextBox, Name: x.Placeholder, Disabled: off, Description: desc, Checked: None, Value: Some{Value: x.Value}, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None}
+		// A label names the field, a placeholder only an unlabelled one;
+		// its own description wins over the ui.Fieldset's.
+		let mut name = x.Label
+		if name == "" {
+			name = x.Placeholder
+		}
+		let mut d = desc
+		if x.Description != "" {
+			d = x.Description
+		}
+		ui.Access{Role: ui.TextBox, Name: name, Disabled: off, Description: d, Checked: None, Value: Some{Value: x.Value}, Selected: None, Expanded: None, Pressed: None, Invalid: x.Invalid, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: ui.NoKey, Rels: []ui.Rel{}}
 	case ui.TextNode as x:
-		ui.Access{Role: ui.Static, Name: x.Value, Disabled: false, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None}
+		ui.Access{Role: ui.Static, Name: x.Value, Disabled: false, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: ui.NoKey, Rels: []ui.Rel{}}
 	case ui.FieldsetNode:
-		ui.Access{Role: ui.Group, Name: "", Disabled: false, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None}
+		ui.Access{Role: ui.Group, Name: "", Disabled: false, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: ui.NoKey, Rels: []ui.Rel{}}
 	case ui.AreaNode as x:
-		ui.Access{Role: ui.Region, Name: x.Label, Disabled: false, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None}
+		ui.Access{Role: ui.Region, Name: x.Label, Disabled: false, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: ui.NoKey, Rels: []ui.Rel{}}
 	case ui.CanvasNode as x:
-		ui.Access{Role: ui.Image, Name: x.Label, Disabled: false, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None}
+		ui.Access{Role: ui.Image, Name: x.Label, Disabled: false, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: ui.NoKey, Rels: []ui.Rel{}}
 	case ui.RowsNode as x:
-		ui.Access{Role: ui.List, Name: x.Label, Disabled: false, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None}
+		ui.Access{Role: ui.List, Name: x.Label, Disabled: false, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: ui.NoKey, Rels: []ui.Rel{}}
 	case _:
 		base
 	}
@@ -693,9 +730,19 @@ func wants(loc ui.Locator, x seen) bool {
 		x.a.Role == l.Role && (l.Name == "" || x.a.Name == l.Name)
 	case ui.WithLabel as l:
 		let labelled = x.a.Role == ui.Button || x.a.Role == ui.Checkbox || x.a.Role == ui.Switch || x.a.Role == ui.Region || x.a.Role == ui.Image || x.a.Role == ui.List
-		labelled && x.a.Name == l.Label
+		match x.node {
+		case ui.InputNode as i:
+			i.Label != "" && i.Label == l.Label
+		case _:
+			labelled && x.a.Name == l.Label
+		}
 	case ui.WithPlaceholder as l:
-		x.a.Role == ui.TextBox && x.a.Name == l.Text
+		match x.node {
+		case ui.InputNode as i:
+			i.Placeholder == l.Text
+		case _:
+			false
+		}
 	case ui.WithText as l:
 		x.a.Role == ui.Static && x.a.Name == l.Text
 	case ui.WithZone:
@@ -704,6 +751,9 @@ func wants(loc ui.Locator, x seen) bool {
 	case ui.First as l:
 		// ui.LocateIn takes the first of what l.At finds.
 		wants(l.At, x)
+	case ui.Within:
+		// The generated programs write no ui.Within.
+		false
 	}
 }
 
@@ -719,6 +769,7 @@ func extras(f *ui.Frame[int], v int) {
 	ui.Fieldset(f, v%2 == 1, "x\(v)") {
 		let on = ui.NewFlag(f, true)
 		ui.Toggle(f, on, "tg\(v % 3)")
+		ui.LabelledInput(f, extraLabel(v), "val", "ph\(v % 2)", func(t string) int { len(t) })
 		ui.Area(f, "area\(v % 2)", ui.Plain(), func(p ui.PointerEvent) Option[int] { None }) {
 			ui.Text(f, "in area")
 		}
@@ -727,8 +778,20 @@ func extras(f *ui.Frame[int], v int) {
 	}
 }
 
+func extraLabel(v int) ui.FieldLabel {
+	let mut l = ui.FieldLabel{Text: "lab\(v % 3)", Description: "", Invalid: v%3 == 0}
+	if v%4 == 0 {
+		l.Text = ""
+	}
+	if v%5 < 2 {
+		l.Description = "own\(v % 2)"
+	}
+	l
+}
+
 func extraShapes(v int) []ui.Shape[int] {
-	let kids = []ui.Shape[int]{leaf(ui.ToggleNode{Label: "tg\(v % 3)", On: true}), ui.Shape[int]{Node: ui.AreaNode{Label: "area\(v % 2)", Style: ui.Plain()}, Kids: []ui.Shape[int]{leaf(ui.TextNode{Value: "in area", Style: ui.Plain()})}}, leaf(ui.CanvasNode{Label: "c\(v % 4)", Width: 4, Height: 4, Paint: []ui.PaintOp{}}), leaf(ui.RowsNode{Label: "rows", Count: 0, RowHeight: 10, First: 0, Offset: 0})}
+	let l = extraLabel(v)
+	let kids = []ui.Shape[int]{leaf(ui.ToggleNode{Label: "tg\(v % 3)", On: true}), leaf(ui.InputNode{Value: "val", Placeholder: "ph\(v % 2)", Label: l.Text, Description: l.Description, Invalid: l.Invalid}), ui.Shape[int]{Node: ui.AreaNode{Label: "area\(v % 2)", Style: ui.Plain()}, Kids: []ui.Shape[int]{leaf(ui.TextNode{Value: "in area", Style: ui.Plain()})}}, leaf(ui.CanvasNode{Label: "c\(v % 4)", Width: 4, Height: 4, Paint: []ui.PaintOp{}}), leaf(ui.RowsNode{Label: "rows", Count: 0, RowHeight: 10, First: 0, Offset: 0})}
 	[]ui.Shape[int]{ui.Shape[int]{Node: ui.FieldsetNode{Disabled: v%2 == 1, Description: "x\(v)"}, Kids: kids}}
 }
 
@@ -821,11 +884,11 @@ func cellShape(keys []int, rows Map[int, row]) []ui.Shape[int] {
 	let mut kids = []ui.Shape[int]{}
 	for k in keys {
 		let r = rowOf(rows, k)
-		kids = kids.Append(leaf(ui.InputNode{Value: r.a, Placeholder: "a"}))
+		kids = kids.Append(leaf(ui.InputNode{Value: r.a, Placeholder: "a", Label: "", Description: "", Invalid: false}))
 		kids = kids.Append(leaf(ui.TextNode{Value: r.a, Style: ui.Plain()}))
-		kids = kids.Append(ui.Shape[int]{Node: ui.RowNode{Style: ui.Plain()}, Kids: []ui.Shape[int]{leaf(ui.InputNode{Value: r.b, Placeholder: "b"})}})
+		kids = kids.Append(ui.Shape[int]{Node: ui.RowNode{Style: ui.Plain()}, Kids: []ui.Shape[int]{leaf(ui.InputNode{Value: r.b, Placeholder: "b", Label: "", Description: "", Invalid: false})}})
 		kids = kids.Append(leaf(ui.ToggleNode{Label: "t", On: r.on}))
-		kids = kids.Append(ui.Shape[int]{Node: ui.PressableNode{Label: "send", On: k, Style: ui.Plain()}, Kids: []ui.Shape[int]{leaf(ui.TextNode{Value: "send", Style: ui.Plain()})}})
+		kids = kids.Append(ui.Shape[int]{Node: ui.PressableNode{Label: "send", On: k, Style: ui.PressStyle()}, Kids: []ui.Shape[int]{leaf(ui.TextNode{Value: "send", Style: ui.Plain()})}})
 	}
 	[]ui.Shape[int]{ui.Shape[int]{Node: ui.ColumnNode{Style: ui.Plain()}, Kids: kids}}
 }
@@ -1149,7 +1212,7 @@ func draft(vals Map[string, string], n string) string {
 }
 
 func input(vals Map[string, string], n string, placeholder string) ui.Shape[int] {
-	leaf(ui.InputNode{Value: draft(vals, n), Placeholder: placeholder})
+	leaf(ui.InputNode{Value: draft(vals, n), Placeholder: placeholder, Label: "", Description: "", Invalid: false})
 }
 
 func bshape(s bstate, vals Map[string, string]) []ui.Shape[int] {

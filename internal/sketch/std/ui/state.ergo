@@ -96,7 +96,13 @@ func NewFlag[E](f *Frame[E], init bool, at CallSite) Flag {
 // Field shows a text field over d: a text the host takes in it becomes the
 // draft's value at the next pass, and sends no signal.
 func Field[E](f *Frame[E], d Draft, placeholder string, at CallSite) {
-	let _ = put(f, InputNode{Value: d.Value, Placeholder: placeholder}, None, Some{Value: d.at}, at)
+	let _ = put(f, InputNode{Value: d.Value, Placeholder: placeholder, Label: "", Description: "", Invalid: false}, None, Some{Value: d.at}, at)
+}
+
+// LabelledField is a Field that says what it is (FieldLabel), as
+// LabelledInput is an Input that does.
+func LabelledField[E](f *Frame[E], label FieldLabel, d Draft, placeholder string, at CallSite) {
+	let _ = put(f, InputNode{Value: d.Value, Placeholder: placeholder, Label: label.Text, Description: label.Description, Invalid: label.Invalid}, None, Some{Value: d.at}, at)
 }
 
 // Toggle shows a check box over fl: a press flips the flag and sends no
@@ -109,7 +115,7 @@ func Toggle[E](f *Frame[E], fl Flag, label string, at CallSite) {
 // (made from d's value by the view) and the draft is "" at the next pass.
 func Submit[E, F, R](f *Frame[E], d Draft, label string, on E, body func() fails F needs R, at CallSite) fails F needs R {
 	let m = markOf(f)
-	f.parent = put(f, PressableNode{Label: label, On: on, Style: Plain()}, None, Some{Value: d.at}, at)
+	f.parent = put(f, PressableNode{Label: label, On: on, Style: PressStyle()}, None, Some{Value: d.at}, at)
 	body() catch {
 	case err:
 		cut(f, m)
@@ -435,8 +441,14 @@ type Handled[E] { Signal Option[E], Changed bool }
 // on a node f no longer holds (it raced a commit) does nothing.
 func Handle[E](f *Frame[E], event Event[E]) Handled[E] {
 	let mut out = Handled[E]{Signal: None, Changed: false}
+	if len(f.crossed) > 0 {
+		f.crossed = []E{}
+	}
 	match event {
 	case Press[E] as p:
+		// A press is a pointer's (or a key's) press and release: no move
+		// after it is a drag until the next Down (FK12-g1).
+		f.down = arena.Null[node[E]]()
 		let n = f.nodes.Get(p.Id.ref) catch {
 		case arena.Stale:
 			return out
@@ -444,6 +456,9 @@ func Handle[E](f *Frame[E], event Event[E]) Handled[E] {
 		if n.off {
 			return out
 		}
+		// A key's press (Enter on the focused node) keeps the focus look a
+		// key showed; a pointer's Down hid it already (UG3).
+		focusTo(f, p.Id.ref, f.visible && f.focus == p.Id.ref)
 		match n.node {
 		case PressableNode[E] as x:
 			out.Signal = Some{Value: x.On}
@@ -474,6 +489,7 @@ func Handle[E](f *Frame[E], event Event[E]) Handled[E] {
 		if n.off {
 			return out
 		}
+		focusTo(f, x.Id.ref, false)
 		match n.onText {
 		case Some[func(t string) E] as g:
 			out.Signal = Some{Value: g.Value(x.Text)}
@@ -495,7 +511,16 @@ func Handle[E](f *Frame[E], event Event[E]) Handled[E] {
 			out.Signal = Some{Value: a.Signal}
 		}
 	case Point[E] as p:
+		hovered(f, p.Id, p.Pointer)
+		// A pointer's press hides the focus look until a key moves the
+		// focus (focus-visible, UG3).
+		match p.Pointer.Phase {
+		case Down:
+			f.visible = false
+		case _:
+		}
 		let mut pe = p.Pointer
+		pe.Phase = gripped(f, p.Id, p.Pointer.Phase)
 		pe.Zone = None
 		match p.Over {
 		case Some[ZoneBox[E]] as o:
@@ -505,6 +530,20 @@ func Handle[E](f *Frame[E], event Event[E]) Handled[E] {
 		out.Signal = pointed(f, p.Id, pe)
 	case KeyDown as k:
 		out.Signal = keyed(f, k.Press)
+		// Tab's default (UC-TAB): with no key function taking it, Tab moves
+		// the focus to the next focusable node and Shift+Tab to the one
+		// before, as a browser's does after an unprevented keydown.
+		let m = k.Press.Mods
+		match out.Signal {
+		case None:
+			if k.Press.Name == "Tab" && !m.Ctrl && !m.Alt && !m.Meta {
+				focusTo(f, nextFocus(f, m.Shift), true)
+			} else {
+				// A roving group's arrows, Home and End (UG3).
+				let _ = rove(f, k.Press)
+			}
+		case Some[E]:
+		}
 	case URLChanged as u:
 		out.Signal = routed(f, u.URL)
 	case Committed:

@@ -74,13 +74,47 @@ func Failure(who string, from string, to string, stderr string, unsupported []st
 	}
 	for phrase in unsupported {
 		if strings.Contains(lower, phrase) {
-			return work.Unsupported{Cloner: who, Why: text}
+			return work.Unsupported{Cloner: who, Why: FirstLine(text)}
 		}
 	}
 	if strings.Contains(lower, "file exists") {
 		return work.Exists{Path: to}
 	}
 	return work.CloneFailed{Cloner: who, Reason: text}
+}
+
+// FirstLine is the first line of a command's error and how many lines
+// follow it: cp names every file it could not clone, one a line, so the
+// whole text of a tree's refusal is as long as the tree (the verifier's
+// B5).
+func FirstLine(text string) string {
+	let lines = strings.Split(text, "\n")
+	if len(lines) <= 1 {
+		return text
+	}
+	"\(lines[0]) (and \(len(lines) - 1) more lines)"
+}
+
+// UnsupportedSaysOneLine: a refusal cp gave for each of three files is
+// one line and a count (B5's repro).
+test UnsupportedSaysOneLine {
+	let mut e = ""
+	Failure("reflink", "/a", "/b", "cp: failed to clone '/b/x': Operation not supported\ncp: failed to clone '/b/y': Operation not supported\ncp: failed to clone '/b/z': Operation not supported\n", []string{"not supported"}) catch {
+	case work.Unsupported as u:
+		e = u.Why
+	case _:
+	}
+	assert e == "cp: failed to clone '/b/x': Operation not supported (and 2 more lines)"
+}
+
+// FileSystemOf is the type of the file system the folder dir is on, ""
+// when it cannot tell (FileSystemScript).
+func FileSystemOf(t Trees, dir string) string {
+	let r = t.run.Run(exec.New("sh", []string{"-c", FileSystemScript, "work-fs", dir})) catch {
+	case exec.NotFound, exec.Denied, exec.Failed:
+		return ""
+	}
+	if r.Status != 0 { "" } else { strings.TrimSpace(r.Stdout) }
 }
 
 // Leave deletes what a failed clone left at to, so a failure leaves

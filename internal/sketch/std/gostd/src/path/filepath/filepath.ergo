@@ -41,6 +41,7 @@ extern go path/filepath.IsLocal func IsLocal(path string) bool
 
 // ergo:go func Join(elem ...string) string
 // ergo:variadic
+// ergo:reads elem (vouched: it is join(elem), which reslices elem and passes it to strings.Join (a reads row); Go's mutation verdict comes from the inlined Clean of the joined string, which is immutable)
 extern go path/filepath.Join func Join(elem []string) string
 
 // ergo:go const ListSeparator untyped rune

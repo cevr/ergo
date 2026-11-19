@@ -1,6 +1,8 @@
 package check
 
 import (
+	"strings"
+
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -39,6 +41,10 @@ import (
 //     position escapes it, whichever checker path types the statement.
 //  5. assert takes a bool (S108); a fallible operand must be tried (S105,
 //     from valueExpr, as for every value position).
+//  6. skip "reason" stands only in a test body or in a law body that is
+//     not a rewrite law (its lexical owner, as in rule 4; strayAsserts),
+//     and its reason, a string literal, is not blank (skipStmt). Else
+//     S108.
 //
 // Prior art: Elixir's ExUnit `test "…" do … end` and MoonBit's
 // `test "…" { … }` are declarations with no value; Gleam's gleeunit runs
@@ -111,19 +117,28 @@ func (c *checker) claimTestName(id *syntax.Ident, kind string) bool {
 // when the literal is called, not as the test's or the law's own statement.
 // A trailing block and a with body are blocks of their owner, not bodies.
 func (c *checker) strayAsserts() {
-	var walk func(root syntax.Node, admits bool)
-	walk = func(root syntax.Node, admits bool) {
+	var walk func(root syntax.Node, admits, skips bool)
+	walk = func(root syntax.Node, admits, skips bool) {
 		syntax.Inspect(root, func(n syntax.Node) bool {
 			if n == root {
 				return true
 			}
 			switch n := n.(type) {
-			case *syntax.TestDecl, *syntax.LawDecl:
-				walk(n, true)
+			case *syntax.TestDecl:
+				walk(n, true, true)
+				return false
+			case *syntax.LawDecl:
+				// A rewrite law's sides and a reachability law's search are no
+				// run: no skip ends them (rule 6).
+				walk(n, true, n.Rewrite == nil && n.Reach == nil)
 				return false
 			case *syntax.FuncLit:
-				walk(n, false)
+				walk(n, false, false)
 				return false
+			case *syntax.SkipStmt:
+				if !skips {
+					c.errorf(n, CodeType, "skip statements are only allowed in a test or law body (not a rewrite or reachability law, nor a function literal inside one; runtime.md, Tests 4)")
+				}
 			case *syntax.AssertStmt:
 				if admits {
 					return true
@@ -139,9 +154,17 @@ func (c *checker) strayAsserts() {
 	}
 	for _, fi := range c.files {
 		c.cur = fi
-		walk(fi.syntax, false)
+		walk(fi.syntax, false, false)
 	}
 	c.cur = nil
+}
+
+// skipStmt checks `skip "reason"` (rule 6): its reason is not blank. A
+// misplaced skip was reported by strayAsserts.
+func (c *checker) skipStmt(s *syntax.SkipStmt) {
+	if text, ok := s.Text(); !ok || strings.TrimSpace(text) == "" {
+		c.errorIn(s, s.ReasonPos, s.ReasonEnd, CodeType, "skip names its reason: a string literal that is not blank (runtime.md, Tests 4)")
+	}
 }
 
 // assertStmt checks `assert e` (rule 5). A stray assert was reported by

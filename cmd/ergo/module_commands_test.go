@@ -45,9 +45,19 @@ func TestModuleLawSelectionReceipts(t *testing.T) {
 				return string(out), string(err), code
 			}
 			receipts := filepath.Join(root, "receipts")
+			// A run with --receipt keeps no warm answer, so it links the
+			// shared test module, and its stage report counts it: the
+			// examples runner reads that count (GS32a′; it catches
+			// gs32a-shared-uncounted).
+			stageReport := filepath.Join(t.TempDir(), "stage.json")
+			t.Setenv("ERGO_STAGE_REPORT", stageReport)
 			out, stderr, code := run("test", "./...", "--seed", fmt.Sprint(seed), "--receipt", receipts)
 			if code != 1 {
 				t.Fatalf("seed %d: refuted module: exit %d\n%s\n%s", seed, code, out, stderr)
+			}
+			var counts map[string]int64
+			if data, err := os.ReadFile(stageReport); err != nil || json.Unmarshal(data, &counts) != nil || counts["shared_test_modules"] != 1 {
+				t.Errorf("seed %d: the stage report does not count one shared test module: %v %v", seed, err, counts)
 			}
 			for i := range n {
 				path := filepath.Join(receipts, "tree", fmt.Sprintf("p%d.json", i))

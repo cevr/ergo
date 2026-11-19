@@ -119,7 +119,7 @@ func appendLine(r Registry, line string) fails work.Unkept {
 
 // PutLine is the journal line of a put of w.
 func PutLine(w work.Workspace) string {
-	let fields = []string{"put", strconv.Quote(w.Name), strconv.Quote(w.Path), strconv.Quote(w.Parent), strconv.Quote(w.Branch), strconv.Quote(w.Cloner), work.StateName(w.State), strconv.FormatInt(w.Since, 10), strconv.Quote(w.Base), strconv.Quote(w.Latest), strconv.Quote(w.Id), strconv.Quote(w.Deps), strconv.Quote(w.Token), strconv.Quote(w.Moving)}
+	let fields = []string{"put", strconv.Quote(w.Name), strconv.Quote(w.Path), strconv.Quote(w.Parent), strconv.Quote(w.Branch), strconv.Quote(w.Cloner), work.StateName(w.State), strconv.FormatInt(w.Since, 10), strconv.Quote(w.Base), strconv.Quote(w.Latest), strconv.Quote(w.Id), strconv.Quote(w.Deps), strconv.Quote(w.Token), strconv.Quote(w.Moving), if w.Pinned { "pinned" } else { "-" }, strconv.FormatInt(w.Until, 10)}
 	strings.Join(fields, "\t") + "\n"
 }
 
@@ -161,8 +161,8 @@ func ReplayAll(text string) ([]work.Workspace, []work.Tomb) fails work.Unkept {
 			}
 			tombs = tombs.Append(work.Tomb{Id: try field(i, fields[1]), Since: since})
 		case "put":
-			if len(fields) != 8 && len(fields) != 10 && len(fields) != 12 && len(fields) != 14 {
-				return bad(i, "a put has 7, 9, 11 or 13 fields")
+			if len(fields) != 8 && len(fields) != 10 && len(fields) != 12 && len(fields) != 14 && len(fields) != 16 {
+				return bad(i, "a put has 7, 9, 11, 13 or 15 fields")
 			}
 			let state = match work.StateNamed(fields[6]) {
 			case Some[work.State] as s:
@@ -174,15 +174,25 @@ func ReplayAll(text string) ([]work.Workspace, []work.Tomb) fails work.Unkept {
 			case strconv.Malformed, strconv.OutOfRange:
 				return bad(i, "the time \(fields[7]) is not a number")
 			}
-			let mut w = work.Workspace{Name: try field(i, fields[1]), Path: try field(i, fields[2]), Parent: try field(i, fields[3]), Branch: try field(i, fields[4]), Cloner: try field(i, fields[5]), State: state, Since: since, Base: "", Latest: "", Id: "", Deps: "", Token: "", Moving: ""}
+			let mut w = work.Workspace{Name: try field(i, fields[1]), Path: try field(i, fields[2]), Parent: try field(i, fields[3]), Branch: try field(i, fields[4]), Cloner: try field(i, fields[5]), State: state, Since: since, Base: "", Latest: "", Id: "", Deps: "", Token: "", Moving: "", Pinned: false, Until: 0}
 			if len(fields) >= 10 {
 				w = work.Workspace{..w, Base: try field(i, fields[8]), Latest: try field(i, fields[9])}
 			}
 			if len(fields) >= 12 {
 				w = work.Workspace{..w, Id: try field(i, fields[10]), Deps: try field(i, fields[11])}
 			}
-			if len(fields) == 14 {
+			if len(fields) >= 14 {
 				w = work.Workspace{..w, Token: try field(i, fields[12]), Moving: try field(i, fields[13])}
+			}
+			if len(fields) == 16 {
+				if fields[14] != "pinned" && fields[14] != "-" {
+					return bad(i, "the pin \(fields[14]) is not pinned or -")
+				}
+				let until = strconv.ParseInt(fields[15], 10, 64) catch {
+				case strconv.Malformed, strconv.OutOfRange:
+					return bad(i, "the time \(fields[15]) is not a number")
+				}
+				w = work.Workspace{..w, Pinned: fields[14] == "pinned", Until: until}
 			}
 			records = memory.Kept(records, w)
 		case "drop":

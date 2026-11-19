@@ -517,6 +517,15 @@ func main() {
 	use(Mine)
 }
 `,
+	// HTTP-FAST-b: Scheduler.Alarms returns it; only the runtime makes one.
+	"prelude.AlarmClock": `type Mine {}
+
+func use(c AlarmClock) {}
+
+func main() {
+	use(Mine)
+}
+`,
 	// std time (S2b): NewManual's extern returns the Timeline.
 	"time.Timeline": `import time
 
@@ -543,6 +552,20 @@ func IntN(_ Mine, n int) int { 0 }
 func Float64(_ Mine) float64 { 0.5 }
 
 func use(s rand.Stream) { _ = s.Uint64() }
+
+func main() {
+	use(Mine)
+}
+`,
+	// std rand (std-spike D3): Secure is open, as Random is; a program
+	// provides its own (a fixed source for a test, a hardware one).
+	"rand.Secure": `import rand
+
+type Mine {} implements rand.Secure
+
+func Bytes(_ Mine, n int) string { "" }
+
+func use(s rand.Secure) { _ = s.Bytes(0) }
 
 func main() {
 	use(Mine)
@@ -1298,6 +1321,7 @@ var openStd = map[string]bool{
 	"time.Clock":        true,
 	"testing.Stage":     true,
 	"prelude.Random":    true,
+	"rand.Secure":       true,
 	"prelude.Writer":    true,
 	"prelude.Reader":    true,
 	"os.Process":        true,

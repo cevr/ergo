@@ -30,10 +30,42 @@ type Overlap { Earlier time.Time, Later time.Time }
 // dt at most once. It keeps the first and last instant found, not a list,
 // so it allocates nothing but its result.
 func Resolve(z Zone, dt civil.DateTime) Resolved {
-	let wall = civil.UnixDays(dt.Date) * 86400
+	let (u, ns) = wallSeconds(dt)
+	let (found, first, last) = showings(z, u)
+	if found == 1 {
+		return Unique{At: time.Unix(first, ns)}
+	}
+	if found > 1 {
+		return Overlap{Earlier: time.Unix(first, ns), Later: time.Unix(last, ns)}
+	}
+	let (before, after, b) = gapOf(z, u)
+	Gap{Before: time.Unix(u - after, ns), After: time.Unix(u - before, ns), Start: time.Unix(b, 0)}
+}
+
+// CompatibleShift is Compatible(Resolve(z, dt)), and how far it moves dt
+// forward: the gap's length when z skips dt, else 0s (law
+// CompatibleShiftIsCompatible). It makes no Resolved, so a scheduler that
+// asks it for each firing allocates nothing.
+func CompatibleShift(z Zone, dt civil.DateTime) (time.Time, duration) {
+	let (u, ns) = wallSeconds(dt)
+	let (found, first, _) = showings(z, u)
+	if found > 0 {
+		return (time.Unix(first, ns), 0s)
+	}
+	let (before, after, _) = gapOf(z, u)
+	(time.Unix(u - before, ns), duration((after - before) * 1000000000))
+}
+
+// wallSeconds is dt read as UTC: its seconds from 1970 and its
+// nanoseconds.
+func wallSeconds(dt civil.DateTime) (int64, int64) {
 	let inDay = int64(civil.SinceMidnight(dt.Time))
-	let u = wall + inDay / 1000000000
-	let ns = inDay % 1000000000
+	(civil.UnixDays(dt.Date) * 86400 + inDay / 1000000000, inDay % 1000000000)
+}
+
+// showings is how many instants z shows the wall second u at, and the
+// first and last of them.
+func showings(z Zone, u int64) (int, int64, int64) {
 	let lo = u - z.most - 1
 	let hi = u - z.least + 1
 	let mut found = 0
@@ -55,18 +87,20 @@ func Resolve(z Zone, dt civil.DateTime) Resolved {
 		}
 		from = b
 	}
-	if found == 1 {
-		return Unique{At: time.Unix(first, ns)}
-	}
-	if found > 1 {
-		return Overlap{Earlier: time.Unix(first, ns), Later: time.Unix(last, ns)}
-	}
+	(found, first, last)
+}
+
+// gapOf is the offsets before and after the change whose gap holds the
+// wall second u, which z never shows, and the change's instant.
+func gapOf(z Zone, u int64) (int64, int64, int64) {
+	let lo = u - z.most - 1
+	let hi = u - z.least + 1
 	let mut b = changeAfter(z, lo, hi, true)
 	for b > lo {
 		let before = int64(lookup(z, b - 1).Seconds)
 		let after = int64(lookup(z, b).Seconds)
 		if after > before && u >= b + before && u < b + after {
-			return Gap{Before: time.Unix(u - after, ns), After: time.Unix(u - before, ns), Start: time.Unix(b, 0)}
+			return (before, after, b)
 		}
 		let next = changeAfter(z, b, hi, true)
 		b = if next > b { next } else { lo }
@@ -142,6 +176,30 @@ law GapIsNeverShown(i int64, s int64, k int64) {
 		false
 	}
 	ok
+}
+
+// CompatibleShiftIsCompatible: CompatibleShift is Compatible of Resolve,
+// and its shift is the gap's length for a wall time the zone skips and 0s
+// otherwise, at wall times from an hour before a drawn change, forward or
+// back, to two hours after it.
+law CompatibleShiftIsCompatible(i int64, s int64, k int64) {
+	let z = anyZone(i)
+	let c = match nextChange(z, anyInstant(s, 0), k % 2 == 0) {
+	case None:
+		return true
+	case Some[Transition] as v:
+		v.Value
+	}
+	let wall = civil.DateTimeOf(time.Unix(time.UnixSeconds(c.At) + int64(c.Before.Seconds) - 3600 + within(k, 0, 3 * 3600), 0))
+	let r = Resolve(z, wall)
+	let (t, shift) = CompatibleShift(z, wall)
+	let want = match r {
+	case Gap as g:
+		time.Sub(g.After, g.Before)
+	case Unique, Overlap:
+		0s
+	}
+	t == Compatible(r) && shift == want
 }
 
 // OverlapIsOrdered: a wall time inside the overlap of a backward change is

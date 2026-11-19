@@ -17,9 +17,9 @@
 // seeded generator for gen.
 
 import actor
-import dash/feed
-import dash/script
-import dash/synth
+import ergo.local/prototype/examples/dashgui/feed
+import ergo.local/prototype/examples/dashgui/script
+import ergo.local/prototype/examples/dashgui/synth
 import flag
 import io
 import os

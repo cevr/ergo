@@ -102,5 +102,6 @@ func Site() appweb.Site[Route, Route, Gone] {
 			}
 		},
 		NotFound: func(path string) html.Node { html.P([]html.Child{html.Text("no page at " + path)}) },
+		Assets:   []appweb.Asset{},
 	}
 }

@@ -54,6 +54,15 @@
       "killers": ["scripts/gate:TestFastTierReachOfAnEdit"]
     },
     {
+      "name": "cpu-round-nearest",
+      "origin": "wf10 CPU-ROUND (batch-19 verifier: Ceil -> Round survived 3/3)",
+      "file": "scripts/gate/tier.go",
+      "from": "return math.Ceil(seconds*10) / 10",
+      "to": "return math.Round(seconds*10) / 10",
+      "rule": "A recorded CPU row rounds up to the next tenth: a step that used any CPU never records 0.",
+      "killers": ["scripts/gate:TestCPUTenthsRoundsUpProperty"]
+    },
+    {
       "name": "gateex-step-recorded-as-package",
       "origin": "wf10 GATE-ex",
       "file": "scripts/gate/tier.go",
@@ -68,8 +77,8 @@
       "file": "scripts/gate/main.go",
       "from": "\tif _, set := os.LookupEnv(ergoGo); !set {",
       "to": "\tif _, set := os.LookupEnv(ergoGo); false && !set {",
-      "rule": "A gate step's ergo builds with the system go and never downloads Go, unless the caller sets ERGO_GO.",
-      "killers": ["scripts/gate:TestStepsBuildWithTheSystemGo"]
+      "rule": "A gate step's ergo builds with the go of go.mod's toolchain and never downloads Go, unless the caller sets ERGO_GO.",
+      "killers": ["scripts/gate:TestStepsBuildWithTheModuleGo"]
     },
     {
       "name": "b18-full-tier-package-unrecognized",
@@ -129,8 +138,8 @@
       "name": "gf3-shard-deadline-ignores-cost",
       "origin": "wf10 batch-16b gate16b-fix3",
       "file": "scripts/gate/steps.go",
-      "from": "argv := append([]string{\"go\", \"test\", testTimeoutFor(weights[i])}, selection...)",
-      "to": "argv := append([]string{\"go\", \"test\", testTimeout}, selection...)",
+      "from": "argv := append([]string{\"go\", \"test\", \"-json\", testTimeoutFor(weights[i])}, selection...)",
+      "to": "argv := append([]string{\"go\", \"test\", \"-json\", testTimeout}, selection...)",
       "rule": "A shard's deadline is ten times its recorded cost.",
       "killers": ["scripts/gate:TestGoTestStepsHaveHangDeadlines"]
     },
@@ -208,8 +217,8 @@
     { "name": "gs9-embed-own-folder", "origin": "wf10 GS9 r1", "file": "scripts/gate/selection.go", "from": "\t\tif deps[dir] {\n\t\t\treturn dir\n", "to": "\t\tif true {\n\t\t\treturn dir\n", "rule": "An embedded file in a folder below its package (std's json/*.ergo) belongs to that package: it is observed, so its edit reruns its readers only.", "killers": ["scripts/gate:TestSelectionRunsEveryTestAnEditReaches"] },
     { "name": "gs9-prefix-observes", "origin": "wf10 GS9 r1", "file": "scripts/gate/selection.go", "from": "slices.Contains(observedEmbeds, embeddingPackage(rel, deps))", "to": "slices.ContainsFunc(observedEmbeds, func(d string) bool { return strings.HasPrefix(rel, d+\"/\") })", "rule": "A file another package embeds below an observing package (std's gostd/src) is not observed: its edit runs every test.", "killers": ["scripts/gate:TestSelectionRunsEveryTestAnEditReaches"] },
     { "name": "gs10-shared-gotmpdir", "origin": "wf10 GS10", "file": "scripts/gate/selection.go", "from": "setEnvironmentVariable(setEnvironmentVariable(env, \"TMPDIR\", temporary), \"GOTMPDIR\", temporary)", "to": "setEnvironmentVariable(env, \"TMPDIR\", temporary)", "rule": "The record runs each test with its own GOTMPDIR, so the shared one's listing, which every go build changes, is no read that selects a test.", "killers": ["scripts/gate:TestSelectionRunsEveryTestAnEditReaches"] },
-    { "name": "gs4-declaration-as-body", "origin": "wf10 GS4", "file": "scripts/gate/selection.go", "from": "\t\tif !inside {\n\t\t\tcontinue", "to": "\t\tif !inside && false {\n\t\t\tcontinue", "rule": "An edit outside every function body (a constant, a declaration) runs every test: no block holds it.", "killers": ["scripts/gate:TestSelectionRunsEveryTestAnEditReaches"] },
-    { "name": "gs4-one-hunk", "origin": "wf10 GS4", "file": "scripts/gate/linediff.go", "from": "\tkeepA, keepB, ok := myersKeep(a, b)\n\tif !ok {", "to": "\tkeepA, keepB, ok := myersKeep(a, b)\n\tif !ok || true {", "rule": "Two edited function bodies of one file are two hunks, each judged in its function (the line diff), not one span across both.", "killers": ["scripts/gate:TestSelectionRunsEveryTestAnEditReaches"] },
+    { "name": "gs4-declaration-as-body", "origin": "wf10 GS4", "file": "scripts/gate/bodyedit/body.go", "from": "\t\tif !inside {\n\t\t\tcontinue", "to": "\t\tif !inside && false {\n\t\t\tcontinue", "rule": "An edit outside every function body (a constant, a declaration) runs every test: no block holds it.", "killers": ["scripts/gate:TestSelectionRunsEveryTestAnEditReaches"] },
+    { "name": "gs4-one-hunk", "origin": "wf10 GS4", "file": "scripts/gate/bodyedit/linediff.go", "from": "\tkeepA, keepB, ok := myersKeep(a, b)\n\tif !ok {", "to": "\tkeepA, keepB, ok := myersKeep(a, b)\n\tif !ok || true {", "rule": "Two edited function bodies of one file are two hunks, each judged in its function (the line diff), not one span across both.", "killers": ["scripts/gate:TestSelectionRunsEveryTestAnEditReaches"] },
     { "name": "gs4-skip-unwired", "origin": "wf10 GS4", "file": "scripts/gate/tier.go", "from": "large = append(large, chosen.skip...)", "to": "large = append(large)", "rule": "A test the selection skips joins the names every shard of the package skips.", "killers": ["scripts/gate:TestFastTierSkipsWhatTheSelectorSkips"] },
     { "name": "gs6-chain-ignored", "origin": "wf10 GS6", "file": "scripts/gate/priority.go", "from": "priority[i] = own[i] + chain", "to": "priority[i] = own[i]", "rule": "A step's priority adds the longest chain of the steps that need it.", "killers": ["scripts/gate:TestStepPrioritiesFollowTheLongestChain", "scripts/gate:TestRecordedTimeOrdersTheNextRun"] },
     { "name": "gs6-times-ignored", "origin": "wf10 GS6", "file": "scripts/gate/priority.go", "from": "recorded := times.longest(step.Name); recorded > 0 {", "to": "recorded := times.longest(step.Name); recorded > 1e18 {", "rule": "A step's recorded time on this host replaces its declared weight.", "killers": ["scripts/gate:TestStepPrioritiesFollowTheLongestChain", "scripts/gate:TestRecordedTimeOrdersTheNextRun"] },
@@ -224,8 +233,8 @@
       "name": "gatesandbox-sweep-store-per-step",
       "origin": "wf10 fu-gate-sandbox",
       "file": "scripts/gate/steps.go",
-      "from": "sweepVariable + \"=\" + selection, sweepStdVariable + \"=\" + sweepStdDir()}",
-      "to": "sweepVariable + \"=\" + selection}",
+      "from": "sweepVariable + \"=\" + selection, sweepStdVariable + \"=\" + sweepStdDir(), ",
+      "to": "sweepVariable + \"=\" + selection, ",
       "rule": "The closure sweep steps of a run share one std store, outside each step's TMPDIR.",
       "killers": ["scripts/gate:TestSweepsShareOneStdStore"]
     },
@@ -290,6 +299,130 @@
     {"name":"gs21-vet-bases-ignored","origin":"wf10 GS21","file":"scripts/gate/main.go","from":"path.Match(pattern, path.Base(name)); ok {","to":"path.Match(pattern, path.Base(name)); ok && pattern == \"\" {","rule":"A file whose base name matches Bases is keyed by its content: a Go edit runs vet again.","killers":["scripts/gate:TestVetKeysGoSourcesAndEveryName"]},
     {"name":"gs21-vet-unlisted","origin":"wf10 GS21","file":"scripts/gate/main.go","from":"\t\t\tfmt.Fprintf(hash, \"listed\\x00%s\\x00\", name)\n","to":"","rule":"Listed keys every other file's name: adding or removing an embedded file runs vet again.","killers":["scripts/gate:TestVetKeysGoSourcesAndEveryName"]},
     {"name":"gs21-vet-go-dropped","origin":"wf10 GS21","file":"scripts/gate/steps.go","from":"\t\tListed: true,\n\t\tTools:  []string{\"go\"},\n","to":"\t\tListed: true,\n","rule":"go vet's key holds Go's version and settings.","killers":["scripts/gate:TestVetKeysGoSourcesAndEveryName"]},
-    {"name":"gs21-vet-every-content","origin":"wf10 GS21","file":"scripts/gate/steps.go","from":"\t\tBases:  []string{\"*.go\", \"*.s\", \"go.mod\", \"go.sum\", \"go.work\"},\n","to":"\t\tBases:  []string{\"*\"},\n","rule":"go vet does not key the content of a file it does not read: an embedded .ergo edit replays it.","killers":["scripts/gate:TestVetKeysGoSourcesAndEveryName"]}
+    {"name":"gs21-vet-every-content","origin":"wf10 GS21","file":"scripts/gate/steps.go","from":"\t\tBases:  []string{\"*.go\", \"*.s\", \"go.mod\", \"go.sum\", \"go.work\"},\n","to":"\t\tBases:  []string{\"*\"},\n","rule":"go vet does not key the content of a file it does not read: an embedded .ergo edit replays it.","killers":["scripts/gate:TestVetKeysGoSourcesAndEveryName"]},
+    {
+      "name": "gt1-sweep-unkeyed",
+      "origin": "wf10 GATE2 GT1",
+      "file": "scripts/gate/sweepkey.go",
+      "from": "step.Package = sweepClosure(swept, sweeper)",
+      "to": "step.Package = sweepClosure(swept, sweeper); step.Package = nil",
+      "rule": "A sweep whose inputs did not change replays its pass.",
+      "killers": ["scripts/gate:TestSweepReplayAgreesWithAFullSweep"]
+    },
+    {
+      "name": "gt1-sweeper-dropped",
+      "origin": "wf10 GATE2 GT1",
+      "file": "scripts/gate/sweepkey.go",
+      "from": "Deps:   append(slices.Clone(swept.Deps), sweeper.Deps...),",
+      "to": "Deps:   slices.Clone(swept.Deps),",
+      "rule": "A sweep's key holds the sweeper's own sources: its rules and tables.",
+      "killers": ["scripts/gate:TestSweepReplayAgreesWithAFullSweep"]
+    },
+    {
+      "name": "gt1-declared-dropped",
+      "origin": "wf10 GATE2 GT1",
+      "file": "scripts/gate/sweepkey.go",
+      "from": "union.Declared = append(append(slices.Clone(swept.Declared), sweeper.Declared...)",
+      "to": "union.Declared = append(append([]replay.Allowance(nil), sweeper.Declared...)",
+      "rule": "A sweep's key holds the swept package's declared inputs.",
+      "killers": ["scripts/gate:TestSweepReplayAgreesWithAFullSweep"]
+    },
+    {
+      "name": "gt1-table-names-dropped",
+      "origin": "wf10 GATE2 GT1",
+      "file": "scripts/gate/sweepkey.go",
+      "from": "step.KeyParts = parts",
+      "to": "step.KeyParts = parts[:0]",
+      "rule": "A sweep's key holds which packages the sweeper's tables name are test packages.",
+      "killers": ["scripts/gate:TestSweepReplayAgreesWithAFullSweep"]
+    },
+    {
+      "name": "gt1-table-names-unfiltered",
+      "origin": "wf10 GATE2 GT1",
+      "file": "scripts/gate/sweepkey.go",
+      "from": "if _, ok := tested[name]; ok {",
+      "to": "if _, ok := tested[name]; ok || !ok {",
+      "rule": "A table name that stops being a test package changes every sweep's key.",
+      "killers": ["scripts/gate:TestSweepReplayAgreesWithAFullSweep"]
+    },
+    {
+      "name": "gt1-literals-none",
+      "origin": "wf10 GATE2 GT1",
+      "file": "scripts/gate/sweepkey.go",
+      "from": "literals = append(literals, value)",
+      "to": "_ = value",
+      "rule": "The sweeper's table names are read from its source.",
+      "killers": ["scripts/gate:TestSweepReplayAgreesWithAFullSweep"]
+    },
+    {
+      "name": "gt1-full-tier-unkeyed",
+      "origin": "wf10 GATE2 GT1",
+      "file": "scripts/gate/tier.go",
+      "from": "return fullSteps(root)",
+      "to": "return gateSteps(root)",
+      "rule": "The full tier's sweeps are keyed.",
+      "killers": ["scripts/gate:TestGateTierReachesReplay"]
+    },
+    {
+      "name": "gt5-merge-sweeps-uncached",
+      "origin": "wf10 GATE2 GT5",
+      "file": "scripts/gate/main.go",
+      "from": "case !g.noCache || g.sweepCollect != nil && step.Sweep != \"\":",
+      "to": "case !g.noCache:",
+      "rule": "The merge tier's uncached run replays a sweep whose merge-tier key is unchanged.",
+      "killers": ["scripts/gate:TestMergeTierReplaysUnchangedSweeps"]
+    },
+    {
+      "name": "gt5-merge-takes-full",
+      "origin": "wf10 GATE2 GT5",
+      "file": "scripts/gate/main.go",
+      "from": "return replay.WithTier(facts, mergeTierName), nil",
+      "to": "return replay.WithTier(facts, fullTier), nil",
+      "rule": "A merge-tier sweep key names the merge tier: a full-tier pass never stands for it.",
+      "killers": ["scripts/gate:TestMergeTierReplaysUnchangedSweeps"]
+    },
+    {
+      "name": "gt5-end-facts-whole",
+      "origin": "wf10 GATE2 GT5",
+      "file": "scripts/gate/main.go",
+      "from": "\t\tcollectEnd = g.sweepCollect\n",
+      "to": "\t\t_ = collectEnd\n",
+      "rule": "The uncached run's sweep records compare their start key with the end facts of the same tier.",
+      "killers": ["scripts/gate:TestMergeTierReplaysUnchangedSweeps"]
+    },
+    {
+      "name": "gt5-no-own-object",
+      "origin": "wf10 GATE2 GT5",
+      "file": "scripts/gate/main.go",
+      "from": "if own, err := replay.Open(g.cacheDir).NewObject(); err == nil {",
+      "to": "if own, err := replay.Open(g.cacheDir).NewObject(); err == nil && own == nil {",
+      "rule": "A sweep pass of the uncached run stores its output, so it can be recorded.",
+      "killers": ["scripts/gate:TestMergeTierReplaysUnchangedSweeps"]
+    },
+    {
+      "name": "gt5-reference-replays",
+      "origin": "wf10 GATE2 GT5",
+      "file": "scripts/gate/main.go",
+      "from": "\t\t\tif !g.noCache {\n\t\t\t\t// --merge --no-cache, the reference, sweeps every package.",
+      "to": "\t\t\tif true {\n\t\t\t\t// --merge --no-cache, the reference, sweeps every package.",
+      "rule": "--merge --no-cache, the reference, replays no sweep.",
+      "killers": ["scripts/gate:TestMergeTierReplaysUnchangedSweeps"]
+    },
+    {"name":"gs33b-last-time","origin":"wf10 GS34","file":"scripts/gate/observed.go","from":"row[name] = slices.Max(times)","to":"row[name] = times[len(times)-1] + 0*slices.Max(times)","rule":"A test's time is the largest of its kept times: one time over the cutoff keeps it out of the fast tier for observedKeep runs.","killers":["scripts/gate:TestObservedTimesMoveSlowTestsToTheFullTier"]},
+    {"name":"gs34-full-unobserved","origin":"wf10 GS34","file":"scripts/gate/steps.go","from":"ToolEnv: testTools, Observe: true, GoStore: slices.Contains(goStorePackages, relative), Weight: weights[i]","to":"ToolEnv: testTools, GoStore: slices.Contains(goStorePackages, relative), Weight: weights[i]","rule":"A full-tier package test step is observed, so a large test's time can fall back under the cutoff.","killers":["scripts/gate:TestAnObservedSlowTestLeavesTheFastTier"]},
+    {"name":"gs33b-store-ignored","origin":"wf10 GS33b","file":"scripts/gate/observed.go","from":"for name, times := range loadObserved(cacheDir, importPath) {","to":"for name, times := range map[string][]float64(nil) {","rule":"The size rule reads the observed store: a test seen at sizeCutoff or longer leaves the fast tier at the next run.","killers":["scripts/gate:TestObservedTimesMoveSlowTestsToTheFullTier","scripts/gate:TestAnObservedSlowTestLeavesTheFastTier"]},
+    {"name":"gs33b-keep-first","origin":"wf10 GS33b","file":"scripts/gate/observed.go","from":"kept = kept[len(kept)-observedKeep:]","to":"kept = kept[:observedKeep]","rule":"The store keeps each test's last observedKeep times, not its first.","killers":["scripts/gate:TestObservedTimesMoveSlowTestsToTheFullTier"]},
+    {"name":"gs33b-json-dropped","origin":"wf10 GS33b","file":"scripts/gate/tier.go","from":"base := []string{\"go\", \"test\", fastFlag, \"-json\"}","to":"base := []string{\"go\", \"test\", fastFlag}","rule":"A fast-tier test step runs go test -json, so the gate can observe its tests' times.","killers":["scripts/gate:TestAnObservedSlowTestLeavesTheFastTier"]},
+    {"name":"gs33b-observe-unset","origin":"wf10 GS33b","file":"scripts/gate/tier.go","from":"Observe: true,","to":"Observe: false,","rule":"A fast-tier test step names the package it observes.","killers":["scripts/gate:TestAnObservedSlowTestLeavesTheFastTier"]},
+    {"name":"gs33b-declared-from-seed","origin":"wf10 GS33b","file":"scripts/gate/tier.go","from":"durations, err := testSeconds(root, cacheDir)","to":"durations, err := readDurations(root)","rule":"The fast tier the gate declares reads the store over durations.json.","killers":["scripts/gate:TestAnObservedSlowTestLeavesTheFastTier"]},
+    {"name":"gs33b-fail-output-dropped","origin":"wf10 GS33b","file":"scripts/gate/observed.go","from":"\t\t\tif b := held[top]; b != nil {\n\t\t\t\twrite(b.String())\n\t\t\t\tdelete(held, top)","to":"\t\t\tif b := held[top]; b != nil {\n\t\t\t\tdelete(held, top)","rule":"A failed test's lines print, as plain go test prints them.","killers":["scripts/gate:TestRenderedTestTextIsPlainGoTest"]},
+    {"name":"gs33b-pass-output-shown","origin":"wf10 GS33b","file":"scripts/gate/observed.go","from":"case event.Test == name && (event.Action == \"pass\" || event.Action == \"skip\"):\n\t\t\tdelete(held, top)","to":"case event.Test == name && (event.Action == \"pass\" || event.Action == \"skip\"):","rule":"A passed or skipped test prints nothing, as plain go test.","killers":["scripts/gate:TestRenderedTestTextIsPlainGoTest"]},
+    {"name":"gs33b-unended-dropped","origin":"wf10 GS33b","file":"scripts/gate/observed.go","from":"\tfor _, top := range order {\n\t\tif b := held[top]; b != nil {\n\t\t\twrite(b.String())","to":"\tfor _, top := range order {\n\t\tif b := held[top]; b != nil {\n\t\t\t_ = b","rule":"A test that never ended (a timeout, a crash) prints its lines.","killers":["scripts/gate:TestRenderedTestTextIsPlainGoTest"]},
+    {"name":"gs33b-verbose-lines-kept","origin":"wf10 GS33b","file":"scripts/gate/observed.go","from":"\t\t\tif verbose(event.Output) {\n\t\t\t\treturn","to":"\t\t\tif false && verbose(event.Output) {\n\t\t\t\treturn","rule":"The lines -json's implied -v adds are not printed.","killers":["scripts/gate:TestRenderedTestTextIsPlainGoTest"]},
+    {"name":"gate-seed-any-replace-local","origin":"wf10 I19 verify r3 M1","file":"scripts/gate/inputs.go","from":"\t\t\t\tif to := strings.Fields(target); len(to) == 1 && isDirectoryPath(unquoteModule(to[0])) {\n","to":"\t\t\t\tif to := strings.Fields(target); len(to) >= 1 {\n","rule":"The merge tier verifies every downloaded module against go.sum: only a replace by a local directory exempts a require.","killers":["scripts/gate:TestSeedModulesRefusesUnverifiedRequirements"]},
+    {"name":"heavy-cost2-gate-tags-recorded","origin":"wf10 HEAVY-COST-2","file":"scripts/gate/closurerecord.go","from":"\t\tif arg == \"-tags\" || ","to":"\t\tif false && arg == \"-tags\" || ","rule":"A go test step with build tags runs another test binary than the sweep builds, so it records nothing for the sweep.","killers":["scripts/gate:TestMergeTierRecordsForTheSweep"]},
+    {"name":"heavy-cost2-gate-sweep-unordered","origin":"wf10 HEAVY-COST-2","file":"scripts/gate/closurerecord.go","from":"\t\tsweep.Needs = append(slices.Clone(step.Needs), names...)\n","to":"\t\tsweep.Needs = slices.Clone(step.Needs)\n","rule":"A closure sweep that reads a package's records waits for the steps that write them.","killers":["scripts/gate:TestMergeTierRecordsForTheSweep"]},
+    {"name":"heavy-cost2-gate-inner-changed","origin":"wf10 HEAVY-COST-2","file":"scripts/gate/closurerecord.go","from":"\t\trecorded := *step\n\t\trecorded.Env = append(slices.Clone(step.Env), closureRecordVariable+\"=\"+dir)\n\t\tout[i] = &recorded\n","to":"\t\tstep.Env = append(step.Env, closureRecordVariable+\"=\"+dir)\n","rule":"The merge tier's record changes its own copies; the inner tier's steps, and their keys, are unchanged.","killers":["scripts/gate:TestMergeTierRecordsForTheSweep"]},
+    {"name":"heavy-cost2-gate-record-beside-writer","origin":"wf10 HEAVY-COST-2","file":"scripts/gate/writes.go","from":"\t\tif step.Sweep != \"\" || recordsForSweep(step) {","to":"\t\tif step.Sweep != \"\" {","rule":"A step that records its runs for a sweep starts after every writer of the checkout, as the sweep does.","killers":["scripts/gate:TestMergeTierRecordsForTheSweep"]}
   ]
 }

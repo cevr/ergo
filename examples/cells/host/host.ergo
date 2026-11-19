@@ -135,6 +135,8 @@ func apply[E comparable, S, D, F](h *Host[S, E, D, F], op ui.Op[E]) {
 			h.nodes[x.Id] = held[E]{node: x.Node, kids: n.Value.kids}
 		case None:
 		}
+	case ui.Define:
+		// A look's definition: this host draws no looks.
 	}
 }
 

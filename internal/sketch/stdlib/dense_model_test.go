@@ -18,11 +18,14 @@ import (
 )
 
 // The model property of std dense (docs/spec/stdlib.md, Dense stores 5):
-// seeded command sequences over a Table, a Count with a Col, a Side and a
-// Pool run on std dense and on a reference model of plain Go slices and a
+// seeded command sequences over a Table, a Count with a Col, a Side, a
+// Pool and a Stack run on std dense and on a reference model of plain Go slices and a
 // map, and each command prints one line that both must agree on. The same
 // sequences run on a copy of dense.ergo in a user module, which must check
-// and print the same lines (TestDenseCopyAgrees).
+// and print the same lines (TestDenseCopyAgrees). Every other seed makes
+// its Table, Col, Pool and Stack with a capacity (WithCap and the rest,
+// SL2), from 0 to past what the seed puts: the same model holds, so a
+// store made with a capacity reads as one made empty (law WithCapIsNew).
 
 // denseSeeds is the count of seeds one run checks; denseSeedVariable
 // replays one.
@@ -40,6 +43,7 @@ type denseModel struct {
 	zero  int
 	lists [][]int
 	items int
+	stack []int
 }
 
 // denseCase is one seed: its Ergo statements (with P for the package) and
@@ -51,7 +55,7 @@ type denseCase struct {
 }
 
 // denseOps are the generator's commands, by name: each must be reached.
-var denseOps = []string{"put", "at", "get", "set", "each", "ids", "rows", "opt", "next", "of", "setof", "sideset", "sideof", "putlist", "list"}
+var denseOps = []string{"put", "at", "get", "set", "each", "ids", "rows", "opt", "next", "of", "setof", "sideset", "sideof", "putlist", "list", "push", "cut", "since", "putsince"}
 
 // genDense builds the case of seed, and marks in reach each command and
 // each branch it reached.
@@ -59,18 +63,25 @@ func genDense(seed int, reach map[string]bool) denseCase {
 	r := rand.New(rand.NewPCG(uint64(seed), 0xd15e))
 	m := denseModel{side: map[int]int{}, zero: r.IntN(5) - 2}
 	c := denseCase{seed: seed}
+	newTable, newCol, newPool, newStack := "P.New[int]()", "P.NewCol[int, int]()", "P.NewPool[int]()", "P.NewStack[int]()"
+	if seed%2 == 1 {
+		k := r.IntN(80)
+		newTable, newCol, newPool, newStack = fmt.Sprintf("P.WithCap[int](%d)", k), fmt.Sprintf("P.ColWithCap[int, int](%d)", k), fmt.Sprintf("P.PoolWithCap[int](%d)", k), fmt.Sprintf("P.StackWithCap[int](%d)", k)
+		reach["with a capacity"] = true
+	}
 	c.body = append(c.body,
-		"let mut t = P.New[int]()",
+		"let mut t = "+newTable,
 		"let mut ids = []P.ID[int]{}",
 		"let mut big = P.New[int]()",
 		"let mut far = []P.ID[int]{}",
 		fmt.Sprintf("for i in 0..%d {\n\t\tfar = far.Append(big.Put(i))\n\t}", denseBig),
 		"let mut c = P.NewCount[int]()",
-		"let mut col = P.NewCol[int, int]()",
+		"let mut col = "+newCol,
 		"let mut cids = []P.ID[int]{}",
 		fmt.Sprintf("let mut side = P.NewSide[int, int](%d)", m.zero),
-		"let mut pool = P.NewPool[int]()",
+		"let mut pool = "+newPool,
 		"let mut runs = []P.Run[int]{}",
+		"let mut st = "+newStack,
 	)
 	stores := len(c.body)
 	say := func(stmt, line string) {
@@ -87,6 +98,10 @@ func genDense(seed int, reach map[string]bool) denseCase {
 				(op == "of" || op == "setof") && len(m.col) == 0,
 				op == "list" && len(m.lists) == 0:
 				op = "put"
+			case op == "cut" || op == "since" || op == "putsince":
+				if len(m.stack) == 0 {
+					op = "push"
+				}
 			}
 		}
 		reach[op] = true
@@ -185,6 +200,36 @@ func genDense(seed int, reach map[string]bool) denseCase {
 			m.items += len(list)
 			say(fmt.Sprintf("runs = runs.Append(pool.PutList([]int{%s}))\n\tConsole.Println(\"putlist \\(P.RunLen(runs[len(runs)-1])) \\(P.Items(pool))\")", strings.Join(xs, ", ")),
 				fmt.Sprintf("putlist %d %d", len(list), m.items))
+		case "push":
+			m.stack = append(m.stack, v)
+			say(fmt.Sprintf("st.StackPush(%d)\n\tConsole.Println(\"push \\(P.Depth(st)) \\(P.Mark(st))\")", v),
+				fmt.Sprintf("push %d %d", len(m.stack), len(m.stack)))
+		case "cut":
+			k := r.IntN(len(m.stack) + 1)
+			if k == len(m.stack) {
+				reach["cut at the top"] = true
+			}
+			m.stack = m.stack[:k]
+			say(fmt.Sprintf("st.Cut(%d)\n\tConsole.Println(\"cut \\(P.Depth(st))\")", k), fmt.Sprintf("cut %d", k))
+		case "since":
+			k := r.IntN(len(m.stack) + 1)
+			sum := 0
+			for i, x := range m.stack[k:] {
+				sum += x * (i + 1)
+			}
+			say(fmt.Sprintf("let mut s%s = 0\n\tfor k, x in P.Since(st, %d) {\n\t\ts%s += x * (k + 1)\n\t}\n\tConsole.Println(\"since \\(s%s) \\(len(P.Since(st, %d)))\")", s, k, s, s, k),
+				fmt.Sprintf("since %d %d", sum, len(m.stack)-k))
+		case "putsince":
+			k := r.IntN(len(m.stack) + 1)
+			if k == len(m.stack) {
+				reach["empty list"] = true
+			}
+			list := append([]int{}, m.stack[k:]...)
+			m.lists = append(m.lists, list)
+			m.items += len(list)
+			m.stack = m.stack[:k]
+			say(fmt.Sprintf("runs = runs.Append(P.PutSince(&pool, &st, %d))\n\tConsole.Println(\"putsince \\(P.RunLen(runs[len(runs)-1])) \\(P.Items(pool)) \\(P.Depth(st))\")", k),
+				fmt.Sprintf("putsince %d %d %d", len(list), m.items, k))
 		case "list":
 			i := r.IntN(len(m.lists))
 			sum := 0
@@ -200,8 +245,8 @@ func genDense(seed int, reach map[string]bool) denseCase {
 	if !ok {
 		sideFirst = m.zero
 	}
-	say("Console.Println(\"end \\(len(ids)) \\(P.Len(big)) \\(P.Total(c)) \\(len(cids)) \\(P.In(col, far[0])) \\(P.SideOf(side, far[0])) \\(P.Items(pool)) \\(len(runs))\")",
-		fmt.Sprintf("end %d %d %d %d %t %d %d %d", len(m.rows), denseBig, len(m.col), len(m.col), len(m.col) > 0, sideFirst, m.items, len(m.lists)))
+	say("Console.Println(\"end \\(len(ids)) \\(P.Len(big)) \\(P.Total(c)) \\(len(cids)) \\(P.In(col, far[0])) \\(P.SideOf(side, far[0])) \\(P.Items(pool)) \\(len(runs)) \\(P.Depth(st))\")",
+		fmt.Sprintf("end %d %d %d %d %t %d %d %d %d", len(m.rows), denseBig, len(m.col), len(m.col), len(m.col) > 0, sideFirst, m.items, len(m.lists), len(m.stack)))
 	// A store no command changes is a plain let (S110).
 	var uses []string
 	for i, stmt := range c.body {
@@ -216,7 +261,7 @@ func genDense(seed int, reach map[string]bool) denseCase {
 			continue
 		}
 		name, _, _ = strings.Cut(name, " ")
-		if !regexp.MustCompile(`\b` + name + `( = |\.(Put|Set|Next|Push|SetOf|SideSet|PutList)\()`).MatchString(rest) {
+		if !regexp.MustCompile(`\b` + name + `( = |\.(Put|Set|Next|Push|SetOf|SideSet|PutList|StackPush|Cut)\()|&` + name + `\b`).MatchString(rest) {
 			c.body[i] = "let " + strings.TrimPrefix(decl, "let mut ")
 		}
 	}
@@ -423,7 +468,7 @@ func TestDenseAgreesWithModel(t *testing.T) {
 		denseDiff(t, c, "dense", "the model", c.lines)
 	}
 	if os.Getenv(denseSeedVariable) == "" {
-		for _, want := range append(append([]string{}, denseOps...), "get hit", "get past the end", "each stops", "ids stops", "side default", "empty list") {
+		for _, want := range append(append([]string{}, denseOps...), "get hit", "get past the end", "each stops", "ids stops", "side default", "empty list", "with a capacity", "cut at the top") {
 			if !denseRun.reach[want] {
 				t.Errorf("no seed reached %s", want)
 			}

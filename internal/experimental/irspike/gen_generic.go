@@ -154,55 +154,45 @@ func countB(n int) int {
 	b.WriteString("func mi(k int) MI {\n\tif k % 3 == 0 {\n\t\treturn I0\n\t}\n\tif k % 3 == 1 {\n\t\treturn I1\n\t}\n\tI2\n}\n\n")
 	b.WriteString("func mstep(s MS, e MI) Decision[MS, E3] {\n\tmatch (s, e) {\n")
 	outs := []string{"EA", "EB", "EC"}
+	vs := decisionVariants() // gen_decision.go
+	moves := -1              // the first variant that moves and outputs nothing
+	for i, v := range vs {
+		if moves < 0 && v.has("Next") && !v.has("Output") {
+			moves = i
+		}
+	}
 	for _, s := range states {
 		for _, e := range signals {
+			v := vs[r.IntN(len(vs))]
 			next := states[r.IntN(len(states))]
-			var d string
-			switch r.IntN(8) {
-			case 0, 1:
-				d = "Enter[MS]{Next: " + next + "}"
-			case 2, 3:
-				d = "Stay[MS]{Next: " + s + "}"
-			case 4, 5:
-				d = "Emit[MS, E3]{Next: " + next + ", Output: " + outs[r.IntN(3)] + "}"
-			case 6:
-				d = "Ignore"
-			default:
-				d = "Done[E3]{Output: " + outs[r.IntN(3)] + "}"
-			}
 			if s == "M0" && e == "I0" {
-				d = "Enter[MS]{Next: M1}" // a run moves at least once
+				v, next = vs[moves], "M1" // a run moves at least once
 			}
-			fmt.Fprintf(&b, "\tcase (%s, %s):\n\t\t%s\n", s, e, d)
+			fmt.Fprintf(&b, "\tcase (%s, %s):\n\t\t%s\n", s, e, decisionLit(v, next, outs[r.IntN(3)]))
 		}
 	}
 	b.WriteString("\t}\n}\n\n")
-	b.WriteString(`func scan(seed int, n int) string {
-	let mut s MS = M0
-	let mut out = ""
-	let mut k = 0
-	for k < n {
-		k += 1
-		match mstep(s, mi(k * seed + k / 2)) {
-		case Enter[MS] as v:
-			s = v.Next
-		case Stay[MS] as v:
-			s = v.Next
-		case Emit[MS, E3] as v:
-			s = v.Next
-			out = out + e3name(v.Output)
-		case Ignore:
-			out = out + "."
-		case Reject:
-			out = out + "!"
-		case Done[E3] as v:
-			return out + " done " + e3name(v.Output)
+	// scan matches every variant of Decision, each arm marking its
+	// variant's index in the output: a variant read as another changes it.
+	b.WriteString("func scan(seed int, n int) string {\n\tlet mut s MS = M0\n\tlet mut out = \"\"\n\tlet mut k = 0\n\tfor k < n {\n\t\tk += 1\n\t\tmatch mstep(s, mi(k * seed + k / 2)) {\n")
+	for i, v := range vs {
+		bind := ""
+		if len(v.fields) > 0 {
+			bind = " as v"
+		}
+		fmt.Fprintf(&b, "\t\tcase %s%s:\n\t\t\tout = out + \"%d\"\n", v.at("MS", "E3"), bind, i)
+		switch {
+		case v.has("Next") && v.has("Output"):
+			b.WriteString("\t\t\ts = v.Next\n\t\t\tout = out + e3name(v.Output)\n")
+		case v.has("Next"):
+			b.WriteString("\t\t\ts = v.Next\n")
+		case v.has("Output"):
+			// An output with no next state ends the run (Done).
+			fmt.Fprintf(&b, "\t\t\treturn out + \" %s \" + e3name(v.Output)\n", strings.ToLower(v.name))
 		}
 	}
-	out + " at " + msName(s)
-}
-
-func main() needs Console {
+	b.WriteString("\t\t}\n\t}\n\tout + \" at \" + msName(s)\n}\n\n")
+	b.WriteString(`func main() needs Console {
 `)
 	for range 6 {
 		k := r.IntN(14)

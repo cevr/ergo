@@ -106,11 +106,13 @@ type Graph struct {
 	// not fix it (an input machine's start, a call).
 	Initial string
 	Arms    []Arm
-	// Timers and Work hold, by state variant, the timer and the work of
-	// the state's entries; a state the source gives none is absent, and a
-	// state the reading cannot decide is in Unsure.
+	// Timers, Work and Exit hold, by state variant, the timer, the work
+	// and the exit action (FK9-g1) of the state's entries; a state the
+	// source gives none is absent, and a state the reading cannot decide
+	// is in Unsure.
 	Timers map[string]Timer
 	Work   map[string]Site
+	Exit   map[string]Site
 	Unsure []string
 }
 
@@ -147,7 +149,7 @@ func Of(pkg *check.Package, tn *check.TypeName, spec *syntax.MachineType, at Loc
 	}
 	r := &reader{pkg: pkg, info: pkg.Info, at: at}
 	g := &Graph{Machine: tn.Name, States: variants(mt.State), Signals: variants(mt.Signal),
-		Timers: map[string]Timer{}, Work: map[string]Site{}}
+		Timers: map[string]Timer{}, Work: map[string]Site{}, Exit: map[string]Site{}}
 	r.g = g
 	g.Initial = r.initial(spec.Initial)
 	if step := r.fn(spec.Step); step != nil {
@@ -165,6 +167,13 @@ func Of(pkg *check.Package, tn *check.TypeName, spec *syntax.MachineType, at Loc
 		r.perState(work, func(state string, v syntax.Expr, decl syntax.Node) {
 			if _, some := r.some(v, ""); some {
 				g.Work[state] = at(decl, v.Pos())
+			}
+		})
+	}
+	if exit := r.fn(spec.Exit); exit != nil {
+		r.perState(exit, func(state string, v syntax.Expr, decl syntax.Node) {
+			if _, some := r.some(v, ""); some {
+				g.Exit[state] = at(decl, v.Pos())
 			}
 		})
 	}

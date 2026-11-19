@@ -45,7 +45,7 @@ func (l *lowerer) lawContextRuns(b *strings.Builder, lr check.LawRun, scope *nam
 		// A run whose verdict ergo test found in its store (--cached;
 		// lawcache) prints it, marked, and does not run.
 		b.WriteString("\tif !" + l.helper("CachedRun") + "(" + strconv.Quote(label) + ") {\n")
-		l.lawContextRun(b, law, lc, label, scope, env, task, seed, failed, at)
+		l.skippable(b, func() { l.lawContextRun(b, law, lc, label, scope, env, task, seed, failed, at) })
 		b.WriteString("\t}\n")
 	}
 }

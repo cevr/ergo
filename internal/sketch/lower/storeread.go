@@ -38,8 +38,13 @@ import (
 // enters the root), so a stack's pop lost its room and the next push
 // allocated. The old value is overwritten by the store, and the root held
 // its array alone (Bindings 1), so the new value shares storage with
-// nothing but the place it is stored in: no copy. The bounds are integers;
-// a bound that writes the root (a call given &s) refuses it.
+// nothing but the place it is stored in: no copy. A bound may write the
+// root (a call given &s): the reslice's operand is read into a temporary
+// before the bound runs, and a write the bound makes either replaces the
+// place (an assignment copies its value) or writes an element (which the
+// slice shows as hand Go's would); no binding keeps the old array, so the
+// store still leaves it to no one (SL3 round 1: the check that refused
+// such a bound changed no output; /tmp/opencode/mapcopy/sl3/bound).
 
 // reslices reports whether the value e is the right side of a rebinding
 // place = place[a:b] (any depth of slicing) of one place rooted at vv
@@ -117,13 +122,8 @@ func (w *valueWalk) keptRead(vv *vvar, o *vocc) bool {
 			break
 		}
 	}
-	if local == nil || !local.local || local.mut || local.ptr || local.handed || local.frame != o.frame {
+	if local == nil || local.frame != o.frame || !w.letKeepsNothing(local, 0) {
 		return false
-	}
-	for _, u := range local.occs {
-		if u.kind != occRead || u.frame != local.frame {
-			return false
-		}
 	}
 	read := map[string]bool{}
 	if w.l.reaches(w.typeOf(o.path), read, map[check.Type]bool{}) {
@@ -147,6 +147,47 @@ func (w *valueWalk) keptRead(vv *vvar, o *vocc) bool {
 		return false
 	}
 	w.l.took("own-read")
+	return true
+}
+
+// A let of a part of such a let (OWN1, own-read; lane C's S3d6 typer,
+// `let p = k.Parsed[t.file]` then `let tr = p.Tree`) shares the element's
+// storage the same way: it keeps nothing when it too is a plain let whose
+// every use is a read that keeps nothing, or the whole initializer of one
+// more such let, in the same frame. The storage the first read reaches
+// covers the parts' (reaches), so keptRead's write check stands.
+
+// keptLetDepth bounds a chain of lets of parts (letKeepsNothing).
+const keptLetDepth = 8
+
+// letKeepsNothing reports whether the let local is plain (no mut, no
+// borrow, not handed over) and each of its uses is a read that keeps
+// nothing in its frame, or the initializer of a let that keeps nothing.
+func (w *valueWalk) letKeepsNothing(local *vvar, depth int) bool {
+	if !local.local || local.mut || local.ptr || local.handed || depth > keptLetDepth {
+		return false
+	}
+	for _, u := range local.occs {
+		if u.frame != local.frame {
+			return false
+		}
+		if u.kind == occRead {
+			continue
+		}
+		if u.kind != occEscape {
+			return false
+		}
+		var next *vvar
+		for _, cand := range w.order {
+			if cand.init != nil && unparen(cand.init) == unparen(u.path) {
+				next = cand
+				break
+			}
+		}
+		if next == nil || next == local || next.frame != local.frame || !w.letKeepsNothing(next, depth+1) {
+			return false
+		}
+	}
 	return true
 }
 
@@ -181,6 +222,13 @@ func (w *valueWalk) ptrRecv(u *vocc) bool {
 func (w *valueWalk) storageWritten(u *vocc, set map[string]bool) bool {
 	t := w.typeOf(u.path)
 	if p, ok := t.(*check.Pointer); ok {
+		if f, j := w.passedBorrow(u); f != nil && borrowPassOn() {
+			s := w.l.borrowWritten(f, j)
+			for k := range s.types {
+				set[k] = true
+			}
+			return s.hidden
+		}
 		return w.l.reaches(p.Elem, set, map[check.Type]bool{})
 	}
 	if w.containers(u.path, set) {

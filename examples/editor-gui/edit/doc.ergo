@@ -4,7 +4,7 @@
 // loaded from and saved to is the Store contract (store.ergo), whose
 // providers live in packages named after their dependency.
 
-import editor/piece
+import ergo.local/prototype/examples/editorgui/piece
 import slices
 import strings
 import utf8

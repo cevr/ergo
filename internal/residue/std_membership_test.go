@@ -566,7 +566,7 @@ func sortedKeys[V any](m map[string]V) []string {
 // stdPrivilegesBaseline are the debt rows of testdata/std-privileges.txt
 // as the rule landed. A row may leave; none may join, except once: the
 // batch-20 integration added the rows of units developed beside the rule
-// (B20-NP names who removes them), as batch 21's did (B21-NP) and the
+// (B20-NP names who removes them), as batch 21's did (B21-NP), batch 22's (B22-NP) and the
 // batch-19 combined integration's (B19-NP).
 var stdPrivilegesBaseline = []string{
 	"internal/sketch/check/call.go:IsInForce",
@@ -599,7 +599,8 @@ var stdPrivilegesBaseline = []string{
 	"internal/sketch/check/work.go:checker.workLit",
 	"internal/sketch/check/work.go:checker.workLitForm",
 	"internal/sketch/check/work.go:isWorkType",
-	"internal/sketch/eval/expr.go:interp.callOf",
+	// ORACLE O38 moved callOf's std check (takes) into planOf (FT1 merge).
+	"internal/sketch/eval/plan.go:interp.planOf",
 	"internal/sketch/eval/machine.go:interp.machineLaw",
 	"internal/sketch/eval/machinevalue.go:interp.machineOption",
 	"internal/sketch/eval/natives.go:nativeOf",
@@ -644,6 +645,7 @@ var stdPrivilegesBaseline = []string{
 	"internal/sketch/lower/ir_assert.go:irState.lawBody",
 	"internal/sketch/lower/ir_call.go:irBuilder.callParts",
 	"internal/sketch/lower/ir_call.go:irBuilder.callParts",
+	"internal/sketch/lower/ir_pkg.go:irBuilder.stdOpCall", // B22-NP (IRG4b r2, batch 22 integration)
 	"internal/sketch/lower/pkgsplit.go:lowerer.stdOrigins",
 	"internal/sketch/lower/pkgsplit.go:stdImports",
 	"internal/sketch/lower/refown.go:funcCtx.inPlaceOf",
@@ -660,8 +662,6 @@ var stdPrivilegesBaseline = []string{
 	"internal/sketch/lower/std.go:lowerer.stdBody",
 	"internal/sketch/lower/std.go:opBody",
 	"internal/sketch/lower/types.go:lowerer.foreignOwner",
-	"internal/sketch/lower/uigroup.go:funcCtx.uiGroup",
-	"internal/sketch/lower/uigroup.go:groupFrame",
 	"internal/sketch/lower/values.go:lowerer.ownedForm",
 	"internal/sketch/lower/wirefields.go:jsonWrapper",
 	"internal/sketchfront/inspect.go:InspectGo",

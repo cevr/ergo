@@ -62,6 +62,12 @@ const (
 	// Event.Machine says what. Def is the actor's span. An addition to #124
 	// (MU15).
 	TraceMachine
+	// TraceStep: a test host's script did one act (std ui Play, runtime/v1
+	// uitrace.go): Event.Step is its line, the one std ui's PlayTrace
+	// returns for it. Def is the task's span. Like every trace event it is
+	// instrumentation: it changes no value the program sees. An addition to
+	// #124 (wf10 NS3, `ergo test --trace`).
+	TraceStep
 )
 
 var kindNames = [...]string{
@@ -78,6 +84,7 @@ var kindNames = [...]string{
 	TraceInterrupt:     "interrupt",
 	TraceCallExit:      "call-exit",
 	TraceMachine:       "machine",
+	TraceStep:          "step",
 }
 
 // String returns the vocabulary name of k.
@@ -136,6 +143,29 @@ func (e *Event) Machine() *MachineEvent {
 	}
 	m, _ := e.Defect.(*MachineEvent)
 	return m
+}
+
+// stepLine is a step event's line, held in Event.Defect as a machine
+// event's is, so Event keeps its size.
+type stepLine struct{ line string }
+
+// Step is what a step event says, "" for any other kind.
+func (e *Event) Step() string {
+	if e.Kind != TraceStep {
+		return ""
+	}
+	s, _ := e.Defect.(stepLine)
+	return s.line
+}
+
+// TraceStep raises a step event of t with line when t's tree is traced.
+// The caller checks Traced first, so an untraced script builds no line.
+//
+//go:noinline
+func (t *Task) TraceStep(line string) {
+	if t.trace != nil {
+		t.trace.raise(t, nil, Event{Kind: TraceStep, Def: t.span, Defect: stepLine{line}})
+	}
 }
 
 // Tracer receives the events of one task tree. The runtime calls Event from

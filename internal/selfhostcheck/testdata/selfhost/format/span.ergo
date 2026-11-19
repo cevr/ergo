@@ -77,6 +77,28 @@ func kids(t tree.Tree, id int, name string) []int {
 	out
 }
 
+// poss is the positions of a list field of positions (OrPattern.Bars).
+func poss(t tree.Tree, id int, name string) []int {
+	let mut out = []int{}
+	match item(t, id, name) {
+	case tree.List as l:
+		for x in l.Items {
+			match x {
+			case tree.Position as p:
+				out = out.Append(match p.At {
+				case Some[int] as s:
+					s.Value
+				case None:
+					NoPos
+				})
+			case _:
+			}
+		}
+	case _:
+	}
+	out
+}
+
 func num(t tree.Tree, id int, name string) int {
 	match item(t, id, name) {
 	case tree.Number as n:
@@ -211,9 +233,13 @@ func posOf(t tree.Tree, id int) int {
 	case "ContextEntry":
 		if num(t, id, "Kind") == 2 { pos(t, id, "Replace") } else { posOf(t, kid(t, id, "Key")) }
 	case "Field":
+		let own = if has(t, id, "Own") { pos(t, kid(t, id, "Own"), "At") } else { NoPos }
+		let names = kids(t, id, "Names")
 		if flag(t, id, "Include") {
 			pos(t, id, "Dots")
-		} else if len(kids(t, id, "Names")) > 0 {
+		} else if own != NoPos && (len(names) == 0 || own < posOf(t, names[0])) {
+			own
+		} else if len(names) > 0 {
 			posOf(t, kids(t, id, "Names")[0])
 		} else {
 			posOf(t, kid(t, id, "Type"))
@@ -245,6 +271,10 @@ func posOf(t tree.Tree, id int) int {
 		pos(t, id, "Lparen")
 	case "SelectorExpr", "IndexExpr", "SliceExpr", "TypeGuard", "BinaryExpr", "CatchExpr", "AsPattern":
 		posOf(t, kid(t, id, "X"))
+	case "OrPattern":
+		posOf(t, kids(t, id, "Alts")[0])
+	case "Word":
+		pos(t, id, "At")
 	case "CallExpr":
 		posOf(t, kid(t, id, "Fun"))
 	case "StarExpr":
@@ -262,6 +292,8 @@ func posOf(t tree.Tree, id int) int {
 	case "FuncType":
 		if pos(t, id, "Escaping") >= 0 {
 			pos(t, id, "Escaping")
+		} else if flag(t, id, "Entry") {
+			pos(t, id, "EntryPos")
 		} else if pos(t, id, "Func") >= 0 {
 			pos(t, id, "Func")
 		} else {
@@ -308,6 +340,8 @@ func posOf(t tree.Tree, id int) int {
 		if n != NoPos { n } else { pos(t, id, "Word") }
 	case "AssertStmt":
 		pos(t, id, "Assert")
+	case "SkipStmt":
+		pos(t, id, "Skip")
 	case "VariantSpec":
 		posOf(t, kid(t, id, "Name"))
 	case "InterpolatedString":
@@ -344,7 +378,20 @@ func endOf(t tree.Tree, id int) int {
 			endOf(t, last(kids(t, id, "Names")))
 		}
 	case "TypeDecl":
-		if has(t, id, "Where") { endOf(t, kid(t, id, "Where")) } else { endOf(t, kid(t, id, "Spec")) }
+		let implements = kids(t, id, "Implements")
+		if has(t, id, "Derive") {
+			endOf(t, kid(t, id, "Derive"))
+		} else if len(implements) > 0 {
+			endOf(t, last(implements))
+		} else if has(t, id, "Where") {
+			endOf(t, kid(t, id, "Where"))
+		} else {
+			endOf(t, kid(t, id, "Spec"))
+		}
+	case "OrPattern":
+		endOf(t, last(kids(t, id, "Alts")))
+	case "Word":
+		pos(t, id, "At") + 3
 	case "FuncDecl":
 		if has(t, id, "Body") { endOf(t, kid(t, id, "Body")) } else { endOf(t, kid(t, id, "Type")) }
 	case "ContextDecl", "ContextLit":
@@ -382,6 +429,8 @@ func endOf(t tree.Tree, id int) int {
 		pos(t, id, "NamePos") + len(str(t, id, "Name"))
 	case "BasicLit":
 		pos(t, id, "ValueEnd")
+	case "SkipStmt":
+		pos(t, id, "ReasonEnd")
 	case "FuncLit":
 		endOf(t, kid(t, id, "Body"))
 	case "ParenExpr":

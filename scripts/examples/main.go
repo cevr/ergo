@@ -13,12 +13,13 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
-	"os/exec"
 	"path"
 	"path/filepath"
 	"runtime"
@@ -27,6 +28,8 @@ import (
 	"strings"
 	"time"
 
+	"ergo.local/prototype/internal/cases"
+	"ergo.local/prototype/internal/gobind"
 	"ergo.local/prototype/internal/opcount"
 	"ergo.local/prototype/internal/proclimit"
 	"ergo.local/prototype/internal/sketchfront"
@@ -58,9 +61,6 @@ var nonPrograms = map[string]string{
 	// `ergo lint test` run.
 	"lintpack": "a Go rule pack and its lint fixtures",
 }
-
-// caseFiles are the files a case folder may hold.
-var caseFiles = []string{"args", "stdin", "env", "setup.sh", "expected.out", "expected.err", "expected.status"}
 
 type config struct {
 	root    string
@@ -109,7 +109,12 @@ type program struct {
 	main   string
 	others []string
 	tests  []string
-	cases  []*testCase
+	// checked holds, while a program of packages loads, the checked
+	// analysis of each of its package folders by absolute path, from one
+	// load of them all (checkPackageFolders); checkedDir adds a folder it
+	// checks alone. The asset scan and the law rule read it.
+	checked map[string]sketchfront.Analysis
+	cases   []*testCase
 	// explored are the lines of its explored file (explored.go).
 	explored []explored
 	// library marks a module of modules/ (MK0, modules.go): no binary,
@@ -122,18 +127,15 @@ type program struct {
 
 func (p *program) tagged(tag string) bool { return slices.Contains(p.tags, tag) }
 
-type testCase struct {
-	name   string
-	dir    string
-	args   []string
-	stdin  string // the stdin file, or "" for empty input
-	env    []string
-	setup  bool
-	out    []byte
-	hasOut bool
-	err    []byte
-	status int
-}
+// testCase is a case folder of a program (internal/cases).
+type testCase = cases.Case
+
+// live and outcome are the run's processes and folders and a command's
+// run (internal/cases).
+type (
+	live    = cases.Live
+	outcome = cases.Outcome
+)
 
 // usageError is a bad flag or name: exit 2.
 type usageError string
@@ -188,14 +190,14 @@ func run(args []string, stdout, stderr io.Writer) int {
 	// From here every exit path the runner controls stops each process group
 	// it started: the end of a command, a timeout, the cap, a panic on this
 	// goroutine (execute's deferred stop) and a stop signal.
-	l := newLive()
-	defer l.handleSignals(stderr)()
-	scratch, err := l.makeDir("", "ergo-examples-")
+	l := cases.NewLive()
+	defer l.HandleSignals(stderr, "examples")()
+	scratch, err := l.MakeDir("", "ergo-examples-")
 	if err != nil {
 		fmt.Fprintln(stderr, "examples:", err)
 		return 2
 	}
-	defer l.removeDir(scratch)
+	defer l.RemoveDir(scratch)
 	r := &runner{cfg: cfg, out: stdout, scratch: scratch, live: l, install: &tsInstall{}, toolEnv: toolEnvironment(os.Environ(), scratch)}
 	if !cfg.record {
 		r.cache = openCache(cfg.cache, cfg)
@@ -244,7 +246,7 @@ func (r *runner) runAll(selected []*program) int {
 	for i, pr := range runs {
 		<-pr.ended
 		if pr.panicked != nil {
-			r.live.interrupt()
+			r.live.Interrupt()
 			for _, rest := range runs[i+1:] {
 				<-rest.ended
 			}
@@ -449,6 +451,8 @@ func loadProgram(dir, name string, record bool) (*program, []string) {
 // folders of .ergo files, beside the files every program holds. Top-level
 // .ergo files are the module root's package.
 func loadModuleProgram(p *program, entries []os.DirEntry, record bool) (*program, []string) {
+	p.checked = loadPackageFolders(p.dir, entries)
+	defer func() { p.checked = nil }()
 	var problems []string
 	problem := func(format string, args ...any) { problems = append(problems, fmt.Sprintf(format, args...)) }
 	present := map[string]bool{}
@@ -480,7 +484,8 @@ func loadModuleProgram(p *program, entries []os.DirEntry, record bool) (*program
 			}
 		case file == opcount.WorkloadFile && !entry.IsDir():
 			// scripts/opcount's sizes and arguments (examples/README.md,
-			// "Workload"); the runner checks it and does not run it.
+			// "Workload"); the runner checks it and does not run it. A
+			// folder of that name is a package (examples/vt's workload).
 			if !entry.Type().IsRegular() {
 				problem("%s is not a regular file", file)
 				continue
@@ -489,6 +494,23 @@ func loadModuleProgram(p *program, entries []os.DirEntry, record bool) (*program
 			for _, w := range found {
 				problem("%s: %s", file, w)
 			}
+		case file == opcount.WorkloadFile:
+			// A workload package (its program's gen documents) holds the
+			// workload file, so scripts/opcount counts every program that
+			// has a workload (examples/README.md, "Workload").
+			at := opcount.WorkloadFile + "/" + opcount.WorkloadFile
+			_, found, ok := opcount.Check(filepath.Dir(filepath.Dir(p.dir)), p.dir)
+			if !ok {
+				problem("%s: a workload package holds its workload file, for scripts/opcount", at)
+			}
+			for _, w := range found {
+				problem("%s: %s", at, w)
+			}
+			spec, err := filepath.Abs(opcount.Path(p.dir))
+			if err != nil {
+				problem("%s: %v", at, err)
+			}
+			problems = append(problems, packageAssetSources(p, filepath.Join(p.dir, file), file, map[string]bool{spec: true})...)
 		case file == "ts" && entry.IsDir():
 			problems = append(problems, tsSources(filepath.Join(p.dir, file))...)
 		case entry.IsDir():
@@ -543,6 +565,78 @@ func checkCommands(p *program, dir string) []string {
 	return problems
 }
 
+// checkPackageFolders checks the package folders of a program of packages
+// (the folders below dir, cases, testdata, ergo.bind, origin and ts left
+// out, that hold an .ergo file, and dir itself when it does) with one load
+// (sketchfront.CheckPackages): the std packages and the module's packages
+// they import are read and checked once, not once per folder and again
+// for the law rule. Two in-process checks of every folder were 17 CPU-s
+// of the examples step's 120 after a checker edit, on every run, replays
+// included (gate-speed GS31a). A load that cannot be shared (a
+// diagnostic, a binding) gives no analysis: each folder is then checked
+// alone (checkedDir), as before.
+func checkPackageFolders(dir string, entries []os.DirEntry) map[string]sketchfront.Analysis {
+	dir, err := filepath.Abs(dir)
+	if err != nil {
+		return nil
+	}
+	var dirs []string
+	holdsErgo := func(folder string) bool {
+		files, err := os.ReadDir(folder)
+		if err != nil {
+			return false
+		}
+		return slices.ContainsFunc(files, func(f os.DirEntry) bool {
+			return strings.HasSuffix(f.Name(), ".ergo") && f.Type().IsRegular()
+		})
+	}
+	if holdsErgo(dir) {
+		dirs = append(dirs, dir)
+	}
+	for _, entry := range entries {
+		switch name := entry.Name(); {
+		case !entry.IsDir() || name == "cases" || name == "testdata" || name == "ergo.bind" || name == "origin" || name == "ts":
+			continue
+		}
+		_ = filepath.WalkDir(filepath.Join(dir, entry.Name()), func(path string, d fs.DirEntry, err error) error {
+			if err == nil && d.IsDir() && holdsErgo(path) {
+				dirs = append(dirs, path)
+			}
+			return nil
+		})
+	}
+	if len(dirs) == 0 {
+		return nil
+	}
+	analyses, err := sketchfront.CheckPackages(dirs, gobind.Platform{GOOS: runtime.GOOS, GOARCH: runtime.GOARCH})
+	if err != nil {
+		return nil
+	}
+	checked := make(map[string]sketchfront.Analysis, len(dirs))
+	for i, folder := range dirs {
+		checked[folder] = analyses[i]
+	}
+	return checked
+}
+
+// loadPackageFolders is checkPackageFolders; a test sets it to load
+// nothing, the reference of every folder checked alone.
+var loadPackageFolders = checkPackageFolders
+
+// checkedDir is the checked analysis of the package folder dir, an
+// absolute path: the program's shared load's (checkPackageFolders), or the
+// folder checked alone and kept, so no folder is checked twice.
+func (p *program) checkedDir(dir string) (sketchfront.Analysis, error) {
+	if a, ok := p.checked[dir]; ok {
+		return a, nil
+	}
+	a, err := sketchfront.CheckDir(dir)
+	if err == nil && p.checked != nil {
+		p.checked[dir] = a
+	}
+	return a, err
+}
+
 // packageSources adds the .ergo files of the package folder dir, and of
 // the package folders under it, to the program's sources. A package
 // folder holds .ergo files and package folders only.
@@ -565,7 +659,7 @@ func packageAssetSources(p *program, dir, label string, assets map[string]bool) 
 	var problems []string
 	for _, entry := range entries {
 		if strings.HasSuffix(entry.Name(), ".ergo") {
-			if a, err := sketchfront.CheckDir(dir); err == nil {
+			if a, err := p.checkedDir(dir); err == nil {
 				for _, name := range a.EmbeddedPaths() {
 					assets[name] = true
 				}
@@ -646,9 +740,9 @@ func finishProgram(p *program, present map[string]bool, problems []string, recor
 		p.explored = lines
 	}
 	if present["cases"] {
-		cases, found := loadCases(filepath.Join(dir, "cases"), record)
+		loaded, found := cases.Load(filepath.Join(dir, "cases"), record)
 		problems = append(problems, found...)
-		p.cases = cases
+		p.cases = loaded
 	}
 	return p, problems
 }
@@ -680,99 +774,6 @@ func readTags(file string) ([]string, error) {
 		return nil, fmt.Errorf("default stands alone, got %q", line)
 	}
 	return tags, nil
-}
-
-func loadCases(dir string, record bool) ([]*testCase, []string) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil, []string{err.Error()}
-	}
-	var cases []*testCase
-	var problems []string
-	for _, entry := range entries {
-		label := "cases/" + entry.Name()
-		if !entry.IsDir() {
-			problems = append(problems, label+": not a case folder")
-			continue
-		}
-		c, found := loadCase(filepath.Join(dir, entry.Name()), entry.Name(), record)
-		for _, problem := range found {
-			problems = append(problems, label+": "+problem)
-		}
-		if len(found) == 0 {
-			cases = append(cases, c)
-		}
-	}
-	if len(entries) == 0 {
-		problems = append(problems, "cases/ holds no case")
-	}
-	return cases, problems
-}
-
-func loadCase(dir, name string, record bool) (*testCase, []string) {
-	c := &testCase{name: name, dir: dir}
-	var problems []string
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil, []string{err.Error()}
-	}
-	present := map[string]bool{}
-	for _, entry := range entries {
-		file := entry.Name()
-		if !slices.Contains(caseFiles, file) {
-			problems = append(problems, fmt.Sprintf("unexpected %s; a case holds expected.out and may hold %s", file, strings.Join(slices.DeleteFunc(slices.Clone(caseFiles), func(f string) bool { return f == "expected.out" }), ", ")))
-			continue
-		}
-		if !entry.Type().IsRegular() {
-			problems = append(problems, file+" is not a regular file")
-			continue
-		}
-		present[file] = true
-	}
-	read := func(file string) []byte {
-		if !present[file] {
-			return nil
-		}
-		content, err := os.ReadFile(filepath.Join(dir, file))
-		if err != nil {
-			problems = append(problems, err.Error())
-		}
-		return content
-	}
-	if !present["expected.out"] && !record {
-		problems = append(problems, "no expected.out")
-	}
-	c.out, c.hasOut = read("expected.out"), present["expected.out"]
-	c.err = read("expected.err")
-	c.args = lines(read("args"))
-	for _, line := range lines(read("env")) {
-		if key, _, ok := strings.Cut(line, "="); !ok || key == "" {
-			problems = append(problems, fmt.Sprintf("env: line %q is not KEY=VALUE", line))
-		}
-		c.env = append(c.env, line)
-	}
-	if present["expected.status"] {
-		text := strings.TrimSuffix(string(read("expected.status")), "\n")
-		status, err := strconv.Atoi(text)
-		if err != nil || status < 0 || status > 255 || strconv.Itoa(status) != text {
-			problems = append(problems, fmt.Sprintf("expected.status: %q is not an exit status (decimal 0 to 255)", text))
-		}
-		c.status = status
-	}
-	if present["stdin"] {
-		c.stdin = filepath.Join(dir, "stdin")
-	}
-	c.setup = present["setup.sh"]
-	return c, problems
-}
-
-// lines splits a file into its lines: the final newline ends the last line,
-// an empty line is an empty string, and an empty file has no lines.
-func lines(content []byte) []string {
-	if len(content) == 0 {
-		return nil
-	}
-	return strings.Split(strings.TrimSuffix(string(content), "\n"), "\n")
 }
 
 func selectPrograms(cfg *config, programs, modules []*program) ([]*program, error) {
@@ -865,14 +866,60 @@ func (r *runner) finish() int {
 // (keyed) and no check stores a verdict the native test leg would print
 // cached.
 func (r *runner) tool(timeout time.Duration, args ...string) (outcome, error) {
+	return r.toolWith(nil, timeout, args...)
+}
+
+// toolWith is tool with the variables extra added to its environment.
+func (r *runner) toolWith(extra []string, timeout time.Duration, args ...string) (outcome, error) {
 	if o, ok := r.keyed[keyedCall(args)]; ok {
 		return o, nil
 	}
-	env := r.toolEnv
-	if len(args) > 0 && args[0] == "check" {
+	env, report := append(slices.Clip(r.toolEnv), extra...), ""
+	// test --emitted --json checks each package too (GS31b).
+	if len(args) > 0 && (args[0] == "check" || args[0] == "test" && slices.Contains(args, "--json")) {
 		env = append(slices.Clip(env), lawCacheOff)
 	}
-	return r.live.execute(append([]string{r.cfg.ergo}, args...), r.cfg.root, env, "", timeout, 0)
+	for _, kv := range extra {
+		// A caller that reads the stage report itself (GS32a′) names its
+		// file; the IR check reads the same file.
+		if v, ok := strings.CutPrefix(kv, stageReportVariable+"="); ok {
+			report = v
+		}
+	}
+	if len(args) > 0 && args[0] == "test" && report == "" {
+		if f, err := os.CreateTemp(r.scratch, "stage-*.json"); err == nil {
+			report = f.Name()
+			f.Close()
+			defer os.Remove(report)
+			env = append(slices.Clone(env), stageReportVariable+"="+report)
+		}
+	}
+	o, err := r.live.Execute(append([]string{r.cfg.ergo}, args...), r.cfg.root, env, "", timeout, 0)
+	if report != "" {
+		r.testsThroughIR(args, report)
+	}
+	return o, err
+}
+
+// testsThroughIR fails the run when an `ergo test` call placed a test
+// binary lowered as Go source text (the stage report's binaries_text):
+// every test binary lowers through IR, as `ergo build` ships it, so the
+// tests check the code a build ships (TEQb). A report the command did not
+// write (it was stopped) says nothing.
+func (r *runner) testsThroughIR(args []string, report string) {
+	data, err := os.ReadFile(report)
+	if err != nil || len(data) == 0 {
+		return
+	}
+	var counts map[string]int64
+	if json.Unmarshal(data, &counts) != nil {
+		return
+	}
+	if n := counts["binaries_text"]; n > 0 {
+		call := "ergo " + strings.Join(args, " ")
+		fmt.Fprintf(r.out, "FAIL %s: %d test binaries lowered as Go source text, not through IR\n", call, n)
+		r.fail(call + ": text lowering")
+	}
 }
 
 // lawCacheOff turns the law-verdict store off for a check (lawcache): every
@@ -891,17 +938,35 @@ const emissionCacheVariable = "ERGO_CACHE"
 // of the run's scratch, whatever the caller set: the runner is a check, and
 // its programs would fill the user's cache (docs/tooling.md, Emission cache
 // bound). The folder goes with the scratch when the run ends.
+//
+// It drops the caller's ERGO_BUILD and ERGO_STAGE_REPORT. ERGO_BUILD=full
+// turns ergo's warm answer off, and `ergo test DIR/...` then links one
+// shared test module (TEST-one) where the key hashed each package's own
+// module (legKey); the runner names its own stage report (testModule)
+// (gate-speed GS32a′).
 func toolEnvironment(environ []string, scratch string) []string {
 	env := slices.DeleteFunc(slices.Clone(environ), func(entry string) bool {
-		return strings.HasPrefix(entry, emissionCacheVariable+"=")
+		name, _, _ := strings.Cut(entry, "=")
+		return name == emissionCacheVariable || name == warmVariable || name == stageReportVariable
 	})
 	return append(env, emissionCacheVariable+"="+filepath.Join(scratch, "cache"))
 }
 
+// warmVariable is sketchfront.WarmVariable, and stageReportVariable
+// sketchfront.StageReportVariable.
+const (
+	warmVariable        = "ERGO_BUILD"
+	stageReportVariable = "ERGO_STAGE_REPORT"
+)
+
+// sharedTestModules is the stage report's count of the shared test modules
+// `ergo test DIR/...` linked (stage.SharedTestModules).
+const sharedTestModules = "shared_test_modules"
+
 // toolFailed prints the failure of a compiler leg (fmt, fix or build) and counts
 // it. Output over the cap is named, never printed.
 func (r *runner) toolFailed(p *program, leg string, o outcome, err error) {
-	if over := o.overCap(); err == nil && over != "" {
+	if over := o.OverCap(); err == nil && over != "" {
 		fmt.Fprintf(r.out, "FAIL %s: %s: %s\n", p.name, leg, over)
 	} else {
 		fmt.Fprintf(r.out, "FAIL %s: %s\n", p.name, leg)
@@ -918,12 +983,12 @@ func (r *runner) runProgram(p *program) {
 	if p.tagged("mod") && !r.modLeg(p) {
 		return
 	}
-	if o, err := r.tool(0, append([]string{"fmt", "--check"}, p.sources...)...); err != nil || !o.passed() {
+	if o, err := r.tool(0, append([]string{"fmt", "--check"}, p.sources...)...); err != nil || !o.Passed() {
 		r.toolFailed(p, "fmt", o, err)
 		return
 	}
 	for _, target := range p.tests {
-		if o, err := r.tool(0, "fix", "--check", target); err != nil || !o.passed() {
+		if o, err := r.tool(0, "fix", "--check", target); err != nil || !o.Passed() {
 			r.toolFailed(p, "fix", o, err)
 			return
 		}
@@ -938,13 +1003,13 @@ func (r *runner) runProgram(p *program) {
 		return
 	}
 	binary := filepath.Join(dir, p.name)
-	if o, err := r.tool(0, "build", p.main, "-o", binary); err != nil || !o.passed() {
+	if o, err := r.tool(0, "build", p.main, "-o", binary); err != nil || !o.Passed() {
 		r.toolFailed(p, "build", o, err)
 		return
 	}
 	for _, other := range p.others {
 		leg := "build cmd/" + filepath.Base(other)
-		if o, err := r.tool(0, "build", other, "-o", filepath.Join(dir, filepath.Base(other))); err != nil || !o.passed() {
+		if o, err := r.tool(0, "build", other, "-o", filepath.Join(dir, filepath.Base(other))); err != nil || !o.Passed() {
 			r.toolFailed(p, leg, o, err)
 			return
 		}
@@ -1021,11 +1086,23 @@ func (r *runner) testModule(p *program) bool {
 	if err != nil {
 		return false
 	}
-	o, err := r.tool(r.cfg.timeout*time.Duration(len(p.tests)), "test", filepath.Join(p.dir, "..."))
-	if err != nil || o.overCap() != "" || o.timedOut || !o.passed() {
+	pattern := filepath.Join(p.dir, "...")
+	report := filepath.Join(r.scratch, "stage-"+p.name+".json")
+	o, err := r.toolWith([]string{stageReportVariable + "=" + report}, r.cfg.timeout*time.Duration(len(p.tests)), "test", pattern)
+	if err != nil || o.OverCap() != "" || o.TimedOut || !o.Passed() {
 		return false
 	}
-	sections, order := splitPackages(o.stdout)
+	// The key hashed each package's own test module (legKey), so the run
+	// must have linked those: one that linked the shared module (TEST-one)
+	// ran Go the key does not hold, and the verdict is not kept (GS32a′).
+	if _, keyed := r.keyed[keyedCall([]string{"test", "--emitted", "--json", pattern})]; keyed {
+		if why := linkedPerPackage(report); why != "" {
+			fmt.Fprintf(r.out, "FAIL %s: test: %s; its key holds each package's own test module\n", p.name, why)
+			r.fail(p.name + ": test")
+			return true
+		}
+	}
+	sections, order := splitPackages(o.Stdout)
 	var want, inside []string
 	var outside []string // a local module's packages (localModules): DIR/... does not run them
 	for _, target := range p.tests {
@@ -1070,9 +1147,31 @@ func (r *runner) testModule(p *program) bool {
 			r.fail(p.name + ": " + leg)
 			continue
 		}
-		fmt.Fprintf(r.out, "ok %s: %s (in one run of %s)\n", p.name, leg, seconds(o.elapsed))
+		fmt.Fprintf(r.out, "ok %s: %s (in one run of %s)\n", p.name, leg, seconds(o.Elapsed))
 	}
 	return true
+}
+
+// linkedPerPackage says why the stage report at path does not show a run
+// that linked each package's own test module, or "": it names no shared
+// test module. A report that cannot be read fails closed.
+func linkedPerPackage(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "ergo test wrote no stage report"
+	}
+	var counts map[string]int64
+	if err := json.Unmarshal(data, &counts); err != nil {
+		return "ergo test's stage report is not JSON"
+	}
+	n, ok := counts[sharedTestModules]
+	if !ok {
+		return "ergo test's stage report has no " + sharedTestModules
+	}
+	if n > 0 {
+		return fmt.Sprintf("ergo test linked %d shared test module", n)
+	}
+	return ""
 }
 
 // splitPackages splits the stdout of `ergo test DIR/...` at each `package
@@ -1107,27 +1206,27 @@ func (r *runner) testTarget(p *program, target, leg string) {
 		return
 	}
 	defer os.RemoveAll(tmp)
-	o, err := r.live.execute([]string{r.cfg.ergo, "test", target}, r.cfg.root, append(slices.Clip(r.toolEnv), "TMPDIR="+tmp), "", r.cfg.testTimeout, 0)
+	o, err := r.live.Execute([]string{r.cfg.ergo, "test", target}, r.cfg.root, append(slices.Clip(r.toolEnv), "TMPDIR="+tmp), "", r.cfg.testTimeout, 0)
 	// Only a run that ended by itself is held to it: a hang or the output
 	// cap stops the group, and the stopped ergo removes nothing, so that
 	// run fails for its own reason below.
-	if left, _ := os.ReadDir(tmp); err == nil && o.passed() && len(left) > 0 {
+	if left, _ := os.ReadDir(tmp); err == nil && o.Passed() && len(left) > 0 {
 		fmt.Fprintf(r.out, "FAIL %s: %s: ergo test left %s in its TMPDIR; each case's folder is removed when the case ends (rows.md, Test's ambient)\n", p.name, leg, left[0].Name())
 		r.fail(p.name + ": " + leg)
 		return
 	}
-	if evaluation != nil && err == nil && o.overCap() == "" && !o.timedOut {
-		r.compareEvaluation(p, strings.Replace(leg, "test", "check", 1), evaluation, o.stdout)
+	if evaluation != nil && err == nil && o.OverCap() == "" && !o.TimedOut {
+		r.compareEvaluation(p, strings.Replace(leg, "test", "check", 1), evaluation, o.Stdout)
 	}
 	switch {
 	case err != nil:
 		fmt.Fprintf(r.out, "FAIL %s: %s: could not start: %v\n", p.name, leg, err)
 		r.fail(p.name + ": " + leg)
-	case o.overCap() != "":
-		fmt.Fprintf(r.out, "FAIL %s: %s: %s\n", p.name, leg, o.overCap())
+	case o.OverCap() != "":
+		fmt.Fprintf(r.out, "FAIL %s: %s: %s\n", p.name, leg, o.OverCap())
 		r.fail(p.name + ": " + leg)
-	case o.passed():
-		if skips := unexpectedSkips(o.stdout, p.dir); len(skips) > 0 {
+	case o.Passed():
+		if skips := unexpectedSkips(o.Stdout, p.dir); len(skips) > 0 {
 			fmt.Fprintf(r.out, "FAIL %s: %s: %d unexpected skips; run each law, or list its line in %s with the reason (fs4)\n", p.name, leg, len(skips), expectedSkipsFile)
 			for _, s := range skips {
 				fmt.Fprintf(r.out, "    %s\n", s)
@@ -1135,9 +1234,9 @@ func (r *runner) testTarget(p *program, target, leg string) {
 			r.fail(p.name + ": " + leg)
 			return
 		}
-		fmt.Fprintf(r.out, "ok %s: %s (%s)\n", p.name, leg, seconds(o.elapsed))
+		fmt.Fprintf(r.out, "ok %s: %s (%s)\n", p.name, leg, seconds(o.Elapsed))
 	default:
-		fmt.Fprintf(r.out, "FAIL %s: %s%s\n", p.name, leg, o.why(r.cfg.testTimeout))
+		fmt.Fprintf(r.out, "FAIL %s: %s%s\n", p.name, leg, o.Why(r.cfg.testTimeout))
 		r.printOutput(o, nil)
 		r.fail(p.name + ": " + leg)
 	}
@@ -1187,23 +1286,23 @@ func (r *runner) recordProgram(p *program) {
 		if !ok {
 			continue
 		}
-		if over := o.overCap(); over != "" {
-			fmt.Fprintf(r.out, "FAIL %s/%s: %s\n", p.name, c.name, over)
-			r.fail(p.name + "/" + c.name)
+		if over := o.OverCap(); over != "" {
+			fmt.Fprintf(r.out, "FAIL %s/%s: %s\n", p.name, c.Name, over)
+			r.fail(p.name + "/" + c.Name)
 			continue
 		}
-		if o.timedOut || o.status < 0 {
-			fmt.Fprintf(r.out, "FAIL %s/%s:%s\n", p.name, c.name, o.why(r.cfg.timeout))
-			r.fail(p.name + "/" + c.name)
+		if o.TimedOut || o.Status < 0 {
+			fmt.Fprintf(r.out, "FAIL %s/%s:%s\n", p.name, c.Name, o.Why(r.cfg.timeout))
+			r.fail(p.name + "/" + c.Name)
 			continue
 		}
-		if err := writeGoldens(c.dir, o); err != nil {
-			fmt.Fprintf(r.out, "FAIL %s/%s: write goldens: %v\n", p.name, c.name, err)
-			r.fail(p.name + "/" + c.name)
+		if err := writeGoldens(c.Dir, o); err != nil {
+			fmt.Fprintf(r.out, "FAIL %s/%s: write goldens: %v\n", p.name, c.Name, err)
+			r.fail(p.name + "/" + c.Name)
 			continue
 		}
 		r.cases++
-		fmt.Fprintf(r.out, "recorded %s/%s\n", p.name, c.name)
+		fmt.Fprintf(r.out, "recorded %s/%s\n", p.name, c.Name)
 	}
 }
 
@@ -1211,7 +1310,7 @@ func (r *runner) recordProgram(p *program) {
 // not empty and expected.status only when the status is not 0, removing a
 // stale one otherwise.
 func writeGoldens(dir string, o outcome) error {
-	if err := os.WriteFile(filepath.Join(dir, "expected.out"), o.stdout, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "expected.out"), o.Stdout, 0o644); err != nil {
 		return err
 	}
 	optional := func(file string, content []byte) error {
@@ -1225,11 +1324,11 @@ func writeGoldens(dir string, o outcome) error {
 		return os.WriteFile(name, content, 0o644)
 	}
 	var stderr, status []byte
-	if len(o.stderr) > 0 {
-		stderr = o.stderr
+	if len(o.Stderr) > 0 {
+		stderr = o.Stderr
 	}
-	if o.status != 0 {
-		status = []byte(strconv.Itoa(o.status) + "\n")
+	if o.Status != 0 {
+		status = []byte(strconv.Itoa(o.Status) + "\n")
 	}
 	if err := optional("expected.err", stderr); err != nil {
 		return err
@@ -1237,68 +1336,38 @@ func writeGoldens(dir string, o outcome) error {
 	return optional("expected.status", status)
 }
 
-// execCase runs one case's setup.sh and command in a fresh empty directory.
-// It prints a FAIL line and returns false when the case could not run: its
-// directory, its setup.sh or its command could not start, or setup.sh failed.
-// So an outcome it returns is always of a command that started. The command
-// runs under the memory limit memory (0: none).
+// execCase runs one case's setup.sh and command in a fresh empty directory
+// (cases.Live.Exec). It prints a FAIL line and returns false when the case
+// could not run: its directory, its setup.sh or its command could not
+// start, or setup.sh failed. So an outcome it returns is always of a
+// command that started. The command runs under the memory limit memory (0:
+// none).
 func (r *runner) execCase(p *program, c *testCase, command []string, memory uint64) (outcome, bool) {
-	work, err := r.live.makeDir("", "ergo-case-")
-	if err != nil {
-		fmt.Fprintf(r.out, "FAIL %s/%s: make its directory: %v\n", p.name, c.name, err)
-		r.fail(p.name + "/" + c.name)
-		return outcome{}, false
-	}
-	defer r.live.removeDir(work)
-	env := []string{"HOME=" + work}
-	if path, ok := os.LookupEnv("PATH"); ok {
-		env = append([]string{"PATH=" + path}, env...)
-	}
-	env = append(env, c.env...)
-	cwd := work
+	opt := cases.Options{Timeout: r.cfg.timeout, Memory: memory}
 	if r.ts != nil {
-		copied, err := r.tsCopy(p, r.ts.deps)
-		if err != nil {
-			fmt.Fprintf(r.out, "FAIL %s/%s: copy the program for its TypeScript: %v\n", p.name, c.name, err)
-			r.fail(p.name + "/" + c.name)
-			return outcome{}, false
-		}
-		defer r.live.removeDir(copied)
-		cwd = copied
-		env = r.ts.env(r.cfg.ergo, env)
-	}
-	if c.setup {
-		o, err := r.live.execute([]string{"sh", filepath.Join(c.dir, "setup.sh"), c.dir}, cwd, env, "", r.cfg.timeout, 0)
-		if err != nil || !o.passed() {
-			what := fmt.Sprintf("setup.sh exit %d", o.status)
-			switch {
-			case err != nil:
-				what = fmt.Sprintf("setup.sh could not start: %v", err)
-			case o.overCap() != "":
-				what = "setup.sh " + o.overCap()
-			case o.timedOut || o.status < 0:
-				what = "setup.sh" + o.why(r.cfg.timeout)
+		opt.Prepare = func(_ string, env []string) (string, []string, func(), error) {
+			copied, err := r.tsCopy(p, r.ts.deps)
+			if err != nil {
+				return "", nil, nil, fmt.Errorf("copy the program for its TypeScript: %w", err)
 			}
-			fmt.Fprintf(r.out, "FAIL %s/%s: %s\n", p.name, c.name, what)
-			if o.overCap() == "" {
-				r.printOutput(o, nil)
-			}
-			r.fail(p.name + "/" + c.name)
-			return outcome{}, false
+			return copied, r.ts.env(r.cfg.ergo, env), func() { r.live.RemoveDir(copied) }, nil
 		}
 	}
-	o, err := r.live.execute(append(slices.Clone(command), c.args...), cwd, env, c.stdin, r.cfg.timeout, memory)
-	if err != nil {
-		fmt.Fprintf(r.out, "FAIL %s/%s: could not start: %v\n", p.name, c.name, err)
-		r.fail(p.name + "/" + c.name)
+	o, f := r.live.Exec(c, command, opt)
+	if f != nil {
+		fmt.Fprintf(r.out, "FAIL %s/%s: %s\n", p.name, c.Name, f.What)
+		if f.Output != nil {
+			r.printOutput(*f.Output, nil)
+		}
+		r.fail(p.name + "/" + c.Name)
 		return outcome{}, false
 	}
 	return o, true
 }
 
-// runCase runs one case and compares its streams and status with the goldens.
-// budgeted marks the built program, which also runs under the memory limit;
-// a port's original (record.sh) runs under neither.
+// runCase runs one case and compares its streams and status with the goldens
+// (cases.Judge). budgeted marks the built program, which also runs under the
+// memory limit; a port's original (record.sh) runs under neither.
 func (r *runner) runCase(p *program, c *testCase, command []string, budgeted bool) {
 	var memory uint64
 	if budgeted {
@@ -1309,54 +1378,26 @@ func (r *runner) runCase(p *program, c *testCase, command []string, budgeted boo
 		return
 	}
 	r.cases++
-	label := p.name + "/" + c.name
-	if o.limited {
-		fmt.Fprintf(r.out, "FAIL %s: program %s exceeded its memory limit of %s (set %s to change it, 0 for none)\n",
-			label, command[0], proclimit.Format(memory), proclimit.Variable)
+	label := p.name + "/" + c.Name
+	v := cases.Judge(c, o, command[0], memory, r.cfg.timeout)
+	if v.Fatal != "" {
+		fmt.Fprintf(r.out, "FAIL %s: %s\n", label, v.Fatal)
 		r.fail(label)
 		return
 	}
-	// Output over the cap replaces every other verdict and prints no diff:
-	// a diff of a near-miss of 1 MiB is the dump the cap exists to stop.
-	if over := o.overCap(); over != "" {
-		fmt.Fprintf(r.out, "FAIL %s: %s\n", label, over)
-		r.fail(label)
-		return
-	}
-	if o.timedOut {
-		fmt.Fprintf(r.out, "FAIL %s:%s\n", label, o.why(r.cfg.timeout))
-		r.fail(label)
-		return
-	}
-	var what []string
-	stdoutDiffers := !bytes.Equal(o.stdout, c.out) || !c.hasOut
-	stderrDiffers := !bytes.Equal(o.stderr, c.err)
-	if stdoutDiffers {
-		what = append(what, "stdout differs")
-	}
-	if stderrDiffers {
-		what = append(what, "stderr differs")
-	}
-	if o.status != c.status {
-		what = append(what, fmt.Sprintf("status differs: got %s, want %d", o.statusText(), c.status))
-	}
+	what := v.What
 	// The budget charges CPU time, never wall time: a healthy case under
 	// the host's load takes longer but does no more work (AGENTS.md, Tests:
 	// no wall-clock bounds; owner, 2026-11-12).
-	if budgeted && p.tagged("default") && r.cfg.budget > 0 && o.cpu > r.cfg.budget {
-		what = append(what, fmt.Sprintf("over the default budget %s of CPU time (used %s); tag the program slow", r.cfg.budget, seconds(o.cpu)))
+	if budgeted && p.tagged("default") && r.cfg.budget > 0 && o.CPU > r.cfg.budget {
+		what = append(what, fmt.Sprintf("over the default budget %s of CPU time (used %s); tag the program slow", r.cfg.budget, seconds(o.CPU)))
 	}
 	if len(what) == 0 {
-		fmt.Fprintf(r.out, "ok %s (%s)\n", label, seconds(o.elapsed))
+		fmt.Fprintf(r.out, "ok %s (%s)\n", label, seconds(o.Elapsed))
 		return
 	}
 	fmt.Fprintf(r.out, "FAIL %s: %s\n", label, strings.Join(what, "; "))
-	if stdoutDiffers {
-		fmt.Fprintf(r.out, "stdout:\n%s", unifiedDiff(c.out, o.stdout))
-	}
-	if stderrDiffers {
-		fmt.Fprintf(r.out, "stderr:\n%s", unifiedDiff(c.err, o.stderr))
-	}
+	v.WriteDiff(r.out, c, o)
 	r.fail(label)
 }
 
@@ -1367,235 +1408,11 @@ func (r *runner) printOutput(o outcome, err error) {
 		fmt.Fprintf(r.out, "    could not start: %v\n", err)
 		return
 	}
-	for _, stream := range [][]byte{o.stdout, o.stderr} {
-		for _, line := range lines(stream) {
+	for _, stream := range [][]byte{o.Stdout, o.Stderr} {
+		for _, line := range cases.Lines(stream) {
 			fmt.Fprintf(r.out, "    %s\n", line)
 		}
 	}
 }
 
-// removeAll removes a case directory, first making its folders writable, as a
-// case may leave a read-only one behind.
-func removeAll(dir string) {
-	if os.RemoveAll(dir) == nil {
-		return
-	}
-	_ = filepath.WalkDir(dir, func(name string, entry os.DirEntry, err error) error {
-		if err == nil && entry.IsDir() {
-			_ = os.Chmod(name, 0o700)
-		}
-		return nil
-	})
-	_ = os.RemoveAll(dir)
-}
-
 func seconds(d time.Duration) string { return fmt.Sprintf("%.2fs", d.Seconds()) }
-
-// outcome is what a command that started did. A command that could not start
-// has no outcome: execute returns an error instead, so no caller can read an
-// exit status 0 from a command that never ran.
-type outcome struct {
-	// stdout and stderr hold at most outputCap bytes each; a stream over the
-	// cap is marked, and its bytes are dropped.
-	stdout, stderr         []byte
-	stdoutOver, stderrOver bool
-	// status is the exit status, or -1 when a signal ended the process.
-	status   int
-	signal   string
-	timedOut bool
-	elapsed  time.Duration
-	// cpu is the user and system time of the process and of the children
-	// it waited for (the kernel's wait4 count): the work the case did,
-	// which the host's load does not stretch as it stretches elapsed.
-	cpu time.Duration
-	// limited is a command that failed under a memory limit and whose stderr
-	// holds a memory cause read by proclimit.CauseOf.
-	limited bool
-}
-
-func (o outcome) passed() bool {
-	return !o.timedOut && o.status == 0 && !o.stdoutOver && !o.stderrOver
-}
-
-func (o outcome) statusText() string {
-	if o.status < 0 {
-		return "signal " + o.signal
-	}
-	return strconv.Itoa(o.status)
-}
-
-// why says, after a colon, why a command did not finish, or nothing.
-func (o outcome) why(timeout time.Duration) string {
-	switch {
-	case o.timedOut:
-		return fmt.Sprintf(" hung: no end after %s, stopped", timeout)
-	case o.status < 0:
-		return " ended by signal " + o.signal
-	}
-	return ""
-}
-
-// testHookStarted, when not nil, is called by execute on its own goroutine
-// right after a command started, its group was registered and its deferred
-// stop was armed. It is nil in production; a test sets it to inject a panic
-// (net/http's testHook pattern).
-var testHookStarted func(argv []string)
-
-// streamDelay bounds how long execute waits, after the last stop of a
-// command's group, for its streams to end: a process that left the group
-// (setsid) and still holds a stream holds the runner no longer than this, as
-// exec.Cmd.WaitDelay bounds it for Go.
-const streamDelay = time.Second
-
-// execute runs argv in dir with exactly env, stdin from the file named (or
-// empty input), in its own process group, registered with l. Each of its
-// streams goes through a pipe into memory, at most outputCap bytes, so no
-// output reaches the disk; at the first byte past the cap the stream is over
-// and execute stops the group at once. It also stops the group when timeout
-// (if not 0) passes, when the leader exits (whatever the leader left running
-// goes with it), and when a panic unwinds this goroutine: stopGroup is the
-// only signal the runner sends, to the group of a child it started.
-// It returns an error, and no outcome, when the command could not start: its
-// stdin cannot be opened, its pipes cannot be made, the run is stopping, or
-// the command cannot be started.
-// A memory limit that is not 0 bounds the command and makes it the first
-// process the kernel's out-of-memory killer stops (proclimit.Start).
-func (l *live) execute(argv []string, dir string, env []string, stdin string, timeout time.Duration, memory uint64) (outcome, error) {
-	return l.executeArmed(argv, dir, env, stdin, timeout, memory, "")
-}
-
-// executeArmed is execute whose timeout starts at an event, not at the
-// start: when arm is not "", the deadline starts once the command's stderr
-// holds arm (ergo test -work prints "WORK=" when its build ends), and it
-// starts again at each output the command writes after that (a test or
-// law's line): so it measures silence, and stops only a run that stopped
-// making progress, whatever load does to a run that makes it. The
-// build before it has no deadline, as the runner's own builds have none
-// (r.tool(0, "build", ...)): a deadline only stops a hung program, and a
-// build that load makes slow is not one.
-func (l *live) executeArmed(argv []string, dir string, env []string, stdin string, timeout time.Duration, memory uint64, arm string) (outcome, error) {
-	input, err := os.Open(os.DevNull)
-	if stdin != "" {
-		input, err = os.Open(stdin)
-	}
-	if err != nil {
-		return outcome{}, err
-	}
-	defer input.Close()
-	outRead, outWrite, err := os.Pipe()
-	if err != nil {
-		return outcome{}, err
-	}
-	defer outRead.Close()
-	errRead, errWrite, err := os.Pipe()
-	if err != nil {
-		outWrite.Close()
-		return outcome{}, err
-	}
-	defer errRead.Close()
-	command := exec.Command(argv[0], argv[1:]...)
-	command.Dir = dir
-	command.Env = env
-	command.Stdin, command.Stdout, command.Stderr = input, outWrite, errWrite
-	ownGroup(command)
-	started := time.Now()
-	err = l.start(command, memory)
-	// The command holds its own copies of the write ends. The runner's go
-	// now, or no reader would ever see the end of a stream.
-	outWrite.Close()
-	errWrite.Close()
-	if err != nil {
-		return outcome{}, err
-	}
-	// From here a panic on this goroutine stops the group as it unwinds.
-	defer l.release(command.Process)
-	stdout, stderr := newCapture(), newCapture()
-	if arm != "" {
-		stderr.mark, stderr.seen = []byte(arm), make(chan struct{})
-		progress := make(chan struct{}, 1)
-		stdout.progress, stderr.progress = progress, progress
-	}
-	overCap := func() { l.stop(command.Process) }
-	go stdout.fill(outRead, overCap)
-	go stderr.fill(errRead, overCap)
-	done := make(chan error, 1)
-	go func() { done <- command.Wait() }()
-	if testHookStarted != nil {
-		testHookStarted(argv)
-	}
-	var o outcome
-	var expired <-chan time.Time
-	var timer *time.Timer
-	defer func() {
-		if timer != nil {
-			timer.Stop()
-		}
-	}()
-	startDeadline := func() {
-		timer = time.NewTimer(timeout)
-		expired = timer.C
-	}
-	var armed <-chan struct{}
-	if timeout > 0 {
-		if arm == "" {
-			startDeadline()
-		} else {
-			armed = stderr.seen
-		}
-	}
-run:
-	for {
-		select {
-		case <-done:
-			break run
-		case <-armed:
-			armed = nil
-			startDeadline()
-		case <-stdout.progress:
-			// Output after the build restarts the deadline (silence only).
-			if timer != nil {
-				timer.Reset(timeout)
-			}
-		case <-expired:
-			o.timedOut = true
-			l.stop(command.Process)
-			<-done
-			break run
-		}
-	}
-	o.elapsed = time.Since(started)
-	// The last stop: whatever the leader left running in its group goes with
-	// it, and no cap stop signals the group after this.
-	l.release(command.Process)
-	held := time.NewTimer(streamDelay)
-	defer held.Stop()
-wait:
-	for _, c := range []*capture{stdout, stderr} {
-		select {
-		case <-c.done:
-		case <-held.C:
-			break wait
-		}
-	}
-	// A process outside the group that still holds a stream now writes into
-	// a closed pipe (EPIPE or SIGPIPE); each fill ends at once.
-	outRead.Close()
-	errRead.Close()
-	<-stdout.done
-	<-stderr.done
-	o.stdout, o.stdoutOver = stdout.data, stdout.over
-	o.stderr, o.stderrOver = stderr.data, stderr.over
-	o.status = command.ProcessState.ExitCode()
-	o.cpu = command.ProcessState.UserTime() + command.ProcessState.SystemTime()
-	if o.status < 0 {
-		o.signal = signalName(command.ProcessState)
-	}
-	o.classifyLimit(memory)
-	return o, nil
-}
-
-// classifyLimit reads the completed command's memory report, if it failed
-// under a cap. A failed command includes one stopped by a signal.
-func (o *outcome) classifyLimit(memory uint64) {
-	o.limited = memory > 0 && o.status != 0 && proclimit.CauseOf(o.stderr) != proclimit.NoCause
-}
