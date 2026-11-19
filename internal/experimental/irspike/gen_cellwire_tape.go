@@ -40,6 +40,8 @@ var cellTapeEvents = []struct {
 	{"Uint", "n uint64", []string{`t.raw("\(n)")$`}},
 	{"Float", "f float64", []string{`t.raw("f")$`}},
 	{"String", "s string", []string{`if empty(s) { t.raw("e") } else { t.raw(s) }`, `t.raw(s)$`, `t.echo(); t.raw(s)$`}},
+	// Writer's StringBytes (main's GX12), drawn as lower's tapeSource draws it.
+	{"StringBytes", "b []byte", []string{`t.raw("y")$`}},
 	{"BeginList", "n int", []string{`t.raw("[")$`, `t.echo(); t.raw("[")$`}},
 	{"EndList", "", []string{`t.raw("]")$`, `t.echo(); t.raw("]")$`}},
 	{"BeginObject", "n int", []string{`t.echo(); t.raw("{")`, `t.echo(); t.raw("{")$`}},

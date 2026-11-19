@@ -81,7 +81,7 @@ func Run[E comparable, S, D, F, R](h Host[E], a actor.Actor[S, E, D, F], view ow
 			frames = !frames
 			h.Frames(frames)
 		}
-		if gripped(held, ev) != held {
+		if pointerHeld(held, ev) != held {
 			held = !held
 			if held {
 				pace.Pacing.Hold()
@@ -93,9 +93,9 @@ func Run[E comparable, S, D, F, R](h Host[E], a actor.Actor[S, E, D, F], view ow
 	}
 }
 
-// gripped is whether a pointer is down after ev, when held says whether
+// pointerHeld is whether a pointer is down after ev, when held says whether
 // one was before: a Down grips, an Up lets go, any other event keeps it.
-func gripped[E](held bool, ev Event[E]) bool {
+func pointerHeld[E](held bool, ev Event[E]) bool {
 	match ev {
 	case Point[E] as p:
 		match p.Pointer.Phase {
@@ -185,30 +185,36 @@ law RunHoldsADrag(b int, m int, t int, ends bool) {
 type dragHost { target sync.Ref[Option[Id[int]]], codes sync.Ref[[]int] } implements Host[int]
 
 func Show(h dragHost, ops []Op[int]) {
-	if len(ops) > 0 {
-		let id = opId(ops[0])
-		h.target.Update(func(t Option[Id[int]]) Option[Id[int]] {
-			match t {
-			case Some[Id[int]]:
-				t
-			case None:
-				Some{Value: id}
-			}
-		})
+	let mut found Option[Id[int]] = None
+	for op in ops {
+		if found == None {
+			found = opId(op)
+		}
 	}
+	let first = found
+	h.target.Update(func(t Option[Id[int]]) Option[Id[int]] {
+		match t {
+		case Some[Id[int]]:
+			t
+		case None:
+			first
+		}
+	})
 }
 
-// opId is the node an op changes.
-func opId(op Op[int]) Id[int] {
+// opId is the node an op changes; a Define changes a look, no node.
+func opId(op Op[int]) Option[Id[int]] {
 	match op {
 	case Insert[int] as i:
-		i.Id
+		Some{Value: i.Id}
 	case Move[int] as m:
-		m.Id
+		Some{Value: m.Id}
 	case Remove[int] as r:
-		r.Id
+		Some{Value: r.Id}
 	case Set[int] as s:
-		s.Id
+		Some{Value: s.Id}
+	case Define:
+		None
 	}
 }
 

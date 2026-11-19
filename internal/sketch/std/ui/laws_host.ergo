@@ -537,7 +537,7 @@ func advanceTakes(n int, m time.Manual) bool needs Scheduler {
 			return false
 		}
 	}
-	Posted(&h) <= 1 && Frames(&h) == frames
+	Posted(&h) <= 1 && h.Frames() == frames
 }
 
 // pad is the state of the input app: whether its dialog is open, the
