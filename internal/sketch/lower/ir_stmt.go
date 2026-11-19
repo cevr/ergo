@@ -458,7 +458,7 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 	case *syntax.ForStmt:
 		// bounds.go: at the loop's head (ir_bounds.go).
 		b.fc.killWritten(s.Body)
-		return b.memoLoop(s, func() []*irStmt { return b.whileStmt(s) }) // ir_order.go, ir_memo.go
+		return b.memoLoop(b.next, func() []*irStmt { return b.whileStmt(s) }) // ir_order.go, ir_memo.go
 	case *syntax.BranchStmt:
 		if b.loops == 0 {
 			irNo("break or continue outside a loop")
@@ -484,12 +484,13 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 		b.fc.killWritten(s.Body) // bounds.go: at the loop's head (ir_bounds.go)
 		lp := b.l.info.Loops[s]
 		if lp != nil && lp.Domain == check.LoopRange {
-			return b.memoLoop(s, func() []*irStmt { return b.countLoop(s, lp) }) // ir_pkg.go, ir_memo.go
+			return b.memoLoop(b.next, func() []*irStmt { return b.countLoop(s, lp) }) // ir_pkg.go, ir_memo.go
 		}
 		if lp == nil || !goRange(lp.Domain) { // ir_pkg.go
 			b.gate("for-in over a non-slice")
 		}
 		pre, x := b.foldRangeValue(s) // ir_collectfold.go: rangeValue (ir_order.go), run once before the loop, unless fused
+		first := b.next               // before the key and value: ir_memo.go
 		st := &irStmt{K: "range", Pos: b.pos(s, s.Pos()), X: x, End: b.pos(s.Body, s.Body.Rbrace)}
 		bind := func(e syntax.Expr) *int {
 			if !bound(e) {
@@ -513,7 +514,7 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 		}
 		b.part(func() { st.Key = bind(s.Key) })
 		b.part(func() { st.Val = bind(s.Value) })
-		loop := b.memoLoop(s, func() []*irStmt { // ir_memo.go
+		loop := b.memoLoop(first, func() []*irStmt { // ir_memo.go
 			b.loopBody(st, s, s.Body)
 			return []*irStmt{st}
 		})
