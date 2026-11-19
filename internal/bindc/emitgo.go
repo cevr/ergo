@@ -602,6 +602,14 @@ func (e *goEmitter) typedFunc(f *BoundFunc) {
 			e.p("\tvar %s unsafe.Pointer\n\tif %s != nil {\n\t\t%s = %s.record()\n\t}\n", v, gp.Name, v, gp.Name)
 			args = append(args, v)
 			keep = append(keep, v)
+		case isPos && q.Class == ClassOptional:
+			// A filled copy of the value, or NULL for nil.
+			v, s := "_v"+strconv.Itoa(i), "_s"+strconv.Itoa(i)
+			e.p("\tvar %s unsafe.Pointer\n\tvar %s %s\n\tif %s != nil {\n\t\t%s = *%s\n", v, s, b.GoType(*p.Type.Elem), gp.Name, s, gp.Name)
+			e.fill(s, *p.Type.Elem, 0)
+			e.p("\t\t%s = unsafe.Pointer(&%s)\n\t}\n", v, s)
+			args = append(args, v)
+			keep = append(keep, v)
 		case isPos && q.Class == ClassValue:
 			t := *p.Type.Elem
 			if p.Type.LenExpr != "" {
