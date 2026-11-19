@@ -346,7 +346,10 @@ func blockingNative(t *testing.T, name, route string) {
 			// Live sleeps take the swapped timer, not the pooled host one.
 			data = replace(data, "if _, ok := s.(Live); ok {", "if _, ok := s.(Live); ok && BlockingClock == nil {")
 		case "ergo/runtime/rt/handle.go":
-			data = replace(data, "close(h.done)", "ready := BlockingFinished\n\tclose(h.done)\n\tif ready != nil { ready <- &h.task }")
+			// Every handle sets the ended flag; done is made only for a
+			// wait that selects on it (After's race), so its close is no
+			// hook for the end since PARK1.
+			data = replace(data, "h.task.stopped.setEnded()", "h.task.stopped.setEnded()\n\tif ready := BlockingFinished; ready != nil { ready <- &h.task }")
 		}
 		write(f.Path, data)
 	}
@@ -469,11 +472,16 @@ func await(t *testing.T, test func() bool) {
  t.Helper()
  for !test() { runtime.Gosched() }
 }
+// handleParked reports whether a goroutine sleeps in the handle's method:
+// on its task's park word (rt park_word.go: gopark with the reason
+// sync.Cond.Wait), or on the stock body's channel (a race or
+// ergo_stockpark build). A sleep shown with its minutes ("[select, 2
+// minutes]") is asleep too.
 func handleParked(method string) bool {
  buf := make([]byte, 1<<18)
  stack := string(buf[:runtime.Stack(buf, true)])
  for _, block := range strings.Split(stack, "\n\n") {
-  if (strings.Contains(block, "[select]") || strings.Contains(block, "[chan receive]")) && strings.Contains(block, "(*Handle[") && strings.Contains(block, ")."+method+"(") { return true }
+  if (strings.Contains(block, "[sync.Cond.Wait") || strings.Contains(block, "[select") || strings.Contains(block, "[chan receive")) && strings.Contains(block, "(*Handle[") && strings.Contains(block, ")."+method+"(") { return true }
  }
  return false
 }
