@@ -336,6 +336,7 @@ func TestErgoNameRegressions(t *testing.T) {
 // fixed array lengths erased (the Ergo text has []T until 196y).
 func TestErgoGoAgreement(t *testing.T) {
 	dims := regexp.MustCompile(`\[[0-9]+\]`)
+	optional := regexp.MustCompile(`^Option\[(\w+)\]$`)
 	for _, h := range headers {
 		t.Run(h.header, func(t *testing.T) {
 			b := bindHeader(t, h.dir, h.header, parseHeader(t, h.dir, h.header))
@@ -398,7 +399,8 @@ func TestErgoGoAgreement(t *testing.T) {
 				var types []string
 				for _, p := range fn.Type.Params.List {
 					for range max(1, len(p.Names)) {
-						types = append(types, at(p.Type))
+						// An optional value: Ergo's Option[S] is Go's *S, nil for None.
+						types = append(types, optional.ReplaceAllString(at(p.Type), "*$1"))
 					}
 				}
 				types = append(types, "->")
