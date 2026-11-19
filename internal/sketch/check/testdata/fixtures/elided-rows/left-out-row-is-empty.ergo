@@ -1,0 +1,14 @@
+type Bad {}
+
+type Command[C, E] { Name string, Build func() C fails E }
+
+func one() int { 1 }
+
+func bad() int fails Bad { Bad }
+
+func run(c Command[int]) int { c.Build() }
+
+func main() needs Console {
+	let cs = []Command[int]{Command[int]{Name: "one", Build: one}}
+	Console.Println("\(run(cs[0]))")
+}
