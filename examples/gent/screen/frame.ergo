@@ -20,7 +20,7 @@ func Frame(v View, w term.Window) []string {
 		return []string{}
 	}
 	let cols = if w.Cols < 0 { 0 } else { w.Cols }
-	let composer = Clip("> "+v.Line.Text+"_", cols)
+	let composer = Clip("> "+Before(v.Line)+"_"+After(v.Line), cols)
 	if w.Rows == 1 {
 		return []string{composer}
 	}

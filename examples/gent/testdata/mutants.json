@@ -432,6 +432,54 @@
       "killers": [
         "examples:gent"
       ]
+    },
+    {
+      "name": "gent-home-goes-to-the-end",
+      "origin": "wf10/gent-home",
+      "file": "examples/gent/screen/keys.ergo",
+      "from": "\tcase term.Home:\n\t\tmoved(l, at, 0, n)\n",
+      "to": "\tcase term.Home:\n\t\tmoved(l, at, n, n)\n",
+      "rule": "Home moves the composer's cursor to the start of the line (law Composer.HomeThenTypeIsFirst).",
+      "anchor": {
+        "tests": [
+          "examples:gent"
+        ]
+      },
+      "killers": [
+        "examples:gent"
+      ]
+    },
+    {
+      "name": "gent-end-ignored",
+      "origin": "wf10/gent-home",
+      "file": "examples/gent/screen/keys.ergo",
+      "from": "\tcase term.End:\n\t\tmoved(l, at, n, n)\n",
+      "to": "\tcase term.End:\n\t\tIgnore\n",
+      "rule": "End moves the composer's cursor to the end of the line (law Composer.EndThenTypeIsLast).",
+      "anchor": {
+        "tests": [
+          "examples:gent"
+        ]
+      },
+      "killers": [
+        "examples:gent"
+      ]
+    },
+    {
+      "name": "gent-right-runs-off-the-text",
+      "origin": "wf10/gent-home",
+      "file": "examples/gent/screen/keys.ergo",
+      "from": "\tlet next = if to < 0 { 0 } else if to > n { n } else { to }\n",
+      "to": "\tlet next = if to < 0 { 0 } else { to }\n",
+      "rule": "The cursor stays on the text whatever keys come (law Composer.CursorStaysOnTheText).",
+      "anchor": {
+        "tests": [
+          "examples:gent"
+        ]
+      },
+      "killers": [
+        "examples:gent"
+      ]
     }
   ]
 }

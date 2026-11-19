@@ -25,7 +25,7 @@ func Chat(s agent.Session) needs io.Stdout | term.Terminal | Scheduler {
 	let events = queue.New[Event](64)
 	let keys = task.Go() { readKeys(events) }
 	let states = task.Go() { follow(s, events) }
-	let mut view = screen.View{State: s.Agent.State(), Line: screen.Line{Text: ""}}
+	let mut view = screen.View{State: s.Agent.State(), Line: screen.Line{Text: "", At: 0}}
 	paint(view)
 	for {
 		let e = events.Pop() catch {
@@ -45,7 +45,7 @@ func Chat(s agent.Session) needs io.Stdout | term.Terminal | Scheduler {
 				s.Agent.Send(agent.Submit{Text: view.Line.Text}) catch {
 				case _:
 				}
-				view = screen.View{..view, Line: screen.Line{Text: ""}}
+				view = screen.View{..view, Line: screen.Line{Text: "", At: 0}}
 			case screen.Nothing:
 			}
 		case Changed as c:
@@ -108,7 +108,7 @@ test DrawsOnlyStatesThatExisted {
 		Chat(s)
 		agent.RecordOf(s)
 	}
-	let lines = []screen.Line{screen.Line{Text: ""}, screen.Line{Text: "h"}, screen.Line{Text: "hi"}}
+	let lines = []screen.Line{screen.Line{Text: "", At: 0}, screen.Line{Text: "h", At: 1}, screen.Line{Text: "hi", At: 2}}
 	let mut seen = []string{}
 	for k in 0..(len(record.Signals) + 1) {
 		let st = agent.Replay(agent.Recorded{Limits: record.Limits, Signals: record.Signals[0:k]})
