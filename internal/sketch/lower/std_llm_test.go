@@ -352,7 +352,9 @@ func metered(m llm.Metered, r llm.Request, stream bool) llm.Turn fails llm.RateL
 	try m.Generate(r)
 }
 
-func metersAdd(us []llm.Usage, f llm.Failure, stream bool) bool {
+type metering { Transparent bool, Summed bool }
+
+func meter(us []llm.Usage, f llm.Failure, stream bool) metering {
 	let mut replies = []memory.Reply{}
 	let mut want = none()
 	for i, u in us {
@@ -360,30 +362,36 @@ func metersAdd(us []llm.Usage, f llm.Failure, stream bool) bool {
 		want = llm.Usage{Input: want.Input + u.Input, Output: want.Output + u.Output, CacheRead: want.CacheRead + u.CacheRead, CacheWrite: want.CacheWrite + u.CacheWrite}
 	}
 	let m = llm.NewMetered(memory.NewSequence(replies.Append(memory.Breaks{Deltas: []llm.Delta{}, Failure: f})))
-	let alone = memory.NewSequence(replies)
+	let alone = memory.NewSequence(replies.Append(memory.Breaks{Deltas: []llm.Delta{}, Failure: f}))
 	let r = plain("q")
+	let mut same = true
 	for i, _ in us {
 		let t = metered(m, r, stream) catch {
 		case _:
-			return false
+			return metering{Transparent: false, Summed: false}
 		}
 		let b = alone.Generate(r) catch {
 		case _:
-			return false
+			return metering{Transparent: false, Summed: false}
 		}
-		if t != b || t.Text != "t\(i)" {
-			return false
-		}
+		same = same && t == b && t.Text == "t\(i)"
 	}
 	let _ = metered(m, r, stream) catch {
 	case g:
 		let got llm.Failure = g
-		return got == bare(f) && llm.Used(m) == want
+		let _ = alone.Generate(r) catch {
+		case h:
+			let bare llm.Failure = h
+			return metering{Transparent: same && got == bare, Summed: llm.Used(m) == want}
+		}
+		return metering{Transparent: false, Summed: llm.Used(m) == want}
 	}
-	false
+	metering{Transparent: false, Summed: llm.Used(m) == want}
 }
 
-test MemoryUsageAdds(us []llm.Usage, f llm.Failure) { assert metersAdd(us, f, false) && metersAdd(us, f, true) }
+test MemoryUsageAdds(us []llm.Usage, f llm.Failure) { assert meter(us, f, false).Summed && meter(us, f, true).Summed }
+
+test MemoryMeteredIsTransparent(us []llm.Usage, f llm.Failure) { assert meter(us, f, false).Transparent && meter(us, f, true).Transparent }
 `
 
 // stdLLMLawStatements is the statement of each llm law, as the ledger
@@ -402,7 +410,8 @@ var stdLLMLawStatements = map[string]string{
 	"llm/memory RetryHonoursAfter":       `RetryHonoursAfter(ms int) { let wait = (ms%100000 + 100000) % 100000 let c = testing.NewVirtualClock(0) let s = NewSequence([]Reply{Fails{Failure: llm.RateLimited{After: Some[int]{Value: wait}}}, ok("done", none())}) let start = c.Now() let t = llm.Retry{Inner: s, Schedule: schedule.Spaced(1ms), Clock: c, Sleep: c}.Generate(plain("q")) catch { case _: return false } let waited = c.Now().Sub(start) t.Text == "done" && waited >= duration(int64(wait)*1000000) && (wait > 0 || waited == 1ms) }`,
 	"llm/memory NoReplayAfterFirstDelta": `NoReplayAfterFirstDelta(text string, f llm.Failure) { let r = plain("q") let failing = []Reply{Breaks{Deltas: []llm.Delta{llm.Text{Text: text}}, Failure: f}, ok("again", none())} let s = NewSequence(failing) let c = testing.NewVirtualClock(0) let _ = llm.Retry{Inner: s, Schedule: schedule.Recurs(4), Clock: c, Sleep: c}.Stream(r, func(d llm.Delta) fails llm.SinkFailed {}) catch { case llm.SinkFailed: return false case _: let a = NewSequence(failing) let b = NewSequence([]Reply{ok("other", none())}) let _ = llm.Fallback{Members: []llm.Model{a, b}}.Stream(r, func(d llm.Delta) fails llm.SinkFailed {}) catch { case llm.SinkFailed: return false case _: return Asks(s) == 1 && Asks(a) == 1 && Asks(b) == 0 } return false } false }`,
 	"llm/memory FallbackIsFirstSuccess":  `FallbackIsFirstSuccess(fs []llm.Failure, succeeds bool) { let mut members = []llm.Model{} let mut seqs = []Sequence{} for f in fs { let s = NewSequence([]Reply{Breaks{Deltas: []llm.Delta{}, Failure: f}}) seqs = seqs.Append(s) members = members.Append(s) } let last = NewSequence([]Reply{ok("last", none())}) if succeeds { members = members.Append(last) } let t = llm.Fallback{Members: members}.Generate(plain("q")) catch { case f: let got llm.Failure = f let want llm.Failure = if len(fs) == 0 { llm.InvalidRequest{Reason: "a fallback with no member"} } else { bare(fs[len(fs)-1]) } return !succeeds && got == want && askedOnce(seqs) } succeeds && t.Text == "last" && askedOnce(seqs) && Asks(last) == 1 }`,
-	"llm/memory UsageAdds":               `UsageAdds(us []llm.Usage, f llm.Failure) { metersAdd(us, f, false) && metersAdd(us, f, true) }`,
+	"llm/memory UsageAdds":               `UsageAdds(us []llm.Usage, f llm.Failure) { meter(us, f, false).Summed && meter(us, f, true).Summed }`,
+	"llm/memory MeteredIsTransparent":    `MeteredIsTransparent(us []llm.Usage, f llm.Failure) { meter(us, f, false).Transparent && meter(us, f, true).Transparent }`,
 }
 
 // stdLLMLawTestName is the probe's test of a ledger key: the last element

@@ -175,12 +175,20 @@ func askedOnce(seqs []Sequence) bool {
 }
 
 // UsageAdds: the meter of llm.Metered is the sum of the usage of the
-// turns it gave, by Generate and by Stream, and it gives the turns and
-// failures its inner model gives.
-law UsageAdds(us []llm.Usage, f llm.Failure) { metersAdd(us, f, false) && metersAdd(us, f, true) }
+// turns it gave, by Generate and by Stream; a failure adds nothing (a
+// Failure reports no usage).
+law UsageAdds(us []llm.Usage, f llm.Failure) { meter(us, f, false).Summed && meter(us, f, true).Summed }
 
-// metersAdd is UsageAdds for the turns of one operation.
-func metersAdd(us []llm.Usage, f llm.Failure, stream bool) bool {
+// MeteredIsTransparent: llm.Metered gives the turns and the failures its
+// inner model gives, by Generate and by Stream.
+law MeteredIsTransparent(us []llm.Usage, f llm.Failure) { meter(us, f, false).Transparent && meter(us, f, true).Transparent }
+
+// metering is what a run of meter saw.
+type metering { Transparent bool, Summed bool }
+
+// meter asks a Metered sequence of turns of usage us, then a failure f,
+// by one operation, beside the bare sequence.
+func meter(us []llm.Usage, f llm.Failure, stream bool) metering {
 	let mut replies = []Reply{}
 	let mut want = none()
 	for i, u in us {
@@ -188,27 +196,31 @@ func metersAdd(us []llm.Usage, f llm.Failure, stream bool) bool {
 		want = llm.Usage{Input: want.Input + u.Input, Output: want.Output + u.Output, CacheRead: want.CacheRead + u.CacheRead, CacheWrite: want.CacheWrite + u.CacheWrite}
 	}
 	let m = llm.NewMetered(NewSequence(replies.Append(Breaks{Deltas: []llm.Delta{}, Failure: f})))
-	let alone = NewSequence(replies)
+	let alone = NewSequence(replies.Append(Breaks{Deltas: []llm.Delta{}, Failure: f}))
 	let r = plain("q")
+	let mut same = true
 	for i, _ in us {
 		let t = metered(m, r, stream) catch {
 		case _:
-			return false
+			return metering{Transparent: false, Summed: false}
 		}
 		let b = alone.Generate(r) catch {
 		case _:
-			return false
+			return metering{Transparent: false, Summed: false}
 		}
-		if t != b || t.Text != "t\(i)" {
-			return false
-		}
+		same = same && t == b && t.Text == "t\(i)"
 	}
 	let _ = metered(m, r, stream) catch {
 	case g:
 		let got llm.Failure = g
-		return got == bare(f) && llm.Used(m) == want
+		let _ = alone.Generate(r) catch {
+		case h:
+			let bare llm.Failure = h
+			return metering{Transparent: same && got == bare, Summed: llm.Used(m) == want}
+		}
+		return metering{Transparent: false, Summed: llm.Used(m) == want}
 	}
-	false
+	metering{Transparent: false, Summed: llm.Used(m) == want}
 }
 
 // metered asks m by Generate, or by Stream when stream.
