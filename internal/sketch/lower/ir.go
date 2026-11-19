@@ -638,6 +638,9 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	}
 	if n := b.monoName(f); n != "" {
 		name = n // a monomorphic copy (mono.go; ir_golib.go)
+	} else if b.fc.mono && b.copyName(f) == "" && !slices.Contains(gates, "copy for an instance") {
+		// A copy whose name is unknown would take f's (irInstanceCopy).
+		gates = append(gates, "copy for an instance")
 	}
 	pkg := ""
 	if f.Pkg != nil {
@@ -671,22 +674,25 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	if f.Decl.Body == nil {
 		irNo("no body")
 	}
-	// Go parameter order: receiver, environment, parameters (emitBody).
+	// Go parameter order: receiver, environment, parameters (emitBody). A
+	// monomorphic copy of a method is a plain function: environment,
+	// receiver, parameters (mono.go).
+	method := fd.method != nil && b.monoName(f) == ""
 	for i, v := range params {
 		if v == nil {
 			// An unnamed parameter (`_ T`) has its slot; no body reads it.
-			if i == 0 && !fd.pure && fd.method == nil {
+			if i == 0 && !fd.pure && !method {
 				b.env = b.next
 				b.next++
 			}
 			b.next++
-			if i == 0 && fd.method != nil && !fd.pure {
+			if i == 0 && method && !fd.pure {
 				b.env = b.next
 				b.next++
 			}
 			continue
 		}
-		if i == 0 && fd.method != nil {
+		if i == 0 && method {
 			b.locals[v] = b.next
 			b.next++
 			if !fd.pure {
