@@ -6363,6 +6363,8 @@
       "killers": [
         "internal/sketch/lower:TestLinkedRuntimeHoldsEveryImport"
       ]
-    }
+    },
+    {"name":"lgf-lower-noop-not-drawn","origin":"wf10/law-gen-func/LAW-GEN-FUNC","file":"internal/sketch/lower/tests.go","from":"\t\t\treturn tc.funcType(u) + \" { return struct{}{}, nil }\"\n","to":"","rule":"The built test binary draws func() with no rows as the evaluator does.","anchor":{"tests":["internal/sketch/lower:TestCasePlansAgreeWithGo"]},"killers":["internal/sketch/lower:TestCasePlansAgreeWithGo"]},
+    {"name":"lgf-lower-noop-literal","origin":"wf10/law-gen-func/LAW-GEN-FUNC","file":"internal/sketch/lower/literal.go","from":"\t\treturn strconv.Quote(\"func() {}\")","to":"\t\treturn strconv.Quote(\"func(){}\")","rule":"The built test binary prints the generated func() as the evaluator does: func() {}.","anchor":{"tests":["internal/sketch/lower:TestCasePlansAgreeWithGo"]},"killers":["internal/sketch/lower:TestCasePlansAgreeWithGo"]}
   ]
 }

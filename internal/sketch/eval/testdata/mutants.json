@@ -2102,6 +2102,9 @@
       "rule": "The evaluator runs the operation s.Bytes(), so check-time evaluation of std's digests (sha256.Sum) agrees with the build.",
       "anchor": {"tests":["internal/sketch/eval:TestEvalAgreesWithLowering"]},
       "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
-    }
+    },
+    {"name":"lgf-noop-func-not-drawn","origin":"wf10/law-gen-func/LAW-GEN-FUNC","file":"internal/sketch/eval/cases.go","from":"\t\t\treturn noopFunc\n","to":"","rule":"func() with no rows is generated as the one function that returns, so a provider holding one runs its laws.","anchor":{"tests":["internal/sketch/eval:TestCasePlansRun"]},"killers":["internal/sketch/eval:TestCasePlansRun"]},
+    {"name":"lgf-noop-preflight-refuses","origin":"wf10/law-gen-func/LAW-GEN-FUNC","file":"internal/sketch/eval/preflight.go","from":"\t\treturn \"\" // the one function that returns (cases.go, noopFunc)","to":"\t\treturn \"a generator for func()\"","rule":"The preflight admits what the generator draws: func() with no rows.","anchor":{"tests":["internal/sketch/eval:TestCasePlansRun"]},"killers":["internal/sketch/eval:TestCasePlansRun"]},
+    {"name":"lgf-noop-prints-as-name","origin":"wf10/law-gen-func/LAW-GEN-FUNC","file":"internal/sketch/eval/coll.go","from":"\t\t\treturn v.name, true // its literal: func() {}","to":"\t\t\treturn \"the function \" + v.name, true","rule":"The generated func() prints as its literal, func() {}, as the built test binary prints it.","anchor":{"tests":["internal/sketch/lower:TestCasePlansAgreeWithGo"]},"killers":["internal/sketch/lower:TestCasePlansAgreeWithGo"]}
   ]
 }

@@ -16,7 +16,9 @@ import (
 // collection models do not exercise: a property and law must run their first
 // refuting case, not be silently left as generated-case support skips.
 // Mutants: reseed-per-case, provider-case-reused, finite-cap-overflow,
-// imported-provider-wrong (the native agreement property also guards arguments).
+// imported-provider-wrong (the native agreement property also guards arguments),
+// lgf-noop-func-not-drawn, lgf-noop-preflight-refuses, and check's
+// lgf-noopfunc-ungeneratable and lgf-noopfunc-admits-errors.
 func TestCasePlansRun(t *testing.T) {
 	first, last := uint64(1), uint64(12)
 	if s := os.Getenv("ERGO_CASE_SEED"); s != "" {
@@ -47,7 +49,9 @@ func TestCasePlansRun(t *testing.T) {
 		seen := map[string]bool{}
 		for _, result := range r.Results {
 			seen[result.Name] = true
-			if result.Name == "law Skips" {
+			// A function type other than func() with no rows has no
+			// generator: Skips has a result, SkipsFailing an error row.
+			if result.Name == "law Skips" || result.Name == "law SkipsFailing" {
 				if result.Status != Skipped || result.Reason == "" {
 					t.Fatalf("skip: %+v", result)
 				}

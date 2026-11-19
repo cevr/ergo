@@ -545,6 +545,12 @@ func (in *interp) generate(fr *frame, r *testgen.Stream, t check.Type, d int, re
 		return tuple{elems: xs}
 	case *check.Union:
 		return in.genVariant(fr, r, u.Variants, d)
+	case *check.Signature:
+		if check.NoopFunc(u) {
+			// func() with no rows: the one function that returns
+			// (LAW-GEN-FUNC); it draws nothing.
+			return noopFunc
+		}
 	case *check.Named:
 		if _, ops := u.Underlying().(*check.Interface); ops {
 			return in.genBuilt(fr, r, u, d)
@@ -574,6 +580,11 @@ func (in *interp) generate(fr *frame, r *testgen.Stream, t check.Type, d int, re
 	}
 	panic(fr.unsupported(fr.decl, "a generator for %s", t))
 }
+
+// noopFunc is the generated value of func() with no rows: it returns.
+var noopFunc = &nativeFunc{name: "func() {}", call: func(in *interp, fr *frame, at syntax.Node, args []Value) (Value, *abrupt) {
+	return unit{}, in.charge(fr, at, 1)
+}}
 
 // genBuilt is a value of the operation type n drawn as the Go build draws
 // it (lower/builders.go, genBuilt): its builder (check.Builder, a New<X>

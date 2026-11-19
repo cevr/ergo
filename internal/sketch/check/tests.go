@@ -343,6 +343,11 @@ func (c *checker) ungeneratableFrom(t Type, from *Package) string {
 			}
 			return ""
 		case *Signature:
+			if NoopFunc(u) {
+				// func() with no rows has one behaviour, to return: its
+				// generator is that function (LAW-GEN-FUNC).
+				return ""
+			}
 			return t.String() + " is a function type"
 		case *Pointer:
 			return t.String() + " is a borrow"

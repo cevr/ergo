@@ -18,7 +18,9 @@ import (
 // It builds Go because only executing the generated cases observes their actual
 // values and verdicts; go/types and a Go-text golden cannot establish parity.
 // The one-binary helper and runProgram enforce child memory and group bounds.
-// Mutants: native-case-stream-wrong; eval's reseed-per-case and provider-case-reused.
+// Mutants: native-case-stream-wrong, lgf-lower-noop-not-drawn,
+// lgf-lower-noop-literal; eval's reseed-per-case, provider-case-reused and
+// lgf-noop-prints-as-name.
 func TestCasePlansAgreeWithGo(t *testing.T) {
 	needsBuild(t)
 	var builds []*lowered

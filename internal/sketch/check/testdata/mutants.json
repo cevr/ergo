@@ -3389,6 +3389,8 @@
       "killers": [
         "internal/sketchfront:TestStdSnapshotIsCurrent"
       ]
-    }
+    },
+    {"name":"lgf-noopfunc-ungeneratable","origin":"wf10/law-gen-func/LAW-GEN-FUNC","file":"internal/sketch/check/tests.go","from":"\t\t\tif NoopFunc(u) {","to":"\t\t\tif false && NoopFunc(u) {","rule":"func() with no rows is a generatable type (runtime.md Generators, Functions).","anchor":{"tests":["internal/sketch/eval:TestCasePlansRun"]},"killers":["internal/sketch/eval:TestCasePlansRun"]},
+    {"name":"lgf-noopfunc-admits-errors","origin":"wf10/law-gen-func/LAW-GEN-FUNC","file":"internal/sketch/check/types.go","from":" && s.Errors.Empty()","to":"","rule":"A function type with an error row has no generator: the one returning function is not every function that may fail.","anchor":{"tests":["internal/sketch/eval:TestCasePlansRun"]},"killers":["internal/sketch/eval:TestCasePlansRun"]}
   ]
 }
