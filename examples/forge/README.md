@@ -28,7 +28,7 @@ The program is a module of packages (`ergo.mod`: `module forge`), in the Go layo
 ## Run it
 
 ```sh
-go build -o bin/ergo ./cmd/ergo
+CGO_ENABLED=0 go build -o bin/ergo ./cmd/ergo
 ./bin/ergo run examples/forge/cmd/forge < examples/forge/cases/basic/stdin
 ./bin/ergo run examples/forge/cmd/forge -- -brief -stock 0 < examples/forge/cases/brief/stdin
 ./bin/ergo test examples/forge/forge     # and light, drive, memory, cmd/forge

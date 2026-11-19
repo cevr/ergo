@@ -26,7 +26,7 @@ The program is a module of packages (`ergo.mod`: `module okrakeys`), in the Go l
 ## Run it
 
 ```sh
-go build -o bin/ergo ./cmd/ergo
+CGO_ENABLED=0 go build -o bin/ergo ./cmd/ergo
 ./bin/ergo build -o /tmp/okra-keys examples/okra-keys/cmd/okra-keys
 HOME=/tmp/scratch /tmp/okra-keys keys list
 ./bin/ergo test examples/okra-keys/keys

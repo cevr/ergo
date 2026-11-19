@@ -28,7 +28,7 @@ The program is a module of packages (`ergo.mod`: `module quota`), in the Go layo
 ## Run it
 
 ```sh
-go build -o bin/ergo ./cmd/ergo
+CGO_ENABLED=0 go build -o bin/ergo ./cmd/ergo
 ./bin/ergo run examples/quota/cmd/quota < examples/quota/cases/basic/stdin
 echo 'open home
 grant g1 home 10' | ./bin/ergo run examples/quota/cmd/quota -- -journal /tmp/quota.journal

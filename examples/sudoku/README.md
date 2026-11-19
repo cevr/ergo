@@ -25,7 +25,7 @@ The program is a module of packages (`ergo.mod`: `module sudoku`), in the Go lay
 ## Run it
 
 ```sh
-go build -o bin/ergo ./cmd/ergo
+CGO_ENABLED=0 go build -o bin/ergo ./cmd/ergo
 ./bin/ergo run examples/sudoku/cmd/sudoku -- -p < examples/sudoku/cases/picture/stdin
 ./bin/ergo test examples/sudoku/propagate   # and board, naive, cmd/sudoku
 go run ./scripts/examples sudoku

@@ -45,7 +45,7 @@ The children's lifetimes (the children stop with their entry, and a late answer 
 ## Run it
 
 ```sh
-go build -o bin/ergo ./cmd/ergo
+CGO_ENABLED=0 go build -o bin/ergo ./cmd/ergo
 ./bin/ergo run examples/shards/cmd/shards < examples/shards/cases/split/stdin
 ./bin/ergo test examples/shards/shards      # 10 laws
 ./bin/ergo test examples/shards/memory

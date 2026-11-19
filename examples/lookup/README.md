@@ -24,7 +24,7 @@ Tag: `default`. It is an original program, not a port. Its golden is written by 
 ## Run it
 
 ```sh
-go build -o bin/ergo ./cmd/ergo
+CGO_ENABLED=0 go build -o bin/ergo ./cmd/ergo
 ./bin/ergo run examples/lookup/cmd/lookup   # prints: 192.0.2.1
 ./bin/ergo test examples/lookup/cmd/lookup  # prints: ok ResolveAnswers, ok NotFoundIsHandled, the law Answered under Memory and under Missing, PASS (4 tests)
 ./bin/ergo test examples/lookup/memory      # prints: ok StaticAnswersTheName, ok EmptyAnswersNothing, ok law hosts.Resolver.Answered for Static and for Empty, PASS (4 tests)

@@ -47,7 +47,7 @@ Each law has a mutant it kills, in `testdata/mutants.json` (19 for E1); five are
 ## Run it
 
 ```sh
-go build -o bin/ergo ./cmd/ergo
+CGO_ENABLED=0 go build -o bin/ergo ./cmd/ergo
 ./bin/ergo build examples/gent/cmd/gent -o /tmp/gent
 for p in agent memory screen cmd/gent; do ./bin/ergo test examples/gent/$p; done
 go run ./scripts/examples gent

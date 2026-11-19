@@ -54,7 +54,7 @@ Two mutants no law sees are caught elsewhere: a `case _` in `Handle`'s catch by 
 ## Run it
 
 ```sh
-go build -o bin/ergo ./cmd/ergo
+CGO_ENABLED=0 go build -o bin/ergo ./cmd/ergo
 ./bin/ergo build examples/jobs/cmd/jobs -o /tmp/jobs
 /tmp/jobs -addr 127.0.0.1:8080 -site some/dir &
 curl -s -XPOST localhost:8080/jobs -d '{"name":"build"}'

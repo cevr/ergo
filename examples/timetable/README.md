@@ -40,7 +40,7 @@ The source for the time section of the Ergo skill:
 ## Run it
 
 ```sh
-go build -o bin/ergo ./cmd/ergo
+CGO_ENABLED=0 go build -o bin/ergo ./cmd/ergo
 ./bin/ergo run examples/timetable/cmd/timetable -- departures Moncton 2027-03-14 -now 2027-03-12T09:00:00-04:00
 ./bin/ergo run examples/timetable/cmd/timetable -- week 2027-03-10 -n 2
 ./bin/ergo run examples/timetable/cmd/timetable -- trip 14 2027-03-14 -now 2027-03-14T12:00:00-03:00 -delay 25m

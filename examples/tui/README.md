@@ -45,7 +45,7 @@ The program is a module of packages (`ergo.mod`: `module tui`), in the Go layout
 ## Run it
 
 ```sh
-go build -o bin/ergo ./cmd/ergo
+CGO_ENABLED=0 go build -o bin/ergo ./cmd/ergo
 ./bin/ergo build examples/tui/cmd/tui -o /tmp/tui
 printf '/el\r\033[B\r' | /tmp/tui
 for p in keys picker screen cmd/tui; do ./bin/ergo test examples/tui/$p; done

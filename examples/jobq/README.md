@@ -28,7 +28,7 @@ The program is a module of packages (`ergo.mod`: `module jobq`), in the Go layou
 ## Run it
 
 ```sh
-go build -o bin/ergo ./cmd/ergo
+CGO_ENABLED=0 go build -o bin/ergo ./cmd/ergo
 ./bin/ergo build examples/jobq/cmd/jobq -o /tmp/jobq
 /tmp/jobq < examples/jobq/cases/basic/stdin
 /tmp/jobq -workers 4 -burst 1 -every-ms 50 -attempts 5 < examples/jobq/cases/basic/stdin

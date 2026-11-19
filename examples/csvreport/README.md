@@ -28,7 +28,7 @@ The table's key column is as wide as the widest of its name (`site`, `device`) a
 ## Run it
 
 ```sh
-go build -o bin/ergo ./cmd/ergo
+CGO_ENABLED=0 go build -o bin/ergo ./cmd/ergo
 ./bin/ergo run examples/csvreport/cmd/csvreport -- -by device -min 2 examples/csvreport/testdata/meters.csv
 ./bin/ergo test examples/csvreport/report   # and memory, files, cmd/csvreport
 go run ./scripts/examples csvreport

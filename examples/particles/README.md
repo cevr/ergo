@@ -29,7 +29,7 @@ The program is a module of packages (`ergo.mod`: `module particles`), in the Go 
 ## Run it
 
 ```sh
-go build -o bin/ergo ./cmd/ergo
+CGO_ENABLED=0 go build -o bin/ergo ./cmd/ergo
 ./bin/ergo run examples/particles/cmd/particles -- -seed 3 -frames 10
 ./bin/ergo run examples/particles/cmd/particles -- -live -frames 40   # paced by the host's clock
 ./bin/ergo test examples/particles/world

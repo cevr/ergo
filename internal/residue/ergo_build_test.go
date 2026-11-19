@@ -10,6 +10,9 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"ergo.local/prototype/internal/ergobuild"
+	"ergo.local/prototype/internal/ergoversion"
 )
 
 // TestErgoBuildsReadOneSetting: every build of the ergo tool in the
@@ -147,4 +150,67 @@ func buildsErgo(words []string, inCLI bool) bool {
 		}
 	}
 	return verb && target
+}
+
+// TestErgoDocsBuildAsTheToolSays: what the docs tell a reader to run builds
+// the ergo tool as the tool tells them to (ERGO-STARTUP-2). The install
+// command ergo prints (ergoversion.InstallCommand, S108's "install it: …")
+// starts with ergobuild.Cgo, and so does every command line of a README
+// that builds, installs or runs cmd/ergo, and every mention of the install
+// command in a Markdown file. A dated record that quotes an old command in
+// prose (a receipt, a research note) is not a command line and is left as
+// it was. Mutants: a README's build line without the setting
+// (start-readme-builds-with-cgo), the printed command without it
+// (start-install-command-with-cgo).
+func TestErgoDocsBuildAsTheToolSays(t *testing.T) {
+	prefix := ergobuild.Cgo + " "
+	if install := ergoversion.InstallCommand("v1.2.3"); !strings.HasPrefix(install, prefix) {
+		t.Errorf("ergo prints %q to install itself; it should start with %q (internal/ergobuild)", install, prefix)
+	}
+	root, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
+	if err != nil {
+		t.Fatalf("git rev-parse: %v", err)
+	}
+	repo := strings.TrimSpace(string(root))
+	ls := exec.Command("git", "--no-optional-locks", "ls-files", "-z", "--", "*.md")
+	ls.Dir = repo
+	list, err := ls.Output()
+	if err != nil {
+		t.Fatalf("git ls-files: %v", err)
+	}
+	const install = "go install github.com/cevr/ergo/cmd/ergo@"
+	lines := 0
+	for _, name := range strings.Split(strings.TrimSuffix(string(list), "\x00"), "\x00") {
+		if name == "" {
+			continue
+		}
+		src, err := os.ReadFile(filepath.Join(repo, name))
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue // deleted in the checkout, not yet committed
+			}
+			t.Fatal(err)
+		}
+		readme := filepath.Base(name) == "README.md"
+		for i, line := range strings.Split(string(src), "\n") {
+			if at := strings.Index(line, install); at >= 0 && !strings.HasSuffix(line[:at], prefix) {
+				t.Errorf("%s:%d: the install command without %q, unlike the one ergo prints", name, i+1, prefix)
+			}
+			if !readme {
+				continue
+			}
+			command := strings.TrimPrefix(strings.TrimLeft(line, " \t"), "$ ")
+			bare := strings.TrimPrefix(command, prefix)
+			if !buildsErgo(strings.Fields(bare), false) || !strings.HasPrefix(bare, "go ") {
+				continue
+			}
+			lines++
+			if bare == command {
+				t.Errorf("%s:%d: %q builds the ergo tool with cgo; write %q", name, i+1, command, prefix+command)
+			}
+		}
+	}
+	if lines == 0 {
+		t.Error("no README builds cmd/ergo; the rule checks nothing (update or drop it)")
+	}
 }
