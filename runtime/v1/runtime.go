@@ -130,6 +130,15 @@ func MachineTimerNotPositive[S any](machine string, s S, in time.Duration) *Mach
 	return &MachineTimerDefect{Machine: machine, State: rt.TypedText(s), In: in}
 }
 
+// MachineTimerPanic panics with MachineTimerNotPositive's defect. A declared
+// machine's After built as IR (lower, ir_machine.go: MACHINE-IR) calls it
+// where the emitter writes panic(MachineTimerNotPositive(…)): the IR's
+// panic takes a string or an error, and the defect is neither, so the same
+// value is raised here.
+func MachineTimerPanic[S any](machine string, s S, in time.Duration) {
+	panic(MachineTimerNotPositive(machine, s, in))
+}
+
 // MachineFiringOn is the Go body of std machines' firingOn (FKG1): it sets
 // the firing mark of t, the runner's task, which MachineFiringOff clears.
 // machines.RunTimed and std actor's runner call a state's After between

@@ -27,7 +27,10 @@ import (
 // GOROOT. git stays real: its exec path holds about 200 files here. Tests of
 // the fingerprint rules install their own tools. The stand-in exists only in
 // the process that runs the tests, under observation (testinputs.MainFunc).
+// The merge tier's sandbox tests make user namespaces
+// (testinputs.MakesNamespaces).
 func TestMain(m *testing.M) {
+	testinputs.MakesNamespaces()
 	os.Exit(testinputs.MainFunc(m, func() int {
 		stub, err := os.MkdirTemp("", "gate-tools-")
 		if err != nil {

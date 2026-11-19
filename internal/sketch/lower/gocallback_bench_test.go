@@ -12,8 +12,8 @@ func BenchmarkGoCallbackSort(b *testing.B) {
 	const src = `import go slices
 
 func Sorted(xs []int) int {
-	slices.SortFunc(xs, func(a int, b int) int { a - b })
-	len(xs)
+	let ys = slices.SortFunc(xs, func(a int, b int) int { a - b })
+	len(ys)
 }
 
 func main() needs Console {

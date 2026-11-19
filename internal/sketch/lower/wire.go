@@ -628,6 +628,17 @@ func (l *lowerer) wireEncodeBody(em wireEvents, tc *typeCtx, b *strings.Builder,
 		l.wireMembersEncode(em, tc, b, t, env, task, w, v, scope)
 		return
 	}
+	if p := l.info.WirePairOf(t); p != nil && p.Append {
+		// The append form (check.WirePair): Wire appends x's text to a
+		// buffer on this function's stack, and StringBytes writes the
+		// string those bytes spell, so no string of the text is made. A
+		// longer text, or a writer that keeps the buffer past the call (it
+		// may not), moves it to the heap; Go's escape analysis decides.
+		buf := scope.alloc("buf")
+		b.WriteString("var " + buf + " [64]byte\n")
+		b.WriteString(w + ".StringBytes(" + task + ", " + l.wireCallFunc(p.Wire, env, tc.site, v, buf+"[:0]") + ")\n")
+		return
+	}
 	if p := l.info.WirePairOf(t); p != nil {
 		b.WriteString(tc.wireEncodeWith(em, p.Base, env, w, l.wireCallFunc(p.Wire, env, tc.site, v)) + "\n")
 		return
@@ -729,6 +740,20 @@ func (l *lowerer) wireDecodeBody(tc *typeCtx, b *strings.Builder, t check.Type, 
 		raw := scope.alloc("raw")
 		b.WriteString(tc.wireDecode(base, env, r, raw, zero, scope))
 		b.WriteString(l.wireParseReturn(parse, env, tc.site, raw))
+	}
+	if p := l.info.WirePairOf(t); p != nil && p.Append {
+		// The append form's ParseX reads the bytes of the string event,
+		// which the Reader's StringBytes adds to a buffer on this
+		// function's stack (GX12), so no string of the text is made. A
+		// longer text, or a ParseX that keeps its bytes, moves the buffer
+		// to the heap; Go's escape analysis decides. Each decode has its
+		// own buffer, so a kept one is never written again.
+		buf, raw, err := scope.alloc("buf"), scope.alloc("raw"), scope.alloc("err")
+		b.WriteString("var " + buf + " [64]byte\n")
+		b.WriteString(raw + ", " + err + " := " + r + ".StringBytes(" + task + ", " + buf + "[:0])\n")
+		b.WriteString("if " + err + " != nil {\nreturn " + zero + ", " + err + "\n}\n")
+		b.WriteString(l.wireParseReturn(p.Parse, env, tc.site, raw))
+		return
 	}
 	if p := l.info.WirePairOf(t); p != nil {
 		parsed(p.Base, p.Parse)

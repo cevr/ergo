@@ -17,7 +17,7 @@ clone clone
 # other import fails until it is reviewed and listed here; reflect and
 # unsafe are never listed.
 import cmp container/heap encoding/binary fmt go/constant go/token maps math math/bits path regexp runtime slices sort strconv strings sync unicode unicode/utf8
-import ergo.local/prototype/internal/sketch/std ergo.local/prototype/internal/sketch/syntax
+import ergo.local/prototype/internal/sketch/stdlib ergo.local/prototype/internal/sketch/syntax
 # math/big (L6 refinements, refine.go and typeops.go): exact integer sets
 # over every integer width (a uint64 bound, 2^64-1, and the count of a set
 # exceed int64). The checker uses only its integer arithmetic (big.Int),
@@ -35,6 +35,30 @@ import bytes crypto/sha256
 # Int64. Neither imports an ergo.local package (go list -deps), so they
 # cannot name, receive or build a syntax node.
 import io sync/atomic
+# errors (refine_pattern.go, L-matches): errors.As reads a regexp/syntax
+# parse error's code. io/fs (check.go): Importer.GoPackage returns an fs.FS
+# of a Go package's files, which the checker hands to the host importer as
+# bytes. Neither imports an ergo.local package (go list -deps), so they
+# cannot name, receive or build a syntax node.
+import errors io/fs
+# internal/sketch/fingerprint (CS5a, fingerprint.go): Of hashes strings and
+# Reusable compares fingerprint records; it imports no ergo.local package
+# (go list -deps), so it cannot name, receive or build a syntax node.
+import ergo.local/prototype/internal/sketch/fingerprint
+# internal/sketch/format (clausefix.go, the Explicit option's clause text):
+# the checker calls only format.Source(string) ([]byte, error), text in and
+# text out. format parses and prints with syntax internally, but no node
+# crosses its API: it returns bytes, so the checker cannot receive a node
+# from it.
+import ergo.local/prototype/internal/sketch/format
+# internal/sketch/reflectread (export_order.go, objpath.go, export.go;
+# CS1b, CS5b): the checker's one reader by reflection, so reflect itself
+# stays off this list. It reads values and pointers it is given (Rank, Walk,
+# Resolve, Comparable) and never makes or writes one (no reflect.New, Zero,
+# Make*, Append, Copy or Set*; NewAt re-reads a pointer it was given at its
+# own address and type). It imports no ergo.local package (go list -deps),
+# so it names no syntax node type.
+import ergo.local/prototype/internal/sketch/reflectread
 # runtime/v1 (G5b, the std purity fact): footprint.go calls only
 # v1.BodyOf(name string) and reads Body.Pure; extern.go reads only the
 # []string v1.PureImports (G9, the user extern allowlist). runtime/v1 depends on no
@@ -72,6 +96,10 @@ callee Parse CheckSource prelude$1 (*stdImporter).load (*hostPkg).load
 # never fresh ones.
 callee (*LawDecl).RewriteGuard (*checker).rewriteLaw (*checker).rewriteShape
 callee (*LawDecl).RewriteSides (*checker).rewriteLaw (*checker).rewriteShape
+# A provider plan's field and no-argument types (L5b, script.go) are the
+# type arguments of the derive's Of plans: ProviderPlanOf returns those
+# expressions of the declaration's own tree, never fresh ones.
+callee ProviderPlanOf (*checker).resolveProviders
 
 # The checker's own functions that parse caller text, with the sites that
 # may reference them: none, so a pass cannot reach the parser through the
@@ -95,6 +123,11 @@ site (*checker).assignStmt BinaryExpr compoundFixture
 # on the length itself. Its origin is the ArrayType, so it lies in that file.
 # Every [N]T reaches it; TestArrayDiagnostics reports at it.
 site (*checker).arrayType BasicLit arrayFixture
+# operationBody (implements.go, Declarations 15) gives an includes-only
+# body whose include is an operation type (`type Releaser { ..Closer }`)
+# the InterfaceType of its operation type, over the parsed fields. Its
+# origin is the TypeDecl whose Spec it becomes, so it lies in that file.
+site (*checker).operationBody InterfaceType operationIncludeFixture
 # replaced (ownership.go, R43) makes the temporary key of each resource
 # field an update or spread drops from its base: an Ident at the field's
 # name (or at the base), made from the composite literal, so it lies in

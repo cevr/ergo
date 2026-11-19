@@ -8,13 +8,12 @@
 import fkstopwatch/script
 import io
 import os
-import testing
 import time
 
 func main() fails os.Exit needs Console | Ambient {
-	let c = testing.NewVirtualClock(0)
+	let c = time.NewManual(0)
 	let status = with context { io.Stdin: io.NewStdin(), time.Clock: c, Scheduler: c } {
-		script.Run()
+		script.Run(c)
 	}
 	if status != 0 {
 		return os.Exit{Code: 1, Message: "fk-stopwatch: the script did not run"}

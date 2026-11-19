@@ -60,6 +60,7 @@ func (l *lowerer) nameAll() {
 				if _, ok := tn.Decl.Spec.(*syntax.MachineType); ok {
 					l.pkgName(pkgKey{"machine initial", tn}, "ergoInitial"+tn.Name)
 					l.pkgName(pkgKey{"machine graph", tn}, "ergoGraph"+tn.Name) // machine.go, machineGraph
+					l.reserveMachineValue(tn)                                   // ir_machine.go
 				}
 			}
 		}
@@ -102,6 +103,7 @@ func (l *lowerer) nameAll() {
 			if !l.isSourced(p) && tn.Decl != nil {
 				if _, ok := tn.Decl.Spec.(*syntax.MachineType); ok {
 					l.pkgName(pkgKey{"machine initial", tn}, "ergoInitial"+tn.Name)
+					l.reserveMachineValue(tn) // ir_machine.go
 				}
 			}
 		}
@@ -113,6 +115,7 @@ func (l *lowerer) nameAll() {
 	l.reserveOwned(append([]*check.Package{l.pkg}, libs...))                      // values.go, V5
 	l.reserveKnown(append([]*check.Package{l.pkg}, libs...))                      // known.go
 	l.reserveDropped(append([]*check.Package{l.pkg}, libs...))                    // drop.go
+	l.reserveSlots(append([]*check.Package{l.pkg}, libs...))                      // slot.go
 	l.reserveSpecs(append([]*check.Package{l.pkg}, libs...), l.sourcedMachines()) // record.go
 	if valueOwned() {
 		l.pkgName(lineagesKey, "ergoLineages") // handover.go, own-lineage
@@ -121,14 +124,19 @@ func (l *lowerer) nameAll() {
 	l.reserveWitSpecs(append([]*check.Package{l.pkg}, libs...)) // witspec.go
 	l.reserveTabs(append([]*check.Package{l.pkg}, libs...))     // tabulate.go
 	l.reserveHeld()                                             // inforce.go
-	// A sourced library's lets, which the program lowers, used or not
-	// (sources.go), and the builders of its named contexts, one for each
-	// set of providers a with of the program acquires (196b U4), in its
-	// source order.
+	// A sourced library's lets, which the program lowers where reached
+	// (sources.go; a constant one where a body reads it, constantLet), and
+	// the builders of its named contexts, one for each set of providers a
+	// with of the program acquires (196b U4), in its source order.
 	for _, p := range l.sourcedLibs() {
 		l.eachDecl(p, func(d syntax.Decl) {
-			switch d.(type) {
-			case *syntax.VarDecl, *syntax.ContextDecl:
+			switch d := d.(type) {
+			case *syntax.VarDecl:
+				l.declareName(d)
+				if l.constantLet(p, d) {
+					l.noteLibLet(p, d)
+				}
+			case *syntax.ContextDecl:
 				l.declareName(d)
 			}
 		})

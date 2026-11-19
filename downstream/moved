@@ -1,0 +1,7 @@
+# Paths that moved to their own repository at the source head F
+# (docs/tooling.md, Downstream check). One line each: PATH TREEHASH
+# REPOSITORY, TREEHASH being `git rev-parse F:PATH`. From F on, a change
+# to such a path belongs in REPOSITORY: TestMovedPathsAreFrozen
+# (internal/residue) fails when HEAD:PATH is another tree. A path that is
+# gone (deleted by unit D1) passes. The integrator fills this file at F
+# and sets movedAt in internal/residue/moved_test.go to F.

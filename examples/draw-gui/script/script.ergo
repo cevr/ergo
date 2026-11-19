@@ -4,7 +4,7 @@
 // the tool reports. Saving writes the picture's SVG to the Store in its
 // context.
 
-import draw/canvas
+import ergo.local/prototype/examples/drawgui/canvas
 import io
 import strconv
 import strings

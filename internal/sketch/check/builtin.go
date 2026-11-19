@@ -13,7 +13,8 @@ import "fmt"
 // borrow, so the write is seen through a let mut root, as Ergo writes are
 // (types.md, Bindings 1).
 //
-//	append  [T](xs []T, x T) []T   (xs []byte, s string) []byte   [T](xs []T, ys []T) []T
+//	append  [T](xs []T, x T) []T   (xs []byte, s string) []byte
+//	        [T](xs []T, ys []T) []T, Go's append(xs, ys...)
 //	len     [T](xs []T) int        cap [T](xs []T) int
 //	copy    [T](dst *[]T, src []T) int
 //	clear   [T](xs *[]T)

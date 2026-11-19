@@ -43,7 +43,7 @@ func TestRuntime199EnvClosureBinding(t *testing.T) {
 		want    string
 	}{
 		{"caller", callerEnv, "invocation"},
-		{"child", childEnv, "&invocation"},
+		{"child", childEnv, "invocation"}, // a pointer local (envMemoText)
 		{"captured", capturedEnv, "maker"},
 	} {
 		for _, panics := range []bool{false, true} {

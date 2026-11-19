@@ -41,8 +41,15 @@ func (in *interp) toOperation(fr *frame, at syntax.Node, v Value, conv check.Con
 	case 0:
 		return v, nil
 	case check.ConvOperations:
-		if check.ScriptOf(conv.From) != nil {
-			return nil, fr.unsupported(at, "a testing.Script provider yet")
+		if n, ok := conv.From.(*check.Named); ok && check.ScriptOf(n) != nil {
+			r, isRec := v.(*record)
+			if !ergoProvider(n) || !isRec {
+				return nil, fr.unsupported(at, "a testing.Script provider yet")
+			}
+			if ab := in.build(fr, at, 1, 2, 0); ab != nil {
+				return nil, ab
+			}
+			return providerOps{rec: r, env: fr.env}, nil // provider.go
 		}
 		if _, ok := conv.From.(*check.Pointer); ok {
 			return nil, fr.unsupported(at, "a pointer provider yet")
@@ -339,7 +346,7 @@ func (in *interp) callValue(fr *frame, at syntax.Node, f Value, args []Value) (V
 	case *closure:
 		return in.callClosure(fr, call, f, args)
 	case *funcRef:
-		if call == nil && (f.fn.Decl == nil || f.fn.Decl.Body == nil || f.fn.Decl.Extern != nil || f.fn.Pkg.Host()) && nativeOf(f.fn) == nil {
+		if call == nil && (f.fn.Decl == nil || f.fn.Decl.Body == nil || f.fn.Decl.Extern != nil || f.fn.Pkg.Host()) && nativeOf(f.fn) == nil && goNativeOf(f.fn) == nil {
 			return nil, fr.unsupported(at, "a Go function (%s), even a pure one", f.fn.Name)
 		}
 		return in.callResolved(fr, call, f.fn, f.targs, args)
@@ -347,6 +354,9 @@ func (in *interp) callValue(fr *frame, at syntax.Node, f Value, args []Value) (V
 		return f.call(in, fr, at, args)
 	case seqSource:
 		// A Seq a native made, called with its yield (seq.go).
+		if d, ok := f.(seqDone); ok {
+			defer d.done()
+		}
 		for {
 			v, more, ab := f.next(in, fr, at)
 			if ab != nil || !more {

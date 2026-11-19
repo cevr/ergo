@@ -1,0 +1,19 @@
+// SB3's cascade: a trailing block, or a literal with untyped parameters,
+// whose tail is invalid (reported) has an invalid result, not none, so the
+// Task it makes and the call that infers from it say nothing more (D3).
+import task
+
+type missing {}
+
+type Box[F, R] { f func() int fails F needs R }
+
+func size[F, R](b Box[F, R]) int { 1 }
+
+func apply[T](f func(n int) T) T { f(1) }
+
+func run(k int) int {
+	let b = Box[missing, Never]{f: func() int fails missing { k }} // want S104
+	let first = task.Go() { size(b) }
+	let second = apply(func(n) { size(b) })
+	first.Wait() + second
+}

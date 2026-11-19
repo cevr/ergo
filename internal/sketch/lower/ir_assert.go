@@ -44,7 +44,7 @@ func (st *irState) testBody(fc *funcCtx, d *syntax.TestDecl, name string, params
 	}
 	b.fn.Body = append(b.fn.Body, b.bodyStmts(d.Body.List)...) // ir_fail.go
 	b.fn.Body = append(b.fn.Body, b.bodyEnd(b.fn.Body, b.fn.End)...)
-	b.fn.Body = irUseLocals(b.fn.Body) // ir_end.go
+	b.fn.Body = irScopesIncrease(irUseLocals(b.fn.Body)) // ir_end.go
 	if st.census != nil {
 		return false
 	}
@@ -83,7 +83,7 @@ func (st *irState) lawBody(fc *funcCtx, law *check.Law, name string, needsFrame 
 	}
 	b.fn.Body = append(b.fn.Body, b.bodyStmts(d.Body.List)...) // ir_fail.go
 	b.fn.Body = append(b.fn.Body, b.bodyEnd(b.fn.Body, b.fn.End)...)
-	b.fn.Body = irUseLocals(b.fn.Body) // ir_end.go
+	b.fn.Body = irScopesIncrease(irUseLocals(b.fn.Body)) // ir_end.go
 	if st.census != nil {
 		return false
 	}
@@ -122,6 +122,23 @@ func (b *irBuilder) lawResult(x syntax.Expr, out []*irStmt) []*irStmt {
 		&irStmt{K: "ret", Pos: p, X: h})
 }
 
+// lawOpCap is the capability a law's bare operation call c calls
+// (CallLawOp): the operation type that declares the law, which the law's
+// run binds to the provider under test (calls.go). Nil for any other call.
+func (b *irBuilder) lawOpCap(c *check.Call) *check.Named {
+	if c.Kind != check.CallLawOp {
+		return nil
+	}
+	if b.law == nil || b.law.Owner == nil {
+		irNo("law operation call outside its law's body")
+	}
+	own, ok := b.law.Owner.Type.(*check.Named)
+	if !ok {
+		irNo("law of an operation type with no name")
+	}
+	return own
+}
+
 // refutedFunc is the harness's Refuted with the law's declaration as one
 // argument: the IR calls no variadic function. The naming pass reserves
 // its name under LowerIR and CensusIR only (nameTests).
@@ -156,7 +173,16 @@ func (b *irBuilder) assert(s *syntax.AssertStmt) []*irStmt {
 		op := x.Op.String()
 		b.operator(op, l.info.Types[x.X], x)
 		var vals []*irExpr
+		// A try that starts the assert covers the whole comparison: its
+		// operands are built under it (the emitter's assert, q105).
+		inTry := tried(s.X) != s.X
+		if inTry {
+			b.tries++
+		}
 		pre, vals = b.operands([]syntax.Expr{x.X, x.Y}) // ir_fail.go
+		if inTry {
+			b.tries--
+		}
 		for k, e := range []syntax.Expr{x.X, x.Y} {
 			if vals[k].K == "const" || vals[k].K == "local" {
 				continue

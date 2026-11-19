@@ -70,6 +70,11 @@ func headless() fails os.Exit needs Ambient | go.Foreign {
 			case ui.NoNode as n:
 				out.Println("\(i + 1): no node \(n.Label)")
 				continue
+			case ui.Mismatch as m:
+				out.Println("\(i + 1): want \(m.Want), got \(m.Got)")
+			case ui.Ambiguous as x:
+				out.Println("\(i + 1): \(x.Count) nodes at \(x.At)")
+				continue
 			case ui.Closed, actor.Stopped:
 				return os.Exit{Code: 1, Message: "todo-gui: the window closed"}
 			case ui.BadPatch as b:

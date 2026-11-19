@@ -34,10 +34,10 @@ extern go go/scanner.Scanner type Scanner {
 }
 
 // ergo:go func (*Scanner).End() token.Pos
-extern go go/scanner.Scanner.End func (s own *Scanner) End() token.Pos needs go.Foreign
+extern go go/scanner.Scanner.End func (s *Scanner) End() token.Pos needs go.Foreign
 
 // ergo:go func (*Scanner).Init(file *token.File, src []byte, err ErrorHandler, mode Mode)
-extern go go/scanner.Scanner.Init func (s own *Scanner) Init(file own *token.File, src []byte, err own func(token.Position, string), mode Mode) needs go.Foreign
+extern go go/scanner.Scanner.Init func (s *Scanner) Init(file own *token.File, src []byte, err own func(token.Position, string), mode Mode) needs go.Foreign
 
 // ergo:go func (*Scanner).Scan() (pos token.Pos, tok token.Token, lit string)
-extern go go/scanner.Scanner.Scan func (s own *Scanner) Scan() (token.Pos, token.Token, string) needs go.Foreign
+extern go go/scanner.Scanner.Scan func (s *Scanner) Scan() (token.Pos, token.Token, string) needs go.Foreign

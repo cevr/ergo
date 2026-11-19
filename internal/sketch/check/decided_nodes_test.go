@@ -828,6 +828,12 @@ type Counter {
 }
 func main() {}
 `, nil},
+	{"law", "a top-level rewrite law over functions (types.md, Laws 14)", `
+func twice(s string) string { s + s }
+func half(s string) string { s[:len(s) / 2] }
+law HalfTwice(s string) { half(twice(s)) } == { s }
+func main() {}
+`, nil},
 	{"law", "a documented top-level law", `
 func add(a int, b int) int { a + b }
 // AddCommutes: the order of the operands does not matter.
@@ -947,10 +953,12 @@ func probe(s State) Option[machines.Work[Signal]] {
 		return None
 	}
 }
+func leave(s State) Option[func()] { None }
 type Breaker machine[State, Signal] {
 	initial: Closed,
 	step:    step,
 	work:    probe,
+	exit:    leave,
 }
 func main() {}
 `, nil},

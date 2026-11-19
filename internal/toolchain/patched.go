@@ -290,9 +290,15 @@ func buildCompileFor(goos, goarch string) func(source, overlay, out string) erro
 func runBuildCompile(source, overlay, out string, target []string) error {
 	cmd := exec.Command(filepath.Join(source, "bin", "go"+exe()), "build", "-trimpath", "-overlay="+overlay, "-o", out, "cmd/compile")
 	cmd.Dir = filepath.Join(source, "src")
+	// GOGC goes too: the compile of cmd/compile/internal/ssa runs at Go's
+	// default pace, since a caller's high percent grows its heap past a
+	// memory bound the caller set. GOGC=400 under a 2 GiB RLIMIT_DATA failed
+	// with "runtime: cannot allocate memory" (merge tier at fca9f4f96,
+	// TestDenseAgreesWithModel), and the same build at the default pace
+	// passes. GOMEMLIMIT stays: a limit only makes the collector work harder.
 	env := slices.DeleteFunc(os.Environ(), func(kv string) bool {
 		name, _, _ := strings.Cut(kv, "=")
-		return slices.Contains([]string{"GOROOT", "GOTOOLCHAIN", "GOFLAGS", "GOWORK", "GOOS", "GOARCH", "GOAMD64", "GOARM64", "GOEXPERIMENT", "CGO_ENABLED", "GOMODCACHE"}, name)
+		return slices.Contains([]string{"GOROOT", "GOTOOLCHAIN", "GOFLAGS", "GOWORK", "GOOS", "GOARCH", "GOAMD64", "GOARM64", "GOEXPERIMENT", "CGO_ENABLED", "GOMODCACHE", "GOGC"}, name)
 	})
 	cmd.Env = append(env, "GOROOT="+source, "GOTOOLCHAIN=local", "GOFLAGS=", "GOWORK=off", "CGO_ENABLED=0",
 		"GOMODCACHE="+filepath.Join(filepath.Dir(overlay), "modcache"))

@@ -1,0 +1,279 @@
+// Package static is web's prerender host (SSR WEB2): it builds a site's
+// listed routes into a tree of files, once, so a host that serves files
+// (Cloudflare's static assets, any web server) answers them with no code
+// at run time. A built file is the body web.Fetch answers for a GET of
+// its route (law StaticEqualsServed), so one site has one answer whichever
+// host serves it.
+
+import fs
+import github.com/cevr/ergo/modules/web
+import html
+import slices
+import strconv
+import strings
+import ui
+
+// File is a built page: its path in the tree, relative and with / between
+// folders, and its bytes.
+type File { Path string, Body string }
+
+// BadPath is a route whose place has no file: a segment that is . or ..,
+// or one that holds a / once unescaped. Place is the place, as Href gives
+// it.
+type BadPath { Place string, Reason string }
+
+// NotFoundPath is the file of the site's 404 page, the name static hosts
+// serve for a path with no file (Cloudflare's not_found_handling
+// "404-page").
+let NotFoundPath = "404.html"
+
+// PathOf is the file of place u: index.html in the folder its segments
+// name, or, when its last segment names a file (it holds a .), that file.
+// So / is index.html, /entries/a is entries/a/index.html and /feed.xml is
+// feed.xml.
+func PathOf(u ui.URL) string fails BadPath {
+	let segments = ui.Segments(u)
+	for s in segments {
+		if s == "." || s == ".." {
+			return BadPath{Place: ui.Href(u), Reason: "a segment is " + s}
+		}
+		if strings.Contains(s, "/") {
+			return BadPath{Place: ui.Href(u), Reason: "a segment holds a /"}
+		}
+	}
+	if len(segments) == 0 {
+		return "index.html"
+	}
+	let path = strings.Join(segments, "/")
+	if strings.Contains(segments[len(segments)-1], ".") {
+		return path
+	}
+	path + "/index.html"
+}
+
+// Pages is the tree of site's routes: a file for each route of routes (a
+// route listed twice, or two routes of one file, are written once, the
+// first), then each of site's assets at its place's file, as its bytes,
+// then the 404 page as NotFoundPath, the page Fetch answers for a path
+// that is no route. A route whose loader fails stops the build with
+// its failure, so a listed route that does not load is never a file
+// (ListedRoutesLoad).
+func Pages[R comparable, P, F, N](site web.Site[R, P, F, N], routes []R) []File fails F | BadPath needs N {
+	let mut files = []File{}
+	let mut paths = []string{}
+	for r in routes {
+		let path = try PathOf(site.Routes.Href(r))
+		if !slices.Contains(paths, path) {
+			paths = paths.Append(path)
+			let page = try site.Load(r)
+			files = files.Append(File{Path: path, Body: html.Render(site.View(page))})
+		}
+	}
+	for a in site.Assets {
+		let path = try PathOf(ui.URL{Path: a.Path, Query: "", Fragment: ""})
+		if !slices.Contains(paths, path) {
+			paths = paths.Append(path)
+			files = files.Append(File{Path: path, Body: a.Body})
+		}
+	}
+	files.Append(File{Path: NotFoundPath, Body: html.Render(site.NotFound("/" + NotFoundPath))})
+}
+
+// Build writes Pages of site's routes under the folder dir, making the
+// folders a path needs.
+func Build[R comparable, P, F, N](site web.Site[R, P, F, N], routes []R, dir string) []File fails F | BadPath | fs.NotFound | fs.Denied | fs.Failed needs N | fs.Writes {
+	let files = try Pages(site, routes)
+	for f in files {
+		let at = dir + "/" + f.Path
+		let slash = strings.LastIndex(at, "/")
+		try fs.Writes.MkdirAll(strings.Slice(at, 0, slash))
+		try fs.Writes.WriteFile(at, f.Body)
+	}
+	files
+}
+
+// Differences is what Pages of site's routes writes that a served site
+// would not answer: each file whose bytes are not the body Fetch answers
+// GET of its route with status 200, each route of routes with no file,
+// each asset whose file is not its bytes, each file of no route of
+// routes and no asset, and a 404 page that is not Fetch's
+// answer for its path, with status 404. It is empty when the build is the
+// site (StaticEqualsServed).
+func Differences[R comparable, P, F, N](site web.Site[R, P, F, N], routes []R) []string fails F | BadPath needs N {
+	let files = try Pages(site, routes)
+	let mut want = []string{NotFoundPath}
+	let mut out = []string{}
+	for r in routes {
+		let place = ui.Href(site.Routes.Href(r))
+		let path = try PathOf(site.Routes.Href(r))
+		want = want.Append(path)
+		match find(files, path) {
+		case None:
+			out = out.Append(place + ": no file")
+		case Some as f:
+			let served = web.Fetch(site, web.Request("GET", place))
+			if served.Status != 200 || served.Body != f.Value.Body {
+				out = out.Append(place + ": " + path + " is not what Fetch answers")
+			}
+		}
+	}
+	for a in site.Assets {
+		let path = try PathOf(ui.URL{Path: a.Path, Query: "", Fragment: ""})
+		want = want.Append(path)
+		let served = web.Fetch(site, web.Request("GET", a.Path))
+		match find(files, path) {
+		case None:
+			out = out.Append(a.Path + ": no file")
+		case Some as f:
+			if served.Status != 200 || served.Body != f.Value.Body {
+				out = out.Append(a.Path + ": " + path + " is not what Fetch answers")
+			}
+		}
+	}
+	for f in files {
+		if !slices.Contains(want, f.Path) {
+			out = out.Append(f.Path + ": a file for no listed route")
+		}
+	}
+	let missing = web.Fetch(site, web.Request("GET", "/"+NotFoundPath))
+	match find(files, NotFoundPath) {
+	case None:
+		out = out.Append(NotFoundPath + ": no file")
+	case Some as f:
+		if missing.Status != 404 || missing.Body != f.Value.Body {
+			out = out.Append(NotFoundPath + " is not what Fetch answers for a path with no route")
+		}
+	}
+	out
+}
+
+// find is the file at path among files.
+func find(files []File, path string) Option[File] {
+	for f in files {
+		if f.Path == path {
+			return Some{f}
+		}
+	}
+	None
+}
+
+// The laws' site: a home page, numbered items (a negative item is gone)
+// and a feed file.
+type lawHome {}
+type lawItem { N int }
+type lawFeed {}
+type lawRoute = lawHome | lawItem | lawFeed
+type lawGone { N int }
+type lawMap {} implements web.Routes[lawRoute]
+
+func Href(_ lawMap, r lawRoute) ui.URL {
+	match r {
+	case lawHome:
+		ui.URL{Path: "/", Query: "", Fragment: ""}
+	case lawItem as i:
+		ui.URL{Path: ui.PathOf([]string{"items", strconv.Itoa(i.N)}), Query: "", Fragment: ""}
+	case lawFeed:
+		ui.URL{Path: "/feed.xml", Query: "", Fragment: ""}
+	}
+}
+
+func Parse(_ lawMap, u ui.URL) Option[lawRoute] {
+	let s = ui.Segments(u)
+	if len(s) == 0 {
+		return Some[lawRoute]{Value: lawHome}
+	}
+	if len(s) == 1 && s[0] == "feed.xml" {
+		return Some[lawRoute]{Value: lawFeed}
+	}
+	if len(s) == 2 && s[0] == "items" {
+		let n = strconv.Atoi(s[1]) catch {
+		case _:
+			return None
+		}
+		if strconv.Itoa(n) == s[1] {
+			return Some[lawRoute]{Value: lawItem{N: n}}
+		}
+	}
+	None
+}
+
+func lawLoad(r lawRoute) string fails lawGone {
+	match r {
+	case lawHome:
+		"home"
+	case lawItem as i:
+		if i.N < 0 {
+			return lawGone{N: i.N}
+		}
+		"item " + strconv.Itoa(i.N)
+	case lawFeed:
+		"feed"
+	}
+}
+
+func lawSite() web.Site[lawRoute, string, lawGone] {
+	web.Site[lawRoute, string, lawGone]{
+		Routes: lawMap,
+		Load:   lawLoad,
+		View:   func(p string) html.Node { html.P([]html.Child{html.Text(p)}) },
+		Status: func(f) web.Reply {
+			match f {
+			case lawGone as g:
+				web.Reply{Status: 410, Page: html.Text("gone " + strconv.Itoa(g.N))}
+			}
+		},
+		NotFound: func(path string) html.Node { html.P([]html.Child{html.Text("no page at " + path)}) },
+		Assets:   []web.Asset{web.Stylesheet("site.css", "p { margin: 0 }")},
+	}
+}
+
+// loads is each route of routes that loads: an item's number made at
+// least 0.
+func loads(routes []lawRoute) []lawRoute {
+	let mut out = []lawRoute{}
+	for r in routes {
+		match r {
+		case lawItem as i:
+			out = out.Append(lawItem{N: if i.N < 0 { -(i.N + 1) } else { i.N }})
+		case lawHome, lawFeed:
+			out = out.Append(r)
+		}
+	}
+	out
+}
+
+// StaticEqualsServed (the host law): for a list of routes that load, the
+// built tree is a file for each listed route, each asset and the 404
+// page, and each file's bytes are the body Fetch answers for a GET of its
+// route or asset: a served asset is the bytes the build wrote.
+law StaticEqualsServed(routes []lawRoute) {
+	let list = loads(routes)
+	let diffs = Differences(lawSite(), list) catch {
+	case _:
+		return false
+	}
+	len(diffs) == 0
+}
+
+// ListedRoutesLoad: a build fails exactly when a listed route's loader
+// fails, with that route's failure, so no listed route is missing from
+// the tree or built as its failure page.
+law ListedRoutesLoad(routes []lawRoute) {
+	let mut gone Option[int] = None
+	for r in routes {
+		match r {
+		case lawItem as i:
+			if i.N < 0 && gone == None {
+				gone = Some{i.N}
+			}
+		case lawHome, lawFeed:
+		}
+	}
+	let built = Pages(lawSite(), routes) catch {
+	case lawGone as g:
+		return gone == Some{g.N}
+	case BadPath:
+		return false
+	}
+	gone == None && len(built) > 0
+}

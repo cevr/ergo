@@ -37,7 +37,9 @@ test After {
 	assert true
 }
 
-law Sampled(n int) { n == n }
+law Sampled(n int) { Same(n) == n }
+
+func Same(n int) int { n }
 `)
 	rep, err := Run(pkg, DefaultBudget())
 	if err != nil {
@@ -61,7 +63,9 @@ test After {
 	assert true
 }
 
-law Sampled(n int) { n == n }
+law Sampled(n int) { Same(n) == n }
+
+func Same(n int) int { n }
 `)
 	rep, err = Run(pkg, Budget{Steps: 10_000, Depth: 8})
 	if err != nil {
@@ -137,7 +141,7 @@ test After {
 // `import go` runs as the same Go function; compiler/syntax's scanner
 // calls these, and its tests were skipped (wf10 TP-DIAG). Mutants:
 // oracle-o23-preflight-codec, oracle-o23-preflight-go-extern,
-// tpdiag-import-go-skipped, tpdiag-isletter-is-isdigit.
+// tpdiag-isletter-is-isdigit.
 func TestPreflightAdmitsWhatRuns(t *testing.T) {
 	pkg := checked(t, `import json
 import go strconv

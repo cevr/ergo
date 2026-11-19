@@ -1,0 +1,71 @@
+// Deferred is a value that one task gives once and any task waits for
+// (Effect's Deferred, a promise; docs/spec/stdlib.md, Sync and STM 1). It
+// is Ergo over a Ref and a Latch: Complete stores the value, if none is
+// stored yet, and opens the latch; Wait awaits the latch and reads the
+// value. A failure a producer wants to hand over is a case of T (a union
+// matched exhaustively), not a second channel: rows have no value form.
+//
+// Every copy of a Deferred is the same Deferred.
+
+import task
+
+// Deferred is empty until its first Complete. Its fields are unexported,
+// so only NewDeferred makes one.
+type Deferred[T] { value Ref[Option[T]], done Latch }
+
+// NewDeferred is an empty Deferred.
+func NewDeferred[T]() Deferred[T] { Deferred[T]{value: NewRef[Option[T]](None), done: NewLatch()} }
+
+// Complete stores v when d holds no value yet, and every Wait then gives
+// v. It is true for the call that stored its value, and false, storing
+// nothing, when d held one already. It never waits.
+func Complete[T](d Deferred[T], v T) bool {
+	let first = Modify(d.value, func(o Option[T]) (bool, Option[T]) {
+		match o {
+		case None:
+			(true, Some[T]{Value: v})
+		case Some[T]:
+			(false, o)
+		}
+	})
+	if first {
+		let _ = Open(d.done)
+	}
+	first
+}
+
+// Wait gives the value of d, waiting until a Complete stores one. It is an
+// interruption point: a stop of the task ends the wait.
+func Wait[T](d Deferred[T]) T {
+	Await(d.done)
+	match d.value.Get() {
+	case Some[T] as s:
+		s.Value
+	case None:
+		Unreachable("sync: a Deferred's latch opens after its value is stored")
+	}
+}
+
+// Peek is the value of d when one is stored, and None before. It never
+// waits.
+func Peek[T](d Deferred[T]) Option[T] { d.value.Get() }
+
+// DeferredSetsOnce: the first Complete stores its value and is true; a
+// later Complete is false and changes nothing, so Wait and Peek give the
+// first value.
+law DeferredSetsOnce(a int, b int) {
+	let d = NewDeferred[int]()
+	let empty = Peek(d) == None
+	let first = Complete(d, a)
+	let second = Complete(d, b)
+	empty && first && !second && Wait(d) == a && Peek(d) == Some[int]{Value: a}
+}
+
+// WaitSeesTheValue: tasks that wait on a Deferred before it completes get
+// the value another task completes it with.
+law WaitSeesTheValue(a int) {
+	let d = NewDeferred[int]()
+	let w = task.Go() { Wait(d) }
+	let p = task.Go() { Complete(d, a) }
+	p.Wait() && w.Wait() == a
+}

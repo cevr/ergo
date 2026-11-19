@@ -9,7 +9,7 @@ import (
 
 // TestDecodedTreeSharesNoNode: the decoded file is a tree but for the
 // aliases by design: a Doc is a group of File.Comments; a machine's
-// Initial, Step, After and Work are the values of its entries of those
+// Initial, Step, After, Work and Exit are the values of its entries of those
 // names; a derived declaration's Derived or Pair is its origin; an
 // or-pattern case's expansion is made of the nodes its Written holds. No
 // other node is reached twice from the File, so a declaration the decoder
@@ -62,7 +62,7 @@ var (
 
 // machineNames are the fields of a MachineType that name an entry: each is
 // the value of the entry of that name, or nil when there is none.
-var machineNames = map[string]string{"Initial": "initial", "Step": "step", "After": "after", "Work": "work"}
+var machineNames = map[string]string{"Initial": "initial", "Step": "step", "After": "after", "Work": "work", "Exit": "exit"}
 
 // machineByName is "" when each named field of m is its entry's value, or
 // the first field that is not.
@@ -71,8 +71,8 @@ func machineByName(m *MachineType) string {
 	for _, e := range m.Entries {
 		value[e.Name] = e.Value
 	}
-	fields := map[string]Expr{"Initial": m.Initial, "Step": m.Step, "After": m.After, "Work": m.Work}
-	for _, field := range []string{"Initial", "Step", "After", "Work"} {
+	fields := map[string]Expr{"Initial": m.Initial, "Step": m.Step, "After": m.After, "Work": m.Work, "Exit": m.Exit}
+	for _, field := range []string{"Initial", "Step", "After", "Work", "Exit"} {
 		name := machineNames[field]
 		if fields[field] != value[name] {
 			return field + " is not the value of the entry " + name

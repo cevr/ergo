@@ -3,6 +3,7 @@
   "mutants": [
     {"name":"ss1-stream-reject","origin":"wf10 std-speed-1","file":"runtime/v1/rand/rand.go","from":"\t\tfor lo < thresh {","to":"\t\tfor lo < thresh && false {","rule":"stdlib.md rand: a seeded IntN is Go's draw, rejection included (uint64n).","killers":["runtime/v1/rand:TestSeededRandModel"]},
     {"name":"ss1-stream-mask","origin":"wf10 std-speed-1","file":"runtime/v1/rand/rand.go","from":"\t\treturn s.pcg.Uint64() & (n - 1)","to":"\t\treturn s.pcg.Uint64() >> 1 & (n - 1)","rule":"stdlib.md rand: a seeded IntN of a power of two is Go's masked draw.","killers":["runtime/v1/rand:TestSeededRandModel"]},
-    {"name":"ss1-stream-float","origin":"wf10 std-speed-1","file":"runtime/v1/rand/rand.go","from":"float64(s.pcg.Uint64()<<11>>11) / (1 << 53)","to":"float64(s.pcg.Uint64()<<12>>12) / (1 << 53)","rule":"stdlib.md rand: a seeded Float64 is Go's draw.","killers":["runtime/v1/rand:TestSeededRandModel"]}
+    {"name":"ss1-stream-float","origin":"wf10 std-speed-1","file":"runtime/v1/rand/rand.go","from":"float64(s.pcg.Uint64()<<11>>11) / (1 << 53)","to":"float64(s.pcg.Uint64()<<12>>12) / (1 << 53)","rule":"stdlib.md rand: a seeded Float64 is Go's draw.","killers":["runtime/v1/rand:TestSeededRandModel"]},
+    {"name":"d3-stream-bytes-past-n","origin":"wf10 std-spike D3","file":"runtime/v1/rand/rand.go","from":"\t\tfor j := i; j < n && j < i+8; j++ {","to":"\t\tfor j := i; j < i+8; j++ {","rule":"stdlib.md keyed digests 3: A draw of n bytes has n bytes.","killers":["runtime/v1/rand:TestRandLaws"]}
   ]
 }

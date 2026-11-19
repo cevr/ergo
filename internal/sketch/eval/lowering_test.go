@@ -119,7 +119,9 @@ func runsDiffer(got, want eval.Exit) string {
 func buildErgo(t *testing.T) string {
 	t.Helper()
 	exe := filepath.Join(t.TempDir(), "ergo")
-	cmd := exec.Command("go", "build", "-o", exe, "ergo.local/prototype/cmd/ergo")
+	// No VCS stamp: a stamp reads the whole checkout's state, which is no
+	// input of the test (the closure sweep).
+	cmd := exec.Command("go", "build", "-buildvcs=false", "-o", exe, "ergo.local/prototype/cmd/ergo")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("go build ergo: %v\n%s", err, out)
 	}

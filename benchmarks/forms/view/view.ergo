@@ -1,0 +1,44 @@
+// Package view is the cross-package twin of main's local view: the same
+// rows and the same view function, in another package than the match.
+
+// Tree is rows in columns.
+type Tree { Kind []int, A []int, B []int, Extra []int, W int }
+
+// Node is one row read as a variant.
+type Node = Leaf{V int} | Add{L int, R int} | Neg{X int} | Mul{L int, R int} | Zero{}
+
+// Len is the number of rows of t.
+func Len(t Tree) int { len(t.Kind) }
+
+// ViewOf is row id of t as a Node.
+func ViewOf(t Tree, id int) Node {
+	let a = t.A[id]
+	let b = t.B[id]
+	match t.Kind[id] {
+	case 0:
+		Leaf{V: a}
+	case 1:
+		Add{L: a, R: b}
+	case 2:
+		Neg{X: a}
+	case 3:
+		Mul{L: a, R: b}
+	case _:
+		Zero
+	}
+}
+
+// Build is a tree of rows rows.
+func Build(rows int) Tree {
+	let mut kind = []int{}
+	let mut a = []int{}
+	let mut b = []int{}
+	let mut extra = []int{}
+	for i in 0..rows {
+		kind = kind.Append((i * 7 + i / 5) % 5)
+		a = a.Append(i % 97)
+		b = b.Append(i % 31)
+		extra = extra.Append(i % 3)
+	}
+	Tree{Kind: kind, A: a, B: b, Extra: extra, W: 1}
+}

@@ -1,0 +1,6 @@
+{
+  "about": "The version of the ergo binary (SPLIT E1). Run the named in-process test.",
+  "mutants": [
+    {"name":"ev-vcs-fallback-dropped","origin":"wf10 SPLIT E1","file":"internal/ergoversion/version.go","from":"\tif len(revision) < 12 || err != nil {","to":"\tif true || len(revision) < 12 || err != nil {","rule":"A binary with VCS settings and no stamped module version reads as the pseudo-version of its commit, not devel.","killers":["internal/ergoversion:TestOfReadsTheStamp"]}
+  ]
+}
