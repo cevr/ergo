@@ -45,6 +45,8 @@ func TestIRUnaryOperandsMatchSource(t *testing.T) {
 //     their source bodies; the IR's form of each must print what the
 //     source body prints (mutant irgc-any-elems-unconverted, whose IR the
 //     decoder refuses).
+//     IR-GOCALLS-2 adds kept (a Go result copied, mutant
+//     irgc2-result-copy-dropped) and eof (Go package variables).
 //
 // It builds Go for the reason TestIRUnaryOperandsMatchSource does.
 func TestIRReprosMatchSource(t *testing.T) {
@@ -52,7 +54,7 @@ func TestIRReprosMatchSource(t *testing.T) {
 	for _, r := range []struct {
 		name string
 		fns  []string
-	}{{"notand", []string{"pick"}}, {"rowslot", []string{"held", "run"}}, {"byteindex", []string{"hex", "pick", "tail"}}, {"gocalls", []string{"show", "pattern", "host", "stored", "split", "zone", "classify"}}} {
+	}{{"notand", []string{"pick"}}, {"rowslot", []string{"held", "run"}}, {"byteindex", []string{"hex", "pick", "tail"}}, {"gocalls", []string{"show", "pattern", "host", "stored", "split", "zone", "classify", "kept", "eof"}}} {
 		t.Run(r.name, func(t *testing.T) {
 			text, err := os.ReadFile(filepath.Join("testdata", r.name+".ergo"))
 			if err != nil {

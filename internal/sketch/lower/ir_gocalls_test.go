@@ -16,6 +16,14 @@ import (
 //   - several: a fallible Go method with two results and its error
 //     (bufio.Reader.ReadRune's (rune, int, error)), and one with two
 //     results and no error (time.Time.Zone, OT's Poll and Size).
+//   - slices (IR-GOCALLS-2): a Go result that holds a slice or Map, which
+//     the value rule copies as the emitter's goResult does (cloneDeep):
+//     bufio.Reader.ReadLine's []byte beside its bool and error,
+//     bytes.Buffer.Bytes, and url.URL.Query's Values (a Go Map).
+//   - vars (IR-GOCALLS-2): a Go package variable read through its getter
+//     (goVarGetter): an error sentinel (sql.ErrNoRows, io.EOF) as the
+//     go.Error that keeps it, a []string (os.Args), a constant
+//     (math.MaxInt64), and an Option of a go.Ref (os.Stdout).
 //
 // TestValuesIntoGoAny covers go.Any at every site and go.As on a go.Any.
 // Mutants it kills (testdata/mutants.json): irgc-ref-result-refused,
@@ -89,6 +97,61 @@ func first(r go.Ref[bufio.Reader]) int fails go.Error needs go.Foreign {
 func zone(t time.Time) int needs go.Foreign {
 	let (name, off) = t.Zone()
 	len(name) + off
+}
+
+func main() needs go.Foreign {}
+`},
+		{"slices", `import go bufio
+import go bytes
+import go net/url
+
+func line(r go.Ref[bufio.Reader]) int fails go.Error needs go.Foreign {
+	let (b, more) = try r.ReadLine()
+	if more {
+		0
+	} else {
+		len(b)
+	}
+}
+
+func held(b go.Ref[bytes.Buffer]) int needs go.Foreign {
+	len(b.Bytes())
+}
+
+func query(u go.Ref[url.URL]) int needs go.Foreign {
+	let q = u.Query()
+	let _ = q
+	0
+}
+
+func main() needs go.Foreign {}
+`},
+		{"vars", `import go io
+import go os
+import go math
+import go database/sql
+
+func sentinel(e go.Error) int needs go.Foreign {
+	if go.Is(e, sql.ErrNoRows) {
+		return 1
+	}
+	if go.Is(e, io.EOF) {
+		return 2
+	}
+	0
+}
+
+func args() int {
+	len(os.Args) + math.MaxInt64 % 7
+}
+
+func out() bool needs go.Foreign {
+	match os.Stdout {
+	case Some{Value: _}:
+		true
+	case None:
+		false
+	}
 }
 
 func main() needs go.Foreign {}

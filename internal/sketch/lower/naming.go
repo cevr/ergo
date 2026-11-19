@@ -269,6 +269,9 @@ func (l *lowerer) nameAll() {
 	l.reserveWires(append([]*check.Package{l.pkg}, libs...), func(key pkgKey, base, sort string) {
 		generated = append(generated, entry{key, sort, base})
 	})
+	reserveGoVars(append([]*check.Package{l.pkg}, libs...), func(key pkgKey, sort, base string) { // ir_govar.go
+		generated = append(generated, entry{key, sort, base})
+	})
 	reservePatterns(append([]*check.Package{l.pkg}, libs...), func(key pkgKey, base string) {
 		generated = append(generated, entry{key, "pattern " + base + " " + key.obj.(string), base})
 	})

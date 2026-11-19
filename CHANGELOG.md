@@ -6,6 +6,7 @@ Entries describe user-visible changes and are true at the commit that carries th
 
 ### Lowering
 
+- A Go result that holds a slice or a Map (`bytes.Buffer.Bytes`, `bufio.Reader.ReadLine`, `url.URL.Query`) and a Go package variable (`sql.ErrNoRows`, `io.EOF`, `os.Args`) take IR bodies (IR-GOCALLS-2): the result is the value rule's deep copy, as the text path's, and the variable is read through a getter the lowerer declares once.
 - Go calls take IR bodies where they kept the text path (IR-GOCALLS): a go.Any parameter or `...any` (database/sql's `DB.Exec`, `Rows.Scan`, `fmt.Sprint`), each value converted to Go's `any`; a go.Ref or go.Any result (`sql.Open`, `regexp.Compile`, `sync.Map.Load`), a go.Ref checked against Go's nil; a fallible Go call with two results (`net.SplitHostPort`); and `go.New`, `go.Zero`, `go.Is` and `go.As`.
 - Component calls skip through any library's frame, not std `ui`'s alone: a package whose generic frame type has a group of the group shape and a top-level law that reaches it gets the same group calls std `ui` gets; a call of the frame package's own functions stays plain (SP9; [stdlib](docs/spec/stdlib.md) UI 13).
 - In a run build a record's Go struct lists its pointer-holding fields first, then the rest by alignment, so the collector scans a shorter prefix and padding shrinks (NOSCAN1; [types](docs/spec/types.md#structs) Structs 8). Codecs, text and equality keep the declared order.

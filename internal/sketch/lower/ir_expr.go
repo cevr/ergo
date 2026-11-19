@@ -90,6 +90,16 @@ func (b *irBuilder) valueOf(x syntax.Expr) ([]*irStmt, *irExpr) {
 			return nil, b.expr(x)
 		}
 		pre, e = b.gather(sc, y, b.pos(y, y.Pos())) // ir_scalar.go
+	case *syntax.SelectorExpr:
+		// A Go package variable whose Option goResult builds: Go's
+		// pointer read once, then the Option (ir_govar.go).
+		o, _ := check.QualifiedMember(b.l.info, y).(*check.Var)
+		path := hostVarPath(b.l.info, y)
+		if path == "" || !b.optionResult(o.Type) {
+			return nil, b.expr(x)
+		}
+		b.plain(y)
+		pre, e = b.goVar(o, path, y, b.pos(y, y.Pos()))
 	case *syntax.BinaryExpr:
 		// An if or a match as an operand of an operator that evaluates
 		// both: its statements run in operand order (the emitter's binary
@@ -250,6 +260,13 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 				b.goType(o.Type, x)
 				b.l.reachStdLet(o)
 				return &irExpr{K: "global", Pos: p, Name: name}
+			}
+			if path := hostVarPath(b.l.info, x); path != "" {
+				pre, v := b.goVar(o, path, x, p) // ir_govar.go
+				if len(pre) > 0 {
+					irNo("Go package variable of an Option where no statement runs") // valueOf binds it
+				}
+				return v
 			}
 			irNo("selector on a non-record")
 		}

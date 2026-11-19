@@ -23,8 +23,8 @@ import (
 // package function or an "mcall" of a Go method on its receiver, the
 // task's context first when the binding hides one, and the last operand
 // spread when Go's function is variadic. A fallible call is bound by
-// hostBind, which converts its error; a Go result passes as is (a basic
-// type, a Go type, or an Option of a go.Ref, whose pointer is the niche).
+// hostBind, which converts its error; hostResult converts a Go result (a
+// go.Ref checked for nil, an Option, a slice or Map copied).
 func (b *irBuilder) goTarget(x *syntax.CallExpr, c *check.Call, f *check.Func, p irPos) ([]*irStmt, *irExpr) {
 	switch {
 	case f.Decl == nil || f.Decl.Extern == nil || f.Decl.Extern.Target == nil, hostGeneric(f), // ir_gocall.go
@@ -38,7 +38,7 @@ func (b *irBuilder) goTarget(x *syntax.CallExpr, c *check.Call, f *check.Func, p
 		irNo("Go context call from a pure function")
 	}
 	for _, r := range hostResults(f) { // ir_tuple.go
-		if !b.hostValue(r) && !isOptionType(r) && !freshSlice(f, r) && !isGoRef(r) && !check.IsGoAny(r) {
+		if !b.hostValue(r) && !isOptionType(r) && !b.l.holdsValue(r) && !isGoRef(r) && !check.IsGoAny(r) {
 			irNo("Go call with a result of another type")
 		}
 	}
@@ -61,19 +61,6 @@ func (b *irBuilder) goTarget(x *syntax.CallExpr, c *check.Call, f *check.Func, p
 	return pre, &irExpr{K: "pcall", Pos: p, T: path, Name: goName, Op: spread, Args: args}
 }
 
-// freshSlice reports r, a result of f that is a slice of basic values
-// which Go made new (goFresh, a validated fresh row of internal/gofacts:
-// strings.Split): the value rule copies nothing, as goResult copies
-// nothing. (I-FLIP: LF2c moved the table freshGoResults into gofacts.)
-func freshSlice(f *check.Func, r check.Type) bool {
-	s, ok := r.(*check.Slice)
-	if !ok || !hostBasic(s.Elem) || f.Decl == nil || f.Decl.Extern == nil || f.Decl.Recv != nil {
-		return false
-	}
-	path, goName := f.Decl.Extern.Split()
-	return goFresh(f.Decl, path+"."+goName)
-}
-
 // hostBound is hostCall's form of a Go call that cannot fail and takes
 // the task's context (afterGoContext) or has a result goResult converts:
 // Go's results into fresh locals, then the task's interruption point,
@@ -82,7 +69,7 @@ func (b *irBuilder) hostBound(x *syntax.CallExpr, c *check.Call, f *check.Func, 
 	results := hostResults(f) // ir_tuple.go
 	conv := false
 	for _, r := range results {
-		conv = conv || b.optionResult(r) || isGoRef(r)
+		conv = conv || b.optionResult(r) || isGoRef(r) || b.l.holdsValue(r)
 	}
 	if f.Sig.Fallible || !check.GoContext(f) && !conv {
 		return nil, nil, false
@@ -151,6 +138,9 @@ func (b *irBuilder) hostResult(f *check.Func, t check.Type, r, errL int, site sy
 		return []*irStmt{b.goNilCheck(f, t, r, errL, site, p)}, rv
 	}
 	if !b.optionResult(t) {
+		if b.l.holdsValue(t) {
+			return nil, b.goResultCopy(f, t, rv, site)
+		}
 		return nil, rv
 	}
 	if _, ref := check.GoRefElem(optionElem(t)); !ref {
@@ -238,22 +228,40 @@ func (b *irBuilder) goBuiltin(x *syntax.CallExpr, c *check.Call, p irPos) ([]*ir
 	return pre, &irExpr{K: "local", Pos: p, I: res}, false
 }
 
-// goNilCheck is goResult's guard on a go.Ref result r of the Go call of
-// f, which is never nil (docs/spec/interop.md, go.Ref): when Go returned
-// nil and no error (errL, -1 for a call that cannot fail), the call is a
-// defect naming the Go target and the Ergo site, v1.GoNilDefect.
-func (b *irBuilder) goNilCheck(f *check.Func, t check.Type, r, errL int, site syntax.Node, p irPos) *irStmt {
-	name := ""
+// hostTargetName is the Go target of f as goSig names it (gocall.go):
+// PATH.NAME of a package function, PATH.TYPE.NAME of a method.
+func hostTargetName(f *check.Func) string {
 	switch {
 	case f.Decl == nil || f.Decl.Extern == nil || f.Decl.Extern.Target == nil:
 		irNo("Go call with a result of another type")
 	case f.Decl.Recv != nil:
 		path, typ, m := f.Decl.Extern.SplitMethod()
-		name = path + "." + typ + "." + m
-	default:
-		path, goName := f.Decl.Extern.Split()
-		name = path + "." + goName
+		return path + "." + typ + "." + m
 	}
+	path, goName := f.Decl.Extern.Split()
+	return path + "." + goName
+}
+
+// goResultCopy is rv, a Go result of t that holds a slice or a Map, as
+// goResult gives it (IR-GOCALLS-2): the value rule's deep copy, since Go
+// may still write it (V8), unless Go made it new (a validated fresh row,
+// goFresh: strings.Split) or only Go takes it (goShare, H4 and H5).
+func (b *irBuilder) goResultCopy(f *check.Func, t check.Type, rv *irExpr, site syntax.Node) *irExpr {
+	if !valueRule() || goFresh(site, hostTargetName(f)) {
+		return rv
+	}
+	if e, ok := site.(syntax.Expr); ok && b.l.valueFacts().goShare[e] {
+		return rv
+	}
+	return b.copyDeep(t, site, rv, true) // ir_copy.go
+}
+
+// goNilCheck is goResult's guard on a go.Ref result r of the Go call of
+// f, which is never nil (docs/spec/interop.md, go.Ref): when Go returned
+// nil and no error (errL, -1 for a call that cannot fail), the call is a
+// defect naming the Go target and the Ergo site, v1.GoNilDefect.
+func (b *irBuilder) goNilCheck(f *check.Func, t check.Type, r, errL int, site syntax.Node, p irPos) *irStmt {
+	name := hostTargetName(f)
 	var cond *irExpr = &irExpr{K: "bin", Pos: p, Op: "==", X: &irExpr{K: "local", Pos: p, I: r}, Y: &irExpr{K: "zero", Pos: p, T: b.goType(t, site)}}
 	if errL >= 0 {
 		noErr := &irExpr{K: "bin", Pos: p, Op: "==", X: &irExpr{K: "local", Pos: p, I: errL}, Y: &irExpr{K: "zero", Pos: p, T: "error"}}

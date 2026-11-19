@@ -8,7 +8,12 @@
 //     results (sync.Map's Store and Load), go.As on a go.Any;
 //   - split: a fallible Go call with two results (net.SplitHostPort);
 //   - zone: a Go method with two results and no error (time.Time.Zone);
-//   - classify: go.Is and go.As on a go.Error, go.Zero.
+//   - classify: go.Is and go.As on a go.Error, go.Zero;
+//   - kept (IR-GOCALLS-2): a Go result that holds a slice is copied, as
+//     the source body copies it: bytes.Buffer.Bytes shares the buffer, so
+//     without the copy the later write shows through (mutant
+//     irgc2-result-copy-dropped);
+//   - eof (IR-GOCALLS-2): Go package variables, io.EOF and os.Args.
 
 import go fmt
 import go regexp
@@ -18,6 +23,9 @@ import go errors
 import go io/fs
 import go net
 import go net/url
+import go bytes
+import go io
+import go os
 
 func show(n int) string needs go.Foreign {
 	fmt.Sprint([]go.Any{"n=", n, " ", true, " ", 2.5})
@@ -76,7 +84,31 @@ func classify(text string) int needs go.Foreign {
 	0
 }
 
+func kept() string fails go.Error needs go.Foreign {
+	let b = go.New[bytes.Buffer]()
+	try b.WriteString("ab")
+	let x = b.Bytes()
+	b.Reset()
+	try b.WriteString("cd")
+	"\(len(x)) \(x[0]) \(x[1])"
+}
+
+func eof() string needs go.Foreign {
+	let n = if go.Is(io.EOF, io.EOF) {
+		1
+	} else {
+		0
+	}
+	"\(n) \(len(os.Args) > 0)"
+}
+
 func main() needs Console | go.Foreign {
+	let k = kept() catch {
+	case _:
+		"bad"
+	}
+	Console.Println("kept \(k)")
+	Console.Println("eof \(eof())")
 	Console.Println(show(3))
 	let p = pattern("xaab") catch {
 	case _:
