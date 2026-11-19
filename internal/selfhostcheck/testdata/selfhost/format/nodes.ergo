@@ -1129,7 +1129,10 @@ func expr1(p *Printer, x int, depth int) {
 		p.typ(p.k(x, "Elt"))
 	case "MapType":
 		p.token(p.at(x, "Map"), "Map")
-		let params = []int{p.k(x, "Key"), p.k(x, "Value")}
+		let mut params = []int{p.k(x, "Key"), p.k(x, "Value")}
+		if p.hasK(x, "Hashing") {
+			params = params.Append(p.k(x, "Hashing"))
+		}
 		p.list(p.at(x, "Lbrack"), "[", p.starts(params), func(i int) { p.typ(params[i]) }, p.at(x, "Rbrack"), "]")
 	case "FuncType":
 		p.funcType(x)

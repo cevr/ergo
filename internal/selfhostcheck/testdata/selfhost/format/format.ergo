@@ -132,7 +132,7 @@ let schema = Map[string, string]{
 	"CatchExpr":          "X n Catch p Lbrace p Arms l Rbrace p",
 	"ContextLit":         "Context p Provides n Needs n Body n",
 	"ArrayType":          "Lbrack p Len s LenPos p Elt n",
-	"MapType":            "Map p Lbrack p Key n Value n Rbrack p",
+	"MapType":            "Map p Lbrack p Key n Value n Hashing n Rbrack p",
 	"FuncType":           "Escaping p Entry b EntryPos p Func p Params n Results n Needs n Takes n",
 	"StructType":         "Fields n",
 	"InterfaceType":      "Lbrace p Includes l Methods l Laws l Terms l Union l Rbrace p",
