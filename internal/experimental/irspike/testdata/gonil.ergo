@@ -1,31 +1,22 @@
 // IR-GOCALLS-4: a Go call bound with a go.Ref result that Go returns as
-// nil with no error is a defect naming the Go target and the site
-// (v1.GoNilDefect), on both paths. http.ProxyFromEnvironment returns nil
-// and no error for a request that takes no proxy (localhost), though its
-// binding says go.Ref. Without the IR's check (mutant
+// nil is a defect naming the Go target and the site (v1.GoNilDefect), on
+// both paths. The nil comes from a user's extern go, which promises a
+// go.Ref that flag.Lookup does not keep for an unknown flag (as
+// lower's TestLevel2NonNilDefect); the binder proves the promises of the
+// std bindings (GOBIND-NIL). Without the IR's check (mutant
 // irgc-nil-check-dropped) the IR path reads through Go's nil pointer and
 // panics with another message.
 
-import go net/http
-import go strings
+import go flag
 
-func proxy() int fails go.Error needs go.Foreign {
-	let body = match strings.NewReader("") {
-	case Some{Value: b}:
-		b
-	case None:
-		return -2
-	}
-	let r = try http.NewRequest("GET", "http://localhost/", body)
-	let u = try http.ProxyFromEnvironment(r)
-	len(u.Host)
+extern go flag.Lookup func lookup(name string) go.Ref[flag.Flag] needs go.Foreign
+
+func name() string needs go.Foreign {
+	let f = lookup("no-such-flag")
+	f.Name
 }
 
 func main() needs Console | go.Foreign {
 	Console.Println("start")
-	let n = proxy() catch {
-	case _:
-		-1
-	}
-	Console.Println("proxy \(n)")
+	Console.Println(name())
 }

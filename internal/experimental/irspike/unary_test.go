@@ -47,9 +47,9 @@ func TestIRUnaryOperandsMatchSource(t *testing.T) {
 //     decoder refuses).
 //     IR-GOCALLS-2 adds kept (a Go result copied, mutant
 //     irgc2-result-copy-dropped) and eof (Go package variables).
-//   - gonil (IR-GOCALLS-4): a go.Ref result Go returns as nil with no
-//     error (http.ProxyFromEnvironment for localhost) is the same
-//     GoNilDefect on both paths (mutant irgc-nil-check-dropped).
+//   - gonil (IR-GOCALLS-4): a go.Ref result Go returns as nil (a user's
+//     extern go of flag.Lookup) is the same GoNilDefect on both paths
+//     (mutant irgc-nil-check-dropped).
 //
 // It builds Go for the reason TestIRUnaryOperandsMatchSource does.
 func TestIRReprosMatchSource(t *testing.T) {
@@ -57,7 +57,7 @@ func TestIRReprosMatchSource(t *testing.T) {
 	for _, r := range []struct {
 		name string
 		fns  []string
-	}{{"notand", []string{"pick"}}, {"rowslot", []string{"held", "run"}}, {"byteindex", []string{"hex", "pick", "tail"}}, {"gocalls", []string{"show", "pattern", "host", "stored", "split", "zone", "classify", "kept", "eof", "params", "cookie", "limited"}}, {"gonil", []string{"proxy"}}} {
+	}{{"notand", []string{"pick"}}, {"rowslot", []string{"held", "run"}}, {"byteindex", []string{"hex", "pick", "tail"}}, {"gocalls", []string{"show", "pattern", "host", "stored", "split", "zone", "classify", "kept", "eof", "params", "cookie", "limited"}}, {"gonil", []string{"name"}}} {
 		t.Run(r.name, func(t *testing.T) {
 			text, err := os.ReadFile(filepath.Join("testdata", r.name+".ergo"))
 			if err != nil {
