@@ -29,7 +29,7 @@ import strings
 type Node { text string, esc bool, late Option[Writer], parts []Child }
 
 // Writer writes a node's markup at the end of a buffer.
-type Writer { write func(b *strings.Builder) }
+type Writer { write func(b mut strings.Builder) }
 
 // Attr is an attribute of an element: its name, its value (escaped when
 // it is written), or a name alone (a boolean attribute such as hidden).
@@ -52,7 +52,7 @@ func markup(m string) Node { Node{text: m, esc: false, late: None, parts: []Chil
 
 // later is the node that w writes. In a fold a constructor builds its
 // template instead (compose).
-func later(w own func(b *strings.Builder)) Node {
+func later(w own func(b mut strings.Builder)) Node {
 	Node{text: "", esc: false, late: Some[Writer]{Value: Writer{write: w}}, parts: []Child{}}
 }
 
@@ -73,7 +73,7 @@ func Raw(t Trusted) Node { markup(t.s) }
 // Each is the node f makes of each item, in order. f runs when the node
 // is written, so no list of nodes is built.
 func Each[T](items []T, f own func(item T) Node) Node {
-	Node{text: "", esc: false, late: Some[Writer]{Value: Writer{write: func(b *strings.Builder) {
+	Node{text: "", esc: false, late: Some[Writer]{Value: Writer{write: func(b mut strings.Builder) {
 		for x in items {
 			writeNode(b, f(x))
 		}
@@ -93,7 +93,7 @@ func Doc(root Node) Node {
 	if build.InFold() {
 		return compose("<!DOCTYPE html>", []Child{root}, "", "")
 	}
-	later(func(b *strings.Builder) {
+	later(func(b mut strings.Builder) {
 		b.WriteString("<!DOCTYPE html>")
 		writeNode(b, root)
 	})
@@ -110,7 +110,7 @@ func Render(n Node) string {
 }
 
 // Write writes n's markup at the end of b.
-func Write(b *strings.Builder, n Node) { writeNode(b, n) }
+func Write(b mut strings.Builder, n Node) { writeNode(b, n) }
 
 // Static is whether n is markup, known before it is written: Int, Raw, an
 // empty When, and a node a build-time fold computed from constants (an
@@ -132,7 +132,7 @@ func isFixed(n Node) bool {
 }
 
 // writeNode writes n at the end of b.
-func writeNode(b *strings.Builder, n Node) {
+func writeNode(b mut strings.Builder, n Node) {
 	match n.late {
 	case Some[Writer] as w:
 		w.Value.write(b)
@@ -149,7 +149,7 @@ func writeNode(b *strings.Builder, n Node) {
 
 // writeParts writes a template's parts in order: an attribute as in a
 // start tag, a node as itself.
-func writeParts(b *strings.Builder, parts []Child) {
+func writeParts(b mut strings.Builder, parts []Child) {
 	for p in parts {
 		match p {
 		case Attr as a:
@@ -162,7 +162,7 @@ func writeParts(b *strings.Builder, parts []Child) {
 
 // attrs writes the attributes among kids, in order, each with a space
 // before it.
-func attrs(b *strings.Builder, kids []Child) {
+func attrs(b mut strings.Builder, kids []Child) {
 	for k in kids {
 		match k {
 		case Attr as a:
@@ -172,7 +172,7 @@ func attrs(b *strings.Builder, kids []Child) {
 	}
 }
 
-func attr(b *strings.Builder, a Attr) {
+func attr(b mut strings.Builder, a Attr) {
 	b.WriteString(" ")
 	b.WriteString(a.name)
 	if !a.bare {
@@ -184,7 +184,7 @@ func attr(b *strings.Builder, a Attr) {
 
 // writeElement writes the element tag around kids: its attributes in
 // the start tag, then its child nodes, then the end tag.
-func writeElement(b *strings.Builder, tag string, kids []Child) {
+func writeElement(b mut strings.Builder, tag string, kids []Child) {
 	b.WriteString("<")
 	b.WriteString(tag)
 	attrs(b, kids)
@@ -196,7 +196,7 @@ func writeElement(b *strings.Builder, tag string, kids []Child) {
 }
 
 // writeKids writes the child nodes among kids, in order.
-func writeKids(b *strings.Builder, kids []Child) {
+func writeKids(b mut strings.Builder, kids []Child) {
 	for k in kids {
 		match k {
 		case Node as n:
@@ -213,7 +213,7 @@ func element(tag string, kids []Child) Node {
 	if build.InFold() {
 		return compose("<"+tag, kids, ">", "</"+tag+">")
 	}
-	later(func(b *strings.Builder) { writeElement(b, tag, kids) })
+	later(func(b mut strings.Builder) { writeElement(b, tag, kids) })
 }
 
 // void is the void element tag: a start tag closed by />, with no
@@ -226,7 +226,7 @@ func void(tag string, attrList []Attr) Node {
 		}
 		return compose("<"+tag, kids, "/>", "")
 	}
-	later(func(b *strings.Builder) {
+	later(func(b mut strings.Builder) {
 		b.WriteString("<")
 		b.WriteString(tag)
 		for a in attrList {
@@ -246,7 +246,7 @@ func rawText(tag string, attrList []Attr, body Trusted) Node {
 		}
 		return compose("<"+tag, kids, ">"+body.s+"</"+tag+">", "")
 	}
-	later(func(b *strings.Builder) {
+	later(func(b mut strings.Builder) {
 		b.WriteString("<")
 		b.WriteString(tag)
 		for a in attrList {

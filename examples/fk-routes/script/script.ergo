@@ -114,7 +114,7 @@ func play(p Program, gone queue.Queue[app.Go], clock time.Manual, start string, 
 
 // follow is the host following each navigation the program asked for:
 // a push of the history, then the address change.
-func follow(h *Host, gone queue.Queue[app.Go]) fails actor.Stopped | ui.BadPatch {
+func follow(h mut Host, gone queue.Queue[app.Go]) fails actor.Stopped | ui.BadPatch {
 	for {
 		match gone.Poll() {
 		case Some[app.Go] as g:
@@ -205,7 +205,7 @@ func navRoute(label string) route.Route {
 
 // act does one line's act, and is false when it shows nothing new (a
 // control that is not on the screen, a Back at the start, stats).
-func act(p Program, h *Host, line string) bool fails Bad | actor.Stopped | ui.BadPatch needs Console | Scheduler {
+func act(p Program, h mut Host, line string) bool fails Bad | actor.Stopped | ui.BadPatch needs Console | Scheduler {
 	let words = strings.Fields(line)
 	let rest = strings.TrimSpace(strings.TrimPrefix(line, words[0]))
 	let a ui.Act = match words[0] {
@@ -281,7 +281,7 @@ func show(shown []string, now []string) []string needs Console {
 
 // view is what the host shows, a line per part: the address and its
 // depth, the navigation, and the page.
-func view(h *Host) []string {
+func view(h mut Host) []string {
 	let all = tokens(ui.Screen(h))
 	let mut nav = []string{}
 	let mut page = []string{}

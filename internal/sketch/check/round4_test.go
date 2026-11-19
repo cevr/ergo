@@ -172,7 +172,7 @@ func Run[R](_ Job[R]) needs R {}`},
 		{"method-renamed-receiver", "", `type Job[E] {}
 func Run[F](_ Job[F]) fails F {}`},
 		{"pointer-receiver", "", `type Job[E] {}
-func Run[E](j *Job[E]) fails E {}`},
+func Run[E](j mut Job[E]) fails E {}`},
 		{"method-and-body-agree", "", `type Job[R] { f func() needs R }
 func Run[R](_ Job[R]) needs R {}`},
 		{"recursive-head-through-method", "", `type Job[E] { next []Job[E] }

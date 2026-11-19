@@ -56,7 +56,7 @@ let focusRove = 2
 // the tree with the focus inside it, the focus goes back to the node it
 // remembered, if the tree still holds that node. A press outside it moves
 // the focus out, as a click outside a non-modal dialog does.
-func FocusScope[E, F, R](f *Frame[E], body func() fails F needs R, at CallSite) fails F needs R {
+func FocusScope[E, F, R](f mut Frame[E], body func() fails F needs R, at CallSite) fails F needs R {
 	try focusBox(f, focusTrap, body, at)
 }
 
@@ -66,13 +66,13 @@ func FocusScope[E, F, R](f *Frame[E], body func() fails F needs R, at CallSite) 
 // ArrowDown move the focus to its next focusable node, ArrowLeft and
 // ArrowUp to the one before, round at the ends, Home and End to its first
 // and last, when no key function takes the key.
-func Roving[E, F, R](f *Frame[E], body func() fails F needs R, at CallSite) fails F needs R {
+func Roving[E, F, R](f mut Frame[E], body func() fails F needs R, at CallSite) fails F needs R {
 	try focusBox(f, focusRove, body, at)
 }
 
 // focusBox writes a Box (a plain style) that takes part in the focus as
 // kind says.
-func focusBox[E, F, R](f *Frame[E], kind int, body func() fails F needs R, at CallSite) fails F needs R {
+func focusBox[E, F, R](f mut Frame[E], kind int, body func() fails F needs R, at CallSite) fails F needs R {
 	let m = markOf(f)
 	f.parent = put(f, BoxNode{Style: Plain()}, None, None, at)
 	f.specs[f.parent].focusAs = kind
@@ -91,11 +91,11 @@ func focusBox[E, F, R](f *Frame[E], kind int, body func() fails F needs R, at Ca
 // so a view that asks every pass for the same key does not hold the focus
 // there against Tab. The last call of a pass wins; write it outside a
 // Same, whose kept body does not run.
-func Focus[E](f *Frame[E], key Key) { f.want = Some{Value: key} }
+func Focus[E](f mut Frame[E], key Key) { f.want = Some{Value: key} }
 
 // LookStateIn is the state whose look a host paints for the node id
 // (LookState).
-func LookStateIn[E](f *Frame[E], id Id[E]) LookState {
+func LookStateIn[E](f mut Frame[E], id Id[E]) LookState {
 	if !arena.Has(f.nodes, id.ref) {
 		return Rest
 	}
@@ -139,7 +139,7 @@ func LookNow(ls Looks, st LookState) Look {
 }
 
 // Hovered is the node the pointer is over, None when it is over none.
-func Hovered[E](f *Frame[E]) Option[Id[E]] {
+func Hovered[E](f mut Frame[E]) Option[Id[E]] {
 	if !arena.Has(f.nodes, f.hover) {
 		return None
 	}
@@ -147,10 +147,10 @@ func Hovered[E](f *Frame[E]) Option[Id[E]] {
 }
 
 // FocusShows is whether the focus came from a key (focus-visible).
-func FocusShows[E](f *Frame[E]) bool { f.visible }
+func FocusShows[E](f mut Frame[E]) bool { f.visible }
 
 // isUnder is whether x is r or a node under r.
-func isUnder[E](f *Frame[E], r arena.Ref[node[E]], x arena.Ref[node[E]]) bool {
+func isUnder[E](f mut Frame[E], r arena.Ref[node[E]], x arena.Ref[node[E]]) bool {
 	if r == x {
 		return true
 	}
@@ -164,7 +164,7 @@ func isUnder[E](f *Frame[E], r arena.Ref[node[E]], x arena.Ref[node[E]]) bool {
 
 // above is the nodes above r, from its parent up to the root, None when
 // the tree does not hold r (the root has none above it).
-func above[E](f *Frame[E], r arena.Ref[node[E]]) Option[[]arena.Ref[node[E]]] {
+func above[E](f mut Frame[E], r arena.Ref[node[E]]) Option[[]arena.Ref[node[E]]] {
 	if r == f.root {
 		return Some{Value: []arena.Ref[node[E]]{}}
 	}
@@ -176,7 +176,7 @@ func above[E](f *Frame[E], r arena.Ref[node[E]]) Option[[]arena.Ref[node[E]]] {
 
 // upTo is the nodes above x from its parent up to at, None when x is not
 // under at.
-func upTo[E](f *Frame[E], at arena.Ref[node[E]], x arena.Ref[node[E]]) Option[[]arena.Ref[node[E]]] {
+func upTo[E](f mut Frame[E], at arena.Ref[node[E]], x arena.Ref[node[E]]) Option[[]arena.Ref[node[E]]] {
 	for k in kidsOf(f, at) {
 		if k == x {
 			return Some{Value: []arena.Ref[node[E]]{at}}
@@ -191,7 +191,7 @@ func upTo[E](f *Frame[E], at arena.Ref[node[E]], x arena.Ref[node[E]]) Option[[]
 }
 
 // inTree is whether the tree holds r (a parked node is out of it).
-func inTree[E](f *Frame[E], r arena.Ref[node[E]]) bool {
+func inTree[E](f mut Frame[E], r arena.Ref[node[E]]) bool {
 	match above(f, r) {
 	case Some[[]arena.Ref[node[E]]]:
 		true
@@ -201,15 +201,15 @@ func inTree[E](f *Frame[E], r arena.Ref[node[E]]) bool {
 }
 
 // focusAsOf is how the node r takes part in the focus.
-func focusAsOf[E](f *Frame[E], r arena.Ref[node[E]]) int {
+func focusAsOf[E](f mut Frame[E], r arena.Ref[node[E]]) int {
 	let mut k = focusPlain
-	change(f, r, func(n *node[E]) { k = n.focusAs })
+	change(f, r, func(n mut node[E]) { k = n.focusAs })
 	k
 }
 
 // nearest is the nearest container of kind kind above r (r's own
 // included), Null for none.
-func nearest[E](f *Frame[E], r arena.Ref[node[E]], kind int) arena.Ref[node[E]] {
+func nearest[E](f mut Frame[E], r arena.Ref[node[E]], kind int) arena.Ref[node[E]] {
 	match above(f, r) {
 	case Some[[]arena.Ref[node[E]]] as up:
 		if r != f.root && focusAsOf(f, r) == kind {
@@ -228,7 +228,7 @@ func nearest[E](f *Frame[E], r arena.Ref[node[E]], kind int) arena.Ref[node[E]] 
 
 // focusTo puts the focus on r, showing it when visible; a roving group
 // around r remembers r as its stop.
-func focusTo[E](f *Frame[E], r arena.Ref[node[E]], visible bool) {
+func focusTo[E](f mut Frame[E], r arena.Ref[node[E]], visible bool) {
 	f.focus = r
 	f.visible = visible
 	if r == arena.Null[node[E]]() {
@@ -242,7 +242,7 @@ func focusTo[E](f *Frame[E], r arena.Ref[node[E]], visible bool) {
 
 // tabStops is the tab stops under r, r's own included, in tree order,
 // onto out: each focusable node, but of a roving group only its stop.
-func tabStops[E](f *Frame[E], r arena.Ref[node[E]], out []arena.Ref[node[E]]) []arena.Ref[node[E]] {
+func tabStops[E](f mut Frame[E], r arena.Ref[node[E]], out []arena.Ref[node[E]]) []arena.Ref[node[E]] {
 	let n = nodeAt(f, r)
 	if n.focusAs == focusRove && r != f.root {
 		match rovingStop(f, r) {
@@ -265,7 +265,7 @@ func tabStops[E](f *Frame[E], r arena.Ref[node[E]], out []arena.Ref[node[E]]) []
 // rovingStop is the tab stop of the roving group g: the node of it the
 // focus was last on while that node can take the focus, else its first
 // focusable node; None when none can.
-func rovingStop[E](f *Frame[E], g arena.Ref[node[E]]) Option[arena.Ref[node[E]]] {
+func rovingStop[E](f mut Frame[E], g arena.Ref[node[E]]) Option[arena.Ref[node[E]]] {
 	let items = focusables(f, g, []arena.Ref[node[E]]{})
 	if len(items) == 0 {
 		return None
@@ -284,14 +284,14 @@ func rovingStop[E](f *Frame[E], g arena.Ref[node[E]]) Option[arena.Ref[node[E]]]
 
 // tabRoot is where Tab goes round: the focus scope the focus is in, else
 // the whole tree.
-func tabRoot[E](f *Frame[E]) arena.Ref[node[E]] {
+func tabRoot[E](f mut Frame[E]) arena.Ref[node[E]] {
 	let s = nearest(f, f.focus, focusTrap)
 	if s == arena.Null[node[E]]() { f.root } else { s }
 }
 
 // rove moves the focus inside the roving group it is in for the key k:
 // whether k was a move of a roving group.
-func rove[E](f *Frame[E], k KeyPress) bool {
+func rove[E](f mut Frame[E], k KeyPress) bool {
 	let m = k.Mods
 	if m.Ctrl || m.Alt || m.Meta || m.Shift {
 		return false
@@ -331,7 +331,7 @@ func rove[E](f *Frame[E], k KeyPress) bool {
 // hovered makes id the node the pointer is over (the root: none), and
 // queues the Leave of the node it leaves and the Enter of the node it
 // comes to, each its Area's signal (crossed), when it changed.
-func hovered[E](f *Frame[E], id Id[E], p PointerEvent) {
+func hovered[E](f mut Frame[E], id Id[E], p PointerEvent) {
 	let to = if id.ref == f.root || !arena.Has(f.nodes, id.ref) { arena.Null[node[E]]() } else { id.ref }
 	if to == f.hover {
 		return
@@ -347,7 +347,7 @@ func hovered[E](f *Frame[E], id Id[E], p PointerEvent) {
 }
 
 // cross queues the signal of p on the Area id, if its function gives one.
-func cross[E](f *Frame[E], id Id[E], p PointerEvent) {
+func cross[E](f mut Frame[E], id Id[E], p PointerEvent) {
 	match pointed(f, id, p) {
 	case Some[E] as e:
 		f.crossed = f.crossed.Append(e.Value)
@@ -357,12 +357,12 @@ func cross[E](f *Frame[E], id Id[E], p PointerEvent) {
 
 // Crossed is the signals of the Leave and Enter the last event made, in
 // that order (a Session sends them before the event's own signal).
-func Crossed[E](f *Frame[E]) []E { f.crossed }
+func Crossed[E](f mut Frame[E]) []E { f.crossed }
 
 // focusCommit moves the focus after a commit: back from each focus
 // scope that left the tree with the focus inside it (the latest first),
 // into each focus scope that came, and to a Focus request that changed.
-func focusCommit[E](f *Frame[E]) {
+func focusCommit[E](f mut Frame[E]) {
 	let scopes = trapsIn(f, f.root, []arena.Ref[node[E]]{})
 	let mut kept = []opener[E]{}
 	let mut gone = []opener[E]{}
@@ -426,7 +426,7 @@ func holdsRef[E](rs []arena.Ref[node[E]], r arena.Ref[node[E]]) bool {
 }
 
 // trapsIn is the focus scopes under r, in tree order, onto out.
-func trapsIn[E](f *Frame[E], r arena.Ref[node[E]], out []arena.Ref[node[E]]) []arena.Ref[node[E]] {
+func trapsIn[E](f mut Frame[E], r arena.Ref[node[E]], out []arena.Ref[node[E]]) []arena.Ref[node[E]] {
 	let mut all = out
 	if r != f.root && focusAsOf(f, r) == focusTrap {
 		all = all.Append(r)
@@ -439,7 +439,7 @@ func trapsIn[E](f *Frame[E], r arena.Ref[node[E]], out []arena.Ref[node[E]]) []a
 
 // keyTarget is the first focusable node at or under the first node under
 // r, in tree order, that declares k (a Zone's or a Semantic's key).
-func keyTarget[E](f *Frame[E], r arena.Ref[node[E]], k Key) Option[arena.Ref[node[E]]] {
+func keyTarget[E](f mut Frame[E], r arena.Ref[node[E]], k Key) Option[arena.Ref[node[E]]] {
 	if r != f.root && declares(nodeKind(f, r), k) {
 		let all = focusables(f, r, []arena.Ref[node[E]]{})
 		if len(all) > 0 {
@@ -458,9 +458,9 @@ func keyTarget[E](f *Frame[E], r arena.Ref[node[E]], k Key) Option[arena.Ref[nod
 }
 
 // nodeKind is what the node r shows.
-func nodeKind[E](f *Frame[E], r arena.Ref[node[E]]) Node[E] {
+func nodeKind[E](f mut Frame[E], r arena.Ref[node[E]]) Node[E] {
 	let mut out Node[E] = BoxNode{Style: Plain()}
-	change(f, r, func(n *node[E]) { out = n.node })
+	change(f, r, func(n mut node[E]) { out = n.node })
 	out
 }
 

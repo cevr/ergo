@@ -116,7 +116,7 @@ func NewLayoutFor(size int) Layout {
 }
 
 // step applies c to l.
-func step(l *Layout, c Command) {
+func step(l mut Layout, c Command) {
 	match c {
 	case Space:
 		l.PendingSpace = true
@@ -143,14 +143,14 @@ func step(l *Layout, c Command) {
 
 // newline asks for a line break before the next item; several requests
 // are one break.
-func newline(l *Layout) {
+func newline(l mut Layout) {
 	if l.PendingNL == 0 {
 		l.PendingNL = 1
 	}
 }
 
 // addLine appends a line with no cells yet.
-func addLine(l *Layout, indent int) {
+func addLine(l mut Layout, indent int) {
 	l.LineIndent = l.LineIndent.Append(indent)
 	l.LineFirst = l.LineFirst.Append(len(l.CellA))
 	l.LineN = l.LineN.Append(0)
@@ -158,7 +158,7 @@ func addLine(l *Layout, indent int) {
 
 // emit applies the pending whitespace before an item. blank reports that
 // the source has a blank line before it, which is kept unless NoBlank.
-func emit(l *Layout, blank bool) {
+func emit(l mut Layout, blank bool) {
 	if l.PendingNL > 0 && (l.Started || len(l.LineIndent) > 0) {
 		l.endLine()
 		if blank && !l.NoBlank {
@@ -180,7 +180,7 @@ func emit(l *Layout, blank bool) {
 }
 
 // put appends text to the open cell as it is.
-func put(l *Layout, text string) {
+func put(l mut Layout, text string) {
 	let n = len(text)
 	if n == 0 {
 		return
@@ -201,7 +201,7 @@ func put(l *Layout, text string) {
 
 // closeCell ends the open cell, without its trailing blanks when trim:
 // the next cell starts after it.
-func closeCell(l *Layout, trim bool) {
+func closeCell(l mut Layout, trim bool) {
 	let end = l.Buf.Len()
 	l.CellA = l.CellA.Append(l.Open)
 	l.CellB = l.CellB.Append(if trim { end - l.Trail } else { end })
@@ -213,7 +213,7 @@ func closeCell(l *Layout, trim bool) {
 
 // endLine closes the current line: its open cell is its last cell, and
 // trailing empty cells are dropped.
-func endLine(l *Layout) {
+func endLine(l mut Layout) {
 	if !l.Started {
 		return
 	}
@@ -236,7 +236,7 @@ func endLine(l *Layout) {
 
 // sep ends the open cell, without its trailing blanks: the next text
 // aligns with the cells of the same column on the neighbouring lines.
-func sep(l *Layout) {
+func sep(l mut Layout) {
 	let solid = l.Solid
 	let has = l.Buf.Len()-l.Trail > l.Open
 	l.closeCell(true)
@@ -246,7 +246,7 @@ func sep(l *Layout) {
 }
 
 // lastByte is the last byte written on the current line, or 0.
-func lastByte(l *Layout) byte {
+func lastByte(l mut Layout) byte {
 	if l.Buf.Len() > l.Open {
 		return l.CellTail
 	}
@@ -256,7 +256,7 @@ func lastByte(l *Layout) byte {
 // writeToken is write of a token or a keyword the printer writes. Only a
 // raw string or a block comment of the source holds a line break, so any
 // other text is put with no search for one.
-func writeToken(l *Layout, text string) {
+func writeToken(l mut Layout, text string) {
 	if text == "" || text[0] == '`' || text[0] == '/' {
 		l.write(text)
 		return
@@ -271,7 +271,7 @@ func writeToken(l *Layout, text string) {
 // write appends text with a blank first when the last byte and text's
 // first would lex as one token; a text with line breaks (a raw string or
 // block comment) continues on lines that are never re-indented.
-func write(l *Layout, text string) {
+func write(l mut Layout, text string) {
 	if text == "" {
 		return
 	}

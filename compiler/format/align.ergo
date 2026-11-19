@@ -45,7 +45,7 @@ type Grid {
 // block of empty cells takes no width. A positive limit bounds the output
 // in bytes: the size is computed before any text is built, and a larger
 // output is OutputLimit with no text. It closes l's open line.
-func Finish(l *Layout, limit int) Rendered fails OutputLimit {
+func Finish(l mut Layout, limit int) Rendered fails OutputLimit {
 	l.endLine()
 	let n = len(l.CellA)
 	let text = l.Buf.String()
@@ -74,7 +74,7 @@ func Finish(l *Layout, limit int) Rendered fails OutputLimit {
 // sizeOver reports whether the text of l's lines from first is longer
 // than limit, from the cells and their padding alone; it stops at the
 // first line past the limit.
-func sizeOver(l *Layout, c Grid, first int, limit int) bool {
+func sizeOver(l mut Layout, c Grid, first int, limit int) bool {
 	let mut size = 0
 	for i in first..len(l.LineIndent) {
 		size += lineLen(l, c, i) + 1
@@ -88,7 +88,7 @@ func sizeOver(l *Layout, c Grid, first int, limit int) bool {
 // build is the text of l's lines from first: the indentation, and each
 // cell but the last padded to its width. The builder is grown to the
 // output's size first, as go/printer's is, so the text is written once.
-func build(l *Layout, c Grid, first int) string {
+func build(l mut Layout, c Grid, first int) string {
 	let mut size = 0
 	for i in first..len(l.LineIndent) {
 		size += lineLen(l, c, i) + 1
@@ -116,7 +116,7 @@ func build(l *Layout, c Grid, first int) string {
 
 // lineLen is the length in bytes of line i with its padding, without its
 // line break.
-func lineLen(l *Layout, c Grid, i int) int {
+func lineLen(l mut Layout, c Grid, i int) int {
 	let mut n = cmp.Max(l.LineIndent[i], 0)
 	let a = l.LineFirst[i]
 	let b = a + l.LineN[i]
@@ -131,7 +131,7 @@ func lineLen(l *Layout, c Grid, i int) int {
 
 // align sets the padded widths of column for lines from to to, and of the
 // columns after it within each block.
-func align(c *Grid, l *Layout, from int, to int, column int) {
+func align(c mut Grid, l mut Layout, from int, to int, column int) {
 	let mut i = from
 	for i < to {
 		if l.LineN[i] <= column+1 {

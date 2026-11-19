@@ -99,7 +99,7 @@ func scanAll(src string) scanner {
 // failTail puts the ILLEGAL and EOF of the Go scanner's fail past the
 // tokens, where Toks keeps room for them and Parse reads them: at the
 // failure, or at the end of the last token when that is past it.
-func failTail(s *scanner) {
+func failTail(s mut scanner) {
 	let n = NumToks(s.toks)
 	let mut at = s.at
 	let mut end = s.at + s.length
@@ -116,14 +116,14 @@ func failTail(s *scanner) {
 }
 
 // growToks doubles the token columns.
-func growToks(s *scanner) {
+func growToks(s mut scanner) {
 	s.toks.kind = slices.AppendAll(s.toks.kind, zeros32(len(s.toks.kind)))
 	s.toks.start = slices.AppendAll(s.toks.start, zeros32(len(s.toks.start)))
 	s.toks.end = slices.AppendAll(s.toks.end, zeros32(len(s.toks.end)))
 }
 
 // push appends a token with no change of context.
-func push(s *scanner, kind uint8, start int, end int) {
+func push(s mut scanner, kind uint8, start int, end int) {
 	let i = NumToks(s.toks)
 	if i+2 >= len(s.toks.kind) {
 		growToks(s)
@@ -166,7 +166,7 @@ func semiRule(kind uint8) bool {
 // emit appends a token and moves the semicolon rule and the word contexts
 // on. It stays small enough for Go to inline: the contexts move in
 // moveContext, only while one is open or one opens.
-func emit(s *scanner, kind uint8, start int, end int) {
+func emit(s mut scanner, kind uint8, start int, end int) {
 	push(s, kind, start, end)
 	s.semi = semiAfter(kind)
 	if s.ctx || kind == Import || kind == Extern {
@@ -176,7 +176,7 @@ func emit(s *scanner, kind uint8, start int, end int) {
 
 // moveContext moves the word contexts of import and extern on past a token
 // of kind.
-func moveContext(s *scanner, kind uint8) {
+func moveContext(s mut scanner, kind uint8) {
 	if kind == Import {
 		s.paths = 2
 		s.pathGo = true
@@ -211,7 +211,7 @@ func moveContext(s *scanner, kind uint8) {
 }
 
 // insertSemi emits the semicolon a newline at pos implies.
-func insertSemi(s *scanner, pos int) {
+func insertSemi(s mut scanner, pos int) {
 	if s.ctx {
 		s.paths = 0
 		s.pathGo = false
@@ -228,7 +228,7 @@ func insertSemi(s *scanner, pos int) {
 // fail records the first scan failure: the span at pos of length bytes,
 // cut to the source and widened to whole code points (the Go scanner's
 // newError).
-func fail(s *scanner, pos int, length int, message string) {
+func fail(s mut scanner, pos int, length int, message string) {
 	let n = len(s.src)
 	let offset = if pos > n { n } else { pos }
 	let mut l = if offset+length > n { n - offset } else { length }
@@ -244,7 +244,7 @@ func fail(s *scanner, pos int, length int, message string) {
 	s.length = l
 }
 
-func run(s *scanner) {
+func run(s mut scanner) {
 	let src = s.src
 	let n = len(src)
 	// The offset lives in i; s.offset holds it only across a call to a
@@ -517,7 +517,7 @@ func identEnd(src string, start int) int {
 	identRest(src, start+utf8.DecodeRuneInString(src[start:]).Size)
 }
 
-func identifier(s *scanner, start int) {
+func identifier(s mut scanner, start int) {
 	let src = s.src
 	let c = src[start]
 	let mut first = 1
@@ -564,7 +564,7 @@ let kwTable = "\x00\x65\x00\x51\x00\x4d\x00\x00\x00\x00\x00\x00\x45\x00\x66\x00\
 // comment scans a line or block comment at start into the comment
 // columns. A line comment, and a block comment that spans lines, end the
 // line: they insert a semicolon at their start.
-func comment(s *scanner, start int) {
+func comment(s mut scanner, start int) {
 	let src = s.src
 	let n = len(src)
 	if src[start+1] == '/' {
@@ -640,7 +640,7 @@ func pathEnd(src string, start int) int {
 // pathWord scans an import or extern path, with grammar.md's
 // import_path rule (the Go scanner's pathWord). Right after import, the
 // word `go` is the keyword of a Go import.
-func pathWord(s *scanner, start int) {
+func pathWord(s mut scanner, start int) {
 	let src = s.src
 	let n = len(src)
 	let mut end = start
@@ -768,7 +768,7 @@ func baseOf(c byte) int {
 }
 
 // prefixed scans an integer with a base prefix: 0x1F, 0o600, 0b1010.
-func prefixed(s *scanner, start int) {
+func prefixed(s mut scanner, start int) {
 	let src = s.src
 	let n = len(src)
 	let base = baseOf(src[start+1])
@@ -807,7 +807,7 @@ func isDurationUnit(u string) bool {
 
 // numberLit scans a decimal integer, a decimal float or a duration, and hands
 // a prefixed integer to prefixed. `1..n` is 1 and the range operator.
-func numberLit(s *scanner, start int) {
+func numberLit(s mut scanner, start int) {
 	let src = s.src
 	let n = len(src)
 	if src[start] == '0' && start+1 < n && isBase(src[start+1]) {
@@ -851,7 +851,7 @@ func numberLit(s *scanner, start int) {
 }
 
 // raw scans a raw string.
-func raw(s *scanner, start int) {
+func raw(s mut scanner, start int) {
 	let close = strings.IndexByte(s.src[start+1:], '`')
 	if close < 0 {
 		fail(s, start, 1, "raw string literal not terminated")
@@ -866,7 +866,7 @@ func raw(s *scanner, start int) {
 // interpolation (StringMid). quote is the string's opening quote. A `\(`
 // ends the segment and opens an interpolation; the closing quote ends the
 // string.
-func interpreted(s *scanner, quote int, segStart int, kind uint8) {
+func interpreted(s mut scanner, quote int, segStart int, kind uint8) {
 	let src = s.src
 	let n = len(src)
 	let mut i = segStart + 1
@@ -898,7 +898,7 @@ func interpreted(s *scanner, quote int, segStart int, kind uint8) {
 }
 
 // openInterpolation pushes an interpolation of the string quoted at quote.
-func openInterpolation(s *scanner, quote int) {
+func openInterpolation(s mut scanner, quote int) {
 	if s.open < len(s.quotes) {
 		s.quotes[s.open] = quote
 		s.depths[s.open] = 0
@@ -910,7 +910,7 @@ func openInterpolation(s *scanner, quote int) {
 }
 
 // runeLit scans a rune literal: one code point, as Go unquotes it.
-func runeLit(s *scanner, start int) {
+func runeLit(s mut scanner, start int) {
 	let src = s.src
 	let n = len(src)
 	let mut i = start + 1
@@ -1100,7 +1100,7 @@ func opKind(c byte, c1 byte, c2 byte) uint8 {
 // operator scans an operator or punctuation at start. A `(` or `)` inside
 // an interpolation counts its depth, and the `)` that closes it goes on
 // with the string.
-func operator(s *scanner, start int) {
+func operator(s mut scanner, start int) {
 	let src = s.src
 	let n = len(src)
 	let c = src[start]

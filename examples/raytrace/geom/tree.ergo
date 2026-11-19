@@ -44,7 +44,7 @@ func Build(shapes []Shape) Tree {
 }
 
 // grow adds the node of items and its children, and is its index.
-func grow(b *building, items []int) int {
+func grow(b mut building, items []int) int {
 	let mut box = Bounds(b.shapes[items[0]])
 	for i in items {
 		box = Union(box, Bounds(b.shapes[i]))
