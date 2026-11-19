@@ -7,9 +7,9 @@ import "testing"
 // is a space and %XX an escape, a pair with a malformed escape is
 // dropped, the fields come in key order and one key's values in the
 // order they came. Before MX-EVQUERY it was skipped ("a Go function
-// (ParseQuery)"), so fk-domains' 41 obligations never ran at check time.
+// (ParseQuery)"), so domain-search' 41 obligations never ran at check time.
 // No example kills its mutants (testdata/mutants.json): without the
-// native fk-domains' rows only turn back into skips, and its queries
+// native domain-search' rows only turn back into skips, and its queries
 // carry neither a "+" nor keys out of order, so evquery-unsorted and
 // evquery-plus-literal leave its verdicts as they are; this test kills
 // evquery-missing, evquery-unsorted and evquery-plus-literal.

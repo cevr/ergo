@@ -518,20 +518,20 @@
     {
       "name": "fk12c-control-always-last",
       "origin": "FK12c",
-      "file": "hosts/mygo/controls/fk-flow/main.go",
+      "file": "hosts/mygo/controls/canvas-scenes/main.go",
       "from": "status := play(os.Stdin, out, last, func(h *host) {",
       "to": "status := play(os.Stdin, out, true, func(h *host) {",
-      "rule": "the MyGo control prints what fk-flow prints after each line, not only the last screen (TestFkFlowControlAgrees; the copy check does not see main.go)",
-      "killers": ["hosts/mygo:TestFkFlowControlAgrees"]
+      "rule": "the MyGo control prints what canvas-scenes prints after each line, not only the last screen (TestCanvasScenesControlAgrees; the copy check does not see main.go)",
+      "killers": ["hosts/mygo:TestCanvasScenesControlAgrees"]
     },
     {
       "name": "fk12c-opcount-control-drifts",
       "origin": "FK12c",
-      "file": "examples/fk-flow/testdata/control/model.go",
+      "file": "examples/canvas-scenes/testdata/control/model.go",
       "from": "\tg := channel(8.0, h, lig, c)\n",
       "to": "\tg := channel(4.0, h, lig, c)\n",
-      "rule": "the control scripts/opcount measures is the MyGo control's model, so it prints what fk-flow prints (TestFkFlowControlAgrees, the copy check; opcount refuses a control that differs, but no test runs opcount)",
-      "killers": ["hosts/mygo:TestFkFlowControlAgrees"]
+      "rule": "the control scripts/opcount measures is the MyGo control's model, so it prints what canvas-scenes prints (TestCanvasScenesControlAgrees, the copy check; opcount refuses a control that differs, but no test runs opcount)",
+      "killers": ["hosts/mygo:TestCanvasScenesControlAgrees"]
     },
     {"name":"UG1-look-fill-dropped","origin":"wf10 UG1","file":"hosts/mygo/desktop/look.ergo","from":"\tif l.Fill.A != 0 || line > 0 {","to":"\tif false {","rule":"the window paints each node's look: its fill shows inside its box","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
     {"name":"UG1-look-corners-square","origin":"wf10 UG1","file":"hosts/mygo/desktop/look.ergo","from":"\t\td.w.Box(x, y, w, h, tl, tr, br, bl,","to":"\t\td.w.Box(x, y, w, h, 0, 0, 0, 0,","rule":"the window rounds a look's box by its corners: outside a round corner the colour under the node shows","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
