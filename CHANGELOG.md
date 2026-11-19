@@ -6,6 +6,7 @@ Entries describe user-visible changes and are true at the commit that carries th
 
 ### Lowering
 
+- A function with a Slot row (`F` in std actor's `ExitOf[S, E, O, F]`, a failure row that is a Go type parameter) and its calls take IR bodies; they had kept the text path since LY-FIX (ROWSLOT-IR).
 - In a run build a record's Go struct lists its pointer-holding fields first, then the rest by alignment, so the collector scans a shorter prefix and padding shrinks (NOSCAN1; [types](docs/spec/types.md#structs) Structs 8). Codecs, text and equality keep the declared order.
 - A run build calls a generic function, or a method of a generic record, through a plain Go copy for each distinct instance of known Go types, so Go compiles it with no GC-shape stencil and no dictionary (MONO1; [types](docs/spec/types.md#generics) Generics 5). Test builds and `genericLowering=stencil` keep the Go generic.
 - A catch arm `case err:` that re-raises with `return err` from a function that returns a value now lowers as a failure when the caught row holds `wired[T]` (a generic decode's shape failures); it lowered as the success value, and the Go did not build. `json.DecodeStream` uses the direct form.
