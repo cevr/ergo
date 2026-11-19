@@ -4,6 +4,8 @@
 // resolve yet, or a name it cannot find, is the invalid type (basic 0),
 // so nothing that reads it cascades (D3). Diagnostics come with S3c.
 
+import compiler/check/bind
+import compiler/check/infer
 import compiler/check/store
 import compiler/syntax
 import dense
@@ -549,6 +551,80 @@ func members(s mut store.Store, e Env, t dense.ID[store.TKey]) []dense.ID[store.
 		}
 	case None:
 		[]dense.ID[store.TKey]{t}
+	}
+}
+
+// UnionsOf is the unions inference reads (infer.Unions): each union with
+// no type parameters that the package of s declares, and each that e's
+// imports declare, with its variants, as the Go checker's asUnion reads a
+// named union's.
+func UnionsOf(s mut store.Store, e Env) infer.Unions {
+	let mut out = infer.NoUnions()
+	for i in 0..store.NumDecls(*s) {
+		let d = store.DeclAt(*s, i)
+		if store.KindName(int(store.DeclOf(*s, d).Kind)) == "type" {
+			addUnion(s, e, &out, store.TNamed(s, d))
+		}
+	}
+	for j, dep in e.deps {
+		for i, dd in dep.Decls {
+			if dd.Type && len(dd.Variants) > 0 && len(dd.Kinds) == 0 {
+				addUnion(s, e, &out, store.TInstance(s, store.XRef{Import: uint32(j + 1), Decl: uint32(i)}, []dense.ID[store.TKey]{}))
+			}
+		}
+	}
+	out
+}
+
+// addUnion records t in out when t is a union: its members (members) are
+// then its variants. A variant's members are its union's, which hold it,
+// and any other type's are itself.
+func addUnion(s mut store.Store, e Env, out mut infer.Unions, t dense.ID[store.TKey]) {
+	let ms = members(s, e, t)
+	for m in ms {
+		if m == t {
+			return
+		}
+	}
+	infer.AddUnion(out, t, ms)
+}
+
+// UnionsOfHoldsUnionsOnly: of a package declaring a union of n inline
+// variants and a record member, the record and a lone record, the table
+// holds the union alone, with its members in order; no variant and no
+// record is a union.
+law UnionsOfHoldsUnionsOnly(xs []int) {
+	let n = 1 + len(xs)%4
+	let mut b = strings.NewBuilder()
+	b.WriteString("type U = ")
+	for i in 0..n {
+		b.WriteString("V\(i){} | ")
+	}
+	b.WriteString("R\ntype R {}\ntype L {}\n")
+	let p = syntax.Parse(b.String())
+	let files = []syntax.Parsed{p}
+	let mut s = bind.Collect("main", []bind.File{bind.File{Name: "a.ergo", Parsed: p}})
+	let env = NewEnv(s, files, p, []string{}, SolveKinds(s, files, []Ext{}), []Ext{}, []Foreign{}, []Iface{})
+	let u = UnionsOf(&s, env)
+	let mut want = []dense.ID[store.TKey]{}
+	for i in 0..n {
+		want = want.Append(namedOf(&s, "V\(i)"))
+	}
+	want = want.Append(namedOf(&s, "R"))
+	let mut ok = infer.VariantsOf(u, namedOf(&s, "U")) == want
+	for name in []string{"R", "L", "V0"} {
+		ok = ok && len(infer.VariantsOf(u, namedOf(&s, name))) == 0
+	}
+	ok
+}
+
+// namedOf is the type the package's declaration name names.
+func namedOf(s mut store.Store, name string) dense.ID[store.TKey] {
+	match store.Lookup(*s, name) {
+	case Some[dense.ID[store.Decl]] as d:
+		store.TNamed(s, d.Value)
+	case None:
+		store.TBasic(s, 0)
 	}
 }
 

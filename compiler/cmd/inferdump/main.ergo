@@ -244,6 +244,7 @@ func run(args0 []string) fails os.Exit needs fs.Files | io.Stdout {
 		}
 	}
 	let mut frame = infer.NewFrame()
+	let unions = if len(parsed) > 0 { types.UnionsOf(&s, types.NewEnv(s, parsed, parsed[0], []string{}, kinds, ext, table, deps)) } else { infer.NoUnions() }
 	let mut b = strings.NewBuilder()
 	for fi, file in files {
 		let p = file.Parsed
@@ -368,7 +369,7 @@ func run(args0 []string) fails os.Exit needs fs.Files | io.Stdout {
 			for w in written {
 				explicit = explicit.Append(types.Resolve(&s, env, w))
 			}
-			match infer.Infer(&s, &frame, infer.Callee{Params: params, Rows: to.rows, Base: m}, explicit, inArgs) {
+			match infer.Infer(&s, &frame, unions, infer.Callee{Params: params, Rows: to.rows, Base: m}, explicit, inArgs) {
 			case Some[[]dense.ID[store.TKey]] as targs:
 				let names = types.Names{Params: from.params, Foreign: table, Pkg: tab.pkgName, Deps: deps}
 				let none = infer.NoValue(&s)

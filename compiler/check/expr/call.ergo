@@ -351,7 +351,7 @@ func generic(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], c s
 	for w in written {
 		explicit = explicit.Append(types.Resolve(s, env, w))
 	}
-	match infer.Infer(s, &t.frame, infer.Callee{Params: renamed, Rows: f.Rows, Base: base}, explicit, ins) {
+	match infer.Infer(s, &t.frame, k.Unions, infer.Callee{Params: renamed, Rows: f.Rows, Base: base}, explicit, ins) {
 	case Some[[]dense.ID[store.TKey]] as targs:
 		// An import's function is named by its selector's name.
 		let named = match syntax.ViewOf(tr, fun) {
@@ -545,7 +545,7 @@ func inferred(s mut store.Store, k Pkg, t mut Typer, g BareLit) Option[dense.ID[
 			ins = ins.Append(infer.Unknown)
 		}
 	}
-	match infer.Infer(s, &t.frame, infer.Callee{Params: renamed, Rows: g.b.Rows, Base: base}, []dense.ID[store.TKey]{}, ins) {
+	match infer.Infer(s, &t.frame, k.Unions, infer.Callee{Params: renamed, Rows: g.b.Rows, Base: base}, []dense.ID[store.TKey]{}, ins) {
 	case Some{Value: targs}:
 		for i, v in g.values {
 			if isConst(k, t.file, v) {

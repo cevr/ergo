@@ -15,6 +15,7 @@
 // measured (TestCompilerExprAgreesWithChecker logs it).
 
 import compiler/check/bind
+import compiler/check/infer
 import compiler/check/store
 import compiler/check/types
 import compiler/syntax
@@ -61,7 +62,10 @@ type Pkg {
 	Fns     []Fn,
 	Recs    []Rec,
 	Deps    []Dep,
-	fnBy    dense.Col[store.PNode, int],
+	// Unions is the unions a call's inference may meet, the package's
+	// and its imports' (types.UnionsOf).
+	Unions infer.Unions,
+	fnBy   dense.Col[store.PNode, int],
 	// named is the last function of each name; sameName[i] the one
 	// before function i of its name, -1 for none (methods.ergo).
 	named    dense.Side[dense.Str, int],
@@ -374,7 +378,10 @@ func Load(s mut store.Store, files []bind.File, u bind.Uses, ps bind.Parents, ex
 		case None:
 		}
 	}
-	Pkg{Files: files, Parsed: parsed, U: u, Ps: ps, Kinds: kinds, Ext: ext, Foreign: foreign, Ifaces: deps, Fns: fns, Recs: recs, Deps: []Dep{}, fnBy: fnBy, named: named, sameName: sameName, recBy: recBy}
+	// The unions a call meets, read once: inference looks one up per
+	// union argument, not per declaration.
+	let unions = if len(parsed) > 0 { types.UnionsOf(s, types.NewEnv(*s, parsed, parsed[0], []string{}, kinds, ext, foreign, deps)) } else { infer.NoUnions() }
+	Pkg{Files: files, Parsed: parsed, U: u, Ps: ps, Kinds: kinds, Ext: ext, Foreign: foreign, Ifaces: deps, Fns: fns, Recs: recs, Deps: []Dep{}, Unions: unions, fnBy: fnBy, named: named, sameName: sameName, recBy: recBy}
 }
 
 // TyperWorkPerFunctionIsConstant: each further function of one shape adds

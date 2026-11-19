@@ -31,12 +31,12 @@ type Callee { Params []dense.ID[store.TKey], Rows []bool, Base int }
 // not match, an unknown argument, two literals with different defaults
 // for one parameter, or a type parameter nothing binds. The frame is
 // begun on f and cut before Infer returns.
-func Infer(s mut store.Store, f mut Frame, callee Callee, explicit []dense.ID[store.TKey], args []Arg) Option[[]dense.ID[store.TKey]] {
+func Infer(s mut store.Store, f mut Frame, u Unions, callee Callee, explicit []dense.ID[store.TKey], args []Arg) Option[[]dense.ID[store.TKey]] {
 	if len(args) != len(callee.Params) || len(explicit) > len(callee.Rows) {
 		return None
 	}
 	let c = Begin(f, callee.Rows, callee.Base)
-	let out = inferIn(s, f, c, callee, explicit, args)
+	let out = inferIn(s, f, u, c, callee, explicit, args)
 	End(f, c)
 	out
 }
@@ -50,7 +50,7 @@ law InferRecoversBindings(picks []int) {
 	let mut f = NewFrame()
 	let k = caseOf(&s, &f, picks)
 	let empty = store.TRow(&s, []dense.ID[store.TKey]{})
-	match Infer(&s, &f, k.callee, []dense.ID[store.TKey]{}, k.args) {
+	match Infer(&s, &f, NoUnions(), k.callee, []dense.ID[store.TKey]{}, k.args) {
 	case Some[[]dense.ID[store.TKey]] as got:
 		let wantF = if k.rowed { k.f } else { empty }
 		len(got.Value) == 3 && got.Value[0] == k.t && got.Value[1] == k.u && got.Value[2] == wantF && Depth(f) == 0
@@ -211,7 +211,7 @@ law InferRejectsMismatches(picks []int) {
 	let k = caseOf(&s, &f, picks)
 	let none = []dense.ID[store.TKey]{}
 	let wrong = store.TTuple(&s, []dense.ID[store.TKey]{k.t, k.u, k.t})
-	let bad = Infer(&s, &f, k.callee, none, []Arg{k.args[0], Typed{T: wrong}})
+	let bad = Infer(&s, &f, NoUnions(), k.callee, none, []Arg{k.args[0], Typed{T: wrong}})
 	let c = Begin(&f, []bool{false, false, true}, k.callee.Base)
 	let t = Param(&s, c, 0)
 	let slice = store.TSlice(&s, t)
@@ -219,9 +219,9 @@ law InferRejectsMismatches(picks []int) {
 	End(&f, c)
 	let b = store.TBasic(&s, 2+at(picks, 5)%14)
 	let other = store.TBasic(&s, 16)
-	let shape = Infer(&s, &f, Callee{Params: []dense.ID[store.TKey]{slice, pair}, Rows: k.callee.Rows, Base: k.callee.Base}, none, []Arg{Typed{T: store.TPointer(&s, b)}, Typed{T: store.TTuple(&s, []dense.ID[store.TKey]{b, b})}})
-	let conflict = Infer(&s, &f, Callee{Params: []dense.ID[store.TKey]{t, pair}, Rows: k.callee.Rows, Base: k.callee.Base}, none, []Arg{Typed{T: b}, Typed{T: store.TTuple(&s, []dense.ID[store.TKey]{other, b})}})
-	let unbound = Infer(&s, &f, Callee{Params: []dense.ID[store.TKey]{slice}, Rows: k.callee.Rows, Base: k.callee.Base}, none, []Arg{Typed{T: store.TSlice(&s, b)}})
+	let shape = Infer(&s, &f, NoUnions(), Callee{Params: []dense.ID[store.TKey]{slice, pair}, Rows: k.callee.Rows, Base: k.callee.Base}, none, []Arg{Typed{T: store.TPointer(&s, b)}, Typed{T: store.TTuple(&s, []dense.ID[store.TKey]{b, b})}})
+	let conflict = Infer(&s, &f, NoUnions(), Callee{Params: []dense.ID[store.TKey]{t, pair}, Rows: k.callee.Rows, Base: k.callee.Base}, none, []Arg{Typed{T: b}, Typed{T: store.TTuple(&s, []dense.ID[store.TKey]{other, b})}})
+	let unbound = Infer(&s, &f, NoUnions(), Callee{Params: []dense.ID[store.TKey]{slice}, Rows: k.callee.Rows, Base: k.callee.Base}, none, []Arg{Typed{T: store.TSlice(&s, b)}})
 	isNone(bad) && isNone(shape) && isNone(conflict) && isNone(unbound) && Depth(f) == 0
 }
 
@@ -243,16 +243,16 @@ law InferStepsPerCallAreConstant(picks []int, n int) {
 	let mut f = NewFrame()
 	let k = caseOf(&s, &f, picks)
 	for _ in 0..m {
-		Infer(&s, &f, k.callee, []dense.ID[store.TKey]{}, k.args)
+		Infer(&s, &f, NoUnions(), k.callee, []dense.ID[store.TKey]{}, k.args)
 	}
 	let one = Steps(f)
 	for _ in 0..m {
-		Infer(&s, &f, k.callee, []dense.ID[store.TKey]{}, k.args)
+		Infer(&s, &f, NoUnions(), k.callee, []dense.ID[store.TKey]{}, k.args)
 	}
 	one > 0 && Steps(f) == 2*one && Depth(f) == 0
 }
 
-func inferIn(s mut store.Store, f mut Frame, c Call, callee Callee, explicit []dense.ID[store.TKey], args []Arg) Option[[]dense.ID[store.TKey]] {
+func inferIn(s mut store.Store, f mut Frame, u Unions, c Call, callee Callee, explicit []dense.ID[store.TKey], args []Arg) Option[[]dense.ID[store.TKey]] {
 	for i, t in explicit {
 		Bind(f, c, i, t)
 	}
@@ -273,7 +273,7 @@ func inferIn(s mut store.Store, f mut Frame, c Call, callee Callee, explicit []d
 			if all || !mentions(*s, *f, c, pt) {
 				continue
 			}
-			if !Unify(s, f, c, pt, ta.T) {
+			if !Unify(s, f, u, c, pt, ta.T) {
 				return None
 			}
 		}
