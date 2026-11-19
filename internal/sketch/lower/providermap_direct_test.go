@@ -2,6 +2,9 @@ package lower
 
 import (
 	"encoding/json"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"regexp"
 	"strings"
 	"testing"
@@ -45,7 +48,10 @@ func main() needs Console {
 //     calls, so a witness would be dead);
 //   - its frame does not poll: the probe loop, which the table's size
 //     bounds, has no cancellation check, nor has the copy's entry;
-//   - every function of the program has an IR body (no text fallback).
+//   - every function of the program has an IR body (no text fallback);
+//   - every record literal of the IR lists each field of its Go struct,
+//     as the IR toolchain requires ("literal with 1 of 4 fields", OWN1's
+//     fallout at C5d r2: the Map literal omitted the table's other fields).
 //
 // Each is a count, logged; the expected count is 0.
 func TestProviderTableCopiesAreDirect(t *testing.T) {
@@ -83,7 +89,11 @@ func TestProviderTableCopiesAreDirect(t *testing.T) {
 	for _, n := range rep.Fallback {
 		fallbacks += n
 	}
-	t.Logf("copies %d: witness parameters %d, polls %d; fallbacks %v", copies, witnesses, polls, rep.Fallback)
+	short := shortLiterals(t, main, ir)
+	t.Logf("copies %d: witness parameters %d, polls %d; fallbacks %v; short literals %v", copies, witnesses, polls, rep.Fallback, short)
+	if len(short) > 0 {
+		t.Errorf("IR record literals that omit fields: %v", short)
+	}
 	if copies == 0 {
 		t.Fatalf("no copy for the provider:\n%s", main)
 	}
@@ -93,4 +103,60 @@ func TestProviderTableCopiesAreDirect(t *testing.T) {
 	// The emitter's text of the same copies (the IR's fallback) still
 	// compiles: callers pass no witness to a copy that takes none.
 	typecheckGo(t, []*lowered{mustLower(t, "providerchurn", providerChurnSource)})
+}
+
+// shortLiterals lists the IR's "lit" expressions of a struct type declared
+// in the lowered Go (src) that give fewer keys than the struct has fields.
+func shortLiterals(t *testing.T, src string, ir irFile) []string {
+	t.Helper()
+	f, err := parser.ParseFile(token.NewFileSet(), "main.go", src, parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fields := map[string]int{}
+	ast.Inspect(f, func(n ast.Node) bool {
+		if ts, ok := n.(*ast.TypeSpec); ok {
+			if st, ok := ts.Type.(*ast.StructType); ok {
+				k := 0
+				for _, fl := range st.Fields.List {
+					k += max(1, len(fl.Names))
+				}
+				fields[ts.Name.Name] = k
+			}
+		}
+		return true
+	})
+	var out []string
+	var walk func(v any)
+	walk = func(v any) {
+		switch v := v.(type) {
+		case map[string]any:
+			if v["k"] == "lit" {
+				if tn, ok := v["t"].(string); ok {
+					name, _, _ := strings.Cut(tn, "[")
+					keys, _ := v["keys"].([]any)
+					if want, ok := fields[name]; ok && len(keys) != want {
+						out = append(out, tn)
+					}
+				}
+			}
+			for _, x := range v {
+				walk(x)
+			}
+		case []any:
+			for _, x := range v {
+				walk(x)
+			}
+		}
+	}
+	data, err := json.Marshal(ir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tree any
+	if err := json.Unmarshal(data, &tree); err != nil {
+		t.Fatal(err)
+	}
+	walk(tree)
+	return out
 }

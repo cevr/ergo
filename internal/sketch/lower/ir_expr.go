@@ -456,24 +456,30 @@ func (b *irBuilder) constant(t check.Type, v constant.Value, x syntax.Expr, p ir
 
 // omittedFields gives the record literal lit of td (the record s) each
 // field its elements do not set, the emitter's fieldDefaults: a field
-// whose default is Go's zero value is left out of the keyed literal, and
-// a Map field is an empty Go map. The checker writes such a literal for a
+// whose default is Go's zero value gets that zero (the IR toolchain wants
+// every field keyed once), and a Map field is an empty Go map. The checker writes such a literal for a
 // Map with a provider, Map[K, V, H]{} (check/mapprovider.go); a program's
 // literal sets every field. Any other default that holds a Map (built by a
 // function) keeps the emitter's body.
 func (b *irBuilder) omittedFields(lit *irExpr, td *typeDecl, s *check.Struct, set []string, x *syntax.CompositeLit, p irPos) {
 	for _, f := range s.Fields {
-		if slices.Contains(set, f.Name) || !b.l.holdsMap(f.Type) {
+		if slices.Contains(set, f.Name) {
 			continue
-		}
-		if _, ok := f.Type.(*check.Map); !ok {
-			irNo("record literal without a field whose default holds a Map")
 		}
 		name, ok := td.fieldName[f.Name]
 		if !ok {
 			irNo("record literal without a field of its record")
 		}
+		// The IR lists every field once (the toolchain's "lit"): a Map
+		// field is an empty map, every other omitted field its zero.
+		e := &irExpr{K: "zero", Pos: p, T: b.goType(f.Type, x)}
+		if b.l.holdsMap(f.Type) {
+			if _, ok := f.Type.(*check.Map); !ok {
+				irNo("record literal without a field whose default holds a Map")
+			}
+			e = &irExpr{K: "lit", Pos: p, T: e.T}
+		}
 		lit.Keys = append(lit.Keys, name)
-		lit.Elems = append(lit.Elems, &irExpr{K: "lit", Pos: p, T: b.goType(f.Type, x)})
+		lit.Elems = append(lit.Elems, e)
 	}
 }
