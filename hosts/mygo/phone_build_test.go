@@ -8,12 +8,15 @@ import (
 	"debug/elf"
 	"debug/macho"
 	"flag"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"testing"
 )
@@ -46,8 +49,9 @@ func phoneToolchains() []string {
 // It builds binaries because what it claims is that the phone's own
 // linker (Xcode's or the NDK's clang, as a c-archive or c-shared library)
 // links the IR module the patched compiler builds; no in-process check
-// sees a link. Each process runs under the memory bound (bounded) in a
-// process group of its own, killed when it ends. With -phone given and no
+// sees a link. Each build runs under phoneBounded's memory bound (a
+// cgroup on Linux) in a process group of its own, killed when it ends.
+// With -phone given and no
 // toolchain for it, it fails; with neither, it skips with "no phone
 // toolchain", which is not a pass (NO TESTS IS RED): the batch's Mac leg
 // builds for ios/simulator.
@@ -73,7 +77,7 @@ func TestPhoneBuildsTheExamples(t *testing.T) {
 			t.Run(p+"/"+name, func(t *testing.T) {
 				program := "./cmd/" + name
 				dir := filepath.Join(t.TempDir(), "app")
-				cmd := bounded("go", "run", "./cmd/phone", "build", "-platform", p, "-ergo", ergo, "-o", dir, program)
+				cmd := phoneBounded(t, "go", "run", "./cmd/phone", "build", "-platform", p, "-ergo", ergo, "-o", dir, program)
 				out := runGroup(t, cmd)
 				if bytes.Contains(out, []byte("missing function body")) {
 					t.Fatalf("the compile did not read the IR file (no -ergoir in the CLI's go build): %s", tail(out))
@@ -100,6 +104,38 @@ func TestPhoneBuildsTheExamples(t *testing.T) {
 		}
 	}
 }
+
+// phoneBounded is a phone build's command under a memory bound the kernel
+// enforces. On Linux it is a systemd user scope with MemoryMax=8G and no
+// swap: a bound on resident memory. The bound of bounded (RLIMIT_DATA)
+// counts address space reserved, not used, and the JVM of the Android
+// build (Gradle) reserves far more than it touches, so under 4 GiB Gradle's
+// daemon dies at the build's start ("Gradle build daemon disappeared
+// unexpectedly", measured on the workbox, 2026-11-18). Gradle and Kotlin
+// compile in the build's own process (no daemon outlives it), and the
+// scope is stopped when the test ends, which kills whatever is left in
+// it. Darwin's kernel enforces no such bound; there the command runs as is.
+func phoneBounded(t *testing.T, name string, args ...string) *exec.Cmd {
+	t.Helper()
+	var cmd *exec.Cmd
+	if runtime.GOOS == "linux" {
+		run, err := exec.LookPath("systemd-run")
+		if err != nil {
+			t.Fatal("a phone build on Linux runs in a systemd user scope (its memory bound); no systemd-run here")
+		}
+		unit := fmt.Sprintf("ergophone-%d-%d", os.Getpid(), phoneScopes.Add(1))
+		cmd = exec.Command(run, append([]string{"--user", "--scope", "-q", "--unit=" + unit, "-p", "MemoryMax=8G", "-p", "MemorySwapMax=0", "--", name}, args...)...)
+		t.Cleanup(func() { exec.Command("systemctl", "--user", "stop", unit+".scope").Run() })
+	} else {
+		cmd = exec.Command(name, args...)
+	}
+	cmd.Env = append(os.Environ(),
+		"GRADLE_OPTS=-Dorg.gradle.daemon=false",
+		"ORG_GRADLE_PROJECT_kotlin.compiler.execution.strategy=in-process")
+	return cmd
+}
+
+var phoneScopes atomic.Int64
 
 // runGroup runs cmd in a process group of its own, killed when it ends,
 // and returns what it printed; it fails t when cmd fails.
