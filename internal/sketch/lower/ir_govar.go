@@ -98,6 +98,8 @@ func (b *irBuilder) goWiden(from, to check.Type, e *irExpr, x syntax.Node, p irP
 	if !goInterface(from) || !goInterface(to) {
 		return nil, nil, false
 	}
+	b.hostImported(from.(*check.Named))
+	b.hostImported(to.(*check.Named))
 	ft, tt := b.goType(from, x), b.goType(to, x)
 	if ft == tt {
 		return nil, nil, false
@@ -112,6 +114,16 @@ func (b *irBuilder) goWiden(from, to check.Type, e *irExpr, x syntax.Node, p irP
 			{K: "set", Pos: p, Local: w, X: &irExpr{K: "assert", Pos: p, T: tt, X: src}},
 		}}}},
 	}, &irExpr{K: "local", Pos: p, I: w}, true
+}
+
+// hostImported stops the IR where t's Go package has no import name from
+// the naming pass (hostImportNames reserves the interface parameters of
+// the Go functions the program calls): its conversion keeps the source
+// body rather than asking for a name the pass never gave.
+func (b *irBuilder) hostImported(t *check.Named) {
+	if _, ok := b.l.pkgNames[pkgKey{"import", t.Obj.Pkg.Path}]; !ok {
+		irNo("Go interface of a package with no import name")
+	}
 }
 
 // goInterface reports a Go package's interface type (io.Reader), not

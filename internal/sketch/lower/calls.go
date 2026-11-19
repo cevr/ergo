@@ -803,23 +803,12 @@ func (l *lowerer) hostImportNames(pkgs []*check.Package) {
 			}
 		}
 	}
-	// The Go interface a Go value goes into (an `own io.Reader` parameter
-	// of a binding the program imports): the IR spells its conversion
-	// (opsConv, ir_with.go; IR-GOCALLS-4), though the program may not
-	// import its package.
+	// The Go interface parameter of a Go function the program calls (an
+	// `own io.Reader` of a binding it imports): the IR spells a Go
+	// value's conversion to it (opsConv, ir_with.go; IR-GOCALLS-4) and
+	// another Go interface's (goWiden, ir_govar.go; IR-GOCALLS-5), though
+	// the program may not import its package.
 	for _, p := range pkgs {
-		for _, conv := range p.Info.Implicit {
-			n, ok := conv.To.(*check.Named)
-			if !ok || conv.Kind != check.ConvOperations || n.Obj == nil || !n.Obj.Pkg.Host() || goAdapterConv(conv) {
-				continue
-			}
-			if path := n.Obj.Pkg.Path; path != "time" && !seen[path] {
-				seen[path] = true
-				paths = append(paths, path)
-			}
-		}
-		// The Go interface parameter another Go interface widens to
-		// (goWiden, ir_govar.go; IR-GOCALLS-5).
 		for _, c := range p.Info.Calls {
 			if c == nil || c.Func == nil || c.Func.Sig == nil || c.Func.Pkg == nil || !c.Func.Pkg.Host() {
 				continue

@@ -163,6 +163,7 @@ func (b *irBuilder) opsConv(conv check.Conversion, e *irExpr, x syntax.Expr) *ir
 		if _, iface := underEqual(conv.From).(*check.Interface); iface {
 			irNo("Go interface value into another Go interface")
 		}
+		b.hostImported(to) // ir_govar.go
 		t := b.goType(conv.To, x)
 		b.keepImport("var _ " + b.fc.goType(conv.To)) // main.go imports its package
 		return &irExpr{K: "toiface", Pos: e.Pos, T: t, X: e}
