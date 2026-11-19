@@ -658,8 +658,12 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	if n := b.copyName(f); n != "" {
 		name = n // a copy for a known record (ir_known.go)
 	}
+	// method is whether the body is a Go method's: a monomorphic copy of
+	// a method is a plain function that takes its receiver as its first
+	// parameter, after the environment (emitBody), as any function does.
+	method := fd.method != nil
 	if n := b.monoName(f); n != "" {
-		name = n // a monomorphic copy (mono.go; ir_golib.go)
+		name, method = n, false // a monomorphic copy (mono.go; ir_golib.go)
 	}
 	pkg := ""
 	if f.Pkg != nil {
@@ -704,18 +708,18 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	for i, v := range params {
 		if v == nil {
 			// An unnamed parameter (`_ T`) has its slot; no body reads it.
-			if i == 0 && !fd.pure && fd.method == nil {
+			if i == 0 && !fd.pure && !method {
 				b.env = b.next
 				b.next++
 			}
 			b.next++
-			if i == 0 && fd.method != nil && !fd.pure {
+			if i == 0 && method && !fd.pure {
 				b.env = b.next
 				b.next++
 			}
 			continue
 		}
-		if i == 0 && fd.method != nil {
+		if i == 0 && method {
 			b.locals[v] = b.next
 			b.next++
 			if !fd.pure {
