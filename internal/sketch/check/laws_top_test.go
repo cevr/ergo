@@ -17,7 +17,7 @@ func TestTopLevelLawMessages(t *testing.T) {
 		{"law A() { true }\n\nlaw A() { true }\n", "law A is declared twice"},
 		{"law A() { true }\n\ntest A {\n\tassert true\n}\n", "test A is named like law A"},
 		{"test A {\n\tassert true\n}\n\nlaw A() { true }\n", "law A is named like test A"},
-		{"law L[T](x T) { true }\n", "a law has no type parameters; state it at concrete types, or as a member of the protocol's operation type"},
+		{"law L[T](x T) { true }\n", "only a rewrite law over functions has type parameters, law L[T](x T) { f(g(x)) } == { x }; state a property at concrete types, or as a member of the protocol's operation type"},
 	} {
 		_, diags := check.CheckSource(tc.src)
 		if len(diags) != 1 || diags[0].Message != tc.msg {

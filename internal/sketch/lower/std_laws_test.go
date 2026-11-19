@@ -38,6 +38,7 @@ import trace
 import log
 import strings
 import testing
+import pace
 
 type apiEcho {} implements api.Transport[string, int]
 
@@ -557,6 +558,131 @@ test TimeoutDeadlineFirstExpires() {
 	assert expired
 }
 
+func paceWithin(n int, lo int, hi int) int {
+	let span = hi - lo + 1
+	let r = n % span
+	if r < 0 { lo + (r + span) } else { lo + r }
+}
+
+func paceKeeps(xs []int, s string) bool needs pace.Pacing {
+	let kept = xs.Append(len(s))
+	let text = s + "."
+	pace.Pacing.Edge()
+	let mut same = len(kept) == len(xs)+1 && kept[len(xs)] == len(s) && text == s+"."
+	for i, x in xs {
+		same = same && kept[i] == x
+	}
+	same
+}
+
+test PacePacingEdgeKeepsValues(xs []int, s string) {
+	assert with context { pace.Pacing: pace.Default } { paceKeeps(xs, s) }
+	assert with context { pace.Pacing: pace.NewCounting() } { paceKeeps(xs, s) }
+}
+
+test PaceDefaultReachesNothing(xs []int, n int) {
+	let kept = xs.Append(n)
+	with context { pace.Pacing: pace.Default } {
+		for _ in 0..paceWithin(n, 0, 64) {
+			pace.Pacing.Edge()
+		}
+	}
+	assert len(kept) == len(xs) + 1 && kept[len(xs)] == n
+}
+
+test PaceNextReadLeavesRoom(grown int64, edges int64, room int64) {
+	let g = int64(paceWithin(int(grown % 1000000000), 0, 999999999))
+	let e = int64(paceWithin(int(edges % 1000), 1, 1000))
+	let perEdge = if g / e < 1 { int64(1) } else { g / e }
+	let r = perEdge*int64(paceWithin(int(room%1000), -2, 600)) + int64(paceWithin(int(room%7), 0, 6))
+	let next = pace.NextRead(g, e, r)
+	assert 1 <= next && next <= pace.MaxSpan && (next == 1 || g == 0 || next * perEdge <= r / 2)
+}
+
+test PaceCountingCountsEachEdge(n int) {
+	let k = paceWithin(n, 0, 64)
+	let c = pace.NewCounting()
+	let before = c.Edges()
+	with context { pace.Pacing: c } {
+		for _ in 0..k {
+			pace.Pacing.Edge()
+		}
+	}
+	assert before == 0 && c.Edges() == int64(k)
+}
+
+func paceHoldKeeps(xs []int, n int) bool needs pace.Pacing {
+	let kept = xs.Append(n)
+	pace.Pacing.Hold()
+	pace.Pacing.Edge()
+	pace.Pacing.Release()
+	len(kept) == len(xs)+1 && kept[len(xs)] == n
+}
+
+test PacePacingHoldKeepsValues(xs []int, n int) {
+	assert with context { pace.Pacing: pace.Default } { paceHoldKeeps(xs, n) }
+	assert with context { pace.Pacing: pace.NewCounting() } { paceHoldKeeps(xs, n) }
+}
+
+test PaceHoldsOweTheLastClose(ops []int) {
+	let h = pace.NewHolds()
+	let mut depth = 0
+	let mut owed = false
+	let mut same = true
+	for op in ops {
+		let kind = paceWithin(op, 0, 2)
+		if kind == 0 {
+			h.Open()
+			depth = depth + 1
+		} else if kind == 1 && depth > 0 {
+			let collects = h.Close()
+			depth = depth - 1
+			same = same && collects == (depth == 0 && owed)
+			if depth == 0 {
+				owed = false
+			}
+		} else if kind == 2 {
+			same = same && h.Owe() == (depth > 0)
+			owed = owed || depth > 0
+		}
+		same = same && h.Depth() == int64(depth)
+	}
+	assert same
+}
+
+type paceStopped {}
+
+func paceNest(depth int, edges int, stop bool) fails paceStopped needs pace.Pacing {
+	pace.Held() { try paceInner(depth, edges, stop) }
+}
+
+func paceInner(depth int, edges int, stop bool) fails paceStopped needs pace.Pacing {
+	if depth > 1 {
+		try paceNest(depth-1, edges, stop)
+		return
+	}
+	for _ in 0..edges {
+		pace.Pacing.Edge()
+	}
+	if stop {
+		return paceStopped
+	}
+}
+
+test PaceHeldDefersToTheLastRelease(n int, k int, stop bool) {
+	let edges = paceWithin(n, 0, 16)
+	let depth = paceWithin(k, 1, 4)
+	let c = pace.NewCounting()
+	with context { pace.Pacing: c } {
+		paceNest(depth, edges, stop) catch {
+		case paceStopped:
+		}
+		pace.Pacing.Edge()
+	}
+	let owed = if edges > 0 { int64(1) } else { int64(0) }
+	assert c.Edges() == int64(edges+1) && c.HeldEdges() == int64(edges) && c.Deferred() == owed
+}
+
 test TraceInnerSpanShadows(outer string, inner string) {
 	let got = with trace.Span(outer) {
 		with trace.Span(inner) { trace.Current() }
@@ -793,6 +919,13 @@ var stdLawsStatements = map[string]string{
 	"testing WorldsAreFresh":               `WorldsAreFresh(text string) { with World() { try fs.Writes.WriteFile("f", text) } with World() { fs.Files.Stat("f") catch { case fs.NotFound: return true case fs.Denied, fs.Failed: return false } false } }`,
 	"testing ScriptRecordsEachCall":        `ScriptRecordsEachCall(ks []string, n int) { let s = Script[probe]{} s.Has.Answer(func(k string) bool { len(k) > 0 }) with context { probe: s } { for i, k in ks { probe.Put(k, n + i) let _ = probe.Has(k) } } let puts = s.Put.Calls() let mut same = len(puts) == len(ks) && len(s.Has.Calls()) == len(ks) && len(s.Size.Calls()) == 0 for i, k in ks { same = same && puts[i] == (k, n + i) && s.Has.Calls()[i] == k } same }`,
 	"timeout QuickBodyWins":                `QuickBodyWins(n int) { with context { Scheduler: time.NewManual(0) } { try After(1h) { n } == n } }`,
+	"pace Pacing.EdgeKeepsValues":          `EdgeKeepsValues(xs []int, s string) { let kept = xs.Append(len(s)) let text = s + "." Edge() let mut same = len(kept) == len(xs)+1 && kept[len(xs)] == len(s) && text == s+"." for i, x in xs { same = same && kept[i] == x } same }`,
+	"pace DefaultReachesNothing":           `DefaultReachesNothing(xs []int, n int) { let kept = xs.Append(n) with context { Pacing: Default } { for _ in 0..within(n, 0, 64) { Pacing.Edge() } } len(kept) == len(xs)+1 && kept[len(xs)] == n }`,
+	"pace NextReadLeavesRoom":              `NextReadLeavesRoom(grown int64, edges int64, room int64) { let g = int64(within(int(grown%1000000000), 0, 999999999)) let e = int64(within(int(edges%1000), 1, 1000)) let perEdge = if g/e < 1 { int64(1) } else { g / e } let r = perEdge*int64(within(int(room%1000), -2, 600)) + int64(within(int(room%7), 0, 6)) let next = NextRead(g, e, r) 1 <= next && next <= MaxSpan && (next == 1 || g == 0 || next*perEdge <= r/2) }`,
+	"pace CountingCountsEachEdge":          `CountingCountsEachEdge(n int) { let k = within(n, 0, 64) let c = NewCounting() let before = c.Edges() with context { Pacing: c } { for _ in 0..k { Pacing.Edge() } } before == 0 && c.Edges() == int64(k) }`,
+	"pace Pacing.HoldKeepsValues":          `HoldKeepsValues(xs []int, n int) { let kept = xs.Append(n) Hold() Edge() Release() len(kept) == len(xs)+1 && kept[len(xs)] == n }`,
+	"pace HoldsOweTheLastClose":            `HoldsOweTheLastClose(ops []int) { let h = NewHolds() let mut depth = 0 let mut owed = false let mut same = true for op in ops { let kind = within(op, 0, 2) if kind == 0 { h.Open() depth = depth + 1 } else if kind == 1 && depth > 0 { let collects = h.Close() depth = depth - 1 same = same && collects == (depth == 0 && owed) if depth == 0 { owed = false } } else if kind == 2 { same = same && h.Owe() == (depth > 0) owed = owed || depth > 0 } same = same && h.Depth() == int64(depth) } same }`,
+	"pace HeldDefersToTheLastRelease":      `HeldDefersToTheLastRelease(n int, k int, stop bool) { let edges = within(n, 0, 16) let depth = within(k, 1, 4) let c = NewCounting() with context { Pacing: c } { nest(depth, edges, stop) catch { case stopped: } Pacing.Edge() } let owed = if edges > 0 { int64(1) } else { int64(0) } c.Edges() == int64(edges+1) && c.HeldEdges() == int64(edges) && c.Deferred() == owed }`,
 	"trace InnerSpanShadows":               `InnerSpanShadows(outer string, inner string) { with Span(outer) { with Span(inner) { Current() == Some[string]{Value: inner} } } }`,
 	"trace SpanEndRestores":                `SpanEndRestores(name string) { let before = Current() with Span(name) { Current() } Current() == before }`,
 }

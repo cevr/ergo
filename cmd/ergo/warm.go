@@ -45,8 +45,9 @@ func startWarm(opts fileOptions, tc *build.Toolchain, extra ...string) *warm {
 }
 
 // prepareWarm is the request's key and store, and the check its stored
-// answer must pass; nil when the warm answer does not apply (-work and
-// -report copies print what only a build that runs writes).
+// answer must pass; nil when the warm answer does not apply (-work,
+// -report copies and -go-text print or write what only a build that runs
+// makes).
 func prepareWarm(opts fileOptions, tc *build.Toolchain, extra ...string) (*warm, func(sketchfront.WarmAnswer) bool) {
 	building := opts.command == "build" || opts.command == "run"
 	linking := opts.command != "check"
@@ -57,7 +58,7 @@ func prepareWarm(opts fileOptions, tc *build.Toolchain, extra ...string) (*warm,
 	} else if !isPackageFolder(folder) {
 		return nil, nil
 	}
-	if !sketchfront.WarmEnabled() || opts.work || opts.report != "" || linking && tc == nil {
+	if !sketchfront.WarmEnabled() || opts.work || opts.report != "" || opts.goText != "" || linking && tc == nil {
 		return nil, nil
 	}
 	source, err := receipt.LocateSource(folder)
@@ -111,7 +112,7 @@ func warmToolchain(opts fileOptions) *build.Toolchain {
 // test's answer.
 func warmOptions(opts fileOptions) string {
 	options := []string{opts.target, opts.platform.String(), strconv.FormatBool(opts.locked), strconv.FormatBool(opts.json), strconv.FormatBool(opts.debug),
-		opts.seed, opts.evalSteps, opts.evalBytes, opts.states, opts.law, opts.skipLaw, opts.run, strconv.FormatBool(opts.native), strconv.FormatBool(opts.noViews), strconv.FormatBool(opts.noFallback || os.Getenv("ERGO_FALLBACK") == "off")}
+		opts.seed, opts.evalSteps, opts.evalBytes, opts.states, opts.law, opts.skipLaw, opts.run, strconv.FormatBool(opts.native), strconv.FormatBool(opts.noViews), strconv.FormatBool(opts.noFallback || os.Getenv("ERGO_FALLBACK") == "off"), opts.rewrites, strconv.FormatBool(opts.goTrace), opts.phone.String(), strconv.FormatBool(opts.trace), fmt.Sprintf("%q", opts.more)}
 	if opts.strict {
 		// check --strict: its exit judges the answer; added only when set,
 		// so the keys of every other request stay as they were.

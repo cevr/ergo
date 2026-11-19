@@ -177,6 +177,45 @@ reported where it belongs; `ergo check DIR/...` likewise checks each package
 alone when they cannot share one load.
 Formatting still uses syntax only; a type error does not prevent formatting.
 
+### Affected tests
+
+```
+ergo test ./... --affected main          # run only the tests and law runs whose reach changed since main
+ergo test ./... --affected main --list   # print them and run nothing
+ergo test ./... --affected main --why    # one reason line per obligation
+ergo test ./... --affected main --json   # the comparison as JSON; runs nothing
+```
+
+An obligation (a `test` block, or a law run under a provider, a context or a
+machine search) is affected when its reach digest in the working tree differs
+from its digest at BASE, and new when BASE has none of its name; both run. The
+reach digest is the one the law ledger and the verdict store key on: the
+obligation's declaration and every function, type, package `let` and context
+it reaches at any depth and in any package, by their tokens. So a comment, a
+reformat or a moved declaration affects nothing, and an edit in an imported
+package affects every obligation that reaches the edited declaration. BASE's
+sources are read from Git objects (no checkout) through the loader that reads
+the working tree, so both sides admit their files by one rule. Without BASE,
+`--affected` compares with the merge base of HEAD and the default branch
+(origin's HEAD, else `main`, else `master`).
+
+It fails closed: a changed `ergo.mod`, `go.mod`, `go.sum`, `ergo.laws` or
+`ergo.cases` affects every obligation of the module; a changed file other than
+an `.ergo` source in a package's folder (a binding, an embedded asset) every
+obligation of that package; a package missing or not checking at BASE every
+obligation of it. A test deleted since BASE is reported `gone` and runs
+nothing. The compiler is not compared: `--affected` assumes one `ergo` built
+both sides' answers.
+
+A package with an affected obligation runs as `ergo test` runs it, and the
+verdict store replays the law runs it already holds; the other packages are
+left out. `--affected` picks, the store replays: it answers the same on a
+runner with an empty cache. Reasons read `test Parses: new`, `law
+Counter.Joins for Tally: reaches func lib.Tally (lib/tally.ergo:4), changed`,
+`every obligation: ergo.mod changed` and `none: nothing it reaches changed`.
+`--affected` takes no `--law`, `--skip-law`, `--run`, `--receipt`,
+`--emitted`, `--explore` or `-work`; `--list` and `--why` need it.
+
 ## Exit status
 
 | Status | Meaning |
