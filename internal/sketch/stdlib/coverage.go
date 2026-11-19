@@ -50,8 +50,8 @@ var coverage = map[string][]string{
 // counterpart outside the standard library (errgroup, x/term).
 var coversNone = []string{
 	"actor", "arena", "bench", "build", "cache", "civil", "code", "codec", "codegraph", "config", "cron", "decimal", "dense", "explore", "graph", "io", "jobs", "jobs/file", "jobs/memory", "journal", "journal/file",
-	"journal/memory", "kv", "kv/file", "kv/memory", "lint", "machines", "prompt", "pubsub", "queue", "ratelimit", "ratelimit/memory", "rpc", "schedule", "scope", "session", "session/file", "session/memory", "set", "stream",
-	"task", "tasks", "term", "text", "timeout", "toml", "trace", "tz", "tz/host", "tz/iana", "ui", "ui/layout", "uuid",
+	"journal/memory", "kv", "kv/file", "kv/memory", "lint", "machines", "prompt", "proof", "proof/file", "proof/memory", "pubsub", "queue", "ratelimit", "ratelimit/memory", "rpc", "schedule", "scope", "session", "session/file", "session/memory", "set", "stream",
+	"task", "tasks", "term", "text", "timeout", "toml", "totp", "trace", "tz", "tz/host", "tz/iana", "ui", "ui/layout", "uuid",
 }
 
 // covered maps a Go path to the std package that covers it. It is built on
