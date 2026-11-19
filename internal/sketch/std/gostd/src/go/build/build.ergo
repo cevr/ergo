@@ -74,13 +74,13 @@ extern go go/build.FindOnly let FindOnly ImportMode
 extern go go/build.IgnoreVendor let IgnoreVendor ImportMode
 
 // ergo:go func Import(path string, srcDir string, mode ImportMode) (*Package, error)
-extern go go/build.Import func Import(path string, srcDir string, mode ImportMode) go.Ref[Package] fails go.Error needs go.Foreign
+extern go go/build.Import func Import(path string, srcDir string, mode ImportMode) Option[go.Ref[Package]] fails go.Error needs go.Foreign
 
 // ergo:go const ImportComment ImportMode
 extern go go/build.ImportComment let ImportComment ImportMode
 
 // ergo:go func ImportDir(dir string, mode ImportMode) (*Package, error)
-extern go go/build.ImportDir func ImportDir(dir string, mode ImportMode) go.Ref[Package] fails go.Error needs go.Foreign
+extern go go/build.ImportDir func ImportDir(dir string, mode ImportMode) Option[go.Ref[Package]] fails go.Error needs go.Foreign
 
 // ergo:go type ImportMode uint
 extern go go/build.ImportMode type ImportMode uint

@@ -51,14 +51,14 @@ extern go text/template.New func New(name string) Option[go.Ref[Template]] needs
 
 // ergo:go func ParseFS(fsys fs.FS, patterns ...string) (*Template, error)
 // ergo:variadic
-extern go text/template.ParseFS func ParseFS(fsys own fs.FS, patterns []string) go.Ref[Template] fails go.Error needs go.Foreign
+extern go text/template.ParseFS func ParseFS(fsys own fs.FS, patterns []string) Option[go.Ref[Template]] fails go.Error needs go.Foreign
 
 // ergo:go func ParseFiles(filenames ...string) (*Template, error)
 // ergo:variadic
-extern go text/template.ParseFiles func ParseFiles(filenames []string) go.Ref[Template] fails go.Error needs go.Foreign
+extern go text/template.ParseFiles func ParseFiles(filenames []string) Option[go.Ref[Template]] fails go.Error needs go.Foreign
 
 // ergo:go func ParseGlob(pattern string) (*Template, error)
-extern go text/template.ParseGlob func ParseGlob(pattern string) go.Ref[Template] fails go.Error needs go.Foreign
+extern go text/template.ParseGlob func ParseGlob(pattern string) Option[go.Ref[Template]] fails go.Error needs go.Foreign
 
 // ergo:go type Template struct
 extern go text/template.Template type Template {
@@ -66,7 +66,7 @@ extern go text/template.Template type Template {
 }
 
 // ergo:go func (*Template).AddParseTree(name string, tree *parse.Tree) (*Template, error)
-extern go text/template.Template.AddParseTree func (t *Template) AddParseTree(name string, tree own *parse.Tree) go.Ref[Template] fails go.Error needs go.Foreign
+extern go text/template.Template.AddParseTree func (t *Template) AddParseTree(name string, tree own *parse.Tree) Option[go.Ref[Template]] fails go.Error needs go.Foreign
 
 // ergo:go func (*Template).Clone() (*Template, error)
 extern go text/template.Template.Clone func (t *Template) Clone() go.Ref[Template] fails go.Error needs go.Foreign
@@ -106,18 +106,18 @@ extern go text/template.Template.New func (t *Template) New(name string) Option[
 extern go text/template.Template.Option func (t *Template) Option(opt []string) Option[go.Ref[Template]] needs go.Foreign
 
 // ergo:go func (*Template).Parse(text string) (*Template, error)
-extern go text/template.Template.Parse func (t *Template) Parse(text string) go.Ref[Template] fails go.Error needs go.Foreign
+extern go text/template.Template.Parse func (t *Template) Parse(text string) Option[go.Ref[Template]] fails go.Error needs go.Foreign
 
 // ergo:go func (*Template).ParseFS(fsys fs.FS, patterns ...string) (*Template, error)
 // ergo:variadic
-extern go text/template.Template.ParseFS func (t *Template) ParseFS(fsys own fs.FS, patterns []string) go.Ref[Template] fails go.Error needs go.Foreign
+extern go text/template.Template.ParseFS func (t *Template) ParseFS(fsys own fs.FS, patterns []string) Option[go.Ref[Template]] fails go.Error needs go.Foreign
 
 // ergo:go func (*Template).ParseFiles(filenames ...string) (*Template, error)
 // ergo:variadic
-extern go text/template.Template.ParseFiles func (t *Template) ParseFiles(filenames []string) go.Ref[Template] fails go.Error needs go.Foreign
+extern go text/template.Template.ParseFiles func (t *Template) ParseFiles(filenames []string) Option[go.Ref[Template]] fails go.Error needs go.Foreign
 
 // ergo:go func (*Template).ParseGlob(pattern string) (*Template, error)
-extern go text/template.Template.ParseGlob func (t *Template) ParseGlob(pattern string) go.Ref[Template] fails go.Error needs go.Foreign
+extern go text/template.Template.ParseGlob func (t *Template) ParseGlob(pattern string) Option[go.Ref[Template]] fails go.Error needs go.Foreign
 
 // ergo:go func (*Template).Templates() []*Template
 // ergo:refused Template.Templates: result 1: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field

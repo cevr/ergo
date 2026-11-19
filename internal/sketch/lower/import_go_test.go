@@ -61,9 +61,14 @@ import go syscall
 func goProcess() string fails go.Error needs go.Foreign {
 	let sys = go.New(syscall.SysProcAttr{..go.Zero[syscall.SysProcAttr](), Setpgid: true})
 	let mut attr = os.ProcAttr{Dir: "", Env: []string{}, Sys: Some{Value: sys}}
-	let p = try os.StartProcess("/bin/sh", []string{"sh", "-c", "kill -s 0 -- -$$ && exit 3"}, &attr)
-	let state = try p.Wait()
-	"\(state.ExitCode())|\(sys.Setpgid)"
+	match try os.StartProcess("/bin/sh", []string{"sh", "-c", "kill -s 0 -- -$$ && exit 3"}, &attr) {
+		case Some as p:
+			match try p.Value.Wait() {
+				case Some as state: "\(state.Value.ExitCode())|\(sys.Setpgid)"
+				case None: "no state"
+			}
+		case None: "no process"
+	}
 }
 
 // time.Duration's methods (GBX4): functions of their receiver, called and
@@ -442,12 +447,13 @@ func copyElisionCase(r *rand.Rand, k int) (string, string) {
 	}
 }
 
-// TestImportGoDefects: a Go panic in an imported call, and a (*S, error)
-// result that is nil with a nil error, are defects whose report names the
-// Ergo call site. net/http's ProxyFromEnvironment returns nil, nil when no
-// proxy is set (its documentation), which its binding types go.Ref[url.URL]
-// fails go.Error, so the call is the defect. It builds Go because
-// the report is the running program's.
+// TestImportGoDefects: a Go panic in an imported call is a defect whose
+// report names the Ergo call site. net/http's ProxyFromEnvironment returns
+// nil, nil when no proxy is set (its documentation): its binding is
+// Option[go.Ref[url.URL]] fails go.Error, since ergo bind go cannot prove
+// it non-nil (GOBIND-NIL), so the program reads None, where the old
+// go.Ref binding was a defect. It builds Go because the report and the
+// None are the running program's.
 func TestImportGoDefects(t *testing.T) {
 	needsBuild(t)
 	panics := mustLower(t, "go_panic", `import go strings
@@ -470,9 +476,14 @@ func proxy(req string) string fails go.Error needs go.Foreign {
 		case Some as sr:
 			match bufio.NewReader(sr.Value) {
 				case Some as br:
-					let r = try http.ReadRequest(br.Value)
-					let p = try http.ProxyFromEnvironment(r)
-					p.Host
+					match try http.ReadRequest(br.Value) {
+						case Some as r:
+							match try http.ProxyFromEnvironment(r.Value) {
+								case Some as p: p.Value.Host
+								case None: "no proxy"
+							}
+						case None: "no request"
+					}
 				case None: "no bufio"
 			}
 		case None: "no reader"
@@ -495,8 +506,8 @@ func main() needs Console | go.Foreign {
 	t.Setenv("http_proxy", "")
 	t.Setenv("REQUEST_METHOD", "")
 	stdout, stderr, code = runExe(t, exes["go_nil"])
-	if code == 0 || stdout != "" || !strings.Contains(stderr, "Go returned nil without an error at main.ergo:11:18") || !strings.Contains(stderr, "net/http.ProxyFromEnvironment") {
-		t.Errorf("nil go.Ref: exit %d, stdout %q, stderr:\n%s", code, stdout, firstLines(stderr, 12))
+	if code != 0 || stdout != "no proxy\n" {
+		t.Errorf("nil, nil from Go: exit %d, stdout %q, want \"no proxy\"; stderr:\n%s", code, stdout, firstLines(stderr, 12))
 	}
 }
 

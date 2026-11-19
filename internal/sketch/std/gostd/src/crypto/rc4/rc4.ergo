@@ -19,4 +19,4 @@ extern go crypto/rc4.KeySizeError.Error func (k KeySizeError) Error() string nee
 
 // ergo:go func NewCipher(key []byte) (*Cipher, error)
 // ergo:reads key
-extern go crypto/rc4.NewCipher func NewCipher(key []byte) go.Ref[Cipher] fails go.Error needs go.Foreign
+extern go crypto/rc4.NewCipher func NewCipher(key []byte) Option[go.Ref[Cipher]] fails go.Error needs go.Foreign

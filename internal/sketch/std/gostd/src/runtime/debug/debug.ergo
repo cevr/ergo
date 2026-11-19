@@ -49,7 +49,7 @@ extern go runtime/debug.Module type Module {
 }
 
 // ergo:go func ParseBuildInfo(data string) (bi *BuildInfo, err error)
-extern go runtime/debug.ParseBuildInfo func ParseBuildInfo(data string) go.Ref[BuildInfo] fails go.Error needs go.Foreign
+extern go runtime/debug.ParseBuildInfo func ParseBuildInfo(data string) Option[go.Ref[BuildInfo]] fails go.Error needs go.Foreign
 
 // ergo:go func PrintStack()
 extern go runtime/debug.PrintStack func PrintStack() needs go.Foreign

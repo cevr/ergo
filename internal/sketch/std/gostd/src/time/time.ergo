@@ -89,7 +89,7 @@ extern go time.Kitchen let Kitchen string
 extern go time.Layout let Layout string
 
 // ergo:go func LoadLocation(name string) (*Location, error)
-extern go time.LoadLocation func LoadLocation(name string) go.Ref[Location] fails go.Error needs go.Foreign
+extern go time.LoadLocation func LoadLocation(name string) Option[go.Ref[Location]] fails go.Error needs go.Foreign
 
 // ergo:go func LoadLocationFromTZData(name string, data []byte) (*Location, error)
 extern go time.LoadLocationFromTZData func LoadLocationFromTZData(name string, data []byte) go.Ref[Location] fails go.Error needs go.Foreign

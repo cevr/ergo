@@ -5,7 +5,7 @@
 extern go regexp/syntax.ClassNL let ClassNL Flags
 
 // ergo:go func Compile(re *Regexp) (*Prog, error)
-extern go regexp/syntax.Compile func Compile(re own *Regexp) go.Ref[Prog] fails go.Error needs go.Foreign
+extern go regexp/syntax.Compile func Compile(re own *Regexp) Option[go.Ref[Prog]] fails go.Error needs go.Foreign
 
 // ergo:go const DotNL Flags
 extern go regexp/syntax.DotNL let DotNL Flags
@@ -244,7 +244,7 @@ extern go regexp/syntax.OpWordBoundary let OpWordBoundary Op
 extern go regexp/syntax.POSIX let POSIX Flags
 
 // ergo:go func Parse(s string, flags Flags) (*Regexp, error)
-extern go regexp/syntax.Parse func Parse(s string, flags Flags) go.Ref[Regexp] fails go.Error needs go.Foreign
+extern go regexp/syntax.Parse func Parse(s string, flags Flags) Option[go.Ref[Regexp]] fails go.Error needs go.Foreign
 
 // ergo:go const Perl Flags
 extern go regexp/syntax.Perl let Perl Flags

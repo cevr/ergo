@@ -87,7 +87,7 @@ extern go archive/tar.NewWriter func NewWriter(w own io.Writer) Option[go.Ref[Wr
 extern go archive/tar.Reader type Reader {}
 
 // ergo:go func (*Reader).Next() (*Header, error)
-extern go archive/tar.Reader.Next func (tr *Reader) Next() go.Ref[Header] fails go.Error needs go.Foreign
+extern go archive/tar.Reader.Next func (tr *Reader) Next() Option[go.Ref[Header]] fails go.Error needs go.Foreign
 
 // ergo:go func (*Reader).Read(b []byte) (int, error)
 extern go archive/tar.Reader.Read func (tr *Reader) Read(b []byte) int fails go.Error needs go.Foreign
