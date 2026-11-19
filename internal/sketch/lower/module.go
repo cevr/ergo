@@ -618,7 +618,7 @@ func (l *lowerer) program() ([]byte, error) {
 		}
 	})
 	if l.ir != nil {
-		l.ir.reachAll(l) // CensusStd only (ir.go)
+		l.ir.reachAll(l) // CensusStd and LowerIRSplitReaching only (ir.go)
 	}
 	// Every initializer of every reached declaration of a sourced package
 	// is lowered here: a library's lets, and its machines' initial values

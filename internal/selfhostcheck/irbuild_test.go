@@ -5,17 +5,21 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"reflect"
 	"regexp"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
 	"testing"
 
 	"ergo.local/prototype/internal/experimental/irspike"
+	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/lower"
+	"ergo.local/prototype/internal/sketchfront"
 	"ergo.local/prototype/internal/testwait"
 )
 
@@ -24,20 +28,28 @@ import (
 // lower): every function compiler/lower builds over the corpus (each
 // folder of the examples and of std, typed by compiler/check as
 // TestCompilerExprAgreesWithChecker types them) must be, byte for byte,
-// the function the Go builder writes at the same declaration in the IR of
-// every example program that holds it (lower.LowerIRSplit). The two
-// sides' file indices are mapped to the files' paths first; the bytes are
-// otherwise the IR file's (ir.WriteFunc against encoding/json).
+// the function the Go builder writes at the same declaration. The Go side
+// is every example program lowered with every function of its own
+// packages reached (lower.LowerIRSplitReaching: called by its main or
+// not), the test build of each example package no program imports,
+// reached alike, and one empty program that reaches every std function,
+// as the IR census reaches them; so the Go builder lowers every function
+// the Ergo side can build. A body the programs lower differently agrees
+// with one of them. A test build the Go lowerer refuses is logged, and
+// its functions are not compared. The two sides' file indices are mapped
+// to the files' paths first; the bytes are otherwise the IR file's
+// (ir.WriteFunc against encoding/json).
 //
 // compiler/lower stops at a function it cannot build yet: an expression
 // check/expr left untyped, or a form or a decider it has not ported (the
 // S4c plan's slices). The reach is logged by cause, never pinned: it
 // grows as compiler/check types more and compiler/lower ports more, with
-// no change here. A function built with no Go function at its position
-// (the Go builder left it to the emitter, or no program reaches it) is
-// logged too; a Go function of another name there is logged, and one
-// whose name differs only by the Go builder's collision suffix (_N) is
-// compared with that name.
+// no change here. A function built where the Go builder wrote no IR body
+// (it left the body to the emitter: a gate compiler/lower lacks) fails:
+// the Ergo builder builds only what the Go builder builds. A Go function
+// whose name differs only by a program-wide part (the split's X export,
+// a collision suffix _N: irBaseName) is compared under its base name; that
+// naming is the program's, not the function's.
 //
 // It builds compiler/cmd/irdump and runs Go binaries because the Ergo
 // side is a whole compiled program over the corpus (as the other
@@ -53,7 +65,10 @@ func TestCompilerIRAgreesWithBuilder(t *testing.T) {
 		t.Fatalf("ergo build ./cmd/irdump: %v\n%s", err, o)
 	}
 	paths := irPathIDs{}
-	goFuncs := goIRFuncs(t, paths)
+	goFuncs, unlowered := goIRFuncs(t, paths)
+	for dir, err := range unlowered {
+		t.Logf("%s: the Go builder does not lower its test build (its functions are not compared): %s", rel(dir), err)
+	}
 
 	// The Ergo side: exprdump's manifest, one line per corpus folder.
 	tmp := t.TempDir()
@@ -130,22 +145,33 @@ func TestCompilerIRAgreesWithBuilder(t *testing.T) {
 				t.Fatal(err)
 			}
 			key := irKey{file: fn.Pos[0], line: fn.Pos[1], col: fn.Pos[2]}
-			want, cause := goFuncs.at(key, fn.Name)
-			if cause != "" {
-				reach["built, "+cause]++
+			wants, cause := goFuncs.at(key, fn.Name)
+			if cause != "" && unlowered[filepath.Dir(f[0])] != "" {
+				reach["built, its package's test build the Go builder does not lower"]++
 				continue
 			}
-			if want.name != fn.Name {
-				reach["built, compared under the Go name (_N)"]++
-				fn.Name = want.name
-				got, _ = json.Marshal(&fn)
-			}
-			if !bytes.Equal(got, want.data) {
+			if cause != "" {
 				failed++
-				if failed <= 3 {
-					t.Errorf("%s:%s %s: compiler/lower builds another IR body\n ergo: %s\n   go: %s", rel(f[0]), f[1], fn.Name, got, want.data)
+				if failed <= 10 {
+					t.Errorf("%s:%s %s: compiler/lower builds a body where the Go builder writes none (%s; Go names there: %s)\n ergo: %s", rel(f[0]), f[1], fn.Name, cause, goFuncs.names(key), got)
 				}
 				continue
+			}
+			// A body the programs lower differently (its callees'
+			// forms differ by program) agrees with one of them.
+			i := slices.IndexFunc(wants, func(w irGoFunc) bool { return bytes.Equal(got, w.data) })
+			if i < 0 {
+				failed++
+				if failed <= 3 {
+					t.Errorf("%s:%s %s: compiler/lower builds another IR body\n ergo: %s\n   go: %s", rel(f[0]), f[1], fn.Name, got, wants[0].data)
+				}
+				continue
+			}
+			if wants[i].raw != fn.Name {
+				reach["built, the Go name program-wide (split X, collision _N)"]++
+			}
+			if len(wants) > 1 {
+				reach["built, one of the Go bodies the programs differ in"]++
 			}
 			built++
 			reach["built, equal"]++
@@ -176,24 +202,44 @@ func (p irPathIDs) id(path string) int {
 
 type irKey struct{ file, line, col int }
 
+// irGoFunc is one Go function: its base name (irBaseName), its name in
+// the program, and its text under the base name.
 type irGoFunc struct {
-	name string
-	data []byte
+	name, raw string
+	data      []byte
 }
 
 // irGoIndex is the Go builder's functions by declaration position, each
 // the distinct texts written there across the programs.
 type irGoIndex map[irKey][]irGoFunc
 
-var irCollision = regexp.MustCompile(`_[0-9]+$`)
+// irProgramName is the Go builder's names that are program-wide rather
+// than the function's: the split's export of a name two Go packages use
+// (pkgsplit.go: X before an unexported name, again while taken) and a
+// collision suffix (_N).
+var irProgramName = regexp.MustCompile(`^X+([a-z_])|_[0-9]+$`)
 
-// at is the Go function at k that the Ergo side's name names: of that
-// name, or of it with a collision suffix; cause says why there is none to
-// compare.
-func (x irGoIndex) at(k irKey, name string) (irGoFunc, string) {
+// irBaseName is name without its program-wide parts.
+func irBaseName(name string) string {
+	return irProgramName.ReplaceAllString(name, "$1")
+}
+
+// names is the names of the Go functions at k.
+func (x irGoIndex) names(k irKey) string {
+	var ns []string
+	for _, f := range x[k] {
+		ns = append(ns, f.raw)
+	}
+	return strings.Join(ns, ", ")
+}
+
+// at is the Go functions at k of the Ergo side's name (its base name),
+// one per distinct text the programs gave it; cause says why there is
+// none to compare.
+func (x irGoIndex) at(k irKey, name string) ([]irGoFunc, string) {
 	fs := x[k]
 	if len(fs) == 0 {
-		return irGoFunc{}, "no Go IR body at the position"
+		return nil, "no Go IR body at the position"
 	}
 	var same []irGoFunc
 	for _, f := range fs {
@@ -202,40 +248,75 @@ func (x irGoIndex) at(k irKey, name string) (irGoFunc, string) {
 		}
 	}
 	if len(same) == 0 {
-		for _, f := range fs {
-			if irCollision.ReplaceAllString(f.name, "") == name {
-				same = append(same, f)
-			}
-		}
+		return nil, "Go IR bodies of another name at the position"
 	}
-	if len(same) == 0 {
-		return irGoFunc{}, "Go IR bodies of another name at the position"
-	}
-	for _, f := range same[1:] {
-		if !bytes.Equal(f.data, same[0].data) {
-			return irGoFunc{}, "Go IR body differs between programs"
-		}
-	}
-	return same[0], ""
+	return same, ""
 }
 
 // goIRFuncs lowers each example program with the Go IR builder and
 // indexes its IR files' functions by declaration position, file indices
 // mapped to source paths.
-func goIRFuncs(t *testing.T, paths irPathIDs) irGoIndex {
+func goIRFuncs(t *testing.T, paths irPathIDs) (irGoIndex, map[string]string) {
 	t.Helper()
 	idx := irGoIndex{}
 	std := stdDir()
+	type program struct {
+		u      lower.Unit
+		tests  bool
+		dir    string
+		module string
+		reach  []*check.Func
+	}
+	unlowered := map[string]string{}
+	var programs []program
+	covered := map[string]bool{}
 	for _, dir := range irPrograms(t) {
 		u, err := irspike.Load(dir)
 		if err != nil {
 			t.Fatalf("%s: %v", dir, err)
 		}
-		out, _, _, err := lower.LowerIRSplit(u, false)
+		programs = append(programs, program{u: u, module: moduleRoot(dir), reach: ownFuncs(u, covered)})
+	}
+	// A package no program imports is lowered in its test build (the IR
+	// census's test targets), its functions reached alike.
+	_, targets, err := irspike.ExampleTargets(repoRoot())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, dir := range targets {
+		if covered[dir] || filepath.Base(filepath.Dir(dir)) == "cmd" {
+			continue
+		}
+		u, err := irspike.Load(dir)
 		if err != nil {
 			t.Fatalf("%s: %v", dir, err)
 		}
-		module := filepath.Dir(filepath.Dir(dir)) // examples/<m>/cmd/<p>
+		programs = append(programs, program{u: u, tests: true, dir: dir, module: moduleRoot(dir), reach: ownFuncs(u, covered)})
+	}
+	// Every std body, reached by a program that calls none (the IR
+	// census's std domain).
+	funcs, err := irspike.StdFuncs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := sketchfront.Check("func main() {}\n")
+	su, err := sketchfront.IRSpikeUnit(a, filepath.Join(t.TempDir(), "std.ergo"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	programs = append(programs, program{u: su, module: filepath.Dir(su.Sources[0].Path), reach: funcs})
+	for _, pr := range programs {
+		out, _, _, err := lower.LowerIRSplitReaching(pr.u, pr.tests, pr.reach)
+		if err != nil && pr.tests {
+			// A test build the Go lowerer refuses (an internal compiler
+			// error of its own) has no IR to compare; it is logged.
+			unlowered[pr.dir] = err.Error()
+			continue
+		}
+		if err != nil {
+			t.Fatalf("%s: %v", pr.module, err)
+		}
+		module := pr.module
 		for _, file := range out {
 			if filepath.Base(file.Path) != lower.IRFileName {
 				continue
@@ -257,6 +338,8 @@ func goIRFuncs(t *testing.T, paths irPathIDs) irGoIndex {
 				if err := irMapFiles(fn, abs, paths); err != nil {
 					t.Fatalf("%s: %s: %v", file.Path, fn.Name, err)
 				}
+				raw := fn.Name
+				fn.Name = irBaseName(raw)
 				data, err := json.Marshal(fn)
 				if err != nil {
 					t.Fatal(err)
@@ -267,12 +350,51 @@ func goIRFuncs(t *testing.T, paths irPathIDs) irGoIndex {
 					seen = seen || g.name == fn.Name && bytes.Equal(g.data, data)
 				}
 				if !seen {
-					idx[k] = append(idx[k], irGoFunc{name: fn.Name, data: data})
+					idx[k] = append(idx[k], irGoFunc{name: fn.Name, raw: raw, data: data})
 				}
 			}
 		}
 	}
-	return idx
+	return idx, unlowered
+}
+
+// ownFuncs is every function with a body of u's packages and their
+// imports that are not std, in import order; covered records their
+// folders.
+func ownFuncs(u lower.Unit, covered map[string]bool) []*check.Func {
+	var out []*check.Func
+	seen := map[*check.Package]bool{}
+	var walk func(u lower.Unit)
+	walk = func(u lower.Unit) {
+		for _, i := range u.Imports {
+			walk(i)
+		}
+		p := u.Package
+		if p == nil || p.Std() || seen[p] {
+			return
+		}
+		seen[p] = true
+		for _, s := range u.Sources {
+			covered[filepath.Dir(s.Path)] = true
+		}
+		for _, f := range p.Funcs {
+			if f.Decl != nil && f.Decl.Body != nil {
+				out = append(out, f)
+			}
+		}
+	}
+	walk(u)
+	return out
+}
+
+// moduleRoot is the folder of the ergo.mod that holds dir.
+func moduleRoot(dir string) string {
+	for d := dir; d != filepath.Dir(d); d = filepath.Dir(d) {
+		if _, err := os.Stat(filepath.Join(d, "ergo.mod")); err == nil {
+			return d
+		}
+	}
+	return dir
 }
 
 // irMapFiles sets the file index of every position of fn to its path's id.
