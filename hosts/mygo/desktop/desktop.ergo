@@ -719,7 +719,7 @@ func typed[E comparable, S, D, F](d *Driver[S, E, D, F], text string, mods ui.Mo
 		match s.Value.node {
 		case ui.InputNode as x:
 			// The text goes in at the caret, over the selection.
-			let e = ui.Insert(ui.EditingOf(x), text)
+			let e = ui.InsertText(ui.EditingOf(x), text)
 			try step(d, ui.Edit[E]{Id: s.Value.id, Text: e.Text, Caret: e.Caret, Anchor: e.Anchor})
 			return
 		case _:

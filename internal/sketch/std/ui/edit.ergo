@@ -38,9 +38,9 @@ func Selected(e Editing) (int, int) {
 	if e.Caret < e.Anchor { (e.Caret, e.Anchor) } else { (e.Anchor, e.Caret) }
 }
 
-// Insert types s at the caret, over the selection: the caret and anchor
+// InsertText types s at the caret, over the selection: the caret and anchor
 // end after s.
-func Insert(e Editing, s string) Editing {
+func InsertText(e Editing, s string) Editing {
 	let (lo, hi) = Selected(e)
 	let at = lo + len(s)
 	Editing{Text: e.Text[0:lo] + s + e.Text[hi:len(e.Text)], Caret: at, Anchor: at}
@@ -51,7 +51,7 @@ func Insert(e Editing, s string) Editing {
 func DeleteBack(e Editing) Editing {
 	let (lo, hi) = Selected(e)
 	if lo != hi {
-		return Insert(e, "")
+		return InsertText(e, "")
 	}
 	if lo == 0 {
 		return e
@@ -60,9 +60,9 @@ func DeleteBack(e Editing) Editing {
 	Editing{Text: e.Text[0:from] + e.Text[lo:len(e.Text)], Caret: from, Anchor: from}
 }
 
-// MoveTo puts the caret at at; extend keeps the anchor (Shift held), else
+// CaretTo puts the caret at at; extend keeps the anchor (Shift held), else
 // the anchor follows the caret.
-func MoveTo(e Editing, at int, extend bool) Editing {
+func CaretTo(e Editing, at int, extend bool) Editing {
 	let c = runeStart(e.Text, at)
 	Editing{Text: e.Text, Caret: c, Anchor: if extend { e.Anchor } else { c }}
 }
@@ -72,9 +72,9 @@ func MoveTo(e Editing, at int, extend bool) Editing {
 func Left(e Editing, extend bool) Editing {
 	let (lo, hi) = Selected(e)
 	if !extend && lo != hi {
-		return MoveTo(e, lo, false)
+		return CaretTo(e, lo, false)
 	}
-	MoveTo(e, if e.Caret > 0 { runeStart(e.Text, e.Caret-1) } else { 0 }, extend)
+	CaretTo(e, if e.Caret > 0 { runeStart(e.Text, e.Caret-1) } else { 0 }, extend)
 }
 
 // Right is the caret a rune on (Arrow Right); with no extend, a selection
@@ -82,39 +82,39 @@ func Left(e Editing, extend bool) Editing {
 func Right(e Editing, extend bool) Editing {
 	let (lo, hi) = Selected(e)
 	if !extend && lo != hi {
-		return MoveTo(e, hi, false)
+		return CaretTo(e, hi, false)
 	}
-	MoveTo(e, runeEnd(e.Text, e.Caret), extend)
+	CaretTo(e, runeEnd(e.Text, e.Caret), extend)
 }
 
 // LineStart is the caret at the start of its line (Home).
-func LineStart(e Editing, extend bool) Editing { MoveTo(e, lineStartAt(e.Text, e.Caret), extend) }
+func LineStart(e Editing, extend bool) Editing { CaretTo(e, lineStartAt(e.Text, e.Caret), extend) }
 
 // LineEnd is the caret at the end of its line, before its newline (End).
-func LineEnd(e Editing, extend bool) Editing { MoveTo(e, lineEndAt(e.Text, e.Caret), extend) }
+func LineEnd(e Editing, extend bool) Editing { CaretTo(e, lineEndAt(e.Text, e.Caret), extend) }
 
-// Up is the caret on the line before, at the same rune column or the
+// LineUp is the caret on the line before, at the same rune column or the
 // line's end when it is shorter; on the first line, the text's start.
-func Up(e Editing, extend bool) Editing {
+func LineUp(e Editing, extend bool) Editing {
 	let start = lineStartAt(e.Text, e.Caret)
 	if start == 0 {
-		return MoveTo(e, 0, extend)
+		return CaretTo(e, 0, extend)
 	}
 	let col = runesIn(e.Text[start:e.Caret])
 	let prev = lineStartAt(e.Text, start-1)
-	MoveTo(e, columnAt(e.Text, prev, start-1, col), extend)
+	CaretTo(e, columnAt(e.Text, prev, start-1, col), extend)
 }
 
-// Down is the caret on the line after, at the same rune column or the
+// LineDown is the caret on the line after, at the same rune column or the
 // line's end when it is shorter; on the last line, the text's end.
-func Down(e Editing, extend bool) Editing {
+func LineDown(e Editing, extend bool) Editing {
 	let end = lineEndAt(e.Text, e.Caret)
 	if end == len(e.Text) {
-		return MoveTo(e, len(e.Text), extend)
+		return CaretTo(e, len(e.Text), extend)
 	}
 	let col = runesIn(e.Text[lineStartAt(e.Text, e.Caret):e.Caret])
 	let next = end + 1
-	MoveTo(e, columnAt(e.Text, next, lineEndAt(e.Text, next), col), extend)
+	CaretTo(e, columnAt(e.Text, next, lineEndAt(e.Text, next), col), extend)
 }
 
 // SelectAll selects the whole text, the caret at its end.
@@ -138,9 +138,9 @@ func KeyEdit(e Editing, k KeyPress, lines int) Option[Editing] {
 	case "ArrowRight":
 		Some{Value: Right(e, s)}
 	case "ArrowUp":
-		if lines > 1 { Some{Value: Up(e, s)} } else { None }
+		if lines > 1 { Some{Value: LineUp(e, s)} } else { None }
 	case "ArrowDown":
-		if lines > 1 { Some{Value: Down(e, s)} } else { None }
+		if lines > 1 { Some{Value: LineDown(e, s)} } else { None }
 	case "Home":
 		Some{Value: LineStart(e, s)}
 	case "End":
@@ -148,7 +148,7 @@ func KeyEdit(e Editing, k KeyPress, lines int) Option[Editing] {
 	case "Backspace":
 		Some{Value: DeleteBack(e)}
 	case "Enter":
-		if lines > 1 { Some{Value: Insert(e, "\n")} } else { None }
+		if lines > 1 { Some{Value: InsertText(e, "\n")} } else { None }
 	case _:
 		None
 	}
@@ -226,7 +226,7 @@ func columnAt(s string, start int, end int, col int) int {
 
 // CaretStaysInTheText (OpenTUI gap 2): over drawn texts (multi-byte runes
 // and newlines among them) and drawn runs of edits and key presses, the
-// caret and the anchor stay inside the text at rune starts, Insert leaves
+// caret and the anchor stay inside the text at rune starts, InsertText leaves
 // the caret after what it typed, and Backspace after it gives back the
 // text before.
 law CaretStaysInTheText(seed int, steps int) {
@@ -237,13 +237,13 @@ law CaretStaysInTheText(seed int, steps int) {
 		if draw(&r, 3) == 0 {
 			let s = editPieces[draw(&r, len(editPieces))]
 			let (lo, _) = Selected(e)
-			let typed = Insert(e, s)
+			let typed = InsertText(e, s)
 			if typed.Caret != lo+len(s) || typed.Text[lo:typed.Caret] != s {
 				return false
 			}
 			if len(s) > 0 && !strings.Contains(s, "\n") && typedRunes(s) == 1 {
 				let back = DeleteBack(typed)
-				if back.Text != Insert(e, "").Text || back.Caret != lo {
+				if back.Text != InsertText(e, "").Text || back.Caret != lo {
 					return false
 				}
 			}
