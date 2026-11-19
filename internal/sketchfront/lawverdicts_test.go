@@ -28,8 +28,8 @@ import (
 // name in them reaches, as a codec's decode[R](r) reaches its reader's
 // functions (LAWCACHE-CODEC): L5 reads Next for Fixed only through the
 // conversion of a Fixed to Source at drain's argument, and L6 reads Next
-// for Step only through the witness of twice[Step] (check time skips L6:
-// its evaluator resolves no witness; the test build runs it). An edit
+// for Step only through the witness of twice[Step] (check time runs it as the test
+// build does: the evaluator resolves the witness). An edit
 // flips one field.
 type verdictProgram struct {
 	k1, k2, c, other              int
@@ -230,8 +230,8 @@ func TestLawVerdictsStale(t *testing.T) {
 				t.Fatalf("seed %d, edit %s (replay: ERGO_VERDICT_SEED=%d go test -run TestLawVerdictsStale ./internal/sketchfront): %s\nbase source:\n%s", seed, e.name, seed, fmt.Sprintf(format, args...), p.source())
 			}
 			store := lawcache.Open(t.TempDir(), "test")
-			if ran := evaluated(t, p.source(), store); len(ran) != 8 {
-				fail("the first evaluation ran %v, want every law but the one under a context and L6", ran)
+			if ran := evaluated(t, p.source(), store); len(ran) != 9 {
+				fail("the first evaluation ran %v, want every law but the one under a context", ran)
 			}
 			if ran := evaluated(t, p.source(), store); !maps.Equal(ran, map[string]eval.Status{"Wrong": eval.Refuted}) {
 				fail("the same source evaluated again ran %v, want only the refuted law", ran)
@@ -250,9 +250,7 @@ func TestLawVerdictsStale(t *testing.T) {
 			want := map[string]eval.Status{"Wrong": eval.Refuted}
 			wantNative := []string{"Wrong"}
 			for _, l := range e.stale {
-				// Check time skips L6 (the evaluator resolves no generic
-				// call's witnesses); the test build runs it.
-				if !strings.Contains(l, " under ") && l != "L6" {
+				if !strings.Contains(l, " under ") {
 					want[l] = eval.Passed
 				}
 				wantNative = append(wantNative, l)
