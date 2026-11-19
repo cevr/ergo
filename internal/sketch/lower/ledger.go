@@ -381,7 +381,9 @@ func newDigester() *digester {
 // construction is closed, and, so that an edit of how a case is drawn
 // makes it stale too, the generator of every type the walk reached: its
 // constructor and, for an operation type, its builder in pkg (check's
-// builders.go), which no name in the law reaches.
+// builders.go), which no name in the law reaches; and the functions each
+// implicit conversion and each generic call's witness the walk meets put
+// in a value (derived: a codec's reader).
 func TargetDigest(pkg *check.Package, law *check.Law, binding []check.LawProvider) string {
 	_, digest := targetDigest(pkg, law, binding)
 	return digest
@@ -390,6 +392,7 @@ func TargetDigest(pkg *check.Package, law *check.Law, binding []check.LawProvide
 // targetDigest is TargetDigest and the walk that made it.
 func targetDigest(pkg *check.Package, law *check.Law, binding []check.LawProvider) (*digester, string) {
 	d := newDigester()
+	d.derived = true
 	switch {
 	case law.Owner != nil:
 		d.typ(law.Owner)
@@ -447,6 +450,7 @@ func ContextDigest(pkg *check.Package, law *check.Law, lc check.LawContext) stri
 // contextDigest is ContextDigest and the walk that made it.
 func contextDigest(pkg *check.Package, law *check.Law, lc check.LawContext) (*digester, string) {
 	d := newDigester()
+	d.derived = true
 	d.typ(law.Owner)
 	d.context(lc.Context)
 	var slots []string
@@ -665,6 +669,13 @@ type digester struct {
 	// inputs are the declarations decl added, in the order the walk met
 	// them: the graph rows' Input edges (RunTarget.Inputs).
 	inputs []Input
+	// derived makes the walk follow the code a value reaches with no name
+	// in the source: each implicit conversion's operation functions and
+	// each generic call's witnesses (a codec's decode[R](r) reaches its
+	// reader's functions only so). A verdict's key needs them
+	// (TargetDigest, ContextDigest: LAWCACHE-CODEC); the ledger's
+	// LawDigest does not follow them yet.
+	derived bool
 }
 
 // Input is one declaration whose tokens a verdict's digest covers: its
@@ -699,6 +710,37 @@ func TestInputs(pkg *check.Package, test *check.Test) (string, []Input) {
 		d.decl("test "+pkg.Path+"."+test.Name, pkg, test.Decl)
 	}
 	return d.sum(pkg, nil), d.inputs
+}
+
+// conversion adds the functions an implicit conversion's table puts in
+// the value, and their instances' witnesses.
+func (d *digester) conversion(c check.Conversion) {
+	for _, f := range tableFuncs(c) {
+		d.fn(f)
+	}
+	names := make([]string, 0, len(c.Instances))
+	for n := range c.Instances {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	for _, n := range names {
+		d.instance(c.Instances[n])
+	}
+}
+
+// instance adds the functions the witnesses of a generic function's
+// instance supply, at any depth.
+func (d *digester) instance(in *check.Instance) {
+	if in == nil || d.seen[in] {
+		return
+	}
+	d.seen[in] = true
+	for _, w := range in.Witnesses {
+		for _, op := range w.Ops {
+			d.fn(op.Func)
+			d.instance(op.Inst)
+		}
+	}
 }
 
 // letDecl is a package let's declaration and its package.
@@ -788,6 +830,15 @@ func (d *digester) walk(p *check.Package, n syntax.Node) {
 	}
 	d.index(p)
 	syntax.Inspect(n, func(n syntax.Node) bool {
+		if e, ok := n.(syntax.Expr); ok && d.derived {
+			if c, ok := p.Info.Implicit[e]; ok {
+				d.conversion(c)
+			}
+			for _, c := range p.Info.ImplicitElems[e] {
+				d.conversion(c)
+			}
+			d.instance(p.Info.Instances[e])
+		}
 		switch n := n.(type) {
 		case *syntax.CallExpr:
 			if c := p.Info.Calls[n]; c != nil && c.Func != nil {
