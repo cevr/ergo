@@ -99,10 +99,12 @@ func TestStdCopyAgrees(t *testing.T) {
 }
 
 // copyNormaliseKeepsMeaning checks the normaliser itself: what it must fold
-// (directives, the call table, the context namespace, positions, the order
-// of declarations, a uniqueness suffix) normalises equal, and one planted
-// difference of each kind it must keep (a callee, a type, a hidden
-// argument, an allocation, a rewritten operand) normalises different. A
+// (directives, the call table, the context namespace, positions and files,
+// the order of declarations, a uniqueness suffix in a name and in an
+// ErgoVariant name, which of two declarations of one text a body names)
+// normalises equal, and one planted difference of each kind it must keep
+// (a callee, a type, a hidden argument, an allocation, a rewritten
+// operand, a file, a variant name, a value) normalises different. A
 // normaliser that folds too much would let a privilege through.
 func copyNormaliseKeepsMeaning(t *testing.T) {
 	t.Helper()
@@ -123,6 +125,18 @@ func h(env *Env, n int64, ns string) int64 { return n }
 
 type Pair struct{ Left int64 }
 
+func (x Pair) ErgoVariant() string { return [...]string{"Pair"}[0] }
+
+type Site struct{ File string }
+
+var site = Site{File: "std/copyfixture/fixture.ergo"}
+
+const none int64 = -1
+
+const none_1 int64 = -1
+
+func k() int64 { return none }
+
 type ergoCall = struct{ Func string }
 
 var ergoCalls = [...]ergoCall{{Func: "f"}}
@@ -132,15 +146,20 @@ var ergoCalls = [...]ergoCall{{Func: "f"}}
 		"call table": {`{{Func: "f"}}`, `{{Func: "f"}, {Func: "g"}}`},
 		"namespace":  {`"std:copyfixture"`, `"copy/copyfixture"`},
 		"position":   {"at std/copyfixture/fixture.ergo:4:2", "at /ergo-copy/std/copyfixture/fixture.ergo:4:2"},
+		"file":       {`File: "std/copyfixture/fixture.ergo"`, `File: "/ergo-copy/std/copyfixture/fixture.ergo"`},
 		"order":      {"type Pair struct{ Left int64 }\n", ""},
 		"suffix":     {"Pair", "Pair_1"},
+		"same text":  {"return none }", "return none_1 }"},
 	}
 	kept := map[string][2]string{
-		"callee":     {"return g(", "return h("},
-		"type":       {"n int64, ns string) int64 { return n }\n\nfunc h", "n int32, ns string) int64 { return n }\n\nfunc h"},
-		"hidden":     {"g(env, q.Left", "g(nil, q.Left"},
-		"allocation": {"q := &Pair{", "q := Pair{"},
-		"rewrite":    {"return g(env, q.Left", "return g(env, p.Left"},
+		"callee":       {"return g(", "return h("},
+		"type":         {"n int64, ns string) int64 { return n }\n\nfunc h", "n int32, ns string) int64 { return n }\n\nfunc h"},
+		"hidden":       {"g(env, q.Left", "g(nil, q.Left"},
+		"allocation":   {"q := &Pair{", "q := Pair{"},
+		"rewrite":      {"return g(env, q.Left", "return g(env, p.Left"},
+		"file":         {`File: "std/copyfixture/fixture.ergo"`, `File: "std/copyfixture/other.ergo"`},
+		"variant name": {`[...]string{"Pair"}`, `[...]string{"Left"}`},
+		"value":        {"const none int64 = -1", "const none int64 = -2"},
 	}
 	want := copyNormalise(base, copyFixturePath, false)
 	for kind, e := range folded {
@@ -266,20 +285,13 @@ func readStdCopy(t *testing.T) map[string]stdCopyRow {
 	return out
 }
 
-// stdCopyBaseline are the packages testdata/std-copy.txt held as differs
-// when the rule landed. A package may leave; none may join, except once:
-// bench, dense, lint, ui and ui/layout joined with the batch-19/20
-// integration, units developed beside the rule (flat-union-std,
-// join-under-directive; lint is LINT4's).
+// stdCopyBaseline are the packages testdata/std-copy.txt holds as differs.
+// A package leaves with the change that makes its copy the same; none may
+// join. When it is empty, it goes, with the differs rows (owner: std has
+// no privileges; STD-COPY-SAME left it holding only the differs rows).
 var stdCopyBaseline = []string{
-	"bench", "dense", "lint", "ui", "ui/layout",
-	"actor", "arena", "atomic", "base64", "bits", "cmp", "codec", "config",
-	"crc32", "csv", "embed", "exec", "explore", "filepath", "fs",
-	"fstest", "hex", "http", "io", "journal", "journal/memory", "json",
-	"log", "machines", "maps", "math", "os", "prompt", "queue", "rand",
-	"rpc", "schedule", "scope", "sha256", "slices", "strconv", "strings",
-	"sync", "task", "tasks", "term", "testing", "text", "time", "timeout",
-	"toml", "trace", "ui", "utf8",
+	"exec", "fs", "journal", "json", "machines", "prompt",
+	"rpc", "scope", "task", "tasks", "timeout", "toml",
 }
 
 // copySource is one std file of a package under test.
@@ -599,7 +611,10 @@ func copyLower(t *testing.T, pair copyPair, src string, copied bool) string {
 //     ergoInlines, and the types ergoDecl and ergoCall (a std body has no
 //     entry);
 //   - the context namespace: a string "std:P" and the copy's "copy/P";
-//   - positions written as text: the copy's root /ergo-copy/;
+//   - positions and files written as text: the copy's root /ergo-copy/;
+//   - the suffix of a name the lowering made unique (copyCanonicalNames),
+//     in an identifier and in a flat union's ErgoVariant name, and which
+//     of two declarations of the same text a body names;
 //   - the order of the top-level declarations, which means nothing in Go.
 //
 // A text that does not parse is returned whole.
@@ -619,6 +634,9 @@ func copyNormalise(text, path string, copied bool) string {
 				b.Value = `"<namespace>"`
 			}
 			b.Value = copyFileOfPosition.ReplaceAllString(b.Value, "$1")
+			// A file written as text (a CallSite's File): std's is
+			// relative, std/P/f.ergo, the copy's under copyRoot.
+			b.Value = strings.Replace(b.Value, `"`+copyRoot+"std/", `"std/`, 1)
 		}
 		return true
 	})
@@ -710,7 +728,9 @@ func copyCanonicalNames(fset *token.FileSet, f *ast.File) {
 		keys := map[string]string{}
 		for _, n := range names {
 			var buf bytes.Buffer
-			_ = printer.Fprint(&buf, fset, declOf[n])
+			// Printed with no positions: a copy's line directives move
+			// them, and the printer's line breaks follow them.
+			_ = printer.Fprint(&buf, token.NewFileSet(), declOf[n])
 			keys[n] = member.ReplaceAllString(buf.String(), base)
 		}
 		sort.Slice(names, func(i, j int) bool {
@@ -719,14 +739,39 @@ func copyCanonicalNames(fset *token.FileSet, f *ast.File) {
 			}
 			return names[i] < names[j]
 		})
+		// Declarations whose text is the same are interchangeable (two
+		// packages' `const none int = -1`, arena's and layout's): they
+		// share one name, so which of them a body names, which follows
+		// the naming order, does not count.
+		rank := -1
 		for i, n := range names {
-			final[n] = fmt.Sprintf("%s_#%d", base, i)
+			if i == 0 || keys[n] != keys[names[i-1]] {
+				rank++
+			}
+			final[n] = fmt.Sprintf("%s_#%d", base, rank)
 		}
 	}
 	ast.Inspect(f, func(n ast.Node) bool {
-		if id, ok := n.(*ast.Ident); ok && !keep[id] {
-			if to, ok := final[id.Name]; ok {
-				id.Name = to
+		switch n := n.(type) {
+		case *ast.Ident:
+			if to, ok := final[n.Name]; ok && !keep[n] {
+				n.Name = to
+			}
+		case *ast.FuncDecl:
+			// A flat union's ErgoVariant names its variants by their Go
+			// types' names (lower flatunion.go, variantNamer), which carry
+			// the same suffixes.
+			if n.Recv != nil && n.Name.Name == "ErgoVariant" {
+				ast.Inspect(n.Body, func(m ast.Node) bool {
+					if b, ok := m.(*ast.BasicLit); ok && b.Kind == token.STRING {
+						if s, err := strconv.Unquote(b.Value); err == nil {
+							if to, ok := final[s]; ok {
+								b.Value = strconv.Quote(to)
+							}
+						}
+					}
+					return true
+				})
 			}
 		}
 		return true

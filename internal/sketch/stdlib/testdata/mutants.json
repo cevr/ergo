@@ -303,9 +303,45 @@
     {
       "name": "copy-normalise-too-much", "origin": "wf10 STD-NOPRIV NP1",
       "file": "internal/sketch/stdlib/copy_test.go",
-      "from": "\t\t\tif to, ok := final[id.Name]; ok {\n\t\t\t\tid.Name = to\n",
-      "to": "\t\t\tif _, ok := final[id.Name]; ok {\n\t\t\t\tid.Name = \"_\"\n",
+      "from": "\t\t\tif to, ok := final[n.Name]; ok && !keep[n] {\n\t\t\t\tn.Name = to\n",
+      "to": "\t\t\tif _, ok := final[n.Name]; ok && !keep[n] {\n\t\t\t\tn.Name = \"_\"\n",
       "rule": "The copy property's normaliser folds only how std ships and is named: one that also folds a callee's Go name would pass a privilege, so its self-test plants one difference per kind.",
+      "anchor": {"tests": ["std:TestStdCopyAgrees"]},
+      "killers": ["std:TestStdCopyAgrees"]
+    },
+    {
+      "name": "copy-normalise-file-root-kept", "origin": "wf10/ir-forms/STD-COPY-SAME",
+      "file": "internal/sketch/stdlib/copy_test.go",
+      "from": "\t\t\tb.Value = strings.Replace(b.Value, `\"`+copyRoot+\"std/\", `\"std/`, 1)\n",
+      "to": "\n",
+      "rule": "A file written as text (a CallSite's File) is std's relative std/P/f.ergo and the copy's under copyRoot: how each ships, which the normaliser folds (ui's choice.ergo CallSites).",
+      "anchor": {"tests": ["std:TestStdCopyAgrees"]},
+      "killers": ["std:TestStdCopyAgrees"]
+    },
+    {
+      "name": "copy-normalise-variant-names-kept", "origin": "wf10/ir-forms/STD-COPY-SAME",
+      "file": "internal/sketch/stdlib/copy_test.go",
+      "from": "if n.Recv != nil && n.Name.Name == \"ErgoVariant\" {",
+      "to": "if n.Recv != nil && n.Name.Name == \"ErgoVariant\" && false {",
+      "rule": "An ErgoVariant name is its variant's Go type name, whose uniqueness suffix follows the naming order by package path (ui's Motion Present_1 beside the copy's Present): the normaliser folds it as it folds the identifier.",
+      "anchor": {"tests": ["std:TestStdCopyAgrees"]},
+      "killers": ["std:TestStdCopyAgrees"]
+    },
+    {
+      "name": "copy-normalise-same-text-ranked", "origin": "wf10/ir-forms/STD-COPY-SAME",
+      "file": "internal/sketch/stdlib/copy_test.go",
+      "from": "if i == 0 || keys[n] != keys[names[i-1]] {",
+      "to": "if i >= 0 {",
+      "rule": "Two declarations of one text are interchangeable (arena's and layout's const none int = -1): which one a body names follows the naming order, so they share one canonical name.",
+      "anchor": {"tests": ["std:TestStdCopyAgrees"]},
+      "killers": ["std:TestStdCopyAgrees"]
+    },
+    {
+      "name": "copy-normalise-keys-by-layout", "origin": "wf10/ir-forms/STD-COPY-SAME",
+      "file": "internal/sketch/stdlib/copy_test.go",
+      "from": "_ = printer.Fprint(&buf, token.NewFileSet(), declOf[n])",
+      "to": "_ = printer.Fprint(&buf, fset, declOf[n])",
+      "rule": "A declaration's rank key is its text, not its layout: a copy's line directives move positions and so the printer's line breaks (tz's two floorDiv, civil's and zone's, ranked apart in the copy alone).",
       "anchor": {"tests": ["std:TestStdCopyAgrees"]},
       "killers": ["std:TestStdCopyAgrees"]
     },

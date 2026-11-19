@@ -30,7 +30,7 @@ explore	same
 filepath	same
 flag	same
 fs	differs	lower: a parameter of type Text lowers to string in std, to the named type Text in the copy	follow-up std-text-named
-fstest	differs	lower: joinResult joins a call into its assignment only in a body with no line directives (std's)	follow-up join-under-directive
+fstest	same
 graph	same
 hex	same
 html	same
@@ -71,8 +71,8 @@ trace	same
 tz	same
 tz/host	same
 tz/iana	same
-ui	differs	lower: a CallSite literal holds std's relative file in std, the copy's absolute file (the normaliser folds line directives, not CallSite literals)	follow-up copy-callsite-path
-ui/layout	differs	lower: the flat std program suffixes Option's none another way (none_#0, the copy's none_#1)	follow-up std-name-suffix
+ui	same
+ui/layout	same
 utf8	same
 decimal	same
 hmac	same
