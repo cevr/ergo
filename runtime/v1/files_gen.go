@@ -670,7 +670,7 @@ var typeTable = []typeRow{
 	{"ContextPackage", GoType{Basic: "string", Package: Path}},
 	{"CrossDevice", GoType{Struct: true, Fields: []string{"From", "To"}, Package: Path}},
 	{"Cursor", GoType{Struct: true, Fields: []string{"s", "i", "frames", "root", "wrong"}, Package: Path}},
-	{"Deadline", GoType{Struct: true, Fields: []string{"clock", "mu", "alarm", "gen", "fired", "armed", "waiter"}, Package: Path}},
+	{"Deadline", GoType{Struct: true, Fields: []string{"clock", "mu", "alarm", "gen", "fired", "armed", "waiter", "wake"}, Package: Path}},
 	{"Decoded", GoType{Struct: true, Fields: []string{"Rune", "Size"}, Package: Path}},
 	{"Denied", GoType{Struct: true, Fields: []string{"Path"}, Package: Path}},
 	{"Drop", GoType{Struct: true, Fields: []string{"t", "c"}, Package: Path}},

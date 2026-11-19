@@ -37,6 +37,9 @@ type Deadline struct {
 	// waiter is the task in PopBefore, which the fire wakes in a clock's
 	// domain (rt.Waking).
 	waiter *rt.Task
+	// wake is the word that waiter's wait parks on (Queue.waitOr), which
+	// the fire wakes; nil while it does not wait.
+	wake *rt.Waiter
 }
 
 // NewDeadline is timeout.NewDeadline() on the caller's task t: a deadline
@@ -84,6 +87,23 @@ func (dl *Deadline) fire(gen uint64, ch chan rt.Instant) {
 	w := rt.Waking(dl.waiter, dl)
 	close(ch)
 	w.Done()
+	if dl.wake != nil {
+		// PopBefore parks on its wait's word (Queue.waitOr): the fire wakes
+		// it after ch is closed, so it sees the fire.
+		dl.wake.Wake()
+	}
+}
+
+// await sets the word the fire wakes, for the wait of PopBefore that
+// parks on w (nil when it ended). A fire that came before it wakes w at
+// once, so no fire is lost between the waiter's look and its park.
+func (dl *Deadline) await(w *rt.Waiter, fired chan rt.Instant) {
+	dl.mu.Lock()
+	dl.wake = w
+	if w != nil && fired != nil && closedChan(fired) {
+		w.Wake()
+	}
+	dl.mu.Unlock()
 }
 
 // Armed reports whether dl is armed: Arm armed it, and PopBefore has not
