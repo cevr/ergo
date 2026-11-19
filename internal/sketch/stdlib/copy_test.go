@@ -131,6 +131,8 @@ type Site struct{ File string }
 
 var site = Site{File: "std/copyfixture/fixture.ergo"}
 
+var called = "f calls copyfixture.g at 4:9"
+
 const none int64 = -1
 
 const none_1 int64 = -1
@@ -142,34 +144,40 @@ type ergoCall = struct{ Func string }
 var ergoCalls = [...]ergoCall{{Func: "f"}}
 `
 	folded := map[string][2]string{
-		"directive":  {"//line /x/std/copyfixture/fixture.ergo:3:1\n", "//line /ergo-copy/std/copyfixture/fixture.ergo:9:1\n"},
-		"call table": {`{{Func: "f"}}`, `{{Func: "f"}, {Func: "g"}}`},
-		"namespace":  {`"std:copyfixture"`, `"copy/copyfixture"`},
-		"position":   {"at std/copyfixture/fixture.ergo:4:2", "at /ergo-copy/std/copyfixture/fixture.ergo:4:2"},
-		"file":       {`File: "std/copyfixture/fixture.ergo"`, `File: "/ergo-copy/std/copyfixture/fixture.ergo"`},
-		"order":      {"type Pair struct{ Left int64 }\n", ""},
-		"suffix":     {"Pair", "Pair_1"},
-		"same text":  {"return none }", "return none_1 }"},
+		"directive":   {"//line /x/std/copyfixture/fixture.ergo:3:1\n", "//line /ergo-copy/std/copyfixture/fixture.ergo:9:1\n"},
+		"call table":  {`{{Func: "f"}}`, `{{Func: "f"}, {Func: "g"}}`},
+		"namespace":   {`"std:copyfixture"`, `"copy/copyfixture"`},
+		"callee path": {"calls copyfixture.g", "calls copy/copyfixture.g"},
+		"position":    {"at std/copyfixture/fixture.ergo:4:2", "at /ergo-copy/std/copyfixture/fixture.ergo:4:2"},
+		"file":        {`File: "std/copyfixture/fixture.ergo"`, `File: "/ergo-copy/std/copyfixture/fixture.ergo"`},
+		"order":       {"type Pair struct{ Left int64 }\n", ""},
+		"suffix":      {"Pair", "Pair_1"},
+		"same text":   {"return none }", "return none_1 }"},
 	}
 	kept := map[string][2]string{
-		"callee":       {"return g(", "return h("},
-		"type":         {"n int64, ns string) int64 { return n }\n\nfunc h", "n int32, ns string) int64 { return n }\n\nfunc h"},
-		"hidden":       {"g(env, q.Left", "g(nil, q.Left"},
-		"allocation":   {"q := &Pair{", "q := Pair{"},
-		"rewrite":      {"return g(env, q.Left", "return g(env, p.Left"},
-		"file":         {`File: "std/copyfixture/fixture.ergo"`, `File: "std/copyfixture/other.ergo"`},
-		"variant name": {`[...]string{"Pair"}`, `[...]string{"Left"}`},
-		"value":        {"const none int64 = -1", "const none int64 = -2"},
+		"callee":         {"return g(", "return h("},
+		"type":           {"n int64, ns string) int64 { return n }\n\nfunc h", "n int32, ns string) int64 { return n }\n\nfunc h"},
+		"hidden":         {"g(env, q.Left", "g(nil, q.Left"},
+		"allocation":     {"q := &Pair{", "q := Pair{"},
+		"rewrite":        {"return g(env, q.Left", "return g(env, p.Left"},
+		"file":           {`File: "std/copyfixture/fixture.ergo"`, `File: "std/copyfixture/other.ergo"`},
+		"variant name":   {`[...]string{"Pair"}`, `[...]string{"Left"}`},
+		"value":          {"const none int64 = -1", "const none int64 = -2"},
+		"callee package": {"calls copyfixture.g", "calls other.g"},
+		"callee name":    {"calls copyfixture.g", "calls copyfixture.h"},
 	}
 	want := copyNormalise(base, copyFixturePath, false)
 	for kind, e := range folded {
 		text := strings.Replace(base, e[0], e[1], 1)
-		copied := kind == "namespace"
+		copied := kind == "namespace" || kind == "callee path"
 		switch kind {
 		case "order":
 			text += e[0]
 		case "suffix":
 			text = strings.ReplaceAll(base, e[0], e[1])
+		case "callee path":
+			// A copy's text: its namespace is the copy's too.
+			text = strings.Replace(text, `"std:copyfixture"`, `"copy/copyfixture"`, 1)
 		}
 		if text == base {
 			t.Fatalf("copyNormalise self-test: the %s plant does not apply", kind)
@@ -290,8 +298,8 @@ func readStdCopy(t *testing.T) map[string]stdCopyRow {
 // join. When it is empty, it goes, with the differs rows (owner: std has
 // no privileges; STD-COPY-SAME left it holding only the differs rows).
 var stdCopyBaseline = []string{
-	"exec", "journal", "json", "machines", "prompt",
-	"rpc", "scope", "task", "tasks", "timeout", "toml",
+	"journal", "json", "machines", "prompt",
+	"scope", "task", "tasks", "timeout",
 }
 
 // copySource is one std file of a package under test.
@@ -611,6 +619,9 @@ func copyLower(t *testing.T, pair copyPair, src string, copied bool) string {
 //     ergoInlines, and the types ergoDecl and ergoCall (a std body has no
 //     entry);
 //   - the context namespace: a string "std:P" and the copy's "copy/P";
+//   - the package of a callee a site names as text: "calls P.f" and the
+//     copy's "calls copy/P.f" (the lowering names a callee by its
+//     package's path, std's and a user's alike);
 //   - positions and files written as text: the copy's root /ergo-copy/;
 //   - the suffix of a name the lowering made unique (copyCanonicalNames),
 //     in an identifier and in a flat union's ErgoVariant name, and which
@@ -632,6 +643,9 @@ func copyNormalise(text, path string, copied bool) string {
 		if b, ok := n.(*ast.BasicLit); ok && b.Kind == token.STRING {
 			if b.Value == ns {
 				b.Value = `"<namespace>"`
+			}
+			if copied {
+				b.Value = strings.ReplaceAll(b.Value, " calls copy/"+path+".", " calls "+path+".")
 			}
 			b.Value = copyFileOfPosition.ReplaceAllString(b.Value, "$1")
 			// A file written as text (a CallSite's File): std's is
@@ -694,9 +708,12 @@ func copyCanonicalNames(fset *token.FileSet, f *ast.File) {
 		}
 	}
 	groups := map[string][]string{}
+	stems := map[string][2]string{}
 	for name := range declOf {
-		base := copySuffix.ReplaceAllString(name, "")
+		stem, inst := copyNameParts(name)
+		base := stem + inst
 		groups[base] = append(groups[base], name)
+		stems[base] = [2]string{stem, inst}
 	}
 	keep := map[*ast.Ident]bool{}
 	ast.Inspect(f, func(n ast.Node) bool {
@@ -724,7 +741,7 @@ func copyCanonicalNames(fset *token.FileSet, f *ast.File) {
 	})
 	final := map[string]string{}
 	for base, names := range groups {
-		member := regexp.MustCompile(`\b` + regexp.QuoteMeta(base) + `(?:_\d+)?\b`)
+		member := regexp.MustCompile(`\b` + regexp.QuoteMeta(stems[base][0]) + `(?:_\d+)?` + regexp.QuoteMeta(stems[base][1]) + `\b`)
 		keys := map[string]string{}
 		for _, n := range names {
 			var buf bytes.Buffer
@@ -778,8 +795,19 @@ func copyCanonicalNames(fset *token.FileSet, f *ast.File) {
 	})
 }
 
-// copySuffix is the suffix the lowering adds to make a Go name unique.
-var copySuffix = regexp.MustCompile(`_\d+$`)
+// copyNameParts splits a top-level Go name into its stem and the suffix
+// of a monomorphised instance (_i1), dropping the suffix the lowering adds
+// to make a name unique, which stands before the instance's: Pair_1 is
+// Pair, and DecodeMono_1_i1, toml's beside json's DecodeMono_i1, is
+// DecodeMono with _i1.
+func copyNameParts(name string) (stem, inst string) {
+	m := copyNameShape.FindStringSubmatch(name)
+	return m[1], m[2]
+}
+
+// copyNameShape is a Go name: its stem, a uniqueness suffix, and the suffix
+// of a monomorphised instance, each of the suffixes optional.
+var copyNameShape = regexp.MustCompile(`^(.+?)(?:_\d+)?(_i\d+)?$`)
 
 // copyFileOfPosition matches the file of a position written as text
 // (std/codec/codec.ergo:118:2, or a copy's file): only line and column are

@@ -25,7 +25,7 @@ cron	same
 csv	same
 dense	same
 embed	same
-exec	differs	lower: joinResult joins a call into its assignment only in a body with no line directives (std's)	follow-up join-under-directive
+exec	same
 explore	same
 filepath	same
 flag	same
@@ -50,7 +50,7 @@ prompt	differs	lower: joinResult joins a call into its assignment only in a body
 pubsub	same
 queue	same
 rand	same
-rpc	differs	lower: a std package's declarations are emitted in another order than a sourced package's (the first differing line is another declaration)	follow-up emit-order-std
+rpc	same
 schedule	same
 scope	differs	lower: no exported function a caller can take as a value	follow-up copy-by-call
 sha256	same
@@ -66,7 +66,7 @@ testing	same
 text	same
 time	same
 timeout	differs	lower: no exported function a caller can take as a value	follow-up copy-by-call
-toml	differs	lower: the flat std program suffixes a name another std package declares too (toml's DecodeMono_1 beside json's), the copy's names are unique	follow-up std-name-suffix
+toml	same
 trace	same
 tz	same
 tz/host	same

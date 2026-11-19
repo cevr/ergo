@@ -319,6 +319,24 @@
       "killers": ["std:TestFSCopyBorrowsItsText"]
     },
     {
+      "name": "copy-normalise-callee-path-kept", "origin": "wf10/ir-forms/STD-COPY-ROWS",
+      "file": "internal/sketch/stdlib/copy_test.go",
+      "from": "\t\t\t\tb.Value = strings.ReplaceAll(b.Value, \" calls copy/\"+path+\".\", \" calls \"+path+\".\")\n",
+      "to": "",
+      "rule": "A site names its callee by the callee's package path, std's and a user's alike (calls.go callee): the copy's copy/P is how it ships, which the normaliser folds (rpc's and exec's RPCExitLines and RPCExits sites).",
+      "anchor": {"tests": ["std:TestStdCopyAgrees"]},
+      "killers": ["std:TestStdCopyAgrees"]
+    },
+    {
+      "name": "copy-normalise-instance-suffix-kept", "origin": "wf10/ir-forms/STD-COPY-ROWS",
+      "file": "internal/sketch/stdlib/copy_test.go",
+      "from": "var copyNameShape = regexp.MustCompile(`^(.+?)(?:_\\d+)?(_i\\d+)?$`)",
+      "to": "var copyNameShape = regexp.MustCompile(`^(.+?)(?:_\\d+)?()$`)",
+      "rule": "A uniqueness suffix stands before a monomorphised instance's suffix (toml's DecodeMono_1_i1 beside json's DecodeMono_i1, in the order the lowering names std packages): the normaliser folds it as it folds a plain name's.",
+      "anchor": {"tests": ["std:TestStdCopyAgrees"]},
+      "killers": ["std:TestStdCopyAgrees"]
+    },
+    {
       "name": "copy-normalise-file-root-kept", "origin": "wf10/ir-forms/STD-COPY-SAME",
       "file": "internal/sketch/stdlib/copy_test.go",
       "from": "\t\t\tb.Value = strings.Replace(b.Value, `\"`+copyRoot+\"std/\", `\"std/`, 1)\n",
