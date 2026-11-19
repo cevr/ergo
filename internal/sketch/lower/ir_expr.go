@@ -90,6 +90,22 @@ func (b *irBuilder) valueOf(x syntax.Expr) ([]*irStmt, *irExpr) {
 			return nil, b.expr(x)
 		}
 		pre, e = b.gather(sc, y, b.pos(y, y.Pos())) // ir_scalar.go
+	case *syntax.SelectorExpr:
+		// A Go package variable whose Option goResult builds: Go's
+		// pointer read once, then the Option (ir_govar.go).
+		if t := b.l.info.Types[y]; hostRecv(b.l.info.Types[y.X]) && (isGoRef(t) || b.optionResult(t)) {
+			// A Go struct's field checked for nil or made an Option.
+			b.plain(y)
+			pre, e, _ = b.hostField(y, b.pos(y, y.Pos()))
+			break
+		}
+		o, _ := check.QualifiedMember(b.l.info, y).(*check.Var)
+		path := hostVarPath(b.l.info, y)
+		if path == "" || !b.optionResult(o.Type) {
+			return nil, b.expr(x)
+		}
+		b.plain(y)
+		pre, e = b.goVar(o, path, y, b.pos(y, y.Pos()))
 	case *syntax.BinaryExpr:
 		// An if or a match as an operand of an operator that evaluates
 		// both: its statements run in operand order (the emitter's binary
@@ -251,7 +267,22 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 				b.l.reachStdLet(o)
 				return &irExpr{K: "global", Pos: p, Name: name}
 			}
+			if path := hostVarPath(b.l.info, x); path != "" {
+				pre, v := b.goVar(o, path, x, p) // ir_govar.go
+				if len(pre) > 0 {
+					irNo("Go package variable of an Option where no statement runs") // valueOf binds it
+				}
+				return v
+			}
 			irNo("selector on a non-record")
+		}
+		// A Go struct's field (ir_govar.go); one whose read runs a
+		// statement is valueOf's.
+		if pre, v, ok := b.hostField(x, p); ok {
+			if len(pre) > 0 {
+				irNo("Go field read that runs a statement where none runs")
+			}
+			return v
 		}
 		// A field through a pointer (FLIP F2): Go's p.f.
 		n, ok := derefNamed(b.l.info.Types[x.X]) // ir_pkg.go
@@ -305,6 +336,11 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 				}
 			}
 			lit.Elems = b.inOrder(x.Elts) // ir_order.go
+			if check.IsGoAny(tt.Elem) {
+				for i, e := range lit.Elems {
+					lit.Elems[i] = b.assignedTo(x.Elts[i], e, tt.Elem) // ir_union.go: Go's any (IR-GOCALLS)
+				}
+			}
 			if b.l.valueFacts().seeds[x] && len(lit.Elems) == 1 {
 				// append(slices.Grow([]T{}, seedCap), e) (seedcap.go).
 				et := b.goType(tt.Elem, x)

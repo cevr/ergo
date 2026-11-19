@@ -298,6 +298,7 @@ type lowerer struct {
 	equals   map[pkgKey]bool          // generated equality functions emitted (equal.go)
 	wires    map[pkgKey]bool          // generated codec functions emitted (wire.go)
 	clones   map[pkgKey]bool          // generated copy functions emitted (values.go)
+	goVars   map[pkgKey]bool          // getters of Go package variables emitted (ir_govar.go)
 	machines map[pkgKey]string        // generated machine value functions emitted, to their Go result (ir_machine.go)
 	vals     *valueFacts              // the value rule's decisions (values.go)
 	sets     map[check.TypeSet]string // generated constraint interfaces emitted (decls.go, constraint)

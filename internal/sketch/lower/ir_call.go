@@ -157,7 +157,9 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		if len(x.Args) != 1 {
 			irNo("len form")
 		}
-		switch t := b.l.info.Types[x.Args[0]].(type) {
+		// A named type over a slice or Map (a Go package's url.Values)
+		// is Go's len of it too (IR-GOCALLS-3).
+		switch t := b.l.info.Types[x.Args[0]]; underEqual(t).(type) {
 		case *check.Slice, *check.Map:
 		default:
 			// A string, or a named type over one (std fs.Text, the
@@ -303,6 +305,8 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		args := append([]*irExpr{{K: "field", Pos: p, Name: envTask, X: env}}, irArgs...)
 		capField := b.knownOp(x, named, &irExpr{K: "field", Pos: p, Name: b.l.envField(named), X: env}) // ir_forms_op.go
 		return pre, b.opResult(c, &irExpr{K: "mcall", Pos: p, Name: memberName(c.Op.Name), X: capField, Args: args}), true
+	case check.CallGoError:
+		return b.goBuiltin(x, c, p) // ir_golib.go: go.New, go.Zero, go.Is, go.As (IR-GOCALLS)
 	case check.CallFuncValue:
 		pre, e := b.valueCall(x, c, p) // ir_closure.go
 		// A known callback's call is pure (ir_kcb.go).

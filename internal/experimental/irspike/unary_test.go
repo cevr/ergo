@@ -39,7 +39,17 @@ func TestIRUnaryOperandsMatchSource(t *testing.T) {
 //   - byteindex (red #31, NP4f-15's http query.ergo): the decoder refused
 //     a string or slice indexed by a byte, and a slice expression's byte
 //     bound (two derivative edits of the fork patch, which the irspike
-//     ledger's note names: red #31).
+//     ledger's note names: red #31);
+//   - gocalls (IR-GOCALLS): Go calls over go.Any, with a go.Ref result
+//     and with two results, and go.New, go.Zero, go.Is and go.As kept
+//     their source bodies; the IR's form of each must print what the
+//     source body prints (mutant irgc-any-elems-unconverted, whose IR the
+//     decoder refuses).
+//     IR-GOCALLS-2 adds kept (a Go result copied, mutant
+//     irgc2-result-copy-dropped) and eof (Go package variables).
+//   - gonil (IR-GOCALLS-4): a go.Ref result Go returns as nil (a user's
+//     extern go of flag.Lookup) is the same GoNilDefect on both paths
+//     (mutant irgc-nil-check-dropped).
 //
 // It builds Go for the reason TestIRUnaryOperandsMatchSource does.
 func TestIRReprosMatchSource(t *testing.T) {
@@ -47,7 +57,7 @@ func TestIRReprosMatchSource(t *testing.T) {
 	for _, r := range []struct {
 		name string
 		fns  []string
-	}{{"notand", []string{"pick"}}, {"rowslot", []string{"held", "run"}}, {"byteindex", []string{"hex", "pick", "tail"}}} {
+	}{{"notand", []string{"pick"}}, {"rowslot", []string{"held", "run"}}, {"byteindex", []string{"hex", "pick", "tail"}}, {"gocalls", []string{"show", "pattern", "host", "stored", "split", "zone", "classify", "kept", "eof", "params", "cookie", "limited"}}, {"gonil", []string{"name"}}} {
 		t.Run(r.name, func(t *testing.T) {
 			text, err := os.ReadFile(filepath.Join("testdata", r.name+".ergo"))
 			if err != nil {
