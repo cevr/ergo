@@ -6367,6 +6367,7 @@
       "killers": [
         "internal/sketch/lower:TestLinkedRuntimeHoldsEveryImport"
       ]
-    }
+    },
+    {"name":"ir-keyed-none","origin":"wf10 GP-SPLIT-EDIT","file":"internal/sketch/lower/ir.go","from":"func irKeyed(files []File) []File {\n\tout := slices.Clone(files)\n","to":"func irKeyed(files []File) []File {\n\tif true {\n\t\treturn files\n\t}\n\tout := slices.Clone(files)\n","rule":"Each IR file's sha256 is in a Go file of its package: go build keys a compile on the Go files and a relative -ergoir flag, never on the IR file.","killers":["internal/sketch/lower:TestIRDigestInItsPackage"]}
   ]
 }

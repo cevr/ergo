@@ -22,6 +22,7 @@ import (
 	"path"
 	"slices"
 	"sort"
+	"strings"
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -192,7 +193,34 @@ func lowerIRForms(u Unit, tests *testLowering, formsOff bool) ([]File, IRReport,
 	sum := sha256.Sum256(data)
 	report.Hash = hex.EncodeToString(sum[:])
 	files = append(files, File{Path: IRFileName, Data: data})
-	return files, report.IRReport, nil
+	return irKeyed(files), report.IRReport, nil
+}
+
+// irKeyed is files with the digest of each IR file in a comment at the end
+// of a Go file of its package. go build keys a package's compile on its Go
+// files and flags and never reads the file -ergoir names, so its flag
+// names the IR by a path relative to the module (build.Toolchain.Command),
+// the same in every module an edit writes, and the IR's content reaches
+// the key through the Go file. An absolute path changed with the module's
+// folder, so go build compiled every package of a split program again on
+// each edit, each unchanged (GP-SPLIT-EDIT).
+func irKeyed(files []File) []File {
+	out := slices.Clone(files)
+	for _, ir := range files {
+		if path.Base(ir.Path) != IRFileName {
+			continue
+		}
+		dir := path.Dir(ir.Path)
+		at := slices.IndexFunc(out, func(f File) bool {
+			return path.Dir(f.Path) == dir && strings.HasSuffix(f.Path, ".go") && !strings.HasSuffix(f.Path, "_test.go")
+		})
+		if at < 0 {
+			continue
+		}
+		sum := sha256.Sum256(ir.Data)
+		out[at].Data = slices.Concat(out[at].Data, []byte("\n// "+IRFileName+" sha256 "+hex.EncodeToString(sum[:])+"\n"))
+	}
+	return out
 }
 
 // LowerIRSplit is LowerIR (LowerIRTests when tests is set) with the
@@ -223,6 +251,9 @@ func lowerIRSplit(u Unit, tests bool, base string, sh *shardOpts) ([]File, IRRep
 	rep := SplitReport{Reason: "no main.go"}
 	if i >= 0 {
 		out, rep = splitMain(u, files[i].Data, base, origins, l.harnessNames(), &l.ir.out, sh)
+		if rep.err != nil {
+			return nil, IRReport{}, SplitReport{}, rep.err
+		}
 	}
 	res := files
 	if out == nil {
@@ -238,6 +269,7 @@ func lowerIRSplit(u Unit, tests bool, base string, sh *shardOpts) ([]File, IRRep
 		res = append(slices.Clone(files[:i]), out...)
 		res = append(res, files[i+1:]...)
 	}
+	res = irKeyed(res)
 	report.Hash = irHash(res)
 	return res, report.IRReport, rep, nil
 }
