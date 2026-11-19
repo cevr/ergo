@@ -85,7 +85,7 @@ func (b *irBuilder) binaryOf(x *syntax.BinaryExpr, op string) *irExpr {
 	p := b.pos(x, x.OpPos)
 	if op != "&&" && op != "||" {
 		xs := b.inOrder([]syntax.Expr{x.X, x.Y})
-		return &irExpr{K: "bin", Pos: p, Op: op, X: xs[0], Y: xs[1]}
+		return b.rounded(x, x, b.l.info.Types[x], &irExpr{K: "bin", Pos: p, Op: op, X: xs[0], Y: xs[1]}) // ir_float.go
 	}
 	l := b.expr(x.X)
 	pre, r := b.collect(func() ([]*irStmt, *irExpr) { return nil, b.expr(x.Y) })
