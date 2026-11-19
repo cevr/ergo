@@ -94,6 +94,7 @@ var contextPlaceRows = map[string]externPlaceRow{
 	"MachineType.Signal":   {guardType, "type S = Idle\ntype Idle {}\ntype M machine[S, @w] { initial: Idle, step: step }\nfunc step(s S, e int) Decision[S, int] { return Ignore }\n"},
 	"MapType.Key":          {guardType, "func f(m Map[@w, int]) {}\n"},
 	"MapType.Value":        {guardType, "func f(m Map[int, @w]) {}\n"},
+	"MapType.Hashing":      {guardType, "func f(m Map[int, int, @w]) {}\n"},
 	"NeedsClause.Names":    {guardType, "func f() needs @w {}\n"},
 	"ProvidesClause.Names": {guardType, "func main() {\n\t$W\n\t_ = with context provides @w { Greeter: Plain } { Greeter.Greet(\"x\") }\n}\n"},
 	"StarExpr.X":           {guardType, "func f(p *@w) {}\n"},
