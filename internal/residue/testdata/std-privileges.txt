@@ -42,9 +42,6 @@ language	internal/sketch/check/implements.go:isGoCloser	io.Closer, Go's release 
 language	internal/sketch/check/contextvalues.go:contextRow	Context, the predeclared row value	-
 language	internal/sketch/check/durable.go:pureSeer.step	Machine, a machine literal whose Step a pure parameter sees	-
 language	internal/sketch/check/durable.go:pureSeer.stepValue	Machine's Step	-
-debt	internal/sketch/check/entry.go:IsStdEvery	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
-debt	internal/sketch/check/mappedtext.go:IsMappedText	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
-debt	internal/sketch/check/mappedtext.go:checker.textPlacement	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
 debt	internal/sketch/check/mappedtext.go:escWalk.endsBeforeReturn	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
 debt	internal/sketch/check/mappedtext.go:escWalk.textOwner	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
 debt	internal/sketch/check/mappedtext.go:isMapped	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP

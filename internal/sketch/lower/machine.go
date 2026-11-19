@@ -576,7 +576,7 @@ func (fc *funcCtx) machineAfter(conv check.Conversion, site syntax.Node) string 
 // everyOption reports whether t is Option[machines.Every[E]].
 func everyOption(t check.Type) bool {
 	o, ok := t.(*check.Named)
-	return ok && len(o.TArgs) == 1 && check.IsStdEvery(o.TArgs[0])
+	return ok && len(o.TArgs) == 1 && check.IsEvery(o.TArgs[0])
 }
 
 // everyTimers is the After of a machine whose after function gives a
@@ -615,7 +615,7 @@ func (fc *funcCtx) everyTimers(conv check.Conversion, after *check.Func, site sy
 	st, ok := every.Underlying().(*check.Struct)
 	var at check.Type
 	if ok {
-		// The checker admitted std machines.Every (check.IsStdEvery):
+		// The checker admitted an Every timer (check.IsEvery):
 		// its one function field is Signal.
 		for _, f := range st.Fields {
 			if fs, isSig := f.Type.(*check.Signature); isSig && len(fs.Params) == 1 {

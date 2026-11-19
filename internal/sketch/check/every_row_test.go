@@ -14,7 +14,9 @@ import (
 // time.Clock out of W, so an actor without a clock is quiet and its timer
 // reads a nil clock), fkg1-every-clock-in-step (the clock goes into R, so
 // the fold's law is S102), fkg1-every-after-row-admitted (an Every after
-// with a capability row is not refused).
+// with a capability row is not refused), every-std-only (a user package's
+// record of the Every shape is refused), every-any-shape (a record with
+// another field is admitted).
 func TestEveryRow(t *testing.T) {
 	const prelude = `import machines
 import time
@@ -63,6 +65,23 @@ func every(s S) Option[machines.Every[Sig]] needs Codes {
 }
 
 type M machine[S, Sig] { initial: Idle, step: step, after: every } // want S108
+`},
+		// An Every timer is admitted by its shape, wherever it is declared
+		// (check.IsEvery; std has no privileges): a user package's record
+		// of the shape is one, and one with another field is not.
+		{"user-every-admitted", strings.Replace(prelude, "import machines\n", "", 1) + `
+type Beat[E] { In duration, Signal func(at time.Time) E }
+
+func beat(s S) Option[Beat[Sig]] { Some{Beat[Sig]{In: 1ms, Signal: tickAt}} }
+
+type M machine[S, Sig] { initial: Idle, step: step, after: beat }
+`},
+		{"user-every-other-shape-refused", strings.Replace(prelude, "import machines\n", "", 1) + `
+type Beat[E] { In duration, Signal func(at time.Time) E, Label string }
+
+func beat(s S) Option[Beat[Sig]] { Some{Beat[Sig]{In: 1ms, Signal: tickAt, Label: ""}} }
+
+type M machine[S, Sig] { initial: Idle, step: step, after: beat } // want S108
 `},
 	}
 	for _, tc := range cases {
