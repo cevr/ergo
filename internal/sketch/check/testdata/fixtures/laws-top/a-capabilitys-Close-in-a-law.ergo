@@ -1,0 +1,21 @@
+type A { Use() int }
+
+type Conn { V int } implements A, Closer
+
+func Use(c Conn) int { c.V }
+
+func Close(c Conn) {}
+
+func get() Conn { Conn{V: 1} }
+
+let Owned = context { A: get() }
+
+type R { ..Closer }
+
+type First {} implements R, Closer
+
+func Close(_ First) {}
+
+let Releasing = context { R: First }
+
+law Twice() { with Releasing { R.Close(); true } } // want S108

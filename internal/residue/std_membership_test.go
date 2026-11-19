@@ -669,7 +669,6 @@ var stdPrivilegesBaseline = []string{
 	"internal/sketchfront/rewrite.go:FreshStdLedger",
 	"internal/tsproj/http.go:httpFailureStatuses",
 	"internal/tsproj/http.go:httpTables",
-	"internal/tsproj/project.go:stdJSON",
 }
 
 // stringConsts are the lowering's package-level constants whose value is

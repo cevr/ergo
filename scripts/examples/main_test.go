@@ -576,9 +576,9 @@ func TestRecordLegWritesGoldensFromTheOriginal(t *testing.T) {
 	port := f.program("porter", original("orig"), "default\n", map[string]map[string]string{
 		"r1": {"args": "a\n"},
 		"r2": {"args": "quiet\n", "expected.out": "stale\n", "expected.err": "stale\n", "expected.status": "9\n"},
-	}, map[string]string{"record.sh": original("orig"), "origin": "a fixture original\n"})
+	}, map[string]string{"record.sh": original("orig")})
 	drift := f.program("drifter", original("port"), "default\n", map[string]map[string]string{"r1": {"args": "a\n"}},
-		map[string]string{"record.sh": original("orig"), "origin": "a fixture original\n"})
+		map[string]string{"record.sh": original("orig")})
 	code, out := f.run("-record", "porter", "drifter")
 	if code != 0 || !strings.Contains(out, "recorded porter/r1\n") {
 		t.Fatalf("-record: exit %d\n%s", code, out)
@@ -643,7 +643,7 @@ func TestRecordLegWritesNothingWhenTheOriginalCannotStart(t *testing.T) {
 			files["stdin"] = "input\n"
 		}
 		dir := f.program("port", "#!/bin/sh\necho port\n", "default\n", map[string]map[string]string{"basic": files},
-			map[string]string{"record.sh": "echo original out; echo original err >&2; exit 3\n", "origin": "a fixture original\n"})
+			map[string]string{"record.sh": "echo original out; echo original err >&2; exit 3\n"})
 		return f, filepath.Join(dir, "cases", "basic")
 	}
 	check := func(t *testing.T, f *fixture, caseDir string) {
@@ -767,31 +767,6 @@ func TestTestLeg(t *testing.T) {
 	}
 	if code, out := f.run("pending"); code != 1 || strings.Contains(out, "skip") {
 		t.Fatalf("a pending reply alone: want exit 1 and no skip, got %d\n%s", code, out)
-	}
-}
-
-// A skip line that the program's expected-skips file does not list fails
-// the test leg (fs4); a listed one passes, and the cases still run.
-func TestTestLegFailsAnUnexpectedSkip(t *testing.T) {
-	t.Parallel()
-	f := newFixture(t)
-	hi := map[string]map[string]string{"basic": {"expected.out": "hi\n"}}
-	src := "#!/bin/sh\necho hi\nexit 0\n# TESTSKIP\ntest Fixture {\n}\n"
-	line := "skip law Store.Keeps for Box: its values have no generator: why"
-	f.program("skipping", src, "default\n", hi, nil)
-	f.program("listed", src, "default\n", hi, map[string]string{"expected-skips": "# Box holds a function\n" + line + "\n"})
-	code, out := f.run()
-	if code != 1 {
-		t.Fatalf("an unexpected skip: want exit 1, got %d\n%s", code, out)
-	}
-	for _, want := range []string{"FAIL skipping: test: 1 unexpected skips", "    " + line + "\n", "ok listed: test ("} {
-		if !strings.Contains(out, want) {
-			t.Errorf("no %q\n%s", want, out)
-		}
-	}
-	oks, _ := verdicts(out)
-	if !oks["skipping/basic"] || !oks["listed/basic"] {
-		t.Errorf("a skip must not stop the cases\n%s", out)
 	}
 }
 

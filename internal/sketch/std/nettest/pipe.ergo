@@ -1,0 +1,31 @@
+// Package nettest holds the memory provider of net.Network (Go's
+// net.Pipe, Effect's in-memory Socket for tests). A Pipe's listeners and
+// connections stay in this process, need no Ambient and keep Network's
+// laws, so a test of a server binds a Pipe where main binds net.Host.
+
+import net
+
+// Pipe is a memory network: its listeners are named by address, as the
+// host's are, and a port 0 gets the next free port from 1. Copies of a
+// Pipe share its listeners. A Write waits once 64 KiB wait unread in its
+// direction, as a socket's buffer makes it.
+type Pipe { mem PipeNet } implements net.Network
+
+// NewPipe is an empty memory network.
+func NewPipe() Pipe { Pipe{mem: newPipeNet()} }
+
+func Listen(p Pipe, addr string) net.Listener fails net.ListenFailed { try p.mem.Listen(addr) }
+
+func Dial(p Pipe, addr string) net.Conn fails net.DialFailed { try p.mem.Dial(addr) }
+
+// PipeNet is the state a Pipe holds: its listeners and the connections
+// dialed to them. Only NewPipe makes one; bind a Pipe.
+//
+// law-exempt: Pipe's laws are net.Network's, run against it (TestNetLaws).
+extern go ergo.local/prototype/runtime/v1/net.PipeNet type PipeNet {
+	runtimeOnly(),
+	Listen(addr string) net.Listener fails net.ListenFailed,
+	Dial(addr string) net.Conn fails net.DialFailed,
+}
+
+extern go ergo.local/prototype/runtime/v1/net.NetNewPipe func newPipeNet() PipeNet

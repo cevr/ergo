@@ -467,9 +467,8 @@
           "examples:fluid-gallery"
         ]
       },
-      "killers": [
-        "examples:fluid-gallery"
-      ]
+      "killers": [],
+      "gap": "equivalent once resolution is pure (FL-COUNTER, 2026-11-18): the view's web.Named of a constant look is a pure call with constant arguments, which the fold computes at build time; the counted guard ResolvedOncePerLook went with fluid/web's package counter, which kept every page that reached it from folding. Evidence: the button page folds to one constant (FL-COUNTER receipt)."
     },
     {
       "name": "fl1-theme-adds-rule",

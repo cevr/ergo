@@ -1,7 +1,7 @@
 // Table and the generated registries that the laws and tests of resolve
 // run over.
 
-import deps/semver
+import semver
 import slices
 
 // Table is an Index over a list of releases, in memory. Of two releases
@@ -72,7 +72,7 @@ func NameOf(n int) string {
 
 // Few is v with each part 0 to 2, so that generated constraints meet.
 func Few(v semver.Version) semver.Version {
-	semver.Version{Major: small(v.Major), Minor: small(v.Minor), Patch: small(v.Patch)}
+	semver.Version{Major: small(v.Major), Minor: small(v.Minor), Patch: small(v.Patch), Pre: []string{}, Build: []string{}}
 }
 
 func small(n int) int {
@@ -87,8 +87,11 @@ func RequirementOf(n Need) Requirement {
 	// need); half of the needs are carets, so that some registries fail.
 	let caret = n.Caret
 	let text = (if caret { "^" } else { "<=" }) + semver.Format(v)
-	let b = if caret { semver.Caret{V: v} } else { semver.AtMost{V: v} }
-	Requirement{Name: NameOf(n.Pkg), Want: semver.Constraint{Bounds: []semver.Bound{b}, Text: text}}
+	let want = ParseConstraint(text) catch {
+	case semver.Malformed:
+		Any()
+	}
+	Requirement{Name: NameOf(n.Pkg), Want: want}
 }
 
 // TableOf is the registry of generated entries, after a release 0.0.0
@@ -99,7 +102,7 @@ func RequirementOf(n Need) Requirement {
 func TableOf(entries []Entry) Table {
 	let mut rs = []Release{}
 	for n in 0..3 {
-		rs = rs.Append(Release{Name: NameOf(n), V: semver.Version{Major: 0, Minor: 0, Patch: 0}, Needs: []Requirement{}})
+		rs = rs.Append(Release{Name: NameOf(n), V: semver.Version{Major: 0, Minor: 0, Patch: 0, Pre: []string{}, Build: []string{}}, Needs: []Requirement{}})
 	}
 	for e in entries {
 		let mut wanted = []Requirement{}
@@ -119,7 +122,7 @@ func TableOf(entries []Entry) Table {
 func RootOf(ns []Need) []Requirement {
 	let mut out = []Requirement{}
 	for n in 0..3 {
-		out = out.Append(Requirement{Name: NameOf(n), Want: semver.Any()})
+		out = out.Append(Requirement{Name: NameOf(n), Want: Any()})
 	}
 	for n in ns {
 		out = out.Append(RequirementOf(n))

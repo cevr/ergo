@@ -1,6 +1,6 @@
 // The rules of resolution as laws over generated registries.
 
-import deps/semver
+import semver
 import slices
 
 // pinned is the version pinned for name in p.
@@ -17,7 +17,7 @@ func pinOf(p Plan, name string) Option[semver.Version] {
 func Keeps(p Plan, r Requirement) bool {
 	match pinOf(p, r.Name) {
 	case Some[semver.Version] as v:
-		semver.Satisfies(r.Want, v.Value)
+		Allows(r.Want, v.Value)
 	case None:
 		false
 	}

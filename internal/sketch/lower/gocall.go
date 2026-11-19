@@ -526,11 +526,14 @@ func (fc *funcCtx) goErrorOf(x syntax.Expr, e string) {
 func (fc *funcCtx) goErrorCall(x *syntax.CallExpr, c *check.Call) operand {
 	if c.Name == "go.New" && len(x.Args) == 1 {
 		// go.New(v) is a new Go T holding a copy of v (GBX5b;
-		// check/gonew.go): &n of a fresh n, as hand Go writes &T{…}.
+		// check/gonew.go): &n of a fresh n, as hand Go writes &T{…},
+		// in parentheses, so a method called on it is called on the
+		// pointer, not on n with the address taken of its result
+		// (GBX-CHAIN: go.New(v).Add(1) was &n.Add(1)).
 		v := fc.assigned(x.Args[0])
 		n := fc.temp("n")
 		fc.line(n + " := " + v)
-		return operand{val: "&" + n}
+		return operand{val: "(&" + n + ")"}
 	}
 	if c.Name == "go.New" {
 		// go.New[T]() is Go's new(T) (GBX1; check/gonew.go).

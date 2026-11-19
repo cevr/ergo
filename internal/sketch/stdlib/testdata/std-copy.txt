@@ -6,6 +6,7 @@
 # join (stdCopyBaseline).
 
 actor	same
+ansi	same
 arena	same
 atomic	same
 base64	same
@@ -30,12 +31,14 @@ explore	same
 filepath	same
 flag	differs	lower: a union of a user package lowers to the flat form, a std union to an interface (flatunion.go keys on isSourced)	follow-up flat-union-std
 fs	differs	lower: a union of a user package lowers to the flat form, a std union to an interface (flatunion.go keys on isSourced)	follow-up flat-union-std
-fstest	differs	lower: joinResult joins a call into its assignment only in a body with no line directives (std's)	follow-up join-under-directive
+fstest	same
 graph	same
 hex	same
 html	same
 http	same
 io	same
+net	same
+nettest	same
 journal	differs	lower: no exported function a caller can take as a value	follow-up copy-by-call
 journal/file	same
 journal/memory	same
@@ -54,8 +57,11 @@ rand	same
 rpc	differs	lower: a std package's declarations are emitted in another order than a sourced package's (the first differing line is another declaration)	follow-up emit-order-std
 schedule	same
 scope	differs	lower: no exported function a caller can take as a value	follow-up copy-by-call
+semver	same
 sha256	same
 slices	same
+sql	same
+sqltest	same
 strconv	same
 stream	same
 strings	same

@@ -76,20 +76,6 @@ go run ./scripts/examples router
 - `restart`: a dropped check restarts the router from its journal (twice: the budget); a courier crash restarts the router from its journal, with new couriers; a new process opens the router from the journal, and a taken id stays taken.
 - `badscript`: an id that is not a number (status 1).
 
-## effect-machine side by side (`docs/persistence-and-supervision.md`, ActorHost)
-
-| concern | effect-machine | Ergo here | who checks |
-| --- | --- | --- | --- |
-| requests that wait | no postpone either; a queue in the state or the mailbox (inferred from its docs) | `Board.Queue`, with `Stay` so the current entry goes on | step laws |
-| one answer per request | `call` answers with the transition; a later answer is a second protocol | the answer lives in the state; `WaitFor` reads it; `AnsweredOnce` holds it | law |
-| persistence | `lifecycle.recovery.resolve` at spawn, `durability.save` after each commit | `SuperviseDurable(m, …, recover, save)`: save runs before anyone sees the state; the step must be pure (S108) | runner + checker |
-| supervision | `Supervisor` with a restart schedule | `tasks.Restart{Limit}`; a restart runs `recover` again | runner (MU7 model) |
-| a child named before it runs | `ActorHost.make` with `acquire` | a `Host` in the state, filled once by `ChildIn` in the entry's work, closed with the entry | runner (models/host) + law |
-| a child of a recovered actor | its docs give no rule; the user's recovery code makes the children again (inferred) | a host is entry data: a replay makes it again, empty, and the recovered first entry binds it; the journal keeps no live child | runner (models/host `Recovery`) + law |
-| observing | `subscribe`, `waitFor` | `Changes`, `WaitFor`, loops with no callback | runner (MU12) |
-
-The router and its couriers are one machine (wf10 DH1): `Idle` hosts the couriers and `Applying` checks with the registry, so a courier's crash restarts the router from its journal.
-
 ## Benchmark
 
 No em-parity §3 scenario is this program's own: an `Ask`, a work start, a save and a child start are measured by MU3's, MU4's, MU5's and MU9's benchmarks. The command for an end-to-end time of the recorded cases is in `MB2/bench-pending.md` (router).

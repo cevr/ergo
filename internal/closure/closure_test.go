@@ -170,6 +170,7 @@ var declared = map[string][]allowance{
 		[]allowance{{"runtime/v1/digest/*_test.go", files, "TestStdLawLedger reads the test files of the runner packages (runnerPackages): the leaf digest runs the hex, base64 and crc32 laws"}},
 		[]allowance{{"runtime/v1/exec/*_test.go", files, "TestStdLawLedger reads the test files of the runner packages (runnerPackages): the leaf exec runs the exec laws"}},
 		[]allowance{{"runtime/v1/http/*_test.go", files, "TestStdStrengthsTable reads the test files of the leaf http for the benchmark its table names"}},
+		[]allowance{{"runtime/v1/net/*_test.go", files, "TestStdStrengthsTable reads the test files of the leaf net for the benchmark its table names"}},
 		[]allowance{{"runtime/v1/rand/*_test.go", files, "TestStdLawLedger reads the test files of the runner packages (runnerPackages): the leaf rand runs the rand laws"}},
 	),
 	"internal/sketch/eval": {
@@ -294,7 +295,7 @@ var declared = map[string][]allowance{
 			{"modules", subtree, "TestRepoExamplesHoldTheirLaws: examples import the bundled modules (ergo.dev/domain, mcp, xml), which their ergo.mod replaces with modules/, and the loader reads each module's sources"},
 		},
 		exactly("an example's workload names its input generator and its hand-Go control by path, and reading the workload (internal/opcount) looks each up",
-			"cmd/ergo/testdata/onebrc/control", "cmd/ergo/testdata/onebrc/gen", "cmd/ergo/testdata/vt/control"),
+			"cmd/ergo/testdata/station-stats/control", "cmd/ergo/testdata/station-stats/gen", "cmd/ergo/testdata/vt/control"),
 	),
 	"scripts/gate": {
 		{".", subtree, "gate-speed2 owns scripts/gate (do not touch); its tests build in the module with VCS stamping and walk the tree (follow-up)"},

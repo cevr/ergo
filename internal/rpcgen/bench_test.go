@@ -52,12 +52,13 @@ func Peek(f Fixed, key string) Option[limits.Level] {
 }
 `,
 	"cmd/bench/main.ergo": `import http
+import net
 import rpc
 import bench/limits
 import bench/limits/limitsrpc
 import bench/memory
 
-func serve(l http.Listener) fails http.InvalidLimits needs Scheduler {
+func serve(l net.Listener) fails http.InvalidLimits needs Scheduler {
 	with context { limits.Limiter: memory.Fixed } {
 		try rpc.Serve(l, http.Limits{MaxBodyBytes: 16777216, MaxHeaderBytes: 1048576, IdleTimeout: 5s, ReadHeaderTimeout: 10s, ReadBodyTimeout: 30s}, "/rpc", limitsrpc.Handle)
 	}

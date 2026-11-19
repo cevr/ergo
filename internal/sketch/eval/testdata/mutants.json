@@ -358,6 +358,15 @@
       "killers": ["internal/sketch/eval:TestEvalAgreesWithModel"]
     },
     {
+      "name": "mc-map-order",
+      "origin": "wf10/mc/E1",
+      "file": "internal/sketch/eval/codecwalk.go",
+      "from": "\t\tsort.Slice(keys, func(i, j int) bool { return keys[i].(string) < keys[j].(string) })",
+      "to": "\t\tsort.Slice(keys, func(i, j int) bool { return false && keys[i].(string) < keys[j].(string) })",
+      "rule": "A Map encodes its keys in sorted order, so equal Maps have one wire form and one explore key (MODELCHECK risk 5).",
+      "killers": ["std:TestKeyEqualsEquality"]
+    },
+    {
       "name": "machine-done-is-edge",
       "origin": "wf10/l7-eval/EV4",
       "file": "internal/sketch/eval/machine.go",
@@ -1569,8 +1578,8 @@
       "file": "internal/sketch/eval/runner.go",
       "from": "\t_, ab = a.call(in, fr, a.leave, s)\n\treturn ab\n",
       "to": "\treturn ab\n",
-      "rule": "The check-time runner runs a state's exit action as the Go runner does (runtime.md, Machines and actors 18): fk-gallery's tour reads the saved draft back.",
-      "killers": ["examples:fk-gallery"]
+      "rule": "The check-time runner runs a state's exit action as the Go runner does (runtime.md, Machines and actors 18): gallery's tour reads the saved draft back.",
+      "killers": ["examples:gallery"]
     },
     {
       "name": "g1-eval-exit-unmasked-has",
@@ -1578,8 +1587,8 @@
       "file": "internal/sketch/eval/runner.go",
       "from": "\t// Both calls are masked: a Stop's end runs them on a stopped runner.\n\tin.mask(1)\n\tdefer in.mask(-1)\n\thas, ab := a.call(in, fr, a.hasExit, s)\n\tif ab != nil || has != true {\n\t\treturn ab\n\t}\n",
       "to": "\thas, ab := a.call(in, fr, a.hasExit, s)\n\tif ab != nil || has != true {\n\t\treturn ab\n\t}\n\tin.mask(1)\n\tdefer in.mask(-1)\n",
-      "rule": "A Stop's end runs the open entry's exit action on a stopped runner: the whole of it is masked, hasExit included (fk-gallery's law LeavingStudioAlwaysSaves, a site that ends in the studio).",
-      "killers": ["examples:fk-gallery"]
+      "rule": "A Stop's end runs the open entry's exit action on a stopped runner: the whole of it is masked, hasExit included (gallery's law LeavingStudioAlwaysSaves, a site that ends in the studio).",
+      "killers": ["examples:gallery"]
     },
     {
       "name": "g1-eval-exit-not-on-enter",
@@ -1587,8 +1596,8 @@
       "file": "internal/sketch/eval/runner.go",
       "from": "\t\tif ab := a.leaveEntry(in, fr, s); ab != nil {\n\t\t\treturn s, true, ab\n\t\t}\n",
       "to": "",
-      "rule": "An Enter or an Emit ends the entry with its exit action, before the next entry opens (fk-gallery's tour: the save on leaving the studio).",
-      "killers": ["examples:fk-gallery"]
+      "rule": "An Enter or an Emit ends the entry with its exit action, before the next entry opens (gallery's tour: the save on leaving the studio).",
+      "killers": ["examples:gallery"]
     },
     {"name":"q14-changesof-unrun","origin":"wf10 I22 Q14 (GP)","file":"internal/sketch/eval/runner.go","from":"\tnatives[\"actor.changesOf\"] = ","to":"\tnatives[\"actor.changesOfUnrun\"] = ","rule":"The check-time runner runs std actor's changesOf, so WaitFor, SendAndWait and Changes run at check time.","killers":["internal/sketch/eval:TestEvalAgreesWithLowering"]},
     {"name":"q14-changes-no-overflow","origin":"wf10 I22 Q14 (GP)","file":"internal/sketch/eval/runner.go","from":"\tif len(c.buf) >= c.room {\n","to":"\tif false && len(c.buf) >= c.room {\n","rule":"A Changes loop holds at most room states: a commit that finds it full drops them and the loop reads an Overflowed with their number (runtime/v1 publishLocked).","killers":["internal/sketch/eval:TestEvalAgreesWithLowering"]},
@@ -2038,11 +2047,8 @@
     {"origin":"wf10 CF2","name":"cf2-range-reads-hole","file":"internal/sketch/eval/stmt.go","from":"\tif _, isTerm := dom.(term); isTerm && in.sym != nil {\n","to":"\tif _, isTerm := dom.(term); false && isTerm && in.sym != nil {\n","rule":"A for-in over a hole stops the run and names it (Each's list widens to the Each).","killers":["internal/experimental/irspike:TestTemplateCounts"]},
     {"origin":"wf10 CF2","name":"cf2-template-not-in-fold","file":"internal/sketch/eval/foldvalue.go","from":"globals: map[*check.Var]*slot{}, sym: run, fold: true, walk: true}","to":"globals: map[*check.Var]*slot{}, sym: run, walk: true}","rule":"A template run is a fold: std build's InFold is true there, so html builds its template.","killers":["internal/experimental/irspike:TestTemplateCounts"]},
     {"origin":"wf10 CF2","name":"cf2-hole-never-hole","file":"internal/sketch/eval/nativesjson.go","from":"\t\treturn in.fold && hole, in.charge(fr, at, 1)\n","to":"\t\treturn in.fold && hole && false, in.charge(fr, at, 1)\n","rule":"std build's Hole is true of a template's hole in a fold, so html places it as it is rather than read it.","killers":["internal/experimental/irspike:TestTemplateCounts"]},
-    {"name":"evquery-missing","origin":"wf10 MX-EVQUERY","file":"internal/sketch/eval/nativesnet.go","from":"\tnatives[\"http.ParseQuery\"] = queryNative\n","to":"\t_ = queryNative\n","rule":"std http.ParseQuery runs at check time (Go's url.ParseQuery), not a skip.","killers":["internal/sketch/eval:TestQueryParsesAtCheckTime"]},
-    {"name":"evquery-unsorted","origin":"wf10 MX-EVQUERY","file":"internal/sketch/eval/nativesnet.go","from":"\tsort.Strings(keys)\n\tvar fields []netField\n","to":"\tvar fields []netField\n","rule":"ParseQuery's fields come in key order, as the build's.","killers":["internal/sketch/eval:TestQueryParsesAtCheckTime"]},
-    {"name":"evquery-plus-literal","origin":"wf10 MX-EVQUERY","file":"internal/sketch/eval/nativesnet.go","from":"values, _ := url.ParseQuery(raw)\n\tkeys","to":"values, _ := url.ParseQuery(strings.ReplaceAll(raw, \"+\", \"%2B\"))\n\tkeys","rule":"ParseQuery reads a \"+\" as a space, as Go's url.ParseQuery does.","killers":["internal/sketch/eval:TestQueryParsesAtCheckTime"]},
-    {"name":"evfiring-never-set","origin":"wf10 MX-EVQUERY","file":"internal/sketch/eval/nativesmore.go","from":"\t\tin.firing = true\n","to":"\t\tin.firing = false\n","rule":"Under std machines' firing mark an Every timer's signal carries time.Clock's reading, not the zero time.","killers":["examples:fk-stopwatch"]},
-    {"name":"evevery-unconverted","origin":"wf10 MX-EVQUERY","file":"internal/sketch/eval/machinevalue.go","from":"\t\t\tif check.IsStdEvery(t.t) {\n","to":"\t\t\tif false && check.IsStdEvery(t.t) {\n","rule":"A machine's After turns an after function's machines.Every into the Timeout the build's everyTimers gives.","killers":["examples:fk-stopwatch"]},
+    {"name":"evfiring-never-set","origin":"wf10 MX-EVQUERY","file":"internal/sketch/eval/nativesmore.go","from":"\t\tin.firing = true\n","to":"\t\tin.firing = false\n","rule":"Under std machines' firing mark an Every timer's signal carries time.Clock's reading, not the zero time.","killers":["examples:stopwatch"]},
+    {"name":"evevery-unconverted","origin":"wf10 MX-EVQUERY","file":"internal/sketch/eval/machinevalue.go","from":"\t\t\tif check.IsStdEvery(t.t) {\n","to":"\t\t\tif false && check.IsStdEvery(t.t) {\n","rule":"A machine's After turns an after function's machines.Every into the Timeout the build's everyTimers gives.","killers":["examples:stopwatch"]},
     {"name":"stepop-leaf-charged","origin":"wf10 FU-eval-step-per-op","file":"internal/sketch/eval/expr.go","from":"if leaf := f.op == opConst || f.op == opIdent; !leaf {","to":"if leaf := false; !leaf {","rule":"A leaf (a name, a constant) costs no step of its own: the node that reads it pays.","killers":["internal/sketch/eval:TestStepsCountTheNodesThatWork"]},
     {"name":"stepop-binary-free","origin":"wf10 FU-eval-step-per-op","file":"internal/sketch/eval/expr.go","from":"if leaf := f.op == opConst || f.op == opIdent; !leaf {","to":"if leaf := f.op == opConst || f.op == opIdent || f.op == opBinary; !leaf {","rule":"An operation costs its step: only leaves are free.","killers":["internal/sketch/eval:TestStepsCountTheNodesThatWork"]},
     {"name":"stepop-root-charged","origin":"wf10 FU-eval-step-per-op","file":"internal/sketch/eval/expr.go","from":"\t\t\t\t// (tailK).\n\t\t\t\treturn s.v, s, nil\n","to":"\t\t\t\t// (tailK).\n\t\t\t\tif ab := in.charge(fr, x, 1); ab != nil {\n\t\t\t\t\treturn nil, nil, ab\n\t\t\t\t}\n\t\t\t\treturn s.v, s, nil\n","rule":"A field path's root local costs no step: the path's node pays.","killers":["internal/sketch/eval:TestStepsCountTheNodesThatWork"]},
@@ -2093,6 +2099,9 @@
       "rule": "The evaluator runs the operation s.Bytes(), so check-time evaluation of std's digests (sha256.Sum) agrees with the build.",
       "anchor": {"tests":["internal/sketch/eval:TestEvalAgreesWithLowering"]},
       "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
-    }
+    },
+    {"name":"sq1-eval-cbrt-is-sqrt","origin":"wf10 SQ1 (NS lane)","file":"internal/sketch/eval/nativesgo.go","from":"\"Cbrt\": math.Cbrt,","to":"\"Cbrt\": math.Sqrt,","rule":"ORACLE O20: check-time evaluation calls the same Go function a build does (eval's natives).","killers":["internal/sketch/stdlib:TestStdMathTrigLaws"]},
+    {"name":"sq1-eval-go-natives-unloaded","origin":"wf10 SQ1 (NS lane)","file":"internal/sketch/eval/nativesgo.go","from":"\tloadNatives()\n\tpath, name := fn.Decl.Extern.Split()","to":"\tpath, name := fn.Decl.Extern.Split()","rule":"ORACLE O20: a program whose first call is to an import go function runs it as eval's native, not skipped.","killers":["internal/sketch/stdlib:TestStdMathTrigLaws"]},
+    {"name":"evalfp-row-one-member-union","origin":"wf10 EVAL-FAILS-PARAM","file":"internal/sketch/eval/types.go","from":"func writeRowKey(b *strings.Builder, ms []rtype) {\n\tif len(ms) == 1 {","to":"func writeRowKey(b *strings.Builder, ms []rtype) {\n\tif len(ms) == -1 {","rule":"A row of one error type in a type position names that type itself (rows.md, Error rows 8, One member): FBad[F] with F bound to the row Oops is FBad[Oops], and a match takes an FBad[Oops] value.","killers":["internal/sketch/eval:TestEvalAgreesWithModel"]}
   ]
 }

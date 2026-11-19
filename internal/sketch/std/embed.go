@@ -15,9 +15,9 @@ import "embed"
 //go:embed prelude.ergo timeout/*.ergo task/*.ergo scope/*.ergo slices/*.ergo queue/*.ergo log/*.ergo trace/*.ergo strings/*.ergo strconv/*.ergo
 //go:embed os/*.ergo
 //go:embed fs/*.ergo fstest/*.ergo
-//go:embed io/*.ergo term/*.ergo prompt/*.ergo
-//go:embed utf8/*.ergo
-//go:embed flag/*.ergo
+//go:embed io/*.ergo term/*.ergo prompt/*.ergo ansi/*.ergo
+//go:embed utf8/*.ergo url/*.ergo
+//go:embed flag/*.ergo api/*.ergo
 //go:embed maps/*.ergo cmp/*.ergo set/*.ergo
 //go:embed rand/*.ergo
 //go:embed sync/*.ergo
@@ -32,9 +32,11 @@ import "embed"
 //go:embed testing/*.ergo explore/*.ergo
 //go:embed tasks/*.ergo pubsub/*.ergo stream/*.ergo
 //go:embed schedule/*.ergo cron/*.ergo
-//go:embed http/*.ergo
+//go:embed http/*.ergo net/*.ergo nettest/*.ergo
+//go:embed sql/*.ergo sqltest/*.ergo
 //go:embed actor/*.ergo
 //go:embed journal/*.ergo journal/memory/*.ergo journal/file/*.ergo
+//go:embed llm/*.ergo llm/memory/*.ergo llm/recorded/*.ergo
 //go:embed time/*.ergo civil/*.ergo tz/*.ergo tz/iana/*.ergo tz/host/*.ergo cache/*.ergo
 //go:embed arena/*.ergo dense/*.ergo
 //go:embed ui/*.ergo
@@ -42,6 +44,7 @@ import "embed"
 //go:embed lint/*.ergo
 //go:embed bench/*.ergo
 //go:embed ui/layout/*.ergo
+//go:embed semver/*.ergo
 //go:embed code/*.ergo
 //go:embed graph/*.ergo codegraph/*.ergo
 //go:embed html/*.ergo

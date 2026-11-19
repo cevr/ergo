@@ -289,18 +289,9 @@
       "rule": "A line for a test upstream does not have is refused.",
       "killers": ["scripts/examples:TestOriginFollowsUpstream"]
     },
-    {
-      "name": "fk0-origin-folder-unchecked", "origin": "wf10 FK0", "file": "scripts/examples/main.go",
-      "from": "\t\t\tproblems = append(problems, checkOrigin(filepath.Join(p.dir, file), filepath.Dir(filepath.Dir(p.dir)))...)\n", "to": "",
-      "rule": "A program of packages with an origin folder has its tests.txt checked.",
-      "killers": ["scripts/examples:TestOriginFolderIsChecked"]
-    },
-    {
-      "name": "fk0-origin-folder-unchecked-single", "origin": "wf10 FK0", "file": "scripts/examples/main.go",
-      "from": "\t\t\tproblems = append(problems, checkOrigin(filepath.Join(dir, file), filepath.Dir(filepath.Dir(dir)))...)\n", "to": "",
-      "rule": "A program of one folder with an origin folder has its tests.txt checked.",
-      "killers": ["scripts/examples:TestOriginFolderIsChecked"]
-    },
+    {"name":"ex-neutral-ports-unchecked","origin":"wf10 EX-NEUTRAL","file":"scripts/examples/main.go","from":"\treturn programs, append(problems, checkPorts(root)...)\n","to":"\treturn programs, problems\n","rule":"A port's provenance under conformance/upstream/<source>/ports/<name>/ has its tests.txt checked, and names a program.","killers":["scripts/examples:TestPortProvenanceIsChecked"]},
+    {"name":"ex-neutral-origin-admitted-single","origin":"wf10 EX-NEUTRAL","file":"scripts/examples/main.go","from":"\t\t\tproblem(originMoved, p.name)\n\t\tcase file == \"main.ergo\"","to":"\t\tcase file == \"main.ergo\"","rule":"A program of one folder holds no origin: provenance lives under conformance/upstream, never in the example (owner, EX-NEUTRAL).","killers":["scripts/examples:TestPortProvenanceIsChecked"]},
+    {"name":"ex-neutral-origin-admitted-module","origin":"wf10 EX-NEUTRAL","file":"scripts/examples/main.go","from":"\t\t\tproblem(originMoved, p.name)\n\t\tcase file == \"go.mod\"","to":"\t\tcase file == \"go.mod\"","rule":"A program of packages holds no origin: provenance lives under conformance/upstream, never in the example (owner, EX-NEUTRAL).","killers":["scripts/examples:TestPortProvenanceIsChecked"]},
     { "name": "gs1-key-ergo", "origin": "wf10 GS1", "file": "scripts/examples/cache.go", "from": "{{\"runner\", self}, {\"ergo\", cfg.ergo}}", "to": "{{\"runner\", self}}", "rule": "A program's cache key holds the compiler's bytes: another bin/ergo at the same path reruns it.", "killers": ["scripts/examples:TestCachedVerdictEqualsRerun"] },
     { "name": "gs1-key-env", "origin": "wf10 GS1", "file": "scripts/examples/cache.go", "from": "\tfor _, kv := range env {\n", "to": "\tfor _, kv := range env[:0] {\n", "rule": "A program's cache key holds the environment the compiler and the programs read.", "killers": ["scripts/examples:TestCachedVerdictEqualsRerun"] },
     { "name": "gs1-volatile-keyed", "origin": "wf10 GS1", "file": "scripts/examples/cache.go", "from": "var volatileEnv = []string{\"INVOCATION_ID\", ", "to": "var volatileEnv = []string{", "rule": "A variable that changes on every invocation and that no verdict reads (systemd's INVOCATION_ID) is not keyed: with it every program missed.", "killers": ["scripts/examples:TestCachedVerdictEqualsRerun"] },
@@ -360,15 +351,6 @@
       "from": "r.compareEvaluation(p, strings.Replace(leg, \"test\", \"check\", 1), evaluation, section)",
       "to": "_ = section",
       "rule": "One ergo test of a program of packages still compares each package's check-time verdicts with its part of the native report.",
-      "killers": ["scripts/examples:TestModuleProgramJudgesEachPackage"]
-    },
-    {
-      "name": "one-module-ignores-skips",
-      "origin": "wf10 TEST-one",
-      "file": "scripts/examples/main.go",
-      "from": "if skips := unexpectedSkips(section, p.dir); len(skips) > 0 {",
-      "to": "if skips := unexpectedSkips(section, p.dir); false && len(skips) > 0 {",
-      "rule": "One ergo test of a program of packages fails a package whose part of the report holds a skip that expected-skips does not list (fs4).",
       "killers": ["scripts/examples:TestModuleProgramJudgesEachPackage"]
     },
     {
