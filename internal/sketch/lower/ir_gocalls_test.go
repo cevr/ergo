@@ -20,6 +20,13 @@ import (
 //     the value rule copies as the emitter's goResult does (cloneDeep):
 //     bufio.Reader.ReadLine's []byte beside its bool and error,
 //     bytes.Buffer.Bytes, and url.URL.Query's Values (a Go Map).
+//   - valuerecv (IR-GOCALLS-3): a Go method on a receiver that holds a
+//     Map (url.Values.Get, http.Header.Get), the receiver under the value
+//     rule's copy as the emitter's callArgs gives it; len of a Go named
+//     Map; and a Go struct's fields through its go.Ref (http.Request's
+//     Header, Method, TransferEncoding, and URL, an Option), which kept
+//     the IR from building (an internal compiler error: typeDecl of
+//     go.Ref).
 //   - vars (IR-GOCALLS-2): a Go package variable read through its getter
 //     (goVarGetter): an error sentinel (sql.ErrNoRows, io.EOF) as the
 //     go.Error that keeps it, a []string (os.Args), a constant
@@ -122,6 +129,27 @@ func query(u go.Ref[url.URL]) int needs go.Foreign {
 	let q = u.Query()
 	let _ = q
 	0
+}
+
+func main() needs go.Foreign {}
+`},
+		{"valuerecv", `import go net/url
+import go net/http
+
+func query(u go.Ref[url.URL]) int needs go.Foreign {
+	let q = u.Query()
+	len(q.Get("a")) + len(q)
+}
+
+func header(r go.Ref[http.Request]) int needs go.Foreign {
+	let h = r.Header.Clone()
+	let u = match r.URL {
+	case Some{Value: _}:
+		1
+	case None:
+		0
+	}
+	len(h.Get("Accept")) + len(h) + len(r.Method) + len(r.TransferEncoding) + u
 }
 
 func main() needs go.Foreign {}

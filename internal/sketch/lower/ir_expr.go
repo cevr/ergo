@@ -93,6 +93,12 @@ func (b *irBuilder) valueOf(x syntax.Expr) ([]*irStmt, *irExpr) {
 	case *syntax.SelectorExpr:
 		// A Go package variable whose Option goResult builds: Go's
 		// pointer read once, then the Option (ir_govar.go).
+		if t := b.l.info.Types[y]; hostRecv(b.l.info.Types[y.X]) && (isGoRef(t) || b.optionResult(t)) {
+			// A Go struct's field checked for nil or made an Option.
+			b.plain(y)
+			pre, e, _ = b.hostField(y, b.pos(y, y.Pos()))
+			break
+		}
 		o, _ := check.QualifiedMember(b.l.info, y).(*check.Var)
 		path := hostVarPath(b.l.info, y)
 		if path == "" || !b.optionResult(o.Type) {
@@ -269,6 +275,14 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 				return v
 			}
 			irNo("selector on a non-record")
+		}
+		// A Go struct's field (ir_govar.go); one whose read runs a
+		// statement is valueOf's.
+		if pre, v, ok := b.hostField(x, p); ok {
+			if len(pre) > 0 {
+				irNo("Go field read that runs a statement where none runs")
+			}
+			return v
 		}
 		// A field through a pointer (FLIP F2): Go's p.f.
 		n, ok := derefNamed(b.l.info.Types[x.X]) // ir_pkg.go

@@ -51,8 +51,39 @@ func (b *irBuilder) goVar(o *check.Var, path string, x *syntax.SelectorExpr, p i
 	}
 	r := b.temp("borrowed", b.rawGoType(o.Type, x), p)
 	pre := []*irStmt{{K: "def", Pos: p, Local: r, X: call}}
-	vpre, v := b.hostResult(nil, o.Type, r, -1, x, p) // ir_golib.go: the Option
+	vpre, v := b.hostResult(path+"."+o.Name, o.Type, r, -1, x, p) // ir_golib.go: the Option
 	return append(pre, vpre...), v
+}
+
+// hostField is x, a field of a Go struct read through its go.Ref or its
+// value (IR-GOCALLS-3), as the emitter's selector reads it: Go's field,
+// then goResult's conversion with no target name (hostResult): a go.Ref
+// checked for nil, an Option built, a slice or Map copied. ok is false
+// when x's operand is no Go type.
+func (b *irBuilder) hostField(x *syntax.SelectorExpr, p irPos) ([]*irStmt, *irExpr, bool) {
+	if !hostRecv(b.l.info.Types[x.X]) {
+		return nil, nil, false
+	}
+	pre, recv := b.value(x.X)
+	t := b.l.info.Types[x]
+	b.goType(t, x)
+	f := &irExpr{K: "field", Pos: b.pos(x.Sel, x.Sel.Pos()), Name: x.Sel.Name, X: recv}
+	if !isGoRef(t) && !b.optionResult(t) {
+		return pre, b.fieldValue(t, f, x), true
+	}
+	r := b.temp("f", b.rawGoType(t, x), p)
+	pre = append(pre, &irStmt{K: "def", Pos: p, Local: r, X: f})
+	vpre, v := b.hostResult("", t, r, -1, x, p) // ir_golib.go
+	return append(pre, vpre...), v, true
+}
+
+// fieldValue is f, Go's field of type t read at x, under goResult's copy
+// of a slice or Map (goResultCopy; no Go target makes it new).
+func (b *irBuilder) fieldValue(t check.Type, f *irExpr, x syntax.Node) *irExpr {
+	if b.l.holdsValue(t) {
+		return b.goResultCopy("", t, f, x) // ir_golib.go
+	}
+	return f
 }
 
 // goVarKey is the naming key of the getter of the Go variable o.

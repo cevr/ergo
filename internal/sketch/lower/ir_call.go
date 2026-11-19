@@ -157,7 +157,9 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		if len(x.Args) != 1 {
 			irNo("len form")
 		}
-		switch t := b.l.info.Types[x.Args[0]].(type) {
+		// A named type over a slice or Map (a Go package's url.Values)
+		// is Go's len of it too (IR-GOCALLS-3).
+		switch t := b.l.info.Types[x.Args[0]]; underEqual(t).(type) {
 		case *check.Slice, *check.Map:
 		default:
 			// A string, or a named type over one (std fs.Text, the

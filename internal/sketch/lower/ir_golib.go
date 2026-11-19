@@ -96,7 +96,7 @@ func (b *irBuilder) hostBound(x *syntax.CallExpr, c *check.Call, f *check.Func, 
 	vals := make([]*irExpr, len(ls))
 	for i, l := range ls {
 		var vpre []*irStmt
-		vpre, vals[i] = b.hostResult(f, results[i], l, -1, x, p)
+		vpre, vals[i] = b.hostResult(hostTargetName(f), results[i], l, -1, x, p)
 		pre = append(pre, vpre...)
 	}
 	switch len(vals) {
@@ -132,14 +132,14 @@ func (b *irBuilder) rawGoType(t check.Type, site syntax.Node) string {
 // the pointer otherwise; a go.Ref is r, after the defect Go's nil raises
 // when the call did not fail (goNilCheck); any other result is r itself.
 // errL is the local of the call's error, -1 for a call that cannot fail.
-func (b *irBuilder) hostResult(f *check.Func, t check.Type, r, errL int, site syntax.Node, p irPos) ([]*irStmt, *irExpr) {
+func (b *irBuilder) hostResult(name string, t check.Type, r, errL int, site syntax.Node, p irPos) ([]*irStmt, *irExpr) {
 	rv := &irExpr{K: "local", Pos: p, I: r}
 	if isGoRef(t) {
-		return []*irStmt{b.goNilCheck(f, t, r, errL, site, p)}, rv
+		return []*irStmt{b.goNilCheck(name, t, r, errL, site, p)}, rv
 	}
 	if !b.optionResult(t) {
 		if b.l.holdsValue(t) {
-			return nil, b.goResultCopy(f, t, rv, site)
+			return nil, b.goResultCopy(name, t, rv, site)
 		}
 		return nil, rv
 	}
@@ -246,8 +246,8 @@ func hostTargetName(f *check.Func) string {
 // goResult gives it (IR-GOCALLS-2): the value rule's deep copy, since Go
 // may still write it (V8), unless Go made it new (a validated fresh row,
 // goFresh: strings.Split) or only Go takes it (goShare, H4 and H5).
-func (b *irBuilder) goResultCopy(f *check.Func, t check.Type, rv *irExpr, site syntax.Node) *irExpr {
-	if !valueRule() || goFresh(site, hostTargetName(f)) {
+func (b *irBuilder) goResultCopy(name string, t check.Type, rv *irExpr, site syntax.Node) *irExpr {
+	if !valueRule() || goFresh(site, name) {
 		return rv
 	}
 	if e, ok := site.(syntax.Expr); ok && b.l.valueFacts().goShare[e] {
@@ -260,8 +260,7 @@ func (b *irBuilder) goResultCopy(f *check.Func, t check.Type, rv *irExpr, site s
 // f, which is never nil (docs/spec/interop.md, go.Ref): when Go returned
 // nil and no error (errL, -1 for a call that cannot fail), the call is a
 // defect naming the Go target and the Ergo site, v1.GoNilDefect.
-func (b *irBuilder) goNilCheck(f *check.Func, t check.Type, r, errL int, site syntax.Node, p irPos) *irStmt {
-	name := hostTargetName(f)
+func (b *irBuilder) goNilCheck(name string, t check.Type, r, errL int, site syntax.Node, p irPos) *irStmt {
 	var cond *irExpr = &irExpr{K: "bin", Pos: p, Op: "==", X: &irExpr{K: "local", Pos: p, I: r}, Y: &irExpr{K: "zero", Pos: p, T: b.goType(t, site)}}
 	if errL >= 0 {
 		noErr := &irExpr{K: "bin", Pos: p, Op: "==", X: &irExpr{K: "local", Pos: p, I: errL}, Y: &irExpr{K: "zero", Pos: p, T: "error"}}
@@ -356,14 +355,14 @@ func (b *irBuilder) hostBind(call *syntax.CallExpr) (pre []*irStmt, v, e int, ok
 		pre = append(pre, &irStmt{K: "set", Pos: p, Local: e, X: &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: conv, Args: []*irExpr{errL}}})
 	}
 	if v >= 0 {
-		vpre, val := b.hostResult(f, results[0], v, e, call, p)
+		vpre, val := b.hostResult(hostTargetName(f), results[0], v, e, call, p)
 		pre, v = append(pre, vpre...), val.I
 	}
 	if tuple != nil {
 		vals := make([]*irExpr, len(rs))
 		for i, r := range rs {
 			var vpre []*irStmt
-			vpre, vals[i] = b.hostResult(f, results[i], r, e, call, p)
+			vpre, vals[i] = b.hostResult(hostTargetName(f), results[i], r, e, call, p)
 			pre = append(pre, vpre...)
 		}
 		v = b.temp("v", b.goType(tuple, call), p)
@@ -403,7 +402,11 @@ func (b *irBuilder) hostRet(call *syntax.CallExpr, p irPos) ([]*irStmt, bool) {
 // address: a pointer, or a value whose method has a value receiver.
 func (b *irBuilder) hostRecvOf(f *check.Func, recv syntax.Expr) {
 	t := b.l.info.Types[recv]
-	if !hostRecv(t) || b.l.holdsValue(t) {
+	// A receiver that holds a slice or Map (url.Values, http.Header) is
+	// an operand like any other: the value rule's copy, when it copies
+	// it, is operands' (valueCopy), as callArgs gives the emitter's
+	// (IR-GOCALLS-3).
+	if !hostRecv(t) {
 		irNo("Go method call on a receiver of another type")
 	}
 	if strings.HasPrefix(b.fc.goType(t), "*") {
