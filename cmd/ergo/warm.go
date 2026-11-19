@@ -74,7 +74,15 @@ func prepareWarm(opts fileOptions, tc *build.Toolchain, extra ...string) (*warm,
 		if !ok {
 			return nil, nil
 		}
-		parts = append(parts, stamp, tc.Root, tc.GOOS+"/"+tc.GOARCH, tc.GOFLAGS, strings.Join(tc.Tags, ","), strconv.FormatBool(tc.GoBuild)+" "+strconv.FormatBool(tc.Strip))
+		// A CPU level --platform states (build.Toolchain.Level) chooses
+		// the executable's instructions, so another level is another
+		// request; the environment's GOAMD64 or GOARM64 is in WarmKey's
+		// GO* variables already, and no level leaves the key as it was.
+		target := tc.GOOS + "/" + tc.GOARCH
+		if tc.Level != "" {
+			target += "/" + tc.Level
+		}
+		parts = append(parts, stamp, tc.Root, target, tc.GOFLAGS, strings.Join(tc.Tags, ","), strconv.FormatBool(tc.GoBuild)+" "+strconv.FormatBool(tc.Strip))
 	}
 	key := sketchfront.WarmKey(append(slices.Clone(parts), extra...)...)
 	if key == "" {

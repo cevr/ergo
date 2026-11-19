@@ -188,6 +188,11 @@ type fileOptions struct {
 	args []string
 	// platform is the GOOS/GOARCH the command checks for (platformOf).
 	platform gobind.Platform
+	// level is build's CPU level, the third part of --platform
+	// OS/ARCH/LEVEL (linux/amd64/v3, darwin/arm64/v8.2): GOAMD64 or
+	// GOARM64 of the build (build.Toolchain.Level); empty is the
+	// environment's, else Go's default.
+	level string
 	// goText is build's -go-text DIR: build through IR and write the Go
 	// text of what was compiled into DIR (buildGoText).
 	goText string
@@ -432,7 +437,13 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 		return opts, fmt.Errorf("incorrect arguments for %s", command)
 	}
 	var err error
+	if platformed {
+		platform, opts.level = cutLevel(platform)
+	}
 	if opts.platform, err = platformOf(platform, platformed, os.Getenv("GOOS"), os.Getenv("GOARCH")); err != nil {
+		return opts, err
+	}
+	if err := checkLevel(opts.platform.GOARCH, opts.level); err != nil {
 		return opts, err
 	}
 	opts.file = positional[0]
