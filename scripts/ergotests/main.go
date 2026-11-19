@@ -28,6 +28,7 @@ import (
 	"slices"
 	"strings"
 
+	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/eval"
 	"ergo.local/prototype/internal/sketchfront"
 )
@@ -75,7 +76,8 @@ func runAll(w io.Writer, patterns []string, sel *regexp.Regexp) int {
 // when ergo names the binary: the build that decides laws, so a host
 // module's law (hosts/mygo/desktop's FitIsBroken) kills from the
 // repository root (LAW-KILLER). Its emission cache is a directory of the
-// run's own unless ERGO_CACHE is set.
+// run's own unless ERGO_CACHE is set. A std package's law runs in-package
+// (evaluate) and is decided at check time or not at all (STD-LAW-RUN).
 func runKiller(w io.Writer, patterns []string, name, ergo string) int {
 	law, isLaw := strings.CutPrefix(name, "law:")
 	if !isLaw {
@@ -87,7 +89,9 @@ func runKiller(w io.Writer, patterns []string, name, ergo string) int {
 	}
 	var undecided []string
 	code := runPickedThen(w, patterns, match, func(dir string, r eval.Result) bool {
-		if r.Status == eval.Skipped || r.Status == eval.Incomplete {
+		// A std law ergo test cannot reach (a std folder does not check
+		// as a folder): undecided at check time, it is no killer.
+		if (r.Status == eval.Skipped || r.Status == eval.Incomplete) && !isStd(dir) {
 			if !slices.Contains(undecided, dir) {
 				undecided = append(undecided, dir)
 			}
@@ -202,16 +206,7 @@ func runDir(w io.Writer, dir string, match func(string) bool, judge func(dir str
 		fmt.Fprintf(w, "FAIL %s: %v\n", dir, err)
 		return 0, false
 	}
-	a, err := sketchfront.CheckDir(abs)
-	if err != nil {
-		fmt.Fprintf(w, "FAIL %s: %v\n", dir, err)
-		return 0, false
-	}
-	if len(a.Diagnostics) != 0 {
-		fmt.Fprintf(w, "FAIL %s does not check: %v\n", dir, a.Diagnostics)
-		return 0, false
-	}
-	rep, err := a.Evaluate(eval.DefaultBudget())
+	rep, err := evaluate(abs)
 	if err != nil {
 		fmt.Fprintf(w, "FAIL %s: %v\n", dir, err)
 		return 0, false
@@ -230,6 +225,48 @@ func runDir(w io.Writer, dir string, match func(string) bool, judge func(dir str
 		fmt.Fprintf(w, "FAIL %s: %s (%s:%d) is %s: %s\n", dir, r.Name, r.Site.File, r.Site.Line, r.Status, r.Reason)
 	}
 	return n, ok
+}
+
+// stdRoot is the directory of the standard library's sources, from the
+// repository root.
+const stdRoot = "internal/sketch/std"
+
+// evaluate checks the package in dir and runs its obligations at check
+// time. A std package (under stdRoot) is checked as std, in-package: the
+// standard library this binary embeds, so its laws may call the
+// package's private functions and its trusted Go (STD-LAW-RUN, #162);
+// checked as a folder it has diagnostics of its own (S108). The mutant
+// runner builds this binary in the mutated copy, so it embeds the mutant.
+// Any other package is checked as `ergo check` checks a folder.
+func evaluate(abs string) (eval.Report, error) {
+	if rel, ok := stdPath(abs); ok {
+		pkg, err := check.Std.Import(rel)
+		if err != nil {
+			return eval.Report{}, err
+		}
+		return eval.Run(pkg, eval.DefaultBudget())
+	}
+	a, err := sketchfront.CheckDir(abs)
+	if err != nil {
+		return eval.Report{}, err
+	}
+	if len(a.Diagnostics) != 0 {
+		return eval.Report{}, fmt.Errorf("does not check: %v", a.Diagnostics)
+	}
+	return a.Evaluate(eval.DefaultBudget())
+}
+
+// stdPath is the std import path of the directory abs, when it is one.
+func stdPath(abs string) (string, bool) {
+	_, rel, ok := strings.Cut(filepath.ToSlash(abs), "/"+stdRoot+"/")
+	return rel, ok
+}
+
+// isStd says whether dir is a std package's directory.
+func isStd(dir string) bool {
+	abs, err := filepath.Abs(dir)
+	_, ok := stdPath(abs)
+	return err == nil && ok
 }
 
 // holds says whether an obligation's result passes the run: a test only
