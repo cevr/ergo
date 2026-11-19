@@ -27,8 +27,8 @@ const genHelp = "usage: ergo gen api [--check] DIR.OPTYPE\n" +
 	"operation type as data (Request, Op, Reply, Failure, Outcome), Call, the\n" +
 	"one dispatch, Client, a provider over any way to send a Request, and the\n" +
 	"laws CallIsTheOperation and ClientIsCall. Each transport below is\n" +
-	"written over it: run ergo gen api first, and again when the contract\n" +
-	"changes.\n\n" +
+	"written over it, and writes it too: ergo gen rpc, cli and mcp write\n" +
+	"the hub beside their own package, and --check checks both.\n\n" +
 	"ergo gen rpc writes the Effect RPC server and client: Ergo source over\n" +
 	"std rpc in DIR/<pkg>rpc/ (wire.ergo, server.ergo, client.ergo).\n\n" +
 	"ergo gen cli writes its command line: Ergo source over std flag in\n" +
@@ -90,20 +90,21 @@ func genCommand(args []string) error {
 	if err != nil {
 		return exitStatusError{code: 1, message: name + ": " + err.Error()}
 	}
-	target := filepath.Join(dir, out.Dir)
-	names := genNames(out)
 	if *checkOnly {
 		if stale := staleFiles(dir, out); len(stale) > 0 {
 			return exitStatusError{code: 1, message: fmt.Sprintf("%s: %s is stale; run %s %s", name, strings.Join(stale, ", "), name, arg)}
 		}
 		return nil
 	}
-	if err := os.MkdirAll(target, 0o755); err != nil {
-		return exitStatusError{code: 1, message: name + ": " + err.Error()}
-	}
-	for _, file := range names {
-		if err := os.WriteFile(filepath.Join(target, file), []byte(out.Files[file]), 0o644); err != nil {
+	for _, pkg := range out {
+		target := filepath.Join(dir, pkg.Dir)
+		if err := os.MkdirAll(target, 0o755); err != nil {
 			return exitStatusError{code: 1, message: name + ": " + err.Error()}
+		}
+		for _, file := range genNames(pkg) {
+			if err := os.WriteFile(filepath.Join(target, file), []byte(pkg.Files[file]), 0o644); err != nil {
+				return exitStatusError{code: 1, message: name + ": " + err.Error()}
+			}
 		}
 	}
 	return nil
@@ -111,12 +112,31 @@ func genCommand(args []string) error {
 
 // genFiles is what `ergo gen KIND` writes now for the operation type
 // opName of the checked package pkg in dir, whose import path is path:
-// the hub for api, else the kind package over the hub (genOverHub).
-func genFiles(kind string, pkg *check.Package, dir, path, opName string) (rpcgen.Files, error) {
-	if kind == "api" {
-		return apigen.Generate(pkg, path, opName)
+// the hub, and for rpc, cli and mcp the kind package written over it.
+// A transport writes the hub it names, so no order of gen commands can
+// leave it naming a missing or stale one.
+func genFiles(kind string, pkg *check.Package, dir, path, opName string) ([]rpcgen.Files, error) {
+	hub, err := apigen.Generate(pkg, path, opName)
+	if err != nil {
+		return nil, err
 	}
-	return genOverHub(pkg, dir, path, opName, kind)
+	if kind == "api" {
+		return []rpcgen.Files{hub}, nil
+	}
+	apiPath := path + "/" + hub.Dir
+	var out rpcgen.Files
+	switch kind {
+	case "rpc":
+		out, err = rpcgen.Generate(pkg, path, opName, apiPath)
+	case "cli":
+		out, err = cligen.Generate(pkg, path, opName, apiPath)
+	default:
+		out, err = mcpgen.Generate(pkg, path, opName, apiPath)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return []rpcgen.Files{hub, out}, nil
 }
 
 // genNames are the generated files' names, sorted.
@@ -131,51 +151,18 @@ func genNames(out rpcgen.Files) []string {
 
 // staleFiles are the files of out, generated for the package in dir, that
 // differ from what dir holds: `ergo gen --check`'s verdict.
-func staleFiles(dir string, out rpcgen.Files) []string {
-	target := filepath.Join(dir, out.Dir)
+func staleFiles(dir string, out []rpcgen.Files) []string {
 	var stale []string
-	for _, name := range genNames(out) {
-		have, err := os.ReadFile(filepath.Join(target, name))
-		if err != nil || !bytes.Equal(have, []byte(out.Files[name])) {
-			stale = append(stale, filepath.Join(target, name))
+	for _, pkg := range out {
+		target := filepath.Join(dir, pkg.Dir)
+		for _, name := range genNames(pkg) {
+			have, err := os.ReadFile(filepath.Join(target, name))
+			if err != nil || !bytes.Equal(have, []byte(pkg.Files[name])) {
+				stale = append(stale, filepath.Join(target, name))
+			}
 		}
 	}
 	return stale
-}
-
-// genOverHub is the kind package of the contract (rpc, cli or mcp), over
-// its hub, DIR/<pkg>api, which must exist and be what ergo gen api writes
-// now, so every transport names one Request and calls one Call.
-func genOverHub(pkg *check.Package, dir, path, opName, kind string) (rpcgen.Files, error) {
-	apiPath, err := currentAPI(pkg, dir, path, opName, kind)
-	if err != nil {
-		return rpcgen.Files{}, err
-	}
-	switch kind {
-	case "rpc":
-		return rpcgen.Generate(pkg, path, opName, apiPath)
-	case "cli":
-		return cligen.Generate(pkg, path, opName, apiPath)
-	}
-	return mcpgen.Generate(pkg, path, opName, apiPath)
-}
-
-// currentAPI is the import path of DIR/<pkg>api; a missing hub, or a file
-// of it that differs from what ergo gen api writes now, fails, since the
-// kind package names its Request and calls its Call.
-func currentAPI(pkg *check.Package, dir, path, opName, kind string) (string, error) {
-	glue, err := apigen.Generate(pkg, path, opName)
-	if err != nil {
-		return "", err
-	}
-	apiDir := filepath.Join(dir, glue.Dir)
-	for file, text := range glue.Files {
-		have, err := os.ReadFile(filepath.Join(apiDir, file))
-		if err != nil || !bytes.Equal(have, []byte(text)) {
-			return "", fmt.Errorf("%s is missing or stale, and the %s package is written over the hub; run ergo gen api first", filepath.Join(apiDir, file), kind)
-		}
-	}
-	return path + "/" + glue.Dir, nil
 }
 
 // importPath is the import path of the package folder dir: its module's

@@ -20,7 +20,8 @@ var gateWork = []string{
 }
 
 // TestGateReplaysWhatHolds runs the gate over a module of a contract
-// package and the rpc package ergo gen writes for it. A second run on the
+// package and the hub ergo gen api writes for it (its laws run at check
+// time, so nothing is built; a transport with a native law would build). A second run on the
 // unchanged module starts no work: every work counter stays, and every
 // verdict is replayed. A new file the packages do not read misses the
 // module's verdict, and fmt, lint and gen replay from their stores. A
@@ -42,7 +43,7 @@ func TestGateReplaysWhatHolds(t *testing.T) {
 	smokeWrite(t, mod, "ergo.mod", "module mod\n")
 	smokeWrite(t, mod, "api/api.ergo", "// Package api is the gate test's contract.\n\n// Item is what Read answers.\ntype Item { Count int }\n\n// API reads items.\ntype API { Read(key string) Item }\n")
 	t.Chdir(mod)
-	if err := genCommand([]string{"rpc", "api.API"}); err != nil {
+	if err := genCommand([]string{"api", "api.API"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := formatCommand([]string{"./..."}); err != nil {
@@ -104,15 +105,15 @@ func TestGateReplaysWhatHolds(t *testing.T) {
 		}
 	}
 
-	// A changed contract: the rpc package is stale.
+	// A changed contract: the hub is stale.
 	smokeWrite(t, mod, "api/api.ergo", "// Package api is the gate test's contract.\n\n// Item is what Read answers.\ntype Item { Count int, Note string }\n\n// API reads items.\ntype API { Read(key string) Item }\n")
 	if err := formatCommand([]string{"./..."}); err != nil {
 		t.Fatal(err)
 	}
-	if failed := runGate(t, mod).Failed; !hasFailure(failed, "gen", "apirpc") {
-		t.Errorf("a changed contract: failures %v, want gen --check of apirpc", failed)
+	if failed := runGate(t, mod).Failed; !hasFailure(failed, "gen", "apiapi") {
+		t.Errorf("a changed contract: failures %v, want gen --check of apiapi", failed)
 	}
-	if err := genCommand([]string{"rpc", "api.API"}); err != nil {
+	if err := genCommand([]string{"api", "api.API"}); err != nil {
 		t.Fatal(err)
 	}
 
