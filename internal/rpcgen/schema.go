@@ -46,6 +46,18 @@ func ArgumentSchema(pkg *check.Package, path, opName string, op Op) (string, err
 	return s, nil
 }
 
+// TypeExpr is t written in the source of a package generated beside the
+// hub of pkg (whose import path is path), with the imports it names, by
+// path: what the hub writes for a parameter's type.
+func TypeExpr(pkg *check.Package, path string, t check.Type) (string, map[string]string, error) {
+	g := &hubGen{pkg: pkg, path: path, imports: map[string]string{}}
+	s := g.expr(t)
+	if g.err != nil {
+		return "", nil, g.err
+	}
+	return s, g.imports, nil
+}
+
 // Lit is s as an Ergo string literal, as the hub writes one.
 func Lit(s string) string { return lit(s) }
 
