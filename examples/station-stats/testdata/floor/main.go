@@ -1,12 +1,25 @@
-// Command control is the hand-optimized Go control of examples/onebrc, the
-// One Billion Row Challenge: the bar the Ergo program must meet
-// (TestOneBRCCountsAsHandGo). It reads the same input, keeps the same
+// Command floor is the Go-runtime floor of examples/station-stats (common.md
+// GO-RUNTIME FLOOR), counted in user instructions per row: the hand Go
+// control (cmd/ergo/testdata/station-stats/control) with its row loop cut to the
+// fewest instructions found. It reads the same input, keeps the same
 // contract (a malformed line and more than 10,000 stations are reported,
 // never a panic) and prints the same bytes.
 //
-//	control FILE [WORKERS]
+//	floor FILE [WORKERS]
 //
-// Method (Hoyt's r9, Yastrebov's Go and Wuerthinger's Java): the file is
+// Against the control, the common row (a name of 1 to 15 bytes already in
+// the table, a well-formed temperature) takes hit, a function of its own
+// whose few live values stay in registers (the control's one loop body
+// spills its slices and words to the stack on every row): it loads the
+// second word only when the first holds no ';', reads the temperature
+// with one branch on its form instead of the control's branchless word
+// arithmetic, and indexes a fixed-size table under a mask (no bounds
+// check). Every other row (a new station, a longer name, a malformed or
+// last line) takes the control's general path unchanged. Measured
+// 2026-11-18 by hand (perf stat, one worker, gen 1M and 3M rows seed 7):
+// control 302 instructions per row, floor 210, short-name rows alone 189.
+//
+// The control's method: the file is
 // mapped read-only, split at line starts into one chunk per worker, and
 // each worker fills its own open-addressing table keyed by the station's
 // first 16 bytes, its length and, past 16 bytes, its bytes in the file.
@@ -78,13 +91,13 @@ type part struct {
 
 func main() {
 	if len(os.Args) < 2 || len(os.Args) > 3 {
-		fail(2, "usage: control FILE [WORKERS]")
+		fail(2, "usage: floor FILE [WORKERS]")
 	}
 	workers := runtime.NumCPU()
 	if len(os.Args) == 3 {
 		n, err := strconv.Atoi(os.Args[2])
 		if err != nil || n < 1 {
-			fail(2, "control: WORKERS must be a count")
+			fail(2, "floor: WORKERS must be a count")
 		}
 		workers = n
 	}
@@ -105,18 +118,18 @@ func fail(code int, msg string) {
 func mapFile(path string) []byte {
 	f, err := os.Open(path)
 	if err != nil {
-		fail(1, "onebrc: "+path+": no such file")
+		fail(1, "station-stats: "+path+": no such file")
 	}
 	st, err := f.Stat()
 	if err != nil {
-		fail(1, "control: "+err.Error())
+		fail(1, "floor: "+err.Error())
 	}
 	if st.Size() == 0 {
 		return nil
 	}
 	data, err := syscall.Mmap(int(f.Fd()), 0, int(st.Size()), syscall.PROT_READ, syscall.MAP_SHARED)
 	if err != nil {
-		fail(1, "control: "+err.Error())
+		fail(1, "floor: "+err.Error())
 	}
 	return data
 }
@@ -137,7 +150,7 @@ func run(text []byte, workers int) ([]byte, int) {
 	overflow := false
 	for _, p := range parts {
 		if p.bad >= 0 {
-			return []byte(fmt.Sprintf("onebrc: malformed line at byte %d: %s\n", p.bad, reasonText[p.reason])), 1
+			return []byte(fmt.Sprintf("station-stats: malformed line at byte %d: %s\n", p.bad, reasonText[p.reason])), 1
 		}
 		overflow = overflow || p.overflow
 	}
@@ -158,7 +171,7 @@ func run(text []byte, workers int) ([]byte, int) {
 		}
 	}
 	if overflow || len(total) > maxStations {
-		return []byte("onebrc: more than 10000 stations\n"), 1
+		return []byte("station-stats: more than 10000 stations\n"), 1
 	}
 	names := make([]string, 0, len(total))
 	for name := range total {
@@ -319,26 +332,90 @@ func words(text []byte, p, n int) (w0, w1 uint64) {
 	return w0, w1
 }
 
+// hit is the common row, at p with fastMargin bytes after it: a name of 1
+// to 15 bytes already in slots, and a well-formed temperature. It counts
+// the row and returns the next line's start, or -1 for any other row
+// (which scan's general path takes, from p, as the control does). It is a
+// function of its own so that its few live values stay in registers.
+func hit(slots *[tableSize]slot, all []byte, p int) int {
+	text := all[p : p+fastMargin]
+	var w1 uint64
+	n := 0
+	w0 := le64(text, 0)
+	if s0 := lanes(w0, semis); s0 != 0 {
+		n = bits.TrailingZeros64(s0) >> 3
+		w0 &= 1<<(uint(n)*8&63) - 1
+	} else {
+		w1 = le64(text, 8)
+		s1 := lanes(w1, semis)
+		if s1 == 0 {
+			return -1
+		}
+		n = 8 + bits.TrailingZeros64(s1)>>3
+		w1 &= 1<<(uint(n-8)*8&63) - 1
+	}
+	if n == 0 || lanes(w0, newlines)|lanes(w1, newlines) != 0 {
+		return -1
+	}
+	// The temperature, "-?d?d.d\n" (b0 and b2 have '0' taken off).
+	w := le64(text, n+1)
+	sign := 0
+	if w&0xFF == '-' {
+		sign = 1
+		w >>= 8
+	}
+	b0, b1, b2, b3 := byte(w)-'0', byte(w>>8), byte(w>>16)-'0', byte(w>>24)
+	var value, width int
+	switch {
+	case b1 == '.' && b3 == '\n' && b0 <= 9 && b2 <= 9:
+		value, width = int(b0)*10+int(b2), 3
+	case b2 == 0xFE && byte(w>>32) == '\n' && b0 <= 9 && b1-'0' <= 9 && b3-'0' <= 9:
+		value, width = int(b0)*100+int(b1-'0')*10+int(b3-'0'), 4
+	default:
+		return -1
+	}
+	value = (value ^ -sign) + sign
+	for h := hash(w0, w1); ; h = (h + 1) & (tableSize - 1) {
+		s := &slots[h&(tableSize-1)]
+		if s.n == n && s.w0 == w0 && s.w1 == w1 {
+			s.min = min(s.min, value)
+			s.max = max(s.max, value)
+			s.sum += value
+			s.cnt++
+			return p + n + width + sign + 2
+		}
+		if s.n == 0 {
+			return -1 // a new station: the general path adds it
+		}
+	}
+}
+
 func scan(text []byte, p, end int) part {
-	slots := make([]slot, tableSize)
+	slots := new([tableSize]slot)
 	used := make([]int, 0, 1024)
 	for p < end {
+		if p+fastMargin <= len(text) {
+			if next := hit(slots, text, p); next >= 0 {
+				p = next
+				continue
+			}
+		}
 		var w0, w1 uint64
 		var n, value, next int
 		fast := false
 		if p+fastMargin <= len(text) {
-			w0 = le64(text, p)
-			w1 = le64(text, p+8)
-			s0 := lanes(w0, semis)
-			s1 := lanes(w1, semis)
+			// The name: the first word, and the second only when the
+			// first holds no ';' (most names are under 8 bytes).
 			var bad uint64
-			if s0|s1 != 0 {
-				// A name of up to 15 bytes, with no branch on which
-				// word ends it: z is 1 when the first word has no ';'.
-				z := ((s0 - 1) &^ s0) >> 63
-				w0 &= below(s0)
-				w1 &= below(s1) & -z
-				n = bits.TrailingZeros64(s0)>>3 + bits.TrailingZeros64(s1)>>3&-int(z)
+			w0 = le64(text, p)
+			if s0 := lanes(w0, semis); s0 != 0 {
+				n = bits.TrailingZeros64(s0) >> 3
+				w0 &= 1<<(uint(n)*8&63) - 1
+				bad = lanes(w0, newlines)
+			} else if w1 = le64(text, p+8); lanes(w1, semis) != 0 {
+				s1 := lanes(w1, semis)
+				n = 8 + bits.TrailingZeros64(s1)>>3
+				w1 &= 1<<(uint(n-8)*8&63) - 1
 				bad = lanes(w0, newlines) | lanes(w1, newlines)
 			} else {
 				bad = lanes(w0, newlines) | lanes(w1, newlines)
@@ -352,9 +429,29 @@ func scan(text []byte, p, end int) part {
 					bad |= lanes(w, newlines)
 				}
 			}
-			v, width, tbad := temp(le64(text, p+n+1))
-			value, next = v, p+n+width+2
-			fast = bad|tbad == 0 && uint(n-1) < maxName
+			// The temperature, "-?d?d.d\n", with a branch on its form
+			// (b0 and b2 have '0' taken off: '.' is 0xFE in b2).
+			w := le64(text, p+n+1)
+			neg := w&0xFF == '-'
+			sign := 0
+			if neg {
+				w >>= 8
+				sign = 1
+			}
+			b0, b1, b2, b3 := byte(w)-'0', byte(w>>8), byte(w>>16)-'0', byte(w>>24)
+			ok := false
+			width := 0
+			switch {
+			case b1 == '.' && b3 == '\n' && b0 <= 9 && b2 <= 9:
+				value, width, ok = int(b0)*10+int(b2), 3, true
+			case b2 == 0xFE && byte(w>>32) == '\n' && b0 <= 9 && b1-'0' <= 9 && b3-'0' <= 9:
+				value, width, ok = int(b0)*100+int(b1-'0')*10+int(b3-'0'), 4, true
+			}
+			if neg {
+				value = -value
+			}
+			next = p + n + width + sign + 2
+			fast = ok && bad == 0 && uint(n-1) < maxName
 		}
 		if !fast {
 			var reason int
@@ -387,7 +484,7 @@ func scan(text []byte, p, end int) part {
 		}
 		p = next
 	}
-	return part{slots: slots, used: used, bad: -1}
+	return part{slots: slots[:], used: used, bad: -1}
 }
 
 // validate parses the lines from p to end: the start of the first

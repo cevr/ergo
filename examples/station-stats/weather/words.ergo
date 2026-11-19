@@ -39,8 +39,8 @@ type Temp { Tenths int, Width int, Bad uint64 }
 
 // ReadTemp reads the temperature at the start of w: its tenths, the width
 // of its text before the newline, and Bad, 0 exactly when w holds that
-// form. It has no branch (Wuerthinger's multiply turns the digits into
-// the value), and every shift is by a count below 64 (& 63), so Go makes
+// form. It has no branch (one multiply turns the digits into the
+// value), and every shift is by a count below 64 (& 63), so Go makes
 // one instruction of each.
 func ReadTemp(w uint64) Temp {
 	let neg = (((w ^ 0x2D) & 0xFF) - 1) >> 63

@@ -1,8 +1,8 @@
-// onebrc is the One Billion Row Challenge: it reads lines
+// station-stats summarizes weather stations: it reads lines
 // "<station>;<temperature>" and prints each station's minimum, mean and
 // maximum, sorted by station.
 //
-//	onebrc FILE [WORKERS]   summarize FILE with WORKERS chunks at once
+//	station-stats FILE [WORKERS]   summarize FILE with WORKERS chunks at once
 //	                        (default: one per core)
 //
 // This binary is the only place that chooses the providers: the host's
@@ -10,13 +10,13 @@
 
 import fs
 import go runtime
-import onebrc/mapped
-import onebrc/weather
+import station-stats/mapped
+import station-stats/weather
 import os
 import strconv
 
 // Usage is the text of a usage failure.
-let Usage = "usage: onebrc FILE [WORKERS]"
+let Usage = "usage: station-stats FILE [WORKERS]"
 
 // Command is what the arguments ask for.
 type Command { Path string, Workers int }
@@ -29,10 +29,10 @@ func Parse(args []string, cores int) Command fails os.Exit {
 	case 2:
 		let n = strconv.Atoi(args[1]) catch {
 		case strconv.Malformed, strconv.OutOfRange:
-			return os.Exit{Code: 2, Message: "onebrc: WORKERS must be a count\n\(Usage)"}
+			return os.Exit{Code: 2, Message: "station-stats: WORKERS must be a count\n\(Usage)"}
 		}
 		if n < 1 {
-			return os.Exit{Code: 2, Message: "onebrc: WORKERS must be a count\n\(Usage)"}
+			return os.Exit{Code: 2, Message: "station-stats: WORKERS must be a count\n\(Usage)"}
 		}
 		Command{Path: args[0], Workers: n}
 	case _:
@@ -45,13 +45,13 @@ func Parse(args []string, cores int) Command fails os.Exit {
 func Summary(c Command) string fails os.Exit needs weather.Readings {
 	let input = weather.Readings.Open(c.Path) catch {
 	case weather.Unreadable as u:
-		return os.Exit{Code: 1, Message: "onebrc: \(u.Path): \(u.Reason)"}
+		return os.Exit{Code: 1, Message: "station-stats: \(u.Path): \(u.Reason)"}
 	}
 	let stations = weather.Summarize(input.Text(), c.Workers) catch {
 	case weather.Malformed as m:
-		return os.Exit{Code: 1, Message: "onebrc: malformed line at byte \(m.Offset): \(weather.Explain(m.Reason))"}
+		return os.Exit{Code: 1, Message: "station-stats: malformed line at byte \(m.Offset): \(weather.Explain(m.Reason))"}
 	case weather.TooManyStations:
-		return os.Exit{Code: 1, Message: "onebrc: more than \(weather.MaxStations) stations"}
+		return os.Exit{Code: 1, Message: "station-stats: more than \(weather.MaxStations) stations"}
 	}
 	weather.Report(stations)
 }

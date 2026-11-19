@@ -1,4 +1,4 @@
-// Package weather is the domain of the One Billion Row Challenge: weather
+// Package weather is the domain of station statistics: weather
 // stations, their temperature readings in tenths of a degree, and the
 // summary of each station. Stats merge by a law-abiding operation, which
 // is what lets the readings be counted in parallel chunks and the chunks

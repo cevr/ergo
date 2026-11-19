@@ -76,7 +76,7 @@ A program's `workload` file tells `scripts/opcount` (docs/tooling.md, "Counted r
 - `control DIR`: the hand Go control, a Go main package `DIR` from the repository root, run with the same arguments and input; `opcount -control` measures it beside the program and requires the same output.
 - `floor DIR`: the Go-runtime floor, a Go main package `DIR` that does the same job at the least work the Go runtime allows (packed data, no interface call or allocation it can avoid), run with the same arguments and input; `opcount -control` measures it beside the program and the control, requires the same output, and prints the program's ratio to it beside the ratio to the control.
 
-`{n}` must appear in `args` or in the input's arguments. `lru`, `stackvm`, `onebrc`, `vt`, `toktree` and `tn1-lint` hold one; `flattree`, `jsonparse`, `mdhtml`, `tomlparse` and `twig` keep theirs in their `workload` package, as `workload/workload`. A package folder named `workload` (the DOD programs' document writers, as `twig`'s) is a package, not this file.
+`{n}` must appear in `args` or in the input's arguments. `lru`, `stackvm`, `station-stats`, `vt`, `toktree` and `tn1-lint` hold one; `flattree`, `jsonparse`, `mdhtml`, `tomlparse` and `twig` keep theirs in their `workload` package, as `workload/workload`. A package folder named `workload` (the DOD programs' document writers, as `twig`'s) is a package, not this file.
 
 ## TypeScript leg
 

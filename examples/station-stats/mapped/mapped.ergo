@@ -3,7 +3,7 @@
 // page cache holds it, with no copy. The Mapped's Close unmaps it.
 
 import fs
-import onebrc/weather
+import station-stats/weather
 
 // Files reads the host's files. Only New makes one.
 type Files { host fs.Host } implements weather.Readings

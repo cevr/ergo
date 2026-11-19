@@ -17,10 +17,10 @@ import (
 	"ergo.local/prototype/internal/proclimit"
 )
 
-// TestOneBRCAgrees is the correctness property of examples/onebrc (the One
+// TestStationStatsAgrees is the correctness property of examples/station-stats (the One
 // Billion Row Challenge): on seeded inputs, the Ergo program and the hand
-// Go control (testdata/onebrc/control) print exactly what a plain
-// reference prints (oneBRCReference, Hoyt's r1 with the contract's
+// Go control (testdata/station-stats/control) print exactly what a plain
+// reference prints (stationStatsReference, Hoyt's r1 with the contract's
 // checks), stdout, stderr and exit status, at a seeded worker count. The
 // inputs reach the edges: one station and 10,000 (and 10,001), names of 1
 // and 100 bytes, multibyte UTF-8, names that share their first 8 or 16
@@ -35,35 +35,35 @@ import (
 // either. Each run is bounded by proclimit, and the test waits for its
 // exit.
 //
-// It kills the example's mutants that no law sees (examples/onebrc/
+// It kills the example's mutants that no law sees (examples/station-stats/
 // testdata/mutants.json): a fast path that accepts a malformed
 // temperature, a long-name compare that stops at 16 bytes, a split that
 // cuts a line, a reduce that keeps one chunk's Stats.
-func TestOneBRCAgrees(t *testing.T) {
+func TestStationStatsAgrees(t *testing.T) {
 	needsBuild(t)
-	ergoBin, work := buildOneBRC(t)
-	control := buildOneBRCGo(t, work, "control")
+	ergoBin, work := buildStationStats(t)
+	control := buildStationStatsGo(t, work, "control")
 	dir := t.TempDir()
 	seeds := 200
 	first := uint64(1)
-	if s := os.Getenv("ONEBRC_SEED"); s != "" {
+	if s := os.Getenv("STATIONSTATS_SEED"); s != "" {
 		n, err := strconv.ParseUint(s, 10, 64)
 		if err != nil {
-			t.Fatalf("ONEBRC_SEED=%q is not a seed", s)
+			t.Fatalf("STATIONSTATS_SEED=%q is not a seed", s)
 		}
 		first, seeds = n, 1
 	}
 	for seed := first; seed < first+uint64(seeds); seed++ {
-		text, workers := oneBRCInput(seed)
+		text, workers := stationStatsInput(seed)
 		path := filepath.Join(dir, "in.txt")
 		if err := os.WriteFile(path, text, 0o644); err != nil {
 			t.Fatal(err)
 		}
-		want := oneBRCReference(text)
+		want := stationStatsReference(text)
 		for _, bin := range []string{ergoBin, control} {
-			got := runOneBRC(t, bin, path, workers)
+			got := runStationStats(t, bin, path, workers)
 			if got != want {
-				t.Fatalf("seed %d (%d bytes, %d workers): %s printed\n%s\nthe reference printed\n%s\nreplay: ONEBRC_SEED=%d go test -count=1 -run '^TestOneBRCAgrees$' ./cmd/ergo",
+				t.Fatalf("seed %d (%d bytes, %d workers): %s printed\n%s\nthe reference printed\n%s\nreplay: STATIONSTATS_SEED=%d go test -count=1 -run '^TestStationStatsAgrees$' ./cmd/ergo",
 					seed, len(text), workers, filepath.Base(bin), clip(got), clip(want), seed)
 			}
 		}
@@ -77,12 +77,12 @@ func clip(s string) string {
 	return s
 }
 
-// buildOneBRC links examples/onebrc with `ergo build` and returns the
+// buildStationStats links examples/station-stats with `ergo build` and returns the
 // binary and the emitted module's directory.
-func buildOneBRC(t *testing.T) (bin, work string) {
+func buildStationStats(t *testing.T) (bin, work string) {
 	t.Helper()
-	program := filepath.Join(smokeWorkspace(t, "examples/onebrc"), "examples", "onebrc", "cmd", "onebrc")
-	bin = filepath.Join(t.TempDir(), "onebrc")
+	program := filepath.Join(smokeWorkspace(t, "examples/station-stats"), "examples", "station-stats", "cmd", "station-stats")
+	bin = filepath.Join(t.TempDir(), "station-stats")
 	command := exec.Command(buildTestCLI(t), "build", "-work", "-o", bin, program)
 	var stdout, stderr bytes.Buffer
 	command.Stdout, command.Stderr = &stdout, &stderr
@@ -92,9 +92,9 @@ func buildOneBRC(t *testing.T) (bin, work string) {
 	return bin, workDir(t, stderr.String())
 }
 
-// buildOneBRCGo links testdata/onebrc/<name> in a module with the go line
+// buildStationStatsGo links testdata/station-stats/<name> in a module with the go line
 // of the example's emitted module in work, so one toolchain compiles both.
-func buildOneBRCGo(t *testing.T, work, name string) string {
+func buildStationStatsGo(t *testing.T, work, name string) string {
 	t.Helper()
 	mod, err := os.ReadFile(filepath.Join(work, "go.mod"))
 	if err != nil {
@@ -104,7 +104,7 @@ func buildOneBRCGo(t *testing.T, work, name string) string {
 	if goLine == nil {
 		t.Fatalf("the emitted go.mod has no go line:\n%s", mod)
 	}
-	src, err := os.ReadFile(filepath.Join("testdata", "onebrc", name, "main.go"))
+	src, err := os.ReadFile(filepath.Join("testdata", "station-stats", name, "main.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,9 +122,9 @@ func buildOneBRCGo(t *testing.T, work, name string) string {
 	return bin
 }
 
-// runOneBRC runs bin on the input at path and is its stdout, stderr and
+// runStationStats runs bin on the input at path and is its stdout, stderr and
 // exit status as one text.
-func runOneBRC(t *testing.T, bin, path string, workers int) string {
+func runStationStats(t *testing.T, bin, path string, workers int) string {
 	t.Helper()
 	command := exec.Command(bin, path, strconv.Itoa(workers))
 	var stdout, stderr bytes.Buffer
@@ -141,15 +141,15 @@ func runOneBRC(t *testing.T, bin, path string, workers int) string {
 	return fmt.Sprintf("stdout:\n%s\nstderr:\n%s\nstatus %d\n", stdout.Bytes(), stderr.Bytes(), code)
 }
 
-// oneBRCInput is the input of a seed and the worker count to run it with.
-func oneBRCInput(seed uint64) ([]byte, int) {
+// stationStatsInput is the input of a seed and the worker count to run it with.
+func stationStatsInput(seed uint64) ([]byte, int) {
 	r := rand.New(rand.NewPCG(seed, 0x0b1c))
 	counts := []int{1, 2, 7, 60, 413, 9999, 10000, 10001}
 	stations := counts[r.IntN(len(counts))]
 	if r.IntN(3) > 0 {
 		stations = min(stations, 413)
 	}
-	names := oneBRCNames(r, stations)
+	names := stationStatsNames(r, stations)
 	rows := stations
 	switch r.IntN(4) {
 	case 0:
@@ -181,15 +181,15 @@ func oneBRCInput(seed uint64) ([]byte, int) {
 		text = append(text, '.', byte('0'+a%10), '\n')
 	}
 	if r.IntN(4) == 0 {
-		text = oneBRCBreak(r, text)
+		text = stationStatsBreak(r, text)
 	}
 	workers := 1 + r.IntN(17)
 	return text, workers
 }
 
-// oneBRCNames is n distinct station names of 1 to 100 bytes, some
+// stationStatsNames is n distinct station names of 1 to 100 bytes, some
 // multibyte, some sharing their first 8 or 16 bytes.
-func oneBRCNames(r *rand.Rand, n int) []string {
+func stationStatsNames(r *rand.Rand, n int) []string {
 	runes := []string{"a", "b", "z", "Q", " ", ".", "-", "é", "ø", "ß", "ł", "中", "語", "€", "𝄞", "😀"}
 	seen := map[string]bool{}
 	var names []string
@@ -228,8 +228,8 @@ func oneBRCNames(r *rand.Rand, n int) []string {
 	return names
 }
 
-// oneBRCBreak makes one line of text malformed, or drops the last newline.
-func oneBRCBreak(r *rand.Rand, text []byte) []byte {
+// stationStatsBreak makes one line of text malformed, or drops the last newline.
+func stationStatsBreak(r *rand.Rand, text []byte) []byte {
 	starts := []int{0}
 	for i, c := range text {
 		if c == '\n' && i+1 < len(text) {
@@ -262,13 +262,13 @@ func oneBRCBreak(r *rand.Rand, text []byte) []byte {
 	return append(out, text[end:]...)
 }
 
-// oneBRCTemp is the form of a temperature.
-var oneBRCTemp = regexp.MustCompile(`^-?[0-9]{1,2}\.[0-9]$`)
+// stationStatsTemp is the form of a temperature.
+var stationStatsTemp = regexp.MustCompile(`^-?[0-9]{1,2}\.[0-9]$`)
 
-// oneBRCReference is what a correct program prints for text: Hoyt's r1
+// stationStatsReference is what a correct program prints for text: Hoyt's r1
 // (one pass, a map, the readings sorted at the end), with the contract's
 // checks of each line in file order and exact rational means.
-func oneBRCReference(text []byte) string {
+func stationStatsReference(text []byte) string {
 	type stats struct{ min, max, sum, count int }
 	all := map[string]*stats{}
 	fail := func(at int, why string) string {
@@ -291,7 +291,7 @@ func oneBRCReference(text []byte) string {
 			return fail(at, "no newline at the end of the input")
 		}
 		name, temp := string(rest[:semi]), string(rest[semi+1:end])
-		if !oneBRCTemp.MatchString(temp) {
+		if !stationStatsTemp.MatchString(temp) {
 			return fail(at, "a temperature that is not -99.9 to 99.9 with one decimal")
 		}
 		v, err := strconv.Atoi(strings.Replace(temp, ".", "", 1))

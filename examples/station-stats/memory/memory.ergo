@@ -2,7 +2,7 @@
 // tests: an input is named by a key.
 
 import fs
-import onebrc/weather
+import station-stats/weather
 
 // Texts holds the inputs by name.
 type Texts { Inputs Map[string, string] } implements weather.Readings
