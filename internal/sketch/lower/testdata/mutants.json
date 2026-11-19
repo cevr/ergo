@@ -4606,6 +4606,17 @@
       ]
     },
     {
+      "name": "lib-let-on-read-constant-only",
+      "origin": "wf10/ir-forms/STD-COPY-SAME",
+      "file": "internal/sketch/lower/sources.go",
+      "from": "return l.constantLet(p, d) || l.reached != nil && libLetLowering != \"reach\"",
+      "to": "return l.constantLet(p, d)",
+      "rule": "STD HAS NO PRIVILEGES: a sourced library's let is lowered where a lowered body reads it, as a std package's let is (D6); reach.go's first-parameter edge reaching a helper no body calls does not run the let it reads.",
+      "killers": [
+        "lower:TestReachLowersNoUnreachableDeclaration"
+      ]
+    },
+    {
       "name": "bs5-edge-types",
       "origin": "wf10 binsize BS5",
       "file": "internal/sketch/lower/reach.go",

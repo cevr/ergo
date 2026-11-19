@@ -28,7 +28,7 @@ embed	same
 exec	differs	lower: joinResult joins a call into its assignment only in a body with no line directives (std's)	follow-up join-under-directive
 explore	same
 filepath	same
-flag	differs	lower: a std package's declarations are emitted in another order than a sourced package's (flag's findIn before ergoInit)	follow-up emit-order-std
+flag	same
 fs	differs	lower: a parameter of type Text lowers to string in std, to the named type Text in the copy	follow-up std-text-named
 fstest	differs	lower: joinResult joins a call into its assignment only in a body with no line directives (std's)	follow-up join-under-directive
 graph	same

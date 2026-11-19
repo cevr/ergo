@@ -133,9 +133,7 @@ func (l *lowerer) nameAll() {
 			switch d := d.(type) {
 			case *syntax.VarDecl:
 				l.declareName(d)
-				if l.constantLet(p, d) {
-					l.noteLibLet(p, d)
-				}
+				l.noteLibLet(p, d) // reachStdLet, where libLetOnRead
 			case *syntax.ContextDecl:
 				l.declareName(d)
 			}

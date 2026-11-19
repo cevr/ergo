@@ -274,7 +274,7 @@ func readStdCopy(t *testing.T) map[string]stdCopyRow {
 var stdCopyBaseline = []string{
 	"bench", "dense", "lint", "ui", "ui/layout",
 	"actor", "arena", "atomic", "base64", "bits", "cmp", "codec", "config",
-	"crc32", "csv", "embed", "exec", "explore", "filepath", "flag", "fs",
+	"crc32", "csv", "embed", "exec", "explore", "filepath", "fs",
 	"fstest", "hex", "http", "io", "journal", "journal/memory", "json",
 	"log", "machines", "maps", "math", "os", "prompt", "queue", "rand",
 	"rpc", "schedule", "scope", "sha256", "slices", "strconv", "strings",

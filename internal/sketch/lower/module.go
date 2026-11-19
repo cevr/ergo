@@ -621,11 +621,13 @@ func (l *lowerer) program() ([]byte, error) {
 		l.ir.reachAll(l) // CensusStd only (ir.go)
 	}
 	// Every initializer of every reached declaration of a sourced package
-	// is lowered here: a library's lets, and its machines' initial values
-	// (F13). A library's other declarations are lowered where they are
-	// used, and so is a std package's let (reachStdLet, wf10 defects D6),
-	// so the entry leaves a slot for the call of ergoInit, filled once
-	// every body is lowered.
+	// is lowered here: its machines' initial values (F13), and its lets
+	// where no reach set cuts the build (a test build, a library-shaped
+	// lowering) or under the reference libLetLowering "reach". A library's
+	// other declarations are lowered where they are used, and so are its
+	// lets otherwise, as a std package's are (reachStdLet, wf10 defects D6;
+	// libLetOnRead), so the entry leaves a slot for the call of ergoInit,
+	// filled once every body is lowered.
 	for _, p := range l.sourcedLibs() {
 		l.eachDecl(p, func(d syntax.Decl) {
 			if !l.declReached(d) {
@@ -633,9 +635,9 @@ func (l *lowerer) program() ([]byte, error) {
 			}
 			switch d := d.(type) {
 			case *syntax.VarDecl:
-				if l.constantLet(p, d) {
-					// No initializer to run: declared where a body reads
-					// it, as a std package's let is (reachStdLet).
+				if l.libLetOnRead(p, d) {
+					// Declared where a body reads it, as a std package's
+					// let is (reachStdLet).
 					return
 				}
 				l.packageLet(d)
