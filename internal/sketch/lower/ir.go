@@ -83,6 +83,9 @@ type IRReport struct {
 	// FailJumps counts the inlined failures that jump to their catch arm
 	// (FAIL-INLINE, ir_forms_failjump.go).
 	FailJumps int `json:"-"`
+	// FailLeaves counts the fallible leaves copied only for their
+	// failures' jumps (FAIL-INLINE, ir_forms_inline.go).
+	FailLeaves int `json:"-"`
 	// DeadZeros counts the zero value sets dropped before an overwrite
 	// (ir_forms_zero.go).
 	DeadZeros int `json:"-"`

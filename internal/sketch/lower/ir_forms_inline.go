@@ -439,6 +439,9 @@ func (in *irInliner) splice(s *irStmt, p *irPath) []*irStmt {
 	} else {
 		in.st.report.StdInlined++
 	}
+	if site.failLeaf {
+		in.st.report.FailLeaves++
+	}
 	p.spent += site.size
 	in.count++
 	ren := map[int]int{}
