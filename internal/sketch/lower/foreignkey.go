@@ -41,8 +41,9 @@ import (
 // ForeignKey is a target's key: Key goes into the digest; Shown, or, when
 // Group is set, Group and a hash of the keys of the group's targets an
 // entry reaches, into the ledger line's `with` field, so a stale entry can
-// say what changed.
-type ForeignKey struct{ Key, Shown, Group string }
+// say what changed. Build is the build configuration the key depends on
+// (ForeignKeySource.Build), "" when the stock build gives the same key.
+type ForeignKey struct{ Key, Shown, Group, Build string }
 
 // ForeignKeys maps an `extern go` target to its key. A nil ForeignKeys
 // keys nothing: the digest is the Ergo declarations' alone.
@@ -73,6 +74,15 @@ type ForeignKeySource struct {
 	Toolchain string
 	Module    GoModule
 	ReadDir   func(dir string) []GoSourceFile
+	// Build names the build configuration when it is not the stock one
+	// (sketchfront: goexperiment.simd for GOEXPERIMENT=simd), and
+	// ReadStock reads a folder's files as the stock build compiles them
+	// (LAW-BUILD-KEY). A local package's key names Build when its closure
+	// in the stock build differs, so a ledger entry over a vector kernel
+	// is keyed apart from its stock twin's, and one over code every build
+	// compiles alike is not.
+	Build     string
+	ReadStock func(dir string) []GoSourceFile
 	// worlds are the Go packages the keys have read, one world per local
 	// module: a world's loader reads only its module's folders (LF2m r2:
 	// one world, made at the first key, read only the first module's, so
@@ -148,31 +158,17 @@ func (s *ForeignKeySource) key(target string) ForeignKey {
 		return ForeignKey{Key: "unknown " + p, Shown: p + "@unknown"}
 	}
 	if dir != "" {
-		load := func(ip string) ([]GoSourceFile, bool) {
-			if s.ReadDir == nil {
-				return nil, false
-			}
-			m, _, d, _ := s.module(ip)
-			if m != mod || d == "" {
-				return nil, false
-			}
-			files := s.ReadDir(d)
-			return files, files != nil
-		}
-		if s.worlds == nil {
-			s.worlds = map[string]*goWorld{}
-		}
-		world := mod
-		w := s.worlds[world]
-		if w == nil {
-			w = newGoWorld(load)
-			s.worlds[world] = w
-		}
-		c := w.closure(p, name)
+		c := s.world(mod, s.ReadDir, "").closure(p, name)
 		if c.Unloaded {
 			return ForeignKey{Key: "unread " + p, Shown: p + "@unread"}
 		}
-		return ForeignKey{Key: "closure " + c.Hash, Group: p}
+		k := ForeignKey{Key: "closure " + c.Hash, Group: p}
+		if s.Build != "" && s.ReadStock != nil {
+			if sc := s.world(mod, s.ReadStock, "stock ").closure(p, name); sc.Unloaded || sc.Hash != c.Hash {
+				k.Build = s.Build
+			}
+		}
+		return k
 	}
 	if repl != nil {
 		mod, version = repl.New, repl.NewVersion
@@ -184,6 +180,31 @@ func (s *ForeignKeySource) key(target string) ForeignKey {
 		}
 	}
 	return ForeignKey{Key: "sum " + line, Shown: mod + "@" + version}
+}
+
+// world is the Go packages of the local module mod as read reads its
+// folders, one world per module and reader (tag tells the readers apart).
+func (s *ForeignKeySource) world(mod string, read func(dir string) []GoSourceFile, tag string) *goWorld {
+	if s.worlds == nil {
+		s.worlds = map[string]*goWorld{}
+	}
+	name := tag + mod
+	w := s.worlds[name]
+	if w == nil {
+		w = newGoWorld(func(ip string) ([]GoSourceFile, bool) {
+			if read == nil {
+				return nil, false
+			}
+			m, _, d, _ := s.module(ip)
+			if m != mod || d == "" {
+				return nil, false
+			}
+			files := read(d)
+			return files, files != nil
+		})
+		s.worlds[name] = w
+	}
+	return w
 }
 
 // short is the first 12 hex digits of a hash, its shown form.

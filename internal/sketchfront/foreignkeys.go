@@ -36,6 +36,16 @@ func foreignKeys(a Analysis, fsys FS) lower.ForeignKeys {
 	}
 	experiments := goExperiments()
 	src.ReadDir = func(dir string) []lower.GoSourceFile { return readGoDir(fsys, dir, platform, experiments) }
+	// A build with experiments names them where the Go code a ledger
+	// entry reaches is another in the stock build (LAW-BUILD-KEY).
+	if len(experiments) > 0 {
+		tags := make([]string, len(experiments))
+		for i, e := range experiments {
+			tags[i] = "goexperiment." + e
+		}
+		src.Build = strings.Join(tags, ",")
+		src.ReadStock = func(dir string) []lower.GoSourceFile { return readGoDir(fsys, dir, platform, nil) }
+	}
 	return src.Keys()
 }
 
