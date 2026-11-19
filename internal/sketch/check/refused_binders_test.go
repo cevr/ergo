@@ -73,10 +73,6 @@ func TestRefusedBinderCases(t *testing.T) {
 		{"catch-several", "type E {}\n\ntype Bang {}\n\nfunc n(v int) int fails E | Bang { v }\n\nfunc host(v int) int {\n\tn(v) catch {\n\tcase int, Bang as b:\n\t\tlet _ = int\n\t\t0\n\tcase _:\n\t\t1\n\t}\n}\n", []string{"S108@9:20", "S108@9:7"}},
 		// A D-D3 binder keeps D-D3 in a value position, and a type position
 		// sees through it (a local, a parameter, a package let).
-		{"dd3-read", "func host() int {\n\tlet (len) = 5\n\tlen + 1\n}\n", []string{"S108@2:7"}},
-		{"dd3-local-type", "func host(v int) int {\n\tlet (int) = v\n\tlet fl = func(x int) int { x }\n\tfl(int)\n}\n", []string{"S108@2:7"}},
-		{"dd3-param-type", "func host(int int) int {\n\tlet fl = func(x int) int { x }\n\tfl(int)\n}\n", []string{"S108@1:11"}},
-		{"dd3-package-type", "let int = 1\n\nfunc host(x int) int {\n\tx + int\n}\n", []string{"S108@1:5"}},
 		// A placeholder is not a binding a later binder shadows.
 		{"placeholder-no-shadow", "type tr { A int }\n\nfunc host(v int, b bool) int {\n\tmatch v {\n\tcase tr:\n\t\tif b {\n\t\t\tlet fl = func(tr int) int { tr }\n\t\t\tlet _ = fl(1)\n\t\t}\n\tcase _:\n\t\tlet _ = 1\n\t}\n\t0\n}\n", []string{"S108@5:7"}},
 		// A local named like a type is a binding, so an inner binder of
@@ -107,16 +103,19 @@ func TestRefusedBinderCases(t *testing.T) {
 
 // TestRefusedBinderPackageLet is P5: a package-level let binder named after
 // a prelude name means what the same program means with the fresh name q,
-// at the binder and at a read, apart from one S108 at the binder.
+// at the binder and at a read, with no diagnostic (it hides the prelude's
+// name, owner q244).
 func TestRefusedBinderPackageLet(t *testing.T) {
 	for _, form := range []string{"let (@) = 1", "let P{X: @} = P{X: 1}", "let @ = 1"} {
-		for _, name := range []string{"Console", "Random", "int", "len"} {
+		// A prelude name binds as a fresh one does (q244); int is left out,
+		// since P's field type would read the package's int.
+		for _, name := range []string{"Console", "Random", "len"} {
 			prog := "type P { X int }\n" + form + "\nfunc host() int {\n\t@ + 1\n}\n"
 			src := strings.ReplaceAll(prog, "@", name)
 			fresh := strings.ReplaceAll(prog, "@", "q")
 			label := form + "/" + name
 			binder := strings.Index(prog, "@")
-			want := []string{fmt.Sprintf("S108@2:%d", binder-strings.Index(prog, "\n"))}
+			var want []string
 			if got := rbCodes(src); strings.Join(got, " ") != strings.Join(want, " ") {
 				t.Errorf("%s: want %v, got %v\n%s", label, want, got, src)
 			}

@@ -41,15 +41,14 @@ func (c *checker) declareLocal(id *syntax.Ident, t Type) *Var {
 
 // localNameRules runs the rules of a local's name about to bind in the
 // current block, a let's value or a local context alike, and reports at
-// most one diagnostic: a prelude name (D-D3; refused, and the name still
-// binds), a second declaration in one block (S108), a capability-row
+// most one diagnostic: a second declaration in one block (S108), a capability-row
 // binding of the same name in the body's frame (S104), or a binding of an
 // enclosing scope (D-D2).
 func (c *checker) localNameRules(id *syntax.Ident) (refused bool) {
 	sc := c.fn.scope
-	if c.preludeName(id) {
-		// D-D3: the one diagnostic; the name still binds below, marked
-		// used, so an unread refused binder adds no S110.
+	if c.binderRefused(id.Pos()) {
+		// The binder already has its diagnostic (a pattern's): the name
+		// still binds below, marked used, so it adds no S110.
 		refused = true
 	} else if prev, ok := sc.names[id.Name]; ok && !isRefusedBinder(prev) {
 		switch prev := prev.(type) {

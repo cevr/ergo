@@ -341,9 +341,8 @@ func (r *patResolver) pattern0(e syntax.Expr, t Type, col int) resolved {
 		}
 		if r.letFor && prelude {
 			// A let or for pattern has no type test on a bare name of
-			// the prelude: the name is a binder, D-D3's S108 is its one
-			// diagnostic, and it binds with the value's type.
-			c.preludeName(x)
+			// the prelude: the name is a binder that hides the prelude's
+			// (grammar.md, Reserved names 2; q244).
 			info := &Pattern{Kind: PatBind}
 			r.bind(x, t, info, false)
 			return resolved{t: t, info: info}
@@ -353,11 +352,12 @@ func (r *patResolver) pattern0(e syntax.Expr, t Type, col int) resolved {
 			if r.bindings && reusableBinderName(o) {
 				break
 			}
-			if r.bindings || c.isPreludeName(x.Name) {
-				// A prelude function or built-in: D-D3, in every
-				// binder kind (match and catch patterns included).
-				c.preludeName(x)
-			} else {
+			if c.preludeObject(x.Name, o) {
+				// A prelude function or built-in: the binder hides it, in
+				// every binder kind (grammar.md, Reserved names 2; q244).
+				break
+			}
+			if !r.bindings {
 				c.errorf(x, CodeType, "a pattern name binds; %s already names %s: compare with if, or choose another name (rows.md, Totality 1)", x.Name, objectNoun(o))
 				c.refuseBinder(x.Pos())
 			}

@@ -19,10 +19,7 @@ import (
 // nothing for `_` or a fresh name.
 func TestExternParametersKeepTheBinderRules(t *testing.T) {
 	runD1(t, []d1Case{
-		{"prelude-type", "extern go strings.Repeat func Rep(Option string, n int) string\n", []string{"S108:1"}},
-		{"built-in", "extern go strings.Repeat func Rep(len string, n int) string\n", []string{"S108:1"}},
 		{"twice", "extern go strings.Index func Idx(s string, s string) int\n", []string{"S108:1"}},
-		{"prelude-and-twice", "extern go strings.Index func Idx(true string, true string) int\n", []string{"S108:1", "S108:1"}},
 		{"blank-twice", "extern go strings.Index func Idx(_ string, _ string) int\n", nil},
 		{"fresh", "extern go strings.Index func Idx(s string, sub string) int\n", nil},
 		{"prelude-operation", "extern go strings.Repeat func Rep(Sleep string, n int) string\n", nil},
@@ -33,7 +30,7 @@ func TestExternParametersKeepTheBinderRules(t *testing.T) {
 	}
 }
 
-// IsPredeclared answers what D-D3 refuses: a prelude type, a variant, a
+// IsPredeclared answers what a declaration hides (q244): a prelude type, a variant, a
 // built-in, a universe type and Map are predeclared; a prelude operation,
 // a universe name outside D-D3's list and `_` are not.
 func TestIsPredeclaredControls(t *testing.T) {

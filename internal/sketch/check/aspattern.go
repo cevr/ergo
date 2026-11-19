@@ -77,12 +77,15 @@ func catchAllObject(o Object) bool {
 // names a package function, an imported package or a package value
 // (rows.md Totality 6: the rule holds in catch arms), and reports whether
 // it did. The name still binds, with no type, so its reads add nothing
-// (D3). A prelude name is D-D3's, at declareAs.
+// (D3). A name of the prelude binds and hides it (q244).
 func (c *checker) refusedRest(id *syntax.Ident) bool {
-	if id.Name == "_" || c.isPreludeName(id.Name) {
+	if id.Name == "_" {
 		return false
 	}
 	o := c.lookupPast(id.Name)
+	if c.preludeObject(id.Name, o) {
+		return false
+	}
 	switch o := o.(type) {
 	case *Func, *PkgName:
 		if p, ok := o.(*PkgName); ok {

@@ -25,34 +25,23 @@ import (
 // The Ergo names of a binding (names.go, Binding.ergoNames). The oracle of
 // these tests is the Ergo checker itself (internal/sketch/check, read
 // only): an emitted text is conflict-free when the checker reports no
-// declaration in it as already declared, declared twice or a prelude name,
-// and no extern has two parameters with one name. The product reads no
-// diagnostics: it derives its reserved set from the syntax keywords and
-// the checker's predeclared set (check.IsPredeclared).
+// declaration in it as already declared or declared twice, and no extern
+// has two parameters with one name. The product reads no diagnostics: it
+// derives its reserved set from the syntax keywords and the checker's
+// predeclared set (check.IsPredeclared). A program may shadow a
+// predeclared name (owner q244), but a binding's text keeps them free, so
+// a prelude name in a bound package still means the prelude's.
 
 var identRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
-// checkerRefuses returns the names of names that the checker refuses as a
-// parameter name for being predeclared (D-D3). Keywords and reserved words
-// do not parse as names and are left out.
+// checkerRefuses returns the names of names that the checker predeclares
+// (check.IsPredeclared), which a binding's text does not take. Keywords and
+// reserved words do not parse as names and are left out.
 func checkerRefuses(t *testing.T, names []string) map[string]bool {
 	t.Helper()
-	var src strings.Builder
-	at := map[int]string{}
-	line := 1
-	for i, n := range names {
-		if syntax.IsKeyword(n) {
-			continue
-		}
-		at[line] = n
-		fmt.Fprintf(&src, "func p%d(%s int) {\n}\n", i, n)
-		line += 2
-	}
-	_, ds := check.CheckSource(src.String())
 	out := map[string]bool{}
-	for _, d := range ds {
-		n, ok := at[d.Line]
-		if ok && strings.HasPrefix(d.Message, n+" is a prelude name") {
+	for _, n := range names {
+		if !syntax.IsKeyword(n) && check.IsPredeclared(n) {
 			out[n] = true
 		}
 	}
@@ -106,27 +95,6 @@ func checkerDomain(t *testing.T) []string {
 	}
 	sort.Strings(out)
 	return out
-}
-
-// TestErgoPredeclaredMatchesChecker: on the checker domain, a name is in
-// the product's predeclared set exactly when the checker refuses it as a
-// parameter name. A control: the checker refuses Option and len, so the
-// probe sees the checker's refusals.
-func TestErgoPredeclaredMatchesChecker(t *testing.T) {
-	domain := checkerDomain(t)
-	refused := checkerRefuses(t, domain)
-	if !refused["Option"] || !refused["len"] {
-		t.Fatalf("control: the checker refuses %d names of %d, not Option and len; the probe is broken", len(refused), len(domain))
-	}
-	for _, n := range domain {
-		if syntax.IsKeyword(n) {
-			continue
-		}
-		if got := ergoPredeclared(n); got != refused[n] {
-			t.Errorf("%s: predeclared %v, the checker refuses it: %v", n, got, refused[n])
-		}
-	}
-	t.Logf("domain %d names, the checker refuses %d", len(domain), len(refused))
 }
 
 // ergoConflicts is the oracle: the checker's diagnostics of src that name a
@@ -190,13 +158,9 @@ func ergoParams(t *testing.T, src string) map[string][]string {
 	return out
 }
 
-// TestErgoConflictsControl: the oracle sees each kind of collision. The
-// prelude-name row redeclares a prelude function: since owner q30 (L6) a
-// package type may take a prelude type's name (type Option is legal), but a
-// prelude function's name stays S108.
+// TestErgoConflictsControl: the oracle sees each kind of collision.
 func TestErgoConflictsControl(t *testing.T) {
 	for _, src := range []string{
-		"import go ergo.local/bind/fixture\n\ntype Unreachable {\n\tV uint32,\n}\n",
 		"import go ergo.local/bind/fixture\n\ntype CallError = NotLoaded{} | Destroyed{}\n\nextern go ergo.local/bind/fixture.CallError func CallError() uint32 fails CallError\n",
 		"import go ergo.local/bind/fixture\n\ntype S = A{} | B{}\n\ntype T = A{} | C{}\n",
 		"import go ergo.local/bind/fixture\n\nextern go ergo.local/bind/fixture.F func F(a uint32, a uint32) uint32\n",
