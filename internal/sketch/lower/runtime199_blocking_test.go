@@ -106,6 +106,7 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"irBuilder.hostResult":      "the Value field of Some, for an Option of a Go pointer result, as funcCtx.optionSome's (FLIP F7 FORK-GOLIB)",
 			"irBuilder.nicheNarrow":     "the Value field of Some, written from an Option of a go.Ref in the pointer niche, as flatUnion.flatNarrow's (FLIP F7 FORK-GOLIB)",
 			"irBuilder.nicheValue":      "the Value field of Some, read into an Option of a go.Ref in the pointer niche, as flatUnion.flatValue's (FLIP F7 FORK-GOLIB)",
+			"irBuilder.witnessOpCall":   "the IR's call through a witness field, as funcCtx.witnessCall's (B-WITNESS)",
 		}},
 	} {
 		obj := scope.Lookup(c.obj)

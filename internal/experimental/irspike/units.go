@@ -120,7 +120,9 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"checked Close (closeBody masks it)", "G2"},   // the Close body itself, inside its mask
 	{"call of an extern function", "G4"},
 	{"call that passes owned values", "G4"},
-	{"call that passes witnesses", "G4"},
+	{"call that passes witnesses", "G4"}, // a method with witnesses (ir_witness.go)
+	{"call that passes the caller's witness", "G4"},
+	{"witness without its reserved name", "G4"},
 	{"call with a call site", "G4"},
 	{"call that captures owners", "G4"},
 	{"catch value of another type", "G3"}, // a flat union the arms join to

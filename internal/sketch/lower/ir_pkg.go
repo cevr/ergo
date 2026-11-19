@@ -329,6 +329,9 @@ func (b *irBuilder) opCall(x *syntax.CallExpr, c *check.Call, p irPos) ([]*irStm
 	case b.inPlaceSite(x):
 		return b.ownedSiteCall(x, c, b.fc.refSiteOf(x), p) // ir_ownlit.go
 	}
+	if tp, ptr := paramSource(b.l.info.Types[c.Recv]); tp != nil {
+		return b.witnessOpCall(x, c, tp, ptr, p) // ir_witness.go
+	}
 	n, ok := b.l.info.Types[c.Recv].(*check.Named)
 	if !ok {
 		irNo("operation call on a %T", b.l.info.Types[c.Recv])

@@ -460,7 +460,8 @@ type irBuilder struct {
 	fn     *irFunc
 	locals map[*check.Var]int
 	next   int
-	env    int // the environment's local, or -1 in a pure function
+	env    int                      // the environment's local, or -1 in a pure function
+	wits   map[*check.TypeParam]int // each witness parameter's local (ir_witness.go)
 	result check.Type
 	// reasons are a census's reasons for this body, distinct, in order.
 	reasons []string
@@ -692,7 +693,7 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 		b.gate(g)
 	}
 	if len(fc.witness) > 0 {
-		b.gate("witness parameter")
+		b.witnessGate() // ir_witness.go
 	}
 	if b.l.hasGoRow(f.Sig) {
 		b.gate("Go row parameter") // rowslot.go: F is a Go type parameter the IR spells error (LY-FIX)
@@ -707,6 +708,9 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 			if i == 0 && !fd.pure && fd.method == nil {
 				b.env = b.next
 				b.next++
+			}
+			if i == 0 && fd.method == nil {
+				b.witnessSlots(f) // after the environment (ir_witness.go)
 			}
 			b.next++
 			if i == 0 && fd.method != nil && !fd.pure {
@@ -728,6 +732,9 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 			b.env = b.next
 			b.next++
 		}
+		if i == 0 {
+			b.witnessSlots(f) // after the environment (ir_witness.go)
+		}
 		b.locals[v] = b.next
 		b.next++
 		b.part(func() { b.goType(v.Type, f.Decl) })
@@ -735,6 +742,9 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	if len(params) == 0 && !fd.pure {
 		b.env = b.next
 		b.next++
+	}
+	if len(params) == 0 {
+		b.witnessSlots(f) // ir_witness.go
 	}
 	if b.result != nil {
 		b.part(func() { b.goType(b.result, f.Decl) })
