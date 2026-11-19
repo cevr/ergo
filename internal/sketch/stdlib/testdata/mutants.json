@@ -1,6 +1,12 @@
 {
   "about": "The mutant ledger of internal/sketch/stdlib: edits of the std sources (the .ergo declarations and the Go that reads them) that some test, law or example must kill. Run it with go run ./scripts/mutants ./internal/sketch/std; docs/tooling.md, \"Mutant ledger\", says when a change must run it and how to add a mutant. Seeded by ESC1 (wf10, lang audit B F1).",
   "mutants": [
+    {"name":"in-place-sourced-only","origin":"wf10/ir-forms/STD-COPY-ZERO","file":"internal/sketch/lower/inplace.go","from":"\t\tfor _, p := range l.libraries() {\n\t\t\tif !l.isSourced(p) {","to":"\t\tfor _, p := range l.libraries() {\n\t\t\tif false {","rule":"An owned local written in place is released as written, whichever package's body writes it: std ui's Run (its session, &session) as a user package's (OwningPartsAt).","anchor":{"tests":["std:TestStdCopyAgrees"]},"killers":["std:TestStdCopyAgrees"]},
+    {"name":"bind-func-reads-the-directive","origin":"wf10/ir-forms/STD-COPY-ZERO","file":"internal/sketch/lower/std.go","from":"\tif strings.HasPrefix(stripLineDirective(fv), \"func(\") {","to":"\tif strings.HasPrefix(fv, \"func(\") {","rule":"A function literal argument of an extern's callback is adapted in place, not bound first, in a body with //line directives as in one with none (std actor's Changes).","anchor":{"tests":["std:TestStdCopyAgrees"]},"killers":["std:TestStdCopyAgrees"]},
+    {"name":"copy-no-evidence","origin":"wf10/ir-forms/STD-COPY-ZERO","file":"internal/sketch/stdlib/copy_test.go","from":"\t\tu.Rewrite = copyEvidence(t, pair)\n","to":"","rule":"The copy's build reads std's law verdicts under its own names, as a module ledger: without them no law rewrites the copy's calls and std's do (json's Text.Int through SetCommaSinksInt).","anchor":{"tests":["std:TestStdCopyAgrees"]},"killers":["std:TestStdCopyAgrees"]},
+    {"name":"known-record-sourced-machines-only","origin":"wf10/ir-forms/STD-COPY-ZERO","file":"internal/sketch/lower/naming.go","from":"l.machinesOf(append([]*check.Package{l.pkg}, libs...))","to":"l.machinesOf(l.sourcedPkgs())","rule":"A call that passes a machine goes to the known-record copy whichever package declares the machine: a std package's (prompt.Asker) as a user package's.","anchor":{"tests":["std:TestStdCopyAgrees"]},"killers":["std:TestStdCopyAgrees"]},
+    {"name":"copy-row-spans-lines","origin":"wf10/ir-forms/STD-COPY-ZERO","file":"internal/sketch/stdlib/copy_test.go","from":"var copyRow = regexp.MustCompile(`\\b(?:fails|needs) [^ |\\n]+(?: \\| [^ |\\n]+)*`)","to":"var copyRow = regexp.MustCompile(`\\b(?:fails|needs) [^ |]+(?: \\| [^ |]+)*`)","rule":"A row's members are sorted within its line: a member never takes the line break, which would move it (json's Stream.Settle, whose copy's members print in another order).","anchor":{"tests":["std:TestStdCopyAgrees"]},"killers":["std:TestStdCopyAgrees"]},
+    {"name":"copy-no-call-form","origin":"wf10/ir-forms/STD-COPY-ZERO","file":"internal/sketch/stdlib/copy_test.go","from":"\t\tif cands == nil {\n\t\t\tcontinue\n\t\t}\n","to":"\t\tif true {\n\t\t\tcontinue\n\t\t}\n","rule":"A function no caller can take as a value (an extern, a generic over rows, a pure parameter) is taken through a declared caller, so its package's copy is compared (journal, scope, task, tasks, timeout).","anchor":{"tests":["std:TestStdCopyAgrees"]},"killers":["std:TestStdCopyAgrees"]},
     {"name":"mc-conform-ignores-signal-name","origin":"wf10/mc/T2","file":"internal/sketch/std/explore/conform.ergo","from":"\t\t\t\t\tallowed = allowed.Append(e)\n\t\t\t\tcase Differs:\n","to":"\t\t\t\t\tallowed = allowed.Append(e)\n\t\t\t\tcase Differs:\n\t\t\t\t\tallowed = allowed.Append(e)\n","rule":"An observation that names a signal allows only the signals of that variant whose fields fit its args.","killers":["std:TestStdExploreLawsRun"]},
     {"name":"mc-conform-missing-field-must-equal-zero","origin":"wf10/mc/T2","file":"internal/sketch/std/explore/conform.ergo","from":"\t\t\tlet mut ms = b.Members","to":"\t\t\tlet mut ms = []json.Member{}","rule":"A field an observation leaves out is any value: the observed fields are laid over the candidate's wire form, not over nothing.","killers":["std:TestStdExploreLawsRun"]},
     {"name":"mc-conform-hidden-off-by-one","origin":"wf10/mc/T2","file":"internal/sketch/std/explore/conform.ergo","from":"\t\tfor layer < o.Hidden {","to":"\t\tfor layer < o.Hidden-1 {","rule":"Hidden: n closes the candidates under up to n unobserved steps before each observation.","killers":["std:TestStdExploreLawsRun"]},
@@ -331,9 +337,63 @@
     {
       "name": "copy-normalise-too-much", "origin": "wf10 STD-NOPRIV NP1",
       "file": "internal/sketch/stdlib/copy_test.go",
-      "from": "\t\t\tif to, ok := final[id.Name]; ok {\n\t\t\t\tid.Name = to\n",
-      "to": "\t\t\tif _, ok := final[id.Name]; ok {\n\t\t\t\tid.Name = \"_\"\n",
+      "from": "\t\t\tif to, ok := final[n.Name]; ok && !keep[n] {\n\t\t\t\tn.Name = to\n",
+      "to": "\t\t\tif _, ok := final[n.Name]; ok && !keep[n] {\n\t\t\t\tn.Name = \"_\"\n",
       "rule": "The copy property's normaliser folds only how std ships and is named: one that also folds a callee's Go name would pass a privilege, so its self-test plants one difference per kind.",
+      "anchor": {"tests": ["std:TestStdCopyAgrees"]},
+      "killers": ["std:TestStdCopyAgrees"]
+    },
+    {
+      "name": "mapped-text-read-by-name", "origin": "wf10/ir-forms/STD-COPY-SAME",
+      "file": "internal/sketch/check/mappedtext.go",
+      "from": "func IsMappedText(t Type) bool { return namesRuntimeType(t, \"MappedText\") }",
+      "to": "func IsMappedText(t Type) bool {\n\tn, ok := t.(*Named)\n\treturn ok && namesRuntimeType(t, \"MappedText\") && n.Obj.Pkg.Std() && n.Obj.Pkg.Path == \"fs\"\n}",
+      "rule": "STD HAS NO PRIVILEGES: a mapped text is the type whose declaration names the runtime's MappedText (types.md, Borrows 8), so a trusted copy of fs borrows its text as fs does.",
+      "anchor": {"tests": ["std:TestFSCopyBorrowsItsText"]},
+      "killers": ["std:TestFSCopyBorrowsItsText"]
+    },
+    {
+      "name": "copy-normalise-callee-path-kept", "origin": "wf10/ir-forms/STD-COPY-ROWS",
+      "file": "internal/sketch/stdlib/copy_test.go",
+      "from": "\t\t\t\tb.Value = strings.ReplaceAll(b.Value, \" calls copy/\"+path+\".\", \" calls \"+path+\".\")\n",
+      "to": "",
+      "rule": "A site names its callee by the callee's package path, std's and a user's alike (calls.go callee): the copy's copy/P is how it ships, which the normaliser folds (rpc's and exec's RPCExitLines and RPCExits sites).",
+      "anchor": {"tests": ["std:TestStdCopyAgrees"]},
+      "killers": ["std:TestStdCopyAgrees"]
+    },
+    {
+      "name": "copy-normalise-instance-suffix-kept", "origin": "wf10/ir-forms/STD-COPY-ROWS",
+      "file": "internal/sketch/stdlib/copy_test.go",
+      "from": "var copyNameShape = regexp.MustCompile(`^(.+?)(?:_\\d+)?(_i\\d+)?$`)",
+      "to": "var copyNameShape = regexp.MustCompile(`^(.+?)(?:_\\d+)?()$`)",
+      "rule": "A uniqueness suffix stands before a monomorphised instance's suffix (toml's DecodeMono_1_i1 beside json's DecodeMono_i1, in the order the lowering names std packages): the normaliser folds it as it folds a plain name's.",
+      "anchor": {"tests": ["std:TestStdCopyAgrees"]},
+      "killers": ["std:TestStdCopyAgrees"]
+    },
+    {
+      "name": "copy-normalise-file-root-kept", "origin": "wf10/ir-forms/STD-COPY-SAME",
+      "file": "internal/sketch/stdlib/copy_test.go",
+      "from": "\t\t\tb.Value = strings.Replace(b.Value, `\"`+copyRoot+\"std/\", `\"std/`, 1)\n",
+      "to": "\n",
+      "rule": "A file written as text (a CallSite's File) is std's relative std/P/f.ergo and the copy's under copyRoot: how each ships, which the normaliser folds (ui's choice.ergo CallSites).",
+      "anchor": {"tests": ["std:TestStdCopyAgrees"]},
+      "killers": ["std:TestStdCopyAgrees"]
+    },
+    {
+      "name": "copy-normalise-same-text-ranked", "origin": "wf10/ir-forms/STD-COPY-SAME",
+      "file": "internal/sketch/stdlib/copy_test.go",
+      "from": "if i == 0 || keys[n] != keys[names[i-1]] {",
+      "to": "if i >= 0 {",
+      "rule": "Two declarations of one text are interchangeable (arena's and layout's const none int = -1): which one a body names follows the naming order, so they share one canonical name.",
+      "anchor": {"tests": ["std:TestStdCopyAgrees"]},
+      "killers": ["std:TestStdCopyAgrees"]
+    },
+    {
+      "name": "copy-normalise-keys-by-layout", "origin": "wf10/ir-forms/STD-COPY-SAME",
+      "file": "internal/sketch/stdlib/copy_test.go",
+      "from": "_ = printer.Fprint(&buf, token.NewFileSet(), declOf[n])",
+      "to": "_ = printer.Fprint(&buf, fset, declOf[n])",
+      "rule": "A declaration's rank key is its text, not its layout: a copy's line directives move positions and so the printer's line breaks (tz's two floorDiv, civil's and zone's, ranked apart in the copy alone).",
       "anchor": {"tests": ["std:TestStdCopyAgrees"]},
       "killers": ["std:TestStdCopyAgrees"]
     },

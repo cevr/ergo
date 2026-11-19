@@ -238,6 +238,13 @@ func FSReadFile(path string) (string, error) {
 	return string(data), nil
 }
 
+// MappedText is the Go type of std fs's Text, a borrow of a Mapped's text:
+// an alias of string, so every string operation reads it as one. fs
+// declares Text by naming it (extern go …/runtime/v1.MappedText), so the
+// checker's borrow rule and the lowering read that declaration, not the
+// package's path: a copy of fs lowers and checks as fs (STD-COPY-SAME).
+type MappedText = string
+
 // Mapped is fs.Mapped: the text of a file read through a read-only shared
 // mapping of it (FSMapFile), or a text held in memory (FSMapText). Close
 // unmaps it. Its methods take no hidden argument.

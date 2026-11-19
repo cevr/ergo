@@ -4610,12 +4610,45 @@
       ]
     },
     {
+      "name": "trace-variant-go-name",
+      "origin": "wf10/ir-forms/TRACE-VARIANT-SUFFIX",
+      "file": "internal/sketch/lower/machine.go",
+      "from": "if !ok || variantLowering == \"go\" {",
+      "to": "if !ok || true {",
+      "rule": "A traced runner names a variant by its Ergo name: a graph's arm names and a flat union's ErgoVariant never carry the suffix that keeps a Go name unique.",
+      "killers": [
+        "lower:TestTracedVariantsHaveTheirErgoNames"
+      ]
+    },
+    {
+      "name": "trace-variant-no-names-table",
+      "origin": "wf10/ir-forms/TRACE-VARIANT-SUFFIX",
+      "file": "internal/sketch/lower/module.go",
+      "from": "\tgraphs := l.graphAccessor() + l.typeNamesInit()\n",
+      "to": "\tgraphs := l.graphAccessor()\n",
+      "rule": "A program that starts a machine actor registers the Ergo names of its suffixed types, by which the runtime names a value no graph names (a boxed variant, an actor of a shared pair, a generic flat union).",
+      "killers": [
+        "lower:TestTracedVariantsHaveTheirErgoNames"
+      ]
+    },
+    {
       "name": "bs5-lib-lets-all",
       "origin": "wf10 binsize BS5",
       "file": "internal/sketch/lower/module.go",
       "from": "if !l.declReached(d) {",
       "to": "if false && !l.declReached(d) {",
       "rule": "binsize plan 3 (a), owner question 1: an imported package's let that nothing reached reads is not lowered and does not run.",
+      "killers": [
+        "lower:TestReachLowersNoUnreachableDeclaration"
+      ]
+    },
+    {
+      "name": "lib-let-on-read-constant-only",
+      "origin": "wf10/ir-forms/STD-COPY-SAME",
+      "file": "internal/sketch/lower/sources.go",
+      "from": "return l.constantLet(p, d) || l.reached != nil && libLetLowering != \"reach\"",
+      "to": "return l.constantLet(p, d)",
+      "rule": "STD HAS NO PRIVILEGES: a sourced library's let is lowered where a lowered body reads it, as a std package's let is (D6); reach.go's first-parameter edge reaching a helper no body calls does not run the let it reads.",
       "killers": [
         "lower:TestReachLowersNoUnreachableDeclaration"
       ]
