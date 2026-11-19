@@ -218,16 +218,24 @@ func (b *irBuilder) valueSource(x *syntax.CallExpr, c *check.Call, args []syntax
 	}
 	switch {
 	case preludeAppend(c.Func):
-		if len(c.TypeArgs) != 1 {
+		// The element type: the call's type argument, or the operand's
+		// for a []byte operation on its receiver (bs.AppendString(s)).
+		var et check.Type
+		switch st, isSlice := b.l.info.Types[args[0]].(*check.Slice); {
+		case len(c.TypeArgs) == 1:
+			et = c.TypeArgs[0]
+		case isSlice:
+			et = st.Elem
+		default:
 			irNo("append form")
 		}
-		elem := b.goType(c.TypeArgs[0], x)
+		elem := b.goType(et, x)
 		if b.goType(b.l.info.Types[args[0]], x) != "[]"+elem {
 			// Go assigns a defined slice type to []T; the decoder takes
 			// identical types only.
 			irNo("append to a defined slice type")
 		}
-		if keep := b.fc.goType(c.TypeArgs[0]); b.namesTypeParam(keep) {
+		if keep := b.fc.goType(et); b.namesTypeParam(keep) {
 			// A generic body's element type is no package-level type
 			// (I-FLIP: examples/counter-gui).
 			b.keepImport("var _ = " + b.l.goPkg("slices") + ".Clip[[]int]")
@@ -565,6 +573,10 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 	}
 	hidden := b.hidden(body, x, c, p)
 	pre, args := b.operands(ops)
+	// The value rule (V3), as the emitter's std call (std.go): an
+	// appender's operand is clipped and a Map write's copied, unless the
+	// call writes it in place (bs = bs.AppendString(s)).
+	b.valueSource(x, c, ops, args)
 	mark := b.next // the block's locals and its adapter's are numbered from here (spawnWith)
 	if x.Trailing != nil {
 		args = append(args, b.closureLit(nil, x)) // the block, the last operand

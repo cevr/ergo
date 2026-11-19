@@ -46,7 +46,10 @@ func TestIRUnaryOperandsMatchSource(t *testing.T) {
 //   - substr (PORT-SLICE): a substring of a string and of a named type over
 //     one, its bounds checked (mutant ps-string-slice-refused);
 //   - update (PORT-UPDATE): a record update of a computed base, the base
-//     run once before the field values (mutant pu-computed-base-refused).
+//     run once before the field values (mutant pu-computed-base-refused);
+//   - appender (SB-FLOOR): a []byte appender called on its receiver, its
+//     operand clipped unless the call writes it in place (the value rule,
+//     V3; mutant sb-std-value-rule-dropped).
 //
 // It builds Go for the reason TestIRUnaryOperandsMatchSource does.
 func TestIRReprosMatchSource(t *testing.T) {
@@ -54,7 +57,7 @@ func TestIRReprosMatchSource(t *testing.T) {
 	for _, r := range []struct {
 		name string
 		fns  []string
-	}{{"notand", []string{"pick"}}, {"rowslot", []string{"held", "run"}}, {"byteindex", []string{"hex", "pick", "tail"}}, {"sleeper", []string{"pop"}}, {"substr", []string{"tail", "cut", "head"}}, {"update", []string{"bump", "moved"}}} {
+	}{{"notand", []string{"pick"}}, {"rowslot", []string{"held", "run"}}, {"byteindex", []string{"hex", "pick", "tail"}}, {"sleeper", []string{"pop"}}, {"substr", []string{"tail", "cut", "head"}}, {"update", []string{"bump", "moved"}}, {"appender", []string{"shared"}}} {
 		t.Run(r.name, func(t *testing.T) {
 			text, err := os.ReadFile(filepath.Join("testdata", r.name+".ergo"))
 			if err != nil {
