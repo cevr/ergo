@@ -227,6 +227,22 @@ func killerMissing(root, id string, cache map[string][]testFile) string {
 		}
 		cache[dir] = files
 	}
+	if len(files) == 0 && tag == "" {
+		// An Ergo package with no Go test (compiler/syntax,
+		// hosts/mygo/desktop): the killer is its Ergo test or top-level law,
+		// which scripts/ergotests runs (scripts/mutants ergoPackage, ST-0).
+		srcs, _ := filepath.Glob(filepath.Join(root, filepath.FromSlash(dir), "*.ergo"))
+		if len(srcs) > 0 {
+			name := regexp.QuoteMeta(test)
+			decl := regexp.MustCompile(`(?m)^(test ` + name + `\s*[{(]|law ` + name + `\s*\()`)
+			for _, f := range srcs {
+				if text, err := os.ReadFile(f); err == nil && decl.Match(text) {
+					return ""
+				}
+			}
+			return "no Ergo test or law " + test + " in " + dir
+		}
+	}
 	if len(files) == 0 {
 		return "no test package " + dir + " (want DIR:Test, DIR[TAG]:Test, an ergo suite, or examples:PROGRAM)"
 	}
