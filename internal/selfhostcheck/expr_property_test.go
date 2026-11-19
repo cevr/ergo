@@ -184,7 +184,7 @@ func genBad(seed uint32) (string, int) {
 
 // exprForms are the syntax forms (and inferred generic calls) the cases
 // must get typed.
-var exprForms = []string{"Ident", "BasicLit", "BinaryExpr", "UnaryExpr", "ParenExpr", "CallExpr", "CompositeLit", "SelectorExpr", "IndexExpr", "InterpolatedString", "FuncLit", "generic call", "slice operation", "string operation", "[]byte operation", "rune operation", "variant argument", "tuple let", "tuple pattern"}
+var exprForms = []string{"Ident", "BasicLit", "BinaryExpr", "UnaryExpr", "ParenExpr", "CallExpr", "CompositeLit", "SelectorExpr", "IndexExpr", "InterpolatedString", "FuncLit", "generic call", "slice operation", "string operation", "[]byte operation", "rune operation", "variant argument", "tuple let", "tuple pattern", "generic variant argument", "plain variant of a generic union", "bare record variant"}
 
 // operationCall is a call of the language's operations the generator
 // writes (case 18), and the receiver it reaches the operation from.
@@ -198,7 +198,10 @@ var tupleName = regexp.MustCompile(`^v[0-9]+([tp])[ab]$`)
 // START END TYPE") of src, when it calls one of the language's operations
 // the generator writes: a slice's Append, a string's Bytes, a []byte's
 // Text or a rune's RuneText, and an Append of a variant ([]Shape's
-// Append(Dot{})) as "variant argument", and a use of a name a tuple let
+// Append(Sq{…})) as "variant argument", one on []Option[int] as "generic
+// variant argument" (Some) or "plain variant of a generic union" (None),
+// []Shape's Append(Dot) as "bare record variant",
+// and a use of a name a tuple let
 // binds by names as "tuple let" and by a pattern as "tuple pattern"; else
 // "".
 func operationOf(src, l string) string {
@@ -217,6 +220,15 @@ func operationOf(src, l string) string {
 	m := operationCall.FindStringSubmatch(src[start:end])
 	if m == nil {
 		return ""
+	}
+	if m[1] == "Append" && strings.HasPrefix(src[start:end], "[]Option") && m[2] == "None" {
+		return "plain variant of a generic union"
+	}
+	if m[1] == "Append" && strings.HasPrefix(src[start:end], "[]Option") {
+		return "generic variant argument"
+	}
+	if m[1] == "Append" && m[2] == "Dot" {
+		return "bare record variant"
 	}
 	if m[1] == "Append" && strings.ContainsRune(m[2], '{') {
 		return "variant argument"
@@ -273,7 +285,10 @@ func genExpr(seed uint32) string {
 				case 4:
 					// A variant argument where T is bound to its union
 					// (INFER-VARIANT-ARG): the receiver binds T first.
-					add("\tlet "+x+" = []Shape{sh}.Append("+[]string{"Dot{}", "Sq{W: acc}"}[r.n(2)]+")", "\tacc = acc + len("+x+")")
+					// A generic union's variants too: Option[int]'s Some[int] and
+					// None (INFER-VARIANT-GENERIC).
+					call := []string{"[]Shape{sh}.Append(Dot)", "[]Shape{sh}.Append(Sq{W: acc})", "[]Option[int]{}.Append(Some{Value: acc})", "[]Option[int]{}.Append(None)"}[r.n(4)]
+					add("\tlet "+x+" = "+call, "\tacc = acc + len("+x+")")
 				case 5:
 					// A let of a tuple's parts, by names or by a tuple pattern.
 					if r.n(2) == 0 {

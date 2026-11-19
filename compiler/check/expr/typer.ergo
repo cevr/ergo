@@ -1117,6 +1117,12 @@ func binary(s mut store.Store, k Pkg, t mut Typer, b syntax.BinaryExpr, w Want) 
 	}
 }
 
+// nameAt is the text of the name x.
+func nameAt(k Pkg, t Typer, x dense.ID[syntax.Node]) string {
+	let p = k.Parsed[t.file]
+	syntax.TokText(p, syntax.TokStartingAt(p, syntax.NodePos(p, x)))
+}
+
 // ident is the type of the name x: a parameter's, a local's, a function's
 // (not a generic one's: its instance is the call's), true or false.
 func ident(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node]) Option[dense.ID[store.TKey]] {
@@ -1131,15 +1137,43 @@ func ident(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node]) Optio
 		if f >= 0 && len(k.Fns[f].Params) == 0 {
 			return some(k.Fns[f].Sig)
 		}
+		// A record written bare is its value: the Go checker accepts only
+		// one with no fields and no type parameters (types.md,
+		// Structs 2), so the name alone decides. Its type is the one its
+		// declaration names.
+		match dense.Unpack(bind.ParentOf(k.Ps, d.At)) {
+		case Some{Value: up}:
+			let (uf, row) = bind.RowOf(k.Ps, up)
+			let q = k.Parsed[uf]
+			let pk = syntax.KindOf(q.Tree, syntax.NodeAt(q.Tree, row))
+			let text = nameAt(k, *t, x)
+			if (pk == syntax.KTypeDecl || pk == syntax.KVariantSpec) && recOf(*s, k, text) >= 0 {
+				match store.Lookup(*s, text) {
+				case Some{Value: decl}:
+					return some(store.TNamed(s, decl))
+				case None:
+				}
+			}
+		case None:
+		}
 		None
 	case bind.Outside:
-		let p = k.Parsed[t.file]
-		let text = syntax.TokText(p, syntax.TokStartingAt(p, syntax.NodePos(p, x)))
+		let text = nameAt(k, *t, x)
 		if text == "true" || text == "false" {
 			return some(store.TBasic(s, bBool))
 		}
 		if !predeclared(*s, k, text) {
 			report(k, t, x)
+			return None
+		}
+		// The prelude's record written bare (None) is its value, of the
+		// foreign table's type.
+		let p = depOf(k, "prelude")
+		if p >= 0 && recOf(k.Deps[p].S, k.Deps[p].K, text) >= 0 {
+			let fi = foreignAt(k, "prelude", text)
+			if fi >= 0 {
+				return some(store.TForeign(s, fi))
+			}
 		}
 		None
 	case _:
