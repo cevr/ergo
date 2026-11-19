@@ -73,17 +73,6 @@ func unitOf(g []string) load.Unit fails os.Exit needs fs.Files {
 	load.UnitOf(tab, files, paths)
 }
 
-// typeAll binds, loads and types the units (compiler/check/load), each
-// loaded package's typing and its unit.
-func typeAll(units []load.Unit, std string) ([]load.Typed, []int) needs fs.Files {
-	let p = load.LoadAll(units, load.Outside(units, std))
-	let mut out = []load.Typed{}
-	for i in 0..len(p.Loaded) {
-		out = out.Append(load.TypeAt(p, i))
-	}
-	(out, p.Units)
-}
-
 // write prints one typed package's lines: its expressions' types, or
 // with calls its inferred calls; each line after prefix.
 func write(b mut strings.Builder, u load.Unit, d load.Typed, calls bool, prefix string) {
@@ -156,9 +145,12 @@ func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 				units = units.Append(u)
 			}
 		}
-		let (typed, of) = typeAll(units, std)
-		for i, d in typed {
-			let u = units[of[i]]
+		// Each package is written as it is typed (compiler/check/load), so
+		// the run holds one package's typing at a time.
+		let p = load.LoadAll(units, load.Outside(units, std))
+		for i in 0..len(p.Loaded) {
+			let u = units[p.Units[i]]
+			let d = load.TypeAt(p, i)
 			b.WriteString("@pkg \(i)\n")
 			write(&b, u, d, false, "E ")
 			write(&b, u, d, true, "C ")
@@ -185,10 +177,11 @@ func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 	for g in groups {
 		units = units.Append(try unitOf(g))
 	}
-	let (typed, _) = typeAll(units, std)
-	write(&b, units[0], typed[0], calls, "")
+	let p = load.LoadAll(units, load.Outside(units, std))
+	let d = load.TypeAt(p, 0)
+	write(&b, units[p.Units[0]], d, calls, "")
 	if !calls {
-		writeDiags(&b, units[0], typed[0], "D ")
+		writeDiags(&b, units[p.Units[0]], d, "D ")
 	}
 	io.Stdout.Print(b.String())
 }
