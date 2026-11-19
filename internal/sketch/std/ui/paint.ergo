@@ -37,8 +37,16 @@ func Scale(sx float64, sy float64) Affine { Affine{A: sx, B: 0.0, C: 0.0, D: sy,
 
 // PaintOp is one entry of a paint list. A PushTransform or a PushClip
 // holds until its PopPaint; Transformed and Clipped write both, so a list
-// a Canvas made is balanced.
-type PaintOp = FillOp{Path Path, Color Color} | StrokeOp{Path Path, Color Color, Width float64} | PushTransform{M Affine} | PushClip{X float64, Y float64, W float64, H float64} | PopPaint
+// a Canvas made is balanced. An ImageOp draws Part of the image the host
+// finds at Src into the rectangle at X, Y of W by H.
+type PaintOp = FillOp{Path Path, Color Color} | StrokeOp{Path Path, Color Color, Width float64} | PushTransform{M Affine} | PushClip{X float64, Y float64, W float64, H float64} | PopPaint | ImageOp{Src string, Part ImagePart, X float64, Y float64, W float64, H float64}
+
+// ImagePart is what of an image a draw takes: all of it, or the region
+// at X, Y of W by H in the image's pixels (a sprite of an atlas).
+type ImagePart = WholeImage | ImageRegion{X float64, Y float64, W float64, H float64}
+
+// WholeImage is all of an image.
+type WholeImage {}
 
 // PopPaint ends the innermost PushTransform or PushClip.
 type PopPaint {}
@@ -55,6 +63,19 @@ func Fill(p *Paint, path Path, c Color) {
 // Stroke strokes path with c, width wide.
 func Stroke(p *Paint, path Path, c Color, width float64) {
 	p.ops = p.ops.Append(StrokeOp{Path: path, Color: c, Width: width})
+}
+
+// DrawImage draws the image at src (a host decodes it: the desktop host
+// reads a PNG or JPEG file) into the rectangle at x, y of w by h,
+// stretched to fill it. An image the host cannot read draws nothing.
+func DrawImage(p *Paint, src string, x float64, y float64, w float64, h float64) {
+	p.ops = p.ops.Append(ImageOp{Src: src, Part: WholeImage, X: x, Y: y, W: w, H: h})
+}
+
+// DrawSprite draws the region part of the image at src into the
+// rectangle at x, y of w by h, as DrawImage does.
+func DrawSprite(p *Paint, src string, part ImageRegion, x float64, y float64, w float64, h float64) {
+	p.ops = p.ops.Append(ImageOp{Src: src, Part: part, X: x, Y: y, W: w, H: h})
 }
 
 // Transformed paints body under m, composed with the transforms around
@@ -109,6 +130,8 @@ func paintLines(ops []PaintOp, indent string) []string {
 		case PushClip as x:
 			out = out.Append(at + "clip \(x.X) \(x.Y) \(x.W) \(x.H) {")
 			at = at + "  "
+		case ImageOp as x:
+			out = out.Append(at + "image \(x.Src)\(partText(x.Part)) at \(x.X) \(x.Y) \(x.W) \(x.H)")
 		case PopPaint:
 			if len(at) >= len(indent)+2 {
 				at = at[2:]
@@ -117,6 +140,15 @@ func paintLines(ops []PaintOp, indent string) []string {
 		}
 	}
 	out
+}
+
+func partText(p ImagePart) string {
+	match p {
+	case WholeImage:
+		""
+	case ImageRegion as r:
+		" part \(r.X) \(r.Y) \(r.W) \(r.H)"
+	}
 }
 
 func colorText(c Color) string { "rgba(\(c.R),\(c.G),\(c.B),\(c.A))" }

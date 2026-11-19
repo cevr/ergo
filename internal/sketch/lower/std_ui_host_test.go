@@ -1448,23 +1448,27 @@ func inputFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 	true
 }
 
-type pp = ppFill{k int} | ppStroke{k int} | ppRect{k int} | ppMove{k int, kids []pp} | ppClip{k int, kids []pp}
+type pp = ppFill{k int} | ppStroke{k int} | ppRect{k int} | ppImage{k int} | ppSprite{k int} | ppMove{k int, kids []pp} | ppClip{k int, kids []pp}
 
 func genPaint(r *rng, depth int) []pp {
 	let mut out = []pp{}
 	for _ in 0..draw(r, 4) {
 		let k = draw(r, 50)
-		let kind = draw(r, 5)
-		if depth == 0 || kind < 3 {
-			match kind % 3 {
+		let kind = draw(r, 7)
+		if depth == 0 || kind < 5 {
+			match kind % 5 {
 			case 0:
 				out = out.Append(ppFill{k: k})
 			case 1:
 				out = out.Append(ppStroke{k: k})
+			case 2:
+				out = out.Append(ppImage{k: k})
+			case 3:
+				out = out.Append(ppSprite{k: k})
 			case _:
 				out = out.Append(ppRect{k: k})
 			}
-		} else if kind == 3 {
+		} else if kind == 5 {
 			out = out.Append(ppMove{k: k, kids: genPaint(r, depth-1)})
 		} else {
 			out = out.Append(ppClip{k: k, kids: genPaint(r, depth-1)})
@@ -1490,6 +1494,10 @@ func paintProg(p *ui.Paint, prog []pp, s int) {
 			ui.Stroke(p, tri(s, x.k), tone(s, x.k), num(s, x.k, 14))
 		case ppRect as x:
 			ui.Fill(p, ui.RectPath(num(s, x.k, 0), num(s, x.k, 1), num(s, x.k, 2), num(s, x.k, 3)), tone(s, x.k))
+		case ppImage as x:
+			ui.DrawImage(p, "img\(x.k % 3).png", num(s, x.k, 0), num(s, x.k, 1), num(s, x.k, 2), num(s, x.k, 3))
+		case ppSprite as x:
+			ui.DrawSprite(p, "atlas.png", ui.ImageRegion{X: num(s, x.k, 4), Y: num(s, x.k, 5), W: num(s, x.k, 6), H: num(s, x.k, 7)}, num(s, x.k, 0), num(s, x.k, 1), num(s, x.k, 2), num(s, x.k, 3))
 		case ppMove as x:
 			ui.Transformed(p, ui.Affine{A: num(s, x.k, 0), B: 0.0, C: 0.0, D: num(s, x.k, 1), E: num(s, x.k, 2), F: num(s, x.k, 3)}) {
 				paintProg(p, x.kids, s)
@@ -1517,6 +1525,10 @@ func paintModel(prog []pp, s int) []ui.PaintOp {
 			let rh = num(s, x.k, 3)
 			let corners = ui.Path{Segs: []ui.Seg{ui.MoveTo{X: rx, Y: ry}, ui.LineTo{X: rx + rw, Y: ry}, ui.LineTo{X: rx + rw, Y: ry + rh}, ui.LineTo{X: rx, Y: ry + rh}, ui.ClosePath}}
 			out = out.Append(ui.FillOp{Path: corners, Color: tone(s, x.k)})
+		case ppImage as x:
+			out = out.Append(ui.ImageOp{Src: "img\(x.k % 3).png", Part: ui.WholeImage, X: num(s, x.k, 0), Y: num(s, x.k, 1), W: num(s, x.k, 2), H: num(s, x.k, 3)})
+		case ppSprite as x:
+			out = out.Append(ui.ImageOp{Src: "atlas.png", Part: ui.ImageRegion{X: num(s, x.k, 4), Y: num(s, x.k, 5), W: num(s, x.k, 6), H: num(s, x.k, 7)}, X: num(s, x.k, 0), Y: num(s, x.k, 1), W: num(s, x.k, 2), H: num(s, x.k, 3)})
 		case ppMove as x:
 			out = out.Append(ui.PushTransform{M: ui.Affine{A: num(s, x.k, 0), B: 0.0, C: 0.0, D: num(s, x.k, 1), E: num(s, x.k, 2), F: num(s, x.k, 3)}})
 			for o in paintModel(x.kids, s) {
