@@ -165,6 +165,11 @@ func (b *irBuilder) variantInto(from, to check.Type, e *irExpr, site syntax.Node
 	if gt == gf {
 		return e
 	}
+	if check.IsGoAny(to) {
+		// A value into go.Any is Go's own conversion to its empty
+		// interface (GB2), which the IR spells (IR-GOCALLS).
+		return &irExpr{K: "toiface", Pos: e.Pos, T: "any", X: e}
+	}
 	if fu := b.flatOf(to); fu != nil {
 		if fu.niche && b.goType(fu.inst, site) == gt && fu.tagOf(from) >= 0 {
 			return b.nicheValue(fu, gt, fu.tagOf(from), e) // ir_golib.go

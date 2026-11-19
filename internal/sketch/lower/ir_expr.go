@@ -303,6 +303,11 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 				}
 			}
 			lit.Elems = b.inOrder(x.Elts) // ir_order.go
+			if check.IsGoAny(tt.Elem) {
+				for i, e := range lit.Elems {
+					lit.Elems[i] = b.assignedTo(x.Elts[i], e, tt.Elem) // ir_union.go: Go's any (IR-GOCALLS)
+				}
+			}
 			if b.l.valueFacts().seeds[x] && len(lit.Elems) == 1 {
 				// append(slices.Grow([]T{}, seedCap), e) (seedcap.go).
 				et := b.goType(tt.Elem, x)

@@ -300,6 +300,8 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		args := append([]*irExpr{{K: "field", Pos: p, Name: envTask, X: env}}, irArgs...)
 		capField := b.knownOp(x, named, &irExpr{K: "field", Pos: p, Name: b.l.envField(named), X: env}) // ir_forms_op.go
 		return pre, b.opResult(c, &irExpr{K: "mcall", Pos: p, Name: memberName(c.Op.Name), X: capField, Args: args}), true
+	case check.CallGoError:
+		return b.goBuiltin(x, c, p) // ir_golib.go: go.New, go.Zero, go.Is, go.As (IR-GOCALLS)
 	case check.CallFuncValue:
 		pre, e := b.valueCall(x, c, p) // ir_closure.go
 		// A known callback's call is pure (ir_kcb.go).
