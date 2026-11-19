@@ -46,6 +46,7 @@ func Delete(s Store, key string) bool fails kv.Failed {
 // Scan is the entries under prefix, by key. Each run of the Seq copies
 // the entries under prefix in one step of the Ref and sorts them, so it
 // yields one state of the store while other tasks change it.
+// seq-exempt: it is this provider's kv.Store.Scan, whose member law Store.ScanStops states its stop
 func Scan(s Store, prefix string) Seq[kv.Entry] fails kv.Failed {
 	let entries = s.entries
 	func(yield func(e kv.Entry) bool) {
