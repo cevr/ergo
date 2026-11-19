@@ -458,7 +458,10 @@ func (b *irBuilder) catch(x *syntax.CatchExpr, partial bool) ([]*irStmt, *irExpr
 	sw.Else = []*irStmt{b.catchDefault(x, k, partial, e, sw.ElsePos)} // ir_catch_defect.go
 	if plain {
 		then = b.armBody(x.Arms[0], result, m.Result)
-	} else if then == nil {
+	} else if !patterned {
+		// A patterned catch's tree is its whole then, empty for a catch
+		// whose one arm, `case _:`, does nothing: that swallows the
+		// failure, where sw, with no cases, panics with it.
 		then = []*irStmt{sw}
 	}
 	ifs := &irStmt{K: "if", Pos: p, End: sw.End, X: b.notNil(e, p), Then: then}
