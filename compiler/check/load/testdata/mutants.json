@@ -1,0 +1,6 @@
+{
+  "about": "Mutants of compiler/check/load, the import loader and interface pass typedump, exprdump and inferdump share (S3d12). The types agreement (TestCompilerTypesAgreeWithChecker) kills each: every one makes an Ergo import's types resolve otherwise than the Go checker's.",
+  "mutants": [
+    {"name":"deps-read-empty","origin":"wf10 capstone S3d12","file":"compiler/check/load/load.ergo","from":"\t\t\t\tfound = d\n","to":"\t\t\t\tfound = types.EmptyIface(path)\n","rule":"An import the program holds reads its computed interface, not an empty one (S3d12).","killers":["internal/selfhostcheck:TestCompilerTypesAgreeWithChecker"],"anchor":{"tests":["internal/selfhostcheck:TestCompilerTypesAgreeWithChecker"]}}
+  ]
+}

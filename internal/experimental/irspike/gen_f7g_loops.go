@@ -56,7 +56,7 @@ func GenerateLoops(seed uint64) string {
 	// moveInts: P[i + d] = P[i + s], any overlap.
 	b.WriteString("func moveInts(n int, lo int, hi int, d int, s int) int {\n\tlet mut xs = seq(n)\n\tfor i in lo..hi {\n\t\txs[i + d] = xs[i + s]\n\t}\n\thash(xs)\n}\n\n")
 	// moveCells: vt's row move, through a pointer's field.
-	b.WriteString("func shift(g *Grid, a int, b int) {\n\tfor j in 0..g.w {\n\t\tg.cells[b + j] = g.cells[a + j]\n\t}\n}\n\n")
+	b.WriteString("func shift(g mut Grid, a int, b int) {\n\tfor j in 0..g.w {\n\t\tg.cells[b + j] = g.cells[a + j]\n\t}\n}\n\n")
 	b.WriteString("func moveCells(rows int, w int, a int, b int) int {\n\tlet mut g = Grid{cells: seq(rows * w), w: w}\n\tshift(&g, a * w, b * w)\n\thash(g.cells)\n}\n\n")
 	// The collects (GP-COLLECT): ys = ys.Append(src[x]) at every offset
 	// form; the caller keeps every index of src in [0, n).

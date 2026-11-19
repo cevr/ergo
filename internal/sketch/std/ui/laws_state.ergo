@@ -13,7 +13,7 @@ type row { a string, b string, on bool }
 // a Submit that sends the key and empties a. Draft a and the flag are read
 // directly under the Each, so their cells are keyed by the row's key; draft
 // b is read inside the Row, so its cell lives in that row's node.
-func cellRows(f *Frame[int], keys []int) {
+func cellRows(f mut Frame[int], keys []int) {
 	Column(f, Plain()) {
 		Each(f, keys, func(k int) Key { ByInt(k) }) func(k int) {
 			let a = NewDraft(f, "")
@@ -59,7 +59,7 @@ func rowOf(rows Map[int, row], k int) row {
 
 // part is the node at position i (0 to 4) of the row at position at, and
 // for i == 2 the Field inside its Row.
-func part(f *Frame[int], at int, i int) Id[int] {
+func part(f mut Frame[int], at int, i int) Id[int] {
 	let col = Kids(f, Root(f))[0]
 	let id = Kids(f, col)[5*at+i]
 	if i == 2 {
@@ -71,7 +71,7 @@ func part(f *Frame[int], at int, i int) Id[int] {
 // pick is a subset of the keys 0 to 5 in a drawn order; all of them when
 // keepAll. A quarter of the other picks are empty, so a pass leaves every
 // row out and the column that held their cells holds none.
-func pick(r *rng, keepAll bool) []int {
+func pick(r mut rng, keepAll bool) []int {
 	let mut keys = []int{}
 	if !keepAll && draw(r, 4) == 0 {
 		return keys
@@ -177,7 +177,7 @@ type Boxed {}
 type want { at place, key int }
 
 // loadView writes a Load of key w.key whose fetch sends the key.
-func loadView(f *Frame[int], w want) {
+func loadView(f mut Frame[int], w want) {
 	let k = w.key
 	match w.at {
 	case Nowhere:
@@ -341,7 +341,7 @@ func failMissing(b bool) fails Missing {
 // does the arm after a cut, at the same spec index and under the same
 // parent: their identities differ only by the boundary's site and the
 // counts the cut gives back.
-func labelled(f *Frame[int], name string) {
+func labelled(f mut Frame[int], name string) {
 	Row(f, Plain()) {
 		let d = NewDraft(f, name)
 		Field(f, d, name)
@@ -352,7 +352,7 @@ func labelShape(vals Map[string, string], n string) Shape[int] {
 	Shape[int]{Node: RowNode{Style: Plain()}, Kids: []Shape[int]{input(vals, n, n)}}
 }
 
-func bview(f *Frame[int], s bstate) {
+func bview(f mut Frame[int], s bstate) {
 	Column(f, Plain()) {
 		let side = NewDraft(f, "side")
 		Field(f, side, "side")

@@ -1,0 +1,107 @@
+// The operations of the built-in slice, Map, string, []byte and rune types
+// (PRIM, owner 2026-11-16): the language's own declarations, in the
+// prelude package's file builtin.ergo. They belong to the language, the
+// same in every program, as + belongs to int: each is reached only by the
+// dot form on exactly an unnamed slice or Map, a string, an unnamed []byte
+// or a rune (D-D8), never as a name in scope, and MakeSlice by name like
+// len. The checker registers the functions of this file, and of no other,
+// as the operations (internal/sketch/check collop.go names which operation
+// each one is, for the evaluator, the footprint and the lowerings); every
+// checker, the Go one and compiler/check, reads this one file
+// (PRELUDE-ONE-SOURCE). Each extern's Go reference is the operation's
+// reference body in runtime/v1 (Go's delete for Delete), and the laws
+// beside them in prelude.ergo are checked against those bodies (runtime/v1
+// TestCollLaws).
+
+// Append is xs with x added at the end. xs is unchanged: a slice is a
+// value (owner q26; types.md, Bindings), and the lowering appends in place
+// only for xs = xs.Append(x) or a dead xs. With resource elements it takes
+// xs and x: the result is their one owner (#197 L8 A3, resources R14).
+extern go ergo.local/prototype/runtime/v1.Append func Append[T own](xs own []T, x own T) []T
+
+// Get is the value of k in m, Some{v}, or None when m has no key k: a Map
+// read may miss, so it returns an Option.
+extern go ergo.local/prototype/runtime/v1.Get func Get[K comparable, V](m Map[K, V], k K) Option[V]
+
+// Delete is m without the key k. m is unchanged: a Map is a value (owner
+// q26), and the lowering deletes in place only for m = m.Delete(k) or a
+// dead m. Its body is Go's builtin delete (OPT7): the call is the builtin
+// itself, with no Go function between.
+extern go delete func Delete[K comparable, V](m Map[K, V], k K) Map[K, V]
+
+// Put is m with k set to v: the entry is added, or its value replaced. m
+// is unchanged, as Delete leaves it (owner q26), and the lowering writes
+// in place only for m = m.Put(k, v) or a dead m (#196 item 13, L2).
+extern go ergo.local/prototype/runtime/v1.Put func Put[K comparable, V](m Map[K, V], k K, v V) Map[K, V]
+
+// Take gives up m and returns the value at k (Some, or None if absent)
+// and the map without k. Resource values and the remainder have separate
+// owners. With plain-data values, m is unchanged (mode crossing), and the
+// lowering takes in place only for a dead m (PRIM-3).
+extern go ergo.local/prototype/runtime/v1.MapTake func Take[K comparable, V own](m own Map[K, V], k K) (Option[V], Map[K, V])
+
+// TakeAt gives up xs and returns its element at i and the remaining
+// slice, in order. With resource elements, the element and remainder have
+// separate owners. Plain-data xs is unchanged. An index outside
+// 0..len(xs) is a defect, as Go's index is (PRIM-4).
+extern go ergo.local/prototype/runtime/v1.SlicesTake func TakeAt[T own](xs own []T, i int) (T, []T)
+
+// Slice is the elements of xs from index i up to j, j excluded: Go's full
+// slice expression xs[i:j:j] (Effect's Array.slice), which shares xs's
+// array but has no room after j, so an Append to it makes a new array and
+// never writes xs[j]. A bound outside 0..len(xs), or an i after j, is a
+// defect (PRIM-4).
+extern go ergo.local/prototype/runtime/v1.SlicesSlice func Slice[T](xs []T, i int, j int) []T
+
+// Clone is a Map with the keys and values of m: Go's maps.Clone. A
+// write to the clone never reaches m (PRIM-4).
+extern go ergo.local/prototype/runtime/v1.MapsClone func Clone[K comparable, V](m Map[K, V]) Map[K, V]
+
+// Clone is a copy of xs in a new array: Go's slices.Clone (PRIM-4).
+extern go ergo.local/prototype/runtime/v1.SlicesClone func Clone[T](xs []T) []T
+
+// Concat is xs followed by ys, in a new array: Go's slices.Concat. Where
+// xs is consumed, the lowering appends ys to xs's array (OWN1; PRIM-4).
+extern go ergo.local/prototype/runtime/v1.SlicesConcat func Concat[T](xs []T, ys []T) []T
+
+// Repeat is xs n times over, in a new array: Go's slices.Repeat. A
+// negative n is a defect (PRIM-4).
+extern go ergo.local/prototype/runtime/v1.SlicesRepeat func Repeat[T](xs []T, n int) []T
+
+// Slice is the text of s from byte i up to byte j, j excluded: Go's
+// s[i:j]. A bound outside 0..len(s), or an i after j, is a defect
+// (PRIM-4).
+extern go ergo.local/prototype/runtime/v1.StringsSlice func Slice(s string, i int, j int) string
+
+// Bytes is the bytes of s, a copy: Go's []byte(s) (PRIM-4).
+extern go ergo.local/prototype/runtime/v1.StringsBytes func Bytes(s string) []byte
+
+// AppendString is bs with the bytes of s added: Go's append(bs, s...)
+// (PRIM-4).
+extern go ergo.local/prototype/runtime/v1.StringsBuilderAppend func AppendString(bs []byte, s string) []byte
+
+// AppendBytes is bs with the bytes of more added: Go's append(bs,
+// more...) (PRIM-4).
+extern go ergo.local/prototype/runtime/v1.StringsBuilderAppendBytes func AppendBytes(bs []byte, more []byte) []byte
+
+// AppendFrom is bs with n bytes added, copied from bs at start on, as an
+// LZ77 decoder copies a match: byte k of the n is the byte at start+k of
+// the result. A negative n, or a start outside bs, is a defect (PRIM-4).
+extern go ergo.local/prototype/runtime/v1.StringsBuilderAppendFrom func AppendFrom(bs []byte, start int, n int) []byte
+
+// Grow is bs with room for n more bytes. A negative n is a defect
+// (PRIM-4).
+extern go ergo.local/prototype/runtime/v1.StringsBuilderGrow func Grow(bs []byte, n int) []byte
+
+// Text is the text of bs's bytes: Go's string(bs). Where bs is
+// consumed, the text shares its bytes with no copy (OWN1; PRIM-4).
+extern go ergo.local/prototype/runtime/v1.StringsBuilderText func Text(bs []byte) string
+
+// RuneText is the UTF-8 text of r, or "\uFFFD" for a rune that is not
+// valid: Go's string(r) (PRIM-4).
+extern go ergo.local/prototype/runtime/v1.UTF8RuneText func RuneText(r rune) string
+
+// MakeSlice is an empty slice with room for capacity elements: Go's
+// make([]T, 0, capacity). It makes no element; a negative capacity is a
+// defect (PRIM-4).
+extern go ergo.local/prototype/runtime/v1.WithCapacity func MakeSlice[T own](capacity int) []T

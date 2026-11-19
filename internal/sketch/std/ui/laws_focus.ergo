@@ -20,7 +20,7 @@ func stateLooks(i int) Looks {
 
 // hoverScreen is n Pressables "h0" to "h<n-1>", each with its
 // stateLooks. (a law's helper)
-func hoverScreen(f *Frame[int], s int, n int) {
+func hoverScreen(f mut Frame[int], s int, n int) {
 	Column(f, Plain()) {
 		for i in 0..n {
 			let mut st = PressStyle()
@@ -42,7 +42,7 @@ law HoverCostsNoPass(seed int) {
 	with context { Scheduler: m } {
 		let mut r = seeded(seed)
 		let n = draw(&r, 6) + 2
-		let view = func(f *Frame[int], s int) { hoverScreen(f, s, n) }
+		let view = func(f mut Frame[int], s int) { hoverScreen(f, s, n) }
 		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})
 		let mut h = NewTestHost(a, view, m, 4) catch {
 		case BadPatch:
@@ -97,7 +97,7 @@ func crossWork(s string) Option[func(send func(e int))] {
 
 // crossScreen is n Areas "a0" to "a<n-1>"; Area i gives 10i+1 on the
 // pointer's enter, 10i+2 on its leave, and nothing else. (a law's helper)
-func crossScreen(f *Frame[int], n int) {
+func crossScreen(f mut Frame[int], n int) {
 	Column(f, Plain()) {
 		for i in 0..n {
 			Area(f, "a\(i)", Plain(), func(p PointerEvent) Option[int] {
@@ -126,7 +126,7 @@ law PointerCrossesOnce(seed int) {
 	with context { Scheduler: m } {
 		let mut r = seeded(seed)
 		let n = draw(&r, 4) + 2
-		let view = func(f *Frame[int], s string) { crossScreen(f, n) }
+		let view = func(f mut Frame[int], s string) { crossScreen(f, n) }
 		let a = actor.StartMachine(Machine[string, int, int]{Initial: "", Step: crossStep, After: crossTimer, Work: crossWork, Exit: func(at string) Option[func()] { None }}, 1, func(o int) {})
 		let mut h = NewTestHost(a, view, m, 4) catch {
 		case BadPatch:
@@ -168,7 +168,7 @@ law PointerCrossesOnce(seed int) {
 // ringScreen writes the drawn items in a Column: 0 a Text "n<i>", 1 a
 // Pressable "p<i>", 2 a Pressable "d<i>" under a disabled Fieldset, 3 a
 // Roving group of sizes[i] Pressables "g<i>m<j>". (a law's helper)
-func ringScreen(f *Frame[int], s int, kinds []int, sizes []int) {
+func ringScreen(f mut Frame[int], s int, kinds []int, sizes []int) {
 	Column(f, Plain()) {
 		for i, k in kinds {
 			if k == 0 {
@@ -203,7 +203,7 @@ func keyIn(name string, shift bool) Act {
 
 // focusName is the name of the node the focus is on, "" for none. (a
 // law's helper)
-func focusName[S, D, F](h *TestHost[S, int, D, F]) string {
+func focusName[S, D, F](h mut TestHost[S, int, D, F]) string {
 	match FocusOf(h) {
 	case Some[Id[int]] as id:
 		AccessAt(h, id.Value).Name
@@ -253,7 +253,7 @@ law FocusFollowsTheRing(seed int, steps int) {
 		}
 		let ks = kinds
 		let ss = sizes
-		let view = func(f *Frame[int], s int) { ringScreen(f, s, ks, ss) }
+		let view = func(f mut Frame[int], s int) { ringScreen(f, s, ks, ss) }
 		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})
 		let mut h = NewTestHost(a, view, m, 4) catch {
 		case BadPatch:
@@ -349,7 +349,7 @@ law FocusFollowsTheRing(seed int, steps int) {
 // and while s is 1 a FocusScope of Pressables "s0" to "s<ins-1>", each
 // sending 1, and "close", sending 0, the last; Escape sends 0 from
 // anywhere. (a law's helper)
-func scopeScreen(f *Frame[int], s int, outs int, ins int) {
+func scopeScreen(f mut Frame[int], s int, outs int, ins int) {
 	OnKey(f, func(k KeyPress) Option[int] {
 		if k.Name == "Escape" { Some{Value: 0} } else { None }
 	})
@@ -385,7 +385,7 @@ law FocusStaysInScope(seed int, steps int) {
 	with context { Scheduler: m } {
 		let outs = draw(&r, 4) + 1
 		let ins = draw(&r, 4) + 1
-		let view = func(f *Frame[int], s int) { scopeScreen(f, s, outs, ins) }
+		let view = func(f mut Frame[int], s int) { scopeScreen(f, s, outs, ins) }
 		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})
 		let mut h = NewTestHost(a, view, m, 4) catch {
 		case BadPatch:
@@ -435,7 +435,7 @@ law FocusReturnsOnEnd(seed int) {
 	with context { Scheduler: m } {
 		let outs = draw(&r, 4) + 1
 		let ins = draw(&r, 3) + 1
-		let view = func(f *Frame[int], s int) { scopeScreen(f, s, outs, ins) }
+		let view = func(f mut Frame[int], s int) { scopeScreen(f, s, outs, ins) }
 		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})
 		let mut h = NewTestHost(a, view, m, 4) catch {
 		case BadPatch:
@@ -479,7 +479,7 @@ law FocusReturnsOnEnd(seed int) {
 // askScreen is "next", sending s+1, and n Semantic groups keyed 0 to
 // n-1, group i holding a Pressable "t<i>"; the pass asks for the focus
 // on key (s/2)%n. (a law's helper)
-func askScreen(f *Frame[int], s int, n int) {
+func askScreen(f mut Frame[int], s int, n int) {
 	Focus(f, ByInt((s/2)%n))
 	Column(f, Plain()) {
 		Pressable(f, "next", s+1) {
@@ -508,7 +508,7 @@ law FocusGoesWhereAsked(seed int) {
 	let m = time.NewManual(0)
 	with context { Scheduler: m } {
 		let n = draw(&r, 4) + 2
-		let view = func(f *Frame[int], s int) { askScreen(f, s, n) }
+		let view = func(f mut Frame[int], s int) { askScreen(f, s, n) }
 		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})
 		let mut h = NewTestHost(a, view, m, 4) catch {
 		case BadPatch:
