@@ -143,9 +143,9 @@ func unionTag(u check.Type, v check.Type) int {
 
 // copyFor is the match facts m of a statement whose cases are from, for
 // a copy of the statement whose cases are to, its locals renamed by local
-// (-1: the copy no longer holds the subject in a local). Every IR copier
-// of statements (the inliner's clone, the spawn's capture copy) copies a
-// form's facts with it by this rule: an arm's bind, the first statement
+// (-1: the copy no longer holds the subject in a local). The one IR tree
+// copy (ir_treecopy.go: the inliner's clone, the spawn's capture copy)
+// copies a form's facts with it by this rule: an arm's bind, the first statement
 // of its case's body, is the copy's first statement there, so the facts
 // point into the copy, not the original (MATCH-BIND-ICE: a copy that kept
 // the original's facts failed verifyMatch). A bind out of its place is

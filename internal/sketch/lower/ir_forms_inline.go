@@ -907,116 +907,48 @@ func (c *irCopy) label(l string) string {
 }
 
 // clone is a deep copy of list, through cp when it is a callee's copy; a
-// marked call's copy stays marked.
+// marked call's copy stays marked. It is the one tree copy (ir_treecopy.go)
+// with the inliner's hooks.
 func (in *irInliner) clone(list []*irStmt, cp *irCopy) []*irStmt {
-	if list == nil {
-		return nil
-	}
-	out := make([]*irStmt, len(list))
-	for i, s := range list {
-		out[i] = in.cloneStmt(s, cp)
-	}
-	return out
+	return in.copier(cp).stmts(list)
 }
 
-func (in *irInliner) cloneStmt(s *irStmt, cp *irCopy) *irStmt {
-	n := *s
-	n.X, n.Y = in.cloneExpr(s.X, cp), in.cloneExpr(s.Y, cp)
-	n.Then, n.Else, n.Body = in.clone(s.Then, cp), in.clone(s.Else, cp), in.clone(s.Body, cp)
-	if s.Cases != nil {
-		n.Cases = make([]*irCase, len(s.Cases))
-		for i, c := range s.Cases {
-			nc := *c
-			nc.Body = in.clone(c.Body, cp)
-			if c.Vals != nil {
-				nc.Vals = make([]*irExpr, len(c.Vals))
-				for j, v := range c.Vals {
-					nc.Vals[j] = in.cloneExpr(v, cp)
-				}
-			}
-			if cp != nil {
-				nc.Pos = cp.pos(c.Pos)
-				nc.Types = make([]string, len(c.Types))
-				for j, t := range c.Types {
-					nc.Types[j] = irSubstTypes(t, cp.tps, cp.tsub)
-				}
-			}
-			n.Cases[i] = &nc
-		}
-	}
-	local := func(l int) int { return l }
-	if cp != nil {
-		local = cp.local
-	}
-	n.F, n.Was = s.F.copyFor(s.Cases, n.Cases, local), s.Was.copyFor(s.Cases, n.Cases, local) // ir_forms.go
-	if s.Ls != nil {
-		n.Ls = append([]int(nil), s.Ls...)
-	}
-	if s.Key != nil {
-		k := *s.Key
-		n.Key = &k
-	}
-	if s.Val != nil {
-		v := *s.Val
-		n.Val = &v
-	}
+// copier is the tree copy of a body (cp nil) or of a callee's copy cp:
+// a parameter's local becomes its operand, each local, position and
+// label the copy's, each type spelled in the callee's type parameters
+// the site's, and each marked call's site the copy's call's.
+func (in *irInliner) copier(cp *irCopy) *irTreeCopy {
+	c := &irTreeCopy{node: func(e, n *irExpr) { in.cloneExpr(e, n, cp) }}
 	if cp == nil {
-		return &n
+		return c
 	}
-	n.Pos, n.End, n.ElsePos, n.ElseEnd = cp.pos(s.Pos), cp.pos(s.End), cp.pos(s.ElsePos), cp.pos(s.ElseEnd)
-	n.Label = cp.label(s.Label)
-	switch s.K {
-	case "def", "set", "var", "def2", "mapget", "count":
-		n.Local = cp.local(s.Local)
-	}
-	if n.Key != nil {
-		*n.Key = cp.local(*n.Key)
-	}
-	if n.Val != nil {
-		*n.Val = cp.local(*n.Val)
-	}
-	for i, l := range n.Ls {
-		n.Ls[i] = cp.local(l)
-	}
-	return &n
-}
-
-func (in *irInliner) cloneExpr(e *irExpr, cp *irCopy) *irExpr {
-	if e == nil {
+	c.local = cp.local
+	c.expr = func(e *irExpr) *irExpr {
+		if e.K == "local" {
+			if a := cp.subst[e.I]; a != nil {
+				n := *a
+				n.Pos = cp.pos(e.Pos)
+				return &n
+			}
+		}
 		return nil
 	}
-	if cp != nil && e.K == "local" {
-		if a := cp.subst[e.I]; a != nil {
-			n := *a
-			n.Pos = cp.pos(e.Pos)
-			return &n
+	c.cas = func(k, n *irCase) {
+		n.Pos = cp.pos(k.Pos)
+		for j, t := range k.Types {
+			n.Types[j] = irSubstTypes(t, cp.tps, cp.tsub)
 		}
 	}
-	n := *e
-	n.X, n.Y = in.cloneExpr(e.X, cp), in.cloneExpr(e.Y, cp)
-	if e.Args != nil {
-		n.Args = make([]*irExpr, len(e.Args))
-		for i, a := range e.Args {
-			n.Args[i] = in.cloneExpr(a, cp)
-		}
+	c.stmt = func(s, n *irStmt) {
+		n.Pos, n.End, n.ElsePos, n.ElseEnd = cp.pos(s.Pos), cp.pos(s.End), cp.pos(s.ElsePos), cp.pos(s.ElseEnd)
+		n.Label = cp.label(s.Label)
 	}
-	if e.Elems != nil {
-		n.Elems = make([]*irExpr, len(e.Elems))
-		for i, a := range e.Elems {
-			n.Elems[i] = in.cloneExpr(a, cp)
-		}
-	}
-	n.Body = in.clone(e.Body, cp)
-	if e.Keys != nil {
-		n.Keys = append([]string(nil), e.Keys...)
-	}
-	if e.Params != nil {
-		n.Params = append([]int(nil), e.Params...)
-	}
-	if e.End != nil {
-		p := *e.End
-		n.End = &p
-	}
+	return c
+}
+
+// cloneExpr finishes n, the tree copy of e: a marked call's site, and
+// through cp its position and types.
+func (in *irInliner) cloneExpr(e, n *irExpr, cp *irCopy) {
 	if site := in.st.inl.sites[e]; site != nil {
 		if cp != nil {
 			// A call inside the copy: its type arguments, spelled in the
@@ -1029,23 +961,16 @@ func (in *irInliner) cloneExpr(e *irExpr, cp *irCopy) *irExpr {
 			s.result = irSubstTypes(site.result, cp.tps, cp.tsub)
 			site = &s
 		}
-		in.st.inl.sites[&n] = site
+		in.st.inl.sites[n] = site
 	}
 	if cp == nil {
-		return &n
+		return
 	}
 	n.Pos = cp.pos(e.Pos)
 	if n.End != nil {
 		*n.End = cp.pos(*n.End)
 	}
-	if e.K == "local" {
-		n.I = cp.local(e.I)
-	}
-	for i, p := range n.Params {
-		n.Params[i] = cp.local(p)
-	}
 	if e.FT != nil {
-		n.FT = make([]string, len(e.FT))
 		for i, t := range e.FT {
 			n.FT[i] = irSubstTypes(t, cp.tps, cp.tsub)
 		}
@@ -1055,7 +980,6 @@ func (in *irInliner) cloneExpr(e *irExpr, cp *irCopy) *irExpr {
 	} else {
 		n.V = irSubstTypes(e.V, cp.tps, cp.tsub) // a package call's type arguments (T is its import path)
 	}
-	return &n
 }
 
 // irSubstTypes is the Go type text t with each type parameter's spelling
