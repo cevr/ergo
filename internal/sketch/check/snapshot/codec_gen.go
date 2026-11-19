@@ -709,6 +709,7 @@ func (e *encoder) encT24(v map[string]*check.Func) {
 func (e *encoder) encFieldschecker(v *check.Codec_checker) {
 	f := check.CodecFieldsOf_checker(v)
 	e.encOptions(*f.F_opts)
+	e.encT14(*f.F_placeLaws)
 	e.encT2(*f.F_closeOp)
 	e.encPtrcaughtCall(*f.F_caught)
 	e.enctryCover(*f.F_cover)
@@ -2307,7 +2308,9 @@ func (e *encoder) encPtrMatcher(v *check.Matcher) {
 }
 
 func (e *encoder) encFieldsOptions(v *check.Options) {
+	f := check.CodecFieldsOf_Options(v)
 	e.encT14(v.Infer)
+	e.encT14(*f.F_placeLaws)
 }
 
 func (e *encoder) encOptions(v check.Options) { e.encFieldsOptions(&v) }
@@ -11731,6 +11734,7 @@ func (d *decoder) decT24() map[string]*check.Func {
 func (d *decoder) decFieldschecker(v *check.Codec_checker) {
 	f := check.CodecFieldsOf_checker(v)
 	*f.F_opts = d.decOptions()
+	*f.F_placeLaws = d.decT14()
 	*f.F_closeOp = d.decT2()
 	*f.F_caught = d.decPtrcaughtCall()
 	*f.F_cover = d.dectryCover()
@@ -13292,7 +13296,9 @@ func (d *decoder) decPtrMatcher() *check.Matcher {
 }
 
 func (d *decoder) decFieldsOptions(v *check.Options) {
+	f := check.CodecFieldsOf_Options(v)
 	v.Infer = d.decT14()
+	*f.F_placeLaws = d.decT14()
 }
 
 func (d *decoder) decOptions() (v check.Options) {
