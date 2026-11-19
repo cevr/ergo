@@ -35,7 +35,7 @@ func (a Analysis) AdviseLicences(e *report.Evaluation, fsys FS, path string) err
 	}
 	names, keys := ledgerNames(a), foreignKeys(a, fsys)
 	for _, law := range a.pkg.Laws {
-		if law.FuncRewrite == nil || law.Pkg != a.pkg {
+		if law.TopRewrite() == nil || law.Pkg != a.pkg {
 			continue
 		}
 		want := lower.FuncLawEntry(law, names, "", keys)
@@ -72,7 +72,7 @@ func (a Analysis) AdviseLicences(e *report.Evaluation, fsys FS, path string) err
 func licenceEntries(pkg *check.Package, names lower.LedgerNames, old map[string]lower.LedgerEntry, keys lower.ForeignKeys, w io.Writer, cases corpus) ([]lower.LedgerEntry, error) {
 	var out []lower.LedgerEntry
 	for _, law := range pkg.Laws {
-		if law.FuncRewrite == nil {
+		if law.TopRewrite() == nil {
 			continue
 		}
 		stub := lower.FuncLawEntry(law, names, "", keys)

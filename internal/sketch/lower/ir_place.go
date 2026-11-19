@@ -62,7 +62,8 @@ func (b *irBuilder) fixed(x syntax.Expr) bool {
 	case *syntax.Ident:
 		v, ok := b.l.info.Uses[x].(*check.Var)
 		_, local := b.locals[v]
-		return ok && local
+		_, held := b.held[v] // *p, p the in-place literal's parameter, which nothing assigns (ir_ownlit.go)
+		return ok && (local || held)
 	case *syntax.StarExpr:
 		return b.fixed(x.X) && b.fc.fixedName(x.X)
 	case *syntax.SelectorExpr:

@@ -8,6 +8,7 @@
 // the runner, the event log (module domain's memory log), the cursor of
 // the notices' follower and the clock.
 
+import api
 import flag
 import io
 import github.com/cevr/ergo/modules/domain
@@ -291,17 +292,7 @@ func call(r Remote) fails os.Exit needs Ambient | Console {
 	case rpc.Transport as t:
 		return os.Exit{Code: 1, Message: "pipeline: no pipeline answers at \(r.URL): \(t.Reason)"}
 	}
-	let o = with context { pipeline.Pipeline: client } { pipelinecli.Run(r.Command) }
-	if o.Out != "" {
-		Console.Println(strings.TrimSuffix(o.Out, "\n"))
-	}
-	if o.Code != 0 {
-		let code = os.ParseCode(o.Code) catch {
-		case Unsatisfied:
-			Unreachable("the generated CLI's Run gives status 0, 1 or 2")
-		}
-		return os.Exit{Code: code, Message: strings.TrimSuffix(o.Err, "\n")}
-	}
+	try api.Exit(with context { pipeline.Pipeline: client } { pipelinecli.Run(r.Command, pipelinecli.Defaults()) })
 }
 
 func main() fails os.Exit needs Ambient | Console {

@@ -96,6 +96,8 @@ func (b *Binding) goSig(bf *BoundFunc) *GoSig {
 			t := b.GoType(*p.Type.Elem)
 			if p.Type.LenExpr != "" {
 				t = "[" + strconv.FormatInt(p.Type.Len, 10) + "]" + t
+			} else if b.kinds[p.Type.Elem.Name] != nil {
+				t = b.RecordType(p.Type.Elem.Name)
 			}
 			s.Params = append(s.Params, GoParam{Name: paramName(p, i, b, used, f), Type: t, C: i, Class: q.Class})
 		case q.Class == ClassInBuffer || q.Class == ClassOutBuffer:

@@ -1,0 +1,196 @@
+// Package screen draws a session as lines of text for a terminal: the
+// transcript, its end stuck to the bottom, a status line that names the
+// way out of each phase, and the composer, the line being typed. Frame is
+// a pure function of the view and the window, so its rules are laws. One
+// rune is one column here: std has no display width yet (gap 8).
+
+import gent/agent
+import strings
+import term
+import utf8
+
+// View is what a frame shows: the agent's state and the composer's line.
+type View { State agent.State, Line Line }
+
+// Frame is the screen of v in a window of w: exactly w.Rows lines, none
+// wider than w.Cols runes. The last two are the status line and the
+// composer; above them, the end of the transcript.
+func Frame(v View, w term.Window) []string {
+	if w.Rows <= 0 {
+		return []string{}
+	}
+	let cols = if w.Cols < 0 { 0 } else { w.Cols }
+	let composer = Clip("> "+v.Line.Text+"_", cols)
+	if w.Rows == 1 {
+		return []string{composer}
+	}
+	let body = Body(v.State)
+	let room = w.Rows - 2
+	let mut out = []string{}
+	let from = if len(body) > room { len(body) - room } else { 0 }
+	for i in 0..(room - (len(body) - from)) {
+		let _ = i
+		out = out.Append("")
+	}
+	for line in body[from:] {
+		out = out.Append(Clip(line, cols))
+	}
+	out.Append(Clip(Status(v.State), cols)).Append(composer)
+}
+
+// Body is the transcript's lines, then the reply streaming in, if any.
+func Body(s agent.State) []string {
+	let mut out = Transcript(s.Log)
+	match s.Phase {
+	case agent.Asking as a:
+		if a.Draft != "" {
+			out = out.Concat(marked("< ", a.Draft+"…"))
+		}
+	case agent.Idle, agent.Waiting, agent.Approving, agent.Running, agent.Ended:
+	}
+	out
+}
+
+// Transcript is the lines of every row of log, in order.
+func Transcript(log []agent.Row) []string {
+	let mut out = []string{}
+	for r in log {
+		out = out.Concat(Lines(r))
+	}
+	out
+}
+
+// Lines is the lines of r. Its first line starts with the marker of its
+// kind, the lines after it with two spaces, so each kind looks different.
+func Lines(r agent.Row) []string {
+	match r {
+	case agent.User as u:
+		marked("> ", u.Text)
+	case agent.Reply as rep:
+		let mut out = if rep.Text == "" && len(rep.Calls) > 0 { []string{} } else { marked("< ", rep.Text) }
+		for c in rep.Calls {
+			out = out.Concat(marked("→ ", c.Name+" "+c.Arguments))
+		}
+		out
+	case agent.Cut as c:
+		marked("~ ", c.Text+" [cut off]")
+	case agent.Failed as f:
+		marked("! ", f.Say)
+	case agent.Result as res:
+		marked(if res.Ok { "= " } else { "x " }, res.Text)
+	case agent.Note as n:
+		marked("# ", n.Text)
+	}
+}
+
+// marked is text's lines (a last line feed ends the last line, and
+// starts none), the first after marker and the others after two spaces. A control character shows as "?", so no text a model or a
+// file wrote can move the cursor.
+func marked(marker string, text string) []string {
+	let mut out = []string{}
+	for i, line in strings.Split(strings.TrimSuffix(text, "\n"), "\n") {
+		out = out.Append((if i == 0 { marker } else { "  " }) + Printable(line))
+	}
+	out
+}
+
+// Printable is line with each control character as "?" and a tab as a
+// space.
+func Printable(line string) string {
+	let mut out = ""
+	for r in line {
+		if r == '\t' {
+			out = out + " "
+		} else if r < 32 || r == 127 || r >= 128 && r < 160 {
+			out = out + "?"
+		} else {
+			out = out + utf8.RuneText(r)
+		}
+	}
+	out
+}
+
+// Clip is line cut to at most cols runes.
+func Clip(line string, cols int) string {
+	let mut n = 0
+	for i, _ in line {
+		if n == cols {
+			return strings.Slice(line, 0, i)
+		}
+		n = n + 1
+	}
+	line
+}
+
+// window is a window of up to 40 rows and 100 columns drawn from two
+// numbers.
+func window(rows int, cols int) term.Window { term.Window{Cols: ((cols % 101) + 101) % 101, Rows: ((rows % 41) + 41) % 41} }
+
+// FrameFitsWindow: a frame has exactly the window's rows, none wider
+// than its columns.
+law FrameFitsWindow(v View, rows int, cols int) {
+	let w = window(rows, cols)
+	let lines = Frame(v, w)
+	if len(lines) != w.Rows {
+		return false
+	}
+	for line in lines {
+		if utf8.RuneCount(line) > w.Cols {
+			return false
+		}
+	}
+	true
+}
+
+// TailIsVisible: the transcript's last line, cut to the window, is the
+// line above the status line.
+law TailIsVisible(v View, rows int, cols int) {
+	let w = window(rows, cols)
+	let body = Body(v.State)
+	if w.Rows < 3 || len(body) == 0 {
+		return true
+	}
+	let lines = Frame(v, w)
+	lines[w.Rows-3] == Clip(body[len(body)-1], w.Cols)
+}
+
+// KindsLookDifferent: two rows of different kinds start with different
+// markers.
+law KindsLookDifferent(a agent.Row, b agent.Row) {
+	if kind(a) == kind(b) {
+		return true
+	}
+	strings.Slice(Lines(a)[0], 0, len(marker(a))) != marker(b)
+}
+
+// kind is the kind of r as it shows: each variant, a result as fine or
+// failed, a reply as text or as calls alone.
+func kind(r agent.Row) int {
+	match r {
+	case agent.User:
+		0
+	case agent.Reply as rep:
+		if rep.Text == "" && len(rep.Calls) > 0 { 1 } else { 2 }
+	case agent.Cut:
+		3
+	case agent.Failed:
+		4
+	case agent.Result as res:
+		if res.Ok { 5 } else { 6 }
+	case agent.Note:
+		7
+	}
+}
+
+// marker is the marker r's first line starts with.
+func marker(r agent.Row) string {
+	let first = Lines(r)[0]
+	let space = strings.Index(first, " ")
+	strings.Slice(first, 0, space+1)
+}
+
+// Paint is the bytes that draw lines from the top left of the screen,
+// each line cleared to its end: what one frame writes.
+func Paint(lines []string) string {
+	"\x1b[H" + strings.Join(lines, "\x1b[K\r\n") + "\x1b[K"
+}

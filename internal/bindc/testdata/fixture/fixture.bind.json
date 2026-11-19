@@ -1,6 +1,6 @@
 {
   "header": "fixture.h",
-  "header_sha256": "43e2966897ed366324a206b067993360012e407e97f8990485154d0d3036a3a1",
+  "header_sha256": "915501db7116c8687d5213f58e356c6c0329fccec84626aa91d31e8d46c08a56",
   "go": {
     "package": "fixture",
     "import_path": "ergo.local/bind/fixture"

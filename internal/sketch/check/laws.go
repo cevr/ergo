@@ -281,9 +281,43 @@ func (c *checker) planMachineLaw(law *Law) {
 
 // typeParams are the type parameters of the law's type (rule 6); a
 // top-level law has none.
+// lawTypeParams declares a top-level rewrite law's type parameters (owner
+// q234), as a function's are declared (funcSig): each is a type, never a
+// row, since a rewrite's function parameters fail nothing and need
+// nothing (funcrewrite.go, rule 4).
+func (c *checker) lawTypeParams(list *syntax.FieldList) []*TypeParam {
+	ctx := &typeCtx{params: map[string]*TypeParam{}}
+	var out []*TypeParam
+	type pending struct {
+		tp *TypeParam
+		x  syntax.Expr
+	}
+	var constraints []pending
+	for _, field := range list.List {
+		cons := c.constraintExpr(field)
+		for _, name := range field.Names {
+			c.preludeName(name)
+			tp := &TypeParam{Name: name.Name, Pos: name.Pos(), Lent: field.Lent > 0, id: newID()}
+			c.def(name, tp)
+			if cons != nil {
+				constraints = append(constraints, pending{tp, cons})
+			}
+			if _, dup := ctx.params[name.Name]; dup {
+				c.errorf(name, CodeType, "type parameter %s is declared twice", name.Name)
+			}
+			ctx.params[name.Name] = tp
+			out = append(out, tp)
+		}
+	}
+	for _, p := range constraints {
+		p.tp.Constraint = c.constraint(p.x, ctx)
+	}
+	return out
+}
+
 func (l *Law) typeParams() []*TypeParam {
 	if l.Owner == nil {
-		return nil
+		return l.TParams
 	}
 	if n, ok := l.Owner.Type.(*Named); ok {
 		return n.TParams
@@ -377,6 +411,14 @@ func (c *checker) pairUngeneratable(t Type) string {
 
 // planLaw sets the law's slots, or why it does not run (rules 7 and 8).
 func (c *checker) planLaw(law *Law) {
+	if len(law.TParams) > 0 {
+		// A rewrite over functions (owner q234): the property run has no
+		// instantiation and no generator of functions; ergo test's licence
+		// run (eval/licencefuncs.go) runs it at int over a family of pure
+		// functions, and its verdict goes to ergo.laws.
+		law.Unrun = "a law with type parameters of its own runs as its licence run, at int, not as a property"
+		return
+	}
 	var slots []LawSlot
 	for i, v := range law.Params {
 		if isInvalid(v.Type) {
@@ -795,6 +837,9 @@ func (c *checker) checkLaw(law *Law) {
 		return
 	}
 	defer c.beginBodyCheck(law)()
+	if law.Owner == nil && d.TypeParams != nil && law.TParams == nil {
+		law.TParams = c.lawTypeParams(d.TypeParams)
+	}
 	tparams := law.typeParams()
 	defer c.monoOwner(tparams)()
 	name := "law " + law.Name

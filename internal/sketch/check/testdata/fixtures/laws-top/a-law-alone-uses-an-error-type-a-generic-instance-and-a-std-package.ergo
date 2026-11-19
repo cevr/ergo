@@ -1,0 +1,19 @@
+import slices
+
+type Gone {}
+
+type Box[T] { V T }
+
+func wrap[T](v T) Box[T] {
+	Box{V: v}
+}
+
+law Alone(n int, s string) {
+	let f = func() int fails Gone { return Gone }
+	let v = f() catch {
+	case Gone:
+		n
+	}
+	let xs = slices.WithCapacity[int](n)
+	v == n && wrap(s).V == s && len(xs) == 0
+}
