@@ -294,6 +294,9 @@ func lowerIRModule(u Unit, tests *testLowering, formsOff bool) ([]File, map[stri
 	if err := irNoForms(&l.ir.out); err != nil { // ir_forms_erase.go
 		return nil, nil, irModule{}, nil, err
 	}
+	if err := irPlaced(&l.ir.out); err != nil { // ir_placed.go
+		return nil, nil, irModule{}, nil, err
+	}
 	sort.Slice(l.ir.out.Funcs, func(i, j int) bool { return l.ir.out.Funcs[i].Name < l.ir.out.Funcs[j].Name })
 	l.ir.out.V = 1
 	for _, decl := range slices.Sorted(maps.Keys(l.ir.keep)) {
