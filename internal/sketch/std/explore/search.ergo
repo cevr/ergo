@@ -99,6 +99,27 @@ func Uint(h *hasher, n uint64)      { absorb(h, uint64(6)); absorb(h, n) }
 // (batch-15 X1 M1).
 func Float(h *hasher, f float64)    { absorb(h, uint64(7)); absorb(h, math.Float64bits(f)) }
 func String(h *hasher, s string)    { absorb(h, uint64(8)); absorbText(h, s) }
+
+// StringBytes takes in the string its bytes spell, as String does, with
+// no string made of them (Writer's StringBytes, GX12).
+func StringBytes(h *hasher, b []byte) {
+	absorb(h, uint64(8))
+	absorb(h, uint64(len(b)))
+	let mut w = uint64(0)
+	let mut k = 0
+	for i in 0..len(b) {
+		w = w | (uint64(b[i]) << uint64(8*k))
+		k = k + 1
+		if k == 8 {
+			absorb(h, w)
+			w = uint64(0)
+			k = 0
+		}
+	}
+	if k > 0 {
+		absorb(h, w)
+	}
+}
 func BeginList(h *hasher, n int)    { absorb(h, uint64(9)); absorb(h, uint64(n)) }
 func EndList(h *hasher)             { absorb(h, uint64(10)) }
 func BeginObject(h *hasher, n int)  { absorb(h, uint64(11)); absorb(h, uint64(n)) }
