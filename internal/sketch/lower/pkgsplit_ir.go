@@ -95,30 +95,6 @@ func (s *irSplit) foreign(p int, name string) {
 	s.uses[p][name] = true
 }
 
-// forwardedInsts are the instances that the forwarding functions
-// foreignDecls writes name in their signatures, each in the package it
-// writes the forwarder into: Go compiles them there too, so the shared
-// lists count those packages (MONO-SHARED, pkginst.go).
-func (s *irSplit) forwardedInsts(defs splitDefs, finder *splitInsts) []splitInst {
-	var out []splitInst
-	users := slices.Sorted(maps.Keys(s.uses))
-	for _, k := range users {
-		for _, name := range slices.Sorted(maps.Keys(s.uses[k])) {
-			fn, ok := defs.node[name].(*ast.FuncDecl)
-			if !ok || fn.Type.TypeParams != nil {
-				continue
-			}
-			ast.Inspect(fn.Type, func(n ast.Node) bool {
-				if x, ok := n.(ast.Expr); ok && finder.instance(x) {
-					out = append(out, splitInst{x: x, pkg: k})
-				}
-				return true
-			})
-		}
-	}
-	return out
-}
-
 // splitDefs are main.go's package-scope declarations: each name's node
 // (*ast.FuncDecl, *ast.TypeSpec or *ast.ValueSpec) and the index of its
 // declaration.
@@ -268,11 +244,8 @@ func freshName(taken map[string]bool, prefix string) string {
 // files are the IR files of the split module: each package's bodies,
 // renamed as the split renames, in the package's folder. The root always
 // has one, so a module built through IR names its root's file.
-func (s *irSplit) files(pkgOf func(i int) int, rename map[string]string, plan *splitPlan, shared map[int][]string) ([]File, int, error) {
+func (s *irSplit) files(pkgOf func(i int) int, rename map[string]string, plan *splitPlan) ([]File, int, error) {
 	byPkg := map[int][]irFunc{1: nil}
-	for p := range shared {
-		byPkg[p] = nil // a package with shared instances gets an IR file for its list (pkginst.go)
-	}
 	for i := range s.ir.Funcs {
 		// A copy: the split may still fall back to the one-package IR.
 		data, err := json.Marshal(&s.ir.Funcs[i])
@@ -328,7 +301,7 @@ func (s *irSplit) files(pkgOf func(i int) int, rename map[string]string, plan *s
 			withIR++
 		}
 		sort.Slice(funcs, func(a, b int) bool { return funcs[a].Name < funcs[b].Name })
-		data, err := json.Marshal(&irFile{V: s.ir.V, Files: s.ir.Files, Funcs: funcs, Shared: shared[p]})
+		data, err := json.Marshal(&irFile{V: s.ir.V, Files: s.ir.Files, Funcs: funcs})
 		if err != nil {
 			return nil, 0, err
 		}
