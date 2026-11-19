@@ -1093,7 +1093,9 @@ func (p *parser) parseLawDecl(doc *CommentGroup, top bool) *LawDecl {
 	d := &LawDecl{Doc: doc, Law: p.want(LAW)}
 	d.Name = p.parseIdent()
 	if top && p.tok.tok == LBRACK {
-		p.errorAt(p.tok.pos, 1, "a law has no type parameters; state it at concrete types, or as a member of the protocol's operation type")
+		// Only a rewrite law over functions takes type parameters (owner
+		// q234): its sides are stated once for every instance a site has.
+		d.TypeParams = p.parseTypeParams()
 	}
 	d.Params = p.parseParameters(paramPlain, true)
 	r := &LawRewrite{When: NoPos, Eq: NoPos}
@@ -1111,6 +1113,9 @@ func (p *parser) parseLawDecl(doc *CommentGroup, top bool) *LawDecl {
 	}
 	d.Body = p.parseBlock()
 	if p.tok.tok != EQL && r.When == NoPos {
+		if d.TypeParams != nil {
+			p.errorAt(d.TypeParams.Opening, 1, "only a rewrite law over functions has type parameters, law L[T](x T) { f(g(x)) } == { x }; state a property at concrete types, or as a member of the protocol's operation type")
+		}
 		return d
 	}
 	if top && r.When == NoPos {

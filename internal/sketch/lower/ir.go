@@ -493,6 +493,9 @@ type irBuilder struct {
 	// IR patterns, built once per body; localTypes the Go type of each
 	// local declared (ir_rewrite_pass.go).
 	rwPatterns map[string][]*rwPattern
+	// rwBound is the binding of the law over function parameters whose
+	// sides are being lowered at a site (ir_fusion.go withBinding).
+	rwBound    rwBinding
 	localTypes map[int]string
 	// rwRows are the rewrite sites this body applied (their report rows),
 	// rwLevels the rewrites applied by level (ir_rewrite.go).

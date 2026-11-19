@@ -24,8 +24,11 @@ import "slices"
 
 // WithCapacity is slices.WithCapacity[T](n): an empty slice with room for
 // n elements. It fabricates no element (parse-v1 ruling 7 withdrew
-// slice.Repeat). A negative n is a defect, Go's own makeslice panic.
+// slice.Repeat). A negative n is a defect, Go's own makeslice panic. It
+// is pure (it allocates and reads nothing), so slices.Transform, which
+// calls it, is pure over a pure function (the fusion laws, rule 4).
 //
+//ergo:pure
 //ergo:wait none
 func WithCapacity[T any](n int) []T { return make([]T, 0, n) }
 

@@ -20,6 +20,7 @@ internal/sketch/check/wireform_test.go	*
 internal/sketch/eval/codecwalk.go	w.callFunc(w.in.wirePair(r.t).Wire, v)
 internal/sketch/eval/codecwalk.go	w.callFunc(p.Wire, v)
 internal/sketch/lower/wireform_test.go	*
+internal/sketch/lower/ir_wire.go	irNo("codec writer of a wire form %v", check.WireFormOf(t))
 docs/spec/types.md	8. **Declared wire forms.**
 docs/spec/types.md	A marker with the wrong structural shape is S108 when used as `wire`.
 docs/spec/types.md	A structural form cannot also declare an independent Parse/Wire pair;
@@ -153,6 +154,7 @@ docs/specs/standard-library-capabilities.md	encoder; explicit secret access and 
 docs/specs/state-machines.md	derived codec therefore carries wire keys such as `"done"`, as Rust
 docs/standard-library.md	external codecs, validation and wire compatibility |
 runtime/v1/wire.go	*
+runtime/v1/testdata/mutants.json	"file":"runtime/v1/wire.go"
 internal/sketch/check/info.go	// WirePairs are the by-name wire forms (types.md, Codecs 1) that this
 internal/sketch/check/testdata/fixtures/negative/codec-rows.ergo	*
 internal/sketch/check/wire.go	*
@@ -523,4 +525,5 @@ internal/sketch/std/ui/location.ergo	func EncodeQuery[T wire](v T) string fails 
 internal/sketch/std/ui/location.ergo	func WithQuery[T wire](u URL, v T) URL fails QueryShape needs wired[T] {
 modules/xml/text.ergo	func Encode[T wire](c Codec[T], v T) string needs wired[T] {
 modules/xml/xml.ergo	func Decode[T wire](c Codec[T], text string) T fails Malformed | wired[T] needs wired[T] {
+runtime/embed.go	"unsupported_os.go", "view.go", "wire.go"},
 runtime/embed.go	files:   []string{"actor.go", "actor_host.go", "actor_recover.go", "actor_trace.go", "atomic.go", "buffer.go", "collections.go", "config_names.go", "context.go", "data.go", "embed.go", "exit.go", "exits.go", "explore_laws.go", "explore_off.go", "explore_on.go", "goarg.go", "gocall.go", "gocallback.go", "goerror.go", "goreads.go", "guard.go", "guard_other.go", "guard_unix.go", "heap.go", "host.go", "intmap.go", "json.go", "json_append.go", "leaves.go", "lineage.go", "mailbox.go", "mapfile_unix.go", "mapped.go", "moves.go", "numbers.go", "owned.go", "path.go", "queue.go", "runtime.go", "script.go", "sealed.go", "set.go", "shrink.go", "static.go", "stdout.go", "strbuf.go", "sync.go", "task.go", "term.go", "term_bsd.go", "term_darwin.go", "term_linux.go", "term_unix.go", "text.go", "time.go", "timetext.go", "toml.go", "toml_encode.go", "trace.go", "ui_args.go", "unchecked.go", "unsupported_os.go", "view.go", "wire.go"},

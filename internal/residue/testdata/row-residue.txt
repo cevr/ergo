@@ -38,6 +38,13 @@ internal/sketch/lower/checked_lowered_test.go	a needs row, both
 # parameters and type arguments keep their commas)
 internal/sketch/format/rows_test.go	needs ROW, Put()
 internal/sketch/lower/generic_test.go	func apply[A, E, R](f func(A) A fails E needs R, x A) A fails E needs R {
+# FUSION's one-loop helpers: two function parameters, each with a one-name row
+docs/spec/stdlib.md	f func(x T) U fails E needs R, keep func(x U) bool
+docs/spec/stdlib.md	keep func(x T) bool fails E needs R, f func(x T) U
+internal/sketch/std/slices/slices.ergo	f func(x T) U fails E needs R, keep func(x U) bool
+internal/sketch/std/slices/slices.ergo	keep func(x T) bool fails E needs R, f func(x T) U
+internal/sketch/eval/licencefuncs_test.go	f func(x T) U fails E needs R, keep func(x U) bool
+internal/sketch/eval/licencefuncs_test.go	keep func(x T) bool fails E needs R, f func(x T) U
 # std ui's view, block and fetch parameters carry the view's row (H8b, stdlib.md UI 19),
 # and the lower mutant ledger quotes them
 internal/sketch/std/ui/boundary.ergo	needs R, at CallSite

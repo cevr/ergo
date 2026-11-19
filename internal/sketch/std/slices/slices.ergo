@@ -235,6 +235,34 @@ func Filter[T, E, R](xs []T, keep func(x T) bool fails E needs R) []T fails E ne
 	out
 }
 
+// TransformFilter is the values f gives the elements of xs that keep
+// accepts, in order: Filter(Transform(xs, f), keep) in one loop, which
+// the fusion law TransformThenFilter places. f runs once per element,
+// keep once per value of f.
+func TransformFilter[T, U, E, R](xs []T, f func(x T) U fails E needs R, keep func(x U) bool fails E needs R) []U fails E needs R {
+	let mut out = []U{}
+	for x in xs {
+		let y = try f(x)
+		if try keep(y) {
+			out = out.Append(y)
+		}
+	}
+	out
+}
+
+// FilterTransform is f of the elements of xs that keep accepts, in
+// order: Transform(Filter(xs, keep), f) in one loop, which the fusion law
+// FilterThenTransform places.
+func FilterTransform[T, U, E, R](xs []T, keep func(x T) bool fails E needs R, f func(x T) U fails E needs R) []U fails E needs R {
+	let mut out = []U{}
+	for x in xs {
+		if try keep(x) {
+			out = out.Append(try f(x))
+		}
+	}
+	out
+}
+
 // Fold is f applied to init and each element of xs, first to last (Effect
 // Array.reduce, Gleam list.fold): Fold([a, b], z, f) is f(f(z, a), b).
 func Fold[T, A, E, R](xs []T, init A, f func(acc A, x T) A fails E needs R) A fails E needs R {

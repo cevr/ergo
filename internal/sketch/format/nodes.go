@@ -119,6 +119,9 @@ func (p *printer) decl(d syntax.Decl) {
 		p.token(d.Law, "law")
 		p.space()
 		p.ident(d.Name)
+		if d.TypeParams != nil {
+			p.fieldList(d.TypeParams, "[", "]")
+		}
 		p.fieldList(d.Params, "(", ")")
 		p.space()
 		if e := d.Equation; e != nil {

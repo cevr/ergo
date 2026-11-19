@@ -116,8 +116,8 @@ func (b *irBuilder) namesTypeParam(s string) bool {
 			i++
 			continue
 		}
-		for _, name := range b.fc.params {
-			if s[i:j] == name {
+		for tp, name := range b.fc.params {
+			if s[i:j] == name && b.rwBound[tp] == nil { // a law's type parameter at a site is a Go type (ir_fusion.go)
 				return true
 			}
 		}

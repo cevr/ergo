@@ -914,6 +914,8 @@ func (e *encoder) encFieldsLaw(v *Law) {
 	e.encPtrTypeName(v.Machine)
 	e.encT23(v.Targets)
 	e.encPtrFunc(v.Pred)
+	e.encPtrFuncRewrite(v.FuncsRewrite)
+	e.encT21(v.TParams)
 	e.encT131(v.Params)
 	e.encPtrRow(v.Fails)
 	e.encT132(v.Slots)
@@ -3472,6 +3474,24 @@ func (e *encoder) encPtrSyntax_LawDecl(v *syntax.LawDecl) {
 	e.uint(e.nodes.ID(v))
 }
 
+func (e *encoder) encFieldsFuncRewrite(v *FuncRewrite) {
+	e.encSyntax_Expr(v.Lhs)
+	e.encSyntax_Expr(v.Rhs)
+	e.encPtrFunc(v.Root)
+	e.encT1(v.LhsCalls)
+	e.encT1(v.RhsCalls)
+	e.encT12(v.OverFuncs)
+}
+
+func (e *encoder) encFuncRewrite(v FuncRewrite) { e.encFieldsFuncRewrite(&v) }
+
+func (e *encoder) encPtrFuncRewrite(v *FuncRewrite) {
+	if e.ref(v, v == nil) {
+		return
+	}
+	e.encFieldsFuncRewrite(v)
+}
+
 func (e *encoder) encT132(v []LawSlot) {
 	if v == nil {
 		e.uint(0)
@@ -3510,23 +3530,6 @@ func (e *encoder) encPtrRewrite(v *Rewrite) {
 		return
 	}
 	e.encFieldsRewrite(v)
-}
-
-func (e *encoder) encFieldsFuncRewrite(v *FuncRewrite) {
-	e.encSyntax_Expr(v.Lhs)
-	e.encSyntax_Expr(v.Rhs)
-	e.encPtrFunc(v.Root)
-	e.encT1(v.LhsCalls)
-	e.encT1(v.RhsCalls)
-}
-
-func (e *encoder) encFuncRewrite(v FuncRewrite) { e.encFieldsFuncRewrite(&v) }
-
-func (e *encoder) encPtrFuncRewrite(v *FuncRewrite) {
-	if e.ref(v, v == nil) {
-		return
-	}
-	e.encFieldsFuncRewrite(v)
 }
 
 func (e *encoder) encT134(v [][]LawProvider) {
@@ -11629,6 +11632,8 @@ func (d *decoder) decFieldsLaw(v *Law) {
 	v.Machine = d.decPtrTypeName()
 	v.Targets = d.decT23()
 	v.Pred = d.decPtrFunc()
+	v.FuncsRewrite = d.decPtrFuncRewrite()
+	v.TParams = d.decT21()
 	v.Params = d.decT131()
 	v.Fails = d.decPtrRow()
 	v.Slots = d.decT132()
@@ -13982,6 +13987,34 @@ func (d *decoder) decPtrSyntax_LawDecl() *syntax.LawDecl {
 	return x.(*syntax.LawDecl)
 }
 
+func (d *decoder) decFieldsFuncRewrite(v *FuncRewrite) {
+	v.Lhs = d.decSyntax_Expr()
+	v.Rhs = d.decSyntax_Expr()
+	v.Root = d.decPtrFunc()
+	v.LhsCalls = d.decT1()
+	v.RhsCalls = d.decT1()
+	v.OverFuncs = d.decT12()
+}
+
+func (d *decoder) decFuncRewrite() (v FuncRewrite) {
+	d.decFieldsFuncRewrite(&v)
+	return v
+}
+
+func (d *decoder) decPtrFuncRewrite() *FuncRewrite {
+	x, fresh := d.ref()
+	if !fresh {
+		if x == nil {
+			return nil
+		}
+		return x.(*FuncRewrite)
+	}
+	v := new(FuncRewrite)
+	d.add(v)
+	d.decFieldsFuncRewrite(v)
+	return v
+}
+
 func (d *decoder) decT132() []LawSlot {
 	n := d.uint()
 	if n == 0 {
@@ -14031,33 +14064,6 @@ func (d *decoder) decPtrRewrite() *Rewrite {
 	v := new(Rewrite)
 	d.add(v)
 	d.decFieldsRewrite(v)
-	return v
-}
-
-func (d *decoder) decFieldsFuncRewrite(v *FuncRewrite) {
-	v.Lhs = d.decSyntax_Expr()
-	v.Rhs = d.decSyntax_Expr()
-	v.Root = d.decPtrFunc()
-	v.LhsCalls = d.decT1()
-	v.RhsCalls = d.decT1()
-}
-
-func (d *decoder) decFuncRewrite() (v FuncRewrite) {
-	d.decFieldsFuncRewrite(&v)
-	return v
-}
-
-func (d *decoder) decPtrFuncRewrite() *FuncRewrite {
-	x, fresh := d.ref()
-	if !fresh {
-		if x == nil {
-			return nil
-		}
-		return x.(*FuncRewrite)
-	}
-	v := new(FuncRewrite)
-	d.add(v)
-	d.decFieldsFuncRewrite(v)
 	return v
 }
 
