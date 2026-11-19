@@ -1335,6 +1335,24 @@ func main() {
 	use(Mine)
 }
 `,
+	// std llm (L1): a vendor's client is a program's provider of the model contract, as llm/memory's Scripted and llm/recorded are std's.
+	"llm.Model": `import llm
+
+type Mine {} implements llm.Model
+
+func Generate(_ Mine, r llm.Request) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema {
+	llm.Turn{Text: "", Calls: []llm.Call{}, Stop: llm.Ended, Usage: llm.Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0}}
+}
+func Stream(_ Mine, r llm.Request, put func(d llm.Delta) fails llm.SinkFailed) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema | llm.SinkFailed {
+	llm.Turn{Text: "", Calls: []llm.Call{}, Stop: llm.Ended, Usage: llm.Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0}}
+}
+
+func use(_ llm.Model) {}
+
+func main() {
+	use(Mine)
+}
+`,
 }
 
 // unexportedStd is the std operation types sealed by an unexported
@@ -1400,6 +1418,7 @@ var openStd = map[string]bool{
 	"tz.Zones":          true,
 	"tz.Local":          true,
 	"testing.Allocs": true,
+	"llm.Model": true,
 	// The layout's text measure, which a host provides with its fonts.
 }
 
