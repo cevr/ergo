@@ -72,7 +72,6 @@ func (s *Screen) newEditor(n int, h ot.Handle) error {
 		do   func() error
 	}{
 		{"view", func() (err error) { view, err = ot.EditorViewCreate(s.ctx, buf, 1, 1); return }},
-		{"wrap", func() error { return ot.EditorViewCommand(s.ctx, view, ot.OT_EDITOR_WRAP_MODE, ot.OT_SCENE_WRAP_NONE) }},
 		{"bind", func() error { return ot.SceneSetEditorView(s.ctx, h, view) }},
 		// One row high (also where it grows in a column), as wide as its
 		// parent in a column; in a row the driver's Grow widens it.
