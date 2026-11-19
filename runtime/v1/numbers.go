@@ -1,10 +1,8 @@
 package v1
 
-// The Go bodies of the std packages math and bits (docs/spec/stdlib.md,
-// math and bits; std-text-runes). Each calls Go's function of the same
-// name and is marked pure: math and math/bits are in PureImports. Go
-// compiles most of them to one instruction, so a call costs what Go's own
-// call costs once inlined.
+// The Go bodies of std math's conversions (docs/spec/stdlib.md, math):
+// a float to an integer, saturating or failing. Std math's other functions
+// and std bits are Go's own, bound through import go (NP4f).
 //
 // Prior art: Gleam's gleam/float binds Erlang's math functions as
 // externals (floor, ceiling, truncate); ReScript's Math module binds
@@ -15,158 +13,6 @@ import (
 	"math/bits"
 	"strconv"
 )
-
-// MathAbs is math.Abs(f).
-//
-//ergo:pure
-//ergo:wait none
-func MathAbs(f float64) float64 { return math.Abs(f) }
-
-// MathCeil is math.Ceil(f).
-//
-//ergo:pure
-//ergo:wait none
-func MathCeil(f float64) float64 { return math.Ceil(f) }
-
-// MathFloor is math.Floor(f).
-//
-//ergo:pure
-//ergo:wait none
-func MathFloor(f float64) float64 { return math.Floor(f) }
-
-// MathTrunc is math.Trunc(f).
-//
-//ergo:pure
-//ergo:wait none
-func MathTrunc(f float64) float64 { return math.Trunc(f) }
-
-// MathRound is math.Round(f).
-//
-//ergo:pure
-//ergo:wait none
-func MathRound(f float64) float64 { return math.Round(f) }
-
-// MathSqrt is math.Sqrt(f).
-//
-//ergo:pure
-//ergo:wait none
-func MathSqrt(f float64) float64 { return math.Sqrt(f) }
-
-// MathPow is math.Pow(x, y).
-//
-//ergo:pure
-//ergo:wait none
-func MathPow(x float64, y float64) float64 { return math.Pow(x, y) }
-
-// MathFMA is math.FMA(x, y, z): x*y + z rounded once, on every host (Go
-// uses the host's fused instruction where it has one and an exact software
-// form where not).
-//
-//ergo:pure
-//ergo:wait none
-func MathFMA(x float64, y float64, z float64) float64 { return math.FMA(x, y, z) }
-
-// MathMod is math.Mod(x, y).
-//
-//ergo:pure
-//ergo:wait none
-func MathMod(x float64, y float64) float64 { return math.Mod(x, y) }
-
-// MathLog is math.Log(f), the natural logarithm.
-//
-//ergo:pure
-//ergo:wait none
-func MathLog(f float64) float64 { return math.Log(f) }
-
-// MathExp is math.Exp(f), e to the power f.
-//
-//ergo:pure
-//ergo:wait none
-func MathExp(f float64) float64 { return math.Exp(f) }
-
-// MathInf is math.Inf(sign).
-//
-//ergo:pure
-//ergo:wait none
-func MathInf(sign int) float64 { return math.Inf(sign) }
-
-// MathNaN is math.NaN().
-//
-//ergo:pure
-//ergo:wait none
-func MathNaN() float64 { return math.NaN() }
-
-// MathIsNaN is math.IsNaN(f).
-//
-//ergo:pure
-//ergo:wait none
-func MathIsNaN(f float64) bool { return math.IsNaN(f) }
-
-// MathIsInf is math.IsInf(f, sign).
-//
-//ergo:pure
-//ergo:wait none
-func MathIsInf(f float64, sign int) bool { return math.IsInf(f, sign) }
-
-// BitsOnesCount is bits.OnesCount(x).
-//
-//ergo:pure
-//ergo:wait none
-func BitsOnesCount(x uint) int { return bits.OnesCount(x) }
-
-// BitsOnesCount64 is bits.OnesCount64(x).
-//
-//ergo:pure
-//ergo:wait none
-func BitsOnesCount64(x uint64) int { return bits.OnesCount64(x) }
-
-// BitsLeadingZeros is bits.LeadingZeros(x).
-//
-//ergo:pure
-//ergo:wait none
-func BitsLeadingZeros(x uint) int { return bits.LeadingZeros(x) }
-
-// BitsLeadingZeros64 is bits.LeadingZeros64(x).
-//
-//ergo:pure
-//ergo:wait none
-func BitsLeadingZeros64(x uint64) int { return bits.LeadingZeros64(x) }
-
-// BitsTrailingZeros is bits.TrailingZeros(x).
-//
-//ergo:pure
-//ergo:wait none
-func BitsTrailingZeros(x uint) int { return bits.TrailingZeros(x) }
-
-// BitsTrailingZeros64 is bits.TrailingZeros64(x).
-//
-//ergo:pure
-//ergo:wait none
-func BitsTrailingZeros64(x uint64) int { return bits.TrailingZeros64(x) }
-
-// BitsLen is bits.Len(x).
-//
-//ergo:pure
-//ergo:wait none
-func BitsLen(x uint) int { return bits.Len(x) }
-
-// BitsLen64 is bits.Len64(x).
-//
-//ergo:pure
-//ergo:wait none
-func BitsLen64(x uint64) int { return bits.Len64(x) }
-
-// BitsRotateLeft32 is bits.RotateLeft32(x, k).
-//
-//ergo:pure
-//ergo:wait none
-func BitsRotateLeft32(x uint32, k int) uint32 { return bits.RotateLeft32(x, k) }
-
-// BitsRotateLeft64 is bits.RotateLeft64(x, k).
-//
-//ergo:pure
-//ergo:wait none
-func BitsRotateLeft64(x uint64, k int) uint64 { return bits.RotateLeft64(x, k) }
 
 // Float to integer conversion (docs/spec/types.md, Conversions 4;
 // GLOSSARY "Saturating float conversion"). Go leaves a non-constant
@@ -408,3 +254,30 @@ func MathToUintptr(f float64) (uintptr, error) {
 	}
 	return 0, MathOutOfRange{Value: f}
 }
+
+// BitsAdd64 is bits.Add64(x, y, carry): the sum and the carry out.
+//
+//ergo:pure
+//ergo:wait none
+func BitsAdd64(x, y, carry uint64) (uint64, uint64) { return bits.Add64(x, y, carry) }
+
+// BitsSub64 is bits.Sub64(x, y, borrow): the difference and the borrow
+// out.
+//
+//ergo:pure
+//ergo:wait none
+func BitsSub64(x, y, borrow uint64) (uint64, uint64) { return bits.Sub64(x, y, borrow) }
+
+// BitsMul64 is bits.Mul64(x, y): the high and low halves of the product.
+//
+//ergo:pure
+//ergo:wait none
+func BitsMul64(x, y uint64) (uint64, uint64) { return bits.Mul64(x, y) }
+
+// BitsDiv64 is bits.Div64(hi, lo, y): the quotient and remainder of the
+// 128-bit (hi, lo) by y. Like Go's, it is a defect (a panic) when y is 0
+// or not above hi, the quotient would not fit 64 bits.
+//
+//ergo:pure
+//ergo:wait none
+func BitsDiv64(hi, lo, y uint64) (uint64, uint64) { return bits.Div64(hi, lo, y) }

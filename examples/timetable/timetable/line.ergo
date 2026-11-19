@@ -1,0 +1,115 @@
+// Package timetable is the domain of a passenger line that crosses time
+// zones: its stops, the services that run on it each week, the departures
+// a stop sees on a day of its own calendar, the state of one trip as a
+// machine, and the weeks a traveller picks from. A stop keeps its zone,
+// so every time is an instant shown on the wall clock of the stop it
+// belongs to. The package reads no clock and loads no zone: the caller
+// gives it the zones and the instant it calls now.
+
+import civil
+import time
+import tz
+
+// Stop is a station of a line as a timetable writes it: its name, the IANA
+// name of its zone, and the running time from the line's first stop.
+type Stop { Name string, Zone string, After duration }
+
+// Line is a line's name and its stops, first to last.
+type Line { Name string, Stops []Stop }
+
+// Service is a train that leaves the first stop at the same wall time on
+// some days of the week: its number, that time, and the days.
+type Service { Number string, Leaves civil.TimeOfDay, Days []time.Weekday }
+
+// UnknownStop is a stop the line does not call at.
+type UnknownStop { Name string }
+
+// UnknownService is a service number the timetable does not hold.
+type UnknownService { Number string }
+
+// Timetable is the timetable a program reads: one line and its services.
+// The domain declares it; a provider holds the data (package memory).
+type Timetable {
+	Line() Line,
+	Services() []Service,
+
+	// StopsRunForward: a line has two stops or more, the first at no
+	// running time from itself and each later one after the one before.
+	law StopsRunForward() {
+		let stops = Line().Stops
+		if len(stops) < 2 || stops[0].After != 0s {
+			return false
+		}
+		for i in 1..len(stops) {
+			if stops[i].After <= stops[i-1].After {
+				return false
+			}
+		}
+		true
+	},
+
+	// ServicesRun: each service runs on at least one day, and no two
+	// share a number.
+	law ServicesRun() {
+		let all = Services()
+		for i, s in all {
+			if len(s.Days) == 0 {
+				return false
+			}
+			for j in i+1..len(all) {
+				if all[j].Number == s.Number {
+					return false
+				}
+			}
+		}
+		true
+	},
+}
+
+// Station is a stop with its zone loaded.
+type Station { Name string, Zone tz.Zone, After duration }
+
+// Route is a line with its zones loaded: the domain's times are computed
+// on it.
+type Route { Name string, Stations []Station }
+
+// Load is l with each stop's zone loaded from the context's database.
+func Load(l Line) Route fails tz.UnknownZone needs tz.Zones {
+	let mut out = []Station{}
+	for s in l.Stops {
+		out = out.Append(Station{Name: s.Name, Zone: try tz.Zones.Load(s.Zone), After: s.After})
+	}
+	Route{Name: l.Name, Stations: out}
+}
+
+// StopNamed is the station of r named name.
+func StopNamed(r Route, name string) Station fails UnknownStop {
+	for s in r.Stations {
+		if s.Name == name {
+			return s
+		}
+	}
+	UnknownStop{Name: name}
+}
+
+// ServiceNumbered is the service of all whose number is wanted.
+func ServiceNumbered(all []Service, wanted string) Service fails UnknownService {
+	for s in all {
+		if s.Number == wanted {
+			return s
+		}
+	}
+	UnknownService{Number: wanted}
+}
+
+// RunsOn reports whether s leaves the first stop on d, a date of the first
+// stop's calendar.
+func RunsOn(s Service, d civil.Date) bool {
+	let w = civil.Weekday(d)
+	for day in s.Days {
+		if day == w {
+			return true
+		}
+	}
+	false
+}

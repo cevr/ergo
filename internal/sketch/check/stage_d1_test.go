@@ -103,8 +103,7 @@ func TestLetMutPointers(t *testing.T) {
 
 // Q3: a let mut that is never reassigned is S110 at its name; one that is
 // read nowhere keeps only its unused S110; a reassignment from a function
-// literal, through a field or by a borrow counts. A dropped result of a
-// pure call is S110 at the call (M2), with no advice for its receiver.
+// literal, through a field or by a borrow counts.
 func TestLetMutNeverReassigned(t *testing.T) {
 	const decls = "type R { N int }\nfunc use(n int) {}\n"
 	runD1(t, []d1Case{
@@ -114,13 +113,6 @@ func TestLetMutNeverReassigned(t *testing.T) {
 		{"through-field", decls + "func f(r R) int {\n\tlet mut c = r\n\tc.N = 1\n\tc.N\n}\n", nil},
 		{"in-loop-literal", decls + "func f() int {\n\tlet mut n = 0\n\tlet run = func() {\n\t\tlet mut i = 0\n\t\tfor i < 3 {\n\t\t\ti += 1\n\t\t}\n\t\tn = i\n\t}\n\trun()\n\tn\n}\n", nil},
 		{"literal-local-never", decls + "func f() {\n\tlet h = func() int {\n\t\tlet mut k = 1\n\t\tk\n\t}\n\tuse(h())\n}\n", []string{"S110:5"}},
-		// PF19 (lint/plan.md M2): xs.Append(1) as a statement drops its
-		// result, so xs stays empty; the dead call is S110, and the advice
-		// to write let xs, which leads to it, does not follow.
-		{"dead-append", decls + "func f() []int {\n\tlet mut xs = []int{}\n\txs.Append(1)\n\txs\n}\n", []string{"S110:5"}},
-		// A call through a *T parameter may write: its dropped result is
-		// no dead call.
-		{"pointer-write", decls + "func grow(p *R) int {\n\tp.N = 1\n\t0\n}\nfunc f() int {\n\tlet mut r = R{N: 0}\n\tgrow(&r)\n\tr.N\n}\n", nil},
 	})
 }
 

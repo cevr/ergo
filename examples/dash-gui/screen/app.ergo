@@ -4,7 +4,7 @@
 // host's clock is a signal that moves the board a frame; each panel has a
 // pause button and a policy button, and a canvas that draws its samples.
 
-import dash/feed
+import ergo.local/prototype/examples/dashgui/feed
 import queue
 
 // Signal is what the view sends the app: a frame of the clock, or a press

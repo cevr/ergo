@@ -1,0 +1,48 @@
+// Secure: random bytes fit for keys, tokens and identifiers (std-spike
+// D3), apart from Random, whose draws are fast and replayable but
+// predictable. Go keeps the two apart as crypto/rand and math/rand/v2;
+// Effect has one Random, so a token drawn from it is guessable.
+
+// Secure draws bytes no one can predict: SecureHost is the operating
+// system's source (Go's crypto/rand). SeededSecure is a replayable
+// provider for tests, and is not secure.
+type Secure {
+	// Bytes is n random bytes. An n under zero is a defect.
+	Bytes(n int) string,
+
+	// BytesHasLength: a draw of n bytes has n bytes.
+	law BytesHasLength(n int) {
+		let k = (n%64 + 64) % 64
+		len(Bytes(k)) == k
+	},
+}
+
+// SecureHost is the host's Secure provider. Its field gives this package
+// the construction authority, so only NewSecureHost makes one.
+type SecureHost { live hostOnly } implements Secure
+
+// NewSecureHost is the host's Secure provider. It needs Ambient: only code
+// whose row holds the authority to choose the host makes one (docs/spec/
+// stdlib.md, Host packages).
+func NewSecureHost() SecureHost needs Ambient { SecureHost{live: hostOnly} }
+
+// Bytes is n bytes of the host's secure source (Go's crypto/rand.Read).
+func Bytes(_ SecureHost, n int) string { secureBytes(n) }
+
+extern go ergo.local/prototype/runtime/v1/rand.RandSecureBytes func secureBytes(n int) string
+
+// SeededSecure is a Secure provider that replays seed's PCG stream, eight
+// bytes from each 64-bit draw: for tests and replays, never for keys.
+type SeededSecure { src Stream } implements Secure
+
+// NewSeededSecure is the replayable Secure provider of seed.
+func NewSeededSecure(seed uint64) SeededSecure { SeededSecure{src: newStream(seed)} }
+
+// Bytes is the next n bytes of p's stream.
+func Bytes(p SeededSecure, n int) string { p.src.Bytes(n) }
+
+// SeededSecureReplays: two providers of one seed draw the same bytes.
+law SeededSecureReplays(seed uint64, n int) {
+	let k = (n%64 + 64) % 64
+	NewSeededSecure(seed).Bytes(k) == NewSeededSecure(seed).Bytes(k)
+}

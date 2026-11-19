@@ -1,0 +1,21 @@
+// The rows the laws cannot state: the file of each kind of place, and the
+// places that have none (the laws' site has neither . nor a / in a
+// segment).
+
+import ui
+
+func fileOf(path string) string {
+	PathOf(ui.URL{Path: path, Query: "", Fragment: ""}) catch {
+	case BadPath as b:
+		return "bad: " + b.Reason
+	}
+}
+
+test PathOfNamesTheFile {
+	assert fileOf("/") == "index.html"
+	assert fileOf("/entries/a%20b") == "entries/a b/index.html"
+	assert fileOf("/feed.xml") == "feed.xml"
+	assert fileOf("/entries/a%2Fb") == "bad: a segment holds a /"
+	assert fileOf("/entries/..") == "bad: a segment is .."
+	assert fileOf("/%2E") == "bad: a segment is ."
+}

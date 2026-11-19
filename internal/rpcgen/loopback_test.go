@@ -83,7 +83,15 @@ func loopback(t *testing.T, seed uint64) {
 		if err != nil || a.Root().Package == nil {
 			t.Fatalf("seed %d: contract c%d does not check: %v %v\n%s", seed, i, err, a.Diagnostics, files[fmt.Sprintf("c%d/contract.ergo", i)])
 		}
-		out, err := Generate(a.Root().Package, fmt.Sprintf("loop/c%d", i), "Svc")
+		hub, err := GenerateAPI(a.Root().Package, fmt.Sprintf("loop/c%d", i), "Svc")
+		if err != nil {
+			t.Fatalf("seed %d: generate the hub of c%d: %v", seed, i, err)
+		}
+		for name, src := range hub.Files {
+			writeFile(t, filepath.Join(pkgDir, hub.Dir, name), src)
+			files[fmt.Sprintf("c%d/%s/%s", i, hub.Dir, name)] = src
+		}
+		out, err := Generate(a.Root().Package, fmt.Sprintf("loop/c%d", i), "Svc", fmt.Sprintf("loop/c%d/%s", i, hub.Dir))
 		if err != nil {
 			t.Fatalf("seed %d: generate c%d: %v", seed, i, err)
 		}
@@ -1086,7 +1094,7 @@ func (p *program) contractSource(c *contract) string {
 	b.WriteString(`// Ref is the reference provider: it notes each call's arguments and
 // gives the outcome the sequence planned for its count; with a wide key
 // ("w3"), the outcome of that wide call.
-type Ref { log sync.Ref[[]string], n sync.Ref[int], wide string }
+type Ref { log sync.Ref[[]string], n sync.Ref[int], wide string } implements Svc
 
 func NewRef(wide string) Ref { Ref{log: sync.NewRef[[]string]([]string{}), n: sync.NewRef[int](0), wide: wide} }
 

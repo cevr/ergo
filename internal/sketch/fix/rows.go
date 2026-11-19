@@ -6,10 +6,11 @@
 // inference writes the inferred rows of the unexported functions. Then
 // the loop checks under the default checker mode, applies the fix of every
 // clause diagnostic, and checks again until no clause diagnostic is left:
-// writing a callee's clause can make its callers exceed theirs. Rows only
-// grow and are finite, so the loop ends; Bound stops it past (functions +
-// 1) × (row elements + 1) rounds. It only adds: it never removes an
-// element and never adds a catch.
+// writing a callee's clause can make its callers exceed theirs. The loop
+// is std code's Plan(Fixes) (plan.go, SEMTOOLS SEM4b). Rows only grow and
+// are finite, so the loop ends within Bound, (functions + 1) × (row
+// elements + 1) rounds. It only adds: it never removes an element and
+// never adds a catch.
 
 package fix
 
@@ -71,13 +72,7 @@ type Result struct {
 }
 
 // Rows writes the missing clauses of the program texts, which check reads.
-func Rows(texts map[string]string, check Checker) (Result, error) {
-	return rows(texts, check, true)
-}
-
-// rows is Rows; loop false stops after the first round (a test hook for the
-// mutant that skips the re-check).
-func rows(texts map[string]string, chk Checker, loop bool) (Result, error) {
+func Rows(texts map[string]string, chk Checker) (Result, error) {
 	cur := map[string]string{}
 	for k, v := range texts {
 		cur[k] = v
@@ -91,38 +86,10 @@ func rows(texts map[string]string, chk Checker, loop bool) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	funcs := 0
-	for _, t := range cur {
-		funcs += strings.Count(t, "func")
-	}
-	elems := map[string]bool{}
 	res := Result{}
-	for {
-		res.Rounds++
-		out, err := chk(cur, check.Options{})
-		if err != nil {
-			return Result{}, err
-		}
-		var fixes []Diagnostic
-		for _, d := range out.Diagnostics {
-			if d.Fix != nil && d.Fix.Text != "" {
-				fixes = append(fixes, d)
-				for _, e := range d.Fix.Row {
-					elems[e] = true
-				}
-			}
-		}
-		if len(fixes) == 0 || !loop && res.Rounds > 1 {
-			res.Remaining = out.Diagnostics
-			break
-		}
-		if res.Rounds > Bound(funcs, len(elems)) {
-			return Result{}, fmt.Errorf("fix: no fixed point after %d rounds; stopped on function %s in %s", res.Rounds-1, fixes[0].Fix.Function, fixes[0].File)
-		}
-		cur, err = apply(cur, fixes, changes)
-		if err != nil {
-			return Result{}, err
-		}
+	cur, res.Remaining, res.Rounds, err = planRows(cur, chk, changes)
+	if err != nil {
+		return Result{}, err
 	}
 	res.Texts = cur
 	for _, c := range changes {

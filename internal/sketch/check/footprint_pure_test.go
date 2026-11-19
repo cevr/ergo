@@ -11,9 +11,9 @@ import (
 // body is marked //ergo:pure is transparent in a footprint. A function that
 // calls strings.TrimSpace has the footprint of one that calls nothing, an
 // Ergo std function over pure externs (strings.Cut) is pure too, and a
-// capability the function calls stays in its footprint. A std extern whose
-// body is not marked (slices.WithCapacity) and a user extern of the same Go
-// function stay opaque: purity is a reviewed fact of std only.
+// capability the function calls stays in its footprint. slices.WithCapacity
+// is pure since its body is marked (SL2b). A user extern of a Go function
+// std marks stays opaque: purity is a reviewed fact of std only.
 func TestFootprintsPureStd(t *testing.T) {
 	src := `import strings
 import strconv
@@ -66,7 +66,7 @@ func userTrim(s string) string { hostTrim(s) }
 		"parses":   "pure",
 		"reads":    "Env",
 		"loops":    "pure",
-		"makes":    "opaque",
+		"makes":    "pure", // SL2b: slices.WithCapacity is pure (data.go)
 		"userTrim": "opaque",
 		// lw-pure-prelude: the prelude's Append, Get, Delete and Put are
 		// marked pure in runtime/v1 (data.go).

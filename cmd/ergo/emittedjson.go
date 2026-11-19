@@ -93,7 +93,7 @@ func printEmittedJSON(opts fileOptions) error {
 // fails the command.
 func emittedLineOf(opts fileOptions, path string, l loaded, shared bool) (emittedLine, bool, error) {
 	line := emittedLine{Package: path, Platform: opts.platform.GOOS + "/" + opts.platform.GOARCH}
-	envelope, exit, err := checkEnvelope(opts, l)
+	envelope, exit, err := checkEnvelope(opts, l, nil)
 	if err != nil {
 		return line, false, err
 	}

@@ -1,8 +1,6 @@
 package check
 
 import (
-	"slices"
-
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -244,6 +242,7 @@ func (c *checker) unusedValue(at syntax.Expr, op operand) {
 	if info == nil {
 		return
 	}
+	c.noteDropped(at, call, info)
 	switch {
 	case info.Kind == CallLen:
 		c.errorf(at, CodeUnused, "the value of len is not used")
@@ -251,115 +250,7 @@ func (c *checker) unusedValue(at syntax.Expr, op operand) {
 		c.errorf(at, CodeUnused, "the value of %s is not used", info.Name)
 	case info.Kind == CallConversion && !isCapability(info.Type):
 		c.errorf(at, CodeUnused, "the conversion to %s is not used", info.Type)
-	case info.Kind == CallFunc && info.Func != nil:
-		// Whether the call is pure waits for the footprints
-		// (checkDiscardedCalls; lint/plan.md M2).
-		d := discardedCall{call: call, typ: op.typ, file: c.cur}
-		if sel, ok := unparen(call.Fun).(*syntax.SelectorExpr); ok && info.Recv != nil {
-			if id, ok := unparen(sel.X).(*syntax.Ident); ok {
-				if v, ok := c.lookup(id.Name).(*Var); ok && !v.pkg && op.typ != nil && c.identical(op.typ, v.Type) {
-					// xs.Append(x) meant xs = xs.Append(x): the call's
-					// own S110 names that, and no "never reassigned"
-					// advice for xs follows it (K4's precedent).
-					d.self = id.Name
-					if v.mut {
-						v.reassigned = true
-					}
-				}
-			}
-		}
-		c.discarded = append(c.discarded, d)
 	}
-}
-
-// discardedCall is a call of a declared function whose result an
-// expression statement or a discarded tail drops; checkDiscardedCalls
-// judges it once the footprints are known. self names the local a dot
-// call is on when the result has the local's type: the call meant
-// self = self.f(…).
-type discardedCall struct {
-	call *syntax.CallExpr
-	typ  Type
-	self string
-	file *fileInfo
-}
-
-// checkDiscardedCalls reports each discarded call that does nothing (S110;
-// lint/plan.md M2, PF19): its callee is pure (an empty footprint), it
-// fails with nothing and needs nothing, it borrows nothing it could write
-// (no *T parameter, a Go method's receiver included) and hands off no
-// resource, and its result holds no resource (R42 reports that). A slice
-// and a Map are values (owner q26), so xs.Append(x) as a statement
-// changes nothing: the checker had advised let xs over let mut xs, and the
-// program dropped every element.
-func (c *checker) checkDiscardedCalls() {
-	info := c.pkg.Info
-	for _, d := range c.discarded {
-		k := info.Calls[d.call]
-		if k == nil || k.Func == nil || k.StartsTask || !k.Fails.Empty() || !k.Needs.Empty() {
-			continue
-		}
-		if impureWhy(info, d.call) != "" || c.writesArgs(d.call, k) {
-			continue
-		}
-		c.cur = d.file
-		if d.typ == nil || isInvalid(d.typ) || c.holdsResource(d.typ) || c.reportedIn(d.call) {
-			continue
-		}
-		name := exprText(d.call.Fun)
-		if name == "this expression" {
-			name = "this call"
-		}
-		if d.self != "" {
-			c.errorf(d.call, CodeUnused, "the result of %s is not used, and the call is pure: it does nothing, and %s is unchanged; write %s = %s(…)", name, d.self, d.self, name)
-			continue
-		}
-		c.errorf(d.call, CodeUnused, "the result of %s is not used, and the call is pure: it does nothing; use the result or remove the call", name)
-	}
-}
-
-// reportedIn reports a diagnostic already inside x in the current file: a
-// refused argument's call adds no S110 beside it (D3).
-func (c *checker) reportedIn(x syntax.Node) bool {
-	for _, d := range c.diags {
-		if d.File == c.cur.index && d.Offset >= int(x.Pos()) && d.Offset < int(x.End()) {
-			return true
-		}
-	}
-	return false
-}
-
-// writesArgs reports a call that may write through what it is passed: a
-// parameter of a pointer type, a Go-bound method on a pointer receiver,
-// or an argument holding a resource that it takes.
-func (c *checker) writesArgs(x *syntax.CallExpr, k *Call) bool {
-	f := k.Func
-	if f.Sig == nil {
-		return true
-	}
-	for i, p := range f.Sig.Params {
-		if isPointer(p.Type) {
-			return true
-		}
-		if !slices.Contains(f.Sig.Takes, i) {
-			continue
-		}
-		// The argument's type, not the parameter's: Append[T] takes xs
-		// own []T, a resource only when T is one.
-		arg := callArg(x, k, f, i)
-		if t := c.pkg.Info.Types[arg]; arg == nil || t == nil || c.holdsResource(t) {
-			return true
-		}
-	}
-	if f.Decl != nil && f.Decl.Recv != nil && !k.RecvIsParam() {
-		// A Go-bound method: its binding declares the receiver apart.
-		for _, r := range f.Decl.Recv.List {
-			if _, ok := r.Type.(*syntax.StarExpr); ok {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 // namePattern is the single-name binder rule, one for a `let` and a `for`

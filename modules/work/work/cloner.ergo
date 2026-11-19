@@ -1,0 +1,124 @@
+// NotSameVolume is a clone whose target is on another file system than
+// its source: no copy-on-write call can share blocks across it.
+type NotSameVolume { From string, To string }
+
+// Unsupported is a clone call the file system or the host does not have
+// (a btrfs snapshot of a folder that is not a subvolume, a reflink on a
+// file system without shared extents, clonefile off APFS).
+type Unsupported { Cloner string, Why string }
+
+// Exists is a target folder that is already there.
+type Exists { Path string }
+
+// Missing is a source folder that is not there.
+type Missing { Path string }
+
+// NoSpace is a clone the file system had no room for.
+type NoSpace { Path string }
+
+// CloneFailed is any other failure of the call that clones, moves,
+// discards or measures a tree, with the tool's own words.
+type CloneFailed { Cloner string, Reason string }
+
+// Cloner makes and keeps the trees of workspaces: a clone of a tree that
+// shares its blocks until a write, a move (to the trash), a discard, and
+// the bytes a tree takes. A provider is admitted by the laws, not by its
+// name. Every law holds for every provider; the memory provider's laws in
+// work/memory state the file-level ones (a clone equals its base, writes
+// stay private) on trees they plant.
+type Cloner {
+	// Name is the provider's name, as a workspace's record keeps it.
+	Name() string,
+	// Shares reports whether a clone shares its blocks with its source
+	// (a copy-on-write provider) or holds a copy of each (a plain copy).
+	Shares() bool,
+	// KeepsInodes reports whether a clone keeps each file's inode and
+	// change time (a btrfs snapshot does; a clone made file by file does
+	// not, so Git's index sees every tracked file as possibly changed).
+	KeepsInodes() bool,
+	// Clone makes to a copy of from. On a failure nothing is left at to.
+	Clone(from string, to string) fails NotSameVolume | Unsupported | Exists | Missing | NoSpace | CloneFailed,
+	// Has reports whether a tree is at root.
+	Has(root string) bool,
+	// Move moves the tree at from to to (a rename on one file system).
+	Move(from string, to string) fails Exists | Missing | CloneFailed,
+	// Discard deletes the tree at root.
+	Discard(root string) fails Missing | CloneFailed,
+	// Usage is the bytes the tree at root takes.
+	Usage(root string) Usage fails Unsupported | Missing | CloneFailed,
+
+	// CloneMakesTheTree: a clone that succeeds leaves a tree at its target.
+	law CloneMakesTheTree(from string, to string) {
+		Clone(from, to) catch {
+		case NotSameVolume, Unsupported, Exists, Missing, NoSpace, CloneFailed:
+			return true
+		}
+		Has(to)
+	},
+
+	// SecondCloneIsExists: a target is never cloned over.
+	law SecondCloneIsExists(from string, to string) {
+		Clone(from, to) catch {
+		case NotSameVolume, Unsupported, Exists, Missing, NoSpace, CloneFailed:
+			return true
+		}
+		Clone(from, to) catch {
+		case Exists:
+			return true
+		case NotSameVolume, Unsupported, Missing, NoSpace, CloneFailed:
+			return false
+		}
+		false
+	},
+
+	// FailedCloneLeavesNothing: a clone into a free target that fails
+	// leaves the target free.
+	law FailedCloneLeavesNothing(from string, to string) {
+		if Has(to) {
+			return true
+		}
+		Clone(from, to) catch {
+		case NotSameVolume, Unsupported, Exists, Missing, NoSpace, CloneFailed:
+			return !Has(to)
+		}
+		true
+	},
+
+	// FreshCloneSharesItsBlocks: right after a clone, a sharing provider's
+	// clone holds no block of its own, and a copy shares none; either way
+	// it takes the bytes of its source.
+	law FreshCloneSharesItsBlocks(from string, to string) {
+		Clone(from, to) catch {
+		case NotSameVolume, Unsupported, Exists, Missing, NoSpace, CloneFailed:
+			return true
+		}
+		let base = Usage(from) catch {
+		case Unsupported, Missing, CloneFailed:
+			return true
+		}
+		let clone = Usage(to) catch {
+		case Unsupported, Missing, CloneFailed:
+			return false
+		}
+		let split = (Shares() && clone.Exclusive == 0) || (!Shares() && clone.Shared == 0)
+		split && clone.Total == base.Total && clone.Total == clone.Exclusive+clone.Shared
+	},
+
+	// MoveMoves: a move that succeeds leaves the tree at its target only.
+	law MoveMoves(from string, to string) {
+		Move(from, to) catch {
+		case Exists, Missing, CloneFailed:
+			return true
+		}
+		Has(to) && (from == to || !Has(from))
+	},
+
+	// DiscardDiscards: a discard that succeeds leaves no tree.
+	law DiscardDiscards(root string) {
+		Discard(root) catch {
+		case Missing, CloneFailed:
+			return true
+		}
+		!Has(root)
+	},
+}

@@ -114,7 +114,7 @@ func TestAnObservedSlowTestLeavesTheFastTier(t *testing.T) {
 	if observed == 0 {
 		t.Error("the full tier declares no package test step")
 	}
-	steps, err := fastStepsSelected(root, cacheDir, nil)
+	steps, _, err := fastStepsSelected(root, cacheDir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +147,7 @@ func TestAnObservedSlowTestLeavesTheFastTier(t *testing.T) {
 	if err := observeTests(cacheDir, module+"/"+probe.Package.Dir, map[string]float64{test: sizeCutoff}); err != nil {
 		t.Fatal(err)
 	}
-	steps, err = fastStepsSelected(root, cacheDir, nil)
+	steps, _, err = fastStepsSelected(root, cacheDir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

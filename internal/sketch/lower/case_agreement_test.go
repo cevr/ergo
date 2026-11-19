@@ -92,11 +92,20 @@ func TestCasePlansAgreeWithGo(t *testing.T) {
 				if !strings.Contains(line, fmt.Sprintf("(case %d of %d, ", r.Case, r.TotalCases)) {
 					fail("first case differs: %+v", r)
 				}
-				var args []string
+				var args, drawn []string
 				for _, a := range r.Arguments {
 					args = append(args, a.Name+" = "+a.Value)
 				}
-				if !strings.Contains(line, ": "+strings.Join(args, ", ")+"): ") {
+				for _, a := range r.Drawn {
+					drawn = append(drawn, a.Name+" = "+a.Value)
+				}
+				// A shrunk case (Drawn set) also names the case it was drawn as, as the
+				// native runner does (eval 4b2ffb035).
+				want := strings.Join(args, ", ")
+				if len(drawn) > 0 {
+					want += "; shrunk from: " + strings.Join(drawn, ", ")
+				}
+				if !strings.Contains(line, ": "+want+"): ") {
 					fail("arguments differ: %+v", r)
 				}
 			default:

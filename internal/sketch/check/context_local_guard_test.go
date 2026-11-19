@@ -112,6 +112,7 @@ var contextPlaceRows = map[string]externPlaceRow{
 	"MachineType.Step":   {guardType, machineGuard("initial: Idle,\n\tstep: @w,")},
 	"MachineType.After":  {guardType, machineGuard("initial: Idle,\n\tstep: step,\n\tafter: @w,")},
 	"MachineType.Work":   {guardType, machineGuard("initial: Idle,\n\tstep: step,\n\twork: @w,")},
+	"MachineType.Exit":   {guardType, machineGuard("initial: Idle,\n\tstep: step,\n\texit: @w,")},
 	"LawReach.Targets":   {guardType, machineGuard("initial: Idle,\n\tstep: step,\n\tlaw L reaches @w,")},
 	"LawReach.Pred":      {guardType, machineGuard("initial: Idle,\n\tstep: step,\n\tlaw L always @w,")},
 

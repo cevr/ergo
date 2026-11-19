@@ -1,0 +1,194 @@
+import ergo.dev/fluid/look
+import ergo.dev/fluid/token
+import strconv
+import strings
+
+// Tint is a colour resolved for one scheme: a shade, a blend of two (color-mix), or clear.
+// Nothing in it names a token: each token was looked up in the theme for the scheme.
+type Tint = Clear{} | Solid{S token.Shade} | Blend{A Tint, Percent float64, Into Tint, Space token.Space}
+
+// Corner is a resolved corner radius: pixels, a pill (as round as the box allows) or half the
+// box (a circle).
+type Corner = Px{N int} | Pill{} | Half{}
+
+// Lift is a resolved box shadow: none, a focus ring, or a surface's layers.
+type Lift = Flat{} | Ring{Px int, Color Tint} | Layers{Of []token.Shadow}
+
+// Paint is everything a GUI host paints for a box, complete: no field is optional, nothing is
+// inherited, and the theme and scheme are already applied. Fill is clear and Ink and Edge are
+// the page's ink unless the style sets them (the web's body colour; border-color's
+// currentcolor); widths and radii are 0, Lift is Flat and Opacity 100 (per cent).
+type Paint { Fill Tint, Ink Tint, Edge Tint, Top int, Right int, Bottom int, Left int, TL Corner, TR Corner, BR Corner, BL Corner, Lift Lift, Opacity int }
+
+// TintOf is token r in theme t for a scheme.
+func TintOf(t token.Theme, r token.Ref, dark bool) Tint {
+	let s = match t.Color(r) {
+	case token.Pair as p:
+		if dark { p.Dark } else { p.Light }
+	case token.Fixed as x:
+		x.V
+	}
+	match s {
+	case token.Mix as m:
+		Blend{A: TintOf(t, m.A, dark), Percent: m.Percent, Into: match m.Toward {
+		case token.Clear:
+			Clear
+		case token.Into as i:
+			TintOf(t, i.B, dark)
+		}, Space: m.Space}
+	case token.Rgba, token.Oklch:
+		Solid{S: s}
+	}
+}
+
+// Of is the paint of style s in theme t for a scheme: each paint declaration of s, over the
+// defaults.
+func Of(s look.Style, t token.Theme, dark bool) Paint {
+	let ink = TintOf(t, token.Ink, dark)
+	let mut p = Paint{Fill: Clear, Ink: ink, Edge: ink, Top: 0, Right: 0, Bottom: 0, Left: 0, TL: Px{N: 0}, TR: Px{N: 0}, BR: Px{N: 0}, BL: Px{N: 0}, Lift: Flat, Opacity: 100}
+	let mut edgeSet = false
+	for d in look.Decls(s) {
+		match d {
+		case look.Fill as x:
+			p.Fill = TintOf(t, x.V, dark)
+		case look.Ink as x:
+			p.Ink = TintOf(t, x.V, dark)
+		case look.EdgeColor as x:
+			p.Edge = TintOf(t, x.V, dark)
+			edgeSet = true
+		case look.EdgeTop as x:
+			p.Top = x.Px
+		case look.EdgeRight as x:
+			p.Right = x.Px
+		case look.EdgeBottom as x:
+			p.Bottom = x.Px
+		case look.EdgeLeft as x:
+			p.Left = x.Px
+		case look.RoundTL as x:
+			p.TL = cornerOf(x.V)
+		case look.RoundTR as x:
+			p.TR = cornerOf(x.V)
+		case look.RoundBR as x:
+			p.BR = cornerOf(x.V)
+		case look.RoundBL as x:
+			p.BL = cornerOf(x.V)
+		case look.Shadow as x:
+			p.Lift = match x.V {
+			case look.Ring as r:
+				Ring{Px: r.Px, Color: TintOf(t, r.Color, dark)}
+			case look.Surface as l:
+				Layers{Of: token.Shadows(l.L)}
+			}
+		case look.Opacity as x:
+			p.Opacity = x.Pct
+		case _:
+		}
+	}
+	if !edgeSet {
+		p.Edge = p.Ink
+	}
+	p
+}
+
+// In is the paint of look l in state st: its rest style with the state's overlay laid over it
+// (the last applied wins), the same style the web's atoms print for that state.
+func In(l look.Look, st look.State, t token.Theme, dark bool) Paint {
+	Of(look.Merge(l.Rest, look.Overlay(l, st)), t, dark)
+}
+
+// cornerOf is a corner's radius, read from the token's CSS length.
+func cornerOf(c look.Corner) Corner {
+	let text = match c {
+	case look.Outer as o:
+		token.Px(o.R)
+	case look.Inner as i:
+		token.Inner(i.R)
+	case look.Circle:
+		"50%"
+	}
+	if text == "50%" {
+		return Half
+	}
+	if !strings.HasSuffix(text, "px") || strings.HasPrefix(text, "calc(") {
+		return Pill
+	}
+	let n = strconv.Atoi(strings.Slice(text, 0, len(text)-2)) catch {
+	case _:
+		return Pill
+	}
+	Px{N: n}
+}
+
+// Decl is one painted property and its CSS value.
+type Decl { Prop string, Value string }
+
+// Declarations is a paint as the CSS properties it stands for: what HostsResolveAlike compares
+// with the sheet.
+func Declarations(p Paint) []Decl {
+	[]Decl{
+		Decl{Prop: "background-color", Value: TintCSS(p.Fill)},
+		Decl{Prop: "color", Value: TintCSS(p.Ink)},
+		Decl{Prop: "border-color", Value: TintCSS(p.Edge)},
+		Decl{Prop: "border-top-width", Value: "\(p.Top)px"},
+		Decl{Prop: "border-right-width", Value: "\(p.Right)px"},
+		Decl{Prop: "border-bottom-width", Value: "\(p.Bottom)px"},
+		Decl{Prop: "border-left-width", Value: "\(p.Left)px"},
+		Decl{Prop: "border-top-left-radius", Value: cornerCSS(p.TL)},
+		Decl{Prop: "border-top-right-radius", Value: cornerCSS(p.TR)},
+		Decl{Prop: "border-bottom-right-radius", Value: cornerCSS(p.BR)},
+		Decl{Prop: "border-bottom-left-radius", Value: cornerCSS(p.BL)},
+		Decl{Prop: "box-shadow", Value: liftCSS(p.Lift)},
+		Decl{Prop: "opacity", Value: "\(p.Opacity)%"},
+	}
+}
+
+// TintCSS is a tint as a CSS colour.
+func TintCSS(t Tint) string {
+	match t {
+	case Clear:
+		"transparent"
+	case Solid as s:
+		token.Print(s.S)
+	case Blend as b:
+		let space = match b.Space {
+		case token.Oklab:
+			"oklab"
+		case token.Srgb:
+			"srgb"
+		}
+		"color-mix(in \(space), \(TintCSS(b.A)) \(strconv.FormatFloat(b.Percent, 'f', -1))%, \(TintCSS(b.Into)))"
+	}
+}
+
+func cornerCSS(c Corner) string {
+	match c {
+	case Px as p:
+		"\(p.N)px"
+	case Pill:
+		"calc(infinity * 1px)"
+	case Half:
+		"50%"
+	}
+}
+
+func liftCSS(l Lift) string {
+	match l {
+	case Flat:
+		"none"
+	case Ring as r:
+		"0 0 0 \(r.Px)px \(TintCSS(r.Color))"
+	case Layers as ls:
+		if len(ls.Of) == 0 {
+			return "none"
+		}
+		let mut b = strings.NewBuilder()
+		for i in 0..len(ls.Of) {
+			let s = ls.Of[i]
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			b.WriteString("0 \(s.Y)px \(s.Blur)px \(s.Spread)px \(token.Print(token.Rgba{V: s.Color}))")
+		}
+		b.String()
+	}
+}

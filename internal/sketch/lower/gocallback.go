@@ -29,6 +29,13 @@ func (fc *funcCtx) goCallbacks(sig *check.Signature, args []syntax.Expr, vals []
 			continue // D2: already in Go's own calling convention.
 		}
 		tunnels = tunnels || cb.Fallible
+		if !cb.NonEscaping {
+			// An escaping callback may run on a goroutine of Go's: the
+			// program is no longer alone (rt.Alone, v1.GoHanded). A
+			// non-escaping one runs during the call, on its caller's
+			// goroutine (v1.GoSyncCallbacks).
+			fc.line(fc.l.rt() + ".GoHanded()")
+		}
 		vals[i] = fc.spill(fc.goCallback(fc.bindFunc(vals[i]), fc.argSig(args[i], site), cb.Fallible, site))
 	}
 	return tunnels
@@ -108,7 +115,7 @@ func (fc *funcCtx) goCallbackIn(t check.Type, p string, site syntax.Node) string
 		return fc.l.goErrorFrom() + "(" + p + ")"
 	}
 	if fc.l.holdsValue(t) && valueRule() {
-		return fc.cloneDeep(t, p, site) // Go may still write an entry (V8)
+		return fc.reportCopy(site, fc.cloneDeep(t, p, site), whyGoIn) // Go may still write an entry (V8)
 	}
 	return p
 }
@@ -119,7 +126,7 @@ func (fc *funcCtx) goCallbackOut(t check.Type, r string, site syntax.Node) strin
 		return "(" + r + ").Native()"
 	}
 	if fc.l.holdsValue(t) && valueRule() {
-		return fc.cloneDeep(t, r, site) // Go may write an entry (V8)
+		return fc.reportCopy(site, fc.cloneDeep(t, r, site), whyGoOut) // Go may write an entry (V8)
 	}
 	return r
 }

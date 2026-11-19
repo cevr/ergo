@@ -3,7 +3,7 @@ package check
 import (
 	"sort"
 
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -31,7 +31,7 @@ func contextRow(t Type) (*Row, bool) {
 	n, ok := t.(*Named)
 	// The name and package first: the prelude's own check calls this too,
 	// before preludeType can answer.
-	if !ok || n.Orig == nil || n.Obj == nil || n.Obj.Name != "Context" || n.Obj.Pkg == nil || n.Obj.Pkg.Path != std.PreludePath || len(n.TArgs) != 1 {
+	if !ok || n.Orig == nil || n.Obj == nil || n.Obj.Name != "Context" || n.Obj.Pkg == nil || n.Obj.Pkg.Path != stdlib.PreludePath || len(n.TArgs) != 1 {
 		return nil, false
 	}
 	ra, ok := n.TArgs[0].(*RowArg)
@@ -169,6 +169,11 @@ func (c *checker) valueOperand(arg syntax.Expr) (*capSet, bool, *Context, *Conte
 func (c *checker) contextValueOwnership(owners map[*ContextEntry]*Context) {
 	for _, s := range c.contextValueSites {
 		w := s.w
+		if len(w.Contexts) > 0 && c.contextTestAmbient(w.Contexts[0]) {
+			c.cur = s.file
+			c.errorf(s.x, CodeType, "a Context value cannot hold context %s, which needs TestAmbient: its folder lives for one with of it; bind it with with in a test (rows.md, Test's ambient)", w.Contexts[0].Name)
+			continue
+		}
 		if len(w.Entries) == 0 {
 			continue
 		}
