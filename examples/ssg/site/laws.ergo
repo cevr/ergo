@@ -1,19 +1,20 @@
 // The rules of the site generator as laws over its domain.
 
+import html
 import strings
 
 // EscapingIsTotal: every text has an escape that holds no markup, and the
 // escape reads back to the text.
 law EscapingIsTotal(s string) {
 	let text = Spice(s)
-	Inert(Escape(text)) && Unescape(Escape(text)) == text
+	Inert(html.Escape(text)) && Unescape(html.Escape(text)) == text
 }
 
 // VariablesAreEscaped: {{ v }} prints the escape of v's text, and
 // {{ raw v }} prints the text as it is.
 law VariablesAreEscaped(s string) {
 	let text = Spice(s)
-	Outcome("{{ v }}|{{ raw v }}", ScopeOf(text, []string{})) == Escape(text)+"|"+text
+	Outcome("{{ v }}|{{ raw v }}", ScopeOf(text, []string{})) == html.Escape(text)+"|"+text
 }
 
 // RenderingIsDeterministic: one template over one scope renders one text,
