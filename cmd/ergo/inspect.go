@@ -45,7 +45,12 @@ Lowering 7): the range of each refined parameter, each index and cut a
 dominating compare proves, each two borrow parameters that never overlap,
 and each pure function, with its position, function, condition, evidence
 (proved or checked) and reason. A tested fact is never exported. A test
-build exports none: it checks each one. --json prints them as JSON.
+build exports none: it checks each one. After the facts come the build's
+evidence rows: each law rewrite the run build applies (kind rewrite), with
+its ledger entry's level (proved, or validated by a named run) and its
+ergo.laws line, and each unsafe runtime body a shortcut the build takes
+links (kind unsafe), with its row of the unsafe inventory. --json prints
+them as JSON.
 
 Exit status: 0 when the package checks, 1 when it does not, 2 on an
 invalid invocation.
@@ -230,7 +235,7 @@ func inspectFactsCommand(args []string) error {
 	if !l.result.Checked || l.analysis.Checked() == nil {
 		return refuseUnchecked(l, opts)
 	}
-	facts, err := sketchfront.InspectFacts(l.analysis, l.source.Admitted())
+	facts, err := sketchfront.InspectFacts(l.analysis, l.source.Admitted(), ledgerPath(opts.file))
 	if err != nil {
 		return err
 	}

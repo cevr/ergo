@@ -627,6 +627,7 @@ func (l *lowerer) emitType(td *typeDecl) {
 		if td.errorType {
 			l.errorMethod(b, td)
 		}
+		l.suffixedVariantMethod(b, td) // a runner's name for it (machine.go)
 	case kindOps:
 		b.WriteString("type " + td.name + tparams + " interface {\n")
 		for _, op := range td.ops {
@@ -1299,7 +1300,7 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 		for _, g := range []struct {
 			on     bool
 			reason string
-		}{{irInstanceCopy(sp), "copy for an instance"}, {drop, "variant with no result"}, {slot, "slot variant (UNI2)"}, {needsFrame && !irFrame(fc), "body that needs a frame"}} {
+		}{{irInstanceCopy(sp), "copy for an instance"}, {drop && irDropBodyLowering == "off", "variant with no result"}, {slot, "slot variant (UNI2)"}, {needsFrame && !irFrame(fc), "body that needs a frame"}} {
 			if g.on {
 				gates = append(gates, g.reason)
 			}

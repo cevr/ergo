@@ -46,6 +46,7 @@ machines	differs	check: S108 a declared machine's Every timer must be std machin
 maps	same
 math	same
 os	same
+pace	same
 prompt	differs	lower: joinResult joins a call into its assignment only in a body with no line directives (std's)	follow-up join-under-directive
 pubsub	same
 queue	same
