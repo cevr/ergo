@@ -124,7 +124,7 @@ func Stalled(v *Virtual) bool {
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	if d.live == 0 || d.parked < d.live || d.running > 0 {
+	if d.live == 0 || d.running > 0 || d.parked < d.live {
 		return false
 	}
 	for _, c := range d.clocks {

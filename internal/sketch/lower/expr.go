@@ -487,8 +487,16 @@ func (fc *funcCtx) bareRecord(x syntax.Expr) (string, bool) {
 		}
 		pn, ok := fc.l.info.Uses[id].(*check.PkgName)
 		named, isNamed := fc.typeOf(x).(*check.Named)
-		if !ok || !isNamed || named.Obj.Pkg != pn.Pkg || named.Obj.Name != head.Sel.Name {
+		if !ok || !isNamed {
 			return "", false
+		}
+		if named.Obj.Pkg != pn.Pkg || named.Obj.Name != head.Sel.Name {
+			// pkg.T where T is an alias of another package's record
+			// (pipelinerpc.BoardRequest = pipelineapi.BoardRequest): the
+			// selected name is a TypeName of pkg (I22).
+			if sel, isType := fc.l.info.Uses[head.Sel].(*check.TypeName); !isType || sel.Pkg != pn.Pkg {
+				return "", false
+			}
 		}
 		// A qualified expression records its package use and final type;
 		// the Named's object is the selected TypeName.
@@ -498,6 +506,11 @@ func (fc *funcCtx) bareRecord(x syntax.Expr) (string, bool) {
 	}
 	if tn == nil {
 		return "", false
+	}
+	if n, ok := fc.typeOf(x).(*check.Named); ok && n.Obj != tn {
+		// An alias (type BoardRequest = api.BoardRequest) names the
+		// record its type is: read that record's declaration (I22).
+		tn = n.Obj
 	}
 	td := fc.l.typeDecl(tn, x)
 	if td.kind != kindRecord || len(td.fields) != 0 {

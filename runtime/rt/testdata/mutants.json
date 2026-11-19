@@ -77,8 +77,8 @@
       "name": "X5-clock-moves-while-enabled",
       "origin": "X5",
       "file": "runtime/rt/idle.go",
-      "from": "d.parked < d.live {",
-      "to": "d.parked < d.live-1 {",
+      "from": "\tif d.live == 0 || d.parked < d.live || d.running > 0 {\n\t\treturn\n",
+      "to": "\tif d.live == 0 || d.parked < d.live-1 || d.running > 0 {\n\t\treturn\n",
       "rule": "Explored schedules: the clock moves only when no task is enabled",
       "killers": ["runtime/rt[ergoexplore]:TestSchedulerFollowsModel"]
     },
@@ -462,6 +462,6 @@
         "runtime/rt:TestVirtualAfterFuncIsTimer"
       ]
     },
-    {"name":"virtual-settle-ignores-alarms","origin":"wf10 std-spike DEADLINE","file":"runtime/rt/clock.go","from":"if v.parked >= v.live-self && v.running == 0 {","to":"if v.parked >= v.live-self {","rule":"runtime.md Timeouts 11: a Settle waits for the alarm functions it started, so a member an alarm wakes runs before the time moves on.","killers":["lower:TestStdLawsRun"],"anchor":{"tests":["lower:TestStdLawsRun"]}}
+    {"name":"virtual-settle-ignores-alarms","origin":"wf10 std-spike DEADLINE","file":"runtime/rt/clock.go","from":"if d.parked >= d.live-self && d.running == 0 {","to":"if d.parked >= d.live-self {","rule":"runtime.md Timeouts 11: a Settle waits for the alarm functions it started, so a member an alarm wakes runs before the time moves on.","killers":["lower:TestStdLawsRun"],"anchor":{"tests":["lower:TestStdLawsRun"]}}
   ]
 }

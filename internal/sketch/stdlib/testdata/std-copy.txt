@@ -15,7 +15,7 @@ build	same
 cache	same
 civil	same
 code	same
-cmp	differs	lower: no exported function a caller can take as a value	follow-up copy-by-call
+cmp	same
 codec	same
 codegraph	same
 config	same
