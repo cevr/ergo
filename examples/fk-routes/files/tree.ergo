@@ -1,0 +1,66 @@
+// Package files is the program's file tree, which the Files routes walk.
+
+import strconv
+
+// Entry is a file, with its size in bytes, or a directory of entries.
+type Entry = File{Name string, Size int} | Dir{Name string, Entries []Entry}
+
+// Tree is the top level of the tree.
+let Tree = []Entry{
+	Dir{Name: "documents", Entries: []Entry{
+		File{Name: "resume.pdf", Size: 48230},
+		Dir{Name: "taxes", Entries: []Entry{File{Name: "2024.pdf", Size: 182400}, File{Name: "2025.pdf", Size: 196812}}},
+	}},
+	Dir{Name: "photos", Entries: []Entry{
+		Dir{Name: "vacation", Entries: []Entry{File{Name: "beach.jpg", Size: 2348100}, File{Name: "sunset.jpg", Size: 1982450}}},
+	}},
+	File{Name: "notes.txt", Size: 1204},
+}
+
+// Name is e's name.
+func Name(e Entry) string {
+	match e {
+	case File as f:
+		f.Name
+	case Dir as d:
+		d.Name
+	}
+}
+
+// Find is the entry at path under entries: each segment but the last
+// names a directory to go into, and the last names the entry. None when a
+// segment names nothing, or a file where a directory is needed.
+func Find(entries []Entry, path []string) Option[Entry] {
+	if len(path) == 0 {
+		return None
+	}
+	for e in entries {
+		if Name(e) != path[0] {
+			continue
+		}
+		if len(path) == 1 {
+			return Some[Entry]{Value: e}
+		}
+		match e {
+		case Dir as d:
+			return Find(d.Entries, path[1:])
+		case File:
+			return None
+		}
+	}
+	None
+}
+
+// Size is a size as the page shows it: bytes under a kilobyte, else
+// kilobytes or megabytes with one decimal.
+func Size(bytes int) string {
+	let kb = 1024
+	let mb = kb * 1024
+	if bytes >= mb {
+		return strconv.FormatFloat(float64(bytes)/float64(mb), 'f', 1) + " MB"
+	}
+	if bytes >= kb {
+		return strconv.FormatFloat(float64(bytes)/float64(kb), 'f', 1) + " KB"
+	}
+	strconv.Itoa(bytes) + " B"
+}

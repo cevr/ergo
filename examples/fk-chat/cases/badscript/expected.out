@@ -1,0 +1,5 @@
+# WebSocket Chat Echo server demo {Disconnected} No messages yet Send a message to get started! [Connect to Chat]
+> connect
+# WebSocket Chat Echo server demo {Connected} No messages yet Send a message to get started! <> [Send, disabled]
+> whisper hello
+? line 2: unknown word whisper

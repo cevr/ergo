@@ -1,0 +1,9 @@
+// A run-time error stops the program after what it printed.
+fn get(xs, i) {
+	return xs[i]
+}
+
+let xs = [10, 20, 30]
+print(get(xs, 2))
+print(get(xs, 3))
+print("not reached")

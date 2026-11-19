@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"ergo.local/prototype/internal/cases"
 	"ergo.local/prototype/internal/testinputs"
 	"ergo.local/prototype/internal/testwait"
 )
@@ -26,6 +27,9 @@ import (
 const asRunner = "EXAMPLES_TEST_AS_RUNNER"
 
 func TestMain(m *testing.M) {
+	// A runner under test keeps no verdict cache unless a test asks for
+	// one (cache_test.go): the caller's cache is not the fixtures'.
+	os.Unsetenv(cacheVariable)
 	if os.Getenv(asRunner) == "1" {
 		os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 	}
@@ -315,7 +319,7 @@ func grows(t *testing.T, file string) bool {
 	return size() != before
 }
 
-// A case past -timeout fails "timed out", and the runner stops its process
+// A case past -timeout fails "hung", and the runner stops its process
 // group: its background children too. A case that exits while its child
 // still holds stdout does not hold the runner, and the child is stopped.
 func TestCaseProcessGroupIsStopped(t *testing.T) {
@@ -334,8 +338,8 @@ func TestCaseProcessGroupIsStopped(t *testing.T) {
 		t.Fatalf("a 1s timeout took %s: the case ended by itself", took)
 	}
 	_, fails := verdicts(out)
-	if code != 1 || !strings.Contains(fails["sleeper/slow"], "timed out after 1s") {
-		t.Fatalf("want FAIL sleeper/slow: timed out; exit %d\n%s", code, out)
+	if code != 1 || !strings.Contains(fails["sleeper/slow"], "hung: no end after 1s") {
+		t.Fatalf("want FAIL sleeper/slow: hung; exit %d\n%s", code, out)
 	}
 	if grows(t, filepath.Join(ticks, "slow")) {
 		t.Fatal("the timed-out case's background child still runs")
@@ -350,56 +354,44 @@ func TestCaseProcessGroupIsStopped(t *testing.T) {
 	}
 }
 
-// The test leg's deadline starts when its build ends (ergo test -work's
-// WORK= line), not at its start, and again at each output: a build slower
-// than -timeout, as a cold build under load is, passes; a run longer than
-// -timeout that prints as it goes (4 s, a line each half second, under
-// -timeout 2s) passes; a run that hangs after its build still fails
-// "timed out" and is stopped. Mutants examples-deadline-at-start,
-// examples-deadline-never and examples-deadline-ignores-progress
-// (scripts/examples ledger).
-func TestTestLegDeadlineStartsAfterTheBuild(t *testing.T) {
-	t.Parallel()
-	f := newFixture(t)
-	hi := map[string]map[string]string{"basic": {"expected.out": "hi\n"}}
-	f.program("slowbuild", "#!/bin/sh\necho hi\nexit 0\n# TESTBUILDSLOW 4\ntest Fixture {\n}\n", "default\n", hi, nil)
-	f.program("hang", "#!/bin/sh\necho hi\nexit 0\n# TESTHANG\ntest Fixture {\n}\n", "default\n", hi, nil)
-	code, out := f.run("-timeout", "2s", "slowbuild")
-	if code != 0 || !strings.Contains(out, "ok slowbuild: test") {
-		t.Fatalf("a build slower than -timeout: want ok slowbuild: test; exit %d\n%s", code, out)
-	}
-	f.program("steady", "#!/bin/sh\necho hi\nexit 0\n# TESTPROGRESS 8\ntest Fixture {\n}\n", "default\n", hi, nil)
-	code, out = f.run("-timeout", "2s", "steady")
-	if code != 0 || !strings.Contains(out, "ok steady: test") {
-		t.Fatalf("a run longer than -timeout that prints a line each half second: want ok steady: test; exit %d\n%s", code, out)
-	}
-	started := time.Now()
-	code, out = f.run("-timeout", "1s", "hang")
-	if took := time.Since(started); took >= caseLife {
-		t.Fatalf("a hung test leg ran %s: the deadline never started", took)
-	}
-	if code != 1 || !strings.Contains(out, "FAIL hang: test") || !strings.Contains(out, "timed out after 1s (hung?") {
-		t.Fatalf("a test leg that hangs after its build: want FAIL hang: test timed out; exit %d\n%s", code, out)
-	}
-}
-
-// A case of a default program over -budget fails naming the budget; a slow
+// A case of a default program whose CPU time passes -budget fails naming
+// the budget; one that only waits as long passes, since the budget charges
+// work and never wall time, which the host's load stretches. A slow
 // program runs only when selected by tag or by name.
+//
+// Mutant: the budget compares the case's wall time (runCase).
 func TestBudgetAndSelection(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
 	slow := map[string]map[string]string{"basic": {"expected.out": "done\n"}}
-	f.program("slowpoke", "#!/bin/sh\nsleep 1\necho done\n", "default\n", slow, nil)
+	// slowpoke burns CPU (a shell loop of 200,000 steps); dozer sleeps a
+	// second and does almost nothing. No bound sits near what a case uses:
+	// a budget of 1ns fails any case that ran on a CPU, and dozer's few
+	// milliseconds of CPU stay far under 500ms while its second of wall
+	// time is over it (ert-budget-wall-time); 1h selects without judging.
+	// Each run names only the programs whose verdict it reads, so no
+	// verdict rests on how long the loop takes. A 10ms budget failed dozer
+	// once at load 80+, where sh and sleep alone took more (GT-CPUBUDGET).
+	f.program("slowpoke", "#!/bin/sh\ni=0\nwhile [ $i -lt 200000 ]; do i=$((i+1)); done\necho done\n", "default\n", slow, nil)
+	f.program("dozer", "#!/bin/sh\nsleep 1\necho done\n", "default\n", slow, nil)
 	f.program("lazy", "#!/bin/sh\nsleep 1\necho done\n", "slow net\n", slow, nil)
-	code, out := f.run("-budget", "300ms")
-	_, fails := verdicts(out)
-	if code != 1 || !strings.Contains(fails["slowpoke/basic"], "budget") || strings.Contains(out, "lazy") {
-		t.Fatalf("default selection: want FAIL slowpoke/basic budget and no lazy; exit %d\n%s", code, out)
+	code, out := f.run("-budget", "1ns", "slowpoke")
+	if _, fails := verdicts(out); code != 1 || !strings.Contains(fails["slowpoke/basic"], "budget") {
+		t.Fatalf("a budget of 1ns: want FAIL slowpoke/basic budget; exit %d\n%s", code, out)
 	}
-	for _, args := range [][]string{{"-tags", "slow", "-budget", "300ms"}, {"-tags", "cc,net"}, {"lazy"}} {
+	code, out = f.run("-budget", "500ms", "dozer")
+	if oks, _ := verdicts(out); code != 0 || !oks["dozer/basic"] {
+		t.Fatalf("a budget of 500ms: want ok dozer/basic; exit %d\n%s", code, out)
+	}
+	code, out = f.run("-budget", "1h")
+	oks, _ := verdicts(out)
+	if code != 0 || !oks["slowpoke/basic"] || !oks["dozer/basic"] || strings.Contains(out, "lazy") {
+		t.Fatalf("default selection: want ok slowpoke/basic and dozer/basic and no lazy; exit %d\n%s", code, out)
+	}
+	for _, args := range [][]string{{"-tags", "slow", "-budget", "1ns"}, {"-tags", "cc,net"}, {"lazy"}} {
 		code, out = f.run(args...)
 		oks, _ := verdicts(out)
-		if code != 0 || !oks["lazy/basic"] || strings.Contains(out, "slowpoke") {
+		if code != 0 || !oks["lazy/basic"] || strings.Contains(out, "slowpoke") || strings.Contains(out, "dozer") {
 			t.Fatalf("%q: want only ok lazy/basic; exit %d\n%s", args, code, out)
 		}
 	}
@@ -487,8 +479,12 @@ func TestLayoutErrorsNameTheFolder(t *testing.T) {
 	}
 }
 
-// A program that fails fmt or build fails alone: its cases do not run, the
-// other programs' do, and the runner writes nothing into the root.
+// A program that fails fmt, fix or build fails alone: its cases do not
+// run, the other programs' do, and the runner writes nothing into the
+// root. Every compiler call gets the run's own emission cache, never the
+// caller's, and the run removes it (toolEnvironment). Mutant
+// (scripts/examples ledger ex2-no-fix-leg): the fix leg dropped, so a
+// clause ergo fix would write passes.
 func TestFmtOrBuildFailureFailsOnlyThatProgram(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
@@ -496,13 +492,14 @@ func TestFmtOrBuildFailureFailsOnlyThatProgram(t *testing.T) {
 	hi := map[string]map[string]string{"basic": {"expected.out": "hi\n"}}
 	f.program("nobuild", "#!/bin/sh\n# BUILDFAIL\necho hi\n", "default\n", hi, nil)
 	f.program("messy", "#!/bin/sh\necho hi\n", "default\n", hi, map[string]string{"part.ergo": "# UNFORMATTED\n"})
+	f.program("unfixed", "#!/bin/sh\n# UNFIXED\necho hi\n", "default\n", hi, nil)
 	before := tree(t, f.root)
 	code, out := f.run()
 	oks, fails := verdicts(out)
-	if code != 1 || !strings.Contains(out, "FAIL nobuild: build\n") || !strings.Contains(out, "FAIL messy: fmt\n") || !oks["good/basic"] {
+	if code != 1 || !strings.Contains(out, "FAIL nobuild: build\n") || !strings.Contains(out, "FAIL messy: fmt\n") || !strings.Contains(out, "FAIL unfixed: fix\n") || !oks["good/basic"] {
 		t.Fatalf("exit %d\n%s", code, out)
 	}
-	if oks["nobuild/basic"] || oks["messy/basic"] || fails["nobuild/basic"] != "" || fails["messy/basic"] != "" {
+	if oks["nobuild/basic"] || oks["messy/basic"] || oks["unfixed/basic"] || fails["nobuild/basic"] != "" || fails["messy/basic"] != "" || fails["unfixed/basic"] != "" {
 		t.Fatalf("a failed program's cases ran\n%s", out)
 	}
 	if after := tree(t, f.root); !slices.Equal(before, after) {
@@ -511,10 +508,21 @@ func TestFmtOrBuildFailureFailsOnlyThatProgram(t *testing.T) {
 	calls := readCalls(t, f)
 	for _, want := range []string{
 		"fmt --check " + filepath.Join(f.root, "examples/messy/main.ergo") + " " + filepath.Join(f.root, "examples/messy/part.ergo"),
+		"fix --check " + filepath.Join(f.root, "examples/good/main.ergo"),
 		"build " + filepath.Join(f.root, "examples/good/main.ergo") + " -o ",
 	} {
 		if !slices.ContainsFunc(calls, func(c string) bool { return strings.HasPrefix(c, want) }) {
 			t.Errorf("no call starting %q in %q", want, calls)
+		}
+	}
+	content, _ := read(t, filepath.Join(filepath.Dir(f.calls), "cache.log"))
+	caches := cases.Lines([]byte(content))
+	if len(caches) != len(calls) || caches[0] == "unset" || caches[0] == os.Getenv(emissionCacheVariable) {
+		t.Fatalf("compiler calls got %s %q, not the run's own (caller's %q)", emissionCacheVariable, caches, os.Getenv(emissionCacheVariable))
+	}
+	for _, cache := range caches {
+		if _, err := os.Lstat(cache); cache != caches[0] || !os.IsNotExist(err) {
+			t.Errorf("%s %s: not the run's one cache, or left after the run (%v)", emissionCacheVariable, cache, err)
 		}
 	}
 }
@@ -541,7 +549,7 @@ func readCalls(t *testing.T, f *fixture) []string {
 	if err != nil && !os.IsNotExist(err) {
 		t.Fatal(err)
 	}
-	return lines(content)
+	return cases.Lines(content)
 }
 
 func read(t *testing.T, name string) (string, bool) {
@@ -683,26 +691,26 @@ func TestExecuteReportsAStartFailureAsAnError(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	missing := filepath.Join(dir, "missing")
-	stopping := newLive()
-	stopping.closed = true
+	stopping := cases.NewLive()
+	stopping.Interrupt() // closes the run: nothing starts after it
 	rows := []struct {
 		what  string
 		live  *live
 		argv  []string
 		stdin string
 	}{
-		{"stdin cannot be opened", newLive(), []string{"sh", "-c", "exit 0"}, missing},
-		{"command cannot be started", newLive(), []string{missing}, ""},
+		{"stdin cannot be opened", cases.NewLive(), []string{"sh", "-c", "exit 0"}, missing},
+		{"command cannot be started", cases.NewLive(), []string{missing}, ""},
 		{"the run is stopping", stopping, []string{"sh", "-c", "exit 0"}, ""},
 	}
 	for _, row := range rows {
-		o, err := row.live.execute(row.argv, dir, os.Environ(), row.stdin, 10*time.Second, 0)
+		o, err := row.live.Execute(row.argv, dir, os.Environ(), row.stdin, 10*time.Second, 0)
 		if err == nil {
 			t.Errorf("%s: no error; outcome %+v", row.what, o)
 		}
 	}
-	if o, err := newLive().execute([]string{"sh", "-c", "exit 4"}, dir, os.Environ(), "", 10*time.Second, 0); err != nil || o.status != 4 {
-		t.Errorf("a command that ran: status %d, error %v; want status 4 and no error", o.status, err)
+	if o, err := cases.NewLive().Execute([]string{"sh", "-c", "exit 4"}, dir, os.Environ(), "", 10*time.Second, 0); err != nil || o.Status != 4 {
+		t.Errorf("a command that ran: status %d, error %v; want status 4 and no error", o.Status, err)
 	}
 }
 
@@ -750,8 +758,10 @@ func TestTestLeg(t *testing.T) {
 	slices.Sort(tests)
 	var want []string
 	for _, p := range []string{"failing", "other", "passing", "pending", "untested"} {
-		want = append(want, "test "+filepath.Join(f.root, "examples", p, "main.ergo")+" -work")
+		want = append(want, "test "+filepath.Join(f.root, "examples", p, "main.ergo"))
 	}
+	// Programs run at once (runAll), so the calls are compared as a set.
+	slices.Sort(tests)
 	if !slices.Equal(tests, want) {
 		t.Fatalf("ergo test calls:\n%q\nwant\n%q", tests, want)
 	}
@@ -850,17 +860,17 @@ func TestProgramsRunAtOnceAndPrintInOrder(t *testing.T) {
 
 func TestUnifiedDiff(t *testing.T) {
 	t.Parallel()
-	got := unifiedDiff([]byte("a\nb\nc\n"), []byte("a\nB\nc"))
+	got := cases.Diff([]byte("a\nb\nc\n"), []byte("a\nB\nc"))
 	want := "--- want\n+++ got\n@@ -1,3 +1,3 @@\n a\n-b\n-c\n+B\n+c\n\\ No newline at end of file\n"
 	if got != want {
 		t.Fatalf("diff:\n%s\nwant:\n%s", got, want)
 	}
 	long := strings.Repeat("same\n", 20)
-	got = unifiedDiff([]byte("x\n"+long+"y\n"), []byte("X\n"+long+"Y\n"))
+	got = cases.Diff([]byte("x\n"+long+"y\n"), []byte("X\n"+long+"Y\n"))
 	if strings.Count(got, "@@ -") != 2 || !strings.Contains(got, "@@ -1,4 +1,4 @@\n-x\n+X\n same\n") || !strings.Contains(got, "@@ -19,4 +19,4 @@\n same\n same\n same\n-y\n+Y\n") {
 		t.Fatalf("two distant changes are not two hunks:\n%s", got)
 	}
-	if got := unifiedDiff(nil, []byte("new\n")); got != "--- want\n+++ got\n@@ -0,0 +1,1 @@\n+new\n" {
+	if got := cases.Diff(nil, []byte("new\n")); got != "--- want\n+++ got\n@@ -0,0 +1,1 @@\n+new\n" {
 		t.Fatalf("diff from empty:\n%s", got)
 	}
 }

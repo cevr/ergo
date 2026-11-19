@@ -42,7 +42,11 @@ import (
 // resolveSelfCalls resolves the pending calls x.f(…) of each body by typing
 // and adds their edges and class G value uses to the body's references.
 func (c *checker) resolveSelfCalls(nodes []*bodyNode, byFunc map[*Func]*bodyNode, byVar map[*pkgVar]*bodyNode, pending map[any][]pendingSelf) {
-	if len(pending) == 0 {
+	// Without inference every row is written: the edges order no row
+	// solving and pin no class G use, so the reporting pass types each
+	// call once (EXPLICIT EX2). The initialization order still learns the
+	// typed references: discoverInit and the reporting pass record them.
+	if len(pending) == 0 || !c.opts.Infer {
 		return
 	}
 	c.selfRes = map[*syntax.SelectorExpr]*Func{}
@@ -211,9 +215,9 @@ func (c *checker) settleWaiting(nodes []*bodyNode, byFunc map[*Func]*bodyNode, b
 	budget := func() int { return 2 * (len(needed) + edges) * (len(seen) + 1) }
 	checks := 0
 	c.silent++
-	w.run(func(n *bodyNode) bool {
+	w.run(func(n *bodyNode) {
 		if checks >= budget() {
-			return false
+			return
 		}
 		checks++
 		changed := c.checkNode(n)
@@ -234,7 +238,6 @@ func (c *checker) settleWaiting(nodes []*bodyNode, byFunc map[*Func]*bodyNode, b
 				w.push(p)
 			}
 		}
-		return true
 	})
 	c.silent--
 	c.selfChecks += checks

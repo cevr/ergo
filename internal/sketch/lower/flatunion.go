@@ -2,6 +2,7 @@ package lower
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -20,6 +21,11 @@ import (
 //	}
 //	func (Sig) of0(Increment) Sig { return Sig{tag: 0} }
 //	func (Sig) of1(v Add) Sig     { return Sig{tag: 1, v1: v} }
+//	func (x Sig) ErgoVariant() string { return [...]string{"Increment", "Add"}[x.tag] }
+//
+// ErgoVariant names the variant a value holds, for a traced actor
+// (runtime.md, Machines and actors 15): the name the runtime reads from a
+// value's Go type would be the union's.
 //
 // A []Sig is then a slice of small values: a match is a switch on a byte,
 // as a hand loop over a []byte is, where a sealed interface costs a load
@@ -38,15 +44,19 @@ import (
 // The rule (flatUnionSet), decided once per program (union-repr.md, rule
 // G, steps 1, 2 and 6):
 //
-//  1. The union is declared in a package of the program's own source, it
-//     is not generic, no machine takes it as its state (a run of a machine
-//     keeps its state as a scalar local, scalar.go, measured by OPT6b
-//     with the state an interface), and no Go extern's signature names
-//     it.
-//  2. Its variants are records that are neither generic nor error types:
-//     a row value is a Go error, which ConvRow and catch test by type. A
-//     union that is a failure has its variants as failures, so this keeps
-//     it an interface too.
+//  1. The union is declared in a package of the program's own source or
+//     in a std package the program reaches (MSB3, unionPkgs), it is not
+//     generic (genericunion.go has the rule of a generic union),
+//     and no Go extern's signature names it. A machine's state and signal
+//     are unions like any other (MSB1): an enum state is a tag, a byte,
+//     and a state with fields a struct a step returns by value.
+//  2. Its variants are records that are not generic, and not all of them
+//     error types: a row value is a Go error, which ConvRow and catch test
+//     by type, and a union that names a row has every variant an error
+//     type, so this keeps it an interface. A union with only some error
+//     variants names no row and is flat (MSB3); a work whose failure is
+//     one of them makes its signal by a switch on the failure's type
+//     (work.go, flatFailureSignal).
 //  3. Its Go value does not hold itself: a variant field reaches the
 //     union again by value, through records, tuples, arrays, Options or
 //     other flat unions (Go refuses a recursive struct; the interface box
@@ -55,9 +65,11 @@ import (
 //  4. The struct fits Go's registers (ssa.CanSSA): at most 32 bytes and at
 //     most 4 fields at each struct level (the tag counts), and no array of
 //     more than one element. Above it, a value carried through a call goes
-//     through memory and costs 10x a box's pass (union-repr.md §5). A
-//     field whose Go form the rule does not know (a Go type, a std
-//     type) keeps the union an interface.
+//     through memory and costs 10x a box's pass (union-repr.md §5). Past
+//     it, a union no call carries stays flat up to a memory bound (R3b,
+//     carry.go), and a machine's state and its signal stay flat at any
+//     size (MSB2, MSB3; carry.go's stateFlat). A field whose Go form the
+//     rule does not know (a Go type) keeps the union an interface.
 //
 // Steps 3 and 4 repeat until no union changes: a union that becomes an
 // interface changes the size of the unions that hold it.
@@ -74,8 +86,9 @@ import (
 // is a value, never a box. Go spells one generic type for every instance,
 // so the rule has no size bound for Option; the instances of a large T pay
 // a copy where form A pays a box (union-repr.md §10, round 2). Option
-// stays an interface where a machine takes it as its state or its signal,
-// or a record holds itself through it. An Option of a go.Ref[S], which no
+// stays an interface where a record holds itself through it (and, under
+// the reference stateLowering "interface", where a machine takes it as
+// its state or its signal). An Option of a go.Ref[S], which no
 // Ergo value makes nil (interop.md), is the Go pointer *S itself: nil is
 // None (the pointer niche, as Rust's Option<&T> and ReScript's option),
 // wherever no generic declaration but Option and Some takes a go.Ref
@@ -89,6 +102,8 @@ import (
 // The reference is form A for every union: unionLowering "interface", set
 // by a test or by a build with
 // -ldflags=-X=ergo.local/prototype/internal/sketch/lower.unionLowering=interface.
+// unionLowering "slots" keeps the flat unions with a slot per variant,
+// never the shared slots (U1, below): the reference of the shared form.
 // TestMachineFlatRunAgrees runs each generated machine with flat signals,
 // with interface signals and through std's loop called through the
 // record; TestFlatUnionsAgree runs
@@ -101,6 +116,13 @@ import (
 // struct with a tag and a field per variant field and switches on the
 // tag; Gleam on Erlang keeps a variant a tagged tuple or a bare atom.
 var unionLowering string
+
+// stateLowering "interface" is the reference of MSB1's step 1: a union
+// that a machine takes as its state, and an Option that a machine takes as
+// its state or its signal, keep the interface form, as before MSB1. Set by
+// a test or by a build with
+// -ldflags=-X=ergo.local/prototype/internal/sketch/lower.stateLowering=interface.
+var stateLowering string
 
 // unionMutant breaks one helper of the flat union, for the mutant tests
 // only: "sig-tag" (of writes the tag of the next variant: a wrong tag
@@ -124,7 +146,125 @@ type flatUnion struct {
 	// niche reports an Option instance of a go.Ref[S] whose Go value is
 	// the pointer itself: nil is None, any other pointer Some.
 	niche bool
+	// shared reports the shared slot form (U1, below): the struct holds
+	// slots by Go type, not a record per variant. slots are the slots'
+	// checked types, by index; fieldSlot[k][i] is the slot of variant k's
+	// field i. canShare reports that the shared form may be taken: not
+	// under the reference unionLowering "slots". Every variant is a record
+	// declared in its union's package (the checker's Unions 1; an alias
+	// names its record), so its Go literal rebuilds it from its fields.
+	shared, canShare bool
+	// byUse reports a union past the register bound that is flat because
+	// no call carries a value of it (carry.go, R3b).
+	byUse     bool
+	slots     []check.Type
+	fieldSlot [][]int
 }
+
+// Shared typed payload slots (U1, speed-2). The form above gives each
+// fieldful variant a slot of its own, so a union of many variants that
+// each hold one int needs a slot per variant and misses Go's register
+// limits (stackvm's Instr: five variants of one int is a tag and five
+// words, so it was an interface). The shared form gives the struct one
+// slot per field of the widest variant, by Go type: the variants' fields
+// of one Go type share the slots of that type, the i-th such field of a
+// variant in the i-th such slot.
+//
+//	type Instr struct {
+//		tag uint8
+//		p0  int // Push's N, Jump's To, Call's To; zero for Add
+//	}
+//	func (Instr) of0(v Push) Instr { return Instr{tag: 0, p0: v.N} }
+//	func (u Instr) as0() Push      { return Push{N: u.p0} }
+//
+// Each of method builds a fresh struct, so a slot the tag's variant does
+// not use is zero, and Go's == on the struct is still Ergo's ==. Only
+// identical Go types share (a basic type by its kind, a non-generic named
+// type by its declaration, a slice, array or Map of those, VI1: vt's
+// Csi and Hook share one []int); any other field type has a slot of its
+// own.
+// No bits are reinterpreted and nothing is unsafe.
+//
+// The shared form is taken where it fits the register limits (step 4);
+// where it does not and the per-variant form does, the union keeps the
+// per-variant form; past both it is an interface. Each round of the rule
+// decides the form again from the forms of the unions a union holds; the
+// set only shrinks and flat unions hold each other without a cycle, so
+// the rounds end. The
+// per-variant form stays selectable as the reference: unionLowering
+// "slots" takes it for every union.
+
+// slotKey is the key under which fields of type t share a slot: equal
+// keys are one Go type. nil means a slot of its own.
+func slotKey(t check.Type) any {
+	switch u := t.(type) {
+	case *check.Basic:
+		return u.Kind
+	case *check.TypeParam:
+		return u // a generic union's fields of one type parameter (MSB1)
+	case *check.Named:
+		if u.Orig == nil && len(u.TArgs) == 0 && len(u.TParams) == 0 {
+			return u
+		}
+	case *check.Slice:
+		if e := slotKey(u.Elem); e != nil {
+			return sliceKey{e}
+		}
+	case *check.Array:
+		if e := slotKey(u.Elem); e != nil {
+			return arrayKey{u.Len, e}
+		}
+	case *check.Map:
+		if k, e := slotKey(u.Key), slotKey(u.Elem); k != nil && e != nil {
+			return mapKey{k, e}
+		}
+	}
+	return nil
+}
+
+// sliceKey, arrayKey and mapKey are the slot keys of a slice, an array
+// and a Map whose parts have keys: one Go type each (VI1).
+type (
+	sliceKey struct{ elem any }
+	arrayKey struct {
+		n    int64
+		elem any
+	}
+	mapKey struct{ key, elem any }
+)
+
+// shareSlots assigns the shared slots of fu from its variants' fields.
+func (fu *flatUnion) shareSlots() {
+	keys := []any{}
+	fu.fieldSlot = make([][]int, len(fu.variants))
+	for k, v := range fu.variants {
+		used := map[int]bool{}
+		for _, f := range v.Underlying().(*check.Struct).Fields {
+			key, s := slotKey(f.Type), -1
+			if key != nil {
+				for j, kj := range keys {
+					if kj == key && !used[j] {
+						s = j
+						break
+					}
+				}
+			}
+			if s < 0 {
+				s = len(keys)
+				keys = append(keys, key)
+				fu.slots = append(fu.slots, f.Type)
+			}
+			used[s] = true
+			fu.fieldSlot[k] = append(fu.fieldSlot[k], s)
+		}
+	}
+}
+
+// sharedName is the Go field of shared slot s.
+func sharedName(s int) string { return "p" + strconv.Itoa(s) }
+
+// asName is the Go method that rebuilds variant k from its shared slots.
+func asName(k int) string { return "as" + strconv.Itoa(k) }
 
 // instance is fu's copy for n, an instance of its generic declaration.
 func (fu *flatUnion) instance(n *check.Named) *flatUnion {
@@ -173,6 +313,12 @@ func (l *lowerer) lowerAgain() ([]byte, error) {
 	}
 	next := lowererOf(l.canon, l.pkg, l.goModule, tests)
 	next.noEntry, next.matchTest = l.noEntry, l.matchTest
+	next.ir = l.ir.restart() // LowerIR and CensusIR (ir.go)
+	if l.rewrite != nil {
+		// The run build's laws rewrite the program again on the same
+		// evidence (rewrite-lost-on-bail: a bail dropped every rewrite).
+		next.rewrite = &rewriter{ev: l.rewrite.ev, rules: l.rewrite.rules}
+	}
 	next.flatOff = map[*check.TypeName]bool{}
 	for tn := range l.flatOff {
 		next.flatOff[tn] = true
@@ -197,6 +343,21 @@ func (l *lowerer) lowerAgain() ([]byte, error) {
 	return out, err
 }
 
+// unionSourced reports a package of unionPkgs: the program's own, and
+// under MSB3 every package it reaches (libraries). A union takes one form
+// by its shape, whichever module declares it, so a std package lowers as
+// its copy in a user module does (std-copy, flat-union-std); the rule
+// reads no std membership (TestCompilerReadsNoStdMembership).
+func (l *lowerer) unionSourced(p *check.Package) bool {
+	if p == nil {
+		return false
+	}
+	if p == l.pkg || l.isSourced(p) {
+		return true
+	}
+	return msb3Lowering != "off" && slices.Contains(l.libraries(), p)
+}
+
 // flatUnionSet decides, once, which unions of the program are flat.
 func (l *lowerer) flatUnionSet() map[*check.TypeName]*flatUnion {
 	if l.flatSet != nil {
@@ -206,9 +367,16 @@ func (l *lowerer) flatUnionSet() map[*check.TypeName]*flatUnion {
 	if unionLowering == "interface" {
 		return l.flatSet
 	}
+	// Under the reference stateLowering "interface" (MSB1), a machine's
+	// state and an Option that is a machine's signal keep the interface
+	// form, as before MSB1: the old rule step 1.
 	states := map[*check.TypeName]bool{}
 	signals := map[*check.TypeName]bool{}
-	for _, p := range l.sourcedPkgs() {
+	// machineStates are the program's machines' states and signals,
+	// whatever the reference: either past the register bound stays flat
+	// (MSB2, MSB3; carry.go's stateFlat).
+	machineStates := map[*check.TypeName]bool{}
+	for _, p := range l.unionPkgs() {
 		for _, tn := range l.canon.types(p) {
 			if tn.Decl == nil {
 				continue
@@ -225,10 +393,18 @@ func (l *lowerer) flatUnionSet() map[*check.TypeName]*flatUnion {
 				continue
 			}
 			if s, ok := m.State.(*check.Named); ok {
-				states[s.Obj] = true
+				machineStates[s.Obj] = true
+				if stateLowering == "interface" {
+					states[s.Obj] = true
+				}
 			}
 			if e, ok := m.Signal.(*check.Named); ok {
-				signals[e.Obj] = true
+				if msb3Lowering != "off" {
+					machineStates[e.Obj] = true // MSB3: a signal too
+				}
+				if stateLowering == "interface" {
+					signals[e.Obj] = true
+				}
 			}
 		}
 	}
@@ -241,7 +417,7 @@ func (l *lowerer) flatUnionSet() map[*check.TypeName]*flatUnion {
 	}
 	// A union a Go extern's signature names keeps its Go view.
 	extern := map[*check.TypeName]bool{}
-	for _, p := range l.sourcedPkgs() {
+	for _, p := range l.unionPkgs() {
 		for _, f := range l.canon.funcs(p) {
 			if f.Decl == nil || f.Decl.Extern == nil || f.Sig == nil {
 				continue
@@ -254,9 +430,11 @@ func (l *lowerer) flatUnionSet() map[*check.TypeName]*flatUnion {
 			}
 		}
 	}
+	// Generic unions (genericunion.go, MSB1).
+	l.genericUnions(func(tn *check.TypeName) bool { return states[tn] || signals[tn] || extern[tn] || l.flatOff[tn] })
 	// Steps 1 and 2: the candidates.
 	var cands []*check.TypeName
-	for _, p := range l.sourcedPkgs() {
+	for _, p := range l.unionPkgs() {
 		for _, tn := range l.canon.types(p) {
 			n, ok := tn.Type.(*check.Named)
 			if !ok || states[tn] || extern[tn] || l.flatOff[tn] {
@@ -275,15 +453,46 @@ func (l *lowerer) flatUnionSet() map[*check.TypeName]*flatUnion {
 			if l.flatSet[tn] == nil {
 				continue
 			}
+			// The shared form where it fits, else the per-variant form,
+			// decided again each round from the forms of the unions it
+			// holds: flat unions hold each other without a cycle, so
+			// the forms settle once the set does.
+			fu := l.flatSet[tn]
+			was, wasUsed := fu.shared, fu.byUse
+			fu.shared, fu.byUse = fu.canShare, false
+			// A machine's state stays flat past both bounds (MSB2).
+			state := l.stateFlat(tn, machineStates)
 			lay, cycle, known := l.layoutOf(tn.Type, map[*check.TypeName]bool{}, 0)
+			if cycle == nil && known && !lay.ssa && fu.shared {
+				fu.shared = false
+				lay, cycle, known = l.layoutOf(tn.Type, map[*check.TypeName]bool{}, 0)
+				if cycle == nil && known && !lay.ssa && (l.flatByUse(tn) || state) {
+					// Past the register bound in both forms: the smaller,
+					// shared form, if no call carries a value (R3b) or
+					// the union is a machine's state (MSB2).
+					fu.shared = true
+					lay, cycle, known = l.layoutOf(tn.Type, map[*check.TypeName]bool{}, 0)
+				}
+			}
+			if cycle == nil && known && !lay.ssa && (l.flatByUse(tn) && lay.size <= useBytes || state) {
+				fu.byUse = true // carry.go
+			}
+			if fu.shared != was || fu.byUse != wasUsed {
+				changed = true
+			}
 			switch {
 			case cycle != nil:
 				delete(l.flatSet, cycle)
 				changed = true
-			case !known || !lay.ssa:
+			case !known || !lay.ssa && !fu.byUse:
 				delete(l.flatSet, tn)
 				changed = true
 			}
+		}
+	}
+	for _, fu := range l.flatSet {
+		if fu.byUse {
+			l.stats.UsedFlat++
 		}
 	}
 	if opt != nil && l.flatSet[opt.Obj] != nil && !l.flatOff[nicheOff] {
@@ -292,13 +501,53 @@ func (l *lowerer) flatUnionSet() map[*check.TypeName]*flatUnion {
 	return l.flatSet
 }
 
+// unionPkgs are the packages whose unions, machines and records the rule
+// reads (step 1): from MSB3, every Ergo package the program reaches, its
+// own, an imported module's and std's alike. The rule is one of shape, and
+// std has no privilege either way (std-priv SP3): a std union is lowered
+// with the program, so a std function that returns one (tz.Resolve's
+// Resolved) or a table of field-less ones (civil's Pad, time's Month) pays
+// no box, and a std machine's state and signal are flat past the bounds as
+// a program's are. The program's own packages come first, in import
+// order, then the others by path, so the lowering is deterministic. The
+// reference msb3Lowering "off" reads the program's own packages alone, as
+// before MSB3.
+func (l *lowerer) unionPkgs() []*check.Package {
+	ps := l.sourcedPkgs()
+	if msb3Lowering == "off" {
+		return ps
+	}
+	seen := map[*check.Package]bool{}
+	for _, p := range ps {
+		seen[p] = true
+	}
+	var rest []*check.Package
+	for _, p := range l.libraries() {
+		if !seen[p] {
+			rest = append(rest, p)
+		}
+	}
+	slices.SortFunc(rest, func(a, b *check.Package) int { return strings.Compare(a.Path, b.Path) })
+	return append(ps, rest...)
+}
+
+// unionPkg reports whether p is one of unionPkgs: under MSB3 any Ergo
+// package (libraries holds every one the program reaches; a Go package
+// has no Ergo declarations).
+func (l *lowerer) unionPkg(p *check.Package) bool {
+	if p == nil || p.Host() {
+		return false
+	}
+	return msb3Lowering != "off" || l.isSourced(p)
+}
+
 // optionCycle reports whether a record of the program holds itself by
 // value through an Option (`type Node { Next Option[Node] }`). The
 // interface Option breaks the cycle with its box; the flat one would make
 // the record an invalid recursive Go type, so the program keeps Option an
 // interface.
 func (l *lowerer) optionCycle(opt *check.TypeName) bool {
-	for _, p := range l.sourcedPkgs() {
+	for _, p := range l.unionPkgs() {
 		for _, tn := range l.canon.types(p) {
 			n, ok := tn.Type.(*check.Named)
 			if !ok {
@@ -405,6 +654,9 @@ func mentioned(t check.Type, out map[*check.TypeName]bool, seen map[check.Type]b
 		if u.Orig == nil && len(u.TParams) == 0 {
 			out[u.Obj] = true
 		}
+		if u.Orig != nil {
+			out[u.Orig.Obj] = true // a generic union's instance (MSB1)
+		}
 		for _, a := range u.TArgs {
 			mentioned(a, out, seen)
 		}
@@ -443,18 +695,25 @@ func mentioned(t check.Type, out map[*check.TypeName]bool, seen map[check.Type]b
 // flatShape is the flat form of the union n by the rule's steps 1 and 2,
 // or nil when they keep it an interface (n not a union included).
 func (l *lowerer) flatShape(n *check.Named) *flatUnion {
-	if n.Orig != nil || len(n.TParams) > 0 || n.Obj.Decl == nil || !l.isSourced(n.Obj.Pkg) {
+	if n.Orig != nil || len(n.TParams) > 0 || n.Obj.Decl == nil || !l.unionSourced(n.Obj.Pkg) {
 		return nil
 	}
 	u, ok := n.Underlying().(*check.Union)
 	if !ok || len(u.Variants) == 0 || len(u.Variants) > 255 || u.Row != nil {
 		return nil
 	}
-	fu := &flatUnion{tn: n.Obj}
+	fu := &flatUnion{tn: n.Obj, canShare: unionLowering != "slots"}
+	errs := 0 // the variants that are error types
 	for _, v := range u.Variants {
 		vn, ok := v.(*check.Named)
-		if !ok || vn.Orig != nil || len(vn.TParams) > 0 || vn.Obj.Decl == nil || l.errorType(vn) {
+		if !ok || vn.Orig != nil || len(vn.TParams) > 0 || vn.Obj.Decl == nil {
 			return nil
+		}
+		if l.errorType(vn) {
+			if msb3Lowering == "off" {
+				return nil
+			}
+			errs++
 		}
 		st, ok := vn.Underlying().(*check.Struct)
 		if !ok {
@@ -462,6 +721,19 @@ func (l *lowerer) flatShape(n *check.Named) *flatUnion {
 		}
 		fu.variants = append(fu.variants, vn)
 		fu.slot = append(fu.slot, len(st.Fields) > 0)
+	}
+	// A union whose every variant is an error type may name a row, a Go
+	// error that catch and ConvRow test by type: it stays an interface.
+	// A union of which only some variants are error types (router's Signal
+	// holds Unknown, the registry's failure) is no row (a row makes every
+	// variant an error type), and its error variants are records in its
+	// slots like any other (MSB3).
+	if errs == len(fu.variants) {
+		return nil
+	}
+	if fu.canShare {
+		fu.shareSlots()
+		fu.shared = true
 	}
 	return fu
 }
@@ -556,7 +828,7 @@ func (l *lowerer) layoutOf(t check.Type, path map[*check.TypeName]bool, depth in
 			return structLayout([]goLayout{{size: 1, align: 1, ssa: true}, s}), nil, true
 		case opt != nil && isOptionVariant(obj, opt.Obj):
 			// Some's record; None's is empty.
-		case !l.isSourced(obj.Pkg):
+		case !l.unionSourced(obj.Pkg):
 			return goLayout{}, nil, false
 		}
 		if d := u.Defined(); d != nil {
@@ -571,7 +843,7 @@ func (l *lowerer) layoutOf(t check.Type, path map[*check.TypeName]bool, depth in
 			return fields(types)
 		case *check.Union:
 			fu := l.flatSet[obj]
-			if fu == nil || fu.generic {
+			if fu == nil || fu.generic && u.Orig == nil {
 				return goLayout{size: 16, align: 8, ssa: true}, nil, true // an interface
 			}
 			if path[obj] {
@@ -580,7 +852,23 @@ func (l *lowerer) layoutOf(t check.Type, path map[*check.TypeName]bool, depth in
 			path[obj] = true
 			defer delete(path, obj)
 			lays := []goLayout{{size: 1, align: 1, ssa: true}}
-			for k, v := range fu.variants {
+			slots, variants := fu.slots, fu.variants
+			if fu.generic {
+				// MSB1: the instance's slots and variants.
+				slots = fu.instanceSlotTypes(u)
+				variants = fu.instance(u).variants
+			}
+			if fu.shared {
+				for _, st := range slots {
+					s, c, ok := l.layoutOf(st, path, depth+1)
+					if c != nil || !ok {
+						return goLayout{}, c, ok
+					}
+					lays = append(lays, s)
+				}
+				return structLayout(lays), nil, true
+			}
+			for k, v := range variants {
 				if !fu.slot[k] {
 					continue
 				}
@@ -905,6 +1193,11 @@ func (l *lowerer) flatDecl(b interface{ WriteString(string) (int, error) }, td *
 		}
 		self += "[" + strings.Join(names, ", ") + "]"
 	}
+	if fu.shared {
+		l.sharedDecl(b, td, fu, tc, self)
+		l.variantNamer(b, td, fu, tc, self)
+		return
+	}
 	for k, v := range fu.variants {
 		if fu.slot[k] {
 			b.WriteString("\t" + slotName(k) + " " + tc.goType(v) + "\n")
@@ -921,6 +1214,68 @@ func (l *lowerer) flatDecl(b interface{ WriteString(string) (int, error) }, td *
 			param, slot = "v", ", "+slotName(k)+": v"
 		}
 		b.WriteString("func (" + self + ") " + ofName(k) + "(" + param + " " + tc.goType(v) + ") " + self + " { return " + self + "{tag: " + strconv.Itoa(tag) + slot + "} }\n")
+	}
+	l.variantNamer(b, td, fu, tc, self)
+}
+
+// variantNamer writes the union's ErgoVariant, in either form.
+func (l *lowerer) variantNamer(b interface{ WriteString(string) (int, error) }, td *typeDecl, fu *flatUnion, tc *typeCtx, self string) {
+	// ErgoVariant names the variant a value holds, as a traced runner
+	// names a signal (v1 actor_trace.go): the Go type is the union's, so
+	// the name the runtime would read from it is the union's. A generic
+	// union's variant names hold the instance's type arguments, which only
+	// the instance knows: its ErgoVariant reads each variant's Go type name
+	// at run time (v1.VariantOf), as the runtime reads a boxed variant's.
+	if len(td.tparams) > 0 {
+		names := make([]string, len(fu.variants))
+		for k, v := range fu.variants {
+			names[k] = l.rtRef("VariantOf") + "[" + tc.goType(v) + "]"
+		}
+		b.WriteString("func (x " + self + ") ErgoVariant() string { return [...]func() string{" + strings.Join(names, ", ") + "}[x.tag]() }\n")
+		b.WriteString("\n")
+		return
+	}
+	names := make([]string, len(fu.variants))
+	for k, v := range fu.variants {
+		name, ok := l.variantName(tc.goType(v))
+		if !ok {
+			ice(td.tn.Decl.Name, "the flat union %s has the variant %s, whose Go type the lowering cannot name", td.tn.Name, v.Obj.Name)
+		}
+		names[k] = strconv.Quote(name)
+	}
+	b.WriteString("func (x " + self + ") ErgoVariant() string { return [...]string{" + strings.Join(names, ", ") + "}[x.tag] }\n")
+	b.WriteString("\n")
+}
+
+// sharedDecl writes the rest of the shared form's Go type, after its tag:
+// its slots, and per variant the of method that writes the variant's
+// fields into their slots and the as method that rebuilds the variant.
+func (l *lowerer) sharedDecl(b interface{ WriteString(string) (int, error) }, td *typeDecl, fu *flatUnion, tc *typeCtx, self string) {
+	for s, st := range fu.slots {
+		b.WriteString("\t" + sharedName(s) + " " + tc.goType(st) + "\n")
+	}
+	b.WriteString("}\n\n")
+	site := syntax.Node(td.tn.Decl.Name)
+	for k, v := range fu.variants {
+		tag := k
+		if unionMutant == "sig-tag" {
+			tag = (k + 1) % len(fu.variants)
+		}
+		fields := v.Underlying().(*check.Struct).Fields
+		vd := l.typeDecl(v.Obj, site)
+		param := "_"
+		var into, from []string
+		for i, f := range fields {
+			param = "v"
+			s := sharedName(fu.fieldSlot[k][i])
+			into = append(into, s+": v."+vd.fieldName[f.Name])
+			from = append(from, vd.fieldName[f.Name]+": u."+s)
+		}
+		vt := tc.goType(v)
+		b.WriteString("func (" + self + ") " + ofName(k) + "(" + param + " " + vt + ") " + self + " { return " + self + "{" + strings.Join(append([]string{"tag: " + strconv.Itoa(tag)}, into...), ", ") + "} }\n")
+		if len(fields) > 0 {
+			b.WriteString("func (u " + self + ") " + asName(k) + "() " + vt + " { return " + vt + "{" + strings.Join(from, ", ") + "} }\n")
+		}
 	}
 	b.WriteString("\n")
 }
@@ -952,10 +1307,39 @@ func (fu *flatUnion) flatValue(tc *typeCtx, goType string, k int, val string) st
 	// The literal is parenthesized: the value may stand in an if or a
 	// switch header, where Go parses a bare T{} as the block.
 	v := "(" + own + "{})." + ofName(k) + "(" + val + ")"
+	if val == tc.goType(fu.variants[k])+"{}" && len(fu.variants[k].Underlying().(*check.Struct).Fields) == 0 {
+		// A field-less variant written as its literal is the tag alone,
+		// a constant Go keeps whole: std time's months() is twelve of
+		// them, and twelve of calls put it past Go's inlining budget, so
+		// its slice escaped and each call allocated it (MSB3).
+		tag := k
+		if unionMutant == "sig-tag" {
+			tag = (k + 1) % len(fu.variants)
+		}
+		v = "(" + own + "{tag: " + strconv.Itoa(tag) + "})"
+	}
 	if goType != own {
 		v = goType + "(" + v + ")"
 	}
 	return v
+}
+
+// variantAny is val, a value of t, as the Go value its variant is: for a
+// flat union (MSB1: a machine's state) the variant record its tag names,
+// so the runtime names and prints it as it does an interface's dynamic
+// value; val itself for any other t.
+func (fc *funcCtx) variantAny(t check.Type, val string) string {
+	fu := fc.l.flatUnionOf(t)
+	if fu == nil {
+		return val
+	}
+	tc := &fc.typeCtx
+	u := fc.scope.alloc("u")
+	out := "func(" + u + " " + tc.goType(t) + ") any {\n" + "switch " + fu.tagExpr(tc, u) + " {\n"
+	for k := range fu.variants {
+		out += "case " + strconv.Itoa(k) + ":\nreturn " + fu.flatNarrow(tc, u, k) + "\n"
+	}
+	return out + "}\nreturn nil\n}(" + val + ")"
 }
 
 // flatNarrow is the variant k of val, a flat value that holds it.
@@ -965,6 +1349,9 @@ func (fu *flatUnion) flatNarrow(tc *typeCtx, val string, k int) string {
 	}
 	if fu.niche {
 		return tc.goType(fu.variants[k]) + "{" + memberName("Value") + ": " + val + "}"
+	}
+	if fu.shared {
+		return val + "." + asName(k) + "()"
 	}
 	return val + "." + slotName(k)
 }

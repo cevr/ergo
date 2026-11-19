@@ -1,6 +1,9 @@
 {
-  "about": "The closure runner's own child reaper preserves the helper's status, reaps other ended children, and does not wait on running children. The focused killer observes child-exit events before checking ended-child reaping.",
+  "about": "The closure runner's own child reaper preserves the helper's status, reaps other ended children, and does not wait on running children. The focused killer observes child-exit events before checking ended-child reaping. Every mutated line is in a _test.go file, which the cover tool does not instrument, so each row names its killers in anchor.tests.",
   "mutants": [
+    {"name":"gs23-recorded-run-ignored","origin":"wf10 GS23","file":"internal/closure/split_test.go","from":"max(sum, plan[i].cost, recorded.Run)","to":"max(sum, plan[i].cost)","rule":"A run's deadline cost is at least its package's slowest recorded sweep run.","killers":["internal/closure:TestRunDeadlineFollowsTheRecordedSweep"]},
+    {"name":"gs23-build-not-a-run","origin":"wf10 GS23","file":"internal/closure/split_test.go","from":"\tslowest := build\n","to":"\tslowest := time.Duration(0)\n","rule":"The build of the test binary counts as a run of the sweep: its bound is the slowest run's.","killers":["internal/closure:TestRunDeadlineFollowsTheRecordedSweep"]},
+    {"name":"gs23-sweep-is-the-slowest-run","origin":"wf10 GS23","file":"internal/closure/split_test.go","from":"Sweep: math.Ceil(whole.Seconds())","to":"Sweep: math.Ceil(slowest.Seconds())","rule":"The recorded sweep is the package's whole sweep, not its slowest run.","killers":["internal/closure:TestRunDeadlineFollowsTheRecordedSweep"]},
     {
       "name": "b15-r8-closure-skips-ended-child",
       "origin": "wf10 batch-15 fix-r8 item 5",
@@ -8,7 +11,8 @@
       "from": "if pid == helper {",
       "to": "if pid != 0 {",
       "rule": "An ended non-helper child is reaped, not left as a zombie.",
-      "killers": ["internal/closure:TestReapEndedLeavesTheHelperAndRunningChildren"]
+      "killers": ["internal/closure:TestReapEndedLeavesTheHelperAndRunningChildren"],
+      "anchor": {"tests": ["internal/closure:TestReapEndedLeavesTheHelperAndRunningChildren"]}
     },
     {
       "name": "b15-r8-closure-steals-helper-status",
@@ -17,15 +21,22 @@
       "from": "if pid == helper {",
       "to": "if false && pid == helper {",
       "rule": "The helper's exec.Cmd remains the sole wait owner of its exit status.",
-      "killers": ["internal/closure:TestReapEndedLeavesTheHelperAndRunningChildren"]
+      "killers": ["internal/closure:TestReapEndedLeavesTheHelperAndRunningChildren"],
+      "anchor": {"tests": ["internal/closure:TestReapEndedLeavesTheHelperAndRunningChildren"]}
     },
     {
       "name": "rm-cgo-link-input",
+      "origin": "wf10 Rm (c7486603b); killer MUT-names r2",
       "file": "internal/closure/closure_test.go",
       "from": "{\"-lc\", file, \"GNU ld's cwd lookup while the Go toolchain links a cgo dependency\"},",
       "to": "",
       "rule": "A real cgo linker cwd input belongs to the toolchain inputs; observation and cache hashing must remain enabled.",
-      "killers": ["internal/closure:TestEveryPackageRecordsOnlyItsClosure (ERGO_CLOSURE_SWEEP=cmd/ergo, cgo enabled, cold per-package cache)"]
+      "killers": ["internal/closure:TestClosureClassifiesInputs"],
+      "anchor": {
+        "tests": [
+          "internal/closure:TestClosureClassifiesInputs"
+        ]
+      }
     },
     {
       "name": "g16fix2-alone-shares-a-run",
@@ -161,8 +172,8 @@
       "name": "gf3-run-deadline-from-wall",
       "origin": "wf10 batch-16b gate16b-fix3",
       "file": "internal/closure/split_test.go",
-      "from": "plan[i].deadlineCost = max(sum, plan[i].cost)",
-      "to": "plan[i].deadlineCost = max(0*sum, plan[i].cost)",
+      "from": "plan[i].deadlineCost = max(sum, plan[i].cost, recorded.Run)",
+      "to": "plan[i].deadlineCost = max(0*sum, plan[i].cost, recorded.Run)",
       "rule": "A swept run's deadline reads the CPU its tests record, not only their wall.",
       "killers": ["internal/closure:TestRunDeadlineFollowsRecordedCPU"]
     },
@@ -174,6 +185,58 @@
       "to": "d := hangDeadline(0)",
       "rule": "A swept run's deadline is ten times its recorded cost, not a fixed bound.",
       "killers": ["internal/closure:TestRunDeadlineFollowsRecordedCPU"]
-    }
+    },
+    { "name": "sweep-unmeasured-floored", "origin": "wf10 CS1", "file": "internal/closure/split_test.go", "from": "\t\tif len(plan[i].unmeasured) > 0 {\n", "to": "\t\tif false && len(plan[i].unmeasured) > 0 {\n", "rule": "A swept run holding a test with no recorded time is bounded only by the test binary's deadline, not the 30 minute floor.", "killers": ["internal/closure:TestUnmeasuredRunHasTheBinaryDeadline"] },
+    { "name": "sweep-unmeasured-hang-floored", "origin": "wf10 CS1", "file": "internal/closure/sandbox_test.go", "from": "\tif math.IsInf(cost, 1) {\n\t\treturn math.MaxInt64\n", "to": "\tif math.IsInf(cost, 1) {\n\t\treturn hangFloor\n", "rule": "An unmeasured run's cost sets no bound of its own.", "killers": ["internal/closure:TestUnmeasuredRunHasTheBinaryDeadline"] },
+    {
+      "name": "gatesandbox-std-store-under-tmpdir",
+      "origin": "wf10 fu-gate-sandbox",
+      "file": "internal/closure/stdcache_test.go",
+      "from": "\tif dir := os.Getenv(stdStoreVariable); dir != \"\" {\n",
+      "to": "\tif dir := \"\"; dir != \"\" {\n",
+      "rule": "A sweep given ERGO_CLOSURE_STD_DIR shares that std store and builds nothing, whatever its TMPDIR. The edited file is a test file, which coverage does not instrument.",
+      "killers": ["internal/closure:TestStdStoreHoldsOnlyStdCompiles"],
+      "anchor": {"tests": ["internal/closure:TestStdStoreHoldsOnlyStdCompiles"]}
+    },
+    {"name": "closure-hang-progress-ignored", "origin": "wf10 sweep-hang", "file": "internal/closure/progress_test.go",
+      "from": "\t\t\tseen, last = p, w.now()\n", "to": "\t\t\tseen = p\n",
+      "rule": "A run's progress moves its quiet window: a run that keeps working is not stopped at a fixed bound (cmd/ergo's 58-61 minute runs).",
+      "killers": ["internal/closure:TestWatchStopsOnlyAQuietRun"], "anchor": {"tests": ["internal/closure:TestWatchStopsOnlyAQuietRun"]}},
+    {"name": "closure-hang-end-ignored", "origin": "wf10 sweep-hang", "file": "internal/closure/progress_test.go",
+      "from": "\t\tif !w.end.IsZero() && w.end.Before(stop) {", "to": "\t\tif false && w.end.Before(stop) {",
+      "rule": "A run that keeps working is stopped at the end this test binary's deadline leaves it, so the sweep reports its verdicts.",
+      "killers": ["internal/closure:TestWatchStopsOnlyAQuietRun"], "anchor": {"tests": ["internal/closure:TestWatchStopsOnlyAQuietRun"]}},
+    {"name": "closure-hang-quiet-ignored", "origin": "wf10 sweep-hang", "file": "internal/closure/progress_test.go",
+      "from": "\t\tstop, why := last.Add(w.quiet), watchQuiet\n", "to": "\t\tstop, why := last.Add(1<<62), watchQuiet\n",
+      "rule": "A run that makes no progress for its quiet window is stopped.",
+      "killers": ["internal/closure:TestWatchStopsOnlyAQuietRun"], "anchor": {"tests": ["internal/closure:TestWatchStopsOnlyAQuietRun"]}},
+    {"name": "sweep-deadline-cpu-ignored", "origin": "wf10 SWEEP-DEADLINE", "file": "internal/closure/sandbox_linux_test.go",
+      "from": "\t\tprogress: func() int64 { return progress() + treeCPU(pid)<<40 },\n", "to": "\t\tprogress: progress,\n",
+      "rule": "A swept run that computes without output is making progress: the sweep stops a run only when it stops using CPU and writing.",
+      "killers": ["internal/closure:TestRunThatComputesSilentlyIsNotQuiet"], "anchor": {"tests": ["internal/closure:TestRunThatComputesSilentlyIsNotQuiet"]}},
+    {"name": "sweep-deadline-cpu-leader-only", "origin": "wf10 SWEEP-DEADLINE", "file": "internal/closure/sandbox_linux_test.go",
+      "from": "\t\t\tticks += p.ticks\n\t\t\tqueue = append(queue, children[id]...)\n", "to": "\t\t\tticks += p.ticks\n\t\t\tqueue = append(queue, children[-1]...)\n",
+      "rule": "A run's CPU is that of every process of the run, not only its leader's.",
+      "killers": ["internal/closure:TestRunThatComputesSilentlyIsNotQuiet"], "anchor": {"tests": ["internal/closure:TestRunThatComputesSilentlyIsNotQuiet"]}},
+    {"name": "heavy-cost2-reuse-env-unchecked", "origin": "wf10 HEAVY-COST-2", "file": "internal/closure/reuse_test.go",
+      "from": "\t\tif diff := envDifference(rec.Env, env); diff != \"\" {", "to": "\t\tif diff := envDifference(rec.Env, env); false && diff != \"\" {",
+      "rule": "A recorded run whose environment differs from a swept run's (a tier variable, another value) is not reused.",
+      "killers": ["internal/closure:TestReuseRefusesWhatASweepWouldNotSee"], "anchor": {"tests": ["internal/closure:TestReuseRefusesWhatASweepWouldNotSee"]}},
+    {"name": "heavy-cost2-reuse-coverage-unchecked", "origin": "wf10 HEAVY-COST-2", "file": "internal/closure/reuse_test.go",
+      "from": "\tif len(missing) > 0 {", "to": "\tif false && len(missing) > 0 {",
+      "rule": "Recorded runs are reused only when together they ran every test of the package.",
+      "killers": ["internal/closure:TestReuseRefusesWhatASweepWouldNotSee"], "anchor": {"tests": ["internal/closure:TestReuseRefusesWhatASweepWouldNotSee"]}},
+    {"name": "heavy-cost2-reuse-userns-unchecked", "origin": "wf10 HEAVY-COST-2", "file": "internal/closure/reuse_test.go",
+      "from": "\t\tcase !strings.HasPrefix(rec.UserNamespaces, testinputs.UserNamespacesRefused):", "to": "\t\tcase false:",
+      "rule": "A recorded run that could make user namespaces (the sweep's S3) is not reused.",
+      "killers": ["internal/closure:TestReuseRefusesWhatASweepWouldNotSee"], "anchor": {"tests": ["internal/closure:TestReuseRefusesWhatASweepWouldNotSee"]}},
+    {"name": "heavy-cost2-reuse-cache-unchecked", "origin": "wf10 HEAVY-COST-2", "file": "internal/closure/reuse_test.go",
+      "from": "\t\tcase !ownCache(rec, dirs[i]):", "to": "\t\tcase false && !ownCache(rec, dirs[i]):",
+      "rule": "A recorded run that built in a cache other packages share is not reused (TestSharedCacheKeepsEachPackagesInputs).",
+      "killers": ["internal/closure:TestReuseRefusesWhatASweepWouldNotSee"], "anchor": {"tests": ["internal/closure:TestReuseRefusesWhatASweepWouldNotSee"]}},
+    {"name": "heavy-cost2-reuse-short-run", "origin": "wf10 HEAVY-COST-2", "file": "internal/closure/reuse_test.go",
+      "from": "\t\t\tif !hasValue || value == \"true\" {", "to": "\t\t\tif false {",
+      "rule": "A -short run skipped the tests that build Go, so it does not stand for the sweep's run.",
+      "killers": ["internal/closure:TestReuseRefusesWhatASweepWouldNotSee"], "anchor": {"tests": ["internal/closure:TestReuseRefusesWhatASweepWouldNotSee"]}}
   ]
 }

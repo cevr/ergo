@@ -3,7 +3,7 @@ package check
 import (
 	"sort"
 
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -31,7 +31,7 @@ func contextRow(t Type) (*Row, bool) {
 	n, ok := t.(*Named)
 	// The name and package first: the prelude's own check calls this too,
 	// before preludeType can answer.
-	if !ok || n.Orig == nil || n.Obj == nil || n.Obj.Name != "Context" || n.Obj.Pkg == nil || n.Obj.Pkg.Path != std.PreludePath || len(n.TArgs) != 1 {
+	if !ok || n.Orig == nil || n.Obj == nil || n.Obj.Name != "Context" || n.Obj.Pkg == nil || n.Obj.Pkg.Path != stdlib.PreludePath || len(n.TArgs) != 1 {
 		return nil, false
 	}
 	ra, ok := n.TArgs[0].(*RowArg)

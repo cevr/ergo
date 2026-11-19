@@ -175,13 +175,62 @@ func (l *lowerer) growthOf(scope *namer) int {
 	return inlineGrowth
 }
 
+// failJump: the returns of an inlined body meet at the label after its
+// block, and a catch or try there tests the error. Where the success path
+// writes memory, Go does not thread that test (its shortcircuit pass
+// takes a join block of phis alone, and the memory phi stops it), so the
+// success path pays a test and a jump at every site, where hand Go
+// branches to its panic or return at the failure itself: lru paid two
+// branches and five instructions per arena access (OPT9).
+//
+// So a catch or try asks for its operand's failures (funcCtx.failJump):
+// the failing returns of the inlined body jump to a label of their own,
+// and the site writes its handler under that label, past a jump that
+// takes the success path around it:
+//
+//	{ ... err = Stale{}; goto fail ... }
+//	goto ok
+//	fail:
+//	if err != nil { panic(...) }
+//	ok:
+//
+// Go lays the handler out of line, so the success path runs straight on.
+// A site that declares a variable before its handler (a catch whose arms
+// yield a value) cannot be jumped over; it places the label at the join,
+// which is the reference's code (placeFail). A call whose returns write a
+// join local (scalar.go) keeps its failures at the join too.
+//
+// The reference is failLowering "join": every return jumps to the join.
+// It is set by a test, or by a build with
+// -ldflags=-X=ergo.local/prototype/internal/sketch/lower.failLowering=join.
+// TestInlineAgrees runs it as a lowering of its own.
+//
+// Prior art: Go's own inliner keeps a callee's panic in line, and
+// cmd/compile's shortcircuit pass threads a branch on a phi of constants
+// only through a join block of phis alone; GCC and LLVM thread jumps over
+// such joins (jump threading). OCaml's flambda and Gleam's and ReScript's
+// lowerings of a case on a result have no join to thread: the failure is
+// a branch of its own.
+var failLowering string
+
 // inlineRet is where the returns of an inlined body go: its result and
 // error variables, and the label after its block.
 type inlineRet struct {
 	res, err, label string
-	gotos           int
+	// fail is the label the failing returns jump to (failJump), "" when
+	// they jump to label.
+	fail string
+	// failOnly is set when the block's last statement is the jump to fail:
+	// no success path leaves the block (IRFIX-TEXT).
+	failOnly bool
+	gotos    int
 	// join is the join local the returns write instead of res (scalar.go).
 	join *scalarLocal
+	// known is the fold whose arms the returns jump to (knownmatch.go).
+	known *knownMatch
+	// tuple is the Go variables of a tuple let the returns write, element
+	// by element, instead of res: the call is an arm's tail (tuplelet.go).
+	tuple []string
 	// resType is the Go type of res, and iface whether it is an interface
 	// (renameTail, forms.go).
 	resType string
@@ -256,8 +305,14 @@ type inlineKey struct {
 
 // inlineRule is inlineWithin's decision for an undecided f.
 func (l *lowerer) inlineRule(f *check.Func, budget int) bool {
+	// A negative budget is the fold's (knownmatch.go): a leaf Go would
+	// inline is inlined here too.
+	fold := budget < 0
+	if fold {
+		budget = -budget
+	}
 	d := f.Decl
-	if d == nil || d.Body == nil || d.Extern != nil || f.Pkg == nil || f.Pkg.Info == nil || f.Name == "main" || isClose(f) || nativeOf(f) != nil {
+	if d == nil || d.Body == nil || d.Extern != nil || f.Pkg == nil || f.Pkg.Info == nil || f.Name == "main" || isClose(f) || nativeOf(f) != nil || l.hasGoRow(f.Sig) {
 		return false
 	}
 	info := f.Pkg.Info
@@ -286,7 +341,9 @@ func (l *lowerer) inlineRule(f *check.Func, budget int) bool {
 	}
 	size := inlineSize(d.Body)
 	if size > budget || goLeaf(f) && !l.boxedResult(f) {
-		return false
+		if !fold || size > budget { // a fold's subject is inlined though a leaf
+			return false
+		}
 	}
 	called := map[*syntax.Ident]bool{}
 	ok = true
@@ -486,7 +543,10 @@ func (fc *funcCtx) inlineAt(x *syntax.CallExpr, c *check.Call) bool {
 		return false // a result a block with no value binds: struct{}
 	}
 	f := c.Func
-	if !fc.l.inlineBody(f) || !fc.pays(f) {
+	// The subject of a match the fold takes is worth inlining whatever
+	// its size: its returns then reach the arms with no union value
+	// (knownmatch.go), which Go's own inlining of a leaf cannot give.
+	if !(fc.l.inlineBody(f) && fc.pays(f) || fc.pendingKnown != nil && fc.pendingKnown.call == x && fc.l.inlineWithin(f, -inlineBudget)) {
 		return false
 	}
 	fd := fc.l.funcDecl(f)
@@ -594,6 +654,7 @@ func (fc *funcCtx) plainAdapter(name string, s *check.Signature) string {
 // operands, the block of its body and the label its returns jump to.
 func (fc *funcCtx) inlineCall(x *syntax.CallExpr, c *check.Call, fd *funcDecl, list []syntax.Expr, lits map[int]*syntax.FuncLit, funs map[int]*check.Func) operand {
 	f := c.Func
+	jump := fc.failJump == syntax.Expr(x) && failLowering != "join"
 	fc.l.readsOf(f)
 	addr := false
 	if c.Recv != nil && f.Ptr {
@@ -643,7 +704,12 @@ func (fc *funcCtx) inlineCall(x *syntax.CallExpr, c *check.Call, fd *funcDecl, l
 	if len(f.Sig.Results) == 1 {
 		result = f.Sig.Results[0]
 	}
-	if result != nil {
+	if ti := fc.tupleInto; result != nil && ti != nil && ti.call == x && !(fd.fallible && failsHere(c)) {
+		// No result variable: the returns write the names.
+		ret.tuple, ti.taken = ti.names, true
+		fc.l.stats.TupleInlines++
+	}
+	if result != nil && ret.tuple == nil {
 		if ret.join = fc.joinSite(x); ret.join == nil {
 			ret.res = fc.temp("v")
 			ret.resType, ret.iface = ic.goType(result), ic.isInterface(result)
@@ -656,7 +722,16 @@ func (fc *funcCtx) inlineCall(x *syntax.CallExpr, c *check.Call, fd *funcDecl, l
 	if fallible {
 		ret.err = fc.temp("err")
 		fc.line("var " + ret.err + " error")
+		// The use goes before the block: after a block whose every path
+		// fails by a jump it would be unreachable (go vet).
+		fc.line("_ = " + ret.err)
+		if jump && ret.join == nil {
+			// A join local's returns stay at the join: its writes are
+			// the scalar form's (scalar.go), not the result's.
+			ret.fail = fc.temp("fail")
+		}
 	}
+	fc.knownTake(x, ret, fallible) // knownmatch.go
 	ic.frame = inlineFrame(result, fallible, ret)
 	fc.l.stats.Inlined++
 	// An operand that names a variable no write reaches (not a let mut)
@@ -672,6 +747,18 @@ func (fc *funcCtx) inlineCall(x *syntax.CallExpr, c *check.Call, fd *funcDecl, l
 		if v, ok := fc.l.info.Uses[id].(*check.Var); ok && !v.Mut() {
 			same[i] = fc.goType(fc.typeOf(a))
 		}
+	}
+	// A growth guard first in the body is written as a call of f out of
+	// line (coldhead.go) when every parameter is a plain local of the body.
+	guard := fc.l.coldGuard(f, fd)
+	if len(lits) > 0 || len(funs) > 0 || len(alias) > 0 || c.Site != nil || fc.l.vals != nil && fc.l.vals.ownCall[x] {
+		guard = nil
+	}
+	coldArgs := make([]string, len(f.Sig.Params))
+	callDir := ""
+	if guard != nil && fc.directives && x.Pos().IsValid() {
+		_, src, line, column := fc.l.at(x, x.Pos())
+		callDir = Directive(fc.tagPath(src), line, column)
 	}
 	before := fc.l.lastDir
 	callerInfo := fc.l.info
@@ -720,10 +807,12 @@ func (fc *funcCtx) inlineCall(x *syntax.CallExpr, c *check.Call, fd *funcDecl, l
 			}
 			if params[i] == nil {
 				ic.line("_ = " + vals[i])
+				guard = nil // the out-of-line call would evaluate it again
 				continue
 			}
 			if same[i] != "" && same[i] == ic.goType(p.Type) {
 				ic.locals[params[i]] = vals[i]
+				coldArgs[i] = vals[i]
 				if !fc.l.reads[params[i]] {
 					// The operand may have no other read (a catch binding).
 					ic.line("_ = " + vals[i])
@@ -731,6 +820,7 @@ func (fc *funcCtx) inlineCall(x *syntax.CallExpr, c *check.Call, fd *funcDecl, l
 				continue
 			}
 			name := ic.declare(params[i])
+			coldArgs[i] = name
 			ic.line("var " + name + " " + ic.goType(p.Type) + " = " + vals[i])
 			if !fc.l.reads[params[i]] {
 				ic.line("_ = " + name)
@@ -739,14 +829,27 @@ func (fc *funcCtx) inlineCall(x *syntax.CallExpr, c *check.Call, fd *funcDecl, l
 		fc.l.analyzeValues(f.Decl, f.Pkg.Info)
 		ic.goGeneric = fc.goGeneric
 		ic.scalarSet = fc.l.scalarVars(f)
-		ic.body(f.Decl.Body.List)
+		list := f.Decl.Body.List
+		if guard != nil {
+			ic.coldHead(f, fd, guard, coldArgs, ret.label, x, callDir) // coldhead.go
+			list = list[1:]
+		}
+		ic.body(list)
 	}()
 	fc.closeInline(ic.out.String(), ret, before)
-	if ret.join != nil {
-		return operand{val: ret.join.name, err: ret.err}
+	if ret.tuple != nil {
+		return operand{}
 	}
-	fc.markFresh(ret.res)
-	return operand{val: ret.res, err: ret.err}
+	o := operand{val: ret.res, err: ret.err, fail: ret.fail, failOnly: ret.failOnly}
+	if ret.join != nil {
+		o.val = ret.join.name
+	} else {
+		fc.markFresh(ret.res)
+	}
+	if o.fail != "" {
+		o.failOut, o.failAt = fc.out, fc.out.Len()
+	}
+	return o
 }
 
 // inlineArgs are the operands of an inlined call, evaluated as callArgsAddr
@@ -793,17 +896,49 @@ func (fc *funcCtx) site0(x *syntax.CallExpr, c *check.Call) int {
 
 // closeInline writes an inlined body: its block, then its label when a
 // return jumps to it, then the directive that was current before it.
+// lastJumps reports whether the last top-level statement of an inlined
+// body (one tab deep, after a position comment if any) is `goto label`.
+func lastJumps(body, label string) bool {
+	lines := strings.Split(strings.TrimSuffix(body, "\n"), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		l := lines[i]
+		if l == "" || strings.HasPrefix(l, "//line ") {
+			continue
+		}
+		if !strings.HasPrefix(l, "\t") || strings.HasPrefix(l, "\t\t") {
+			return false
+		}
+		l = l[1:]
+		if strings.HasPrefix(l, "/*line ") {
+			end := strings.Index(l, "*/")
+			if end < 0 {
+				return false
+			}
+			l = l[end+2:]
+		}
+		return l == "goto "+label
+	}
+	return false
+}
+
 func (fc *funcCtx) closeInline(body string, ret *inlineRet, before string) {
 	jump := "goto " + ret.label + "\n"
 	// The block's last return falls through.
 	if strings.HasSuffix(body, "\t"+jump) && !strings.HasSuffix(body, "\t\t"+jump) {
 		body = strings.TrimSuffix(body, "\t"+jump)
 	}
-	if ret.res != "" && formsOn() {
+	if ret.res != "" && ret.known == nil && formsOn() {
 		if b, ok := renameTail(body, ret.res, ret.resType, ret.iface); ok {
 			body = b
 			fc.l.stats.Renamed++
 		}
+	}
+	// A tuple let's inlined arm (inlineRet.tuple) writes nothing after its
+	// label, which Go accepts only before a block's end, not before a case.
+	wrap := ret.tuple != nil && strings.Contains(body, jump)
+	if wrap {
+		fc.line("{")
+		fc.depth++
 	}
 	fc.line("{")
 	ind := strings.Repeat("\t", fc.depth)
@@ -819,9 +954,26 @@ func (fc *funcCtx) closeInline(body string, ret *inlineRet, before string) {
 	}
 	fc.line("}")
 	if strings.Contains(body, jump) {
+		// A label needs a statement: the call may end a match or catch
+		// arm, where the next token is a case (UC H8a). It is `_ = 0` on
+		// a line of its own: gofmt prints a label's empty statement after
+		// a block on the block's line and drops the next statement's
+		// directive, so the raw text (FT5) would keep other lines.
 		fc.line(ret.label + ":")
+		fc.line("_ = 0")
 	}
-	if ret.err != "" {
+	if ret.fail != "" && !strings.Contains(body, "goto "+ret.fail+"\n") {
+		ret.fail = "" // no return fails: the site has no label to place
+	}
+	if wrap {
+		fc.depth--
+		fc.line("}")
+	}
+	ret.failOnly = ret.fail != "" && lastJumps(body, ret.fail)
+	// The error is read at the site's failure label when a return jumps
+	// there; a body that ends in that jump makes a statement after the
+	// block unreachable (go vet, IRFIX-TEXT: kvstore's memory test).
+	if ret.err != "" && ret.fail == "" {
 		fc.line("_ = " + ret.err)
 	}
 	// Only a body with directives changed the current one. Code with
@@ -854,7 +1006,7 @@ func (fc *funcCtx) inlineLit(x *syntax.CallExpr, c *check.Call, sub *litSub) ope
 	if sig == nil {
 		ice(sub.lit, "a function literal with no Literals entry")
 	}
-	lc := &funcCtx{typeCtx: o.typeCtx, out: &strings.Builder{}, scope: fc.scope, locals: o.locals, witness: o.witness, directives: o.directives, owner: o.owner, env: o.env, plain: o.plain, inl: fc.site0(x, c), inlDepth: fc.inlDepth + 1, path: fc.sitePath(), hot: fc.onLoopPath()}
+	lc := &funcCtx{typeCtx: o.typeCtx, out: &strings.Builder{}, scope: fc.scope, locals: o.locals, witness: o.witness, static: o.static, directives: o.directives, owner: o.owner, env: o.env, plain: o.plain, inl: fc.site0(x, c), inlDepth: fc.inlDepth + 1, path: fc.sitePath(), hot: fc.onLoopPath()}
 	ret := &inlineRet{label: fc.temp("inl")}
 	var result check.Type
 	if len(sig.Results) == 1 {
@@ -908,6 +1060,14 @@ func (fc *funcCtx) inlineLit(x *syntax.CallExpr, c *check.Call, sub *litSub) ope
 // site's variables, then the jump past its block.
 func (fc *funcCtx) inlineReturn(vals []string) {
 	in := fc.frame.inline
+	if in.known != nil {
+		in.known.general = true // the union value is written (knownmatch.go)
+	}
+	if in.tuple != nil && len(vals) > 0 {
+		fc.tupleWrite(in.tuple, vals[0])
+		fc.line("goto " + in.label)
+		return
+	}
 	if in.join != nil && len(vals) > 0 {
 		// A join local (scalar.go): a failure writes only the error,
 		// a value is taken apart into the local. A fallible call's
@@ -932,11 +1092,18 @@ func (fc *funcCtx) inlineReturn(vals []string) {
 		lhs, rhs = append(lhs, in.res), append(rhs, vals[0])
 		i = 1
 	}
-	if in.err != "" && i < len(vals) && vals[i] != "nil" {
+	failing := in.err != "" && i < len(vals) && vals[i] != "nil"
+	if failing {
 		lhs, rhs = append(lhs, in.err), append(rhs, vals[i])
 	}
 	if len(lhs) > 0 {
 		fc.line(strings.Join(lhs, ", ") + " = " + strings.Join(rhs, ", "))
+	}
+	if failing && in.fail != "" {
+		// return f(): the error of a call, nil when it succeeded.
+		fc.line("if " + in.err + " != nil {")
+		fc.line("\tgoto " + in.fail)
+		fc.line("}")
 	}
 	fc.line("goto " + in.label)
 }

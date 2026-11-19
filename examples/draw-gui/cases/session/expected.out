@@ -1,0 +1,35 @@
+idle tool=pen layer=0 zoom=100 pan=0,0 shapes=0 selected=[]
+added 1 L0 stroke n=3 100,100..120,130 box=100,100..120,130
+drawing tool=rect layer=1 zoom=100 pan=0,0 shapes=1 selected=[] points=2
+1 L0 stroke n=3 100,100..120,130 box=100,100..120,130
+added 2 L1 rect 200,200 60x40
+added 3 L1 ellipse 400,300 r=50,20
+hit 230,220 = 2
+hit 100,100 = 1
+hit 700,500 = none
+dragging tool=select layer=1 zoom=100 pan=0,0 shapes=3 selected=[2] moved=10,10
+1 L0 stroke n=3 100,100..120,130 box=100,100..120,130
+2 L1 rect 210,210 60x40
+3 L1 ellipse 400,300 r=50,20
+selecting tool=select layer=1 zoom=100 pan=0,0 shapes=3 selected=[] box=150,150..500,500
+1 L0 stroke n=3 100,100..120,130 box=100,100..120,130
+2 L1 rect 210,210 60x40
+3 L1 ellipse 400,300 r=50,20
+idle tool=select layer=1 zoom=100 pan=0,0 shapes=3 selected=[2,3]
+1 L0 stroke n=3 100,100..120,130 box=100,100..120,130
+2 L1 rect 210,210 60x40
+3 L1 ellipse 400,300 r=50,20
+removed 2,3
+idle tool=select layer=1 zoom=100 pan=0,0 shapes=1 selected=[]
+1 L0 stroke n=3 100,100..120,130 box=100,100..120,130
+idle tool=select layer=1 zoom=50 pan=-100,-100 shapes=1 selected=[]
+1 L0 stroke n=3 100,100..110,115 box=100,100..110,115
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-10000 -10000 20000 20000">
+<g id="layer0">
+<polyline data-id="1" points="100,100 110,100 120,130"/>
+</g>
+</svg>
+saved pic.svg (162 bytes)
+? "tool brush": want a tool: pen rect ellipse line select
+? "down 1": want two numbers
+? "show me": want no argument

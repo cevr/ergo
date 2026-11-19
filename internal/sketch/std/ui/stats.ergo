@@ -1,0 +1,394 @@
+// Frame statistics (H6b): what one pass did, counted in work units, not
+// time, per phase, so a count is the same on every run and every host.
+// The composer keeps two counters of its own (the nodes a view wrote and
+// the groups that stopped, an integer addition each); every other count is
+// read from what the pass already holds (its specs, its patch, its jobs),
+// only when it is asked for.
+
+// Stats is one pass's work, per phase:
+//   - step: Signals, the signals the loop sent the actor since the pass
+//     before (a session's; 0 for a bare Render);
+//   - view: Written, the nodes the view wrote, with those a stopped group
+//     dropped: the nodes the pass wrote, not those a full write would have
+//     written, so a component group written again counts its own top
+//     nodes and none of the nodes it keeps under them (group.ergo); Rows, the row functions Rows ran; Skipped, the Sames kept
+//     without running, those inside a component group the pass wrote
+//     again among them (group.ergo); Stopped, the groups (Boundary) that stopped;
+//   - compose: Committed, the nodes the pass committed;
+//   - patch: Inserted, Moved, Removed and Set, the patch's ops by kind;
+//   - paint: Painted, the paint ops of the canvases the patch writes;
+//   - loads: Fetches and Cancels, the pass's jobs.
+// Layout is the host's (H2L): a host reports its own.
+type Stats {
+	Signals   int,
+	Written   int,
+	Rows      int,
+	Skipped   int,
+	Stopped   int,
+	Committed int,
+	Inserted  int,
+	Moved     int,
+	Removed   int,
+	Set       int,
+	Painted   int,
+	Fetches   int,
+	Cancels   int,
+}
+
+// committed is how many nodes the pass's specs stand for: a block spec
+// its group's tops.
+func committed[E](f *Frame[E]) int {
+	let mut c = 0
+	for i in 0..f.nspecs {
+		c = c + nodesOf(f, f.specs[i])
+	}
+	c
+}
+
+// PassStats is the last pass of f, Signals 0.
+func PassStats[E](f *Frame[E]) Stats {
+	let mut s = Stats{Signals: 0, Written: f.written, Rows: f.rowRuns, Skipped: f.skips + f.keptSames, Stopped: f.nstops, Committed: committed(f), Inserted: 0, Moved: 0, Removed: 0, Set: 0, Painted: 0, Fetches: 0, Cancels: 0}
+	for op in f.ops {
+		match op {
+		case Insert[E] as x:
+			s.Inserted = s.Inserted + 1
+			s.Painted = s.Painted + painted(x.Node)
+		case Move[E]:
+			s.Moved = s.Moved + 1
+		case Remove[E]:
+			s.Removed = s.Removed + 1
+		case Set[E] as x:
+			s.Set = s.Set + 1
+			s.Painted = s.Painted + painted(x.Node)
+		case Define:
+		}
+	}
+	for j in f.jobs {
+		match j {
+		case Fetch[E]:
+			s.Fetches = s.Fetches + 1
+		case Cancel:
+			s.Cancels = s.Cancels + 1
+		}
+	}
+	s
+}
+
+// painted is the number of paint ops n carries.
+func painted[E](n Node[E]) int {
+	match n {
+	case CanvasNode as c:
+		len(c.Paint)
+	case _:
+		0
+	}
+}
+
+// StoppedAt is the call sites of the groups the last pass of s stopped,
+// in the order they stopped: the pass's boundary outcomes (a boundary has
+// no node, so the tree cannot show them).
+func StoppedAt[S, E, D, F](s *Session[S, E, D, F]) []CallSite {
+	let mut out = []CallSite{}
+	for i in 0..s.frame.nstops {
+		out = out.Append(s.frame.stops[i])
+	}
+	out
+}
+
+// SessionStats is the last pass of s, with the signals the loop sent
+// before it.
+func SessionStats[S, E, D, F](s *Session[S, E, D, F]) Stats {
+	let mut st = PassStats(&s.frame)
+	st.Signals = s.passSignals
+	st
+}
+
+// StatsOf is the last pass of the test host's session (the driver's
+// reading, plan H6b).
+func StatsOf[S, E, D, F](h *TestHost[S, E, D, F]) Stats { SessionStats(&h.session) }
+
+// Budget is the work a pass may do before it is slow, per counter: 0 is
+// no bound.
+type Budget { Signals int, Written int, Committed int, Ops int, Painted int, Fetches int }
+
+// Slow is a pass that did more than its budget: the counter, its count
+// and its bound.
+type Slow { Counter Counter, Count int, Bound int }
+
+// Counter is a counter of Budget: a program matches on it, so a new
+// counter is a case each match must name (FK13-g4). OpsCounter is the
+// patch's ops, of every kind.
+type Counter = SignalsCounter{} | WrittenCounter{} | CommittedCounter{} | OpsCounter{} | PaintedCounter{} | FetchesCounter{}
+
+// CounterText is c as Budget's field name: "Signals", "Written",
+// "Committed", "Ops", "Painted" or "Fetches".
+func CounterText(c Counter) string {
+	match c {
+	case SignalsCounter:
+		"Signals"
+	case WrittenCounter:
+		"Written"
+	case CommittedCounter:
+		"Committed"
+	case OpsCounter:
+		"Ops"
+	case PaintedCounter:
+		"Painted"
+	case FetchesCounter:
+		"Fetches"
+	}
+}
+
+// OnSlow asks for the signal of each counter over b after a pass (H6b, a
+// program's slow warnings): the session sends on(Slow{…}) to the actor,
+// one per counter, in the order of Budget's fields, after a pass an
+// event of the loop caused (an input, a fetch's result, a frame). A pass
+// of a commit the loop did not cause (a work's reply, the Slow signals
+// themselves) is not judged, so a slow warning is never judged on its own
+// account. The last OnSlow of a pass counts.
+func OnSlow[E](f *Frame[E], b Budget, on own func(s Slow) E) {
+	f.slow = Some{Value: slowWatch[E]{budget: b, on: on}}
+}
+
+// slowWatch is a pass's OnSlow.
+type slowWatch[E] { budget Budget, on func(s Slow) E }
+
+// SlowsOf is the Slow of each counter of s over its bound in b (0 is no
+// bound), in the order of Budget's fields: what OnSlow sends after a pass.
+func SlowsOf(s Stats, b Budget) []Slow {
+	let mut out = []Slow{}
+	let ops = s.Inserted + s.Moved + s.Removed + s.Set
+	let pairs = [](Counter, int, int){(SignalsCounter, s.Signals, b.Signals), (WrittenCounter, s.Written, b.Written), (CommittedCounter, s.Committed, b.Committed), (OpsCounter, ops, b.Ops), (PaintedCounter, s.Painted, b.Painted), (FetchesCounter, s.Fetches, b.Fetches)}
+	for p in pairs {
+		let (counter, count, bound) = p
+		if bound > 0 && count > bound {
+			out = out.Append(Slow{Counter: counter, Count: count, Bound: bound})
+		}
+	}
+	out
+}
+
+// StepCounts is the work of a step, counted (NS3): the patch's ops by kind;
+// Ran, the nodes its passes wrote and committed; Kept, the nodes under the
+// Sames they kept without running; GroupsRan and GroupsKept, the Sames
+// that ran and that were kept; and Visits, the nodes Commit visited. No
+// time: a count is the same on every run and every host. The counts of a
+// pass are PassCounts; a test host sums its passes over a step (Counts).
+type StepCounts {
+	Inserted   int,
+	Moved      int,
+	Removed    int,
+	Set        int,
+	Ran        int,
+	Kept       int,
+	GroupsRan  int,
+	GroupsKept int,
+	Visits     int,
+}
+
+// NoCounts is a step that did nothing.
+func NoCounts() StepCounts {
+	StepCounts{Inserted: 0, Moved: 0, Removed: 0, Set: 0, Ran: 0, Kept: 0, GroupsRan: 0, GroupsKept: 0, Visits: 0}
+}
+
+// PassCounts is the last pass of f, counted. Kept walks the subtrees the
+// pass kept, only when it is asked for; the pass itself adds one to a
+// counter per node Commit visits.
+func PassCounts[E](f *Frame[E]) StepCounts {
+	let mut c = NoCounts()
+	for op in f.ops {
+		match op {
+		case Insert[E]:
+			c.Inserted = c.Inserted + 1
+		case Move[E]:
+			c.Moved = c.Moved + 1
+		case Remove[E]:
+			c.Removed = c.Removed + 1
+		case Set[E]:
+			c.Set = c.Set + 1
+		case Define:
+		}
+	}
+	for i in 0..f.nspecs {
+		let sp = f.specs[i]
+		if sp.again {
+			// A component group written again: its tops and what is below
+			// them are kept, and none of them is written.
+			for k in 0..nodesOf(f, sp) {
+				let mut t = sp
+				if sp.block >= 0 {
+					t = blockTop(f, i, k)
+				}
+				c.Kept = c.Kept + treeSize(f, t.ref)
+			}
+		} else if sp.skip {
+			c.Ran = c.Ran + 1
+			c.Kept = c.Kept + treeSize(f, sp.ref) - 1
+		} else {
+			c.Ran = c.Ran + 1
+			match sp.same {
+			case Some[memoRun[E]]:
+				c.GroupsRan = c.GroupsRan + 1
+			case None:
+			}
+		}
+	}
+	c.GroupsKept = f.skips
+	for g in 0..f.ngroups {
+		if f.groups[g].again >= 0 {
+			c.GroupsKept = c.GroupsKept + 1
+		} else {
+			c.GroupsRan = c.GroupsRan + 1
+		}
+	}
+	c.Visits = f.visits
+	c
+}
+
+// AddCounts is the counts of a and b together.
+func AddCounts(a StepCounts, b StepCounts) StepCounts {
+	StepCounts{Inserted: a.Inserted + b.Inserted, Moved: a.Moved + b.Moved, Removed: a.Removed + b.Removed, Set: a.Set + b.Set, Ran: a.Ran + b.Ran, Kept: a.Kept + b.Kept, GroupsRan: a.GroupsRan + b.GroupsRan, GroupsKept: a.GroupsKept + b.GroupsKept, Visits: a.Visits + b.Visits}
+}
+
+// CountsLine is c as the trace's line: the ops by kind (or "no ops"),
+// then "ran R nodes, kept K; groups ran G, kept H; visits V", as in
+// `1 set; ran 3 nodes, kept 801; groups ran 0, kept 200; visits 3`.
+func CountsLine(c StepCounts) string {
+	let mut head = ""
+	let kinds = [](int, string){(c.Inserted, "insert"), (c.Moved, "move"), (c.Removed, "remove"), (c.Set, "set")}
+	for k in kinds {
+		let (n, name) = k
+		if n > 0 && head != "" {
+			head = head + ", "
+		}
+		if n > 0 {
+			head = head + "\(n) \(name)"
+		}
+	}
+	if head == "" {
+		head = "no ops"
+	}
+	"\(head); ran \(c.Ran) nodes, kept \(c.Kept); groups ran \(c.GroupsRan), kept \(c.GroupsKept); visits \(c.Visits)"
+}
+
+// CountsSumToPatch (NS3): over generated view programs (Sames included,
+// with a Same in a Box that a pass keeps whenever its key stays) and
+// generated states, each pass's counts are its patch's: the ops by kind
+// are the patch's ops of that kind, and they sum to the patch's length;
+// the nodes run and the nodes kept are the tree's nodes below the root;
+// Commit visits each node it did not keep, the root included; and over
+// the run some pass keeps a node, so the kept count is reached.
+law CountsSumToPatch(seed int, steps int) {
+	let mut r = seeded(seed)
+	let ps = genRoot(&r).Append(pBox{slot: 1, kids: []prog{pSame{kids: []prog{pText{slot: 2}, pText{slot: 3}}, memo: true}}})
+	let mut f = NewFrame[int]()
+	let mut kept = 0
+	let mut s = []int{}
+	for i in 0..(steps%8+8)%8+2 {
+		// The kept Same reads slots 2 and 3, which stay; a repeated state keeps each component group.
+		if i%2 == 0 {
+			s = genState(&r)
+			s[2] = 7
+			s[3] = 9
+		}
+		let ops = pass(&f, ps, s)
+		let c = PassCounts(&f)
+		let mut ins = 0
+		let mut mov = 0
+		let mut rem = 0
+		let mut set = 0
+		for op in ops {
+			match op {
+			case Insert[int]:
+				ins = ins + 1
+			case Move[int]:
+				mov = mov + 1
+			case Remove[int]:
+				rem = rem + 1
+			case Set[int]:
+				set = set + 1
+			case Define:
+			}
+		}
+		if c.Inserted != ins || c.Moved != mov || c.Removed != rem || c.Set != set || ins+mov+rem+set != len(ops) {
+			return false
+		}
+		if c.Ran+c.Kept != Len(&f)-1 || c.Visits != Len(&f)-c.Kept-Skips(&f) || c.GroupsKept < Skips(&f) {
+			return false
+		}
+		kept = kept + c.Kept
+	}
+	kept > 0
+}
+
+// The trace line's text (NS3): the plan's example, and a step of two
+// kinds and one of none.
+test CountsLineText {
+	let c = StepCounts{Inserted: 0, Moved: 0, Removed: 0, Set: 1, Ran: 3, Kept: 801, GroupsRan: 0, GroupsKept: 200, Visits: 3}
+	assert CountsLine(c) == "1 set; ran 3 nodes, kept 801; groups ran 0, kept 200; visits 3"
+	let d = StepCounts{Inserted: 2, Moved: 0, Removed: 1, Set: 0, Ran: 2, Kept: 0, GroupsRan: 1, GroupsKept: 0, Visits: 4}
+	assert CountsLine(d) == "2 insert, 1 remove; ran 2 nodes, kept 0; groups ran 1, kept 0; visits 4"
+	assert CountsLine(NoCounts()) == "no ops; ran 0 nodes, kept 0; groups ran 0, kept 0; visits 0"
+}
+
+// slowBound is the bound b gives c, by an exhaustive match. (a law's helper)
+func slowBound(c Counter, b Budget) int {
+	match c {
+	case SignalsCounter:
+		b.Signals
+	case WrittenCounter:
+		b.Written
+	case CommittedCounter:
+		b.Committed
+	case OpsCounter:
+		b.Ops
+	case PaintedCounter:
+		b.Painted
+	case FetchesCounter:
+		b.Fetches
+	}
+}
+
+// slowCount is what s counts for c, by an exhaustive match. (a law's helper)
+func slowCount(c Counter, s Stats) int {
+	match c {
+	case SignalsCounter:
+		s.Signals
+	case WrittenCounter:
+		s.Written
+	case CommittedCounter:
+		s.Committed
+	case OpsCounter:
+		s.Inserted + s.Moved + s.Removed + s.Set
+	case PaintedCounter:
+		s.Painted
+	case FetchesCounter:
+		s.Fetches
+	}
+}
+
+// SlowNamesItsCounter (FK13-g4): over drawn stats and budgets, SlowsOf
+// gives one Slow for each counter whose bound is set and passed, in
+// Budget's order, none for the others, each with that counter's count and
+// bound, and CounterText names each counter by its Budget field, each
+// name once.
+law SlowNamesItsCounter(seed int) {
+	let mut r = seeded(seed)
+	let n = func() int { draw(&r, 9) }
+	let s = Stats{Signals: n(), Written: n(), Rows: n(), Skipped: n(), Stopped: n(), Committed: n(), Inserted: n(), Moved: n(), Removed: n(), Set: n(), Painted: n(), Fetches: n(), Cancels: n()}
+	let b = Budget{Signals: n(), Written: n(), Committed: n(), Ops: n() * 3, Painted: n(), Fetches: n()}
+	let all = []Counter{SignalsCounter, WrittenCounter, CommittedCounter, OpsCounter, PaintedCounter, FetchesCounter}
+	let names = []string{"Signals", "Written", "Committed", "Ops", "Painted", "Fetches"}
+	let mut want = []Slow{}
+	for i, c in all {
+		if CounterText(c) != names[i] {
+			return false
+		}
+		let bound = slowBound(c, b)
+		let count = slowCount(c, s)
+		if bound > 0 && count > bound {
+			want = want.Append(Slow{Counter: c, Count: count, Bound: bound})
+		}
+	}
+	SlowsOf(s, b) == want
+}

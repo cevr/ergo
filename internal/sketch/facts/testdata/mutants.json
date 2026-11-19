@@ -1,0 +1,141 @@
+{
+  "about": "The mutant ledger of internal/sketch/facts (SEMTOOLS SEM0, wf10 lane SM, 2026-11-14): edits of the fact-table builder, its codec and its reference read that the acceptance property must notice. Each mutant names the rule it breaks and the test that kills it, as SUITE:NAME in the shared ledger format.",
+  "mutants": [
+    {
+      "name": "sem0-qualified-dropped",
+      "anchor": {"tests": ["internal/sketch/facts:TestTablesAgreeWithScan"]},
+      "origin": "wf10 SM SEM0 (plan: qualified uses dropped)",
+      "file": "internal/sketch/facts/build.go",
+      "from": "\t\t\tif o == nil {\n\t\t\t\treturn\n\t\t\t}\n\t\t\tif key, sym, ok := b.symbol(o, x.Sel, false); ok {",
+      "to": "\t\t\tif o != nil {\n\t\t\t\treturn\n\t\t\t}\n\t\t\tif key, sym, ok := b.symbol(o, x.Sel, false); ok {",
+      "rule": "A name qualified by an imported package (lib.X) is a site of the package's member X, though the checker's Uses holds only the qualifier.",
+      "killers": ["internal/sketch/facts:TestTablesAgreeWithScan"]
+    },
+    {
+      "name": "sem0-ops-in-map-order",
+      "anchor": {"tests": ["internal/sketch/facts:TestTablesAgreeWithScan"]},
+      "origin": "wf10 SM SEM0 (plan: rows in map order)",
+      "file": "internal/sketch/facts/relations.go",
+      "from": "\tslices.SortFunc(pairs, func(x, y pair) int {",
+      "to": "\tslices.SortFunc(pairs[:0], func(x, y pair) int {",
+      "rule": "The tables are in file order, never in map order: equal programs give equal bytes (the operation edges come from maps and are sorted by handle).",
+      "killers": ["internal/sketch/facts:TestTablesAgreeWithScan"]
+    },
+    {
+      "name": "sem0-write-as-read",
+      "anchor": {"tests": ["internal/sketch/facts:TestTablesAgreeWithScan"]},
+      "origin": "wf10 SM SEM0 (plan: Write recorded as Read)",
+      "file": "internal/sketch/facts/build.go",
+      "from": "\t\t\tb.marks[l] = mark{kind: Write}",
+      "to": "\t\t\tb.marks[l] = mark{kind: Read}",
+      "rule": "The place an assignment writes is a Write site: its root and the field it selects.",
+      "killers": ["internal/sketch/facts:TestTablesAgreeWithScan"]
+    },
+    {
+      "name": "sem0-field-key-dropped",
+      "anchor": {"tests": ["internal/sketch/facts:TestTablesAgreeWithScan"]},
+      "origin": "wf10 SM SEM0 (plan: a field key of a record literal dropped)",
+      "file": "internal/sketch/facts/build.go",
+      "from": "\t\t\tb.tgts[key] = target{fk, sym}",
+      "to": "\t\t\t_, _ = fk, sym",
+      "rule": "A field key of a record literal or record pattern is a site of the field, though the checker's Uses does not hold it.",
+      "killers": ["internal/sketch/facts:TestTablesAgreeWithScan"]
+    },
+    {
+      "name": "sem0-pattern-binding-dropped",
+      "anchor": {"tests": ["internal/sketch/facts:TestTablesAgreeWithScan"]},
+      "origin": "wf10 SM SEM0 (plan: a pattern binding dropped)",
+      "file": "internal/sketch/facts/build.go",
+      "from": "\tif o != nil {\n\t\tk = Def",
+      "to": "\tif o != nil && b.info.Patterns[x] == nil {\n\t\tk = Def",
+      "rule": "A name a pattern binds (case x, Some{Value: v}, as c) is the Def site of its local.",
+      "killers": ["internal/sketch/facts:TestTablesAgreeWithScan"]
+    },
+    {
+      "name": "sem0-handle-by-package-name",
+      "anchor": {"tests": ["internal/sketch/facts:TestTablesAgreeWithScan"]},
+      "origin": "wf10 SM SEM0 (plan: a cross-package row keyed by pointer; a row holds a handle string, so the nearest writable edit keys it by the package's name, which two packages share)",
+      "file": "internal/sketch/facts/build.go",
+      "from": "\th := f.Pkg.Path + \".\"",
+      "to": "\th := f.Pkg.Name + \".\"",
+      "rule": "A row that names a symbol of another package names it by the package's path: two packages named lib are two symbols' owners.",
+      "killers": ["internal/sketch/facts:TestTablesAgreeWithScan"]
+    },
+    {
+      "name": "sem0-read-scans-all",
+      "anchor": {"tests": ["internal/sketch/facts:TestTablesAgreeWithScan"]},
+      "origin": "wf10 SM SEM0 (plan: the read scans all rows)",
+      "file": "internal/sketch/facts/query.go",
+      "from": "\t\tfor _, s := range t.Refs(id) {\n\t\t\tread++",
+      "to": "\t\tfor _, s := range t.Sites {\n\t\t\tread++\n\t\t\tif s.Sym != id {\n\t\t\t\tcontinue\n\t\t\t}",
+      "rule": "A references read visits the symbol's rows plus a logarithm of each table's handle index (plan 2.9 budget 1).",
+      "killers": ["internal/sketch/facts:TestTablesAgreeWithScan"]
+    },
+    {
+      "name": "sem0-inst-dropped",
+      "anchor": {"tests": ["internal/sketch/facts:TestTablesAgreeWithScan"]},
+      "origin": "wf10 SM SEM0",
+      "file": "internal/sketch/facts/build.go",
+      "from": "\t\tm.kind = Call\n\t\tif b.info.Instances[x] != nil {\n\t\t\tm.flag |= Inst\n\t\t}",
+      "to": "\t\tm.kind = Call",
+      "rule": "The callee of a call that instantiates a generic function carries Inst.",
+      "killers": ["internal/sketch/facts:TestTablesAgreeWithScan"]
+    },
+    {
+      "name": "sem0-handled-as-match",
+      "anchor": {"tests": ["internal/sketch/facts:TestTablesAgreeWithScan"]},
+      "origin": "wf10 SM SEM0",
+      "file": "internal/sketch/facts/build.go",
+      "from": "\t\tb.markAll(x.Types, Handles)",
+      "to": "\t\tb.markAll(x.Types, Match)",
+      "rule": "A failure a catch arm names is a Handles site, not a pattern.",
+      "killers": ["internal/sketch/facts:TestTablesAgreeWithScan"]
+    },
+    {
+      "name": "sem0-member-law-walked-twice",
+      "anchor": {"tests": ["internal/sketch/facts:TestTablesAgreeWithScan"]},
+      "origin": "wf10 SM SEM0 (plan: rows appended equal identifiers resolved, no second pass)",
+      "file": "internal/sketch/facts/build.go",
+      "from": "\tsyntax.Inspect(x, func(n syntax.Node) bool { return n == x || b.visit(n) })",
+      "to": "\tsyntax.Inspect(x, b.visit)",
+      "rule": "The build visits each node once: the walk of a member law under its own handle does not count the law twice.",
+      "killers": ["internal/sketch/facts:TestTablesAgreeWithScan"]
+    },
+    {
+      "name": "sem0-local-handle-not-unique",
+      "anchor": {"tests": ["internal/sketch/facts:TestTablesAgreeWithScan"]},
+      "origin": "wf10 SM SEM0",
+      "file": "internal/sketch/facts/build.go",
+      "from": "\t\tif s.Handle != \"\" || s.Kind == Local && count[s.Name] > 1 {",
+      "to": "\t\tif s.Handle != \"\" {",
+      "rule": "A local has a handle only when its declaration binds its name once: one handle names one symbol.",
+      "killers": ["internal/sketch/facts:TestTablesAgreeWithScan"]
+    },
+    {
+      "name": "sem0-codec-drops-flag",
+      "anchor": {"tests": ["internal/sketch/facts:TestTablesAgreeWithScan"]},
+      "origin": "wf10 SM SEM0",
+      "file": "internal/sketch/facts/codec.go",
+      "from": "\t\te.u(uint64(s.Flag))",
+      "to": "\t\te.u(0)",
+      "rule": "An encoded table decodes to the table it was written from.",
+      "killers": ["internal/sketch/facts:TestTablesAgreeWithScan"]
+    },
+    {
+      "name": "q16-exit-not-decoded",
+      "anchor": {
+        "tests": [
+          "internal/sketch/facts:TestTablesAgreeWithScanOnExamples"
+        ]
+      },
+      "origin": "wf10 SM I22-Q16 (Machine exit)",
+      "file": "internal/sketch/facts/codec.go",
+      "from": "\t\t\tm.Exit = append(m.Exit, d.place())\n",
+      "to": "\t\t\t_ = d.place()\n",
+      "rule": "A machine's exit actions survive the table's encoding (fk-gallery's studio has one).",
+      "killers": [
+        "internal/sketch/facts:TestTablesAgreeWithScanOnExamples"
+      ]
+    }
+  ]
+}

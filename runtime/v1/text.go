@@ -16,69 +16,31 @@ import (
 // is transparent in a footprint. Keep this file's imports in PureImports;
 // BodyOf refuses a marked body otherwise.
 
-// StringsSplit is strings.Split.
-//
-//ergo:pure
-func StringsSplit(s, sep string) []string { return strings.Split(s, sep) }
-
 // StringsJoin is strings.Join.
 //
 //ergo:pure
+//ergo:wait none
 func StringsJoin(xs []string, sep string) string { return strings.Join(xs, sep) }
-
-// StringsHasPrefix is strings.HasPrefix.
-//
-//ergo:pure
-func StringsHasPrefix(s, prefix string) bool { return strings.HasPrefix(s, prefix) }
-
-// StringsHasSuffix is strings.HasSuffix.
-//
-//ergo:pure
-func StringsHasSuffix(s, suffix string) bool { return strings.HasSuffix(s, suffix) }
-
-// StringsTrimSpace is strings.TrimSpace.
-//
-//ergo:pure
-func StringsTrimSpace(s string) string { return strings.TrimSpace(s) }
-
-// StringsTrimPrefix is strings.TrimPrefix.
-//
-//ergo:pure
-func StringsTrimPrefix(s, prefix string) string { return strings.TrimPrefix(s, prefix) }
-
-// StringsTrimSuffix is strings.TrimSuffix.
-//
-//ergo:pure
-func StringsTrimSuffix(s, suffix string) string { return strings.TrimSuffix(s, suffix) }
-
-// StringsTrimLeft is strings.TrimLeft: s without the leading runes that
-// cutset holds.
-//
-//ergo:pure
-func StringsTrimLeft(s, cutset string) string { return strings.TrimLeft(s, cutset) }
-
-// StringsTrimRight is strings.TrimRight: s without the trailing runes that
-// cutset holds.
-//
-//ergo:pure
-func StringsTrimRight(s, cutset string) string { return strings.TrimRight(s, cutset) }
 
 // StringsBuilderAppend is buf with the bytes of s added, as Go's
 // strings.Builder.WriteString appends them to its buffer.
 //
 //ergo:pure
+//ergo:wait none
 func StringsBuilderAppend(buf []byte, s string) []byte { return append(buf, s...) }
 
 // StringsBuilderAppendByte is buf with c added, as Go's
 // strings.Builder.WriteByte appends it.
 //
 //ergo:pure
+//ergo:wait none
 func StringsBuilderAppendByte(buf []byte, c byte) []byte { return append(buf, c) }
 
 // StringsBuilderGrow is buf with room for n more bytes, as Go's
 // strings.Builder.Grow makes it: a negative n panics with Go's message.
 //
 //ergo:pure
+//ergo:wait none
 func StringsBuilderGrow(buf []byte, n int) []byte {
 	if n < 0 {
 		panic("strings.Builder.Grow: negative count")
@@ -98,83 +60,87 @@ func StringsBuilderGrow(buf []byte, n int) []byte {
 //
 //ergo:pure
 //ergo:owned StringsBuilderTextOwned
+//ergo:wait none
 func StringsBuilderText(buf []byte) string { return string(buf) }
 
-// StringsFields is strings.Fields.
+// BuildInFold is std build's InFold: whether the code runs in a
+// build-time fold (CF1, CF2). A built program never does, so it is false
+// here; the evaluator, which computes a fold, answers true (eval natives,
+// build.InFold). A function that branches on it states a law that its
+// branches agree (std/build).
 //
 //ergo:pure
-func StringsFields(s string) []string { return strings.Fields(s) }
+//ergo:wait none
+func BuildInFold() bool { return false }
 
-// StringsRepeat is strings.Repeat; a negative n panics, a defect.
+// BuildKnown is std build's Known: whether x is known when the program is
+// built. Nothing is, in a built program; in a fold the evaluator answers
+// (eval natives, build.Known).
 //
 //ergo:pure
-func StringsRepeat(s string, n int) string { return strings.Repeat(s, n) }
+//ergo:wait none
+func BuildKnown[T any](x T) bool { return false }
 
-// StringsToLower is strings.ToLower.
+// BuildHole is std build's Hole: whether x is a template's hole. A built
+// program holds none; in a fold the evaluator answers (eval natives,
+// build.Hole).
 //
 //ergo:pure
-func StringsToLower(s string) string { return strings.ToLower(s) }
+//ergo:wait none
+func BuildHole[T any](x T) bool { return false }
 
-// StringsToUpper is strings.ToUpper.
+// StringsBuilderAppendBytes is buf with the bytes of bs added, as Go's
+// append(buf, bs...).
 //
 //ergo:pure
-func StringsToUpper(s string) string { return strings.ToUpper(s) }
+//ergo:wait none
+func StringsBuilderAppendBytes(buf []byte, bs []byte) []byte { return append(buf, bs...) }
 
-// StringsIndex is strings.Index.
+// StringsBuilderAppendFrom is buf with n bytes added, copied from buf at
+// start on, as an LZ77 decoder copies a match: byte k of the n is the byte
+// at start+k of the result, so a run whose source reaches past buf's
+// length repeats the bytes this call wrote (start = len(buf)-1 repeats the
+// last byte n times). A negative n, a start outside buf, or a start at its
+// end with n > 0 panics with Go's slice or index error, a defect: a
+// negative n makes end < start, or a start past the end. The loop runs
+// only while start is inside buf, so no input loops for ever. A run that buf holds already is one compare and one
+// append, as hand Go copies it; one that
+// overlaps its own output copies whole runs, each pass all that is written
+// from start on, which doubles each time: about log2(n/d)+1 appends for a
+// run of n bytes at distance d. The body stays small enough for gc to
+// inline it.
 //
 //ergo:pure
-func StringsIndex(s, sub string) int { return strings.Index(s, sub) }
+//ergo:wait none
+func StringsBuilderAppendFrom(buf []byte, start, n int) []byte {
+	if end := start + n; end <= len(buf) {
+		return append(buf, buf[start:end]...)
+	}
+	_ = buf[start]
+	for n > 0 && start < len(buf) {
+		// buf[start:] repeats with period len0-start, and what this call
+		// wrote is a whole number of periods until the last pass, so the
+		// next byte to copy is buf[start] again (see the doc comment).
+		k := min(n, len(buf)-start)
+		buf = append(buf, buf[start:start+k]...)
+		n -= k
+	}
+	return buf
+}
 
-// StringsContains is strings.Contains.
+// StringsBytes is the bytes of s, a copy, as Go's []byte(s). Its view
+// form shares them, where a Go call only reads them (view.go).
 //
 //ergo:pure
-func StringsContains(s, sub string) bool { return strings.Contains(s, sub) }
+//ergo:wait none
+//ergo:view BytesView
+func StringsBytes(s string) []byte { return []byte(s) }
 
 // StringsSlice is s[i:j]; a bound out of range panics, a defect.
 //
 //ergo:pure
+//ergo:wait none
 func StringsSlice(s string, i, j int) string { return s[i:j] }
-
-// StringsReplaceAll is strings.ReplaceAll.
-//
-//ergo:pure
-func StringsReplaceAll(s, old, repl string) string { return strings.ReplaceAll(s, old, repl) }
-
-// StringsLastIndex is strings.LastIndex.
-//
-//ergo:pure
-func StringsLastIndex(s, sub string) int { return strings.LastIndex(s, sub) }
-
-// StringsCount is strings.Count.
-//
-//ergo:pure
-func StringsCount(s, sub string) int { return strings.Count(s, sub) }
-
-// StringsSplitN is strings.SplitN. Go returns nil for n == 0; Ergo has no
-// nil slice, so it is an empty slice.
-//
-//ergo:pure
-func StringsSplitN(s, sep string, n int) []string {
-	if parts := strings.SplitN(s, sep, n); parts != nil {
-		return parts
-	}
-	return []string{}
-}
-
-// StringsEqualFold is strings.EqualFold.
-//
-//ergo:pure
-func StringsEqualFold(s, t string) bool { return strings.EqualFold(s, t) }
-
-// StringsContainsRune is strings.ContainsRune.
-//
-//ergo:pure
-func StringsContainsRune(s string, r rune) bool { return strings.ContainsRune(s, r) }
-
-// UTF8RuneCount is utf8.RuneCountInString.
-//
-//ergo:pure
-func UTF8RuneCount(s string) int { return utf8.RuneCountInString(s) }
 
 // Decoded is utf8.Decoded, the result of DecodeRuneInString: the first
 // rune of a text and its size in bytes. It is a record of a std package,
@@ -190,6 +156,7 @@ type Decoded struct {
 // an empty text, as in Go.
 //
 //ergo:pure
+//ergo:wait none
 func UTF8DecodeRuneInString(s string) Decoded {
 	r, n := utf8.DecodeRuneInString(s)
 	return Decoded{Rune: r, Size: n}
@@ -199,71 +166,14 @@ func UTF8DecodeRuneInString(s string) Decoded {
 // rune that is not valid.
 //
 //ergo:pure
+//ergo:wait none
 func UTF8RuneText(r rune) string { return string(r) }
 
 // UTF8AppendRune is utf8.AppendRune.
 //
 //ergo:pure
+//ergo:wait none
 func UTF8AppendRune(p []byte, r rune) []byte { return utf8.AppendRune(p, r) }
-
-// UTF8ValidString is utf8.ValidString.
-//
-//ergo:pure
-func UTF8ValidString(s string) bool { return utf8.ValidString(s) }
-
-// UTF8ValidRune is utf8.ValidRune.
-//
-//ergo:pure
-func UTF8ValidRune(r rune) bool { return utf8.ValidRune(r) }
-
-// UTF8RuneLen is utf8.RuneLen: -1 for a rune that is not valid.
-//
-//ergo:pure
-func UTF8RuneLen(r rune) int { return utf8.RuneLen(r) }
-
-// StringsToValidUTF8 is strings.ToValidUTF8.
-//
-//ergo:pure
-func StringsToValidUTF8(s string, replacement string) string {
-	return strings.ToValidUTF8(s, replacement)
-}
-
-// StringsCompare is strings.Compare.
-//
-//ergo:pure
-func StringsCompare(a string, b string) int { return strings.Compare(a, b) }
-
-// StringsPadLeft is s after copies of pad, width runes in all, as
-// fmt.Sprintf("%*s", width, s) pads with spaces: fmt counts the runes of s
-// with utf8.RuneCountInString, so an invalid byte is one rune. A pad that
-// is not a valid rune is written U+FFFD, as Go's string(r).
-//
-//ergo:pure
-func StringsPadLeft(s string, width int, pad rune) string {
-	n := utf8.RuneCountInString(s)
-	if n >= width {
-		return s
-	}
-	return strings.Repeat(string(pad), width-n) + s
-}
-
-// StringsPadRight is StringsPadLeft with the pad after s, as
-// fmt.Sprintf("%-*s", width, s).
-//
-//ergo:pure
-func StringsPadRight(s string, width int, pad rune) string {
-	n := utf8.RuneCountInString(s)
-	if n >= width {
-		return s
-	}
-	return s + strings.Repeat(string(pad), width-n)
-}
-
-// StrconvFormatInt is strconv.FormatInt; a base outside 2..36 panics as
-// Go's does, a defect.
-//
-//ergo:pure
-func StrconvFormatInt(n int64, base int) string { return strconv.FormatInt(n, base) }
 
 // Malformed is strconv.Malformed, the failure of a text that is not in the
 // form a strconv function reads (Go's ErrSyntax). It is a record of a v1
@@ -287,11 +197,6 @@ func (m OutOfRange) Error() string { return "strconv.OutOfRange{Text:" + m.Text 
 // ErrSyntax is Malformed, and any other error (an invalid base or bit
 // size, a precondition of the call) panics as a defect.
 
-// StrconvItoa is strconv.Itoa.
-//
-//ergo:pure
-func StrconvItoa(n int) string { return strconv.Itoa(n) }
-
 // The base-10 reads of Atoi and ParseInt are written out here, as
 // strconv.ParseInt reads base 10 (an optional sign, then digits; the
 // first digit that overflows ends the read, so a bad byte after it is not
@@ -306,6 +211,7 @@ func StrconvItoa(n int) string { return strconv.Itoa(n) }
 // range, Malformed for any other text it refuses.
 //
 //ergo:pure
+//ergo:wait none
 func StrconvAtoi(s string) (int, error) {
 	i, neg := 0, false
 	if s != "" && (s[0] == '+' || s[0] == '-') {
@@ -345,6 +251,7 @@ func StrconvAtoi(s string) (int, error) {
 // StrconvParseInt is strconv.ParseInt.
 //
 //ergo:pure
+//ergo:wait none
 func StrconvParseInt(s string, base int, bits int) (int64, error) {
 	if base == 10 && 0 <= bits && bits <= 64 {
 		if bits == 0 {
@@ -406,6 +313,7 @@ func StrconvParseInt(s string, base int, bits int) (int64, error) {
 // StrconvParseFloat is strconv.ParseFloat at 64 bits.
 //
 //ergo:pure
+//ergo:wait none
 func StrconvParseFloat(s string) (float64, error) {
 	f, err := strconv.ParseFloat(s, 64)
 	if err != nil {
@@ -417,32 +325,34 @@ func StrconvParseFloat(s string) (float64, error) {
 	return f, nil
 }
 
-// StrconvParseBool is strconv.ParseBool.
+// StrconvAppendInt is strconv.AppendInt: b with n in base appended. An
+// appender (lower, goBodyAppends): the call writes into b's spare
+// capacity, so a buffer the caller holds is appended in place, not copied.
 //
 //ergo:pure
-func StrconvParseBool(s string) (bool, error) {
-	b, err := strconv.ParseBool(s)
-	if err != nil {
-		return false, Malformed{Text: s}
-	}
-	return b, nil
-}
+//ergo:wait none
+func StrconvAppendInt(b []byte, n int64, base int) []byte { return strconv.AppendInt(b, n, base) }
 
-// StrconvFormatBool is strconv.FormatBool.
+// StrconvAppendUint is strconv.AppendUint, an appender as
+// StrconvAppendInt is.
 //
 //ergo:pure
-func StrconvFormatBool(b bool) string { return strconv.FormatBool(b) }
+//ergo:wait none
+func StrconvAppendUint(b []byte, n uint64, base int) []byte { return strconv.AppendUint(b, n, base) }
 
-// StrconvFormatFloat is strconv.FormatFloat at 64 bits.
+// StrconvAppendFloat is strconv.AppendFloat at 64 bits, an appender as
+// StrconvAppendInt is.
 //
 //ergo:pure
-func StrconvFormatFloat(f float64, fmt byte, prec int) string {
-	return strconv.FormatFloat(f, fmt, prec, 64)
+//ergo:wait none
+func StrconvAppendFloat(b []byte, f float64, fmt byte, prec int) []byte {
+	return strconv.AppendFloat(b, f, fmt, prec, 64)
 }
 
 // StrconvUnquote is strconv.Unquote.
 //
 //ergo:pure
+//ergo:wait none
 func StrconvUnquote(s string) (string, error) {
 	u, err := strconv.Unquote(s)
 	if err != nil {
@@ -451,7 +361,8 @@ func StrconvUnquote(s string) (string, error) {
 	return u, nil
 }
 
-// StrconvQuote is strconv.Quote.
+// UTF8String is Go's string(b): std utf8.String.
 //
 //ergo:pure
-func StrconvQuote(s string) string { return strconv.Quote(s) }
+//ergo:wait none
+func UTF8String(b []byte) string { return string(b) }

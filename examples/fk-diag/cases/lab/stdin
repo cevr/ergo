@@ -1,0 +1,43 @@
+app lab
+# The four workloads and their buttons, and an empty log.
+find Slow Warnings Lab
+find Run update work
+find Run view work
+find Run patch work
+find Run dependency extraction
+find Run a workload to record a warning.
+warnings
+# The update work steps a burst of signals in one frame.
+tap Run update work
+frame
+stats
+settle
+warnings
+find Update exceeded 4 signals
+# The view work writes nodes that a stopped group drops.
+tap Run view work
+stats
+settle
+warnings
+# The patch work mounts the rows.
+find Patch row 1
+tap Run patch work
+stats
+settle
+find Patch row 1
+find Patch row 4000
+warnings
+# The dependency work starts a fetch per dependency.
+tap Run dependency extraction
+stats
+settle
+warnings
+# An idle pass is not slow: a frame with no animation ticks nothing.
+frame
+stats
+warnings
+# A clear empties the log and keeps the rows.
+tap Clear
+find Run a workload to record a warning.
+find Patch row 1
+warnings

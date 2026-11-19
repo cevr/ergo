@@ -1,0 +1,84 @@
+// Entity and numeric character references.
+
+import strconv
+import strings
+import utf8
+
+// Entity is a reference as read: its length in the text and the text it
+// stands for.
+type Entity { Len int, Text string }
+
+// entities is entityTable as a Map from a name to its text.
+let entities = loadEntities(entityTable)
+
+func loadEntities(table string) Map[string, string] {
+	let mut m = Map[string, string]{}
+	for entry in strings.Split(table, ",") {
+		match strings.Cut(entry, ":") {
+		case Some as h:
+			let mut b = strings.NewBuilder()
+			for code in strings.Split(h.Value.After, "+") {
+				let r = strconv.ParseInt(code, 16, 32) catch {
+				case strconv.Malformed, strconv.OutOfRange:
+					Unreachable("the table holds hex code points")
+					0
+				}
+				b.WriteString(utf8.RuneText(rune(r)))
+			}
+			m = m.Put(h.Value.Before, b.String())
+		case None:
+		}
+	}
+	m
+}
+
+// EntityAt reads the entity or numeric character reference that s starts
+// with: &name; for an HTML5 name, &#digits; or &#xhex;. A number that is
+// 0, a surrogate or past U+10FFFF stands for U+FFFD.
+func EntityAt(s string) Option[Entity] {
+	if len(s) < 3 || s[0] != '&' {
+		return None
+	}
+	if s[1] == '#' {
+		let mut i = 2
+		let hex = i < len(s) && (s[i] == 'x' || s[i] == 'X')
+		if hex {
+			i += 1
+		}
+		let from = i
+		let mut v = 0
+		for i < len(s) && (asciiDigit(s[i]) || (hex && hexDigit(s[i]))) && i-from < 8 {
+			v = v*(if hex { 16 } else { 10 }) + hexValue(s[i])
+			i += 1
+		}
+		let n = i - from
+		if n == 0 || (hex && n > 6) || (!hex && n > 7) || i >= len(s) || s[i] != ';' {
+			return None
+		}
+		let r = if v == 0 || v > 0x10FFFF || (v >= 0xD800 && v <= 0xDFFF) { '\uFFFD' } else { rune(v) }
+		return Some[Entity]{Value: Entity{Len: i + 1, Text: utf8.RuneText(r)}}
+	}
+	let mut i = 1
+	for i < len(s) && asciiAlnum(s[i]) && i <= 33 {
+		i += 1
+	}
+	if i-1 < 2 || i-1 > 32 || i >= len(s) || s[i] != ';' || !asciiLetter(s[1]) {
+		return None
+	}
+	match entities.Get(strings.Slice(s, 1, i)) {
+	case Some as t:
+		Some[Entity]{Value: Entity{Len: i + 1, Text: t.Value}}
+	case None:
+		None
+	}
+}
+
+func hexValue(c byte) int {
+	if c >= '0' && c <= '9' {
+		return int(c - '0')
+	}
+	if c >= 'a' && c <= 'f' {
+		return int(c-'a') + 10
+	}
+	int(c-'A') + 10
+}

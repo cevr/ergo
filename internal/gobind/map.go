@@ -20,6 +20,7 @@ import (
 	"strconv"
 	"strings"
 
+	"ergo.local/prototype/internal/gofacts"
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
 	v1 "ergo.local/prototype/runtime/v1"
@@ -48,7 +49,26 @@ type Decl struct {
 	// Context: the first parameter is Go's context.Context, hidden in the
 	// Ergo signature; the lowering passes the calling task's context (IG10).
 	Context bool
+	// Reads are the Ergo binders of the parameters (a method's receiver
+	// included) that Go's escape analysis says the function only reads,
+	// on every platform: the binding's `// ergo:reads` line (Derive).
+	Reads []string
+	// Vouched are the parameters the reviewed table (internal/gofacts)
+	// vouches the function only reads where Go's analysis cannot see it:
+	// one `// ergo:reads p (vouched: reason)` line each. A vouched fact
+	// acts only on a current validated line of the ledger (LAWFFI LF2).
+	Vouched []Vouch
+	// Effect is the reason of the function's memory-only row
+	// (gofacts.Effects; np4f-plan GBX6), acting on its guard line: the
+	// binding writes no needs row and an `// ergo:effect none (vouched:
+	// <reason>)` line.
+	Effect  string
 	Refused string
+	// Writes is the binder of the parameter that Go writes in place
+	// (v1.GoWrites; GBX2), or "". The Ergo signature returns that
+	// parameter's type: the call's value is the slice Go wrote, and the
+	// binding's `// ergo:writes` line names it.
+	Writes string
 	// Members are the refusals of a struct's fields and an interface's
 	// methods, by member name, for a type that maps.
 	Members []Member
@@ -56,10 +76,15 @@ type Decl struct {
 	// signature, a receiver, a defined type's underlying type); Lines
 	// are a struct's or an interface's members with their own refs.
 	// Close reads them; Render does not.
-	Refs    []string
-	Lines   []Line
-	refPkgs []*types.Package
+	Refs     []string
+	Lines    []Line
+	refPkgs  []*types.Package
+	readable []readable
 }
+
+// Vouch is a vouched `reads` fact: the parameter's Ergo binder and the
+// reviewer's reason.
+type Vouch struct{ Param, Reason string }
 
 // Line is one field or method of a mapped struct or interface.
 type Line struct {
@@ -92,6 +117,7 @@ func Map(obj types.Object, recv *types.Named, q Qualifier) Decl {
 	d := m.decl(obj, recv)
 	if d.Refused == "" {
 		d.Refs = m.refs
+		d.readable = m.readable
 	}
 	d.refPkgs = m.refPkgs
 	return d
@@ -104,6 +130,61 @@ type mapper struct {
 	// ".Map" for a prelude type (Close); refPkgs their packages.
 	refs    []string
 	refPkgs []*types.Package
+	// readable are the parameters of a function that may carry a derived
+	// `reads` fact (readsShape), set by funcDecl.
+	readable []readable
+	// writes is the binder of the parameter Go writes in place, set by
+	// funcDecl (Decl.Writes).
+	writes string
+	// effect is the reason of the memory-only row the last funcDecl
+	// bound by (GBX6), or "".
+	effect string
+}
+
+// readable is a parameter, or a method's receiver, that may carry a
+// derived `reads` fact: its Go name, which Go's escape analysis prints,
+// and its binder in the Ergo signature, which the binding's
+// `// ergo:reads` line names.
+type readable struct{ goName, ergoName string }
+
+// readsShape reports a Go parameter type whose `reads` fact Go's escape
+// analysis can establish: a slice (or a type over one) whose elements
+// reach no map, interface, function or channel. Go's analysis does not
+// count a write into a map as a mutation (`m[k] = v`, `delete(m, k)` and
+// `m[k][0] = v` all print "does not escape, mutate, or call" at go1.27;
+// LF0's fixture), and it cannot follow an interface, a function value or a
+// channel, so a type that reaches one gets no fact.
+func readsShape(t types.Type) bool {
+	s, ok := types.Unalias(t).Underlying().(*types.Slice)
+	return ok && plainElem(s.Elem(), map[types.Type]bool{})
+}
+
+// plainElem reports a type that reaches no map, interface, function,
+// channel or unsafe pointer through its elements, fields and pointers.
+func plainElem(t types.Type, seen map[types.Type]bool) bool {
+	t = types.Unalias(t)
+	if seen[t] {
+		return true
+	}
+	seen[t] = true
+	switch u := t.Underlying().(type) {
+	case *types.Basic:
+		return u.Kind() != types.UnsafePointer
+	case *types.Slice:
+		return plainElem(u.Elem(), seen)
+	case *types.Array:
+		return plainElem(u.Elem(), seen)
+	case *types.Pointer:
+		return plainElem(u.Elem(), seen)
+	case *types.Struct:
+		for i := 0; i < u.NumFields(); i++ {
+			if !plainElem(u.Field(i).Type(), seen) {
+				return false
+			}
+		}
+		return true
+	}
+	return false
 }
 
 // prelude records a use of the prelude type name, which a type of the bound
@@ -178,7 +259,7 @@ func (m *mapper) decl(obj types.Object, recv *types.Named) Decl {
 			d.Refused = err.Error()
 			return d
 		}
-		d.Ergo, d.Variadic, d.Context = text, variadic, ctx
+		d.Ergo, d.Variadic, d.Context, d.Writes, d.Effect = text, variadic, ctx, m.writes, m.effect
 	case *types.TypeName:
 		d.Kind = Type
 		text, members, lines, err := m.typeDecl(o)
@@ -197,6 +278,18 @@ func (m *mapper) decl(obj types.Object, recv *types.Named) Decl {
 		d.Ergo = "let " + o.Name() + " " + t
 	case *types.Var:
 		d.Kind = Var
+		if v1.GoReadOnlyVars[m.pkg.Path()+"."+o.Name()] != "" && !resourceType(o.Type()) && !isError(o.Type()) {
+			// A reviewed variable no Go code of its package writes after
+			// init (GBX3): a read-only let, a pointer never nil, so a
+			// go.Ref. The table holds no interface variable.
+			t, err := (&sigMapper{mapper: m}).typ(o.Type(), atErrResult, false)
+			if err != nil {
+				d.Refused = err.Error()
+				return d
+			}
+			d.Ergo = "let " + o.Name() + " " + t
+			return d
+		}
 		if !isError(o.Type()) && !resourceType(o.Type()) {
 			d.Refused = "a Go variable is host state; call a function"
 			return d
@@ -234,10 +327,11 @@ func resourceType(t types.Type) bool {
 }
 
 // pure reports whether a member of the bound package is in the reviewed
-// pure tier: a package of v1.PureImports, minus v1.PureImportsExcept.
+// pure tier: a package of v1.PureImports whose guard line acts
+// (check.PureActs; LAWFFI LF2d), minus v1.PureImportsExcept.
 func (m *mapper) pure(name string) bool {
 	path := m.pkg.Path()
-	return slices.Contains(v1.PureImports, path) && !slices.Contains(v1.PureImportsExcept[path], name)
+	return check.PureActs(path) && !slices.Contains(v1.PureImportsExcept[path], name)
 }
 
 func (m *mapper) needs(name string) string {
@@ -282,7 +376,7 @@ func (m *mapper) funcDecl(f *types.Func, recv *types.Named) (string, bool, bool,
 	// A first context.Context parameter is hidden (IG10), except in the
 	// context package itself, whose functions take a context as their
 	// subject (context.Cause(ctx)), not as the call's cancellation.
-	sm := &sigMapper{mapper: m, subst: subst, sync: v1.GoSyncCallbacks[target] != "", method: recv != nil,
+	sm := &sigMapper{mapper: m, subst: subst, sync: syncActs(target), method: recv != nil,
 		outerFails: n > 0 && isError(sig.Results().At(n-1).Type()),
 		ctx:        m.pkg.Path() != "context" && sig.Params().Len() > 0 && isContext(sig.Params().At(0).Type())}
 	params, results, fails, variadic, err := sm.signature(sig, false)
@@ -306,8 +400,30 @@ func (m *mapper) funcDecl(f *types.Func, recv *types.Named) (string, bool, bool,
 		}
 		tparams = append(tparams, row.name)
 	}
+	// A Go type supplies no lifetime proof. Resource-capable parameters
+	// are kept (own) unless a per-function source review establishes a
+	// lend.
+	off, first := 0, 0
+	if recv != nil {
+		off = 1
+	}
+	if sm.ctx {
+		first = 1
+	}
+	for i := range params {
+		params[i].own = goResourceParam(sig.Params().At(i+first).Type()) && !v1.GoArgLent(target, i+off)
+	}
+	// A Go function that sorts or reverses its slice in place and returns
+	// nothing (the reviewed v1.GoWrites; GBX2) returns the slice in Ergo:
+	// `let s = slices.Sort(s)`. The lowering passes Go the value the
+	// value rule gives it (a copy, or the dead local itself) and takes it
+	// back as the call's value.
+	if w, ok := v1.GoWrites[target]; ok && w.Reason != "" && recv == nil && results == "" && !fails {
+		if i := w.Index; i >= 0 && i < len(params) && !(variadic && i == len(params)-1) && goSlice(sig.Params().At(i+first).Type()) {
+			results, m.writes = params[i].typ, params[i].name
+		}
+	}
 	var b strings.Builder
-	recvName := ""
 	b.WriteString("func ")
 	if recv != nil {
 		r := sig.Recv()
@@ -326,8 +442,28 @@ func (m *mapper) funcDecl(f *types.Func, recv *types.Named) (string, bool, bool,
 				name = fmt.Sprintf("r%d", i)
 			}
 		}
-		fmt.Fprintf(&b, "(%s %s) ", name, rt)
-		recvName = name
+		// A method lends its receiver for the call (GB1): only the release
+		// (Close) and a method whose result may be the receiver itself,
+		// which would give the caller a second owner of one Go value,
+		// keep it. Any other result that holds a handle keeps the
+		// receiver alive instead (the checker's keeps rule, lend.go).
+		mode := ""
+		if goResourceParam(sig.Recv().Type()) && !v1.GoArgLent(target, 0) && keepsReceiver(f, sig, recv) {
+			mode = "own "
+		}
+		fmt.Fprintf(&b, "(%s %s%s) ", name, mode, rt)
+		if readsShape(r.Type()) && recv.TypeArgs().Len() == 0 && recv.TypeParams().Len() == 0 {
+			m.readable = append(m.readable, readable{r.Name(), name})
+		}
+	}
+	// A generic function's escape verdict is printed per instance shape,
+	// not per declaration, so it gets no fact (LAWFFI risk 3).
+	if sig.TypeParams().Len() == 0 && (recv == nil || recv.TypeParams().Len() == 0) {
+		for i, p := range params {
+			if v := sig.Params().At(i + first); readsShape(v.Type()) {
+				m.readable = append(m.readable, readable{v.Name(), p.name})
+			}
+		}
 	}
 	b.WriteString(f.Name())
 	if len(tparams) > 0 {
@@ -350,6 +486,12 @@ func (m *mapper) funcDecl(f *types.Func, recv *types.Named) (string, bool, bool,
 		// does not have).
 		needs = " needs go.Foreign"
 	}
+	m.effect = ""
+	if e, ok := gofacts.EffectOf(target); ok && needs != "" && !sm.ctx && effectActs(target) {
+		// A memory-only call needs no capability (GBX6): its row is
+		// what is left, and the binding says why.
+		needs, m.effect = "", e.Reason
+	}
 	if sm.usedNeeds {
 		if needs == "" {
 			needs = " needs " + rowNeeds
@@ -358,28 +500,6 @@ func (m *mapper) funcDecl(f *types.Func, recv *types.Named) (string, bool, bool,
 		}
 	}
 	b.WriteString(needs)
-	// A Go type supplies no lifetime proof. Resource-capable parameters
-	// are kept unless a per-function source review establishes a lend.
-	var takes []string
-	off := 0
-	if recv != nil {
-		off = 1
-		if goResourceParam(sig.Recv().Type()) && !v1.GoArgLent(target, 0) {
-			takes = append(takes, recvName)
-		}
-	}
-	first := 0
-	if sm.ctx {
-		first = 1
-	}
-	for i, p := range params {
-		if goResourceParam(sig.Params().At(i+first).Type()) && !v1.GoArgLent(target, i+off) {
-			takes = append(takes, p.name)
-		}
-	}
-	if len(takes) > 0 {
-		b.WriteString(" takes " + strings.Join(takes, ", "))
-	}
 	return b.String(), variadic, sm.ctx, nil
 }
 
@@ -418,6 +538,91 @@ func goResourceParam(t types.Type) bool {
 		return goResourceParam(t.Elem())
 	case *types.Map:
 		return goResourceParam(t.Elem())
+	}
+	return false
+}
+
+// keepsReceiver reports a method of the named type recv that keeps its
+// receiver (GB1; interop.md, Resources 5): the release, Close() or Close()
+// error, and, on a resource, a method whose result may hold the receiver
+// itself (mayHold), since the caller would then own one Go value twice and
+// release it twice. Every other method lends its receiver for the call.
+func keepsReceiver(f *types.Func, sig *types.Signature, recv *types.Named) bool {
+	if f.Name() == "Close" && releaseShape(f) {
+		return true
+	}
+	if !resourceType(types.NewPointer(recv)) {
+		return false
+	}
+	return resultsMayHold(sig, recv)
+}
+
+// resultsMayHold reports a result of sig, other than a last error, that may
+// hold a value of recv (mayHold).
+func resultsMayHold(sig *types.Signature, recv *types.Named) bool {
+	for i := 0; i < sig.Results().Len(); i++ {
+		if t := sig.Results().At(i).Type(); !isError(t) && mayHold(t, recv, map[types.Type]bool{}) {
+			return true
+		}
+	}
+	return false
+}
+
+// mayHold reports a Go type whose value may hold a value of recv: recv
+// itself or a pointer to it, an interface whose methods *recv has by name,
+// a type parameter, or a struct field, element or key that may. The
+// checker's alias rule reads the same shape from the binding
+// (check/hostclauses.go, hostMayHold).
+func mayHold(t types.Type, recv *types.Named, seen map[types.Type]bool) bool {
+	t = types.Unalias(t)
+	if seen[t] {
+		return false
+	}
+	seen[t] = true
+	if n, ok := t.(*types.Named); ok && n.Obj() == recv.Obj() {
+		return true
+	}
+	if _, ok := t.(*types.TypeParam); ok {
+		return true
+	}
+	if n, ok := t.(*types.Named); ok {
+		// A generic type's arguments (iter.Seq[Value] yields Values): the
+		// checker reads a binding's Seq[Value] by its arguments too.
+		for i := 0; i < n.TypeArgs().Len(); i++ {
+			if mayHold(n.TypeArgs().At(i), recv, seen) {
+				return true
+			}
+		}
+	}
+	switch u := t.Underlying().(type) {
+	case *types.Pointer:
+		return mayHold(u.Elem(), recv, seen)
+	case *types.Interface:
+		// recv may stand in an interface whose methods its method set has
+		// by name (the checker reads names only: hostMayHold); an empty
+		// interface holds anything.
+		ms := types.NewMethodSet(types.NewPointer(recv))
+		if types.IsInterface(recv) {
+			ms = types.NewMethodSet(recv)
+		}
+		for i := 0; i < u.NumMethods(); i++ {
+			if ms.Lookup(u.Method(i).Pkg(), u.Method(i).Name()) == nil {
+				return false
+			}
+		}
+		return true
+	case *types.Slice:
+		return mayHold(u.Elem(), recv, seen)
+	case *types.Array:
+		return mayHold(u.Elem(), recv, seen)
+	case *types.Map:
+		return mayHold(u.Key(), recv, seen) || mayHold(u.Elem(), recv, seen)
+	case *types.Struct:
+		for i := 0; i < u.NumFields(); i++ {
+			if u.Field(i).Exported() && mayHold(u.Field(i).Type(), recv, seen) {
+				return true
+			}
+		}
 	}
 	return false
 }
@@ -464,12 +669,20 @@ func constraint(tp *types.TypeParam) (string, types.Type, error) {
 	return "", nil, refuse("type parameter %s has the constraint %s, which has no Ergo form (v1 maps any, comparable, cmp.Ordered, ~[]E and ~map[K]V)", tp.Obj().Name(), types.TypeString(c, func(p *types.Package) string { return p.Name() }))
 }
 
-type param struct{ name, typ string }
+// param is a bound parameter: its name, its Ergo type, and whether the
+// callee keeps it (the mode word own, q168).
+type param struct {
+	name, typ string
+	own       bool
+}
 
 func paramList(ps []param) string {
 	parts := make([]string, len(ps))
 	for i, p := range ps {
 		parts[i] = p.name + " " + p.typ
+		if p.own {
+			parts[i] = p.name + " own " + p.typ
+		}
 	}
 	return "(" + strings.Join(parts, ", ") + ")"
 }
@@ -541,7 +754,7 @@ func (m *sigMapper) signature(sig *types.Signature, cb bool) ([]param, string, b
 			name = fmt.Sprintf("p%d", i)
 		}
 		used[name] = true
-		params = append(params, param{name, text})
+		params = append(params, param{name: name, typ: text})
 	}
 	n := sig.Results().Len()
 	fails := n > 0 && isError(sig.Results().At(n-1).Type())
@@ -606,6 +819,9 @@ func (m *sigMapper) typ(t types.Type, at pos, cb bool) (string, error) {
 		if err != nil {
 			return "", err
 		}
+		if k == "go.Any" {
+			return "", refuse("Ergo compares no go.Any, so a go.Any keys no Map")
+		}
 		v, err := m.typ(t.Elem(), atInner, cb)
 		if err != nil {
 			return "", err
@@ -628,7 +844,9 @@ func (m *sigMapper) typ(t types.Type, at pos, cb bool) (string, error) {
 		return "", refuse("Ergo has no channels (196c); wrap the Go channel in a Go function of your module, or use std queue")
 	case *types.Interface:
 		if t.Empty() {
-			return "", refuse("Ergo has no any; an interface{} parameter or result hides the host type")
+			// GB2: Go's empty interface is go.Any; a value with a Go form
+			// goes in, and go.As[T] takes one out (interop.md, Go any).
+			return "go.Any", nil
 		}
 		return "", refuse("an unnamed interface type")
 	case *types.Struct:
@@ -689,12 +907,26 @@ func (m *sigMapper) callback(sig *types.Signature) (string, error) {
 			s += " fails go.Error"
 		}
 	default:
-		s = "escaping " + s
+		s = "own " + s // the parameter's mode: the callee may keep it
 		if fails {
 			s += " fails go.Error"
 		}
 	}
 	return s, nil
+}
+
+// goSlice reports a Go slice type, or a type over one.
+func goSlice(t types.Type) bool {
+	if tp, ok := types.Unalias(t).(*types.TypeParam); ok {
+		t = tp.Constraint() // S ~[]E: its core type is the slice
+		if iface, ok := t.Underlying().(*types.Interface); ok && iface.NumEmbeddeds() == 1 {
+			if u, ok := iface.EmbeddedType(0).(*types.Union); ok && u.Len() == 1 {
+				t = u.Term(0).Type()
+			}
+		}
+	}
+	_, ok := types.Unalias(t).Underlying().(*types.Slice)
+	return ok
 }
 
 // goHoldsShared reports a Go type whose value shares memory when copied: a
@@ -923,7 +1155,18 @@ func (m *mapper) typeDecl(obj *types.TypeName) (string, []Member, []Line, error)
 				lines = append(lines, Line{f.Name(), goText, include, m.refs})
 				continue
 			}
+			target := m.pkg.Path() + "." + obj.Name() + "." + f.Name()
+			fsig := f.Type().(*types.Signature)
+			for j := range params {
+				params[j].own = goResourceParam(fsig.Params().At(j).Type()) && !v1.GoArgLent(target, j)
+			}
 			line := f.Name() + paramList(params)
+			// An operation lends its receiver (GB1), as a method does: only
+			// the release and, on a resource, one whose result may hold
+			// the receiver keep it.
+			if !v1.GoArgLent(target, -1) && (f.Name() == "Close" && releaseShape(f) || resourceType(n) && resultsMayHold(fsig, n)) {
+				line = "own " + line // the operation keeps its receiver
+			}
 			if results != "" {
 				line += " " + results
 			}
@@ -931,19 +1174,7 @@ func (m *mapper) typeDecl(obj *types.TypeName) (string, []Member, []Line, error)
 				line += " fails go.Error"
 			}
 			line += m.needs("")
-			var takes []string
-			target := m.pkg.Path() + "." + obj.Name() + "." + f.Name()
-			fsig := f.Type().(*types.Signature)
-			for j, p := range params {
-				if goResourceParam(fsig.Params().At(j).Type()) && !v1.GoArgLent(target, j) {
-					takes = append(takes, p.name)
-				}
-			}
-			if len(takes) > 0 {
-				line += " takes " + strings.Join(takes, ", ")
-			} else if !v1.GoArgLent(target, -1) {
-				line += " takes"
-			}
+
 			lines = append(lines, Line{f.Name(), goText, line, m.refs})
 		}
 		m.refs = nil
@@ -1033,4 +1264,19 @@ func (m *mapper) constType(c *types.Const) (string, error) {
 		return "complex128", nil
 	}
 	return "", refuse("an untyped %s constant", b.Name())
+}
+
+// syncActs reports a function whose callbacks the reviewed table
+// v1.GoSyncCallbacks lists as synchronous, with its guard line acting
+// (check.SyncActs; LAWFFI LF2d).
+func syncActs(target string) bool {
+	ok, _, _ := check.SyncActs(target)
+	return ok
+}
+
+// effectActs reports a function whose memory-only row acts
+// (check.EffectActs; np4f-plan GBX6).
+func effectActs(target string) bool {
+	ok, _, _ := check.EffectActs(target)
+	return ok
 }

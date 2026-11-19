@@ -1,0 +1,108 @@
+// Package flat reads JSON into a flat tree, in the data-oriented form of
+// Yuku's AST and Zig's: every value is a Node in one slice, named by a
+// dense NodeId; a container's children are a range of Extras, a second
+// slice of ids; a string or a number is a span of the source, and only a
+// string with an escape or a byte outside ASCII is decoded, into Pool. A
+// tree is four slices and a source, so a document of a million values is
+// a handful of allocations, where the tree of package json is one box per
+// value.
+//
+// It reads the grammar package json reads, with json's failures at the
+// same bytes (law FailsWhereTheTreeFails), and prints what json prints
+// (law PrintsAsTheTree).
+
+import strings
+
+// NodeId names a node of a tree: its index in Nodes.
+type NodeId int32
+
+// Kind is what a node is.
+type Kind = Null | True | False | Number | Text | Pooled | Array | Object
+
+type Null {}
+type True {}
+type False {}
+type Number {}
+type Text {}
+type Pooled {}
+type Array {}
+type Object {}
+
+// Node is one value. What A and B hold depends on Kind:
+//
+//	Number, Text   the span of the source: offset A, B bytes long
+//	Pooled         the decoded string Pool[A]
+//	Array          B children: Extras[A] to Extras[A+B-1]
+//	Object         B members: a key node and a value node each, at
+//	               Extras[A], Extras[A+1], ... Extras[A+2B-1]
+//	Null, True, False  nothing
+//
+// A key is a Text or Pooled node too; it is no value of the document.
+type Node { Kind Kind, A int32, B int32 }
+
+// Tree is a document read flat. Root is its value.
+type Tree { Src string, Nodes []Node, Extras []NodeId, Pool []string, Root NodeId }
+
+// idx is the index id stands for.
+func idx(id NodeId) int { int(int32(id)) }
+
+// At is the node id names.
+func At(t Tree, id NodeId) Node { t.Nodes[idx(id)] }
+
+// Child is the k-th id of node n's range in Extras.
+func Child(t Tree, n Node, k int) NodeId { t.Extras[int(n.A)+k] }
+
+// TextOf is the string a Text or Pooled node holds; "" for any other.
+func TextOf(t Tree, n Node) string {
+	match n.Kind {
+	case Text, Number:
+		strings.Slice(t.Src, int(n.A), int(n.A)+int(n.B))
+	case Pooled:
+		t.Pool[int(n.A)]
+	case Null, True, False, Array, Object:
+		""
+	}
+}
+
+// Count is the number of values under id, id's own included; keys are
+// not values.
+func Count(t Tree, id NodeId) int {
+	let n = At(t, id)
+	match n.Kind {
+	case Array:
+		let mut c = 1
+		for k in 0..int(n.B) {
+			c += Count(t, Child(t, n, k))
+		}
+		c
+	case Object:
+		let mut c = 1
+		for k in 0..int(n.B) {
+			c += Count(t, Child(t, n, 2*k+1))
+		}
+		c
+	case Null, True, False, Number, Text, Pooled:
+		1
+	}
+}
+
+// Depth is how deep the value at id nests: 0 for a scalar.
+func Depth(t Tree, id NodeId) int {
+	let n = At(t, id)
+	let step = match n.Kind {
+	case Array:
+		1
+	case Object:
+		2
+	case Null, True, False, Number, Text, Pooled:
+		return 0
+	}
+	let mut d = 0
+	for k in 0..int(n.B) {
+		let e = Depth(t, Child(t, n, step*k+step-1))
+		if e > d {
+			d = e
+		}
+	}
+	d + 1
+}

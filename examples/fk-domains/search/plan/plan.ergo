@@ -1,0 +1,124 @@
+// Package plan is fk-domains' range planner (plan §20.2), a pure
+// function: from what is loaded, what the window shows, the order and
+// the filter to the next range of the catalog to ask the registry for.
+// The ranges are the original's (domainPlanning.ts, domain.ts
+// findDomainRangeForTld): the top four, the rest of the first page of 60,
+// then pages of 60; or the whole catalog when the order or the filter
+// needs every price. One range loads at a time.
+//
+// Its work does not depend on the catalog's size: it reads the rows the
+// window shows and the state of their ranges, and the caller keeps the
+// counts that would need a scan (Checked, InFlight). Steps counts it.
+
+import fk-domains/search/route
+
+// Range is Limit listings of the catalog from Offset.
+type Range { Offset int, Limit int }
+
+// End is the listing after the range's last.
+func End(r Range) int { r.Offset + r.Limit }
+
+// Load is what is known of a range.
+type Load = NotLoaded{} | Loading{} | Loaded{} | Failed{}
+
+// TopCount is the size of the first range; PageSize ends the second and
+// is the size of the others.
+func TopCount() int { 4 }
+
+func PageSize() int { 60 }
+
+// Count is the number of ranges a catalog of n listings has.
+func Count(n int) int {
+	if n <= TopCount() {
+		return 1
+	}
+	if n <= PageSize() {
+		return 2
+	}
+	2 + (n-PageSize()+PageSize()-1)/PageSize()
+}
+
+// RangeAt is range k of a catalog of n listings.
+func RangeAt(n int, k int) Range {
+	if k == 0 {
+		return Range{Offset: 0, Limit: if n < TopCount() { n } else { TopCount() }}
+	}
+	if k == 1 {
+		let end = if n < PageSize() { n } else { PageSize() }
+		return Range{Offset: TopCount(), Limit: end - TopCount()}
+	}
+	let offset = (k - 1) * PageSize()
+	let rest = n - offset
+	Range{Offset: offset, Limit: if rest < PageSize() { rest } else { PageSize() }}
+}
+
+// IndexOf is the range that holds listing i.
+func IndexOf(i int) int {
+	if i < TopCount() {
+		return 0
+	}
+	if i < PageSize() {
+		return 1
+	}
+	1 + i/PageSize()
+}
+
+// NeedsWhole is whether the order or the filter needs every listing
+// loaded before it shows any: a price order, or available only (the
+// original's isCompleteCatalogRequired).
+func NeedsWhole(order route.Order, availableOnly bool) bool {
+	match order {
+	case route.PriceAscending, route.PriceDescending:
+		true
+	case route.Relevance, route.Length, route.Alphabetical:
+		availableOnly
+	}
+}
+
+// Input is what the planner reads. Size is the catalog's size; Ranges has
+// one Load per range (Count(Size)); Whole is the load of the whole
+// catalog as one range; Checked is how many listings are loaded; InFlight
+// is whether a load is running; Wanted are the catalog indices of the
+// listings the window shows, in the order it shows them; NeedsWhole is
+// NeedsWhole of the order and the filter.
+type Input { Size int, Ranges []Load, Whole Load, Checked int, InFlight bool, Wanted []int, NeedsWhole bool }
+
+// Planned is the next range to load, if any, and the steps the planner
+// took to find it.
+type Planned { Next Option[Range], Steps int }
+
+// Next is the range to load next: none while a load runs or once every
+// listing is loaded; the whole catalog when NeedsWhole (unless that load
+// failed: a retry asks again); else the range of the first listing the
+// window shows that is not loaded, unless that range failed, which waits
+// for a retry.
+func Next(st Input) Planned {
+	if st.InFlight || st.Checked >= st.Size {
+		return Planned{Next: None, Steps: 1}
+	}
+	match st.Whole {
+	case Loaded, Loading:
+		return Planned{Next: None, Steps: 1}
+	case Failed:
+		if st.NeedsWhole {
+			return Planned{Next: None, Steps: 1}
+		}
+	case NotLoaded:
+		if st.NeedsWhole {
+			return Planned{Next: Some[Range]{Value: Range{Offset: 0, Limit: st.Size}}, Steps: 1}
+		}
+	}
+	let mut steps = 1
+	for i in st.Wanted {
+		steps = steps + 1
+		let k = IndexOf(i)
+		match st.Ranges[k] {
+		case Loaded:
+		case NotLoaded:
+			return Planned{Next: Some[Range]{Value: RangeAt(st.Size, k)}, Steps: steps}
+		case Loading, Failed:
+			return Planned{Next: None, Steps: steps}
+		}
+	}
+	Planned{Next: None, Steps: steps}
+}

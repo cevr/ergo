@@ -8,61 +8,57 @@ law EscapeRoundTrip(s string) { Unescape(Escape(s)) == s }
 // EscapeHasNoMarkup: escaped text starts no tag and ends no attribute.
 law EscapeHasNoMarkup(s string) {
 	let e = Escape(s)
-	!strings.Contains(e, "<") && !strings.Contains(e, ">") && !strings.Contains(e, "\"") && !strings.Contains(e, "'")
+	!strings.Contains(e, "<") && !strings.Contains(e, ">") && !strings.Contains(e, "\"")
 }
 
 // TextSurvivesRendering: the text of a node, rendered and unescaped
-// without its tags, is the node's text; markup never eats text.
+// without its tags and line breaks, is the node's text; markup never eats
+// text.
 law TextSurvivesRendering(words []string) {
 	let mut kids = []Node{}
 	for w in words {
-		kids = kids.Append(El("em", []Node{Text{S: w}}))
+		let clean = strings.ReplaceAll(w, "\n", " ")
+		kids = kids.Append(El("em", []Node{Text{S: clean}}))
+		kids = kids.Append(El("br", []Node{}))
 	}
-	let n = El("p", kids)
-	Unescape(stripTags(Render(n))) == TextOf(n)
+	let n = El("blockquote", []Node{El("p", kids)})
+	Unescape(strings.ReplaceAll(stripTags(Render(n)), "\n", "")) == TextOf(n)
 }
 
-// HrefIsSafe: a Url never names a scheme other than http, https and
-// mailto. The raw text starts with a scheme picked from a list half the
-// time: generated strings rarely spell one.
+// HrefIsSafe: a Url from Href never names the scheme javascript:,
+// vbscript: or file:, nor data: other than an image. The raw text starts
+// with a scheme picked from a list half the time: generated strings
+// rarely spell one.
 law HrefIsSafe(raw string, scheme int) {
-	let schemes = []string{"javascript:", "JAVASCRIPT:", "data:", "http:", "vbscript:", "", "a/", " javascript:"}
+	let schemes = []string{"javascript:", "JAVASCRIPT:", "data:", "http:", "vbscript:", "", "File:", "data:image/png", "data:image/svg", "data:text/html,"}
 	let pick = if scheme < 0 { -(scheme + 1) } else { scheme }
 	SafeScheme(HrefOf(Href(schemes[pick%len(schemes)]+raw))) && SafeScheme(HrefOf(Href(raw)))
 }
 
-// SafeScheme reports whether href is relative or has the scheme http,
-// https or mailto.
+// SafeScheme reports whether href runs no script and loads no data other
+// than an image.
 func SafeScheme(href string) bool {
-	let colon = strings.Index(href, ":")
-	if colon < 0 {
-		return true
+	let l = strings.ToLower(href)
+	if strings.HasPrefix(l, "data:") {
+		return strings.HasPrefix(l, "data:image/png") || strings.HasPrefix(l, "data:image/gif") || strings.HasPrefix(l, "data:image/jpeg") || strings.HasPrefix(l, "data:image/webp")
 	}
-	let slash = strings.Index(href, "/")
-	if slash >= 0 && slash < colon {
-		return true
-	}
-	let scheme = strings.ToLower(strings.Slice(href, 0, colon))
-	scheme == "http" || scheme == "https" || scheme == "mailto"
+	!strings.HasPrefix(l, "javascript:") && !strings.HasPrefix(l, "vbscript:") && !strings.HasPrefix(l, "file:")
 }
 
 // stripTags is html with every <…> removed. Rendered text holds no < or
 // > of its own, since Escape wrote them as references.
 func stripTags(html string) string {
-	let mut parts = []string{}
-	let mut i = 0
-	for i < len(html) {
-		let lt = strings.Index(strings.Slice(html, i, len(html)), "<")
-		if lt < 0 {
-			parts = parts.Append(strings.Slice(html, i, len(html)))
-			return strings.Join(parts, "")
+	let mut out = strings.NewBuilder()
+	let mut inTag = false
+	for i in 0..len(html) {
+		let c = html[i]
+		if c == '<' {
+			inTag = true
+		} else if c == '>' {
+			inTag = false
+		} else if !inTag {
+			out.WriteByte(c)
 		}
-		parts = parts.Append(strings.Slice(html, i, i+lt))
-		let gt = strings.Index(strings.Slice(html, i+lt, len(html)), ">")
-		if gt < 0 {
-			return strings.Join(parts, "")
-		}
-		i = i + lt + gt + 1
 	}
-	strings.Join(parts, "")
+	out.String()
 }

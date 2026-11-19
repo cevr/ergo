@@ -84,8 +84,17 @@ type knownStats struct {
 	// ArgsShared is the by-value arguments read from a root that the
 	// result-alias rule passes uncopied (values.go, resultDeps).
 	ArgsShared int
+	// Moves is the reads of a place the next write overwrites whole, taken
+	// with no copy (values.go V7, moves.go).
+	Moves int
+	// Unkept is the arguments read from a root that a call keeps nothing
+	// of by the callee's keeps summary, passed with no copy (keeps.go).
+	Unkept int
 	// ResultCopies is the call results copied instead of their argument.
 	ResultCopies int
+	// RepeatFills is the slices.Repeat calls of a constant length made in
+	// the caller (repeat.go).
+	RepeatFills int
 	// BorrowCopies is the generic results through a borrow copied at the
 	// caller (alias.go, borrowResult).
 	BorrowCopies int
@@ -103,6 +112,9 @@ type knownStats struct {
 	// union of the program's own, so that it lowered the program again
 	// with that union an interface (lowerAgain).
 	UnionBails int
+	// UsedFlat is the unions past the register bound that are flat
+	// because no call carries a value of them (carry.go, R3b).
+	UsedFlat int
 	// NicheOptions is the Option values of a go.Ref the lowering spells as
 	// the Go pointer itself (flatunion.go, the pointer niche).
 	NicheOptions int
@@ -110,8 +122,23 @@ type knownStats struct {
 	// Substituted the literals written where an inlined body calls them.
 	Inlined     int
 	Substituted int
+	// ColdCalls is the inlined bodies whose growth guard calls the
+	// function out of line (coldhead.go).
+	ColdCalls int
 	// Specialized is the copies for known records made (record.go).
 	Specialized int
+	// Providers is the copies for known providers made (provider.go).
+	Providers int
+	// Witnessed is the copies for known witnesses made (witspec.go).
+	Witnessed int
+	// Tabulated is the functions called through a table (tabulate.go).
+	Tabulated int
+	// Folded is the matches whose inlined subject's returns jump to the
+	// arms (knownmatch.go).
+	Folded int
+	// FoldedGeneral is the folded matches that also switch on the tag of
+	// a value a return wrote (knownmatch.go).
+	FoldedGeneral int
 	// Scalars is the locals in the scalar form (scalar.go), Joins those
 	// whose inlined call writes them, and Aliases the parameters of an
 	// inlined call bound to one.
@@ -132,6 +159,33 @@ type knownStats struct {
 	// Dropped is the calls whose discarded result goes to the variant
 	// with no result (forms.go).
 	Dropped int
+	// FailsAround is the catches and tries whose handler the success path
+	// jumps around, and FailsJoined the failure labels placed at the
+	// join (inline.go, failJump; placeFail). Of FailsAround, AliasesAround
+	// are catches whose value is named and TriesAround tries.
+	FailsAround, FailsJoined, AliasesAround, TriesAround int
+	// Loops is the loops written as a fill, a move or a collect
+	// (loops.go).
+	Loops int
+	// Taken is the sites that took each shortcut, by its name in the
+	// registry (shortcuts.go).
+	Taken map[string]int
+	// SlotSites is the calls that went to a slot variant, by the callee's
+	// name, and SlotKept the calls of a callee with one that kept the box
+	// (slot.go).
+	SlotSites map[string]int
+	SlotKept  int
+	// Copies is the form of each Append and owned-form site
+	// (handover.go, the copy report).
+	Copies []CopySite
+	// Layouts is the layout report: a row per record emitted (layout.go).
+	Layouts []LayoutRow
+	// TupleLets is the lets of a tuple pattern whose if or match arms
+	// write the names straight, with no tuple value (tuplelet.go).
+	TupleLets int
+	// TupleInlines is the inlined calls of such an arm whose returns write
+	// the names (inline.go, inlineRet.tuple).
+	TupleInlines int
 }
 
 // statsHook is a test seam, nil outside tests: it receives the counts of
@@ -246,7 +300,7 @@ func (l *lowerer) knownBody(g *check.Func, closed bool) bool {
 	}
 	info := g.Pkg.Info
 	s := g.Sig
-	if len(witnessParams(s)) > 0 || len(rowElems(s.Uses)) > 0 {
+	if len(witnessParams(s)) > 0 || len(rowElems(s.Uses)) > 0 || l.hasGoRow(s) {
 		return false
 	}
 	fp, ok := info.Footprints[d]

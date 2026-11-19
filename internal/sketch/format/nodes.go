@@ -54,9 +54,7 @@ func (p *printer) decl(d syntax.Decl) {
 			p.token(d.DerivePos, "derive")
 			p.space()
 			p.expr(d.Derive)
-			return
-		}
-		if t, ok := d.Spec.(*syntax.InterfaceType); ok && t.Union != nil {
+		} else if t, ok := d.Spec.(*syntax.InterfaceType); ok && t.Union != nil {
 			p.union(t)
 		} else {
 			p.expr(d.Spec)
@@ -123,6 +121,17 @@ func (p *printer) decl(d syntax.Decl) {
 		p.ident(d.Name)
 		p.fieldList(d.Params, "(", ")")
 		p.space()
+		if e := d.Equation; e != nil {
+			// The rewrite form (Laws 14): its Body is the synthetic
+			// lhs == rhs, printed as the two blocks it was written as.
+			lhs, rhs, eq := d.EquationSides()
+			p.block(&syntax.BlockStmt{Lbrace: e.LhsLbrace, List: []syntax.Stmt{&syntax.ExprStmt{X: lhs}}, Rbrace: e.LhsRbrace}, true)
+			p.space()
+			p.token(eq.OpPos, "==")
+			p.space()
+			p.block(&syntax.BlockStmt{Lbrace: e.RhsLbrace, List: []syntax.Stmt{&syntax.ExprStmt{X: rhs}}, Rbrace: e.RhsRbrace}, true)
+			return
+		}
 		p.block(d.Body, true)
 	}
 }
@@ -321,8 +330,22 @@ func (p *printer) fieldList(l *syntax.FieldList, open, close string) {
 			p.space()
 			p.token(f.Any, "any")
 		}
-		if f.Type != nil {
+		if f.Lent > 0 {
+			p.space()
+			p.token(f.Lent, "lent")
+		}
+		if f.Pure {
+			p.space()
+			p.token(f.PurePos, "pure")
+		}
+		if f.Own != nil {
 			if len(f.Names) > 0 {
+				p.space()
+			}
+			p.token(f.Own.At, "own")
+		}
+		if f.Type != nil {
+			if len(f.Names) > 0 || f.Own != nil {
 				p.space()
 			}
 			p.typ(f.Type)
@@ -464,6 +487,10 @@ func (p *printer) operationType(t *syntax.InterfaceType) {
 	}
 	for _, m := range t.Methods {
 		list = append(list, member{m, func(bool) {
+			if m.Own != nil {
+				p.token(m.Own.At, "own")
+				p.space()
+			}
 			p.ident(m.Names[0])
 			p.signature(m.Type.(*syntax.FuncType))
 		}})
@@ -786,6 +813,12 @@ func (p *printer) stmt(s syntax.Stmt) {
 		p.token(s.Assert, "assert")
 		p.space()
 		p.expr(s.X)
+	case *syntax.SkipStmt:
+		// skip is a contextual keyword: the name, a space and the reason
+		// on one line, which is what makes it the statement.
+		p.token(s.Skip, "skip")
+		p.space()
+		p.tokenEnd(s.ReasonPos, s.Reason, s.ReasonEnd)
 	case *syntax.BlockStmt:
 		p.block(s, false)
 	case *syntax.IfStmt:
@@ -889,6 +922,15 @@ func (p *printer) clauses(lbrace syntax.Pos, n int, casePos func(i int) syntax.P
 }
 
 // caseHead prints `case P, Q:`, or `case _:` for an empty list.
+// written is a case's patterns as the source wrote them: the parser
+// expands nested alternatives into list and keeps the written ones.
+func written(list, as []syntax.Expr) []syntax.Expr {
+	if as != nil {
+		return as
+	}
+	return list
+}
+
 func (p *printer) caseHead(pos syntax.Pos, list []syntax.Expr, colon syntax.Pos) {
 	p.token(pos, "case")
 	p.space()
@@ -902,7 +944,7 @@ func (p *printer) caseHead(pos syntax.Pos, list []syntax.Expr, colon syntax.Pos)
 
 func (p *printer) caseClauses(lbrace syntax.Pos, list []*syntax.CaseClause, rbrace syntax.Pos) {
 	p.clauses(lbrace, len(list), func(i int) syntax.Pos { return list[i].Case }, func(i int) {
-		p.caseHead(list[i].Case, list[i].List, list[i].Colon)
+		p.caseHead(list[i].Case, written(list[i].List, list[i].Written), list[i].Colon)
 	}, func(i int) []syntax.Stmt { return list[i].Body }, rbrace)
 }
 
@@ -1041,6 +1083,15 @@ func (p *printer) expr1(x syntax.Expr, depth int) {
 		}, x.Rbrace, "}")
 	case *syntax.KeyValueExpr:
 		p.element(x)
+	case *syntax.OrPattern:
+		for i, a := range x.Alts {
+			if i > 0 {
+				p.space()
+				p.token(x.Bars[i-1], "|")
+				p.space()
+			}
+			p.expr1(a, depth)
+		}
 	case *syntax.AsPattern:
 		p.expr1(x.X, depth)
 		p.space()
@@ -1062,7 +1113,7 @@ func (p *printer) expr1(x syntax.Expr, depth int) {
 		p.space()
 		p.clauses(x.Lbrace, len(x.Arms), func(i int) syntax.Pos { return x.Arms[i].Case }, func(i int) {
 			a := x.Arms[i]
-			p.caseHead(a.Case, a.Types, a.Colon)
+			p.caseHead(a.Case, written(a.Types, a.Written), a.Colon)
 		}, func(i int) []syntax.Stmt { return x.Arms[i].Body }, x.Rbrace)
 	case *syntax.ContextLit:
 		p.context(x.Context, x.Provides, x.Needs, x.Body)
@@ -1109,6 +1160,10 @@ func (p *printer) expr1(x syntax.Expr, depth int) {
 func (p *printer) funcType(t *syntax.FuncType) {
 	if t.Escaping.IsValid() {
 		p.token(t.Escaping, "escaping")
+		p.space()
+	}
+	if t.Entry {
+		p.token(t.EntryPos, "entry")
 		p.space()
 	}
 	if t.Func.IsValid() {

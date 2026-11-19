@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"ergo.local/prototype/internal/proclimit"
+	"ergo.local/prototype/internal/sketch/build"
 	"ergo.local/prototype/internal/testinputs"
 )
 
@@ -56,6 +57,19 @@ func TestMain(m *testing.M) {
 	if _, ok := os.LookupEnv(proclimit.Variable); !ok {
 		os.Setenv(proclimit.Variable, strconv.FormatUint(proclimit.DefaultLimit, 10))
 	}
+	// This package's tests lower declarations that main does not reach:
+	// Go harnesses call lowered functions by name, and shape tests read a
+	// declaration's lowering. They run the reference lowering, which
+	// lowers every declaration (reach.go).
+	// TestReachLowersNoUnreachableDeclaration lowers under reach itself,
+	// and the CLI, the examples and the conformance programs run it.
+	if reachLowering == "" {
+		reachLowering = "all"
+	}
+	// The mutant runner's coverage pass (GATE2 GT7b): std bodies get
+	// cover marks, and buildDispatch links a coverage copy.
+	coverGo = os.Getenv(build.CoverVariable)
+	coverMarksAll = coverGo != ""
 	code := testinputs.Main(m)
 	removeProgramTables()
 	if testCLI.dir != "" {

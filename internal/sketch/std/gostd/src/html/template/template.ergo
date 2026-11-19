@@ -3,6 +3,7 @@
 
 import go io
 import go io/fs
+import go template2 text/template
 import go text/template/parse
 
 // ergo:go type CSS string
@@ -54,7 +55,7 @@ extern go html/template.Error type Error {
 }
 
 // ergo:go func (*Error).Error() string
-extern go html/template.Error.Error func (e *Error) Error() string needs go.Foreign takes e
+extern go html/template.Error.Error func (e *Error) Error() string needs go.Foreign
 
 // ergo:go type ErrorCode int
 extern go html/template.ErrorCode type ErrorCode int
@@ -69,34 +70,36 @@ extern go html/template.HTML type HTML string
 extern go html/template.HTMLAttr type HTMLAttr string
 
 // ergo:go func HTMLEscape(w io.Writer, b []byte)
-extern go html/template.HTMLEscape func HTMLEscape(w io.Writer, b []byte) needs go.Foreign takes w
+extern go html/template.HTMLEscape func HTMLEscape(w own io.Writer, b []byte) needs go.Foreign
 
 // ergo:go func HTMLEscapeString(s string) string
 extern go html/template.HTMLEscapeString func HTMLEscapeString(s string) string needs go.Foreign
 
 // ergo:go func HTMLEscaper(args ...any) string
-// ergo:refused HTMLEscaper: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:variadic
+extern go html/template.HTMLEscaper func HTMLEscaper(args []go.Any) string needs go.Foreign
 
 // ergo:go func IsTrue(val any) (truth bool, ok bool)
-// ergo:refused IsTrue: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go html/template.IsTrue func IsTrue(val go.Any) (bool, bool) needs go.Foreign
 
 // ergo:go type JS string
 extern go html/template.JS type JS string
 
 // ergo:go func JSEscape(w io.Writer, b []byte)
-extern go html/template.JSEscape func JSEscape(w io.Writer, b []byte) needs go.Foreign takes w
+extern go html/template.JSEscape func JSEscape(w own io.Writer, b []byte) needs go.Foreign
 
 // ergo:go func JSEscapeString(s string) string
 extern go html/template.JSEscapeString func JSEscapeString(s string) string needs go.Foreign
 
 // ergo:go func JSEscaper(args ...any) string
-// ergo:refused JSEscaper: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:variadic
+extern go html/template.JSEscaper func JSEscaper(args []go.Any) string needs go.Foreign
 
 // ergo:go type JSStr string
 extern go html/template.JSStr type JSStr string
 
 // ergo:go func Must(t *Template, err error) *Template
-extern go html/template.Must func Must(t *Template, err go.Error) Option[go.Ref[Template]] needs go.Foreign takes t
+extern go html/template.Must func Must(t own *Template, err go.Error) Option[go.Ref[Template]] needs go.Foreign
 
 // ergo:go func New(name string) *Template
 extern go html/template.New func New(name string) Option[go.Ref[Template]] needs go.Foreign
@@ -106,7 +109,7 @@ extern go html/template.OK let OK ErrorCode
 
 // ergo:go func ParseFS(fs fs.FS, patterns ...string) (*Template, error)
 // ergo:variadic
-extern go html/template.ParseFS func ParseFS(fs fs.FS, patterns []string) go.Ref[Template] fails go.Error needs go.Foreign takes fs
+extern go html/template.ParseFS func ParseFS(fs own fs.FS, patterns []string) go.Ref[Template] fails go.Error needs go.Foreign
 
 // ergo:go func ParseFiles(filenames ...string) (*Template, error)
 // ergo:variadic
@@ -124,52 +127,52 @@ extern go html/template.Template type Template {
 }
 
 // ergo:go func (*Template).AddParseTree(name string, tree *parse.Tree) (*Template, error)
-extern go html/template.Template.AddParseTree func (t *Template) AddParseTree(name string, tree *parse.Tree) go.Ref[Template] fails go.Error needs go.Foreign takes t, tree
+extern go html/template.Template.AddParseTree func (t *Template) AddParseTree(name string, tree own *parse.Tree) go.Ref[Template] fails go.Error needs go.Foreign
 
 // ergo:go func (*Template).Clone() (*Template, error)
-extern go html/template.Template.Clone func (t *Template) Clone() go.Ref[Template] fails go.Error needs go.Foreign takes t
+extern go html/template.Template.Clone func (t *Template) Clone() go.Ref[Template] fails go.Error needs go.Foreign
 
 // ergo:go func (*Template).DefinedTemplates() string
-extern go html/template.Template.DefinedTemplates func (t *Template) DefinedTemplates() string needs go.Foreign takes t
+extern go html/template.Template.DefinedTemplates func (t *Template) DefinedTemplates() string needs go.Foreign
 
 // ergo:go func (*Template).Delims(left string, right string) *Template
-extern go html/template.Template.Delims func (t *Template) Delims(left string, right string) Option[go.Ref[Template]] needs go.Foreign takes t
+extern go html/template.Template.Delims func (t *Template) Delims(left string, right string) Option[go.Ref[Template]] needs go.Foreign
 
 // ergo:go func (*Template).Execute(wr io.Writer, data any) error
-// ergo:refused Template.Execute: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type
+extern go html/template.Template.Execute func (t *Template) Execute(wr own io.Writer, data go.Any) fails go.Error needs go.Foreign
 
 // ergo:go func (*Template).ExecuteTemplate(wr io.Writer, name string, data any) error
-// ergo:refused Template.ExecuteTemplate: parameter 3: Ergo has no any; an interface{} parameter or result hides the host type
+extern go html/template.Template.ExecuteTemplate func (t *Template) ExecuteTemplate(wr own io.Writer, name string, data go.Any) fails go.Error needs go.Foreign
 
 // ergo:go func (*Template).Funcs(funcMap FuncMap) *Template
-// ergo:refused Template.Funcs: parameter 1: type FuncMap is refused: Ergo has no any; an interface{} parameter or result hides the host type
+extern go html/template.Template.Funcs func (t *Template) Funcs(funcMap template2.FuncMap) Option[go.Ref[Template]] needs go.Foreign
 
 // ergo:go func (*Template).Lookup(name string) *Template
-extern go html/template.Template.Lookup func (t *Template) Lookup(name string) Option[go.Ref[Template]] needs go.Foreign takes t
+extern go html/template.Template.Lookup func (t *Template) Lookup(name string) Option[go.Ref[Template]] needs go.Foreign
 
 // ergo:go func (*Template).Name() string
-extern go html/template.Template.Name func (t *Template) Name() string needs go.Foreign takes t
+extern go html/template.Template.Name func (t *Template) Name() string needs go.Foreign
 
 // ergo:go func (*Template).New(name string) *Template
-extern go html/template.Template.New func (t *Template) New(name string) Option[go.Ref[Template]] needs go.Foreign takes t
+extern go html/template.Template.New func (t *Template) New(name string) Option[go.Ref[Template]] needs go.Foreign
 
 // ergo:go func (*Template).Option(opt ...string) *Template
 // ergo:variadic
-extern go html/template.Template.Option func (t *Template) Option(opt []string) Option[go.Ref[Template]] needs go.Foreign takes t
+extern go html/template.Template.Option func (t *Template) Option(opt []string) Option[go.Ref[Template]] needs go.Foreign
 
 // ergo:go func (*Template).Parse(text string) (*Template, error)
-extern go html/template.Template.Parse func (t *Template) Parse(text string) go.Ref[Template] fails go.Error needs go.Foreign takes t
+extern go html/template.Template.Parse func (t *Template) Parse(text string) go.Ref[Template] fails go.Error needs go.Foreign
 
 // ergo:go func (*Template).ParseFS(fs fs.FS, patterns ...string) (*Template, error)
 // ergo:variadic
-extern go html/template.Template.ParseFS func (t *Template) ParseFS(fs fs.FS, patterns []string) go.Ref[Template] fails go.Error needs go.Foreign takes t, fs
+extern go html/template.Template.ParseFS func (t *Template) ParseFS(fs own fs.FS, patterns []string) go.Ref[Template] fails go.Error needs go.Foreign
 
 // ergo:go func (*Template).ParseFiles(filenames ...string) (*Template, error)
 // ergo:variadic
-extern go html/template.Template.ParseFiles func (t *Template) ParseFiles(filenames []string) go.Ref[Template] fails go.Error needs go.Foreign takes t
+extern go html/template.Template.ParseFiles func (t *Template) ParseFiles(filenames []string) go.Ref[Template] fails go.Error needs go.Foreign
 
 // ergo:go func (*Template).ParseGlob(pattern string) (*Template, error)
-extern go html/template.Template.ParseGlob func (t *Template) ParseGlob(pattern string) go.Ref[Template] fails go.Error needs go.Foreign takes t
+extern go html/template.Template.ParseGlob func (t *Template) ParseGlob(pattern string) go.Ref[Template] fails go.Error needs go.Foreign
 
 // ergo:go func (*Template).Templates() []*Template
 // ergo:refused Template.Templates: result 1: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
@@ -178,4 +181,5 @@ extern go html/template.Template.ParseGlob func (t *Template) ParseGlob(pattern 
 extern go html/template.URL type URL string
 
 // ergo:go func URLQueryEscaper(args ...any) string
-// ergo:refused URLQueryEscaper: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:variadic
+extern go html/template.URLQueryEscaper func URLQueryEscaper(args []go.Any) string needs go.Foreign

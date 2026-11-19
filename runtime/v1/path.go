@@ -18,47 +18,14 @@ import "path/filepath"
 // separator between each pair, cleaned; "" when every part is empty.
 //
 //ergo:pure
+//ergo:wait none
 func FilepathJoin(parts []string) string { return filepath.Join(parts...) }
-
-// FilepathBase is filepath.Base.
-//
-//ergo:pure
-func FilepathBase(path string) string { return filepath.Base(path) }
-
-// FilepathDir is filepath.Dir.
-//
-//ergo:pure
-func FilepathDir(path string) string { return filepath.Dir(path) }
 
 // FilepathExt is filepath.Ext.
 //
 //ergo:pure
+//ergo:wait none
 func FilepathExt(path string) string { return filepath.Ext(path) }
-
-// FilepathClean is filepath.Clean.
-//
-//ergo:pure
-func FilepathClean(path string) string { return filepath.Clean(path) }
-
-// FilepathIsAbs is filepath.IsAbs.
-//
-//ergo:pure
-func FilepathIsAbs(path string) bool { return filepath.IsAbs(path) }
-
-// Parts is filepath.Parts, the result of Split: path up to and including
-// its last separator, and path after it. It is a record of a v1 package,
-// so the lowering binds filepath.Parts to this Go type (docs/spec/
-// stdlib.md, Types 4).
-type Parts struct{ Dir, File string }
-
-// FilepathSplit is filepath.Split, its two results as one Parts: one scan
-// of path, as the Go control makes.
-//
-//ergo:pure
-func FilepathSplit(path string) Parts {
-	dir, file := filepath.Split(path)
-	return Parts{Dir: dir, File: file}
-}
 
 // NotRelative is filepath.NotRelative, the typed failure of Rel: target
 // cannot be made relative to base by lexical processing alone. It is a
@@ -75,6 +42,7 @@ func (e NotRelative) Error() string {
 // FilepathRel is filepath.Rel; any error is NotRelative{base, target}.
 //
 //ergo:pure
+//ergo:wait none
 func FilepathRel(base, target string) (string, error) {
 	rel, err := filepath.Rel(base, target)
 	if err != nil {

@@ -115,6 +115,8 @@ func TestStdSlicesLaws(t *testing.T) {
 		stable := SlicesSortStableFunc(xs, func(a, b int) int { return cmp.Compare(a/4, b/4) })
 		reversed := SlicesReverse(xs)
 		owned := SlicesSortOwned(slices.Clone(xs))
+		in := slices.Clone(xs)
+		ownedRev := SlicesReverseOwned(in)
 		cloned := SlicesClone(xs)
 		if !slices.Equal(cloned, xs) {
 			t.Fatalf("case %d: Clone(%v) = %v", i, xs, cloned)
@@ -129,6 +131,13 @@ func TestStdSlicesLaws(t *testing.T) {
 		}
 		if !slices.Equal(owned, SlicesSort(xs)) {
 			t.Fatalf("case %d: SortOwned(%v) = %v, want Sort's", i, xs, owned)
+		}
+		if !slices.Equal(ownedRev, SlicesReverse(xs)) {
+			t.Fatalf("case %d: ReverseOwned(%v) = %v, want Reverse's", i, xs, ownedRev)
+		}
+		// The owned form reverses its argument's own array: no copy.
+		if len(in) > 0 && &ownedRev[0] != &in[0] {
+			t.Fatalf("case %d: ReverseOwned(%v) copied its argument", i, xs)
 		}
 		// SortStableKeepsTies: the key is x % 3; of equal keys, the first
 		// in xs stays first.
@@ -149,72 +158,34 @@ func TestStdSlicesLaws(t *testing.T) {
 			t.Fatalf("case %d: ReverseTwiceIsSame: %v", i, xs)
 		}
 		// ContainsIffIndex.
-		at := SlicesIndex(xs, x)
-		if SlicesContains(xs, x) != (at >= 0) || at >= 0 && xs[at] != x || at >= 0 && slices.Contains(xs[:at], x) {
+		at := slices.Index(xs, x)
+		if slices.Contains(xs, x) != (at >= 0) || at >= 0 && xs[at] != x || at >= 0 && slices.Contains(xs[:at], x) {
 			t.Fatalf("case %d: ContainsIffIndex: Index(%v, %d) = %d", i, xs, x, at)
 		}
 		// MaxIsLastSorted (the Ergo body answers an empty slice).
 		if len(xs) > 0 {
-			if SlicesMax(xs) != SlicesSort(xs)[len(xs)-1] || SlicesMin(xs) != SlicesSort(xs)[0] {
+			if slices.Max(xs) != SlicesSort(xs)[len(xs)-1] || slices.Min(xs) != SlicesSort(xs)[0] {
 				t.Fatalf("case %d: MaxIsLastSorted: %v", i, xs)
 			}
 		}
 		// BinarySearchFindsTheFirst.
 		s := SlicesSort(xs)
-		got := SlicesBinarySearch(s, x)
+		got, found := slices.BinarySearch(s, x)
+		if !found {
+			got = -1
+		}
 		switch {
 		case got < 0 && slices.Contains(s, x):
 			t.Fatalf("case %d: BinarySearch(%v, %d) = -1, and x is there", i, s, x)
 		case got >= 0 && (s[got] != x || got > 0 && s[got-1] >= x):
 			t.Fatalf("case %d: BinarySearch(%v, %d) = %d, not the first x", i, s, x, got)
 		}
-		// Equal agrees with the element test.
-		if SlicesEqual(xs, before) != true || SlicesEqual(xs, reversed) != slices.Equal(xs, reversed) {
-			t.Fatalf("case %d: Equal(%v, %v)", i, xs, reversed)
-		}
 	}
 }
 
-// TestStdCmpMatchesGo: CmpCompare and CmpLess restate Go's cmp.Compare and
-// cmp.Less, which collections.go does not import (PureImports). Every pair
-// of a set of floats that holds both NaN signs, both zeros and both
-// infinities, of ints at the extremes, and of strings, gives Go's answer;
-// and Compare is antisymmetric and transitive over the floats, NaN
-// included (the laws CompareIsAntisymmetric and CompareIsTransitive at a
-// type the Ergo probe does not draw).
-func TestStdCmpMatchesGo(t *testing.T) {
-	floats := []float64{math.NaN(), math.Copysign(math.NaN(), -1), math.Inf(-1), -1.5, math.Copysign(0, -1), 0, 1e-300, 2.5, math.MaxFloat64, math.Inf(1)}
-	for _, a := range floats {
-		for _, b := range floats {
-			if CmpCompare(a, b) != cmp.Compare(a, b) || CmpLess(a, b) != cmp.Less(a, b) {
-				t.Errorf("Compare(%v, %v) = %d, Less %v; Go: %d, %v", a, b, CmpCompare(a, b), CmpLess(a, b), cmp.Compare(a, b), cmp.Less(a, b))
-			}
-			if CmpCompare(a, b) != -CmpCompare(b, a) {
-				t.Errorf("Compare(%v, %v) is not antisymmetric", a, b)
-			}
-			for _, c := range floats {
-				if CmpCompare(a, b) <= 0 && CmpCompare(b, c) <= 0 && CmpCompare(a, c) > 0 {
-					t.Errorf("Compare is not transitive on %v, %v, %v", a, b, c)
-				}
-			}
-		}
-	}
-	ints := []int{math.MinInt, -1, 0, 1, math.MaxInt}
-	for _, a := range ints {
-		for _, b := range ints {
-			if CmpCompare(a, b) != cmp.Compare(a, b) || CmpLess(a, b) != cmp.Less(a, b) {
-				t.Errorf("Compare(%d, %d) differs from Go's", a, b)
-			}
-		}
-	}
-	for _, a := range collectionsAlphabet {
-		for _, b := range collectionsAlphabet {
-			if CmpCompare(a, b) != cmp.Compare(a, b) || CmpLess(a, b) != cmp.Less(a, b) {
-				t.Errorf("Compare(%q, %q) differs from Go's", a, b)
-			}
-		}
-	}
-	// A float NaN sorts first, as Go's slices.Sort puts it.
+// TestStdSortPutsNaNFirst: a float NaN sorts first, as Go's slices.Sort
+// puts it (stdlib.md, Slices and Maps 4).
+func TestStdSortPutsNaNFirst(t *testing.T) {
 	got := SlicesSort([]float64{2, math.NaN(), -1})
 	if !math.IsNaN(got[0]) || got[1] != -1 || got[2] != 2 {
 		t.Errorf("Sort with a NaN = %v", got)

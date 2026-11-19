@@ -1,0 +1,33 @@
+<> [Get Weather]
+> type 90210
+<90210> [Get Weather]
+> submit
+<90210> [Loading..., disabled] Fetching weather...
+> wait 500
+<90210> [Get Weather] Weather report{# 90210 Beverly Hills, California 72°F Clear sky 45% 10 mph}
+> type 1
+<1> [Get Weather] Weather report{# 90210 Beverly Hills, California 72°F Clear sky 45% 10 mph}
+> type 10001
+<10001> [Get Weather] Weather report{# 90210 Beverly Hills, California 72°F Clear sky 45% 10 mph}
+> submit
+<10001> [Loading..., disabled] Fetching weather...
+> submit
+? no node: role button "Get Weather"
+> wait 500
+<10001> [Get Weather] Weather report{# 10001 New York, New York 41°F Rain 88% 14 mph}
+> type
+<> [Get Weather] Weather report{# 10001 New York, New York 41°F Rain 88% 14 mph}
+> submit
+<> [Get Weather] Zip code required
+> type 00000
+<00000> [Get Weather] Zip code required
+> submit
+<00000> [Loading..., disabled] Fetching weather...
+> wait 500
+<00000> [Get Weather] Location not found
+> type 99999
+<99999> [Get Weather] Location not found
+> submit
+<99999> [Loading..., disabled] Fetching weather...
+> wait 500
+<99999> [Get Weather] Failed to fetch weather data (the station at 99999 is down)

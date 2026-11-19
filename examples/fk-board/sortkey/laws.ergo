@@ -1,0 +1,35 @@
+// The keys' law (plan §18.3 FK11).
+
+// BetweenIsStrictlyBetween: a list of keys grown by drawn inserts, each
+// key made between its neighbours (None at an end), is valid and strictly
+// increasing after every insert. The draws reach the start, the end and
+// every gap, so keys grow long where the inserts crowd.
+law BetweenIsStrictlyBetween(at []int) {
+	let mut keys = []string{}
+	for x in at {
+		let i = ((x % (len(keys) + 1)) + len(keys) + 1) % (len(keys) + 1)
+		let lo Option[string] = if i == 0 { None } else { Some[string]{Value: keys[i-1]} }
+		let hi Option[string] = if i == len(keys) { None } else { Some[string]{Value: keys[i]} }
+		let k = Between(lo, hi)
+		if !Valid(k) {
+			return false
+		}
+		let mut next = []string{}
+		for j in 0..len(keys) {
+			if j == i {
+				next = next.Append(k)
+			}
+			next = next.Append(keys[j])
+		}
+		if i == len(keys) {
+			next = next.Append(k)
+		}
+		keys = next
+		for j in 1..len(keys) {
+			if !(keys[j-1] < keys[j]) {
+				return false
+			}
+		}
+	}
+	true
+}

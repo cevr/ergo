@@ -1,26 +1,29 @@
 // The whole input: chunks scanned in parallel, their parts merged, and
 // the report.
 
+import fs
 import slices
 import strings
 import tasks
 
 // Readings is where the text of an input comes from. The binary chooses
 // the provider: the host's files mapped read-only, or texts in memory.
+// Open gives the input as an fs.Mapped: its text is read in place, and
+// lives until the Mapped is closed.
 type Readings {
-	Text(path string) string fails Unreadable,
+	Open(path string) fs.Mapped fails Unreadable,
 
 	// Repeatable: two reads of one input give one text.
 	law Repeatable(path string) {
-		let a = Text(path) catch {
+		let a = Open(path) catch {
 		case Unreadable:
 			return true
 		}
-		let b = Text(path) catch {
+		let b = Open(path) catch {
 		case Unreadable:
 			return false
 		}
-		a == b
+		a.Text() == b.Text()
 	},
 }
 
@@ -31,7 +34,7 @@ type Unreadable { Path string, Reason string }
 type Chunk { From int, To int }
 
 // Split cuts text into at most workers chunks that start at line starts.
-func Split(text string, workers int) []Chunk {
+func Split(text fs.Text, workers int) []Chunk {
 	let mut starts = []int{0}
 	for i in 1..workers {
 		let mut at = hi(len(text)*i/workers, starts[len(starts)-1])
@@ -55,8 +58,10 @@ type Station { Name string, Stats Stats }
 
 // Summarize is every station of text with its Stats, sorted by name. It
 // scans one chunk per worker at once, and merges the parts by Merge,
-// whose laws make the result the same for every split.
-func Summarize(text string, workers int) []Station fails Malformed | TooManyStations {
+// whose laws make the result the same for every split. Text is borrowed:
+// each station's name is copied out of it (fs.Clone), so the result
+// outlives the text.
+func Summarize(text fs.Text, workers int) []Station fails Malformed | TooManyStations {
 	let parts = tasks.Transform(Split(text, workers), workers, func(c Chunk) Part { Scan(text, c.From, c.To) })
 	let mut crowded = false
 	for part in parts {
@@ -77,7 +82,7 @@ func Summarize(text string, workers int) []Station fails Malformed | TooManyStat
 		case Counted as c:
 			for h in c.Used {
 				let s = c.Slots[h]
-				let name = strings.Slice(text, s.Start, s.Start+s.Len)
+				let name = fs.Clone(text[s.Start : s.Start+s.Len])
 				let had = match total.Get(name) {
 				case Some[Stats] as v:
 					v.Value

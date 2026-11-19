@@ -1,0 +1,29 @@
+import ergo.dev/fluid/token
+
+// Chip is the look of a small label in a hue (a badge): its box, the dot an outlined chip
+// starts with, and its label.
+type Chip { Root Look, Dot Look, Label Look }
+
+// ChipLook is a chip of hue h: filled with a tint of the hue, or outlined with a dot of it.
+func ChipLook(h token.Hue, outline bool, d token.Density) Chip {
+	let (size, line) = token.TextPx(token.Caption, d)
+	let mut root = []Decl{Display{V: InlineFlex}, Items{V: Center}, Shrink{V: 0}, Height{V: Px{N: line + 8}}, PadLeft{Px: 10}, PadRight{Px: 10}, FontPx{V: size}, LinePx{V: line}, Nowrap}
+	for x in Gap(6) {
+		root = root.Append(x)
+	}
+	for x in Round(Outer{R: token.Medium}) {
+		root = root.Append(x)
+	}
+	if outline {
+		for x in Edge(1, token.Line) {
+			root = root.Append(x)
+		}
+	} else {
+		root = root.Append(Fill{V: token.TintFill{H: h}})
+	}
+	let mut dot = []Decl{Width{V: Px{N: 7}}, Height{V: Px{N: 7}}, Shrink{V: 0}, Fill{V: token.TintDot{H: h}}}
+	for x in Round(Circle) {
+		dot = dot.Append(x)
+	}
+	Chip{Root: Plain(root), Dot: Plain(dot), Label: Plain([]Decl{Trim})}
+}

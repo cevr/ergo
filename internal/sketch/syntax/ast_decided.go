@@ -1,5 +1,7 @@
 package syntax
 
+import "strconv"
+
 // ---------------------------------------------------------------- decided-grammar nodes (#196)
 
 // ExternSpec is the binding of an extern declaration: `extern go
@@ -25,6 +27,19 @@ func (s *ExternSpec) SplitMethod() (path, typ, name string) {
 	rest, name := splitTarget(s.Target.Value)
 	path, typ = splitTarget(rest)
 	return path, typ, name
+}
+
+// RuntimeModule is the Go module path of the Ergo runtime. An extern type
+// whose target is in it names the runtime Go type of an Ergo declaration
+// (docs/spec/stdlib.md, The body contract), which the checker checks as
+// Ergo, so it may refine its type with where; any other extern type is a
+// binding's host type, which Go checks nothing on.
+const RuntimeModule = "ergo.local/prototype/runtime"
+
+// IsRuntimeTarget reports whether the import path is the runtime module or
+// one of its packages.
+func IsRuntimeTarget(path string) bool {
+	return path == RuntimeModule || len(path) > len(RuntimeModule) && path[:len(RuntimeModule)+1] == RuntimeModule+"/"
 }
 
 // IsBindingDecl reports whether d is a declaration only a Go binding has
@@ -90,6 +105,13 @@ type LawDecl struct {
 	// Body then holds the guard, when there is one, as an ExprStmt, then
 	// Rewrite.Lhs and Rewrite.Rhs, so a walk of Body sees every name.
 	Rewrite *LawRewrite
+	// Equation is the rewrite form of a top-level law over functions
+	// (types.md, Laws 14; LAWFFI LF6a): `law L(params) { lhs } == { rhs
+	// }`, each side one expression, or nil. Body then holds one statement,
+	// `lhs == rhs` (a BinaryExpr at Equation.Eq), so the law is checked,
+	// run and lowered as the property it states; EquationSides gives the
+	// sides, and the formatter prints the two blocks.
+	Equation *LawEquation
 	// Derived is the refined type whose `where` the parser derived this
 	// law from (refine.go), or nil for a written one. The formatter does
 	// not print it.
@@ -116,6 +138,21 @@ func (*LawDecl) declNode() {}
 type LawRewrite struct {
 	When Pos
 	Eq   Pos
+}
+
+// LawEquation is the rewrite form of a top-level law (LawDecl.Equation):
+// the braces of its two blocks. The == is the BinaryExpr of the law's
+// Body.
+type LawEquation struct {
+	LhsLbrace, LhsRbrace Pos
+	RhsLbrace, RhsRbrace Pos
+}
+
+// EquationSides are the left and right expressions of a top-level rewrite
+// law (LawDecl.Equation), and the == between them.
+func (d *LawDecl) EquationSides() (lhs, rhs Expr, eq *BinaryExpr) {
+	b := d.Body.List[0].(*ExprStmt).X.(*BinaryExpr)
+	return b.X, b.Y, b
 }
 
 // RewriteGuard is the `R() == C` of a rewrite law's `when`, nil without one.
@@ -193,6 +230,30 @@ func (s *AssertStmt) Pos() Pos { return s.Assert }
 func (s *AssertStmt) End() Pos { return s.X.End() }
 func (*AssertStmt) stmtNode()  {}
 
+// SkipStmt is `skip "reason"` (runtime.md, Tests 4): it ends the test or
+// law run it stands in as skipped, with the reason, a string literal.
+// Reason is the literal's source text, quoted, from ReasonPos to
+// ReasonEnd: a literal, not an expression, so no name or value stands in
+// it.
+type SkipStmt struct {
+	Skip      Pos
+	ReasonPos Pos
+	Reason    string
+	ReasonEnd Pos
+}
+
+func (s *SkipStmt) Pos() Pos { return s.Skip }
+func (s *SkipStmt) End() Pos { return s.ReasonEnd }
+
+func (*SkipStmt) stmtNode() {}
+
+// Text is the skip's reason, unquoted; false when the literal does not
+// unquote.
+func (s *SkipStmt) Text() (string, bool) {
+	text, err := strconv.Unquote(s.Reason)
+	return text, err == nil
+}
+
 // VariantSpec is a union variant declared in place: `Authorized{AuthID
 // string}` or `Pending{}`. A variant without members is a bare type name
 // in InterfaceType.Union, never a VariantSpec.
@@ -217,6 +278,20 @@ type AsPattern struct {
 func (x *AsPattern) Pos() Pos { return x.X.Pos() }
 func (x *AsPattern) End() Pos { return x.Name.End() }
 func (*AsPattern) exprNode()  {}
+
+// OrPattern is `P | Q` nested in a case's pattern: a tuple element, a
+// record pattern's field or a parenthesised pattern (FK7a; orpattern.go).
+// It matches when one alternative matches. The parser expands a case
+// whose patterns hold one into the case's list of patterns, so only the
+// formatter reads it (CaseClause.Written, CatchArm.Written).
+type OrPattern struct {
+	Alts []Expr
+	Bars []Pos // the `|` before each alternative after the first
+}
+
+func (x *OrPattern) Pos() Pos { return x.Alts[0].Pos() }
+func (x *OrPattern) End() Pos { return x.Alts[len(x.Alts)-1].End() }
+func (*OrPattern) exprNode()  {}
 
 // InterpolatedString is `"a \(x) b"`. Texts holds the raw source of each
 // literal segment, delimiters included: the head runs from the opening

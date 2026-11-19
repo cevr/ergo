@@ -17,11 +17,36 @@ type ordered interface{ integer | float | ~string }
 // types give the target's wrapping and rounding; the defects Go panics on
 // (an integer divided by zero, a negative shift) are defects here.
 func (in *interp) binop(fr *frame, at syntax.Node, op syntax.Token, a, b Value) (Value, *abrupt) {
+	if x, ok := a.(int64); ok {
+		if y, ok := b.(int64); ok {
+			switch op {
+			case syntax.ADD:
+				return boxInt(x + y), nil
+			case syntax.SUB:
+				return boxInt(x - y), nil
+			case syntax.MUL:
+				return boxInt(x * y), nil
+			case syntax.LSS:
+				return x < y, nil
+			case syntax.LEQ:
+				return x <= y, nil
+			case syntax.GTR:
+				return x > y, nil
+			case syntax.GEQ:
+				return x >= y, nil
+			case syntax.EQL:
+				return x == y, nil
+			case syntax.NEQ:
+				return x != y, nil
+			}
+		}
+	}
 	if in.sym != nil && (symbolic(a) || symbolic(b)) {
 		// A symbolic run takes a term only for + on strings (symbolic.go).
 		_, sa := a.(string)
 		_, sb := b.(string)
 		if op != syntax.ADD || !(sa || stringTerm(a)) || !(sb || stringTerm(b)) {
+			in.sym.blame(a, b)
 			return nil, fr.abrupt(ctlUnsupported, at, nil, frameName(fr)+" computes with a symbol at "+in.siteText(fr, at.Pos()))
 		}
 		if ab := in.charge(fr, at, 1); ab != nil {
@@ -42,7 +67,7 @@ func (in *interp) binop(fr *frame, at syntax.Node, op syntax.Token, a, b Value) 
 			ice("a shift count of %T", b)
 		}
 		if negative {
-			return nil, fr.defect(at, "negative shift amount")
+			return nil, fr.defect(at, "runtime error: negative shift amount")
 		}
 		if v, ok := shift(op, a, n); ok {
 			return v, nil
@@ -51,7 +76,7 @@ func (in *interp) binop(fr *frame, at syntax.Node, op syntax.Token, a, b Value) 
 	}
 	if s, ok := a.(string); ok && op == syntax.ADD {
 		t := b.(string)
-		if ab := in.build(fr, at, int64(len(s))+int64(len(t)), 0, int64(len(s))+int64(len(t))); ab != nil {
+		if ab := in.build(fr, at, byteWork(int64(len(s))+int64(len(t))), 0, int64(len(s))+int64(len(t))); ab != nil {
 			return nil, ab
 		}
 		return s + t, nil
@@ -106,12 +131,12 @@ func intOp[T integer](op syntax.Token, a, b T) (Value, string, bool) {
 		return a * b, "", true
 	case syntax.QUO:
 		if b == 0 {
-			return nil, "integer divide by zero", true
+			return nil, "runtime error: integer divide by zero", true
 		}
 		return a / b, "", true
 	case syntax.REM:
 		if b == 0 {
-			return nil, "integer divide by zero", true
+			return nil, "runtime error: integer divide by zero", true
 		}
 		return a % b, "", true
 	case syntax.AND:

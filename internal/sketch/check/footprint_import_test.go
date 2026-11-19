@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 	v1 "ergo.local/prototype/runtime/v1"
 )
@@ -34,7 +34,7 @@ func footprintDecls() string {
 	var b strings.Builder
 	b.WriteString("import task\n\n")
 	for i := range footprintCaps {
-		fmt.Fprintf(&b, "type C%d { Get%d() int }\n\ntype M%d {}\n\nfunc Get%d(_ M%d) int { %d }\n\n", i, i, i, i, i, i)
+		fmt.Fprintf(&b, "type C%d { Get%d() int }\n\ntype M%d {} implements C%d\n\nfunc Get%d(_ M%d) int { %d }\n\n", i, i, i, i, i, i, i)
 		if i > 0 {
 			fmt.Fprintf(&b, "func Use%d() M%d needs C0 {\n\tlet _ = C0.Get0()\n\tM%d\n}\n\n", i, i, i)
 		}
@@ -242,7 +242,7 @@ var contextFootprints = []string{
 // a footprint under the seam.
 func pureTaskSeam(t *testing.T) (restore func()) {
 	t.Helper()
-	for _, path := range std.Packages() {
+	for _, path := range stdlib.Packages() {
 		if _, err := check.Std.Import(path); err != nil {
 			t.Fatalf("check.Std.Import(%q): %v", path, err)
 		}
@@ -304,7 +304,7 @@ func checkFootprintPackage(t *testing.T, path, src string, imp check.Importer) *
 func stdPureTaskBodies(t *testing.T) []string {
 	t.Helper()
 	var out []string
-	for _, path := range std.Packages() {
+	for _, path := range stdlib.Packages() {
 		pkg, err := check.Std.Import(path)
 		if err != nil {
 			t.Fatalf("check.Std.Import(%q): %v", path, err)

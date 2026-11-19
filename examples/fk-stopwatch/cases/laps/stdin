@@ -1,0 +1,17 @@
+# start, run 1.234s, stop between two ticks: the stop reads the clock, 1.234s
+@0 start
+@1234 stop
+# a stop while stopped is ignored
+@1500 stop
+# start again from 1.234s; a start while running keeps the run going
+@2000 start
+@2005 start
+# 1.234s + 0.777s
+@2777 stop
+@3000 reset
+@3000 start
+# a stop at the very time of a tick is stepped before it, and reads 0.1s
+@3100 stop
+@3500 start
+# shown at the last tick, 65430: 0.1s + 61.93s
+@65432 end

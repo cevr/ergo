@@ -98,8 +98,8 @@ func StepID[S, E](l Ledger[S, E], kind string) CommandID { CommandID("#\(kind)@\
 // actor.StartDurable takes. Sig is the actor's signal, which save does
 // not read.
 type Store[S, Sig, E] {
-	Recover escaping func() Option[Ledger[S, E]] fails Conflict | Reused | Unkept,
-	Save    escaping func(prev Ledger[S, E], next Ledger[S, E], sig Sig) fails Conflict | Reused | Unkept,
+	Recover func() Option[Ledger[S, E]] fails Conflict | Reused | Unkept,
+	Save    func(prev Ledger[S, E], next Ledger[S, E], sig Sig) fails Conflict | Reused | Unkept,
 }
 
 // Sourced is the Store of stream on log for an aggregate that starts in
@@ -110,7 +110,7 @@ type Store[S, Sig, E] {
 // the id was reused, the provider could not keep it) is a defect that
 // ends the actor with the state it had (actor.StartDurable), and a
 // restart recovers from the log.
-func Sourced[S, Sig any, E comparable](log Log[E], stream string, initial S, evolve escaping func(s S, e E) S) Store[S, Sig, E] {
+func Sourced[S, Sig any, E comparable](log Log[E], stream string, initial S, evolve own func(s S, e E) S) Store[S, Sig, E] {
 	Store[S, Sig, E]{
 		Recover: func() Option[Ledger[S, E]] fails Conflict | Reused | Unkept {
 			let mut l = Begin[S, E](stream, initial)

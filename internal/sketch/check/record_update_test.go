@@ -90,6 +90,7 @@ var updateCases = []updateCase{
 	{"no field after a comma", `func f(w Walk) Walk { Walk{..w,} }`, []string{"1:23 S108"}},
 	{"a base of another record type", `func f(o Other) Walk { Walk{..o, Turn: 1} }`, []string{"1:31 S108"}},
 	{"a base of the union type", `func f(g Game) Playing { Playing{..g, W: Walk{At: 0, Turn: 0}} }`, []string{"1:36 S108"}},
+	{"a base of a union without the literal's type", `func f(g Game) Walk { Walk{..g, Turn: 1} }`, []string{"1:30 S108"}},
 	{"a field set twice", `func f(w Walk) Walk { Walk{..w, Turn: 1, Turn: 2} }`, []string{"1:42 S108"}},
 	{"an unknown field", `func f(w Walk) Walk { Walk{..w, Nope: 1} }`, []string{"1:33 S104"}},
 	{"a field value of another type", `func f(w Walk) Walk { Walk{..w, Turn: "x"} }`, []string{"1:39 S108"}},
@@ -136,6 +137,10 @@ var updateTexts = map[string]string{
 	// One name from two declarations is not copied, and the fix is the
 	// explicit copy.
 	"a spread from a record of fields declared apart": "Other{..w} does not copy At: Walk's At and Other's At are declared apart, and a spread copies only a field both take from one declaration; write At: w.At",
+	// No variant of Game is a Walk, so no match makes the base one: the
+	// text says the union is not a record (t6-37: it said "may be another
+	// variant").
+	"a base of a union without the literal's type": "has the union type Game, which is not a record",
 }
 
 // TestSpreadAuthority: a spread is a literal of its type, so another

@@ -24,9 +24,9 @@ import filepath
 // it: `context needs TestAmbient { exec.Runner: exec.NewTestHost() }`.
 func NewTestHost() Host needs TestAmbient { Host{root: TestFolder()} }
 
-extern go ergo.local/prototype/runtime/v1.ExecConfine func confine(root string, dir string, args []string) string fails Denied
+extern go ergo.local/prototype/runtime/v1/exec.ExecConfine func confine(root string, dir string, args []string) string fails Denied
 
-extern go ergo.local/prototype/runtime/v1.ExecConfineSink func confineSink(root string, path string) string fails Denied
+extern go ergo.local/prototype/runtime/v1/exec.ExecConfineSink func confineSink(root string, path string) string fails Denied
 
 // testEnv is env with HOME and TMPDIR the folder root and
 // GIT_CEILING_DIRECTORIES its parent, so git finds no repository above
@@ -49,9 +49,9 @@ func runConfined(h Host, c Command) Result fails NotFound | Denied | Failed {
 	try hostRunIn(h.root, c.Name, c.Args, testEnv(h.root, c.Env), dir, c.Stdin, c.Grace)
 }
 
-extern go ergo.local/prototype/runtime/v1.ExecRunIn func hostRunIn(root string, name string, args []string, env Map[string, string], dir string, stdin string, grace duration) Result fails NotFound | Denied | Failed
+extern go ergo.local/prototype/runtime/v1/exec.ExecRunIn func hostRunIn(root string, name string, args []string, env Map[string, string], dir string, stdin string, grace duration) Result fails NotFound | Denied | Failed
 
-extern go ergo.local/prototype/runtime/v1.ExecStartIn func hostStartIn(root string, name string, args []string, env Map[string, string], dir string, stdin string, grace duration, outKind int, outPath string, outAppend bool, errKind int, errPath string, errAppend bool) Running fails NotFound | Denied | Failed
+extern go ergo.local/prototype/runtime/v1/exec.ExecStartIn func hostStartIn(root string, name string, args []string, env Map[string, string], dir string, stdin string, grace duration, outKind int, outPath string, outAppend bool, errKind int, errPath string, errAppend bool) Running fails NotFound | Denied | Failed
 
 // startConfined starts c in the folder of a test's Host, h, as Start
 // starts it on the host.

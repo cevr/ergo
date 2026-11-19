@@ -3,6 +3,7 @@ import json
 import strconv
 import strings
 import sync
+import utf8
 
 // QueryRepeated is a query that gives Key more than one value where the
 // record's field takes one (a scalar field). A slice field takes them all.
@@ -13,7 +14,13 @@ type QueryRepeated { Key string }
 // %XX an escape; the fields are in key order, and the values of one key
 // in the order they came. A pair with a malformed escape is dropped, as
 // Go's Request.URL.Query drops it.
-extern go ergo.local/prototype/runtime/v1.HTTPParseQuery func ParseQuery(raw string) []Field
+extern go ergo.local/prototype/runtime/v1/http.HTTPParseQuery func ParseQuery(raw string) []Field
+
+// EncodeQuery is the raw query of fields ("a=1&b=+x"), in their order,
+// each name and value escaped as Go's url.QueryEscape does: the query a
+// Client sends for a Request's Query, for a URLRequest's URL. ParseQuery
+// reads it back as the same fields, in key order.
+extern go ergo.local/prototype/runtime/v1/http.HTTPEncodeQuery func EncodeQuery(fields []Field) string
 
 // DecodeQuery reads a T from query fields through the derived codec
 // (types.md, Codecs), as json.Decode reads one from a text, so a query
@@ -27,7 +34,7 @@ extern go ergo.local/prototype/runtime/v1.HTTPParseQuery func ParseQuery(raw str
 // the key as Path. A query value has no object form, so a field of a
 // record or union type fails WireWrongKind. Booleans are "true" and
 // "false"; numbers are Go's decimal spellings.
-func DecodeQuery[T wire](fields []Field) T fails QueryRepeated | wired[T] {
+func DecodeQuery[T wire](fields []Field) T fails QueryRepeated | wired[T] needs wired[T] {
 	let r = queryReaderOf(fields)
 	try decode[T](r) catch {
 	case WireWrongKind as w:
@@ -128,6 +135,25 @@ func Number(r queryReader) string fails WireWrongKind {
 }
 
 func String(r queryReader) string fails WireWrongKind { try value(r, "a string") }
+
+// StringBytes is into with the bytes of the string String reads (GX12).
+func StringBytes(r queryReader, into []byte) []byte fails WireWrongKind { appendText(into, try String(r)) }
+
+// QueryStringBytesReadsString: the query reader's StringBytes adds to into
+// the bytes String reads of the same key's value (GX12b).
+law QueryStringBytesReadsString(s string, pre []byte) {
+	let a = queryReaderOf([]Field{Field{Name: "k", Value: s}})
+	let b = queryReaderOf([]Field{Field{Name: "k", Value: s}})
+	try a.BeginObject()
+	try b.BeginObject()
+	let _ = a.Key()
+	let _ = b.Key()
+	let got = try a.StringBytes(pre)
+	utf8.String(got) == utf8.String(pre)+try b.String()
+}
+
+// appendText is Go's append(into, s...).
+extern go append func appendText(into []byte, s string) []byte
 
 func Bool(r queryReader) bool fails WireWrongKind {
 	let path = Path(r)

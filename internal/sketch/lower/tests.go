@@ -87,21 +87,38 @@ type testLowering struct {
 	// posts are the unit's post laws that run from drawn reached states
 	// (Unit.Posts, postRun).
 	posts []*check.Law
+	// importLaws are the imported packages' law runs the build runs
+	// beside the root's (Unit.ImportLaws).
+	importLaws []check.LawRun
 }
 
 // LowerTests lowers the checked unit to the Go module of its test binary:
 // the package as Lower lowers it, each test as a Go function, and a main
 // that runs the tests (see Test mode). It takes the unit Lower takes.
 func LowerTests(u Unit) ([]File, error) {
-	if err := u.Validate(); err != nil {
-		return nil, err
-	}
-	l := newBuildLowerer(u, &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}, instances: u.Instances, posts: u.Posts})
-	code, err := l.program()
+	code, assets, err := lowerTestParts(u)
 	if err != nil {
 		return nil, err
 	}
-	return append(moduleFiles(u.Go, code), l.assetFiles()...), nil
+	return append(moduleFiles(u.Go, code), assets...), nil
+}
+
+// lowerTestParts is the test build's main.go and its embedded assets.
+func lowerTestParts(u Unit) ([]byte, []File, error) {
+	if err := u.Validate(); err != nil {
+		return nil, nil, err
+	}
+	l := newTestLowerer(u)
+	code, err := l.program()
+	if err != nil {
+		return nil, nil, err
+	}
+	return code, l.assetFiles(), nil
+}
+
+// newTestLowerer is the lowerer of u's test binary.
+func newTestLowerer(u Unit) *lowerer {
+	return newBuildLowerer(u, &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}, instances: u.Instances, posts: u.Posts, importLaws: u.ImportLaws})
 }
 
 // testHelpers are the harness's package-scope entities: key and preferred
@@ -112,7 +129,7 @@ var testHelpers = []struct{ key, base string }{
 	{"Case", "ergoCase"}, {"Asserted", "ergoAsserted"}, {"Where", "ergoWhere"},
 	{"Rand", "ergoRand"}, {"NewRand", "ergoNewRand"},
 	{"GenSlice", "ergoGenSlice"}, {"GenMap", "ergoGenMap"},
-	{"GenIn", "ergoGenIn"}, {"GenStrLen", "ergoGenStrLen"}, {"GenSliceLen", "ergoGenSliceLen"},
+	{"GenIn", "ergoGenIn"}, {"GenStrLen", "ergoGenStrLen"}, {"GenMatch", "ergoGenMatch"}, {"GenSliceLen", "ergoGenSliceLen"},
 	{"LitFloat", "ergoLitFloat"}, {"LitComplex", "ergoLitComplex"},
 	{"LitDuration", "ergoLitDuration"}, {"LitEntries", "ergoLitEntries"},
 	{"Seed", "ergoSeed"}, {"Tests", "ergoTests"}, {"Only", "ergoOnly"}, {"Want", "ergoWant"},
@@ -123,7 +140,9 @@ var testHelpers = []struct{ key, base string }{
 	{"States", "ergoStates"}, {"explore", "explore"}, {"Verdict", "ergoVerdict"}, {"Program", "ergoProgram"},
 	{"Goal", "ergoGoal"}, {"Witness", "ergoWitness"}, {"Broken", "ergoBroken"}, {"testgen", "testgen"},
 	{"Flag", "ergoFlag"}, {"Source", "ergoSource"}, {"Replay", "ergoReplay"},
+	{"Cached", "ergoCached"}, {"CachedRun", "ergoCachedRun"},
 	{"TestAmbient", "ergoTestAmbient"},
+	{"SkipOf", "ergoSkipOf"}, {"Skipping", "ergoSkipping"}, {"Skipped", "ergoSkipped"}, {"Skippable", "ergoSkippable"}, {"SkipRun", "ergoSkipRun"}, {"SkipNow", "ergoSkipNow"}, {"SkipNote", "ergoSkipNote"},
 }
 
 // helper is the Go name of the harness entity key.
@@ -217,10 +236,29 @@ func (l *lowerer) nameTests() {
 				if _, lt, rt, shown := l.assertShown(a.X); shown {
 					reserveLit(lt)
 					reserveLit(rt)
+					if l.ir != nil {
+						l.pkgName(assertShowKey(a), "ergoAssertShow") // ir_assert.go
+					}
 				}
 			}
 			return true
 		})
+	}
+	if l.ir != nil {
+		l.pkgName(refutedKey, "ergoLawRefuted") // ir_assert.go
+		// A law's asserts may take a helper in the IR too: each is named,
+		// since a law of another package is shown under its own Info.
+		for _, r := range l.runLaws() {
+			if r.Law == nil {
+				continue
+			}
+			syntax.Inspect(r.Law.Decl, func(n syntax.Node) bool {
+				if a, ok := n.(*syntax.AssertStmt); ok {
+					l.pkgName(assertShowKey(a), "ergoAssertShow")
+				}
+				return true
+			})
+		}
 	}
 }
 
@@ -316,9 +354,25 @@ func (l *lowerer) testFunc(t *check.Test) string {
 // runs (check.Package.LawRuns), its own laws and the laws of its imports
 // bound to providers it is the least package to see, in canonical order,
 // as runTests are its tests (Laws). A law that does not run (Law.Unrun) is
-// reported as skipped and has no body in the build.
+// reported as skipped and has no body in the build. A rewrite check's
+// build runs the imported packages' runs it was given after them
+// (Unit.ImportLaws), each law once.
 func (l *lowerer) runLaws() []check.LawRun {
-	return l.canon.lawRuns(l.pkg)
+	runs := l.canon.lawRuns(l.pkg)
+	if l.tests == nil || len(l.tests.importLaws) == 0 {
+		return runs
+	}
+	seen := map[*check.Law]bool{}
+	for _, r := range runs {
+		seen[r.Law] = true
+	}
+	for _, r := range l.tests.importLaws {
+		if !seen[r.Law] {
+			seen[r.Law] = true
+			runs = append(runs, r)
+		}
+	}
+	return runs
 }
 
 // lawLowered reports whether the build lowers the run's law: it runs and
@@ -382,29 +436,13 @@ func (l *lowerer) lawTitle(law *check.Law) string {
 // with its package's name before it when it is of another package than
 // the one under test.
 func (l *lowerer) providerTitle(p check.LawProvider) string {
-	if pkg := p.Type.Obj.Pkg; pkg != nil && pkg != l.pkg {
-		return pkg.Name + "." + p.Type.Obj.Name
-	}
-	return p.Type.Obj.Name
+	return providerTitleIn(l.pkg, p)
 }
 
-// bindingLabel is the report's name of a run of law with the binding b:
-// `law T.L for P` for a member law's owner, then `with x = P` for each
-// parameter of an operation type.
+// bindingLabel is the report's name of a run of law with the binding b
+// (BindingLabel).
 func (l *lowerer) bindingLabel(law *check.Law, b []check.LawProvider) string {
-	label := "law " + l.lawTitle(law)
-	var with []string
-	for k, s := range law.Slots {
-		if s.Param < 0 {
-			label += " for " + l.providerTitle(b[k])
-			continue
-		}
-		with = append(with, law.Params[s.Param].Name+" = "+l.providerTitle(b[k]))
-	}
-	if len(with) > 0 {
-		label += " with " + strings.Join(with, ", ")
-	}
-	return label
+	return BindingLabel(l.pkg, law, b)
 }
 
 func (l *lowerer) lawFunc(law *check.Law) string {
@@ -496,11 +534,24 @@ func (l *lowerer) lawDecl(law *check.Law) {
 		head += fc.resultList(result, true)
 	}
 	fc.depth = 1
+	// LowerIR and CensusIR only (ir.go): a body in the IR builder's subset
+	// leaves its Go declaration without a body (ir_assert.go).
+	if l.ir != nil && l.ir.lawBody(fc, law, l.lawFunc(law), needsFrame) {
+		if sourced {
+			l.user.WriteString(l.directive(d))
+		}
+		l.user.WriteString(head + "\n\n")
+		return
+	}
 	if needsFrame {
 		fc.site = d
 		fc.openFrame(frameErr)
 	}
 	fc.entryPoll(l.info, d)
+	// The value rule decides a law body's copies as it does a function's
+	// or a test's: unanalyzed, `let mut y = x` would share x (the
+	// law-body copy bug, corpus wave HP).
+	l.analyzeValues(d, l.info)
 	fc.body(d.Body.List)
 	if sourced {
 		l.user.WriteString(l.directive(d))
@@ -556,15 +607,21 @@ func (l *lowerer) testDecl(d *syntax.TestDecl) {
 	} else {
 		head += fc.resultList(nil, true)
 	}
+	fc.depth = 1
+	l.analyzeValues(d, l.info)
+	// LowerIR and CensusIR only (ir.go): a body in the IR builder's subset
+	// leaves its Go declaration without a body (ir_assert.go).
+	if l.ir != nil && l.ir.testBody(fc, d, l.testFunc(t), t.Params, needsFrame) {
+		l.user.WriteString(l.directive(d) + head + "\n\n")
+		return
+	}
 	l.user.WriteString(l.directive(d))
 	l.user.WriteString(head + " {\n")
-	fc.depth = 1
 	if needsFrame {
 		fc.site = d
 		fc.openFrame(frameErr)
 	}
 	fc.entryPoll(l.info, d)
-	l.analyzeValues(d, l.info)
 	fc.body(d.Body.List)
 	l.user.WriteString(fc.out.String())
 	l.user.WriteString("}\n\n")
@@ -583,20 +640,23 @@ func (fc *funcCtx) assert(s *syntax.AssertStmt) {
 	if x, lt, rt, ok := fc.l.assertShown(s.X); ok {
 		// A try that starts the assert covers the whole comparison: its
 		// operands are lowered under it, as (try a) == b lowers a (q105).
-		inTry := tried(s.X) != s.X
-		if inTry {
-			fc.tries++
-		}
-		cond, text = fc.assertCompare(x, lt, rt, text)
-		if inTry {
-			fc.tries--
-		}
+		cond, text = fc.underTriedAssert(s.X, func() (string, string) { return fc.assertCompare(x, lt, rt, text) })
 	} else {
 		cond = fc.value(s.X)
 	}
 	fc.line("if !(" + cond + ") {")
 	fc.line("\t" + fc.l.helper("AssertFail") + "(" + strconv.Quote(fc.l.siteText(s)) + ", " + text + ")")
 	fc.line("}")
+}
+
+// skip lowers `skip "reason"` in the test build: the harness's $SkipNow,
+// which ends the run ($Try). The run build never meets one, as for assert.
+func (fc *funcCtx) skip(s *syntax.SkipStmt) {
+	if fc.l.tests == nil {
+		ice(s, "a skip reached the run build, which lowers no test or law body")
+	}
+	why, _ := s.Text()
+	fc.line(fc.l.helper("SkipNow") + "(" + strconv.Quote(why) + ")")
 }
 
 // assertCompare lowers the comparison x of an assert whose operands the
@@ -750,6 +810,9 @@ func (l *lowerer) testEntry(b *strings.Builder) {
 	seed := locals.alloc("seed")
 	b.WriteString("func main() {\n")
 	b.WriteString("\t" + seed + " := " + l.helper("Seed") + "()\n")
+	// The harness writes its report through Go's os.Stdout, so a test's
+	// host output stays direct and in order with it (stdlib.md io 11).
+	b.WriteString("\t" + rt + ".StdoutDirect()\n")
 	b.WriteString("\t" + rt + ".Main(" + l.rootTask(locals, "error", nil, func(env string) string {
 		s := l.initSlot(env)
 		return s + "\t\treturn " + l.helper("Tests") + "(" + env + ", " + seed + ")\n"
@@ -823,7 +886,7 @@ func (l *lowerer) testRunner() string {
 	b.WriteString("\tif !" + picked + " {\n")
 	for _, t := range tests {
 		b.WriteString("\tif " + want + "(" + strconv.Quote(t.Name) + ") {\n\t" + total + "++\n")
-		l.testRun(&b, t, scope, env, seed, failed)
+		l.skippable(&b, func() { l.testRun(&b, t, scope, env, seed, failed) })
 		b.WriteString("\t}\n")
 	}
 	b.WriteString("\t}\n")
@@ -849,6 +912,7 @@ func (l *lowerer) testRunner() string {
 	b.WriteString("\tif " + picked + " && !" + matched + " {\n")
 	b.WriteString("\t\t" + fmtPkg + ".Println(\"FAIL no law \" + " + pick + " + \" in this package (--law)\")\n")
 	b.WriteString("\t\treturn " + fmtPkg + ".Errorf(\"no law %s\", " + pick + ")\n\t}\n")
+	b.WriteString("\t" + total + ", " + skips + " = " + total + " - " + l.helper("Skipped") + ", " + skips + " + " + l.helper("Skipped") + "\n")
 	b.WriteString("\t" + shown + " := \"\"\n")
 	b.WriteString("\tif " + skips + " > 0 {\n\t\t" + shown + " = \", \" + " + conv + ".Itoa(" + skips + ") + \" skipped\"\n\t}\n")
 	b.WriteString("\tif " + failed + " > 0 {\n")
@@ -960,7 +1024,7 @@ func lawSlotParam(law *check.Law, i int) bool {
 // assert fails it as a test's case does.
 func (l *lowerer) lawRuns(b *strings.Builder, lr check.LawRun, scope *namer, env, seed, failed string) {
 	law := lr.Law
-	fmtPkg, conv := l.helper("fmt"), l.helper("strconv")
+	fmtPkg := l.helper("fmt")
 	title := l.lawTitle(law)
 	if law.Unrun != "" {
 		b.WriteString("\t" + fmtPkg + ".Println(" + strconv.Quote("skip law "+title+": "+law.Unrun) + ")\n")
@@ -1002,15 +1066,41 @@ func (l *lowerer) lawRuns(b *strings.Builder, lr check.LawRun, scope *namer, env
 	}
 	at := strconv.Quote(l.siteText(law.Decl))
 	for _, tg := range targets {
+		// A run whose verdict ergo test found in its store (--cached;
+		// lawcache) prints that verdict, marked, and does not run.
+		b.WriteString("\tif !" + l.helper("CachedRun") + "(" + strconv.Quote(tg.label) + ") {\n")
+		l.skippable(b, func() { l.lawTarget(b, law, tg.label, tg.b, scope, env, seed, failed, at) })
+		b.WriteString("\t}\n")
+	}
+}
+
+// skippable writes the run run writes into b inside a function that
+// $Skippable calls: a skip in the run's body ends the run there
+// (runtime.md, Tests 4), after $Case or $Prop printed its skip line, and
+// the runner goes on with the next run.
+func (l *lowerer) skippable(b *strings.Builder, run func()) {
+	b.WriteString("\t" + l.helper("Skippable") + "(func() {\n")
+	run()
+	b.WriteString("\t})\n")
+}
+
+// lawTarget writes the run of law with the binding bd, reported as label.
+func (l *lowerer) lawTarget(b *strings.Builder, law *check.Law, label string, bd []check.LawProvider, scope *namer, env, seed, failed, at string) {
+	fmtPkg, conv := l.helper("fmt"), l.helper("strconv")
+	tg := struct {
+		label string
+		b     []check.LawProvider
+	}{label, bd}
+	{
 		if law.Rewrite != nil {
 			l.rewriteRuns(b, law, tg.label, tg.b[0], scope, env, seed, failed, at)
-			continue
+			return
 		}
 		plan := testplan.Law(law, tg.b)
 		// One rule for every law (Listed laws): a run whose values can
 		// all be listed takes each once and is proved; else it draws.
 		if l.listedRuns(b, law, tg.label, tg.b, scope, env, failed) {
-			continue
+			return
 		}
 		inner := newNamer(scope)
 		r, ok, i := inner.alloc("r"), inner.alloc("ok"), inner.alloc("i")
@@ -1059,6 +1149,11 @@ func (l *lowerer) lawRuns(b *strings.Builder, lr check.LawRun, scope *namer, env
 				shown = append(shown, strconv.Quote(sep+name+" = "), l.litExpr(p.Type, pv, law.Decl))
 			}
 			sep = ", "
+			if p.Ptr {
+				// A borrow provider: its operations take *P, so the run
+				// binds the address of the case's P (types.md, Laws 10).
+				return fc.convert(p.Conv, "&"+pv, law.Decl)
+			}
 			return fc.lawProvider(p, pv, law.Decl)
 		}
 		args := []string{"&" + e}
@@ -1290,6 +1385,8 @@ func $Case(t *$Task.Task, name, at string, args func() string, body func() error
 	case 3:
 		$fmt.Println("FAIL " + name + $Where(args) + ": a defect, which stops the run")
 		$Runtime.Raise(exit)
+	case 4:
+		$Skipping(name, msg)
 	}
 	$fmt.Println("FAIL " + name + $Where(args) + ": " + msg)
 	return false
@@ -1298,7 +1395,8 @@ func $Case(t *$Task.Task, name, at string, args func() string, body func() error
 // $Try runs one case's body on the task t and says how it ended, printing
 // nothing: kind 0 when it held, 1 for a failed assert or a refuted law
 // (msg is the assert's text), 2 for a typed failure that escaped the body
-// declared at at, 3 for any other exit (a defect), which exit holds. A
+// declared at at, 4 for a skip (msg is its reason), 3 for any other
+// exit (a defect), which exit holds. A
 // body that held a Script call and never released it fails with kind 1
 // and the report that names the Script and the operation (stdlib.md,
 // Testing 12); every exit empties the report for the next case.
@@ -1315,6 +1413,10 @@ func $Try(t *$Task.Task, at string, body func() error) (msg string, kind int, ex
 		exit = $Runtime.Capture(t, recover())
 		if a, failed := $Asserted(exit); failed {
 			msg, kind, exit = a.String(), 1, nil
+			return
+		}
+		if why, skipped := $SkipOf(exit); skipped {
+			msg, kind, exit = why, 4, nil
 			return
 		}
 		kind = 3
@@ -1349,6 +1451,8 @@ func $Prop(t *$Task.Task, name, at string, r *$Rand, draw func() (func() string,
 	case 3:
 		$fmt.Println("FAIL " + name + $Where(args) + ": a defect, which stops the run")
 		$Runtime.Raise(exit)
+	case 4:
+		$Skipping(name, msg)
 	}
 	drawn := r.stream.Tape()
 	replay := func(c []uint64) (func() string, string, int) {
@@ -1516,6 +1620,63 @@ func $Asserted(exit error) (first $Assertion, failed bool) {
 	return first, failed
 }
 
+// $SkipNote is the panic of skip "reason" (runtime.md, Tests 4), which
+// $SkipNow raises: it ends its case, and $Try reads it as a skip.
+type $SkipNote struct{ why string }
+
+// $SkipNow is skip "reason": it ends the running case as skipped.
+func $SkipNow(why string) { panic($SkipNote{why: why}) }
+
+// $SkipOf is the reason of the skip that ended a case, when every reason
+// of exit is that skip (a with's release that failed beside it is a
+// defect, which stops the run).
+func $SkipOf(exit error) (why string, skipped bool) {
+	c, isCause := exit.(*$Task.Cause)
+	if !isCause || c == nil || len(c.Reasons) != 1 || c.Reasons[0].Kind != $Task.KindDefect {
+		return "", false
+	}
+	v := c.Reasons[0].Value
+	if p, isPanic := v.(*$Runtime.Panic); isPanic {
+		v = p.Value
+	}
+	s, isSkip := v.($SkipNote)
+	return s.why, isSkip
+}
+
+// $Skipped counts the runs a skip ended (runtime.md, Tests 4): the
+// summary counts each as a skip, not as a test.
+var $Skipped int
+
+// $SkipRun is the panic that carries a skipped run from its case to the
+// run's $Skippable.
+type $SkipRun struct{}
+
+// $Skipping ends the run name, a case of which skip ended with
+// why: it prints the skip line, records a law run's receipt entry as
+// skipped, and unwinds to the run's $Skippable, so the rest of its cases
+// do not run and no ok or FAIL line follows.
+func $Skipping(name, why string) {
+	$fmt.Println("skip " + name + ": " + why)
+	if $strings.HasPrefix(name, "law ") {
+		$Record(name, nil, why)
+	}
+	$Skipped++
+	panic($SkipRun{})
+}
+
+// $Skippable runs one test's or one law run's code, which a skip
+// ends early ($Skipping); any other panic goes on.
+func $Skippable(run func()) {
+	defer func() {
+		if p := recover(); p != nil {
+			if _, skipped := p.($SkipRun); !skipped {
+				panic(p)
+			}
+		}
+	}()
+	run()
+}
+
 func $Where(args func() string) string {
 	if args == nil {
 		return ""
@@ -1627,6 +1788,76 @@ func $GenStrLen(r *$Rand, n int) string {
 	return r.stream.StrLen(n)
 }
 
+// $GenMatch is a string of n bytes that a refinement's pattern matches
+// (types.md, Refinements 11): the walk of check.Matcher.Generate over the
+// automaton's edges {lo, hi, to} and accepting states. Each step takes an
+// edge and a UTF-8 width that still reach an accepting state in the bytes
+// left, each pair as likely, then a rune of that width on the edge: half
+// the time printable ASCII when the edge has some.
+func $GenMatch(r *$Rand, n int, edges [][][3]int32, accept []bool) string {
+	bands := [5][][2]int32{nil, {{0, 0x7F}}, {{0x80, 0x7FF}}, {{0x800, 0xD7FF}, {0xE000, 0xFFFF}}, {{0x10000, 0x10FFFF}}}
+	width := func(lo, hi int32, w int) [][2]int32 {
+		var out [][2]int32
+		for _, b := range bands[w] {
+			if l, h := max(lo, b[0]), min(hi, b[1]); l <= h {
+				out = append(out, [2]int32{l, h})
+			}
+		}
+		return out
+	}
+	reach := make([][]bool, n+1)
+	reach[0] = append([]bool(nil), accept...)
+	for k := 1; k <= n; k++ {
+		reach[k] = make([]bool, len(edges))
+		for q := range edges {
+			for _, e := range edges[q] {
+				for w := 1; w <= 4 && w <= k && !reach[k][q]; w++ {
+					reach[k][q] = reach[k-w][e[2]] && len(width(e[0], e[1], w)) > 0
+				}
+			}
+		}
+	}
+	var b []rune
+	q := 0
+	for left := n; left > 0; {
+		type option struct {
+			e [3]int32
+			w int
+		}
+		var ok []option
+		for _, e := range edges[q] {
+			for w := 1; w <= 4 && w <= left; w++ {
+				if reach[left-w][e[2]] && len(width(e[0], e[1], w)) > 0 {
+					ok = append(ok, option{e, w})
+				}
+			}
+		}
+		o := ok[r.intn(len(ok))]
+		spans := width(o.e[0], o.e[1], o.w)
+		var c int32
+		if lo, hi := max(spans[0][0], 0x20), min(spans[0][1], 0x7e); len(spans) == 1 && lo <= hi && r.intn(2) == 0 {
+			c = lo + int32(r.intn(int(hi-lo+1)))
+		} else {
+			total := 0
+			for _, s := range spans {
+				total += int(s[1] - s[0] + 1)
+			}
+			k := r.intn(total)
+			for _, s := range spans {
+				if size := int(s[1] - s[0] + 1); k >= size {
+					k -= size
+					continue
+				}
+				c = s[0] + int32(k)
+				break
+			}
+		}
+		b = append(b, c)
+		q, left = int(o.e[2]), left-o.w
+	}
+	return string(b)
+}
+
 // $GenSliceLen is a slice of n elements.
 func $GenSliceLen[T any](r *$Rand, d int, n int, elem func(*$Rand, int) T) []T {
 	xs := make([]T, n)
@@ -1727,17 +1958,17 @@ func $Want(name string) bool { return $Only == "" || $Only == name }
 // $Flag is the value of the test binary's flag --name, given as --name V
 // or --name=V, and whether it is given; given twice, the last value
 // counts. The flags are --seed, --states, --law, --skip-law, --run,
-// --source, --receipt and --revision; any other argument, or a flag with
-// no value, is a usage error (exit 2).
+// --source, --receipt, --revision and --cached; any other argument, or a
+// flag with no value, is a usage error (exit 2).
 func $Flag(name string) (string, bool) {
 	value, given := "", false
 	args := $os.Args[1:]
 	for i := 0; i < len(args); i++ {
 		key, v, joined := $strings.Cut(args[i], "=")
 		switch key {
-		case "--seed", "--states", "--law", "--skip-law", "--run", "--source", "--receipt", "--revision":
+		case "--seed", "--states", "--law", "--skip-law", "--run", "--source", "--receipt", "--revision", "--cached":
 		default:
-			$fmt.Fprintln($os.Stderr, "usage: [--seed N] [--states N] [--law NAME] [--skip-law NAME] [--run NAME] [--source PATH] [--receipt FILE] [--revision R], not "+args[i])
+			$fmt.Fprintln($os.Stderr, "usage: [--seed N] [--states N] [--law NAME] [--skip-law NAME] [--run NAME] [--source PATH] [--receipt FILE] [--revision R] [--cached FILE], not "+args[i])
 			$os.Exit(2)
 		}
 		if !joined {
@@ -1763,6 +1994,22 @@ func $Seed() uint64 {
 	$Receipt.path, _ = $Flag("receipt")
 	$Receipt.source, _ = $Flag("source")
 	$Receipt.revision, _ = $Flag("revision")
+	if path, given := $Flag("cached"); given && $Receipt.path == "" {
+		// A receipt lists what ran, so a run that writes one takes no
+		// cached verdict.
+		data, err := $os.ReadFile(path)
+		if err != nil {
+			$fmt.Fprintln($os.Stderr, "usage: --cached FILE: "+err.Error())
+			$os.Exit(2)
+		}
+		$Cached = map[string]string{}
+		for _, line := range $strings.Split(string(data), "\n") {
+			label, quoted, ok := $strings.Cut(line, "\t")
+			if text, err := $strconv.Unquote(quoted); ok && err == nil {
+				$Cached[label] = text
+			}
+		}
+	}
 	v, given := $Flag("seed")
 	if !given {
 		return 1
@@ -1773,6 +2020,27 @@ func $Seed() uint64 {
 		$os.Exit(2)
 	}
 	return n
+}
+
+// $Cached holds the verdicts ergo test found in its store for this run's
+// seed and budget (--cached FILE, one "LABEL\tTEXT" line each, TEXT a Go
+// quoted string; lawcache): the law run LABEL held, with the ok line's
+// TEXT, and after a line break the lines that followed it (a search's
+// run).
+var $Cached map[string]string
+
+// $CachedRun prints the cached verdict of the run label, marked, and
+// reports whether there is one: then the run does not run.
+func $CachedRun(label string) bool {
+	text, ok := $Cached[label]
+	if ok {
+		head, rest, _ := $strings.Cut(text, "\n")
+		if rest != "" {
+			rest = "\n" + rest
+		}
+		$fmt.Println("ok " + label + " (" + head + ") (cached)" + rest)
+	}
+	return ok
 }
 
 // $Source is the source as ergo test was given it (--source), the file or
@@ -1942,6 +2210,16 @@ func (l *lowerer) genRefined(t check.Type, ref *check.Refinement, r, d string, s
 	}
 	if b, ok := under.(*check.Basic); ok {
 		unsigned = b.Kind >= check.Uint && b.Kind <= check.Uintptr
+	}
+	if ref.Pattern != nil {
+		// A pattern (Refinements 11): a length it reaches, then a walk.
+		var lens []string
+		for _, s := range ref.GenLengths(lenCap) {
+			lens = append(lens, "{"+strconv.FormatInt(s[0], 10)+", "+strconv.FormatInt(s[1], 10)+"}")
+		}
+		edges, accept := patternTable(ref.Pattern)
+		n := l.helper("GenIn") + "(" + r + ", [][2]int64{" + strings.Join(lens, ", ") + "})"
+		return tc.goType(t) + "(" + l.helper("GenMatch") + "(" + r + ", int(" + n + "), " + edges + ", " + accept + "))"
 	}
 	var spans []string
 	for _, s := range ref.Spans {

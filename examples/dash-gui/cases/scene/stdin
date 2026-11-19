@@ -1,0 +1,15 @@
+# the view on ui.TestHost: frames of the clock, presses of the panels'
+# buttons (and of a label on no node), the frame's text and a screenshot
+show
+frames 70
+show
+tap toggle 3
+tap policy 5
+tap toggle 12
+frames 1
+show
+frames 200
+tap toggle 4
+frames
+frames 30
+shot

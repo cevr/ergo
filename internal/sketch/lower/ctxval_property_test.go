@@ -35,7 +35,11 @@ func ctxvalProgram(seed uint64) (string, string) {
 	r := rand.New(rand.NewPCG(seed, 0x5c7a))
 	k := 2 + r.IntN(3)
 	var b, decls, body, out strings.Builder
-	b.WriteString("type Box { n int }\n")
+	var impls []string
+	for i := 0; i < k; i++ {
+		impls = append(impls, fmt.Sprintf("C%d", i))
+	}
+	b.WriteString("type Box { n int } implements " + strings.Join(impls, ", ") + "\n")
 	for i := 0; i < k; i++ {
 		fmt.Fprintf(&b, "\n// law-exempt: the property's operation types.\ntype C%d {\n\tGet() int,\n}\n", i)
 	}

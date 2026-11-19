@@ -105,6 +105,15 @@ func TestDirectRebuildsOnEachInput(t *testing.T) {
 	if !first.Direct || first.Compiled != 3 || !first.Linked || !first.Planned {
 		t.Fatalf("cold build: %v", first)
 	}
+	// The compiles and links ran with a HOME under the cache whose
+	// telemetry mode is off, so they wrote no counter file there (and
+	// cmd/ergo's TestPackageNeverWritesUnderHome sees none under HOME).
+	_ = filepath.WalkDir(c.Root, func(p string, e fs.DirEntry, err error) error {
+		if err == nil && strings.HasSuffix(p, filepath.Join("telemetry", "local")) {
+			t.Errorf("the direct path's tools wrote telemetry under the cache: %s", p)
+		}
+		return nil
+	})
 	type row struct {
 		name  string
 		apply func(t *testing.T) build.Toolchain
@@ -211,6 +220,15 @@ func TestDirectRebuildsOnEachInput(t *testing.T) {
 			return tc
 		}, 3, true, false},
 	}
+	// The dev profile (FT5) compiles every package of the module's
+	// directory with other flags: none reuses a release archive
+	// (ft-profile-not-in-key), and the executable is still go build's with
+	// -gcflags=./...=-l -dwarf=false.
+	rows = append(rows, row{"dev profile", func(t *testing.T) build.Toolchain {
+		dev := tc
+		dev.Profile = build.Dev
+		return dev
+	}, 3, true, false})
 	if runtime.GOARCH == "amd64" {
 		rows = append(rows, row{"architecture level", func(t *testing.T) build.Toolchain {
 			t.Setenv("GOAMD64", "v3")

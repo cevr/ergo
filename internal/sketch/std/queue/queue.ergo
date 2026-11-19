@@ -5,15 +5,18 @@
 
 // Closed is the failure of Push on a closed queue and of Pop on a closed,
 // empty one. A closed queue is a normal end of the protocol, not a stop.
-type Closed {}
+extern go ergo.local/prototype/runtime/v1.Closed type Closed {}
+
+// Full is the failure of Offer on a queue with no room now.
+extern go ergo.local/prototype/runtime/v1.Full type Full {}
 
 // Queue is a queue of T with a fixed capacity.
-type Queue[T] {
+extern go ergo.local/prototype/runtime/v1.Queue type Queue[T] {
 	runtimeOnly(),
 	// Push adds v at the back, waiting while the queue is full. It fails
 	// with Closed when the queue is closed, or closes while it waits. It
 	// takes v: a resource moves into the queue (resources R13).
-	Push(v T) fails Closed takes v,
+	Push(v own T) fails Closed,
 	// Pop takes the value at the front, waiting while the queue is open and
 	// empty. It fails with Closed when the queue is closed and empty.
 	Pop() T fails Closed,
@@ -26,16 +29,34 @@ type Queue[T] {
 	// Values pops each value in turn, as a Seq for a for loop: it waits
 	// like Pop and ends when the queue is closed and empty. A break stops
 	// it; the values not yet popped stay in the queue.
+	//
+	// Unbounded: it ends only when another task closes the queue, so a
+	// loop that collects it all waits for that close.
 	Values() Seq[T],
 	// Poll takes the value Pop would take when one is there now, and is
 	// None when there is none, open or closed. It never waits. With
 	// capacity 0 it takes the value of a waiting Push, which then
 	// succeeds.
 	Poll() Option[T],
+	// Offer adds v at the back now, or not at all: it never waits. It fails
+	// with Full when the queue holds its capacity, or when earlier Pushes
+	// still wait for room, and with Closed when the queue is closed. A
+	// producer that must not wait catches Full and drops v (Effect's
+	// dropping strategy: the oldest values stay), or calls Slide. On a
+	// queue of capacity 0 it always fails Full. It takes v, as Push does.
+	Offer(v own T) fails Closed | Full,
+	// Cap is the capacity New gave the queue.
+	Cap() int,
 	// Len is how many values are in the queue that nothing has taken yet,
 	// from 0 to the capacity. The value of a Push that still waits for
 	// room is not counted. It never waits.
 	Len() int,
+	// A queue keeps the values it takes (the prelude's Keeping; resources
+	// R13, Q7): Keeping's drain is its release when its values are
+	// resources. It ends admission, as End does, and gives every value
+	// left, oldest first; the owner's release releases them last entered
+	// first. Only the release calls it; it never waits.
+	..Keeping[T],
 
 	// EndIsIdempotent: a second End returns at once and never fails.
 	law EndIsIdempotent() {

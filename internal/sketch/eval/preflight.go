@@ -21,12 +21,34 @@ func (p *preflight) function(fr *frame, fn *check.Func) string {
 		ice("no resolved callee")
 	}
 	if fn.Decl == nil || fn.Decl.Body == nil || fn.Decl.Extern != nil || fn.Pkg.Host() {
+		// Go's append, at either shape, runs (interp.go callWitnessed).
+		if !fn.Pkg.Host() && nativeOf(fn) != nil || goNativeOf(fn) != nil || check.GoBuiltin(fn) == "append" {
+			return ""
+		}
 		return fmt.Sprintf("a Go function (%s), even a pure one", fn.Name)
 	}
-	if fn.Ptr {
-		return "a call that borrows its receiver"
-	}
 	return p.body(p.in.newFrame(fn.Pkg, fn.Decl), fn.Decl, fn.Decl.Body, nil, nil)
+}
+
+// witnesses is why a function some witness of inst names cannot run, or "".
+func (p *preflight) witnesses(fr *frame, inst *check.Instance) string {
+	if inst == nil {
+		return ""
+	}
+	for _, w := range inst.Witnesses {
+		for _, op := range w.Ops {
+			if op.Func == nil {
+				continue
+			}
+			if why := p.function(fr, op.Func); why != "" {
+				return why
+			}
+			if why := p.witnesses(fr, op.Inst); why != "" {
+				return why
+			}
+		}
+	}
+	return ""
 }
 
 func (p *preflight) body(fr *frame, key syntax.Node, body *syntax.BlockStmt, own *check.Conversion, ops map[*check.Var]check.Conversion) string {
@@ -34,12 +56,11 @@ func (p *preflight) body(fr *frame, key syntax.Node, body *syntax.BlockStmt, own
 		return ""
 	}
 	p.seen[key] = true
-	fp, ok := fr.info.Footprints[key]
-	if !ok {
+	// A capability runs through the provider a with binds (effects.go);
+	// a capability no with of the run binds is skipped at its call. A
+	// task runs on the case's scheduler (sched.go).
+	if _, ok := fr.info.Footprints[key]; !ok {
 		ice("no footprint for the frame at %d", key.Pos())
-	}
-	if len(fp.Caps) > 0 || fp.Tasks {
-		return p.in.impure(fr.pkg, key)
 	}
 	why := ""
 	syntax.Inspect(body, func(n syntax.Node) bool {
@@ -47,25 +68,11 @@ func (p *preflight) body(fr *frame, key syntax.Node, body *syntax.BlockStmt, own
 			return false
 		}
 		mustCharge(p.in, fr, 1)
-		if x, ok := n.(syntax.Expr); ok {
-			if c := fr.info.Implicit[x]; c.Kind != 0 && c.Kind != check.ConvVariant && c.Kind != check.ConvRow {
-				why = "an unsupported implicit operation or machine conversion"
-				return false
-			}
-			for _, c := range fr.info.ImplicitElems[x] {
-				if c.Kind != 0 && c.Kind != check.ConvVariant && c.Kind != check.ConvRow {
-					why = "an unsupported tuple-element conversion"
-					return false
-				}
-			}
-		}
+		// A machine's conversion, alone or a tuple's element, is a value
+		// the run makes (machinevalue.go).
 		switch x := n.(type) {
 		case *syntax.FuncLit:
 			return false // only a known immediately-called literal is reached
-		case *syntax.RangeStmt:
-			if _, ok := fr.rtypeOf(x.X).under().t.(*check.Map); ok {
-				why = "Map iteration has unspecified order"
-			}
 		case *syntax.CallExpr:
 			c := fr.info.Calls[x]
 			if c == nil {
@@ -75,14 +82,31 @@ func (p *preflight) body(fr *frame, key syntax.Node, body *syntax.BlockStmt, own
 				return true
 			}
 			switch c.Kind {
-			case check.CallLen, check.CallConversion:
+			case check.CallLen, check.CallConversion, check.CallPattern, check.CallEmbed, check.CallEncode, check.CallDecode:
 			case check.CallFunc:
-				if inst := fr.info.Instances[x]; inst != nil && len(inst.Witnesses) > 0 {
-					why = "a generic call with unresolved operation witnesses"
+				// Each witnessed operation's function runs where the
+				// callee calls the operation (witness.go).
+				if why = p.witnesses(fr, fr.info.Instances[x]); why != "" {
 					break
 				}
-				if c.Site != nil || x.Trailing != nil {
+				if c.Site != nil {
 					why = "a call with a CallSite or trailing block"
+					break
+				}
+				if x.Trailing != nil {
+					// The block of a native the evaluator runs (task.Go,
+					// scope.OnExit, tasks.Go) is a function of its own.
+					// A function with an Ergo body takes it as its last
+					// argument, a function literal.
+					ergoBody := c.Func.Decl != nil && c.Func.Decl.Body != nil && c.Func.Decl.Extern == nil
+					if !ergoBody && (c.Func.Pkg.Host() || nativeOf(c.Func) == nil) {
+						why = "a call with a CallSite or trailing block"
+						break
+					}
+					why = p.body(fr, x.Trailing, x.Trailing, own, ops)
+					if why == "" && ergoBody && !preludeCollection(c.Func) {
+						why = p.function(fr, c.Func)
+					}
 					break
 				}
 				if !preludeCollection(c.Func) {
@@ -91,9 +115,9 @@ func (p *preflight) body(fr *frame, key syntax.Node, body *syntax.BlockStmt, own
 			case check.CallFuncValue:
 				if lit, ok := unparen(x.Fun).(*syntax.FuncLit); ok {
 					why = p.body(fr, lit, lit.Body, own, ops)
-				} else {
-					why = "an unresolved function value"
 				}
+				// Any other callee is a value, known only when the run
+				// reaches the call (effects.go, callValue).
 			case check.CallOp, check.CallLawOp:
 				conv := own
 				if c.Kind == check.CallOp {
@@ -107,7 +131,8 @@ func (p *preflight) body(fr *frame, key syntax.Node, body *syntax.BlockStmt, own
 					}
 				}
 				if conv == nil {
-					why = "an unresolved operation"
+					// An operation value's provider is known only when
+					// the run reaches the call (effects.go dispatch).
 					break
 				}
 				fn := conv.Table[c.Op.Name]
@@ -115,6 +140,8 @@ func (p *preflight) body(fr *frame, key syntax.Node, body *syntax.BlockStmt, own
 					ice("no checked method for operation %s", c.Op.Name)
 				}
 				why = p.function(fr, fn)
+			case check.CallProviderOp, check.CallWith:
+				// The provider is the nearest with's, known at the run.
 			default:
 				why = fmt.Sprintf("an unsupported call (kind %d)", c.Kind)
 			}
@@ -168,7 +195,19 @@ func (p *preflight) generator(fr *frame, t check.Type, provider *check.LawProvid
 		case *check.Union:
 			children = under.Variants
 		case *check.Interface:
-			return "an operation-type builder without an interpreter adapter"
+			// Drawn by its builder, as the Go build draws it (genBuilt).
+			b := p.in.root.Builder(u)
+			if b == nil {
+				return "an operation type with no builder"
+			}
+			if b.Conv.Kind != 0 && b.Conv.Kind != check.ConvOperations {
+				return "an operation-type builder whose value needs a conversion other than into the type"
+			}
+			if why := p.function(fr, b.Func); why != "" {
+				return why
+			}
+			_, params := b.Instance(u)
+			children = params
 		default:
 			children = []check.Type{under}
 		}

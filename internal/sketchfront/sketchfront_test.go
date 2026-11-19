@@ -16,7 +16,7 @@ import (
 
 	"ergo.local/prototype/internal/report"
 	"ergo.local/prototype/internal/sketch/build"
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 )
 
 // utf16Column counts the UTF-16 code units of text, independently of the
@@ -375,7 +375,7 @@ func TestBuildCachesTheEmittedModule(t *testing.T) {
 	if cold.Reused || out != "one\n" || filepath.Dir(cold.Dir) != filepath.Join(cache, "modules") {
 		t.Fatalf("cold build: reused=%v dir=%s output %q", cold.Reused, cold.Dir, out)
 	}
-	if !strings.Contains(mainGo(cold), "//line "+source+":") {
+	if !strings.Contains(mainGo(cold), "//line main.ergo:") {
 		t.Fatalf("cold module's //line directives do not name %s:\n%s", source, mainGo(cold))
 	}
 	before := snapshotModule(t, cold.Dir)
@@ -390,7 +390,7 @@ func TestBuildCachesTheEmittedModule(t *testing.T) {
 	renamed := filepath.Join(dir, "other.ergo")
 	moved, out := run(renamed, text)
 	if moved.Reused || moved.Dir == cold.Dir || moved.Dir == edit.Dir || out != "one\n" ||
-		!strings.Contains(mainGo(moved), "//line "+renamed+":") || strings.Contains(mainGo(moved), source) {
+		!strings.Contains(mainGo(moved), "//line other.ergo:") || strings.Contains(mainGo(moved), "//line main.ergo:") {
 		t.Fatalf("renamed build: reused=%v dir=%s output %q\n%s", moved.Reused, moved.Dir, out, mainGo(moved))
 	}
 	again, _ := run(source, text)
@@ -414,7 +414,7 @@ func TestStdDependenciesSummariseEveryBundledPackage(t *testing.T) {
 			t.Fatalf("dependency %s has an empty summary", d.Name)
 		}
 	}
-	if want := append([]string{std.PreludePath}, std.Packages()...); !slices.Equal(names, want) {
+	if want := append([]string{stdlib.PreludePath}, stdlib.Packages()...); !slices.Equal(names, want) {
 		t.Fatalf("dependencies %v, want %v", names, want)
 	}
 	base := map[string]string{"a.ergo": "type A {}\n", "b.ergo": "type B {}\n"}

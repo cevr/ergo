@@ -64,11 +64,8 @@ func TestPureBodiesKeepTheAllowlist(t *testing.T) {
 		}
 	}
 	for _, name := range []string{
-		"StringsSplit", "StringsJoin", "StringsHasPrefix", "StringsHasSuffix",
-		"StringsTrimSpace", "StringsTrimPrefix", "StringsTrimSuffix", "StringsFields",
-		"StringsRepeat", "StringsToLower", "StringsToUpper", "StringsIndex",
-		"StringsContains", "StringsSlice", "StrconvItoa", "StrconvAtoi", "StrconvQuote",
-		"TimeFormat", "TimeParse", "TimeSub", "TimeSubMono",
+		"StringsJoin", "StringsSlice", "StrconvAtoi",
+		"TimeFormat", "TimeAppendUTC", "TimeParse", "TimeTruncate", "TimeRound", "TimeSub", "TimeSubMono",
 		"Append", "Get", "Put", // the prelude's collection intrinsics (lw-pure-prelude; Delete binds Go's delete, OPT7)
 	} {
 		if !slices.Contains(marked, name) {
@@ -76,8 +73,8 @@ func TestPureBodiesKeepTheAllowlist(t *testing.T) {
 		}
 	}
 	// A body that is not marked is not pure, whatever its file imports.
-	if b, err := BodyOf("WithCapacity"); err != nil || b.Pure {
-		t.Errorf("BodyOf(WithCapacity) = %+v, %v; want not Pure", b, err)
+	if b, err := BodyOf("Let"); err != nil || b.Pure {
+		t.Errorf("BodyOf(Let) = %+v, %v; want not Pure", b, err)
 	}
 }
 
@@ -168,7 +165,7 @@ func Abbrev(s string) int64 { t, _ := time.Parse("MST", s); return t.Unix() }
 //ergo:pure
 func Waits() { time.Sleep(1) }
 `
-	decls, err := parseDecls(fstest.MapFS{"host.go": {Data: []byte(host)}, "text.go": {Data: []byte(text)}, "clock.go": {Data: []byte(clock)}})
+	decls, err := parseDecls(fstest.MapFS{"host.go": {Data: []byte(host)}, "text.go": {Data: []byte(text)}, "clock.go": {Data: []byte(clock)}}, Path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,7 +239,7 @@ func Marked() string { return helper() }
 //ergo:host
 func Both() int { return 1 }
 `
-	decls, err := parseDecls(fstest.MapFS{"a.go": {Data: []byte(src)}})
+	decls, err := parseDecls(fstest.MapFS{"a.go": {Data: []byte(src)}}, Path)
 	if err != nil {
 		t.Fatal(err)
 	}

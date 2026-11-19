@@ -1,0 +1,42 @@
+seed 7
+# The balls: three presses, frames, a bounce off the left edge. The
+# first frame starts the count: it moves nothing.
+press 300 200
+press 20 30
+press 590 390
+frame 16 x10
+frame 100 x20
+# Paused, the screen asks for no frames and the clock moves nothing; the
+# first frame after play starts the count again.
+click Pause
+frame 16 x5
+click Play
+frame 16 x2
+click Clear
+press 100 100
+frame 16 x3
+# The flow: 45 particles at the start, kept near 55 as they die.
+click Flow
+frame 16 x30
+# A burst of 22, and the pointer swirls the field round it.
+move 480 300
+press 480 300
+frame 16 x20
+# The sliders keep to their range and step.
+strength 9
+scale 0.93
+frame 16 x20
+# Six seconds on: the first particles reach the end of their lives.
+frame 50 x120
+click Pause
+frame 16 x5
+click Play
+frame 16
+# A long frame counts as 50 ms.
+frame 1000
+click Reset
+frame 16 x2
+# Back to the balls: a fresh field, drawing on from the stream.
+click Balls
+press 50 50
+frame 16 x2

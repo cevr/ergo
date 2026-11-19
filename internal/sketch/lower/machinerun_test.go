@@ -47,8 +47,8 @@ type flatGen struct {
 	fields  []string // per variant: "", "t" (a string) or "xs" (a slice)
 	signals int
 	// sigs is, per signal variant, its fields: "" (none), "v" (an int)
-	// or "vt" (an int and a string, which makes most unions too large to
-	// be flat: flatunion.go).
+	// or "vt" (an int and two strings, which makes the union too large to
+	// be flat in either form: flatunion.go).
 	sigs []string
 	boom string // the failure a fallible arm returns
 }
@@ -59,7 +59,7 @@ func (g *flatGen) sigLit(j int, v string) string {
 	case "":
 		return fmt.Sprintf("E%d", j)
 	case "vt":
-		return fmt.Sprintf("E%d{v: %s, t: \"t\"}", j, v)
+		return fmt.Sprintf("E%d{v: %s, t: \"t\", u: \"u\"}", j, v)
 	}
 	return fmt.Sprintf("E%d{v: %s}", j, v)
 }
@@ -204,7 +204,7 @@ func flatRunProgram(seed uint64, k int, reached map[string]bool) (name, src stri
 		case "":
 			sigs = append(sigs, fmt.Sprintf("E%d{}", j))
 		case "vt":
-			sigs = append(sigs, fmt.Sprintf("E%d{ v int, t string }", j))
+			sigs = append(sigs, fmt.Sprintf("E%d{ v int, t string, u string }", j))
 		default:
 			sigs = append(sigs, fmt.Sprintf("E%d{ v int }", j))
 		}
@@ -227,7 +227,7 @@ func flatRunProgram(seed uint64, k int, reached map[string]bool) (name, src stri
 		reached["needs"] = true
 		rows += " needs Probe"
 		runRows = " needs Probe"
-		b.WriteString("type Probe { Tick() }\ntype Quiet {}\n\nfunc Tick(_ Quiet) {}\n\n")
+		b.WriteString("type Probe { Tick() }\ntype Quiet {} implements Probe\n\nfunc Tick(_ Quiet) {}\n\n")
 	}
 	last := len(g.states) - 1
 	b.WriteString("func num(s St) int {\n\tmatch s {\n")
@@ -318,9 +318,9 @@ func told(o machines.Outcome[St, int]) string {
 `)
 	fmt.Fprintf(&b, "func run(signals []Sig) string%s {\n\tlet o = machines.Run(M{}, signals) catch {\n%s\t}\n\ttold(o)\n}\n\n", runRows, catch)
 	fmt.Fprintf(&b, "func from(s St, signals []Sig) string%s {\n\tlet o = machines.From(M{}, s, signals) catch {\n%s\t}\n\ttold(o)\n}\n\n", runRows, catch)
-	timedRows := runRows
-	if timedRows != "" {
-		timedRows += " | time.Clock | Scheduler"
+	timedRows := " needs time.Clock | Scheduler"
+	if runRows != "" {
+		timedRows = runRows + " | time.Clock | Scheduler"
 	}
 	fmt.Fprintf(&b, "func timed(signals []Sig) string%s {\n\tlet mut trace = []machines.Timed[Sig]{}\n\tfor e in signals {\n\t\ttrace = trace.Append(machines.Timed[Sig]{At: 0s, Signal: e})\n\t}\n\tlet o = machines.RunTimed(M{}, trace, 0s) catch {\n%s\t}\n\ttold(o)\n}\n\n", timedRows, catch)
 	// == of two signals, and of a signal and a variant (flatVariantValue).
@@ -364,7 +364,7 @@ var flatRunPaths = []string{
 	"literal", "emit", "done", "union call", "bare", "flat reject", "let variant", "let union", "return", "if", "fail",
 	"simple match", "tree match", "wildcard", "needs", "fails",
 	"empty signal", "payload signal", "error holds a signal",
-	"flat signals", "flat signals, no match tree", "tag test", "error text of a flat signal", "signals too large",
+	"flat signals", "flat signals, no match tree", "tag test", "error text of a flat signal", "signals past the register bound",
 }
 
 // lowerMachineMode lowers src with the copies for a known record, their
@@ -440,36 +440,35 @@ func flatRunCases(t *testing.T, seeds []uint64, check bool, report func(format s
 			if strings.Contains(c.ref.mainGo(), "func FromM(") {
 				report("seed %d, %s: the reference lowering writes a copy\n%s", seed, name, src)
 			}
-			// The signal union is flat exactly where flatunion.go's rule
-			// admits it: the struct fits 32 bytes (a tag and 8 bytes per
-			// int variant, or a tag and the one int-and-string variant).
+			// The signal union is flat at any size (MSB3, carry.go's
+			// stateFlat): a variant of an int and two strings takes it past
+			// the register bound (32 bytes), which bounds it no more, since
+			// the machine's step is a function value that takes each signal.
 			// The other two lowerings never make it flat.
-			ints, strs := 0, 0
+			strs := 0
 			for _, line := range lines(src) {
 				if strings.HasPrefix(line, "type Sig = ") {
-					ints += strings.Count(line, "{ v int }")
-					strs += strings.Count(line, "{ v int, t string }")
+					strs += strings.Count(line, "{ v int, t string, u string }")
 				}
 			}
-			wantFlat := strs == 0 || strs == 1 && ints == 0
-			if got := strings.Contains(c.flat.mainGo(), "type Sig struct"); got != wantFlat {
-				report("seed %d, %s: the signal union is flat %v, want %v\n%s", seed, name, got, wantFlat, src)
+			if !strings.Contains(c.flat.mainGo(), "type Sig struct") {
+				report("seed %d, %s: the signal union is an interface, want flat\n%s", seed, name, src)
 			}
 			if strings.Contains(c.old.mainGo(), "type Sig struct") || strings.Contains(c.ref.mainGo(), "type Sig struct") {
 				report("seed %d, %s: an interface lowering makes the signal union flat\n%s", seed, name, src)
 			}
-			if wantFlat && match == "flat" && strings.Contains(src, "match (s, e)") && strings.Contains(src, " E1{") {
+			if match == "flat" && strings.Contains(src, "match (s, e)") && strings.Contains(src, " E1{") {
 				reached["tag test"] = true // a match on two subjects with no tree tests the tag (flatTest)
 			}
 			switch {
-			case wantFlat && strings.Contains(src, "type Boom { e Sig }"):
+			case strings.Contains(src, "type Boom { e Sig }"):
 				reached["error text of a flat signal"] = true
-			case wantFlat && match == "flat":
+			case match == "flat":
 				reached["flat signals, no match tree"] = true
-			case wantFlat:
+			case strs == 0:
 				reached["flat signals"] = true
 			default:
-				reached["signals too large"] = true
+				reached["signals past the register bound"] = true
 			}
 			cases = append(cases, c)
 		}

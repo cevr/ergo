@@ -15,8 +15,21 @@ import (
 // without it (docs/tooling.md, "Mutant ledger").
 type Ledger struct {
 	// About says what the file is, for a reader who opens it cold.
-	About   string    `json:"about"`
-	Mutants []*Mutant `json:"mutants"`
+	About string `json:"about"`
+	// Env is NAME=VALUE entries that the runner gives every run of the
+	// ledger's own suite, coverage pass and mutant pass: the switches its
+	// killers need (ERGO_TS_TEST=1 for tsproj's TS leg), so that a plain
+	// `go run ./scripts/mutants DIR` judges them. Only a package ledger
+	// has one; check and lower share the ergo suites.
+	Env []string `json:"env,omitempty"`
+	// Commands are killers that are not a go test: a row names one as
+	// command:NAME, and the runner runs its words in the mutated copy (the
+	// words {root} and {bin:TOOL} as a suite's; a ledger's tool is one of
+	// its scope). A command that fails kills, as a test does: the closure
+	// sweep of cmd/ergo (rm-cgo-link-input) is one. A command runs only for
+	// the rows that name it, in phase A, never in the coverage pass.
+	Commands map[string][]string `json:"commands,omitempty"`
+	Mutants  []*Mutant           `json:"mutants"`
 }
 
 // Mutant is one edit of the package's source that some test must notice.
@@ -42,6 +55,11 @@ type Mutant struct {
 	// Anchor is set for an edit that has no coverage block of its own (a
 	// string literal: an emitted Go template, a rule-text constant).
 	Anchor *Anchor `json:"anchor,omitempty"`
+	// Refused, when set, says why the formatter's or the compiler's
+	// refusal of the mutated source is the rule the mutant breaks (a
+	// diagnostic mutant). Without it, a source the formatter would rewrite
+	// or the compiler refuses is invalid, never killed (Config.Sources).
+	Refused string `json:"refused,omitempty"`
 }
 
 // Anchor names the code that uses a mutated literal: the lines of Text (a
@@ -63,6 +81,16 @@ func readLedger(path string) (*Ledger, error) {
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&l); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	for _, kv := range l.Env {
+		if name, _, ok := strings.Cut(kv, "="); !ok || name == "" {
+			return nil, fmt.Errorf("%s: env entry %q is not NAME=VALUE", path, kv)
+		}
+	}
+	for name, words := range l.Commands {
+		if name == "" || strings.ContainsAny(name, ": ") || len(words) == 0 {
+			return nil, fmt.Errorf("%s: command %q needs a name without a colon or a space, and words", path, name)
+		}
 	}
 	seen := map[string]bool{}
 	for i, m := range l.Mutants {

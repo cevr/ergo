@@ -17,7 +17,7 @@ import task
 // type. Every copy of an Op is the same operation, and two tasks may call
 // it at once.
 // law-exempt: an Op is only a field of a Script, so the Script laws (ScriptRecordsEachCall, ScriptAnswersByTheLastAnswer, HeldCallWaitsForRelease, ReleaseAnswersOldestFirst, ScriptNamesTheHeldCall) state its contract through the operations it answers.
-type Op[A, F] {
+extern go ergo.local/prototype/runtime/v1.Op type Op[A, F] {
 	runtimeOnly(),
 	// Answer makes f the operation's answer from now on, and ends a Hold:
 	// a later call gets f, a call held already stays held. A call of an
@@ -59,7 +59,7 @@ type NoArgs {}
 // for each operation of S, named like it; testing.Script[S]{} makes one
 // with no answers and no calls. S is a capability with written type
 // arguments, whose operations return no Task and take no function.
-type Script[S] {}
+type Script[S] derive Provider(Of[S](), Of[Op](), Of[NoArgs]())
 
 // newOp is the Op of one field of a new Script, named by the Script's type
 // and the operation; the lowering calls its body, v1.NewOp, for each field

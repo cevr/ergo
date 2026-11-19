@@ -64,5 +64,20 @@ func F(f Fast, e Engine) int {
 	return Two(f, e)
 }
 `, want: []selfWant{{"S108", "does not match", 11}}},
+		// Signatures unify result by result: a later argument whose result
+		// differs does not match the instance (t6-16: a result mismatch
+		// accepted, so only the later assignment refuses it).
+		{name: "results unify", src: `
+
+func one() int { 1 }
+func word() string { "x" }
+
+func Pick[T](a T, b T) T { a }
+
+func F() int {
+	let f = Pick(one, word)
+	f()
+}
+`, want: []selfWant{{"S108", "does not match", 9}}},
 	})
 }

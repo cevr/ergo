@@ -11,8 +11,8 @@ import (
 // TestWorkRunsErgoWorkFromPath: `ergo work ARGS` runs the work found
 // on PATH with ARGS as they are, and exits with its status; with no
 // work on PATH it says how to build one. The work here is a
-// shell script, so the test builds nothing. Mutants work-drops-args,
-// work-status-lost (cmd/ergo/testdata/mutants.json).
+// shell script, so the test builds nothing. Mutants ws0-work-drops-args,
+// ws0-work-status-lost (cmd/ergo/testdata/mutants.json).
 func TestWorkRunsErgoWorkFromPath(t *testing.T) {
 	dir := t.TempDir()
 	seen := filepath.Join(dir, "seen")

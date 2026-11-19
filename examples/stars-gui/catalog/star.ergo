@@ -1,0 +1,166 @@
+// Package catalog is the model of a star table: the stars, their columns
+// and cells, the order a view shows them in, the edits a cell takes, and
+// the Table machine that a script or a window drives. It is pure Ergo: the
+// text of a catalogue comes from the Shelf contract (shelf.ergo), whose
+// providers live in packages named after their dependency.
+
+import strconv
+import strings
+
+// Star is one row of the catalogue. The numbers are integers in the
+// column's unit, so a cell's text is exact: Magnitude in hundredths,
+// Distance in tenths of a light year, Ascension in minutes of time (0 to
+// 1439), Declination in tenths of a degree (-900 to 900).
+type Star {
+	Name          string,
+	Constellation string,
+	Magnitude     int,
+	Distance      int,
+	Class         string,
+	Ascension     int,
+	Declination   int,
+	Planets       int,
+}
+
+// Column is one column of the table.
+type Column = Name{} | Constellation{} | Magnitude{} | Distance{} | Class{} | Ascension{} | Declination{} | Planets{}
+
+// Columns is every column, in the table's order.
+func Columns() []Column {
+	[]Column{Name, Constellation, Magnitude, Distance, Class, Ascension, Declination, Planets}
+}
+
+// ColumnName is the name a script and a header use for c.
+func ColumnName(c Column) string {
+	match c {
+	case Name:
+		"name"
+	case Constellation:
+		"constellation"
+	case Magnitude:
+		"magnitude"
+	case Distance:
+		"distance"
+	case Class:
+		"class"
+	case Ascension:
+		"ascension"
+	case Declination:
+		"declination"
+	case Planets:
+		"planets"
+	}
+}
+
+// ColumnOf is the column a name names, or None.
+func ColumnOf(name string) Option[Column] {
+	for c in Columns() {
+		if ColumnName(c) == name {
+			return Some[Column]{Value: c}
+		}
+	}
+	None
+}
+
+// Cell is the value of one column of one star, as the table shows and
+// orders it. A column's cells are all of one variant.
+type Cell = Text{Value string} | Fixed{Value int, Places int} | Hours{Minutes int} | Count{Value int}
+
+// CellOf is the cell of s in column c.
+func CellOf(s Star, c Column) Cell {
+	match c {
+	case Name:
+		Text{Value: s.Name}
+	case Constellation:
+		Text{Value: s.Constellation}
+	case Magnitude:
+		Fixed{Value: s.Magnitude, Places: 2}
+	case Distance:
+		Fixed{Value: s.Distance, Places: 1}
+	case Class:
+		Text{Value: s.Class}
+	case Ascension:
+		Hours{Minutes: s.Ascension}
+	case Declination:
+		Fixed{Value: s.Declination, Places: 1}
+	case Planets:
+		Count{Value: s.Planets}
+	}
+}
+
+// CellText is the text of a cell: a text as it is, a fixed-point number
+// with its places, a right ascension as 05h14m, a count in decimal.
+func CellText(c Cell) string {
+	match c {
+	case Text as t:
+		t.Value
+	case Fixed as f:
+		FixedText(f.Value, f.Places)
+	case Hours as h:
+		strings.PadLeft(strconv.Itoa(h.Minutes/60), 2, '0') + "h" + strings.PadLeft(strconv.Itoa(h.Minutes%60), 2, '0') + "m"
+	case Count as n:
+		strconv.Itoa(n.Value)
+	}
+}
+
+// CompareCells orders two cells: texts by their bytes, numbers by value.
+// Cells of two variants, which one column never holds, order by variant.
+func CompareCells(a Cell, b Cell) int {
+	match (a, b) {
+	case (Text as x, Text as y):
+		strings.Compare(x.Value, y.Value)
+	case (Fixed as x, Fixed as y):
+		compareInts(x.Value, y.Value)
+	case (Hours as x, Hours as y):
+		compareInts(x.Minutes, y.Minutes)
+	case (Count as x, Count as y):
+		compareInts(x.Value, y.Value)
+	case (_, _):
+		compareInts(rank(a), rank(b))
+	}
+}
+
+// rank is the place of a cell's variant in Cell.
+func rank(c Cell) int {
+	match c {
+	case Text:
+		0
+	case Fixed:
+		1
+	case Hours:
+		2
+	case Count:
+		3
+	}
+}
+
+func compareInts(a int, b int) int {
+	if a < b {
+		return -1
+	}
+	if a > b {
+		return 1
+	}
+	0
+}
+
+// FixedText is v with places decimal places: FixedText(-146, 2) is "-1.46".
+func FixedText(v int, places int) string {
+	let a = if v < 0 { -v } else { v }
+	let scale = tens(places)
+	let sign = if v < 0 { "-" } else { "" }
+	let whole = sign + strconv.Itoa(a/scale)
+	if places == 0 {
+		return whole
+	}
+	whole + "." + strings.PadLeft(strconv.Itoa(a%scale), places, '0')
+}
+
+// tens is 10 to the power n.
+func tens(n int) int {
+	let mut t = 1
+	for _ in 0..n {
+		t = t * 10
+	}
+	t
+}

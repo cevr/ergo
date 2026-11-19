@@ -742,7 +742,7 @@ func callAliasPrograms() []holderProgram {
 				if before != 0 {
 					get, work = work+get, ""
 				}
-				src := `func put[T](out *T, x T) { *out = x }
+				src := `func put[T lent](out *T, x T) { *out = x }
 func bump(p *int, n int) { *p = *p + n }
 func make() func() int {
 let mut x = 0

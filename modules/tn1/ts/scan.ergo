@@ -1,0 +1,385 @@
+// Package ts is the TypeScript host of TN1's feature record: a scanner
+// for TypeScript and JavaScript source, the record it fills
+// (FromSource), and the top-level statements a trait reads as chunks
+// (Chunks). Every rule here is stated over tokens, so another host with a
+// TypeScript lexer (the ESTree extractor of oxlint-plugin-effect) fills
+// the same record; the conformance vectors hold the two equal. JSX is not
+// scanned: a .tsx file's markup reads as code.
+
+import slices
+import strings
+
+// A token's kind. Ident holds names and keywords alike; Literal holds
+// strings, numbers, regular expressions and each piece of a template.
+type Ident {}
+type Punct {}
+type Literal {}
+type LineComment {}
+type BlockComment {}
+type Kind = Ident | Punct | Literal | LineComment | BlockComment
+
+// Token is one token: its kind, its bytes from From to To, its text (for
+// an Ident or a Punct), whether a line break comes before it, and how
+// many braces are open at its start.
+type Token {
+	Kind    Kind,
+	From    int,
+	To      int,
+	Text    string,
+	NewLine bool,
+	Depth   int,
+}
+
+func identStart(c byte) bool { c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c == '_' || c == '$' || c >= 0x80 }
+
+func identByte(c byte) bool { identStart(c) || c >= '0' && c <= '9' }
+
+func digit(c byte) bool { c >= '0' && c <= '9' }
+
+// A byte's class, which the scanner reads from one table: cIdent and
+// cDigit come first, so an identifier byte is a class of at most cDigit.
+let cIdent = byte(0)
+let cDigit = byte(1)
+let cSpace = byte(2)
+let cNewline = byte(3)
+let cSlash = byte(4)
+let cQuote = byte(5)
+let cTick = byte(6)
+let cClose = byte(7)
+let cDot = byte(8)
+let cHash = byte(9)
+let cBackslash = byte(10)
+let cOther = byte(11)
+
+func classOf(c byte) byte {
+	if identStart(c) {
+		return cIdent
+	}
+	if digit(c) {
+		return cDigit
+	}
+	if c == ' ' || c == '\t' || c == '\r' || c == '\f' || c == '\v' {
+		return cSpace
+	}
+	if c == '\n' {
+		return cNewline
+	}
+	if c == '/' {
+		return cSlash
+	}
+	if c == '"' || c == '\'' {
+		return cQuote
+	}
+	if c == '`' {
+		return cTick
+	}
+	if c == '}' {
+		return cClose
+	}
+	if c == '.' {
+		return cDot
+	}
+	if c == '#' {
+		return cHash
+	}
+	if c == '\\' {
+		return cBackslash
+	}
+	cOther
+}
+
+// classes is classOf of each byte.
+let classes = classTable()
+
+func classTable() []byte {
+	let mut t = slices.WithCapacity[byte](256)
+	for c in 0..256 {
+		t = t.Append(classOf(byte(c)))
+	}
+	t
+}
+
+// ClassesAreClassOf: the table is the rule it was built from.
+law ClassesAreClassOf(c byte) { classes[int(c)] == classOf(c) }
+
+// at is src[i], or 0 past its end.
+func at(src string, i int) byte {
+	if i < len(src) {
+		return src[i]
+	}
+	byte(0)
+}
+
+// punctLen is the length of the punctuator at src[i]: the longest of
+// "...", "===", "!==", "**=", "<<=", "&&=", "||=", "??=", "=>", "==",
+// "!=", "<=", "&&", "||", "??", "?.", "++", "--", "+=", "-=", "*=", "/=",
+// "%=", "&=", "|=", "^=", "**", "<<" that starts there, else 1. A > is
+// always one token, as TypeScript's scanner reads it (its parser joins >>
+// where an expression needs it): Array<Array<X>> closes two type lists.
+func punctLen(src string, i int) int {
+	let c = src[i]
+	let d = at(src, i+1)
+	let e = at(src, i+2)
+	if c == '.' {
+		return if d == '.' && e == '.' { 3 } else { 1 }
+	}
+	if c == '=' {
+		if d == '=' && e == '=' {
+			return 3
+		}
+		return if d == '>' || d == '=' { 2 } else { 1 }
+	}
+	if c == '!' {
+		if d == '=' {
+			return if e == '=' { 3 } else { 2 }
+		}
+		return 1
+	}
+	if c == '*' || c == '<' || c == '&' || c == '|' || c == '?' {
+		if d == c {
+			return if e == '=' { 3 } else { 2 }
+		}
+		return if d == '=' && c != '?' || c == '?' && d == '.' { 2 } else { 1 }
+	}
+	if c == '+' || c == '-' {
+		return if d == c || d == '=' { 2 } else { 1 }
+	}
+	if c == '/' || c == '%' || c == '^' {
+		return if d == '=' { 2 } else { 1 }
+	}
+	1
+}
+
+// regexAfter reports a word after which a slash starts a regular
+// expression.
+func regexAfter(s string) bool {
+	match s {
+	case "return", "typeof", "instanceof", "in", "of", "new", "delete", "void", "throw", "case", "do", "else", "yield", "await":
+		true
+	case _:
+		false
+	}
+}
+
+// regexAllowed reports whether a slash after prev starts a regular
+// expression: at the start, after a punctuator other than ) and ], or
+// after one of regexAfter.
+func regexAllowed(toks []Token) bool {
+	if len(toks) == 0 {
+		return true
+	}
+	let p = toks[len(toks)-1]
+	match p.Kind {
+	case Punct:
+		p.Text != ")" && p.Text != "]"
+	case Ident:
+		regexAfter(p.Text)
+	case Literal, LineComment, BlockComment:
+		false
+	}
+}
+
+// quoted is the end of the string that opens at i: after its closing
+// quote, or at the end of its line when it has none.
+func quoted(src string, i int) int {
+	let q = src[i]
+	let mut j = i + 1
+	for j < len(src) && src[j] != q && src[j] != '\n' {
+		if src[j] == '\\' {
+			j += 1
+		}
+		j += 1
+	}
+	if j < len(src) && src[j] == q {
+		return j + 1
+	}
+	lo(j, len(src))
+}
+
+func lo(a int, b int) int {
+	if a < b {
+		return a
+	}
+	b
+}
+
+// templateEnd is the end of the template piece that starts at i (after
+// a backtick or a closing brace): after its closing backtick, or after
+// the ${ that opens a substitution. opens reports which.
+type Piece { End int, Opens bool }
+
+func templateEnd(src string, i int) Piece {
+	let mut j = i
+	for j < len(src) {
+		let c = src[j]
+		if c == '\\' {
+			j += 2
+		} else if c == '`' {
+			return Piece{End: j + 1, Opens: false}
+		} else if c == '$' && j+1 < len(src) && src[j+1] == '{' {
+			return Piece{End: j + 2, Opens: true}
+		} else {
+			j += 1
+		}
+	}
+	Piece{End: len(src), Opens: false}
+}
+
+// regexEnd is the end of the regular expression that opens at i, flags
+// included; a class [...] may hold a slash.
+func regexEnd(src string, i int) int {
+	let mut j = i + 1
+	let mut class = false
+	for j < len(src) && src[j] != '\n' {
+		let c = src[j]
+		if c == '\\' {
+			j += 2
+			continue
+		}
+		if c == '[' {
+			class = true
+		} else if c == ']' {
+			class = false
+		} else if c == '/' && !class {
+			j += 1
+			for j < len(src) && identByte(src[j]) {
+				j += 1
+			}
+			return j
+		}
+		j += 1
+	}
+	lo(j, len(src))
+}
+
+// Scan is the tokens of src, comments included, in order.
+func Scan(src string) []Token {
+	// About one token in four bytes: room for that many, so the array
+	// grows once or not at all, as hand Go's make([]T, 0, n).
+	let mut toks = slices.WithCapacity[Token](len(src) / 4)
+	// stack holds one entry per open brace: false for a block or an
+	// object, true for a template substitution.
+	let mut stack = []bool{}
+	let mut i = 0
+	let mut newLine = false
+	if strings.HasPrefix(src, "#!") {
+		let end = strings.IndexByte(src, '\n')
+		let to = if end < 0 { len(src) } else { end }
+		toks = toks.Append(Token{Kind: LineComment, From: 0, To: to, Text: "", NewLine: false, Depth: 0})
+		i = to
+	}
+	for i < len(src) {
+		let c = src[i]
+		let cl = classes[int(c)]
+		if cl == cNewline {
+			newLine = true
+			i += 1
+			continue
+		}
+		if cl == cSpace {
+			i += 1
+			continue
+		}
+		let depth = len(stack)
+		let next = at(src, i+1)
+		let mut kind Kind = Punct
+		let mut end = i + 1
+		let mut text = ""
+		if cl == cSlash && next == '/' {
+			kind = LineComment
+			let n = strings.IndexByte(strings.Slice(src, i, len(src)), '\n')
+			end = if n < 0 { len(src) } else { i + n }
+		} else if cl == cSlash && next == '*' {
+			kind = BlockComment
+			let n = strings.Index(strings.Slice(src, i+2, len(src)), "*/")
+			end = if n < 0 { len(src) } else { i + 2 + n + 2 }
+		} else if cl == cQuote {
+			kind = Literal
+			end = quoted(src, i)
+		} else if cl == cTick {
+			kind = Literal
+			let p = templateEnd(src, i+1)
+			end = p.End
+			if p.Opens {
+				stack = stack.Append(true)
+			}
+		} else if cl == cClose && depth > 0 && stack[depth-1] {
+			kind = Literal
+			stack = stack[:depth-1]
+			let p = templateEnd(src, i+1)
+			end = p.End
+			if p.Opens {
+				stack = stack.Append(true)
+			}
+		} else if cl == cDigit || cl == cDot && classes[int(next)] == cDigit {
+			kind = Literal
+			let hex = c == '0' && (next == 'x' || next == 'X')
+			let mut j = i + 1
+			for j < len(src) && (classes[int(src[j])] <= cDigit || src[j] == '.' || (src[j] == '+' || src[j] == '-') && (src[j-1] == 'e' || src[j-1] == 'E') && !hex) {
+				j += 1
+			}
+			end = j
+		} else if cl == cIdent || cl == cHash && classes[int(next)] == cIdent || cl == cBackslash {
+			kind = Ident
+			let mut j = i + 1
+			for j < len(src) && (classes[int(src[j])] <= cDigit || src[j] == '\\') {
+				j += 1
+			}
+			end = j
+			text = strings.Slice(src, i, end)
+		} else if cl == cSlash && regexAllowed(toks) {
+			kind = Literal
+			end = regexEnd(src, i)
+		} else {
+			end = i + punctLen(src, i)
+			text = strings.Slice(src, i, end)
+			if c == '{' {
+				stack = stack.Append(false)
+			} else if c == '}' && depth > 0 {
+				stack = stack[:depth-1]
+			}
+		}
+		toks = toks.Append(Token{Kind: kind, From: i, To: end, Text: text, NewLine: newLine, Depth: depth})
+		newLine = false
+		i = end
+	}
+	toks
+}
+
+// IsComment reports a comment token.
+func IsComment(t Token) bool {
+	match t.Kind {
+	case LineComment, BlockComment:
+		true
+	case Ident, Punct, Literal:
+		false
+	}
+}
+
+// Code is the tokens of toks that are not comments. A line break before
+// a comment, or in it, or after a // comment, is a line break before the
+// next token.
+func Code(src string, toks []Token) []Token {
+	let mut out = slices.WithCapacity[Token](len(toks))
+	let mut pending = false
+	for t in toks {
+		if IsComment(t) {
+			pending = pending || t.NewLine || strings.Contains(strings.Slice(src, t.From, t.To), "\n") || commentEndsLine(t)
+			continue
+		}
+		let mut u = t
+		u.NewLine = t.NewLine || pending
+		pending = false
+		out = out.Append(u)
+	}
+	out
+}
+
+func commentEndsLine(t Token) bool {
+	match t.Kind {
+	case LineComment:
+		true
+	case BlockComment, Ident, Punct, Literal:
+		false
+	}
+}

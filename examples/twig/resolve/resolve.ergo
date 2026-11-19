@@ -1,0 +1,264 @@
+import twig/syntax
+
+// ResolveError is a name or a statement out of place.
+type ResolveError { At Pos, Msg string }
+
+// binding is a declared name: its slot in the frame of the function at
+// depth Depth.
+type binding { Name string, Slot int, Depth int }
+
+// frame is what the resolver knows of the function it is inside: the
+// next free slot, whether a function inside it was seen, and how many
+// loops are open.
+type frame { slots int, captured bool, loops int }
+
+// resolver is the state of a resolution: the names in scope, innermost
+// last, the index in binds where each open block starts, the open
+// functions, innermost last, and the program's table so far.
+type resolver { binds []binding, blocks []int, frames []frame, funcs []Func, fields []string }
+
+// Resolve is the program of the statements of a source.
+func Resolve(stmts []syntax.Stmt) Program fails ResolveError {
+	let mut r = resolver{binds: []binding{}, blocks: []int{}, frames: []frame{frame{slots: 0, captured: false, loops: 0}}, funcs: []Func{Func{Name: "main", Arity: 0, Slots: 0, Body: []Code{}, Captured: false, At: Pos{Line: 1, Col: 1}}}, fields: []string{}}
+	let body = try r.block(stmts)
+	let top = r.frames[0]
+	r.funcs[Main] = Func{Name: "main", Arity: 0, Slots: top.slots, Body: body, Captured: top.captured, At: Pos{Line: 1, Col: 1}}
+	Program{Funcs: r.funcs, Fields: r.fields}
+}
+
+// depth is the depth of the innermost open function, the top level 0.
+func depth(r *resolver) int { len(r.frames) - 1 }
+
+// declare binds name in the innermost block to a new slot of the
+// innermost function, or fails when the block already declares it.
+func declare(r *resolver, name string, at Pos) int fails ResolveError {
+	let d = r.depth()
+	let from = r.blocks[len(r.blocks)-1]
+	for i in from..len(r.binds) {
+		if r.binds[i].Name == name {
+			return ResolveError{At: at, Msg: name + " is already declared in this block"}
+		}
+	}
+	let slot = r.frames[d].slots
+	r.frames[d].slots = slot + 1
+	r.binds = r.binds.Append(binding{Name: name, Slot: slot, Depth: d})
+	slot
+}
+
+// lookup is the node that reads name.
+func lookup(r *resolver, name string, at Pos) Node fails ResolveError {
+	let mut i = len(r.binds) - 1
+	for i >= 0 {
+		let b = r.binds[i]
+		if b.Name == name {
+			let hops = r.depth() - b.Depth
+			if hops == 0 {
+				return Local{Slot: b.Slot}
+			}
+			return Outer{Hops: hops, Slot: b.Slot}
+		}
+		i -= 1
+	}
+	for p in Builtins {
+		if BuiltinName(p) == name {
+			return Prim{Op: p}
+		}
+	}
+	ResolveError{At: at, Msg: name + " is not declared"}
+}
+
+// field is the number of the field name.
+func field(r *resolver, name string) int {
+	for i, f in r.fields {
+		if f == name {
+			return i
+		}
+	}
+	r.fields = r.fields.Append(name)
+	len(r.fields) - 1
+}
+
+// block resolves the statements of a block. The functions it declares are
+// bound when the block starts, so they may call each other; every other
+// name is seen only after its let.
+func block(r *resolver, stmts []syntax.Stmt) []Code fails ResolveError {
+	r.blocks = r.blocks.Append(len(r.binds))
+	let mut out = []Code{}
+	let mut pending = []int{}
+	for s in stmts {
+		match s {
+		case syntax.FnDecl as f:
+			let slot = try r.declare(f.Name, f.At)
+			let code = len(r.funcs)
+			r.funcs = r.funcs.Append(Func{Name: f.Name, Arity: len(f.Params), Slots: 0, Body: []Code{}, Captured: false, At: f.At})
+			pending = pending.Append(code)
+			out = out.Append(MakeFn{Slot: slot, Code: code})
+			r.frames[r.depth()].captured = true
+		case syntax.Let, syntax.Assign, syntax.If, syntax.While, syntax.For, syntax.Return, syntax.Break, syntax.Continue, syntax.ExprStmt:
+		}
+	}
+	let mut k = 0
+	for s in stmts {
+		match s {
+		case syntax.FnDecl as f:
+			try r.function(pending[k], f.Name, f.Params, f.Body, f.At)
+			k += 1
+		case syntax.Let, syntax.Assign, syntax.If, syntax.While, syntax.For, syntax.Return, syntax.Break, syntax.Continue, syntax.ExprStmt:
+			out = out.Append(try r.statement(s))
+		}
+	}
+	r.binds = r.binds[0:r.blocks[len(r.blocks)-1]]
+	r.blocks = r.blocks[0 : len(r.blocks)-1]
+	out
+}
+
+// function resolves the body of the function at index code of the table.
+func function(r *resolver, code int, name string, params []string, body []syntax.Stmt, at Pos) fails ResolveError {
+	r.frames = r.frames.Append(frame{slots: 0, captured: false, loops: 0})
+	r.blocks = r.blocks.Append(len(r.binds))
+	for p in params {
+		let _ = try r.declare(p, at)
+	}
+	let codes = try r.block(body)
+	r.binds = r.binds[0:r.blocks[len(r.blocks)-1]]
+	r.blocks = r.blocks[0 : len(r.blocks)-1]
+	let f = r.frames[r.depth()]
+	r.frames = r.frames[0 : len(r.frames)-1]
+	r.funcs[code] = Func{Name: name, Arity: len(params), Slots: f.slots, Body: codes, Captured: f.captured, At: at}
+}
+
+// statement resolves a statement that declares no function.
+func statement(r *resolver, s syntax.Stmt) Code fails ResolveError {
+	match s {
+	case syntax.Let as l:
+		let v = try r.expr(l.Val)
+		Bind{Slot: try r.declare(l.Name, l.At), Val: v}
+	case syntax.Assign as a:
+		let v = try r.expr(a.Val)
+		match a.Target {
+		case syntax.Name as n:
+			match try r.lookup(n.Id, n.At) {
+			case Local as l:
+				SetVar{Hops: 0, Slot: l.Slot, Val: v}
+			case Outer as o:
+				SetVar{Hops: o.Hops, Slot: o.Slot, Val: v}
+			case _:
+				ResolveError{At: n.At, Msg: n.Id + " is not declared"}
+			}
+		case syntax.Index as i:
+			let x = try r.expr(i.X)
+			SetElem{X: x, I: try r.expr(i.I), Val: v, At: i.At}
+		case syntax.Field as f:
+			SetField{X: try r.expr(f.X), Key: r.field(f.Key), Val: v, At: f.At}
+		case _:
+			ResolveError{At: a.At, Msg: "only a name, an element or a field can be assigned"}
+		}
+	case syntax.If as i:
+		let cond = try r.expr(i.Cond)
+		let then = try r.block(i.Then)
+		Cond{Test: cond, Then: then, Else: try r.block(i.Else), At: i.At}
+	case syntax.While as w:
+		let cond = try r.expr(w.Cond)
+		r.frames[r.depth()].loops += 1
+		let body = try r.block(w.Body)
+		r.frames[r.depth()].loops -= 1
+		Loop{Test: cond, Body: body, At: w.At}
+	case syntax.For as f:
+		let over = try r.expr(f.Over)
+		r.blocks = r.blocks.Append(len(r.binds))
+		let slot = try r.declare(f.Var, f.At)
+		r.frames[r.depth()].loops += 1
+		let body = try r.block(f.Body)
+		r.frames[r.depth()].loops -= 1
+		r.binds = r.binds[0:r.blocks[len(r.blocks)-1]]
+		r.blocks = r.blocks[0 : len(r.blocks)-1]
+		Each{Slot: slot, Over: over, Body: body, At: f.At}
+	case syntax.Return as ret:
+		if r.depth() == 0 {
+			return ResolveError{At: ret.At, Msg: "return is outside a function"}
+		}
+		Ret{Val: try r.expr(ret.Val)}
+	case syntax.Break as b:
+		if r.frames[r.depth()].loops == 0 {
+			return ResolveError{At: b.At, Msg: "break is outside a loop"}
+		}
+		Brk
+	case syntax.Continue as c:
+		if r.frames[r.depth()].loops == 0 {
+			return ResolveError{At: c.At, Msg: "continue is outside a loop"}
+		}
+		Cnt
+	case syntax.ExprStmt as e:
+		Do{X: try r.expr(e.X)}
+	case syntax.FnDecl as f:
+		ResolveError{At: f.At, Msg: "a function is declared where a block cannot hoist it"}
+	}
+}
+
+// exprs resolves each of xs.
+func exprs(r *resolver, xs []syntax.Expr) []Node fails ResolveError {
+	let mut out = []Node{}
+	for x in xs {
+		out = out.Append(try r.expr(x))
+	}
+	out
+}
+
+// expr resolves an expression.
+func expr(r *resolver, e syntax.Expr) Node fails ResolveError {
+	match e {
+	case syntax.IntLit as x:
+		KInt{N: x.N}
+	case syntax.FloatLit as x:
+		KFloat{F: x.F}
+	case syntax.StrLit as x:
+		KStr{S: x.S}
+	case syntax.BoolLit as x:
+		KBool{B: x.B}
+	case syntax.NilLit:
+		KNil
+	case syntax.Name as x:
+		try r.lookup(x.Id, x.At)
+	case syntax.Unary as x:
+		let v = try r.expr(x.X)
+		match x.Op {
+		case syntax.Neg:
+			Negate{X: v, At: x.At}
+		case syntax.Not:
+			Invert{X: v, At: x.At}
+		}
+	case syntax.Binary as x:
+		let l = try r.expr(x.L)
+		let rt = try r.expr(x.R)
+		match x.Op {
+		case syntax.And:
+			Both{L: l, R: rt, At: x.At}
+		case syntax.Or:
+			Either{L: l, R: rt, At: x.At}
+		case _:
+			Bin{Op: x.Op, L: l, R: rt, At: x.At}
+		}
+	case syntax.Call as x:
+		let f = try r.expr(x.Fn)
+		Apply{Fn: f, Args: try r.exprs(x.Args), At: x.At}
+	case syntax.Index as x:
+		let v = try r.expr(x.X)
+		Elem{X: v, I: try r.expr(x.I), At: x.At}
+	case syntax.Field as x:
+		Get{X: try r.expr(x.X), Key: r.field(x.Key), At: x.At}
+	case syntax.ListLit as x:
+		MakeList{Items: try r.exprs(x.Items)}
+	case syntax.RecLit as x:
+		let mut keys = []int{}
+		for k in x.Keys {
+			keys = keys.Append(r.field(k))
+		}
+		MakeRec{Keys: keys, Vals: try r.exprs(x.Vals)}
+	case syntax.FnLit as x:
+		r.frames[r.depth()].captured = true
+		let code = len(r.funcs)
+		r.funcs = r.funcs.Append(Func{Name: "fn", Arity: len(x.Params), Slots: 0, Body: []Code{}, Captured: false, At: x.At})
+		try r.function(code, "fn", x.Params, x.Body, x.At)
+		Closure{Code: code}
+	}
+}

@@ -9,122 +9,137 @@ import go time
 extern go database/sql.ColumnType type ColumnType {}
 
 // ergo:go func (*ColumnType).DatabaseTypeName() string
-extern go database/sql.ColumnType.DatabaseTypeName func (ci *ColumnType) DatabaseTypeName() string needs go.Foreign takes ci
+extern go database/sql.ColumnType.DatabaseTypeName func (ci *ColumnType) DatabaseTypeName() string needs go.Foreign
 
 // ergo:go func (*ColumnType).DecimalSize() (precision int64, scale int64, ok bool)
-extern go database/sql.ColumnType.DecimalSize func (ci *ColumnType) DecimalSize() (int64, int64, bool) needs go.Foreign takes ci
+extern go database/sql.ColumnType.DecimalSize func (ci *ColumnType) DecimalSize() (int64, int64, bool) needs go.Foreign
 
 // ergo:go func (*ColumnType).Length() (length int64, ok bool)
-extern go database/sql.ColumnType.Length func (ci *ColumnType) Length() (int64, bool) needs go.Foreign takes ci
+extern go database/sql.ColumnType.Length func (ci *ColumnType) Length() (int64, bool) needs go.Foreign
 
 // ergo:go func (*ColumnType).Name() string
-extern go database/sql.ColumnType.Name func (ci *ColumnType) Name() string needs go.Foreign takes ci
+extern go database/sql.ColumnType.Name func (ci *ColumnType) Name() string needs go.Foreign
 
 // ergo:go func (*ColumnType).Nullable() (nullable bool, ok bool)
-extern go database/sql.ColumnType.Nullable func (ci *ColumnType) Nullable() (bool, bool) needs go.Foreign takes ci
+extern go database/sql.ColumnType.Nullable func (ci *ColumnType) Nullable() (bool, bool) needs go.Foreign
 
 // ergo:go func (*ColumnType).ScanType() reflect.Type
-extern go database/sql.ColumnType.ScanType func (ci *ColumnType) ScanType() reflect.Type needs go.Foreign takes ci
+extern go database/sql.ColumnType.ScanType func (ci *ColumnType) ScanType() reflect.Type needs go.Foreign
 
 // ergo:go type Conn struct
 extern go database/sql.Conn type Conn {} implements Closer
 
 // ergo:go func (*Conn).BeginTx(ctx context.Context, opts *TxOptions) (*Tx, error)
 // ergo:context
-extern go database/sql.Conn.BeginTx func (c *Conn) BeginTx(opts *TxOptions) go.Ref[Tx] fails go.Error needs go.Foreign takes c, opts
+extern go database/sql.Conn.BeginTx func (c *Conn) BeginTx(opts own *TxOptions) go.Ref[Tx] fails go.Error needs go.Foreign
 
 // ergo:go func (*Conn).Close() error
-extern go database/sql.Conn.Close func (c *Conn) Close() fails go.Error needs go.Foreign takes c
+extern go database/sql.Conn.Close func (c own *Conn) Close() fails go.Error needs go.Foreign
 
 // ergo:go func (*Conn).ExecContext(ctx context.Context, query string, args ...any) (Result, error)
-// ergo:refused Conn.ExecContext: parameter 3: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:context
+// ergo:variadic
+extern go database/sql.Conn.ExecContext func (c *Conn) ExecContext(query string, args []go.Any) Result fails go.Error needs go.Foreign
 
 // ergo:go func (*Conn).PingContext(ctx context.Context) error
 // ergo:context
-extern go database/sql.Conn.PingContext func (c *Conn) PingContext() fails go.Error needs go.Foreign takes c
+extern go database/sql.Conn.PingContext func (c *Conn) PingContext() fails go.Error needs go.Foreign
 
 // ergo:go func (*Conn).PrepareContext(ctx context.Context, query string) (*Stmt, error)
 // ergo:context
-extern go database/sql.Conn.PrepareContext func (c *Conn) PrepareContext(query string) go.Ref[Stmt] fails go.Error needs go.Foreign takes c
+extern go database/sql.Conn.PrepareContext func (c *Conn) PrepareContext(query string) go.Ref[Stmt] fails go.Error needs go.Foreign
 
 // ergo:go func (*Conn).QueryContext(ctx context.Context, query string, args ...any) (*Rows, error)
-// ergo:refused Conn.QueryContext: parameter 3: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:context
+// ergo:variadic
+extern go database/sql.Conn.QueryContext func (c *Conn) QueryContext(query string, args []go.Any) go.Ref[Rows] fails go.Error needs go.Foreign
 
 // ergo:go func (*Conn).QueryRowContext(ctx context.Context, query string, args ...any) *Row
-// ergo:refused Conn.QueryRowContext: parameter 3: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:context
+// ergo:variadic
+extern go database/sql.Conn.QueryRowContext func (c *Conn) QueryRowContext(query string, args []go.Any) Option[go.Ref[Row]] needs go.Foreign
 
 // ergo:go func (*Conn).Raw(f func(driverConn any) error) (err error)
-// ergo:refused Conn.Raw: parameter 1: callback parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go database/sql.Conn.Raw func (c *Conn) Raw(f own func(go.Any) fails go.Error) fails go.Error needs go.Foreign
 
 // ergo:go func ConvertAssign(scanCtx driver.ScanContext, dest any, src driver.Value) error
-// ergo:refused ConvertAssign: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:refused ConvertAssign: parameter 3: type Value is refused: Ergo has no any; an empty interface hides the host type
 
 // ergo:go type DB struct
 extern go database/sql.DB type DB {} implements Closer
 
 // ergo:go func (*DB).Begin() (*Tx, error)
-extern go database/sql.DB.Begin func (db *DB) Begin() go.Ref[Tx] fails go.Error needs go.Foreign takes db
+extern go database/sql.DB.Begin func (db *DB) Begin() go.Ref[Tx] fails go.Error needs go.Foreign
 
 // ergo:go func (*DB).BeginTx(ctx context.Context, opts *TxOptions) (*Tx, error)
 // ergo:context
-extern go database/sql.DB.BeginTx func (db *DB) BeginTx(opts *TxOptions) go.Ref[Tx] fails go.Error needs go.Foreign takes db, opts
+extern go database/sql.DB.BeginTx func (db *DB) BeginTx(opts own *TxOptions) go.Ref[Tx] fails go.Error needs go.Foreign
 
 // ergo:go func (*DB).Close() error
-extern go database/sql.DB.Close func (db *DB) Close() fails go.Error needs go.Foreign takes db
+extern go database/sql.DB.Close func (db own *DB) Close() fails go.Error needs go.Foreign
 
 // ergo:go func (*DB).Conn(ctx context.Context) (*Conn, error)
 // ergo:context
-extern go database/sql.DB.Conn func (db *DB) Conn() go.Ref[Conn] fails go.Error needs go.Foreign takes db
+extern go database/sql.DB.Conn func (db *DB) Conn() go.Ref[Conn] fails go.Error needs go.Foreign
 
 // ergo:go func (*DB).Driver() driver.Driver
-extern go database/sql.DB.Driver func (db *DB) Driver() driver.Driver needs go.Foreign takes db
+extern go database/sql.DB.Driver func (db *DB) Driver() driver.Driver needs go.Foreign
 
 // ergo:go func (*DB).Exec(query string, args ...any) (Result, error)
-// ergo:refused DB.Exec: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:variadic
+extern go database/sql.DB.Exec func (db *DB) Exec(query string, args []go.Any) Result fails go.Error needs go.Foreign
 
 // ergo:go func (*DB).ExecContext(ctx context.Context, query string, args ...any) (Result, error)
-// ergo:refused DB.ExecContext: parameter 3: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:context
+// ergo:variadic
+extern go database/sql.DB.ExecContext func (db *DB) ExecContext(query string, args []go.Any) Result fails go.Error needs go.Foreign
 
 // ergo:go func (*DB).Ping() error
-extern go database/sql.DB.Ping func (db *DB) Ping() fails go.Error needs go.Foreign takes db
+extern go database/sql.DB.Ping func (db *DB) Ping() fails go.Error needs go.Foreign
 
 // ergo:go func (*DB).PingContext(ctx context.Context) error
 // ergo:context
-extern go database/sql.DB.PingContext func (db *DB) PingContext() fails go.Error needs go.Foreign takes db
+extern go database/sql.DB.PingContext func (db *DB) PingContext() fails go.Error needs go.Foreign
 
 // ergo:go func (*DB).Prepare(query string) (*Stmt, error)
-extern go database/sql.DB.Prepare func (db *DB) Prepare(query string) go.Ref[Stmt] fails go.Error needs go.Foreign takes db
+extern go database/sql.DB.Prepare func (db *DB) Prepare(query string) go.Ref[Stmt] fails go.Error needs go.Foreign
 
 // ergo:go func (*DB).PrepareContext(ctx context.Context, query string) (*Stmt, error)
 // ergo:context
-extern go database/sql.DB.PrepareContext func (db *DB) PrepareContext(query string) go.Ref[Stmt] fails go.Error needs go.Foreign takes db
+extern go database/sql.DB.PrepareContext func (db *DB) PrepareContext(query string) go.Ref[Stmt] fails go.Error needs go.Foreign
 
 // ergo:go func (*DB).Query(query string, args ...any) (*Rows, error)
-// ergo:refused DB.Query: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:variadic
+extern go database/sql.DB.Query func (db *DB) Query(query string, args []go.Any) go.Ref[Rows] fails go.Error needs go.Foreign
 
 // ergo:go func (*DB).QueryContext(ctx context.Context, query string, args ...any) (*Rows, error)
-// ergo:refused DB.QueryContext: parameter 3: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:context
+// ergo:variadic
+extern go database/sql.DB.QueryContext func (db *DB) QueryContext(query string, args []go.Any) go.Ref[Rows] fails go.Error needs go.Foreign
 
 // ergo:go func (*DB).QueryRow(query string, args ...any) *Row
-// ergo:refused DB.QueryRow: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:variadic
+extern go database/sql.DB.QueryRow func (db *DB) QueryRow(query string, args []go.Any) Option[go.Ref[Row]] needs go.Foreign
 
 // ergo:go func (*DB).QueryRowContext(ctx context.Context, query string, args ...any) *Row
-// ergo:refused DB.QueryRowContext: parameter 3: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:context
+// ergo:variadic
+extern go database/sql.DB.QueryRowContext func (db *DB) QueryRowContext(query string, args []go.Any) Option[go.Ref[Row]] needs go.Foreign
 
 // ergo:go func (*DB).SetConnMaxIdleTime(d time.Duration)
-extern go database/sql.DB.SetConnMaxIdleTime func (db *DB) SetConnMaxIdleTime(d duration) needs go.Foreign takes db
+extern go database/sql.DB.SetConnMaxIdleTime func (db *DB) SetConnMaxIdleTime(d duration) needs go.Foreign
 
 // ergo:go func (*DB).SetConnMaxLifetime(d time.Duration)
-extern go database/sql.DB.SetConnMaxLifetime func (db *DB) SetConnMaxLifetime(d duration) needs go.Foreign takes db
+extern go database/sql.DB.SetConnMaxLifetime func (db *DB) SetConnMaxLifetime(d duration) needs go.Foreign
 
 // ergo:go func (*DB).SetMaxIdleConns(n int)
-extern go database/sql.DB.SetMaxIdleConns func (db *DB) SetMaxIdleConns(n int) needs go.Foreign takes db
+extern go database/sql.DB.SetMaxIdleConns func (db *DB) SetMaxIdleConns(n int) needs go.Foreign
 
 // ergo:go func (*DB).SetMaxOpenConns(n int)
-extern go database/sql.DB.SetMaxOpenConns func (db *DB) SetMaxOpenConns(n int) needs go.Foreign takes db
+extern go database/sql.DB.SetMaxOpenConns func (db *DB) SetMaxOpenConns(n int) needs go.Foreign
 
 // ergo:go func (*DB).Stats() DBStats
-extern go database/sql.DB.Stats func (db *DB) Stats() DBStats needs go.Foreign takes db
+extern go database/sql.DB.Stats func (db *DB) Stats() DBStats needs go.Foreign
 
 // ergo:go type DBStats struct
 extern go database/sql.DBStats type DBStats {
@@ -182,15 +197,13 @@ extern go database/sql.LevelSnapshot let LevelSnapshot IsolationLevel
 extern go database/sql.LevelWriteCommitted let LevelWriteCommitted IsolationLevel
 
 // ergo:go func Named(name string, value any) NamedArg
-// ergo:refused Named: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type
+extern go database/sql.Named func Named(name string, value go.Any) NamedArg needs go.Foreign
 
 // ergo:go type NamedArg struct
 extern go database/sql.NamedArg type NamedArg {
-	Name string,
+	Name  string,
+	Value go.Any,
 }
-
-// ergo:go Value any
-// ergo:refused NamedArg.Value: Ergo has no any; an interface{} parameter or result hides the host type
 
 // ergo:go type Null[…] struct
 // ergo:refused Null: a generic Go type maps to no Ergo type in v1
@@ -202,7 +215,7 @@ extern go database/sql.NullBool type NullBool {
 }
 
 // ergo:go func (*NullBool).Scan(value any) error
-// ergo:refused NullBool.Scan: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go database/sql.NullBool.Scan func (n *NullBool) Scan(value go.Any) fails go.Error needs go.Foreign
 
 // ergo:go func (NullBool).Value() (driver.Value, error)
 // ergo:refused NullBool.Value: result 1: type Value is refused: Ergo has no any; an empty interface hides the host type
@@ -214,7 +227,7 @@ extern go database/sql.NullByte type NullByte {
 }
 
 // ergo:go func (*NullByte).Scan(value any) error
-// ergo:refused NullByte.Scan: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go database/sql.NullByte.Scan func (n *NullByte) Scan(value go.Any) fails go.Error needs go.Foreign
 
 // ergo:go func (NullByte).Value() (driver.Value, error)
 // ergo:refused NullByte.Value: result 1: type Value is refused: Ergo has no any; an empty interface hides the host type
@@ -226,7 +239,7 @@ extern go database/sql.NullFloat64 type NullFloat64 {
 }
 
 // ergo:go func (*NullFloat64).Scan(value any) error
-// ergo:refused NullFloat64.Scan: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go database/sql.NullFloat64.Scan func (n *NullFloat64) Scan(value go.Any) fails go.Error needs go.Foreign
 
 // ergo:go func (NullFloat64).Value() (driver.Value, error)
 // ergo:refused NullFloat64.Value: result 1: type Value is refused: Ergo has no any; an empty interface hides the host type
@@ -238,7 +251,7 @@ extern go database/sql.NullInt16 type NullInt16 {
 }
 
 // ergo:go func (*NullInt16).Scan(value any) error
-// ergo:refused NullInt16.Scan: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go database/sql.NullInt16.Scan func (n *NullInt16) Scan(value go.Any) fails go.Error needs go.Foreign
 
 // ergo:go func (NullInt16).Value() (driver.Value, error)
 // ergo:refused NullInt16.Value: result 1: type Value is refused: Ergo has no any; an empty interface hides the host type
@@ -250,7 +263,7 @@ extern go database/sql.NullInt32 type NullInt32 {
 }
 
 // ergo:go func (*NullInt32).Scan(value any) error
-// ergo:refused NullInt32.Scan: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go database/sql.NullInt32.Scan func (n *NullInt32) Scan(value go.Any) fails go.Error needs go.Foreign
 
 // ergo:go func (NullInt32).Value() (driver.Value, error)
 // ergo:refused NullInt32.Value: result 1: type Value is refused: Ergo has no any; an empty interface hides the host type
@@ -262,7 +275,7 @@ extern go database/sql.NullInt64 type NullInt64 {
 }
 
 // ergo:go func (*NullInt64).Scan(value any) error
-// ergo:refused NullInt64.Scan: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go database/sql.NullInt64.Scan func (n *NullInt64) Scan(value go.Any) fails go.Error needs go.Foreign
 
 // ergo:go func (NullInt64).Value() (driver.Value, error)
 // ergo:refused NullInt64.Value: result 1: type Value is refused: Ergo has no any; an empty interface hides the host type
@@ -274,7 +287,7 @@ extern go database/sql.NullString type NullString {
 }
 
 // ergo:go func (*NullString).Scan(value any) error
-// ergo:refused NullString.Scan: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go database/sql.NullString.Scan func (ns *NullString) Scan(value go.Any) fails go.Error needs go.Foreign
 
 // ergo:go func (NullString).Value() (driver.Value, error)
 // ergo:refused NullString.Value: result 1: type Value is refused: Ergo has no any; an empty interface hides the host type
@@ -286,7 +299,7 @@ extern go database/sql.NullTime type NullTime {
 }
 
 // ergo:go func (*NullTime).Scan(value any) error
-// ergo:refused NullTime.Scan: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go database/sql.NullTime.Scan func (n *NullTime) Scan(value go.Any) fails go.Error needs go.Foreign
 
 // ergo:go func (NullTime).Value() (driver.Value, error)
 // ergo:refused NullTime.Value: result 1: type Value is refused: Ergo has no any; an empty interface hides the host type
@@ -295,128 +308,148 @@ extern go database/sql.NullTime type NullTime {
 extern go database/sql.Open func Open(driverName string, dataSourceName string) go.Ref[DB] fails go.Error needs go.Foreign
 
 // ergo:go func OpenDB(c driver.Connector) *DB
-extern go database/sql.OpenDB func OpenDB(c driver.Connector) Option[go.Ref[DB]] needs go.Foreign takes c
+extern go database/sql.OpenDB func OpenDB(c own driver.Connector) Option[go.Ref[DB]] needs go.Foreign
 
 // ergo:go type Out struct
 extern go database/sql.Out type Out {
-	In bool,
+	Dest go.Any,
+	In   bool,
 }
-
-// ergo:go Dest any
-// ergo:refused Out.Dest: Ergo has no any; an interface{} parameter or result hides the host type
 
 // ergo:go type RawBytes []byte
 extern go database/sql.RawBytes type RawBytes []byte
 
 // ergo:go func Register(name string, driver driver.Driver)
-extern go database/sql.Register func Register(name string, driver driver.Driver) needs go.Foreign takes driver
+extern go database/sql.Register func Register(name string, driver own driver.Driver) needs go.Foreign
 
 // ergo:go type Result interface
 extern go database/sql.Result type Result {
-	LastInsertId() int64 fails go.Error needs go.Foreign takes,
-	RowsAffected() int64 fails go.Error needs go.Foreign takes,
+	LastInsertId() int64 fails go.Error needs go.Foreign,
+	RowsAffected() int64 fails go.Error needs go.Foreign,
 }
 
 // ergo:go type Row struct
 extern go database/sql.Row type Row {}
 
 // ergo:go func (*Row).Err() error
-extern go database/sql.Row.Err func (r *Row) Err() fails go.Error needs go.Foreign takes r
+extern go database/sql.Row.Err func (r *Row) Err() fails go.Error needs go.Foreign
 
 // ergo:go func (*Row).Scan(dest ...any) error
-// ergo:refused Row.Scan: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:variadic
+extern go database/sql.Row.Scan func (r *Row) Scan(dest []go.Any) fails go.Error needs go.Foreign
 
 // ergo:go type Rows struct
 extern go database/sql.Rows type Rows {} implements Closer
 
 // ergo:go func (*Rows).Close() error
-extern go database/sql.Rows.Close func (rs *Rows) Close() fails go.Error needs go.Foreign takes rs
+extern go database/sql.Rows.Close func (rs own *Rows) Close() fails go.Error needs go.Foreign
 
 // ergo:go func (*Rows).ColumnTypes() ([]*ColumnType, error)
 // ergo:refused Rows.ColumnTypes: result 1: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
 
 // ergo:go func (*Rows).Columns() ([]string, error)
-extern go database/sql.Rows.Columns func (rs *Rows) Columns() []string fails go.Error needs go.Foreign takes rs
+extern go database/sql.Rows.Columns func (rs *Rows) Columns() []string fails go.Error needs go.Foreign
 
 // ergo:go func (*Rows).Err() error
-extern go database/sql.Rows.Err func (rs *Rows) Err() fails go.Error needs go.Foreign takes rs
+extern go database/sql.Rows.Err func (rs *Rows) Err() fails go.Error needs go.Foreign
 
 // ergo:go func (*Rows).Next() bool
-extern go database/sql.Rows.Next func (rs *Rows) Next() bool needs go.Foreign takes rs
+extern go database/sql.Rows.Next func (rs *Rows) Next() bool needs go.Foreign
 
 // ergo:go func (*Rows).NextResultSet() bool
-extern go database/sql.Rows.NextResultSet func (rs *Rows) NextResultSet() bool needs go.Foreign takes rs
+extern go database/sql.Rows.NextResultSet func (rs *Rows) NextResultSet() bool needs go.Foreign
 
 // ergo:go func (*Rows).Scan(dest ...any) error
-// ergo:refused Rows.Scan: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:variadic
+extern go database/sql.Rows.Scan func (rs *Rows) Scan(dest []go.Any) fails go.Error needs go.Foreign
 
 // ergo:go type Scanner interface
-// ergo:refused Scanner: no method of the interface maps
+extern go database/sql.Scanner type Scanner {
+	Scan(src go.Any) fails go.Error needs go.Foreign,
+}
 
 // ergo:go type Stmt struct
 extern go database/sql.Stmt type Stmt {} implements Closer
 
 // ergo:go func (*Stmt).Close() error
-extern go database/sql.Stmt.Close func (s *Stmt) Close() fails go.Error needs go.Foreign takes s
+extern go database/sql.Stmt.Close func (s own *Stmt) Close() fails go.Error needs go.Foreign
 
 // ergo:go func (*Stmt).Exec(args ...any) (Result, error)
-// ergo:refused Stmt.Exec: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:variadic
+extern go database/sql.Stmt.Exec func (s *Stmt) Exec(args []go.Any) Result fails go.Error needs go.Foreign
 
 // ergo:go func (*Stmt).ExecContext(ctx context.Context, args ...any) (Result, error)
-// ergo:refused Stmt.ExecContext: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:context
+// ergo:variadic
+extern go database/sql.Stmt.ExecContext func (s *Stmt) ExecContext(args []go.Any) Result fails go.Error needs go.Foreign
 
 // ergo:go func (*Stmt).Query(args ...any) (*Rows, error)
-// ergo:refused Stmt.Query: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:variadic
+extern go database/sql.Stmt.Query func (s *Stmt) Query(args []go.Any) go.Ref[Rows] fails go.Error needs go.Foreign
 
 // ergo:go func (*Stmt).QueryContext(ctx context.Context, args ...any) (*Rows, error)
-// ergo:refused Stmt.QueryContext: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:context
+// ergo:variadic
+extern go database/sql.Stmt.QueryContext func (s *Stmt) QueryContext(args []go.Any) go.Ref[Rows] fails go.Error needs go.Foreign
 
 // ergo:go func (*Stmt).QueryRow(args ...any) *Row
-// ergo:refused Stmt.QueryRow: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:variadic
+extern go database/sql.Stmt.QueryRow func (s *Stmt) QueryRow(args []go.Any) Option[go.Ref[Row]] needs go.Foreign
 
 // ergo:go func (*Stmt).QueryRowContext(ctx context.Context, args ...any) *Row
-// ergo:refused Stmt.QueryRowContext: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:context
+// ergo:variadic
+extern go database/sql.Stmt.QueryRowContext func (s *Stmt) QueryRowContext(args []go.Any) Option[go.Ref[Row]] needs go.Foreign
 
 // ergo:go type Tx struct
 extern go database/sql.Tx type Tx {}
 
 // ergo:go func (*Tx).Commit() error
-extern go database/sql.Tx.Commit func (tx *Tx) Commit() fails go.Error needs go.Foreign takes tx
+extern go database/sql.Tx.Commit func (tx *Tx) Commit() fails go.Error needs go.Foreign
 
 // ergo:go func (*Tx).Exec(query string, args ...any) (Result, error)
-// ergo:refused Tx.Exec: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:variadic
+extern go database/sql.Tx.Exec func (tx *Tx) Exec(query string, args []go.Any) Result fails go.Error needs go.Foreign
 
 // ergo:go func (*Tx).ExecContext(ctx context.Context, query string, args ...any) (Result, error)
-// ergo:refused Tx.ExecContext: parameter 3: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:context
+// ergo:variadic
+extern go database/sql.Tx.ExecContext func (tx *Tx) ExecContext(query string, args []go.Any) Result fails go.Error needs go.Foreign
 
 // ergo:go func (*Tx).Prepare(query string) (*Stmt, error)
-extern go database/sql.Tx.Prepare func (tx *Tx) Prepare(query string) go.Ref[Stmt] fails go.Error needs go.Foreign takes tx
+extern go database/sql.Tx.Prepare func (tx *Tx) Prepare(query string) go.Ref[Stmt] fails go.Error needs go.Foreign
 
 // ergo:go func (*Tx).PrepareContext(ctx context.Context, query string) (*Stmt, error)
 // ergo:context
-extern go database/sql.Tx.PrepareContext func (tx *Tx) PrepareContext(query string) go.Ref[Stmt] fails go.Error needs go.Foreign takes tx
+extern go database/sql.Tx.PrepareContext func (tx *Tx) PrepareContext(query string) go.Ref[Stmt] fails go.Error needs go.Foreign
 
 // ergo:go func (*Tx).Query(query string, args ...any) (*Rows, error)
-// ergo:refused Tx.Query: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:variadic
+extern go database/sql.Tx.Query func (tx *Tx) Query(query string, args []go.Any) go.Ref[Rows] fails go.Error needs go.Foreign
 
 // ergo:go func (*Tx).QueryContext(ctx context.Context, query string, args ...any) (*Rows, error)
-// ergo:refused Tx.QueryContext: parameter 3: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:context
+// ergo:variadic
+extern go database/sql.Tx.QueryContext func (tx *Tx) QueryContext(query string, args []go.Any) go.Ref[Rows] fails go.Error needs go.Foreign
 
 // ergo:go func (*Tx).QueryRow(query string, args ...any) *Row
-// ergo:refused Tx.QueryRow: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:variadic
+extern go database/sql.Tx.QueryRow func (tx *Tx) QueryRow(query string, args []go.Any) Option[go.Ref[Row]] needs go.Foreign
 
 // ergo:go func (*Tx).QueryRowContext(ctx context.Context, query string, args ...any) *Row
-// ergo:refused Tx.QueryRowContext: parameter 3: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:context
+// ergo:variadic
+extern go database/sql.Tx.QueryRowContext func (tx *Tx) QueryRowContext(query string, args []go.Any) Option[go.Ref[Row]] needs go.Foreign
 
 // ergo:go func (*Tx).Rollback() error
-extern go database/sql.Tx.Rollback func (tx *Tx) Rollback() fails go.Error needs go.Foreign takes tx
+extern go database/sql.Tx.Rollback func (tx *Tx) Rollback() fails go.Error needs go.Foreign
 
 // ergo:go func (*Tx).Stmt(stmt *Stmt) *Stmt
-extern go database/sql.Tx.Stmt func (tx *Tx) Stmt(stmt *Stmt) Option[go.Ref[Stmt]] needs go.Foreign takes tx, stmt
+extern go database/sql.Tx.Stmt func (tx *Tx) Stmt(stmt own *Stmt) Option[go.Ref[Stmt]] needs go.Foreign
 
 // ergo:go func (*Tx).StmtContext(ctx context.Context, stmt *Stmt) *Stmt
 // ergo:context
-extern go database/sql.Tx.StmtContext func (tx *Tx) StmtContext(stmt *Stmt) Option[go.Ref[Stmt]] needs go.Foreign takes tx, stmt
+extern go database/sql.Tx.StmtContext func (tx *Tx) StmtContext(stmt own *Stmt) Option[go.Ref[Stmt]] needs go.Foreign
 
 // ergo:go type TxOptions struct
 extern go database/sql.TxOptions type TxOptions {

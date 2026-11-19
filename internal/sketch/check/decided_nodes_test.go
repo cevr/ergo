@@ -17,10 +17,10 @@ var decidedFamilies = []string{
 	"defined type", "refinement", "type parameters", "ordered constraint",
 	"fails and needs", "escaping", "tuple type", "tuple value", "Map type",
 	"first-parameter function", "extern",
-	"test", "assert",
+	"test", "assert", "skip",
 	"if value", "match value", "value match", "type match", "tuple subject",
 	"record pattern", "as pattern", "nested as pattern",
-	"catch arm", "catch-all binding",
+	"catch arm", "catch-all binding", "or pattern",
 	"for in", "for pattern", "for tuple pattern", "counting range", "range value", "for condition",
 	"assignment", "break and continue",
 	"function literal", "untyped parameter",
@@ -288,15 +288,35 @@ func f() int fails Bang needs Log {
 }
 func main() {}
 `, nil},
-	{"fails and needs", "a takes clause (#197)", `
+	{"fails and needs", "a retired takes clause names own (#197, q168)", `
 type R {} implements Closer
 func Close(r R) {}
 type Holder { r R }
 func keep(r R) Holder takes r { Holder{r: r} }
 func main() {}
+`, []string{"S108:5"}},
+	{"fails and needs", "the mode word own (EXM1, q168)", `
+type R {} implements Closer
+func Close(r own R) {}
+type Holder { r R }
+func keep(r own R) Holder { Holder{r: r} }
+func main() {}
 `, nil},
-	{"escaping", "an escaping function type (196e, check-v1 stage E2)", `
+	{"escaping", "a retired escaping names own (196e, q168)", `
 func f(g escaping func(int) int) int { return g(1) }
+func main() {}
+`, []string{"S108:2"}},
+	{"escaping", "own before a parameter's function type (196e, q168)", `
+func f(g own func(int) int) int { return g(1) }
+func main() {}
+`, nil},
+	{"escaping", "a pure parameter (STD-NOPRIV NP3a; rows.md, Footprints 6)", `
+func apply(g pure func(int) int) int { g(1) }
+func twice(x int) int { x * 2 }
+func main() { let _ = apply(twice) }
+`, nil},
+	{"escaping", "an entry's send type (STD-NOPRIV NP3b; runtime.md, Machines and actors 14)", `
+func pass(send entry func(n int)) { send(1) }
 func main() {}
 `, nil},
 	{"tuple type", "a tuple result type", `
@@ -349,6 +369,12 @@ test Adds {
 }
 func main() {}
 `, nil},
+	{"skip", "skip in a function body (runtime.md, Tests 4: S108 outside a test or law)", `
+func f() {
+	skip "no host"
+}
+func main() {}
+`, []string{"S108:3"}},
 	{"assert", "assert in a function body (196l: S108 outside a test or law)", `
 func f() {
 	assert true
@@ -466,6 +492,24 @@ func f(u U) int {
 }
 func main() {}
 `, []string{"S108:7", "S108:7"}},
+	{"or pattern", "nested alternatives in a match's and a catch's patterns (FK7a)", `
+type A {}
+type B {}
+type U = A | B
+type Bang { N int }
+func load() int fails Bang { 1 }
+func f(u U, n int) int {
+	let k = load() catch {
+	case Bang{N: 1 | 2}: 0
+	case Bang: 1
+	}
+	match (u, n) {
+	case (A | B, 0): k
+	case _: 2
+	}
+}
+func main() {}
+`, nil},
 	{"catch arm", "catch arm with as", `
 type NotFound { ID string }
 type Gone {}
@@ -784,6 +828,12 @@ type Counter {
 }
 func main() {}
 `, nil},
+	{"law", "a top-level rewrite law over functions (types.md, Laws 14)", `
+func twice(s string) string { s + s }
+func half(s string) string { s[:len(s) / 2] }
+law HalfTwice(s string) { half(twice(s)) } == { s }
+func main() {}
+`, nil},
 	{"law", "a documented top-level law", `
 func add(a int, b int) int { a + b }
 // AddCommutes: the order of the operands does not matter.
@@ -898,15 +948,17 @@ func step(s State, sig Signal) Decision[State, string] {
 func probe(s State) Option[machines.Work[Signal]] {
 	match s {
 	case Closed:
-		return Some{machines.Work{Run: func() Trip { Trip }}}
+		return Some{machines.Do(func() Trip { Trip })}
 	case Open:
 		return None
 	}
 }
+func leave(s State) Option[func()] { None }
 type Breaker machine[State, Signal] {
 	initial: Closed,
 	step:    step,
 	work:    probe,
+	exit:    leave,
 }
 func main() {}
 `, nil},

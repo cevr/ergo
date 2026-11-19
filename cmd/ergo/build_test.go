@@ -12,22 +12,77 @@ import (
 	"regexp"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 )
 
-// init gives every CLI this package's tests start a private emission cache:
-// it runs before TestMain captures the environment, so no test writes the
-// developer's $XDG_CACHE_HOME or $HOME/.cache. The directory is not
-// removed (follow-up: move this into TestMain, with cleanup, once
-// main_test.go is this unit's to edit).
-func init() {
-	dir, err := os.MkdirTemp("", "ergo-cmd-test-cache-")
-	if err != nil {
-		panic("cmd/ergo tests: private cache directory: " + err.Error())
+// goStoreVariable names a Go action store (the direct path's content-keyed
+// plans, actions and blobs) that this process's emission caches use in
+// place of their own: TestPackageNeverWritesUnderHome gives its inner run
+// the outer run's store, which lies outside the HOME it watches.
+const goStoreVariable = "ERGO_CMD_TEST_GO_STORE"
+
+// processCache is the emission cache root (XDG_CACHE_HOME) of this test
+// process (init).
+var processCache string
+
+// testXDG is a test's own emission cache root, parent/xdg, for a test that
+// asserts on its cache: its modules, staging and private roots are its
+// own, and its Go action store (ergo/go: the direct path's plans, actions
+// and blobs, internal/sketch/build/direct.go) is the process's, linked in.
+// That store is keyed by content (each compile by its inputs, each link
+// by its archives), so a test that shares it builds the same bytes and
+// compiles the runtime's packages once per process, not once per test
+// (GS26: 4 CPU-s per cold program build).
+func testXDG(t *testing.T, parent string) string {
+	t.Helper()
+	xdg := filepath.Join(parent, "xdg")
+	store := filepath.Join(processCache, "ergo", "go")
+	if err := os.MkdirAll(store, 0o755); err != nil {
+		t.Fatal(err)
 	}
-	if err := os.Setenv("XDG_CACHE_HOME", dir); err != nil {
-		panic(err)
+	if err := os.MkdirAll(filepath.Join(xdg, "ergo"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(store, filepath.Join(xdg, "ergo", "go")); err != nil {
+		t.Fatal(err)
+	}
+	return xdg
+}
+
+// TestTestCachesShareTheGoStore counts the compiles of two builds in two
+// tests' emission caches (testXDG): the second program differs from the
+// first only in its main package, so it compiles that package alone and
+// reuses the runtime's from the shared store. Without the share each test
+// compiles the runtime again (GS26).
+func TestTestCachesShareTheGoStore(t *testing.T) {
+	t.Parallel()
+	binary := buildTestCLI(t)
+	report := regexp.MustCompile(`LINK=direct \(planned \w+, compiled (\d+), reused (\d+),`)
+	var compiled, reused [2]string
+	for i := range 2 {
+		root := physicalTempDir(t)
+		xdg := testXDG(t, t.TempDir())
+		// The text names this process: TestPackageNeverWritesUnderHome's inner
+		// run runs this test too, on the same store, so a fixed text would
+		// find its main compiled already.
+		smokeWrite(t, root, "main.ergo", "func main() needs Console { Console.Println(\"program "+string(rune('a'+i))+" "+strconv.Itoa(os.Getpid())+"\") }\n")
+		// Without the caller's GOFLAGS (the gate sets -p): the direct path
+		// it counts refuses to build under any.
+		command := exec.Command(binary, "build", "main.ergo", "-o", "app", "-work")
+		command.Dir = root
+		command.Env = append(slices.DeleteFunc(os.Environ(), func(e string) bool { return strings.HasPrefix(e, "GOFLAGS=") }), "XDG_CACHE_HOME="+xdg)
+		out, errOut, code := runSmokeCommand(t, command)
+		stdout, stderr := string(out), string(errOut)
+		m := report.FindStringSubmatch(stderr)
+		if code != 0 || m == nil {
+			t.Fatalf("build %d: exit %d stdout %q stderr %q", i, code, stdout, stderr)
+		}
+		compiled[i], reused[i] = m[1], m[2]
+	}
+	if compiled[1] != "1" || reused[1] == "0" {
+		t.Fatalf("the second test's build compiled %s packages and reused %s (the first compiled %s); want only its main compiled", compiled[1], reused[1], compiled[0])
 	}
 }
 
@@ -35,7 +90,8 @@ func init() {
 // TestPackageNeverWritesUnderHome starts, which must not start another.
 const innerRunVariable = "ERGO_CMD_TEST_INNER_RUN"
 
-// TestPackageNeverWritesUnderHome runs this package's tests again with
+// TestPackageNeverWritesUnderHome runs this package's tests again, in this
+// run's tier (-short when it is), with
 // HOME set to an empty directory and XDG_CACHE_HOME unset, and requires the
 // directory to stay empty: building and running programs, in every test,
 // writes only into the tests' own temporary space. Go's caches and go env
@@ -45,7 +101,11 @@ const innerRunVariable = "ERGO_CMD_TEST_INNER_RUN"
 // mode is off in the witnessed HOME (goTelemetryOff), so the compile and
 // link that Ergo runs itself count nothing there either. The inner run's temporary directory is
 // reached through a symbolic link, with GOTMPDIR unset, so its tests see
-// a logical path that differs from the physical one, as on darwin.
+// a logical path that differs from the physical one, as on darwin. Its
+// emission caches use this process's Go action store (goStoreVariable),
+// which lies outside the witnessed HOME, so its builds may be cached ones;
+// a write under HOME that only a cached build makes is still witnessed
+// (mutant gs26b-cached-build-writes-home).
 //
 // HOME is checked whatever the inner run's exit status: a failing test
 // there is reported by this package's own run and must not hide a write
@@ -77,7 +137,25 @@ func TestPackageNeverWritesUnderHome(t *testing.T) {
 	env = append(env, "HOME="+home, innerRunVariable+"=1", "TMPDIR="+linkedTemp,
 		"PATH="+wrapperDir+string(os.PathListSeparator)+os.Getenv("PATH"),
 		"GOCACHE="+goEnv["GOCACHE"], "GOMODCACHE="+goEnv["GOMODCACHE"], "GOPATH="+goEnv["GOPATH"], "GOENV="+goEnv["GOENV"])
-	child := exec.Command(os.Args[0], "-test.count=1", "-test.v", "-test.skip=^TestPackageNeverWritesUnderHome$")
+	// The inner run's emission caches use this process's Go action store,
+	// outside the witnessed HOME: the claim is where the package writes, not
+	// that it builds from cold, and its cached builds still run every write
+	// a build makes outside that store (GS26b).
+	store, err := filepath.EvalSymlinks(filepath.Join(processCache, "ergo", "go"))
+	if err != nil {
+		if err := os.MkdirAll(filepath.Join(processCache, "ergo", "go"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		store = filepath.Join(processCache, "ergo", "go")
+	}
+	env = append(env, goStoreVariable+"="+store)
+	args := []string{"-test.count=1", "-test.v", "-test.skip=^TestPackageNeverWritesUnderHome$"}
+	if testing.Short() {
+		// The witness covers the tests of this run's tier: a -short run
+		// starts a -short package run, not the full one (OPT9 r2).
+		args = append(args, "-test.short")
+	}
+	child := exec.Command(os.Args[0], args...)
 	child.Env = env
 	stdout, stderr, code := runSmokeCommand(t, child)
 	passed := regexp.MustCompile(`(?m)^--- PASS: `).FindAll(stdout, -1)
@@ -88,9 +166,20 @@ func TestPackageNeverWritesUnderHome(t *testing.T) {
 	case code != 0:
 		t.Logf("the package run with an empty HOME exited %d after %d passing tests; failing: %s", code, len(passed), bytes.Join(failed, []byte(", ")))
 	}
+	// The builds run the release's go command by its path, the patched
+	// GOROOT's bin/go (internal/toolchain, Patch), which the wrapper on
+	// PATH does not reach: that go command's telemetry directory, and the
+	// directories above it, are the go command's writes, not Ergo's.
+	telemetry := filepath.Join(home, ".config", "go", "telemetry")
+	if runtime.GOOS == "darwin" {
+		telemetry = filepath.Join(home, "Library", "Application Support", "go", "telemetry")
+	}
 	var written []string
 	_ = filepath.WalkDir(home, func(p string, d fs.DirEntry, err error) error {
-		if p != home && !slices.Contains(telemetryOff, p) {
+		if p == telemetry {
+			return filepath.SkipDir
+		}
+		if p != home && !slices.Contains(telemetryOff, p) && !strings.HasPrefix(telemetry, p+string(filepath.Separator)) {
 			written = append(written, p)
 		}
 		return nil
@@ -181,6 +270,7 @@ func goOwnHome(t *testing.T) string {
 // under a key only it can trust. Each build still produces a program that
 // runs.
 func TestBuildWithoutAProducerImageIsPrivate(t *testing.T) {
+	t.Parallel()
 	root, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {
 		t.Fatal(err)
@@ -294,11 +384,11 @@ var lineDirective = regexp.MustCompile(`(?m)^//line (.+?):\d+(?::\d+)?$`)
 // symbolic link to its directory, by a relative spelling from the linked
 // directory (with and without a shell's PWD) or by an absolute spelling
 // through the link, the //line directives of the published module name an
-// absolute path that is the source file itself (os.SameFile), and the
-// program runs. Which spelling the directive uses follows
-// receipt.LocateSource; the property is that it opens the source. The
+// relative path that, from the source's root, is the source file itself
+// (os.SameFile), and the program runs. The
 // links are made here, so the case runs on Linux whatever TMPDIR is.
 func TestBuildWorkMapsASymlinkedSource(t *testing.T) {
+	t.Parallel()
 	binary := buildTestCLI(t)
 	base := physicalTempDir(t)
 	real := filepath.Join(base, "real-src")
@@ -317,7 +407,7 @@ func TestBuildWorkMapsASymlinkedSource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	xdg := filepath.Join(physicalTempDir(t), "xdg")
+	xdg := testXDG(t, physicalTempDir(t))
 	for _, c := range []struct {
 		name, dir, spelling string
 		env                 []string
@@ -344,8 +434,8 @@ func TestBuildWorkMapsASymlinkedSource(t *testing.T) {
 				t.Fatalf("main.go has no //line directive:\n%s", mainGo)
 			}
 			target := string(found[1])
-			targetInfo, err := os.Stat(target)
-			if err != nil || !filepath.IsAbs(target) || !os.SameFile(targetInfo, sourceInfo) {
+			targetInfo, err := os.Stat(filepath.Join(real, target))
+			if err != nil || filepath.IsAbs(target) || !os.SameFile(targetInfo, sourceInfo) {
 				t.Fatalf("//line names %s (%v), which is not the source %s", target, err, source)
 			}
 			if out, err := exec.Command(output).Output(); err != nil || string(out) != "ok\n" {
@@ -357,17 +447,18 @@ func TestBuildWorkMapsASymlinkedSource(t *testing.T) {
 
 // TestBuildWorkNamesTheCachedModule: build -work prints the executable on
 // stdout and exactly one WORK= line on stderr naming the published module
-// under $XDG_CACHE_HOME/ergo, whose //line directives name the admitted
-// source path. An unchanged build names the same module and rewrites none
+// under $XDG_CACHE_HOME/ergo, whose //line directives name the source
+// relative to its root. An unchanged build names the same module and rewrites none
 // of its files; an edit names another module and changes the executable's
 // behavior; a build without -work prints no WORK line; and only build
 // takes -work. Spec D7, #224.
 func TestBuildWorkNamesTheCachedModule(t *testing.T) {
+	t.Parallel()
 	binary := buildTestCLI(t)
 	// The CLI admits the path it walks, which is physical when the
 	// temporary directory is reached through a link (darwin's /var).
 	root := physicalTempDir(t)
-	xdg := filepath.Join(t.TempDir(), "xdg")
+	xdg := testXDG(t, t.TempDir())
 	source := filepath.Join(root, "main.ergo")
 	write := func(word string) {
 		text := "func main() needs Console {\n\tConsole.Println(\"" + word + "\")\n}\n"
@@ -394,7 +485,7 @@ func TestBuildWorkNamesTheCachedModule(t *testing.T) {
 	write("one")
 	cold := build("one\n")
 	mainGo, err := os.ReadFile(filepath.Join(cold, "main.go"))
-	if err != nil || !strings.Contains(string(mainGo), "//line "+source+":") {
+	if err != nil || !strings.Contains(string(mainGo), "//line main.ergo:") {
 		t.Fatalf("main.go of %s does not map to %s (%v)", cold, source, err)
 	}
 	before := moduleState(t, cold)

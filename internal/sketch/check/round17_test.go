@@ -80,7 +80,7 @@ func TestClassGMessage(t *testing.T) {
 	} {
 		line := tc.src[strings.LastIndex(tc.src[:strings.Index(tc.src, tc.at)], "\n")+1:]
 		want := fmt.Sprintf(tc.want, strings.Index(line, tc.at)+1)
-		_, diags := CheckSource(tc.src)
+		_, diags := checkSourceInfer(tc.src)
 		found := false
 		for _, d := range diags {
 			if d.Message == want {

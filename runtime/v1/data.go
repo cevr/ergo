@@ -25,6 +25,9 @@ import "slices"
 // WithCapacity is slices.WithCapacity[T](n): an empty slice with room for
 // n elements. It fabricates no element (parse-v1 ruling 7 withdrew
 // slice.Repeat). A negative n is a defect, Go's own makeslice panic.
+//
+//ergo:pure
+//ergo:wait none
 func WithCapacity[T any](n int) []T { return make([]T, 0, n) }
 
 // ArenaValue is the physical storage of arena's private stored[T]. It is
@@ -40,6 +43,7 @@ type ArenaValue[T any] struct{ Value T }
 // that could bypass Ergo's initialization or construction authority.
 //
 //ergo:pure
+//ergo:wait none
 func ArenaTake[T any](s *ArenaValue[T]) T {
 	v := s.Value
 	var zero T
@@ -60,6 +64,15 @@ func Let[T any](x T) T { return x }
 //
 //ergo:pure
 func Append[T any](xs []T, x T) []T { return append(xs, x) }
+
+// Reserve is xs with room for n more elements: xs itself when it has the
+// room, else a copy in a new array with at least that room (slices.Grow).
+// The lowering calls it before a for-in over a slice or a Map whose body
+// appends to xs once per iteration, with n the domain's length (lower
+// reserve.go), so the loop grows xs once.
+//
+//ergo:pure
+func Reserve[T any](xs []T, n int) []T { return slices.Grow(xs, n) }
 
 // Get is the read behind the prelude's m.Get(k): the value of k in m and
 // whether m has the key, Go's comma-ok form. The lowering writes the
@@ -90,6 +103,7 @@ func Put[K comparable, V any](m map[K]V, k K, v V) map[K]V {
 // Index validation precedes allocation and every write.
 //
 //ergo:pure
+//ergo:wait none
 func SlicesTake[T any](xs []T, i int) (T, []T) {
 	value := xs[i]
 	xs = slices.Clone(xs)
@@ -103,6 +117,7 @@ func SlicesTake[T any](xs []T, i int) (T, []T) {
 // wraps value and found in the program's Option and returns it beside m.
 //
 //ergo:pure
+//ergo:wait none
 func MapTake[K comparable, V any](m map[K]V, k K) (V, bool, map[K]V) {
 	value, found := m[k]
 	rest := make(map[K]V, len(m))
@@ -150,3 +165,14 @@ func UnreachableAt(reason, at string) *UnreachableDefect {
 // Never is Unreachable(reason) at at in a position that expects a value of
 // type T: it panics with UnreachableAt and returns no value.
 func Never[T any](reason, at string) T { panic(UnreachableAt(reason, at)) }
+
+// AsWritten is the body of the prelude's AsWritten: its argument. The
+// lowering knows it by its mark, never by its name: a call tree inside its
+// argument is never the root or a part of a rewrite's match
+// (lower/ir_rewrite.go; the test build's shadow is the leaf
+// runtime/v1/shadow).
+//
+//ergo:pure
+//ergo:wait none
+//ergo:aswritten
+func AsWritten[T any](v T) T { return v }

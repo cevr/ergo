@@ -108,7 +108,7 @@ func madeValue(x ast.Expr) bool {
 		// taken for has ended (the body that puts it back says so), so no
 		// binding reaches it. The form is read, not the method's name: in
 		// runtime/v1 (reviewed code) only a sync.Pool's Get takes it
-		// (JSONTake).
+		// (StringsBorrow).
 		lit, ok := x.High.(*ast.BasicLit)
 		if x.Low != nil || x.Max != nil || !ok || lit.Value != "0" {
 			return false
@@ -185,6 +185,60 @@ func goBodyAppends(name string) bool {
 	return ok && returns > 0
 }
 
+// goBodyView reports whether the runtime/v1 function name is a view: its
+// body is one return of a slice expression of its first parameter, which
+// is a slice, whose bounds read only its other parameters
+// (`return xs[i:j:j]`, SlicesSlice). A view writes nothing and keeps
+// nothing: its result is a window of its operand's array. So the value
+// rule copies the window, its result, where it would copy the whole
+// operand (values.go, classify; wf10 DF1).
+func goBodyView(name string) bool {
+	fd := goBodies()[name]
+	if fd == nil || fd.Type.Params == nil || len(fd.Type.Params.List) == 0 || len(fd.Type.Params.List[0].Names) == 0 || fd.Body == nil || len(fd.Body.List) != 1 {
+		return false
+	}
+	first := fd.Type.Params.List[0]
+	if _, ok := first.Type.(*ast.ArrayType); !ok || fd.Type.Results == nil || len(fd.Type.Results.List) != 1 || !sameExpr(fd.Type.Results.List[0].Type, first.Type) {
+		return false
+	}
+	params := map[string]bool{}
+	for _, f := range fd.Type.Params.List[1:] {
+		for _, n := range f.Names {
+			params[n.Name] = true
+		}
+	}
+	ret, ok := fd.Body.List[0].(*ast.ReturnStmt)
+	if !ok || len(ret.Results) != 1 {
+		return false
+	}
+	s, ok := ret.Results[0].(*ast.SliceExpr)
+	if !ok {
+		return false
+	}
+	if id, ok := s.X.(*ast.Ident); !ok || id.Name != first.Names[0].Name {
+		return false
+	}
+	for _, b := range []ast.Expr{s.Low, s.High, s.Max} {
+		if b == nil {
+			continue
+		}
+		if id, ok := b.(*ast.Ident); !ok || !params[id.Name] {
+			return false
+		}
+	}
+	return true
+}
+
+// viewExtern reports a std extern bound to a runtime/v1 view
+// (goBodyView).
+func viewExtern(f *check.Func) bool {
+	if f == nil || f.Decl == nil || f.Decl.Extern == nil || f.Pkg == nil || !f.Pkg.Std() {
+		return false
+	}
+	path, name := f.Decl.Extern.Split()
+	return path == runtimeImport && goBodyView(name)
+}
+
 // sameExpr reports two Go type expressions of one spelling.
 func sameExpr(a, b ast.Expr) bool {
 	var sa, sb strings.Builder
@@ -197,14 +251,11 @@ func sameExpr(a, b ast.Expr) bool {
 	return sa.String() == sb.String()
 }
 
-// appenderExtern reports a std extern bound to a runtime/v1 appender
-// (goBodyAppends).
+// appenderExtern reports an extern, of any package, bound to a runtime/v1
+// appender (goBodyAppends).
 func appenderExtern(f *check.Func) bool {
-	if f == nil || f.Decl == nil || f.Decl.Extern == nil || f.Pkg == nil || !f.Pkg.Std() {
-		return false
-	}
-	path, name := f.Decl.Extern.Split()
-	return path == runtimeImport && goBodyAppends(name)
+	name := check.BodyOf(f).Runtime
+	return name != "" && goBodyAppends(name)
 }
 
 // pureV1 reports a std extern bound to a pure runtime/v1 body (stdlib.md,
@@ -214,7 +265,7 @@ func (l *lowerer) pureV1(f *check.Func) bool {
 		return false
 	}
 	path, _ := f.Decl.Extern.Split()
-	return path == runtimeImport
+	return v1.Owns(path)
 }
 
 // madeResult reports a std extern whose runtime/v1 body makes its result
@@ -225,5 +276,5 @@ func (l *lowerer) madeResult(f *check.Func) bool {
 		return false
 	}
 	path, name := f.Decl.Extern.Split()
-	return path == runtimeImport && goBodyMakes(name)
+	return v1.Owns(path) && goBodyMakes(name)
 }

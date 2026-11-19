@@ -5,7 +5,7 @@ import (
 	"slices"
 	"strings"
 
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -43,11 +43,14 @@ func (c *checker) implementsClause(n *Named, d *syntax.TypeDecl, ctx *typeCtx) {
 	}
 	for _, x := range d.Implements {
 		var t Type
-		if id, ok := x.(*syntax.Ident); ok && id.Name == n.Obj.Name && c.pkg.Path != std.PreludePath {
+		if id, ok := x.(*syntax.Ident); ok && (id.Name == n.Obj.Name || c.hidesNoOps(id.Name)) && c.pkg.Path != stdlib.PreludePath {
 			// A type named like a prelude type hides it in its package
 			// (types.md, Scope 2), and no type implements itself: its
 			// own name in its clause is the prelude's type it hides
-			// (`type Reader { … } implements Reader` in std json).
+			// (`type Reader { … } implements Reader` in std json). An
+			// implements clause names operation types, so a package type
+			// that is not one hides no prelude operation type there
+			// either (`type Stream { … } implements Reader` in std json).
 			if p := preludeType(id.Name); p != nil {
 				t = p
 				c.recordUse(id, p.Obj)
@@ -75,6 +78,17 @@ func (c *checker) implementsClause(n *Named, d *syntax.TypeDecl, ctx *typeCtx) {
 		n.impls = append(n.impls, op)
 		n.implExprs = append(n.implExprs, x)
 	}
+}
+
+// hidesNoOps reports whether the package declares a type named name that
+// is not an operation type: a record, a union, a machine or an alias.
+func (c *checker) hidesNoOps(name string) bool {
+	tn, ok := c.pkg.Scope.names[name].(*TypeName)
+	if !ok || tn.Decl == nil {
+		return false
+	}
+	spec, ok := tn.Decl.Spec.(*syntax.InterfaceType)
+	return !ok || len(spec.Union) > 0 || aliasTarget(tn.Decl) != nil
 }
 
 // typeNoun names what kind of type t is, for a clause that wants an
@@ -140,20 +154,24 @@ func (c *checker) interfaceIncludes(spec *syntax.InterfaceType, ctx *typeCtx, it
 	}
 }
 
-// closerType is the prelude's release contract, `type Closer { Close()
+// closer is the prelude's release contract, `type Closer { Close()
 // takes }` (resources R1): a type that implements it is a resource.
-func (c *checker) closer() *Named {
-	if c.pkg.Path == std.PreludePath {
+func (c *checker) closer() *Named { return c.preludeContract("Closer") }
+
+// preludeContract is the prelude's operation type name, a contract the
+// language gives a meaning (Closer, R1; Keeping, R13), or nil.
+func (c *checker) preludeContract(name string) *Named {
+	if c.pkg.Path == stdlib.PreludePath {
 		// The prelude's own check reads its scope: prelude() is not
 		// done yet.
-		tn, _ := c.pkg.Scope.names["Closer"].(*TypeName)
+		tn, _ := c.pkg.Scope.names[name].(*TypeName)
 		if tn == nil {
 			return nil
 		}
 		n, _ := tn.Type.(*Named)
 		return n
 	}
-	return preludeType("Closer")
+	return preludeType(name)
 }
 
 // isGoCloser reports the binding of Go's io.Closer: in a binding, the
@@ -179,10 +197,25 @@ func (c *checker) declaredOps(t Type) []*Named {
 	if e := refElem(t); e != nil {
 		t = e
 	}
+	if n, ok := t.(*Named); ok && n.origin().state == 2 {
+		if ops, ok := c.declOps[n]; ok {
+			return ops
+		}
+		ops := c.declaredOpsOf(n)
+		if c.declOps == nil {
+			c.declOps = map[*Named][]*Named{}
+		}
+		c.declOps[n] = ops
+		return ops
+	}
+	return c.declaredOpsOf(t)
+}
+
+func (c *checker) declaredOpsOf(t Type) []*Named {
 	var out []*Named
 	var add func(n *Named)
 	add = func(n *Named) {
-		if slices.ContainsFunc(out, func(o *Named) bool { return c.identical(o, n) }) {
+		if slices.ContainsFunc(out, func(o *Named) bool { return o == n || o.origin() == n.origin() && c.identical(o, n) }) {
 			return
 		}
 		out = append(out, n)
@@ -203,7 +236,13 @@ func (c *checker) declaredOps(t Type) []*Named {
 		if o.state == 0 {
 			c.resolveNamed(o)
 		}
-		if it := asInterface(t); it != nil {
+		if asInterface(o) == nil && len(o.impls) == 0 {
+			// Read on the origin: an instance is not expanded to learn
+			// that it declares nothing (D16, round-6 M5).
+			return out
+		}
+		if asInterface(o) != nil {
+			it := asInterface(t)
 			if isGoCloser(t) {
 				if cl := c.closer(); cl != nil {
 					add(cl)
@@ -246,7 +285,136 @@ func (c *checker) declares(t Type, op Type) bool {
 // (resources R1).
 func (c *checker) implementsCloser(t Type) bool {
 	cl := c.closer()
-	return cl != nil && slices.ContainsFunc(c.declaredOps(t), func(o *Named) bool { return o.origin() == cl })
+	if cl == nil {
+		return false
+	}
+	if n, ok := t.(*Named); ok && (n.origin() == cl || isGoCloser(n)) {
+		return true
+	}
+	return slices.ContainsFunc(c.declaredOps(t), func(o *Named) bool { return o.origin() == cl })
+}
+
+// undeclared is why the value type v is not a value of the operation type
+// op at a use (a conversion, a context entry, a constraint, a law's
+// provider): v does not declare that it implements op; "" when it does,
+// or when the old method-set rule still decides. Go's method sets decide
+// between two Go types (interop.md, Checking), and a protocol of the
+// runtime (an unnamed interface) is met by its functions. The message
+// names the clause to write.
+func (c *checker) undeclared(v, op Type, site string) string {
+	opn, ok := op.(*Named)
+	if !ok {
+		return ""
+	}
+	it := asInterface(opn)
+	if it == nil || it.Set != SetAll {
+		return ""
+	}
+	if c.declares(v, op) {
+		return ""
+	}
+	if vn, ok := v.(*Named); ok && asInterface(vn) != nil && vn.origin() == opn.origin() {
+		// Two instances of one operation type (a Task whose row
+		// widens): their operations decide, as an instance's do.
+		return ""
+	}
+	if legacyRecord != nil && c.implements(v, it, true) == "" {
+		// ergo fix: the old rule admits the pair, and the fix writes it.
+		c.recordLegacy(v, op, site)
+		return ""
+	}
+	e := v
+	if p, ok := e.(*Pointer); ok {
+		e = p.Elem
+	}
+	if r := refElem(e); r != nil {
+		e = r
+	}
+	if ScriptOf(e) != nil {
+		// A Script has the operations of its capability (script.go,
+		// rule 4): std declares it for every capability.
+		return ""
+	}
+	if isHostNamed(e) && isHostNamed(op) {
+		return ""
+	}
+	if asInterface(e) != nil && isHostNamed(op) {
+		// An Ergo operation type's value into a Go interface: Go's
+		// conversion decides it, and assignability refuses a program's
+		// operation type there for its calling convention (interop.md).
+		return ""
+	}
+	for _, m := range it.Methods {
+		// A sealed operation names why no clause of v's package can
+		// declare it (grammar.md, Visibility 2).
+		if got, fn := c.methodOf(v, m.Name); got != nil {
+			if why := sealedBy(v, it, m, fn); why != "" {
+				return why
+			}
+		}
+	}
+	n, ok := e.(*Named)
+	if !ok {
+		return fmt.Sprintf("%s does not declare that it implements %s", v, op)
+	}
+	o := n.origin()
+	switch {
+	case o.Obj == nil || o.Obj.Pkg == nil:
+		return fmt.Sprintf("%s does not declare that it implements %s", v, op)
+	case o.Obj.Pkg.Host():
+		return fmt.Sprintf("%s is a Go type and does not implement %s: wrap it in a record that implements %s (interop.md, Checking)", v, op, op)
+	case asInterface(n) != nil && o.Obj.Pkg != c.pkg:
+		// Another package's operation type, std's included: its package
+		// would have to include op, so the value is wrapped here.
+		return fmt.Sprintf("%s does not include %s: wrap the value in a record that implements %s, or write ..%s in %s in package %s (types.md, Interface assignability 1)", v, op, op, op, o.Obj.Name, o.Obj.Pkg.Name)
+	case asInterface(n) != nil:
+		return fmt.Sprintf("%s does not include %s: write ..%s in %s (types.md, Interface assignability 1)", v, op, op, o.Obj.Name)
+	case o.Obj.Pkg != c.pkg:
+		return fmt.Sprintf("%s does not declare that it implements %s: write implements %s after its body in package %s, or wrap the value in a record that implements %s (types.md, Interface assignability 1)", v, op, op, o.Obj.Pkg.Name, op)
+	}
+	return fmt.Sprintf("%s does not declare that it implements %s: write implements %s after %s's body (types.md, Interface assignability 1)", v, op, op, o.Obj.Name)
+}
+
+// declaredInstance is the instance of the operation type op's origin that
+// the value type v declares (its clause, at v's type arguments), or nil:
+// inference reads the written instance (Generics 6), and the conversion
+// that follows reads the declaration.
+func (in *inferer) declaredInstance(op, v Type) Type {
+	opn, ok := op.(*Named)
+	if !ok {
+		return nil
+	}
+	for _, d := range in.c.declaredOps(v) {
+		if d.origin() == opn.origin() {
+			return d
+		}
+	}
+	return nil
+}
+
+// clauseUnmet reports a use of a declared pair whose clause failed at the
+// type (S106 there): the use stays silent. A *T function that implements
+// through the clause on T still needs &x at a conversion (Borrows 6), so
+// that use is not silent.
+func (c *checker) clauseUnmet(v Type, it *Interface) bool {
+	n, ok := v.(*Named)
+	if !ok || asInterface(n) != nil || len(n.origin().impls) == 0 || n.origin().Obj.Pkg.Host() {
+		return false
+	}
+	// The release contract's clause checks only the Close function's
+	// shape at the type (checkImplementsClauses), so a refusal of the
+	// conversion itself, a release that needs a capability (R5), is
+	// reported at the use.
+	if cl := c.closer(); cl != nil && asInterface(cl) == it {
+		return false
+	}
+	for _, d := range c.declaredOps(v) {
+		if isGoCloser(d) && asInterface(d) == it {
+			return false
+		}
+	}
+	foreign := false // as checkImplementsClauses reads the clause
+	return c.implementsCapturing(&Pointer{Elem: v}, it, true, &foreign) != ""
 }
 
 // checkImplementsClauses checks each written clause of the package at its
@@ -281,12 +449,24 @@ func (c *checker) checkImplementsClauses() {
 				// and returns nothing. It may need capabilities, which
 				// the scope that releases it provides; a call through a
 				// Closer value is checked at the conversion.
-				if c.closeMethod(n) == nil {
-					c.errorf(n.implExprs[i], CodeProvider, "%s does not implement %s: it needs a function Close(x %s) that returns nothing and cannot fail (resources R1)", n.Obj.Name, op, n.Obj.Name)
+				if c.closeFunc(n) == nil {
+					c.errorf(n.implExprs[i], CodeProvider, "%s does not implement %s: it needs a function Close(x %s) that returns nothing and cannot fail (resources R1, R2)", n.Obj.Name, op, n.Obj.Name)
 				}
 				continue
 			}
-			if why := c.implements(&Pointer{Elem: self}, it, true); why != "" {
+			// A method that needs go.Foreign beyond the operation's row
+			// implements it: the build of a value as the operation type
+			// holds go.Foreign, and that conversion charges it (README
+			// Gap 17), so the declaration admits what the conversion does.
+			foreign := false
+			// A Go interface's method may keep the value it is called on
+			// (resources R19), so a value that may hold a resource meets it
+			// only by taking it. A generic type's parameters hold a resource
+			// in some instances and not in others: the clause leaves the
+			// receiver to each conversion, which checks it at the instance
+			// (assignableTo, implementsCapturing).
+			checkReceiver := !(len(n.TParams) > 0 && isHostNamed(op))
+			if why := c.implementsCapturing(&Pointer{Elem: self}, it, checkReceiver, &foreign); why != "" {
 				c.errorf(n.implExprs[i], CodeProvider, "%s does not implement %s: %s (types.md, Interface assignability 1)", n.Obj.Name, op, strings.TrimPrefix(why, "*"))
 			}
 		}
@@ -342,7 +522,7 @@ func (c *checker) operationBody(tn *TypeName, seen map[*TypeName]bool) bool {
 		} else if it := asInterface(c.resolvedType(target.Type)); it == nil || it.Set != SetAll {
 			return false
 		}
-		tn.Decl.Spec = &syntax.InterfaceType{Lbrace: spec.Fields.Opening, Includes: fields, Rbrace: spec.Fields.Closing}
+		tn.Decl.Spec = made(c, &syntax.InterfaceType{Lbrace: spec.Fields.Opening, Includes: fields, Rbrace: spec.Fields.Closing}, syntax.Node(tn.Decl))
 		return true
 	}
 	return false
@@ -505,7 +685,7 @@ func (c *checker) opAtOwnParams(n *Named, op *Named) Type {
 // name), and an operation type that lists a Close() of the contract's
 // shape, where neither declares the contract.
 func (c *checker) recordLegacyReleases() {
-	if legacyRecord == nil || c.pkg.Path == std.PreludePath {
+	if legacyRecord == nil || c.pkg.Path == stdlib.PreludePath {
 		return
 	}
 	cl := c.closer()
@@ -521,12 +701,12 @@ func (c *checker) recordLegacyReleases() {
 			if it.Set != SetAll {
 				continue
 			}
-			if m := it.method("Close"); closeShape(m) && !m.Sig.Fallible && m.Sig.TakesSelf {
+			if m := it.method(c.closeName()); closeShape(m) && !m.Sig.Fallible && m.Sig.TakesSelf {
 				legacyRecord(LegacyPair{Type: tn, Pkg: c.pkg.Path, Op: cl, Include: true, Site: "release"})
 			}
 			continue
 		}
-		if c.closeMethod(n) != nil {
+		if c.closeFunc(n) != nil {
 			legacyRecord(LegacyPair{Type: tn, Pkg: c.pkg.Path, Op: cl, Site: "release"})
 		}
 	}

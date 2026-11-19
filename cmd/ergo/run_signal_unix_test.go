@@ -40,7 +40,7 @@ func TestRunForwardsSignalsToTheProgram(t *testing.T) {
 	file := smokeWrite(t, root, "wait.ergo", sketchWaitSource)
 	for signal, want := range map[syscall.Signal]int{syscall.SIGINT: 130, syscall.SIGTERM: 143} {
 		stdout, stderr, code := runInterruptedEntry(t, binary, root, signal, "run", file)
-		if stdout != "ready\n" || code != want || stderr != "" {
+		if stdout != "ready\n" || code != want || withoutBuildNote(stderr) != "" {
 			t.Errorf("%v: code=%d stdout=%q stderr=%q; want exit %d, the program ended by the forwarded signal", signal, code, stdout, stderr, want)
 		}
 	}

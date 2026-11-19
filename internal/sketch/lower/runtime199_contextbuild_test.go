@@ -138,8 +138,19 @@ func (d *contextDAG) decls(fail, slow map[string]bool) string {
 	for c := 0; c < d.caps; c++ {
 		fmt.Fprintf(&b, "type %s { Name() string }\n", d.cap(c))
 	}
-	typ := func(name string, res bool) {
-		fmt.Fprintf(&b, "type %s {}\nfunc Name(_ %s) string { %q }\n", name, name, name)
+	typ := func(name string, res bool, caps ...int) {
+		var impls []string
+		for _, c := range caps {
+			impls = append(impls, d.cap(c))
+		}
+		if res {
+			impls = append(impls, "Closer")
+		}
+		clause := ""
+		if len(impls) > 0 {
+			clause = " implements " + strings.Join(impls, ", ")
+		}
+		fmt.Fprintf(&b, "type %s {}%s\nfunc Name(_ %s) string { %q }\n", name, clause, name, name)
 		if res {
 			needs := "Console"
 			if slow[name] {
@@ -156,7 +167,7 @@ func (d *contextDAG) decls(fail, slow map[string]bool) string {
 		}
 	}
 	for e, en := range d.entries {
-		typ(d.typ(e), en.res)
+		typ(d.typ(e), en.res, en.caps...)
 		if len(en.deps) > 0 {
 			var needs, body []string
 			for _, c := range en.deps {
@@ -184,13 +195,13 @@ func (d *contextDAG) decls(fail, slow map[string]bool) string {
 		entries = append(entries, head+strings.Join(keys, ", ")+": "+provider)
 	}
 	if d.base >= 0 {
-		typ(d.baseTyp(), true)
+		typ(d.baseTyp(), true, d.base)
 		fmt.Fprintf(&b, "let Base%d = context { %s: %s }\n", d.k, d.cap(d.base), d.baseTyp())
 		entries = append(entries, fmt.Sprintf("Base%d", d.k))
 	}
 	fmt.Fprintf(&b, "let W%d = context { %s }\n", d.k, strings.Join(entries, ", "))
 	if d.inner >= 0 {
-		typ(d.innerTyp(), true)
+		typ(d.innerTyp(), true, d.inner)
 		fmt.Fprintf(&b, "let V%d = context { %s: %s }\n", d.k, d.cap(d.inner), d.innerTyp())
 	}
 	return b.String()

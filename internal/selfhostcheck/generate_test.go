@@ -373,6 +373,11 @@ func (g *gen) stmt() {
 			g.expr()
 		}
 	case 8:
+		if g.r.IntN(3) == 0 {
+			// skip "reason" (runtime.md, Tests 4): the reason is a literal.
+			g.w("skip ", strconv.Quote(g.pick("no host", "日本語", "")))
+			return
+		}
 		g.w("assert ")
 		g.expr()
 	case 9:
@@ -439,7 +444,11 @@ func (g *gen) decl() {
 		g.fields(", ")
 		g.w("}", g.pick("", " | Z", "\n\t| W{}"))
 	case 4:
-		g.w("type ", g.name(), " {\n\tGet(k string) int fails NotFound needs Store,\n\tPut(k string, v int)", g.pick("", " takes v"), ",\n\n\tlaw RoundTrip(k string, v int) { Put(k, v); try Get(k) == v },\n}")
+		// Includes, operations and laws may interleave: the printer keeps
+		// source order (sh-members-unsorted).
+		g.w("type ", g.name(), " {\n", g.pick("", "\t..Closer,\n"), "\tGet(k string) int fails NotFound needs Store,\n",
+			g.pick("", "\tlaw Seen(k string) { Get(k) >= 0 },\n", "\t..Sized,\n"),
+			"\t", g.pick("", "own "), "Put(k string, v int)", g.pick("", " takes v"), ",\n\n\tlaw RoundTrip(k string, v int) { Put(k, v); try Get(k) == v },\n}")
 	case 5:
 		g.w("type M machine[State, Signal] {\n\tinitial: ", g.name(), "{},\n\tstep:", g.pick(" ", "    "), "step,\n\tlaw Reach reaches Done,\n\tlaw P never path [A, B],\n\tlaw I invariant ok,\n}")
 	case 6:
@@ -466,7 +475,7 @@ func (g *gen) decl() {
 	default:
 		g.w("func ", g.pick("", "(p *Point) "), g.name(), g.pick("", "[T any, U comparable]"), "(")
 		g.list(func() { g.w(g.name(), " ", g.typeName()) })
-		g.w(")", g.pick("", " int", " (int, string)", " int fails A | B", " int fails A needs B | go.Foreign", " escaping func() int"), " {")
+		g.w(")", g.pick("", " int", " (int, string)", " int fails A | B", " int fails A needs B | go.Foreign", " func() int"), " {")
 		g.block()
 	}
 }

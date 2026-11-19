@@ -21,9 +21,13 @@ file and no second declaration to keep in step.
 - `memory/` is the provider: a `job.Run` per job number in a `sync.Ref`, so each
   change is one atomic step. `ergo test memory` runs the contract's laws
   against it.
-- `loopback/` is the same server through the wire (`rpc.Loopback`):
-  `ergo test loopback` runs the contract's laws against the generated
-  client, so the laws that hold for the provider hold through the wire.
+- `loopback/` is a server through the wire (`rpc.Loopback`): the generated
+  client of the `jobs.Jobs` its caller passes in, so it picks no provider.
+  Its test file (`loopback/tests.ergo`) picks one, as
+  `cmd/jobs-web/main.ergo` picks the binary's: the named context
+  `overMemory` binds `jobs.Jobs` to a Loopback over a fresh memory server,
+  and `ergo test loopback` runs the contract's laws under it, so the laws
+  that hold for the provider hold through the wire.
 - `cmd/jobs-web/main.ergo` opens the page's folder (its one argument) as an
   `fs.Root`, listens on `127.0.0.1:0`, prints the address first, and
   serves one `http.Serve` whose handler sends `/rpc` to `rpc.Answer` over

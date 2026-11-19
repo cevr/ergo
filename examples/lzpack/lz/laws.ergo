@@ -1,0 +1,121 @@
+// The codec's laws. A generated string is short and rarely repeats, so
+// each law builds its input from it: copies of it, a run of one byte, and
+// a filler longer than the Window between two copies, so a match could
+// reach past the window if Pack let it.
+
+import strings
+
+// filler is n bytes that repeat no four-byte run of each other within
+// the window: a counter in base 251, three digits at a time.
+func filler(n int) string {
+	let mut b = strings.NewBuilder()
+	let mut i = 0
+	for b.Len() < n {
+		b.WriteByte(byte(i % 251))
+		b.WriteByte(byte((i / 251) % 251))
+		b.WriteByte(byte((i/63001)%251 + 3))
+		i += 1
+	}
+	strings.Slice(b.String(), 0, n)
+}
+
+// sample is an input built from s and k: s, copies of it, a run, and,
+// for odd k, a filler of more than a Window between two copies of s.
+func sample(s string, k int) string {
+	let reps = (k%7 + 7) % 7
+	let mut b = strings.NewBuilder()
+	b.WriteString(s)
+	for _ in 0..reps {
+		b.WriteString(s)
+		b.WriteByte(byte(reps))
+	}
+	for _ in 0..(k%40+40)%40 {
+		b.WriteByte(byte(k))
+	}
+	if k%2 != 0 {
+		b.WriteString(filler(Window + (k%300+300)%300))
+		b.WriteString(s)
+		b.WriteString(s)
+	}
+	b.String()
+}
+
+// UnpackOfPackIsInput: what Pack writes, Unpack reads back.
+law UnpackOfPackIsInput(s string, k int) {
+	let input = sample(s, k)
+	let back = Unpack(Pack(input)) catch {
+	case Corrupt:
+		return false
+	}
+	back == input
+}
+
+// NeverReadsOutsideWindow: every copy Pack writes starts 1 to Window-1
+// bytes back and within the bytes so far, and the steps write the input's
+// length.
+law NeverReadsOutsideWindow(s string, k int) {
+	let input = sample(s, k)
+	let steps = Walk(Pack(input)) catch {
+	case Corrupt:
+		return false
+	}
+	let mut total = 0
+	for st in steps {
+		match st {
+		case Literals as l:
+			if l.At != total {
+				return false
+			}
+			total += l.Len
+		case Copy as c:
+			if c.At != total || c.Offset < 1 || c.Offset >= Window || c.Offset > c.At || c.Len < MinMatch {
+				return false
+			}
+			total += c.Len
+		}
+	}
+	total == len(input)
+}
+
+// MalformedIsAFailure: any bytes after the magic, and any stream Pack
+// wrote with one byte changed or cut short, unpack to a text or fail with
+// Corrupt; none is a defect.
+law MalformedIsAFailure(body string, s string, k int, b int) {
+	let _ = Unpack(Magic + body) catch {
+	case Corrupt:
+		""
+	}
+	let packed = Pack(sample(s, k))
+	let at = (k%len(packed) + len(packed)) % len(packed)
+	let mut changed = strings.NewBuilder()
+	changed.WriteString(strings.Slice(packed, 0, at))
+	changed.WriteByte(byte((b%256 + 256) % 256))
+	changed.WriteString(strings.Slice(packed, at+1, len(packed)))
+	let _ = Unpack(changed.String()) catch {
+	case Corrupt:
+		""
+	}
+	let _ = Unpack(strings.Slice(packed, 0, at)) catch {
+	case Corrupt:
+		""
+	}
+	true
+}
+
+// WalkAgreesWithUnpack: Walk refuses exactly the streams Unpack refuses,
+// with the same Corrupt.
+law WalkAgreesWithUnpack(body string) {
+	let a = Unpack(Magic + body) catch {
+	case Corrupt as e:
+		let _ = Walk(Magic + body) catch {
+		case Corrupt as f:
+			return e == f
+		}
+		return false
+	}
+	let _ = Walk(Magic + body) catch {
+	case Corrupt:
+		return false
+	}
+	len(a) >= 0
+}

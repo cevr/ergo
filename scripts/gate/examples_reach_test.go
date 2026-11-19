@@ -86,7 +86,12 @@ func TestFastTierReachOfAnExampleEdit(t *testing.T) {
 				continue
 			}
 			// The declared entries alone: a directory the working tree does
-			// not hold, so no file is taken for one of its sources.
+			// not hold, so no file is taken for one of its sources. A
+			// program entry covers what the go command reads to build the
+			// program (its compiled closure), never examples/; with no
+			// closure here it would cover every path (batch-19 combined
+			// integration: internal/sketch/std's cmd/ergo entry, DN1).
+			declared = slices.DeleteFunc(slices.Clone(declared), func(a replay.Allowance) bool { return a.Grant == replay.GrantProgram })
 			if (&replay.Closure{Dir: "-", Declared: declared}).Covers(file) {
 				readers = append(readers, dir)
 			}

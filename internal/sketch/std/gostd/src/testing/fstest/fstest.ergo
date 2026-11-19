@@ -12,11 +12,9 @@ extern go testing/fstest.MapFile type MapFile {
 	Data    []byte,
 	Mode    fs.FileMode,
 	ModTime time.Time,
+	Sys     go.Any,
 }
-
-// ergo:go Sys any
-// ergo:refused MapFile.Sys: Ergo has no any; an interface{} parameter or result hides the host type
 
 // ergo:go func TestFS(fsys fs.FS, expected ...string) error
 // ergo:variadic
-extern go testing/fstest.TestFS func TestFS(fsys fs.FS, expected []string) fails go.Error needs go.Foreign takes fsys
+extern go testing/fstest.TestFS func TestFS(fsys own fs.FS, expected []string) fails go.Error needs go.Foreign

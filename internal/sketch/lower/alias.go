@@ -111,10 +111,15 @@ type flow struct {
 	parent map[syntax.Node]syntax.Node
 	uses   map[*check.Var][]*syntax.Ident
 	inLit  map[*syntax.Ident]bool // uses inside a function literal or trailing block
+	// keep walks for keeps (keeps.go): calls by their keeps summaries, a
+	// match into its bindings, and a store under a parameter as kept.
+	keep   bool
+	params map[*check.Var]bool
 }
 
 func newFlow(l *lowerer, info *check.Info, d *syntax.FuncDecl) *flow {
 	fl := &flow{l: l, info: info, parent: map[syntax.Node]syntax.Node{}, uses: map[*check.Var][]*syntax.Ident{}, inLit: map[*syntax.Ident]bool{}}
+	var kids []syntax.Node // the walk's stack of children (appendChildren)
 	var visit func(n syntax.Node, lit bool)
 	visit = func(n syntax.Node, lit bool) {
 		switch x := n.(type) {
@@ -131,13 +136,18 @@ func newFlow(l *lowerer, info *check.Info, d *syntax.FuncDecl) *flow {
 				fl.inLit[x] = lit
 			}
 		}
-		for _, c := range children(n) {
+		start := len(kids)
+		kids = appendChildren(kids, n)
+		end := len(kids)
+		for i := start; i < end; i++ {
+			c := kids[i]
 			if call, ok := n.(*syntax.CallExpr); ok && c == syntax.Node(call.Trailing) {
 				continue
 			}
 			fl.parent[c] = n
 			visit(c, lit)
 		}
+		kids = kids[:start]
 	}
 	visit(d.Body, false)
 	return fl
@@ -154,6 +164,9 @@ func (fl *flow) reachesResult(v *check.Var) bool {
 		for _, id := range fl.uses[u] {
 			if fl.inLit[id] {
 				return true
+			}
+			if _, def := fl.info.Defs[id]; def && fl.keep {
+				continue // the binding itself, not a use of it
 			}
 			taints, escapes := fl.climb(id)
 			if escapes {
@@ -276,6 +289,9 @@ func (fl *flow) climb(id *syntax.Ident) (taints []*check.Var, escapes bool) {
 					if _, local := fl.uses[v]; !local && !fl.declaredHere(v) {
 						return nil, true // a package let, or a variable of another frame
 					}
+					if fl.keep && fl.params[v] {
+						return nil, true // a store through a borrow outlives the call
+					}
 					taints = append(taints, v)
 				}
 				return taints, false
@@ -296,6 +312,11 @@ func (fl *flow) climb(id *syntax.Ident) (taints []*check.Var, escapes bool) {
 			return nil, true // a block's value, which may be the result
 		case *syntax.ReturnStmt:
 			return nil, true
+		case *syntax.TypeGuard:
+			if s, ok := fl.parent[p].(*syntax.TypeSwitchStmt); ok && fl.keep {
+				return fl.matchBinds(s), false
+			}
+			return nil, true
 		default:
 			return nil, true
 		}
@@ -306,6 +327,9 @@ func (fl *flow) climb(id *syntax.Ident) (taints []*check.Var, escapes bool) {
 // call, whose result carries it on; stop means the call keeps nothing of
 // it; escapes means the call may keep it where the walk cannot follow.
 func (fl *flow) callFlow(x *syntax.CallExpr, c *check.Call, cur syntax.Node) (next syntax.Node, stop, escapes bool) {
+	if fl.keep {
+		return fl.keepFlow(x, c, cur)
+	}
 	list := callOperands(x, c)
 	j := -1
 	for i, a := range list {
@@ -341,13 +365,18 @@ func (fl *flow) callFlow(x *syntax.CallExpr, c *check.Call, cur syntax.Node) (ne
 
 // borrowResult reports whether the result of the call x is copied at the
 // caller (above): the callee's declared result holds one of its type
-// parameters, the result's instance here holds a Map or slice, and the
-// summary says it depends on an operand that is a borrow. In both
-// lowerings: it is a rule of values, not a choice of speed.
+// parameters, or the callee returns parts of its borrows shared
+// (borrowret.go, own-borrow-return), the result's instance here holds a
+// Map or slice, and the summary says it depends on an operand that is a
+// borrow. For a generic result in both lowerings: it is a rule of values,
+// not a choice of speed.
 func (w *valueWalk) borrowResult(x *syntax.CallExpr) bool {
 	c := w.info.Calls[x]
-	if c == nil || c.Func == nil || len(c.Func.Sig.Results) != 1 || len(freeTypeParams(c.Func.Sig.Results[0])) == 0 {
+	if c == nil || c.Func == nil || len(c.Func.Sig.Results) != 1 {
 		return false
+	}
+	if len(freeTypeParams(c.Func.Sig.Results[0])) == 0 && !w.l.borrowReturns(c.Func) {
+		return false // the callee copies at its return (borrowret.go)
 	}
 	if !w.l.holdsValue(w.typeOf(x)) {
 		return false
@@ -362,6 +391,54 @@ func (w *valueWalk) borrowResult(x *syntax.CallExpr) bool {
 		}
 		if u, ok := unparen(a).(*syntax.UnaryExpr); ok && u.Op == syntax.AND {
 			return true
+		}
+	}
+	return false
+}
+
+// hidesParts reports whether a value of type t can hold a function value
+// or an operation value, whose captures and provider no copy of the value
+// reaches.
+func hidesParts(t check.Type) bool {
+	return hides(t, map[check.Type]bool{})
+}
+
+func hides(t check.Type, seen map[check.Type]bool) bool {
+	if t == nil || seen[t] {
+		return false
+	}
+	seen[t] = true
+	switch u := underEqual(t).(type) {
+	case *check.Signature, *check.Interface, *check.MachineType:
+		return true
+	case *check.Slice:
+		return hides(u.Elem, seen)
+	case *check.Array:
+		return hides(u.Elem, seen)
+	case *check.Map:
+		return hides(u.Key, seen) || hides(u.Elem, seen)
+	case *check.Tuple:
+		for _, e := range u.Types {
+			if hides(e, seen) {
+				return true
+			}
+		}
+	case *check.Struct:
+		for _, f := range u.Fields {
+			if hides(f.Type, seen) {
+				return true
+			}
+		}
+	case *check.Union:
+		// A union holds its variant behind a match, so the value copy
+		// copies none of it (holdsValue): a variant that reaches a Map or
+		// a slice is hidden from a copy of the result, which then must be
+		// a copy of the argument (wf10 OWN1 arms: `let o = optS(cur)`
+		// then `cur[0] = k` reached o's slice, under every lowering).
+		for _, v := range u.Variants {
+			if hides(v, seen) || holdsValueSeen(v, map[check.Type]bool{}) {
+				return true
+			}
 		}
 	}
 	return false

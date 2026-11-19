@@ -1,0 +1,106 @@
+// Package resolve turns a twig tree into code the interpreter runs: each
+// name becomes a slot of a frame, a frame hops away from the frame of the
+// call that reads it, and each function becomes an entry of a table. A
+// name that is not declared, a name declared twice in a block, and a
+// break, continue or return out of place are found here, before the
+// program runs.
+
+import twig/syntax
+
+// Pos is a place in the source.
+type Pos = syntax.Pos
+
+// Node is a resolved expression.
+type Node =
+	| KInt{N int}
+	| KFloat{F float64}
+	| KStr{S string}
+	| KBool{B bool}
+	| KNil{}
+	| Local{Slot int}
+	| Outer{Hops int, Slot int}
+	| Prim{Op Builtin}
+	| Negate{X Node, At Pos}
+	| Invert{X Node, At Pos}
+	| Bin{Op syntax.BinOp, L Node, R Node, At Pos}
+	| Both{L Node, R Node, At Pos}
+	| Either{L Node, R Node, At Pos}
+	| Apply{Fn Node, Args []Node, At Pos}
+	| Elem{X Node, I Node, At Pos}
+	| Get{X Node, Key int, At Pos}
+	| MakeList{Items []Node}
+	| MakeRec{Keys []int, Vals []Node}
+	| Closure{Code int}
+
+// Code is a resolved statement.
+type Code =
+	| Do{X Node}
+	| Bind{Slot int, Val Node}
+	| SetVar{Hops int, Slot int, Val Node}
+	| SetElem{X Node, I Node, Val Node, At Pos}
+	| SetField{X Node, Key int, Val Node, At Pos}
+	| Cond{Test Node, Then []Code, Else []Code, At Pos}
+	| Loop{Test Node, Body []Code, At Pos}
+	| Each{Slot int, Over Node, Body []Code, At Pos}
+	| Ret{Val Node}
+	| Brk{}
+	| Cnt{}
+	| MakeFn{Slot int, Code int}
+
+// Builtin is a function every program has: print, len, push, str, float,
+// int and sqrt. A declaration of the same name hides it.
+type Builtin = Print | Len | Push | Str | ToFloat | ToInt | Sqrt
+
+type Print {}
+type Len {}
+type Push {}
+type Str {}
+type ToFloat {}
+type ToInt {}
+type Sqrt {}
+
+// Builtins are the builtins, in the order of their names.
+let Builtins = []Builtin{Print, Len, Push, Str, ToFloat, ToInt, Sqrt}
+
+// BuiltinName is the name a program calls b by.
+func BuiltinName(b Builtin) string {
+	match b {
+	case Print:
+		"print"
+	case Len:
+		"len"
+	case Push:
+		"push"
+	case Str:
+		"str"
+	case ToFloat:
+		"float"
+	case ToInt:
+		"int"
+	case Sqrt:
+		"sqrt"
+	}
+}
+
+// Arity is the number of arguments b takes.
+func Arity(b Builtin) int {
+	match b {
+	case Push:
+		2
+	case Print, Len, Str, ToFloat, ToInt, Sqrt:
+		1
+	}
+}
+
+// Func is a function of the program: Slots is the size of its frame, its
+// parameters first. Captured reports whether a function inside it may
+// keep its frame after the call returns.
+type Func { Name string, Arity int, Slots int, Body []Code, Captured bool, At Pos }
+
+// Program is a resolved program: its functions, Main first (the top
+// level, called with no arguments), and the names of the record fields,
+// by number.
+type Program { Funcs []Func, Fields []string }
+
+// Main is the index of the top level in Funcs.
+let Main = 0

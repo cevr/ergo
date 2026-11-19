@@ -1,0 +1,70 @@
+// A panel as the text a window would show for it at a frame.
+
+// Columns is how many columns a chart or a spark line is drawn in.
+let Columns = 8
+
+// Mode is the name of s's mode.
+func Mode(s State) string {
+	match s {
+	case Live:
+		"live"
+	case Paused:
+		"paused"
+	case Stale:
+		"stale"
+	}
+}
+
+// Describe is panel i in state s at frame f, on one line. The line grows
+// in one string, each part added onto it: no list of words is built to
+// be joined, and the lowering builds such a string in one buffer.
+func Describe(i int, s State, f int) string {
+	let p = PanelOf(s)
+	let head = "\(i) " + Mode(s) + " got=\(p.Got) seen=\(p.Seen) "
+	match p.View {
+	case ChartView as c:
+		spans(head+"chart n=\(Len(c.Samples)) ", RingColumns(c.Samples, Columns))
+	case SparkView as k:
+		spans(head+"spark ", RingColumns(k.Samples, Columns))
+	case GaugeView as g:
+		head + "gauge at=\(Shown(g, f)) to=\(g.To)"
+	case StripView as h:
+		counts(head+"strip ", Heat(Items(h.Samples), 0, Top))
+	case LogView as l:
+		let mut line = head + "log ["
+		for j, e in Items(l.Entries) {
+			if j > 0 {
+				line = line + " "
+			}
+			line = line + "\(e.Frame):\(e.Value)"
+		}
+		line + "]"
+	}
+}
+
+// Top is the greatest sample a source reads.
+let Top = 999
+
+// spans is line with xs after it, as [lo-hi lo-hi …].
+func spans(line string, xs []Span) string {
+	let mut out = line + "["
+	for j, s in xs {
+		if j > 0 {
+			out = out + " "
+		}
+		out = out + "\(s.Lo)-\(s.Hi)"
+	}
+	out + "]"
+}
+
+// counts is line with xs after it, as [n n …].
+func counts(line string, xs []int) string {
+	let mut out = line + "["
+	for j, x in xs {
+		if j > 0 {
+			out = out + " "
+		}
+		out = out + "\(x)"
+	}
+	out + "]"
+}

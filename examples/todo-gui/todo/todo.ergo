@@ -1,0 +1,224 @@
+// Package todo is the list's model: items with an id, a text and a done
+// mark, the count of open items kept with them, and which items the screen
+// shows. It is a machine with its laws; the view and the hosts only send
+// it signals.
+
+import machines
+import strings
+
+// Item is one thing to do.
+type Item { Id int, Text string, Done bool }
+
+// Filter is which items the screen shows.
+type Filter = All{} | Open{} | Finished{}
+
+// List is the model: the items in the order they were added, the next
+// id, the number of open items (kept by Step, never counted by the view)
+// and the filter.
+type List { Items []Item, Next int, Left int, Show Filter }
+
+// Op is a signal: add an item (its text trimmed; a blank text adds
+// nothing), flip or remove one by id, remove the done ones, or pick the
+// filter.
+type Op = Add{Text string} | Flip{Id int} | Remove{Id int} | ClearDone{} | ShowOnly{Show Filter}
+
+// Empty is the list before any signal.
+let Empty = List{Items: []Item{}, Next: 1, Left: 0, Show: All}
+
+// Step is the list's transition. A signal that names no item, and a blank
+// Add, change nothing.
+func Step(l List, op Op) Decision[List, List] {
+	match op {
+	case Add as a:
+		let text = strings.TrimSpace(a.Text)
+		if text == "" {
+			return Ignore
+		}
+		Enter[List]{Next: List{Items: l.Items.Append(Item{Id: l.Next, Text: text, Done: false}), Next: l.Next + 1, Left: l.Left + 1, Show: l.Show}}
+	case Flip as f:
+		let mut items = []Item{}
+		let mut left = l.Left
+		let mut found = false
+		for it in l.Items {
+			if it.Id == f.Id {
+				found = true
+				left = if it.Done { left + 1 } else { left - 1 }
+				items = items.Append(Item{Id: it.Id, Text: it.Text, Done: !it.Done})
+			} else {
+				items = items.Append(it)
+			}
+		}
+		if !found {
+			return Ignore
+		}
+		Enter[List]{Next: List{Items: items, Next: l.Next, Left: left, Show: l.Show}}
+	case Remove as r:
+		let mut items = []Item{}
+		let mut left = l.Left
+		let mut found = false
+		for it in l.Items {
+			if it.Id == r.Id {
+				found = true
+				if !it.Done {
+					left = left - 1
+				}
+			} else {
+				items = items.Append(it)
+			}
+		}
+		if !found {
+			return Ignore
+		}
+		Enter[List]{Next: List{Items: items, Next: l.Next, Left: left, Show: l.Show}}
+	case ClearDone:
+		let mut items = []Item{}
+		for it in l.Items {
+			if !it.Done {
+				items = items.Append(it)
+			}
+		}
+		Enter[List]{Next: List{Items: items, Next: l.Next, Left: l.Left, Show: l.Show}}
+	case ShowOnly as s:
+		Enter[List]{Next: List{Items: l.Items, Next: l.Next, Left: l.Left, Show: s.Show}}
+	}
+}
+
+// Todo is the model as a machine.
+type Todo machine[List, Op] {
+	initial: Empty,
+	step:    Step,
+
+	// AddThenRemoveRestores: removing the item just added leaves the items
+	// and the open count as they were.
+	law AddThenRemoveRestores(seed int, text string) {
+		let l = built(seed)
+		let added = after(l, Add{Text: "x" + text})
+		let back = after(added, Remove{Id: l.Next})
+		sameItems(back.Items, l.Items) && back.Left == l.Left
+	},
+
+	// LeftCountsOpenItems: after any run of signals, the kept count is the
+	// number of items not done.
+	law LeftCountsOpenItems(seed int, more int) {
+		let b = built(seed)
+		let l = after(b, opOf(b, more))
+		l.Left == open(l.Items) && b.Left == open(b.Items)
+	},
+
+	// ClearDoneKeepsOpen: ClearDone keeps exactly the open items, in order.
+	law ClearDoneKeepsOpen(seed int) {
+		let l = built(seed)
+		let mut want = []Item{}
+		for it in l.Items {
+			if !it.Done {
+				want = want.Append(it)
+			}
+		}
+		sameItems(after(l, ClearDone).Items, want)
+	},
+
+	// BlankAddsNothing: an Add of spaces adds no item.
+	law BlankAddsNothing(seed int, spaces int) {
+		let l = built(seed)
+		let blank = strings.Repeat(" ", below(spaces, 4))
+		len(after(l, Add{Text: blank}).Items) == len(l.Items)
+	},
+}
+
+func after(l List, op Op) List { machines.Next(l, Step(l, op)) }
+
+// below is n folded into 0 to m-1.
+func below(n int, m int) int { (n%m + m) % m }
+
+// opOf is a signal drawn from k for the list l: about the items l holds.
+func opOf(l List, k int) Op {
+	let id = below(k/7, l.Next+1)
+	match below(k, 7) {
+	case 0, 1:
+		Add{Text: "item \(below(k/3, 9))"}
+	case 2, 3:
+		Flip{Id: id}
+	case 4:
+		Remove{Id: id}
+	case 5:
+		ClearDone
+	case _:
+		ShowOnly{Show: Open}
+	}
+}
+
+// built is a list after up to 12 signals drawn from seed.
+func built(seed int) List {
+	let mut l = Empty
+	let mut k = below(seed, 1000003)
+	for _ in 0..below(seed, 13) {
+		l = after(l, opOf(l, k))
+		k = below(k*31+17, 1000003)
+	}
+	l
+}
+
+// open is the number of items not done.
+func open(items []Item) int {
+	let mut n = 0
+	for it in items {
+		if !it.Done {
+			n = n + 1
+		}
+	}
+	n
+}
+
+// sameItems is whether a and b hold the same items in the same order.
+func sameItems(a []Item, b []Item) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i, it in a {
+		if b[i] != it {
+			return false
+		}
+	}
+	true
+}
+
+// Shown is the items the filter shows, in order.
+func Shown(l List) []Item {
+	let mut out = []Item{}
+	for it in l.Items {
+		let keep = match l.Show {
+		case All:
+			true
+		case Open:
+			!it.Done
+		case Finished:
+			it.Done
+		}
+		if keep {
+			out = out.Append(it)
+		}
+	}
+	out
+}
+
+// FilterName is the filter's word on the screen and in a summary.
+func FilterName(f Filter) string {
+	match f {
+	case All:
+		"all"
+	case Open:
+		"open"
+	case Finished:
+		"done"
+	}
+}
+
+// Summary is the list as one line, what a headless run prints after each
+// step on any host: the counts, the filter and every item with its mark.
+func Summary(l List) string {
+	let mut parts = []string{}
+	for it in l.Items {
+		parts = parts.Append(if it.Done { "[x] " + it.Text } else { "[ ] " + it.Text })
+	}
+	"\(len(l.Items)) items, \(l.Left) left, \(FilterName(l.Show)): " + strings.Join(parts, "; ")
+}

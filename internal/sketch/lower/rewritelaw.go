@@ -194,6 +194,50 @@ func (l *lowerer) rewriteRuns(b *strings.Builder, law *check.Law, label string, 
 	if l.valueProof(b, law, label, p, scope, env, failed, at) {
 		return
 	}
+	ctor := p.Ctor
+	var cargs []string
+	l.rewriteCompare(b, law, label, rewriteSource{
+		ops: p.Slot,
+		// The constructor's arguments, drawn once: each side calls it
+		// with them.
+		draw: func(w func(string), inner *namer, r, depth string) []string {
+			var cshown []string
+			for _, v := range ctor.Sig.Params {
+				a := inner.alloc(v.Name)
+				w(a + " := " + l.genExpr(v.Type, r, depth, inner, law.Decl))
+				cargs = append(cargs, a)
+				cshown = append(cshown, l.litExpr(v.Type, a, law.Decl))
+			}
+			call := strconv.Quote(": provider = " + ctor.Name + "(")
+			if len(cshown) > 0 {
+				call += " + " + strings.Join(cshown, ` + ", " + `)
+			}
+			return []string{call, strconv.Quote(")")}
+		},
+		bind: func(w func(string), fc *funcCtx, inner *namer, e, field string) {
+			pv := inner.alloc("pv")
+			w("\t" + pv + ", _ := " + fc.funcValue(ctor, ctor.Sig, law.Decl, nil) + "(" + strings.Join(append([]string{env}, cargs...), ", ") + ")")
+			w("\t" + field + " = " + fc.lawProvider(p, pv, law.Decl))
+		},
+	}, scope, env, seed, failed, at)
+}
+
+// rewriteSource is where the cases of a rewrite law's run take their
+// providers from: ops, the operation type the drawn steps call; draw,
+// which writes the draw of a case's inputs once and returns the Go
+// expressions that show them; and bind, which writes, into a side's copy
+// e of the environment, the side's fresh provider at field (the owner's
+// environment field).
+type rewriteSource struct {
+	ops  check.Type
+	draw func(w func(string), inner *namer, r, depth string) []string
+	bind func(w func(string), fc *funcCtx, inner *namer, e, field string)
+}
+
+// rewriteCompare writes the run of a rewrite law whose sides take their
+// providers from src (rewriteRuns: a provider's constructor; a named
+// context's builder, lawContextRuns).
+func (l *lowerer) rewriteCompare(b *strings.Builder, law *check.Law, label string, src rewriteSource, scope *namer, env, seed, failed, at string) {
 	rw := law.Rewrite
 	fmtPkg, conv := l.helper("fmt"), l.helper("strconv")
 	insts := l.rewriteInstances(law)
@@ -225,20 +269,7 @@ func (l *lowerer) rewriteRuns(b *strings.Builder, law *check.Law, label string, 
 	tc := &typeCtx{l: l, site: law.Decl}
 	depth := strconv.Itoa(testDepth)
 	w := func(s string) { b.WriteString("\t\t\t" + s + "\n") }
-	// The constructor's arguments, drawn once: each side calls it with them.
-	ctor := p.Ctor
-	var cargs, cshown []string
-	for _, v := range ctor.Sig.Params {
-		a := inner.alloc(v.Name)
-		w(a + " := " + l.genExpr(v.Type, r, depth, inner, law.Decl))
-		cargs = append(cargs, a)
-		cshown = append(cshown, l.litExpr(v.Type, a, law.Decl))
-	}
-	call := strconv.Quote(": provider = " + ctor.Name + "(")
-	if len(cshown) > 0 {
-		call += " + " + strings.Join(cshown, ` + ", " + `)
-	}
-	shown = append(shown, call, strconv.Quote(")"))
+	shown = append(shown, src.draw(w, inner, r, depth)...)
 	// The law's parameters; a site instance case sets its constants.
 	var args []string
 	for k, v := range law.Params {
@@ -260,7 +291,7 @@ func (l *lowerer) rewriteRuns(b *strings.Builder, law *check.Law, label string, 
 	// The prefix and the continuation: drawn operations, each a closure
 	// over its drawn arguments that calls it on a provider and returns
 	// what it read.
-	ops := tc.goType(p.Slot)
+	ops := tc.goType(src.ops)
 	stepT := "func(" + ops + ") string"
 	var steps [2]string
 	for side, what := range []string{"prefix", "continuation"} {
@@ -304,12 +335,11 @@ func (l *lowerer) rewriteRuns(b *strings.Builder, law *check.Law, label string, 
 	// The side: a fresh provider, the prefix, the guard, the side, the
 	// continuation and the reads.
 	side, right := inner.alloc("side"), inner.alloc("right")
-	obs, admitted, e, pv, err := inner.alloc("obs"), inner.alloc("admitted"), inner.alloc("e"), inner.alloc("pv"), inner.alloc("err")
+	obs, admitted, e, err := inner.alloc("obs"), inner.alloc("admitted"), inner.alloc("e"), inner.alloc("err")
 	field := e + "." + l.envField(law.Owner.Type.(*check.Named))
 	w(side + " := func(" + right + " bool) (" + obs + " []string, " + admitted + " bool) {")
 	w("\t" + e + " := *" + env)
-	w("\t" + pv + ", _ := " + fc.funcValue(ctor, ctor.Sig, law.Decl, nil) + "(" + strings.Join(append([]string{env}, cargs...), ", ") + ")")
-	w("\t" + field + " = " + fc.lawProvider(p, pv, law.Decl))
+	src.bind(w, fc, inner, e, field)
 	s := inner.alloc("s")
 	w("\tfor _, " + s + " := range " + steps[0] + " { " + s + "(" + field + ") }")
 	if rw.Guard != nil {

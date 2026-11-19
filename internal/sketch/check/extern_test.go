@@ -11,7 +11,7 @@ import (
 	"unicode"
 
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -23,7 +23,7 @@ const p3Text = "an extern function is called directly; wrap it in a literal: fun
 // detect a missing contract in a particular standard-library declaration.
 func TestExecStopTakes(t *testing.T) {
 	_, diags := check.CheckSource(`import exec
-func stopped(p exec.Running) int takes p {
+func stopped(p own exec.Running) int {
 	_ = p.Stop()
 	p.Wait()
 }
@@ -326,6 +326,7 @@ func Int(_ Mine, n int64)       {}
 func Uint(_ Mine, n uint64)     {}
 func Float(_ Mine, f float64)   {}
 func String(_ Mine, s string)   {}
+func StringBytes(_ Mine, b []byte) {}
 func BeginList(_ Mine, n int)   {}
 func EndList(_ Mine)            {}
 func BeginObject(_ Mine, n int) {}
@@ -342,6 +343,7 @@ func setComma(_ Mine, due bool)  {}
 func html(_ Mine) bool           { false }
 func keyBody(_ Mine, k string)   {}
 func stringBody(_ Mine, s string) {}
+func bytesBody(_ Mine, b []byte) {}
 func intBody(_ Mine, n int64)    {}
 func uintBody(_ Mine, n uint64)  {}
 func boolBody(_ Mine, b bool)    {}
@@ -366,6 +368,7 @@ func Int(_ Mine) int64               { 0 }
 func Uint(_ Mine) uint64             { 0 }
 func Float(_ Mine) float64           { 0.0 }
 func String(_ Mine) string           { "" }
+func StringBytes(_ Mine, into []byte) []byte { into }
 func BeginList(_ Mine) bool          { false }
 func BeginObject(_ Mine) bool        { false }
 func Tag(_ Mine) string              { "" }
@@ -489,7 +492,7 @@ func main() {
 
 type Mine {}
 
-func Answer(_ Mine, f escaping func() int) {}
+func Answer(_ Mine, f own func() int) {}
 func Calls(_ Mine) []testing.NoArgs { []testing.NoArgs{} }
 
 func use(o testing.Op[testing.NoArgs, func() int]) { _ = o.Calls() }
@@ -509,6 +512,15 @@ func Settle(_ Mine) {}
 func Show(_ Mine) int { 0 }
 
 func use(s testing.Stage[int, int]) { _ = s.Show() }
+
+func main() {
+	use(Mine)
+}
+`,
+	// HTTP-FAST-b: Scheduler.Alarms returns it; only the runtime makes one.
+	"prelude.AlarmClock": `type Mine {}
+
+func use(c AlarmClock) {}
 
 func main() {
 	use(Mine)
@@ -545,6 +557,20 @@ func main() {
 	use(Mine)
 }
 `,
+	// std rand (std-spike D3): Secure is open, as Random is; a program
+	// provides its own (a fixed source for a test, a hardware one).
+	"rand.Secure": `import rand
+
+type Mine {} implements rand.Secure
+
+func Bytes(_ Mine, n int) string { "" }
+
+func use(s rand.Secure) { _ = s.Bytes(0) }
+
+func main() {
+	use(Mine)
+}
+`,
 	"prelude.Closer": `type Mine {} implements Closer
 
 func Close(_ Mine) {}
@@ -558,11 +584,21 @@ func main() {
 	"prelude.Task": `type Fault {}
 type Mine {} implements Closer
 
-func Wait(m Mine) int fails Fault takes m { 0 }
+func Wait(m own Mine) int fails Fault { 0 }
 func Stop(_ Mine) {}
 func Close(_ Mine) {}
 
 func use(t Task[int, Fault]) { t.Stop() }
+
+func main() {
+	use(Mine)
+}
+`,
+	"prelude.Keeping": `type Mine {}
+
+func drain(_ Mine) []int { []int{} }
+
+func use(_ Keeping[int]) {}
 
 func main() {
 	use(Mine)
@@ -598,6 +634,7 @@ func Int(_ Mine, n int64) {}
 func Uint(_ Mine, n uint64) {}
 func Float(_ Mine, f float64) {}
 func String(_ Mine, s string) {}
+func StringBytes(_ Mine, b []byte) {}
 func BeginList(_ Mine, n int) {}
 func EndList(_ Mine) {}
 func BeginObject(_ Mine, n int) {}
@@ -622,6 +659,7 @@ func Int(_ Mine) int64 fails WireWrongKind { 0 }
 func Uint(_ Mine) uint64 fails WireWrongKind { 0 }
 func Float(_ Mine) float64 fails WireWrongKind { 0.0 }
 func String(_ Mine) string fails WireWrongKind { "" }
+func StringBytes(_ Mine, into []byte) []byte fails WireWrongKind { into }
 func BeginList(_ Mine) fails WireWrongKind {}
 func BeginObject(_ Mine) fails WireWrongKind {}
 func Tag(_ Mine) string fails WireMissingField { "" }
@@ -642,8 +680,46 @@ func main() {
 type Mine {} implements time.Clock
 
 func Now(_ Mine) time.Time { time.Unix(0, 0) }
+func Elapsed(_ Mine, t time.Time) duration { 0s }
 
 func use(c time.Clock) { _ = c.Now() }
+
+func main() {
+	use(Mine)
+}
+`,
+	"log.Sink": `import log
+
+type Mine {} implements log.Sink
+
+func Enabled(_ Mine, l log.Level) bool { true }
+func Write(_ Mine, e log.Entry) {}
+
+func use(s log.Sink) { s.Write(log.Entry{Level: log.LevelInfo, Message: "x", Attrs: []log.Attr{}}) }
+
+func main() {
+	use(Mine)
+}
+`,
+	"tz.Zones": `import tz
+
+type Mine {} implements tz.Zones
+
+func Load(_ Mine, name string) tz.Zone fails tz.UnknownZone { tz.UTC() }
+
+func use(z tz.Zones) { _ = z.Load("UTC") catch { case tz.UnknownZone: tz.UTC() } }
+
+func main() {
+	use(Mine)
+}
+`,
+	"tz.Local": `import tz
+
+type Mine {} implements tz.Local
+
+func Zone(_ Mine) tz.Zone fails tz.UnknownZone { tz.UTC() }
+
+func use(l tz.Local) { _ = l.Zone() catch { case tz.UnknownZone: tz.UTC() } }
 
 func main() {
 	use(Mine)
@@ -801,47 +877,6 @@ func main() {
 	use(Mine)
 }
 `,
-	"ui.Measure": `import ui
-
-type Mine {} implements ui.Measure
-
-func Width(_ Mine, text string, font ui.Font) ui.Length { 0.0 }
-func LineHeight(_ Mine, font ui.Font) ui.Length { font.Size }
-
-func use(_ ui.Measure) {}
-
-func main() {
-	use(Mine)
-}
-`,
-	"ui.Clipboard": `import ui
-
-type Mine {} implements ui.Clipboard
-
-func Read(_ Mine) string { "" }
-func Write(_ Mine, text string) {}
-
-func use(_ ui.Clipboard) {}
-
-func main() {
-	use(Mine)
-}
-`,
-	"ui.Host": `import ui
-
-type Mine {} implements ui.Host[int]
-
-func Show(_ Mine, ops []ui.Op[int]) {}
-func Next(_ Mine) ui.Event[int] fails ui.Closed { ui.Closed }
-func Post(_ Mine, ev ui.Event[int]) {}
-func Frames(_ Mine, on bool) {}
-
-func use(_ ui.Host[int]) {}
-
-func main() {
-	use(Mine)
-}
-`,
 	// std exec (S3c): open, as no std extern's result names it (stdlib.md,
 	// exec). exec.Script is the std's test provider of it.
 	"exec.Runner": `import exec
@@ -862,6 +897,69 @@ func main() {
 	use(Mine)
 }
 `,
+	// std ui (merged with ia2b): open; a program or a host module
+	// provides each (ui.MemoryClipboard, ui.Monospace, the hosts' Host).
+	"ui.Clipboard": `import ui
+
+type Mine {} implements ui.Clipboard
+
+func Read(_ Mine) string { "" }
+func Write(_ Mine, text string) {}
+
+func use(c ui.Clipboard) { _ = c.Read() }
+
+func main() {
+	use(Mine)
+}
+`,
+	"ui.Measure": `import ui
+
+type Mine {} implements ui.Measure
+
+func Width(_ Mine, text string, font ui.Font) ui.Length { 0.0 }
+func LineHeight(_ Mine, font ui.Font) ui.Length { 0.0 }
+
+func use(m ui.Measure) { _ = m.LineHeight(ui.Font{Family: "x", Size: 1.0}) }
+
+func main() {
+	use(Mine)
+}
+`,
+	"ui.Host": `import ui
+
+type Mine {} implements ui.Host[int]
+
+func Show(_ Mine, ops []ui.Op[int]) {}
+func Next(_ Mine) ui.Event[int] fails ui.Closed { ui.Closed }
+func Post(_ Mine, ev ui.Event[int]) {}
+func Frames(_ Mine, on bool) {}
+
+func use(h ui.Host[int]) { h.Frames(false) }
+
+func main() {
+	use(Mine)
+}
+`,
+	// exec.Spawner (IA2b): open, as no std extern's result names it;
+	// exec.Processes is the std's memory provider of it.
+	"exec.Spawner": `import exec
+
+type Mine {} implements exec.Spawner
+
+func Spawn(_ Mine, c exec.Command, s exec.Streams) exec.Detached fails exec.NotFound | exec.Denied | exec.Failed {
+	exec.Detached{Pid: 1, Start: 1, Name: c.Name}
+}
+
+func Alive(_ Mine, d exec.Detached) bool { false }
+
+func Kill(_ Mine, d exec.Detached, grace duration) {}
+
+func use(s exec.Spawner) { _ = s.Alive(exec.Detached{Pid: 1, Start: 1, Name: "x"}) }
+
+func main() {
+	use(Mine)
+}
+`,
 	// exec.Running (CU4): the Script's and the Host's Start externs
 	// return it, so it is sealed.
 	"exec.Running": `import exec
@@ -871,7 +969,7 @@ type Mine {} implements Closer
 func Lines(_ Mine) Seq[exec.Line] { Seq[exec.Line](func(yield func(v exec.Line) bool) {}) }
 func Chunks(_ Mine) Seq[exec.Chunk] { Seq[exec.Chunk](func(yield func(v exec.Chunk) bool) {}) }
 func Wait(_ Mine) int { 0 }
-func Stop(m Mine) int takes m { Close(m); 0 }
+func Stop(m own Mine) int { Close(m); 0 }
 func Close(_ Mine) {}
 
 func use(r exec.Running) { _ = r.Wait() }
@@ -1044,6 +1142,159 @@ func main() {
 	use(Mine)
 }
 `,
+	// std fs Mapped (wf10 MAPPED): MapFile and MapText return it, and its
+	// runtimeOnly keeps every program value out. Mine has no Text: fs.Text
+	// is never a program function's result (types.md, Borrows 8).
+	"fs.Mapped": `import fs
+
+type Mine {} implements Closer
+
+func Close(_ Mine) {}
+
+func use(m fs.Mapped) { _ = len(m.Text()) }
+
+func main() {
+	use(Mine)
+}
+`,
+	"ui/layout.Measure": `import ui/layout
+
+type Mine {} implements layout.Measure
+
+func Widths(_ Mine, text string, size float32) layout.Intrinsic { layout.Intrinsic{Max: 0.0, Min: 0.0} }
+func Height(_ Mine, text string, size float32, width float32) float32 { 0.0 }
+
+func use(m layout.Measure) { _ = m.Height("x", 1.0, 1.0) }
+
+func main() {
+	use(Mine)
+}
+`,
+	"io.Source": `import io
+
+type Mine {} implements io.Source
+
+func Read(_ Mine) Option[string] fails io.ReadFailed { None }
+
+func use(r io.Source) { _ = r.Read() catch { case io.ReadFailed: None } }
+
+func main() {
+	use(Mine)
+}
+`,
+	"bench.Meter": `import bench
+
+type Mine {} implements bench.Meter
+
+func Measure(_ Mine, b bench.Block, series []bench.Series) []bench.Sample { []bench.Sample{} }
+
+func use(m bench.Meter) { _ = len(m.Measure(bench.Block{Side: bench.Base, Number: 0, Warm: false}, []bench.Series{})) }
+
+func main() {
+	use(Mine)
+}
+`,
+	// std code's operation types (SEMTOOLS SEM2): a program provides each
+	// one; these rows delegate to std code's own providers.
+	"code.Reader": `import code
+
+type Mine { s code.Scan } implements code.Reader
+
+func Describe(m Mine) code.Summary { m.s.Describe() }
+func Symbols(m Mine, q code.SymbolQuery) code.SymbolPage { m.s.Symbols(q) }
+func Symbol(m Mine, a string) code.Decl fails code.NoSymbol | code.Ambiguous { try m.s.Symbol(a) }
+func References(m Mine, q code.RefQuery) code.SitePage fails code.NoSymbol | code.Ambiguous { try m.s.References(q) }
+func Calls(m Mine, q code.CallQuery) code.CallPage fails code.NoSymbol | code.Ambiguous | code.NotCallable { try m.s.Calls(q) }
+func Api(m Mine, q code.ApiQuery) code.ApiView fails code.NoPackage { try m.s.Api(q) }
+func Reach(m Mine, q code.ReachQuery) code.ReachPage fails code.NoSymbol | code.Ambiguous { try m.s.Reach(q) }
+func MachineOf(m Mine, a string) code.MachineView fails code.NoSymbol | code.Ambiguous | code.NotMachine { try m.s.MachineOf(a) }
+
+func use(r code.Reader) { _ = r.Describe() }
+
+func main() {
+	use(Mine{s: code.NewScan(0)})
+}
+`,
+	"code.Files": `import code
+
+type Mine { d code.Disk } implements code.Files
+
+func Read(m Mine, path string) string fails code.Missing | code.IOFailed { try m.d.Read(path) }
+func Write(m Mine, path string, text string) fails code.IOFailed { try m.d.Write(path, text) }
+func Exchange(m Mine, a string, b string) fails code.Missing | code.IOFailed { try m.d.Exchange(a, b) }
+func Remove(m Mine, path string) fails code.IOFailed { try m.d.Remove(path) }
+func Exists(m Mine, path string) bool fails code.IOFailed { try m.d.Exists(path) }
+func Lock(m Mine) fails code.Busy | code.IOFailed { try m.d.Lock() }
+func Unlock(m Mine) fails code.IOFailed { try m.d.Unlock() }
+
+func use(f code.Files) { _ = f.Exists("a") catch { case code.IOFailed: false } }
+
+func main() {
+	use(Mine{d: code.NewDisk(0)})
+}
+`,
+	"code.Checker": `import code
+
+type Mine {} implements code.Checker
+
+func Check(_ Mine, sources []code.Source) code.Report fails code.CheckFailed { code.CheckFailed{Reason: "none"} }
+func Format(_ Mine, text string) string fails code.CheckFailed { text }
+
+func use(c code.Checker) { _ = c.Format("x") catch { case code.CheckFailed: "" } }
+
+func main() {
+	use(Mine)
+}
+`,
+	"code.Planner": `import code
+
+type Mine { s code.Session } implements code.Planner
+
+func Plan(m Mine, c code.Change) code.Planned fails code.BadChange | code.NameTaken | code.OutsideWorkspace | code.Capture { try m.s.Plan(c) }
+func PlanOf(m Mine, id string) code.Planned fails code.NoPlan { try m.s.PlanOf(id) }
+
+func use(p code.Planner) { _ = p.PlanOf("x") catch { case code.NoPlan: return } }
+
+func main() {
+	use(Mine{s: code.NewSession(0)})
+}
+`,
+	"code.Writer": `import code
+
+type Mine { a code.Applier } implements code.Writer
+
+func Apply(m Mine, id string) code.Receipt fails code.NoPlan | code.NotReady | code.Stale | code.Busy | code.IOFailed { try m.a.Apply(id) }
+func Recover(m Mine) code.Recovered fails code.Busy | code.IOFailed { try m.a.Recover() }
+
+func use(w code.Writer) { _ = w.Recover() catch { case code.Busy, code.IOFailed: return } }
+
+func main() {
+	use(Mine{a: code.NewApplier(0)})
+}
+`,
+	// ui GroupArgs (P-ui): the frame's memo of a component's arguments,
+	// runtimeOnly, made only by the composer.
+	"ui.GroupArgs": `import ui
+
+type Mine {}
+
+func use(m ui.GroupArgs) {}
+
+func main() {
+	use(Mine)
+}
+`,
+	"ui.Location": `import ui
+type Mine {} implements ui.Location
+func Current(_ Mine) ui.URL { ui.ParseURL("/") }
+func Push(_ Mine, u ui.URL) {}
+func Replace(_ Mine, u ui.URL) {}
+func Back(_ Mine) bool { false }
+func use(l ui.Location) { l.Push(ui.ParseURL("/a")) }
+func main() {
+	use(Mine)
+}
+`,
 }
 
 // unexportedStd is the std operation types sealed by an unexported
@@ -1052,6 +1303,7 @@ func main() {
 var unexportedStd = map[string]string{
 	"prelude.Ambient":     "ambient is an unexported operation of prelude.Ambient, so only a type of package prelude implements it",
 	"prelude.TestAmbient": "folder is an unexported operation of prelude.TestAmbient, so only a type of package prelude implements it",
+	"prelude.Keeping":     "drain is an unexported operation of prelude.Keeping, so only a type of package prelude implements it",
 	"http.Listener":       "bound is an unexported operation of http.Listener, so only a type of package http implements it",
 	"http.Streaming":      "open is an unexported operation of http.Streaming, so only a type of package http implements it",
 	"fs.HostRoot":         "hostRooted is an unexported operation of fs.HostRoot, so only a type of package fs implements it",
@@ -1069,6 +1321,7 @@ var openStd = map[string]bool{
 	"time.Clock":        true,
 	"testing.Stage":     true,
 	"prelude.Random":    true,
+	"rand.Secure":       true,
 	"prelude.Writer":    true,
 	"prelude.Reader":    true,
 	"os.Process":        true,
@@ -1080,8 +1333,9 @@ var openStd = map[string]bool{
 	"io.Stderr":         true,
 	"io.Stdin":          true,
 	"exec.Runner":       true,
-	"ui.Measure":        true,
+	"exec.Spawner":      true,
 	"ui.Clipboard":      true,
+	"ui.Measure":        true,
 	"ui.Host":           true,
 	"journal.Journal":   true,
 	"journal.Codec":     true,
@@ -1090,6 +1344,21 @@ var openStd = map[string]bool{
 	"http.Network":      true,
 	"config.Config":     true,
 	"term.Terminal":     true,
+	// Declared after the migration with no private operation: a program
+	// provides each one, and cmd/<name>/main.ergo binds it.
+	"ui.Location":       true,
+	"ui/layout.Measure": true,
+	"io.Source":         true,
+	"bench.Meter":       true,
+	"code.Reader":       true,
+	"code.Files":        true,
+	"code.Checker":      true,
+	"code.Planner":      true,
+	"code.Writer":       true,
+	"log.Sink":          true,
+	"tz.Zones":          true,
+	"tz.Local":          true,
+	// The layout's text measure, which a host provides with its fonts.
 }
 
 // stdOperationTypes lists, as path.Name, every exported operation type
@@ -1098,9 +1367,9 @@ var openStd = map[string]bool{
 // the checker.
 func stdOperationTypes(t *testing.T) []string {
 	t.Helper()
-	sources := map[string]map[string]string{std.PreludePath: std.Prelude()}
-	for _, path := range std.Packages() {
-		files, ok := std.Package(path)
+	sources := map[string]map[string]string{stdlib.PreludePath: stdlib.Prelude()}
+	for _, path := range stdlib.Packages() {
+		files, ok := stdlib.Package(path)
 		if !ok {
 			t.Fatalf("std lists %s but does not serve it", path)
 		}
@@ -1198,7 +1467,7 @@ func pass(m Mine) {
 		"task": `type Fault {}
 type Mine {} implements Closer
 
-func Wait(m Mine) int fails Fault takes m { 0 }
+func Wait(m own Mine) int fails Fault { 0 }
 func Stop(_ Mine) {}
 func Close(_ Mine) {}
 
@@ -1294,7 +1563,7 @@ func main() {
 // withForgedSeal attempts to spoof the private operation by spelling it
 // in the importing package too. Its package is part of its identity.
 func withForgedSeal(src string) string {
-	// After the whole line: an `implements` clause (EXC1) follows the body.
+	// After the declaration's whole line: it may end in an implements clause.
 	if i := strings.Index(src, "type Mine {}"); i >= 0 {
 		end := i + strings.IndexByte(src[i:]+"\n", '\n')
 		src = src[:end] + "\nfunc runtimeOnly(_ Mine) {}" + src[end:]
@@ -1349,6 +1618,40 @@ func main() needs Ambient {
 	use(FakeEnv{Argv: []string{}})
 	let p os.Process = os.NewHost()
 	use(p)
+}
+`,
+		// IA2 (STD-NOPRIV): a module's stateful fake implements
+		// exec.Runner, its Start giving exec.Ended's Running. Mutant
+		// exec-ended-unexported (std exec has no Ended) refuses it.
+		"exec-runner": `import exec
+
+type Fake { Ran Map[string, int] } implements exec.Runner
+
+func Run(f Fake, c exec.Command) exec.Result fails exec.NotFound | exec.Denied | exec.Failed {
+	exec.Result{Status: 0, Stdout: c.Name, Stderr: ""}
+}
+
+func Start(f Fake, c exec.Command, s exec.Streams) exec.Running fails exec.NotFound | exec.Denied | exec.Failed {
+	exec.Ended(s, try f.Run(c))
+}
+
+func run() needs exec.Runner { _ = exec.Runner.Run(exec.New("true", []string{})) catch { case exec.NotFound, exec.Denied, exec.Failed: exec.Result{Status: 1, Stdout: "", Stderr: ""} } }
+
+func main() {
+	with context { exec.Runner: Fake{Ran: Map[string, int]{}} } { run() }
+}
+`,
+		// NP3c: Keeping is the release's contract; a queue implements it
+		// and still never converts to it (its drain is the runtime's).
+		// Mutant keeps-converts admits it.
+		"keeps-value": `import queue
+
+func use(k Keeping[int]) {}
+
+func main() {
+	let q = queue.New[int](1)
+	use(q) // want S108
+	q.End()
 }
 `,
 		"queue-param": queueMine + `
@@ -1470,7 +1773,7 @@ func main() { with W { A.Use() } }
 		if len(pkgs) != 1 || !pkgs[0].Std() {
 			t.Fatalf("the prelude package: %v", pkgs)
 		}
-		for _, path := range std.Packages() {
+		for _, path := range stdlib.Packages() {
 			pkg, err := check.Std.Import(path)
 			if err != nil {
 				t.Fatalf("%s: %v", path, err)

@@ -29,6 +29,7 @@ func Int(t Text, n int64)        {}
 func Uint(t Text, n uint64)      {}
 func Float(t Text, f float64)    {}
 func String(t Text, s string)    {}
+func StringBytes(t Text, b []byte) {}
 func BeginList(t Text, n int)    {}
 func EndList(t Text)             {}
 func BeginObject(t Text, n int)  {}
@@ -40,7 +41,7 @@ func mine(p Port) {
 	encode(p, Text{n: 0})
 }
 
-func show[T wire](v T) string {
+func show[T wire](v T) string needs wired[T] {
 	let t = json.NewText()
 	encode(v, t)
 	t.Written()

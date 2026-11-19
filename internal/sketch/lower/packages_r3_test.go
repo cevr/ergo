@@ -97,7 +97,7 @@ func generateProgram(seed int64) genProgram {
 		n := fmt.Sprint(i + 1)
 		lib := []genChunk{
 			{"type Read { Get() int }", nil},
-			{"type Q { N int }", nil},
+			{"type Q { N int } implements Read", nil},
 			{"func Get(q Q) int { q.N }", nil},
 			{"func Make() Read { Q{N: " + n + "} }", nil},
 			{"func Show(q Q, n int) int { n + q.N }", nil},
@@ -160,7 +160,7 @@ func generateProgram(seed int64) genProgram {
 		genChunk{"test TPair { try pair() }", nil},
 		genChunk{"test TLate { try late() }", nil},
 		genChunk{"test Prop(n int) { assert n + 0 == n }", nil},
-		genChunk{"law Ident(n int) { n + 0 == n }", nil},
+		genChunk{"func Zero() int { 0 }\n\nlaw Ident(n int) { n + Zero() == n }", nil},
 	)
 	g.root = spread(r, "", root, names, paths)
 	g.want = strings.Join(want, " ") + "\n"

@@ -1,0 +1,54 @@
+import strings
+
+// editFinals are the CSI commands that change cells or rows in place.
+let editFinals = []string{"@", "P", "X", "K", "J", "L", "M", "S", "T"}
+
+// wides are characters of two columns.
+let wides = []string{"\xe4\xb8\x96", "\xe7\x95\x8c", "\xef\xbc\xa1", "\xf0\x9f\x98\x80", "\xea\xb0\x80"}
+
+// Edits is n bytes of output that edits a small screen hard: wide
+// characters beside narrow ones, the cursor sent anywhere on a screen of
+// up to 12 rows and 41 columns, and the commands that insert, delete,
+// erase and scroll there, so that edits cut wide characters, cross the
+// region's edges and wrap at the last column. Gen is what a terminal
+// sees; Edits is where a screen's mistakes are.
+func Edits(seed int, n int) string {
+	let mut r = New(seed)
+	let mut parts = []string{}
+	let mut size = 0
+	for size < n {
+		let part = r.edit()
+		parts = parts.Append(part)
+		size += len(part)
+	}
+	let all = strings.Join(parts, "")
+	all[0:n]
+}
+
+// edit is one piece of Edits.
+func edit(r *Rand) string {
+	let k = r.below(100)
+	if k < 25 {
+		let mut text = ""
+		for _ in 0..1+r.below(4) {
+			text = text + (if r.below(2) == 0 { r.pick(wides) } else { r.pick(words) })
+		}
+		text
+	} else if k < 45 {
+		"\x1b[\(1 + r.below(12));\(1 + r.below(41))H"
+	} else if k < 65 {
+		"\x1b[\(r.below(5))" + r.pick(editFinals)
+	} else if k < 72 {
+		r.sgr()
+	} else if k < 80 {
+		r.pick(controls)
+	} else if k < 85 {
+		r.pick([]string{"\x1bD", "\x1bE", "\x1bM", "\x1b7", "\x1b8"})
+	} else if k < 90 {
+		"\x1b[\(1 + r.below(6));\(2 + r.below(8))r"
+	} else if k < 98 {
+		"\x1b[?" + r.pick(modes) + (if r.below(2) == 0 { "h" } else { "l" })
+	} else {
+		"\x1bc"
+	}
+}

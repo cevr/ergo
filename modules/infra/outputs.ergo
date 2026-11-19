@@ -14,7 +14,7 @@ type Unwritten { Path string, Reason string }
 // WriteOutputs writes o at path through writes, as JSON: the text std
 // config reads (OutputsSpec). The file is replaced as a whole, so a reader
 // sees the old outputs or the new ones.
-func WriteOutputs[O wire](writes fs.Writes, path string, o O) fails Unwritten {
+func WriteOutputs[O wire](writes fs.Writes, path string, o O) fails Unwritten needs wired[O] {
 	writes.WriteFile(path, json.Encode(json.Codec[O]{MaxBytes: 0, MaxDepth: 0}, o)+"\n") catch {
 	case fs.NotFound:
 		return Unwritten{Path: path, Reason: "its directory is not there"}
@@ -37,7 +37,7 @@ func OutputsSpec(path string) config.Spec {
 // no longer ensures (Finish), and only then writes the outputs at path: a
 // run that fails leaves the outputs of the last apply that ended. A plan
 // writes nothing.
-func Deploy[O wire, R](pass Pass, lock Lock, holder string, engines []Sweeper, writes fs.Writes, path string, stack func() O fails Failed needs R) O fails Held | Failed | Unwritten needs R {
+func Deploy[O wire, R](pass Pass, lock Lock, holder string, engines []Sweeper, writes fs.Writes, path string, stack func() O fails Failed needs R) O fails Held | Failed | Unwritten needs R | wired[O] {
 	try Begin(pass, lock, holder, engines)
 	let o = try stack()
 	try Finish(pass, lock, holder, engines)

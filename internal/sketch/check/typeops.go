@@ -47,6 +47,9 @@ func (c *checker) subst(t Type, m map[*TypeParam]Type) Type {
 		if !ok || b == nil {
 			return t
 		}
+		if t.Uses {
+			return &RowArg{Row: c.wireNeedsRow(b)}
+		}
 		return &RowArg{Row: c.wireRow(b)}
 	case *RowVar:
 		// A use of a generic function's inferred row: the substitution is
@@ -125,7 +128,7 @@ func (c *checker) subst(t Type, m map[*TypeParam]Type) Type {
 	case *Pointer:
 		return &Pointer{Elem: c.subst(t.Elem, m)}
 	case *Signature:
-		s := &Signature{Fallible: t.Fallible, NonEscaping: t.NonEscaping, Takes: t.Takes, TakesSelf: t.TakesSelf}
+		s := &Signature{Fallible: t.Fallible, NonEscaping: t.NonEscaping, Entry: t.Entry, Takes: t.Takes, TakesSelf: t.TakesSelf}
 		for _, p := range t.Params {
 			s.Params = append(s.Params, &Var{Name: p.Name, Type: c.subst(p.Type, m), Pos: p.Pos, id: p.id, param: true})
 		}
@@ -216,7 +219,7 @@ func (c *checker) mayBeIdentical(a, b Type) bool {
 	}
 	as, ok := a.(*Signature)
 	bs, ok2 := b.(*Signature)
-	if !ok || !ok2 || len(as.TParams) > 0 || len(bs.TParams) > 0 || as.NonEscaping != bs.NonEscaping {
+	if !ok || !ok2 || len(as.TParams) > 0 || len(bs.TParams) > 0 || as.NonEscaping != bs.NonEscaping || as.Entry != bs.Entry {
 		return false
 	}
 	return c.sameShape(as, bs) && c.takesEffect(as, nil) == c.takesEffect(bs, nil) && c.mayBeEqualRow(as.Errors, bs.Errors) && c.mayBeEqualRow(as.Uses, bs.Uses)
@@ -252,6 +255,7 @@ const (
 	assignSignature               // 5: a function value into a function type with wider rows
 	assignMachine                 // 6: a machine declaration's value into the prelude Machine
 	assignRowValue                // 7: a row's member or a narrower row value into a row value
+	assignGoAny                   // 8: a value with a Go form into go.Any (goany.go)
 )
 
 // assignment is the result of assignability: the clause that admitted the
@@ -279,7 +283,8 @@ func (a assignment) ok() bool { return a.clause != assignRefused }
 //  4. a variant or a row value into a union: ConvVariant or ConvRow;
 //  5. a function value into a function type whose rows are supersets, at
 //     least one side unnamed: no conversion (every function value has one
-//     Go shape, spec D5);
+//     Go shape, spec D5); where t's parameter is a row value of one error
+//     type and v's is that type, ConvNarrow (narrowsRowParams);
 //  6. a machine declaration's value into the prelude Machine instance of
 //     its state, signal and step: ConvMachine (README Gap 46). It is tried
 //     after clause 2, since neither side is an operation type, a union or
@@ -290,6 +295,8 @@ func (a assignment) ok() bool { return a.clause != assignRefused }
 // OCONVIFACE) with the reason from the same clauses, as this returns the
 // Conversion.
 func (c *checker) assignability(v, t Type) (assignment, string) {
+	capture := c.capture // the caller's go.Foreign capture, this call's only
+	c.capture = nil
 	// A type with an invalid part was reported where it came from (D3).
 	if containsInvalid(v) || containsInvalid(t) || c.identical(v, t) {
 		return assignment{clause: assignIdentical}, ""
@@ -334,7 +341,20 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 		if work, _ := c.machineWork(v); work != nil {
 			table["Work"] = work // else every state has no work
 		}
+		if exit, _ := c.machineExit(v); exit != nil {
+			table["Exit"] = exit // else every state has no exit action
+		}
 		return assignment{clause: assignMachine, conv: Conversion{Kind: ConvMachine, From: v, To: t, Table: table}}, ""
+	}
+	if IsGoAny(t) {
+		// Clause 8 (GB2): Go's own conversion to its empty interface.
+		if why := c.goAnyForm(v); why != "" {
+			return assignment{}, why
+		}
+		return assignment{clause: assignGoAny}, ""
+	}
+	if IsGoAny(v) {
+		return assignment{}, "only go.As[T](a) takes a value out of a go.Any"
 	}
 	if it := asInterface(t); it != nil {
 		if _, isTuple := under(v).(*Tuple); isTuple {
@@ -343,12 +363,19 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 		if it.Set != SetAll {
 			return assignment{}, fmt.Sprintf("%s is a constraint only", it.Set)
 		}
+		if why := c.undeclared(v, t, "conversion"); why != "" {
+			return assignment{}, why
+		}
 		cell := false
-		if why := c.implements(v, it, !c.hostLendArg(t)); why != "" {
+		if why := c.implementsCapturing(v, it, !c.hostLendArg(t), capture); why != "" {
+			if _, named := t.(*Named); named && !isHostNamed(t) && c.clauseUnmet(v, it) {
+				// The clause failed at the type (S106 there).
+				return assignment{clause: assignIdentical}, ""
+			}
 			// A value provider whose functions take *v moves into a cell
 			// (cells.go): *v implements t where v does not.
 			n, named := v.(*Named)
-			if !named || ScriptOf(v) != nil || n.Obj == nil || n.Obj.Pkg.Host() || c.implements(&Pointer{Elem: v}, it, !c.hostLendArg(t)) != "" {
+			if !named || ScriptOf(v) != nil || n.Obj == nil || n.Obj.Pkg.Host() || c.implementsCapturing(&Pointer{Elem: v}, it, !c.hostLendArg(t), capture) != "" {
 				return assignment{}, why
 			}
 			if refusal := c.cellRefusal(v, t, it); refusal != "" {
@@ -357,16 +384,37 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 			cell = true
 		}
 		if h := c.holdsCell(v); h != nil && !c.cellType(t) && !(c.encodeLend && !cell) {
-			// A cell stays where its confinement rules see it.
-			return assignment{}, fmt.Sprintf(cellHideText, v, h, t)
+			// A cell stays where its confinement rules see it. A confined
+			// go.Ref may go into a Go interface (rand.New(src)): only a
+			// go.Foreign call reaches it there (goconfined.go).
+			if !goConfinedRef(h) {
+				return assignment{}, fmt.Sprintf(cellHideText, v, h, t)
+			}
+			if !isHostNamed(t) {
+				return assignment{}, fmt.Sprintf(goConfinedHideText, v, h, t)
+			}
 		}
-		c.recordLegacy(v, t, "conversion")
+		if tn, ok := t.(*Named); ok && c.keeps() != nil && tn.origin() == c.keeps() && !c.identical(v, t) {
+			// Keeping is the release's contract (R13): a type includes it,
+			// and its one operation, sealed, is the runtime's; no value
+			// is converted to it.
+			return assignment{}, fmt.Sprintf("%s is the release's contract for a type that keeps values (resources R13): a type includes it with ..%s, and no value converts to it", t, t)
+		}
 		// Only a value that implements the operation type can reach
 		// the ownership guard. A missing operation is the more specific
 		// failure (cmd/compile assignOp's diagnostic order).
 		if !c.providing && !c.hostLendArg(t) && c.holdsResource(v) && !c.releasable(t) {
 			// R22: the operation value would never be released.
-			return assignment{}, resourceIntoCrossingText(v, t)
+			return assignment{}, c.resourceIntoCrossingText(v, t)
+		}
+		if isHostNamed(t) && len(it.Methods) > 0 && ergoOperations(v) {
+			// The operations of an Ergo operation type, or of a type
+			// parameter (its witness's), take Ergo's calling convention
+			// (the task they run on), not the Go method shapes of a Go
+			// interface, and no function of the program provides them for
+			// an adapter (lower/gointerface.go), so the value does not
+			// convert (batch-16b r3, r4): check and build agree.
+			return assignment{}, fmt.Sprintf("the operations of %s take Ergo's calling convention, not the Go methods of %s", v, t)
 		}
 		if asInterface(v) != nil {
 			if sealedStdOps(v) && !sealedStdOps(t) && !isHostNamed(t) {
@@ -451,14 +499,27 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 	vs, ok := under(v).(*Signature)
 	ts, ok2 := under(t).(*Signature)
 	if !ok || !ok2 {
+		if n, isNamed := t.(*Named); isNamed && IsGoError(n) {
+			// Go's error is go.Error, an error value, not an interface an
+			// Ergo type's Error function would provide: interop.md, go.Error.
+			return assignment{}, "go.Error holds a Go error, which a Go call or go.Error{Text: s} makes"
+		}
 		return assignment{}, ""
 	}
 	if hasName(v) && hasName(t) {
 		// Two named function types cross only by conversion (D-B7).
 		return assignment{}, ""
 	}
+	if ts.Entry && !vs.Entry {
+		// Only the runner makes an entry's send (Signature.Entry).
+		return assignment{}, "only an entry's send is one: a parameter written entry func(…) that the runner or a caller gave (runtime.md, Machines and actors 14)"
+	}
+	var conv Conversion
 	if !c.sameShape(vs, ts) {
-		return assignment{}, "the parameters or results differ"
+		if !c.narrowsRowParams(vs, ts) {
+			return assignment{}, "the parameters or results differ"
+		}
+		conv = Conversion{Kind: ConvNarrow, From: v, To: t}
 	}
 	if c.takesEffect(vs, nil) != c.takesEffect(ts, nil) {
 		// Gap 39: a caller of t gives up exactly what t's clause names.
@@ -474,7 +535,38 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 	if vu := vs.Uses.known(c.types); !ts.Uses.unknown(c.types) && !vu.subsetOf(c.types, ts.Uses) {
 		return assignment{}, fmt.Sprintf("its capability row %s is wider than %s", rowText(vu), rowText(ts.Uses))
 	}
-	return assignment{clause: assignSignature}, ""
+	return assignment{clause: assignSignature, conv: conv}, ""
+}
+
+// narrowsRowParams reports whether a function value of v may go in where t
+// is expected because each parameter of t that is not v's is a row value of
+// exactly one error type M, and v's parameter is M (CK-FAILPARAM; types.md,
+// Assignability 5): such a row value only ever holds an M, so the value
+// narrows it and calls v (ConvNarrow). Classed[Boom] with `type Classed[E]
+// { Of func(e E) Fate }`, whose E is an error row, has Of of a row value of
+// Boom, and `func(e Boom) Fate { … }` is that field's value. Results stay
+// identical, and so do generic signatures.
+func (c *checker) narrowsRowParams(v, t *Signature) bool {
+	if len(v.TParams) > 0 || len(t.TParams) > 0 || len(v.Params) != len(t.Params) || len(v.Results) != len(t.Results) {
+		return false
+	}
+	narrowed := false
+	for i := range v.Params {
+		vp, tp := v.Params[i].Type, t.Params[i].Type
+		if c.mayBeIdentical(vp, tp) {
+			continue
+		}
+		if m := c.oneMember(tp); m == nil || !c.identical(m, vp) {
+			return false
+		}
+		narrowed = true
+	}
+	for i := range v.Results {
+		if !c.mayBeIdentical(v.Results[i], t.Results[i]) {
+			return false
+		}
+	}
+	return narrowed
 }
 
 // hasName reports a type with a name for assignability (go/types hasName):
@@ -739,12 +831,41 @@ func fnPkg(fn *Func) *Package {
 	return fn.Pkg
 }
 
+// ergoOperations reports a value, or a borrow of one, whose operations
+// are an Ergo operation type's: a value of a program or std operation type
+// (a generic one's instance included) or of a type parameter, whose
+// operations its witness gives. A sealed std protocol's value is the
+// runtime's own Go type and a Go value has Go's methods, so neither is.
+func ergoOperations(v Type) bool {
+	if p, ok := v.(*Pointer); ok {
+		v = p.Elem
+	}
+	if isHostNamed(v) || sealedStd(v) != nil {
+		return false
+	}
+	_, param := v.(*TypeParam)
+	return param || asInterface(v) != nil
+}
+
 // implements checks method-row compatibility: for every method of it, v has
 // a method with identical parameters and results, the same fallibility, and
 // error and capability rows that are subsets (types.md, Interface
 // assignability 1; rows.md, Context 2). Each lookup is a keyed map access, so
 // the check is linear in the method count (#122).
 func (c *checker) implements(v Type, it *Interface, checkReceiver bool) string {
+	return c.implementsCapturing(v, it, checkReceiver, nil)
+}
+
+// implementsCapturing is implements where, with capture not nil, a method
+// whose capability row exceeds the operation's by go.Foreign alone is
+// admitted, and *capture is set when v implements it with such a method:
+// the site that builds the provider holds go.Foreign for it, as a provider
+// built by a constructor captures what its constructor needed (README Gap
+// 17; #37 for every other capability). go.Foreign has no provider value
+// (rows.md, Entry 4), so the operation's Go call needs nothing at run time
+// that the build site did not have.
+func (c *checker) implementsCapturing(v Type, it *Interface, checkReceiver bool, capture *bool) string {
+	foreign := false
 	// The method set of *T holds the *T-receiver methods too, as in Go
 	// (N1); T's holds only the value-receiver ones.
 	ptr := false
@@ -758,7 +879,7 @@ func (c *checker) implements(v Type, it *Interface, checkReceiver bool) string {
 	}
 	if s := ScriptOf(v); s != nil && !ptr {
 		// A Script has the operations of its capability (script.go, rule 4).
-		if why := c.implements(s, it, checkReceiver); why != "" {
+		if why := c.implementsCapturing(s, it, checkReceiver, capture); why != "" {
 			return fmt.Sprintf("%s: %s", v, why)
 		}
 		return ""
@@ -803,7 +924,11 @@ func (c *checker) implements(v Type, it *Interface, checkReceiver bool) string {
 			return fmt.Sprintf("%s.%s can fail with %s, wider than %s", v, m.Name, rowText(ge.minus(c.types, m.Sig.Errors)), rowText(m.Sig.Errors))
 		}
 		if gu := got.Uses.known(c.types); !gu.subsetOf(c.types, m.Sig.Uses) {
-			return fmt.Sprintf("%s.%s requires %s, which the interface's method does not (README Gap 17 stays with #37)", v, m.Name, rowText(gu.minus(c.types, m.Sig.Uses)))
+			extra := gu.minus(c.types, m.Sig.Uses)
+			if capture == nil || !goForeignRow(extra) {
+				return fmt.Sprintf("%s.%s requires %s, which the interface's method does not (README Gap 17: a provider's build holds go.Foreign for it; any other capability stays with #37)", v, m.Name, rowText(extra))
+			}
+			foreign = true
 		}
 		if why := c.releaseWider(v, m); why != "" {
 			return why
@@ -822,6 +947,9 @@ func (c *checker) implements(v Type, it *Interface, checkReceiver bool) string {
 		if c.takesEffect(got, recv) != c.takesEffect(m.Sig, recv) {
 			return fmt.Sprintf("%s.%s %s, but the interface's method %s (resources R19, Gap 39)", v, m.Name, takesText(got), takesText(m.Sig))
 		}
+	}
+	if foreign {
+		*capture = true
 	}
 	return ""
 }
@@ -973,7 +1101,7 @@ func typeSet(t Type) TypeSet {
 // underlying type.
 func inSet(t Type, s TypeSet) bool {
 	switch s {
-	case SetAll:
+	case SetAll, SetLent:
 		return true
 	case SetComparable:
 		return comparable(t)
@@ -1010,9 +1138,6 @@ func (c *checker) satisfies(t Type, constraint Type) string {
 		if p := c.firstInferredParse(t); p != nil {
 			return fmt.Sprintf("%s reaches %s, whose fails row is inferred: write it (types.md, Codecs 2)", t, p.Name)
 		}
-		if r := c.wireInstanceNeeds(t); r != "" {
-			return r
-		}
 		c.recordWire(t)
 		return ""
 	}
@@ -1022,10 +1147,15 @@ func (c *checker) satisfies(t Type, constraint Type) string {
 		}
 		return ""
 	}
-	if why := c.implements(t, it, true); why != "" {
+	if why := c.undeclared(t, constraint, "constraint"); why != "" {
 		return why
 	}
-	c.recordLegacy(t, constraint, "constraint")
+	if why := c.implements(t, it, true); why != "" {
+		if c.clauseUnmet(t, it) {
+			return "" // the clause failed at the type (S106 there)
+		}
+		return why
+	}
 	return ""
 }
 
@@ -1057,7 +1187,7 @@ func (c *checker) letZero(name *syntax.Ident, declared Type) {
 // owner q44). A union, an interface, a function type, a pointer and a tuple
 // that holds a record with fields have none either.
 func defaultable(t Type) bool {
-	if r := RefinementOf(t); r != nil && !r.Holds(big.NewInt(0)) {
+	if r := RefinementOf(t); r != nil && (!r.Holds(big.NewInt(0)) || r.Pattern != nil && !r.Pattern.Match("")) {
 		// The base's zero (0, or length 0) fails the where (Refinements 8).
 		return false
 	}

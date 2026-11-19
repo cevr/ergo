@@ -4,7 +4,7 @@ import (
 	"slices"
 	"sort"
 
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -342,15 +342,37 @@ func (c *checker) planLaws() {
 		// constructor builds one per side from the case's arguments.
 		for _, b := range r.Bindings {
 			if b[0].Ctor == nil && b[0].Unrun == "" && !b[0].Value {
-				b[0].Unrun = "a rewrite law runs each side on a fresh provider, and only a constructor func New" + b[0].Type.Obj.Name + "(…) " + b[0].Type.Obj.Name + " builds one"
+				b[0].Unrun = "a rewrite law runs each side on a fresh provider, and only a constructor func " + syntax.ConstructorName(b[0].Type.Obj.Name) + "(…) " + b[0].Type.Obj.Name + " builds one"
 			}
 		}
-		for i := range r.Contexts {
-			if r.Contexts[i].Unrun == "" {
-				r.Contexts[i].Unrun = "a rewrite law runs on providers its constructor builds, not under a context"
-			}
+		// A run under a named context is planned later (lawContext).
+	}
+}
+
+// pairUngeneratable is why the round-trip law of a by-name pair over t
+// does not run, or "" (types.md, Codecs 7; GX11). The law draws x from t's
+// own generator: the values t's package makes, by its constructor New<T>,
+// or any value of a record or union that every package may build field by
+// field. A generator that only t's own authority makes, a record of an
+// unexported field built field by field or a defined type over a basic
+// type drawn as its base, makes values t's ParseX may refuse, so it is not
+// t's own: the law does not run, and the test build reports why, rather
+// than draw the base type, whose values ParseX almost never reads.
+func (c *checker) pairUngeneratable(t Type) string {
+	n, ok := t.(*Named)
+	if !ok {
+		return ""
+	}
+	if _, built := c.constructorWhy(n); built {
+		return ""
+	}
+	switch n.Underlying().(type) {
+	case *Struct, *Union:
+		if c.ungeneratableFrom(n, nil) == "" {
+			return ""
 		}
 	}
+	return "its pair draws " + n.String() + " from " + n.String() + "'s own generator, and it has none: declare " + syntax.ConstructorName(n.Obj.Name) + ", or make " + n.String() + " a record or union of exported fields"
 }
 
 // planLaw sets the law's slots, or why it does not run (rules 7 and 8).
@@ -380,6 +402,12 @@ func (c *checker) planLaw(law *Law) {
 		if why := c.ungeneratable(v.Type); why != "" {
 			law.Unrun = "its parameter " + v.Name + " has no generator: " + why
 			return
+		}
+		if law.Decl.Pair != nil {
+			if why := c.pairUngeneratable(v.Type); why != "" {
+				law.Unrun = why
+				return
+			}
 		}
 	}
 	if law.Owner != nil {
@@ -590,10 +618,19 @@ func (c *checker) lawProvider(tn *TypeName, own *Named) (LawProvider, bool) {
 	}
 	slot := own
 	var targs []Type
-	if len(own.TParams) > 0 {
-		// A generic operation type: the provider's operations fix its
-		// type arguments, by unifying their signatures with the type's
-		// (Generics 6, interfaces through method sets).
+	declared := slices.IndexFunc(c.declaredOps(p), func(o *Named) bool { return o.origin() == own.origin() })
+	switch {
+	case declared >= 0:
+		// The written instance is the slot (implements Codec[int]
+		// against a law of Codec[T]).
+		slot = c.declaredOps(p)[declared]
+	case legacyRecord == nil:
+		// Only a type that declares the operation type provides it
+		// (Laws 10; Interface assignability 1).
+		return LawProvider{}, false
+	case len(own.TParams) > 0:
+		// ergo fix: the old rule's provider, by unifying its functions'
+		// signatures with the type's (Generics 6).
 		in := &inferer{c: c, m: map[*TypeParam]Type{}, set: map[*TypeParam]bool{}}
 		for _, tp := range own.TParams {
 			in.set[tp] = true
@@ -610,32 +647,88 @@ func (c *checker) lawProvider(tn *TypeName, own *Named) (LawProvider, bool) {
 		}
 		slot = c.instantiate(own, targs)
 	}
+	// A provider whose operations call Go converts only where its build
+	// holds go.Foreign (README Gap 17), which no test does (rows.md, Entry
+	// 4): it provides the operation type, and its laws are reported as
+	// not run, never dropped in silence.
+	captured := false
+	c.capture = &captured
 	a, _ := c.providerAssignability(p, slot)
+	ptr := false
 	value := false
 	if _, record := p.Underlying().(*Struct); record {
 		// A law owns a fresh record and may lend it to *P operations.
 		// This is not a value-to-operation-type conversion (PS3).
+		c.capture = &captured
 		a, _ = c.providerAssignability(&Pointer{Elem: p}, slot)
 		value = a.ok()
 	}
 	if !a.ok() || a.conv.Kind != ConvOperations {
-		return LawProvider{}, false
+		// A borrow provider (rule 10): its operations take *P, as a
+		// mutable store's do, so only *P provides the slot. The case's P
+		// is built as any provider's is, and the run binds &P. A generic
+		// operation type's instance is fixed by P's method set, so it
+		// has none.
+		if len(own.TParams) > 0 {
+			return LawProvider{}, false
+		}
+		a, _ = c.providerAssignability(&Pointer{Elem: p}, slot)
+		if !a.ok() || a.conv.Kind != ConvOperations {
+			return LawProvider{}, false
+		}
+		ptr = true
 	}
 	c.recordLegacy(p, slot, "law")
-	lp := LawProvider{Type: p, Conv: a.conv, Slot: slot, Value: value}
+	lp := LawProvider{Type: p, Conv: a.conv, Slot: slot, Ptr: ptr, Value: value}
+	if captured {
+		lp.Unrun = "building " + p.Obj.Name + " as " + slot.String() + " calls Go and requires go.Foreign, which only the program entry holds and a law case never does (README Gap 17)"
+		return lp, true
+	}
 	if _, built := c.constructorWhy(p); built && p.Obj.ctor != nil {
 		lp.Ctor = p.Obj.ctor
 	} else if why := c.ungeneratableFrom(p, p.Obj.Pkg); why != "" {
-		lp.Unrun = "its values have no generator: " + why + "; a func New" + p.Obj.Name + "() " + p.Obj.Name + " with no rows would build one for each case"
+		lp.Unrun = "its values have no generator: " + why
+		lp.noGenerator = true
 	}
 	return lp, true
+}
+
+// lawProviderFixes adds to the skip of each provider with no generator
+// the fix the law's shape admits (lawProviderFix). It runs with the law
+// contexts.
+func (c *checker) lawProviderFixes() {
+	for _, r := range c.pkg.LawRuns {
+		for _, b := range r.Bindings {
+			for k := range b {
+				if b[k].noGenerator {
+					b[k].Unrun += c.lawProviderFix(r.Law, b[k])
+					b[k].noGenerator = false
+				}
+			}
+		}
+	}
+}
+
+// lawProviderFix is the fix the skip of p, a provider with no generator
+// bound to a slot of law, names. A member law whose one slot is its owner
+// runs under a named context that binds the owner (lawcontexts.go), so
+// the fix is the explicit one: a test file binds the provider in a named
+// context, as cmd/NAME/main.ergo binds the binary's. A row-free New<P>
+// that built the providers P holds would choose them away from the entry
+// (lint with-at-entry). Any other law runs under no context, so its fix
+// is the constructor.
+func (c *checker) lawProviderFix(law *Law, p LawProvider) string {
+	if law.Owner != nil && len(law.Slots) == 1 && law.Slots[0].Param < 0 {
+		return "; bind one in a named context of a test file, let Name = context { " + p.Slot.String() + ": … }, and the law runs under it"
+	}
+	return "; a func " + syntax.ConstructorName(p.Type.Obj.Name) + "() " + p.Type.Obj.Name + " with no rows would build one for each case"
 }
 
 // lawClosures are, for pkg and each package it sees, the packages each
 // sees: itself, the prelude and its imports at any depth (rule 7).
 func lawClosures(pkg *Package) map[*Package]map[*Package]bool {
 	pre := pkg
-	if pkg.Path != std.PreludePath {
+	if pkg.Path != stdlib.PreludePath {
 		pre = prelude().pkg
 	}
 	out := map[*Package]map[*Package]bool{}
@@ -741,7 +834,7 @@ func (c *checker) checkLaw(law *Law) {
 		// A law's parameters parse as a function's (paramPlain), so each
 		// field has a type: a lone name is one (S104 when no type has it).
 		for _, field := range d.Params.List {
-			typ := writtenParamType(field.Type, c.typExpr(field.Type, &typeCtx{param: true, params: params}))
+			typ := writtenParamType(field, c.typExpr(field.Type, &typeCtx{param: true, params: params}))
 			if len(field.Names) == 0 {
 				law.Params = append(law.Params, &Var{Name: "_", Type: typ, Pos: field.Type.Pos(), param: true, used: true})
 				continue

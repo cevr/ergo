@@ -20,122 +20,89 @@ import (
 // queue.Closed is Closed, so a lowered catch matches the runtime's failure
 // and a returned Task can Move.
 
-// stdRecord is the lowering's lookup in the binding table of std records:
-// v1.StdRecord. It is a variable only so that a test can bind fixture
-// records through rows whose Go names differ from the records' names
-// (TestStdRecordsBindTheRowsGoName); nothing else assigns it.
-var stdRecord = v1.StdRecord
-
 // runtimeType is the runtime/v1 Go type, without type arguments, that the
-// std type n lowers to, or "" when n is lowered as a declaration of the
-// program (the types of the program's own packages, the prelude's other
-// types, and a std record with no row in the binding table, such as
-// strings.Halves). A std record with a row is the runtime struct the row
-// names, keyed by the record's package and name (v1.StdRecord), never by
-// its name alone; a runtime-backed std operation type is a
-// pointer to the runtime's type of the same name, whose methods are its
-// operations, and an open one is a declaration of the program.
+// type n lowers to, or "" when n is lowered as a declaration of the
+// program. A type whose declaration names a Go type of the runtime
+// (`extern go …/runtime/v1.Closed type Closed {}`; docs/spec/stdlib.md,
+// The body contract; check.GoTypeOf) is that Go type: a record is the
+// struct, and a sealed operation type is a pointer to the type, whose
+// methods are its operations. A defined basic type (os.Code) is the Go
+// defined type. The checker holds the declaration to the Go type's shape
+// (check/body.go runtimeTypeRefusal), so the lowering reads the
+// declaration and never a std name. Every other type of every package is
+// a declaration of the program.
 func (l *lowerer) runtimeType(n *check.Named, site syntax.Node) string {
+	ref := l.rtRef
+	if l.probing {
+		ref = func(name string) string { return name }
+	}
 	obj := n.Obj
 	if check.IsGoError(n) {
 		// The predeclared go.Error, a user extern's failure (G4).
 		return l.rt() + ".GoError"
 	}
-	if obj.Pkg == nil || !obj.Pkg.Std() || obj.Decl == nil {
-		return "" // a user package's type is a declaration of the program
-	}
-	if obj.Pkg.Path == "prelude" {
-		if obj.Name == "Task" {
-			return "*" + l.rt() + ".Task"
-		}
+	if obj.Pkg == nil || obj.Decl == nil {
 		return ""
 	}
-	// Code is checked as an ordinary refinement. At the runtime record
-	// boundary its representation is the existing Go int field of Exit.
-	if obj.Pkg.Path == "os" && obj.Name == "Code" {
-		return "int"
+	if goName, ok := check.GoTypeOf(n); ok {
+		if _, isOps := obj.Decl.Spec.(*syntax.InterfaceType); isOps {
+			return "*" + ref(goName)
+		}
+		return ref(goName)
 	}
-	switch spec := obj.Decl.Spec.(type) {
-	case *syntax.StructType:
-		goName, ok := stdRecord(obj.Pkg.Path, obj.Name)
-		if !ok {
-			return ""
-		}
-		origin := n
-		if n.Orig != nil {
-			origin = n.Orig
-		}
-		if _, err := v1.StructFieldsOf(goName, len(origin.TParams)); err != nil {
-			ice(site, "the std record %s.%s binds v1.%s: %v", obj.Pkg.Path, obj.Name, goName, err)
-		}
-		return l.rt() + "." + goName
-	case *syntax.InterfaceType:
-		if len(spec.Union) == 0 {
-			if !runtimeProtocols[obj.Pkg.Path+"."+obj.Name] {
-				return "" // an open std protocol, such as os.Process: a program value implements it
-			}
-			if !check.Sealed(n) {
-				ice(site, "the runtime-backed protocol %s must declare an unexported operation", n)
-			}
-			return "*" + l.rt() + "." + obj.Name
-		}
-		// A closed union of std records, such as flag.Failure (std-align
-		// S1d) or time.Layout (S2b): a declaration of the program, as the
-		// prelude's Option is. Its variants are std records, each the
-		// runtime's struct or a declaration of the program by the rule
-		// above.
-		return ""
-	case *syntax.MachineType:
-		// A std machine declaration, such as prompt.Picker (CU3): a
-		// declaration of the program, as a user package's machine is. Std
-		// is ordinary code (std.go), so its machines lower by the same
-		// rule.
-		return ""
-	case *syntax.Ident, *syntax.SelectorExpr, *syntax.ArrayType, *syntax.MapType:
-		return "" // an ordinary defined type, including refinements
+	// A mapped text is the Go string of its Mapped (v1.Mapped.Text): the
+	// checker's borrow rule (types.md, Borrows 8) is what keeps it, so its
+	// Go form is the plain string every string operation reads.
+	if obj.Pkg.Std() && obj.Pkg.Path == "fs" && obj.Name == "Text" {
+		return "string"
 	}
-	// Every other std type is a record, a union or an operation type.
-	ice(site, "the std type %s.%s is neither a record nor an operation type", obj.Pkg.Path, obj.Name)
 	return ""
 }
 
-// runtimeProtocols selects Go representations, never source admission.
-// A sealed type implemented in Ergo (http.Streaming) is not necessarily
-// a runtime struct. Every type here declares its own private operation.
-var runtimeProtocols = map[string]bool{
-	"atomic.Int64": true, "atomic.Bool": true, "embed.FS": true,
-	"queue.Queue": true, "sync.Ref": true, "json.Cursor": true,
-	"actor.Actor": true, "actor.Host": true, "tasks.Set": true, "testing.Op": true,
-	"time.Timeline": true, "rand.Stream": true, "config.Redacted": true,
-	"exec.Running": true, "http.Exchange": true, "http.Listener": true,
-	"http.BodyFile": true, "fs.HostRoot": true,
+// runtimeNamed reports whether runtimeType gives n a runtime type. It
+// names nothing in main.go (l.probing): naming a leaf's type imports the
+// leaf, and a test that writes no reference must not import one (binsize
+// BS8; examples/calc, whose only rand.Stream use was such a test,
+// imported the rand leaf unused).
+func (l *lowerer) runtimeNamed(n *check.Named, site syntax.Node) bool {
+	was := l.probing
+	l.probing = true
+	defer func() { l.probing = was }()
+	return l.runtimeType(n, site) != ""
 }
 
 // isRuntimeType reports a std type the runtime's Go type stands for.
 func (l *lowerer) isRuntimeType(t check.Type, site syntax.Node) bool {
 	n, ok := t.(*check.Named)
-	return ok && l.runtimeType(n, site) != ""
+	return ok && l.runtimeNamed(n, site)
 }
 
-// stdBody is the runtime/v1 body of the std extern function f, or false
-// when f's Go body is not a runtime/v1 function or f is an intrinsic, whose
-// body the lowering writes (lowerer.intrinsic). A std extern that binds a
-// runtime/v1 body BodyOf cannot read (missing, or a pure mark the reviewed
-// rules refuse) is an internal compiler error with BodyOf's error: std and
-// runtime/v1 ship with the compiler, so no user program can cause it
-// (TestStdExternsHaveBodies holds every std extern to a body).
+// stdBody is the runtime/v1 body of the extern function f, of any package,
+// or false when f's Go body is not a runtime/v1 function or f is an
+// intrinsic, whose body the lowering writes (lowerer.intrinsic). The key is
+// the target alone (STD-NOPRIV NP4e): the checker admits a runtime/v1
+// target only in a package the root trusts and only when BodyOf reads it
+// (check/extern.go runtimeDoor), so a body BodyOf cannot read is an
+// internal compiler error with BodyOf's error (TestStdExternsHaveBodies
+// holds every std extern to a body).
 func (l *lowerer) stdBody(fd *funcDecl) (v1.Body, string, bool) {
-	if fd.extern == "" || !fd.library && !fd.fn.Pkg.Std() || l.intrinsic(fd.fn) != nil {
+	if fd.extern == "" || l.intrinsic(fd.fn) != nil {
 		return v1.Body{}, "", false
 	}
+	if body, ok := check.ModuleBody(fd.fn); ok {
+		// A body of the module's own Go package (check/extern.go
+		// moduleDoor): its name is the full target, which runtimeCall
+		// qualifies by its package.
+		return body, fd.extern, true
+	}
 	i := strings.LastIndex(fd.extern, ".")
-	if i < 0 || fd.extern[:i] != runtimeImport {
+	if i < 0 || !v1.Owns(fd.extern[:i]) {
 		return v1.Body{}, "", false
 	}
 	name := fd.extern[i+1:]
-	body, err := v1.BodyOf(name)
+	body, err := v1.BodyIn(fd.extern[:i], name)
 	if err != nil {
-		ice(fd.fn.Decl, "the std function %s binds %s, which has no readable runtime/v1 body: %v", fd.fn.Name, fd.extern, err)
+		ice(fd.fn.Decl, "the function %s binds %s, which has no readable runtime/v1 body: %v", fd.fn.Name, fd.extern, err)
 	}
 	return body, name, true
 }
@@ -277,7 +244,7 @@ func (fc *funcCtx) stdCall(x *syntax.CallExpr, c *check.Call, args []syntax.Expr
 	}
 	if s := fc.refSiteOf(x); s != nil {
 		// A literal that owns the value the body hands it (refown.go).
-		owned, err := v1.BodyOf(s.form.name)
+		owned, err := runtimeBody(s.form.name)
 		if err != nil {
 			ice(x, "%s: %v", s.form.name, err)
 		}
@@ -285,10 +252,22 @@ func (fc *funcCtx) stdCall(x *syntax.CallExpr, c *check.Call, args []syntax.Expr
 	}
 	if fc.l.vals != nil && fc.l.vals.consumes[x] {
 		// The first operand is consumed (values.go, consumes): the owned
-		// form, of the same shape, takes it over.
-		name = body.Owned
+		// form, of the same shape, takes it over, or in a test build its
+		// checking form (handover.go, own-consume).
+		name = fc.ownedFormAt(x, body)
+	} else if body.Owned != "" && fc.l.checkedOwnedForm(f) {
+		fc.copySite(x, "copy", "the first operand may be read again")
+	}
+	if name == "SlicesRepeat" {
+		if text, ok := fc.repeatFill(x, args); ok {
+			return text, true, false
+		}
 	}
 	vals := fc.callArgs(args, x)
+	// An appender's operand is clipped where it is not written in place
+	// (V3), as the prelude's Append's is: two appends to one buffer never
+	// write the same spare capacity.
+	vals = fc.valueSource(x, c, vals)
 	for i, p := range body.Params {
 		if p.Func != nil {
 			vals[i] = fc.adaptFunc(vals[i], p.Func, fc.argSig(args[i], x), x)
@@ -307,7 +286,7 @@ func (fc *funcCtx) stdCall(x *syntax.CallExpr, c *check.Call, args []syntax.Expr
 		}
 		name = "TasksGoOwned"
 		var err error
-		body, err = v1.BodyOf(name)
+		body, err = runtimeBody(name)
 		if err != nil {
 			ice(x, "%s: %v", name, err)
 		}
@@ -328,7 +307,7 @@ func (fc *funcCtx) stdCall(x *syntax.CallExpr, c *check.Call, args []syntax.Expr
 // opBody is the runtime/v1 method of the operation name of the std type n,
 // which takes params Ergo arguments.
 func opBody(n *check.Named, name string, params int, site syntax.Node) v1.Body {
-	body, err := v1.BodyOf(n.Obj.Name + "." + name)
+	body, err := runtimeBody(n.Obj.Name + "." + name)
 	if err != nil {
 		ice(site, "the std operation %s.%s has no runtime/v1 method: %v", n.Obj.Name, name, err)
 	}
@@ -361,7 +340,7 @@ func (fc *funcCtx) opCallExpr(x *syntax.CallExpr, c *check.Call, args []syntax.E
 	}
 	t := fc.typeOf(c.Recv)
 	vals := fc.callArgs(append([]syntax.Expr{c.Recv}, args...), x)
-	if n, ok := t.(*check.Named); ok && fc.l.runtimeType(n, x) != "" {
+	if n, ok := t.(*check.Named); ok && fc.l.runtimeNamed(n, x) {
 		body := opBody(n, c.Op.Name, len(args), x)
 		for i, p := range body.Params {
 			if p.Func != nil {
@@ -450,7 +429,7 @@ func (fc *funcCtx) opCall(t check.Type, op *check.Method, result check.Type, val
 	if tp, ok := t.(*check.TypeParam); ok {
 		return fc.witnessCall(tp, op, vals, env, site)
 	}
-	if n, ok := t.(*check.Named); ok && fc.l.runtimeType(n, site) != "" {
+	if n, ok := t.(*check.Named); ok && fc.l.runtimeNamed(n, site) {
 		body := opBody(n, op.Name, len(vals)-1, site)
 		if x == nil {
 			for _, p := range body.Params {
@@ -475,7 +454,7 @@ func (fc *funcCtx) opCall(t check.Type, op *check.Method, result check.Type, val
 // runtime binding, which only runtimeCall emits: it refuses every runtime
 // type, so the blocking owner scan allows it by name.
 func (fc *funcCtx) programOpCall(t check.Type, op *check.Method, vals []string, env string, site syntax.Node) (string, bool, bool) {
-	if n, ok := t.(*check.Named); ok && fc.l.runtimeType(n, site) != "" {
+	if n, ok := t.(*check.Named); ok && fc.l.runtimeNamed(n, site) {
 		ice(site, "the std operation %s.%s bypasses its runtime binding", n.Obj.Name, op.Name)
 	}
 	// The checker refuses every other way to reach a sealed std operation:
@@ -483,7 +462,7 @@ func (fc *funcCtx) programOpCall(t check.Type, op *check.Method, vals []string, 
 	// and a pointer to one (S108 at the call, stage D3b Rule 5). An open
 	// one, such as os.Process, is an interface of the
 	// program, so its operation is the Go method below.
-	if n := fc.l.foreignOwner(t); n != nil && fc.l.runtimeType(n, site) != "" {
+	if n := fc.l.foreignOwner(t); n != nil && fc.l.runtimeNamed(n, site) {
 		ice(site, "the std operation %s.%s reached through %s, which the checker refuses", n.Obj.Name, op.Name, t)
 	}
 	rest := append([]string{taskOf(env)}, vals[1:]...)
@@ -618,6 +597,8 @@ func (fc *funcCtx) hiddenArgs(list []v1.Hidden, x *syntax.CallExpr, c *check.Cal
 			// field for the prelude's Scheduler, which the called
 			// signature needs, so the checker has bound it at the call.
 			out = append(out, env+"."+fc.l.envField(schedulerCap(c, site)))
+		case v1.Graph:
+			out = append(out, fc.graphArg(c, site))
 		case v1.ReadingPackage:
 			if c == nil || c.Func == nil || c.Func.Pkg == nil {
 				ice(site, "a context read without its declaring package")
@@ -630,6 +611,36 @@ func (fc *funcCtx) hiddenArgs(list []v1.Hidden, x *syntax.CallExpr, c *check.Cal
 		}
 	}
 	return out
+}
+
+// graphArg is the hidden graph argument of the call c of an actor's start
+// (machine.go, graphArg): the graph of the machine whose states and
+// signals are the call's type arguments for the Go body's first two type
+// parameters (v1.GraphOf: a start's states, then its signals), matched to
+// the Ergo signature's type parameters by name as stdTypeArgs matches
+// them.
+func (fc *funcCtx) graphArg(c *check.Call, site syntax.Node) string {
+	var state, signal string
+	if c != nil && c.Func != nil && c.Func.Decl != nil && c.Func.Decl.Extern != nil {
+		_, name := c.Func.Decl.Extern.Split()
+		if body, err := v1.BodyOf(name); err == nil && len(body.TypeParams) >= 2 {
+			for i, tp := range c.Func.Sig.TParams {
+				if i >= len(c.TypeArgs) {
+					break
+				}
+				switch tp.Name {
+				case body.TypeParams[0].Name:
+					state = fc.goType(c.TypeArgs[i])
+				case body.TypeParams[1].Name:
+					signal = fc.goType(c.TypeArgs[i])
+				}
+			}
+		}
+	}
+	if state == "" || signal == "" {
+		ice(site, "a std body takes a machine's graph, and the called function has no type arguments for its body's first two type parameters")
+	}
+	return fc.l.graphArg(state, signal)
 }
 
 // schedulerCap is the prelude's Scheduler in the needs row of the std

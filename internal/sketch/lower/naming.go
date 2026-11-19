@@ -7,6 +7,7 @@ import (
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
+	v1 "ergo.local/prototype/runtime/v1"
 )
 
 // The naming pass. Before any body is lowered, it gives every package-scope
@@ -21,11 +22,13 @@ import (
 //
 //  1. the user package's declarations, in source order, file by file: types,
 //     functions, lets and context builders, so a source name keeps its
-//     spelling unless Go reserves it;
+//     spelling unless Go reserves it; then each machine type's initial
+//     state and static graph (machine.go, machineGraph);
 //  2. the generated package entities: the runtime, time and strconv imports, the
 //     environment type, the host's Console adapter, the pattern test
 //     helper, the call and declaration tables with their entry types
 //     (calls.go, #230), the package initializer (decls.go, initFunc), the
+//     machine graph accessor and its pair type (machine.go, graphAccessor), the
 //     type-set interfaces of ordered and number (decls.go, constraint) and
 //     the imports of the Go packages that user externs target, in path
 //     order (calls.go, hostImportNames);
@@ -56,11 +59,17 @@ func (l *lowerer) nameAll() {
 			if tn.Decl != nil {
 				if _, ok := tn.Decl.Spec.(*syntax.MachineType); ok {
 					l.pkgName(pkgKey{"machine initial", tn}, "ergoInitial"+tn.Name)
+					l.pkgName(pkgKey{"machine graph", tn}, "ergoGraph"+tn.Name) // machine.go, machineGraph
+					l.reserveMachineValue(tn)                                   // ir_machine.go
 				}
 			}
 		}
 	}
 	l.pkgName(pkgKey{"import", runtimeImport}, "ergo")
+	for _, leaf := range v1.Leaves {
+		pkg := runtimeImport + "/" + leaf
+		l.pkgName(pkgKey{"import", pkg}, leafName(pkg)) // rtRef
+	}
 	l.pkgName(pkgKey{"import", "time"}, "time")
 	l.pkgName(pkgKey{"import", "embed"}, "embed")
 	l.pkgName(pkgKey{"import", "strconv"}, "strconv") // interpolation (interp.go)
@@ -75,10 +84,13 @@ func (l *lowerer) nameAll() {
 	l.pkgName(pkgKey{"niche tag", nil}, "ergoNilTag") // flatunion.go
 	l.pkgName(pkgKey{"call", nil}, "ergoCall")
 	l.pkgName(pkgKey{"calls", nil}, "ergoCalls")
+	l.pkgName(pkgKey{"callnames", nil}, "ergoCallNames")
 	l.pkgName(pkgKey{"decl", nil}, "ergoDecl")
 	l.pkgName(pkgKey{"decls", nil}, "ergoDecls")
 	l.pkgName(pkgKey{"inlines", nil}, "ergoInlines") // inline.go, inlineTable
 	l.pkgName(pkgKey{"init", nil}, "ergoInit")
+	l.pkgName(pkgKey{"machine graphs", nil}, "ergoMachineGraph") // machine.go, graphAccessor
+	l.pkgName(pkgKey{"machine pair", nil}, "ergoMachinePair")
 	l.pkgName(pkgKey{"constraint", check.SetOrdered}, "ergoOrdered")
 	l.pkgName(pkgKey{"constraint", check.SetNumber}, "ergoNumber")
 	libs := l.libraries()
@@ -91,6 +103,7 @@ func (l *lowerer) nameAll() {
 			if !l.isSourced(p) && tn.Decl != nil {
 				if _, ok := tn.Decl.Spec.(*syntax.MachineType); ok {
 					l.pkgName(pkgKey{"machine initial", tn}, "ergoInitial"+tn.Name)
+					l.reserveMachineValue(tn) // ir_machine.go
 				}
 			}
 		}
@@ -98,18 +111,32 @@ func (l *lowerer) nameAll() {
 			l.pkgName(pkgKey{"func", f}, f.Name)
 		}
 	}
+	l.markEntryWrites(append([]*check.Package{l.pkg}, libs...))                   // moveout.go, V9: before any copy is decided
 	l.reserveOwned(append([]*check.Package{l.pkg}, libs...))                      // values.go, V5
 	l.reserveKnown(append([]*check.Package{l.pkg}, libs...))                      // known.go
 	l.reserveDropped(append([]*check.Package{l.pkg}, libs...))                    // drop.go
+	l.reserveSlots(append([]*check.Package{l.pkg}, libs...))                      // slot.go
 	l.reserveSpecs(append([]*check.Package{l.pkg}, libs...), l.sourcedMachines()) // record.go
-	// A sourced library's lets, which the program lowers, used or not
-	// (sources.go), and the builders of its named contexts, one for each
-	// set of providers a with of the program acquires (196b U4), in its
-	// source order.
+	if valueOwned() {
+		l.pkgName(lineagesKey, "ergoLineages") // handover.go, own-lineage
+	}
+	l.reserveMono(append([]*check.Package{l.pkg}, libs...))     // mono.go
+	l.reserveWitSpecs(append([]*check.Package{l.pkg}, libs...)) // witspec.go
+	l.reserveTabs(append([]*check.Package{l.pkg}, libs...))     // tabulate.go
+	l.reserveHeld()                                             // inforce.go
+	// A sourced library's lets, which the program lowers where reached
+	// (sources.go; a constant one where a body reads it, constantLet), and
+	// the builders of its named contexts, one for each set of providers a
+	// with of the program acquires (196b U4), in its source order.
 	for _, p := range l.sourcedLibs() {
 		l.eachDecl(p, func(d syntax.Decl) {
-			switch d.(type) {
-			case *syntax.VarDecl, *syntax.ContextDecl:
+			switch d := d.(type) {
+			case *syntax.VarDecl:
+				l.declareName(d)
+				if l.constantLet(p, d) {
+					l.noteLibLet(p, d)
+				}
+			case *syntax.ContextDecl:
 				l.declareName(d)
 			}
 		})
@@ -136,6 +163,7 @@ func (l *lowerer) nameAll() {
 	}
 	type entry = generatedEntry
 	var generated []entry
+	provs := l.provFuncs(append([]*check.Package{l.pkg}, libs...)) // provider.go
 	for _, p := range append([]*check.Package{l.pkg}, libs...) {
 		var convs []check.Conversion
 		for x, c := range p.Info.Implicit {
@@ -205,6 +233,11 @@ func (l *lowerer) nameAll() {
 				continue
 			}
 			generated = append(generated, entry{pkgKey{"adapter", key}, "adapter " + key, base})
+			if prov := l.providerOf(c); prov != nil {
+				for _, f := range provs[prov.to] {
+					generated = append(generated, entry{provSpecKey(f, prov), "spec " + key + " " + f.Pkg.Path + "." + f.Name, provSpecBase(f, prov)})
+				}
+			}
 		}
 		for _, tn := range l.canon.types(p) {
 			named, ok := tn.Type.(*check.Named)
@@ -231,10 +264,13 @@ func (l *lowerer) nameAll() {
 		generated = append(generated, entry{key, "equal " + key.obj.(string), equalBase(t)})
 	})
 	l.reserveClones(append([]*check.Package{l.pkg}, libs...), func(key pkgKey, t check.Type) {
-		generated = append(generated, entry{key, "clone " + key.obj.(string), cloneBase(t)})
+		generated = append(generated, entry{key, key.kind + " " + key.obj.(string), cloneBase(t)})
 	})
 	l.reserveWires(append([]*check.Package{l.pkg}, libs...), func(key pkgKey, base, sort string) {
 		generated = append(generated, entry{key, sort, base})
+	})
+	reservePatterns(append([]*check.Package{l.pkg}, libs...), func(key pkgKey, base string) {
+		generated = append(generated, entry{key, "pattern " + base + " " + key.obj.(string), base})
 	})
 	for _, e := range sortGenerated(generated) {
 		l.pkgName(e.key, e.base)
@@ -424,6 +460,11 @@ func (l *lowerer) libraryPackages() []*check.Package {
 		}
 	}
 	visit(l.pkg)
+	if l.ir != nil {
+		for _, f := range l.ir.reach { // CensusStd only (ir.go)
+			add(f.Pkg)
+		}
+	}
 	for i := 0; i < len(out); i++ {
 		visit(out[i])
 	}

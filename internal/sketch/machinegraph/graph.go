@@ -3,10 +3,12 @@
 // the step's arms, each with the state and signal variants it takes and
 // the decisions it can give (states x signals -> decision kinds and the
 // state each one moves to), the timer of each state (the after function)
-// and its work. `ergo inspect machine` draws it; the lowering registers
-// its arms with the program, so a traced actor names the arm that stepped
-// each signal (runtime/v1 actor_trace.go); Reachable lists the arms a run
-// can reach.
+// and its work. The fact tables hold it (internal/sketch/facts), and std
+// code's MachineOf answers with it and the pairs a run can reach, which
+// `ergo inspect machine` draws (MachineText; SEMTOOLS SEM2b); the lowering writes
+// its arms into the program as static data the actor's start is given (a
+// hidden graph argument, BS7), so a traced actor names the arm
+// that stepped each signal (runtime/v1 actor_trace.go).
 //
 // It is effect-machine's Machine.definition, read from the code instead of
 // from a registration table: effect-machine needs a handler's or a guard's
@@ -25,7 +27,6 @@ package machinegraph
 import (
 	"fmt"
 	"slices"
-	"sort"
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/check"
@@ -68,12 +69,24 @@ type Edge struct {
 // it takes (nil for any), whether a pattern of it tests more than the
 // variant (a field or a literal, so a pair it takes may still pass to a
 // later arm), and its edges.
+// A case of several tuple patterns has the variants of all of them, and
+// Alts holds each pattern's: the arm takes a pair one of them takes, not
+// every pair of its States and Signals (Takes).
 type Arm struct {
 	Site    Site
 	States  []string
 	Signals []string
 	Partial bool
 	Edges   []Edge
+	Alts    []Alt `json:",omitempty"`
+}
+
+// Alt is one pattern of an arm: the state and signal variants it takes
+// (nil for any), and whether it tests more than the variants.
+type Alt struct {
+	States  []string
+	Signals []string
+	Partial bool
 }
 
 // Timer is the timer of a state's entry: the signal variant it gives
@@ -93,11 +106,13 @@ type Graph struct {
 	// not fix it (an input machine's start, a call).
 	Initial string
 	Arms    []Arm
-	// Timers and Work hold, by state variant, the timer and the work of
-	// the state's entries; a state the source gives none is absent, and a
-	// state the reading cannot decide is in Unsure.
+	// Timers, Work and Exit hold, by state variant, the timer, the work
+	// and the exit action (FK9-g1) of the state's entries; a state the
+	// source gives none is absent, and a state the reading cannot decide
+	// is in Unsure.
 	Timers map[string]Timer
 	Work   map[string]Site
+	Exit   map[string]Site
 	Unsure []string
 }
 
@@ -134,7 +149,7 @@ func Of(pkg *check.Package, tn *check.TypeName, spec *syntax.MachineType, at Loc
 	}
 	r := &reader{pkg: pkg, info: pkg.Info, at: at}
 	g := &Graph{Machine: tn.Name, States: variants(mt.State), Signals: variants(mt.Signal),
-		Timers: map[string]Timer{}, Work: map[string]Site{}}
+		Timers: map[string]Timer{}, Work: map[string]Site{}, Exit: map[string]Site{}}
 	r.g = g
 	g.Initial = r.initial(spec.Initial)
 	if step := r.fn(spec.Step); step != nil {
@@ -152,6 +167,13 @@ func Of(pkg *check.Package, tn *check.TypeName, spec *syntax.MachineType, at Loc
 		r.perState(work, func(state string, v syntax.Expr, decl syntax.Node) {
 			if _, some := r.some(v, ""); some {
 				g.Work[state] = at(decl, v.Pos())
+			}
+		})
+	}
+	if exit := r.fn(spec.Exit); exit != nil {
+		r.perState(exit, func(state string, v syntax.Expr, decl syntax.Node) {
+			if _, some := r.some(v, ""); some {
+				g.Exit[state] = at(decl, v.Pos())
 			}
 		})
 	}
@@ -177,10 +199,19 @@ func under(t check.Type) check.Type {
 	return t
 }
 
-// Name is the variant name of t: its declared name, or its text.
+// Name is the variant name of t: its declared name with its type
+// arguments as the source spells them (Box[Int]), so two instances of one
+// generic record in one union have names apart, or its text.
 func Name(t check.Type) string {
 	if n, ok := t.(*check.Named); ok && n.Obj != nil {
-		return n.Obj.Name
+		if len(n.TArgs) == 0 {
+			return n.Obj.Name
+		}
+		args := make([]string, len(n.TArgs))
+		for i, a := range n.TArgs {
+			args[i] = a.String()
+		}
+		return n.Obj.Name + "[" + strings.Join(args, ", ") + "]"
 	}
 	return t.String()
 }
@@ -309,8 +340,19 @@ func (r *reader) arms(step *check.Func) []Arm {
 				}
 			}
 		}
-		out = append(out, Arm{Site: r.at(decl, cl.Pos()), States: states, Signals: signals, Partial: partial,
-			Edges: r.edgesOfBlock(cl.Body, decl)})
+		a := Arm{Site: r.at(decl, cl.Pos()), States: states, Signals: signals, Partial: partial,
+			Edges: r.edgesOfBlock(cl.Body, decl)}
+		if len(roles) > 1 && len(cl.List) > 1 {
+			// A case of several tuple patterns takes the pairs each one
+			// takes, not the product of their states and their signals:
+			// (A, X), (B, Y) does not take (A, Y).
+			for _, item := range cl.List {
+				one := &syntax.CaseClause{Case: cl.Case, List: []syntax.Expr{item}}
+				st, sg, part := r.clauseVariants(one, roles)
+				a.Alts = append(a.Alts, Alt{States: st, Signals: sg, Partial: part})
+			}
+		}
+		out = append(out, a)
 	}
 	return out
 }
@@ -672,155 +714,29 @@ func dedupe(es []Edge) []Edge {
 
 // ArmOf is the first arm of g that takes the pair (state, signal), and
 // whether one does. A partial arm takes it only maybe: ArmOf gives the
-// first arm, and Reachable lists each arm that may.
+// first arm, and std code's MachineOf lists each arm that may.
 func (g *Graph) ArmOf(state, signal string) (Arm, bool) {
 	for _, a := range g.Arms {
-		if takes(a.States, state) && takes(a.Signals, signal) {
+		if taken, _ := a.Takes(state, signal); taken {
 			return a, true
 		}
 	}
 	return Arm{}, false
 }
 
+// Takes reports whether a takes the pair (state, signal), and whether only
+// maybe: each pattern of a that takes it is partial.
+func (a Arm) Takes(state, signal string) (taken, partial bool) {
+	if a.Alts == nil {
+		return takes(a.States, state) && takes(a.Signals, signal), a.Partial
+	}
+	partial = true
+	for _, alt := range a.Alts {
+		if takes(alt.States, state) && takes(alt.Signals, signal) {
+			taken, partial = true, partial && alt.Partial
+		}
+	}
+	return taken, taken && partial
+}
+
 func takes(vs []string, v string) bool { return vs == nil || slices.Contains(vs, v) }
-
-// Pair is one (state, signal) pair a run can step, with the sites of the
-// arms that may step it: one, or, after a partial arm, each arm up to the
-// first that takes the pair whole.
-type Pair struct {
-	State, Signal string
-	Arms          []Site
-}
-
-// Reachable is the coverage helper: every pair of a state the machine can
-// reach from its initial state (by the arms' Enter, Stay and Emit edges; an
-// edge of unknown target or kind reaches every state) and any signal, in
-// state then signal order, with the arms that may step it. A pair no arm
-// takes is listed with none.
-func (g *Graph) Reachable() []Pair {
-	names := func(vs []Variant) []string {
-		out := make([]string, len(vs))
-		for i, v := range vs {
-			out[i] = v.Name
-		}
-		return out
-	}
-	states, signals := names(g.States), names(g.Signals)
-	reached := map[string]bool{}
-	var queue []string
-	visit := func(s string) {
-		if s == Any {
-			for _, x := range states {
-				if !reached[x] {
-					reached[x] = true
-					queue = append(queue, x)
-				}
-			}
-			return
-		}
-		if !reached[s] {
-			reached[s] = true
-			queue = append(queue, s)
-		}
-	}
-	visit(g.Initial)
-	for len(queue) > 0 {
-		s := queue[0]
-		queue = queue[1:]
-		for _, sg := range signals {
-			for _, a := range g.arms(s, sg) {
-				for _, e := range a.Edges {
-					switch e.Decision {
-					case "Enter", "Stay", "Emit", "Tell":
-						visit(e.To)
-					case Unknown:
-						visit(Any)
-					}
-				}
-			}
-		}
-	}
-	var out []Pair
-	for _, s := range states {
-		if !reached[s] {
-			continue
-		}
-		for _, sg := range signals {
-			p := Pair{State: s, Signal: sg}
-			for _, a := range g.arms(s, sg) {
-				p.Arms = append(p.Arms, a.Site)
-			}
-			out = append(out, p)
-		}
-	}
-	return out
-}
-
-// arms is the arms that may step (state, signal), in match order: up to
-// and including the first one that takes it whole.
-func (g *Graph) arms(state, signal string) []Arm {
-	var out []Arm
-	for _, a := range g.Arms {
-		if takes(a.States, state) && takes(a.Signals, signal) {
-			out = append(out, a)
-			if !a.Partial {
-				break
-			}
-		}
-	}
-	return out
-}
-
-// Text draws g, one fact per line: the machine, its states and signals,
-// each arm with its edges, then the timers and the work by state.
-func (g *Graph) Text() string {
-	var b strings.Builder
-	list := func(vs []string) string {
-		if vs == nil {
-			return Any
-		}
-		return strings.Join(vs, "|")
-	}
-	names := func(vs []Variant) []string {
-		out := make([]string, len(vs))
-		for i, v := range vs {
-			out[i] = v.Name
-		}
-		return out
-	}
-	fmt.Fprintf(&b, "machine %s\n  states %s\n  signals %s\n  initial %s\n", g.Machine,
-		strings.Join(names(g.States), " "), strings.Join(names(g.Signals), " "), g.Initial)
-	for _, a := range g.Arms {
-		partial := ""
-		if a.Partial {
-			partial = " (partial)"
-		}
-		fmt.Fprintf(&b, "  arm %s (%s, %s)%s\n", a.Site, list(a.States), list(a.Signals), partial)
-		for _, e := range a.Edges {
-			if e.To != "" {
-				fmt.Fprintf(&b, "    %s -> %s at %s\n", e.Decision, e.To, e.Site)
-			} else {
-				fmt.Fprintf(&b, "    %s at %s\n", e.Decision, e.Site)
-			}
-		}
-	}
-	for _, k := range sortedKeys(g.Timers) {
-		fmt.Fprintf(&b, "  timer %s -> %s at %s\n", k, g.Timers[k].Signal, g.Timers[k].Site)
-	}
-	for _, k := range sortedKeys(g.Work) {
-		fmt.Fprintf(&b, "  work %s at %s\n", k, g.Work[k])
-	}
-	for _, s := range g.Unsure {
-		fmt.Fprintf(&b, "  unsure %s: its timer or work is not a literal\n", s)
-	}
-	return b.String()
-}
-
-func sortedKeys[V any](m map[string]V) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
-}

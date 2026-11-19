@@ -34,7 +34,7 @@ type Answer =
 // Plugin is a language provider in a child process: command (its words,
 // split at white space, with no quoting) run in dir. known holds the
 // answers it gave ahead (Knowing), by the request's encoding.
-type Plugin { runner exec.Runner, command string, dir string, known Map[string, Answer] }
+type Plugin { runner exec.Runner, command string, dir string, known Map[string, Answer] } implements Splitter, Indexer, Checker
 
 // PluginOf is the plugin that command runs in dir.
 func PluginOf(runner exec.Runner, command string, dir string) Plugin {
@@ -245,7 +245,7 @@ func Check(p Plugin, base Snapshot, layer []FileEdit) []Diagnostic fails ToolMis
 
 // Absent is the Indexer and the Checker of a level-1 language: each
 // operation fails NotProvided.
-type Absent {}
+type Absent {} implements Indexer, Checker
 
 func Changes(a Absent, base Snapshot, head Snapshot) []Change fails NotProvided | Unanswered { NotProvided{Op: "Changes"} }
 

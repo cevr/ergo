@@ -19,16 +19,18 @@ type Close struct {
 // `Close()` takes the value it is called on (closeOpTakes), so an
 // implementation matches its operation type. closeFacts admits or refuses
 // the Close itself.
-func closeTakes(f *Func) {
+func (c *checker) closeTakes(f *Func) {
 	sig := f.Sig
-	if f.owner == nil || f.Name != "Close" || len(sig.Params) != 1 || len(sig.Results) != 0 || sig.Fallible || sig.Takes != nil {
+	if f.owner == nil || f.Name != c.closeName() || len(sig.Params) != 1 || len(sig.Results) != 0 || sig.Fallible || sig.Takes != nil {
 		return
 	}
 	recv := sig.Params[0].Type
 	if p, ok := recv.(*Pointer); ok {
 		recv = p.Elem
 	}
-	if n, ok := recv.(*Named); ok && ownTypeParam(n, f) == nil {
+	// Only the release of a type that implements Closer takes its
+	// receiver (R1): any other Close is an ordinary function.
+	if n, ok := recv.(*Named); ok && ownTypeParam(n, f) == nil && c.implementsCloser(n) {
 		sig.Takes = []int{0}
 	}
 }
@@ -36,8 +38,8 @@ func closeTakes(f *Func) {
 // closeOpTakes is closeTakes for an operation of an operation type: a
 // `Close()` with no parameters, results or error row takes the value it is
 // called on (a bare takes), as the written Close that implements it does.
-func closeOpTakes(name string, sig *Signature) {
-	if name == "Close" && len(sig.Params) == 0 && len(sig.Results) == 0 && !sig.Fallible && sig.Takes == nil {
+func (c *checker) closeOpTakes(name string, sig *Signature) {
+	if name == c.closeName() && len(sig.Params) == 0 && len(sig.Results) == 0 && !sig.Fallible && sig.Takes == nil {
 		sig.TakesSelf = true
 	}
 }
@@ -48,7 +50,7 @@ func closeOpTakes(name string, sig *Signature) {
 func (c *checker) closeFacts() {
 	facts := c.pkg.Info.Closes
 	for _, f := range c.funcs {
-		if f.owner == nil || f.Name != "Close" || f.Sig == nil ||
+		if f.owner == nil || f.Name != c.closeName() || f.Sig == nil ||
 			len(f.Sig.Params) != 1 || len(f.Sig.Results) != 0 {
 			continue
 		}
@@ -56,22 +58,22 @@ func (c *checker) closeFacts() {
 		if p, ok := recv.(*Pointer); ok {
 			recv = p.Elem
 		}
-		if n, ok := recv.(*Named); !ok || ownTypeParam(n, f) != nil {
+		if n, ok := recv.(*Named); !ok || ownTypeParam(n, f) != nil || !c.implementsCloser(n) {
 			continue
 		}
 		if !c.types.resolve(f.Sig.Errors).Empty() {
-			c.cur = f.file
-			c.errorf(f.Decl.Name, CodeType, "Close must have an empty failure row (resources R2); handle cleanup failures inside Close")
+			// Not the release: the clause that names Closer is S106
+			// at the type, which says it cannot fail (R2).
 			continue
 		}
 		facts[f.Decl] = &Close{Receiver: f.Sig.Params[0].Type, Func: f}
 	}
 	for _, tn := range c.pkg.Types {
 		it := asInterface(tn.Type)
-		if it == nil {
+		if it == nil || !c.implementsCloser(tn.Type) {
 			continue
 		}
-		m := it.method("Close")
+		m := it.method(c.closeName())
 		if !closeShape(m) || c.types.resolve(m.Sig.Errors).Empty() {
 			continue
 		}
@@ -160,12 +162,32 @@ func (c *checker) closeFacts() {
 	}
 }
 
+// closeName is the name of the release contract's one operation, read
+// from the prelude's declaration of Closer (EXC2): the checker spells no
+// operation name of its own, so the contract is the declaration. It is ""
+// while the prelude's own Closer is not yet declared.
+func (c *checker) closeName() string {
+	if c.closeOp != "" {
+		return c.closeOp
+	}
+	n := c.closer()
+	if n == nil {
+		return ""
+	}
+	it := asInterface(n)
+	if it == nil || len(it.Methods) != 1 {
+		return ""
+	}
+	c.closeOp = it.Methods[0].Name
+	return c.closeOp
+}
+
 func closeShape(m *Method) bool {
 	return m != nil && m.Sig != nil && len(m.Sig.Params) == 0 && len(m.Sig.Results) == 0 && len(m.Sig.TParams) == 0
 }
 
 func (c *checker) closeOperation(t Type, resolved *Method, name string) *Close {
-	if t == nil || name != "Close" {
+	if t == nil || name != c.closeName() {
 		return nil
 	}
 	recv := t
@@ -173,11 +195,12 @@ func (c *checker) closeOperation(t Type, resolved *Method, name string) *Close {
 		t = p.Constraint
 	}
 	it := asInterface(t)
-	if it == nil {
+	if it == nil || !c.implementsCloser(t) {
+		// Only an operation type that includes Closer releases (R1).
 		return nil
 	}
-	m := it.method("Close")
-	if n, ok := t.(*Named); ok && hostCloseOp(n, it) != nil {
+	m := it.method(c.closeName())
+	if n, ok := t.(*Named); ok && c.hostCloseOp(n, it) != nil {
 		// A Go interface's Close() error (IG9).
 		if resolved != nil && resolved != m {
 			return nil

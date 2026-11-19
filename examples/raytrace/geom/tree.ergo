@@ -1,0 +1,149 @@
+// The bounding-volume tree: boxes around boxes, so a ray tests the shapes
+// of the boxes it crosses only.
+
+import slices
+
+// Node is a box of the tree: a leaf holds Count shapes from First in the
+// tree's Order; a branch holds two nodes.
+type Node = Leaf{Bounds Box, First int, Count int} | Branch{Bounds Box, Left int, Right int}
+
+// Tree is the shapes, their order in the leaves and the nodes, the root
+// first.
+type Tree { Shapes []Shape, Order []int, Nodes []Node }
+
+// LeafSize is the most shapes a leaf holds.
+let LeafSize = 4
+
+// Depth is the most nodes a walk keeps to visit: the tree splits its
+// shapes in halves, so 64 is past any depth a slice can reach.
+let Depth = 64
+
+// Hit is the nearest shape a ray meets, Shape its index, at distance T.
+type Hit { T float64, Shape int }
+
+// building is a tree as it is built: each shape's box and box centre.
+type building { shapes []Shape, cents []Vec, order []int, nodes []Node }
+
+// Build is the tree of shapes. A node splits its shapes at the median of
+// their centres on the axis where the centres spread most; equal centres
+// keep their shapes' order.
+func Build(shapes []Shape) Tree {
+	let mut cents = []Vec{}
+	for s in shapes {
+		cents = cents.Append(Centroid(s))
+	}
+	let mut all = []int{}
+	for i in 0..len(shapes) {
+		all = all.Append(i)
+	}
+	let mut b = building{shapes: shapes, cents: cents, order: []int{}, nodes: []Node{}}
+	if len(shapes) > 0 {
+		b.grow(all)
+	}
+	Tree{Shapes: shapes, Order: b.order, Nodes: b.nodes}
+}
+
+// grow adds the node of items and its children, and is its index.
+func grow(b *building, items []int) int {
+	let mut box = Bounds(b.shapes[items[0]])
+	for i in items {
+		box = Union(box, Bounds(b.shapes[i]))
+	}
+	let at = len(b.nodes)
+	if len(items) <= LeafSize {
+		b.nodes = b.nodes.Append(Leaf{Bounds: box, First: len(b.order), Count: len(items)})
+		for i in items {
+			b.order = b.order.Append(i)
+		}
+		return at
+	}
+	let mut lo = b.cents[items[0]]
+	let mut hi = lo
+	for i in items {
+		let c = b.cents[i]
+		lo = V(lower(lo.X, c.X), lower(lo.Y, c.Y), lower(lo.Z, c.Z))
+		hi = V(higher(hi.X, c.X), higher(hi.Y, c.Y), higher(hi.Z, c.Z))
+	}
+	let spread = Sub(hi, lo)
+	let mut axis = 0
+	if spread.Y > spread.X {
+		axis = 1
+	}
+	if spread.Z > Axis(spread, axis) {
+		axis = 2
+	}
+	let cents = b.cents
+	let sorted = slices.SortFunc(items, func(x int, y int) int {
+		let cx = Axis(cents[x], axis)
+		let cy = Axis(cents[y], axis)
+		if cx < cy {
+			return -1
+		}
+		if cx > cy {
+			return 1
+		}
+		x - y
+	})
+	b.nodes = b.nodes.Append(Leaf{Bounds: box, First: 0, Count: 0})
+	let mid = len(sorted) / 2
+	let left = b.grow(sorted[0:mid])
+	let right = b.grow(sorted[mid:len(sorted)])
+	b.nodes[at] = Branch{Bounds: box, Left: left, Right: right}
+	at
+}
+
+// Nearest is the nearest shape r meets at a distance in (lo, hi], and the
+// first of equally near shapes; None when it meets none.
+func Nearest(t Tree, r Ray, lo float64, hi float64) Option[Hit] {
+	if len(t.Nodes) == 0 {
+		return None
+	}
+	let mut best = hi
+	let mut shape = -1
+	let mut stack = [64]int{}
+	let mut top = 1
+	for top > 0 {
+		top -= 1
+		match t.Nodes[stack[top]] {
+		case Leaf as l:
+			if Crosses(l.Bounds, r, lo, best) {
+				for k in l.First..l.First+l.Count {
+					let i = t.Order[k]
+					let d = Intersect(t.Shapes[i], r, lo, best)
+					if d != Miss && (d < best || i < shape) {
+						best = d
+						shape = i
+					}
+				}
+			}
+		case Branch as b:
+			if Crosses(b.Bounds, r, lo, best) {
+				stack[top] = b.Right
+				stack[top+1] = b.Left
+				top += 2
+			}
+		}
+	}
+	if shape < 0 {
+		return None
+	}
+	Some[Hit]{Value: Hit{T: best, Shape: shape}}
+}
+
+// BruteForce is Nearest by testing every shape in order: the reference
+// the tree must agree with.
+func BruteForce(shapes []Shape, r Ray, lo float64, hi float64) Option[Hit] {
+	let mut best = hi
+	let mut shape = -1
+	for i, s in shapes {
+		let d = Intersect(s, r, lo, best)
+		if d != Miss && (d < best || i < shape) {
+			best = d
+			shape = i
+		}
+	}
+	if shape < 0 {
+		return None
+	}
+	Some[Hit]{Value: Hit{T: best, Shape: shape}}
+}

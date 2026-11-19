@@ -559,6 +559,8 @@ func catchForeignRun(id string, f func() string) {
 		}()
 		return f()
 	}()
+	// Console's buffered output first (SB8), so the lines keep their order.
+	ergo.FlushStdout()
 	catchOS.Stdout.WriteString(id + "|foreign => " + out + "\n")
 }
 `

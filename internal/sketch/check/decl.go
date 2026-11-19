@@ -9,7 +9,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -21,14 +21,17 @@ import (
 // (releaseneeds.go); the second check's result is the package's.
 func (c *checker) run(files []*syntax.File) *Package {
 	pkg := c.runOnce(files)
-	seeds, edges := c.releaseSeeds(), c.needEdges()
-	if len(seeds) == 0 && len(edges) == 0 {
+	seeds, edges, withs := c.releaseSeeds(), c.needEdges(), c.withNeeds
+	if len(seeds) == 0 && len(edges) == 0 && len(withs) == 0 {
 		return pkg
 	}
 	n := newChecker(c.pkg.Path, c.imp, c.universe)
 	n.pkg.std = c.pkg.std
+	n.opts, n.derive = c.opts, c.derive
+	n.pkg.module, n.pkg.trusted = c.pkg.module, c.pkg.trusted
 	n.relSeeds, n.relHit = seeds, map[syntax.Node]bool{}
 	n.wireEdges = edges
+	n.withSeeds, n.withHit = withs, map[withNeedKey]bool{}
 	pkg = n.runOnce(files)
 	*c = *n
 	return pkg
@@ -69,6 +72,7 @@ func (c *checker) runOnce(files []*syntax.File) *Package {
 				c.resolveNamed(tn.Type.(*Named))
 			}
 		},
+		c.resolveProviders,
 		c.expandIncludes,
 		c.checkUnitContextNames,
 		// Expanding type instantiations are rejected before any walk
@@ -100,12 +104,15 @@ func (c *checker) runOnce(files []*syntax.File) *Package {
 		// contexts are closed contexts that read the converged inferred rows
 		// (M2).
 		c.checkBodies,
+		c.checkProviderFields,
 		// A constructor's rows are inferred, so constructors are planned
 		// once bodies converge, before any generator is decided.
 		c.planConstructors,
 		c.checkTests,
 		c.checkLaws,
 		c.planLaws,
+		// After planLaws: a provider the laws run against moves with them.
+		c.checkLawPlacement,
 		c.checkTypeDecls,
 		c.checkImplementsClauses,
 		c.checkContexts,
@@ -114,6 +121,7 @@ func (c *checker) runOnce(files []*syntax.File) *Package {
 		c.checkUnusedImports,
 		// After every body, test and law: the inferred rows are final.
 		c.checkWireNeeds,
+		c.checkWireWrites,
 		c.finishInfo,
 		c.closeFacts,
 		c.recordLegacyReleases,
@@ -131,15 +139,26 @@ func (c *checker) runOnce(files []*syntax.File) *Package {
 		// After every body: the cell types are declarations (cells.go).
 		c.checkCells,
 		c.footprints,
-		// After the footprints: a durable machine's step is pure (MU9).
-		c.checkDurableSteps,
+		// After every body: what each function reads of its parameters.
+		c.readSets,
+		// After the footprints: the argument of a pure parameter runs a
+		// pure function (Footprints 6), a durable machine's step (MU9).
+		c.checkPureArgs,
+		// After the footprints: a dropped result of a pure call (discard.go).
+		c.checkDroppedResults,
 		// After the footprints: an invariant law's predicate is pure (X2).
 		c.checkLawPreds,
+		// After the footprints: a top-level rewrite law's functions are
+		// pure (Laws 14; funcrewrite.go).
+		c.checkFuncRewrites,
 		// After every body: the first with operand past the with budget,
 		// silent checks included (withbudget.go).
 		c.reportWithBudget,
 		// Last: every lazy read of a binding is done (gobinding.go).
 		c.checkGoImports,
+		// After every other pass: S115 only in a package with no other
+		// diagnostic (lawplace.go).
+		c.reportLawPlacements,
 	} {
 		c.cur = nil
 		pass()
@@ -283,7 +302,7 @@ func (c *checker) collect() {
 		c.cur = fi
 		f := fi.syntax
 		for _, d := range f.Decls {
-			if syntax.IsBindingDecl(d) {
+			if syntax.IsBindingDecl(d) && !runtimeTypeDecl(d) {
 				// A host type, const or method comes only from a binding
 				// that ergo bind go writes (docs/spec/interop.md); the
 				// checker reads bindings with #202's import checking.
@@ -584,7 +603,7 @@ func (c *checker) importSpec(fi *fileInfo, spec *syntax.ImportSpec) {
 		return
 	}
 	imp := c.imp
-	if _, isStd := std.Package(path); isStd {
+	if _, isStd := stdlib.Package(path); isStd {
 		// A std path always names std, whatever importer Check was given:
 		// a program package cannot shadow log or queue (C30).
 		imp = Std
@@ -593,7 +612,9 @@ func (c *checker) importSpec(fi *fileInfo, spec *syntax.ImportSpec) {
 	if err != nil || pkg == nil {
 		// An importer may wrap its *ImportError (fmt.Errorf %w,
 		// errors.Join); findImportError searches the chain.
-		if reason := findImportError(err); reason != nil {
+		if reason := findImportError(err); reason != nil && reason.Broken {
+			c.errorf(spec.Path, CodeUnknown, "package %q does not check: %s", reason.Path, reason.Reason)
+		} else if reason != nil {
 			c.errorf(spec.Path, CodeUnknown, "unknown package %q: %s", path, reason.Reason)
 		} else {
 			c.errorf(spec.Path, CodeUnknown, "unknown package %q", path)
@@ -750,6 +771,9 @@ func importName(element string) bool {
 type ImportError struct {
 	Path   string
 	Reason string
+	// Broken marks a package that exists and does not check: Reason is its
+	// first diagnostic, and the import says so instead of "unknown".
+	Broken bool
 }
 
 func (e *ImportError) Error() string { return fmt.Sprintf("package %q: %s", e.Path, e.Reason) }
@@ -909,7 +933,7 @@ func (c *checker) resolveNamed(n *Named) {
 			cons := c.constraintExpr(field)
 			for _, name := range field.Names {
 				c.preludeName(name) // D-D3; the parameter still binds
-				tp := &TypeParam{Name: name.Name, Pos: name.Pos(), id: newID()}
+				tp := &TypeParam{Name: name.Name, Pos: name.Pos(), Lent: field.Lent > 0, id: newID()}
 				c.def(name, tp)
 				switch {
 				case cons != nil:
@@ -932,6 +956,10 @@ func (c *checker) resolveNamed(n *Named) {
 	defer restore()
 	switch spec := d.Spec.(type) {
 	case *syntax.StructType:
+		if c.emptyUnion(n, spec) {
+			n.under = &Union{}
+			break
+		}
 		ctx.field = true
 		s := c.structType(spec, ctx)
 		s.obj = n.Obj
@@ -1019,6 +1047,10 @@ func (c *checker) structType(spec *syntax.StructType, ctx *typeCtx) *Struct {
 	seen := map[string]bool{}
 	for _, field := range spec.Fields.List {
 		t := c.typExpr(field.Type, ctx)
+		if !c.pkg.Host() && mentionsGoAny(t, map[Type]bool{}) {
+			// Ergo has no any (GB2): only a Go struct of a binding holds one.
+			c.errorf(field.Type, CodeType, "an Ergo record does not store a go.Any: Ergo has no any, and only go.As[T] reads one; store the value go.As gives (docs/spec/interop.md, Go any)")
+		}
 		if field.Include {
 			if n := c.includeTarget(field, t); n != nil {
 				s.includes = append(s.includes, &include{member: field, at: len(s.Fields), target: n})
@@ -1068,11 +1100,14 @@ func (c *checker) interfaceType(spec *syntax.InterfaceType, ctx *typeCtx, owner 
 			mctx.params, mctx.decl = ctx.params, ctx.decl
 		}
 		sig := c.signature(ft, mctx)
+		if m.Own != nil {
+			sig.TakesSelf = true // own Close(): the operation keeps its receiver
+		}
 		if c.pkg.Host() {
 			c.hostClauses(c.pkg.Path+"."+owner+"."+name.Name, sig, m)
 		}
 		if c.pkg.host == nil {
-			closeOpTakes(name.Name, sig)
+			c.closeOpTakes(name.Name, sig)
 		}
 		if ft.Needs != nil && c.pkg.host == nil {
 			// A Go interface's method runs Go code: its binding charges
@@ -1190,6 +1225,7 @@ type typeCtx struct {
 	decl     bool                  // a type declaration: bracket parameters only
 	field    bool                  // a struct field: *T is not a field type (types.md, Borrows 1)
 	param    bool                  // a parameter or receiver: *T allowed
+	textTop  syntax.Expr           // a parameter's whole type: fs.Text allowed there (mappedtext.go)
 	scope    *Scope
 	lit      *litParams // a function literal's signature: its untyped parameters (D-E1)
 }
@@ -1277,6 +1313,9 @@ func (c *checker) lookupType(name string, ctx *typeCtx) Object {
 // suppresses every diagnostic that would follow from it (D3).
 func (c *checker) typExpr(x syntax.Expr, ctx *typeCtx) Type {
 	t := c.typExpr0(x, ctx)
+	if IsMappedText(t) && !c.textPlacement(x, ctx) {
+		return invalid
+	}
 	if n, ok := t.(*Named); ok && n.Orig == nil && len(n.TParams) > 0 {
 		c.errorf(x, CodeType, "generic type %s needs type arguments", n)
 		return invalid
@@ -1345,14 +1384,28 @@ func (c *checker) typExpr0(x syntax.Expr, ctx *typeCtx) Type {
 		elem := c.typExpr(x.X, &inner)
 		return &Pointer{Elem: elem}
 	case *syntax.FuncType:
-		// `escaping` marks a function type that may outlive the call it
-		// is passed to or run on another task (196e; ESC1). Only a parameter's type is non-escaping
-		// without it (signature); elsewhere it repeats the default.
+		// A parameter written own may outlive the call it is passed to or
+		// run on another task (196e; ESC1; q168); only a parameter's type is
+		// non-escaping without it (writtenParamType). The retired word
+		// escaping is S108 naming own; it keeps its fact so that one
+		// diagnostic says it.
 		inner := typeCtx{}
 		if ctx != nil {
 			inner = *ctx
 		}
+		if x.Entry && (ctx == nil || !ctx.param) {
+			// An entry's send is a parameter's type (Signature.Entry): a
+			// field or a result of it would keep the send past the entry.
+			c.errorIn(x, x.EntryPos, x.EntryPos+syntax.Pos(len("entry")), CodeType, "entry func(…) is written only as a parameter's type: the send a work is given lives no longer than the call that got it (runtime.md, Machines and actors 14)")
+		}
 		inner.field, inner.param = false, false
+		if x.Escaping.IsValid() && !c.escapingSeen[x] {
+			if c.escapingSeen == nil {
+				c.escapingSeen = map[*syntax.FuncType]bool{}
+			}
+			c.escapingSeen[x] = true
+			c.errorf(x, CodeType, "escaping is gone: write own before the parameter's function type, as in f own func() int; ergo fix rewrites it")
+		}
 		sig := c.signature(x, &inner)
 		// A written function type's parameter names declare its
 		// parameters (Info.Defs), as an operation's do (defParams); a
@@ -1678,6 +1731,7 @@ func trailingRows(left []*TypeParam) bool {
 // before anything is built (class E): an argument interned before costs one
 // lookup, however deep it is.
 func (c *checker) instantiate(orig *Named, targs []Type) *Named {
+	targs = c.slotArgs(orig, targs)
 	key, infer := c.types.named(orig, targs)
 	cache := c.instance
 	if infer {
@@ -1693,6 +1747,127 @@ func (c *checker) instantiate(orig *Named, targs []Type) *Named {
 	cache[key] = inst
 	c.instancesMade++
 	return inst
+}
+
+// slotArgs is targs with each type parameter's argument that is a row
+// value of one error type replaced by that type (CK-rowarg; rows.md,
+// Error rows 8; types.md, Generics 8): X[int, A] is one type whether A was
+// written as a type, written as a row, or bound through a row parameter.
+// A row value whose one element is a row parameter stays a row value; so
+// does one of several elements, or of none, or of an unknown row.
+func (c *checker) slotArgs(orig *Named, targs []Type) []Type {
+	var out []Type
+	for i, a := range targs {
+		if i >= len(orig.TParams) || orig.TParams[i].Kind != KindType {
+			continue
+		}
+		if m := c.oneMember(a); m != nil {
+			if out == nil {
+				out = slices.Clone(targs)
+			}
+			out[i] = m
+		}
+	}
+	if out == nil {
+		return targs
+	}
+	return out
+}
+
+// markSlotParams sets TypeParam.Slot on each error row parameter of sig
+// that stands alone as a type argument of a generic type in sig's
+// parameters or results, at any depth.
+func markSlotParams(sig *Signature) {
+	own := map[*TypeParam]bool{}
+	for _, tp := range sig.TParams {
+		if tp.Kind == KindErrors {
+			own[tp] = true
+		}
+	}
+	if len(own) == 0 {
+		return
+	}
+	seen := map[Type]bool{}
+	var walk func(t Type)
+	walk = func(t Type) {
+		if t == nil || seen[t] {
+			return
+		}
+		seen[t] = true
+		switch u := t.(type) {
+		case *Named:
+			orig := u.origin()
+			for i, a := range u.TArgs {
+				if i < len(orig.TParams) && orig.TParams[i].Kind == KindType {
+					if tp := SlotRow(a); tp != nil && own[tp] {
+						tp.Slot = true
+					}
+				}
+				walk(a)
+			}
+		case *Slice:
+			walk(u.Elem)
+		case *Array:
+			walk(u.Elem)
+		case *Map:
+			walk(u.Key)
+			walk(u.Elem)
+		case *Pointer:
+			walk(u.Elem)
+		case *Tuple:
+			for _, e := range u.Types {
+				walk(e)
+			}
+		case *Signature:
+			for _, p := range u.Params {
+				walk(p.Type)
+			}
+			for _, r := range u.Results {
+				walk(r)
+			}
+		}
+	}
+	for _, p := range sig.Params {
+		walk(p.Type)
+	}
+	for _, r := range sig.Results {
+		walk(r)
+	}
+}
+
+// SlotRow is the error row parameter a row value holds alone, or nil: the
+// type argument that a Slot parameter stands for (CK-rowarg).
+func SlotRow(t Type) *TypeParam {
+	u, ok := t.(*Union)
+	if !ok || u.Row == nil {
+		return nil
+	}
+	es := u.Row.Elems()
+	if len(es) != 1 {
+		return nil
+	}
+	tp, _ := es[0].(*TypeParam)
+	if tp == nil || tp.Kind != KindErrors {
+		return nil
+	}
+	return tp
+}
+
+// oneMember is the error type a row value of exactly one error type holds,
+// or nil for any other type.
+func (c *checker) oneMember(t Type) Type {
+	u, ok := t.(*Union)
+	if !ok || u.Row == nil {
+		return nil
+	}
+	es := u.Row.Elems()
+	if len(es) != 1 {
+		return nil
+	}
+	if n, ok := es[0].(*Named); ok {
+		return n
+	}
+	return nil
 }
 
 func (n *Named) instanceUnder(inst *Named) Type {
@@ -1842,6 +2017,12 @@ func (c *checker) rowElem(x syntax.Expr, kind Kind, ctx *typeCtx) Type {
 	case KindErrors:
 		if n, ok := t.(*Named); ok && n.Orig == nil && len(n.TParams) > 0 {
 			c.errorf(x, CodeType, "generic type %s needs type arguments", n)
+			return nil
+		}
+		if IsNever(t) {
+			// One way to say "fails with nothing": no fails row (owner,
+			// 2026-11-13; types.md, Never).
+			c.errorf(x, CodeType, "Never is no error row: a function that never fails writes no fails (types.md, Never)")
 			return nil
 		}
 		if vs, isRow := c.namedRow(x, t); isRow {
@@ -2014,15 +2195,19 @@ func (c *checker) slotKinds(head syntax.Expr) []Kind {
 	return kinds
 }
 
-// writtenParamType is the type of a parameter whose type is written as x
-// and resolves to t: a parameter written as a function type without
-// `escaping` is non-escaping (196e; escaping.go), a function's and a law's
-// alike. A named function type is escaping, as a field's is.
-func writtenParamType(x syntax.Expr, t Type) Type {
-	if ft, ok := unparen(x).(*syntax.FuncType); ok && !ft.Escaping.IsValid() {
+// writtenParamType is the type of the parameter field whose type is
+// written as x and resolves to t: a parameter written as a function type
+// without `escaping` or `own` is non-escaping (196e; escaping.go), a
+// function's and a law's alike. A named function type is escaping, as a
+// field's is.
+func writtenParamType(field *syntax.Field, t Type) Type {
+	if ft, ok := unparen(field.Type).(*syntax.FuncType); ok && !ft.Escaping.IsValid() && field.Own == nil {
 		if s, ok := t.(*Signature); ok {
 			ne := *s
 			ne.NonEscaping = true
+			// `entry func(…)` is an entry's send (Signature.Entry); it is
+			// written only on a parameter, so only here.
+			ne.Entry = ft.Entry
 			return &ne
 		}
 	}
@@ -2040,7 +2225,8 @@ func (c *checker) signature(ft *syntax.FuncType, ctx *typeCtx) *Signature {
 		for _, field := range ft.Params.List {
 			var t Type
 			if field.Type != nil {
-				t = writtenParamType(field.Type, c.typExpr(field.Type, &pctx))
+				pctx.textTop = field.Type
+				t = writtenParamType(field, c.typExpr(field.Type, &pctx))
 			}
 			if len(field.Names) == 0 {
 				if t == nil {
@@ -2056,6 +2242,9 @@ func (c *checker) signature(ft *syntax.FuncType, ctx *typeCtx) *Signature {
 					pt = c.untypedParam(name, len(sig.Params), ctx.lit)
 				}
 				sig.Params = append(sig.Params, &Var{Name: name.Name, Type: pt, Pos: name.Pos(), id: name, param: true})
+			}
+			if field.Own != nil {
+				c.ownParams(field, sig, max(1, len(field.Names)))
 			}
 		}
 	}
@@ -2107,6 +2296,7 @@ func (c *checker) funcSig(f *Func) *Signature {
 		ctx.hostRecv = d.Recv.List[0].Names[0].Name
 		ctx.method = true
 	}
+	ownRecv := c.pkg.Host() && d.Recv != nil && len(d.Recv.List) > 0 && d.Recv.List[0].Own != nil
 	var tparams []*TypeParam
 	// The bracket parameters are declared before any constraint resolves,
 	// so the instantiations in the constraints and the signature are
@@ -2122,7 +2312,7 @@ func (c *checker) funcSig(f *Func) *Signature {
 			cons := c.constraintExpr(field)
 			for _, name := range field.Names {
 				c.preludeName(name) // D-D3; the parameter still binds
-				tp := &TypeParam{Name: name.Name, Pos: name.Pos(), id: newID()}
+				tp := &TypeParam{Name: name.Name, Pos: name.Pos(), Lent: field.Lent > 0, id: newID()}
 				c.def(name, tp)
 				switch {
 				case cons != nil:
@@ -2154,13 +2344,20 @@ func (c *checker) funcSig(f *Func) *Signature {
 	c.mono.owner = owner
 	sig := c.signature(d.Type, ctx)
 	restore()
+	if ownRecv {
+		sig.TakesSelf = true // (r own *T): the binding keeps its receiver
+	}
 	sig.NBracket = nbracket
 	sig.TParams = tparams
 	f.Sig = sig
 	f.state = 2
-	closeTakes(f)
+	markSlotParams(sig)
+	c.closeTakes(f)
 	if c.pkg.Host() && d.Extern != nil {
 		c.hostClauses(d.Extern.Target.Value, sig, d)
+	}
+	if d.Extern != nil {
+		c.externRows(d, sig)
 	}
 	if d.Body == nil {
 		// A bodiless (extern) function's parameters are declared here; a
@@ -2302,6 +2499,14 @@ func (c *checker) collectSelfFuncs() {
 			if g.opOwner != nil {
 				key = g.opOwner
 			}
+			if g.file != nil && g.file.syntax == collFile && collFile != nil {
+				// Operations of one name on two receiver kinds,
+				// xs.Slice and s.Slice (collop.go, PRIM-4).
+				c.cur = g.file
+				if k, _, ok := c.collOwner(g); ok {
+					key = k
+				}
+			}
 			if name, args, _ := selfOwnerName(g.Decl); name != "" && c.dupNames[name] && g.Name != "main" {
 				// Defensive: selfArgsOK validates receiver arguments without reporting.
 				c.cur = g.file
@@ -2348,8 +2553,11 @@ func (c *checker) collectSelfFuncs() {
 			n.opFuncs[f.Name] = f
 		}
 	}
-	if c.pkg.Path == std.PreludePath {
+	if collFile != nil {
 		for _, f := range c.funcs {
+			if f.file == nil || f.file.syntax != collFile {
+				continue // the operations are the language's file's alone (collop.go)
+			}
 			// Defensive: collOwner classifies a collection receiver without reporting.
 			c.cur = f.file
 			if key, args, ok := c.collOwner(f); ok {
@@ -2357,7 +2565,10 @@ func (c *checker) collectSelfFuncs() {
 					c.pkg.collFuncs = map[collKey]*Func{}
 				}
 				f.selfArgs = args
+				f.collOp = collOps[key] // collop.go
 				c.pkg.collFuncs[key] = f
+			} else {
+				f.collOp = collMakers[f.Name] // collop.go
 			}
 		}
 	}
@@ -2379,9 +2590,24 @@ func (c *checker) collOwner(f *Func) (collKey, []syntax.Expr, bool) {
 		if t.Len != "" {
 			return collKey{}, nil, false // the prelude's are on slices
 		}
+		if id, ok := t.Elt.(*syntax.Ident); ok && id.Name == "byte" {
+			key.on = onBytes // a concrete []byte (PRIM-4)
+			return key, nil, true
+		}
 		args = []syntax.Expr{t.Elt}
 	case *syntax.MapType:
-		args, key.isMap = []syntax.Expr{t.Key, t.Value}, true
+		args, key.on = []syntax.Expr{t.Key, t.Value}, onMap
+	case *syntax.Ident:
+		// The basic string and rune (PRIM-4).
+		switch t.Name {
+		case "string":
+			key.on = onString
+		case "rune":
+			key.on = onRune
+		default:
+			return collKey{}, nil, false
+		}
+		return key, nil, true
 	default:
 		return collKey{}, nil, false
 	}
@@ -2515,6 +2741,9 @@ func (c *checker) selfArgsOK(d *syntax.FuncDecl, args []syntax.Expr) bool {
 // exported machine (the export guard) spell their rows.
 func (c *checker) inferFlags(f *Func) {
 	d := f.Decl
+	if !c.opts.Infer {
+		return // q137: an unwritten clause is the empty clause
+	}
 	if d.Body == nil || isExported(f.Name) || f.Name == "main" || c.guarded[f] {
 		return
 	}

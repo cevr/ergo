@@ -35,8 +35,18 @@ func TestFolderOpen() string {
 	return real
 }
 
+// testFolderEnds is the leaves' work at the end of a case's folder: exec's
+// ends the folder's sandbox helper (runtime/v1/exec exec_sandbox_linux.go).
+// The core imports no leaf (BS8), so a leaf adds its own in its init
+// (OnTestFolderRemove), before any task runs.
+var testFolderEnds []func(dir string)
+
+// OnTestFolderRemove adds end to the work TestFolderRemove does before it
+// removes a folder. It is called only from a leaf's init.
+func OnTestFolderRemove(end func(dir string)) { testFolderEnds = append(testFolderEnds, end) }
+
 // TestFolderRemove ends the case's sandbox helper, if a command of the
-// folder started one (exec_sandbox_linux.go), and removes the case's
+// folder started one (testFolderEnds), and removes the case's
 // folder and all it holds. A read-only directory a case made is made
 // writable first, so the removal does not stop at it. A folder that
 // cannot be removed is a defect of the runner: the next case must not see
@@ -44,7 +54,9 @@ func TestFolderOpen() string {
 //
 //ergo:host
 func TestFolderRemove(dir string) {
-	execSandboxEnd(dir)
+	for _, end := range testFolderEnds {
+		end(dir)
+	}
 	err := os.RemoveAll(dir)
 	if err != nil {
 		filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
@@ -112,6 +124,7 @@ func inFolder(root, p string) bool {
 // path stays empty, so the operation fails on it as the host's does.
 //
 //ergo:host
+//ergo:wait none
 func FSConfine(root string, path string) (string, error) {
 	if path == "" {
 		return "", nil // the host's own failure of the empty path
@@ -119,44 +132,6 @@ func FSConfine(root string, path string) (string, error) {
 	p, ok := Confine(root, "", path)
 	if !ok {
 		return "", Denied{Path: path}
-	}
-	return p, nil
-}
-
-// ExecConfine is the body of exec.TestHost's command check: the command's
-// directory resolved in the folder root (root for ""), or exec.Denied of
-// the first of dir or an argument that leads out of it. An argument is
-// read as a path relative to the directory: a flag or a word stays inside,
-// and "/", "..", or a path past a link out of the folder does not. What
-// the program computes for itself is not seen.
-//
-//ergo:host
-func ExecConfine(root string, dir string, args []string) (string, error) {
-	d, ok := Confine(root, "", dir)
-	if !ok {
-		return "", ExecDenied{Name: dir}
-	}
-	for _, a := range args {
-		if _, ok := Confine(root, d, a); !ok {
-			return "", ExecDenied{Name: a}
-		}
-	}
-	return d, nil
-}
-
-// ExecConfineSink is a file sink's path resolved in the folder root (a
-// relative one is relative to the folder, as the process's own directory
-// is for Host), or exec.Denied of it. A sink that is no file has the empty
-// path, which stays empty.
-//
-//ergo:host
-func ExecConfineSink(root string, path string) (string, error) {
-	if path == "" {
-		return "", nil
-	}
-	p, ok := Confine(root, "", path)
-	if !ok {
-		return "", ExecDenied{Name: path}
 	}
 	return p, nil
 }

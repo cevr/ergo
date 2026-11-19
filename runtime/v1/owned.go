@@ -15,6 +15,8 @@ import "unsafe"
 // passes a consumed buffer, and no Ergo operation writes a slice's bytes
 // below its length except through a binding that holds it (a Builder's
 // writes append past the length, or copy on growth).
+//
+//ergo:wait none
 func StringsBuilderTextOwned(buf []byte) string {
 	return unsafe.String(unsafe.SliceData(buf), len(buf))
 }

@@ -1,12 +1,69 @@
-//go:build linux || darwin
+//go:build linux || darwin || dragonfly || freebsd || netbsd || openbsd
 
 package v1
 
 import (
 	"os"
+	"sync"
 	"syscall"
 	"unsafe"
 )
+
+// termStack holds the states the pushes saved, latest last.
+var termStack struct {
+	sync.Mutex
+	saved []syscall.Termios
+}
+
+func termEnter(fd int, mode termMode) error {
+	termStack.Lock()
+	defer termStack.Unlock()
+	before, ok := getTermios(fd)
+	if !ok {
+		return TermNotTerminal{}
+	}
+	next := before
+	switch mode {
+	case termRaw:
+		rawState(&next)
+	case termNoEcho:
+		noEchoState(&next)
+	}
+	if !setTermios(fd, &next) {
+		return TermNotTerminal{}
+	}
+	termStack.saved = append(termStack.saved, before)
+	return nil
+}
+
+func termLeave(fd int) {
+	termStack.Lock()
+	defer termStack.Unlock()
+	n := len(termStack.saved)
+	if n == 0 {
+		return
+	}
+	before := termStack.saved[n-1]
+	termStack.saved = termStack.saved[:n-1]
+	setTermios(fd, &before)
+}
+
+// rawState is cfmakeraw without its output change: no input translation,
+// no echo, no canonical mode, no signal keys, eight-bit characters, and a
+// read that waits for one byte.
+func rawState(t *syscall.Termios) {
+	t.Iflag &^= syscall.IGNBRK | syscall.BRKINT | syscall.PARMRK | syscall.ISTRIP | syscall.INLCR | syscall.IGNCR | syscall.ICRNL | syscall.IXON
+	t.Lflag &^= syscall.ECHO | syscall.ECHONL | syscall.ICANON | syscall.ISIG | syscall.IEXTEN
+	t.Cflag &^= syscall.CSIZE | syscall.PARENB
+	t.Cflag |= syscall.CS8
+	t.Cc[syscall.VMIN] = 1
+	t.Cc[syscall.VTIME] = 0
+}
+
+// noEchoState turns echo off and keeps line editing.
+func noEchoState(t *syscall.Termios) {
+	t.Lflag &^= syscall.ECHO | syscall.ECHOE | syscall.ECHOK | syscall.ECHONL
+}
 
 // winsize is the kernel's struct winsize, the result of TIOCGWINSZ.
 type winsize struct {
@@ -49,6 +106,26 @@ func termSize(fd int) (cols, rows int, ok bool) {
 // fileIsTerminal reports whether f is a terminal: whether its state can be
 // read, as isatty does. It reads f's descriptor through SyscallConn, so f
 // keeps its blocking mode (Fd would set it blocking).
+// regularSize is f's size when f is a regular file, else 0. It reads
+// fstat on the descriptor, not f.Stat: an os.FileInfo in an interface
+// keeps time.Time's String, and with it the zone loader, in every program
+// that reads its input (SIZE-HELLO: deploys' time facts).
+func regularSize(f *os.File) int64 {
+	rc, err := f.SyscallConn()
+	if err != nil {
+		return 0
+	}
+	var st syscall.Stat_t
+	ok := false
+	if rc.Control(func(fd uintptr) { ok = syscall.Fstat(int(fd), &st) == nil }) != nil || !ok {
+		return 0
+	}
+	if uint32(st.Mode)&syscall.S_IFMT != syscall.S_IFREG {
+		return 0
+	}
+	return st.Size
+}
+
 func fileIsTerminal(f *os.File) bool {
 	rc, err := f.SyscallConn()
 	if err != nil {

@@ -46,6 +46,8 @@ type Context struct {
 // OpenContext binds text under the declaring package and key for the code
 // at s and every task it starts until the region ends. s is the scope of
 // the code at the with. Lowering supplies pkg from the binding type.
+//
+//ergo:wait none
 func (s *Scope) OpenContext(pkg, key, text string) *Context {
 	s = s.current()
 	if s.ended {
@@ -58,6 +60,8 @@ func (s *Scope) OpenContext(pkg, key, text string) *Context {
 
 // End ends the context region c at the normal end of its block: the values
 // in force before it are restored. Tasks already started keep theirs.
+//
+//ergo:wait none
 func (c *Context) End() {
 	s := c.s
 	n := len(s.withs)
@@ -104,13 +108,66 @@ func contextOf(t *rt.Task) []Binding {
 }
 
 // ContextBound reports whether key is bound in the reading package for t.
+//
+//ergo:wait none
 func ContextBound(t *rt.Task, pkg ContextPackage, key string) bool {
 	return t.Value(contextKey{string(pkg), key}) != nil
 }
 
 // ContextValue is the text bound to key for the task t, the innermost
 // binding, or "" when none is.
+//
+//ergo:wait none
 func ContextValue(t *rt.Task, pkg ContextPackage, key string) string {
 	v, _ := t.Value(contextKey{string(pkg), key}).(string)
 	return v
+}
+
+// ContextPairs is the key and the text of each context value of the
+// reading package in force for t, outermost first, a shadowed binding left
+// out: key, text, key, text, … (std log's Annotations).
+//
+//ergo:wait none
+func ContextPairs(t *rt.Task, pkg ContextPackage) []string {
+	var out []string
+	for _, b := range contextOf(t) {
+		if b.Package == string(pkg) {
+			out = append(out, b.Key, b.Text)
+		}
+	}
+	return out
+}
+
+// Held contexts (docs/spec/rows.md, Context values, InForce). The prelude's
+// InForce[R]() is a Context value of the providers of R in force at the
+// call. The lowering writes each call in place (internal/sketch/lower,
+// inforce.go): the value copies the environment at the call, and that copy
+// holds the scope of the innermost owning with in force there. HeldLive
+// checks it when the value is installed.
+
+// HeldContextDefect is the defect of a Context value made by InForce and
+// installed after the innermost owning with in force where it was made has
+// ended: a provider it holds may be closed.
+type HeldContextDefect struct{}
+
+// String is the defect's text, which the entry's report writes after
+// "panic: ".
+func (*HeldContextDefect) String() string {
+	return "a held context was used after its with ended"
+}
+
+// InForce is the Go function the prelude's InForce binds. The lowering
+// never calls it: it writes each call in place, and the program's Go
+// function of InForce panics too.
+//
+//ergo:wait none
+func InForce() { panic("InForce is lowered at each call") }
+
+// HeldLive raises HeldContextDefect when w, the scope of the innermost
+// owning with in force where a held context was made, has ended. A nil w
+// is no owning with: the providers are values that outlive nothing.
+func HeldLive(w *Scope) {
+	if w != nil && w.ended {
+		panic(&HeldContextDefect{})
+	}
 }

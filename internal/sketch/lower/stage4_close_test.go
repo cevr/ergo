@@ -128,12 +128,12 @@ func Close(r Res) {
 
 type Holder { r Res }
 
-type KeeperC { ..Closer, Keep(h Holder) takes h }
+type KeeperC { ..Closer, Keep(h own Holder) }
 type TagC { ..Closer, Mark() int }
 
 type Held { r Res } implements TagC, KeeperC, Closer
 func Mark(h Held) int { 1 }
-func Keep(h Held, x Holder) takes x { let _ = x }
+func Keep(h Held, x own Holder) { let _ = x }
 func Close(h Held) {}
 
 func run(log sync.Ref[string]) {

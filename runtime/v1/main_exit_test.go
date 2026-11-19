@@ -89,7 +89,7 @@ func TestMainExit(t *testing.T) {
 	}{
 		{"ok", 0, `^$`},
 		{"failure", 1, `^error: bad main\n$`},
-		{"defect", 2, `^panic: runtime error: index out of range \[3\] with length 0\n\ttask #\d+ worker at w\.ergo:7:3\n\ttask #\d+ main\n\n(?s:.*)v1\.explode\(\)\n\t[^\n]*task_test\.go:\d+`},
+		{"defect", 2, `^panic: runtime error: index out of range \[3\] with length 0\n\ttask #\d+ worker at w\.ergo:7:3\n\ttask #\d+ ` + rootSpan() + `\n\n(?s:.*)v1\.explode\(\)\n\t[^\n]*task_test\.go:\d+`},
 		{"interrupted", 130, `^interrupted\n$`},
 		{"closed", 1, `^error: queue\.Closed\n$`},
 		// os.Exit alone (Exit causes, os.Exit rules 1 and 2): Message and

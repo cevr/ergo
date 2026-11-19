@@ -174,9 +174,9 @@ func reserve(t Tool, m Making, on Option[string]) Reserved fails NameTaken | NoW
 }
 
 // Fill is new's second step: the clone, with no lock but the
-// reservation's held, the folders work.toml leaves out, the marker, the
-// branch and the stat settings. A failure deletes what it made and the
-// reservation.
+// reservation's held, the folders work.toml leaves out, the branch and
+// the stat settings, the cloner on the reservation (under the lock), and
+// last the marker. A failure deletes what it made and the reservation.
 func Fill(t Tool, m Making) Making fails NotSameVolume | Unsupported | CopyRefused | Exists | Missing | NoSpace | CloneFailed | VcsFailed | Unkept | Locked {
 	let by = cloned(t, m.Parent, m.Path, m.Copy) catch {
 	case NotSameVolume as e:
@@ -213,6 +213,25 @@ func Fill(t Tool, m Making) Making fails NotSameVolume | Unsupported | CopyRefus
 			}
 		}
 	}
+	startIn(t, by, m.Path, m.Branch, m.Start) catch {
+	case VcsFailed as e:
+		try discarded(by, m.Path)
+		try unreserve(t, m)
+		return e
+	}
+	// The marker comes last: a clone that carries it is whole, on its
+	// branch, and its reservation names its cloner, so gc can activate
+	// it when its maker dies before Activate (Collect).
+	recordCloner(t, m, by.Name()) catch {
+	case Unkept as e:
+		try discarded(by, m.Path)
+		try unreserve(t, m)
+		return e
+	case Locked as e:
+		try discarded(by, m.Path)
+		try unreserve(t, m)
+		return e
+	}
 	let marked = mark(t, m.Path, m.Id) catch {
 	case fs.NotFound, fs.Denied, fs.Failed:
 		false
@@ -222,13 +241,27 @@ func Fill(t Tool, m Making) Making fails NotSameVolume | Unsupported | CopyRefus
 		try unreserve(t, m)
 		return CloneFailed{Cloner: by.Name(), Reason: "\(m.Path): the marker \(MarkerFile) could not be written"}
 	}
-	startIn(t, by, m.Path, m.Branch, m.Start) catch {
-	case VcsFailed as e:
-		try discarded(by, m.Path)
-		try unreserve(t, m)
+	Making{..m, Cloner: by.Name()}
+}
+
+// recordCloner writes, under the lock, the cloner that made the clone
+// into m's reservation, while it is still m's.
+func recordCloner(t Tool, m Making, cloner string) fails Unkept | Locked {
+	try hold(t)
+	let all = t.registry.All() catch {
+	case Unkept as e:
+		t.lock.Release("")
 		return e
 	}
-	Making{..m, Cloner: by.Name()}
+	let i = slices.IndexFunc(all, func(w Workspace) bool { w.Name == m.Name && w.Id == m.Id && StateName(w.State) == "creating" })
+	if i >= 0 {
+		t.registry.Put(Workspace{..all[i], Cloner: cloner}) catch {
+		case Unkept as e:
+			t.lock.Release("")
+			return e
+		}
+	}
+	t.lock.Release("")
 }
 
 // Activate is new's last step: under the lock the record becomes Active

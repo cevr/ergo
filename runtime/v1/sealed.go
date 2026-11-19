@@ -8,6 +8,7 @@ func (*Queue[T]) runtimeOnly()       {}
 func (*Ref[T]) runtimeOnly()         {}
 func (*Int64) runtimeOnly()          {}
 func (*Bool) runtimeOnly()           {}
+func (*GroupArgs) runtimeOnly()      {}
 func (*FS) runtimeOnly()             {}
 func (*Cursor) runtimeOnly()         {}
 func (*Actor[S, E, D]) runtimeOnly() {}
@@ -15,7 +16,6 @@ func (*Host[A]) runtimeOnly()        {}
 func (*Set) runtimeOnly()            {}
 func (*Op[A, F]) runtimeOnly()       {}
 func (*Timeline) runtimeOnly()       {}
-func (*Stream) runtimeOnly()         {}
-func (*Redacted[T]) runtimeOnly()    {}
-func (*Running) runtimeOnly()        {}
-func (*Exchange) runtimeOnly()       {}
+func (*AlarmClock) runtimeOnly()     {}
+func (*Deadline) runtimeOnly()       {}
+func (*Mapped) runtimeOnly()         {}

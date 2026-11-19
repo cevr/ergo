@@ -34,9 +34,9 @@ func step(s S, e Sig) Decision[S, int] {
 func work(s S) Option[machines.Work[Sig, Codes]] {
 	match s {
 	case Busy as b:
-		Some{machines.Work{Run: func() Sig needs Codes {
+		Some{machines.Do(func() Sig needs Codes {
 			if Codes.Check(b.N) { Finish } else { Finish }
-		}}}
+		})}
 	case Idle:
 		None
 	}

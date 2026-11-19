@@ -270,7 +270,7 @@ func TestClassGProvisionalFrame(t *testing.T) {
 			if settleOnly {
 				restore = check.SelfSettleOnly()
 			}
-			_, diags := check.CheckSource(tc.src)
+			_, diags := checkSourceInfer(tc.src)
 			restore()
 			var have []string
 			for _, d := range diags {

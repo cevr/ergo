@@ -7,7 +7,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -141,6 +141,14 @@ func (r *patResolver) child(parent, ctor, field int, t Type) int {
 func (r *patResolver) columnOf(t Type) (column, colInfo) {
 	if u := r.c.subjectUnion(t); u != nil {
 		col := column{size: u.len()}
+		for i := range u.len() {
+			if u.mayHoldNever() && r.c.uninhabited(u.at(i)) {
+				if col.empty == nil {
+					col.empty = map[int]bool{}
+				}
+				col.empty[i] = true
+			}
+		}
 		col.label = func(w witness, j int, out *strings.Builder) {
 			ctor, ok := w[j]
 			if !ok {
@@ -398,7 +406,7 @@ func (r *patResolver) pattern0(e syntax.Expr, t Type, col int) resolved {
 func reusableBinderName(o Object) bool {
 	switch o := o.(type) {
 	case *Func:
-		return o.Pkg != nil && o.Pkg.Path != std.PreludePath
+		return o.Pkg != nil && o.Pkg.Path != stdlib.PreludePath
 	case *PkgName:
 		return true
 	}
@@ -451,6 +459,10 @@ func (r *patResolver) head(e syntax.Expr, t Type, col int) (int, Type, bool) {
 			return -1, t, true
 		}
 		if idx < 0 {
+			return 0, nil, false
+		}
+		if vt := ci.u.at(idx); c.uninhabited(vt) {
+			c.errorf(e, CodeType, "%s has no value: it holds a Never, so this case never runs; leave it out (types.md, Never)", vt)
 			return 0, nil, false
 		}
 		return idx, ci.u.at(idx), true
@@ -736,7 +748,7 @@ func (c *checker) matchStmt(s syntax.Stmt, kw syntax.Pos, subjects []syntax.Expr
 	judge := func(at syntax.Node, row solverRow) {
 		u, ok := useful.caseUseful(matrix, row)
 		if ok && !u {
-			c.errorf(at, CodeType, "%s (unreachable)", c.coveredBy(matrix, origin))
+			c.errorf(at, CodeType, "%s (unreachable)", c.coveredBy(matrix, origin, at))
 			return
 		}
 		before := len(matrix.rows)
@@ -827,10 +839,13 @@ func (c *checker) matchStmt(s syntax.Stmt, kw syntax.Pos, subjects []syntax.Expr
 	}
 }
 
-// coveredBy says what covers an unreachable case row: the earlier case
+// coveredBy says what covers an unreachable case row at: the earlier case
 // that alone covers it, by its text ("the earlier case `B`"; no line, so the
-// message does not move with the declarations), or the cases before it together.
-func (c *checker) coveredBy(m *rowSet, origin []syntax.Node) string {
+// message does not move with the declarations), or the cases before it
+// together. An alternative of a nested or-pattern covered by an earlier
+// alternative of the same written pattern (both expansions span it,
+// syntax/orpattern.go) says so.
+func (c *checker) coveredBy(m *rowSet, origin []syntax.Node, at syntax.Node) string {
 	i := m.cover
 	if i < 0 || i >= len(origin) {
 		return "this case is already covered by the cases before it"
@@ -842,6 +857,9 @@ func (c *checker) coveredBy(m *rowSet, origin []syntax.Node) string {
 	}
 	if rs := []rune(text); len(rs) > 40 {
 		text = string(rs[:37]) + "…"
+	}
+	if o := origin[i]; o.Pos() == at.Pos() && o.End() == at.End() {
+		return fmt.Sprintf("an alternative of `%s` is already covered by an earlier alternative of it", text)
 	}
 	return fmt.Sprintf("this case is already covered by the earlier case `%s`", text)
 }
