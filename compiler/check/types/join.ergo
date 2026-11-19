@@ -1,8 +1,9 @@
 // The branch join (the Go checker's join.go, K3; rows.md, Totality 3), for
 // unions with no type parameters: branches of an if or match with no
 // expected type that are variants of one declared union have that
-// union's type. A generic union's instance (Some[int] and None to
-// Option[int]) is not joined here: those branches stay unjoined.
+// union's type. A generic union's instance is not joined here: the
+// prelude's Option (Some[int] and None to Option[int]) is joined by
+// compiler/check/expr (optionJoin), another one's branches stay unjoined.
 
 import compiler/check/store
 import dense

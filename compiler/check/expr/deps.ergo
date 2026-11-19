@@ -190,11 +190,21 @@ func importedFn(s mut store.Store, k Pkg, t mut Typer, name dense.Opt[syntax.Nod
 		let d = k.Deps[di]
 		let decl = store.DeclOf(d.S, store.DeclAt(d.S, int(im.Ref.Decl)))
 		t.steps = t.steps + 1
-		let f = FnAt(d.K, bind.PNodeOf(d.K.Ps, int(decl.File), syntax.NodeAt(d.K.Parsed[int(decl.File)].Tree, int(decl.Node))))
-		if f < 0 {
+		let at = bind.PNodeOf(d.K.Ps, int(decl.File), syntax.NodeAt(d.K.Parsed[int(decl.File)].Tree, int(decl.Node)))
+		let f = FnAt(d.K, at)
+		let fn = if f >= 0 {
+			d.K.Fns[f]
+		} else if store.KindName(int(decl.Kind)) == "func" {
+			// A refined type's parse function (config.ParsePort).
+			match parseFn(d.K, at) {
+			case Some[Fn] as pf:
+				pf.Value
+			case None:
+				return None
+			}
+		} else {
 			return None
 		}
-		let fn = d.K.Fns[f]
 		match port(s, k, d, fn.Sig) {
 		case Some[dense.ID[store.TKey]] as sig:
 			let mut out = fn

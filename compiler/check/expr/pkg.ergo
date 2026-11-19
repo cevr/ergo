@@ -52,6 +52,11 @@ type Fn {
 // parameters are the pool's Param(0), Param(1), …).
 type Field { Name string, T dense.ID[store.TKey] }
 
+// OpName is an operation of an operation type of the package: its file,
+// its name node and its signature. Inside the type's laws its bare name
+// is a value of that signature (bind declares it there).
+type OpName { File int, Name dense.ID[syntax.Node], T dense.ID[store.TKey] }
+
 // Rec is a record of the package: its name, bracket parameters and fields;
 // or, Op set, an operation type with its operations as fields, each of
 // its signature's type (S3d3).
@@ -69,8 +74,15 @@ type Pkg {
 	Ifaces  []types.Iface,
 	Fns     []Fn,
 	Recs    []Rec,
-	Deps    []Dep,
-	fnBy    dense.Col[store.PNode, int],
+	// Ops is the operations of the package's operation types with no
+	// bracket parameters, which their laws (Fns too) call by name.
+	Ops []OpName,
+	// Parses is the parse functions the package's refined types derive
+	// (ParsePort for Port): each named by its type's name node, where
+	// bind declares it.
+	Parses []OpName,
+	Deps   []Dep,
+	fnBy   dense.Col[store.PNode, int],
 	// named is the last function of each name; sameName[i] the one
 	// before function i of its name, -1 for none (methods.ergo).
 	named    dense.Side[dense.Str, int],
@@ -428,6 +440,8 @@ func Load(s mut store.Store, files []bind.File, u bind.Uses, ps bind.Parents, ex
 		case _:
 		}
 	}
+	let mut ops = []OpName{}
+	let mut parses = []OpName{}
 	for file, p in parsed {
 		if p.Failed {
 			continue
@@ -444,6 +458,56 @@ func Load(s mut store.Store, files []bind.File, u bind.Uses, ps bind.Parents, ex
 					}
 				case syntax.TestDecl as td:
 					fns = fns.Append(declared(s, env, p, file, d, td.Name, td.Params, store.TTuple(s, []dense.ID[store.TKey]{}), dense.OptOf(td.Body)))
+				case syntax.TypeDecl as td:
+					// A refined type with no bracket parameters derives its
+					// parse function (types.RefinedParse).
+					if isSome(dense.Unpack(td.Where)) && !isSome(dense.Unpack(td.TypeParams)) {
+						match dense.Unpack(td.Spec) {
+						case Some[dense.ID[syntax.Node]] as base:
+							parses = parses.Append(OpName{File: file, Name: td.Name, T: types.RefinedParse(s, env, base.Value, types.NameText(p, td.Name))})
+						case None:
+						}
+					}
+					// An operation type's laws, and its operations they call.
+					if !isSome(dense.Unpack(td.TypeParams)) {
+						match dense.Unpack(td.Spec) {
+						case Some[dense.ID[syntax.Node]] as sp:
+							match syntax.ViewOf(p.Tree, sp.Value) {
+							case syntax.InterfaceType as it:
+								// A type that embeds another (..fs.Files) has
+								// operations its laws call that are not its
+								// own: its laws are not typed.
+								let mut embeds = false
+								for j in 0..syntax.Len(it.Members) {
+									match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, it.Members, j)) {
+									case syntax.Field as fd:
+										embeds = embeds || fd.Dots >= 0
+									case _:
+									}
+								}
+								for j in 0..syntax.Len(it.Members) {
+									let m = syntax.Item(p.Tree, it.Members, j)
+									match syntax.ViewOf(p.Tree, m) {
+									case syntax.Field as fd:
+										match dense.Unpack(fd.Type) {
+										case Some[dense.ID[syntax.Node]] as ft:
+											if syntax.KindOf(p.Tree, ft.Value) == syntax.KFuncType && syntax.Len(fd.Names) == 1 {
+												ops = ops.Append(OpName{File: file, Name: syntax.Item(p.Tree, fd.Names, 0), T: types.Resolve(s, env, ft.Value)})
+											}
+										case None:
+										}
+									case syntax.LawDecl as ld:
+										if ld.Body != dense.NoID[syntax.Node]() && !embeds {
+											fns = fns.Append(declared(s, env, p, file, m, ld.Name, ld.Params, store.TBasic(s, bBool), ld.Body))
+										}
+									case _:
+									}
+								}
+							case _:
+							}
+						case None:
+						}
+					}
 				case _:
 				}
 			}
@@ -498,7 +562,19 @@ func Load(s mut store.Store, files []bind.File, u bind.Uses, ps bind.Parents, ex
 		case None:
 		}
 	}
-	Pkg{Files: files, Parsed: parsed, U: u, Ps: ps, Kinds: kinds, Ext: ext, Foreign: foreign, Ifaces: deps, Fns: fns, Recs: recs, Deps: []Dep{}, fnBy: fnBy, named: named, sameName: sameName, recBy: recBy}
+	Pkg{Files: files, Parsed: parsed, U: u, Ps: ps, Kinds: kinds, Ext: ext, Foreign: foreign, Ifaces: deps, Fns: fns, Recs: recs, Ops: ops, Parses: parses, Deps: []Dep{}, fnBy: fnBy, named: named, sameName: sameName, recBy: recBy}
+}
+
+// parseFn is the parse function the refined type named at the package
+// node at derives, as a function of no body; none when no refined type is
+// named there.
+func parseFn(k Pkg, at dense.ID[store.PNode]) Option[Fn] {
+	for o in k.Parses {
+		if bind.PNodeOf(k.Ps, o.File, o.Name) == at {
+			return Some[Fn]{Value: Fn{File: o.File, Decl: o.Name, Name: o.Name, Params: []string{}, Rows: []bool{}, Own: []bool{}, Names: []dense.Opt[syntax.Node]{dense.NoID[syntax.Node]()}, Sig: o.T, Body: dense.NoID[syntax.Node](), Takes: []bool{false}, Pnames: []string{""}, Close: false}}
+		}
+	}
+	None
 }
 
 // FnAt is the index in k.Fns of the function whose name node is the

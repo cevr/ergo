@@ -225,6 +225,19 @@ func genExpr(seed uint32) string {
 		"let made = twice(2)",
 		"let marked = if base > 2 { Tick{N: base} } else { Tock{N: 1} }",
 		"",
+		// A refined type derives its parse function; an operation type's
+		// law calls its operations by their bare names.
+		"type Pos int where it > 0",
+		"",
+		"type Counter {",
+		"\tNext(n int) int,",
+		"",
+		"\tlaw Grows(n int) {",
+		"\t\tlet m = if n > 0 { Next(n) } else { 0 }",
+		"\t\tm >= 0 || n < 0",
+		"\t},",
+		"}",
+		"",
 	}
 	k := func() string { return strconv.Itoa(1 + r.n(9)) }
 	for fn := range 1 + r.n(3) {
@@ -241,7 +254,7 @@ func genExpr(seed uint32) string {
 				continue
 			}
 			x := local()
-			switch r.n(28) {
+			switch r.n(30) {
 			case 0:
 				add("\tlet "+x+" = p + "+k(), "\tacc = acc + "+x)
 			case 1:
@@ -296,6 +309,14 @@ func genExpr(seed uint32) string {
 				// A variant after its union keeps the union.
 				b := local()
 				add("\tlet "+x+" = if p > "+k()+" { marked } else { Tick{N: p} }", "\tmatch "+x+" {", "\tcase Tick as "+b+":", "\t\tacc = acc + "+b+".N", "\tcase Tock:", "\t}")
+			// The calls and names CHECK-CALL-COVERAGE types: a refined
+			// type's derived parse function, and a fieldless record's
+			// name as a value.
+			case 28:
+				add("\tlet "+x+" = ParsePos(p) catch {", "\tcase Unsatisfied:", "\t\tPos(1)", "\t}", "\tacc = acc + int("+x+")")
+			case 29:
+				b := local()
+				add("\tlet "+x+" = if p > "+k()+" { Dot } else { Sq{W: p} }", "\tmatch "+x+" {", "\tcase Sq as "+b+":", "\t\tacc = acc + "+b+".W", "\tcase Dot:", "\t}")
 			case 26:
 				add("\tput(p) catch {", "\tcase Oops:", "\t\tacc = acc + 1", "\t}")
 			case 25:

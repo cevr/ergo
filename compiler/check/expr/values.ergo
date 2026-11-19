@@ -245,7 +245,12 @@ func tail(s mut store.Store, k Pkg, t Typer, kk mut sink, ty Option[dense.ID[sto
 					case Some[dense.ID[store.TKey]] as u:
 						kk.join = u
 					case None:
-						kk.bad = true
+						match optionJoin(s, k, j.Value, v.Value) {
+						case Some[dense.ID[store.TKey]] as o:
+							kk.join = o
+						case None:
+							kk.bad = true
+						}
 					}
 				}
 			}
@@ -256,6 +261,46 @@ func tail(s mut store.Store, k Pkg, t Typer, kk mut sink, ty Option[dense.ID[sto
 	case None:
 		kk.bad = true
 	}
+}
+
+// optionJoin is the prelude's generic union join (check/join.go
+// joinInstance) for its Option: Some[T] and None join to Option[T], and
+// an Option[T] stands with either (the first branch's type); none for any
+// other pair.
+func optionJoin(s mut store.Store, k Pkg, cur dense.ID[store.TKey], next dense.ID[store.TKey]) Option[dense.ID[store.TKey]] {
+	let fo = foreignAt(k, "prelude", "Option")
+	let fs = foreignAt(k, "prelude", "Some")
+	let fn = foreignAt(k, "prelude", "None")
+	if fo < 0 || fs < 0 || fn < 0 {
+		return None
+	}
+	let none = store.TForeign(s, fn)
+	let (some1, arg) = optionArg(*s, cur, fs)
+	let (opt1, oarg) = optionArg(*s, cur, fo)
+	let (some2, arg2) = optionArg(*s, next, fs)
+	let (opt2, _) = optionArg(*s, next, fo)
+	if some1 && next == none || cur == none && some2 || cur == none && opt2 {
+		let a = if some1 { arg } else { arg2 }
+		return if opt2 { some(next) } else { some(store.TInstance(s, store.XRef{Import: uint32(store.ForeignBit), Decl: uint32(fo)}, []dense.ID[store.TKey]{a})) }
+	}
+	if opt1 && (next == none || some2 && arg2 == oarg) {
+		return some(cur)
+	}
+	None
+}
+
+// optionArg is whether t is the prelude's generic type at foreign index
+// f with one argument, and that argument.
+func optionArg(s store.Store, t dense.ID[store.TKey], f int) (bool, dense.ID[store.TKey]) {
+	if store.KindOfType(s, t) != store.KInstance {
+		return (false, t)
+	}
+	let o = store.OriginOfType(s, t)
+	let ops = store.OperandsOf(s, t)
+	if int(o.Import) != store.ForeignBit || int(o.Decl) != f || len(ops) != 1 {
+		return (false, t)
+	}
+	(true, ops[0])
 }
 
 // unreachableCall is whether x is a call of the prelude's Unreachable.

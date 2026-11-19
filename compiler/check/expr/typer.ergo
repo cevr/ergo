@@ -160,6 +160,11 @@ func checkAll(s mut store.Store, k Pkg, record bool) Typer {
 		states = states.Append(0)
 	}
 	let mut t = Typer{Entries: slices.WithCapacity[Entry](entries), Diags: []Diag{}, Insts: slices.WithCapacity[Inst](calls), Calls: []CallTo{}, defs: defs, lets: lets, letState: states, letAt: letAt, frame: infer.NewFrame(), boolT: store.TBasic(s, bBool), file: 0, fn: 0, res: None, steps: 0, typed: 0, record: record, reserved: entries + rows + calls}
+	// An operation type's operations, by name in its laws.
+	for o in k.Ops {
+		t.file = o.File
+		def(k, &t, o.Name, o.T)
+	}
 	// The package's lets first, each when its value's names are typed
 	// (a let a function or an earlier let uses is typed at that use).
 	for i in 0..len(t.lets) {
@@ -809,7 +814,7 @@ func exprType(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], w 
 			None
 		}
 	case syntax.CompositeLit as cl:
-		composite(s, k, t, cl)
+		composite(s, k, t, cl, w)
 	case syntax.InterpolatedString as is:
 		for i in 0..syntax.Len(is.Parts) {
 			let part = syntax.Item(tr, is.Parts, i)
@@ -833,8 +838,14 @@ func exprType(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], w 
 		case None:
 		}
 		if !isSome(out) {
+			// An untyped X leaves open whether its indices are values or
+			// type arguments (rpc.Decode[domains.Down]): a fieldless
+			// record's name, both at once, is not typed.
 			for i in 0..syntax.Len(ie.Indices) {
-				expr(s, k, t, syntax.Item(tr, ie.Indices, i), Unsure)
+				let ix = syntax.Item(tr, ie.Indices, i)
+				if !namesBare(s, k, t, ix) {
+					expr(s, k, t, ix, Unsure)
+				}
 			}
 		}
 		out
@@ -942,7 +953,7 @@ func ident(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node]) Optio
 		if f >= 0 && len(k.Fns[f].Params) == 0 {
 			return some(k.Fns[f].Sig)
 		}
-		None
+		bareRecord(s, k, t, x, d.At)
 	case bind.Outside:
 		let p = k.Parsed[t.file]
 		let text = syntax.TokText(p, syntax.TokStartingAt(p, syntax.NodePos(p, x)))
@@ -952,7 +963,7 @@ func ident(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node]) Optio
 		if !predeclared(*s, k, text) {
 			report(k, t, x)
 		}
-		None
+		preludeBare(s, k, t, x)
 	case _:
 		None
 	}

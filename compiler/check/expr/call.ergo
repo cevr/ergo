@@ -6,6 +6,7 @@ import compiler/check/store
 import compiler/check/types
 import compiler/syntax
 import dense
+import strings
 
 func isSome[T](o Option[T]) bool {
 	match o {
@@ -108,6 +109,14 @@ func emptiedFails(s store.Store, t dense.ID[store.TKey], targs []dense.ID[store.
 // empty tuple) when it has none, as the Go checker's NoValue.
 func resultOf(s store.Store, r dense.ID[store.TKey]) Option[dense.ID[store.TKey]] { some(r) }
 
+// derivesParse is whether the name x is a refined type's parse function's
+// (ParsePort, parsePort), which bind declares at the type's name: the
+// type's own name there is a conversion.
+func derivesParse(k Pkg, t Typer, x dense.ID[syntax.Node]) bool {
+	let text = types.NameText(k.Parsed[t.file], x)
+	strings.HasPrefix(text, "Parse") || strings.HasPrefix(text, "parse")
+}
+
 // args types a call's arguments against params (Unsure past them).
 func args(s mut store.Store, k Pkg, t mut Typer, c syntax.CallExpr, params []dense.ID[store.TKey]) {
 	let tr = tree(k, t.file)
@@ -150,7 +159,7 @@ func call(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], c synt
 				None
 			} else {
 				let i = fnOf(k, t, d.At)
-				if i >= 0 { Some[Fn]{Value: k.Fns[i]} } else { None }
+				if i >= 0 { Some[Fn]{Value: k.Fns[i]} } else if derivesParse(k, *t, fun) { parseFn(k, d.At) } else { None }
 			}
 		case _:
 			None
@@ -432,7 +441,7 @@ func fieldType(s mut store.Store, k Pkg, ty dense.ID[store.TKey], name string) O
 
 // composite types T{…}: T as written; a record's fields, a slice's
 // elements and a map's entries take their types.
-func composite(s mut store.Store, k Pkg, t mut Typer, cl syntax.CompositeLit) Option[dense.ID[store.TKey]] {
+func composite(s mut store.Store, k Pkg, t mut Typer, cl syntax.CompositeLit, w Want) Option[dense.ID[store.TKey]] {
 	let tr = tree(k, t.file)
 	let p = k.Parsed[t.file]
 	match dense.Unpack(cl.Base) {
@@ -443,10 +452,20 @@ func composite(s mut store.Store, k Pkg, t mut Typer, cl syntax.CompositeLit) Op
 	let ty = match dense.Unpack(cl.Type) {
 	case Some[dense.ID[syntax.Node]] as tx:
 		let r = types.Resolve(s, envOf(*s, k, *t), tx.Value)
-		if valid(*s, r) { some(r) } else { None }
+		if valid(*s, r) {
+			some(r)
+		} else {
+			match w {
+			case Exactly as e:
+				hinted(s, k, *t, tx.Value, e.T)
+			case _:
+				None
+			}
+		}
 	case None:
 		None
 	}
+	let mut vals = []Option[dense.ID[store.TKey]]{}
 	for i in 0..syntax.Len(cl.Elts) {
 		let e = syntax.Item(tr, cl.Elts, i)
 		let mut done = false
@@ -478,15 +497,133 @@ func composite(s mut store.Store, k Pkg, t mut Typer, cl syntax.CompositeLit) Op
 		case None:
 		}
 		if !done {
-			match syntax.ViewOf(tr, e) {
+			let v = match syntax.ViewOf(tr, e) {
 			case syntax.KeyValueExpr as kv:
 				expr(s, k, t, kv.Value, Unsure)
 			case _:
 				expr(s, k, t, e, Unsure)
 			}
+			vals = vals.Append(v)
 		}
 	}
-	ty
+	if isSome(ty) {
+		return ty
+	}
+	match (dense.Unpack(cl.Type), w) {
+	case (Some[dense.ID[syntax.Node]] as tx, Free):
+		elided(s, k, *t, tx.Value, cl, vals)
+	case _:
+		None
+	}
+}
+
+// hinted is the type of a composite of a generic prelude record written
+// with no type arguments, named by x, that is assigned to want
+// (check/expr.go instanceFromHint): want when it is an instance of the
+// record, Some[T] for an Option[T]; none otherwise.
+func hinted(s mut store.Store, k Pkg, t Typer, x dense.ID[syntax.Node], want dense.ID[store.TKey]) Option[dense.ID[store.TKey]] {
+	if syntax.KindOf(tree(k, t.file), x) != syntax.KIdent {
+		return None
+	}
+	match bind.ResolutionOf(k.U, k.Ps, pnode(k, t.file, x)) {
+	case bind.Outside:
+	case _:
+		return None
+	}
+	let text = types.NameText(k.Parsed[t.file], x)
+	let f = foreignAt(k, "prelude", text)
+	if f < 0 || store.KindOfType(*s, want) != store.KInstance {
+		return None
+	}
+	let o = store.OriginOfType(*s, want)
+	if int(o.Import) != store.ForeignBit {
+		return None
+	}
+	if int(o.Decl) == f {
+		return some(want)
+	}
+	if text == "Some" && int(o.Decl) == foreignAt(k, "prelude", "Option") {
+		return some(store.TInstance(s, store.XRef{Import: uint32(store.ForeignBit), Decl: uint32(f)}, store.OperandsOf(*s, want)))
+	}
+	None
+}
+
+// elided is the type of a composite of a generic prelude record written
+// with no type arguments (Some{Value: x}, Some{x}), named by x: the
+// record's instance whose arguments are the types of the values given
+// to the fields its parameters type, vals in element order; none when
+// one stays unbound.
+func elided(s mut store.Store, k Pkg, t Typer, x dense.ID[syntax.Node], cl syntax.CompositeLit, vals []Option[dense.ID[store.TKey]]) Option[dense.ID[store.TKey]] {
+	let tr = tree(k, t.file)
+	let p = k.Parsed[t.file]
+	if syntax.KindOf(tr, x) != syntax.KIdent || len(vals) != syntax.Len(cl.Elts) {
+		return None
+	}
+	match bind.ResolutionOf(k.U, k.Ps, pnode(k, t.file, x)) {
+	case bind.Outside:
+	case _:
+		return None
+	}
+	let di = depOf(k, "prelude")
+	if di < 0 {
+		return None
+	}
+	let text = types.NameText(p, x)
+	let ds = k.Deps[di].S
+	let r = recOf(ds, k.Deps[di].K, text)
+	let f = foreignAt(k, "prelude", text)
+	if r < 0 || f < 0 {
+		return None
+	}
+	let rec = k.Deps[di].K.Recs[r]
+	if rec.Op || len(rec.Params) == 0 {
+		return None
+	}
+	let mut args = []dense.ID[store.TKey]{}
+	for _ in rec.Params {
+		args = args.Append(store.TBasic(s, 0))
+	}
+	let mut bound = []bool{}
+	for _ in rec.Params {
+		bound = bound.Append(false)
+	}
+	for i, v in vals {
+		let e = syntax.Item(tr, cl.Elts, i)
+		let fi = match syntax.ViewOf(tr, e) {
+		case syntax.KeyValueExpr as kv:
+			fieldIndex(rec, types.NameText(p, kv.Key))
+		case _:
+			i
+		}
+		if fi < 0 || fi >= len(rec.Fields) {
+			return None
+		}
+		let ft = rec.Fields[fi].T
+		match v {
+		case Some[dense.ID[store.TKey]] as vt:
+			if store.KindOfType(ds, ft) == store.KParam && store.ArgOf(ds, ft) < len(args) {
+				args[store.ArgOf(ds, ft)] = vt.Value
+				bound[store.ArgOf(ds, ft)] = true
+			}
+		case None:
+		}
+	}
+	for b in bound {
+		if !b {
+			return None
+		}
+	}
+	some(store.TInstance(s, store.XRef{Import: uint32(store.ForeignBit), Decl: uint32(f)}, args))
+}
+
+// fieldIndex is the index in r's fields of the field name, -1 when none.
+func fieldIndex(r Rec, name string) int {
+	for i, fd in r.Fields {
+		if fd.Name == name {
+			return i
+		}
+	}
+	-1
 }
 
 // selOf is the name of the selector x, or none when x is no selector.
@@ -500,6 +637,11 @@ func selector(s mut store.Store, k Pkg, t mut Typer, se syntax.SelectorExpr) Opt
 	match importedFn(s, k, t, dense.OptOf(se.Sel)) {
 	case Some[Fn] as f:
 		return if len(f.Value.Params) == 0 { some(f.Value.Sig) } else { None }
+	case None:
+	}
+	match importedBare(s, k, t, se.Sel) {
+	case Some[dense.ID[store.TKey]] as b:
+		return some(b.Value)
 	case None:
 	}
 	match expr(s, k, t, se.X, Free) {

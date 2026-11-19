@@ -205,7 +205,7 @@ func TestCompilerExprAgreesWithChecker(t *testing.T) {
 	// operations, and fields through a pointer (S3d3), and the builtin
 	// len (S3d5): each kind typed
 	// somewhere, since the subset check alone would not see one lost.
-	for _, kind := range []string{"CallExpr method", "CallExpr prelude", "CallExpr op", "CallExpr capability", "SelectorExpr ptrfield", "CallExpr builtin"} {
+	for _, kind := range []string{"CallExpr method", "CallExpr prelude", "CallExpr op", "CallExpr capability", "CallExpr preludecap", "SelectorExpr ptrfield", "CallExpr builtin"} {
 		if reach[kind][0] == 0 {
 			t.Errorf("the Ergo side typed no %s", kind)
 		}
@@ -419,7 +419,8 @@ func formOf(pkg *check.Package, x syntax.Expr) string {
 
 // selectorKind is what the selector e names: "pkg", "field", a field
 // through a pointer ("ptrfield"), an operation on a value ("op") or on
-// the capability named ("capability"), the prelude's
+// the capability named ("capability"; "preludecap" for a prelude
+// operation type's, Random.IntN), the prelude's
 // function on a slice or Map ("prelude"), another function on the value's
 // type ("method"), or "other".
 func selectorKind(pkg *check.Package, e *syntax.SelectorExpr) string {
@@ -459,6 +460,9 @@ func selectorKind(pkg *check.Package, e *syntax.SelectorExpr) string {
 			switch x := unparenX(e.X).(type) {
 			case *syntax.Ident:
 				if fmt.Sprintf("%T", pkg.Info.Uses[x]) == "*check.capBinding" {
+					if n, ok := xt.(*check.Named); ok && n.Obj != nil && n.Obj.Pkg != nil && n.Obj.Pkg.Path == "prelude" {
+						return "preludecap"
+					}
 					return "capability"
 				}
 			case *syntax.SelectorExpr:
