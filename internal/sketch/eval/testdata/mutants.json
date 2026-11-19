@@ -170,8 +170,8 @@
       "name": "budget-shared",
       "origin": "wf10 ORACLE O22 (was incomplete-continues, EV1)",
       "file": "internal/sketch/eval/interp.go",
-      "from": "func (in *interp) begin() { in.stepsAt, in.bytesAt = in.steps, in.bytes }",
-      "to": "func (in *interp) begin() {}",
+      "from": "func (in *interp) begin() { in.stepsAt, in.bytesAt, in.perCase = in.steps, in.bytes, 0 }",
+      "to": "func (in *interp) begin() { in.perCase = 0 }",
       "rule": "The step budget is per obligation: an incomplete obligation leaves the whole budget to the next one (docs/testing.md, Budgets; ORACLE O22 replaces the L7 plan's per-request budget).",
       "killers": [
         "internal/sketch/eval:TestRunStopsTheRun"
