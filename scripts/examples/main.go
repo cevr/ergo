@@ -84,6 +84,11 @@ type config struct {
 	names   []string
 	// cache is the verdict cache's directory (cache.go), or "" for none.
 	cache string
+	// rewrites is ergo build's -rewrites mode for each program's binary,
+	// or "" for the default (EVIDENCE-REPORT: the batch accept runs the
+	// examples with -rewrites=proved, whose cases are the default build's
+	// goldens, so the outputs of both builds agree).
+	rewrites string
 	// fullTier runs only the package folders the modules' full-tier
 	// files name (modules.go): the gate's full tier runs them, and every
 	// other run leaves them out.
@@ -313,6 +318,7 @@ func parseFlags(args []string, stderr io.Writer) (*config, error) {
 	flags.BoolVar(&cfg.check, "check", false, "with -record: compare the original's output with the goldens; write nothing")
 	flags.BoolVar(&cfg.lawless, "lawless", false, "report every operation type under examples/ with no law, run nothing, and exit 0")
 	flags.StringVar(&cfg.cache, "cache", os.Getenv(cacheVariable), "replay a program's recorded pass when every input it reads is unchanged, keyed and kept in `DIR` (default $"+cacheVariable+"; empty: no cache)")
+	flags.StringVar(&cfg.rewrites, "rewrites", "", "ergo build's -rewrites `MODE` (on, proved, off) for each program's binary; empty: the default build. The goldens are the default build's, so a pass under another mode is the two builds' agreement")
 	flags.BoolVar(&cfg.modules, "modules", false, "run only the modules of modules/: every one, or the MODULE names given")
 	flags.BoolVar(&cfg.fullTier, "full-tier", false, "run only the module package folders each module's full-tier file names (the gate's full tier); other runs leave them out")
 	flags.IntVar(&cfg.jobs, "jobs", defaultJobs(), "programs run at once; the default is GOMAXPROCS when the environment sets it (the gate's CPU budget), else half the usable CPUs")
@@ -1003,7 +1009,7 @@ func (r *runner) runProgram(p *program) {
 		return
 	}
 	binary := filepath.Join(dir, p.name)
-	if o, err := r.tool(0, "build", p.main, "-o", binary); err != nil || !o.Passed() {
+	if o, err := r.tool(0, r.buildArgs(p.main, "-o", binary)...); err != nil || !o.Passed() {
 		r.toolFailed(p, "build", o, err)
 		return
 	}
