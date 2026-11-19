@@ -1062,6 +1062,8 @@ func kindOf[E](n Node[E]) int {
 		16
 	case LayerNode[E]:
 		17
+	case TrackNode:
+		18
 	}
 }
 

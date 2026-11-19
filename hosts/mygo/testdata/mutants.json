@@ -428,8 +428,8 @@
       "name": "GPd-box-not-compared",
       "origin": "GP damage redraw",
       "file": "hosts/mygo/desktop/paint.ergo",
-      "from": "if was.box == b && was.dy == dy",
-      "to": "if was.dy == dy",
+      "from": "if was.box == b && was.dx == dx && was.dy == dy",
+      "to": "if was.dx == dx && was.dy == dy",
       "rule": "a node whose box moved is drawn anew",
       "killers": ["hosts/mygo:TestMyGoHostAgreesWithTestHost"]
     },
@@ -455,8 +455,8 @@
       "name": "GPd-insert-parent-not-soiled",
       "origin": "GP damage redraw",
       "file": "hosts/mygo/desktop/desktop.ergo",
-      "from": "\t\t\tplace(d, x.Id, x.Parent, x.Before)\n\t\t\td.soiled[x.Parent] = true\n\t\t\tscrollTo(d, x.Id, x.Node)\n\t\tcase ui.Move[E] as x:",
-      "to": "\t\t\tplace(d, x.Id, x.Parent, x.Before)\n\t\t\tscrollTo(d, x.Id, x.Node)\n\t\tcase ui.Move[E] as x:",
+      "from": "\t\t\tplace(d, x.Id, x.Parent, x.Before)\n\t\t\td.soiled[x.Parent] = true\n\t\t\tscrollTo(d, x.Id, x.Node)\n\t\t\trunTrack(d, x.Id, x.Node)\n\t\tcase ui.Move[E] as x:",
+      "to": "\t\t\tplace(d, x.Id, x.Parent, x.Before)\n\t\t\tscrollTo(d, x.Id, x.Node)\n\t\t\trunTrack(d, x.Id, x.Node)\n\t\tcase ui.Move[E] as x:",
       "rule": "a parent a node was inserted under is drawn anew, with the new node",
       "killers": ["hosts/mygo:TestMyGoHostAgreesWithTestHost"]
     },
@@ -518,7 +518,7 @@
     {"name":"UG3-desktop-pointer-stays","origin":"wf10 UG3","file":"hosts/mygo/desktop/desktop.ergo","from":"\tif ui.SessionHovered(&d.session) != None {\n\t\ttry step(","to":"\tif false {\n\t\ttry step(","rule":"a move over no node tells the frame the pointer is over none, so the node it left shows its rest look","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
     {"name":"UG3-desktop-areas-only","origin":"wf10 UG3","file":"hosts/mygo/desktop/desktop.ergo","from":"func pointed[E comparable, S, D, F](d *Driver[S, E, D, F], s spot[E], phase ui.Phase, x float32, y float32) fails actor.Stopped | ui.BadPatch needs go.Foreign {\n\ttry step(","to":"func pointed[E comparable, S, D, F](d *Driver[S, E, D, F], s spot[E], phase ui.Phase, x float32, y float32) fails actor.Stopped | ui.BadPatch needs go.Foreign {\n\tmatch s.node {\n\tcase ui.AreaNode:\n\tcase _:\n\t\treturn\n\t}\n\ttry step(","rule":"the window sends the pointer's moves over every node, not only Areas, so hover follows it (at base only Areas got them)","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
     {"name":"UG4-desktop-anchor-ignored","origin":"wf10 UG4","file":"hosts/mygo/desktop/layer.ergo","from":"\t\t\tlet p = ui.PlaceLayer(anchor, ","to":"\t\t\tlet p = ui.PlaceLayer(None, ","rule":"the window places a layer against its anchor's box (at base there were no layers)","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
-    {"name":"UG4-desktop-layers-in-flow","origin":"wf10 UG4","file":"hosts/mygo/desktop/paint.ergo","from":"\t\tmatch layerNode(d, k) {\n\t\tcase Some[ui.LayerNode[E]]:\n\t\tcase None:\n\t\t\tdraw(d, k, dy, clip, line, soiled, again)\n\t\t}","to":"\t\tdraw(d, k, dy, clip, line, soiled, again)","rule":"the window paints layers after the flow, so a layer's node is hit before the flow's under it","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
+    {"name":"UG4-desktop-layers-in-flow","origin":"wf10 UG4","file":"hosts/mygo/desktop/paint.ergo","from":"\t\tmatch layerNode(d, k) {\n\t\tcase Some[ui.LayerNode[E]]:\n\t\tcase None:\n\t\t\tdraw(d, k, dx, dy, clip, line, soiled, again)\n\t\t}","to":"\t\tdraw(d, k, dx, dy, clip, line, soiled, again)","rule":"the window paints layers after the flow, so a layer's node is hit before the flow's under it","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
     {"name":"UG4-desktop-scrim-not-a-spot","origin":"wf10 UG4","file":"hosts/mygo/desktop/layer.ergo","from":"\t\t\t\td.spots = d.spots.Append(spot[E]{id: d.root, node: x.Value, box: full, clip: full})\n","to":"","rule":"a press on a scrim is a press outside every layer, not on the node under it","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
     {"name":"UG4b-anchor-unscrolled","origin":"wf10 UG4b","file":"hosts/mygo/desktop/layer.ergo","from":"laid.Y - liftOf(d, d.root, a.Value)","to":"laid.Y","rule":"the window places a layer against its anchor where it shows, lifted by the Scrolls and lists it is in (at UG4's head it took the unscrolled box)","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
     {"name":"MB4-desktop-finger-no-reach","origin":"wf10 MB4","file":"hosts/mygo/desktop/touch.ergo","from":"\t\tlet target = reachAt(d, x, y)\n","to":"\t\tlet target = hitAt(d, x, y)\n","rule":"a finger hits the nearest control within the reach margin (hostagree's finger near pin)","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
@@ -533,6 +533,7 @@
     {"name":"MB5-rewrite-ignored","origin":"wf10 MB5","file":"hosts/mygo/screen/textclient.go","from":"\tif taken < d.sent || value == d.known {","to":"\tif true || taken < d.sent || value == d.known {","rule":"a value the program rewrote replaces the field's document","killers":["hosts/mygo/screen:TestRangeEditsAgree"]},
     {"name":"MB5-cancel-not-committed","origin":"wf10 MB5","file":"hosts/mygo/screen/textclient.go","from":"\t\tif d.committed() != d.known {\n\t\t\tc.w.commit()","to":"\t\tif false {\n\t\t\tc.w.commit()","rule":"a composition that ends empty commits the text it composed over going","killers":["hosts/mygo/screen:TestRangeEditsAgree"]},
     {"name":"MB5-desktop-keyboard-dropped","origin":"wf10 MB5","file":"hosts/mygo/desktop/paint.ergo","from":"d.w.Editing(x.Value, ui.KeyboardName(x.Hints.Keyboard), d.edited,","to":"d.w.Editing(x.Value, \"text\", d.edited,","rule":"the window is told the keyboard the focused field's hints ask for (hostagree's keyboard check on form's note)","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
-    {"name":"MB5-desktop-edit-dropped","origin":"wf10 MB5","file":"hosts/mygo/desktop/text.ergo","from":"\t\t\t\ttry step(d, ui.Type[E]{Id: s.Value.id, Text: text})\n","to":"","rule":"a committed input-method edit becomes the field's value (hostagree's compose)","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]}
+    {"name":"MB5-desktop-edit-dropped","origin":"wf10 MB5","file":"hosts/mygo/desktop/text.ergo","from":"\t\t\t\ttry step(d, ui.Type[E]{Id: s.Value.id, Text: text})\n","to":"","rule":"a committed input-method edit becomes the field's value (hostagree's compose)","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
+    {"name":"tracks-desktop-x-unmoved","origin":"wf10 TRACKS","file":"hosts/mygo/desktop/paint.ergo","from":"\t\t\tdrawKids(d, id, dx-v, dy, clip, line, soiled, again)\n","to":"\t\t\tdrawKids(d, id, dx, dy, clip, line, soiled, again)\n","rule":"the window paints an x track's body moved by the track's value, where TestHost's track puts it (hostagree looks app, trackedWrong)","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]}
   ]
 }

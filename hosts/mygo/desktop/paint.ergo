@@ -122,6 +122,8 @@ func styleOf[E](n ui.Node[E], line float32) layout.Style {
 		boxStyle(x.Style, layout.Column)
 	case ui.LayerNode[E] as x:
 		boxStyle(x.Style, layout.Column)
+	case ui.TrackNode as x:
+		boxStyle(x.Style, layout.Column)
 	case ui.FieldsetNode:
 		// A Fieldset shows nothing of its own: it stacks its children.
 		plainStyle()
@@ -243,6 +245,7 @@ func describeRoom(x ui.InputNode, line float32) float32 {
 // paint lays the window's tree out at the window's size and gives the
 // window its paint list.
 func paint[S, E, D, F](d *Driver[S, E, D, F]) needs go.Foreign {
+	d.trackAt = d.w.Now()
 	if d.rebuild {
 		learn(&d.metrics, d.w, "", textSize)
 		for _, h in d.nodes {
@@ -312,18 +315,33 @@ func drawAll[S, E, D, F](d *Driver[S, E, D, F], line float32, soiled Map[ui.Id[E
 	d.under = Some{Value: paper}
 	d.shadowed = false
 	let full = layout.Box{X: 0, Y: 0, W: d.width, H: d.height}
-	drawKids(d, d.root, 0, full, line, soiled, again)
+	drawKids(d, d.root, 0, 0, full, line, soiled, again)
 	paintLayers(d, line, soiled, again)
 }
 
 // spread is the nodes whose draw changed since the last paint and all
 // their ancestors: each node a pass set, a parent whose children changed,
 // a Scroll that moved, and the nodes that took and lost the focus.
-func spread[S, E, D, F](d *Driver[S, E, D, F]) Map[ui.Id[E], bool] {
+func spread[S, E, D, F](d *Driver[S, E, D, F]) Map[ui.Id[E], bool] needs go.Foreign {
 	let mut out = Map[ui.Id[E], bool]{}
 	let mut seeds = []ui.Id[E]{}
 	for id, _ in d.soiled {
 		seeds = seeds.Append(id)
+	}
+	// A track whose value moved since its last draw moves or fades its
+	// body with no op (TRACKS).
+	for id, _ in d.tracks {
+		match d.nodes.Get(id) {
+		case Some[held[E]] as h:
+			match h.Value.node {
+			case ui.TrackNode as x:
+				if d.trackShown.Get(id) != (Some{Value: trackedNow(d, id, x.Target)}) {
+					seeds = seeds.Append(id)
+				}
+			case _:
+			}
+		case None:
+		}
 	}
 	// The focus, the hover and the pressed node, now and at the last paint:
 	// their looks (and their ancestors', LookStateIn) change with no op (UG3).
@@ -366,10 +384,10 @@ func sameSpots[E](a []spot[E], b []spot[E]) bool {
 	true
 }
 
-// drawn is what a node's last draw was given (its box, the offset its
-// Scrolls lifted it by, its clip and the line height) and the spots and
+// drawn is what a node's last draw was given (its box, the offsets its
+// tracks moved and its Scrolls lifted it by, its clip and the line height) and the spots and
 // canvases it added, as ranges of the paint's lists.
-type drawn { box layout.Box, dy float32, clip layout.Box, line float32, opacity float64, under Option[uint32], shadow bool, s0 int, s1 int, c0 int, c1 int, m0 int, m1 int }
+type drawn { box layout.Box, dx float32, dy float32, clip layout.Box, line float32, opacity float64, under Option[uint32], shadow bool, s0 int, s1 int, c0 int, c1 int, m0 int, m1 int }
 
 // keyOf is id's key in the window's list (Mark, Again).
 func keyOf[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) int {
@@ -509,20 +527,20 @@ func build[S, E, D, F](d *Driver[S, E, D, F], t *layout.Tree, id ui.Id[E], into 
 // last draw takes that draw again from the window's last list, with the
 // spots it added then: its subtree lays out as it did, so it paints as it
 // did. Any other node is drawn anew and counted (Drawn).
-func draw[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], dy float32, clip layout.Box, line float32, soiled Map[ui.Id[E], bool], again bool) needs go.Foreign {
+func draw[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], dx float32, dy float32, clip layout.Box, line float32, soiled Map[ui.Id[E], bool], again bool) needs go.Foreign {
 	let laid = match d.lids.Get(id) {
 	case Some[layout.Id] as l:
 		boxOf(&d.tree, l.Value)
 	case None:
 		return
 	}
-	let b = layout.Box{X: laid.X, Y: laid.Y - dy, W: laid.W, H: laid.H}
+	let b = layout.Box{X: laid.X - dx, Y: laid.Y - dy, W: laid.W, H: laid.H}
 	let key = keyOf(d, id)
 	if again && soiled.Get(id) == None {
 		match d.drew.Get(id) {
 		case Some[drawn] as p:
 			let was = p.Value
-			if was.box == b && was.dy == dy && was.clip == clip && was.line == line && was.opacity == d.w.Opacity() && was.under == d.under && d.w.Again(key) {
+			if was.box == b && was.dx == dx && was.dy == dy && was.clip == clip && was.line == line && was.opacity == d.w.Opacity() && was.under == d.under && d.w.Again(key) {
 				if was.shadow {
 					d.shadowed = true
 				}
@@ -555,18 +573,18 @@ func draw[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], dy float32, clip layou
 	let shadowed = d.shadowed
 	d.shadowed = false
 	d.w.Mark(key)
-	drawNode(d, id, laid, b, dy, clip, line, soiled, again)
+	drawNode(d, id, laid, b, dx, dy, clip, line, soiled, again)
 	d.w.Seal(key)
 	let shadow = d.shadowed
 	d.shadowed = shadowed || shadow
 	d.drawn = d.drawn + 1
 	if again {
-		d.drew[id] = drawn{box: b, dy: dy, clip: clip, line: line, opacity: opacity, under: under, shadow: shadow, s0: s0, s1: len(d.spots), c0: c0, c1: len(d.canvases), m0: m0, m1: len(d.semantics)}
+		d.drew[id] = drawn{box: b, dx: dx, dy: dy, clip: clip, line: line, opacity: opacity, under: under, shadow: shadow, s0: s0, s1: len(d.spots), c0: c0, c1: len(d.canvases), m0: m0, m1: len(d.semantics)}
 	}
 }
 
 // drawNode paints id itself at b and draws its children.
-func drawNode[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], laid layout.Box, b layout.Box, dy float32, clip layout.Box, line float32, soiled Map[ui.Id[E], bool], again bool) needs go.Foreign {
+func drawNode[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], laid layout.Box, b layout.Box, dx float32, dy float32, clip layout.Box, line float32, soiled Map[ui.Id[E], bool], again bool) needs go.Foreign {
 	let n = match d.nodes.Get(id) {
 	case Some[held[E]] as h:
 		h.Value.node
@@ -579,7 +597,7 @@ func drawNode[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], laid layout.Box, b
 	let look = paintLook(d, id, n, b, clip, line, focus)
 	match n {
 	case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode, ui.TransitionNode, ui.LayerNode:
-		drawKids(d, id, dy, clip, line, soiled, again)
+		drawKids(d, id, dx, dy, clip, line, soiled, again)
 	case ui.SemanticNode[E]:
 		// A Semantic a press sends from (a radio, an option, a link) takes
 		// the pointer and the focus, and shows the focus ring (UC-TAB).
@@ -590,7 +608,25 @@ func drawNode[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], laid layout.Box, b
 			}
 		}
 		semantic(d, id, n, b, focus)
-		drawKids(d, id, dy, clip, line, soiled, again)
+		drawKids(d, id, dx, dy, clip, line, soiled, again)
+	case ui.TrackNode as x:
+		// The host runs the track (TRACKS): its body moves by the value the
+		// track has now, or fades by it. spread draws a track anew when its
+		// value moved since its last draw (trackShown).
+		let tv = trackedNow(d, id, x.Target)
+		d.trackShown[id] = tv
+		let v = float32(tv)
+		match x.Prop {
+		case ui.TrackX:
+			drawKids(d, id, dx-v, dy, clip, line, soiled, again)
+		case ui.TrackY:
+			drawKids(d, id, dx, dy-v, clip, line, soiled, again)
+		case ui.TrackOpacity:
+			let o = d.w.Opacity()
+			d.w.SetOpacity(o * float64(v))
+			drawKids(d, id, dx, dy, clip, line, soiled, again)
+			d.w.SetOpacity(o)
+		}
 	case ui.ScrollNode:
 		d.spots = d.spots.Append(s)
 		let mut reach = float32(0)
@@ -605,7 +641,7 @@ func drawNode[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], laid layout.Box, b
 		d.extents[id] = reach
 		let inner = cut(clip, b)
 		d.w.Clip(float64(inner.X), float64(inner.Y), float64(inner.W), float64(inner.H))
-		drawKids(d, id, dy+scrolledBy(d, id), inner, line, soiled, again)
+		drawKids(d, id, dx, dy+scrolledBy(d, id), inner, line, soiled, again)
 		d.w.Unclip()
 	case ui.RowsNode as x:
 		// A list scrolls its rows as a Scroll does, over Count rows of
@@ -620,7 +656,7 @@ func drawNode[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], laid layout.Box, b
 		access(d, id, screen.RoleGroup, x.Label, "", b, false, false)
 		let inner = cut(clip, b)
 		d.w.Clip(float64(inner.X), float64(inner.Y), float64(inner.W), float64(inner.H))
-		drawKids(d, id, dy+scrolledBy(d, id), inner, line, soiled, again)
+		drawKids(d, id, dx, dy+scrolledBy(d, id), inner, line, soiled, again)
 		d.w.Unclip()
 	case ui.CanvasNode as x:
 		d.canvases = d.canvases.Append(s)
@@ -628,7 +664,7 @@ func drawNode[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], laid layout.Box, b
 	case ui.AreaNode as x:
 		d.spots = d.spots.Append(s)
 		access(d, id, screen.RoleGroup, x.Label, "", b, false, false)
-		drawKids(d, id, dy, clip, line, soiled, again)
+		drawKids(d, id, dx, dy, clip, line, soiled, again)
 	case ui.TextNode as x:
 		access(d, id, screen.RoleText, x.Value, "", b, false, false)
 		let st = styleOf(n, line)
@@ -639,7 +675,7 @@ func drawNode[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], laid layout.Box, b
 			ring(d, b, float32(float64(lookOf(d, id, n).Corners.TopLeft)))
 		}
 		access(d, id, screen.RoleButton, x.Label, "", b, false, focus)
-		drawKids(d, id, dy, clip, line, soiled, again)
+		drawKids(d, id, dx, dy, clip, line, soiled, again)
 	case ui.CheckNode[E] as x:
 		d.spots = d.spots.Append(s)
 		let at = layout.Box{X: b.X, Y: b.Y + (b.H-mark)/2, W: mark, H: mark}
@@ -702,12 +738,12 @@ func drawNode[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], laid layout.Box, b
 
 // drawKids paints id's children in order, but its layers, which
 // paintLayers paints over the flow (UG4).
-func drawKids[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], dy float32, clip layout.Box, line float32, soiled Map[ui.Id[E], bool], again bool) needs go.Foreign {
+func drawKids[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], dx float32, dy float32, clip layout.Box, line float32, soiled Map[ui.Id[E], bool], again bool) needs go.Foreign {
 	for k in kidsOf(d, id) {
 		match layerNode(d, k) {
 		case Some[ui.LayerNode[E]]:
 		case None:
-			draw(d, k, dy, clip, line, soiled, again)
+			draw(d, k, dx, dy, clip, line, soiled, again)
 		}
 	}
 }

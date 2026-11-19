@@ -1315,6 +1315,11 @@ func (w *Window) now() int64 {
 	return time.Since(w.start).Nanoseconds()
 }
 
+// Now is the window's time, in nanoseconds since it opened: the clock
+// its frames' At reads (a host runs its tracks on it, TRACKS), the manual
+// one once SetClock set it.
+func (w *Window) Now() int64 { return w.now() }
+
 // Hover moves the pointer to x, y.
 func (w *Window) Hover(x, y float64) {
 	w.send(platform.SurfaceEvent{Kind: platform.PointerMove, X: x, Y: y})

@@ -34,7 +34,13 @@ type TestHost[S, E, D, F] {
 	// ReplaceOn): before it, the history's one entry is the host's "/",
 	// which the first navigation replaces (FK9b).
 	opened bool,
+	// tracks is each TrackNode's motion, which the host runs on its
+	// clock with no pass (TRACKS).
+	tracks Map[Id[E], hostTrack],
 }
+
+// hostTrack is a TrackNode's key and its motion since its last target.
+type hostTrack { key Key, state TrackState }
 
 // NoNode is the failure of a script step whose label names no node on the
 // screen.
@@ -64,7 +70,16 @@ func hostOf[E comparable, S, D, F](s own Session[S, E, D, F], first []Op[E], pos
 	let mut session = s
 	let mut m = NewMirror[E](Root(&session.frame))
 	try Apply(&m, first)
-	TestHost[S, E, D, F]{clock: clock, start: clock.Now(), period: 16ms, owed: duration(int64(0)), frames: 0, posted: posted, mirror: m, session: session, history: NewMemoryHistory(URL{Path: "/", Query: "", Fragment: ""}), captured: None, said: []string{}, step: NoCounts(), opened: false}
+	let mut h = TestHost[S, E, D, F]{clock: clock, start: clock.Now(), period: 16ms, owed: duration(int64(0)), frames: 0, posted: posted, mirror: m, session: session, history: NewMemoryHistory(URL{Path: "/", Query: "", Fragment: ""}), captured: None, said: []string{}, step: NoCounts(), opened: false, tracks: Map[Id[E], hostTrack]{}}
+	// The first patch's tracks rest on their targets.
+	for op in first {
+		match op {
+		case Insert[E] as x:
+			track(&h, x.Id, x.Node)
+		case _:
+		}
+	}
+	h
 }
 
 // apply steps one event and shows its patch. An input starts a step:
@@ -90,11 +105,57 @@ func show[S, E, D, F](h *TestHost[S, E, D, F], ops []Op[E]) fails BadPatch {
 		match op {
 		case Insert[E] as x:
 			say(h, x.Node)
+			track(h, x.Id, x.Node)
 		case Set[E] as x:
 			say(h, x.Node)
+			track(h, x.Id, x.Node)
+		case Remove[E] as x:
+			h.tracks = h.tracks.Delete(x.Id)
 		case _:
 		}
 	}
+}
+
+// track runs a TrackNode the patch wrote: a new one rests on its target,
+// and a new target retargets the motion at the clock's time.
+func track[S, E, D, F](h *TestHost[S, E, D, F], id Id[E], n Node[E]) {
+	match n {
+	case TrackNode as x:
+		let now = h.clock.Now().Sub(h.start)
+		match h.tracks.Get(id) {
+		case Some[hostTrack] as t:
+			if t.Value.state.To != x.Target {
+				h.tracks[id] = hostTrack{key: x.Key, state: TrackRetarget(t.Value.state, x.Target, now)}
+			}
+		case None:
+			h.tracks[id] = hostTrack{key: x.Key, state: TrackStill(x.Target, x.Curve)}
+		}
+	case _:
+	}
+}
+
+// tracksMoving is whether a track is not yet at rest.
+func tracksMoving[S, E, D, F](h *TestHost[S, E, D, F]) bool {
+	let now = h.clock.Now().Sub(h.start)
+	for _, t in h.tracks {
+		if !TrackDone(t.state, now) {
+			return true
+		}
+	}
+	false
+}
+
+// TrackedValue is the value the track keyed key shows now, as the host
+// paints it (None: no such track).
+func TrackedValue[S, E, D, F](h *TestHost[S, E, D, F], key Key) Option[float64] {
+	let now = h.clock.Now().Sub(h.start)
+	for _, t in h.tracks {
+		if t.key == key {
+			let (v, _) = TrackAt(t.state, now)
+			return Some{Value: v}
+		}
+	}
+	None
 }
 
 // say logs the text of a live region the patch wrote, unless it is empty.
@@ -258,7 +319,9 @@ func Redraw[E comparable, S, D, F](h *TestHost[S, E, D, F]) fails BadPatch {
 // takes it.
 func Advance[E comparable, S, D, F](h *TestHost[S, E, D, F], d duration) fails actor.Stopped | BadPatch {
 	let mut left = d
-	for Animating(&h.session.frame) && left >= h.period-h.owed {
+	// A moving track asks for frames too, as on a window: each is a Tick,
+	// which runs no pass unless the view animates (TrackCostsNoPass).
+	for (Animating(&h.session.frame) || tracksMoving(h)) && left >= h.period-h.owed {
 		let due = h.period - h.owed
 		h.clock.Advance(due)
 		left = left - due
@@ -268,7 +331,7 @@ func Advance[E comparable, S, D, F](h *TestHost[S, E, D, F], d duration) fails a
 		try Pump(h)
 	}
 	h.clock.Advance(left)
-	if Animating(&h.session.frame) {
+	if Animating(&h.session.frame) || tracksMoving(h) {
 		h.owed = h.owed + left
 	} else {
 		h.owed = duration(int64(0))
@@ -284,8 +347,9 @@ func FrameEvery[S, E, D, F](h *TestHost[S, E, D, F], period duration) {
 }
 
 // WantsFrames is whether the view asks for frames: whether its last pass
-// made an Animate (what Run tells a window through Host.Frames).
-func WantsFrames[S, E, D, F](h *TestHost[S, E, D, F]) bool { Animating(&h.session.frame) }
+// made an Animate (what Run tells a window through Host.Frames), or a
+// track the host runs is still moving (TRACKS).
+func WantsFrames[S, E, D, F](h *TestHost[S, E, D, F]) bool { Animating(&h.session.frame) || tracksMoving(h) }
 
 // Frames is the number of Ticks the host has sent.
 func Frames[S, E, D, F](h *TestHost[S, E, D, F]) int { h.frames }
@@ -835,6 +899,8 @@ func nodeText[E](n Node[E]) string {
 		"live \"\(x.Text)\""
 	case TransitionNode as x:
 		"transition \(keyText(x.Key)) \(motionText(x.Motion)) \(x.T)"
+	case TrackNode as x:
+		"track \(keyText(x.Key)) \(x.Target)"
 	case SemanticNode[E] as x:
 		"\(roleText(x.Access.Role)) \"\(x.Access.Name)\""
 	case LayerNode[E] as x:
