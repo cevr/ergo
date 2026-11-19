@@ -23,15 +23,17 @@ import strings
 
 // Fn is one function declaration of the package with its signature: its
 // file, its declaration and name nodes, its bracket parameters and their
-// row bits, its parameters' name nodes (none for an unnamed one), its
-// signature in the pool and its body. A law or a test is one too, with
-// the signature its parameters and result make (a law's result is bool).
+// row bits and own marks ([T own]: types.md, Generics 9), its
+// parameters' name nodes (none for an unnamed one), its signature in the
+// pool and its body. A law or a test is one too, with the signature its
+// parameters and result make (a law's result is bool).
 type Fn {
 	File   int,
 	Decl   dense.ID[syntax.Node],
 	Name   dense.ID[syntax.Node],
 	Params []string,
 	Rows   []bool,
+	Own    []bool,
 	Names  []dense.Opt[syntax.Node],
 	Sig    dense.ID[store.TKey],
 	Body   dense.Opt[syntax.Node],
@@ -102,6 +104,27 @@ func listNames(p syntax.Parsed, l dense.ID[syntax.Node]) []dense.Opt[syntax.Node
 	out
 }
 
+// BracketOwn is whether each name of the bracket list l is marked own,
+// in order: the mark is its field's, so [A, B own] marks both (decl.go
+// typeParams).
+func BracketOwn(p syntax.Parsed, l dense.ID[syntax.Node]) []bool {
+	let mut out = []bool{}
+	match syntax.ViewOf(p.Tree, l) {
+	case syntax.FieldList as fl:
+		for i in 0..syntax.Len(fl.List) {
+			match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, fl.List, i)) {
+			case syntax.Field as fd:
+				for _ in 0..syntax.Len(fd.Names) {
+					out = out.Append(fd.Own >= 0)
+				}
+			case _:
+			}
+		}
+	case _:
+	}
+	out
+}
+
 // hasSig is whether t holds a signature.
 func hasSig(s store.Store, t dense.ID[store.TKey]) bool {
 	if store.KindOfType(s, t) == store.KSig {
@@ -117,7 +140,7 @@ func hasSig(s store.Store, t dense.ID[store.TKey]) bool {
 
 // declared is a law's or a test's Fn: its parameters' types from the
 // field list params (none when absent) and its result.
-func declared(s *store.Store, env types.Env, p syntax.Parsed, file int, decl dense.ID[syntax.Node], name dense.ID[syntax.Node], params dense.Opt[syntax.Node], result dense.ID[store.TKey], b dense.Opt[syntax.Node]) Fn {
+func declared(s mut store.Store, env types.Env, p syntax.Parsed, file int, decl dense.ID[syntax.Node], name dense.ID[syntax.Node], params dense.Opt[syntax.Node], result dense.ID[store.TKey], b dense.Opt[syntax.Node]) Fn {
 	let mut ts = []dense.ID[store.TKey]{}
 	let mut names = []dense.Opt[syntax.Node]{}
 	match dense.Unpack(params) {
@@ -133,12 +156,12 @@ func declared(s *store.Store, env types.Env, p syntax.Parsed, file int, decl den
 	case None:
 	}
 	let none = store.TRow(s, []dense.ID[store.TKey]{})
-	Fn{File: file, Decl: decl, Name: name, Params: []string{}, Rows: []bool{}, Names: names, Sig: store.TSig(s, ts, result, none, none), Body: b}
+	Fn{File: file, Decl: decl, Name: name, Params: []string{}, Rows: []bool{}, Own: []bool{}, Names: names, Sig: store.TSig(s, ts, result, none, none), Body: b}
 }
 
 // opTypes is recs with p's operation types that have no bracket
 // parameters: each operation a field of its signature's type.
-func opTypes(s *store.Store, p syntax.Parsed, parsed []syntax.Parsed, kinds types.Kinds, ext []types.Ext, foreign []types.Foreign, deps []types.Iface, recs []Rec) []Rec {
+func opTypes(s mut store.Store, p syntax.Parsed, parsed []syntax.Parsed, kinds types.Kinds, ext []types.Ext, foreign []types.Foreign, deps []types.Iface, recs []Rec) []Rec {
 	let mut out = recs
 	let env = types.NewEnv(*s, parsed, p, []string{}, kinds, ext, foreign, deps)
 	match syntax.ViewOf(p.Tree, syntax.Root(p.Tree)) {
@@ -185,7 +208,7 @@ func opTypes(s *store.Store, p syntax.Parsed, parsed []syntax.Parsed, kinds type
 }
 
 // fieldsOf is the written fields of the field list l, resolved in env.
-func fieldsOf(s *store.Store, env types.Env, p syntax.Parsed, l dense.ID[syntax.Node]) []Field {
+func fieldsOf(s mut store.Store, env types.Env, p syntax.Parsed, l dense.ID[syntax.Node]) []Field {
 	let mut out = []Field{}
 	match syntax.ViewOf(p.Tree, l) {
 	case syntax.FieldList as fl:
@@ -240,7 +263,7 @@ func writesWired(p syntax.Parsed, x dense.ID[syntax.Node]) bool {
 // deps (its Ergo imports' interfaces, in s's import list's order; an
 // import the program does not hold is types.EmptyIface), prelude telling
 // whether the package is the prelude.
-func Load(s *store.Store, files []bind.File, u bind.Uses, ps bind.Parents, ext0 []types.Ext, foreign0 []types.Foreign, deps []types.Iface, prelude bool) Pkg {
+func Load(s mut store.Store, files []bind.File, u bind.Uses, ps bind.Parents, ext0 []types.Ext, foreign0 []types.Foreign, deps []types.Iface, prelude bool) Pkg {
 	let mut parsed = []syntax.Parsed{}
 	for f in files {
 		parsed = parsed.Append(f.Parsed)
@@ -265,7 +288,13 @@ func Load(s *store.Store, files []bind.File, u bind.Uses, ps bind.Parents, ext0 
 			for k in f.Kinds {
 				rows = rows.Append(k != 1)
 			}
-			fns = fns.Append(Fn{File: f.File, Decl: f.Decl, Name: fd.Name, Params: f.Params, Rows: rows, Names: paramNames(p, fd.Type), Sig: sig, Body: fd.Body})
+			let own = match dense.Unpack(fd.TypeParams) {
+			case Some[dense.ID[syntax.Node]] as tp:
+				BracketOwn(p, tp.Value)
+			case None:
+				[]bool{}
+			}
+			fns = fns.Append(Fn{File: f.File, Decl: f.Decl, Name: fd.Name, Params: f.Params, Rows: rows, Own: own, Names: paramNames(p, fd.Type), Sig: sig, Body: fd.Body})
 		case _:
 		}
 	}

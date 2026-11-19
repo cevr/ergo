@@ -11,24 +11,24 @@ import strings
 
 type dumper { b strings.Builder, p syntax.Parsed }
 
-func line(d *dumper, depth int, text string) {
+func line(d mut dumper, depth int, text string) {
 	d.b.WriteString(strconv.Itoa(depth) + " " + text + "\n")
 }
 
 func itoa(n int) string { strconv.Itoa(n) }
 
 // tp is the offset of a token index, -1 for none.
-func tp(d *dumper, j int) int { if j < 0 { -1 } else { syntax.TokPos(d.p, j) } }
+func tp(d mut dumper, j int) int { if j < 0 { -1 } else { syntax.TokPos(d.p, j) } }
 
 // zp is the offset of a token index, 0 for none: a position the Go
 // parser leaves unset.
-func zp(d *dumper, j int) int { if j < 0 { 0 } else { syntax.TokPos(d.p, j) } }
+func zp(d mut dumper, j int) int { if j < 0 { 0 } else { syntax.TokPos(d.p, j) } }
 
-func at(d *dumper, id dense.ID[syntax.Node]) string { itoa(syntax.NodePos(d.p, id)) + " " + itoa(syntax.NodeEnd(d.p, id)) }
+func at(d mut dumper, id dense.ID[syntax.Node]) string { itoa(syntax.NodePos(d.p, id)) + " " + itoa(syntax.NodeEnd(d.p, id)) }
 
 func b01(b bool) string { if b { "1" } else { "0" } }
 
-func opt(d *dumper, depth int, o dense.Opt[syntax.Node]) {
+func opt(d mut dumper, depth int, o dense.Opt[syntax.Node]) {
 	match dense.Unpack(o) {
 	case Some[dense.ID[syntax.Node]] as s:
 		node(d, depth, s.Value)
@@ -37,7 +37,7 @@ func opt(d *dumper, depth int, o dense.Opt[syntax.Node]) {
 	}
 }
 
-func optPos(d *dumper, o dense.Opt[syntax.Node]) int {
+func optPos(d mut dumper, o dense.Opt[syntax.Node]) int {
 	match dense.Unpack(o) {
 	case Some[dense.ID[syntax.Node]] as s:
 		syntax.NodePos(d.p, s.Value)
@@ -55,7 +55,7 @@ func isSome(o dense.Opt[syntax.Node]) bool {
 	}
 }
 
-func list(d *dumper, depth int, l syntax.List) {
+func list(d mut dumper, depth int, l syntax.List) {
 	line(d, depth, "list "+itoa(syntax.Len(l)))
 	for i in 0..syntax.Len(l) {
 		node(d, depth+1, syntax.Item(d.p.Tree, l, i))
@@ -64,7 +64,7 @@ func list(d *dumper, depth int, l syntax.List) {
 
 // some lists the items of l of kind k (or, with not, of any other kind),
 // or with dots the Fields that are includes.
-func listWhere(d *dumper, depth int, l syntax.List, pick int) {
+func listWhere(d mut dumper, depth int, l syntax.List, pick int) {
 	let mut n = 0
 	for i in 0..syntax.Len(l) {
 		if picked(d, syntax.Item(d.p.Tree, l, i), pick) {
@@ -82,7 +82,7 @@ func listWhere(d *dumper, depth int, l syntax.List, pick int) {
 
 // picked: 0 includes, 1 operations, 2 laws, 3 machine entries, 4 machine
 // laws, 5 even items, 6 odd items (by position, see listParts).
-func picked(d *dumper, id dense.ID[syntax.Node], pick int) bool {
+func picked(d mut dumper, id dense.ID[syntax.Node], pick int) bool {
 	let k = syntax.KindOf(d.p.Tree, id)
 	if pick == 0 || pick == 1 {
 		if k != syntax.KField {
@@ -101,7 +101,7 @@ func picked(d *dumper, id dense.ID[syntax.Node], pick int) bool {
 	k == syntax.KMachineEntry
 }
 
-func listParts(d *dumper, depth int, l syntax.List, odd int) {
+func listParts(d mut dumper, depth int, l syntax.List, odd int) {
 	let n = (syntax.Len(l) + 1 - odd) / 2
 	line(d, depth, "list "+itoa(n))
 	let mut i = odd
@@ -111,7 +111,7 @@ func listParts(d *dumper, depth int, l syntax.List, odd int) {
 	}
 }
 
-func node(d *dumper, depth int, id dense.ID[syntax.Node]) {
+func node(d mut dumper, depth int, id dense.ID[syntax.Node]) {
 	let a = at(d, id)
 	let c = depth + 1
 	match syntax.ViewOf(d.p.Tree, id) {
@@ -188,7 +188,7 @@ func node(d *dumper, depth int, id dense.ID[syntax.Node]) {
 		list(d, c, x.Keys)
 		opt(d, c, x.Value)
 	case syntax.Field as x:
-		line(d, depth, "Field "+a+" doc="+itoa(x.Doc)+" Any="+itoa(optPos(d, x.Any))+" Lent="+itoa(optPos(d, x.Lent))+" Include="+b01(x.Dots >= 0)+" Dots="+itoa(tp(d, x.Dots))+" WherePos="+itoa(zp(d, x.WherePos))+" Pure="+b01(x.PurePos >= 0)+" PurePos="+itoa(tp(d, x.PurePos))+" Own="+itoa(tp(d, x.Own)))
+		line(d, depth, "Field "+a+" doc="+itoa(x.Doc)+" Any="+itoa(optPos(d, x.Any))+" Lent="+itoa(optPos(d, x.Lent))+" Include="+b01(x.Dots >= 0)+" Dots="+itoa(tp(d, x.Dots))+" WherePos="+itoa(zp(d, x.WherePos))+" Pure="+b01(x.PurePos >= 0)+" PurePos="+itoa(tp(d, x.PurePos))+" Own="+itoa(tp(d, x.Own))+" Mut="+itoa(tp(d, x.Mut)))
 		list(d, c, x.Names)
 		opt(d, c, x.Type)
 		opt(d, c, x.Key)
@@ -261,7 +261,7 @@ func node(d *dumper, depth int, id dense.ID[syntax.Node]) {
 		list(d, c, x.Args)
 		opt(d, c, x.Trailing)
 	case syntax.StarExpr as x:
-		line(d, depth, "StarExpr "+a+" Star="+itoa(tp(d, x.Star)))
+		line(d, depth, "StarExpr "+a+" Star="+itoa(tp(d, x.Star))+" Mut="+b01(syntax.TokKind(d.p, x.Star) == syntax.Mut))
 		node(d, c, x.X)
 	case syntax.UnaryExpr as x:
 		line(d, depth, "UnaryExpr "+a+" OpPos="+itoa(tp(d, x.Op))+" Op="+itoa(int(syntax.TokKind(d.p, x.Op))))
@@ -403,7 +403,7 @@ func node(d *dumper, depth int, id dense.ID[syntax.Node]) {
 }
 
 // guard is the TypeGuard the Go tree wraps each match subject in.
-func guard(d *dumper, depth int, id dense.ID[syntax.Node]) {
+func guard(d mut dumper, depth int, id dense.ID[syntax.Node]) {
 	line(d, depth, "TypeGuard "+at(d, id))
 	node(d, depth+1, id)
 }

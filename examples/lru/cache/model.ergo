@@ -32,7 +32,7 @@ func Ops(seed int, count int) []Op {
 }
 
 // Apply runs op on c.
-func Apply(c *Cache[int, int], op Op) Outcome {
+func Apply(c mut Cache[int, int], op Op) Outcome {
 	match op {
 	case PutOp as p:
 		Stored{Evicted: c.Put(p.Key, p.Value)}

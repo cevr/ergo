@@ -17,7 +17,7 @@ import os
 import strings
 
 // listing is the dump of one file: "F path" and dump.Scan of its text.
-func listing(b *strings.Builder, path string, src string) {
+func listing(b mut strings.Builder, path string, src string) {
 	b.WriteString("F " + path + "\n" + dump.Scan(src))
 }
 

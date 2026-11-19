@@ -1,0 +1,14 @@
+// The parameter modes of MODES-4 and MODES-5: an operation that writes its
+// receiver, and type parameters a resource may bind.
+
+type Counter {
+	mut Bump() int,
+	Peek() int,
+	own Close(),
+}
+
+type Stack[T own] { items []T }
+
+func keep[T own Counter](x own T) T { x }
+
+func pair[A any, B own](a A, b own B) B { b }

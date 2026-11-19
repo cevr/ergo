@@ -59,7 +59,7 @@ func Depth(f Frame) int { f.top }
 // Begin pushes a frame of one free slot per type parameter, rows[i]
 // telling whether parameter i is a row parameter; the callee's parameter i
 // is the pool's Param(base+i).
-func Begin(f *Frame, rows []bool, base int) Call {
+func Begin(f mut Frame, rows []bool, base int) Call {
 	let at = f.top
 	for r in rows {
 		let slot = Slot{bound: dense.NoID[store.TKey](), row: r, joined: false}
@@ -74,7 +74,7 @@ func Begin(f *Frame, rows []bool, base int) Call {
 }
 
 // End cuts f to c's mark: c's frame and every frame begun after it go.
-func End(f *Frame, c Call) {
+func End(f mut Frame, c Call) {
 	if c.at > f.top {
 		Unreachable("infer: a frame ended twice")
 	}
@@ -86,7 +86,7 @@ func Binding(f Frame, c Call, i int) Option[dense.ID[store.TKey]] { dense.Unpack
 
 // Bind binds parameter i of c to t (a written type argument, or the
 // unifier's binding).
-func Bind(f *Frame, c Call, i int, t dense.ID[store.TKey]) { f.slots[c.at+i].bound = dense.OptOf(t) }
+func Bind(f mut Frame, c Call, i int, t dense.ID[store.TKey]) { f.slots[c.at+i].bound = dense.OptOf(t) }
 
 // slotOf is the position in c of the type parameter t, -1 when t is no
 // parameter of c's callee.
@@ -102,4 +102,4 @@ func slotOf(s store.Store, c Call, t dense.ID[store.TKey]) int {
 func free(f Frame, c Call, i int) bool { f.slots[c.at+i].bound == dense.NoID[store.TKey]() }
 
 // Param is the pool's parameter for c's parameter i.
-func Param(s *store.Store, c Call, i int) dense.ID[store.TKey] { store.TParam(s, c.base+i) }
+func Param(s mut store.Store, c Call, i int) dense.ID[store.TKey] { store.TParam(s, c.base+i) }

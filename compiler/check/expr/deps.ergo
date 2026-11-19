@@ -50,7 +50,7 @@ func foreignAt(k Pkg, path string, name string) int {
 // for the prelude, k's foreign type of the name (the prelude's types are
 // the foreign table's, as the Go side writes them). None when k can name
 // no such type.
-func imported(s *store.Store, k Pkg, path string, name string, args []dense.ID[store.TKey]) Option[dense.ID[store.TKey]] {
+func imported(s mut store.Store, k Pkg, path string, name string, args []dense.ID[store.TKey]) Option[dense.ID[store.TKey]] {
 	match types.ImportRef(*s, k.Ifaces, path, name) {
 	case Some[store.XRef] as ref:
 		return some(store.TInstance(s, ref.Value, args))
@@ -85,7 +85,7 @@ func refName(d Dep, o store.XRef) Option[(string, string)] {
 // is none when k cannot name such a type, or dt holds a form a signature
 // of k's own cannot (a wired or row value): the member is then left
 // untyped.
-func port(s *store.Store, k Pkg, d Dep, dt dense.ID[store.TKey]) Option[dense.ID[store.TKey]] {
+func port(s mut store.Store, k Pkg, d Dep, dt dense.ID[store.TKey]) Option[dense.ID[store.TKey]] {
 	let ds = d.S
 	let kind = store.KindOfType(ds, dt)
 	if kind == store.KBasic {
@@ -166,7 +166,7 @@ func port(s *store.Store, k Pkg, d Dep, dt dense.ID[store.TKey]) Option[dense.ID
 // importedFn is the function the selector's name sel names in an import,
 // its signature ported into s's pool; none when sel names no function of
 // a package k.Deps holds, or its signature does not port.
-func importedFn(s *store.Store, k Pkg, t *Typer, name dense.Opt[syntax.Node]) Option[Fn] {
+func importedFn(s mut store.Store, k Pkg, t mut Typer, name dense.Opt[syntax.Node]) Option[Fn] {
 	let sel = match dense.Unpack(name) {
 	case Some[dense.ID[syntax.Node]] as n:
 		n.Value
@@ -212,7 +212,7 @@ func importedFn(s *store.Store, k Pkg, t *Typer, name dense.Opt[syntax.Node]) Op
 // import declares (an XRef into its interface, generic or not; or a
 // prelude record of the foreign table) ported into s's pool with ty's
 // type arguments in place; none when no package of k.Deps declares it.
-func importedField(s *store.Store, k Pkg, ty dense.ID[store.TKey], name string) Option[dense.ID[store.TKey]] {
+func importedField(s mut store.Store, k Pkg, ty dense.ID[store.TKey], name string) Option[dense.ID[store.TKey]] {
 	let kind = store.KindOfType(*s, ty)
 	let o = store.OriginOfType(*s, ty)
 	let (path, rec, targs) = if kind == store.KForeign && store.ArgOf(*s, ty) < len(k.Foreign) {

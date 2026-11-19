@@ -41,7 +41,7 @@ law SlidingKeepsTheNewest(xs []int, c int) {
 	}
 	q.End()
 	let from = if len(xs) > capacity { len(xs) - capacity } else { 0 }
-	let mut ok = q.Len() == len(xs) - from
+	let mut ok = q.Len() == len(xs)-from
 	for i in from..len(xs) {
 		ok = ok && try q.Pop() == xs[i]
 	}

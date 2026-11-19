@@ -31,7 +31,7 @@ type Callee { Params []dense.ID[store.TKey], Rows []bool, Base int }
 // not match, an unknown argument, two literals with different defaults
 // for one parameter, or a type parameter nothing binds. The frame is
 // begun on f and cut before Infer returns.
-func Infer(s *store.Store, f *Frame, callee Callee, explicit []dense.ID[store.TKey], args []Arg) Option[[]dense.ID[store.TKey]] {
+func Infer(s mut store.Store, f mut Frame, callee Callee, explicit []dense.ID[store.TKey], args []Arg) Option[[]dense.ID[store.TKey]] {
 	if len(args) != len(callee.Params) || len(explicit) > len(callee.Rows) {
 		return None
 	}
@@ -69,7 +69,7 @@ func at(xs []int, i int) int {
 }
 
 // form is a parameter type over T (slot 0), U (slot 1) and F (slot 2).
-func form(s *store.Store, c Call, k int) dense.ID[store.TKey] {
+func form(s mut store.Store, c Call, k int) dense.ID[store.TKey] {
 	let t = Param(s, c, 0)
 	let u = Param(s, c, 1)
 	let f = Param(s, c, 2)
@@ -98,7 +98,7 @@ func form(s *store.Store, c Call, k int) dense.ID[store.TKey] {
 }
 
 // leaf is a closed type, or the caller's own first parameter.
-func leaf(s *store.Store, k int) dense.ID[store.TKey] {
+func leaf(s mut store.Store, k int) dense.ID[store.TKey] {
 	let k6 = k % 6
 	if k6 == 0 {
 		store.TBasic(s, 3)
@@ -116,7 +116,7 @@ func leaf(s *store.Store, k int) dense.ID[store.TKey] {
 }
 
 // row is a closed row of stand-in error types (never the fixed one, 40).
-func row(s *store.Store, k int) dense.ID[store.TKey] {
+func row(s mut store.Store, k int) dense.ID[store.TKey] {
 	let mut es = []dense.ID[store.TKey]{store.TBasic(s, 30+k%3)}
 	if k%2 == 1 {
 		es = es.Append(store.TBasic(s, 34))
@@ -129,7 +129,7 @@ func row(s *store.Store, k int) dense.ID[store.TKey] {
 // with.
 type Case { callee Callee, args []Arg, t dense.ID[store.TKey], u dense.ID[store.TKey], f dense.ID[store.TKey], rowed bool }
 
-func caseOf(s *store.Store, f *Frame, picks []int) Case {
+func caseOf(s mut store.Store, f mut Frame, picks []int) Case {
 	let base = 1 + at(picks, 0)%3
 	let c = Begin(f, []bool{false, false, true}, base)
 	let p0 = form(s, c, at(picks, 1))
@@ -152,7 +152,7 @@ func caseOf(s *store.Store, f *Frame, picks []int) Case {
 }
 
 // flatten is t with each row's row elements spliced into it.
-func flatten(s *store.Store, t dense.ID[store.TKey]) dense.ID[store.TKey] {
+func flatten(s mut store.Store, t dense.ID[store.TKey]) dense.ID[store.TKey] {
 	let k = store.KindOfType(*s, t)
 	if k == store.KBasic || k == store.KNamed || k == store.KParam || k == store.KForeign {
 		return t
@@ -178,7 +178,7 @@ func flatten(s *store.Store, t dense.ID[store.TKey]) dense.ID[store.TKey] {
 }
 
 // rebuild is a type of t's kind over the operands ts.
-func rebuild(s *store.Store, t dense.ID[store.TKey], ts []dense.ID[store.TKey]) dense.ID[store.TKey] {
+func rebuild(s mut store.Store, t dense.ID[store.TKey], ts []dense.ID[store.TKey]) dense.ID[store.TKey] {
 	let k = store.KindOfType(*s, t)
 	if k == store.KSlice {
 		store.TSlice(s, ts[0])
@@ -252,7 +252,7 @@ law InferStepsPerCallAreConstant(picks []int, n int) {
 	one > 0 && Steps(f) == 2*one && Depth(f) == 0
 }
 
-func inferIn(s *store.Store, f *Frame, c Call, callee Callee, explicit []dense.ID[store.TKey], args []Arg) Option[[]dense.ID[store.TKey]] {
+func inferIn(s mut store.Store, f mut Frame, c Call, callee Callee, explicit []dense.ID[store.TKey], args []Arg) Option[[]dense.ID[store.TKey]] {
 	for i, t in explicit {
 		Bind(f, c, i, t)
 	}

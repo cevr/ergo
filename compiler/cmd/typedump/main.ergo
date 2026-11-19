@@ -53,7 +53,7 @@ func read(path string) string fails os.Exit needs fs.Files {
 }
 
 // fieldLines appends "REC.FIELD TYPE" for each written field of list l.
-func fieldLines(s *store.Store, env types.Env, names types.Names, p syntax.Parsed, rec string, l dense.ID[syntax.Node], out *[]string) {
+func fieldLines(s mut store.Store, env types.Env, names types.Names, p syntax.Parsed, rec string, l dense.ID[syntax.Node], out mut []string) {
 	match syntax.ViewOf(p.Tree, l) {
 	case syntax.FieldList as fl:
 		for i in 0..syntax.Len(fl.List) {

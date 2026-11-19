@@ -274,7 +274,7 @@ func sourcesOf(picks []int) []string {
 // token of a lexical error, and after a failure: Illegal and EOF are the
 // two kinds below every other, so one comparison stops at both (capstone
 // S2f).
-func next(p *parser) {
+func next(p mut parser) {
 	if p.tk > EOF {
 		p.i = p.i + 1
 		p.tk = uint8(p.toks.kind[p.i])
@@ -283,7 +283,7 @@ func next(p *parser) {
 
 // peek is the kind of the token n past the current one, or of the final
 // EOF past the end.
-func peek(p *parser, n int) uint8 {
+func peek(p mut parser, n int) uint8 {
 	let j = p.i + n
 	if j < p.ntok {
 		return uint8(p.toks.kind[j])
@@ -292,19 +292,19 @@ func peek(p *parser, n int) uint8 {
 }
 
 // tpos is the offset of token j.
-func tpos(p *parser, j int) int { int(p.toks.start[j]) }
+func tpos(p mut parser, j int) int { int(p.toks.start[j]) }
 
 // tend is the end of token j.
-func tend(p *parser, j int) int { int(p.toks.end[j]) }
+func tend(p mut parser, j int) int { int(p.toks.end[j]) }
 
 // pos and end are the current token's.
-func pos(p *parser) int { int(p.toks.start[p.i]) }
+func pos(p mut parser) int { int(p.toks.start[p.i]) }
 
-func tokLen(p *parser) int { tend(p, p.i) - int(p.toks.start[p.i]) }
+func tokLen(p mut parser) int { tend(p, p.i) - int(p.toks.start[p.i]) }
 
 // lit is the source text of token j (a raw string without its carriage
 // returns, as the Go scanner's literal).
-func lit(p *parser, j int) string {
+func lit(p mut parser, j int) string {
 	let s = p.src[tpos(p, j):tend(p, j)]
 	if uint8(p.toks.kind[j]) == String && len(s) > 0 && s[0] == '`' {
 		return dropCR(s)
@@ -325,7 +325,7 @@ func dropCR(s string) string {
 }
 
 // isWord reports the current token an identifier spelled w.
-func isWord(p *parser, w string) bool {
+func isWord(p mut parser, w string) bool {
 	if p.tk != Ident {
 		return false
 	}
@@ -334,7 +334,7 @@ func isWord(p *parser, w string) bool {
 }
 
 // wordAt reports token j an identifier spelled w.
-func wordAt(p *parser, j int, w string) bool {
+func wordAt(p mut parser, j int, w string) bool {
 	if j >= p.ntok || uint8(p.toks.kind[j]) != Ident {
 		return false
 	}
@@ -343,20 +343,20 @@ func wordAt(p *parser, j int, w string) bool {
 }
 
 // inserted reports an inserted semicolon (a newline's).
-func inserted(p *parser, j int) bool {
+func inserted(p mut parser, j int) bool {
 	uint8(p.toks.kind[j]) == Semicolon && !(int(p.toks.start[j]) < len(p.src) && p.src[int(p.toks.start[j])] == ';')
 }
 
 // atLineEnd reports whether the current token is an inserted semicolon.
-func atLineEnd(p *parser) bool { p.tk == Semicolon && inserted(p, p.i) }
+func atLineEnd(p mut parser) bool { p.tk == Semicolon && inserted(p, p.i) }
 
-func backtrack(p *parser, j int) {
+func backtrack(p mut parser, j int) {
 	p.i = j
 	p.tk = uint8(p.toks.kind[j])
 }
 
 // want consumes a token of kind k and returns its index.
-func want(p *parser, k uint8) int {
+func want(p mut parser, k uint8) int {
 	if p.tk != k {
 		if loud(p) {
 			expected(p, "expected "+quote(tokenName(k))+", found ")
@@ -369,7 +369,7 @@ func want(p *parser, k uint8) int {
 	j
 }
 
-func got(p *parser, k uint8) bool {
+func got(p mut parser, k uint8) bool {
 	if p.tk == k {
 		next(p)
 		return true
@@ -379,7 +379,7 @@ func got(p *parser, k uint8) bool {
 
 // opensCollection reports whether the token n past the current one opens
 // a slice or array type, `[]` or `[N]`.
-func opensCollection(p *parser, n int) bool {
+func opensCollection(p mut parser, n int) bool {
 	if peek(p, n) != LBrack {
 		return false
 	}
@@ -388,7 +388,7 @@ func opensCollection(p *parser, n int) bool {
 }
 
 // found describes the current token for a message.
-func found(p *parser) string {
+func found(p mut parser) string {
 	let k = p.tk
 	if k == Semicolon {
 		return if inserted(p, p.i) { "newline" } else { "\";\"" }
@@ -406,7 +406,7 @@ func found(p *parser) string {
 
 // errorCode records the first error; a lexical error at or before pos wins,
 // since the tokens past it are not the source's.
-func errorCode(p *parser, code string, at int, length int, message string) {
+func errorCode(p mut parser, code string, at int, length int, message string) {
 	if p.failed {
 		return
 	}
@@ -436,15 +436,15 @@ func errorCode(p *parser, code string, at int, length int, message string) {
 	p.elen = l
 }
 
-func errorAt(p *parser, at int, length int, message string) { errorCode(p, CodeSyntax, at, length, message) }
+func errorAt(p mut parser, at int, length int, message string) { errorCode(p, CodeSyntax, at, length, message) }
 
 // loud reports whether an error now would keep its message: no error yet
 // and no attempt under way. A message that loud does not keep is never
 // built (an attempt that fails allocates nothing).
-func loud(p *parser) bool { !p.failed && p.quiet == 0 }
+func loud(p mut parser) bool { !p.failed && p.quiet == 0 }
 
 // expected reports prefix and the token found at the current token.
-func expected(p *parser, prefix string) {
+func expected(p mut parser, prefix string) {
 	if loud(p) {
 		errorf(p, prefix+found(p))
 	} else {
@@ -454,7 +454,7 @@ func expected(p *parser, prefix string) {
 
 // errorf reports an error at the current token; a Go token Ergo does not
 // use gets its habit message instead.
-func errorf(p *parser, message string) {
+func errorf(p mut parser, message string) {
 	if p.failed {
 		return
 	}
@@ -466,11 +466,11 @@ func errorf(p *parser, message string) {
 	errorAt(p, pos(p), tokLen(p), message)
 }
 
-func habit(p *parser, at int, length int, h int) { errorAt(p, at, length, habitMessages[h]) }
+func habit(p mut parser, at int, length int, h int) { errorAt(p, at, length, habitMessages[h]) }
 
 // ---------------------------------------------------------------- nesting
 
-func enter(p *parser) {
+func enter(p mut parser) {
 	p.nest = p.nest + 1
 	if p.nest > p.peak {
 		p.peak = p.nest
@@ -480,17 +480,17 @@ func enter(p *parser) {
 	}
 }
 
-func leave(p *parser) { p.nest = p.nest - 1 }
+func leave(p mut parser) { p.nest = p.nest - 1 }
 
-func tooDeep(p *parser) { errorAt(p, pos(p), tokLen(p), "nesting deeper than "+itoa(MaxNesting)+" levels") }
+func tooDeep(p mut parser) { errorAt(p, pos(p), tokLen(p), "nesting deeper than "+itoa(MaxNesting)+" levels") }
 
-func measure(p *parser) int {
+func measure(p mut parser) int {
 	let saved = p.peak
 	p.peak = p.nest
 	saved
 }
 
-func height(p *parser, saved int) int {
+func height(p mut parser, saved int) int {
 	let h = p.peak - p.nest
 	if saved > p.peak {
 		p.peak = saved
@@ -500,7 +500,7 @@ func height(p *parser, saved int) int {
 
 func maxInt(a int, b int) int { if a > b { a } else { b } }
 
-func reach(p *parser, top int) {
+func reach(p mut parser, top int) {
 	if top > p.peak {
 		p.peak = top
 	}
@@ -516,12 +516,12 @@ type state {
 	tree    Checkpoint,
 }
 
-func save(p *parser) state { state{i: p.i, nest: p.nest, peak: p.peak, exprLev: p.exprLev, tree: checkpoint(p.t)} }
+func save(p mut parser) state { state{i: p.i, nest: p.nest, peak: p.peak, exprLev: p.exprLev, tree: checkpoint(p.t)} }
 
 // failedAttempt ends an attempt: when it failed on an error that is not
 // the lexical one, the parser goes back to m and the attempt reports
 // false; the lexical error stays (the Go parser's attempt).
-func attemptFailed(p *parser, m state) bool {
+func attemptFailed(p mut parser, m state) bool {
 	if !p.failed {
 		return false
 	}
@@ -542,7 +542,7 @@ func attemptFailed(p *parser, m state) bool {
 
 // oneLineApart reports exactly one newline in src[a:b]: b is on the line
 // after a's. It reads no further than the second newline.
-func oneLineApart(p *parser, a int, b int) bool {
+func oneLineApart(p mut parser, a int, b int) bool {
 	let k = strings.IndexByte(p.src[a:b], '\n')
 	k >= 0 && strings.IndexByte(p.src[a+k+1:b], '\n') < 0
 }
@@ -550,7 +550,7 @@ func oneLineApart(p *parser, a int, b int) bool {
 // newlines is the number of newlines in src[a:b], counted up to 2: how
 // many lines further b is than a (0 on the same line, 1 the next, 2 or
 // more). It reads no further than the second newline.
-func newlines(p *parser, a int, b int) int {
+func newlines(p mut parser, a int, b int) int {
 	let k = strings.IndexByte(p.src[a:b], '\n')
 	if k < 0 {
 		return 0
@@ -558,14 +558,14 @@ func newlines(p *parser, a int, b int) int {
 	if strings.IndexByte(p.src[a+k+1:b], '\n') < 0 { 1 } else { 2 }
 }
 
-func cmtStart(p *parser, c int) int { CommentStart(p.cmts, CommentAt(p.cmts, c)) }
+func cmtStart(p mut parser, c int) int { CommentStart(p.cmts, CommentAt(p.cmts, c)) }
 
-func cmtEnd(p *parser, c int) int { CommentEnd(p.cmts, CommentAt(p.cmts, c)) }
+func cmtEnd(p mut parser, c int) int { CommentEnd(p.cmts, CommentAt(p.cmts, c)) }
 
 // groupComments forms comment groups as go/parser does: comments with no
 // token and no blank line between them; a comment on the line of a token
 // before it starts its own (trailing) group.
-func groupComments(p *parser) {
+func groupComments(p mut parser) {
 	let nc = NumComments(p.cmts)
 	if nc == 0 {
 		return
@@ -631,7 +631,7 @@ func groupComments(p *parser) {
 // leadComment is the comment group that documents a node starting at the
 // current token, as a word (its index+1, 0 for none): an own-line group
 // that ends on the line just above it, with no token in between.
-func leadComment(p *parser) uint32 {
+func leadComment(p mut parser) uint32 {
 	let ng = len(p.gFirst)
 	if ng == 0 {
 		return uint32(0)
@@ -671,7 +671,7 @@ func leadComment(p *parser) uint32 {
 // ---------------------------------------------------------------- rows
 
 // kindAt is the kind of row x, 0 for noNode or a row past the end.
-func kindAt(p *parser, x uint32) uint8 {
+func kindAt(p mut parser, x uint32) uint8 {
 	if x >= uint32(p.t.n) {
 		return uint8(0)
 	}
@@ -679,10 +679,10 @@ func kindAt(p *parser, x uint32) uint8 {
 }
 
 // ident appends the Ident row of token j.
-func identRow(p *parser, j int) uint32 { row(&p.t, KIdent, uint32(j), uint32(0), uint32(0)) }
+func identRow(p mut parser, j int) uint32 { row(&p.t, KIdent, uint32(j), uint32(0), uint32(0)) }
 
 // identIs reports row x an Ident spelled w.
-func identIs(p *parser, x uint32, w string) bool { kindAt(p, x) == KIdent && wordAt(p, int(p.t.tok[int(x)]), w) }
+func identIs(p mut parser, x uint32, w string) bool { kindAt(p, x) == KIdent && wordAt(p, int(p.t.tok[int(x)]), w) }
 
 // some is the word of a present optional node or token index.
 func some(x uint32) uint32 { x + uint32(1) }
@@ -692,18 +692,18 @@ func someTok(j int) uint32 { uint32(j + 1) }
 let none = uint32(0)
 
 // nodePos and nodeEnd are row x's span (the Go node's Pos and End).
-func nodePos(p *parser, x uint32) int { posOf(p.t, toks(p), x) }
+func nodePos(p mut parser, x uint32) int { posOf(p.t, toks(p), x) }
 
-func nodeEnd(p *parser, x uint32) int { endOf(p.t, toks(p), x) }
+func nodeEnd(p mut parser, x uint32) int { endOf(p.t, toks(p), x) }
 
 // toks is the parser's tokens, to read spans from.
-func toks(p *parser) tokens {
+func toks(p mut parser) tokens {
 	let c0 = if NumComments(p.cmts) > 0 { cmtStart(p, 0) } else { -1 }
 	tokens{src: p.src, kinds: p.toks.kind, starts: p.toks.start, ends: p.toks.end, cmt0: c0}
 }
 
 // errorNode reports message at the span of row x.
-func errorNode(p *parser, x uint32, message string) {
+func errorNode(p mut parser, x uint32, message string) {
 	if p.failed {
 		return
 	}

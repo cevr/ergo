@@ -87,7 +87,7 @@ func Compile(e Expr) []vm.Instr {
 }
 
 // emit adds the code of e to b. A Call's target is set by Compile.
-func emit(b *builder, e Expr) {
+func emit(b mut builder, e Expr) {
 	match e {
 	case Lit as l:
 		b.code = b.code.Append(vm.Push{N: l.N})

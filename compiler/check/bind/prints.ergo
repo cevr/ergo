@@ -77,7 +77,7 @@ func firstToken(p syntax.Parsed, at int) int { syntax.TokStartingAt(p, at) }
 // writeToken writes a token as its kind, its text's length and its text,
 // so no two token runs write the same bytes: a length under 255 is one
 // byte, a longer one 255 and four bytes, low first.
-func writeToken(b *strings.Builder, k uint8, t string) {
+func writeToken(b mut strings.Builder, k uint8, t string) {
 	let n = len(t)
 	b.WriteByte(byte(k))
 	if n < 255 {
@@ -126,7 +126,7 @@ func printOf(text string) store.Print {
 
 // setPrints gives the declarations from index from on, all of top-level
 // row d, d's prints.
-func setPrints(s *store.Store, p syntax.Parsed, d dense.ID[syntax.Node], from int) {
+func setPrints(s mut store.Store, p syntax.Parsed, d dense.ID[syntax.Node], from int) {
 	if store.NumDecls(*s) == from {
 		return
 	}

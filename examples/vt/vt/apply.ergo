@@ -12,7 +12,7 @@ type Unhandled { counts Map[string, int] }
 func NewUnhandled() Unhandled { Unhandled{counts: Map[string, int]{}} }
 
 // note counts one more of what.
-func note(u *Unhandled, what string) { u.counts = u.counts.Put(what, maps.GetOr(u.counts, what, 0)+1) }
+func note(u mut Unhandled, what string) { u.counts = u.counts.Put(what, maps.GetOr(u.counts, what, 0)+1) }
 
 // Lines is the counts as lines, by name.
 func Lines(u Unhandled) []string {
@@ -28,7 +28,7 @@ let TitleLimit = 256
 
 // Apply gives the screen s each event, and counts in u those it does not
 // take.
-func Apply[S lent Screen](s S, events []Event, u *Unhandled) {
+func Apply[S Screen](s mut S, events []Event, u mut Unhandled) {
 	for e in events {
 		match e {
 		case Text as t:
@@ -58,7 +58,7 @@ func Apply[S lent Screen](s S, events []Event, u *Unhandled) {
 }
 
 // control gives s the C0 control c.
-func control[S lent Screen](s S, c byte, u *Unhandled) {
+func control[S Screen](s mut S, c byte, u mut Unhandled) {
 	match c {
 	case 0x07:
 	case 0x08:
@@ -75,7 +75,7 @@ func control[S lent Screen](s S, c byte, u *Unhandled) {
 }
 
 // escape gives s the ESC sequence x.
-func escape[S lent Screen](s S, x Esc, u *Unhandled) {
+func escape[S Screen](s mut S, x Esc, u mut Unhandled) {
 	if x.Inter != "" {
 		u.note("esc \(x.Inter)\(ByteText(x.Final))")
 		return
@@ -107,7 +107,7 @@ func arg(ps []int, i int, def int) int {
 }
 
 // csi gives s the CSI sequence c.
-func csi[S lent Screen](s S, c Csi, u *Unhandled) {
+func csi[S Screen](s mut S, c Csi, u mut Unhandled) {
 	let ps = c.Params
 	if c.Inter == "?" && (c.Final == 'h' || c.Final == 'l') {
 		for m in ps {
@@ -179,7 +179,7 @@ func csi[S lent Screen](s S, c Csi, u *Unhandled) {
 // Sgr is the pen after the SGR sequence of params; colons has bit i set
 // when parameter i is followed by a colon, so that parameter and the
 // next are one group (38:2::r:g:b).
-func Sgr(pen Style, params []int, colons int, u *Unhandled) Style {
+func Sgr(pen Style, params []int, colons int, u mut Unhandled) Style {
 	if len(params) == 0 {
 		return Default
 	}
@@ -233,7 +233,7 @@ func Sgr(pen Style, params []int, colons int, u *Unhandled) Style {
 }
 
 // attribute is st with the one-number SGR attribute p.
-func attribute(st Style, p int, u *Unhandled) Style {
+func attribute(st Style, p int, u mut Unhandled) Style {
 	if p >= 30 && p <= 37 {
 		return Style{Fg: Color(p - 30 + 1), Bg: st.Bg, Flags: st.Flags}
 	}

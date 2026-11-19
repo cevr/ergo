@@ -160,7 +160,7 @@ func basicOrdinal(name string) int {
 	0
 }
 
-func invalidType(s *store.Store) dense.ID[store.TKey] { store.TBasic(s, 0) }
+func invalidType(s mut store.Store) dense.ID[store.TKey] { store.TBasic(s, 0) }
 
 // foreignIndex is the index in e.foreign of qual.name, or -1.
 func foreignIndex(e Env, qual string, name string) int {
@@ -255,7 +255,7 @@ func extKinds(e Env, text string) []int {
 
 // instance resolves head[indices]: each argument in a row slot is a row
 // of its union's leaves, any other a type.
-func instance(s *store.Store, e Env, h head, indices []dense.ID[syntax.Node]) dense.ID[store.TKey] {
+func instance(s mut store.Store, e Env, h head, indices []dense.ID[syntax.Node]) dense.ID[store.TKey] {
 	let (origin, kinds, arity) = match h {
 	case HLocal as l:
 		let ks = localKinds(e, l.Decl)
@@ -304,11 +304,11 @@ func instance(s *store.Store, e Env, h head, indices []dense.ID[syntax.Node]) de
 // row is the row the types xs write, in a capability row when uses: a
 // union stands for its variants (rowMembers), and wired[P] is its own
 // element.
-func row(s *store.Store, e Env, xs []dense.ID[syntax.Node], uses bool) dense.ID[store.TKey] {
+func row(s mut store.Store, e Env, xs []dense.ID[syntax.Node], uses bool) dense.ID[store.TKey] {
 	store.TRow(s, rowElems(s, e, xs, uses))
 }
 
-func rowElems(s *store.Store, e Env, xs []dense.ID[syntax.Node], uses bool) []dense.ID[store.TKey] {
+func rowElems(s mut store.Store, e Env, xs []dense.ID[syntax.Node], uses bool) []dense.ID[store.TKey] {
 	let mut ts = []dense.ID[store.TKey]{}
 	for x in xs {
 		match wiredParam(*s, e, x) {
@@ -332,7 +332,7 @@ func rowElems(s *store.Store, e Env, xs []dense.ID[syntax.Node], uses bool) []de
 
 // rowValue is the value type of the row xs write: its elements with no
 // repeats, kept in written order (Text prints them sorted, as a row).
-func rowValue(s *store.Store, e Env, xs []dense.ID[syntax.Node]) dense.ID[store.TKey] {
+func rowValue(s mut store.Store, e Env, xs []dense.ID[syntax.Node]) dense.ID[store.TKey] {
 	let mut ts = []dense.ID[store.TKey]{}
 	for t in rowElems(s, e, xs, false) {
 		let mut seen = false
@@ -465,7 +465,7 @@ func wiredFields(s store.Store, e Env, l dense.ID[syntax.Node]) bool {
 // members is the row a resolved row element t means: the variants of a
 // union, else t alone (decl.go rowMembers). A generic union's instance is
 // not expanded yet.
-func members(s *store.Store, e Env, t dense.ID[store.TKey]) []dense.ID[store.TKey] {
+func members(s mut store.Store, e Env, t dense.ID[store.TKey]) []dense.ID[store.TKey] {
 	let k = store.KindOfType(*s, t)
 	// An Ergo import's union is an instance of no arguments whose origin
 	// is an XRef; its variants are in the import's interface.
@@ -571,7 +571,7 @@ func unionMembers(s store.Store, files []syntax.Parsed, d dense.ID[store.Decl]) 
 }
 
 // Resolve is the type the type expression x writes.
-func Resolve(s *store.Store, e Env, x dense.ID[syntax.Node]) dense.ID[store.TKey] {
+func Resolve(s mut store.Store, e Env, x dense.ID[syntax.Node]) dense.ID[store.TKey] {
 	let k = syntax.KindOf(e.p.Tree, x)
 	if k == syntax.KIdent || k == syntax.KSelectorExpr {
 		return named(s, e, headOf(*s, e, x))
@@ -625,7 +625,7 @@ func Resolve(s *store.Store, e Env, x dense.ID[syntax.Node]) dense.ID[store.TKey
 }
 
 // named is the type a bare head names: a generic type needs arguments.
-func named(s *store.Store, e Env, h head) dense.ID[store.TKey] {
+func named(s mut store.Store, e Env, h head) dense.ID[store.TKey] {
 	match h {
 	case HParam as p:
 		store.TParam(s, p.At)
@@ -669,7 +669,7 @@ func named(s *store.Store, e Env, h head) dense.ID[store.TKey] {
 // name derives, base its base: func(it base) name fails Unsatisfied, the
 // prelude's (a package that declares its own Unsatisfied is not handled
 // yet).
-func RefinedParse(s *store.Store, e Env, base dense.ID[syntax.Node], name string) dense.ID[store.TKey] {
+func RefinedParse(s mut store.Store, e Env, base dense.ID[syntax.Node], name string) dense.ID[store.TKey] {
 	let param = Resolve(s, e, base)
 	let result = match store.Lookup(*s, name) {
 	case Some[dense.ID[store.Decl]] as d:
@@ -688,7 +688,7 @@ func RefinedParse(s *store.Store, e Env, base dense.ID[syntax.Node], name string
 // written entry; any other function type, an alias's included, is marked
 // own. A named function type and a type that is no function type are
 // unmarked.
-func paramType(s *store.Store, e Env, fd syntax.Field, x dense.ID[syntax.Node], r dense.ID[store.TKey]) dense.ID[store.TKey] {
+func paramType(s mut store.Store, e Env, fd syntax.Field, x dense.ID[syntax.Node], r dense.ID[store.TKey]) dense.ID[store.TKey] {
 	if store.KindOfType(*s, r) != store.KSig {
 		return r
 	}
@@ -705,7 +705,7 @@ func paramType(s *store.Store, e Env, fd syntax.Field, x dense.ID[syntax.Node], 
 // signature is a written function type: its parameters (one per name,
 // marked as paramType marks them), its result, its error row and its
 // capability row.
-func signature(s *store.Store, e Env, ft syntax.FuncType) dense.ID[store.TKey] {
+func signature(s mut store.Store, e Env, ft syntax.FuncType) dense.ID[store.TKey] {
 	let mut params = []dense.ID[store.TKey]{}
 	if syntax.KindOf(e.p.Tree, ft.Params) == syntax.KFieldList {
 		let fl = syntax.FieldListOf(e.p.Tree, ft.Params).List
@@ -798,7 +798,8 @@ func Text(s store.Store, n Names, t dense.ID[store.TKey]) string {
 		return "Map[" + Text(s, n, ops[0]) + ", " + Text(s, n, ops[1]) + "]"
 	}
 	if k == store.KPointer {
-		return "*" + Text(s, n, ops[0])
+		// A borrow prints as its mode, mut T (MODES-2: Pointer.String).
+		return "mut " + Text(s, n, ops[0])
 	}
 	if k == store.KOwn {
 		return "own " + Text(s, n, ops[0])

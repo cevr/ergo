@@ -12,7 +12,7 @@ import arena
 // of the Area around it: an event over it carries, in PointerEvent.Zone,
 // the keys of the zones from the Area down to it, its box and the
 // pointer's offset in that box.
-func Zone[E, F, R](f *Frame[E], key Key, style Style, body func() fails F needs R, at CallSite) fails F needs R {
+func Zone[E, F, R](f mut Frame[E], key Key, style Style, body func() fails F needs R, at CallSite) fails F needs R {
 	try open(f, ZoneNode{Key: key, Style: style}, body, at)
 }
 
@@ -27,7 +27,7 @@ type ZoneBox[E] { Id Id[E], Box Rect }
 
 // zoneHit is the ZoneHit of over for a pointer at p in the Area area:
 // None when over names no zone f holds, or one that is not under area.
-func zoneHit[E](f *Frame[E], area Id[E], over ZoneBox[E], p PointerEvent) Option[ZoneHit] {
+func zoneHit[E](f mut Frame[E], area Id[E], over ZoneBox[E], p PointerEvent) Option[ZoneHit] {
 	if !arena.Has(f.nodes, area.ref) || !arena.Has(f.nodes, over.Id.ref) {
 		return None
 	}
@@ -47,7 +47,7 @@ func zoneHit[E](f *Frame[E], area Id[E], over ZoneBox[E], p PointerEvent) Option
 // zonePath is the keys of the zones on the way from r (not counted) down
 // to target, target's last; None when target is not under r. It visits
 // r's subtree in order, so its work is at most that subtree's size.
-func zonePath[E](f *Frame[E], r arena.Ref[node[E]], target arena.Ref[node[E]]) Option[[]Key] {
+func zonePath[E](f mut Frame[E], r arena.Ref[node[E]], target arena.Ref[node[E]]) Option[[]Key] {
 	for i in 0..kidCount(f, r) {
 		let k = kidAt(f, r, i)
 		let mut own = []Key{}
@@ -72,9 +72,9 @@ func zonePath[E](f *Frame[E], r arena.Ref[node[E]], target arena.Ref[node[E]]) O
 }
 
 // zoneKey is the key of the zone r, None for a node that is not one.
-func zoneKey[E](f *Frame[E], r arena.Ref[node[E]]) Option[Key] {
+func zoneKey[E](f mut Frame[E], r arena.Ref[node[E]]) Option[Key] {
 	let mut out Option[Key] = None
-	change(f, r, func(n *node[E]) {
+	change(f, r, func(n mut node[E]) {
 		match n.node {
 		case ZoneNode as z:
 			out = Some{Value: z.Key}
@@ -88,7 +88,7 @@ func zoneKey[E](f *Frame[E], r arena.Ref[node[E]]) Option[Key] {
 // text once, politely (after what it is saying), as the web's aria-live
 // "polite" region does. An empty text says nothing. A pass that writes
 // the same text as the last one says nothing again.
-func Announce[E](f *Frame[E], text string, at CallSite) {
+func Announce[E](f mut Frame[E], text string, at CallSite) {
 	let _ = put(f, LiveNode{Text: text}, None, None, at)
 }
 

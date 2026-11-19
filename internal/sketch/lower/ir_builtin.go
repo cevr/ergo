@@ -31,6 +31,11 @@ func (b *irBuilder) goBuiltinCall(x *syntax.CallExpr, c *check.Call, f *check.Fu
 	if c.Recv != nil {
 		list = append([]syntax.Expr{c.Recv}, list...)
 	}
+	if check.AppendSpreads(f) {
+		// The decoder admits append's string shape only (ergoir_builtin.go),
+		// so a bulk append (SL2) keeps its function's Go body.
+		irNo("bulk append (SL2) on the IR")
+	}
 	pre, args := b.operands(list) // ir_fail.go
 	if check.AppendsString(f) {
 		// Go's append(xs, s...): the bytes of s at the end of xs. Its

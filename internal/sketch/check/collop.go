@@ -29,7 +29,7 @@ var collDecls = []struct{ doc, ref, sig string }{
 // value (owner q26; types.md, Bindings), and the lowering appends in place
 // only for xs = xs.Append(x) or a dead xs. With resource elements it takes
 // xs and x: the result is their one owner (#197 L8 A3, resources R14).`,
-		"ergo.local/prototype/runtime/v1.Append", "func Append[T](xs own []T, x own T) []T"},
+		"ergo.local/prototype/runtime/v1.Append", "func Append[T own](xs own []T, x own T) []T"},
 	{`// Get is the value of k in m, Some{v}, or None when m has no key k: a Map
 // read may miss, so it returns an Option.`,
 		"ergo.local/prototype/runtime/v1.Get", "func Get[K comparable, V](m Map[K, V], k K) Option[V]"},
@@ -46,12 +46,12 @@ var collDecls = []struct{ doc, ref, sig string }{
 // and the map without k. Resource values and the remainder have separate
 // owners. With plain-data values, m is unchanged (mode crossing), and the
 // lowering takes in place only for a dead m (PRIM-3).`,
-		"ergo.local/prototype/runtime/v1.MapTake", "func Take[K comparable, V](m own Map[K, V], k K) (Option[V], Map[K, V])"},
+		"ergo.local/prototype/runtime/v1.MapTake", "func Take[K comparable, V own](m own Map[K, V], k K) (Option[V], Map[K, V])"},
 	{`// TakeAt gives up xs and returns its element at i and the remaining
 // slice, in order. With resource elements, the element and remainder have
 // separate owners. Plain-data xs is unchanged. An index outside
 // 0..len(xs) is a defect, as Go's index is (PRIM-4).`,
-		"ergo.local/prototype/runtime/v1.SlicesTake", "func TakeAt[T](xs own []T, i int) (T, []T)"},
+		"ergo.local/prototype/runtime/v1.SlicesTake", "func TakeAt[T own](xs own []T, i int) (T, []T)"},
 	{`// Slice is the elements of xs from index i up to j, j excluded: Go's full
 // slice expression xs[i:j:j] (Effect's Array.slice), which shares xs's
 // array but has no room after j, so an Append to it makes a new array and
@@ -97,7 +97,7 @@ var collDecls = []struct{ doc, ref, sig string }{
 	{`// MakeSlice is an empty slice with room for capacity elements: Go's
 // make([]T, 0, capacity). It makes no element; a negative capacity is a
 // defect (PRIM-4).`,
-		"ergo.local/prototype/runtime/v1.WithCapacity", "func MakeSlice[T](capacity int) []T"},
+		"ergo.local/prototype/runtime/v1.WithCapacity", "func MakeSlice[T own](capacity int) []T"},
 }
 
 // collFileName is the name of the operations' file in the prelude package.

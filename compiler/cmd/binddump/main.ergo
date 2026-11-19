@@ -199,7 +199,7 @@ func rootPath(paths []string, m Option[Module]) string {
 
 // unused writes the S110 lines of the package of the files at paths,
 // "FILE L:C: S110 MESSAGE", in the Go checker's order.
-func unused(b *strings.Builder, paths []string, std string, threads int) fails os.Exit needs fs.Files {
+func unused(b mut strings.Builder, paths []string, std string, threads int) fails os.Exit needs fs.Files {
 	let mut files = []bind.File{}
 	let mut srcs = []string{}
 	for path in paths {
