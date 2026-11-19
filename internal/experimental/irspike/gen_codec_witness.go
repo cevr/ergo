@@ -8,8 +8,10 @@ import (
 
 // codecWitnessSites are GenerateCodecWitness's generic functions whose IR
 // bodies read a codec witness parameter (PORT-WITNESS): each has an IR body
-// in every seed.
-var codecWitnessSites = []string{"enc", "dec", "back", "one", "many"}
+// in every seed. The ...Mono_i1 sites are the monomorphic copies (mono.go)
+// that viaText's calls go to: a codec witness parameter on a copy, the
+// port's largest case (PORT-COPY x PORT-WITNESS).
+var codecWitnessSites = []string{"enc", "dec", "back", "one", "many", "encMono_i1", "decMono_i1", "backMono_i1"}
 
 // GenerateCodecWitness is a program of generic functions over type
 // parameters under the codec constraint, whose codec witnesses are parameters of their bodies
@@ -21,7 +23,12 @@ var codecWitnessSites = []string{"enc", "dec", "back", "one", "many"}
 //     decodes it from a codec.Replay: the witness's Enc and Dec fields;
 //   - many encodes and decodes []T and Option[T], types that hold the type
 //     parameter: their generic codec functions take the witness after the
-//     environment.
+//     environment;
+//   - viaText keeps its text body (its slice expression, s[1:], has no IR
+//     form yet), so its calls of back, dec and enc go to monomorphic
+//     copies, each a body with a codec witness parameter. When slices
+//     take the IR, the copies go and the sites' check names them: move
+//     viaText onto another text-only form, or drop the copy sites.
 //
 // main calls each at two record types, P and Q (Q holds a P), with drawn
 // fields, and decodes a drawn text that is well formed or cut short, so a
@@ -41,6 +48,7 @@ func GenerateCodecWitness(seed uint64) string {
 	b.WriteString("func many[T wire](vs []T) ([]T, Option[T]) fails wired[Option[T]] needs wired[T] {\n\tlet e = codec.NewEvents()\n\tencode(vs, e)\n\tlet first Option[T] = if len(vs) > 0 { Some{Value: vs[0]} } else { None }\n\tencode(first, e)\n\tlet r = codec.NewReplay(codec.Recorded(e))\n\tlet xs = try decode[[]T](r)\n\tlet f = try decode[Option[T]](r)\n\t(xs, f)\n}\n\n")
 	b.WriteString("func showP(p P) string { \"\\(p.A)/\\(p.B)\" }\n\n")
 	b.WriteString("func showQ(q Q) string { \"\\(len(q.Xs)):\\(q.N):\\(showP(q.In))\" }\n\n")
+	b.WriteString("func viaText(p P, q Q, s string) string {\n\tlet cut = s[1:]\n\tlet bp = back(p) catch {\n\tcase _:\n\t\tP{A: -1, B: \"lost\"}\n\t}\n\tlet d = dec[Q](cut) catch {\n\tcase _:\n\t\tQ{Xs: []int{}, N: false, In: p}\n\t}\n\tenc(q) + \" \" + showP(bp) + \" \" + showQ(d)\n}\n\n")
 	b.WriteString("func main() needs Console {\n")
 	ps := make([]string, 3)
 	for i := range ps {
@@ -69,6 +77,11 @@ func GenerateCodecWitness(seed uint64) string {
 	fmt.Fprintf(&b, "\tlet (ys, f) = many([]P{%s}) catch {\n\tcase _:\n\t\t([]P{}, None)\n\t}\n", strings.Join(ps[:n(4)], ", "))
 	b.WriteString("\tlet fa = match f {\n\tcase Some as s:\n\t\tshowP(s.Value)\n\tcase None:\n\t\t\"none\"\n\t}\n")
 	b.WriteString("\tlet mut all = \"\"\n\tfor y in ys {\n\t\tall = all + showP(y) + \";\"\n\t}\n\tConsole.Println(\"\\(len(ys)) \\(fa) \\(all)\")\n")
+	qtext := fmt.Sprintf(` {"xs": [%d], "n": %t, "in": {"a": %d, "b": "v"}}`, n(9), n(2) == 0, n(50))
+	if n(3) == 0 {
+		qtext = qtext[:len(qtext)-1-n(5)]
+	}
+	fmt.Fprintf(&b, "\tConsole.Println(viaText(%s, q, \"%s\"))\n", ps[2], strings.ReplaceAll(qtext, `"`, `\"`))
 	b.WriteString("}\n")
 	return b.String()
 }

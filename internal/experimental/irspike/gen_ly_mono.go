@@ -8,7 +8,8 @@ import (
 
 // GenerateMonoCopies is a program whose generic functions run at known
 // types from a body the emitter writes (FLIP F7 PORT-COPY): describe
-// passes a witness (label), so it keeps its text body, and each of its
+// keeps its text body (a slice expression, d.Tag[0:]; its witness call,
+// label, takes the IR since B-WITNESS), and each of its
 // generic calls goes to a monomorphic copy (mono.go), a Go function of its
 // own beside the generic one. The copies are count at string and at int
 // (a function with a comparable type parameter), pairs (two type
@@ -28,9 +29,12 @@ func GenerateMonoCopies(seed uint64) string {
 	b.WriteString("func pick[T](b Box[T], i int) T needs Console {\n\tConsole.Println(\"pick \\(i)\")\n\tlet mut out = b.Spare\n\tfor j in 0..len(b.Items) {\n\t\tif j == i {\n\t\t\tout = b.Items[j]\n\t\t}\n\t}\n\tout\n}\n\n")
 	words := []string{"ab", "cd", "ef", "gh"}
 	b.WriteString("func describe(d Dog, xs []string, ns []int) string needs Console {\n")
-	b.WriteString("\tlet ps = pairs(xs, ns)\n\tlet mut last = \"-\"\n\tfor p in ps {\n\t\tlast = \"\\(p.Left)\\(p.Right)\"\n\t}\n")
+	// The slice expression keeps describe on the text path now that a
+	// call passing a witness takes the IR (B-WITNESS): label alone no
+	// longer does (PORT-WITNESS merge).
+	b.WriteString("\tlet tag = d.Tag[0:]\n\tlet ps = pairs(xs, ns)\n\tlet mut last = \"-\"\n\tfor p in ps {\n\t\tlast = \"\\(p.Left)\\(p.Right)\"\n\t}\n")
 	fmt.Fprintf(&b, "\tlet b = Box[string]{Items: xs, Spare: %q}\n", words[g.n(len(words))])
-	fmt.Fprintf(&b, "\t\"\\(label(d)) \\(count(xs, %q)) \\(count(ns, %d)) \\(len(ps)) \\(last) \\(pick(b, %d)) \\(pick(Box[int]{Items: ns, Spare: %d}, %d))\"\n}\n\n",
+	fmt.Fprintf(&b, "\t\"\\(label(Dog{Tag: tag})) \\(count(xs, %q)) \\(count(ns, %d)) \\(len(ps)) \\(last) \\(pick(b, %d)) \\(pick(Box[int]{Items: ns, Spare: %d}, %d))\"\n}\n\n",
 		words[g.n(len(words))], g.n(4), g.n(5), g.n(9), g.n(5))
 	b.WriteString("func main() needs Console {\n")
 	for i := 0; i < 3; i++ {
