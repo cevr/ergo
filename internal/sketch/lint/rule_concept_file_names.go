@@ -9,6 +9,7 @@ var conceptFileNames = &Rule{
 	Name:    "concept-file-names",
 	Code:    "L113",
 	Doc:     "A source file named for a kind of declaration (_service, _layer, _handler, …) instead of a concept; name it for what it holds.",
+	Instead: "name it for what it holds (AGENTS.md, Go layout)",
 	Default: Warning,
 	Check:   checkConceptFileNames,
 	Options: options(func() suffixOptions {
@@ -21,11 +22,8 @@ var conceptFileNames = &Rule{
 }
 
 func checkConceptFileNames(p *Pass) {
-	if p.Package.Std() || p.Package.Host() {
-		return
-	}
 	if kind, ok := kindSuffix(p.Rel(), p.Options.(suffixOptions).Suffixes); ok {
 		at := p.File.Pos()
-		p.Report(at, at, "this file is named for a kind ("+kind+"), not a concept; name it for what it holds (AGENTS.md, Go layout)")
+		p.Report(at, at, "this file is named for a kind ("+kind+"), not a concept")
 	}
 }

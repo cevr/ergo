@@ -46,6 +46,7 @@ func (in *interp) binop(fr *frame, at syntax.Node, op syntax.Token, a, b Value) 
 		_, sa := a.(string)
 		_, sb := b.(string)
 		if op != syntax.ADD || !(sa || stringTerm(a)) || !(sb || stringTerm(b)) {
+			in.sym.blame(a, b)
 			return nil, fr.abrupt(ctlUnsupported, at, nil, frameName(fr)+" computes with a symbol at "+in.siteText(fr, at.Pos()))
 		}
 		if ab := in.charge(fr, at, 1); ab != nil {
@@ -66,7 +67,7 @@ func (in *interp) binop(fr *frame, at syntax.Node, op syntax.Token, a, b Value) 
 			ice("a shift count of %T", b)
 		}
 		if negative {
-			return nil, fr.defect(at, "negative shift amount")
+			return nil, fr.defect(at, "runtime error: negative shift amount")
 		}
 		if v, ok := shift(op, a, n); ok {
 			return v, nil
@@ -75,7 +76,7 @@ func (in *interp) binop(fr *frame, at syntax.Node, op syntax.Token, a, b Value) 
 	}
 	if s, ok := a.(string); ok && op == syntax.ADD {
 		t := b.(string)
-		if ab := in.build(fr, at, int64(len(s))+int64(len(t)), 0, int64(len(s))+int64(len(t))); ab != nil {
+		if ab := in.build(fr, at, byteWork(int64(len(s))+int64(len(t))), 0, int64(len(s))+int64(len(t))); ab != nil {
 			return nil, ab
 		}
 		return s + t, nil
@@ -130,12 +131,12 @@ func intOp[T integer](op syntax.Token, a, b T) (Value, string, bool) {
 		return a * b, "", true
 	case syntax.QUO:
 		if b == 0 {
-			return nil, "integer divide by zero", true
+			return nil, "runtime error: integer divide by zero", true
 		}
 		return a / b, "", true
 	case syntax.REM:
 		if b == 0 {
-			return nil, "integer divide by zero", true
+			return nil, "runtime error: integer divide by zero", true
 		}
 		return a % b, "", true
 	case syntax.AND:

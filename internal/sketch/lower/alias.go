@@ -119,6 +119,7 @@ type flow struct {
 
 func newFlow(l *lowerer, info *check.Info, d *syntax.FuncDecl) *flow {
 	fl := &flow{l: l, info: info, parent: map[syntax.Node]syntax.Node{}, uses: map[*check.Var][]*syntax.Ident{}, inLit: map[*syntax.Ident]bool{}}
+	var kids []syntax.Node // the walk's stack of children (appendChildren)
 	var visit func(n syntax.Node, lit bool)
 	visit = func(n syntax.Node, lit bool) {
 		switch x := n.(type) {
@@ -135,13 +136,18 @@ func newFlow(l *lowerer, info *check.Info, d *syntax.FuncDecl) *flow {
 				fl.inLit[x] = lit
 			}
 		}
-		for _, c := range children(n) {
+		start := len(kids)
+		kids = appendChildren(kids, n)
+		end := len(kids)
+		for i := start; i < end; i++ {
+			c := kids[i]
 			if call, ok := n.(*syntax.CallExpr); ok && c == syntax.Node(call.Trailing) {
 				continue
 			}
 			fl.parent[c] = n
 			visit(c, lit)
 		}
+		kids = kids[:start]
 	}
 	visit(d.Body, false)
 	return fl
@@ -424,8 +430,13 @@ func hides(t check.Type, seen map[check.Type]bool) bool {
 			}
 		}
 	case *check.Union:
+		// A union holds its variant behind a match, so the value copy
+		// copies none of it (holdsValue): a variant that reaches a Map or
+		// a slice is hidden from a copy of the result, which then must be
+		// a copy of the argument (wf10 OWN1 arms: `let o = optS(cur)`
+		// then `cur[0] = k` reached o's slice, under every lowering).
 		for _, v := range u.Variants {
-			if hides(v, seen) {
+			if hides(v, seen) || holdsValueSeen(v, map[check.Type]bool{}) {
 				return true
 			}
 		}

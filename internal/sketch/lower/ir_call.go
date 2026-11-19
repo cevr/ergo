@@ -22,6 +22,14 @@ func (b *irBuilder) poll(site syntax.Node) *irStmt {
 // pre-statement, which earlier operands spill around (operands, inOrder in
 // ir_order.go).
 func (b *irBuilder) call(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr) {
+	if !stmt {
+		if e := b.fold(x); e != nil {
+			return nil, e
+		}
+		if pre, e := b.template(x); e != nil { // ir_template.go
+			return pre, e
+		}
+	}
 	if b.fallibleCall(x) != nil {
 		if b.tries == 0 {
 			irNo("untried fallible call")
@@ -261,7 +269,7 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		return b.conversion(x, c, p) // ir_pkg.go
 	case check.CallEncode, check.CallDecode:
 		return b.codecCall(x, c, p) // ir_codec.go
-	case check.CallProviderOp:
+	case check.CallProviderOp, check.CallLawOp:
 		switch {
 		case b.env < 0 || c.Op == nil:
 			irNo("operation call form")
@@ -270,13 +278,16 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		}
 		// A test build calls a capability's operation as a program does
 		// (calls.go: only a law's own operation, CallLawOp, differs).
-		sel, ok := unparen(x.Fun).(*syntax.SelectorExpr)
-		if !ok {
-			irNo("operation call spelling")
-		}
-		named, ok := b.l.info.Types[sel.X].(*check.Named)
-		if !ok {
-			irNo("capability without a named type")
+		named := b.lawOpCap(c) // ir_assert.go: a law's bare operation call
+		if named == nil {
+			sel, ok := unparen(x.Fun).(*syntax.SelectorExpr)
+			if !ok {
+				irNo("operation call spelling")
+			}
+			named, ok = b.l.info.Types[sel.X].(*check.Named)
+			if !ok {
+				irNo("capability without a named type")
+			}
 		}
 		// The interruption point, before the operands (callText).
 		var pre []*irStmt

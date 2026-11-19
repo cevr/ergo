@@ -7,6 +7,9 @@
 // empty one. A closed queue is a normal end of the protocol, not a stop.
 extern go ergo.local/prototype/runtime/v1.Closed type Closed {}
 
+// Full is the failure of Offer on a queue with no room now.
+extern go ergo.local/prototype/runtime/v1.Full type Full {}
+
 // Queue is a queue of T with a fixed capacity.
 extern go ergo.local/prototype/runtime/v1.Queue type Queue[T] {
 	runtimeOnly(),
@@ -35,6 +38,15 @@ extern go ergo.local/prototype/runtime/v1.Queue type Queue[T] {
 	// capacity 0 it takes the value of a waiting Push, which then
 	// succeeds.
 	Poll() Option[T],
+	// Offer adds v at the back now, or not at all: it never waits. It fails
+	// with Full when the queue holds its capacity, or when earlier Pushes
+	// still wait for room, and with Closed when the queue is closed. A
+	// producer that must not wait catches Full and drops v (Effect's
+	// dropping strategy: the oldest values stay), or calls Slide. On a
+	// queue of capacity 0 it always fails Full. It takes v, as Push does.
+	Offer(v own T) fails Closed | Full,
+	// Cap is the capacity New gave the queue.
+	Cap() int,
 	// Len is how many values are in the queue that nothing has taken yet,
 	// from 0 to the capacity. The value of a Push that still waits for
 	// room is not counted. It never waits.

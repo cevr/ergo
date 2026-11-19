@@ -103,8 +103,11 @@ func pick[T](xs []T, n int) T { xs[((n%len(xs))+len(xs))%len(xs)] }
 
 // PlanEnds: scrolling a window of 30 rows down the whole catalog, at most
 // 30 rows a step so that no row is skipped, loads
-// it in at most ceil(n/60)+2 requests, and asks for no range twice.
-law PlanEnds(n int where 1 <= n && n <= 20000, step int where 1 <= step && step <= 30) {
+// it in at most ceil(n/60)+2 requests, and asks for no range twice. A
+// catalog of up to 2,000 has every range shape (a short top, the rest of
+// the first page, whole pages, a short last page); a step costs work in
+// proportion to n/step, so a larger n adds work, not shapes.
+law PlanEnds(n int where 1 <= n && n <= 2000, step int where 1 <= step && step <= 30) {
 	let mut st = fresh(n, []int{}, false)
 	let mut asked = 0
 	let mut at = 0

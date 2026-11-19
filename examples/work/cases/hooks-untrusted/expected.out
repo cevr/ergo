@@ -1,0 +1,1 @@
+{"name":"a","id":"8aafc65158d214f5","path":".work/base/a","branch":"a","deps":{"_tag":"NoDeps"},"hooks":{"_tag":"Untrusted","digest":"7b5e776c7952d28ddbc8a2424143318cfe5e53b6100a17de80d5baa2f47873ce","commands":["hooks.postcreate: touch ran.txt; exit 3"]}}

@@ -136,6 +136,46 @@
       "killers": [
         "examples:fk-weather"
       ]
+    },
+    {
+      "name": "fk3b-matched-loading-text", "origin": "wf10/fk3b",
+      "file": "examples/fk-weather/screen/screen.ergo",
+      "from": "\tcase weather.Loading:\n\t\tui.Text(f, LoadingText)\n",
+      "to": "\tcase weather.Loading:\n\t\tui.Text(f, \"Fetching...\")\n",
+      "rule": "The two panels write one screen for every panel (law BoundaryIsTheMatch); only the law reads PanelMatched.",
+      "anchor": {"tests": ["examples:fk-weather"]}, "killers": ["examples:fk-weather"]
+    },
+    {
+      "name": "fk3b-busy-button-enabled", "origin": "wf10/fk3b",
+      "file": "examples/fk-weather/screen/screen.ergo",
+      "from": "ui.Fieldset(f, busy, \"\")",
+      "to": "ui.Fieldset(f, false, \"\")",
+      "rule": "While a fetch is under way the button is disabled, as upstream's isDisabled (case scenes).",
+      "anchor": {"tests": ["examples:fk-weather"]}, "killers": ["examples:fk-weather"]
+    },
+    {
+      "name": "fk3b-input-sends-old-draft", "origin": "wf10/fk3b",
+      "file": "examples/fk-weather/screen/screen.ergo",
+      "from": "weather.Edited{Text: t}",
+      "to": "weather.Edited{Text: l.Draft}",
+      "rule": "Typing in the zip field sends the field's text (cases).",
+      "anchor": {"tests": ["examples:fk-weather"]}, "killers": ["examples:fk-weather"]
+    },
+    {
+      "name": "fk3b-report-drops-region", "origin": "wf10/fk3b",
+      "file": "examples/fk-weather/screen/screen.ergo",
+      "from": "let place = if r.Region == \"\" { r.Location } else { r.Location + \", \" + r.Region }",
+      "to": "let place = r.Location",
+      "rule": "The report shows the place as upstream's locationName, region (cases).",
+      "anchor": {"tests": ["examples:fk-weather"]}, "killers": ["examples:fk-weather"]
+    },
+    {
+      "name": "fk3b-slow-skips-the-wait", "origin": "wf10/fk3b",
+      "file": "examples/fk-weather/memory/slow.ergo",
+      "from": "\ts.Wait()\n\ttry fetchStation(zip)\n",
+      "to": "\ttry fetchStation(zip)\n",
+      "rule": "A slow station answers after the script moves the clock, so the screen shows the lookup loading (case scenes).",
+      "anchor": {"tests": ["examples:fk-weather"]}, "killers": ["examples:fk-weather"]
     }
   ]
 }

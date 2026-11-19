@@ -25,7 +25,7 @@ tap Run patch work
 stats
 settle
 find Patch row 1
-find Patch row 120
+find Patch row 4000
 warnings
 # The dependency work starts a fetch per dependency.
 tap Run dependency extraction

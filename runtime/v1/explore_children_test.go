@@ -78,7 +78,7 @@ func routerWork(wt *rt.Task, _ rstate, _ func(int)) {
 	start := func(name string) *Actor[int, int, edec] {
 		return MachineChild(Site(name), wt, noSleep{}, nil, nil, 0, editorStep, nil,
 			func(int) time.Duration { return noTimer }, func(s int) int { return s }, func(int) bool { return false },
-			func(*rt.Task, int, func(int)) {}, func(d edec) int { return d.k },
+			func(*rt.Task, int, func(int)) {}, nil, nil, func(d edec) int { return d.k },
 			func(s int, d edec) int {
 				if d.k == decideIgnore {
 					return s

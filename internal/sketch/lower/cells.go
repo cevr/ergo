@@ -54,11 +54,11 @@ func cellSite(info *check.Info, x syntax.Expr) bool {
 func (w *valueWalk) cellCopy(x syntax.Expr) {
 	if cellLowering == "copy" {
 		if w.l.holdsValue(w.typeOf(x)) {
-			w.vf.clone[x] = true
+			w.copyAt(x, whyCell)
 		}
 		return
 	}
-	w.freshen(x)
+	w.freshen(x, whyCell)
 }
 
 // noteCell records the immutable local v when its let's value x moves

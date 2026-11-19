@@ -1,0 +1,170 @@
+// Package lease is the domain of lease-sync: a pool of named leases with a
+// capacity. A user takes a lease by its name and gives it back. It is pure:
+// Decide needs no capability: a client can run it to predict a command and
+// run it again at each rebase, and the authority runs the same function to
+// decide. Who acts and when are data in the envelope.
+//
+// The pool has the two cases where an authority must refuse what a client
+// predicted (LiveStore RFC 0002): capacity (two clients each take the last
+// free lease) and uniqueness (two clients each take one name).
+
+import lease-sync/domain
+import time
+
+// Hold is one lease held: its name and who holds it.
+type Hold { Name string, By string }
+
+// Pool is the leases held, sorted by name, and the capacity. A pool is a
+// value that compares with ==, so a client's view and the authority's
+// state can be compared.
+type Pool { Cap int, Held []Hold }
+
+// Cmd is what a user asks of the pool.
+type Cmd = Take{Name string} | Give{Name string}
+
+// Event is what a decided command did.
+type Event = Taken{Name string, By string} | Given{Name string}
+
+// Reason is why the pool refuses a command: it is full, the name is held
+// by another user, or the user does not hold the name.
+type Reason = Exhausted{Cap int} | InUse{Name string, By string} | NotHeld{Name string}
+
+// Refusal is the pool's one failure: a refused command and its reason. A
+// row of one type makes the failure the value the log records.
+type Refusal { Reason Reason }
+
+// Empty is a pool of capacity n that holds nothing.
+func Empty(n int) Pool { Pool{Cap: n, Held: []Hold{}} }
+
+// Holder is who holds the lease name, if anyone.
+func Holder(p Pool, name string) Option[string] {
+	for h in p.Held {
+		if h.Name == name {
+			return Some[string]{Value: h.By}
+		}
+	}
+	None
+}
+
+// Decide is the pool's decision on the command c.
+func Decide(p Pool, c domain.Envelope[Cmd]) []Event fails Refusal {
+	match c.Command {
+	case Take as t:
+		match Holder(p, t.Name) {
+		case Some[string] as h:
+			return Refusal{Reason: InUse{Name: t.Name, By: h.Value}}
+		case None:
+		}
+		if len(p.Held) >= p.Cap {
+			return Refusal{Reason: Exhausted{Cap: p.Cap}}
+		}
+		[]Event{Taken{Name: t.Name, By: c.By}}
+	case Give as g:
+		if Holder(p, g.Name) != (Some[string]{Value: c.By}) {
+			return Refusal{Reason: NotHeld{Name: g.Name}}
+		}
+		[]Event{Given{Name: g.Name}}
+	}
+}
+
+// Evolve is the pool after the event e. It is total.
+func Evolve(p Pool, e Event) Pool {
+	match e {
+	case Taken as t:
+		let mut held = []Hold{}
+		let mut put = false
+		for h in p.Held {
+			if !put && t.Name < h.Name {
+				held = held.Append(Hold{Name: t.Name, By: t.By})
+				put = true
+			}
+			if h.Name != t.Name {
+				held = held.Append(h)
+			}
+		}
+		if !put {
+			held = held.Append(Hold{Name: t.Name, By: t.By})
+		}
+		Pool{..p, Held: held}
+	case Given as g:
+		let mut held = []Hold{}
+		for h in p.Held {
+			if h.Name != g.Name {
+				held = held.Append(h)
+			}
+		}
+		Pool{..p, Held: held}
+	}
+}
+
+// play is the pool after the commands of users, each decided and, when
+// accepted, evolved: the fold a law starts from.
+func play(cap int, cmds []Cmd, users []string) Pool {
+	let mut p = Empty(cap)
+	for i, c in cmds {
+		let by = if len(users) == 0 { "u" } else { users[i%len(users)] }
+		let events = Decide(p, envelope(by, c)) catch {
+		case _:
+			continue
+		}
+		for e in events {
+			p = Evolve(p, e)
+		}
+	}
+	p
+}
+
+func envelope(by string, c Cmd) domain.Envelope[Cmd] {
+	domain.Envelope[Cmd]{ID: domain.CommandID(""), By: by, At: time.Unix(0, 0), Command: c}
+}
+
+// NeverOverCap: after any commands the pool holds at most its capacity,
+// its names sorted and once each, and a Take on a full pool is refused
+// Exhausted.
+law NeverOverCap(cap int, cmds []Cmd, users []string, name string) {
+	let n = (cap%4+4)%4 + 1
+	let p = play(n, cmds, users)
+	if len(p.Held) > n {
+		return false
+	}
+	for i, h in p.Held {
+		if i > 0 && p.Held[i-1].Name >= h.Name {
+			return false
+		}
+	}
+	if len(p.Held) < n || Holder(p, name) != None {
+		return true
+	}
+	let _ = Decide(p, envelope("x", Take{Name: name})) catch {
+	case Refusal as r:
+		return r.Reason == Exhausted{Cap: n}
+	}
+	false
+}
+
+// NamesAreUnique: a Take of a held name is refused InUse with its holder,
+// whoever asks, and only the holder may give it back.
+law NamesAreUnique(cmds []Cmd, users []string, by string) {
+	let p = play(3, cmds, users)
+	for h in p.Held {
+		let _ = Decide(p, envelope(by, Take{Name: h.Name})) catch {
+		case Refusal as u:
+			if u.Reason != (InUse{Name: h.Name, By: h.By}) {
+				return false
+			}
+			if by != h.By {
+				let _ = Decide(p, envelope(by, Give{Name: h.Name})) catch {
+				case Refusal as v:
+					if v.Reason != (NotHeld{Name: h.Name}) {
+						return false
+					}
+					continue
+				}
+				return false
+			}
+			continue
+		}
+		return false
+	}
+	true
+}

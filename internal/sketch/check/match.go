@@ -7,7 +7,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -406,7 +406,7 @@ func (r *patResolver) pattern0(e syntax.Expr, t Type, col int) resolved {
 func reusableBinderName(o Object) bool {
 	switch o := o.(type) {
 	case *Func:
-		return o.Pkg != nil && o.Pkg.Path != std.PreludePath
+		return o.Pkg != nil && o.Pkg.Path != stdlib.PreludePath
 	case *PkgName:
 		return true
 	}

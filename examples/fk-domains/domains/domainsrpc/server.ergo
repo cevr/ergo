@@ -3,6 +3,7 @@
 
 import rpc
 import fk-domains/domains
+import fk-domains/domains/domainsapi
 
 // Handle runs one call of domains.Registry on the provider the caller binds: tag
 // names the operation and payload is its Request's JSON. Its value is the
@@ -20,14 +21,23 @@ func Handle(tag string, payload string) string fails rpc.Failed needs domains.Re
 		case rpc.Unrepresentable as u:
 			return rpc.Refuse[string](u)
 		}
-		let v = domains.Registry.SearchDomains(r.Label, r.Offset, r.Limit) catch {
-		case domains.Down as e:
+	}
+	match domainsapi.Call(req) {
+	case domainsapi.Done as done:
+		match done.Reply {
+		case domainsapi.SearchDomainsReply as reply:
+			let v = reply.Value
+			exactSliceDomainsListing(v) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			rpc.Encode(v)
+		}
+	case domainsapi.Rejected as rejected:
+		match rejected.Failure {
+		case domainsapi.Down as failure:
+			let e = failure.E
 			return rpc.Failed{Text: rpc.Tagged("Down", rpc.Encode(e))}
 		}
-		exactSliceDomainsListing(v) catch {
-		case rpc.Unrepresentable as u:
-			return rpc.Refuse[string](u)
-		}
-		rpc.Encode(v)
 	}
 }
