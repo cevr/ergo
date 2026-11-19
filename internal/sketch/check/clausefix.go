@@ -21,6 +21,15 @@ type Options struct {
 	// q137, and records them as the clauses that write them
 	// (Package.Clauses). No check, build or test path sets it.
 	Infer bool
+	// placeLaws reports S115 whatever lawPlacementReported says
+	// (checkWith; lawplace.go).
+	placeLaws bool
+}
+
+// checkWith is Check, with S115 reported when placeLaws is set
+// (lawplace.go, lawPlacementReported).
+func checkWith(path string, files []*syntax.File, imp Importer, placeLaws bool) (*Package, []Diagnostic) {
+	return check(path, files, imp, nil, Options{placeLaws: placeLaws})
 }
 
 // CheckOptions checks like Check, in the modes opts selects.

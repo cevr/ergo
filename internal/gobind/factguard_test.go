@@ -9,7 +9,7 @@ import (
 	"ergo.local/prototype/internal/gobind"
 	"ergo.local/prototype/internal/gofacts"
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 )
 
 // TestPureTierActsOnlyValidated is LF2d's admission of a pure row
@@ -29,7 +29,7 @@ func TestPureTierActsOnlyValidated(t *testing.T) {
 	t.Cleanup(func() { check.FactLedger = saved })
 	key := gofacts.PureKey("strings")
 	var dropped []string
-	for _, l := range strings.Split(std.Ledger(), "\n") {
+	for _, l := range strings.Split(stdlib.Ledger(), "\n") {
 		if !strings.HasPrefix(l, "fact "+key+" ") {
 			dropped = append(dropped, l)
 		}
@@ -38,7 +38,7 @@ func TestPureTierActsOnlyValidated(t *testing.T) {
 		name, ledger string
 		foreign      bool
 	}{
-		{"validated", std.Ledger(), false},
+		{"validated", stdlib.Ledger(), false},
 		{"missing", strings.Join(dropped, "\n"), true},
 	} {
 		ledger := c.ledger
@@ -72,7 +72,7 @@ func TestEffectTierActsOnlyValidated(t *testing.T) {
 	t.Cleanup(func() { check.FactLedger = saved })
 	key := gofacts.EffectKey("sync/atomic.Int64.Add")
 	var dropped []string
-	for _, l := range strings.Split(std.Ledger(), "\n") {
+	for _, l := range strings.Split(stdlib.Ledger(), "\n") {
 		if !strings.HasPrefix(l, "fact "+key+" ") {
 			dropped = append(dropped, l)
 		}
@@ -81,7 +81,7 @@ func TestEffectTierActsOnlyValidated(t *testing.T) {
 		name, ledger string
 		memory       bool
 	}{
-		{"validated", std.Ledger(), true},
+		{"validated", stdlib.Ledger(), true},
 		{"missing", strings.Join(dropped, "\n"), false},
 	} {
 		ledger := c.ledger

@@ -1,0 +1,63 @@
+import filepath
+
+// The host's commands for a test (TestAmbient; docs/spec/rows.md,
+// Test's ambient): NewTestHost is a Host confined to the case's folder. A command
+// runs in the folder when its Dir is "", and its Dir must lie in it. Each
+// argument is read as a path relative to that directory and must stay in
+// the folder too: a flag or a word does, and "/", "..", an absolute path
+// elsewhere or a path through a symbolic link that points out does not. A
+// file sink's path is relative to the folder and must lie in it. A command
+// that fails the check is refused with Denied naming the directory,
+// argument or path, and nothing runs. HOME and TMPDIR are the folder, and
+// GIT_CEILING_DIRECTORIES its parent, so git finds no repository above
+// it. On Linux the program then runs in the folder's sandbox (runtime/v1
+// exec_sandbox_linux.go): new user and mount namespaces in which every
+// mount is read-only but the folder, and no capability, so the paths a
+// program computes for itself cannot write outside the folder either. A
+// host that gives no user namespace fails the command with Failed; it
+// never runs unconfined. On other hosts only the check above holds: the
+// paths given to exec are confined, the program's own path choices are
+// not.
+
+// NewTestHost is the Runner of the case's folder. It needs the test's
+// ambient, which only the test runner provides, to a context that states
+// it: `context needs TestAmbient { exec.Runner: exec.NewTestHost() }`.
+func NewTestHost() Host needs TestAmbient { Host{root: TestFolder()} }
+
+extern go ergo.local/prototype/runtime/v1/exec.ExecConfine func confine(root string, dir string, args []string) string fails Denied
+
+extern go ergo.local/prototype/runtime/v1/exec.ExecConfineSink func confineSink(root string, path string) string fails Denied
+
+// testEnv is env with HOME and TMPDIR the folder root and
+// GIT_CEILING_DIRECTORIES its parent, so git finds no repository above
+// it. They win over env's.
+func testEnv(root string, env Map[string, string]) Map[string, string] {
+	let mut out = Map[string, string]{}
+	for k, v in env {
+		out[k] = v
+	}
+	out["HOME"] = root
+	out["TMPDIR"] = root
+	out["GIT_CEILING_DIRECTORIES"] = filepath.Dir(root)
+	out
+}
+
+// runConfined runs c to its end in the folder of a test's Host, h, as Run
+// runs it on the host.
+func runConfined(h Host, c Command) Result fails NotFound | Denied | Failed {
+	let dir = try confine(h.root, c.Dir, c.Args)
+	try hostRunIn(h.root, c.Name, c.Args, testEnv(h.root, c.Env), dir, c.Stdin, c.Grace)
+}
+
+extern go ergo.local/prototype/runtime/v1/exec.ExecRunIn func hostRunIn(root string, name string, args []string, env Map[string, string], dir string, stdin string, grace duration) Result fails NotFound | Denied | Failed
+
+extern go ergo.local/prototype/runtime/v1/exec.ExecStartIn func hostStartIn(root string, name string, args []string, env Map[string, string], dir string, stdin string, grace duration, outKind int, outPath string, outAppend bool, errKind int, errPath string, errAppend bool) Running fails NotFound | Denied | Failed
+
+// startConfined starts c in the folder of a test's Host, h, as Start
+// starts it on the host.
+func startConfined(h Host, c Command, s Streams) Running fails NotFound | Denied | Failed {
+	let dir = try confine(h.root, c.Dir, c.Args)
+	let out = try confineSink(h.root, sinkPath(s.Stdout))
+	let errs = try confineSink(h.root, sinkPath(s.Stderr))
+	try hostStartIn(h.root, c.Name, c.Args, testEnv(h.root, c.Env), dir, c.Stdin, c.Grace, sinkKind(s.Stdout), out, sinkAppends(s.Stdout), sinkKind(s.Stderr), errs, sinkAppends(s.Stderr))
+}

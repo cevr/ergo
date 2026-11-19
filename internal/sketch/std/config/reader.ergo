@@ -2,6 +2,7 @@ import json
 import strconv
 import strings
 import sync
+import utf8
 
 // The reader of the merged layers: a provider of the prelude's Reader
 // that decode[T] reads (docs/spec/stdlib.md, config 4). A file's value is
@@ -256,6 +257,21 @@ func String(r reader) string fails WireWrongKind {
 	}
 	wrong(r, n, "string")
 }
+
+// StringBytes is into with the bytes of the string String reads (GX12).
+func StringBytes(r reader, into []byte) []byte fails WireWrongKind { appendText(into, try String(r)) }
+
+// ReaderStringBytesReadsString: a config reader's StringBytes adds to into
+// the bytes String reads from the same tree (GX12b).
+law ReaderStringBytesReadsString(s string, pre []byte) {
+	let a = newReader(scalar{Value: json.Str{Value: s}, From: FromDefault})
+	let b = newReader(scalar{Value: json.Str{Value: s}, From: FromDefault})
+	let got = try a.StringBytes(pre)
+	utf8.String(got) == utf8.String(pre)+try b.String()
+}
+
+// appendText is Go's append(into, s...).
+extern go append func appendText(into []byte, s string) []byte
 
 // push opens a frame for the value just read, at the path of it.
 func push(r reader, members []member, list bool, tag Option[string]) {

@@ -3,4 +3,4 @@
 # Ambient capability), so no generator builds one: SaveThenLoad runs on
 # memory.Shelf, and the host's files are written by the cases and by
 # cmd/ergo TestEditorGuiAgreesWithControl.
-skip law edit.Store.SaveThenLoad for Disk: its values have no generator: fs.Host has an unexported field, so only package fs builds it; use fs.NewHost; bind one in a named context of a test file, let Name = context { edit.Store: … }, and the law runs under it
+skip law edit.Store.SaveThenLoad for Disk: its values have no generator: fs.Host has an unexported field, so only package fs builds it; use fs.NewTestHost or fs.NewHost; bind one in a named context of a test file, let Name = context { edit.Store: … }, and the law runs under it

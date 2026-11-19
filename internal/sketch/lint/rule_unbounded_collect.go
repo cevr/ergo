@@ -15,14 +15,12 @@ var unboundedCollect = &Rule{
 	Name:    "unbounded-collect",
 	Code:    "L105",
 	Doc:     "Collecting a Seq that ends only when another task closes its source waits for that close; take a bounded part, or loop over it and handle each value.",
+	Instead: "loop over it and handle each value, or say why with // " + DirectiveWord + " unbounded-collect -- REASON",
 	Default: Warning,
 	Check:   checkUnboundedCollect,
 }
 
 func checkUnboundedCollect(p *Pass) {
-	if p.Package.Std() || p.Package.Host() {
-		return
-	}
 	bound := map[*check.Var]syntax.Expr{}
 	syntax.Inspect(p.File, func(n syntax.Node) bool {
 		d, ok := n.(*syntax.DeclStmt)
@@ -68,11 +66,11 @@ func checkUnboundedCollect(p *Pass) {
 		case *syntax.CallExpr:
 			call := p.Info.Calls[n]
 			if call != nil && check.RoleOf(call.Func) == check.RoleCollect && len(n.Args) == 1 && unbounded(n.Args[0], 0) {
-				p.Report(n.Pos(), n.End(), "this collects a Seq that ends only when its source is closed, so it waits for that close; loop over it and handle each value, or say why with // "+DirectiveWord+" unbounded-collect -- REASON")
+				p.Report(n.Pos(), n.End(), "this collects a Seq that ends only when its source is closed, so it waits for that close")
 			}
 		case *syntax.RangeStmt:
 			if unbounded(n.X, 0) && appendsWithoutLeaving(p.Info, n.Body) {
-				p.Report(n.For, n.Body.Lbrace, "this loop appends every value of a Seq that ends only when its source is closed and never leaves early; handle each value, or say why with // "+DirectiveWord+" unbounded-collect -- REASON")
+				p.ReportInstead(n.For, n.Body.Lbrace, "this loop appends every value of a Seq that ends only when its source is closed and never leaves early", "handle each value, or say why with // "+DirectiveWord+" unbounded-collect -- REASON", nil)
 			}
 		}
 		return true

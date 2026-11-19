@@ -10,7 +10,7 @@ import (
 
 	"ergo.local/prototype/internal/sketch/build"
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/stage"
 	"ergo.local/prototype/internal/testinputs/genprogram"
 )
@@ -63,7 +63,7 @@ func countReference(t *testing.T, root, module, main string) referenceCount {
 	seen, stdSeen := map[string]bool{}, map[string]bool{}
 	var visitStd func(path string)
 	visitStd = func(path string) {
-		files, ok := std.Package(path)
+		files, ok := stdlib.Package(path)
 		if !ok || stdSeen[path] {
 			return
 		}
@@ -118,7 +118,9 @@ func countReference(t *testing.T, root, module, main string) referenceCount {
 // program twice on the direct path and holds the action counters to the
 // direct path's own Report: the first build compiles and links, the
 // second reuses every compile and the link, lowers nothing and reuses
-// the emitted module (cs-count-reused-as-run). It builds Go because the
+// the emitted module (cs-count-reused-as-run); each build places one
+// binary, counted as source text since it lowers without IR
+// (teqb-counted-as-ir). It builds Go because the
 // action counters count the direct path's compile and link processes,
 // which only a real build starts.
 func TestStageReportCountsAgree(t *testing.T) {
@@ -165,6 +167,8 @@ func TestStageReportCountsAgree(t *testing.T) {
 			want := map[string]int64{
 				"go_compiles": int64(report.Compiled), "go_compiles_reused": int64(report.Reused),
 				"links": links, "links_reused": linksReused,
+				// A build without IR places one source-text binary (TEQb).
+				"binaries_ir": 0, "binaries_text": 1,
 				"processes": int64(report.Compiled) + links + got["go_commands"],
 			}
 			if round == 1 {

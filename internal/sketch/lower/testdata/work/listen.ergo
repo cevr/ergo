@@ -56,7 +56,7 @@ type Finder machine[Phase, Signal] { initial: start, step: step, work: work }
 func start(q string) Phase { Searching{Query: q} }
 
 // run reads the initial state's work from the Machine value first: when
-// the conversion dropped it, the actor would wait on Changes forever, so
+// the conversion dropped it, the actor would wait on LatestChanges forever, so
 // the program says so and ends instead.
 func run(q string) string needs Scheduler | Catalog {
 	let m = machines.Start(Finder{}, q)
@@ -67,7 +67,7 @@ func run(q string) string needs Scheduler | Catalog {
 	}
 	let a = actor.StartMachine(m, 1, func(o string) {})
 	let mut last = ""
-	for st in a.Changes() {
+	for st in a.LatestChanges() {
 		match st {
 		case Over as o:
 			last = o.Note

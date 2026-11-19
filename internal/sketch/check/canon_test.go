@@ -41,10 +41,11 @@ type canonChunk struct {
 var canonChunks = []string{
 	"type Read {\n\tGet() int,\n\n\tlaw Same(v int) { v == v },\n}",
 	"type Q { N int } implements Read",
-	"func Get(q Q) int { q.N }",
+	// A law sits with what it is about (S115), so each shares its subject's chunk.
+	"func Get(q Q) int { q.N }\n\nlaw Top1(n int) { Get(Q{N: n}) == n }",
 	"func Make() Read { Q{N: 1} }",
 	"type Box[T] { V T }",
-	"func Wrap[T](v T) Box[T] { Box[T]{V: v} }",
+	"func Wrap[T](v T) Box[T] { Box[T]{V: v} }\n\nlaw Top2(n int) { Wrap(n).V == n }",
 	"type R { M int }",
 	"func Pick[T](q Q, x T) T { x }",
 	"func Pick[T](r R, x T) T { x }",
@@ -52,8 +53,6 @@ var canonChunks = []string{
 	"test Own1 { assert 1 == 1 }",
 	"test Own2 { assert Wrap(2).V == 2 }",
 	"test Prop(n int) { assert n == n }",
-	"law Top1(n int) { n + 0 == n }",
-	"law Top2(n int) { n * 1 == n }",
 }
 
 // canonSpread lays chunks out over two or three files of dir, each chunk

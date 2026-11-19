@@ -1,0 +1,14 @@
+{
+  "name": "@cevr/work-darwin-arm64",
+  "version": "0.1.0",
+  "description": "The work binary for macOS arm64 (a static Go binary; see @cevr/work).",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cevr/ergo.git",
+    "directory": "tools/npm/work-darwin-arm64"
+  },
+  "os": ["darwin"],
+  "cpu": ["arm64"],
+  "files": ["bin/work"],
+  "preferUnplugged": true
+}

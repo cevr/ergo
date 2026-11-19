@@ -1,0 +1,39 @@
+// A site whose loader gained the failure locked and whose status table
+// has no page for it (SSR WEB1): the table's match is not exhaustive, so
+// the site does not compile.
+
+import github.com/cevr/ergo/modules/web
+import html
+import ui
+
+type home {}
+type gone { Slug string }
+type locked { Slug string }
+type routes {} implements web.Routes[home]
+
+func Href(_ routes, r home) ui.URL { ui.URL{Path: "/", Query: "", Fragment: ""} }
+
+func Parse(_ routes, u ui.URL) Option[home] {
+	if len(ui.Segments(u)) == 0 {
+		return Some[home]{Value: home}
+	}
+	None
+}
+
+func load(r home) string fails gone | locked { locked{Slug: "a"} }
+
+func site() web.Site[home, string, gone | locked] {
+	web.Site[home, string, gone | locked]{
+		Routes: routes,
+		Load:   load,
+		View:   func(p string) html.Node { html.Text(p) },
+		Status: func(f) web.Reply {
+			match f {
+			case gone as g:
+				web.Reply{Status: 410, Page: html.Text(g.Slug)}
+			}
+		},
+		NotFound: func(path string) html.Node { html.Text(path) },
+		Assets:   []web.Asset{},
+	}
+}

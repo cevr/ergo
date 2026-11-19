@@ -1142,11 +1142,20 @@ func (g *gen) compound(c, d int) (stmt, bool) {
 	case 33:
 		g.kind("union-match")
 		v, e := g.pick(intVars), g.intExpr(1)
-		text := fmt.Sprintf("match sh0 {\ncase Dot:\n\t%s += 1\ncase Line{n: k}:\n\t%s = %s + k\ncase Grid{cells: cs}:\n\tsh0 = Line{n: len(cs) + %s}\n}", v, v, v, e.text)
+		// Dot's arm is a value match: a literal subject, a case of two
+		// constants and a wildcard (the compiled value match, ORACLE O35).
+		text := fmt.Sprintf("match sh0 {\ncase Dot:\n\tmatch %s %% 3 {\n\tcase 0:\n\t\t%s += 1\n\tcase 1, 2:\n\t\t%s += 2\n\tcase _:\n\t\t%s += 3\n\t}\ncase Line{n: k}:\n\t%s = %s + k\ncase Grid{cells: cs}:\n\tsh0 = Line{n: len(cs) + %s}\n}", v, v, v, v, v, v, e.text)
 		return stmt{line(text), func(m *model) {
 			switch m.sh.kind {
 			case "Dot":
-				m.ints[v]++
+				switch m.ints[v] % 3 {
+				case 0:
+					m.ints[v]++
+				case 1, 2:
+					m.ints[v] += 2
+				default:
+					m.ints[v] += 3
+				}
 			case "Line":
 				m.ints[v] += m.sh.n
 			default:

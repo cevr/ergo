@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"path"
 	"slices"
 	"sort"
 
@@ -50,6 +51,8 @@ type IRReport struct {
 	// (strbuf.go).
 	StrBuf int    `json:"strbuf,omitempty"`
 	Hash   string `json:"hash"`
+	// Folds counts the build-time folds of the IR bodies (ir_constfold.go).
+	Folds FoldCounts `json:"folds"`
 	// Forms counts the IR forms the bodies held before erasure, by
 	// kind and layout ("match/flat"; ir_forms.go): in memory only.
 	Forms map[string]int `json:"-"`
@@ -188,10 +191,15 @@ func lowerIRForms(u Unit, tests *testLowering, formsOff bool) ([]File, IRReport,
 // program the split does not split keeps LowerIR's one package and its
 // one IR file, with the reason in the report.
 func LowerIRSplit(u Unit, tests bool) ([]File, IRReport, SplitReport, error) {
-	return lowerIRSplit(u, tests, programModule)
+	return lowerIRSplit(u, tests, programModule, nil)
 }
 
-func lowerIRSplit(u Unit, tests bool, base string) ([]File, IRReport, SplitReport, error) {
+// LowerIRShards is LowerIRSplit with declaration shards (pkgshard.go).
+func LowerIRShards(u Unit, tests bool) ([]File, IRReport, SplitReport, error) {
+	return lowerIRSplit(u, tests, programModule, devShards)
+}
+
+func lowerIRSplit(u Unit, tests bool, base string, sh *shardOpts) ([]File, IRReport, SplitReport, error) {
 	var tl *testLowering
 	if tests {
 		tl = &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}}
@@ -204,7 +212,7 @@ func lowerIRSplit(u Unit, tests bool, base string) ([]File, IRReport, SplitRepor
 	var out []File
 	rep := SplitReport{Reason: "no main.go"}
 	if i >= 0 {
-		out, rep = splitMain(u, files[i].Data, base, origins, &l.ir.out)
+		out, rep = splitMain(u, files[i].Data, base, origins, l.harnessNames(), &l.ir.out, sh)
 	}
 	res := files
 	if out == nil {
@@ -228,6 +236,34 @@ func lowerIRSplit(u Unit, tests bool, base string) ([]File, IRReport, SplitRepor
 type irModule struct {
 	IRReport
 	out *irFile
+}
+
+// lowerIRTestParts is lowerTestParts with the IR bodies, as LowerIRTests
+// lowers them: the test build's main.go, its assets and its IR file, for
+// the Go package in the module's folder dir (TEST-one). The compile reads
+// an IR source path relative to its working directory, the module's
+// folder, where a //line name is read from main.go's folder: so each path
+// is written under dir, and a frame of an IR body names the file a frame
+// of the same function's source body names (runtime/v1, sourceDir).
+func lowerIRTestParts(u Unit, dir string) ([]byte, []File, []byte, error) {
+	files, _, report, l, err := lowerIRModule(u, &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}}, false)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	i := slices.IndexFunc(files, func(f File) bool { return isMainGo(f.Path) })
+	if i < 0 {
+		return nil, nil, nil, fmt.Errorf("lower: an IR test build has no main.go (a compiler defect)")
+	}
+	for i, f := range report.out.Files {
+		if !path.IsAbs(f) {
+			report.out.Files[i] = path.Join(dir, f)
+		}
+	}
+	data, err := json.Marshal(report.out)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return files[i].Data, l.assetFiles(), data, nil
 }
 
 // lowerIRModule lowers u with IR bodies: the module's files without an IR
@@ -336,6 +372,8 @@ type irFile struct {
 	V     int      `json:"v"`
 	Files []string `json:"files"`
 	Funcs []irFunc `json:"funcs"`
+	// Shared are the instances another package compiles (pkginst.go).
+	Shared []string `json:"shared,omitempty"`
 }
 
 type irFunc struct {
@@ -489,6 +527,17 @@ type irBuilder struct {
 	// source local keeps its spelling unless Go's scope or one of these
 	// has it (ir_stmt.go, localName).
 	given map[string]bool
+	// decl and pkg are the declaration whose body is built and its
+	// package, which a build-time fold evaluates in (ir_constfold.go); nil in a
+	// law's or a test's body, which never folds.
+	decl syntax.Decl
+	pkg  *check.Package
+	// foldCounts are this body's folds, which count once the body is kept.
+	foldCounts FoldCounts
+	// tmplHoles and tmplTypes are the holes of the template being built
+	// and their types, as constOf places them (ir_template.go).
+	tmplHoles []*irExpr
+	tmplTypes []check.Type
 	// law is the law whose body is built (ir_assert.go), nil in any
 	// other body and inside a function literal: each value it returns is
 	// checked where it is returned.
@@ -602,6 +651,9 @@ func (b *irBuilder) part(f func()) {
 func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []string, drop bool) (ok bool) {
 	f := fd.fn
 	b := &irBuilder{fc: fc, l: fc.l, st: st, locals: map[*check.Var]int{}, env: -1, result: fc.frame.result}
+	if f != nil && f.Decl != nil {
+		b.decl, b.pkg = f.Decl, f.Pkg
+	}
 	name := fd.name
 	if drop {
 		name = fd.dropped
@@ -722,6 +774,7 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	st.out.Funcs = append(st.out.Funcs, *b.fn)
 	st.inlineCallee(b, fd, params) // ir_forms_inline.go
 	st.report.IR = append(st.report.IR, name)
+	st.report.Folds.add(b.foldCounts) // ir_constfold.go
 	st.report.Memo += b.memoSites
 	st.report.Merge += b.mergeSites
 	st.report.Fold += b.foldSites
