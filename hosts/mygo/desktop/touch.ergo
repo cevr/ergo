@@ -162,21 +162,35 @@ func touched[E comparable, S, D, F](d *Driver[S, E, D, F], input screen.Input) f
 		let (n, sig) = ui.TouchStep(f.Value.touch, ev, d.look)
 		try fingerTo(d, fingered[E]{touch: n, scrolls: f.Value.scrolls, target: f.Value.target})
 		if input.Kind == screen.Up {
-			match (sig, f.Value.target) {
-			case (Some[ui.TouchSignal] as s, Some[ui.Id[E]] as id):
-				match (s.Value, spotOf(d, id.Value)) {
-				case (ui.Tapped, Some[spot[E]] as sp):
+			match f.Value.target {
+			case Some[ui.Id[E]] as id:
+				match spotOf(d, id.Value) {
+				case Some[spot[E]] as sp:
+					// The finger lets go of the node it went down on, a tap
+					// or a drag: its press state ends (MB4 x UG3: a drag
+					// that scrolled leaves no row active).
 					try fingerPointed(d, sp.Value, ui.Up, x, y)
-					if pressable(sp.Value.node) {
+					let tapped = match sig {
+					case Some[ui.TouchSignal] as s:
+						match s.Value {
+						case ui.Tapped:
+							true
+						case _:
+							false
+						}
+					case None:
+						false
+					}
+					if tapped && pressable(sp.Value.node) {
 						if focusable(sp.Value.node) && ui.SessionFocus(&d.session) != (Some{Value: id.Value}) {
 							ui.FocusSession(&d.session, Some{Value: id.Value})
 						}
 						try step(d, ui.Press[E]{Id: id.Value})
-						paint(d)
 					}
-				case _:
+					paint(d)
+				case None:
 				}
-			case _:
+			case None:
 			}
 		}
 	case None:
