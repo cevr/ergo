@@ -6,6 +6,7 @@ Entries describe user-visible changes and are true at the commit that carries th
 
 ### Lowering
 
+- A Go interface value given to a parameter of another Go interface (an `io.ReadCloser` to `io.LimitReader`, a `net.Conn` to `bufio.NewReader`) is Go's conversion on the IR (IR-GOCALLS-5).
 - A Go value given to a Go interface parameter (a `go.Ref[strings.Reader]` as `http.NewRequest`'s `own io.Reader`) and a go.Ref given to an `own *T` parameter (`Request.AddCookie`) take IR bodies (IR-GOCALLS-4); the first was an internal compiler error on the IR.
 - A Go method on a receiver that holds a slice or Map (`url.Values.Get`, `http.Header.Get`), `len` of a Go named Map, and a Go struct's field read through its go.Ref (`r.Header`, `u.User`) take IR bodies (IR-GOCALLS-3); the field read was an internal compiler error on the IR.
 - A Go result that holds a slice or a Map (`bytes.Buffer.Bytes`, `bufio.Reader.ReadLine`, `url.URL.Query`) and a Go package variable (`sql.ErrNoRows`, `io.EOF`, `os.Args`) take IR bodies (IR-GOCALLS-2): the result is the value rule's deep copy, as the text path's, and the variable is read through a getter the lowerer declares once.

@@ -64,6 +64,9 @@ func (b *irBuilder) hostArgs(x *syntax.CallExpr, c *check.Call, f *check.Func, p
 		if check.IsGoAny(q.Type) {
 			args[i] = b.assignedTo(x.Args[i], args[i], q.Type) // ir_union.go: Go's any
 		}
+		if wpre, w, ok := b.goWiden(b.l.info.Types[x.Args[i]], q.Type, args[i], x.Args[i], p); ok { // ir_govar.go
+			pre, args[i] = append(pre, wpre...), w
+		}
 	}
 	for i, shape := range shapes {
 		if cb, ok := f.Sig.Params[i].Type.(*check.Signature); ok && !cb.NonEscaping {

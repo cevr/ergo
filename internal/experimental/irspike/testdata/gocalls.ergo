@@ -19,6 +19,9 @@
 //   - cookie (IR-GOCALLS-3): a Go struct's Map field read, then written by
 //     Go (Header.Set on the field itself, which only Go takes): the read
 //     is goResult's copy, so it prints 0 (mutant irgc3-field-copy-dropped).
+//   - limited (IR-GOCALLS-5): an io.ReadCloser given to io.LimitReader's
+//     io.Reader, Go's conversion of one Go interface to another (mutant
+//     irgc5-widen-dropped, whose IR the decoder refuses).
 
 import go fmt
 import go regexp
@@ -125,6 +128,12 @@ func cookie() int fails go.Error needs go.Foreign {
 	len(h)
 }
 
+func limited(rc own io.ReadCloser) string fails go.Error needs go.Foreign {
+	let l = io.LimitReader(rc, 2)
+	let b = try io.ReadAll(l)
+	"\(len(b))"
+}
+
 func eof() string needs go.Foreign {
 	let n = if go.Is(io.EOF, io.EOF) {
 		1
@@ -151,6 +160,16 @@ func main() needs Console | go.Foreign {
 		-2
 	}
 	Console.Println("cookie \(c)")
+	let lim = match strings.NewReader("abc") {
+	case Some{Value: s}:
+		limited(io.NopCloser(s)) catch {
+		case _:
+			"bad"
+		}
+	case None:
+		"none"
+	}
+	Console.Println("limited \(lim)")
 	Console.Println(show(3))
 	let p = pattern("xaab") catch {
 	case _:

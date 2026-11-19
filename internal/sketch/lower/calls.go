@@ -818,6 +818,19 @@ func (l *lowerer) hostImportNames(pkgs []*check.Package) {
 				paths = append(paths, path)
 			}
 		}
+		// The Go interface parameter another Go interface widens to
+		// (goWiden, ir_govar.go; IR-GOCALLS-5).
+		for _, c := range p.Info.Calls {
+			if c == nil || c.Func == nil || c.Func.Sig == nil || c.Func.Pkg == nil || !c.Func.Pkg.Host() {
+				continue
+			}
+			for _, q := range c.Func.Sig.Params {
+				if n, ok := q.Type.(*check.Named); ok && goInterface(n) && n.Obj.Pkg.Path != "time" && !seen[n.Obj.Pkg.Path] {
+					seen[n.Obj.Pkg.Path] = true
+					paths = append(paths, n.Obj.Pkg.Path)
+				}
+			}
+		}
 	}
 	// Every Go package the program reaches through import go (libraryPackages).
 	l.libraries()

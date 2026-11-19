@@ -31,6 +31,10 @@ import (
 //     `own io.Reader` (an internal compiler error on the IR: no adapter),
 //     whose package io the program does not import, and a go.Ref given to
 //     an `own *Cookie` (Request.AddCookie).
+//   - widen and widenunimported (IR-GOCALLS-5): a Go interface value
+//     given to a parameter of another Go interface (io.ReadCloser to
+//     io.LimitReader, net.Conn to bufio.NewReader), whose package io the
+//     second program does not import.
 //   - vars (IR-GOCALLS-2): a Go package variable read through its getter
 //     (goVarGetter): an error sentinel (sql.ErrNoRows, io.EOF) as the
 //     go.Error that keeps it, a []string (os.Args), a constant
@@ -171,6 +175,32 @@ func request() int fails go.Error needs go.Foreign {
 	let r = try http.NewRequest("GET", "http://h.example/", body)
 	r.AddCookie(go.New[http.Cookie]())
 	len(r.Header)
+}
+
+func main() needs go.Foreign {}
+`},
+		{"widen", `import go io
+
+func size(rc own io.ReadCloser) int fails go.Error needs go.Foreign {
+	let l = io.LimitReader(rc, 2)
+	let b = try io.ReadAll(l)
+	len(b)
+}
+
+func main() needs go.Foreign {}
+`},
+		{"widenunimported", `import go bufio
+import go net
+
+func first(f own net.Conn) int fails go.Error needs go.Foreign {
+	let r = match bufio.NewReader(f) {
+	case Some{Value: r}:
+		r
+	case None:
+		return 0
+	}
+	let (c, n) = try r.ReadRune()
+	int(c) + n
 }
 
 func main() needs go.Foreign {}

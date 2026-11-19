@@ -86,6 +86,45 @@ func (b *irBuilder) fieldValue(t check.Type, f *irExpr, x syntax.Node) *irExpr {
 	return f
 }
 
+// goWiden is e, a value of the Go interface from, as the Go interface to
+// that a Go parameter takes (an io.ReadCloser as io.Reader;
+// IR-GOCALLS-5). Go assigns it implicitly, as the emitter leaves it; the
+// decoder takes an argument of the parameter's type only, and its
+// toiface a concrete source only, so the IR writes Go's conversion as a
+// type switch: the value when it holds one (always, from implements to),
+// else to's nil, as Go converts a nil interface. ok is false when from
+// and to are not two Go interfaces.
+func (b *irBuilder) goWiden(from, to check.Type, e *irExpr, x syntax.Node, p irPos) ([]*irStmt, *irExpr, bool) {
+	if !goInterface(from) || !goInterface(to) {
+		return nil, nil, false
+	}
+	ft, tt := b.goType(from, x), b.goType(to, x)
+	if ft == tt {
+		return nil, nil, false
+	}
+	b.keepImport("var _ " + b.fc.goType(to)) // main.go imports its package
+	a, w := b.temp("a", ft, p), b.temp("w", tt, p)
+	src := &irExpr{K: "local", Pos: p, I: a}
+	return []*irStmt{
+		{K: "def", Pos: p, Local: a, X: e},
+		{K: "def", Pos: p, Local: w, X: &irExpr{K: "zero", Pos: p, T: tt}},
+		{K: "tswitch", Pos: p, End: p, X: src, Cases: []*irCase{{Pos: p, Types: []string{tt}, Body: []*irStmt{
+			{K: "set", Pos: p, Local: w, X: &irExpr{K: "assert", Pos: p, T: tt, X: src}},
+		}}}},
+	}, &irExpr{K: "local", Pos: p, I: w}, true
+}
+
+// goInterface reports a Go package's interface type (io.Reader), not
+// go.Error or go.Any, which have conversions of their own.
+func goInterface(t check.Type) bool {
+	n, ok := t.(*check.Named)
+	if !ok || n.Obj == nil || !n.Obj.Pkg.Host() || check.IsGoError(n) || check.IsGoAny(n) {
+		return false
+	}
+	_, iface := n.Underlying().(*check.Interface)
+	return iface
+}
+
 // goVarKey is the naming key of the getter of the Go variable o.
 func goVarKey(o *check.Var) pkgKey { return pkgKey{"go var", o} }
 
