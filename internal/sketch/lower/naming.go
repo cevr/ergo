@@ -111,12 +111,12 @@ func (l *lowerer) nameAll() {
 			l.pkgName(pkgKey{"func", f}, f.Name)
 		}
 	}
-	l.markEntryWrites(append([]*check.Package{l.pkg}, libs...))                   // moveout.go, V9: before any copy is decided
-	l.reserveOwned(append([]*check.Package{l.pkg}, libs...))                      // values.go, V5
-	l.reserveKnown(append([]*check.Package{l.pkg}, libs...))                      // known.go
-	l.reserveDropped(append([]*check.Package{l.pkg}, libs...))                    // drop.go
-	l.reserveSlots(append([]*check.Package{l.pkg}, libs...))                      // slot.go
-	l.reserveSpecs(append([]*check.Package{l.pkg}, libs...), l.sourcedMachines()) // record.go
+	l.markEntryWrites(append([]*check.Package{l.pkg}, libs...))                                                      // moveout.go, V9: before any copy is decided
+	l.reserveOwned(append([]*check.Package{l.pkg}, libs...))                                                         // values.go, V5
+	l.reserveKnown(append([]*check.Package{l.pkg}, libs...))                                                         // known.go
+	l.reserveDropped(append([]*check.Package{l.pkg}, libs...))                                                       // drop.go
+	l.reserveSlots(append([]*check.Package{l.pkg}, libs...))                                                         // slot.go
+	l.reserveSpecs(append([]*check.Package{l.pkg}, libs...), l.machinesOf(append([]*check.Package{l.pkg}, libs...))) // record.go
 	if valueOwned() {
 		l.pkgName(lineagesKey, "ergoLineages") // handover.go, own-lineage
 	}
