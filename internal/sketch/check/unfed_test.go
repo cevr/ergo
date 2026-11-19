@@ -46,6 +46,38 @@ func Area(s Fn) int { s.f(1) }
 `,
 		},
 		{
+			// A context whose release a case cannot run feeds no case.
+			name: "provider under a context that does not run",
+			src: shape + `type Nd { g func(int) int } implements Shape, Closer
+func Area(_ Nd) int { 1 }
+func Close(_ Nd) needs Console {}
+let Needy = context { Shape: Nd{g: func(n int) int { n }} }
+`,
+			want: []string{"5:40 S108 law Shape.Positive cannot run at Nd: its values have no generator: func(int) int is a function type; bind one in a named context of a test file, let Name = context { Shape: … }, and the law runs under it (types.md, Laws 10)"},
+		},
+		{
+			// A law whose slot is a parameter runs under no context, so
+			// its fix is the constructor.
+			name: "provider of a law's parameter",
+			src: `type Store { Get() int }
+law Same(s Store) { s.Get() == s.Get() }
+type Fn { f func(int) int } implements Store
+func Get(s Fn) int { s.f(1) }
+`,
+			want: []string{"3:39 S108 law Same cannot run at Fn: its values have no generator: func(int) int is a function type; a func NewFn() Fn with no rows would build one for each case (types.md, Laws 10)"},
+		},
+		{
+			name: "parameter at the provider's instance",
+			src: `type Box[T] {
+	Put(v T),
+	law Keeps(v T) { true },
+}
+type Fns {} implements Box[func(int) int]
+func Put(_ Fns, v own func(int) int) {}
+`,
+			want: []string{"5:24 S108 law Box.Keeps cannot run at Fns: its parameter v has no generator at Box[func(int) int]: func(int) int is a function type (types.md, Laws 10)"},
+		},
+		{
 			// fstest's fs.Root: NewRecorder wraps a Root, so NewTree is
 			// the one builder, and the wrapper's law is fed by it.
 			name: "a builder that wraps its own type is no candidate",
@@ -63,6 +95,15 @@ test Any(s Shape) { assert s.Area() > 0 }
 			src: `law Applies(f func(int) int) { f(1) == f(1) }
 `,
 			want: []string{"1:13 S108 law Applies cannot run: its parameter f has no generator: func(int) int is a function type (types.md, Laws 10)"},
+		},
+		{
+			// func() with an error row is not the one returning function
+			// (LAW-GEN-FUNC), so it has no generator.
+			name: "parameter of a fallible function type",
+			src: `type Oops { Code int }
+law Fails(f func() fails Oops) { true }
+`,
+			want: []string{"2:11 S108 law Fails cannot run: its parameter f has no generator: func() fails Oops is a function type (types.md, Laws 10)"},
 		},
 	}
 	for _, row := range rows {

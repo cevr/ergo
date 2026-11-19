@@ -71,16 +71,6 @@ func NewP(n int) P { P{N: n} }
 func Read(p P) int { p.N }
 law Slot(r Reader, x bool) { r.Read() != %d }
 test Nested(xs []int8, m Map[string, int16], pair (bool, int), f float32, s string) { assert len(xs) == 0 }
-law Skips(f func() bool) { Holds(f()) }
-type Oops { Code int }
-func Succeeds(f func() fails Oops) bool {
-	f() catch {
-	case Oops:
-		return false
-	}
-	true
-}
-law SkipsFailing(f func() fails Oops) { Succeeds(f) }
 type Mirror[T comparable] { Echo(v T) T, law Same(v T) { Echo(v) == v } }
 type BoolEcho { B bool } implements Mirror[bool]
 func Echo(p BoolEcho, v bool) bool { v }
