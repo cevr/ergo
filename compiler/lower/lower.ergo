@@ -281,44 +281,26 @@ func outside(st fnb, x dense.ID[syntax.Node]) bool {
 // row is written.
 func check(st fnb, x dense.ID[syntax.Node]) fails Unported {
 	let p = st.p
+	if isConst(st, x) {
+		let t = try typeOf(st, x, "constant")
+		let _ = try constText(st, t, try fold(st, x))
+		return
+	}
 	match syntax.ViewOf(p.Tree, x) {
-	case syntax.BasicLit as bl:
-		let t = try typeOf(st, x, "BasicLit")
-		let _ = try literal(st, bl.Tok, t, false)
 	case syntax.Name:
 		let _ = try typeOf(st, x, "Ident")
-		if isConst(st, x) {
-			return
-		}
 		let _ = try paramLocal(st, x)
 	case syntax.ParenExpr as pe:
-		if isConst(st, x) {
-			return stop("constant expression")
-		}
 		try check(st, pe.X)
 	case syntax.UnaryExpr as u:
-		let t = try typeOf(st, x, "UnaryExpr")
+		let _ = try typeOf(st, x, "UnaryExpr")
 		let op = syntax.TokText(p, u.Op)
-		if isConst(st, x) {
-			match syntax.ViewOf(p.Tree, u.X) {
-			case syntax.BasicLit as bl:
-				if op == "-" {
-					let _ = try literal(st, bl.Tok, t, true)
-					return
-				}
-			case _:
-			}
-			return stop("constant expression")
-		}
 		if op != "!" && op != "-" && op != "+" && op != "^" {
 			return stop("unary " + op)
 		}
 		try check(st, u.X)
 	case syntax.BinaryExpr as be:
 		let _ = try typeOf(st, x, "BinaryExpr")
-		if isConst(st, x) {
-			return stop("constant expression")
-		}
 		let op = syntax.TokText(p, be.Op)
 		if !isIROp(op) {
 			return stop("operator " + op)
@@ -353,31 +335,21 @@ func paramLocal(st fnb, x dense.ID[syntax.Node]) int fails Unported {
 func value(st fnb, b mut ir.Builder, x dense.ID[syntax.Node]) uint32 fails Unported | ir.Malformed {
 	let p = st.p
 	let at = pos(st, syntax.NodePos(p, x))
+	if isConst(st, x) {
+		// Go's checker gives a constant expression its value, and the Go
+		// builder writes that value (lower's constant).
+		let t = try typeOf(st, x, "constant")
+		let v = try constText(st, t, try fold(st, x))
+		return try constRow(b, at, basicGo(st, t), v)
+	}
 	match syntax.ViewOf(p.Tree, x) {
-	case syntax.BasicLit as bl:
-		let t = try typeOf(st, x, "BasicLit")
-		let v = try literal(st, bl.Tok, t, false)
-		try constRow(b, at, basicGo(st, t), v)
-	case syntax.Name as nm:
-		if isConst(st, x) {
-			return try constRow(b, at, "bool", syntax.TokText(p, nm.Tok))
-		}
+	case syntax.Name:
 		let i = try paramLocal(st, x)
 		try ir.Row(b, ir.KindCode(ir.TExpr, "local"), at, []uint32{uint32(i)})
 	case syntax.ParenExpr as pe:
 		try value(st, b, pe.X)
 	case syntax.UnaryExpr as u:
-		let t = try typeOf(st, x, "UnaryExpr")
 		let op = syntax.TokText(p, u.Op)
-		if isConst(st, x) {
-			match syntax.ViewOf(p.Tree, u.X) {
-			case syntax.BasicLit as bl:
-				let v = try literal(st, bl.Tok, t, true)
-				return try constRow(b, at, basicGo(st, t), v)
-			case _:
-				return stop("constant expression")
-			}
-		}
 		let y = try value(st, b, u.X)
 		try ir.Row(b, ir.KindCode(ir.TExpr, "un"), at, []uint32{ir.Text(b, op), y})
 	case syntax.BinaryExpr as be:
@@ -394,28 +366,311 @@ func constRow(b mut ir.Builder, at ir.Pos, t string, v string) uint32 fails ir.M
 	try ir.Row(b, ir.KindCode(ir.TExpr, "const"), at, []uint32{ir.Text(b, t), ir.Text(b, v)})
 }
 
-// literal is the value text of the literal token tok of type t, as the Go
-// builder spells a constant (lower's constant): an integer type's exact
-// integer, a string's text, negated when neg. The slice stops at a float,
-// at an escape it does not read, and at an integer past int64.
-func literal(st fnb, tok int, t dense.ID[store.TKey], neg bool) string fails Unported {
+// Cv is a constant's value as the checker computes it (go/constant,
+// exact, each typed result representable in its type): an integer, a
+// bool, a string, or a float held as the Go builder's text of it (only a
+// literal, maybe negated, folds to a float).
+type Cv = CInt{I int64} | CBool{B bool} | CStr{S string} | CFloat{S string}
+
+// constText is the value text the Go builder writes for a constant of
+// type t (lower's constant): an integer's exact digits, a bool's word, a
+// string's text, a float's shortest form.
+func constText(st fnb, t dense.ID[store.TKey], v Cv) string fails Unported {
+	let gt = basicGo(st, t)
+	if gt == "" {
+		return stop("constant of a non-basic type")
+	}
+	match v {
+	case CInt as c:
+		if gt == "bool" || gt == "string" || gt == "float32" || gt == "float64" {
+			return stop("constant kind")
+		}
+		strconv.FormatInt(c.I, 10)
+	case CBool as c:
+		strconv.FormatBool(c.B)
+	case CStr as c:
+		if !utf8.ValidString(c.S) {
+			return stop("string constant that is not UTF-8")
+		}
+		c.S
+	case CFloat as c:
+		c.S
+	}
+}
+
+// fold is the constant value of x, which isConst reports, computed as the
+// checker computes it in int64 (an integer type's every value but those of
+// uint, uint64 and uintptr past int64, where it stops); a float folds only
+// as a literal, maybe negated.
+func fold(st fnb, x dense.ID[syntax.Node]) Cv fails Unported {
+	let p = st.p
+	match syntax.ViewOf(p.Tree, x) {
+	case syntax.BasicLit as bl:
+		let t = try typeOf(st, x, "BasicLit")
+		try literal(st, bl.Tok, t, false)
+	case syntax.Name as nm:
+		let _ = try typeOf(st, x, "Ident")
+		CBool{B: syntax.TokText(p, nm.Tok) == "true"}
+	case syntax.ParenExpr as pe:
+		try fold(st, pe.X)
+	case syntax.UnaryExpr as u:
+		let t = try typeOf(st, x, "UnaryExpr")
+		let op = syntax.TokText(p, u.Op)
+		match syntax.ViewOf(p.Tree, u.X) {
+		case syntax.BasicLit as bl:
+			if op == "-" {
+				let lt = try typeOf(st, u.X, "BasicLit")
+				return try literal(st, bl.Tok, lt, true)
+			}
+		case _:
+		}
+		let v = try fold(st, u.X)
+		try unary(st, op, t, v)
+	case syntax.BinaryExpr as be:
+		let _ = try typeOf(st, x, "BinaryExpr")
+		let op = syntax.TokText(p, be.Op)
+		let l = try fold(st, be.X)
+		let r = try fold(st, be.Y)
+		try binary(op, l, r)
+	case _:
+		return stop("constant expression form")
+	}
+}
+
+// width is the bits of an unsigned basic type, else 0 (the precision of
+// the checker's ^: constant.UnaryOp's prec).
+func width(gt string) int {
+	if gt == "uint8" { 8 } else if gt == "uint16" { 16 } else if gt == "uint32" { 32 } else if gt == "uint" || gt == "uint64" || gt == "uintptr" { 64 } else { 0 }
+}
+
+let minInt64 = -9223372036854775807 - 1
+
+func unary(st fnb, op string, t dense.ID[store.TKey], v Cv) Cv fails Unported {
+	match v {
+	case CInt as c:
+		if op == "+" {
+			return v
+		}
+		if op == "-" {
+			if c.I == int64(minInt64) {
+				return past()
+			}
+			return CInt{I: -c.I}
+		}
+		if op != "^" {
+			return stop("constant operator " + op)
+		}
+		let w = width(basicGo(st, t))
+		if w == 0 {
+			return CInt{I: -c.I - 1}
+		}
+		if w == 64 {
+			return past()
+		}
+		CInt{I: ((int64(1) << w) - 1) - c.I}
+	case CBool as c:
+		if op != "!" {
+			return stop("constant operator " + op)
+		}
+		CBool{B: !c.B}
+	case CStr:
+		stop("constant operator " + op)
+	case CFloat:
+		stop("float constant expression")
+	}
+}
+
+func binary(op string, l Cv, r Cv) Cv fails Unported {
+	match l {
+	case CInt as a:
+		match r {
+		case CInt as c:
+			try ints(op, a.I, c.I)
+		case _:
+			stop("constant operands of two kinds")
+		}
+	case CBool as a:
+		match r {
+		case CBool as c:
+			try bools(op, a.B, c.B)
+		case _:
+			stop("constant operands of two kinds")
+		}
+	case CStr as a:
+		match r {
+		case CStr as c:
+			try strs(op, a.S, c.S)
+		case _:
+			stop("constant operands of two kinds")
+		}
+	case CFloat:
+		stop("float constant expression")
+	}
+}
+
+func bools(op string, a bool, c bool) Cv fails Unported {
+	if op == "&&" {
+		return CBool{B: a && c}
+	}
+	if op == "||" {
+		return CBool{B: a || c}
+	}
+	if op == "==" {
+		return CBool{B: a == c}
+	}
+	if op == "!=" {
+		return CBool{B: a != c}
+	}
+	stop("constant operator " + op)
+}
+
+func strs(op string, a string, c string) Cv fails Unported {
+	if op == "+" {
+		return CStr{S: a + c}
+	}
+	if op == "==" {
+		return CBool{B: a == c}
+	}
+	if op == "!=" {
+		return CBool{B: a != c}
+	}
+	if op == "<" {
+		return CBool{B: a < c}
+	}
+	if op == "<=" {
+		return CBool{B: a <= c}
+	}
+	if op == ">" {
+		return CBool{B: a > c}
+	}
+	if op == ">=" {
+		return CBool{B: a >= c}
+	}
+	stop("constant operator " + op)
+}
+
+func ints(op string, a int64, c int64) Cv fails Unported {
+	if op == "==" {
+		return CBool{B: a == c}
+	}
+	if op == "!=" {
+		return CBool{B: a != c}
+	}
+	if op == "<" {
+		return CBool{B: a < c}
+	}
+	if op == "<=" {
+		return CBool{B: a <= c}
+	}
+	if op == ">" {
+		return CBool{B: a > c}
+	}
+	if op == ">=" {
+		return CBool{B: a >= c}
+	}
+	CInt{I: try arith(op, a, c)}
+}
+
+func past() Unported { stop("constant past int64") }
+
+// arith is a op c exactly, or a stop past int64.
+func arith(op string, a int64, c int64) int64 fails Unported {
+	if op == "+" {
+		let s = a + c
+		if (a >= 0) == (c >= 0) && (s >= 0) != (a >= 0) {
+			return past()
+		}
+		return s
+	}
+	if op == "-" {
+		let s = a - c
+		if (a >= 0) != (c >= 0) && (s >= 0) != (a >= 0) {
+			return past()
+		}
+		return s
+	}
+	if op == "*" {
+		if a == 0 || c == 0 {
+			return int64(0)
+		}
+		let s = a * c
+		if s/c != a || (a == -1 && c == int64(minInt64)) || (c == -1 && a == int64(minInt64)) {
+			return past()
+		}
+		return s
+	}
+	if op == "/" || op == "%" {
+		if c == 0 || (a == int64(minInt64) && c == -1) {
+			return past()
+		}
+		return if op == "/" { a / c } else { a % c }
+	}
+	if op == "&" { return a & c }
+	if op == "|" { return a | c }
+	if op == "^" { return a ^ c }
+	if op == "&^" { return a &^ c }
+	if op == "<<" || op == ">>" {
+		if c < 0 {
+			return stop("constant shift count")
+		}
+		if op == ">>" {
+			return if c >= 63 { if a < 0 { int64(-1) } else { int64(0) } } else { a >> c }
+		}
+		if a == 0 {
+			return int64(0)
+		}
+		if c >= 63 {
+			return past()
+		}
+		let s = a << c
+		if s>>c != a {
+			return past()
+		}
+		return s
+	}
+	stop("constant operator " + op)
+}
+
+// literal is the value of the literal token tok of type t, as the checker
+// reads it (basicLit; a string or rune by Go's unquoting), negated when
+// neg. It stops at an integer past int64, at a float of a float32, and at
+// a float literal strconv does not read as Go does (an underscore).
+func literal(st fnb, tok int, t dense.ID[store.TKey], neg bool) Cv fails Unported {
 	let gt = basicGo(st, t)
 	if gt == "" {
 		return stop("constant of a non-basic type")
 	}
 	let text = syntax.TokText(st.p, tok)
 	let kind = syntax.TokKind(st.p, tok)
-	if gt == "float32" || gt == "float64" {
-		return stop("float constant")
+	if gt == "float32" {
+		return stop("float32 constant")
+	}
+	if gt == "float64" {
+		if kind != syntax.Float && kind != syntax.Int || strings.Contains(text, "_") {
+			return stop("float constant")
+		}
+		if kind == syntax.Int && len(text) > 1 && text[0] == '0' {
+			return stop("float constant")
+		}
+		let f = strconv.ParseFloat(text) catch {
+		case _:
+			return stop("float constant")
+		}
+		// A zero is the checker's exact 0, never a negative zero.
+		if f == 0.0 {
+			return CFloat{S: "0"}
+		}
+		return CFloat{S: strconv.FormatFloat(if neg { -f } else { f }, 'g', -1)}
 	}
 	if kind == syntax.String {
-		if neg || gt != "string" {
+		if neg {
 			return stop("string constant")
 		}
-		return try stringText(text)
-	}
-	if gt == "string" || gt == "bool" {
-		return stop("constant kind")
+		let s = strconv.Unquote(text) catch {
+		case _:
+			return stop("string constant")
+		}
+		return CStr{S: s}
 	}
 	let mut n = int64(0)
 	if kind == syntax.Int {
@@ -424,71 +679,19 @@ func literal(st fnb, tok int, t dense.ID[store.TKey], neg bool) string fails Unp
 			return stop("integer constant past int64")
 		}
 	} else if kind == syntax.Rune {
-		n = int64(try runeValue(text))
+		let s = strconv.Unquote(text) catch {
+		case _:
+			return stop("rune constant")
+		}
+		if utf8.RuneCount(s) != 1 {
+			return stop("rune constant")
+		}
+		n = int64(utf8.DecodeRuneInString(s).Rune)
 	} else {
 		return stop("constant kind")
 	}
 	if neg {
 		n = -n
 	}
-	strconv.FormatInt(n, 10)
-}
-
-// stringText is the text of a string literal with no escape.
-func stringText(lit string) string fails Unported {
-	if len(lit) < 2 {
-		return stop("string constant")
-	}
-	let inner = lit[1 : len(lit)-1]
-	if lit[0] == '`' {
-		if strings.Contains(inner, "\r") {
-			return stop("raw string with a carriage return")
-		}
-		return inner
-	}
-	if strings.Contains(inner, "\\") {
-		return stop("escaped string constant")
-	}
-	inner
-}
-
-// runeValue is the code point of a rune literal: one character, or one of
-// the single-letter escapes.
-func runeValue(lit string) int fails Unported {
-	if len(lit) < 3 {
-		return stop("rune constant")
-	}
-	let inner = lit[1 : len(lit)-1]
-	if inner[0] != '\\' {
-		let d = utf8.DecodeRuneInString(inner)
-		if d.Size != len(inner) || (d.Rune == 0xFFFD && d.Size == 1) {
-			return stop("rune constant")
-		}
-		return int(d.Rune)
-	}
-	if len(inner) != 2 {
-		return stop("escaped rune constant")
-	}
-	match inner[1] {
-	case 'a':
-		7
-	case 'b':
-		8
-	case 'f':
-		12
-	case 'n':
-		10
-	case 'r':
-		13
-	case 't':
-		9
-	case 'v':
-		11
-	case '\\':
-		92
-	case '\'':
-		39
-	case _:
-		return stop("escaped rune constant")
-	}
+	CInt{I: n}
 }
