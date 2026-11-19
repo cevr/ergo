@@ -24,7 +24,7 @@ extern go io/ioutil.ReadFile func ReadFile(filename string) []byte fails go.Erro
 extern go io/ioutil.TempDir func TempDir(dir string, pattern string) string fails go.Error needs go.Foreign
 
 // ergo:go func TempFile(dir string, pattern string) (f *os.File, err error)
-extern go io/ioutil.TempFile func TempFile(dir string, pattern string) Option[go.Ref[os.File]] fails go.Error needs go.Foreign
+extern go io/ioutil.TempFile func TempFile(dir string, pattern string) go.Ref[os.File] fails go.Error needs go.Foreign
 
 // ergo:go func WriteFile(filename string, data []byte, perm fs.FileMode) error
 extern go io/ioutil.WriteFile func WriteFile(filename string, data []byte, perm fs.FileMode) fails go.Error needs go.Foreign

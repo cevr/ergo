@@ -98,7 +98,7 @@ extern go net.DNSError.Unwrap func (e *DNSError) Unwrap() fails go.Error needs g
 extern go net.Dial func Dial(network string, address string) Conn fails go.Error needs go.Foreign
 
 // ergo:go func DialIP(network string, laddr *IPAddr, raddr *IPAddr) (*IPConn, error)
-extern go net.DialIP func DialIP(network string, laddr own *IPAddr, raddr own *IPAddr) Option[go.Ref[IPConn]] fails go.Error needs go.Foreign
+extern go net.DialIP func DialIP(network string, laddr own *IPAddr, raddr own *IPAddr) go.Ref[IPConn] fails go.Error needs go.Foreign
 
 // ergo:go func DialTCP(network string, laddr *TCPAddr, raddr *TCPAddr) (*TCPConn, error)
 extern go net.DialTCP func DialTCP(network string, laddr own *TCPAddr, raddr own *TCPAddr) Option[go.Ref[TCPConn]] fails go.Error needs go.Foreign
@@ -107,10 +107,10 @@ extern go net.DialTCP func DialTCP(network string, laddr own *TCPAddr, raddr own
 extern go net.DialTimeout func DialTimeout(network string, address string, timeout duration) Conn fails go.Error needs go.Foreign
 
 // ergo:go func DialUDP(network string, laddr *UDPAddr, raddr *UDPAddr) (*UDPConn, error)
-extern go net.DialUDP func DialUDP(network string, laddr own *UDPAddr, raddr own *UDPAddr) Option[go.Ref[UDPConn]] fails go.Error needs go.Foreign
+extern go net.DialUDP func DialUDP(network string, laddr own *UDPAddr, raddr own *UDPAddr) go.Ref[UDPConn] fails go.Error needs go.Foreign
 
 // ergo:go func DialUnix(network string, laddr *UnixAddr, raddr *UnixAddr) (*UnixConn, error)
-extern go net.DialUnix func DialUnix(network string, laddr own *UnixAddr, raddr own *UnixAddr) Option[go.Ref[UnixConn]] fails go.Error needs go.Foreign
+extern go net.DialUnix func DialUnix(network string, laddr own *UnixAddr, raddr own *UnixAddr) go.Ref[UnixConn] fails go.Error needs go.Foreign
 
 // ergo:go type Dialer struct
 extern go net.Dialer type Dialer {
@@ -142,7 +142,7 @@ extern go net.Dialer.DialContext func (d *Dialer) DialContext(network string, ad
 
 // ergo:go func (*Dialer).DialIP(ctx context.Context, network string, laddr netip.Addr, raddr netip.Addr) (*IPConn, error)
 // ergo:context
-extern go net.Dialer.DialIP func (d *Dialer) DialIP(network string, laddr netip.Addr, raddr netip.Addr) Option[go.Ref[IPConn]] fails go.Error needs go.Foreign
+extern go net.Dialer.DialIP func (d *Dialer) DialIP(network string, laddr netip.Addr, raddr netip.Addr) go.Ref[IPConn] fails go.Error needs go.Foreign
 
 // ergo:go func (*Dialer).DialTCP(ctx context.Context, network string, laddr netip.AddrPort, raddr netip.AddrPort) (*TCPConn, error)
 // ergo:context
@@ -150,11 +150,11 @@ extern go net.Dialer.DialTCP func (d *Dialer) DialTCP(network string, laddr neti
 
 // ergo:go func (*Dialer).DialUDP(ctx context.Context, network string, laddr netip.AddrPort, raddr netip.AddrPort) (*UDPConn, error)
 // ergo:context
-extern go net.Dialer.DialUDP func (d *Dialer) DialUDP(network string, laddr netip.AddrPort, raddr netip.AddrPort) Option[go.Ref[UDPConn]] fails go.Error needs go.Foreign
+extern go net.Dialer.DialUDP func (d *Dialer) DialUDP(network string, laddr netip.AddrPort, raddr netip.AddrPort) go.Ref[UDPConn] fails go.Error needs go.Foreign
 
 // ergo:go func (*Dialer).DialUnix(ctx context.Context, network string, laddr *UnixAddr, raddr *UnixAddr) (*UnixConn, error)
 // ergo:context
-extern go net.Dialer.DialUnix func (d *Dialer) DialUnix(network string, laddr own *UnixAddr, raddr own *UnixAddr) Option[go.Ref[UnixConn]] fails go.Error needs go.Foreign
+extern go net.Dialer.DialUnix func (d *Dialer) DialUnix(network string, laddr own *UnixAddr, raddr own *UnixAddr) go.Ref[UnixConn] fails go.Error needs go.Foreign
 
 // ergo:go func (*Dialer).MultipathTCP() bool
 extern go net.Dialer.MultipathTCP func (d *Dialer) MultipathTCP() bool needs go.Foreign
@@ -499,7 +499,7 @@ extern go net.ListenConfig.MultipathTCP func (lc *ListenConfig) MultipathTCP() b
 extern go net.ListenConfig.SetMultipathTCP func (lc *ListenConfig) SetMultipathTCP(use bool) needs go.Foreign
 
 // ergo:go func ListenIP(network string, laddr *IPAddr) (*IPConn, error)
-extern go net.ListenIP func ListenIP(network string, laddr own *IPAddr) Option[go.Ref[IPConn]] fails go.Error needs go.Foreign
+extern go net.ListenIP func ListenIP(network string, laddr own *IPAddr) go.Ref[IPConn] fails go.Error needs go.Foreign
 
 // ergo:go func ListenMulticastUDP(network string, ifi *Interface, gaddr *UDPAddr) (*UDPConn, error)
 extern go net.ListenMulticastUDP func ListenMulticastUDP(network string, ifi own *Interface, gaddr own *UDPAddr) Option[go.Ref[UDPConn]] fails go.Error needs go.Foreign
@@ -511,13 +511,13 @@ extern go net.ListenPacket func ListenPacket(network string, address string) Pac
 extern go net.ListenTCP func ListenTCP(network string, laddr own *TCPAddr) Option[go.Ref[TCPListener]] fails go.Error needs go.Foreign
 
 // ergo:go func ListenUDP(network string, laddr *UDPAddr) (*UDPConn, error)
-extern go net.ListenUDP func ListenUDP(network string, laddr own *UDPAddr) Option[go.Ref[UDPConn]] fails go.Error needs go.Foreign
+extern go net.ListenUDP func ListenUDP(network string, laddr own *UDPAddr) go.Ref[UDPConn] fails go.Error needs go.Foreign
 
 // ergo:go func ListenUnix(network string, laddr *UnixAddr) (*UnixListener, error)
-extern go net.ListenUnix func ListenUnix(network string, laddr own *UnixAddr) Option[go.Ref[UnixListener]] fails go.Error needs go.Foreign
+extern go net.ListenUnix func ListenUnix(network string, laddr own *UnixAddr) go.Ref[UnixListener] fails go.Error needs go.Foreign
 
 // ergo:go func ListenUnixgram(network string, laddr *UnixAddr) (*UnixConn, error)
-extern go net.ListenUnixgram func ListenUnixgram(network string, laddr own *UnixAddr) Option[go.Ref[UnixConn]] fails go.Error needs go.Foreign
+extern go net.ListenUnixgram func ListenUnixgram(network string, laddr own *UnixAddr) go.Ref[UnixConn] fails go.Error needs go.Foreign
 
 // ergo:go type Listener interface
 extern go net.Listener type Listener {
@@ -633,7 +633,7 @@ extern go net.ResolveTCPAddr func ResolveTCPAddr(network string, address string)
 extern go net.ResolveUDPAddr func ResolveUDPAddr(network string, address string) Option[go.Ref[UDPAddr]] fails go.Error needs go.Foreign
 
 // ergo:go func ResolveUnixAddr(network string, address string) (*UnixAddr, error)
-extern go net.ResolveUnixAddr func ResolveUnixAddr(network string, address string) Option[go.Ref[UnixAddr]] fails go.Error needs go.Foreign
+extern go net.ResolveUnixAddr func ResolveUnixAddr(network string, address string) go.Ref[UnixAddr] fails go.Error needs go.Foreign
 
 // ergo:go type Resolver struct
 extern go net.Resolver type Resolver {
@@ -791,7 +791,7 @@ extern go net.TCPListener type TCPListener {} implements Closer
 extern go net.TCPListener.Accept func (l *TCPListener) Accept() Conn fails go.Error needs go.Foreign
 
 // ergo:go func (*TCPListener).AcceptTCP() (*TCPConn, error)
-extern go net.TCPListener.AcceptTCP func (l *TCPListener) AcceptTCP() Option[go.Ref[TCPConn]] fails go.Error needs go.Foreign
+extern go net.TCPListener.AcceptTCP func (l *TCPListener) AcceptTCP() go.Ref[TCPConn] fails go.Error needs go.Foreign
 
 // ergo:go func (*TCPListener).Addr() Addr
 extern go net.TCPListener.Addr func (l *TCPListener) Addr() Addr needs go.Foreign
@@ -978,7 +978,7 @@ extern go net.UnixListener type UnixListener {} implements Closer
 extern go net.UnixListener.Accept func (l *UnixListener) Accept() Conn fails go.Error needs go.Foreign
 
 // ergo:go func (*UnixListener).AcceptUnix() (*UnixConn, error)
-extern go net.UnixListener.AcceptUnix func (l *UnixListener) AcceptUnix() Option[go.Ref[UnixConn]] fails go.Error needs go.Foreign
+extern go net.UnixListener.AcceptUnix func (l *UnixListener) AcceptUnix() go.Ref[UnixConn] fails go.Error needs go.Foreign
 
 // ergo:go func (*UnixListener).Addr() Addr
 extern go net.UnixListener.Addr func (l *UnixListener) Addr() Addr needs go.Foreign

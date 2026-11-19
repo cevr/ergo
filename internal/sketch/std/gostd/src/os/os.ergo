@@ -31,7 +31,7 @@ extern go os.CopyFS func CopyFS(dir string, fsys own fs.FS) fails go.Error needs
 extern go os.Create func Create(name string) go.Ref[File] fails go.Error needs go.Foreign
 
 // ergo:go func CreateTemp(dir string, pattern string) (*File, error)
-extern go os.CreateTemp func CreateTemp(dir string, pattern string) Option[go.Ref[File]] fails go.Error needs go.Foreign
+extern go os.CreateTemp func CreateTemp(dir string, pattern string) go.Ref[File] fails go.Error needs go.Foreign
 
 // ergo:go const DevNull untyped string
 extern go os.DevNull let DevNull string
@@ -339,7 +339,7 @@ extern go os.Open func Open(name string) go.Ref[File] fails go.Error needs go.Fo
 extern go os.OpenFile func OpenFile(name string, flag int, perm fs.FileMode) go.Ref[File] fails go.Error needs go.Foreign
 
 // ergo:go func OpenInRoot(dir string, name string) (*File, error)
-extern go os.OpenInRoot func OpenInRoot(dir string, name string) Option[go.Ref[File]] fails go.Error needs go.Foreign
+extern go os.OpenInRoot func OpenInRoot(dir string, name string) go.Ref[File] fails go.Error needs go.Foreign
 
 // ergo:go func OpenRoot(name string) (*Root, error)
 extern go os.OpenRoot func OpenRoot(name string) go.Ref[Root] fails go.Error needs go.Foreign
