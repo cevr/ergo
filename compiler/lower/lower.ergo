@@ -82,13 +82,17 @@ type fnb {
 	// prelude is the prelude's declarations, which every package's
 	// yield to (lower's pkgnames.go, rule 5).
 	prelude []string,
+	// sourced: the package is the program's own (not std), lowered with
+	// //line directives, where a call site may be marked for inlining
+	// (lower's inlineMark), which the slice does not port.
+	sourced bool,
 }
 
 // Package builds the IR of every function of the checked package k; paths
 // are its files' paths, File.Files' entries, path its import path, and root
 // whether it is the build's root package (a program's main package, or the
 // package a test build tests), whose declarations Go spells bare.
-func Package(s store.Store, k expr.Pkg, t expr.Typer, paths []string, path string, root bool) Out {
+func Package(s store.Store, k expr.Pkg, t expr.Typer, paths []string, path string, root bool, sourced bool) Out {
 	let alias = if root || path == "prelude" { "" } else { pkgAlias(path) }
 	let mut prelude = []string{}
 	if path != "prelude" {
@@ -130,7 +134,7 @@ func Package(s store.Store, k expr.Pkg, t expr.Typer, paths []string, path strin
 	for f in k.Fns {
 		let p = k.Parsed[f.File]
 		let at = syntax.NodePos(p, f.Decl)
-		let mut st = fnb{k: k, s: s, types: types, file: f.File, p: p, lines: lines[f.File], fileIx: uint32(0), params: []dense.ID[store.PNode]{}, locals: []int{}, alias: alias, prelude: prelude}
+		let mut st = fnb{k: k, s: s, types: types, file: f.File, p: p, lines: lines[f.File], fileIx: uint32(0), params: []dense.ID[store.PNode]{}, locals: []int{}, alias: alias, prelude: prelude, sourced: sourced}
 		let built = function(&st, &b, f, paths[f.File]) catch {
 		case Unported as u:
 			stops = stops.Append(Stop{File: f.File, At: at, Cause: u.Cause})
@@ -679,6 +683,17 @@ func statements(st mut fnb, list syntax.List, n int) ([]aLet, dense.ID[syntax.No
 		return stop("statement form")
 	}
 	try check(*st, tailX)
+	// Two calls of one callee: lower's merge pass may read the first's
+	// local for the second (ir_merge.go), which the slice does not port.
+	let mut callees = calleeNames(*st, tailX, []string{})
+	for l in lets {
+		callees = calleeNames(*st, l.value, callees)
+	}
+	for i in 0..len(callees) {
+		if has(callees[i+1:len(callees)], callees[i]) {
+			return stop("call twice of one callee (merge)")
+		}
+	}
 	(lets, tailX)
 }
 
@@ -735,6 +750,198 @@ func letOf(st fnb, s dense.ID[syntax.Node], local int) aLet fails Unported {
 		return stop("let name taken (local name_N)")
 	}
 	aLet{tok: vd.Var, at: at, name: name, typ: gt, value: value, local: local}
+}
+
+// callee checks the call x of a function the slice builds a call of and
+// is the callee's name and the call's operands: a function of the
+// package by its name (no method, no function value, no other package's,
+// no trailing block) that is a leaf (leafCallee), from a std body (a
+// sourced body's call may be inlined, inlineMark), on operands not all
+// constants (lower's fold evaluates a call on constants) and none a call
+// or a literal (lower's template), with no rewrite law over it
+// (rewritePass).
+func callee(st fnb, x dense.ID[syntax.Node], ce syntax.CallExpr) (string, []dense.ID[syntax.Node]) fails Unported {
+	let p = st.p
+	if dense.Unpack(ce.Trailing) != None {
+		return stop("call with a trailing block")
+	}
+	let at = match syntax.ViewOf(p.Tree, ce.Fun) {
+	case syntax.Name:
+		match bind.ResolutionOf(st.k.U, st.k.Ps, bind.PNodeOf(st.k.Ps, st.file, ce.Fun)) {
+		case bind.Declared as d:
+			d.At
+		case bind.Imported:
+			return stop("call of another package's function")
+		case _:
+			return stop("call of no declaration")
+		}
+	case _:
+		return stop("call of a selector or a value")
+	}
+	let i = expr.FnAt(st.k, at)
+	if i < 0 {
+		return stop("call of a function value")
+	}
+	let name = nameText(p, ce.Fun)
+	if st.sourced {
+		return stop("call in a sourced body (inline decision)")
+	}
+	try leafCallee(st, i, name)
+	let n = syntax.Len(ce.Args)
+	let mut args = []dense.ID[syntax.Node]{}
+	let mut closed = true
+	for j in 0..n {
+		let a = syntax.Item(p.Tree, ce.Args, j)
+		match syntax.ViewOf(p.Tree, unparen(st, a)) {
+		case syntax.CallExpr:
+			return stop("call with a call operand (template)")
+		case syntax.CompositeLit:
+			return stop("call with a literal operand (template)")
+		case _:
+		}
+		closed = closed && isConst(st, a)
+		if basicGo(st, try typeOf(st, a, "call operand")) == "" {
+			return stop("call operand of a non-basic type")
+		}
+		args = args.Append(a)
+	}
+	if closed {
+		return stop("call on constants (fold)")
+	}
+	if basicGo(st, try typeOf(st, x, "CallExpr")) == "" {
+		return stop("call of a non-basic result")
+	}
+	if lawOver(st, name) {
+		return stop("call under a rewrite law")
+	}
+	let _ = try declName(st, name)
+	(name, args)
+}
+
+func unparen(st fnb, x dense.ID[syntax.Node]) dense.ID[syntax.Node] {
+	match syntax.ViewOf(st.p.Tree, x) {
+	case syntax.ParenExpr as pe:
+		unparen(st, pe.X)
+	case _:
+		x
+	}
+}
+
+// leafCallee checks the package's i-th function as a callee the slice
+// calls: a function lower calls pure (pure.go: an Ergo body, no row, no
+// witness, not main or Close) with basic parameters and result that calls
+// nothing and holds no function literal, so its footprint is empty and
+// its purity needs no fixed point; its name is the package's once.
+func leafCallee(st fnb, i int, name string) fails Unported {
+	let f = st.k.Fns[i]
+	let p = st.k.Parsed[f.File]
+	let d = match syntax.ViewOf(p.Tree, f.Decl) {
+	case syntax.FuncDecl as d:
+		d
+	case _:
+		return stop("callee: no function declaration")
+	}
+	if dense.Unpack(d.Extern) != None || dense.Unpack(d.Recv) != None || dense.Unpack(d.TypeParams) != None {
+		return stop("callee: extern, method or generic")
+	}
+	if name == "main" || name == "Close" || declCount(st, name) > 1 {
+		return stop("callee: main, Close or a shared name")
+	}
+	let body = match dense.Unpack(d.Body) {
+	case Some[dense.ID[syntax.Node]] as b:
+		b.Value
+	case None:
+		return stop("callee: no body")
+	}
+	let ops = store.OperandsOf(st.s, f.Sig)
+	if store.KindOfType(st.s, f.Sig) != store.KSig || len(ops) < 3 {
+		return stop("callee: signature")
+	}
+	let n = len(ops) - 3
+	if !emptyRow(st, ops[n+1]) || !emptyRow(st, ops[n+2]) {
+		return stop("callee: a row")
+	}
+	for j in 0..n+1 {
+		if basicGo(st, ops[j]) == "" {
+			return stop("callee: a type not basic")
+		}
+	}
+	if callsIn(p, body) {
+		return stop("callee: calls (purity)")
+	}
+}
+
+// callsIn reports a call or a function literal in x.
+func callsIn(p syntax.Parsed, x dense.ID[syntax.Node]) bool {
+	match syntax.ViewOf(p.Tree, x) {
+	case syntax.CallExpr:
+		return true
+	case syntax.FuncLit:
+		return true
+	case _:
+	}
+	for c in syntax.Children(p.Tree, x, []uint32{}) {
+		if callsIn(p, syntax.NodeAt(p.Tree, int(c))) {
+			return true
+		}
+	}
+	false
+}
+
+// calleeNames appends the names of the package functions x calls.
+func calleeNames(st fnb, x dense.ID[syntax.Node], out []string) []string {
+	let p = st.p
+	let mut names = out
+	match syntax.ViewOf(p.Tree, x) {
+	case syntax.CallExpr as ce:
+		names = names.Append(nameText(p, ce.Fun))
+	case _:
+	}
+	for c in syntax.Children(p.Tree, x, []uint32{}) {
+		names = calleeNames(st, syntax.NodeAt(p.Tree, int(c)), names)
+	}
+	names
+}
+
+// lawOver reports a law of the package that names name: a rewrite law
+// over it rewrites its calls (rewritePass), which the slice does not port.
+func lawOver(st fnb, name string) bool {
+	for p in st.k.Parsed {
+		let decls = match syntax.ViewOf(p.Tree, syntax.Root(p.Tree)) {
+		case syntax.File as pf:
+			pf.Decls
+		case _:
+			continue
+		}
+		for i in 0..syntax.Len(decls) {
+			let d = syntax.Item(p.Tree, decls, i)
+			match syntax.ViewOf(p.Tree, d) {
+			case syntax.LawDecl:
+				if names(p, d, name) {
+					return true
+				}
+			case _:
+			}
+		}
+	}
+	false
+}
+
+// names reports a name spelled name in x.
+func names(p syntax.Parsed, x dense.ID[syntax.Node], name string) bool {
+	match syntax.ViewOf(p.Tree, x) {
+	case syntax.Name:
+		if nameText(p, x) == name {
+			return true
+		}
+	case _:
+	}
+	for c in syntax.Children(p.Tree, x, []uint32{}) {
+		if names(p, syntax.NodeAt(p.Tree, int(c)), name) {
+			return true
+		}
+	}
+	false
 }
 
 // declCount is the number of the package's declarations named name: two
@@ -898,9 +1105,11 @@ func check(st fnb, x dense.ID[syntax.Node]) fails Unported {
 		}
 		try check(st, be.X)
 		try check(st, be.Y)
-	case syntax.CallExpr:
-		// A callee's Go name is the program's today (NAME-LOCAL).
-		return stop("callee naming (NAME-LOCAL)")
+	case syntax.CallExpr as ce:
+		let (_, args) = try callee(st, x, ce)
+		for a in args {
+			try check(st, a)
+		}
 	case _:
 		return stop("expression form")
 	}
@@ -980,9 +1189,15 @@ func value(st fnb, b mut ir.Builder, x dense.ID[syntax.Node]) uint32 fails Unpor
 		let l = try value(st, b, be.X)
 		let r = try value(st, b, be.Y)
 		try ir.Row(b, ir.KindCode(ir.TExpr, "bin"), pos(st, syntax.TokPos(p, be.Op)), []uint32{ir.Text(b, op), l, r})
-	case syntax.CallExpr:
-		// A callee's Go name is the program's today (NAME-LOCAL).
-		return stop("callee naming (NAME-LOCAL)")
+	case syntax.CallExpr as ce:
+		// lower's call: the Go function by its name, the operands in order
+		// (each a value with no statements before it), no type arguments.
+		let (name, args) = try callee(st, x, ce)
+		let mut ids = []uint32{}
+		for a in args {
+			ids = ids.Append(try value(st, b, a))
+		}
+		try ir.Row(b, ir.KindCode(ir.TExpr, "call"), at, []uint32{ir.Text(b, ""), ir.Text(b, try declName(st, name)), ir.List(b, ids)})
 	case _:
 		return stop("expression form")
 	}
