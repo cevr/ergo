@@ -1,0 +1,1 @@
+law Untyped(n) { true } // want S104

@@ -887,6 +887,7 @@
       "killers": [
         "internal/sketchfront:TestStdSnapshotIsCurrent"
       ]
-    }
+    },
+    {"name":"runner-needs-work-row","origin":"wf10 TP-DIAG (named by fumb-e F1); killer by kill matrix, ST-0 pending (TP-DIAG)","file":"internal/sketch/std/actor/actor.ergo","from":"sink own func(o O) needs R) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler {","to":"sink own func(o O) needs R) Actor[S, E, Decision[S, O], F] needs R | Scheduler {","rule":"runtime.md, Machines and actors 12: the runner actor.StartMachine runs the work, so it needs the work row W as well as R.","killers":["cmd/ergo:TestCheckerFixtures"]}
   ]
 }
