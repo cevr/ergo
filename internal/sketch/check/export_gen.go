@@ -7679,6 +7679,7 @@ func (e *encoder) encFieldsinferer(v *inferer) {
 	e.encT156(v.m)
 	e.encT185(v.set)
 	e.encT185(v.joined)
+	e.encPtrNamed(v.notError)
 }
 
 func (e *encoder) encinferer(v inferer) { e.encFieldsinferer(&v) }
@@ -19638,6 +19639,7 @@ func (d *decoder) decFieldsinferer(v *inferer) {
 	v.m = d.decT156()
 	v.set = d.decT185()
 	v.joined = d.decT185()
+	v.notError = d.decPtrNamed()
 }
 
 func (d *decoder) decinferer() (v inferer) {
