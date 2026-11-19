@@ -325,7 +325,7 @@ func pairFunc(site string, s, t pairKind) (id, code, at string) {
 			body = fmt.Sprintf("let box = Holder[%s]{f: src}", t.ty)
 			value, at = "box.f", "{f: src}"
 		case "pointer":
-			fmt.Fprintf(&b, "func %sTake(dst *%s) needs Console { %s }\n", id, t.ty, use("(*dst)"))
+			fmt.Fprintf(&b, "func %sTake(dst mut %s) needs Console { %s }\n", id, t.ty, use("(*dst)"))
 			setup = strings.Replace(setup, "let src ", "let mut src ", 1)
 			body = fmt.Sprintf("%sTake(&src)", id)
 			at = "Take(&src)"

@@ -40,7 +40,7 @@ func IRKinds() string { ir.Table() }
 
 type reader { words []uint32, at int, strs []string, stack []uint32 }
 
-func next(r *reader) uint32 fails ir.Malformed {
+func next(r mut reader) uint32 fails ir.Malformed {
 	if r.at >= len(r.words) {
 		return ir.Malformed{At: r.at, Why: "past the end"}
 	}
@@ -49,7 +49,7 @@ func next(r *reader) uint32 fails ir.Malformed {
 	v
 }
 
-func str(r *reader) string fails ir.Malformed {
+func str(r mut reader) string fails ir.Malformed {
 	let i = int(try next(r))
 	if i >= len(r.strs) {
 		return ir.Malformed{At: r.at - 1, Why: "no text"}
@@ -57,7 +57,7 @@ func str(r *reader) string fails ir.Malformed {
 	r.strs[i]
 }
 
-func position(r *reader) ir.Pos fails ir.Malformed {
+func position(r mut reader) ir.Pos fails ir.Malformed {
 	let a = try next(r)
 	let b = try next(r)
 	let c = try next(r)
@@ -65,7 +65,7 @@ func position(r *reader) ir.Pos fails ir.Malformed {
 }
 
 // pop is the top n words of the stack, bottom first, taken off it.
-func pop(r *reader, n int) []uint32 fails ir.Malformed {
+func pop(r mut reader, n int) []uint32 fails ir.Malformed {
 	if n < 0 || n > len(r.stack) {
 		return ir.Malformed{At: r.at, Why: "the stack holds fewer words"}
 	}

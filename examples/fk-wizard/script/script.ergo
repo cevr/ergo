@@ -216,7 +216,7 @@ func enabled(shapes []ui.Shape[desk.Signal], off bool, p int) []ui.Act {
 // inspector. Each heading is # NAME, a check box [x] LABEL or [ ] LABEL,
 // the code field <TEXT>, a button [LABEL] ([LABEL, disabled] in a disabled
 // fieldset), and each text itself; of the log, only the newest entry.
-func Shown(h *Host) string {
+func Shown(h mut Host) string {
 	let all = tokens(ui.Screen(h), false)
 	let mut i = 0
 	for k, t in all {

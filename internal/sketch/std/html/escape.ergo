@@ -7,7 +7,7 @@ import strings
 // control's set). A run with nothing to escape is one write. Each byte it
 // replaces is at most '>', so a byte above it (a letter, most of a page's
 // text) takes one compare.
-func escape(b *strings.Builder, s string) {
+func escape(b mut strings.Builder, s string) {
 	let mut last = 0
 	for i in 0..len(s) {
 		let c = s[i]

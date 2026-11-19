@@ -40,7 +40,7 @@ func emptyFunc() Func {
 }
 
 // Text is the id of s in the file's texts, interned: 0 for "".
-func Text(b *Builder, s string) uint32 {
+func Text(b mut Builder, s string) uint32 {
 	match b.ids.Get(s) {
 	case Some[uint32] as id:
 		id.Value
@@ -53,7 +53,7 @@ func Text(b *Builder, s string) uint32 {
 }
 
 // FileOf is the index of path in File.Files, added the first time.
-func FileOf(b *Builder, path string) uint32 {
+func FileOf(b mut Builder, path string) uint32 {
 	match b.files.Get(path) {
 	case Some[uint32] as i:
 		i.Value
@@ -68,17 +68,17 @@ func FileOf(b *Builder, path string) uint32 {
 
 // NoFiles makes the file's list of files empty rather than nil while it
 // names none: Go writes [] for it, not null.
-func NoFiles(b *Builder) { b.file.FilesNil = false }
+func NoFiles(b mut Builder) { b.file.FilesNil = false }
 
 // NoFuncs makes the file's list of functions empty rather than nil while
 // it has none.
-func NoFuncs(b *Builder) { b.file.FuncsNil = false }
+func NoFuncs(b mut Builder) { b.file.FuncsNil = false }
 
 // Share adds a shared declaration's text to the file.
-func Share(b *Builder, s string) { b.file.Shared = b.file.Shared.Append(s) }
+func Share(b mut Builder, s string) { b.file.Shared = b.file.Shared.Append(s) }
 
 // Begin starts a function: its rows follow, then End.
-func Begin(b *Builder, name string, pos Pos, end Pos) fails Malformed {
+func Begin(b mut Builder, name string, pos Pos, end Pos) fails Malformed {
 	if b.open {
 		return Malformed{At: len(b.file.Funcs), Why: "a function begun inside another"}
 	}
@@ -92,7 +92,7 @@ func Begin(b *Builder, name string, pos Pos, end Pos) fails Malformed {
 }
 
 // AddLocal adds a local to the function begun.
-func AddLocal(b *Builder, name string, typ string, pos Pos) fails Malformed {
+func AddLocal(b mut Builder, name string, typ string, pos Pos) fails Malformed {
 	if !b.open {
 		return Malformed{At: len(b.file.Funcs), Why: "a local outside a function"}
 	}
@@ -101,7 +101,7 @@ func AddLocal(b *Builder, name string, typ string, pos Pos) fails Malformed {
 }
 
 // PosAt is the slot word of a position: its offset in the extra pool.
-func PosAt(b *Builder, p Pos) uint32 {
+func PosAt(b mut Builder, p Pos) uint32 {
 	let q = uint32(len(b.fn.Body.Extra))
 	b.fn.Body.Extra = b.fn.Body.Extra.Append(p.File).Append(p.Line).Append(p.Col)
 	q
@@ -109,7 +109,7 @@ func PosAt(b *Builder, p Pos) uint32 {
 
 // List is the slot word of a list: the offset in the extra pool of its
 // length and its words (row ids, 0 for a nil element; text ids; int32s).
-func List(b *Builder, words []uint32) uint32 {
+func List(b mut Builder, words []uint32) uint32 {
 	let q = uint32(len(b.fn.Body.Extra))
 	b.fn.Body.Extra = b.fn.Body.Extra.Append(uint32(len(words)))
 	for i in 0..len(words) {
@@ -121,7 +121,7 @@ func List(b *Builder, words []uint32) uint32 {
 // Row adds a row of kind code c at position at, its slots' words in the
 // kind's order, and is its id. A code outside the table, or another count
 // of words than the kind's slots, is Malformed.
-func Row(b *Builder, c uint8, at Pos, slots []uint32) uint32 fails Malformed {
+func Row(b mut Builder, c uint8, at Pos, slots []uint32) uint32 fails Malformed {
 	let id = len(b.fn.Body.Kind) + 1
 	if !b.open {
 		return Malformed{At: id, Why: "a row outside a function"}
@@ -158,7 +158,7 @@ func Row(b *Builder, c uint8, at Pos, slots []uint32) uint32 fails Malformed {
 
 // End ends the function begun; roots is the List of its statements, or 0
 // for Go's nil body.
-func End(b *Builder, roots uint32) fails Malformed {
+func End(b mut Builder, roots uint32) fails Malformed {
 	if !b.open {
 		return Malformed{At: len(b.file.Funcs), Why: "an end outside a function"}
 	}
@@ -213,7 +213,7 @@ law BuiltRowsAreWritten(local int32, line uint32) {
 	ok && text == want
 }
 
-func build(b *Builder, local int32, at Pos, zero Pos) bool fails Malformed {
+func build(b mut Builder, local int32, at Pos, zero Pos) bool fails Malformed {
 	try Begin(b, "f", at, zero)
 	let x = try Row(b, KindCode(TExpr, "zero"), at, []uint32{Text(b, "int")})
 	let s = try Row(b, KindCode(TStmt, "def"), at, []uint32{uint32(local), x})

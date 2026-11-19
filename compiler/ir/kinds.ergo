@@ -88,7 +88,7 @@ func KindOf(c uint8) Kind { kinds[int(c)] }
 // a kind of at most two slots, else a for the first and Extra from the
 // offset in b for the others, of a kind of n slots. b outside Extra is
 // Malformed.
-func Slot(body *Body, id int, j int, n int) uint32 fails Malformed {
+func Slot(body mut Body, id int, j int, n int) uint32 fails Malformed {
 	if j == 0 {
 		return body.A[id-1]
 	}

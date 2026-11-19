@@ -145,7 +145,7 @@ func textTypes() []textType {
 		textType{name: "a type over a function type", typ: "DFn", class: textNone, mk: "let v DFn = func(n int) int { n }"},
 		textType{name: "an operation-type value", typ: "Store", class: textNone, mk: "let v Store = Mem"},
 		textType{name: "a Task", typ: "Task[int, Fault]", class: textNone, mk: "let v = start()"},
-		textType{name: "a pointer to a record", typ: "*Rec", class: textNone},
+		textType{name: "a pointer to a record", typ: "mut Rec", class: textNone},
 		textType{name: "a type parameter", typ: "T", tparams: "[T]", class: textTypeParam},
 		textType{name: "an ordered type parameter", typ: "T", tparams: "[T ordered]", class: textTypeParam},
 		textType{name: "a comparable type parameter", typ: "T", tparams: "[T comparable]", class: textTypeParam},

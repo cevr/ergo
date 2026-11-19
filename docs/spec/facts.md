@@ -18,12 +18,12 @@ func At[K comparable, V](m Map[K, V], k K) V given Has(m, k)
 
 // arena
 func Live[T](a Of[T], r Ref[T]) bool { live(a.slots, r) }
-func At[T](a *Of[T], r Ref[T]) T given Live(*a, r)
-func Update[T](a *Of[T], r Ref[T], f func(v *T)) fails Stale keeps Live(*a, _)
-func Free[T](a *Of[T], r Ref[T]) T fails Stale keeps Live(*a, x) when x != r
+func At[T](a mut Of[T], r Ref[T]) T given Live(*a, r)
+func Update[T](a mut Of[T], r Ref[T], f func(v mut T)) fails Stale keeps Live(*a, _)
+func Free[T](a mut Of[T], r Ref[T]) T fails Stale keeps Live(*a, x) when x != r
 
 // a cursor
-func more(c *cursor) bool { c.pos < len(c.text) }
+func more(c mut cursor) bool { c.pos < len(c.text) }
 func peek(c *cursor) byte given more(c) { c.text[c.pos] }
 for more(&c) && peek(&c) == ' ' { c.pos += 1 }   // the write kills more(c) at the loop head
 ```

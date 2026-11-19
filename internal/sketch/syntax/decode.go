@@ -351,25 +351,28 @@ func (d *rowDecoder) node(r uint32) Node {
 		return e
 	case kField:
 		f := &Field{
-			Doc:      d.doc(d.fixed(r, 10, 0)),
-			Names:    list[*Ident](d, r, 0, d.items(r, 10)),
-			Type:     opt[Expr](d, d.fixed(r, 10, 1)),
-			Key:      opt[*BasicLit](d, d.fixed(r, 10, 2)),
-			Dots:     d.zpos(d.fixed(r, 10, 5)),
-			Where:    opt[Expr](d, d.fixed(r, 10, 6)),
-			WherePos: d.zpos(d.fixed(r, 10, 7)),
-			PurePos:  d.zpos(d.fixed(r, 10, 8)),
+			Doc:      d.doc(d.fixed(r, 11, 0)),
+			Names:    list[*Ident](d, r, 0, d.items(r, 11)),
+			Type:     opt[Expr](d, d.fixed(r, 11, 1)),
+			Key:      opt[*BasicLit](d, d.fixed(r, 11, 2)),
+			Dots:     d.zpos(d.fixed(r, 11, 5)),
+			Where:    opt[Expr](d, d.fixed(r, 11, 6)),
+			WherePos: d.zpos(d.fixed(r, 11, 7)),
+			PurePos:  d.zpos(d.fixed(r, 11, 8)),
 		}
-		if w := d.fixed(r, 10, 3); w != 0 {
+		if w := d.fixed(r, 11, 3); w != 0 {
 			f.Any = d.pos(d.tok(w - 1))
 		}
-		if w := d.fixed(r, 10, 4); w != 0 {
+		if w := d.fixed(r, 11, 4); w != 0 {
 			f.Lent = d.pos(d.tok(w - 1))
 		}
-		f.Include = d.fixed(r, 10, 5) != 0
-		f.Pure = d.fixed(r, 10, 8) != 0
-		if w := d.fixed(r, 10, 9); w != 0 {
+		f.Include = d.fixed(r, 11, 5) != 0
+		f.Pure = d.fixed(r, 11, 8) != 0
+		if w := d.fixed(r, 11, 9); w != 0 {
 			f.Own = &Word{At: d.pos(w - 1)}
+		}
+		if w := d.fixed(r, 11, 10); w != 0 {
+			f.Mut = &Word{At: d.pos(w - 1)}
 		}
 		return f
 	case kFieldList:
@@ -415,7 +418,7 @@ func (d *rowDecoder) node(r uint32) Node {
 	case kCallExpr:
 		return &CallExpr{Fun: one[Expr](d, d.fixed(r, 5, 0)), Lparen: d.opos(d.fixed(r, 5, 1)), Args: list[Expr](d, r, 0, d.items(r, 5)), Rparen: d.opos(d.fixed(r, 5, 2)), Trailing: opt[*BlockStmt](d, d.fixed(r, 5, 3)), TrailingFunc: d.fixed(r, 5, 4) != 0}
 	case kStarExpr:
-		return &StarExpr{Star: d.pos(t), X: one[Expr](d, a)}
+		return &StarExpr{Star: d.pos(t), X: one[Expr](d, a), Mut: d.toks[t].tok == MUT}
 	case kUnaryExpr:
 		return &UnaryExpr{OpPos: d.pos(t), Op: d.toks[t].tok, X: one[Expr](d, a)}
 	case kBinaryExpr:

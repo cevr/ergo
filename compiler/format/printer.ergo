@@ -50,7 +50,7 @@ type Printer {
 type Walk { Has4 bool, Has5 bool, MaxProblem int }
 
 // load reads the comments and the end of p's parse, which did not fail.
-func load(p *Printer) {
+func load(p mut Printer) {
 	let src = p.Src
 	let cs = syntax.CommentsOf(p.P)
 	let n = syntax.NumComments(cs)
@@ -73,7 +73,7 @@ func load(p *Printer) {
 
 // ln is the 1-based line of offset at: the last line that starts at or
 // before it (line 1 for a negative offset).
-func ln(p *Printer, at int) int {
+func ln(p mut Printer, at int) int {
 	if at >= p.ALo && at < p.AHi {
 		return p.ALine
 	}
@@ -107,29 +107,29 @@ func ln(p *Printer, at int) int {
 
 // breakBefore reports whether the source has a line break between the
 // last printed token and at.
-func breakBefore(p *Printer, at int) bool {
+func breakBefore(p mut Printer, at int) bool {
 	p.LastTok >= 0 && p.ln(at) > p.LastTokLine
 }
 
 // ---------------------------------------------------------------- whitespace requests
 
-func space(p *Printer) { p.L.PendingSpace = true }
+func space(p mut Printer) { p.L.PendingSpace = true }
 
-func newline(p *Printer) { p.L.newline() }
+func newline(p mut Printer) { p.L.newline() }
 
 // newlineNoBlank asks for a line break that is never a blank line (after
 // an opening brace, before a closing one).
-func newlineNoBlank(p *Printer) {
+func newlineNoBlank(p mut Printer) {
 	p.L.newline()
 	p.L.NoBlank = true
 }
 
-func indent(p *Printer, by int) { p.L.Indent += by }
+func indent(p mut Printer, by int) { p.L.Indent += by }
 
 // gap is the whitespace before the token at at in a gap whose line break
 // the source decides: a line break if the source has one, else a blank
 // when blank.
-func gap(p *Printer, at int, blank bool) bool {
+func gap(p mut Printer, at int, blank bool) bool {
 	if p.breakBefore(at) {
 		p.newline()
 		return true
@@ -145,17 +145,17 @@ func gap(p *Printer, at int, blank bool) bool {
 // emit applies the pending whitespace before an item at at (NoPos for a
 // synthesized token): a requested line break is a blank line when the
 // source has one between the last item and this one.
-func emit(p *Printer, at int) {
+func emit(p mut Printer, at int) {
 	let blank = at >= 0 && p.LastEnd >= 0 && p.ln(at)-p.LastEndLine >= 2
 	p.L.emit(blank)
 }
 
-func write(p *Printer, text string) { p.L.writeToken(text) }
+func write(p mut Printer, text string) { p.L.writeToken(text) }
 
 // token prints a source token at at after the comments before it.
-func token(p *Printer, at int, text string) { p.tokenEnd(at, text, at+len(text)) }
+func token(p mut Printer, at int, text string) { p.tokenEnd(at, text, at+len(text)) }
 
-func tokenEnd(p *Printer, at int, text string, end int) {
+func tokenEnd(p mut Printer, at int, text string, end int) {
 	p.flushComments(at)
 	if p.L.PendingSpace && p.L.PendingNL == 0 && p.LastEnd > p.LastTok && p.LastTok >= 0 {
 		// After a block comment on the same line, go/printer writes no
@@ -178,7 +178,7 @@ func tokenEnd(p *Printer, at int, text string, end int) {
 
 // tok prints a token at at, or a synthesized one when the tree has no
 // position for it.
-func tok(p *Printer, at int, text string) {
+func tok(p mut Printer, at int, text string) {
 	if at >= 0 {
 		p.token(at, text)
 		return
@@ -192,7 +192,7 @@ func tok(p *Printer, at int, text string) {
 // its source position, so the comments before it stay before it and the
 // comments after it stay after it. Otherwise the token is not in the
 // source, such as a comma added before a closer on its own line.
-func synth(p *Printer, text string) {
+func synth(p mut Printer, text string) {
 	let at = p.sourceToken(text)
 	if at >= 0 {
 		p.token(at, text)
@@ -204,7 +204,7 @@ func synth(p *Printer, text string) {
 
 // sourceToken is the offset of text as the next source token after the
 // last printed token, skipping blanks and comments, or NoPos.
-func sourceToken(p *Printer, text string) int {
+func sourceToken(p mut Printer, text string) int {
 	if p.LastTok < 0 {
 		return NoPos
 	}
@@ -248,7 +248,7 @@ func sourceToken(p *Printer, text string) int {
 }
 
 // finish prints the comments after the last token and renders.
-func finish(p *Printer, limit int) Rendered fails OutputLimit {
+func finish(p mut Printer, limit int) Rendered fails OutputLimit {
 	p.flushComments(p.EOF + 1)
 	p.L.Finish(limit)
 }

@@ -288,22 +288,22 @@ func F(xs []S) {
 	ys[0].X = 1
 }`},
 	{"M17", "map-index-address", "S108", `type S { X int }
-func G(s *S)          {}
+func G(s mut S)          {}
 func F(m Map[int, S]) { G(&m[0]) }`},
 	{"M18", "unknown-context-cascade", "S104", `func F() { with(Missing) { Console.Println("x") } }`},
 	{"M18", "unknown-context-cascade-in-context", "S104", `func F() { with(context{ Missing }) { Console.Println("x") } }`},
 	{"M18", "unknown-context-cascade-named", "S104", `let W = context { Missing }
 func F() { with W { Console.Println("x") } }`},
-	{"N1", "pointer-receiver-parameter", "", `type I { M() }
+	{"N1", "pointer-receiver-parameter", "", `type I { mut M() }
 type S {} implements I
-func M(s *S) {}
-func F(s *S) {
+func M(s mut S) {}
+func F(s mut S) {
 	let x I = s
 	x.M()
 }`},
 	{"N1", "pointer-receiver-value", "S108", `type I { M() }
 type S {}
-func M(s *S) {}
+func M(s mut S) {}
 func Take(x I) {}
 func F(s S) { Take(s) }`},
 	{"N2", "complex-types", "", `func F() complex128 { return complex128(1) }
