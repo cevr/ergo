@@ -10,7 +10,7 @@ The program is a module of packages (`ergo.mod`: `module jsonv`), in the Go layo
 
 | folder | what it holds |
 | --- | --- |
-| `json/` | The JSON layer over std `json`. `value.ergo` (`Kind`, `Get` over std's `json.Value`), `parse.ergo` (`Parse`, std's `Decode` of a `Value` with the depth limit `MaxDepth`, and `Locate`), `print.ergo` (`Compact`, `Indent`, `Quoted`: jq's layout), `laws.ergo` (the drawn `Tree`, `Lawful`, the laws), `tests.ergo`. Pure. The package is named `json` and imports std `json` in its own files as `json`, as a Go package may; the other packages import both, std as `import stdjson json`. |
+| `json/` | The JSON layer over std `json`. `value.ergo` (`Kind`, `Get` over std's `json.Value`), `parse.ergo` (`Parse`, std's `Decode` of a `Value` with the depth limit `MaxDepth`, and `Locate`), `print.ergo` (`Compact`, `Indent`, `Quoted`: compact or indented two spaces per level), `laws.ergo` (the drawn `Tree`, `Lawful`, the laws), `tests.ergo`. Pure. The package is named `json` and imports std `json` in its own files as `json`, as a Go package may; the other packages import both, std as `import stdjson json`. |
 | `schema/` | The schema language. `schema.ergo` (the union `Schema`, `Infer`, `Join`), `validate.ergo` (`Validate`, `Check`, the union `Violation`, `Describe`, paths), `codec.ergo` (`FromJSON`, `ToJSON`, `BadSchema`), `laws.ergo`, `tests.ergo`. Pure. |
 | `app/` | The commands. `documents.ergo` (the contract `Documents`, an operation type with the law `ReadIsRepeatable`, and its failures), `commands.ergo` (the union `Cmd`, the flags, `Parse`), `run.ergo` (`Load`, `Answer`, `Run`). |
 | `memory/` | `Shelf`, the in-memory `Documents` for tests. |

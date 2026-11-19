@@ -8,7 +8,7 @@ type writer { parts []string }
 
 func put(w *writer, s string) { w.parts = w.parts.Append(s) }
 
-// Compact is v with no white space: jq -c's layout.
+// Compact is v with no white space.
 func Compact(v json.Value) string {
 	let mut w = writer{parts: []string{}}
 	compact(&w, v)
@@ -16,8 +16,8 @@ func Compact(v json.Value) string {
 }
 
 // Indent is v with one member or item per line, each level indented by
-// one more indent, and an empty array or object as [] or {}: jq's layout
-// with indent "  ". The text has no final line feed.
+// one more indent, and an empty array or object as [] or {}, with
+// indent "  ". The text has no final line feed.
 func Indent(v json.Value, indent string) string {
 	let mut w = writer{parts: []string{}}
 	pretty(&w, v, indent, "\n")
@@ -102,7 +102,7 @@ func scalar(w *writer, v json.Value) {
 	}
 }
 
-// quote writes s as a JSON string, as jq writes it: ", \ and the bytes
+// quote writes s as a JSON string: ", \ and the bytes
 // below 0x20 and 0x7f are escaped, with \b, \f, \n, \r and \t where JSON
 // has them; any other byte is written as it is. Invalid UTF-8 is written
 // as U+FFFD, as Go's encoding/json writes it.
