@@ -603,36 +603,53 @@ func ledgerLowered(a Analysis, unit lower.Unit, req BuildRequest, split bool) (*
 }
 
 // EmittedDigest is the SHA-256 of the Go module a Build of req would link:
-// the runtime and the lowered files, by path and bytes, and the mode. Two
+// the runtime packages it imports and the lowered files, by path and bytes, and the mode. Two
 // compilers that emit the same module for a program give the same digest,
 // so a cache keyed on it replays across a compiler edit that does not
 // change that program's Go (the examples runner, gate-speed GS8). It writes
 // nothing and runs no Go tool.
 func EmittedDigest(a Analysis, req BuildRequest) (string, error) {
-	unit, lowering, split, err := emission(a, req)
+	files, err := emittedFiles(a, req)
 	if err != nil {
 		return "", err
+	}
+	return emittedDigest(req.Mode, lower.Runtime(), files), nil
+}
+
+// emittedFiles are the lowered files of the module a Build of req links,
+// without the runtime.
+func emittedFiles(a Analysis, req BuildRequest) ([]lower.File, error) {
+	unit, lowering, split, err := emission(a, req)
+	if err != nil {
+		return nil, err
 	}
 	var files []lower.File
 	if req.Mode == build.ModeBuild {
 		if _, files, err = ledgerLowered(a, unit, req, split); err != nil {
-			return "", err
+			return nil, err
 		}
 	}
 	if files == nil {
 		if files, err = lowerUnit(a, unit, lowering); err != nil {
-			return "", err
+			return nil, err
 		}
 	}
-	all := append(slices.Clone(lower.Runtime()), files...)
+	return files, nil
+}
+
+// emittedDigest is EmittedDigest of the lowered files: the mode, the files
+// and the part of runtime they can link (lower.LinkedRuntime, CS-CUTOFF),
+// by path and bytes.
+func emittedDigest(mode build.Mode, runtime, files []lower.File) string {
+	all := append(lower.LinkedRuntime(runtime, files), files...)
 	slices.SortFunc(all, func(x, y lower.File) int { return strings.Compare(x.Path, y.Path) })
 	hash := sha256.New()
-	fmt.Fprintf(hash, "mode %s\n", req.Mode)
+	fmt.Fprintf(hash, "mode %s\n", mode)
 	for _, f := range all {
 		fmt.Fprintf(hash, "%d:%s%d:", len(f.Path), f.Path, len(f.Data))
 		hash.Write(f.Data)
 	}
-	return hex.EncodeToString(hash.Sum(nil)), nil
+	return hex.EncodeToString(hash.Sum(nil))
 }
 
 // stdDependencies summarises the bundled standard library: the prelude and
