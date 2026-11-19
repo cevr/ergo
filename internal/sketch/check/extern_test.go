@@ -1307,6 +1307,34 @@ func main() {
 	use(Mine)
 }
 `,
+	// std timeout: NewDeadline's extern makes the Deadline, and runtimeOnly seals it.
+	"timeout.Deadline": `import timeout
+
+type Mine {}
+
+func Arm(_ Mine, d duration) {}
+func Armed(_ Mine) bool { false }
+func Stop(_ Mine) {}
+
+func use(dl timeout.Deadline) { dl.Stop() }
+
+func main() {
+	use(Mine)
+}
+`,
+	// std testing (MX-P3 F6): the authority to read the heap's counters is AllocCounter's (its unexported field and NewAllocCounter's TestAmbient); the Allocs contract itself takes a program's counter, as time.Clock takes a Manual.
+	"testing.Allocs": `import testing
+
+type Mine {} implements testing.Allocs
+
+func PerRun(_ Mine, runs int, f func()) int { 0 }
+
+func use(a testing.Allocs) { _ = a.PerRun(1, func() {}) }
+
+func main() {
+	use(Mine)
+}
+`,
 }
 
 // unexportedStd is the std operation types sealed by an unexported
@@ -1371,6 +1399,7 @@ var openStd = map[string]bool{
 	"log.Sink":          true,
 	"tz.Zones":          true,
 	"tz.Local":          true,
+	"testing.Allocs": true,
 	// The layout's text measure, which a host provides with its fonts.
 }
 
