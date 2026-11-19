@@ -4615,7 +4615,7 @@ func lawRelationsNameHeldNodes(seed int) bool {
 	}
 }
 
-// TRACKS: laws_track.ergo restated.
+// TRACKS: track.ergo's laws restated.
 // aims are the targets a law's taps set.
 let aims = []float64{-200.0, -50.0, 80.0, 250.0}
 
