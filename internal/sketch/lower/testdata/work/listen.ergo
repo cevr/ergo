@@ -19,9 +19,12 @@ func Count(f Fixed, query string) int fails Unavailable {
 func work(s Phase) Option[machines.Work[Signal, Catalog]] {
 	match s {
 	case Searching as q:
-		Some{machines.Work{Run: func() Signal fails Unavailable needs Catalog { Found{N: try Catalog.Count(q.Query)} }}}
+		Some{machines.Attempt(func() int fails Unavailable needs Catalog { try Catalog.Count(q.Query) }, func(n int) Signal { Found{N: n} }, func(u) {
+			let sig Signal = u
+			sig
+		})}
 	case Listening:
-		Some{machines.Work{Listen: func(send func(e Signal)) {
+		Some{machines.Work{Start: func(send entry func(e Signal)) {
 			for i in 1..4 {
 				send(Tick{N: i})
 			}
@@ -53,7 +56,7 @@ type Finder machine[Phase, Signal] { initial: start, step: step, work: work }
 func start(q string) Phase { Searching{Query: q} }
 
 // run reads the initial state's work from the Machine value first: when
-// the conversion dropped it, the actor would wait on Changes forever, so
+// the conversion dropped it, the actor would wait on LatestChanges forever, so
 // the program says so and ends instead.
 func run(q string) string needs Scheduler | Catalog {
 	let m = machines.Start(Finder{}, q)
@@ -64,7 +67,7 @@ func run(q string) string needs Scheduler | Catalog {
 	}
 	let a = actor.StartMachine(m, 1, func(o string) {})
 	let mut last = ""
-	for st in a.Changes() {
+	for st in a.LatestChanges() {
 		match st {
 		case Over as o:
 			last = o.Note

@@ -41,9 +41,14 @@ let Routes = []http.Route[Endpoint]{
 // Endpoints is every endpoint, independent of the route table. A new variant
 // is generated for this law, so a missing or repeated route refutes it.
 law RoutesCoverEndpoints(e Endpoint) {
+	routesOf(e) == 1
+}
+
+// routesOf counts the routes that serve e.
+func routesOf(e Endpoint) int {
 	let mut count = 0
 	for route in Routes {
 		if route.Value == e { count = count + 1 }
 	}
-	count == 1
+	count
 }

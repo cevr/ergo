@@ -346,22 +346,44 @@ func (e *ContextEntry) End() Pos {
 // (types.md, Structs 7) has Include set, Dots at its `..`, no Names, and R
 // as its Type.
 type Field struct {
-	Doc     *CommentGroup
-	Names   []*Ident
-	Type    Expr
-	Key     *BasicLit // optional record field key, independent of the codec format
-	Any     Pos
+	Doc   *CommentGroup
+	Names []*Ident
+	Type  Expr
+	Key   *BasicLit // optional record field key, independent of the codec format
+	Any   Pos
+	// Lent is the position of a type parameter's `lent` written before
+	// its constraint, `[T lent Counter]` (types.md, Borrows 7), or NoPos.
+	Lent    Pos
 	Include bool
 	Dots    Pos
 	// WherePos and Where are a law parameter's `where P` (types.md,
 	// Refinements), or NoPos and nil.
 	WherePos Pos
 	Where    Expr
+	// Pure marks a named parameter's clause `pure` before its type
+	// (grammar.md, Declarations 16; rows.md, Footprints 6), written at
+	// PurePos. PurePos means nothing without Pure: a Field built with
+	// neither, or repositioned (derive), has no clause.
+	Pure    bool
+	PurePos Pos
+	// Own is the mode word `own` (audit CSX §4.3, q168), or nil: between
+	// a parameter's names and its type (`f own File`), before an unnamed
+	// parameter's type (`func(own File)`), and before an operation's name
+	// for its receiver (`own Close()`). It is a word, not an expression.
+	Own *Word
+}
+
+// Word is a mode word written in a field (Field.Own): its position.
+type Word struct {
+	At Pos
 }
 
 func (f *Field) Pos() Pos {
 	if f.Include {
 		return f.Dots
+	}
+	if f.Own != nil && (len(f.Names) == 0 || f.Own.At < f.Names[0].Pos()) {
+		return f.Own.At
 	}
 	if len(f.Names) > 0 {
 		return f.Names[0].Pos()
@@ -415,6 +437,35 @@ type NeedsClause struct {
 
 func (u *NeedsClause) Pos() Pos { return u.Needs }
 func (u *NeedsClause) End() Pos { return u.Names[len(u.Names)-1].End() }
+
+// WritesTakes reports whether the signature t writes which parameters it
+// takes: a takes clause, or the mode word own on a parameter that is not
+// written as a function type (own on a function type keeps the function,
+// as escaping does, and takes nothing; q168).
+func WritesTakes(t *FuncType) bool {
+	if t.Takes != nil {
+		return true
+	}
+	if t.Params != nil {
+		for _, f := range t.Params.List {
+			if _, fn := unparenType(f.Type).(*FuncType); f.Own != nil && !fn {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// unparenType is x without its parentheses.
+func unparenType(x Expr) Expr {
+	for {
+		p, ok := x.(*ParenExpr)
+		if !ok {
+			return x
+		}
+		x = p.X
+	}
+}
 
 // TakesClause is `takes a, b` after a signature's rows (#197, resources.md
 // R19): the parameters the call hands off. Names is empty for a bare
@@ -618,6 +669,12 @@ type (
 	// is the position of `escaping`, or NoPos.
 	FuncType struct {
 		Escaping Pos
+		// Entry marks `entry func(…)`, the type of an entry's send
+		// (grammar.md, Types; runtime.md, Machines and actors 14), written
+		// at EntryPos. EntryPos means nothing without Entry, so a FuncType
+		// built with neither has no clause.
+		Entry    bool
+		EntryPos Pos
 		Func     Pos
 		Params   *FieldList
 		Results  *FieldList
@@ -669,6 +726,7 @@ type (
 		Step    Expr
 		After   Expr       // nil when the machine has no after entry
 		Work    Expr       // nil when the machine has no work entry
+		Exit    Expr       // nil when the machine has no exit entry (FK9-g1)
 		Laws    []*LawDecl // the machine's laws, in source order (MU6)
 	}
 
@@ -681,11 +739,12 @@ type (
 	}
 )
 
-// MachineEntry is `initial: x`, `step: f` or `after: g`.
+// MachineEntry is `initial: x`, `step: f`, `after: g`, `work: w` or
+// `exit: x`.
 type MachineEntry struct {
 	Doc     *CommentGroup
 	NamePos Pos
-	Name    string // "initial", "step", "after" or "work"
+	Name    string // "initial", "step", "after", "work" or "exit"
 	Colon   Pos
 	Value   Expr
 }
@@ -697,8 +756,11 @@ func (e *MachineEntry) End() Pos { return e.Value.End() }
 type CatchArm struct {
 	Case  Pos
 	Types []Expr
-	Colon Pos
-	Body  []Stmt
+	// Written is the patterns as written when one holds an OrPattern;
+	// Types is then their expansion (orpattern.go). nil otherwise.
+	Written []Expr
+	Colon   Pos
+	Body    []Stmt
 }
 
 func (a *CatchArm) Pos() Pos { return a.Case }
@@ -769,6 +831,8 @@ func (x *FuncType) Pos() Pos {
 	switch {
 	case x.Escaping.IsValid():
 		return x.Escaping
+	case x.Entry:
+		return x.EntryPos
 	case x.Func.IsValid():
 		return x.Func
 	}
@@ -934,10 +998,14 @@ type (
 // CaseClause is `case list:` or `default:` (List is nil) of an expression
 // or type switch.
 type CaseClause struct {
-	Case  Pos
-	List  []Expr
-	Colon Pos
-	Body  []Stmt
+	Case Pos
+	List []Expr
+	// Written is the patterns as written when one holds an OrPattern;
+	// List is then their expansion, one pattern per combination of
+	// alternatives (orpattern.go). nil otherwise.
+	Written []Expr
+	Colon   Pos
+	Body    []Stmt
 }
 
 func (c *CaseClause) Pos() Pos { return c.Case }

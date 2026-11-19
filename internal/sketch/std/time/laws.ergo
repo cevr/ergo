@@ -17,9 +17,10 @@ func within(n int64, lo int64, hi int64) int64 {
 func anyYear(n int64) int64 { within(n, -62135596800, 253402300799) }
 
 // FormatParseRoundTrip: Parse reads back the instant Format writes in
-// RFC3339Nano, for every second of years 1 to 9999 and every nanosecond.
+// RFC3339Nano, for every Unix second and every nanosecond: a year past
+// 9999 or before 0 is the ISO 8601 expanded year Format writes.
 law FormatParseRoundTrip(sec int64, nsec int64) {
-	let t = Unix(anyYear(sec), within(nsec, 0, 999999999))
+	let t = Unix(sec, within(nsec, 0, 999999999))
 	let back = Parse(RFC3339Nano, t.Format(RFC3339Nano)) catch {
 	case ParseError:
 		return false

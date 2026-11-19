@@ -111,7 +111,7 @@ func TestWholeGateRunRecordsAndReplays(t *testing.T) {
 	if code != 0 || countIn(t, counter) != 1 {
 		t.Fatalf("second run exit %d, ran %d times; want a replay:\n%s", code, countIn(t, counter), out)
 	}
-	// The replay before the scope prints the identity line, then the record.
+	// The replay before the steps prints the identity line, then the record.
 	file, err := os.Create(filepath.Join(t.TempDir(), "log"))
 	if err != nil {
 		t.Fatal(err)
@@ -185,15 +185,50 @@ func TestWholeGateRunRecordsAndReplays(t *testing.T) {
 	}
 }
 
+// TestWholeGateRecordsOverAStaleBuild: a gate that starts on a stale
+// bin/ergo, which its own build step rewrites, records its pass and
+// replays it (gateOutputs); the replay runs the build again, so bin/ergo
+// matches the tree after it (rebuildOutputs). Mutant gate-key-stale-binary
+// (the key holds bin/ again): the build changes the end key, and the run
+// records nothing. Mutant gate-replay-stale-binary (a replay builds
+// nothing): the replay leaves the stale bin/ergo.
+func TestWholeGateRecordsOverAStaleBuild(t *testing.T) {
+	root := fixture(t)
+	write(t, root, ".gitignore", "/runs/\n/bin/\n")
+	write(t, root, "bin/ergo", "stale\n")
+	build := &Step{Name: "build", Argv: []string{"sh", "-c", `echo "fresh $$" > bin/ergo.new && mv bin/ergo.new bin/ergo`}, Writes: gateOutputs}
+	g := wholeFixture(t, root, []*Step{build})
+	code, out := runWhole(t, g)
+	if code != 0 || !strings.Contains(out, "gate: recorded whole-gate key ") {
+		t.Fatalf("a run over a stale bin/ergo exits %d and does not record:\n%s", code, out)
+	}
+	write(t, root, "bin/ergo", "stale\n")
+	code, out = runWhole(t, g)
+	if code != 0 || !strings.Contains(out, "gate: replayed 1 steps (key ") {
+		t.Fatalf("the recorded run does not replay (exit %d):\n%s", code, out)
+	}
+	if got, err := os.ReadFile(filepath.Join(root, "bin/ergo")); err != nil || !strings.HasPrefix(string(got), "fresh ") {
+		t.Fatalf("after the replay bin/ergo holds %q (%v), want the build's output:\n%s", got, err, out)
+	}
+}
+
 // TestWholeGateRecordNamesItsTier: the tier is a fact of the whole-gate
 // key. A full-tier record replays for a full-tier run, by the run itself
-// and by the replay before the scope (replayWholeGate, which keys every
+// and by the replay before the steps (replayWholeGate, which keys every
 // host program as main does), and for no run of another tier; each run
-// says its tier.
+// says its tier. The replay before the scope builds bin/ergo again
+// (replayBuild), so the binary matches the tree after it: mutant
+// gate-prescope-replay-stale-binary.
 func TestWholeGateRecordNamesItsTier(t *testing.T) {
 	cache := t.TempDir()
 	t.Setenv("ERGO_GATE_CACHE", cache)
 	root := fixture(t)
+	write(t, root, ".gitignore", "/runs/\n/bin/\n")
+	prior := replayBuild
+	replayBuild = func(string) *Step {
+		return &Step{Name: "build", Argv: []string{"sh", "-c", `mkdir -p bin && echo fresh > bin/ergo`}, Writes: gateOutputs}
+	}
+	t.Cleanup(func() { replayBuild = prior })
 	counter := filepath.Join(t.TempDir(), "count")
 	state, err := checkoutStateOf(root)
 	if err != nil {
@@ -220,10 +255,14 @@ func TestWholeGateRecordNamesItsTier(t *testing.T) {
 		return replayed, string(log)
 	}
 	if replayed, log := replayAs("fast"); replayed {
-		t.Fatalf("the replay before the scope replayed the full tier's record for the fast tier:\n%s", log)
+		t.Fatalf("the replay before the steps replayed the full tier's record for the fast tier:\n%s", log)
 	}
+	write(t, root, "bin/ergo", "stale\n")
 	if replayed, log := replayAs(fullTier); !replayed || !strings.Contains(log, "gate: tier: full\n") || countIn(t, counter) != 1 {
-		t.Fatalf("the replay before the scope did not replay the full tier's record (replayed %t, ran %d times):\n%s", replayed, countIn(t, counter), log)
+		t.Fatalf("the replay before the steps did not replay the full tier's record (replayed %t, ran %d times):\n%s", replayed, countIn(t, counter), log)
+	}
+	if got, err := os.ReadFile(filepath.Join(root, "bin/ergo")); err != nil || string(got) != "fresh\n" {
+		t.Fatalf("after the replay before the scope bin/ergo holds %q (%v), want the build's output", got, err)
 	}
 	// A run of another tier runs its steps (and records under its own key);
 	// the full tier's record still replays for the full tier.
@@ -397,6 +436,8 @@ var declaredSources = map[string]string{
 	"scopeProbe command":                                      "systemd-run, as exec.LookPath resolved it",
 	"enterScope command":                                      "systemd-run, as exec.LookPath resolved it",
 	"execute argv[0]":                                         "a step's program, or the nsenter the sandbox wraps it in: TestHostProgramsDeclared checks every step",
+	"rebuildOutputs step.Argv[0]":                             "the program of a step that writes the gate's outputs (build bin/ergo): TestHostProgramsDeclared checks every step",
+	"writeSweepCosts argv[0]":                                 "a closure sweep step's program, recorded alone: TestHostProgramsDeclared checks every step",
 	"startSandbox hold":                                       "cat, as exec.LookPath resolved it",
 	"startSandbox bwrap":                                      "bwrap, as exec.LookPath resolved it",
 	"TestSandboxPlanOfThisHost argv[0]":                       "a probe script wrapped by the sandbox: its nsenter",
@@ -414,6 +455,8 @@ var declaredSources = map[string]string{
 	"TestSandboxArgvBindsAdmittedRoots argv[0]":               "a probe script wrapped by the sandbox: its nsenter",
 	"TestSandboxModuleZipIsConstructed argv[0]":               "a probe script wrapped by the sandbox: its nsenter",
 	"moduleHost goTool":                                       "the real go of TestMain (realTools)",
+	"moduleGo moduleGoCommand":                                "go on PATH (the host program go), or in a test the real go of TestMain (realTools)",
+	"TestStepsBuildWithTheModuleGo value":                     "the go first on a step's PATH, which the test checks is go.mod's release",
 	"TestMergeTierInputContractRegression prime[0]":           "the regression step's own program, launched outside the gate to prime the host cache",
 	"TestGateStopsItsStepsOnSignal argv[0]":                   "this test binary, run as the helper gate under the RSS watch (TestGateStopHelper)",
 	"runOracleHelper os.Args[0]":                              "this test binary, re-run as a step of the output-oracle helper gate (TestBudgetScopeHelper)",

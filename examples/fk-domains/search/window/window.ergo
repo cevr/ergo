@@ -1,0 +1,43 @@
+// Package window is the window of fk-domains' virtual list (plan §20.2):
+// from the scroll offset, the viewport's height, the row height, the
+// count of rows and the overscan to the rows to build and the two spacers
+// around them. A row has one fixed height (decision 4, Flutter's
+// itemExtent), so the window is a division and needs no measuring pass,
+// and its work does not depend on the count. The original's is Foldkit's
+// VirtualList with measured heights (resultsList.ts).
+
+// Spec is what the window is computed from, in pixels and rows.
+type Spec { ScrollTop int, Viewport int, RowHeight int, Count int, Overscan int }
+
+// Window is the rows First to First+Rows-1 to build, with Before pixels of
+// spacer above them and After below.
+type Window { First int, Rows int, Before int, After int }
+
+// End is the row after the window's last.
+func End(w Window) int { w.First + w.Rows }
+
+func clamp(v int, lo int, hi int) int {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	v
+}
+
+// Of is the window of s: the rows the viewport cuts, and Overscan rows on
+// each side, within 0 and Count. A RowHeight or Viewport below 1 counts
+// as 1, and a negative ScrollTop as 0.
+func Of(s Spec) Window {
+	let h = if s.RowHeight < 1 { 1 } else { s.RowHeight }
+	let view = if s.Viewport < 1 { 1 } else { s.Viewport }
+	let top = if s.ScrollTop < 0 { 0 } else { s.ScrollTop }
+	let count = if s.Count < 0 { 0 } else { s.Count }
+	let over = if s.Overscan < 0 { 0 } else { s.Overscan }
+	let firstSeen = top / h
+	let lastSeen = (top + view - 1) / h
+	let first = clamp(firstSeen-over, 0, count)
+	let end = clamp(lastSeen+1+over, first, count)
+	Window{First: first, Rows: end - first, Before: first * h, After: (count - end) * h}
+}

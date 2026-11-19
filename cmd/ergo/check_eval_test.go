@@ -28,7 +28,8 @@ import (
 // source that checks, with the model's records in ergo test's order and
 // a replay command for each record that did not pass; the evaluation's
 // revision equal to the envelope's, which is the SHA-256 of the file's
-// current bytes for one file; and nothing written to either root. No
+// current bytes for one file; and nothing written to either root but the
+// warm answer's manifest. No
 // process-level run is needed: with Go absent from PATH any fallback to a
 // Go build fails in process too, and the empty roots show none started.
 // Mutants: check-eval-bypassed (check prints the envelope without
@@ -44,6 +45,9 @@ func TestCheckEvaluatesWithoutBuild(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", xdg)
 	t.Setenv("TMPDIR", tmp)
 	t.Setenv("GOFLAGS", "")
+	// Every run evaluates: the law verdict store, which writes under the
+	// cache root, is TestLawVerdictsCLI's.
+	t.Setenv("ERGO_LAWCACHE", "off")
 	work := t.TempDir()
 	file := filepath.Join(work, "p.ergo")
 	folder := filepath.Join(work, "pkg")
@@ -86,10 +90,11 @@ func TestCheckEvaluatesWithoutBuild(t *testing.T) {
 		if err := json.Unmarshal(stdout, &env); err != nil {
 			fail("the output is not one check envelope: %v", err)
 		}
-		for _, root := range []string{xdg, tmp} {
-			if entries, _ := os.ReadDir(root); len(entries) != 0 {
-				fail("check wrote into %s: %v", root, entries)
-			}
+		if entries, _ := os.ReadDir(tmp); len(entries) != 0 {
+			fail("check wrote into %s: %v", tmp, entries)
+		}
+		if written := besideWarmManifests(xdg); len(written) != 0 {
+			fail("check wrote into %s more than its warm manifest: %v", xdg, written)
 		}
 		if p.staticBad {
 			if code != 1 || env.Checked || env.Evaluation != nil {
@@ -125,6 +130,20 @@ func TestCheckEvaluatesWithoutBuild(t *testing.T) {
 			fail("the evaluation names revision %s, the envelope %s", e.Revision, env.Revision)
 		}
 	}
+}
+
+// besideWarmManifests lists the files under root that are not a warm
+// manifest (a file in a folder named warm, docs/spec/build.md): the only
+// thing `ergo check` writes is the manifest of its own answer.
+func besideWarmManifests(root string) []string {
+	var written []string
+	_ = filepath.WalkDir(root, func(path string, e os.DirEntry, err error) error {
+		if err == nil && !e.IsDir() && filepath.Base(filepath.Dir(path)) != "warm" {
+			written = append(written, path)
+		}
+		return nil
+	})
+	return written
 }
 
 // checkInProcess runs checkCommand on target and returns what it printed
@@ -197,17 +216,18 @@ func (p checkProgram) sources() (helpers, tests string) {
 	h.WriteString("type Bad { Code int }\n\n")
 	h.WriteString("func boom(n int) int fails Bad {\n\tif n > 0 {\n\t\treturn Bad{Code: n}\n\t}\n\tn\n}\n\n")
 	h.WriteString("func half(x int) int { x / x }\n\n")
-	h.WriteString("func twice(n int) int { n + n }\n\n")
 	// Unused and calling Go: it skips nothing.
 	h.WriteString("func shout() string { upper(\"q\") }\n\n")
 	if p.staticBad {
 		h.WriteString("func wrong() int { \"s\" }\n\n")
 	}
 	var b strings.Builder
+	// Twice is the laws' subject, so it stands in their file (S115).
+	b.WriteString("func Twice(n int) int { n + n }\n\n")
 	for _, o := range p.tests {
 		body := []string{
-			"assert twice(2) == 4",
-			"assert twice(2) == 5",
+			"assert Twice(2) == 4",
+			"assert Twice(2) == 5",
 			"let x = try boom(1)\n\tassert x == 0",
 			"assert half(0) == 1",
 			"assert upper(\"a\") == \"A\"",
@@ -216,7 +236,7 @@ func (p checkProgram) sources() (helpers, tests string) {
 	}
 	for _, o := range p.laws {
 		op := []string{"==", "!="}[o.kind]
-		fmt.Fprintf(&b, "law %s(n int) { twice(n) - n %s n }\n\n", strings.TrimPrefix(o.name, "law "), op)
+		fmt.Fprintf(&b, "law %s(n int) { Twice(n) - n %s n }\n\n", strings.TrimPrefix(o.name, "law "), op)
 	}
 	return h.String(), b.String()
 }

@@ -76,10 +76,13 @@ func Inspect(n Node, f func(Node) bool) {
 		}
 	case *AssertStmt:
 		walk(n.X)
+	case *SkipStmt:
 	case *VariantSpec:
 		walk(n.Name, n.TypeArgs, n.Fields)
 	case *AsPattern:
 		walk(n.X, n.Name)
+	case *OrPattern:
+		exprs(n.Alts)
 	case *InterpolatedString:
 		for i, t := range n.Texts {
 			Inspect(t, f)

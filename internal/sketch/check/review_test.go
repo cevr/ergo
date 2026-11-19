@@ -73,7 +73,7 @@ type S {} implements I
 func M(_ S) {}
 type Box[T I] { X T }
 func F() { _ = Box{S} }`},
-	{"M6", "implicit-row-in-generic-argument", "", `func Await[T, E](t Task[T, E]) T fails E takes t { return t.Wait() }`},
+	{"M6", "implicit-row-in-generic-argument", "", `func Await[T, E](t own Task[T, E]) T fails E { return t.Wait() }`},
 	// D3a: a record field holds no Task, so the field is a function type.
 	{"M6", "bracket-row-in-generic-field", "", `type Box[T, E] { run func() T fails E }
 func Open[T, E](b Box[T, E]) T fails E { return b.run() }`},
@@ -118,7 +118,7 @@ func F() int {
 func F() { Id[int] }`},
 	{"M10", "function-value-before-tail", "S110", `func Id[T](x T) T { return x }
 func F() { Id[int]; _ = 0 }`},
-	{"M10", "function-value-implicit", "S108", `func Await[T, E](x T, t Task[T, E]) T fails E takes t { return t.Wait() }
+	{"M10", "function-value-implicit", "S108", `func Await[T, E](x T, t own Task[T, E]) T fails E { return t.Wait() }
 func F() { _ = Await[int] }`},
 	{"M11", "index-negative", "S108", `func F(xs []int) int { return xs[-1] }`},
 	{"M11", "slice-bounds", "S108", `func F(xs []int) []int { return xs[3:1] }`},
@@ -328,8 +328,8 @@ func H(a complex128) bool { return a == a }`},
 func F() { missing.Call() }`},
 	{"D3", "unknown-named-import-cascade", "S104", `import m missing/deep
 func F() { m.Call() }`},
-	{"D3", "go-import-cascade", "S109", `import go fmt
-func F() { fmt.Println("x") }`},
+	{"D3", "go-import-cascade", "S109", `import go os/signal
+func F() { signal.Stop("x") }`},
 	{"D3", "unknown-import-type-cascade", "S104", `import missing
 func F(x missing.T) {}`},
 	{"D3", "unknown-type-unused-cascade", "S104", `func F() { let x Missing }`},
@@ -382,12 +382,14 @@ func TestReviewCases(t *testing.T) {
 	for _, c := range reviewCases {
 		t.Run(c.finding+"/"+c.name, func(t *testing.T) {
 			src := c.src
+			checkSrc := check.CheckSource
 			if src == "" {
 				src = largeSCC(100, true)
+				checkSrc = checkSourceInfer // class G is the inference engine's
 			} else {
 				src = src + "\n"
 			}
-			_, diags := check.CheckSource(src)
+			_, diags := checkSrc(src)
 			got := codesOf(diags)
 			if got != c.want {
 				t.Errorf("want %q, got %q\n\t%s", c.want, got, describe(diags))
@@ -423,7 +425,7 @@ func largeSCC(n int, values bool) string {
 // whatever the cycle's length (M1).
 func TestInferenceConverges(t *testing.T) {
 	for _, n := range []int{10, 100, 400} {
-		pkg, diags := check.CheckSource(largeSCC(n, false))
+		pkg, diags := checkSourceInfer(largeSCC(n, false))
 		if codesOf(diags) != "S102" {
 			t.Fatalf("n=%d: want one S102, got %s", n, describe(diags))
 		}

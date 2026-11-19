@@ -122,7 +122,7 @@ func (w *resWalk) visit(t Type) (bool, int) {
 			if c.hostClose(t) != nil {
 				return true, noLow
 			}
-			if it := asInterface(t); it != nil && hostCloseOp(t, it) != nil {
+			if it := asInterface(t); it != nil && c.hostCloseOp(t, it) != nil {
 				return true, noLow
 			}
 			return false, noLow
@@ -161,10 +161,6 @@ func (w *resWalk) visit(t Type) (bool, int) {
 	// operations reads an operation type's body; sub maps a generic
 	// declaration's type parameters to the instance's arguments.
 	operations := func(it *Interface, sub map[*TypeParam]Type) {
-		if m := it.method("Close"); closeShape(m) && !m.Sig.Fallible {
-			n.holds = true
-			return
-		}
 		for _, m := range it.Methods {
 			if m.Sig == nil {
 				continue
@@ -186,7 +182,7 @@ func (w *resWalk) visit(t Type) (bool, int) {
 		switch {
 		case o.state != 2:
 			n.final = false
-		case c.closeMethod(t) != nil:
+		case c.implementsCloser(t):
 			n.holds = true
 		default:
 			switch ou := o.underlying().(type) {
@@ -268,9 +264,20 @@ func (w *resWalk) visit(t Type) (bool, int) {
 // closeMethod returns n's checked Close (R1): a function Close whose one
 // parameter is the receiver, with no result, no written failure row and no
 // type parameter of its own; nil when n has none. A Close with a failure
-// row is closeFacts' R2 error and makes no resource.
+// row is closeFacts' R2 error and makes no resource. Only a type that
+// implements Closer has one: a function named Close on any other type is
+// an ordinary function (R1).
 func (c *checker) closeMethod(n *Named) *Func {
-	f := n.method("Close")
+	if !c.implementsCloser(n) {
+		return nil
+	}
+	return c.closeFunc(n)
+}
+
+// closeFunc is n's function Close of the release shape, declared or not:
+// the release a Closer clause names (checkImplementsClauses).
+func (c *checker) closeFunc(n *Named) *Func {
+	f := n.method(c.closeName())
 	if f == nil || f.owner == nil {
 		return nil
 	}
@@ -332,11 +339,16 @@ func (c *checker) takesClause(u *syntax.TakesClause, sig *Signature, method bool
 	}
 	first := !c.takesSeen[u]
 	c.takesSeen[u] = true
+	if first {
+		// The clause is retired (q168): its facts still hold so that one
+		// diagnostic says it, and ergo fix rewrites it.
+		c.errorf(u, CodeType, "takes is gone: write own before the type of each parameter the callee keeps, as in r own Res, and before an operation that keeps its receiver, as in own Close(); ergo fix rewrites it")
+	}
+	sites := first
+	first = false // the clause's own errors are the one above
 	if len(u.Names) == 0 {
 		if method {
 			sig.TakesSelf = true
-		} else if first {
-			c.errorf(u, CodeType, "a bare takes names the value an operation is called on; name the parameter: takes p")
 		}
 		return
 	}
@@ -371,8 +383,35 @@ func (c *checker) takesClause(u *syntax.TakesClause, sig *Signature, method bool
 		}
 		seen[id.Name] = true
 		sig.Takes = append(sig.Takes, at)
-		if first {
+		if sites {
 			c.resourceSites = append(c.resourceSites, resourceSite{file: c.cur, at: made(c, id, syntax.Node(u)), t: sig.Params[at].Type, name: id.Name})
+		}
+	}
+}
+
+// ownParams reads the mode word own on a parameter field whose n
+// parameters are the last n of sig (audit CSX §4.3, q168): own on a
+// function value lets the callee keep it (escaping; writtenParamType
+// reads the word), and on any other value the callee takes it, as
+// `takes p` says. The facts are the clause's: Signature.Takes, and the
+// late S110 of a taken parameter whose type crosses.
+func (c *checker) ownParams(field *syntax.Field, sig *Signature, n int) {
+	first := !c.ownSeen[field]
+	if c.ownSeen == nil {
+		c.ownSeen = map[*syntax.Field]bool{}
+	}
+	c.ownSeen[field] = true
+	for k := len(sig.Params) - n; k < len(sig.Params); k++ {
+		p := sig.Params[k]
+		if _, fn := under(p.Type).(*Signature); fn || isInvalid(p.Type) {
+			continue
+		}
+		if slices.Contains(sig.Takes, k) {
+			continue
+		}
+		sig.Takes = append(sig.Takes, k)
+		if first {
+			c.resourceSites = append(c.resourceSites, resourceSite{file: c.cur, at: field, t: p.Type, name: p.Name})
 		}
 	}
 }
@@ -426,9 +465,41 @@ func (c *checker) providerAssignability(v, t Type) (assignment, string) {
 }
 
 // resourceIntoCrossingText is R22's refusal: a resource converted to an
-// operation type that crosses would never be released.
-func resourceIntoCrossingText(v, t Type) string {
-	return fmt.Sprintf("%s is a resource and %s has no Close, so the value would never be released (resources R22); give %s a Close() operation", v, t, t)
+// operation type that crosses would never be released. Only an operation
+// type that includes Closer releases (R1), whatever operations it lists,
+// so the repair it names is `..Closer` in that type: at its declaration
+// when this package declares it, in its package otherwise, and a type
+// that includes it when the target has no declaration of its own.
+func (c *checker) resourceIntoCrossingText(v, t Type) string {
+	repair, ok := c.closerRepair(t)
+	if !ok {
+		repair = fmt.Sprintf("convert it to an operation type that includes Closer instead of %s", t)
+	}
+	return fmt.Sprintf("%s is a resource and %s does not include Closer, so the value would never be released (resources R22); %s", v, t, repair)
+}
+
+// closerRepair is the repair of an operation type t that releases nothing
+// because it does not include Closer (R1; R13, R22): `..Closer` in t, at
+// its declaration when this package declares it, in its package otherwise.
+// ok is false when t has no declaration of its own.
+func (c *checker) closerRepair(t Type) (string, bool) {
+	n, ok := t.(*Named)
+	if !ok || n.origin().Obj == nil {
+		return "", false
+	}
+	tn := n.origin().Obj
+	switch {
+	case tn.Pkg == c.pkg && tn.Decl != nil && tn.file != nil:
+		line, col := tn.file.syntax.Position(tn.Decl.Name.Pos())
+		at := fmt.Sprintf("%d:%d", line, col)
+		if name := tn.file.syntax.Name; name != "" {
+			at = name + ":" + at
+		}
+		return fmt.Sprintf("add ..Closer to %s (%s)", tn.Name, at), true
+	case tn.Pkg != nil:
+		return fmt.Sprintf("add ..Closer to %s in package %s", tn.Name, tn.Pkg.Path), true
+	}
+	return "", false
 }
 
 // R22 at an instantiation (16a fix r4). A type parameter whose
@@ -525,7 +596,7 @@ func (c *checker) checkOwnershipSites() {
 		}
 		if c.holdsResource(s.from) && !c.releasable(s.to) {
 			c.cur = s.file
-			c.errorf(s.at, CodeType, "%s does not satisfy the constraint %s of %s: %s (types.md, Generics 2)", s.from, s.to, s.tp.Name, resourceIntoCrossingText(s.from, s.to))
+			c.errorf(s.at, CodeType, "%s does not satisfy the constraint %s of %s: %s (types.md, Generics 2)", s.from, s.to, s.tp.Name, c.resourceIntoCrossingText(s.from, s.to))
 		}
 	}
 }

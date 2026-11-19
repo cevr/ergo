@@ -1,10 +1,11 @@
 package check
 
 import (
+	"fmt"
 	"go/constant"
 	"strings"
 
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -40,6 +41,9 @@ func (c *checker) callOf(x *syntax.CallExpr, hint Type) operand {
 			return bad(x)
 		}
 	}
+	if m := c.patternCalls[x]; m != nil {
+		return c.patternCall(x, m)
+	}
 	if op, ok := c.lawOpCall(x); ok {
 		return op
 	}
@@ -55,6 +59,7 @@ func (c *checker) callOf(x *syntax.CallExpr, hint Type) operand {
 	}
 	if fun.mode != modeInvalid {
 		c.recordCall(x, fun)
+		c.recordPureArgs(x)
 	}
 	switch fun.mode {
 	case modeInvalid:
@@ -75,16 +80,6 @@ func (c *checker) callOf(x *syntax.CallExpr, hint Type) operand {
 		c.charge(x, fun.cap)
 		return c.callSig(x, fun.typ.(*Signature), fun)
 	case modeGeneric:
-		if f, _ := fun.obj.(*Func); TakesWorkSend(f) {
-			c.childRule(x, f.Name)
-		} else if TakesWorkSend(fun.fn) {
-			c.childRule(x, fun.fn.Name)
-		}
-		if f, _ := fun.obj.(*Func); TakesDurableMachine(f) {
-			c.recordDurable(x, f)
-		} else if TakesDurableMachine(fun.fn) {
-			c.recordDurable(x, fun.fn)
-		}
 		return c.callGeneric(x, fun.typ.(*Signature), nil, fun)
 	case modeExtern:
 		// The direct call of an extern, the one use P3 admits: its callee
@@ -759,6 +754,13 @@ func (c *checker) callGeneric(x *syntax.CallExpr, sig *Signature, explicit []Typ
 			in.m[tp] = &RowArg{Row: newRow()}
 			continue
 		}
+		for _, lt := range lits {
+			if lt != nil && containsInvalid(lt) {
+				// A literal whose tail was invalid (reported) binds
+				// nothing: the call is invalid, quietly (D3).
+				return bad(x)
+			}
+		}
 		// Outside the inferred subset (D6 as amended in round 7): never
 		// from the expected result, nor through a method or core-type
 		// constraint; the fix is to write the type arguments.
@@ -773,7 +775,7 @@ func (c *checker) callGeneric(x *syntax.CallExpr, sig *Signature, explicit []Typ
 		if tp.Kind == KindType && tp.Constraint != nil {
 			cons := c.subst(tp.Constraint, in.m)
 			if why := c.satisfies(b, cons); why != "" {
-				c.errorf(x, CodeType, "%s does not satisfy the constraint %s of %s: %s (types.md, Generics 2)", b, cons, tp.Name, why)
+				c.unsatisfied(x, b, cons, fun.fn, tp, why)
 				return bad(x)
 			}
 		}
@@ -883,8 +885,8 @@ func (c *checker) funcLit(x *syntax.FuncLit, expected *Signature, in *inferer) o
 			sig.Results = append([]Type(nil), expected.Results...)
 		}
 	}
-	if x.Type.Takes == nil && expected != nil && len(expected.Params) == len(sig.Params) {
-		// A literal writes no takes clause where its function type gives
+	if !syntax.WritesTakes(x.Type) && expected != nil && len(expected.Params) == len(sig.Params) {
+		// A literal writes no takes clause (and no own) where its function type gives
 		// one (L8 A3, Gap 39): its body is checked against that clause.
 		sig.Takes, sig.TakesSelf = append([]int(nil), expected.Takes...), expected.TakesSelf
 	}
@@ -923,7 +925,10 @@ func (c *checker) funcLit(x *syntax.FuncLit, expected *Signature, in *inferer) o
 			res := c.yieldingBlock(x.Body, x.Body.List, nil, false, false, func(op *operand) {
 				c.escape(op.expr, op.errs)
 			})
-			if res != nil && res != NoValue {
+			switch {
+			case res == nil:
+				sig.Results = []Type{invalid} // reported, as in blockLit
+			case res != NoValue:
 				sig.Results = []Type{res}
 			}
 			return
@@ -1018,7 +1023,13 @@ func (c *checker) blockLit(b *syntax.BlockStmt, expected *Signature, in *inferer
 			c.escape(op.expr, op.errs)
 		})
 		if resultFree {
-			if res != nil && res != NoValue {
+			switch {
+			case res == nil:
+				// An invalid tail was reported (D3): the block's result is
+				// invalid, not absent, so a Task or call it makes says
+				// nothing more (SB3: "this expression has no value" at Wait).
+				sig.Results = []Type{invalid}
+			case res != NoValue:
 				sig.Results = []Type{res}
 			}
 		} else {
@@ -1139,10 +1150,11 @@ func isCallLike(x syntax.Expr) bool {
 
 // ---------------------------------------------------------------- builtins
 
-// collFuncs are the prelude's functions on slices and Maps (D-D6). The
-// prelude reads its own; every other package reads the checked prelude's.
+// collFuncs are the operations on slices and Maps (D-D6; collop.go). The
+// package that holds their file reads its own; every other package reads
+// the checked prelude's.
 func (c *checker) collFuncs() map[collKey]*Func {
-	if c.pkg.Path == std.PreludePath {
+	if c.pkg.collFuncs != nil {
 		return c.pkg.collFuncs
 	}
 	return prelude().pkg.collFuncs
@@ -1154,11 +1166,23 @@ func (c *checker) collFuncs() map[collKey]*Func {
 // the name is unambiguous; one mechanism with a function on a declared
 // type (196m), not a built-in branch (196a D1).
 func (c *checker) collFunc(t Type, name string) *Func {
-	switch t.(type) {
+	switch t := t.(type) {
 	case *Slice:
+		if b, ok := t.Elem.(*Basic); ok && b.Kind == Uint8 {
+			if f := c.collFuncs()[collKey{name: name, on: onBytes}]; f != nil {
+				return f
+			}
+		}
 		return c.collFuncs()[collKey{name: name}]
 	case *Map:
-		return c.collFuncs()[collKey{name: name, isMap: true}]
+		return c.collFuncs()[collKey{name: name, on: onMap}]
+	case *Basic:
+		switch t.Kind {
+		case String:
+			return c.collFuncs()[collKey{name: name, on: onString}]
+		case Int32:
+			return c.collFuncs()[collKey{name: name, on: onRune}]
+		}
 	}
 	return nil
 }
@@ -1169,7 +1193,7 @@ func (c *checker) collFunc(t Type, name string) *Func {
 // prelude type (Sleep). The prelude's own operations are in its package
 // scope, so it has none here.
 func (c *checker) preludeOp(name string) *Func {
-	if c.pkg.Path == std.PreludePath {
+	if c.pkg.Path == stdlib.PreludePath {
 		return nil
 	}
 	return prelude().ops[name]
@@ -1192,12 +1216,69 @@ func opForm(f *Func) string {
 
 // isUnreachable reports the prelude's Unreachable (owner q29, 2026-11-08).
 func isUnreachable(f *Func) bool {
-	return f != nil && f.Name == "Unreachable" && f.Pkg != nil && f.Pkg.Path == std.PreludePath
+	return f != nil && f.Name == "Unreachable" && f.Pkg != nil && f.Pkg.Path == stdlib.PreludePath
 }
 
 // IsUnreachable reports a call of the prelude's Unreachable, which the
 // lowering writes as a panic at its site, never as a call of its Go body.
 func IsUnreachable(c *Call) bool { return c != nil && c.Kind == CallFunc && isUnreachable(c.Func) }
+
+// unsatisfied reports, at x, that the type argument b of f's parameter tp
+// does not satisfy its constraint cons, for the reason why: in a call and
+// in a written instantiation alike, it names f's parameter and, when a
+// later name's constraint covers tp, the group (groupedConstraint). f is
+// nil for a function value that names no declaration.
+func (c *checker) unsatisfied(x syntax.Node, b, cons Type, f *Func, tp *TypeParam, why string) {
+	owner, group := "", ""
+	if f != nil {
+		owner = f.Name + "'s "
+		group = groupedConstraint(f, tp)
+	}
+	c.errorf(x, CodeType, "%s does not satisfy the constraint %s of %s%s: %s%s (types.md, Generics 2)", b, cons, owner, tp.Name, why, group)
+}
+
+// groupedConstraint is the repair hint of a constraint failure at a
+// parameter that f's declaration constrains through a group: in
+// `[S, E comparable]` the constraint follows E and applies to S too
+// (types.md, Generics 2), which reads as an unconstrained S to a reader
+// used to one constraint per name. It is empty for a parameter whose
+// constraint is written right after it.
+func groupedConstraint(f *Func, tp *TypeParam) string {
+	if f.Decl == nil || f.Decl.TypeParams == nil {
+		return ""
+	}
+	for _, field := range f.Decl.TypeParams.List {
+		if field.Type == nil || len(field.Names) < 2 {
+			continue
+		}
+		for i, id := range field.Names[:len(field.Names)-1] {
+			if id.Name != tp.Name {
+				continue
+			}
+			names := make([]string, len(field.Names))
+			for j, n := range field.Names {
+				names[j] = n.Name
+			}
+			cons := exprText(field.Type)
+			// The repair keeps the order (type arguments are written by
+			// position): the names before tp keep the constraint, tp ends an
+			// unconstrained group, and the names after it keep theirs.
+			fix := tp.Name + " any, " + strings.Join(names[i+1:], ", ") + " " + cons
+			if i > 0 {
+				fix = strings.Join(names[:i], ", ") + " " + cons + ", " + fix
+			}
+			return fmt.Sprintf("; [%s %s] constrains %s as it does %s: write [%s] to leave %s unconstrained", strings.Join(names, ", "), cons, tp.Name, names[len(names)-1], fix, tp.Name)
+		}
+	}
+	return ""
+}
+
+// IsInForce reports a call of the prelude's InForce, which the lowering
+// writes in place: the providers of its row in force at the call, as a
+// Context value (rows.md, Context values, InForce; CK-rowarg part 3).
+func IsInForce(c *Call) bool {
+	return c != nil && c.Kind == CallFunc && c.Func != nil && c.Func.Name == "InForce" && c.Func.Pkg != nil && c.Func.Pkg.Path == stdlib.PreludePath
+}
 
 // unreachableCall reports whether x is a call of the prelude's
 // Unreachable, before it is checked: its callee is a bare name that
@@ -1257,7 +1338,7 @@ func (c *checker) builtin(x *syntax.CallExpr, b *Builtin, targ Type) operand {
 		return c.embedCall(x, targ)
 	}
 	if b.Name == WiredName {
-		c.errorf(x, CodeType, "%s[T] is a row, not a function: write it in a fails row (types.md, Codecs 2)", WiredName)
+		c.errorf(x, CodeType, "%s[T] is a row, not a function: write it in a fails or needs row (types.md, Codecs 2, 8)", WiredName)
 		c.silentArgs(x)
 		return bad(x)
 	}

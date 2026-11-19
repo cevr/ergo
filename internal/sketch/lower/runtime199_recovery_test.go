@@ -3,6 +3,7 @@ package lower
 import (
 	"go/ast"
 	"go/types"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -22,7 +23,7 @@ import (
 //     capture(t, recover()), or p := recover() and capture(…, p);
 //   - v1 never uses rt's other defect paths: (*Cause).AddDefect outside
 //     capture, (*Cause).Error (rt's own formatter, not the report), or
-//     runtime/debug.Stack outside defectOf, in a call or a method value.
+//     runtime.Stack outside defectOf, in a call or a method value.
 func TestRuntime199DefectRecovery(t *testing.T) {
 	rtSrc := typedPackage(t, filepath.Join("..", "..", "..", "runtime", "rt"))
 	v1 := typedPackage(t, filepath.Join("..", "..", "..", "runtime", "v1"))
@@ -34,6 +35,13 @@ func TestRuntime199DefectRecovery(t *testing.T) {
 			return
 		}
 		calls[owner] = map[string]bool{}
+		if owner == "methodText" {
+			// rt.Text writes a panic of a value's Error or String method
+			// into the value's text, as fmt's %v did before binsize BS2;
+			// it ends no task and makes no defect, so it is no recovery
+			// API.
+			return
+		}
 		// A recover whose value is kept (assigned or passed on) records a
 		// panic; one only compared with nil, as the trace's sink guard
 		// does, drops it and makes no defect.
@@ -88,9 +96,14 @@ func TestRuntime199DefectRecovery(t *testing.T) {
 	// The edges v1 may take into them, and what each must hand rt.
 	allowed := map[string]string{
 		"runOn -> Run":           "guarded",
-		"Go -> Go":               "guarded",
+		"Go -> Start":            "guarded", // PARK1: v1.Go starts its Task in place (rt.Start)
 		"Scope.end -> Scope.End": "",
 		"release -> Release":     "classify",
+		// The static exit form (STATIC-EXIT, exits.go): the frame's end and
+		// each action's frame end, as Scope.end ends a frame that holds no
+		// entry; their recovery is Exits.End's and release's.
+		"Exits.end -> Scope.End": "",
+		"actionEnd -> Scope.End": "",
 		// timeout.After's body child and its deadline child.
 		"After -> AfterSpan":       "guarded",
 		"deadlines.NewTimer -> Go": "guarded",
@@ -100,13 +113,17 @@ func TestRuntime199DefectRecovery(t *testing.T) {
 		"TasksRace -> RaceSpan": "guarded",
 		// tasks.Set's members, one per Go (runtime/v1 set.go).
 		"tasksGo -> Go": "guarded",
-		// HTTP's function handler runs on the shared child task boundary.
-		"HTTPServe -> Go": "guarded",
+		// HTTP's phase sleeps, members of the server's timers group run on
+		// each connection's timer goroutine (GX4).
+		"httpServer.timeouts -> RunIn": "guarded",
+		// HTTP's function handler, a member of the server's request group
+		// run on the connection's goroutine (GX4).
+		"httpServer.ServeHTTP -> RunIn": "guarded",
 		// actor.StartMachine's runner task and an entry's timer child (MU3).
 		"machineStart -> Go": "guarded",
 		// A child actor's runner (MU5), shielded: its owner entry stops it.
-		"machineStart -> GoShielded": "guarded",
-		"Actor[S, E, D].arm -> Go":   "guarded",
+		"machineStart -> GoShielded":      "guarded",
+		"Actor[S, E, D].arm -> RestartOn": "guarded", // PARK: the actor's timer child on its carrier
 		// An entry's work child (MU4).
 		"Actor[S, E, D].startWork -> GoShielded": "guarded",
 		// A source of Feed (MU10), a child of the runner.
@@ -117,19 +134,56 @@ func TestRuntime199DefectRecovery(t *testing.T) {
 	isRT := func(f *types.Func) bool {
 		return f.Pkg() != nil && strings.HasSuffix(f.Pkg().Path(), "/runtime/rt")
 	}
+	// v1 and its leaves (binsize BS1, BS8): a leaf hands rt the body
+	// through v1.Guarded, which runs it by guarded.
+	pkgs := []*typedSource{v1}
+	v1Dir := filepath.Join("..", "..", "..", "runtime", "v1")
+	entries, err := os.ReadDir(v1Dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if e.IsDir() && e.Name() != "testdata" {
+			pkgs = append(pkgs, typedPackage(t, filepath.Join(v1Dir, e.Name())))
+		}
+	}
+	if len(pkgs) < 3 {
+		t.Fatalf("the scan found %d packages of runtime/v1; want the core and its leaves", len(pkgs))
+	}
+	seen := map[string]bool{}
+	for _, src := range pkgs {
+		scanDefectOwners(t, src, allowed, seen, isRT, recovering)
+	}
+	for edge := range allowed {
+		if !seen[edge] {
+			t.Errorf("v1 no longer takes the edge %s; the scan no longer sees the owner", edge)
+		}
+	}
+}
+
+// scanDefectOwners checks one package of runtime/v1 (the core or a leaf)
+// against the defect owner's edges, recording each edge it takes in seen.
+func scanDefectOwners(t *testing.T, v1 *typedSource, allowed map[string]string, seen map[string]bool, isRT func(*types.Func) bool, recovering map[string]bool) {
+	t.Helper()
 	v1Func := func(e ast.Expr) string {
 		var name string
 		ast.Inspect(e, func(n ast.Node) bool {
 			if id, ok := n.(*ast.Ident); ok {
-				if f, ok := v1.info.Uses[id].(*types.Func); ok && f.Pkg() == v1.pkg && (f.Name() == "guarded" || f.Name() == "classify") {
+				f, ok := v1.info.Uses[id].(*types.Func)
+				if !ok || f.Pkg() == nil || !strings.HasSuffix(f.Pkg().Path(), "/runtime/v1") && f.Pkg() != v1.pkg {
+					return true
+				}
+				switch f.Name() {
+				case "guarded", "classify":
 					name = f.Name()
+				case "Guarded": // the leaves' name of guarded (runtime/v1 leaves.go)
+					name = "guarded"
 				}
 			}
 			return true
 		})
 		return name
 	}
-	seen := map[string]bool{}
 	v1.owners(func(owner string, decl ast.Decl) {
 		ast.Inspect(decl, func(n ast.Node) bool {
 			switch n := n.(type) {
@@ -150,7 +204,7 @@ func TestRuntime199DefectRecovery(t *testing.T) {
 				}
 				handed := false
 				for _, a := range n.Args {
-					handed = handed || v1Func(a) == want
+					handed = handed || v1Func(a) == want || want == "guarded" && bodyRunsGuarded(v1, a, v1Func)
 				}
 				if !handed {
 					t.Errorf("v1 %s hands rt %s no body run by %s", owner, funcKey(f), want)
@@ -166,8 +220,8 @@ func TestRuntime199DefectRecovery(t *testing.T) {
 					t.Errorf("v1 %s uses rt's (*Cause).Error, a defect formatter outside report", owner)
 				case isRT(f) && key == "Cause.AddDefect" && owner != "capture":
 					t.Errorf("v1 %s uses rt's (*Cause).AddDefect outside capture", owner)
-				case f.Pkg() != nil && f.Pkg().Path() == "runtime/debug" && f.Name() == "Stack" && owner != "defectOf":
-					t.Errorf("v1 %s takes debug.Stack outside defectOf", owner)
+				case f.Pkg() != nil && f.Pkg().Path() == "runtime" && f.Name() == "Stack" && owner != "defectOf":
+					t.Errorf("v1 %s takes runtime.Stack outside defectOf", owner)
 				case isRT(f) && recovering[key] && !isCallee(decl, n):
 					t.Errorf("v1 %s takes rt's recovery API %s as a value", owner, key)
 				}
@@ -176,11 +230,43 @@ func TestRuntime199DefectRecovery(t *testing.T) {
 		})
 		recoverFlows(t, v1, owner, decl)
 	})
-	for edge := range allowed {
-		if !seen[edge] {
-			t.Errorf("v1 no longer takes the edge %s; the scan no longer sees the owner", edge)
+}
+
+// bodyRunsGuarded reports an operand a that is an rt.Body (PARK1: rt.Start
+// and rt.RestartOn take a value with a Run method, not a function) whose
+// Run method, declared in v1, calls guarded: the body still runs under
+// the defect owner. (I-FLIP: PARK x the defect-owner scan.)
+func bodyRunsGuarded(v1 *typedSource, a ast.Expr, v1Func func(ast.Expr) string) bool {
+	t := v1.info.TypeOf(a)
+	if t == nil {
+		return false
+	}
+	obj, _, _ := types.LookupFieldOrMethod(t, true, v1.pkg, "Run")
+	run, ok := obj.(*types.Func)
+	if !ok {
+		return false
+	}
+	run = run.Origin()
+	for _, f := range v1.files {
+		for _, d := range f.Decls {
+			fd, ok := d.(*ast.FuncDecl)
+			if !ok || fd.Recv == nil || fd.Body == nil {
+				continue
+			}
+			if def, _ := v1.info.Defs[fd.Name].(*types.Func); def == nil || def.Origin() != run {
+				continue
+			}
+			found := false
+			ast.Inspect(fd.Body, func(n ast.Node) bool {
+				if c, ok := n.(*ast.CallExpr); ok && v1Func(c.Fun) == "guarded" {
+					found = true
+				}
+				return !found
+			})
+			return found
 		}
 	}
+	return false
 }
 
 // recoverFlows checks that each recover in decl hands its value to capture

@@ -117,7 +117,12 @@ func TestBindMappingProperty(t *testing.T) {
 // checker reads their rows in place of the deleted v1.PureErrorFuncs (G4's
 // error rule, IG2). Mutant: any edit of a
 // generated binding, or a mapping change not regenerated.
+//
+// It builds Go: go list -export compiles the whole standard library for
+// both platforms (1310 compiles, 277 CPU-s from an empty Go cache), so it
+// runs in the full tier only (needsBuild; gate-speed GS5).
 func TestGoStdBindingsMatchToolchain(t *testing.T) {
+	needsBuild(t)
 	v, err := gobind.GoVersion(os.Environ())
 	if err != nil {
 		t.Fatal(err)
@@ -146,6 +151,17 @@ func TestGoStdBindingsMatchToolchain(t *testing.T) {
 		if got, _ := gostd.Binding(p); got != files[p] {
 			t.Errorf("the embedded binding of %s differs from the toolchain's; run go generate ./internal/sketch/std/gostd", p)
 		}
+	}
+}
+
+// needsBuild marks a test that builds Go beyond its own small packages:
+// the fast tier (-short) skips it, and the full tier runs it (test-speed
+// plan T3; docs/decisions.md, Q1 of 2026-11-08). Call it first in the test.
+// internal/residue's TestGobindStdBuildIsFullTier holds the std test to it.
+func needsBuild(t testing.TB) {
+	t.Helper()
+	if testing.Short() {
+		t.Skip("full tier: builds Go")
 	}
 }
 
@@ -319,7 +335,12 @@ func ref(t *gt, pos at, cb bool) (string, bool) {
 	case "slice":
 		e, ok := ref(t.elem, inner, cb)
 		return "[]" + e, ok
+	case "any":
+		return "go.Any", true // GB2: Go's empty interface
 	case "map":
+		if t.key.kind == "any" {
+			return "", false // Ergo compares no go.Any, so it keys no Map
+		}
 		k, ok1 := ref(t.key, inner, cb)
 		v, ok2 := ref(t.elem, inner, cb)
 		return "Map[" + k + ", " + v + "]", ok1 && ok2
@@ -351,8 +372,8 @@ func ref(t *gt, pos at, cb bool) (string, bool) {
 			return "", false // one result at most (IG6)
 		}
 		// A generated package is in no reviewed table of synchronous
-		// callbacks, so every callback is escaping (IG6).
-		s := "escaping func(" + strings.Join(ps, ", ") + ")"
+		// callbacks, so every callback is kept: own (IG6, q168).
+		s := "own func(" + strings.Join(ps, ", ") + ")"
 		if res != "" {
 			s += " " + res
 		}
@@ -361,7 +382,7 @@ func ref(t *gt, pos at, cb bool) (string, bool) {
 		}
 		return s, true
 	}
-	// uintptr, any, an unnamed interface or struct, *int, a chan
+	// uintptr, an unnamed non-empty interface or struct, *int, a chan
 	return "", false
 }
 
@@ -481,8 +502,50 @@ func genPackage(name string, r *rand.Rand) (string, map[string]verdict) {
 	want := map[string]verdict{
 		"S": {ergo: "type S { X int, }"},
 		"D": {ergo: "type D int"},
-		"I": {ergo: "type I { M() int needs go.Foreign takes, }"},
+		"I": {ergo: "type I { M() int needs go.Foreign, }"},
 	}
+	// GB1: a method of a resource lends its receiver, unless its result
+	// may hold the receiver itself (the type, a pointer to it, an
+	// interface, or a struct field that may): the caller would own one Go
+	// value twice. The same holds for an interface operation.
+	b.WriteString("type Conn struct{}\nfunc (c *Conn) Close() error { panic(0) }\nfunc (c *Conn) Read(p []byte) (int, error) { panic(0) }\ntype Box struct{ C *Conn; N int }\ntype Plain struct{ N int }\n")
+	b.WriteString("type Stream interface {\n\tClose() error\n\tRead() int\n\tDup() Stream\n}\n\n")
+	want["Conn"] = verdict{ergo: "type Conn {} implements io.Closer"}
+	want["Conn.Close"] = verdict{ergo: "func (c own *Conn) Close() fails go.Error needs go.Foreign"}
+	want["Conn.Read"] = verdict{ergo: "func (c *Conn) Read(p []byte) int fails go.Error needs go.Foreign"}
+	want["Box"] = verdict{ergo: "type Box { C Option[go.Ref[Conn]], N int, }"}
+	want["Plain"] = verdict{ergo: "type Plain { N int, }"}
+	// The members' rows end at their commas (two literals: the row
+	// residue reads one).
+	want["Stream"] = verdict{ergo: "type Stream { ..io.Closer, own Dup() Stream needs go.Foreign" + ", Read() int needs go.Foreign, }"}
+	for _, m := range []struct{ name, results, ergo string }{
+		{"Self", "*Conn", "Option[go.Ref[Conn]]"},
+		{"Value", "Conn", "Conn"},
+		{"Wrap", "Box", "Box"},
+		{"Reader", "io.Reader", "io.Reader"},
+		{"Writer", "io.Writer", "io.Writer"},
+		{"Peek", "int", "int"},
+		{"Copy", "Plain", "Plain"},
+		{"Sibling", "(*S, error)", "go.Ref[S] fails go.Error"},
+		{"All", "iter.Seq[Conn]", "Seq[Conn]"},
+		{"Ints", "iter.Seq[int]", "Seq[int]"},
+	} {
+		fmt.Fprintf(&b, "func (c *Conn) %s() %s { panic(0) }\n", m.name, m.results)
+		mode := ""
+		switch m.name {
+		case "Self", "Value", "Wrap", "Reader", "All":
+			mode = "own "
+		}
+		want["Conn."+m.name] = verdict{ergo: "func (c " + mode + "*Conn) " + m.name + "() " + m.ergo + " needs go.Foreign"}
+	}
+	b.WriteString("\n")
+	// GB2: go.Any in, out, in a variadic and in a Go struct field; a Map
+	// keyed by go.Any is refused (Ergo compares no go.Any).
+	b.WriteString("func AnyIn(k string, v any, rest ...any) {}\nfunc AnyOut() any { panic(0) }\nfunc AnyKey(m map[any]int) {}\ntype AnyArgs struct{ Values any }\n\n")
+	want["AnyIn"] = verdict{ergo: "func AnyIn(k string, v go.Any, rest []go.Any) needs go.Foreign", variadic: true}
+	want["AnyOut"] = verdict{ergo: "func AnyOut() go.Any needs go.Foreign"}
+	want["AnyKey"] = verdict{refused: true}
+	want["AnyArgs"] = verdict{ergo: "type AnyArgs { Values go.Any, }"}
 	// BV1's smallest repro: os.Stdout was refused as ordinary host state.
 	b.WriteString("var Stdout = os.Stdout\n\n")
 	want["Stdout"] = verdict{ergo: "let Stdout Option[go.Ref[os.File]]"}
@@ -511,14 +574,13 @@ func genPackage(name string, r *rand.Rand) (string, map[string]verdict) {
 		case 4:
 			ergoSig = "() int fails go.Error"
 		}
-		// ESC1's lifetime policy: a resource-capable receiver (a pointer,
-		// or a type whose Close makes it a resource) is taken, since no
-		// review lists Close as a lend.
-		takes := ""
-		if pointer || i < 2 {
-			takes = " takes r"
+		// GB1: a method lends its receiver; the release, Close() or
+		// Close() error, keeps it.
+		mode := ""
+		if i < 2 {
+			mode = "own "
 		}
-		want[name+".Close"] = verdict{ergo: "func (r " + recv + ") Close" + ergoSig + " needs go.Foreign" + takes}
+		want[name+".Close"] = verdict{ergo: "func (r " + mode + recv + ") Close" + ergoSig + " needs go.Foreign"}
 		want[fmt.Sprintf("Value%d", i)] = verdict{refused: true}
 		want[fmt.Sprintf("Pointer%d", i)] = verdict{refused: true}
 		if i < 2 {
@@ -585,10 +647,7 @@ func (g *gen) function(b *strings.Builder, want map[string]verdict, name, recv s
 	refused := false
 	var params []string // Go params
 	var ergoParams []string
-	var takes []string
-	if recv == "s *S" {
-		takes = append(takes, "s")
-	}
+	ergoRecv := recv // a method lends its receiver (GB1); S has no Close
 	if recv == "" && r.IntN(4) == 0 {
 		switch r.IntN(7) {
 		case 0:
@@ -599,12 +658,10 @@ func (g *gen) function(b *strings.Builder, want map[string]verdict, name, recv s
 			goTP, ergoTP, g.tparams = []string{"T cmp.Ordered"}, []string{"T ordered"}, []string{"T"}
 		case 3:
 			goTP, ergoTP, g.tparams = []string{"Q ~[]E", "E any"}, []string{"E"}, []string{"E"}
-			params, ergoParams = append(params, "q Q"), append(ergoParams, "q []E")
-			takes = append(takes, "q")
+			params, ergoParams = append(params, "q Q"), append(ergoParams, "q own []E")
 		case 4:
 			goTP, ergoTP, g.tparams = []string{"M ~map[K]V", "K comparable", "V any"}, []string{"K comparable", "V"}, []string{"K", "V"}
-			params, ergoParams = append(params, "m M"), append(ergoParams, "m Map[K, V]")
-			takes = append(takes, "m")
+			params, ergoParams = append(params, "m M"), append(ergoParams, "m own Map[K, V]")
 		case 5:
 			goTP, g.tparams, refused = []string{"T interface{ ~int | ~string }"}, []string{"T"}, true
 		case 6:
@@ -616,10 +673,11 @@ func (g *gen) function(b *strings.Builder, want map[string]verdict, name, recv s
 		params = append(params, fmt.Sprintf("a%d %s", i, t.goText()))
 		s, ok := ref(t, param, false)
 		refused = refused || !ok
-		ergoParams = append(ergoParams, fmt.Sprintf("a%d %s", i, s))
+		mode := ""
 		if resourceParam(t) {
-			takes = append(takes, fmt.Sprintf("a%d", i))
+			mode = "own "
 		}
+		ergoParams = append(ergoParams, fmt.Sprintf("a%d %s%s", i, mode, s))
 	}
 	variadic := r.IntN(4) == 0
 	if variadic {
@@ -627,10 +685,11 @@ func (g *gen) function(b *strings.Builder, want map[string]verdict, name, recv s
 		params = append(params, "rest ..."+t.goText())
 		s, ok := ref(t, inner, false)
 		refused = refused || !ok
-		ergoParams = append(ergoParams, "rest []"+s)
+		mode := ""
 		if resourceParam(t) {
-			takes = append(takes, "rest")
+			mode = "own "
 		}
+		ergoParams = append(ergoParams, "rest "+mode+"[]"+s)
 	}
 	results := g.results(0)
 	res, fails, ok := refResults(results, false)
@@ -644,7 +703,7 @@ func (g *gen) function(b *strings.Builder, want map[string]verdict, name, recv s
 	key := name
 	if recv != "" {
 		head += "(" + recv + ") "
-		ergoHead += "(" + recv + ") "
+		ergoHead += "(" + ergoRecv + ") "
 		key = "S." + name
 	}
 	tp := ""
@@ -671,8 +730,5 @@ func (g *gen) function(b *strings.Builder, want map[string]verdict, name, recv s
 		e += " fails go.Error"
 	}
 	e += " needs go.Foreign"
-	if len(takes) > 0 {
-		e += " takes " + strings.Join(takes, ", ")
-	}
 	want[key] = verdict{ergo: squash(e), variadic: variadic}
 }

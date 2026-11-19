@@ -1,0 +1,70 @@
+# The example programs the gate's fast tier runs (gate-speed GS3). The full
+# tier runs every program tagged default. A program belongs here only while
+# a mutant ledger row (some testdata/mutants.json) names it as a killer,
+# examples:PROGRAM: a program no row names kills no mutant the fast tier
+# would miss without it (the unique-mutant rule, owner 2026-11-08).
+# internal/residue's TestFastTierExamplesAreLedgerKillers checks each line.
+adventure
+catalog
+cborpack
+cells
+chat
+counter-gui
+cron
+csvreport
+dash-gui
+download
+draw-gui
+editor-gui
+events
+fetchpool
+fieldnotes
+fk-board
+fk-chat
+fk-counters
+fk-diag
+fk-domains
+fk-engine
+fk-flow
+fk-form
+fk-gallery
+fk-routes
+fk-stopwatch
+fk-table
+fk-transfers
+fk-weather
+fk-wizard
+flattree
+fluid-gallery
+jobq
+jobs
+jsonparse
+jsonv
+kmeans
+kvstore
+lease-sync
+logstat
+lookup
+lru
+lzpack
+mdhtml
+metrics
+pipeline
+raytrace
+regex
+routecli
+router
+shards
+stars-gui
+starter
+sudoku
+tidewalk-replay
+timetable
+todo-gui
+toktree
+tomlparse
+tui
+twig
+vt
+wire-config
+work

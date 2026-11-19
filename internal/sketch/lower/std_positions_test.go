@@ -11,7 +11,7 @@ import (
 	"testing"
 
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -27,7 +27,7 @@ func matchStmt(n syntax.Node) bool {
 // stdFilePath is the path a location names for a file of the std package
 // p (sources.go, locate).
 func stdFilePath(p *check.Package, f *syntax.File) string {
-	if p.Path == std.PreludePath {
+	if p.Path == stdlib.PreludePath {
 		return "std/" + f.Name
 	}
 	return "std/" + p.Path + "/" + f.Name
@@ -65,7 +65,7 @@ type stdMatchFunc struct {
 func stdMatchFuncs(t *testing.T) []stdMatchFunc {
 	t.Helper()
 	var out []stdMatchFunc
-	for _, path := range std.Packages() {
+	for _, path := range stdlib.Packages() {
 		p, err := check.Std.Import(path)
 		if err != nil {
 			t.Fatal(err)
@@ -155,7 +155,7 @@ func useSource(c stdMatchFunc, method bool) string {
 		// An escaping parameter (actor.StartDurable's save) takes an
 		// escaping argument, so use's parameter is escaping too.
 		if s, ok := p.Type.(*check.Signature); ok && !s.NonEscaping {
-			params[i] = args[i] + " escaping " + p.Type.String()
+			params[i] = args[i] + " own " + p.Type.String()
 		}
 	}
 	if check.TakesWorkSend(c.fn) {
@@ -196,14 +196,14 @@ func useSource(c stdMatchFunc, method bool) string {
 		call = "try " + call
 	}
 	b.WriteString(" {\n\t" + call + "\n}\n")
-	if check.TakesDurableMachine(c.fn) {
+	if len(check.PureParams(c.fn)) > 0 {
 		return durableUseSource(b.String(), sig.Params[0].Type.String())
 	}
 	return b.String()
 }
 
 // durableUseSource is the use of a durable runner
-// (check.TakesDurableMachine) built from plain, its use with the machine
+// (check.PureParams: its machine is written pure) built from plain, its use with the machine
 // parameter p0 passed through. The durable rule admits only a machine whose
 // step the checker sees, so the call passes a Machine literal whose Step
 // names useStep, a pure package function; the rest of the machine is p0's.
@@ -218,15 +218,15 @@ func durableUseSource(plain, machine string) string {
 		panic("a durable runner's machine is " + machine + ": want Machine[S, E, O, F, R, W]")
 	}
 	s, e, o, f, r := targs[0], targs[1], targs[2], targs[3], targs[4]
-	lit := machine + "{Initial: p0.Initial, Step: useStep[" + strings.Join(targs[:5], ", ") + "], After: p0.After, Work: p0.Work}"
+	lit := machine + "{Initial: p0.Initial, Step: useStep[" + strings.Join(targs[:5], ", ") + "], After: p0.After, Work: p0.Work, Exit: p0.Exit}"
 	use := strings.Replace(plain, "(p0, ", "("+lit+", ", 1)
 	step := "func useStep[" + strings.Join(targs[:5], ", ") + "](s " + s + ", e " + e + ") Decision[" + s + ", " + o + "] fails " + f + " needs " + r + " {\n\tIgnore\n}\n"
 	return use + "\n" + step
 }
 
 // workUseSource is the use of a function that needs the work capability
-// (check.TakesWorkSend): the call sits in a Listen work's function, the
-// only place the child rule admits it, and the work's send is its first
+// (check.TakesWorkSend): the call sits in a listening work's Start,
+// whose entry send the child rule admits, and the work's send is its first
 // argument, so use takes the other parameters and returns the work.
 //
 // A written row argument has one element (Work[E, R]), so the work's row
@@ -269,14 +269,14 @@ func workUseSource(c stdMatchFunc, params, args []string) string {
 	// one is escaping (types.md, Function values 2).
 	for i, p := range sig.Params {
 		if s, ok := p.Type.(*check.Signature); ok && s.NonEscaping && i > 0 {
-			params[i] = args[i] + " escaping " + p.Type.String()
+			params[i] = args[i] + " own " + p.Type.String()
 		}
 	}
 	send := sig.Params[0].Type.(*check.Signature)
 	work := "machines.Work[" + send.Params[0].Type.String() + ", " + concrete + "]"
 	args[0] = "send"
 	return head + "(" + bind(strings.Join(params[1:], ", ")) + ") " + work + " {\n\t" +
-		work + "{Listen: func(send " + sig.Params[0].Type.String() + ") needs " + concrete + " {\n\t\tlet _ = " +
+		work + "{Start: func(send entry " + sig.Params[0].Type.String() + ") needs " + concrete + " {\n\t\tlet _ = " +
 		c.pkg.Name + "." + c.fn.Name + "(" + strings.Join(args, ", ") + ")\n\t}}\n}\n"
 }
 
@@ -296,7 +296,7 @@ func programSources(c stdMatchFunc, files, at int, method bool) []pkgSource {
 			// The packages the signature names (fails os.Exit needs io.Stdout).
 			seen := map[string]bool{c.pkg.Path: true}
 			for _, m := range qualifierRE.FindAllStringSubmatch(use, -1) {
-				if _, ok := std.Package(m[1]); ok && !seen[m[1]] {
+				if _, ok := stdlib.Package(m[1]); ok && !seen[m[1]] {
 					seen[m[1]] = true
 					imports += "import " + m[1] + "\n"
 				}
@@ -391,7 +391,7 @@ func TestStdMatchBodiesLowerInAnyProgram(t *testing.T) {
 func allStdMatchSites(t *testing.T) map[string]bool {
 	t.Helper()
 	out := map[string]bool{}
-	for _, path := range std.Packages() {
+	for _, path := range stdlib.Packages() {
 		p, err := check.Std.Import(path)
 		if err != nil {
 			t.Fatal(err)

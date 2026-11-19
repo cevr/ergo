@@ -7,13 +7,17 @@ import (
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/syntax"
-	v1 "ergo.local/prototype/runtime/v1"
 )
 
 // Takes inference and copy sites (#197 L8 A3; plan 1.1, 1.3; resources
 // R17, R19, R44, Gap 35, Gap 39).
 //
-// The takes clause of an unexported function with a body that writes none
+// Every function writes its takes clause (q137, EX3): a hand-off of a
+// lent parameter is S108 with the whole clause to write and a ClauseFix
+// (takesFix), and an unwritten clause takes nothing. Only ergo fix's
+// clause writer (Options.Infer) infers, as below, and writes what it
+// infers. Under it, the takes clause of an unexported function with a
+// body that writes none
 // is inferred from its body: a parameter is taken when on some path the
 // body hands it off (ownership.go's hand-offs: returned, moved into a
 // composite literal that is handed off, an argument a callee takes, the
@@ -108,9 +112,114 @@ func takesText(sig *Signature) string {
 	return "takes " + strings.Join(names, ", ")
 }
 
+// ownAdvice spells what a signature keeps as the mode words that write
+// it (q168): own before each kept parameter's type, and before an
+// operation that keeps its receiver.
+func ownAdvice(sig *Signature) string {
+	var parts []string
+	for _, i := range sig.Takes {
+		if i < len(sig.Params) {
+			parts = append(parts, sig.Params[i].Name+" own "+sig.Params[i].Type.String())
+		}
+	}
+	if sig.TakesSelf {
+		parts = append(parts, "own before the operation")
+	}
+	return strings.Join(parts, ", ")
+}
+
 // writesTakes reports whether f's signature has a written takes clause.
 func writesTakes(f *Func) bool {
 	return f.Sig != nil && (len(f.Sig.Takes) > 0 || f.Sig.TakesSelf)
+}
+
+// HoldsTaken reports whether a call of f leaves the values it takes on the
+// caller's frame until it returns (D-C, Q7): the caller hands them off
+// when the call returns, and a defect inside it leaves them to the
+// caller's frame, which releases them. It holds for f with a runtime Go
+// body, which owns no frame entry, and for f with an Ergo body that is
+// generic in each value it takes and only forwards those values to such a
+// call, its whole body (B2, PRIM-4): a generic body has no release of a
+// value of its type parameter (#197 Gap 42), so the forwarded value would
+// otherwise have no owner while the inner call runs. A forwarder runs
+// nothing after the inner call, so on every path the value is the inner
+// call's or the caller's, never both. It reads declarations, never a
+// package or function name.
+func HoldsTaken(f *Func) bool { return holdsTakenFunc(f, map[*Func]bool{}) }
+
+func holdsTakenFunc(f *Func, seen map[*Func]bool) bool {
+	takes := takesOf(f)
+	if len(takes) == 0 {
+		return false
+	}
+	if BodyOf(f).Runtime != "" {
+		return true
+	}
+	if seen[f] || f.Decl == nil || f.Decl.Extern != nil || f.Decl.Body == nil || f.Sig.Fallible || f.Pkg == nil || f.Pkg.Info == nil {
+		return false
+	}
+	seen[f] = true
+	if len(f.Decl.Body.List) != 1 {
+		return false
+	}
+	es, ok := f.Decl.Body.List[0].(*syntax.ExprStmt)
+	if !ok {
+		return false
+	}
+	x, ok := unparen(es.X).(*syntax.CallExpr)
+	if !ok {
+		return false
+	}
+	inner := f.Pkg.Info.Calls[x]
+	if inner == nil || inner.Kind != CallFunc || !holdsTakenFunc(inner.Func, seen) {
+		return false
+	}
+	args := x.Args
+	if inner.Recv != nil {
+		args = append([]syntax.Expr{inner.Recv}, args...)
+	}
+	innerTakes := takesOf(inner.Func)
+	for _, i := range takes {
+		if i >= len(f.Sig.Params) {
+			return false
+		}
+		p := f.Sig.Params[i]
+		generic := false
+		for _, tp := range f.Sig.TParams {
+			generic = generic || typeMentions(p.Type, tp)
+		}
+		if !generic {
+			return false // the body owns and releases a value of its own type
+		}
+		// p's one use is an operand the inner call takes.
+		uses := 0
+		syntax.Inspect(f.Decl.Body, func(n syntax.Node) bool {
+			if id, ok := n.(*syntax.Ident); ok && isParam(f.Pkg.Info, id, p) {
+				uses++
+			}
+			return true
+		})
+		forwarded := false
+		for _, j := range innerTakes {
+			if j < len(args) {
+				if id, ok := unparen(args[j]).(*syntax.Ident); ok && isParam(f.Pkg.Info, id, p) {
+					forwarded = true
+				}
+			}
+		}
+		if uses != 1 || !forwarded {
+			return false
+		}
+	}
+	return true
+}
+
+// isParam reports whether id refers to the parameter p of a forwarder:
+// its body is one call, which declares no name, so a variable of p's name
+// is p (the body's parameter object is not the signature's Var).
+func isParam(info *Info, id *syntax.Ident, p *Var) bool {
+	v, ok := info.Uses[id].(*Var)
+	return ok && id.Name == p.Name && v.Name == p.Name
 }
 
 // takesOf is the clause of f: the written one, or the inferred one.
@@ -127,11 +236,13 @@ func takesOf(f *Func) []int {
 	return nil
 }
 
-// infersTakes reports whether f's clause is inferred: an unexported
-// function of this package with a body, no receiver and no written clause,
-// other than main.
+// infersTakes reports whether f's clause is inferred: only under ergo fix's
+// clause writer (Options.Infer; q137, EX3), an unexported function of
+// this package with a body, no receiver and no written clause, other than
+// main. Every check, build and test path infers no clause: a hand-off of
+// a lent parameter is S108 with the clause to write (takesFix).
 func (c *checker) infersTakes(f *Func) bool {
-	return f != nil && f.Pkg == c.pkg && f.Decl != nil && f.Decl.Body != nil && f.Decl.Extern == nil &&
+	return c.opts.Infer && f != nil && f.Pkg == c.pkg && f.Decl != nil && f.Decl.Body != nil && f.Decl.Extern == nil &&
 		f.Decl.Recv == nil && !writesTakes(f) && !isExported(f.Name) && f.Name != "main"
 }
 
@@ -154,7 +265,7 @@ func copiesOf(f *Func) []CopySite {
 		return nil
 	}
 	if f.Decl != nil && f.Decl.Extern != nil {
-		if path, name := f.Decl.Extern.Split(); path == runtimeModule+"/v1" && v1.MovesOnly(name) {
+		if BodyOf(f).MovesOnly {
 			return nil
 		}
 	}
@@ -299,7 +410,7 @@ func (c *checker) takesPass(f *Func) bool {
 	w.fn = f
 	w.copies = map[*TypeParam]CopySite{}
 	w.promote = map[int]bool{}
-	w.frame(f.Decl.Body, takesOf(f), w.paramVars(f.Decl.Recv, f.Decl.Type.Params), f.Decl.Name.Name, "", f.Name == "Close" && c.pkg.Info.Closes[f.Decl] != nil)
+	w.frame(f.Decl.Body, takesOf(f), w.paramVars(f.Decl.Recv, f.Decl.Type.Params), f.Decl.Name.Name, "", c.pkg.Info.Closes[f.Decl] != nil)
 	changed := false
 	if len(w.promote) > 0 {
 		ix := slices.Clone(c.pkg.Info.Takes[f])
@@ -411,5 +522,5 @@ func (w *ownWalk) funcValue(x *syntax.Ident, inst Type) {
 	if !held {
 		return
 	}
-	w.reportCode(x, CodeType, "%s is used as a value, so its takes clause is part of its type, and its body %s (resources R19, Gap 39); write %s in its signature", f.Name, takesText(&sig), takesText(&sig))
+	w.reportCode(x, CodeType, "%s is used as a value, so what it keeps is part of its type, and its body %s (resources R19, Gap 39); write %s in its signature", f.Name, takesText(&sig), ownAdvice(&sig))
 }

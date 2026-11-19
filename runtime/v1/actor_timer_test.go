@@ -65,12 +65,12 @@ func timerChain(delays []time.Duration) string {
 		}
 		return s
 	}
-	a := MachineStart(Site("timer chain"), root, lineSleeper{l}, tstate{}, step, fire, delay,
+	a := MachineStart(Site("timer chain"), root, lineSleeper{l}, nil, tstate{}, step, fire, delay,
 		noWork[tstate], hasNoWork, runNoWork[tsig], func(d tdec) int { return d.kind }, next,
 		func(*rt.Task, tdec) {}, 0)
 	defer func() { _ = a.Stop(root) }()
 	want := 0
-	for s := range a.Changes(root) {
+	for s := range a.Changes(root, everyState) {
 		if s.v != want {
 			return "entered state " + strconv.Itoa(s.v) + ", want " + strconv.Itoa(want)
 		}

@@ -110,7 +110,7 @@ func genReach(r *rand.Rand) reachProgram {
 	nprov := 1 + r.IntN(3)
 	for k := 0; k < nprov; k++ {
 		g := pure()
-		fmt.Fprintf(&b, "\ntype Op%d { Run%d() int }\ntype P%d { V int }\n", k, k, k)
+		fmt.Fprintf(&b, "\ntype Op%d { Run%d() int }\ntype P%d { V int } implements Op%d\n", k, k, k, k)
 		fmt.Fprintf(&b, "func Run%d(p P%d) int { return syn.G%d() }\n", k, k, g)
 		fmt.Fprintf(&b, "func run%d(s Op%d) int { return s.Run%d() }\n", k, k, k)
 		p.direct[fmt.Sprintf("Run%d", k)] = []int{g}
@@ -174,7 +174,7 @@ func genReach(r *rand.Rand) reachProgram {
 	b.WriteString("\nfunc main() needs go.Foreign {\n")
 	p.direct["main"] = nil
 	for i := 0; i < n; i++ {
-		fmt.Fprintf(&b, "\tf%d()\n", i)
+		fmt.Fprintf(&b, "\tlet _ = f%d()\n", i)
 		p.edges["main"] = append(p.edges["main"], fmt.Sprintf("f%d", i))
 	}
 	b.WriteString("}\n")

@@ -38,12 +38,44 @@ func (p *parser) parseStmtList() []Stmt {
 	return list
 }
 
+// startsSkip reports whether a statement starts with the contextual
+// keyword skip (runtime.md, Tests 4): the name skip followed directly, on
+// its line, by a string literal. No other statement starts so, since a
+// name followed by a literal is no expression; so skip stays a name
+// everywhere else (skip(x), let skip, a field skip), as C#'s yield and
+// Kotlin's soft keywords do.
+func (p *parser) startsSkip() bool {
+	if p.tok.tok != IDENT || p.tok.lit != "skip" {
+		return false
+	}
+	next := p.peek(1).tok
+	return next == STRING || next == STRING_HEAD
+}
+
+// parseSkip parses skip "reason". The reason is a literal written in the
+// source, so an interpolated one is S001 at the literal. Where the
+// statement stands is the checker's (tests.go rule 6).
+func (p *parser) parseSkip() Stmt {
+	s := &SkipStmt{Skip: p.tok.pos}
+	p.next()
+	if p.tok.tok == STRING_HEAD {
+		p.errorAt(p.tok.pos, int(p.tok.end-p.tok.pos), "skip takes a string literal with no interpolation: its reason is written in the source")
+		return &ExprStmt{X: p.parseExpr()}
+	}
+	s.ReasonPos, s.Reason, s.ReasonEnd = p.tok.pos, p.tok.lit, p.tok.end
+	p.next()
+	return s
+}
+
 // parseStmt parses one statement (#196 sketch: Statement). if, match and
 // for at the start of a statement form the statement: no operator, selector
 // or call continues them (Rust's rule; D1.8).
 func (p *parser) parseStmt() Stmt {
 	p.enter()
 	defer p.leave()
+	if p.startsSkip() {
+		return p.parseSkip()
+	}
 	switch p.tok.tok {
 	case LET:
 		return &DeclStmt{Decl: p.parseLetDecl(nil, false).(*VarDecl)}
@@ -208,7 +240,7 @@ func (p *parser) parsePatternCore() Expr {
 		p.next()
 		saved := p.exprLev
 		p.exprLev = 1
-		first := p.parsePattern()
+		first := p.parseAlternatives()
 		if p.tok.tok != COMMA {
 			p.exprLev = saved
 			return &ParenExpr{Lparen: lparen, X: first, Rparen: p.want(RPAREN)}
@@ -216,7 +248,7 @@ func (p *parser) parsePatternCore() Expr {
 		p.refuseSingleton()
 		t := &TupleExpr{Lparen: lparen, Elts: []Expr{first}}
 		for p.got(COMMA) && p.tok.tok != RPAREN {
-			t.Elts = append(t.Elts, p.parsePattern())
+			t.Elts = append(t.Elts, p.parseAlternatives())
 		}
 		p.exprLev = saved
 		t.Rparen = p.want(RPAREN)
@@ -242,10 +274,10 @@ func (p *parser) parseRecordPattern(typ Expr) *CompositeLit {
 		if p.tok.tok == IDENT && p.peek(1).tok == COLON {
 			key := p.parseIdent()
 			colon := p.want(COLON)
-			elt = &KeyValueExpr{Key: key, Colon: colon, Value: p.parsePattern()}
+			elt = &KeyValueExpr{Key: key, Colon: colon, Value: p.parseAlternatives()}
 			keyed = true
 		} else {
-			elt = p.parsePattern()
+			elt = p.parseAlternatives()
 			positional = true
 		}
 		if keyed && positional {

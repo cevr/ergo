@@ -462,14 +462,17 @@ func genListedLaws(r *rand.Rand) *listedLaws {
 			g.want = append(g.want, fmt.Sprintf("ok %s (proved: all %d cases)", label, n))
 		}
 	}
+	// Each law calls Same, its subject in the package (S115), so a law
+	// over no run still names a declaration.
+	g.src.WriteString("func Same(b bool) bool { b }\n\n")
 	for k, ts := range runs {
 		name := fmt.Sprintf("LT%d", k)
 		n := refProduct(ts)
 		falsify := n >= 0 && n*2 <= refCases && r.Intn(2) == 0
 		withX := falsify || (k >= edges && r.Intn(2) == 0)
-		body := "true"
+		body := "Same(true)"
 		if falsify {
-			body = "x"
+			body = "Same(x)"
 		}
 		g.src.WriteString(law(name, ts, withX, body) + "\n\n")
 		report("law "+name, refProduct(withBool(ts, withX)), falsify)
@@ -525,7 +528,7 @@ func genListedLaws(r *rand.Rand) *listedLaws {
 		ms = append(ms, member{withBool(ts, withX), falsify})
 	}
 	fmt.Fprintf(&g.src, "type LOp {\n\tLGet() bool,\n\n\t%s,\n}\n\n", strings.Join(members, ",\n\t"))
-	g.src.WriteString("type LOne {}\n\nfunc LGet(_ LOne) bool { true }\n\ntype LTwo { b bool }\n\nfunc LGet(p LTwo) bool { p.b }\n\ntype LWide { n int }\n\nfunc LGet(_ LWide) bool { true }\n\n")
+	g.src.WriteString("type LOne {} implements LOp\n\nfunc LGet(_ LOne) bool { true }\n\ntype LTwo { b bool } implements LOp\n\nfunc LGet(p LTwo) bool { p.b }\n\ntype LWide { n int } implements LOp\n\nfunc LGet(_ LWide) bool { true }\n\n")
 	for k, m := range ms {
 		label := fmt.Sprintf("law LOp.LM%d for ", k)
 		report(label+"LOne", refProduct(append([]listedType{{"LOne", 1}}, m.ts...)), false)
@@ -777,8 +780,10 @@ func isFar(l Lane) bool {
 }
 
 law Small(n int) {
-	n < 9
+	n < Nine()
 }
+
+func Nine() int { 9 }
 
 func main() {}
 `

@@ -34,6 +34,11 @@ import (
 // folds the match into a test; hand Go writes `v, ok := m[k]`.
 var getLowering string
 
+// getCopy "receiver" keeps the value rule's copy of the whole receiver
+// in a comma-ok read (the reference for getMatch's element copy); set by
+// a test or by -ldflags=-X=ergo.local/prototype/internal/sketch/lower.getCopy=receiver.
+var getCopy string
+
 // getArm is the arm that takes one variant of the Option and the binding
 // it makes: as, a binding of the variant (Some[V] or None); value, a
 // binding of Some's value.
@@ -43,10 +48,10 @@ type getArm struct {
 	value  *check.Var
 }
 
-// preludeGet reports the prelude's Get[K, V](m Map[K, V], k K) Option[V],
-// the declaration whose body intrinsic writes.
+// preludeGet reports the Map operation Get[K, V](m Map[K, V], k K)
+// Option[V] (check.CollOpOf), whose body intrinsic writes.
 func preludeGet(f *check.Func) bool {
-	if f == nil || f.Pkg == nil || f.Pkg.Path != "prelude" || f.Decl == nil || f.Decl.Extern == nil || f.Name != "Get" {
+	if check.CollOpOf(f) != check.CollGet {
 		return false
 	}
 	s := f.Sig
@@ -87,17 +92,45 @@ func (fc *funcCtx) getMatch(s *syntax.TypeSwitchStmt, d dest) (done, terminates 
 	// A try that starts the subject covers the receiver and the key
 	// (tried): (try m).Get(k) and try m.Get(k) lower alike.
 	inTry := subject != s.Subjects[0].X
+	restore := func() {}
 	if inTry {
-		fc.tries++
+		restore = fc.underTry(subject)
+	}
+	// The value rule may copy the receiver so that the Option it returns
+	// does not share the Map (values.go, Escapes). The read takes one
+	// value out of the Map, so copying that value is the same guarantee
+	// at the cost of one element, not of the whole Map: the receiver is
+	// read in place unless the key's evaluation could write to it (an
+	// operand in flight), and the value an arm binds is copied instead.
+	// The reference is getCopy "receiver" (TestGetMatchElementCopyAgrees).
+	elemCopy := false
+	if fc.l.vals != nil && fc.l.vals.clone[list[0]] && getCopy != "receiver" &&
+		!fc.emits(list[1]) && !fc.handsOff(list[1]) {
+		fc.l.vals.clone[list[0]] = false
+		defer func() { fc.l.vals.clone[list[0]] = true }()
+		elemCopy = some.as != nil || some.value != nil
 	}
 	vals := fc.callArgs(list, call)
-	if inTry {
-		fc.tries--
-	}
+	restore()
 	v, okName := fc.temp("v"), fc.temp("ok")
 	fc.line(v + ", " + okName + " := " + vals[0] + "[" + vals[1] + "]")
+	if elemCopy {
+		m, ok := underEqual(fc.typeOf(list[0])).(*check.Map)
+		if !ok {
+			ice(call, "a receiver of the prelude's Get that is not a Map")
+		}
+		if c := fc.cloneValue(m.Elem, v, call); c != v {
+			fc.line("if " + okName + " {")
+			fc.line(v + " = " + c)
+			fc.line("}")
+		}
+	}
 	if some.as == nil && some.value == nil {
 		fc.line("_ = " + v)
+	} else if fc.l.valueFacts().clone[call] && entryRule() {
+		// The entry of a Map whose entries are written in place, kept
+		// past a write that may reach it: a copy (V9, moveout.go).
+		fc.line(v + " = " + fc.reportCopy(call, fc.cloneValue(elemOf(fc.typeOf(list[0])), v, call), whyGetEntry))
 	}
 	return true, fc.getArmsLower(some, none, v, okName, d)
 }
@@ -109,6 +142,14 @@ func (fc *funcCtx) getArmsLower(some, none getArm, v, okName string, d dest) boo
 	arm := func(a getArm) bool {
 		fc.depth++
 		defer func() { fc.depth-- }()
+		for _, v := range []*check.Var{a.as, a.value} {
+			if v != nil {
+				if fc.heapVars == nil {
+					fc.heapVars = map[*check.Var]bool{}
+				}
+				fc.heapVars[v] = true // a Map's entry (scalar.go, settled)
+			}
+		}
 		if a.as != nil {
 			name := fc.declare(a.as)
 			fields := ""

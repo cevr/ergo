@@ -8,11 +8,17 @@ import (
 	"sort"
 	"strings"
 	"unicode/utf8"
+
+	sdk "ergo.local/prototype/lint"
 )
 
 // DiagnosticReportSchemaVersion versions the diagnostic report. Version 2
-// dropped the lint fields and the suppression list (#205).
-const DiagnosticReportSchemaVersion = 2
+// dropped the lint fields and the suppression list (#205). Version 3 makes two
+// changes in one step: the lint fields return on the new checker (LINT0: a
+// finding's rule, lintComplete and suppressions), and a diagnostic carries its
+// fix (EX1: Fix). A rule pack finding's related places and suggestions
+// (LINT3) join version 3 before it is published: one version for the step.
+const DiagnosticReportSchemaVersion = 3
 
 // SourceSnapshot identifies the exact text a result was computed from. The
 // text stays out of JSON. A program read from a directory has no one text:
@@ -72,13 +78,38 @@ type DiagnosticFinding struct {
 	Code string `json:"code"`
 	// File is the diagnostic's file relative to the module root, for a
 	// program read from a directory (Diagnostic.File); omitted otherwise.
-	File              string         `json:"file,omitempty"`
-	Origin            string         `json:"origin"`
-	Severity          string         `json:"severity"`
-	Message           string         `json:"message"`
+	File string `json:"file,omitempty"`
+	// Origin is "compiler" or "lint"; Rule names a lint finding's rule.
+	Origin   string `json:"origin"`
+	Rule     string `json:"rule,omitempty"`
+	Severity string `json:"severity"`
+	Message  string `json:"message"`
+	// Instead is a lint finding's remedy, what to write in place of
+	// what Message reports; omitted when it has none.
+	Instead           string         `json:"instead,omitempty"`
 	Span              Span           `json:"span"`
 	LocationAvailable bool           `json:"locationAvailable"`
 	LSP               *LSPDiagnostic `json:"lsp,omitempty"`
+	// Fix is the edit ergo fix applies for the finding, when it has one.
+	Fix *Fix `json:"fix,omitempty"`
+	// Related and Suggestions are a rule pack finding's related places and
+	// suggested edits, in the shape an `ergo lint test` expectation holds
+	// (LINT3); omitted when the finding has none.
+	Related     []sdk.Related    `json:"related,omitempty"`
+	Suggestions []sdk.Suggestion `json:"suggestions,omitempty"`
+	// Precision is a lint finding's published precision (the lower of
+	// the rule's corpus and its held-out read sample, capped at 0.95);
+	// omitted for a rule that has none and for compiler diagnostics.
+	Precision *float64 `json:"precision,omitempty"`
+}
+
+// Text is the finding as one line reads it: the message, then "; " and
+// the remedy when it has one.
+func (f DiagnosticFinding) Text() string {
+	if f.Instead == "" {
+		return f.Message
+	}
+	return f.Message + "; " + f.Instead
 }
 
 // DiagnosticCounts counts findings by severity.
@@ -104,6 +135,12 @@ type DiagnosticReport struct {
 	Diagnostics   []DiagnosticFinding `json:"diagnostics"`
 	ReturnedCount int                 `json:"returnedCount"`
 	Truncated     bool                `json:"truncated"`
+	// LintComplete reports that every enabled lint rule completed; false
+	// when lint did not run (unchecked source) or a rule failed (L000).
+	LintComplete bool `json:"lintComplete"`
+	// Suppressions are the statuses of the source's admitted lint
+	// suppression directives, in source order.
+	Suppressions []SuppressionStatus `json:"suppressions"`
 }
 
 // Report projects the result's diagnostics onto the snapshot's text. Every
@@ -129,6 +166,7 @@ func (r *Result) Report(snapshot SourceSnapshot, strict bool) DiagnosticReport {
 		Strict:           strict,
 		PolicyPassed:     r.Checked,
 		Diagnostics:      []DiagnosticFinding{},
+		Suppressions:     []SuppressionStatus{},
 	}
 	indexes := map[string]sourcePositionIndex{}
 	textOf := func(file string) (string, sourcePositionIndex) {
@@ -151,7 +189,7 @@ func (r *Result) Report(snapshot SourceSnapshot, strict bool) DiagnosticReport {
 			continue
 		}
 		seen[key] = true
-		finding := DiagnosticFinding{Code: diagnostic.Code, File: diagnostic.File, Origin: "compiler", Severity: "error", Message: diagnostic.Message, Span: span}
+		finding := DiagnosticFinding{Code: diagnostic.Code, File: diagnostic.File, Origin: "compiler", Severity: "error", Message: diagnostic.Message, Span: span, Fix: diagnostic.Fix}
 		lsp := &LSPDiagnostic{Severity: 1, Code: diagnostic.Code, Source: "ergo", Message: diagnostic.Message}
 		// A zero Span is the no-location value, such as the EF110 refusal.
 		// A real span carries one-based coordinates, also when it is empty.
@@ -166,28 +204,31 @@ func (r *Result) Report(snapshot SourceSnapshot, strict bool) DiagnosticReport {
 		finding.LSP = lsp
 		report.Diagnostics = append(report.Diagnostics, finding)
 	}
-	sort.SliceStable(report.Diagnostics, func(i, j int) bool {
-		left, right := report.Diagnostics[i], report.Diagnostics[j]
-		if left.LocationAvailable != right.LocationAvailable {
-			return left.LocationAvailable
-		}
-		if left.File != right.File {
-			return left.File < right.File
-		}
-		if left.Span.Offset != right.Span.Offset {
-			return left.Span.Offset < right.Span.Offset
-		}
-		if left.Span.Length != right.Span.Length {
-			return left.Span.Length < right.Span.Length
-		}
-		if left.Code != right.Code {
-			return left.Code < right.Code
-		}
-		return left.Message < right.Message
-	})
+	sort.SliceStable(report.Diagnostics, func(i, j int) bool { return findingLess(report.Diagnostics[i], report.Diagnostics[j]) })
 	report.TotalCounts.Errors = len(report.Diagnostics)
 	report.ReturnedCount = len(report.Diagnostics)
 	return report
+}
+
+// findingLess is the report's total order of findings: located first, then
+// by file, span, code and message.
+func findingLess(left, right DiagnosticFinding) bool {
+	if left.LocationAvailable != right.LocationAvailable {
+		return left.LocationAvailable
+	}
+	if left.File != right.File {
+		return left.File < right.File
+	}
+	if left.Span.Offset != right.Span.Offset {
+		return left.Span.Offset < right.Span.Offset
+	}
+	if left.Span.Length != right.Span.Length {
+		return left.Span.Length < right.Span.Length
+	}
+	if left.Code != right.Code {
+		return left.Code < right.Code
+	}
+	return left.Message < right.Message
 }
 
 // WriteText renders the report for a terminal, naming the source as source:
@@ -206,7 +247,11 @@ func (r DiagnosticReport) WriteText(w io.Writer, source string) error {
 		if finding.File != "" {
 			name = finding.File
 		}
-		if _, err := fmt.Fprintf(w, "%s:%d:%d: %s %s: %s\n", name, start.Line+1, start.Character+1, finding.Severity, finding.Code, finding.Message); err != nil {
+		precision := ""
+		if finding.Precision != nil {
+			precision = fmt.Sprintf(" (p%.2f)", *finding.Precision)
+		}
+		if _, err := fmt.Fprintf(w, "%s:%d:%d: %s %s: %s%s\n", name, start.Line+1, start.Character+1, finding.Severity, finding.Code, finding.Text(), precision); err != nil {
 			return err
 		}
 	}

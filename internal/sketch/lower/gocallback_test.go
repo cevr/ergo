@@ -129,7 +129,7 @@ type Tag {
 	Get() string,
 }
 
-type Named { Name string }
+type Named { Name string } implements Tag
 
 func Get(n Named) string { n.Name }
 

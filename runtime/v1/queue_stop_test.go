@@ -1,6 +1,7 @@
 package v1
 
 import (
+	"errors"
 	"runtime"
 	"testing"
 	"time"
@@ -99,6 +100,38 @@ func TestQueueWaitsEndOnAStop(t *testing.T) {
 		}
 	})
 
+	// A Push that hands its value to the waiting Pop (handTaker) has
+	// returned success, so a stop of the Pop at that moment must not lose
+	// the value: the Pop takes it, and the stop is seen at its next point.
+	// The hand is made under q.mu with no wake, so the stop alone ends the
+	// wait (the order a race of the two can take). Mutant
+	// queue-handed-value-dropped-on-stop.
+	t.Run("a waiting Pop handed a value as it is stopped", func(t *testing.T) {
+		q := New[int](0)
+		task := rt.Root("consumer")
+		got := make(chan int, 1)
+		done := make(chan bool, 1)
+		go func() {
+			done <- interruptedBy(func() {
+				v, _ := q.Pop(task)
+				got <- v
+			})
+		}()
+		parked(t, q, 1)
+		q.mu.Lock()
+		tk := q.takers[0]
+		q.takers = q.takers[:0]
+		tk.v, tk.got = 7, true
+		task.Interrupt()
+		q.mu.Unlock()
+		if waitBool(t, done) {
+			t.Fatal("the Pop raised the interruption and lost the value a Push handed it")
+		}
+		if v := <-got; v != 7 {
+			t.Fatalf("Pop = %d; want 7, the handed value", v)
+		}
+	})
+
 	t.Run("a waiting Values loop", func(t *testing.T) {
 		q := New[int](2)
 		push(t, q, 1)
@@ -192,7 +225,9 @@ func (flushFailed) Error() string { return "FlushFailed" }
 // with FlushFailed, stops the producer, which is waiting in Push, and
 // drains it: the Push wakes with the interruption, the exit action closes
 // the queue, and Run returns FlushFailed. No goroutine outlives it. Before
-// gap 1's repair the producer kept waiting and Run never returned.
+// gap 1's repair the producer kept waiting and Run never returned. Under
+// the ergoexplore tag Run is an explored run, so its waits go through the
+// scheduler (pushWaitsOn): that repair's absence is then a deadlock defect.
 func TestPollerEnds(t *testing.T) {
 	base := runtime.NumGoroutine()
 	var q *Queue[int]
@@ -212,11 +247,15 @@ func TestPollerEnds(t *testing.T) {
 			})
 			// batch: wait until the producer waits on the full queue, take
 			// one batch of five, then fail the flush.
-			parked(t, q, 1)
+			pushWaitsOn(t, root, q)
 			batch := 0
 			for v := range q.Values(root) {
 				_ = v
 				if batch++; batch == 5 {
+					// The flush fails once the producer waits again on
+					// the queue it refilled, so the stop reaches a Push
+					// that waits, in a live and in an explored run.
+					pushWaitsOn(t, root, q)
 					return flushFailed{}
 				}
 			}
@@ -232,6 +271,11 @@ func TestPollerEnds(t *testing.T) {
 			t.Fatalf("Run ended with %#v; want FlushFailed", err)
 		}
 	case <-testwait.After(t):
+		// An explored Run that hangs outside the scheduler is aborted, so
+		// it frees the explorer for the next test (within).
+		if abortExplored(errors.New("Run did not end by the test's deadline")) {
+			<-done
+		}
 		t.Fatal("Run did not end by the test's deadline: the producer waiting in Push never saw the stop")
 	}
 	q.mu.Lock()

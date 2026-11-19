@@ -185,7 +185,7 @@ func settleRun(seed uint64, where *atomic.Value) string {
 		}
 		return d.next
 	}
-	a := MachineStart(Site("settle"), root, lineSleeper{line}, tstate{}, step, fire, delay,
+	a := MachineStart(Site("settle"), root, lineSleeper{line}, nil, tstate{}, step, fire, delay,
 		noWork[tstate], hasNoWork, runNoWork[tsig], func(d tdec) int { return d.kind }, next,
 		func(*rt.Task, tdec) {}, 4)
 
@@ -199,7 +199,7 @@ func settleRun(seed uint64, where *atomic.Value) string {
 		_ = full.Push(ct, e.x)
 		return tdec{kind: decideStay, next: tstate{s.v, s.n + 1}}, nil
 	}
-	sink := MachineStart(Site("sink"), root, lineSleeper{line}, tstate{}, sinkStep, fire,
+	sink := MachineStart(Site("sink"), root, lineSleeper{line}, nil, tstate{}, sinkStep, fire,
 		func(tstate) time.Duration { return ActorNoTimer() },
 		noWork[tstate], hasNoWork, runNoWork[tsig], func(d tdec) int { return d.kind }, next,
 		func(*rt.Task, tdec) {}, 1)
@@ -222,7 +222,7 @@ func settleRun(seed uint64, where *atomic.Value) string {
 	// each commit, so after a settle it has seen 1 + n states.
 	var seen atomic.Int64
 	ownedGo(&sc, Site("watcher"), func(ct *rt.Task) (struct{}, error) {
-		for range a.Changes(ct) {
+		for range a.Changes(ct, everyState) {
 			seen.Add(1)
 		}
 		return struct{}{}, nil
@@ -298,7 +298,7 @@ func settleRun(seed uint64, where *atomic.Value) string {
 	move(0)
 	full.Poll()
 	shown := func() tstate {
-		for s := range a.Changes(root) {
+		for s := range a.Changes(root, everyState) {
 			return s
 		}
 		return tstate{-1, -1}

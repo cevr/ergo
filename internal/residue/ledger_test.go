@@ -1,18 +1,51 @@
 package residue_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
 )
 
+// ledgerFile is the schema of a package's testdata/mutants.json, as
+// scripts/mutants (ledger.go, Ledger and Mutant) reads it. A field the
+// runner does not know is an error there, so it is one here.
+type ledgerFile struct {
+	About string `json:"about"`
+	// Env is the NAME=VALUE switches the runner gives the ledger's own
+	// suite (scripts/mutants Ledger.Env).
+	Env []string `json:"env"`
+	// Commands are the killers that are not a go test, command:NAME
+	// (scripts/mutants Ledger.Commands).
+	Commands map[string][]string `json:"commands"`
+	Mutants  []struct {
+		Name    string   `json:"name"`
+		Origin  string   `json:"origin"`
+		File    string   `json:"file"`
+		From    string   `json:"from"`
+		To      string   `json:"to"`
+		Rule    string   `json:"rule"`
+		Killers []string `json:"killers"`
+		Gap     string   `json:"gap"`
+		Refused string   `json:"refused"` // scripts/mutants Mutant.Refused
+		Anchor  *struct {
+			File  string   `json:"file"`
+			Text  string   `json:"text"`
+			Tests []string `json:"tests"`
+		} `json:"anchor"`
+	} `json:"mutants"`
+}
+
 // TestLedgerEditsApplyOnce checks the public ledger contract against the
-// checkout: each edit of every package ledger applies once, so the mutant
+// checkout: every package ledger has the runner's schema (readLedger: no
+// unknown field, a unique name, a file and a from, a to that differs from
+// the from, each test SUITE:NAME), each edit applies once, so the mutant
 // runner can judge it, and each killer and anchor test names a test the
 // runner can run (killerMissing). It catches embed-duplicate-ledger-anchor
 // and ledger-killer-alias; the
@@ -48,30 +81,44 @@ func TestLedgerEditsApplyOnce(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		var ledger struct {
-			Mutants []struct {
-				Name    string   `json:"name"`
-				File    string   `json:"file"`
-				From    string   `json:"from"`
-				Killers []string `json:"killers"`
-				Anchor  *struct {
-					Tests []string `json:"tests"`
-				} `json:"anchor"`
-			} `json:"mutants"`
-		}
-		if err := json.Unmarshal(data, &ledger); err != nil {
+		var ledger ledgerFile
+		decoder := json.NewDecoder(bytes.NewReader(data))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&ledger); err != nil {
 			t.Errorf("%s: %v", path, err)
 			return nil
 		}
-		for _, m := range ledger.Mutants {
-			ids := m.Killers
+		seen := map[string]bool{}
+		for i, m := range ledger.Mutants {
+			var tests []string
+			tests = append(tests, m.Killers...)
 			if m.Anchor != nil {
-				ids = append(slices.Clone(ids), m.Anchor.Tests...)
+				tests = append(tests, m.Anchor.Tests...)
 			}
-			for _, id := range ids {
-				if why := killerMissing(root, id, testFiles); why != "" {
-					t.Errorf("%s: %s: killer %q: %s", path, m.Name, id, why)
+			switch {
+			case m.Name == "":
+				t.Errorf("%s: mutant %d has no name", path, i)
+			case seen[m.Name]:
+				t.Errorf("%s: two mutants are named %q", path, m.Name)
+			case m.File == "" || m.From == "":
+				t.Errorf("%s: mutant %q needs a file and a from", path, m.Name)
+			case m.From == m.To:
+				t.Errorf("%s: mutant %q changes nothing", path, m.Name)
+			}
+			for _, k := range tests {
+				if !strings.Contains(k, ":") {
+					t.Errorf("%s: mutant %q: test %q is not SUITE:NAME", path, m.Name, k)
+				} else if name, ok := strings.CutPrefix(k, "command:"); ok {
+					if name, _, _ = strings.Cut(name, " "); ledger.Commands[name] == nil {
+						t.Errorf("%s: %s: killer %q: the ledger has no command %q", path, m.Name, k, name)
+					}
+				} else if why := killerMissing(root, k, testFiles); why != "" {
+					t.Errorf("%s: %s: killer %q: %s", path, m.Name, k, why)
 				}
+			}
+			seen[m.Name] = true
+			if m.File == "" || m.From == "" {
+				continue
 			}
 			src, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(m.File)))
 			if err != nil {
@@ -97,7 +144,7 @@ func TestLedgerEditsApplyOnce(t *testing.T) {
 var ergoSuites = map[string]string{
 	"check": "internal/sketch/check",
 	"lower": "internal/sketch/lower",
-	"std":   "internal/sketch/std",
+	"std":   "internal/sketch/stdlib", // the std tests (GS25)
 	"api":   "internal/sketch/api",
 	"ergo":  "cmd/ergo",
 }
@@ -108,6 +155,8 @@ var ergoSuites = map[string]string{
 type testFile struct {
 	tag  string
 	text string
+	// constrained: the file has a build constraint of any form.
+	constrained bool
 }
 
 // hostWords are build constraint words the default build satisfies or
@@ -117,8 +166,10 @@ var hostWords = []string{"linux", "darwin", "unix", "windows", "amd64", "arm64",
 // killerMissing says why a ledger's killer id names no test the mutant
 // runner can run, or "" when it does: SUITE:TEST with SUITE an ergo suite,
 // DIR or DIR[TAG] (a module directory, built with -tags=TAG) holding a
-// top-level TEST in a _test.go file built under that tag; or
-// examples:PROGRAM. A note after the test, past a space, is the reader's.
+// top-level TEST in a _test.go file built under that tag (a file with no constraint is built under every tag: EXPLORE-rt runs all of runtime/v1 under ergoexplore); or
+// examples:PROGRAM. TEST may be a family whose parts are TESTPart0 … (a
+// test split to fit the gate's step limit). A note after the test, past a
+// space, is the reader's.
 // A DIR inside a nested Go module (selfhost's hostsyntax) is built in that
 // module (scripts/mutants nestedModule; batch-18 r4 M2). An id the runner cannot resolve makes it refuse the whole run
 // (fu-mutants-xpkg: 45 rows named v1:, main:, sched:, tsproj: … and were
@@ -133,15 +184,12 @@ func killerMissing(root, id string, cache map[string][]testFile) string {
 		// A program is a directory of examples with its ergo.mod; a
 		// package or a case inside one is not (r3b-local-exit named
 		// examples:limiter/loopback, which the examples runner refuses).
-		// A module of modules/ is one too, named modules/NAME, as the
-		// examples runner selects it.
-		if name, ok := strings.CutPrefix(test, "modules/"); ok && !strings.Contains(name, "/") {
-			if _, err := os.Stat(filepath.Join(root, "modules", name, "ergo.mod")); err == nil {
-				return ""
-			}
+		dir, name := filepath.Join(root, "examples", test), test
+		if mod, ok := strings.CutPrefix(test, "modules/"); ok {
+			dir, name = filepath.Join(root, "modules", mod), mod // a module of modules/ (MK0)
 		}
-		if _, err := os.Stat(filepath.Join(root, "examples", test, "ergo.mod")); err != nil || strings.Contains(test, "/") {
-			return "no example program " + test + " (want examples:PROGRAM or examples:modules/NAME, a directory with an ergo.mod)"
+		if _, err := os.Stat(filepath.Join(dir, "ergo.mod")); err != nil || strings.Contains(name, "/") {
+			return "no example program " + test + " (want examples:PROGRAM or examples:modules/MODULE, a directory with an ergo.mod)"
 		}
 		return ""
 	}
@@ -164,7 +212,9 @@ func killerMissing(root, id string, cache map[string][]testFile) string {
 			}
 			tf := testFile{text: string(text)}
 			for _, line := range strings.SplitN(tf.text, "\n", 4) {
-				if word, ok := strings.CutPrefix(line, "//go:build "); ok && !strings.ContainsAny(word, " !|&()") && !slices.Contains(hostWords, word) {
+				word, ok := strings.CutPrefix(line, "//go:build ")
+				tf.constrained = tf.constrained || ok
+				if ok && !strings.ContainsAny(word, " !|&()") && !slices.Contains(hostWords, word) {
 					tf.tag = word
 				}
 			}
@@ -175,9 +225,13 @@ func killerMissing(root, id string, cache map[string][]testFile) string {
 	if len(files) == 0 {
 		return "no test package " + dir + " (want DIR:Test, DIR[TAG]:Test, an ergo suite, or examples:PROGRAM)"
 	}
+	// A family split into parts (TestXPart0 …) is run as all its parts
+	// (scripts/mutants Suite.Families): a row names the family, so a split
+	// leaves its rows as they are.
+	parts := regexp.MustCompile(`\nfunc ` + regexp.QuoteMeta(test) + `(Part[0-9]+)?\(`)
 	for _, f := range files {
-		if strings.Contains(f.text, "\nfunc "+test+"(") {
-			if f.tag != tag {
+		if parts.MatchString(f.text) {
+			if f.tag != tag && f.constrained {
 				return "its file is built with tag " + strconv.Quote(f.tag) + ", the id names " + strconv.Quote(tag)
 			}
 			return ""

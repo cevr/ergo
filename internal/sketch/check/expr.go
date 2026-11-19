@@ -230,7 +230,7 @@ func (c *checker) instantiateValue(op *operand, sig *Signature, targs []Type) bo
 		}
 		cons := c.subst(tp.Constraint, m)
 		if why := c.satisfies(targs[i], cons); why != "" {
-			c.errorf(op.expr, CodeType, "%s does not satisfy the constraint %s of %s: %s (types.md, Generics 2)", targs[i], cons, tp.Name, why)
+			c.unsatisfied(op.expr, targs[i], cons, op.fn, tp, why)
 			return false
 		}
 	}
@@ -658,10 +658,6 @@ func (c *checker) compositeLit(x *syntax.CompositeLit, hint Type) operand {
 		return *walkLt
 	}
 	mark := c.undiagSeq
-	if c.workLitForm(x) {
-		// The work rule's forms of a Work literal (work.go).
-		return c.workLit(x, hint)
-	}
 	if x.Base != nil {
 		return c.recordUpdate(x, hint, mark, lt)
 	}
@@ -691,8 +687,10 @@ func (c *checker) compositeLit(x *syntax.CompositeLit, hint Type) operand {
 			return bad(x)
 		}
 	}
-	if _, isContext := contextRow(t); isContext && !c.pkg.std {
-		// Only a conversion makes a Context value (contextvalues.go).
+	if _, isContext := contextRow(t); isContext && t.(*Named).Obj.Pkg != c.pkg {
+		// Only a conversion makes a Context value (contextvalues.go):
+		// its field is unexported, so by construction authority only its
+		// declaring package writes the literal (STD-NOPRIV NP3d).
 		c.errorf(x, CodeType, "a Context value is made from a context: let v %s = context { … } (rows.md, Context values)", t)
 		t = invalid
 	}
@@ -1488,10 +1486,11 @@ func (c *checker) index(x *syntax.IndexExpr, hint Type) operand {
 			}
 			return operand{mode: modeBuiltin, obj: b, typ: t}
 		}
-		if b, _ := base.obj.(*Builtin); b != nil && b.Name == "go.As" && unparen(x.X) == x.X {
-			// go.As[T]: T is checked at the call (goErrorCall).
+		if b, _ := base.obj.(*Builtin); b != nil && (b.Name == "go.As" || b.Name == "go.New" || b.Name == "go.Zero") && unparen(x.X) == x.X {
+			// go.As[T], go.New[T], go.Zero[T]: T is checked at the call
+			// (goErrorCall).
 			if len(x.Indices) != 1 {
-				c.errorf(x, CodeType, "go.As takes one type argument, not %d", len(x.Indices))
+				c.errorf(x, CodeType, "%s takes one type argument, not %d", b.Name, len(x.Indices))
 				return bad(x)
 			}
 			return operand{mode: modeBuiltin, obj: b, typ: invalid, targ: c.typExpr(x.Indices[0], c.localTypeCtx())}
@@ -1695,6 +1694,8 @@ func (c *checker) assign(op *operand, t Type, what string) bool {
 		op.mode = modeInvalid
 		return false
 	}
+	captured := false
+	c.capture = &captured
 	a, why := c.assignability(op.typ, t)
 	if !a.ok() {
 		repair := ""
@@ -1731,11 +1732,31 @@ func (c *checker) assign(op *operand, t Type, what string) bool {
 		op.mode = modeInvalid
 		return false
 	}
+	if a.clause == assignGoAny && isPointer(op.typ) && what != "argument" && what != "element" {
+		// A borrow lives no longer than its call (types.md, Borrows): it
+		// goes into a go.Any as a Go call's argument, alone or in the
+		// []go.Any of a variadic one (rows.Scan([]go.Any{&id}); GB2).
+		c.errorf(op.expr, CodeType, "cannot use %s as go.Any in %s: a borrow goes into a go.Any only as a Go call's argument, alone or in its []go.Any (rows.Scan([]go.Any{&id}))", op.typ, what)
+		op.mode = modeInvalid
+		return false
+	}
 	c.implicit(op.expr, a)
 	if a.clause == assignOperations {
 		c.recordConversion(op.expr, op.typ, t)
+		c.captureForeign(op.expr, captured, op.typ, t)
 	}
 	return true
+}
+
+// captureForeign charges go.Foreign where a provider whose operations call
+// Go becomes a value of an operation type (README Gap 17): the build site
+// holds it for every later call through the operation type, whose own row
+// does not name it. The provider value is the capture; go.Foreign has no
+// provider of its own (rows.md, Entry 4), so nothing is stored.
+func (c *checker) captureForeign(at syntax.Node, captured bool, v, t Type) {
+	if captured {
+		c.chargeAs(at, goForeign(), fmt.Sprintf("building %s as %s, whose operations call Go,", v, t))
+	}
 }
 
 // A tuple call cannot convert its parts as a whole. Destructuring and

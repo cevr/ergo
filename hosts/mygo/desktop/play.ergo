@@ -1,0 +1,322 @@
+// A scene script (ui.Act) played through a headless window: each step is
+// input the window's surface sends, at the place the driver shows the
+// node it names, so a script that ui.Play runs on ui.TestHost runs here
+// through the pixels, the hit test and the focus.
+
+import actor
+import go ergo.local/prototype/hosts/mygo/screen
+import ui
+import ui/layout
+import utf8
+
+// Drain feeds the window's queued input to d. After each frame it takes
+// what the session posted (Pump), as the window's own loop does after
+// every input and as ui.Advance does on ui.TestHost, so both hosts take a
+// work's reply at the same frame (F-GP4c-1).
+func Drain[E comparable, S, D, F](d *Driver[S, E, D, F]) fails ui.Closed | actor.Stopped | ui.BadPatch needs go.Foreign {
+	for {
+		let (next, ok) = d.w.Poll()
+		if !ok {
+			return
+		}
+		try Feed(d, next)
+		if next.Kind == screen.Frame {
+			try Pump(d)
+		}
+	}
+}
+
+// Find is the first node of the window's tree, in tree order, whose
+// label is label (labelOf).
+func Find[S, E, D, F](d *Driver[S, E, D, F], label string) Option[ui.Id[E]] { findIn(d, d.root, label) }
+
+func findIn[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], label string) Option[ui.Id[E]] {
+	for k in kidsOf(d, id) {
+		match d.nodes.Get(k) {
+		case Some[held[E]] as h:
+			if labelOf(h.Value.node) == (Some{Value: label}) {
+				return Some{Value: k}
+			}
+		case None:
+		}
+		match findIn[S, E, D, F](d, k, label) {
+		case Some[ui.Id[E]] as found:
+			return found
+		case None:
+		}
+	}
+	None
+}
+
+// found is the one node whose label is label, as ui.TestHost's acts find
+// it (NS7): none fails NoNode, more than one Ambiguous, and a match inside
+// a match is the same target.
+func found[S, E, D, F](d *Driver[S, E, D, F], label string) ui.Id[E] fails ui.NoNode | ui.Ambiguous {
+	let ids = labelledIn(d, d.root, label, []ui.Id[E]{})
+	if len(ids) == 0 {
+		return ui.NoNode{Label: label}
+	}
+	if len(ids) > 1 {
+		return ui.Ambiguous{At: "label \"\(label)\"", Count: len(ids)}
+	}
+	ids[0]
+}
+
+// labelledIn is acc and the nodes under id whose label is label, in tree
+// order, none searched below a match.
+func labelledIn[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], label string, acc []ui.Id[E]) []ui.Id[E] {
+	let mut out = acc
+	for k in kidsOf(d, id) {
+		match d.nodes.Get(k) {
+		case Some[held[E]] as h:
+			if labelOf(h.Value.node) == (Some{Value: label}) {
+				out = out.Append(k)
+				continue
+			}
+		case None:
+		}
+		out = labelledIn[S, E, D, F](d, k, label, out)
+	}
+	out
+}
+
+// Focusables are the nodes that take the focus (a Pressable, a Check, a
+// Toggle, an Input), in tree order: the order Tab visits them in, since
+// the window paints in tree order and Tab follows the paint.
+func Focusables[S, E, D, F](d *Driver[S, E, D, F]) []ui.Id[E] { focusablesIn(d, d.root, []ui.Id[E]{}) }
+
+func focusablesIn[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], into []ui.Id[E]) []ui.Id[E] {
+	let mut out = into
+	for k in kidsOf(d, id) {
+		match d.nodes.Get(k) {
+		case Some[held[E]] as h:
+			if focusable(h.Value.node) {
+				out = out.Append(k)
+			}
+		case None:
+		}
+		out = focusablesIn[S, E, D, F](d, k, out)
+	}
+	out
+}
+
+// BoxOf is where the node labelled label shows, as the last paint laid it
+// out (a Scroll's offset taken off).
+func BoxOf[S, E, D, F](d *Driver[S, E, D, F], label string) Option[layout.Box] {
+	match Find(d, label) {
+	case Some[ui.Id[E]] as id:
+		d.boxes.Get(id.Value)
+	case None:
+		None
+	}
+}
+
+// at is the box of the node labelled label, where a step on it presses or
+// points, after the Scrolls around it are scrolled with the wheel until
+// its centre shows, as a person scrolls to a row below the fold.
+func at[E comparable, S, D, F](d *Driver[S, E, D, F], label string) layout.Box fails ui.NoNode | ui.Ambiguous | ui.Closed | actor.Stopped | ui.BadPatch needs go.Foreign {
+	let id = try found(d, label)
+	try boxAt(d, id, label)
+}
+
+// reveal wheels each Scroll that holds id, outermost first, until the
+// centre of id's box is inside the Scroll's box.
+func reveal[E comparable, S, D, F](d *Driver[S, E, D, F], id ui.Id[E]) fails ui.Closed | actor.Stopped | ui.BadPatch needs go.Foreign {
+	for sc in d.spots {
+		match sc.node {
+		case ui.ScrollNode, ui.RowsNode:
+			if sc.id != id && holds[S, E, D, F](d, sc.id, id) {
+				match d.boxes.Get(id) {
+				case Some[layout.Box] as b:
+					let mid = b.Value.Y + b.Value.H/2
+					let top = sc.box.Y
+					let bottom = sc.box.Y + sc.box.H
+					let mut dy = float32(0)
+					if mid >= bottom {
+						dy = mid - bottom + b.Value.H/2 + 1
+					} else if mid < top {
+						dy = mid - top - b.Value.H/2 - 1
+					}
+					if dy != 0 {
+						d.w.Wheel(float64(sc.box.X+sc.box.W/2), float64(sc.box.Y+sc.box.H/2), 0, float64(dy))
+						try Drain(d)
+					}
+				case None:
+				}
+			}
+		case _:
+		}
+	}
+}
+
+// holds is whether id is below top in the window's tree.
+func holds[S, E, D, F](d *Driver[S, E, D, F], top ui.Id[E], id ui.Id[E]) bool {
+	for k in kidsOf(d, top) {
+		if k == id || holds[S, E, D, F](d, k, id) {
+			return true
+		}
+	}
+	false
+}
+
+// Play runs a script through the window, in order, feeding the input each
+// step makes before the next. TapOn presses and releases at the centre of
+// the node's box; TypeInto taps the field, deletes its text with
+// Backspace and types the text; KeyIn presses the key; PointOn sends the
+// pointer's phase at its place in the box; ScrollOn turns the wheel on
+// the list until its offset is the step's (the window decides its
+// height); SettleAll settles; ClickOn and FillIn act as TapOn and TypeInto on
+// the node the locator finds on the window's tree, ExpectOn checks
+// its matcher there, and NavigateTo and GoBack move the window's history
+// and send URLChanged, as ui.TestHost does. AdvanceBy
+// does nothing: the window's frames come from its display, not a clock.
+// A label or a locator that finds more than one node fails Ambiguous, as
+// ui.TestHost's Play does.
+func Play[E comparable, S, D, F](d *Driver[S, E, D, F], script []ui.Act) fails ui.NoNode | ui.Ambiguous | ui.Mismatch | ui.Closed | actor.Stopped | ui.BadPatch needs go.Foreign {
+	for act in script {
+		match act {
+		case ui.TapOn as x:
+			let b = try at(d, x.Label)
+			tap(d, b)
+			try Drain(d)
+		case ui.TypeInto as x:
+			let b = try at(d, x.Label)
+			tap(d, b)
+			try Drain(d)
+			let id = try found(d, x.Label)
+			let old = match d.nodes.Get(id) {
+			case Some[held[E]] as h:
+				match h.Value.node {
+				case ui.InputNode as f:
+					f.Value
+				case _:
+					""
+				}
+			case None:
+				""
+			}
+			for _ in 0..utf8.RuneCount(old) {
+				d.w.PressKey("Backspace", false)
+				try Drain(d)
+			}
+			d.w.Type(x.Text)
+			try Drain(d)
+		case ui.KeyIn as x:
+			// A character is typed, as a keyboard types it: into the
+			// focused field, else to OnKey (ui.TestHost has no focus and
+			// gives it to OnKey). With Ctrl, Alt or Meta it is a shortcut,
+			// which types nothing: the key is pressed with its modifiers.
+			let m = x.Press.Mods
+			if m.Ctrl || m.Alt || m.Meta {
+				d.w.Chord(x.Press.Name, m.Shift, m.Ctrl, m.Alt, m.Meta)
+			} else if utf8.RuneCount(x.Press.Name) == 1 && x.Press.Name != " " {
+				d.w.Type(x.Press.Name)
+			} else {
+				d.w.PressKey(x.Press.Name, m.Shift)
+			}
+			try Drain(d)
+		case ui.PointOn as x:
+			let b = try at(d, x.Label)
+			let px = float64(b.X) + x.Pointer.X
+			let py = float64(b.Y) + x.Pointer.Y
+			match x.Pointer.Phase {
+			case ui.Down:
+				d.w.Press(px, py)
+			case ui.Moved, ui.Drag, ui.PointerEnter, ui.PointerLeave:
+				d.w.Hover(px, py)
+			case ui.Up:
+				d.w.Release(px, py)
+			case ui.Wheel as wh:
+				d.w.Wheel(px, py, wh.DX, wh.DY)
+			}
+			try Drain(d)
+		case ui.ScrollOn as x:
+			// The wheel, at the list's centre, by what takes it to Offset;
+			// the height is the window's, which the list reports.
+			let id = try found(d, x.Label)
+			match spotOf(d, id) {
+			case Some[spot[E]] as s:
+				let dy = dips(x.Offset) - scrolledBy(d, id)
+				if dy != 0 {
+					let b = s.Value.box
+					d.w.Wheel(float64(b.X+b.W/2), float64(b.Y+b.H/2), 0, float64(dy))
+					try Drain(d)
+				}
+			case None:
+				return ui.NoNode{Label: x.Label}
+			}
+		case ui.SettleAll:
+			try Settle(d)
+		case ui.AdvanceBy:
+		case ui.ClickOn as x:
+			let b = try boxAt(d, try located(d, x.At), "a located node")
+			tap(d, b)
+			try Drain(d)
+		case ui.FillIn as x:
+			let id = try located(d, x.At)
+			let b = try boxAt(d, id, "a located node")
+			tap(d, b)
+			try Drain(d)
+			let old = match d.nodes.Get(id) {
+			case Some[held[E]] as h:
+				match h.Value.node {
+				case ui.InputNode as f:
+					f.Value
+				case _:
+					""
+				}
+			case None:
+				""
+			}
+			for _ in 0..utf8.RuneCount(old) {
+				d.w.PressKey("Backspace", false)
+				try Drain(d)
+			}
+			d.w.Type(x.Text)
+			try Drain(d)
+		case ui.ExpectOn as x:
+			try ui.ExpectIn(&d.mirror, x.At, x.Is)
+		case ui.NavigateTo as x:
+			let u = ui.ParseURL(x.Href)
+			ui.Push(d.history, u)
+			try step(d, ui.URLChanged{URL: u})
+		case ui.GoBack:
+			if ui.Back(d.history) {
+				try step(d, ui.URLChanged{URL: ui.Current(d.history)})
+			}
+		}
+	}
+}
+
+// located is the one node of the window's tree loc finds (a locator in
+// First finds one).
+func located[E comparable, S, D, F](d *Driver[S, E, D, F], loc ui.Locator) ui.Id[E] fails ui.NoNode | ui.Ambiguous {
+	let ids = ui.LocateIn(&d.mirror, loc)
+	if len(ids) == 0 {
+		return ui.NoNode{Label: "a locator"}
+	}
+	if len(ids) > 1 {
+		return ui.Ambiguous{At: "a locator", Count: len(ids)}
+	}
+	ids[0]
+}
+
+// boxAt is where id shows, after the lists around it scrolled it into
+// view; NoNode names it by label when it shows nowhere.
+func boxAt[E comparable, S, D, F](d *Driver[S, E, D, F], id ui.Id[E], label string) layout.Box fails ui.NoNode | ui.Closed | actor.Stopped | ui.BadPatch needs go.Foreign {
+	try reveal(d, id)
+	match d.boxes.Get(id) {
+	case Some[layout.Box] as b:
+		b.Value
+	case None:
+		ui.NoNode{Label: label}
+	}
+}
+
+// tap presses and releases at b's centre.
+func tap[S, E, D, F](d *Driver[S, E, D, F], b layout.Box) needs go.Foreign {
+	let x = float64(b.X + b.W/2)
+	let y = float64(b.Y + b.H/2)
+	d.w.Press(x, y)
+	d.w.Release(x, y)
+}

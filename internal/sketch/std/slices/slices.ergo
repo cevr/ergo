@@ -16,18 +16,23 @@
 //     (stdlib.md, Slices and Maps 8; std-strengths SS5).
 // The externs bind runtime/v1 bodies (collections.go, data.go);
 // Transform, Filter, Fold, IndexFunc, Collect, Sorted, Values, Max, Min,
-// Ascend, Items, Len, At and BinarySearch are Ergo. laws.ergo states the algebra; the ledger in
+// Ascend, Items, Len, At, BinarySearch, Contains, Index and Equal are Ergo
+// (NP4f), and Take and Slice are the slice operations xs.TakeAt(i) and
+// xs.Slice(i, j) (PRIM-4). laws.ergo states the algebra; the ledger in
 // stdlib.md names the Go test that runs each law until #162.
+
+import cmp
 
 // WithCapacity is an empty slice with room for n elements. It makes no
 // element; a negative n is a defect, as Go's make panics.
-extern go ergo.local/prototype/runtime/v1.WithCapacity func WithCapacity[T](n int) []T
+func WithCapacity[T](n int) []T { MakeSlice[T](n) }
 
 // Take gives up xs and returns its element at i and the remaining slice,
 // in order. With resource elements, the element and remainder have
 // separate owners. Plain-data xs is unchanged. An index outside
-// 0..len(xs) is a defect, as Go's index is.
-extern go ergo.local/prototype/runtime/v1.SlicesTake func Take[T](xs []T, i int) (T, []T) takes xs
+// 0..len(xs) is a defect, as Go's index is: the caller's frame keeps xs
+// until TakeAt returns (check.HoldsTaken), so that defect releases it.
+func Take[T](xs own []T, i int) (T, []T) { xs.TakeAt(i) }
 
 // Sort is a copy of xs in ascending order. A float NaN sorts first, as in
 // Go.
@@ -44,10 +49,28 @@ extern go ergo.local/prototype/runtime/v1.SlicesSortFunc func SortFunc[T](xs []T
 extern go ergo.local/prototype/runtime/v1.SlicesSortStableFunc func SortStableFunc[T](xs []T, compare func(a T, b T) int) []T
 
 // Contains reports whether x is in xs.
-extern go ergo.local/prototype/runtime/v1.SlicesContains func Contains[T comparable](xs []T, x T) bool
+//
+// Scans: xs, element by element until it finds x.
+func Contains[T comparable](xs []T, x T) bool {
+	for y in xs {
+		if y == x {
+			return true
+		}
+	}
+	false
+}
 
 // Index is the index of the first x in xs, or -1.
-extern go ergo.local/prototype/runtime/v1.SlicesIndex func Index[T comparable](xs []T, x T) int
+//
+// Scans: xs, element by element until it finds x.
+func Index[T comparable](xs []T, x T) int {
+	for i, y in xs {
+		if y == x {
+			return i
+		}
+	}
+	-1
+}
 
 // IndexFunc is the index of the first element of xs that f accepts, or -1.
 func IndexFunc[T, E, R](xs []T, f func(x T) bool fails E needs R) int fails E needs R {
@@ -59,7 +82,10 @@ func IndexFunc[T, E, R](xs []T, f func(x T) bool fails E needs R) int fails E ne
 	-1
 }
 
-// Reverse is a copy of xs in the reverse order.
+// Reverse is a copy of xs in the reverse order. Where no binding reads xs
+// after the call (a fresh slice, a local read no more), it reverses xs's
+// own array with no copy, as Go's Reverse does (types.md, Bindings 2,
+// consumed arguments).
 extern go ergo.local/prototype/runtime/v1.SlicesReverse func Reverse[T](xs []T) []T
 
 // Max is the largest element of xs, or None when xs is empty. A float NaN
@@ -115,26 +141,75 @@ func At[T ordered](a Ascending[T], i int) T { a.xs[i] }
 
 // Clone is a copy of xs in a new array: Go's slices.Clone (Effect's
 // Array.copy). A write to the copy, or an Append to it, never reaches xs.
-extern go ergo.local/prototype/runtime/v1.SlicesClone func Clone[T](xs []T) []T
+func Clone[T](xs []T) []T { xs.Clone() }
 
 // Concat is the elements of a, then those of b, in a new array of at least
 // len(a) + len(b): Go's slices.Concat(a, b) (Effect's Array.appendAll).
 // An Append to the result never writes a or b, and an Append to a never
 // writes the result. Ergo has no variadic parameter, so it takes two.
-extern go ergo.local/prototype/runtime/v1.SlicesConcat func Concat[T](a []T, b []T) []T
+func Concat[T](a []T, b []T) []T { a.Concat(b) }
+
+// AppendAll is xs with the elements of ys added at the end: Go's
+// append(xs, ys...), one bulk copy (Effect's Array.appendAll). Like
+// xs.Append(x), it leaves xs unchanged: the lowering appends in place only
+// for xs = AppendAll(xs, ys) on one place or a dead xs, and appends to a
+// clipped xs elsewhere. An empty ys does no work. It is an extern of Go's
+// builtin, which any module can declare the same way (check/builtin.go).
+extern go append func AppendAll[T](xs []T, ys []T) []T
+
+// Insert is xs with the elements of ys before index i, in a new array:
+// Go's slices.Insert(xs, i, ys...) (Effect's Array.insertAt, for one
+// element). It never writes xs or ys, as Concat does not. An i outside
+// 0..len(xs) is a defect, as Go's panics.
+extern go ergo.local/prototype/runtime/v1.SlicesInsert func Insert[T](xs []T, i int, ys []T) []T
+
+// Delete is xs without the elements from index i up to j, j excluded, in
+// a new array: Go's slices.Delete(xs, i, j) (Effect's Array.remove, for
+// one element). It never writes xs. A bound outside 0..len(xs), or an i
+// after j, is a defect.
+extern go ergo.local/prototype/runtime/v1.SlicesDelete func Delete[T](xs []T, i int, j int) []T
+
+// InsertPlaces: Insert(xs, i, ys) is xs up to i, then ys, then the rest
+// of xs; an Append to a slice with room after it, before or after, never
+// changes the other.
+law InsertPlaces(xs []int, ys []int, i int, x int) {
+	let n = len(xs) + 1
+	let k = (i%n + n) % n
+	let mut roomy = WithCapacity[int](len(xs) + len(ys) + 1)
+	for v in xs {
+		roomy = roomy.Append(v)
+	}
+	let r = Insert(roomy, k, ys)
+	let before = Clone(r)
+	let grown = roomy.Append(x)
+	len(r) == len(xs)+len(ys) && Equal(Slice(r, 0, k), Slice(xs, 0, k)) && Equal(Slice(r, k, k+len(ys)), ys) && Equal(Slice(r, k+len(ys), len(r)), Slice(xs, k, len(xs))) && Equal(r, before) && Equal(Slice(grown, 0, len(xs)), xs)
+}
+
+// DeleteUndoesInsert: Delete(xs, i, j) is xs without xs[i:j], xs is left
+// as it was, and inserting those elements back at i gives xs again.
+law DeleteUndoesInsert(xs []int, i int, j int) {
+	let n = len(xs) + 1
+	let a = (i%n + n) % n
+	let b = (j%n + n) % n
+	let lo = if a < b { a } else { b }
+	let hi = if a < b { b } else { a }
+	let before = Clone(xs)
+	let d = Delete(xs, lo, hi)
+	len(d) == len(xs)-(hi-lo) && Equal(xs, before) && Equal(Slice(d, 0, lo), Slice(xs, 0, lo)) && Equal(Insert(d, lo, Slice(before, lo, hi)), before)
+}
 
 // Repeat is the elements of xs, n times over, in a new array: Go's
 // slices.Repeat. Effect's Array.replicate(x, n) is Repeat([]T{x}, n). A
 // negative n, or a length that overflows int, is a defect, as Go's
 // panics.
-extern go ergo.local/prototype/runtime/v1.SlicesRepeat func Repeat[T](xs []T, n int) []T
+func Repeat[T](xs []T, n int) []T { xs.Repeat(n) }
 
 // Slice is the elements of xs from index i up to j, j excluded: Go's full
 // slice expression xs[i:j:j] (Effect's Array.slice), which shares xs's
 // array but has no room after j, so an Append to it makes a new array and
 // never writes xs[j]. A bound outside 0..len(xs), or an i after j, is a
 // defect, as for strings.Slice.
-extern go ergo.local/prototype/runtime/v1.SlicesSlice func Slice[T](xs []T, i int, j int) []T
+func Slice[T](xs []T, i int, j int) []T { xs.Slice(i, j) }
 
 // BinarySearch is Some of the index of x in Items(a), or None when a has
 // no x. Of several x, the first. It takes an Ascending, not a []T, so an
@@ -150,7 +225,17 @@ func BinarySearch[T ordered](a Ascending[T], x T) Option[int] {
 
 // Equal reports whether a and b have the same length and equal elements in
 // order.
-extern go ergo.local/prototype/runtime/v1.SlicesEqual func Equal[T comparable](a []T, b []T) bool
+func Equal[T comparable](a []T, b []T) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i, x in a {
+		if x != b[i] {
+			return false
+		}
+	}
+	true
+}
 
 // Collect is the values of s, in order, in a new slice.
 func Collect[T](s Seq[T]) []T {
@@ -162,9 +247,10 @@ func Collect[T](s Seq[T]) []T {
 }
 
 // Sorted is the values of s in ascending order, in a new slice:
-// Sort(Collect(s)) with one slice, not two.
+// Sort(Collect(s)) with one slice, not two, since Sort sorts the fresh
+// slice Collect returns in place.
 func Sorted[T ordered](s Seq[T]) []T {
-	sortOwned(Collect(s))
+	Sort(Collect(s))
 }
 
 // Values is xs as a Seq: each element, in order.
@@ -212,7 +298,41 @@ func Fold[T, A, E, R](xs []T, init A, f func(acc A, x T) A fails E needs R) A fa
 	acc
 }
 
-extern go ergo.local/prototype/runtime/v1.SlicesMax func largest[T ordered](xs []T) T
-extern go ergo.local/prototype/runtime/v1.SlicesMin func smallest[T ordered](xs []T) T
-extern go ergo.local/prototype/runtime/v1.SlicesBinarySearch func search[T ordered](xs []T, x T) int
-extern go ergo.local/prototype/runtime/v1.SlicesSortOwned func sortOwned[T ordered](xs []T) []T
+// largest is Go's slices.Max of a non-empty xs: cmp.Max of each element
+// in turn, so a NaN makes it NaN.
+func largest[T ordered](xs []T) T {
+	let mut m = xs[0]
+	for i in 1..len(xs) {
+		m = cmp.Max(m, xs[i])
+	}
+	m
+}
+
+// smallest is Go's slices.Min of a non-empty xs, as largest.
+func smallest[T ordered](xs []T) T {
+	let mut m = xs[0]
+	for i in 1..len(xs) {
+		m = cmp.Min(m, xs[i])
+	}
+	m
+}
+
+// search is the index of x in the sorted xs that Go's slices.BinarySearch
+// finds, or -1 when xs has no x: the first index whose element is not
+// cmp.Less than x, where a NaN matches a NaN.
+func search[T ordered](xs []T, x T) int {
+	let mut i = 0
+	let mut j = len(xs)
+	for i < j {
+		let h = (i + j) / 2
+		if cmp.Less(xs[h], x) {
+			i = h + 1
+		} else {
+			j = h
+		}
+	}
+	if i < len(xs) && (xs[i] == x || xs[i] != xs[i] && x != x) {
+		return i
+	}
+	-1
+}

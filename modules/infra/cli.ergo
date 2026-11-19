@@ -54,7 +54,7 @@ type RowReport { Kind string, ID string, Status string, Seq int }
 // StateReport is the JSON of state: Holder is "" when the lock is free.
 type StateReport { Stage string, Holder string, Rows []RowReport }
 
-func leaf(name string, usage string, flags []flag.Flag, args []flag.ArgSpec, build escaping func(v flag.Values) Order fails flag.Failure) flag.Command[Order] {
+func leaf(name string, usage string, flags []flag.Flag, args []flag.ArgSpec, build own func(v flag.Values) Order fails flag.Failure) flag.Command[Order] {
 	flag.Command[Order]{Name: name, Usage: usage, Set: flag.Set{Name: name, Usage: usage, Flags: flags, Args: args}, Build: build, Commands: []flag.Command[Order]{}}
 }
 
@@ -147,7 +147,7 @@ func held(name string, stage string, h Held) Output {
 
 // deploy runs d's stack at stage in pass as holder: None when it ended,
 // else the Output of its failure.
-func deploy[O wire](d Deployment[O], stage string, pass Pass, holder string) Option[Output] {
+func deploy[O wire](d Deployment[O], stage string, pass Pass, holder string) Option[Output] needs wired[O] {
 	let b = d.Bind(stage, pass)
 	let path = d.Outputs(stage)
 	let _ = Deploy(pass, d.Lock(stage), holder, b.Engines, d.Writes, path, b.Stack) catch {
@@ -169,7 +169,7 @@ func deploy[O wire](d Deployment[O], stage string, pass Pass, holder string) Opt
 
 // Exec reads args as a command of d's stack, runs it, and is what to
 // print.
-func Exec[O wire](d Deployment[O], args []string) Output {
+func Exec[O wire](d Deployment[O], args []string) Output needs wired[O] {
 	let order = flag.ParseCommand(d.Name, "\(d.Name) plans, applies and destroys its stack", Commands(d.Holder), args) catch {
 	case flag.Help as h:
 		return Output{Out: h.Text, Err: "", Code: 0}
@@ -211,6 +211,16 @@ func Exec[O wire](d Deployment[O], args []string) Output {
 			return held(d.Name, x.Stage, h)
 		case Failed as f:
 			return refused(d.Name, "\(f.ID): \(f.Reason); the lock stays held by \(x.Holder): destroy again to resume", 1)
+		}
+		// The outputs name objects that are gone: a client must not find
+		// them (PX7).
+		let path = d.Outputs(x.Stage)
+		d.Writes.Remove(path) catch {
+		case fs.NotFound:
+		case fs.Denied:
+			return refused(d.Name, "the objects are deleted, and the outputs at \(path) could not be removed: denied", 1)
+		case fs.Failed as f:
+			return refused(d.Name, "the objects are deleted, and the outputs at \(path) could not be removed: \(f.Reason)", 1)
 		}
 		told(x.JSON, x.Stage, Steps(pass), "destroyed: "+count(len(Steps(pass))))
 	case StateOrder as s:
@@ -276,7 +286,7 @@ func shown[O wire](d Deployment[O], s StateOrder) Output {
 // Run is a stack's command line: it runs Exec on args (the arguments
 // after the program's name), prints its output, and fails os.Exit with
 // its status.
-func Run[O wire](d Deployment[O], args []string) fails os.Exit needs Console {
+func Run[O wire](d Deployment[O], args []string) fails os.Exit needs Console | wired[O] {
 	let o = Exec(d, args)
 	if o.Out != "" {
 		Console.Println(strings.TrimSuffix(o.Out, "\n"))

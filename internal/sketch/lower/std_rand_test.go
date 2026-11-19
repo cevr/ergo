@@ -8,13 +8,13 @@ import (
 	"testing"
 
 	"ergo.local/prototype/internal/lawledger"
-	v1 "ergo.local/prototype/runtime/v1"
+	ergorand "ergo.local/prototype/runtime/v1/rand"
 )
 
 // TestRandRuns (std-align S2c): std rand lowers and runs, and its draws
 // are Go's. Under Seeded(7), Shuffle of ten values, then Perm(5), then a
 // Choice give the order Go's r.Shuffle, r.Perm and r.IntN give on
-// rand.New(rand.NewPCG(7, v1.RandSeedHi)), the reference model; Shuffle
+// rand.New(rand.NewPCG(7, ergorand.RandSeedHi)), the reference model; Shuffle
 // leaves its argument; a Choice of an empty slice is None and draws
 // nothing. A copy of a PCG shares its stream (b draws the second value),
 // and a second Seeded(3) replays it. The host's draws are in range. An
@@ -100,7 +100,7 @@ func stdRandOutput() string {
 		return strings.Join(parts, " ")
 	}
 	var out strings.Builder
-	r := rand.New(rand.NewPCG(7, v1.RandSeedHi))
+	r := rand.New(rand.NewPCG(7, ergorand.RandSeedHi))
 	xs := []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9}
 	dealt := slices.Clone(xs)
 	r.Shuffle(len(dealt), func(i, j int) { dealt[i], dealt[j] = dealt[j], dealt[i] })
@@ -108,10 +108,10 @@ func stdRandOutput() string {
 	out.WriteString(show(r.Perm(5)) + "\n")
 	out.WriteString("none " + strconv.Itoa(xs[r.IntN(len(xs))]) + "\n")
 	out.WriteString(show(xs) + "\n")
-	s := rand.New(rand.NewPCG(3, v1.RandSeedHi))
+	s := rand.New(rand.NewPCG(3, ergorand.RandSeedHi))
 	first, second := s.Uint64(), s.Uint64()
 	out.WriteString(strconv.FormatUint(first, 10) + " " + strconv.FormatUint(second, 10) + " true\n")
-	c := rand.New(rand.NewPCG(3, v1.RandSeedHi))
+	c := rand.New(rand.NewPCG(3, ergorand.RandSeedHi))
 	c.Uint64()
 	c.Float64()
 	out.WriteString(strconv.Itoa(c.IntN(100)) + " true\n")
@@ -169,6 +169,11 @@ test RandSeedReplays(seed uint64, n int) {
 	assert a.Uint64() == b.Uint64() && a.IntN(k) == b.IntN(k) && a.Float64() == b.Float64()
 }
 
+test RandSeededSecureReplays(seed uint64, n int) {
+	let k = (n%64 + 64) % 64
+	assert rand.NewSeededSecure(seed).Bytes(k) == rand.NewSeededSecure(seed).Bytes(k)
+}
+
 test RandPermPermutes(seed uint64) {
 	for size in 0..201 {
 		let p = with context { Random: rand.Seeded(seed) } { rand.Perm(size) }
@@ -195,9 +200,10 @@ test RandShufflePermutes(seed uint64, xs []int) {
 // the law's source text as the ledger writes it, by ledger key;
 // lawledger.Run holds it equal to the ledger (fu-ledger-runner).
 var stdRandLawStatements = map[string]string{
-	"rand PermPermutes":    `PermPermutes(seed uint64, n int) { let size = within(n, 0, 200) let p = with context { Random: Seeded(seed) } { Perm(size) } isPermutation(p, size) }`,
-	"rand SeedReplays":     `SeedReplays(seed uint64, n int) { let a = Seeded(seed) let b = Seeded(seed) let k = within(n, 1, 1000000) a.Uint64() == b.Uint64() && a.IntN(k) == b.IntN(k) && a.Float64() == b.Float64() }`,
-	"rand ShufflePermutes": `ShufflePermutes(seed uint64, xs []int) { let mut kept = []int{} for x in xs { kept = kept.Append(x) } let before = tally(xs) let s = with context { Random: Seeded(seed) } { Shuffle(xs) } let after = tally(s) let mut same = len(s) == len(xs) && len(after) == len(before) for i, x in xs { same = same && after.Get(x) == before.Get(x) && kept[i] == x } same }`,
+	"rand PermPermutes":        `PermPermutes(seed uint64, n int) { let size = within(n, 0, 200) let p = with context { Random: Seeded(seed) } { Perm(size) } isPermutation(p, size) }`,
+	"rand SeedReplays":         `SeedReplays(seed uint64, n int) { let a = Seeded(seed) let b = Seeded(seed) let k = within(n, 1, 1000000) a.Uint64() == b.Uint64() && a.IntN(k) == b.IntN(k) && a.Float64() == b.Float64() }`,
+	"rand SeededSecureReplays": `SeededSecureReplays(seed uint64, n int) { let k = (n%64 + 64) % 64 NewSeededSecure(seed).Bytes(k) == NewSeededSecure(seed).Bytes(k) }`,
+	"rand ShufflePermutes":     `ShufflePermutes(seed uint64, xs []int) { let mut kept = []int{} for x in xs { kept = kept.Append(x) } let before = tally(xs) let s = with context { Random: Seeded(seed) } { Shuffle(xs) } let after = tally(s) let mut same = len(s) == len(xs) && len(after) == len(before) for i, x in xs { same = same && after.Get(x) == before.Get(x) && kept[i] == x } same }`,
 }
 
 // TestStdRandLawsRun runs the rand probe's tests with --seed 1;
@@ -218,7 +224,7 @@ func TestStdRandLawsRun(t *testing.T) {
 // Ergo's seeds are uint64, so each case seeds with its upstream line.
 // Where Effect checks only that two runs of one seed agree, the subtest
 // also holds the draws equal to the reference model, Go's math/rand/v2 on
-// rand.New(rand.NewPCG(seed, v1.RandSeedHi)). Effect's choice of an empty
+// rand.New(rand.NewPCG(seed, ergorand.RandSeedHi)). Effect's choice of an empty
 // collection fails; Ergo's is None and draws nothing (a difference row).
 //
 // It builds Go because it is the evidence of Effect conformance cases
@@ -321,7 +327,7 @@ func main() needs Console | Ambient {
 	Console.Println(c2)
 }
 `
-	ref := func(seed uint64) *rand.Rand { return rand.New(rand.NewPCG(seed, v1.RandSeedHi)) }
+	ref := func(seed uint64) *rand.Rand { return rand.New(rand.NewPCG(seed, ergorand.RandSeedHi)) }
 	r := ref(25)
 	var drawn []string
 	for range 3 {

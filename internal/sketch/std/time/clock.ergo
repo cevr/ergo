@@ -4,6 +4,11 @@
 // S2b, owner question 1).
 type Clock {
 	Now() Time,
+	// Elapsed is the time passed since t: Now().Sub(t), read the cheapest
+	// way the clock has. The host reads only its monotonic clock when t
+	// has a monotonic reading, as Go's time.Since does (std-speed-1).
+	// Programs call Since(t), which calls it.
+	Elapsed(t Time) duration,
 
 	// NowNeverFalls: a later read is never before an earlier one. It holds
 	// because a clock's Time carries a monotonic reading, and Before
@@ -13,11 +18,21 @@ type Clock {
 		let second = Now()
 		!second.Before(first)
 	},
+
+	// ElapsedIsNowSub: Elapsed(t) is Now().Sub(t) read at its own moment:
+	// no less than a read before it gives, and no more than a read after.
+	law ElapsedIsNowSub() {
+		let start = Now()
+		let before = Now().Sub(start)
+		let d = Elapsed(start)
+		let after = Now().Sub(start)
+		before <= d && d <= after
+	},
 }
 
 // Since is the time passed since t, by the Clock in the context:
-// Clock.Now().Sub(t).
-func Since(t Time) duration needs Clock { Clock.Now().Sub(t) }
+// Clock.Elapsed(t), which is Clock.Now().Sub(t).
+func Since(t Time) duration needs Clock { Clock.Elapsed(t) }
 
 // Host is the host's Clock provider. Its field gives this package the
 // construction authority, so only NewHost makes one.
@@ -37,7 +52,20 @@ func Now(_ Host) Time {
 	read(r.Sec, r.Nsec, r.Mono)
 }
 
+// Elapsed is the time passed since t on the host's clock. When t has a
+// monotonic reading, it reads the monotonic clock alone and not the wall
+// clock, as Go's time.Since does; otherwise it is h.Now().Sub(t).
+func Elapsed(h Host, t Time) duration {
+	if t.hasMono {
+		subMono(hostMono(), t.mono)
+	} else {
+		h.Now().Sub(t)
+	}
+}
+
 extern go ergo.local/prototype/runtime/v1.TimeHostNow func hostNow() Reading
+
+extern go ergo.local/prototype/runtime/v1.TimeHostMono func hostMono() int64
 
 // Manual is a test provider of both Clock and Scheduler (Effect TestClock,
 // Go testing/synctest): its time moves only when Advance moves it, and a
@@ -48,7 +76,7 @@ type Manual { line Timeline } implements Clock, Scheduler
 
 // Timeline is the state a Manual shares between its copies. Only NewManual
 // makes one.
-type Timeline {
+extern go ergo.local/prototype/runtime/v1.Timeline type Timeline {
 	runtimeOnly(),
 	// Read is the time now.
 	Read() Reading,
@@ -59,8 +87,12 @@ type Timeline {
 	// deadline it reaches, in deadline order, and returns once the tasks
 	// it woke wait again. A negative d is a defect.
 	Advance(d duration),
-	// Sleepers is the number of tasks in Wait.
+	// Sleepers is the number of deadlines armed: the tasks in Wait and
+	// the alarms of its AlarmClock.
 	Sleepers() int,
+	// Alarms is the timeline as the runtime's waits use it: Advance
+	// fires an alarm at its deadline, as it wakes a sleeper.
+	Alarms() AlarmClock,
 
 	// AdvanceMovesRead: Advance(d) moves the monotonic reading by d, for a
 	// d of zero or more.
@@ -86,6 +118,9 @@ func Now(m Manual) Time {
 	read(r.Sec, r.Nsec, r.Mono)
 }
 
+// Elapsed is the time passed since t on the Manual: m.Now().Sub(t).
+func Elapsed(m Manual, t Time) duration { m.Now().Sub(t) }
+
 // Sleep suspends the calling task until Advance moves the time d past now.
 func Sleep(m Manual, d duration) { m.line.Wait(d) }
 
@@ -97,7 +132,19 @@ func Sleep(m Manual, d duration) { m.line.Wait(d) }
 // negative d is a defect: time never falls.
 func Advance(m Manual, d duration) { m.line.Advance(d) }
 
-// Sleepers is the number of tasks asleep on m.
+// Sleepers is the number of deadlines armed on m: the tasks asleep on it
+// and the runtime's alarms (Alarms).
 func Sleepers(m Manual) int { m.line.Sleepers() }
+
+// Asleep says whether t, or a task started below it, is asleep on m, so
+// only m's Advance wakes it. A task that ended is asleep on nothing
+// (FK4-g2: the ui test host's Settle returns when each fetch left is).
+func Asleep[T, E](m Manual, t Task[T, E]) bool { timeAsleep(m.line, t) }
+
+extern go ergo.local/prototype/runtime/v1.TimeAsleep func timeAsleep[T, E](l Timeline, t Task[T, E]) bool
+
+// Alarms is m's time as the runtime's waits use it: Advance fires each
+// alarm at its deadline, as it wakes each sleeper.
+func Alarms(m Manual) AlarmClock { m.line.Alarms() }
 
 extern go ergo.local/prototype/runtime/v1.NewTimeline func newTimeline(sec int64, nsec int64) Timeline

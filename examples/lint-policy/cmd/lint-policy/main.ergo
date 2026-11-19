@@ -1,0 +1,39 @@
+// lint-policy serves the policy pack over the rule-pack process protocol:
+// `ergo lint` writes one request frame to its standard input and reads one
+// response frame from its standard output. `lint-policy manifest` prints
+// the pack's manifest instead, for a build at bin/lint-policy:
+//
+//	ergo build examples/lint-policy/cmd/lint-policy -o DIR/bin/lint-policy
+//	DIR/bin/lint-policy manifest > DIR/policy.json
+//
+// This binary is the only place that binds the host's streams.
+
+import io
+import lint
+import lintpolicy/policy
+import os
+
+let usage = "usage: lint-policy [manifest]"
+
+func main() fails os.Exit needs Ambient {
+	with context { os.Process: os.NewHost(), io.Stdout: io.NewHost(), io.Stdin: io.NewStdin() } {
+		try run(os.Process.Args())
+	}
+}
+
+// run serves the pack, or prints its manifest when args ask for it.
+func run(args []string) fails os.Exit needs io.Stdin | io.Stdout {
+	if len(args) == 1 && args[0] == "manifest" {
+		io.Stdout.Println(lint.Manifest(policy.Pack, "bin/lint-policy"))
+		return
+	}
+	if len(args) != 0 {
+		return os.Exit{Code: 2, Message: usage}
+	}
+	lint.Serve(policy.Pack) catch {
+	case lint.ServeFailed as f:
+		return os.Exit{Code: 1, Message: "lint pack: " + lint.Reason(f)}
+	case io.ReadFailed as r:
+		return os.Exit{Code: 1, Message: "lint pack: " + r.Reason}
+	}
+}

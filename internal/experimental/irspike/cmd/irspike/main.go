@@ -4,6 +4,14 @@
 //	irspike front PATH WORK               check and lower PATH (source and IR) into WORK/source, WORK/ir
 //	irspike tool LOG TOOL [ARGS...]       a -toolexec meter: run TOOL, append its cost to LOG
 //	irspike attr WORK PROGRAM             stage attribution of PROGRAM (cold, warm, edits)
+//	irspike cost WORK FUNCS REPS SEED...  decode cost per node: JSON IR vs Go text (generated programs of FUNCS functions)
+//	irspike decl -body E WORK MODULE PROG  the declaration file's share of an edit build (q134)
+//	irspike census ROOT                   every reason each body of examples, std and corpus is not lowered yet
+//	irspike genfail SEED                  the failure program of SEED (TestIRFailuresMatchSource)
+//	irspike genunion SEED                 the union program of SEED (TestIRUnionsMatchSource)
+//	irspike gengeneric SEED               the generic-union program of SEED (TestIRGenericUnionsMatchSource)
+//	irspike gentuple SEED                 the tuple program of SEED (TestIRTuplesMatchSource)
+//	irspike genplace SEED                 the place program of SEED (TestIRPlacesMatchSource)
 //
 // The toolchains come from ERGO_IRSPIKE_GOROOT_SOURCE, ERGO_IRSPIKE_GOROOT_IR
 // and ERGO_IRSPIKE_CACHE.
@@ -13,6 +21,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -37,6 +46,22 @@ func main() {
 		err = attr(os.Args[2:])
 	case "table":
 		err = table(os.Args[2:])
+	case "cost":
+		err = cost(os.Args[2:])
+	case "decl":
+		err = decl(os.Args[2:])
+	case "census":
+		if len(os.Args) < 3 || len(os.Args) > 4 {
+			fail(fmt.Errorf("usage: irspike census ROOT [FUNCS.json]"))
+		}
+		var c *irspike.Census
+		if c, err = irspike.TakeCensus(os.Args[2], io.Discard); err == nil {
+			c.WriteTable(os.Stdout)
+			if len(os.Args) == 4 {
+				data, _ := json.Marshal(c.Funcs)
+				err = os.WriteFile(os.Args[3], data, 0o644)
+			}
+		}
 	case "gen":
 		var seed uint64
 		if len(os.Args) != 3 {
@@ -45,12 +70,107 @@ func main() {
 		if _, err = fmt.Sscan(os.Args[2], &seed); err == nil {
 			fmt.Print(irspike.Generate(seed))
 		}
+	case "genfail":
+		var seed uint64
+		if len(os.Args) != 3 {
+			fail(fmt.Errorf("usage: irspike genfail SEED"))
+		}
+		if _, err = fmt.Sscan(os.Args[2], &seed); err == nil {
+			fmt.Print(irspike.GenerateFail(seed))
+		}
+	case "exitforms":
+		if len(os.Args) != 3 {
+			fail(fmt.Errorf("usage: irspike exitforms ROOT"))
+		}
+		var forms map[string][]string
+		if forms, err = irspike.ExitForms(os.Args[2], os.Stderr); err == nil {
+			for _, form := range []string{"scope", "slots", "defer", "quiet"} {
+				fmt.Printf("%s\t%d\t%s\n", form, len(forms[form]), strings.Join(forms[form], " "))
+			}
+			fmt.Printf("unbuilt\t%s\n", forms["unbuilt"][0])
+		}
+	case "genunion":
+		var seed uint64
+		if len(os.Args) != 3 {
+			fail(fmt.Errorf("usage: irspike genunion SEED"))
+		}
+		if _, err = fmt.Sscan(os.Args[2], &seed); err == nil {
+			fmt.Print(irspike.GenerateUnion(seed))
+		}
+	case "gengeneric":
+		var seed uint64
+		if len(os.Args) != 3 {
+			fail(fmt.Errorf("usage: irspike gengeneric SEED"))
+		}
+		if _, err = fmt.Sscan(os.Args[2], &seed); err == nil {
+			fmt.Print(irspike.GenerateGeneric(seed))
+		}
+	case "genstd":
+		var seed uint64
+		if len(os.Args) != 3 {
+			fail(fmt.Errorf("usage: irspike genstd SEED"))
+		}
+		if _, err = fmt.Sscan(os.Args[2], &seed); err == nil {
+			fmt.Print(irspike.GenerateStd(seed))
+		}
+	case "gentuple":
+		var seed uint64
+		if len(os.Args) != 3 {
+			fail(fmt.Errorf("usage: irspike gentuple SEED"))
+		}
+		if _, err = fmt.Sscan(os.Args[2], &seed); err == nil {
+			fmt.Print(irspike.GenerateTuple(seed))
+		}
+	case "genplace":
+		var seed uint64
+		if len(os.Args) != 3 {
+			fail(fmt.Errorf("usage: irspike genplace SEED"))
+		}
+		if _, err = fmt.Sscan(os.Args[2], &seed); err == nil {
+			fmt.Print(irspike.GeneratePlace(seed))
+		}
 	default:
 		err = fmt.Errorf("unknown command %q", os.Args[1])
 	}
 	if err != nil {
 		fail(err)
 	}
+}
+
+// cost prints the decode-cost receipt (irspike.CostRow, one JSON line per
+// program) of generated programs.
+func cost(args []string) error {
+	if len(args) < 4 {
+		return fmt.Errorf("usage: irspike cost WORK FUNCS REPS SEED...")
+	}
+	var funcs, reps int
+	if _, err := fmt.Sscan(args[1], &funcs); err != nil {
+		return err
+	}
+	if _, err := fmt.Sscan(args[2], &reps); err != nil {
+		return err
+	}
+	src, ir, ok := irspike.Toolchains()
+	if !ok {
+		return irspike.ErrNoToolchains
+	}
+	self, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	for _, s := range args[3:] {
+		var seed uint64
+		if _, err := fmt.Sscan(s, &seed); err != nil {
+			return err
+		}
+		row, err := irspike.MeasureCost(fmt.Sprintf("gen%d-n%d", seed, funcs), irspike.GenerateN(seed, funcs), self, src, ir, args[0], reps)
+		if err != nil {
+			return err
+		}
+		line, _ := json.Marshal(row)
+		fmt.Println(string(line))
+	}
+	return nil
 }
 
 func fail(err error) {

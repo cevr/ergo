@@ -1,7 +1,8 @@
 package check
 
 import (
-	"sort"
+	"cmp"
+	"slices"
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -68,6 +69,7 @@ func (c *checker) with(x *syntax.CallExpr, hint Type) operand {
 	c.fn.branches = c.fn.branches[:len(c.fn.branches)-1]
 	done()
 	t.scope = scope
+	c.chargeWithReleases(x, frames)
 	c.recordWith(x, frames)
 	// A with's Fails is the row its block passes through (rows.md, With 6).
 	c.callInfo(x).Fails = errs
@@ -559,7 +561,12 @@ func (c *checker) contextEntry(e *syntax.ContextEntry, made *ContextEntry) ([]Ty
 		// The provider goes into the capability by assignability (types.md,
 		// Assignability), whose conversion holds its operations' functions
 		// (196m); the lowering reads it and never re-derives it.
+		captured := false
+		c.capture = &captured
 		a, why := c.providerAssignability(pt, cap)
+		if a.ok() {
+			c.captureForeign(e.Value, captured, pt, cap)
+		}
 		if !a.ok() {
 			if why == "" {
 				why = pt.String() + " is not assignable to " + cap.String()
@@ -623,11 +630,8 @@ func (c *checker) checkContexts() {
 	for _, w := range c.pkg.Contexts {
 		contexts = append(contexts, w)
 	}
-	sort.Slice(contexts, func(i, j int) bool {
-		if contexts[i].file.index != contexts[j].file.index {
-			return contexts[i].file.index < contexts[j].file.index
-		}
-		return contexts[i].Pos < contexts[j].Pos
+	slices.SortFunc(contexts, func(a, b *Context) int {
+		return cmp.Or(cmp.Compare(a.file.index, b.file.index), cmp.Compare(a.Pos, b.Pos))
 	})
 	for _, w := range contexts {
 		c.cur = w.file

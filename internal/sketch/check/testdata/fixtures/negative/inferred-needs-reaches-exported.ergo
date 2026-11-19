@@ -1,9 +1,0 @@
-type Store { Get() string }
-
-func read() string { return Store.Get() }
-
-func Run() string {
-	return read() // want S102
-}
-
-func main() {}

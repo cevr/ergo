@@ -1,0 +1,41 @@
+// A generated session: the workload of the program at any size, drawn
+// from the Random in the context, so a seed replays it.
+
+import strings
+
+// Generate is a script of n strokes of up to 200 points each, with a
+// rectangle, an ellipse or a line now and then, a pan or a zoom, and a
+// drag of a selection, ending with show.
+func Generate(n int) string needs Random {
+	let mut b = strings.NewBuilder()
+	for i in 0..n {
+		match Random.IntN(8) {
+		case 0:
+			b.WriteString("tool rect\n")
+		case 1:
+			b.WriteString("tool ellipse\n")
+		case 2:
+			b.WriteString("tool line\n")
+		case _:
+			b.WriteString("tool pen\n")
+		}
+		if i%50 == 49 {
+			b.WriteString("layer \(Random.IntN(Layers))\n")
+		}
+		let mut x = Random.IntN(800)
+		let mut y = Random.IntN(600)
+		b.WriteString("down \(x) \(y)\n")
+		for _ in 0..1+Random.IntN(200) {
+			x = Clamp(x+Random.IntN(9)-4, 0, 799)
+			y = Clamp(y+Random.IntN(9)-4, 0, 599)
+			b.WriteString("move \(x) \(y)\n")
+		}
+		b.WriteString("up \(x) \(y)\n")
+		if i%100 == 99 {
+			b.WriteString("tool select\ndown \(x) \(y)\nmove \(x + 10) \(y + 5)\nup \(x + 10) \(y + 5)\n")
+			b.WriteString("pan \(Random.IntN(41) - 20) \(Random.IntN(41) - 20)\nzoom \(50 + Random.IntN(151))\n")
+		}
+	}
+	b.WriteString("show\n")
+	b.String()
+}

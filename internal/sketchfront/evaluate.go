@@ -7,6 +7,7 @@ import (
 
 	"ergo.local/prototype/internal/report"
 	"ergo.local/prototype/internal/sketch/eval"
+	"ergo.local/prototype/internal/stage"
 )
 
 // Evaluate runs the root package's pure obligations, its examples first,
@@ -19,7 +20,22 @@ func (a Analysis) Evaluate(b eval.Budget) (eval.Report, error) {
 	if len(pkgs) == 0 || len(a.Diagnostics) > 0 {
 		return eval.Report{}, errors.New("sketchfront: evaluation needs a program that checks")
 	}
-	return eval.Run(pkgs[len(pkgs)-1], b)
+	// The root is named main while it runs, as a load of it alone names
+	// it: a shared load (CheckPackages) checks a package that another
+	// imports once, under its import path, and a reason that prints one of
+	// its types (a failure escaped: main.Bad) must not change with it.
+	root := pkgs[len(pkgs)-1]
+	name := root.Name
+	root.Name = "main"
+	defer func() { root.Name = name }()
+	rep, err := eval.Run(root, b)
+	for _, res := range rep.Results {
+		if res.Status != eval.Skipped && res.Status != eval.NotRun {
+			stage.Add(stage.ObligationsEvaluated, 1)
+		}
+	}
+	stage.Add(stage.EvalSteps, rep.Steps)
+	return rep, err
 }
 
 // Evaluation is Evaluate as the check envelope reports it (report.Evaluation):
@@ -53,6 +69,7 @@ func (a Analysis) Evaluation(b eval.Budget, source string) (report.Evaluation, e
 			TotalCases: res.TotalCases,
 			Evidence:   res.Evidence,
 			Seed:       res.Seed,
+			Cached:     res.Cached,
 		}
 		for _, arg := range res.Arguments {
 			o.Arguments = append(o.Arguments, report.Argument{Name: arg.Name, Value: arg.Value})

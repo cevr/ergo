@@ -1,0 +1,50 @@
+# Offline: there is no field and no Send.
+type Hello
+submit
+# The dial is refused; Try again connects.
+refuse Connection refused
+connect
+held
+connect
+held
+# Send is disabled while the field is blank or spaces only.
+type
+submit
+type    
+submit
+enter
+# A send: the field clears, the text and then its echo, stamped.
+wait 1500
+type   Hello there  
+submit
+# The server speaks unasked, twice, in order.
+wait 61000
+push Welcome to the observatory
+push Clear skies tonight
+# Enter sends as Send does.
+type And the moon?
+enter
+# The dial's timer is Connecting's: past it, an open line stays open.
+wait 6000
+held
+# The server closes the line: the conversation goes with it.
+hangup
+held
+connect
+type One more
+submit
+# The line fails: the reason shows, the line is released.
+break Connection error
+held
+# A dial with no answer times out after 5 seconds, and its line is let go.
+stall
+connect
+wait 4999
+wait 1
+held
+connect
+# The server drops the line; the next send fails.
+vanish
+type Anyone?
+submit
+connect

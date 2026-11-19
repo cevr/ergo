@@ -30,7 +30,7 @@ func TestModulesLeg(t *testing.T) {
 			t.Fatalf("exit %d\n%s", code, out)
 		}
 		calls := readCalls(t, f)
-		if want := "test " + filepath.Join(f.root, "modules/hello/hello") + " -work"; !slices.Contains(calls, want) {
+		if want := "test " + filepath.Join(f.root, "modules/hello/hello"); !slices.Contains(calls, want) {
 			t.Errorf("no call %q in\n%q", want, calls)
 		}
 		for _, call := range calls {
@@ -81,6 +81,7 @@ func TestModulesLeg(t *testing.T) {
 		{map[string]string{"cmd/hello/main.ergo": "func main() {}\n"}, "modules/hello: a module is a library: it has no cmd/"},
 		{map[string]string{"go.mod": "module example.com/other\n"}, "modules/hello: ergo.mod names the module example.com/hello and go.mod example.com/other"},
 		{map[string]string{"notes.txt": "x\n"}, "modules/hello: unexpected notes.txt"},
+		{map[string]string{"origin/README.md": "x\n", "origin/hidden.ergo": "func g() {}\n"}, "modules/hello: unexpected origin/hidden.ergo; a module's origin folder holds Markdown notes only"},
 	} {
 		f := newFixture(t)
 		module(f, "func f() {}\n", c.extra)

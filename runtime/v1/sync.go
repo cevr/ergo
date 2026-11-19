@@ -45,9 +45,29 @@ import (
 // Rust's Mutex reports a lock whose holder panicked with a PoisonError.
 // The unlock is deferred, so a poisoned cell is never left locked. Get and
 // Set run no program code under the lock and unlock inline. f has an empty
-// row (the lowering's adaptPlainFunc), so it neither waits nor needs a
-// capability while the lock is held. No operation is an interruption
-// point: none waits for another task beyond the length of one operation.
+// row (the lowering's adaptPlainFunc), so it needs no capability while the
+// lock is held. It may still wait on a handle it captured (a Timeline's
+// Wait, a Queue's Pop); the checker does not refuse that yet (follow-up
+// REF-WAIT), and masked, a stop does not end that wait. No operation is an
+// interruption point: none waits for another task beyond the length of
+// one operation.
+//
+// A stop is not a defect (REF-MASK; ruling of 2026-11-16). f runs with the
+// caller's environment, and its lowered loop heads and impure entries
+// poll a stop there, so a stop requested while f runs would unwind it
+// half way: an owned f leaves a half-written value, and the cell would
+// poison itself on a request. So f runs masked on the caller's task t: a
+// stop requested meanwhile is observed at the caller's next interruption
+// point after the update, and the cell always holds a whole value. Only a
+// defect poisons it. Prior art: Effect's Ref.update and modify are atomic
+// and never interrupted part way; Rust's Mutex is poisoned by a panic, and
+// a cancellation cannot come inside a sync guard.
+//
+// While the program runs one task (rt.Alone: no task or group has been
+// started yet), no other goroutine can reach the cell, and an operation
+// takes no lock (lock, unlock; OWN1 REF-ALONE): json's Stream, a Ref
+// read and written about 13 times per decoded event, pays the lock only
+// in a program that runs tasks.
 //
 // The control is a hand-written Go value guarded by a sync.Mutex
 // (sync_bench_test.go); the body is that value. A Ref built on
@@ -74,6 +94,8 @@ const refPoisoned = "sync.Ref is poisoned: a defect in an earlier Update or Modi
 
 // NewRef is sync.NewRef: a new cell that holds v. v may be reached from
 // outside the cell, so it is shared.
+//
+//ergo:wait none
 func NewRef[T any](v T) *Ref[T] {
 	r := &Ref[T]{v: v, shared: true}
 	if rt.Exploring {
@@ -85,30 +107,36 @@ func NewRef[T any](v T) *Ref[T] {
 // Get is the value r holds. The caller keeps it, so the cell marks it
 // shared: the next owned Update or Modify copies it first. A copy of a T
 // cannot panic, so the unlock needs no defer.
+//
+//ergo:wait none
 func (r *Ref[T]) Get() T {
 	rt.PointRunning(rt.Op{Kind: rt.OpRead, On: r})
-	r.mu.Lock()
+	var op refOp
+	op.lock(&r.mu)
 	if r.poison {
-		r.mu.Unlock()
+		op.unlock(&r.mu)
 		panic(refPoisoned)
 	}
 	r.shared = true
 	v := r.v
-	r.mu.Unlock()
+	op.unlock(&r.mu)
 	return v
 }
 
 // Set stores v in r. v may be reached from outside the cell, so it is
 // shared. A store cannot panic, so the unlock needs no defer.
+//
+//ergo:wait none
 func (r *Ref[T]) Set(v T) {
 	rt.PointRunning(rt.Op{Kind: rt.OpWrite, On: r})
-	r.mu.Lock()
+	var op refOp
+	op.lock(&r.mu)
 	if r.poison {
-		r.mu.Unlock()
+		op.unlock(&r.mu)
 		panic(refPoisoned)
 	}
 	r.v, r.shared = v, true
-	r.mu.Unlock()
+	op.unlock(&r.mu)
 }
 
 // Update stores f of the value r holds, with no other operation of r
@@ -116,14 +144,18 @@ func (r *Ref[T]) Set(v T) {
 // argument or return a value reached from elsewhere, so the stored value
 // is shared. The unlock is deferred: f is the program's code, and a defect
 // in it poisons r and must not leave r locked.
-func (r *Ref[T]) Update(f func(v T) T) {
+//
+//ergo:wait none
+func (r *Ref[T]) Update(t *rt.Task, f func(v T) T) {
 	rt.PointRunning(rt.Op{Kind: rt.OpWrite, On: r})
 	r.mu.Lock()
-	done := false
-	defer r.end(&done)
+	defer r.mu.Unlock()
+	m := t.Mask() // f runs masked on the caller's task (REF-MASK)
+	defer m.Unmask()
 	r.check()
+	r.poison = true // until f returns (check)
 	r.v = f(r.v)
-	r.shared, done = true, true
+	r.shared, r.poison = true, false
 }
 
 // RefModify is sync.Modify: under r's lock, it calls f once on the value
@@ -131,17 +163,21 @@ func (r *Ref[T]) Update(f func(v T) T) {
 // The result is the Go form of the Ergo tuple (R, T), an unnamed struct
 // with the fields F0 and F1 (the lowering's goType of a tuple). As in
 // Update, the stored value is shared.
-func RefModify[T, R any](r *Ref[T], f func(v T) struct {
+//
+//ergo:wait none
+func RefModify[T, R any](t *rt.Task, r *Ref[T], f func(v T) struct {
 	F0 R
 	F1 T
 }) R {
 	rt.PointRunning(rt.Op{Kind: rt.OpWrite, On: r})
 	r.mu.Lock()
-	done := false
-	defer r.end(&done)
+	defer r.mu.Unlock()
+	m := t.Mask() // f runs masked on the caller's task (REF-MASK)
+	defer m.Unmask()
 	r.check()
+	r.poison = true // until f returns (check)
 	out := f(r.v)
-	r.v, r.shared, done = out.F1, true, true
+	r.v, r.shared, r.poison = out.F1, true, false
 	return out.F0
 }
 
@@ -150,57 +186,169 @@ func RefModify[T, R any](r *Ref[T], f func(v T) struct {
 // binding outside the cell reaches, and may write it in place. A shared
 // value is copied first, with clone, under the lock. fresh is the
 // lowering's proof that f's result is unshared too; without it the stored
-// value is shared.
-func RefUpdateOwned[T any](r *Ref[T], f func(v T) T, clone func(v T) T, fresh bool) {
+// value is shared. alone is the lowering's proof that f starts no task and
+// runs no code it does not know (its footprint is empty, check.Footprint):
+// then, while the program is alone (rt.Alone), the operation takes no lock,
+// since nothing f runs can start a second goroutine that reaches r.
+//
+//ergo:wait none
+func RefUpdateOwned[T any](t *rt.Task, r *Ref[T], f func(v T) T, clone func(v T) T, fresh, alone bool) {
 	rt.PointRunning(rt.Op{Kind: rt.OpWrite, On: r})
-	r.mu.Lock()
-	done := false
-	defer r.end(&done)
+	if !alone || !rt.Alone() {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+	}
+	if !alone {
+		// f runs masked on the caller's task (REF-MASK); an alone f reaches
+		// no interruption point, so it needs no mask.
+		m := t.Mask()
+		defer m.Unmask()
+	}
 	r.check()
+	r.poison = true // until f returns (check)
 	v := r.v
 	if r.shared {
 		v = clone(v)
 	}
 	r.v = f(v)
-	r.shared, done = !fresh, true
+	r.shared, r.poison = !fresh, false
 }
 
 // RefModifyOwned is sync.Modify called with a function literal that takes
 // the held value over, as RefUpdateOwned is for Update. fresh is the proof
 // that both elements of f's result are unshared, so the value returned
 // reaches no part of the value stored.
-func RefModifyOwned[T, R any](r *Ref[T], f func(v T) struct {
+//
+//ergo:wait none
+func RefModifyOwned[T, R any](t *rt.Task, r *Ref[T], f func(v T) struct {
 	F0 R
 	F1 T
-}, clone func(v T) T, fresh bool) R {
+}, clone func(v T) T, fresh, alone bool) R {
 	rt.PointRunning(rt.Op{Kind: rt.OpWrite, On: r})
-	r.mu.Lock()
-	done := false
-	defer r.end(&done)
+	if !alone || !rt.Alone() {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+	}
+	if !alone {
+		// f runs masked on the caller's task (REF-MASK); an alone f reaches
+		// no interruption point, so it needs no mask.
+		m := t.Mask()
+		defer m.Unmask()
+	}
 	r.check()
+	r.poison = true // until f returns (check)
 	v := r.v
 	if r.shared {
 		v = clone(v)
 	}
 	out := f(v)
-	r.v, r.shared, done = out.F1, !fresh, true
+	r.v, r.shared, r.poison = out.F1, !fresh, false
 	return out.F0
 }
 
-// check raises refPoisoned when r is poisoned, with r locked; end unlocks
-// it.
+// RefUpdateInPlace is RefUpdateOwned for a literal that binds the held
+// value to one let mut and returns it (G1, refown.go, inPlace): f writes
+// the held value through p, under the lock, and the cell keeps it, so no
+// copy of T is made in or out. A shared value is copied first, as
+// RefUpdateOwned does. A defect poisons the cell, which then holds a
+// value f may have written in part.
+//
+//ergo:wait none
+func RefUpdateInPlace[T any](t *rt.Task, r *Ref[T], f func(p *T), clone func(v T) T, fresh, alone bool) {
+	rt.PointRunning(rt.Op{Kind: rt.OpWrite, On: r})
+	if !alone || !rt.Alone() {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+	}
+	if !alone {
+		// f runs masked on the caller's task (REF-MASK); an alone f reaches
+		// no interruption point, so it needs no mask.
+		m := t.Mask()
+		defer m.Unmask()
+	}
+	r.check()
+	r.poison = true // until f returns (check)
+	if r.shared {
+		r.v = clone(r.v)
+	}
+	f(&r.v)
+	r.shared, r.poison = !fresh, false
+}
+
+// RefModifyInPlace is RefModifyOwned for a literal that binds the held
+// value to one let mut and returns (x, it): f writes the held value
+// through p and returns x (RefUpdateInPlace).
+//
+//ergo:wait none
+func RefModifyInPlace[T, R any](t *rt.Task, r *Ref[T], f func(p *T) R, clone func(v T) T, fresh, alone bool) R {
+	rt.PointRunning(rt.Op{Kind: rt.OpWrite, On: r})
+	if !alone || !rt.Alone() {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+	}
+	if !alone {
+		// f runs masked on the caller's task (REF-MASK); an alone f reaches
+		// no interruption point, so it needs no mask.
+		m := t.Mask()
+		defer m.Unmask()
+	}
+	r.check()
+	r.poison = true // until f returns (check)
+	if r.shared {
+		r.v = clone(r.v)
+	}
+	x := f(&r.v)
+	r.shared, r.poison = !fresh, false
+	return x
+}
+
+// check raises refPoisoned when r is poisoned, before an Update or Modify
+// touches the value.
+//
+// An Update or Modify then poisons r while f runs: it sets poison before
+// it calls f and clears it once f has returned and the value is stored,
+// so a defect in f (or in clone) leaves r poisoned, with no deferred flag
+// to read. The lock, when the program is not alone (rt.Alone), is
+// unlocked by a defer, so a defect never leaves r locked. An owned or
+// in-place form told alone (the lowering's proof that f starts no task and
+// runs no unknown code) skips the lock while the program is alone: no
+// goroutine but this one can reach r, and f cannot start one. Every other
+// Update or Modify locks, since its function may start a task that uses r
+// before the operation stores (TestRefFlipInsideUpdate).
 func (r *Ref[T]) check() {
 	if r.poison {
 		panic(refPoisoned)
 	}
 }
 
-// end unlocks r at the end of an Update or Modify. When the operation did
-// not finish (done is false), a panic is on its way to the caller: it
-// poisons r, and is not recovered here.
-func (r *Ref[T]) end(done *bool) {
-	if !*done {
-		r.poison = true
+// refOp is a Get or Set's hold of a Ref: whether it locked the cell's
+// mutex.
+type refOp struct{ locked bool }
+
+// lock locks mu unless the program runs one goroutine of Ergo code
+// (rt.Alone, OWN1 REF-ALONE): then no other goroutine can reach the cell,
+// and the operation runs as the hand-written Go value would, with no
+// lock. op remembers whether it locked, for unlock, so the pair never
+// depends on Alone staying the same between them. The locking half is out
+// of line, so the alone path inlines to one load.
+func (op *refOp) lock(mu *sync.Mutex) {
+	if !rt.Alone() {
+		op.lockMu(mu)
 	}
-	r.mu.Unlock()
+}
+
+// lockMu is lock's locking half, kept out of line (noinline) so that lock
+// itself inlines.
+//
+//go:noinline
+func (op *refOp) lockMu(mu *sync.Mutex) {
+	mu.Lock()
+	op.locked = true
+}
+
+// unlock unlocks mu when lock locked it.
+func (op *refOp) unlock(mu *sync.Mutex) {
+	if op.locked {
+		mu.Unlock()
+	}
 }

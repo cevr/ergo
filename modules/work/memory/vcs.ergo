@@ -72,6 +72,38 @@ func Holds(v Vcs, parent string, commit string) bool fails work.VcsFailed {
 
 func Snapshot(v Vcs, root string) string fails work.VcsFailed { stored(v, Working(try checkout(v, root))) }
 
+// SnapshotIsTheFiles: a snapshot read back is the working files: a
+// committed file with an uncommitted change, an untracked file, and not
+// an ignored one.
+law SnapshotIsTheFiles(files Map[string, string], changed string, added string) {
+	let v = VcsOver(NewCloner())
+	Repo(v, "r", "main", tracked(files), "c1")
+	let edited = Write(v.trees, "r", "a.txt", changed) && Write(v.trees, "r", "new/untracked.txt", added) && Write(v.trees, "r", "out/build", "ignored\n")
+	let tree = Snapshot(v, "r") catch {
+	case work.VcsFailed:
+		return false
+	}
+	let got = Read(v, "r", tree) catch {
+	case work.VcsFailed:
+		return false
+	}
+	let want = Working(Files(v.trees, "r"))
+	edited && got == want && got.Get("a.txt") == Some[string]{Value: changed} && got.Get("new/untracked.txt") == Some[string]{Value: added} && got.Get("out/build") == None
+}
+
+// tracked is files without the paths the law writes itself, with a
+// .gitignore that ignores out/.
+func tracked(files Map[string, string]) Map[string, string] {
+	let mut out = Map[string, string]{".gitignore": "out\n"}
+	for path, text in files {
+		let own = path == "" || path == "a.txt" || strings.HasPrefix(path, ".git") || strings.HasPrefix(path, "out") || strings.HasPrefix(path, "new")
+		if !own {
+			out[path] = text
+		}
+	}
+	out
+}
+
 func Listed(v Vcs, root string) []string fails work.VcsFailed { slices.Sorted(maps.Keys(Working(try checkout(v, root)))) }
 
 func Read(v Vcs, root string, tree string) Map[string, string] fails work.VcsFailed {

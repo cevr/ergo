@@ -1,10 +1,13 @@
 package lower
 
 import (
+	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/check"
+	"ergo.local/prototype/internal/sketch/lawcache"
 )
 
 // The build's evidence for rewrite laws (types.md, Laws 14; owner LR q1:
@@ -45,8 +48,18 @@ func (e *RefutedRewriteError) Error() string { return "rewrite law refuted: " + 
 // a provider's run checks needs no check: its evidence admits nothing,
 // and run is not called.
 func RewriteChecks(u Unit, run func(files []File, laws []string) (string, error)) (RewriteEvidence, error) {
+	return RewriteChecksCached(u, run, nil)
+}
+
+// RewriteChecksCached is RewriteChecks with the verdict store (lawcache;
+// v1 audit 3, F7): a law whose check run's output at its key the store
+// holds is not run again, and when no law is left to run, neither the
+// check build nor run is. The key (checkRunKey) covers every input of the
+// law's run in the check build; a run that printed a FAIL line is never
+// stored. A nil store runs every law.
+func RewriteChecksCached(u Unit, run func(files []File, laws []string) (string, error), store *lawcache.Store) (RewriteEvidence, error) {
 	ev := &checkedEvidence{pkg: u.Package, ok: map[string]string{}, verdict: map[string]string{}, how: map[string]string{}, ran: map[*check.Law]bool{}, insts: map[string]bool{}}
-	if len(newRewriter(u.Package, ev).rules) == 0 {
+	if !HasRewriteLaws(u) {
 		return ev, nil
 	}
 	ev.optimistic = true
@@ -81,6 +94,7 @@ func RewriteChecks(u Unit, run func(files []File, laws []string) (string, error)
 		laws, insts = append(laws, ev.asked...), append(insts, ev.askedInsts...)
 		t := u
 		t.Rewrite, t.Instances, t.Posts = nil, insts, nil
+		t.ImportLaws = importLawRuns(u, laws)
 		for _, law := range laws {
 			if law.Rewrite == nil {
 				// A post law's fact holds after its operation from every
@@ -88,18 +102,36 @@ func RewriteChecks(u Unit, run func(files []File, laws []string) (string, error)
 				t.Posts = append(t.Posts, law)
 			}
 		}
-		files, err := LowerTests(t)
-		if err != nil {
-			return nil, err
-		}
 		var titles []string
+		keys := map[string]string{}
+		var out string
 		for _, law := range laws {
-			titles = append(titles, law.Title(u.Package))
+			title := law.Title(u.Package)
+			if key, ok := checkRunKey(u.Package, law, insts, slices.Contains(t.Posts, law)); ok {
+				if text, hit := store.Get(key); hit {
+					out += text
+					continue
+				}
+				keys[title] = key
+			}
+			titles = append(titles, title)
 		}
 		sort.Strings(titles)
-		out, err := run(files, titles)
-		if err != nil {
-			return nil, err
+		if len(titles) > 0 {
+			files, err := LowerTests(t)
+			if err != nil {
+				return nil, err
+			}
+			ran, err := run(files, titles)
+			if err != nil {
+				return nil, err
+			}
+			for title, text := range outputByLaw(ran, titles) {
+				if key, ok := keys[title]; ok {
+					store.Put(key, text)
+				}
+			}
+			out += ran
 		}
 		ev.optimistic = false
 		for _, line := range strings.Split(out, "\n") {
@@ -143,6 +175,63 @@ func RewriteChecks(u Unit, run func(files []File, laws []string) (string, error)
 	return ev, nil
 }
 
+// checkRunKey is the store's key of the check run of law in the check
+// build of pkg (lawcache): the law's title, each binding's label and
+// TargetDigest, in order, the site instances of the law the build takes,
+// in order, whether it runs as a post law, and the seed; for each named
+// context it runs under, the context, why it does not run, and its
+// ContextDigest.
+func checkRunKey(pkg *check.Package, law *check.Law, insts []RewriteInstance, post bool) (string, bool) {
+	parts := []string{"check run", law.Title(pkg), RewriteCheckSeed, strconv.FormatBool(post)}
+	found := false
+	for _, r := range pkg.LawRuns {
+		if r.Law != law {
+			continue
+		}
+		if found {
+			return "", false
+		}
+		found = true
+		for _, b := range r.Bindings {
+			parts = append(parts, "binding", BindingLabel(pkg, law, b), bindingUnrun(b), TargetDigest(pkg, law, b))
+		}
+		for _, lc := range r.Contexts {
+			parts = append(parts, "context", lc.Context.Name, lc.Unrun, ContextDigest(pkg, law, lc))
+		}
+	}
+	if !found {
+		return "", false
+	}
+	for _, in := range insts {
+		if in.Law == law {
+			parts = append(parts, "instance", instanceKey(in))
+		}
+	}
+	return lawcache.Key(parts...), true
+}
+
+// outputByLaw splits the output of the check runs of titles by law: the
+// lines `ok law T …`, `skip law T…` and `FAIL law T …` are T's. Any other
+// line (a summary, a replay) is no law's.
+func outputByLaw(out string, titles []string) map[string]string {
+	by := map[string]string{}
+	for _, line := range strings.SplitAfter(out, "\n") {
+		trimmed := strings.TrimSuffix(line, "\n")
+		for _, title := range titles {
+			for _, head := range []string{"ok law ", "skip law ", "FAIL law "} {
+				rest, ok := strings.CutPrefix(trimmed, head+title)
+				if ok && (strings.HasPrefix(rest, " ") || strings.HasPrefix(rest, ":")) {
+					if !strings.HasSuffix(line, "\n") {
+						line += "\n"
+					}
+					by[title] += line
+				}
+			}
+		}
+	}
+	return by
+}
+
 // probeLower lowers the run build of u to learn what it asks for. A
 // library (a std package) has no main, so its bodies are lowered with no
 // entry.
@@ -154,6 +243,59 @@ func probeLower(u Unit) ([]byte, error) {
 		}
 	}
 	return lowerPackage(u, true)
+}
+
+// importRules are the rewrite rules of u's imported units, by provider: a
+// provider an import declares is rewritten on the build module's evidence
+// (evidenceFor), so the root's check runs its laws. A library has no
+// sites of its own, so its laws are checked where a binary's sites ask.
+func importRules(u Unit) map[*check.Named][]rwRule {
+	out := map[*check.Named][]rwRule{}
+	for _, imp := range u.Imports {
+		for prov, rules := range newRewriter(imp.Package, nil).rules {
+			out[prov] = append(out[prov], rules...)
+		}
+	}
+	return out
+}
+
+// HasRewriteLaws reports whether u's build may rewrite: its package or
+// an import declares a rewrite or post law a provider's run checks. A
+// unit with none reads no ledger.
+func HasRewriteLaws(u Unit) bool {
+	return len(newRewriter(u.Package, nil).rules) > 0 || len(importRules(u)) > 0 || hasFuncRewrites(u)
+}
+
+// hasFuncRewrites reports a unit whose package or an import declares a
+// top-level rewrite law over functions (ir_rewrite.go), whose entries the
+// module's ergo.laws holds.
+func hasFuncRewrites(u Unit) bool {
+	pkgs := []*check.Package{u.Package}
+	for _, imp := range u.Imports {
+		pkgs = append(pkgs, imp.Package)
+	}
+	for _, p := range pkgs {
+		for _, law := range p.Laws {
+			if law.FuncRewrite != nil {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// importLawRuns are the law runs of u's imported units whose law is one
+// of laws: the runs the root's check build adds to its own.
+func importLawRuns(u Unit, laws []*check.Law) []check.LawRun {
+	var out []check.LawRun
+	for _, imp := range u.Imports {
+		for _, r := range imp.Package.LawRuns {
+			if slices.Contains(laws, r.Law) {
+				out = append(out, r)
+			}
+		}
+	}
+	return out
 }
 
 // checkedEvidence is the verdicts of the check runs: ok by law and

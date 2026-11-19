@@ -20,6 +20,15 @@ import (
 // for an untried fallible expression, the name of its error variable.
 type operand struct {
 	val, err string
+	// fail is the label the failing returns of an inlined call jump to,
+	// when the site asked for it (failJump), and failOut and failAt where
+	// the call's code ended; the site places the label (placeFail).
+	fail    string
+	failOut *strings.Builder
+	failAt  int
+	// failOnly is set when every path of the call jumps to fail: the site
+	// writes no jump around its handler, which would be unreachable.
+	failOnly bool
 }
 
 func unparen(x syntax.Expr) syntax.Expr {
@@ -208,7 +217,9 @@ func (fc *funcCtx) value(x syntax.Expr) string {
 		if fc.tries == 0 {
 			ice(x, "an untried fallible expression in a value position")
 		}
-		fc.propagate(o.err)
+		// The first call under a try asked for its failures
+		// its label is placed here, as try places it (triedCall).
+		fc.propagateFailed(o)
 	}
 	return o.val
 }
@@ -256,7 +267,7 @@ func (fc *funcCtx) convert(conv check.Conversion, val string, site syntax.Node) 
 		return v
 	case check.ConvOperations:
 		if n, ok := conv.To.(*check.Named); ok && n.Obj.Pkg.Host() {
-			if hostSourced(conv.From) {
+			if !goAdapterConv(conv) {
 				// A Go value to a Go interface: Go's own implicit conversion.
 				return val
 			}
@@ -267,7 +278,24 @@ func (fc *funcCtx) convert(conv check.Conversion, val string, site syntax.Node) 
 	case check.ConvRow:
 		// The row value holds one of the union's error variants, which
 		// implement its sealed interface (D-C3).
+		if fu := fc.l.flatUnionOf(conv.To); fu != nil {
+			// A flat union with some error variants (MSB3): a type switch
+			// on the Go error builds the variant it holds.
+			self := fc.goType(conv.To)
+			e, v := fc.scope.alloc("e"), fc.scope.alloc("v")
+			var b strings.Builder
+			b.WriteString("func(" + e + " error) " + self + " {\nswitch " + v + " := " + e + ".(type) {\n")
+			for k, vt := range fu.variants {
+				if fc.l.errorType(vt) {
+					b.WriteString("case " + fc.goType(vt) + ":\nreturn " + fu.flatValue(&fc.typeCtx, self, k, v) + "\n")
+				}
+			}
+			b.WriteString("}\npanic(" + e + ")\n}(" + val + ")")
+			return b.String()
+		}
 		return val + ".(" + fc.goType(conv.To) + ")"
+	case check.ConvNarrow:
+		return fc.narrowFunc(conv, val, site)
 	case check.ConvMachine:
 		// A machine's value is a Machine of its plan's initial value and
 		// its step function (README Gap 46; machine.go). The plan value has
@@ -282,15 +310,52 @@ func (fc *funcCtx) convert(conv check.Conversion, val string, site syntax.Node) 
 			// plan value is not read; it has zero size and no effect.
 			first = "Start: " + fc.machineStart(start, site)
 		}
-		return fc.goType(conv.To) + "{" + first + ", Step: " + fc.funcValue(step, step.Sig, site, nil) + ", After: " + fc.machineAfter(conv, site) + ", Work: " + fc.machineWork(conv, site) + "}"
+		return fc.goType(conv.To) + "{" + first + ", Step: " + fc.funcValue(step, step.Sig, site, nil) + ", After: " + fc.machineAfter(conv, site) + ", Work: " + fc.machineWork(conv, site) + ", Exit: " + fc.machineExit(conv, site) + "}"
 	}
 	ice(site, "an unknown implicit conversion")
 	return ""
 }
 
+// narrowFunc is val, a function value of conv.From, as one of conv.To
+// (ConvNarrow, CK-FAILPARAM): a function of the uniform shape (funcType)
+// whose parameters that are a row value of one error type, a Go error,
+// are asserted to that type, the value's parameter, before val runs. val
+// is evaluated once, where the conversion is.
+func (fc *funcCtx) narrowFunc(conv check.Conversion, val string, site syntax.Node) string {
+	from, ok := underlyingOf(conv.From).(*check.Signature)
+	to, ok2 := underlyingOf(conv.To).(*check.Signature)
+	if !ok || !ok2 || len(from.Params) != len(to.Params) {
+		ice(site, "a narrowing conversion of %s to %s", conv.From, conv.To)
+	}
+	f := fc.scope.alloc("f")
+	inner := fc.envClosure(callerEnv, "e", site, func(env string) (params []string, results, body string) {
+		args := []string{env}
+		for i, p := range to.Params {
+			name := fc.scope.alloc("p")
+			params = append(params, name+" "+fc.goType(p.Type))
+			arg := name
+			if u, isRow := p.Type.(*check.Union); isRow && u.Row != nil {
+				if fu, same := from.Params[i].Type.(*check.Union); !same || fu.Row == nil {
+					arg = name + ".(" + fc.goType(from.Params[i].Type) + ")"
+				}
+			}
+			args = append(args, arg)
+		}
+		var result check.Type
+		if len(to.Results) == 1 {
+			result = to.Results[0]
+		}
+		return params, fc.valueResults(result), strings.Repeat("\t", fc.depth+1) + "return " + f + "(" + strings.Join(args, ", ") + ")\n"
+	})
+	return "func(" + f + " " + fc.goType(conv.From) + ") " + fc.goType(conv.To) + " { return " + inner + " }(" + val + ")"
+}
+
 // expr lowers x; in a statement header, a composite literal value is
 // parenthesized (header.go).
 func (fc *funcCtx) expr(x syntax.Expr) operand {
+	if v, ok := fc.preset[x]; ok {
+		return operand{val: v} // evaluated once already (uigroup.go)
+	}
 	if fc.l.info.TryCovers[x] != nil {
 		return fc.covered(x)
 	}
@@ -305,17 +370,30 @@ func (fc *funcCtx) covered(x syntax.Expr) operand {
 	o := fc.expr1(x)
 	fc.tries--
 	if o.err != "" {
-		fc.propagate(o.err)
-		o.err = ""
+		fc.propagateFailed(o)
+		o.err, o.fail = "", ""
 	}
 	return o
 }
 
 func (fc *funcCtx) expr1(x syntax.Expr) operand {
+	if fc.l.vals != nil {
+		if site, ok := fc.l.vals.view[x]; ok {
+			return operand{val: fc.viewOperand(x, site)}
+		}
+	}
 	o := fc.exprOf(x)
 	if fc.l.vals != nil && fc.l.vals.clone[x] {
-		// The value rule's copy (values.go).
-		o.val = fc.cloneValue(fc.typeOf(x), o.val, x)
+		// The value rule's copy (values.go), deep for Go (V8); the test
+		// build's copy of a reads operand, compared with the value after
+		// the Go call (gofacts.go).
+		if g, ok := fc.l.vals.reads[x]; ok {
+			o.val = fc.readsCopy(x, o.val, g)
+		} else if fc.l.vals.deep[x] {
+			o.val = fc.reportCopy(x, fc.cloneDeep(fc.typeOf(x), o.val, x), fc.valueWhy(x))
+		} else {
+			o.val = fc.reportCopy(x, fc.cloneValue(fc.typeOf(x), o.val, x), fc.valueWhy(x))
+		}
 	}
 	o.val = fc.guardHeader(o.val)
 	return fc.ownTemp(x, o) // a temporary its statement owns (R43)
@@ -352,9 +430,6 @@ func (fc *funcCtx) exprOf(x syntax.Expr) operand {
 	case *syntax.StarExpr:
 		return operand{val: fc.atSite(x, x.Pos(), "(*"+fc.value(x.X)+")")}
 	case *syntax.CompositeLit:
-		if lit := fc.l.info.Works[x]; lit != nil {
-			return operand{val: fc.workLit(x, lit, fc.typeOf(x))}
-		}
 		return operand{val: fc.composite(x, fc.typeOf(x))}
 	case *syntax.IndexExpr:
 		return operand{val: fc.atSite(x, x.Pos(), fc.index(x))}
@@ -412,8 +487,16 @@ func (fc *funcCtx) bareRecord(x syntax.Expr) (string, bool) {
 		}
 		pn, ok := fc.l.info.Uses[id].(*check.PkgName)
 		named, isNamed := fc.typeOf(x).(*check.Named)
-		if !ok || !isNamed || named.Obj.Pkg != pn.Pkg || named.Obj.Name != head.Sel.Name {
+		if !ok || !isNamed {
 			return "", false
+		}
+		if named.Obj.Pkg != pn.Pkg || named.Obj.Name != head.Sel.Name {
+			// pkg.T where T is an alias of another package's record
+			// (pipelinerpc.BoardRequest = pipelineapi.BoardRequest): the
+			// selected name is a TypeName of pkg (I22).
+			if sel, isType := fc.l.info.Uses[head.Sel].(*check.TypeName); !isType || sel.Pkg != pn.Pkg {
+				return "", false
+			}
 		}
 		// A qualified expression records its package use and final type;
 		// the Named's object is the selected TypeName.
@@ -423,6 +506,11 @@ func (fc *funcCtx) bareRecord(x syntax.Expr) (string, bool) {
 	}
 	if tn == nil {
 		return "", false
+	}
+	if n, ok := fc.typeOf(x).(*check.Named); ok && n.Obj != tn {
+		// An alias (type BoardRequest = api.BoardRequest) names the
+		// record its type is: read that record's declaration (I22).
+		tn = n.Obj
 	}
 	td := fc.l.typeDecl(tn, x)
 	if td.kind != kindRecord || len(td.fields) != 0 {
@@ -620,7 +708,36 @@ func (fc *funcCtx) binaryOf(x *syntax.BinaryExpr, parts []string) string {
 			return fc.equalOp(x, parts) // structural equality (equal.go)
 		}
 	}
+	if x.Op == syntax.MUL && fc.roundsProduct(x) {
+		return fc.goType(fc.typeOf(x)) + "(" + parts[0] + " * " + parts[1] + ")"
+	}
 	return "(" + parts[0] + " " + x.Op.String() + " " + parts[1] + ")"
+}
+
+// floatLowering selects how a float product lowers. "" (the default) puts
+// every product of floats that is not a constant under an explicit
+// conversion to its type, T(a * b): Go may fuse a product and a sum into
+// one fused multiply-add, rounding once (arm64, ppc64, s390x, riscv64;
+// across statements too), and an explicit conversion rounds to the type's
+// precision and stops that (the Go spec, Arithmetic operators: "An
+// explicit floating-point type conversion rounds to the precision of the
+// target type, preventing fusion"). So a program's float results are the
+// same on every host (types.md, Numeric types; corpus-wave Q5). "fuse" is
+// the reference, Go's own form, which a host may fuse: set it with
+// -ldflags=-X=ergo.local/prototype/internal/sketch/lower.floatLowering=fuse
+// to count what the rounding costs.
+var floatLowering string
+
+// roundsProduct reports a product x of floats that floatLowering puts
+// under a conversion: it is not a constant (Go folds a constant exactly).
+func (fc *funcCtx) roundsProduct(x syntax.Expr) bool {
+	return floatLowering != "fuse" && !fc.isConst(x) && isFloatType(fc.typeOf(x))
+}
+
+// isFloatType reports float32, float64 or a type defined over one.
+func isFloatType(t check.Type) bool {
+	b, ok := underOf(t).(*check.Basic)
+	return ok && (b.Kind == check.Float32 || b.Kind == check.Float64)
 }
 
 // rangeValue lowers a..b, which the checker types as the prelude's
@@ -683,7 +800,7 @@ func (fc *funcCtx) composite(x *syntax.CompositeLit, t check.Type) string {
 		if x.Base != nil {
 			return fc.update(x, t, td)
 		}
-		var keys []string
+		var keys, fields []string
 		var values []syntax.Expr
 		set := map[string]bool{}
 		for i, e := range x.Elts {
@@ -697,6 +814,7 @@ func (fc *funcCtx) composite(x *syntax.CompositeLit, t check.Type) string {
 					ice(id, "%s has no field %s", t, id.Name)
 				}
 				keys = append(keys, name)
+				fields = append(fields, id.Name)
 				values = append(values, kv.Value)
 				set[id.Name] = true
 				continue
@@ -705,10 +823,14 @@ func (fc *funcCtx) composite(x *syntax.CompositeLit, t check.Type) string {
 				ice(e, "a positional record literal with more values than fields")
 			}
 			keys = append(keys, td.fieldName[td.fields[i].Name])
+			fields = append(fields, td.fields[i].Name)
 			values = append(values, e)
 			set[td.fields[i].Name] = true
 		}
 		vals := fc.operands(values, true)
+		for i := range vals {
+			vals[i] = fc.intoSlot(td, t, fields[i], vals[i])
+		}
 		if td.goError {
 			// go.Error{Text: s}: a native error of its own (IG5).
 			if len(vals) == 0 {
@@ -787,7 +909,7 @@ func (fc *funcCtx) update(x *syntax.CompositeLit, t check.Type, td *typeDecl) st
 	}
 	u := fc.temp("u")
 	fc.line(u + " := " + fc.value(x.Base))
-	var keys []string
+	var keys, fields []string
 	var values []syntax.Expr
 	for _, e := range x.Elts {
 		kv, ok := e.(*syntax.KeyValueExpr)
@@ -803,9 +925,13 @@ func (fc *funcCtx) update(x *syntax.CompositeLit, t check.Type, td *typeDecl) st
 			ice(id, "%s has no field %s", t, id.Name)
 		}
 		keys = append(keys, name)
+		fields = append(fields, id.Name)
 		values = append(values, kv.Value)
 	}
 	vals := fc.operands(values, true)
+	for i := range vals {
+		vals[i] = fc.intoSlot(td, t, fields[i], vals[i])
+	}
 	vals = fc.handBase(x.Base, vals)
 	fc.ownReplaced(x, u, td)
 	if td.goError && len(vals) == 1 {
@@ -817,6 +943,96 @@ func (fc *funcCtx) update(x *syntax.CompositeLit, t check.Type, td *typeDecl) st
 		fc.line(u + "." + keys[i] + " = " + vals[i])
 	}
 	return u
+}
+
+// updateSelf is own-update-self's admission (LWR-SPREAD-SELF): it lowers
+// `r = T{..r, F: v, G: w}`, an update of a let mut r stored back into r,
+// to the field values, evaluated in source order, then one store per
+// named field:
+//
+//	v1 := v
+//	v2 := w
+//	r.F = v1
+//	r.G = v2
+//
+// with no copy of r into a temporary and none back. A Go record is a
+// value, so storing into r's fields writes nothing another binding holds,
+// and every value is evaluated before the first store, so a value that
+// reads a named field (`r = T{..r, n: r.n + 1, xs: r.xs.Append(r.n)}`)
+// reads the old one, as the update does. It reports false, writing
+// nothing, for an update that owns or hands over resources (R43), copies
+// its base or result (the value rule), spreads another type or converts.
+func (fc *funcCtx) updateSelf(s *syntax.AssignStmt, target string) bool {
+	lit, ok := unparen(s.Rhs[0]).(*syntax.CompositeLit)
+	if !ok || lit.Base == nil {
+		return false
+	}
+	lhs, ok := unparen(s.Lhs[0]).(*syntax.Ident)
+	base, ok2 := unparen(lit.Base).(*syntax.Ident)
+	if !ok || !ok2 {
+		return false
+	}
+	v, ok := fc.l.info.Uses[lhs].(*check.Var)
+	if !ok || !v.Mut() || fc.l.info.Uses[base] != check.Object(v) || !isGoPath(target) {
+		return false
+	}
+	n, ok := v.Type.(*check.Named)
+	if !ok || fc.typeOf(lit) != v.Type {
+		return false
+	}
+	td := fc.l.typeDecl(n.Obj, lit)
+	if td.kind != kindRecord || td.goError {
+		return false
+	}
+	info := fc.l.info
+	if _, ok := info.Spreads[lit]; ok {
+		return false
+	}
+	if _, ok := info.Implicit[lit]; ok {
+		return false
+	}
+	if len(info.Replaced[lit]) > 0 || info.PartHands[lit.Base] || info.PartHands[base] || info.OwnedVars[v] != nil || info.OwnedTemps[lit] != nil || info.OwnedTemps[base] != nil || info.Handoffs[base] != nil {
+		return false
+	}
+	if fc.l.vals != nil && (fc.l.vals.clone[lit] || fc.l.vals.clone[lit.Base] || fc.l.vals.clone[base]) {
+		return false
+	}
+	var keys []string
+	var values []syntax.Expr
+	for _, e := range lit.Elts {
+		kv, ok := e.(*syntax.KeyValueExpr)
+		if !ok {
+			return false
+		}
+		id, ok := kv.Key.(*syntax.Ident)
+		if !ok {
+			return false
+		}
+		name, ok := td.fieldName[id.Name]
+		if !ok {
+			return false
+		}
+		keys = append(keys, name)
+		values = append(values, kv.Value)
+	}
+	if !fc.l.takes("own-update-self") {
+		return false
+	}
+	fc.l.took("own-update-self")
+	vals := fc.operands(values, true)
+	if len(vals) > 1 {
+		// Every value before the first store: a later value may read a
+		// field an earlier store names.
+		for i := range vals {
+			if !isGoPath(vals[i]) || strings.Contains(vals[i], ".") || vals[i] == target {
+				vals[i] = fc.spill(vals[i])
+			}
+		}
+	}
+	for i := range keys {
+		fc.line(target + "." + keys[i] + " = " + vals[i])
+	}
+	return true
 }
 
 // spread lowers a spread `T{..s, F: v}` whose base s has another record
@@ -847,7 +1063,7 @@ func (fc *funcCtx) spread(x *syntax.CompositeLit, t check.Type, td *typeDecl, co
 		b = fc.temp("b")
 		fc.line(b + " := " + base)
 	}
-	var parts []string
+	var parts, fields []string
 	var values []syntax.Expr
 	for _, e := range x.Elts {
 		kv := e.(*syntax.KeyValueExpr)
@@ -856,9 +1072,13 @@ func (fc *funcCtx) spread(x *syntax.CompositeLit, t check.Type, td *typeDecl, co
 			ice(kv.Key, "%s has no field %s", t, kv.Key)
 		}
 		parts = append(parts, name)
+		fields = append(fields, kv.Key.(*syntax.Ident).Name)
 		values = append(values, kv.Value)
 	}
 	vals := fc.operands(values, true)
+	for i := range vals {
+		vals[i] = fc.intoSlot(td, t, fields[i], vals[i])
+	}
 	vals = fc.handBase(x.Base, vals)
 	for i := range parts {
 		parts[i] += ": " + vals[i]
@@ -935,9 +1155,21 @@ func (fc *funcCtx) index(x *syntax.IndexExpr) string {
 	if len(x.Indices) != 1 {
 		ice(x, "an index with %d indices", len(x.Indices))
 	}
-	unchecked := fc.uncheckedIndex(x) // bounds.go
-	parts := fc.operands([]syntax.Expr{x.X, x.Indices[0]}, false)
+	unchecked := fc.provedIndex(x) // bounds.go
 	if unchecked {
+		fc.indexFact(x) // facts.go
+		unchecked = fc.uncheckedOK()
+	}
+	var parts []string
+	if fc.arrayReadInPlace(x) {
+		// The index writes no storage, so the array is read where it is,
+		// after the index's statements: no copy of the whole array.
+		parts = []string{fc.value(x.X), fc.value(x.Indices[0])}
+	} else {
+		parts = fc.operands([]syntax.Expr{x.X, x.Indices[0]}, false)
+	}
+	if unchecked {
+		fc.l.took("bounds-unchecked")
 		if _, isSlice := fc.typeOf(x.X).(*check.Slice); isSlice {
 			return "(*" + fc.l.rt() + ".AddrAt(" + parts[0] + ", " + parts[1] + "))"
 		}
@@ -946,9 +1178,77 @@ func (fc *funcCtx) index(x *syntax.IndexExpr) string {
 	return parts[0] + "[" + parts[1] + "]"
 }
 
+// arrayLowering "spill" selects the reference lowering of an array index
+// whose index writes statements: the array is bound to a temporary first,
+// a copy of all its elements (the test hook of arrayReadInPlace).
+var arrayLowering string
+
+// arrayReadInPlace reports an index a[i] of an array whose index i can
+// write no array: Ergo reads a before i, and when i calls a function,
+// operands binds a's value to a temporary first, a copy of the whole array
+// per read (the HP lane's hash table: 128 KB a probe). When nothing in i
+// can write a, a read after i's statements reads the same value, so a is
+// read where it is. A hand-off or a part hand-over in either operand keeps
+// operands' order for its frame rule.
+func (fc *funcCtx) arrayReadInPlace(x *syntax.IndexExpr) bool {
+	if arrayLowering == "spill" {
+		return false
+	}
+	if _, ok := fc.typeOf(x.X).(*check.Array); !ok {
+		return false
+	}
+	list := []syntax.Expr{x.X, x.Indices[0]}
+	if fc.partsFrom(list) != len(list) || fc.handsOff(x.X) || fc.handsOff(x.Indices[0]) {
+		return false
+	}
+	return fc.writesNothing(x.Indices[0])
+}
+
+// writesNothing reports that x can write no array another operand reads
+// (arrayReadInPlace). Only a call writes, and a call of a named function
+// writes another frame's array only through a pointer it is passed (a
+// named function captures nothing; an escaping literal cannot capture a
+// let mut that is written after, types.md Bindings): so x writes nothing
+// when each call in it is a conversion, len, or a call of a named function
+// with no pointer parameter, its receiver included, and x holds no function
+// literal, which may write a let mut it captures. A call of a function
+// value, an operation or a builtin that writes is refused.
+func (fc *funcCtx) writesNothing(x syntax.Expr) bool {
+	ok := true
+	syntax.Inspect(x, func(n syntax.Node) bool {
+		if !ok {
+			return false
+		}
+		switch n := n.(type) {
+		case *syntax.FuncLit:
+			ok = false
+		case *syntax.CallExpr:
+			c := fc.l.info.Calls[n]
+			switch {
+			case c != nil && (c.Kind == check.CallConversion || c.Kind == check.CallLen):
+			case c == nil || c.Kind != check.CallFunc || c.Func == nil || c.Func.Sig == nil:
+				ok = false
+			default:
+				for _, p := range c.Func.Sig.Params {
+					if _, ptr := p.Type.(*check.Pointer); ptr {
+						ok = false
+					}
+				}
+			}
+		}
+		return ok
+	})
+	return ok
+}
+
 // sliceExpr lowers xs[a:b] and xs[a:b:c].
 func (fc *funcCtx) sliceExpr(x *syntax.SliceExpr) string {
-	if fc.uncheckedSlice(x) { // bounds.go
+	proved := fc.provedSlice(x) // bounds.go
+	if proved {
+		fc.cutFact(x) // facts.go
+	}
+	if proved && fc.uncheckedOK() {
+		fc.l.took("bounds-unchecked")
 		// The subject is a local (bounds.go, subject), so its Go text is a
 		// name, read again for a missing high bound. A cut of a constant
 		// length, s[a:a+n], passes n itself, so gc knows the result's
@@ -1014,12 +1314,156 @@ func (fc *funcCtx) try(x *syntax.TryExpr) operand {
 		fc.tries--
 		return o
 	}
-	o := fc.expr(x.X)
+	o := fc.askedFor(x.X, triedCall(x.X))
 	fc.tries--
 	if o.err != "" {
-		fc.propagate(o.err)
+		fc.propagateFailed(o)
 	}
 	return operand{val: o.val}
+}
+
+// asked lowers x as the operand of a catch or a try that places its
+// inlined failing returns (failJump, inline.go).
+func (fc *funcCtx) asked(x syntax.Expr) operand { return fc.askedFor(x, unparen(x)) }
+
+// askedFor lowers x, asking for the failures of call (failJump).
+func (fc *funcCtx) askedFor(x syntax.Expr, call syntax.Expr) operand {
+	saved := fc.failJump
+	fc.failJump = call
+	defer func() { fc.failJump = saved }()
+	return fc.expr(x)
+}
+
+// underTry lowers, until the returned func runs, under the try that
+// starts a shape looked through (tried): it covers the shape's x, and asks
+// for the failures of the call x evaluates first, as fc.try asks.
+func (fc *funcCtx) underTry(x syntax.Expr) func() {
+	fc.tries++
+	saved := fc.failJump
+	fc.failJump = triedCall(x)
+	return func() {
+		fc.failJump = saved
+		fc.tries--
+	}
+}
+
+// underTriedAssert is f, under the try that starts the assert's condition
+// x when one does (underTry).
+func (fc *funcCtx) underTriedAssert(x syntax.Expr, f func() (string, string)) (string, string) {
+	if t := tried(x); t != x {
+		defer fc.underTry(t)()
+	}
+	return f()
+}
+
+// triedCall is the expression whose failures a try over x asks for: the call
+// x evaluates first, through the left operand of a binary expression, a
+// selector, an index and a method call's receiver, past parentheses; or
+// x itself when that is no call. A try never groups (grammar.md,
+// Expressions 1), so try r(4).N * 2 is a try over the product, and its
+// first call is r(4), whose failures (try r(4)).N * 2 asks for too: the
+// two lower to one Go text, as parentheses round a try carry no meaning
+// (q105; batch-19 B7h). value places the label of the first call where
+// its value is read.
+func triedCall(x syntax.Expr) syntax.Expr {
+	x = unparen(x)
+	if c := firstCall(x); c != nil {
+		return c
+	}
+	return x
+}
+
+// firstCall is the call x evaluates first along its leftmost operands, or
+// nil.
+func firstCall(x syntax.Expr) *syntax.CallExpr {
+	switch y := unparen(x).(type) {
+	case *syntax.BinaryExpr:
+		return firstCall(y.X)
+	case *syntax.SelectorExpr:
+		return firstCall(y.X)
+	case *syntax.IndexExpr:
+		return firstCall(y.X)
+	case *syntax.CallExpr:
+		if sel, ok := unparen(y.Fun).(*syntax.SelectorExpr); ok {
+			if c := firstCall(sel.X); c != nil {
+				return c
+			}
+		}
+		return y
+	}
+	return nil
+}
+
+// placeFail places the label of o's inlined failing returns (failJump),
+// and reports whether the site writes its handler under it, past a jump
+// around it (failAround): only when direct (the site declares nothing
+// before its handler). Otherwise the label goes where the call's code
+// ended, the join of the reference. Every writer between the call and its
+// site places the label first (ownTemp, covered), so nothing was written
+// since the call.
+func (fc *funcCtx) placeFail(o operand, direct bool) bool {
+	if o.fail == "" {
+		return false
+	}
+	if o.failOut != fc.out || fc.out.Len() != o.failAt {
+		ice(nil, "code written between an inlined call and the site that places its failure label %s", o.fail)
+	}
+	if direct {
+		fc.l.stats.FailsAround++
+		return true
+	}
+	fc.l.stats.FailsJoined++
+	fc.line(o.fail + ":")
+	return false
+}
+
+// joinFail places o's failure label at the join, before a writer that
+// stands between the call and its site writes, and returns o without it.
+func (fc *funcCtx) joinFail(o operand) operand {
+	fc.placeFail(o, false)
+	o.fail = ""
+	return o
+}
+
+// propagateFailed leaves the frame with o's error when it failed, the
+// success path jumping around the test when o's failures jump to their
+// own label (failJump).
+func (fc *funcCtx) propagateFailed(o operand) {
+	past := fc.failAround(o, true)
+	if past != "" {
+		fc.l.stats.TriesAround++
+	}
+	fc.propagate(o.err)
+	fc.failPast(past)
+}
+
+// failAround writes, when placeFail let the site do so, the jump that
+// takes the success path around the handler and the label of the
+// handler, and returns the label after the handler, which failPast
+// writes ("" when the failures meet the success path at the join).
+func (fc *funcCtx) failAround(o operand, direct bool) string {
+	if !fc.placeFail(o, direct) {
+		return ""
+	}
+	if o.failOnly {
+		// No success path reaches here: the handler follows the call's
+		// block, with nothing to jump around (go vet: unreachable code).
+		fc.line(o.fail + ":")
+		return ""
+	}
+	past := fc.temp("past")
+	fc.line("goto " + past)
+	fc.line(o.fail + ":")
+	return past
+}
+
+// failPast writes the label after a handler (failAround), on an empty
+// statement: the handler may end a switch case, where the next token is
+// a case, and Go labels only a statement.
+func (fc *funcCtx) failPast(past string) {
+	if past != "" {
+		fc.line(past + ": ;")
+	}
 }
 
 // propagate leaves the frame with err when it is not nil (rows.md, Error
@@ -1048,7 +1492,12 @@ func (fc *funcCtx) catch(x *syntax.CatchExpr, partial bool) operand {
 	if plain && catchBinding(fc.l.info, x) == nil {
 		fc.rawErr = x.X
 	}
-	o := fc.expr(x.X)
+	var o operand
+	if plain {
+		o = fc.expr(x.X)
+	} else {
+		o = fc.asked(x.X)
+	}
 	fc.rawErr = nil
 	if o.err == "" {
 		ice(x.X, "catch on an expression that cannot fail")
@@ -1058,6 +1507,12 @@ func (fc *funcCtx) catch(x *syntax.CatchExpr, partial bool) operand {
 	}
 	result := ""
 	alias := fc.simpleCatch(x) && fc.catchAlias(x, m, o)
+	// With no value to declare, the handler is jumped around (failJump).
+	past := fc.failAround(o, alias || m.Result == nil)
+	defer fc.failPast(past)
+	if past != "" && alias {
+		fc.l.stats.AliasesAround++
+	}
 	if alias {
 		// The catch's value is its operand's (forms.go): no arm yields.
 	} else if m.Result != nil {
@@ -1264,7 +1719,16 @@ func (fc *funcCtx) funcLitClosure(ft *syntax.FuncType, list []syntax.Stmt, n syn
 		if len(params) != len(sig.Params) {
 			ice(n, "a literal declares %d parameters and its signature has %d", len(params), len(sig.Params))
 		}
+		ip := fc.l.inPlace[n]
 		for i, p := range sig.Params {
+			if ip != nil {
+				// The held value's address: s is (*p), and the let that
+				// binds it is not written (refown.go, inPlaceLit).
+				name := fc.scope.alloc("p")
+				inner.locals[ip.held] = "(*" + name + ")"
+				parts = append(parts, name+" *"+fc.goType(p.Type))
+				continue
+			}
 			name := fc.scope.alloc("_p")
 			if params[i] != nil {
 				name = inner.declare(params[i])
@@ -1274,6 +1738,10 @@ func (fc *funcCtx) funcLitClosure(ft *syntax.FuncType, list []syntax.Stmt, n syn
 		var result check.Type
 		if len(sig.Results) == 1 {
 			result = sig.Results[0]
+		}
+		if ip != nil {
+			result, list = ip.result, list[1:]
+			inner.inPlaceTail = ip.tail
 		}
 		inner.frame.result = result
 		inner.frame.unit = result == nil

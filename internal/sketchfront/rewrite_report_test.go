@@ -32,7 +32,9 @@ func TestRewriteLawReported(t *testing.T) {
 	base := checked(t, p.source())
 	// The site is the window's first call, `t.Add(2)`, after a tab.
 	line := strings.Count(p.source()[:strings.Index(p.source(), "\tt.Add(2)")], "\n") + 1
-	at := lower.RewriteSite{File: "/ergo-test/ledger.ergo", Line: line, Column: 2, Law: "main.Counter.Joins", Provider: "main.Tally", Instance: "(2, 3)"}
+	// A site names its file as every source report does, relative to the
+	// program's root (binsize BS6).
+	at := lower.RewriteSite{File: "ledger.ergo", Line: line, Column: 2, Law: "main.Counter.Joins", Provider: "main.Tally", Instance: "(2, 3)"}
 	site := func(verdict, state string, applied bool) lower.RewriteSite {
 		s := at
 		s.Verdict, s.State, s.Applied = verdict, state, applied
@@ -56,6 +58,12 @@ func TestRewriteLawReported(t *testing.T) {
 		got, err := InspectRewrites(c.a, "/ergo-test/ledger.ergo", c.ledger)
 		if err != nil {
 			t.Fatal(err)
+		}
+		// The run and the keys (LFL): an entry the writer wrote names its
+		// run; every site shows the keys the sources give now (Tally's
+		// sync.Ref reaches the runtime).
+		if len(got) == 1 && (got[0].By == "native") == (c.want.Verdict != "") && strings.HasPrefix(got[0].With, "runtime/v1@") {
+			got[0].By, got[0].With = "", ""
 		}
 		if len(got) != 1 || got[0] != c.want {
 			t.Errorf("inspect's rewrite sites are %+v, want [%+v]", got, c.want)

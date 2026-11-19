@@ -108,6 +108,48 @@ func UseKept() {
 
 func Say(s string) { fmt.Println(s) }
 
+func Find(id int) *Handle { return &Handle{id: id} }
+
+// Go's empty interface (GB2): a value in, a borrow written, a value out.
+func Put(key string, v any) { fmt.Println(key, v) }
+
+func Exec(q string, args ...any) error { fmt.Println(q, args); return nil }
+
+func Scan(dest ...any) error {
+	for _, d := range dest {
+		switch p := d.(type) {
+		case *int:
+			*p = 7
+		case *string:
+			*p = "scanned"
+		}
+	}
+	return nil
+}
+
+func Get() any { return "got" }
+
+type Args struct {
+	Stream string
+	Values any
+}
+
+func Send(a Args) { fmt.Println(a.Stream, a.Values) }
+
+type Names []string
+
+type Tags map[string]int
+
+// Go values used through their address (GBX1): methods with pointer
+// receivers, on a struct and on a named basic type.
+type Counter struct{ n int }
+
+func (c *Counter) Add(d int) int { c.n += d; return c.n }
+
+type Level int
+
+func (l *Level) Raise() { *l++ }
+
 type Retainer interface {
 	Close() error
 	Hold()
@@ -146,11 +188,11 @@ func newHresImporter(t *testing.T) hresImporter {
 	return newHresImporterOf(t, false)
 }
 
-// staleClauses matches the clauses ESC1's ergo bind writes (a resource
-// argument's takes, a callback's escaping). Without them the binding is
+// staleClauses matches the mode word ergo bind writes (own on a kept
+// resource argument, receiver, operation or callback; ESC1, q168). Without it the binding is
 // the one an older ergo bind wrote, or an edited one: the checker must
 // hold it to the reviewed Go clauses itself (check/hostclauses.go).
-var staleClauses = regexp.MustCompile(` takes(?: [A-Za-z_][A-Za-z0-9_]*(?:, [A-Za-z_][A-Za-z0-9_]*)*)?|escaping `)
+var staleClauses = regexp.MustCompile(`\bown `)
 
 // newHresImporterOf is newHresImporter; stale strips staleClauses.
 func newHresImporterOf(t *testing.T, stale bool) hresImporter {
@@ -263,7 +305,7 @@ func hrSource(body []hrStmt, inject func(s *hrStmt) string) string {
 	}
 	w("import go " + hresPath)
 	w("")
-	w("func keep(h go.Ref[hostres.Handle]) needs go.Foreign takes h {")
+	w("func keep(h own go.Ref[hostres.Handle]) needs go.Foreign {")
 	w("\th.Use()")
 	w("}")
 	w("")
@@ -462,7 +504,9 @@ func hrSeeds(t *testing.T, n int) (int, int) {
 // and defect edges; the package variable is never closed; a Close error at
 // an automatic release is a defect whose report names the acquisition's
 // Ergo line. A failing seed prints the Ergo source, both outputs and the
-// replay command (ERGO_SEED=n).
+// replay command (ERGO_SEED=n). The first two bodies that match on a
+// nullable package variable run again with every union an interface
+// (BV1's mapping of the borrowed pointer; OPT9 r2).
 //
 // It builds Go because its subject is the release of a Go value by Go's
 // own Close on the emitted exit edges, with Go's error turned into a
@@ -514,11 +558,31 @@ func main() needs go.Foreign {
 		cases = append(cases, runCase{name, src, want, defects})
 		programs = append(programs, o)
 	}
+	// The first two bodies that match on a nullable package variable run
+	// again with every union an interface (unionLowering "interface"), where
+	// Option is no Go pointer: the borrowed variable must be mapped to Some
+	// or None, not cast (BV1; under the pointer niche the cast is the same
+	// Go value).
+	for i, n := 0, len(cases); i < n && len(cases) < n+2; i++ {
+		if !strings.Contains(cases[i].src, "match hostres.") {
+			continue
+		}
+		saved := unionLowering
+		unionLowering = "interface"
+		o := lowerSourceWith(cases[i].name+"_iface", cases[i].src, true, newHresImporter(t))
+		unionLowering = saved
+		if o.err != nil || len(o.diags) > 0 || o.panicked != nil || len(o.refused) > 0 {
+			t.Fatalf("%s with interface unions does not lower: %v %v %v %+v\n%s", cases[i].name, o.err, o.diags, o.panicked, o.refused, numbered(cases[i].src))
+		}
+		o.extra = hresFiles()
+		cases = append(cases, runCase{cases[i].name + "_iface", cases[i].src, cases[i].want, cases[i].defects})
+		programs = append(programs, o)
+	}
 	exes := buildAll(t, programs, true)
 	if exes == nil {
 		return
 	}
-	for i, c := range cases {
+	for _, c := range cases {
 		cmd := exec.Command(exes[c.name])
 		var stdout, stderr bytes.Buffer
 		cmd.Stdout, cmd.Stderr = &stdout, &stderr
@@ -534,9 +598,35 @@ func main() needs go.Foreign {
 			}
 		}
 		if bad {
-			t.Errorf("seed %d (ERGO_SEED=%d replays)\n%s\ngot:\n%s\nwant:\n%s\nwant defects at lines %v\nstderr:\n%s", first+i, first+i, numbered(c.src), got, c.want, c.defects, stderr.String())
+			t.Errorf("%s (hostres_N: ERGO_SEED=N replays)\n%s\ngot:\n%s\nwant:\n%s\nwant defects at lines %v\nstderr:\n%s", c.name, numbered(c.src), got, c.want, c.defects, stderr.String())
 		}
 	}
+}
+
+// TestOptionRefPatternLowers is the smallest repro of a fixed bug (GB1,
+// probe P5): a record pattern that takes the handle out of a fresh
+// Option[go.Ref[T]], `case Some{Value: h}`, checked clean and then stopped
+// the lowering with an internal compiler error, because the match tree
+// asked whether go.Ref[T] lowers to a Go interface and go.Ref has no
+// declaration (funcCtx.isInterface). It type-checks the emitted Go in
+// process. Mutant it alone catches (lower mutants.json):
+// gb1-ref-pattern-ice.
+func TestOptionRefPatternLowers(t *testing.T) {
+	src := `import go hostres
+func main() needs go.Foreign {
+	match hostres.Find(7) {
+	case Some{Value: h}:
+		h.Use()
+	case None:
+		hostres.Say("none")
+	}
+}`
+	o := lowerSourceWith("option_ref_pattern", src, true, newHresImporter(t))
+	if o.err != nil || len(o.diags) > 0 || o.panicked != nil || len(o.refused) > 0 {
+		t.Fatalf("does not lower: %v %v %v %+v\n%s", o.err, o.diags, o.panicked, o.refused, numbered(src))
+	}
+	o.extra = hresFiles()
+	typecheckGo(t, []*lowered{o})
 }
 
 // TestHostResourceVerdicts is IG9's checker property, in process: each

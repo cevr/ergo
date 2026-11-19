@@ -581,8 +581,10 @@ func newShippedEvidence(pkg *check.Package) *shippedEvidence {
 	return e
 }
 
-// Admit admits a law whose shipped ledger entry is proved and current. A
-// proved law holds at every instance, so in's constants are not looked up.
+// Admit admits a law whose shipped ledger entry is current, with the
+// shipped foreign keys, and whose level admitLevel admits. A proved or
+// validated law holds at every instance, so in's constants are not looked
+// up.
 func (e *shippedEvidence) Admit(law *check.Law, prov *check.Named, in RewriteInstance) (bool, string) {
 	key := ledgerKey(LedgerNames(nil).law(law), LedgerNames(nil).provider(prov), "")
 	entry, found := e.entries[key]
@@ -592,13 +594,13 @@ func (e *shippedEvidence) Admit(law *check.Law, prov *check.Named, in RewriteIns
 	d, ok := e.digests[key]
 	if !ok {
 		r := e.rules[key]
-		d = LawDigest(law, prov, r.conv, r.ctor, "")
+		d, _ = LawDigest(law, prov, r.conv, r.ctor, "", ShippedForeignKeys)
 		e.digests[key] = d
 	}
 	if d != entry.Digest {
 		return false, "the std law ledger's " + key + " is stale"
 	}
-	if entry.Verdict != "proved" {
+	if !admitLevel(entry.Verdict, entry.By, lawRewriteClass) {
 		return false, "law " + key + " is " + entry.Verdict + ", not proved: only proved laws change code"
 	}
 	return true, ""

@@ -1,0 +1,41 @@
+// The rules of the parser and the printers as laws, over generated
+// values.
+
+// PrintParsesBack: both printed forms of a value read back as the value:
+// for the samples of seed, Compact(Parse(Compact(v))) and
+// Compact(Parse(Indent(v))) are Compact(v). A printer that escapes a byte
+// the parser reads as another, or a parser that drops a member, breaks
+// it.
+law PrintParsesBack(seed int) {
+	for v in Samples(seed) {
+		let text = Compact(v)
+		for form in []string{text, Indent(v)} {
+			let back = Parse(form) catch {
+			case Malformed:
+				return false
+			}
+			if Compact(back) != text {
+				return false
+			}
+		}
+	}
+	true
+}
+
+// PointersReachTheirPlaces: the pointer of each place of a value gets
+// that place, so a token is escaped and read back the same, an index
+// counts from 0, and a repeated key names its last member.
+law PointersReachTheirPlaces(seed int) {
+	for v in Samples(seed) {
+		for p in Places(v) {
+			let got = Get(v, p.Pointer) catch {
+			case BadPointer, NoValue:
+				return false
+			}
+			if Compact(got) != Compact(p.At) {
+				return false
+			}
+		}
+	}
+	true
+}

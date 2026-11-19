@@ -1,0 +1,7 @@
+{
+  "about": "scripts/specrefs mutants: the spec-reference scan that reads wrapped comment lines and Markdown paragraphs whole (batch 18 verify M3).",
+  "mutants": [
+    { "name": "specrefs-lines-unjoined", "origin": "wf10 FK residue", "file": "scripts/specrefs/main.go", "from": "\t\tif len(joined) > 0 {\n\t\t\tjoined = append(joined, ' ')\n", "to": "\t\tif len(joined) > 0 {\n\t\t\tflush()\n\t\t}\n\t\tif len(joined) > 0 {\n\t\t\tjoined = append(joined, ' ')\n", "rule": "A reference wrapped across two comment lines is one reference: a renumbering finds and moves it.", "killers": ["scripts/specrefs:TestWrappedReferencesMove"] },
+    { "name": "specrefs-move-first-only", "origin": "wf10 FK residue", "file": "scripts/specrefs/main.go", "from": "\t\t\tlast, changed = n[1], true\n\t\t}\n", "to": "\t\t\tlast, changed = n[1], true\n\t\t\tbreak\n\t\t}\n", "rule": "A renumbering moves every number of a reference (Lowering 9 and 2), all at once.", "killers": ["scripts/specrefs:TestWrappedReferencesMove"] }
+  ]
+}

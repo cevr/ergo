@@ -51,7 +51,7 @@ func (c *checker) embedCall(x *syntax.CallExpr, t Type) operand {
 		return bad(x)
 	}
 	tree := false
-	if n, ok := t.(*Named); ok && n.Obj.Pkg != nil && n.Obj.Pkg.Std() && n.Obj.Pkg.Path == "embed" && n.Obj.Name == "FS" {
+	if n, ok := t.(*Named); ok && embedTree(n) {
 		tree = true
 	}
 	bytes := false

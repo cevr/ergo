@@ -1,0 +1,11 @@
+// Package sha512 hashes text with SHA-512 (FIPS 180-4; docs/spec/
+// stdlib.md, keyed digests; std-spike D3). It is Go's crypto/sha512 over
+// Ergo's strings, which hold bytes, as std sha256 is. The extern binds a
+// pure runtime/v1 body (runtime/v1/digest/keyed.go).
+
+// Sum is the SHA-512 digest of the bytes of s: 64 raw bytes, as Go's
+// Sum512. hex.Encode(Sum(s)) is its usual text.
+extern go ergo.local/prototype/runtime/v1/digest.Sha512Sum func Sum(s string) string
+
+// SumIs64Bytes: every digest is 64 bytes.
+law SumIs64Bytes(s string) { len(Sum(s)) == 64 }

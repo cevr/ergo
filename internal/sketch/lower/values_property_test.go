@@ -6,6 +6,7 @@ import (
 	"maps"
 	"math/rand/v2"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -154,6 +155,11 @@ type valueGen struct {
 	n       int
 	reached map[string]bool
 	pending []func() // prints of closures and tasks, run at the end
+	turn    int      // the moves written so far, which pick the next one's form (no draw)
+	kturn   int      // the kept-argument calls written so far (KEEP1), likewise
+	rturn   int      // repeatStmt's calls so far, which pick its turns (no draw)
+	aturn   int      // armsStmt's calls so far, which pick its turns (no draw)
+	oturn   int      // the kMaps writes written so far, every third a move over a kept part (moveOver)
 	refs    []*vref
 	h       *rand.Rand // the draws of the hand-over statements (values_hand_test.go)
 	hands   []handFn
@@ -192,7 +198,25 @@ func (g *valueGen) refStmt() {
 		g.reached["ref "+kind] = true
 		_ = name
 	}
-	switch g.r.IntN(12) {
+	switch g.r.IntN(14) {
+	case 12:
+		// The in-place form (refown.go, inPlaceLit): u is the held value
+		// from the first statement to the last.
+		g.line(fmt.Sprintf("let v%d = sync.Modify(%s, %s(int, Map[int, int]) { let mut u = m\n\t\tu[%d] = %d\n\t\t(len(u), u) })", g.n+1, ref.name, refFn, k, v))
+		ref.m[k] = v
+		fmt.Fprintf(&g.want, "%d\n", len(ref.m))
+		g.line(fmt.Sprintf("Console.Println(\"\\(v%d)\")", g.n+1))
+		g.n++
+		g.reached["ref in place"] = true
+	case 13:
+		// m read after u's write: u's binding copies, so the literal is
+		// not in place.
+		g.line(fmt.Sprintf("let v%d = sync.Modify(%s, %s(int, Map[int, int]) { let mut u = m\n\t\tu[%d] = %d\n\t\t(dm(m), u) })", g.n+1, ref.name, refFn, k, v))
+		fmt.Fprintf(&g.want, "%d\n", dmModel(ref.m))
+		g.line(fmt.Sprintf("Console.Println(\"\\(v%d)\")", g.n+1))
+		g.n++
+		ref.m[k] = v
+		g.reached["ref read after the bind"] = true
 	case 0:
 		g.line(fmt.Sprintf("%s.Update(%sMap[int, int] { let mut u = m\n\t\tu[%d] = %d\n\t\tu })", ref.name, refFn, k, v))
 		ref.m[k] = v
@@ -386,6 +410,26 @@ func peekM(m Map[int, int], k int) int {
 	dm(c) + dm(m)
 }
 
+// upJ reads m in a callback apply runs, which ends before the bind: it
+// owns m (values.go, joinedBefore).
+func upJ(m Map[int, int], k int) Map[int, int] {
+	apply(func(j int) {
+		let _ = len(m) + j
+	})
+	let mut c = m
+	c[k] = k + 400
+	c
+}
+
+// peekJ binds a literal that reads m and calls it after its write: the
+// literal may run after the bind, so m is not owned.
+func peekJ(m Map[int, int], k int) int {
+	let g = func() int { dm(m) }
+	let mut c = m
+	c[k] = k + 500
+	dm(c) + g()
+}
+
 // cell is a Ref that holds m (V6: NewRef stores a value shared outside).
 func cell(m Map[int, int]) sync.Ref[Map[int, int]] { sync.NewRef[Map[int, int]](m) }
 
@@ -412,6 +456,246 @@ func upRef(m Map[int, int]) Map[int, int] {
 }
 
 func dupM(m Map[int, int]) (Map[int, int], Map[int, int]) { (m, m) }
+
+// takeS and dropS move through a borrow (V7): a take, then a reslice.
+func takeS(p *[]int, v int) []int {
+	let got = *p
+	*p = []int{v}
+	got
+}
+
+func dropS(p *[]int) {
+	if len(*p) > 1 {
+		*p = (*p)[1:]
+	}
+}
+
+// overM moves src whole into n past headM's kept part of it (moveOver,
+// wf10 ST X1): e is copied instead, so the write through n misses it.
+func headM(ms []Map[int, int]) Map[int, int] {
+	if len(ms) == 0 {
+		return Map[int, int]{}
+	}
+	ms[0]
+}
+
+func overM(ms []Map[int, int], k int, v int) int {
+	let r = sync.NewRef[[]Map[int, int]](ms)
+	sync.Modify(r, func(all []Map[int, int]) (int, []Map[int, int]) {
+		let e = headM(all)
+		let mut n = all
+		if len(n) > 0 {
+			n[0][k] = v
+		}
+		(dm(e) * 7 + dms(n), n)
+	})
+}
+
+// Uses split across arms (OWN1 arms, exclusive): a use in one arm of a
+// match or an if never follows one in another arm, unless a loop runs
+// the statement again (armsS, loopCell); the subject and an if's condition run
+// before every arm (subjS, condS);
+// each arm of splitM moves all past headM's kept part.
+func optS(s []int) Option[[]int] { Some[[]int]{Value: s} }
+
+func armsS(xs []int, n int, mode int) int {
+	let mut cur = xs
+	cur = cur.Append(mode)
+	let kept = sync.NewRef[[]int]([]int{})
+	for i in 0..n {
+		match (i + mode) % 3 {
+		case 0:
+			kept.Set(cur)
+		case 1:
+			if len(cur) > 0 {
+				cur[0] = cur[0] + i + 1
+			} else {
+				cur = cur.Append(i)
+			}
+		case _:
+			cur = cur.Append(i)
+		}
+	}
+	ds(kept.Get()) * 3 + ds(cur)
+}
+
+func subjS(xs []int, k int) int {
+	let mut cur = xs
+	match optS(cur) {
+	case Some[[]int] as h:
+		if len(cur) > 0 {
+			cur[0] = k
+		}
+		ds(h.Value) * 3 + ds(cur)
+	case None:
+		0
+	}
+}
+
+// loopCell's literal returns all from one arm of a match in a loop whose
+// other arm stored it in side on an earlier pass: the cell must not take
+// it as unshared, or the next owned Update writes side's slice.
+func loopCell(xs []int, n int) int {
+	let r = sync.NewRef[[]int](xs)
+	let side = sync.NewRef[[]int]([]int{})
+	r.Update(func(all []int) []int {
+		for i in 0..n {
+			match i % 2 {
+			case 0:
+				side.Set(all)
+			case _:
+				return all
+			}
+		}
+		[]int{7}
+	})
+	r.Update(func(all []int) []int {
+		let mut c = all
+		if len(c) > 0 {
+			c[0] = 99
+		}
+		c
+	})
+	ds(side.Get()) * 3 + ds(r.Get())
+}
+
+// condS keeps cur in r from an if's condition, then writes cur in its
+// branch: the condition runs before the branch, so the Set must copy.
+func stashS(r sync.Ref[[]int], s []int) bool {
+	r.Set(s)
+	len(s) > 0
+}
+
+func condS(xs []int, k int) int {
+	let r = sync.NewRef[[]int]([]int{})
+	let mut cur = xs
+	cur = cur.Append(k)
+	if stashS(r, cur) {
+		cur[0] = k + 50
+	}
+	ds(r.Get()) * 3 + ds(cur)
+}
+
+func splitM(ms []Map[int, int], k int, v int, deny bool) int {
+	let r = sync.NewRef[[]Map[int, int]](ms)
+	let got = sync.Modify(r, func(all []Map[int, int]) (int, []Map[int, int]) {
+		let e = headM(all)
+		match deny {
+		case true:
+			let mut opened = all
+			if len(opened) > 0 {
+				opened[0][k] = v
+			}
+			(dm(e), opened)
+		case false:
+			let mut next = all
+			next = next.Append(Map[int, int]{k: v})
+			next[0][k] = v + 1
+			(dm(e) * 3, next)
+		}
+	})
+	got * 7 + dms(r.Get())
+}
+
+// note1, pick and flushS keep nothing of their slice (KEEP1), and print,
+// so none is pure: note1 passes it to pick in a literal, pick matches it
+// and prints its part's digest, and flushS hands its borrow's slice to
+// note1, then writes and clears it.
+type Pick = One{S []int} | Num{N int}
+
+func note1(s []int) needs Console {
+	// The loop keeps it a Go call (inline.go: a loop amortizes its call).
+	let mut i = 0
+	for i < 1 {
+		i += 1
+		pick(One{S: s})
+	}
+}
+
+func pick(p Pick) needs Console {
+	match p {
+	case One as o:
+		Console.Println("\(ds(o.S))")
+	case Num as t:
+		Console.Println("\(t.N)")
+	}
+}
+
+func flushS(p *[]int) needs Console {
+	note1(*p)
+	if len(*p) > 0 {
+		(*p)[0] = 0
+	}
+	*p = (*p)[0:0]
+}
+
+// note2 and note3 print the digest of s after something the call runs
+// first: k, an operand, or f, which may write s's root (KEEP1).
+func note2(s []int, k int) needs Console {
+	let mut i = 0
+	for i < 1 {
+		Console.Println("\(ds(s) + k)")
+		i += 1
+	}
+}
+
+func note3(s []int, f func()) needs Console {
+	let mut i = 0
+	for i < 1 {
+		f()
+		Console.Println("\(ds(s))")
+		i += 1
+	}
+}
+
+// viaF hands note3 its borrow's slice and f, which may write the slice's
+// root: note3 sees the slice as it was passed.
+func viaF(p *[]int, f func()) needs Console {
+	note3(*p, f)
+	if len(*p) > 0 {
+		(*p)[0] = 0
+	}
+}
+
+// holdP prints, so it is not pure, and keeps s in the function it returns.
+func holdP(s []int) (func() int) needs Console {
+	Console.Println("held")
+	func() int { ds(s) }
+}
+
+// peekW writes through p, which is s's own root at its call, before it
+// reads s: s is the value passed.
+func peekW(s []int, p *[]int) int needs Console {
+	Console.Println("peek")
+	if len(*p) > 0 {
+		(*p)[0] = 77
+	}
+	ds(s)
+}
+
+// stashF keeps s in a function it stores in a field through a borrow,
+// not in its result.
+type Hold { F func() int }
+
+func stashF(s []int, h *Hold) needs Console {
+	Console.Println("stash")
+	h.F = func() int { ds(s) }
+}
+
+// hold keeps s in the function it returns.
+func hold(s []int) func() int { func() int { ds(s) } }
+
+// crossS stores a slice of one place into another place and into another
+// binding: neither is a reslice (V7), so the write after reaches neither.
+type Two { A []int, B []int }
+
+func crossS(p *Two) int {
+	p.A = p.B[1:]
+	let mut c = []int{}
+	c = p.B[1:]
+	p.B[1] = 9
+	p.A[0] * 10 + c[0]
+}
 
 func apply(f func(k int)) {
 	f(3)
@@ -630,6 +914,8 @@ func (g *valueGen) stmt() {
 		g.write()
 		g.hand()
 		g.sortStmt()
+		g.armsStmt()
+		g.repeatStmt()
 	case 5:
 		b := g.pick(func(b *vbind) bool { return true })
 		if b == nil {
@@ -658,6 +944,17 @@ func (g *valueGen) stmt() {
 			peek[key] = key + 300
 			g.line(fmt.Sprintf("Console.Println(\"\\(peekM(%s, %d))\")", b.name, key))
 			fmt.Fprintf(&g.want, "%d\n", dmModel(peek)+dmModel(b.val.m))
+			// A read in a callback that ended before the bind (upJ) and
+			// one in a literal that runs after the write (peekJ).
+			joined := maps.Clone(b.val.m)
+			joined[key] = key + 400
+			g.line(fmt.Sprintf("Console.Println(\"\\(dm(upJ(%s, %d)))\")", b.name, key))
+			fmt.Fprintf(&g.want, "%d\n", dmModel(joined))
+			late := maps.Clone(b.val.m)
+			late[key] = key + 500
+			g.line(fmt.Sprintf("Console.Println(\"\\(peekJ(%s, %d))\")", b.name, key))
+			fmt.Fprintf(&g.want, "%d\n", dmModel(late)+dmModel(b.val.m))
+			g.print(b.name, b.kind, b.val.digest(b.kind))
 			g.reached["own live"] = true
 			// maps.Update on a Map that stays live: a copy is updated.
 			key = g.keyOf(b.val.m)
@@ -858,6 +1155,8 @@ func (g *valueGen) write() {
 			g.line(fmt.Sprintf("%s[%d] = %d", b.name, i, v))
 			b.val.s[i] = v
 			g.reached["write slice"] = true
+			g.moveSlice(b, v)
+			g.keepSlice(b, v)
 		case 1:
 			g.line(fmt.Sprintf("for i in 0..3 {\n\t\t%s = %s.Append(i + %d)\n\t}", b.name, b.name, v))
 			for i := range 3 {
@@ -893,6 +1192,7 @@ func (g *valueGen) write() {
 				b.val.s[0] = v
 			}
 			g.reached["write field slice"] = true
+			g.moveField(b, v)
 		default:
 			g.line(fmt.Sprintf("%s.S = %s.S.Append(%d)", b.name, b.name, v))
 			b.val.s = append(b.val.s, v)
@@ -903,9 +1203,374 @@ func (g *valueGen) write() {
 			return
 		}
 		key := g.r.IntN(9)
+		if g.shared {
+			// A move past a kept part (moveOver), in turn: no new draw;
+			// the write below keeps the binding a let mut.
+			if g.oturn++; g.oturn%3 == 0 {
+				e, n := maps.Clone(b.val.ms[0]), b.val.copy()
+				n.ms[0][key] = v
+				g.printInt(fmt.Sprintf("overM(%s, %d, %d)", b.name, key, v), dmModel(e)*7+n.digest(kMaps))
+				g.reached["move over a kept part"] = true
+			}
+		}
 		g.line(fmt.Sprintf("%s[0][%d] = %d", b.name, key, v))
 		b.val.ms[0][key] = v
 		g.reached["write element"] = true
+	}
+}
+
+// later prints t at the end of main, with the model value old: a write
+// to the place t was taken from must not reach it.
+func (g *valueGen) later(t string, old []int) {
+	g.pending = append(g.pending, func() { g.print(t, kSlice, mval{s: old}.digest(kSlice)) })
+}
+
+// moveSlice takes or reslices the slice binding b through a borrow or as
+// a root (V7), in turn (no new draw, so the seeds keep their paths); the
+// shared program only, since the alias reference shares a take.
+func (g *valueGen) moveSlice(b *vbind, v int) {
+	if !g.shared {
+		return
+	}
+	g.turn++
+	switch g.turn % 3 {
+	case 0:
+		t := g.fresh()
+		g.line(fmt.Sprintf("let %s = takeS(&%s, %d)", t, b.name, v))
+		g.later(t, slices.Clone(b.val.s))
+		b.val.s = []int{v}
+		g.reached["move take borrow"] = true
+	case 1:
+		g.line(fmt.Sprintf("dropS(&%s)", b.name))
+		if len(b.val.s) > 1 {
+			b.val.s = slices.Clone(b.val.s[1:])
+		}
+		g.reached["move reslice borrow"] = true
+	default:
+		// The slice keeps one element at least: a later write picks one.
+		from := min(1, len(b.val.s)-1)
+		g.line(fmt.Sprintf("%s = %s[%d:]", b.name, b.name, from))
+		b.val.s = slices.Clone(b.val.s[from:])
+		g.reached["move reslice root"] = true
+	}
+}
+
+// moveField takes the slice field of the Box binding b, with a write
+// between the read and the overwrite, another place's overwrite or none,
+// or reslices it (V7), in turn.
+func (g *valueGen) moveField(b *vbind, v int) {
+	if !g.shared {
+		return
+	}
+	g.turn++
+	switch g.turn % 4 {
+	case 3:
+		if len(b.val.s) == 0 {
+			return
+		}
+		// Not a take: the overwrite after the read is another place's,
+		// so the write after it reaches the place's old value.
+		t := g.fresh()
+		g.line(fmt.Sprintf("let %s = %s.S", t, b.name))
+		g.line(fmt.Sprintf("%s.M = Map[int, int]{%d: %d}", b.name, v, v))
+		g.line(fmt.Sprintf("%s.S[0] = %d", b.name, v+1))
+		g.later(t, slices.Clone(b.val.s))
+		b.val.m = map[int]int{v: v}
+		b.val.s[0] = v + 1
+		g.reached["move other place"] = true
+	case 0:
+		t := g.fresh()
+		g.line(fmt.Sprintf("let %s = %s.S", t, b.name))
+		g.line(fmt.Sprintf("%s.S = []int{%d, %d}", b.name, v, v+1))
+		g.later(t, slices.Clone(b.val.s))
+		b.val.s = []int{v, v + 1}
+		g.reached["move take"] = true
+	case 1:
+		if len(b.val.s) == 0 {
+			return
+		}
+		// Not a take: the write between the two reaches the place's old
+		// value, which t must not see.
+		t := g.fresh()
+		g.line(fmt.Sprintf("let %s = %s.S", t, b.name))
+		g.line(fmt.Sprintf("%s.S[0] = %d", b.name, v+1))
+		g.line(fmt.Sprintf("%s.S = []int{%d}", b.name, v))
+		g.later(t, slices.Clone(b.val.s))
+		b.val.s = []int{v}
+		g.reached["move kept"] = true
+	default:
+		from := max(0, min(1, len(b.val.s)-1))
+		g.line(fmt.Sprintf("%s.S = %s.S[%d:]", b.name, b.name, from))
+		b.val.s = slices.Clone(b.val.s[from:])
+		g.reached["move reslice"] = true
+	}
+}
+
+// armsStmt calls, every third call in turn, armsS, subjS, loopCell or splitM (uses
+// split across arms) on the last binding of its kind, from a counter, not
+// a draw, so the seeds keep their paths; the model runs each on copies.
+func (g *valueGen) armsStmt() {
+	if !g.shared {
+		return
+	}
+	if g.aturn++; g.aturn%3 != 0 {
+		return
+	}
+	t := g.aturn / 3
+	last := func(k vkind) *vbind {
+		var b *vbind
+		for _, x := range g.binds {
+			if x.kind == k {
+				b = x
+			}
+		}
+		return b
+	}
+	// armsS runs at least three passes, from arm 0 or arm 2, so a Set
+	// comes before a write in another arm (a later pass).
+	k, n, mode := t%9, 3+(t/4)%2, 2*((t/4)%2)
+	switch t % 4 {
+	case 0:
+		b := last(kSlice)
+		if b == nil {
+			return
+		}
+		cur, kept := append(slices.Clone(b.val.s), mode), []int{}
+		for i := range n {
+			switch (i + mode) % 3 {
+			case 0:
+				kept = slices.Clone(cur)
+			case 1:
+				if len(cur) > 0 {
+					cur[0] += i + 1
+				} else {
+					cur = append(cur, i)
+				}
+			default:
+				cur = append(cur, i)
+			}
+		}
+		g.printInt(fmt.Sprintf("armsS(%s, %d, %d)", b.name, n, mode), dsModel(kept)*3+dsModel(cur))
+		g.reached["arms loop"] = true
+	case 1:
+		b := last(kSlice)
+		if b == nil {
+			return
+		}
+		h, cur := slices.Clone(b.val.s), slices.Clone(b.val.s)
+		if len(cur) > 0 {
+			cur[0] = k
+		}
+		g.printInt(fmt.Sprintf("subjS(%s, %d)", b.name, k), dsModel(h)*3+dsModel(cur))
+		g.reached["arms subject"] = true
+		// And an if's condition, which runs before its branch too.
+		side := append(slices.Clone(b.val.s), k)
+		c := slices.Clone(side)
+		c[0] = k + 50
+		g.printInt(fmt.Sprintf("condS(%s, %d)", b.name, k), dsModel(side)*3+dsModel(c))
+		g.reached["arms condition"] = true
+	case 2:
+		b := last(kSlice)
+		if b == nil {
+			return
+		}
+		side, cell := []int{}, []int{7}
+		if n >= 1 {
+			side = slices.Clone(b.val.s)
+		}
+		if n >= 2 {
+			cell = slices.Clone(b.val.s)
+		}
+		if len(cell) > 0 {
+			cell[0] = 99
+		}
+		g.printInt(fmt.Sprintf("loopCell(%s, %d)", b.name, n), dsModel(side)*3+dsModel(cell))
+		g.reached["arms loop return"] = true
+	default:
+		b := last(kMaps)
+		if b == nil {
+			return
+		}
+		all, v, deny := b.val.copy().ms, 10+t%7, t%2 == 0
+		e := map[int]int{}
+		if len(all) > 0 {
+			e = maps.Clone(all[0])
+		}
+		got := dmModel(e) * 3
+		if deny {
+			if len(all) > 0 {
+				all[0][k] = v
+			}
+			got = dmModel(e)
+		} else {
+			all = append(all, map[int]int{k: v})
+			all[0][k] = v + 1
+		}
+		g.printInt(fmt.Sprintf("splitM(%s, %d, %d, %v)", b.name, k, v, deny), got*7+mval{ms: all}.digest(kMaps))
+		g.reached["arms move"] = true
+	}
+}
+
+// repeatStmt writes, every third call, a slices.Repeat of a literal and a
+// constant count (repeat.go, PA3's filled form), bound to a let mut that a
+// write changes, then printed; and Repeat of a binding (the call form). It
+// counts its calls instead of drawing, so the seeds keep their paths.
+func (g *valueGen) repeatStmt() {
+	if g.rturn++; g.rturn%3 != 0 {
+		return
+	}
+	t := g.rturn / 3
+	m, n, k := 1+t%3, t%5, t%9
+	lit, elts := make([]string, m), make([]int, m)
+	for i := range m {
+		elts[i] = k + i
+		lit[i] = strconv.Itoa(k + i)
+	}
+	r := g.fresh()
+	g.line(fmt.Sprintf("let mut %s = slices.Repeat([]int{%s}, %d)", r, strings.Join(lit, ", "), n))
+	want := slices.Repeat(elts, n)
+	if len(want) > 0 {
+		g.line(fmt.Sprintf("%s[%d] = 77", r, len(want)-1))
+		want[len(want)-1] = 77
+	} else {
+		g.line(fmt.Sprintf("%s = %s.Append(77)", r, r))
+		want = append(want, 77)
+	}
+	g.print(r, kSlice, mval{s: want}.digest(kSlice))
+	g.reached["repeat literal"] = true
+	for _, b := range g.binds {
+		if b.kind == kSlice {
+			g.printInt(fmt.Sprintf("ds(slices.Repeat(%s, %d))", b.name, n), dsModel(slices.Repeat(b.val.s, n)))
+			g.reached["repeat binding"] = true
+			break
+		}
+	}
+}
+
+// printInt prints the int expression x, which the model says is d.
+func (g *valueGen) printInt(x string, d int) {
+	g.line(fmt.Sprintf("Console.Println(\"\\(%s)\")", x))
+	fmt.Fprintf(&g.want, "%d\n", d)
+}
+
+// keepSlice calls functions on the slice binding b, a let mut, that keep
+// nothing of it (note1, flushS), write its root during the call (peekW),
+// or keep it (hold), two in turn; a write to b follows each. The shared
+// program only.
+func (g *valueGen) keepSlice(b *vbind, v int) {
+	if !g.shared {
+		return
+	}
+	turn := g.kturn
+	g.kturn++
+	if turn%2 == 0 {
+		if len(b.val.s) > 0 {
+			k := g.fresh()
+			g.line(fmt.Sprintf("let %s = hold(%s)", k, b.name))
+			g.line(fmt.Sprintf("%s[0] = %d", b.name, v+2))
+			d := dsModel(b.val.s)
+			g.pending = append(g.pending, func() { g.printInt(k+"()", d) })
+			b.val.s[0] = v + 2
+			g.reached["keep held"] = true
+		}
+		g.line(fmt.Sprintf("note1(%s)", b.name))
+		fmt.Fprintf(&g.want, "%d\n", dsModel(b.val.s))
+		g.reached["keep none"] = true
+		return
+	}
+	k := g.fresh()
+	g.line(fmt.Sprintf("let %s = peekW(%s, &%s)", k, b.name, b.name))
+	fmt.Fprintf(&g.want, "peek\n")
+	d := dsModel(b.val.s)
+	g.pending = append(g.pending, func() { g.printInt(k, d) })
+	if len(b.val.s) > 0 {
+		b.val.s[0] = 77
+	}
+	g.reached["keep written in call"] = true
+	// The same on a slice no other frame names, written during the call
+	// and then kept in another root's field.
+	sw := g.fresh()
+	g.line(fmt.Sprintf("let mut %s = []int{%d, 1, 2}", sw, v))
+	k2 := g.fresh()
+	g.line(fmt.Sprintf("let %s = peekW(%s, &%s)", k2, sw, sw))
+	fmt.Fprintf(&g.want, "peek\n")
+	d2 := dsModel([]int{v, 1, 2})
+	g.pending = append(g.pending, func() { g.printInt(k2, d2) })
+	h2 := g.fresh()
+	g.line(fmt.Sprintf("let mut %s = Hold{F: func() int { 0 }}", h2))
+	g.line(fmt.Sprintf("stashF(%s, &%s)", sw, h2))
+	fmt.Fprintf(&g.want, "stash\n")
+	g.line(fmt.Sprintf("%s[1] = 6", sw))
+	d3 := dsModel([]int{77, 1, 2})
+	g.pending = append(g.pending, func() { g.printInt(h2+".F()", d3) })
+	g.reached["keep alone"] = true
+	if len(b.val.s) > 0 {
+		// A function operand writes the root during the call.
+		g.line(fmt.Sprintf("viaF(&%s, func() { %s[0] = 9 })", b.name, b.name))
+		fmt.Fprintf(&g.want, "%d\n", dsModel(b.val.s))
+		b.val.s[0] = 0
+		g.reached["keep fn operand"] = true
+		// A local frame writes it after the read, before the call.
+		k := g.fresh()
+		g.line(fmt.Sprintf("let %s = func() int {\n\t\t%s[0] = 8\n\t\t0\n\t}", k, b.name))
+		g.line(fmt.Sprintf("note2(%s, %s())", b.name, k))
+		fmt.Fprintf(&g.want, "%d\n", dsModel(b.val.s))
+		b.val.s[0] = 8
+		g.reached["keep frame write"] = true
+		// An impure function keeps it in the function it returns.
+		h := g.fresh()
+		g.line(fmt.Sprintf("let %s = holdP(%s)", h, b.name))
+		fmt.Fprintf(&g.want, "held\n")
+		g.line(fmt.Sprintf("%s[0] = %d", b.name, v+3))
+		d := dsModel(b.val.s)
+		g.pending = append(g.pending, func() { g.printInt(h+"()", d) })
+		b.val.s[0] = v + 3
+		g.reached["keep held impure"] = true
+		// An impure function keeps it in a field of another root.
+		hs := g.fresh()
+		g.line(fmt.Sprintf("let mut %s = Hold{F: func() int { 0 }}", hs))
+		g.line(fmt.Sprintf("stashF(%s, &%s)", b.name, hs))
+		fmt.Fprintf(&g.want, "stash\n")
+		g.line(fmt.Sprintf("%s[0] = %d", b.name, v+4))
+		ds := dsModel(b.val.s)
+		g.pending = append(g.pending, func() { g.printInt(hs+".F()", ds) })
+		b.val.s[0] = v + 4
+		g.reached["keep stashed"] = true
+	}
+	g.line(fmt.Sprintf("flushS(&%s)", b.name))
+	fmt.Fprintf(&g.want, "%d\n", dsModel(b.val.s))
+	b.val.s = []int{}
+	g.reached["keep flush"] = true
+}
+
+// takes writes a Take (PRIM-3) from each Map binding, after the drawn
+// statements, so it draws nothing and the seeds keep their paths: from a
+// let mut, the rest rebound to it, which takes the key in place; from a
+// let, the rest with the source live, which keeps the key. Each prints the
+// rest and the source as the model has them.
+func (g *valueGen) takes() {
+	for _, b := range g.binds {
+		if b.kind != kMap {
+			continue
+		}
+		key := 0 // no draw: the smallest key, or one m does not have
+		if len(b.val.m) > 0 {
+			key = slices.Min(slices.Collect(maps.Keys(b.val.m)))
+		}
+		rest := g.fresh()
+		g.line(fmt.Sprintf("let _, %s = %s.Take(%d)", rest, b.name, key))
+		out := maps.Clone(b.val.m)
+		delete(out, key)
+		if b.mut {
+			g.line(fmt.Sprintf("%s = %s", b.name, rest))
+			b.val.m = out
+			b.written = true
+			g.reached["take in place"] = true
+		} else {
+			g.reached["take live"] = true
+		}
+		g.line(fmt.Sprintf("Console.Println(\"\\(dm(%s)) \\(dm(%s))\")", rest, b.name))
+		fmt.Fprintf(&g.want, "%d %d\n", dmModel(out), dmModel(b.val.m))
 	}
 }
 
@@ -927,7 +1592,11 @@ func valueProgram(seed uint64, shared bool, reached map[string]bool) (src, want 
 	for _, f := range g.pending {
 		f()
 	}
+	g.takes()
 	if shared {
+		g.line("let mut two = Two{A: []int{}, B: []int{1, 2, 3}}")
+		g.line("Console.Println(\"\\(crossS(&two))\")")
+		fmt.Fprintf(&g.want, "%d\n", 22)
 		// The Refs (V6), then every binding and Ref as the model has it:
 		// a write through a Ref changes no binding.
 		for range 30 {
@@ -1002,13 +1671,19 @@ func TestValueRuleAgrees(t *testing.T) {
 	}
 	var runs []run
 	var programs []*lowered
+	var moves, copyMoves, unkept, copyUnkept int
 	for _, seed := range seeds {
 		src, want := valueProgram(seed, true, reached)
 		name := fmt.Sprintf("vr%dshared", seed)
+		savedHook := statsHook
+		statsHook = func(s knownStats) { moves, unkept = moves+s.Moves, unkept+s.Unkept }
 		programs = append(programs, lowerValueMode(t, name, src, true))
 		runs = append(runs, run{seed, src, want, name})
-		// The copying lowering, the reference of owned parameters.
+		// The copying lowering, the reference of owned parameters and of
+		// moves (V7): it moves nothing.
+		statsHook = func(s knownStats) { copyMoves, copyUnkept = copyMoves+s.Moves, copyUnkept+s.Unkept }
 		programs = append(programs, lowerValueMode(t, name+"copy", src, true, "copy"))
+		statsHook = savedHook
 		runs = append(runs, run{seed, src, want, name + "copy"})
 		// Every call a Go call (inlineLowering "call"): owned bodies
 		// called, the reference of the owned parameters an inlined body
@@ -1020,6 +1695,34 @@ func TestValueRuleAgrees(t *testing.T) {
 			name := fmt.Sprintf("vr%dunshared%v", seed, rule)
 			programs = append(programs, lowerValueMode(t, name, usrc, rule))
 			runs = append(runs, run{seed, usrc, uwant, name})
+		}
+	}
+	if unkept == 0 || copyUnkept != 0 {
+		t.Errorf("unkept arguments (KEEP1): %d under the rule (want some), %d under the copying reference (want none)", unkept, copyUnkept)
+	}
+	// The promised form of an unkept argument: flushS hands its slice to
+	// note1 with no copy; the copying reference copies it.
+	for i, p := range programs[:2] {
+		line := ""
+		for _, l := range strings.Split(goFunc(t, p.mainGo(), "flushS"), "\n") {
+			if strings.Contains(l, "note1(") {
+				line = l
+			}
+		}
+		if copied := strings.Contains(line, "Clone("); line == "" || copied != (i == 1) {
+			t.Errorf("%s: flushS's call of note1 copies %v, want %v (KEEP1): %q", p.name, copied, i == 1, line)
+		}
+	}
+	if moves == 0 || copyMoves != 0 {
+		t.Errorf("moves (V7): %d under the rule (want some), %d under the copying reference (want none)", moves, copyMoves)
+	}
+	// The promised form of a move: no copy at the take or the reslice
+	// through a borrow; the copying reference copies at both.
+	for i, p := range programs[:2] {
+		for _, fn := range []string{"takeS", "dropS"} {
+			if copied := strings.Contains(goFunc(t, p.mainGo(), fn), "Clone("); copied != (i == 1) {
+				t.Errorf("%s: %s copies %v, want %v (V7):\n%s", p.name, fn, copied, i == 1, goFunc(t, p.mainGo(), fn))
+			}
 		}
 	}
 	for _, p := range programs[:1] {
@@ -1054,12 +1757,17 @@ var valuePaths = []string{
 	"bind", "reassign", "source literal", "source binding", "source field", "source element", "source result", "source fresh result",
 	"source append live", "source delete live", "source put live", "source append element", "source update",
 	"argument", "pure", "closure", "task", "loop kept", "literal write",
-	"write map", "delete in place", "put in place", "write loop", "write slice", "append in place",
+	"write map", "delete in place", "take live", "take in place", "put in place", "write loop", "write slice", "append in place",
 	"write field map", "write field slice", "append field", "write element",
 	"own rebind", "own loop", "own capture", "own slice", "own field", "own live",
 	"update rebind", "update rebind option", "update field", "update live",
 	"ref new literal", "ref new binding", "ref own write", "ref own delete", "ref get", "ref set", "ref modify both",
-	"ref kept", "ref pure read", "ref owned helper", "ref arms", "ref plain update", "ref plain modify",
+	"ref kept", "ref pure read", "ref owned helper", "ref arms", "ref in place", "ref read after the bind", "ref plain update", "ref plain modify",
 	"ref store outside", "ref print",
+	"move take", "move kept", "move other place", "move reslice", "move take borrow", "move reslice borrow", "move reslice root",
+	"move over a kept part", "arms loop", "arms subject", "arms condition", "arms loop return", "arms move", "repeat literal", "repeat binding",
+	"keep none", "keep written in call", "keep held", "keep flush", "keep fn operand", "keep frame write", "keep held impure", "keep stashed", "keep alone",
 	"hand rebind", "hand field", "hand loop", "hand second", "sort live", "sort dead", "hand dot", "hand dot loop",
+	"move take", "move kept", "move other place", "move reslice", "move take borrow", "move reslice borrow", "move reslice root",
+	"keep none", "keep written in call", "keep held", "keep flush", "keep fn operand", "keep frame write", "keep held impure", "keep stashed", "keep alone",
 }

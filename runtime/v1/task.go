@@ -1,7 +1,7 @@
 package v1
 
 import (
-	"fmt"
+	"strconv"
 	"time"
 
 	"ergo.local/prototype/runtime/rt"
@@ -67,9 +67,37 @@ type entry struct {
 	prev, next *entry
 	action     func()
 	own        func()
+	// exit is the exit action this entry is part of (OnExit), nil for
+	// any other entry.
+	exit *exitAction
+	// self is the release of a value that holds this entry itself (a
+	// Task's first owner; selfOwned), in place of own: no closure (PARK2).
+	self selfOwned
 	// taken is the fields of an owned record taken in place (TakeField):
 	// its generated release skips them (#197 L8 B2; R39, Gap 38).
 	taken uint64
+}
+
+// owned says the entry is an owned value's release, not an exit action.
+func (e *entry) owned() bool { return e.own != nil || e.self != nil }
+
+// release runs the owned value's release.
+func (e *entry) release() {
+	if e.self != nil {
+		e.self.releaseOwned()
+		return
+	}
+	e.own()
+}
+
+// selfOwned is an owned value that holds the entry of its first owner, so
+// Owning makes neither an entry nor a closure for it (PARK2): *Task.
+type selfOwned interface {
+	// ownedEntry is the value's own entry, bound to rel (a func of the
+	// value's type), or nil when it has had an owner before or rel is
+	// not its release type; then Owning makes an entry as for any value.
+	ownedEntry(rel any) *entry
+	releaseOwned()
 }
 
 // NewScope is the frame scope of a frame that runs on task t.
@@ -176,6 +204,8 @@ func (s *Scope) close(e error) error {
 // or when s ends first, on a defect, a stop or a typed failure that leaves
 // the block. So tasks that borrow a provider drain before it closes, and
 // each provider closes once, at the end of its with, not of its function.
+//
+//ergo:wait none
 func (s *Scope) OpenWith() *Scope {
 	s = s.current()
 	if s.ended {
@@ -197,6 +227,8 @@ func (s *Scope) OpenWith() *Scope {
 // An acquisition begins at an interruption point (I1): a stop that arrived
 // while an earlier provider was built masked is observed here, so no later
 // provider is built and the earlier ones close.
+//
+//ergo:wait none
 func (w *Scope) WithAcquire(open func() (func(), error)) error {
 	t := w.s.Task()
 	t.Check()
@@ -231,6 +263,8 @@ func (w *Scope) ownRelease(close func()) {
 // a lone typed failure stays in *err, and any release defect joins it and
 // is raised, as a frame's End settles its exit. A stop is not observed
 // here; the next checkpoint observes it.
+//
+//ergo:wait none
 func (w *Scope) EndWith(err *error) {
 	p := w.parent
 	n := len(p.withs)
@@ -250,6 +284,9 @@ func (w *Scope) EndWith(err *error) {
 // entering it. A pending stop remains pending until the caller's next
 // checkpoint. A defect or carried exit is raised whole, for the caller's
 // frame to join to its earlier exit; it is never turned into a typed error.
+//
+//ergo:wait none
+//ergo:release caller
 func Release(t *rt.Task, body func()) {
 	var c rt.Cause
 	release(t, &c, body, nil)
@@ -276,8 +313,10 @@ func (s *Scope) release() {
 	for s.last != nil {
 		x := s.last
 		s.remove(x)
-		if x.own != nil {
+		if x.owned() {
 			s.runOwn(x) // a checked Close, which masks itself, or OwnErr's release
+		} else if x.exit != nil {
+			x.exit.run(s) // an exit action, through release
 		} else {
 			x.action() // a release of its own, through release
 		}
@@ -294,6 +333,9 @@ func (s *Scope) release() {
 // rule 8). A defect in it joins the frame's exit as a release defect, with
 // its stack, and the frame's other reasons stay. Registering on a frame
 // that has returned is a defect.
+//
+//ergo:wait none
+//ergo:release frame
 func OnExit(s *Scope, body func()) {
 	// Inside an owning with, s is the with's scope; the action belongs to
 	// the function's frame all the same (Exit actions 2).
@@ -304,33 +346,51 @@ func OnExit(s *Scope, body func()) {
 	if s.ended {
 		panic("scope.OnExit: the frame that would run this exit action has returned")
 	}
+	a := &exitAction{body: body}
+	a.entry.exit = a
+	s.push(&a.entry)
+}
+
+// exitAction is one exit action of a frame: its entry in the frame's
+// list, the block, and the frame the block runs as, in one allocation per
+// registration. Before ONEXIT-COST the entry, a closure over the block
+// and the frame, and the block's frame were three, and the frame's own
+// scope escaped through the closure (std cache: 5 allocations per miss).
+type exitAction struct {
+	entry entry
+	body  func()
+	frame Scope
+}
+
+// run runs the exit action at the end of s, the frame it was registered
+// on (Scope.release).
+func (a *exitAction) run(s *Scope) {
 	t := s.s.Task()
-	s.push(&entry{action: func() {
-		action := &Scope{s: rt.NewScope(t)}
-		prev := s.action
-		s.action = action
-		// The route to the action's frame stays through the block and
-		// through the frame's own release, where nested exit actions run.
-		defer func() { s.action = prev }()
-		// The block and its frame's release are one release of s, which
-		// release reports on a traced tree: the block's frame ends
-		// inside it, so its nested releases report before its own release
-		// event. A panic of the block is recorded by rt as a release defect
-		// after the release-local unwind and before the block's frame ends
-		// with that exit's carried part (after), so the panic event comes
-		// before the nested releases it causes.
-		var nested error
-		release(t, &s.exits, func() {
-			body()
-			nested = action.end(nil)
-		}, func(carried error) error {
-			if action.ended {
-				return carried // the frame's end itself panicked
-			}
-			return action.end(carried)
-		})
-		s.exits.Add(nested)
-	}})
+	action := &a.frame // zero: the action runs once
+	action.s.Begin(t)
+	prev := s.action
+	s.action = action
+	// The route to the action's frame stays through the block and
+	// through the frame's own release, where nested exit actions run.
+	defer func() { s.action = prev }()
+	// The block and its frame's release are one release of s, which
+	// release reports on a traced tree: the block's frame ends
+	// inside it, so its nested releases report before its own release
+	// event. A panic of the block is recorded by rt as a release defect
+	// after the release-local unwind and before the block's frame ends
+	// with that exit's carried part (after), so the panic event comes
+	// before the nested releases it causes.
+	var nested error
+	release(t, &s.exits, func() {
+		a.body()
+		nested = action.end(nil)
+	}, func(carried error) error {
+		if action.ended {
+			return carried // the frame's end itself panicked
+		}
+		return action.end(carried)
+	})
+	s.exits.Add(nested)
 }
 
 // Task is a started task, Ergo's Task[T, E]. Its methods are the prelude's
@@ -341,7 +401,11 @@ func OnExit(s *Scope, body func()) {
 // a return, into a field, a container or a queue, and released by Close at
 // its owner's end when no Wait took it.
 type Task[T any] struct {
-	h    *rt.Handle[T]
+	// h is the task's handle, held in the Task (rt.Start), so the Task and
+	// its handle are one allocation (PARK1).
+	h rt.Handle[T]
+	// body is the block the task runs, until it starts (taskBody.Run).
+	body func(*rt.Task) (T, error)
 	task *rt.Task // the task that started it
 	used bool     // Wait, Stop or Close ran
 	// out is the value the body returned, kept past rt's stop-wins, which
@@ -352,7 +416,22 @@ type Task[T any] struct {
 	// follows it.
 	out   T
 	ended bool
+	// ent is the entry of the Task's first owner (selfOwned), released
+	// by rel; a later owner makes an entry of its own (PARK2).
+	ent entry
+	rel func(*Task[T])
 }
+
+func (t *Task[T]) ownedEntry(rel any) *entry {
+	f, ok := rel.(func(*Task[T]))
+	if t == nil || !ok || t.ent.self != nil {
+		return nil
+	}
+	t.ent.self, t.rel = t, f
+	return &t.ent
+}
+
+func (t *Task[T]) releaseOwned() { t.rel(t) }
 
 // Site is the Ergo identity of a call: the calling function, the called
 // declaration and the call's source position, such as "main calls task.Go
@@ -373,23 +452,33 @@ type Site string
 // completes. The lowering registers the Task as an owned value in the step
 // that receives it (Owning, R8), so its owner's end releases it (Close).
 // Starting a task on a frame that has returned is a defect (law R9).
+//
+//ergo:wait none
 func Go[T any](s *Scope, span Site, body func(*rt.Task) (T, error)) *Task[T] {
 	s = s.current()
 	if s.ended {
 		panic("task.Go: the frame that would own this task has returned (law R9)")
 	}
-	// rt registers the handle on the scope it is given. That scope is a
-	// throwaway: the Task's owner releases it through its own entry.
-	holder := rt.NewScope(s.s.Task())
-	t := &Task[T]{task: s.s.Task()}
-	t.h = rt.Go(&holder, string(span), func(ct *rt.Task) (T, error) {
-		v, err := guarded(ct, body)
-		if err == nil {
-			t.out, t.ended = v, true
-		}
-		return v, err
-	})
+	// The Task's owner releases it through its own entry, so rt registers
+	// the handle on no scope (rt.Start), and the Task itself is the body,
+	// so no closure carries it.
+	t := &Task[T]{task: s.s.Task(), body: body}
+	rt.Start(&t.h, t.task, string(span), (*taskBody[T])(t))
 	return t
+}
+
+// taskBody is a Task as the body rt runs: the block, under the defect
+// guard, keeping the value it returns past stop-wins (out, ended).
+type taskBody[T any] Task[T]
+
+func (b *taskBody[T]) Run(ct *rt.Task) (T, error) {
+	body := b.body
+	b.body = nil // the block runs once; the Task keeps nothing it captured
+	v, err := guarded(ct, body)
+	if err == nil {
+		b.out, b.ended = v, true
+	}
+	return v, err
 }
 
 // Wait waits for the task to end and consumes it. It returns the task's
@@ -401,6 +490,8 @@ func Go[T any](s *Scope, span Site, body func(*rt.Task) (T, error)) *Task[T] {
 // task is stopped and drained, and Wait raises the interruption with the
 // task's defects; it delivers neither the task's value nor its typed
 // failure (law R4). A Wait after Wait, Stop or Close is a defect.
+//
+//ergo:wait handle
 func (t *Task[T]) Wait() (T, error) {
 	if t.used {
 		panic("task: Wait on a task that was already waited for, stopped or released")
@@ -423,6 +514,8 @@ func (t *Task[T]) Wait() (T, error) {
 // interruption and an abandoned typed failure are the expected result of
 // the stop and are dropped (laws R3, R6); its defects are raised in the
 // caller. Stop on a consumed task does nothing.
+//
+//ergo:wait drain
 func (t *Task[T]) Stop() {
 	if t.used {
 		return
@@ -439,6 +532,9 @@ func (t *Task[T]) Stop() {
 // The task's typed failure is dropped (a traced tree's observe event says
 // it was not observed) and its defects are raised for the releasing scope.
 // Close on a consumed task does nothing.
+//
+//ergo:wait none
+//ergo:release caller
 func (t *Task[T]) Close(ct *rt.Task) {
 	if t.used {
 		return
@@ -459,6 +555,8 @@ func (t *Task[T]) Close(ct *rt.Task) {
 // out of its owner first, so its owner never drains it. It gives nothing
 // for a body that failed or was interrupted before it returned (a Close
 // ran first, so the task has ended). It never waits.
+//
+//ergo:wait none
 func (t *Task[T]) Drain() []T {
 	if !t.ended {
 		return nil
@@ -503,6 +601,8 @@ type Sleeper interface {
 // rel is the hidden release of A: when the body returned a value that
 // After does not give (stop wins at the body's boundary, or the caller is
 // interrupted), After releases it (Gap 47).
+//
+//ergo:wait child
 func After[A any](span Site, t *rt.Task, s Sleeper, rel Releaser[A], d time.Duration, body func(*rt.Task) (A, error)) (A, error) {
 	var kept A
 	returned := false
@@ -559,9 +659,11 @@ func releaseLeft[T any](t *rt.Task, rel Releaser[T], v T, err error) error {
 // returned are released, in the order of xs (Gap 47). A limit below 1 is
 // a defect of the caller. Prior art: errgroup.Group with SetLimit;
 // Effect's Effect.forEach with { concurrency }.
+//
+//ergo:wait child
 func TasksTransform[A, B any](span Site, t *rt.Task, rel Releaser[[]B], xs []A, limit int, f func(*rt.Task, A) (B, error)) ([]B, error) {
 	if limit < 1 {
-		panic(fmt.Sprintf("tasks.Transform: limit %d is less than 1", limit))
+		panic("tasks.Transform: limit " + strconv.Itoa(limit) + " is less than 1")
 	}
 	var out []B
 	var err error
@@ -616,6 +718,8 @@ func TasksTransform[A, B any](span Site, t *rt.Task, rel Releaser[[]B], xs []A, 
 // returned a value, and every block's value when Race fails, is released,
 // in block order (Gap 47). Prior art: Effect.raceAll; Go's select over
 // result channels and a cancel of the losers.
+//
+//ergo:wait child
 func TasksRace[T any](span Site, t *rt.Task, rel Releaser[T], blocks []func(*rt.Task) (T, error)) (T, error) {
 	n := len(blocks)
 	f := func(ct *rt.Task, i int) (T, error) { return blocks[i](ct) }
@@ -688,9 +792,9 @@ type deadlines struct {
 // NewTimer starts the deadline child. Its timer fires when s.Sleep(d) ends
 // while the child is not stopped: a stop of the child (Stop below, or a
 // stop of t that cascades to it) never fires it.
-func (ds deadlines) NewTimer(d time.Duration) rt.Timer {
+func (ds deadlines) NewTimer(d rt.Span) rt.Timer {
 	holder := rt.NewScope(ds.t)
-	dl := &deadline{fired: make(chan time.Time)}
+	dl := &deadline{fired: make(chan rt.Instant)}
 	dl.h = rt.Go(&holder, ds.span, func(ct *rt.Task) (struct{}, error) {
 		return guarded(ct, func(ct *rt.Task) (struct{}, error) {
 			defer func() {
@@ -702,7 +806,7 @@ func (ds deadlines) NewTimer(d time.Duration) rt.Timer {
 					w.Done()
 				}
 			}()
-			ds.s.Sleep(ct, d)
+			ds.s.Sleep(ct, time.Duration(d))
 			return struct{}{}, nil
 		})
 	})
@@ -713,11 +817,11 @@ func (ds deadlines) NewTimer(d time.Duration) rt.Timer {
 // closes when the deadline passes.
 type deadline struct {
 	h     *rt.Handle[struct{}]
-	fired chan time.Time
+	fired chan rt.Instant
 }
 
 // C delivers when the deadline passes: it closes.
-func (dl *deadline) C() <-chan time.Time { return dl.fired }
+func (dl *deadline) C() <-chan rt.Instant { return dl.fired }
 
 // WakesItsWaiter marks a deadline as an rt.WakeSource: its fire wakes the
 // race's caller through rt.Waking, so the caller may park on it.
@@ -769,13 +873,23 @@ type Owned struct {
 // Owner is the entry, not yet registered, of a value that code at s will
 // own: s is the code's frame scope, or the scope of the innermost owning
 // with around it. Owning registers it.
+//
+//ergo:wait none
 func (s *Scope) Owner() *Owned { return &Owned{s: s} }
 
 // Owning registers v as the owned value of h, released by rel, and returns
 // v. It is the step that receives v: no checkpoint runs between the
 // expression that produced v and the registration, so a stop cannot leave
 // v unowned (R8).
+//
+//ergo:wait none
 func Owning[T any](h *Owned, v T, rel func(T)) T {
+	if so, ok := any(v).(selfOwned); ok {
+		if e := so.ownedEntry(rel); e != nil {
+			h.s, h.e = h.s.add(e), e
+			return v
+		}
+	}
 	o := h.s.own(func() { rel(v) })
 	h.s, h.e = o.s, o.e
 	return v
@@ -784,6 +898,8 @@ func Owning[T any](h *Owned, v T, rel func(T)) T {
 // OwningParts is Owning for a value whose release is generated from its
 // parts (#197 L8 B2; check.Drop): rel receives the fields the owner took
 // in place (TakeField), which it skips (R39, Gap 38).
+//
+//ergo:wait none
 func OwningParts[T any](h *Owned, v T, rel func(T, uint64)) T {
 	var e *entry
 	o := h.s.own(func() { rel(v, e.taken) })
@@ -792,8 +908,33 @@ func OwningParts[T any](h *Owned, v T, rel func(T, uint64)) T {
 	return v
 }
 
+// OwningAt makes h's entry, just registered, release the value at p when
+// it runs, not the value it was registered with: an owned local that the
+// code writes in place, through a *T function or a field, is released
+// with its writes (EXH1; resources R17). The registration keeps the step
+// that receives the value (R8); this only moves where the release reads.
+//
+//ergo:wait none
+func OwningAt[T any](h *Owned, p *T, rel func(T)) {
+	if h != nil && h.e != nil {
+		h.e.own = func() { rel(*p) }
+	}
+}
+
+// OwningPartsAt is OwningAt for a generated release (OwningParts).
+//
+//ergo:wait none
+func OwningPartsAt[T any](h *Owned, p *T, rel func(T, uint64)) {
+	if h != nil && h.e != nil {
+		e := h.e
+		e.own = func() { rel(*p, e.taken) }
+	}
+}
+
 // TakeField marks field k of h's value taken in place: its owner's
 // release skips it. A value whose entry left the list ignores it.
+//
+//ergo:wait none
 func (h *Owned) TakeField(k int) {
 	if h != nil && h.e != nil {
 		h.e.taken |= 1 << k
@@ -810,13 +951,19 @@ type Drop struct {
 }
 
 // Drop starts the generated release of a value owned at s.
+//
+//ergo:wait none
 func (s *Scope) Drop() *Drop { return &Drop{t: s.s.Task()} }
 
 // NewDrop starts the generated release of a value on t outside a frame:
 // the release a std body runs for a result it drops (Releaser; Gap 47).
+//
+//ergo:wait none
 func NewDrop(t *rt.Task) *Drop { return &Drop{t: t} }
 
 // Part runs one part's release; a defect joins the value's cause.
+//
+//ergo:wait none
 func (d *Drop) Part(rel func()) {
 	defer func() {
 		if p := recover(); p != nil {
@@ -827,6 +974,8 @@ func (d *Drop) Part(rel func()) {
 }
 
 // End raises the defects of the parts, if any.
+//
+//ergo:wait none
 func (d *Drop) End() {
 	if err := d.c.Err(); err != nil {
 		raise(err)
@@ -836,13 +985,19 @@ func (d *Drop) End() {
 // own adds a release entry to s, or to the frame of the exit action that
 // code at s runs now.
 func (s *Scope) own(rel func()) *Owned {
+	e := &entry{own: rel}
+	return &Owned{s: s.add(e), e: e}
+}
+
+// add pushes the release entry e on s, or on the frame of the exit action
+// that code at s runs now, and returns that frame.
+func (s *Scope) add(e *entry) *Scope {
 	s = s.current()
 	if s.ended {
 		panic("ownership: the frame that would own this value has returned")
 	}
-	e := &entry{own: rel}
 	s.push(e)
-	return &Owned{s: s, e: e}
+	return s
 }
 
 // OwnErr registers a release that reports a failure, the Close() error of
@@ -866,14 +1021,31 @@ func OwnErr(s *Scope, site Site, rel func() error) *Owned {
 // the Ergo position of the value's acquisition. It runs inside a release
 // (Release, OwnErr), whose boundary keeps the defect in the exit cause;
 // Go's habit of `defer f.Close()` drops the error instead.
+//
+//ergo:wait none
 func CloseFailed(at string, err error) {
 	if err != nil {
-		panic(fmt.Errorf("release of the value acquired at %s: %w", at, err))
+		panic(closeFailure{at: at, err: err})
 	}
 }
 
+// closeFailure is CloseFailed's defect: fmt.Errorf's "%s: %w" text and
+// unwrap, without fmt in the core (binsize BS2).
+type closeFailure struct {
+	at  string
+	err error
+}
+
+func (c closeFailure) Error() string {
+	return "release of the value acquired at " + c.at + ": " + c.err.Error()
+}
+
+func (c closeFailure) Unwrap() error { return c.err }
+
 // Hand removes h's entry, the value v being handed off: moved to a new
 // owner or taken by a call, and returns v.
+//
+//ergo:wait none
 func Hand[T any](h *Owned, v T) T {
 	h.drop()
 	return v
@@ -882,6 +1054,8 @@ func Hand[T any](h *Owned, v T) T {
 // Returned keeps h's entry until its frame's exit is known, the value v
 // being returned (R10): the frame drops it when it returns v, and
 // releases it when its exit fails. It returns v.
+//
+//ergo:wait none
 func Returned[T any](h *Owned, v T) T {
 	if h == nil || h.e == nil {
 		return v
@@ -910,13 +1084,15 @@ func (h *Owned) drop() {
 // statement's temporaries, a break or continue), or the old value of an
 // assignment (R41). A defect is raised at once; the frame's End then
 // releases what it still owns and keeps every defect (R9).
+//
+//ergo:wait none
 func (h *Owned) Release() {
 	if h == nil || h.e == nil {
 		return
 	}
 	e := h.e
 	h.drop()
-	e.own()
+	e.release()
 }
 
 // ReleaseLatestFirst releases the values of hs at a scope's end, last
@@ -926,6 +1102,8 @@ func (h *Owned) Release() {
 // declaration order. A nil handle, or one whose entry left the list, does
 // nothing. A defect of one release leaves as Release's does, and the
 // frame's End releases the rest.
+//
+//ergo:wait none
 func ReleaseLatestFirst(hs ...*Owned) {
 	var order []*Owned
 	for i, h := range hs {
@@ -961,7 +1139,7 @@ func (s *Scope) runOwn(e *entry) {
 			s.exits.Add(capture(t, p))
 		}
 	}()
-	e.own()
+	e.release()
 }
 
 // settleKept ends the values the frame returned (Returned): on a failed

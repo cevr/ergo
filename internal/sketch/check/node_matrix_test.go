@@ -46,6 +46,13 @@ var nodeMatrix = []struct {
 	case B:
 	}
 }`, "S104", "nope"},
+	{"OrPattern", `func F(x U) {
+	match (x, 1) {
+	case (A | B, 1):
+		G(nope)
+	case _:
+	}
+}`, "S104", "nope"},
 	{"BasicLit", `func F() int8 { return 300 }`, "S108", "300"},
 	{"BinaryExpr", `func F() int { return 1 + nope }`, "S104", "nope"},
 	{"CallExpr", `func F() { G(nope) }`, "S104", "nope"},
@@ -89,6 +96,9 @@ func Step(s U, e U) Decision[U, int] { return Ignore }`, "S104", "Nope"},
 	{"AssertStmt", `test T {
 	assert nope
 }`, "S104", "nope"},
+	{"SkipStmt", `test T {
+	skip " "
+}`, "S108", "\" \""},
 	{"AssignStmt", `func F() int {
 	let mut x = 1
 	x = nope

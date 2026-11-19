@@ -441,7 +441,7 @@ func runWorkCase(c wcase, seen map[string]bool) string {
 		}
 		return s
 	}
-	dr.a = MachineStart(Site("work test"), task, releaser{make(chan sleep)}, c.wm.m.init, step,
+	dr.a = MachineStart(Site("work test"), task, releaser{make(chan sleep)}, nil, c.wm.m.init, step,
 		func(*rt.Task, tstate, tstate) (tdec, error) { return tdec{kind: decideIgnore}, nil },
 		func(tstate) time.Duration { return ActorNoTimer() },
 		func(s tstate) wwork { return wwork{s: s, kind: c.wm.works[s.v]} },

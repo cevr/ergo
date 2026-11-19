@@ -73,18 +73,19 @@ func TestImportGoRows(t *testing.T) {
 			"2:32:S102 this call requires go.Foreign, which is not in the capability row of function Escape and no with provides it"},
 		{"error", "import go strconv\nfunc N(s string) int { try strconv.Atoi(s) }\n",
 			"2:24:S101 {go.Error} escapes function N, whose error row {} does not list it"},
-		{"test", "import go net/url\nfunc esc(s string) string { url.QueryEscape(s) }\ntest Esc { assert esc(\"a\") == \"a\" }\n",
+		{"test", "import go net/url\nfunc esc(s string) string needs go.Foreign { url.QueryEscape(s) }\ntest Esc { assert esc(\"a\") == \"a\" }\n",
 			"3:19:S102 this call requires go.Foreign, which is not in the capability row of test Esc and no with provides it"},
 		// go.Foreign's interface is empty, so only this rule keeps a
 		// context (in a test, say) from providing it.
-		{"test-context", "import go net/url\ntype Fake {}\nfunc esc(s string) string { url.QueryEscape(s) }\ntest Esc { with context { go.Foreign: Fake } { assert esc(\"a\") == \"a\" } }\n",
+		{"test-context", "import go net/url\ntype Fake {}\nfunc esc(s string) string needs go.Foreign { url.QueryEscape(s) }\ntest Esc { with context { go.Foreign: Fake } { assert esc(\"a\") == \"a\" } }\n",
 			"4:39:S106 no context binds go.Foreign: its one provider is the program entry, for a main that lists it (rows.md, Entry 4)"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, d := check.CheckSource(tc.src)
 			var got []string
 			for _, x := range d {
-				got = append(got, strings.Join([]string{strconv.Itoa(x.Line), strconv.Itoa(x.Column), x.Code + " " + x.Message}, ":"))
+				msg, _, _ := strings.Cut(x.Message, "; write: ") // TestExplicitClauseText's
+				got = append(got, strings.Join([]string{strconv.Itoa(x.Line), strconv.Itoa(x.Column), x.Code + " " + msg}, ":"))
 			}
 			if len(got) != 1 || got[0] != tc.want {
 				t.Fatalf("want %q, got %q", tc.want, got)
@@ -100,7 +101,8 @@ func TestImportGoRows(t *testing.T) {
 // method called on a copy; a borrow kept as a go.Ref; a program operation
 // type's value admitted into a Go interface, which Go then refuses
 // (16b-g-ops-into-go-interface), sealed ones included
-// (fixts-sealed-user-as-std).
+// (fixts-sealed-user-as-std); an Ergo record admitted into a Go
+// interface by its functions, with no clause (EXC1).
 func TestImportGoUses(t *testing.T) {
 	for _, tc := range []struct{ name, src, want string }{
 		{"refused-at-use", "import go math\nfunc F() int { let _ = math.Pi; 0 }\nfunc G() uint64 { math.MaxUint64 }\n",
@@ -121,6 +123,11 @@ func TestImportGoUses(t *testing.T) {
 		// (fixts-sealed-user-as-std).
 		{"sealed-ops-into-go-interface", "import go fmt\ntype S { String() string, reset() }\nfunc F(s S) fmt.Stringer { s }\n",
 			"3:28:S108 cannot use S as fmt.Stringer in the body's tail value: the operations of S take Ergo's calling convention, not the Go methods of fmt.Stringer"},
+		// EXC1: an Ergo record whose functions fit a Go interface is not
+		// one until it declares it (interop.md, Go calls Ergo 1).
+		{"record-into-go-interface-undeclared", "import go fmt\ntype R {}\nfunc String(r R) string { \"r\" }\nfunc F(r R) fmt.Stringer { r }\n",
+			"4:28:S108 cannot use R as fmt.Stringer in the body's tail value: R does not declare that it implements fmt.Stringer: write implements fmt.Stringer after R's body (types.md, Interface assignability 1)"},
+		{"record-into-go-interface", "import go fmt\ntype R {} implements fmt.Stringer\nfunc String(r R) string { \"r\" }\nfunc F(r R) fmt.Stringer { r }\n", ""},
 		// wf10 defects D2: a Go function is a value only when its type
 		// needs no conversion at the Go edge (check.GoDirectSig), and so
 		// is a Go function parameter an Ergo function is passed to.

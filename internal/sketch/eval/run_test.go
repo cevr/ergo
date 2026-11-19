@@ -22,10 +22,10 @@ func checked(t *testing.T, src string) *check.Package {
 
 // TestRunStopsTheRun is the smallest repro of the run's stop rules: a
 // defect stops the run and every later obligation is reported not run
-// (runtime.md, Tests 3); a loop that never ends exhausts the step budget
-// and is incomplete, never passed, and the rest is not run. Mutants:
-// defect-continues, fuel-ignored (the loop never ends: the test's
-// deadline kills it), incomplete-continues.
+// (runtime.md, Tests 3); a loop that never ends exhausts its step budget
+// and is incomplete, never passed, and the obligations after it run with
+// a whole budget each. Mutants: defect-continues, fuel-ignored (the loop
+// never ends: the test's deadline kills it), budget-shared.
 func TestRunStopsTheRun(t *testing.T) {
 	pkg := checked(t, `func half(x int) int { x / x }
 
@@ -37,7 +37,9 @@ test After {
 	assert true
 }
 
-law Sampled(n int) { n == n }
+law Sampled(n int) { Same(n) == n }
+
+func Same(n int) int { n }
 `)
 	rep, err := Run(pkg, DefaultBudget())
 	if err != nil {
@@ -61,22 +63,114 @@ test After {
 	assert true
 }
 
-law Sampled(n int) { n == n }
+law Sampled(n int) { Same(n) == n }
+
+func Same(n int) int { n }
 `)
 	rep, err = Run(pkg, Budget{Steps: 10_000, Depth: 8})
 	if err != nil {
 		t.Fatal(err)
 	}
-	want = []Status{Incomplete, NotRun, NotRun}
+	want = []Status{Incomplete, Passed, Passed}
 	for i, res := range rep.Results {
 		if i >= len(want) || res.Status != want[i] {
 			t.Fatalf("results %+v, want statuses %v", rep.Results, want)
 		}
-	}
-	if rep.Steps > rep.Limit {
-		t.Fatalf("used %d steps of %d", rep.Steps, rep.Limit)
+		if res.Steps > rep.Limit {
+			t.Fatalf("%s used %d steps of %d", res.Name, res.Steps, rep.Limit)
+		}
 	}
 
+}
+
+// TestRunReportsTheSkipsReason: skip "reason" ends a test, a property at
+// the case that reaches it, and a law run, each skipped with the test's
+// own reason and the statement's line (runtime.md, Tests 4), and the
+// other obligations run (the tests in source order, then the laws).
+// Mutant: tskip-eval-reason (the skip's reason is not the test's).
+func TestRunReportsTheSkipsReason(t *testing.T) {
+	pkg := checked(t, `
+
+test Host {
+	skip "git is not on this host"
+}
+
+test Drawn(n int) {
+	if n > 3 {
+		skip "past three"
+	}
+	assert n + n == 2 * n
+}
+
+law Sum(n int) {
+	if n < 0 {
+		skip "not for negatives"
+	}
+	n + n == 2 * n
+}
+
+test After {
+	assert true
+}
+`)
+	rep, err := Run(pkg, DefaultBudget())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []struct {
+		status Status
+		reason string
+		line   int
+	}{{Skipped, "git is not on this host", 4}, {Skipped, "past three", 9}, {Passed, "", 0}, {Skipped, "not for negatives", 16}}
+	if len(rep.Results) != len(want) {
+		t.Fatalf("results %+v, want %d", rep.Results, len(want))
+	}
+	for i, w := range want {
+		r := rep.Results[i]
+		if r.Status != w.status || r.Reason != w.reason || (w.line != 0 && r.Site.Line != w.line) {
+			t.Errorf("%s: %s %q at line %d, want %s %q at line %d", r.Name, r.Status, r.Reason, r.Site.Line, w.status, w.reason, w.line)
+		}
+	}
+}
+
+// TestPreflightAdmitsWhatRuns is the smallest repro of a fixed bug: the
+// preflight skipped an obligation that reaches encode or decode, or a
+// program's extern of a Go function the evaluator calls, though the run
+// itself evaluates both (O18, O20), so 42 example obligations were
+// skipped. Mutants: oracle-o23-preflight-codec,
+// oracle-o23-preflight-go-extern.
+func TestPreflightAdmitsWhatRuns(t *testing.T) {
+	pkg := checked(t, `import json
+
+extern go math.Log func log(x float64) float64
+
+type P { X int, Name string }
+
+test Codec {
+	let c = json.Codec[P]{MaxBytes: 0, MaxDepth: 0}
+	let p = P{X: 3, Name: "a"}
+	let text = json.Encode(c, p)
+	assert text != ""
+	let back = json.Decode(c, text) catch {
+	case _:
+		return
+	}
+	assert back == p
+}
+
+test GoLog {
+	assert log(1.0) == 0.0
+}
+`)
+	rep, err := Run(pkg, DefaultBudget())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, res := range rep.Results {
+		if res.Status != Passed {
+			t.Errorf("%s is %s (%s)", res.Name, res.Status, res.Reason)
+		}
+	}
 }
 
 // TestRunRefusesAnAbsentFootprint: a frame with no footprint is an

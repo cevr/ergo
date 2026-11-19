@@ -284,6 +284,11 @@ type symRun struct {
 	// conditions, for the stop's text. Every other expression stops on one.
 	ok, branch map[syntax.Expr]bool
 	marked     map[syntax.Node]bool
+	// A template run (CF2, foldvalue.go): holes are the expressions only
+	// the run knows, each a symbol; culprits are the holes a stop read.
+	tmpl     bool
+	holes    map[syntax.Expr]*symbol
+	culprits []*symbol
 }
 
 func newSymRun() *symRun {
@@ -307,7 +312,7 @@ func (s *symRun) mark(info *check.Info, body syntax.Node) {
 		switch n := n.(type) {
 		case *syntax.CallExpr:
 			c := info.Calls[n]
-			if c == nil || c.Kind == check.CallConversion || c.Kind == check.CallLen {
+			if c == nil || c.Kind == check.CallConversion || c.Kind == check.CallLen && !s.tmpl {
 				break
 			}
 			ok(n.Args...)
@@ -349,6 +354,13 @@ func (s *symRun) mark(info *check.Info, body syntax.Node) {
 			s.branch[n.Cond] = true
 		case *syntax.SwitchStmt:
 			s.branch[n.Tag] = true
+		case *syntax.TypeSwitchStmt:
+			if s.tmpl {
+				// A template run matches a hole by its type (symMatch).
+				for _, g := range n.Subjects {
+					ok(g.X)
+				}
+			}
 		case *syntax.CaseClause:
 			for _, x := range n.List {
 				s.branch[x] = true
@@ -360,6 +372,7 @@ func (s *symRun) mark(info *check.Info, body syntax.Node) {
 
 // stop is the run's stop at x, which reads a term where no term may be.
 func (in *interp) symStop(fr *frame, x syntax.Expr, v Value) *abrupt {
+	in.sym.blame(v)
 	verb := "computes with"
 	if in.sym.branch[x] {
 		verb = "branches on"
@@ -528,7 +541,7 @@ func ProveSymbolic(law *check.Law, p check.LawProvider) (out SymbolicProof) {
 	if st == nil {
 		return no("the provider is no record")
 	}
-	in := &interp{budget: symbolicBudget, root: law.Pkg, files: map[syntax.Decl]*syntax.File{}, initials: map[*check.TypeName]Value{}, globals: map[*check.Var]*slot{}, sym: newSymRun()}
+	in := &interp{budget: symbolicBudget, root: law.Pkg, files: map[syntax.Decl]*syntax.File{}, initials: map[*check.TypeName]Value{}, globals: map[*check.Var]*slot{}, sym: newSymRun(), walk: true}
 	defer func() {
 		if r := recover(); r != nil {
 			out = no("the evaluator stopped: %v", r)

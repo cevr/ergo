@@ -61,6 +61,9 @@ type parser struct {
 	// literal or a trailing block (Go's rule); it is above zero inside
 	// parentheses and brackets.
 	exprLev int
+	// orAllowed is true while a case's patterns are parsed: there a nested
+	// pattern may list alternatives with | (orpattern.go).
+	orAllowed bool
 	// nest is the number of levels open on the path being parsed: each
 	// enter() opens one. peak is the deepest level reached by the subtree
 	// being measured (see measure); a chain retains its own height in it,
@@ -406,6 +409,16 @@ func (p *parser) parseFile() *File {
 			d = p.parseFuncDecl(doc)
 		case EXTERN:
 			d = p.parseExternDecl(doc)
+			if td, ok := d.(*TypeDecl); ok && td.Where != nil {
+				// A refined type that names its runtime Go type
+				// (os.Code) derives its parse function and law as any
+				// refinement does.
+				f.Decls = append(f.Decls, td)
+				p.endDecl()
+				f.Decls = append(f.Decls, p.derived...)
+				p.derived = nil
+				continue
+			}
 		case TEST:
 			d = p.parseTestDecl(doc)
 		case LAW:
@@ -544,7 +557,8 @@ func isAny(x Expr) bool {
 	return ok && id.Name == "any"
 }
 
-// parseTypeParams parses `[T ordered]`, `[A, B]`, `[K comparable, V]` or
+// parseTypeParams parses `[T ordered]`, `[A, B]`, `[K comparable, V]`,
+// `[T lent Counter]` or
 // `[E any, K comparable]` with Go's grouping: names before a constraint
 // share it, names at the end without one have none, and `any` gives a group
 // none where a constrained group follows it.
@@ -554,7 +568,14 @@ func (p *parser) parseTypeParams() *FieldList {
 	for {
 		pending = append(pending, p.parseIdent())
 		if p.tok.tok != COMMA && p.tok.tok != RBRACK {
-			l.List = append(l.List, &Field{Names: pending, Type: p.parseTypeName("a constraint")})
+			f := &Field{Names: pending, Type: p.parseTypeName("a constraint")}
+			// `lent` before a constraint marks the parameter lent and
+			// keeps the constraint: `[T lent Counter]` (types.md, Borrows
+			// 7). `lent` alone is the predeclared constraint.
+			if id, ok := f.Type.(*Ident); ok && id.Name == "lent" && p.tok.tok != COMMA && p.tok.tok != RBRACK {
+				f.Lent, f.Type = id.Pos(), p.parseTypeName("a constraint")
+			}
+			l.List = append(l.List, f)
 			pending = nil
 		}
 		if !p.got(COMMA) || p.tok.tok == RBRACK {
@@ -624,10 +645,16 @@ func (p *parser) parseMembers() *members {
 			m.laws = append(m.laws, p.parseLawDecl(doc, false))
 		case p.tok.tok == IDENT && p.peek(1).tok == LBRACK && p.bracketsThenParen():
 			p.errorAt(p.peek(1).pos, 1, "an operation has no type parameters; declare them on its type: `type Name[T] { … }`")
-		case p.tok.tok == IDENT && p.peek(1).tok == LPAREN:
+		case p.tok.tok == IDENT && p.peek(1).tok == LPAREN,
+			p.tok.tok == IDENT && p.tok.lit == "own" && p.peek(1).tok == IDENT && p.peek(2).tok == LPAREN:
 			kind = memberOperation
+			var own *Word
+			if p.peek(1).tok != LPAREN {
+				own = &Word{At: p.tok.pos} // `own Close()`: the operation keeps its receiver
+				p.next()
+			}
 			name := p.parseIdent()
-			op := &Field{Doc: doc, Names: []*Ident{name}, Type: p.parseSignature(NoPos, ctxMember)}
+			op := &Field{Doc: doc, Names: []*Ident{name}, Type: p.parseSignature(NoPos, ctxMember), Own: own}
 			m.ops = append(m.ops, op)
 			if tupleShaped(op.Type.(*FuncType)) {
 				either = append(either, eitherMember{op, len(m.fields)})
@@ -853,8 +880,8 @@ func (m *members) lawsOrOps() Node {
 	return m.laws[0]
 }
 
-// parseMachineType parses `machine[S, E] { initial: x, step: f }`, with an
-// optional `after: g` entry.
+// parseMachineType parses `machine[S, E] { initial: x, step: f }`, with
+// optional `after: g`, `work: w` and `exit: x` entries.
 func (p *parser) parseMachineType() *MachineType {
 	t := &MachineType{Machine: p.want(MACHINE)}
 	t.Lbrack = p.want(LBRACK)
@@ -878,11 +905,11 @@ func (p *parser) parseMachineType() *MachineType {
 			p.errorf("a machine's entries come before its laws")
 		}
 		e := &MachineEntry{Doc: doc, NamePos: p.tok.pos}
-		if p.tok.tok != IDENT || p.tok.lit != "initial" && p.tok.lit != "step" && p.tok.lit != "after" && p.tok.lit != "work" {
-			p.errorf("expected initial, step, after or work, found %s", p.found())
+		if p.tok.tok != IDENT || p.tok.lit != "initial" && p.tok.lit != "step" && p.tok.lit != "after" && p.tok.lit != "work" && p.tok.lit != "exit" {
+			p.errorf("expected initial, step, after, work or exit, found %s", p.found())
 		}
 		e.Name = p.tok.lit
-		if e.Name == "initial" && t.Initial != nil || e.Name == "step" && t.Step != nil || e.Name == "after" && t.After != nil || e.Name == "work" && t.Work != nil {
+		if e.Name == "initial" && t.Initial != nil || e.Name == "step" && t.Step != nil || e.Name == "after" && t.After != nil || e.Name == "work" && t.Work != nil || e.Name == "exit" && t.Exit != nil {
 			p.errorf("%s is set twice", e.Name)
 		}
 		p.next()
@@ -895,6 +922,8 @@ func (p *parser) parseMachineType() *MachineType {
 			t.Step = e.Value
 		case "work":
 			t.Work = e.Value
+		case "exit":
+			t.Exit = e.Value
 		default:
 			t.After = e.Value
 		}
@@ -1013,7 +1042,7 @@ func (p *parser) parseExternDecl(doc *CommentGroup) Decl {
 	switch p.tok.tok {
 	case TYPE:
 		d := p.parseTypeDecl(doc)
-		if d.Where != nil {
+		if d.Where != nil && !IsRuntimeTarget(path) {
 			p.errorAt(d.WherePos, len("where"), "a host type takes no where: Go checks nothing on it; declare a refined type over it in Ergo")
 		}
 		d.Extern = x
@@ -1028,7 +1057,7 @@ func (p *parser) parseExternDecl(doc *CommentGroup) Decl {
 	}
 	d := &FuncDecl{Doc: doc, Extern: x, Func: p.want(FUNC)}
 	if p.tok.tok == LPAREN {
-		d.Recv = p.parseParameters(paramPlain)
+		d.Recv = p.parseParameters(paramPlain, true)
 		if path, typ, name := x.SplitMethod(); path == "" || !isIdentifier(typ) || !isIdentifier(name) || len(d.Recv.List) != 1 || len(d.Recv.List[0].Names) != 1 {
 			p.errorf("an extern method has one named receiver and the target path.Type.Method")
 		}
@@ -1049,7 +1078,7 @@ func (p *parser) parseTestDecl(doc *CommentGroup) *TestDecl {
 	d := &TestDecl{Doc: doc, Test: p.want(TEST)}
 	d.Name = p.parseIdent()
 	if p.tok.tok == LPAREN {
-		d.Params = p.parseParameters(paramPlain)
+		d.Params = p.parseParameters(paramPlain, true)
 	}
 	if p.tok.tok != LBRACE {
 		p.errorf("expected \"{\", found %s", p.found())
@@ -1068,7 +1097,7 @@ func (p *parser) parseLawDecl(doc *CommentGroup, top bool) *LawDecl {
 	if top && p.tok.tok == LBRACK {
 		p.errorAt(p.tok.pos, 1, "a law has no type parameters; state it at concrete types, or as a member of the protocol's operation type")
 	}
-	d.Params = p.parseParameters(paramPlain)
+	d.Params = p.parseParameters(paramPlain, true)
 	r := &LawRewrite{When: NoPos, Eq: NoPos}
 	var guard Expr
 	if p.tok.tok == IDENT && p.tok.lit == "when" {
@@ -1086,21 +1115,52 @@ func (p *parser) parseLawDecl(doc *CommentGroup, top bool) *LawDecl {
 	if p.tok.tok != EQL && r.When == NoPos {
 		return d
 	}
+	if top && r.When == NoPos {
+		p.parseLawEquation(d)
+		return d
+	}
 	p.parseLawRewrite(d, r, guard, top)
 	return d
+}
+
+// parseLawEquation parses the rest of a top-level rewrite law (types.md,
+// Laws 14; LAWFFI LF6a), `law L(params) { lhs } == { rhs }`, after its
+// left block: each block holds one expression, and the law's Body becomes
+// `lhs == rhs`, so it is the property it states (LawDecl.Equation).
+func (p *parser) parseLawEquation(d *LawDecl) {
+	lhsB := d.Body
+	eq := p.want(EQL)
+	rhsB := p.parseBlock()
+	side := func(b *BlockStmt) Expr {
+		if len(b.List) == 1 {
+			if s, ok := b.List[0].(*ExprStmt); ok {
+				return s.X
+			}
+		}
+		p.errorAt(b.Lbrace, 1, "a top-level rewrite law has one expression on each side: law L(x T) { f(g(x)) } == { x }")
+		return nil
+	}
+	lhs, rhs := side(lhsB), side(rhsB)
+	if lhs == nil || rhs == nil {
+		d.Body = &BlockStmt{Lbrace: lhsB.Lbrace, List: append(append([]Stmt(nil), lhsB.List...), rhsB.List...), Rbrace: rhsB.Rbrace}
+		return
+	}
+	d.Equation = &LawEquation{LhsLbrace: lhsB.Lbrace, LhsRbrace: lhsB.Rbrace, RhsLbrace: rhsB.Lbrace, RhsRbrace: rhsB.Rbrace}
+	d.Body = &BlockStmt{Lbrace: lhsB.Lbrace, List: []Stmt{&ExprStmt{X: &BinaryExpr{X: lhs, OpPos: eq, Op: EQL, Y: rhs}}}, Rbrace: rhsB.Rbrace}
 }
 
 // parseLawRewrite parses the rest of a rewrite law (types.md, Laws 14),
 // `law L(params) [when R() == C] { lhs } == { rhs }`, after its left
 // block: a law whose body is two blocks joined by == is a rewrite law,
 // the left block the pattern and the right the replacement. Its Body then
-// holds the guard, lhs and rhs (LawDecl.Rewrite). A top-level rewrite law
-// is S108: a rewrite is of an operation type's own operations.
+// holds the guard, lhs and rhs (LawDecl.Rewrite). A top-level law with a
+// guard is refused: a law over functions takes no guard in v1, and one
+// true only under a guard stays a property.
 func (p *parser) parseLawRewrite(d *LawDecl, r *LawRewrite, guard Expr, top bool) {
 	lhs := d.Body
 	var rhs *BlockStmt
 	if top {
-		p.errorAt(d.Law, 3, "a rewrite law is a member of an operation type; a top-level law has no operations to rewrite")
+		p.errorAt(r.When, 4, "a top-level rewrite law takes no when: a law over functions has no guard in v1, and a law true only under a guard stays a property")
 	}
 	if p.tok.tok != EQL {
 		p.errorAt(p.tok.pos, 1, "expected == { … } after a guarded law's block; a law with when is a rewrite law, { lhs } == { rhs }")
@@ -1199,7 +1259,7 @@ const (
 // parseSignature parses `Params [Type] [fails …] [needs …]`.
 func (p *parser) parseSignature(funcPos Pos, ctx typeCtx) *FuncType {
 	t := &FuncType{Escaping: NoPos, Func: funcPos}
-	t.Params = p.parseParameters(paramPlain)
+	t.Params = p.parseParameters(paramPlain, ctx == ctxDecl)
 	var results []*Field
 	if p.startsType() {
 		results = append(results, &Field{Type: p.parseResultType(ctx)})
@@ -1348,16 +1408,25 @@ type paramEntry struct {
 	name  *Ident
 	typ   Expr
 	comma Pos // the comma before the entry, or NoPos for the first
+	// own is the mode word, or nil. ambiguous marks `own T` with no name
+	// before it: a parameter named own in a named list or a declaration,
+	// else the mode on an unnamed parameter.
+	own       *Word
+	ambiguous bool
 	// wherePos and where are a law parameter's `where P` (refine.go).
 	wherePos Pos
 	where    Expr
+	// pure marks the clause `pure` before a named entry's type, written at
+	// purePos.
+	pure    bool
+	purePos Pos
 }
 
 // parseParameters parses a parameter list with Go's grouping: either every
 // entry has a name (`a, b T` groups a and b) or none does (`func(int64)`).
 // A list of bare names is a list of types here; a function literal reads
 // it as untyped names (funcLitParams).
-func (p *parser) parseParameters(mode paramMode) *FieldList {
+func (p *parser) parseParameters(mode paramMode, decl bool) *FieldList {
 	l := &FieldList{Opening: p.want(LPAREN)}
 	saved := p.exprLev
 	p.exprLev = 1
@@ -1384,13 +1453,28 @@ func (p *parser) parseParameters(mode paramMode) *FieldList {
 	}
 	l.Closing = p.tok.pos
 	p.next()
-	named := false
+	// An `own T` entry with no name before it is a parameter named own in
+	// a named list or a declaration's, else the mode on an unnamed one.
+	named, ambiguous := false, false
 	for _, e := range entries {
-		named = named || e.name != nil
+		named = named || e.name != nil && !e.ambiguous
+		ambiguous = ambiguous || e.ambiguous
+	}
+	named = named || decl && ambiguous
+	for i := range entries {
+		e := &entries[i]
+		if !e.ambiguous {
+			continue
+		}
+		if named {
+			e.own = nil // a parameter named own
+		} else {
+			e.name = nil
+		}
 	}
 	if !named {
 		for _, e := range entries {
-			l.List = append(l.List, &Field{Type: e.typ})
+			l.List = append(l.List, &Field{Type: e.typ, Own: e.own})
 		}
 		return l
 	}
@@ -1408,7 +1492,7 @@ func (p *parser) parseParameters(mode paramMode) *FieldList {
 		if e.where != nil && len(pending) > 0 {
 			p.errorAt(e.wherePos, len("where"), "a where follows a parameter of one name: give %s its own type", pending[0].Name)
 		}
-		l.List = append(l.List, &Field{Names: append(pending, e.name), Type: e.typ, WherePos: e.wherePos, Where: e.where})
+		l.List = append(l.List, &Field{Names: append(pending, e.name), Type: e.typ, WherePos: e.wherePos, Where: e.where, Pure: e.pure, PurePos: e.purePos, Own: e.own})
 		pending = nil
 	}
 	if len(pending) > 0 {
@@ -1460,12 +1544,39 @@ func isCapabilityName(x Expr) bool {
 	return false
 }
 
+// atOwn reports whether the current token is the mode word `own`: the
+// word own followed by a token that starts a type (audit CSX §4.3, q168).
+// own is contextual, as pure is: elsewhere it is a name.
+func (p *parser) atOwn() bool {
+	if p.tok.tok != IDENT || p.tok.lit != "own" {
+		return false
+	}
+	switch p.peek(1).tok {
+	case IDENT, LBRACK, MUL, FUNC, ESCAPING, LPAREN:
+		return true
+	case GO:
+		return p.peek(2).tok == PERIOD
+	}
+	return false
+}
+
 func (p *parser) parseParamEntry() paramEntry {
+	if p.atOwn() {
+		// `own T`: the mode before an unnamed parameter's type, or a
+		// parameter named own; parseParameters decides by the list.
+		word := p.parseIdent()
+		return paramEntry{name: word, own: &Word{At: word.NamePos}, ambiguous: true, typ: p.parseType(ctxList)}
+	}
 	if p.tok.tok != IDENT {
 		return paramEntry{typ: p.parseType(ctxList)}
 	}
 	start := p.i
 	id := p.parseIdent()
+	if p.atOwn() {
+		own := &Word{At: p.tok.pos}
+		p.next()
+		return paramEntry{name: id, own: own, typ: p.parseType(ctxList)}
+	}
 	switch p.tok.tok {
 	case COMMA, RPAREN:
 		return paramEntry{typ: id}
@@ -1486,7 +1597,40 @@ func (p *parser) parseParamEntry() paramEntry {
 		}
 		return paramEntry{typ: t}
 	}
+	if pos, ok := p.pureClause(); ok {
+		e := paramEntry{name: id, pure: true, purePos: pos}
+		if p.atOwn() {
+			// `f pure own func() int`: both words, pure first (grammar.md,
+			// Param).
+			e.own = &Word{At: p.tok.pos}
+			p.next()
+		}
+		e.typ = p.parseType(ctxList)
+		return e
+	}
 	return paramEntry{name: id, typ: p.parseType(ctxList)}
+}
+
+// pureClause reads the contextual word `pure` after a parameter's name when
+// a type follows it (`m pure Machine[S, E, O]`, Declarations 16), and
+// reports its position. Elsewhere `pure` stays a name: `x pure` is a
+// parameter of the type pure.
+func (p *parser) pureClause() (Pos, bool) {
+	if p.tok.tok != IDENT || p.tok.lit != "pure" {
+		return 0, false
+	}
+	switch next := p.peek(1); next.tok {
+	case IDENT, FUNC, ESCAPING, LPAREN:
+	case GO:
+		if p.peek(2).tok != PERIOD {
+			return 0, false
+		}
+	default:
+		return 0, false
+	}
+	pos := p.tok.pos
+	p.next()
+	return pos, true
 }
 
 // funcLitParams reads the parameters of a function literal: all typed, or
@@ -1512,6 +1656,15 @@ func (p *parser) funcLitParams(l *FieldList) {
 func (p *parser) parseType(ctx typeCtx) Expr {
 	p.enter()
 	defer p.leave()
+	if p.tok.tok == IDENT && p.tok.lit == "entry" && p.peek(1).tok == FUNC {
+		// `entry func(…)`: the contextual word marks the type of an
+		// entry's send (Types); elsewhere entry stays a name.
+		pos := p.tok.pos
+		p.next()
+		t := p.parseFuncType(ctx)
+		t.Entry, t.EntryPos = true, pos
+		return t
+	}
 	switch p.tok.tok {
 	case IDENT, GO:
 		if p.tok.tok == GO && p.peek(1).tok != PERIOD {
@@ -1593,12 +1746,29 @@ func (p *parser) parseType(ctx typeCtx) Expr {
 		p.errorf("expected a type, found \"needs\": %s", needsKeywordText)
 		return nil
 	}
+	if p.tok.tok.IsKeyword() && startsType(p.peek(1).tok) {
+		// A keyword followed by a type was meant as a parameter's or a
+		// field's name (`in []int`; PKG G5): say that it is a keyword.
+		kw := p.tok.tok.String()
+		p.errorf("expected a type, found %q: %s is a keyword and is not a name; choose another name", kw, kw)
+		return nil
+	}
 	p.errorf("expected a type, found %s", p.found())
 	return nil
 }
 
 // needsKeywordText ends the S001 at a binder spelled needs (K4,
 // G-ex-d-12): the word is reserved.
+// startsType reports whether a type may start with t: a name, a slice or
+// array, a pointer, or a function type.
+func startsType(t Token) bool {
+	switch t {
+	case IDENT, LBRACK, MUL, FUNC, ESCAPING:
+		return true
+	}
+	return false
+}
+
 const needsKeywordText = "needs is a keyword (the capability row) and is not a name; choose another name"
 
 func (p *parser) parseFuncType(ctx typeCtx) *FuncType {

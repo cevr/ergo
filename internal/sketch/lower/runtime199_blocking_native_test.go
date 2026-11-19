@@ -23,7 +23,7 @@ import (
 func TestRuntime199BlockingProperty(t *testing.T) {
 	needsBuild(t)
 	var names []string
-	for name, binding := range runtimeBindings {
+	for name, binding := range runtimeBindings() {
 		body, err := v1.BodyOf(name)
 		if err != nil {
 			t.Fatal(err)
@@ -68,7 +68,7 @@ func TestRuntime199BlockingProperty(t *testing.T) {
 		t.Fatal("the owner has no blocking bindings")
 	}
 	for _, name := range names {
-		for _, route := range blockingRoutes(name, runtimeBindings[name]) {
+		for _, route := range blockingRoutes(name, runtimeBindings()[name]) {
 			t.Run(name+"/"+route, func(t *testing.T) { blockingNative(t, name, route) })
 		}
 	}
@@ -129,16 +129,21 @@ var childWaitLaws = map[string]bool{"After": true, "TasksTransform": true, "Task
 // as a Send does and ActorLiveState for an answer as State does;
 // runtime/v1/actor_feed_test.go TestActorFeedSourcesEndWithTheActor states
 // that a Feed and a live read on an ended actor fail Stopped at once, and
-// that a fed source never runs after the end returns.
+// that a fed source never runs after the end returns. F-GP4c-1:
+// ActorChanges (std actor's changesOf) and Actor.LatestChanges wait on the
+// subscription Changes waits on; TestActorWaitsAreInterruptible states
+// their interruption too.
 var actorWaitLaws = map[string]bool{"Actor.Send": true, "Actor.Ask": true, "Actor.State": true, "Actor.Changes": true, "Actor.Stop": true,
+	"ActorChanges": true, "Actor.LatestChanges": true,
 	"Actor.Drain": true, "ActorExitKind": true, "ActorFeed": true, "ActorLiveState": true, "Host.Get": true}
 
 // hostWaitLaws are the callerWait bindings that wait for a host process
-// (std-align S3c): runtime/v1/exec_test.go TestExecStopModel states their
+// (std-align S3c): runtime/v1/exec/exec_test.go TestExecStopModel states their
 // laws (a stop before the call starts nothing, a stop while the program
 // runs kills its group and returns after the reap, a masked caller runs
 // it to its end), and lower TestExecRuns stops a task that waits in one.
-// The reads of standard input wait for the host's input (batch-12 C3):
+// The reads of standard input (IOLines, IOReadAll, and IORead, std io.In's
+// Source Read) wait for the host's input (batch-12 C3):
 // runtime/v1/stdin_stop_test.go TestIOStdinStopModel states their laws (a
 // stop ends the wait, each line is taken once and in order, the line read
 // after a stop stays for the next read); a masked caller's Done is nil, so
@@ -163,6 +168,11 @@ var actorWaitLaws = map[string]bool{"Actor.Send": true, "Actor.Ask": true, "Acto
 // the stop after the peer saw the hang-up.
 // HTTPDoInto is the same streamed exchange with a fixed origin; the same
 // test holds its wait (httpStreamURL).
+// HTTPFetchLocal and HTTPFetchLocalInto (std http's InMemoryNetwork,
+// FK3-g3) run HTTPFetch's and HTTPFetchInto's policy loop and their one
+// exchange, httpDoVia and httpStreamVia, over a pipe: the stop laws above
+// are those functions', and the handler they call runs on the caller's
+// task, which observes the stop itself.
 // TermReadKey (std term, CU2) waits for a key through io's shared reader:
 // lower TestTermModesRestore stops a program that waits in it and checks
 // that the terminal is restored.
@@ -172,7 +182,11 @@ var actorWaitLaws = map[string]bool{"Actor.Send": true, "Actor.Ask": true, "Acto
 // stopped caller's Lines, Chunks and Wait end with the stop and leave the
 // program to its owner's release, and TestExecStartStopped that a stopped
 // caller's Start starts nothing.
-var hostWaitLaws = map[string]bool{"ExecRun": true, "ExecRunIn": true, "ExecStart": true, "ExecStartIn": true, "Running.Lines": true, "Running.Chunks": true, "Running.Wait": true, "IOReadAll": true, "IOLines": true, "RPCCall": true, "Exchange.Write": true, "HTTPDo": true, "HTTPFetch": true, "HTTPFetchInto": true, "HTTPDoInto": true, "TermReadKey": true}
+// ExecSpawn and ExecKill (std exec's Host, IA2b) start and end a detached
+// program: runtime/v1/exec/exec_spawn_test.go TestExecSpawnStopped states that
+// a stopped caller's Spawn starts nothing, and TestExecKillStopped that a
+// stop during Kill's grace goes on to SIGKILL and returns.
+var hostWaitLaws = map[string]bool{"ExecRun": true, "ExecRunIn": true, "ExecStartIn": true, "ExecSpawn": true, "ExecKill": true, "ExecStart": true, "Running.Lines": true, "Running.Chunks": true, "Running.Wait": true, "IOReadAll": true, "IOLines": true, "IORead": true, "RPCCall": true, "Exchange.Write": true, "HTTPDo": true, "HTTPFetch": true, "HTTPFetchInto": true, "HTTPDoInto": true, "HTTPFetchLocal": true, "HTTPFetchLocalInto": true, "TermReadKey": true}
 
 // blockingRoutes is the route axis of a binding (runtime.md, I1): the
 // waiting task of a callerWait binding is the task that invokes the call,
@@ -252,12 +266,30 @@ func blockingNative(t *testing.T, name, route string) {
 	default:
 		child = "try subject(q)"
 	}
+	// A body that makes a live scheduler writes Ambient, and so does each
+	// caller up to launch (q137: every row is written).
+	subjRow, makerRow, launchRow := "", "", ""
+	if strings.Contains(body, "NewLiveScheduler") {
+		subjRow, launchRow = " needs Ambient", " needs Ambient"
+	}
+	if body == "try h.Wait()" {
+		// Wait takes the task, and its parameter is written own (q137, EX3;
+		// q168).
+		param = strings.Replace(param, "h ", "h own ", 1)
+	}
+	if strings.Contains(maker, "NewLiveScheduler") {
+		makerRow, launchRow = " needs Ambient", " needs Ambient"
+		maker = strings.Replace(maker, " func(duration) {", " (func(duration))"+makerRow+" {", 1)
+	}
+	if strings.HasPrefix(name, "Task.") {
+		launchRow = " needs Ambient"
+	}
 	imports := "import queue\nimport task\n"
 	if strings.HasPrefix(name, "Timeline.") {
 		imports += "import time\n"
 	}
-	src := imports + maker + "\nfunc subject(" + param + ") int fails queue.Closed { " + body + " }\n" +
-		"func launch(q queue.Queue[int]) Task[int, queue.Closed] { task.Go() { " + child + " } }\nfunc main() {}\n"
+	src := imports + maker + "\nfunc subject(" + param + ") int fails queue.Closed" + subjRow + " { " + body + " }\n" +
+		"func launch(q queue.Queue[int]) Task[int, queue.Closed]" + launchRow + " { task.Go() { " + child + " } }\nfunc main() {}\n"
 	o := mustLower(t, "blocking", src)
 	if maker != "" && !envParams(t, o.mainGo())["maker"] {
 		arg = "maker(q)" // a pure maker takes no environment (pure.go, D-S5-10)
@@ -310,7 +342,9 @@ func blockingNative(t *testing.T, name, route string) {
 			data = replace(data, from, from+"\n\tdefer BlockingEnter(\"Timeline.Wait\", t)()")
 			data = replace(data, "return &Timeline{v: rt.NewManual(t, start), start: start}", "return &Timeline{v: rt.BlockingClock, start: start}")
 		case "ergo/runtime/rt/clock.go":
-			data = replace(data, "return liveTimer{time.NewTimer(d)}", "return BlockingClock.NewTimer(d)")
+			data = replace(data, "return newLiveTimer(d)", "return BlockingClock.NewTimer(d)")
+			// Live sleeps take the swapped timer, not the pooled host one.
+			data = replace(data, "if _, ok := s.(Live); ok {", "if _, ok := s.(Live); ok && BlockingClock == nil {")
 		case "ergo/runtime/rt/handle.go":
 			data = replace(data, "close(h.done)", "ready := BlockingFinished\n\tclose(h.done)\n\tif ready != nil { ready <- &h.task }")
 		}
@@ -502,7 +536,7 @@ func drive(t *testing.T, phase string, masked, moved bool) {
  if actual := receive(t, entered); actual != waiter { t.Fatal("binding received another task") }
  ready := func() {
   switch primitive {
-  case "Sleep", "Timeline.Wait", "Task.Wait", "Task.Stop": clock.Advance(time.Hour)
+  case "Sleep", "Timeline.Wait", "Task.Wait", "Task.Stop": clock.Advance(rt.Span(time.Hour))
   case "Queue.Push": if v, err := q.Pop(control); err != nil || v != 99 { panic("lost original queue value") }
   default: if err := q.Push(control, 7); err != nil { panic(err) }
   }

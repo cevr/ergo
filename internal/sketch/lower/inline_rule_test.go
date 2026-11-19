@@ -76,9 +76,10 @@ func main() needs Console {
 `
 	o := mustLower(t, "inlinerule", src)
 	body := goFunc(t, o.mainGo(), "main_1") // Go's main is the entry; Ergo's main is main_1
-	// A call of a known variant (known.go, nameKnown) is a call too.
+	// A call of a known variant (known.go, nameKnown) or of a monomorphic
+	// copy (mono.go) is a call too.
 	calls := func(name string) bool {
-		return regexp.MustCompile(`\b` + name + `(Known)?(_[0-9]+)?(\[[^\]]*\])?\(`).MatchString(body)
+		return regexp.MustCompile(`\b` + name + `(Known|Mono_i[0-9]+)?(_[0-9]+)?(\[[^\]]*\])?\(`).MatchString(body)
 	}
 	for _, row := range []struct {
 		name, why string

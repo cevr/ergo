@@ -101,6 +101,11 @@ type canonical struct {
 	sourced map[*check.Package]bool
 	nodeSrc map[syntax.Node]int // each node of the program's sources: its source file
 	lists   map[*check.Package]*declLists
+	// noViews is Unit.NoViews: the build takes no view (view.go).
+	noViews bool
+	// funcRw is the rewrites over functions of the IR path (ir_rewrite.go):
+	// here, so a lowering that runs again from the start keeps them.
+	funcRw *funcRewrites
 }
 
 // declLists are one sourced package's checker lists in canonical order.
@@ -113,7 +118,7 @@ type declLists struct {
 
 // canonicalize converts u, which Validate admits, to its canonical form.
 func canonicalize(u Unit) *canonical {
-	c := &canonical{sourced: map[*check.Package]bool{}, lists: map[*check.Package]*declLists{}}
+	c := &canonical{sourced: map[*check.Package]bool{}, lists: map[*check.Package]*declLists{}, noViews: u.NoViews}
 	c.srcs = sources(u)
 	for _, s := range c.srcs {
 		c.sourced[s.pkg] = true
@@ -169,16 +174,17 @@ func canonicalize(u Unit) *canonical {
 // what the program is, so it decides no part of the output (196b); it
 // stays only in each file's unit index, which Refusal.Source reports.
 func sources(u Unit) []srcFile {
+	root := u.Root
 	var srcs []srcFile
 	next := 0
 	add := func(u *Unit) {
 		start := len(srcs)
 		for i, f := range u.Files {
-			srcs = append(srcs, srcFile{file: f, path: u.Sources[i].Path, text: u.Sources[i].Text, pkg: u.Package, unit: next})
+			srcs = append(srcs, srcFile{file: f, admitted: u.Sources[i].Path, path: emitName(root, u.Sources[i].Path), text: u.Sources[i].Text, pkg: u.Package, unit: next})
 			next++
 		}
 		own := srcs[start:]
-		sort.SliceStable(own, func(i, j int) bool { return own[i].path < own[j].path })
+		sort.SliceStable(own, func(i, j int) bool { return own[i].admitted < own[j].admitted })
 	}
 	add(&u)
 	imports := make([]*Unit, len(u.Imports))

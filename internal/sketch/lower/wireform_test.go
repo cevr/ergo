@@ -61,8 +61,8 @@ type stdSingle { E json.Optional[int], V int }
 type draw { A Option[int], B Option[string], Text string, N int64, Flag bool }
 func c[T wire]() json.Codec[T] { json.Codec[T]{MaxBytes: 0, MaxDepth: 0} }
 
-func encodeVia[T wire](v local[T]) string { json.Encode(c[local[T]](), v) }
-func decodeVia[T wire](s string, like local[T]) local[T] fails json.Malformed | wired[local[T]] {
+func encodeVia[T wire](v local[T]) string needs wired[T] { json.Encode(c[local[T]](), v) }
+func decodeVia[T wire](s string, like local[T]) local[T] fails json.Malformed | wired[local[T]] needs wired[T] {
 	try json.Decode(c[local[T]](), s)
 }
 

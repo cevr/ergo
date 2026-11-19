@@ -38,11 +38,19 @@ var taskReleaseLaws = map[string]string{
 	"Running.Stop":  "runtime/v1 TestRunningMatchesModel; lower TestExecStartRuns (post-stop status)",
 }
 
+// irReleaseLaws are the exit-action bindings only the IR path lowers to
+// (FLIP F7 STATIC-EXIT): the emitted Go this property drives never calls
+// them, so the property named here holds each equal to the general
+// scope's OnExit, which this property drives.
+var irReleaseLaws = map[string]string{
+	"ExitsOnExit": "irspike TestIRFramesMatchSource (return, typed failure, defect in the body and in an action), TestIRStaticExits",
+}
+
 func TestRuntime199MaskProperty(t *testing.T) {
 	needsBuild(t)
 	routes := map[releaseRoute][]string{}
-	for name, binding := range runtimeBindings {
-		if binding.release == notRelease || taskReleaseLaws[name] != "" {
+	for name, binding := range runtimeBindings() {
+		if binding.release == notRelease || taskReleaseLaws[name] != "" || irReleaseLaws[name] != "" {
 			continue
 		}
 		if _, err := v1.BodyOf(name); err != nil {
@@ -111,8 +119,8 @@ func closeDispatch(t *testing.T) map[string]bool {
 			// value of Close is refused (resources R33: a function value owns
 			// no resource; check TestCloseMethodValueRefused).
 			paths["value"] = true
-		case check.CallConversion, check.CallLen, check.CallWith, check.CallPrelude, check.CallGoError, check.CallEncode, check.CallDecode, check.CallEmbed:
-			// A conversion, len, go.Is and go.As, encode and decode (L11)
+		case check.CallConversion, check.CallLen, check.CallWith, check.CallPrelude, check.CallGoError, check.CallEncode, check.CallDecode, check.CallEmbed, check.CallPattern:
+			// A conversion, len, a pattern (FKre), go.Is and go.As, encode and decode (L11)
 			// and a with block call no Close; a prelude dot call is a
 			// CallFunc since check-v1 stage D3a.
 		case check.CallLawOp:
@@ -246,7 +254,7 @@ func Finish(c Mark) needs Scheduler {
 	}
 }
 
-func viaDot(fail bool, signal queue.Queue[int]) {
+func viaDot(fail bool, signal queue.Queue[int]) needs Ambient {
 	with context { Scheduler: NewLiveScheduler() } {
 		let c = Conn{Fail: fail}
 		signal.End()
@@ -254,7 +262,7 @@ func viaDot(fail bool, signal queue.Queue[int]) {
 	}
 }
 
-func twinFinish(fail bool, signal queue.Queue[int]) {
+func twinFinish(fail bool, signal queue.Queue[int]) needs Ambient {
 	with context { Scheduler: NewLiveScheduler() } {
 		let c = Mark{Fail: fail}
 		signal.End()
@@ -275,7 +283,7 @@ func fail(exit int) fails Fault needs Scheduler {
 	}
 }
 
-func frame(exit int, nested bool, releaseFail bool) fails Fault {
+func frame(exit int, nested bool, releaseFail bool) fails Fault needs Ambient {
 	with context { Scheduler: NewLiveScheduler() } {
 		scope.OnExit() {
 			Scheduler.Sleep(6h)
@@ -296,7 +304,7 @@ func frame(exit int, nested bool, releaseFail bool) fails Fault {
 	}
 }
 
-func launch() Task[int, Fault] {
+func launch() Task[int, Fault] needs Ambient {
 	task.Go() {
 		try frame(0, true, false)
 		0
@@ -332,13 +340,13 @@ func Close(o Other, n int) needs Scheduler {
 	}
 }
 
-func viaOp(fail bool, signal queue.Queue[int]) {
+func viaOp(fail bool, signal queue.Queue[int]) needs Ambient {
 	let r Releaser = Plain{Fail: fail, Live: NewLiveScheduler()}
 	signal.End()
 	r.Close()
 }
 
-func twinOperand(fail bool, signal queue.Queue[int]) {
+func twinOperand(fail bool, signal queue.Queue[int]) needs Ambient {
 	with context { Scheduler: NewLiveScheduler() } {
 		let o = Other{Fail: fail}
 		signal.End()
@@ -356,7 +364,7 @@ func twinOperand(fail bool, signal queue.Queue[int]) {
 	{
 		name: "single",
 		extra: `
-func viaPlain(fail bool, signal queue.Queue[int]) {
+func viaPlain(fail bool, signal queue.Queue[int]) needs Ambient {
 	with context { Scheduler: NewLiveScheduler() } {
 		let c = Conn{Fail: fail}
 		signal.End()
@@ -364,7 +372,7 @@ func viaPlain(fail bool, signal queue.Queue[int]) {
 	}
 }
 
-func viaValue(fail bool, signal queue.Queue[int]) {
+func viaValue(fail bool, signal queue.Queue[int]) needs Ambient {
 	with context { Scheduler: NewLiveScheduler() } {
 		let c = Conn{Fail: fail}
 		let f = Close
@@ -393,7 +401,7 @@ func Close[T](b Box[T]) needs Scheduler {
 	}
 }
 
-func viaGeneric(fail bool, signal queue.Queue[int]) {
+func viaGeneric(fail bool, signal queue.Queue[int]) needs Ambient {
 	with context { Scheduler: NewLiveScheduler() } {
 		let b = Box[string]{Fail: fail, V: "x"}
 		signal.End()
@@ -418,7 +426,7 @@ func Close(h *Held) needs Scheduler {
 	}
 }
 
-func viaPointer(fail bool, signal queue.Queue[int]) {
+func viaPointer(fail bool, signal queue.Queue[int]) needs Ambient {
 	with context { Scheduler: NewLiveScheduler() } {
 		let mut h = Held{Fail: fail}
 		let p = &h
@@ -471,7 +479,9 @@ func maskNative(t *testing.T, p maskProgram, o *lowered) {
 			from := "func (q *Queue[T]) End() {"
 			data = replace(data, from, from+"\n\tMaskEnter(\"Queue.End\", nil, 0)")
 		case "ergo/runtime/rt/clock.go":
-			data = replace(data, "return liveTimer{time.NewTimer(d)}", "return BlockingClock.NewTimer(d)")
+			data = replace(data, "return newLiveTimer(d)", "return BlockingClock.NewTimer(d)")
+			// Live sleeps take the swapped timer, not the pooled host one.
+			data = replace(data, "if _, ok := s.(Live); ok {", "if _, ok := s.(Live); ok && BlockingClock == nil {")
 		}
 		write(f.Path, data)
 	}
@@ -584,7 +594,7 @@ func observe(t *testing.T, worker *rt.Task, p plan, call func() error) (*trace, 
  quit, pumped := make(chan struct{}), make(chan struct{})
  go func() {
   defer close(pumped)
-  for { select { case <-quit: return; default: }; if clock.Pending() > 0 { clock.Advance(24 * time.Hour) }; runtime.Gosched() }
+  for { select { case <-quit: return; default: }; if clock.Pending() > 0 { clock.Advance(rt.Span(24 * time.Hour)) }; runtime.Gosched() }
  }()
  type result struct { err error; p any }
  done := make(chan result, 1)

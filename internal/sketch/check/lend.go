@@ -4,7 +4,6 @@ import (
 	"slices"
 
 	"ergo.local/prototype/internal/sketch/syntax"
-	v1 "ergo.local/prototype/runtime/v1"
 )
 
 // lendPoint is a release position, not an evaluation position. A path is
@@ -18,6 +17,12 @@ type lendPoint struct {
 	external bool
 }
 
+// The keeps rule's texts (hostKeptLoans; interop.md, Resources 5).
+const (
+	keptEscapeText = "this value comes from %s and keeps %s: a Go method's result may still need its receiver, so it cannot be returned, stored, passed to an Ergo function or captured past %s's scope (interop.md, Resources 5); use it inside that scope, or read out what you need (a string, a number) and pass that"
+	keptTakeText   = "%s cannot be released or handed off here: %s, the result of %s, keeps it, and a Go method's result may still need its receiver (interop.md, Resources 5); end %s's scope first (a block around it), or let the scope release both"
+)
+
 type resourceLoan struct {
 	root *Var
 	end  lendPoint
@@ -25,6 +30,9 @@ type resourceLoan struct {
 	// paths are relative to that aggregate, and guard partial field takes.
 	internal bool
 	keeper   []int
+	// kept names the Go method call whose result holds the loan (the keeps
+	// rule, hostKeptLoans), or "" for a closure's or a task's.
+	kept string
 }
 
 type lendWalk struct {
@@ -65,6 +73,17 @@ func (w *ownWalk) initLends(body *syntax.BlockStmt) {
 	}
 	walk(body, nil, body)
 	w.lending = l
+}
+
+// scopeOf is the block, case or catch arm n is in (initLends' scope).
+func (w *ownWalk) scopeOf(n syntax.Node) syntax.Node {
+	for p := w.lending.parent[n]; p != nil; p = w.lending.parent[p] {
+		switch p.(type) {
+		case *syntax.BlockStmt, *syntax.CaseClause, *syntax.CatchArm:
+			return p
+		}
+	}
+	return nil
 }
 
 func (w *ownWalk) inside(scope, outer syntax.Node) bool {
@@ -152,12 +171,13 @@ func (w *ownWalk) placePoint(x syntax.Expr) lendPoint {
 }
 
 func (w *ownWalk) argument(x *syntax.CallExpr, index int) syntax.Expr {
-	c := w.info.Calls[x]
-	if c != nil && c.Kind == CallFunc && c.Recv != nil {
-		if index == 0 {
+	// index is a parameter's; the written arguments start where argParam
+	// puts argument 0, after a receiver that binds a parameter.
+	if c := w.info.Calls[x]; c != nil {
+		if index >= 0 && index == argParam(c, -1) {
 			return c.Recv
 		}
-		index--
+		index -= argParam(c, 0)
 	}
 	if index >= 0 && index < len(x.Args) {
 		return x.Args[index]
@@ -173,12 +193,22 @@ func (w *ownWalk) destination(n syntax.Node) lendPoint {
 	switch p := p.(type) {
 	case *syntax.ParenExpr, *syntax.TryExpr, *syntax.KeyValueExpr:
 		return w.destination(p)
+	case *syntax.CatchExpr:
+		if p.X == n {
+			return w.destination(p)
+		}
 	case *syntax.VarSpec:
 		for i, x := range p.Values {
 			if x == n && i < len(p.Names) {
 				v, _ := w.info.Defs[p.Names[i]].(*Var)
 				return w.lending.points[v]
 			}
+		}
+		if p.Pattern != nil && len(p.Values) == 1 && p.Values[0] == n {
+			// A destructuring let: its names share one scope and come
+			// after the value, so the pattern's position stands for each
+			// (GB1: `let (n, addr) = try c.ReadFrom(buf)`).
+			return lendPoint{scope: w.scopeOf(p), order: int(p.Pattern.Pos())}
 		}
 	case *syntax.AssignStmt:
 		for i, x := range p.Rhs {
@@ -243,6 +273,16 @@ func (w *ownWalk) destination(n syntax.Node) lendPoint {
 		if _, ok := w.info.Tails[p]; ok {
 			return w.destination(w.lending.parent[p])
 		}
+	case *syntax.IfStmt:
+		// An arm's tail is the if's value (GB1: `let r = if c {
+		// x.Get(a) } else { x.Get(b) }` lives in r), and so is an else if.
+		if n == syntax.Node(p.Body) || p.Else == n {
+			return w.destination(p)
+		}
+	case *syntax.SwitchStmt, *syntax.TypeSwitchStmt:
+		if _, ok := n.(*syntax.CaseClause); ok {
+			return w.destination(p) // a match arm's tail is the match's value
+		}
 	}
 	return lendPoint{}
 }
@@ -275,15 +315,14 @@ func (w *ownWalk) literalRoot(key syntax.Node, v *Var, before bool) (lendPoint, 
 	return lendPoint{}, false
 }
 
+// callbackKeeper is the owner of the moving callback of the call c's bound
+// body (Body.Keeper), for an extern of any package.
 func callbackKeeper(c *Call) (int, bool) {
-	if c == nil || c.Kind != CallFunc || c.Func == nil || c.Func.Pkg == nil || !c.Func.Pkg.Std() || c.Func.Decl == nil || c.Func.Decl.Extern == nil {
+	if c == nil || c.Kind != CallFunc {
 		return 0, false
 	}
-	path, name := c.Func.Decl.Extern.Split()
-	if path != runtimeModule+"/v1" {
-		return 0, false
-	}
-	return v1.CallbackKeeper(name)
+	b := BodyOf(c.Func)
+	return b.Keeper, b.Keeps
 }
 
 func (w *ownWalk) literalEscapes(n syntax.Node) bool {
@@ -320,8 +359,7 @@ func (w *ownWalk) drainsLends(c *Call) bool {
 	if c == nil || c.Op == nil || c.Recv == nil {
 		return false
 	}
-	n, ok := w.info.Types[c.Recv].(*Named)
-	return ok && n.origin().Obj != nil && n.origin().Obj.Pkg.Std() && v1.DrainsLends(n.origin().Obj.Name+"."+c.Op.Name)
+	return OpBodyOf(w.info.Types[c.Recv], c.Op.Name).DrainsLends
 }
 
 func (w *ownWalk) addLoans(n syntax.Node, loans []resourceLoan) {
@@ -362,6 +400,8 @@ func (w *ownWalk) valueLoans(n syntax.Node) []resourceLoan {
 		return w.valueLoans(x.X)
 	case *syntax.TryExpr:
 		return w.valueLoans(x.X)
+	case *syntax.CatchExpr:
+		out = mergeLoans(out, w.valueLoans(x.X)) // its arms' values add their own
 	case *syntax.SelectorExpr:
 		return w.selectedLoans(x.X, w.fieldIndex(x))
 	case *syntax.IndexExpr:
@@ -378,6 +418,7 @@ func (w *ownWalk) valueLoans(n syntax.Node) []resourceLoan {
 			out = mergeLoans(out, w.valueLoans(e))
 		}
 	case *syntax.CallExpr:
+		out = mergeLoans(out, w.hostKeptLoans(x))
 		for _, a := range x.Args {
 			if k, ok := callbackKeeper(w.info.Calls[x]); ok && k < 0 {
 				out = mergeLoans(out, w.valueLoans(a))
@@ -412,14 +453,36 @@ func (w *ownWalk) selectedLoans(base syntax.Expr, field int) []resourceLoan {
 	return out
 }
 
-func (w *ownWalk) checkLoanValue(x syntax.Expr) {
+func (w *ownWalk) checkLoanValue(x syntax.Expr) { w.checkLoans(x, false) }
+
+// checkLoans is checkLoanValue; skipKept passes the keeps rule's loans,
+// for an argument whose callee cannot keep them past the call (a Go
+// function, which may keep what Go keeps, or a borrow parameter).
+func (w *ownWalk) checkLoans(x syntax.Expr, skipKept bool) {
 	if w.tracked(w.info.Types[x]) {
 		return
 	} // resource hand-offs use handLoans
 	dest := w.destination(x)
 	for _, loan := range w.valueLoans(x) {
+		if skipKept && loan.kept != "" {
+			continue
+		}
 		if !loan.internal && !w.releasesBefore(dest, loan.end) {
 			w.refuseLoan(loan, x, "a callable outlives its captured root", "this function value holds a lend of %s and this use may outlive it (resources R31, R33); call it here or keep it inside the root's lifetime", loan.root.Name)
+		}
+	}
+}
+
+// checkKept applies the keeps rule where a Go method call's result is
+// moved: into a let or an assignment it lives in that place, which must be
+// released before the receiver's owner; returned, yielded or passed to a
+// taking parameter it would outlive it (hostKeptLoans). A resource result
+// carries its lend on in its slot (handLoans); this checks the move itself.
+func (w *ownWalk) checkKept(x *syntax.CallExpr) {
+	dest := w.destination(x)
+	for _, loan := range w.hostKeptLoans(x) {
+		if !w.releasesBefore(dest, loan.end) {
+			w.refuseLoan(loan, x, "a Go result outlives its receiver", "")
 		}
 	}
 }
@@ -461,6 +524,14 @@ func (w *ownWalk) loanTake(i int, at syntax.Node, field int) bool {
 			if blocks && field < 0 && w.together(at, w.vars[k].v, v) {
 				blocks = false
 			}
+			if blocks && loan.kept != "" {
+				holder := "a value"
+				if w.vars[k].v != nil {
+					holder = w.vars[k].v.Name
+				}
+				w.refuse(i, at, "a resource is taken while a Go result keeps it", keptTakeText, v.Name, holder, loan.kept, holder)
+				return true
+			}
 			if blocks {
 				w.refuse(i, at, "a resource is taken while lent", "%s is lent to a task or closure that may still run (resources R28, R32); stop or wait for its keeper before taking or replacing it", v.Name)
 				return true
@@ -477,9 +548,9 @@ func (w *ownWalk) handLoans(i int, x *syntax.Ident, h hand) {
 	d := w.destination(x)
 	updated := slices.Clone(w.st.slots[i].loans)
 	for k, loan := range updated {
-		if loan.internal {
+		if loan.internal || loan.kept != "" && h.endKept {
 			continue
-		} // a whole aggregate keeps its internal order
+		} // a whole aggregate keeps its internal order; a release ends a kept lend
 		if end, placed := w.literalRoot(x, loan.root, false); placed && w.together(x, w.vars[i].v, loan.root) {
 			loan.end, loan.internal, loan.keeper = end, true, slices.Clone(d.path)
 			updated[k] = loan
@@ -539,6 +610,12 @@ func (w *ownWalk) literalCaptures(key syntax.Node, body *syntax.BlockStmt, captu
 			return true
 		}
 		v, _ := w.info.Uses[id].(*Var)
+		if r := w.textRoots[v]; r != nil {
+			// A captured text captures its Mapped's owner (Borrows 8): the
+			// closure holds a lend of it, as a capture of the owner does.
+			w.textCapture(key, id, r, dest, seen)
+			return true
+		}
 		i, ok := w.slot[v]
 		if !ok || seen[v] {
 			return true
@@ -591,6 +668,10 @@ func (w *ownWalk) literalCaptures(key syntax.Node, body *syntax.BlockStmt, captu
 }
 
 func (w *ownWalk) refuseLoan(loan resourceLoan, at syntax.Node, what, format string, args ...any) {
+	if loan.kept != "" {
+		w.report(at, keptEscapeText, loan.kept, loan.root.Name, loan.root.Name)
+		return
+	}
 	if w.genericOnly(loan.root.Type) {
 		w.copySite(loan.root.Type, at, what, false)
 		return

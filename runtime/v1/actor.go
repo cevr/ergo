@@ -1,9 +1,9 @@
 package v1
 
 import (
-	"fmt"
 	"iter"
 	"math"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -146,11 +146,28 @@ import (
 //     every output of the commits up to it. A child's sink is its
 //     toParent (rule 13), so a child's output is in its parent's inbox
 //     before the child's state is shown.
+//  18. Exit actions (FK9-g1; the model models/runner): each entry that
+//     opened (the first state, an Enter, an Emit, a restart's first state;
+//     open from its commit, so also one whose arm raised or that a stop
+//     overtook) ends once, and then the runner calls leave with the state
+//     the entry holds (its last commit), when hasExit says it has one: on
+//     an Enter and an Emit (the state the step saw), and at the actor's
+//     end and a supervised crash (a.state). A Stay, an Ignore and a Reject
+//     end no entry. The action runs after the entry's hosts closed, its
+//     children stopped and its timer and work ended, and before the next
+//     entry opens; on the runner's task, masked, through release, so a
+//     stop does not cut it and Stop and Drain return after it. Its defect
+//     is a release defect of the actor: it ends the actor (the crash's own
+//     is the crash's), and the end that follows does not run the action
+//     again. A signal the old entry sends while it runs is stale (rule 6).
 type Actor[S, E, D any] struct {
 	inbox   mailbox[envelope[S, E, D]] // in the Actor: no allocation of its own
 	task    *rt.Task
 	sleeper Sleeper
 	span    string
+	// graph gives the machine's graph to the trace helpers alone
+	// (actor_trace.go); nil when the program has none for it.
+	graph GraphOf
 
 	step  func(*rt.Task, S, E) (D, error)
 	fire  func(*rt.Task, S, S) (D, error)
@@ -162,6 +179,11 @@ type Actor[S, E, D any] struct {
 	// (rule 10): the program's workOf, hasWork and run bound together, so
 	// the Actor needs no type parameter for the program's Work value.
 	work func(S) (func(*rt.Task, func(E)), bool)
+	// hasExit and leave are each state's exit action (FK9-g1; rule 18):
+	// hasExit(s) reports whether s has one, and leave runs it. Both are nil
+	// for MachineStart, which runs none.
+	hasExit func(S) bool
+	leave   func(*rt.Task, S)
 
 	// spare is a reply channel no Ask or State read holds (takeReply).
 	spare   atomic.Pointer[replySlot[S, D]]
@@ -185,6 +207,9 @@ type Actor[S, E, D any] struct {
 	doneWait []*rt.Task
 	exit     error // the runner's exit, read after done closes
 	subs     map[*changes[S]]struct{}
+	// spareSub is the last ended Changes subscription, which the next one
+	// reuses (ACT-CH), or nil.
+	spareSub *changes[S]
 	// latest is the decision of the last signal stepped (rule 12), and
 	// final the Done decision that ended the actor, when one did.
 	latest    D
@@ -236,10 +261,23 @@ type Actor[S, E, D any] struct {
 	cur *envelope[S, E, D] // the envelope in a step, nil between steps
 	// curEnv holds the envelope in a step, so taking one allocates
 	// nothing (MU18); cur points to it while the step runs.
-	curEnv  envelope[S, E, D]
-	timer   *rt.Handle[struct{}]
-	working *rt.Handle[struct{}] // the entry's work, nil when it has none
-	feeds   []*feed              // the started sources that may still run (rule 14)
+	curEnv envelope[S, E, D]
+	timer  *rt.Handle[struct{}]
+	// timers is the goroutine every entry's timer child runs on, kept for
+	// the actor's life (FU-actor-timer-slot): a timer starts no goroutine.
+	timers rt.Carrier
+	// The timer child's state (arm): its span and hook, made once; the
+	// entry's delay and envelope; the runner it tells; and whether its
+	// sleep is registered yet.
+	timerSpan       string
+	timerRegistered func()
+	timerDelay      time.Duration
+	timerEnv        envelope[S, E, D]
+	timerAt         *rt.Task
+	timerDone       atomic.Bool
+	timerLast       *rt.Handle[struct{}] // the last timer child, for RestartOn
+	working         *rt.Handle[struct{}] // the entry's work, nil when it has none
+	feeds           []*feed              // the started sources that may still run (rule 14)
 	// newHosts are the hosts the running step made (rule 15); hostSlot
 	// binds the actor to its runner's task, so NewHost finds it.
 	newHosts []hostCell
@@ -249,6 +287,10 @@ type Actor[S, E, D any] struct {
 	hostSlot  rt.Slot
 	epoch     uint64
 	bound     bool // the runner's task is in owners, as nil (runner)
+	// owed is whether the open entry has not run its exit action yet (rule
+	// 18): set when an entry is committed, cleared before the action runs,
+	// so no path runs one entry's action twice.
+	owed bool
 }
 
 // The decisions of the prelude Decision, in the order kind gives them.
@@ -299,21 +341,23 @@ type ActorStopped struct{}
 // Error is the failure's text, its Ergo name.
 func (ActorStopped) Error() string { return "actor.Stopped" }
 
-// MachineStart is actor.StartMachine's body. span, t and sl are the hidden
-// site, task and scheduler arguments: the actor's task is a child of t (a
-// stop of t stops it), and its timers sleep on sl. initial is the first
-// state; capacity is the inbox's (0 makes each Send wait for the runner to
-// take it; a negative capacity is a defect). workOf, hasWork and work are
-// the entries' work (rule 10): workOf(s) is the program's Work value of a
-// state, hasWork reports whether it is one, and work runs it on the work's
-// task with send. It returns once the runner has armed the first entry's
-// timer and started its work; the runner then waits for signals.
-func MachineStart[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, initial S,
+// MachineStart is actor.StartMachine's body. span, t, sl and graph are the
+// hidden site, task, scheduler and graph arguments: the actor's task is a
+// child of t (a stop of t stops it), its timers sleep on sl, and a traced
+// actor names its arms and timers from graph (nil for none). initial is
+// the first state; capacity is the inbox's (0 makes each Send wait for the
+// runner to take it; a negative capacity is a defect). workOf, hasWork and
+// work are the entries' work (rule 10): workOf(s) is the program's Work
+// value of a state, hasWork reports whether it is one, and work runs it on
+// the work's task with send. It returns once the runner has armed the
+// first entry's timer and started its work; the runner then waits for
+// signals.
+func MachineStart[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, graph GraphOf, initial S,
 	step func(*rt.Task, S, E) (D, error), fire func(*rt.Task, S, S) (D, error),
 	delay func(S) time.Duration, workOf func(S) W, hasWork func(W) bool,
 	work func(*rt.Task, W, func(E)), kind func(D) int, next func(S, D) S,
 	out func(*rt.Task, D), capacity int) *Actor[S, E, D] {
-	return machineStart(span, t, sl, initial, step, fire, delay, workOf, hasWork, work, kind, next,
+	return machineStart(span, t, sl, graph, initial, step, fire, delay, workOf, hasWork, work, nil, nil, kind, next,
 		out, capacity, nil, nil, 0)
 }
 
@@ -323,20 +367,23 @@ func MachineStart[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, initial S,
 // StartMachine passes limit 0, which restarts none and never calls fresh. A
 // typed failure of fresh is a defect of the incarnation (ActorFreshDefect).
 // A negative limit is a defect, as tasks.Restart's is.
-func MachineSupervise[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, initial S,
+//
+//ergo:wait child
+func MachineSupervise[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, graph GraphOf, initial S,
 	fresh func(*rt.Task) (S, error), limit int,
 	step func(*rt.Task, S, E) (D, error), fire func(*rt.Task, S, S) (D, error),
 	delay func(S) time.Duration, workOf func(S) W, hasWork func(W) bool,
-	work func(*rt.Task, W, func(E)), kind func(D) int, next func(S, D) S,
+	work func(*rt.Task, W, func(E)), hasExit func(S) bool, leave func(*rt.Task, S),
+	kind func(D) int, next func(S, D) S,
 	out func(*rt.Task, D), capacity int) *Actor[S, E, D] {
 	if limit < 0 {
-		panic(fmt.Sprintf("actor.Supervise: a negative restart limit %d", limit))
+		panic("actor.Supervise: a negative restart limit " + strconv.Itoa(limit))
 	}
 	if limit == 0 {
 		// No restart: the runner of MachineStart, which never calls fresh.
 		fresh = nil
 	}
-	return machineStart(span, t, sl, initial, step, fire, delay, workOf, hasWork, work, kind, next,
+	return machineStart(span, t, sl, graph, initial, step, fire, delay, workOf, hasWork, work, hasExit, leave, kind, next,
 		out, capacity, nil, fresh, limit)
 }
 
@@ -353,6 +400,8 @@ func (d *ActorFreshDefect) String() string {
 
 // ActorRestarts is std actor's Restarts(a): how many times a supervised
 // actor restarted (rule 16); 0 for one that never did.
+//
+//ergo:wait none
 func ActorRestarts[S, E, D any](a *Actor[S, E, D]) int { return int(a.restarts.Load()) }
 
 // MachineChild is actor.Child's body (rule 13): MachineStart for a child
@@ -367,10 +416,13 @@ func ActorRestarts[S, E, D any](a *Actor[S, E, D]) int { return int(a.restarts.L
 // starts only when host is an empty host of the calling work's entry, and
 // fills it; any other host is a defect (ActorHostDefect), with nothing
 // started.
-func MachineChild[S, E, D, W, P any](span Site, t *rt.Task, sl Sleeper, host *Host[*Actor[S, E, D]], initial S,
+//
+//ergo:wait child
+func MachineChild[S, E, D, W, P any](span Site, t *rt.Task, sl Sleeper, graph GraphOf, host *Host[*Actor[S, E, D]], initial S,
 	step func(*rt.Task, S, E) (D, error), fire func(*rt.Task, S, S) (D, error),
 	delay func(S) time.Duration, workOf func(S) W, hasWork func(W) bool,
-	work func(*rt.Task, W, func(E)), kind func(D) int, next func(S, D) S,
+	work func(*rt.Task, W, func(E)), hasExit func(S) bool, leave func(*rt.Task, S),
+	kind func(D) int, next func(S, D) S,
 	out func(*rt.Task, D, func(P)), capacity int) *Actor[S, E, D] {
 	owner, ok := ownerOf(t).(childOwner[P])
 	if !ok {
@@ -382,7 +434,7 @@ func MachineChild[S, E, D, W, P any](span Site, t *rt.Task, sl Sleeper, host *Ho
 		cell = host
 	}
 	adopted, hostOK := owner.adopt(cell, func(report func(*rt.Task, error) bool, deliver func(*rt.Task, P)) func(*rt.Task) error {
-		c = machineStart(span, t, sl, initial, step, fire, delay, workOf, hasWork, work, kind, next,
+		c = machineStart(span, t, sl, graph, initial, step, fire, delay, workOf, hasWork, work, hasExit, leave, kind, next,
 			func(ct *rt.Task, d D) { out(ct, d, func(p P) { deliver(ct, p) }) }, capacity, report, nil, 0)
 		return c.halt
 	}, func() { host.fill(c) })
@@ -401,6 +453,8 @@ func MachineChild[S, E, D, W, P any](span Site, t *rt.Task, sl Sleeper, host *Ho
 // defect (ActorSaveDefect) that ends the actor: the actor cannot keep its
 // promise that a committed state outlives it. effect-machine's cluster
 // journal defects an append failure the same way.
+//
+//ergo:wait none
 func ActorKeep[S, E any](t *rt.Task, save func(*rt.Task, S, S, E) error, prev, next S, sig E) {
 	if err := save(t, prev, next, sig); err != nil {
 		panic(&ActorSaveDefect{Reason: err.Error()})
@@ -435,18 +489,20 @@ func (d *ActorChildDefect) String() string {
 // machineStart starts an actor; report is the parent entry's for a child
 // (rule 13), whose task then starts shielded from t's interruption, and
 // nil otherwise.
-func machineStart[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, initial S,
+func machineStart[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, graph GraphOf, initial S,
 	step func(*rt.Task, S, E) (D, error), fire func(*rt.Task, S, S) (D, error),
 	delay func(S) time.Duration, workOf func(S) W, hasWork func(W) bool,
-	work func(*rt.Task, W, func(E)), kind func(D) int, next func(S, D) S,
+	work func(*rt.Task, W, func(E)), hasExit func(S) bool, leave func(*rt.Task, S),
+	kind func(D) int, next func(S, D) S,
 	out func(*rt.Task, D), capacity int, report func(*rt.Task, error) bool,
 	fresh func(*rt.Task) (S, error), limit int) *Actor[S, E, D] {
 	if capacity < 0 {
-		panic(fmt.Sprintf("actor.StartMachine: negative capacity %d", capacity))
+		panic("actor.StartMachine: negative capacity " + strconv.Itoa(capacity))
 	}
 	a := &Actor[S, E, D]{
-		sleeper: sl, span: string(span),
+		sleeper: sl, span: string(span), graph: graph,
 		step: step, fire: fire, delay: delay, kind: kind, next: next, out: out,
+		hasExit: hasExit, leave: leave,
 		done: make(chan struct{}), state: initial, version: 1,
 		report: report, fresh: fresh, limit: limit,
 		// A durable start's recovered hosts (DH1): this actor's first
@@ -589,6 +645,9 @@ func (a *Actor[S, E, D]) crash(at *rt.Task) {
 		}
 	}
 	a.timer, a.working = nil, nil
+	// The open entry's exit action (rule 18); its defect is the crash's,
+	// as the children's are.
+	_ = a.leaveEntry(at, a.state)
 	if a.cur != nil {
 		a.release(a.cur)
 		a.cur = nil
@@ -645,6 +704,9 @@ func (a *Actor[S, E, D]) loop(at *rt.Task) (struct{}, error) {
 	if at.Traced() {
 		a.traceStart(at, s)
 	}
+	// The first entry is open from here: a raise in its arm or its work
+	// still ends it with its exit action (rule 18).
+	a.owed = true
 	a.openKids()
 	a.openFirst(at, s)
 	if at.Traced() {
@@ -774,11 +836,24 @@ func (a *Actor[S, E, D]) handle(at *rt.Task, s S, env *envelope[S, E, D]) (S, bo
 		}
 		a.stopTimer()
 		a.stopWork()
+		// The old entry's exit action runs last, with the state it holds
+		// now, before the next entry opens (rule 18).
+		if err := a.leaveEntry(at, s); err != nil {
+			raise(err)
+		}
 		s = a.next(s, d)
+		a.owed = true
 		a.epoch++
 		a.open(at, s)
 	}
 	a.cur = nil
+	if k == decideDone {
+		// Admission closes before the answer (rule 8): a caller that has
+		// the Done can no longer have a Send admitted and then dropped
+		// unstepped (DoneIsFinal; TestDoneIsFinalExplored). finish closes
+		// it again, a no-op.
+		a.inbox.Close()
+	}
 	if env.kind == askSignal {
 		env.reply.give(answer[S, D]{d: d})
 	}
@@ -1094,6 +1169,28 @@ func (a *Actor[S, E, D]) stopWork() {
 	}
 }
 
+// leaveEntry ends the open entry's exit action (rule 18), on the runner's
+// task at: when the entry owes it and its state s has one, it runs it
+// through the release boundary, masked, so a stop does not cut it, and
+// gives its defect, marked as a release's. It runs after the entry's
+// children, timer and work ended. owed is cleared first, so the end that
+// follows a defect in the action does not run it again. It is a call of
+// its own (noinline), so the runner's loop frame does not grow.
+//
+//go:noinline
+func (a *Actor[S, E, D]) leaveEntry(at *rt.Task, s S) error {
+	if !a.owed {
+		return nil
+	}
+	a.owed = false
+	if a.hasExit == nil || !a.hasExit(s) {
+		return nil
+	}
+	var c rt.Cause
+	release(at, &c, func() { a.leave(at, s) }, nil)
+	return c.Err()
+}
+
 // arm starts the timer child of the entry that opened in s, when delay(s)
 // is not negative. The child sleeps on the program's Scheduler, then
 // pushes the timer envelope with the entry's epoch; a stop ends it first.
@@ -1111,34 +1208,67 @@ func (a *Actor[S, E, D]) arm(at *rt.Task, s S) {
 	if d <= 0 {
 		panic(MachineTimerNotPositive("", s, d))
 	}
-	env := envelope[S, E, D]{kind: timerSignal, epoch: a.epoch, at: s}
-	holder := rt.NewScope(at)
-	armed := make(chan struct{})
-	var once sync.Once
-	registered := func() { once.Do(func() { close(armed) }) }
-	a.timer = rt.Go(&holder, a.span+" (timer)", func(ct *rt.Task) (struct{}, error) {
-		cancel := rt.WhenWaiting(ct, registered)
-		defer func() {
-			cancel()
-			registered() // the child ended without a wait
-		}()
-		return guarded(ct, func(ct *rt.Task) (struct{}, error) {
-			a.sleeper.Sleep(ct, d)
-			// Closed: the actor ended; the timer has no one to tell.
-			_ = a.inbox.Push(ct, env)
-			return struct{}{}, nil
-		})
-	})
-	if rt.Exploring {
-		rt.Await(at, isClosedTest(armed))
+	// The child's body, its span and its hook are the actor's, made at
+	// its first timer; an arm writes the entry's delay and envelope, which
+	// the child reads after its start, and the previous child has ended
+	// (rule 5) (FU-timer-task-reuse). The runner waits on its own park
+	// word for the child's first wait (FU-actor-timer-slot).
+	if a.timerRegistered == nil {
+		a.timerSpan = a.span + " (timer)"
+		a.timerRegistered = a.timerArmed
 	}
-	<-armed
+	a.timerAt, a.timerDelay = at, d
+	a.timerEnv = envelope[S, E, D]{kind: timerSignal, epoch: a.epoch, at: s}
+	a.timerDone.Store(false)
+	a.timer = rt.RestartOn[struct{}](a.timerLast, &a.timers, at, a.timerSpan, (*actorTimer[S, E, D])(a))
+	a.timerLast = a.timer // reused once its job returned (FU-handle-reuse)
+	if rt.Exploring {
+		rt.Await(at, a.timerDone.Load)
+	}
+	// A wake meant for another wait of the runner (a stop) costs one more
+	// look: the handshake ignores a stop, as the receive it replaced did.
+	for !a.timerDone.Load() {
+		at.Suspend()
+	}
+}
+
+// timerArmed tells the runner that the timer child's sleep is registered,
+// or that the child ended without a wait; the second call does nothing.
+func (a *Actor[S, E, D]) timerArmed() {
+	if a.timerDone.CompareAndSwap(false, true) {
+		a.timerAt.Resume()
+	}
+}
+
+// actorTimer is an actor as the body of its timer children (arm), so a
+// child's start makes no closure.
+type actorTimer[S, E, D any] Actor[S, E, D]
+
+func (at *actorTimer[S, E, D]) Run(ct *rt.Task) (struct{}, error) {
+	a := (*Actor[S, E, D])(at)
+	rt.WhenWaitingHook(ct, a.timerRegistered)
+	defer func() {
+		rt.ClearWaitHook(ct)
+		a.timerRegistered() // the child ended without a wait
+	}()
+	return guarded(ct, at.sleep)
+}
+
+// sleep sleeps the entry's delay, then pushes its timer envelope.
+func (at *actorTimer[S, E, D]) sleep(ct *rt.Task) (struct{}, error) {
+	a := (*Actor[S, E, D])(at)
+	a.sleeper.Sleep(ct, a.timerDelay)
+	// Closed: the actor ended; the timer has no one to tell.
+	_ = a.inbox.Push(ct, a.timerEnv)
+	return struct{}{}, nil
 }
 
 // noTimer is the delay of a state with no timer: no timer waits it.
 const noTimer = time.Duration(math.MinInt64)
 
 // ActorNoTimer is the delay std actor gives a state whose After is None.
+//
+//ergo:wait none
 func ActorNoTimer() time.Duration { return noTimer }
 
 // stopTimer stops and drains the current entry's timer child (rule 5). A
@@ -1170,7 +1300,16 @@ func (a *Actor[S, E, D]) publishLocked(s S) {
 		return
 	}
 	for c := range a.subs {
-		c.buf = append(c.buf, s)
+		if len(c.buf)-c.head >= c.room {
+			// Full: the unread states are dropped and counted, and s waits
+			// alone; the reader learns of the gap before s (Overflowed). A
+			// LatestChanges loop, of room 1, so holds the latest state.
+			c.missed += len(c.buf) - c.head
+			clear(c.buf)
+			c.buf, c.head = append(c.buf[:0], s), 0
+		} else {
+			c.buf = append(c.buf, s)
+		}
 		c.signal()
 	}
 }
@@ -1205,6 +1344,8 @@ type feed struct {
 // ends there. It fails ActorStopped when a has ended or its Stop was
 // requested; run then never runs. A stop of t while it waits raises
 // rt.Interrupted.
+//
+//ergo:wait caller
 func ActorFeed[S, E, D any](t *rt.Task, a *Actor[S, E, D], run func(*rt.Task, func(E))) error {
 	a.feedMu.Lock()
 	a.feedSeq++
@@ -1278,6 +1419,8 @@ func (a *Actor[S, E, D]) startFeed(at *rt.Task, id uint64) {
 // read that fails ActorStopped when a has ended before it was answered
 // (std actor's Can reads it, MU10). It raises rt.Interrupted when t is
 // stopped while it waits.
+//
+//ergo:wait caller
 func ActorLiveState[S, E, D any](t *rt.Task, a *Actor[S, E, D]) (S, error) {
 	reply := a.takeReply(t)
 	if err := a.inbox.Push(t, envelope[S, E, D]{kind: stateRead, reply: reply}); err != nil {
@@ -1314,6 +1457,15 @@ func (a *Actor[S, E, D]) finish(exit error) {
 		}
 	}
 	a.timer, a.working = nil, nil
+	// The open entry's exit action, with the state it holds (rule 18): a
+	// defect in it joins the exit. a.state is the runner's own write (a
+	// Stay's commit, or open's publish, also when a stop or a raise
+	// overtook the open).
+	if err := a.leaveEntry(a.task, a.state); err != nil {
+		exit = join(exit, err)
+	}
+	a.timers.Close() // no entry arms a timer again
+
 	// The sources last (rule 14): admission is closed, so each one's next
 	// send raises; the stop interrupts one that waits.
 	for _, f := range a.feeds {
@@ -1368,6 +1520,8 @@ func (a *Actor[S, E, D]) finish(exit error) {
 // inbox is full, and returns once e is queued, before it is stepped. It
 // fails ActorStopped when the actor has ended or its Stop was requested.
 // It raises rt.Interrupted when t is stopped before or while it waits.
+//
+//ergo:wait caller
 func (a *Actor[S, E, D]) Send(t *rt.Task, e E) error {
 	if err := a.inbox.Push(t, envelope[S, E, D]{kind: sendSignal, sig: e}); err != nil {
 		return ActorStopped{}
@@ -1380,6 +1534,8 @@ func (a *Actor[S, E, D]) Send(t *rt.Task, e E) error {
 // typed failure (the actor goes on). It fails ActorStopped when the actor
 // ended before e was stepped, and raises rt.Interrupted when t is stopped
 // while it waits (the step, once taken, still runs).
+//
+//ergo:wait caller
 func (a *Actor[S, E, D]) Ask(t *rt.Task, e E) (D, error) {
 	reply := a.takeReply(t)
 	var zero D
@@ -1392,25 +1548,38 @@ func (a *Actor[S, E, D]) Ask(t *rt.Task, e E) (D, error) {
 	return r.d, r.err
 }
 
-// replySlot is a reply channel an Ask or a State read reuses (MU18). Every
-// queued Ask and State read is answered exactly once (rules 1 and 8), so a
-// channel whose answer was taken is empty and nobody else holds it; one
-// whose wait was interrupted may still get its answer, so it is never
-// given back.
-// task is the asker's, so the runner can unpark it in a clock's domain
-// before it answers (fua-b).
+// replySlot is the one-value reply an Ask or a State read reuses (MU18).
+// Every queued Ask and State read is answered exactly once (rules 1 and
+// 8), so a slot whose answer was taken is empty and nobody else holds it;
+// one whose wait was interrupted may still get its answer, so it is never
+// given back. task is the asker's: the runner resumes it from its park
+// word (rt park.go, PARK1) once the answer is in, and in a clock's domain
+// unparks it before it answers (fua-b).
 type replySlot[S, D any] struct {
-	ch   chan answer[S, D]
+	ans  answer[S, D]
+	full atomic.Bool // ans holds the answer
 	task *rt.Task
 }
 
 // give answers r's asker. In a clock's domain the asker is unparked first
-// (rt idle.go), so no window shows it parked while it can run; the
-// channel has room for the one answer, so the send never waits.
+// (rt idle.go), so no window shows it parked while it can run. The asker
+// is read before the answer is published: once full is set, the asker may
+// take the answer and give the slot back for another asker.
 func (r *replySlot[S, D]) give(ans answer[S, D]) {
-	k := rt.Waking(r.task, r)
-	r.ch <- ans
+	asker := r.task
+	k := rt.Waking(asker, r)
+	r.ans = ans
+	r.full.Store(true)
 	k.Done()
+	asker.Resume()
+}
+
+// take takes the answer out of a full slot, leaving it empty.
+func (r *replySlot[S, D]) take() answer[S, D] {
+	ans := r.ans
+	r.ans = answer[S, D]{}
+	r.full.Store(false)
+	return ans
 }
 
 // takeReply is the actor's spare reply channel, or a new one when another
@@ -1420,7 +1589,7 @@ func (a *Actor[S, E, D]) takeReply(t *rt.Task) *replySlot[S, D] {
 		r.task = t
 		return r
 	}
-	return &replySlot[S, D]{ch: make(chan answer[S, D], 1), task: t}
+	return &replySlot[S, D]{task: t}
 }
 
 // giveReply keeps r, empty, as the spare, unless another one is there.
@@ -1434,6 +1603,8 @@ func (a *Actor[S, E, D]) giveReply(r *replySlot[S, D]) {
 // it, read in inbox order, so a sender's State follows its own Sends. On an
 // ended actor it is the last committed state. It never fails; it raises
 // rt.Interrupted when t is stopped while it waits.
+//
+//ergo:wait caller
 func (a *Actor[S, E, D]) State(t *rt.Task) S {
 	reply := a.takeReply(t)
 	if err := a.inbox.Push(t, envelope[S, E, D]{kind: stateRead, reply: reply}); err != nil {
@@ -1450,25 +1621,29 @@ func (a *Actor[S, E, D]) State(t *rt.Task) S {
 	return s
 }
 
-// await waits for an answer on t: a stop of t raises rt.Interrupted.
-// In a clock's domain it waits parked on reply (fua-b).
+// await waits for an answer on t: a stop of t raises rt.Interrupted. t
+// parks on its own park word until the runner gives the answer or a stop
+// it can observe comes (rt park.go, PARK1); a stop that comes with the
+// answer wins, as in a task's Wait. In a clock's domain it waits parked on
+// reply (fua-b).
 func (a *Actor[S, E, D]) await(t *rt.Task, reply *replySlot[S, D]) answer[S, D] {
 	t.Check()
 	var p rt.Parked
 	if t.InDomain() {
-		p = rt.Park(t, reply, t.Done(), func() bool { return len(reply.ch) > 0 })
+		p = rt.Park(t, reply, t.Done(), reply.full.Load)
+	} else {
+		t.Waits()
 	}
 	rt.Block(t)
-	select {
-	case r := <-reply.ch:
-		rt.Unblock(t)
-		p.Unpark()
-		return r
-	case <-t.Done():
-		rt.Unblock(t)
-		p.Unpark()
+	for !reply.full.Load() && !t.Stopped() {
+		t.Suspend()
+	}
+	rt.Unblock(t)
+	p.Unpark()
+	if t.Stopped() {
 		panic(rt.Interrupted)
 	}
+	return reply.take()
 }
 
 // waitDone waits on t until the runner has ended. In a clock's domain it
@@ -1526,6 +1701,8 @@ func (a *Actor[S, E, D]) dropDoneWait(t *rt.Task, p rt.Parked) {
 // work's included (rule 10). A Stop of an ended
 // actor returns the same at once; every Stop is idempotent. t, the
 // caller's task, waits parked in a clock's domain (waitEnd).
+//
+//ergo:wait end
 func (a *Actor[S, E, D]) Stop(t *rt.Task) error {
 	// The interruption comes first: once it is set, the runner's next Pop
 	// raises at its check, so no envelope is taken after the request, also
@@ -1549,6 +1726,8 @@ func (a *Actor[S, E, D]) Stop(t *rt.Task) error {
 // result is Stop's: the typed failure that ended the actor, its defect
 // raised. A Stop during a Drain overtakes it: the rest is dropped. t, the
 // caller's task, waits parked in a clock's domain (waitEnd).
+//
+//ergo:wait end
 func (a *Actor[S, E, D]) Drain(t *rt.Task) error {
 	rt.Point(t, rt.Op{Kind: rt.OpClose, On: a})
 	if a.task.Traced() {
@@ -1590,6 +1769,8 @@ const (
 // waits until the runner has ended and gives how (exitFinished …
 // exitDefected). Every caller gets the same answer, and so does Stop (one
 // exit, rule 12). A stop of t raises rt.Interrupted.
+//
+//ergo:wait caller
 func ActorExitKind[S, E, D any](t *rt.Task, a *Actor[S, E, D]) int {
 	a.waitDone(t)
 	a.mu.Lock()
@@ -1617,14 +1798,44 @@ func (a *Actor[S, E, D]) exitKindLocked() int {
 
 // ActorFinal is std actor's final(a): the Done decision that ended a, read
 // after ActorExitKind gave exitFinished.
+//
+//ergo:wait none
 func ActorFinal[S, E, D any](a *Actor[S, E, D]) D {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.final
 }
 
+// ActorDefectReason is std actor's defectOf(a): the text of the first
+// defect that ended a, as the runtime's report writes it after "panic: "
+// (reportDefect), such as "unreachable at a.ergo:9:3: no route"; "" when
+// no defect ended a. Read after ActorExitKind gave exitDefected (FK13-g1).
+//
+//ergo:wait none
+func ActorDefectReason[S, E, D any](a *Actor[S, E, D]) string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return defectReason(a.exit)
+}
+
+// defectReason is the text of err's first defect, "" when it has none.
+func defectReason(err error) string {
+	c, ok := err.(*rt.Cause)
+	if !ok || c == nil {
+		return ""
+	}
+	for _, r := range c.Reasons {
+		if r.Kind == rt.KindDefect {
+			return rt.Text(r.Value)
+		}
+	}
+	return ""
+}
+
 // ActorFailure is std actor's failure(a): the typed failure that ended a,
 // read after ActorExitKind gave exitFailed.
+//
+//ergo:wait none
 func ActorFailure[S, E, D any](a *Actor[S, E, D]) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -1636,6 +1847,8 @@ func ActorFailure[S, E, D any](a *Actor[S, E, D]) error {
 
 // ActorHasLatest is std actor's hasLatest(a): whether a has stepped a
 // signal. Once true it stays true, so ActorLatest after it has a decision.
+//
+//ergo:wait none
 func ActorHasLatest[S, E, D any](a *Actor[S, E, D]) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -1645,6 +1858,8 @@ func ActorHasLatest[S, E, D any](a *Actor[S, E, D]) bool {
 // ActorShown is std actor's shown(a): the state a showed last (the one
 // a Changes loop was given last) and its version, the count of states a
 // showed, read together under the actor's lock. It does not wait.
+//
+//ergo:wait none
 func ActorShown[S, E, D any](a *Actor[S, E, D]) (S, int) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -1654,6 +1869,8 @@ func ActorShown[S, E, D any](a *Actor[S, E, D]) (S, int) {
 // ActorLatest is std actor's latest(a): the decision of the last signal a
 // stepped (rule 12; a Reject and an Ignore included, a dropped signal
 // not).
+//
+//ergo:wait none
 func ActorLatest[S, E, D any](a *Actor[S, E, D]) D {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -1677,18 +1894,92 @@ func defectsOnly(err error) error {
 
 // Dropped is a.Dropped(): how many timer signals and work signals of ended
 // entries the runner dropped (rule 6; decision MQ6).
+//
+//ergo:wait none
 func (a *Actor[S, E, D]) Dropped() int { return int(a.dropped.Load()) }
 
-// Changes is a.Changes() on the iterating task t: the actor's state when
-// the loop begins, then each state the runner commits after it (an Enter,
-// a Stay, an Emit), in commit order; it ends when the actor has ended and
-// the states committed before are given. A break ends the subscription.
-// Each step waits on t: a stop of t raises rt.Interrupted. A subscriber
-// that does not read keeps every state in its buffer.
-func (a *Actor[S, E, D]) Changes(t *rt.Task) iter.Seq[S] {
+// Held is a.Held(): how many committed states the actor's Changes and
+// LatestChanges loops hold and have not given yet, summed over its loops;
+// a LatestChanges loop holds at most one (F-GP4c-1). It is the counter a
+// growth guard reads.
+//
+//ergo:wait none
+func (a *Actor[S, E, D]) Held() int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	n := 0
+	for c := range a.subs {
+		n += len(c.buf) - c.head
+	}
+	return n
+}
+
+// Changes is the subscription std actor's Changes(a, room) reads, on the
+// iterating task t: the actor's state when the loop begins, then each
+// state the runner commits after it (an Enter, a Stay, an Emit), in commit
+// order, each with the number of states dropped just before it (0 but
+// after an overflow); it ends when the actor has ended and the states
+// committed before are given. It holds at most room states (1 when room
+// is less): a commit that finds room unread states drops them, counts
+// them, and waits alone, so a subscriber that stops reading holds room
+// states, never one per commit (F-GP4c-1; owner, q4). A break ends the
+// subscription. Each step waits on t: a stop of t raises rt.Interrupted.
+//
+//ergo:wait caller
+func (a *Actor[S, E, D]) Changes(t *rt.Task, room int) iter.Seq2[S, int] {
+	return a.subscribe(t, max(room, 1))
+}
+
+// ActorChanges is std actor's changesOf(a, room, changed, overflowed): the
+// loop of Changes(a, room), giving changed(s) for each state and, before
+// a state an overflow dropped others for, overflowed(n) with their number.
+//
+//ergo:wait caller
+func ActorChanges[S, E, D, C any](t *rt.Task, a *Actor[S, E, D], room int, changed func(S) C, overflowed func(int) C) iter.Seq[C] {
+	return func(yield func(C) bool) {
+		for s, missed := range a.Changes(t, room) {
+			if missed > 0 && !yield(overflowed(missed)) {
+				return
+			}
+			if !yield(changed(s)) {
+				return
+			}
+		}
+	}
+}
+
+// LatestChanges is a.LatestChanges() on the iterating task t: as Changes,
+// but a subscriber that reads slower than the runner commits sees only the
+// latest state, never the ones in between (conflated, as Effect's
+// SubscriptionRef.changes read through a sliding buffer of one, or a Go
+// channel of one slot that the writer overwrites). It holds at most one
+// state, so a subscriber that stops reading keeps one state, not every
+// state (F-GP4c-1: ui's watcher, blocked on its host, kept every state).
+//
+//ergo:wait caller
+func (a *Actor[S, E, D]) LatestChanges(t *rt.Task) iter.Seq[S] {
 	return func(yield func(S) bool) {
-		c := &changes[S]{}
+		for s := range a.subscribe(t, 1) {
+			if !yield(s) {
+				return
+			}
+		}
+	}
+}
+
+// subscribe is a subscription on t of room states.
+func (a *Actor[S, E, D]) subscribe(t *rt.Task, room int) iter.Seq2[S, int] {
+	return func(yield func(S, int) bool) {
 		a.mu.Lock()
+		// ACT-CH: a subscription that ended leaves its buffer and wake
+		// channel to the next one (a.spareSub), so a loop that subscribes per
+		// signal (WaitFor) makes none after its first.
+		c := a.spareSub
+		a.spareSub = nil
+		if c == nil || changesReuse == "off" {
+			c = &changes[S]{}
+		}
+		c.room = room
 		c.buf = append(c.buf, a.state)
 		c.ended = a.ended
 		if a.subs == nil {
@@ -1699,12 +1990,14 @@ func (a *Actor[S, E, D]) Changes(t *rt.Task) iter.Seq[S] {
 		defer func() {
 			a.mu.Lock()
 			delete(a.subs, c)
+			c.reset()
+			a.spareSub = c
 			a.mu.Unlock()
 		}()
 		for {
 			t.Check()
-			s, ok := a.nextChange(t, c)
-			if !ok || !yield(s) {
+			s, missed, ok := a.nextChange(t, c)
+			if !ok || !yield(s, missed) {
 				return
 			}
 		}
@@ -1714,46 +2007,85 @@ func (a *Actor[S, E, D]) Changes(t *rt.Task) iter.Seq[S] {
 // changes is one Changes subscription: the committed states it has not
 // given yet, guarded by the actor's mu.
 type changes[S any] struct {
-	buf   []S
-	ended bool
-	wake  chan struct{}
+	// buf[head:] are the states not given yet; once all are given, buf
+	// is emptied in place, so its array takes the next states.
+	buf  []S
+	head int
+	// room is how many unread states buf may hold (1 for LatestChanges);
+	// missed counts the states an overflow dropped since the reader last
+	// took one.
+	room   int
+	missed int
+	ended  bool
+	// wake holds at most one token: signal sends it while the subscriber
+	// waits (waiting). The channel lives as long as the subscription and
+	// its successors (a.spareSub); a token left by a wait that a stop ended
+	// is taken by reset.
+	wake    chan struct{}
+	waiting bool
 	// task is the subscriber while it waits in a clock's domain (fua-b).
 	task *rt.Task
 }
 
+// changesReuse, when "off", gives each Changes subscription a new buffer
+// and wake channel, as before ACT-CH: the reference of the allocation
+// guard (TestActorChangesReuse).
+var changesReuse string
+
 // signal wakes the subscriber's wait; in a clock's domain it is unparked
 // first (rt idle.go). The actor's mu is held.
 func (c *changes[S]) signal() {
-	if c.wake != nil {
+	if c.waiting {
+		c.waiting = false
 		if c.task != nil {
 			rt.Waking(c.task, c).Done()
 		}
-		close(c.wake)
-		c.wake = nil
+		select {
+		case c.wake <- struct{}{}:
+		default:
+		}
 	}
 }
 
-// nextChange is c's next state, waiting on t; false once the actor ended
-// and c gave every state.
-func (a *Actor[S, E, D]) nextChange(t *rt.Task, c *changes[S]) (S, bool) {
+// reset readies an ended subscription for the next (a.spareSub): no states,
+// no waiter, no token. The actor's mu is held.
+func (c *changes[S]) reset() {
+	clear(c.buf)
+	c.buf, c.head = c.buf[:0], 0
+	c.ended, c.waiting, c.task, c.missed = false, false, nil, 0
+	select {
+	case <-c.wake:
+	default:
+	}
+}
+
+// nextChange is c's next state and the number of states dropped before
+// it, waiting on t; false once the actor ended and c gave every state.
+func (a *Actor[S, E, D]) nextChange(t *rt.Task, c *changes[S]) (S, int, bool) {
 	a.mu.Lock()
 	for {
-		if len(c.buf) > 0 {
-			s := c.buf[0]
+		if c.head < len(c.buf) {
+			s := c.buf[c.head]
 			var zero S
-			c.buf[0] = zero
-			c.buf = c.buf[1:]
+			c.buf[c.head] = zero
+			c.head++
+			if c.head == len(c.buf) {
+				c.buf, c.head = c.buf[:0], 0
+			}
+			missed := c.missed
+			c.missed = 0
 			a.mu.Unlock()
-			return s, true
+			return s, missed, true
 		}
 		if c.ended {
 			a.mu.Unlock()
 			var zero S
-			return zero, false
+			return zero, 0, false
 		}
 		if c.wake == nil {
-			c.wake = make(chan struct{})
+			c.wake = make(chan struct{}, 1)
 		}
+		c.waiting = true
 		ch := c.wake
 		// In a clock's domain the subscriber parks under a.mu, which
 		// signal holds too (fua-b).

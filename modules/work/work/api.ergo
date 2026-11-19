@@ -417,6 +417,16 @@ func CheckName(name string) fails BadName {
 	}
 }
 
+// FolderIsOneLevel: the folder of a name that checks is one path element.
+law FolderIsOneLevel(name string) {
+	CheckName(name) catch {
+	case BadName:
+		return true
+	}
+	let folder = FolderOf(name)
+	folder != "" && !strings.Contains(folder, "/") && folder != "." && folder != ".."
+}
+
 func now(t Tool) int64 { t.clock.Now().UnixSeconds() }
 
 // initialized fails NoBase when the base has no registry.

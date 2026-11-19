@@ -34,7 +34,10 @@ import (
 // it refuses elsewhere.
 //
 // The program runs under the new lowering, under the rule before the
-// size test (inlineCostLowering "budget") and under the reference
+// size test (inlineCostLowering "budget"), with every inlined failure at
+// its call's join (failLowering "join"), with each growth guard copied
+// at its inlined site (coldLowering "copy": pushOn, whose guard the rule
+// writes as a call out of line, coldhead.go) and under the reference
 // (inlineLowering "call"); stdout must equal the model's, a Go fold of the
 // same statements, and the exit code and standard error (the typed
 // failure, or the defect with its Ergo frames) must be the same under
@@ -51,10 +54,34 @@ var inlinePaths = []string{
 	"twice", "sign", "sumOf", "dot-place", "dot-borrow", "total", "strs", "print", "spill", "keep",
 	"own-rebind", "own-kept", "update-named-rebind", "update-named-kept", "named-cb", "impure-cb",
 	"end-normal", "end-fail", "end-unreachable", "end-index", "end-literal", "end-exit", "end-named", "loop",
+	"cold-grow", "cold-room",
 }
 
 const inlinePrelude = `import maps
 import scope
+import slices
+
+// Stack's pushOn begins with a growth guard: inlined, the guard calls
+// pushOn out of line (coldhead.go, BUN5-cold).
+type Stack { words []int, top int }
+
+func zerosN(n int) []int { slices.Repeat([]int{0}, n) }
+
+func pushOn(s *Stack, w int) {
+	if s.top >= len(s.words) {
+		s.words = slices.Concat(s.words, zerosN(len(s.words) + 1))
+	}
+	s.words[s.top] = w
+	s.top = s.top + 1
+}
+
+func sdigest(s *Stack) int {
+	let mut d = s.top
+	for i in 0..s.top {
+		d = (d * 31 + s.words[i]) % 1000003
+	}
+	d
+}
 
 type Box[T] { items []T, n int }
 
@@ -79,6 +106,38 @@ func pick(b *Box[int], i int) int {
 	case Missing:
 		-1
 	}
+}
+
+// atVia and bumpVia return a fallible call's result and error as their
+// own (OPT9: a return of a call's error, which jumps to its site's
+// failure label only when it failed; bumpVia's other failing return keeps
+// that label); bumpSlow has a loop, so it stays a call. safeAt declares a failure it never returns (its site has no
+// failure label to place).
+func atVia(b *Box[int], i int) int fails Missing {
+	at(b, i)
+}
+
+func bumpSlow(b *Box[int], i int) fails Missing {
+	for x in b.items {
+		if x == -12345 {
+			return Missing{At: x}
+		}
+	}
+	if i < 0 || i >= len(b.items) {
+		return Missing{At: i}
+	}
+	b.items[i] = b.items[i] + 1
+}
+
+func bumpVia(b *Box[int], i int) fails Missing {
+	if i == -77 {
+		return Missing{At: i}
+	}
+	bumpSlow(b, i)
+}
+
+func safeAt(b *Box[int], i int) int fails Missing {
+	clampAt(b, i)
 }
 
 func bump(b *Box[int], i int, d int) {
@@ -173,6 +232,25 @@ func keep[T](v T, p *T, w T) T {
 
 type Probe = Hit{At int} | Lost{At int}
 
+type Pn { v int }
+type Pw { s string }
+type Po { c string }
+type Ps { at int }
+
+// Ptok is a union Go holds as an interface: a variable of a variant
+// passed to weigh is not of its parameter's Go type, so it is converted,
+// not substituted (inline-subst-type).
+type Ptok = Pn | Pw | Po | Ps
+
+func weigh[T](t Ptok, d T) int {
+	match t {
+	case Pn as n:
+		n.v
+	case _:
+		0
+	}
+}
+
 func probeAt[T](p Probe, b *Box[T]) int {
 	match p {
 	case Hit as h:
@@ -251,6 +329,40 @@ type inlineGen struct {
 	mm      map[int]int
 	reached map[string]bool
 	names   int
+	// words and room model the program's Stack st: its pushed words and
+	// the length of its column.
+	words []int
+	room  int
+}
+
+// coldPush writes a push on st (pushOn, whose growth guard is a cold
+// head) from its own stream, and runs it on the model.
+func (g *inlineGen) coldPush(r *rand.Rand) {
+	k := r.IntN(50)
+	if r.IntN(2) == 0 {
+		g.line(fmt.Sprintf("pushOn(&st, %d)", k))
+	} else {
+		// An operand the body binds to a local: the out-of-line call
+		// passes the local.
+		g.line(fmt.Sprintf("pushOn(&st, b.n + %d)", k))
+		k += g.n
+	}
+	if len(g.words) >= g.room {
+		g.room += g.room + 1
+		g.reached["cold-grow"] = true
+	} else {
+		g.reached["cold-room"] = true
+	}
+	g.words = append(g.words, k)
+}
+
+// sdigest is the model of the program's sdigest.
+func (g *inlineGen) sdigest() int {
+	d := len(g.words)
+	for _, x := range g.words {
+		d = (d*31 + x) % 1000003
+	}
+	return d
 }
 
 // dmap is the model of the program's dmap.
@@ -369,6 +481,28 @@ func (g *inlineGen) stmt() {
 		} else {
 			g.reached["pick-missing"] = true
 		}
+		// The failures of atVia's inlined body, a returned call's error,
+		// at a catch whose value is named (failJump), and into a let mut;
+		// safeAt never fails.
+		a, m, s := g.name("a"), g.name("m"), g.name("s")
+		g.line(fmt.Sprintf("let %s = atVia(&b, %d) catch {\n\tcase Missing:\n\t\t-2\n\t}", a, i))
+		g.line(fmt.Sprintf("let mut %s = 0", m))
+		g.line(fmt.Sprintf("%s = atVia(&b, %d) catch {\n\tcase Missing:\n\t\t-3\n\t}", m, i+1))
+		g.line(fmt.Sprintf("let %s = safeAt(&b, %d) catch {\n\tcase Missing:\n\t\t-4\n\t}", s, i))
+		g.line(fmt.Sprintf("Console.Println(\"\\(%s) \\(%s) \\(%s)\")", a, m, s))
+		via := func(i, d int) int {
+			if v, ok := g.at(i); ok {
+				return v
+			}
+			return d
+		}
+		g.out("%d %d %d", via(i, -2), via(i+1, -3), g.clamp(i))
+		g.line(fmt.Sprintf("bumpVia(&b, %d) catch {\n\tcase Missing:\n\t\tb.n = b.n + 1\n\t}", i))
+		if _, ok := g.at(i); ok {
+			g.items[i]++
+		} else {
+			g.n++
+		}
 	case 1:
 		i, d := g.index(), g.r.IntN(50)
 		g.line(fmt.Sprintf("bump(&b, %d, %d)", i, d))
@@ -481,6 +615,10 @@ func (g *inlineGen) stmt() {
 		g.line(fmt.Sprintf("let %s = Hit{At: %d}", h, k))
 		g.line(fmt.Sprintf("Console.Println(\"\\(probeAt(%s, &b))\")", h))
 		g.out("%d", k+g.n)
+		pn := g.name("pn")
+		g.line(fmt.Sprintf("let %s = Pn{v: %d}", pn, w))
+		g.line(fmt.Sprintf("Console.Println(\"\\(weigh(%s, 0))\")", pn))
+		g.out("%d", w)
 	case 10:
 		v := g.r.IntN(20)
 		g.line(fmt.Sprintf("b.items = b.items.Append(%d)", v))
@@ -526,15 +664,27 @@ func inlineProgram(seed uint64, reached map[string]bool) (src, want string) {
 	// iteration), where the size test inlines the larger bodies (OPT8),
 	// and keeps the statements each fixed seed writes.
 	loops := rand.New(rand.NewPCG(seed, 0x4c4f4f50))
+	// A third stream writes the pushes on st, so the other statements
+	// stay those each fixed seed wrote before them.
+	cold := rand.New(rand.NewPCG(seed, 0x434f4c44))
+	g.line("let mut st = Stack{words: []int{}, top: 0}")
 	for range 24 {
+		if cold.IntN(2) == 0 {
+			push := func() { g.coldPush(cold) }
+			if cold.IntN(2) == 0 {
+				g.onLoop(push)
+			} else {
+				push()
+			}
+		}
 		if loops.IntN(3) == 0 {
 			g.onLoop(g.stmt)
 		} else {
 			g.stmt()
 		}
 	}
-	g.line("Console.Println(\"\\(digest(&b)) \\(dmap(mm))\")")
-	g.out("%d %d", g.digest(), dmap(g.mm))
+	g.line("Console.Println(\"\\(digest(&b)) \\(dmap(mm)) \\(sdigest(&st))\")")
+	g.out("%d %d %d", g.digest(), dmap(g.mm), g.sdigest())
 	end := func() {
 		g.ending(seed)
 	}
@@ -625,10 +775,13 @@ func TestInlineAgrees(t *testing.T) {
 	}
 	var runs []run
 	var programs []*lowered
-	// Three lowerings of each program: the rule (""), the rule before
-	// OPT8's size test ("budget", inlineCostLowering) and no inlining
-	// ("ref", inlineLowering "call").
-	modes := []string{"", "budget", "ref"}
+	// Four lowerings of each program: the rule (""), the rule before
+	// OPT8's size test ("budget", inlineCostLowering), every inlined
+	// failure at its call's join ("join", failLowering; OPT9) and no
+	// inlining ("ref", inlineLowering "call").
+	// A fifth, "cold", inlines growth guards as written (coldLowering
+	// "copy", BUN5-cold).
+	modes := []string{"", "budget", "join", "cold", "ref"}
 	stats := map[string]*knownStats{}
 	for _, m := range modes {
 		stats[m] = &knownStats{}
@@ -637,14 +790,25 @@ func TestInlineAgrees(t *testing.T) {
 		src, want := inlineProgram(seed, reached)
 		runs = append(runs, run{seed, src, want})
 		for _, m := range modes {
-			saved := inlineCostLowering
+			saved, savedFail, savedCold := inlineCostLowering, failLowering, coldLowering
 			if m == "budget" {
 				inlineCostLowering = "budget"
 			}
+			if m == "join" {
+				failLowering = "join"
+			}
+			if m == "cold" {
+				coldLowering = "copy"
+			}
 			p, s := lowerInlineMode(t, fmt.Sprintf("in%d%s", seed, m), src, m == "ref")
-			inlineCostLowering = saved
+			inlineCostLowering, failLowering, coldLowering = saved, savedFail, savedCold
+			stats[m].ColdCalls += s.ColdCalls
 			stats[m].Inlined += s.Inlined
 			stats[m].Substituted += s.Substituted
+			stats[m].FailsAround += s.FailsAround
+			stats[m].FailsJoined += s.FailsJoined
+			stats[m].AliasesAround += s.AliasesAround
+			stats[m].TriesAround += s.TriesAround
 			programs = append(programs, p)
 		}
 	}
@@ -680,5 +844,14 @@ func TestInlineAgrees(t *testing.T) {
 	}
 	if s := stats["ref"]; s.Inlined != 0 || s.Substituted != 0 {
 		t.Errorf("the reference lowering inlined: %+v", *s)
+	}
+	// The failure labels (failJump): the new lowering places each kind,
+	// the join reference none.
+	if s := stats[""]; s.FailsAround == 0 || s.FailsJoined == 0 || s.AliasesAround == 0 || s.TriesAround == 0 {
+		t.Errorf("the new lowering does not place every kind of failure label: around %d (named catches %d, tries %d), joined %d",
+			s.FailsAround, s.AliasesAround, s.TriesAround, s.FailsJoined)
+	}
+	if s := stats["join"]; s.FailsAround+s.FailsJoined != 0 {
+		t.Errorf("the join reference placed failure labels: %+v", *s)
 	}
 }

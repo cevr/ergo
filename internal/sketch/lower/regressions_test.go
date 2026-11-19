@@ -315,7 +315,7 @@ func main() needs Console {
 	Console.Println("ok")
 }
 `,
-		code: "S108", line: 1, column: 1, message: "only std binds the Ergo runtime; its functions take hidden arguments that std's bindings supply (here ergo.local/prototype/runtime/rt.Sleep)",
+		code: "S108", line: 1, column: 1, message: "extern go ergo.local/prototype/runtime/rt.Sleep binds the Ergo runtime, which a package binds only when the root module trusts its Go; this package is in no module, so no ergo.mod can trust it (docs/spec/interop.md, Trusted Go)",
 	}, {
 		name: "extern-swapped",
 		src: `extern go ergo.local/prototype/runtime/rt.Sleep func nap(d duration, s LiveScheduler)
@@ -326,7 +326,7 @@ func main() needs Console | Ambient {
 	Console.Println("ok")
 }
 `,
-		code: "S108", line: 1, column: 1, message: "only std binds the Ergo runtime; its functions take hidden arguments that std's bindings supply (here ergo.local/prototype/runtime/rt.Sleep)",
+		code: "S108", line: 1, column: 1, message: "extern go ergo.local/prototype/runtime/rt.Sleep binds the Ergo runtime, which a package binds only when the root module trusts its Go; this package is in no module, so no ergo.mod can trust it (docs/spec/interop.md, Trusted Go)",
 	}, {
 		name: "extern-same-signature",
 		src: `extern go ergo.local/prototype/runtime/rt.Sleep func nap(s LiveScheduler, d duration)
@@ -337,7 +337,7 @@ func main() needs Console | Ambient {
 	Console.Println("ok")
 }
 `,
-		code: "S108", line: 1, column: 1, message: "only std binds the Ergo runtime; its functions take hidden arguments that std's bindings supply (here ergo.local/prototype/runtime/rt.Sleep)",
+		code: "S108", line: 1, column: 1, message: "extern go ergo.local/prototype/runtime/rt.Sleep binds the Ergo runtime, which a package binds only when the root module trusts its Go; this package is in no module, so no ergo.mod can trust it (docs/spec/interop.md, Trusted Go)",
 	}, {
 		name: "float-cases",
 		src: `func kind(x float32) string {

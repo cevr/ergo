@@ -1,0 +1,27 @@
+Counters counter-0{[-] 0 [+] [Remove]} counter-1{[-] 0 [+] [Remove]} counter-2{[-] 0 [+] [Remove]} [+ Add Counter]
+> inc 1
+Counters counter-0{[-] 0 [+] [Remove]} counter-1{[-] 1 [+] [Remove]} counter-2{[-] 0 [+] [Remove]} [+ Add Counter]
+> inc 1
+Counters counter-0{[-] 0 [+] [Remove]} counter-1{[-] 2 [+] [Remove]} counter-2{[-] 0 [+] [Remove]} [+ Add Counter]
+> dec 0
+Counters counter-0{[-] -1 [+] [Remove]} counter-1{[-] 2 [+] [Remove]} counter-2{[-] 0 [+] [Remove]} [+ Add Counter]
+> add
+Counters counter-0{[-] -1 [+] [Remove]} counter-1{[-] 2 [+] [Remove]} counter-2{[-] 0 [+] [Remove]} counter-3{[-] 0 [+] [Remove]} [+ Add Counter]
+> inc 3
+Counters counter-0{[-] -1 [+] [Remove]} counter-1{[-] 2 [+] [Remove]} counter-2{[-] 0 [+] [Remove]} counter-3{[-] 1 [+] [Remove]} [+ Add Counter]
+> remove 1
+Counters counter-0{[-] -1 [+] [Remove]} counter-2{[-] 0 [+] [Remove]} counter-3{[-] 1 [+] [Remove]} [+ Add Counter]
+> inc 1
+? no node: role button "+" within role group "counter-1"
+> remove 3
+Counters counter-0{[-] -1 [+] [Remove]} counter-2{[-] 0 [+] [Remove]} [+ Add Counter]
+> add
+Counters counter-0{[-] -1 [+] [Remove]} counter-2{[-] 0 [+] [Remove]} counter-4{[-] 0 [+] [Remove]} [+ Add Counter]
+> remove 0
+Counters counter-2{[-] 0 [+] [Remove]} counter-4{[-] 0 [+] [Remove]} [+ Add Counter]
+> remove 2
+Counters counter-4{[-] 0 [+] [Remove]} [+ Add Counter]
+> remove 4
+Counters [+ Add Counter]
+> add
+Counters counter-5{[-] 0 [+] [Remove]} [+ Add Counter]

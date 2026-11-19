@@ -1,0 +1,32 @@
+start /
+# upstream's 13 scene tests, on one screen in order; the nav bar's four
+# links show on every route (scene 1), here on Home (scene 2)
+link Nested
+# scene 3: the Nested route
+link People
+wait 300
+# scene 4 and people scene 1: the People heading, and every person
+link Alice Johnson
+# scene 5: a person's details and the link back
+visit /people/99
+# scene 6: an unknown id
+link Files
+# scene 7: the Files index's top-level entries
+link documents
+link taxes
+# scene 8: the breadcrumb's links and a directory's entries
+visit /files/documents/resume.pdf
+# scene 9: a file's details
+visit /files/documents/missing.txt
+# scene 10: the missing panel and its link back
+link ← Back to Files
+visit /missing
+# scene 11: an unmatched address
+link ← Go Home
+# people scene 2: a search filters by name or role
+link People
+type designer
+click Search
+wait 300
+back
+back

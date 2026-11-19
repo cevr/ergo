@@ -32,10 +32,10 @@ extern go encoding/json/v2.ErrUnknownName let ErrUnknownName go.Error
 // ergo:refused JoinUnmarshalers: parameter 1: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
 
 // ergo:go func Marshal(in any, opts ...Options) (out []byte, err error)
-// ergo:refused Marshal: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:refused Marshal: parameter 2: type Options is refused: it is declared in an internal or vendored package
 
 // ergo:go func MarshalEncode(out *jsontext.Encoder, in any, opts ...Options) (err error)
-// ergo:refused MarshalEncode: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:refused MarshalEncode: parameter 3: type Options is refused: it is declared in an internal or vendored package
 
 // ergo:go func MarshalFunc[T any](fn func(T) ([]byte, error)) *Marshalers
 // ergo:refused MarshalFunc: result 1: the generic Go type typedArshalers maps to no Ergo type in v1
@@ -44,16 +44,16 @@ extern go encoding/json/v2.ErrUnknownName let ErrUnknownName go.Error
 // ergo:refused MarshalToFunc: result 1: the generic Go type typedArshalers maps to no Ergo type in v1
 
 // ergo:go func MarshalWrite(out io.Writer, in any, opts ...Options) (err error)
-// ergo:refused MarshalWrite: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:refused MarshalWrite: parameter 3: type Options is refused: it is declared in an internal or vendored package
 
 // ergo:go type Marshaler interface
 extern go encoding/json/v2.Marshaler type Marshaler {
-	MarshalJSON() []byte fails go.Error needs go.Foreign takes,
+	MarshalJSON() []byte fails go.Error needs go.Foreign,
 }
 
 // ergo:go type MarshalerTo interface
 extern go encoding/json/v2.MarshalerTo type MarshalerTo {
-	MarshalJSONTo(p0 *jsontext.Encoder) fails go.Error needs go.Foreign takes p0,
+	MarshalJSONTo(p0 own *jsontext.Encoder) fails go.Error needs go.Foreign,
 }
 
 // ergo:go type Marshalers = typedMarshalers
@@ -82,19 +82,19 @@ extern go encoding/json/v2.SemanticError type SemanticError {
 }
 
 // ergo:go func (*SemanticError).Error() string
-extern go encoding/json/v2.SemanticError.Error func (e *SemanticError) Error() string needs go.Foreign takes e
+extern go encoding/json/v2.SemanticError.Error func (e *SemanticError) Error() string needs go.Foreign
 
 // ergo:go func (*SemanticError).Unwrap() error
-extern go encoding/json/v2.SemanticError.Unwrap func (e *SemanticError) Unwrap() fails go.Error needs go.Foreign takes e
+extern go encoding/json/v2.SemanticError.Unwrap func (e *SemanticError) Unwrap() fails go.Error needs go.Foreign
 
 // ergo:go func StringifyNumbers(v bool) Options
 // ergo:refused StringifyNumbers: result 1: type Options is refused: it is declared in an internal or vendored package
 
 // ergo:go func Unmarshal(in []byte, out any, opts ...Options) (err error)
-// ergo:refused Unmarshal: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:refused Unmarshal: parameter 3: type Options is refused: it is declared in an internal or vendored package
 
 // ergo:go func UnmarshalDecode(in *jsontext.Decoder, out any, opts ...Options) (err error)
-// ergo:refused UnmarshalDecode: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:refused UnmarshalDecode: parameter 3: type Options is refused: it is declared in an internal or vendored package
 
 // ergo:go func UnmarshalFromFunc[T any](fn func(*jsontext.Decoder, T) error) *Unmarshalers
 // ergo:refused UnmarshalFromFunc: result 1: the generic Go type typedArshalers maps to no Ergo type in v1
@@ -103,16 +103,16 @@ extern go encoding/json/v2.SemanticError.Unwrap func (e *SemanticError) Unwrap()
 // ergo:refused UnmarshalFunc: result 1: the generic Go type typedArshalers maps to no Ergo type in v1
 
 // ergo:go func UnmarshalRead(in io.Reader, out any, opts ...Options) (err error)
-// ergo:refused UnmarshalRead: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:refused UnmarshalRead: parameter 3: type Options is refused: it is declared in an internal or vendored package
 
 // ergo:go type Unmarshaler interface
 extern go encoding/json/v2.Unmarshaler type Unmarshaler {
-	UnmarshalJSON(p0 []byte) fails go.Error needs go.Foreign takes,
+	UnmarshalJSON(p0 []byte) fails go.Error needs go.Foreign,
 }
 
 // ergo:go type UnmarshalerFrom interface
 extern go encoding/json/v2.UnmarshalerFrom type UnmarshalerFrom {
-	UnmarshalJSONFrom(p0 *jsontext.Decoder) fails go.Error needs go.Foreign takes p0,
+	UnmarshalJSONFrom(p0 own *jsontext.Decoder) fails go.Error needs go.Foreign,
 }
 
 // ergo:go type Unmarshalers = typedUnmarshalers

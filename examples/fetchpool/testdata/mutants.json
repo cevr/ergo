@@ -26,7 +26,7 @@
     {
       "name": "X-L8 dialer skips an input", "origin": "X-L8 composed download pipeline",
       "file": "examples/fetchpool/pool/pool.ergo",
-      "from": "for id in ids {", "to": "for id in ids { if id == 0 { continue }",
+      "from": "\tfor id in ids {\n", "to": "\tfor id in ids {\n\t\tif id == 0 { continue }\n",
       "rule": "EveryConnectionClosesOnce accounts for every successful acquisition and every requested result.",
       "anchor": {"tests": ["examples:fetchpool"]}, "killers": ["examples:fetchpool"]
     },

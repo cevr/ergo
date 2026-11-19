@@ -94,7 +94,7 @@ type MachineEvent struct {
 	// registered no graph for the machine.
 	Arm    string
 	Source string
-	In     time.Duration
+	In     Span
 	Exit   string
 }
 
@@ -123,7 +123,7 @@ func (m *MachineEvent) String() string {
 	add("arm", m.Arm)
 	add("next", m.Next)
 	if m.What == MachineTimerArmed {
-		add("in", m.In.String())
+		add("in", time.Duration(m.In).String())
 	}
 	add("exit", m.Exit)
 	return string(b)

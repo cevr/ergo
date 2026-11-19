@@ -1,0 +1,42 @@
+import json
+import strings
+
+// Generate is a log of n events as a JSON array, the same for the same
+// n: connections open, send twice, and close, every tenth one failing.
+func Generate(n int) string {
+	let c = json.Codec[Event]{MaxBytes: 0, MaxDepth: 0}
+	let mut b = strings.NewBuilder()
+	b.WriteString("[")
+	for i in 0..n {
+		if i > 0 {
+			b.WriteString(",\n")
+		}
+		b.WriteString(json.Encode(c, Nth(i)))
+	}
+	b.WriteString("]\n")
+	b.String()
+}
+
+// Nth is the i-th event of a generated log.
+func Nth(i int) Event {
+	let id = i / 4
+	match i % 4 {
+	case 0:
+		Opened{ID: id, At: i}
+	case 1, 2:
+		Sent{ID: id, Bytes: (i * 7919) % 65536}
+	case _:
+		if id%10 == 0 { Failed{ID: id, Reason: "reset by peer"} } else { Closed{ID: id} }
+	}
+}
+
+// GeneratedIsBalanced: in a generated log of whole connections, every
+// connection that opened has ended.
+law GeneratedIsBalanced(k int) {
+	let n = (if k < 0 { -(k + 1) } else { k }) % 50 * 4
+	let mut es = []Event{}
+	for i in 0..n {
+		es = es.Append(Nth(i))
+	}
+	Of(es).Open() == 0
+}

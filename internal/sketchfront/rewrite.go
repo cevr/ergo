@@ -15,11 +15,14 @@ import (
 	"sort"
 	"strings"
 
+	"ergo.local/prototype/internal/gofacts"
 	"ergo.local/prototype/internal/sketch/build"
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/lower"
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
+	"ergo.local/prototype/internal/stage"
+	"ergo.local/prototype/internal/toolchain"
 )
 
 // The law ledger (runtime.md, Tests 10; lower/ledger.go): ergo test writes
@@ -27,12 +30,21 @@ import (
 // (UpdateLedger); ergo build, run and inspect only read it and the std
 // ledger (ledgerEvidence). The run build never runs a law.
 
-// LedgerError is the refusal of a locked build (BuildRequest.Locked): an
-// entry the build needs is stale or missing.
-type LedgerError struct{ Lines []string }
+// LedgerError is the refusal of a build by its law ledger: of a locked
+// build (BuildRequest.Locked), when an entry the build needs is stale or
+// missing; of any build, when a current entry the build met is refuted
+// (Refuted; S108, LAWFFI r2 §1: a refuted entry refuses the build for
+// every level).
+type LedgerError struct {
+	Lines   []string
+	Refuted bool
+}
 
 func (e *LedgerError) Error() string {
 	msg := "ergo build --locked: the law ledger is not current"
+	if e.Refuted {
+		msg = "error[S108]: the law ledger refutes a law this build would apply"
+	}
 	for _, l := range e.Lines {
 		msg += "\n" + l
 	}
@@ -40,11 +52,14 @@ func (e *LedgerError) Error() string {
 }
 
 // ledgerText reads the ledger at path; a missing file is an empty ledger.
-func ledgerText(path string) (string, error) {
+func ledgerText(fsys FS, path string) (string, error) {
 	if path == "" {
 		return "", nil
 	}
-	data, err := os.ReadFile(path)
+	if fsys == nil {
+		fsys = hostFS{}
+	}
+	data, err := fsys.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return "", nil
 	}
@@ -63,13 +78,14 @@ func ledgerNames(a Analysis) lower.LedgerNames {
 // ledgerEvidence is the run build's evidence from the module ledger's
 // text: the evidence for the laws of the module's own packages. A package
 // another module declares takes its own module's ledger (lower's
-// evidenceFor), so this ledger never answers for it (STD-NOPRIV NP2).
-func ledgerEvidence(a Analysis, unit lower.Unit, text string) (*lower.LedgerEvidence, error) {
+// evidenceFor), so this ledger never answers for it (STD-NOPRIV NP2). The
+// foreign keys are read through fsys (foreignkeys.go).
+func ledgerEvidence(a Analysis, unit lower.Unit, text string, fsys FS) (*lower.LedgerEvidence, error) {
 	entries, err := lower.ParseLedger(text)
 	if err != nil {
 		return nil, err
 	}
-	return lower.NewLedgerEvidence(unit.Package, ledgerNames(a), entries), nil
+	return lower.NewLedgerEvidence(unit.Package, ledgerNames(a), entries, foreignKeys(a, fsys)), nil
 }
 
 func sha256Hex(s string) string {
@@ -90,8 +106,10 @@ var lawChecks = lawCheckRun
 // binary's sites may need it. So the file after ergo test of several
 // binaries does not depend on their order. It returns the count of
 // entries added, changed and removed, and writes nothing when it is 0 (a
-// missing file stays missing). A library (no main) has no run build and
-// writes nothing. A reachable refutation is a *lower.RefutedRewriteError,
+// missing file stays missing). The package's top-level rewrite laws in
+// scope take the licence run when their entry is not current
+// (licenceEntries); a library (no main) has no run build and writes only
+// those. A reachable refutation is a *lower.RefutedRewriteError,
 // and writes nothing.
 func UpdateLedger(a Analysis, req BuildRequest) (int, error) {
 	if len(a.Diagnostics) > 0 || (a.file == nil && a.program == nil) || a.pkg == nil {
@@ -102,26 +120,41 @@ func UpdateLedger(a Analysis, req BuildRequest) (int, error) {
 		return 0, err
 	}
 	input := func() (build.Input, error) { return unitInput(unit, analysisDependencies(a), req) }
-	if !hasMain(unit.Package) {
-		// A library has no run build, so no site of its own.
-		return 0, nil
-	}
 	names := ledgerNames(a)
-	var fresh []lower.LedgerEntry
-	if lower.NewLedgerEvidence(unit.Package, names, nil).HasRules() {
-		ev, err := lower.RewriteChecks(unit, lawChecks(req, input))
-		if err != nil {
-			return 0, err
-		}
-		fresh = lower.LedgerEntries(unit, names, ev)
-	}
-	text, err := ledgerText(req.Ledger)
+	keys := foreignKeys(a, req.Inputs)
+	text, err := ledgerText(req.Inputs, req.Ledger)
 	if err != nil {
 		return 0, err
 	}
 	old, err := lower.ParseLedger(text)
 	if err != nil {
 		return 0, err
+	}
+	// The root's top-level rewrite laws take their licence run, a
+	// library's too: their entries are the package's, not a site's.
+	ctext, err := ledgerText(req.Inputs, corpusPath(req.Ledger))
+	if err != nil {
+		return 0, err
+	}
+	cases, err := parseCorpus(ctext)
+	if err != nil {
+		return 0, err
+	}
+	before := cases.format()
+	fresh, err := licenceEntries(unit.Package, names, old, keys, req.Stderr, cases)
+	if err != nil {
+		return 0, err
+	}
+	if hasMain(unit.Package) {
+		// RewriteChecks runs nothing when neither the root nor an import
+		// has a rewrite law: an import's provider is checked at the
+		// root's sites. A library has no run build, so no site of its
+		// own.
+		ev, err := lower.RewriteChecksCached(unit, lawChecks(req, input), req.Laws)
+		if err != nil {
+			return 0, err
+		}
+		fresh = append(fresh, lower.LedgerEntries(unit, names, ev, keys)...)
 	}
 	next := map[string]lower.LedgerEntry{}
 	changed := 0
@@ -138,6 +171,19 @@ func UpdateLedger(a Analysis, req BuildRequest) (int, error) {
 			changed++
 		}
 		next[e.Key()] = e
+	}
+	// The corpus keeps a law's cases while its package declares it in
+	// the rewrite's scope, by the ledger's pruning rule.
+	for k := range cases {
+		if !src.declares(lower.LedgerEntry{Law: k}) {
+			delete(cases, k)
+		}
+	}
+	if after := cases.format(); after != before {
+		changed++
+		if err := writeFileAtomic(corpusPath(req.Ledger), []byte(after)); err != nil {
+			return 0, err
+		}
 	}
 	if changed == 0 {
 		return 0, nil
@@ -159,12 +205,24 @@ type ledgerSource struct {
 }
 
 func (s ledgerSource) declares(e lower.LedgerEntry) bool {
+	if e.Fact != "" {
+		// A fact line is its guard run's (LF2): this writer keeps it.
+		return true
+	}
 	lawPkg, law := e.LawPackage()
 	provPkg, prov := e.ProviderPackage()
 	if p, known := s.pkg(lawPkg); known && (p == nil || !slices.ContainsFunc(p.Laws, func(l *check.Law) bool {
+		if e.Provider == "" {
+			// A top-level law's entry (LF6b): the law, in the
+			// rewrite's scope still.
+			return l.Owner == nil && l.Machine == nil && l.Name == law && l.FuncRewrite != nil
+		}
 		return l.Owner != nil && l.Owner.Name+"."+l.Name == law
 	})) {
 		return false
+	}
+	if e.Provider == "" {
+		return true
 	}
 	if p, known := s.pkg(provPkg); known && (p == nil || !slices.ContainsFunc(p.Types, func(t *check.TypeName) bool { return t.Name == prov })) {
 		return false
@@ -230,11 +288,13 @@ const StdLedgerHeader = "# std law ledger (runtime.md, Tests 10). Written by go 
 // check runs of every std package with a rewrite law that a provider's run
 // checks, each package checked as the root of its own unit, as a module's
 // ergo test writes them. A package with no such law runs nothing, so a std
-// with none needs no Go tool.
-func FreshStdLedger(req BuildRequest) (string, error) {
+// with none needs no Go tool. host are the guard lines of the reviewed
+// tables in runtime/v1 (internal/gofacts/hostguard.Entries, LAWFFI LF2d),
+// which the caller runs: the compiler does not link their guards.
+func FreshStdLedger(req BuildRequest, host []gofacts.Entry) (string, error) {
 	entries := map[string]lower.LedgerEntry{}
-	for _, path := range std.Packages() {
-		texts, _ := std.Package(path)
+	for _, path := range stdlib.Packages() {
+		texts, _ := stdlib.Package(path)
 		names := make([]string, 0, len(texts))
 		for n := range texts {
 			names = append(names, n)
@@ -257,33 +317,65 @@ func FreshStdLedger(req BuildRequest) (string, error) {
 				return !rewrites
 			})
 		}
-		if !rewrites {
-			continue
-		}
 		pkg, err := check.Std.Import(path)
 		if err != nil {
 			return "", err
+		}
+		// A top-level rewrite law's licence run is the evaluator's, so
+		// it needs no Go tool (licenceEntries).
+		lic, err := licenceEntries(pkg, nil, nil, lower.ShippedForeignKeys, req.Stderr, nil)
+		if err != nil {
+			return "", fmt.Errorf("std %s: %w", path, err)
+		}
+		for _, e := range lic {
+			entries[e.Key()] = e
+		}
+		if !rewrites {
+			continue
 		}
 		files, sources = pkg.Files(), nil
 		for _, f := range files {
 			sources = append(sources, lower.Source{Path: "/ergo-std/" + path + "/" + f.Name, Text: f.Src})
 		}
 		unit := lower.Unit{Package: pkg, Files: files, Sources: sources, AllLaws: true}
-		if !lower.NewLedgerEvidence(pkg, nil, nil).HasRules() {
+		if !lower.NewLedgerEvidence(pkg, nil, nil, nil).HasRules() {
 			continue
 		}
 		test := req
 		test.Mode = build.ModeTest
 		input := func() (build.Input, error) { return unitInput(unit, stdDependencies(), test) }
-		ev, err := lower.RewriteChecks(unit, lawChecks(req, input))
+		ev, err := lower.RewriteChecksCached(unit, lawChecks(req, input), req.Laws)
 		if err != nil {
 			return "", fmt.Errorf("std %s: %w", path, err)
 		}
-		for _, e := range lower.LedgerEntries(unit, nil, ev) {
+		for _, e := range lower.LedgerEntries(unit, nil, ev, lower.ShippedForeignKeys) {
 			entries[e.Key()] = e
 		}
 	}
+	for _, e := range GuardFactEntries() {
+		entries[e.Key()] = e
+	}
+	for _, h := range host {
+		e := lower.LedgerEntry{Fact: h.Key, Verdict: h.Verdict, By: h.By, With: h.With, Digest: h.Digest}
+		entries[e.Key()] = e
+	}
 	return StdLedgerHeader + lower.FormatLedger(entries), nil
+}
+
+// GuardFactEntries runs the guard of every row of the reviewed fact table
+// (internal/gofacts; LAWFFI LF2) and gives its ledger line: validated by
+// guard when the guard passes, refuted when it shows the function writing
+// the operand; with the pinned toolchain, and the row's digest at it.
+func GuardFactEntries() []lower.LedgerEntry {
+	var out []lower.LedgerEntry
+	for _, r := range gofacts.Rows {
+		verdict := "validated"
+		if r.Guard(gofacts.GuardSeed) != nil {
+			verdict = "refuted"
+		}
+		out = append(out, lower.LedgerEntry{Fact: r.Key(), Verdict: verdict, By: "guard", With: toolchain.Version, Digest: r.Digest(toolchain.Version)})
+	}
+	return out
 }
 
 // hasMain reports whether pkg declares main, the run build's entry.
@@ -364,6 +456,8 @@ func lawCheckRun(req BuildRequest, inputOf func() (build.Input, error)) func(fil
 			stderr = io.Discard
 		}
 		child.Stdout, child.Stderr = stderr, stderr
+		stage.Add(stage.GoCommands, 1)
+		stage.Add(stage.Processes, 1)
 		if err := child.Run(); err != nil {
 			return "", fmt.Errorf("the law ledger's check build failed: %w", err)
 		}
@@ -372,6 +466,7 @@ func lawCheckRun(req BuildRequest, inputOf func() (build.Input, error)) func(fil
 			run := exec.Command(exe, "--seed", lower.RewriteCheckSeed, "--law", law)
 			run.Stdout, run.Stderr = &out, io.Discard
 			// A refuted law exits non-zero; its line is its verdict.
+			stage.Add(stage.Processes, 1)
 			_ = run.Run()
 		}
 		return out.String(), nil

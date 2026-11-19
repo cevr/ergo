@@ -2,6 +2,7 @@ package check
 
 import (
 	"fmt"
+	"io/fs"
 	"sort"
 	"strings"
 	"sync"
@@ -9,13 +10,32 @@ import (
 	"unicode/utf8"
 
 	"ergo.local/prototype/internal/sketch/derive"
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
 // Importer resolves an import path to a checked package (Go types2's seam).
 type Importer interface {
 	Import(path string) (*Package, error)
+}
+
+// GoTrust is an Importer that names the module of the package it checks and
+// whether the root module vouches for that module's Go (ergo.mod `trust`;
+// docs/spec/interop.md, Trusted Go). The checker reads it from the
+// importer a caller passes, never from the default std importer, so a
+// package with no module is trusted by no one.
+type GoTrust interface {
+	TrustsGo() (module string, trusted bool)
+}
+
+// GoSource is an Importer that reads the Go source of the module's own Go
+// packages: GoPackage returns the files of the package at the Go import
+// path path, and whether path is a package of the module's own (go.mod
+// beside ergo.mod). An extern of a trusted package binds a body there
+// under the hidden-argument convention (moduleDoor; docs/spec/interop.md,
+// Trusted Go 3). The checker parses the files and runs no Go tool.
+type GoSource interface {
+	GoPackage(path string) (fs.FS, bool)
 }
 
 // Diagnostic is a located checker diagnostic. Offset and Length are a UTF-8
@@ -29,6 +49,9 @@ type Diagnostic struct {
 	Length  int
 	Line    int
 	Column  int
+	// Fix is the clause edit of an S101 or S102 (clausefix.go)
+	// (clausefix.go), or nil.
+	Fix *ClauseFix
 }
 
 func (d Diagnostic) String() string {
@@ -55,6 +78,20 @@ func Check(path string, files []*syntax.File, imp Importer) (*Package, []Diagnos
 // (checked as main) or an import (TestedPath), so a package checks the
 // same either way.
 func CheckTest(path string, files []*syntax.File, imp Importer, under *Package) (*Package, []Diagnostic) {
+	return CheckTestOptions(path, files, imp, under, Options{})
+}
+
+// CheckTestOptions is CheckTest in the modes opts selects (clausefix.go).
+func CheckTestOptions(path string, files []*syntax.File, imp Importer, under *Package, opts Options) (*Package, []Diagnostic) {
+	return check(path, files, imp, under, opts)
+}
+
+func check(path string, files []*syntax.File, imp Importer, under *Package, opts Options) (*Package, []Diagnostic) {
+	var module string
+	var trusted bool
+	if g, ok := imp.(GoTrust); ok {
+		module, trusted = g.TrustsGo()
+	}
 	if imp == nil {
 		imp = Std
 	}
@@ -67,8 +104,11 @@ func CheckTest(path string, files []*syntax.File, imp Importer, under *Package) 
 		rank[k] = i
 	}
 	c := newChecker(path, imp, prelude().scope)
+	c.opts = opts
 	c.derive = derived
+	c.pkg.module, c.pkg.trusted = module, trusted
 	c.pkg.testOf = under
+	c.placeLaws = lawPlacementReported || opts.placeLaws
 	pkg := c.run(met)
 	for _, d := range derivedDiags {
 		d.File = rank[d.File]
@@ -76,6 +116,12 @@ func CheckTest(path string, files []*syntax.File, imp Importer, under *Package) 
 	}
 	if pkg != nil {
 		pkg.Derive = derived
+		if opts.Infer {
+			pkg.Clauses = c.inferredClauses()
+			for i := range pkg.Clauses {
+				pkg.Clauses[i].File = order[pkg.Clauses[i].File]
+			}
+		}
 	}
 	// Every report has a current file (owner.go), so File is the index of
 	// a file as met, its rank in the canonical order. Sort by it, so the
@@ -84,6 +130,9 @@ func CheckTest(path string, files []*syntax.File, imp Importer, under *Package) 
 	ds := c.sorted()
 	for i := range ds {
 		ds[i].File = order[ds[i].File]
+		if ds[i].Fix != nil {
+			ds[i].Fix.File = ds[i].File
+		}
 	}
 	return pkg, ds
 }
@@ -103,7 +152,15 @@ func CheckSource(src string) (*Package, []Diagnostic) {
 }
 
 type checker struct {
+	opts   Options
 	derive *derive.Package // the package's derive record (derive.go)
+	// neverOrigins caches, per union origin, whether a variant holds a
+	// Never (switchUnion.mayHoldNever; types.md, Never).
+	neverOrigins map[*Union]bool
+	// placeLaws reports S115 (lawplace.go, lawPlacementReported).
+	placeLaws bool
+	// closeOp is the release contract's operation name (closeName).
+	closeOp string
 	// caught is the call a catch being checked catches (handlers.go).
 	caught   *caughtCall
 	cover    tryCover // tries in operand position (cover.go)
@@ -130,6 +187,13 @@ type checker struct {
 	// inferred needs row that its decodes reach; a second check orders
 	// the bodies by them (wireEdges; wirecall.go).
 	lateEdges, wireEdges map[*syntax.FuncDecl][]*syntax.FuncDecl
+	// withNeeds are the with operands whose providers' release needs a
+	// capability that no outer with provides and no written row holds,
+	// found by the first check; withSeeds are the same, read by the
+	// second check, which charges each where the with is typed, and
+	// withHit records the charged ones (releaseneeds.go).
+	withNeeds, withSeeds map[withOperand][]relCap
+	withHit              map[withNeedKey]bool
 	// refusedBinders holds the binders the reporting pass has already
 	// refused by name (a pattern name that names a package object, a
 	// prelude name), so the binder rules add no second diagnostic (D3).
@@ -154,12 +218,17 @@ type checker struct {
 	// which declaration is kept depends on the order, so a decision that
 	// reads the kept one is a follow-on of the duplicate (collectSelfFuncs).
 	dupNames map[string]bool
-	// workSends holds the declaring identifier of each Listen work's send
-	// parameter (workLit): the one value actor.Child accepts (childRule).
-	workSends map[*syntax.Ident]bool
-	// durableCalls are the calls of a durable runner (durable.go), which
-	// checkDurableSteps judges once the footprints are known.
-	durableCalls []durableCall
+	// pureArgs are the arguments of pure parameters (durable.go), which
+	// checkPureArgs judges once the footprints are known.
+	pureArgs []pureArg
+	// dropped are the calls whose result a statement discards, which
+	// checkDroppedResults judges once the footprints are known.
+	dropped []droppedCall
+	// raises memoizes raisesByName.
+	raises map[*Func]bool
+	// unassigned are the never-reassigned let mut locals, which
+	// checkDroppedResults reports once the dropped calls are judged.
+	unassigned []unassignedLocal
 	// lawPreds are the invariant laws whose predicate checkLawPreds judges
 	// pure once the footprints are known (machinelaw.go).
 	lawPreds []*Law
@@ -191,7 +260,9 @@ type checker struct {
 	// includesExpanded is set once expandIncludes ran: a record resolved
 	// later splices its includes in as it resolves (include.go).
 	includesExpanded bool
-	inferSubjects    map[any]*switchUnion
+	// declOps memoizes declaredOps of a resolved named type (implements.go).
+	declOps       map[*Named][]*Named
+	inferSubjects map[any]*switchUnion
 	// settled marks the functions of a component that converged, whose
 	// reporting pass reads the published solutions; widened records a
 	// reporting pass that computed a wider row (an invariant the tests
@@ -218,23 +289,36 @@ type checker struct {
 	walkOps int
 	// resMemo caches holdsResource (0) and mayHoldResource (1) by interned
 	// type id; resSteps counts the walk's visits (resource.go).
-	resMemo  [2]map[int32]bool
-	resSteps int
+	resMemo [2]map[int32]bool
+	// handleMemo caches holdsHandle by interned type id (handle.go).
+	handleMemo map[int32]bool
+	resSteps   int
 	// ownSteps counts the ownership pass's work: nodes visited and state
 	// slots copied or joined (ownership.go), for the growth guard.
 	ownSteps int
 	// providing is set while a provider is checked against its capability
 	// (providerAssignability): R22 does not apply there.
 	providing bool
+	// capture, when not nil, lets the next assignability admit a provider
+	// whose operations need go.Foreign beyond the operation type's row, and
+	// records that it did: the site that builds the provider is charged
+	// go.Foreign (captureForeign; README Gap 17). assignability takes it
+	// and clears it, so no nested check inherits it.
+	capture *bool
 	// cellTypes memoizes cellType by origin; cellHolds memoizes holdsCell's
 	// final answers; cellSites are the type arguments checkCells decides
 	// (cells.go).
 	cellTypes map[*Named]bool
 	cellHolds map[int32]*Named
 	cellSites []cellSite
-	// encodeLend is set while encode's writer operand is converted to
-	// the Writer: encode keeps no writer, so a value that holds a cell
-	// may cross to the Writer there (types.md, Interface assignability 6).
+	// cellSteps counts holdsCell's walk steps, the cost the tests bound;
+	// cellBudget, set only by a test, stops the walk past that many steps
+	// (cellWalk; CK-MAPGROW).
+	cellSteps, cellBudget int
+	// encodeLend is set while encode's writer operand, or decode's reader
+	// operand, is converted to the Writer or the Reader: neither keeps
+	// it, so a value that holds a cell may cross to it there (types.md,
+	// Interface assignability 6).
 	encodeLend bool
 	// typeNamedFuncs are the functions that share a type's name: members
 	// of their first parameter's type once it is known (Methods 3).
@@ -253,6 +337,8 @@ type checker struct {
 	ownershipSites []ownershipSite
 	ownershipSeen  map[ownershipKey]bool
 	takesSeen      map[*syntax.TakesClause]bool
+	escapingSeen   map[*syntax.FuncType]bool // retired escaping words already reported (q168)
+	ownSeen        map[*syntax.Field]bool    // own parameter fields whose sites are recorded
 	mapKeysSeen    map[syntax.Expr]bool
 	// typeNodes are the expressions checked as types (a conversion's
 	// callee, a composite literal's type): the Task use rule skips them.
@@ -293,6 +379,8 @@ type checker struct {
 	grew           map[*Func][2]bool
 	// asNames holds each as pattern's binding name until finishInfo.
 	asNames map[*Pattern]*syntax.Ident
+	// nodeOrder is the source order of the package's nodes (sourceorder.go).
+	nodeOrder map[syntax.Node]int
 	// literals keeps isLiteral's answer for each operation it has seen.
 	literals map[syntax.Expr]bool
 	// callee is the selector a call is about to check as its callee: only
@@ -434,6 +522,9 @@ type checker struct {
 	// (refine.go).
 	refining      bool
 	refusedWheres map[*fileInfo][][2]syntax.Pos
+	// patternCalls are the matches calls of the derived ParseN and NWhere
+	// of each refined type with a pattern (refine_pattern.go).
+	patternCalls map[*syntax.CallExpr]*Matcher
 
 	fn *funcCtx // the body being checked
 }
@@ -479,6 +570,7 @@ func newChecker(path string, imp Importer, universe *Scope) *checker {
 	pkg := &Package{Path: path, Scope: newScope(universe), Contexts: map[string]*Context{}, Info: newInfo()}
 	c := &checker{
 		pkg:            pkg,
+		placeLaws:      lawPlacementReported,
 		imp:            imp,
 		universe:       universe,
 		seen:           map[string]bool{},
@@ -624,6 +716,7 @@ type universeState struct {
 	errorName *TypeName
 	goPkg     *Package
 	ref       *Named // go.Ref
+	any       *Named // go.Any
 }
 
 var universeOnce universeState
@@ -647,7 +740,7 @@ func universe() *Scope {
 		basic("byte", Uint8)
 		basic("rune", Int32)
 		// The predeclared constraints (D-E1): each names a type set.
-		for _, set := range []TypeSet{SetWire, SetComparable, SetOrdered, SetNumber} {
+		for _, set := range []TypeSet{SetLent, SetWire, SetComparable, SetOrdered, SetNumber} {
 			s.insert(set.String(), &TypeName{Name: set.String(), Pkg: u, Type: &Interface{Set: set}, id: newID()})
 		}
 		errName := &TypeName{Name: "error", Pkg: u, id: newID()}
@@ -673,6 +766,11 @@ func universe() *Scope {
 		// go.Is and go.As read a go.Error's native chain (IG5, goerror.go).
 		goPkg.Scope.insert("Is", &Builtin{Name: "go.Is"})
 		goPkg.Scope.insert("As", &Builtin{Name: "go.As"})
+		// go.New[T]() is Go's new(T), held as a go.Ref[T] (GBX1, gonew.go).
+		goPkg.Scope.insert("New", &Builtin{Name: "go.New"})
+		// go.Zero[T]() is Go's zero T, the base a Go struct literal
+		// spreads from (GBX5b, gonew.go).
+		goPkg.Scope.insert("Zero", &Builtin{Name: "go.Zero"})
 		// go.Ref[T] is a Go pointer that is stored, returned or held in a
 		// collection: an opaque handle, never nil (owner q32, q38;
 		// docs/spec/interop.md). Ergo's own *T stays a borrow.
@@ -681,6 +779,14 @@ func universe() *Scope {
 		ref.Type = &Named{Obj: ref, TParams: []*TypeParam{refT}, under: &Pointer{Elem: refT}, state: 2}
 		goPkg.Scope.insert("Ref", ref)
 		universeOnce.ref = ref.Type.(*Named)
+		// go.Any is Go's empty interface at the import go boundary (GB2;
+		// docs/spec/interop.md, Type mapping): a value with a Go form goes
+		// in (goany.go), and only go.As[T] takes one out. Ergo has no any:
+		// no operator, match or Ergo record field takes a go.Any.
+		anyName := &TypeName{Name: "Any", Pkg: goPkg, id: newID()}
+		anyName.Type = &Named{Obj: anyName, under: &Interface{}, state: 2}
+		goPkg.Scope.insert("Any", anyName)
+		universeOnce.any = anyName.Type.(*Named)
 		universeOnce.goPkg = goPkg
 		s.insert("go", &PkgName{Name: "go", Pkg: goPkg, used: true})
 		universeOnce.scope = s
@@ -712,16 +818,25 @@ func prelude() preludeResult {
 	preludeOnce.Do(func() {
 		u := universe()
 		var files []*syntax.File
-		for _, name := range sortedKeys(std.Prelude()) {
-			f, err := syntax.Parse(std.Prelude()[name])
+		for _, name := range sortedKeys(stdlib.Prelude()) {
+			f, err := syntax.Parse(stdlib.Prelude()[name])
 			if err != nil {
 				panic("check: the prelude does not parse: " + err.Error())
 			}
 			f.Name = name // the embedded name, which the lowering reports (Files)
 			files = append(files, f)
 		}
-		c := newChecker(std.PreludePath, nil, u)
+		// The slice and Map operations, the language's own file (collop.go).
+		f, err := syntax.Parse(collSource())
+		if err != nil {
+			panic("check: the slice and Map operations do not parse: " + err.Error())
+		}
+		f.Name = collFileName
+		collFile = f
+		files = append(files, f)
+		c := newChecker(stdlib.PreludePath, nil, u)
 		c.pkg.std = true
+		c.pkg.trusted = true // the toolchain vouches for what it ships
 		pkg := c.run(files)
 		pkg.qualify = false
 		scope := newScope(u)
@@ -772,6 +887,9 @@ type stdImporter struct {
 	// (checked or decoded), so each follows its imports (ExportStd).
 	order []string
 	ready map[string]bool
+	// sources reads a package's files; nil reads the embedded std
+	// (stdlib.Package). A test gives a library of its own.
+	sources func(path string) (map[string]string, bool)
 }
 
 // stdEntry is one std package, checked once.
@@ -876,7 +994,11 @@ func (s *stdImporter) count(files, packages int64) {
 
 // load checks the std package at path.
 func (s *stdImporter) load(path string) (*Package, error) {
-	sources, ok := std.Package(path)
+	read := s.sources
+	if read == nil {
+		read = stdlib.Package
+	}
+	sources, ok := read(path)
 	if !ok {
 		return nil, fmt.Errorf("no package %q", path)
 	}
@@ -892,24 +1014,34 @@ func (s *stdImporter) load(path string) (*Package, error) {
 	}
 	c := newChecker(path, s, prelude().scope)
 	c.pkg.std = true
+	c.pkg.trusted = true // the toolchain vouches for what it ships
 	c.pkg.testOf = s.testOf(path)
 	pkg := c.run(files)
 	var err error
 	if len(c.diags) > 0 {
-		err = fmt.Errorf("std package %q has diagnostics: %s", path, c.sorted()[0])
+		// The importer says why, with the first diagnostic and its file, so
+		// the import does not read as an unknown package (TM: actor's
+		// "unknown package tasks" hid tasks' S101).
+		d := c.sorted()[0]
+		at := ""
+		if d.File >= 0 && d.File < len(files) {
+			at = files[d.File].Name + ":"
+		}
+		err = &ImportError{Path: path, Reason: fmt.Sprintf("%s%s", at, d), Broken: true}
 	}
 	return pkg, err
 }
 
 // StdFixture checks files as the std package at path, as Std checks an
 // embedded one, with Std for its imports: the package is std, so its
-// externs may bind runtime/v1 and its records follow the std binding table.
+// externs may bind runtime/v1 and its types may name runtime/v1 Go types.
 // It serves tests of std bindings that need a std package the embedded
 // library does not have (lower's TestStdRecordsKeyedByPackage). The
 // compiler never calls it, and no Ergo source can reach it.
 func StdFixture(path string, files []*syntax.File) (*Package, []Diagnostic) {
 	c := newChecker(path, Std, prelude().scope)
 	c.pkg.std = true
+	c.pkg.trusted = true
 	c.pkg.testOf = Std.(*stdImporter).testOf(path)
 	pkg := c.run(files)
 	return pkg, c.sorted()
@@ -922,7 +1054,7 @@ func (s *stdImporter) testOf(path string) *Package {
 	if !ok {
 		return nil
 	}
-	if _, isStd := std.Package(base); !isStd {
+	if _, isStd := stdlib.Package(base); !isStd {
 		return nil
 	}
 	under, err := s.Import(base)

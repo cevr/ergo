@@ -13,17 +13,6 @@ import pipeline/run
 // rpc package's Request.
 type Request = pipelinerpc.Request
 
-// Loopback is the generated client of m, which the generated server
-// serves in this process (rpc.Loopback): every call crosses Effect RPC's
-// HTTP wire and the contract's codecs both ways.
-func Loopback(m pipeline.Model) pipelinerpc.Client {
-	pipelinerpc.NewClient(rpc.Loopback(func(tag string, payload string) string fails rpc.Failed {
-		with context { pipeline.Pipeline: m } {
-			try pipelinerpc.Handle(tag, payload)
-		}
-	}))
-}
-
 // Call is the answer of the bound pipeline.Pipeline to r as text: the
 // value's JSON, or the rejection's type and JSON.
 func Call(r Request) string needs pipeline.Pipeline {

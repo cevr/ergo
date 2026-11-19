@@ -1,0 +1,13 @@
+> seed 1
+  page: # Canvas Art | Click the canvas to spawn a ball.
+  controls: [Balls], [Flow], [Pause], [Clear]; 0 balls
+  frames: wanted
+  canvas: 600x400, 1 fills, 0 strokes, 4 points
+  dots: 0, centred at none, pointer ring none
+> press 10 10
+  controls: [Balls], [Flow], [Pause], [Clear]; 1 balls
+  canvas: 600x400, 2 fills, 0 strokes, 17 points
+  dots: 1, centred at (10, 10), pointer ring none
+  dot 1: at (10, 10), radius 24, #ff9500
+> frame 16 x0
+? line 2: a repeat is 1 to 10000

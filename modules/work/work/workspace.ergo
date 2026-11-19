@@ -10,10 +10,41 @@ import machines
 
 // State is where a workspace is in its lifecycle. A crash between the
 // clone and the registry's record of it leaves Creating, which gc
-// removes. The state carries no data: the record (Workspace) does, so the
+// removes, unless the clone carries its marker: gc activates that one,
+// whose folder may already hold work (Collect). The state carries no data: the record (Workspace) does, so the
 // machine's states can be listed and ergo test decides its laws on the
 // whole graph.
 type State = Creating{} | Active{} | Landing{} | Landed{} | Abandoned{} | Trashed{}
+
+// LandedIsFinal: no signal moves a landed workspace but Remove, and the
+// trash takes none.
+law LandedIsFinal(e Signal) {
+	let landed = match e {
+	case Remove:
+		StateName(After(Landed, e)) == "trashed"
+	case Cloned, Land, Refused, Committed, Abandon, Restore:
+		StateName(After(Landed, e)) == "landed"
+	}
+	landed && StateName(After(Trashed, e)) == "trashed"
+}
+
+// OnlyActiveLands: a land starts from an active workspace only, and a
+// workspace lands (enters Landed) only from Landing.
+law OnlyActiveLands(s State, e Signal) {
+	let next = StateName(After(s, e))
+	let from = StateName(s)
+	(next != "landing" || from == "active" || from == "landing") && (next != "landed" || from == "landing" || from == "landed")
+}
+
+// StateNamesRoundTrip: every state's name reads back as the state.
+law StateNamesRoundTrip(s State) {
+	match StateNamed(StateName(s)) {
+	case Some[State] as back:
+		StateName(back.Value) == StateName(s)
+	case None:
+		false
+	}
+}
 
 // Signal is what happens to a workspace: its clone ended, a land started,
 // was refused or committed, it was abandoned, removed to the trash, or

@@ -1,0 +1,630 @@
+import arena
+
+// Groups (P-ui, skipping; stdlib.md, UI 13). A component is a view
+// function the program declares, called with a frame and arguments that
+// compare with == and hold no pointer. The compiler passes such a call
+// through group: when the call returns under the same parent with the
+// same identity and arguments equal to the last pass's, the group writes
+// the nodes the last pass's call wrote, without running it. That is sound
+// because a view is pure apart from its writes through the frame (UI 1):
+// equal arguments write equal nodes. A call that read a cell, a load, a
+// key or a frame callback is not kept, since what it writes depends on
+// more than its arguments; it runs every pass, as does one in which a
+// Same kept its subtree without running. Prior art: Compose skips a
+// composable whose arguments are stable and equal, inferred by its
+// compiler; Elm's Html.Lazy and React's memo leave it to the author.
+
+// GroupArgs is the frame's memo of each kept group's arguments, held by
+// the runtime: Ergo has no type for a value of any comparable type.
+// law-exempt: runtime-only, with no operation a program calls; TestUISkipAgrees holds its rules (a slot compares equal to what was put or set in it; a freed slot is held no more).
+extern go ergo.local/prototype/runtime/v1.GroupArgs type GroupArgs {
+	runtimeOnly(),
+}
+
+extern go ergo.local/prototype/runtime/v1.NewUIArgs func newArgs() GroupArgs
+
+extern go ergo.local/prototype/runtime/v1.UIArgsPut func argsPut[A comparable](m GroupArgs, a A) int
+
+extern go ergo.local/prototype/runtime/v1.UIArgsSame func argsSame[A comparable](m GroupArgs, slot int, a A) bool
+
+extern go ergo.local/prototype/runtime/v1.UIArgsSet func argsSet[A comparable](m GroupArgs, slot int, a A)
+
+extern go ergo.local/prototype/runtime/v1.UIArgsPutAny func argsPutBy[A](m GroupArgs, a A) int
+
+extern go ergo.local/prototype/runtime/v1.UIArgsSetAny func argsSetBy[A](m GroupArgs, slot int, a A)
+
+extern go ergo.local/prototype/runtime/v1.UIArgsHas func argsHas[A](m GroupArgs, slot int) bool
+
+extern go ergo.local/prototype/runtime/v1.UIArgsAt func argsAt[A](m GroupArgs, slot int) A
+
+extern go ergo.local/prototype/runtime/v1.UIArgsFree func argsFree(m GroupArgs, slot int)
+
+extern go ergo.local/prototype/runtime/v1.UIArgsHeld func argsHeld(m GroupArgs) int
+
+// groupKey names a group across passes: the node it writes under and its
+// identity there.
+type groupKey[E] { owner arena.Ref[node[E]], id ident }
+
+// keptGroup is a group a pass may write again: its key, its arguments'
+// slot, the nodes it wrote under the group's parent (tops), the keys of
+// the groups inside it, the last pass that kept it, and whether it is
+// held (an entry not held is free for another group). What is below a
+// top is in the tree already, so a group written again writes its tops
+// alone and Commit skips what is below them, as it skips a skipped
+// Same's subtree. The kept groups stay where they are from pass to pass:
+// a pass writes the entries of the groups that ran and frees those it
+// did not keep, so a pass that keeps every group writes no entry.
+// inner holds the groups inside it by their places in keptList: a group
+// inside a held group is stamped whenever that group is, so it stays held
+// in its place, and stamping it is no lookup by key (NS2c: a list holder
+// of 200 kept rows stamps 200 groups a pass).
+// alone is whether every top took the first count of its identity and
+// all share one row site (each), so writeAgain may defer their counts.
+// allOff is whether every top is disabled, offSelf whether each top is
+// disabled exactly when it is a disabled Fieldset: so the tops keep their
+// disabled state under a parent that is disabled (up) when allOff, and
+// under one that is not when offSelf (offAgrees).
+// gen is the pass that wrote the entry; within is the entry of the
+// outermost group that held this one when that group was kept, in that
+// group's gen withinGen, or -1: a group inside a group written again is
+// kept through it (keptThrough), not stamped.
+type keptGroup[E] { key groupKey[E], slot int, tops []keptTop[E], inner []int, stamp int, held bool, alone bool, each CallSite, allOff bool, offSelf bool, gen int, within int, withinGen int, sames int }
+
+// pendingCounts is a kept group written again whose tops' counts the pass
+// has not taken: under parent spec parent (-1 the top), kept group entry,
+// its first spec start, and whether a later write took them (done).
+type pendingCounts { parent int, entry int, start int, done bool }
+
+// keptTop is one top node of a kept group: what it shows, its identity,
+// its node and its disabled state.
+type keptTop[E] { node Node[E], id ident, ref arena.Ref[node[E]], onText Option[func(t string) E], onPoint Option[func(p PointerEvent) Option[E]], onKey Option[func(k KeyPress) Option[E]], off bool }
+
+// groupRec is one group of a pass: its parent spec, identity and slot, the
+// specs it wrote [start, end), the enclosing group (-1 none), whether it
+// may be kept, the index in keptList of the kept group it wrote again
+// (-1 none) or of the entry its key found (-1 none), and whether its slot
+// is new in this pass; sames is the Sames inside it (Frame.sames).
+type groupRec[E] { parent int, id ident, slot int, start int, end int, outer int, pure bool, again int, entry int, fresh bool, sames int }
+
+// group writes body's nodes as one group (the compiler's form of a
+// component call, never written by a program): the nodes of the last
+// pass's group when it is kept with arguments equal to args, else body's.
+func group[E comparable, A comparable](f *Frame[E], args A, body func(), at CallSite) {
+	let id = groupIdent(f, at)
+	let key = groupKey[E]{owner: owner(f, f.parent), id: id}
+	let outer = f.group
+	if outer >= 0 {
+		f.nested = true
+	}
+	let start = f.nspecs
+	let mut slot = -1
+	let mut entry = -1
+	// The kept groups are a list the map indexes: a Map whose values hold
+	// slices is copied whole when read (measured: 93% of a pass).
+	match f.kept.Get(key) {
+	case Some[int] as i:
+		entry = i.Value
+		slot = f.keptList[entry].slot
+		if argsSame(f.args, slot, args) && writeAgain(f, entry) {
+			keptAgain(f, groupRec[E]{parent: f.parent, id: id, slot: slot, start: start, end: f.nspecs, outer: outer, pure: true, again: entry, entry: entry, fresh: false, sames: f.keptList[entry].sames})
+			return
+		}
+		argsSet(f.args, slot, args)
+	case None:
+		slot = argsPut(f.args, args)
+	}
+	runGroup(f, id, outer, start, slot, entry, body)
+}
+
+// groupBy is group for arguments Go's == cannot compare (NS2c): a slice,
+// a Map, or a record that holds one. same is their structural equality,
+// cheap the equality of the values among them Go's == compares (true when
+// there are none), and keep a copy of its own, all generated by the
+// compiler. The memo holds keep(args), made only when the call runs, so a
+// later write in place through the program's value never reaches what the
+// next pass compares; but only after a pass whose cheap values compared
+// equal to the last ones (and on the group's first pass). Otherwise, as
+// in each frame of an animation whose time is an argument, it holds args
+// as they are and is shallow: its cheap values are its own (Go copies
+// them), and the next pass compares only those, running the group either
+// way, so a slice it shares with the program is never read. A view that
+// stops changing runs its group once more, then skips (P-ui-flow).
+func groupBy[E comparable, A](f *Frame[E], args A, same func(a A, b A) bool, cheap func(a A, b A) bool, keep func(a A) A, body func(), at CallSite) {
+	let id = groupIdent(f, at)
+	let key = groupKey[E]{owner: owner(f, f.parent), id: id}
+	let outer = f.group
+	if outer >= 0 {
+		f.nested = true
+	}
+	let start = f.nspecs
+	let mut slot = -1
+	let mut entry = -1
+	match f.kept.Get(key) {
+	case Some[int] as i:
+		entry = i.Value
+		slot = f.keptList[entry].slot
+		let mut deep = true
+		if argsHas[heldArgs[A]](f.args, slot) {
+			let k = argsAt[heldArgs[A]](f.args, slot)
+			if k.deep && same(k.args, args) && writeAgain(f, entry) {
+				keptAgain(f, groupRec[E]{parent: f.parent, id: id, slot: slot, start: start, end: f.nspecs, outer: outer, pure: true, again: entry, entry: entry, fresh: false, sames: f.keptList[entry].sames})
+				return
+			}
+			deep = cheap(k.args, args)
+		}
+		argsSetBy(f.args, slot, heldOf(args, deep, keep))
+	case None:
+		slot = argsPutBy(f.args, heldOf(args, true, keep))
+	}
+	runGroup(f, id, outer, start, slot, entry, body)
+}
+
+// heldArgs is what groupBy's memo holds: the arguments, a copy of its own
+// when deep, else as the pass gave them (whose slices only the program
+// may read).
+type heldArgs[A] { args A, deep bool }
+
+// heldOf is args as groupBy's memo holds them: keep(args) when deep.
+func heldOf[A](args A, deep bool, keep func(a A) A) heldArgs[A] {
+	if deep {
+		return heldArgs[A]{args: keep(args), deep: true}
+	}
+	heldArgs[A]{args: args, deep: false}
+}
+
+// runGroup runs body as the group whose arguments' slot is slot, entry
+// the kept group its key found (-1 none), and records whether it may be
+// kept.
+func runGroup[E comparable](f *Frame[E], id ident, outer int, start int, slot int, entry int, body func()) {
+	let r = record(f, groupRec[E]{parent: f.parent, id: id, slot: slot, start: start, end: start, outer: outer, pure: true, again: -1, entry: entry, fresh: entry < 0, sames: 0})
+	let before = f.sames
+	let cells = f.ncells
+	let loads = f.nloads
+	let keys = f.nkeys
+	let urls = f.nurls
+	let anims = f.nanims
+	let stops = f.nstops
+	let sames = f.sameSkips
+	f.group = r
+	f.groupRuns = f.groupRuns + 1
+	body()
+	f.group = outer
+	f.groups[r].end = f.nspecs
+	f.groups[r].sames = f.sames - before
+	// A body that read state, or skipped a Same (whose subtree may hold
+	// state), or stopped a group, writes what its arguments alone do not
+	// say.
+	f.groups[r].pure = f.ncells == cells && f.nloads == loads && f.nkeys == keys && f.nurls == urls && f.nanims == anims && f.nstops == stops && f.sameSkips == sames
+}
+
+// keptAgain records g, a group written again: the Sames inside it are
+// written, and kept without running.
+func keptAgain[E](f *Frame[E], g groupRec[E]) {
+	f.sames = f.sames + g.sames
+	f.keptSames = f.keptSames + g.sames
+	let _ = record(f, g)
+}
+
+// record stores g as the pass's next group, in the storage of the last
+// pass's, and returns its index.
+func record[E](f *Frame[E], g groupRec[E]) int {
+	let r = f.ngroups
+	if r < len(f.groups) {
+		f.groups[r] = g
+	} else {
+		f.groups = f.groups.Append(g)
+	}
+	f.ngroups = r + 1
+	r
+}
+
+// groupIdent is the identity of a group under the current parent, counted
+// apart from the nodes' (identify): a node keeps the identity it has when
+// the call is no group, so cells and matching see the same nodes under
+// either lowering.
+func groupIdent[E](f *Frame[E], at CallSite) ident {
+	let s = slotOf{parent: f.parent, b: base{site: at, each: f.each, key: f.key}}
+	let mut n = 0
+	match f.groupSeen.Get(s) {
+	case Some[tally] as t:
+		if t.Value.pass == f.pass {
+			n = t.Value.n
+		}
+	case None:
+	}
+	f.groupSeen[s] = tally{pass: f.pass, n: n + 1}
+	ident{site: at, each: f.each, key: f.key, n: n}
+}
+
+// writeAgain writes the top nodes of kept group i under the current
+// parent, as its call would, each skipped: each takes the next count of
+// its identity there, which must be the count it had, and must keep its
+// disabled state; else nothing is written and the call runs. It is true
+// when it wrote them. A kept group was written by the last pass and not
+// cut (cut drops the groups it takes back), so its top nodes are the
+// children of its owner in the host's tree, never parked, and its owner,
+// which this pass matched, is no node that comes back from being parked.
+func writeAgain[E](f *Frame[E], i int) bool {
+	let p = f.parent
+	let up = p >= 0 && f.specs[p].off
+	let t = len(f.keptList[i].tops)
+	// Each top must keep its disabled state.
+	if (up && !f.keptList[i].allOff) || (!up && !f.keptList[i].offSelf) {
+		return false
+	}
+	if f.keptList[i].alone && clearBefore(f, p, f.keptList[i].each) {
+		// No node before the group under p shares its tops' row site, so
+		// each top's identity count is none before it, the first count it
+		// had: the counts are taken only when a later write under p asks
+		// for one (see), which a list holder's rows seldom are.
+		let start = f.nspecs
+		putTops(f, i, p)
+		if f.npending < len(f.pending) {
+			f.pending[f.npending] = pendingCounts{parent: p, entry: i, start: start, done: false}
+		} else {
+			f.pending = f.pending.Append(pendingCounts{parent: p, entry: i, start: start, done: false})
+		}
+		f.npending = f.npending + 1
+		if p < 0 {
+			f.rootPending = true
+		} else {
+			f.specs[p].pending = true
+		}
+		return true
+	}
+	for k in 0..t {
+		// Each top takes its count as it is checked (one lookup a top);
+		// a refusal gives back the counts taken.
+		let id = f.keptList[i].tops[k].id
+		if see(f, slotOf{parent: p, b: base{site: id.site, each: id.each, key: id.key}}) != id.n {
+			unsee(f, k+1)
+			return false
+		}
+	}
+	putTops(f, i, p)
+	true
+}
+
+// putTops writes the top nodes of kept group i under parent p, skipped,
+// as one block spec: one spec for any number of tops, which Commit keeps
+// in place (fix 5: a spec a top cost a list holder of 800 rows most of
+// its pass). A group with no top writes no spec.
+func putTops[E](f *Frame[E], i int, p int) {
+	if len(f.keptList[i].tops) == 0 {
+		return
+	}
+	let x = f.keptList[i].tops[0]
+	let _ = putSpec(f, spec[E]{node: x.node, id: x.id, parent: p, prev: x.ref, ref: x.ref, onText: None, onPoint: None, onKey: None, binds: None, off: x.off, memo: memoOf(f, p), same: None, skip: true, again: true, live: true, first: -1, last: -1, next: -1, before: lastKid(f, p), nkids: 0, pending: false, block: i, focusAs: focusPlain})
+}
+
+// clearBefore is whether the few nodes written so far under p (at most
+// four, counted, not looked up) all have a row site other than each: then
+// none shares an identity's base with a top of a group whose tops share
+// row site each.
+func clearBefore[E](f *Frame[E], p int, each CallSite) bool {
+	if kidsWritten(f, p) > 4 {
+		return false
+	}
+	let mut s = lastKid(f, p)
+	for s >= 0 {
+		let b = f.specs[s].block
+		if b >= 0 && !f.keptList[b].alone {
+			return false
+		}
+		if f.specs[s].id.each == each {
+			return false
+		}
+		s = f.specs[s].before
+	}
+	true
+}
+
+// pendingUnder is whether a kept group under parent spec p (-1 the top)
+// has not taken its tops' counts yet.
+func pendingUnder[E](f *Frame[E], p int) bool {
+	if p < 0 {
+		return f.rootPending
+	}
+	f.specs[p].pending
+}
+
+// takePending takes the counts of the tops of each kept group under p
+// that has not taken them: a write under p is about to ask for one. They
+// are not logged: a cut gives them back by its pending groups (giveBack).
+func takePending[E](f *Frame[E], p int) {
+	for b in 0..f.npending {
+		if f.pending[b].parent == p && !f.pending[b].done {
+			let e = f.pending[b].entry
+			for k in 0..len(f.keptList[e].tops) {
+				let id = f.keptList[e].tops[k].id
+				let s = slotOf{parent: p, b: base{site: id.site, each: id.each, key: id.key}}
+				f.seen[s] = tally{pass: f.pass, n: seenOf(f, s) + 1}
+			}
+			f.pending[b].done = true
+		}
+	}
+	if p < 0 {
+		f.rootPending = false
+	} else {
+		f.specs[p].pending = false
+	}
+}
+
+// giveBack drops the pending groups a cut to spec index start takes back,
+// giving back the counts of those that took theirs.
+func giveBack[E](f *Frame[E], start int) {
+	for f.npending > 0 && f.pending[f.npending-1].start >= start {
+		f.npending = f.npending - 1
+		let g = f.pending[f.npending]
+		if g.done {
+			let e = g.entry
+			for k in 0..len(f.keptList[e].tops) {
+				let id = f.keptList[e].tops[k].id
+				let s = slotOf{parent: g.parent, b: base{site: id.site, each: id.each, key: id.key}}
+				f.seen[s] = tally{pass: f.pass, n: seenOf(f, s) - 1}
+			}
+		}
+	}
+}
+
+// unsee gives back the last n identity counts the pass took.
+func unsee[E](f *Frame[E], n int) {
+	for _ in 0..n {
+		f.nseen = f.nseen - 1
+		let s = f.seenLog[f.nseen]
+		f.seen[s] = tally{pass: f.pass, n: seenOf(f, s) - 1}
+	}
+}
+
+// keepGroups makes the pass's groups the kept groups of the next pass,
+// after Commit set each spec's node. A group written again is kept as it
+// was, with the groups inside it; a pure group that ran is kept with the
+// top nodes it wrote, in its entry when its key had one; every entry the
+// pass did not keep is freed, with its slot, as is the new slot of a group
+// not kept. The groups are taken from the last to the first, so the
+// groups inside a group are known when it is kept.
+func keepGroups[E](f *Frame[E]) {
+	f.keptPasses = f.keptPasses + 1
+	let stamp = f.keptPasses
+	// stamped counts the held entries this pass keeps: when it is every
+	// held entry, none is freed and the entries are not walked.
+	let mut stamped = 0
+	let mut inner = [][]int{}
+	if f.nested {
+		for _ in 0..f.ngroups {
+			inner = inner.Append([]int{})
+		}
+	}
+	for back in 0..f.ngroups {
+		let r = f.ngroups - 1 - back
+		let g = f.groups[r]
+		if g.again >= 0 {
+			// The groups inside it are kept through it: counted, not
+			// stamped (a list holder of 800 rows holds 800).
+			stamped = stamped + restamp(f, g.again, stamp) + len(f.keptList[g.again].inner)
+			let mut up = g.outer
+			for up >= 0 {
+				inner[up] = inner[up].Append(g.again)
+				for x in f.keptList[g.again].inner {
+					inner[up] = inner[up].Append(x)
+				}
+				up = f.groups[up].outer
+			}
+		} else if g.pure {
+			let mut o = f.root
+			if g.parent >= 0 {
+				o = f.specs[g.parent].ref
+			}
+			let key = groupKey[E]{owner: o, id: g.id}
+			let mut tops = []keptTop[E]{}
+			let mut alone = true
+			let mut each = nowhere
+			let mut allOff = true
+			let mut offSelf = true
+			for j in g.start..g.end {
+				if f.specs[j].parent == g.parent {
+					for k in 0..nodesOf(f, f.specs[j]) {
+						let mut c = f.specs[j]
+						if c.block >= 0 {
+							c = blockTop(f, j, k)
+						}
+						if len(tops) == 0 {
+							each = c.id.each
+						}
+						if c.id.n != 0 || c.id.each != each {
+							alone = false
+						}
+						allOff = allOff && c.off
+						offSelf = offSelf && c.off == disables(c.node)
+						tops = tops.Append(keptTop[E]{node: c.node, id: c.id, ref: c.ref, onText: c.onText, onPoint: c.onPoint, onKey: c.onKey, off: c.off})
+					}
+				}
+			}
+			let mut nest = []int{}
+			if f.nested {
+				nest = inner[r]
+			}
+			let k = keptGroup[E]{key: key, slot: g.slot, tops: tops, inner: nest, stamp: stamp, held: true, alone: alone, each: each, allOff: allOff, offSelf: offSelf, gen: stamp, within: -1, withinGen: 0, sames: g.sames}
+			let mut at = g.entry
+			if g.entry >= 0 {
+				stamped = stamped + restamp(f, g.entry, stamp)
+				f.keptList[g.entry] = k
+			} else if f.nfree > 0 {
+				f.nfree = f.nfree - 1
+				at = f.free[f.nfree]
+				f.keptList[at] = k
+				f.kept[key] = at
+			} else {
+				at = len(f.keptList)
+				f.kept[key] = at
+				f.keptList = f.keptList.Append(k)
+			}
+			if g.entry < 0 {
+				f.nheld = f.nheld + 1
+				stamped = stamped + 1
+			}
+			for x in nest {
+				f.keptList[x].within = at
+				f.keptList[x].withinGen = stamp
+			}
+			let mut up = g.outer
+			for up >= 0 {
+				inner[up] = inner[up].Append(at)
+				up = f.groups[up].outer
+			}
+		} else if g.fresh {
+			argsFree(f.args, g.slot)
+		}
+	}
+	f.swept = 0
+	if stamped == f.nheld {
+		return
+	}
+	f.swept = len(f.keptList)
+	for i in 0..len(f.keptList) {
+		if f.keptList[i].held && f.keptList[i].stamp != stamp && !keptThrough(f, i, stamp) {
+			argsFree(f.args, f.keptList[i].slot)
+			f.kept = f.kept.Delete(f.keptList[i].key)
+			f.keptList[i].held = false
+			f.nheld = f.nheld - 1
+			if f.nfree < len(f.free) {
+				f.free[f.nfree] = i
+			} else {
+				f.free = f.free.Append(i)
+			}
+			f.nfree = f.nfree + 1
+		}
+	}
+}
+
+// keptThrough is whether kept group i is inside a group the pass kept:
+// the group within names still holds it (it is in the gen that took it)
+// and was kept by the pass, itself or through its own outer group.
+func keptThrough[E](f *Frame[E], i int, stamp int) bool {
+	let w = f.keptList[i].within
+	if w < 0 || !f.keptList[w].held || f.keptList[w].gen != f.keptList[i].withinGen {
+		return false
+	}
+	f.keptList[w].stamp == stamp || keptThrough[E](f, w, stamp)
+}
+
+// restamp marks kept group i kept by the pass stamp: 1 when it was not
+// yet, 0 when the pass marked it already.
+func restamp[E](f *Frame[E], i int, stamp int) int {
+	if f.keptList[i].stamp == stamp {
+		return 0
+	}
+	f.keptList[i].stamp = stamp
+	1
+}
+
+// Swept is how many kept entries the last Commit of f walked to free the
+// ones the pass did not keep: none when it kept every held entry. A
+// growth guard counts it, never times.
+func Swept[E](f *Frame[E]) int { f.swept }
+
+// GroupRuns is how many component calls the last pass of f ran: a call
+// written again from the last pass does not count. A growth guard counts
+// it (one changed row of many runs one row's component), never times.
+func GroupRuns[E](f *Frame[E]) int { f.groupRuns }
+
+// Compared is how many nodes the last Commit of f compared with the node
+// they were, or made: a kept group's nodes written again are kept whole
+// and not counted. A growth guard counts it.
+func Compared[E](f *Frame[E]) int { f.compared }
+
+// GroupsKept is how many groups f keeps for its next pass, and so how many
+// argument slots it holds: the memo's size.
+func GroupsKept[E](f *Frame[E]) int { argsHeld(f.args) }
+
+// shownTexts is the texts of shapes, in tree order. (a law's helper)
+func shownTexts(shapes []Shape[int]) []string {
+	let mut out = []string{}
+	for s in shapes {
+		match s.Node {
+		case TextNode as x:
+			out = out.Append(x.Value)
+		case _:
+		}
+		for x in shownTexts(s.Kids) {
+			out = out.Append(x)
+		}
+	}
+	out
+}
+
+// reorders is the orders of KeyedReorderKeepsRows: 2 to 6 rows, then 3 to
+// 8 drawn permutations of them. (a law's helper)
+func reorders(seed int, steps int) [][]int {
+	let mut r = seeded(seed)
+	let mut order = []int{}
+	for i in 0..draw(&r, 5)+2 {
+		order = order.Append(i)
+	}
+	let mut out = [][]int{order}
+	for _ in 0..(steps%6+6)%6+3 {
+		let mut next = []int{}
+		for x in out[len(out)-1] {
+			next = next.Append(x)
+		}
+		for i in 0..len(next) {
+			let j = i + draw(&r, len(next)-i)
+			let x = next[i]
+			next[i] = next[j]
+			next[j] = x
+		}
+		out = out.Append(next)
+	}
+	out
+}
+
+// reorderTable is the k-th order's rows, each a Same keyed by its row
+// over the component reorderRow: a component itself. (a law's helper)
+func reorderTable(f *Frame[int], seed int, steps int, k int) {
+	Column(f, Plain()) {
+		Each(f, reorders(seed, steps)[k], func(x int) Key { ByInt(x) }) func(x int) {
+			Same(f, ByInt(x)) {
+				reorderRow(f, x)
+			}
+		}
+	}
+}
+
+// reorderRow is row x. (a law's helper)
+func reorderRow(f *Frame[int], x int) {
+	Text(f, "row \(x)")
+}
+
+// KeyedReorderKeepsRows (UC-REORDER): a component that shows keyed rows,
+// each a Same over a component of its own, keeps every row through any
+// reorder. Over drawn permutations of 2 to 6 rows, each committed once or
+// twice (a press that also navigates commits twice, and the second pass
+// writes the component again from the first), the host's copy shows the
+// rows in the model's order after every commit. A program's component
+// call is a group (UI 13); std's are not, so the probe that restates this
+// law in a program is what holds groups to it.
+law KeyedReorderKeepsRows(seed int, steps int) {
+	let orders = reorders(seed, steps)
+	let mut r = seeded(steps)
+	let view = func(f *Frame[int], k int) {
+		reorderTable(f, seed, steps, k)
+	}
+	let mut f = NewFrame[int]()
+	let mut m = NewMirror[int](Root(&f))
+	for k in 0..len(orders) {
+		let mut want = []string{}
+		for x in orders[k] {
+			want = want.Append("row \(x)")
+		}
+		for _ in 0..draw(&r, 2)+1 {
+			Apply(&m, Render(&f, view, k)) catch {
+			case BadPatch:
+				return false
+			}
+			if shownTexts(MirrorShape(&m)) != want {
+				return false
+			}
+		}
+	}
+	true
+}
