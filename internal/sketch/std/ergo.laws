@@ -51,7 +51,9 @@ fact go math/rand/v2.PCG.Seed effect none validated by guard with go1.27.4 h1:Xq
 fact go math/rand/v2.PCG.Uint64 effect none validated by guard with go1.27.4 h1:DHlnwUTU9nkfGwU5R+WlKBAuOHLk4RskbSxIkgTMEjI=
 fact go math/rand/v2.Rand.Shuffle sync callbacks validated by guard with go1.27.4 h1:DUFi4FYJkSnI/jRnhTQpuiNXq0jL4KciVigm5FzM/qE=
 fact go math/rand/v2.Shuffle sync callbacks validated by guard with go1.27.4 h1:l5UDGnhnN4lB+WuspG7lxLoUPt6kaJk8xaSPjyAKeZw=
+fact go os.Chdir effect ambient validated by guard with go1.27.4 h1:zu0KCIhGV7w1FWIcBaZkrLFZA5gqpc2fpqE3CS5s4LQ=
 fact go os.Chmod effect ambient validated by guard with go1.27.4 h1:4/2X0PPuEzH2SUFRRiEvd0YrEoGE5T5mKEviemxg5nA=
+fact go os.Chown effect ambient validated by guard with go1.27.4 h1:eBKuk7HGuGzEkboMptrhF7IWMANOtpjvMeJ9ccBsbLc=
 fact go os.Create effect ambient validated by guard with go1.27.4 h1:DtTvUAIJ+vt1USAjTcbv0KPBWA+RUgPF8ongLJVGUyw=
 fact go os.Environ effect ambient validated by guard with go1.27.4 h1:vAy8WT3PVR/IZFXdDJ9zxPlT6cUegton8lyIx8MXduo=
 fact go os.Expand sync callbacks validated by guard with go1.27.4 h1:j53n/Pcx9EUaCtaEX1s/vf8kbd+RiX2yEz+zBS0Y34E=
@@ -77,6 +79,7 @@ fact go os.File.WriteAt reads b validated by guard with go1.27.4 h1:EemhizCnS9ID
 fact go os.File.WriteString effect ambient validated by guard with go1.27.4 h1:VLuXdNbu1LMlkEgvjdSsbKo6wwjVNiVI6NlKD8QbjAw=
 fact go os.Getenv effect ambient validated by guard with go1.27.4 h1:/ccwIxKhU8XbcPtMEBqi6bEm461e3wIE2gooNXO2lWk=
 fact go os.Getwd effect ambient validated by guard with go1.27.4 h1:r/2LsBrLrIAI2l8oVIFDIBKk4luxppaTqbEYPZ2AQFM=
+fact go os.Lchown effect ambient validated by guard with go1.27.4 h1:PEG7K6nBLwPPKlE2Onfb9kTEKX9wYabAnARRxQpcAAE=
 fact go os.LookupEnv effect ambient validated by guard with go1.27.4 h1:E1rIctoNmJL03lzx+E63GWMGoy1E75KKREYek3q2O1k=
 fact go os.Mkdir effect ambient validated by guard with go1.27.4 h1:MtX+TBPy3KcFaT8XaJZFE4EDzM29XEcuI5MrYne5qiw=
 fact go os.MkdirAll effect ambient validated by guard with go1.27.4 h1:wVPBUr4NMYuq5mx5Z3dmyIh37fgW0dTs4punAZwotPQ=

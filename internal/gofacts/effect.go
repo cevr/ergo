@@ -118,6 +118,10 @@ var Hosts = []Effect{
 	{Target: "os.Rename", Reason: "it renames one path", Source: "2e89ed8a4b75"},
 	{Target: "os.Readlink", Reason: "it reads one symbolic link's target", Source: "6a065e85af7a"},
 	{Target: "os.Chmod", Reason: "it changes one file's mode", Source: "354bb99d651b"},
+	// The path forms of (*os.File).Chdir and Chown (S2-FILE's follow-up).
+	{Target: "os.Chdir", Reason: "it makes one directory the process's working directory", Source: "5efc41e7d8dd"},
+	{Target: "os.Chown", Reason: "it changes one file's owner and group, following a symbolic link, a negative id leaving that one", Source: "1249ef2db82e"},
+	{Target: "os.Lchown", Reason: "it changes one path's owner and group, not following a symbolic link, a negative id leaving that one", Source: "c09cd95ce984"},
 	// The metadata rows (HOST-ROW-3): os's Stat, Lstat and ReadDir are
 	// bound to these (gobind.ValueResults), which read Go's interface
 	// result once, on the implementation os returns, into a struct the

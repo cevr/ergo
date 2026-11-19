@@ -11,14 +11,16 @@ import go time
 extern go os.Args let Args []string
 
 // ergo:go func Chdir(dir string) error
-extern go os.Chdir func Chdir(dir string) fails go.Error needs go.Foreign
+// ergo:effect ambient (vouched: it makes one directory the process's working directory)
+extern go os.Chdir func Chdir(dir string) fails go.Error needs Ambient
 
 // ergo:go func Chmod(name string, mode FileMode) error
 // ergo:effect ambient (vouched: it changes one file's mode)
 extern go os.Chmod func Chmod(name string, mode fs.FileMode) fails go.Error needs Ambient
 
 // ergo:go func Chown(name string, uid int, gid int) error
-extern go os.Chown func Chown(name string, uid int, gid int) fails go.Error needs go.Foreign
+// ergo:effect ambient (vouched: it changes one file's owner and group, following a symbolic link, a negative id leaving that one)
+extern go os.Chown func Chown(name string, uid int, gid int) fails go.Error needs Ambient
 
 // ergo:go func Chtimes(name string, atime time.Time, mtime time.Time) error
 extern go os.Chtimes func Chtimes(name string, atime time.Time, mtime time.Time) fails go.Error needs go.Foreign
@@ -253,7 +255,8 @@ extern go os.IsTimeout func IsTimeout(err go.Error) bool needs go.Foreign
 // ergo:refused Kill: a Go variable is host state; call a function
 
 // ergo:go func Lchown(name string, uid int, gid int) error
-extern go os.Lchown func Lchown(name string, uid int, gid int) fails go.Error needs go.Foreign
+// ergo:effect ambient (vouched: it changes one path's owner and group, not following a symbolic link, a negative id leaving that one)
+extern go os.Lchown func Lchown(name string, uid int, gid int) fails go.Error needs Ambient
 
 // ergo:go func Link(oldname string, newname string) error
 extern go os.Link func Link(oldname string, newname string) fails go.Error needs go.Foreign

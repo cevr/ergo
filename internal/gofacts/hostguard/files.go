@@ -46,6 +46,59 @@ func fileCalls() map[string]func(s ambient) error {
 		"os.Rename":   renameCheck,
 		"os.Readlink": readlinkCheck,
 		"os.Chmod":    chmodCheck,
+		// The path forms of (*os.File).Chdir and Chown (S2-FILE's
+		// follow-up).
+		"os.Chdir":  chdirCheck,
+		"os.Chown":  chownCheck(os.Chown, false),
+		"os.Lchown": chownCheck(os.Lchown, true),
+	}
+}
+
+// chdirCheck: Chdir of a relative path enters the state's directory of
+// that name, so a relative read then reads the state's file. The check
+// returns to the state's directory.
+func chdirCheck(s ambient) error {
+	defer clean(s, "hg-chdir")
+	defer os.Chdir(s.dir)
+	if err := os.Mkdir(at(s, "hg-chdir"), 0o755); err != nil {
+		return err
+	}
+	if err := put(s, "hg-chdir/inner", stateText(s)); err != nil {
+		return err
+	}
+	if err := os.Chdir("hg-chdir"); err != nil {
+		return err
+	}
+	if got, err := os.ReadFile("inner"); err != nil || !bytes.Equal(got, stateText(s)) {
+		return fmt.Errorf("after Chdir(hg-chdir) in %s, inner reads (%q, %v)", s.dir, got, err)
+	}
+	return nil
+}
+
+// chownCheck: Chown (Lchown) to the process's own ids of a relative path
+// changes the state's file and leaves its contents; on a symbolic link to
+// a missing file Chown follows the link and fails NotExist, and Lchown
+// changes the link itself and succeeds.
+func chownCheck(chown func(string, int, int) error, lchown bool) func(s ambient) error {
+	return func(s ambient) error {
+		defer clean(s, "hg-chown", "hg-chown-link")
+		if err := put(s, "hg-chown", stateText(s)); err != nil {
+			return err
+		}
+		if err := errors.Join(chown("hg-chown", os.Getuid(), os.Getgid()), chown("hg-chown", -1, -1)); err != nil {
+			return fmt.Errorf("chown of hg-chown in %s to the process's ids fails: %v", s.dir, err)
+		}
+		if got, err := get(s, "hg-chown"); err != nil || !bytes.Equal(got, stateText(s)) {
+			return fmt.Errorf("after chown the file is (%q, %v)", got, err)
+		}
+		if err := os.Symlink("hg-chown-missing", at(s, "hg-chown-link")); err != nil {
+			return err
+		}
+		err := chown("hg-chown-link", -1, -1)
+		if lchown && err != nil || !lchown && !errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("chown of a link to a missing file in %s is %v (lchown %v)", s.dir, err, lchown)
+		}
+		return nil
 	}
 }
 
