@@ -50,6 +50,9 @@ type Driver[S, E, D, F] {
 	// under the node painting now (None: unknown), shadowed whether it
 	// painted a shadow (look.ergo).
 	looked   []lookProbe,
+	// underlines is where the last paint drew an opaque underline
+	// (inkedLines), as probes.
+	underlines []Probe,
 	under    Option[uint32],
 	shadowed bool,
 	// semantics is the Semantic nodes the last paint put in the
@@ -105,6 +108,7 @@ func start[E comparable, S, D, F](w go.Ref[screen.Window], a actor.Actor[S, E, D
 		frames:    false,
 		painted:   0,
 		looked:    []lookProbe{},
+		underlines: []Probe{},
 		under:     None,
 		shadowed:  false,
 		semantics: []ui.Id[E]{},
@@ -644,13 +648,17 @@ func FocusNode[S, E, D, F](d *Driver[S, E, D, F]) Option[ui.Node[E]] {
 // Probe is a place where a node's fill shows, and the fill's color
 // (0xRRGGBBAA): a look's fill below its top edge and the colour under it
 // outside its top-left corner (lookProbes), a checked Check's box, a
-// Toggle's track, a canvas's last opaque fill (canvasProbe).
+// Toggle's track, a canvas's last opaque fill (canvasProbe), an
+// opaque underline under a Text's run (inkedLines).
 type Probe { Label string, X int, Y int, Color uint32 }
 
 // Probes are the probes of the nodes on screen whose probe point no clip
 // cuts, in paint order.
 func Probes[S, E, D, F](d *Driver[S, E, D, F]) []Probe {
 	let mut out = lookProbes(d)
+	for u in d.underlines {
+		out = out.Append(u)
+	}
 	for s in d.spots {
 		let b = s.box
 		let mut x = b.X + b.W/2

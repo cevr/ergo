@@ -289,6 +289,7 @@ func paint[S, E, D, F](d *Driver[S, E, D, F]) needs go.Foreign {
 	d.canvases = []spot[E]{}
 	d.boxes = Map[ui.Id[E], layout.Box]{}
 	d.looked = []lookProbe{}
+	d.underlines = []Probe{}
 	d.semantics = []ui.Id[E]{}
 	d.under = Some{Value: paper}
 	d.shadowed = false
@@ -448,7 +449,7 @@ func draw[S, E, D, F](d *Driver[S, E, D, F], t *layout.Tree, ids Map[ui.Id[E], l
 	case ui.TextNode as x:
 		access(d, id, screen.RoleText, x.Value, "", b, false, false)
 		let st = styleOf(n, line)
-		lines(d, x.Value, b.X+st.Padding[3], b.Y+st.Padding[0], b.W-st.Padding[1]-st.Padding[3], ink)
+		inkedLines(d, x.Value, b.X+st.Padding[3], b.Y+st.Padding[0], b.W-st.Padding[1]-st.Padding[3], lookOf(d, id, n).Ink, clip)
 	case ui.ReadoutNode as x:
 		// What the readout reads now, on one line, clipped to the
 		// reserve's box.
@@ -548,6 +549,35 @@ func lines[S, E, D, F](d *Driver[S, E, D, F], text string, x float32, y float32,
 	let step = lineHeight(d.metrics, textSize)
 	for i, l in Lines(d.metrics, text, textSize, wide) {
 		d.w.Text(float64(x), float64(y+float32(i)*step), l, float64(textSize), color)
+	}
+}
+
+// inkedLines draws a Text's lines in its look's ink (OpenTUI gap 1): its
+// colour, or the window's ink when transparent; bold as the run drawn
+// twice, a dip apart (the window has one face); underlined as a fill of
+// a dip under each line's run, on a whole pixel row. The window has no
+// slanted face, so italic is drawn upright. An opaque underline inside
+// clip is a probe (Probes), so a test reads the ink's colour off the
+// window.
+func inkedLines[S, E, D, F](d *Driver[S, E, D, F], text string, x float32, y float32, wide float32, k ui.Ink, clip layout.Box) needs go.Foreign {
+	let color = if k.Color.A != 0 { rgba(k.Color) } else { ink }
+	let opaque = (k.Color.A == 0 || k.Color.A == 255) && d.w.Opacity() == 1.0
+	let step = lineHeight(d.metrics, textSize)
+	for i, l in Lines(d.metrics, text, textSize, wide) {
+		let at = y + float32(i)*step
+		d.w.Text(float64(x), float64(at), l, float64(textSize), color)
+		if k.Bold {
+			d.w.Text(float64(x+1), float64(at), l, float64(textSize), color)
+		}
+		if k.Underline {
+			let under = layout.Box{X: fceil(x), Y: fceil(at + step - 3), W: float32(int(float32(d.w.TextWidth(l, float64(textSize))))), H: 1}
+			fill(d, under, 0, color)
+			let px = int(under.X) + 1
+			let py = int(under.Y)
+			if opaque && under.W >= 3 && probeShows(clip, px, py) {
+				d.underlines = d.underlines.Append(Probe{Label: l + " underline", X: px, Y: py, Color: color})
+			}
+		}
 	}
 }
 

@@ -483,6 +483,12 @@ func Text[E](f *Frame[E], value string, at CallSite) {
 	let _ = put(f, TextNode{Value: value, Style: Plain()}, None, None, at)
 }
 
+// TextStyled shows a string with a Style: its layout, and its look,
+// whose Ink draws the text (look.ergo).
+func TextStyled[E](f *Frame[E], value string, style Style, at CallSite) {
+	let _ = put(f, TextNode{Value: value, Style: style}, None, None, at)
+}
+
 // Check shows a check box; a press sends on.
 func Check[E](f *Frame[E], label string, checked bool, on E, at CallSite) {
 	let _ = put(f, CheckNode{Label: label, Checked: checked, On: on}, None, None, at)

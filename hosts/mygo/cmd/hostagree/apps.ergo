@@ -303,6 +303,7 @@ func sketchView(f *ui.Frame[int], s sketch) {
 // looks (UG1): boxes and buttons with looks of their own, a theme that a
 // tap changes, a shadow in one theme and a dimmed group a tap turns on, so
 // the window paints each look from the tree's table (fills, a border,
+// an underlined text in the theme's ink,
 // corners, a shadow, opacity) where both hosts hold the same Looks.
 type looksApp { theme int, dim bool }
 
@@ -333,6 +334,9 @@ func looksView(f *ui.Frame[int], s looksApp) {
 	col.Padding = ui.All(16)
 	ui.Column(f, col) {
 		ui.Text(f, "theme \(s.theme)")
+		// A Text in the theme's ink, underlined (bold in theme 1): the
+		// window's underline is a probe of the ink's colour.
+		ui.TextStyled(f, "inked", looked(f, ui.Inked(ui.Ink{Color: ui.Rgb(accents[s.theme]), Bold: s.theme == 1, Italic: false, Underline: true}), 0))
 		ui.Pressable(f, "next", 0) {
 			ui.Text(f, "Next")
 		}
