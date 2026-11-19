@@ -41,21 +41,16 @@ func predeclared(s store.Store, k Pkg, text string) bool {
 	p >= 0 && inScope(k.Deps[p].S, text) && !receiverOp(k.Deps[p], text)
 }
 
-// receiverOp is whether text names an operation of the language reached
-// from a receiver (xs.Append(x)), not a name in scope: a function of the
-// prelude's builtin.ergo whose first parameter is a slice, Map, string or
-// rune. MakeSlice, called by name like len, is in scope (check.go's
-// prelude scope).
+// receiverOp is whether text names an operation of the language, a
+// function of the prelude's builtin.ergo, reached from a receiver
+// (xs.Append(x)) and not a name in scope. MakeSlice, the one called by
+// name, is in the Go checker's scope, but its call MakeSlice[T](n) never
+// reaches this lookup (no test can tell), so the file alone decides.
 func receiverOp(d Dep, text string) bool {
 	let mut i = fnNamed(d.S, d.K, text)
 	for i >= 0 {
-		let f = d.K.Fns[i]
-		let ops = store.OperandsOf(d.S, f.Sig)
-		if operation(d.K.Files, f) && len(ops) > 3 {
-			let kind = store.KindOfType(d.S, receiverBase(d.S, ops[0]))
-			if kind == store.KSlice || kind == store.KMap || operandBasic(d.S, receiverBase(d.S, ops[0])) {
-				return true
-			}
+		if operation(d.K.Files, d.K.Fns[i]) {
+			return true
 		}
 		i = d.K.sameName[i]
 	}

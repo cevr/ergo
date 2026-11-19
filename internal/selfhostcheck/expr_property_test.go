@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -48,6 +49,9 @@ func TestCompilerExprProperty(t *testing.T) {
 	tmp := t.TempDir()
 	file := filepath.Join(tmp, "p.ergo")
 	e, f := filepath.Join(tmp, "ext"), filepath.Join(tmp, "foreign")
+	// The prelude is every case's import: its builtin.ergo declares the
+	// operations the cases call on slices, strings, []byte and runes.
+	group := preludeGroup(t, tmp)
 	reached := map[string]int{}
 	caught := map[int]int{}
 	ran, failed, refused := 0, 0, ""
@@ -68,8 +72,8 @@ func TestCompilerExprProperty(t *testing.T) {
 		writeLines(t, e, ext)
 		writeLines(t, f, foreign)
 		writeLines(t, file, []string{src})
-		got, diags := splitDiags(runDump(t, ctx, bin, e, f, file))
-		gotCalls := runDump(t, ctx, bin, "-calls", e, f, file)
+		got, diags := splitDiags(runDump(t, ctx, bin, append([]string{e, f, file}, group...)...))
+		gotCalls := runDump(t, ctx, bin, append([]string{"-calls", e, f, file}, group...)...)
 		if len(diags) > 0 {
 			failed++
 			if failed <= 3 {
@@ -81,7 +85,7 @@ func TestCompilerExprProperty(t *testing.T) {
 		bad, which := genBad(seed)
 		if _, bds := check.CheckSource(bad); len(bds) > 0 {
 			writeLines(t, file, []string{bad})
-			_, badDiags := splitDiags(runDump(t, ctx, bin, e, f, file))
+			_, badDiags := splitDiags(runDump(t, ctx, bin, append([]string{e, f, file}, group...)...))
 			if len(badDiags) == 0 {
 				failed++
 				if failed <= 3 {
@@ -103,6 +107,9 @@ func TestCompilerExprProperty(t *testing.T) {
 			// call names).
 			form, _, _ := strings.Cut(forms[keyOf(l, 3)], " ")
 			reached[form]++
+			if op := operationOf(src, l); op != "" {
+				reached[op]++
+			}
 		}
 		if len(gotCalls) > 0 {
 			reached["generic call"]++
@@ -177,7 +184,32 @@ func genBad(seed uint32) (string, int) {
 
 // exprForms are the syntax forms (and inferred generic calls) the cases
 // must get typed.
-var exprForms = []string{"Ident", "BasicLit", "BinaryExpr", "UnaryExpr", "ParenExpr", "CallExpr", "CompositeLit", "SelectorExpr", "IndexExpr", "InterpolatedString", "FuncLit", "generic call"}
+var exprForms = []string{"Ident", "BasicLit", "BinaryExpr", "UnaryExpr", "ParenExpr", "CallExpr", "CompositeLit", "SelectorExpr", "IndexExpr", "InterpolatedString", "FuncLit", "generic call", "slice operation", "string operation", "[]byte operation", "rune operation"}
+
+// operationCall is a call of the language's operations the generator
+// writes (case 18), and the receiver it reaches the operation from.
+var operationCall = regexp.MustCompile(`^[\w\[\]{}, ]+\.(Append|Bytes|Text|RuneText)\(\w*\)$`)
+
+// operationOf is the receiver class of the typed call at line l ("FILE
+// START END TYPE") of src, when it calls one of the language's operations
+// the generator writes: a slice's Append, a string's Bytes, a []byte's
+// Text or a rune's RuneText; else "".
+func operationOf(src, l string) string {
+	f := strings.Fields(l)
+	if len(f) < 3 {
+		return ""
+	}
+	start, err1 := strconv.Atoi(f[1])
+	end, err2 := strconv.Atoi(f[2])
+	if err1 != nil || err2 != nil || start < 0 || end > len(src) || start >= end {
+		return ""
+	}
+	m := operationCall.FindStringSubmatch(src[start:end])
+	if m == nil {
+		return ""
+	}
+	return map[string]string{"Append": "slice operation", "Bytes": "string operation", "Text": "[]byte operation", "RuneText": "rune operation"}[m[1]]
+}
 
 // genExpr is the source of the expression case seed: a few functions whose
 // bodies draw statements from a pool of the typer's forms, each local
@@ -211,7 +243,20 @@ func genExpr(seed uint32) string {
 				continue
 			}
 			x := local()
-			switch r.n(18) {
+			switch r.n(19) {
+			case 18:
+				// The language's operations on a slice, a string, a
+				// []byte and a rune (builtin.ergo, D-D8).
+				switch r.n(4) {
+				case 0:
+					add("\tlet "+x+" = xs.Append(acc)", "\tacc = acc + len("+x+")")
+				case 1:
+					add("\tlet "+x+" = q.Bytes()", "\tacc = acc + len("+x+")")
+				case 2:
+					add("\tlet "+x+" = []byte{1, 2}.Text()", "\tacc = acc + len("+x+")")
+				case 3:
+					add("\tlet "+x+"r rune = "+k(), "\tlet "+x+" = "+x+"r.RuneText()", "\tacc = acc + len("+x+")")
+				}
 			case 0:
 				add("\tlet "+x+" = p + "+k(), "\tacc = acc + "+x)
 			case 1:
