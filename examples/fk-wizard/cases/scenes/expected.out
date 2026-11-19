@@ -1,0 +1,53 @@
+  # Your permit | # Plan the trip | [x] Overnight trip | [ ] Day trip | Two days or more: pack supplies next. | [Continue] | [Cancel permit]
+  # State machine inspector | Stage: Plan | log{}
+> check Day trip
+  # Your permit | # Plan the trip | [ ] Overnight trip | [x] Day trip | Back the same day: no supplies needed. | [Continue] | [Cancel permit]
+  # State machine inspector | Stage: Plan | log{0: Plan -> Plan on Chose …1}
+> click Continue
+  # Your permit | # Permit | [ ] Leader: Ana Rivera | [Review permit, disabled] | [Back] | [Cancel permit]
+  # State machine inspector | Stage: Permit | log{1: Plan -> Permit on Continue …2}
+> click Review permit
+  # Your permit | # Permit | [ ] Leader: Ana Rivera | [Review permit, disabled] | [Back] | [Cancel permit]
+  # State machine inspector | Stage: Permit | log{1: Plan -> Permit on Continue …2}
+> check Leader: Ana Rivera
+  # Your permit | # Permit | [x] Leader: Ana Rivera | [Review permit] | [Back] | [Cancel permit]
+  # State machine inspector | Stage: Permit | log{2: Permit -> Permit on Led …3}
+> click Review permit
+  # Your permit | # Review and file | Day trip | Leader: Ana Rivera | [ ] Accept the park rules | Allowance code<> | [Apply] | Permit fee · $25.00 | [File permit · $25.00, disabled] | [Back] | [Cancel permit]
+  # State machine inspector | Stage: Review | log{3: Permit -> Review on Continue …4}
+> click File permit · $25.00
+  # Your permit | # Review and file | Day trip | Leader: Ana Rivera | [ ] Accept the park rules | Allowance code<> | [Apply] | Permit fee · $25.00 | [File permit · $25.00, disabled] | [Back] | [Cancel permit]
+  # State machine inspector | Stage: Review | log{3: Permit -> Review on Continue …4}
+> check Accept the park rules
+  # Your permit | # Review and file | Day trip | Leader: Ana Rivera | [x] Accept the park rules | Allowance code<> | [Apply] | Permit fee · $25.00 | [File permit · $25.00] | [Back] | [Cancel permit]
+  # State machine inspector | Stage: Review | log{4: Review -> Review on Agreed …5}
+> click File permit · $25.00
+  # Your permit | # Filing your permit | The office answers in a moment.
+  # State machine inspector | Stage: Filing | log{5: Review -> Filing on File …6}
+> wait 1000
+  # Your permit | # Permit DAY-1001 confirmed | [Start a permit again]
+  # State machine inspector | Stage: Confirmed | log{6: Filing -> Confirmed on Filed …7}
+> click Start a permit again
+  # Your permit | # Plan the trip | [ ] Overnight trip | [x] Day trip | Back the same day: no supplies needed. | [Continue] | [Cancel permit]
+  # State machine inspector | Stage: Plan | log{7: Confirmed -> Plan on StartOver …8}
+> click Continue
+  # Your permit | # Permit | [ ] Leader: Ana Rivera | [Review permit, disabled] | [Back] | [Cancel permit]
+  # State machine inspector | Stage: Permit | log{8: Plan -> Permit on Continue …9}
+> check Leader: Ana Rivera
+  # Your permit | # Permit | [x] Leader: Ana Rivera | [Review permit] | [Back] | [Cancel permit]
+  # State machine inspector | Stage: Permit | log{9: Permit -> Permit on Led …10}
+> click Review permit
+  # Your permit | # Review and file | Day trip | Leader: Ana Rivera | [ ] Accept the park rules | Allowance code<> | [Apply] | Permit fee · $25.00 | [File permit · $25.00, disabled] | [Back] | [Cancel permit]
+  # State machine inspector | Stage: Review | log{10: Permit -> Review on Continue …11}
+> code ranger10
+  # Your permit | # Review and file | Day trip | Leader: Ana Rivera | [ ] Accept the park rules | Allowance code<ranger10> | [Apply] | Permit fee · $25.00 | [File permit · $25.00, disabled] | [Back] | [Cancel permit]
+  # State machine inspector | Stage: Review | log{11: Review -> Review on Edited …12}
+> click Apply
+  # Your permit | # Review and file | Day trip | Leader: Ana Rivera | [ ] Accept the park rules | Allowance code<ranger10> | [Apply] | Permit fee · $25.00 | RANGER10 applied · 10% off | Allowance · RANGER10 · -$2.50 | [File permit · $22.50, disabled] | [Back] | [Cancel permit]
+  # State machine inspector | Stage: Review | log{12: Review -> Review on Applied …13}
+> code bogus
+  # Your permit | # Review and file | Day trip | Leader: Ana Rivera | [ ] Accept the park rules | Allowance code<bogus> | [Apply] | Permit fee · $25.00 | RANGER10 applied · 10% off | Allowance · RANGER10 · -$2.50 | [File permit · $22.50, disabled] | [Back] | [Cancel permit]
+  # State machine inspector | Stage: Review | log{13: Review -> Review on Edited …14}
+> click Apply
+  # Your permit | # Review and file | Day trip | Leader: Ana Rivera | [ ] Accept the park rules | Allowance code<bogus> | [Apply] | Permit fee · $25.00 | That code isn't recognized. | [File permit · $25.00, disabled] | [Back] | [Cancel permit]
+  # State machine inspector | Stage: Review | log{14: Review -> Review on Unknown …15}

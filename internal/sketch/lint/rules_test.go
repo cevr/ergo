@@ -18,6 +18,13 @@ func ruleLines(t *testing.T, rule, src string) []int {
 	if !in.Checked {
 		t.Fatalf("the generated program does not check:\n%s", src)
 	}
+	return linesOf(t, rule, in)
+}
+
+// linesOf runs rule alone, at warning, on in and returns the lines of its
+// findings.
+func linesOf(t *testing.T, rule string, in lint.Input) []int {
+	t.Helper()
 	settings := map[string]lint.Setting{}
 	for _, r := range lint.Builtin().Rules() {
 		settings[r.Name] = lint.Setting{Severity: lint.Off, HasSeverity: true}
@@ -69,6 +76,12 @@ var armKinds = []armKind{
 	{"shadow", true, func(t string) string { return "case " + t + ":\n\t\tlet b = 3\n\t\tlet o = b\n\t\to" }},
 	// fails on through try: a trace
 	{"try", false, func(t string) string { return "case " + t + ":\n\t\ttry risky(2)" }},
+	// stops on a path that cannot run: a trace (LHP2)
+	{"unreachable", false, func(t string) string { return "case " + t + ":\n\t\tUnreachable(\"risky is never zero here\")" }},
+	// writes a variable the function reads after the catch: a trace (LHP2)
+	{"outer-write", false, func(t string) string { return "case " + t + ":\n\t\tseen = seen + 1\n\t\t0" }},
+	// writes only a variable of its own: no trace
+	{"own-write", true, func(t string) string { return "case " + t + ":\n\t\tlet mut k = 1\n\t\tk = k + seen\n\t\tk" }},
 	// a function literal that returns, made and not called: its return is
 	// its own frame's, so no trace
 	{"literal", true, func(t string) string {
@@ -119,6 +132,8 @@ func TestSilentCatchAgreesWithReference(t *testing.T) {
 		}
 		for f := 0; f < 1+r.IntN(4); f++ {
 			emit(fmt.Sprintf("\nfunc f%d(n int) int fails Bad | Other needs Console {", f))
+			emit("\tlet mut seen = 0")
+			emit("\tseen = seen + n")
 			emit("\tlet r = risky(n) catch {")
 			first := armKinds[r.IntN(len(armKinds))]
 			if first.silent {
@@ -138,8 +153,19 @@ func TestSilentCatchAgreesWithReference(t *testing.T) {
 			default:
 				emit("\tcase err:\n\t\treturn err")
 			}
-			emit("\t}\n\tr\n}")
+			emit("\t}\n\tr + seen\n}")
 		}
+		// In a test, an arm that asserts leaves a trace (LHP2); one that
+		// yields a value does not.
+		emit("\ntest arms {\n\tlet r = risky(2) catch {")
+		if r.IntN(2) == 0 {
+			emit("\tcase Bad:\n\t\tassert false\n\t\t0")
+		} else {
+			want = append(want, line)
+			emit("\tcase Bad:\n\t\t0")
+		}
+		emit("\tcase Other as o:\n\t\to.Code")
+		emit("\t}\n\tassert r == 2\n}")
 		src := b.String()
 		got := ruleLines(t, "silent-catch", src)
 		if !slices.Equal(got, want) {

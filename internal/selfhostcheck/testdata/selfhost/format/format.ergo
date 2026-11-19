@@ -156,6 +156,7 @@ let schema = Map[string, string]{
 	"LawRewrite":         "When p Eq p",
 	"LawReach":           "Never p Word p Path b Lbrack p Targets l Rbrack p Invariant s Pred n",
 	"AssertStmt":         "Assert p X n",
+	"SkipStmt":           "Skip p ReasonPos p Reason s ReasonEnd p",
 	"VariantSpec":        "Name n TypeArgs n Fields n",
 	"AsPattern":          "X n As p Name n",
 	"OrPattern":          "Alts l Bars P",

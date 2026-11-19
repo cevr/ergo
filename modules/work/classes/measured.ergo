@@ -1,0 +1,177 @@
+import slices
+import strconv
+import strings
+
+// MergeMeasured merges two JSON objects of measured numbers (an object
+// whose values are numbers or such objects, as scripts/gate writes its
+// durations): key by key, a number only one side changed takes that side;
+// two sides that measured apart keep ours (the lander's), and the file is
+// marked to be measured again, since a measurement has no merge; a key
+// one side removed and the other left goes, and one the other changed
+// stays. The text is written again in the
+// layout Go's json.MarshalIndent gives it (keys sorted, two spaces), the
+// numbers as their sides wrote them.
+func MergeMeasured(base string, ours string, theirs string) Merged fails Unreadable {
+	let (text, again) = try measured(Some[string]{Value: base}, Some[string]{Value: ours}, Some[string]{Value: theirs}, 0)
+	Merged{Text: text + "\n", Conflicts: []string{}, Regenerate: again}
+}
+
+// measured is the merged text of one value at the depth depth, from each
+// side's raw text (None when the side has no such key), and whether a
+// number in it was measured apart by both sides.
+func measured(base Option[string], ours Option[string], theirs Option[string], depth int) (string, bool) fails Unreadable {
+	let objects = isObject(base) && isObject(ours) && isObject(theirs)
+	if !objects {
+		match Choose(base, ours, theirs, sameNumber) {
+		case Take as k:
+			return (textOf(k.Value), false)
+		case Clash:
+			return (textOf(ours), true)
+		}
+	}
+	let b = try membersOf(base, "base")
+	let o = try membersOf(ours, "ours")
+	let t = try membersOf(theirs, "theirs")
+	let mut keys = []string{}
+	for m in slices.Concat(o, t) {
+		if !slices.Contains(keys, m.Key) {
+			keys = keys.Append(m.Key)
+		}
+	}
+	let mut parts = []string{}
+	let mut again = false
+	for key in slices.Sort(keys) {
+		let bv = member(b, key)
+		let ov = member(o, key)
+		let tv = member(t, key)
+		let gone = (ov == None && equal(tv, bv, sameNumber)) || (tv == None && equal(ov, bv, sameNumber))
+		if gone {
+			continue
+		}
+		let value = match (ov, tv) {
+		case (Some[string], Some[string]):
+			let (v, apart) = try measured(bv, ov, tv, depth+1)
+			again = again || apart
+			v
+		case (Some[string], None):
+			textOf(ov)
+		case (None, Some[string]):
+			textOf(tv)
+		case (None, None):
+			""
+		}
+		parts = parts.Append(indent(depth+1) + strconv.Quote(key) + ": " + value)
+	}
+	if len(parts) == 0 {
+		return ("{}", again)
+	}
+	("{\n" + strings.Join(parts, ",\n") + "\n" + indent(depth) + "}", again)
+}
+
+func indent(depth int) string { strings.Repeat("  ", depth) }
+
+func isObject(v Option[string]) bool {
+	match v {
+	case Some[string] as s:
+		strings.HasPrefix(strings.TrimSpace(s.Value), "{")
+	case None:
+		true
+	}
+}
+
+func membersOf(v Option[string], side string) []Entry fails Unreadable {
+	match v {
+	case Some[string] as s:
+		try Members(s.Value, side)
+	case None:
+		[]Entry{}
+	}
+}
+
+// sameNumber reports whether two raw numbers are equal as numbers.
+func sameNumber(a string, b string) bool {
+	if a == b {
+		return true
+	}
+	let x = strconv.ParseFloat(a) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return false
+	}
+	let y = strconv.ParseFloat(b) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return false
+	}
+	x == y
+}
+
+// durations is units as the gate's durations file: one package of
+// tests, keyed in order, as Go's json.MarshalIndent writes it.
+func durations(units Map[int, int]) string {
+	let mut rows = []string{}
+	for key in 0..6 {
+		match units.Get(key) {
+		case Some[int] as v:
+			rows = rows.Append("    \"k\(key)\": \(v.Value)")
+		case None:
+		}
+	}
+	let inner = if len(rows) == 0 { "{}" } else { "{\n" + strings.Join(rows, ",\n") + "\n  }" }
+	"{\n  \"pkg\": " + inner + "\n}\n"
+}
+
+func durationsRead(text string) Option[Map[int, int]] {
+	let top = Members(text, "merged") catch {
+	case Unreadable:
+		return None
+	}
+	let inner = Members(textOf(member(top, "pkg")), "merged") catch {
+	case Unreadable:
+		return None
+	}
+	let mut out = Map[int, int]{}
+	for m in inner {
+		let key = strconv.Atoi(strings.TrimPrefix(m.Key, "k")) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return None
+		}
+		let value = strconv.Atoi(m.Raw) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return None
+		}
+		out[key] = value
+	}
+	Some[Map[int, int]]{Value: out}
+}
+
+// MeasuredIsTheReference: two scripts on a durations file merge key by
+// key to the reference; a number both measured apart is ours, the file
+// is marked to be measured again, and a key one removed and the other
+// changed stays. A measured file never conflicts.
+law MeasuredIsTheReference(units Map[int, int], ourEdits []Edit, theirEdits []Edit) {
+	let base = applied(units, []Edit{})
+	let ours = applied(base, ourEdits)
+	let theirs = applied(base, theirEdits)
+	let want = reference(base, ours, theirs)
+	let got = ByUnits(Measured, durations(base), durations(ours), durations(theirs)) catch {
+	case Unreadable:
+		return false
+	}
+	let mut units2 = applied(want.Units, []Edit{})
+	for key in want.Clashes {
+		match ours.Get(key) {
+		case Some[int] as v:
+			units2[key] = v.Value
+		case None:
+			match theirs.Get(key) {
+			case Some[int] as v:
+				units2[key] = v.Value
+			case None:
+			}
+		}
+	}
+	let mut measuredApart = false
+	for key in want.Clashes {
+		measuredApart = measuredApart || (ours.Get(key) != None && theirs.Get(key) != None)
+	}
+	len(got.Conflicts) == 0 && got.Regenerate == measuredApart && durationsRead(got.Text) == Some[Map[int, int]]{Value: units2}
+}

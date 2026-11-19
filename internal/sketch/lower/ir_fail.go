@@ -552,7 +552,7 @@ func (b *irBuilder) operands(list []syntax.Expr) ([]*irStmt, []*irExpr) {
 // definition (owner: lane GP): OPC's operandFits (ir_operand.go) reads it
 // too, and a ConvVariant's target is the case OPC's own copy covered.
 func (b *irBuilder) operandType(a syntax.Expr) check.Type {
-	if conv, ok := b.l.info.Implicit[a]; ok && conv.To != nil {
+	if conv, ok := b.l.info.Implicit[a]; ok && conv.Kind != 0 && conv.To != nil {
 		return conv.To
 	}
 	return b.l.info.Types[a]
@@ -571,10 +571,11 @@ func (b *irBuilder) hoist(pre []*irStmt, x *irExpr, call *syntax.CallExpr) ([]*i
 }
 
 // loopPoll is the back-edge poll that ends each iteration of a loop in a
-// polling frame (the emitter's loopBody). A continue polls before it
-// leaves the iteration (continueStmt), so it skips no poll.
-func (b *irBuilder) loopPoll(s syntax.Stmt) []*irStmt {
-	if !b.loopPolls() {
+// polling frame (the emitter's loopBody), unless every iteration polls
+// through a callee (iterationPolls, pollplace.go). A continue polls before
+// it leaves the iteration (continueStmt).
+func (b *irBuilder) loopPoll(s syntax.Stmt, body *syntax.BlockStmt) []*irStmt {
+	if b.env < 0 || !b.fc.frame.polls || b.fc.iterationPolls(body) { // pollplace.go
 		return nil
 	}
 	return []*irStmt{b.poll(s)}

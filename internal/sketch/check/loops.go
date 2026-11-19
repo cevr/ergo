@@ -1,7 +1,7 @@
 package check
 
 import (
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -24,7 +24,7 @@ import (
 // origin, or nil inside the prelude itself, which sees only the universe.
 func (c *checker) preludeOrigin(name string) *Named {
 	tn, ok := c.universe.names[name].(*TypeName)
-	if !ok || tn.Pkg == nil || tn.Pkg.Path != std.PreludePath {
+	if !ok || tn.Pkg == nil || tn.Pkg.Path != stdlib.PreludePath {
 		return nil
 	}
 	n, _ := tn.Type.(*Named)

@@ -142,7 +142,7 @@ func evaluated(t *testing.T, src string, store *lawcache.Store) map[string]eval.
 	t.Helper()
 	a := checked(t, src)
 	b := eval.DefaultBudget()
-	b.Verdicts = a.EvalVerdicts(store, b.Seed, b.States)
+	b.Verdicts = a.EvalVerdicts(store, b.Seed, b.States, "")
 	rep, err := a.Evaluate(b)
 	if err != nil {
 		t.Fatal(err)
@@ -252,7 +252,7 @@ func TestLawVerdictsStale(t *testing.T) {
 func testRuns(t *testing.T, src string, store *lawcache.Store, runs map[string]int) []string {
 	t.Helper()
 	a := checked(t, src)
-	tv := a.TestVerdicts(store, 1, 0)
+	tv := a.TestVerdicts(store, 1, 0, "")
 	cached := map[string]bool{}
 	for _, line := range strings.Split(tv.CachedFile(), "\n") {
 		if label, _, ok := strings.Cut(line, "\t"); ok {
@@ -334,7 +334,7 @@ func TestLawRunsOnce(t *testing.T) {
 			}
 			// ergo test: the build, then the ledger's writer.
 			a := checked(t, src)
-			tv := a.TestVerdicts(store, 1, 0)
+			tv := a.TestVerdicts(store, 1, 0, "")
 			cached := map[string]bool{}
 			for _, line := range strings.Split(tv.CachedFile(), "\n") {
 				if label, _, ok := strings.Cut(line, "\t"); ok {

@@ -77,8 +77,8 @@
       "name": "X5-clock-moves-while-enabled",
       "origin": "X5",
       "file": "runtime/rt/idle.go",
-      "from": "d.parked < d.live {",
-      "to": "d.parked < d.live-1 {",
+      "from": "\tif d.live == 0 || d.parked < d.live || d.running > 0 {\n\t\treturn\n",
+      "to": "\tif d.live == 0 || d.parked < d.live-1 || d.running > 0 {\n\t\treturn\n",
       "rule": "Explored schedules: the clock moves only when no task is enabled",
       "killers": ["runtime/rt[ergoexplore]:TestSchedulerFollowsModel"]
     },
@@ -409,6 +409,59 @@
     {"name": "restart-ignores-running", "origin": "wf10/research/P3 FU-handle-reuse", "file": "runtime/rt/carrier.go", "from": "\tok := c.last == h && c.ran == c.handed", "to": "\tok := c.last == h", "rule": "A handle whose job still runs on the carrier is not reused", "killers": ["runtime/rt:TestRestartOnReusesAFreeHandle"]},
     {"name":"alone-spawn-keeps","origin":"wf10/ir2-flip/REF-ALONE (OWN1)","file":"runtime/rt/handle.go","from":"\tSpread() // before the go statement (alone.go)\n","to":"","rule":"rt.Alone: starting a task ends Alone before the task's goroutine exists, so a Ref locks from then on","killers":["runtime/rt:TestStartsEndAlone"]},
     {"name":"alone-group-keeps","origin":"wf10/ir2-flip/REF-ALONE (OWN1)","file":"runtime/rt/group.go","from":"\tSpread() // its members run on goroutines the host starts (alone.go)\n","to":"","rule":"rt.Alone: making a group ends Alone, since host goroutines run its members","killers":["runtime/rt:TestStartsEndAlone"]},
-    {"name":"second-clock-leaves-domain","origin":"wf10/research/P3 P3-9","file":"runtime/rt/idle.go","from":"\tif m := t.member.Load(); m != nil {\n\t\td := m.d\n","to":"\tif m := t.member.Load(); m != nil {\n\t\tm.leave()\n\t}\n\tif m := t.member.Load(); false {\n\t\td := m.d\n","rule":"A clock that a member makes joins its domain; the maker stays a member, so an auto clock made before it still moves","killers":["runtime/rt:TestAutoClockMovesBesideAnotherClock"]}
+    {"name":"second-clock-leaves-domain","origin":"wf10/research/P3 P3-9","file":"runtime/rt/idle.go","from":"\tif m := t.member.Load(); m != nil {\n\t\td := m.d\n","to":"\tif m := t.member.Load(); m != nil {\n\t\tm.leave()\n\t}\n\tif m := t.member.Load(); false {\n\t\td := m.d\n","rule":"A clock that a member makes joins its domain; the maker stays a member, so an auto clock made before it still moves","killers":["runtime/rt:TestAutoClockMovesBesideAnotherClock"]},
+    {
+      "name": "rt-afterdrop-returned-ignored",
+      "origin": "wf10 std-spike RT-AFTERDROP",
+      "file": "runtime/rt/timeout.go",
+      "from": "\t\tif returned {\n",
+      "to": "\t\tif returned && false {\n",
+      "rule": "runtime.md Timeouts 4: a body that returned its value before the deadline's stop ended it gives that value, not Expired",
+      "killers": ["lower:TestStdLawsRun"]
+    },
+    {
+      "name": "rt-afterdrop-kept-not-set",
+      "origin": "wf10 std-spike RT-AFTERDROP",
+      "file": "runtime/rt/timeout.go",
+      "from": "kept, returned = v, true",
+      "to": "returned = true",
+      "rule": "runtime.md Timeouts 4: the value After gives is the one the body returned",
+      "killers": ["lower:TestStdLawsRun"]
+
+    },
+    {
+      "name": "virtual-alarm-never-runs",
+      "origin": "wf10 HTTP-FAST-b",
+      "file": "runtime/rt/idle.go",
+      "from": "\tif t.f != nil {\n\t\tv.runAlarm(t.f)\n\t\treturn\n\t}",
+      "to": "\tif t.f != nil {\n\t\treturn\n\t}",
+      "rule": "A virtual AfterFunc runs its function when the clock reaches its deadline, as NewTimer's channel delivers.",
+      "killers": [
+        "runtime/rt:TestVirtualAfterFuncIsTimer"
+      ]
+    },
+    {
+      "name": "virtual-alarm-now-never-runs",
+      "origin": "wf10 HTTP-FAST-b",
+      "file": "runtime/rt/clock.go",
+      "from": "\tif d <= 0 {\n\t\tv.runAlarm(f)\n\t\treturn t\n\t}",
+      "to": "\tif false {\n\t\tv.runAlarm(f)\n\t\treturn t\n\t}",
+      "rule": "A virtual AfterFunc of a span of zero or less starts its function at once.",
+      "killers": [
+        "runtime/rt:TestVirtualAfterFuncIsTimer"
+      ]
+    },
+    {
+      "name": "virtual-alarm-stop-keeps",
+      "origin": "wf10 HTTP-FAST-b",
+      "file": "runtime/rt/clock.go",
+      "from": "\t\tif u == t {\n\t\t\tv.timers = append(v.timers[:i], v.timers[i+1:]...)",
+      "to": "\t\tif u == t && t.f == nil {\n\t\t\tv.timers = append(v.timers[:i], v.timers[i+1:]...)",
+      "rule": "Stop disarms a virtual AfterFunc as it disarms a timer.",
+      "killers": [
+        "runtime/rt:TestVirtualAfterFuncIsTimer"
+      ]
+    },
+    {"name":"virtual-settle-ignores-alarms","origin":"wf10 std-spike DEADLINE","file":"runtime/rt/clock.go","from":"if d.parked >= d.live-self && d.running == 0 {","to":"if d.parked >= d.live-self {","rule":"runtime.md Timeouts 11: a Settle waits for the alarm functions it started, so a member an alarm wakes runs before the time moves on.","killers":["lower:TestStdLawsRun"],"anchor":{"tests":["lower:TestStdLawsRun"]}}
   ]
 }

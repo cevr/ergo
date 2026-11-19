@@ -127,7 +127,7 @@ func (l *lowerer) fieldsBody(f *check.Func, j int) fieldSum {
 func (w *valueWalk) firstField(id *syntax.Ident) string {
 	var cur syntax.Node = id
 	for {
-		switch p := w.parent[cur].(type) {
+		switch p := w.parentOf(cur).(type) {
 		case *syntax.ParenExpr:
 			cur = p
 			continue
@@ -157,7 +157,7 @@ func (w *valueWalk) borrowedTo(u *vocc) (*check.Func, int) {
 		}
 		return nil, 0
 	}
-	un, ok := w.parent[u.id].(*syntax.UnaryExpr)
+	un, ok := w.parentOf(u.id).(*syntax.UnaryExpr)
 	if !ok || un.Op != syntax.AND || syntax.Node(un.X) != syntax.Node(u.id) {
 		return nil, 0
 	}
@@ -258,11 +258,11 @@ func (w *valueWalk) stableSource(val syntax.Expr) bool {
 // fieldAssigned is the value u, a use of a root through one field,
 // assigns to that whole field (x.f = e), or nil.
 func (w *valueWalk) fieldAssigned(u *vocc) syntax.Expr {
-	sel, ok := w.parent[u.id].(*syntax.SelectorExpr)
+	sel, ok := w.parentOf(u.id).(*syntax.SelectorExpr)
 	if !ok || syntax.Node(sel.X) != syntax.Node(u.id) {
 		return nil
 	}
-	s, ok := w.parent[sel].(*syntax.AssignStmt)
+	s, ok := w.parentOf(sel).(*syntax.AssignStmt)
 	if !ok || s.Tok != syntax.ASSIGN || len(s.Lhs) != 1 || len(s.Rhs) != 1 || s.Lhs[0] != syntax.Expr(sel) {
 		return nil
 	}
@@ -276,18 +276,18 @@ func (w *valueWalk) freshenLit(lit *syntax.CompositeLit, vv *vvar) {
 		return
 	}
 	if lit.Base != nil {
-		w.freshen(lit.Base)
+		w.freshen(lit.Base, whyEnters)
 	}
 	for _, el := range lit.Elts {
 		kv, ok := el.(*syntax.KeyValueExpr)
 		if !ok {
-			w.freshen(el)
+			w.freshen(el, whyEnters)
 			continue
 		}
 		if key, ok := kv.Key.(*syntax.Ident); ok && w.sharedField(vv, key.Name, kv.Value) {
 			continue
 		}
-		w.freshen(kv.Value)
+		w.freshen(kv.Value, whyEnters)
 	}
 }
 

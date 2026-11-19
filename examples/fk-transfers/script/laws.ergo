@@ -37,14 +37,36 @@ func live(ls []Line, end duration) [][]string {
 	with context { Scheduler: c } { PlayA(ls, end, c) }
 }
 
-// ShapesAgree: the live board of actors (shape A) and the machine that
-// emits commands to its registry (shape B) show the same transfers in the
-// same states after every press and at the end, over generated presses and
-// clock moves.
+// onScreen is the rows of the desk's screen over ls until end, after each
+// press and at the end (the frame before the first press dropped), on a
+// fresh time.Manual; a screen that fails gives no rows at all.
+func onScreen(ls []Line, end duration) [][]string {
+	let c = time.NewManual(0)
+	let mut out = [][]string{}
+	let mut first = true
+	with context { Scheduler: c } {
+		PlayScreen(ls, end, c, func(f Frame) {
+			if !first {
+				out = out.Append(f.Rows)
+			}
+			first = false
+		})
+	} catch {
+	case _:
+		return [][]string{}
+	}
+	out
+}
+
+// ShapesAgree: the live board of actors (shape A), the machine that emits
+// commands to its registry (shape B) and the desk's screen, clicked on the
+// test host, show the same transfers in the same states after every press
+// and at the end, over generated presses and clock moves.
 law ShapesAgree(gaps []int, kinds []int, ids []int, tail int) {
 	let ls = lines(gaps, kinds, ids)
 	let end = (if len(ls) > 0 { ls[len(ls)-1].At } else { 0s }) + time.Times(1ms, pick(tail, 10000))
-	live(ls, end) == PlayB(ls, end)
+	let a = live(ls, end)
+	a == PlayB(ls, end) && a == onScreen(ls, end)
 }
 
 // CancelAllLeavesNoneRunning: right after a cancel all, no transfer of the

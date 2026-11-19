@@ -1,0 +1,131 @@
+// Semaphore bounds how many tasks run a block at once (Effect's Semaphore,
+// Go's buffered-channel semaphore; docs/spec/stdlib.md, Sync and STM 1).
+// It is Ergo over std queue, with no runtime body of its own: the permits
+// are a queue.Queue whose capacity is the permit count, so a taken permit
+// is a value in the queue, a take waits as a Push waits for room, and
+// takers are served in the order they began to wait (queue's Push order).
+//
+// Every copy of a Semaphore is the same semaphore: its field is a queue
+// handle, which tasks share (runtime.md, Tasks 6).
+
+import queue
+import scope
+import task
+import time
+
+// Semaphore holds a fixed count of permits. Its field is unexported, so
+// only NewSemaphore makes one.
+type Semaphore { permits queue.Queue[bool], size int }
+
+// NewSemaphore is a semaphore of permits permits, none taken. A count
+// below 1 is a defect: no block could ever run.
+func NewSemaphore(permits int) Semaphore {
+	if permits < 1 {
+		Unreachable("sync.NewSemaphore: the permit count is 1 or more")
+	}
+	Semaphore{permits: queue.New[bool](permits), size: permits}
+}
+
+// With runs block while it holds one permit of s, and gives its value or
+// its failure. It waits while every permit is taken. The permit goes back
+// when block ends, on every path: a value, a failure, a defect or a stop
+// of the task (an exit action, runtime.md Exit actions). A stop while it
+// waits takes no permit.
+func With[T, E, R](s Semaphore, block func() T fails E needs R) T fails E needs R {
+	let mut held = false
+	scope.OnExit() {
+		if held {
+			let _ = s.permits.Poll()
+		}
+	}
+	s.permits.Push(true) catch {
+	case queue.Closed:
+		Unreachable("sync: a semaphore's queue is never ended")
+	}
+	held = true
+	try block()
+}
+
+// Available is how many permits of s no block holds now. Another task may
+// take or return one at once, so it is a reading of one moment.
+func Available(s Semaphore) int { s.size - s.permits.Len() }
+
+// Size is the permit count s was made with.
+func Size(s Semaphore) int { s.size }
+
+// NeverMoreThanN: four tasks that each run blocks under a semaphore of
+// size 1 to 3 never have more than size blocks running at once. Each block
+// counts itself in, passes two scheduling points (a Push and a Pop on a
+// queue of its own), and counts itself out; the highest count is at most
+// the size, every block ran, and every permit is back at the end.
+law NeverMoreThanN(n int) {
+	let size = 1 + (n%3+3)%3
+	let s = NewSemaphore(size)
+	let inside = NewRef[int](0)
+	let most = NewRef[int](0)
+	let done = NewRef[int](0)
+	let a = task.Go() { crowd(s, inside, most, done) }
+	let b = task.Go() { crowd(s, inside, most, done) }
+	let c = task.Go() { crowd(s, inside, most, done) }
+	let d = task.Go() { crowd(s, inside, most, done) }
+	a.Wait()
+	b.Wait()
+	c.Wait()
+	d.Wait()
+	most.Get() <= size && done.Get() == 4*50 && Available(s) == size
+}
+
+// crowd runs 50 blocks under s, one after the other, for NeverMoreThanN.
+func crowd(s Semaphore, inside Ref[int], most Ref[int], done Ref[int]) {
+	for _ in 0..50 {
+		With(s) {
+			let now = Modify(inside, func(v int) (int, int) { (v + 1, v + 1) })
+			most.Update(func(m int) int { if now > m { now } else { m } })
+			let q = queue.New[bool](1)
+			q.Push(true) catch {
+			case queue.Closed:
+			}
+			let _ = q.Poll()
+			inside.Update(func(v int) int { v - 1 })
+			done.Update(func(v int) int { v + 1 })
+		}
+	}
+}
+
+// ReleaseOnFailure: a block that fails gives its permit back, and the
+// failure is With's.
+law ReleaseOnFailure(n int) {
+	let s = NewSemaphore(1 + (n%3+3)%3)
+	let failed = With(s, func() bool fails queue.Closed { queue.Closed }) catch {
+	case queue.Closed:
+		true
+	}
+	failed && Available(s) == Size(s)
+}
+
+// ReleaseOnInterrupt: a task stopped while its block waits gives its
+// permit back, and a task stopped while it waits for a permit takes none.
+// The holder waits on a time.Manual that no one advances; the second task
+// waits for the permit the holder has.
+law ReleaseOnInterrupt() {
+	let s = NewSemaphore(1)
+	let m = time.NewManual(0)
+	let holder = with context { Scheduler: m } {
+		task.Go() {
+			With(s) {
+				Scheduler.Sleep(1h)
+			}
+		}
+	}
+	for m.Sleepers() == 0 {
+	}
+	let taken = Available(s) == 0
+	let waiter = task.Go() {
+		With(s) {
+		}
+	}
+	waiter.Stop()
+	let none = Available(s) == 0
+	holder.Stop()
+	taken && none && Available(s) == 1
+}
