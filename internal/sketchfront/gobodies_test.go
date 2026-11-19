@@ -83,3 +83,43 @@ func Unmarked(t *rt.Task) int { return 0 }
 		}
 	}
 }
+
+// TestModuleGoBodiesHonourBuildConstraints (U1 SIMD-SCAN): the checker
+// reads a module body from the files go build compiles for the target, so
+// a body that two files declare under opposite constraints (a vector
+// kernel and its stock twin) is read from the one that is built. Each
+// other file here declares Index with a wrong signature, which S108
+// reports if the checker reads it: a file for another GOOS by its name,
+// and a file for GOEXPERIMENT=simd by its //go:build line, read only when
+// the environment sets that experiment. Mutants: body-constraints-ignored
+// (every file is read), body-experiment-unread (GOEXPERIMENT's tags are
+// not set, so the simd file is never read).
+func TestModuleGoBodiesHonourBuildConstraints(t *testing.T) {
+	const good = "//go:build !goexperiment.simd\n\npackage kern\n\n//ergo:wait none\nfunc Index(s string, c uint8) int { return -1 }\n"
+	const bad = "\npackage kern\n\n//ergo:wait none\nfunc Index(s string) int { return -1 }\n"
+	files := map[string]string{
+		"go.mod":           "module example.com/app\n\ngo 1.27\n",
+		"ergo.mod":         "module app\ntrust go app\n",
+		"kern/a.go":        good,
+		"kern/z_plan9.go":  bad,
+		"kern/z_simd.go":   "//go:build goexperiment.simd" + bad,
+		"main.ergo":        "import strconv\n\nextern go example.com/app/kern.Index func index(s string, c byte) int\n\nfunc main() needs Console {\n\tConsole.Println(strconv.Itoa(index(\"ab\", 98)))\n}\n",
+	}
+	root := writeTree(t, files)
+	t.Setenv("GOEXPERIMENT", "")
+	a, err := CheckDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := diagnosticLines(a); got != "" {
+		t.Errorf("a body read from a file go build leaves out:\n%s", got)
+	}
+	t.Setenv("GOEXPERIMENT", "simd")
+	a, err = CheckDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := diagnosticLines(a); !strings.Contains(got, "S108") {
+		t.Errorf("with GOEXPERIMENT=simd the checker did not read the simd file's body:\n%s", got)
+	}
+}
