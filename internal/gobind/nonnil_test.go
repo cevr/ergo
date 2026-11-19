@@ -120,6 +120,16 @@ var nnFinal = []nnForm{
 	{"closure-passed", "s := &S{}\n\tg := func() { s = maybe(A) }\n\ts = &S{}\n\trun(g)\n\treturn s, nil", false},
 	{"closure-nested", "s := &S{}\n\tg := func() { s = maybe(A) }\n\tb := &box{f: func() { g() }}\n\ts = &S{}\n\tb.f()\n\treturn s, nil", false},
 	{"closure-inner", "s := &S{}\n\tb := &box{}\n\tb.f = func() { func() { s = maybe(A) }() }\n\ts = &S{}\n\tb.f()\n\treturn s, nil", false},
+	// GOBIND-LOOP: a range over a collection known non-empty runs its
+	// body at least once (template.parseFiles).
+	{"range-nonempty", "var xs []int\n\tif A > 1 {\n\t\txs = []int{A}\n\t}\n\tvar s *S\n\tif len(xs) == 0 {\n\t\treturn nil, errors.New(\"empty\")\n\t}\n\tfor _, x := range xs {\n\t\ts = fresh(x)\n\t}\n\treturn s, nil", true},
+	{"range-maybe-empty", "var xs []int\n\tif A > 1 {\n\t\txs = []int{A}\n\t}\n\tvar s *S\n\tfor _, x := range xs {\n\t\ts = fresh(x)\n\t}\n\treturn s, nil", false},
+	{"range-len-stale", "var xs []int\n\tif A > 1 {\n\t\txs = []int{A}\n\t}\n\tvar s *S\n\tif len(xs) == 0 {\n\t\treturn nil, errors.New(\"empty\")\n\t}\n\txs = nil\n\tfor _, x := range xs {\n\t\ts = fresh(x)\n\t}\n\treturn s, nil", false},
+	{"range-len-gt", "var xs []int\n\tif A > 1 {\n\t\txs = []int{A}\n\t}\n\tvar s *S\n\tif len(xs) > 0 {\n\t\tfor _, x := range xs {\n\t\t\ts = fresh(x)\n\t\t}\n\t\treturn s, nil\n\t}\n\treturn nil, errors.New(\"empty\")", true},
+	{"range-len-lt", "var xs []int\n\tif A > 1 {\n\t\txs = []int{A}\n\t}\n\tvar s *S\n\tif 0 < len(xs) {\n\t\tfor _, x := range xs {\n\t\t\ts = fresh(x)\n\t\t}\n\t\treturn s, nil\n\t}\n\treturn nil, errors.New(\"empty\")", true},
+	{"range-len-under", "var xs []int\n\tif A > 1 {\n\t\txs = []int{A}\n\t}\n\tvar s *S\n\tif len(xs) < 0 {\n\t\tfor _, x := range xs {\n\t\t\ts = fresh(x)\n\t\t}\n\t\treturn s, nil\n\t}\n\treturn nil, errors.New(\"empty\")", false},
+	{"range-chan", "var ch chan int = make(chan int, A)\n\tvar s *S\n\tif len(ch) == 0 {\n\t\treturn nil, errors.New(\"empty\")\n\t}\n\tfor x := range ch {\n\t\ts = fresh(x)\n\t\tbreak\n\t}\n\treturn s, nil", false}, // another receiver may drain it
+	{"range-len-local", "var xs []int\n\tlen := func([]int) int { return 1 }\n\tvar s *S\n\tif len(xs) == 0 {\n\t\treturn nil, errors.New(\"empty\")\n\t}\n\tfor _, x := range xs {\n\t\ts = fresh(x)\n\t}\n\treturn s, nil", false},
 	{"closure-go", "s := &S{}\n\tgo func() { s = maybe(A) }()\n\ts = &S{}\n\treturn s, nil", false},
 }
 
@@ -391,6 +401,9 @@ func run(f func()) { f() }
 	// the return (GOBIND-CLOSURE-SOUND).
 	b.WriteString("func NamedDeferHeld(a int) (r *S, err error) {\n\tg := func() { r = nil }\n\tdefer g()\n\treturn &S{X: a}, nil\n}\n\n")
 	model["NamedDeferHeld"] = false
+	// A variadic parameter is a collection (template.parseFiles).
+	b.WriteString("func Files(t *S, names ...string) (*S, error) {\n\tif len(names) == 0 {\n\t\treturn nil, errors.New(\"none\")\n\t}\n\tfor range names {\n\t\tif t == nil {\n\t\t\tt = &S{}\n\t\t}\n\t}\n\treturn t, nil\n}\n\n")
+	model["Files"] = true
 	// A parameter's nil default fixed at the top level (GOBIND-PROVE):
 	// after `if s == nil { s = &S{} }` s is non-nil, unless the fix may
 	// set nil or a return comes before it.

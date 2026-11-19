@@ -26,8 +26,9 @@ import (
 //     a pointer method) or `*x` evaluates, x is non-nil, since a nil x
 //     panics there.
 //   - Branches join by intersection; a loop runs to a fixed point; a
-//     break or a continue carries its state to its target. A goto's
-//     label knows nothing.
+//     break or a continue carries its state to its target; a range over
+//     a slice, map or string `len(x) == 0` ruled out leaves only after
+//     its body ran (GOBIND-LOOP). A goto's label knows nothing.
 //   - Names resolve by scope: each declaration is its own variable.
 //
 // A variable whose address is taken loses its facts at every call. One a
@@ -107,6 +108,7 @@ func (s *nnState) forget(id string) {
 		return
 	}
 	delete(s.nn, id)
+	delete(s.nn, id+nnNonEmpty)
 	for k := range s.pairs {
 		if k[0] == id || k[1] == id {
 			delete(s.pairs, k)
@@ -406,6 +408,83 @@ type nnFlow struct {
 	closures map[string]bool // ids assigned a function literal
 	gotos    map[string]bool // the labels a goto names
 	targets  []*nnTarget
+	// collections are the ids whose declared type is a slice, an array,
+	// a map or a string: a range over one known non-empty runs its body
+	// at least once (GOBIND-LOOP). A channel's length may drop under
+	// another receiver, so a channel is none.
+	collections map[string]bool
+}
+
+// nnNonEmpty suffixes a collection's id in nnState.nn: `len(x) == 0`
+// failed, and x was not assigned since.
+const nnNonEmpty = "[]"
+
+// collections are the parameters and var-declared locals of fd whose
+// written type is a slice, an array, a map or a string.
+func collections(p *nnProof, fd *ast.FuncDecl) map[string]bool {
+	out := map[string]bool{}
+	is := func(t ast.Expr) bool {
+		switch t := t.(type) {
+		case *ast.Ellipsis, *ast.ArrayType, *ast.MapType:
+			return true
+		case *ast.Ident:
+			return t.Name == "string" && t.Obj == nil
+		}
+		return false
+	}
+	add := func(names []*ast.Ident, t ast.Expr) {
+		if !is(t) {
+			return
+		}
+		for _, n := range names {
+			if id := p.ids[n]; id != "" {
+				out[id] = true
+			}
+		}
+	}
+	for _, fl := range fd.Type.Params.List {
+		add(fl.Names, fl.Type)
+	}
+	ast.Inspect(fd.Body, func(n ast.Node) bool {
+		if vs, ok := n.(*ast.ValueSpec); ok && vs.Type != nil {
+			add(vs.Names, vs.Type)
+		}
+		return true
+	})
+	return out
+}
+
+// lenCompared is the id x of a comparison of len(x) with 0 and the
+// operator with len(x) on the left (`0 < len(x)` is `len(x) > 0`), or "".
+func (f *nnFlow) lenCompared(c *ast.BinaryExpr) (string, token.Token) {
+	op := c.Op
+	x, y := ast.Unparen(c.X), ast.Unparen(c.Y)
+	if isZero(x) {
+		x, y = y, x
+		switch op {
+		case token.LSS:
+			op = token.GTR
+		case token.GTR:
+			op = token.LSS
+		}
+	}
+	call, ok := x.(*ast.CallExpr)
+	if !ok || !isZero(y) || len(call.Args) != 1 || !isIdentNamed(call.Fun, "len") {
+		return "", op
+	}
+	if id, ok := ast.Unparen(call.Fun).(*ast.Ident); !ok || f.p.ids[id] != "" {
+		return "", op // a local named len
+	}
+	id := f.p.id(call.Args[0])
+	if !f.collections[id] {
+		return "", op
+	}
+	return id, op
+}
+
+func isZero(x ast.Expr) bool {
+	l, ok := x.(*ast.BasicLit)
+	return ok && l.Kind == token.INT && l.Value == "0"
 }
 
 // gotoLabels are the labels the gotos of body (outside function
@@ -445,6 +524,7 @@ func (p *nnProof) body() bool {
 	if !f.ok {
 		return false
 	}
+	f.collections = collections(p, fd)
 	f.list(fd.Body.List, newState())
 	return f.ok
 }
@@ -998,6 +1078,9 @@ func (f *nnFlow) stmt(s ast.Stmt, label string, st nnState) nnState {
 		})
 	case *ast.RangeStmt:
 		st = f.effects(s.X, st)
+		// A range over a collection known non-empty leaves only after a
+		// body has run: its exit is what the body brings back.
+		once := st.nn[p.id(s.X)+nnNonEmpty] && p.id(s.X) != ""
 		return f.loop(label, st, func(head nnState, t *nnTarget) (exit, back nnState) {
 			body := head.copy()
 			body.forgetPaths() // a range assigns, and may receive
@@ -1010,6 +1093,9 @@ func (f *nnFlow) stmt(s ast.Stmt, label string, st nnState) nnState {
 			end := f.list(s.Body.List, body)
 			for _, c := range t.cont {
 				end = nnJoin(end, c)
+			}
+			if once {
+				return end, end
 			}
 			return head, end
 		})
@@ -1260,8 +1346,20 @@ func (f *nnFlow) cond(c ast.Expr, st nnState) (yes, no nnState) {
 			xy, xn := f.cond(c.X, st)
 			yy, yn := f.cond(c.Y, xn)
 			return nnJoin(xy, yy), yn
+		case token.GTR, token.LSS:
+			st = f.effects(c, st)
+			if id, op := f.lenCompared(c); id != "" && op == token.GTR {
+				return st.nonNil(id + nnNonEmpty), st
+			}
+			return st, st
 		case token.EQL, token.NEQ:
 			st = f.effects(c, st)
+			if id, _ := f.lenCompared(c); id != "" {
+				if c.Op == token.NEQ {
+					return st.nonNil(id + nnNonEmpty), st
+				}
+				return st, st.nonNil(id + nnNonEmpty)
+			}
 			key := f.nilCompared(c)
 			if key == "" {
 				return st, st
