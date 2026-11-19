@@ -33,41 +33,56 @@ import (
 // panics.
 type native func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt)
 
-// natives is built on first use (loadNatives), not at process start: the
-// registrations make hundreds of closures, every ergo command's init cost
-// (TestStartBuildsNoTables).
-var natives map[string]native
-
-var nativesOnce sync.Once
-
-// loadNatives runs the registrations once, in the order of their files,
-// as Go ran them when each was an init (process.go wraps natives the
-// earlier files made).
-func loadNatives() {
-	nativesOnce.Do(func() {
-		registerNatives()
-		registerNativesbits()
-		registerNativesconfig()
-		registerNativescsv()
-		registerNativesembed()
-		registerNativesgo()
-		registerNativeshttp()
-		registerNativesjson()
-		registerNativesmore()
-		registerNativesnet()
-		registerNativestime()
-		registerNativestimeout()
-		registerNativestoml()
-		registerProcess()
-		registerRunner()
-		registerRunnerdurable()
-		registerRunnerkids()
-		registerTasks()
-	})
+// nativeTables are the evaluator's natives: std's, by import path and
+// name (std), Go's library functions a std body or a program reaches
+// through import go (goLib), and the natives a template run passes a hole
+// (holes, holeNative).
+type nativeTables struct {
+	std   map[string]native
+	goLib map[string]native
+	holes map[string]bool
 }
 
-func registerNatives() {
-	natives = map[string]native{}
+// loadedNatives is the only way to the tables: built by its first call,
+// not at process start, since the registrations make hundreds of closures,
+// every ergo command's init cost (TestStartBuildsNoTables). No package map
+// holds them, so no reader can see them before they are built (a preflight
+// read goNatives before any native ran, and skipped std math.Abs as a Go
+// function; EVAL-NATIVE-LOAD). A test may set it to a fresh one. It is set
+// in init, since buildNatives reaches the interpreter, which reads it.
+var loadedNatives func() nativeTables
+
+func init() { loadedNatives = sync.OnceValue(buildNatives) }
+
+// buildNatives runs the registrations, in the order of their files, as Go
+// ran them when each was an init (process.go wraps natives the earlier
+// files made).
+func buildNatives() nativeTables {
+	t := nativeTables{std: map[string]native{}, goLib: goNatives(), holes: map[string]bool{}}
+	registerNatives(t)
+	registerNativesbits(t)
+	registerNativesconfig(t)
+	registerNativescsv(t)
+	registerNativesembed(t)
+	registerNativesgo(t)
+	registerNativeshttp(t)
+	registerNativesjson(t)
+	registerNativesmore(t)
+	registerNativesnet(t)
+	registerNativestime(t)
+	registerNativestimeout(t)
+	registerNativestoml(t)
+	registerProcess(t)
+	registerRunner(t)
+	registerRunnerdurable(t)
+	registerRunnerkids(t)
+	registerTasks(t)
+	return t
+}
+
+func registerNatives(t nativeTables) {
+	natives := t.std
+	goNatives := t.goLib
 	str := func(v Value) string { return v.(string) }
 	i64 := func(v Value) int { return int(v.(int64)) }
 	strs := func(v Value) []string {
@@ -384,11 +399,11 @@ func nativeOf(fn *check.Func) native {
 	if fn.Pkg == nil || !fn.Pkg.Std() {
 		return nil
 	}
-	loadNatives()
+	t := loadedNatives()
 	if key, ok := collNatives[check.CollOpOf(fn)]; ok {
-		return natives[key]
+		return t.std[key]
 	}
-	return natives[fn.Pkg.Path+"."+fn.Name]
+	return t.std[fn.Pkg.Path+"."+fn.Name]
 }
 
 // guard runs f and turns a Go panic into its text, as the built program's

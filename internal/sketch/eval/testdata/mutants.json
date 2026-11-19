@@ -2093,6 +2093,16 @@
       "rule": "The evaluator runs the operation s.Bytes(), so check-time evaluation of std's digests (sha256.Sum) agrees with the build.",
       "anchor": {"tests":["internal/sketch/eval:TestEvalAgreesWithLowering"]},
       "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
+    },
+    {
+      "name": "enl-go-read-unbuilt",
+      "origin": "wf10 EVAL-NATIVE-LOAD",
+      "file": "internal/sketch/eval/nativesgo.go",
+      "from": "\treturn loadedNatives().goLib[path+\".\"+name]",
+      "to": "\treturn nativeTables{}.goLib[path+\".\"+name]",
+      "rule": "A reader of Go's natives reads the built tables: read before any native ran, std math.Abs was skipped as a Go function, so the first law of a run that reached it was skipped (EVAL-NATIVE-LOAD).",
+      "anchor": {"tests":["internal/sketch/eval:TestFirstReaderSeesBuiltNatives"]},
+      "killers": ["internal/sketch/eval:TestFirstReaderSeesBuiltNatives"]
     }
   ]
 }
