@@ -5,7 +5,7 @@
 // TestTuiHostAgreesWithTestHost writes the scripts.
 //
 // Standard input: the app's name on the first line (counter, shelf, form,
-// load, lock, pad, list, sketch or spin), then one step a line:
+// load, lock, pad, list, sketch, spin, drag or pane), then one step a line:
 //
 //	tap LABEL         a mouse press and release on the node labelled LABEL
 //	type LABEL TEXT   set the field's text (TAB between LABEL and TEXT)
@@ -56,6 +56,10 @@ func main() needs Console | Ambient | go.Foreign {
 			agree(rowsMachine(), rowsView, func(a rowsApp, b rowsApp) bool { a == b }, steps)
 		case "sketch":
 			agree(sketchMachine(), sketchView, func(a sketch, b sketch) bool { a == b }, steps)
+		case "pane":
+			agree(paneMachine(), paneView, func(a pane, b pane) bool { a == b }, steps)
+		case "drag":
+			agree(dragMachine(), dragView, func(a drag, b drag) bool { a == b }, steps)
 		case "spin":
 			agree(spinMachine(), spinView, func(a spin, b spin) bool { a == b }, steps)
 		case _:

@@ -118,7 +118,7 @@ func play(bin, script string, args ...string) (string, error) {
 }
 
 // agreeApps are the apps of cmd/hostagree; seed s plays app s mod their count.
-var agreeApps = []string{"counter", "shelf", "form", "load", "lock", "pad", "list", "sketch", "spin"}
+var agreeApps = []string{"counter", "shelf", "form", "load", "lock", "pad", "list", "sketch", "spin", "drag"}
 
 // words are texts a script types: empty, ASCII, and runes of two and
 // three bytes (a wide one too), so Backspace must take a rune, not a byte.
@@ -170,6 +170,12 @@ func genScript(r *rand.Rand, app string) string {
 			if r.IntN(8) == 0 && !held {
 				step = "tap clear"
 			}
+		case "drag":
+			// a press, moves and frames in the Area: y in its top band, in its
+			// bottom band (the screen is 40 rows) or its middle
+			y := pick(r, 16*r.IntN(2), 16*(36+r.IntN(3)), 16*(5+r.IntN(25)))
+			step = pick(r, fmt.Sprintf("point drag down 40 %d", y), fmt.Sprintf("point drag move 40 %d", y), fmt.Sprintf("point drag move 40 %d", y), "point drag up 40 0",
+				fmt.Sprintf("frames %d", 1+r.IntN(12)), fmt.Sprintf("frames %d", 1+r.IntN(12)))
 		case "spin":
 			// frames a few at a time, so a spin (12 frames) ends in some
 			// scripts and runs through others
@@ -186,9 +192,9 @@ func genScript(r *rand.Rand, app string) string {
 		if r.IntN(5) == 0 && !held {
 			step = fmt.Sprintf("focus %d", r.IntN(6))
 		}
-		if strings.HasPrefix(step, "point pad down ") || strings.HasPrefix(step, "point sketch down ") {
+		if strings.HasPrefix(step, "point pad down ") || strings.HasPrefix(step, "point sketch down ") || strings.HasPrefix(step, "point drag down ") {
 			held = true
-		} else if strings.HasPrefix(step, "point pad up ") || strings.HasPrefix(step, "point sketch up ") {
+		} else if strings.HasPrefix(step, "point pad up ") || strings.HasPrefix(step, "point sketch up ") || strings.HasPrefix(step, "point drag up ") {
 			held = false
 		}
 		lines = append(lines, step)

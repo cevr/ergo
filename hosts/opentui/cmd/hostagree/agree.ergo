@@ -50,6 +50,16 @@ func agree[E comparable, S](m Machine[S, E, int], view own func(f *ui.Frame[E], 
 			}
 			continue
 		}
+		// For the plain Scrolls' edge scroll, which TestHost does not
+		// model (TestPlainScrollEdges): their offsets on the terminal.
+		if line == "scrolls" {
+			let mut at = "scrolls"
+			for o in tui.ScrollsAt(&d) {
+				at = at + " \(o)"
+			}
+			Console.Println(at)
+			continue
+		}
 		// "cost STEP" plays STEP and prints the library calls it made.
 		let costed = strings.HasPrefix(line, "cost ")
 		let before = s.Calls()
@@ -92,6 +102,11 @@ func said(r result) string {
 // their places, and each text's place on the screen. First TestHost takes
 // the viewport the terminal reported for each list (follow).
 func compare[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *tui.Driver[S, E, D, F], s go.Ref[screen.Screen], same func(a S, b S) bool) Option[string] needs go.Foreign {
+	match looked(ui.Screen(h)) {
+	case Some[string] as why:
+		return why
+	case None:
+	}
 	follow(h, d, tui.Screen(d))
 	if !ui.SameShapes(ui.Screen(h), tui.Screen(d)) {
 		return Some{Value: "trees differ:\n\(ui.Screenshot(h))terminal:\n\(shot(tui.Screen(d), ""))"}
@@ -99,8 +114,8 @@ func compare[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *tui.Driver[S,
 	if !same(ui.StateOf(h), tui.StateOf(d)) {
 		return Some{Value: "states differ"}
 	}
-	if ui.Frames(h) != tui.Frames(d) || ui.WantsFrames(h) != tui.WantsFrames(d) {
-		return Some{Value: "TestHost stepped \(ui.Frames(h)) frames (wanting more: \(ui.WantsFrames(h))), the terminal \(tui.Frames(d)) (\(tui.WantsFrames(d)))"}
+	if h.Frames() != d.Frames() || ui.WantsFrames(h) != tui.WantsFrames(d) {
+		return Some{Value: "TestHost stepped \(h.Frames()) frames (wanting more: \(ui.WantsFrames(h))), the terminal \(d.Frames()) (\(tui.WantsFrames(d)))"}
 	}
 	if s.Count() != tui.SceneNodes(d) {
 		return Some{Value: "the scene holds \(s.Count()) nodes, the driver \(tui.SceneNodes(d))"}
@@ -152,6 +167,28 @@ func kept[E comparable, S, D, F](d *tui.Driver[S, E, D, F], shapes []ui.Shape[E]
 				return Some{Value: why.Value}
 			case None:
 			}
+		}
+	}
+	None
+}
+
+// looked names a node of TestHost's tree that has a look of its own
+// (Style.Look other than its kind's default), which this host does not
+// show yet (gap OT-LOOKS: the driver takes Define and reads no
+// Style.Look); None when no node has one.
+func looked[E](shapes []ui.Shape[E]) Option[string] {
+	for sh in shapes {
+		match ui.StyleOf(sh.Node) {
+		case Some[ui.Style] as st:
+			if st.Value.Look != ui.DefaultLooks(sh.Node) {
+				return Some{Value: "gap OT-LOOKS: a node has a look of its own (Style.Look), which the terminal does not show"}
+			}
+		case None:
+		}
+		match looked[E](sh.Kids) {
+		case Some[string] as why:
+			return Some{Value: why.Value}
+		case None:
 		}
 	}
 	None
@@ -344,11 +381,11 @@ func run[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *tui.Driver[S, E, 
 			match n.Value {
 			case ui.InputNode as x:
 				if utf8.RuneCount(rest) == 1 && rest != " " {
-					let b = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
+					let b = played(func() fails ui.NoNode | ui.Ambiguous | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
 						try tui.Send(d, "\x05")
 						try tui.Play(d, []ui.Act{act})
 					})
-					let a = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
+					let a = played(func() fails ui.NoNode | ui.Ambiguous | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
 						try ui.TypeText(h, twin(h, n.Value, id.Value), x.Value+rest)
 					})
 					return (a, b)
@@ -376,10 +413,10 @@ func run[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *tui.Driver[S, E, 
 			ui.Wheel{DX: 0, DY: y}
 		}
 		let p = ui.PointerEvent{Phase: phase, X: x, Y: y, Zone: None}
-		let b = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
+		let b = played(func() fails ui.NoNode | ui.Ambiguous | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
 			try tui.Play(d, []ui.Act{ui.PointOn{Label: f[0], Pointer: p}})
 		})
-		let a = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
+		let a = played(func() fails ui.NoNode | ui.Ambiguous | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
 			match zoneAt(h, d, f[0], x, y) {
 			case Some[zoned[E]] as z:
 				try ui.PointOver(h, z.Value.area, z.Value.zone, z.Value.box, p)
@@ -394,7 +431,7 @@ func run[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *tui.Driver[S, E, 
 			return (Broke{Why: "scroll LABEL N"}, Broke{Why: "scroll LABEL N"})
 		}
 		let to = float64(atoi(f[1]))
-		let b = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
+		let b = played(func() fails ui.NoNode | ui.Ambiguous | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
 			try tui.Play(d, []ui.Act{ui.ScrollOn{Label: f[0], Offset: ui.Length(to), Height: 0}})
 		})
 		(found(h, f[0]), landed(d, f[0], b, to))
@@ -412,7 +449,7 @@ func run[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *tui.Driver[S, E, 
 		case _:
 			return (found(h, f[0]), Missing{Label: f[0]})
 		}
-		let b = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
+		let b = played(func() fails ui.NoNode | ui.Ambiguous | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
 			for _ in 0..(if k < 0 { -k } else { k }) {
 				try tui.Send(d, tui.Mouse(if k < 0 { 64 } else { 65 }, box.X+box.Width/2, box.Y+box.Height/2, true))
 			}
@@ -422,7 +459,13 @@ func run[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *tui.Driver[S, E, 
 	case "settle":
 		both(h, d, ui.SettleAll)
 	case "frames":
-		both(h, d, ui.AdvanceBy{By: duration(int64(atoi(rest)) * int64(16ms))})
+		let (a, b) = both(h, d, ui.AdvanceBy{By: duration(int64(atoi(rest)) * int64(16ms))})
+		match edged(d, ui.Screen(h)) {
+		case Some[string] as why:
+			(a, Broke{Why: why.Value})
+		case None:
+			(a, b)
+		}
 	case "focus":
 		focusPress(h, d, s, atoi(rest))
 	case _:
@@ -492,21 +535,23 @@ func atoi(s string) int {
 
 // both plays one act on each host.
 func both[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *tui.Driver[S, E, D, F], act ui.Act) (result, result) needs go.Foreign {
-	let a = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
+	let a = played(func() fails ui.NoNode | ui.Ambiguous | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
 		try ui.Play(h, []ui.Act{act})
 	})
-	let b = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
+	let b = played(func() fails ui.NoNode | ui.Ambiguous | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
 		try tui.Play(d, []ui.Act{act})
 	})
 	(a, b)
 }
 
-func played(f func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign) result needs go.Foreign {
+func played(f func() fails ui.NoNode | ui.Ambiguous | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign) result needs go.Foreign {
 	f() catch {
 	case ui.NoNode as n:
 		return Missing{Label: n.Label}
 	case ui.Mismatch as m:
 		return Broke{Why: "want \(m.Want), got \(m.Got)"}
+	case ui.Ambiguous as x:
+		return Broke{Why: "\(x.Count) nodes are \(x.At)"}
 	case actor.Stopped:
 		return Broke{Why: "stopped"}
 	case ui.BadPatch as b:
@@ -592,7 +637,7 @@ func focusPress[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *tui.Driver
 	for _ in 0..k {
 		keys = keys + "\t"
 	}
-	let b = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
+	let b = played(func() fails ui.NoNode | ui.Ambiguous | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
 		try tui.Send(d, keys)
 	})
 	// The order is TestHost's tree's, not the driver's.
@@ -614,18 +659,18 @@ func focusPress[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *tui.Driver
 	case (Some[ui.Id[E]] as id, Some[ui.Node[E]] as n):
 		match n.Value {
 		case ui.InputNode as x:
-			let b2 = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
+			let b2 = played(func() fails ui.NoNode | ui.Ambiguous | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
 				try tui.Send(d, "z")
 			})
-			let a = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
+			let a = played(func() fails ui.NoNode | ui.Ambiguous | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
 				try ui.TypeText(h, twin(h, n.Value, id.Value), x.Value+"z")
 			})
 			return (a, b2)
 		case _:
-			let b2 = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
+			let b2 = played(func() fails ui.NoNode | ui.Ambiguous | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
 				try tui.Send(d, "\r")
 			})
-			let a = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
+			let a = played(func() fails ui.NoNode | ui.Ambiguous | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
 				try ui.Tap(h, twin(h, n.Value, id.Value))
 			})
 			return (a, b2)

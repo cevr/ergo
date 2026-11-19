@@ -70,6 +70,11 @@ type Driver[S, E, D, F] {
 	owed    duration,
 	frames  int,
 	ticking bool,
+	// The edge scroll (frames.ergo): the y of the last pointer event in
+	// its Area's box (DIPs), and the list an edge scroll moves with the
+	// offset it is at, exact, between the whole cells the scene shows.
+	heldY float64,
+	edge  Option[(ui.Id[E], ui.Length)],
 }
 
 // held is a node of the tree and its children, in order.
@@ -127,6 +132,8 @@ func start[E comparable, S, D, F](s go.Ref[screen.Screen], a actor.Actor[S, E, D
 		owed:      duration(int64(0)),
 		frames:    0,
 		ticking:   false,
+		heldY:     0.0,
+		edge:      None,
 	}
 	d.nodes[root] = held[E]{node: ui.BoxNode{Style: ui.Plain()}, kids: []ui.Id[E]{}}
 	d.nums[root] = 0
@@ -162,6 +169,9 @@ func show[E comparable, S, D, F](d *Driver[S, E, D, F], ops []ui.Op[E]) fails ui
 			}
 		case ui.Set[E] as x:
 			reset(d, x.Id, x.Node)
+			// A look the pass interned: the terminal shows its own look for
+			// each kind of node and reads no Style.Look (a gap of this host).
+		case ui.Define:
 		}
 	}
 	placeRows(d)
