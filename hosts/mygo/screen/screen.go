@@ -12,9 +12,14 @@
 package screen
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"image"
+	"image/color"
+	"image/png"
 	"math"
+	"os"
 	"sync"
 	"time"
 
@@ -720,6 +725,28 @@ func (w *Window) Pixel(x, y int) uint32 {
 	}
 	p := w.fake.Pixel(x, y) // BGRA
 	return uint32(p[2])<<24 | uint32(p[1])<<16 | uint32(p[0])<<8 | uint32(p[3])
+}
+
+// WritePNG draws a Headless window's frame if one was asked for and
+// writes its last frame to path as a PNG of the window's size (TREE-JSON:
+// the screenshot beside the -tree lines).
+func (w *Window) WritePNG(path string) error {
+	if w.fake == nil {
+		return errors.New("screen: only a headless window writes a PNG")
+	}
+	w.Render()
+	img := image.NewNRGBA(image.Rect(0, 0, int(w.width), int(w.height)))
+	for y := range int(w.height) {
+		for x := range int(w.width) {
+			p := w.fake.Pixel(x, y) // BGRA
+			img.SetNRGBA(x, y, color.NRGBA{R: p[2], G: p[1], B: p[0], A: p[3]})
+		}
+	}
+	var b bytes.Buffer
+	if err := png.Encode(&b, img); err != nil {
+		return err
+	}
+	return os.WriteFile(path, b.Bytes(), 0o644)
 }
 
 // Focused is the id the last accessibility tree gave the focus, 0 for
