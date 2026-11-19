@@ -63,7 +63,7 @@ internal/sketch/eval/codecwalk.go	not a []byte", p.Wire.Name
 internal/sketch/eval/codecwalk.go	unknown bytes", p.Wire.Name
 internal/sketch/eval/testdata/mutants.json	return w.callFunc(p.Wire, v)
 internal/sketch/lower/wireform_test.go	*
-internal/sketch/lower/ir_wire.go	irNo("codec writer of a wire form %v", check.WireFormOf(t))
+internal/sketch/lower/ir_wire.go	*
 docs/spec/types.md	8. **Declared wire forms.**
 docs/spec/types.md	A marker with the wrong structural shape is S108 when used as `wire`.
 docs/spec/types.md	A structural form cannot also declare an independent Parse/Wire pair;
@@ -387,6 +387,10 @@ examples/cborpack/cbor/cbor.ergo	// The form: a record is a map of its wire keys
 modules/xml/xml.ergo	type Codec[T wire] { Root string, MaxBytes int, MaxDepth int }
 internal/experimental/irspike/gen_codec_witness.go	*
 internal/experimental/irspike/gen_direct_encode.go	*
+internal/experimental/irspike/gen_omittable.go	*
+internal/experimental/irspike/gen_wire_pairs.go	*
+internal/experimental/irspike/omittable_test.go	*
+internal/experimental/irspike/wire_pairs_test.go	*
 internal/sketchfront/ledger_import_test.go	// RawJoins the build rewrites by, and Show, which encodes any wire value
 internal/sketchfront/ledger_import_test.go	func Show[T wire](v T) string needs wired[T] {
 examples/confparse/README.md	| `config/` | The domain. `config.ergo` (`Config`, `Listen`, the union `Level` with its by-name codec pair `ParseLevel`/`Wire`, whose round-trip law `LevelRound
