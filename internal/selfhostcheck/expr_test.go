@@ -3,6 +3,7 @@ package selfhostcheck
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -127,6 +128,7 @@ func TestCompilerExprAgreesWithChecker(t *testing.T) {
 		t.Fatalf("exprdump -corpus wrote %d packages, want %d", at+1, len(folders))
 	}
 	reach := map[string][2]int{}
+	missed := map[string][]string{} // a few untyped sites of each form
 	calls := [2]int{}
 	for i, fo := range folders {
 		got := dropChargedTypes(gotTypes[i])
@@ -142,8 +144,15 @@ func TestCompilerExprAgreesWithChecker(t *testing.T) {
 			r[1]++
 			if have[key] {
 				r[0]++
+			} else if len(missed[form]) < 8 {
+				missed[form] = append(missed[form], rel(fo.dir)+"/"+key)
 			}
 			reach[form] = r
+			// The fixture writes each short form where its context fixes
+			// it: every such site of it is typed.
+			if group, _ := corpusGroup(fo.dir); group == "cases" && !have[key] && (form == "CompositeLit elided" || form == "Ident patbinder") {
+				t.Errorf("%s/%s: the fixture's %s is untyped", rel(fo.dir), key, form)
+			}
 		}
 		// The Go checker accepts every folder it types, so a diagnostic
 		// of the Ergo side is a false one (S3d5).
@@ -180,12 +189,19 @@ func TestCompilerExprAgreesWithChecker(t *testing.T) {
 	}
 	// Functions on a value's type, the prelude's on slices and Maps,
 	// operations, and fields through a pointer (S3d3), and the builtin
-	// len (S3d5): each kind typed
-	// somewhere, since the subset check alone would not see one lost.
-	for _, kind := range []string{"CallExpr method", "CallExpr prelude", "CallExpr op", "CallExpr capability", "SelectorExpr ptrfield", "CallExpr builtin"} {
+	// len (S3d5), and a tuple a result's type fixes (TUPLE-WANT): each
+	// kind typed somewhere, since the subset check alone would not see
+	// one lost.
+	for _, kind := range []string{"CallExpr method", "CallExpr prelude", "CallExpr op", "CallExpr capability", "SelectorExpr ptrfield", "CallExpr builtin", "TupleExpr"} {
 		if reach[kind][0] == 0 {
 			t.Errorf("the Ergo side typed no %s", kind)
 		}
+	}
+	// Short spellings (OPTION-ONE): a site the Ergo side leaves untyped is
+	// not compared, so typing the short form less often than the rest
+	// would silently shrink the agreement as the corpus moves to it.
+	for _, lag := range shortFormLags(reach, all) {
+		t.Errorf("%s; untyped short-form sites include: elided %s; patbinder %s", lag, strings.Join(missed["CompositeLit elided"], ", "), strings.Join(missed["Ident patbinder"], ", "))
 	}
 }
 
@@ -274,6 +290,7 @@ func pkgFiles(pkg *check.Package, unnamed string) map[*syntax.File]string {
 func goExprTypes(pkg *check.Package, unnamed string) ([]string, map[string]string) {
 	var out []string
 	forms := map[string]string{}
+	binders := patternBinders(pkg)
 	for sf, name := range pkgFiles(pkg, unnamed) {
 		syntax.Inspect(sf, func(n syntax.Node) bool {
 			var body *syntax.BlockStmt
@@ -304,12 +321,92 @@ func goExprTypes(pkg *check.Package, unnamed string) ([]string, map[string]strin
 				key := fmt.Sprintf("%s %d %d", name, x.Pos(), x.End())
 				out = append(out, key+" "+ty.String())
 				forms[key] = formOf(pkg, x)
+				if id, ok := x.(*syntax.Ident); ok && binders[pkg.Info.Uses[id]] != "" {
+					forms[key] = "Ident " + binders[pkg.Info.Uses[id]]
+				}
 				return true
 			})
 			return false
 		})
 	}
 	return out, forms
+}
+
+// patternBinders is each variable a case's or catch arm's pattern
+// declares: "patbinder" for a name a record pattern's field binds
+// (`case Some{Value: v}`), "asbinder" for an as-pattern's name (`case
+// Some as s`).
+func patternBinders(pkg *check.Package) map[check.Object]string {
+	out := map[check.Object]string{}
+	var walk func(x syntax.Expr)
+	walk = func(x syntax.Expr) {
+		switch p := x.(type) {
+		case *syntax.AsPattern:
+			if o := pkg.Info.Defs[p.Name]; o != nil {
+				out[o] = "asbinder"
+			}
+			walk(p.X)
+		case *syntax.CompositeLit:
+			for _, el := range p.Elts {
+				kv, ok := el.(*syntax.KeyValueExpr)
+				if !ok {
+					continue
+				}
+				if id, ok := kv.Value.(*syntax.Ident); ok {
+					if o := pkg.Info.Defs[id]; o != nil {
+						out[o] = "patbinder"
+					}
+					continue
+				}
+				walk(kv.Value)
+			}
+		}
+	}
+	for sf := range pkgFiles(pkg, "") {
+		syntax.Inspect(sf, func(n syntax.Node) bool {
+			switch c := n.(type) {
+			case *syntax.CaseClause:
+				for _, x := range c.List {
+					walk(x)
+				}
+			case *syntax.CatchArm:
+				for _, x := range c.Types {
+					walk(x)
+				}
+			}
+			return true
+		})
+	}
+	return out
+}
+
+// shortFormLags is the guard against a short spelling the Ergo side types
+// less often than the corpus it stands in: its share of typed sites must
+// not fall below its counterpart's in the same run. A field pattern's
+// binder is held to an as-pattern's. An elided literal is held to the
+// whole run's expressions, not to the generic literals written with their
+// arguments: those are typed wherever they stand (the written type), an
+// elided one only where the typer reads its context, and the contexts it
+// does not read yet (an operation's argument, a constant beside an
+// untyped operand of ==) are the expression typer's gaps, not the spelling's. all is
+// the run's typed and total expressions. A short form the run does not
+// reach is a failure too: the fixture testdata/bind/elide.ergo writes
+// each.
+func shortFormLags(reach map[string][2]int, all [2]int) []string {
+	var out []string
+	reach = maps.Clone(reach)
+	reach["all expressions"] = all
+	for _, p := range [][2]string{{"CompositeLit elided", "all expressions"}, {"Ident patbinder", "Ident asbinder"}} {
+		short, long := reach[p[0]], reach[p[1]]
+		switch {
+		case short[1] == 0 || long[1] == 0:
+			out = append(out, fmt.Sprintf("the corpus reaches no %q or no %q site", p[0], p[1]))
+		case short[0]*long[1] < long[0]*short[1]:
+			// short[0]/short[1] < long[0]/long[1], without division.
+			out = append(out, fmt.Sprintf("%s typed %d of %d, below %s's %d of %d", p[0], short[0], short[1], p[1], long[0], long[1]))
+		}
+	}
+	return out
 }
 
 // goCallArgs is the Go checker's type arguments of each call by name to a
@@ -361,6 +458,15 @@ func goCallArgs(pkg *check.Package, unnamed string) []string {
 func formOf(pkg *check.Package, x syntax.Expr) string {
 	form := strings.TrimPrefix(fmt.Sprintf("%T", x), "*syntax.")
 	switch e := x.(type) {
+	case *syntax.CompositeLit:
+		// A generic record or variant literal, written with its type
+		// arguments or without them (the one spelling, OPTION-ONE).
+		if n, ok := pkg.Info.Types[x].(*check.Named); ok && len(n.TArgs) > 0 && e.Type != nil {
+			if _, written := unparenX(e.Type).(*syntax.IndexExpr); written {
+				return form + " generic"
+			}
+			return form + " elided"
+		}
 	case *syntax.SelectorExpr:
 		return form + " " + selectorKind(pkg, e)
 	case *syntax.CallExpr:

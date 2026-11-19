@@ -85,8 +85,8 @@ func importOf(p syntax.Parsed, is syntax.ImportSpec) importSpec {
 	let path = strings.TrimRight(strings.TrimLeft(nodeText(p, is.Path), "\""), "\"")
 	let last = path[strings.LastIndex(path, "/")+1 : len(path)]
 	match dense.Unpack(is.Name) {
-	case Some[dense.ID[syntax.Node]] as n:
-		let alias = text(p, n.Value)
+	case Some{Value: n}:
+		let alias = text(p, n)
 		if alias == "go" { importSpec{path: path, name: last, isGo: true} } else { importSpec{path: path, name: alias, isGo: false} }
 	case None:
 		// import go PATH: the go word is its NamePos, with no name.
@@ -139,9 +139,9 @@ func Collect(path string, files []File) store.Store {
 				match syntax.ViewOf(p.Tree, vd.Spec) {
 				case syntax.VarSpec as vs:
 					match dense.Unpack(vs.Pattern) {
-					case Some[dense.ID[syntax.Node]] as pat:
+					case Some{Value: pat}:
 						let from = store.NumDecls(s)
-						patternNames(&s, p, f, pat.Value)
+						patternNames(&s, p, f, pat)
 						setPrints(&s, p, d, from)
 					case None:
 					}
@@ -341,8 +341,8 @@ func collectDecl(s mut store.Store, p syntax.Parsed, f int, d dense.ID[syntax.No
 			declareAs(s, p, f, td.Name, parseName(text(p, td.Name)), 1)
 		}
 		match dense.Unpack(td.Spec) {
-		case Some[dense.ID[syntax.Node]] as spec:
-			match syntax.ViewOf(p.Tree, spec.Value) {
+		case Some{Value: spec}:
+			match syntax.ViewOf(p.Tree, spec) {
 			case syntax.InterfaceType as it:
 				for i in 0..syntax.Len(it.Members) {
 					match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, it.Members, i)) {
@@ -372,8 +372,8 @@ func collectDecl(s mut store.Store, p syntax.Parsed, f int, d dense.ID[syntax.No
 			// the package scope; the Go checker records no Def for it.
 			let im = importOf(p, is)
 			let at = match dense.Unpack(is.Name) {
-			case Some[dense.ID[syntax.Node]] as n:
-				if im.isGo { is.Path } else { n.Value }
+			case Some{Value: n}:
+				if im.isGo { is.Path } else { n }
 			case None:
 				is.Path
 			}

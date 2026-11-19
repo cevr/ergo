@@ -65,12 +65,12 @@ func nify(s mut store.Store, f mut Frame, c Call, x0 dense.ID[store.TKey], y0 de
 		case None:
 			Bind(f, c, k, y)
 			return true
-		case Some[dense.ID[store.TKey]] as b:
+		case Some{Value: b}:
 			let none = NoValue(s)
-			if b.Value == none || y == none {
-				return b.Value == y
+			if b == none || y == none {
+				return b == y
 			}
-			return nify(s, f, c, b.Value, y, d)
+			return nify(s, f, c, b, y, d)
 		}
 	}
 	let kx = store.KindOfType(*s, x)
@@ -197,12 +197,12 @@ func unifyRow(s mut store.Store, f mut Frame, c Call, p dense.ID[store.TKey], a 
 				}
 				frees = frees + 1
 				continue
-			case Some[dense.ID[store.TKey]] as b:
-				if store.KindOfType(*s, b.Value) == store.KRow {
+			case Some{Value: b}:
+				if store.KindOfType(*s, b) == store.KRow {
 					if f.slots[c.at+k].joined && firstJoined < 0 {
 						firstJoined = k
 					}
-					rest = union(*s, rest, store.OperandsOf(*s, b.Value))
+					rest = union(*s, rest, store.OperandsOf(*s, b))
 					continue
 				}
 			}
@@ -221,8 +221,8 @@ func unifyRow(s mut store.Store, f mut Frame, c Call, p dense.ID[store.TKey], a 
 		}
 	} else if firstJoined >= 0 && len(extra) > 0 {
 		match Binding(*f, c, firstJoined) {
-		case Some[dense.ID[store.TKey]] as b:
-			Bind(f, c, firstJoined, store.TRow(s, union(*s, store.OperandsOf(*s, b.Value), extra)))
+		case Some{Value: b}:
+			Bind(f, c, firstJoined, store.TRow(s, union(*s, store.OperandsOf(*s, b), extra)))
 		case None:
 		}
 	}

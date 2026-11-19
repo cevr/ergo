@@ -93,7 +93,7 @@ func methodOf(s mut store.Store, k Pkg, t mut Typer, xt dense.ID[store.TKey], na
 			let f = k.Fns[i]
 			let ops = store.OperandsOf(*s, f.Sig)
 			if len(ops) > 3 && sameHead(*s, receiverBase(*s, ops[0]), base) {
-				return Some[Fn]{Value: f}
+				return Some{Value: f}
 			}
 			i = k.sameName[i]
 		}
@@ -110,11 +110,11 @@ func methodOf(s mut store.Store, k Pkg, t mut Typer, xt dense.ID[store.TKey], na
 		let ops = store.OperandsOf(d.S, f.Sig)
 		if len(ops) > 3 {
 			match port(s, k, d, f.Sig) {
-			case Some[dense.ID[store.TKey]] as sig:
-				if sameHead(*s, receiverBase(*s, store.OperandsOf(*s, sig.Value)[0]), base) {
+			case Some{Value: sig}:
+				if sameHead(*s, receiverBase(*s, store.OperandsOf(*s, sig)[0]), base) {
 					let mut out = f
-					out.Sig = sig.Value
-					return Some[Fn]{Value: out}
+					out.Sig = sig
+					return Some{Value: out}
 				}
 			case None:
 			}
@@ -135,10 +135,10 @@ func opTypeAt(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], at
 		return None
 	}
 	match store.Lookup(*s, text) {
-	case Some[dense.ID[store.Decl]] as d:
-		let decl = store.DeclOf(*s, d.Value)
+	case Some{Value: d}:
+		let decl = store.DeclOf(*s, d)
 		let here = bind.PNodeOf(k.Ps, int(decl.File), syntax.NodeAt(k.Parsed[int(decl.File)].Tree, int(decl.Node)))
-		if here == at { some(store.TNamed(s, d.Value)) } else { None }
+		if here == at { some(store.TNamed(s, d)) } else { None }
 	case None:
 		None
 	}
@@ -203,8 +203,8 @@ func importedOp(s mut store.Store, k Pkg, t mut Typer, sel dense.ID[syntax.Node]
 // others of the name follow through k.sameName), -1 when none is.
 func fnNamed(s store.Store, k Pkg, name string) int {
 	match store.FindName(s, name) {
-	case Some[dense.ID[dense.Str]] as n:
-		dense.SideOf(k.named, n.Value)
+	case Some{Value: n}:
+		dense.SideOf(k.named, n)
 	case None:
 		-1
 	}

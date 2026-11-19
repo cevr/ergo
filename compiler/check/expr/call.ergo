@@ -426,9 +426,150 @@ func fieldType(s mut store.Store, k Pkg, ty dense.ID[store.TKey], name string) O
 	None
 }
 
-// composite types T{…}: T as written; a record's fields, a slice's
-// elements and a map's entries take their types.
-func composite(s mut store.Store, k Pkg, t mut Typer, cl syntax.CompositeLit) Option[dense.ID[store.TKey]] {
+// elided is the type of the bare generic name x where w expects a type
+// (types.Elided), or none.
+func elided(s mut store.Store, k Pkg, t Typer, x dense.ID[syntax.Node], w Want) Option[dense.ID[store.TKey]] {
+	match w {
+	case Exactly as e:
+		elidedIn(s, k, t, x, e.T)
+	case _:
+		None
+	}
+}
+
+// elidedIn is the type of the bare generic name x in the context ctx: a
+// literal's expected type or a pattern's subject.
+func elidedIn(s mut store.Store, k Pkg, t Typer, x dense.ID[syntax.Node], ctx dense.ID[store.TKey]) Option[dense.ID[store.TKey]] {
+	let kd = syntax.KindOf(tree(k, t.file), x)
+	if kd != syntax.KIdent && kd != syntax.KSelectorExpr {
+		return None
+	}
+	match types.Elided(s, envOf(*s, k, t), x, infer.Unmarked(*s, ctx)) {
+	case Some{Value: r}:
+		if valid(*s, r) { some(r) } else { None }
+	case None:
+		None
+	}
+}
+
+// BareLit is a generic literal written without its type arguments: the type
+// it names, and its elements' values with their fields' types in terms
+// of its type parameters.
+type BareLit { b types.Bare, values []dense.ID[syntax.Node], fields []dense.ID[store.TKey] }
+
+// inferable is the literal cl of the bare generic name tx when its
+// elements' values can bind its type arguments: each element keys a
+// field of the type by name. It types nothing.
+func inferable(s mut store.Store, k Pkg, t Typer, cl syntax.CompositeLit, tx dense.ID[syntax.Node]) Option[BareLit] {
+	let tr = tree(k, t.file)
+	let kd = syntax.KindOf(tr, tx)
+	if kd != syntax.KIdent && kd != syntax.KSelectorExpr {
+		return None
+	}
+	let b = match types.BareOf(*s, envOf(*s, k, t), tx) {
+	case Some{Value: b}:
+		b
+	case None:
+		return None
+	}
+	let mut params = []dense.ID[store.TKey]{}
+	for i in 0..len(b.Rows) {
+		params = params.Append(store.TParam(s, i))
+	}
+	let gen = store.TInstance(s, b.Ref, params)
+	let p = k.Parsed[t.file]
+	let names = match fieldNames(*s, k, gen) {
+	case Some{Value: ns}:
+		ns
+	case None:
+		return None
+	}
+	let mut values = []dense.ID[syntax.Node]{}
+	let mut fields = []dense.ID[store.TKey]{}
+	for i in 0..syntax.Len(cl.Elts) {
+		let el = syntax.Item(tr, cl.Elts, i)
+		// A keyed element names its field; a positional one is the
+		// field at its place.
+		let (name, value) = match syntax.ViewOf(tr, el) {
+		case syntax.KeyValueExpr as kv:
+			if syntax.KindOf(tr, kv.Key) != syntax.KIdent {
+				return None
+			}
+			(types.NameText(p, kv.Key), kv.Value)
+		case _:
+			if i >= len(names) {
+				return None
+			}
+			(names[i], el)
+		}
+		match fieldType(s, k, gen, name) {
+		case Some{Value: ft}:
+			values = values.Append(value)
+			fields = fields.Append(ft)
+		case None:
+			return None
+		}
+	}
+	Some{Value: BareLit{b: b, values: values, fields: fields}}
+}
+
+// inferred types the bare generic literal g where no expected type fixes
+// its type arguments: its values bind them as a call's arguments bind a
+// generic function's (infer.Infer; the Go checker's literal inference,
+// 196u rule 6). It types each value once, as generic does a call's.
+func inferred(s mut store.Store, k Pkg, t mut Typer, g BareLit) Option[dense.ID[store.TKey]] {
+	let base = len(k.Fns[t.fn].Params)
+	let mut rename = []dense.ID[store.TKey]{}
+	for i in 0..len(g.b.Rows) {
+		rename = rename.Append(store.TParam(s, base+i))
+	}
+	let mut renamed = []dense.ID[store.TKey]{}
+	for f in g.fields {
+		renamed = renamed.Append(store.TSubst(s, f, rename))
+	}
+	let mut ins = []infer.Arg{}
+	for v in g.values {
+		if isConst(k, t.file, v) {
+			match constType(s, k, *t, v, Free) {
+			case Some{Value: d}:
+				ins = ins.Append(infer.Literal{Default: d})
+			case None:
+				ins = ins.Append(infer.Unknown)
+			}
+			continue
+		}
+		match expr(s, k, t, v, Free) {
+		case Some{Value: vt}:
+			ins = ins.Append(infer.Typed{T: vt})
+		case None:
+			ins = ins.Append(infer.Unknown)
+		}
+	}
+	match infer.Infer(s, &t.frame, infer.Callee{Params: renamed, Rows: g.b.Rows, Base: base}, []dense.ID[store.TKey]{}, ins) {
+	case Some{Value: targs}:
+		for i, v in g.values {
+			if isConst(k, t.file, v) {
+				let ft = store.TSubst(s, g.fields[i], targs)
+				expr(s, k, t, v, Exactly{T: infer.Unmarked(*s, ft)})
+			}
+		}
+		let r = store.TInstance(s, g.b.Ref, targs)
+		if valid(*s, r) { some(r) } else { None }
+	case None:
+		for v in g.values {
+			if isConst(k, t.file, v) {
+				expr(s, k, t, v, Unsure)
+			}
+		}
+		None
+	}
+}
+
+// composite types T{…}: T as written, or, for a generic record or
+// variant written without its type arguments, the type its expected type
+// fixes (types.Elided); a record's fields, a slice's elements and a map's
+// entries take their types.
+func composite(s mut store.Store, k Pkg, t mut Typer, cl syntax.CompositeLit, w Want) Option[dense.ID[store.TKey]] {
 	let tr = tree(k, t.file)
 	let p = k.Parsed[t.file]
 	match dense.Unpack(cl.Base) {
@@ -437,9 +578,29 @@ func composite(s mut store.Store, k Pkg, t mut Typer, cl syntax.CompositeLit) Op
 	case None:
 	}
 	let ty = match dense.Unpack(cl.Type) {
-	case Some[dense.ID[syntax.Node]] as tx:
-		let r = types.Resolve(s, envOf(*s, k, *t), tx.Value)
-		if valid(*s, r) { some(r) } else { None }
+	case Some{Value: tx}:
+		let r = types.Resolve(s, envOf(*s, k, *t), tx)
+		if valid(*s, r) {
+			some(r)
+		} else {
+			match elided(s, k, *t, tx, w) {
+			case Some{Value: e}:
+				some(e)
+			case None:
+				// Only where nothing is expected: an expectation the typer
+				// does not read (Unsure) would fix the arguments instead.
+				match w {
+				case Free:
+					match inferable(s, k, *t, cl, tx) {
+					case Some{Value: g}:
+						return inferred(s, k, t, g)
+					case None:
+					}
+				case _:
+				}
+				None
+			}
+		}
 	case None:
 		None
 	}

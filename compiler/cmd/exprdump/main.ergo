@@ -99,9 +99,9 @@ func tables(extText string, foreignText string) Tables {
 		case _:
 			0
 		}
-		foreign = foreign.Append(types.Foreign{Qual: parts[0], Name: parts[1], Arity: n, Path: parts[3], Print: strings.ReplaceAll(parts[4], "^", " "), Key: parts[5]})
+		foreign = foreign.Append(types.Foreign{Qual: parts[0], Name: parts[1], Arity: n, Path: parts[3], Print: strings.ReplaceAll(parts[4], "^", " "), Key: parts[5], Variants: []int{}})
 	}
-	Tables{ext: ext, foreign: foreign, pkgName: pkgName, pkgPath: pkgPath}
+	Tables{ext: ext, foreign: types.WithUnions(foreign, foreignText), pkgName: pkgName, pkgPath: pkgPath}
 }
 
 func parseAll(paths []string) []bind.File fails os.Exit needs fs.Files {

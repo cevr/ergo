@@ -165,8 +165,8 @@ func wid(id dense.ID[Node]) uint32 { uint32(dense.Index(id)) }
 // wopt is the word of an optional node id.
 func wopt(o dense.Opt[Node]) uint32 {
 	match dense.Unpack(o) {
-	case Some[dense.ID[Node]] as s:
-		uint32(dense.Index(s.Value)) + uint32(1)
+	case Some{Value: s}:
+		uint32(dense.Index(s)) + uint32(1)
 	case None:
 		uint32(0)
 	}

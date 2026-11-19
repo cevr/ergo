@@ -68,8 +68,8 @@ func list(p mut Pool, prefix string, ts []dense.ID[TKey]) uint32 {
 	}
 	let text = b.String()
 	match dense.FindText(p.lists, text) {
-	case Some[dense.ID[dense.Str]] as id:
-		uint32(dense.Index(id.Value))
+	case Some{Value: id}:
+		uint32(dense.Index(id))
 	case None:
 		let id = dense.InternText(&p.lists, text)
 		p.starts = p.starts.Append(uint32(len(p.extra)))
