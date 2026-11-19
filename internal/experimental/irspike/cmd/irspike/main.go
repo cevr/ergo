@@ -78,6 +78,14 @@ func main() {
 		if _, err = fmt.Sscan(os.Args[2], &seed); err == nil {
 			fmt.Print(irspike.GenerateFail(seed))
 		}
+	case "geninline":
+		var seed uint64
+		if len(os.Args) != 3 {
+			fail(fmt.Errorf("usage: irspike geninline SEED"))
+		}
+		if _, err = fmt.Sscan(os.Args[2], &seed); err == nil {
+			fmt.Print(irspike.GenerateInline(seed))
+		}
 	case "exitforms":
 		if len(os.Args) != 3 {
 			fail(fmt.Errorf("usage: irspike exitforms ROOT"))

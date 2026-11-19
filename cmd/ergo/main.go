@@ -186,6 +186,8 @@ type fileOptions struct {
 	// uncached is test's --count 1: the run neither replays nor keeps a
 	// cached result (testcache.go), as go test -count=1.
 	uncached bool
+	// affected is test's --affected [BASE], --list and --why (affected.go).
+	affected affectedOptions
 	// trace is test's --trace: after the run, the steps of every scene
 	// script played (printSteps). A traced run is never cached.
 	trace bool
@@ -275,6 +277,13 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 			opts.run, ran = value, true
 			continue
 		}
+		if value, ok := strings.CutPrefix(args[i], "--affected="); ok {
+			opts.affected.on, opts.affected.base = true, value
+			if value == "" || strings.HasPrefix(value, "-") {
+				return opts, fmt.Errorf("--affected= takes a commit, not %q", value)
+			}
+			continue
+		}
 		if value, ok := strings.CutPrefix(args[i], "--count="); ok {
 			count, counted = value, true
 			continue
@@ -351,6 +360,18 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 				opts.seed, seeded = args[i+1], true
 			}
 			i++
+		case "--affected":
+			// BASE is the next word once the source is given and the word
+			// is no option: `ergo test ./... --affected main`.
+			opts.affected.on = true
+			if len(positional) > 0 && i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+				opts.affected.base = args[i+1]
+				i++
+			}
+		case "--list":
+			opts.affected.list = true
+		case "--why":
+			opts.affected.why = true
 		case "--strict":
 			opts.strict = true
 		case "--json":
@@ -390,8 +411,8 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 	switch {
 	case len(positional) == 0:
 		return opts, fmt.Errorf("source file required")
-	case opts.strict && command != "diagnostics" && command != "lint":
-		return opts, fmt.Errorf("--strict is only supported by diagnostics and lint")
+	case opts.strict && command != "diagnostics" && command != "lint" && command != "check":
+		return opts, fmt.Errorf("--strict is only supported by diagnostics, lint and check")
 	case opts.json && command != "diagnostics" && command != "lint" && command != "run" && command != "test" && command != "inspect machine":
 		return opts, fmt.Errorf("--json is only supported by diagnostics, lint, run, test and inspect machine")
 	case opts.output != "" && command != "build":
@@ -452,6 +473,12 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 		return opts, fmt.Errorf("--eval-bytes takes a positive decimal number of bytes, not %q", opts.evalBytes)
 	case selected && command != "test":
 		return opts, fmt.Errorf("--law and --skip-law are only supported by test")
+	case opts.affected.on && command != "test":
+		return opts, fmt.Errorf("--affected is only supported by test")
+	case (opts.affected.list || opts.affected.why) && !opts.affected.on:
+		return opts, fmt.Errorf("--list and --why need --affected")
+	case opts.affected.on && (selected || ran || opts.receipt != "" || opts.emitted || opts.explore || searched || opts.work):
+		return opts, fmt.Errorf("--affected selects the obligations itself: it takes no --law, --skip-law, --run, --receipt, --emitted, --explore or -work")
 	case selected && (!validLaw(opts.law) || !validLaw(opts.skipLaw) || opts.law+opts.skipLaw == ""):
 		return opts, fmt.Errorf("--law and --skip-law take a law's name, as a report shows it (Design.Safe)")
 	case len(positional) > 1 && command != "test" && command != "check", len(positional) == 0 && command != "test":
@@ -619,6 +646,9 @@ func refuseUnchecked(l loaded, opts fileOptions) error {
 // --eval-bytes and --seed, and the envelope carries the evaluation; the
 // exit status is then evaluationExit's.
 func checkCommand(args []string) error {
+	if len(args) > 0 && args[0] == "--want" {
+		return checkWant(os.Stdout, args[1:])
+	}
 	opts, err := parseFileOptions("check", args)
 	if err != nil {
 		return err
@@ -717,11 +747,20 @@ func checkEnvelope(opts fileOptions, l loaded, fsys sketchfront.FS) (out []byte,
 	}
 	var buf bytes.Buffer
 	if !l.result.Checked {
-		if err := json.NewEncoder(&buf).Encode(l.result.CheckEnvelope()); err != nil {
+		if err := json.NewEncoder(&buf).Encode(featuredEnvelope(l.result)); err != nil {
 			return nil, nil, err
 		}
 		return buf.Bytes(), fmt.Errorf("check failed"), nil
 	}
+	return evaluatedEnvelope(opts, l, id, fsys)
+}
+
+// evaluatedEnvelope is the check envelope of a loaded package that
+// checks, with its evaluation, and check's exit status; id is the
+// producer identity the envelope was qualified with, and fsys the file
+// system the ledger is read through (a warm request's Recorder; nil reads
+// the host).
+func evaluatedEnvelope(opts fileOptions, l loaded, id producer.Identity, fsys sketchfront.FS) (out []byte, exit, err error) {
 	// Only a source that checks is evaluated (L7): in process, with no Go
 	// build and no child.
 	budget := evalBudget(opts)
@@ -746,10 +785,23 @@ func checkEnvelope(opts fileOptions, l loaded, fsys sketchfront.FS) (out []byte,
 		return nil, nil, err
 	}
 	l.result.SetEvaluation(evaluation)
-	if err := json.NewEncoder(&buf).Encode(l.result.CheckEnvelope()); err != nil {
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(featuredEnvelope(l.result)); err != nil {
 		return nil, nil, err
 	}
-	return buf.Bytes(), evaluationExit(evaluation), nil
+	exit = evaluationExit(evaluation)
+	if exit == nil && opts.strict {
+		exit = undecidedExit(evaluation.Obligations)
+	}
+	return buf.Bytes(), exit, nil
+}
+
+// featuredEnvelope is what check prints: the result's envelope with this
+// ergo's features (versionFeatures).
+func featuredEnvelope(r *report.Result) report.CheckEnvelope {
+	env := r.CheckEnvelope()
+	env.Features = versionFeatures
+	return env
 }
 
 // evalBudget is check's evaluation budget: the editor default
@@ -782,6 +834,30 @@ func evaluationExit(e report.Evaluation) error {
 		return exitStatusError{code: 1, message: "check: an obligation was refuted"}
 	}
 	return nil
+}
+
+// undecidedExit is check --strict's exit after an evaluation that
+// evaluationExit passed: 1 when an obligation was skipped, stopped or not
+// run, naming each with its reason, since a law that was not decided is
+// not a pass (MODELCHECK T3b: an ergo whose check skipped every law exited
+// 0, and orrery read that as proved). Plain check keeps exit 0 for them:
+// ergo test decides what check time skips.
+func undecidedExit(obligations []report.Obligation) error {
+	var undecided []string
+	for _, o := range obligations {
+		if o.Status != "passed" {
+			undecided = append(undecided, fmt.Sprintf("%s (%s: %s)", o.Name, o.Status, o.Reason))
+		} else if o.Machine != nil && o.Evidence != "proved" {
+			// A machine law that passed on sampled runs only (its graph
+			// could not be listed): no run broke it, which proves nothing
+			// (batch-mc1 T3b O1).
+			undecided = append(undecided, fmt.Sprintf("%s (%s, not proved: %s)", o.Name, o.Evidence, o.Reason))
+		}
+	}
+	if len(undecided) == 0 {
+		return nil
+	}
+	return exitStatusError{code: 1, message: "check --strict: not decided: " + strings.Join(undecided, "; ")}
 }
 
 // validCount reports whether s is a positive decimal int64 with no sign.

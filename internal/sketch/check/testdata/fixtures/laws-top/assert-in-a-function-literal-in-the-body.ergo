@@ -1,0 +1,7 @@
+law Lit(n int) {
+	let f = func() {
+		assert true // want S108
+	}
+	f()
+	true
+}
