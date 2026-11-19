@@ -449,7 +449,7 @@ extern go crypto/x509.ParseCertificateRequest func ParseCertificateRequest(asn1D
 extern go crypto/x509.ParseDERCRL func ParseDERCRL(derBytes []byte) go.Ref[pkix.CertificateList] fails go.Error needs go.Foreign
 
 // ergo:go func ParseECPrivateKey(der []byte) (*ecdsa.PrivateKey, error)
-extern go crypto/x509.ParseECPrivateKey func ParseECPrivateKey(der []byte) go.Ref[ecdsa.PrivateKey] fails go.Error needs go.Foreign
+extern go crypto/x509.ParseECPrivateKey func ParseECPrivateKey(der []byte) Option[go.Ref[ecdsa.PrivateKey]] fails go.Error needs go.Foreign
 
 // ergo:go func ParseOID(oid string) (OID, error)
 extern go crypto/x509.ParseOID func ParseOID(oid string) OID fails go.Error needs go.Foreign

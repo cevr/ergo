@@ -227,6 +227,7 @@ func (in *inferer) nify(x, y Type, mode unifyMode, depth int) bool {
 			ar = y.Row
 		case *Named:
 			if !in.c.isErrorValue(y) {
+				in.notError = y
 				return false
 			}
 			ar = newRow().with(in.c.types, y)

@@ -1,6 +1,7 @@
 import strconv
 import strings
 import taskscli/tasks
+import cells text
 import utf8
 
 // Line is the text line of t: its number, priority, state and title in
@@ -54,5 +55,6 @@ func Quote(s string) string {
 	out + "\""
 }
 
-// pad is text with spaces after it to width, and one space at least.
-func pad(text string, width int) string { strings.PadRight(text, width-1, ' ') + " " }
+// pad is s with spaces after it to width terminal cells, and one space at
+// least: a wide title or state keeps the columns aligned (std text.Cells).
+func pad(s string, width int) string { cells.Pad(s, width-1) + " " }

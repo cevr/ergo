@@ -1,6 +1,7 @@
 import jsonv/json
 import stdjson json
 import math
+import slices
 import strconv
 import strings
 import utf8
@@ -111,7 +112,7 @@ func validate(w *report, s Schema, v stdjson.Value, path string) {
 			if obj.Closed {
 				let mut seen = []string{}
 				for m in o.Members {
-					if indexOf(obj.Props, m.Key) < 0 && !has(seen, m.Key) {
+					if slices.IndexFunc(obj.Props, func(p Prop) bool { p.Name == m.Key }) < 0 && !has(seen, m.Key) {
 						add(w, ExtraMember{Path: path, Name: m.Key})
 						seen = seen.Append(m.Key)
 					}

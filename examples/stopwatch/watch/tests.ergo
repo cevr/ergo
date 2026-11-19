@@ -8,6 +8,7 @@
 // timed run on a virtual clock. A test of the step binds no clock.
 
 import machines
+import time
 
 func at(t duration, b Button) machines.Timed[Button] { machines.Timed[Button]{At: t, Signal: b} }
 
@@ -16,7 +17,7 @@ func at(t duration, b Button) machines.Timed[Button] { machines.Timed[Button]{At
 func armed(w Watch) bool {
 	match tick(w) {
 	case Some[machines.Every[Signal]] as t:
-		t.Value.In == TickEvery && t.Value.Signal(reading(ms(7))) == Ticked{At: reading(ms(7))}
+		t.Value.In == TickEvery && t.Value.Signal(reading(time.Times(1ms, 7))) == Ticked{At: reading(time.Times(1ms, 7))}
 	case None:
 		false
 	}
@@ -33,16 +34,16 @@ test StartRunsTheWatchOnTheClock {
 	// running: started at 500ms, the watch runs from then, and 50ms later
 	// shows 50ms. (A timed run starts from the initial state, not from 2s
 	// shown, and the test above covers a shown time.)
-	let w = run([]machines.Timed[Button]{at(ms(500), Start)}, ms(550))
-	assert ElapsedOf(w) == ms(50) && IsRunning(w)
+	let w = run([]machines.Timed[Button]{at(time.Times(1ms, 500), Start)}, time.Times(1ms, 550))
+	assert ElapsedOf(w) == time.Times(1ms, 50) && IsRunning(w)
 }
 
 test StopKeepsTheTime {
 	// ClickedStop pauses the stopwatch without zeroing time: the time up to
 	// the stop, by the clock, not the time of the last tick.
 	let w = Running{Before: 5s, Since: reading(0s), Elapsed: 5s}
-	let n = machines.Next(w, Step(w, Pressed{Button: Stop, At: reading(ms(3))}))
-	assert n == Stopped{Elapsed: ms(5003)} && !armed(n)
+	let n = machines.Next(w, Step(w, Pressed{Button: Stop, At: reading(time.Times(1ms, 3))}))
+	assert n == Stopped{Elapsed: time.Times(1ms, 5003)} && !armed(n)
 }
 
 test ResetZeros {
@@ -60,13 +61,13 @@ test TickShowsTheClockTimeAndArmsTheNext {
 	// Ticked fires DetermineTickTime with the stored startTime: a tick 37ms
 	// after the start, late, shows 37ms more, not one interval.
 	let w = Running{Before: 5s, Since: reading(0s), Elapsed: 5s}
-	let n = Running{Before: 5s, Since: reading(0s), Elapsed: ms(5037)}
-	assert Step(w, Ticked{At: reading(ms(37))}) == Enter[Watch]{Next: n} && armed(n)
+	let n = Running{Before: 5s, Since: reading(0s), Elapsed: time.Times(1ms, 5037)}
+	assert Step(w, Ticked{At: reading(time.Times(1ms, 37))}) == Enter[Watch]{Next: n} && armed(n)
 }
 
 test TicksStoreTheElapsedTime {
 	// CompletedDetermineTickTime stores the new elapsed time: started at 0
 	// and stopped at 1234ms, the watch shows 00:01.23.
-	let w = run([]machines.Timed[Button]{at(0s, Start), at(ms(1234), Stop)}, 2s)
-	assert w == Stopped{Elapsed: ms(1234)} && Format(ElapsedOf(w)) == "00:01.23"
+	let w = run([]machines.Timed[Button]{at(0s, Start), at(time.Times(1ms, 1234), Stop)}, 2s)
+	assert w == Stopped{Elapsed: time.Times(1ms, 1234)} && Format(ElapsedOf(w)) == "00:01.23"
 }

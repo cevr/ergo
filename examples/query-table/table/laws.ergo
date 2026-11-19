@@ -1,14 +1,6 @@
 import querytable/dino
 import querytable/query
-
-func indexOf(d dino.Dinosaur) int {
-	for i, x in dino.All {
-		if x == d {
-			return i
-		}
-	}
-	-1
-}
+import slices
 
 // RowsAreTheMatches: the rows are exactly the dinosaurs that match the
 // query, each once, in the sorting's order, and rows that tie keep the
@@ -43,7 +35,7 @@ law RowsAreTheMatches(drawn query.Query, part int) {
 		case query.Descending as s:
 			Compare(s.Column, d, prev)
 		}
-		if c > 0 || (c == 0 && indexOf(prev) >= indexOf(d)) {
+		if c > 0 || (c == 0 && slices.Index(dino.All, prev) >= slices.Index(dino.All, d)) {
 			return false
 		}
 	}

@@ -1,0 +1,9 @@
+# scripts/opcount: `kvbench bench put N` makes N puts into a std
+# kv/memory store over 64 keys (ST3); the cost of one put is the slope
+# between the two sizes. The control is hand Go with a map under a mutex;
+# the floor is a bare map store.
+unit put
+sizes 200000 1200000
+args bench put {n}
+control benchmarks/kv/testdata/control
+floor benchmarks/kv/testdata/floor

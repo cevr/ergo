@@ -21,7 +21,7 @@ func presses(gaps []int, words []int) []Press {
 	let mut out = []Press{}
 	for i, g in gaps {
 		let n = if i < len(words) { words[i] } else { i }
-		out = out.Append(Press{Gap: ms(pick(g, 2500)), Word: n})
+		out = out.Append(Press{Gap: time.Times(1ms, pick(g, 2500)), Word: n})
 	}
 	out
 }
@@ -119,7 +119,7 @@ law ResetIsInitial(gaps []int, words []int) {
 // StopThenStartKeepsElapsed: a stopped watch started and stopped again at
 // one instant shows the same time.
 law StopThenStartKeepsElapsed(e int) {
-	let w = Stopped{Elapsed: ms(pick(e, 86400000))}
+	let w = Stopped{Elapsed: time.Times(1ms, pick(e, 86400000))}
 	let running = machines.Next(w, Step(w, Pressed{Button: Start, At: reading(0s)}))
 	machines.Next(running, Step(running, Pressed{Button: Stop, At: reading(0s)})) == w
 }
@@ -162,6 +162,3 @@ func isReset(s Signal) bool {
 }
 
 func pick(n int, count int) int { ((n % count) + count) % count }
-
-// ms is n milliseconds.
-func ms(n int) duration { time.Times(1ms, n) }

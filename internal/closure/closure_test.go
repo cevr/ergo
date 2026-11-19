@@ -851,6 +851,13 @@ func TestEveryPackageRecordsOnlyItsClosure(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			// Each package's line as soon as it ends (under -v, go test
+			// prints a t.Log at once), so a sweep stopped before its end
+			// still shows the verdicts it reached: a stopped 6-hour
+			// whole-tree compare had printed none (HEAVY-COST-2 sweep4).
+			defer func() {
+				t.Logf("%s: done: %s", dir, verdictLine(results[i].took, results[i].err, len(results[i].outside)))
+			}()
 			name := strings.ReplaceAll(dir, "/", "_")
 			reuseNote := ""
 			if reuseBase != "" {
@@ -908,7 +915,6 @@ func TestEveryPackageRecordsOnlyItsClosure(t *testing.T) {
 
 	for i, dir := range targets {
 		r := results[i]
-		t.Logf("%s: %s", dir, r.took)
 		if r.err != nil {
 			t.Errorf("%s: %v", dir, r.err)
 			continue
@@ -938,6 +944,19 @@ func TestEveryPackageRecordsOnlyItsClosure(t *testing.T) {
 		}
 		t.Errorf("%s: %d recorded inputs lie outside its closure:\n%s", dir, len(r.outside), summary(r.outside))
 	}
+}
+
+// verdictLine is a swept package's line when it ends: how its runs went
+// (took), then failed with err, or how many recorded inputs lie outside
+// its closure.
+func verdictLine(took string, err error, outside int) string {
+	switch {
+	case err != nil:
+		return fmt.Sprintf("%s; failed: %v", took, err)
+	case outside > 0:
+		return fmt.Sprintf("%s; %d recorded inputs outside its closure", took, outside)
+	}
+	return took + "; every recorded input lies in its closure"
 }
 
 // unsweepable are the test packages the sweep does not run, by package
