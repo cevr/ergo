@@ -160,6 +160,11 @@ func call(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], c synt
 	} else {
 		importedFn(s, k, t, selOf(tr, fun))
 	}
+	match callee {
+	case Some[Fn] as cf:
+		t.Calls = t.Calls.Append(CallTo{Call: pnode(k, t.file, x), Callee: cf.Value, Recv: false})
+	case None:
+	}
 	if c.Trailing == dense.NoID[syntax.Node]() && !indexed && !isSome(callee) && syntax.KindOf(tr, fun) == syntax.KSelectorExpr {
 		return valueCall(s, k, t, x, c, fun)
 	}
@@ -285,6 +290,7 @@ func valueCall(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], c
 	match methodOf(s, k, t, xt, name) {
 	case Some[Fn] as mf:
 		let f = mf.Value
+		t.Calls = t.Calls.Append(CallTo{Call: pnode(k, t.file, x), Callee: f, Recv: true})
 		if len(f.Params) > 0 {
 			return generic(s, k, t, x, c, fun, []dense.ID[syntax.Node]{}, f, some(xt))
 		}

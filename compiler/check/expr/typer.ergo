@@ -36,6 +36,11 @@ type Entry { At dense.ID[store.PNode], T dense.ID[store.TKey], Fn int }
 // callee (whose own marks the call reads: types.md, Generics 9).
 type Inst { At dense.ID[store.PNode], Args []dense.ID[store.TKey], Fn int, Call dense.ID[store.PNode], Callee Fn }
 
+// CallTo is one call whose callee is a function the typer resolved: of the
+// package or of an import by name, or x.f(…) of a function f on x's type
+// (Recv: x is its first argument, the Go checker's Call.Recv).
+type CallTo { Call dense.ID[store.PNode], Callee Fn, Recv bool }
+
 // Diag is a type error the typer found: the expression at At, in the
 // function Fn, has a basic type, or is a constant of a basic kind, that is
 // not the basic type its context assigns it to (types.md, Assignability;
@@ -49,6 +54,7 @@ type Typer {
 	Entries []Entry,
 	Diags   []Diag,
 	Insts   []Inst,
+	Calls   []CallTo,
 	defs    dense.Col[store.PNode, dense.Opt[store.TKey]],
 	frame   infer.Frame,
 	file    int,
@@ -64,6 +70,12 @@ type Typer {
 	// reserved is the room the package-sized tables were given: entries
 	// and locals (one per row each), and instances (one per call).
 	reserved int,
+}
+
+// DefType is the type the typer gave the local or parameter declared at
+// the name node at, none when it gave it none.
+func DefType(t Typer, at dense.ID[store.PNode]) Option[dense.ID[store.TKey]] {
+	if dense.In(t.defs, at) { dense.Unpack(dense.Of(t.defs, at)) } else { None }
 }
 
 // Steps is the typer's work: one step per expression typed and per
@@ -136,7 +148,7 @@ func checkAll(s mut store.Store, k Pkg, record bool) Typer {
 		dense.Push(&defs, dense.NoID[store.TKey]())
 	}
 	let entries = if record { rows } else { 0 }
-	let mut t = Typer{Entries: slices.WithCapacity[Entry](entries), Diags: []Diag{}, Insts: slices.WithCapacity[Inst](calls), defs: defs, frame: infer.NewFrame(), boolT: store.TBasic(s, bBool), file: 0, fn: 0, res: None, steps: 0, typed: 0, record: record, reserved: entries + rows + calls}
+	let mut t = Typer{Entries: slices.WithCapacity[Entry](entries), Diags: []Diag{}, Insts: slices.WithCapacity[Inst](calls), Calls: []CallTo{}, defs: defs, frame: infer.NewFrame(), boolT: store.TBasic(s, bBool), file: 0, fn: 0, res: None, steps: 0, typed: 0, record: record, reserved: entries + rows + calls}
 	for i, f in k.Fns {
 		match dense.Unpack(f.Body) {
 		case Some[dense.ID[syntax.Node]] as b:

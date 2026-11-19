@@ -19,13 +19,20 @@ import compiler/check/store
 import compiler/check/types
 import compiler/syntax
 import dense
+import slices
 
 // Fn is one function declaration of the package with its signature: its
 // file, its declaration and name nodes, its bracket parameters and their
 // row bits and own marks ([T own]: types.md, Generics 9), its
 // parameters' name nodes (none for an unnamed one), its signature in the
-// pool and its body. A law or a test is one too, with the signature its
-// parameters and result make (a law's result is bool).
+// pool and its body; whether it takes each parameter (Takes, in the
+// signature's order: a parameter written own whose type is no function
+// type, one a takes clause names, and a Close's receiver: the Go
+// checker's Signature.Takes), each parameter's name (Pnames, "" for an
+// unnamed one) and whether it is a Close of the R1 shape on a type of its
+// package that implements Closer (Close: the Go checker's Info.Closes). A
+// law or a test is one too, with the signature its parameters and result
+// make (a law's result is bool).
 type Fn {
 	File   int,
 	Decl   dense.ID[syntax.Node],
@@ -36,6 +43,9 @@ type Fn {
 	Names  []dense.Opt[syntax.Node],
 	Sig    dense.ID[store.TKey],
 	Body   dense.Opt[syntax.Node],
+	Takes  []bool,
+	Pnames []string,
+	Close  bool,
 }
 
 // Field is a record field: its name and type (the record's bracket
@@ -155,7 +165,126 @@ func declared(s mut store.Store, env types.Env, p syntax.Parsed, file int, decl 
 	case None:
 	}
 	let none = store.TRow(s, []dense.ID[store.TKey]{})
-	Fn{File: file, Decl: decl, Name: name, Params: []string{}, Rows: []bool{}, Own: []bool{}, Names: names, Sig: store.TSig(s, ts, result, none, none), Body: b}
+	Fn{File: file, Decl: decl, Name: name, Params: []string{}, Rows: []bool{}, Own: []bool{}, Names: names, Sig: store.TSig(s, ts, result, none, none), Body: b, Takes: []bool{}, Pnames: []string{}, Close: false}
+}
+
+// sigFacts is what a function's declaration says of its parameters: the
+// takes (Fn.Takes), their names, and whether it is a Close of the R1 shape
+// (Fn.Close).
+type sigFacts { taken []bool, names []string, close bool }
+
+// factsOf is the sigFacts of a function named name declared with the
+// function type ft and the signature sig (resource.go ownParams and
+// takesClause, close.go closeTakes and closeFacts): it takes a parameter
+// written own whose type is no function type, one its takes clause names,
+// and with no clause the receiver of a Close of the R1 shape (one
+// parameter, no result, no failure) on a type of closers, the package's
+// types that implement Closer.
+func factsOf(s store.Store, p syntax.Parsed, name string, ft dense.ID[syntax.Node], sig dense.ID[store.TKey], closers []string) sigFacts {
+	let ops = store.OperandsOf(s, sig)
+	let n = len(ops) - 3
+	let mut out = []bool{}
+	for _ in 0..n {
+		out = out.Append(false)
+	}
+	let mut close = false
+	if name == "Close" && n == 1 && store.KindOfType(s, ops[1]) == store.KTuple && len(store.OperandsOf(s, ops[1])) == 0 && len(store.OperandsOf(s, ops[2])) == 0 {
+		let mut r = ops[0]
+		if store.KindOfType(s, r) == store.KPointer {
+			r = store.OperandsOf(s, r)[0]
+		}
+		close = store.KindOfType(s, r) == store.KNamed && slices.Contains(closers, store.TypeNameText(s, store.ArgOf(s, r)))
+	}
+	let w = written(s, p, ft, ops, n, out)
+	let mut taken = w.taken
+	if close && !w.clause {
+		taken[0] = true
+	}
+	sigFacts{taken: taken, names: w.names, close: close}
+}
+
+// writtenTakes is what a signature writes: the parameters it takes, their
+// names, and whether it writes a takes clause.
+type writtenTakes { taken []bool, names []string, clause bool }
+
+// written is factsOf's writtenTakes: out has one false per parameter of
+// ops' n.
+func written(s store.Store, p syntax.Parsed, ft dense.ID[syntax.Node], ops []dense.ID[store.TKey], n int, out0 []bool) writtenTakes {
+	let mut out = out0
+	let f = match syntax.ViewOf(p.Tree, ft) {
+	case syntax.FuncType as v:
+		v
+	case _:
+		return writtenTakes{taken: out, names: []string{}, clause: false}
+	}
+	let mut at = 0
+	let mut names = []string{}
+	match syntax.ViewOf(p.Tree, f.Params) {
+	case syntax.FieldList as fl:
+		for i in 0..syntax.Len(fl.List) {
+			match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, fl.List, i)) {
+			case syntax.Field as fd:
+				let count = if syntax.Len(fd.Names) == 0 { 1 } else { syntax.Len(fd.Names) }
+				for j in 0..count {
+					names = names.Append(if j < syntax.Len(fd.Names) { types.NameText(p, syntax.Item(p.Tree, fd.Names, j)) } else { "" })
+					if fd.Own >= 0 && at < n {
+						let kind = store.KindOfType(s, ops[at])
+						if kind != store.KSig && kind != store.KOwn && kind != store.KEntry {
+							out[at] = true
+						}
+					}
+					at = at + 1
+				}
+			case _:
+			}
+		}
+	case _:
+	}
+	match dense.Unpack(f.Takes) {
+	case Some[dense.ID[syntax.Node]] as tc:
+		match syntax.ViewOf(p.Tree, tc.Value) {
+		case syntax.TakesClause as c:
+			for i in 0..syntax.Len(c.Names) {
+				let k = slices.Index(names, types.NameText(p, syntax.Item(p.Tree, c.Names, i)))
+				if k >= 0 && k < n {
+					out[k] = true
+				}
+			}
+		case _:
+		}
+		return writtenTakes{taken: out, names: names, clause: true}
+	case None:
+	}
+	writtenTakes{taken: out, names: names, clause: false}
+}
+
+// closerNames is the names of the types of parsed that write implements
+// Closer.
+func closerNames(parsed []syntax.Parsed) []string {
+	let mut out = []string{}
+	for p in parsed {
+		if p.Failed {
+			continue
+		}
+		match syntax.ViewOf(p.Tree, syntax.Root(p.Tree)) {
+		case syntax.File as root:
+			for i in 0..syntax.Len(root.Decls) {
+				match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, root.Decls, i)) {
+				case syntax.TypeDecl as td:
+					for j in 0..syntax.Len(td.Implements) {
+						let x = syntax.Item(p.Tree, td.Implements, j)
+						let head = if syntax.KindOf(p.Tree, x) == syntax.KSelectorExpr { syntax.SelectorExprOf(p.Tree, x).Sel } else { x }
+						if syntax.KindOf(p.Tree, head) == syntax.KIdent && types.NameText(p, head) == "Closer" {
+							out = out.Append(types.NameText(p, td.Name))
+						}
+					}
+				case _:
+				}
+			}
+		case _:
+		}
+	}
+	out
 }
 
 // opTypes is recs with p's operation types that have no bracket
@@ -274,6 +403,7 @@ func Load(s mut store.Store, files []bind.File, u bind.Uses, ps bind.Parents, ex
 	let foreign = types.WithAliases(foreign0, *s, deps)
 	let kinds = types.SolveKinds(*s, parsed, ext)
 	let mut fns = []Fn{}
+	let closers = closerNames(parsed)
 	for f in types.SolveFuncKinds(*s, parsed, ext, kinds) {
 		let p = parsed[f.File]
 		match syntax.ViewOf(p.Tree, f.Decl) {
@@ -293,7 +423,8 @@ func Load(s mut store.Store, files []bind.File, u bind.Uses, ps bind.Parents, ex
 			case None:
 				[]bool{}
 			}
-			fns = fns.Append(Fn{File: f.File, Decl: f.Decl, Name: fd.Name, Params: f.Params, Rows: rows, Own: own, Names: paramNames(p, fd.Type), Sig: sig, Body: fd.Body})
+			let facts = factsOf(*s, p, types.NameText(p, fd.Name), fd.Type, sig, closers)
+			fns = fns.Append(Fn{File: f.File, Decl: f.Decl, Name: fd.Name, Params: f.Params, Rows: rows, Own: own, Names: paramNames(p, fd.Type), Sig: sig, Body: fd.Body, Takes: facts.taken, Pnames: facts.names, Close: facts.close})
 		case _:
 		}
 	}
