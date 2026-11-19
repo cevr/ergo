@@ -501,21 +501,28 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 		fd = &funcDecl{fn: f, library: true, extern: strings.Trim(f.Decl.Extern.Target.Value, "\"`")}
 	}
 	body, name, ok := b.l.stdBody(fd)
+	// An operation of the slice or Map type called on its receiver
+	// (bs.Text(); PRIM-4): the receiver is the body's first operand, as
+	// the emitter's callText passes it (PORT-CALLS).
+	ops := x.Args
+	if c.Recv != nil {
+		ops = append([]syntax.Expr{c.Recv}, x.Args...)
+	}
 	switch {
 	case !ok:
 		irNo("call of a std intrinsic")
-	case c.Recv != nil:
+	case c.Recv != nil && check.CollOpOf(f) == check.CollNone:
 		irNo("dot call of a std function")
 	case b.fc.refSiteOf(x) != nil:
 		if b.inPlaceSite(x) {
 			return b.ownedSiteCall(x, c, b.fc.refSiteOf(x), p) // ir_ownlit.go
 		}
-		return b.ownedRefCall(x, c, b.fc.refSiteOf(x), x.Args, nil, p) // ir_refown.go
+		return b.ownedRefCall(x, c, b.fc.refSiteOf(x), ops, nil, p) // ir_refown.go
 	case defersCall(body) || commaOk(body):
 		irNo("std call with an adapted result")
-	case len(body.Params) != len(x.Args)+trailing(x):
+	case len(body.Params) != len(ops)+trailing(x):
 		irNo("std call with another arity")
-	case x.Trailing != nil && !adapted(body.Params[len(x.Args)]):
+	case x.Trailing != nil && !adapted(body.Params[len(ops)]):
 		irNo("std call with another arity")
 	case len(b.l.ownedParams(fd.fn)) > 0:
 		irNo("call that passes owned values")
@@ -551,23 +558,23 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 		if adapted(q) {
 			continue // adaptOperands, ir_adapt.go
 		}
-		if !b.operandFits(x.Args[i], q.Type, subst) { // ir_operand.go
+		if !b.operandFits(ops[i], q.Type, subst, body.Package) { // ir_operand.go
 			irNo("std call with a converted operand")
 		}
 	}
 	if failsHere(c) && !goFallible(body) || goFallible(body) && !failsHere(c) && isTuple {
 		irNo("fallible call with an empty row at its site")
 	}
-	if !isTuple && goValue(body) && !b.sameGo(b.l.info.Types[x], body.Results[0]) && !b.sameRT(b.l.info.Types[x], body.Results[0], subst) {
+	if !isTuple && goValue(body) && !b.sameGo(b.l.info.Types[x], body.Results[0]) && !b.sameRT(b.l.info.Types[x], body.Results[0], subst, body.Package) {
 		irNo("std call with a converted result")
 	}
 	hidden := b.hidden(body, x, c, p)
-	pre, args := b.operands(x.Args)
+	pre, args := b.operands(ops)
 	mark := b.next // the block's locals and its adapter's are numbered from here (spawnWith)
 	if x.Trailing != nil {
 		args = append(args, b.closureLit(nil, x)) // the block, the last operand
 	}
-	pre = append(pre, b.adaptOperands(body.Params, x, args, 0, p)...) // ir_adapt.go
+	pre = append(pre, b.adaptOperands(body.Params, x, ops, args, 0, p)...) // ir_adapt.go
 	// A generic function stands in Go text only as an instance, whose type
 	// arguments may be the body's own type parameters: the import is
 	// kept by a variable of the runtime's Site type, which is not generic.
@@ -645,12 +652,19 @@ func (b *irBuilder) stdTypeArgs(body v1.Body, c *check.Call, x *syntax.CallExpr)
 
 // sameRT reports whether the Ergo type t lowers to the Go type a
 // runtime/v1 body spells goType at a call whose type parameters are
-// subst: both read as main.go spells them (rtSpelling).
-func (b *irBuilder) sameRT(t check.Type, goType string, subst map[string]string) bool {
+// subst: both read as main.go spells them (rtSpelling). pkg is the import
+// path of the body's package (v1.Body.Package): a runtime leaf's body
+// (runtime/v1/http's HTTPServe) spells its own types unqualified, which
+// main.go reaches through the leaf's import (rtRef; PORT-CALLS).
+func (b *irBuilder) sameRT(t check.Type, goType string, subst map[string]string, pkg string) bool {
 	if t == nil {
 		return false
 	}
-	return b.fc.goType(t) == rtSpelling(goType, b.l.rt(), subst)
+	q := b.l.rt()
+	if pkg != "" && pkg != runtimeImport {
+		q = b.l.pkgName(pkgKey{"import", pkg}, leafName(pkg)) // naming.go reserves every leaf
+	}
+	return b.fc.goType(t) == rtSpelling(goType, q, subst)
 }
 
 // rtSpelling is a runtime/v1 body's Go type spelling s as main.go spells
@@ -758,19 +772,19 @@ func (b *irBuilder) boundOpCall(x *syntax.CallExpr, c *check.Call, n *check.Name
 		if adapted(q) {
 			continue // adaptOperands, ir_adapt.go
 		}
-		if !b.operandFits(x.Args[i], b.recvTypeArgs(n, q.Type), nil) { // ir_operand.go
+		if !b.operandFits(x.Args[i], b.recvTypeArgs(n, q.Type), nil, body.Package) { // ir_operand.go
 			irNo("std call with a converted operand")
 		}
 	}
 	if failsHere(c) && !goFallible(body) {
 		irNo("fallible call with an empty row at its site")
 	}
-	if goValue(body) && !b.sameGo(b.l.info.Types[x], b.recvTypeArgs(n, body.Results[0])) {
+	if goValue(body) && !b.sameGo(b.l.info.Types[x], b.recvTypeArgs(n, body.Results[0])) && !b.sameRT(b.l.info.Types[x], b.recvTypeArgs(n, body.Results[0]), nil, body.Package) {
 		irNo("std call with a converted result")
 	}
 	hidden := b.hidden(body, x, c, p)
 	pre, vals := b.operands(append([]syntax.Expr{c.Recv}, x.Args...))
-	pre = append(pre, b.adaptOperands(body.Params, x, vals, 1, p)...) // ir_adapt.go
+	pre = append(pre, b.adaptOperands(body.Params, x, x.Args, vals, 1, p)...) // ir_adapt.go
 	e := &irExpr{K: "mcall", Pos: p, Name: memberName(c.Op.Name), X: vals[0], Args: append(hidden, vals[1:]...)}
 	if goFallible(body) && !failsHere(c) {
 		e = b.dropErr(e) // ir_call.go: the row is empty here
