@@ -38,7 +38,8 @@ import (
 // oracle-o1-native-parse-range, oracle-o1-native-times-wraps,
 // oracle-o1-native-intn-modulo, oracle-o1-native-splitn-count,
 // oracle-o1-native-split-empty-sep, evbuilder-appendfrom-whole-run,
-// evbuilder-appendfrom-end-start, evbuilder-appendbytes-drops-last.
+// evbuilder-appendfrom-end-start, evbuilder-appendbytes-drops-last, and
+// ST4's st4-* rows but st4-native-missing (nativespure.go).
 // The tests read natives directly; a run loads them on first lookup.
 func init() { loadNatives() }
 
@@ -390,6 +391,7 @@ func pureCases(g nativeGen, s, u string, d, m int64, f float64, ints, ints2 []in
 	base := int64(g.r.IntN(40) - 1)
 	fmtc := []byte("efgxbEG?")[g.r.IntN(8)]
 	html := g.r.IntN(2) == 0
+	hs := s + []string{"", "<a>", "&", "\u2028"}[g.r.IntN(4)] // the bytes html escapes
 	dirs := []string{"/a/b", "a/b", "/", "", "../x", "/a/../c", "a"}
 	rb, rt := dirs[g.r.IntN(len(dirs))], dirs[g.r.IntN(len(dirs))]+"/"+s
 	gs := func(xs []int64) []string {
@@ -455,7 +457,7 @@ func pureCases(g nativeGen, s, u string, d, m int64, f float64, ints, ints2 []in
 		{name: "strconv.AppendInt", args: []Value{bytesValue(s), d, base}, anyDefect: true, v1: func() any { return v1.StrconvAppendInt([]byte(s), d, int(base)) }},
 		{name: "strconv.AppendUint", args: []Value{bytesValue(s), ua, base}, anyDefect: true, v1: func() any { return v1.StrconvAppendUint([]byte(s), ua, int(base)) }},
 		{name: "strconv.AppendFloat", args: []Value{bytesValue(s), f, fmtc, x}, v1: func() any { return v1.StrconvAppendFloat([]byte(s), f, fmtc, int(x)) }},
-		{name: "json.appendQuotedBytes", args: []Value{bytesValue(u), bytesValue(s), html}, v1: func() any { return v1.JSONAppendQuotedBytes([]byte(u), []byte(s), html) }},
+		{name: "json.appendQuotedBytes", args: []Value{bytesValue(u), bytesValue(hs), html}, v1: func() any { return v1.JSONAppendQuotedBytes([]byte(u), []byte(hs), html) }},
 		{name: "time.appendUTC", args: []Value{bytesValue(u), sec, nsec, lay}, v1: func() any { return v1.TimeAppendUTC([]byte(u), sec, nsec, lay) }},
 		{name: "time.truncate", args: []Value{sec, nsec, m}, v1: func() any { return v1.TimeTruncate(sec, nsec, durationOf(m)) }},
 		{name: "time.round", args: []Value{sec, nsec, m}, v1: func() any { return v1.TimeRound(sec, nsec, durationOf(m)) }},

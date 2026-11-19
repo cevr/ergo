@@ -20,6 +20,7 @@ import (
 // package of v1.PureImports that a std package reaches through import go,
 // less the members v1.PureImportsExcept names. A call of one with no
 // native stops the evaluation as "a Go function (name), even a pure one".
+// Mutant only it kills (testdata/mutants.json): st4-native-missing.
 func TestEveryPureStdExternHasANative(t *testing.T) {
 	missing := map[string]bool{}
 	for _, path := range stdPaths(t) {
