@@ -1,0 +1,65 @@
+{
+  "about": "The stack machine's mutants: the verifier (vm.Verify) and the loop that runs only verified programs (vm.Exec). Killers are the examples suite (examples:stackvm: its tests and laws, ExecAgreesWithChecked above all, and its cases); each rule names the law or test that kills it.",
+  "mutants": [
+    {
+      "name": "svm-verify-need-dropped",
+      "origin": "wf10 SVM-VERIFY",
+      "file": "examples/stackvm/vm/verify.ergo",
+      "from": "\t\tif d < need || after > 63 {",
+      "to": "\t\tif after > 63 {",
+      "rule": "ExecAgreesWithChecked: Verify admits a program that pops below the bottom (a Bent near miss), and Exec reads a value Checked traps on as Underflow.",
+      "anchor": {"tests": ["examples:stackvm"]},
+      "killers": ["examples:stackvm"]
+    },
+    {
+      "name": "svm-verify-depth-off-by-one",
+      "origin": "wf10 SVM-VERIFY",
+      "file": "examples/stackvm/vm/verify.ergo",
+      "from": "\t\tif d < need || after > 63 {",
+      "to": "\t\tif d < need || after > 64 {",
+      "rule": "ExecAgreesWithChecked: Tower(64) is admitted, its 64th push lands on stack[0] under the mask, and its sum differs from Checked's.",
+      "anchor": {"tests": ["examples:stackvm"]},
+      "killers": ["examples:stackvm"]
+    },
+    {
+      "name": "svm-verify-merge-depth-ignored",
+      "origin": "wf10 SVM-VERIFY",
+      "file": "examples/stackvm/vm/verify.ergo",
+      "from": "\tw.at[pc] == d\n}",
+      "to": "\ttrue\n}",
+      "rule": "ExecAgreesWithChecked: a jump that reaches an instruction with another depth (a Bent or a random Program) is admitted, and the second path underflows where Checked traps.",
+      "anchor": {"tests": ["examples:stackvm"]},
+      "killers": ["examples:stackvm"]
+    },
+    {
+      "name": "svm-verify-call-admitted",
+      "origin": "wf10 SVM-VERIFY",
+      "file": "examples/stackvm/vm/verify.ergo",
+      "from": "\t\tcase Call, Ret:\n\t\t\treturn None\n",
+      "to": "\t\tcase Call, Ret:\n\t\t\t0\n",
+      "rule": "CallAndReturn and ExecAgreesWithChecked: a program with a call is admitted and Exec reaches its Unreachable arm, a defect.",
+      "anchor": {"tests": ["examples:stackvm"]},
+      "killers": ["examples:stackvm"]
+    },
+    {
+      "name": "svm-exec-mask-narrow",
+      "origin": "wf10 SVM-VERIFY",
+      "file": "examples/stackvm/vm/verify.ergo",
+      "from": "\t\t\tstack[sp&63] = p.N",
+      "to": "\t\t\tstack[sp&31] = p.N",
+      "rule": "ExecAgreesWithChecked: Tower(60) pushes past 32 values, the push wraps onto the bottom, and the printed sum differs from Checked's.",
+      "anchor": {"tests": ["examples:stackvm"]},
+      "killers": ["examples:stackvm"]
+    },
+    {
+      "name": "svm-exec-resume-drops-printed",
+      "origin": "wf10 SVM-VERIFY",
+      "file": "examples/stackvm/vm/verify.ergo",
+      "from": "\t\t\tpc = j.To\n\t\t\tif pc <= at && fuel-steps <= end {\n\t\t\t\treturn try resume(code, fuel, paused{stack: held(stack, sp), printed: printed,",
+      "to": "\t\t\tpc = j.To\n\t\t\tif pc <= at && fuel-steps <= end {\n\t\t\t\treturn try resume(code, fuel, paused{stack: held(stack, sp), printed: []int{},",
+      "rule": "ExecAgreesWithChecked: a Stacked loop that prints and then runs low on fuel at a backward Jump goes on in resume without what it printed.",
+      "anchor": {"tests": ["examples:stackvm"]},
+      "killers": ["examples:stackvm"]
+    }
+  ]
+}
