@@ -330,8 +330,14 @@ func rove[E](f *Frame[E], k KeyPress) bool {
 
 // hovered makes id the node the pointer is over (the root: none), and
 // queues the Leave of the node it leaves and the Enter of the node it
-// comes to, each its Area's signal (crossed), when it changed.
+// comes to, each its Area's signal (crossed), when it changed. A finger
+// does not hover (MB4): its events leave the hover where it was.
 func hovered[E](f *Frame[E], id Id[E], p PointerEvent) {
+	match p.Pointer.Kind {
+	case Finger:
+		return
+	case Mouse, Pen:
+	}
 	let to = if id.ref == f.root || !arena.Has(f.nodes, id.ref) { arena.Null[node[E]]() } else { id.ref }
 	if to == f.hover {
 		return
@@ -339,10 +345,10 @@ func hovered[E](f *Frame[E], id Id[E], p PointerEvent) {
 	let from = f.hover
 	f.hover = to
 	if arena.Has(f.nodes, from) {
-		cross(f, Id[E]{ref: from}, PointerEvent{Phase: PointerLeave, X: 0, Y: 0, Zone: None})
+		cross(f, Id[E]{ref: from}, PointerEvent{Pointer: p.Pointer, Phase: PointerLeave, X: 0, Y: 0, Zone: None})
 	}
 	if to != arena.Null[node[E]]() {
-		cross(f, id, PointerEvent{Phase: PointerEnter, X: p.X, Y: p.Y, Zone: None})
+		cross(f, id, PointerEvent{Pointer: p.Pointer, Phase: PointerEnter, X: p.X, Y: p.Y, Zone: None})
 	}
 }
 

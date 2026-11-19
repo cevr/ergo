@@ -120,6 +120,8 @@ func styleOf[E](n ui.Node[E], line float32) layout.Style {
 		boxStyle(x.Style, layout.Column)
 	case ui.AreaNode as x:
 		boxStyle(x.Style, layout.Column)
+	case ui.LayerNode[E] as x:
+		boxStyle(x.Style, layout.Column)
 	case ui.FieldsetNode:
 		// A Fieldset shows nothing of its own: it stacks its children.
 		plainStyle()
@@ -254,7 +256,7 @@ func paint[S, E, D, F](d *Driver[S, E, D, F]) needs go.Foreign {
 		d.top = top
 		d.lids = ids
 	} else {
-		layOutKept(d)
+		layOutKept(d, line)
 		if d.check {
 			checkKept(d, line)
 		}
@@ -310,9 +312,8 @@ func drawAll[S, E, D, F](d *Driver[S, E, D, F], line float32, soiled Map[ui.Id[E
 	d.under = Some{Value: paper}
 	d.shadowed = false
 	let full = layout.Box{X: 0, Y: 0, W: d.width, H: d.height}
-	for k in kidsOf(d, d.root) {
-		draw(d, k, 0, full, line, soiled, again)
-	}
+	drawKids(d, d.root, 0, full, line, soiled, again)
+	paintLayers(d, line, soiled, again)
 }
 
 // spread is the nodes whose draw changed since the last paint and all
@@ -382,18 +383,44 @@ func keyOf[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) int {
 	}
 }
 
-// rebuilt is the reference layout: a tree built anew from the window's
-// nodes, laid out at the window's size, each list that laid out no taller
-// than 0 given the window's room below its top and the tree laid out
-// again; with its window's box and each node's box.
-func rebuilt[S, E, D, F](d *Driver[S, E, D, F], line float32) (layout.Tree, layout.Id, Map[ui.Id[E], layout.Id]) {
-	let mut t = layout.New()
+// rootStyle is the window's box: the window's size, the root laid out
+// inside the insets (MB4).
+func rootStyle[S, E, D, F](d *Driver[S, E, D, F]) layout.Style {
 	let mut rs = plainStyle()
 	rs.Width = layout.Px{Value: d.width}
 	rs.Height = layout.Px{Value: d.height}
-	let top = layout.Add(&t, rs)
+	rs.Padding = [4]float32{float32(float64(d.insets.Top)), float32(float64(d.insets.Right)), float32(float64(d.insets.Bottom)), float32(float64(d.insets.Left))}
+	rs
+}
+
+// placeAll moves each layer, laid out at its own size, to its place and
+// lays the tree out again (UG4); a layer anchored in a layer that moved
+// goes again, so this ends after at most one round per layer. It is the
+// layout work it took.
+func placeAll[S, E, D, F](d *Driver[S, E, D, F], t *layout.Tree, top layout.Id, ids Map[ui.Id[E], layout.Id]) int needs layout.Measure {
+	let mut work = 0
+	for _ in 0..len(stacked(d))+1 {
+		if !placeLayers(d, t, ids) {
+			break
+		}
+		layout.Layout(t, top, d.width, d.height) catch {
+		case arena.Stale:
+		}
+		work = work + layout.Work(*t)
+	}
+	work
+}
+
+// rebuilt is the reference layout: a tree built anew from the window's
+// nodes, laid out at the window's size, each list that laid out no taller
+// than 0 given the window's room below its top and the tree laid out
+// again, then each layer placed; with its window's box and each node's
+// box.
+func rebuilt[S, E, D, F](d *Driver[S, E, D, F], line float32) (layout.Tree, layout.Id, Map[ui.Id[E], layout.Id]) {
+	let mut t = layout.New()
+	let top = layout.Add(&t, rootStyle(d))
 	let mut ids = Map[ui.Id[E], layout.Id]{}
-	build(d, &t, d.root, top, &ids, line)
+	build(d, &t, d.root, top, top, &ids, line)
 	with context { layout.Measure: d.metrics } {
 		layout.Layout(&t, top, d.width, d.height) catch {
 		case arena.Stale:
@@ -413,6 +440,7 @@ func rebuilt[S, E, D, F](d *Driver[S, E, D, F], line float32) (layout.Tree, layo
 			case arena.Stale:
 			}
 		}
+		let _ = placeAll(d, &t, top, ids)
 	}
 	(t, top, ids)
 }
@@ -457,18 +485,19 @@ func checkKept[S, E, D, F](d *Driver[S, E, D, F], line float32) {
 }
 
 // build adds id's children under into, in order, and their subtrees, in
-// the styles styleIn gives them, and names each one's box in ids.
-func build[S, E, D, F](d *Driver[S, E, D, F], t *layout.Tree, id ui.Id[E], into layout.Id, ids *Map[ui.Id[E], layout.Id], line float32) {
+// the styles styleIn gives them, and names each one's box in ids. A layer
+// goes under the window's box (top) instead, out of the flow (UG4).
+func build[S, E, D, F](d *Driver[S, E, D, F], t *layout.Tree, id ui.Id[E], into layout.Id, top layout.Id, ids *Map[ui.Id[E], layout.Id], line float32) {
 	let list = listOf(d, id)
 	for i, k in kidsOf(d, id) {
 		match d.nodes.Get(k) {
 		case Some[held[E]] as h:
 			let n = layout.Add(t, styleIn(list, i, h.Value.node, line))
-			layout.Append(t, into, n) catch {
+			layout.Append(t, if isLayer(h.Value.node) { top } else { into }, n) catch {
 			case arena.Stale:
 			}
 			(*ids)[k] = n
-			build[S, E, D, F](d, t, k, n, ids, line)
+			build[S, E, D, F](d, t, k, n, top, ids, line)
 		case None:
 		}
 	}
@@ -549,7 +578,7 @@ func drawNode[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], laid layout.Box, b
 	let s = spot[E]{id: id, node: n, box: b, clip: clip}
 	let look = paintLook(d, id, n, b, clip, line, focus)
 	match n {
-	case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode, ui.TransitionNode:
+	case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode, ui.TransitionNode, ui.LayerNode:
 		drawKids(d, id, dy, clip, line, soiled, again)
 	case ui.SemanticNode[E]:
 		// A Semantic a press sends from (a radio, an option, a link) takes
@@ -671,10 +700,15 @@ func drawNode[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], laid layout.Box, b
 	unpaint(d, look)
 }
 
-// drawKids paints id's children in order.
+// drawKids paints id's children in order, but its layers, which
+// paintLayers paints over the flow (UG4).
 func drawKids[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], dy float32, clip layout.Box, line float32, soiled Map[ui.Id[E], bool], again bool) needs go.Foreign {
 	for k in kidsOf(d, id) {
-		draw(d, k, dy, clip, line, soiled, again)
+		match layerNode(d, k) {
+		case Some[ui.LayerNode[E]]:
+		case None:
+			draw(d, k, dy, clip, line, soiled, again)
+		}
 	}
 }
 

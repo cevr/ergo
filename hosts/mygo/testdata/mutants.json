@@ -136,8 +136,8 @@
       "name": "GPk-removed-box-stays",
       "origin": "GPk",
       "file": "hosts/mygo/desktop/desktop.ergo",
-      "from": "\tif !d.rebuild {\n\t\tmatch d.lids.Get(id) {",
-      "to": "\tif false {\n\t\tmatch d.lids.Get(id) {",
+      "from": "\tif !d.rebuild {\n\t\t// A layer's box hangs",
+      "to": "\tif false {\n\t\t// A layer's box hangs",
       "rule": "a removed node's box leaves the kept tree",
       "killers": ["hosts/mygo:TestMyGoHostAgreesWithTestHost", "hosts/mygo:TestStarsGuiOnTheDesktop"]
     },
@@ -244,8 +244,8 @@
       "name": "GP4c-no-frames-asked",
       "origin": "GP4c",
       "file": "hosts/mygo/desktop/desktop.ergo",
-      "from": "d.w.Frames(animates)",
-      "to": "d.w.Frames(false)",
+      "from": "d.w.Frames(animates || fingerMoving(d))",
+      "to": "d.w.Frames(false || fingerMoving(d))",
       "rule": "a view that animates asks the window for its display's frames, and each frame is a tick of the session",
       "killers": ["hosts/mygo:TestDashGuiOnTheDesktop"]
     },
@@ -307,8 +307,8 @@
       "name": "GPm-present-headless",
       "origin": "GPm (headless frame buffer)",
       "file": "hosts/mygo/screen/screen.go",
-      "from": "\tif w.fake == nil {\n\t\tw.conn.Surface.PresentPixels(",
-      "to": "\tif true {\n\t\tw.conn.Surface.PresentPixels(",
+      "from": "\t\tif w.fake == nil {\n\t\t\tw.conn.Surface.PresentPixels(",
+      "to": "\t\tif true {\n\t\t\tw.conn.Surface.PresentPixels(",
       "rule": "a Headless window's frame stays in the renderer's image, which Pixel reads; it is not copied into a new buffer of the fake surface each frame",
       "killers": ["hosts/mygo/screen:TestHeadlessFrameKeepsOneBuffer"]
     },
@@ -516,6 +516,14 @@
     {"name":"UG2-rolename-slider-group","origin":"wf10 UG2","file":"internal/sketch/std/ui/locate.ergo","from":"\tcase Slider:\n\t\t\"slider\"\n","to":"\tcase Slider:\n\t\t\"group\"\n","rule":"ui.RoleName is a role's WAI-ARIA name, which the window's tree reads","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
     {"name":"UG3-desktop-paints-rest","origin":"wf10 UG3","file":"hosts/mygo/desktop/look.ergo","from":"ui.LookNow(ui.LooksIn(ui.MirrorLooks(&d.mirror), ui.LookIdOf(n)), ui.SessionLookState(&d.session, id))","to":"ui.LooksIn(ui.MirrorLooks(&d.mirror), ui.LookIdOf(n)).Rest","rule":"the window paints each node's look of the state std decides (at base it painted Rest)","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
     {"name":"UG3-desktop-pointer-stays","origin":"wf10 UG3","file":"hosts/mygo/desktop/desktop.ergo","from":"\tif ui.SessionHovered(&d.session) != None {\n\t\ttry step(","to":"\tif false {\n\t\ttry step(","rule":"a move over no node tells the frame the pointer is over none, so the node it left shows its rest look","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
-    {"name":"UG3-desktop-areas-only","origin":"wf10 UG3","file":"hosts/mygo/desktop/desktop.ergo","from":"func pointed[E comparable, S, D, F](d *Driver[S, E, D, F], s spot[E], phase ui.Phase, x float32, y float32) fails actor.Stopped | ui.BadPatch needs go.Foreign {\n\ttry step(","to":"func pointed[E comparable, S, D, F](d *Driver[S, E, D, F], s spot[E], phase ui.Phase, x float32, y float32) fails actor.Stopped | ui.BadPatch needs go.Foreign {\n\tmatch s.node {\n\tcase ui.AreaNode:\n\tcase _:\n\t\treturn\n\t}\n\ttry step(","rule":"the window sends the pointer's moves over every node, not only Areas, so hover follows it (at base only Areas got them)","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]}
+    {"name":"UG3-desktop-areas-only","origin":"wf10 UG3","file":"hosts/mygo/desktop/desktop.ergo","from":"func pointed[E comparable, S, D, F](d *Driver[S, E, D, F], s spot[E], phase ui.Phase, x float32, y float32) fails actor.Stopped | ui.BadPatch needs go.Foreign {\n\ttry step(","to":"func pointed[E comparable, S, D, F](d *Driver[S, E, D, F], s spot[E], phase ui.Phase, x float32, y float32) fails actor.Stopped | ui.BadPatch needs go.Foreign {\n\tmatch s.node {\n\tcase ui.AreaNode:\n\tcase _:\n\t\treturn\n\t}\n\ttry step(","rule":"the window sends the pointer's moves over every node, not only Areas, so hover follows it (at base only Areas got them)","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
+    {"name":"UG4-desktop-anchor-ignored","origin":"wf10 UG4","file":"hosts/mygo/desktop/layer.ergo","from":"\t\t\tlet p = ui.PlaceLayer(anchor, ","to":"\t\t\tlet p = ui.PlaceLayer(None, ","rule":"the window places a layer against its anchor's box (at base there were no layers)","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
+    {"name":"UG4-desktop-layers-in-flow","origin":"wf10 UG4","file":"hosts/mygo/desktop/paint.ergo","from":"\t\tmatch layerNode(d, k) {\n\t\tcase Some[ui.LayerNode[E]]:\n\t\tcase None:\n\t\t\tdraw(d, k, dy, clip, line, soiled, again)\n\t\t}","to":"\t\tdraw(d, k, dy, clip, line, soiled, again)","rule":"the window paints layers after the flow, so a layer's node is hit before the flow's under it","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
+    {"name":"UG4-desktop-scrim-not-a-spot","origin":"wf10 UG4","file":"hosts/mygo/desktop/layer.ergo","from":"\t\t\t\td.spots = d.spots.Append(spot[E]{id: d.root, node: x.Value, box: full, clip: full})\n","to":"","rule":"a press on a scrim is a press outside every layer, not on the node under it","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
+    {"name":"UG4b-anchor-unscrolled","origin":"wf10 UG4b","file":"hosts/mygo/desktop/layer.ergo","from":"laid.Y - liftOf(d, d.root, a.Value)","to":"laid.Y","rule":"the window places a layer against its anchor where it shows, lifted by the Scrolls and lists it is in (at UG4's head it took the unscrolled box)","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
+    {"name":"MB4-desktop-finger-no-reach","origin":"wf10 MB4","file":"hosts/mygo/desktop/touch.ergo","from":"\t\tlet target = reachAt(d, x, y)\n","to":"\t\tlet target = hitAt(d, x, y)\n","rule":"a finger hits the nearest control within the reach margin (hostagree's finger near pin)","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
+    {"name":"MB4-desktop-insets-ignored","origin":"wf10 MB4","file":"hosts/mygo/desktop/paint.ergo","from":"\trs.Padding = [4]float32{float32(float64(d.insets.Top)), float32(float64(d.insets.Right)), float32(float64(d.insets.Bottom)), float32(float64(d.insets.Left))}\n","to":"","rule":"the root lays out inside the insets, not under the system's bars (hostagree's insets step and root check)","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
+    {"name":"MB4-desktop-finger-offset-dropped","origin":"wf10 MB4","file":"hosts/mygo/desktop/touch.ergo","from":"\t\t\td.scrolled[id.Value] = v\n","to":"","rule":"the window shows the offset std ui's touch machine gives (hostagree's finger scroll)","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
+    {"name":"MB4-desktop-finger-as-mouse","origin":"wf10 MB4","file":"hosts/mygo/desktop/desktop.ergo","from":"\t} else if input.Finger && (input.Kind == screen.Down","to":"\t} else if false && (input.Kind == screen.Down","rule":"a finger's drag scrolls through the touch machine; as a mouse's it would not (hostagree's finger scroll)","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]}
   ]
 }

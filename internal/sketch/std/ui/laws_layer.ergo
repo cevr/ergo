@@ -1,0 +1,307 @@
+// UG4's laws: a layer's placement against its anchor in the view, and its
+// stack and dismissal against a reference model.
+
+import actor
+import time
+
+// dip is n DIPs. (a law's helper)
+func dip(n int) Length { Length(float64(n)) }
+
+// whole is l's whole DIPs. (a law's helper)
+func whole(l Length) int { int(float64(l)) }
+
+// sideOf is side k of four. (a law's helper)
+func sideOf(k int) Side {
+	if k == 0 { SideTop } else if k == 1 { SideBottom } else if k == 2 { SideLeft } else { SideRight }
+}
+
+// alignOf is alignment k of four. (a law's helper)
+func alignOf(k int) Align {
+	if k == 0 { AlignStart } else if k == 1 { AlignCenter } else if k == 2 { AlignEnd } else { AlignStretch }
+}
+
+// LayerStaysInViewAndTouches (UG4): over drawn views, anchors in them,
+// layer sizes no larger than the view, sides, alignments and gaps,
+// PlaceLayer's box has the layer's size and lies in the view; when its
+// side has room it touches the anchor's edge on that side, a gap away,
+// and else, when the other side has room, the anchor's other edge; along
+// the side it is at its alignment's place when that place is in the
+// view. With no anchor it is centred in the view.
+law LayerStaysInViewAndTouches(seed int) {
+	let mut r = seeded(seed)
+	let view = Rect{X: dip(draw(&r, 50)), Y: dip(draw(&r, 50)), W: dip(draw(&r, 500) + 100), H: dip(draw(&r, 500) + 100)}
+	let aw = dip(draw(&r, whole(view.W)) + 1)
+	let ah = dip(draw(&r, whole(view.H)) + 1)
+	let a = Rect{X: view.X + dip(draw(&r, whole(view.W-aw)+1)), Y: view.Y + dip(draw(&r, whole(view.H-ah)+1)), W: aw, H: ah}
+	let w = dip(draw(&r, whole(view.W)) + 1)
+	let h = dip(draw(&r, whole(view.H)) + 1)
+	let side = draw(&r, 4)
+	let align = draw(&r, 4)
+	let p = Place{Side: sideOf(side), Align: alignOf(align), Gap: dip(draw(&r, 9))}
+	let b = PlaceLayer(Some{Value: a}, w, h, view, p)
+	if b.W != w || b.H != h || b.X < view.X || b.Y < view.Y || b.X+b.W > view.X+view.W || b.Y+b.H > view.Y+view.H {
+		return false
+	}
+	let vertical = side < 2
+	// The main axis.
+	let (lo, hi, at, span, size, got) = if vertical { (view.Y, view.Y + view.H, a.Y, a.H, h, b.Y) } else { (view.X, view.X + view.W, a.X, a.W, w, b.X) }
+	let before = side == 0 || side == 2
+	let beforeAt = at - p.Gap - size
+	let afterAt = at + span + p.Gap
+	let roomBefore = beforeAt >= lo
+	let roomAfter = afterAt+size <= hi
+	let (mine, other, mineAt, otherAt) = if before { (roomBefore, roomAfter, beforeAt, afterAt) } else { (roomAfter, roomBefore, afterAt, beforeAt) }
+	if mine && got != mineAt {
+		return false
+	}
+	if !mine && other && got != otherAt {
+		return false
+	}
+	// The cross axis.
+	let (clo, chi, cat, cspan, csize, cgot) = if vertical { (view.X, view.X + view.W, a.X, a.W, w, b.X) } else { (view.Y, view.Y + view.H, a.Y, a.H, h, b.Y) }
+	let want = if align == 1 { cat + (cspan-csize)/2 } else if align == 2 { cat + cspan - csize } else { cat }
+	if want >= clo && want+csize <= chi && cgot != want {
+		return false
+	}
+	let c = PlaceLayer(None, w, h, view, p)
+	c.X == view.X+(view.W-w)/2 && c.Y == view.Y+(view.H-h)/2 && c.W == w && c.H == h
+}
+
+// layerApp is the layer law's state: the open layers (bit i for layer i)
+// and the signals seen. (a law's helper)
+type layerApp { open int, log string }
+
+// layerStep closes layer i on its dismiss signal 10+i, and logs every
+// signal. (a law's helper)
+func layerStep(s layerApp, e int) Decision[layerApp, int] {
+	let mut open = s.open
+	if e >= 10 && e < 20 {
+		open = open - (open & (1 << (e - 10)))
+	}
+	Enter[layerApp]{Next: layerApp{open: open, log: s.log + "\(e),"}}
+}
+
+func layerTimer(s layerApp) Option[Timeout[int]] {
+	None
+}
+
+func layerWork(s layerApp) Option[func(send func(e int))] {
+	None
+}
+
+// layerKind is kind k of four. (a law's helper)
+func layerKind(k int) Z {
+	if k == 0 { PopoverZ } else if k == 1 { ModalZ } else if k == 2 { ToastZ } else { TooltipZ }
+}
+
+// layerBody writes layer i while it is open: a Pressable "l<i>" sending
+// 200+i, then, under it, layer i+1 when that one's parent is i. (a law's
+// helper)
+func layerBody(f *Frame[int], s layerApp, i int, kinds []int, scrims []bool, dismiss []bool, parents []int) {
+	if s.open&(1<<i) == 0 {
+		return
+	}
+	let d = if dismiss[i] { Some{Value: 10 + i} } else { None }
+	Layer(f, Layered[int]{Z: layerKind(kinds[i]), Anchor: Some{Value: ByInt(0)}, Place: Place{Side: SideBottom, Align: AlignStart, Gap: 0}, Scrim: scrims[i], Dismiss: d}, Plain()) {
+		Pressable(f, "l\(i)", 200+i) {
+			Text(f, "x")
+		}
+		if i+1 < len(kinds) && parents[i+1] == i {
+			layerBody(f, s, i+1, kinds, scrims, dismiss, parents)
+		}
+	}
+}
+
+// layerScreen is three Pressables "f0" to "f2" sending 100 to 102, in a
+// zone keyed 0, an OnKey sending 900 on Escape, and the open layers, each
+// top one keyed by its index, so a layer that closes leaves the next one's
+// nodes their identity. (a law's helper)
+func layerScreen(f *Frame[int], s layerApp, kinds []int, scrims []bool, dismiss []bool, parents []int) {
+	OnKey(f, func(k KeyPress) Option[int] {
+		if k.Name == "Escape" { Some{Value: 900} } else { None }
+	})
+	Zone(f, ByInt(0), Plain()) {
+		for j in 0..3 {
+			Pressable(f, "f\(j)", 100+j) {
+				Text(f, "x")
+			}
+		}
+	}
+	let mut tops = []int{}
+	for i in 0..len(kinds) {
+		if parents[i] < 0 {
+			tops = tops.Append(i)
+		}
+	}
+	Each(f, tops, func(i int) Key { ByInt(i) }) func(i int) {
+		layerBody(f, s, i, kinds, scrims, dismiss, parents)
+	}
+}
+
+// layerShown is whether layer i is in the tree: it and every layer it is
+// under are open. (a law's helper)
+func layerShown(open int, parents []int, i int) bool {
+	let mut k = i
+	for k >= 0 {
+		if open&(1<<k) == 0 {
+			return false
+		}
+		k = parents[k]
+	}
+	true
+}
+
+// layerTop is the top shown layer (by kind, then the later) that pick
+// holds of, -1 for none. (a law's helper)
+func layerTop(open int, kinds []int, parents []int, pick []bool) int {
+	let mut top = -1
+	for i in 0..len(kinds) {
+		if layerShown(open, parents, i) && pick[i] && (top < 0 || kinds[i] >= kinds[top]) {
+			top = i
+		}
+	}
+	top
+}
+
+// layerUnder is whether layer i is layer l or under it. (a law's helper)
+func layerUnder(parents []int, l int, i int) bool {
+	let mut k = i
+	for k >= 0 {
+		if k == l {
+			return true
+		}
+		k = parents[k]
+	}
+	false
+}
+
+// LayersDismissFromTheTop (UG4): over drawn layers of drawn kinds, some
+// nested in the one before, some with a scrim, some dismissable, and
+// drawn Escapes and clicks on the flow's and the layers' Pressables, the
+// program sees the reference model's signals: Escape is the top
+// dismissable layer's dismiss signal, and the page's key function's only
+// when no layer is dismissable; a click outside the top dismissable layer
+// sends its dismiss signal first; a click on a node a scrim covers (outside
+// the top scrim layer) sends nothing else, and any other click its press;
+// a key's press of a node sends its press unless a scrim covers it.
+// The layers stack by kind, then in tree order.
+law LayersDismissFromTheTop(seed int, steps int) {
+	let mut r = seeded(seed)
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let n = draw(&r, 4) + 1
+		let mut kinds = []int{}
+		let mut scrims = []bool{}
+		let mut dismiss = []bool{}
+		let mut parents = []int{}
+		for i in 0..n {
+			kinds = kinds.Append(draw(&r, 4))
+			scrims = scrims.Append(draw(&r, 3) == 0)
+			dismiss = dismiss.Append(draw(&r, 4) != 0)
+			parents = parents.Append(if i > 0 && draw(&r, 2) == 0 { i - 1 } else { -1 })
+		}
+		let ks = kinds
+		let ss = scrims
+		let ds = dismiss
+		let ps = parents
+		let view = func(f *Frame[int], s layerApp) { layerScreen(f, s, ks, ss, ds, ps) }
+		let all = (1 << n) - 1
+		let a = actor.StartMachine(Machine[layerApp, int, int]{Initial: layerApp{open: all, log: ""}, Step: layerStep, After: layerTimer, Work: layerWork, Exit: func(s layerApp) Option[func()] { None }}, 1, func(o int) {})
+		let mut h = NewTestHost(a, view, m, 4) catch {
+		case BadPatch:
+			return false
+		}
+		let mut open = all
+		let mut log = ""
+		for _ in 0..(steps%16+16)%16+4 {
+			let topD = layerTop(open, kinds, parents, dismiss)
+			let topS = layerTop(open, kinds, parents, scrims)
+			let act = draw(&r, 4)
+			if act == 0 {
+				Play(&h, []Act{KeyIn{Press: KeyPress{Name: "Escape", Mods: Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}}}) catch {
+				case _:
+					return false
+				}
+				if topD >= 0 {
+					log = log + "\(10 + topD),"
+					open = open - (open & (1 << topD))
+				} else {
+					log = log + "900,"
+				}
+			} else {
+				// A click on a flow Pressable (-1) or a shown layer's.
+				let mut shown = []int{-1}
+				for i in 0..n {
+					if layerShown(open, parents, i) {
+						shown = shown.Append(i)
+					}
+				}
+				let at = shown[draw(&r, len(shown))]
+				let j = draw(&r, 3)
+				let label = if at < 0 { "f\(j)" } else { "l\(at)" }
+				let inside = func(l int) bool { at >= 0 && layerUnder(parents, l, at) }
+				if act == 3 {
+					// A key's press: no pointer, so no dismissal; a scrim
+					// stops it outside its layer.
+					let ids = Locate(&h, WithLabel{Label: label})
+					if len(ids) != 1 {
+						return false
+					}
+					Activate(&h, ids[0]) catch {
+					case _:
+						return false
+					}
+					if topS < 0 || inside(topS) {
+						log = log + if at < 0 { "\(100 + j)," } else { "\(200 + at)," }
+					}
+				} else {
+					Play(&h, []Act{TapOn{Label: label}}) catch {
+					case _:
+						return false
+					}
+					if topD >= 0 && (!inside(topD) || (topS >= 0 && !inside(topS))) {
+						log = log + "\(10 + topD),"
+						open = open - (open & (1 << topD))
+					}
+					if topS < 0 || inside(topS) {
+						log = log + if at < 0 { "\(100 + j)," } else { "\(200 + at)," }
+					}
+				}
+			}
+			if StateOf(&h).log != log || StateOf(&h).open != open {
+				return false
+			}
+			// The stack: by kind, then in tree order.
+			let ids = LayersOf(&h)
+			let mut k = 0
+			for z in 0..4 {
+				for i in 0..n {
+					if layerShown(open, parents, i) && kinds[i] == z {
+						if k >= len(ids) {
+							return false
+						}
+						let held = Locate(&h, WithLabel{Label: "l\(i)"})
+						if len(held) != 1 || !isUnderId(&h, ids[k], held[0]) {
+							return false
+						}
+						k = k + 1
+					}
+				}
+			}
+			if k != len(ids) {
+				return false
+			}
+		}
+		true
+	}
+}
+
+// isUnderId is whether x is the node id's child. (a law's helper)
+func isUnderId[S, E, D, F](h *TestHost[S, E, D, F], id Id[E], x Id[E]) bool {
+	for k in KidsAt(h, id) {
+		if k == x {
+			return true
+		}
+	}
+	false
+}

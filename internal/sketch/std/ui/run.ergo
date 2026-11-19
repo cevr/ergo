@@ -238,7 +238,7 @@ func Next(h dragHost) Event[int] fails Closed {
 	case None:
 		return Closed
 	}
-	Point{Id: id, Pointer: PointerEvent{Phase: phaseOf(code), X: 0.0, Y: 0.0, Zone: None}, Over: None}
+	Point{Id: id, Pointer: PointerEvent{Pointer: MousePointer, Phase: phaseOf(code), X: 0.0, Y: 0.0, Zone: None}, Over: None}
 }
 
 // phaseOf is the pointer phase of a dragHost code.

@@ -667,7 +667,7 @@ func inputFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 				phase = Wheel{DX: 0.0, DY: float64(draw(&r, 9))}
 			case _:
 			}
-			let ev = PointerEvent{Phase: phase, X: x, Y: y, Zone: None}
+			let ev = PointerEvent{Pointer: MousePointer, Phase: phase, X: x, Y: y, Zone: None}
 			act = PointOn{Label: "pad", Pointer: ev}
 			sent = onPad(model, ev)
 		}
@@ -2517,7 +2517,7 @@ func zoneFollows(seed int, n int, m time.Manual) bool needs Scheduler {
 		}
 		let box = Rect{X: Length(float64(draw(&r, 50))), Y: Length(float64(draw(&r, 50))), W: 40, H: 20}
 		// A host sends a Zone of its own, which the composer replaces.
-		let p = PointerEvent{Phase: Moved, X: float64(draw(&r, 100)), Y: float64(draw(&r, 100)), Zone: Some{Value: ZoneHit{Path: []Key{ByInt(-2)}, Box: box, X: 0.0, Y: 0.0}}}
+		let p = PointerEvent{Pointer: MousePointer, Phase: Moved, X: float64(draw(&r, 100)), Y: float64(draw(&r, 100)), Zone: Some{Value: ZoneHit{Path: []Key{ByInt(-2)}, Box: box, X: 0.0, Y: 0.0}}}
 		let c = draw(&r, ncols)
 		let k = draw(&r, cards[c])
 		let hit = Some{Value: ZoneHit{Path: []Key{}, Box: box, X: p.X - float64(box.X), Y: p.Y - float64(box.Y)}}
@@ -2568,7 +2568,8 @@ func zoneFollows(seed int, n int, m time.Manual) bool needs Scheduler {
 
 // CaptureKeepsThePointer (H5g): over drawn pointer events on two Areas, a
 // Text outside them, a key that removes the first Area and a tap on a
-// Pressable (a press and a release, which lets go: FK12-g1), each event
+// Pressable or the Text (a press and a release on what it taps, which lets
+// go: FK12-g1), each event
 // goes where a model of capture says: to the Area that took the last Down
 // with no Up since, while the tree still holds it, else to the node
 // named. Each Area's signal names it and the phase, so the actor's state
@@ -2658,12 +2659,18 @@ func captureFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 				held = 0
 			}
 		} else if other == 1 {
-			// A tap is a press and a release: it lets go of the pointer.
-			Play(&h, []Act{TapOn{Label: "tap"}}) catch {
+			// A tap is a press and a release: it lets go of the pointer, and
+			// its Down and Up go to what it taps, not the Area that held the
+			// pointer. The opening's tap, after a Down on b, is on the Text,
+			// whose press sends nothing.
+			let onText = i == 5 || (i >= 9 && draw(&r, 2) == 0)
+			Play(&h, []Act{TapOn{Label: if onText { "top" } else { "tap" }}}) catch {
 			case _:
 				return false
 			}
-			state = 98
+			if !onText {
+				state = 98
+			}
 			held = 0
 		} else {
 			let phases = []Phase{Down, Moved, Up, Wheel{DX: 0.0, DY: 1.0}, Drag}
@@ -2678,7 +2685,7 @@ func captureFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 			}
 			let label = if at == 10 { "a" } else if at == 20 { "b" } else { "top" }
 			let id = foundId(&h, label)
-			PointAt(&h, id, PointerEvent{Phase: phase, X: 1.0, Y: 1.0, Zone: None}) catch {
+			PointAt(&h, id, PointerEvent{Pointer: MousePointer, Phase: phase, X: 1.0, Y: 1.0, Zone: None}) catch {
 			case _:
 				return false
 			}

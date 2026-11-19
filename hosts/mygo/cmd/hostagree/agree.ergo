@@ -1,6 +1,7 @@
 import actor
 import go ergo.local/prototype/hosts/mygo/screen
 import ergo.local/prototype/hosts/mygo/desktop
+import math
 import strconv
 import strings
 import time
@@ -101,6 +102,22 @@ func compare[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *desktop.Drive
 	case Some[string] as why:
 		return why
 	case None:
+	}
+	match layersPlacedWrong(d) {
+	case Some[string] as why:
+		return why
+	case None:
+	}
+	// The root lies inside the insets (MB4): at their top left corner and
+	// no further than their right and bottom edges.
+	match desktop.RootBox(d) {
+	case (Some[layout.Box] as b, room):
+		let rx = float64(room.X)
+		let ry = float64(room.Y)
+		if float64(b.Value.X) != rx || float64(b.Value.Y) != ry || float64(b.Value.X+b.Value.W) > rx+float64(room.W)+0.01 || float64(b.Value.Y+b.Value.H) > ry+float64(room.H)+0.01 {
+			return Some{Value: "the root is at \(bx(Some{Value: b.Value})), outside the insets' \(rx),\(ry) \(float64(room.W))x\(float64(room.H))"}
+		}
+	case _:
 	}
 	let _ = w.Render()
 	for p in desktop.Probes(d) {
@@ -328,7 +345,7 @@ func run[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *desktop.Driver[S,
 		case _:
 			ui.Wheel{DX: 0, DY: y}
 		}
-		both(h, d, ui.PointOn{Label: f[0], Pointer: ui.PointerEvent{Phase: phase, X: x, Y: y, Zone: None}})
+		both(h, d, ui.PointOn{Label: f[0], Pointer: ui.PointerEvent{Pointer: ui.MousePointer, Phase: phase, X: x, Y: y, Zone: None}})
 	case "scroll":
 		let f = strings.Fields(rest)
 		if len(f) != 2 {
@@ -356,6 +373,62 @@ func run[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *desktop.Driver[S,
 			Missing{Label: f[0]}
 		}
 		(a, b)
+	case "finger":
+		// A finger (MB4): "finger scroll LABEL N" drags the list by N,
+		// within its content; "finger tap LABEL" taps it; "finger near
+		// LABEL" taps 10 DIP past its right edge, within the reach margin.
+		let f = strings.Fields(rest)
+		if len(f) < 2 {
+			return (Broke{Why: "finger scroll|tap|near LABEL"}, Broke{Why: "finger scroll|tap|near LABEL"})
+		}
+		if f[0] == "scroll" && len(f) == 3 {
+			let mut b result = Done
+			match desktop.Viewport(d, f[1]) {
+			case Some[ui.Viewport] as v:
+				let most = maxOffset(desktop.Screen(d), f[1], float64(v.Value.Height))
+				let at = float64(v.Value.Offset)
+				let to = float64(atoi(f[2]))
+				let want = if to < 0 { 0.0 } else if to > most { most } else { to }
+				b = played(func() fails ui.NoNode | ui.Ambiguous | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch needs go.Foreign {
+					try desktop.FingerScroll(d, f[1], float32(want-at))
+				})
+				match (b, desktop.Viewport(d, f[1])) {
+				case (Done, Some[ui.Viewport] as v2):
+					if math.Abs(float64(v2.Value.Offset)-want) > 0.01 {
+						b = Broke{Why: "a finger scrolled to \(float64(v2.Value.Offset)), want \(want)"}
+					}
+				case _:
+				}
+			case None:
+				b = Missing{Label: f[1]}
+			}
+			let a = match ui.Find(h, f[1]) {
+			case Some[ui.Id[E]]:
+				Done
+			case None:
+				Missing{Label: f[1]}
+			}
+			return (a, b)
+		}
+		let beyond = if f[0] == "near" { float32(10) } else { float32(0) }
+		let a = played(func() fails ui.NoNode | ui.Ambiguous | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch needs go.Foreign {
+			try ui.Play(h, []ui.Act{ui.TapOn{Label: f[1]}})
+		})
+		let b = played(func() fails ui.NoNode | ui.Ambiguous | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch needs go.Foreign {
+			try desktop.FingerTap(d, f[1], beyond)
+		})
+		(a, b)
+	case "insets":
+		// The system covers the window's edges (MB4): the window lays the
+		// root out inside them; TestHost has no window.
+		let f = strings.Fields(rest)
+		if len(f) != 4 {
+			return (Broke{Why: "insets T R B L"}, Broke{Why: "insets T R B L"})
+		}
+		let b = played(func() fails ui.NoNode | ui.Ambiguous | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch needs go.Foreign {
+			try desktop.SetInsets(d, ui.Insets{Top: ui.Length(float64(atoi(f[0]))), Right: ui.Length(float64(atoi(f[1]))), Bottom: ui.Length(float64(atoi(f[2]))), Left: ui.Length(float64(atoi(f[3])))})
+		})
+		(Done, b)
 	case "settle":
 		both(h, d, ui.SettleAll)
 	case "away":

@@ -177,8 +177,8 @@ func Tap[E comparable, S, D, F](h *Host[S, E, D, F], c int, r int) fails actor.S
 				let x = float64((float32(c)+0.5)*CellW - s.Value.box.X)
 				let y = float64((float32(r)+0.5)*CellH - s.Value.box.Y)
 				let over = zoneAt(h, s.Value, c, r)
-				try step(h, ui.Point[E]{Id: id.Value, Pointer: ui.PointerEvent{Phase: ui.Down, X: x, Y: y, Zone: None}, Over: over})
-				try step(h, ui.Point[E]{Id: id.Value, Pointer: ui.PointerEvent{Phase: ui.Up, X: x, Y: y, Zone: None}, Over: over})
+				try step(h, ui.Point[E]{Id: id.Value, Pointer: ui.PointerEvent{Pointer: ui.MousePointer, Phase: ui.Down, X: x, Y: y, Zone: None}, Over: over})
+				try step(h, ui.Point[E]{Id: id.Value, Pointer: ui.PointerEvent{Pointer: ui.MousePointer, Phase: ui.Up, X: x, Y: y, Zone: None}, Over: over})
 			case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.TextNode, ui.PressableNode[E], ui.CheckNode[E], ui.InputNode, ui.ToggleNode, ui.CanvasNode, ui.RowsNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode, ui.TransitionNode, ui.SemanticNode[E]:
 				if pressable(s.Value.node) {
 					try step(h, ui.Press[E]{Id: id.Value})

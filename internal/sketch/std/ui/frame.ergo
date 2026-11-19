@@ -1053,6 +1053,8 @@ func kindOf[E](n Node[E]) int {
 		15
 	case SemanticNode[E]:
 		16
+	case LayerNode[E]:
+		17
 	}
 }
 

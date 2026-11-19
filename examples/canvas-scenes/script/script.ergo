@@ -215,7 +215,7 @@ func frames(period float64, k int) []Step fails Bad {
 
 // pointer is a pointer event of phase at (x, y), over no zone.
 func pointer(phase ui.Phase, x float64, y float64) ui.PointerEvent {
-	ui.PointerEvent{Phase: phase, X: x, Y: y, Zone: None}
+	ui.PointerEvent{Pointer: ui.MousePointer, Phase: phase, X: x, Y: y, Zone: None}
 }
 
 // pressAt presses the Area label at (x, y) and lets go there.
