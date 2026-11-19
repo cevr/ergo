@@ -177,7 +177,7 @@ func Transcript(log []agent.Row, detail bool) []string {
 		match r {
 		case agent.Reply as rep:
 			if rep.Text != "" || len(rep.Calls) == 0 {
-				out = out.Concat(marked("< ", rep.Text))
+				out = out.Concat(Lines(agent.Reply{..rep, Calls: []agent.Call{}}))
 			}
 			for c in rep.Calls {
 				match results.Get(c.Id) {
@@ -433,9 +433,11 @@ func Apply(a []string, n int, ws []Write) []string {
 }
 
 // ChangedLinesRedrawTheFrame: the writes from frame a to frame b, applied
-// to a, give b.
+// to a, give b; also from a frame of b's height (a cut or padded to it),
+// where only the changed lines are written.
 law ChangedLinesRedrawTheFrame(a []string, b []string) {
-	slices.Equal(Apply(a, len(b), Changes(a, b)), b)
+	let same = Apply(a, len(b), []Write{})
+	slices.Equal(Apply(a, len(b), Changes(a, b)), b) && slices.Equal(Apply(same, len(b), Changes(same, b)), b)
 }
 
 // PaintChanges is the bytes of ws: each row moved to and written, cleared

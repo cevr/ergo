@@ -161,18 +161,25 @@ test DrawsOnlyStatesThatExisted {
 
 // painted is the screen of rows lines that a shows after the bytes p of
 // one paint (screen.PaintChanges after its leading cursor home): each
-// write moves to a row, writes its text and clears the rest of it.
+// write moves to a row, writes its text and clears the rest of it. Bytes
+// that are no such write give a screen no frame is: one line that names
+// them.
 func painted(a []string, rows int, p string) []string {
 	let mut ws = []screen.Write{}
-	for part in strings.Split(p, "\x1b[K") {
+	let parts = strings.Split(p, "\x1b[K")
+	for i, part in parts {
 		let at = strings.Index(part, ";1H")
-		if strings.HasPrefix(part, "\x1b[") && at > 2 {
-			let row = strconv.Atoi(strings.Slice(part, 2, at)) catch {
-			case _:
-				-1
-			}
-			ws = ws.Append(screen.Write{Row: row - 1, Text: strings.Slice(part, at+3, len(part))})
+		if i == len(parts)-1 && part == "" {
+			break
 		}
+		if !strings.HasPrefix(part, "\x1b[") || at <= 2 {
+			return []string{"not a write: " + strconv.Quote(part)}
+		}
+		let row = strconv.Atoi(strings.Slice(part, 2, at)) catch {
+		case _:
+			return []string{"not a row: " + strconv.Quote(part)}
+		}
+		ws = ws.Append(screen.Write{Row: row - 1, Text: strings.Slice(part, at+3, len(part))})
 	}
 	screen.Apply(a, rows, ws)
 }
