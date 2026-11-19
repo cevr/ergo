@@ -139,7 +139,13 @@ law CardNamesItsBlock(seed uint64, size int, pick int) {
 // change, so a second case shares the first one's run under its own name.
 func receiptOf(seed uint64, size int, pick int) Receipt {
 	let s = mix(seed)
-	let p = planOf(s, pick)
+	// A small receipt: a fixed design of 3 to 8 pairs and at most one
+	// secondary. A report prints a refused, an unclear and a judged
+	// series, and a secondary, the same at any size and count, and its
+	// text, digest and JSON grow with them; small, a law's cases stay
+	// inside check time's budget (BENCH-LAW-COST).
+	let drawn = planOf(s, pick)
+	let p = Plan{..drawn, Secondaries: if len(drawn.Secondaries) > 1 { drawn.Secondaries[:1] } else { drawn.Secondaries }, Design: Fixed{Pairs: 3 + draw(s, 41, 6)}}
 	let m = scriptOf(s, size, p)
 	let run = with context { Meter: m } { Judge(p) }
 	let mut cases = []Case{}

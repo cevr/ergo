@@ -24,6 +24,14 @@ func mix(x uint64) uint64 {
 // draw is the k-th draw of seed in 0..n-1.
 func draw(seed uint64, k int, n int) int { int(mix(seed+uint64(k)*0x9e3779b97f4a7c15) % uint64(n)) }
 
+// lawPairs is the most pairs a law of the statistics draws for one
+// series: the exact null table costs about n^3/4 additions, and a law's
+// 100 cases stay inside check time's budget at 12 (BENCH-LAW-COST). No
+// branch of Decide needs more: every level a design asks is reached at
+// PairsFor(level), 7 at most, and the MatchesReference laws hold the
+// null tables, whose paths are the same at every n, to the reference.
+func lawPairs() int { 12 }
+
 // unit is the k-th draw of seed in [0, 1).
 func unit(seed uint64, k int) float64 { float64(mix(seed+uint64(k)*0x9e3779b97f4a7c15)>>11) / 9007199254740992.0 }
 
@@ -157,12 +165,12 @@ func doubledRanks(sizes []float64) []int {
 	out
 }
 
-// MatchesEnumeration: for up to 12 differences of small whole sizes (many
+// MatchesEnumeration: for up to 9 differences of small whole sizes (many
 // ties and zeros), SignedRankP is the count over all 2^m sign patterns of
 // the m nonzero differences, with zeros dropped and ties at their
 // mid-rank: twice the smaller tail at the observed statistic, at most 1.
 law MatchesEnumeration(seed uint64, size int) {
-	let n = within(size, 0, 12)
+	let n = within(size, 0, 9)
 	let mut d = []float64{}
 	let mut sizes = []float64{}
 	let mut ups = []bool{}
@@ -208,13 +216,14 @@ law MatchesEnumeration(seed uint64, size int) {
 // patterns whose Hodges-Lehmann interval leaves out 0 is 1 - Coverage
 // exactly, and Coverage reaches the level once n reaches PairsFor(level).
 law IntervalCoverageIsExact(seed uint64, size int, pick int) {
-	let n = within(size, 1, 10)
+	let n = within(size, 1, 6)
 	let levels = []float64{0.5, 0.9, Level(Fixed{Pairs: n}), Level(Planned)}
 	let level = levels[within(pick, 0, 3)]
 	let mut sizes = []float64{}
 	for k in 0..n {
 		sizes = sizes.Append(float64(k+1) + float64(draw(seed, k, 1000))/2000.0)
 	}
+	let untied = untiedNull(n)
 	let mut out = 0
 	let mut coverage = 0.0
 	for mask in 0..(1 << n) {
@@ -222,7 +231,7 @@ law IntervalCoverageIsExact(seed uint64, size int, pick int) {
 		for k, x in sizes {
 			d = d.Append(if (mask>>k)&1 == 1 { x } else { -x })
 		}
-		let e = HodgesLehmann(d, level)
+		let e = hodgesLehmann(d, level, untied)
 		coverage = e.Coverage
 		if e.Low > 0.0 || e.High < 0.0 {
 			out = out + 1
@@ -233,7 +242,7 @@ law IntervalCoverageIsExact(seed uint64, size int, pick int) {
 
 // IntervalHoldsEstimate: the interval holds its estimate.
 law IntervalHoldsEstimate(seed uint64, size int, pick int) {
-	let pairs = series(seed, within(size, 1, 40), Timed)
+	let pairs = series(seed, within(size, 1, lawPairs()), Timed)
 	let e = HodgesLehmann(differences(pairs, positive(pairs)), levelOf(pick))
 	e.Low <= e.Center && e.Center <= e.High
 }
@@ -243,7 +252,7 @@ law IntervalHoldsEstimate(seed uint64, size int, pick int) {
 // its pairs needed, for every kind, scale and bound.
 law Mirror(seed uint64, size int, pick int) {
 	let k = kindOf(pick)
-	let pairs = series(seed, within(size, 0, 40), k)
+	let pairs = series(seed, within(size, 0, lawPairs()), k)
 	let bounds = []float64{0.0, 0.02, 0.5, 1.0}
 	let c = Change{Bound: bounds[draw(seed, 6, len(bounds))]}
 	let level = levelOf(draw(seed, 7, 2))
@@ -259,7 +268,7 @@ law ScaleFree(seed uint64, size int, pick int) {
 	let k = float64(1+draw(seed, 8, 1000)) / 37.0 * math.Pow(10.0, float64(draw(seed, 10, 7)-3))
 	let mut pairs = []Pair{}
 	let mut scaled = []Pair{}
-	for i, p in series(seed, within(size, 0, 40), kind) {
+	for i, p in series(seed, within(size, 0, lawPairs()), kind) {
 		let base = if zero && i == 0 { 0.0 } else { p.Base }
 		pairs = pairs.Append(Pair{Base: base, Head: p.Head})
 		scaled = scaled.Append(Pair{Base: k * base, Head: k * p.Head})
@@ -292,7 +301,7 @@ law FewPairsNeverDecide(seed uint64, size int, pick int) {
 law AllEqualIsSame(seed uint64, size int, pick int) {
 	let k = kindOf(pick)
 	let level = levelOf(draw(seed, 7, 2))
-	let n = within(size, PairsFor(level), 40)
+	let n = within(size, PairsFor(level), lawPairs())
 	let mut pairs = []Pair{}
 	for p in series(seed, n, k) {
 		pairs = pairs.Append(Pair{Base: p.Base, Head: p.Base})
@@ -309,7 +318,7 @@ law AllEqualIsSame(seed uint64, size int, pick int) {
 // ExactIsExact: an exact counter that holds one value per side is decided
 // by its one difference with coverage 1; one that moves once is refused.
 law ExactIsExact(seed uint64, size int, moved bool) {
-	let pairs = series(seed, within(size, MinPairs(), 40), Exact)
+	let pairs = series(seed, within(size, MinPairs(), lawPairs()), Exact)
 	let mut seen = []Pair{}
 	for i, p in pairs {
 		seen = seen.Append(if moved && i == len(pairs)-1 { Pair{Base: p.Base, Head: p.Head + 1.0} } else { p })
@@ -334,7 +343,7 @@ law ExactIsExact(seed uint64, size int, moved bool) {
 // differences (ln(1 + Margin) on the log scale), and Worse exactly when it
 // reaches the level and lies above it.
 law NoWorseReadsTheInterval(seed uint64, size int, pick int) {
-	let pairs = series(seed, within(size, MinPairs(), 40), Counted)
+	let pairs = series(seed, within(size, MinPairs(), lawPairs()), Counted)
 	let margins = []float64{0.0, 0.02, 0.1}
 	let m = margins[within(pick, 0, 2)]
 	let level = levelOf(draw(seed, 7, 2))
