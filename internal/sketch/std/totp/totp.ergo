@@ -65,32 +65,34 @@ func StepOf(p Params, t time.Time) int64 {
 // inner and outer hash after the secret's pads (RFC 2104), never the
 // secret. A server that checks many codes of one secret keys it once and
 // verifies with VerifyKey, so a check costs the window's hashes alone.
-// A Key is a value: two tasks may verify with one at once.
-type Key { inner string, outer string }
+// A Key is a value: two tasks may verify with one at once. The states
+// are bytes, so a step resumes them where they lie, with no copy.
+type Key { inner []byte, outer []byte }
 
 // KeyOf is secret made ready for VerifyKey.
 func KeyOf(secret string) Key {
-	let inner, outer = keyState(1, secret)
+	let inner, outer = keyState(secret)
 	Key{inner: inner, outer: outer}
 }
 
-// keyState is hmac.Key's body for SHA-1 (alg 1); hotpNumber resumes its
-// two states for one step and truncates the tag (RFC 4226 5.3) with no
-// allocation.
-extern go ergo.local/prototype/runtime/v1/digest.HmacKeyState func keyState(alg int, key string) (string, string)
-extern go ergo.local/prototype/runtime/v1/digest.HotpNumber func hotpNumber(inner string, outer string, counter int64) int
+// keyState is the two SHA-1 states after the secret's pads, as hmac.Key
+// keeps them for SHA1; hotpNumber resumes them for one step and
+// truncates the tag (RFC 4226 5.3), with no copy and no allocation.
+extern go ergo.local/prototype/runtime/v1/digest.HotpKeyState func keyState(secret string) ([]byte, []byte)
+extern go ergo.local/prototype/runtime/v1/digest.HotpNumber func hotpNumber(inner []byte, outer []byte, counter int64) int
 
 // CodeOf is the code of step under p and secret: the HMAC-SHA-1 of the
 // step as eight big-endian bytes, cut at the offset its last byte's low
 // four bits give, to 31 bits, then to p's digits with leading zeros.
 func CodeOf(p Params, secret string, step int64) string {
-	let text = strconv.Itoa(numberAt(p, KeyOf(secret), step))
+	let text = strconv.Itoa(numberAt(KeyOf(secret), step, modOf(p)))
 	strings.Repeat("0", p.digits - len(text)) + text
 }
 
 // numberAt is the number CodeOf writes for step under k: the step's
-// truncated HMAC to p's digits, so Verify compares numbers, never texts.
-func numberAt(p Params, k Key, step int64) int { hotpNumber(k.inner, k.outer, step) % modOf(p) }
+// truncated HMAC modulo mod (modOf: 10 to p's digits), so Verify
+// compares numbers, never texts, and works out mod once per check.
+func numberAt(k Key, step int64, mod int) int { hotpNumber(k.inner, k.outer, step) % mod }
 
 // modOf is 10 to the power of p's digits.
 func modOf(p Params) int {
@@ -109,32 +111,42 @@ func Code(p Params, secret string, t time.Time) string { CodeOf(p, secret, StepO
 func Verify(p Params, secret string, code string, now time.Time) Option[int64] { VerifyKey(p, KeyOf(secret), code, now) }
 
 // VerifyKey is Verify under a secret keyed once; Verify is it, so
-// Verify's laws state it.
-// A code that is not p's digits matches no step. Otherwise it reads
-// code's number once and compares it with every step's of the window,
-// with no early exit: the time it takes says nothing of which step
-// matched.
+// Verify's laws state it. A code that is not p's digits matches no step.
+// Otherwise it reads code's number once and compares it with every
+// step's of the window, with no early exit, so the work it does says
+// nothing of which step matched (law SameWorkForEveryCode).
 func VerifyKey(p Params, k Key, code string, now time.Time) Option[int64] {
+	let found, _ = VerifyWork(p, k, code, now)
+	found
+}
+
+// VerifyWork is VerifyKey and the number of steps it hashed: the work
+// counter that shows a check's cost does not depend on its code (law
+// SameWorkForEveryCode), counted, never timed.
+func VerifyWork(p Params, k Key, code string, now time.Time) (Option[int64], int) {
 	if len(code) != p.digits {
-		return None
+		return (None, 0)
 	}
 	let mut want = 0
 	for i in 0..len(code) {
 		let c = code[i]
 		if c < '0' || c > '9' {
-			return None
+			return (None, 0)
 		}
 		want = want * 10 + int(c - '0')
 	}
 	let at = StepOf(p, now)
 	let mut found Option[int64] = None
+	let mut hashed = 0
+	let mod = modOf(p)
 	for d in -p.window..p.window + 1 {
 		let step = at + int64(d)
-		if numberAt(p, k, step) == want && found == None {
+		hashed += 1
+		if numberAt(k, step, mod) == want && found == None {
 			found = Some[int64]{Value: step}
 		}
 	}
-	found
+	(found, hashed)
 }
 
 // URI is the otpauth:// text an authenticator app reads from a QR code:
@@ -225,6 +237,34 @@ law VerifyOfCode(secret string, sec int64, drift int) {
 	case None:
 		false
 	}
+}
+
+// SameWorkForEveryCode: Verify hashes every step of the window, for a
+// code of the window's first step, of its last, and of none: where a
+// code matches does not change the work, so it cannot change the time.
+law SameWorkForEveryCode(secret string, sec int64, w int) {
+	let p = NewParams(6, 30s, ((w%3)+3)%3) catch {
+	case BadParams:
+		return false
+	}
+	let now = time.Unix(((sec%10000000000)+10000000000)%10000000000, 0)
+	let at = StepOf(p, now)
+	let k = KeyOf(secret)
+	let first = CodeOf(p, secret, at - int64(Window(p)))
+	let last = CodeOf(p, secret, at + int64(Window(p)))
+	let mut none = "000000"
+	for n in 0..2*Window(p) + 2 {
+		let text = strconv.Itoa(n)
+		let c = strings.Repeat("0", 6 - len(text)) + text
+		let found, _ = VerifyWork(p, k, c, now)
+		if found == None {
+			none = c
+		}
+	}
+	let a, wa = VerifyWork(p, k, first, now)
+	let b, wb = VerifyWork(p, k, last, now)
+	let c, wc = VerifyWork(p, k, none, now)
+	a != None && b != None && c == None && wa == 2*Window(p) + 1 && wb == wa && wc == wa
 }
 
 // OutsideWindowFails: the code of a step more than the window away from

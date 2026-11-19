@@ -70,20 +70,43 @@ func registerNativeshmac() {
 		}
 		return tuple{elems: []Value{state(0x36), state(0x5c)}}
 	})
-	natives["totp.keyState"] = natives["hmac.keyState"]
+	// totp's states are []byte, held as slices of uint8 values.
+	bytesOf := func(v Value) []byte {
+		b, ok := byteString(v.(sliceV))
+		if !ok {
+			panic("totp: a key state that is not bytes")
+		}
+		return []byte(b)
+	}
+	sliceOf := func(s string) Value {
+		out := make([]Value, len(s))
+		for i := range len(s) {
+			out[i] = s[i]
+		}
+		return newSlice(out)
+	}
+	hmacKeyState := natives["hmac.keyState"]
+	natives["totp.keyState"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		v, ab := hmacKeyState(in, fr, at, fn, []Value{int64(1), args[0]})
+		if ab != nil {
+			return nil, ab
+		}
+		st := v.(tuple)
+		return tuple{elems: []Value{sliceOf(st.elems[0].(string)), sliceOf(st.elems[1].(string))}}, nil
+	}
 	natives["totp.hotpNumber"] = run(func(a []Value) Value {
-		resume := func(s string) hash.Hash {
+		resume := func(s []byte) hash.Hash {
 			d := sha1.New()
-			if d.(encoding.BinaryUnmarshaler).UnmarshalBinary([]byte(s)) != nil {
+			if d.(encoding.BinaryUnmarshaler).UnmarshalBinary(s) != nil {
 				panic("totp: a key state that totp.KeyOf did not give")
 			}
 			return d
 		}
 		var msg [8]byte
 		binary.BigEndian.PutUint64(msg[:], uint64(a[2].(int64)))
-		inner := resume(a[0].(string))
+		inner := resume(bytesOf(a[0]))
 		inner.Write(msg[:])
-		outer := resume(a[1].(string))
+		outer := resume(bytesOf(a[1]))
 		outer.Write(inner.Sum(nil))
 		h := outer.Sum(nil)
 		off := h[len(h)-1] & 15

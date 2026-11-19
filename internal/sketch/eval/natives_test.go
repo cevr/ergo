@@ -39,6 +39,15 @@ import (
 // The tests read natives directly; a run loads them on first lookup.
 func init() { loadNatives() }
 
+// byteSliceV is b as the evaluator holds a []byte: a slice of uint8s.
+func byteSliceV(b []byte) Value {
+	out := make([]Value, len(b))
+	for i, c := range b {
+		out[i] = c
+	}
+	return newSlice(out)
+}
+
 func TestNativesAgreeWithRuntime(t *testing.T) {
 	n := 300
 	if testing.Short() {
@@ -325,8 +334,11 @@ func nativeCases(g nativeGen) []nativeCase {
 		{name: "path/filepath.IsAbs", args: []Value{s}, v1: func() any { return filepath.IsAbs(s) }},
 		{name: "hex.Encode", args: []Value{s}, v1: func() any { return v1digest.HexEncode(s) }},
 		{name: "hmac.keyState", args: []Value{alg, hkey}, v1: func() any { a, b := v1digest.HmacKeyState(int(alg), hkey); return tuple{elems: []Value{a, b}} }},
-		{name: "totp.keyState", args: []Value{int64(1), hkey}, v1: func() any { a, b := v1digest.HmacKeyState(1, hkey); return tuple{elems: []Value{a, b}} }},
-		{name: "totp.hotpNumber", args: []Value{hin, hout, step}, anyDefect: true, v1: func() any { return int64(v1digest.HotpNumber(hin, hout, step)) }},
+		{name: "totp.keyState", args: []Value{hkey}, v1: func() any {
+			a, b := v1digest.HotpKeyState(hkey)
+			return tuple{elems: []Value{byteSliceV(a), byteSliceV(b)}}
+		}},
+		{name: "totp.hotpNumber", args: []Value{byteSliceV([]byte(hin)), byteSliceV([]byte(hout)), step}, anyDefect: true, v1: func() any { return int64(v1digest.HotpNumber([]byte(hin), []byte(hout), step)) }},
 		{name: "hmac.keyedSum", args: []Value{alg, hin, hout, u}, anyDefect: true, v1: func() any { return v1digest.HmacKeyedSum(int(alg), hin, hout, u) }},
 		{name: "time.DurationText", args: []Value{d}, v1: func() any { return v1.TimeDurationText(durationOf(d)) }},
 		{name: "time.subMono", args: []Value{d, m}, v1: func() any { return int64(v1.TimeSubMono(d, m)) }},
