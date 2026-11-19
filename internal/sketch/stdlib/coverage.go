@@ -50,7 +50,7 @@ var coverage = map[string][]string{
 // counterpart outside the standard library (errgroup, x/term).
 var coversNone = []string{
 	"actor", "arena", "bench", "build", "cache", "civil", "code", "codec", "codegraph", "config", "cron", "decimal", "dense", "explore", "graph", "io", "journal", "journal/file",
-	"journal/memory", "lint", "machines", "prompt", "pubsub", "queue", "rpc", "schedule", "scope", "set", "stream",
+	"journal/memory", "kv", "kv/file", "kv/memory", "lint", "machines", "prompt", "pubsub", "queue", "ratelimit", "ratelimit/memory", "rpc", "schedule", "scope", "set", "stream",
 	"task", "tasks", "term", "text", "timeout", "toml", "trace", "tz", "tz/host", "tz/iana", "ui", "ui/layout", "uuid",
 }
 

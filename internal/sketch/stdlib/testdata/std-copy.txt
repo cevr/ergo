@@ -40,6 +40,9 @@ journal	differs	lower: no exported function a caller can take as a value	follow-
 journal/file	same
 journal/memory	same
 json	differs	surface: Settle's row loses Malformed in the copy: a copy is in no module, so it cannot declare the extern Go type Malformed (the NP4e door)	follow-up NP4e
+kv	same
+kv/file	same
+kv/memory	same
 lint	same
 log	same
 machines	differs	check: S108 a declared machine's Every timer must be std machines.Every (IsStdEvery reads std membership, FKG1)	B20-NP
@@ -50,6 +53,8 @@ prompt	differs	lower: joinResult joins a call into its assignment only in a body
 pubsub	same
 queue	same
 rand	same
+ratelimit	same
+ratelimit/memory	same
 rpc	differs	lower: a std package's declarations are emitted in another order than a sourced package's (the first differing line is another declaration)	follow-up emit-order-std
 schedule	same
 scope	differs	lower: no exported function a caller can take as a value	follow-up copy-by-call
