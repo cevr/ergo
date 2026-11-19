@@ -293,6 +293,8 @@ func layerGate[E](f *Frame[E], event Event[E]) Option[Handled[E]] {
 		p.Id.ref
 	case Type[E] as x:
 		x.Id.ref
+	case Edit[E] as x:
+		x.Id.ref
 	case Point[E] as p:
 		match p.Pointer.Phase {
 		case Down:

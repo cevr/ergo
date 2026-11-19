@@ -182,6 +182,9 @@ type node[E] {
 	dirty   bool,
 	memo    arena.Ref[node[E]],
 	up      arena.Ref[node[E]],
+	// edit is the text, caret and anchor the last Type or Edit gave an
+	// Input; a pass shows them while the value is that text (edit.ergo).
+	edit    Option[Editing],
 	// focusAs is how the node takes part in the focus (focus.ergo).
 	focusAs int,
 }
@@ -244,7 +247,7 @@ func NewFrame[E]() Frame[E] {
 }
 
 func fresh[E](n Node[E], id ident, onText Option[func(t string) E], onPoint Option[func(p PointerEvent) Option[E]], onKey Option[func(k KeyPress) Option[E]], off bool) node[E] {
-	node[E]{node: n, id: id, kids: []arena.Ref[node[E]]{}, parked: []arena.Ref[node[E]]{}, off: off, onText: onText, onPoint: onPoint, onKey: onKey, binds: None, cells: Map[ident, Cell]{}, loads: Map[ident, slot]{}, run: None, dirty: false, memo: arena.Null[node[E]](), up: arena.Null[node[E]](), focusAs: focusPlain}
+	node[E]{node: n, id: id, kids: []arena.Ref[node[E]]{}, parked: []arena.Ref[node[E]]{}, off: off, onText: onText, onPoint: onPoint, onKey: onKey, binds: None, cells: Map[ident, Cell]{}, loads: Map[ident, slot]{}, run: None, dirty: false, memo: arena.Null[node[E]](), up: arena.Null[node[E]](), edit: None, focusAs: focusPlain}
 }
 
 // Render writes view(s) as one pass of f and commits it: f's tree then
@@ -402,6 +405,35 @@ func prior[E](f *Frame[E], id ident) arena.Ref[node[E]] {
 	}
 }
 
+// caretIn is n with its caret and anchor when it is an Input (OpenTUI
+// gap 2): the ones the last Type or Edit gave the node prev, while its
+// value is the text they were given for, else both at the end of the
+// value; and at least one line.
+func caretIn[E](f *Frame[E], prev arena.Ref[node[E]], n Node[E]) Node[E] {
+	match n {
+	case InputNode as x:
+		let mut out = x
+		out.Lines = if x.Lines < 1 { 1 } else { x.Lines }
+		out.Caret = len(x.Value)
+		out.Anchor = len(x.Value)
+		if arena.Has(f.nodes, prev) {
+			let mut held Option[Editing] = None
+			change(f, prev, func(m *node[E]) { held = m.edit })
+			match held {
+			case Some[Editing] as e:
+				if e.Value.Text == x.Value {
+					out.Caret = e.Value.Caret
+					out.Anchor = e.Value.Anchor
+				}
+			case None:
+			}
+		}
+		out
+	case _:
+		n
+	}
+}
+
 // put writes one node under the current parent and returns its index.
 func put[E](f *Frame[E], n Node[E], onText Option[func(t string) E], binds Option[cellAt], at CallSite) int {
 	let id = identify(f, at)
@@ -410,7 +442,7 @@ func put[E](f *Frame[E], n Node[E], onText Option[func(t string) E], binds Optio
 		prev = arena.Null[node[E]]()
 	}
 	let p = f.parent
-	let sp = spec[E]{node: n, id: id, parent: p, prev: prev, ref: arena.Null[node[E]](), onText: onText, onPoint: None, onKey: None, binds: binds, off: (p >= 0 && f.specs[p].off) || disables(n), memo: memoOf(f, p), same: None, skip: false, again: false, live: (p < 0 || f.specs[p].live) && arena.Has(f.nodes, prev) && !has(f.held, prev), first: -1, last: -1, next: -1, before: lastKid(f, p), nkids: 0, pending: false, block: -1, focusAs: focusPlain}
+	let sp = spec[E]{node: caretIn(f, prev, n), id: id, parent: p, prev: prev, ref: arena.Null[node[E]](), onText: onText, onPoint: None, onKey: None, binds: binds, off: (p >= 0 && f.specs[p].off) || disables(n), memo: memoOf(f, p), same: None, skip: false, again: false, live: (p < 0 || f.specs[p].live) && arena.Has(f.nodes, prev) && !has(f.held, prev), first: -1, last: -1, next: -1, before: lastKid(f, p), nkids: 0, pending: false, block: -1, focusAs: focusPlain}
 	putSpec(f, sp)
 }
 
@@ -625,7 +657,7 @@ func Check[E](f *Frame[E], label string, checked bool, on E, at CallSite) {
 // Input shows a text field with value; a text the host takes in it sends
 // onText(text). The program owns the value (in its machine state).
 func Input[E](f *Frame[E], value string, placeholder string, onText own func(t string) E, at CallSite) {
-	let _ = put(f, InputNode{Value: value, Placeholder: placeholder, Label: "", Description: "", Invalid: false, Hints: PlainHints}, Some{Value: onText}, None, at)
+	let _ = put(f, InputNode{Value: value, Placeholder: placeholder, Label: "", Description: "", Invalid: false, Hints: PlainHints, Lines: 1, Caret: 0, Anchor: 0}, Some{Value: onText}, None, at)
 }
 
 // FieldLabel is what a labelled Input says of itself (FK3-g5, FK5-g3), as
@@ -640,14 +672,14 @@ type FieldLabel { Text string, Description string, Invalid bool }
 // LabelledInput is an Input that says what it is (FieldLabel): a locator
 // finds it by its label (WithLabel) and a script names it by it.
 func LabelledInput[E](f *Frame[E], label FieldLabel, value string, placeholder string, onText own func(t string) E, at CallSite) {
-	let _ = put(f, InputNode{Value: value, Placeholder: placeholder, Label: label.Text, Description: label.Description, Invalid: label.Invalid, Hints: PlainHints}, Some{Value: onText}, None, at)
+	let _ = put(f, InputNode{Value: value, Placeholder: placeholder, Label: label.Text, Description: label.Description, Invalid: label.Invalid, Hints: PlainHints, Lines: 1, Caret: 0, Anchor: 0}, Some{Value: onText}, None, at)
 }
 
 // HintedInput is a LabelledInput that tells a phone's keyboard what it
 // takes (Hints, MB5): an email field asks for EmailKeys, a search field
 // for ReturnSearch.
 func HintedInput[E](f *Frame[E], label FieldLabel, hints Hints, value string, placeholder string, onText own func(t string) E, at CallSite) {
-	let _ = put(f, InputNode{Value: value, Placeholder: placeholder, Label: label.Text, Description: label.Description, Invalid: label.Invalid, Hints: hints}, Some{Value: onText}, None, at)
+	let _ = put(f, InputNode{Value: value, Placeholder: placeholder, Label: label.Text, Description: label.Description, Invalid: label.Invalid, Hints: hints, Lines: 1, Caret: 0, Anchor: 0}, Some{Value: onText}, None, at)
 }
 
 // Each writes row(x) for each x of xs. The nodes a row writes take the

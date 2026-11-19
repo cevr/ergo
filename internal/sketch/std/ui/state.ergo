@@ -98,19 +98,19 @@ func NewFlag[E](f *Frame[E], init bool, at CallSite) Flag {
 // Field shows a text field over d: a text the host takes in it becomes the
 // draft's value at the next pass, and sends no signal.
 func Field[E](f *Frame[E], d Draft, placeholder string, at CallSite) {
-	let _ = put(f, InputNode{Value: d.Value, Placeholder: placeholder, Label: "", Description: "", Invalid: false, Hints: PlainHints}, None, Some{Value: d.at}, at)
+	let _ = put(f, InputNode{Value: d.Value, Placeholder: placeholder, Label: "", Description: "", Invalid: false, Hints: PlainHints, Lines: 1, Caret: 0, Anchor: 0}, None, Some{Value: d.at}, at)
 }
 
 // LabelledField is a Field that says what it is (FieldLabel), as
 // LabelledInput is an Input that does.
 func LabelledField[E](f *Frame[E], label FieldLabel, d Draft, placeholder string, at CallSite) {
-	let _ = put(f, InputNode{Value: d.Value, Placeholder: placeholder, Label: label.Text, Description: label.Description, Invalid: label.Invalid, Hints: PlainHints}, None, Some{Value: d.at}, at)
+	let _ = put(f, InputNode{Value: d.Value, Placeholder: placeholder, Label: label.Text, Description: label.Description, Invalid: label.Invalid, Hints: PlainHints, Lines: 1, Caret: 0, Anchor: 0}, None, Some{Value: d.at}, at)
 }
 
 // HintedField is a LabelledField that tells a phone's keyboard what it
 // takes (Hints), as HintedInput does.
 func HintedField[E](f *Frame[E], label FieldLabel, hints Hints, d Draft, placeholder string, at CallSite) {
-	let _ = put(f, InputNode{Value: d.Value, Placeholder: placeholder, Label: label.Text, Description: label.Description, Invalid: label.Invalid, Hints: hints}, None, Some{Value: d.at}, at)
+	let _ = put(f, InputNode{Value: d.Value, Placeholder: placeholder, Label: label.Text, Description: label.Description, Invalid: label.Invalid, Hints: hints, Lines: 1, Caret: 0, Anchor: 0}, None, Some{Value: d.at}, at)
 }
 
 // Toggle shows a check box over fl: a press flips the flag and sends no
@@ -500,30 +500,9 @@ func Handle[E](f *Frame[E], event Event[E]) Handled[E] {
 		case _:
 		}
 	case Type[E] as x:
-		let n = f.nodes.Get(x.Id.ref) catch {
-		case arena.Stale:
-			return out
-		}
-		if n.off {
-			return out
-		}
-		focusTo(f, x.Id.ref, false)
-		match n.onText {
-		case Some[func(t string) E] as g:
-			out.Signal = Some{Value: g.Value(x.Text)}
-		case None:
-		}
-		// Only a Field takes a text into its draft: a Toggle's flag and a
-		// Submit's draft take none.
-		match n.node {
-		case InputNode:
-			match n.binds {
-			case Some[bound[E]] as d:
-				out.Changed = write(f, d.Value, TextCell{Value: x.Text})
-			case None:
-			}
-		case _:
-		}
+		return edited(f, x.Id, x.Text, len(x.Text), len(x.Text))
+	case Edit[E] as x:
+		return edited(f, x.Id, x.Text, x.Caret, x.Anchor)
 	case Arrived[E] as a:
 		if Arrive(f, a.Epoch) {
 			out.Signal = Some{Value: a.Signal}
@@ -614,6 +593,52 @@ func Handle[E](f *Frame[E], event Event[E]) Handled[E] {
 
 // write sets the cell b names, when its owner still holds it; it is
 // whether the cell changed.
+// edited is Handle's Type and Edit (OpenTUI gap 2): the field id takes
+// text, its newlines dropped when it is one line, with the caret and the
+// selection's anchor clamped into it at rune starts (FitCaret). The node
+// holds them for the next pass, which keeps them while the field's value
+// is that text. A move of the caret alone changes the view and sends
+// nothing; a text sends the field's onText, or goes into its draft (only
+// a Field takes one: a Toggle's flag and a Submit's draft take none).
+func edited[E](f *Frame[E], id Id[E], text string, caret int, anchor int) Handled[E] {
+	let mut out = Handled[E]{Signal: None, Changed: false, Ops: []Op[E]{}}
+	let n = f.nodes.Get(id.ref) catch {
+	case arena.Stale:
+		return out
+	}
+	if n.off {
+		return out
+	}
+	focusTo(f, id.ref, false)
+	let mut e = Editing{Text: text, Caret: caret, Anchor: anchor}
+	match n.node {
+	case InputNode as x:
+		e = FitCaret(OneLine(e, x.Lines))
+		change(f, id.ref, func(m *node[E]) { m.edit = Some{Value: e} })
+		if e.Text == x.Value && (e.Caret != x.Caret || e.Anchor != x.Anchor) {
+			// The caret moved and the text stayed: a pass shows it.
+			out.Changed = true
+			return out
+		}
+	case _:
+	}
+	match n.onText {
+	case Some[func(t string) E] as g:
+		out.Signal = Some{Value: g.Value(e.Text)}
+	case None:
+	}
+	match n.node {
+	case InputNode:
+		match n.binds {
+		case Some[bound[E]] as d:
+			out.Changed = write(f, d.Value, TextCell{Value: e.Text})
+		case None:
+		}
+	case _:
+	}
+	out
+}
+
 func write[E](f *Frame[E], b bound[E], c Cell) bool {
 	if !arena.Has(f.nodes, b.owner) {
 		return false

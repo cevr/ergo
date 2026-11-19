@@ -177,6 +177,8 @@ func isInput[E](ev Event[E]) bool {
 		true
 	case Type[E]:
 		true
+	case Edit[E]:
+		true
 	case Point[E]:
 		true
 	case KeyDown:

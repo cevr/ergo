@@ -15,8 +15,11 @@ import time
 // of the loop's sent (Committed: a reply its work sent, a timer), which the
 // session's watcher posts, at most one at a time before the next pass, or
 // a new text of a Readout the session showed (Published), which Publish
-// posts, at most one per readout before the host takes it.
-type Event[E] = Press{Id Id[E]} | Type{Id Id[E], Text string} | Arrived{Epoch int, Signal E} | Point{Id Id[E], Pointer PointerEvent, Over Option[ZoneBox[E]]} | KeyDown{Press KeyPress} | Tick{At duration} | Scrolled{Id Id[E], Offset Length, Height Length} | URLChanged{URL URL} | Committed{} | Ended{Run int} | Published{Readout int}
+// posts, at most one per readout before the host takes it. An Edit is a
+// text field's text with its caret and selection (Caret, Anchor), as a
+// host sends for each edit or move of the caret in it (OpenTUI gap 2); a
+// Type is an Edit with both at the end of the text.
+type Event[E] = Press{Id Id[E]} | Type{Id Id[E], Text string} | Edit{Id Id[E], Text string, Caret int, Anchor int} | Arrived{Epoch int, Signal E} | Point{Id Id[E], Pointer PointerEvent, Over Option[ZoneBox[E]]} | KeyDown{Press KeyPress} | Tick{At duration} | Scrolled{Id Id[E], Offset Length, Height Length} | URLChanged{URL URL} | Committed{} | Ended{Run int} | Published{Readout int}
 
 // Closed is the failure of Next when the host has closed (its window, its
 // terminal, its script ended).
