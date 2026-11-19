@@ -263,12 +263,12 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 			irArgs = append(irArgs[:at:at], append([]*irExpr{env}, irArgs[at:]...)...)
 		}
 		if wc := b.witnessCopy(x, c); wc != "" && known == "" { // ir_witness.go
-			return pre, mark(&irExpr{K: "call", Pos: p, Name: wc, Args: irArgs}), !fd.pure
+			return pre, mark(&irExpr{K: "call", Pos: p, Name: wc, Args: irArgs}), !fd.envFree
 		}
 		if wits := b.witnessArgs(f, x, p); len(wits) > 0 { // ir_witness.go
 			// After the environment, before the operands (witnessArgs).
 			at := 0
-			if !fd.pure {
+			if !fd.envFree {
 				at = 1
 			}
 			irArgs = append(irArgs[:at:at], append(wits, irArgs[at:]...)...)
@@ -280,12 +280,12 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		// It takes the instance's witnesses, as callText's copy does.
 		if known == "" && b.copyCall(x, c) == "" {
 			if mono := b.fc.monoAt(x, c, f, c.TypeArgs); mono != nil {
-				if fd.method != nil && !fd.pure {
+				if fd.method != nil && !fd.envFree {
 					// The copy of a method takes the environment
 					// before its receiver (callText).
 					irArgs = append([]*irExpr{irArgs[1], irArgs[0]}, irArgs[2:]...)
 				}
-				return pre, mark(&irExpr{K: "call", Pos: p, Name: mono.name, Args: irArgs}), !fd.pure
+				return pre, mark(&irExpr{K: "call", Pos: p, Name: mono.name, Args: irArgs}), !fd.envFree
 			}
 		}
 		if known != "" && fd.method != nil {

@@ -123,7 +123,7 @@ func (b *irBuilder) groupCall(x *syntax.CallExpr, c *check.Call, g *check.Func, 
 		ice(x, "std ui's group takes no CallSite last")
 	}
 	all := append(append(operands, lit), b.siteValue(x, site, p))
-	if !gd.pure {
+	if !gd.envFree {
 		all = append([]*irExpr{{K: "local", Pos: p, I: b.env}}, all...)
 	}
 	e := &irExpr{K: "call", Pos: p, Name: gd.name, T: b.goType(frame.TArgs[0], x) + ", " + argType, Args: all}
