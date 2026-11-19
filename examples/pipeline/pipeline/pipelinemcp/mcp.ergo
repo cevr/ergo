@@ -6,11 +6,14 @@
 // Arguments between a tool call and a Request, and Tools, which call the
 // provider the caller gives.
 
+import api
 import json
 import rpc
 import github.com/cevr/ergo/modules/mcp
+import pipeline/board
 import pipeline/pipeline
 import pipeline/pipeline/pipelineapi
+import pipeline/run
 
 // Request is one call of pipeline.Pipeline: the hub's Request.
 type Request = pipelineapi.Request
@@ -126,11 +129,11 @@ func Arguments(r Request) (string, json.Value) {
 	}
 }
 
-// Answer answers r through the hub's Call on the bound pipeline.Pipeline: its
-// value as JSON (null for none), or its typed failure as a ToolError
-// whose message is the failure's tagged JSON.
-func Answer(r Request) json.Value fails mcp.ToolError needs pipeline.Pipeline {
-	match pipelineapi.Call(r) {
+// Show is the outcome o as a tool's answer: its value as JSON (null for
+// none), or its typed failure as a ToolError whose message is the
+// failure's tagged JSON.
+func Show(o pipelineapi.Outcome) json.Value fails mcp.ToolError {
+	match o {
 	case pipelineapi.Done as done:
 		match done.Reply {
 		case pipelineapi.SubmitReply as reply:
@@ -162,9 +165,99 @@ func Answer(r Request) json.Value fails mcp.ToolError needs pipeline.Pipeline {
 	}
 }
 
-// tool is the tool name on p: it reads its arguments (Call) and
-// answers on p (Answer).
-func tool(name string, p pipeline.Pipeline) mcp.Tool {
+// Answer answers r through the hub's Call on the bound pipeline.Pipeline (Show).
+func Answer(r Request) json.Value fails mcp.ToolError needs pipeline.Pipeline {
+	try Show(pipelineapi.Call(r))
+}
+
+// ReadAnswer is the outcome of r that a tool's result says: its value's
+// JSON, or, when it is an error, its failure's tagged JSON. Any other
+// result is not an answer to r, a defect.
+func ReadAnswer(r Request, result mcp.Called) pipelineapi.Outcome {
+	if len(result.Content) != 1 {
+		Unreachable("a tool answered \(len(result.Content)) blocks, not one")
+	}
+	let text = result.Content[0].Text
+	if !result.IsError {
+		match r {
+		case pipelineapi.SubmitRequest:
+			let v = rpc.Decode[pipeline.Receipt]("value", text) catch {
+			case rpc.Transport as e:
+				Unreachable("the tool submit answered a value it cannot read: " + e.Reason)
+			}
+			pipelineapi.Done{Reply: pipelineapi.SubmitReply{Value: v}}
+		case pipelineapi.CancelRequest:
+			let v = rpc.Decode[pipeline.Receipt]("value", text) catch {
+			case rpc.Transport as e:
+				Unreachable("the tool cancel answered a value it cannot read: " + e.Reason)
+			}
+			pipelineapi.Done{Reply: pipelineapi.CancelReply{Value: v}}
+		case pipelineapi.RetryRequest:
+			let v = rpc.Decode[pipeline.Receipt]("value", text) catch {
+			case rpc.Transport as e:
+				Unreachable("the tool retry answered a value it cannot read: " + e.Reason)
+			}
+			pipelineapi.Done{Reply: pipelineapi.RetryReply{Value: v}}
+		case pipelineapi.BoardRequest:
+			let v = rpc.Decode[board.View]("value", text) catch {
+			case rpc.Transport as e:
+				Unreachable("the tool board answered a value it cannot read: " + e.Reason)
+			}
+			pipelineapi.Done{Reply: pipelineapi.BoardReply{Value: v}}
+		case pipelineapi.RunOfRequest:
+			let v = rpc.Decode[run.Run]("value", text) catch {
+			case rpc.Transport as e:
+				Unreachable("the tool run-of answered a value it cannot read: " + e.Reason)
+			}
+			pipelineapi.Done{Reply: pipelineapi.RunOfReply{Value: v}}
+		}
+	} else {
+		match rpc.TagOf(text) {
+		case "WrongState":
+			let e = rpc.Decode[run.WrongState]("failure", text) catch {
+			case rpc.Transport as x:
+				Unreachable("a tool answered a failure it cannot read: " + x.Reason)
+			}
+			pipelineapi.Rejected{Failure: pipelineapi.WrongState{E: e}}
+		case "WrongStage":
+			let e = rpc.Decode[run.WrongStage]("failure", text) catch {
+			case rpc.Transport as x:
+				Unreachable("a tool answered a failure it cannot read: " + x.Reason)
+			}
+			pipelineapi.Rejected{Failure: pipelineapi.WrongStage{E: e}}
+		case "Closed":
+			let e = rpc.Decode[run.Closed]("failure", text) catch {
+			case rpc.Transport as x:
+				Unreachable("a tool answered a failure it cannot read: " + x.Reason)
+			}
+			pipelineapi.Rejected{Failure: pipelineapi.Closed{E: e}}
+		case "BadLength":
+			let e = rpc.Decode[run.BadLength]("failure", text) catch {
+			case rpc.Transport as x:
+				Unreachable("a tool answered a failure it cannot read: " + x.Reason)
+			}
+			pipelineapi.Rejected{Failure: pipelineapi.BadLength{E: e}}
+		case "NoSuchRun":
+			let e = rpc.Decode[pipeline.NoSuchRun]("failure", text) catch {
+			case rpc.Transport as x:
+				Unreachable("a tool answered a failure it cannot read: " + x.Reason)
+			}
+			pipelineapi.Rejected{Failure: pipelineapi.NoSuchRun{E: e}}
+		case "Unavailable":
+			let e = rpc.Decode[pipeline.Unavailable]("failure", text) catch {
+			case rpc.Transport as x:
+				Unreachable("a tool answered a failure it cannot read: " + x.Reason)
+			}
+			pipelineapi.Rejected{Failure: pipelineapi.Unavailable{E: e}}
+		case _:
+			Unreachable("a tool answered an error no operation has: " + text)
+		}
+	}
+}
+
+// toolOver is the tool name answered by answer: it reads its arguments
+// (Call) and shows answer's outcome (Show).
+func toolOver(name string, answer own func(r Request) pipelineapi.Outcome) mcp.Tool {
 	mcp.Tool{Name: name, Description: Description(name), Input: Input(name), Call: func(arguments json.Value) json.Value fails mcp.ToolError {
 		let r = Call(name, arguments) catch {
 		case mcp.ToolError as e:
@@ -172,8 +265,16 @@ func tool(name string, p pipeline.Pipeline) mcp.Tool {
 		case mcp.UnknownTool as e:
 			return mcp.ToolError{Message: "no tool is named " + e.Name}
 		}
-		with context { pipeline.Pipeline: p } { try Answer(r) }
+		try Show(answer(r))
 	}}
+}
+
+// tool is the tool name on p: it reads its arguments (Call) and
+// answers on p through the hub's Call.
+func tool(name string, p pipeline.Pipeline) mcp.Tool {
+	toolOver(name, func(r Request) pipelineapi.Outcome {
+		with context { pipeline.Pipeline: p } { pipelineapi.Call(r) }
+	})
 }
 
 // Tools are the tools of pipeline.Pipeline on p, one per operation, in its order.
@@ -184,6 +285,41 @@ func Tools(p pipeline.Pipeline) []mcp.Tool {
 	}
 	out
 }
+
+// carry is c through the protocol: the tools/call message of its tool,
+// answered by module mcp's Handle over tools whose answer is answer, and
+// the result read back (ReadAnswer).
+func carry(c Request, answer own func(c Request) pipelineapi.Outcome) pipelineapi.Outcome {
+	let mut tools = []mcp.Tool{}
+	for name in Names {
+		tools = tools.Append(toolOver(name, answer))
+	}
+	let server = mcp.Server{Name: "carry", Version: "1", Tools: tools}
+	let (name, arguments) = Arguments(c)
+	let message = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":" + rpc.Encode(name) + ",\"arguments\":" + textOf(arguments) + "}}"
+	match mcp.Handle(server, message) {
+	case mcp.Answered as a:
+		let result = json.Decode(json.Codec[mcp.Called]{MaxBytes: 0, MaxDepth: 0}, a.Result) catch {
+		case _:
+			Unreachable("a tool's result is not one: " + a.Result)
+		}
+		ReadAnswer(c, result)
+	case mcp.Refused as e:
+		Unreachable("the server refused the call: " + e.Message)
+	case mcp.Silent:
+		Unreachable("the server did not answer the call")
+	}
+}
+
+// Wire is the protocol as a transport of the hub's calls.
+type Wire {} implements api.Transport[Request, pipelineapi.Outcome]
+
+// Carry is carry.
+func Carry(w Wire, c Request, answer own func(c Request) pipelineapi.Outcome) pipelineapi.Outcome { carry(c, answer) }
+
+// Agrees: the protocol carries every call and every outcome the call
+// can have unchanged.
+law Agrees(r Request, g pipelineapi.Given) { api.Agrees(Wire, r, pipelineapi.OutcomeOf(r, g)) }
 
 // RoundTrips reports whether Call reads what Arguments writes of r as r.
 func RoundTrips(r Request) bool {

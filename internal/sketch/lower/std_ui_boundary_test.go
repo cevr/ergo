@@ -83,6 +83,7 @@ func TestUIForgottenBoundary(t *testing.T) {
 // check clean.
 const uiNeedsSource = `import ui
 import actor
+import pace
 
 type Store {
 	Name(id int) string,
@@ -106,7 +107,7 @@ func show(view func(f mut ui.Frame[int], s int)) {
 	let _ = ui.Render(&f, view, 0)
 }
 
-func runIt[D, F](h ui.Host[int], a actor.Actor[int, int, D, F]) fails ui.Closed | actor.Stopped needs Store {
+func runIt[D, F](h ui.Host[int], a actor.Actor[int, int, D, F]) fails ui.Closed | actor.Stopped needs Store | pace.Pacing {
 	try ui.Run(h, a, Listed)
 }
 
@@ -133,9 +134,9 @@ func TestUIViewNeeds(t *testing.T) {
 		got = append(got, fmt.Sprintf("%s %d:%d %s", d.Code, d.Line, d.Column, d.Message))
 	}
 	want := []string{
-		"S102 13:13 this call requires Store, which is not in the capability row of function Unlisted and no with provides it; write: func Unlisted(f mut ui.Frame[int], s int) needs Store",
-		"S102 32:10 this call requires Store, which is not in the capability row of function main and no with provides it; write: func main() needs Store",
-		"S108 35:8 cannot use func(mut ui.Frame[int], int) needs Store as func(mut ui.Frame[int], int) in argument: its capability row {Store} is wider than {}",
+		"S102 14:13 this call requires Store, which is not in the capability row of function Unlisted and no with provides it; write: func Unlisted(f mut ui.Frame[int], s int) needs Store",
+		"S102 33:10 this call requires Store, which is not in the capability row of function main and no with provides it; write: func main() needs Store",
+		"S108 36:8 cannot use func(mut ui.Frame[int], int) needs Store as func(mut ui.Frame[int], int) in argument: its capability row {Store} is wider than {}",
 	}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("diagnostics:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))

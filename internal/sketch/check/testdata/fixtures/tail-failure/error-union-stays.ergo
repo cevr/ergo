@@ -1,0 +1,21 @@
+type WrongCode {}
+type Other {}
+
+type Signal = WrongCode | Ok{}
+
+type Errs = WrongCode | Other
+
+func check(n int) int fails WrongCode | Other {
+	if n == 0 {
+		return WrongCode
+	}
+	n
+}
+
+func errs() Errs { WrongCode }
+
+func use() int {
+	let x = errs()
+	_ = x
+	1
+}

@@ -41,7 +41,10 @@ var digraphs = []string{"%:", "<:", ":>", "<%", "%>"}
 
 // lex splits src into tokens. Comments are dropped. It refuses what would
 // make the token stream differ from the one a C compiler sees: trigraphs,
-// line continuations, digraphs, and bytes outside ASCII outside comments.
+// digraphs, bytes outside ASCII outside comments, and a line continuation
+// that is not spliceable. A spliceable continuation (spliceable) joins a
+// directive's lines, as phase 2 of translation does: the newline after its
+// backslash does not end the directive.
 func lex(file, src string, d *diags) []token {
 	var toks []token
 	line, col := 1, 1
@@ -60,14 +63,15 @@ func lex(file, src string, d *diags) []token {
 		}
 	}
 	// Phases 1 and 2 of translation run before tokens exist; refuse their
-	// inputs everywhere, comments included.
+	// inputs everywhere, comments included, but a spliceable continuation.
+	splice := spliceable(src)
 	{
 		l, c := 1, 1
 		for k := 0; k < len(src); k++ {
 			switch {
 			case src[k] == '?' && k+2 < len(src) && src[k+1] == '?' && strings.IndexByte("=()/'<!>-", src[k+2]) >= 0:
 				d.add(Pos{file, l, c}, CodeLexical, "trigraph %q", src[k:k+3])
-			case src[k] == '\\' && (k+1 < len(src) && src[k+1] == '\n' || k+2 < len(src) && src[k+1] == '\r' && src[k+2] == '\n'):
+			case continuation(src, k) > 0 && !splice[k]:
 				d.add(Pos{file, l, c}, CodeLexical, "line continuation")
 			}
 			if src[k] == '\n' {
@@ -88,8 +92,13 @@ func lex(file, src string, d *diags) []token {
 		case ch == ' ' || ch == '\t' || ch == '\r' || ch == '\f' || ch == '\v':
 			advance(1)
 			continue
-		case ch == '\\' && (strings.HasPrefix(src[i:], "\\\n") || strings.HasPrefix(src[i:], "\\\r\n")):
-			// A line continuation, refused above with its own diagnostic.
+		case continuation(src, i) > 0:
+			if splice[i] {
+				// Spliced: the line goes on, so bol stays as it was.
+				advance(continuation(src, i))
+				continue
+			}
+			// Refused above with its own diagnostic.
 			advance(1)
 			continue
 		case strings.HasPrefix(src[i:], "//"):
@@ -190,6 +199,48 @@ func lex(file, src string, d *diags) []token {
 	}
 	toks = append(toks, token{kind: tEOF, pos: pos(), bol: true})
 	return toks
+}
+
+// continuation is the length of the backslash-newline (or
+// backslash-CR-newline) at src[k], or 0.
+func continuation(src string, k int) int {
+	switch {
+	case strings.HasPrefix(src[k:], "\\\n"):
+		return 2
+	case strings.HasPrefix(src[k:], "\\\r\n"):
+		return 3
+	}
+	return 0
+}
+
+// spliceable marks the continuations whose splice gives the token stream
+// that dropping them as whitespace gives: one in a directive (its logical
+// line starts with #), after a space or a tab (so no token is split across
+// it), and with no // before it on its logical line (which C would extend
+// over the next line). A continuation that is not spliceable is refused.
+func spliceable(src string) map[int]bool {
+	out := map[int]bool{}
+	directive, comment, start := false, false, true
+	for k := 0; k < len(src); k++ {
+		ch := src[k]
+		if start && ch != ' ' && ch != '\t' {
+			directive, comment, start = ch == '#', false, false
+		}
+		if n := continuation(src, k); n > 0 {
+			if directive && !comment && k > 0 && (src[k-1] == ' ' || src[k-1] == '\t') {
+				out[k] = true
+				k += n - 1 // the logical line goes on
+				continue
+			}
+		}
+		switch {
+		case ch == '\n':
+			directive, comment, start = false, false, true
+		case strings.HasPrefix(src[k:], "//"):
+			comment = true
+		}
+	}
+	return out
 }
 
 func isIdentStart(c byte) bool { return c == '_' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' }

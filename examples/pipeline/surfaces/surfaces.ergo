@@ -1,49 +1,52 @@
-// Package surfaces holds what every surface of the Api shares: Call, one
-// request answered by the bound pipeline.Pipeline as text, and Loopback,
-// the generated RPC client of a context served in this process. The law
-// SurfacesAgree plays one list of requests through the model, the wire
-// and the command line, and each must answer as the others do.
+// Package surfaces holds what the surfaces of the Api share: the text of
+// an outcome, which the screen's answers are compared in, and Through,
+// the Api over one generated transport (pipelinecli, pipelinemcp,
+// pipelinerpc) to a context served in this process. Each transport's own
+// law Agrees says it carries every call and outcome unchanged; here
+// SurfacesAgree plays one list of requests on the screen as on the
+// model, and the Api's laws run through each transport.
 
 import rpc
-import pipeline/pipeline
-import pipeline/pipeline/pipelinerpc
-import pipeline/run
+import pipeline/pipeline/pipelineapi
 
-// Request is one call of the Api, on every surface: the generated
-// rpc package's Request.
-type Request = pipelinerpc.Request
+// Request is one call of the Api, on every surface: the hub's Request.
+type Request = pipelineapi.Request
 
-// Call is the answer of the bound pipeline.Pipeline to r as text: the
-// value's JSON, or the rejection's type and JSON.
-func Call(r Request) string needs pipeline.Pipeline {
-	let receipt = match r {
-	case pipelinerpc.SubmitRequest as x:
-		pipeline.Pipeline.Submit(x.C)
-	case pipelinerpc.CancelRequest as x:
-		pipeline.Pipeline.Cancel(x.C)
-	case pipelinerpc.RetryRequest as x:
-		pipeline.Pipeline.Retry(x.C)
-	case pipelinerpc.BoardRequest:
-		return rpc.Encode(pipeline.Pipeline.Board())
-	case pipelinerpc.RunOfRequest as x:
-		let found = pipeline.Pipeline.RunOf(x.Id) catch {
-		case pipeline.NoSuchRun as e:
-			return rpc.Tagged("NoSuchRun", rpc.Encode(e))
+// Text is the outcome o as text: the value's JSON, or the rejection's
+// type and JSON (the wire's forms).
+func Text(o pipelineapi.Outcome) string {
+	match o {
+	case pipelineapi.Done as done:
+		match done.Reply {
+		case pipelineapi.SubmitReply as x:
+			rpc.Encode(x.Value)
+		case pipelineapi.CancelReply as x:
+			rpc.Encode(x.Value)
+		case pipelineapi.RetryReply as x:
+			rpc.Encode(x.Value)
+		case pipelineapi.BoardReply as x:
+			rpc.Encode(x.Value)
+		case pipelineapi.RunOfReply as x:
+			rpc.Encode(x.Value)
 		}
-		return rpc.Encode(found)
-	} catch {
-	case run.WrongState as e:
-		return rpc.Tagged("WrongState", rpc.Encode(e))
-	case run.WrongStage as e:
-		return rpc.Tagged("WrongStage", rpc.Encode(e))
-	case run.Closed as e:
-		return rpc.Tagged("Closed", rpc.Encode(e))
-	case run.BadLength as e:
-		return rpc.Tagged("BadLength", rpc.Encode(e))
-	case pipeline.NoSuchRun as e:
-		return rpc.Tagged("NoSuchRun", rpc.Encode(e))
-	case pipeline.Unavailable as e:
-		return rpc.Tagged("Unavailable", rpc.Encode(e))
+	case pipelineapi.Rejected as rejected:
+		match rejected.Failure {
+		case pipelineapi.WrongState as f:
+			rpc.Tagged("WrongState", rpc.Encode(f.E))
+		case pipelineapi.WrongStage as f:
+			rpc.Tagged("WrongStage", rpc.Encode(f.E))
+		case pipelineapi.Closed as f:
+			rpc.Tagged("Closed", rpc.Encode(f.E))
+		case pipelineapi.BadLength as f:
+			rpc.Tagged("BadLength", rpc.Encode(f.E))
+		case pipelineapi.NoSuchRun as f:
+			rpc.Tagged("NoSuchRun", rpc.Encode(f.E))
+		case pipelineapi.Unavailable as f:
+			rpc.Tagged("Unavailable", rpc.Encode(f.E))
+		}
 	}
-	rpc.Encode(receipt)
 }
+
+// Transport is a generated transport of the Api: the command line, the
+// MCP tools, or the Effect RPC wire.
+type Transport = Line{} | Tools{} | Wire{}
