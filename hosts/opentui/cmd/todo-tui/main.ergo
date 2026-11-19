@@ -29,6 +29,7 @@ func main() fails os.Exit needs Ambient | go.Foreign {
 	with context { Scheduler: NewLiveScheduler(), term.Terminal: term.NewHost() } {
 		let a = actor.StartMachine(todo.Todo{}, 8, func(l todo.List) {})
 		tui.RunTerminal(a, view.View, tui.DefaultOptions()) catch {
+		// ergo-lint-disable-next-line silent-catch -- the app stopped: the program ends as the example's own binary does
 		case actor.Stopped:
 		case term.NotTerminal:
 			return os.Exit{Code: 1, Message: "todo-tui: standard input is not a terminal (try -headless)"}
@@ -85,6 +86,7 @@ func headless() fails os.Exit needs Ambient | go.Foreign {
 			out.Println("\(i + 1): \(todo.Summary(tui.StateOf(&d)))")
 		}
 		s.Quit() catch {
+		// ergo-lint-disable-next-line silent-catch -- the run is over; Quit restores the terminal as far as it can, and nothing is left to tell
 		case go.Error:
 		}
 	}

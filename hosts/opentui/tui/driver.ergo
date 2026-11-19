@@ -75,6 +75,7 @@ func NewWith[E comparable, S, D, F](s go.Ref[screen.Screen], a actor.Actor[S, E,
 	let posted = queue.New[ui.Event[E]](room)
 	try start(s, a, view, posted, o, func(ev ui.Event[E]) {
 		posted.Push(ev) catch {
+		// ergo-lint-disable-next-line silent-catch -- a result that comes after the driver ended has no one to show it to
 		case queue.Closed:
 		}
 	})
@@ -713,6 +714,7 @@ func RunWith[E comparable, S, D, F](s go.Ref[screen.Screen], a actor.Actor[S, E,
 	}
 	let mut d = try start(s, a, view, posted, o, func(ev ui.Event[E]) {
 		fetched.Push(ev) catch {
+		// ergo-lint-disable-next-line silent-catch -- a result that comes after the driver ended has no one to show it to
 		case queue.Closed:
 		}
 	})
@@ -743,6 +745,7 @@ func RunTerminal[E comparable, S, D, F](a actor.Actor[S, E, D, F], view own func
 		let s = try screen.Open()
 		scope.OnExit() {
 			s.Quit() catch {
+			// ergo-lint-disable-next-line silent-catch -- the terminal is going away; Quit restores it as far as it can, and nothing is left to tell
 			case go.Error:
 			}
 		}

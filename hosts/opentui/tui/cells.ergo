@@ -23,9 +23,9 @@ func Cells(n ui.Length, unit float64) float64 {
 // multiple of the cell is exactly that many cells.
 law CellsAreMonotone(a int, b int, k int, unit int) {
 	let u = float64((unit%32+32)%32 + 1)
-	let x = ui.Length(float64(a % 100000) / 4)
-	let y = ui.Length(float64(b % 100000) / 4)
-	let n = (k%1000+1000)%1000
+	let x = ui.Length(float64(a%100000) / 4)
+	let y = ui.Length(float64(b%100000) / 4)
+	let n = (k%1000 + 1000) % 1000
 	let monotone = if float64(x) <= float64(y) { Cells(x, u) <= Cells(y, u) } else { Cells(x, u) >= Cells(y, u) }
 	monotone && Cells(ui.Length(float64(n)*u), u) == float64(n)
 }

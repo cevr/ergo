@@ -19,7 +19,7 @@ func Cycle(n int, at int, back bool) int {
 // back to where they started; Shift+Tab undoes Tab.
 law TabCyclesAll(count int, start int) {
 	let n = (count%40+40)%40 + 1
-	let s = (start%n+n)%n
+	let s = (start%n + n) % n
 	let mut seen = []bool{}
 	for _ in 0..n {
 		seen = seen.Append(false)

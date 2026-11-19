@@ -60,7 +60,7 @@ func KeyName(code int, text string) string {
 // the text of a typed key, and no two named codes share a name.
 law KeyNameIsTotal(code int, other int) {
 	let keys = namedKeys()
-	let c = (code%70000+70000)%70000
+	let c = (code%70000 + 70000) % 70000
 	if KeyName(c, "") == "" {
 		return false
 	}

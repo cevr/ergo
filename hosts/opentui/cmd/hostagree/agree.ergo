@@ -63,6 +63,7 @@ func agree[E comparable, S](m Machine[S, E, int], view own func(f *ui.Frame[E], 
 		}
 	}
 	s.Quit() catch {
+	// ergo-lint-disable-next-line silent-catch -- the run is over; Quit restores the terminal as far as it can, and nothing is left to tell
 	case go.Error:
 	}
 	Console.Println("end")
@@ -202,6 +203,7 @@ func run[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *tui.Driver[S, E, 
 
 func atoi(s string) int {
 	strconv.Atoi(s) catch {
+	// ergo-lint-disable-next-line silent-catch -- a count that is no number is no Tab
 	case strconv.Malformed, strconv.OutOfRange:
 		0
 	}

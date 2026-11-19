@@ -189,4 +189,3 @@ func loadView(f *ui.Frame[int], s chosen) {
 		ui.Text(f, "key \(s.key) ready \(s.ready)")
 	}
 }
-
