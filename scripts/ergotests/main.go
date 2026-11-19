@@ -33,10 +33,14 @@ import (
 
 func main() {
 	run := flag.String("run", "", "run only the obligations whose name matches this regular expression")
+	killer := flag.String("killer", "", "run one test, or law:L for a law, as the mutant runner names a killer; it must pass")
 	flag.Parse()
-	if flag.NArg() == 0 {
-		fmt.Fprintln(os.Stderr, "usage: ergotests [-run REGEXP] DIR|DIR/...")
+	if flag.NArg() == 0 || *run != "" && *killer != "" {
+		fmt.Fprintln(os.Stderr, "usage: ergotests [-run REGEXP | -killer NAME] DIR|DIR/...")
 		os.Exit(2)
+	}
+	if *killer != "" {
+		os.Exit(runKiller(os.Stdout, flag.Args(), *killer))
 	}
 	var sel *regexp.Regexp
 	if *run != "" {
@@ -52,6 +56,28 @@ func main() {
 // runAll runs the obligations of every package the patterns name and
 // returns the exit code.
 func runAll(w io.Writer, patterns []string, sel *regexp.Regexp) int {
+	if sel == nil {
+		return runPicked(w, patterns, nil, false, "")
+	}
+	return runPicked(w, patterns, sel.MatchString, false, fmt.Sprintf("-run %q", sel))
+}
+
+// runKiller runs the obligations a mutant runner's killer name picks: the
+// test NAME, or for law:L every run of the law L ("law L", and "law L for
+// P" for each provider it is checked for). Each must pass: a law skipped
+// or incomplete at check time kills nothing, so it is no killer
+// (LAW-KILLER).
+func runKiller(w io.Writer, patterns []string, name string) int {
+	match := func(r string) bool { return r == name && !strings.HasPrefix(r, "law ") }
+	if law, ok := strings.CutPrefix(name, "law:"); ok {
+		match = func(r string) bool { return r == "law "+law || strings.HasPrefix(r, "law "+law+" for ") }
+	}
+	return runPicked(w, patterns, match, true, "-killer "+name)
+}
+
+// runPicked runs the obligations match picks (all, when nil); strict makes
+// a law pass only when it passed. A selection that picks none fails.
+func runPicked(w io.Writer, patterns []string, match func(string) bool, strict bool, desc string) int {
 	var dirs []string
 	for _, p := range patterns {
 		ds, err := packages(p)
@@ -63,14 +89,14 @@ func runAll(w io.Writer, patterns []string, sel *regexp.Regexp) int {
 	}
 	code, selected := 0, 0
 	for _, dir := range dirs {
-		n, ok := runDir(w, dir, sel)
+		n, ok := runDir(w, dir, match, strict)
 		selected += n
 		if !ok {
 			code = 1
 		}
 	}
-	if sel != nil && selected == 0 {
-		fmt.Fprintf(w, "ergotests: -run %q selects no test or law of %s\n", sel, strings.Join(patterns, " "))
+	if match != nil && selected == 0 {
+		fmt.Fprintf(w, "ergotests: %s selects no test or law of %s\n", desc, strings.Join(patterns, " "))
 		return 1
 	}
 	return code
@@ -109,7 +135,7 @@ func hasErgo(dir string) bool {
 
 // runDir checks dir, evaluates it and reports each selected obligation. It
 // returns how many it selected and whether they all hold.
-func runDir(w io.Writer, dir string, sel *regexp.Regexp) (int, bool) {
+func runDir(w io.Writer, dir string, match func(string) bool, strict bool) (int, bool) {
 	abs, err := filepath.Abs(dir)
 	if err != nil {
 		fmt.Fprintf(w, "FAIL %s: %v\n", dir, err)
@@ -131,11 +157,11 @@ func runDir(w io.Writer, dir string, sel *regexp.Regexp) (int, bool) {
 	}
 	n, ok := 0, true
 	for _, r := range rep.Results {
-		if sel != nil && !sel.MatchString(r.Name) {
+		if match != nil && !match(r.Name) {
 			continue
 		}
 		n++
-		if holds(r) {
+		if holds(r, strict) {
 			fmt.Fprintf(w, "%s %s: %s\n", r.Status, dir, r.Name)
 			continue
 		}
@@ -146,9 +172,10 @@ func runDir(w io.Writer, dir string, sel *regexp.Regexp) (int, bool) {
 }
 
 // holds says whether an obligation's result passes the run: a test only
-// when it passed; a law unless it was refuted or hit a defect.
-func holds(r eval.Result) bool {
-	if strings.HasPrefix(r.Name, "law ") {
+// when it passed; a law unless it was refuted or hit a defect, or, strict,
+// only when it passed.
+func holds(r eval.Result, strict bool) bool {
+	if !strict && strings.HasPrefix(r.Name, "law ") {
 		return !slices.Contains([]eval.Status{eval.Refuted, eval.Defect}, r.Status)
 	}
 	return r.Status == eval.Passed

@@ -16,7 +16,8 @@ import (
 //
 // Mutants (testdata/mutants.json): ergotests-skip-is-pass,
 // ergotests-run-ignored, ergotests-empty-run-passes,
-// ergotests-testdata-walked.
+// ergotests-testdata-walked, lawkiller-skipped-law-kills,
+// lawkiller-law-name-ignored, lawkiller-test-matches-law.
 func TestErgoTestsJudgeEachObligation(t *testing.T) {
 	root := t.TempDir()
 	write := func(name, text string) {
@@ -30,7 +31,7 @@ func TestErgoTestsJudgeEachObligation(t *testing.T) {
 	}
 	write("a/a.ergo", "extern go strings.ToUpper func upper(s string) string\n\nfunc twice(n int) int { n + n }\n\n"+
 		"test Good {\n\tassert twice(2) == 4\n}\n\ntest Bad {\n\tassert twice(2) == 5\n}\n\n"+
-		"test Skips {\n\tassert upper(\"q\") == \"Q\"\n}\n\nlaw Doubles(n int) { twice(n) - n == n }\n")
+		"test Skips {\n\tassert upper(\"q\") == \"Q\"\n}\n\nlaw Doubles(n int) { twice(n) - n == n }\n\nlaw Shouts(s string) { upper(s) == upper(s) }\n")
 	write("a/b/b.ergo", "test Nested {\n\tassert 1 + 1 == 2\n}\n")
 	write("a/testdata/bad/bad.ergo", "this does not parse\n")
 	dir := filepath.Join(root, "a")
@@ -61,5 +62,20 @@ func TestErgoTestsJudgeEachObligation(t *testing.T) {
 	}
 	if _, out := run(dir+"/...", "^Nested$"); !strings.Contains(out, "passed") || !strings.Contains(out, "Nested") {
 		t.Errorf("DIR/... does not reach the nested package:\n%s", out)
+	}
+	// -killer NAME is the mutant runner's: one test, or law:L for a law
+	// (LAW-KILLER), which must pass outright: a law skipped at check time
+	// kills nothing, so it is no baseline, though -run lets it by.
+	for _, c := range []struct {
+		name string
+		code int
+	}{{"Good", 0}, {"Bad", 1}, {"law:Doubles", 0}, {"law:Shouts", 1}, {"law:Missing", 1}, {"Doubles", 1}, {"law:Good", 1}} {
+		var out strings.Builder
+		if code := runKiller(&out, []string{dir}, c.name); code != c.code {
+			t.Errorf("ergotests -killer %s: exit %d, want %d\n%s", c.name, code, c.code, out.String())
+		}
+	}
+	if code, out := run(dir, "^law Shouts$"); code != 0 {
+		t.Errorf("-run of a law skipped at check time: exit %d, want 0 (as ergo check)\n%s", code, out)
 	}
 }

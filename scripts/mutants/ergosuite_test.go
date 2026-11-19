@@ -16,11 +16,11 @@ import (
 // refused, and a directory with Go tests stays a Go suite.
 //
 // Mutants (testdata/mutants.json): st0-ergo-dir-is-go,
-// st0-ergo-test-unchecked.
+// st0-ergo-test-unchecked, lawkiller-law-undeclared.
 func TestErgoTestKillerIsRunByErgoTests(t *testing.T) {
 	root := t.TempDir()
 	for f, text := range map[string]string{
-		"compiler/syntax/scan.ergo": "func scan() int { 1 }\n\ntest ScanOne {\n\tassert scan() == 1\n}\n",
+		"compiler/syntax/scan.ergo": "func scan() int { 1 }\n\ntest ScanOne {\n\tassert scan() == 1\n}\n\nlaw ScanIsOne(n int) { scan() == 1 }\n",
 		"mixed/m.ergo":              "test Mixed {\n\tassert true\n}\n",
 		"mixed/m_test.go":           "package mixed\n\nfunc TestGo(t *testing.T) {}\n",
 	} {
@@ -39,7 +39,7 @@ func TestErgoTestKillerIsRunByErgoTests(t *testing.T) {
 		}
 		return []Job{{Path: ledgerPath(root, filepath.Join(root, "compiler", "syntax")), Ledger: &Ledger{Mutants: ms}}}
 	}
-	_, tools, suites, err := suitesFor(root, ledger("compiler/syntax:ScanOne", "mixed:TestGo"))
+	_, tools, suites, err := suitesFor(root, ledger("compiler/syntax:ScanOne", "mixed:TestGo", "compiler/syntax:law:ScanIsOne"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,8 +48,9 @@ func TestErgoTestKillerIsRunByErgoTests(t *testing.T) {
 		t.Fatalf("suites %+v: no compiler/syntax suite", suites)
 	}
 	s := suites[i]
-	if s.Package != "" || !slices.Equal(s.Command, []string{"{bin:ergotests}", "-run", "^{test}$", "{root}/compiler/syntax"}) || !slices.Equal(s.Named, []string{"ScanOne"}) {
-		t.Errorf("the Ergo package's suite is %+v; want ergotests running ScanOne", s)
+	// A law is a killer too, named law:L (LAW-KILLER).
+	if s.Package != "" || !slices.Equal(s.Command, []string{"{bin:ergotests}", "-killer", "{test}", "{root}/compiler/syntax"}) || !slices.Equal(s.Named, []string{"ScanOne", "law:ScanIsOne"}) {
+		t.Errorf("the Ergo package's suite is %+v; want ergotests running ScanOne and law:ScanIsOne", s)
 	}
 	if !slices.ContainsFunc(tools, func(u Tool) bool { return u.Name == "ergotests" && u.Package == "./scripts/ergotests" }) {
 		t.Errorf("tools %+v: ergotests is not built", tools)
@@ -57,8 +58,9 @@ func TestErgoTestKillerIsRunByErgoTests(t *testing.T) {
 	if j := slices.IndexFunc(suites, func(s Suite) bool { return s.Name == "mixed" }); j < 0 || suites[j].Package != "./mixed" {
 		t.Errorf("a directory with Go tests is not a Go suite: %+v", suites)
 	}
-	_, _, _, err = suitesFor(root, ledger("compiler/syntax:ScanTwo"))
-	if err == nil || !strings.Contains(err.Error(), "names no test") {
-		t.Errorf("a killer no Ergo test declares: err %v; want it refused", err)
+	for _, id := range []string{"compiler/syntax:ScanTwo", "compiler/syntax:law:ScanIsTwo", "compiler/syntax:law:ScanOne"} {
+		if _, _, _, err := suitesFor(root, ledger(id)); err == nil || !strings.Contains(err.Error(), "names no test") {
+			t.Errorf("killer %s, which the package does not declare: err %v; want it refused", id, err)
+		}
 	}
 }

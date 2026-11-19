@@ -389,10 +389,18 @@ func ergoPackage(root, dir string) bool {
 	return len(files) > 0 && !goFiles(root, dir, true)
 }
 
-// ergoTest says whether an Ergo test named test is declared in dir.
+// ergoTest says whether dir declares the Ergo test named test, or for
+// law:L the law L, top-level or a member law (LAW-KILLER).
 func ergoTest(root, dir, test string) bool {
 	files, _ := filepath.Glob(filepath.Join(root, filepath.FromSlash(dir), "*.ergo"))
 	decl := regexp.MustCompile(`(?m)^test ` + regexp.QuoteMeta(test) + `\s*\{`)
+	if law, ok := strings.CutPrefix(test, "law:"); ok {
+		_, member, _ := strings.Cut(law, ".")
+		if member == "" {
+			member = law
+		}
+		decl = regexp.MustCompile(`(?m)^\s*law ` + regexp.QuoteMeta(member) + `\b`)
+	}
 	for _, f := range files {
 		if data, err := os.ReadFile(f); err == nil && decl.Match(data) {
 			return true
@@ -439,7 +447,7 @@ func namedSuite(root, name string) (Suite, []Tool, bool) {
 		return Suite{}, nil, false
 	}
 	if !tagged && ergoPackage(root, dir) {
-		return Suite{Name: name, Command: []string{"{bin:ergotests}", "-run", "^{test}$", "{root}/" + dir}}, []Tool{ergoTestsTool}, true
+		return Suite{Name: name, Command: []string{"{bin:ergotests}", "-killer", "{test}", "{root}/" + dir}}, []Tool{ergoTestsTool}, true
 	}
 	if mod := nestedModule(root, dir); mod != "" {
 		return Suite{Name: name, Module: mod, Package: "./" + strings.TrimPrefix(strings.TrimPrefix(dir, mod), "/"), Tags: tags}, nil, true
