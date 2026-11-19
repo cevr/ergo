@@ -13,6 +13,7 @@
 // process only through a Host it was given or made under Ambient.
 
 import slices
+import strconv
 import strings
 import time
 import sync
@@ -250,9 +251,10 @@ type Runner {
 	Start(c Command, s Streams) Running fails NotFound | Denied | Failed,
 
 	// StartAgreesWithRun: a started program whose streams go to the
-	// caller gives the lines and the status Run gives.
-	law StartAgreesWithRun(name string) {
-		let c = New(name, []string{})
+	// caller gives the lines and the status Run gives. The program is a
+	// drawn Shell, so on a host each case runs one.
+	law StartAgreesWithRun(sh Shell) {
+		let c = ShellCommand(sh)
 		let want = Run(c) catch {
 		case NotFound, Denied, Failed:
 			return true
@@ -277,8 +279,8 @@ type Runner {
 	// goes to its standard output (ToStdout), which goes to the caller,
 	// gives one stream, no byte of it marked Stderr: the bytes of Run's
 	// Stdout and Stderr, each in its order, interleaved; and Run's status.
-	law StartMergedInterleavesRun(name string) {
-		let c = New(name, []string{})
+	law StartMergedInterleavesRun(sh Shell) {
+		let c = ShellCommand(sh)
 		let want = Run(c) catch {
 		case NotFound, Denied, Failed:
 			return true
@@ -295,6 +297,26 @@ type Runner {
 			got = got + k.Text
 		}
 		Interleaves(got, want.Stdout, want.Stderr) && p.Wait() == want.Status
+	},
+
+	// ShellRunsAsWritten: a Shell that runs writes its texts, each to its
+	// stream, and exits with its Status's low 8 bits, so the Shell laws
+	// above run the program they draw.
+	law ShellRunsAsWritten(sh Shell) {
+		let r = Run(ShellCommand(sh)) catch {
+		case NotFound, Denied, Failed:
+			return true
+		}
+		let mut out = ""
+		let mut errs = ""
+		for w in sh.Writes {
+			if w.Stderr {
+				errs = errs + w.Text
+			} else {
+				out = out + w.Text
+			}
+		}
+		r.Stdout == out && r.Stderr == errs && r.Status == (sh.Status % 256 + 256) % 256
 	},
 
 	// NotFoundNamesTheProgram: a program that is not found is named by its
@@ -390,6 +412,36 @@ func merged(s string, a string, b string) bool {
 	let rest = strings.Slice(s, 1, len(s))
 	(s[0] == a[0] && merged(rest, strings.Slice(a, 1, len(a)), b)) || (s[0] == b[0] && merged(rest, a, strings.Slice(b, 1, len(b))))
 }
+
+// Shell is a program for the Runner laws that exists on every host: sh
+// writes each of Writes in order, then exits with Status (its low 8
+// bits). A law that draws a Shell runs a real program on a host provider,
+// where a drawn name would mostly be NotFound.
+type Shell { Writes []ShellWrite, Status int }
+
+// ShellWrite is one write of a Shell: Text, any bytes, to standard error
+// when Stderr, else to standard output.
+type ShellWrite { Text string, Stderr bool }
+
+// ShellCommand is sh as a Command: sh -c with a script of one printf per
+// write, each byte of its text written as an octal escape, so every byte,
+// NUL included, reaches the stream as it is.
+func ShellCommand(sh Shell) Command {
+	let mut script = ""
+	for w in sh.Writes {
+		let mut format = ""
+		for k in 0..len(w.Text) {
+			let b = int(w.Text[k])
+			format = format + "\\" + octal(b / 64) + octal(b / 8 % 8) + octal(b % 8)
+		}
+		script = script + "printf '" + format + "'" + (if w.Stderr { " >&2" } else { "" }) + "\n"
+	}
+	let status = (sh.Status % 256 + 256) % 256
+	New("sh", []string{"-c", script + "exit " + strconv.Itoa(status)})
+}
+
+// octal is the digit d, 0 to 7.
+func octal(d int) string { strings.Slice("01234567", d, d+1) }
 
 // Detached names a program started to outlive the code that started it
 // (Spawner.Spawn). It is plain data: it crosses, has no release, and is

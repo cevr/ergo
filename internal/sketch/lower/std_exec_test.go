@@ -357,25 +357,9 @@ test ExecRunnerStartMergedInterleavesRun(name string, out string, errs string, s
 	assert p.Wait() == want.Status
 }
 
-// The law on the host, in the case's folder: sh writes pairs of lines to
-// its two streams in turn.
+// onHost runs the Runner laws as written on the test host, in the
+// case's folder: each case runs the Shell it draws.
 let onHost = context needs TestAmbient { exec.Runner: exec.NewTestHost() }
-
-test ExecHostStartMergedInterleavesRun(n int) {
-	let pairs = n % 40
-	let c = exec.New("sh", []string{"-c", "k=0; while [ $k -lt \(pairs) ]; do echo o$k; echo e$k >&2; k=$((k+1)); done; exit 3"})
-	with onHost {
-		let want = try exec.Runner.Run(c)
-		let p = try exec.Runner.Start(c, exec.Streams{Stdout: exec.ToCaller, Stderr: exec.ToStdout})
-		let mut got = ""
-		for k in p.Chunks() {
-			assert !k.Stderr
-			got = got + k.Text
-		}
-		assert exec.Interleaves(got, want.Stdout, want.Stderr)
-		assert p.Wait() == want.Status
-	}
-}
 
 test ExecInterleavesMatchesModel(a string, b string, picks []bool, t string) {
 	let x = upTo5(a)
@@ -429,6 +413,16 @@ func merged(s string, a string, b string) bool {
 	}
 	let rest = strings.Slice(s, 1, len(s))
 	(s[0] == a[0] && merged(rest, strings.Slice(a, 1, len(a)), b)) || (s[0] == b[0] && merged(rest, a, strings.Slice(b, 1, len(b))))
+}
+
+test ExecRunnerShellRunsAsWritten(out string, errs string, status int) {
+	let sh = exec.Shell{Writes: []exec.ShellWrite{exec.ShellWrite{Text: out, Stderr: false}, exec.ShellWrite{Text: errs, Stderr: true}}, Status: status}
+	let c = exec.ShellCommand(sh)
+	let mut results = Map[string, exec.Result]{}
+	results[exec.Key(c)] = exec.Result{Status: (status % 256 + 256) % 256, Stdout: out, Stderr: errs}
+	let r = try exec.Script{Results: results}.Run(c)
+	assert r.Stdout == out
+	assert r.Stderr == errs
 }
 
 test ExecSpawnerKilledIsNotAlive(name string) {
@@ -506,8 +500,9 @@ test ScriptNotFoundNamesTheProgram(name string, other string) {
 // law's source text as the ledger writes it, by ledger key; lawledger.Run
 // holds it equal to the ledger (fu-ledger-runner).
 var execLawStatements = map[string]string{
-	"exec Runner.StartAgreesWithRun":        `StartAgreesWithRun(name string) { let c = New(name, []string{}) let want = Run(c) catch { case NotFound, Denied, Failed: return true } let p = Start(c, Streams{Stdout: ToCaller, Stderr: ToCaller}) catch { case NotFound, Denied, Failed: return false } let mut out = []string{} let mut errs = []string{} for l in p.Lines() { if l.Stderr { errs = errs.Append(l.Text) } else { out = out.Append(l.Text) } } slices.Equal(out, Split(want.Stdout)) && slices.Equal(errs, Split(want.Stderr)) && p.Wait() == want.Status }`,
-	"exec Runner.StartMergedInterleavesRun": `StartMergedInterleavesRun(name string) { let c = New(name, []string{}) let want = Run(c) catch { case NotFound, Denied, Failed: return true } let p = Start(c, Streams{Stdout: ToCaller, Stderr: ToStdout}) catch { case NotFound, Denied, Failed: return false } let mut got = "" for k in p.Chunks() { if k.Stderr { return false } got = got + k.Text } Interleaves(got, want.Stdout, want.Stderr) && p.Wait() == want.Status }`,
+	"exec Runner.StartAgreesWithRun":        `StartAgreesWithRun(sh Shell) { let c = ShellCommand(sh) let want = Run(c) catch { case NotFound, Denied, Failed: return true } let p = Start(c, Streams{Stdout: ToCaller, Stderr: ToCaller}) catch { case NotFound, Denied, Failed: return false } let mut out = []string{} let mut errs = []string{} for l in p.Lines() { if l.Stderr { errs = errs.Append(l.Text) } else { out = out.Append(l.Text) } } slices.Equal(out, Split(want.Stdout)) && slices.Equal(errs, Split(want.Stderr)) && p.Wait() == want.Status }`,
+	"exec Runner.ShellRunsAsWritten":        `ShellRunsAsWritten(sh Shell) { let r = Run(ShellCommand(sh)) catch { case NotFound, Denied, Failed: return true } let mut out = "" let mut errs = "" for w in sh.Writes { if w.Stderr { errs = errs + w.Text } else { out = out + w.Text } } r.Stdout == out && r.Stderr == errs && r.Status == (sh.Status % 256 + 256) % 256 }`,
+	"exec Runner.StartMergedInterleavesRun": `StartMergedInterleavesRun(sh Shell) { let c = ShellCommand(sh) let want = Run(c) catch { case NotFound, Denied, Failed: return true } let p = Start(c, Streams{Stdout: ToCaller, Stderr: ToStdout}) catch { case NotFound, Denied, Failed: return false } let mut got = "" for k in p.Chunks() { if k.Stderr { return false } got = got + k.Text } Interleaves(got, want.Stdout, want.Stderr) && p.Wait() == want.Status }`,
 	"exec InterleavesMatchesModel":          `InterleavesMatchesModel(a string, b string, picks []bool, t string) { let x = upTo5(a) let y = upTo5(b) let s = pickMerge(x, y, picks) let checks = []string{s, swapFirst(s), upTo5(t), s + "x"} slices.All(checks, func(u string) bool { Interleaves(u, x, y) == merged(u, x, y) }) }`,
 	"exec ScriptReplaysRecorded":            `ScriptReplaysRecorded(name string, arg string, status int, out string) { let c = New(name, []string{arg, arg}) let joined = New(name, []string{arg + "," + arg}) let mut results = Map[string, Result]{} results[Key(c)] = Result{Status: status, Stdout: out, Stderr: ""} results[Key(joined)] = Result{Status: status + 1, Stdout: out, Stderr: ""} let r = Script{Results: results}.Run(c) catch { case NotFound, Denied, Failed: return false } let s = Script{Results: results}.Run(joined) catch { case NotFound, Denied, Failed: return false } r.Status == status && r.Stdout == out && r.Stderr == "" && s.Status == status+1 }`,
 	"exec WaitForEndedGivesStatus":          `WaitForEndedGivesStatus(status int, d int64) { let c = New("x", []string{}) let mut results = Map[string, Result]{} results[Key(c)] = Result{Status: status, Stdout: "", Stderr: ""} let p = Script{Results: results}.Start(c, Streams{Stdout: Discard, Stderr: Discard}) catch { case NotFound, Denied, Failed: return false } with context { Scheduler: time.NewManual(0) } { let code = p.WaitFor(duration(d)) catch { case timeout.Expired: return false } code == status } }`,
@@ -520,9 +515,9 @@ var execLawStatements = map[string]string{
 // TestExecLaws runs the probe with --seed 1; lawledger.Run holds that it
 // restates exactly the ledger's laws whose runner is this test, each with
 // the row's statement, and that each passed. ScriptNotFoundNamesTheProgram
-// is the probe's own test of the Script provider, and
-// ExecHostStartMergedInterleavesRun restates StartMergedInterleavesRun on
-// the test host with sh as the program; neither is a ledger row.
+// is the probe's own test of the Script provider, not a ledger row. The
+// Runner laws also run as written on the test host (onHost), each case a
+// drawn Shell, and each of those runs must pass.
 //
 // It builds Go because the laws run in the built test binary (ergo test),
 // the only place a law runs.
@@ -536,13 +531,13 @@ func TestExecLaws(t *testing.T) {
 	if code != 0 {
 		t.Errorf("the exec law tests failed: exit %d\n%s\n%s", code, stdout, firstLines(stderr, 20))
 	}
-	for _, extra := range []string{"ScriptNotFoundNamesTheProgram", "ExecHostStartMergedInterleavesRun"} {
-		if !regexp.MustCompile(`(?m)^ok ` + extra + `( \(\d+ cases\))?$`).MatchString(stdout) {
-			t.Errorf("no ok line for %s:\n%s", extra, stdout)
+	for _, line := range []string{"ok ScriptNotFoundNamesTheProgram", "ok law exec.Runner.StartAgreesWithRun under onHost", "ok law exec.Runner.StartMergedInterleavesRun under onHost", "ok law exec.Runner.ShellRunsAsWritten under onHost"} {
+		if !regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(line) + `( \(\d+ cases\))?$`).MatchString(stdout) {
+			t.Errorf("no line %q:\n%s", line, stdout)
 		}
 	}
 	lawledger.Run(t, lawsPassed(t, execLawStatements, func(key string) string {
 		pkg, law, _ := strings.Cut(key, " ")
 		return stdLawsTestName(pkg, law)
-	}, execLawsProbe, stdout, "ScriptNotFoundNamesTheProgram", "ExecHostStartMergedInterleavesRun"))
+	}, execLawsProbe, stdout, "ScriptNotFoundNamesTheProgram"))
 }
