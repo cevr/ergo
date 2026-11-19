@@ -135,7 +135,7 @@ func step(s Store, op session.Op) session.Outcome fails session.Failed {
 
 // Establish keeps a new session under d.
 func Establish(s Store, d session.Digest, subject string, revision int, now time.Time) fails session.Conflict | session.Failed {
-	match try apply(s, session.Establish{Digest: d, Subject: subject, Revision: revision, Now: now}) {
+	match try apply(s, session.EstablishOp{Digest: d, Subject: subject, Revision: revision, Now: now}) {
 	case session.Refused:
 		return session.Conflict
 	case _:
@@ -153,7 +153,7 @@ func Verify(s Store, d session.Digest, now time.Time) session.Verdict fails sess
 
 // Rotate moves the live session under old to new.
 func Rotate(s Store, old session.Digest, new session.Digest, now time.Time) session.Record fails session.Conflict | session.Failed {
-	match try apply(s, session.Rotate{Old: old, New: new, Now: now}) {
+	match try apply(s, session.RotateOp{Old: old, New: new, Now: now}) {
 	case session.Moved as m:
 		m.Record
 	case _:
@@ -163,7 +163,7 @@ func Rotate(s Store, old session.Digest, new session.Digest, now time.Time) sess
 
 // Revoke ends the session under d.
 func Revoke(s Store, d session.Digest) bool fails session.Failed {
-	match try apply(s, session.Revoke{Digest: d}) {
+	match try apply(s, session.RevokeOp{Digest: d}) {
 	case session.Ended as e:
 		e.Held
 	case _:
@@ -173,7 +173,7 @@ func Revoke(s Store, d session.Digest) bool fails session.Failed {
 
 // RevokeAll ends the sessions of subject below revision.
 func RevokeAll(s Store, subject string, revision int) fails session.Failed {
-	let _ = try apply(s, session.RevokeAll{Subject: subject, Revision: revision})
+	let _ = try apply(s, session.RevokeAllOp{Subject: subject, Revision: revision})
 }
 
 // script is one step of a FileIsMemory script: wait Wait milliseconds,
@@ -318,13 +318,13 @@ func timeText(t time.Time) string { "\(time.UnixSeconds(t))\t\(time.Nanosecond(t
 // lineOf is the log line of op, with its line feed.
 func lineOf(op session.Op) string {
 	match op {
-	case session.Establish as e:
+	case session.EstablishOp as e:
 		"est\t" + session.DigestText(e.Digest) + "\t" + strconv.Quote(e.Subject) + "\t\(e.Revision)\t" + timeText(e.Now) + "\n"
-	case session.Rotate as r:
+	case session.RotateOp as r:
 		"rot\t" + session.DigestText(r.Old) + "\t" + session.DigestText(r.New) + "\t" + timeText(r.Now) + "\n"
-	case session.Revoke as v:
+	case session.RevokeOp as v:
 		"rev\t" + session.DigestText(v.Digest) + "\n"
-	case session.RevokeAll as a:
+	case session.RevokeAllOp as a:
 		"all\t" + strconv.Quote(a.Subject) + "\t\(a.Revision)\n"
 	}
 }
@@ -335,13 +335,13 @@ func opOf(path string, n int, line string) session.Op fails session.Failed {
 	let bad = session.Failed{Reason: "\(path):\(n): not a change"}
 	match (f[0], len(f)) {
 	case ("est", 6):
-		session.Establish{Digest: try digestOf(f[1], bad), Subject: try unquote(f[2], bad), Revision: try intOf(f[3], bad), Now: try timeOf(f[4], f[5], bad)}
+		session.EstablishOp{Digest: try digestOf(f[1], bad), Subject: try unquote(f[2], bad), Revision: try intOf(f[3], bad), Now: try timeOf(f[4], f[5], bad)}
 	case ("rot", 5):
-		session.Rotate{Old: try digestOf(f[1], bad), New: try digestOf(f[2], bad), Now: try timeOf(f[3], f[4], bad)}
+		session.RotateOp{Old: try digestOf(f[1], bad), New: try digestOf(f[2], bad), Now: try timeOf(f[3], f[4], bad)}
 	case ("rev", 2):
-		session.Revoke{Digest: try digestOf(f[1], bad)}
+		session.RevokeOp{Digest: try digestOf(f[1], bad)}
 	case ("all", 3):
-		session.RevokeAll{Subject: try unquote(f[1], bad), Revision: try intOf(f[2], bad)}
+		session.RevokeAllOp{Subject: try unquote(f[1], bad), Revision: try intOf(f[2], bad)}
 	case (_, _):
 		bad
 	}
