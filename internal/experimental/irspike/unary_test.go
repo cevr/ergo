@@ -39,7 +39,10 @@ func TestIRUnaryOperandsMatchSource(t *testing.T) {
 //   - byteindex (red #31, NP4f-15's http query.ergo): the decoder refused
 //     a string or slice indexed by a byte, and a slice expression's byte
 //     bound (two derivative edits of the fork patch, which the irspike
-//     ledger's note names: red #31).
+//     ledger's note names: red #31);
+//   - mapkey (FLIP F7 PORT-TEMP, pipeline's failing): a Map key whose
+//     calls run statements runs them after the map and before the value's
+//     (mutant port-temp-key-after-value).
 //
 // It builds Go for the reason TestIRUnaryOperandsMatchSource does.
 func TestIRReprosMatchSource(t *testing.T) {
@@ -47,7 +50,7 @@ func TestIRReprosMatchSource(t *testing.T) {
 	for _, r := range []struct {
 		name string
 		fns  []string
-	}{{"notand", []string{"pick"}}, {"rowslot", []string{"held", "run"}}, {"byteindex", []string{"hex", "pick", "tail"}}} {
+	}{{"notand", []string{"pick"}}, {"rowslot", []string{"held", "run"}}, {"byteindex", []string{"hex", "pick", "tail"}}, {"mapkey", []string{"keyed", "indexed"}}} {
 		t.Run(r.name, func(t *testing.T) {
 			text, err := os.ReadFile(filepath.Join("testdata", r.name+".ergo"))
 			if err != nil {
