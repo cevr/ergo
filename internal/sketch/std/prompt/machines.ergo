@@ -31,13 +31,15 @@ type Question { Message string, Default bool }
 // Asking is the state of a confirm: the question.
 type Asking { Ask Question }
 
-// TypingStep is a text prompt's step: a Char adds itself, Backspace drops
+// TypingStep is a text prompt's step: a Char or a Paste adds its text, Backspace drops
 // the last character, Return ends with the text (or the default when
 // nothing is typed), and a cancel key ends with None.
 func TypingStep(s Typing, k term.Key) Decision[Typing, Option[string]] {
 	match k {
 	case term.Char as c:
 		Stay[Typing]{Next: Typing{Ask: s.Ask, Typed: s.Typed + c.Text}}
+	case term.Paste as p:
+		Stay[Typing]{Next: Typing{Ask: s.Ask, Typed: s.Typed + p.Text}}
 	case term.Backspace:
 		if s.Typed == "" {
 			return Ignore
@@ -47,7 +49,7 @@ func TypingStep(s Typing, k term.Key) Decision[Typing, Option[string]] {
 		Done[Option[string]]{Output: Some[string]{Value: if s.Typed == "" { s.Ask.Default } else { s.Typed }}}
 	case term.Escape, term.Interrupt, term.EndOfInput:
 		Done[Option[string]]{Output: None}
-	case term.Tab, term.Up, term.Down, term.Left, term.Right, term.Other:
+	case term.Tab, term.Up, term.Down, term.Left, term.Right, term.Home, term.End, term.Insert, term.Delete, term.PageUp, term.PageDown, term.F, term.Chord, term.Wheel, term.Resized, term.Other:
 		Ignore
 	}
 }
@@ -93,7 +95,7 @@ func PickingStep(s Picking, k term.Key) Decision[Picking, Option[int]] {
 		Done[Option[int]]{Output: Some[int]{Value: s.At}}
 	case term.Escape, term.Interrupt, term.EndOfInput:
 		Done[Option[int]]{Output: None}
-	case term.Char, term.Backspace, term.Left, term.Right, term.Other:
+	case term.Char, term.Backspace, term.Left, term.Right, term.Paste, term.Home, term.End, term.Insert, term.Delete, term.PageUp, term.PageDown, term.F, term.Chord, term.Wheel, term.Resized, term.Other:
 		Ignore
 	}
 }
@@ -152,7 +154,7 @@ func MarkingStep(s Marking, k term.Key) Decision[Marking, Option[[]int]] {
 		Done[Option[[]int]]{Output: Some[[]int]{Value: chosen}}
 	case term.Escape, term.Interrupt, term.EndOfInput:
 		Done[Option[[]int]]{Output: None}
-	case term.Backspace, term.Left, term.Right, term.Other:
+	case term.Backspace, term.Left, term.Right, term.Paste, term.Home, term.End, term.Insert, term.Delete, term.PageUp, term.PageDown, term.F, term.Chord, term.Wheel, term.Resized, term.Other:
 		Ignore
 	}
 }
@@ -198,7 +200,7 @@ func AskingStep(s Asking, k term.Key) Decision[Asking, Option[bool]] {
 		Done[Option[bool]]{Output: Some[bool]{Value: s.Ask.Default}}
 	case term.Escape, term.Interrupt, term.EndOfInput:
 		Done[Option[bool]]{Output: None}
-	case term.Backspace, term.Tab, term.Up, term.Down, term.Left, term.Right, term.Other:
+	case term.Backspace, term.Tab, term.Up, term.Down, term.Left, term.Right, term.Paste, term.Home, term.End, term.Insert, term.Delete, term.PageUp, term.PageDown, term.F, term.Chord, term.Wheel, term.Resized, term.Other:
 		Ignore
 	}
 }

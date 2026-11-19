@@ -36,6 +36,9 @@ import (
 func TestIOStdinStopModel(t *testing.T) {
 	oldIn := os.Stdin
 	defer func() { os.Stdin = oldIn }()
+	// The SIGWINCH watch a peek makes is the process's, made once, and
+	// os/signal's loop that serves it never ends: make it before counting.
+	termResizes()
 	before := runtime.NumGoroutine()
 	for seed := uint64(0); seed < 300; seed++ {
 		if steps, diff := stdinStopRun(seed); diff != "" {
