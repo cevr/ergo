@@ -1,3 +1,4 @@
+import html
 import strings
 
 // Page is one content file: its path under the content folder, its front
@@ -43,17 +44,17 @@ func Markup(body string) string {
 	let mut out = []string{}
 	for block in blocks(body) {
 		if strings.HasPrefix(block[0], "## ") {
-			out = out.Append("<h2>" + Escape(strings.TrimPrefix(block[0], "## ")) + "</h2>")
+			out = out.Append("<h2>" + html.Escape(strings.TrimPrefix(block[0], "## ")) + "</h2>")
 		} else if strings.HasPrefix(block[0], "# ") {
-			out = out.Append("<h1>" + Escape(strings.TrimPrefix(block[0], "# ")) + "</h1>")
+			out = out.Append("<h1>" + html.Escape(strings.TrimPrefix(block[0], "# ")) + "</h1>")
 		} else if allItems(block) {
 			let mut items = []string{}
 			for l in block {
-				items = items.Append("<li>" + Escape(strings.TrimPrefix(l, "- ")) + "</li>")
+				items = items.Append("<li>" + html.Escape(strings.TrimPrefix(l, "- ")) + "</li>")
 			}
 			out = out.Append("<ul>" + strings.Join(items, "") + "</ul>")
 		} else {
-			out = out.Append("<p>" + Escape(strings.Join(block, " ")) + "</p>")
+			out = out.Append("<p>" + html.Escape(strings.Join(block, " ")) + "</p>")
 		}
 	}
 	strings.Join(out, "\n")

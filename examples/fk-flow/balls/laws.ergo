@@ -1,10 +1,9 @@
 import fkflow/seed
+import math
 
 func inBounds(b Ball) bool {
 	b.X >= b.Radius && b.X <= Width-b.Radius && b.Y >= b.Radius && b.Y <= Height-b.Radius
 }
-
-func abs(v float64) float64 { if v < 0.0 { -v } else { v } }
 
 // BallsStayInBounds: balls dropped anywhere on the canvas are inside it,
 // a radius from each edge, after any frames, and a bounce turns a
@@ -20,7 +19,7 @@ law BallsStayInBounds(n uint64, points []int, frames []int) {
 		f = Advance(f, float64(((ms%200)+200)%200))
 		for i, b in f.Balls {
 			let was = before[i]
-			if !inBounds(b) || abs(b.VX) != abs(was.VX) || abs(b.VY) != abs(was.VY) || b.ID != was.ID {
+			if !inBounds(b) || math.Abs(b.VX) != math.Abs(was.VX) || math.Abs(b.VY) != math.Abs(was.VY) || b.ID != was.ID {
 				return false
 			}
 		}

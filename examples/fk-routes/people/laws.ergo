@@ -1,3 +1,4 @@
+import slices
 import strings
 
 // SearchMatchesNameOrRole: a search finds a person by any part of their
@@ -30,7 +31,7 @@ law HistoryKeepsTheNewestDistinct(picks []int) {
 		let t = texts[((k%len(texts))+len(texts))%len(texts)]
 		h = Remember(h, t)
 		if t != "" {
-			seen = front(t, without(seen, t))
+			seen = front(t, slices.Filter(seen, func(x string) bool { x != t }))
 		}
 	}
 	let want = if len(seen) > HistoryLimit { seen[0:HistoryLimit] } else { seen }
@@ -41,16 +42,6 @@ func front(t string, xs []string) []string {
 	let mut out = []string{t}
 	for x in xs {
 		out = out.Append(x)
-	}
-	out
-}
-
-func without(xs []string, t string) []string {
-	let mut out = []string{}
-	for x in xs {
-		if x != t {
-			out = out.Append(x)
-		}
 	}
 	out
 }

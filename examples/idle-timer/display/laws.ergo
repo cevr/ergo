@@ -37,8 +37,6 @@ func timed(trace []machines.Timed[Signal], end duration) Run needs time.Clock | 
 
 func pick(n int, count int) int { ((n % count) + count) % count }
 
-func ms(n int) duration { duration(int64(n) * 1000000) }
-
 func at(t duration, s Signal) machines.Timed[Signal] { machines.Timed[Signal]{At: t, Signal: s} }
 
 // Count is how many of es are the event the word names.
@@ -141,7 +139,7 @@ type Idler machine[Display, Signal] {
 	// nothing more is abandoned exactly when the home screen's wait and the
 	// prompt have both passed: 30s and then 10s.
 	law NoAbandonBeforeIdle(n int) {
-		let end = ms(38000 + pick(n, 4000))
+		let end = time.Times(1ms, 38000+pick(n, 4000))
 		let r = run([]machines.Timed[Signal]{at(0s, Touch)}, end)
 		(Count(r.Told, "abandoned") == 1) == (end >= 40s)
 	},
@@ -153,10 +151,10 @@ type Idler machine[Display, Signal] {
 		let mut t = 0s
 		let mut trace = []machines.Timed[Signal]{at(0s, Touch)}
 		for g in gaps {
-			t = t + ms(pick(g, 30000))
+			t = t + time.Times(1ms, pick(g, 30000))
 			trace = trace.Append(at(t, Touch))
 		}
-		let r = run(trace, t+ms(29999))
+		let r = run(trace, t+time.Times(1ms, 29999))
 		Count(r.Told, "abandoned") == 0 && Name(r.Last) == "waiting"
 	},
 
@@ -167,9 +165,9 @@ type Idler machine[Display, Signal] {
 		let k = pick(n, 10)
 		let mut trace = []machines.Timed[Signal]{at(0s, Touch)}
 		for i in 0..k {
-			trace = trace.Append(at(ms(30500+1000*i), Tick))
+			trace = trace.Append(at(time.Times(1ms, 30500+1000*i), Tick))
 		}
-		let before = run(trace, ms(39999))
+		let before = run(trace, time.Times(1ms, 39999))
 		let after = run(trace, 40s)
 		Name(before.Last) == "prompt \(10 - k)" && Count(after.Told, "abandoned") == 1
 	},
@@ -177,7 +175,7 @@ type Idler machine[Display, Signal] {
 	// AssistWaitsLonger: with the assist mode on, the home screen waits twice
 	// as long before the prompt: 60s.
 	law AssistWaitsLonger(n int) {
-		let end = ms(59000 + pick(n, 2000))
+		let end = time.Times(1ms, 59000+pick(n, 2000))
 		let r = run([]machines.Timed[Signal]{at(0s, Touch), at(0s, Assist{On: true})}, end)
 		(Name(r.Last) == "prompt 10") == (end >= 60s)
 	},
@@ -186,8 +184,8 @@ type Idler machine[Display, Signal] {
 	// and its wait starts again, so the prompt's old deadline passes with no
 	// abandon.
 	law ContinueKeepsTheSession(n int) {
-		let touch = ms(30000 + pick(n, 10000))
-		let r = run([]machines.Timed[Signal]{at(0s, Touch), at(touch, Touch)}, touch+ms(29999))
+		let touch = time.Times(1ms, 30000+pick(n, 10000))
+		let r = run([]machines.Timed[Signal]{at(0s, Touch), at(touch, Touch)}, touch+time.Times(1ms, 29999))
 		Count(r.Told, "abandoned") == 0 && Name(r.Last) == "waiting"
 	},
 
@@ -202,7 +200,7 @@ type Idler machine[Display, Signal] {
 		for i, g in gaps {
 			if i < 12 {
 				let gap = pick(g, 1200)
-				t = t + ms(gap)
+				t = t + time.Times(1ms, gap)
 				trace = trace.Append(at(t, CornerTap))
 				count = if gap <= 600 { count + 1 } else { 1 }
 				if count >= 5 {
