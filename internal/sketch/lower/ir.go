@@ -815,7 +815,7 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 		b.part(func() { b.goType(b.result, f.Decl) })
 	}
 	b.ops = &irOpBody{f: f, env: b.env} // ir_forms_op.go
-	slots := b.next // the Go parameters' (ir_forms_flat.go)
+	slots := b.next                     // the Go parameters' (ir_forms_flat.go)
 	b.fn = &irFunc{Name: name, Pos: b.pos(f.Decl, f.Decl.Pos()), End: b.pos(f.Decl, f.Decl.Body.Rbrace)}
 	b.names = b.tempNames(f.Decl.Body)            // ir_fail.go
 	b.strVars = strBufVars(b.l.info, f.Decl.Body) // strbuf.go
