@@ -472,7 +472,9 @@ internal/rpcgen/held_test.go	*
 internal/sketch/std/rpc/rpc.ergo	*
 runtime/v1/rpc/rpc.go	*
 runtime/v1/rpc/rpc_test.go	*
-docs/spec/rpc.md	*
+docs/spec/api.md	`Encode[T wire](v T) string`; `Decode[T wire]
+docs/spec/api.md	- `wire.ergo`: `Request`, the hub's
+docs/spec/api.md	a type with a by-name pair is its `Wire` type.
 docs/decisions.md	- **Effect RPC as a wire projection, not a target
 docs/decisions.md	TypeScript is a peer on the wire
 docs/design.md	Reopened 2026-11-10 as a wire projection, not a target

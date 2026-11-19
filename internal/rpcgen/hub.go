@@ -5,11 +5,11 @@
 // `mcp`) is written over it, so a call is one type on every surface:
 //
 //   - Request, a union with a variant per operation whose fields are the
-//     operation's parameters (the wire's: `ergo gen rpc` sends it as it is);
+//     operation's parameters (what every transport carries: `ergo gen rpc` sends it as it is);
 //   - Op, a variant per operation with no fields, what a policy matches on;
 //   - Reply, a variant per operation holding its value;
 //   - Failure, a variant per failure type of any row, named like the type
-//     (its wire tag), so two failure types of one name are refused;
+//     (its JSON tag), so two failure types of one name are refused;
 //   - Outcome, Done{Reply} or Rejected{Failure}: what a call ends in;
 //   - OpOf, Name (the kebab name every transport uses), Doc (the doc
 //     comment, else the signature) and Schema (the JSON schema of the
@@ -128,8 +128,7 @@ func RequestName(op string) string { return op + "Request" }
 func ReplyName(op string) string   { return op + "Reply" }
 func OpName(op string) string      { return op + "Op" }
 
-// failureTag is the name of the failure type t, which is its tag on the
-// wire.
+// failureTag is the name of the failure type t, which is its JSON tag.
 func failureTag(t check.Type) string {
 	if n, ok := unalias(t).(*check.Named); ok {
 		return n.Obj.Name
@@ -154,7 +153,7 @@ func Failures(ops []Op) []check.Type {
 }
 
 // FailureVariant is the Failure variant of the failure type t among the
-// failures of ops: its name, which is its tag on the wire, or, when the
+// failures of ops: its name, which is its JSON tag, or, when the
 // hub declares that name or derives it from an operation (a failure named
 // Rejected, or SubmitReply), the name and "Failure".
 func FailureVariant(ops []Op, t check.Type) string {
@@ -202,7 +201,7 @@ func (g *hubGen) fail(format string, args ...any) {
 }
 
 // failures collects the Failure variants and refuses two failure types
-// of one name: their variants, and their wire tags, would be one.
+// of one name: their variants, and their JSON tags, would be one.
 func (g *hubGen) failures(ops []Op) {
 	g.ops = ops
 	g.fails = Failures(ops)
@@ -210,7 +209,7 @@ func (g *hubGen) failures(ops []Op) {
 	for _, f := range g.fails {
 		name := failureTag(f)
 		if other, ok := byName[name]; ok {
-			g.fail("%s: the failures %s and %s have one name, %s, which is a failure's variant in the hub and its tag on the wire; rename one", g.op, other, f, name)
+			g.fail("%s: the failures %s and %s have one name, %s, which is a failure's variant in the hub and its JSON tag; rename one", g.op, other, f, name)
 			return
 		}
 		byName[name] = f
@@ -404,7 +403,7 @@ func (g *hubGen) file(ops []Op, docs map[string]string) string {
 	if len(failures) == 0 {
 		failures = []string{NoFailure + "{}"}
 	}
-	fmt.Fprintf(&b, "// Request is one call of %s: a variant per operation, whose fields\n// are the operation's parameters. It is the wire's request.\n", capName)
+	fmt.Fprintf(&b, "// Request is one call of %s: a variant per operation, whose fields\n// are the operation's parameters. It is the request every transport carries.\n", capName)
 	fmt.Fprintf(&b, "type Request = %s\n\n", strings.Join(requests, " | "))
 	fmt.Fprintf(&b, "// Op is an operation of %s: what a policy matches on.\n", capName)
 	fmt.Fprintf(&b, "type Op = %s\n\n", strings.Join(opVariants, " | "))
@@ -413,7 +412,7 @@ func (g *hubGen) file(ops []Op, docs map[string]string) string {
 	if len(g.fails) == 0 {
 		b.WriteString("// Failure is a failure of an operation. No operation fails, so its one\n// variant is NoFailure, which no Call answers.\n")
 	} else {
-		b.WriteString("// Failure is a failure of an operation: a variant per failure type of\n// any row, named like the type (its tag on the wire).\n")
+		b.WriteString("// Failure is a failure of an operation: a variant per failure type of\n// any row, named like the type (its JSON tag).\n")
 	}
 	fmt.Fprintf(&b, "type Failure = %s\n\n", strings.Join(failures, " | "))
 	b.WriteString("// Outcome is what one call ends in: its operation's value or one of\n// its failures.\ntype Outcome = Done{Reply Reply} | Rejected{Failure Failure}\n\n")
@@ -441,7 +440,7 @@ func (g *hubGen) file(ops []Op, docs map[string]string) string {
 	b.WriteString("}\n}\n\n")
 
 	b.WriteString("// valueOf is the JSON value text spells.\nfunc valueOf(text string) json.Value {\njson.Decode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, text) catch {\ncase _:\njson.Null\n}\n}\n\n")
-	b.WriteString("// Schema is the JSON schema of op's arguments: an object whose keys are\n// its parameters' wire keys, or the fields of its one record parameter.\nfunc Schema(op Op) json.Value {\nmatch op {\n")
+	b.WriteString("// Schema is the JSON schema of op's arguments: an object whose keys are\n// its parameters' JSON keys, or the fields of its one record parameter.\nfunc Schema(op Op) json.Value {\nmatch op {\n")
 	for _, op := range ops {
 		fmt.Fprintf(&b, "case %s:\nvalueOf(%s)\n", OpName(op.Name), lit(g.arguments(op)))
 	}
@@ -632,7 +631,7 @@ var stringLit = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile
 
 // The JSON schema of an operation's arguments (moved here from mcpgen).
 
-// Flat is the wire key of op's only parameter when it is a record whose
+// Flat is the JSON key of op's only parameter when it is a record whose
 // fields are the arguments; "" otherwise.
 func Flat(op Op) string {
 	if len(op.Params) == 1 {
@@ -657,7 +656,7 @@ func (g *hubGen) arguments(op Op) string {
 	return object(props, required)
 }
 
-// paramKey is the wire key of the Request field of the parameter name.
+// paramKey is the JSON key of the Request field of the parameter name.
 func paramKey(name string) string {
 	return check.WireFieldName(&check.Field{Name: FieldName(name)})
 }
@@ -711,7 +710,7 @@ func payloadOf(t check.Type) check.Type {
 	return nil
 }
 
-// formSchema is the JSON schema of a type that declares its wire form
+// formSchema is the JSON schema of a type that declares its JSON form
 // (WireForm; docs/spec/types.md, Codecs), by the form and not by its name,
 // so any module's type of that form has the same schema. ok is false for
 // WireDefault and for WireOmittable, which is a record field's (record)
@@ -741,7 +740,7 @@ func (g *hubGen) formSchema(n *check.Named, seen map[*check.Named]bool, where st
 	return "", false
 }
 
-// schema is the JSON schema of t's wire form (docs/spec/types.md, Codecs
+// schema is the JSON schema of t's JSON form (docs/spec/types.md, Codecs
 // 2): where names the parameter for a refusal.
 func (g *hubGen) schema(t check.Type, seen map[*check.Named]bool, where string) string {
 	t = unalias(t)

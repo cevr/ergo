@@ -10,7 +10,7 @@ import json
 import sync
 
 // Request is one call of code.Reader: a variant per operation, whose fields
-// are the operation's parameters. It is the wire's request.
+// are the operation's parameters. It is the request every transport carries.
 type Request = DescribeRequest{} | SymbolsRequest{Q code.SymbolQuery} | SymbolRequest{A string} | ReferencesRequest{Q code.RefQuery} | CallsRequest{Q code.CallQuery} | ApiRequest{Q code.ApiQuery} | ReachRequest{Q code.ReachQuery} | MachineOfRequest{A string}
 
 // Op is an operation of code.Reader: what a policy matches on.
@@ -20,7 +20,7 @@ type Op = DescribeOp{} | SymbolsOp{} | SymbolOp{} | ReferencesOp{} | CallsOp{} |
 type Reply = DescribeReply{Value code.Summary} | SymbolsReply{Value code.SymbolPage} | SymbolReply{Value code.Decl} | ReferencesReply{Value code.SitePage} | CallsReply{Value code.CallPage} | ApiReply{Value code.ApiView} | ReachReply{Value code.ReachPage} | MachineOfReply{Value code.MachineView}
 
 // Failure is a failure of an operation: a variant per failure type of
-// any row, named like the type (its tag on the wire).
+// any row, named like the type (its JSON tag).
 type Failure = NoSymbol{E code.NoSymbol} | Ambiguous{E code.Ambiguous} | NotCallable{E code.NotCallable} | NoPackage{E code.NoPackage} | NotMachine{E code.NotMachine}
 
 // Outcome is what one call ends in: its operation's value or one of
@@ -102,7 +102,7 @@ func valueOf(text string) json.Value {
 }
 
 // Schema is the JSON schema of op's arguments: an object whose keys are
-// its parameters' wire keys, or the fields of its one record parameter.
+// its parameters' JSON keys, or the fields of its one record parameter.
 func Schema(op Op) json.Value {
 	match op {
 	case DescribeOp:
