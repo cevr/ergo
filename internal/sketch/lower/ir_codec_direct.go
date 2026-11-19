@@ -15,9 +15,9 @@ package lower
 // adapter (an operations conversion), so the cell is the adapter's v
 // field: the same storage the adapter's methods write, as the emitter's
 // cell window (cellOperand) is.
-// A type the emitter writes inline (a basic value's one event, which
-// cellEvents turns into the provider's calls) is refused before
-// (codecCall), and so is a direct writer that is no cell.
+// A basic value (the emitter's inline event, which cellEvents turns into
+// the provider's call) is the adapter's method of its operation on the
+// cell: `cell.Int(env.task, int64(v))` (basicEvent).
 //
 // Prior art: serde's Serializer is a value its derive threads by value
 // through each field (`serializer.serialize_struct(...)` consumes it);
@@ -32,20 +32,19 @@ import (
 
 func (b *irBuilder) directEncode(x *syntax.CallExpr, c *check.Call, via int, p irPos) ([]*irStmt, *irExpr, bool) {
 	em := wireEvents{via: via}
+	// Every direct writer is a cell (directSource admits only a cell
+	// writer), and its adapter and cell function have names from the
+	// naming pass (naming.go): anything else is the lowering's defect.
 	cw, ok := b.l.cellOf(em)
 	if !ok {
-		irNo("encode on a direct writer that is no cell")
+		ice(x, "the direct writer %d is no cell", via)
 	}
-	key, base, ok := b.l.adapterName(cw.conv)
-	if !ok {
-		irNo("encode on a direct writer with no adapter")
-	}
+	key, _, ok := b.l.adapterName(cw.conv)
 	adapter, okA := b.l.pkgNames[pkgKey{"adapter", key}]
 	cellOf, okC := b.l.pkgNames[pkgKey{"cell of", key}]
-	if !okA || !okC {
-		irNo("encode on a direct writer whose cell has no reserved name")
+	if !ok || !okA || !okC {
+		ice(x, "the cell writer %s has no named adapter or cell function", key)
 	}
-	_ = base
 	var pre []*irStmt
 	if b.fc.frame.polls {
 		pre = append(pre, b.poll(x))
@@ -67,6 +66,12 @@ func (b *irBuilder) directEncode(x *syntax.CallExpr, c *check.Call, via int, p i
 		return &irExpr{K: "field", Pos: p, Name: "v", X: &irExpr{K: "local", Pos: p, I: a}}
 	}
 	env := &irExpr{K: "local", Pos: p, I: b.env}
+	if b.l.wireInline(c.Type) {
+		// A basic value: its one event, the adapter's method of the
+		// Writer's operation on the cell (basicEvent), as the emitter's
+		// cellEvents makes wireEvents.basic the provider's call.
+		return append(pre, &irStmt{K: "expr", Pos: p, X: b.basicEvent(c.Type, &irExpr{K: "local", Pos: p, I: a}, v, p)}), nil, true
+	}
 	var write *irExpr
 	if tp, isParam := c.Type.(*check.TypeParam); isParam {
 		// The witness's Direct field for this writer (wireEvents.param).
