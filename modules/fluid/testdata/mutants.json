@@ -808,6 +808,38 @@
       "killers": [
         "examples:modules/fluid"
       ]
+    },
+    {
+      "name": "ts-class-renamed-one-side",
+      "origin": "wf10/fluid-ts FLUID-TS",
+      "file": "modules/fluid/web/ts.ergo",
+      "from": "Root: Named(names, c.Root), Plate:",
+      "to": "Root: Named(Long(), c.Root), Plate:",
+      "rule": "The island's table names a control root by another naming than the sheet's (renamed on one side only): TableNamesOnlySheetClasses.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "ts-tone-missing-from-sheet",
+      "origin": "wf10/fluid-ts FLUID-TS",
+      "file": "modules/fluid/web/module.ergo",
+      "from": "\tfor t in look.Tones() {",
+      "to": "\tfor t in []look.Tone{look.Solid, look.Soft, look.Outline, look.Bare} {",
+      "rule": "The module's looks drop a tone, so the sheet lacks it while the island's table still offers it: TableNamesOnlySheetClasses.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
     }
   ]
 }
