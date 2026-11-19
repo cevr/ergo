@@ -147,7 +147,7 @@ func testPackage(opts fileOptions) error {
 		w = startWarm(opts, warmToolchain(opts), ledgerPart(ledgerPath(opts.file)))
 	}
 	if w != nil && w.hit {
-		return replayTestResult(w.answer.Test, os.Stdout, os.Stderr)
+		return replayTestResult(w.answer.Test, opts.file, os.Stdout, os.Stderr)
 	}
 	l, err := loadThrough(w.fsys(), opts.file, opts.target, opts.platform)
 	if err != nil {
@@ -256,7 +256,7 @@ func testLoadedPackage(opts fileOptions, l loaded, keep func(result []byte)) err
 		if !buildStderr.written {
 			keep(cached)
 		}
-		return replayTestResult(cached, os.Stdout, os.Stderr)
+		return replayTestResult(cached, opts.file, os.Stdout, os.Stderr)
 	}
 	var store func(testResult)
 	if key != "" {
@@ -356,7 +356,9 @@ func runTestBinary(opts fileOptions, l loaded, tc build.Toolchain, binary string
 	// A rewrite shadow that finds its law false writes a refutation line
 	// (shadow.RefutedPrefix) before its defect: the ledger records it.
 	shadows := &shadowLines{}
-	stdout, stderr := []io.Writer{os.Stdout}, []io.Writer{os.Stderr, shadows}
+	// The printed lines, for the skips the module does not expect.
+	var printed bytes.Buffer
+	stdout, stderr := []io.Writer{os.Stdout, &printed}, []io.Writer{os.Stderr, shadows}
 	if verdicts != nil {
 		stdout = append(stdout, &out)
 	}
@@ -384,6 +386,12 @@ func runTestBinary(opts fileOptions, l loaded, tc build.Toolchain, binary string
 		}
 	}
 	if err != nil {
+		return err
+	}
+	// A run that passed with a skip its module does not expect fails: a
+	// law that ergo test did not run is not a pass (runtime.md, Tests 4).
+	// It writes no ledger and is not kept.
+	if err := skipsExit(printed.Bytes(), opts.file); err != nil {
 		return err
 	}
 	if opts.law != "" || opts.skipLaw != "" || opts.run != "" || opts.explore {
@@ -415,9 +423,14 @@ func writeLedger(opts fileOptions, l loaded) error {
 	if err != nil {
 		return err
 	}
-	tc, err := buildAction(opts)
-	if err != nil {
-		return err
+	// A library's ledger takes no build (sketchfront.HasMain), so its
+	// write resolves no toolchain: no go command, and no patched compile
+	// built into a cold cache (GATE-CORE-COST).
+	var tc build.Toolchain
+	if sketchfront.HasMain(l.analysis.Root().Package) {
+		if tc, err = buildAction(opts); err != nil {
+			return err
+		}
 	}
 	changed, err := sketchfront.UpdateLedger(l.analysis, sketchfront.BuildRequest{
 		Mode:      build.ModeBuild,
