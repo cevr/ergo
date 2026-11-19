@@ -1,0 +1,216 @@
+// Package recorded holds llm.Model providers that record and replay
+// exchanges: a program asks a real model once through Record, keeps its
+// Lines as a file, and its tests ask Replay of that file, with no network
+// and no key (wf10 L3). An exchange is held by the digest of its request,
+// never the request: a key or a private prompt in a request does not
+// reach the file.
+//
+// Prior art: the Vercel AI SDK's recorded fixtures, BAML's from_chunks
+// and VCR-style cassettes (Ruby's VCR, Go's go-vcr), which match a
+// request to its recording; here the match is by a digest of the whole
+// request, and each recorded ask holds its deltas, so a replayed stream
+// streams.
+
+import hex
+import json
+import llm
+import sha256
+import strings
+import sync
+
+// Exchange is one recorded ask: the digest of its request, the deltas the
+// model streamed, and how it ended.
+type Exchange { Digest string, Deltas []llm.Delta, End End }
+
+// End is how an exchange ended: a turn, or a failure.
+type End = Answered{Turn llm.Turn} | Failed{Failure llm.Failure}
+
+// Digest is the text that names r in a recording: the hex SHA-256 of r's
+// form, a text that writes each of its parts with its length, so two
+// requests have one form only when they are equal. Two requests with one
+// digest are one request.
+func Digest(r llm.Request) string { hex.Encode(sha256.Sum(strings.Join(form(r), ""))) }
+
+// form is the pieces of r's form: each string as its length, a colon and
+// its bytes; each variant as its letter; each list as its length first.
+func form(r llm.Request) []string {
+	let mut out = []string{"r", piece(r.System), "\(len(r.Messages));"}
+	for m in r.Messages {
+		match m {
+		case llm.User as u:
+			out = out.Append("u").Append(piece(u.Text))
+		case llm.Assistant as a:
+			out = out.Append("a").Append(piece(a.Text)).Append("\(len(a.Calls));")
+			for c in a.Calls {
+				out = out.Append(piece(c.Id)).Append(piece(c.Name)).Append(piece(c.Arguments))
+			}
+		case llm.Result as x:
+			out = out.Append(if x.Failed { "f" } else { "o" }).Append(piece(x.CallId)).Append(piece(x.Text))
+		}
+	}
+	out = out.Append("\(len(r.Tools));")
+	for t in r.Tools {
+		out = out.Append(piece(t.Name)).Append(piece(t.Description)).Append(piece(t.Input))
+	}
+	match r.Choice {
+	case llm.Auto:
+		out = out.Append("A")
+	case llm.NoTools:
+		out = out.Append("N")
+	case llm.AnyTool:
+		out = out.Append("Y")
+	case llm.Named as n:
+		out = out.Append("T").Append(piece(n.Name))
+	}
+	match r.Format {
+	case llm.Prose:
+		out = out.Append("P")
+	case llm.JSON as j:
+		out = out.Append("J").Append(piece(j.Schema))
+	}
+	out.Append("\(r.MaxTokens);")
+}
+
+// piece is s with its length before it.
+func piece(s string) string { "\(len(s)):" + s }
+
+// Record is Inner, keeping each exchange it answers. Generate asks Inner
+// by Stream, so every exchange holds its deltas and a replayed Stream
+// streams them. An ask whose sink failed is not kept: it has no end.
+// Its values are copies of one recording.
+type Record { Inner llm.Model, kept sync.Ref[[]Exchange] } implements llm.Model
+
+// NewRecord is Inner with an empty recording.
+func NewRecord(inner llm.Model) Record { Record{Inner: inner, kept: sync.NewRef([]Exchange{})} }
+
+// Exchanges is what r recorded, in the order of the asks.
+func Exchanges(r Record) []Exchange { r.kept.Get() }
+
+// Lines is the file form of r's recording: one JSON object per exchange,
+// each on its own line.
+func Lines(r Record) string { Write(r.kept.Get()) }
+
+// Write is the file form of exchanges: one JSON object per exchange, each
+// ending in a newline.
+func Write(xs []Exchange) string {
+	let c = json.Codec[Exchange]{MaxBytes: 0, MaxDepth: 0}
+	let mut out = []string{}
+	for x in xs {
+		out = out.Append(json.Encode(c, x)).Append("\n")
+	}
+	strings.Join(out, "")
+}
+
+// Unreadable is a line of a recording that is not an exchange: its
+// number (from 1) and why.
+type Unreadable { Line int, Reason string }
+
+// Read is the exchanges of a file that Write made; blank lines are
+// skipped.
+func Read(text string) []Exchange fails Unreadable {
+	let c = json.Codec[Exchange]{MaxBytes: 0, MaxDepth: 0}
+	let mut xs = []Exchange{}
+	for i, line in strings.Split(text, "\n") {
+		if line == "" {
+			continue
+		}
+		let x = json.Decode(c, line) catch {
+		case json.Malformed as m:
+			return Unreadable{Line: i + 1, Reason: m.Reason}
+		case _:
+			return Unreadable{Line: i + 1, Reason: "the line is JSON but not an exchange"}
+		}
+		xs = xs.Append(x)
+	}
+	xs
+}
+
+func Generate(m Record, r llm.Request) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema {
+	try m.Stream(r, func(d llm.Delta) fails llm.SinkFailed {}) catch {
+	case llm.SinkFailed:
+		Unreachable("a sink that drops every delta failed")
+	}
+}
+
+func Stream(m Record, r llm.Request, put func(d llm.Delta) fails llm.SinkFailed) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema | llm.SinkFailed {
+	let mut ds = []llm.Delta{}
+	let t = m.Inner.Stream(r, func(d llm.Delta) fails llm.SinkFailed {
+		ds = ds.Append(d)
+		try put(d)
+	}) catch {
+	case llm.SinkFailed as s:
+		return s
+	case f:
+		let failure llm.Failure = f
+		keep(m, Exchange{Digest: Digest(r), Deltas: ds, End: Failed{Failure: failure}})
+		return try llm.Raise(failure)
+	}
+	keep(m, Exchange{Digest: Digest(r), Deltas: ds, End: Answered{Turn: t}})
+	t
+}
+
+// keep adds x to m's recording.
+func keep(m Record, x Exchange) { m.kept.Update(func(xs []Exchange) []Exchange { xs.Append(x) }) }
+
+// Replay is a Model that answers from a recording: the k-th ask of a
+// request, by either operation, gets the k-th exchange recorded for its
+// digest, its deltas streamed. A request asked more often than it was
+// recorded, or never recorded, diverged from the recording: it fails
+// InvalidRequest naming its digest (Unsafe, so no policy asks it again).
+// Its values are copies of one replay.
+type Replay { Exchanges []Exchange, asked sync.Ref[Map[string, int]] } implements llm.Model
+
+// NewReplay is a replay of exchanges that has not been asked.
+func NewReplay(exchanges []Exchange) Replay { Replay{Exchanges: exchanges, asked: sync.NewRef(Map[string, int]{})} }
+
+// Diverged is the reason of the failure of an ask that diverged.
+func Diverged(digest string) string { "recorded: no exchange left for the request " + digest }
+
+// next counts one ask of the request named digest and gives its exchange.
+func next(p Replay, digest string) Option[Exchange] {
+	let mut k = 0
+	p.asked.Update(func(m Map[string, int]) Map[string, int] {
+		match m.Get(digest) {
+		case Some[int] as n:
+			k = n.Value
+		case None:
+			k = 0
+		}
+		m.Put(digest, k+1)
+	})
+	let mut seen = 0
+	for x in p.Exchanges {
+		if x.Digest == digest {
+			if seen == k {
+				return Some[Exchange]{Value: x}
+			}
+			seen = seen + 1
+		}
+	}
+	None
+}
+
+func Generate(p Replay, r llm.Request) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema {
+	try p.Stream(r, func(d llm.Delta) fails llm.SinkFailed {}) catch {
+	case llm.SinkFailed:
+		Unreachable("a sink that drops every delta failed")
+	}
+}
+
+func Stream(p Replay, r llm.Request, put func(d llm.Delta) fails llm.SinkFailed) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema | llm.SinkFailed {
+	let digest = Digest(r)
+	match next(p, digest) {
+	case None:
+		llm.InvalidRequest{Reason: Diverged(digest)}
+	case Some[Exchange] as x:
+		for d in x.Value.Deltas {
+			try put(d)
+		}
+		match x.Value.End {
+		case Answered as a:
+			a.Turn
+		case Failed as f:
+			try llm.Raise(f.Failure)
+		}
+	}
+}
