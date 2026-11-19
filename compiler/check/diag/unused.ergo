@@ -173,7 +173,12 @@ func imports(p syntax.Parsed) []anImport {
 				let name = if alias == "go" { last } else { alias }
 				out = out.Append(anImport{name: name, last: last, path: path, isGo: alias == "go", alias: alias != "go", at: syntax.NodePos(p, nm.Value), end: end})
 			case None:
-				out = out.Append(anImport{name: last, last: last, path: path, isGo: false, alias: false, at: syntax.NodePos(p, is.Path), end: end})
+				// import go PATH: the go word is its NamePos, with no name.
+				if is.NamePos >= 0 && syntax.TokKind(p, is.NamePos) == syntax.Go {
+					out = out.Append(anImport{name: last, last: last, path: path, isGo: true, alias: false, at: syntax.TokPos(p, is.NamePos), end: end})
+				} else {
+					out = out.Append(anImport{name: last, last: last, path: path, isGo: false, alias: false, at: syntax.NodePos(p, is.Path), end: end})
+				}
 			}
 		}
 	case _:

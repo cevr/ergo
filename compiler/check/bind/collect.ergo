@@ -89,7 +89,8 @@ func importOf(p syntax.Parsed, is syntax.ImportSpec) importSpec {
 		let alias = text(p, n.Value)
 		if alias == "go" { importSpec{path: path, name: last, isGo: true} } else { importSpec{path: path, name: alias, isGo: false} }
 	case None:
-		importSpec{path: path, name: last, isGo: false}
+		// import go PATH: the go word is its NamePos, with no name.
+		importSpec{path: path, name: last, isGo: is.NamePos >= 0 && syntax.TokKind(p, is.NamePos) == syntax.Go}
 	}
 }
 
