@@ -10,7 +10,7 @@ import sync
 import llmtools/tools
 
 // Request is one call of tools.Search: a variant per operation, whose fields
-// are the operation's parameters. It is the wire's request.
+// are the operation's parameters. It is the request every transport carries.
 type Request = FindRequest{Q tools.Query} | CountRequest{Word string}
 
 // Op is an operation of tools.Search: what a policy matches on.
@@ -66,7 +66,7 @@ func valueOf(text string) json.Value {
 }
 
 // Schema is the JSON schema of op's arguments: an object whose keys are
-// its parameters' wire keys, or the fields of its one record parameter.
+// its parameters' JSON keys, or the fields of its one record parameter.
 func Schema(op Op) json.Value {
 	match op {
 	case FindOp:

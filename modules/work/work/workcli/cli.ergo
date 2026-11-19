@@ -343,6 +343,14 @@ func Parse(args []string) Request fails flag.Failure {
 		let c = commandGc()
 		let v = try flag.Parse(flag.Set{..c.Set, Name: "work gc"}, slices.Slice(args, 1, len(args)))
 		try c.Build(v)
+	case "pin":
+		let c = commandPin()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "work pin"}, slices.Slice(args, 1, len(args)))
+		try c.Build(v)
+	case "unpin":
+		let c = commandUnpin()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "work unpin"}, slices.Slice(args, 1, len(args)))
+		try c.Build(v)
 	case "du":
 		let c = commandDu()
 		let v = try flag.Parse(flag.Set{..c.Set, Name: "work du"}, slices.Slice(args, 1, len(args)))
