@@ -99,6 +99,9 @@ type SplitReport struct {
 	// Instances counts the instances the instance package compiles for
 	// the others (pkginst.go), 0 when there is none.
 	Instances int
+	// err is the IR files' failure, after the split renamed the IR in
+	// place (irSplit.files): no fallback, the lowering fails.
+	err error
 }
 
 // splitDir is the folder of the Go packages of the program's Ergo
@@ -980,9 +983,13 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 	rep := SplitReport{Packages: len(used), Pulled: pulled, Renamed: len(rename), Std: stdPkgs, Foreign: foreign, Shards: shards}
 	rep.Instances = instances
 	if irs != nil {
-		files, withIR, err := irs.files(func(i int) int { return groups[irs.owner[i]].pkg }, rename, plan, shared)
+		pkgOf := func(i int) int { return groups[irs.owner[i]].pkg }
+		if why := irs.refusal(pkgOf); why != "" {
+			return nil, SplitReport{Reason: why}
+		}
+		files, withIR, err := irs.files(pkgOf, rename, plan, shared)
 		if err != nil {
-			return nil, SplitReport{Reason: err.Error()}
+			return nil, SplitReport{Reason: err.Error(), err: err}
 		}
 		outFiles = append(outFiles, files...)
 		rep.IRPackages = withIR

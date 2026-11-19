@@ -274,15 +274,12 @@ func (s *irSplit) files(pkgOf func(i int) int, rename map[string]string, plan *s
 		byPkg[p] = nil // a package with shared instances gets an IR file for its list (pkginst.go)
 	}
 	for i := range s.ir.Funcs {
-		// A copy: the split may still fall back to the one-package IR.
-		data, err := json.Marshal(&s.ir.Funcs[i])
-		if err != nil {
-			return nil, 0, err
-		}
-		var fn irFunc
-		if err := json.Unmarshal(data, &fn); err != nil {
-			return nil, 0, err
-		}
+		// Renamed in place: the split no longer falls back to the
+		// one-package IR once it writes the IR files, and an error here
+		// fails the lowering (lowerIRSplit). A JSON round trip of each
+		// function copied it before GP-SPLIT-EDIT, half of the split's
+		// own work.
+		fn := &s.ir.Funcs[i]
 		p := pkgOf(i)
 		renamed := func(n *string) {
 			if r, ok := rename[*n]; ok {
@@ -308,8 +305,8 @@ func (s *irSplit) files(pkgOf func(i int) int, rename map[string]string, plan *s
 			fn.Name += "." + method
 		}
 		fn.walk(own, renamed)
-		if err := pcalls(&fn, s.qual[p]); err != nil {
-			return nil, 0, err
+		if err := pcalls(fn, s.qual[p]); err != nil {
+			return nil, 0, err // refused above (valueOfForeignGeneric): unreachable
 		}
 		if get := s.getters[p]; len(get) > 0 {
 			fn.exprs(func(x *irExpr) {
@@ -318,7 +315,7 @@ func (s *irSplit) files(pkgOf func(i int) int, rename map[string]string, plan *s
 				}
 			})
 		}
-		byPkg[p] = append(byPkg[p], fn)
+		byPkg[p] = append(byPkg[p], *fn)
 	}
 	var out []File
 	withIR := 0
@@ -365,6 +362,36 @@ func pcalls(fn *irFunc, qual map[string]string) error {
 		}
 	})
 	return err
+}
+
+// refusal is why the split cannot write ir's bodies by package, "" when
+// it can. It runs before files: files renames the IR in place, so the
+// one-package IR is gone after it and a refusal there could not fall
+// back.
+func (s *irSplit) refusal(pkgOf func(i int) int) string {
+	for i := range s.ir.Funcs {
+		qual := s.qual[pkgOf(i)]
+		if name := valueOfForeignGeneric(&s.ir.Funcs[i], qual); name != "" {
+			return "an IR body uses the generic function " + qual[name] + " of another package as a value"
+		}
+	}
+	return ""
+}
+
+// valueOfForeignGeneric is the first name, as fn spells it before the
+// split renames it, of a generic function of another package (a key of
+// qual) that fn uses as a value, which pcalls refuses; "" for none.
+func valueOfForeignGeneric(fn *irFunc, qual map[string]string) string {
+	found := ""
+	if len(qual) == 0 {
+		return found
+	}
+	fn.exprs(func(x *irExpr) {
+		if _, ok := qual[x.Name]; ok && x.K == "global" && found == "" {
+			found = x.Name
+		}
+	})
+	return found
 }
 
 // exprs calls f on every expression of fn's body, outer first.
