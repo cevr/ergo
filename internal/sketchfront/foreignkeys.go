@@ -46,12 +46,15 @@ func foreignKeys(a Analysis, fsys FS) lower.ForeignKeys {
 		for i, e := range experiments {
 			tags[i] = "goexperiment." + e
 		}
-		src.Variants = append(src.Variants, lower.BuildVariant{Tag: strings.Join(tags, ","), Read: func(dir string) []lower.GoSourceFile { return readGoDir(fsys, dir, platform, nil) }})
+		src.Variants = append(src.Variants, lower.BuildVariant{Tag: strings.Join(tags, ","), Read: func(dir string) []lower.GoSourceFile { return readGoDir(fsys, dir, platform, nil) },
+			Target: lower.GoTarget{GOOS: cmp.Or(platform.GOOS, runtime.GOOS), GOARCH: cmp.Or(platform.GOARCH, runtime.GOARCH)}})
 	}
 	here := gobind.Platform{GOOS: cmp.Or(platform.GOOS, runtime.GOOS), GOARCH: cmp.Or(platform.GOARCH, runtime.GOARCH)}
+	src.Target = &lower.GoTarget{GOOS: here.GOOS, GOARCH: here.GOARCH, Experiments: experiments}
 	for _, other := range gobind.Platforms {
 		if other != here {
-			src.Variants = append(src.Variants, lower.BuildVariant{Tag: here.String(), Read: func(dir string) []lower.GoSourceFile { return readGoDir(fsys, dir, other, experiments) }})
+			src.Variants = append(src.Variants, lower.BuildVariant{Tag: here.String(), Read: func(dir string) []lower.GoSourceFile { return readGoDir(fsys, dir, other, experiments) },
+				Target: lower.GoTarget{GOOS: other.GOOS, GOARCH: other.GOARCH, Experiments: experiments}})
 		}
 	}
 	return src.Keys()
