@@ -219,7 +219,7 @@ func (l *lowerer) machineGraph(td *typeDecl, tc *typeCtx, state, signal string) 
 				goOf[v.Name] = rt + ".VariantOf[" + t + "]()"
 				continue
 			}
-			name, ok := l.variantName(t)
+			name, ok := l.ergoVariantName(t)
 			if !ok {
 				ice(td.tn.Decl.Name, "the machine %s has the variant %s, whose Go type %s the lowering cannot name", td.tn.Name, v.Name, t)
 			}
@@ -275,7 +275,7 @@ func (l *lowerer) machineGraph(td *typeDecl, tc *typeCtx, state, signal string) 
 			if graphRegistry() {
 				return rt + ".VariantOf[" + gt + "]()"
 			}
-			name, ok := l.variantName(gt)
+			name, ok := l.ergoVariantName(gt)
 			if !ok {
 				ice(td.tn.Decl.Name, "the machine %s has a variant whose Go type %s the lowering cannot name", td.tn.Name, gt)
 			}
@@ -390,6 +390,57 @@ func (l *lowerer) variantName(t string) (string, bool) {
 		return "", false
 	}
 	return rtpkg.TypeName(s), true
+}
+
+// variantLowering selects the name the lowering writes for a variant a
+// runner traces: "" (the default), its Ergo name (ergoVariantName); "go",
+// the reference, its Go type's name, which carries the suffix that keeps
+// a Go name unique (Idle_1 beside the root's Idle).
+var variantLowering string
+
+// ergoVariantName is the name a runner gives a value of the variant whose
+// Go type is t: variantName with the head, the variant's Go type name,
+// spelled as its Ergo name; the type arguments stay as Go's runtime spells
+// them. It agrees with the ErgoVariant of a suffixed record
+// (suffixedVariantMethod), which the runtime reads for a value no graph
+// names (TRACE-VARIANT-SUFFIX).
+func (l *lowerer) ergoVariantName(t string) (string, bool) {
+	name, ok := l.variantName(t)
+	if !ok || variantLowering == "go" {
+		return name, ok
+	}
+	head, args, _ := strings.Cut(name, "[")
+	for tn, td := range l.types {
+		if td.name == head && tn.Name != head {
+			if args != "" {
+				return tn.Name + "[" + args, true
+			}
+			return tn.Name, true
+		}
+	}
+	return name, true
+}
+
+// suffixedVariantMethod writes the ErgoVariant of the record td when the
+// lowering suffixed its Go name: its Ergo name, and a generic record's
+// type arguments as the runtime spells them (v1.GoVariantOf), so a runner
+// that reads a value's own name (v1 variant, VariantOf) gives the name
+// ergoVariantName writes.
+func (l *lowerer) suffixedVariantMethod(b *strings.Builder, td *typeDecl) {
+	if variantLowering == "go" || td.name == td.tn.Name || strings.Contains(td.name, ".") {
+		return
+	}
+	if len(td.tparams) == 0 {
+		b.WriteString("func (" + td.name + ") ErgoVariant() string { return " + strconv.Quote(td.tn.Name) + " }\n\n")
+		return
+	}
+	params := make([]string, len(td.tparams))
+	for i := range params {
+		params[i] = "P" + strconv.Itoa(i)
+	}
+	inst := td.name + "[" + strings.Join(params, ", ") + "]"
+	b.WriteString("func (" + inst + ") ErgoVariant() string { return " + strconv.Quote(td.tn.Name) + " + " +
+		l.rtRef("GoVariantOf") + "[" + inst + "]()[" + strconv.Itoa(len(td.name)) + ":] }\n\n")
 }
 
 // runtimeSpelling is Go's runtime type string of the type expression x of

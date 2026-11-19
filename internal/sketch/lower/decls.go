@@ -627,6 +627,7 @@ func (l *lowerer) emitType(td *typeDecl) {
 		if td.errorType {
 			l.errorMethod(b, td)
 		}
+		l.suffixedVariantMethod(b, td) // a runner's name for it (machine.go)
 	case kindOps:
 		b.WriteString("type " + td.name + tparams + " interface {\n")
 		for _, op := range td.ops {

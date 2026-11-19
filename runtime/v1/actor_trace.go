@@ -112,8 +112,23 @@ func RegisteredGraph[S, E any]() *MachineGraph {
 // graph's variants with it at start-up; the default lowering writes the
 // same names as constants. A generic flat union's ErgoVariant reads it
 // lazily, on the trace path (binsize BS8): the variant's type arguments
-// are the instance's, so no constant can spell them.
+// are the instance's, so no constant can spell them. A variant whose Go
+// name the lowering suffixed to keep it unique (Idle_1 beside the root's
+// Idle) gives its Ergo name through ErgoVariant, which VariantOf reads as
+// variant does, so a graph's names and a value's agree (TRACE-VARIANT-
+// SUFFIX). T is a variant's type, never a flat union's.
 func VariantOf[T any]() string {
+	var z T
+	if n, ok := any(z).(interface{ ErgoVariant() string }); ok {
+		return n.ErgoVariant()
+	}
+	return GoVariantOf[T]()
+}
+
+// GoVariantOf is the name of the Go type T, as reflect's Type.Name gives
+// it: a suffixed generic variant's ErgoVariant takes its type arguments
+// from it.
+func GoVariantOf[T any]() string {
 	var p *T
 	return rt.TypeName(strings.TrimPrefix(rt.TypeString(p), "*"))
 }

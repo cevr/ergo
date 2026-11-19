@@ -4743,6 +4743,28 @@
       ]
     },
     {
+      "name": "trace-variant-go-name",
+      "origin": "wf10/ir-forms/TRACE-VARIANT-SUFFIX",
+      "file": "internal/sketch/lower/machine.go",
+      "from": "if !ok || variantLowering == \"go\" {",
+      "to": "if !ok || true {",
+      "rule": "A traced runner names a variant by its Ergo name: a graph's arm names and a flat union's ErgoVariant never carry the suffix that keeps a Go name unique.",
+      "killers": [
+        "lower:TestTracedVariantsHaveTheirErgoNames"
+      ]
+    },
+    {
+      "name": "trace-variant-no-record-method",
+      "origin": "wf10/ir-forms/TRACE-VARIANT-SUFFIX",
+      "file": "internal/sketch/lower/decls.go",
+      "from": "\t\tl.suffixedVariantMethod(b, td) // a runner's name for it (machine.go)\n",
+      "to": "",
+      "rule": "A record whose Go name the lowering suffixed gives its Ergo name through ErgoVariant, which the runtime reads for a value no graph names.",
+      "killers": [
+        "lower:TestTracedVariantsHaveTheirErgoNames"
+      ]
+    },
+    {
       "name": "bs5-lib-lets-all",
       "origin": "wf10 binsize BS5",
       "file": "internal/sketch/lower/module.go",
