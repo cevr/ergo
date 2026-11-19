@@ -808,6 +808,54 @@
       "killers": [
         "examples:modules/fluid"
       ]
+    },
+    {
+      "name": "mg-retarget-drops-speed",
+      "origin": "wf10/motion-gate MOTION-GATE",
+      "file": "modules/fluid/motion/track.ergo",
+      "from": "Target: to, X0: Pos(k, t), V0: Vel(k, t), Start: t}",
+      "to": "Target: to, X0: Pos(k, t), V0: 0.0 * Vel(k, t), Start: t}",
+      "rule": "A retarget resets velocity to 0, so a value turned mid-flight stops dead: TracesAreSmooth.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "mg-retarget-from-target",
+      "origin": "wf10/motion-gate MOTION-GATE",
+      "file": "modules/fluid/motion/track.ergo",
+      "from": "Target: to, X0: Pos(k, t), V0: Vel(k, t), Start: t}",
+      "to": "Target: to, X0: k.Target + 0.0 * Pos(k, t), V0: Vel(k, t), Start: t}",
+      "rule": "A retarget starts from the old target, not from where the value is (a jump): TracesAreSmooth.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "mg-track-twice-frequency",
+      "origin": "wf10/motion-gate MOTION-GATE",
+      "file": "modules/fluid/motion/track.ergo",
+      "from": "\tlet w = frequency(z)\n\tif z < 1.0 {\n\t\tlet wd",
+      "to": "\tlet w = frequency(z) * 2.0\n\tif z < 1.0 {\n\t\tlet wd",
+      "rule": "A track's spring runs at twice the clip's frequency (still smooth and settled, but not the clip's motion): TrackIsTheClipSpring.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
     }
   ]
 }
