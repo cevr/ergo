@@ -117,8 +117,8 @@ func play(bin, script string, args ...string) (string, error) {
 	return string(out), err
 }
 
-// agreeApps are the apps of cmd/hostagree; seed s plays app s mod 7.
-var agreeApps = []string{"counter", "shelf", "form", "load", "lock", "pad", "list", "sketch"}
+// agreeApps are the apps of cmd/hostagree; seed s plays app s mod their count.
+var agreeApps = []string{"counter", "shelf", "form", "load", "lock", "pad", "list", "sketch", "spin"}
 
 // words are texts a script types: empty, ASCII, and runes of two and
 // three bytes (a wide one too), so Backspace must take a rune, not a byte.
@@ -170,6 +170,10 @@ func genScript(r *rand.Rand, app string) string {
 			if r.IntN(8) == 0 && !held {
 				step = "tap clear"
 			}
+		case "spin":
+			// frames a few at a time, so a spin (12 frames) ends in some
+			// scripts and runs through others
+			step = pick(r, "tap go", fmt.Sprintf("frames %d", 1+r.IntN(4)), fmt.Sprintf("frames %d", 1+r.IntN(4)), "cost frames 1")
 		case "sketch":
 			step = fmt.Sprintf("point sketch %s %d %d", pick(r, "down", "down", "up", "move"), 8*r.IntN(25), 16*r.IntN(10))
 		case "list":
@@ -237,7 +241,7 @@ func TestTuiHostAgreesWithTestHost(t *testing.T) {
 			switch {
 			case strings.HasPrefix(line, "ok "):
 				steps++
-			case line == "end":
+			case line == "end", strings.HasPrefix(line, "cost "):
 			default:
 				bad = append(bad, line)
 			}

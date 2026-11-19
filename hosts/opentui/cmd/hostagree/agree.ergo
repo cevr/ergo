@@ -53,9 +53,10 @@ func agree[E comparable, S](m Machine[S, E, int], view own func(f *ui.Frame[E], 
 		// "cost STEP" plays STEP and prints the library calls it made.
 		let costed = strings.HasPrefix(line, "cost ")
 		let before = s.Calls()
+		let wrote = s.Bytes()
 		let (a, b) = run(&h, &d, s, strings.TrimPrefix(line, "cost "))
 		if costed {
-			Console.Println("cost \(s.Calls() - before)")
+			Console.Println("cost \(s.Calls() - before) bytes \(s.Bytes() - wrote)")
 		}
 		if a != b {
 			Console.Println("differ \(n): \(line): test host \(said(a)), terminal \(said(b))")
@@ -97,6 +98,9 @@ func compare[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *tui.Driver[S,
 	}
 	if !same(ui.StateOf(h), tui.StateOf(d)) {
 		return Some{Value: "states differ"}
+	}
+	if ui.Frames(h) != tui.Frames(d) || ui.WantsFrames(h) != tui.WantsFrames(d) {
+		return Some{Value: "TestHost stepped \(ui.Frames(h)) frames (wanting more: \(ui.WantsFrames(h))), the terminal \(tui.Frames(d)) (\(tui.WantsFrames(d)))"}
 	}
 	if s.Count() != tui.SceneNodes(d) {
 		return Some{Value: "the scene holds \(s.Count()) nodes, the driver \(tui.SceneNodes(d))"}
@@ -417,6 +421,8 @@ func run[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *tui.Driver[S, E, 
 		(found(h, f[0]), landed(d, f[0], b, if to < 0 { 0 } else { to }))
 	case "settle":
 		both(h, d, ui.SettleAll)
+	case "frames":
+		both(h, d, ui.AdvanceBy{By: duration(int64(atoi(rest)) * int64(16ms))})
 	case "focus":
 		focusPress(h, d, s, atoi(rest))
 	case _:

@@ -68,6 +68,8 @@ const (
 	Wake
 	// None: no Input waits (Take).
 	None
+	// Frame: a frame is due (Tick, frames.go).
+	Frame
 )
 
 // The mouse actions.
@@ -201,6 +203,8 @@ type Screen struct {
 	done    bool
 	in      *os.File
 	stop    func()
+	// ticker sends the frames while the view animates (frames.go).
+	ticker *ticking
 	// said is each text Notify said (notify.go).
 	said []string
 }
@@ -1074,6 +1078,7 @@ func (s *Screen) Poll() (Input, bool) {
 	}
 	in := s.inputs[0]
 	s.inputs = s.inputs[1:]
+	s.took(in)
 	return in, true
 }
 
@@ -1148,6 +1153,10 @@ func (s *Screen) Quit() error {
 	}
 	s.done = true
 	stop := s.stop
+	if s.ticker != nil {
+		close(s.ticker.stop)
+		s.ticker = nil
+	}
 	s.mu.Unlock()
 	if stop != nil {
 		stop()

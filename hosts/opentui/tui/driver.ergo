@@ -62,6 +62,14 @@ type Driver[S, E, D, F] {
 	tops      Map[ui.Id[E], float64],
 	viewports Map[ui.Id[E], ui.Viewport],
 	captured  Option[ui.Id[E]],
+	// The frames (frames.ergo): the period, the time since the driver
+	// started, the time owed to the next frame, the Ticks stepped, and
+	// whether the live screen's ticker runs.
+	period  duration,
+	at      duration,
+	owed    duration,
+	frames  int,
+	ticking bool,
 }
 
 // held is a node of the tree and its children, in order.
@@ -114,6 +122,11 @@ func start[E comparable, S, D, F](s go.Ref[screen.Screen], a actor.Actor[S, E, D
 		tops:      Map[ui.Id[E], float64]{},
 		viewports: Map[ui.Id[E], ui.Viewport]{},
 		captured:  None,
+		period:    16ms,
+		at:        duration(int64(0)),
+		owed:      duration(int64(0)),
+		frames:    0,
+		ticking:   false,
 	}
 	d.nodes[root] = held[E]{node: ui.BoxNode{Style: ui.Plain()}, kids: []ui.Id[E]{}}
 	d.nums[root] = 0
@@ -442,6 +455,8 @@ func Feed[E comparable, S, D, F](d *Driver[S, E, D, F], input screen.Input) fail
 		try typed(d, oneLine(input.Text))
 	} else if input.Kind == screen.Resize {
 		try repaint(d)
+	} else if input.Kind == screen.Frame {
+		try Advance(d, d.period-d.owed)
 	}
 }
 
@@ -861,6 +876,7 @@ func forwardAll[E](s go.Ref[screen.Screen], fetched queue.Queue[ui.Event[E]], po
 // serve feeds the screen's input to d until the input ends or Ctrl+C.
 func serve[E comparable, S, D, F](d *Driver[S, E, D, F]) fails actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
 	for {
+		ticker(d)
 		let next = try next(d.s)
 		Feed(d, next) catch {
 		case ui.Closed:

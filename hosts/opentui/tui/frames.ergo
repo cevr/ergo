@@ -1,0 +1,57 @@
+// Frames: while the view animates (its last pass made a ui.Animate), the
+// driver steps a ui.Tick at each frame period, as ui.TestHost's Advance
+// does: the time since the driver started, a period at a time. On a live
+// screen the frames come from the screen's ticker, which runs only while
+// the view animates; a test moves the time with Advance. A Tick whose
+// pass changes nothing shows nothing, and a settled view takes no frame.
+
+import actor
+import ui
+
+// FrameEvery sets the frame period (16ms when made); a period under 1ns
+// leaves it as it is.
+func FrameEvery[S, E, D, F](d *Driver[S, E, D, F], period duration) {
+	if period >= 1ns {
+		d.period = period
+	}
+}
+
+// Advance moves the driver's time by by. While the view animates, it moves
+// it a frame period at a time and steps a Tick at the end of each period;
+// time short of a period is owed to the next Advance while the view still
+// animates. A pass that stops animating stops the frames: the rest of by
+// passes with no Tick, and nothing is owed.
+func Advance[E comparable, S, D, F](d *Driver[S, E, D, F], by duration) fails actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
+	let mut left = by
+	for ui.SessionAnimates(&d.session) && left >= d.period-d.owed {
+		let due = d.period - d.owed
+		left = left - due
+		d.at = d.at + due
+		d.owed = duration(int64(0))
+		d.frames = d.frames + 1
+		try step(d, ui.Tick{At: d.at})
+	}
+	d.at = d.at + left
+	if ui.SessionAnimates(&d.session) {
+		d.owed = d.owed + left
+	} else {
+		d.owed = duration(int64(0))
+	}
+}
+
+// Frames is the number of Ticks the driver has stepped.
+func Frames[S, E, D, F](d *Driver[S, E, D, F]) int { d.frames }
+
+// WantsFrames is whether the view asks for frames: whether its last pass
+// made an Animate.
+func WantsFrames[S, E, D, F](d *Driver[S, E, D, F]) bool { ui.SessionAnimates(&d.session) }
+
+// ticker runs the live screen's frame ticker while the view animates, and
+// stops it when the view stops.
+func ticker[S, E, D, F](d *Driver[S, E, D, F]) needs go.Foreign {
+	let want = ui.SessionAnimates(&d.session)
+	if want != d.ticking {
+		d.ticking = want
+		d.s.Tick(if want { int64(d.period) } else { int64(0) })
+	}
+}

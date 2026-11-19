@@ -161,7 +161,7 @@ func typeInto[E comparable, S, D, F](d *Driver[S, E, D, F], id ui.Id[E], label s
 // history and send URLChanged, as ui.TestHost does. PointOn sends the
 // mouse bytes of its pointer event at the Area (pointOn); ScrollOn
 // scrolls the list to its offset (its height is the screen's, which the
-// list reports). AdvanceBy does nothing.
+// list reports). AdvanceBy moves the frames' time (Advance).
 func Play[E comparable, S, D, F](d *Driver[S, E, D, F], script []ui.Act) fails ui.NoNode | ui.Mismatch | ui.Closed | actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
 	for act in script {
 		match act {
@@ -197,7 +197,8 @@ func Play[E comparable, S, D, F](d *Driver[S, E, D, F], script []ui.Act) fails u
 			}
 		case ui.SettleAll:
 			try Settle(d)
-		case ui.AdvanceBy:
+		case ui.AdvanceBy as x:
+			try Advance(d, x.By)
 		case ui.ClickOn as x:
 			try tapOn(d, try located(d, x.At), "a located node")
 		case ui.FillIn as x:

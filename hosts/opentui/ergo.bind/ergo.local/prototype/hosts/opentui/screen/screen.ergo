@@ -90,6 +90,9 @@ extern go ergo.local/prototype/hosts/opentui/screen.ErrClosed let ErrClosed go.E
 // ergo:go const Focus untyped int
 extern go ergo.local/prototype/hosts/opentui/screen.Focus let Focus int
 
+// ergo:go const Frame untyped int
+extern go ergo.local/prototype/hosts/opentui/screen.Frame let Frame int
+
 // ergo:go const Gap untyped int
 extern go ergo.local/prototype/hosts/opentui/screen.Gap let Gap int
 
@@ -281,6 +284,9 @@ extern go ergo.local/prototype/hosts/opentui/screen.Screen.Size func (s *Screen)
 
 // ergo:go func (*Screen).Take() Input
 extern go ergo.local/prototype/hosts/opentui/screen.Screen.Take func (s *Screen) Take() Input needs go.Foreign
+
+// ergo:go func (*Screen).Tick(period int64)
+extern go ergo.local/prototype/hosts/opentui/screen.Screen.Tick func (s *Screen) Tick(period int64) needs go.Foreign
 
 // ergo:go func (*Screen).Wake()
 extern go ergo.local/prototype/hosts/opentui/screen.Screen.Wake func (s *Screen) Wake() needs go.Foreign
