@@ -259,7 +259,11 @@ func headOf(s store.Store, e Env, x dense.ID[syntax.Node]) head {
 				return HNone
 			}
 		case None:
-			return HNone
+			// go is the predeclared qualifier of Go's types (go.Ref[T],
+			// go.Error), no import: a keyword, so no declaration hides it.
+			if q != "go" {
+				return HNone
+			}
 		}
 		let f = foreignIndex(e, q, nameText(e.p, se.Sel))
 		return if f >= 0 { HForeign{At: f, Text: q + "." + nameText(e.p, se.Sel)} } else { HNone }
