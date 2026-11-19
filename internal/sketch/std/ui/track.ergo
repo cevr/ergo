@@ -312,7 +312,7 @@ law TrackCostsNoPass(seed int) {
 				return false
 			}
 			let tapped = Counts(&h)
-			let frames = Frames(&h)
+			let frames = h.Frames()
 			let from = faded(&h)
 			Play(&h, []Act{AdvanceBy{By: duration(int64(draw(&r, 8)+1) * int64(16000000))}}) catch {
 			case _:
@@ -321,7 +321,7 @@ law TrackCostsNoPass(seed int) {
 			if Counts(&h) != tapped {
 				return false
 			}
-			if n != was && (Frames(&h) == frames || faded(&h) == from) {
+			if n != was && (h.Frames() == frames || faded(&h) == from) {
 				return false
 			}
 			Play(&h, []Act{AdvanceBy{By: 200ms}}) catch {
