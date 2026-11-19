@@ -23,11 +23,18 @@ const atFDCWDDarwin = -2
 
 // exchangePaths swaps the files at a and b with one renameatx_np system
 // call (RENAME_SWAP). Go's syscall package does not bind it, so it is
-// syscall.Syscall6 with its number, as syscall's own darwin bodies trap
-// with SVC/SYSCALL (asm_darwin_*.s): no assembly and no linkname of ours,
-// so the runtime stays a package of Go files that every build path,
-// the direct one included, compiles. A file system without RENAME_SWAP
-// (ENOTSUP, EINVAL) is errNoExchange.
+// the exported syscall.Syscall6 with its number. On darwin that function
+// is not libc: Go 1.27's syscall/asm_darwin_arm64.s:52-75 traps directly
+// (number in X16, the six arguments in X0-X5, SVC $0x80, carry set on
+// error) and asm_darwin_amd64.s:36-47 the same (DI, SI, DX, R10, R8, R9;
+// AX = number + 0x2000000, SYSCALL), so the five arguments arrive in the
+// registers the kernel reads. syscall's own wrappers (zsyscall_darwin_*.go)
+// go through libc instead, by the lowercase syscall.syscall6 and a
+// trampoline; Apple promises only that libc interface, so this body
+// rests on xnu's system call numbers, which Go's Syscall6 rests on too.
+// No assembly and no linkname of ours, so the runtime stays a package of
+// Go files that every build path, the direct one included, compiles. A
+// file system without RENAME_SWAP (ENOTSUP, EINVAL) is errNoExchange.
 func exchangePaths(a string, b string) error {
 	pa, err := syscall.BytePtrFromString(a)
 	if err != nil {
