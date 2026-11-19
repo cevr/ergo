@@ -237,8 +237,8 @@ type hostPkg struct {
 	context  map[*Func]bool           // a function whose hidden first parameter is Go's context.Context (IG10)
 	goLines  map[int]string           // the `// ergo:` comment of each line, read by GoDecl (IG8) on first use
 	reads    map[*Func][]string       // the binders a function's `// ergo:reads` line names (gofacts.go)
-	writes   map[*Func]int            // the parameter a function's `// ergo:writes` line names (GBX2, gowrites.go)
 	vouched  map[*Func][]vouch        // its vouched `// ergo:reads p (vouched: …)` lines (gofacts.go)
+	writes   map[*Func]int            // the parameter a function's `// ergo:writes` line names (GBX2, gowrites.go)
 	effect   map[*Func]bool           // a memory-only function, `// ergo:effect none (vouched: …)` (GBX6)
 }
 

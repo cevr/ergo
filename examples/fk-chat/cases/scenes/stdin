@@ -1,0 +1,23 @@
+# Upstream's 8 scene tests (src/scene.test.ts), in order, on one chat.
+# 1. The first screen (above): the heading, Disconnected, Connect to Chat,
+# and No messages yet.
+# 2. Connecting renders the Connecting message: a dial with no answer.
+stall
+connect
+# 7. A failed acquisition shows the connection error: the dial times out.
+wait 5000
+# 4. The error state renders the error and a Try Again button.
+refuse Connection refused
+connect
+# 6. A successful acquisition connects the chat, and the user can send.
+connect
+# 3. Connected shows the field and a disabled Send, enabled once typed in.
+type hi
+type hi there
+submit
+# 5. Messages render in the conversation list, and No messages yet goes.
+type General Kenobi
+submit
+# 8. A message arriving on the socket lands in the conversation.
+push hello from echo
+held

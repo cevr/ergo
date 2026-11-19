@@ -1,0 +1,1 @@
+{"digest":"bdc9e48ed87be619a0e05ed8039dcaec9f99a89522824ebecd6fd66ac8ce28e8","commands":["deps.install: bun install --frozen-lockfile","hooks.postcreate: bun run build","hooks.preremove: bun run clean"]}

@@ -1,0 +1,5 @@
+{"diagnostics":[{"message":"narration: flagged by a local network (p=0.818, model b059d25d9503)","code":"ergo-tn1(narration)","severity":"advice","filename":"src/run.ts","labels":[{"span":{"offset":1090,"length":27,"line":30,"column":7}}]},{"message":"narration: flagged by a local network (p=0.622, model b059d25d9503)","code":"ergo-tn1(narration)","severity":"advice","filename":"src/run.ts","labels":[{"span":{"offset":1224,"length":21,"line":32,"column":7}}]}],"error":""}
+{"diagnostics":[{"message":"narration: flagged by a local network (p=0.818, model b059d25d9503)","code":"ergo-tn1(narration)","severity":"advice","filename":"src/again.ts","labels":[{"span":{"offset":1090,"length":27,"line":30,"column":7}}]},{"message":"narration: flagged by a local network (p=0.622, model b059d25d9503)","code":"ergo-tn1(narration)","severity":"advice","filename":"src/again.ts","labels":[{"span":{"offset":1224,"length":21,"line":32,"column":7}}]}],"error":""}
+{"diagnostics":[],"error":"tn1-lint: cannot read vectors/nets/missing.tn1"}
+{"diagnostics":[],"error":"tn1-lint: request at 0: an invalid literal"}
+{"diagnostics":[],"error":""}

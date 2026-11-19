@@ -1,0 +1,25 @@
+# upstream's three scene tests, on one screen in order.
+# scene 1: the first screen (above) shows the permit's heading, an
+# overnight trip checked, and the state machine inspector.
+# scene 2: a day trip skips Supplies and can be confirmed.
+check Day trip
+click Continue
+# the review button is disabled until the leader is named
+click Review permit
+check Leader: Ana Rivera
+click Review permit
+# the file button is disabled until the rules are agreed
+click File permit · $25.00
+check Accept the park rules
+click File permit · $25.00
+wait 1000
+# scene 3: an applied code takes its allowance off the fee, and an unknown
+# one is refused and takes it back.
+click Start a permit again
+click Continue
+check Leader: Ana Rivera
+click Review permit
+code ranger10
+click Apply
+code bogus
+click Apply

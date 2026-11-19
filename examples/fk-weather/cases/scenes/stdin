@@ -1,0 +1,20 @@
+# Upstream's six scene tests (src/scene.test.ts), played on one screen in
+# order. Upstream's given model holds the draft 90210; here the script
+# types it.
+# initial view shows empty form with Get Weather button: no report region.
+# typing a zip code updates the input value.
+type 10001
+type 90210
+# submitting the form shows loading state: the button reads Loading...
+submit
+# successful fetch renders weather card: the answer comes when the clock
+# reaches the station's delay (upstream's Command.resolve).
+wait 500
+# failed fetch renders error message: no report region, and the reason.
+type 99999
+submit
+wait 500
+# full flow: type zip code, click get weather, see results.
+type 90210
+click Get Weather
+wait 500

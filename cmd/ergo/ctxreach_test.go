@@ -23,6 +23,7 @@ import (
 //     its provider, lint with-at-entry, and site's cmd/app2 keeps an
 //     embedded foreign context.)
 func TestErgoRunContextOnlyPackage(t *testing.T) {
+	t.Parallel()
 	binary := buildTestCLI(t)
 	workspace := smokeWorkspace(t, "cmd/ergo/testdata/ctxreach", readmeSmokeProgram)
 	site := filepath.Join(workspace, "cmd", "ergo", "testdata", "ctxreach", "site")

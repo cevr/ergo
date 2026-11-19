@@ -24,7 +24,7 @@ import (
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 	"ergo.local/prototype/internal/sketchfront"
 )
@@ -132,7 +132,7 @@ func Run(opts Options) (Report, error) {
 			return rep, err
 		}
 		stdRoot = abs
-		for _, path := range std.Packages() {
+		for _, path := range stdlib.Packages() {
 			if _, err := check.Std.Import(path); err != nil {
 				return rep, fmt.Errorf("std %s: %w", path, err)
 			}
@@ -244,11 +244,11 @@ func Run(opts Options) (Report, error) {
 			files = []string{r.where}
 		case r.where != "":
 			files = ergoFiles(r.where)
-		case p.Pkg == std.PreludePath && stdRoot != "":
+		case p.Pkg == stdlib.PreludePath && stdRoot != "":
 			files = []string{filepath.Join(stdRoot, "prelude.ergo")}
 		case pkgDirs[p.Pkg] != "":
 			files = ergoFiles(pkgDirs[p.Pkg])
-		case stdRoot != "" && slices.Contains(std.Packages(), p.Pkg):
+		case stdRoot != "" && slices.Contains(stdlib.Packages(), p.Pkg):
 			files = ergoFiles(filepath.Join(stdRoot, filepath.FromSlash(p.Pkg)))
 		}
 		file, decl := ed.find(files, p.Type.Name)
@@ -385,7 +385,7 @@ func stdFile(stdRoot, file string) bool {
 		return false
 	}
 	rel = filepath.ToSlash(rel)
-	return rel == "." || slices.Contains(std.Packages(), rel)
+	return rel == "." || slices.Contains(stdlib.Packages(), rel)
 }
 
 func evalDir(dir string) string {
