@@ -3,9 +3,11 @@
 // Loop with N pushed first), run by a hand-written Go loop that switches on
 // int opcodes with the checks vm.Run makes (an underflow check on each
 // instruction that pops, a jump target check, fuel), the stacks growing by
-// append. It prints what `stackvm bench N` prints.
+// append. It prints what `stackvm bench N` prints; `control fib N` runs
+// FibProgram(N), the recursive workload of testdata/fib, the same way.
 //
 //	control bench N
+//	control fib N
 package main
 
 import (
@@ -62,6 +64,60 @@ func benchProgram(rounds int) []instr {
 		{opPrint, 0}, // done
 		{opPop, 0},
 	}
+}
+
+// fibProgram is FibProgram of cmd/stackvm/main.ergo: rounds times fib(15)
+// by the doubly recursive subroutine of cases/fib, summed and printed.
+func fibProgram(rounds int) []instr {
+	return []instr{
+		{opPush, 0},
+		{opPush, rounds},
+		{opDup, 0}, // loop
+		{opJumpIfNot, 12},
+		{opSwap, 0},
+		{opPush, 15},
+		{opCall, 15},
+		{opAdd, 0},
+		{opSwap, 0},
+		{opPush, 1},
+		{opSub, 0},
+		{opJump, 2},
+		{opPop, 0}, // done
+		{opPrint, 0},
+		{opHalt, 0},
+		{opDup, 0}, // fib
+		{opPush, 2},
+		{opLess, 0},
+		{opJumpIf, 28},
+		{opDup, 0},
+		{opPush, 1},
+		{opSub, 0},
+		{opCall, 15},
+		{opSwap, 0},
+		{opPush, 2},
+		{opSub, 0},
+		{opCall, 15},
+		{opAdd, 0},
+		{opRet, 0}, // base
+	}
+}
+
+// programOf is the program of `stackvm bench N` or `stackvm fib N`.
+func programOf(args []string) ([]instr, bool) {
+	if len(args) != 3 {
+		return nil, false
+	}
+	n, err := strconv.Atoi(args[2])
+	if err != nil || n < 0 {
+		return nil, false
+	}
+	switch args[1] {
+	case "bench":
+		return benchProgram(n), true
+	case "fib":
+		return fibProgram(n), true
+	}
+	return nil, false
 }
 
 type trap struct {
@@ -211,16 +267,12 @@ func run(program []instr, fuel int) (printed, left []int, steps int, err error) 
 }
 
 func main() {
-	if len(os.Args) != 3 || os.Args[1] != "bench" {
-		fmt.Fprintln(os.Stderr, "usage: control bench N")
+	program, ok := programOf(os.Args)
+	if !ok {
+		fmt.Fprintln(os.Stderr, "usage: control bench N | fib N")
 		os.Exit(2)
 	}
-	n, err := strconv.Atoi(os.Args[2])
-	if err != nil || n < 0 {
-		fmt.Fprintln(os.Stderr, "control: bad round count")
-		os.Exit(2)
-	}
-	printed, left, steps, err := run(benchProgram(n), 4611686018427387904)
+	printed, left, steps, err := run(program, 4611686018427387904)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "stackvm:", err)
 		os.Exit(1)
