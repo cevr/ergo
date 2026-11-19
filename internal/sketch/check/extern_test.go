@@ -355,6 +355,35 @@ func main() {
 	use(Mine)
 }
 `,
+	// std explore (T2c): size is unexported, so only explore's hasher
+	// provides Hasher.
+	"explore.Hasher": `import explore
+
+type Mine {}
+
+func Null(_ Mine)                  {}
+func Number(_ Mine, text string)   {}
+func Bool(_ Mine, b bool)          {}
+func Int(_ Mine, n int64)          {}
+func Uint(_ Mine, n uint64)        {}
+func Float(_ Mine, f float64)      {}
+func String(_ Mine, s string)      {}
+func StringBytes(_ Mine, b []byte) {}
+func BeginList(_ Mine, n int)      {}
+func EndList(_ Mine)               {}
+func BeginObject(_ Mine, n int)    {}
+func Tag(_ Mine, name string)      {}
+func Key(_ Mine, k string)         {}
+func EndObject(_ Mine)             {}
+func Sum(_ Mine) explore.Hash      { explore.Hash{Hi: uint64(0), Lo: uint64(0)} }
+func size(_ Mine) int              { 0 }
+
+func use(h explore.Hasher) { _ = h.Sum() }
+
+func main() {
+	use(Mine)
+}
+`,
 	"json.Cursor": `import json
 
 type Mine {}
@@ -1321,6 +1350,7 @@ var unexportedStd = map[string]string{
 	"fs.HostRoot":         "hostRooted is an unexported operation of fs.HostRoot, so only a type of package fs implements it",
 	"http.BodyFile":       "partOnly is an unexported operation of http.BodyFile, so only a type of package http implements it",
 	"json.Text":           "raw is an unexported operation of json.Text, so only a type of package json implements it",
+	"explore.Hasher":      "size is an unexported operation of explore.Hasher, so only a type of package explore implements it",
 }
 
 // openStd records the operation types that did not use the old implicit
