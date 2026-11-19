@@ -498,6 +498,10 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 		add(&Step{Name: "ergo test " + model, Needs: []string{buildCLIStep}, Argv: argv, Class: classHeavy, MemoryHeavy: true})
 	}
 
+	if step := compilerErgoTests(root); step != nil {
+		add(step)
+	}
+
 	return steps, nil
 }
 
@@ -530,6 +534,18 @@ func designModels(root string) ([]string, error) {
 		}
 	}
 	return models, nil
+}
+
+// compilerErgoTests is the step that runs the Ergo tests of the compiler's
+// own Ergo packages (compiler/...) at check time, as ergo check runs them,
+// with no Go build (scripts/ergotests, ST-0): no Go bridge test brings
+// them into the gate. A test that skips fails it. A checkout with no
+// compiler/ has none.
+func compilerErgoTests(root string) *Step {
+	if info, err := os.Stat(filepath.Join(root, "compiler")); err != nil || !info.IsDir() {
+		return nil
+	}
+	return &Step{Name: "ergo tests compiler/...", Argv: []string{"go", "run", "./scripts/ergotests", "./compiler/..."}, Class: classHeavy}
 }
 
 // uncachedStep is the step as the merge tier runs it: without the hermetic
