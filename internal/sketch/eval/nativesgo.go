@@ -91,6 +91,9 @@ func goNativeOf(fn *check.Func) native {
 	if fn.Decl == nil || fn.Decl.Extern == nil || fn.Decl.Extern.Target == nil || fn.Pkg == nil || fn.Pkg.Std() {
 		return nil
 	}
+	// The table is filled with the std natives (registerNativesgo): a
+	// program's first call may be to an import go function.
+	loadNatives()
 	path, name := fn.Decl.Extern.Split()
 	return goNatives[path+"."+name]
 }
