@@ -21,7 +21,8 @@ import (
 const genHelp = "usage: ergo gen api [--check] DIR.OPTYPE\n" +
 	"       ergo gen rpc [--check] DIR.OPTYPE\n" +
 	"       ergo gen cli [--check] DIR.OPTYPE\n" +
-	"       ergo gen mcp [--check] DIR.OPTYPE\n\n" +
+	"       ergo gen mcp [--check] DIR.OPTYPE\n" +
+	"       ergo gen schema [--check] DIR.TYPE\n\n" +
 	"ergo gen api writes the hub of the operation type OPTYPE of the package\n" +
 	"in DIR (docs/spec/api.md): Ergo source in DIR/<pkg>api/api.ergo, the\n" +
 	"operation type as data (Request, Op, Reply, Failure, Outcome), Call, the\n" +
@@ -39,7 +40,12 @@ const genHelp = "usage: ergo gen api [--check] DIR.OPTYPE\n" +
 	"schema of its arguments, Call, Arguments, Answer, Tools and the laws\n" +
 	"ArgumentsRoundTrip and ArgumentsFitTheSchema (docs/spec/api.md, ergo gen\n" +
 	"mcp).\n\n" +
-	"Each file carries the contract's digest. --check writes nothing and\n" +
+	"ergo gen schema writes the JSON schema of a wire type's form: Ergo\n" +
+	"source over std jsonschema in DIR/<pkg>schema/<type>.ergo, the\n" +
+	"function TYPE() jsonschema.Schema and the law TYPEValuesFitTheSchema\n" +
+	"(the codec's JSON of every value fits it; docs/spec/stdlib.md,\n" +
+	"jsonschema). It needs no hub.\n\n" +
+	"Each file carries the contract's digest, or the type it is for. --check writes nothing and\n" +
 	"fails when a file differs from what the contract generates now (a stale\n" +
 	"file).\n\n" +
 	"Exit codes: 0 written or current; 1 the package does not check, the\n" +
@@ -47,17 +53,22 @@ const genHelp = "usage: ergo gen api [--check] DIR.OPTYPE\n" +
 	"invalid invocation.\n"
 
 // genCommand is `ergo gen api [--check] DIR.OPTYPE` (AF0), and over its hub
-// `ergo gen rpc` (R1), `ergo gen cli` (AP1) and `ergo gen mcp` (AP3).
+// `ergo gen rpc` (R1), `ergo gen cli` (AP1) and `ergo gen mcp` (AP3); and
+// `ergo gen schema [--check] DIR.TYPE` (wf10 JS0), a wire type's schema.
 func genCommand(args []string) error {
-	if len(args) == 0 || (args[0] != "api" && args[0] != "rpc" && args[0] != "cli" && args[0] != "mcp") {
-		return usageError{message: "ergo gen writes an operation type's hub or its RPC, CLI or MCP glue: ergo gen api|rpc|cli|mcp [--check] DIR.OPTYPE"}
+	if len(args) == 0 || (args[0] != "api" && args[0] != "rpc" && args[0] != "cli" && args[0] != "mcp" && args[0] != "schema") {
+		return usageError{message: "ergo gen writes an operation type's hub or its RPC, CLI or MCP glue, or a type's JSON schema: ergo gen api|rpc|cli|mcp [--check] DIR.OPTYPE, ergo gen schema [--check] DIR.TYPE"}
 	}
 	kind := args[0]
 	name := "ergo gen " + kind
 	fs := flag.NewFlagSet("gen", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	checkOnly := fs.Bool("check", false, "")
-	usage := "usage: " + name + " [--check] DIR.OPTYPE"
+	what := "DIR.OPTYPE"
+	if kind == "schema" {
+		what = "DIR.TYPE"
+	}
+	usage := "usage: " + name + " [--check] " + what
 	if err := fs.Parse(args[1:]); err != nil {
 		return flagError(err, usage)
 	}
@@ -67,6 +78,9 @@ func genCommand(args []string) error {
 	arg := fs.Arg(0)
 	i := strings.LastIndex(arg, ".")
 	if i <= 0 || i == len(arg)-1 {
+		if kind == "schema" {
+			return usageError{message: name + ": name the type as DIR.TYPE, such as receipt.Receipt"}
+		}
 		return usageError{message: name + ": name the operation type as DIR.OPTYPE, such as limits.Limiter"}
 	}
 	dir, opName := arg[:i], arg[i+1:]
@@ -87,9 +101,12 @@ func genCommand(args []string) error {
 		return exitStatusError{code: 1, message: name + ": " + err.Error()}
 	}
 	var out rpcgen.Files
-	if kind == "api" {
+	switch kind {
+	case "api":
 		out, err = apigen.Generate(root.Package, path, opName)
-	} else {
+	case "schema":
+		out, err = rpcgen.GenerateSchema(root.Package, path, opName)
+	default:
 		out, err = genOverHub(root.Package, dir, path, opName, kind)
 	}
 	if err != nil {
