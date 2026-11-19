@@ -85,7 +85,7 @@ func copyKind(text string) string {
 		return "Map"
 	case name == "Clone" || name == "Clip":
 		return "slice"
-	case strings.HasPrefix(head, helperSpelling("", "ergoClone")): // a clone function (values.go cloneBase; pkgnames.go)
+	case strings.HasPrefix(head, HelperSpelling("", "ergoClone")): // a clone function (values.go cloneBase; pkgnames.go)
 		return "deep"
 	}
 	return ""
