@@ -1,0 +1,57 @@
+import ergo.dev/fluid/look
+import ergo.dev/fluid/token
+
+// Components is the module's components' looks, one list per component in package order
+// (badge, then button): the
+// sheet a site of the whole library serves is built from them all. Each component's list is
+// its whole domain (every tone, density, radius and shape), so its sheet holds every class a
+// view of it can print.
+func Components() [][]look.Look {
+	[][]look.Look{chips(), controls()}
+}
+
+// Looks is every look of the module.
+func Looks() []look.Look {
+	let mut out = []look.Look{}
+	for c in Components() {
+		for l in c {
+			out = out.Append(l)
+		}
+	}
+	out
+}
+
+func controls() []look.Look {
+	let mut out = []look.Look{}
+	for t in look.Tones() {
+		for d in look.Densities() {
+			for r in look.Radii() {
+				for lead in []bool{false, true} {
+					for trail in []bool{false, true} {
+						let c = look.ControlLook(t, d, r, lead, trail)
+						out = out.Append(c.Root)
+						out = out.Append(c.Plate)
+						out = out.Append(c.Content)
+						out = out.Append(c.Label)
+					}
+				}
+			}
+		}
+	}
+	out
+}
+
+func chips() []look.Look {
+	let mut out = []look.Look{}
+	for h in token.Hues() {
+		for outline in []bool{false, true} {
+			for d in look.Densities() {
+				let c = look.ChipLook(h, outline, d)
+				out = out.Append(c.Root)
+				out = out.Append(c.Dot)
+				out = out.Append(c.Label)
+			}
+		}
+	}
+	out
+}

@@ -1,0 +1,9 @@
+{
+  "about": "The mutant ledger of runtime/obs (RT-OBS): edits of the Go-trace sink that a test of the package must kill. Run it with go run ./scripts/mutants runtime/obs/testdata/mutants.json.",
+  "mutants": [
+    {"name":"obs-flat-tasks","origin":"wf10 RT-OBS","file":"runtime/obs/obs.go","from":"\tif p := s.tasks[e.Parent]; p != nil {\n\t\tparent = p.ctx\n\t}\n","to":"","rule":"Each Ergo task is a Go user task under its parent's Go task.","killers":["runtime/obs:TestObsMapsTheTree"]},
+    {"name":"obs-no-region","origin":"wf10 RT-OBS","file":"runtime/obs/obs.go","from":"\tcase rt.TraceCall:\n\t\ts.call(e)\n","to":"","rule":"Each capability call is a region of its task.","killers":["runtime/obs:TestObsMapsTheTree"]},
+    {"name":"obs-no-labels","origin":"wf10 RT-OBS","file":"runtime/obs/obs.go","from":"\ts.labels(ctx)\n","to":"","rule":"A task's goroutine, and those it starts, carry the label ergo.def.","killers":["runtime/obs:TestObsLabelsTaskGoroutines"]},
+    {"name":"obs-flight-no-dump","origin":"wf10 RT-OBS","file":"runtime/obs/obs.go","from":"\t_, err := f.fr.WriteTo(w)\n\treturn true, err","to":"\treturn true, nil","rule":"A defect writes the flight recorder's window.","killers":["runtime/obs:TestObsFlightWritesOnDefect"]}
+  ]
+}

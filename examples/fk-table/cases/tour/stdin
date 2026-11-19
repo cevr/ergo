@@ -6,15 +6,15 @@ sort Length
 sort Length
 sort Weight
 period Triassic
-diet all
+diet All Diets
 # A search in any case, then one with no match.
 search SAURUS
 search zzz
 search
-period all
+period All Periods
 # A hand-edited address: each parameter it cannot read becomes its default.
 visit /?sorting=Height:Upward&diet=carnivore&period=Jurassic&search=a+b
 visit /?period=Jurassic&sorting=Name:Descending
-# A path the table is not at; a control there starts from the defaults.
+# A path the table is not at, then Back to the last address.
 visit /somewhere/else
-diet Omnivore
+back

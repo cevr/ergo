@@ -48,6 +48,14 @@ type taskState struct {
 	// argStack holds the arguments of the task's Ergo calls in progress
 	// (stackArgs): each task has its own, as its calls nest.
 	argStack []Value
+	// stepStack holds the paths of the task's assignments in progress
+	// (placePush).
+	stepStack []step
+	// firing is std machines' firing mark (firingOn, firingOff): a
+	// machine's After called under it makes an Every timer's signal at
+	// time.Clock's reading (machinevalue.go). It is the task's, as the
+	// build's mark is a field of the task.
+	firing bool
 }
 
 // etask is one task of the obligation.

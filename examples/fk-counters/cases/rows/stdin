@@ -7,7 +7,8 @@ add
 inc 3
 # removing counter-1 keeps the others with their counts
 remove 1
-# a click for a removed row finds no row and changes nothing
+# a removed row has no buttons left to click (the step ignores an At for
+# a missing key: rows test SignalForAMissingKeyChangesNothing)
 inc 1
 # keys are never reused: after removing the last row, add gives counter-4
 remove 3

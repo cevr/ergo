@@ -11,5 +11,10 @@ import (
 )
 
 // TestMain runs the tests under observation, so the files and variables
-// any process they start reads are inputs of Go's test cache.
-func TestMain(m *testing.M) { os.Exit(testinputs.Main(m)) }
+// any process they start reads are inputs of Go's test cache. The
+// thread-id reuse case runs its driver under unshare --user, so the
+// package makes namespaces (testinputs.MakesNamespaces).
+func TestMain(m *testing.M) {
+	testinputs.MakesNamespaces()
+	os.Exit(testinputs.Main(m))
+}

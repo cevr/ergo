@@ -24,6 +24,8 @@
 // and Go's own compiler (cmd/compile's ssa.ID); Effect has no such module.
 // The package is Ergo source with no Go body (STD-NOPRIV).
 
+import slices
+
 // ID is the id of a row of a store of K: four bytes, no pointer. IDs
 // compare with ==, in the order the rows were put.
 type ID[K] { n uint32 }
@@ -166,11 +168,22 @@ func Next[K](c *Count[K]) ID[K] {
 // Total is the count of ids Next made.
 func Total[K](c Count[K]) int { int(c.n) }
 
+// IDAt is the id Next made at position i, 0 <= i < Total(c).
+func IDAt[K](c Count[K], i int) ID[K] {
+	if i < 0 || i >= int(c.n) {
+		Unreachable("dense: IDAt of a position outside the count")
+	}
+	ID[K]{n: uint32(i)}
+}
+
 // Col is a column of V for the rows of K: one field of hand columns.
 type Col[K, V] { xs []V }
 
 // NewCol is an empty column.
 func NewCol[K, V]() Col[K, V] { Col[K, V]{xs: []V{}} }
+
+// ColWithCap is an empty column with room for n values.
+func ColWithCap[K, V](n int) Col[K, V] { Col[K, V]{xs: slices.WithCapacity[V](n)} }
 
 // Push appends the value of the next row.
 func Push[K, V](c *Col[K, V], v V) { c.xs = c.xs.Append(v) }
@@ -215,6 +228,9 @@ type Pool[E] { items []E }
 
 // NewPool is an empty pool.
 func NewPool[E]() Pool[E] { Pool[E]{items: []E{}} }
+
+// PoolWithCap is an empty pool with room for n items.
+func PoolWithCap[E](n int) Pool[E] { Pool[E]{items: slices.WithCapacity[E](n)} }
 
 // PutList appends xs as one list and returns its run. No earlier list
 // changes.

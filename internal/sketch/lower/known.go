@@ -92,6 +92,9 @@ type knownStats struct {
 	Unkept int
 	// ResultCopies is the call results copied instead of their argument.
 	ResultCopies int
+	// RepeatFills is the slices.Repeat calls of a constant length made in
+	// the caller (repeat.go).
+	RepeatFills int
 	// BorrowCopies is the generic results through a borrow copied at the
 	// caller (alias.go, borrowResult).
 	BorrowCopies int
@@ -119,6 +122,9 @@ type knownStats struct {
 	// Substituted the literals written where an inlined body calls them.
 	Inlined     int
 	Substituted int
+	// ColdCalls is the inlined bodies whose growth guard calls the
+	// function out of line (coldhead.go).
+	ColdCalls int
 	// Specialized is the copies for known records made (record.go).
 	Specialized int
 	// Providers is the copies for known providers made (provider.go).
@@ -164,11 +170,22 @@ type knownStats struct {
 	// Taken is the sites that took each shortcut, by its name in the
 	// registry (shortcuts.go).
 	Taken map[string]int
+	// SlotSites is the calls that went to a slot variant, by the callee's
+	// name, and SlotKept the calls of a callee with one that kept the box
+	// (slot.go).
+	SlotSites map[string]int
+	SlotKept  int
 	// Copies is the form of each Append and owned-form site
 	// (handover.go, the copy report).
 	Copies []CopySite
 	// Layouts is the layout report: a row per record emitted (layout.go).
 	Layouts []LayoutRow
+	// TupleLets is the lets of a tuple pattern whose if or match arms
+	// write the names straight, with no tuple value (tuplelet.go).
+	TupleLets int
+	// TupleInlines is the inlined calls of such an arm whose returns write
+	// the names (inline.go, inlineRet.tuple).
+	TupleInlines int
 }
 
 // statsHook is a test seam, nil outside tests: it receives the counts of

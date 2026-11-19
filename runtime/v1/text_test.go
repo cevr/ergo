@@ -236,6 +236,12 @@ func textBenches() []textBench {
 	goBuilt.WriteString(s)
 	return []textBench{
 		{"Join", "StringsJoin", func() { textSink = StringsJoin(xs, ";") }, func() { textSink = strings.Join(xs, ";") }},
+		{"String", "UTF8String", func() { textSink = UTF8String(buf[:8]) }, func() { textSink = string(buf[:8]) }},
+		// std build's fold queries: a built program answers false, as Go's
+		// constant does.
+		{"InFold", "BuildInFold", func() { textSink = BuildInFold() }, func() { textSink = false }},
+		{"Known", "BuildKnown", func() { textSink = BuildKnown(len(s)) }, func() { textSink = false }},
+		{"Hole", "BuildHole", func() { textSink = BuildHole(s) }, func() { textSink = false }},
 		// The builder bodies against Go's strings.Builder: a loop of
 		// writes, a Grow, and the text of a built buffer (Go's String
 		// shares its bytes; StringsBuilderText copies them).

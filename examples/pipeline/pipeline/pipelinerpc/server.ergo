@@ -3,7 +3,7 @@
 
 import rpc
 import pipeline/pipeline
-import pipeline/run
+import pipeline/pipeline/pipelineapi
 
 // Handle runs one call of pipeline.Pipeline on the provider the caller binds: tag
 // names the operation and payload is its Request's JSON. Its value is the
@@ -21,105 +21,76 @@ func Handle(tag string, payload string) string fails rpc.Failed needs pipeline.P
 		case rpc.Unrepresentable as u:
 			return rpc.Refuse[string](u)
 		}
-		let v = pipeline.Pipeline.Submit(r.C) catch {
-		case run.WrongState as e:
-			return rpc.Failed{Text: rpc.Tagged("WrongState", rpc.Encode(e))}
-		case run.WrongStage as e:
-			exactRunWrongStage(e) catch {
-			case rpc.Unrepresentable as u:
-				return rpc.Refuse[string](u)
-			}
-			return rpc.Failed{Text: rpc.Tagged("WrongStage", rpc.Encode(e))}
-		case run.Closed as e:
-			return rpc.Failed{Text: rpc.Tagged("Closed", rpc.Encode(e))}
-		case run.BadLength as e:
-			exactRunBadLength(e) catch {
-			case rpc.Unrepresentable as u:
-				return rpc.Refuse[string](u)
-			}
-			return rpc.Failed{Text: rpc.Tagged("BadLength", rpc.Encode(e))}
-		case pipeline.NoSuchRun as e:
-			return rpc.Failed{Text: rpc.Tagged("NoSuchRun", rpc.Encode(e))}
-		case pipeline.Unavailable as e:
-			return rpc.Failed{Text: rpc.Tagged("Unavailable", rpc.Encode(e))}
-		}
-		exactPipelineReceipt(v) catch {
-		case rpc.Unrepresentable as u:
-			return rpc.Refuse[string](u)
-		}
-		rpc.Encode(v)
-	case CancelRequest as r:
-		let v = pipeline.Pipeline.Cancel(r.C) catch {
-		case run.WrongState as e:
-			return rpc.Failed{Text: rpc.Tagged("WrongState", rpc.Encode(e))}
-		case run.WrongStage as e:
-			exactRunWrongStage(e) catch {
-			case rpc.Unrepresentable as u:
-				return rpc.Refuse[string](u)
-			}
-			return rpc.Failed{Text: rpc.Tagged("WrongStage", rpc.Encode(e))}
-		case run.Closed as e:
-			return rpc.Failed{Text: rpc.Tagged("Closed", rpc.Encode(e))}
-		case run.BadLength as e:
-			exactRunBadLength(e) catch {
-			case rpc.Unrepresentable as u:
-				return rpc.Refuse[string](u)
-			}
-			return rpc.Failed{Text: rpc.Tagged("BadLength", rpc.Encode(e))}
-		case pipeline.NoSuchRun as e:
-			return rpc.Failed{Text: rpc.Tagged("NoSuchRun", rpc.Encode(e))}
-		case pipeline.Unavailable as e:
-			return rpc.Failed{Text: rpc.Tagged("Unavailable", rpc.Encode(e))}
-		}
-		exactPipelineReceipt(v) catch {
-		case rpc.Unrepresentable as u:
-			return rpc.Refuse[string](u)
-		}
-		rpc.Encode(v)
 	case RetryRequest as r:
 		exactRetryRequest(r) catch {
 		case rpc.Unrepresentable as u:
 			return rpc.Refuse[string](u)
 		}
-		let v = pipeline.Pipeline.Retry(r.C) catch {
-		case run.WrongState as e:
+	case _:
+	}
+	match pipelineapi.Call(req) {
+	case pipelineapi.Done as done:
+		match done.Reply {
+		case pipelineapi.SubmitReply as reply:
+			let v = reply.Value
+			exactPipelineReceipt(v) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			rpc.Encode(v)
+		case pipelineapi.CancelReply as reply:
+			let v = reply.Value
+			exactPipelineReceipt(v) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			rpc.Encode(v)
+		case pipelineapi.RetryReply as reply:
+			let v = reply.Value
+			exactPipelineReceipt(v) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			rpc.Encode(v)
+		case pipelineapi.BoardReply as reply:
+			let v = reply.Value
+			rpc.Encode(v)
+		case pipelineapi.RunOfReply as reply:
+			let v = reply.Value
+			exactRunRun(v) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			rpc.Encode(v)
+		}
+	case pipelineapi.Rejected as rejected:
+		match rejected.Failure {
+		case pipelineapi.WrongState as failure:
+			let e = failure.E
 			return rpc.Failed{Text: rpc.Tagged("WrongState", rpc.Encode(e))}
-		case run.WrongStage as e:
+		case pipelineapi.WrongStage as failure:
+			let e = failure.E
 			exactRunWrongStage(e) catch {
 			case rpc.Unrepresentable as u:
 				return rpc.Refuse[string](u)
 			}
 			return rpc.Failed{Text: rpc.Tagged("WrongStage", rpc.Encode(e))}
-		case run.Closed as e:
+		case pipelineapi.Closed as failure:
+			let e = failure.E
 			return rpc.Failed{Text: rpc.Tagged("Closed", rpc.Encode(e))}
-		case run.BadLength as e:
+		case pipelineapi.BadLength as failure:
+			let e = failure.E
 			exactRunBadLength(e) catch {
 			case rpc.Unrepresentable as u:
 				return rpc.Refuse[string](u)
 			}
 			return rpc.Failed{Text: rpc.Tagged("BadLength", rpc.Encode(e))}
-		case pipeline.NoSuchRun as e:
+		case pipelineapi.NoSuchRun as failure:
+			let e = failure.E
 			return rpc.Failed{Text: rpc.Tagged("NoSuchRun", rpc.Encode(e))}
-		case pipeline.Unavailable as e:
+		case pipelineapi.Unavailable as failure:
+			let e = failure.E
 			return rpc.Failed{Text: rpc.Tagged("Unavailable", rpc.Encode(e))}
 		}
-		exactPipelineReceipt(v) catch {
-		case rpc.Unrepresentable as u:
-			return rpc.Refuse[string](u)
-		}
-		rpc.Encode(v)
-	case BoardRequest:
-		let v = pipeline.Pipeline.Board()
-		rpc.Encode(v)
-	case RunOfRequest as r:
-		let v = pipeline.Pipeline.RunOf(r.Id) catch {
-		case pipeline.NoSuchRun as e:
-			return rpc.Failed{Text: rpc.Tagged("NoSuchRun", rpc.Encode(e))}
-		}
-		exactRunRun(v) catch {
-		case rpc.Unrepresentable as u:
-			return rpc.Refuse[string](u)
-		}
-		rpc.Encode(v)
 	}
 }

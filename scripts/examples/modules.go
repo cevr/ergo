@@ -16,10 +16,20 @@ import (
 // `ergo test` on every package folder, so its tests and laws run in the
 // test leg as an example's do. Its layout: ergo.mod and go.mod naming one
 // module path, README.md, package folders and top-level .ergo files, and
-// optionally go.sum, expected-skips and testdata/.
+// optionally go.sum, expected-skips, full-tier and testdata/.
+//
+// full-tier names package folders whose tests are too costly for the fast
+// tier (a law run against the host in every case, say): one folder,
+// relative to the module, a line, then "#" and why. The runner leaves them
+// out of every run but -full-tier, which runs only them; the gate's full
+// tier runs that (scripts/gate, "examples (full tier)").
 
 // modulesDir is the folder of the repository's modules.
 const modulesDir = "modules"
+
+// fullTierFile is a module's list of the package folders only the full
+// tier tests.
+const fullTierFile = "full-tier"
 
 // loadModules reads and checks the layout of every folder of modules/; no
 // folder is no module. Each problem names its folder.
@@ -72,7 +82,12 @@ func loadModule(dir, name string) (*program, []string) {
 			if !entry.IsDir() {
 				problem("%s is not a folder", file)
 			}
-		case file == "ergo.mod" || file == "go.mod" || file == "go.sum" || file == "README.md" || file == expectedSkipsFile || strings.HasSuffix(file, ".ergo"):
+		case file == "origin" && entry.IsDir():
+			// A port's notes on its original (pins, how it was read): Markdown
+			// only, never source. The original itself is not vendored when its
+			// text has no licence (modules/fluid).
+			problems = append(problems, originNotes(filepath.Join(dir, file))...)
+		case file == "ergo.mod" || file == "go.mod" || file == "go.sum" || file == "README.md" || file == "NOTICE" || file == expectedSkipsFile || file == fullTierFile || strings.HasSuffix(file, ".ergo"):
 			if !entry.Type().IsRegular() {
 				problem("%s is not a regular file", file)
 				continue
@@ -85,7 +100,7 @@ func loadModule(dir, name string) (*program, []string) {
 		case entry.IsDir():
 			problems = append(problems, packageSources(p, filepath.Join(dir, file), file)...)
 		default:
-			problem("unexpected %s; a module holds ergo.mod, go.mod, README.md and package folders, and may hold go.sum, expected-skips and testdata/", file)
+			problem("unexpected %s; a module holds ergo.mod, go.mod, README.md and package folders, and may hold go.sum, NOTICE, expected-skips, full-tier, origin/ and testdata/", file)
 		}
 	}
 	for _, required := range []string{"ergo.mod", "go.mod", "README.md"} {
@@ -111,19 +126,65 @@ func loadModule(dir, name string) (*program, []string) {
 	}
 	slices.Sort(p.sources)
 	problems = append(problems, moduleLawProblems(p)...)
+	if present[fullTierFile] {
+		heavy, err := fullTierFolders(filepath.Join(dir, fullTierFile))
+		if err != nil {
+			problem("%v", err)
+		}
+		p.heavy = heavy
+	}
 	for _, source := range p.sources {
-		if target := filepath.Dir(source); !slices.Contains(p.tests, target) {
+		if target := filepath.Dir(source); !slices.Contains(p.tests, target) && !slices.Contains(p.heavy, target) {
 			p.tests = append(p.tests, target)
+		}
+	}
+	for _, folder := range p.heavy {
+		if !slices.ContainsFunc(p.sources, func(s string) bool { return filepath.Dir(s) == folder }) {
+			rel, _ := filepath.Rel(dir, folder)
+			problem("%s names %s, which is no package folder of the module", fullTierFile, filepath.ToSlash(rel))
 		}
 	}
 	slices.Sort(p.tests)
 	return p, problems
 }
 
+// fullTierFolders reads a full-tier file: the folders it names, each
+// made absolute against the file's module.
+func fullTierFolders(file string) ([]string, error) {
+	text, err := os.ReadFile(file)
+	if err != nil {
+		return nil, err
+	}
+	var folders []string
+	for _, line := range strings.Split(string(text), "\n") {
+		line, _, _ = strings.Cut(line, "#")
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if filepath.IsAbs(line) || strings.Contains(line, "..") || len(strings.Fields(line)) != 1 {
+			return nil, fmt.Errorf("%s: %q is not one package folder of the module", fullTierFile, line)
+		}
+		folders = append(folders, filepath.Join(filepath.Dir(file), filepath.FromSlash(line)))
+	}
+	return folders, nil
+}
+
 // runModule formats a module, checks its generated files and runs the test
 // leg on every package folder: a module has nothing to build and no case.
 func (r *runner) runModule(p *program) {
-	if o, err := r.tool(0, append([]string{"fmt", "--check"}, p.sources...)...); err != nil || !o.passed() {
+	if r.cfg.fullTier {
+		for _, target := range p.heavy {
+			rel, _ := filepath.Rel(p.dir, target)
+			r.testTarget(p, target, "test "+filepath.ToSlash(rel))
+		}
+		return
+	}
+	for _, target := range p.heavy {
+		rel, _ := filepath.Rel(p.dir, target)
+		fmt.Fprintf(r.out, "skip %s: test %s: the full tier runs it (%s)\n", p.name, filepath.ToSlash(rel), fullTierFile)
+	}
+	if o, err := r.tool(0, append([]string{"fmt", "--check"}, p.sources...)...); err != nil || !o.Passed() {
 		r.toolFailed(p, "fmt", o, err)
 		return
 	}
@@ -149,4 +210,27 @@ func selectModules(names []string, modules []*program) ([]*program, error) {
 		}
 	}
 	return selected, nil
+}
+
+// originNotes checks a module's origin folder: README.md and other
+// Markdown files, no folder and nothing else, so no source hides there
+// from the test leg.
+func originNotes(dir string) []string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return []string{err.Error()}
+	}
+	var problems []string
+	readme := false
+	for _, entry := range entries {
+		name := entry.Name()
+		if !entry.Type().IsRegular() || !strings.HasSuffix(name, ".md") {
+			problems = append(problems, fmt.Sprintf("unexpected origin/%s; a module's origin folder holds Markdown notes only", name))
+		}
+		readme = readme || name == "README.md"
+	}
+	if !readme {
+		problems = append(problems, "origin/README.md: missing; it names the original and its pins")
+	}
+	return problems
 }

@@ -5,4 +5,4 @@
 import fk-domains/domains
 import fk-domains/sample
 
-let overSample = context { domains.Registry: NewLoopback(sample.NewSample()) }
+let overSample = context { domains.Registry: NewLoopback(sample.Sample) }

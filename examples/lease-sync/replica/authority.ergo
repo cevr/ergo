@@ -1,0 +1,128 @@
+import lease-sync/domain
+import time
+
+// Authority is the replica's one seam with the authority of a source: the
+// provider a program chooses (in process, scripted, over rpc). Push sends
+// one command; Pull reads the log from a position. A client learns
+// outcomes from frames only: it does not change its state by Push's
+// answer, so a lost answer costs nothing.
+//
+// Push of an id with a receipt is that receipt and changes nothing. An id
+// past the client's next one fails OutOfOrder with the next one. The same
+// id with another command fails IDConflict. Pull is a Delta from `from`
+// while the authority still serves it, else a Snapshot; a provider may
+// wait while there is nothing new (a long poll).
+type Authority[S any, C comparable, E comparable, F comparable] {
+	Push(m domain.Envelope[C]) domain.Receipt fails Unavailable | Unauthorized | OutOfOrder | IDConflict,
+	Pull(by ClientID, from int) Frame[S, E, F] fails Unavailable | Unauthorized,
+
+	// A law proves nothing in a case where the provider is Unavailable or
+	// Unauthorized: the transport said so.
+
+	// PushIsIdempotent (A1): a second Push of a command gives the first
+	// receipt, and the log does not grow.
+	law PushIsIdempotent(origin string, c C) {
+		let m = first(origin, c)
+		let r = Push(m) catch {
+		case Unavailable, Unauthorized:
+			return true
+		case OutOfOrder, IDConflict:
+			return false
+		}
+		let before = Pull(ClientID(origin), 0) catch {
+		case _:
+			return true
+		}
+		let again = Push(m) catch {
+		case Unavailable, Unauthorized:
+			return true
+		case OutOfOrder, IDConflict:
+			return false
+		}
+		let after = Pull(ClientID(origin), 0) catch {
+		case _:
+			return true
+		}
+		again == r && same(after, before)
+	},
+	// OtherPayloadIsConflict (A2): the id of a kept command with another
+	// command fails IDConflict and changes nothing.
+	law OtherPayloadIsConflict(origin string, c C, d C) {
+		if c == d {
+			return true
+		}
+		Push(first(origin, c)) catch {
+		case Unavailable, Unauthorized:
+			return true
+		case OutOfOrder, IDConflict:
+			return false
+		}
+		let before = Pull(ClientID(origin), 0) catch {
+		case _:
+			return true
+		}
+		Push(first(origin, d)) catch {
+		case IDConflict as x:
+			let after = Pull(ClientID(origin), 0) catch {
+			case _:
+				return true
+			}
+			return x.ID == IDOf(ClientID(origin), 1) && same(after, before)
+		case Unavailable, Unauthorized:
+			return true
+		case OutOfOrder:
+			return false
+		}
+		false
+	},
+	// AheadIsRefused (A3): a client's command past its next one fails
+	// OutOfOrder with the next one and changes nothing, so the log of a
+	// client has no gap whatever order the network delivers in.
+	law AheadIsRefused(origin string, c C, ahead int) {
+		let before = Pull(ClientID(origin), 0) catch {
+		case _:
+			return true
+		}
+		let m = domain.Envelope[C]{..first(origin, c), ID: IDOf(ClientID(origin), 2+(ahead%3+3)%3)}
+		Push(m) catch {
+		case OutOfOrder as o:
+			let after = Pull(ClientID(origin), 0) catch {
+			case _:
+				return true
+			}
+			return o.Expected == 1 && same(after, before)
+		case Unavailable, Unauthorized:
+			return true
+		case IDConflict:
+			return false
+		}
+		false
+	},
+}
+
+// first is the first command c of the client origin, as a law sends it.
+func first[C](origin string, c own C) domain.Envelope[C] {
+	domain.Envelope[C]{ID: IDOf(ClientID(origin), 1), By: "law", At: time.Unix(0, 0), Command: c}
+}
+
+// same is whether two frames tell the same log: the same records, or a
+// snapshot at the same position with the same last number and refusals
+// (a state need not compare with ==).
+func same[S any, E comparable, F comparable](a Frame[S, E, F], b Frame[S, E, F]) bool {
+	match a {
+	case Delta[E, F] as x:
+		match b {
+		case Delta[E, F] as y:
+			x == y
+		case Snapshot[S, F]:
+			false
+		}
+	case Snapshot[S, F] as x:
+		match b {
+		case Snapshot[S, F] as y:
+			x.At == y.At && x.LastSeq == y.LastSeq && x.Refused == y.Refused
+		case Delta[E, F]:
+			false
+		}
+	}
+}

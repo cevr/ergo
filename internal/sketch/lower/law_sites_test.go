@@ -13,16 +13,17 @@ import (
 // tail or an explicit return, with its declaration as related information.
 // It builds Go because source positions in a recovered native assertion
 // cannot be established by go/types or the interpreter being compared.
+// Each top-level law takes a Zero, its subject (S115).
 // Mutant: law-refutes-at-declaration (testdata/mutants.json).
 func TestRefutedLawSitesAgree(t *testing.T) {
 	needsBuild(t)
-	const src = `law Tail() {
+	const src = `law Tail(_ Zero) {
 	false
 }
-law Returned() {
+law Returned(_ Zero) {
 	return false
 }
-law Nested() {
+law Nested(_ Zero) {
 	if true {
 		false
 	} else {
@@ -37,7 +38,7 @@ type Probe {
 }
 type Zero {} implements Probe
 func Read(z Zero) int { 0 }
-law Choice(b bool) {
+law Choice(b bool, _ Zero) {
 	return match b {
 	case true:
 		false
@@ -47,24 +48,24 @@ law Choice(b bool) {
 }
 type Fault {}
 func bad() bool fails Fault { Fault }
-law Caught() {
+law Caught(_ Zero) {
 	bad() catch {
 	case Fault:
 		false
 	}
 }
-law Compared() {
+law Compared(_ Zero) {
 	(if true { false } else { true }) == true
 }
 type Other {}
 func partly() bool fails Fault | Other { Fault }
-law Tried() {
+law Tried(_ Zero) {
 	try partly() catch {
 	case Fault:
 		false
 	}
 }
-law Paren() {
+law Paren(_ Zero) {
 	(false)
 }
 `
