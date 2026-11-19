@@ -1,0 +1,8 @@
+> what do my notes say?
+< Let me look.
+→ list {"dir":"."}
+→ read {"path":"notes.txt"}
+= notes.txt
+  src/
+= water the plants
+< The notes say to water the plants.

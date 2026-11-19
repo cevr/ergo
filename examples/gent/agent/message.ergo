@@ -1,0 +1,98 @@
+// Package agent is the domain of a small agent harness: the transcript,
+// the contracts it declares (Model, the language model, and Tools, the
+// working directory), and the machine Agent, whose pure step
+// is the whole turn loop. The providers live in packages named after
+// what they use: memory (a script and a map of files, for tests and
+// cases) and, later, the host's files and a vendor's API. Nothing here
+// reads a clock, a file, the network or the terminal.
+
+import utf8
+
+// Call is one tool call the model wrote: its id, the tool's name and the
+// arguments, the JSON text the model wrote for them.
+type Call { Id string, Name string, Arguments string }
+
+// NewCall is the call numbered n of a tool picked by k: one of Schemas,
+// with text as its one argument, or a tool that does not exist, or
+// arguments that are not JSON. Law runs draw calls by it (the generator
+// calls a package's New<T>), so a generated reply calls the tools as a
+// model does.
+func NewCall(n int, k int, text string) Call {
+	let tools = Schemas()
+	let id = "call-\(n)"
+	let m = ((k % (len(tools) + 2)) + len(tools) + 2) % (len(tools) + 2)
+	if m == len(tools) {
+		return Call{Id: id, Name: "write", Arguments: "{}"}
+	}
+	if m > len(tools) {
+		return Call{Id: id, Name: "read", Arguments: "{" + text}
+	}
+	let s = tools[m]
+	Call{Id: id, Name: s.Name, Arguments: "{\"" + s.Params[0].Name + "\": \"" + plain(text) + "\"}"}
+}
+
+// plain is the letters, digits, dots, dashes and slashes of text: a path
+// that needs no escape in JSON. (A generator that calls std json's
+// encoder from NewCall meets a defect: gap GENT-G2.)
+func plain(text string) string {
+	let mut out = ""
+	for r in text {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '.' || r == '-' || r == '/' {
+			out = out + utf8.RuneText(r)
+		}
+	}
+	out
+}
+
+// Row is one entry of the transcript. User is what the person sent;
+// Reply is a whole reply of the model, its text and its tool calls; Cut
+// is a reply whose stream ended before it was whole, kept as far as it
+// came; Failed is an ask of the model that gave no reply, and what the
+// person is told; Result is the result of one call, by the call's id;
+// Note is a word from the harness (a stop, an interrupt).
+type Row = User{Text string} | Reply{Text string, Calls []Call} | Cut{Text string} | Failed{Say string} | Result{Id string, Text string, Ok bool} | Note{Text string}
+
+// Attempts is how many times the model was asked in log: each ask leaves
+// exactly one Reply, Cut or Failed row.
+func Attempts(log []Row) int {
+	let mut n = 0
+	for r in log {
+		match r {
+		case Reply, Cut, Failed:
+			n = n + 1
+		case User, Result, Note:
+		}
+	}
+	n
+}
+
+// WellFormed reports whether every call of log has exactly one result,
+// in the order of the calls, after its reply and before anything the
+// model or the person says next. The calls named by open may still wait
+// for their results at the end of log: they are the calls of a turn in
+// progress.
+func WellFormed(log []Row, open int) bool {
+	let mut want = []string{}
+	for r in log {
+		match r {
+		case Result as res:
+			if len(want) == 0 || want[0] != res.Id {
+				return false
+			}
+			want = want[1:]
+		case Reply as rep:
+			if len(want) != 0 {
+				return false
+			}
+			for c in rep.Calls {
+				want = want.Append(c.Id)
+			}
+		case User, Cut, Failed:
+			if len(want) != 0 {
+				return false
+			}
+		case Note:
+		}
+	}
+	len(want) == open
+}

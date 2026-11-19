@@ -438,7 +438,7 @@ func (g *gen) decl() {
 	case 2:
 		g.w("type ", g.name(), g.pick("", "[T any]"), " {", g.pick(" ", "\n\t"))
 		g.fields(g.pick(", ", ",\n\t"))
-		g.w(g.pick(" }", ",\n}", "\n}"))
+		g.w(g.pick(" }", ",\n}", "\n}"), g.pick("", "", " implements Store", " implements jobs.Gate,  Checker"))
 	case 3:
 		g.w("type ", g.name(), " = ", g.name(), g.pick("", "{X int}"), " | ", g.name(), "{")
 		g.fields(", ")

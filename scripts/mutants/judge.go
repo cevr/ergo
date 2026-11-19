@@ -517,8 +517,12 @@ func (w *worker) judgeCovered(ctx context.Context, m *Mutant, r Result) Result {
 	}
 	apply := w.applyChecked
 	if r.checked {
-		apply = func(_ context.Context, m *Mutant, path string, original []byte) (func(), string) {
-			return w.apply(m, path, original)
+		apply = func(ctx context.Context, m *Mutant, path string, original []byte) (func(), string) {
+			restore, detail := w.apply(m, path, original)
+			if restore == nil {
+				return nil, detail
+			}
+			return w.regenerated(ctx, m, restore)
 		}
 	}
 	restore, detail := apply(ctx, m, t.path, t.original)
