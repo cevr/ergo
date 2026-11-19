@@ -1,0 +1,10 @@
+# scripts/opcount: `kvbench bench fileput N` makes N puts into a std
+# kv/file store over 64 keys, each an append of one line to a log in
+# $TMPDIR (ST3); the cost of one put is the slope between the two sizes.
+# The control is hand Go with a log held open and a map under a mutex; the
+# floor writes each line from a reused buffer to a log held open.
+unit put
+sizes 20000 120000
+args bench fileput {n}
+control benchmarks/kv/testdata/control
+floor benchmarks/kv/testdata/floor
