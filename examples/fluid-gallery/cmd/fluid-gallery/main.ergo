@@ -4,12 +4,9 @@
 // fluid-gallery gui PATH... is the headless leg: each page's specimens drawn on a std ui frame,
 // as the GUI host holds them, and whether the web's markup and the part tree agree.
 //
-// fluid-gallery ts prints the module's looks for a TypeScript island (fluid/web.TS): the typed
-// class-name table and the one sheet, for an island alone (the gallery's pages name their classes
-// from their own looks, so an island on them would bring its own sheet).
+// fluid-gallery ts prints the module for a TypeScript island on a gallery page (gallery.Island):
+// the module's looks as class names under the page's naming, and the page's one sheet.
 
-import ergo.dev/fluid/token
-import fluidweb ergo.dev/fluid/web
 import fluidgallery/gallery
 import os
 import ui
@@ -24,7 +21,7 @@ func main() fails Usage needs Console | Ambient {
 		return Usage{Text: "usage: fluid-gallery PATH..."}
 	}
 	if args[0] == "ts" {
-		Console.Println(fluidweb.TS(fluidweb.TableOf(token.Default, fluidweb.Looks())))
+		Console.Println(gallery.Island())
 		return
 	}
 	if args[0] == "gui" {

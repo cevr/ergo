@@ -840,6 +840,22 @@
       "killers": [
         "examples:modules/fluid"
       ]
+    },
+    {
+      "name": "ts-island-own-naming",
+      "origin": "wf10/fluid-ts FLUID-TS",
+      "file": "examples/fluid-gallery/gallery/site.ergo",
+      "from": "func Island() string { web.TS(web.TableOf(token.Default, Looks())) }",
+      "to": "func Island() string { web.TS(web.TableOf(token.Default, web.Looks())) }",
+      "rule": "The island module names its classes from the module's looks alone, so it brings a second sheet whose short names collide with the page's: IslandUsesThePageSheet.",
+      "anchor": {
+        "tests": [
+          "examples:fluid-gallery"
+        ]
+      },
+      "killers": [
+        "examples:fluid-gallery"
+      ]
     }
   ]
 }
