@@ -2093,6 +2093,7 @@
       "rule": "The evaluator runs the operation s.Bytes(), so check-time evaluation of std's digests (sha256.Sum) agrees with the build.",
       "anchor": {"tests":["internal/sketch/eval:TestEvalAgreesWithLowering"]},
       "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
-    }
+    },
+    {"name":"evalfp-row-one-member-union","origin":"wf10 EVAL-FAILS-PARAM","file":"internal/sketch/eval/types.go","from":"func writeRowKey(b *strings.Builder, ms []rtype) {\n\tif len(ms) == 1 {","to":"func writeRowKey(b *strings.Builder, ms []rtype) {\n\tif len(ms) == -1 {","rule":"A row of one error type in a type position names that type itself (rows.md, Error rows 8, One member): FBad[F] with F bound to the row Oops is FBad[Oops], and a match takes an FBad[Oops] value.","killers":["internal/sketch/eval:TestEvalAgreesWithModel"]}
   ]
 }
