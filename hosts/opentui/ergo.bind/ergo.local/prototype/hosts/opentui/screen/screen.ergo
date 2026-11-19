@@ -218,6 +218,9 @@ extern go ergo.local/prototype/hosts/opentui/screen.Screen.Move func (s *Screen)
 // ergo:context
 extern go ergo.local/prototype/hosts/opentui/screen.Screen.Next func (s *Screen) Next() Input fails go.Error needs go.Foreign
 
+// ergo:go func (*Screen).Notify(text string) error
+extern go ergo.local/prototype/hosts/opentui/screen.Screen.Notify func (s *Screen) Notify(text string) fails go.Error needs go.Foreign
+
 // ergo:go func (*Screen).Poll() (Input, bool)
 extern go ergo.local/prototype/hosts/opentui/screen.Screen.Poll func (s *Screen) Poll() (Input, bool) needs go.Foreign
 
@@ -235,6 +238,9 @@ extern go ergo.local/prototype/hosts/opentui/screen.Screen.Reveal func (s *Scree
 
 // ergo:go func (*Screen).Rows() []string
 extern go ergo.local/prototype/hosts/opentui/screen.Screen.Rows func (s *Screen) Rows() []string needs go.Foreign
+
+// ergo:go func (*Screen).Said() []string
+extern go ergo.local/prototype/hosts/opentui/screen.Screen.Said func (s *Screen) Said() []string needs go.Foreign
 
 // ergo:go func (*Screen).SetLook(n int, fg uint32, bg uint32, attr int)
 extern go ergo.local/prototype/hosts/opentui/screen.Screen.SetLook func (s *Screen) SetLook(n int, fg uint32, bg uint32, attr int) needs go.Foreign
