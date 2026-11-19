@@ -13,7 +13,11 @@ import (
 // defect at 0); noisy, an impure one that prints; filepath.Clean, a
 // reviewed-pure Go function. The operands: a parameter or an outer `let`
 // (invariant), a `let mut` the loop assigns, a `let` bound inside the loop,
-// the loop's own variable. The loops: a while, a count loop, a count loop
+// the loop's own variable. A match on pick or pickOr in a loop builds the
+// callee's body into the loop (the fused match, lower/ir_forms_match.go):
+// its sq calls take the callee's parameters, bound on each iteration to
+// the match's operands, invariant or not; pickOr's result that is no
+// variant makes the fusion fall back after its body memoized a call. The loops: a while, a count loop, a count loop
 // inside another whose `let` changes per outer iteration, and loops that
 // run no iteration (n = 0). A print before the call puts an effect ahead
 // of it. main prints every function at several inputs, the last of which
@@ -26,6 +30,10 @@ func GenerateHoist(seed uint64) string {
 	b.WriteString("func sq(a int) int {\n\ta * a + 1\n}\n\n")
 	b.WriteString("func inv(a int) int {\n\t100 / a\n}\n\n")
 	b.WriteString("func noisy(a int) int needs Console {\n\tConsole.Println(\"noisy \\(a)\")\n\ta + 1\n}\n\n")
+	b.WriteString("type Ask = Big{N int} | Small{N int}\n\n")
+	b.WriteString("func small(a int) Ask {\n\tSmall{N: a}\n}\n\n")
+	b.WriteString("func pick(k int, a int) Ask {\n\tlet t = sq(k)\n\tlet u = sq(a)\n\tif a > t {\n\t\tBig{N: t + u}\n\t} else {\n\t\tSmall{N: u}\n\t}\n}\n\n")
+	b.WriteString("func pickOr(k int, a int) Ask {\n\tlet t = sq(k)\n\tif a > t {\n\t\tBig{N: t}\n\t} else {\n\t\tsmall(a)\n\t}\n}\n\n")
 	nf := 3 + g.r.IntN(3)
 	for i := 0; i < nf; i++ {
 		fmt.Fprintf(&b, "func h%d(n int, k int, z int, p string) int needs Console {\n\tlet mut acc = 0\n\tlet mut m = k\n\tm = m + 1\n\tlet c = k + 2\n", i)
@@ -34,7 +42,9 @@ func GenerateHoist(seed uint64) string {
 		}
 		b.WriteString("\tacc + c + m\n}\n\n")
 	}
-	b.WriteString("func main() needs Console {\n")
+	// main uses filepath itself: a program whose loops draw no Clean
+	// still imports it.
+	b.WriteString("func main() needs Console {\n\tConsole.Println(filepath.Clean(\"a//b\"))\n")
 	ins := []string{"3, 2, 5, \"a/./b\"", "0, 4, 1, \"/x/../y\"", "2, -1, 4, \"\"", "0, 1, 0, \"x/\"", "4, 3, 0, \"c//d\""}
 	for i := 0; i < nf; i++ {
 		for _, in := range ins[:4] {
@@ -113,6 +123,11 @@ func (g *hoistGen) body(iv, ind, outer string) string {
 		if g.r.IntN(3) == 0 {
 			fmt.Fprintf(&b, "%sm = m + 1\n", ind)
 		}
+	}
+	if g.r.IntN(2) == 0 {
+		f := []string{"pick", "pickOr"}[g.r.IntN(2)]
+		x, y := ops[g.r.IntN(len(ops))], ops[g.r.IntN(len(ops))]
+		fmt.Fprintf(&b, "%smatch %s(%s, %s) {\n%scase Big as b:\n%s\tacc = acc + b.N\n%scase Small as s:\n%s\tlet e = \"\"\n%s\tacc = acc + s.N * 2 + len(e)\n%s}\n", ind, f, x, y, ind, ind, ind, ind, ind, ind)
 	}
 	return b.String()
 }
