@@ -32,6 +32,16 @@ test NotFoundIsHandled {
 
 A test declares no `needs` row (S102): the services it uses come from a `with`.
 
+## Diagnostics
+
+A test of what the checker reports is a fixture file, not a test: a program whose `// want CODE` markers name each diagnostic it must get, on its line, with an optional quoted text the message must hold. `ergo check --want FILE|DIR` checks each fixture alone and prints the ones that differ ([tooling](tooling.md)):
+
+```go
+func f(o Option[A | B]) {} // want S104 "A is not an error type"
+```
+
+The checker's own families live in `internal/sketch/check/testdata/fixtures`, one folder each with a README.md that names the rule and its mutants.
+
 ## Running
 
 ```sh

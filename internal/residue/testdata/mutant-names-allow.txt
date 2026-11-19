@@ -25,13 +25,7 @@ internal/sketch/check/contextvalues_test.go	value-row-param-built
 internal/sketch/check/durable_test.go	dh1-checker-newhost-refused
 internal/sketch/check/extern_test.go	own-check-15
 internal/sketch/check/extern_test.go	standard-library
-internal/sketch/check/fold_row_test.go	fold-needs-step-row-only
-internal/sketch/check/fold_row_test.go	runner-needs-work-row
 internal/sketch/check/pattern_ownership_model_test.go	po1-plan
-internal/sketch/check/row_args_test.go	row-for-a-type
-internal/sketch/check/row_args_test.go	row-in-index
-internal/sketch/check/row_args_test.go	row-in-type
-internal/sketch/check/row_args_test.go	row-keeps-every-element
 internal/sketch/check/script_test.go	script-func-param-admitted
 internal/sketch/check/script_test.go	script-implements-any
 internal/sketch/check/script_test.go	script-literal-fields-admitted
