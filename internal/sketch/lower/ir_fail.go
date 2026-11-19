@@ -435,8 +435,15 @@ func (b *irBuilder) catch(x *syntax.CatchExpr, partial bool) ([]*irStmt, *irExpr
 	if patterned {
 		t := &treeIR{b: b, s: x, site: x, p: p}
 		t.body = func(i int) []*irStmt { return b.armBody(x.Arms[i], result, m.Result) }
+		// The tree's exit is a catch's default too: a full catch's names
+		// no failure (FAIL-ELIDE-PAT, ir_catch_defect.go).
 		t.exit = func(ep irPos) []*irStmt {
-			return []*irStmt{{K: k, Pos: ep, X: &irExpr{K: "local", Pos: ep, I: e}}}
+			n := b.st.report.CatchDefects
+			d := b.catchDefault(x, k, partial, e, ep)
+			if b.st.report.CatchDefects > n {
+				b.st.report.CatchTreeDefects++
+			}
+			return []*irStmt{d}
 		}
 		then = t.write([]treeHead{{e, &check.Union{Variants: m.Subjects}}}, alts, sw.End)
 		arms = nil
