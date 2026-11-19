@@ -139,6 +139,11 @@ func (g *ugen) treeMain() {
 	for n := 0; n < 10; n++ {
 		fmt.Fprintf(&g.b, "\tlet p%d = part(%d) catch {\n\tcase E1 as e:\n\t\te.Code - 50\n\tcase E2 as e:\n\t\tlen(e.Why) - 60\n\t}\n", n, n)
 		fmt.Fprintf(&g.b, "\tConsole.Println(\"catch %d \\(caught(%d)) \\(p%d)\")\n", n, n, n)
+		// A statement catch whose one arm, `case _:`, does nothing
+		// swallows the failure (modules/work's
+		// TreeMergeStartsThePluginTwice). In main, where no call is
+		// folded at compile time; fixed text, no random draw.
+		fmt.Fprintf(&g.b, "\trisky(%d) catch {\n\tcase _:\n\t}\n", n)
 	}
 	for d := 0; d < 4; d++ {
 		fmt.Fprintf(&g.b, "\tConsole.Println(\"walk %d \\(walk(build(%d), %d))\")\n", d, d, g.n(7))
