@@ -14,7 +14,7 @@ import (
 )
 
 // TestStationStatsCountsAsHandGo is the counted guard of the owner's speed goal
-// on examples/station-stats (1BRC): the Ergo program runs no more user-space
+// on examples/station-stats: the Ergo program runs no more user-space
 // instructions per row than the hand Go control (testdata/station-stats/control,
 // the same algorithm), as a ratio of counts, never of time. It builds Go
 // because the claim is about the machine code gc makes of the lowered
@@ -47,7 +47,7 @@ import (
 // algorithm as a Go programmer writes it.
 //
 // Mutants: const-let-never (lower ledger: package lets stay Go variables,
-// so the table's mask and bounds are loads) puts station-stats above the control,
+// so the table's mask and bounds are loads) puts the Ergo program above the control,
 // and bounds-unchecked-never (BCE1: no load is unchecked) above the bound.
 func TestStationStatsCountsAsHandGo(t *testing.T) {
 	needsBuild(t)
