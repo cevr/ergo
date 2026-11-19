@@ -1,0 +1,167 @@
+// Tracks (TRACKS, RUNE §2): a keyed node's offset or opacity moves to a
+// target along a curve that the host runs, frame by frame, with no pass.
+// A pass that writes a new target retargets the track where it is, its
+// velocity kept, so a motion interrupted halfway turns smoothly; frames
+// between passes only sample the curve, which is a pure function of the
+// time. The curve is data: Linear and Ease over a duration, or a spring
+// of a stiffness and a damping (mass 1), solved in closed form.
+
+import math
+
+// TrackCurve is how a track moves to its target.
+type TrackCurve = TrackLinear{Over duration} | TrackEase{Over duration} | TrackSpring{Stiffness float64, Damping float64}
+
+// TrackProp is what a track moves: its body's offset along x or y, in
+// DIP, or its opacity, from 0 to 1.
+type TrackProp = TrackX | TrackY | TrackOpacity
+
+// TrackX moves the body along x.
+type TrackX {}
+
+// TrackY moves the body along y.
+type TrackY {}
+
+// TrackOpacity fades the body.
+type TrackOpacity {}
+
+// TrackState is one track's motion since its last retarget: it was at From
+// with Velocity (per second) at Start, and moves to To along Curve.
+type TrackState { From float64, Velocity float64, To float64, Start duration, Curve TrackCurve }
+
+// TrackRest is how near its target, in energy, a spring rests: within
+// TrackRest of it and still.
+let TrackRest = 0.001
+
+// Track shows body under a track of key that moves prop to target
+// along curve, run by the host (TrackNode). A pass that writes another
+// target retargets it, keeping where it is and how fast it moves.
+func Track[E, F, R](f *Frame[E], key Key, prop TrackProp, target float64, curve TrackCurve, body func() fails F needs R, at CallSite) fails F needs R {
+	try open(f, TrackNode{Key: key, Prop: prop, Target: target, Curve: curve, Style: Plain()}, body, at)
+}
+
+// TrackStill is a track resting at value.
+func TrackStill(value float64, curve TrackCurve) TrackState {
+	TrackState{From: value, Velocity: 0, To: value, Start: duration(int64(0)), Curve: curve}
+}
+
+// seconds is d in seconds.
+func seconds(d duration) float64 { float64(int64(d)) / 1000000000.0 }
+
+// TrackAt is the track's value and velocity at time at: exactly To once
+// it is done (TrackDone).
+func TrackAt(t TrackState, at duration) (float64, float64) {
+	if TrackDone(t, at) {
+		return (t.To, 0.0)
+	}
+	let (x, v) = displaced(t, seconds(at-t.Start))
+	(t.To + x, v)
+}
+
+// TrackDone is whether the track rests on its target at time at: a Linear
+// or Ease track once its duration passed, a spring once its energy is
+// within TrackRest of rest (it never grows again: a damped spring loses
+// energy).
+func TrackDone(t TrackState, at duration) bool {
+	let s = seconds(at - t.Start)
+	match t.Curve {
+	case TrackLinear as c:
+		s >= seconds(c.Over)
+	case TrackEase as c:
+		s >= seconds(c.Over)
+	case TrackSpring as c:
+		let (x, v) = displaced(t, s)
+		v*v+stiffness(c)*x*x <= stiffness(c)*TrackRest*TrackRest
+	}
+}
+
+// TrackRetarget turns the track to a new target at time at, from where
+// it is and as fast as it moves (a Linear track keeps only where it is).
+func TrackRetarget(t TrackState, to float64, at duration) TrackState {
+	let (x, v) = TrackAt(t, at)
+	TrackState{From: x, Velocity: v, To: to, Start: at, Curve: t.Curve}
+}
+
+// stiffness and damping are a spring's, at least 1 and more than 0, so it
+// moves and rests.
+func stiffness(c TrackSpring) float64 { if c.Stiffness < 1.0 { 1.0 } else { c.Stiffness } }
+
+func damping(c TrackSpring) float64 { if c.Damping < 0.01 { 0.01 } else { c.Damping } }
+
+// displaced is the track's displacement from To and its velocity, s
+// seconds after Start, before it is done.
+func displaced(t TrackState, s0 float64) (float64, float64) {
+	let s = if s0 < 0.0 { 0.0 } else { s0 }
+	let x0 = t.From - t.To
+	let v0 = t.Velocity
+	match t.Curve {
+	case TrackLinear as c:
+		let over = seconds(c.Over)
+		if over <= 0.0 || s >= over {
+			return (0.0, 0.0)
+		}
+		(x0 * (1.0 - s/over), -x0 / over)
+	case TrackEase as c:
+		// A cubic Hermite from (x0, v0) to (0, 0) over the duration.
+		let over = seconds(c.Over)
+		if over <= 0.0 || s >= over {
+			return (0.0, 0.0)
+		}
+		let u = s / over
+		let h00 = 2.0*u*u*u - 3.0*u*u + 1.0
+		let h10 = u*u*u - 2.0*u*u + u
+		let d00 = 6.0*u*u - 6.0*u
+		let d10 = 3.0*u*u - 4.0*u + 1.0
+		(h00*x0 + h10*over*v0, (d00*x0 + d10*over*v0) / over)
+	case TrackSpring as c:
+		spring(stiffness(c), damping(c), x0, v0, s)
+	}
+}
+
+// spring solves x'' = -k x - c x' from (x0, v0) at time s.
+func spring(k float64, c float64, x0 float64, v0 float64, s float64) (float64, float64) {
+	let w = math.Sqrt(k)
+	let z = c / (2.0 * w)
+	if z < 0.999999 {
+		let a = z * w
+		let wd = w * math.Sqrt(1.0-z*z)
+		let e = math.Exp(-a * s)
+		let (sn, cs) = sinCos(wd * s)
+		let b = (v0 + a*x0) / wd
+		return (e * (x0*cs + b*sn), e * ((b*wd-a*x0)*cs - (x0*wd+a*b)*sn))
+	}
+	if z <= 1.000001 {
+		let b = v0 + w*x0
+		let e = math.Exp(-w * s)
+		return ((x0 + b*s) * e, (b - w*(x0+b*s)) * e)
+	}
+	let r = w * math.Sqrt(z*z-1.0)
+	let r1 = -z*w + r
+	let r2 = -z*w - r
+	let c1 = (v0 - r2*x0) / (r1 - r2)
+	let c2 = x0 - c1
+	let e1 = math.Exp(r1 * s)
+	let e2 = math.Exp(r2 * s)
+	(c1*e1 + c2*e2, c1*r1*e1 + c2*r2*e2)
+}
+
+// sinCos is the sine and cosine of x: its eighth by Taylor's series, then
+// three doublings (std math has no sine yet).
+func sinCos(x float64) (float64, float64) {
+	let twoPi = 6.283185307179586
+	let mut r = math.Mod(x, twoPi)
+	if r > 3.141592653589793 {
+		r = r - twoPi
+	} else if r < -3.141592653589793 {
+		r = r + twoPi
+	}
+	let y = r / 8.0
+	let y2 = y * y
+	let mut sn = y * (1.0 - y2/6.0*(1.0-y2/20.0*(1.0-y2/42.0*(1.0-y2/72.0*(1.0-y2/110.0*(1.0-y2/156.0))))))
+	let mut cs = 1.0 - y2/2.0*(1.0-y2/12.0*(1.0-y2/30.0*(1.0-y2/56.0*(1.0-y2/90.0*(1.0-y2/132.0)))))
+	for _ in 0..3 {
+		let s2 = 2.0 * sn * cs
+		cs = cs*cs - sn*sn
+		sn = s2
+	}
+	(sn, cs)
+}

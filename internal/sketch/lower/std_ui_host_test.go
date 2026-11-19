@@ -14,6 +14,7 @@ import (
 const stdUIHostProbe = `import ui
 import actor
 import hex
+import math
 import json
 import machines
 import queue
@@ -4614,6 +4615,256 @@ func lawRelationsNameHeldNodes(seed int) bool {
 	}
 }
 
+// TRACKS: laws_track.ergo restated.
+// aims are the targets a law's taps set.
+let aims = []float64{-200.0, -50.0, 80.0, 250.0}
+
+// zetas are damping ratios: bouncy, critical (1) and overdamped.
+let zetas = []float64{0.2, 0.5, 1.0, 1.5, 3.0}
+
+// aiming is the reference program's spring: its stiffness and damping,
+// target, where it is and how fast it moves at time at, which it
+// integrates on each frame by itself (RK4, half a millisecond a step).
+type aiming { k float64, c float64, target float64, x float64, v float64, at duration }
+
+// aimEvent is a tap that sets target n, or a frame at a time.
+type aimEvent = aimTo{n int} | aimFrame{at duration}
+
+func aimStep(s aiming, e aimEvent) Decision[aiming, int] {
+	match e {
+	case aimTo as a:
+		Enter[aiming]{Next: aiming{k: s.k, c: s.c, target: aims[a.n], x: s.x, v: s.v, at: s.at}}
+	case aimFrame as f:
+		let (x, v) = integrate(s, float64(int64(f.at-s.at))/1000000000.0)
+		Enter[aiming]{Next: aiming{k: s.k, c: s.c, target: s.target, x: x, v: v, at: f.at}}
+	}
+}
+
+// accelOf is the spring's acceleration at x moving at v.
+func accelOf(s aiming, x float64, v float64) float64 { -s.k*(x-s.target) - s.c*v }
+
+// integrate moves the spring span seconds by RK4.
+func integrate(s aiming, span float64) (float64, float64) {
+	let mut x = s.x
+	let mut v = s.v
+	let mut t = 0.0
+	for t < span {
+		let h = if span-t < 0.0005 { span - t } else { 0.0005 }
+		let a1 = accelOf(s, x, v)
+		let a2 = accelOf(s, x+h/2.0*v, v+h/2.0*a1)
+		let a3 = accelOf(s, x+h/2.0*(v+h/2.0*a1), v+h/2.0*a2)
+		let a4 = accelOf(s, x+h*(v+h/2.0*a2), v+h*a3)
+		x = x + h*(v+h/6.0*(a1+a2+a3))
+		v = v + h/6.0*(a1+2.0*a2+2.0*a3+a4)
+		t = t + h
+	}
+	(x, v)
+}
+
+func aimTimer(s aiming) Option[Timeout[aimEvent]] { None }
+
+func aimWork(s aiming) Option[func(send func(e aimEvent))] { None }
+
+// aimView tracks x to the target on the host, and animates the reference.
+func aimView(f *ui.Frame[aimEvent], s aiming) {
+	ui.Track(f, ui.ByText("aimed"), ui.TrackX, s.target, ui.TrackSpring{Stiffness: s.k, Damping: s.c}) {
+		ui.Text(f, "aimed")
+	}
+	for n in 0..4 {
+		ui.Pressable(f, "aim\(n)", aimTo{n: n}) {
+			ui.Text(f, "aim")
+		}
+	}
+	ui.Animate(f, func(at duration) aimEvent { aimFrame{at: at} })
+}
+
+// TrackEqualsAnimate: a spring of a drawn stiffness and damping ratio
+// (bouncy, critical, overdamped), retargeted by taps at drawn frames,
+// shows at every frame the value an Animate-driven program computes by
+// integrating the same spring itself with its velocity carried through
+// each retarget, within a hundredth of a DIP.
+func lawTrackEqualsAnimate(seed int) bool {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let mut r = seeded(seed)
+		let k = float64(draw(&r, 361) + 40)
+		let w = math.Sqrt(k)
+		let c = 2.0 * w * zetas[draw(&r, len(zetas))]
+		let a = actor.StartMachine(Machine[aiming, aimEvent, int]{Initial: aiming{k: k, c: c, target: 0.0, x: 0.0, v: 0.0, at: 0ns}, Step: aimStep, After: aimTimer, Work: aimWork}, 1, func(o int) {})
+		let mut h = ui.NewTestHost(a, aimView, m, 4) catch {
+		case ui.BadPatch:
+			return false
+		}
+		for _ in 0..40 {
+			let mut acts = []ui.Act{ui.AdvanceBy{By: 16ms}, ui.SettleAll}
+			if draw(&r, 4) == 0 {
+				acts = acts.Append(ui.TapOn{Label: "aim\(draw(&r, len(aims)))"})
+				acts = acts.Append(ui.SettleAll)
+			}
+			ui.Play(&h, acts) catch {
+			case _:
+				return false
+			}
+			let s = ui.StateOf(&h)
+			match ui.TrackedValue(&h, ui.ByText("aimed")) {
+			case Some[float64] as v:
+				let d = v.Value - s.x
+				if d > 0.01 || d < -0.01 {
+					return false
+				}
+			case None:
+				return false
+			}
+		}
+		a.Stop()
+		true
+	}
+}
+
+// stillView tracks a box's opacity to target n's share; no Animate.
+func stillView(f *ui.Frame[int], s int) {
+	ui.Track(f, ui.ByText("faded"), ui.TrackOpacity, float64(s)/4.0, ui.TrackEase{Over: 120ms}) {
+		ui.Text(f, "faded")
+	}
+	for n in 0..4 {
+		ui.Pressable(f, "fade\(n)", n) {
+			ui.Text(f, "fade")
+		}
+	}
+}
+
+func stillStep(s int, e int) Decision[int, int] { Enter[int]{Next: e} }
+
+func stillTimer(s int) Option[Timeout[int]] { None }
+
+func stillWork(s int) Option[func(send func(e int))] { None }
+
+// TrackCostsNoPass: after the pass of a tap that retargets a track, the
+// host's frames move the track (it wants frames until it rests, and its
+// value changes) and run no pass: the counts of the step stay those of
+// the tap's pass.
+func lawTrackCostsNoPass(seed int) bool {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let mut r = seeded(seed)
+		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: stillStep, After: stillTimer, Work: stillWork}, 1, func(o int) {})
+		let mut h = ui.NewTestHost(a, stillView, m, 4) catch {
+		case ui.BadPatch:
+			return false
+		}
+		for _ in 0..draw(&r, 6)+2 {
+			let n = draw(&r, 4)
+			let was = ui.StateOf(&h)
+			ui.Play(&h, []ui.Act{ui.TapOn{Label: "fade\(n)"}, ui.SettleAll}) catch {
+			case _:
+				return false
+			}
+			let tapped = ui.Counts(&h)
+			let frames = ui.Frames(&h)
+			let from = faded(&h)
+			ui.Play(&h, []ui.Act{ui.AdvanceBy{By: duration(int64(draw(&r, 8)+1) * int64(16000000))}}) catch {
+			case _:
+				return false
+			}
+			if ui.Counts(&h) != tapped {
+				return false
+			}
+			if n != was && (ui.Frames(&h) == frames || faded(&h) == from) {
+				return false
+			}
+			ui.Play(&h, []ui.Act{ui.AdvanceBy{By: 200ms}}) catch {
+			case _:
+				return false
+			}
+			if ui.WantsFrames(&h) || faded(&h) != float64(n)/4.0 {
+				return false
+			}
+		}
+		a.Stop()
+		true
+	}
+}
+
+// drawCurve is a Linear, an Ease or a spring curve.
+func drawCurve(r *rng) ui.TrackCurve {
+	let kind = draw(r, 3)
+	if kind == 0 {
+		return ui.TrackLinear{Over: duration(int64(draw(r, 400)+1) * int64(1000000))}
+	}
+	if kind == 1 {
+		return ui.TrackEase{Over: duration(int64(draw(r, 400)+1) * int64(1000000))}
+	}
+	let k = float64(draw(r, 361) + 40)
+	ui.TrackSpring{Stiffness: k, Damping: 2.0 * math.Sqrt(k) * zetas[draw(r, len(zetas))]}
+}
+
+// faded is the value of the track keyed "faded" (-1: none).
+func faded[S, E, D, F](h *ui.TestHost[S, E, D, F]) float64 {
+	match ui.TrackedValue(h, ui.ByText("faded")) {
+	case Some[float64] as v:
+		v.Value
+	case None:
+		-1.0
+	}
+}
+
+// drawTrack is a track from a drawn place and speed to a drawn target.
+func drawTrack(r *rng) ui.TrackState {
+	ui.TrackState{From: float64(draw(r, 801) - 400), Velocity: float64(draw(r, 4001) - 2000), To: float64(draw(r, 801) - 400), Start: 0ns, Curve: drawCurve(r)}
+}
+
+// nearly is whether a and b agree to a billionth of their size.
+func nearly(a float64, b float64) bool {
+	let d = if a > b { a - b } else { b - a }
+	let m = if a < 0.0 { -a } else { a }
+	d <= 0.000000001*(1.0+m)
+}
+
+// TrackRetargetKeepsMotion: a drawn track retargeted at a drawn time is
+// where it was at that time, and, for an Ease or a spring, as fast.
+func lawTrackRetargetKeepsMotion(seed int) bool {
+	let mut r = seeded(seed)
+	let t = drawTrack(&r)
+	let at = duration(int64(draw(&r, 600)) * int64(1000000))
+	let (x1, v1) = ui.TrackAt(t, at)
+	let (x2, v2) = ui.TrackAt(ui.TrackRetarget(t, float64(draw(&r, 801)-400), at), at)
+	let keepsSpeed = match t.Curve {
+	case ui.TrackLinear:
+		true
+	case _:
+		nearly(v1, v2)
+	}
+	nearly(x1, x2) && keepsSpeed
+}
+
+// TrackEndsOnTarget: a drawn track is done by its duration (a spring
+// within 60 s), and from then on it is exactly on its target, still.
+func lawTrackEndsOnTarget(seed int) bool {
+	let mut r = seeded(seed)
+	let t = drawTrack(&r)
+	let mut at = 0ns
+	for !ui.TrackDone(t, at) {
+		at = at + 10ms
+		if at > 60s {
+			return false
+		}
+	}
+	for i in 0..20 {
+		let (x, v) = ui.TrackAt(t, at+duration(int64(i)*int64(37000000)))
+		if x != t.To || v != 0.0 {
+			return false
+		}
+	}
+	match t.Curve {
+	case ui.TrackLinear as c:
+		at <= c.Over+10ms
+	case ui.TrackEase as c:
+		at <= c.Over+10ms
+	case ui.TrackSpring:
+		true
+	}
+}
+
 // UG4: laws_layer.ergo restated.
 // dip is n DIPs. (a law's helper)
 func dip(n int) ui.Length { ui.Length(float64(n)) }
@@ -6227,6 +6478,22 @@ test UiLayersDismissFromTheTop(seed int, steps int) {
 	assert lawLayersDismissFromTheTop(seed, steps)
 }
 
+test UiTrackEqualsAnimate(seed int) {
+	assert lawTrackEqualsAnimate(seed)
+}
+
+test UiTrackCostsNoPass(seed int) {
+	assert lawTrackCostsNoPass(seed)
+}
+
+test UiTrackRetargetKeepsMotion(seed int) {
+	assert lawTrackRetargetKeepsMotion(seed)
+}
+
+test UiTrackEndsOnTarget(seed int) {
+	assert lawTrackEndsOnTarget(seed)
+}
+
 
 
 test UiRelationsNameHeldNodes(seed int) {
@@ -6350,6 +6617,10 @@ var stdUIHostStatements = map[string]string{
 	"ui FocusGoesWhereAsked":               `FocusGoesWhereAsked(seed int) { let mut r = seeded(seed) let m = time.NewManual(0) with context { Scheduler: m } { let n = draw(&r, 4) + 2 let view = func(f *Frame[int], s int) { askScreen(f, s, n) } let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } if focusName(&h) != "t0" { return false } let mut s = 0 let mut at = 1 for _ in 0..draw(&r, 10)+4 { if draw(&r, 2) == 0 { Play(&h, []Act{ClickOn{At: WithLabel{Label: "next"}}}) catch { case _: return false } let was = (s / 2) % n s = s + 1 let now = (s / 2) % n at = if now != was { now + 1 } else { 0 } } else { let back = draw(&r, 2) == 0 Play(&h, []Act{keyIn("Tab", back)}) catch { case _: return false } at = if back { (at + n) % (n + 1) } else { (at + 1) % (n + 1) } } let want = if at == 0 { "next" } else { "t\(at - 1)" } if focusName(&h) != want { return false } } true } }`,
 	"ui LayerStaysInViewAndTouches":        `LayerStaysInViewAndTouches(seed int) { let mut r = seeded(seed) let view = Rect{X: dip(draw(&r, 50)), Y: dip(draw(&r, 50)), W: dip(draw(&r, 500) + 100), H: dip(draw(&r, 500) + 100)} let aw = dip(draw(&r, whole(view.W)) + 1) let ah = dip(draw(&r, whole(view.H)) + 1) let a = Rect{X: view.X + dip(draw(&r, whole(view.W-aw)+1)), Y: view.Y + dip(draw(&r, whole(view.H-ah)+1)), W: aw, H: ah} let w = dip(draw(&r, whole(view.W)) + 1) let h = dip(draw(&r, whole(view.H)) + 1) let side = draw(&r, 4) let align = draw(&r, 4) let p = Place{Side: sideOf(side), Align: alignOf(align), Gap: dip(draw(&r, 9))} let b = PlaceLayer(Some{Value: a}, w, h, view, p) if b.W != w || b.H != h || b.X < view.X || b.Y < view.Y || b.X+b.W > view.X+view.W || b.Y+b.H > view.Y+view.H { return false } let vertical = side < 2 // The main axis. let (lo, hi, at, span, size, got) = if vertical { (view.Y, view.Y + view.H, a.Y, a.H, h, b.Y) } else { (view.X, view.X + view.W, a.X, a.W, w, b.X) } let before = side == 0 || side == 2 let beforeAt = at - p.Gap - size let afterAt = at + span + p.Gap let roomBefore = beforeAt >= lo let roomAfter = afterAt+size <= hi let (mine, other, mineAt, otherAt) = if before { (roomBefore, roomAfter, beforeAt, afterAt) } else { (roomAfter, roomBefore, afterAt, beforeAt) } if mine && got != mineAt { return false } if !mine && other && got != otherAt { return false } // The cross axis. let (clo, chi, cat, cspan, csize, cgot) = if vertical { (view.X, view.X + view.W, a.X, a.W, w, b.X) } else { (view.Y, view.Y + view.H, a.Y, a.H, h, b.Y) } let want = if align == 1 { cat + (cspan-csize)/2 } else if align == 2 { cat + cspan - csize } else { cat } if want >= clo && want+csize <= chi && cgot != want { return false } let c = PlaceLayer(None, w, h, view, p) c.X == view.X+(view.W-w)/2 && c.Y == view.Y+(view.H-h)/2 && c.W == w && c.H == h }`,
 	"ui LayersDismissFromTheTop":           `LayersDismissFromTheTop(seed int, steps int) { let mut r = seeded(seed) let m = time.NewManual(0) with context { Scheduler: m } { let n = draw(&r, 4) + 1 let mut kinds = []int{} let mut scrims = []bool{} let mut dismiss = []bool{} let mut parents = []int{} for i in 0..n { kinds = kinds.Append(draw(&r, 4)) scrims = scrims.Append(draw(&r, 3) == 0) dismiss = dismiss.Append(draw(&r, 4) != 0) parents = parents.Append(if i > 0 && draw(&r, 2) == 0 { i - 1 } else { -1 }) } let ks = kinds let ss = scrims let ds = dismiss let ps = parents let view = func(f *Frame[int], s layerApp) { layerScreen(f, s, ks, ss, ds, ps) } let all = (1 << n) - 1 let a = actor.StartMachine(Machine[layerApp, int, int]{Initial: layerApp{open: all, log: ""}, Step: layerStep, After: layerTimer, Work: layerWork}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } let mut open = all let mut log = "" for _ in 0..(steps%16+16)%16+4 { let topD = layerTop(open, kinds, parents, dismiss) let topS = layerTop(open, kinds, parents, scrims) let act = draw(&r, 4) if act == 0 { Play(&h, []Act{KeyIn{Press: KeyPress{Name: "Escape", Mods: Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}}}) catch { case _: return false } if topD >= 0 { log = log + "\(10 + topD)," open = open - (open & (1 << topD)) } else { log = log + "900," } } else { // A click on a flow Pressable (-1) or a shown layer's. let mut shown = []int{-1} for i in 0..n { if layerShown(open, parents, i) { shown = shown.Append(i) } } let at = shown[draw(&r, len(shown))] let j = draw(&r, 3) let label = if at < 0 { "f\(j)" } else { "l\(at)" } let inside = func(l int) bool { at >= 0 && layerUnder(parents, l, at) } if act == 3 { // A key's press: no pointer, so no dismissal; a scrim // stops it outside its layer. let ids = Locate(&h, WithLabel{Label: label}) if len(ids) != 1 { return false } Activate(&h, ids[0]) catch { case _: return false } if topS < 0 || inside(topS) { log = log + if at < 0 { "\(100 + j)," } else { "\(200 + at)," } } } else { Play(&h, []Act{TapOn{Label: label}}) catch { case _: return false } if topD >= 0 && (!inside(topD) || (topS >= 0 && !inside(topS))) { log = log + "\(10 + topD)," open = open - (open & (1 << topD)) } if topS < 0 || inside(topS) { log = log + if at < 0 { "\(100 + j)," } else { "\(200 + at)," } } } } if StateOf(&h).log != log || StateOf(&h).open != open { return false } // The stack: by kind, then in tree order. let ids = LayersOf(&h) let mut k = 0 for z in 0..4 { for i in 0..n { if layerShown(open, parents, i) && kinds[i] == z { if k >= len(ids) { return false } let held = Locate(&h, WithLabel{Label: "l\(i)"}) if len(held) != 1 || !isUnderId(&h, ids[k], held[0]) { return false } k = k + 1 } } } if k != len(ids) { return false } } true } }`,
+	"ui TrackEqualsAnimate":                `TrackEqualsAnimate(seed int) { let m = time.NewManual(0) with context { Scheduler: m } { let mut r = seeded(seed) let k = float64(draw(&r, 361) + 40) let w = math.Sqrt(k) let c = 2.0 * w * zetas[draw(&r, len(zetas))] let a = actor.StartMachine(Machine[aiming, aimEvent, int]{Initial: aiming{k: k, c: c, target: 0.0, x: 0.0, v: 0.0, at: 0ns}, Step: aimStep, After: aimTimer, Work: aimWork}, 1, func(o int) {}) let mut h = NewTestHost(a, aimView, m, 4) catch { case BadPatch: return false } for _ in 0..40 { let mut acts = []Act{AdvanceBy{By: 16ms}, SettleAll} if draw(&r, 4) == 0 { acts = acts.Append(TapOn{Label: "aim\(draw(&r, len(aims)))"}) acts = acts.Append(SettleAll) } Play(&h, acts) catch { case _: return false } let s = StateOf(&h) match TrackedValue(&h, ByText("aimed")) { case Some[float64] as v: let d = v.Value - s.x if d > 0.01 || d < -0.01 { return false } case None: return false } } a.Stop() true } }`,
+	"ui TrackCostsNoPass":                  `TrackCostsNoPass(seed int) { let m = time.NewManual(0) with context { Scheduler: m } { let mut r = seeded(seed) let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: stillStep, After: stillTimer, Work: stillWork}, 1, func(o int) {}) let mut h = NewTestHost(a, stillView, m, 4) catch { case BadPatch: return false } for _ in 0..draw(&r, 6)+2 { let n = draw(&r, 4) let was = StateOf(&h) Play(&h, []Act{TapOn{Label: "fade\(n)"}, SettleAll}) catch { case _: return false } let tapped = Counts(&h) let frames = Frames(&h) let from = faded(&h) Play(&h, []Act{AdvanceBy{By: duration(int64(draw(&r, 8)+1) * int64(16000000))}}) catch { case _: return false } if Counts(&h) != tapped { return false } if n != was && (Frames(&h) == frames || faded(&h) == from) { return false } Play(&h, []Act{AdvanceBy{By: 200ms}}) catch { case _: return false } if WantsFrames(&h) || faded(&h) != float64(n)/4.0 { return false } } a.Stop() true } }`,
+	"ui TrackRetargetKeepsMotion":          `TrackRetargetKeepsMotion(seed int) { let mut r = seeded(seed) let t = drawTrack(&r) let at = duration(int64(draw(&r, 600)) * int64(1000000)) let (x1, v1) = TrackAt(t, at) let (x2, v2) = TrackAt(TrackRetarget(t, float64(draw(&r, 801)-400), at), at) let keepsSpeed = match t.Curve { case TrackLinear: true case _: nearly(v1, v2) } nearly(x1, x2) && keepsSpeed }`,
+	"ui TrackEndsOnTarget":                 `TrackEndsOnTarget(seed int) { let mut r = seeded(seed) let t = drawTrack(&r) let mut at = 0ns for !TrackDone(t, at) { at = at + 10ms if at > 60s { return false } } for i in 0..20 { let (x, v) = TrackAt(t, at+duration(int64(i)*int64(37000000))) if x != t.To || v != 0.0 { return false } } match t.Curve { case TrackLinear as c: at <= c.Over+10ms case TrackEase as c: at <= c.Over+10ms case TrackSpring: true } }`,
 	"ui RelationsNameHeldNodes":            `RelationsNameHeldNodes(seed int) { let m = time.NewManual(0) with context { Scheduler: m } { let mut r = seeded(seed) let n = draw(&r, 6) + 2 let mut keyed = []bool{} let mut rels = [][]Rel{} let mut gone = []bool{} let mut none = []bool{} for _ in 0..n { keyed = keyed.Append(draw(&r, 4) != 0) gone = gone.Append(draw(&r, 3) == 0) none = none.Append(false) let mut rs = []Rel{} for _ in 0..draw(&r, 4) { rs = rs.Append(drawRel(&r, n+2)) } rels = rels.Append(rs) } let view = func(f *Frame[int], s int) { relScreen(f, keyed, rels, if s == 0 { none } else { gone }) } let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } for s in 0..2 { let left = if s == 0 { none } else { gone } for i in 0..n { let ids = Locate(&h, WithLabel{Label: "r\(i)"}) if len(ids) != (if left[i] { 0 } else { 1 }) { return false } if len(ids) == 1 { let got = RelationsAt(&h, ids[0]) if len(got) != len(rels[i]) { return false } for j, rel in rels[i] { let k = relKey(rel) let mut want = "none" match k { case IntKey as x: if x.Value < n && keyed[x.Value] && !left[x.Value] { want = "r\(x.Value)" } case _: } let mut named = "none" match got[j].To { case Some[Id[int]] as t: named = AccessAt(&h, t.Value).Name case None: } if got[j].Rel != rel || named != want { return false } } } } if s == 0 { let next = Locate(&h, WithLabel{Label: "next"}) if len(next) != 1 { return false } Tap(&h, next[0]) catch { case _: return false } Settle(&h) catch { case _: return false } } } true } }`,
 	"ui PaintIsWhatWasGiven":               `PaintIsWhatWasGiven(seed int, state int, part int) { let m = time.NewManual(0) with context { Scheduler: m } { let mut r = seeded(seed) let mut before = []Looks{} for _ in 0..8 { before = before.Append(drawLooks(&r)) } let k = draw(&r, 8) let changed = changeLooks(before[k], state, part) let mut after = []Looks{} for i, ls in before { after = after.Append(if i == k { changed } else { ls }) } let view = func(f *Frame[int], s int) { if s == 0 { lookedView(f, before) } else { lookedView(f, after) } } let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } let shot = Screenshot(&h) for step in 0..2 { let want = if step == 0 { before } else { after } let screen = Screen(&h) if len(screen) != 1 || len(screen[0].Kids) != 9 { return false } for i, ls in want { if LooksOf(&h, screen[0].Kids[i].Node) != ls { return false } } if LooksOf(&h, screen[0].Kids[8].Node) != Steady(PressLook()) { return false } if step == 0 { let ids = Locate(&h, WithLabel{Label: "go"}) if len(ids) != 1 { return false } Tap(&h, ids[0]) catch { case _: return false } Settle(&h) catch { case _: return false } } } Screenshot(&h) != shot } }`,
 	"ui MirrorRejectsUnheldLooks":          `MirrorRejectsUnheldLooks(seed int) { let mut r = seeded(seed) let mut l = drawLook(&r) l.Border = Border{Width: 1, Color: Rgb(0x000000)} let view = func(f *Frame[int], s int) { let mut st = Plain() if s == 1 { st.Look = LookFor(f, Steady(l)) } Column(f, Plain()) { Box(f, st) { Text(f, "x") } } } let mut f = NewFrame[int]() let mut m = NewMirror[int](Root(&f)) Apply(&m, Render(&f, view, 0)) catch { case BadPatch: return false } let shown = MirrorShape(&m) let mut defines = []Op[int]{} let mut uses = []Op[int]{} for op in Render(&f, view, 1) { match op { case Define: defines = defines.Append(op) case _: uses = uses.Append(op) } } if len(defines) != 1 || len(uses) == 0 { return false } let twice = []Op[int]{defines[0], defines[0]} let mut fits = []Op[int]{defines[0]} for op in uses { fits = fits.Append(op) } if !lookRejected(&m, uses, shown) || !lookRejected(&m, twice, shown) { return false } Apply(&m, fits) catch { case BadPatch: return false } MirrorLookCount(&m) == len(defaultTable())+1 }`,

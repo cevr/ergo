@@ -1,0 +1,257 @@
+// Laws of tracks (TRACKS): the host runs a track on its frames with no
+// pass, its value is the spring's motion an Animate-driven program
+// integrates for itself, a retarget keeps where the track is and how fast
+// it moves, and a track that is done rests exactly on its target.
+
+import actor
+import math
+import time
+
+// aims are the targets a law's taps set.
+let aims = []float64{-200.0, -50.0, 80.0, 250.0}
+
+// zetas are damping ratios: bouncy, critical (1) and overdamped.
+let zetas = []float64{0.2, 0.5, 1.0, 1.5, 3.0}
+
+// aiming is the reference program's spring: its stiffness and damping,
+// target, where it is and how fast it moves at time at, which it
+// integrates on each frame by itself (RK4, half a millisecond a step).
+type aiming { k float64, c float64, target float64, x float64, v float64, at duration }
+
+// aimEvent is a tap that sets target n, or a frame at a time.
+type aimEvent = aimTo{n int} | aimFrame{at duration}
+
+func aimStep(s aiming, e aimEvent) Decision[aiming, int] {
+	match e {
+	case aimTo as a:
+		Enter[aiming]{Next: aiming{k: s.k, c: s.c, target: aims[a.n], x: s.x, v: s.v, at: s.at}}
+	case aimFrame as f:
+		let (x, v) = integrate(s, float64(int64(f.at-s.at))/1000000000.0)
+		Enter[aiming]{Next: aiming{k: s.k, c: s.c, target: s.target, x: x, v: v, at: f.at}}
+	}
+}
+
+// accelOf is the spring's acceleration at x moving at v.
+func accelOf(s aiming, x float64, v float64) float64 { -s.k*(x-s.target) - s.c*v }
+
+// integrate moves the spring span seconds by RK4.
+func integrate(s aiming, span float64) (float64, float64) {
+	let mut x = s.x
+	let mut v = s.v
+	let mut t = 0.0
+	for t < span {
+		let h = if span-t < 0.0005 { span - t } else { 0.0005 }
+		let a1 = accelOf(s, x, v)
+		let a2 = accelOf(s, x+h/2.0*v, v+h/2.0*a1)
+		let a3 = accelOf(s, x+h/2.0*(v+h/2.0*a1), v+h/2.0*a2)
+		let a4 = accelOf(s, x+h*(v+h/2.0*a2), v+h*a3)
+		x = x + h*(v+h/6.0*(a1+a2+a3))
+		v = v + h/6.0*(a1+2.0*a2+2.0*a3+a4)
+		t = t + h
+	}
+	(x, v)
+}
+
+func aimTimer(s aiming) Option[Timeout[aimEvent]] { None }
+
+func aimWork(s aiming) Option[func(send func(e aimEvent))] { None }
+
+// aimView tracks x to the target on the host, and animates the reference.
+func aimView(f *Frame[aimEvent], s aiming) {
+	Track(f, ByText("aimed"), TrackX, s.target, TrackSpring{Stiffness: s.k, Damping: s.c}) {
+		Text(f, "aimed")
+	}
+	for n in 0..4 {
+		Pressable(f, "aim\(n)", aimTo{n: n}) {
+			Text(f, "aim")
+		}
+	}
+	Animate(f, func(at duration) aimEvent { aimFrame{at: at} })
+}
+
+// TrackEqualsAnimate: a spring of a drawn stiffness and damping ratio
+// (bouncy, critical, overdamped), retargeted by taps at drawn frames,
+// shows at every frame the value an Animate-driven program computes by
+// integrating the same spring itself with its velocity carried through
+// each retarget, within a hundredth of a DIP.
+law TrackEqualsAnimate(seed int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let mut r = seeded(seed)
+		let k = float64(draw(&r, 361) + 40)
+		let w = math.Sqrt(k)
+		let c = 2.0 * w * zetas[draw(&r, len(zetas))]
+		let a = actor.StartMachine(Machine[aiming, aimEvent, int]{Initial: aiming{k: k, c: c, target: 0.0, x: 0.0, v: 0.0, at: 0ns}, Step: aimStep, After: aimTimer, Work: aimWork}, 1, func(o int) {})
+		let mut h = NewTestHost(a, aimView, m, 4) catch {
+		case BadPatch:
+			return false
+		}
+		for _ in 0..40 {
+			let mut acts = []Act{AdvanceBy{By: 16ms}, SettleAll}
+			if draw(&r, 4) == 0 {
+				acts = acts.Append(TapOn{Label: "aim\(draw(&r, len(aims)))"})
+				acts = acts.Append(SettleAll)
+			}
+			Play(&h, acts) catch {
+			case _:
+				return false
+			}
+			let s = StateOf(&h)
+			match TrackedValue(&h, ByText("aimed")) {
+			case Some[float64] as v:
+				let d = v.Value - s.x
+				if d > 0.01 || d < -0.01 {
+					return false
+				}
+			case None:
+				return false
+			}
+		}
+		a.Stop()
+		true
+	}
+}
+
+// stillView tracks a box's opacity to target n's share; no Animate.
+func stillView(f *Frame[int], s int) {
+	Track(f, ByText("faded"), TrackOpacity, float64(s)/4.0, TrackEase{Over: 120ms}) {
+		Text(f, "faded")
+	}
+	for n in 0..4 {
+		Pressable(f, "fade\(n)", n) {
+			Text(f, "fade")
+		}
+	}
+}
+
+func stillStep(s int, e int) Decision[int, int] { Enter[int]{Next: e} }
+
+func stillTimer(s int) Option[Timeout[int]] { None }
+
+func stillWork(s int) Option[func(send func(e int))] { None }
+
+// TrackCostsNoPass: after the pass of a tap that retargets a track, the
+// host's frames move the track (it wants frames until it rests, and its
+// value changes) and run no pass: the counts of the step stay those of
+// the tap's pass.
+law TrackCostsNoPass(seed int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let mut r = seeded(seed)
+		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: stillStep, After: stillTimer, Work: stillWork}, 1, func(o int) {})
+		let mut h = NewTestHost(a, stillView, m, 4) catch {
+		case BadPatch:
+			return false
+		}
+		for _ in 0..draw(&r, 6)+2 {
+			let n = draw(&r, 4)
+			let was = StateOf(&h)
+			Play(&h, []Act{TapOn{Label: "fade\(n)"}, SettleAll}) catch {
+			case _:
+				return false
+			}
+			let tapped = Counts(&h)
+			let frames = Frames(&h)
+			let from = faded(&h)
+			Play(&h, []Act{AdvanceBy{By: duration(int64(draw(&r, 8)+1) * int64(16000000))}}) catch {
+			case _:
+				return false
+			}
+			if Counts(&h) != tapped {
+				return false
+			}
+			if n != was && (Frames(&h) == frames || faded(&h) == from) {
+				return false
+			}
+			Play(&h, []Act{AdvanceBy{By: 200ms}}) catch {
+			case _:
+				return false
+			}
+			if WantsFrames(&h) || faded(&h) != float64(n)/4.0 {
+				return false
+			}
+		}
+		a.Stop()
+		true
+	}
+}
+
+// drawCurve is a Linear, an Ease or a spring curve.
+func drawCurve(r *rng) TrackCurve {
+	let kind = draw(r, 3)
+	if kind == 0 {
+		return TrackLinear{Over: duration(int64(draw(r, 400)+1) * int64(1000000))}
+	}
+	if kind == 1 {
+		return TrackEase{Over: duration(int64(draw(r, 400)+1) * int64(1000000))}
+	}
+	let k = float64(draw(r, 361) + 40)
+	TrackSpring{Stiffness: k, Damping: 2.0 * math.Sqrt(k) * zetas[draw(r, len(zetas))]}
+}
+
+// faded is the value of the track keyed "faded" (-1: none).
+func faded[S, E, D, F](h *TestHost[S, E, D, F]) float64 {
+	match TrackedValue(h, ByText("faded")) {
+	case Some[float64] as v:
+		v.Value
+	case None:
+		-1.0
+	}
+}
+
+// drawTrack is a track from a drawn place and speed to a drawn target.
+func drawTrack(r *rng) TrackState {
+	TrackState{From: float64(draw(r, 801) - 400), Velocity: float64(draw(r, 4001) - 2000), To: float64(draw(r, 801) - 400), Start: 0ns, Curve: drawCurve(r)}
+}
+
+// nearly is whether a and b agree to a billionth of their size.
+func nearly(a float64, b float64) bool {
+	let d = if a > b { a - b } else { b - a }
+	let m = if a < 0.0 { -a } else { a }
+	d <= 0.000000001*(1.0+m)
+}
+
+// TrackRetargetKeepsMotion: a drawn track retargeted at a drawn time is
+// where it was at that time, and, for an Ease or a spring, as fast.
+law TrackRetargetKeepsMotion(seed int) {
+	let mut r = seeded(seed)
+	let t = drawTrack(&r)
+	let at = duration(int64(draw(&r, 600)) * int64(1000000))
+	let (x1, v1) = TrackAt(t, at)
+	let (x2, v2) = TrackAt(TrackRetarget(t, float64(draw(&r, 801)-400), at), at)
+	let keepsSpeed = match t.Curve {
+	case TrackLinear:
+		true
+	case _:
+		nearly(v1, v2)
+	}
+	nearly(x1, x2) && keepsSpeed
+}
+
+// TrackEndsOnTarget: a drawn track is done by its duration (a spring
+// within 60 s), and from then on it is exactly on its target, still.
+law TrackEndsOnTarget(seed int) {
+	let mut r = seeded(seed)
+	let t = drawTrack(&r)
+	let mut at = 0ns
+	for !TrackDone(t, at) {
+		at = at + 10ms
+		if at > 60s {
+			return false
+		}
+	}
+	for i in 0..20 {
+		let (x, v) = TrackAt(t, at+duration(int64(i)*int64(37000000)))
+		if x != t.To || v != 0.0 {
+			return false
+		}
+	}
+	match t.Curve {
+	case TrackLinear as c:
+		at <= c.Over+10ms
+	case TrackEase as c:
+		at <= c.Over+10ms
+	case TrackSpring:
+		true
+	}
+}
