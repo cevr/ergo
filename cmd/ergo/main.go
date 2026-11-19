@@ -624,7 +624,7 @@ func checkLoaded(opts fileOptions, l loaded, w *warm) error {
 		return err
 	}
 	if !l.result.Checked {
-		if err := printProjectionJSON(l.result.CheckEnvelope()); err != nil {
+		if err := printProjectionJSON(checkEnvelope(l.result)); err != nil {
 			return err
 		}
 		return fmt.Errorf("check failed")
@@ -654,7 +654,7 @@ func checkLoaded(opts fileOptions, l loaded, w *warm) error {
 	}
 	l.result.SetEvaluation(evaluation)
 	var out bytes.Buffer
-	if err := json.NewEncoder(&out).Encode(l.result.CheckEnvelope()); err != nil {
+	if err := json.NewEncoder(&out).Encode(checkEnvelope(l.result)); err != nil {
 		return err
 	}
 	if _, err := os.Stdout.Write(out.Bytes()); err != nil {
@@ -671,6 +671,14 @@ func checkLoaded(opts fileOptions, l loaded, w *warm) error {
 		w.record(sketchfront.WarmAnswer{Stdout: out.Bytes()})
 	}
 	return exit
+}
+
+// checkEnvelope is what check prints: the result's envelope with this
+// ergo's features (versionFeatures).
+func checkEnvelope(r *report.Result) report.CheckEnvelope {
+	env := r.CheckEnvelope()
+	env.Features = versionFeatures
+	return env
 }
 
 // evalBudget is check's evaluation budget: the editor default
