@@ -30,7 +30,11 @@ import (
 // (goclosure.go), widened to the package's files where the walk cannot
 // see; a package's shown hash is over the keys of its targets the entry
 // reaches. The platform is not keyed: the ledger is a function of the
-// module's sources (LAWFFI r2 §3.5, §7 risk 4). A function of module A
+// module's sources (LAWFFI r2 §3.5, §7 risk 4). The sources are the files
+// go build compiles for the target (sketchfront's readGoDir), so a
+// package whose files a build constraint chooses, such as a vector kernel
+// and its stock twin, is keyed by the twin that is built (U1 SIMD-SCAN).
+// A function of module A
 // that calls module B is keyed by A's go.sum line only: B's version
 // reaches the key only through A's own requirements.
 

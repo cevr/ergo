@@ -2,6 +2,7 @@ package sketchfront
 
 import (
 	"bytes"
+	"cmp"
 	"errors"
 	"go/build"
 	"io"
@@ -10,9 +11,11 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 
+	"ergo.local/prototype/internal/gobind"
 	"ergo.local/prototype/internal/sketch/fingerprint"
 )
 
@@ -84,10 +87,16 @@ func (l *loader) goPackage(importPath string) (goFiles, bool) {
 // body twice, and only one of the two is compiled). cgo is off, as for
 // every build of an Ergo program.
 func (l *loader) buildsFor(name string, data []byte) bool {
+	return goBuilds(l.platform, l.experiments, name, data)
+}
+
+// goBuilds is buildsFor for a platform (the host's GOOS or GOARCH where
+// one is empty) and an experiment set.
+func goBuilds(platform gobind.Platform, experiments []string, name string, data []byte) bool {
 	ctx := build.Default
-	ctx.GOOS, ctx.GOARCH, ctx.CgoEnabled = l.platform.GOOS, l.platform.GOARCH, false
+	ctx.GOOS, ctx.GOARCH, ctx.CgoEnabled = cmp.Or(platform.GOOS, runtime.GOOS), cmp.Or(platform.GOARCH, runtime.GOARCH), false
 	ctx.ToolTags = slices.Clone(ctx.ToolTags)
-	for _, e := range l.experiments {
+	for _, e := range experiments {
 		ctx.ToolTags = append(ctx.ToolTags, "goexperiment."+e)
 	}
 	ctx.OpenFile = func(string) (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(data)), nil }

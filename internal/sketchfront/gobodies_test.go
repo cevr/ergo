@@ -1,6 +1,7 @@
 package sketchfront
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -190,6 +191,45 @@ func TestCheckCacheReadsAnEditedGoBody(t *testing.T) {
 	}
 	if got := diagnosticLines(a); !strings.Contains(got, "S108") {
 		t.Errorf("an edited Go body was not read again; the check cache answered with the old one:\n%s", got)
+	}
+}
+
+// TestLawKeyFollowsTheBuiltBody (U1 SIMD-SCAN): the store's key of a
+// law's verdict (lawcache) takes the foreign key of the module Go body the
+// law reaches, over the file go build compiles, so a verdict of a stock
+// build, where the body is the stock twin, does not answer for a
+// GOEXPERIMENT=simd build, where it is the vector file. The light run of
+// modules/simd showed the miss: its laws in the vector build printed
+// "(cached)" from the stock build's verdicts, so no kernel ran. Mutants:
+// law-key-no-foreign (the key is the Ergo declarations' alone),
+// foreign-key-all-files (the foreign key reads every file of the package).
+func TestLawKeyFollowsTheBuiltBody(t *testing.T) {
+	const body = "\npackage kern\n\n//ergo:wait none\nfunc Index(s string, c uint8) int { return %s }\n"
+	root := writeTree(t, map[string]string{
+		"go.mod":         "module example.com/app\n\ngo 1.27\n",
+		"ergo.mod":       "module app\ntrust go app\n",
+		"kern/stock.go":  "//go:build !goexperiment.simd\n" + fmt.Sprintf(body, "-1"),
+		"kern/vector.go": "//go:build goexperiment.simd\n" + fmt.Sprintf(body, "0"),
+		"scan/scan.ergo": "extern go example.com/app/kern.Index func index(s string, c byte) int\n\nlaw IndexIsSmall(s string, c byte) {\n\tindex(s, c) <= 0\n}\n",
+	})
+	key := func(experiment string) string {
+		t.Setenv("GOEXPERIMENT", experiment)
+		a, err := CheckDir(filepath.Join(root, "scan"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		pkg := a.rootPackage()
+		if pkg == nil {
+			t.Fatalf("GOEXPERIMENT=%q: no checked package:\n%s", experiment, diagnosticLines(a))
+		}
+		targets := lower.RunTargets(pkg)
+		if len(targets) != 1 {
+			t.Fatalf("GOEXPERIMENT=%q: %d law runs, want 1", experiment, len(targets))
+		}
+		return targetKey(pkg, targets[0], 1, 0, runnerNative, foreignKeys(a, nil))
+	}
+	if stock, simd := key(""), key("simd"); stock == simd {
+		t.Errorf("law IndexIsSmall has one verdict key in the stock build and the GOEXPERIMENT=simd build; want the built body's")
 	}
 }
 
