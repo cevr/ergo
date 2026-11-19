@@ -125,6 +125,12 @@ var Hosts = []Effect{
 	{Target: "ergo.local/prototype/runtime/v1/hostfs.Stat", Reason: "it calls os.Stat on one path, following a symbolic link, and copies the five values of its result into a new struct", Source: "07a2c004939a"},
 	{Target: "ergo.local/prototype/runtime/v1/hostfs.Lstat", Reason: "it calls os.Lstat on one path, not following a symbolic link, and copies the five values of its result into a new struct", Source: "b90166fec086"},
 	{Target: "ergo.local/prototype/runtime/v1/hostfs.ReadDir", Reason: "it calls os.ReadDir on one directory and copies each entry's name, kind and type into a new, sorted slice", Source: "66ec26573280"},
+	// The targets of (*os.File).Stat, ReadDir and Readdir's bindings
+	// (S2-FILE-B): each calls the method once on the caller's handle and
+	// copies its values; none keeps the handle.
+	{Target: "ergo.local/prototype/runtime/v1/hostfs.FileStat", Reason: "it calls Stat on its open file's handle and copies the five values of its result into a new struct", Source: "9d2c981cc12d"},
+	{Target: "ergo.local/prototype/runtime/v1/hostfs.FileReadDir", Reason: "it calls ReadDir(n) on its open directory's handle, reading on from the handle's position, and copies each entry's name, kind and type into a new slice", Source: "3fb32a005db0"},
+	{Target: "ergo.local/prototype/runtime/v1/hostfs.FileReaddir", Reason: "it calls Readdir(n) on its open directory's handle, reading on from the handle's position, and copies each entry's five values into a new slice", Source: "334a0ad29d37"},
 	// The open files (HOST-ROW-3 slice 2): Open, Create and OpenFile
 	// return the one handle they open, which the caller owns (a go.Ref
 	// resource: its Close takes it); each method reads or changes the

@@ -122,7 +122,7 @@ func (fc *funcCtx) goSig(c *check.Call, site syntax.Node) (sig *check.Signature,
 		return c.Op.Sig, "." + c.Op.Name, n.Obj.Pkg.Path + "." + n.Obj.Name + "." + c.Op.Name, false
 	}
 	f := c.Func
-	if c.Recv != nil {
+	if c.Recv != nil && !f.Decl.Extern.FuncTarget() {
 		path, typ, m := f.Decl.Extern.SplitMethod()
 		return f.Sig, "." + m, path + "." + typ + "." + m, check.GoVariadic(f)
 	}
@@ -191,8 +191,9 @@ func (fc *funcCtx) goCall(x *syntax.CallExpr, c *check.Call) operand {
 	}
 	mark := len(fc.goCompare)
 	vals := fc.callArgs(list, x)
+	recvVal := ""
 	if c.Recv != nil {
-		head, vals = vals[0]+head, vals[1:]
+		recvVal, head, vals = vals[0], vals[0]+head, vals[1:]
 	}
 	fc.goErrorArgs(sig, vals)
 	fc.goSeqArgs(sig, x.Args, vals, x)
@@ -216,6 +217,12 @@ func (fc *funcCtx) goCall(x *syntax.CallExpr, c *check.Call) operand {
 				vals[i] = written
 			}
 		}
+	}
+	if c.Kind == check.CallFunc && c.Recv != nil && c.Func.Decl.Extern.FuncTarget() {
+		// A method whose target is a Go function (S2-FILE-B) takes the
+		// receiver as its first argument, after a hidden context:
+		// hostfs.FileStat(f).
+		head, vals = fc.hostTarget(x, c.Func), append([]string{recvVal}, vals...)
 	}
 	ctx := c.Kind != check.CallOp && check.GoContext(c.Func)
 	if ctx {

@@ -38,6 +38,12 @@ var GoArgClauses = map[string]map[int]GoArgClause{
 	"os.File.Readdir":      {0: {true, "os/dir.go: returns file info values after the directory read"}},
 	"os.File.Readdirnames": {0: {true, "os/dir.go: returns names after the directory read"}},
 	"os.File.ReadDir":      {0: {true, "os/dir.go: returns entries after the directory read"}},
+	// The targets of (*os.File).Stat, ReadDir and Readdir's bindings
+	// (S2-FILE-B; gobind.ValueResults): each calls the method once and
+	// copies its values into a new struct or slice.
+	"ergo.local/prototype/runtime/v1/hostfs.FileStat":    {0: {true, "runtime/v1/hostfs: calls f.Stat once and copies its values; keeps no f"}},
+	"ergo.local/prototype/runtime/v1/hostfs.FileReadDir": {0: {true, "runtime/v1/hostfs: calls f.ReadDir once and copies its entries; keeps no f"}},
+	"ergo.local/prototype/runtime/v1/hostfs.FileReaddir": {0: {true, "runtime/v1/hostfs: calls f.Readdir once and copies its values; keeps no f"}},
 }
 
 // GoWrite is a reviewed Go function or method that writes its slice

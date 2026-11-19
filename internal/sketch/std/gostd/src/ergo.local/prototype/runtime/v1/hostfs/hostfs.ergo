@@ -12,6 +12,15 @@ extern go ergo.local/prototype/runtime/v1/hostfs.Entry type Entry {
 	Type  fs.FileMode,
 }
 
+// ergo:go func FileReadDir(f *os.File, n int) ([]Entry, error)
+// ergo:refused FileReadDir: it names the refused type os.File
+
+// ergo:go func FileReaddir(f *os.File, n int) ([]Info, error)
+// ergo:refused FileReaddir: it names the refused type os.File
+
+// ergo:go func FileStat(f *os.File) (Info, error)
+// ergo:refused FileStat: it names the refused type os.File
+
 // ergo:go type Info struct
 extern go ergo.local/prototype/runtime/v1/hostfs.Info type Info {
 	Name    string,

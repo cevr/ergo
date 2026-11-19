@@ -463,7 +463,7 @@ func (c *closer) valueResults(bound string, i int, ds []Decl) []Decl {
 	q := func(p *types.Package) string { return "⟦" + p.Path() + " " + p.Name() + "⟧" }
 	for k, d := range ds {
 		via, ok := ValueResults[bound+"."+d.Name]
-		if !ok || d.Kind != Func {
+		if !ok || d.Kind != Func && d.Kind != Method {
 			continue
 		}
 		path, name := splitRef(via)
@@ -476,9 +476,50 @@ func (c *closer) valueResults(bound string, i int, ds []Decl) []Decl {
 		}
 		nd := mapIn(c.pkgs[bound][i], obj, nil, q)
 		nd.Name, nd.Via = d.Name, via
+		if d.Kind == Method && nd.Refused == "" {
+			// The function takes the receiver first (S2-FILE-B): its
+			// first parameter becomes the method's receiver, under Go's
+			// method name.
+			_, method := splitRef(d.Name)
+			text, ok := asMethod(nd.Ergo, obj.Name(), method)
+			if !ok {
+				continue
+			}
+			nd.Kind, nd.Ergo = Method, text
+		}
 		ds[k] = nd
 	}
 	return ds
+}
+
+// asMethod is the Ergo text of the function fn, `func fn(r *T, rest)
+// …`, as the method `func (r *T) method(rest) …` (S2-FILE-B); ok is false
+// for a text of another shape (no parameter, a type parameter).
+func asMethod(text, fn, method string) (string, bool) {
+	head := "func " + fn + "("
+	rest, ok := strings.CutPrefix(text, head)
+	if !ok {
+		return "", false
+	}
+	depth := 0
+	for i, r := range rest {
+		switch r {
+		case '(', '[', '{':
+			depth++
+		case ']', '}':
+			depth--
+		case ')':
+			if depth == 0 {
+				return "func (" + rest[:i] + ") " + method + "()" + rest[i+1:], i > 0
+			}
+			depth--
+		case ',':
+			if depth == 0 {
+				return "func (" + rest[:i] + ") " + method + "(" + strings.TrimPrefix(rest[i+1:], " "), true
+			}
+		}
+	}
+	return "", false
 }
 
 func splitRef(ref string) (path, name string) {

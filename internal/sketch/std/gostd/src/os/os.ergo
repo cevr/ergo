@@ -124,14 +124,16 @@ extern go os.File.Read func (f *File) Read(b []byte) ([]byte, int) fails go.Erro
 // ergo:effect ambient (vouched: it reads len(b) bytes of its file at off into b, keeping no reference to b, and leaves the handle's offset)
 extern go os.File.ReadAt func (f *File) ReadAt(b []byte, off int64) ([]byte, int) fails go.Error needs Ambient
 
-// ergo:go func (*File).ReadDir(n int) ([]DirEntry, error)
-extern go os.File.ReadDir func (f *File) ReadDir(n int) []fs.DirEntry fails go.Error needs go.Foreign
+// ergo:go func FileReadDir(f *os.File, n int) ([]Entry, error)
+// ergo:effect ambient (vouched: it calls ReadDir(n) on its open directory's handle, reading on from the handle's position, and copies each entry's name, kind and type into a new slice)
+extern go ergo.local/prototype/runtime/v1/hostfs.FileReadDir func (f *File) ReadDir(n int) []hostfs.Entry fails go.Error needs Ambient
 
 // ergo:go func (*File).ReadFrom(r io.Reader) (n int64, err error)
 extern go os.File.ReadFrom func (f *File) ReadFrom(r own io.Reader) int64 fails go.Error needs go.Foreign
 
-// ergo:go func (*File).Readdir(n int) ([]FileInfo, error)
-extern go os.File.Readdir func (f *File) Readdir(n int) []fs.FileInfo fails go.Error needs go.Foreign
+// ergo:go func FileReaddir(f *os.File, n int) ([]Info, error)
+// ergo:effect ambient (vouched: it calls Readdir(n) on its open directory's handle, reading on from the handle's position, and copies each entry's five values into a new slice)
+extern go ergo.local/prototype/runtime/v1/hostfs.FileReaddir func (f *File) Readdir(n int) []hostfs.Info fails go.Error needs Ambient
 
 // ergo:go func (*File).Readdirnames(n int) (names []string, err error)
 // ergo:effect ambient (vouched: it reads up to n names of its directory from the handle's position into a new slice)
@@ -153,8 +155,9 @@ extern go os.File.SetReadDeadline func (f *File) SetReadDeadline(t time.Time) fa
 // ergo:effect ambient (vouched: it sets its handle's write deadline, or fails with os.ErrNoDeadline on a file with none)
 extern go os.File.SetWriteDeadline func (f *File) SetWriteDeadline(t time.Time) fails go.Error needs Ambient
 
-// ergo:go func (*File).Stat() (FileInfo, error)
-extern go os.File.Stat func (f *File) Stat() fs.FileInfo fails go.Error needs go.Foreign
+// ergo:go func FileStat(f *os.File) (Info, error)
+// ergo:effect ambient (vouched: it calls Stat on its open file's handle and copies the five values of its result into a new struct)
+extern go ergo.local/prototype/runtime/v1/hostfs.FileStat func (f *File) Stat() hostfs.Info fails go.Error needs Ambient
 
 // ergo:go func (*File).Sync() error
 // ergo:effect ambient (vouched: it commits its file's contents to stable storage)

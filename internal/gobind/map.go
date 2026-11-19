@@ -133,10 +133,18 @@ const HostFS = hostfs.Path
 // function is bound and reviewed as any Go function is (a host row, its
 // guard), and every binding of Go's, std's or a user's, gets the same
 // one. Keyed by Go's target, valued by the one the binding calls.
+//
+// A method's entry (S2-FILE-B) names a function that takes the receiver
+// first: the binding is still the method, `func (f *File) Stat()
+// hostfs.Info`, and its target is that function, which the call runs as
+// hostfs.FileStat(f).
 var ValueResults = map[string]string{
-	"os.Stat":    HostFS + ".Stat",
-	"os.Lstat":   HostFS + ".Lstat",
-	"os.ReadDir": HostFS + ".ReadDir",
+	"os.Stat":         HostFS + ".Stat",
+	"os.Lstat":        HostFS + ".Lstat",
+	"os.ReadDir":      HostFS + ".ReadDir",
+	"os.File.Stat":    HostFS + ".FileStat",
+	"os.File.ReadDir": HostFS + ".FileReadDir",
+	"os.File.Readdir": HostFS + ".FileReaddir",
 }
 
 // Qualifier spells a package other than the bound one in Ergo source: the

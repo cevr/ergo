@@ -1056,8 +1056,15 @@ func (p *parser) parseExternDecl(doc *CommentGroup) Decl {
 	d := &FuncDecl{Doc: doc, Extern: x, Func: p.want(FUNC)}
 	if p.tok.tok == LPAREN {
 		d.Recv = p.parseParameters(paramPlain, true)
-		if path, typ, name := x.SplitMethod(); path == "" || !isIdentifier(typ) || !isIdentifier(name) || len(d.Recv.List) != 1 || len(d.Recv.List[0].Names) != 1 {
-			p.errorf("an extern method has one named receiver and the target path.Type.Method")
+		path, typ, name := x.SplitMethod()
+		target := path != "" && isIdentifier(typ) && isIdentifier(name)
+		if x.FuncTarget() {
+			// A Go function called with the receiver first (S2-FILE-B).
+			fpath, fname := x.Split()
+			target = fpath != "" && isIdentifier(fname)
+		}
+		if !target || len(d.Recv.List) != 1 || len(d.Recv.List[0].Names) != 1 {
+			p.errorf("an extern method has one named receiver and the target path.Type.Method, or path.Func of a Go function that takes the receiver first")
 		}
 	}
 	d.Name = p.parseIdent()

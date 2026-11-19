@@ -52,9 +52,18 @@ func (b *irBuilder) goTarget(x *syntax.CallExpr, c *check.Call, f *check.Func, p
 	if check.GoVariadic(f) {
 		spread = "..."
 	}
-	if recv != nil {
+	if recv != nil && !f.Decl.Extern.FuncTarget() {
 		_, _, m := f.Decl.Extern.SplitMethod()
 		return pre, &irExpr{K: "mcall", Pos: p, Name: m, Op: spread, X: recv, Args: args}
+	}
+	if recv != nil {
+		// A method whose target is a Go function (S2-FILE-B): the
+		// receiver is its first argument, after a hidden context.
+		at := 0
+		if ctx {
+			at = 1
+		}
+		args = append(append(append([]*irExpr{}, args[:at]...), recv), args[at:]...)
 	}
 	path, goName := f.Decl.Extern.Split()
 	b.keepImport("var _ = " + b.l.hostPkg(path, x) + "." + goName)

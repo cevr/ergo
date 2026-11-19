@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"slices"
 	"time"
+
+	"ergo.local/prototype/runtime/v1/hostfs"
 )
 
 // The guard of the open-file rows (HOST-ROW-3 slice 2; gofacts.Hosts):
@@ -47,6 +49,90 @@ func handleCalls() map[string]func(s ambient) error {
 		"os.File.SetDeadline":      deadlineCheck((*os.File).SetDeadline, true, true),
 		"os.File.SetReadDeadline":  deadlineCheck((*os.File).SetReadDeadline, true, false),
 		"os.File.SetWriteDeadline": deadlineCheck((*os.File).SetWriteDeadline, false, true),
+		// The targets of (*os.File).Stat, ReadDir and Readdir (S2-FILE-B).
+		hostfs.Path + ".FileStat":    fileStatCheck,
+		hostfs.Path + ".FileReadDir": fileEntriesCheck(false),
+		hostfs.Path + ".FileReaddir": fileEntriesCheck(true),
+	}
+}
+
+// fileStatCheck: FileStat gives the metadata of its handle's file, the
+// state's fixture (its name, its size, not a directory), and leaves the
+// handle open at its offset.
+func fileStatCheck(s ambient) error {
+	defer clean(s, "hg-fstat")
+	f, err := fixture(s, "hg-fstat", os.O_RDONLY)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	fi, err := hostfs.FileStat(f)
+	if err != nil || fi.Name != "hg-fstat" || fi.IsDir || fi.Size != int64(len(stateText(s))) || fi.Mode.Perm() == 0 {
+		return fmt.Errorf("FileStat of %s/hg-fstat is (%+v, %v), want its name, size %d", s.dir, fi, err, len(stateText(s)))
+	}
+	if got, err := readAll(f); err != nil || !bytes.Equal(got, stateText(s)) {
+		return fmt.Errorf("after FileStat the handle reads (%q, %v)", got, err)
+	}
+	return nil
+}
+
+// fileEntriesCheck: FileReadDir (or FileReaddir, info) gives the entries
+// of its handle's directory, at most 2 at a time, then io.EOF: the
+// state's own file with its size, and a directory as one.
+func fileEntriesCheck(info bool) func(s ambient) error {
+	return func(s ambient) error {
+		defer clean(s, "hg-fents")
+		own := "of-" + filepath.Base(s.home)
+		if err := os.MkdirAll(at(s, "hg-fents/sub"), 0o755); err != nil {
+			return err
+		}
+		if err := errors.Join(put(s, "hg-fents/a", nil), put(s, "hg-fents/"+own, stateText(s))); err != nil {
+			return err
+		}
+		f, err := os.Open(at(s, "hg-fents"))
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		var got []string
+		for {
+			var names []string
+			var err error
+			if info {
+				var is []hostfs.Info
+				is, err = hostfs.FileReaddir(f, 2)
+				for _, i := range is {
+					names = append(names, fmt.Sprintf("%s %v %d", i.Name, i.IsDir, map[bool]int64{false: i.Size}[i.IsDir]))
+				}
+			} else {
+				var es []hostfs.Entry
+				es, err = hostfs.FileReadDir(f, 2)
+				for _, e := range es {
+					size := 0
+					if e.Name == own {
+						size = len(stateText(s))
+					}
+					names = append(names, fmt.Sprintf("%s %v %d", e.Name, e.IsDir, size))
+				}
+			}
+			if len(names) > 2 {
+				return fmt.Errorf("a read of 2 entries gives %q", names)
+			}
+			got = append(got, names...)
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				return err
+			}
+		}
+		slices.Sort(got)
+		want := []string{"a false 0", fmt.Sprintf("%s false %d", own, len(stateText(s))), "sub true 0"}
+		slices.Sort(want)
+		if !slices.Equal(got, want) {
+			return fmt.Errorf("the entries of %s/hg-fents are %q, want %q", s.dir, got, want)
+		}
+		return nil
 	}
 }
 
