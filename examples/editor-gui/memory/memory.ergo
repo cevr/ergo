@@ -1,7 +1,7 @@
 // Package memory is a Store provider over documents held in memory, for
 // tests. Every copy of a Shelf is the same store.
 
-import editor/edit
+import ergo.local/prototype/examples/editorgui/edit
 import sync
 
 // Shelf holds documents by name.

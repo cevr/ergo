@@ -450,8 +450,7 @@ func sameHandle(a Flag, b Flag) bool {
 // notInSet ends the program with a defect: a handle read from Values of a
 // Set that does not hold it, or holds another kind under its name.
 func notInSet(name string) string {
-	let reason = []string{"flag -" + name + " is not a flag of the parsed set"}
-	reason[len(reason)]
+	Unreachable("flag -" + name + " is not a flag of the parsed set")
 }
 
 // The failures of a command line. Each one's text is Describe's.

@@ -1,0 +1,181 @@
+// cells shows the counter and the todo list of the GUI examples on the
+// terminal cell host: their views and scene scripts, unchanged, drawn in
+// cells.
+//
+//	cells counter [-frames] [-cols C] [-rows R] < script   play a counter-gui script on C by R cells (80 by 32), then print the screen
+//	cells todo [-frames] < script      the same for todo-gui
+//	cells gen counter|todo [-seed S] [-n N]   write the example's seeded script
+//	cells live counter|todo            run it on this terminal (Tab, Enter, keys; Ctrl-C ends)
+//
+// A play prints "N: ok" or "N: no node LABEL" after each step, then the
+// screen as text; with -frames it writes the frames instead, as a
+// terminal reads them. It is the only place that chooses: the terminal
+// and its size, the test clock, and the app.
+
+import actor
+import ergo.local/prototype/examples/cells/host
+import ergo.local/prototype/examples/countergui/counter
+import ergo.local/prototype/examples/countergui/script
+import ergo.local/prototype/examples/countergui/view
+import ergo.local/prototype/examples/todogui/todo
+import todoscript ergo.local/prototype/examples/todogui/script
+import todoview ergo.local/prototype/examples/todogui/view
+import flag
+import io
+import os
+import slices
+import term
+import time
+import ui
+
+let framesFlag = flag.Bool("frames", false, "write the frames, as the terminal reads them, instead of the screen")
+
+let seedFlag = flag.Int("seed", 1, "the script's seed")
+
+let stepsFlag = flag.Int("n", 20, "the number of steps")
+
+let colsFlag = flag.Int("cols", 80, "the columns of the terminal a play draws on")
+
+let rowsFlag = flag.Int("rows", 32, "the rows of the terminal a play draws on")
+
+let playSet = flag.Set{Name: "cells APP", Usage: "cells counter|todo plays a scene script from standard input on the cell host.", Flags: []flag.Flag{framesFlag, colsFlag, rowsFlag}, Args: []flag.ArgSpec{}}
+
+let genSet = flag.Set{Name: "cells gen APP", Usage: "cells gen counter|todo writes the example's seeded scene script.", Flags: []flag.Flag{seedFlag, stepsFlag}, Args: []flag.ArgSpec{}}
+
+let usage = "usage: cells counter|todo [-frames] [-cols C] [-rows R] < script | cells gen counter|todo [-seed S] [-n N] | cells live counter|todo"
+
+// play plays acts on h, printing each step's end, then the screen or the
+// frames.
+func play[E comparable, S, D, F](h mut host.Host[S, E, D, F], acts []ui.Act, frames bool) fails os.Exit needs io.Stdout {
+	let mut out = []string{}
+	for f in host.Take(h) {
+		out = out.Append(f)
+	}
+	for i, act in acts {
+		host.Play(h, []ui.Act{act}) catch {
+		case ui.NoNode as n:
+			io.Stdout.Println("\(i + 1): no node \(n.Label)")
+			continue
+		case ui.Ambiguous as x:
+			io.Stdout.Println("\(i + 1): \(x.Count) nodes match \(x.At)")
+			continue
+		case ui.Mismatch as m:
+			io.Stdout.Println("\(i + 1): want \(m.Want), got \(m.Got)")
+			continue
+		case ui.Closed:
+			return os.Exit{Code: 1, Message: "cells: the input closed"}
+		case actor.Stopped:
+			return os.Exit{Code: 1, Message: "cells: the app stopped"}
+		case ui.BadPatch as b:
+			return os.Exit{Code: 1, Message: "cells: \(b.Why)"}
+		}
+		for f in host.Take(h) {
+			out = out.Append(f)
+		}
+		io.Stdout.Println("\(i + 1): ok")
+	}
+	if frames {
+		for f in out {
+			io.Stdout.Print(f)
+		}
+		io.Stdout.Print("\n")
+	} else {
+		io.Stdout.Print(host.Screenshot(h))
+	}
+}
+
+// live runs h on the terminal in raw mode until Ctrl-C or the end of the
+// input.
+func live[E comparable, S, D, F](h mut host.Host[S, E, D, F]) fails os.Exit needs io.Stdout | term.Terminal {
+	term.Raw() {
+		host.Run(h)
+	} catch {
+	case term.NotTerminal:
+		return os.Exit{Code: 2, Message: "cells: live needs a terminal"}
+	case actor.Stopped:
+		return os.Exit{Code: 1, Message: "cells: the app stopped"}
+	case ui.BadPatch as b:
+		return os.Exit{Code: 1, Message: "cells: \(b.Why)"}
+	}
+	io.Stdout.Print("\x1b[0m\x1b[2J\x1b[H")
+}
+
+func run(args []string, input io.Stdin) fails os.Exit needs io.Stdout | term.Terminal | Scheduler {
+	if len(args) == 0 {
+		return os.Exit{Code: 2, Message: usage}
+	}
+	let verb = args[0]
+	if verb == "gen" {
+		if len(args) < 2 {
+			return os.Exit{Code: 2, Message: usage}
+		}
+		let v = flag.Parse(genSet, slices.Slice(args, 2, len(args))) catch {
+		case err:
+			try flag.Exit(err, usage)
+			return
+		}
+		if args[1] == "counter" {
+			io.Stdout.Print(script.Gen(uint64(seedFlag.Get(v)), stepsFlag.Get(v)))
+		} else if args[1] == "todo" {
+			io.Stdout.Print(todoscript.Gen(uint64(seedFlag.Get(v)), stepsFlag.Get(v)))
+		} else {
+			return os.Exit{Code: 2, Message: usage}
+		}
+		return
+	}
+	let isLive = verb == "live"
+	let app = if isLive && len(args) > 1 { args[1] } else { verb }
+	let rest = slices.Slice(args, if isLive { 2 } else { 1 }, len(args))
+	let v = flag.Parse(playSet, if len(rest) > 0 { rest } else { []string{} }) catch {
+	case err:
+		try flag.Exit(err, usage)
+		return
+	}
+	let size = if isLive {
+		term.Terminal.Size() catch {
+		case term.NotTerminal:
+			return os.Exit{Code: 2, Message: "cells: live needs a terminal"}
+		}
+	} else {
+		term.Window{Cols: colsFlag.Get(v), Rows: rowsFlag.Get(v)}
+	}
+	let text = if isLive {
+		""
+	} else {
+		input.ReadAll() catch {
+		case io.ReadFailed:
+			return os.Exit{Code: 1, Message: "cells: cannot read the script"}
+		}
+	}
+	if app == "counter" {
+		let acts = script.Parse(text) catch {
+		case script.BadLine as b:
+			return os.Exit{Code: 2, Message: "cells: line \(b.Line) is no step: \(b.Text)"}
+		}
+		let a = actor.StartMachine(counter.Counter{}, 8, func(c counter.Count) {})
+		let mut h = host.New(a, size.Cols, size.Rows, 64, view.View) catch {
+		case ui.BadPatch as b:
+			return os.Exit{Code: 1, Message: "cells: \(b.Why)"}
+		}
+		if isLive { try live(&h) } else { try play(&h, acts, framesFlag.Get(v)) }
+	} else if app == "todo" {
+		let acts = todoscript.Parse(text) catch {
+		case todoscript.BadLine as b:
+			return os.Exit{Code: 2, Message: "cells: line \(b.Line) is no step: \(b.Text)"}
+		}
+		let a = actor.StartMachine(todo.Todo{}, 8, func(l todo.List) {})
+		let mut h = host.New(a, size.Cols, size.Rows, 64, todoview.View) catch {
+		case ui.BadPatch as b:
+			return os.Exit{Code: 1, Message: "cells: \(b.Why)"}
+		}
+		if isLive { try live(&h) } else { try play(&h, acts, framesFlag.Get(v)) }
+	} else {
+		return os.Exit{Code: 2, Message: usage}
+	}
+}
+
+func main() fails os.Exit needs Ambient {
+	with context { os.Process: os.NewHost(), io.Stdout: io.NewHost(), term.Terminal: term.NewHost(), Scheduler: time.NewManual(0) } {
+		try run(os.Process.Args(), io.NewStdin())
+	}
+}

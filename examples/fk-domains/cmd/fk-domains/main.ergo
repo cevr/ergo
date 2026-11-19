@@ -115,7 +115,7 @@ func main() fails http.ListenFailed | http.InvalidLimits | os.Exit needs Console
 	if len(args) == 0 {
 		return usage()
 	}
-	with context { domains.Registry: sample.NewSample() } {
+	with context { domains.Registry: sample.Sample } {
 		match args[0] {
 		case "serve":
 			try serve(args[1:])

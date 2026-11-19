@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 )
 
 // goIfaceTarget is a Go interface of import go, as an Ergo program spells
@@ -69,10 +69,10 @@ var goIfaceKinds = []goIfaceKind{
 	{name: "op", rule: goIfaceRefused, src: "type Ops {\nOPS\n}\n\nfunc conv(x Ops) T { x }\n"},
 	{name: "op-generic", rule: goIfaceRefused, src: "type Ops[E] {\nOPS\n}\n\nfunc conv(x Ops[int]) T { x }\n"},
 	{name: "tparam", rule: goIfaceRefused, src: "type Ops {\nOPS\n}\n\nfunc conv[V Ops](x V) T { x }\n"},
-	{name: "op-borrow", rule: goIfaceRefused, src: "type Ops {\nOPS\n}\n\nfunc conv(x *Ops) int {\n\tlet s T = x\n\tlet _ = s\n\t0\n}\n"},
-	{name: "record-borrow", rule: goIfaceAdapted, src: "type R { N int }\n\nPROVIDE(R)\nfunc conv(x *R) int {\n\tlet s T = x\n\tlet _ = s\n\t0\n}\n"},
-	{name: "record-borrow-provider", rule: goIfaceAdapted, src: "type R { N int }\n\nPROVIDE(*R)\nfunc conv(x *R) int {\n\tlet s T = x\n\tlet _ = s\n\t0\n}\n"},
-	{name: "record-generic-borrow", rule: goIfaceAdapted, src: "type G[E] { N E }\n\nPROVIDE[E](G[E])\nfunc conv(x *G[int]) int {\n\tlet s T = x\n\tlet _ = s\n\t0\n}\n"},
+	{name: "op-borrow", rule: goIfaceRefused, src: "type Ops {\nOPS\n}\n\nfunc conv(x mut Ops) int {\n\tlet s T = x\n\tlet _ = s\n\t0\n}\n"},
+	{name: "record-borrow", rule: goIfaceAdapted, src: "type R { N int }\n\nPROVIDE(R)\nfunc conv(x mut R) int {\n\tlet s T = x\n\tlet _ = s\n\t0\n}\n"},
+	{name: "record-borrow-provider", rule: goIfaceAdapted, src: "type R { N int }\n\nPROVIDE(mut R)\nfunc conv(x mut R) int {\n\tlet s T = x\n\tlet _ = s\n\t0\n}\n"},
+	{name: "record-generic-borrow", rule: goIfaceAdapted, src: "type G[E] { N E }\n\nPROVIDE[E](G[E])\nfunc conv(x mut G[int]) int {\n\tlet s T = x\n\tlet _ = s\n\t0\n}\n"},
 	{name: "tparam-let", rule: goIfaceRefused, src: "type Ops {\nOPS\n}\n\nfunc conv[V Ops](x V) T {\n\tlet s T = x\n\ts\n}\n"},
 	{name: "record", rule: goIfaceAdapted, src: "type R { N int }\n\nPROVIDE(R)\nfunc conv(x R) T { x }\n"},
 	{name: "record-let", rule: goIfaceAdapted, src: "type R { N int }\n\nPROVIDE(R)\nfunc conv(x R) T {\n\tlet s T = x\n\ts\n}\n"},
@@ -149,7 +149,7 @@ func TestValuesIntoGoInterfaces(t *testing.T) {
 	}
 	sealed := 0
 	for _, s := range stdOpTypes(t) {
-		if s.path == std.PreludePath && s.name != "Task" && len(s.members) == 0 {
+		if s.path == stdlib.PreludePath && s.name != "Task" && len(s.members) == 0 {
 			continue
 		}
 		probe := lowerSource("probe", strings.Replace(sealedSource(stdOpType{path: s.path, pkg: s.pkg, name: s.name, tparams: s.tparams, tpnames: s.tpnames, imports: s.imports}, nil, "", "int"), " int { s }", " int { 0 }", 1)+"func main() {}\n", false)

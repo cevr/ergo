@@ -1,0 +1,20 @@
+// The rows the law cannot state: the line and the reason of each bad
+// note.
+
+func bad(text string) string {
+	let e = Read("a", text) catch {
+	case BadLine as b:
+		return "\(b.No): \(b.Reason)"
+	}
+	"read " + e.Title
+}
+
+test BadNotesSayWhere {
+	assert bad("title: A\nday: 2026-01-02\n\nx\n") == "read A"
+	assert bad("title: A\n\nx\n") == "2: the note has no day line"
+	assert bad("day: 2026-01-02\n") == "0: the note has no title line"
+	assert bad("title: A\nday: 2026-1-2\n") == "2: 2026-1-2 is not a day; write YYYY-MM-DD"
+	assert bad("title: A\nmood: calm\n") == "2: unknown key mood; want title, day or related"
+	assert bad("title A\n") == "1: a head line is key: value"
+	assert bad("title: A\nday: 2026-01-02\nrelated: ok, Not Ok\n") == "3: Not Ok is not a slug"
+}

@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"ergo.local/prototype/internal/lawledger"
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -23,7 +23,7 @@ var stdBenchProgram = stdPackageProgram("bench")
 // of each file in name order. It panics when std has no such package, as
 // a program table declared at init cannot report to a test.
 func stdPackageProgram(path string) string {
-	files, ok := std.Package(path)
+	files, ok := stdlib.Package(path)
 	if !ok {
 		panic("std has no package " + path)
 	}

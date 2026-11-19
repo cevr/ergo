@@ -53,15 +53,16 @@ type View =
 	| ContextDecl{Doc int, Let int, Context int, Name dense.ID[Node], Provides dense.Opt[Node], Needs dense.Opt[Node], Body dense.ID[Node]}
 	| TestDecl{Doc int, Test int, Name dense.ID[Node], Params dense.Opt[Node], Body dense.ID[Node]}
 	| LawDecl{
-		Doc     int,
-		Law     int,
-		Name    dense.ID[Node],
-		Params  dense.Opt[Node],
-		Body    dense.Opt[Node],
-		Reach   dense.Opt[Node],
-		Rewrite bool,
-		When    int,
-		Eq      int,
+		Doc      int,
+		Law      int,
+		Name     dense.ID[Node],
+		Params   dense.Opt[Node],
+		Body     dense.Opt[Node],
+		Reach    dense.Opt[Node],
+		Rewrite  bool,
+		Equation bool,
+		When     int,
+		Eq       int,
 	}
 	| LawReach{Never int, Word int, Path bool, Lbrack int, Targets List, Rbrack int, Invariant bool, Pred dense.Opt[Node]}
 	| ExternSpec{Extern int, Go int, Target dense.ID[Node]}
@@ -79,6 +80,7 @@ type View =
 		WherePos int,
 		PurePos  int,
 		Own      int,
+		Mut      int,
 	}
 	| FieldList{Opening int, List List, Closing int}
 	| NeedsClause{Needs int, Names List}
@@ -163,8 +165,8 @@ func wid(id dense.ID[Node]) uint32 { uint32(dense.Index(id)) }
 // wopt is the word of an optional node id.
 func wopt(o dense.Opt[Node]) uint32 {
 	match dense.Unpack(o) {
-	case Some[dense.ID[Node]] as s:
-		uint32(dense.Index(s.Value)) + uint32(1)
+	case Some{Value: s}:
+		uint32(dense.Index(s)) + uint32(1)
 	case None:
 		uint32(0)
 	}
@@ -183,7 +185,7 @@ func listAt(t Tree, i uint32, j int, n int) List { List{at: t.a[int(i)] + uint32
 func items(t Tree, i uint32, f int) int { int(t.b[int(i)]) - f }
 
 // pushList pushes the node ids of l.
-func pushList(t *Tree, l List) {
+func pushList(t mut Tree, l List) {
 	for j in 0..int(l.n) {
 		pushW(t, t.extra[int(l.at)+j])
 	}
@@ -387,7 +389,7 @@ func ViewOf(t Tree, id dense.ID[Node]) View {
 
 // Put appends the row of v and returns its id: the children v names are
 // rows of t already.
-func Put(t *Tree, v View) dense.ID[Node] {
+func Put(t mut Tree, v View) dense.ID[Node] {
 	let m = mark(*t)
 	let i = match v {
 	case File as x:
@@ -412,7 +414,7 @@ func Put(t *Tree, v View) dense.ID[Node] {
 	case TestDecl as x:
 		mkTestDecl(t, m, wtok(x.Doc), x.Test, wid(x.Name), wopt(x.Params), wid(x.Body))
 	case LawDecl as x:
-		mkLawDecl(t, m, wtok(x.Doc), x.Law, wid(x.Name), wopt(x.Params), wopt(x.Body), wopt(x.Reach), x.Rewrite, wtok(x.When), wtok(x.Eq))
+		mkLawDecl(t, m, wtok(x.Doc), x.Law, wid(x.Name), wopt(x.Params), wopt(x.Body), wopt(x.Reach), if x.Equation { uint32(2) } else { wflag(x.Rewrite) }, wtok(x.When), wtok(x.Eq))
 	case LawReach as x:
 		pushList(t, x.Targets)
 		mkLawReach(t, m, wtok(x.Never), x.Word, x.Path, wtok(x.Lbrack), wtok(x.Rbrack), x.Invariant, wopt(x.Pred))
@@ -426,7 +428,7 @@ func Put(t *Tree, v View) dense.ID[Node] {
 		mkContextEntry(t, m, wtok(x.Doc), wtok(x.Replace), wid(x.Key), wtok(x.Assign), wopt(x.Value))
 	case Field as x:
 		pushList(t, x.Names)
-		mkField(t, m, wtok(x.Doc), wopt(x.Type), wopt(x.Key), wopt(x.Any), wopt(x.Lent), wtok(x.Dots), wopt(x.Where), wtok(x.WherePos), wtok(x.PurePos), wtok(x.Own))
+		mkField(t, m, wtok(x.Doc), wopt(x.Type), wopt(x.Key), wopt(x.Any), wopt(x.Lent), wtok(x.Dots), wopt(x.Where), wtok(x.WherePos), wtok(x.PurePos), wtok(x.Own), wtok(x.Mut))
 	case FieldList as x:
 		pushList(t, x.List)
 		mkFieldList(t, m, wtok(x.Opening), wtok(x.Closing))
@@ -556,9 +558,9 @@ func Put(t *Tree, v View) dense.ID[Node] {
 // stack from m, it pushes the fixed words and moves the record to extra.
 // The parser and Put share them, so the two write one encoding.
 
-func mkFile(t *Tree, m int, eof int) uint32 { rec(t, KFile, uint32(eof), m) }
+func mkFile(t mut Tree, m int, eof int) uint32 { rec(t, KFile, uint32(eof), m) }
 
-func mkVarDecl(t *Tree, m int, doc uint32, ext uint32, varTok int, mutTok uint32, spec uint32) uint32 {
+func mkVarDecl(t mut Tree, m int, doc uint32, ext uint32, varTok int, mutTok uint32, spec uint32) uint32 {
 	pushW(t, doc)
 	pushW(t, ext)
 	pushW(t, mutTok)
@@ -566,7 +568,7 @@ func mkVarDecl(t *Tree, m int, doc uint32, ext uint32, varTok int, mutTok uint32
 	rec(t, KVarDecl, uint32(varTok), m)
 }
 
-func mkVarSpec(t *Tree, m int, pattern uint32, typ uint32, assign uint32, value uint32) uint32 {
+func mkVarSpec(t mut Tree, m int, pattern uint32, typ uint32, assign uint32, value uint32) uint32 {
 	pushW(t, pattern)
 	pushW(t, typ)
 	pushW(t, assign)
@@ -574,7 +576,7 @@ func mkVarSpec(t *Tree, m int, pattern uint32, typ uint32, assign uint32, value 
 	rec(t, KVarSpec, uint32(0), m)
 }
 
-func mkTypeDecl(t *Tree, m int, doc uint32, ext uint32, typ int, name uint32, tparams uint32, spec uint32, wherePos uint32, wh uint32, derivePos uint32, drv uint32, implPos uint32) uint32 {
+func mkTypeDecl(t mut Tree, m int, doc uint32, ext uint32, typ int, name uint32, tparams uint32, spec uint32, wherePos uint32, wh uint32, derivePos uint32, drv uint32, implPos uint32) uint32 {
 	pushW(t, doc)
 	pushW(t, ext)
 	pushW(t, name)
@@ -588,7 +590,7 @@ func mkTypeDecl(t *Tree, m int, doc uint32, ext uint32, typ int, name uint32, tp
 	rec(t, KTypeDecl, uint32(typ), m)
 }
 
-func mkFuncDecl(t *Tree, m int, doc uint32, ext uint32, fn int, recv uint32, name uint32, tparams uint32, typ uint32, body uint32) uint32 {
+func mkFuncDecl(t mut Tree, m int, doc uint32, ext uint32, fn int, recv uint32, name uint32, tparams uint32, typ uint32, body uint32) uint32 {
 	pushW(t, doc)
 	pushW(t, ext)
 	pushW(t, recv)
@@ -599,7 +601,7 @@ func mkFuncDecl(t *Tree, m int, doc uint32, ext uint32, fn int, recv uint32, nam
 	rec(t, KFuncDecl, uint32(fn), m)
 }
 
-func mkContextDecl(t *Tree, m int, doc uint32, letTok int, contextW int, name uint32, providesW uint32, needsW uint32, body uint32) uint32 {
+func mkContextDecl(t mut Tree, m int, doc uint32, letTok int, contextW int, name uint32, providesW uint32, needsW uint32, body uint32) uint32 {
 	pushW(t, doc)
 	pushW(t, uint32(contextW))
 	pushW(t, name)
@@ -609,7 +611,7 @@ func mkContextDecl(t *Tree, m int, doc uint32, letTok int, contextW int, name ui
 	rec(t, KContextDecl, uint32(letTok), m)
 }
 
-func mkTestDecl(t *Tree, m int, doc uint32, testW int, name uint32, params uint32, body uint32) uint32 {
+func mkTestDecl(t mut Tree, m int, doc uint32, testW int, name uint32, params uint32, body uint32) uint32 {
 	pushW(t, doc)
 	pushW(t, name)
 	pushW(t, params)
@@ -617,19 +619,19 @@ func mkTestDecl(t *Tree, m int, doc uint32, testW int, name uint32, params uint3
 	rec(t, KTestDecl, uint32(testW), m)
 }
 
-func mkLawDecl(t *Tree, m int, doc uint32, lawW int, name uint32, params uint32, body uint32, reach uint32, rewrite bool, when uint32, eq uint32) uint32 {
+func mkLawDecl(t mut Tree, m int, doc uint32, lawW int, name uint32, params uint32, body uint32, reach uint32, rewrite uint32, when uint32, eq uint32) uint32 {
 	pushW(t, doc)
 	pushW(t, name)
 	pushW(t, params)
 	pushW(t, body)
 	pushW(t, reach)
-	pushW(t, wflag(rewrite))
+	pushW(t, rewrite)
 	pushW(t, when)
 	pushW(t, eq)
 	rec(t, KLawDecl, uint32(lawW), m)
 }
 
-func mkLawReach(t *Tree, m int, never uint32, word int, path bool, lbrack uint32, rbrack uint32, invariant bool, pred uint32) uint32 {
+func mkLawReach(t mut Tree, m int, never uint32, word int, path bool, lbrack uint32, rbrack uint32, invariant bool, pred uint32) uint32 {
 	pushW(t, never)
 	pushW(t, wflag(path))
 	pushW(t, lbrack)
@@ -639,12 +641,12 @@ func mkLawReach(t *Tree, m int, never uint32, word int, path bool, lbrack uint32
 	rec(t, KLawReach, uint32(word), m)
 }
 
-func mkContextBody(t *Tree, m int, lbrace int, rbrace int) uint32 {
+func mkContextBody(t mut Tree, m int, lbrace int, rbrace int) uint32 {
 	pushW(t, uint32(rbrace))
 	rec(t, KContextBody, uint32(lbrace), m)
 }
 
-func mkContextEntry(t *Tree, m int, doc uint32, replace uint32, key uint32, assign uint32, value uint32) uint32 {
+func mkContextEntry(t mut Tree, m int, doc uint32, replace uint32, key uint32, assign uint32, value uint32) uint32 {
 	pushW(t, doc)
 	pushW(t, replace)
 	pushW(t, key)
@@ -653,7 +655,7 @@ func mkContextEntry(t *Tree, m int, doc uint32, replace uint32, key uint32, assi
 	rec(t, KContextEntry, uint32(0), m)
 }
 
-func mkField(t *Tree, m int, doc uint32, typ uint32, key uint32, anyW uint32, lent uint32, dots uint32, where uint32, wherePos uint32, purePos uint32, own uint32) uint32 {
+func mkField(t mut Tree, m int, doc uint32, typ uint32, key uint32, anyW uint32, lent uint32, dots uint32, where uint32, wherePos uint32, purePos uint32, own uint32, mutW uint32) uint32 {
 	pushW(t, doc)
 	pushW(t, typ)
 	pushW(t, key)
@@ -664,29 +666,30 @@ func mkField(t *Tree, m int, doc uint32, typ uint32, key uint32, anyW uint32, le
 	pushW(t, wherePos)
 	pushW(t, purePos)
 	pushW(t, own)
+	pushW(t, mutW)
 	rec(t, KField, uint32(0), m)
 }
 
-func mkFieldList(t *Tree, m int, opening uint32, closing uint32) uint32 {
+func mkFieldList(t mut Tree, m int, opening uint32, closing uint32) uint32 {
 	pushW(t, opening)
 	pushW(t, closing)
 	rec(t, KFieldList, uint32(0), m)
 }
 
-func mkClause(t *Tree, m int, kind uint8, caseTok int, nlist int, colon int) uint32 {
+func mkClause(t mut Tree, m int, kind uint8, caseTok int, nlist int, colon int) uint32 {
 	pushW(t, uint32(nlist))
 	pushW(t, uint32(colon))
 	rec(t, kind, uint32(caseTok), m)
 }
 
-func mkVariantSpec(t *Tree, m int, name uint32, targs uint32, fields uint32) uint32 {
+func mkVariantSpec(t mut Tree, m int, name uint32, targs uint32, fields uint32) uint32 {
 	pushW(t, name)
 	pushW(t, targs)
 	pushW(t, fields)
 	rec(t, KVariantSpec, uint32(0), m)
 }
 
-func mkCompositeLit(t *Tree, m int, typ uint32, lbrace int, dotdot uint32, base uint32, rbrace int) uint32 {
+func mkCompositeLit(t mut Tree, m int, typ uint32, lbrace int, dotdot uint32, base uint32, rbrace int) uint32 {
 	pushW(t, typ)
 	pushW(t, dotdot)
 	pushW(t, base)
@@ -694,13 +697,13 @@ func mkCompositeLit(t *Tree, m int, typ uint32, lbrace int, dotdot uint32, base 
 	rec(t, KCompositeLit, uint32(lbrace), m)
 }
 
-func mkIndex(t *Tree, m int, kind uint8, x uint32, lbrack int, rbrack int) uint32 {
+func mkIndex(t mut Tree, m int, kind uint8, x uint32, lbrack int, rbrack int) uint32 {
 	pushW(t, x)
 	pushW(t, uint32(rbrack))
 	rec(t, kind, uint32(lbrack), m)
 }
 
-func mkSlice(t *Tree, m int, x uint32, lbrack int, low uint32, high uint32, max uint32, slice3 bool, rbrack int) uint32 {
+func mkSlice(t mut Tree, m int, x uint32, lbrack int, low uint32, high uint32, max uint32, slice3 bool, rbrack int) uint32 {
 	pushW(t, x)
 	pushW(t, low)
 	pushW(t, high)
@@ -710,7 +713,7 @@ func mkSlice(t *Tree, m int, x uint32, lbrack int, low uint32, high uint32, max 
 	rec(t, KSliceExpr, uint32(lbrack), m)
 }
 
-func mkCall(t *Tree, m int, fun uint32, lparen uint32, rparen uint32, trailing uint32, tf bool) uint32 {
+func mkCall(t mut Tree, m int, fun uint32, lparen uint32, rparen uint32, trailing uint32, tf bool) uint32 {
 	pushW(t, fun)
 	pushW(t, lparen)
 	pushW(t, rparen)
@@ -719,20 +722,20 @@ func mkCall(t *Tree, m int, fun uint32, lparen uint32, rparen uint32, trailing u
 	rec(t, KCallExpr, uint32(0), m)
 }
 
-func mkCatch(t *Tree, m int, x uint32, catchW int, rbrace int) uint32 {
+func mkCatch(t mut Tree, m int, x uint32, catchW int, rbrace int) uint32 {
 	pushW(t, x)
 	pushW(t, uint32(rbrace))
 	rec(t, KCatchExpr, uint32(catchW), m)
 }
 
-func mkContextLit(t *Tree, m int, contextW int, providesW uint32, needsW uint32, body uint32) uint32 {
+func mkContextLit(t mut Tree, m int, contextW int, providesW uint32, needsW uint32, body uint32) uint32 {
 	pushW(t, providesW)
 	pushW(t, needsW)
 	pushW(t, body)
 	rec(t, KContextLit, uint32(contextW), m)
 }
 
-func mkFuncType(t *Tree, m int, escapingW uint32, entryW uint32, fn uint32, params uint32, results uint32, needsW uint32, takesW uint32) uint32 {
+func mkFuncType(t mut Tree, m int, escapingW uint32, entryW uint32, fn uint32, params uint32, results uint32, needsW uint32, takesW uint32) uint32 {
 	pushW(t, escapingW)
 	pushW(t, entryW)
 	pushW(t, fn)
@@ -743,13 +746,13 @@ func mkFuncType(t *Tree, m int, escapingW uint32, entryW uint32, fn uint32, para
 	rec(t, KFuncType, uint32(0), m)
 }
 
-func mkInterface(t *Tree, m int, lbrace uint32, rbrace uint32) uint32 {
+func mkInterface(t mut Tree, m int, lbrace uint32, rbrace uint32) uint32 {
 	pushW(t, lbrace)
 	pushW(t, rbrace)
 	rec(t, KInterfaceType, uint32(0), m)
 }
 
-func mkMachine(t *Tree, m int, machineW int, state uint32, signal uint32, rbrack int, rbrace int) uint32 {
+func mkMachine(t mut Tree, m int, machineW int, state uint32, signal uint32, rbrack int, rbrace int) uint32 {
 	pushW(t, state)
 	pushW(t, signal)
 	pushW(t, uint32(rbrack))
@@ -757,18 +760,18 @@ func mkMachine(t *Tree, m int, machineW int, state uint32, signal uint32, rbrack
 	rec(t, KMachineType, uint32(machineW), m)
 }
 
-func mkTuple(t *Tree, m int, lparen uint32, rparen uint32) uint32 {
+func mkTuple(t mut Tree, m int, lparen uint32, rparen uint32) uint32 {
 	pushW(t, lparen)
 	pushW(t, rparen)
 	rec(t, KTupleExpr, uint32(0), m)
 }
 
-func mkBlock(t *Tree, m int, lbrace int, rbrace int) uint32 {
+func mkBlock(t mut Tree, m int, lbrace int, rbrace int) uint32 {
 	pushW(t, uint32(rbrace))
 	rec(t, KBlockStmt, uint32(lbrace), m)
 }
 
-func mkIf(t *Tree, m int, ifTok int, cond uint32, body uint32, elsePos uint32, els uint32) uint32 {
+func mkIf(t mut Tree, m int, ifTok int, cond uint32, body uint32, elsePos uint32, els uint32) uint32 {
 	pushW(t, cond)
 	pushW(t, body)
 	pushW(t, elsePos)
@@ -776,14 +779,14 @@ func mkIf(t *Tree, m int, ifTok int, cond uint32, body uint32, elsePos uint32, e
 	rec(t, KIfStmt, uint32(ifTok), m)
 }
 
-func mkSwitch(t *Tree, m int, kind uint8, sw int, subject uint32, lbrace int, rbrace int) uint32 {
+func mkSwitch(t mut Tree, m int, kind uint8, sw int, subject uint32, lbrace int, rbrace int) uint32 {
 	pushW(t, subject)
 	pushW(t, uint32(lbrace))
 	pushW(t, uint32(rbrace))
 	rec(t, kind, uint32(sw), m)
 }
 
-func mkRange(t *Tree, m int, forTok int, key uint32, value uint32, rng int, x uint32, body uint32) uint32 {
+func mkRange(t mut Tree, m int, forTok int, key uint32, value uint32, rng int, x uint32, body uint32) uint32 {
 	pushW(t, key)
 	pushW(t, value)
 	pushW(t, uint32(rng))

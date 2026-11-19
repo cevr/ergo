@@ -11,7 +11,7 @@ type Rand { s uint64 }
 func New(seed int) Rand { Rand{s: uint64(seed)} }
 
 // next is the next 64 bits of r.
-func next(r *Rand) uint64 {
+func next(r mut Rand) uint64 {
 	r.s = r.s + 0x9e3779b97f4a7c15
 	let mut z = r.s
 	z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9
@@ -20,10 +20,10 @@ func next(r *Rand) uint64 {
 }
 
 // below is a number in [0, n); n is positive.
-func below(r *Rand, n int) int { int(r.next() % uint64(n)) }
+func below(r mut Rand, n int) int { int(r.next() % uint64(n)) }
 
 // pick is one of xs; xs is not empty.
-func pick(r *Rand, xs []string) string { xs[r.below(len(xs))] }
+func pick(r mut Rand, xs []string) string { xs[r.below(len(xs))] }
 
 // words are the text of the plain runs.
 let words = []string{"the", "quick", "brown", "fox", "jumps", "over", "lazy", "dog", "ls", "-la", "make", "test", "ok", "FAIL", "src/main.go:12:", "{", "}", "[x]", "~/work", "$", "#", "100%"}
@@ -97,7 +97,7 @@ func Gen(seed int, n int) string {
 }
 
 // piece is one piece of output.
-func piece(r *Rand) string {
+func piece(r mut Rand) string {
 	let k = r.below(100)
 	if k < 40 {
 		r.text()
@@ -130,7 +130,7 @@ func piece(r *Rand) string {
 }
 
 // text is a run of words and spaces.
-func text(r *Rand) string {
+func text(r mut Rand) string {
 	let mut parts = []string{}
 	for _ in 0..1+r.below(8) {
 		parts = parts.Append(r.pick(words))
@@ -140,7 +140,7 @@ func text(r *Rand) string {
 
 // sgr is a select-graphic-rendition sequence: attributes, 16, 256 and RGB
 // colours, separated by semicolons.
-func sgr(r *Rand) string {
+func sgr(r mut Rand) string {
 	let mut ps = []string{}
 	for _ in 0..r.below(4) {
 		let k = r.below(8)

@@ -114,16 +114,13 @@ type rowDecoder struct {
 	extra                       []uint32
 	toks                        []token
 	groups                      []*CommentGroup
-	// typeRow is the row of each Field's type, which a codec pair's law
-	// decodes again (again).
-	typeRow map[Expr]uint32
 }
 
 // Decode builds the tree of src from cols, the words syntax.Columns packs
 // for a parse that did not fail.
 func Decode(src string, cols []uint32) *File {
 	ntok, nrows, nextra, ncmt, ngroups := int(cols[1]), int(cols[2]), int(cols[3]), int(cols[4]), int(cols[5])
-	d := &rowDecoder{src: src, typeRow: map[Expr]uint32{}}
+	d := &rowDecoder{src: src}
 	w := colHeader
 	d.toks = tokensOfColumns(src, cols[w:w+ntok], cols[w+ntok:w+2*ntok], cols[w+2*ntok:w+3*ntok])
 	w += 3 * ntok
@@ -249,17 +246,8 @@ func (d *rowDecoder) file(r uint32) *File {
 			f.Decls = append(f.Decls, d.refinement(row, td)...)
 		}
 	}
-	derivePairs(f, d.src, d.again)
+	derivePairs(f, d.src)
 	return f
-}
-
-// again is a fresh copy of the type t of a Field, decoded once more from
-// its row, for a codec pair's law (pair.go).
-func (d *rowDecoder) again(t Expr) Expr {
-	if r, ok := d.typeRow[t]; ok {
-		return one[Expr](d, r)
-	}
-	return t
 }
 
 // refinement is the parse function and law derived from the refined type
@@ -335,8 +323,11 @@ func (d *rowDecoder) node(r uint32) Node {
 		return &TestDecl{Doc: d.doc(d.fixed(r, 4, 0)), Test: d.pos(t), Name: one[*Ident](d, d.fixed(r, 4, 1)), Params: opt[*FieldList](d, d.fixed(r, 4, 2)), Body: one[*BlockStmt](d, d.fixed(r, 4, 3))}
 	case kLawDecl:
 		l := &LawDecl{Doc: d.doc(d.fixed(r, 8, 0)), Law: d.pos(t), Name: one[*Ident](d, d.fixed(r, 8, 1)), Params: opt[*FieldList](d, d.fixed(r, 8, 2)), Body: opt[*BlockStmt](d, d.fixed(r, 8, 3)), Reach: opt[*LawReach](d, d.fixed(r, 8, 4))}
-		if d.fixed(r, 8, 5) != 0 {
+		switch d.fixed(r, 8, 5) {
+		case 1:
 			l.Rewrite = &LawRewrite{When: d.opos(d.fixed(r, 8, 6)), Eq: d.opos(d.fixed(r, 8, 7))}
+		case 2:
+			equation(l, d.opos(d.fixed(r, 8, 7)))
 		}
 		return l
 	case kLawReach:
@@ -360,28 +351,28 @@ func (d *rowDecoder) node(r uint32) Node {
 		return e
 	case kField:
 		f := &Field{
-			Doc:      d.doc(d.fixed(r, 10, 0)),
-			Names:    list[*Ident](d, r, 0, d.items(r, 10)),
-			Type:     opt[Expr](d, d.fixed(r, 10, 1)),
-			Key:      opt[*BasicLit](d, d.fixed(r, 10, 2)),
-			Dots:     d.zpos(d.fixed(r, 10, 5)),
-			Where:    opt[Expr](d, d.fixed(r, 10, 6)),
-			WherePos: d.zpos(d.fixed(r, 10, 7)),
-			PurePos:  d.zpos(d.fixed(r, 10, 8)),
+			Doc:      d.doc(d.fixed(r, 11, 0)),
+			Names:    list[*Ident](d, r, 0, d.items(r, 11)),
+			Type:     opt[Expr](d, d.fixed(r, 11, 1)),
+			Key:      opt[*BasicLit](d, d.fixed(r, 11, 2)),
+			Dots:     d.zpos(d.fixed(r, 11, 5)),
+			Where:    opt[Expr](d, d.fixed(r, 11, 6)),
+			WherePos: d.zpos(d.fixed(r, 11, 7)),
+			PurePos:  d.zpos(d.fixed(r, 11, 8)),
 		}
-		if f.Type != nil {
-			d.typeRow[f.Type] = d.fixed(r, 10, 1) - 1
-		}
-		if w := d.fixed(r, 10, 3); w != 0 {
+		if w := d.fixed(r, 11, 3); w != 0 {
 			f.Any = d.pos(d.tok(w - 1))
 		}
-		if w := d.fixed(r, 10, 4); w != 0 {
+		if w := d.fixed(r, 11, 4); w != 0 {
 			f.Lent = d.pos(d.tok(w - 1))
 		}
-		f.Include = d.fixed(r, 10, 5) != 0
-		f.Pure = d.fixed(r, 10, 8) != 0
-		if w := d.fixed(r, 10, 9); w != 0 {
+		f.Include = d.fixed(r, 11, 5) != 0
+		f.Pure = d.fixed(r, 11, 8) != 0
+		if w := d.fixed(r, 11, 9); w != 0 {
 			f.Own = &Word{At: d.pos(w - 1)}
+		}
+		if w := d.fixed(r, 11, 10); w != 0 {
+			f.Mut = &Word{At: d.pos(w - 1)}
 		}
 		return f
 	case kFieldList:
@@ -427,7 +418,7 @@ func (d *rowDecoder) node(r uint32) Node {
 	case kCallExpr:
 		return &CallExpr{Fun: one[Expr](d, d.fixed(r, 5, 0)), Lparen: d.opos(d.fixed(r, 5, 1)), Args: list[Expr](d, r, 0, d.items(r, 5)), Rparen: d.opos(d.fixed(r, 5, 2)), Trailing: opt[*BlockStmt](d, d.fixed(r, 5, 3)), TrailingFunc: d.fixed(r, 5, 4) != 0}
 	case kStarExpr:
-		return &StarExpr{Star: d.pos(t), X: one[Expr](d, a)}
+		return &StarExpr{Star: d.pos(t), X: one[Expr](d, a), Mut: d.toks[t].tok == MUT}
 	case kUnaryExpr:
 		return &UnaryExpr{OpPos: d.pos(t), Op: d.toks[t].tok, X: one[Expr](d, a)}
 	case kBinaryExpr:
@@ -490,6 +481,8 @@ func (d *rowDecoder) node(r uint32) Node {
 					x.Step = m.Value
 				case "work":
 					x.Work = m.Value
+				case "exit":
+					x.Exit = m.Value
 				default:
 					x.After = m.Value
 				}
@@ -653,3 +646,14 @@ const (
 	kAssertStmt         = 63
 	kSkipStmt           = 64
 )
+
+// equation sets a top-level rewrite law's Equation (word 2; LAWFFI LF6a)
+// from its row's body, the two blocks of one expression each that
+// compiler/syntax checked, and makes its Body the property it states,
+// lhs == rhs at the ==, as the Go parser's parseLawEquation did.
+func equation(l *LawDecl, eq Pos) {
+	lhsB, rhsB := l.Body.List[0].(*BlockStmt), l.Body.List[1].(*BlockStmt)
+	lhs, rhs := lhsB.List[0].(*ExprStmt).X, rhsB.List[0].(*ExprStmt).X
+	l.Equation = &LawEquation{LhsLbrace: lhsB.Lbrace, LhsRbrace: lhsB.Rbrace, RhsLbrace: rhsB.Lbrace, RhsRbrace: rhsB.Rbrace}
+	l.Body = &BlockStmt{Lbrace: lhsB.Lbrace, List: []Stmt{&ExprStmt{X: &BinaryExpr{X: lhs, OpPos: eq, Op: EQL, Y: rhs}}}, Rbrace: rhsB.Rbrace}
+}

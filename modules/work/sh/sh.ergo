@@ -1,0 +1,28 @@
+// Package sh is a work.Hooks by the shell: each hook command runs by
+// sh -c in its folder, with the hook's environment set over the
+// process's own.
+
+import exec
+import github.com/cevr/ergo/modules/work/work
+
+// Hooks runs the commands through a Runner.
+type Hooks { run exec.Runner } implements work.Hooks
+
+// NewHooks is the Hooks of a Runner.
+func NewHooks(run exec.Runner) Hooks { Hooks{run: run} }
+
+func Run(h Hooks, hook string, command string, dir string, env []work.Setting) fails work.HookFailed {
+	let mut c = exec.New("sh", []string{"-c", command}).WithDir(dir)
+	for s in env {
+		c = c.WithEnv(s.Key, s.Value)
+	}
+	let r = h.run.Run(c) catch {
+	case exec.NotFound, exec.Denied:
+		return work.HookFailed{Hook: hook, Command: command, Status: 127, Stderr: "sh could not start"}
+	case exec.Failed as f:
+		return work.HookFailed{Hook: hook, Command: command, Status: 1, Stderr: f.Reason}
+	}
+	if r.Status != 0 {
+		return work.HookFailed{Hook: hook, Command: command, Status: r.Status, Stderr: r.Stderr}
+	}
+}

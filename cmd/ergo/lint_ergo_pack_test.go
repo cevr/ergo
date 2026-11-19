@@ -187,7 +187,7 @@ func Read(d Disk, key string) int fails Denied | Missing {
 	d.N
 }
 
-type Memory { N int }
+type Memory { N int } implements Store
 
 func Read(m Memory, key string) int fails Denied | Missing {
 	if key == "" {

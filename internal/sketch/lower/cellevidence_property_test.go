@@ -141,7 +141,8 @@ func cellEvidenceLower(t *testing.T, place cellEvidencePlace, provider, caller, 
 	if place.ship {
 		for prov, rules := range newRewriter(provPkg, nil).rules {
 			for _, r := range rules {
-				e := LedgerEntry{Law: LedgerNames(nil).law(r.law), Provider: LedgerNames(nil).provider(prov), Verdict: "proved", Digest: LawDigest(r.law, prov, r.conv, r.ctor, "")}
+				e := LedgerEntry{Law: LedgerNames(nil).law(r.law), Provider: LedgerNames(nil).provider(prov), Verdict: "proved"}
+				e.Digest, e.With = LawDigest(r.law, prov, r.conv, r.ctor, "", ShippedForeignKeys)
 				shipped[e.Key()] = e
 			}
 		}
@@ -172,10 +173,11 @@ func cellEvidenceLower(t *testing.T, place cellEvidencePlace, provider, caller, 
 			t.Fatalf("no rule of %s for %s\n%s", a.law.Name, a.prov, replay)
 		}
 		inst := instanceText(a.in)
-		e := LedgerEntry{Law: LedgerNames(nil).law(a.law), Provider: LedgerNames(nil).provider(a.prov), Instance: inst, Verdict: "proved", Digest: LawDigest(a.law, a.prov, r.conv, r.ctor, inst)}
+		e := LedgerEntry{Law: LedgerNames(nil).law(a.law), Provider: LedgerNames(nil).provider(a.prov), Instance: inst, Verdict: "proved"}
+		e.Digest, e.With = LawDigest(a.law, a.prov, r.conv, r.ctor, inst, nil)
 		entries[e.Key()] = e
 	}
-	root.Rewrite = NewLedgerEvidence(root.Package, nil, entries)
+	root.Rewrite = NewLedgerEvidence(root.Package, nil, entries, nil)
 	if reference {
 		rewriteLowering = "reference"
 	}

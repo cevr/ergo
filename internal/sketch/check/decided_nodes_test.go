@@ -683,6 +683,16 @@ func main() {}
 `, []string{"S108:2"}},
 	// Round 7 review T2: the node types and fields the inventory
 	// (TestDecidedNodeInventory) found no row building.
+	{"mut operation", "a constraint's mut operation, called on x mut T", `
+type Counter { mut Bump() int }
+type Tally { n int } implements Counter
+func Bump(t mut Tally) int { t.n }
+func twice[C Counter](c mut C) int { c.Bump() + c.Bump() }
+func main() {
+	let mut t = Tally{n: 0}
+	let _ = twice(&t)
+}
+`, nil},
 	{"fails and needs", "try passes a failure on", `
 type Bang {}
 func g() int fails Bang { return 1 }
@@ -694,7 +704,7 @@ func main() {}
 `, nil},
 	{"core forms", "the expressions and statements Go shares", `
 type P { X int, Y int }
-func g(p *P) int { return p.X }
+func g(p mut P) int { return p.X }
 func f(xs []int, m Map[string, int]) int {
 	let mut p = P{X: 1, Y: 2}
 	p.X = -(g(&p) + 1)
@@ -828,6 +838,12 @@ type Counter {
 }
 func main() {}
 `, nil},
+	{"law", "a top-level rewrite law over functions (types.md, Laws 14)", `
+func twice(s string) string { s + s }
+func half(s string) string { s[:len(s) / 2] }
+law HalfTwice(s string) { half(twice(s)) } == { s }
+func main() {}
+`, nil},
 	{"law", "a documented top-level law", `
 func add(a int, b int) int { a + b }
 // AddCommutes: the order of the operands does not matter.
@@ -947,10 +963,12 @@ func probe(s State) Option[machines.Work[Signal]] {
 		return None
 	}
 }
+func leave(s State) Option[func()] { None }
 type Breaker machine[State, Signal] {
 	initial: Closed,
 	step:    step,
 	work:    probe,
+	exit:    leave,
 }
 func main() {}
 `, nil},

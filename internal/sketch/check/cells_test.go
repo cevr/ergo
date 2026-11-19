@@ -23,14 +23,14 @@ const cellLib = `type Bag {
 }
 
 type Open {
-	Add(n int),
+	mut Add(n int),
 	Total() int,
 }
 
 type Box { n int } implements Bag, Open
 
 func NewBox() Box { Box{n: 0} }
-func Add(b *Box, n int) { b.n = b.n + n }
+func Add(b mut Box, n int) { b.n = b.n + n }
 func Total(b Box) int { b.n }
 func seal(b Box) {}
 `
@@ -46,22 +46,23 @@ type src { at int } implements Src
 
 func TakeNull(s src) bool { false }
 func Peek(s src) WireKind { WireNumber }
-func Number(s *src) string fails WireWrongKind { s.at = s.at + 1
+func Number(s mut src) string fails WireWrongKind { s.at = s.at + 1
  "1" }
 func Path(s src) string { "/" }
-func Bool(s *src) bool fails WireWrongKind { WireWrongKind{Path: "/", Want: "bool"} }
-func Int(s *src) int64 fails WireWrongKind { s.at = s.at + 1
+func Bool(s mut src) bool fails WireWrongKind { WireWrongKind{Path: "/", Want: "bool"} }
+func Int(s mut src) int64 fails WireWrongKind { s.at = s.at + 1
  int64(s.at) }
-func Uint(s *src) uint64 fails WireWrongKind { 1 }
-func Float(s *src) float64 fails WireWrongKind { 1.0 }
-func String(s *src) string fails WireWrongKind { "" }
-func BeginList(s *src) fails WireWrongKind {}
-func BeginObject(s *src) fails WireWrongKind {}
-func Tag(s *src) string fails WireMissingField { "" }
-func More(s *src) bool { false }
+func Uint(s mut src) uint64 fails WireWrongKind { 1 }
+func Float(s mut src) float64 fails WireWrongKind { 1.0 }
+func String(s mut src) string fails WireWrongKind { "" }
+func StringBytes(s mut src, into []byte) []byte fails WireWrongKind { into }
+func BeginList(s mut src) fails WireWrongKind {}
+func BeginObject(s mut src) fails WireWrongKind {}
+func Tag(s mut src) string fails WireMissingField { "" }
+func More(s mut src) bool { false }
 func Key(s src) string { "" }
-func Skip(s *src) {}
-func End(s *src) {}
+func Skip(s mut src) {}
+func End(s mut src) {}
 func seal(s src) {}
 `
 
@@ -105,7 +106,7 @@ func TestProviderCellDiagnostics(t *testing.T) {
 		} else {
 			op, fn = "\tTotal() int,\n", "func Total(k Kept) int { k.n }\n"
 		}
-		return "type Bag {\n\tAdd(n int),\n" + op + "\tseal(),\n}\ntype Res { id int } implements Closer\nfunc Close(r Res) {}\ntype Kept { r Res, n int } implements Bag\nfunc Add(k *Kept, n int) { k.n = k.n + n }\n" + fn + "func seal(k Kept) {}\n"
+		return "type Bag {\n\tmut Add(n int),\n" + op + "\tseal(),\n}\ntype Res { id int } implements Closer\nfunc Close(r Res) {}\ntype Kept { r Res, n int } implements Bag\nfunc Add(k mut Kept, n int) { k.n = k.n + n }\n" + fn + "func seal(k Kept) {}\n"
 	}
 	for _, row := range []struct {
 		name, src string
@@ -124,7 +125,7 @@ func TestProviderCellDiagnostics(t *testing.T) {
 		// dread-decode-not-lent).
 		{name: "lent to decode", src: cellReader + "func main() { let r Src = src{at: 0}\n let n = decode[int](r) catch { case _: 0 }\n let _ = n }\n"},
 		{name: "package let", src: cellLib + "let shared Bag = NewBox()\nfunc main() { }\n", line: 18, want: "the package let shared holds the provider cell Bag"},
-		{name: "resource into no Close", src: resource(false) + "func main() { let c Bag = Kept{r: Res{id: 1}, n: 0}\n let _ = c }\n", line: 12, want: "Kept is a resource and Bag has no Close"},
+		{name: "resource into no Close", src: resource(false) + "func main() { let c Bag = Kept{r: Res{id: 1}, n: 0}\n let _ = c }\n", line: 12, want: "Kept is a resource and Bag does not include Closer"},
 		{name: "use after move", src: resource(true) + "func main() { let k = Kept{r: Res{id: 1}, n: 0}\n let c Bag = k\n let n = k.n\n let _ = n\n c.Add(1) }\n", line: 14, want: "k was handed off"},
 	} {
 		t.Run(row.name, func(t *testing.T) {
@@ -192,13 +193,13 @@ func cellConfinementProgram(rng *rand.Rand) (src string, want map[int]string) {
 	b.WriteString(`import task
 
 type Bag {
-	Add(n int),
+	mut Add(n int),
 	seal(),
 }
 
 type Box { n int } implements Bag
 
-func Add(b *Box, n int) { b.n = b.n + n }
+func Add(b mut Box, n int) { b.n = b.n + n }
 func seal(b Box) {}
 
 type Holder { c Bag, n int }

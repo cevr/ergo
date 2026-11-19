@@ -38,6 +38,22 @@
 // open. An Emit's output goes to the sink with the commit that gives it
 // (fua-a), so no observer is shown a state that owes its output.
 //
+// Exit actions (FK9-g1; runtime.md, Machines and actors 12a): each entry
+// that opened ends once, by an Enter, an Emit, a Done, a defect, a Stop or
+// a Drain, and owes its exit action, which gets the state the entry holds
+// when it ends: the last state committed in it (the opening state, or the
+// Next of its last Stay). The runner runs the owed actions in entry order,
+// on its own task, once the ended entry's timer child and work ended, and
+// before the next entry arms: so an Enter's or an Emit's action runs as
+// the first part of Arm, and the end's actions in ExitRuns. A Stop that
+// overtakes an entry whose old action is still owed owes the overtaken
+// entry's too. The actor's end is complete, and observers' loops end,
+// after the actions ran. A Stay, an Ignore and a Reject end no entry.
+// ExitArg is the runner's queue of owed actions, each the state it will
+// give; ExitDue is the ghost truth beside it, the last commit of each
+// ended entry whose action has not run (equal to ExitArg in the design, so
+// it adds no state).
+//
 // Each action of the Quint model is a signal; an action that is not
 // enabled is Ignore. The model starts in Boot; Start chooses whether the
 // first entry has a timer and a work (Quint's init). The invariants are
@@ -47,7 +63,9 @@
 // NothingAfterInterrupt, ObserversAfterWork, NoStepAfterEnd,
 // PerSenderOrder, AskAnsweredOnce, ChangesInOrderOnce,
 // WaitForMatchesReplay, NothingAfterEnd, DrainStepsQueued and
-// OutputBeforeShown are the Quint model's (see holds).
+// OutputBeforeShown are the Quint model's (see holds); ExitAfterWork,
+// ExitOncePerEntry and ExitSeesLast, and ExitBeforeEntry's arm with an
+// owed exit action, are FK9-g1's.
 //
 // The scope is the Quint model's (2 senders of 2 signals each, and 3 in
 // Design3; an inbox of 2; observers, see below), with one bound Quint has as its 40
@@ -84,8 +102,15 @@
 //     run with two observers, less one observer's actions, is a run with
 //     one, with the same verdicts;
 //   - counters that only the witnesses read (asks, admitted signals, an
-//     observer's reads, the states an Emit wrote) are kept only by the
-//     witness machine that reads it (Ghost).
+//     observer's reads, the states an Emit or a Stay wrote) are kept only
+//     by the witness machine that reads it (Ghost), and the state an entry
+//     opened with (Opened) only by the mutant ExitSeesOpening, which
+//     gives it to the exit action;
+//   - an Enter's or an Emit's exit action runs inside Arm: between the
+//     action and the arm only admits, a stop request and observers could
+//     act, and none of them reads or changes what the other does (a stop
+//     there gives the run where it came before the action: both actions
+//     owed, run in order).
 //
 // Mutants, each a machine whose law Breaks must hold (a shortest run that
 // breaks the invariant named; as in the Quint check, each mutant machine
@@ -121,7 +146,17 @@
 //     start (WaitForMatchesReplay);
 //   - DrainDrops: Drain drops the last queued signal (DrainStepsQueued);
 //   - OutputLate: an Emit's output goes to the sink after its entry is
-//     shown, the runner before fua-a (OutputBeforeShown).
+//     shown, the runner before fua-a (OutputBeforeShown);
+//   - ExitEarly: an exit action runs before its entry's timer child and
+//     work ended (ExitAfterWork);
+//   - EntryBeforeExit: the next entry arms with the old entry's exit
+//     action still owed (ExitBeforeEntry);
+//   - ExitTwice: a run exit action stays owed, so it runs again
+//     (ExitOncePerEntry);
+//   - ExitSkippedAtEnd: the actor's end owes no exit action for its last
+//     entry (ExitOncePerEntry);
+//   - ExitSeesOpening: the exit action gets the state its entry opened
+//     with, the FK9-g1 gap (ExitSeesLast).
 //
 // Witnesses, each a machine whose law Reached must hold, so the invariants
 // are not vacuous: a stale tick and a stale result in a step; an
@@ -130,7 +165,7 @@
 // three states to the end; a wait begun after two commits; a stop that ends
 // the actor while an observer has states unread; a drain that ends the
 // actor after two admitted signals; an observer that reads a state an Emit
-// wrote.
+// wrote; an exit action that gets a state a Stay wrote.
 //
 // Workarounds of today's Ergo: a variant with no fields is written `S0{}`
 // in its union; there is no slice update expression, so setInt, setBool
@@ -205,6 +240,13 @@ type World {
 	Asked       int,
 	Admitted    int,
 	Emits       []bool,
+	Opened      int,
+	ExitArg     []int,
+	ExitDue     []int,
+	ExitEarly   bool,
+	EntryEarly  bool,
+	SeesBad     bool,
+	Stays       []bool,
 }
 
 // St is the model's state: Boot before Start, the world, a broken
@@ -212,7 +254,7 @@ type World {
 type St = Boot{} | Live{W World} | Broken{Why string} | Seen{What string}
 
 // Act is the actions of the Quint model, and Start, its init.
-type Act = Start{Timer bool, Work bool} | Admit{S Sender, Ask bool} | Fire{} | TimerEnds{} | WorkPush{Defect bool, Last bool} | WorkEnds{} | Take{At At} | Drop{} | DefectEnds{} | StepIt{D Dec} | Arm{Timer bool, Work bool} | RequestStop{} | Halt{} | Subscribe{O Ob} | Observe{O Ob} | ObserverEnds{O Ob} | RequestDrain{} | DrainEnds{} | GiveOut{}
+type Act = Start{Timer bool, Work bool} | Admit{S Sender, Ask bool} | Fire{} | TimerEnds{} | WorkPush{Defect bool, Last bool} | WorkEnds{} | Take{At At} | Drop{} | DefectEnds{} | StepIt{D Dec} | Arm{Timer bool, Work bool} | RequestStop{} | Halt{} | Subscribe{O Ob} | Observe{O Ob} | ObserverEnds{O Ob} | RequestDrain{} | DrainEnds{} | GiveOut{} | ExitRuns{}
 
 // The scope.
 let Msgs = 2
@@ -262,9 +304,14 @@ let SkipBeforeStopMutant = 14
 let StaleSnapshotMutant = 15
 let DrainDropsMutant = 16
 let OutputLateMutant = 17
+let ExitEarlyMutant = 18
+let EntryBeforeExitMutant = 19
+let ExitTwiceMutant = 20
+let ExitSkippedAtEndMutant = 21
+let ExitSeesOpeningMutant = 22
 
 // The invariants, in the order broken checks them.
-let Invariants = []string{"RunToCompletion", "NoStaleStep", "ExitBeforeEntry", "OneTimerPerEntry", "OneLiveWorkPerEntry", "TimerOnlyInItsEntry", "WorkOnlyInItsEntry", "NothingAfterInterrupt", "ObserversAfterWork", "NoStepAfterEnd", "PerSenderOrder", "AskAnsweredOnce", "ChangesInOrderOnce", "WaitForMatchesReplay", "NothingAfterEnd", "DrainStepsQueued", "OutputBeforeShown"}
+let Invariants = []string{"RunToCompletion", "NoStaleStep", "ExitBeforeEntry", "OneTimerPerEntry", "OneLiveWorkPerEntry", "TimerOnlyInItsEntry", "WorkOnlyInItsEntry", "NothingAfterInterrupt", "ObserversAfterWork", "NoStepAfterEnd", "PerSenderOrder", "AskAnsweredOnce", "ChangesInOrderOnce", "WaitForMatchesReplay", "NothingAfterEnd", "DrainStepsQueued", "OutputBeforeShown", "ExitAfterWork", "ExitOncePerEntry", "ExitSeesLast"}
 
 // Cfg is a machine of the model: its mutant, its number of senders, the
 // witness whose counter it keeps (0: none), and the invariant it checks
@@ -428,6 +475,13 @@ func booted(timer bool, work bool) World {
 		Asked:       0,
 		Admitted:    0,
 		Emits:       []bool{false, false, false, false},
+		Opened:      0,
+		ExitArg:     []int{},
+		ExitDue:     []int{},
+		ExitEarly:   false,
+		EntryEarly:  false,
+		SeesBad:     false,
+		Stays:       []bool{false, false, false, false},
 	}
 }
 
@@ -450,7 +504,7 @@ func holds(c Cfg, w World, name string) bool {
 		return !w.StaleBad
 	}
 	if name == "ExitBeforeEntry" {
-		return !w.ArmEarly && !w.WorkEarly
+		return !w.ArmEarly && !w.WorkEarly && !w.EntryEarly
 	}
 	if name == "OneTimerPerEntry" {
 		return !w.ArmsBad && w.ArmsNow <= 1
@@ -495,6 +549,17 @@ func holds(c Cfg, w World, name string) bool {
 	}
 	if name == "DrainStepsQueued" {
 		return w.EndBy != ByDrain || !w.Dropped
+	}
+	if name == "ExitAfterWork" {
+		return !w.ExitEarly
+	}
+	if name == "ExitOncePerEntry" {
+		// The runner owes one action for each ended entry whose action has
+		// not run: none skipped, none run twice.
+		return len(w.ExitArg) == len(w.ExitDue)
+	}
+	if name == "ExitSeesLast" {
+		return !w.SeesBad
 	}
 	// OutputBeforeShown: no state an observer is shown, or may read, owes
 	// its output.
@@ -559,6 +624,47 @@ func answered(w World, e Env, n int) World {
 // queued Ask is answered Stopped, and each queued signal is dropped.
 func drained(w World) World {
 	World{..w, Inbox: []Env{}, Dropped: w.Dropped || hasSignal(w.Inbox)}
+}
+
+func tail(xs []int) []int {
+	let mut out = []int{}
+	for j, x in xs {
+		if j > 0 {
+			out = out.Append(x)
+		}
+	}
+	out
+}
+
+// exitOwed is w after its open entry ended, in the state w.State: the
+// runner owes the entry's exit action, with the state it will give
+// (ExitSeesOpening: the state the entry opened with); at the actor's end
+// (atEnd) ExitSkippedAtEnd owes none. The ghost ExitDue records the
+// entry's last commit either way.
+func exitOwed(c Cfg, w World, atEnd bool) World {
+	let given = if c.M == ExitSeesOpeningMutant { w.Opened } else { w.State }
+	let skip = atEnd && c.M == ExitSkippedAtEndMutant
+	World{..w,
+		ExitArg: if skip { w.ExitArg } else { w.ExitArg.Append(given) },
+		ExitDue: w.ExitDue.Append(w.State),
+	}
+}
+
+// exitRun is w after the runner ran the first owed exit action, if one is
+// owed: it records whether the action got its entry's last commit, and
+// whether the entry's timer child or work still ran (ExitTwice: the action
+// stays owed).
+func exitRun(c Cfg, w World) World {
+	if len(w.ExitArg) == 0 {
+		return w
+	}
+	let due = if len(w.ExitDue) > 0 { w.ExitDue[0] } else { -1 }
+	World{..w,
+		ExitArg:   if c.M == ExitTwiceMutant { w.ExitArg } else { tail(w.ExitArg) },
+		ExitDue:   tail(w.ExitDue),
+		SeesBad:   w.SeesBad || w.ExitArg[0] != due,
+		ExitEarly: w.ExitEarly || w.Timer != NoChild || w.Work != NoChild,
+	}
 }
 
 // Perms2 and Perms3 are the relabelings of 2 and 3 senders: p[i] is the
@@ -724,7 +830,7 @@ func next(c Cfg, w World, a Act) Option[World] {
 		if w.Runner != Busy || w.Cur.Kind != Defect || w.StopReq {
 			return None
 		}
-		Some[World]{Value: stopChildren(World{..drained(w),
+		Some[World]{Value: stopChildren(World{..drained(exitOwed(c, w, true)),
 			Runner:   Ended,
 			Open:     false,
 			Pending:  false,
@@ -740,20 +846,23 @@ func next(c Cfg, w World, a Act) Option[World] {
 		// once the old children ended (ArmEarly: the timer at once;
 		// WorkEarly: the work at once), and then observers see it.
 		// WorkBeforeCommit starts the work with the epoch before the
-		// commit.
+		// commit. The old entry's exit action runs first (EntryBeforeExit:
+		// the new entry arms with it still owed).
 		if !w.Pending || w.Runner == Ended || (c.M != ArmEarlyMutant && w.Timer != NoChild) || (c.M != WorkEarlyMutant && w.Work != NoChild) {
 			return None
 		}
-		let arms = if r.Timer { w.ArmsNow + 1 } else { w.ArmsNow }
-		let starts = if r.Work { w.StartsNow + 1 } else { w.StartsNow }
-		Some[World]{Value: showWritten(World{..w,
-			ArmEarly:   w.ArmEarly || w.Timer != NoChild,
-			WorkEarly:  w.WorkEarly || (r.Work && w.Work != NoChild),
-			Timer:      if r.Timer { Sleeping } else { w.Timer },
-			TimerEpoch: if r.Timer { 0 } else { w.TimerEpoch },
+		let x = if c.M == EntryBeforeExitMutant { w } else { exitRun(c, w) }
+		let arms = if r.Timer { x.ArmsNow + 1 } else { x.ArmsNow }
+		let starts = if r.Work { x.StartsNow + 1 } else { x.StartsNow }
+		Some[World]{Value: showWritten(World{..x,
+			ArmEarly:   x.ArmEarly || x.Timer != NoChild,
+			WorkEarly:  x.WorkEarly || (r.Work && x.Work != NoChild),
+			EntryEarly: x.EntryEarly || len(x.ExitArg) > 0,
+			Timer:      if r.Timer { Sleeping } else { x.Timer },
+			TimerEpoch: if r.Timer { 0 } else { x.TimerEpoch },
 			ArmsNow:    if arms > 2 { 2 } else { arms },
-			Work:       if r.Work { Running } else { w.Work },
-			WorkEpoch:  if !r.Work { w.WorkEpoch } else { if c.M == WorkBeforeCommitMutant { -1 } else { 0 } },
+			Work:       if r.Work { Running } else { x.Work },
+			WorkEpoch:  if !r.Work { x.WorkEpoch } else { if c.M == WorkBeforeCommitMutant { -1 } else { 0 } },
 			StartsNow:  if starts > 2 { 2 } else { starts },
 			Pending:    false,
 			Seen:       0,
@@ -771,7 +880,7 @@ func next(c Cfg, w World, a Act) Option[World] {
 		if !w.StopReq || w.Runner == Ended {
 			return None
 		}
-		Some[World]{Value: showWritten(stopChildren(World{..drained(w),
+		Some[World]{Value: showWritten(stopChildren(World{..drained(exitOwed(c, w, true)),
 			Runner:   Ended,
 			InFlight: 0,
 			Cur:      noEnv(),
@@ -812,10 +921,10 @@ func next(c Cfg, w World, a Act) Option[World] {
 	case ObserverEnds as s:
 		// An observer's loop ends once the actor ended and it read every
 		// state shown to it (SkipBeforeStop: at the end, with states
-		// unread).
+		// unread), after the end's exit actions ran.
 		let i = obIx(s.O)
 		let o = w.Obs[i]
-		if !o.Sub || o.Done || w.Runner != Ended || (c.M != SkipBeforeStopMutant && len(o.Buf) != 0) {
+		if !o.Sub || o.Done || w.Runner != Ended || len(w.ExitArg) != 0 || (c.M != SkipBeforeStopMutant && len(o.Buf) != 0) {
 			return None
 		}
 		Some[World]{Value: World{..w, Obs: setObs(w.Obs, i, Obs{..o, Done: true})}}
@@ -840,13 +949,31 @@ func next(c Cfg, w World, a Act) Option[World] {
 		if !w.DrainReq || w.StopReq || w.Runner != Idle || w.Pending || len(w.Inbox) != 0 {
 			return None
 		}
-		Some[World]{Value: stopChildren(World{..w, Runner: Ended, EndBy: ByDrain})}
+		Some[World]{Value: stopChildren(World{..exitOwed(c, w, true), Runner: Ended, EndBy: ByDrain})}
 	case GiveOut:
 		// OutputLate: the sink gets the owed outputs once the entry opened.
 		if len(w.Owed) == 0 || w.Pending || w.Runner == Ended {
 			return None
 		}
 		Some[World]{Value: World{..w, Owed: []int{}}}
+	case ExitRuns:
+		// At the actor's end the runner runs the owed exit actions, one
+		// at a time in entry order, once the entry's timer child and work
+		// ended (an Enter's or an Emit's runs in Arm). ExitEarly: at the
+		// end or before an Arm, whatever still runs.
+		if len(w.ExitArg) == 0 {
+			return None
+		}
+		if c.M == ExitEarlyMutant {
+			if w.Runner != Ended && !w.Pending {
+				return None
+			}
+		} else {
+			if w.Runner != Ended || w.Timer != NoChild || w.Work != NoChild {
+				return None
+			}
+		}
+		Some[World]{Value: exitRun(c, w)}
 	}
 }
 
@@ -894,11 +1021,14 @@ func stepIt(c Cfg, w World, d Dec) Option[World] {
 		InFlight: w.InFlight - 1,
 	}, w.Cur, n)
 	if done && c.M != NoCloseMutant {
-		return Some[World]{Value: stopChildren(World{..drained(w1), Runner: Ended, Open: false, Pending: false, EndBy: ByDone})}
+		return Some[World]{Value: stopChildren(World{..drained(exitOwed(c, w1, true)), Runner: Ended, Open: false, Pending: false, EndBy: ByDone})}
 	}
 	let restart = reenter || (stay && c.M == StayRestartsMutant)
 	let s = if commit { w.State + 1 } else { w.State }
-	let w2 = World{..w1,
+	// An Enter and an Emit end the entry in the state the step saw: its
+	// exit action is owed until Arm runs it.
+	let w3 = if reenter { exitOwed(c, w1, false) } else { w1 }
+	let w2 = World{..w3,
 		Runner:     Idle,
 		Timer:      if restart && w.Timer == Sleeping { Stopping } else { w.Timer },
 		Work:       if reenter && w.Work == Running { Stopping } else { w.Work },
@@ -915,6 +1045,8 @@ func stepIt(c Cfg, w World, d Dec) Option[World] {
 		State:      s,
 		Emits:      if c.Ghost == EmitSeenWitness && emit { setBool(w.Emits, s, true) } else { w.Emits },
 		Owed:       if emit && c.M == OutputLateMutant { w.Owed.Append(s) } else { w.Owed },
+		Opened:     if reenter && c.M == ExitSeesOpeningMutant { s } else { w.Opened },
+		Stays:      if c.Ghost == ExitAfterStayWitness && stay { setBool(w.Stays, s, true) } else { w.Stays },
 	}
 	if stay {
 		return Some[World]{Value: publish(w2, s)}
@@ -1030,6 +1162,21 @@ func stepDrainDrops(s St, a Act) Decision[St, string] {
 }
 func stepOutputLate(s St, a Act) Decision[St, string] {
 	stepWith(mutant(OutputLateMutant, "OutputBeforeShown"), s, a)
+}
+func stepExitEarly(s St, a Act) Decision[St, string] {
+	stepWith(mutant(ExitEarlyMutant, "ExitAfterWork"), s, a)
+}
+func stepEntryBeforeExit(s St, a Act) Decision[St, string] {
+	stepWith(mutant(EntryBeforeExitMutant, "ExitBeforeEntry"), s, a)
+}
+func stepExitTwice(s St, a Act) Decision[St, string] {
+	stepWith(mutant(ExitTwiceMutant, "ExitOncePerEntry"), s, a)
+}
+func stepExitSkippedAtEnd(s St, a Act) Decision[St, string] {
+	stepWith(mutant(ExitSkippedAtEndMutant, "ExitOncePerEntry"), s, a)
+}
+func stepExitSeesOpening(s St, a Act) Decision[St, string] {
+	stepWith(mutant(ExitSeesOpeningMutant, "ExitSeesLast"), s, a)
 }
 
 type NoEpoch machine[St, Act] {
@@ -1151,6 +1298,41 @@ type OutputLate machine[St, Act] {
 	law Breaks reaches Broken,
 }
 
+type ExitEarly machine[St, Act] {
+	initial: first(),
+	step:    stepExitEarly,
+
+	law Breaks reaches Broken,
+}
+
+type EntryBeforeExit machine[St, Act] {
+	initial: first(),
+	step:    stepEntryBeforeExit,
+
+	law Breaks reaches Broken,
+}
+
+type ExitTwice machine[St, Act] {
+	initial: first(),
+	step:    stepExitTwice,
+
+	law Breaks reaches Broken,
+}
+
+type ExitSkippedAtEnd machine[St, Act] {
+	initial: first(),
+	step:    stepExitSkippedAtEnd,
+
+	law Breaks reaches Broken,
+}
+
+type ExitSeesOpening machine[St, Act] {
+	initial: first(),
+	step:    stepExitSeesOpening,
+
+	law Breaks reaches Broken,
+}
+
 // The witnesses (Quint's no… values for design2). Each is the design's
 // step, with the witness counters, that enters Seen when the witness
 // holds for an action: on the state it reaches, or, for the observer
@@ -1167,6 +1349,7 @@ let LateWaitWitness = 9
 let StopOvertakesWitness = 10
 let DrainEndWitness = 11
 let EmitSeenWitness = 12
+let ExitAfterStayWitness = 13
 
 func witnessed(k int, c Cfg, w World, a Act, v World) bool {
 	if k == StaleTickWitness {
@@ -1203,6 +1386,10 @@ func witnessed(k int, c Cfg, w World, a Act, v World) bool {
 	}
 	if k == DrainEndWitness {
 		return v.EndBy == ByDrain && v.Admitted >= 2
+	}
+	if k == ExitAfterStayWitness {
+		// An exit action runs and gets a state a Stay wrote.
+		return len(v.ExitDue) < len(w.ExitDue) && w.Stays[w.ExitDue[0]]
 	}
 	match a {
 	case ObserverEnds as e:
@@ -1250,6 +1437,7 @@ func stepLateWait(s St, a Act) Decision[St, string]         { stepWitness(LateWa
 func stepStopOvertakes(s St, a Act) Decision[St, string]    { stepWitness(StopOvertakesWitness, s, a) }
 func stepDrainEnd(s St, a Act) Decision[St, string]         { stepWitness(DrainEndWitness, s, a) }
 func stepEmitSeen(s St, a Act) Decision[St, string]         { stepWitness(EmitSeenWitness, s, a) }
+func stepExitAfterStay(s St, a Act) Decision[St, string]    { stepWitness(ExitAfterStayWitness, s, a) }
 
 type StaleTick machine[St, Act] {
 	initial: first(),
@@ -1331,6 +1519,13 @@ type DrainEnd machine[St, Act] {
 type EmitSeen machine[St, Act] {
 	initial: first(),
 	step:    stepEmitSeen,
+
+	law Reached reaches Seen,
+}
+
+type ExitAfterStay machine[St, Act] {
+	initial: first(),
+	step:    stepExitAfterStay,
 
 	law Reached reaches Seen,
 }

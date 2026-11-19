@@ -136,14 +136,24 @@ func (d *dumper) node(depth int, n Node) {
 		d.node(c, x.Params)
 		d.node(c, x.Body)
 	case *LawDecl:
-		when, eq := NoPos, NoPos
+		when, eq, rewrite, body := NoPos, NoPos, b01(x.Rewrite != nil), x.Body
 		if x.Rewrite != nil {
 			when, eq = x.Rewrite.When, x.Rewrite.Eq
 		}
-		d.line(depth, "LawDecl %s doc=%d Law=%d Rewrite=%d When=%d Eq=%d", at, d.doc(x.Doc), x.Law, b01(x.Rewrite != nil), when, eq)
+		if e := x.Equation; e != nil {
+			// The view holds a top-level rewrite law (word 2) as its two
+			// blocks; the Go tree's Body is lhs == rhs (LawDecl.Equation).
+			lhs, rhs, b := x.EquationSides()
+			rewrite, eq = 2, b.OpPos
+			side := func(l, r Pos, x Expr) *BlockStmt {
+				return &BlockStmt{Lbrace: l, List: []Stmt{&ExprStmt{X: x}}, Rbrace: r}
+			}
+			body = &BlockStmt{Lbrace: e.LhsLbrace, List: []Stmt{side(e.LhsLbrace, e.LhsRbrace, lhs), side(e.RhsLbrace, e.RhsRbrace, rhs)}, Rbrace: e.RhsRbrace}
+		}
+		d.line(depth, "LawDecl %s doc=%d Law=%d Rewrite=%d When=%d Eq=%d", at, d.doc(x.Doc), x.Law, rewrite, when, eq)
 		d.node(c, x.Name)
 		d.node(c, x.Params)
-		d.node(c, x.Body)
+		d.node(c, body)
 		d.node(c, x.Reach)
 	case *LawReach:
 		inv := x.Invariant
@@ -185,7 +195,11 @@ func (d *dumper) node(depth int, n Node) {
 		if x.Lent > 0 {
 			lent = x.Lent
 		}
-		d.line(depth, "Field %s doc=%d Any=%d Lent=%d Include=%d Dots=%d WherePos=%d Pure=%d PurePos=%d Own=%d", at, d.doc(x.Doc), anyPos, lent, b01(x.Include), dots, x.WherePos, b01(x.Pure), purePos, own)
+		mut := NoPos
+		if x.Mut != nil {
+			mut = x.Mut.At
+		}
+		d.line(depth, "Field %s doc=%d Any=%d Lent=%d Include=%d Dots=%d WherePos=%d Pure=%d PurePos=%d Own=%d Mut=%d", at, d.doc(x.Doc), anyPos, lent, b01(x.Include), dots, x.WherePos, b01(x.Pure), purePos, own, mut)
 		d.list(c, idents(x.Names))
 		d.node(c, x.Type)
 		d.node(c, x.Key)
@@ -273,7 +287,7 @@ func (d *dumper) node(depth int, n Node) {
 		d.list(c, exprs(x.Args))
 		d.node(c, x.Trailing)
 	case *StarExpr:
-		d.line(depth, "StarExpr %s Star=%d", at, x.Star)
+		d.line(depth, "StarExpr %s Star=%d Mut=%d", at, x.Star, b01(x.Mut))
 		d.node(c, x.X)
 	case *UnaryExpr:
 		d.line(depth, "UnaryExpr %s OpPos=%d Op=%d", at, x.OpPos, x.Op)

@@ -16,7 +16,8 @@ import (
 // and a named slice, nums(*r)) into a read-only context (len, an index
 // read, an index read under len, a comparison, a field read, a for loop
 // whose body writes only a local, a call or a method call that
-// returns a basic value), then writes the store and returns the value
+// returns a basic value or a result that does not depend on it (lens,
+// beside a fresh slice)), then writes the store and returns the value
 // read with a digest of the store. The model: the lowering copies
 // nothing in such a function. TestReadOnlyUsesCopyNothing counts the
 // copies in each function's Go.
@@ -67,7 +68,7 @@ func outs(r ro) [][]int { r.out }
 
 func tab(r ro) Map[int, []int] { r.m }
 
-func deref[T](p *T) T { *p }
+func deref[T](p mut T) T { *p }
 
 type bx { xs []int }
 
@@ -97,44 +98,46 @@ func glen(xs []string) int { len(xs) * 10 + len(xs[0]) }
 
 func total2(xs []int, k int) int { total(xs) + k }
 
-func total3(xs []int, r *ro) int {
+func total3(xs []int, r mut ro) int {
 	r.s[1] = 70
 	total(xs)
 }
 
-func Sum3(n Nums, r *ro) int {
+func Sum3(n Nums, r mut ro) int {
 	r.s[1] = 70
 	Sum(n)
 }
 
 func ident(xs []int) []int { xs }
 
-func firsto(r *ro) []int {
+func firsto(r mut ro) []int {
 	for o in outs(*r) {
 		return o
 	}
 	[]int{0}
 }
 
-func bump(r *ro) int {
+func bump(r mut ro) int {
 	r.s[1] = 70
 	1
 }
 
-func grow(r *ro) []int {
+func grow(r mut ro) []int {
 	r.s[0] = 50
 	[]int{50, 2, 3}
 }
 
-func bumpv(r *ro) int {
+func bumpv(r mut ro) int {
 	r.s[0] = 50
 	0
 }
 
-func setv(p *int) int {
+func setv(p mut int) int {
 	*p = 4
 	0
 }
+
+func lens(xs []int, out []int) []int { out }
 
 `
 
@@ -161,7 +164,7 @@ const roLoop = "let mut n = 0\n\tfor v in X {\n\t\tn = n * 3 + v\n\t}"
 
 // roContexts are the read-only contexts of a result X of each kind.
 var roContexts = map[string][][2]string{
-	"s": {{"len", "len(X)"}, {"index", "X[1]"}, {"compare", "if X == []int{1, 2, 3} { 1 } else { 2 }"}, {"loop", roLoop}, {"call", "total(X)"}},
+	"s": {{"len", "len(X)"}, {"index", "X[1]"}, {"compare", "if X == []int{1, 2, 3} { 1 } else { 2 }"}, {"loop", roLoop}, {"call", "total(X)"}, {"call out", "len(lens(X, []int{1}))"}},
 	"o": {{"len", "len(X)"}, {"index len", "len(X[0])"}, {"compare", "if X == [][]int{[]int{4}} { 1 } else { 2 }"}, {"loop len", "let mut n = 0\n\tfor o in X {\n\t\tn = n + len(o)\n\t}"}},
 	"m": {{"len", "len(X)"}, {"loop", "let mut n = 0\n\tfor k, v in X {\n\t\tn = n + k + len(v)\n\t}"}},
 	"g": {{"len", "len(X)"}, {"index len", "len(X[0])"}, {"compare", "if X == []string{\"a,\", \"b\"} { 1 } else { 2 }"}, {"call", "glen(X)"}},
@@ -196,7 +199,7 @@ func roProgram(seed uint64) (src string, model map[string]int, order []string) {
 	model = map[string]int{}
 	add := func(value string, ptr bool, want int) {
 		name := fmt.Sprintf("f%d", len(fns)+1)
-		head := fmt.Sprintf("func %s(r *ro) int {\n", name)
+		head := fmt.Sprintf("func %s(r mut ro) int {\n", name)
 		digest := "dro(*r)"
 		if !ptr {
 			head = fmt.Sprintf("func %s() int {\n\tlet mut r = newro()\n", name)
@@ -232,7 +235,7 @@ func roProgram(seed uint64) (src string, model map[string]int, order []string) {
 		name := fmt.Sprintf("f%d", i+1)
 		b.WriteString(fns[i] + "\n")
 		order = append(order, name)
-		if strings.HasPrefix(fns[i], "func "+name+"(r *ro)") {
+		if strings.HasPrefix(fns[i], "func "+name+"(r mut ro)") {
 			main.WriteString(fmt.Sprintf("\tlet mut r%d = newro()\n\tConsole.Println(\"\\(%s(&r%d)) \\(dro(r%d))\")\n", i+1, name, i+1, i+1))
 		} else {
 			main.WriteString(fmt.Sprintf("\tConsole.Println(\"\\(%s())\")\n", name))

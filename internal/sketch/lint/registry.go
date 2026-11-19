@@ -30,7 +30,7 @@ type Registry struct {
 
 // NewRegistry validates rules and presets together: names are kebab-case
 // identifiers, unique, never a reserved runner name; codes are unique and
-// never the runner's; every preset names known rules; base is a preset.
+// never the runner's; every rule has a remedy (Instead); every preset\n// names known rules; base is a preset.
 func NewRegistry(rules []*Rule, presets []Preset, base string) (*Registry, error) {
 	r := &Registry{byName: map[string]*Rule{}, presets: map[string]Preset{}, base: base}
 	codes := map[string]bool{CodeRunner: true, CodeSuppression: true}
@@ -46,6 +46,8 @@ func NewRegistry(rules []*Rule, presets []Preset, base string) (*Registry, error
 			return nil, fmt.Errorf("rule %s: invalid default severity", rule.Name)
 		case rule.Check == nil:
 			return nil, fmt.Errorf("rule %s has no check", rule.Name)
+		case rule.Instead == "":
+			return nil, fmt.Errorf("rule %s has no remedy: write Instead, what to do in place of what it reports", rule.Name)
 		}
 		codes[rule.Code] = true
 		r.byName[rule.Name] = rule
@@ -99,6 +101,30 @@ type Configuration struct {
 	severity map[string]Severity
 	options  map[string]json.RawMessage
 	packs    *packSet
+	// resolved is the options of the rules whose options name a file
+	// (dirOptions), read once at Configure.
+	resolved map[string]any
+}
+
+// resolve reads the files that enabled rules' options name, relative to
+// dir, the configuration document's directory: a file that cannot be read
+// refuses the configuration, not the run.
+func (c *Configuration) resolve(dir string) error {
+	c.resolved = map[string]any{}
+	for _, rule := range c.registry.rules {
+		if rule.Options == nil || c.severity[rule.Name] == Off {
+			continue
+		}
+		v, err := rule.Options(c.options[rule.Name])
+		d, ok := v.(dirOptions)
+		if err != nil || !ok {
+			continue // a decoder that refuses its defaults fails at the run
+		}
+		if c.resolved[rule.Name], err = d.resolve(dir); err != nil {
+			return fmt.Errorf("rule %s: %w", rule.Name, err)
+		}
+	}
+	return nil
 }
 
 // optionsOf decodes the rule's effective options; nil for a rule that
@@ -108,6 +134,9 @@ type Configuration struct {
 func (c *Configuration) optionsOf(rule *Rule) (any, error) {
 	if rule.Options == nil {
 		return nil, nil
+	}
+	if v, ok := c.resolved[rule.Name]; ok {
+		return v, nil
 	}
 	return rule.Options(c.options[rule.Name])
 }
@@ -194,6 +223,9 @@ func (r *Registry) ConfigureWith(doc Config, presets []string, packs []sdk.Selec
 			return nil, err
 		}
 		apply(name, doc.Rules[name])
+	}
+	if err := c.resolve(doc.Dir); err != nil {
+		return nil, err
 	}
 	return c, nil
 }

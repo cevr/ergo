@@ -1,0 +1,97 @@
+// Package jobs is the domain of admit: jobs that share a capacity while
+// they run, each with a weight and a payload that is checked before any
+// job starts. The gate that holds the capacity (Gate) and the checker of
+// payloads (Checker) are contracts with laws; a provider package supplies
+// each, and cmd/admit chooses them.
+
+import strconv
+import strings
+
+// Job is one line of the input: its name, the share of the capacity it
+// holds while it runs, and its payload, numbers separated by commas.
+type Job { Name string, Weight int, Payload string }
+
+// BadLine is an input line that is not "NAME WEIGHT PAYLOAD" with a
+// weight of at least 1.
+type BadLine { Line int, Text string }
+
+// BadPayload names the job whose payload is not a list of numbers of at
+// least 0, and why.
+type BadPayload { Name string, Reason string }
+
+// Parse is the jobs of text, one per line; blank lines are skipped.
+func Parse(text string) []Job fails BadLine {
+	let mut out = []Job{}
+	for n, l in strings.Split(text, "\n") {
+		let f = strings.Fields(l)
+		if len(f) == 0 {
+			continue
+		}
+		if len(f) != 3 {
+			return BadLine{Line: n + 1, Text: l}
+		}
+		let w = strconv.Atoi(f[1]) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return BadLine{Line: n + 1, Text: l}
+		}
+		if w < 1 {
+			return BadLine{Line: n + 1, Text: l}
+		}
+		out = out.Append(Job{Name: f[0], Weight: w, Payload: f[2]})
+	}
+	out
+}
+
+// Problem is what is wrong with a payload, or None for a list of numbers
+// of at least 0. It is the reference every Checker agrees with.
+func Problem(payload string) Option[string] {
+	for f in strings.Split(payload, ",") {
+		let v = strconv.Atoi(f) catch {
+		case strconv.Malformed:
+			return Some[string]{Value: "\"\(f)\" is not a number"}
+		case strconv.OutOfRange:
+			return Some[string]{Value: "\(f) is too large"}
+		}
+		if v < 0 {
+			return Some[string]{Value: "\(f) is negative"}
+		}
+	}
+	None
+}
+
+// FirstBad is the first job, in order, whose payload has a problem.
+func FirstBad(jobs []Job) Option[BadPayload] {
+	for j in jobs {
+		match Problem(j.Payload) {
+		case Some[string] as p:
+			return Some[BadPayload]{Value: BadPayload{Name: j.Name, Reason: p.Value}}
+		case None:
+		}
+	}
+	None
+}
+
+// Checker checks the payloads of a list of jobs.
+type Checker {
+	// Check fails with the first job, in order, whose payload is bad.
+	Check(jobs []Job) fails BadPayload,
+
+	// NamesFirstBad: Check fails exactly when FirstBad finds a job, and
+	// names the job and the reason FirstBad gives.
+	law NamesFirstBad(payloads []string) { NamesFirstBad(payloads) },
+}
+
+// NamesFirstBad checks Checker.Check against FirstBad on jobs that carry
+// payloads, one each.
+func NamesFirstBad(payloads []string) bool needs Checker {
+	let mut jobs = []Job{}
+	for i, p in payloads {
+		jobs = jobs.Append(Job{Name: "j\(i)", Weight: 1, Payload: p})
+	}
+	let want = FirstBad(jobs)
+	Checker.Check(jobs) catch {
+	case BadPayload as b:
+		return want == Some[BadPayload]{Value: b}
+	}
+	want == None
+}

@@ -100,6 +100,15 @@ type Package struct {
 	// member, a duplicate name included (stage E3b, 196l; law-top). The
 	// run build never runs one; the test build runs them through LawRuns.
 	Laws []*Law
+	// LawExportedHelpers are the exported functions that would be law
+	// helpers (lawplace.go, rule 2) if they were not exported: every user
+	// in the package is a law, a test or a helper, declared in a file of
+	// laws (one with nothing else). ergo fix unexports the ones no other
+	// package names. In source order.
+	LawExportedHelpers []*syntax.FuncDecl
+	// LawHelpers are the declarations ergo fix moves beside their first
+	// user (lawplace.go), in source order.
+	LawHelpers []LawHelper
 	// LawRuns are the laws the package's test build runs or reports
 	// (laws.go, rule 7): its own laws and the laws of its imports that it
 	// is the least package to see bound to a provider.
@@ -183,10 +192,11 @@ func (p *Package) Files() []*syntax.File {
 	return out
 }
 
-// collKey names a prelude function on a slice (isMap false) or a Map.
+// collKey names an operation of a built-in type by its name and the kind
+// of receiver it is on (collop.go).
 type collKey struct {
-	name  string
-	isMap bool
+	name string
+	on   collOn
 }
 
 // Info records the checker's results for the lowering (#197, #50).
@@ -260,6 +270,10 @@ type Info struct {
 	// only runs in place: a non-escaping frame (check/escaping.go,
 	// localFrames).
 	LocalFrames map[*syntax.FuncLit]bool
+	// Relends is every &x whose x is a mut parameter: the borrow it holds
+	// passed on, of x's type mut T, not a borrow of the parameter (types.md,
+	// Borrows 1). Every lowering passes x itself.
+	Relends map[*syntax.UnaryExpr]bool
 	// Loops is every for-in.
 	Loops map[*syntax.RangeStmt]*Loop
 	// Withs is every with site.
@@ -286,6 +300,12 @@ type Info struct {
 	// is not Empty (runtime.md, I1) and never derives a footprint again.
 	// Added for #199 stage 1 (additive).
 	Footprints map[syntax.Node]Footprint
+	// Reads is, for each function of the package with a body, keyed by
+	// its *syntax.FuncDecl, what the body reads of each parameter, one
+	// ReadSet per parameter in order (reads.go). The lowering compares
+	// only the read fields of a component's record argument (NS2b;
+	// stdlib.md, UI 13). Added in NS2b (additive).
+	Reads map[syntax.Node][]ReadSet
 	// Instances is every instantiation of a generic function (D-E1; stage
 	// B round 2 m6): a call of one, keyed by the *syntax.CallExpr, whether
 	// its type arguments are written, inferred or bound by a dot call's
@@ -409,25 +429,6 @@ type Info struct {
 	// in Signature.Takes; a function that takes nothing has no key. Added
 	// in L8 A3 (additive).
 	Takes map[*Func][]int
-	// Copies is each generic function's copy sites (#197 L8 A3; plan 1.3;
-	// takes.go): per type parameter of its signature, the first place its
-	// body copies a value of that type (a second use after a hand-off, or a
-	// call of a function that copies it). A call that binds such a type
-	// parameter to a resource is S108. Added in L8 A3 (additive).
-	Copies map[*Func][]CopySite
-}
-
-// CopySite is one place a generic body copies a value of its type
-// parameter TParam (an index into the signature's TParams).
-type CopySite struct {
-	TParam int
-	At     syntax.Node
-	// Where is At as file:line:col; empty for a declaration with no body.
-	Where string
-	// What says how it copies, for the diagnostic: "x is used twice".
-	What string
-	// Key marks a map key (resources R40: S112 at the instantiation).
-	Key bool
 }
 
 // Release is one value a place releases: an owned local or taken
@@ -529,10 +530,12 @@ func newInfo() *Info {
 		Literals:      map[syntax.Node]*Signature{},
 		ValueCaptures: map[syntax.Node][]*Var{},
 		LocalFrames:   map[*syntax.FuncLit]bool{},
+		Relends:       map[*syntax.UnaryExpr]bool{},
 		Loops:         map[*syntax.RangeStmt]*Loop{},
 		Withs:         map[*syntax.CallExpr]*With{},
 		ContextValues: map[syntax.Expr]*With{},
 		Footprints:    map[syntax.Node]Footprint{},
+		Reads:         map[syntax.Node][]ReadSet{},
 		Instances:     map[syntax.Expr]*Instance{},
 
 		ReturnedValues: map[syntax.Expr]bool{},
@@ -555,7 +558,6 @@ func newInfo() *Info {
 		Handoffs:       map[*syntax.Ident]*Var{},
 		PatternOwners:  map[*syntax.CaseClause]PatternOwners{},
 		Takes:          map[*Func][]int{},
-		Copies:         map[*Func][]CopySite{},
 	}
 }
 
@@ -670,7 +672,13 @@ func (c *checker) instanceWitnesses(inst *Instance, build func(*Func, []Type) (*
 				return fmt.Sprintf("cannot complete the witness of %s: %s has no operation %s", fn.Name, targs[i], op.Name)
 			}
 			sig := *op.Sig
-			sig.Params = append([]*Var{{Name: "self", Type: targs[i]}}, op.Sig.Params...)
+			self := targs[i]
+			if op.Sig.MutSelf {
+				// mut Bump(): the witness's function writes its receiver
+				// through a pointer (Generics 2; MODES-4).
+				self = &Pointer{Elem: self}
+			}
+			sig.Params = append([]*Var{{Name: "self", Type: self}}, op.Sig.Params...)
 			wo := WitnessOp{Name: op.Name, Sig: &sig, Func: f}
 			if f != nil && f.Sig != nil && len(f.Sig.TParams) > 0 {
 				var why string
@@ -822,6 +830,12 @@ const (
 	// Machine[S, E, O, F, R, W] (README Gap 46): Table["Step"] is the
 	// machine's step function.
 	ConvMachine
+	// ConvNarrow puts a function value into a function type whose
+	// parameters it takes, except that where the type's parameter is a row
+	// value of one error type the value's parameter is that type
+	// (narrowsRowParams): the type's function narrows each such row value to
+	// its one type and calls the value.
+	ConvNarrow
 )
 
 // Conversion is an implicit conversion at an assignment site: From's value
@@ -1098,6 +1112,18 @@ type Law struct {
 	// Rewrite is the checked form of a rewrite law (Decl.Rewrite; types.md,
 	// Laws 14), nil for any other law or one whose shape was refused.
 	Rewrite *Rewrite
+	// Subjects are a top-level law's subjects (lawplace.go, rule 1), the
+	// ones it names first, then the ones its helpers name; nil for a member,
+	// machine or derived law.
+	Subjects []LawSubject
+	// FixSubjects are its subjects as ergo fix reads them: with the
+	// exported declarations of a file of laws that only laws and tests use
+	// read as helpers too (Package.LawHelpers).
+	FixSubjects []LawSubject
+	// FuncRewrite is the checked form of a top-level rewrite law over
+	// functions (Decl.Equation; funcrewrite.go), nil for any other law or
+	// one outside the rewrite's scope.
+	FuncRewrite *FuncRewrite
 
 	file *fileInfo // the declaring file, selected while the law is checked
 }
@@ -1364,7 +1390,7 @@ func (c *checker) finishInfo() {
 			call.StartsTask = c.running(c.pkg.Info.Types[x]) != nil
 		}
 		if call.Kind == CallFunc && releasesResult(call.Func) {
-			if d, bad := c.dropOf(c.pkg.Info.Types[x]); d != nil && bad == "" {
+			if d, bad := c.dropOf(c.pkg.Info.Types[x]); d != nil && bad == nil {
 				c.pkg.Info.ResultDrops[x] = d
 			}
 		}

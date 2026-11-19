@@ -7,7 +7,9 @@
 // the entry provides. So main lists Ambient and binds
 // `context { exec.Runner: exec.NewHost() }`. A test cannot get Ambient and
 // binds a Script instead, which runs nothing and gives the Result recorded
-// for each command. The extern is unexported, so a program starts a
+// for each command, or runs commands for real in a folder of its case's
+// own through NewTestHost, under the test's ambient (confined.ergo). The
+// extern is unexported, so a program starts a
 // process only through a Host it was given or made under Ambient.
 
 import slices
@@ -464,21 +466,23 @@ law ScriptReplaysRecorded(name string, arg string, status int, out string) {
 
 // Host is the host's Runner. Its field gives this package the construction
 // authority (types.md, Zero values 6): no other package writes exec.Host{},
-// its zero value or a record update of it.
-type Host { live hostOnly } implements Runner, Spawner
-
-// hostOnly is the zero-size type of Host's field, so Host stays zero size.
-type hostOnly {}
+// its zero value or a record update of it. root is "" for the host's own
+// (NewHost), and the case's folder for a test's (NewTestHost,
+// confined.ergo).
+type Host { root string } implements Runner, Spawner
 
 // NewHost is the host's Runner. It needs Ambient: only code whose row
 // holds the authority to choose the host makes one.
-func NewHost() Host needs Ambient { Host{live: hostOnly} }
+func NewHost() Host needs Ambient { Host{root: ""} }
 
 // Run runs c to its end on the host. The program starts in a process group
 // of its own; Run returns after it exits and is reaped, with all its
 // output. A stop of the calling task kills the group, waits for the reap
 // and ends the call.
-func Run(_ Host, c Command) Result fails NotFound | Denied | Failed {
+func Run(h Host, c Command) Result fails NotFound | Denied | Failed {
+	if h.root != "" {
+		return try runConfined(h, c)
+	}
 	try hostRun(c.Name, c.Args, c.Env, c.Dir, c.Stdin, c.Grace)
 }
 
@@ -487,7 +491,10 @@ extern go ergo.local/prototype/runtime/v1/exec.ExecRun func hostRun(name string,
 // Start starts c on the host, in a process group of its own, with its
 // standard output and standard error going to s's sinks. A file sink that
 // cannot be opened fails Failed and starts nothing.
-func Start(_ Host, c Command, s Streams) Running fails NotFound | Denied | Failed {
+func Start(h Host, c Command, s Streams) Running fails NotFound | Denied | Failed {
+	if h.root != "" {
+		return try startConfined(h, c, s)
+	}
 	try hostStart(c.Name, c.Args, c.Env, c.Dir, c.Stdin, c.Grace, sinkKind(s.Stdout), sinkPath(s.Stdout), sinkAppends(s.Stdout), sinkKind(s.Stderr), sinkPath(s.Stderr), sinkAppends(s.Stderr))
 }
 
@@ -526,18 +533,27 @@ func sinkAppends(s Sink) bool {
 // Spawn starts c on the host in a new session and process group, so it
 // outlives the calling task's scope and this process. Its streams go to
 // s's sinks; a file sink that cannot be opened, or a ToCaller sink, fails
-// Failed and starts nothing.
-func Spawn(_ Host, c Command, s Streams) Detached fails NotFound | Denied | Failed {
+// Failed and starts nothing. A test's Host (NewTestHost) spawns nothing:
+// a detached program would outlive the case's folder and its sandbox, so
+// Spawn fails Failed, Alive is false and Kill signals nothing.
+func Spawn(h Host, c Command, s Streams) Detached fails NotFound | Denied | Failed {
+	if h.root != "" {
+		return Failed{Name: c.Name, Reason: "a test's host spawns no detached program"}
+	}
 	try hostSpawn(c.Name, c.Args, c.Env, c.Dir, c.Stdin, sinkKind(s.Stdout), sinkPath(s.Stdout), sinkAppends(s.Stdout), sinkKind(s.Stderr), sinkPath(s.Stderr), sinkAppends(s.Stderr))
 }
 
 // Alive reports that d's program is running on the host: its pid names a
 // process that has not ended and that started at d.Start.
-func Alive(_ Host, d Detached) bool { hostAlive(d.Pid, d.Start) }
+func Alive(h Host, d Detached) bool { h.root == "" && hostAlive(d.Pid, d.Start) }
 
 // Kill ends d's process group on the host (Spawner.Kill). A pid that
 // another process now has gets no signal.
-func Kill(_ Host, d Detached, grace duration) { hostKill(d.Pid, d.Start, grace) }
+func Kill(h Host, d Detached, grace duration) {
+	if h.root == "" {
+		hostKill(d.Pid, d.Start, grace)
+	}
+}
 
 extern go ergo.local/prototype/runtime/v1/exec.ExecSpawn func hostSpawn(name string, args []string, env Map[string, string], dir string, stdin string, outKind int, outPath string, outAppend bool, errKind int, errPath string, errAppend bool) Detached fails NotFound | Denied | Failed
 

@@ -145,16 +145,16 @@ func firstOver(xs Seq[int], limit int) int {
 
 type Acc { total int, items []int }
 
-func push(a *Acc, v int) {
+func push(a mut Acc, v int) {
 	a.items = a.items.Append(v)
 	a.total = a.total + v
 }
 
-func bump(a *Acc, i int) { a.items[i] = a.items[i] * 10 }
+func bump(a mut Acc, i int) { a.items[i] = a.items[i] * 10 }
 
 func size(a Acc) int { len(a.items) }
 
-func both(a *Acc, v int) {
+func both(a mut Acc, v int) {
 	push(a, v)
 	if a.size() == 3 {
 		bump(a, 0)
@@ -170,15 +170,15 @@ type FK { x float64 }
 
 type Tab { rows []int }
 
-func tput(t *Tab, v int) Id {
+func tput(t mut Tab, v int) Id {
 	let id = Id{n: uint32(len(t.rows))}
 	t.rows = t.rows.Append(v)
 	id
 }
 
-func tset(t *Tab, id Id, v int) { t.rows[int(id.n)] = v }
+func tset(t mut Tab, id Id, v int) { t.rows[int(id.n)] = v }
 
-func count(c *Map[Id, int], id Id, by int) {
+func count(c mut Map[Id, int], id Id, by int) {
 	match (*c).Get(id) {
 	case Some[int] as s:
 		(*c)[id] = s.Value + by
@@ -863,6 +863,7 @@ func (g *mainGen) actor(k int) {
 	g.line("\tcase _:")
 	g.line("\t\tConsole.Println(\"s%d other\")", k)
 	g.line("\t}")
+	lagRoom, lagSends := g.actorLag(k)
 	g.line("}")
 	g.calls = append(g.calls, fmt.Sprintf("s%d()", k))
 	n, ended := 0, false
@@ -902,6 +903,69 @@ func (g *mainGen) actor(k int) {
 		fmt.Fprintf(&g.out, "s%d finished %d %d\n", k, n, n)
 	} else {
 		fmt.Fprintf(&g.out, "s%d halted %d\n", k, n)
+	}
+	actorLagModel(&g.out, k, lagRoom, lagSends)
+}
+
+// actorLag writes the lagging Changes loop of actor k (I22 Q14): a second
+// Tally actor, a WaitFor that returns at its first state (its loop left
+// early, so its subscription must end), then a Changes(b, room) loop of a
+// seeded room 1 to 4 that, at its first state, sends 1 to 9 Add{k: 1}
+// signals, reads State and Held, and stops the actor, so its room drops
+// states. It prints each Change and Held. It returns the room and the
+// number of sends for actorLagModel.
+func (g *mainGen) actorLag(k int) (room, sends int) {
+	room, sends = 1+g.r.IntN(4), 1+g.r.IntN(9)
+	g.line("\tlet b = actor.StartMachine(machines.Start(Tally{}, 100), 0, func(o int) {})")
+	g.line("\tlet w = actor.WaitFor(b, func(s Ctr) bool { s.n == 0 }) catch {")
+	g.line("\tcase actor.Stopped:")
+	g.line("\t\tCtr{n: -1, limit: 0}")
+	g.line("\t}")
+	g.line("\tConsole.Println(\"s%d lag wait \\(w.n)\")", k)
+	g.line("\tlet mut first = true")
+	g.line("\tfor c in actor.Changes(b, %d) {", room)
+	g.line("\t\tif first {")
+	g.line("\t\t\tfirst = false")
+	g.line("\t\t\tfor _ in 0..%d {", sends)
+	g.line("\t\t\t\tb.Send(Add{k: 1}) catch {")
+	g.line("\t\t\t\tcase actor.Stopped:")
+	g.line("\t\t\t\t}")
+	g.line("\t\t\t}")
+	g.line("\t\t\tConsole.Println(\"s%d lag state \\(b.State().n) held \\(b.Held())\")", k)
+	g.line("\t\t\tb.Stop()")
+	g.line("\t\t}")
+	g.line("\t\tmatch c {")
+	g.line("\t\tcase actor.Changed[Ctr] as s:")
+	g.line("\t\t\tConsole.Println(\"s%d lag changed \\(s.State.n)\")", k)
+	g.line("\t\tcase actor.Overflowed as o:")
+	g.line("\t\t\tConsole.Println(\"s%d lag overflowed \\(o.Missed)\")", k)
+	g.line("\t\t}")
+	g.line("\t}")
+	return room, sends
+}
+
+// actorLagModel is the output of actorLag's code, by std actor's law
+// ChangesCountsWhatItDrops: the first state 0, then, of the states 1 to
+// sends, a commit that finds room states unread drops them; the loop
+// reads Overflowed with their number, then the states it kept.
+func actorLagModel(out *strings.Builder, k, room, sends int) {
+	var kept []int
+	missed := 0
+	for i := 1; i <= sends; i++ {
+		if len(kept) >= room {
+			missed += len(kept)
+			kept = kept[:0]
+		}
+		kept = append(kept, i)
+	}
+	fmt.Fprintf(out, "s%d lag wait 0\n", k)
+	fmt.Fprintf(out, "s%d lag state %d held %d\n", k, sends, len(kept))
+	fmt.Fprintf(out, "s%d lag changed 0\n", k)
+	if missed > 0 {
+		fmt.Fprintf(out, "s%d lag overflowed %d\n", k, missed)
+	}
+	for _, s := range kept {
+		fmt.Fprintf(out, "s%d lag changed %d\n", k, s)
 	}
 }
 

@@ -7,8 +7,10 @@
 adventure
 catalog
 cborpack
+cells
 chat
 counter-gui
+cron
 csvreport
 dash-gui
 download
@@ -16,6 +18,7 @@ draw-gui
 editor-gui
 events
 fetchpool
+fieldnotes
 fk-board
 fk-chat
 fk-counters
@@ -32,12 +35,17 @@ fk-transfers
 fk-weather
 fk-wizard
 flattree
+fluid-gallery
 jobq
 jobs
 jsonparse
+jsonv
 kmeans
+kvstore
+lease-sync
 logstat
 lookup
+lru
 lzpack
 mdhtml
 metrics
@@ -51,6 +59,7 @@ stars-gui
 starter
 sudoku
 tidewalk-replay
+timetable
 todo-gui
 toktree
 tomlparse
@@ -58,3 +67,4 @@ tui
 twig
 vt
 wire-config
+work

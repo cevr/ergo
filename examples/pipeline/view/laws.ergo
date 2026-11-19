@@ -32,7 +32,7 @@ func texts(shapes []ui.Shape[screen.Signal]) []string {
 }
 
 // shows is whether the screen of h shows the line.
-func shows[D, F](h *ui.TestHost[screen.Screen, screen.Signal, D, F], line string) bool { ui.Find(h, line) != None }
+func shows[D, F](h mut ui.TestHost[screen.Screen, screen.Signal, D, F], line string) bool { ui.Find(h, line) != None }
 
 // ReplyIsShown: the view of a screen whose last command got reply shows a
 // line that says so: "took ID at POSITION" for a receipt, "refused: " and

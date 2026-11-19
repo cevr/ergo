@@ -1,12 +1,18 @@
 package main
 
 import (
-	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 
+	"ergo.local/prototype/internal/linked/code"
+	ckpkg "ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/fix"
 	"ergo.local/prototype/internal/sketch/lint"
 )
@@ -28,6 +34,10 @@ DIR is under a PATH. --go also reads the Ergo programs that .go files hold
 in string literals, each as a program of its own, and edits the literals.
 It prints what it wrote and each pair it could not write, with the repair.
 
+Then it respells the old modes: takes and escaping become own, and the
+borrow *T written outside a Go binding becomes mut T (with --go, in the
+Go string literals too).
+
 Then, for each PATH that is a .ergo file or a folder holding .ergo files,
 it writes the fails, needs and takes clauses that the signatures of the
 file, or of the package in the folder and the local packages it imports,
@@ -35,7 +45,7 @@ are missing (q137: every function writes its clauses). It only adds clause
 elements and the imports they need; it never removes an element and never
 adds a catch. It prints one line per widened signature, public contracts
 first. Other diagnostics are printed, and the exit status is then 1.
-
+` + fixLawsHelp + `
   --dry-run  write nothing
   --check    write nothing; exit 1 when a signature would change
   --json     print the clause results as JSON
@@ -86,10 +96,20 @@ func fixCommand(args []string) error {
 			paths = append(paths, a)
 		}
 	}
-	if len(paths) == 0 || check && dry {
+	if len(paths) == 0 && stdRoot == "" || check && dry {
 		return usageError{message: fixUsage}
 	}
 	write := !check && !dry
+	if len(paths) == 0 {
+		// --std DIR alone: the law pass over the standard library.
+		text, err := fixLaws(nil, stdRoot, write)
+		if err != nil {
+			return exitStatusError{code: 1, message: "ergo fix: " + err.Error()}
+		}
+		fmt.Fprint(os.Stdout, text)
+		return nil
+	}
+	lawPaths, paths := paths, fixFolders(paths)
 	impl, err := fix.Run(fix.Options{Paths: paths, StdRoot: stdRoot, Write: write, Go: goLits})
 	if err != nil {
 		return exitStatusError{code: 1, message: "ergo fix: " + err.Error()}
@@ -100,6 +120,24 @@ func fixCommand(args []string) error {
 			out = os.Stderr // stdout holds only the JSON
 		}
 		fmt.Fprint(out, impl.Text())
+	}
+	// A body marked [T own] above holds its T to a resource's rules, so a
+	// generic callee it binds T to needs the mark too (MODES-5): the pass
+	// again over the rewritten files, until it writes no mark.
+	for round := 0; write && round < 8 && impl.WroteOwn(); round++ {
+		if stdRoot != "" {
+			ckpkg.ResetStdForTest() // std is checked again from the rewritten sources
+		}
+		if impl, err = fix.Run(fix.Options{Paths: paths, StdRoot: stdRoot, Write: true, Go: goLits}); err != nil {
+			return exitStatusError{code: 1, message: "ergo fix: " + err.Error()}
+		}
+		if len(impl.Written) > 0 || len(impl.Unwritten) > 0 {
+			out := os.Stdout
+			if asJSON {
+				out = os.Stderr
+			}
+			fmt.Fprint(out, impl.Text())
+		}
 	}
 	// The keep mode's old spellings (takes, escaping) become own (EXM1).
 	// Syntactic: it reads every file under the paths, bindings included,
@@ -114,6 +152,49 @@ func fixCommand(args []string) error {
 			out = os.Stderr // stdout holds only the JSON
 		}
 		fmt.Fprint(out, text)
+	}
+	// The borrow *T becomes the mode word mut T outside a Go binding
+	// (MODES-1; q169). Syntactic, like the keep mode's pass above.
+	muts, err := fix.RunMut(fix.Options{Paths: paths, Write: write, Go: goLits})
+	if err != nil {
+		return exitStatusError{code: 1, message: "ergo fix: " + err.Error()}
+	}
+	if text := muts.Text(); text != "" {
+		out := os.Stdout
+		if asJSON {
+			out = os.Stderr // stdout holds only the JSON
+		}
+		fmt.Fprint(out, text)
+	}
+	if write && len(muts.Files) > 0 {
+		// [T lent C] became x mut T above, so each operation of C that a
+		// function on mut T implements is marked mut now (MODES-4): the
+		// implements pass again, over the rewritten files.
+		again, err := fix.Run(fix.Options{Paths: paths, StdRoot: stdRoot, Write: true, Go: goLits})
+		if err != nil {
+			return exitStatusError{code: 1, message: "ergo fix: " + err.Error()}
+		}
+		if len(again.Written) > 0 || len(again.Unwritten) > 0 {
+			out := os.Stdout
+			if asJSON {
+				out = os.Stderr // stdout holds only the JSON
+			}
+			fmt.Fprint(out, again.Text())
+		}
+	}
+	// The law pass (LAWLOC); --check skips it while S115 is off.
+	if !check {
+		text, err := fixLaws(lawPaths, stdRoot, write)
+		if err != nil {
+			return exitStatusError{code: 1, message: "ergo fix: " + err.Error()}
+		}
+		if text != "" {
+			out := os.Stdout
+			if asJSON {
+				out = os.Stderr // stdout holds only the JSON
+			}
+			fmt.Fprint(out, text)
+		}
 	}
 	rep := fixReport{Changed: []fix.Change{}, Remaining: []fix.Diagnostic{}}
 	for _, path := range paths {
@@ -214,8 +295,14 @@ func displayPath(path string) string {
 	return path
 }
 
-// writeFixed writes each changed file once, by rename, after checking
-// that it still holds the text the fix read.
+// writeFixed writes the files whose text changes from before to after
+// (keyed by path) as one plan, by std code's apply protocol
+// (code.Rewrite, SEMTOOLS SEM4c): each is exchanged with its new text in
+// one host call, under the workspace's lock, after a check that every
+// file still holds the text the fix read; a file changed meanwhile is
+// refused Stale and no file is written. Each file keeps its mode. The
+// workspace folder is the folder that holds every path; the lock and the
+// journal are in fixState's folder, so the user's folder gains nothing.
 func writeFixed(before, after map[string]string) error {
 	var paths []string
 	for p, text := range after {
@@ -223,38 +310,60 @@ func writeFixed(before, after map[string]string) error {
 			paths = append(paths, p)
 		}
 	}
+	if len(paths) == 0 {
+		return nil
+	}
 	slices.Sort(paths)
-	for _, p := range paths {
-		info, err := os.Stat(p)
-		if err != nil {
-			return err
-		}
-		now, err := os.ReadFile(p)
-		if err != nil {
-			return err
-		}
-		if !bytes.Equal(now, []byte(before[p])) {
-			return fmt.Errorf("fix: %s changed while it was fixed; nothing written to it", p)
-		}
-		temp, err := os.CreateTemp(filepath.Dir(p), "."+filepath.Base(p)+".ergo-fix-*")
-		if err != nil {
-			return err
-		}
-		_, werr := temp.WriteString(after[p])
-		cerr := temp.Close()
-		if werr == nil {
-			werr = cerr
-		}
-		if werr == nil {
-			werr = os.Chmod(temp.Name(), info.Mode().Perm())
-		}
-		if werr == nil {
-			werr = os.Rename(temp.Name(), p)
-		}
-		if werr != nil {
-			_ = os.Remove(temp.Name())
-			return werr
+	root := filepath.Dir(paths[0])
+	for _, p := range paths[1:] {
+		for root != filepath.Dir(root) && !strings.HasPrefix(p, root+string(filepath.Separator)) {
+			root = filepath.Dir(root)
 		}
 	}
+	was, now := []codeSource{}, []codeSource{}
+	for _, p := range paths {
+		rel, err := filepath.Rel(root, p)
+		if err != nil {
+			return err
+		}
+		was = append(was, codeSource{File: filepath.ToSlash(rel), Text: before[p]})
+		now = append(now, codeSource{File: filepath.ToSlash(rel), Text: after[p]})
+	}
+	b, err := json.Marshal(was)
+	if err != nil {
+		return err
+	}
+	a, err := json.Marshal(now)
+	if err != nil {
+		return err
+	}
+	state, err := fixState(root)
+	if err != nil {
+		return err
+	}
+	out, err := code.Rewrite(context.Background(), root, state, string(b), string(a))
+	if err != nil {
+		return fmt.Errorf("fix: %w", err)
+	}
+	if len(out) < 3 || out[0] != "0" {
+		return fmt.Errorf("%s", strings.TrimSpace(strings.Join(out[min(len(out), 2):], "")))
+	}
 	return nil
+}
+
+// fixState is the folder of ergo fix's lock and journal for the workspace
+// folder root: in the user's cache folder, named by root's path, so two
+// fixes of one folder take one lock, a fix that died is undone by the
+// next one, and root gains no file.
+func fixState(root string) (string, error) {
+	cache, err := os.UserCacheDir()
+	if err != nil {
+		return "", fmt.Errorf("fix: no cache folder for the apply lock: %w", err)
+	}
+	abs, err := filepath.Abs(root)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256([]byte(abs))
+	return filepath.Join(cache, "ergo", "fix", hex.EncodeToString(sum[:8])), nil
 }

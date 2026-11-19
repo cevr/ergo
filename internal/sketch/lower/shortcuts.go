@@ -159,6 +159,32 @@ var shortcuts = []shortcut{
 		referenced: func() bool { return !valueOwned() },
 	},
 	{
+		// LF1: a live slice goes to a Go function whose binding says it
+		// only reads the operand with no copy (gofacts.go). The test build
+		// copies it and compares after the call (v1.GoReadsCheck).
+		name:       "host-reads",
+		class:      valueClass,
+		admission:  "readsOK",
+		reference:  "hostCopyAlways=true",
+		agreement:  "TestHostCopyElisionAgrees",
+		mutant:     "ffi-reads-without-fact",
+		referenced: func() bool { return hostCopyAlways },
+	},
+	{
+		// LF2b (owner q193): a Go call that only reads a string's bytes
+		// gets a view of them, not a copy (view.go). The test build passes
+		// a guarded copy that faults at a write, a read past the end and a
+		// late read.
+		name:       "host-view",
+		class:      memoryClass,
+		admission:  "viewOK",
+		reference:  "hostViewLowering=copy",
+		agreement:  "TestHostViewAgrees",
+		mutant:     "view-on-assumed",
+		unsafe:     []string{"runtime/v1/view.go BytesView"},
+		referenced: func() bool { return hostViewLowering == "copy" },
+	},
+	{
 		// MONO1: a call of a generic function whose type arguments are
 		// known Go types goes to a plain copy for them (mono.go). The
 		// proof is the checker's instantiation; the test build takes the
@@ -194,6 +220,33 @@ var shortcuts = []shortcut{
 		referenced: func() bool { return !valueOwned() },
 	},
 	{
+		name:       "own-call-pass",
+		class:      valueClass,
+		admission:  "passedApart",
+		reference:  "borrowPassLowering=off",
+		agreement:  "TestHandoverAgrees",
+		mutant:     "own-call-pass-write-blind",
+		referenced: func() bool { return !valueOwned() || !borrowPassOn() },
+	},
+	{
+		name:       "own-enter-field",
+		class:      valueClass,
+		admission:  "sharedField",
+		reference:  "valueLowering=copy",
+		agreement:  "TestHandoverAgrees",
+		mutant:     "own-enter-field-write-blind",
+		referenced: func() bool { return !valueOwned() },
+	},
+	{
+		name:       "own-borrow-return",
+		class:      valueClass,
+		admission:  "borrowRetSites",
+		reference:  "valueLowering=copy",
+		agreement:  "TestHandoverAgrees",
+		mutant:     "own-borrow-return-caller-blind",
+		referenced: func() bool { return !valueOwned() },
+	},
+	{
 		name:       "own-reslice",
 		class:      valueClass,
 		admission:  "reslices",
@@ -212,6 +265,51 @@ var shortcuts = []shortcut{
 		referenced: func() bool { return !valueOwned() },
 	},
 	{
+		name:       "own-return",
+		class:      valueClass,
+		admission:  "returnsBefore",
+		reference:  "valueLowering=copy",
+		agreement:  "TestHandoverAgrees",
+		mutant:     "reuse-return-whole-on-consuming-route",
+		referenced: func() bool { return !valueOwned() },
+	},
+	{
+		name:       "own-parts",
+		class:      valueClass,
+		admission:  "partsTaken",
+		reference:  "valueLowering=copy",
+		agreement:  "TestHandoverAgrees",
+		mutant:     "reuse-parts-overlap",
+		referenced: func() bool { return !valueOwned() },
+	},
+	{
+		name:       "own-move",
+		class:      valueClass,
+		admission:  "baseCovers",
+		reference:  "valueLowering=copy",
+		agreement:  "TestHandoverAgrees",
+		mutant:     "reuse-move-shared-field",
+		referenced: func() bool { return !valueOwned() },
+	},
+	{
+		name:       "own-catch",
+		class:      valueClass,
+		admission:  "catchTaken",
+		reference:  "valueLowering=copy",
+		agreement:  "TestHandoverAgrees",
+		mutant:     "reuse-catch-arm-shares",
+		referenced: func() bool { return !valueOwned() },
+	},
+	{
+		name:       "own-update-self",
+		class:      valueClass,
+		admission:  "updateSelf",
+		reference:  "valueLowering=copy",
+		agreement:  "TestHandoverAgrees",
+		mutant:     "reuse-update-self-reads-old",
+		referenced: func() bool { return !valueOwned() },
+	},
+	{
 		name:       "own-ref-in-place",
 		class:      valueClass,
 		admission:  "inPlaceOf",
@@ -219,6 +317,15 @@ var shortcuts = []shortcut{
 		agreement:  "TestValueRuleAgrees",
 		mutant:     "own-ref-in-place-cloned-init",
 		referenced: func() bool { return !valueOwned() },
+	},
+	{
+		name:       "uni-slot",
+		class:      valueClass,
+		admission:  "slotAdmit",
+		reference:  "slotLowering=off",
+		agreement:  "TestFlatUnionsAgree",
+		mutant:     "uni-slot-shared-by-two-live-results",
+		referenced: func() bool { return slotLowering == "off" },
 	},
 }
 

@@ -1,0 +1,118 @@
+// admit runs the jobs on standard input through a gate of the capacity
+// its argument names, after checking their payloads:
+//
+//	admit [-memory] CAPACITY < JOBS
+//
+// Each input line is "NAME WEIGHT PAYLOAD". admit prints each step of the
+// run (start, queue, finish, refuse) and then the refused jobs, joined as
+// Go's errors.Join joins errors, with status 1 when any was refused.
+//
+// This binary is the only place that chooses the providers: the gate over
+// Go's golang.org/x/sync/semaphore and the checker over its errgroup, or,
+// with -memory, admit/memory's.
+
+import admit/errgroup
+import admit/jobs
+import admit/memory
+import admit/semaphore
+import go errors
+import io
+import os
+import strconv
+
+// Usage is the text of a usage failure.
+let Usage = "usage: admit [-memory] CAPACITY < JOBS"
+
+// Config is what the arguments ask for.
+type Config { Capacity int, Memory bool }
+
+// Parse is the config of args.
+func Parse(args []string) Config fails os.Exit {
+	let memory = len(args) == 2 && args[0] == "-memory"
+	if len(args) != 1 && !memory {
+		return os.Exit{Code: 2, Message: Usage}
+	}
+	let capacity = strconv.Atoi(args[len(args)-1]) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return os.Exit{Code: 2, Message: Usage}
+	}
+	if capacity < 1 {
+		return os.Exit{Code: 2, Message: Usage}
+	}
+	Config{Capacity: capacity, Memory: memory}
+}
+
+// refusals is a Go error for each refused job.
+func refusals(events []jobs.Event) []go.Error {
+	let mut out = []go.Error{}
+	for e in events {
+		match e {
+		case jobs.Refused as r:
+			out = out.Append(go.Error{Text: "\(r.Name) weighs \(r.Weight), more than the capacity \(r.Capacity)"})
+		case jobs.Started, jobs.Queued, jobs.Finished:
+		}
+	}
+	out
+}
+
+// Admit checks the payloads of js, runs them through the gate and prints
+// each step, then the refused jobs.
+func Admit(js []jobs.Job) fails os.Exit needs Console | jobs.Gate | jobs.Checker | go.Foreign {
+	jobs.Checker.Check(js) catch {
+	case jobs.BadPayload as b:
+		return os.Exit{Code: 1, Message: "admit: job \(b.Name): \(b.Reason)"}
+	}
+	let events = jobs.Run(js) catch {
+	case jobs.Stopped:
+		return os.Exit{Code: 1, Message: "admit: stopped"}
+	}
+	for e in events {
+		Console.Println(jobs.Line(e))
+	}
+	errors.Join(refusals(events)) catch {
+	case go.Error as e:
+		Console.Println("refused:\n\(e.Text)")
+		return os.Exit{Code: 1, Message: "admit: \(len(refusals(events))) refused"}
+	}
+}
+
+func main() fails os.Exit needs Console | Ambient | go.Foreign {
+	let config = try Parse(os.NewHost().Args())
+	let text = io.NewStdin().ReadAll() catch {
+	case io.ReadFailed as r:
+		return os.Exit{Code: 1, Message: "admit: \(r.Reason)"}
+	}
+	let js = jobs.Parse(text) catch {
+	case jobs.BadLine as b:
+		return os.Exit{Code: 1, Message: "admit: line \(b.Line): \"\(b.Text)\" is not NAME WEIGHT PAYLOAD"}
+	}
+	if config.Memory {
+		with context { jobs.Gate: memory.New(config.Capacity), jobs.Checker: memory.Checker } {
+			try Admit(js)
+		}
+		return
+	}
+	match semaphore.New(config.Capacity) {
+	case Some[semaphore.Gate] as g:
+		with context { jobs.Gate: g.Value, jobs.Checker: errgroup.New(4) } {
+			try Admit(js)
+		}
+	case None:
+		return os.Exit{Code: 1, Message: "admit: Go gave no semaphore"}
+	}
+}
+
+test ParseReadsEachForm {
+	assert try Parse([]string{"3"}) == Config{Capacity: 3, Memory: false}
+	assert try Parse([]string{"-memory", "2"}) == Config{Capacity: 2, Memory: true}
+	assert exitOf([]string{}) == 2 && exitOf([]string{"0"}) == 2 && exitOf([]string{"-x", "2"}) == 2
+}
+
+// exitOf is the exit code Parse(args) fails with, or 0.
+func exitOf(args []string) int {
+	Parse(args) catch {
+	case os.Exit as e:
+		return int(e.Code)
+	}
+	0
+}

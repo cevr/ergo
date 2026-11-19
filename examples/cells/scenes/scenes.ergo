@@ -1,0 +1,134 @@
+// Package scenes plays the scene scripts of the two GUI examples
+// (counter-gui and todo-gui), unchanged, on the cell host and on
+// ui.TestHost, and holds them to each other: the same steps fail, the
+// same tree shows, and a terminal that reads the host's frames shows the
+// host's grid. The scripts are each example's own seeded workload
+// (script.Gen).
+
+import actor
+import ergo.local/prototype/examples/cells/grid
+import ergo.local/prototype/examples/cells/host
+import ergo.local/prototype/examples/countergui/counter
+import ergo.local/prototype/examples/countergui/view
+import ergo.local/prototype/examples/countergui/script
+import ergo.local/prototype/examples/todogui/todo
+import todoview ergo.local/prototype/examples/todogui/view
+import todoscript ergo.local/prototype/examples/todogui/script
+import time
+import ui
+
+// Cols and Rows are the terminal the scenes play on.
+let Cols = 100
+
+let Rows = 40
+
+// Outcome is how one step of a script ended on a host.
+type Outcome = Done{} | Missing{Label string} | Unclear{Count int} | Refused{} | Broken{}
+
+// onTest is how a step ended on the test host.
+func onTest[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], act ui.Act) Outcome {
+	ui.Play(h, []ui.Act{act}) catch {
+	case ui.NoNode as n:
+		return Missing{Label: n.Label}
+	case ui.Ambiguous as x:
+		return Unclear{Count: x.Count}
+	case ui.Mismatch:
+		return Refused
+	case _:
+		return Broken
+	}
+	Done
+}
+
+// onCells is how a step ended on the cell host.
+func onCells[E comparable, S, D, F](h mut host.Host[S, E, D, F], act ui.Act) Outcome {
+	host.Play(h, []ui.Act{act}) catch {
+	case ui.NoNode as n:
+		return Missing{Label: n.Label}
+	case ui.Ambiguous as x:
+		return Unclear{Count: x.Count}
+	case ui.Mismatch:
+		return Refused
+	case _:
+		return Broken
+	}
+	Done
+}
+
+// Agree plays acts on both hosts and is whether, after every step, both
+// ended it alike, both show the same tree, and the terminal that read
+// every frame shows the cell host's grid.
+func Agree[E comparable, S, D, F, D2, F2](t mut ui.TestHost[S, E, D, F], c mut host.Host[S, E, D2, F2], acts []ui.Act) bool {
+	let mut screen = grid.New(Cols, Rows)
+	for f in host.Take(c) {
+		screen = grid.Replay(screen, f)
+	}
+	for act in acts {
+		let a = onTest(t, act)
+		let b = onCells(c, act)
+		if a != b || a == Broken {
+			return false
+		}
+		for f in host.Take(c) {
+			screen = grid.Replay(screen, f)
+		}
+		if !ui.SameShapes(ui.Screen(t), host.Screen(c)) || screen != host.Grid(c) {
+			return false
+		}
+	}
+	true
+}
+
+// CounterAgrees: a seeded counter-gui script shows the same on the cell
+// host as on the test host, with the same count.
+law CounterAgrees(seed int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		counterAgrees(uint64(seed), m)
+	}
+}
+
+func counterAgrees(seed uint64, m time.Manual) bool needs Scheduler {
+	let acts = script.Parse(script.Gen(seed, 16)) catch {
+	case script.BadLine:
+		return false
+	}
+	let a = actor.StartMachine(counter.Counter{}, 8, func(c counter.Count) {})
+	let b = actor.StartMachine(counter.Counter{}, 8, func(c counter.Count) {})
+	let mut t = ui.NewTestHost(a, view.View, m, 8) catch {
+	case ui.BadPatch:
+		return false
+	}
+	let mut c = host.New(b, Cols, Rows, 8, view.View) catch {
+	case ui.BadPatch:
+		return false
+	}
+	Agree(&t, &c, acts) && ui.StateOf(&t) == host.StateOf(&c)
+}
+
+// TodoAgrees: a seeded todo-gui script (typing into the field, marks,
+// removals, filters) shows the same on the cell host as on the test host.
+law TodoAgrees(seed int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		todoAgrees(uint64(seed), m)
+	}
+}
+
+func todoAgrees(seed uint64, m time.Manual) bool needs Scheduler {
+	let acts = todoscript.Parse(todoscript.Gen(seed, 16)) catch {
+	case todoscript.BadLine:
+		return false
+	}
+	let a = actor.StartMachine(todo.Todo{}, 8, func(l todo.List) {})
+	let b = actor.StartMachine(todo.Todo{}, 8, func(l todo.List) {})
+	let mut t = ui.NewTestHost(a, todoview.View, m, 8) catch {
+	case ui.BadPatch:
+		return false
+	}
+	let mut c = host.New(b, Cols, Rows, 8, todoview.View) catch {
+	case ui.BadPatch:
+		return false
+	}
+	Agree(&t, &c, acts)
+}

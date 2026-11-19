@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"syscall"
@@ -147,6 +148,10 @@ func emitTests(u lower.Unit, p Path, dir string) error {
 	return writeModule(dir, files)
 }
 
+// ownedBodyHead is the Go header of an owned body (values.go V5: f's
+// body under the name fOwned, which its wrapper f calls).
+var ownedBodyHead = regexp.MustCompile(`(?m)^func (\([^)]*\) )?[A-Za-z0-9_]+Owned(\[|\()`)
+
 // irAgrees is the agreement property over the examples (plan-tier §1.2),
 // split by target (TestIRAgreesOnExamplesPart0 …): every example binary
 // and every example test build, built by the source path (the reference)
@@ -166,6 +171,16 @@ var irAgrees = newSplit(split[exampleTarget]{
 	run:   agreeOn,
 })
 
+// countedCases are the example cases that print a count of the lowering's
+// own work, not the program's meaning: catalog's receipt prints heap
+// allocations per decode (testing.AllocsPerRun), which the source and IR
+// lowerings may differ in (B-BUILTINS: the IR's unescape appends to its
+// buffer in place, 8 against the source's 10). Their expected.out holds
+// the build path's counts, the IR's; agreeOn does not compare them, and
+// logs the skip. Accepted until F8 deletes the text path (orchestrator,
+// 2026-11-16), when the agreement and this set go with it.
+var countedCases = map[string]bool{"catalog/receipt": true}
+
 // agreeOn checks the agreement on one target.
 func agreeOn(t *testing.T, target exampleTarget) {
 	src, ir := needsBuild(t)
@@ -179,6 +194,22 @@ func agreeOn(t *testing.T, target exampleTarget) {
 	}
 	work := t.TempDir()
 	sb, ib, rep := both(t, u, src, ir, work, BuildOptions{})
+	// A static frame's release helper is an IR function (RELEASE-IR): no
+	// example keeps one as Go text, a std operation type's Close
+	// (fs.Mapped) included.
+	// Each owned body's wrapper (values.go V5) is an IR function too
+	// (OWNED-WRAP-IR), beside an IR or a source owned body.
+	gofiles, _ := filepath.Glob(filepath.Join(work, "ir", "*.go"))
+	for _, f := range gofiles {
+		data, _ := os.ReadFile(f)
+		text := string(data)
+		if strings.Contains(text, "static frame (IR, FLIP F7).") {
+			t.Errorf("%s: a static frame's release helper is Go text in %s, not IR", target.key(), filepath.Base(f))
+		}
+		if bodies, wrappers := len(ownedBodyHead.FindAllString(text, -1)), strings.Count(text, "(FLIP F7, OWNED-WRAP-IR)."); wrappers != bodies {
+			t.Errorf("%s: %d owned bodies in %s, %d IR wrappers: a wrapper is Go text", target.key(), bodies, filepath.Base(f), wrappers)
+		}
+	}
 	// The program's cases run on its own binary: examples/P/main.ergo or
 	// examples/P/cmd/P/main.ergo.
 	prog := programOf(target.root, target.dir)
@@ -187,6 +218,10 @@ func agreeOn(t *testing.T, target exampleTarget) {
 	}
 	cases := 0
 	for _, c := range loadCases(prog) {
+		if countedCases[filepath.Base(prog)+"/"+c.name] {
+			t.Logf("%s/%s: not compared: it prints a count of the lowering's own work, which the two paths differ in (accepted until F8 deletes the text path)", filepath.Base(prog), c.name)
+			continue
+		}
 		agree(t, filepath.Base(prog)+"/"+c.name, runCase(t, sb, c), runCase(t, ib, c))
 		cases++
 	}

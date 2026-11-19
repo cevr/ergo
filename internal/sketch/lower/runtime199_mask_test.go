@@ -38,11 +38,19 @@ var taskReleaseLaws = map[string]string{
 	"Running.Stop":  "runtime/v1 TestRunningMatchesModel; lower TestExecStartRuns (post-stop status)",
 }
 
+// irReleaseLaws are the exit-action bindings only the IR path lowers to
+// (FLIP F7 STATIC-EXIT): the emitted Go this property drives never calls
+// them, so the property named here holds each equal to the general
+// scope's OnExit, which this property drives.
+var irReleaseLaws = map[string]string{
+	"ExitsOnExit": "irspike TestIRFramesMatchSource (return, typed failure, defect in the body and in an action), TestIRStaticExits",
+}
+
 func TestRuntime199MaskProperty(t *testing.T) {
 	needsBuild(t)
 	routes := map[releaseRoute][]string{}
 	for name, binding := range runtimeBindings() {
-		if binding.release == notRelease || taskReleaseLaws[name] != "" {
+		if binding.release == notRelease || taskReleaseLaws[name] != "" || irReleaseLaws[name] != "" {
 			continue
 		}
 		if _, err := v1.BodyOf(name); err != nil {
@@ -410,7 +418,7 @@ func viaGeneric(fail bool, signal queue.Queue[int]) needs Ambient {
 		extra: `
 type Held { Fail bool } implements Closer
 
-func Close(h *Held) needs Scheduler {
+func Close(h mut Held) needs Scheduler {
 	Scheduler.Sleep(4h)
 	if h.Fail {
 		let xs = []int{}

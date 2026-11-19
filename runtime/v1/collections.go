@@ -4,13 +4,12 @@ package v1
 // Slices and Maps; std-align S2a). Each calls Go's function of the same
 // name. A function that sorts or reverses in Go returns a new slice here
 // and leaves its argument unchanged, because an Ergo let is immutable and
-// aliasing is visible (std-align plan, owner question 3). Max, Min and
-// BinarySearch are the Go halves of Ergo bodies that return an Option: the
-// Ergo body checks the case Go answers with a panic or a second result.
+// aliasing is visible (std-align plan, owner question 3). cmp's Compare and
+// Less and slices' Contains, Index, Equal, Max, Min and BinarySearch are
+// Ergo bodies (NP4f-3).
 //
 // This file imports only slices, so its pure bodies stay inside
-// PureImports. Go's cmp is not imported: CmpCompare and CmpLess restate
-// cmp.Compare and cmp.Less, and TestStdCmpMatchesGo holds them to Go's.
+// PureImports.
 //
 // Prior art: Go's slices and cmp packages, which these call or restate;
 // Gleam's gleam/list binds Erlang's lists:sort the same way, as a direct
@@ -72,19 +71,6 @@ func SlicesSortStableFunc[T any](xs []T, compare func(a T, b T) int) []T {
 	slices.SortStableFunc(out, compare)
 	return out
 }
-
-// SlicesContains is slices.Contains(xs, x).
-//
-//ergo:pure
-//ergo:wait none
-func SlicesContains[T comparable](xs []T, x T) bool { return slices.Contains(xs, x) }
-
-// SlicesIndex is slices.Index(xs, x): the index of the first x in xs, or
-// -1.
-//
-//ergo:pure
-//ergo:wait none
-func SlicesIndex[T comparable](xs []T, x T) int { return slices.Index(xs, x) }
 
 // SlicesReverse is a copy of xs in the reverse order. Where xs is
 // consumed (no binding reads it after the call), the lowering calls its
@@ -161,12 +147,48 @@ func AppendPoison[T any](xs []T, x T) []T {
 	return out
 }
 
+// SlicesInsert is xs with ys before index i, in a new array: Go's
+// slices.Insert(xs, i, ys...) writes xs's array when it has room, so the
+// body concatenates instead, and the result shares no array with xs or
+// ys. An i outside 0..len(xs) panics, as Go's does: a defect.
+//
+//ergo:pure
+//ergo:wait none
+func SlicesInsert[T any](xs []T, i int, ys []T) []T { return slices.Concat(xs[:i:i], ys, xs[i:]) }
+
+// SlicesDelete is xs without xs[i:j], in a new array: Go's
+// slices.Delete(xs, i, j) shifts xs's own elements and zeroes its tail, so
+// the body concatenates instead. A bound outside 0..len(xs), or an i after
+// j, panics: a defect.
+//
+//ergo:pure
+//ergo:wait none
+func SlicesDelete[T any](xs []T, i int, j int) []T {
+	_ = xs[i:j]
+	return slices.Concat(xs[:i:i], xs[j:])
+}
+
 // SlicesRepeat is slices.Repeat(xs, n): xs n times over, in a new array.
 // A negative n, or a length past int, panics, as Go's does: a defect.
 //
 //ergo:pure
 //ergo:wait none
 func SlicesRepeat[T any](xs []T, n int) []T { return slices.Repeat(xs, n) }
+
+// SlicesFill is slices.Repeat(xs, n) written into out, which the caller
+// makes with length len(xs)*n, a constant (wf10 OWN1 PA3): the caller's
+// make of constant length stays on its stack when the result does not
+// escape, as hand Go's `var a [12]int` does. xs is not kept. It returns
+// out.
+//
+//ergo:pure
+//ergo:wait none
+func SlicesFill[T any](out []T, xs []T) []T {
+	for i := 0; i < len(out); i += len(xs) {
+		copy(out[i:], xs)
+	}
+	return out
+}
 
 // SlicesSlice is xs[i:j:j], the full slice expression: no room after j,
 // so an append to the result copies and never writes xs[j]. A bound out
@@ -177,7 +199,7 @@ func SlicesRepeat[T any](xs []T, n int) []T { return slices.Repeat(xs, n) }
 func SlicesSlice[T any](xs []T, i int, j int) []T { return xs[i:j:j] }
 
 // MapsClone is maps.Clone(m): a new map with the keys and values of m.
-// It is restated, as CmpCompare is, because maps is not in PureImports.
+// It is restated because maps is not in PureImports.
 //
 //ergo:pure
 //ergo:wait none
@@ -187,74 +209,6 @@ func MapsClone[K comparable, V any](m map[K]V) map[K]V {
 		out[k] = v
 	}
 	return out
-}
-
-// SlicesMax is slices.Max(xs). An empty xs is a defect, Go's panic; the
-// Ergo body of slices.Max calls it only on a non-empty slice.
-//
-//ergo:pure
-//ergo:wait none
-func SlicesMax[T ordered](xs []T) T { return slices.Max(xs) }
-
-// SlicesMin is slices.Min(xs), under the rule of SlicesMax.
-//
-//ergo:pure
-//ergo:wait none
-func SlicesMin[T ordered](xs []T) T { return slices.Min(xs) }
-
-// SlicesBinarySearch is the index of x in the sorted xs that Go's
-// slices.BinarySearch finds, or -1 when xs has no x.
-//
-//ergo:pure
-//ergo:wait none
-func SlicesBinarySearch[T ordered](xs []T, x T) int {
-	i, found := slices.BinarySearch(xs, x)
-	if !found {
-		return -1
-	}
-	return i
-}
-
-// SlicesEqual is slices.Equal(a, b): the same length and equal elements in
-// order.
-//
-//ergo:pure
-//ergo:wait none
-func SlicesEqual[T comparable](a []T, b []T) bool { return slices.Equal(a, b) }
-
-// CmpCompare is Go's cmp.Compare(a, b), restated: -1, 0 or +1. A NaN is
-// less than any other float and equal to a NaN, as in Go.
-//
-//ergo:pure
-//ergo:wait none
-func CmpCompare[T ordered](a T, b T) int {
-	aNaN := a != a
-	bNaN := b != b
-	if aNaN {
-		if bNaN {
-			return 0
-		}
-		return -1
-	}
-	if bNaN {
-		return +1
-	}
-	if a < b {
-		return -1
-	}
-	if a > b {
-		return +1
-	}
-	return 0
-}
-
-// CmpLess is Go's cmp.Less(a, b), restated: a before b in CmpCompare's
-// order.
-//
-//ergo:pure
-//ergo:wait none
-func CmpLess[T ordered](a T, b T) bool {
-	return (a != a && b == b) || a < b
 }
 
 // CmpMax is Go's builtin max(a, b): the larger value; for floats a NaN

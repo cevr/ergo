@@ -1,0 +1,75 @@
+// The ISO 8601 text of a date: 2027-02-28.
+
+import strings
+import time
+
+// ParseError is the failure of ParseISODate: Text is not a date in the form
+// YYYY-MM-DD, or names no such day. At is the byte where it breaks: the
+// first byte that is not the digit or the dash the form has there, the
+// length when the text is shorter or longer, or 0 for a day that does not
+// exist (Reason says which).
+type ParseError { Text string, At int, Reason string }
+
+// Text is d as YYYY-MM-DD, the form of ISO 8601, RFC 3339 and Go's
+// time.DateOnly.
+func Text(d Date) string {
+	let c = civilFromDays(int64(d.day))
+	pair(c.year / 100) + pair(c.year % 100) + "-" + pair(c.month) + "-" + pair(c.day)
+}
+
+// pair is n, 0 to 99, in two digits.
+func pair(n int64) string { digitPairs[int(n) * 2:int(n) * 2 + 2] }
+
+// digitPairs is the two-digit texts 00 to 99 in a row, so Text is one
+// concatenation (one allocation) of slices of a constant.
+let digitPairs = "00010203040506070809101112131415161718192021222324252627282930313233343536373839404142434445464748495051525354555657585960616263646566676869707172737475767778798081828384858687888990919293949596979899"
+
+// ParseISODate is the date s writes as YYYY-MM-DD: exactly ten bytes, ASCII
+// digits and two dashes, and a day that exists. So 2027-02-30, 2027-2-28,
+// a sign and trailing text are ParseErrors, never another day.
+func ParseISODate(s string) Date fails ParseError {
+	if len(s) != 10 {
+		return ParseError{Text: s, At: if len(s) < 10 { len(s) } else { 10 }, Reason: "want 10 bytes, YYYY-MM-DD"}
+	}
+	let mut n = []int64{0, 0, 0}
+	for i in 0..10 {
+		let c = s[i]
+		if i == 4 || i == 7 {
+			if c != '-' {
+				return ParseError{Text: s, At: i, Reason: "want -"}
+			}
+		} else if c < '0' || c > '9' {
+			return ParseError{Text: s, At: i, Reason: "want a digit"}
+		} else {
+			let f = if i < 4 { 0 } else if i < 7 { 1 } else { 2 }
+			n[f] = n[f]*10 + int64(c-'0')
+		}
+	}
+	if n[1] < 1 || n[1] > 12 {
+		return ParseError{Text: s, At: 5, Reason: "no month \(n[1])"}
+	}
+	NewDate(int(n[0]), monthOf(n[1]), int(n[2])) catch {
+	case NoSuchDate:
+		return ParseError{Text: s, At: 0, Reason: "no such day"}
+	}
+}
+
+// TextRoundTrips: ParseISODate reads back the text Text writes, ten bytes,
+// and refuses it with a byte more or less.
+law TextRoundTrips(n int64) {
+	let d = anyDay(n)
+	let s = Text(d)
+	let back = ParseISODate(s) catch {
+	case ParseError:
+		return false
+	}
+	let longer = ParseISODate(s + "0") catch {
+	case ParseError:
+		MinDate()
+	}
+	let shorter = ParseISODate(strings.Slice(s, 0, 9)) catch {
+	case ParseError:
+		MinDate()
+	}
+	back == d && len(s) == 10 && Text(longer) == "0001-01-01" && Text(shorter) == "0001-01-01" && s == time.Format(time.Unix(UnixDays(d)*86400, 0), time.DateOnly)
+}
