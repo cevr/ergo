@@ -40,7 +40,9 @@ import (
 //     IR-STDINL; its result's zero value set dead, IR-DEADZERO) and puts
 //     a record literal in its freed slot through a field (Put's reuse:
 //     a stored call and a stored literal, IR-STOREFIELDS), all generic,
-//     so a copy's stored call and literal spell the site's types; the loop
+//     so a copy's stored call and literal spell the site's types (a
+//     field of type T read from old gets a temporary of the site's
+//     type); the loop
 //     drops that helper's value once and reads it once;
 //   - the variant with no result of the looping body above is the IR's
 //     (IR-DROPBODY), not the emitter's text;
@@ -59,10 +61,10 @@ func GenerateInline(seed uint64) string {
 	b.WriteString("type Acc[T] { items []T, hits int, last T, idx Map[int, int] }\n\n")
 	b.WriteString("type Pair { a int, b int }\n\n")
 	b.WriteString("type Gone { At int }\n\n")
-	b.WriteString("type Slot[T] { v T, n int }\n\n")
+	b.WriteString("type Slot[T] { v T, w T, n int }\n\n")
 	b.WriteString("type Holder[T] { r arena.Ref[Slot[T]] }\n\n")
 	b.WriteString("func take[T](ar *arena.Of[Slot[T]], r arena.Ref[Slot[T]]) Slot[T] {\n\tlet v = ar.Free(r) catch {\n\tcase arena.Stale:\n\t\tUnreachable(\"take of a freed ref\")\n\t}\n\tv\n}\n\n")
-	fmt.Fprintf(&b, "func cycle[T](ar *arena.Of[Slot[T]], h *Holder[T], x T, i int) Slot[T] {\n\tlet old = take(ar, h.r)\n\th.r = ar.Put(Slot[T]{v: x, n: old.n + i - %d})\n\told\n}\n\n", 1+n(9))
+	fmt.Fprintf(&b, "func cycle[T](ar *arena.Of[Slot[T]], h *Holder[T], x T, i int) Slot[T] {\n\tlet old = take(ar, h.r)\n\th.r = ar.Put(Slot[T]{v: x, w: old.v, n: old.n + i - %d})\n\told\n}\n\n", 1+n(9))
 	fmt.Fprintf(&b, "func fetch[T](a *Acc[T], i int) T fails Gone {\n\tif i >= len(a.items) {\n\t\treturn Gone{At: i}\n\t}\n\ta.hits = a.hits + %d\n\ta.items[i]\n}\n\n", 1+n(3))
 	fmt.Fprintf(&b, "func at[T](a *Acc[T], i int) T {\n\ta.hits = a.hits + 1\n\ta.items[i %% len(a.items)]\n}\n\n")
 	b.WriteString("func sumTo(a *Acc[int], n int) int {\n\tlet mut t = 0\n\tfor i in 0..n {\n\t\tt = t + a.items[i % len(a.items)]\n\t}\n\ta.hits = a.hits + 1\n\tt\n}\n\n")
@@ -94,7 +96,7 @@ func GenerateInline(seed uint64) string {
 	fmt.Fprintf(&b, "\tlet p = Pair{a: %d, b: %d}\n", n(30), 1+n(9))
 	b.WriteString("\tlet mut total = 0\n\tlet mut text = 0\n")
 	b.WriteString("\tlet mut ar = arena.New[Slot[int]]()\n")
-	fmt.Fprintf(&b, "\tlet mut h = Holder[int]{r: ar.Put(Slot[int]{v: %d, n: %d})}\n", n(20), n(20))
+	fmt.Fprintf(&b, "\tlet mut h = Holder[int]{r: ar.Put(Slot[int]{v: %d, w: 0, n: %d})}\n", n(20), n(20))
 	fmt.Fprintf(&b, "\tfor i in 0..%d {\n", 50+n(200))
 	b.WriteString("\t\ttotal = total + step(&a, i, total % 7)\n")
 	b.WriteString("\t\tlet _ = s.keep(s.at(i))\n")
@@ -109,7 +111,7 @@ func GenerateInline(seed uint64) string {
 	b.WriteString("\t\tlet got = a.fetch(i % (len(a.items) + 2)) catch {\n\t\tcase Gone:\n\t\t\t-1\n\t\t}\n")
 	b.WriteString("\t\ttotal = total + got\n")
 	b.WriteString("\t\ttotal = total + shift(p, i) + p.a\n")
-	b.WriteString("\t\tlet _ = cycle(&ar, &h, i, i)\n\t\tlet o = cycle(&ar, &h, total % 11, i)\n\t\ttotal = total + o.v - o.n\n")
+	b.WriteString("\t\tlet _ = cycle(&ar, &h, i, i)\n\t\tlet o = cycle(&ar, &h, total % 11, i)\n\t\ttotal = total + o.v + o.w - o.n\n")
 	b.WriteString("\t}\n")
 	b.WriteString("\tConsole.Println(\"total \\(total) text \\(text) hits \\(a.hits) \\(s.hits) last \\(a.last) \\(s.last) p \\(p.a)\")\n")
 	if defect {
