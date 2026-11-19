@@ -118,13 +118,14 @@ func TestModuleGoBodiesHonourBuildConstraints(t *testing.T) {
 }
 
 // TestCheckKeysHoldTheExperiments (U1 SIMD-SCAN): the Go experiments
-// choose a module body's file, so they are in the key of every answer a
-// later check may reuse. The check cache, flipped from no experiment to
+// choose a module body's file, so every answer a later check may reuse
+// sees them: the check cache through the digest of the built files, the
+// warm key by name. The check cache, flipped from no experiment to
 // GOEXPERIMENT=simd with no file edited, checks the program again and
 // reads the simd file's body (S108), where a reused answer would be the
 // stock one; the warm key changes when only the go env file's
 // GOEXPERIMENT changes, which no environment variable holds. Mutants:
-// cache-experiments-unkeyed, warm-experiments-unkeyed.
+// go-body-edit-unkeyed, warm-experiments-unkeyed.
 func TestCheckKeysHoldTheExperiments(t *testing.T) {
 	root := kernTree(t)
 	t.Setenv("GOEXPERIMENT", "")

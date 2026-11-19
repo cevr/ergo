@@ -152,7 +152,8 @@ type loader struct {
 	platform gobind.Platform
 	// experiments are the Go experiments of the target (goExperiments):
 	// with platform, they choose the module Go files go build compiles
-	// (buildsFor), so both are in every key of a check (environment).
+	// (buildsFor). The check cache sees a flip through the digest of
+	// those files (goBodies); the warm key holds them (WarmKey).
 	experiments []string
 	root        string // the module root, or the root package's folder
 	module      string // the module name; empty with no ergo.mod

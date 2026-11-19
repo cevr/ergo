@@ -160,7 +160,7 @@ func copyBindings(m map[string]string) map[string]string {
 // embeds (Analysis.Fingerprints without the bindings, which the cache
 // compares by their text).
 func (l *loader) environment(p *loadedPackage) string {
-	s := fmt.Sprintf("module %q\nplatform %s/%s\nexperiments %q\ngo.mod %q\ngo.sum %q\n", l.module, l.platform.GOOS, l.platform.GOARCH, l.experiments, l.goModule.GoModFile(), l.goModule.Sum)
+	s := fmt.Sprintf("module %q\nplatform %s/%s\ngo.mod %q\ngo.sum %q\n", l.module, l.platform.GOOS, l.platform.GOARCH, l.goModule.GoModFile(), l.goModule.Sum)
 	names := make([]string, 0, len(p.assets))
 	for name := range p.assets {
 		names = append(names, name)
