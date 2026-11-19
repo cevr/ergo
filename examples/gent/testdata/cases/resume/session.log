@@ -1,0 +1,4 @@
+e "{\"_tag\":\"Submit\",\"text\":\"list the files\"}"
+e "{\"_tag\":\"Delta\",\"text\":\"I will run it.\"}"
+e "{\"_tag\":\"Replied\",\"text\":\"I will run it.\",\"uses\":[{\"_tag\":\"Usable\",\"call\":{\"id\":\"c1\",\"name\":\"shell\",\"arguments\":\"{\\\"command\\\":\\\"ls\\\"}\"},\"request\":{\"_tag\":\"RunShell\",\"command\":\"ls\"}}]}"
+e "{\"_tag\":\"Approve\"}"
