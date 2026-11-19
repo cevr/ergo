@@ -231,7 +231,7 @@ func irBaseName(name string) string {
 
 // irBaseFields gives each field the Go builder reads in fn its base name:
 // the split exports an unexported field two Go packages read (X + name),
-// a program-wide decision too.
+// a program-wide decision too; so are a record literal's type and keys.
 func irBaseFields(fn *irFunc) {
 	var walk func(v reflect.Value)
 	walk = func(v reflect.Value) {
@@ -247,6 +247,14 @@ func irBaseFields(fn *irFunc) {
 		case reflect.Struct:
 			if e, ok := v.Addr().Interface().(*irExpr); ok && e.K == "field" {
 				e.Name = irBaseName(e.Name)
+			}
+			if e, ok := v.Addr().Interface().(*irExpr); ok && e.K == "lit" {
+				// A literal's record type and keys (the type's Go name is
+				// the program's too: pkgName).
+				e.T = irBaseName(e.T)
+				for i, k := range e.Keys {
+					e.Keys[i] = irBaseName(k)
+				}
 			}
 			for i := range v.NumField() {
 				walk(v.Field(i))

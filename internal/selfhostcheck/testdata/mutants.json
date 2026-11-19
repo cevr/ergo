@@ -561,6 +561,17 @@
       "killers": [
         "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
       ]
+    },
+    {
+      "name": "lower-lit-keys-dropped",
+      "origin": "wf10/selfhost/S4c4",
+      "file": "compiler/lower/lower.ergo",
+      "from": "keyIDs = keyIDs.Append(ir.Text(b, k))",
+      "to": "keyIDs = keyIDs.Append(ir.Text(b, \"\"))",
+      "rule": "A record literal's IR keys are its fields' Go names, in its elements' order.",
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ]
     }
   ]
 }

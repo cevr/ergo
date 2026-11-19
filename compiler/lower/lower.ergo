@@ -27,9 +27,11 @@
 // (the Go builder writes the checker's value), escaped strings and runes,
 // float64 literals, and parameters of a plain record (plainRecord) whose
 // basic fields the body reads; a function whose first parameter is one is
-// the Go method T.name (lower's methodReceiver). Lets and calls wait for
-// NAME-LOCAL: a local's and a callee's Go name is program-wide today
-// (selfhost S4c/naming.md).
+// the Go method T.name (lower's methodReceiver). Slice S4c4 adds a plain
+// record as the result, its literal (every field set, keyed or in order)
+// and its update T{..base, F: v} of a parameter (lower's updateLit).
+// Lets and calls wait for NAME-LOCAL: a local's and a callee's Go name is
+// program-wide today (selfhost S4c/naming.md).
 
 import compiler/check/bind
 import compiler/check/expr
@@ -241,6 +243,80 @@ func goName(st fnb, name string, first Option[dense.ID[store.TKey]]) string fail
 	st.k.Recs[r].Name + "." + name
 }
 
+func has(names []string, name string) bool {
+	let mut ok = false
+	for n in names {
+		ok = ok || n == name
+	}
+	ok
+}
+
+// recordLit checks the literal x of a plain record (plainRecord): every
+// field set, keyed or in order (lower's composite), or an update
+// T{..base, F: v} of a parameter base; each value checked. It is the
+// record's index, the keys in source order and their values.
+func recordLit(st fnb, x dense.ID[syntax.Node], cl syntax.CompositeLit) (int, []string, []dense.ID[syntax.Node]) fails Unported {
+	let t = try typeOf(st, x, "CompositeLit")
+	let r = plainRecord(st, t)
+	if r < 0 || dense.Unpack(cl.Type) == None {
+		return stop("literal of no plain record")
+	}
+	let fields = st.k.Recs[r].Fields
+	let p = st.p
+	let n = syntax.Len(cl.Elts)
+	let mut keys = []string{}
+	let mut vals = []dense.ID[syntax.Node]{}
+	for i in 0..n {
+		let e = syntax.Item(p.Tree, cl.Elts, i)
+		match syntax.ViewOf(p.Tree, e) {
+		case syntax.KeyValueExpr as kv:
+			let k = nameText(p, kv.Key)
+			if k == "" || !fieldOf(fields, k) || has(keys, k) {
+				return stop("record key")
+			}
+			keys = keys.Append(k)
+			vals = vals.Append(kv.Value)
+		case _:
+			if i >= len(fields) {
+				return stop("unkeyed record literal")
+			}
+			keys = keys.Append(fields[i].Name)
+			vals = vals.Append(e)
+		}
+	}
+	match dense.Unpack(cl.Base) {
+	case Some[dense.ID[syntax.Node]] as bx:
+		match syntax.ViewOf(p.Tree, bx.Value) {
+		case syntax.Name:
+			if plainRecord(st, try typeOf(st, bx.Value, "update base")) != r {
+				return stop("record update of another type")
+			}
+			let _ = try paramLocal(st, bx.Value)
+		case _:
+			return stop("record update of a computed base")
+		}
+	case None:
+		if n != len(fields) {
+			return stop("record literal without every field")
+		}
+	}
+	for v in vals {
+		if basicGo(st, try typeOf(st, v, "field value")) == "" {
+			return stop("field value of a non-basic type")
+		}
+		try check(st, v)
+	}
+	(r, keys, vals)
+}
+
+func fieldOf(fields []expr.Field, name string) bool {
+	let mut ok = false
+	for f in fields {
+		ok = ok || f.Name == name
+	}
+	ok
+}
+
 let goKeywords = []string{"break", "case", "chan", "const", "continue", "default", "defer", "else", "fallthrough", "for", "func", "go", "goto", "if", "import", "interface", "map", "package", "range", "return", "select", "struct", "switch", "type", "var"}
 
 func goKeyword(name string) bool {
@@ -319,8 +395,8 @@ func function(st mut fnb, b mut ir.Builder, f expr.Fn, path string) bool fails U
 	if !emptyRow(*st, ops[n+1]) || !emptyRow(*st, ops[n+2]) {
 		return stop("signature row")
 	}
-	if basicGo(*st, ops[n]) == "" {
-		return stop("result not basic")
+	if basicGo(*st, ops[n]) == "" && plainRecord(*st, ops[n]) < 0 {
+		return stop("result neither basic nor a plain record")
 	}
 	for i in 0..n {
 		if basicGo(*st, ops[i]) == "" && plainRecord(*st, ops[i]) < 0 {
@@ -347,6 +423,15 @@ func function(st mut fnb, b mut ir.Builder, f expr.Fn, path string) bool fails U
 		return stop("body that is no block")
 	}
 	if syntax.Len(list) != 1 {
+		// A let's local takes a Go name the program decides today
+		// (selfhost S4c/naming.md, NAME-LOCAL).
+		for i in 0..syntax.Len(list) {
+			match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, list, i)) {
+			case syntax.DeclStmt:
+				return stop("local naming (NAME-LOCAL)")
+			case _:
+			}
+		}
 		return stop("body of several statements")
 	}
 	let tailX = match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, list, 0)) {
@@ -431,10 +516,13 @@ func check(st fnb, x dense.ID[syntax.Node]) fails Unported {
 	}
 	match syntax.ViewOf(p.Tree, x) {
 	case syntax.Name:
-		if basicGo(st, try typeOf(st, x, "Ident")) == "" {
-			return stop("name of a non-basic type")
+		let t = try typeOf(st, x, "Ident")
+		if basicGo(st, t) == "" && plainRecord(st, t) < 0 {
+			return stop("name of a type neither basic nor a plain record")
 		}
 		let _ = try paramLocal(st, x)
+	case syntax.CompositeLit as cl:
+		let _ = try recordLit(st, x, cl)
 	case syntax.SelectorExpr as se:
 		if basicGo(st, try typeOf(st, x, "SelectorExpr")) == "" {
 			return stop("field of a non-basic type")
@@ -461,6 +549,9 @@ func check(st fnb, x dense.ID[syntax.Node]) fails Unported {
 		}
 		try check(st, be.X)
 		try check(st, be.Y)
+	case syntax.CallExpr:
+		// A callee's Go name is the program's today (NAME-LOCAL).
+		return stop("callee naming (NAME-LOCAL)")
 	case _:
 		return stop("expression form")
 	}
@@ -496,6 +587,34 @@ func value(st fnb, b mut ir.Builder, x dense.ID[syntax.Node]) uint32 fails Unpor
 	case syntax.Name:
 		let i = try paramLocal(st, x)
 		try ir.Row(b, ir.KindCode(ir.TExpr, "local"), at, []uint32{uint32(i)})
+	case syntax.CompositeLit as cl:
+		let (r, keys, vals) = try recordLit(st, x, cl)
+		let mut elems = []uint32{}
+		let mut base = uint32(0)
+		match dense.Unpack(cl.Base) {
+		case Some[dense.ID[syntax.Node]] as bx:
+			base = try value(st, b, bx.Value)
+		case None:
+		}
+		for v in vals {
+			elems = elems.Append(try value(st, b, v))
+		}
+		let mut names = keys
+		// An update's fields it does not set are its base's (lower's
+		// updateLit), in the record's order.
+		if base != 0 {
+			for f in st.k.Recs[r].Fields {
+				if !has(keys, f.Name) {
+					names = names.Append(f.Name)
+					elems = elems.Append(try ir.Row(b, ir.KindCode(ir.TExpr, "field"), at, []uint32{base, ir.Text(b, f.Name)}))
+				}
+			}
+		}
+		let mut keyIDs = []uint32{}
+		for k in names {
+			keyIDs = keyIDs.Append(ir.Text(b, k))
+		}
+		try ir.Row(b, ir.KindCode(ir.TExpr, "lit"), at, []uint32{ir.Text(b, st.k.Recs[r].Name), ir.List(b, elems), ir.List(b, keyIDs)})
 	case syntax.SelectorExpr as se:
 		let name = try field(st, se)
 		let i = try paramLocal(st, se.X)
@@ -512,6 +631,9 @@ func value(st fnb, b mut ir.Builder, x dense.ID[syntax.Node]) uint32 fails Unpor
 		let l = try value(st, b, be.X)
 		let r = try value(st, b, be.Y)
 		try ir.Row(b, ir.KindCode(ir.TExpr, "bin"), pos(st, syntax.TokPos(p, be.Op)), []uint32{ir.Text(b, op), l, r})
+	case syntax.CallExpr:
+		// A callee's Go name is the program's today (NAME-LOCAL).
+		return stop("callee naming (NAME-LOCAL)")
 	case _:
 		return stop("expression form")
 	}
