@@ -1,0 +1,39 @@
+// Package copy is a work.Cloner by a plain copy of every file (cp -a):
+// it works on any file system and shares nothing, so the tool makes one
+// only when asked (new -copy, or copy = true in work.toml).
+//
+// Go control: rift create on a file system without copy-on-write.
+
+import exec
+import github.com/cevr/ergo/modules/work/system
+import github.com/cevr/ergo/modules/work/work
+
+// Cloner copies through cp -a.
+type Cloner { trees system.Trees } implements work.Cloner
+
+// New is the Cloner over a Runner.
+func New(run exec.Runner) Cloner { Cloner{trees: system.New(run)} }
+
+func Name(_ Cloner) string { "copy" }
+
+func Shares(_ Cloner) bool { false }
+
+// KeepsInodes: each file of the clone is a new inode.
+func KeepsInodes(_ Cloner) bool { false }
+
+func Clone(c Cloner, from string, to string) fails work.NotSameVolume | work.Unsupported | work.Exists | work.Missing | work.NoSpace | work.CloneFailed {
+	try system.Prepare(c.trees, "copy", from, to)
+	let r = try system.Run(c.trees, "copy", "cp", []string{"-a", from, to})
+	if r.Status != 0 {
+		system.Leave(c.trees, to)
+		try system.Failure("copy", from, to, r.Stderr, []string{})
+	}
+}
+
+func Has(c Cloner, root string) bool { system.Has(c.trees, root) }
+
+func Move(c Cloner, from string, to string) fails work.Exists | work.Missing | work.CloneFailed { try system.Move(c.trees, "copy", from, to) }
+
+func Discard(c Cloner, root string) fails work.Missing | work.CloneFailed { try system.Discard(c.trees, "copy", root) }
+
+func Usage(c Cloner, root string) work.Usage fails work.Unsupported | work.Missing | work.CloneFailed { try system.CopyUsage(c.trees, "copy", root) }

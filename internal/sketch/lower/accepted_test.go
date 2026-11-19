@@ -45,6 +45,9 @@ var implementedFamilies = []string{
 	// machine.go; TestMachinePlanValues), and the value converts to the
 	// prelude's Machine (ConvMachine).
 	"MachineType", "MachineEntry", "conv:Machine",
+	// A function of an error type goes where a row value of that one type
+	// is its parameter, narrowed (CK-FAILPARAM; testdata/narrow_param.ergo).
+	"conv:Narrow",
 	// encode(v, w) lowers to the codec functions of v's type over w
 	// (types.md, Laws 14); examples/cborpack's codec is a witness.
 	"call:Encode",

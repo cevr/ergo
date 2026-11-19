@@ -1,0 +1,63 @@
+@0 open /gallery
+  asks: load the catalog
+  address: /gallery (0 behind)
+  page: <Home> | <Gallery> | <Studio> | # Gallery | The catalog loads when a navigation enters this route, whether by navigation or by cold load. | Hanging the paintings…
+  log: #1 Cold load → Gallery [Cold load] [Entered Gallery]
+@600 catalog loaded
+  page: <Home> | <Gallery> | <Studio> | # Gallery | The catalog loads when a navigation enters this route, whether by navigation or by cold load. | <Dawn Over the Harbor> | Mara Ellsworth | <Static in Bloom> | Jun Okabe | <Winter Circuit> | Ada Lindqvist | <Ferric Meadow> | Tomás Reyes | <Ultraviolet Tide> | Nadia Boulos | <Ember Study No. 4> | Hal Whitaker
+@600 link Dawn Over the Harbor
+  asks: push /gallery/1, load painting 1
+  address: /gallery/1 (1 behind)
+  page: <Home> | <Gallery> | <Studio> | <← Back to Gallery> | Unpacking the painting…
+  log: #2 Gallery → Painting 1 [Entered Painting] [Exited Gallery]
+@1000 painting 1 loaded
+  page: <Home> | <Gallery> | <Studio> | <← Back to Gallery> | # Dawn Over the Harbor | Mara Ellsworth | 1 of 6 | <Next →>
+@1000 link Next →
+  asks: push /gallery/2, load painting 2
+  address: /gallery/2 (2 behind)
+  page: <Home> | <Gallery> | <Studio> | <← Back to Gallery> | Unpacking the painting…
+  log: #3 Painting 1 → Painting 2 [Stayed on Painting: 1 → 2]
+@1400 painting 2 loaded
+  page: <Home> | <Gallery> | <Studio> | <← Back to Gallery> | # Static in Bloom | Jun Okabe | <← Previous> | 2 of 6 | <Next →>
+@1400 link ← Previous
+  asks: push /gallery/1, load painting 1
+  address: /gallery/1 (3 behind)
+  page: <Home> | <Gallery> | <Studio> | <← Back to Gallery> | Unpacking the painting…
+  log: #4 Painting 2 → Painting 1 [Stayed on Painting: 2 → 1]
+@1800 painting 1 loaded
+  page: <Home> | <Gallery> | <Studio> | <← Back to Gallery> | # Dawn Over the Harbor | Mara Ellsworth | 1 of 6 | <Next →>
+@1800 link ← Back to Gallery
+  asks: push /gallery, load the catalog
+  address: /gallery (4 behind)
+  page: <Home> | <Gallery> | <Studio> | # Gallery | The catalog loads when a navigation enters this route, whether by navigation or by cold load. | Hanging the paintings…
+  log: #5 Painting 1 → Gallery [Entered Gallery] [Exited Painting]
+@2400 catalog loaded
+  page: <Home> | <Gallery> | <Studio> | # Gallery | The catalog loads when a navigation enters this route, whether by navigation or by cold load. | <Dawn Over the Harbor> | Mara Ellsworth | <Static in Bloom> | Jun Okabe | <Winter Circuit> | Ada Lindqvist | <Ferric Meadow> | Tomás Reyes | <Ultraviolet Tide> | Nadia Boulos | <Ember Study No. 4> | Hal Whitaker
+@2400 open /gallery/7
+  asks: load painting 7
+  address: /gallery/7 (5 behind)
+  page: <Home> | <Gallery> | <Studio> | <← Back to Gallery> | Unpacking the painting…
+  log: #6 Gallery → Painting 7 [Entered Painting] [Exited Gallery]
+@2800 painting 7 loaded
+  page: <Home> | <Gallery> | <Studio> | # Painting Not Found | No painting with id 7 hangs in this gallery. | <← Back to Gallery>
+@2800 link ← Back to Gallery
+  asks: push /gallery, load the catalog
+  address: /gallery (6 behind)
+  page: <Home> | <Gallery> | <Studio> | # Gallery | The catalog loads when a navigation enters this route, whether by navigation or by cold load. | Hanging the paintings…
+  log: #7 Painting 7 → Gallery [Entered Gallery] [Exited Painting]
+@3400 catalog loaded
+  page: <Home> | <Gallery> | <Studio> | # Gallery | The catalog loads when a navigation enters this route, whether by navigation or by cold load. | <Dawn Over the Harbor> | Mara Ellsworth | <Static in Bloom> | Jun Okabe | <Winter Circuit> | Ada Lindqvist | <Ferric Meadow> | Tomás Reyes | <Ultraviolet Tide> | Nadia Boulos | <Ember Study No. 4> | Hal Whitaker
+@3400 open /missing
+  address: /missing (7 behind)
+  page: <Home> | <Gallery> | <Studio> | # 404 - Page Not Found | The path "/missing" was not found. | <← Go Home>
+  log: #8 Gallery → Not found [Entered NotFound] [Exited Gallery]
+@3500 link ← Go Home
+  asks: push /
+  address: / (8 behind)
+  page: <Home> | <Gallery> | <Studio> | # Route Transitions | Every navigation in this app is described by the route before and the route after, and the log narrates what each one said. The cold load that brought you here is already in it.
+  log: #9 Not found → Home [Entered Home] [Exited NotFound]
+@3600 back
+  address: /missing (7 behind)
+  page: <Home> | <Gallery> | <Studio> | # 404 - Page Not Found | The path "/missing" was not found. | <← Go Home>
+  log: #10 Home → Not found [Entered NotFound] [Exited Home]
+@3700 end

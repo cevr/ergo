@@ -108,6 +108,9 @@ type gen struct {
 	// huge: main ends with a float past int's range converted to an
 	// int in an IR body (every eighth seed, IRG4b r2).
 	huge bool
+	// shifts counts the shifts drawn: they alternate >> and <<, so a run
+	// that draws two reaches both (TestIRMatchesSource's kinds).
+	shifts int
 }
 
 func (g *gen) n(k int) int { return g.r.IntN(k) }
@@ -548,7 +551,8 @@ func (g *gen) expr(t gtype, d int) string {
 				return "(" + v + " * " + g.expr(tI64, d-1) + ")"
 			}
 			ops := []string{"<<", ">>"}
-			return "(" + v + " " + ops[g.n(2)] + " (" + g.expr(tI64, d-1) + " & 7))"
+			g.shifts++
+			return "(" + v + " " + ops[g.shifts%2] + " (" + g.expr(tI64, d-1) + " & 7))"
 		case 4:
 			return []string{"(-(", "(^(", "(+("}[g.n(3)] + g.expr(tI64, d-1) + "))"
 		default:

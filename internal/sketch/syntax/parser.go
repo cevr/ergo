@@ -880,8 +880,8 @@ func (m *members) lawsOrOps() Node {
 	return m.laws[0]
 }
 
-// parseMachineType parses `machine[S, E] { initial: x, step: f }`, with an
-// optional `after: g` entry.
+// parseMachineType parses `machine[S, E] { initial: x, step: f }`, with
+// optional `after: g`, `work: w` and `exit: x` entries.
 func (p *parser) parseMachineType() *MachineType {
 	t := &MachineType{Machine: p.want(MACHINE)}
 	t.Lbrack = p.want(LBRACK)
@@ -905,11 +905,11 @@ func (p *parser) parseMachineType() *MachineType {
 			p.errorf("a machine's entries come before its laws")
 		}
 		e := &MachineEntry{Doc: doc, NamePos: p.tok.pos}
-		if p.tok.tok != IDENT || p.tok.lit != "initial" && p.tok.lit != "step" && p.tok.lit != "after" && p.tok.lit != "work" {
-			p.errorf("expected initial, step, after or work, found %s", p.found())
+		if p.tok.tok != IDENT || p.tok.lit != "initial" && p.tok.lit != "step" && p.tok.lit != "after" && p.tok.lit != "work" && p.tok.lit != "exit" {
+			p.errorf("expected initial, step, after, work or exit, found %s", p.found())
 		}
 		e.Name = p.tok.lit
-		if e.Name == "initial" && t.Initial != nil || e.Name == "step" && t.Step != nil || e.Name == "after" && t.After != nil || e.Name == "work" && t.Work != nil {
+		if e.Name == "initial" && t.Initial != nil || e.Name == "step" && t.Step != nil || e.Name == "after" && t.After != nil || e.Name == "work" && t.Work != nil || e.Name == "exit" && t.Exit != nil {
 			p.errorf("%s is set twice", e.Name)
 		}
 		p.next()
@@ -922,6 +922,8 @@ func (p *parser) parseMachineType() *MachineType {
 			t.Step = e.Value
 		case "work":
 			t.Work = e.Value
+		case "exit":
+			t.Exit = e.Value
 		default:
 			t.After = e.Value
 		}
@@ -1744,12 +1746,29 @@ func (p *parser) parseType(ctx typeCtx) Expr {
 		p.errorf("expected a type, found \"needs\": %s", needsKeywordText)
 		return nil
 	}
+	if p.tok.tok.IsKeyword() && startsType(p.peek(1).tok) {
+		// A keyword followed by a type was meant as a parameter's or a
+		// field's name (`in []int`; PKG G5): say that it is a keyword.
+		kw := p.tok.tok.String()
+		p.errorf("expected a type, found %q: %s is a keyword and is not a name; choose another name", kw, kw)
+		return nil
+	}
 	p.errorf("expected a type, found %s", p.found())
 	return nil
 }
 
 // needsKeywordText ends the S001 at a binder spelled needs (K4,
 // G-ex-d-12): the word is reserved.
+// startsType reports whether a type may start with t: a name, a slice or
+// array, a pointer, or a function type.
+func startsType(t Token) bool {
+	switch t {
+	case IDENT, LBRACK, MUL, FUNC, ESCAPING:
+		return true
+	}
+	return false
+}
+
 const needsKeywordText = "needs is a keyword (the capability row) and is not a name; choose another name"
 
 func (p *parser) parseFuncType(ctx typeCtx) *FuncType {

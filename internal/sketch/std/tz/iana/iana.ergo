@@ -1,0 +1,69 @@
+// Package iana is std's own copy of the IANA time zone database, and its
+// tz.Zones provider (docs/spec/stdlib.md, tz 2). The copy is one IANA
+// release, compiled to TZif and written into runtime/tzdata/zones.bin by
+// scripts/tzdata, whose check keeps it current; a program carries it only
+// when it imports this package, and it reads no host file. So a zone name
+// means the same rules on every host, and the names are the database's.
+// Package tz reads each zone with its Ergo reader.
+
+import tz
+
+// Zones is the provider of tz.Zones over std's copy. It holds nothing:
+// the copy is part of the program.
+type Zones {} implements tz.Zones
+
+// New is the provider of tz.Zones over std's copy:
+// `with context { tz.Zones: iana.New() } { … }`.
+func New() Zones { Zones }
+
+// Load is the zone name of std's copy, or UnknownZone when the copy has no
+// zone of that name. A name is the database's (America/Toronto, Etc/UTC,
+// the backward links such as US/Eastern); a host's other files
+// (posixrules, localtime) are not names.
+func Load(_ Zones, name string) tz.Zone fails tz.UnknownZone {
+	let data = TZif(name)
+	if len(data) == 0 {
+		return tz.UnknownZone{Name: name}
+	}
+	tz.FromTZif(name, data) catch {
+	case tz.BadData:
+		Unreachable("scripts/tzdata writes only zones Go's reader reads")
+	}
+}
+
+// Names is every zone name of std's copy, in order.
+extern go ergo.local/prototype/runtime/v1.TzdataNames func Names() []string
+
+// Release is the IANA release of std's copy, such as 2026c.
+extern go ergo.local/prototype/runtime/v1.TzdataRelease func Release() string
+
+// TZif is the TZif bytes (RFC 8536) of the zone name of std's copy, or ""
+// when the copy has no such zone: tz.FromTZif reads them.
+extern go ergo.local/prototype/runtime/v1.TzdataZone func TZif(name string) string
+
+// EveryNameLoads: each name of Names loads, by that name, and the copy's
+// release is named.
+law EveryNameLoads(i int) {
+	let names = Names()
+	let name = names[(if i < 0 { -(i + 1) } else { i }) % len(names)]
+	let z = Load(New(), name) catch {
+	case tz.UnknownZone:
+		return false
+	}
+	tz.Name(z) == name && len(Release()) >= 5
+}
+
+// LoadRefusesOtherNames: a name that is not in Names is UnknownZone, with
+// that name.
+law LoadRefusesOtherNames(name string) {
+	for n in Names() {
+		if n == name {
+			return true
+		}
+	}
+	let _ = Load(New(), name) catch {
+	case tz.UnknownZone as e:
+		return e.Name == name
+	}
+	false
+}

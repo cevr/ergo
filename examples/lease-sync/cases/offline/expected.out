@@ -1,0 +1,39 @@
+> a offline
+a offline: []
+> a take build
+a offline: [build:a]
+  pending take build
+> a take deploy
+a offline: [build:a deploy:a]
+  pending take build
+  pending take deploy
+> a push
+a offline: [build:a deploy:a]
+  pending take build
+  pending take deploy
+> a pull
+a offline: [build:a deploy:a]
+  pending take build
+  pending take deploy
+> b take build
+b connecting: [build:b]
+  pending take build
+> b push
+b connecting: [build:b]
+  pending take build
+> b pull
+b connecting: [build:b]
+> a online
+a live: [build:a deploy:a]
+  pending take build
+  pending take deploy
+> a push
+a live: [build:a deploy:a]
+  pending take build
+  pending take deploy
+> a pull
+a live: [build:b deploy:a]
+  refused take build: build is held by b
+> b pull
+b connecting: [build:b deploy:a]
+authority: [build:b deploy:a]

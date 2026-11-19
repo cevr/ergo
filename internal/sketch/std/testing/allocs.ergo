@@ -1,0 +1,40 @@
+// Counting allocations (MX-P3 F6). A law that says a step allocates
+// nothing ("0 allocations per steady event") reads the heap's counters,
+// which are the host's: so only the test's ambient makes the counter
+// (TestAmbient; docs/spec/rows.md, Test's ambient), as it makes the
+// confined file system, and a law over it runs under a context that
+// states it:
+//
+//	let counted = context needs TestAmbient { testing.Allocs: testing.NewAllocCounter() }
+//
+// The count is Go's testing.AllocsPerRun's (runtime/v1 allocs.go): the
+// integer mean of the heap allocations of one call, over runs calls after
+// a warm-up call, with GOMAXPROCS 1. It is the process's count, so another
+// task that allocates while it counts counts too: a law counts a step that
+// starts no task, and runs no other task meanwhile.
+
+// Allocs counts the heap allocations of a call.
+type Allocs {
+	// PerRun is the mean number of heap allocations of one call of f,
+	// over runs calls after one warm-up call; runs below 1 is a defect.
+	PerRun(runs int, f func()) int,
+
+	// EmptyCallIsZero: a call that does nothing allocates nothing, so the
+	// count holds no allocation of its own.
+	law EmptyCallIsZero() {
+		PerRun(10, func() {}) == 0
+	},
+}
+
+// AllocCounter is the Allocs of the test's ambient. Its field gives this
+// package the construction authority, so only NewAllocCounter makes one.
+type AllocCounter { folder string } implements Allocs
+
+// NewAllocCounter is the counter of a test. It needs the test's ambient,
+// which only the test runner provides, to a context that states it:
+// `context needs TestAmbient { testing.Allocs: testing.NewAllocCounter() }`.
+func NewAllocCounter() AllocCounter needs TestAmbient { AllocCounter{folder: TestFolder()} }
+
+func PerRun(c AllocCounter, runs int, f func()) int { allocsPerRun(runs, f) }
+
+extern go ergo.local/prototype/runtime/v1.AllocsPerRun func allocsPerRun(runs int, f func()) int

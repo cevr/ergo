@@ -499,12 +499,36 @@ func renamed(name string) string { return name + "2" }
 
 // reportNeverReassigned reports each `let mut` local of fc that is read but
 // never reassigned (S110, Q3). An unread one already has its unused S110,
-// and one of an invalid type has its own diagnostic (D3).
+// and one of an invalid type has its own diagnostic (D3). The report waits
+// for checkDroppedResults: a local whose only write was meant to be a
+// dropped xs.Append(x) gets that one diagnostic and its one remedy,
+// xs = xs.Append(…), not also "write let xs" (M2-APPEND).
 func (c *checker) reportNeverReassigned(fc *funcCtx) {
+	if c.silent > 0 {
+		return
+	}
 	for _, v := range fc.locals {
 		if !v.mut || v.reassigned || !v.used || v.Name == "_" || isInvalid(v.Type) || v.undiagnosed {
 			continue
 		}
-		c.errorf(v.id, CodeUnused, "%s is never reassigned; write let %s (#196, 196v)", v.Name, v.Name)
+		c.unassigned = append(c.unassigned, unassignedLocal{v: v, file: c.cur})
+	}
+}
+
+// unassignedLocal is a let mut local never reassigned, in its file.
+type unassignedLocal struct {
+	v    *Var
+	file *fileInfo
+}
+
+// reportUnassigned reports each never-reassigned local but those that
+// receive a refused dropped call (dropRoots).
+func (c *checker) reportUnassigned(dropRoots map[*Var]bool) {
+	for _, u := range c.unassigned {
+		if dropRoots[u.v] {
+			continue
+		}
+		c.cur = u.file
+		c.errorf(u.v.id, CodeUnused, "%s is never reassigned; write let %s (#196, 196v)", u.v.Name, u.v.Name)
 	}
 }

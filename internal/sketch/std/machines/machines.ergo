@@ -181,7 +181,7 @@ func Can[S, E, O](step func(s S, e E) Decision[S, O], s S, e E) bool {
 // (runtime.md, Machines and actors 10). Run(Start(m, input), signals) runs
 // a machine with an input.
 func Start[I, S, E, O, F, R, W](m InputMachine[I, S, E, O, F, R, W], input I) Machine[S, E, O, F, R, W] {
-	Machine[S, E, O, F, R, W]{Initial: m.Start(input), Step: m.Step, After: m.After, Work: m.Work}
+	Machine[S, E, O, F, R, W]{Initial: m.Start(input), Step: m.Step, After: m.After, Work: m.Work, Exit: m.Exit}
 }
 
 // Initial is m's initial state.
@@ -226,29 +226,30 @@ func From[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], s S, signals []E) Outco
 	Running[S, O]{State: at, Emitted: out}
 }
 
-// armed is a timer the run armed: it fires at At for the entry numbered
-// Epoch, which opened in State; its signal is made when it fires (fired).
+// armed is the timer of a run's open entry: it fires at At, and the entry
+// opened in State; its signal is made when it fires (fired).
 type armed[S] {
 	At duration,
-	Epoch int,
 	State S,
 }
 
-// arm adds the timer of the entry epoch, which opened in s at now, to
-// timers: none when m.After(s) is None. A timer whose In is not positive
-// is a defect (runtime.md, Machines and actors 9; fs2): it would fire at
-// once, and a state whose timer re-enters it would never let time pass.
-// A declared machine's After raises it first, naming the machine and the
-// state; a Machine built from parts raises it here.
-func arm[S, E, O, F, R, W](timers own []armed[S], m Machine[S, E, O, F, R, W], s S, now duration, epoch int) []armed[S] {
+// arm is the timer of the entry that opened in s at now: None when
+// m.After(s) is None. An entry has one timer, and an entry that ends
+// takes its timer with it, so a run holds at most one timer, that of the
+// open entry, and the next entry's timer replaces it. A timer whose In is
+// not positive is a defect (runtime.md, Machines and actors 9; fs2): it
+// would fire at once, and a state whose timer re-enters it would never
+// let time pass. A declared machine's After raises it first, naming the
+// machine and the state; a Machine built from parts raises it here.
+func arm[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], s S, now duration) Option[armed[S]] {
 	match m.After(s) {
 	case Some[Timeout[E]] as t:
 		if t.Value.In <= 0s {
 			notPositive(now, t.Value.In)
 		}
-		timers.Append(armed[S]{At: now + t.Value.In, Epoch: epoch, State: s})
+		Some[armed[S]]{Value: armed[S]{At: now + t.Value.In, State: s}}
 	case None:
-		timers
+		None
 	}
 }
 
@@ -280,30 +281,18 @@ func fired[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], s S) E {
 // positive (arm).
 extern go ergo.local/prototype/runtime/v1.MachineTimerNotPositiveAt func notPositive(now duration, wait duration)
 
-// due is the index of the earliest timer in timers that fires before the
-// time limit (at or before it when closed), or -1; of two at one time, the
-// one armed first.
-func due[S](timers []armed[S], limit duration, closed bool) int {
-	let mut k = -1
-	for i, t in timers {
-		if t.At < limit || closed && t.At == limit {
-			if k < 0 || t.At < timers[k].At {
-				k = i
-			}
+// due is timer when it fires before the time limit (at or before it when
+// closed), else None.
+func due[S](timer Option[armed[S]], limit duration, closed bool) Option[armed[S]] {
+	match timer {
+	case Some[armed[S]] as t:
+		if t.Value.At < limit || closed && t.Value.At == limit {
+			return timer
 		}
+		None
+	case None:
+		None
 	}
-	k
-}
-
-// without is timers with its k-th timer taken out.
-func without[S](timers []armed[S], k int) []armed[S] {
-	let mut rest = []armed[S]{}
-	for i, t in timers {
-		if i != k {
-			rest = rest.Append(t)
-		}
-	}
-	rest
 }
 
 // until waits on Scheduler until the time since start, by time.Clock, is
@@ -329,7 +318,8 @@ func until(start time.Time, at duration) duration needs time.Clock | Scheduler {
 // made when it fires, so an Every timer's carries the clock's reading. A
 // Stay and a Tell keep the entry and its timer (a Tell gives its output,
 // as an Emit does); an entry that ends takes its timer
-// with it: a timer of an ended entry is dropped, never stepped. A timer
+// with it: a timer of an ended entry is dropped, never stepped, so the
+// run holds one timer at most, the open entry's. A timer
 // fires before a signal that comes later than it and after one that comes
 // at the same time; after the last signal, every timer due by end fires,
 // and a run with no Done waits until end. A Reject of a timer's signal
@@ -342,8 +332,7 @@ func RunTimed[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], trace []Timed[E], e
 	let mut at = m.Initial
 	let mut out = []O{}
 	let mut now = 0s
-	let mut epoch = 0
-	let mut timers = arm([]armed[S]{}, m, at, now, epoch)
+	let mut pending = arm(m, at, now)
 	let mut i = 0
 	for {
 		let closed = i >= len(trace)
@@ -351,22 +340,24 @@ func RunTimed[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], trace []Timed[E], e
 		if !closed {
 			limit = trace[i].At
 		}
-		let k = due(timers, limit, closed)
-		if k < 0 && closed {
+		let next = due(pending, limit, closed)
+		let timer = match next {
+		case Some[armed[S]]:
+			true
+		case None:
+			false
+		}
+		if !timer && closed {
 			break
 		}
-		let timer = k >= 0
-		let ev = if timer {
-			timers[k]
-		} else {
-			armed[S]{At: trace[i].At, Epoch: epoch, State: at}
+		let ev = match next {
+		case Some[armed[S]] as t:
+			t.Value
+		case None:
+			armed[S]{At: trace[i].At, State: at}
 		}
 		if timer {
-			timers = without(timers, k)
-			if ev.Epoch != epoch {
-				// The timer's entry ended: it is dropped (rule 6).
-				continue
-			}
+			pending = None
 		} else {
 			i = i + 1
 		}
@@ -387,12 +378,10 @@ func RunTimed[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], trace []Timed[E], e
 		case Emit[S, O] as em:
 			out = out.Append(em.Output)
 			at = em.Next
-			epoch = epoch + 1
-			timers = arm(timers, m, at, now, epoch)
+			pending = arm(m, at, now)
 		case Enter[S] as en:
 			at = en.Next
-			epoch = epoch + 1
-			timers = arm(timers, m, at, now, epoch)
+			pending = arm(m, at, now)
 		case Stay[S] as st:
 			at = st.Next
 		case Tell[S, O] as tl:

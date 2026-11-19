@@ -278,7 +278,6 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"encode on a direct writer", "G6"},
 	{"call kind 12", "G6"}, // CallEmbed
 	{"call kind 13", "G6"}, // CallPattern: a refinement's matches(it, `…`)
-	{"call kind 8", "G6"},  // CallLawOp
 	{"call kind 9", "G6"},  // CallGoError
 	// IRG6 r2's function values, ported to flip-f1 (flip-fnval): literals,
 	// trailing blocks of program calls, function types, calls of function

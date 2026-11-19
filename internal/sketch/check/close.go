@@ -21,7 +21,7 @@ type Close struct {
 // the Close itself.
 func (c *checker) closeTakes(f *Func) {
 	sig := f.Sig
-	if f.owner == nil || f.Name != "Close" || len(sig.Params) != 1 || len(sig.Results) != 0 || sig.Fallible || sig.Takes != nil {
+	if f.owner == nil || f.Name != c.closeName() || len(sig.Params) != 1 || len(sig.Results) != 0 || sig.Fallible || sig.Takes != nil {
 		return
 	}
 	recv := sig.Params[0].Type
@@ -38,8 +38,8 @@ func (c *checker) closeTakes(f *Func) {
 // closeOpTakes is closeTakes for an operation of an operation type: a
 // `Close()` with no parameters, results or error row takes the value it is
 // called on (a bare takes), as the written Close that implements it does.
-func closeOpTakes(name string, sig *Signature) {
-	if name == "Close" && len(sig.Params) == 0 && len(sig.Results) == 0 && !sig.Fallible && sig.Takes == nil {
+func (c *checker) closeOpTakes(name string, sig *Signature) {
+	if name == c.closeName() && len(sig.Params) == 0 && len(sig.Results) == 0 && !sig.Fallible && sig.Takes == nil {
 		sig.TakesSelf = true
 	}
 }
@@ -50,7 +50,7 @@ func closeOpTakes(name string, sig *Signature) {
 func (c *checker) closeFacts() {
 	facts := c.pkg.Info.Closes
 	for _, f := range c.funcs {
-		if f.owner == nil || f.Name != "Close" || f.Sig == nil ||
+		if f.owner == nil || f.Name != c.closeName() || f.Sig == nil ||
 			len(f.Sig.Params) != 1 || len(f.Sig.Results) != 0 {
 			continue
 		}
@@ -73,7 +73,7 @@ func (c *checker) closeFacts() {
 		if it == nil || !c.implementsCloser(tn.Type) {
 			continue
 		}
-		m := it.method("Close")
+		m := it.method(c.closeName())
 		if !closeShape(m) || c.types.resolve(m.Sig.Errors).Empty() {
 			continue
 		}
@@ -162,12 +162,32 @@ func (c *checker) closeFacts() {
 	}
 }
 
+// closeName is the name of the release contract's one operation, read
+// from the prelude's declaration of Closer (EXC2): the checker spells no
+// operation name of its own, so the contract is the declaration. It is ""
+// while the prelude's own Closer is not yet declared.
+func (c *checker) closeName() string {
+	if c.closeOp != "" {
+		return c.closeOp
+	}
+	n := c.closer()
+	if n == nil {
+		return ""
+	}
+	it := asInterface(n)
+	if it == nil || len(it.Methods) != 1 {
+		return ""
+	}
+	c.closeOp = it.Methods[0].Name
+	return c.closeOp
+}
+
 func closeShape(m *Method) bool {
 	return m != nil && m.Sig != nil && len(m.Sig.Params) == 0 && len(m.Sig.Results) == 0 && len(m.Sig.TParams) == 0
 }
 
 func (c *checker) closeOperation(t Type, resolved *Method, name string) *Close {
-	if t == nil || name != "Close" {
+	if t == nil || name != c.closeName() {
 		return nil
 	}
 	recv := t
@@ -179,8 +199,8 @@ func (c *checker) closeOperation(t Type, resolved *Method, name string) *Close {
 		// Only an operation type that includes Closer releases (R1).
 		return nil
 	}
-	m := it.method("Close")
-	if n, ok := t.(*Named); ok && hostCloseOp(n, it) != nil {
+	m := it.method(c.closeName())
+	if n, ok := t.(*Named); ok && c.hostCloseOp(n, it) != nil {
 		// A Go interface's Close() error (IG9).
 		if resolved != nil && resolved != m {
 			return nil

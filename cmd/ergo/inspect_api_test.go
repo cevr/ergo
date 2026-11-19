@@ -97,3 +97,39 @@ func TestInspectAPIRoute(t *testing.T) {
 		}
 	}
 }
+
+// TestInspectMachineJSON is the smallest repro of a dead flag: the option
+// parser refused --json for inspect machine, though its help offered it.
+// It checks in process; no generated Go needs to run.
+func TestInspectMachineJSON(t *testing.T) {
+	path := filepath.Join("..", "..", "internal", "sketch", "lower", "testdata", "work", "listen.ergo")
+	f, err := os.CreateTemp(t.TempDir(), "stdout-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	saved := os.Stdout
+	os.Stdout = f
+	err = inspectCommand([]string{"machine", path, "--json"})
+	os.Stdout = saved
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Seek(0, 0); err != nil {
+		t.Fatal(err)
+	}
+	b, err := io.ReadAll(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var views []struct {
+		Graph struct {
+			Name string
+			Arms []struct{ At struct{ File string } }
+		}
+		Reachable []struct{ State, Signal string }
+	}
+	if err := json.Unmarshal(b, &views); err != nil || len(views) != 1 || views[0].Graph.Name != "Finder" || len(views[0].Reachable) == 0 || len(views[0].Graph.Arms) == 0 || views[0].Graph.Arms[0].At.File != path {
+		t.Fatalf("inspect machine --json: %v\n%s", err, b)
+	}
+}

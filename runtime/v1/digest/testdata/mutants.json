@@ -1,6 +1,8 @@
 {
   "about": "The mutant ledger of runtime/v1/digest: edits of the leaf's source that its own tests must kill. Its rows moved from runtime/v1's ledger when BS8 moved the code into this leaf. Run it with go run ./scripts/mutants ./runtime/v1/digest (docs/tooling.md, \"Mutant ledger\").",
   "mutants": [
-    {"name":"crc-copies","origin":"wf10/FD1-g3","file":"runtime/v1/digest/digest.go","from":"\t\tcrc = crc32.Update(crc, crc32.IEEETable, buf[:n])\n","to":"\t\tcrc = crc32.Update(crc, crc32.IEEETable, []byte(s[:n]))\n","rule":"Crc32Update does not copy its string to a new slice (FD1-g3).","killers":["runtime/v1/digest:TestCrc32UpdateDoesNotCopy"]}
+    {"name":"crc-copies","origin":"wf10/FD1-g3","file":"runtime/v1/digest/digest.go","from":"\t\tcrc = crc32.Update(crc, crc32.IEEETable, buf[:n])\n","to":"\t\tcrc = crc32.Update(crc, crc32.IEEETable, []byte(s[:n]))\n","rule":"Crc32Update does not copy its string to a new slice (FD1-g3).","killers":["runtime/v1/digest:TestCrc32UpdateDoesNotCopy"]},
+    {"name":"d3-sha512-short","origin":"wf10 std-spike D3","file":"runtime/v1/digest/keyed.go","from":"\td := sha512.Sum512([]byte(s))\n\treturn string(d[:])","to":"\td := sha512.Sum512([]byte(s))\n\treturn string(d[:32])","rule":"stdlib.md keyed digests 1: sha512.Sum is 64 bytes.","killers":["runtime/v1/digest:TestStdDigestLaws"]},
+    {"name":"d3-sha1-short","origin":"wf10 std-spike D3","file":"runtime/v1/digest/keyed.go","from":"\td := sha1.Sum([]byte(s))\n\treturn string(d[:])","to":"\td := sha1.Sum([]byte(s))\n\treturn string(d[:16])","rule":"stdlib.md keyed digests 1: sha1.Sum is 20 bytes.","killers":["runtime/v1/digest:TestStdDigestLaws"]}
   ]
 }

@@ -1,0 +1,1 @@
+{"name":"b","id":"050431bb03d7034b","path":".work/base/b","branch":"b","deps":{"_tag":"NoDeps"},"hooks":{"_tag":"HookFailed","hook":"postcreate","command":"git rev-parse --abbrev-ref HEAD >&2; git log -1 --format=%s >&2; cat a.txt b.txt >&2; exit 3","status":3,"stderr":"b\na work\none\na edit\na work\n"}}
