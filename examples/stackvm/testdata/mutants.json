@@ -95,9 +95,19 @@
       "name": "svm-exec-resume-drops-printed",
       "origin": "wf10 SVM-VERIFY",
       "file": "examples/stackvm/vm/verify.ergo",
-      "from": "\t\tcase JumpIf as j:\n\t\t\tsp -= 1\n\t\t\tif stack[sp&63] != 0 {\n\t\t\t\tpc = j.To\n\t\t\t\tif pc <= at && fuel-steps <= end {\n\t\t\t\t\treturn try resume(code, fuel, paused{stack: held(stack[0:64], sp), frames: []int{}, printed: printed,",
-      "to": "\t\tcase JumpIf as j:\n\t\t\tsp -= 1\n\t\t\tif stack[sp&63] != 0 {\n\t\t\t\tpc = j.To\n\t\t\t\tif pc <= at && fuel-steps <= end {\n\t\t\t\t\treturn try resume(code, fuel, paused{stack: held(stack[0:64], sp), frames: []int{}, printed: []int{},",
-      "rule": "ExecAgreesWithChecked: Printing(k), given exactly the fuel to halt, leaves Exec at its last backward JumpIf and, with this mutant, halts in the checked loop without the values it printed.",
+      "from": "\t\treturn try resume(code, fuel, paused{stack: held(stack[0:64], sp), frames: []int{}, printed: printed,",
+      "to": "\t\treturn try resume(code, fuel, paused{stack: held(stack[0:64], sp), frames: []int{}, printed: []int{},",
+      "rule": "ExecAgreesWithChecked: Printing(k), given exactly the fuel to halt, leaves execFlat at its last backward JumpIf and, with this mutant, halts in the checked loop without the values it printed.",
+      "anchor": {"tests": ["examples:stackvm"]},
+      "killers": ["examples:stackvm"]
+    },
+    {
+      "name": "svm-exec-low-ignored",
+      "origin": "wf10 SVM-FLOOR-GAP",
+      "file": "examples/stackvm/vm/verify.ergo",
+      "from": "\t\t\tpc = mem[(top-fp)&top]\n\t\t\tif pc <= at && left <= end {\n\t\t\t\tlow = true\n",
+      "to": "\t\t\tpc = mem[(top-fp)&top]\n\t\t\tif pc <= at && left <= end {\n\t\t\t\tlow = false\n",
+      "rule": "ExecAgreesWithChecked: Down(k) with one step less than it needs runs low on fuel at a Ret; with this mutant execCalls leaves its loop unmarked and returns a Result there instead of going on to the OutOfFuel trap on the checked loop.",
       "anchor": {"tests": ["examples:stackvm"]},
       "killers": ["examples:stackvm"]
     },

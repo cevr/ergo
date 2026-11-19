@@ -215,7 +215,11 @@ func returns(v *verifier, f int, d int) bool {
 // only: between two of them the instructions run in rising order, at most
 // len(code) of them, so the loop goes on while more fuel than that is
 // left. When less is left, the run goes on from where it is on the
-// checked loop (resume), which traps at the exact instruction.
+// checked loop (resume), which traps at the exact instruction. The loop
+// only marks that (low) and leaves; resume is called after it, so no call
+// sits in the loop: with one there, Go spills the loop's state (sp, pc,
+// printed, the fuel) at the top of every round, the cost of a call that
+// runs once (stackvm bench: 395 instructions a round against 436).
 //
 // The values and the return points share one slice, mem, allocated once:
 // the values from its bottom up, the return points from its top down, as
@@ -231,7 +235,7 @@ func returns(v *verifier, f int, d int) bool {
 // execFlat, the same loop with a [64]int stack in the Go frame and no
 // Call or Ret: it keeps fewer values live, so Go keeps them in registers
 // (stackvm bench: 436 instructions a round there against 489 on
-// execCalls).
+// execCalls, measured with resume still in the loops).
 func Exec(v Verified, fuel int) Result fails Trap {
 	if !v.calls && v.room <= 64 {
 		return try execFlat(v.code, fuel)
@@ -250,6 +254,7 @@ func execCalls(code []Instr, room int, fuel int) Result fails Trap {
 	let mut sp = 0
 	let mut fp = 0
 	let mut printed = []int{}
+	let mut low = false
 	let mut pc = 0
 	let mut left = fuel
 	for pc < end {
@@ -306,14 +311,16 @@ func execCalls(code []Instr, room int, fuel int) Result fails Trap {
 		case Jump as j:
 			pc = j.To
 			if pc <= at && left <= end {
-				return try resume(code, fuel, paused{stack: held(mem, sp), frames: opened(mem, fp), printed: printed, pc: pc, steps: fuel - left})
+				low = true
+				break
 			}
 		case JumpIf as j:
 			sp -= 1
 			if mem[sp&top] != 0 {
 				pc = j.To
 				if pc <= at && left <= end {
-					return try resume(code, fuel, paused{stack: held(mem, sp), frames: opened(mem, fp), printed: printed, pc: pc, steps: fuel - left})
+					low = true
+					break
 				}
 			}
 		case JumpIfNot as j:
@@ -321,7 +328,8 @@ func execCalls(code []Instr, room int, fuel int) Result fails Trap {
 			if mem[sp&top] == 0 {
 				pc = j.To
 				if pc <= at && left <= end {
-					return try resume(code, fuel, paused{stack: held(mem, sp), frames: opened(mem, fp), printed: printed, pc: pc, steps: fuel - left})
+					low = true
+					break
 				}
 			}
 		case Call as c:
@@ -332,13 +340,15 @@ func execCalls(code []Instr, room int, fuel int) Result fails Trap {
 			fp += 1
 			pc = c.To
 			if pc <= at && left <= end {
-				return try resume(code, fuel, paused{stack: held(mem, sp), frames: opened(mem, fp), printed: printed, pc: pc, steps: fuel - left})
+				low = true
+				break
 			}
 		case Ret:
 			fp -= 1
 			pc = mem[(top-fp)&top]
 			if pc <= at && left <= end {
-				return try resume(code, fuel, paused{stack: held(mem, sp), frames: opened(mem, fp), printed: printed, pc: pc, steps: fuel - left})
+				low = true
+				break
 			}
 		case Print:
 			sp -= 1
@@ -346,6 +356,9 @@ func execCalls(code []Instr, room int, fuel int) Result fails Trap {
 		case Halt:
 			break
 		}
+	}
+	if low {
+		return try resume(code, fuel, paused{stack: held(mem, sp), frames: opened(mem, fp), printed: printed, pc: pc, steps: fuel - left})
 	}
 	Result{Printed: printed, Stack: held(mem, sp), Steps: fuel - left}
 }
@@ -378,6 +391,7 @@ func execFlat(code []Instr, fuel int) Result fails Trap {
 	let mut stack = [64]int{}
 	let mut sp = 0
 	let mut printed = []int{}
+	let mut low = false
 	let mut pc = 0
 	let mut steps = 0
 	for pc < end {
@@ -434,14 +448,16 @@ func execFlat(code []Instr, fuel int) Result fails Trap {
 		case Jump as j:
 			pc = j.To
 			if pc <= at && fuel-steps <= end {
-				return try resume(code, fuel, paused{stack: held(stack[0:64], sp), frames: []int{}, printed: printed, pc: pc, steps: steps})
+				low = true
+				break
 			}
 		case JumpIf as j:
 			sp -= 1
 			if stack[sp&63] != 0 {
 				pc = j.To
 				if pc <= at && fuel-steps <= end {
-					return try resume(code, fuel, paused{stack: held(stack[0:64], sp), frames: []int{}, printed: printed, pc: pc, steps: steps})
+					low = true
+					break
 				}
 			}
 		case JumpIfNot as j:
@@ -449,7 +465,8 @@ func execFlat(code []Instr, fuel int) Result fails Trap {
 			if stack[sp&63] == 0 {
 				pc = j.To
 				if pc <= at && fuel-steps <= end {
-					return try resume(code, fuel, paused{stack: held(stack[0:64], sp), frames: []int{}, printed: printed, pc: pc, steps: steps})
+					low = true
+					break
 				}
 			}
 		case Call, Ret:
@@ -460,6 +477,9 @@ func execFlat(code []Instr, fuel int) Result fails Trap {
 		case Halt:
 			break
 		}
+	}
+	if low {
+		return try resume(code, fuel, paused{stack: held(stack[0:64], sp), frames: []int{}, printed: printed, pc: pc, steps: steps})
 	}
 	Result{Printed: printed, Stack: held(stack[0:64], sp), Steps: steps}
 }
