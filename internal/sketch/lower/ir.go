@@ -18,6 +18,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"go/format"
 	"maps"
 	"path"
 	"slices"
@@ -182,7 +183,7 @@ func LowerIRReference(u Unit, tests bool) ([]File, IRReport, error) {
 }
 
 func lowerIRForms(u Unit, tests *testLowering, formsOff bool) ([]File, IRReport, error) {
-	files, _, report, _, err := lowerIRModule(u, tests, formsOff)
+	files, _, report, _, err := lowerIRModule(u, tests, formsOff, false)
 	if err != nil {
 		return nil, IRReport{}, err
 	}
@@ -237,12 +238,19 @@ func LowerIRShards(u Unit, tests bool) ([]File, IRReport, SplitReport, error) {
 	return lowerIRSplit(u, tests, programModule, devShards)
 }
 
+// splitFormatLowering selects the split's main.go: "" (the lowering's own
+// text, which the split parses once) or "format" (go/format's, the
+// reference before SPLIT-AST), set by
+// -ldflags=-X=ergo.local/prototype/internal/sketch/lower.splitFormatLowering=format.
+// TestSplitTextKeepsPositions compares the two.
+var splitFormatLowering string
+
 func lowerIRSplit(u Unit, tests bool, base string, sh *shardOpts) ([]File, IRReport, SplitReport, error) {
 	var tl *testLowering
 	if tests {
 		tl = &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}}
 	}
-	files, origins, report, l, err := lowerIRModule(u, tl, false)
+	files, origins, report, l, err := lowerIRModule(u, tl, false, splitFormatLowering != "format")
 	if err != nil {
 		return nil, IRReport{}, SplitReport{}, err
 	}
@@ -265,6 +273,12 @@ func lowerIRSplit(u Unit, tests bool, base string, sh *shardOpts) ([]File, IRRep
 			return nil, IRReport{}, SplitReport{}, err
 		}
 		res = append(slices.Clone(files), File{Path: IRFileName, Data: data})
+		if i >= 0 && l.unformattedText != nil {
+			// The one package's main.go is go/format's, as LowerIR's.
+			if res[i].Data, err = l.formatMain(); err != nil {
+				return nil, IRReport{}, SplitReport{}, err
+			}
+		}
 	} else {
 		res = append(slices.Clone(files[:i]), out...)
 		res = append(res, files[i+1:]...)
@@ -272,6 +286,27 @@ func lowerIRSplit(u Unit, tests bool, base string, sh *shardOpts) ([]File, IRRep
 	res = irKeyed(res)
 	report.Hash = irHash(res)
 	return res, report.IRReport, rep, nil
+}
+
+// withKeeps is main.go's code with the declarations that keep the imports
+// IR bodies name used.
+func (l *lowerer) withKeeps(code []byte) []byte {
+	for _, decl := range slices.Sorted(maps.Keys(l.ir.keep)) {
+		code = append(code, []byte("\n"+decl+" // an import an IR body names\n")...)
+	}
+	return code
+}
+
+// formatMain is main.go as an unsplit lowering writes it, go/format's,
+// from the unformatted lowering's text (lowerer.unformatted): a refused
+// split's one package.
+func (l *lowerer) formatMain() ([]byte, error) {
+	l.formats++
+	formatted, err := format.Source(l.unformattedText)
+	if err != nil {
+		return nil, fmt.Errorf("lower: the emitted Go does not parse (a compiler defect): %w", err)
+	}
+	return l.withKeeps(anchorLines(formatted)), nil
 }
 
 // irModule is what lowerIRModule made: the report and the IR file.
@@ -288,7 +323,7 @@ type irModule struct {
 // is written under dir, and a frame of an IR body names the file a frame
 // of the same function's source body names (runtime/v1, sourceDir).
 func lowerIRTestParts(u Unit, dir string) ([]byte, []File, []byte, error) {
-	files, _, report, l, err := lowerIRModule(u, &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}}, false)
+	files, _, report, l, err := lowerIRModule(u, &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}}, false, false)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -310,12 +345,13 @@ func lowerIRTestParts(u Unit, dir string) ([]byte, []File, []byte, error) {
 
 // lowerIRModule lowers u with IR bodies: the module's files without an IR
 // file, the std origins of its names (the split's), and the IR.
-func lowerIRModule(u Unit, tests *testLowering, formsOff bool) ([]File, map[string]*check.Package, irModule, *lowerer, error) {
+func lowerIRModule(u Unit, tests *testLowering, formsOff, unformatted bool) ([]File, map[string]*check.Package, irModule, *lowerer, error) {
 	if err := u.Validate(); err != nil {
 		return nil, nil, irModule{}, nil, err
 	}
 	l := newBuildLowerer(u, tests)
 	l.ir = &irState{files: map[string]int{}, report: IRReport{Fallback: map[string]int{}}, formsOff: formsOff, noFallback: u.NoFallback}
+	l.unformatted = unformatted
 	code, err := l.program()
 	if err != nil {
 		return nil, nil, irModule{}, nil, err
@@ -331,10 +367,7 @@ func lowerIRModule(u Unit, tests *testLowering, formsOff bool) ([]File, map[stri
 	}
 	sort.Slice(l.ir.out.Funcs, func(i, j int) bool { return l.ir.out.Funcs[i].Name < l.ir.out.Funcs[j].Name })
 	l.ir.out.V = 1
-	for _, decl := range slices.Sorted(maps.Keys(l.ir.keep)) {
-		code = append(code, []byte("\n"+decl+" // an import an IR body names\n")...)
-	}
-	files := l.withRecord(u, append(moduleFiles(u.Go, code), l.assetFiles()...))
+	files := l.withRecord(u, append(moduleFiles(u.Go, l.withKeeps(code)), l.assetFiles()...))
 	sort.Strings(l.ir.report.IR)
 	sortFormSites(l.ir.report.FormSites) // ir_forms_report.go
 	return files, l.stdOrigins(), irModule{IRReport: l.ir.report, out: &l.ir.out}, l, nil
