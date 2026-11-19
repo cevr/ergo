@@ -619,6 +619,9 @@ func refuseUnchecked(l loaded, opts fileOptions) error {
 // --eval-bytes and --seed, and the envelope carries the evaluation; the
 // exit status is then evaluationExit's.
 func checkCommand(args []string) error {
+	if len(args) > 0 && args[0] == "--want" {
+		return checkWant(os.Stdout, args[1:])
+	}
 	opts, err := parseFileOptions("check", args)
 	if err != nil {
 		return err
