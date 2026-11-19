@@ -1558,10 +1558,54 @@ func (l *lowerer) packageVar(spec *syntax.VarSpec, id *syntax.Ident, x syntax.Ex
 	if ok && l.consts[v] {
 		ice(id, "the constant let %s needs statements", id.Name)
 	}
+	if name != "_" && fc.out.Len() == 0 && staticLiteral(l.info, x) && !strings.Contains(val, fc.env) {
+		// Constant data (LITERAL-LET): the Go variable's initializer is
+		// the literal, which gc lays out as static data, so the program
+		// does no work at start for it; a literal of constants cannot
+		// fail, and reads no other let, so its place in InitOrder does
+		// not matter.
+		l.stats.StaticLets++
+		l.letDecl(id, "var "+name+" "+goType+" = "+val+"\n\n")
+		return
+	}
 	if name != "_" {
 		l.letDecl(id, "var "+name+" "+goType+"\n\n")
 	}
 	l.addInit(x, id, fc.out.String(), []string{name + " = " + val})
+}
+
+// staticLiteral reports whether x is constant data: a constant, or a
+// composite literal of a slice, an array or a record (no record update)
+// whose elements are constant data. Such a let lowers to a Go variable
+// initialized by the literal (packageVar), not to code in initFunc.
+func staticLiteral(info *check.Info, x syntax.Expr) bool {
+	switch e := x.(type) {
+	case *syntax.ParenExpr:
+		return staticLiteral(info, e.X)
+	case *syntax.KeyValueExpr:
+		return staticLiteral(info, e.Value)
+	case *syntax.CompositeLit:
+		if e.Base != nil {
+			return false
+		}
+		t := info.Types[e]
+		if n, ok := t.(*check.Named); ok {
+			t = n.Underlying()
+		}
+		switch t.(type) {
+		case *check.Slice, *check.Array, *check.Struct:
+		default:
+			return false
+		}
+		for _, el := range e.Elts {
+			if !staticLiteral(info, el) {
+				return false
+			}
+		}
+		return true
+	}
+	_, constant := info.Values[x]
+	return constant
 }
 
 // constValueLet reports whether the package let v, of spec, lowers to a Go
