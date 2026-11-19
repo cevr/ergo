@@ -181,6 +181,32 @@ func Decide(s Schedule, runs int, elapsed duration) Next {
 	}
 }
 
+// Timed is whether Decide(s, runs, elapsed) reads elapsed: whether s holds
+// an UpTo or a Cron. A loop that runs by a schedule that is not timed
+// needs no clock to decide (llm.Retry reads none then).
+func Timed(s Schedule) bool {
+	match s {
+	case upTo, cronAt:
+		true
+	case spaced, exponential, recurs:
+		false
+	case jitter as j:
+		Timed(j.inner)
+	case both as b:
+		Timed(b.first) || Timed(b.second)
+	case either as e:
+		Timed(e.first) || Timed(e.second)
+	}
+}
+
+// UntimedIgnoresElapsed: a schedule that is not Timed decides the same at
+// any elapsed time, so a loop that runs by it may pass any elapsed time.
+law UntimedIgnoresElapsed(seed uint64, runs int64, a int64, b int64) {
+	let s = gen(seed, 3)
+	let r = int(within(runs, 1, 20))
+	Timed(s) || Decide(s, r, duration(within(a, 0, 20000000000))) == Decide(s, r, duration(within(b, 0, 20000000000)))
+}
+
 // grow is base times factor to the power runs-1, saturated at cap; runs
 // below 1 count as 1.
 func grow(base duration, factor float64, cap duration, runs int) duration {
