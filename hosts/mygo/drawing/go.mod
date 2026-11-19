@@ -2,6 +2,8 @@ module github.com/egoist/mygo/drawing
 
 go 1.27.3
 
+toolchain go1.27.4
+
 require github.com/egoist/mygo v0.8.4-0.20261109183017-afb7d5f170f7
 
 require (
