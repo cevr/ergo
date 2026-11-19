@@ -144,6 +144,9 @@ extern go ergo.local/prototype/hosts/mygo/screen.Window.LineHeight func (w own *
 // ergo:context
 extern go ergo.local/prototype/hosts/mygo/screen.Window.Next func (w own *Window) Next() Input fails go.Error needs go.Foreign
 
+// ergo:go func (*Window).Now() int64
+extern go ergo.local/prototype/hosts/mygo/screen.Window.Now func (w own *Window) Now() int64 needs go.Foreign
+
 // ergo:go func (*Window).Opacity() float64
 extern go ergo.local/prototype/hosts/mygo/screen.Window.Opacity func (w own *Window) Opacity() float64 needs go.Foreign
 

@@ -182,7 +182,7 @@ func paintLayers[S, E, D, F](d *Driver[S, E, D, F], t *layout.Tree, ids Map[ui.I
 				d.under = None
 				d.spots = d.spots.Append(spot[E]{id: d.root, node: x.Value, box: full, clip: full})
 			}
-			draw(d, t, ids, l, 0, full, line)
+			draw(d, t, ids, l, 0, 0, full, line)
 		case None:
 		}
 	}

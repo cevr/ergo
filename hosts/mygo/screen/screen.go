@@ -198,7 +198,7 @@ func (w *Window) event(ev platform.SurfaceEvent) bool {
 		on := w.frames
 		w.mu.Unlock()
 		if on {
-			w.push(Input{Kind: Frame, At: time.Since(w.start).Nanoseconds()})
+			w.push(Input{Kind: Frame, At: w.Now()})
 		}
 	case platform.SurfaceResize:
 		width, height, _ := w.conn.Surface.Size()
@@ -668,6 +668,10 @@ func (w *Window) Press(x, y float64) {
 func (w *Window) Release(x, y float64) {
 	w.send(platform.SurfaceEvent{Kind: platform.PointerUp, X: x, Y: y})
 }
+
+// Now is the window's time, in nanoseconds since it opened: the clock
+// its frames' At reads (a host runs its tracks on it, TRACKS).
+func (w *Window) Now() int64 { return time.Since(w.start).Nanoseconds() }
 
 // Hover moves the pointer to x, y.
 func (w *Window) Hover(x, y float64) {
