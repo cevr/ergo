@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "@cevr/work-typescript",
+      "name": "@cvr/work-typescript",
       "dependencies": {
         "oxc-parser": "0.141.0",
       },
