@@ -69,13 +69,16 @@ type ForeignKeySource struct {
 	Toolchain string
 	Module    GoModule
 	ReadDir   func(dir string) []GoSourceFile
-	// world is the module's Go packages the keys have read.
-	world *goWorld
+	// worlds are the Go packages the keys have read, one world per local
+	// module: a world's loader reads only its module's folders (LF2m r2:
+	// one world, made at the first key, read only the first module's, so
+	// a second local module's function was keyed unread).
+	worlds map[string]*goWorld
 }
 
 // Keys is s's ForeignKeys, each target's key computed once.
 func (s ForeignKeySource) Keys() ForeignKeys {
-	s.world = nil
+	s.worlds = nil
 	var mu sync.Mutex
 	memo := map[string]ForeignKey{}
 	return func(target string) ForeignKey {
@@ -152,10 +155,16 @@ func (s *ForeignKeySource) key(target string) ForeignKey {
 			files := s.ReadDir(d)
 			return files, files != nil
 		}
-		if s.world == nil {
-			s.world = newGoWorld(load)
+		if s.worlds == nil {
+			s.worlds = map[string]*goWorld{}
 		}
-		c := s.world.closure(p, name)
+		world := mod
+		w := s.worlds[world]
+		if w == nil {
+			w = newGoWorld(load)
+			s.worlds[world] = w
+		}
+		c := w.closure(p, name)
 		if c.Unloaded {
 			return ForeignKey{Key: "unread " + p, Shown: p + "@unread"}
 		}
