@@ -146,7 +146,7 @@ func (r *gateRun) replay(opts fileOptions, kept []gatePackage) error {
 		os.Stdout.Write(p.Check)
 		r.Replayed["test"]++
 		if p.Test != nil {
-			if err := replayTestResult(p.Test, os.Stdout, os.Stderr); err != nil {
+			if err := replayTestResult(p.Test, p.Dir, os.Stdout, os.Stderr); err != nil {
 				return err
 			}
 			continue

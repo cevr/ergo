@@ -1,0 +1,339 @@
+// Verdicts (MODELCHECK E1): what a property of a graph came to.
+
+// Verdict is how a property of a graph came out: Proved, the search saw
+// the whole graph and the property holds on it; NotProved, the budget
+// stopped the search first and no run broke the property in what it saw;
+// Refuted, Run breaks it (a shortest run); Witness, Run shows an
+// existential property (a shortest run); Absent, the search saw the
+// whole graph and no run shows the existential property.
+type Verdict = Proved{Stats Stats} | NotProved{Stats Stats} | Refuted{Run Run, Stats Stats} | Witness{Run Run, Stats Stats} | Absent{Stats Stats}
+
+// Holds reports whether v is a verdict for which the property holds:
+// Proved, NotProved (nothing broke it in what was seen) or Witness.
+func Holds(v Verdict) bool {
+	match v {
+	case Proved:
+		true
+	case NotProved:
+		true
+	case Witness:
+		true
+	case Refuted:
+		false
+	case Absent:
+		false
+	}
+}
+
+// StatsOf is the search's counters behind v.
+func StatsOf(v Verdict) Stats {
+	match v {
+	case Proved as p:
+		p.Stats
+	case NotProved as n:
+		n.Stats
+	case Refuted as r:
+		r.Stats
+	case Witness as w:
+		w.Stats
+	case Absent as a:
+		a.Stats
+	}
+}
+
+// Always decides that p holds in every state a run of g reaches: Refuted
+// with a shortest run to a state where p is false, Proved when the whole
+// graph was seen, else NotProved.
+func Always[S wire, E](g Graph[S, E], p func(s S) bool, budget int) Verdict needs wired[S] {
+	let r = Search(g, func(s S) bool { !p(s) }, budget)
+	if r.Found >= 0 {
+		return Refuted{Run: RunTo(r, r.Found), Stats: r.Stats}
+	}
+	if r.Stats.Complete {
+		return Proved{Stats: r.Stats}
+	}
+	NotProved{Stats: r.Stats}
+}
+
+// Sometimes decides that a run of g reaches a state where p holds:
+// Witness with a shortest such run, Absent when the whole graph was seen
+// and none does, else NotProved.
+func Sometimes[S wire, E](g Graph[S, E], p func(s S) bool, budget int) Verdict needs wired[S] {
+	let r = Search(g, p, budget)
+	if r.Found >= 0 {
+		return Witness{Run: RunTo(r, r.Found), Stats: r.Stats}
+	}
+	if r.Stats.Complete {
+		return Absent{Stats: r.Stats}
+	}
+	NotProved{Stats: r.Stats}
+}
+
+// Path decides that a run of g passes states that meet ps in order, one
+// state per step from its start: Witness with such a run, Absent when no
+// run does (the search ended within the budget), else NotProved.
+func Path[S wire, E](g Graph[S, E], ps []func(s S) bool, budget int) Verdict needs wired[S] {
+	let r = PathSearch(g, ps, budget)
+	if r.Found >= 0 {
+		return Witness{Run: RunTo(r, r.Found), Stats: r.Stats}
+	}
+	if r.Stats.Complete {
+		return Absent{Stats: r.Stats}
+	}
+	NotProved{Stats: r.Stats}
+}
+
+// Of is the graph of a machine's step from starts over signals: Enter,
+// Stay, Emit and Tell go to their Next; Ignore and Reject keep the state
+// (a Reject is observable and the state stays, runtime.md, Machines 2);
+// Done ends the run, so it is no edge.
+func Of[S, E, O](starts []S, signals []E, step own func(s S, e E) Decision[S, O]) Graph[S, E] {
+	Graph[S, E]{Starts: starts, Signals: signals, Step: func(s S, e E) Option[S] {
+		match step(s, e) {
+		case Enter[S] as d:
+			Some[S]{Value: d.Next}
+		case Stay[S] as d:
+			Some[S]{Value: d.Next}
+		case Emit[S, O] as d:
+			Some[S]{Value: d.Next}
+		case Tell[S, O] as d:
+			Some[S]{Value: d.Next}
+		case Ignore:
+			Some[S]{Value: s}
+		case Reject:
+			Some[S]{Value: s}
+		case Done[O]:
+			None
+		}
+	}}
+}
+
+// AlwaysAgreesWithReference (MODELCHECK E1's acceptance property): on a
+// generated graph of up to 24 states and 4 signals, with up to two starts,
+// a random set of targets and a budget of 1 to 40 states, Search and
+// Always agree with a reference search that keeps every whole state in a
+// list and compares them by ==: the target found (by its place in the
+// order of discovery), the states, edges, depth, checked length and
+// completeness; a found run replays to that target and is as long as its
+// depth; the verdict matches; and the frontier keeps no wide state whole.
+// The states carry a padding list that makes a third of them wide, so the
+// search rebuilds those from their runs. The law's cases are the seeds;
+// a failing case prints its arguments, which rebuild the graph.
+law AlwaysAgreesWithReference(seed uint64, size uint8, signals uint8, budget uint8, mask uint64) {
+	let n = 1 + int(size%uint8(24))
+	let k = 1 + int(signals%uint8(4))
+	let b = 1 + int(budget%uint8(40))
+	let table = refTable(seed, n, k)
+	let starts = if n > 1 && seed%uint64(3) == uint64(0) { []int{0, n - 1} } else { []int{0} }
+	let targets = mask & (mask >> uint64(7))
+	let hit = func(s int) bool { (targets>>uint64(s))&uint64(1) == uint64(1) }
+	let ref = refSearch(table, k, starts, hit, b)
+	let mut ss = []RefState{}
+	for s in starts {
+		ss = ss.Append(refState(s))
+	}
+	let mut sigs = []int{}
+	for e in 0..k {
+		sigs = sigs.Append(e)
+	}
+	let g = Graph[RefState, int]{Starts: ss, Signals: sigs, Step: func(s RefState, e int) Option[RefState] {
+		let t = table[s.N*k+e]
+		if t < 0 { None } else { Some[RefState]{Value: refState(t)} }
+	}}
+	let r = Search(g, func(s RefState) bool { hit(s.N) }, b)
+	let st = r.Stats
+	let mut ok = r.Found == ref.Found && st.States == ref.States && st.Edges == ref.Edges && st.Depth == ref.Depth && st.Checked == ref.Checked && st.Complete == ref.Complete && st.Frontier <= ref.Small
+	if ok && r.Found >= 0 {
+		let run = RunTo(r, r.Found)
+		ok = ReplayRun(g, run).N == ref.State && len(run.Signals) == ref.Run
+	}
+	let v = Always(g, func(s RefState) bool { !hit(s.N) }, b)
+	match v {
+	case Refuted as x:
+		ok && ref.Found >= 0 && len(x.Run.Signals) == ref.Run
+	case Proved:
+		ok && ref.Found < 0 && ref.Complete
+	case NotProved:
+		ok && ref.Found < 0 && !ref.Complete
+	case Witness:
+		false
+	case Absent:
+		false
+	}
+}
+
+// RefState is the reference graph's state: its number, and a padding list
+// that makes every third state wide (more than SmallWords words).
+type RefState { N int, Pad []uint8 }
+
+func refState(n int) RefState {
+	let mut pad = []uint8{}
+	if n%3 == 2 {
+		for i in 0..12 {
+			pad = pad.Append(uint8(i))
+		}
+	}
+	RefState{N: n, Pad: pad}
+}
+
+// refTable is the step of a generated graph: entry s*k+e is the state that
+// signal e takes s to, or -1 when it ends the run (about one in eight).
+func refTable(seed uint64, n int, k int) []int {
+	let mut out = []int{}
+	let mut x = seed
+	for _ in 0..n*k {
+		x = x + golden
+		let r = splitmix(x)
+		if r%uint64(8) == uint64(0) {
+			out = out.Append(-1)
+		} else {
+			out = out.Append(int((r >> uint64(8)) % uint64(n)))
+		}
+	}
+	out
+}
+
+// RefOut is what the reference search did: the place of the target found
+// in the order of discovery (-1 for none), its state and the length of its
+// run, the counters Search keeps, and the count of small states it saw.
+type RefOut { Found int, State int, Run int, States int, Edges int, Depth int, Checked int, Complete bool, Small int }
+
+// refSearch is the reference: breadth first, whole states in a list,
+// membership by ==, no keys, no replay.
+func refSearch(table []int, k int, starts []int, hit func(s int) bool, budget int) RefOut {
+	let mut seen = []int{}
+	let mut dist = []int{}
+	let mut out = RefOut{Found: -1, State: -1, Run: 0, States: 0, Edges: 0, Depth: 0, Checked: 0, Complete: false, Small: 0}
+	let mut frontier = []int{}
+	for s in starts {
+		if refHas(seen, s) {
+			continue
+		}
+		if len(seen) == budget {
+			out.Checked = -1
+			return out
+		}
+		seen = seen.Append(s)
+		dist = dist.Append(0)
+		out.States = out.States + 1
+		if s%3 != 2 {
+			out.Small = out.Small + 1
+		}
+		if hit(s) {
+			out.Found = len(seen) - 1
+			out.State = s
+			return out
+		}
+		frontier = frontier.Append(s)
+	}
+	let mut depth = 1
+	for len(frontier) > 0 {
+		let mut next = []int{}
+		for s in frontier {
+			for e in 0..k {
+				let t = table[s*k+e]
+				if t < 0 {
+					continue
+				}
+				out.Edges = out.Edges + 1
+				if refHas(seen, t) {
+					continue
+				}
+				if len(seen) == budget {
+					out.Checked = depth - 1
+					return out
+				}
+				seen = seen.Append(t)
+				dist = dist.Append(depth)
+				out.States = out.States + 1
+				out.Depth = depth
+				if t%3 != 2 {
+					out.Small = out.Small + 1
+				}
+				if hit(t) {
+					out.Found = len(seen) - 1
+					out.State = t
+					out.Run = depth
+					return out
+				}
+				next = next.Append(t)
+			}
+		}
+		frontier = next
+		depth = depth + 1
+	}
+	out.Checked = out.Depth
+	out.Complete = true
+	out
+}
+
+func refHas(xs []int, x int) bool {
+	for y in xs {
+		if y == x {
+			return true
+		}
+	}
+	false
+}
+
+// OfMachine is the graph of m from its initial state over signals.
+func OfMachine[S, E, O](m Machine[S, E, O], signals []E) Graph[S, E] {
+	Of([]S{m.Initial}, signals, m.Step)
+}
+
+// Walk runs up to runs random runs of g, each from a start and of up to
+// depth steps, seeded by seed (splitmix64). Each step picks among the
+// signals that change the state (Moves), so a run does not spend its steps
+// on Ignore and Reject; a run ends when there is none or a step ends it.
+// It looks for a state where p is false: Refuted with the run that
+// reached it (not a shortest one), else NotProved, since a sample is no
+// proof. Stats counts the steps as Edges and the deepest run as Depth.
+func Walk[S wire, E](g Graph[S, E], p func(s S) bool, seed uint64, runs int, depth int) Verdict needs wired[S] {
+	let mut st = Stats{States: 0, Edges: 0, Depth: 0, Checked: 0, Complete: false, Frontier: 0}
+	let mut x = seed
+	if len(g.Starts) == 0 {
+		return NotProved{Stats: st}
+	}
+	for _ in 0..runs {
+		x = x + golden
+		let start = int(splitmix(x) % uint64(len(g.Starts)))
+		let mut s = g.Starts[start]
+		let mut sigs = []int{}
+		st.States = st.States + 1
+		if !p(s) {
+			return Refuted{Run: Run{Start: start, Signals: sigs}, Stats: st}
+		}
+		let mut d = 0
+		for d < depth {
+			let moves = Moves(g, s)
+			if len(moves) == 0 {
+				break
+			}
+			x = x + golden
+			let e = moves[int(splitmix(x) % uint64(len(moves)))]
+			match g.Step(s, g.Signals[e]) {
+			case None:
+				d = depth
+			case Some[S] as t:
+				s = t.Value
+				sigs = sigs.Append(e)
+				st.Edges = st.Edges + 1
+				st.States = st.States + 1
+				st.Depth = larger(st.Depth, len(sigs))
+				if !p(s) {
+					return Refuted{Run: Run{Start: start, Signals: sigs}, Stats: st}
+				}
+				d = d + 1
+			}
+		}
+	}
+	NotProved{Stats: st}
+}
+
+// splitmix is splitmix64's output function.
+func splitmix(x uint64) uint64 {
+	let mut z = x
+	z = (z ^ (z >> uint64(30))) * smixA
+	z = (z ^ (z >> uint64(27))) * smixB
+	z ^ (z >> uint64(31))
+}

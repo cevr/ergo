@@ -390,8 +390,8 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 	switch {
 	case len(positional) == 0:
 		return opts, fmt.Errorf("source file required")
-	case opts.strict && command != "diagnostics" && command != "lint":
-		return opts, fmt.Errorf("--strict is only supported by diagnostics and lint")
+	case opts.strict && command != "diagnostics" && command != "lint" && command != "check":
+		return opts, fmt.Errorf("--strict is only supported by diagnostics, lint and check")
 	case opts.json && command != "diagnostics" && command != "lint" && command != "run" && command != "test" && command != "inspect machine":
 		return opts, fmt.Errorf("--json is only supported by diagnostics, lint, run, test and inspect machine")
 	case opts.output != "" && command != "build":
@@ -762,7 +762,11 @@ func evaluatedEnvelope(opts fileOptions, l loaded, id producer.Identity, fsys sk
 	if err := json.NewEncoder(&buf).Encode(l.result.CheckEnvelope()); err != nil {
 		return nil, nil, err
 	}
-	return buf.Bytes(), evaluationExit(evaluation), nil
+	exit = evaluationExit(evaluation)
+	if exit == nil && opts.strict {
+		exit = undecidedExit(evaluation.Obligations)
+	}
+	return buf.Bytes(), exit, nil
 }
 
 // evalBudget is check's evaluation budget: the editor default
@@ -795,6 +799,30 @@ func evaluationExit(e report.Evaluation) error {
 		return exitStatusError{code: 1, message: "check: an obligation was refuted"}
 	}
 	return nil
+}
+
+// undecidedExit is check --strict's exit after an evaluation that
+// evaluationExit passed: 1 when an obligation was skipped, stopped or not
+// run, naming each with its reason, since a law that was not decided is
+// not a pass (MODELCHECK T3b: an ergo whose check skipped every law exited
+// 0, and orrery read that as proved). Plain check keeps exit 0 for them:
+// ergo test decides what check time skips.
+func undecidedExit(obligations []report.Obligation) error {
+	var undecided []string
+	for _, o := range obligations {
+		if o.Status != "passed" {
+			undecided = append(undecided, fmt.Sprintf("%s (%s: %s)", o.Name, o.Status, o.Reason))
+		} else if o.Machine != nil && o.Evidence != "proved" {
+			// A machine law that passed on sampled runs only (its graph
+			// could not be listed): no run broke it, which proves nothing
+			// (batch-mc1 T3b O1).
+			undecided = append(undecided, fmt.Sprintf("%s (%s, not proved: %s)", o.Name, o.Evidence, o.Reason))
+		}
+	}
+	if len(undecided) == 0 {
+		return nil
+	}
+	return exitStatusError{code: 1, message: "check --strict: not decided: " + strings.Join(undecided, "; ")}
 }
 
 // validCount reports whether s is a positive decimal int64 with no sign.

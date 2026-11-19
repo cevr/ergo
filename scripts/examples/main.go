@@ -1076,8 +1076,8 @@ func (r *runner) testProgram(p *program) {
 
 // testModule runs every package of the program of packages p in one `ergo
 // test DIR/...` and reports each package's leg, as testTarget does, from
-// its part of the report: the check leg's evaluation against it, its
-// unexpected skips, and its ok line. It reports false, having printed
+// its part of the report: the check leg's evaluation against it and its ok
+// line (an unexpected skip fails ergo test itself, runtime.md Tests 4). It reports false, having printed
 // nothing, when the run did not pass; testProgram then tests each package
 // alone. A run that passed but did not test exactly the program's packages
 // fails the program.
@@ -1138,14 +1138,6 @@ func (r *runner) testModule(p *program) bool {
 		}
 		if evaluation != nil {
 			r.compareEvaluation(p, strings.Replace(leg, "test", "check", 1), evaluation, section)
-		}
-		if skips := unexpectedSkips(section, p.dir); len(skips) > 0 {
-			fmt.Fprintf(r.out, "FAIL %s: %s: %d unexpected skips; run each law, or list its line in %s with the reason (fs4)\n", p.name, leg, len(skips), expectedSkipsFile)
-			for _, s := range skips {
-				fmt.Fprintf(r.out, "    %s\n", s)
-			}
-			r.fail(p.name + ": " + leg)
-			continue
 		}
 		fmt.Fprintf(r.out, "ok %s: %s (in one run of %s)\n", p.name, leg, seconds(o.Elapsed))
 	}
@@ -1226,14 +1218,6 @@ func (r *runner) testTarget(p *program, target, leg string) {
 		fmt.Fprintf(r.out, "FAIL %s: %s: %s\n", p.name, leg, o.OverCap())
 		r.fail(p.name + ": " + leg)
 	case o.Passed():
-		if skips := unexpectedSkips(o.Stdout, p.dir); len(skips) > 0 {
-			fmt.Fprintf(r.out, "FAIL %s: %s: %d unexpected skips; run each law, or list its line in %s with the reason (fs4)\n", p.name, leg, len(skips), expectedSkipsFile)
-			for _, s := range skips {
-				fmt.Fprintf(r.out, "    %s\n", s)
-			}
-			r.fail(p.name + ": " + leg)
-			return
-		}
 		fmt.Fprintf(r.out, "ok %s: %s (%s)\n", p.name, leg, seconds(o.Elapsed))
 	default:
 		fmt.Fprintf(r.out, "FAIL %s: %s%s\n", p.name, leg, o.Why(r.cfg.testTimeout))
@@ -1242,32 +1226,10 @@ func (r *runner) testTarget(p *program, target, leg string) {
 	}
 }
 
-// expectedSkipsFile names, in a program's folder, the skip lines its ergo
-// test may print: one line each, exactly as printed, with a line starting
-// "#" for the reason. A skip that it does not list fails the test leg
-// (fs4), so a law the runner cannot run is never silent.
+// expectedSkipsFile is the file beside a module's ergo.mod that lists the
+// skip lines its ergo test may print; ergo test fails on any other
+// (runtime.md, Tests 4). The runner admits it in a program's layout.
 const expectedSkipsFile = "expected-skips"
-
-// unexpectedSkips are the lines of an ergo test's stdout that report a
-// skip ("skip law …") and that the program's expected-skips file does not
-// list.
-func unexpectedSkips(stdout []byte, dir string) []string {
-	expected := map[string]bool{}
-	if data, err := os.ReadFile(filepath.Join(dir, expectedSkipsFile)); err == nil {
-		for _, line := range strings.Split(string(data), "\n") {
-			if line = strings.TrimSpace(line); line != "" && !strings.HasPrefix(line, "#") {
-				expected[line] = true
-			}
-		}
-	}
-	var out []string
-	for _, line := range strings.Split(string(stdout), "\n") {
-		if strings.HasPrefix(line, "skip ") && !expected[strings.TrimSpace(line)] {
-			out = append(out, line)
-		}
-	}
-	return out
-}
 
 // recordProgram runs a port's original through record.sh for each case and
 // writes its goldens, or with -check compares them.

@@ -1,0 +1,791 @@
+// Trace conformance (MODELCHECK T2; docs/spec/stdlib.md, Testing). A
+// passing model says the design is right; Conform says a log of the
+// running code is a behaviour of that design.
+//
+// A trace is JSON Lines, one observation per line, every key optional and
+// unknown keys ignored: `{"signal": "Save", "args": {"who": "a"},
+// "state": {"memory": 1}}`. signal names a signal's variant, args some of
+// its fields, state some fields of the state after the step. A field left
+// out is "any". Observations are read with the model's own codecs: a
+// candidate state's wire form, with the observed fields laid over it, is
+// decoded as the state type; a value of the wrong kind is a TraceError that
+// names the field, never a silent non-match, and so is a field the type
+// does not have. The candidate fits when the decoded state is the
+// candidate itself (by key: floats by their bits).
+//
+// Conform keeps the set of model states consistent with the observations
+// so far (deduplicated by the search's key). Before each observation it
+// closes the set under up to Hidden unobserved steps; an observation's
+// step goes from each candidate by each signal the observation allows to
+// a state that fits it; with Stutter, an observation that names no signal
+// may also leave the state as it is. The verdicts: Conforms (a matching
+// behaviour, as a Run), Mismatch (the first line no candidate can explain,
+// with what the model allowed there), Broken (every behaviour that
+// explains the trace so far breaks a named property at some state of its
+// run: a logged one, a hidden step's, or one a partial line left open), OverLimit (more
+// than Limit candidates: no verdict, never a pass) and TraceError.
+//
+// What one trace proves: that this trace is a behaviour of the model,
+// nothing about other runs. Hidden steps and partial states weaken it, so
+// the report says how many hidden steps were taken, the peak count of
+// candidates, and what the trace never observed: signals it never took and
+// state fields it never named.
+//
+// Prior art: everystate's trace validation (untyped JSON against TLA+
+// values, its exit codes 0, 20, 21 bad trace, 22 limit reached are kept
+// by `ergo conform`, which gives Broken 23); TLC's
+// trace validation (Kuppe et al., 2024) checks a log as a constrained
+// behaviour of the spec; Quint's `run` replays a trace step by step.
+
+import dense
+import json
+import strings
+
+// Obs is one observation of a trace: its line, the signal's variant name
+// (None when the line names none), its fields and the observed state.
+type Obs { Line int, Signal Option[string], Args Option[json.Value], State Option[json.Value] }
+
+// Options: Hidden, the unobserved steps allowed before each observation;
+// Stutter, whether an observation with no signal may leave the state
+// unchanged; Limit, the most candidates kept (100,000 when it is not
+// positive).
+type Options { Hidden int, Stutter bool, Limit int }
+
+// Invariant is a named property of the model's states that a conforming
+// trace is checked against.
+type Invariant[S] { Name string, Holds func(s S) bool }
+
+// Report is what Conform saw: the observations matched, the peak count of
+// candidates, the hidden steps the matching behaviour took, the signals
+// (by variant name) the trace never took and the state's fields it never
+// observed.
+type Report { Lines int, Peak int, Hidden int, Unseen []string, Unobserved []string }
+
+// Conformance is Conform's verdict.
+type Conformance = Conforms{Run Run, Report Report} | Mismatch{Line int, Observed string, Before []string, Allowed []string, Nearest string, Differ []string, Report Report} | Broken{Line int, Invariant string, Run Run, Report Report} | OverLimit{Line int, Candidates int, Report Report} | TraceError{Line int, Why string}
+
+// ReadTrace reads a JSON Lines trace. A blank line is skipped; a line that
+// is not a JSON object, or whose signal is not a string, or whose args is
+// not an object, is a TraceError.
+func ReadTrace(text string) []Obs fails TraceError {
+	let mut out = []Obs{}
+	let lines = strings.Split(text, "\n")
+	for i in 0..len(lines) {
+		let line = strings.TrimSpace(lines[i])
+		if line == "" {
+			continue
+		}
+		let v = json.Decode[json.Value](json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, line) catch {
+		case json.Malformed as m:
+			return TraceError{Line: i + 1, Why: "not JSON: " + m.Reason}
+		case _:
+			return TraceError{Line: i + 1, Why: "not JSON"}
+		}
+		let mut ob = Obs{Line: i + 1, Signal: None, Args: None, State: None}
+		match v {
+		case json.Object as o:
+			for m in o.Members {
+				if m.Key == "signal" {
+					match m.Value {
+					case json.Str as s:
+						ob.Signal = Some[string]{Value: s.Value}
+					case _:
+						return TraceError{Line: i + 1, Why: "signal is not a string"}
+					}
+				} else if m.Key == "args" {
+					match m.Value {
+					case json.Object:
+						ob.Args = Some[json.Value]{Value: m.Value}
+					case _:
+						return TraceError{Line: i + 1, Why: "args is not an object"}
+					}
+				} else if m.Key == "state" {
+					ob.State = Some[json.Value]{Value: m.Value}
+				}
+			}
+		case _:
+			return TraceError{Line: i + 1, Why: "a line is a JSON object"}
+		}
+		out = out.Append(ob)
+	}
+	out
+}
+
+// Fit is how an observed value compares with a value of the model: Fits,
+// Differs, or Bad when the observation is not a value of the type (Why
+// names the field).
+type Fit = Fits{} | Differs{} | Bad{Why string}
+
+// valueOf is v's wire form as an untyped JSON value.
+func valueOf[T wire](v T) json.Value needs wired[T] {
+	let text = json.Encode(json.Codec[T]{MaxBytes: 0, MaxDepth: 0}, v)
+	json.Decode[json.Value](json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, text) catch {
+	case _:
+		Unreachable("the codec read back what it wrote")
+	}
+}
+
+// FitOf compares the observation obs with v: obs laid over v's wire form,
+// decoded as T, must be v again. A member of obs that the decoded value
+// does not write is a field T does not have.
+func FitOf[T wire](v T, obs json.Value) Fit needs wired[T] { fitOn(v, valueOf(v), obs) }
+
+// quick is fitValue's answer, from the wire forms alone: Same (every
+// observed member equals v's), Other (a member differs, every one of a
+// kind that decodes exactly), OtherTag (a union tag differs: overlay's
+// None), or Unsure (only the typed decode can tell; it may be Bad).
+type quick = Same{} | Other{} | OtherTag{} | Unsure{}
+
+// fitValue compares obs with base, v's wire form, without decoding. base
+// is a value the codec wrote, so a member equal to base's reads back as
+// v's. A member base lacks, a value of another kind, and two different
+// numbers or strings (a codec may read two texts as one value) are Unsure.
+// A differing tag anywhere wins, as overlay's None does; then Unsure, since
+// the decode may find the observation Bad; then Other.
+func fitValue(base json.Value, obs json.Value) quick {
+	match obs {
+	case json.Object as o:
+		match base {
+		case json.Object as b:
+			let mut unsure = false
+			let mut other = false
+			for m in o.Members {
+				let mut found = false
+				for n in b.Members {
+					if n.Key == m.Key {
+						found = true
+						if m.Key == "_tag" {
+							if n.Value != m.Value {
+								return OtherTag
+							}
+						} else {
+							match fitValue(n.Value, m.Value) {
+							case OtherTag:
+								return OtherTag
+							case Unsure:
+								unsure = true
+							case Other:
+								other = true
+							case Same:
+							}
+						}
+					}
+				}
+				if !found {
+					if m.Key == "_tag" {
+						return OtherTag
+					}
+					unsure = true
+				}
+			}
+			if unsure { Unsure } else if other { Other } else { Same }
+		case _:
+			Unsure
+		}
+	case json.Boolean as x:
+		match base {
+		case json.Boolean as y:
+			if x.Value == y.Value { Same } else { Other }
+		case _:
+			Unsure
+		}
+	case json.Array as x:
+		// overlay replaces an array whole, so each element must equal
+		// base's to be Same (a partial element is no overlay), and only a
+		// differing bool, which decodes exactly, makes it Other.
+		match base {
+		case json.Array as y:
+			if len(x.Items) != len(y.Items) {
+				return Unsure
+			}
+			let mut other = false
+			for i in 0..len(x.Items) {
+				if x.Items[i] != y.Items[i] {
+					match x.Items[i] {
+					case json.Boolean:
+						match y.Items[i] {
+						case json.Boolean:
+							other = true
+						case _:
+							return Unsure
+						}
+					case _:
+						return Unsure
+					}
+				}
+			}
+			if other { Other } else { Same }
+		case _:
+			Unsure
+		}
+	case _:
+		if obs == base { Same } else { Unsure }
+	}
+}
+
+// fitOn is FitOf with v's wire form base already made.
+func fitOn[T wire](v T, base json.Value, obs json.Value) Fit needs wired[T] {
+	match fitValue(base, obs) {
+	case Same:
+		return Fits
+	case Other, OtherTag:
+		return Differs
+	case Unsure:
+	}
+	fitDecode(v, base, obs)
+}
+
+// fitDecode is FitOf without fitValue's fast path: obs laid over base,
+// decoded as T, then compared by key. It is the fast path's reference
+// (law FitFastAgreesWithDecode), and what an Unsure answer falls to.
+func fitDecode[T wire](v T, base json.Value, obs json.Value) Fit needs wired[T] {
+	match overlay(base, obs) {
+	case None:
+		return Differs
+	case Some[json.Value] as m:
+		let text = json.Encode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, m.Value)
+		let u = json.Decode[T](json.Codec[T]{MaxBytes: 0, MaxDepth: 0}, text) catch {
+		case WireWrongKind as w:
+			return Bad{Why: "at " + w.Path + ": want " + w.Want}
+		case _:
+			return Bad{Why: "the observation is not a value of its type"}
+		}
+		let missing = absentIn(obs, valueOf(u), "")
+		if missing != "" {
+			return Bad{Why: "no field " + missing}
+		}
+		let (ku, _) = KeyOf(u)
+		let (kv, _) = KeyOf(v)
+		if ku == kv { Fits } else { Differs }
+	}
+}
+
+// overlay is base with obs laid over it: an object's members replace or
+// join base's, one level at a time; any other value replaces base. A
+// union's tag that differs is None: the value is of another variant.
+func overlay(base json.Value, obs json.Value) Option[json.Value] {
+	match obs {
+	case json.Object as o:
+		match base {
+		case json.Object as b:
+			let mut ms = b.Members
+			for m in o.Members {
+				let mut found = false
+				for i in 0..len(ms) {
+					if ms[i].Key == m.Key {
+						found = true
+						if m.Key == "_tag" {
+							if ms[i].Value != m.Value {
+								return None
+							}
+						} else {
+							match overlay(ms[i].Value, m.Value) {
+							case None:
+								return None
+							case Some[json.Value] as w:
+								ms[i] = json.Member{Key: m.Key, Value: w.Value}
+							}
+						}
+					}
+				}
+				if !found {
+					if m.Key == "_tag" {
+						return None
+					}
+					ms = ms.Append(m)
+				}
+			}
+			Some[json.Value]{Value: json.Object{Members: ms}}
+		case _:
+			Some[json.Value]{Value: obs}
+		}
+	case _:
+		Some[json.Value]{Value: obs}
+	}
+}
+
+// absentIn is the path of the first member of an object in obs that the
+// same object of got does not have, or "".
+func absentIn(obs json.Value, got json.Value, at string) string {
+	match obs {
+	case json.Object as o:
+		match got {
+		case json.Object as g:
+			for m in o.Members {
+				let mut hit = false
+				for n in g.Members {
+					if n.Key == m.Key {
+						hit = true
+						let deeper = absentIn(m.Value, n.Value, at + "." + m.Key)
+						if deeper != "" {
+							return deeper
+						}
+					}
+				}
+				if !hit {
+					return at + "." + m.Key
+				}
+			}
+			""
+		case _:
+			""
+		}
+	case _:
+		""
+	}
+}
+
+// tagOf is the variant name a value's wire form carries, or "".
+func tagOf(v json.Value) string {
+	match v {
+	case json.Object as o:
+		for m in o.Members {
+			if m.Key == "_tag" {
+				match m.Value {
+				case json.Str as s:
+					return s.Value
+				case _:
+				}
+			}
+		}
+		""
+	case _:
+		""
+	}
+}
+
+// keysOf are the member names of an object value, its tag left out.
+func keysOf(v json.Value) []string {
+	let mut out = []string{}
+	match v {
+	case json.Object as o:
+		for m in o.Members {
+			if m.Key != "_tag" {
+				out = out.Append(m.Key)
+			}
+		}
+	case _:
+	}
+	out
+}
+
+// signalObs is an observation's signal as a value to fit: its args with
+// its name as the tag.
+func signalObs(name string, args Option[json.Value]) json.Value {
+	let mut ms = []json.Member{json.Member{Key: "_tag", Value: json.Str{Value: name}}}
+	match args {
+	case Some[json.Value] as a:
+		match a.Value {
+		case json.Object as o:
+			for m in o.Members {
+				ms = ms.Append(m)
+			}
+		case _:
+		}
+	case None:
+	}
+	json.Object{Members: ms}
+}
+
+// project is v's wire form cut to the members obs names, as text.
+func project(v json.Value, obs json.Value) string {
+	match obs {
+	case json.Object as o:
+		match v {
+		case json.Object as b:
+			let mut ms = []json.Member{}
+			for m in o.Members {
+				for n in b.Members {
+					if n.Key == m.Key {
+						ms = ms.Append(n)
+					}
+				}
+			}
+			json.Encode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, json.Object{Members: ms})
+		case _:
+			json.Encode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, v)
+		}
+	case _:
+		json.Encode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, v)
+	}
+}
+
+// differ are the members of obs whose value v's wire form does not have.
+func differ(v json.Value, obs json.Value) []string {
+	let mut out = []string{}
+	match obs {
+	case json.Object as o:
+		match v {
+		case json.Object as b:
+			for m in o.Members {
+				let mut same = false
+				for n in b.Members {
+					if n.Key == m.Key && n.Value == m.Value {
+						same = true
+					}
+				}
+				if !same {
+					out = out.Append(m.Key)
+				}
+			}
+		case _:
+		}
+	case _:
+		if v != obs {
+			out = out.Append("(the state)")
+		}
+	}
+	out
+}
+
+// candidates is a set of model states with the run that reached each: a
+// node of a trail, as Result keeps one (parent -1: a start, sig its index).
+type candidates[S] { states []S, nodes []int, keys dense.Keys }
+
+func noCandidates[S]() candidates[S] { candidates[S]{states: []S{}, nodes: []int{}, keys: dense.NewKeys()} }
+
+// trail is the runs of every candidate seen: parent node and signal.
+type trail { parent []int32, sig []int32 }
+
+func addNode(t *trail, parent int, sig int) int {
+	t.parent = t.parent.Append(int32(parent))
+	t.sig = t.sig.Append(int32(sig))
+	len(t.parent) - 1
+}
+
+func runOf(t trail, node int) Run {
+	RunTo(Result{Found: node, Stats: Stats{States: 0, Edges: 0, Depth: 0, Checked: 0, Complete: false, Frontier: 0}, parent: t.parent, sig: t.sig}, node)
+}
+
+// broke is, for each node of a trail and each law, the line at which the
+// node's run first reached a state the law rejects, or -1: a run that
+// broke a law stays broken, whatever states it reaches after (an always
+// law is about every state of the run, hidden steps' included).
+type broke { laws int, at []int }
+
+// reach records node, reached by a step from parent (-1: a start) to s
+// before or at line: parent's breaks, and line for each law s breaks first.
+func reach[S](b *broke, parent int, s S, line int, laws []Invariant[S]) {
+	for l in 0..b.laws {
+		let mut at = if parent >= 0 { b.at[parent*b.laws+l] } else { -1 }
+		if at < 0 && !laws[l].Holds(s) {
+			at = line
+		}
+		b.at = b.at.Append(at)
+	}
+}
+
+// candidateKey is s's key, told apart by the laws its run broke: two runs
+// to one state are one candidate only when they broke the same laws, so a
+// run that kept every law is never dropped for one that did not.
+func candidateKey[S wire](s S, node int, b broke) Hash needs wired[S] {
+	let (k, _) = KeyOf(s)
+	let mut h = newHasher()
+	let mut any = false
+	for l in 0..b.laws {
+		if b.at[node*b.laws+l] >= 0 {
+			if !any {
+				absorb(&h, k.Hi)
+				absorb(&h, k.Lo)
+				any = true
+			}
+			absorb(&h, uint64(l + 1))
+		}
+	}
+	if any { Hash{Hi: h.hi, Lo: h.lo} } else { k }
+}
+
+// put adds s, reached as node, unless the set has it; it reports whether
+// it did.
+func put[S wire](c *candidates[S], s S, node int, b broke) bool needs wired[S] {
+	let k = candidateKey(s, node, b)
+	if !dense.AddKey(&c.keys, k.Hi, k.Lo) {
+		return false
+	}
+	c.states = c.states.Append(s)
+	c.nodes = c.nodes.Append(node)
+	true
+}
+
+// Conform decides whether trace is a behaviour of g (see the package
+// comment above). The signals of g are those an observation may name.
+func Conform[S wire, E wire](g Graph[S, E], trace []Obs, o Options, laws []Invariant[S]) Conformance needs wired[S] | wired[E] {
+	let limit = if o.Limit > 0 { o.Limit } else { 100000 }
+	let mut tr = trail{parent: []int32{}, sig: []int32{}}
+	let mut c = noCandidates[S]()
+	let mut rep = Report{Lines: 0, Peak: 0, Hidden: 0, Unseen: []string{}, Unobserved: []string{}}
+	// The signals' wire forms, and which ones the trace took.
+	let mut sigs = []json.Value{}
+	let mut tags = []string{}
+	let mut taken = []bool{}
+	for e in g.Signals {
+		sigs = sigs.Append(valueOf(e))
+		tags = tags.Append(tagOf(sigs[len(sigs)-1]))
+		taken = taken.Append(false)
+	}
+	// The state's fields, and which ones the trace observed.
+	let mut fields = []string{}
+	let mut seen = []bool{}
+	// The laws each run broke, and where: a start that breaks one breaks
+	// it before the first line.
+	let mut bk = broke{laws: len(laws), at: []int{}}
+	let first = if len(trace) > 0 { trace[0].Line } else { 0 }
+	for i in 0..len(g.Starts) {
+		let node = addNode(&tr, -1, i)
+		reach(&bk, -1, g.Starts[i], first, laws)
+		if put(&c, g.Starts[i], node, bk) && len(fields) == 0 {
+			for k in keysOf(valueOf(g.Starts[i])) {
+				fields = fields.Append(k)
+				seen = seen.Append(false)
+			}
+		}
+	}
+	if len(c.states) == 0 {
+		return Mismatch{Line: 0, Observed: "", Before: []string{}, Allowed: []string{}, Nearest: "the model has no start", Differ: []string{}, Report: finish(rep, g, taken, fields, seen)}
+	}
+	if len(c.states) > limit {
+		return OverLimit{Line: 0, Candidates: len(c.states), Report: finish(rep, g, taken, fields, seen)}
+	}
+	// hiddenAt is the number of hidden steps in each node's run.
+	let mut hiddenAt = []int{}
+	for _ in 0..len(tr.parent) {
+		hiddenAt = hiddenAt.Append(0)
+	}
+	for ob in trace {
+		// Close the candidates under up to Hidden unobserved steps.
+		let mut layer = 0
+		let mut from = 0
+		for layer < o.Hidden {
+			let to = len(c.states)
+			for i in from..to {
+				let s = c.states[i]
+				for e in 0..len(g.Signals) {
+					match g.Step(s, g.Signals[e]) {
+					case None:
+					case Some[S] as t:
+						let node = addNode(&tr, c.nodes[i], e)
+						hiddenAt = hiddenAt.Append(hiddenAt[c.nodes[i]] + 1)
+						// A hidden step's state is a state of the run: the
+						// laws are checked on it too (batch-mc1 T2 M1).
+						reach(&bk, c.nodes[i], t.Value, ob.Line, laws)
+						if put(&c, t.Value, node, bk) && len(c.states) > limit {
+							rep.Peak = len(c.states)
+							return OverLimit{Line: ob.Line, Candidates: len(c.states), Report: finish(rep, g, taken, fields, seen)}
+						}
+					}
+				}
+			}
+			from = to
+			layer = layer + 1
+		}
+		rep.Peak = larger(rep.Peak, len(c.states))
+		// The signals the observation allows.
+		let mut allowed = []int{}
+		match ob.Signal {
+		case None:
+			for e in 0..len(g.Signals) {
+				allowed = allowed.Append(e)
+			}
+		case Some[string] as name:
+			let want = signalObs(name.Value, ob.Args)
+			let mut named = false
+			for e in 0..len(g.Signals) {
+				if tags[e] == name.Value {
+					named = true
+				} else if tags[e] != "" {
+					// Another variant: overlay's tag rule makes it Differs.
+					continue
+				}
+				match fitOn(g.Signals[e], sigs[e], want) {
+				case Fits:
+					allowed = allowed.Append(e)
+				case Differs:
+				case Bad as b:
+					return TraceError{Line: ob.Line, Why: "signal " + name.Value + " " + b.Why}
+				}
+			}
+			if !named {
+				return TraceError{Line: ob.Line, Why: "the model has no signal " + name.Value}
+			}
+		}
+		// The observed fields.
+		match ob.State {
+		case Some[json.Value] as st:
+			for k in keysOf(st.Value) {
+				for i in 0..len(fields) {
+					if fields[i] == k {
+						seen[i] = true
+					}
+				}
+			}
+		case None:
+		}
+		let mut next = noCandidates[S]()
+		let mut steps = []string{}
+		let mut nearest = ""
+		let mut nearDiffer = []string{}
+		for i in 0..len(c.states) {
+			let s = c.states[i]
+			if o.Stutter && isNone(ob.Signal) {
+				match fitState(s, ob.State) {
+				case Fits:
+					put(&next, s, c.nodes[i], bk)
+				case Differs:
+				case Bad as b:
+					return TraceError{Line: ob.Line, Why: "state " + b.Why}
+				}
+			}
+			for e in allowed {
+				match g.Step(s, g.Signals[e]) {
+				case None:
+				case Some[S] as t:
+					match fitState(t.Value, ob.State) {
+					case Fits:
+						taken[e] = true
+						let node = addNode(&tr, c.nodes[i], e)
+						hiddenAt = hiddenAt.Append(hiddenAt[c.nodes[i]])
+						reach(&bk, c.nodes[i], t.Value, ob.Line, laws)
+						put(&next, t.Value, node, bk)
+					case Differs:
+						if len(next.states) == 0 {
+							steps = steps.Append(tagOrText(sigs[e]))
+							match ob.State {
+							case Some[json.Value] as st:
+								let d = differ(valueOf(t.Value), st.Value)
+								if nearest == "" || len(d) < len(nearDiffer) {
+									nearest = project(valueOf(t.Value), st.Value)
+									nearDiffer = d
+								}
+							case None:
+							}
+						}
+					case Bad as b:
+						return TraceError{Line: ob.Line, Why: "state " + b.Why}
+					}
+				}
+			}
+		}
+		if len(next.states) == 0 {
+			let mut before = []string{}
+			let obsText = observed(ob)
+			for s in c.states {
+				match ob.State {
+				case Some[json.Value] as st:
+					before = before.Append(project(valueOf(s), st.Value))
+				case None:
+					before = before.Append(json.Encode(json.Codec[S]{MaxBytes: 0, MaxDepth: 0}, s))
+				}
+			}
+			return Mismatch{Line: ob.Line, Observed: obsText, Before: before, Allowed: steps, Nearest: nearest, Differ: nearDiffer, Report: finish(rep, g, taken, fields, seen)}
+		}
+		c = next
+		rep.Peak = larger(rep.Peak, len(c.states))
+		if len(c.states) > limit {
+			rep.Peak = len(c.states)
+			return OverLimit{Line: ob.Line, Candidates: len(c.states), Report: finish(rep, g, taken, fields, seen)}
+		}
+		rep.Lines = rep.Lines + 1
+		// A law every candidate's run broke, at a logged state, a hidden
+		// one or one the trace left out, is broken by every behaviour that
+		// explains the trace so far; the line is the latest at which one of
+		// them broke it.
+		for l in 0..len(laws) {
+			let mut all = true
+			let mut line = 0
+			for n in c.nodes {
+				let at = bk.at[n*bk.laws+l]
+				if at < 0 {
+					all = false
+				} else if at > line {
+					line = at
+				}
+			}
+			if all {
+				rep.Hidden = hiddenAt[c.nodes[0]]
+				return Broken{Line: line, Invariant: laws[l].Name, Run: runOf(tr, c.nodes[0]), Report: finish(rep, g, taken, fields, seen)}
+			}
+		}
+	}
+	rep.Hidden = hiddenAt[c.nodes[0]]
+	Conforms{Run: runOf(tr, c.nodes[0]), Report: finish(rep, g, taken, fields, seen)}
+}
+
+func isNone(x Option[string]) bool {
+	match x {
+	case None:
+		true
+	case Some[string]:
+		false
+	}
+}
+
+// fitState fits a state to an observation's state, which may be absent.
+func fitState[S wire](s S, obs Option[json.Value]) Fit needs wired[S] {
+	match obs {
+	case None:
+		Fits
+	case Some[json.Value] as v:
+		FitOf(s, v.Value)
+	}
+}
+
+func tagOrText(v json.Value) string {
+	let t = tagOf(v)
+	if t != "" { t } else { json.Encode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, v) }
+}
+
+// observed is the observation as the trace wrote it, its known keys only.
+func observed(ob Obs) string {
+	let mut ms = []json.Member{}
+	match ob.Signal {
+	case Some[string] as s:
+		ms = ms.Append(json.Member{Key: "signal", Value: json.Str{Value: s.Value}})
+	case None:
+	}
+	match ob.Args {
+	case Some[json.Value] as a:
+		ms = ms.Append(json.Member{Key: "args", Value: a.Value})
+	case None:
+	}
+	match ob.State {
+	case Some[json.Value] as st:
+		ms = ms.Append(json.Member{Key: "state", Value: st.Value})
+	case None:
+	}
+	json.Encode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, json.Object{Members: ms})
+}
+
+// finish fills in what the trace never observed.
+func finish[S, E wire](rep Report, g Graph[S, E], taken []bool, fields []string, seen []bool) Report needs wired[E] {
+	let mut r = rep
+	let mut unseen = []string{}
+	for e in 0..len(g.Signals) {
+		if !taken[e] {
+			let name = tagOrText(valueOf(g.Signals[e]))
+			let mut dup = false
+			for u in unseen {
+				if u == name {
+					dup = true
+				}
+			}
+			// A variant counts as taken when any of its listed values was.
+			for f in 0..len(g.Signals) {
+				if taken[f] && tagOrText(valueOf(g.Signals[f])) == name {
+					dup = true
+				}
+			}
+			if !dup {
+				unseen = unseen.Append(name)
+			}
+		}
+	}
+	let mut unobserved = []string{}
+	for i in 0..len(fields) {
+		if !seen[i] {
+			unobserved = unobserved.Append(fields[i])
+		}
+	}
+	r.Unseen = unseen
+	r.Unobserved = unobserved
+	r
+}

@@ -765,6 +765,9 @@
     "TestIRTextChecksPart99": 8.97,
     "TestSplitsCoverTheirDomain": 0.01
   },
+  "ergo.local/prototype/internal/ergoversion": {
+    "TestOfReadsTheStamp": 0
+  },
   "ergo.local/prototype/internal/gobind": {
     "TestBindMappingProperty": 0.18,
     "TestGoStdBindingsMatchToolchain": 0.92

@@ -363,15 +363,6 @@
       "killers": ["scripts/examples:TestModuleProgramJudgesEachPackage"]
     },
     {
-      "name": "one-module-ignores-skips",
-      "origin": "wf10 TEST-one",
-      "file": "scripts/examples/main.go",
-      "from": "if skips := unexpectedSkips(section, p.dir); len(skips) > 0 {",
-      "to": "if skips := unexpectedSkips(section, p.dir); false && len(skips) > 0 {",
-      "rule": "One ergo test of a program of packages fails a package whose part of the report holds a skip that expected-skips does not list (fs4).",
-      "killers": ["scripts/examples:TestModuleProgramJudgesEachPackage"]
-    },
-    {
       "name": "one-module-any-packages",
       "origin": "wf10 TEST-one",
       "file": "scripts/examples/main.go",
