@@ -74,9 +74,12 @@ type irMemo struct {
 }
 
 // memoLoop builds the statements of a loop with build, then puts the
-// declarations of the calls its body memoized before them.
-func (b *irBuilder) memoLoop(build func() []*irStmt) []*irStmt {
-	m := &irMemo{first: b.next}
+// declarations of the calls its body memoized before them. first is the
+// builder's next local before the loop bound any name of its own (a
+// range's index and element, declared before its body is built): every
+// local from first on may change between iterations.
+func (b *irBuilder) memoLoop(first int, build func() []*irStmt) []*irStmt {
+	m := &irMemo{first: first}
 	depth := len(b.memos)
 	b.memos = append(b.memos, m)
 	// A refusal inside the loop unwinds through here (irNo): the stack

@@ -13,13 +13,14 @@ import (
 // defect at 0); noisy, an impure one that prints; filepath.Clean, a
 // reviewed-pure Go function. The operands: a parameter or an outer `let`
 // (invariant), a `let mut` the loop assigns, a `let` bound inside the loop,
-// the loop's own variable. A match on pick or pickOr in a loop builds the
-// callee's body into the loop (the fused match, lower/ir_forms_match.go):
-// its sq calls take the callee's parameters, bound on each iteration to
-// the match's operands, invariant or not; pickOr's result that is no
-// variant makes the fusion fall back after its body memoized a call. The loops: a while, a count loop, a count loop
-// inside another whose `let` changes per outer iteration, and loops that
-// run no iteration (n = 0). A print before the call puts an effect ahead
+// the loop's own variable, a range's index and element. A match on pick
+// or pickOr in a loop builds the callee's body into the loop (the fused
+// match, lower/ir_forms_match.go): its sq calls take the callee's
+// parameters, bound on each iteration to the match's operands, invariant
+// or not; pickOr's result that is no variant makes the fusion fall back
+// after its body memoized a call. The loops: a while, a count loop, a
+// range over a slice, a count loop inside another whose `let` changes per
+// outer iteration, and loops that run no iteration (n = 0). A print before the call puts an effect ahead
 // of it. main prints every function at several inputs, the last of which
 // may divide by zero, so a call memoized wrong, too often or too early
 // changes what the program prints or where it stops.
@@ -67,7 +68,11 @@ type hoistGen struct{ r *rand.Rand }
 func (g *hoistGen) loop(j int) string {
 	var b strings.Builder
 	iv := fmt.Sprintf("i%d", j)
-	switch g.r.IntN(3) {
+	switch g.r.IntN(4) {
+	case 3: // a range over a slice: its index and element are bound on each iteration
+		fmt.Fprintf(&b, "\tlet xs%d = []int{k, z, n + 1, 7}\n\tfor e%d, %s in xs%d {\n\t\tacc = acc + e%d\n", j, j, iv, j, j)
+		b.WriteString(g.body(iv+fmt.Sprintf(" e%d", j), "\t\t", ""))
+		b.WriteString("\t}\n")
 	case 0: // a while over a let mut counter
 		fmt.Fprintf(&b, "\tlet mut %s = 0\n\tfor %s < n {\n", iv, iv)
 		b.WriteString(g.body(iv, "\t\t", ""))
@@ -84,15 +89,17 @@ func (g *hoistGen) loop(j int) string {
 	return b.String()
 }
 
-// body is a loop body over loop variable iv, at indent ind; outer names
-// the outer loop's let, or "".
+// body is a loop body over loop variable iv (and the other names the
+// loop binds on each iteration, after it, space-separated), at indent
+// ind; outer names the outer loop's let, or "".
 func (g *hoistGen) body(iv, ind, outer string) string {
 	var b strings.Builder
+	v := strings.Fields(iv)[0]
 	if g.r.IntN(3) == 0 {
-		fmt.Fprintf(&b, "%sConsole.Println(\"at \\(%s)\")\n", ind, iv)
+		fmt.Fprintf(&b, "%sConsole.Println(\"at \\(%s)\")\n", ind, v)
 	}
 	if g.r.IntN(2) == 0 {
-		fmt.Fprintf(&b, "%slet w = %s * 3\n%sacc = acc + w\n", ind, iv, ind)
+		fmt.Fprintf(&b, "%slet w = %s * 3\n%sacc = acc + w\n", ind, v, ind)
 		iv += " w"
 	}
 	fmt.Fprintf(&b, "%sacc = acc + %s\n", ind, strings.Fields(iv)[0])
