@@ -67,7 +67,7 @@ testing	same
 text	same
 time	same
 timeout	differs	lower: no exported function a caller can take as a value	follow-up copy-by-call
-toml	differs	lower: the flat std program suffixes a name another std package declares too (toml's DecodeMono_1 beside json's), the copy's names are unique	follow-up std-name-suffix
+toml	same
 trace	same
 tz	same
 tz/host	same

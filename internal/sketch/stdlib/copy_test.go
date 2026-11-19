@@ -677,7 +677,7 @@ func copyCanonicalNames(fset *token.FileSet, f *ast.File) {
 	}
 	groups := map[string][]string{}
 	for name := range declOf {
-		base := copySuffix.ReplaceAllString(name, "")
+		base := copySuffix.ReplaceAllString(name, "$2")
 		groups[base] = append(groups[base], name)
 	}
 	keep := map[*ast.Ident]bool{}
@@ -706,7 +706,11 @@ func copyCanonicalNames(fset *token.FileSet, f *ast.File) {
 	})
 	final := map[string]string{}
 	for base, names := range groups {
-		member := regexp.MustCompile(`\b` + regexp.QuoteMeta(base) + `(?:_\d+)?\b`)
+		stem, inst := base, ""
+		if m := copyInstance.FindStringSubmatchIndex(base); m != nil {
+			stem, inst = base[:m[0]], base[m[0]:]
+		}
+		member := regexp.MustCompile(`\b` + regexp.QuoteMeta(stem) + `(?:_\d+)?` + regexp.QuoteMeta(inst) + `\b`)
 		keys := map[string]string{}
 		for _, n := range names {
 			var buf bytes.Buffer
@@ -733,8 +737,15 @@ func copyCanonicalNames(fset *token.FileSet, f *ast.File) {
 	})
 }
 
-// copySuffix is the suffix the lowering adds to make a Go name unique.
-var copySuffix = regexp.MustCompile(`_\d+$`)
+// copySuffix is the suffix the lowering adds to make a Go name unique: at
+// the end of the name, or, for a monomorphic copy, at the end of the copy's
+// reserved base before its instance suffix (CloneMono_1_i1: slices.Clone's
+// copies, after the prelude's Clone took CloneMono). Group 2 is the
+// instance suffix, which the base keeps.
+var copySuffix = regexp.MustCompile(`(_\d+)((?:_i\d+)?)$`)
+
+// copyInstance is a monomorphic copy's instance suffix (monoName).
+var copyInstance = regexp.MustCompile(`_i\d+$`)
 
 // copyFileOfPosition matches the file of a position written as text
 // (std/codec/codec.ergo:118:2, or a copy's file): only line and column are
