@@ -14,7 +14,8 @@ Flags: `-p TEXT` (one turn, no terminal), `--script FILE` (the scripted world: t
 
 | key | Idle | Asking, Waiting, Running |
 | --- | --- | --- |
-| a character, Backspace | edits the composer | edits the composer |
+| a character, a paste, Backspace, Delete | edits the composer at its cursor | edits the composer at its cursor |
+| Left, Right, Home, End | moves the composer's cursor | moves the composer's cursor |
 | Enter | sends the composer's line | ignored |
 | Esc | ignored | stops the turn: the draft is kept as cut, each call that waited gets the result `interrupted` |
 | Ctrl-C | leaves | stops the turn, as Esc |
