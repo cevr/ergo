@@ -307,6 +307,8 @@ func paceKeeps(xs []int, s string) bool needs pace.Pacing {
 test PacePacingEdgeKeepsValues(xs []int, s string) {
 	assert with context { pace.Pacing: pace.Default } { paceKeeps(xs, s) }
 	assert with context { pace.Pacing: pace.NewCounting() } { paceKeeps(xs, s) }
+	assert with context { pace.Pacing: pace.NewEvery(pace.NewQuiet(pace.Default), 2) } { paceKeeps(xs, s) }
+	assert with context { pace.Pacing: pace.NewQuiet(pace.NewEvery(pace.NewCounting(), 3)) } { paceKeeps(xs, s) }
 }
 
 test PaceDefaultReachesNothing(xs []int, n int) {
@@ -351,6 +353,8 @@ func paceHoldKeeps(xs []int, n int) bool needs pace.Pacing {
 test PacePacingHoldKeepsValues(xs []int, n int) {
 	assert with context { pace.Pacing: pace.Default } { paceHoldKeeps(xs, n) }
 	assert with context { pace.Pacing: pace.NewCounting() } { paceHoldKeeps(xs, n) }
+	assert with context { pace.Pacing: pace.NewEvery(pace.NewQuiet(pace.Default), 2) } { paceHoldKeeps(xs, n) }
+	assert with context { pace.Pacing: pace.NewQuiet(pace.NewEvery(pace.NewCounting(), 3)) } { paceHoldKeeps(xs, n) }
 }
 
 test PaceHoldsOweTheLastClose(ops []int) {
@@ -410,6 +414,109 @@ test PaceHeldDefersToTheLastRelease(n int, k int, stop bool) {
 	}
 	let owed = if edges > 0 { int64(1) } else { int64(0) }
 	assert c.Edges() == int64(edges+1) && c.HeldEdges() == int64(edges) && c.Deferred() == owed
+}
+
+func paceLargest(xs []int) int {
+	let mut m = xs[0]
+	for x in xs {
+		if x > m {
+			m = x
+		}
+	}
+	m
+}
+
+test PaceEveryOneIsParent(n int, k int) {
+	let edges = paceWithin(n, 0, 64)
+	let holds = paceWithin(k, 0, 4)
+	let c = pace.NewCounting()
+	with context { pace.Pacing: pace.NewEvery(c, 1) } {
+		for _ in 0..holds {
+			pace.Pacing.Hold()
+		}
+		for _ in 0..edges {
+			pace.Pacing.Edge()
+		}
+		for _ in 0..holds {
+			pace.Pacing.Release()
+		}
+	}
+	let held = if holds > 0 { edges } else { 0 }
+	let owed = if holds > 0 && edges > 0 { int64(1) } else { int64(0) }
+	assert c.Edges() == int64(edges) && c.HeldEdges() == int64(held) && c.Deferred() == owed
+}
+
+test PaceEveryPassesOneInN(n int, k int) {
+	let every = paceWithin(n, 1, 9)
+	let edges = paceWithin(k, 0, 200)
+	let c = pace.NewCounting()
+	with context { pace.Pacing: pace.NewEvery(c, every) } {
+		for _ in 0..edges {
+			pace.Pacing.Edge()
+		}
+	}
+	assert c.Edges() == int64(edges/every)
+}
+
+test PaceEveryNests(a int, b int, k int) {
+	let x = paceWithin(a, 1, 6)
+	let y = paceWithin(b, 1, 6)
+	let edges = paceWithin(k, 0, 200)
+	let nested = pace.NewCounting()
+	let flat = pace.NewCounting()
+	let outer = pace.NewEvery(pace.NewEvery(nested, y), x)
+	let one = pace.NewEvery(flat, x*y)
+	let mut same = true
+	for _ in 0..edges {
+		with context { pace.Pacing: outer } { pace.Pacing.Edge() }
+		with context { pace.Pacing: one } { pace.Pacing.Edge() }
+		same = same && nested.Edges() == flat.Edges()
+	}
+	assert same
+}
+
+test PaceQuietForwardsHolds(n int, k int) {
+	let edges = paceWithin(n, 0, 64)
+	let holds = paceWithin(k, 0, 4)
+	let c = pace.NewCounting()
+	with context { pace.Pacing: pace.NewQuiet(c) } {
+		for _ in 0..holds {
+			pace.Pacing.Hold()
+		}
+		for _ in 0..edges {
+			pace.Pacing.Edge()
+		}
+		c.Edge()
+		for _ in 0..holds {
+			pace.Pacing.Release()
+		}
+	}
+	c.Edge()
+	let held = if holds > 0 { int64(1) } else { int64(0) }
+	assert c.Edges() == 2 && c.HeldEdges() == held && c.Deferred() == held
+}
+
+test PaceRaisesFollowModel(ops []int) {
+	let r = pace.NewRaises()
+	let mut open = []int{}
+	let mut same = true
+	for op in ops {
+		let percent = 100 * paceWithin(op/2, 1, 8)
+		if paceWithin(op, 0, 1) == 0 {
+			let got = r.Raise(percent)
+			open = open.Append(percent)
+			same = same && got == paceLargest(open)
+		} else if len(open) > 0 {
+			let i = paceWithin(op/16, 0, len(open)-1)
+			let gone = open[i]
+			let (_, rest) = open.TakeAt(i)
+			open = rest
+			let got = r.Lower(gone)
+			same = same && got == (if len(open) == 0 { None } else { Some[int]{Value: paceLargest(open)} })
+		}
+		same = same && r.Open() == len(open)
+	}
+	assert same
 }
 
 test TraceInnerSpanShadows(outer string, inner string) {
@@ -619,6 +726,11 @@ var stdLawsStatements = map[string]string{
 	"pace Pacing.HoldKeepsValues":          `HoldKeepsValues(xs []int, n int) { let kept = xs.Append(n) Hold() Edge() Release() len(kept) == len(xs)+1 && kept[len(xs)] == n }`,
 	"pace HoldsOweTheLastClose":            `HoldsOweTheLastClose(ops []int) { let h = NewHolds() let mut depth = 0 let mut owed = false let mut same = true for op in ops { let kind = within(op, 0, 2) if kind == 0 { h.Open() depth = depth + 1 } else if kind == 1 && depth > 0 { let collects = h.Close() depth = depth - 1 same = same && collects == (depth == 0 && owed) if depth == 0 { owed = false } } else if kind == 2 { same = same && h.Owe() == (depth > 0) owed = owed || depth > 0 } same = same && h.Depth() == int64(depth) } same }`,
 	"pace HeldDefersToTheLastRelease":      `HeldDefersToTheLastRelease(n int, k int, stop bool) { let edges = within(n, 0, 16) let depth = within(k, 1, 4) let c = NewCounting() with context { Pacing: c } { nest(depth, edges, stop) catch { case stopped: } Pacing.Edge() } let owed = if edges > 0 { int64(1) } else { int64(0) } c.Edges() == int64(edges+1) && c.HeldEdges() == int64(edges) && c.Deferred() == owed }`,
+	"pace EveryOneIsParent":                `EveryOneIsParent(n int, k int) { let edges = within(n, 0, 64) let holds = within(k, 0, 4) let c = NewCounting() with context { Pacing: NewEvery(c, 1) } { for _ in 0..holds { Pacing.Hold() } for _ in 0..edges { Pacing.Edge() } for _ in 0..holds { Pacing.Release() } } let held = if holds > 0 { edges } else { 0 } let owed = if holds > 0 && edges > 0 { int64(1) } else { int64(0) } c.Edges() == int64(edges) && c.HeldEdges() == int64(held) && c.Deferred() == owed }`,
+	"pace EveryPassesOneInN":               `EveryPassesOneInN(n int, k int) { let every = within(n, 1, 9) let edges = within(k, 0, 200) let c = NewCounting() with context { Pacing: NewEvery(c, every) } { for _ in 0..edges { Pacing.Edge() } } c.Edges() == int64(edges/every) }`,
+	"pace EveryNests":                      `EveryNests(a int, b int, k int) { let x = within(a, 1, 6) let y = within(b, 1, 6) let edges = within(k, 0, 200) let nested = NewCounting() let flat = NewCounting() let outer = NewEvery(NewEvery(nested, y), x) let one = NewEvery(flat, x*y) let mut same = true for _ in 0..edges { with context { Pacing: outer } { Pacing.Edge() } with context { Pacing: one } { Pacing.Edge() } same = same && nested.Edges() == flat.Edges() } same }`,
+	"pace QuietForwardsHolds":              `QuietForwardsHolds(n int, k int) { let edges = within(n, 0, 64) let holds = within(k, 0, 4) let c = NewCounting() with context { Pacing: NewQuiet(c) } { for _ in 0..holds { Pacing.Hold() } for _ in 0..edges { Pacing.Edge() } c.Edge() for _ in 0..holds { Pacing.Release() } } c.Edge() let held = if holds > 0 { int64(1) } else { int64(0) } c.Edges() == 2 && c.HeldEdges() == held && c.Deferred() == held }`,
+	"pace RaisesFollowModel":               `RaisesFollowModel(ops []int) { let r = NewRaises() let mut open = []int{} let mut same = true for op in ops { let percent = 100 * within(op/2, 1, 8) if within(op, 0, 1) == 0 { let got = r.Raise(percent) open = open.Append(percent) same = same && got == largest(open) } else if len(open) > 0 { let i = within(op/16, 0, len(open)-1) let gone = open[i] let (_, rest) = open.TakeAt(i) open = rest let got = r.Lower(gone) same = same && got == (if len(open) == 0 { None } else { Some[int]{Value: largest(open)} }) } same = same && r.Open() == len(open) } same }`,
 	"trace InnerSpanShadows":               `InnerSpanShadows(outer string, inner string) { with Span(outer) { with Span(inner) { Current() == Some[string]{Value: inner} } } }`,
 	"trace SpanEndRestores":                `SpanEndRestores(name string) { let before = Current() with Span(name) { Current() } Current() == before }`,
 }
