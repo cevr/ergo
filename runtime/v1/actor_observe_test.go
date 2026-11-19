@@ -289,17 +289,20 @@ func runObserveCase(c ocase, seen map[string]bool) string {
 	}
 	// A latest subscription that lagged while the actor committed holds
 	// one state, not each (F-GP4c-1); Held counts what every loop holds.
+	// Both are read under one hold of the actor's mu: the loops that do
+	// not lag still take states, so a second look would see fewer.
 	a.mu.Lock()
 	held := 0
 	for c := range a.subs {
-		if len(c.buf) > c.room {
+		if c.held() > c.room {
 			a.mu.Unlock()
-			return fmt.Sprintf("a subscription of room %d holds %d states", c.room, len(c.buf))
+			return fmt.Sprintf("a subscription of room %d holds %d states", c.room, c.held())
 		}
-		held += len(c.buf)
+		held += c.held()
 	}
+	got := a.heldLocked()
 	a.mu.Unlock()
-	if got := a.Held(); got != held {
+	if got != held {
 		return fmt.Sprintf("Held %d, the loops hold %d", got, held)
 	}
 	close(lag)
