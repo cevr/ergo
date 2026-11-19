@@ -26,9 +26,11 @@ func IndexByte(s []byte, c byte) int {
 // 3) pins the refusals of a module body that is not effect-free and whose
 // extern declares no go.Foreign: they name the effect and the row to
 // write (a body that writes a package variable; a body written in
-// assembly, which has no Go body to read). TestModuleGoBodies binds such
+// assembly, which has no Go body to read; a body that calls a function
+// of its package that writes one). TestModuleGoBodies binds such
 // bodies with the row. Mutants (sketchfront mutants.json):
-// lf2m-effectful-unforeign-bound, lf2m-asm-body-effect-free.
+// lf2m-effectful-unforeign-bound, lf2m-asm-body-effect-free,
+// lf2m-helper-unread.
 func TestModuleBodyEffects(t *testing.T) {
 	const goSrc = `package gohost
 
@@ -42,12 +44,17 @@ func Bump(n int) int {
 
 //ergo:wait none
 func Count(s []byte, c byte) int
+
+//ergo:wait none
+func Via(n int) int { return Bump(n) + 1 }
 `
 	for _, c := range []struct{ mod, extern, law, want string }{
 		{"module app\n", "extern go example.com/app/gohost.Bump func bump(n int) int\n", "",
 			"main.ergo S108 1:1 extern go example.com/app/gohost.Bump: its Go body is not effect-free (its body names total, a top-level function or variable of the package); declare needs go.Foreign"},
 		{"module app\n", "extern go example.com/app/gohost.Count func count(s []byte, c byte) int\n", "",
 			"main.ergo S108 1:1 extern go example.com/app/gohost.Count: its Go body is not effect-free (it has no Go body to read (assembly)); declare needs go.Foreign"},
+		{"module app\n", "extern go example.com/app/gohost.Via func via(n int) int\n", "",
+			"main.ergo S108 1:1 extern go example.com/app/gohost.Via: its Go body is not effect-free (it calls Bump, and its body names total, a top-level function or variable of the package); declare needs go.Foreign"},
 	} {
 		files := map[string]string{
 			"go.mod":           "module example.com/app\n\ngo 1.27\n",

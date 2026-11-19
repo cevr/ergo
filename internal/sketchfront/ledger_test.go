@@ -52,12 +52,11 @@ type ledgerProgram struct {
 	// go.sum hash of lib (libSum) and of its go.mod (libModSum), of the
 	// module other (otherSum), the body of gohost's Twice (host), of the
 	// helper it calls (helper), of a function it does not reach (other),
-	// a test file of gohost (hostTest), and gofast's assembly (asm), which
-	// Fast reaches through a function with no body.
-	foreign                            bool
-	toolchain                          string
-	libSum, libModSum, otherSum        int
-	host, helper, other, hostTest, asm int
+	// and a test file of gohost (hostTest).
+	foreign                       bool
+	toolchain                     string
+	libSum, libModSum, otherSum   int
+	host, helper, other, hostTest int
 }
 
 // pkg is the program's package as a ledger names it.
@@ -83,10 +82,12 @@ func (p ledgerProgram) files() map[string]string {
 		"go.sum": fmt.Sprintf("example.com/lib v1.0.0 h1:lib%d=\nexample.com/lib v1.0.0/go.mod h1:mod%d=\nexample.com/other v1.0.0 h1:other%d=\n", p.libSum, p.libModSum, p.otherSum),
 		"ergo.bind/example.com/lib/text/text.ergo": binding,
 		"gohost/gohost.go":                         fmt.Sprintf("package gohost\n\n//ergo:wait none\nfunc Twice(n int) int { return add(n, n) + %d }\n\nfunc add(a, b int) int { return a + b + %d }\n\nfunc Other() int { return %d }\n", p.host, p.helper, p.other),
-		"gofast/gofast.go":                         "package gofast\n\n//ergo:wait none\nfunc Fast(n int) int { return sum(n, 1) }\n\nfunc sum(a, b int) int\n",
-		"gofast/sum_amd64.s":                       fmt.Sprintf("TEXT ·sum(SB),4,$0-24\n\tMOVQ a+0(FP), AX\n\tADDQ b+8(FP), AX\n\tADDQ $%d, AX\n\tMOVQ AX, ret+16(FP)\n\tRET\n", p.asm),
-		"gohost/gohost_test.go":                    fmt.Sprintf("package gohost\n\nconst probe = %d\n", p.hostTest),
-		"main.ergo":                                p.source(),
+		// Fast of gofast is plain Go: a body that reaches assembly is not
+		// effect-free, so its extern declares go.Foreign and no rewrite
+		// provider of a law reaches it (LAWFFI LF2m r2).
+		"gofast/gofast.go":      "package gofast\n\nfunc Fast(n int) int { return sum(n, 1) }\n\nfunc sum(a, b int) int { return a + b }\n",
+		"gohost/gohost_test.go": fmt.Sprintf("package gohost\n\nconst probe = %d\n", p.hostTest),
+		"main.ergo":             p.source(),
 	}
 }
 
@@ -270,7 +271,6 @@ func ledgerEdits(p ledgerProgram) []ledgerEdit {
 			ledgerEdit{name: "the body of the trusted Go function", shows: "app/gohost@", apply: func(q *ledgerProgram) { q.host++ }},
 			ledgerEdit{name: "a helper the trusted Go function calls", shows: "app/gohost@", apply: func(q *ledgerProgram) { q.helper++ }},
 			ledgerEdit{name: "a function of the trusted Go package it does not reach", current: true, apply: func(q *ledgerProgram) { q.other++ }},
-			ledgerEdit{name: "the assembly a trusted Go function reaches through a function with no body", shows: "app/gofast@", apply: func(q *ledgerProgram) { q.asm++ }},
 			ledgerEdit{name: "the go.sum line of another module", current: true, apply: func(q *ledgerProgram) { q.otherSum++ }},
 			ledgerEdit{name: "the go.sum line of the reached module's go.mod", current: true, apply: func(q *ledgerProgram) { q.libModSum++ }},
 			ledgerEdit{name: "a test file of the trusted Go package", current: true, apply: func(q *ledgerProgram) { q.hostTest++ }},
