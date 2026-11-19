@@ -68,9 +68,11 @@ func TestDashGuiAgreesWithControl(t *testing.T) {
 		// (std pace, PACE1): when Go collects never changes what it prints.
 		// Under edges, a seed in three also holds the pacing over each run
 		// of at most 100 or 200 frames (-hold, PACE2): a held stretch
-		// changes nothing either.
+		// changes nothing either, and the edges reach the pacing through
+		// pace.NewEvery of 1 to 4 (-every, PROV-COMPOSE): a composed
+		// provider changes nothing.
 		runs := [][]string{
-			{ergoBin, "-pace", "edges", "-hold", strconv.Itoa(int(seed%3) * 100)},
+			{ergoBin, "-pace", "edges", "-hold", strconv.Itoa(int(seed%3) * 100), "-every", strconv.Itoa(int(seed%4) + 1)},
 			{ergoBin, "-pace", "percent"},
 			{ergoBin, "-pace", "default"},
 			{control},
