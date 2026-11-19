@@ -175,6 +175,12 @@ type loader struct {
 	// the reason each one does not match go.mod (gomod.go).
 	bindings map[string]string
 	stale    map[string]string
+	// goBodies are the module Go packages read (GoPackage), by import
+	// path: a digest of the names and bytes of the files go build
+	// compiles for the target, "" when there are none. The check cache
+	// keeps them with a checked package, so an edit of a body checks it
+	// again.
+	goBodies map[string]string
 	// modCache is Go's module cache folder, "" when none is known;
 	// modules is the build list, read on the first import of another
 	// module; deps the required modules read, by path (modules.go).

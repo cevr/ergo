@@ -167,6 +167,32 @@ func TestCheckKeysHoldTheExperiments(t *testing.T) {
 	}
 }
 
+// TestCheckCacheReadsAnEditedGoBody (U1 SIMD-SCAN): an edit of a module
+// Go body with no .ergo file edited checks the program again: the check
+// cache keeps the digest of each module Go package's built files with a
+// checked package and takes it only while they are the same. Here the
+// edit gives Index a wrong signature, which a fresh check reports (S108).
+// Mutant: go-body-edit-unkeyed.
+func TestCheckCacheReadsAnEditedGoBody(t *testing.T) {
+	root := kernTree(t)
+	t.Setenv("GOEXPERIMENT", "")
+	cache := NewCheckCache()
+	if a, err := cache.CheckDir(root); err != nil || diagnosticLines(a) != "" {
+		t.Fatalf("first check: %v\n%s", err, diagnosticLines(a))
+	}
+	edited := "//go:build !goexperiment.simd\n\npackage kern\n\n//ergo:wait none\nfunc Index(s string) int { return -1 }\n"
+	if err := os.WriteFile(filepath.Join(root, "kern", "a.go"), []byte(edited), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	a, err := cache.CheckDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := diagnosticLines(a); !strings.Contains(got, "S108") {
+		t.Errorf("an edited Go body was not read again; the check cache answered with the old one:\n%s", got)
+	}
+}
+
 // kernTree is a module whose package kern declares Index three times: in
 // a.go for every build without GOEXPERIMENT=simd, and with a wrong
 // signature, which S108 reports if the checker reads it, in a file for

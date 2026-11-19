@@ -6,11 +6,14 @@ import (
 	"go/build"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"ergo.local/prototype/internal/sketch/fingerprint"
 )
 
 // GoPackage is the loader's check.GoSource: the non-test Go files of a Go
@@ -21,6 +24,24 @@ import (
 // the analysed revision, and the build key with it, changes with the
 // bodies the lowering calls by.
 func (l *loader) GoPackage(importPath string) (fs.FS, bool) {
+	files, ok := l.goPackage(importPath)
+	parts := []string{}
+	for _, name := range slices.Sorted(maps.Keys(files)) {
+		parts = append(parts, name, string(files[name].data))
+	}
+	if l.goBodies == nil {
+		l.goBodies = map[string]string{}
+	}
+	l.goBodies[importPath] = ""
+	if ok {
+		l.goBodies[importPath] = fingerprint.Of(parts...)
+		return files, true
+	}
+	return nil, false
+}
+
+// goPackage is GoPackage's files, unrecorded.
+func (l *loader) goPackage(importPath string) (goFiles, bool) {
 	if l.goMod == nil || l.goMod.module == "" || strings.Contains(importPath, "..") {
 		return nil, false
 	}
