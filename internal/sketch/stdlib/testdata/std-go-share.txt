@@ -147,8 +147,6 @@ http	SendFailed	type
 http	SinkFailed	type
 http	StatusRefused	type
 http	WriteFailed	type
-http	checkNetwork	computation	NP4f-7
-http	checkOrigin	computation	NP4f-7
 http	fetch	library	GB3, GB4 (stores, not on this base) and HOST-ROW, as send; plus the origin and redirect policy over http.Client.CheckRedirect, a Go callback field
 http	fetchInto	library	GB3, GB4 (stores, not on this base) and HOST-ROW, as fetch
 http	fetchLocal	library	GB3, GB4 (stores, not on this base) and HOST-ROW, as fetch

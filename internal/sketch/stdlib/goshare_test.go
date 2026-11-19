@@ -45,7 +45,7 @@ var stdGoShareCeiling = map[string]int{
 	"host":        33, // I22: +14 batch-22 externs
 	"library":     77, // I22: +14 batch-22 externs (I22-B22CLASS rows)
 	"language":    3,  // I22: +2 batch-22 externs
-	"computation": 44, // I22: +5 batch-22 externs; NP4f-15: -2, NP4f-16: -5, NP4f-17: -2 (moved to Ergo)
+	"computation": 42, // I22: +5 batch-22 externs; NP4f-15: -2, NP4f-16: -5, NP4f-17: -2, NP4f-URL: -2 (moved to Ergo)
 	"type":        79, // I22: +4 batch-22 externs
 }
 

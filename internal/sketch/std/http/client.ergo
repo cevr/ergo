@@ -98,8 +98,6 @@ func NewClient(origin string, limits Limits) Client fails InvalidClient | Invali
 	Client{origin: origin, limits: limits}
 }
 
-extern go ergo.local/prototype/runtime/v1/http.HTTPCheckOrigin func checkOrigin(origin string, limits Limits) fails InvalidClient | InvalidLimits
-
 // Send joins r.Path and r.Query to the origin and sends r. Redirects are
 // responses; there is no retry and no timeout of its own.
 func Send(c Client, r Request) Response fails RequestFailed {
