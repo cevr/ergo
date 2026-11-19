@@ -24,7 +24,7 @@ var goNatives = map[string]native{
 // std math is Go's math for float64 (std/math/math.ergo): the same Go
 // functions, as a program's extern calls them.
 func registerNativesgo() {
-	for name, f := range map[string]func(float64) float64{"Abs": math.Abs, "Ceil": math.Ceil, "Floor": math.Floor, "Round": math.Round, "Sqrt": math.Sqrt} {
+	for name, f := range map[string]func(float64) float64{"Abs": math.Abs, "Ceil": math.Ceil, "Floor": math.Floor, "Round": math.Round, "Sqrt": math.Sqrt, "Log": math.Log, "Exp": math.Exp} {
 		natives["math."+name] = goFloat(f)
 	}
 	two := func(f func(float64, float64) float64) native {
@@ -62,6 +62,27 @@ var goStdNatives = map[string]native{
 	"strconv.FormatInt": goText(func(a []Value) string { return strconv.FormatInt(a[0].(int64), int(a[1].(int64))) }),
 }
 
+// builtinAppend is a program's extern of Go's builtin append (check
+// builtin.go): append(xs, x) when its second parameter is an element,
+// append(xs, ys...) when it is a slice, append(bs, s...) for the bytes of
+// a string. xs keeps its elements, as a value does (wf10 EVAL-BUILDER).
+func builtinAppend(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+	if check.AppendsString(fn) {
+		if ab := in.charge(fr, at, 1+argWork(args[1:])); ab != nil {
+			return nil, ab
+		}
+		return appendString(fn, args[0], args[1]), nil
+	}
+	if _, spread := fn.Sig.Params[1].Type.(*check.Slice); !spread {
+		return in.appendTo(fr, at, args[0].(sliceV), args[1], nil)
+	}
+	if ab := in.charge(fr, at, 1+argWork(args)); ab != nil {
+		return nil, ab
+	}
+	xs, ys := args[0].(sliceV).elems(), args[1].(sliceV).elems()
+	return newSlice(append(append(make([]Value, 0, len(xs)+len(ys)), xs...), ys...)), nil
+}
+
 func goRune(f func(rune) bool) native {
 	return func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return f(rune(args[0].(int32))), in.charge(fr, at, 1)
@@ -97,6 +118,9 @@ func goNativeOf(fn *check.Func) native {
 	}
 	if fn.Decl == nil || fn.Decl.Extern == nil || fn.Pkg == nil || fn.Pkg.Std() {
 		return nil
+	}
+	if check.GoBuiltin(fn) == "append" {
+		return builtinAppend
 	}
 	path, name := fn.Decl.Extern.Split()
 	return goNatives[path+"."+name]

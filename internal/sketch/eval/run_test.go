@@ -137,13 +137,27 @@ test After {
 // `import go` runs as the same Go function; compiler/syntax's scanner
 // calls these, and its tests were skipped (wf10 TP-DIAG). Mutants:
 // oracle-o23-preflight-codec, oracle-o23-preflight-go-extern,
-// tpdiag-import-go-skipped, tpdiag-isletter-is-isdigit.
+// tpdiag-import-go-skipped, tpdiag-isletter-is-isdigit. GoAppend: a
+// program's extern of Go's builtin append, one element or a slice of them
+// (wf10 EVAL-BUILDER; mutants evalbuilder-append-skipped,
+// evalbuilder-append-all-as-one).
 func TestPreflightAdmitsWhatRuns(t *testing.T) {
 	pkg := checked(t, `import json
 import go strconv
 import go unicode
 
 extern go math.Log func log(x float64) float64
+
+extern go append func push[T](xs []T, x T) []T
+
+extern go append func pushAll[T](xs []T, ys []T) []T
+
+test GoAppend {
+	let xs = []int{1, 2}
+	let ys = push(xs, 3)
+	assert ys == []int{1, 2, 3} && xs == []int{1, 2}
+	assert pushAll(ys, []int{4, 5}) == []int{1, 2, 3, 4, 5} && pushAll([]string{}, []string{}) == []string{}
+}
 
 test GoStd {
 	assert unicode.IsLetter('é') && !unicode.IsLetter('1') && unicode.IsDigit('7') && !unicode.IsDigit('a')

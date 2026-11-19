@@ -49,6 +49,7 @@ func loadNatives() {
 	nativesOnce.Do(func() {
 		registerNatives()
 		registerNativesbits()
+		registerNativesBuilder()
 		registerNativesconfig()
 		registerNativescsv()
 		registerNativesembed()
@@ -256,6 +257,10 @@ func registerNatives() {
 	pure("slices.Sort", func(a []Value) Value { return sortValues(elems(a[0])) })
 	pure("slices.sortOwned", func(a []Value) Value { return sortValues(elems(a[0])) })
 	pure("cmp.Compare", func(a []Value) Value { return int64(compareOrdered(a[0], a[1])) })
+	// cmp.Max and Min are Go's builtin max and min: a float's NaN gives
+	// NaN, and max(-0, +0) is +0, min(-0, +0) is -0.
+	pure("cmp.Max", func(a []Value) Value { return pick(a[0], a[1], true) })
+	pure("cmp.Min", func(a []Value) Value { return pick(a[0], a[1], false) })
 	natives["slices.Slice"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		xs := args[0].(sliceV)
 		i, j := args[1].(int64), args[2].(int64)
@@ -539,6 +544,26 @@ func sortAs[T cmp.Ordered](xs []Value) Value {
 
 // compareOrdered is cmp.Compare of two values of one ordered basic type:
 // a NaN is less than any other float and equal to a NaN.
+// pick is Go's builtin max(a, b) when larger, else min(a, b).
+func pick(a, b Value, larger bool) Value {
+	switch a := a.(type) {
+	case float64:
+		if larger {
+			return max(a, b.(float64))
+		}
+		return min(a, b.(float64))
+	case float32:
+		if larger {
+			return max(a, b.(float32))
+		}
+		return min(a, b.(float32))
+	}
+	if c := compareOrdered(a, b); c < 0 == larger {
+		return b
+	}
+	return a
+}
+
 func compareOrdered(a, b Value) int {
 	switch a := a.(type) {
 	case int8:

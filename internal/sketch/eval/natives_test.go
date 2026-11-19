@@ -264,6 +264,8 @@ func nativeCases(g nativeGen) []nativeCase {
 		{name: "time.parse", args: []Value{lay, text}, v1: func() any { return result(v1.TimeParse(lay, text)) }},
 		{name: "math.Round", args: []Value{half}, v1: func() any { return v1.MathRound(half) }},
 		{name: "math.Sqrt", args: []Value{half}, v1: func() any { return v1.MathSqrt(half) }},
+		{name: "math.Log", args: []Value{half}, v1: func() any { return v1.MathLog(half) }},
+		{name: "math.Exp", args: []Value{f}, v1: func() any { return v1.MathExp(f) }},
 		{name: "math.Pow", args: []Value{half, f}, v1: func() any { return v1.MathPow(half, f) }},
 		{name: "math.Mod", args: []Value{f, half}, v1: func() any { return v1.MathMod(f, half) }},
 		{name: "math.IsInf", args: []Value{f, x}, v1: func() any { return v1.MathIsInf(f, int(x)) }},
@@ -286,6 +288,16 @@ func nativeCases(g nativeGen) []nativeCase {
 		{name: "strings.ToLower", args: []Value{s}, v1: func() any { return v1.StringsToLower(s) }},
 		{name: "strings.ToUpper", args: []Value{s}, v1: func() any { return v1.StringsToUpper(s) }},
 		{name: "strings.Index", args: []Value{s, u}, v1: func() any { return int64(v1.StringsIndex(s, u)) }},
+		// The Builder's externs (strings/builder.ergo) on generated
+		// buffers: an out-of-range WriteFrom or a negative Grow is a
+		// defect on both sides.
+		{name: "strings.builderAppend", args: []Value{bytesValue(s), u}, v1: func() any { return v1.StringsBuilderAppend([]byte(s), u) }},
+		{name: "strings.builderAppendByte", args: []Value{bytesValue(s), c}, v1: func() any { return v1.StringsBuilderAppendByte([]byte(s), c) }},
+		{name: "strings.builderAppendBytes", args: []Value{bytesValue(s), bytesValue(u)}, v1: func() any { return v1.StringsBuilderAppendBytes([]byte(s), []byte(u)) }},
+		{name: "strings.builderAppendFrom", args: []Value{bytesValue(s), int64(i), int64(j)}, anyDefect: true, v1: func() any { return v1.StringsBuilderAppendFrom([]byte(s), i, j) }},
+		{name: "strings.builderGrow", args: []Value{bytesValue(s), int64(i)}, anyDefect: true, v1: func() any { return v1.StringsBuilderGrow([]byte(s), i) }},
+		{name: "strings.builderText", args: []Value{bytesValue(s)}, v1: func() any { return v1.StringsBuilderText([]byte(s)) }},
+		{name: "strings.stringsBytes", args: []Value{s}, v1: func() any { return v1.StringsBytes(s) }},
 		{name: "strings.IndexByte", args: []Value{s, c}, v1: func() any { return int64(v1.StringsIndexByte(s, c)) }},
 		{name: "strings.Contains", args: []Value{s, u}, v1: func() any { return v1.StringsContains(s, u) }},
 		{name: "strings.Slice", args: []Value{s, int64(i), int64(j)}, v1: func() any { return v1.StringsSlice(s, i, j) }},
@@ -348,6 +360,10 @@ func nativeCases(g nativeGen) []nativeCase {
 		}},
 		{name: "math.Trunc", args: []Value{f}, v1: func() any { return v1.MathTrunc(f) }},
 		{name: "machines.notPositive", args: []Value{d, m}, v1: func() any { v1.MachineTimerNotPositiveAt(durationOf(d), durationOf(m)); return nil }},
+		{name: "cmp.Max", args: []Value{fa, fb}, v1: func() any { return v1.CmpMax(fa, fb) }},
+		{name: "cmp.Min", args: []Value{fa, fb}, v1: func() any { return v1.CmpMin(fa, fb) }},
+		{name: "cmp.Max", args: []Value{s, u}, v1: func() any { return v1.CmpMax(s, u) }},
+		{name: "cmp.Min", args: []Value{d, m}, v1: func() any { return v1.CmpMin(d, m) }},
 		{name: "cmp.Compare", args: []Value{fa, fb}, v1: func() any { return int64(v1.CmpCompare(fa, fb)) }},
 		{name: "cmp.Compare", args: []Value{s, u}, v1: func() any { return int64(v1.CmpCompare(s, u)) }},
 	}
