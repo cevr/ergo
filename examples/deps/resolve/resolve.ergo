@@ -1,5 +1,5 @@
 import deps/graph
-import deps/semver
+import semver
 import maps
 import slices
 
@@ -12,7 +12,7 @@ type Plan { Pins []Pin, Needs graph.Graph[string] }
 
 // Want is one constraint on a package and who wrote it: the project
 // ("") or a pinned release.
-type Want { By string, Want semver.Constraint }
+type Want { By string, Want Constraint }
 
 // NoVersion is a package that no version of keeps every want on it, at
 // the first dead end of the search where that is so.
@@ -163,7 +163,7 @@ func wantsOf(wants Map[string, []Want], name string) []Want { maps.GetOr(wants, 
 
 func keepsAll(wants []Want, v semver.Version) bool {
 	for w in wants {
-		if !semver.Satisfies(w.Want, v) {
+		if !Allows(w.Want, v) {
 			return false
 		}
 	}
@@ -191,7 +191,7 @@ func versionOf(pins Map[string, semver.Version], name string) semver.Version {
 	case Some[semver.Version] as v:
 		v.Value
 	case None:
-		semver.Version{Major: 0, Minor: 0, Patch: 0}
+		semver.Version{Major: 0, Minor: 0, Patch: 0, Pre: []string{}, Build: []string{}}
 	}
 }
 

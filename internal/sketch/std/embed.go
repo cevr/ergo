@@ -44,6 +44,7 @@ import "embed"
 //go:embed lint/*.ergo
 //go:embed bench/*.ergo
 //go:embed ui/layout/*.ergo
+//go:embed semver/*.ergo
 //go:embed code/*.ergo
 //go:embed graph/*.ergo codegraph/*.ergo
 //go:embed html/*.ergo

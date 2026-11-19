@@ -1,7 +1,7 @@
 // The rules of the manifest's text as laws.
 
 import deps/resolve
-import deps/semver
+import semver
 import strings
 
 // Format is m as manifest text that Read reads back: the project and its
