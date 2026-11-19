@@ -104,24 +104,28 @@ func tables(extText string, foreignText string) Tables {
 	Tables{ext: ext, foreign: foreign, pkgName: pkgName, pkgPath: pkgPath}
 }
 
-func parseAll(paths []string) []bind.File fails os.Exit needs fs.Files {
+func parseAll(paths []string) ([]bind.File, []string) fails os.Exit needs fs.Files {
 	let mut files = []bind.File{}
+	let mut srcs = []string{}
 	for path in paths {
-		files = files.Append(bind.File{Name: base(path), Parsed: syntax.Parse(try read(path))})
+		let src = try read(path)
+		files = files.Append(bind.File{Name: base(path), Parsed: syntax.Parse(src)})
+		srcs = srcs.Append(src)
 	}
-	files
+	(files, srcs)
 }
 
-// Unit is one package of the run: its tables, files, import path and
-// folder.
-type Unit { tab Tables, files []bind.File, path string, dir string }
+// Unit is one package of the run: its tables, files, import path,
+// folder and each file's source.
+type Unit { tab Tables, files []bind.File, path string, dir string, srcs []string }
 
 func unitOf(g []string) Unit fails os.Exit needs fs.Files {
 	if len(g) < 2 {
 		return os.Exit{Code: 2, Message: "exprdump: a package needs EXT FOREIGN FILE..."}
 	}
 	let tab = tables(try read(g[0]), try read(g[1]))
-	Unit{tab: tab, files: try parseAll(g[2:len(g)]), path: tab.pkgPath, dir: if len(g) > 2 { load.Dir(g[2]) } else { "." }}
+	let (files, srcs) = try parseAll(g[2:len(g)])
+	Unit{tab: tab, files: files, path: tab.pkgPath, dir: if len(g) > 2 { load.Dir(g[2]) } else { "." }, srcs: srcs}
 }
 
 // Typed is one package typed: its store, what Load made of it and the
@@ -258,37 +262,49 @@ func typeAll(units []Unit, have0 []types.Iface) []Typed {
 // write prints one typed package's lines: its expressions' types, or
 // with calls its inferred calls; each line after prefix.
 func write(b mut strings.Builder, u Unit, d Typed, calls bool, prefix string) {
-	let mut s0 = d.s
-	let none = infer.NoValue(&s0)
-	let s = s0
-	let k = d.k
-	let text = func(ty dense.ID[store.TKey], fn int) string {
-		if ty == none { "no value" } else { types.Text(s, types.Names{Params: k.Fns[fn].Params, Foreign: k.Foreign, Pkg: u.tab.pkgName, Deps: k.Ifaces}, ty) }
-	}
+	let mut s = d.s
+	let none = infer.NoValue(&s)
 	if calls {
 		for c in d.t.Insts {
-			let (f, row) = bind.RowOf(k.Ps, c.At)
+			let (f, row) = bind.RowOf(d.k.Ps, c.At)
 			let p = u.files[f].Parsed
 			let mut ts = []string{}
 			for a in c.Args {
-				ts = ts.Append(text(a, c.Fn))
+				ts = ts.Append(typeText(s, d.k, u, none, a, c.Fn))
 			}
 			b.WriteString("\(prefix)\(u.files[f].Name) \(syntax.NodePos(p, syntax.NodeAt(p.Tree, row))) \(strings.Join(ts, " ; "))\n")
 		}
 	} else {
 		for e in d.t.Entries {
-			let (f, row) = bind.RowOf(k.Ps, e.At)
+			let (f, row) = bind.RowOf(d.k.Ps, e.At)
 			let p = u.files[f].Parsed
 			let id = syntax.NodeAt(p.Tree, row)
-			b.WriteString("\(prefix)\(u.files[f].Name) \(syntax.NodePos(p, id)) \(syntax.NodeEnd(p, id)) \(text(e.T, e.Fn))\n")
+			b.WriteString("\(prefix)\(u.files[f].Name) \(syntax.NodePos(p, id)) \(syntax.NodeEnd(p, id)) \(typeText(s, d.k, u, none, e.T, e.Fn))\n")
 		}
 	}
+}
+
+// typeText is the Go checker's text of ty, a type of the function fn of
+// the package k; "no value" for none. A function, not a closure over k:
+// a closure would own the package and copy it, its imports with it, per
+// call.
+func typeText(s store.Store, k expr.Pkg, u Unit, none dense.ID[store.TKey], ty dense.ID[store.TKey], fn int) string {
+	if ty == none { "no value" } else { types.Text(s, types.Names{Params: k.Fns[fn].Params, Foreign: k.Foreign, Pkg: u.tab.pkgName, Deps: k.Ifaces}, ty) }
 }
 
 // writeOwn prints the own-mark diagnostics of one typed package, "FILE
 // OFFSET LENGTH CODE MESSAGE" after prefix, in the Go checker's order.
 func writeOwn(b mut strings.Builder, u Unit, d Typed, prefix string) {
 	for g in diag.OwnMarks(d.s, d.k, d.t) {
+		b.WriteString("\(prefix)\(u.files[g.File].Name) \(g.Offset) \(g.Length) \(g.Code) \(g.Message)\n")
+	}
+}
+
+// writeFlow prints the ownership flow's diagnostics of one typed package,
+// "FILE OFFSET LENGTH CODE MESSAGE" after prefix, in the Go checker's
+// order (OWN-WALK).
+func writeFlow(b mut strings.Builder, u Unit, d Typed, prefix string) {
+	for g in diag.Flow(d.s, d.k, d.t, u.srcs) {
 		b.WriteString("\(prefix)\(u.files[g.File].Name) \(g.Offset) \(g.Length) \(g.Code) \(g.Message)\n")
 	}
 }
@@ -328,12 +344,15 @@ func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 			}
 		}
 		let typed = typeAll(units, outside(units, std))
-		for i, d in typed {
+		// By index: a loop's element binding would copy each package, its
+		// imports' with it.
+		for i in 0..len(typed) {
 			b.WriteString("@pkg \(i)\n")
-			write(&b, units[i], d, false, "E ")
-			write(&b, units[i], d, true, "C ")
-			writeDiags(&b, units[i], d, "D ")
-			writeOwn(&b, units[i], d, "O ")
+			write(&b, units[i], typed[i], false, "E ")
+			write(&b, units[i], typed[i], true, "C ")
+			writeDiags(&b, units[i], typed[i], "D ")
+			writeOwn(&b, units[i], typed[i], "O ")
+			writeFlow(&b, units[i], typed[i], "W ")
 		}
 		io.Stdout.Print(b.String())
 		return
