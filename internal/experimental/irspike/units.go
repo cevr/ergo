@@ -152,6 +152,7 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"machine *", "G3b"}, // ir_machine.go's refusals (a literal with fields, a second Machine type)
 	{"row conversion", "G3b"},
 	{"type defined over a non-basic type", "G3b"},
+	{"literal of a defined *", "G3b"}, // Point{…} with elements, of `type Point [8]int32` (GP-DEFINED)
 	{"record field of a converted value", "G3b"}, // B-CONVFIELD (ir_field.go): a difference neither a conversion nor a row explains
 	{"value of a type defined over a flat union", "G3b"},
 	{"value of another type", "G3b"},

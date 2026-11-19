@@ -58,8 +58,19 @@ func (b *irBuilder) admitNamed(t *check.Named, depth int) {
 		}
 		return
 	case kindDefined:
-		if _, basic := td.defined.(*check.Basic); basic {
-			b.admit(td.defined, depth+1)
+		switch d := t.Defined().(type) {
+		case *check.Basic:
+			b.admit(d, depth+1)
+			return
+		case *check.Array:
+			// Go's `type N [k]E` (kmeans' Point of [8]int32): its values
+			// move as N, and an index reads the array's element (indexOther,
+			// ir_index.go). Once per declaration, so a type that holds
+			// itself through its element ends (GP-DEFINED, lane B's
+			// 6cebc4c40).
+			if !b.admitOnce(t.Obj) { // ir_pkg.go
+				b.admit(d, depth+1)
+			}
 			return
 		}
 		irNo("type defined over a non-basic type")

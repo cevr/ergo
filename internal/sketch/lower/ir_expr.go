@@ -327,7 +327,16 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 			if td.kind == kindMachine {
 				return b.machineLit(x, lit) // ir_machine.go
 			}
-			s := tt.Underlying().(*check.Struct)
+			s, ok := tt.Underlying().(*check.Struct)
+			if !ok {
+				// A type defined over an array (kmeans' Point{}): with no
+				// elements, its zero value, as Go's T{} (the decoder's
+				// zero of an array). With elements it keeps its reason.
+				if _, array := tt.Underlying().(*check.Array); array && len(x.Elts) == 0 {
+					return &irExpr{K: "zero", Pos: p, T: lit.T}
+				}
+				irNo("literal of a defined %T", tt.Underlying())
+			}
 			if len(x.Elts) != len(s.Fields) {
 				irNo("record literal without every field")
 			}
