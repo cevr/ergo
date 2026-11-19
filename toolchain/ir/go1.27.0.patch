@@ -501,10 +501,10 @@ index 0000000..be785d3
 +}
 diff --git a/src/cmd/compile/internal/ergoir/ergoir_closure.go b/src/cmd/compile/internal/ergoir/ergoir_closure.go
 new file mode 100644
-index 0000000..2995f1c
+index 0000000..594e63c
 --- /dev/null
 +++ b/src/cmd/compile/internal/ergoir/ergoir_closure.go
-@@ -0,0 +1,221 @@
+@@ -0,0 +1,193 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -697,34 +697,6 @@ index 0000000..2995f1c
 +	lit.SetPos(pos)
 +	ergoValue(lit, sig, nil)
 +	return lit, sig
-+}
-+
-+// funcLit prints a function literal of the signature t, its body one
-+// level deeper than the statement that holds it.
-+func (p *ergoPrinter) funcLit(x *syntax.FuncLit, t types2.Type) string {
-+	sig, ok := t.(*types2.Signature)
-+	if !ok || x.Type == nil || len(x.Type.ParamList) != sig.Params().Len() {
-+		return "ergoirNoText() /* function literal */"
-+	}
-+	params := make([]string, len(x.Type.ParamList))
-+	for i, f := range x.Type.ParamList {
-+		params[i] = f.Name.Value + " " + p.typ(sig.Params().At(i).Type())
-+	}
-+	res := ""
-+	switch n := sig.Results().Len(); {
-+	case n == 1:
-+		res = " " + p.typ(sig.Results().At(0).Type())
-+	case n > 1:
-+		list := make([]string, n)
-+		for i := range list {
-+			list[i] = p.typ(sig.Results().At(i).Type())
-+		}
-+		res = " (" + strings.Join(list, ", ") + ")"
-+	}
-+	depth := p.depth
-+	q := &ergoPrinter{pkg: p.pkg, info: p.info, imports: p.imports, reads: p.reads}
-+	q.block(x.Body.List, depth+1)
-+	return "func(" + strings.Join(params, ", ") + ")" + res + " {\n" + q.b.String() + strings.Repeat("\t", depth) + "}"
 +}
 diff --git a/src/cmd/compile/internal/ergoir/ergoir_expr.go b/src/cmd/compile/internal/ergoir/ergoir_expr.go
 new file mode 100644
