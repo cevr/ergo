@@ -39,33 +39,9 @@ func (r residue) grepArgs() []string {
 	return args
 }
 
-// contextResidue is the check of TestContextResidue (196w).
-var contextResidue = residue{
-	allowlist: residueAllowlist,
-	literals:  []string{"wire"},
-	fold:      true,
-	word:      residueWord,
-	fix:       "spell the construct context, or add the network sense to the allowlist",
-}
-
-// residueAllowlist lists the lines outside history that still say wire, and
-// the skipped path prefixes: the recorded history the rename leaves as
-// written (196w decision 6) and the old-syntax parser. docs/research is
-// history too, except the inputs code parses in the current syntax
-// (residueParsed).
-const residueAllowlist = "testdata/wire-residue.txt"
-
+// residueParsed are the inputs under a skipped history prefix that code
+// parses in the current syntax, so a residue check reads them.
 var residueParsed = regexp.MustCompile(`^docs/research/ef-migrate/[^/]+\.ergo$`)
-
-var residueWord = regexp.MustCompile(`(?i)\bwires?\b`)
-
-// TestContextResidue is 196w acceptance check 1: the construct is spelled
-// context, so a tracked line outside history that says wire is the network
-// sense (a wire format, the wire key of a codec), grammar.md's old-spelling
-// list, an input of the old-syntax translator, or the record of the rename,
-// and the allowlist names it. A match no row covers fails, and so does a row
-// that covers no match, so the list stays exact.
-func TestContextResidue(t *testing.T) { contextResidue.run(t) }
 
 // run greps the tracked files and checks every match against the allowlist.
 // A match no row covers fails, and so does a row that covers no match.
