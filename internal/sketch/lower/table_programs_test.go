@@ -43,6 +43,7 @@ var (
 	_ = declarePrograms("TestStdPubsubLawsRun", testBuildProgram("stdpubsub", stdPubsubLawsProbe))
 	_ = declarePrograms("TestStdTimeLawsRun", testBuildProgram("stdtime", stdTimeLawsProbe))
 	_ = declarePrograms("TestExecLaws", testBuildProgram("execlaws", execLawsProbe))
+	_ = declarePrograms("TestNetLaws", testBuildProgram("netlaws", netLawsProbe))
 	_ = declarePrograms("TestFlagLaws", testBuildProgram("flaglaws", flagLawTests))
 	_ = declarePrograms("TestIORecorderBehavesAsBefore", testBuildProgram("recorder", recorderProbe))
 	_ = declarePrograms("TestGoSeqCrossesTheBoundary", testBuildProgram("goseq", goSeqProbe))

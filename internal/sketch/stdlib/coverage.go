@@ -30,6 +30,7 @@ var coverage = map[string][]string{
 	"json":     {"encoding/json"},
 	"log":      {"log", "log/slog"},
 	"maps":     {"maps"},
+	"net":      {"net"},
 	"math":     {"math"},
 	"os":       {"os"},
 	"rand":     {"math/rand", "math/rand/v2"},
@@ -53,7 +54,7 @@ var coverage = map[string][]string{
 // semver).
 var coversNone = []string{
 	"actor", "api", "arena", "bench", "build", "cache", "civil", "code", "codec", "codegraph", "config", "cron", "decimal", "dense", "explore", "graph", "io", "journal", "journal/file",
-	"journal/memory", "lint", "llm", "llm/memory", "llm/recorded", "machines", "pace", "prompt", "pubsub", "queue", "rpc", "schedule", "scope", "semver", "set", "sqltest", "stream",
+	"journal/memory", "lint", "llm", "llm/memory", "llm/recorded", "machines", "nettest", "pace", "prompt", "pubsub", "queue", "rpc", "schedule", "scope", "semver", "set", "sqltest", "stream",
 	"task", "tasks", "term", "text", "timeout", "toml", "trace", "tz", "tz/host", "tz/iana", "ui", "ui/layout", "uuid",
 }
 

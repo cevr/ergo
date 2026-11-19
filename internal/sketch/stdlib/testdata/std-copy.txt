@@ -36,6 +36,8 @@ hex	same
 html	same
 http	same
 io	same
+net	same
+nettest	same
 journal	differs	lower: no exported function a caller can take as a value	follow-up copy-by-call
 journal/file	same
 journal/memory	same

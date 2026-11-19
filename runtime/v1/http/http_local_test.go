@@ -1,9 +1,11 @@
 package http
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math/rand/v2"
+	"net"
 	"net/http"
 	"os"
 	"reflect"
@@ -98,7 +100,8 @@ var errLocalSink = errors.New("sink refused")
 // around the header budget, redirects and their hop limits, body budgets,
 // a fresh or a kept-alive connection (a closed kept-alive one is retried),
 // and the streamed form with its accepted statuses and a failing sink.
-// Only Date is left out. A failing seed prints the case and both
+// Which connection a request takes is an input it waits on as an event
+// (localDials), never on time. Only Date is left out. A failing seed prints the case and both
 // outcomes; ERGO_HTTP_LOCAL_SEED=n replays it. An encoded query
 // (HTTPEncodeQuery) arrives as its fields. Mutants (runtime/v1 ledger):
 // local-key-kept, local-answer-unlike-serve, local-header-budget-lost,
@@ -108,14 +111,23 @@ func TestHTTPLocalMatchesLoopback(t *testing.T) {
 		mu      sync.Mutex
 		current localCase
 		arrived []localArrival
+		dials   *localDials
 	)
 	answer := func(method, path string, query, header []HTTPField, body string) HTTPResponse {
+		if path == "/warm" {
+			// The warm answer waits until the client's write of the
+			// request has returned, so its transport has heard the
+			// request was written before it reads the answer, and keeps
+			// the connection (see run).
+			mu.Lock()
+			wrote := dials.wrote
+			mu.Unlock()
+			<-wrote
+			return HTTPResponse{Status: 200, Body: "warm"}
+		}
 		mu.Lock()
 		defer mu.Unlock()
 		c := current
-		if path == "/warm" {
-			return HTTPResponse{Status: 200, Body: "warm"}
-		}
 		// An empty query is one Ergo value, whether Go holds it as nil or
 		// as an empty slice (the serve and the pipe parse it apart).
 		if len(query) == 0 {
@@ -127,13 +139,13 @@ func TestHTTPLocalMatchesLoopback(t *testing.T) {
 		}
 		return HTTPResponse{Status: c.status, Header: c.answerHeader, Body: c.answer}
 	}
-	l, _ := startHTTPLimits(t, serveLimits(1<<20, 1<<16), func(_ *rt.Task, _ *Exchange, method, path string, query, header []HTTPField, body string, _ bool, _ string) HTTPResponse {
+	l, _ := startHTTPLimits(t, serveLimits(1<<20, 1<<16), func(_ *rt.Task, _ *Exchange, method, path, _ string, query, header []HTTPField, body string, _ bool, _ string) HTTPResponse {
 		return answer(method, path, query, header, body)
 	})
 	origin := "http://" + l.Addr()
 	// The local handler is given the target's origin, which the loopback
 	// handler reads from its listener.
-	local := func(_ *rt.Task, at string, method, path string, query, header []HTTPField, body string) HTTPResponse {
+	local := func(_ *rt.Task, at string, method, path, _ string, query, header []HTTPField, body string) HTTPResponse {
 		if at != origin {
 			t.Errorf("the local handler was given the origin %q for %q", at, origin)
 		}
@@ -157,26 +169,34 @@ func TestHTTPLocalMatchesLoopback(t *testing.T) {
 	task := rt.Root(t.Name())
 	for _, seed := range seeds {
 		c := localCaseOf(rand.New(rand.NewPCG(seed, 31)))
-		run := func(remote bool) localOutcome {
+		// runOnce is one fetch of c, and whether c is warm and its request
+		// still went out on a new connection (cold).
+		runOnce := func(remote bool) (localOutcome, bool) {
+			d := localFreshTransports(c.limits.MaxHeaderBytes)
 			mu.Lock()
-			current, arrived = c, nil
+			current, arrived, dials = c, nil, d
 			mu.Unlock()
 			// Which connection an exchange takes decides whether Go retries
 			// one the server closed: each case starts with none kept, or
-			// with one a warm exchange left.
-			tr, fetch := httpTransportFor(c.limits.MaxHeaderBytes), HTTPFetch
+			// with one a warm exchange left. Each run gets new transports
+			// (localFreshTransports), not only an empty pool: a dial of an
+			// earlier case that lost its race to an idle connection joins
+			// its transport's pool when it completes, which under load can
+			// be after this case began, and the request it found there was
+			// retried once more (seed 557: three arrivals on loopback, two
+			// in memory).
+			fetch := HTTPFetch
 			if !remote {
-				tr = httpLocalTransportFor(c.limits.MaxHeaderBytes)
 				fetch = func(t *rt.Task, origins []string, anyOrigin bool, limits HTTPLimits, hops int, method, rawURL string, header []HTTPField, owners []string, credentials []HTTPField, body string) (HTTPResponse, error) {
 					return HTTPFetchLocal(t, origins, anyOrigin, limits, hops, method, rawURL, header, owners, credentials, body, local)
 				}
 			}
-			tr.CloseIdleConnections()
 			if c.warm {
 				if _, err := fetch(task, nil, true, serveLimits(1<<16, c.limits.MaxHeaderBytes), -1, "GET", origin+"/warm", nil, nil, nil, ""); err != nil {
 					t.Fatalf("seed %d: warm exchange: %v", seed, err)
 				}
 			}
+			d.begin()
 			var parts strings.Builder
 			put := func(_ *rt.Task, part string) error {
 				if c.failPut {
@@ -220,7 +240,26 @@ func TestHTTPLocalMatchesLoopback(t *testing.T) {
 			if err == nil {
 				o.Parts = parts.String()
 			}
-			return o
+			return o, c.warm && d.cold()
+		}
+		// A warm case holds only when its request goes out on the warm
+		// exchange's connection. Go's transport keeps that connection only
+		// if its writer reports the request written within 50 ms of the
+		// answer read (maxWriteWaitBeforeConnReuse), which load can stretch,
+		// and a request on a new connection is not retried (seed 12 under
+		// load, or with that wait 0: two arrivals on one side, one on the
+		// other). The test waits on the event itself, the connection the
+		// request's first bytes were written to, and runs a cold one again.
+		run := func(remote bool) localOutcome {
+			for try := 1; ; try++ {
+				o, cold := runOnce(remote)
+				if !cold {
+					return o
+				}
+				if try == localWarmTries {
+					t.Fatalf("seed %d: in %d tries the %s transport never sent the request on the connection its warm exchange left", seed, try, map[bool]string{true: "loopback", false: "local"}[remote])
+				}
+			}
 		}
 		want, got := run(true), run(false)
 		// An encoded query arrives as its fields, in key order
@@ -323,6 +362,86 @@ func localCaseOf(r *rand.Rand) localCase {
 	c.failPut = c.into && r.IntN(6) == 0
 	c.warm = r.IntN(2) == 0
 	return c
+}
+
+// localWarmTries bounds the runs of a warm case whose request went out on
+// a new connection: a transport that never reuses one (local-no-keepalive)
+// fails the case rather than looping.
+const localWarmTries = 20
+
+// localFreshTransports drops the cached loopback and local transports of
+// maxHeader, closing their idle connections, and puts new ones in their
+// place whose pools hold nothing an earlier case left. A late dial of a
+// dropped transport lands in that transport's pool, which no fetch reads.
+// The new transports number the connections they dial in the dials it
+// returns.
+func localFreshTransports(maxHeader int) *localDials {
+	for _, m := range []*sync.Map{&httpTransports, &httpLocalTransports} {
+		if old, ok := m.LoadAndDelete(maxHeader); ok {
+			old.(*http.Transport).CloseIdleConnections()
+		}
+	}
+	d := &localDials{first: -1, wrote: make(chan struct{})}
+	// The local transport is a clone of the loopback one, so the loopback
+	// one is made first and both are wrapped before any fetch uses them.
+	for _, tr := range []*http.Transport{httpTransportFor(maxHeader), httpLocalTransportFor(maxHeader)} {
+		dial := tr.DialContext
+		tr.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+			conn, err := dial(ctx, network, addr)
+			if err != nil {
+				return nil, err
+			}
+			d.mu.Lock()
+			defer d.mu.Unlock()
+			d.n++
+			return &localConn{Conn: conn, dials: d, n: d.n - 1}, nil
+		}
+	}
+	return d
+}
+
+// localDials numbers the connections a run's transports dial, and records
+// which one the request after begin was first written to.
+type localDials struct {
+	mu          sync.Mutex
+	n           int // connections dialed
+	begun       bool
+	mark, first int // n at begin; the connection written first after it, or -1
+	// wrote is closed when the first write of the run has returned.
+	wrote chan struct{}
+	once  sync.Once
+}
+
+func (d *localDials) begin() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.begun, d.mark, d.first = true, d.n, -1
+}
+
+// cold reports whether the request after begin was first written to a
+// connection dialed after begin, not one kept from before.
+func (d *localDials) cold() bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.first >= d.mark
+}
+
+type localConn struct {
+	net.Conn
+	dials *localDials
+	n     int
+}
+
+func (c *localConn) Write(p []byte) (int, error) {
+	d := c.dials
+	d.mu.Lock()
+	if d.begun && d.first < 0 {
+		d.first = c.n
+	}
+	d.mu.Unlock()
+	n, err := c.Conn.Write(p)
+	d.once.Do(func() { close(d.wrote) })
+	return n, err
 }
 
 // localSameArrival reports whether two arrivals are the same request.

@@ -111,11 +111,14 @@ func (t *Task) Resume() { t.wake.unpark() }
 
 // Waits marks the point where t reaches a wait of the runtime, after the
 // wait registered what it waits for: held output is flushed and
-// WhenWaiting's hook runs. Done calls it; a wait on Suspend calls it
-// before its first park. Call it from t's own goroutine.
+// WhenPolled's and WhenWaiting's hooks run. Done calls it; a wait on
+// Suspend calls it before its first park. Call it from t's own goroutine.
 func (t *Task) Waits() {
 	if waitFlush.pending.Load() {
 		waitFlush.flush()
+	}
+	if t.stopped.v.Load()&flagPolled != 0 {
+		t.firePollHook()
 	}
 	if waitHooks.n.Load() != 0 {
 		t.fireWaitHook()

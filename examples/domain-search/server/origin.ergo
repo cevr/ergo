@@ -47,7 +47,7 @@ func contentType(c recordedCase) string {
 func requestOf(c recordedCase) http.Request {
 	let text = read("recorded/" + c.Case + ".request.json")
 	let body http.Body = if len(text) > Limits().MaxBodyBytes { http.BodyTooLarge{Limit: Limits().MaxBodyBytes} } else { http.Buffered{Text: text} }
-	http.Request{Method: c.Method, Path: c.Path, Query: []http.Field{}, Header: []http.Field{http.Field{Name: "Content-Type", Value: contentType(c)}}, Body: body}
+	http.Request{Method: c.Method, Path: c.Path, RawPath: c.Path, Query: []http.Field{}, Header: []http.Field{http.Field{Name: "Content-Type", Value: contentType(c)}}, Body: body}
 }
 
 func headerText(h []http.Field, name string) string {

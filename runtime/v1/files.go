@@ -400,7 +400,7 @@ const Path = runtimefiles.Module + "/runtime/v1"
 // A leaf may import runtime/v1; runtime/v1 imports no leaf. A name is
 // unique across runtime/v1 and its leaves (sourceDecls), so a body is named
 // by its Go name alone, as before, and PackageOf finds its package.
-var Leaves = []string{"csv", "digest", "exec", "http", "rand", "redacted", "rpc", "shadow", "sql"}
+var Leaves = []string{"csv", "digest", "exec", "http", "net", "rand", "redacted", "rpc", "shadow", "sql"}
 
 // HostText is the import path of the gofmt leaf, which makes fmt the
 // runtime's text of a value the core cannot write without it (rt.Text,

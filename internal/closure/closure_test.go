@@ -170,6 +170,7 @@ var declared = map[string][]allowance{
 		[]allowance{{"runtime/v1/digest/*_test.go", files, "TestStdLawLedger reads the test files of the runner packages (runnerPackages): the leaf digest runs the hex, base64 and crc32 laws"}},
 		[]allowance{{"runtime/v1/exec/*_test.go", files, "TestStdLawLedger reads the test files of the runner packages (runnerPackages): the leaf exec runs the exec laws"}},
 		[]allowance{{"runtime/v1/http/*_test.go", files, "TestStdStrengthsTable reads the test files of the leaf http for the benchmark its table names"}},
+		[]allowance{{"runtime/v1/net/*_test.go", files, "TestStdStrengthsTable reads the test files of the leaf net for the benchmark its table names"}},
 		[]allowance{{"runtime/v1/rand/*_test.go", files, "TestStdLawLedger reads the test files of the runner packages (runnerPackages): the leaf rand runs the rand laws"}},
 	),
 	"internal/sketch/eval": {
