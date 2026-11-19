@@ -15,7 +15,10 @@
 //     irgc2-result-copy-dropped);
 //   - eof (IR-GOCALLS-2): Go package variables, io.EOF and os.Args;
 //   - params (IR-GOCALLS-3): a Go method on a Map receiver (url.Values.Get),
-//     len of a Go named Map, and a Go struct's fields through its go.Ref.
+//     len of a Go named Map, and a Go struct's fields through its go.Ref;
+//   - cookie (IR-GOCALLS-3): a Go struct's Map field read, then written by
+//     Go (Header.Set on the field itself, which only Go takes): the read
+//     is goResult's copy, so it prints 0 (mutant irgc3-field-copy-dropped).
 
 import go fmt
 import go regexp
@@ -28,6 +31,7 @@ import go net/url
 import go bytes
 import go io
 import go os
+import go net/http
 
 func show(n int) string needs go.Foreign {
 	fmt.Sprint([]go.Any{"n=", n, " ", true, " ", 2.5})
@@ -107,6 +111,18 @@ func params(raw string) string fails go.Error needs go.Foreign {
 	"\(q.Get("a")) \(len(q)) \(host) \(u.Path)"
 }
 
+func emptyBody() io.Reader needs go.Foreign {
+	io.MultiReader([]io.Reader{})
+}
+
+func cookie() int fails go.Error needs go.Foreign {
+	let body = emptyBody()
+	let r = try http.NewRequest("GET", "http://h.example/", body)
+	let h = r.Header
+	r.Header.Set("Cookie", "a=1")
+	len(h)
+}
+
 func eof() string needs go.Foreign {
 	let n = if go.Is(io.EOF, io.EOF) {
 		1
@@ -128,6 +144,11 @@ func main() needs Console | go.Foreign {
 		"bad"
 	}
 	Console.Println("params \(q)")
+	let c = cookie() catch {
+	case _:
+		-2
+	}
+	Console.Println("cookie \(c)")
 	Console.Println(show(3))
 	let p = pattern("xaab") catch {
 	case _:
