@@ -40,6 +40,13 @@ type Toolchain struct {
 	// module: the lowering writes code whose results do not depend on it
 	// (a float product rounds, ir_order.go rounded).
 	Level string
+	// PGO is the absolute path of a CPU profile the build compiles with
+	// (go build -pgo; U4 PGO-RELEASE), from `ergo build --release`; empty
+	// is none. A profile rebuilds every package of the program with it,
+	// std and the runtime too, so such a build takes no pin set and goes
+	// through go build (the direct path refuses it); the emitted module is
+	// the same with and without one.
+	PGO string
 	// Tags are the build tags of the action (-tags), such as ergoexplore
 	// for `ergo test --explore` (runtime.md, Explored schedules). They
 	// choose runtime files at link time and are no input of the lowering:
@@ -160,6 +167,9 @@ func (t Toolchain) Command(module Module, output string) *exec.Cmd {
 	args := append([]string{"build"}, receipt.GoBuildFlags...)
 	if len(t.Tags) > 0 {
 		args = append(args, "-tags", strings.Join(t.Tags, ","))
+	}
+	if t.PGO != "" {
+		args = append(args, "-pgo="+t.PGO)
 	}
 	for _, rel := range irDirs(module) {
 		// The pattern "." is the package in the module directory, the

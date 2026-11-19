@@ -155,6 +155,12 @@ type fileOptions struct {
 	// debug is build's, run's and test's --debug: the link keeps the symbol
 	// table and DWARF, which it leaves out by default (compile-speed CS7).
 	debug bool
+	// release is build's --release: the build compiles with the
+	// program's CPU profile, default.pgo beside its source (go build
+	// -pgo; U4 PGO-RELEASE). profile is that file's absolute path, set by
+	// buildCommand (releaseProfile).
+	release bool
+	profile string
 	// goTrace is build's, run's and test's --go-trace: the program links
 	// runtime/obs (the ergogotrace tag), and ERGO_GO_TRACE then shows its
 	// task tree to Go's tracer and pprof (RT-OBS).
@@ -393,6 +399,8 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 			opts.emitted = true
 		case "--debug":
 			opts.debug = true
+		case "--release":
+			opts.release = true
 		case "--native":
 			opts.native = true
 		case "--go-trace":
@@ -444,6 +452,8 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 		return opts, fmt.Errorf("--emitted is only supported by build and test")
 	case opts.debug && command != "build" && command != "run" && command != "test":
 		return opts, fmt.Errorf("--debug is only supported by build, run and test")
+	case opts.release && command != "build":
+		return opts, fmt.Errorf("--release is only supported by build")
 	case opts.native && command != "test":
 		return opts, fmt.Errorf("--native is only supported by test")
 	case opts.goTrace && command != "build" && command != "run" && command != "test":

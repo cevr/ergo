@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"os"
 	"os/exec"
@@ -82,6 +83,15 @@ func prepareWarm(opts fileOptions, tc *build.Toolchain, extra ...string) (*warm,
 		target := tc.GOOS + "/" + tc.GOARCH
 		if tc.Level != "" {
 			target += "/" + tc.Level
+		}
+		if tc.PGO != "" {
+			// A release build's profile is an input of every compile:
+			// its bytes key the request (U4 PGO-RELEASE).
+			data, err := os.ReadFile(tc.PGO)
+			if err != nil {
+				return nil, nil
+			}
+			target += " pgo=" + fmt.Sprintf("%x", sha256.Sum256(data))
 		}
 		parts = append(parts, stamp, tc.Root, target, tc.GOFLAGS, strings.Join(tc.Tags, ","), strconv.FormatBool(tc.GoBuild)+" "+strconv.FormatBool(tc.Strip)+" "+string(tc.Profile))
 	}
