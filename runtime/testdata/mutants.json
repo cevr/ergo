@@ -66,6 +66,7 @@
         ]
       }
     },
+    {"name":"obs-imports-fmt","origin":"wf10 RT-OBS-FMT","file":"runtime/obs/obs.go","from":"import (\n\t\"context\"\n","to":"import (\n\t\"context\"\n\t_ \"fmt\"\n","rule":"A package a shipped program links under a tag ergo build sets is held as the core is: runtime/obs, which a --go-trace build links, imports no fmt.","killers":["runtime:TestCoreHasNoInitRoots"],"anchor":{"tests":["runtime:TestCoreHasNoInitRoots"]}},
     {"name":"bs1-missing-import","origin":"wf10 binsize BS1","file":"runtime/embed.go","from":"\t\tfiles:   []string{\"exec.go\", \"exec_confine.go\", \"exec_exit_kqueue.go\", \"exec_exit_linux.go\", \"exec_sandbox_linux.go\", \"exec_sandbox_other.go\", \"exec_spawn.go\", \"exec_spawn_darwin.go\", \"exec_spawn_linux.go\", \"exec_spawn_other.go\", \"exec_start.go\", \"exec_unix.go\"},\n\t\timports: []string{\"runtime/rt\", \"runtime/v1\"},","to":"\t\tfiles:   []string{\"exec.go\", \"exec_confine.go\", \"exec_exit_kqueue.go\", \"exec_exit_linux.go\", \"exec_sandbox_linux.go\", \"exec_sandbox_other.go\", \"exec_spawn.go\", \"exec_spawn_darwin.go\", \"exec_spawn_linux.go\", \"exec_spawn_other.go\", \"exec_start.go\", \"exec_unix.go\"},\n\t\timports: []string{\"runtime/v1\"},","rule":"Files copies each package a leaf imports: the exec leaf imports runtime/rt.","killers":["runtime:TestPackagesMatchTheirDirectories"],"anchor":{"tests":["runtime:TestPackagesMatchTheirDirectories"]}},
     {
       "name": "bs2-core-imports-fmt",
