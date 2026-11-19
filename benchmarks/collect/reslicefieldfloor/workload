@@ -1,0 +1,6 @@
+# scripts/opcount: GP-RESLICE-FIELD's program against the floor: the
+# control takes the dead field's part itself, with no copy.
+unit element
+sizes 409600 2457600
+args bench reslicefieldfloor {n}
+control benchmarks/collect/testdata/control

@@ -49,6 +49,11 @@ type fgen struct {
 	cur    ffunc
 	locals []string
 	mut    int
+	// order adds GenerateOrder's statements (gen_f7g.go); forced holds the
+	// sub-choices of the form the seed's forced function writes (sub).
+	order  bool
+	force  int
+	forced map[string]int
 }
 
 func (g *fgen) n(k int) int { return g.r.IntN(k) }
@@ -61,9 +66,15 @@ func (g *fgen) program() string {
 	fmt.Fprintf(&g.b, "func Note(_ Prov, n int) int {\n\tn*%d + 1\n}\n\n", 2+g.n(3))
 	fmt.Fprintf(&g.b, "func Probe(_ Prov, n int) int fails E1 {\n\tif n %% %d == 0 {\n\t\treturn E1{Code: n}\n\t}\n\tn - 1\n}\n\n", 2+g.n(3))
 	g.b.WriteString("func pick(a int, b int) int {\n\ta*2 + b\n}\n\n")
+	if g.order {
+		g.orderDecls() // gen_f7g.go
+	}
 	nf := 4 + g.n(5)
 	for i := 0; i < nf; i++ {
 		g.function(i)
+	}
+	if g.order {
+		g.forcedFunction() // gen_f7g.go
 	}
 	g.main()
 	return g.b.String()
@@ -176,7 +187,15 @@ func (g *fgen) fresh() string {
 // stmt writes one statement of the current function.
 func (g *fgen) stmt(in string, budget int) {
 	f := g.cur
-	switch k := g.n(14); {
+	kinds := 14
+	if g.order {
+		kinds += orderKinds
+	}
+	switch k := g.n(kinds); {
+	case k >= 14:
+		if g.orderStmt(in, budget, k-14) { // gen_f7g.go
+			return
+		}
 	case k == 0 && slices.Contains(f.needs, "Console"):
 		fmt.Fprintf(&g.b, "%sConsole.Println(\"%s.%d\")\n", in, f.name, g.n(100))
 	case k == 1 && f.fails("E1"):
@@ -361,7 +380,18 @@ func (g *fgen) tail() {
 
 func (g *fgen) main() {
 	g.b.WriteString("func main() needs Console {\n\twith context { Log: Prov } {\n")
-	for _, f := range g.funcs {
+	// First, as no defect can end the run before it: a partial catch whose
+	// untaken failure fires. passOn passes E2 on to main's catch, so its
+	// default returns the failure, never the defect (FAIL-ELIDE). Fixed
+	// text, no draw: the seeds' other parts are unchanged.
+	g.b.WriteString("\t\tlet rp = passOn(1) catch {\n\t\tcase E1:\n\t\t\t-5\n\t\tcase E2 as x:\n\t\t\tConsole.Println(\"passOn E2 \\(x.Why)\")\n\t\t\t0\n\t\t}\n\t\tlet rq = passOn(2) catch {\n\t\tcase E1:\n\t\t\t-5\n\t\tcase E2:\n\t\t\t-6\n\t\t}\n\t\tConsole.Println(\"passOn \\(rp + rq)\")\n")
+	funcs := g.funcs
+	if g.order {
+		// GenerateOrder's forced function runs first: an earlier
+		// function's defect would end the run before its form runs.
+		funcs = append([]ffunc{funcs[len(funcs)-1]}, funcs[:len(funcs)-1]...)
+	}
+	for _, f := range funcs {
 		var as []string
 		for j := 0; j < f.params; j++ {
 			as = append(as, fmt.Sprint(g.n(21)-10))
@@ -389,5 +419,7 @@ func (g *fgen) main() {
 		}
 		fmt.Fprintf(&g.b, "\t\tlet r%s = %s catch {\n%s\t\t}\n\t\tConsole.Println(\"%s \\(r%s)\")\n", f.name, call, strings.Join(arms, ""), f.name, f.name)
 	}
-	g.b.WriteString("\t}\n}\n")
+	g.b.WriteString("\t}\n}\n\n")
+	g.b.WriteString("func both(n int) int fails E1 | E2 {\n\tif n == 0 {\n\t\treturn E1{Code: 0}\n\t}\n\tif n == 1 {\n\t\treturn E2{Why: \"passed on\"}\n\t}\n\tn\n}\n\n")
+	g.b.WriteString("func passOn(n int) int fails E1 | E2 {\n\tlet v = try both(n) catch {\n\tcase E1:\n\t\t-1\n\t}\n\tv + 1\n}\n")
 }

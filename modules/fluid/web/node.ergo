@@ -1,0 +1,373 @@
+import ergo.dev/fluid/a11y
+import ergo.dev/fluid/look
+import ergo.dev/fluid/part
+import html
+import strconv
+import strings
+
+// SkinOf is a look's skin: the look and its classes, resolved now. Make skins once (a package
+// value), never per render: a render reads the class string. SkinOf is pure, so the fold
+// computes a constant look's skin at build time.
+func SkinOf(l look.Look) part.Skin { part.Skin{Look: l, Class: Classes(l)} }
+
+// SkinIn is SkinOf with the classes under names n.
+func SkinIn(n Names, l look.Look) part.Skin { part.Skin{Look: l, Class: Named(n, l)} }
+
+// ControlSkinIn is ControlSkin under names n.
+func ControlSkinIn(n Names, c look.Control) part.Control {
+	part.Control{Root: SkinIn(n, c.Root), Plate: SkinIn(n, c.Plate), Content: SkinIn(n, c.Content)}
+}
+
+// ControlSkin is a control look's skins: its box, plate and content row.
+func ControlSkin(c look.Control) part.Control {
+	part.Control{Root: SkinOf(c.Root), Plate: SkinOf(c.Plate), Content: SkinOf(c.Content)}
+}
+
+// Act is what pressing a control does in the page: go to a URL (the page of the next state), or
+// nothing the page acts on (a control a script or a form owns).
+type Act = Go{URL html.URL} | Inert{}
+
+// Node is the HTML of a part tree. act says what each signal a control sends does.
+//
+// A box is a div (a span when inline, h1 to h6 for a heading); a press is a button, or a link
+// when its signal goes somewhere; the role attribute is printed when the element's own role is
+// not the node's; states and relations are aria-* attributes (disabled on a native control),
+// the key is the id, and how the node takes focus is its tabindex. A box with a keyboard map
+// marks its scope (data-web-keys) and holds a hidden link per key the applier follows
+// (data-web-key). While a modal layer is shown, the branches beside it are inert.
+func Node[E, R](n part.Node[E], act func(e E) Act needs R) html.Node needs R { emit[E, R](n, false, act) }
+
+func emit[E, R](n part.Node[E], inert bool, act func(e E) Act needs R) html.Node needs R {
+	match n {
+	case part.Box as b:
+		let tag = boxTag(b.Sem.Role, b.Inline)
+		let mut kids = []html.Child{}
+		kids = classed(kids, b.Skin.Class)
+		kids = semAttrs(kids, b.Sem, implicitOf(tag, false), false)
+		kids = reachAttrs(kids, b.Sem.Reach)
+		if inert {
+			kids = kids.Append(html.Flag("inert"))
+		}
+		if len(b.Keys) > 0 {
+			let mut names = []string{}
+			for k in b.Keys {
+				names = names.Append(k.Key)
+			}
+			kids = kids.Append(html.Data("web-keys", strings.Join(names, " ")))
+			for k in b.Keys {
+				match act(k.On) {
+				case Go as g:
+					kids = kids.Append(html.A([]html.Child{html.Flag("hidden"), html.Data("web-key", k.Key), html.Href(g.URL)}))
+				case Inert:
+				}
+			}
+		}
+		kids = emitKids[E, R](kids, b.Kids, act)
+		element(tag, kids)
+	case part.Text as t:
+		if t.Skin.Class == "" && !inert {
+			return html.Text(t.Value)
+		}
+		let mut kids = classed([]html.Child{}, t.Skin.Class)
+		if inert {
+			kids = kids.Append(html.Flag("inert"))
+		}
+		html.Span(kids.Append(html.Text(t.Value)))
+	case part.Glyph as g:
+		let class = if g.Skin.Class == "" { "" } else { "class=\"" + g.Skin.Class + "\" " }
+		let stroke = if g.Stroked { " stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"" } else { "" }
+		html.Raw(html.Trust("<svg " + class + "viewBox=\"0 0 24 24\" fill=\"none\"" + stroke + " aria-hidden=\"true\">" + g.Paths + "</svg>"))
+	case part.Press as p:
+		let dest = if a11yHas(p.Sem.States, part.Disabled) {
+			None
+		} else {
+			match p.On {
+			case Some as e:
+				match act(e.Value) {
+				case Go as g:
+					Some[html.URL]{Value: g.URL}
+				case Inert:
+					None
+				}
+			case None:
+				None
+			}
+		}
+		let link = match dest {
+		case Some:
+			true
+		case None:
+			false
+		}
+		let enabled = match p.On {
+		case Some:
+			true
+		case None:
+			false
+		}
+		let roving = match p.Sem.Reach {
+		case part.Roving:
+			true
+		case _:
+			false
+		}
+		let role = match p.Sem.Role {
+		case part.Generic:
+			part.Button
+		case _:
+			p.Sem.Role
+		}
+		let mut kids = classed([]html.Child{}, p.Skin.Root.Class)
+		kids = semAttrs(kids, part.Sem{..p.Sem, Role: role, States: withoutDisabled(p.Sem.States)}, if link { part.Link } else { part.Button }, true)
+		if !link {
+			kids = kids.Append(html.Type("button"))
+		}
+		match dest {
+		case Some as u:
+			kids = kids.Append(html.Href(u.Value))
+		case None:
+		}
+		match p.Sem.Reach {
+		case part.Roving as r:
+			if !r.Here {
+				kids = kids.Append(html.Attribute("tabindex", "-1"))
+			}
+		case _:
+		}
+		let disabled = !enabled || a11yHas(p.Sem.States, part.Disabled)
+		if disabled {
+			kids = kids.Append(if roving || link { html.Aria("disabled", "true") } else { html.Flag("disabled") })
+		}
+		if inert {
+			kids = kids.Append(html.Flag("inert"))
+		}
+		kids = kids.Append(html.Span([]html.Child{html.Class(p.Skin.Plate.Class), html.Aria("hidden", "true")}))
+		kids = kids.Append(html.Span(emitKids[E, R](classed([]html.Child{}, p.Skin.Content.Class), p.Kids, act)))
+		if link { html.A(kids) } else { html.Button(kids) }
+	case part.Field as f:
+		let mut attrs = []html.Child{}
+		attrs = classed(attrs, f.Skin.Class)
+		attrs = semAttrs(attrs, part.Sem{..f.Sem, Role: nativeRole(f.Sem.Role, part.TextBox), States: withoutDisabled(f.Sem.States)}, part.TextBox, true)
+		if f.Name != "" {
+			attrs = attrs.Append(html.Name(f.Name))
+		}
+		if f.Hint != "" {
+			attrs = attrs.Append(html.Placeholder(f.Hint))
+		}
+		if a11yHas(f.Sem.States, part.Disabled) {
+			attrs = attrs.Append(html.Flag("disabled"))
+		}
+		if inert {
+			attrs = attrs.Append(html.Flag("inert"))
+		}
+		if f.Lines > 1 {
+			attrs = attrs.Append(html.Attribute("rows", "\(f.Lines)"))
+			return html.Textarea(attrs.Append(html.Text(f.Value)))
+		}
+		attrs = attrs.Append(html.Type("text"))
+		attrs = attrs.Append(html.Value(f.Value))
+		html.Input(onlyAttrs(attrs))
+	case part.Scale as s:
+		let mut attrs = []html.Child{}
+		attrs = classed(attrs, s.Skin.Class)
+		attrs = semAttrs(attrs, part.Sem{..s.Sem, Role: nativeRole(s.Sem.Role, part.Slider), States: withoutDisabled(s.Sem.States)}, part.Slider, true)
+		attrs = attrs.Append(html.Type("range"))
+		if s.Name != "" {
+			attrs = attrs.Append(html.Name(s.Name))
+		}
+		attrs = attrs.Append(html.Attribute("min", numeral(s.Min)))
+		attrs = attrs.Append(html.Attribute("max", numeral(s.Max)))
+		attrs = attrs.Append(html.Attribute("step", numeral(s.Step)))
+		attrs = attrs.Append(html.Value(numeral(s.Value)))
+		if a11yHas(s.Sem.States, part.Disabled) {
+			attrs = attrs.Append(html.Flag("disabled"))
+		}
+		if inert {
+			attrs = attrs.Append(html.Flag("inert"))
+		}
+		html.Input(onlyAttrs(attrs))
+	case part.Layer as l:
+		let mut kids = []html.Child{html.Data("layer", "\(l.Z)")}
+		if inert {
+			kids = kids.Append(html.Flag("inert"))
+		}
+		html.Div(emitKids[E, R](kids, l.Kids, act))
+	case part.Keyed as k:
+		emit[E, R](k.Node, inert, act)
+	case part.Live as l:
+		let mut kids = []html.Child{html.Role(if l.Assertive { "alert" } else { "status" }), html.Aria("live", if l.Assertive { "assertive" } else { "polite" })}
+		if inert {
+			kids = kids.Append(html.Flag("inert"))
+		}
+		html.Div(kids.Append(html.Text(l.Text)))
+	case part.Host as h:
+		if inert {
+			return html.Div([]html.Child{html.Flag("inert"), html.Raw(html.Trust(h.Web))})
+		}
+		html.Raw(html.Trust(h.Web))
+	}
+}
+
+// emitKids appends kids' HTML to out; while one branch shows a modal layer, the others are inert.
+func emitKids[E, R](out []html.Child, kids []part.Node[E], act func(e E) Act needs R) []html.Child needs R {
+	let shown = part.Shown[E](kids)
+	let mut o = out
+	for i in 0..len(kids) {
+		o = o.Append(emit[E, R](kids[i], !shown[i], act))
+	}
+	o
+}
+
+func classed(kids []html.Child, class string) []html.Child {
+	if class == "" { kids } else { kids.Append(html.Class(class)) }
+}
+
+// onlyAttrs is the attributes of children (an input takes no content).
+func onlyAttrs(kids []html.Child) []html.Attr {
+	let mut out = []html.Attr{}
+	for k in kids {
+		match k {
+		case html.Attr as a:
+			out = out.Append(a)
+		case html.Node:
+		}
+	}
+	out
+}
+
+// boxTag is the element of a box of role r.
+func boxTag(r part.Role, inline bool) string {
+	match r {
+	case part.Heading as h:
+		if h.Level >= 1 && h.Level <= 6 { "h\(h.Level)" } else { "div" }
+	case _:
+		if inline { "span" } else { "div" }
+	}
+}
+
+func element(tag string, kids []html.Child) html.Node {
+	match tag {
+	case "span":
+		html.Span(kids)
+	case "h1":
+		html.H1(kids)
+	case "h2":
+		html.H2(kids)
+	case "h3":
+		html.H3(kids)
+	case "h4":
+		html.H4(kids)
+	case "h5":
+		html.H5(kids)
+	case "h6":
+		html.H6(kids)
+	case _:
+		html.Div(kids)
+	}
+}
+
+// implicitOf is the role an element has when it states none.
+func implicitOf(tag string, _ bool) part.Role {
+	if len(tag) == 2 && tag[0] == 'h' {
+		return part.Heading{Level: int(tag[1]) - int('0')}
+	}
+	part.Generic
+}
+
+// semAttrs appends a node's role (when it is not the element's own), name, key, hidden flag,
+// focus mark, states and relations. A native control's disabled state is its own attribute.
+func semAttrs(kids []html.Child, s part.Sem, own part.Role, native bool) []html.Child {
+	let mut out = kids
+	if a11y.RoleName(s.Role) != a11y.RoleName(own) || (a11y.RoleName(s.Role) == "heading" && !sameHeading(s.Role, own)) {
+		out = out.Append(html.Role(a11y.RoleName(s.Role)))
+	}
+	if s.Name != "" {
+		out = out.Append(html.Aria("label", s.Name))
+	}
+	if s.Key != "" {
+		out = out.Append(html.Id(s.Key))
+	}
+	if s.Hidden {
+		out = out.Append(html.Aria("hidden", "true"))
+	}
+	if s.Focus {
+		out = out.Append(html.Data("web-focus", ""))
+	}
+	for st in s.States {
+		match st {
+		case part.Value as v:
+			out = out.Append(html.Aria("valuenow", numeral(v.Now)))
+			out = out.Append(html.Aria("valuemin", numeral(v.Min)))
+			out = out.Append(html.Aria("valuemax", numeral(v.Max)))
+			if v.Text != "" {
+				out = out.Append(html.Aria("valuetext", v.Text))
+			}
+		case _:
+			out = out.Append(html.Aria(a11y.StateName(st), a11y.StateValue(st)))
+		}
+	}
+	for r in s.Rels {
+		out = out.Append(html.Aria(a11y.RelName(r), a11y.RelValue(r)))
+	}
+	out
+}
+
+func sameHeading(a part.Role, b part.Role) bool {
+	match a {
+	case part.Heading as x:
+		match b {
+		case part.Heading as y:
+			x.Level == y.Level
+		case _:
+			false
+		}
+	case _:
+		false
+	}
+}
+
+// reachAttrs is a box's tabindex: a tab stop (or a box said to reach natively) or the roving
+// set's stop is 0, another roving item -1.
+func reachAttrs(kids []html.Child, r part.Reach) []html.Child {
+	match r {
+	case part.Stop, part.Native:
+		kids.Append(html.Attribute("tabindex", "0"))
+	case part.Roving as v:
+		kids.Append(html.Attribute("tabindex", if v.Here { "0" } else { "-1" }))
+	case part.Out, part.Descendant:
+		kids
+	}
+}
+
+func withoutDisabled(states []part.State) []part.State {
+	let mut out = []part.State{}
+	for s in states {
+		match s {
+		case part.Disabled:
+		case _:
+			out = out.Append(s)
+		}
+	}
+	out
+}
+
+func a11yHas(states []part.State, s part.State) bool {
+	for x in states {
+		if a11y.StateName(x) == a11y.StateName(s) {
+			return true
+		}
+	}
+	false
+}
+
+func numeral(f float64) string { strconv.FormatFloat(f, 'g', -1) }
+
+// nativeRole is r, or a native control's own role when r is generic.
+func nativeRole(r part.Role, own part.Role) part.Role {
+	match r {
+	case part.Generic:
+		own
+	case _:
+		r
+	}
+}

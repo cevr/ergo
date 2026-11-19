@@ -258,13 +258,20 @@ func main() needs Console | Ambient {
 		// its actual status. The trap's 37 is not a guessed signal status
 		// (137 or 143). The wait with a deadline is exec.WaitFor (ESC1
 		// refuses the old timeout.After { p.Wait() } borrow; stdlib.md,
-		// exec, WaitFor): the program waits on its fifo, so the deadline
-		// passes first, Expired leaves it running, and Stop ends it.
-		{name: "postStopStatus", src: strings.NewReplacer("STOPFIFO", filepath.Join(dir, "stop.fifo")).Replace(`import exec
+		// exec, WaitFor): the program waits on a child sleep, so the
+		// deadline passes first, Expired leaves it running, and Stop ends
+		// it. It waits in `wait`, not in `read`: dash runs a pending trap
+		// only between commands or when a signal cuts a blocking wait, and
+		// a TERM that lands after its last check and before read(2) was
+		// never acted on (15 in 10,000 at load), so Stop's grace ran out
+		// and the status was 137 (finding-poststop-trap-race, batch 19).
+		// Stop's TERM to the group also reaches the sleep, so `wait`
+		// returns and dash runs the trap.
+		{name: "postStopStatus", src: `import exec
 import timeout
 
 func stoppedStatus() int fails exec.NotFound | exec.Denied | exec.Failed needs exec.Runner | Scheduler {
-	let p = try exec.Runner.Start(exec.New("/bin/sh", []string{"-c", "mkfifo 'STOPFIFO'; exec 3<> 'STOPFIFO'; trap 'exit 37' TERM; echo ready; read x <&3"}).WithGrace(15s), exec.Streams{Stdout: exec.ToCaller, Stderr: exec.Discard})
+	let p = try exec.Runner.Start(exec.New("/bin/sh", []string{"-c", "trap 'exit 37' TERM; echo ready; sleep 1000 & wait $!"}).WithGrace(15s), exec.Streams{Stdout: exec.ToCaller, Stderr: exec.Discard})
 	for line in p.Lines() {
 		if line.Text == "ready" { break }
 	}
@@ -283,7 +290,7 @@ func main() needs Ambient | Console {
 	}
 	Console.Println("status \(code)")
 }
-`), stdout: "status 37\n"},
+`, stdout: "status 37\n"},
 	})
 }
 
@@ -330,6 +337,22 @@ test ExecRunnerStartAgreesWithRun(name string, out string, errs string, status i
 	}
 	assert slices.Equal(o, exec.Split(want.Stdout))
 	assert slices.Equal(e, exec.Split(want.Stderr))
+	assert p.Wait() == want.Status
+}
+
+test ExecRunnerStartMergedInterleavesRun(name string, out string, errs string, status int) {
+	let c = exec.New(name, []string{})
+	let mut results = Map[string, exec.Result]{}
+	results[exec.Key(c)] = exec.Result{Status: status, Stdout: out, Stderr: errs}
+	let s = exec.Script{Results: results}
+	let want = try s.Run(c)
+	let p = try s.Start(c, exec.Streams{Stdout: exec.ToCaller, Stderr: exec.ToStdout})
+	let mut got = ""
+	for k in p.Chunks() {
+		assert !k.Stderr
+		got = got + k.Text
+	}
+	assert got == want.Stdout + want.Stderr
 	assert p.Wait() == want.Status
 }
 
@@ -408,13 +431,14 @@ test ScriptNotFoundNamesTheProgram(name string, other string) {
 // law's source text as the ledger writes it, by ledger key; lawledger.Run
 // holds it equal to the ledger (fu-ledger-runner).
 var execLawStatements = map[string]string{
-	"exec Runner.StartAgreesWithRun": `StartAgreesWithRun(name string) { let c = New(name, []string{}) let want = Run(c) catch { case NotFound, Denied, Failed: return true } let p = Start(c, Streams{Stdout: ToCaller, Stderr: ToCaller}) catch { case NotFound, Denied, Failed: return false } let mut out = []string{} let mut errs = []string{} for l in p.Lines() { if l.Stderr { errs = errs.Append(l.Text) } else { out = out.Append(l.Text) } } slices.Equal(out, Split(want.Stdout)) && slices.Equal(errs, Split(want.Stderr)) && p.Wait() == want.Status }`,
-	"exec ScriptReplaysRecorded":     `ScriptReplaysRecorded(name string, arg string, status int, out string) { let c = New(name, []string{arg, arg}) let joined = New(name, []string{arg + "," + arg}) let mut results = Map[string, Result]{} results[Key(c)] = Result{Status: status, Stdout: out, Stderr: ""} results[Key(joined)] = Result{Status: status + 1, Stdout: out, Stderr: ""} let r = Script{Results: results}.Run(c) catch { case NotFound, Denied, Failed: return false } let s = Script{Results: results}.Run(joined) catch { case NotFound, Denied, Failed: return false } r.Status == status && r.Stdout == out && r.Stderr == "" && s.Status == status+1 }`,
-	"exec WaitForEndedGivesStatus":   `WaitForEndedGivesStatus(status int, d int64) { let c = New("x", []string{}) let mut results = Map[string, Result]{} results[Key(c)] = Result{Status: status, Stdout: "", Stderr: ""} let p = Script{Results: results}.Start(c, Streams{Stdout: Discard, Stderr: Discard}) catch { case NotFound, Denied, Failed: return false } with context { Scheduler: time.NewManual(0) } { let code = p.WaitFor(duration(d)) catch { case timeout.Expired: return false } code == status } }`,
-	"exec Spawner.KillIsIdempotent":  `KillIsIdempotent(name string) { let d = Spawn(New(name, []string{}), Streams{Stdout: Discard, Stderr: Discard}) catch { case NotFound, Denied, Failed: return true } Kill(d, 0s) Kill(d, 0s) !Alive(d) }`,
-	"exec Spawner.KilledIsNotAlive":  `KilledIsNotAlive(name string) { let d = Spawn(New(name, []string{}), Streams{Stdout: Discard, Stderr: Discard}) catch { case NotFound, Denied, Failed: return true } Kill(d, 0s) !Alive(d) }`,
-	"exec WithEnvKeepsTheOriginal":   `WithEnvKeepsTheOriginal(key string, first string, second string) { let c = New("x", []string{}).WithEnv(key, first) let d = c.WithEnv(key, second) c.Env.Get(key) == Some[string]{Value: first} && d.Env.Get(key) == Some[string]{Value: second} }`,
-	"exec WithEnvOverrides":          `WithEnvOverrides(key string, first string, second string) { let c = New("x", []string{}).WithEnv(key, first).WithEnv(key, second) c.Env.Get(key) == Some[string]{Value: second} }`,
+	"exec Runner.StartAgreesWithRun":        `StartAgreesWithRun(name string) { let c = New(name, []string{}) let want = Run(c) catch { case NotFound, Denied, Failed: return true } let p = Start(c, Streams{Stdout: ToCaller, Stderr: ToCaller}) catch { case NotFound, Denied, Failed: return false } let mut out = []string{} let mut errs = []string{} for l in p.Lines() { if l.Stderr { errs = errs.Append(l.Text) } else { out = out.Append(l.Text) } } slices.Equal(out, Split(want.Stdout)) && slices.Equal(errs, Split(want.Stderr)) && p.Wait() == want.Status }`,
+	"exec Runner.StartMergedInterleavesRun": `StartMergedInterleavesRun(name string) { let c = New(name, []string{}) let want = Run(c) catch { case NotFound, Denied, Failed: return true } let p = Start(c, Streams{Stdout: ToCaller, Stderr: ToStdout}) catch { case NotFound, Denied, Failed: return false } let mut got = "" for k in p.Chunks() { if k.Stderr { return false } got = got + k.Text } interleaves(got, want.Stdout, want.Stderr) && p.Wait() == want.Status }`,
+	"exec ScriptReplaysRecorded":            `ScriptReplaysRecorded(name string, arg string, status int, out string) { let c = New(name, []string{arg, arg}) let joined = New(name, []string{arg + "," + arg}) let mut results = Map[string, Result]{} results[Key(c)] = Result{Status: status, Stdout: out, Stderr: ""} results[Key(joined)] = Result{Status: status + 1, Stdout: out, Stderr: ""} let r = Script{Results: results}.Run(c) catch { case NotFound, Denied, Failed: return false } let s = Script{Results: results}.Run(joined) catch { case NotFound, Denied, Failed: return false } r.Status == status && r.Stdout == out && r.Stderr == "" && s.Status == status+1 }`,
+	"exec WaitForEndedGivesStatus":          `WaitForEndedGivesStatus(status int, d int64) { let c = New("x", []string{}) let mut results = Map[string, Result]{} results[Key(c)] = Result{Status: status, Stdout: "", Stderr: ""} let p = Script{Results: results}.Start(c, Streams{Stdout: Discard, Stderr: Discard}) catch { case NotFound, Denied, Failed: return false } with context { Scheduler: time.NewManual(0) } { let code = p.WaitFor(duration(d)) catch { case timeout.Expired: return false } code == status } }`,
+	"exec Spawner.KillIsIdempotent":         `KillIsIdempotent(name string) { let d = Spawn(New(name, []string{}), Streams{Stdout: Discard, Stderr: Discard}) catch { case NotFound, Denied, Failed: return true } Kill(d, 0s) Kill(d, 0s) !Alive(d) }`,
+	"exec Spawner.KilledIsNotAlive":         `KilledIsNotAlive(name string) { let d = Spawn(New(name, []string{}), Streams{Stdout: Discard, Stderr: Discard}) catch { case NotFound, Denied, Failed: return true } Kill(d, 0s) !Alive(d) }`,
+	"exec WithEnvKeepsTheOriginal":          `WithEnvKeepsTheOriginal(key string, first string, second string) { let c = New("x", []string{}).WithEnv(key, first) let d = c.WithEnv(key, second) c.Env.Get(key) == Some[string]{Value: first} && d.Env.Get(key) == Some[string]{Value: second} }`,
+	"exec WithEnvOverrides":                 `WithEnvOverrides(key string, first string, second string) { let c = New("x", []string{}).WithEnv(key, first).WithEnv(key, second) c.Env.Get(key) == Some[string]{Value: second} }`,
 }
 
 // TestExecLaws runs the probe with --seed 1; lawledger.Run holds that it

@@ -13,7 +13,7 @@ extern go mime/quotedprintable.NewWriter func NewWriter(w own io.Writer) Option[
 extern go mime/quotedprintable.Reader type Reader {}
 
 // ergo:go func (*Reader).Read(p []byte) (n int, err error)
-extern go mime/quotedprintable.Reader.Read func (r own *Reader) Read(p []byte) int fails go.Error needs go.Foreign
+extern go mime/quotedprintable.Reader.Read func (r *Reader) Read(p []byte) int fails go.Error needs go.Foreign
 
 // ergo:go type Writer struct
 extern go mime/quotedprintable.Writer type Writer {
@@ -25,4 +25,4 @@ extern go mime/quotedprintable.Writer.Close func (w own *Writer) Close() fails g
 
 // ergo:go func (*Writer).Write(p []byte) (n int, err error)
 // ergo:reads p
-extern go mime/quotedprintable.Writer.Write func (w own *Writer) Write(p []byte) int fails go.Error needs go.Foreign
+extern go mime/quotedprintable.Writer.Write func (w *Writer) Write(p []byte) int fails go.Error needs go.Foreign

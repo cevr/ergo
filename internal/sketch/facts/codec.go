@@ -8,7 +8,7 @@ import (
 // Version is the format version of an encoded table. The check snapshot
 // stores a package's table as a section of its own under this version
 // (the snapshot format is the CS lane's; this is the section's body).
-const Version = 4
+const Version = 5
 
 // Encode writes t as bytes: uvarints and length-prefixed strings in the
 // tables' own order, so equal tables give equal bytes.
@@ -80,6 +80,10 @@ func Encode(t *Table) []byte {
 		}
 		e.u(uint64(len(m.Work)))
 		for _, p := range m.Work {
+			e.place(p)
+		}
+		e.u(uint64(len(m.Exit)))
+		for _, p := range m.Exit {
 			e.place(p)
 		}
 		e.ss(m.Unsure)
@@ -155,6 +159,9 @@ func Decode(data []byte) (*Table, error) {
 		}
 		for range d.n() {
 			m.Work = append(m.Work, d.place())
+		}
+		for range d.n() {
+			m.Exit = append(m.Exit, d.place())
 		}
 		m.Unsure = d.ss()
 		t.Machines = append(t.Machines, m)

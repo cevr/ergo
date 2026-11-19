@@ -1,5 +1,5 @@
 {
-  "about": "scripts/opcount: the program mode builds the Ergo side as the product does (ergo's patched release, each package's IR read with -ergoir, through build.Toolchain.Command) and reports per package how many function bodies came from IR. The ergo build -work / -go-text choice and the runs are checked by hand (OPCOUNT-IR round-1 request: opcount onebrc on both paths), not by a gate test: they build ergo and run Go.",
+  "about": "scripts/opcount: the program mode builds the Ergo side as the product does (ergo's patched release, each package's IR read with -ergoir, through build.Toolchain.Command) and reports per package how many function bodies came from IR. The ergo build -work / -go-text choice and the runs are checked by hand (OPCOUNT-IR round-1 request: opcount station-stats on both paths), not by a gate test: they build ergo and run Go.",
   "mutants": [
     {
       "name": "opcount-ir-flag-dropped",
@@ -23,8 +23,8 @@
       "name": "opcount-overlay-dropped",
       "origin": "wf10 OPCOUNT-IR",
       "file": "scripts/opcount/main.go",
-      "from": "\ttc.GOFLAGS = \"'-overlay=\" + overlay + \"' -ldflags=-checklinkname=0\"\n",
-      "to": "\ttc.GOFLAGS = \"-ldflags=-checklinkname=0\"\n",
+      "from": "\ttc.GOFLAGS = strings.TrimSpace(os.Getenv(\"GOFLAGS\") + \" '-overlay=\" + overlay + \"' -ldflags=-checklinkname=0\")\n",
+      "to": "\ttc.GOFLAGS = strings.TrimSpace(os.Getenv(\"GOFLAGS\") + \" -ldflags=-checklinkname=0\")\n",
       "rule": "The measured binary carries the exit hook, added by the overlay.",
       "killers": ["scripts/opcount:TestModuleBuildReadsEachPackagesIR"]
     },

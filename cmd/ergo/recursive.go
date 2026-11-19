@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"ergo.local/prototype/internal/gobind"
 	"ergo.local/prototype/internal/receipt"
@@ -14,6 +16,7 @@ import (
 	"ergo.local/prototype/internal/sketch/build"
 	"ergo.local/prototype/internal/sketch/lower"
 	"ergo.local/prototype/internal/sketchfront"
+	"ergo.local/prototype/internal/stage"
 )
 
 func recursivePattern(path string) bool { return filepath.Base(filepath.Clean(path)) == "..." }
@@ -252,24 +255,47 @@ func sharedTestCommand(opts fileOptions, module moduleTestOptions) (shared bool,
 	if err != nil {
 		return true, err
 	}
-	// A failed build is reported by the packages' own builds, each where
-	// it belongs, so its output is kept back.
-	var held bytes.Buffer
-	if _, err := sketchfront.BuildTests(built, sketchfront.BuildRequest{
-		Output:    binary,
-		Cache:     build.Cache{Root: root},
-		Toolchain: tc,
-		Stderr:    &held,
-	}); err != nil {
-		return false, nil
+	// When the store holds every package's own test binary (an earlier
+	// `ergo test ./...` linked them), each package runs its own and
+	// nothing is built (TEQ); otherwise the module's one binary is built.
+	own := make([]string, len(runs))
+	stored := true
+	for i, r := range runs {
+		if stored && r.index >= 0 {
+			own[i], stored = storedTestBinary(r.l, filepath.Join(dir, strconv.Itoa(i)+".test"), root, tc)
+		}
 	}
+	if !stored {
+		// A failed build is reported by the packages' own builds, each
+		// where it belongs, so its output is kept back but for one line
+		// saying the packages are tested alone (sharedFallback).
+		var held bytes.Buffer
+		if _, err := sketchfront.BuildTests(built, sketchfront.BuildRequest{
+			Output:    binary,
+			Cache:     build.Cache{Root: root},
+			Toolchain: tc,
+			IR:        true,
+			Stderr:    &held,
+		}); err != nil {
+			return sharedFallback(os.Stderr, os.Getenv(SharedFallbackVariable) == "fail", err, held.String())
+		}
+	}
+	stage.Add(stage.SharedTestModules, 1)
 	failed := false
 	for i, r := range runs {
 		fmt.Fprintf(os.Stdout, "package %s\n", packages[i].Path)
 		if r.index < 0 {
 			continue
 		}
-		err := runTestBinary(r.one, r.l, binary, []string{lower.TestPackageFlag, strconv.Itoa(r.index)}, nil)
+		var err error
+		switch {
+		case !stored:
+			err = runTestBinary(r.one, r.l, tc, binary, []string{lower.TestPackageFlag, strconv.Itoa(r.index)}, nil)
+		case own[i] == "":
+			err = emptyTestRun(r.one, r.l.result.Revision, os.Stdout, os.Stderr)
+		default:
+			err = runTestBinary(r.one, r.l, tc, own[i], nil, nil)
+		}
 		stop, fail := packageOutcome(packages[i].Path, err)
 		if stop != nil {
 			return true, stop
@@ -282,6 +308,54 @@ func sharedTestCommand(opts fileOptions, module moduleTestOptions) (shared bool,
 	return true, nil
 }
 
+// storedTestBinary places the package l's own test binary at output from
+// the store, built as its `ergo test` builds it (testLoadedPackage) but
+// with Toolchain.Stored: no lowering, compile, link or go command runs.
+// It reports false when the store lacks any part; a package with nothing
+// to test has no binary, and its path is "" (emptyTestRun runs it).
+func storedTestBinary(l loaded, output, root string, tc build.Toolchain) (string, bool) {
+	if nothingToTest(l.analysis.Root().Package) {
+		return "", true
+	}
+	tc.Stored = true
+	_, err := sketchfront.Build(l.analysis, sketchfront.BuildRequest{
+		Mode:      build.ModeTest,
+		Source:    l.source.Admitted(),
+		Output:    output,
+		Cache:     build.Cache{Root: root},
+		Toolchain: tc,
+		IR:        true,
+		Stderr:    io.Discard,
+	})
+	return output, err == nil
+}
+
+// SharedFallbackVariable, set to "fail", makes a fallback of `ergo test
+// DIR/...` from its module test binary to each package alone an error. The
+// tests (internal/testinputs) and the gate set it: there a fallback is a
+// bug of the shared build, which per-package builds would hide.
+const SharedFallbackVariable = "ERGO_SHARED_FALLBACK"
+
+// sharedFallback reports that the module test binary did not build: once
+// on stderr, with the go error's first line, and in the stage report
+// (shared_fallbacks). Each package is then tested alone (shared false),
+// unless strict (SharedFallbackVariable is "fail"): then the run fails.
+func sharedFallback(stderr io.Writer, strict bool, err error, output string) (shared bool, _ error) {
+	stage.Add(stage.SharedFallbacks, 1)
+	first := err.Error()
+	for line := range strings.Lines(output) {
+		if line = strings.TrimSpace(line); line != "" && !strings.HasPrefix(line, "#") {
+			first = line
+			break
+		}
+	}
+	if strict {
+		return true, fmt.Errorf("the module's test binary did not build (%s=fail): %s", SharedFallbackVariable, first)
+	}
+	fmt.Fprintf(stderr, "ergo test: the module's test binary did not build, so each package is tested alone: %s\n", first)
+	return false, nil
+}
+
 // replayModuleVerdict prints a stored `ergo test ./...` verdict: each
 // package's line and its replayed result.
 func replayModuleVerdict(opts fileOptions, data []byte) error {
@@ -289,6 +363,7 @@ func replayModuleVerdict(opts fileOptions, data []byte) error {
 	if err := json.Unmarshal(data, &verdicts); err != nil {
 		return fmt.Errorf("test result cache: %w", err)
 	}
+	failed := false
 	for _, v := range verdicts {
 		fmt.Fprintf(os.Stdout, "package %s\n", v.Path)
 		if v.Result == nil {
@@ -297,9 +372,16 @@ func replayModuleVerdict(opts fileOptions, data []byte) error {
 			}
 			continue
 		}
-		if err := replayTestResult(v.Result, os.Stdout, os.Stderr); err != nil {
-			return err
+		// An unexpected skip fails its package and the run, as a live
+		// run's does (packageOutcome); the other packages still replay.
+		stop, fail := packageOutcome(v.Path, replayTestResult(v.Result, opts.file, os.Stdout, os.Stderr))
+		if stop != nil {
+			return stop
 		}
+		failed = failed || fail
+	}
+	if failed {
+		return exitStatusError{code: 1, handled: true}
 	}
 	return nil
 }

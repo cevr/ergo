@@ -24,7 +24,9 @@ import "slices"
 
 // WithCapacity is slices.WithCapacity[T](n): an empty slice with room for
 // n elements. It fabricates no element (parse-v1 ruling 7 withdrew
-// slice.Repeat). A negative n is a defect, Go's own makeslice panic.
+// slice.Repeat). A negative n is a defect, Go's own makeslice panic. It
+// is pure (it allocates and reads nothing), so slices.Transform, which
+// calls it, is pure over a pure function (the fusion laws, rule 4).
 //
 //ergo:pure
 //ergo:wait none
@@ -165,3 +167,14 @@ func UnreachableAt(reason, at string) *UnreachableDefect {
 // Never is Unreachable(reason) at at in a position that expects a value of
 // type T: it panics with UnreachableAt and returns no value.
 func Never[T any](reason, at string) T { panic(UnreachableAt(reason, at)) }
+
+// AsWritten is the body of the prelude's AsWritten: its argument. The
+// lowering knows it by its mark, never by its name: a call tree inside its
+// argument is never the root or a part of a rewrite's match
+// (lower/ir_rewrite.go; the test build's shadow is the leaf
+// runtime/v1/shadow).
+//
+//ergo:pure
+//ergo:wait none
+//ergo:aswritten
+func AsWritten[T any](v T) T { return v }

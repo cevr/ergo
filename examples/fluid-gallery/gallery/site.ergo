@@ -1,0 +1,126 @@
+import ergo.dev/fluid/look
+import ergo.dev/fluid/token
+import ergo.dev/fluid/web
+import appweb github.com/cevr/ergo/modules/web
+import html
+import strconv
+import strings
+import ui
+
+// Route is a page of the gallery: a component's docs.
+type Route = ButtonDocs{} | BadgeDocs{}
+
+// Docs is the gallery's route map: /docs/<component>.
+type Docs {} implements appweb.Routes[Route]
+
+func Href(_ Docs, r Route) ui.URL {
+	match r {
+	case ButtonDocs:
+		ui.URL{Path: "/docs/button", Query: "", Fragment: ""}
+	case BadgeDocs:
+		ui.URL{Path: "/docs/badge", Query: "", Fragment: ""}
+	}
+}
+
+func Parse(_ Docs, u ui.URL) Option[Route] {
+	let s = ui.Segments(u)
+	if len(s) != 2 || s[0] != "docs" {
+		return None
+	}
+	if s[1] == "button" {
+		return Some[Route]{Value: ButtonDocs}
+	}
+	if s[1] == "badge" {
+		return Some[Route]{Value: BadgeDocs}
+	}
+	None
+}
+
+// Gone is a page that is no longer served; no route fails today.
+type Gone {}
+
+// Looks is the gallery's one look list: every look its pages draw, and every look of the module
+// (web.Looks()), which a TypeScript island on a page draws. The short names, the page's sheet and
+// the island's table are all built from it, so an island's classes are the page's and the page's
+// one sheet styles both.
+func Looks() []look.Look {
+	let mut out = chrome()
+	for ls in [][]look.Look{docLooks(), []look.Look{copyControl.Root, copyControl.Plate, copyControl.Content, copyControl.Label}, rowLooks(), buttonLooks(), badgeLooks(), web.Looks()} {
+		for l in ls {
+			out = out.Append(l)
+		}
+	}
+	out
+}
+
+// names is the short class names of every atom the gallery draws, made once.
+let names = web.NamesOf(Looks())
+
+// fontFace is the face the sheet's Inter names: the variable font under /fonts/.
+let fontFace = "@font-face{font-family:Inter;font-style:normal;font-weight:100 900;font-display:block;src:url(/fonts/InterVariable.ttf) format(\"truetype\")}"
+
+// head is the page's head, the same on every page: the font, then the sheet.
+let head = html.Head([]html.Child{
+	html.Meta([]html.Attr{html.Charset("utf-8")}),
+	html.Meta([]html.Attr{html.Name("viewport"), html.Content("width=device-width, initial-scale=1")}),
+	html.Title([]html.Child{html.Text("Fluid · Ergo")}),
+	html.Style([]html.Attr{}, html.Trust(fontFace)),
+	html.Style([]html.Attr{}, html.Trust(sheet)),
+})
+
+// sheet is the page's one sheet: every atom of the gallery's look list, under its names.
+let sheet = web.SheetNamed(token.Default, names, Looks())
+
+// Island is the module for a TypeScript island on a gallery page: the module's looks as class
+// names under the gallery's naming, and the page's sheet.
+func Island() string { web.TS(web.TableOf(token.Default, Looks())) }
+
+// IslandUsesThePageSheet: the island's table is built from the gallery's one look list, so its
+// sheet is the page's sheet and its classes are the page's (one naming per site: an island never
+// brings a second sheet whose short names collide with the page's).
+law IslandUsesThePageSheet() {
+	strings.Contains(Island(), "export const sheet: string = "+strconv.Quote(sheet)+"\n")
+}
+
+// View is a page of the gallery.
+func View(r Route) html.Node { viewWith(r, buttonOf) }
+
+// Written is View with the buttons written straight to HTML, not projected from part trees: the
+// receipt's writer form.
+func Written(r Route) html.Node { viewWith(r, buttonWriter) }
+
+func viewWith(r Route, draw func(p Press) html.Node) html.Node {
+	let doc = match r {
+	case ButtonDocs:
+		buttonPage(draw)
+	case BadgeDocs:
+		badgePage()
+	}
+	let mut column = []html.Child{html.Class(kit.Column)}
+	for c in docColumn(doc) {
+		column = column.Append(c)
+	}
+	html.Doc(html.Html([]html.Child{
+		html.Lang("en"),
+		html.Class(kit.Html),
+		head,
+		html.Body([]html.Child{html.Div([]html.Child{html.Class(kit.Shell), html.Main([]html.Child{html.Class(kit.Main), html.Div(column), html.Div([]html.Child{html.Class(kit.Tail)})})})}),
+	}))
+}
+
+// Site is the gallery as appweb.Fetch serves it.
+func Site() appweb.Site[Route, Route, Gone] {
+	appweb.Site[Route, Route, Gone]{
+		Routes: Docs,
+		Load:   func(r Route) Route fails Gone { r },
+		View:   View,
+		Status: func(f) appweb.Reply {
+			match f {
+			case Gone:
+				appweb.Reply{Status: 410, Page: html.P([]html.Child{html.Text("gone")})}
+			}
+		},
+		NotFound: func(path string) html.Node { html.P([]html.Child{html.Text("no page at " + path)}) },
+		Assets:   []appweb.Asset{},
+	}
+}

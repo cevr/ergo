@@ -1,5 +1,5 @@
 // Package workload writes the JSON document the receipts parse: an array
-// of n records in jq's layout. Each record has numbers of every form,
+// of n records, indented. Each record has numbers of every form,
 // strings with escapes and text outside ASCII, a nested object and an
 // array, so the parser's every path runs. The seed draws the values, so
 // two seeds give two documents of one shape.

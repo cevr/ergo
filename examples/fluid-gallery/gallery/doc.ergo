@@ -1,0 +1,181 @@
+import ergo.dev/fluid/look
+import ergo.dev/fluid/token
+import ergo.dev/fluid/web
+import html
+
+// Doc is a component's docs page as the reference docs lay it out: the title and its lead, the
+// installation row, a section per specimen (a heading, an optional lead, the stage), and the
+// API reference. The page around the stages is drawn as the reference's is because a stage's
+// pixels depend on it: the browser rasterizes in tiles anchored to the document, so a stage
+// must sit at the reference's offset, and the reference's fade mask changes how the stages above
+// it are painted.
+type Doc { Title string, Lead string, Install string, Sections []Section, Api []Prop }
+
+// Section is a specimen's section: its heading, an optional lead, its stage, and whether the
+// playground's controls follow the stage (below the wide layout they sit under it).
+type Section { Title string, Lead []Run, Stage html.Node, Controls bool }
+
+// Run is a stretch of a lead: text, or code.
+type Run = Plain{T string} | Mono{T string}
+
+// Prop is a row of the API reference.
+type Prop { Name string, Type string }
+
+// DocKit is the classes of the docs page's boxes.
+type DocKit {
+	TitleRow       string,
+	Title          string,
+	Nav            string,
+	NavLink        string,
+	Lead           string,
+	Install        string,
+	InstallText    string,
+	Heading        string,
+	InstallLead    string,
+	Section        string,
+	SectionHeading string,
+	Code           string,
+	Controls       string,
+	Api            string,
+	Fade           string,
+	Table          string,
+	Th             string,
+	Td             string,
+}
+
+// docLooks is the docs page's looks, in DocKit's field order.
+func docLooks() []look.Look {
+	let heading = []look.Decl{look.FontPx{V: 16}, look.LinePx{V: 16}, look.Axes{Opsz: 18, Wght: 550}}
+	let lead = []look.Decl{look.FontPx{V: 13}, look.LinePx{V: 20}, look.Ink{V: token.Muted}}
+	[]look.Look{
+		look.Plain(join([][]look.Decl{[]look.Decl{look.Display{V: look.Flex}, look.Items{V: look.Center}, look.Content{V: look.Between}}, look.Gap(16)})),
+		look.Look{..look.Plain([]look.Decl{look.FontPx{V: 22}, look.LinePx{V: 22}, look.Axes{Opsz: 25, Wght: 700}}), Wide: []look.Above{look.Above{Min: 640, Style: look.Of([]look.Decl{look.FontPx{V: 28}, look.LinePx{V: 28}})}}},
+		look.Plain(join([][]look.Decl{[]look.Decl{look.Display{V: look.Flex}, look.Items{V: look.Center}, look.Shrink{V: 0}, look.MarTop{V: look.Px{N: -8}}, look.MarBottom{V: look.Px{N: -8}}}, look.Gap(4)})),
+		look.Plain(join([][]look.Decl{[]look.Decl{look.Display{V: look.InlineFlex}, look.Items{V: look.Center}, look.Content{V: look.Center}, look.Position{V: look.Relative}, look.Isolate, look.Width{V: look.Px{N: 36}}, look.Height{V: look.Px{N: 36}}, look.Ink{V: token.Muted}, look.NoOutline}, look.Round(look.Outer{R: token.Medium})})),
+		look.Plain(join([][]look.Decl{[]look.Decl{look.MarTop{V: look.Px{N: 8}}}, lead})),
+		look.Plain(join([][]look.Decl{[]look.Decl{look.Display{V: look.Flex}, look.Items{V: look.Center}, look.Content{V: look.Between}}, look.Gap(16)})),
+		look.Plain(join([][]look.Decl{[]look.Decl{look.Display{V: look.Flex}, look.Direction{V: look.Down}, look.MinWidth{V: look.Px{N: 0}}}, look.Gap(8)})),
+		look.Plain(heading),
+		look.Plain(lead),
+		look.Plain(join([][]look.Decl{[]look.Decl{look.Display{V: look.Flex}, look.Direction{V: look.Down}, look.PadTop{Px: 24}}, look.Gap(16)})),
+		look.Plain(join([][]look.Decl{[]look.Decl{look.MarBottom{V: look.Px{N: -8}}}, heading})),
+		look.Plain(join([][]look.Decl{[]look.Decl{look.Mono, look.FontPx{V: 12}, look.LinePx{V: 20}, look.Ink{V: token.Ink}, look.Fill{V: token.CodeFill}, look.PadTop{Px: 1}, look.PadBottom{Px: 1}, look.PadLeft{Px: 4}, look.PadRight{Px: 4}}, look.Round(look.Outer{R: token.Small})})),
+		look.Look{..look.Plain([]look.Decl{look.Display{V: look.Block}, look.MarTop{V: look.Px{N: 12}}, look.Height{V: look.Px{N: 434}}}), Wide: []look.Above{look.Above{Min: 1280, Style: look.Of([]look.Decl{look.Display{V: look.Gone}})}}},
+		look.Plain(join([][]look.Decl{[]look.Decl{look.Display{V: look.Flex}, look.Direction{V: look.Down}, look.PadTop{Px: 24}}, look.Gap(16)})),
+		look.Plain([]look.Decl{look.OverflowX{V: look.Scroll}, look.FadeX{Px: 48}}),
+		look.Plain([]look.Decl{look.FontPx{V: 13}, look.LinePx{V: 20}, look.Width{V: look.Pct{N: 100}}}),
+		look.Plain([]look.Decl{look.PadTop{Px: 8}, look.PadBottom{Px: 8}, look.PadRight{Px: 16}, look.Axes{Opsz: 18, Wght: 550}, look.Nowrap}),
+		look.Plain([]look.Decl{look.PadTop{Px: 8}, look.PadBottom{Px: 8}, look.PadRight{Px: 16}, look.Mono, look.FontPx{V: 12}, look.LinePx{V: 16}, look.Nowrap}),
+	}
+}
+
+func docKitOf() DocKit {
+	let ls = docLooks()
+	let c = func(i int) string { web.Named(names, ls[i]) }
+	DocKit{
+		TitleRow: c(0), Title: c(1), Nav: c(2), NavLink: c(3), Lead: c(4),
+		Install:  c(5), InstallText: c(6), Heading: c(7), InstallLead: c(8),
+		Section:  c(9), SectionHeading: c(10), Code: c(11), Controls: c(12),
+		Api:      c(13), Fade: c(14), Table: c(15), Th: c(16), Td: c(17),
+	}
+}
+
+// docKit is the docs page's classes, resolved once.
+let docKit = docKitOf()
+
+// copyControl is the installation row's button: a primary control with a leading glyph.
+let copyControl = look.ControlLook(look.Solid, token.Comfortable, token.Medium, true, false)
+
+// CopyParts is the copy button's classes and the glyph class, resolved once.
+type CopyParts { Root string, Plate string, Content string, Label string, Glyph string }
+
+let copyParts = CopyParts{Root: web.Named(names, copyControl.Root), Plate: web.Named(names, copyControl.Plate), Content: web.Named(names, copyControl.Content), Label: web.Named(names, copyControl.Label), Glyph: web.Named(names, glyphLook())}
+
+// docColumn is the children of the page's column for doc d: title, installation, sections, API.
+func docColumn(d Doc) []html.Child {
+	let mut out = []html.Child{
+		html.Div([]html.Child{
+			html.Div([]html.Child{
+				html.Class(docKit.TitleRow),
+				html.H1([]html.Child{html.Class(docKit.Title), html.Text(d.Title)}),
+				html.Div([]html.Child{html.Class(docKit.Nav), navLink("Previous", ChevronLeft), navLink("Next", ChevronRight)}),
+			}),
+			html.P([]html.Child{html.Class(docKit.Lead), html.Text(d.Lead)}),
+		}),
+		html.Div([]html.Child{
+			html.Class(docKit.Install),
+			html.Div([]html.Child{
+				html.Class(docKit.InstallText),
+				html.H2([]html.Child{html.Class(docKit.Heading), html.Text("Installation")}),
+				html.P([]html.Child{html.Class(docKit.InstallLead), html.Text(d.Install)}),
+			}),
+			copyButton(),
+		}),
+	}
+	for s in d.Sections {
+		out = out.Append(sectionOf(s))
+	}
+	out.Append(apiOf(d.Api))
+}
+
+// navLink is a link to the previous or next page.
+func navLink(label string, g Glyph) html.Node {
+	html.A([]html.Child{html.Class(docKit.NavLink), html.Aria("label", label), html.Raw(html.Trust(markup(g, copyParts.Glyph)))})
+}
+
+// copyButton is the installation row's button.
+func copyButton() html.Node {
+	let c = copyParts
+	html.Button([]html.Child{
+		html.Class(c.Root),
+		html.Attribute("type", "button"),
+		html.Span([]html.Child{html.Class(c.Plate), html.Aria("hidden", "true")}),
+		html.Span([]html.Child{html.Class(c.Content), html.Raw(html.Trust(markup(Copy, c.Glyph))), html.Span([]html.Child{html.Class(c.Label), html.Text("Copy prompt")})}),
+	})
+}
+
+// sectionOf is a specimen's section.
+func sectionOf(s Section) html.Node {
+	let mut kids = []html.Child{html.Class(docKit.Section), html.H2([]html.Child{html.Class(docKit.SectionHeading), html.Text(s.Title)})}
+	if len(s.Lead) > 0 {
+		let mut runs = []html.Child{html.Class(docKit.InstallLead)}
+		for r in s.Lead {
+			match r {
+			case Plain as p:
+				runs = runs.Append(html.Text(p.T))
+			case Mono as m:
+				runs = runs.Append(html.Code([]html.Child{html.Class(docKit.Code), html.Text(m.T)}))
+			}
+		}
+		kids = kids.Append(html.P(runs))
+	}
+	if s.Controls {
+		kids = kids.Append(html.Div([]html.Child{s.Stage, html.Div([]html.Child{html.Class(docKit.Controls)})}))
+	} else {
+		kids = kids.Append(s.Stage)
+	}
+	html.Div(kids)
+}
+
+// apiOf is the API reference: a table of the props in a scroller whose edges fade.
+func apiOf(props []Prop) html.Node {
+	let mut rows = []html.Child{}
+	for p in props {
+		rows = rows.Append(html.Tr([]html.Child{html.Td([]html.Child{html.Class(docKit.Td), html.Text(p.Name)}), html.Td([]html.Child{html.Class(docKit.Td), html.Text(p.Type)}), html.Td([]html.Child{html.Class(docKit.Td)})}))
+	}
+	let head = html.Tr([]html.Child{
+		html.Th([]html.Child{html.Class(docKit.Th), html.Attribute("scope", "col"), html.Text("Prop")}),
+		html.Th([]html.Child{html.Class(docKit.Th), html.Attribute("scope", "col"), html.Text("Type")}),
+		html.Th([]html.Child{html.Class(docKit.Th), html.Attribute("scope", "col"), html.Text("Description")}),
+	})
+	html.Section([]html.Child{
+		html.Class(docKit.Api),
+		html.H2([]html.Child{html.Class(docKit.SectionHeading), html.Text("API Reference")}),
+		html.Div([]html.Child{
+			html.Class(docKit.Fade),
+			html.Role("region"),
+			html.Aria("label", "API reference"),
+			html.Table([]html.Child{html.Class(docKit.Table), html.Thead([]html.Child{head}), html.Tbody(rows)}),
+		}),
+	})
+}

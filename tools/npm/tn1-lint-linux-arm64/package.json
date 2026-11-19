@@ -1,0 +1,14 @@
+{
+  "name": "@cvr/tn1-lint-linux-arm64",
+  "version": "0.1.0",
+  "description": "The tn1-lint binary for Linux arm64 (a static Go binary; see @cvr/tn1-lint).",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cevr/ergo.git",
+    "directory": "tools/npm/tn1-lint-linux-arm64"
+  },
+  "os": ["linux"],
+  "cpu": ["arm64"],
+  "files": ["bin/tn1-lint"],
+  "preferUnplugged": true
+}

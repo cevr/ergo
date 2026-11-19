@@ -346,7 +346,7 @@ func (in *interp) callValue(fr *frame, at syntax.Node, f Value, args []Value) (V
 	case *closure:
 		return in.callClosure(fr, call, f, args)
 	case *funcRef:
-		if call == nil && (f.fn.Decl == nil || f.fn.Decl.Body == nil || f.fn.Decl.Extern != nil || f.fn.Pkg.Host()) && nativeOf(f.fn) == nil {
+		if call == nil && (f.fn.Decl == nil || f.fn.Decl.Body == nil || f.fn.Decl.Extern != nil || f.fn.Pkg.Host()) && nativeOf(f.fn) == nil && goNativeOf(f.fn) == nil {
 			return nil, fr.unsupported(at, "a Go function (%s), even a pure one", f.fn.Name)
 		}
 		return in.callResolved(fr, call, f.fn, f.targs, args)

@@ -192,10 +192,11 @@ func (p *Package) Files() []*syntax.File {
 	return out
 }
 
-// collKey names a prelude function on a slice (isMap false) or a Map.
+// collKey names an operation of a built-in type by its name and the kind
+// of receiver it is on (collop.go).
 type collKey struct {
-	name  string
-	isMap bool
+	name string
+	on   collOn
 }
 
 // Info records the checker's results for the lowering (#197, #50).
@@ -838,6 +839,12 @@ const (
 	// Machine[S, E, O, F, R, W] (README Gap 46): Table["Step"] is the
 	// machine's step function.
 	ConvMachine
+	// ConvNarrow puts a function value into a function type whose
+	// parameters it takes, except that where the type's parameter is a row
+	// value of one error type the value's parameter is that type
+	// (narrowsRowParams): the type's function narrows each such row value to
+	// its one type and calls the value.
+	ConvNarrow
 )
 
 // Conversion is an implicit conversion at an assignment site: From's value
@@ -1094,6 +1101,15 @@ type Law struct {
 	// p`; X2): a pure package function from the machine's state to bool.
 	// nil when the law has none or the predicate was refused.
 	Pred *Func
+	// FuncsRewrite is the checked form of a rewrite over function
+	// parameters (funcrewrite.go, FuncRewrite.OverFuncs), nil for any
+	// other law; FuncRewrite is then nil.
+	FuncsRewrite *FuncRewrite
+	// TParams are a top-level rewrite law's own type parameters (`law
+	// L[T, U](…) { lhs } == { rhs }`, owner q234): a site's types
+	// instantiate them. nil for any other law (a member law is generic in
+	// its owner's).
+	TParams []*TypeParam
 	// Params are its parameters, in source order; a field with no name
 	// holds one "_".
 	Params []*Var
@@ -1122,6 +1138,10 @@ type Law struct {
 	// exported declarations of a file of laws that only laws and tests use
 	// read as helpers too (Package.LawHelpers).
 	FixSubjects []LawSubject
+	// FuncRewrite is the checked form of a top-level rewrite law over
+	// functions (Decl.Equation; funcrewrite.go), nil for any other law or
+	// one outside the rewrite's scope.
+	FuncRewrite *FuncRewrite
 
 	file *fileInfo // the declaring file, selected while the law is checked
 }

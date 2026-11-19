@@ -1,0 +1,237 @@
+import ergo.dev/fluid/look
+import ergo.dev/fluid/part
+import ergo.dev/fluid/token
+import ergo.dev/fluid/web
+import html
+
+// Parts is a control's classes: its box, plate, content row, label and glyph.
+type Parts { Root string, Plate string, Content string, Label string, Glyph string, Quiet string, Busy string, BusyGlyph string }
+
+// glyphLook is a glyph's box in a control: 16 pixels, never squeezed.
+func glyphLook() look.Look {
+	look.Plain([]look.Decl{look.Width{V: look.Px{N: 16}}, look.Height{V: look.Px{N: 16}}, look.Shrink{V: 0}})
+}
+
+// busyLooks is a busy control's hidden content, the glyph's place over it, and the glyph.
+func busyLooks() []look.Look {
+	[]look.Look{
+		look.Plain(join([][]look.Decl{[]look.Decl{look.Display{V: look.Flex}, look.Items{V: look.Center}, look.Content{V: look.Center}, look.Position{V: look.Relative}, look.Opacity{Pct: 0}}, look.Gap(6)})),
+		look.Plain(join([][]look.Decl{[]look.Decl{look.Display{V: look.Flex}, look.Items{V: look.Center}, look.Content{V: look.Center}}, look.Inset(0)})),
+		look.Plain([]look.Decl{look.Width{V: look.Px{N: 36}}, look.Height{V: look.Px{N: 36}}, look.Shrink{V: 0}}),
+	}
+}
+
+// controlAt is the control of tone t, with a leading and a trailing glyph or not, at the
+// gallery's density and radius.
+func controlAt(t look.Tone, lead bool, trail bool) look.Control {
+	look.ControlLook(t, token.Comfortable, token.Medium, lead, trail)
+}
+
+// partsTable is every tone's parts, by tone then lead then trail.
+func partsTable() []Parts {
+	let busy = busyLooks()
+	let mut out = []Parts{}
+	for t in look.Tones() {
+		for lead in []bool{false, true} {
+			for trail in []bool{false, true} {
+				let c = controlAt(t, lead, trail)
+				out = out.Append(Parts{Root: web.Named(names, c.Root), Plate: web.Named(names, c.Plate), Content: web.Named(names, c.Content), Label: web.Named(names, c.Label), Glyph: web.Named(names, glyphLook()), Quiet: web.Named(names, busy[0]), Busy: web.Named(names, busy[1]), BusyGlyph: web.Named(names, busy[2])})
+			}
+		}
+	}
+	out
+}
+
+// parts is the table, resolved once.
+let parts = partsTable()
+
+// Skins is a control's skins for the part tree: the control, label, glyph, and the busy state's
+// hidden content, glyph place and glyph.
+type Skins { Control part.Control, Label part.Skin, Glyph part.Skin, Quiet part.Skin, Busy part.Skin, BusyGlyph part.Skin }
+
+// skinsTable is every tone's skins, in partsTable's order.
+func skinsTable() []Skins {
+	let busy = busyLooks()
+	let mut out = []Skins{}
+	for t in look.Tones() {
+		for lead in []bool{false, true} {
+			for trail in []bool{false, true} {
+				let c = controlAt(t, lead, trail)
+				out = out.Append(Skins{Control: web.ControlSkinIn(names, c), Label: web.SkinIn(names, c.Label), Glyph: web.SkinIn(names, glyphLook()), Quiet: web.SkinIn(names, busy[0]), Busy: web.SkinIn(names, busy[1]), BusyGlyph: web.SkinIn(names, busy[2])})
+			}
+		}
+	}
+	out
+}
+
+// skins is the skins table, resolved once.
+let skins = skinsTable()
+
+func toneIndex(t look.Tone) int {
+	match t {
+	case look.Solid:
+		0
+	case look.Soft:
+		1
+	case look.Outline:
+		2
+	case look.Bare:
+		3
+	case look.Alarm:
+		4
+	}
+}
+
+// buttonLooks is every look the button specimens draw.
+func buttonLooks() []look.Look {
+	let mut out = []look.Look{glyphLook()}
+	for l in busyLooks() {
+		out = out.Append(l)
+	}
+	for t in look.Tones() {
+		for lead in []bool{false, true} {
+			for trail in []bool{false, true} {
+				let c = controlAt(t, lead, trail)
+				out = out.Append(c.Root)
+				out = out.Append(c.Plate)
+				out = out.Append(c.Content)
+				out = out.Append(c.Label)
+			}
+		}
+	}
+	out
+}
+
+// Press is a button specimen: its tone, label, glyphs, and whether it is disabled or busy.
+type Press { Tone look.Tone, Label string, Lead Option[Glyph], Trail Option[Glyph], Disabled bool, Busy bool }
+
+// pressOf is a plain button.
+func pressOf(t look.Tone, label string) Press {
+	Press{Tone: t, Label: label, Lead: None, Trail: None, Disabled: false, Busy: false}
+}
+
+// pressNode is a button as a part: the control, its content row (glyphs and label), or while
+// busy the row hidden under the busy glyph. A disabled or busy button sends nothing.
+func pressNode(p Press) part.Node[int] {
+	let s = skins[toneIndex(p.Tone)*4+(if p.Lead != None { 2 } else { 0 })+(if p.Trail != None { 1 } else { 0 })]
+	let mut row = []part.Node[int]{}
+	match p.Lead {
+	case Some as g:
+		row = row.Append(glyphOf(g.Value, s.Glyph))
+	case None:
+	}
+	row = row.Append(part.Text{Value: p.Label, Skin: s.Label})
+	match p.Trail {
+	case Some as g:
+		row = row.Append(glyphOf(g.Value, s.Glyph))
+	case None:
+	}
+	let content = if p.Busy {
+		[]part.Node[int]{
+			part.Box{Sem: part.Plain(), Skin: s.Quiet, Inline: true, Keys: []part.Binding[int]{}, Kids: row},
+			part.Box{Sem: part.Hidden(), Skin: s.Busy, Inline: true, Keys: []part.Binding[int]{}, Kids: []part.Node[int]{glyphOf(Eight, s.BusyGlyph)}},
+		}
+	} else {
+		[]part.Node[int]{part.Box{Sem: part.Plain(), Skin: s.Control.Content, Inline: true, Keys: []part.Binding[int]{}, Kids: row}}
+	}
+	part.Press{Sem: part.Sem{..part.Of(part.Button), States: if p.Busy { []part.State{part.Busy} } else { []part.State{} }}, Skin: s.Control, On: if p.Disabled || p.Busy { None } else { Some[int]{Value: 0} }, Kids: content}
+}
+
+// buttonOf is a button's HTML: its part tree, projected (the specimens send nothing the page acts
+// on).
+func buttonOf(p Press) html.Node { web.Node(pressNode(p), func(_ int) web.Act { web.Inert }) }
+
+// buttonWriter is a button written straight to HTML, as FL1 drew it: the receipt's writer form,
+// against the part tree's.
+func buttonWriter(p Press) html.Node {
+	let lead = p.Lead != None
+	let trail = p.Trail != None
+	let c = parts[toneIndex(p.Tone)*4+(if lead { 2 } else { 0 })+(if trail { 1 } else { 0 })]
+	let mut row = []html.Child{}
+	match p.Lead {
+	case Some as g:
+		row = row.Append(html.Raw(html.Trust(markup(g.Value, c.Glyph))))
+	case None:
+	}
+	row = row.Append(html.Span([]html.Child{html.Class(c.Label), html.Text(p.Label)}))
+	match p.Trail {
+	case Some as g:
+		row = row.Append(html.Raw(html.Trust(markup(g.Value, c.Glyph))))
+	case None:
+	}
+	let mut content = []html.Child{html.Class(c.Content)}
+	if p.Busy {
+		content = content.Append(html.Span(classed(c.Quiet, row)))
+		content = content.Append(html.Span(classed(c.Busy, []html.Child{html.Aria("hidden", "true"), html.Raw(html.Trust(markup(Eight, c.BusyGlyph)))})))
+	} else {
+		content = content.Append(html.Span(classed(c.Content, row)))
+	}
+	let mut kids = []html.Child{html.Class(c.Root), html.Attribute("type", "button"), html.Aria("busy", if p.Busy { "true" } else { "false" })}
+	if p.Disabled || p.Busy {
+		kids = kids.Append(html.Flag("disabled"))
+	}
+	kids = kids.Append(html.Span([]html.Child{html.Class(c.Plate), html.Aria("hidden", "true")}))
+	kids = kids.Append(html.Span(content))
+	html.Button(kids)
+}
+
+// Layout boxes of the specimens.
+type Rows { Column string, Row string, Stack string, Wrap string, Block string, Column12 string }
+
+func rowLooks() []look.Look {
+	[]look.Look{
+		look.Plain(join([][]look.Decl{[]look.Decl{look.Display{V: look.Flex}, look.Direction{V: look.Down}, look.MaxWidth{V: look.Pct{N: 100}}}, look.Gap(32)})),
+		look.Plain(join([][]look.Decl{[]look.Decl{look.Display{V: look.Flex}, look.Items{V: look.Center}}, look.Gap(8)})),
+		look.Plain(join([][]look.Decl{[]look.Decl{look.Display{V: look.Flex}, look.Direction{V: look.Down}}, look.Gap(8)})),
+		look.Plain(join([][]look.Decl{[]look.Decl{look.Display{V: look.Flex}, look.Wrap, look.Items{V: look.Center}}, look.Gap(8)})),
+		look.Plain([]look.Decl{look.Display{V: look.Block}}),
+		look.Plain(join([][]look.Decl{[]look.Decl{look.Display{V: look.Flex}, look.Direction{V: look.Down}}, look.Gap(12)})),
+	}
+}
+
+func rowsOf() Rows {
+	let ls = rowLooks()
+	Rows{Column: web.Named(names, ls[0]), Row: web.Named(names, ls[1]), Stack: web.Named(names, ls[2]), Wrap: web.Named(names, ls[3]), Block: web.Named(names, ls[4]), Column12: web.Named(names, ls[5])}
+}
+
+let rows = rowsOf()
+
+// buttonPage is the button's docs page: the playground, the variants, glyphs, and states, each
+// button drawn by buttonOf.
+func buttonPage(buttonOf func(p Press) html.Node) Doc {
+	let variants = []Press{pressOf(look.Solid, "Primary"), pressOf(look.Soft, "Secondary"), pressOf(look.Outline, "Tertiary"), pressOf(look.Bare, "Ghost"), pressOf(look.Alarm, "Delete")}
+	let mut row = []html.Child{html.Class(rows.Row)}
+	let mut stack = []html.Child{html.Class(rows.Stack)}
+	for v in variants {
+		row = row.Append(buttonOf(v))
+		stack = stack.Append(buttonOf(v))
+	}
+	let stages = []html.Node{
+		Stage("s0", true, html.Div([]html.Child{html.Class(rows.Block), buttonOf(pressOf(look.Solid, "Get started"))})),
+		Stage("s1", false, html.Div([]html.Child{html.Class(rows.Column), html.Div(row), html.Div(stack)})),
+		Stage("s2", false, html.Div([]html.Child{
+			html.Class(rows.Wrap),
+			buttonOf(Press{..pressOf(look.Solid, "Create"), Lead: Some[Glyph]{Value: Plus}}),
+			buttonOf(Press{..pressOf(look.Soft, "Next"), Trail: Some[Glyph]{Value: ArrowRight}}),
+			buttonOf(Press{..pressOf(look.Outline, "Search"), Lead: Some[Glyph]{Value: Search}, Trail: Some[Glyph]{Value: ArrowRight}}),
+		})),
+		Stage("s3", false, html.Div([]html.Child{
+			html.Class(rows.Wrap),
+			buttonOf(pressOf(look.Solid, "Click me")),
+			buttonOf(Press{..pressOf(look.Soft, "Saving"), Busy: true}),
+			buttonOf(Press{..pressOf(look.Solid, "Disabled"), Disabled: true}),
+		})),
+	}
+	Doc{
+		Title:    "Button",
+		Lead:     "Versatile button with variants, sizes, loading state, and icon support.",
+		Install:  "Ergo source. Copy the prompt to install.",
+		Sections: []Section{
+			Section{Title: "Playground", Lead: []Run{}, Stage: stages[0], Controls: true},
+			Section{Title: "Variants", Lead: []Run{Plain{T: "5 variants, inline or full width: add "}, Mono{T: "className=\"w-full\""}, Plain{T: " to stretch one to its container."}}, Stage: stages[1], Controls: false},
+			Section{Title: "With Icons", Lead: []Run{}, Stage: stages[2], Controls: false},
+			Section{Title: "Loading & Disabled", Lead: []Run{}, Stage: stages[3], Controls: false},
+		},
+		Api: []Prop{Prop{Name: "children", Type: "readonly (Html | string)[]"}, Prop{Name: "onClick?", Type: "Message"}, Prop{Name: "variant?", Type: "Variant"}, Prop{Name: "size?", Type: "Size"}, Prop{Name: "radius?", Type: "'rounded' | 'pill' | 'sharp'"}, Prop{Name: "disabled?", Type: "boolean"}, Prop{Name: "loading?", Type: "boolean"}, Prop{Name: "active?", Type: "boolean"}, Prop{Name: "type?", Type: "'button' | 'submit' | 'reset'"}, Prop{Name: "label?", Type: "string"}, Prop{Name: "leadingIcon?", Type: "Html"}, Prop{Name: "trailingIcon?", Type: "Html"}, Prop{Name: "className?", Type: "string"}, Prop{Name: "attributes?", Type: "readonly (Attribute<Message> | ChildAttribute)[]"}},
+	}
+}

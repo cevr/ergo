@@ -2,6 +2,7 @@
 // ergo:bind go/parser go1.27 darwin/amd64 darwin/arm64 linux/amd64 linux/arm64
 
 import go go/ast
+import go go/token
 
 // ergo:go const AllErrors Mode
 extern go go/parser.AllErrors let AllErrors Mode
@@ -28,10 +29,10 @@ extern go go/parser.ParseComments let ParseComments Mode
 extern go go/parser.ParseExpr func ParseExpr(x string) ast.Expr fails go.Error needs go.Foreign
 
 // ergo:go func ParseExprFrom(fset *token.FileSet, filename string, src any, mode Mode) (expr ast.Expr, err error)
-// ergo:refused ParseExprFrom: parameter 3: Ergo has no any; an interface{} parameter or result hides the host type
+extern go go/parser.ParseExprFrom func ParseExprFrom(fset own *token.FileSet, filename string, src go.Any, mode Mode) ast.Expr fails go.Error needs go.Foreign
 
 // ergo:go func ParseFile(fset *token.FileSet, filename string, src any, mode Mode) (f *ast.File, err error)
-// ergo:refused ParseFile: parameter 3: Ergo has no any; an interface{} parameter or result hides the host type
+extern go go/parser.ParseFile func ParseFile(fset own *token.FileSet, filename string, src go.Any, mode Mode) Option[go.Ref[ast.File]] fails go.Error needs go.Foreign
 
 // ergo:go const SkipObjectResolution Mode
 extern go go/parser.SkipObjectResolution let SkipObjectResolution Mode

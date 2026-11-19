@@ -741,12 +741,12 @@ law NoTickWhenRowsSettle(seed int, wait int) {
 			if WantsFrames(&h) {
 				return false
 			}
-			let before = Frames(&h)
+			let before = h.Frames()
 			Advance(&h, duration(int64((wait%50+50)%50+1)*int64(10ms))) catch {
 			case _:
 				return false
 			}
-			if Frames(&h) != before {
+			if h.Frames() != before {
 				return false
 			}
 		}

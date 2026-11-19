@@ -410,6 +410,26 @@ func peekM(m Map[int, int], k int) int {
 	dm(c) + dm(m)
 }
 
+// upJ reads m in a callback apply runs, which ends before the bind: it
+// owns m (values.go, joinedBefore).
+func upJ(m Map[int, int], k int) Map[int, int] {
+	apply(func(j int) {
+		let _ = len(m) + j
+	})
+	let mut c = m
+	c[k] = k + 400
+	c
+}
+
+// peekJ binds a literal that reads m and calls it after its write: the
+// literal may run after the bind, so m is not owned.
+func peekJ(m Map[int, int], k int) int {
+	let g = func() int { dm(m) }
+	let mut c = m
+	c[k] = k + 500
+	dm(c) + g()
+}
+
 // cell is a Ref that holds m (V6: NewRef stores a value shared outside).
 func cell(m Map[int, int]) sync.Ref[Map[int, int]] { sync.NewRef[Map[int, int]](m) }
 
@@ -924,6 +944,17 @@ func (g *valueGen) stmt() {
 			peek[key] = key + 300
 			g.line(fmt.Sprintf("Console.Println(\"\\(peekM(%s, %d))\")", b.name, key))
 			fmt.Fprintf(&g.want, "%d\n", dmModel(peek)+dmModel(b.val.m))
+			// A read in a callback that ended before the bind (upJ) and
+			// one in a literal that runs after the write (peekJ).
+			joined := maps.Clone(b.val.m)
+			joined[key] = key + 400
+			g.line(fmt.Sprintf("Console.Println(\"\\(dm(upJ(%s, %d)))\")", b.name, key))
+			fmt.Fprintf(&g.want, "%d\n", dmModel(joined))
+			late := maps.Clone(b.val.m)
+			late[key] = key + 500
+			g.line(fmt.Sprintf("Console.Println(\"\\(peekJ(%s, %d))\")", b.name, key))
+			fmt.Fprintf(&g.want, "%d\n", dmModel(late)+dmModel(b.val.m))
+			g.print(b.name, b.kind, b.val.digest(b.kind))
 			g.reached["own live"] = true
 			// maps.Update on a Map that stays live: a copy is updated.
 			key = g.keyOf(b.val.m)
@@ -1512,6 +1543,37 @@ func (g *valueGen) keepSlice(b *vbind, v int) {
 	g.reached["keep flush"] = true
 }
 
+// takes writes a Take (PRIM-3) from each Map binding, after the drawn
+// statements, so it draws nothing and the seeds keep their paths: from a
+// let mut, the rest rebound to it, which takes the key in place; from a
+// let, the rest with the source live, which keeps the key. Each prints the
+// rest and the source as the model has them.
+func (g *valueGen) takes() {
+	for _, b := range g.binds {
+		if b.kind != kMap {
+			continue
+		}
+		key := 0 // no draw: the smallest key, or one m does not have
+		if len(b.val.m) > 0 {
+			key = slices.Min(slices.Collect(maps.Keys(b.val.m)))
+		}
+		rest := g.fresh()
+		g.line(fmt.Sprintf("let _, %s = %s.Take(%d)", rest, b.name, key))
+		out := maps.Clone(b.val.m)
+		delete(out, key)
+		if b.mut {
+			g.line(fmt.Sprintf("%s = %s", b.name, rest))
+			b.val.m = out
+			b.written = true
+			g.reached["take in place"] = true
+		} else {
+			g.reached["take live"] = true
+		}
+		g.line(fmt.Sprintf("Console.Println(\"\\(dm(%s)) \\(dm(%s))\")", rest, b.name))
+		fmt.Fprintf(&g.want, "%d %d\n", dmModel(out), dmModel(b.val.m))
+	}
+}
+
 // valueProgram writes the program of seed, shared or not, and the lines
 // it must print.
 func valueProgram(seed uint64, shared bool, reached map[string]bool) (src, want string) {
@@ -1530,6 +1592,7 @@ func valueProgram(seed uint64, shared bool, reached map[string]bool) (src, want 
 	for _, f := range g.pending {
 		f()
 	}
+	g.takes()
 	if shared {
 		g.line("let mut two = Two{A: []int{}, B: []int{1, 2, 3}}")
 		g.line("Console.Println(\"\\(crossS(&two))\")")
@@ -1694,7 +1757,7 @@ var valuePaths = []string{
 	"bind", "reassign", "source literal", "source binding", "source field", "source element", "source result", "source fresh result",
 	"source append live", "source delete live", "source put live", "source append element", "source update",
 	"argument", "pure", "closure", "task", "loop kept", "literal write",
-	"write map", "delete in place", "put in place", "write loop", "write slice", "append in place",
+	"write map", "delete in place", "take live", "take in place", "put in place", "write loop", "write slice", "append in place",
 	"write field map", "write field slice", "append field", "write element",
 	"own rebind", "own loop", "own capture", "own slice", "own field", "own live",
 	"update rebind", "update rebind option", "update field", "update live",

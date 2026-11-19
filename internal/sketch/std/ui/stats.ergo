@@ -9,7 +9,9 @@
 //   - step: Signals, the signals the loop sent the actor since the pass
 //     before (a session's; 0 for a bare Render);
 //   - view: Written, the nodes the view wrote, with those a stopped group
-//     dropped; Rows, the row functions Rows ran; Skipped, the Sames kept
+//     dropped: the nodes the pass wrote, not those a full write would have
+//     written, so a component group written again counts its own top
+//     nodes and none of the nodes it keeps under them (group.ergo); Rows, the row functions Rows ran; Skipped, the Sames kept
 //     without running, those inside a component group the pass wrote
 //     again among them (group.ergo); Stopped, the groups (Boundary) that stopped;
 //   - compose: Committed, the nodes the pass committed;
@@ -58,6 +60,7 @@ func PassStats[E](f *Frame[E]) Stats {
 		case Set[E] as x:
 			s.Set = s.Set + 1
 			s.Painted = s.Painted + painted(x.Node)
+		case Define:
 		}
 	}
 	for j in f.jobs {
@@ -203,6 +206,7 @@ func PassCounts[E](f *Frame[E]) StepCounts {
 			c.Removed = c.Removed + 1
 		case Set[E]:
 			c.Set = c.Set + 1
+		case Define:
 		}
 	}
 	for i in 0..f.nspecs {
@@ -267,6 +271,16 @@ func CountsLine(c StepCounts) string {
 	"\(head); ran \(c.Ran) nodes, kept \(c.Kept); groups ran \(c.GroupsRan), kept \(c.GroupsKept); visits \(c.Visits)"
 }
 
+// CountsLineText: the trace line's text (NS3) is the plan's example, and
+// a step of two kinds and one of none.
+law CountsLineText() {
+	let c = StepCounts{Inserted: 0, Moved: 0, Removed: 0, Set: 1, Ran: 3, Kept: 801, GroupsRan: 0, GroupsKept: 200, Visits: 3}
+	let d = StepCounts{Inserted: 2, Moved: 0, Removed: 1, Set: 0, Ran: 2, Kept: 0, GroupsRan: 1, GroupsKept: 0, Visits: 4}
+		CountsLine(c) == "1 set; ran 3 nodes, kept 801; groups ran 0, kept 200; visits 3" &&
+		CountsLine(d) == "2 insert, 1 remove; ran 2 nodes, kept 0; groups ran 1, kept 0; visits 4" &&
+		CountsLine(NoCounts()) == "no ops; ran 0 nodes, kept 0; groups ran 0, kept 0; visits 0"
+}
+
 // CountsSumToPatch (NS3): over generated view programs (Sames included,
 // with a Same in a Box that a pass keeps whenever its key stays) and
 // generated states, each pass's counts are its patch's: the ops by kind
@@ -303,6 +317,7 @@ law CountsSumToPatch(seed int, steps int) {
 				rem = rem + 1
 			case Set[int]:
 				set = set + 1
+			case Define:
 			}
 		}
 		if c.Inserted != ins || c.Moved != mov || c.Removed != rem || c.Set != set || ins+mov+rem+set != len(ops) {
@@ -314,16 +329,6 @@ law CountsSumToPatch(seed int, steps int) {
 		kept = kept + c.Kept
 	}
 	kept > 0
-}
-
-// The trace line's text (NS3): the plan's example, and a step of two
-// kinds and one of none.
-test CountsLineText {
-	let c = StepCounts{Inserted: 0, Moved: 0, Removed: 0, Set: 1, Ran: 3, Kept: 801, GroupsRan: 0, GroupsKept: 200, Visits: 3}
-	assert CountsLine(c) == "1 set; ran 3 nodes, kept 801; groups ran 0, kept 200; visits 3"
-	let d = StepCounts{Inserted: 2, Moved: 0, Removed: 1, Set: 0, Ran: 2, Kept: 0, GroupsRan: 1, GroupsKept: 0, Visits: 4}
-	assert CountsLine(d) == "2 insert, 1 remove; ran 2 nodes, kept 0; groups ran 1, kept 0; visits 4"
-	assert CountsLine(NoCounts()) == "no ops; ran 0 nodes, kept 0; groups ran 0, kept 0; visits 0"
 }
 
 // slowBound is the bound b gives c, by an exhaustive match. (a law's helper)

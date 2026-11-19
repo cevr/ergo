@@ -1,0 +1,326 @@
+// The tools: the contract of the working directory, the requests a model
+// can make of it, and the gate each request passes.
+
+import exec
+import json
+import strings
+
+// The failures of a tool.
+
+// NotFound: no file or directory at Path.
+type NotFound { Path string }
+
+// Denied: the host does not let the tool read Path.
+type Denied { Path string }
+
+// Escapes: Path leads out of the working directory.
+type Escapes { Path string }
+
+// Unreadable: the tool failed for another reason.
+type Unreadable { Reason string }
+
+// UnknownTool: the model called a tool that does not exist.
+type UnknownTool { Name string }
+
+// BadArguments: the model's arguments are not what the tool takes.
+type BadArguments { Tool string, Reason string }
+
+// Interrupted: the person stopped the turn before the call ran or ended.
+type Interrupted {}
+
+// Declined: the person said no to the call.
+type Declined {}
+
+// ToolFailure is every way a call can fail; the model is told each one
+// (Told).
+type ToolFailure = NotFound | Denied | Escapes | Unreadable | UnknownTool | BadArguments | Interrupted | Declined
+
+// Tools is the contract of the working directory. Paths are relative to
+// it, with / between names; "" and "." are the directory itself.
+type Tools {
+	// Read is the text of the file at path.
+	Read(path string) string fails NotFound | Denied | Escapes | Unreadable,
+	// List is the names in the directory dir, in order; a directory's
+	// name ends in "/".
+	List(dir string) []string fails NotFound | Denied | Escapes | Unreadable,
+
+	// ListedIsThere: every name List gives can be read, or listed when it
+	// names a directory.
+	law ListedIsThere(dir string) {
+		let names = List(dir) catch {
+		case _:
+			return true
+		}
+		for name in names {
+			let path = Within(dir, name)
+			if strings.HasSuffix(name, "/") {
+				let _ = List(path) catch {
+				case _:
+					return false
+				}
+			} else {
+				let _ = Read(path) catch {
+				case _:
+					return false
+				}
+			}
+		}
+		true
+	},
+
+	// LeavingEscapes: a path that starts at the root, or that goes up out
+	// of the directory, fails Escapes for Read and for List.
+	law LeavingEscapes(path string) {
+		for p in []string{"/" + path, "../" + path, "a/../../" + path} {
+			let _ = Read(p) catch {
+			case Escapes:
+				continue
+			case _:
+				return false
+			}
+			return false
+		}
+		for p in []string{"/" + path, "../" + path} {
+			let _ = List(p) catch {
+			case Escapes:
+				continue
+			case _:
+				return false
+			}
+			return false
+		}
+		true
+	},
+}
+
+// Within is the path of name in the directory dir.
+func Within(dir string, name string) string {
+	let base = strings.TrimSuffix(name, "/")
+	if dir == "" || dir == "." { base } else { strings.TrimSuffix(dir, "/") + "/" + base }
+}
+
+// Request is what a call asks of the tools, once its arguments are read.
+type Request = ReadFile{Path string} | ListDir{Dir string} | RunShell{Command string}
+
+// Outcome is what a call gave: its text, or its failure.
+type Outcome = Output{Text string} | Broke{Why ToolFailure}
+
+// Param is one argument a tool takes: its JSON key and what it means.
+type Param { Name string, About string }
+
+// Schema is how the model is told about a tool: its name, what it does,
+// and its arguments, each a string.
+type Schema { Name string, About string, Params []Param }
+
+// Schemas is the tools the model may call.
+func Schemas() []Schema {
+	[]Schema{
+		Schema{Name: "read", About: "Read a text file of the working directory.", Params: []Param{Param{Name: "path", About: "the file's path, relative to the working directory"}}},
+		Schema{Name: "list", About: "List a directory of the working directory; a directory's name ends in /.", Params: []Param{Param{Name: "dir", About: "the directory's path, relative to the working directory; . for the directory itself"}}},
+		Schema{Name: "shell", About: "Run a command with sh -c in the working directory, once the person allows it; its output is cut at 8000 characters.", Params: []Param{Param{Name: "command", About: "the command line"}}},
+	}
+}
+
+// readArgs and listArgs are the arguments' JSON text, as Schemas names
+// their keys.
+type readArgs { Path string }
+type listArgs { Dir string }
+type shellArgs { Command string }
+
+// Parse is the request a call makes: its name picks the tool, and its
+// arguments must be the JSON object the tool's schema names.
+func Parse(c Call) Request fails UnknownTool | BadArguments {
+	match c.Name {
+	case "read":
+		let a = json.Decode(json.Codec[readArgs]{MaxBytes: 1 << 16, MaxDepth: 4}, c.Arguments) catch {
+		case _:
+			return BadArguments{Tool: c.Name, Reason: "want {\"path\": TEXT}"}
+		}
+		ReadFile{Path: a.Path}
+	case "list":
+		let a = json.Decode(json.Codec[listArgs]{MaxBytes: 1 << 16, MaxDepth: 4}, c.Arguments) catch {
+		case _:
+			return BadArguments{Tool: c.Name, Reason: "want {\"dir\": TEXT}"}
+		}
+		ListDir{Dir: a.Dir}
+	case "shell":
+		let a = json.Decode(json.Codec[shellArgs]{MaxBytes: 1 << 16, MaxDepth: 4}, c.Arguments) catch {
+		case _:
+			return BadArguments{Tool: c.Name, Reason: "want {\"command\": TEXT}"}
+		}
+		RunShell{Command: a.Command}
+	case _:
+		UnknownTool{Name: c.Name}
+	}
+}
+
+// ParseReadsWhatSchemaNames: the arguments written for r under the keys
+// its tool's schema names parse back to r, so the schema the model is
+// told and the parser agree.
+law ParseReadsWhatSchemaNames(r Request) {
+	let got = Parse(written(r)) catch {
+	case _:
+		return false
+	}
+	got == r
+}
+
+// UnknownNameIsTyped: a call of a name no schema has fails UnknownTool,
+// naming it.
+law UnknownNameIsTyped(name string) {
+	for s in Schemas() {
+		if s.Name == name {
+			return true
+		}
+	}
+	let _ = Parse(Call{Id: "law", Name: name, Arguments: "{}"}) catch {
+	case UnknownTool as u:
+		return u.Name == name
+	case BadArguments:
+		return false
+	}
+	false
+}
+
+// written is the call of r's tool with r's one argument under the key
+// its schema names.
+func written(r Request) Call {
+	match r {
+	case ReadFile as f:
+		calling("read", f.Path)
+	case ListDir as d:
+		calling("list", d.Dir)
+	case RunShell as s:
+		calling("shell", s.Command)
+	}
+}
+
+// calling is the call of the tool name with value under its schema's
+// first key.
+func calling(name string, value string) Call {
+	for s in Schemas() {
+		if s.Name == name {
+			let mut args = Map[string, string]{}
+			args[s.Params[0].Name] = value
+			return Call{Id: "law", Name: name, Arguments: json.Encode(json.Codec[Map[string, string]]{MaxBytes: 0, MaxDepth: 0}, args)}
+		}
+	}
+	Call{Id: "law", Name: name, Arguments: "{}"}
+}
+
+// Use is a call as the loop takes it: its request, or why it has none.
+// The loop's work reads a reply's calls (Uses) before the step sees
+// them, since std json's reader is Go code and the step must be pure; so
+// a recorded run holds what each call asked, and its replay reads no
+// JSON.
+type Use = Usable{Call Call, Request Request} | Unusable{Call Call, Why ToolFailure}
+
+// Uses is the use of each call, in order.
+func Uses(calls []Call) []Use {
+	let mut out = []Use{}
+	for c in calls {
+		let r = Parse(c) catch {
+		case f:
+			let why ToolFailure = f
+			out = out.Append(Unusable{Call: c, Why: why})
+			continue
+		}
+		out = out.Append(Usable{Call: c, Request: r})
+	}
+	out
+}
+
+// CallsOf is the call of each use, in order.
+func CallsOf(uses []Use) []Call {
+	let mut out = []Call{}
+	for u in uses {
+		match u {
+		case Usable as ok:
+			out = out.Append(ok.Call)
+		case Unusable as bad:
+			out = out.Append(bad.Call)
+		}
+	}
+	out
+}
+
+// Verdict is what the gate says of a request: run it, ask the person
+// first, or refuse it.
+type Verdict = Allow{} | Ask{} | Deny{}
+
+// Gate is the verdict on r. The match names every request, so a new tool
+// stops the build until its verdict is written.
+func Gate(r Request) Verdict {
+	match r {
+	case ReadFile, ListDir:
+		Allow
+	case RunShell:
+		Ask
+	}
+}
+
+// Run is the outcome of r on the tools in the context, its text
+// bounded. It never fails: a failure is an outcome, which the model is
+// told.
+func Run(r Request) Outcome needs Tools | exec.Runner | Scheduler {
+	match r {
+	case ReadFile as f:
+		let text = Tools.Read(f.Path) catch {
+		case e:
+			let why ToolFailure = e
+			return Broke{Why: why}
+		}
+		Output{Text: Bounded(text)}
+	case ListDir as d:
+		let names = Tools.List(d.Dir) catch {
+		case e:
+			let why ToolFailure = e
+			return Broke{Why: why}
+		}
+		Output{Text: Bounded(strings.Join(names, "\n"))}
+	case RunShell as s:
+		Shell(s.Command)
+	}
+}
+
+// Told is what the model is told of a failure.
+func Told(f ToolFailure) string {
+	match f {
+	case NotFound as n:
+		"no such file or directory: " + n.Path
+	case Denied as d:
+		"permission denied: " + d.Path
+	case Escapes as e:
+		"outside the working directory: " + e.Path
+	case Unreadable as u:
+		"failed: " + u.Reason
+	case UnknownTool as u:
+		"no tool named " + u.Name
+	case BadArguments as b:
+		"bad arguments for " + b.Tool + ": " + b.Reason
+	case Interrupted:
+		"interrupted by the person"
+	case Declined:
+		"the person declined to run it"
+	}
+}
+
+// Text is the result text of an outcome.
+func Text(o Outcome) string {
+	match o {
+	case Output as s:
+		s.Text
+	case Broke as b:
+		Told(b.Why)
+	}
+}
+
+// Fine reports whether an outcome is not a failure.
+func Fine(o Outcome) bool {
+	match o {
+	case Output:
+		true
+	case Broke:
+		false
+	}
+}

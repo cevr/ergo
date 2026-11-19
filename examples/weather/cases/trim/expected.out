@@ -1,0 +1,13 @@
+<> [Get Weather]
+> type  60601
+< 60601> [Get Weather]
+> submit
+< 60601> [Loading..., disabled] Fetching weather...
+> wait 500
+< 60601> [Get Weather] Weather report{# 60601 Chicago, Illinois -3°F Snow 76% 22 mph}
+> type 98101
+<98101> [Get Weather] Weather report{# 60601 Chicago, Illinois -3°F Snow 76% 22 mph}
+> submit
+<98101> [Loading..., disabled] Fetching weather...
+> wait 500
+<98101> [Get Weather] Weather report{# 98101 Seattle, Washington 55°F Partly cloudy 70% 6 mph}

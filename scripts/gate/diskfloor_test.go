@@ -105,6 +105,6 @@ func TestStepBelowDiskFloorIsNotStarted(t *testing.T) {
 	}
 	t.Setenv(diskFloorVariable, "")
 	if floor, err := diskFloor(); err != nil || floor != defaultDiskFloor {
-		t.Errorf("unset: floor %d (%v), want the default %d", floor, err, defaultDiskFloor)
+		t.Errorf("unset: floor %d (%v), want the default %d", floor, err, uint64(defaultDiskFloor))
 	}
 }

@@ -26,15 +26,27 @@ import (
 //   - fresh, the proof that every value the literal returns is unshared:
 //     the stored T and Modify's R reach no Map or slice of each other or
 //     of anything else live (valueWalk.fresh). Without it the cell marks
-//     the stored value shared, and the next owned site copies it once.
+//     the stored value shared, and the next owned site copies it once;
+//   - alone, the proof that the literal starts no task and runs no code
+//     it does not know: its footprint is empty (check.Footprint: no task,
+//     no capability, no function value or host call). While the program
+//     runs one goroutine of Ergo code (rt.Alone) the cell then takes no
+//     lock, since nothing the literal runs can start a second goroutine
+//     that reaches the cell before it stores (OWN1 REF-ALONE).
 //
-// A site is owned only when T holds a Map or slice and is no type
-// parameter (holdsValue), the function is a literal written at the call,
-// and owned parameters lower this build (valueOwned): valueLowering "copy"
-// and "alias" keep the plain call, the reference TestValueRuleAgrees holds
-// the owned one to. Every other call (a function value, a generic site, a
-// method value) is the plain Update or Modify: its function never writes
-// its parameter in place, and the cell marks what it stores shared.
+// A site is owned only when T holds a Map or slice (holdsValue), the
+// function is a literal written at the call, and owned parameters lower
+// this build (valueOwned): valueLowering "copy" and "alias" keep the plain
+// call, the reference TestValueRuleAgrees holds the owned one to. Every
+// other call (a function value, a method value) is the plain Update or
+// Modify: its function never writes its parameter in place, and the cell
+// marks what it stores shared. T may mention type parameters
+// (LWR-REF-GENERIC; std cache's table[K, V]): the proof reads only T's
+// own Maps and slices, which a generic body writes as a concrete one does,
+// and the copy function is the generic one of T, instantiated at the site
+// (cloneValue), so an instance copies what its plain call would. Before,
+// a generic site was plain, and each Modify of std cache copied its whole
+// table.
 //
 // The owned form is a fact of the runtime body, not a std name (OPT6;
 // internal/residue, TestLoweringKeysOnNoStdName). A call of a std extern
@@ -42,7 +54,7 @@ import (
 // type bound to the method T.M, hands its callback the value over when
 // runtime/v1 declares B's owned form, the function BOwned (TMOwned for a
 // method): B's parameters, the receiver first, then the copy function of
-// the handed value and the fresh flag (ownedForm). B takes exactly one
+// the handed value, the fresh flag and the alone flag (ownedForm). B takes exactly one
 // function, the callback, of one parameter, whose type is the handed T.
 // Today runtime/v1 declares two: RefUpdateOwned and RefModifyOwned, each
 // with an in-place form beside it (RefUpdateInPlace, RefModifyInPlace;
@@ -61,6 +73,7 @@ type refSite struct {
 	call  *syntax.CallExpr
 	elem  check.Type // T
 	fresh bool
+	alone bool
 	form  ownedForm
 }
 
@@ -102,7 +115,7 @@ func (l *lowerer) ownedFormOf(c *check.Call, recv check.Type, site syntax.Node) 
 		return ownedForm{}, false
 	}
 	o, err := runtimeBody(owned)
-	if err != nil || len(o.Params) != len(b.Params)+shift+2 {
+	if err != nil || len(o.Params) != len(b.Params)+shift+3 {
 		return ownedForm{}, false
 	}
 	cb := -1
@@ -153,7 +166,7 @@ func (w *valueWalk) refCall(call *syntax.CallExpr) {
 // ownedSite records the site call, whose callback is fn over the handed
 // type elem, when elem holds a value and fn is a literal written at it.
 func (w *valueWalk) ownedSite(call *syntax.CallExpr, fn syntax.Expr, elem check.Type, form ownedForm) {
-	if elem == nil || !w.l.holdsValue(elem) || len(freeTypeParams(elem)) > 0 {
+	if elem == nil || !w.l.holdsValue(elem) || sharingLowering == "params" && len(freeTypeParams(elem)) > 0 {
 		return
 	}
 	lit, ok := unparen(fn).(*syntax.FuncLit)
@@ -196,6 +209,12 @@ func (w *valueWalk) decideSites() {
 			s.fresh = true
 		default:
 			s.fresh = w.frameResultsFresh(w.frameOf[s.lit], s.elem)
+		}
+		if s.lit != nil && valueMutant != "site-alone-always" {
+			fp, ok := w.info.Footprints[s.lit]
+			s.alone = ok && fp.Empty()
+		} else {
+			s.alone = s.lit != nil
 		}
 		w.vf.refSites[s.call] = s
 	}
@@ -332,14 +351,24 @@ func (l *lowerer) reaches(t check.Type, set map[string]bool, seen map[check.Type
 	return true
 }
 
+// sharingLowering "params" is the value rule before LWR-REF-GENERIC, kept
+// as a reference: a Ref site whose T mentions a type parameter is plain
+// (ownedSite), a rebinding whose statement reads the root elsewhere hands
+// nothing over (plainReadIn, values.go), and a name of a let pattern is
+// never unshared (whole, values.go). TestValueRuleAgrees holds the owned
+// rule to the copying one; this switch only undoes the three. A test
+// sets it, or a build with
+// -ldflags=-X=ergo.local/prototype/internal/sketch/lower.sharingLowering=params.
+var sharingLowering string
+
 // ownedRefCall is the Go call of the owned site s (above): its owned
 // form's function, with the call's operands list (the receiver first),
-// the copy function and the fresh flag; typeArgs are the Go type
+// the copy function, the fresh flag and the alone flag; typeArgs are the Go type
 // arguments.
 func (fc *funcCtx) ownedRefCall(x *syntax.CallExpr, c *check.Call, s *refSite, list []syntax.Expr, typeArgs string, result bool) (string, bool, bool) {
 	name, cb := s.form.name, s.form.cb
 	body, err := runtimeBody(name)
-	if err != nil || len(body.Params) != len(list)+2 || cb >= len(list) || body.Params[cb].Func == nil {
+	if err != nil || len(body.Params) != len(list)+3 || cb >= len(list) || body.Params[cb].Func == nil {
 		ice(x, "the owned body %s is not readable: %v", name, err)
 	}
 	var vals []string
@@ -359,7 +388,7 @@ func (fc *funcCtx) ownedRefCall(x *syntax.CallExpr, c *check.Call, s *refSite, l
 	goT := fc.goType(s.elem)
 	v := fc.scope.alloc("v")
 	clone := "func(" + v + " " + goT + ") " + goT + " { return " + fc.reportCopy(x, fc.cloneValue(s.elem, v, x), whyRefCell) + " }"
-	vals = append(vals, clone, strconv.FormatBool(s.fresh))
+	vals = append(vals, clone, strconv.FormatBool(s.fresh), strconv.FormatBool(s.alone))
 	return fc.runtimeCall(name, body, typeArgs, "", vals, fc.envExpr(x), x, c, x), result, false
 }
 

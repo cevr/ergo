@@ -3,3 +3,5 @@
 unit loop
 sizes 100000 600000
 args bench {n}
+control examples/stackvm/testdata/control
+floor examples/stackvm/testdata/floor

@@ -120,6 +120,22 @@
       "to": "\t\te.u(0)",
       "rule": "An encoded table decodes to the table it was written from.",
       "killers": ["internal/sketch/facts:TestTablesAgreeWithScan"]
+    },
+    {
+      "name": "q16-exit-not-decoded",
+      "anchor": {
+        "tests": [
+          "internal/sketch/facts:TestTablesAgreeWithScanOnExamples"
+        ]
+      },
+      "origin": "wf10 SM I22-Q16 (Machine exit)",
+      "file": "internal/sketch/facts/codec.go",
+      "from": "\t\t\tm.Exit = append(m.Exit, d.place())\n",
+      "to": "\t\t\t_ = d.place()\n",
+      "rule": "A machine's exit actions survive the table's encoding (gallery's studio has one).",
+      "killers": [
+        "internal/sketch/facts:TestTablesAgreeWithScanOnExamples"
+      ]
     }
   ]
 }

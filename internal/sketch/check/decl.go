@@ -144,8 +144,13 @@ func (c *checker) runOnce(files []*syntax.File) *Package {
 		// After the footprints: the argument of a pure parameter runs a
 		// pure function (Footprints 6), a durable machine's step (MU9).
 		c.checkPureArgs,
+		// After the footprints: a dropped result of a pure call (discard.go).
+		c.checkDroppedResults,
 		// After the footprints: an invariant law's predicate is pure (X2).
 		c.checkLawPreds,
+		// After the footprints: a top-level rewrite law's functions are
+		// pure (Laws 14; funcrewrite.go).
+		c.checkFuncRewrites,
 		// After every body: the first with operand past the with budget,
 		// silent checks included (withbudget.go).
 		c.reportWithBudget,
@@ -607,7 +612,9 @@ func (c *checker) importSpec(fi *fileInfo, spec *syntax.ImportSpec) {
 	if err != nil || pkg == nil {
 		// An importer may wrap its *ImportError (fmt.Errorf %w,
 		// errors.Join); findImportError searches the chain.
-		if reason := findImportError(err); reason != nil {
+		if reason := findImportError(err); reason != nil && reason.Broken {
+			c.errorf(spec.Path, CodeUnknown, "package %q does not check: %s", reason.Path, reason.Reason)
+		} else if reason != nil {
 			c.errorf(spec.Path, CodeUnknown, "unknown package %q: %s", path, reason.Reason)
 		} else {
 			c.errorf(spec.Path, CodeUnknown, "unknown package %q", path)
@@ -764,6 +771,9 @@ func importName(element string) bool {
 type ImportError struct {
 	Path   string
 	Reason string
+	// Broken marks a package that exists and does not check: Reason is its
+	// first diagnostic, and the import says so instead of "unknown".
+	Broken bool
 }
 
 func (e *ImportError) Error() string { return fmt.Sprintf("package %q: %s", e.Path, e.Reason) }
@@ -1037,6 +1047,10 @@ func (c *checker) structType(spec *syntax.StructType, ctx *typeCtx) *Struct {
 	seen := map[string]bool{}
 	for _, field := range spec.Fields.List {
 		t := c.typExpr(field.Type, ctx)
+		if !c.pkg.Host() && mentionsGoAny(t, map[Type]bool{}) {
+			// Ergo has no any (GB2): only a Go struct of a binding holds one.
+			c.errorf(field.Type, CodeType, "an Ergo record does not store a go.Any: Ergo has no any, and only go.As[T] reads one; store the value go.As gives (docs/spec/interop.md, Go any)")
+		}
 		if field.Include {
 			if n := c.includeTarget(field, t); n != nil {
 				s.includes = append(s.includes, &include{member: field, at: len(s.Fields), target: n})
@@ -2342,6 +2356,9 @@ func (c *checker) funcSig(f *Func) *Signature {
 	if c.pkg.Host() && d.Extern != nil {
 		c.hostClauses(d.Extern.Target.Value, sig, d)
 	}
+	if d.Extern != nil {
+		c.externRows(d, sig)
+	}
 	if d.Body == nil {
 		// A bodiless (extern) function's parameters are declared here; a
 		// body's are declared when it is checked.
@@ -2482,6 +2499,14 @@ func (c *checker) collectSelfFuncs() {
 			if g.opOwner != nil {
 				key = g.opOwner
 			}
+			if g.file != nil && g.file.syntax == collFile && collFile != nil {
+				// Operations of one name on two receiver kinds,
+				// xs.Slice and s.Slice (collop.go, PRIM-4).
+				c.cur = g.file
+				if k, _, ok := c.collOwner(g); ok {
+					key = k
+				}
+			}
 			if name, args, _ := selfOwnerName(g.Decl); name != "" && c.dupNames[name] && g.Name != "main" {
 				// Defensive: selfArgsOK validates receiver arguments without reporting.
 				c.cur = g.file
@@ -2528,8 +2553,11 @@ func (c *checker) collectSelfFuncs() {
 			n.opFuncs[f.Name] = f
 		}
 	}
-	if c.pkg.Path == stdlib.PreludePath {
+	if collFile != nil {
 		for _, f := range c.funcs {
+			if f.file == nil || f.file.syntax != collFile {
+				continue // the operations are the language's file's alone (collop.go)
+			}
 			// Defensive: collOwner classifies a collection receiver without reporting.
 			c.cur = f.file
 			if key, args, ok := c.collOwner(f); ok {
@@ -2537,7 +2565,10 @@ func (c *checker) collectSelfFuncs() {
 					c.pkg.collFuncs = map[collKey]*Func{}
 				}
 				f.selfArgs = args
+				f.collOp = collOps[key] // collop.go
 				c.pkg.collFuncs[key] = f
+			} else {
+				f.collOp = collMakers[f.Name] // collop.go
 			}
 		}
 	}
@@ -2559,9 +2590,24 @@ func (c *checker) collOwner(f *Func) (collKey, []syntax.Expr, bool) {
 		if t.Len != "" {
 			return collKey{}, nil, false // the prelude's are on slices
 		}
+		if id, ok := t.Elt.(*syntax.Ident); ok && id.Name == "byte" {
+			key.on = onBytes // a concrete []byte (PRIM-4)
+			return key, nil, true
+		}
 		args = []syntax.Expr{t.Elt}
 	case *syntax.MapType:
-		args, key.isMap = []syntax.Expr{t.Key, t.Value}, true
+		args, key.on = []syntax.Expr{t.Key, t.Value}, onMap
+	case *syntax.Ident:
+		// The basic string and rune (PRIM-4).
+		switch t.Name {
+		case "string":
+			key.on = onString
+		case "rune":
+			key.on = onRune
+		default:
+			return collKey{}, nil, false
+		}
+		return key, nil, true
 	default:
 		return collKey{}, nil, false
 	}

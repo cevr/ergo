@@ -1,0 +1,46 @@
+// fluid-gallery prints the answer the gallery's site gives to GET of each path it is given: the
+// status line, then the page. No server and no socket: each path is one web.Fetch.
+//
+// fluid-gallery gui PATH... is the headless leg: each page's specimens drawn on a std ui frame,
+// as the GUI host holds them, and whether the web's markup and the part tree agree.
+//
+// fluid-gallery ts prints the module for a TypeScript island on a gallery page (gallery.Island):
+// the module's looks as class names under the page's naming, and the page's one sheet.
+
+import fluidgallery/gallery
+import os
+import ui
+import github.com/cevr/ergo/modules/web
+
+// Usage: no path was given.
+type Usage { Text string }
+
+func main() fails Usage needs Console | Ambient {
+	let args = with context { os.Process: os.NewHost() } { os.Process.Args() }
+	if len(args) == 0 {
+		return Usage{Text: "usage: fluid-gallery PATH..."}
+	}
+	if args[0] == "ts" {
+		Console.Println(gallery.Island())
+		return
+	}
+	if args[0] == "gui" {
+		for i in 1..len(args) {
+			let path = args[i]
+			match gallery.Parse(gallery.Docs, ui.ParseURL(path)) {
+			case Some as r:
+				Console.Println("GUI \(path)")
+				Console.Println(gallery.Headless(r.Value))
+			case None:
+				Console.Println("GUI \(path): no page")
+			}
+		}
+		return
+	}
+	let site = gallery.Site()
+	for path in args {
+		let answer = web.Fetch(site, web.Request("GET", path))
+		Console.Println("GET \(path) -> \(answer.Status)")
+		Console.Println(answer.Body)
+	}
+}

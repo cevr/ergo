@@ -62,6 +62,9 @@ func (tc *typeCtx) goType(t check.Type) string {
 		if elem, ok := check.GoRefElem(t); ok {
 			return "*" + tc.goType(elem)
 		}
+		if check.IsGoAny(t) {
+			return "any" // GB2: Go's empty interface
+		}
 		// An Option of a go.Ref is the pointer itself where the niche
 		// holds (flatunion.go).
 		if ref, ok := tc.l.nicheElem(t); ok {

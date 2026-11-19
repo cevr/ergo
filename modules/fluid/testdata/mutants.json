@@ -1,0 +1,908 @@
+{
+  "about": "module fluid's mutants; each is judged by the module's tests and laws (scripts/examples -modules fluid), not by a compiler test. The law that kills each is named in its rule.",
+  "mutants": [
+    {
+      "name": "fl0-slug-collides",
+      "origin": "wf10/fl0 FL0",
+      "file": "modules/fluid/page.ergo",
+      "from": "\tcase CheckboxGroup:\n\t\t\"checkbox-group\"\n",
+      "to": "\tcase CheckboxGroup:\n\t\t\"checkbox\"\n",
+      "rule": "Two components share a slug, so one has no page of its own: SlugParses (ParseComponent finds checkbox for checkbox-group's slug).",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl0-component-listed-twice",
+      "origin": "wf10/fl0 FL0",
+      "file": "modules/fluid/page.ergo",
+      "from": "Button, Calendar, Card,\n",
+      "to": "Button, Calendar, Button,\n",
+      "rule": "The list names a component twice and drops another, so a page per entry renders one component twice and misses one: ListedOnce (and SlugParses for the dropped Card).",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl0-component-duplicated",
+      "origin": "wf10/fl0 FL0",
+      "file": "modules/fluid/page.ergo",
+      "from": "ThinkingSteps, Tooltip}\n",
+      "to": "ThinkingSteps, Tooltip, Badge}\n",
+      "rule": "The list names a component twice and drops none: ListedOnce alone (SlugParses still finds every component).",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl0-foundation-slug-collides",
+      "origin": "wf10/fl0 FL0",
+      "file": "modules/fluid/page.ergo",
+      "from": "\tcase FluidHover:\n\t\t\"fluid-hover\"\n",
+      "to": "\tcase FluidHover:\n\t\t\"motion\"\n",
+      "rule": "Two foundation pages share a slug: FoundationSlugParses.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl3-clip-ends-short",
+      "origin": "wf10/fl3 FL3",
+      "file": "modules/fluid/motion/motion.ergo",
+      "from": "\tif c.Over <= 0ns || (!c.Repeat && ran >= c.Over) {\n\t\treturn c.To\n",
+      "to": "\tif c.Over <= 0ns || (!c.Repeat && ran > c.Over) {\n\t\treturn c.To\n",
+      "rule": "A clip at its end time is eased, not at its target (a spring is 0.001 short there): EndsAtTarget (the spec's mutant: a clip that ends short of its target).",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl3-reduced-moves-repeating",
+      "origin": "wf10/fl3 FL3",
+      "file": "modules/fluid/motion/motion.ergo",
+      "from": "\tif reduced {\n\t\treturn c.To\n\t}\n",
+      "to": "\tif reduced && !c.Repeat {\n\t\treturn c.To\n\t}\n",
+      "rule": "Reduced motion still moves a repeating clip (the spec's mutant): ReducedIsStill.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl3-ended-ignores-reduced",
+      "origin": "wf10/fl3 FL3",
+      "file": "modules/fluid/motion/motion.ergo",
+      "from": "\treduced || (!c.Repeat && t >= c.Delay+c.Over)\n",
+      "to": "\t!c.Repeat && t >= c.Delay+c.Over\n",
+      "rule": "A host keeps ticking for clips reduced motion holds still: ReducedIsStill and NoTickWhenSettled.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl3-curve-off-by-one-stop",
+      "origin": "wf10/fl3 FL3",
+      "file": "modules/fluid/motion/motion.ergo",
+      "from": "\t\tfor i in 0..stops+1 {\n",
+      "to": "\t\tfor i in 0..stops {\n",
+      "rule": "The printed linear() drops its last stop, so the browser's curve runs one step off (the spec's mutant): SheetCurveMatchesSpring.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl3-too-few-stops",
+      "origin": "wf10/fl3 FL3",
+      "file": "modules/fluid/motion/motion.ergo",
+      "from": "let stops = 100\n",
+      "to": "let stops = 50\n",
+      "rule": "Fewer stops put the browser's straight lines more than 0.002 off the spring: SheetCurveMatchesSpring (FL0's probe: 0.0026 at 60).",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl3-exit-slower",
+      "origin": "wf10/fl3 FL3",
+      "file": "modules/fluid/motion/motion.ergo",
+      "from": "\tcase Slow:\n\t\t160ms\n",
+      "to": "\tcase Slow:\n\t\t260ms\n",
+      "rule": "An exit slower than its entrance: ExitIsQuicker.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl3-spring-wrong-damping",
+      "origin": "wf10/fl3 FL3",
+      "file": "modules/fluid/motion/motion.ergo",
+      "from": "\t\t1.0 - math.Exp(-z*w*p)*(cos(wd*p)+(z*w/wd)*sin(wd*p))\n",
+      "to": "\t\t1.0 - math.Exp(-w*p)*(cos(wd*p)+(z*w/wd)*sin(wd*p))\n",
+      "rule": "The closed form's decay drops the damping ratio, so it no longer solves the spring's equation: SpringSolvesItsEquation (and SettlesByItsDuration).",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl1-compact-not-smaller",
+      "origin": "wf10/fl1 FL1",
+      "file": "modules/fluid/token/token.ergo",
+      "from": "\tcase Compact:\n\t\t32\n",
+      "to": "\tcase Compact:\n\t\t36\n",
+      "rule": "A compact control as tall as a comfortable one: CompactIsSmaller.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl1-floating-as-raised",
+      "origin": "wf10/fl1 FL1",
+      "file": "modules/fluid/token/token.ergo",
+      "from": "[]Shadow{Shadow{Y: 4, Blur: 6, Spread: -1, Color: 0x0000001a}, Shadow{Y: 2, Blur: 4,",
+      "to": "[]Shadow{Shadow{Y: 1, Blur: 3, Spread: 0, Color: 0x0000001a}, Shadow{Y: 2, Blur: 4,",
+      "rule": "A floating layer's shadow reaches no further than a raised one's, so a menu reads as a card: SurfacesRise.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl1-dark-copied-from-light",
+      "origin": "wf10/fl1 FL1",
+      "file": "modules/fluid/token/token.ergo",
+      "from": "\tcase Page:\n\t\tPair{Light: Rgba{V: n50}, Dark: Rgba{V: n900}}",
+      "to": "\tcase Page:\n\t\tPair{Light: Rgba{V: n50}, Dark: Rgba{V: n50}}",
+      "rule": "The dark page is the light page's value copied: EveryTokenHasBothSchemes.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid",
+          "examples:fluid-gallery"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid",
+        "examples:fluid-gallery"
+      ]
+    },
+    {
+      "name": "fl1-override-leaks",
+      "origin": "wf10/fl1 FL1",
+      "file": "modules/fluid/token/token.ergo",
+      "from": "\t\t\tif o.Ref == r {\n\t\t\t\tout = o.Color",
+      "to": "\t\t\tif true {\n\t\t\t\tout = o.Color",
+      "rule": "An override changes every token, not the one it names: ThemeIsTotal.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl1-hover-is-rest",
+      "origin": "wf10/fl1 FL1",
+      "file": "modules/fluid/look/control.ergo",
+      "from": "Plate:   Look{Rest: Of(plate), Hover: Of(hovered(t)),",
+      "to": "Plate:   Look{Rest: Of(plate), Hover: Of(plate),",
+      "rule": "A control's plate does not change under the pointer: LookIsTotal.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid",
+          "examples:fluid-gallery"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid",
+        "examples:fluid-gallery"
+      ]
+    },
+    {
+      "name": "fl1-focus-ring-plain",
+      "origin": "wf10/fl1 FL1",
+      "file": "modules/fluid/look/control.ergo",
+      "from": "\t\t\tFocus:    Of([]Decl{Shadow{V: Ring{Px: 1, Color: token.Accent}}}),",
+      "to": "\t\t\tFocus:    Of([]Decl{Shadow{V: Ring{Px: 1, Color: token.Line}}}),",
+      "rule": "The keyboard focus ring is drawn in the edge colour, not the accent: FocusRingIsVisible.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid",
+          "examples:fluid-gallery"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid",
+        "examples:fluid-gallery"
+      ]
+    },
+    {
+      "name": "fl1-disabled-full",
+      "origin": "wf10/fl1 FL1",
+      "file": "modules/fluid/look/control.ergo",
+      "from": "\t\t\tDisabled: Of([]Decl{Opacity{Pct: 50}}),",
+      "to": "\t\t\tDisabled: Of([]Decl{Opacity{Pct: 100}}),",
+      "rule": "A disabled control is drawn at full opacity: DisabledIsDimmed.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid",
+          "examples:fluid-gallery"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid",
+        "examples:fluid-gallery"
+      ]
+    },
+    {
+      "name": "fl1-merge-first-wins",
+      "origin": "wf10/fl1 FL1",
+      "file": "modules/fluid/look/look.ergo",
+      "from": "\tlet mut all = slices.Clone(a.decls)\n\tfor d in b.decls {",
+      "to": "\tlet mut all = slices.Clone(b.decls)\n\tfor d in a.decls {",
+      "rule": "The first style's declaration wins a merge (still associative, so only LastWins sees it): LastWins.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid",
+          "examples:fluid-gallery"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid",
+        "examples:fluid-gallery"
+      ]
+    },
+    {
+      "name": "fl1-wide-overlays-not-merged",
+      "origin": "wf10/fl1 FL1",
+      "file": "modules/fluid/look/look.ergo",
+      "from": "\t\tif !placed && x.Min == w.Min {",
+      "to": "\t\tif false {",
+      "rule": "Two overlays at one width stay apart, so a box prints two atoms for one property at that width and the cascade picks: OneAtomPerKey.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl1-classes-run-together",
+      "origin": "wf10/fl1 FL1",
+      "file": "modules/fluid/web/atom.ergo",
+      "from": "\t\tif b.Len() > 0 {\n\t\t\tb.WriteString(\" \")\n",
+      "to": "\t\tif b.Len() > 0 {\n\t\t\tb.WriteString(\"\")\n",
+      "rule": "A box's classes are printed with no separator, so none matches a rule: SheetCoversEveryLook.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid",
+          "examples:fluid-gallery"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid",
+        "examples:fluid-gallery"
+      ]
+    },
+    {
+      "name": "fl1-token-prefix",
+      "origin": "wf10/fl1 FL1",
+      "file": "modules/fluid/token/token.ergo",
+      "from": "\t\tb.WriteString(\"--f-\")\n",
+      "to": "\t\tb.WriteString(\"--t-\")\n",
+      "rule": "The token block defines properties the rules do not read: SheetNamesOnlyTokens.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid",
+          "examples:fluid-gallery"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid",
+        "examples:fluid-gallery"
+      ]
+    },
+    {
+      "name": "fl1-sheet-rank-reversed",
+      "origin": "wf10/fl1 FL1",
+      "file": "modules/fluid/web/atom.ergo",
+      "from": "\t\tif ra != rb {\n\t\t\treturn ra - rb\n",
+      "to": "\t\tif ra != rb {\n\t\t\treturn rb - ra\n",
+      "rule": "The sheet prints a wide viewport's and a state's rules before the rest rule they override: SheetOrderIsRankOrder.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid",
+          "examples:fluid-gallery"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid",
+        "examples:fluid-gallery"
+      ]
+    },
+    {
+      "name": "fl1-sheet-repeats-atoms",
+      "origin": "wf10/fl1 FL1",
+      "file": "modules/fluid/web/atom.ergo",
+      "from": "\t\tif len(out) == 0 || key(out[len(out)-1]) != key(a) {",
+      "to": "\t\tif true {",
+      "rule": "An atom two looks share is printed twice: SheetIsOneRulePerDistinctDecl.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid",
+          "examples:fluid-gallery"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid",
+        "examples:fluid-gallery"
+      ]
+    },
+    {
+      "name": "fl1-union-drops-group-looks",
+      "origin": "wf10/fl1 FL1",
+      "file": "modules/fluid/web/atom.ergo",
+      "from": "\tfor l in looks {\n\t\tfor a in Atoms(l) {\n\t\t\tall = all.Append(a)\n\t\t}\n\t}\n\tinRank(all)",
+      "to": "\tfor l in looks {\n\t\tfor a in Atoms(l) {\n\t\t\tif !l.Marks {\n\t\t\t\tall = all.Append(a)\n\t\t\t}\n\t\t}\n\t}\n\tinRank(all)",
+      "rule": "The sheet leaves out the atoms of a look that marks a group (a control's root): SheetCoversEveryLook over the module's looks, and the gallery's cases.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid",
+          "examples:fluid-gallery"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid",
+        "examples:fluid-gallery"
+      ]
+    },
+    {
+      "name": "fl1-components-out-of-order",
+      "origin": "wf10/fl1 FL1",
+      "file": "modules/fluid/web/module.ergo",
+      "from": "[][]look.Look{chips(), controls()}",
+      "to": "[][]look.Look{controls(), chips()}",
+      "rule": "The components out of package order; at n = 1 the controls' declarations repeat little, so the sheet grows as fast as one class per look: SheetGrowsSlowerThanDeclarations.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl1-style-is-reset-only",
+      "origin": "wf10/fl1 FL1",
+      "file": "modules/fluid/web/atom.ergo",
+      "from": "html.Style([]html.Attr{}, html.Trust(Sheet(t, looks)))",
+      "to": "html.Style([]html.Attr{}, html.Trust(Sheet(t, []look.Look{})))",
+      "rule": "A page's style element holds the reset and tokens but no rule: BuiltSheetIsSheet.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid",
+          "examples:fluid-gallery"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid",
+        "examples:fluid-gallery"
+      ]
+    },
+    {
+      "name": "fl1-glyph-class-per-render",
+      "origin": "wf10/fl1 FL1",
+      "file": "examples/fluid-gallery/gallery/doc.ergo",
+      "from": "markup(g, copyParts.Glyph)",
+      "to": "markup(g, web.Named(names, glyphLook()))",
+      "rule": "A view resolves a look per render (the page's bytes are the same): ResolvedOncePerLook.",
+      "anchor": {
+        "tests": [
+          "examples:fluid-gallery"
+        ]
+      },
+      "killers": [],
+      "gap": "equivalent once resolution is pure (FL-COUNTER, 2026-11-18): the view's web.Named of a constant look is a pure call with constant arguments, which the fold computes at build time; the counted guard ResolvedOncePerLook went with fluid/web's package counter, which kept every page that reached it from folding. Evidence: the button page folds to one constant (FL-COUNTER receipt)."
+    },
+    {
+      "name": "fl1-theme-adds-rule",
+      "origin": "wf10/fl1 FL1",
+      "file": "modules/fluid/web/atom.ergo",
+      "from": "\tb.WriteString(token.Sheet(t))\n\tb.WriteString(\"}\")\n",
+      "to": "\tb.WriteString(token.Sheet(t))\n\tb.WriteString(\"}\")\n\tif token.Sheet(t) != token.Sheet(token.Default) {\n\t\tb.WriteString(\".fx{color-scheme:only light}\")\n\t}\n",
+      "rule": "A theme other than the default adds a rule to the sheet: ThemeChangesNoAtom (every other law builds its sheet under the default theme).",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl2-key-dot-unescaped",
+      "origin": "wf10/fl2 FL2",
+      "file": "modules/fluid/part/part.ergo",
+      "from": "if c == '%' || c == '.' || c <= ' '",
+      "to": "if c == '%' || c <= ' '",
+      "rule": "A name's dot is not escaped, so the name \"a.b\" and the path a, b give one key: KeysAreUnique.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl2-nameless-missed",
+      "origin": "wf10/fl2 FL2",
+      "file": "modules/fluid/part/part.ergo",
+      "from": "\t\tif !p.Sem.Hidden && Name[E](n) == \"\" {",
+      "to": "\t\tif false {",
+      "rule": "A press with no name and no text is not reported: EveryControlHasAName.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl2-tab-needs-no-selection",
+      "origin": "wf10/fl2 FL2",
+      "file": "modules/fluid/a11y/rules.ergo",
+      "from": "\tcase part.Tab, part.Choice:\n\t\t[]part.State{part.Selected{Yes: false}}",
+      "to": "\tcase part.Choice:\n\t\t[]part.State{part.Selected{Yes: false}}",
+      "rule": "A tab need not state whether it is selected: RolesHaveRequiredStates.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl2-button-selected",
+      "origin": "wf10/fl2 FL2",
+      "file": "modules/fluid/a11y/rules.ergo",
+      "from": "\t\tcase part.Tab, part.Choice, part.Row, part.GridCell, part.ColumnHeader, part.RowHeader:",
+      "to": "\t\tcase part.Button, part.Tab, part.Choice, part.Row, part.GridCell, part.ColumnHeader, part.RowHeader:",
+      "rule": "aria-selected is allowed on a button: StatesAreSupportedByRole.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl2-native-needs-keys",
+      "origin": "wf10/fl2 FL2",
+      "file": "modules/fluid/a11y/rules.ergo",
+      "from": "\t\tif Keyed(r) && !t.Keyed && !t.Native {",
+      "to": "\t\tif Keyed(r) && !t.Keyed {",
+      "rule": "A native slider is flagged for having no keyboard map of its own: KeyedRolesHaveKeys.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl2-unreachable-ok",
+      "origin": "wf10/fl2 FL2",
+      "file": "modules/fluid/a11y/rules.ergo",
+      "from": "\t\tif Focusable(r) && !reaches(t.Reach) {",
+      "to": "\t\tif false {",
+      "rule": "A button no focus reaches is not flagged: FocusKindIsStated.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl2-named-generic-ok",
+      "origin": "wf10/fl2 FL2",
+      "file": "modules/fluid/a11y/rules.ergo",
+      "from": "\t\tif isRole(r, part.Generic) && t.Name != \"\" {",
+      "to": "\t\tif false {",
+      "rule": "A generic box with a name is not flagged: NamelessRolesHaveNoName.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl2-relation-dangles",
+      "origin": "wf10/fl2 FL2",
+      "file": "modules/fluid/a11y/rules.ergo",
+      "from": "\t\t\tif to != \"\" && keys.Get(to) == None {",
+      "to": "\t\t\tif false {",
+      "rule": "A relation to a dropped key is not flagged: RelationsResolve.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl2-composite-no-stop-ok",
+      "origin": "wf10/fl2 FL2",
+      "file": "modules/fluid/a11y/rules.ergo",
+      "from": "\t\t\tif n != 1 {",
+      "to": "\t\t\tif n > 1 {",
+      "rule": "A tab list no Tab reaches is not flagged: OneTabStopPerComposite.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl2-modal-hides-nothing",
+      "origin": "wf10/fl2 FL2",
+      "file": "modules/fluid/part/part.ergo",
+      "from": "\tlet modal = anyModal[E](kids)\n",
+      "to": "\tlet modal = false\n",
+      "rule": "The page behind a modal layer stays reachable (projector and Of agree, so only this law sees it): ModalHidesTheRest.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl2-link-to-current-state",
+      "origin": "wf10/fl2 FL2",
+      "file": "modules/fluid/web/page.ergo",
+      "from": "\t\tlet next = StateHref(p.Path, p.Step(s, e)) catch {",
+      "to": "\t\tlet next = StateHref(p.Path, s) catch {",
+      "rule": "Every link leads to the current state: LinkIsStep.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl2-disabled-press-links",
+      "origin": "wf10/fl2 FL2",
+      "file": "modules/fluid/web/node.ergo",
+      "from": "\t\tlet dest = if a11yHas(p.Sem.States, part.Disabled) {\n\t\t\tNone\n",
+      "to": "\t\tlet dest = if false {\n\t\t\tNone\n",
+      "rule": "A press stated disabled that still sends is printed as a link: LinkIsStep (the laws' page's disabled tab), and AccessOfWebIsAccessOfPart when a seed draws one.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl2-selected-on-wrong-tab",
+      "origin": "wf10/fl2 FL2",
+      "file": "modules/fluid/web/node.ergo",
+      "from": "\t\t\tout = out.Append(html.Aria(a11y.StateName(st), a11y.StateValue(st)))",
+      "to": "\t\t\tout = out.Append(html.Aria(a11y.StateName(st), if a11y.StateName(st) == \"selected\" { \"false\" } else { a11y.StateValue(st) }))",
+      "rule": "The selected tab's markup says it is not selected (aria-selected on the wrong tab): AccessOfWebIsAccessOfPart.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl2-state-href-other-page",
+      "origin": "wf10/fl2 FL2",
+      "file": "modules/fluid/web/page.ergo",
+      "from": "ui.WithQuery(ui.URL{Path: path, Query: \"\", Fragment: \"\"}, s)",
+      "to": "ui.WithQuery(ui.URL{Path: path + \"/\", Query: \"\", Fragment: \"\"}, s)",
+      "rule": "A state's URL is another page's (the state reads back, the path does not): StateRoundTrips.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl2-short-names-collide",
+      "origin": "wf10/fl2 FL2",
+      "file": "modules/fluid/web/atom.ergo",
+      "from": "\t\tof[key(all[i])] = shortName(i)",
+      "to": "\t\tof[key(all[i])] = shortName(i / 2)",
+      "rule": "Two atoms share a short name, so one rule styles both: NamesAreDistinct.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid",
+          "examples:fluid-gallery"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid",
+        "examples:fluid-gallery"
+      ]
+    },
+    {
+      "name": "fl4-press-takes-mirror-signal",
+      "origin": "wf10/fl4 FL4",
+      "file": "modules/fluid/gui/draw.ergo",
+      "from": "\t\t\tDraw[E](f, kids[i])",
+      "to": "\t\t\tDraw[E](f, kids[len(kids)-1-i])",
+      "rule": "Kids are drawn in reverse, so the i-th button sends another press's signal: PressSendsItsSignal (and AccessOfGuiIsAccessOfPart, by order).",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl4-key-binding-dropped",
+      "origin": "wf10/fl4 FL4",
+      "file": "modules/fluid/gui/draw.ergo",
+      "from": "ui.OnKey(f, func(k ui.KeyPress) Option[E] { Bound[E](keys, k) })",
+      "to": "ui.OnKey(f, func(k ui.KeyPress) Option[E] { Bound[E](keys, ui.KeyPress{..k, Name: \"\"}) })",
+      "rule": "A keyed box's keyboard map sends nothing for a key it binds: PressSendsItsSignal.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl4-expanded-always-open",
+      "origin": "wf10/fl4 FL4",
+      "file": "modules/fluid/gui/draw.ergo",
+      "from": "\t\t\ta.Expanded = Some[bool]{Value: x.Yes}",
+      "to": "\t\t\ta.Expanded = Some[bool]{Value: x.Yes || true}",
+      "rule": "A collapsed box is told to a reader as expanded in the window: AccessOfGuiIsAccessOfPart.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl4-paint-rest-only",
+      "origin": "wf10/fl4 FL4",
+      "file": "modules/fluid/gui/paint.ergo",
+      "from": "look.Merge(l.Rest, look.Overlay(l, st))",
+      "to": "look.Merge(l.Rest, look.Overlay(l, if true { look.Rest } else { st }))",
+      "rule": "The paint is taken from the first of the two merged styles, the rest style, and the state's overlay is dropped: HostsResolveAlike.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl4-dark-painted-light",
+      "origin": "wf10/fl4 FL4",
+      "file": "modules/fluid/gui/paint.ergo",
+      "from": "\t\tif dark { p.Dark } else { p.Light }",
+      "to": "\t\tp.Light",
+      "rule": "A dark scheme is painted with the light value: HostsResolveAlike.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "ts-class-renamed-one-side",
+      "origin": "wf10/fluid-ts FLUID-TS",
+      "file": "modules/fluid/web/ts.ergo",
+      "from": "Root: Named(names, c.Root), Plate:",
+      "to": "Root: Named(Long(), c.Root), Plate:",
+      "rule": "The island's table names a control root by another naming than the sheet's (renamed on one side only): TableNamesOnlySheetClasses.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "ts-tone-missing-from-sheet",
+      "origin": "wf10/fluid-ts FLUID-TS",
+      "file": "modules/fluid/web/module.ergo",
+      "from": "\tfor t in look.Tones() {",
+      "to": "\tfor t in []look.Tone{look.Solid, look.Soft, look.Outline, look.Bare} {",
+      "rule": "The module's looks drop a tone, so the sheet lacks it while the island's table still offers it: TableNamesOnlySheetClasses.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "ts-island-own-naming",
+      "origin": "wf10/fluid-ts FLUID-TS",
+      "file": "examples/fluid-gallery/gallery/site.ergo",
+      "from": "func Island() string { web.TS(web.TableOf(token.Default, Looks())) }",
+      "to": "func Island() string { web.TS(web.TableOf(token.Default, web.Looks())) }",
+      "rule": "The island module names its classes from the module's looks alone, so it brings a second sheet whose short names collide with the page's: IslandUsesThePageSheet.",
+      "anchor": {
+        "tests": [
+          "examples:fluid-gallery"
+        ]
+      },
+      "killers": [
+        "examples:fluid-gallery"
+      ]
+    },
+    {
+      "name": "mg-retarget-drops-speed",
+      "origin": "wf10/motion-gate MOTION-GATE",
+      "file": "modules/fluid/motion/track.ergo",
+      "from": "Target: to, X0: Pos(k, t), V0: Vel(k, t), Start: t}",
+      "to": "Target: to, X0: Pos(k, t), V0: 0.0 * Vel(k, t), Start: t}",
+      "rule": "A retarget resets velocity to 0, so a value turned mid-flight stops dead: TracesAreSmooth.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "mg-retarget-from-target",
+      "origin": "wf10/motion-gate MOTION-GATE",
+      "file": "modules/fluid/motion/track.ergo",
+      "from": "Target: to, X0: Pos(k, t), V0: Vel(k, t), Start: t}",
+      "to": "Target: to, X0: k.Target + 0.0 * Pos(k, t), V0: Vel(k, t), Start: t}",
+      "rule": "A retarget starts from the old target, not from where the value is (a jump): TracesAreSmooth.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "mg-track-twice-frequency",
+      "origin": "wf10/motion-gate MOTION-GATE",
+      "file": "modules/fluid/motion/track.ergo",
+      "from": "\tlet w = frequency(z)\n\tif z < 1.0 {\n\t\tlet wd",
+      "to": "\tlet w = frequency(z) * 2.0\n\tif z < 1.0 {\n\t\tlet wd",
+      "rule": "A track's spring runs at twice the clip's frequency (still smooth and settled, but not the clip's motion): TrackIsTheClipSpring.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    }
+  ]
+}

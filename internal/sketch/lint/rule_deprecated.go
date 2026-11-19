@@ -15,14 +15,12 @@ var deprecated = &Rule{
 	Name:    "deprecated",
 	Code:    "L104",
 	Doc:     "A use of a function, type, context or operation whose doc comment has a Deprecated: paragraph; use what the paragraph names.",
+	Instead: "use what its Deprecated: paragraph names",
 	Default: Warning,
 	Check:   checkDeprecated,
 }
 
 func checkDeprecated(p *Pass) {
-	if p.Package.Std() || p.Package.Host() {
-		return
-	}
 	report := func(at syntax.Node, doc *syntax.CommentGroup, owner *check.Package) {
 		if owner == p.Package {
 			return

@@ -251,7 +251,9 @@ func TestEachExternHasItsGoBody(t *testing.T) {
 			t.Errorf("std package %s declares no extern", path)
 		}
 	}
-	for _, name := range []string{"Go", "OnExit", "New", "WithCapacity", "Queue.Push", "Queue.Pop", "Queue.End", "Task.Wait", "Task.Stop", "ContextBound", "ContextValue"} {
+	// WithCapacity binds the language's MakeSlice now (check/collop.go,
+	// PRIM-4), no std declaration.
+	for _, name := range []string{"Go", "OnExit", "New", "Queue.Push", "Queue.Pop", "Queue.End", "Task.Wait", "Task.Stop", "ContextBound", "ContextValue"} {
 		if !bound[name] {
 			t.Errorf("the Go body %s binds no std declaration", name)
 		}
@@ -651,7 +653,7 @@ func TestStdHostProvidersHaveAuthority(t *testing.T) {
 	// built, and only Dial's reaches the host (rpc.Loopback's runs in
 	// process). Dial's authority is TestStdExternCallersHoldAuthority's:
 	// Dial without Ambient fails it (measured, R3b).
-	if want := []string{"config.Host", "exec.Host", "fs.Host", "host.Local", "host.Zones", "http.Client", "http.Listener", "http.Remote", "io.Errors", "io.Host", "io.In", "os.Host", "prelude.LiveScheduler", "rand.Host", "rand.SecureHost", "term.Host", "time.Host"}; !slices.Equal(found, want) {
+	if want := []string{"config.Host", "exec.Host", "fs.Host", "host.Local", "host.Zones", "http.Client", "http.Remote", "io.Errors", "io.Host", "io.In", "net.Host", "os.Host", "prelude.LiveScheduler", "rand.Host", "rand.SecureHost", "sql.Host", "sql.hostTx", "sql.pool", "term.Host", "time.Host"}; !slices.Equal(found, want) {
 		t.Errorf("host providers %v, want %v: a new one follows the rule, and this list names it", found, want)
 	}
 	for name, unit := range unguardedHosts {

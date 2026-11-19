@@ -167,3 +167,34 @@ test StaleSetIsMoved {
 		assert false
 	}
 }
+
+// LocalsRemotesAndGuards: the smallest repro of the git commands the
+// held check and the archive run (M1, B1, G3, B4 of the verifier's round
+// 1), which the memory Vcs cannot show: Locals names every branch and
+// each stash entry, the newest refs/stash/0; Remote finds a commit a
+// remote-tracking ref holds and not one only a local branch holds; a
+// push by commit writes it under refs/work/archive; GuardPushes gives
+// every remote, not origin only, the refusing push URL.
+test LocalsRemotesAndGuards {
+	with onShell {
+		let script = "git init -q -b main . && git config user.name t && git config user.email t@example.com && printf 'one\\n' > a.txt && git add a.txt && git commit -q -m one && git switch -q -c side && printf 's\\n' > s.txt && git add s.txt && git commit -q -m side && git switch -q main && printf 'x\\n' >> a.txt && git stash -q && printf 'y\\n' >> a.txt && git stash -q && git remote add origin /nonexistent/loop-probe-x && git remote add fork /nonexistent/loop-probe-y && git update-ref refs/remotes/origin/main main && git init -q --bare archive.git"
+		assert try exec.Runner.Run(exec.New("sh", []string{"-c", script})).Status == 0
+		let main = try work.Vcs.Ref(".", "refs/heads/main")
+		let side = try work.Vcs.Ref(".", "refs/heads/side")
+		let newest = try exec.Runner.Run(exec.New("git", []string{"rev-parse", "refs/stash@{0}"})).Stdout
+		let locals = try work.Vcs.Locals(".")
+		assert len(locals) == 4
+		assert locals[0] == work.Local{Ref: "refs/heads/main", Commit: main} && locals[1] == work.Local{Ref: "refs/heads/side", Commit: side}
+		assert locals[2].Ref == "refs/stash/0" && locals[2].Commit+"\n" == newest && locals[3].Ref == "refs/stash/1"
+		assert try work.Vcs.Remote(".", main)
+		assert !try work.Vcs.Remote(".", side)
+		let to = "refs/work/archive/a/1/heads/side"
+		try work.Vcs.Push(".", try os.Process.Getwd()+"/archive.git", []work.Pushed{work.Pushed{From: side, To: to, Force: false}})
+		assert try work.Vcs.Ref("archive.git", to) == side
+		try work.Vcs.GuardPushes(".")
+		for remote in []string{"origin", "fork"} {
+			let url = try exec.Runner.Run(exec.New("git", []string{"config", "remote.\(remote).pushurl"})).Stdout
+			assert url == Guard+"\n"
+		}
+	}
+}

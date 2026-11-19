@@ -30,11 +30,11 @@ let TheMarks = Marks{Checked: "[x] ", Unchecked: "[ ] ", On: "(•) ", Off: "( )
 // any other role.
 func ends(r ui.Role) (string, string) {
 	match r {
-	case ui.Button, ui.Tab, ui.MenuItem, ui.TextBox:
+	case ui.Button, ui.Tab, ui.MenuItem, ui.TextBox, ui.MenuItemCheckbox, ui.SearchBox, ui.ComboBox, ui.SpinButton:
 		(TheMarks.Open, TheMarks.Close)
 	case ui.Link:
 		("<", ">")
-	case ui.Checkbox, ui.Switch, ui.Static, ui.Group, ui.Region, ui.Image, ui.List, ui.Status, ui.Generic, ui.TabList, ui.TabPanel, ui.Dialog, ui.Menu, ui.Tree, ui.TreeItem, ui.Heading, ui.Alert, ui.Table, ui.TableRow, ui.TableCell:
+	case ui.Checkbox, ui.Switch, ui.Static, ui.Group, ui.Region, ui.Image, ui.List, ui.Status, ui.Generic, ui.TabList, ui.TabPanel, ui.Dialog, ui.Menu, ui.Tree, ui.TreeItem, ui.Heading, ui.Alert, ui.Table, ui.TableRow, ui.TableCell, ui.RadioGroup, ui.Radio, ui.ListBox, ui.ListOption, ui.Slider, ui.Grid, ui.GridCell, ui.ColumnHeader, ui.RowHeader, ui.Navigation, ui.ListItem, ui.Separator, ui.Tooltip:
 		("", "")
 	}
 }
@@ -45,7 +45,7 @@ func strongRole(r ui.Role) bool {
 	match r {
 	case ui.Heading, ui.Alert:
 		true
-	case ui.Button, ui.Tab, ui.MenuItem, ui.TextBox, ui.Link, ui.Checkbox, ui.Switch, ui.Static, ui.Group, ui.Region, ui.Image, ui.List, ui.Status, ui.Generic, ui.TabList, ui.TabPanel, ui.Dialog, ui.Menu, ui.Tree, ui.TreeItem, ui.Table, ui.TableRow, ui.TableCell:
+	case ui.Button, ui.Tab, ui.MenuItem, ui.TextBox, ui.Link, ui.Checkbox, ui.Switch, ui.Static, ui.Group, ui.Region, ui.Image, ui.List, ui.Status, ui.Generic, ui.TabList, ui.TabPanel, ui.Dialog, ui.Menu, ui.Tree, ui.TreeItem, ui.Table, ui.TableRow, ui.TableCell, ui.RadioGroup, ui.Radio, ui.ListBox, ui.ListOption, ui.Slider, ui.SpinButton, ui.SearchBox, ui.MenuItemCheckbox, ui.ComboBox, ui.Grid, ui.GridCell, ui.ColumnHeader, ui.RowHeader, ui.Navigation, ui.ListItem, ui.Separator, ui.Tooltip:
 		false
 	}
 }
@@ -414,7 +414,9 @@ func labelOf[E](n ui.Node[E]) Option[string] {
 	case ui.TextNode as x:
 		Some{Value: x.Value}
 	case ui.InputNode as x:
-		Some{Value: x.Placeholder}
+		// A field's name, as ui.Find names it: its label, else its
+		// placeholder (FK9b's LabelledField).
+		Some{Value: if x.Label != "" { x.Label } else { x.Placeholder }}
 	case ui.LiveNode as x:
 		Some{Value: x.Text}
 	case ui.SemanticNode[E] as x:

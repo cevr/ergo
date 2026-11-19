@@ -3,7 +3,9 @@
 // can take through import go. The program lays out, hit tests and paints
 // (Ergo package desktop); screen turns the window's surface events into
 // Inputs, and turns the program's paint calls into MyGo's display list,
-// rasterized by MyGo's CPU renderer. It uses no MyGo widget.
+// drawn by the GPU renderer MyGo has for the surface (Metal, OpenGL or
+// OpenGL ES, render.go) or by its CPU renderer where there is none. It
+// uses no MyGo widget.
 //
 // Threading follows MyGo's rules (v1-gui plan §1.3): the surface's events
 // and frames arrive on the main thread, which only queues Inputs and
@@ -118,6 +120,9 @@ type Window struct {
 	width   float64
 	height  float64
 	painted int
+	// opacity multiplies the alpha of what is painted from now on
+	// (SetOpacity); 1 at Begin.
+	opacity float64
 
 	// The damage paint (Mark, Seal, Again): the parts of the list being
 	// made and of the shown one each key drew, the parts still open, and
@@ -134,6 +139,11 @@ type Window struct {
 	r    raster.Renderer
 	sc   scene.Scene
 	sys  *text.System
+	// gpu is the surface's GPU renderer, nil where frames draw in memory;
+	// gpuTried tells that the surface's native objects were looked at.
+	// The main thread owns both.
+	gpu      gpuRenderer
+	gpuTried bool
 
 	// laid and lastLaid are the layouts of text the list being made and
 	// the one before used, by text and size, under tmu: a text the next
@@ -180,7 +190,7 @@ type stroke struct {
 var maskSeed = maphash.MakeSeed()
 
 func newWindow(width, height float64) *Window {
-	return &Window{wake: make(chan struct{}, 1), start: time.Now(), width: width, height: height, sys: text.Shared(), segs: map[int]seg{}, prev: map[int]seg{}}
+	return &Window{wake: make(chan struct{}, 1), start: time.Now(), width: width, height: height, sys: text.Shared(), segs: map[int]seg{}, prev: map[int]seg{}, opacity: 1}
 }
 
 // Open opens a desktop window of the size, titled title, once MyGo's app
@@ -262,6 +272,12 @@ func (w *Window) event(ev platform.SurfaceEvent) bool {
 		if on {
 			w.push(Input{Kind: Frame, At: time.Since(w.start).Nanoseconds()})
 		}
+	case platform.SurfaceRenew, platform.SurfaceLowMemory:
+		// The surface's native objects are new (a phone app back from the
+		// background), or the system wants memory back: the next frame
+		// makes the renderer again, with its textures and atlases.
+		w.dropGPU()
+		w.conn.Surface.RequestFrame()
 	case platform.SurfaceResize:
 		width, height, _ := w.conn.Surface.Size()
 		w.mu.Lock()
@@ -456,6 +472,7 @@ func (w *Window) begin() {
 	w.pending, w.glyphs, w.clips, w.access = w.pending[:0], w.glyphs[:0], 0, w.access[:0]
 	w.strokes, w.pts, w.inStroke = w.strokes[:0], w.pts[:0], false
 	w.focus, w.field = 0, platform.TextInputState{}
+	w.opacity = 1
 	clear(w.segs)
 	w.open = w.open[:0]
 }
@@ -568,14 +585,14 @@ func (w *Window) Differs() string {
 // Fill paints a rectangle of color 0xRRGGBBAA with corners of radius.
 func (w *Window) Fill(x, y, width, height, radius float64, color uint32) {
 	w.mu.Lock()
-	w.pending = append(w.pending, scene.Op{Kind: scene.OpFill, Rect: rect(x, y, width, height), Transform: scene.Translation(0, 0), Radii: scene.Uniform(float32(radius)), Color: rgba(color)})
+	w.add(scene.Op{Kind: scene.OpFill, Rect: rect(x, y, width, height), Transform: scene.Translation(0, 0), Radii: scene.Uniform(float32(radius)), Color: rgba(color)})
 	w.mu.Unlock()
 }
 
 // Border paints a border of width line inside a rectangle.
 func (w *Window) Border(x, y, width, height, radius, line float64, color uint32) {
 	w.mu.Lock()
-	w.pending = append(w.pending, scene.Op{Kind: scene.OpFill, Rect: rect(x, y, width, height), Transform: scene.Translation(0, 0), Radii: scene.Uniform(float32(radius)), Border: scene.Uniform(float32(line)), BorderColor: rgba(color)})
+	w.add(scene.Op{Kind: scene.OpFill, Rect: rect(x, y, width, height), Transform: scene.Translation(0, 0), Radii: scene.Uniform(float32(radius)), Border: scene.Uniform(float32(line)), BorderColor: rgba(color)})
 	w.mu.Unlock()
 }
 
@@ -593,7 +610,7 @@ func (w *Window) Line(x0, y0, x1, y1, width float64, color uint32) {
 		return
 	}
 	w.mu.Lock()
-	w.pending = append(w.pending, lineOp(x0, y0, x1, y1, width, rgba(color)))
+	w.add(lineOp(x0, y0, x1, y1, width, rgba(color)))
 	w.mu.Unlock()
 }
 
@@ -619,7 +636,7 @@ func lineOp(x0, y0, x1, y1, width float64, color scene.Color) scene.Op {
 // Painter.StrokePath draws.
 func (w *Window) StrokeBegin(width float64, color uint32) {
 	w.mu.Lock()
-	w.drawing, w.inStroke = stroke{width: float32(width), color: rgba(color), p0: len(w.pts)}, true
+	w.drawing, w.inStroke = stroke{width: float32(width), color: w.faded(rgba(color)), p0: len(w.pts)}, true
 	w.mu.Unlock()
 }
 
@@ -661,6 +678,76 @@ func (w *Window) MasksDrawn() int {
 	return w.masks
 }
 
+// add appends a painting op under the opacity in effect; w.mu is held.
+func (w *Window) add(o scene.Op) {
+	if w.opacity < 1 {
+		o.Opacity = float32(max(w.opacity, 1e-6))
+	}
+	w.pending = append(w.pending, o)
+}
+
+// faded is c under the opacity in effect; w.mu is held.
+func (w *Window) faded(c scene.Color) scene.Color {
+	if w.opacity < 1 {
+		c.A = uint8(math.Round(float64(c.A) * w.opacity))
+	}
+	return c
+}
+
+// SetOpacity sets the opacity, from 0 to 1, that multiplies the alpha of
+// what is painted until the next SetOpacity or Begin.
+func (w *Window) SetOpacity(o float64) {
+	w.mu.Lock()
+	w.opacity = min(max(o, 0), 1)
+	w.mu.Unlock()
+}
+
+// Opacity is the opacity in effect.
+func (w *Window) Opacity() float64 {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.opacity
+}
+
+// Box paints a rectangle with corners of the radii tl, tr, br and bl (top
+// left, top right, bottom right, bottom left), filled with fill and, when
+// line is positive, a border of width line in lineColor inside its edges,
+// colors 0xRRGGBBAA.
+func (w *Window) Box(x, y, width, height, tl, tr, br, bl float64, fill uint32, line float64, lineColor uint32) {
+	o := scene.Op{Kind: scene.OpFill, Rect: rect(x, y, width, height), Transform: scene.Translation(0, 0), Radii: radii(tl, tr, br, bl), Color: rgba(fill)}
+	if line > 0 {
+		o.Border, o.BorderColor = scene.Uniform(float32(line)), rgba(lineColor)
+	}
+	w.mu.Lock()
+	w.add(o)
+	w.mu.Unlock()
+}
+
+// Shadow paints the shadow of the box at x, y with corner radii tl, tr,
+// br and bl, as CSS's box-shadow does: the box offset by dx, dy, grown by
+// spread, blurred by blur (CSS's blur radius), in color; outside the box,
+// or, inset, inside it.
+func (w *Window) Shadow(x, y, width, height, tl, tr, br, bl, dx, dy, blur, spread float64, color uint32, inset bool) {
+	grow := spread
+	if inset {
+		grow = -spread
+	}
+	r := func(v float64) float64 { return max(v+grow, 0) }
+	o := scene.Op{
+		Kind: scene.OpShadow, Transform: scene.Translation(0, 0),
+		Rect:  rect(x+dx-grow, y+dy-grow, max(width+2*grow, 0), max(height+2*grow, 0)),
+		Radii: radii(r(tl), r(tr), r(br), r(bl)), Blur: float32(blur), Color: rgba(color), Inset: inset,
+		Cast: rect(x, y, width, height), CastRadii: radii(tl, tr, br, bl),
+	}
+	w.mu.Lock()
+	w.add(o)
+	w.mu.Unlock()
+}
+
+func radii(tl, tr, br, bl float64) [4]float32 {
+	return [4]float32{float32(tl), float32(tr), float32(br), float32(bl)}
+}
+
 // Clip clips what follows to a rectangle, within the clip in effect,
 // until the matching Unclip.
 func (w *Window) Clip(x, y, width, height float64) {
@@ -684,7 +771,7 @@ func (w *Window) Unclip() {
 // corner at x, y.
 func (w *Window) Text(x, y float64, s string, size float64, color uint32) {
 	w.mu.Lock()
-	w.glyphs = append(w.glyphs, glyphText{at: len(w.pending), x: float32(x), y: float32(y), s: s, size: float32(size), color: rgba(color)})
+	w.glyphs = append(w.glyphs, glyphText{at: len(w.pending), x: float32(x), y: float32(y), s: s, size: float32(size), color: w.faded(rgba(color))})
 	w.mu.Unlock()
 }
 
@@ -821,7 +908,10 @@ func (w *Window) LineHeight(size float64) float64 {
 	return math.Ceil(float64(h))
 }
 
-// draw renders the shown list into the surface, on the main thread.
+// draw renders the shown list into the surface, on the main thread: with
+// the surface's GPU renderer where it has one (render.go), else with the
+// CPU renderer, whose pixels the surface presents. A phone's surface
+// presents no pixels, so there only the GPU shows a frame.
 func (w *Window) draw() {
 	if w.conn == nil {
 		return
@@ -840,11 +930,14 @@ func (w *Window) draw() {
 		w.build(width, height, scale)
 	}
 	w.mu.Unlock()
-	w.r.Render(&w.sc)
-	// A Headless window's frame stays in the renderer's image, which Pixel
-	// reads: the fake surface would copy it into a new buffer a frame.
-	if w.fake == nil {
-		w.conn.Surface.PresentPixels(w.r.Image.Pix, w.r.Image.Stride, w.r.Image.W, w.r.Image.H)
+	if !w.renderGPU(&w.sc) {
+		w.r.Render(&w.sc)
+		// A Headless window's frame stays in the renderer's image, which
+		// Pixel reads: the fake surface would copy it into a new buffer a
+		// frame.
+		if w.fake == nil {
+			w.conn.Surface.PresentPixels(w.r.Image.Pix, w.r.Image.Stride, w.r.Image.W, w.r.Image.H)
+		}
 	}
 	w.sys.EndFrame()
 }

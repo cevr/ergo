@@ -85,8 +85,9 @@ import (
 //	    "callback": a callback typedef with a callbacks entry (exactly one
 //	                of the two)
 //	    "position": the parameter: its name, or "#N" (N counts from 0)
-//	    "class":    "value", "out", "in_buffer", "out_buffer" (functions
-//	                only), "out_array" (callbacks only) or "raw"
+//	    "class":    "value", "optional" (functions only: a value C reads
+//	                as absent when NULL), "out", "in_buffer", "out_buffer"
+//	                (functions only), "out_array" (callbacks only) or "raw"
 //	    "length":   optional; in_buffer: its length parameter; out_buffer:
 //	                its capacity parameter
 //	    "unit":     optional; in_buffer: "elements" or "bytes"
@@ -373,12 +374,15 @@ func DecodeContract(data []byte) (*Contract, error) {
 			if e.Function != "" && e.Callback == "" {
 				bad("exceptions[%d]: out_array is a class of callback positions only", i)
 			}
-		case ClassValue, ClassOut, ClassRaw:
+		case ClassValue, ClassOut, ClassRaw, ClassOptional:
 			if e.Length != "" || e.Unit != "" || e.Count != "" || e.ArrayLength != 0 {
 				bad("exceptions[%d]: class %s takes no length, unit, count or array_length", i, e.Class)
 			}
+			if e.Class == ClassOptional && e.Callback != "" && e.Function == "" {
+				bad("exceptions[%d]: optional is not a class of callback positions", i)
+			}
 		default:
-			bad("exceptions[%d]: class %q is not value, out, in_buffer, out_buffer, out_array or raw", i, e.Class)
+			bad("exceptions[%d]: class %q is not value, optional, out, in_buffer, out_buffer, out_array or raw", i, e.Class)
 		}
 	}
 	for _, l := range []struct {

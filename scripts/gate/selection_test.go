@@ -356,12 +356,12 @@ func TestFastTierSkipsWhatTheSelectorSkips(t *testing.T) {
 	root := checkoutRoot(t)
 	skipped := "TestNoSuchTestTheSelectorSkips"
 	none := "internal/gobind"
-	steps, dropped, err := fastStepsSelected(root, func(p testPackage, env, names []string) selection {
+	steps, dropped, err := fastStepsSelected(root, "", func(p testPackage, env, names []string) selection {
 		if p.dir == none {
 			return selection{skip: names, note: "selected none of " + p.dir}
 		}
 		return selection{skip: []string{skipped}, note: "selected for " + p.dir}
-	})
+	}, false)
 	if err != nil {
 		t.Fatal(err)
 	}

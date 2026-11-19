@@ -1,0 +1,74 @@
+// park holds PARK1's probes of a task's wait on one value, each with a
+// hand Go twin in ../../testdata/control; a workload per kind in
+// ../../KIND (go run ./scripts/opcount -control -rounds 5
+// benchmarks/park/KIND).
+//
+//	park bench KIND N
+//
+// spawn: N times task.Go of a small block, then its Wait (a spawn and a
+// join). ask: N Asks of a counting actor (a request and its reply between
+// two tasks).
+
+import actor
+import os
+import strconv
+import task
+
+func add(s int, e int) Decision[int, int] { Stay[int]{Next: s + e} }
+
+func untimed(s int) Option[Timeout[int]] { None }
+
+func unworked(s int) Option[func(send func(e int))] { None }
+
+func unexited(s int) Option[func()] { None }
+
+// counter adds each signal to its state; an Ask answers the new state.
+func counter() Machine[int, int, int] { Machine[int, int, int]{Initial: 0, Step: add, After: untimed, Work: unworked, Exit: unexited} }
+
+func spawn(n int) int {
+	let mut acc = 0
+	for i in 0..n {
+		let t = task.Go() { i & 3 }
+		acc += t.Wait()
+	}
+	acc
+}
+
+func ask(n int) int fails os.Exit needs Scheduler {
+	let a = actor.StartMachine(counter(), 0, func(o int) {})
+	let mut acc = 0
+	for i in 0..n {
+		let d = a.Ask(i & 3) catch {
+		case actor.Stopped:
+			return os.Exit{Code: 1, Message: "park: the actor stopped"}
+		}
+		match d {
+		case Stay[int] as s:
+			acc = (acc + s.Next) & 0xffff
+		case _:
+			return os.Exit{Code: 1, Message: "park: the step did not stay"}
+		}
+	}
+	a.Stop()
+	acc
+}
+
+func main() fails os.Exit needs Console | Ambient {
+	let args = os.NewHost().Args()
+	if len(args) != 3 || args[0] != "bench" {
+		return os.Exit{Code: 2, Message: "usage: park bench KIND N"}
+	}
+	let n = strconv.Atoi(args[2]) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return os.Exit{Code: 2, Message: "park: N must be a count"}
+	}
+	match args[1] {
+	case "spawn":
+		Console.Println(strconv.Itoa(spawn(n)))
+	case "ask":
+		let acc = with context { Scheduler: NewLiveScheduler() } { try ask(n) }
+		Console.Println(strconv.Itoa(acc))
+	case _:
+		return os.Exit{Code: 2, Message: "park: unknown kind \(args[1])"}
+	}
+}

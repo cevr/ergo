@@ -105,7 +105,7 @@ func hubAgrees(t *testing.T, seed uint64) {
 
 // TestApiRefusesTwoFailuresOfOneName is AF0's diagnostic row: two failure
 // types of one name (run.Closed and board.Closed) would be one Failure
-// variant and one tag on the wire, so ergo gen api refuses them and names
+// variant and one JSON tag, so ergo gen api refuses them and names
 // both.
 func TestApiRefusesTwoFailuresOfOneName(t *testing.T) {
 	dir := t.TempDir()

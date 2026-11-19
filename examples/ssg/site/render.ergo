@@ -1,3 +1,4 @@
+import html
 import strings
 
 // Value is what a template variable holds: text, a record of named
@@ -47,7 +48,7 @@ func nodes(lib Library, chain []string, ns []Node, scope Scope) string fails Unb
 			parts = parts.Append(l.Text)
 		case Var as v:
 			let text = try textOf(name, v.Line, v.Path, try lookup(name, v.Line, scope, v.Path))
-			parts = parts.Append(if v.Raw { text } else { Escape(text) })
+			parts = parts.Append(if v.Raw { text } else { html.Escape(text) })
 		case Each as e:
 			match try lookup(name, e.Line, scope, e.Over) {
 			case List as l:

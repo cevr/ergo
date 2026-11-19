@@ -135,8 +135,17 @@ type ToFile { Path string, Append bool }
 // or its lines from Lines, as they come.
 type ToCaller {}
 
+// ToStdout is a sink of standard error: the program writes it where its
+// standard output goes, to the same pipe, file or stream (the shell's
+// 2>&1; Go's CombinedOutput), so the bytes of the two keep the order the
+// program wrote them in. With a Stdout of ToCaller, Chunks and Lines give
+// them as one stream, none marked Stderr; with Discard both go to the null
+// device. As the sink of standard output it is Failed: standard output
+// cannot go to itself.
+type ToStdout {}
+
 // Sink is where a stream of a started program goes.
-type Sink = Inherit | Discard | ToFile | ToCaller
+type Sink = Inherit | Discard | ToFile | ToCaller | ToStdout
 
 // Streams are the sinks of a started program's standard output and
 // standard error.
@@ -264,6 +273,30 @@ type Runner {
 		slices.Equal(out, Split(want.Stdout)) && slices.Equal(errs, Split(want.Stderr)) && p.Wait() == want.Status
 	},
 
+	// StartMergedInterleavesRun: a started program whose standard error
+	// goes to its standard output (ToStdout), which goes to the caller,
+	// gives one stream, no byte of it marked Stderr: the bytes of Run's
+	// Stdout and Stderr, each in its order, interleaved; and Run's status.
+	law StartMergedInterleavesRun(name string) {
+		let c = New(name, []string{})
+		let want = Run(c) catch {
+		case NotFound, Denied, Failed:
+			return true
+		}
+		let p = Start(c, Streams{Stdout: ToCaller, Stderr: ToStdout}) catch {
+		case NotFound, Denied, Failed:
+			return false
+		}
+		let mut got = ""
+		for k in p.Chunks() {
+			if k.Stderr {
+				return false
+			}
+			got = got + k.Text
+		}
+		interleaves(got, want.Stdout, want.Stderr) && p.Wait() == want.Status
+	},
+
 	// NotFoundNamesTheProgram: a program that is not found is named by its
 	// failure.
 	law NotFoundNamesTheProgram(name string) {
@@ -275,6 +308,27 @@ type Runner {
 		}
 		true
 	},
+}
+
+// interleaves reports whether s is a and b merged, each one's bytes kept
+// in its order (StartMergedInterleavesRun).
+func interleaves(s string, a string, b string) bool {
+	if len(s) != len(a)+len(b) {
+		return false
+	}
+	// ok[j] is whether s's first i+j bytes merge a's first i and b's first
+	// j, for the row i.
+	let mut ok = []bool{}
+	for j in 0..len(b)+1 {
+		ok = ok.Append(j == 0 || ok[j-1] && b[j-1] == s[j-1])
+	}
+	for i in 1..len(a)+1 {
+		ok[0] = ok[0] && a[i-1] == s[i-1]
+		for j in 1..len(b)+1 {
+			ok[j] = (ok[j] && a[i-1] == s[i+j-1]) || (ok[j-1] && b[j-1] == s[i+j-1])
+		}
+	}
+	ok[len(b)]
 }
 
 // Detached names a program started to outlive the code that started it
@@ -352,6 +406,9 @@ func Spawn(p Processes, c Command, s Streams) Detached fails NotFound | Denied |
 	if toCaller(s.Stdout) || toCaller(s.Stderr) {
 		return Failed{Name: c.Name, Reason: "a detached program has no caller to read it (ToCaller)"}
 	}
+	if toStdout(s.Stdout) {
+		return Failed{Name: c.Name, Reason: toItself}
+	}
 	let pid = p.next.Get() + 1
 	p.next.Set(pid)
 	let mut m = p.live.Get()
@@ -390,11 +447,15 @@ func Run(s Script, c Command) Result fails NotFound | Denied | Failed {
 }
 
 // Start is the Running of the Result recorded for c (Ended). It fails
-// NotFound when Results holds no Result for c.
+// NotFound when Results holds no Result for c, and Failed for a Stdout of
+// ToStdout, as the host's does.
 func Start(s Script, c Command, st Streams) Running fails NotFound | Denied | Failed {
+	if toStdout(st.Stdout) {
+		return Failed{Name: c.Name, Reason: toItself}
+	}
 	match s.Results.Get(Key(c)) {
 	case Some[Result] as hit:
-		return Ended(st, hit.Value)
+		return Ended(hit.Value, st)
 	case None:
 		return NotFound{Name: c.Name}
 	}
@@ -402,17 +463,19 @@ func Start(s Script, c Command, st Streams) Running fails NotFound | Denied | Fa
 
 // Ended is the Running of a program that has already ended with r: Chunks
 // gives r's Stdout, then its Stderr, each when its sink in s is ToCaller
-// (so Lines gives the lines of each), and Wait gives r's Status. It starts
+// (so Lines gives the lines of each), and Wait gives r's Status. A Stderr
+// of ToStdout joins Stdout's stream: r's Stdout then its Stderr as one
+// stream, unmarked, when Stdout's sink is ToCaller (a Result keeps no
+// order between the two, and this one is an interleaving). It starts
 // nothing and writes nothing to a file or a stream of this process. It is
 // how any Runner that runs no program, Script or a module's own fake, gives
 // the Running its Start returns: a Running is the runtime's value, so no
 // other package's type implements it.
-//
-// Its first parameter is the Streams, not the Result: a function of this
-// package on Result, a runtime type, would lower as a Go method that
-// v1.ExecResult does not have.
-func Ended(s Streams, r Result) Running {
+func Ended(r Result, s Streams) Running {
 	let mut cs = []Chunk{}
+	if toCaller(s.Stdout) && toStdout(s.Stderr) {
+		return replay(whole(cs, r.Stdout + r.Stderr, false), r.Status, true)
+	}
 	if toCaller(s.Stdout) {
 		cs = whole(cs, r.Stdout, false)
 	}
@@ -436,10 +499,22 @@ func toCaller(s Sink) bool {
 	match s {
 	case ToCaller:
 		true
-	case Inherit, Discard, ToFile:
+	case Inherit, Discard, ToFile, ToStdout:
 		false
 	}
 }
+
+func toStdout(s Sink) bool {
+	match s {
+	case ToStdout:
+		true
+	case Inherit, Discard, ToFile, ToCaller:
+		false
+	}
+}
+
+// toItself is the failure of a Stdout of ToStdout, as the runtime's.
+let toItself = "stdout: ToStdout is a sink of standard error, and standard output cannot go to itself"
 
 extern go ergo.local/prototype/runtime/v1/exec.ExecReplay func replay(cs []Chunk, status int, caller bool) Running
 
@@ -509,6 +584,8 @@ func sinkKind(s Sink) int {
 		2
 	case ToCaller:
 		3
+	case ToStdout:
+		4
 	}
 }
 
@@ -516,7 +593,7 @@ func sinkPath(s Sink) string {
 	match s {
 	case ToFile as f:
 		f.Path
-	case Inherit, Discard, ToCaller:
+	case Inherit, Discard, ToCaller, ToStdout:
 		""
 	}
 }
@@ -525,7 +602,7 @@ func sinkAppends(s Sink) bool {
 	match s {
 	case ToFile as f:
 		f.Append
-	case Inherit, Discard, ToCaller:
+	case Inherit, Discard, ToCaller, ToStdout:
 		false
 	}
 }

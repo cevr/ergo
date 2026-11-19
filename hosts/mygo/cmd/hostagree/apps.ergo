@@ -201,7 +201,9 @@ func padView(f *ui.Frame[int], s pad) {
 			Some{Value: 2000 + int(p.Y)}
 		case ui.Wheel as w:
 			Some{Value: 3000 + int(w.DY)}
-		case ui.Moved:
+		case ui.Drag:
+			Some{Value: 4000 + int(p.X)}
+		case ui.Moved, ui.PointerEnter, ui.PointerLeave:
 			None
 		}
 	}) {
@@ -315,6 +317,258 @@ func sketchView(f *ui.Frame[int], s sketch) {
 			}}, ui.Color{R: 40, G: 160, B: 90, A: 255})
 			ui.Transformed(p, ui.Translate(mx, my)) {
 				ui.Fill(p, ui.Path{Segs: []ui.Seg{ui.MoveTo{X: 0, Y: -12}, ui.LineTo{X: 12, Y: 0}, ui.LineTo{X: 0, Y: 12}, ui.LineTo{X: -12, Y: 0}, ui.ClosePath}}, ui.Color{R: 200, G: 40, B: 40, A: 255})
+			}
+		}
+	}
+}
+
+// looks (UG1): boxes and buttons with looks of their own, a theme that a
+// tap changes, a shadow in one theme and a dimmed group a tap turns on, so
+// the window paints each look from the tree's table (fills, a border,
+// corners, a shadow, opacity) where both hosts hold the same Looks.
+type looksApp { theme int, dim bool }
+
+func looksStep(s looksApp, e int) Decision[looksApp, int] {
+	if e == 0 {
+		return Enter[looksApp]{Next: looksApp{theme: (s.theme + 1) % 3, dim: s.dim}}
+	}
+	Enter[looksApp]{Next: looksApp{theme: s.theme, dim: !s.dim}}
+}
+
+func looksMachine() Machine[looksApp, int, int] {
+	Machine[looksApp, int, int]{Initial: looksApp{theme: 0, dim: false}, Step: looksStep, After: none[looksApp, int], Work: idle[looksApp, int], Exit: func(s looksApp) Option[func()] { None }}
+}
+
+// looked is a Style of the look l.
+func looked(f *ui.Frame[int], l ui.Look, pad ui.Length) ui.Style {
+	let mut s = ui.Plain()
+	s.Padding = ui.All(pad)
+	s.Look = ui.LookFor(f, ui.Steady(l))
+	s
+}
+
+func looksView(f *ui.Frame[int], s looksApp) {
+	let cards = []uint32{0xdde7f5, 0xf5e6d8, 0xe2f2e2}
+	let accents = []uint32{0x3366cc, 0xcc6633, 0x339944}
+	let mut col = ui.Plain()
+	col.Gap = 12
+	col.Padding = ui.All(16)
+	ui.Column(f, col) {
+		ui.Text(f, "theme \(s.theme)")
+		ui.Pressable(f, "next", 0) {
+			ui.Text(f, "Next")
+		}
+		let mut card = ui.Bare()
+		card.Fill = ui.Rgb(cards[s.theme])
+		card.Corners = ui.Round(12)
+		ui.Box(f, looked(f, card, 12)) {
+			let mut a = ui.Bare()
+			a.Fill = ui.Rgb(accents[s.theme])
+			a.Corners = ui.Round(10)
+			ui.PressableStyled(f, "a", 0, looked(f, a, 0)) {
+				ui.Text(f, "A")
+			}
+		}
+		let mut framed = ui.Bare()
+		framed.Fill = ui.Rgb(0xfafafa)
+		framed.Border = ui.Border{Width: 2, Color: ui.Rgb(accents[s.theme])}
+		framed.Corners = ui.Corners{TopLeft: 4, TopRight: 4, BottomRight: 12, BottomLeft: 12}
+		ui.Box(f, looked(f, framed, 8)) {
+			ui.Text(f, "framed")
+		}
+		let mut b = ui.Bare()
+		b.Fill = ui.Rgb(0xffffff)
+		b.Corners = ui.Round(8)
+		if s.theme == 2 {
+			b.Shadows[0] = ui.Shadow{X: 0, Y: 2, Blur: 6, Spread: 0, Color: ui.Color{R: 0, G: 0, B: 0, A: 64}, Inset: false}
+		}
+		ui.PressableStyled(f, "b", 0, looked(f, b, 0)) {
+			ui.Text(f, "B")
+		}
+		let mut group = ui.Bare()
+		group.Opacity = if s.dim { 0.5 } else { 1.0 }
+		ui.Box(f, looked(f, group, 0)) {
+			ui.Pressable(f, "c", 1) {
+				ui.Text(f, "C")
+			}
+		}
+	}
+}
+
+// roles (UG2): a Semantic node of every role, keyed, whose states,
+// level, range, current item, popup and relations (to the next nodes'
+// keys, and to a key no node has) change with each tap of "next", some
+// of them under a disabled Fieldset, so the window's accessibility tree
+// carries what ui reads of each.
+func rolesStep(s int, e int) Decision[int, int] {
+	Enter[int]{Next: s + 1}
+}
+
+func rolesMachine() Machine[int, int, int] {
+	Machine[int, int, int]{Initial: 0, Step: rolesStep, After: none[int, int], Work: idle[int, int], Exit: func(s int) Option[func()] { None }}
+}
+
+func allRoles() []ui.Role {
+	[]ui.Role{ui.Button, ui.Checkbox, ui.Switch, ui.TextBox, ui.Static, ui.Group, ui.Region, ui.Image, ui.List, ui.Status, ui.Generic, ui.Tab, ui.TabList, ui.TabPanel, ui.Dialog, ui.Menu, ui.MenuItem, ui.Tree, ui.TreeItem, ui.Heading, ui.Alert, ui.Link, ui.Table, ui.TableRow, ui.TableCell, ui.RadioGroup, ui.Radio, ui.ListBox, ui.ListOption, ui.Slider, ui.SpinButton, ui.SearchBox, ui.MenuItemCheckbox, ui.ComboBox, ui.Grid, ui.GridCell, ui.ColumnHeader, ui.RowHeader, ui.Navigation, ui.ListItem, ui.Separator, ui.Tooltip}
+}
+
+// roleDecl is node i's Access on screen t.
+func roleDecl(r ui.Role, i int, t int, n int) ui.Access {
+	let mut a = ui.Named(r, "s\(i)")
+	let v = i + t
+	a.Key = ui.ByInt(i)
+	a.Checked = if v%3 == 0 { Some{Value: true} } else { None }
+	a.Mixed = v%7 == 1
+	a.Selected = if v%2 == 0 { Some{Value: true} } else { Some{Value: false} }
+	a.Expanded = if v%4 == 1 { Some{Value: true} } else { None }
+	a.Busy = v%5 == 2
+	a.Invalid = v%6 == 3
+	a.MultiSelectable = v%5 == 4
+	a.Level = if v%3 == 1 { Some{Value: v%4 + 1} } else { None }
+	if v%4 == 2 {
+		a.Range = Some{Value: ui.Range{Now: float64(v % 10), Min: 0, Max: 10}}
+	}
+	if v%5 == 0 {
+		a.Current = Some{Value: "page"}
+	}
+	a.HasPopup = v%6 == 0
+	if v%4 == 3 {
+		a.Description = "d\(v % 3)"
+	}
+	let mut rels = []ui.Rel{ui.Controls{To: ui.ByInt((i + 1 + t) % n)}}
+	if v%2 == 1 {
+		rels = rels.Append(ui.DescribedBy{To: ui.ByInt((i + 2) % n)})
+	}
+	if v%3 == 2 {
+		rels = rels.Append(ui.Controls{To: ui.ByInt(n + 5)})
+	}
+	if v%5 == 3 {
+		rels = rels.Append(ui.OpensPopup{Role: ui.ListBox})
+	}
+	a.Rels = rels
+	a
+}
+
+func rolesView(f *ui.Frame[int], t int) {
+	let roles = allRoles()
+	let n = len(roles)
+	let mut col = ui.Plain()
+	col.Gap = 2
+	ui.Column(f, col) {
+		ui.Pressable(f, "next", 0) {
+			ui.Text(f, "Next \(t)")
+		}
+		for row in 0..(n+5)/6 {
+			let mut line = ui.Plain()
+			line.Gap = 4
+			ui.Row(f, line) {
+				for j in 0..6 {
+					let i = row*6 + j
+					if i < n {
+						if (i+t)%9 == 4 {
+							ui.Fieldset(f, true, "off") {
+								ui.Semantic(f, roleDecl(roles[i], i, t, n), None, ui.Plain()) {
+									ui.Text(f, "r\(i)")
+								}
+							}
+						} else {
+							ui.Semantic(f, roleDecl(roles[i], i, t, n), if i%3 == 0 { Some{Value: 0} } else { None }, ui.Plain()) {
+								ui.Text(f, "r\(i)")
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+// states (UG3): Pressables whose look differs in each state (rest, hover,
+// focus, pressed, disabled), a roving group, a disabled one, a focus scope
+// a tap opens and "close" or Escape closes, and a focus request "ask"
+// moves, so both hosts paint each node's look of the state std decides
+// from the pointer, the keys and the passes.
+type statesApp { open bool, asked int }
+
+func statesStep(s statesApp, e int) Decision[statesApp, int] {
+	if e == 0 {
+		return Enter[statesApp]{Next: statesApp{open: false, asked: s.asked}}
+	}
+	if e == 1 {
+		return Enter[statesApp]{Next: statesApp{open: true, asked: s.asked}}
+	}
+	if e == 2 {
+		return Enter[statesApp]{Next: statesApp{open: s.open, asked: s.asked + 1}}
+	}
+	Enter[statesApp]{Next: s}
+}
+
+func statesMachine() Machine[statesApp, int, int] {
+	Machine[statesApp, int, int]{Initial: statesApp{open: false, asked: 0}, Step: statesStep, After: none[statesApp, int], Work: idle[statesApp, int], Exit: func(s statesApp) Option[func()] { None }}
+}
+
+// stateLook is a filled, rounded look of the colour c.
+func stateLook(c uint32) ui.Look {
+	let mut l = ui.Bare()
+	l.Fill = ui.Rgb(c)
+	l.Corners = ui.Round(6)
+	l
+}
+
+// tinted is a Pressable's style whose fill is k's colour in each state.
+func tinted(f *ui.Frame[int], k int) ui.Style {
+	let c = uint32(k * 0x0a)
+	let mut st = ui.PressStyle()
+	st.Look = ui.LookFor(f, ui.Looks{Rest: stateLook(0xd0e0f0 + c), Hover: stateLook(0xf0d080 + c), Focus: stateLook(0x80d0a0 + c), Active: stateLook(0xc06060 + c), Disabled: stateLook(0xa0a0a0 + c)})
+	st
+}
+
+// statePress is a tinted Pressable label, sending on.
+func statePress(f *ui.Frame[int], label string, on int, k int) {
+	ui.PressableStyled(f, label, on, tinted(f, k)) {
+		ui.Text(f, label)
+	}
+}
+
+func statesView(f *ui.Frame[int], s statesApp) {
+	ui.OnKey(f, func(k ui.KeyPress) Option[int] {
+		if k.Name == "Escape" { Some{Value: 0} } else { None }
+	})
+	ui.Focus(f, ui.ByInt(s.asked%3))
+	let mut col = ui.Plain()
+	col.Gap = 8
+	col.Padding = ui.All(12)
+	ui.Column(f, col) {
+		let mut line = ui.Plain()
+		line.Gap = 8
+		ui.Row(f, line) {
+			statePress(f, "open", 1, 0)
+			statePress(f, "ask", 2, 1)
+			for i in 0..3 {
+				let mut a = ui.Named(ui.Group, "z\(i)")
+				a.Key = ui.ByInt(i)
+				ui.Semantic(f, a, None, ui.Plain()) {
+					statePress(f, "p\(i)", 3, i+2)
+				}
+			}
+		}
+		ui.Roving(f) {
+			ui.Row(f, line) {
+				for i in 0..3 {
+					statePress(f, "r\(i)", 3, i+5)
+				}
+			}
+		}
+		ui.Fieldset(f, true, "") {
+			statePress(f, "off", 3, 8)
+		}
+		if s.open {
+			ui.FocusScope(f) {
+				ui.Row(f, line) {
+					statePress(f, "in0", 3, 9)
+					statePress(f, "in1", 3, 10)
+					statePress(f, "close", 0, 11)
+				}
 			}
 		}
 	}

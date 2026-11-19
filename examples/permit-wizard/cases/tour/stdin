@@ -1,0 +1,38 @@
+# An overnight trip packs supplies before the permit.
+click Continue
+click Continue
+click Back
+click Back
+# A day trip skips supplies, going and coming back.
+check Day trip
+click Continue
+click Back
+# A cancel and a start over keep the trip's kind; a finished permit has
+# no File button.
+click Cancel permit
+click File permit · $25.00
+click Start a permit again
+click Continue
+# The review waits for the leader.
+click Review permit
+check Leader: Ana Rivera
+click Review permit
+# A code in any case with spaces grants its allowance; an unknown one is
+# refused, and an edit clears the refusal.
+code  ranger10 
+click Apply
+code BOGUS
+click Apply
+code WINTER2
+code winter20
+click Apply
+# Filing needs the rules agreed.
+click File permit · $20.00
+check Accept the park rules
+click File permit · $20.00
+stats
+# The office answers a second after the filing; filing has no Cancel.
+wait 999
+click Cancel permit
+wait 1
+click Start a permit again

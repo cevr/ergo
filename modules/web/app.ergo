@@ -1,0 +1,218 @@
+import html
+import http
+import slices
+import strconv
+import ui
+
+// Reply is a page with its status: what a site answers one of its typed
+// failures with.
+type Reply { Status int, Page html.Node }
+
+// Site is a site as Fetch serves it: its route map, its loader (Load:
+// what a route's page shows, with the site's typed failures F and the
+// capabilities N it reads), its view (View: a page as a document, pure),
+// its status table (Status: a failure's page and status) and its 404
+// page (NotFound, of the path asked), and its Assets (files served as
+// they are, beside the pages). Status is a function whose match over F
+// is exhaustive, so a failure variant with no page does not compile.
+type Site[R comparable, P, F, N] {
+	Routes   Routes[R],
+	Load     func(r R) P fails F needs N,
+	View     func(p P) html.Node,
+	Status   func(f F) Reply,
+	NotFound func(path string) html.Node,
+	Assets   []Asset,
+}
+
+// Fetch is site's answer to req. Routes.Parse reads req's path with its
+// query (http.EncodeQuery of req.Query), so a route's query state
+// reaches its loader. The path of an asset is the asset: its
+// bytes with its Content-Type for GET, the same with no body for HEAD,
+// and 405 for another method. A path that parses to no route is the
+// 404 page with status 404. GET of a route is its page, loaded and viewed,
+// with status 200, or the page and status Status gives the load's
+// failure. HEAD is GET's answer with no body. Any other method on a route
+// is 405 with Allow: GET, HEAD (RFC 9110, as std http.Match answers).
+func Fetch[R comparable, P, F, N](site Site[R, P, F, N], req http.Request) http.Response needs N {
+	for a in site.Assets {
+		if a.Path == req.Path {
+			return served(req.Method, a)
+		}
+	}
+	match site.Routes.Parse(ui.URL{Path: req.Path, Query: http.EncodeQuery(req.Query), Fragment: ""}) {
+	case None:
+		answer(req.Method, 404, site.NotFound(req.Path))
+	case Some as r:
+		if req.Method != "GET" && req.Method != "HEAD" {
+			return notAllowed()
+		}
+		let page = site.Load(r.Value) catch {
+		case f:
+			let reply = site.Status(f)
+			return answer(req.Method, reply.Status, reply.Page)
+		}
+		answer(req.Method, 200, site.View(page))
+	}
+}
+
+// served is the answer to method for asset a.
+func served(method string, a Asset) http.Response {
+	if method != "GET" && method != "HEAD" {
+		return notAllowed()
+	}
+	let header = []http.Field{http.Field{Name: "Content-Type", Value: a.Type}}
+	http.Response{Status: 200, Header: header, Body: if method == "HEAD" { "" } else { a.Body }}
+}
+
+// notAllowed is 405 with Allow: GET, HEAD and no body.
+func notAllowed() http.Response {
+	http.Response{Status: 405, Header: []http.Field{http.Field{Name: "Allow", Value: "GET, HEAD"}}, Body: ""}
+}
+
+// answer is page as an HTML response with status, its body left out for
+// a HEAD.
+func answer(method string, status int, page html.Node) http.Response {
+	let header = []http.Field{http.Field{Name: "Content-Type", Value: "text/html; charset=utf-8"}}
+	if method == "HEAD" {
+		return http.Response{Status: status, Header: header, Body: ""}
+	}
+	http.Response{Status: status, Header: header, Body: html.Render(page)}
+}
+
+// Request is a request of method for path with no query, header or body,
+// as a test or a prerender asks a site; its raw path is path as given.
+func Request(method string, path string) http.Request {
+	http.Request{Method: method, Path: path, RawPath: path, Query: []http.Field{}, Header: []http.Field{}, Body: http.Buffered{Text: ""}}
+}
+
+// The laws' site: a home page and numbered items, where a negative item
+// is gone (status 410).
+type lawHome {}
+type lawItem { N int }
+type lawRoute = lawHome | lawItem
+type lawGone { N int }
+type lawMap {} implements Routes[lawRoute]
+
+func Href(_ lawMap, r lawRoute) ui.URL {
+	match r {
+	case lawHome:
+		ui.URL{Path: "/", Query: "", Fragment: ""}
+	case lawItem as i:
+		ui.URL{Path: ui.PathOf([]string{"item", strconv.Itoa(i.N)}), Query: "", Fragment: ""}
+	}
+}
+
+func Parse(_ lawMap, u ui.URL) Option[lawRoute] {
+	let s = ui.Segments(u)
+	if len(s) == 0 {
+		return Some[lawRoute]{Value: lawHome}
+	}
+	if len(s) == 2 && s[0] == "item" {
+		let n = strconv.Atoi(s[1]) catch {
+		case _:
+			return None
+		}
+		if strconv.Itoa(n) == s[1] {
+			return Some[lawRoute]{Value: lawItem{N: n}}
+		}
+	}
+	None
+}
+
+func lawLoad(r lawRoute) string fails lawGone {
+	match r {
+	case lawHome:
+		"home"
+	case lawItem as i:
+		if i.N < 0 {
+			return lawGone{N: i.N}
+		}
+		"item " + strconv.Itoa(i.N)
+	}
+}
+
+func lawSite() Site[lawRoute, string, lawGone] {
+	Site[lawRoute, string, lawGone]{
+		Routes: lawMap,
+		Load:   lawLoad,
+		View:   func(p string) html.Node { html.P([]html.Child{html.Text(p)}) },
+		Status: func(f) Reply {
+			match f {
+			case lawGone as g:
+				Reply{Status: 410, Page: html.P([]html.Child{html.Text("gone " + strconv.Itoa(g.N))})}
+			}
+		},
+		NotFound: func(path string) html.Node { html.P([]html.Child{html.Text("no page at " + path)}) },
+		Assets:   []Asset{lawSheet},
+	}
+}
+
+// lawPath is the place of r when known holds, and other otherwise: most
+// generated strings are no route's place.
+func lawPath(r lawRoute, other string, known bool) string {
+	if known {
+		return ui.Href(lawMap.Href(r))
+	}
+	other
+}
+
+// HeadIsGetWithoutBody: HEAD of any path answers with GET's status and
+// header and no body.
+law HeadIsGetWithoutBody(r lawRoute, other string, known bool) {
+	let path = lawPath(r, other, known)
+	let get = Fetch(lawSite(), Request("GET", path))
+	let head = Fetch(lawSite(), Request("HEAD", path))
+	head.Status == get.Status && slices.Equal(head.Header, get.Header) && head.Body == ""
+}
+
+// UnknownPathIsNotFound: a path that parses to no route is the 404 page
+// with status 404, for every method, never a soft 404.
+law UnknownPathIsNotFound(path string, pick int) {
+	let methods = []string{"GET", "POST", "PUT", "DELETE"}
+	let method = methods[((pick%len(methods))+len(methods))%len(methods)]
+	match lawMap.Parse(ui.URL{Path: path, Query: "", Fragment: ""}) {
+	case Some:
+		true
+	case None:
+		let res = Fetch(lawSite(), Request(method, path))
+		res.Status == 404 && res.Body == html.Render(lawSite().NotFound(path))
+	}
+}
+
+// OtherMethodIsNotAllowed: a method other than GET and HEAD on a route
+// is 405 with Allow: GET, HEAD and no body, and loads nothing.
+law OtherMethodIsNotAllowed(r lawRoute, pick int) {
+	let methods = []string{"POST", "PUT", "DELETE", "PATCH"}
+	let method = methods[((pick%len(methods))+len(methods))%len(methods)]
+	let res = Fetch(lawSite(), Request(method, lawPath(r, "", true)))
+	res.Status == 405 && http.Header(res.Header, "Allow") == Some{"GET, HEAD"} && res.Body == ""
+}
+
+// KnownPathIsLoadThenView: GET of a route's place is its page, the view
+// of what the loader loads, with status 200, or, when the loader fails,
+// the page and status the status table gives the failure.
+law KnownPathIsLoadThenView(r lawRoute) {
+	let res = Fetch(lawSite(), Request("GET", lawPath(r, "", true)))
+	let want = lawLoad(r) catch {
+	case g:
+		let reply = lawSite().Status(g)
+		return res.Status == reply.Status && res.Body == html.Render(reply.Page)
+	}
+	res.Status == 200 && res.Body == html.Render(lawSite().View(want)) && http.Header(res.Header, "Content-Type") == Some{"text/html; charset=utf-8"}
+}
+
+// lawSheet is the laws' site's one asset.
+let lawSheet = Stylesheet("site.css", "p { color: red }")
+
+// AssetServedIsItsBytes: GET of an asset's place is its bytes with its
+// Content-Type and status 200, whatever its body; HEAD is the same with
+// no body; another method is 405.
+law AssetServedIsItsBytes(css string, pick int) {
+	let sheet = Stylesheet("a.css", css)
+	let site = Site[lawRoute, string, lawGone]{..lawSite(), Assets: []Asset{sheet}}
+	let get = Fetch(site, Request("GET", sheet.Path))
+	let head = Fetch(site, Request("HEAD", sheet.Path))
+	let methods = []string{"POST", "PUT", "DELETE"}
+	let other = Fetch(site, Request(methods[((pick%3)+3)%3], sheet.Path))
+	get.Status == 200 && get.Body == css && http.Header(get.Header, "Content-Type") == Some{"text/css; charset=utf-8"} && head.Status == 200 && head.Body == "" && slices.Equal(head.Header, get.Header) && other.Status == 405
+}

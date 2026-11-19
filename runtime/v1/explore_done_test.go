@@ -22,7 +22,7 @@ func doneProgram(t *rt.Task) error {
 		}
 		return xrdec{k: decideStay, s: rstate{got: s + 1}}, nil
 	}
-	a := MachineStart(Site("tally"), t, noSleep{}, 0, step, nil,
+	a := MachineStart(Site("tally"), t, noSleep{}, nil, 0, step, nil,
 		func(int) time.Duration { return noTimer }, func(s int) int { return s }, func(int) bool { return false },
 		func(*rt.Task, int, func(int)) {}, func(d xrdec) int { return d.k },
 		func(s int, d xrdec) int {

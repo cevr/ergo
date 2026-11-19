@@ -1,0 +1,227 @@
+// Package net makes stream connections (docs/spec/stdlib.md, net; Effect
+// platform's Socket and SocketServer, Go's net). Network is the
+// capability: Listen binds an address and Dial connects to one. Host is
+// the host's provider over TCP: it has an unexported field, so only this
+// package builds one, and NewHost, its one constructor, needs the
+// prelude's Ambient, which only the entry provides. So main lists Ambient
+// and binds `context { net.Network: net.NewHost() }`. A test binds
+// nettest.Pipe, whose connections stay in memory and keep the same laws.
+//
+// A Listener and a Conn are resources: their owner's scope closes them.
+// A blocked Accept, Read, Write or Dial is an interruption point. A server
+// accepts in a loop and gives each Conn to a task of its own, as Go's
+// goroutine per connection.
+
+// ListenFailed is the failure of an address that could not be bound: one
+// in use, or not of the form "host:port".
+extern go ergo.local/prototype/runtime/v1/net.NetListenFailed type ListenFailed { Addr string, Reason string }
+
+// DialFailed is the failure of a dial that made no connection, such as an
+// address with no listener. Reason is the host's text for it.
+extern go ergo.local/prototype/runtime/v1/net.NetDialFailed type DialFailed { Addr string, Reason string }
+
+// Failed is the failure of a read, a write or an accept of an open
+// connection or listener, such as a write to a peer that closed or a read
+// from one that reset. Reason is the host's text for it.
+extern go ergo.local/prototype/runtime/v1/net.NetFailed type Failed { Reason string }
+
+// Conn is one end of a stream connection. Bytes a side writes reach the
+// other side's reads in their order, cut anywhere.
+//
+// law-exempt: only a Network makes one; Network's laws hold it against
+// nettest.Pipe, and runtime/v1/net TestNetHostAgrees holds the host's
+// connections equal to the pipe's.
+extern go ergo.local/prototype/runtime/v1/net.Conn type Conn {
+	runtimeOnly(),
+	..Closer,
+	// Read gives the next bytes the peer wrote, at most 64 KiB, waiting
+	// until there is one; "" once the peer closed and every byte it wrote
+	// was read. Close of a Conn that left bytes unread resets its peer,
+	// whose reads then fail, as TCP's does.
+	Read() string fails Failed,
+	// Write writes every byte of data, waiting while the peer has not read
+	// enough. A stop may end it after a part was written.
+	Write(data string) fails Failed,
+	// LocalAddr is the address of this end.
+	LocalAddr() string,
+	// RemoteAddr is the address of the peer's end.
+	RemoteAddr() string,
+}
+
+// Listener accepts the connections dialed to its address, in the order of
+// the dials. Its Close frees the address, after which a dial to it fails,
+// and resets each connection dialed and not accepted.
+//
+// law-exempt: only a Network makes one; Network's laws hold it against
+// nettest.Pipe, and runtime/v1/net TestNetHostAgrees holds the host's
+// listener equal to the pipe's.
+extern go ergo.local/prototype/runtime/v1/net.Listener type Listener {
+	runtimeOnly(),
+	..Closer,
+	// Accept gives the next connection dialed to the address, waiting until
+	// there is one.
+	Accept() Conn fails Failed,
+	// Addr is the address bound, with the port chosen for a port 0.
+	Addr() string,
+}
+
+// Network binds addresses and connects to them. An address is
+// "host:port"; port 0 asks for a free port, which Listener.Addr gives.
+type Network {
+	Listen(addr string) Listener fails ListenFailed,
+	Dial(addr string) Conn fails DialFailed,
+
+	// WriteThenReadRoundTrips: bytes the dialer writes are what the
+	// accepted end reads, and the reply reaches the dialer.
+	law WriteThenReadRoundTrips(data string, reply string) {
+		let l = Listen("127.0.0.1:0") catch {
+		case ListenFailed:
+			return false
+		}
+		let c = Dial(l.Addr()) catch {
+		case DialFailed:
+			return false
+		}
+		let s = l.Accept() catch {
+		case Failed:
+			return false
+		}
+		sends(c, s, data) && sends(s, c, reply)
+	},
+
+	// CloseEndsReads: after the peer wrote data and closed, a reader gets
+	// data and then the end.
+	law CloseEndsReads(data string) {
+		let l = Listen("127.0.0.1:0") catch {
+		case ListenFailed:
+			return false
+		}
+		let c = Dial(l.Addr()) catch {
+		case DialFailed:
+			return false
+		}
+		let s = l.Accept() catch {
+		case Failed:
+			return false
+		}
+		c.Write(data) catch {
+		case Failed:
+			return false
+		}
+		c.Close()
+		let got = ReadAll(s) catch {
+		case Failed:
+			return false
+		}
+		got == data
+	},
+
+	// DialAfterCloseFails: once a listener is closed, a dial to its address
+	// fails, and the address can be bound again.
+	law DialAfterCloseFails() {
+		let l = Listen("127.0.0.1:0") catch {
+		case ListenFailed:
+			return false
+		}
+		let addr = l.Addr()
+		l.Close()
+		let c = Dial(addr) catch {
+		case DialFailed:
+			return true
+		}
+		c.Close()
+		false
+	},
+
+	// AcceptsInDialOrder: two dials are accepted in their order: each
+	// accepted end reads what its dialer wrote.
+	law AcceptsInDialOrder(a string, b string) {
+		let l = Listen("127.0.0.1:0") catch {
+		case ListenFailed:
+			return false
+		}
+		let first = Dial(l.Addr()) catch {
+		case DialFailed:
+			return false
+		}
+		let second = Dial(l.Addr()) catch {
+		case DialFailed:
+			return false
+		}
+		let x = l.Accept() catch {
+		case Failed:
+			return false
+		}
+		let y = l.Accept() catch {
+		case Failed:
+			return false
+		}
+		sends(first, x, a + "1") && sends(second, y, b + "2")
+	},
+
+	// ListenTakenFails: an address bound by an open listener cannot be
+	// bound again.
+	law ListenTakenFails() {
+		let l = Listen("127.0.0.1:0") catch {
+		case ListenFailed:
+			return false
+		}
+		let again = Listen(l.Addr()) catch {
+		case ListenFailed:
+			return true
+		}
+		again.Close()
+		false
+	},
+}
+
+// sends writes data on from and reads exactly as many bytes on to, and
+// reports whether they are data. An empty data sends nothing.
+func sends(from Conn, to Conn, data string) bool {
+	from.Write(data) catch {
+	case Failed:
+		return false
+	}
+	let mut got = ""
+	for len(got) < len(data) {
+		let part = to.Read() catch {
+		case Failed:
+			return false
+		}
+		if part == "" {
+			return false
+		}
+		got = got + part
+	}
+	got == data
+}
+
+// ReadAll reads c until the peer's end and gives every byte read.
+func ReadAll(c Conn) string fails Failed {
+	let mut out = ""
+	let mut part = try c.Read()
+	for part != "" {
+		out = out + part
+		part = try c.Read()
+	}
+	out
+}
+
+// Host is the host's Network: TCP sockets. Only NewHost makes one.
+type Host { live hostOnly } implements Network
+
+// hostOnly is the unexported field that keeps a Host from being built
+// outside this package.
+type hostOnly {}
+
+// NewHost is the host's Network. It needs Ambient: only the entry, or a
+// function main gives Ambient to, reaches the host's sockets.
+func NewHost() Host needs Ambient { Host{live: hostOnly} }
+
+func Listen(_ Host, addr string) Listener fails ListenFailed { try hostListen(addr) }
+
+func Dial(_ Host, addr string) Conn fails DialFailed { try hostDial(addr) }
+
+extern go ergo.local/prototype/runtime/v1/net.NetListen func hostListen(addr string) Listener fails ListenFailed
+
+extern go ergo.local/prototype/runtime/v1/net.NetDial func hostDial(addr string) Conn fails DialFailed

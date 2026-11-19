@@ -33,8 +33,10 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"unicode"
 
+	"ergo.local/prototype/internal/ergoversion"
 	"ergo.local/prototype/internal/gobind"
 	"ergo.local/prototype/internal/report"
 	"ergo.local/prototype/internal/sketch/build"
@@ -329,6 +331,9 @@ func checkDirFull(fsys FS, dir string, platform gobind.Platform, modCache string
 		if err := l.visit(root, nil); err != nil {
 			return Analysis{}, err
 		}
+		if d := l.dependencyPin(); d != nil {
+			l.diags = []report.Diagnostic{*d}
+		}
 		if len(l.diags) == 0 {
 			l.segments = l.moduleSegments()
 			prepareStd(slices.Collect(maps.Values(l.segments)))
@@ -372,13 +377,18 @@ func (l *loader) findModule(dir string) (bool, error) {
 			l.root = d
 			text := string(data)
 			l.texts[ModFile] = text
-			module, trust, diagnostic := parseModule(text)
+			mf, diagnostic := parseModule(text)
+			if diagnostic == nil {
+				// A refused ergo line is read as a malformed ergo.mod: the
+				// module is not read at all.
+				diagnostic = pinProblem(binaryVersion(), ModFile, text, mf)
+			}
 			if diagnostic != nil {
 				diagnostic.File = ModFile
 				l.diags = append(l.diags, *diagnostic)
 				return true, nil
 			}
-			l.module, l.trust = module, trust
+			l.module, l.trust = mf.module, mf.trust
 			l.readGoModule()
 			return true, nil
 		case err == nil:
@@ -394,16 +404,29 @@ func (l *loader) findModule(dir string) (bool, error) {
 	}
 }
 
-// parseModule reads an ergo.mod: blank lines, one line `module NAME`, and
-// lines `trust go MODULE`, each naming a required module whose Go code
-// (import go, extern go) the module's programs admit (grammar.md, Source
-// files 1, Trusted Go). It returns the module name and the trusted
-// module paths in their order.
-func parseModule(text string) (string, []string, *report.Diagnostic) {
-	const shape = "ergo.mod holds the line module NAME and lines trust go MODULE, and nothing else"
+// modFile is what an ergo.mod says.
+type modFile struct {
+	// module is the module name; trust the trusted module paths in their
+	// order.
+	module string
+	trust  []string
+	// ergo is the version of the `ergo VERSION` line, "" with none, and
+	// ergoAt its line and ergoCol the column of VERSION.
+	ergo            string
+	ergoAt, ergoCol int
+}
+
+// parseModule reads an ergo.mod: blank lines, one line `module NAME`, at
+// most one line `ergo VERSION`, the lowest ergo that may build the module
+// (grammar.md, Source files 1, Which ergo), and lines `trust go MODULE`,
+// each naming a required module whose Go code (import go, extern go) the
+// module's programs admit (grammar.md, Source files 1, Trusted Go).
+func parseModule(text string) (modFile, *report.Diagnostic) {
+	const shape = "ergo.mod holds the line module NAME, at most one line ergo VERSION and lines trust go MODULE, and nothing else"
 	lines := lineStarts(text)
 	module, at := "", -1
 	var trust []string
+	var mf modFile
 	for i, start := range lines {
 		end := len(text)
 		if i+1 < len(lines) {
@@ -420,25 +443,69 @@ func parseModule(text string) (string, []string, *report.Diagnostic) {
 		case len(fields) == 3 && fields[0] == "trust" && fields[1] == "go":
 			col := strings.LastIndex(line, fields[2]) + 1
 			if slices.Contains(trust, fields[2]) {
-				return "", nil, modDiagnostic(text, lines, i+1, col, fmt.Sprintf("ergo.mod trusts the Go of module %s twice", fields[2]))
+				return modFile{}, modDiagnostic(text, lines, i+1, col, fmt.Sprintf("ergo.mod trusts the Go of module %s twice", fields[2]))
 			}
 			if reason := modulePathProblem(fields[2]); reason != "" {
-				return "", nil, modDiagnostic(text, lines, i+1, col, reason)
+				return modFile{}, modDiagnostic(text, lines, i+1, col, reason)
 			}
 			trust = append(trust, fields[2])
 			continue
+		case len(fields) == 2 && fields[0] == "ergo":
+			col := strings.LastIndex(line, fields[1]) + 1
+			if mf.ergo != "" {
+				return modFile{}, modDiagnostic(text, lines, i+1, 1, fmt.Sprintf("ergo.mod names the ergo it needs twice (line %d and line %d); keep one ergo line", mf.ergoAt, i+1))
+			}
+			if reason := ergoversion.Valid(fields[1]); reason != "" || strings.Contains(fields[1], "+") {
+				if reason == "" {
+					reason = "it carries build metadata, which names no version of its own"
+				}
+				return modFile{}, modDiagnostic(text, lines, i+1, col, fmt.Sprintf("the ergo line's %s is not a version of ergo: %s; write a tag (v1.2.3) or a pseudo-version (v0.0.0-20261117152120-c501620891c0), as ergo version prints it", fields[1], reason))
+			}
+			mf.ergo, mf.ergoAt, mf.ergoCol = fields[1], i+1, col
+			continue
 		default:
-			return "", nil, modDiagnostic(text, lines, i+1, 1, shape)
+			return modFile{}, modDiagnostic(text, lines, i+1, 1, shape)
 		}
 		col := strings.Index(line, module) + 1
 		if reason := modulePathProblem(module); reason != "" {
-			return "", nil, modDiagnostic(text, lines, i+1, col, reason)
+			return modFile{}, modDiagnostic(text, lines, i+1, col, reason)
 		}
 	}
 	if at < 0 {
-		return "", nil, modDiagnostic(text, lines, 1, 1, "ergo.mod names no module: it holds the line module NAME")
+		return modFile{}, modDiagnostic(text, lines, 1, 1, "ergo.mod names no module: it holds the line module NAME")
 	}
-	return module, trust, nil
+	mf.module, mf.trust = module, trust
+	return mf, nil
+}
+
+// binaryVersion is the version of this ergo; a test sets it.
+var binaryVersion = ergoversion.Current
+
+// develNotice says once per process that a devel ergo does not compare
+// ergo lines.
+var develNotice = sync.OnceFunc(func() {
+	fmt.Fprintf(os.Stderr, "ergo: this ergo is a %s build, which has no version, so it does not compare the ergo lines of ergo.mod files\n", ergoversion.Devel)
+})
+
+// pinProblem is the diagnostic that refuses a module whose ergo line asks
+// for an ergo newer than binary, in the file file whose text is text, or
+// nil when binary may build it: binary is at least the line by semantic
+// version order (Go's go line and Gleam's gleam key are minimums too). A
+// devel binary accepts every line and says so once on stderr.
+func pinProblem(binary, file, text string, mf modFile) *report.Diagnostic {
+	if mf.ergo == "" {
+		return nil
+	}
+	if binary == ergoversion.Devel {
+		develNotice()
+		return nil
+	}
+	if compareVersions(binary, mf.ergo) >= 0 {
+		return nil
+	}
+	d := modDiagnostic(text, lineStarts(text), mf.ergoAt, mf.ergoCol, fmt.Sprintf("%s needs ergo %s or newer, and this ergo is %s; install it: %s", file, mf.ergo, binary, ergoversion.InstallCommand(mf.ergo)))
+	d.File = file
+	return d
 }
 
 func modDiagnostic(text string, lines []int, line, col int, message string) *report.Diagnostic {
@@ -509,8 +576,8 @@ func (l *loader) nestedModule(dir string, mod *depModule) string {
 		}
 		rel := l.relIn(mod, d)
 		if data, err := l.fsys.ReadFile(file); err == nil {
-			if module, _, problem := parseModule(string(data)); problem == nil {
-				return fmt.Sprintf("the folder %s is module %s (%s/%s); import its packages by that module's path, which %s requires", rel, module, rel, ModFile, GoModFile)
+			if mf, problem := parseModule(string(data)); problem == nil {
+				return fmt.Sprintf("the folder %s is module %s (%s/%s); import its packages by that module's path, which %s requires", rel, mf.module, rel, ModFile, GoModFile)
 			}
 		}
 		return fmt.Sprintf("the folder %s holds its own %s, so it is not in module %s", rel, ModFile, name)

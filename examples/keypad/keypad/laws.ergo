@@ -3,7 +3,9 @@
 // its own machine, Shifter (shift.ergo).
 
 import machines
+import slices
 import strings
+import time
 
 // Tried is Step(p, s), or Reject when the signal is refused: what the
 // board does with a signal, as the run loop decides it.
@@ -55,7 +57,7 @@ func Texts(p Pad) string {
 // TextOf is the text of the field id of p.
 func TextOf(p Pad, id string) string {
 	let b = BoardOf(p)
-	let at = indexOf(b, id)
+	let at = slices.IndexFunc(b.Fields, func(f Field) bool { f.Spec.ID == id })
 	if at < 0 {
 		return ""
 	}
@@ -78,9 +80,6 @@ func letterOf(n int) string {
 	letters[pick(n, len(letters))]
 }
 
-// ms is n milliseconds.
-func ms(n int) duration { duration(int64(n) * 1000000) }
-
 // focusedOn is the Alarm board focused on its field at pick(i).
 func focusedOn(i int) Pad {
 	let start = Start()
@@ -91,7 +90,7 @@ func focusedOn(i int) Pad {
 func pressed(p Pad, keys []Key) Pad {
 	let mut at = p
 	for i, k in keys {
-		at = After(at, Pressed{Key: k, At: ms(400 * i)})
+		at = After(at, Pressed{Key: k, At: time.Times(1ms, 400*i)})
 	}
 	at
 }
@@ -144,14 +143,14 @@ type Keypad machine[Pad, Signal] {
 	// upper case until the next Shift, which goes back to Lower.
 	law CapsHolds(ns []int) {
 		let start = Start()
-		let locked = After(After(start, Pressed{Key: Shift, At: 0s}), Pressed{Key: Shift, At: ms(300)})
+		let locked = After(After(start, Pressed{Key: Shift, At: 0s}), Pressed{Key: Shift, At: time.Times(1ms, 300)})
 		let mut p = locked
 		let mut want = ""
 		for n in ns {
-			p = After(p, Pressed{Key: Char{Cap: letterOf(n)}, At: ms(400)})
+			p = After(p, Pressed{Key: Char{Cap: letterOf(n)}, At: time.Times(1ms, 400)})
 			want = want + strings.ToUpper(letterOf(n))
 		}
-		let unlocked = After(p, Pressed{Key: Shift, At: ms(500)})
+		let unlocked = After(p, Pressed{Key: Shift, At: time.Times(1ms, 500)})
 		TextOf(p, "label") == want && Upper(BoardOf(p).Mode) && !Upper(BoardOf(unlocked).Mode)
 	},
 

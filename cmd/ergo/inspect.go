@@ -25,7 +25,7 @@ reachable pairs (docs/spec/code.md).
 
 Exit status: 0 when the package checks, 1 when it does not, 2 on an
 invalid invocation.
-` + "\n" + inspectAPIHelp + "\n" + inspectFactsHelp + "\n" + inspectCopiesHelp
+` + "\n" + inspectAPIHelp + "\n" + inspectFactsHelp + "\n" + inspectCopiesHelp + "\n" + inspectFormsHelp + "\n" + inspectRewritesHelp
 
 const inspectAPIHelp = `usage: ergo inspect api FILE|DIR [--json]
        ergo inspect api --diff OLD NEW [--json]
@@ -45,7 +45,26 @@ Lowering 7): the range of each refined parameter, each index and cut a
 dominating compare proves, each two borrow parameters that never overlap,
 and each pure function, with its position, function, condition, evidence
 (proved or checked) and reason. A tested fact is never exported. A test
-build exports none: it checks each one. --json prints them as JSON.
+build exports none: it checks each one. After the facts come the build's
+evidence rows: each law rewrite the run build applies (kind rewrite), with
+its ledger entry's level (proved, or validated by a named run) and its
+ergo.laws line, and each unsafe runtime body a shortcut the build takes
+links (kind unsafe), with its row of the unsafe inventory. --json prints
+them as JSON.
+
+Exit status: 0 when the package checks, 1 when it does not, 2 on an
+invalid invocation.
+`
+
+const inspectFormsHelp = `usage: ergo inspect forms FILE|DIR [--json]
+
+Lists the decisions of the passes over the IR of the run build
+(inspect.md, Forms): at each site a pass looked at, the position, the form
+(call), the pass (memo: a loop-invariant pure call computed once per entry
+of its loop; merge: a pure call reads an equal call's value; fold: a pure
+Go call on constants computed at compile time), whether it fired, the body, and what it did or the reason it
+did not, in the pass's own words. Only the sites of bodies the IR path
+builds are listed. --json prints them as JSON.
 
 Exit status: 0 when the package checks, 1 when it does not, 2 on an
 invalid invocation.
@@ -63,6 +82,13 @@ func inspectCommand(args []string) error {
 	if len(args) > 0 && args[0] == "deps" {
 		return inspectDepsCommand(args[1:])
 	}
+	if len(args) > 0 && args[0] == "rewrites" {
+		if len(args) == 2 && (args[1] == "--help" || args[1] == "-h") {
+			_, err := os.Stdout.WriteString(inspectRewritesHelp)
+			return err
+		}
+		return inspectRewritesCommand(args[1:])
+	}
 	if len(args) > 0 && args[0] == "facts" {
 		if len(args) == 2 && (args[1] == "--help" || args[1] == "-h") {
 			_, err := os.Stdout.WriteString(inspectFactsHelp)
@@ -72,6 +98,13 @@ func inspectCommand(args []string) error {
 	}
 	if len(args) > 0 && args[0] == "copies" {
 		return inspectCopiesCommand(args[1:])
+	}
+	if len(args) > 0 && args[0] == "forms" {
+		if len(args) == 2 && (args[1] == "--help" || args[1] == "-h") {
+			_, err := os.Stdout.WriteString(inspectFormsHelp)
+			return err
+		}
+		return inspectFormsCommand(args[1:])
 	}
 	if len(args) == 0 || args[0] != "machine" {
 		return inspectGoCommand(args)
@@ -202,7 +235,7 @@ func inspectFactsCommand(args []string) error {
 	if !l.result.Checked || l.analysis.Checked() == nil {
 		return refuseUnchecked(l, opts)
 	}
-	facts, err := sketchfront.InspectFacts(l.analysis, l.source.Admitted())
+	facts, err := sketchfront.InspectFacts(l.analysis, l.source.Admitted(), ledgerPath(opts.file))
 	if err != nil {
 		return err
 	}
@@ -210,6 +243,86 @@ func inspectFactsCommand(args []string) error {
 		return printJSON(facts)
 	}
 	_, err = os.Stdout.WriteString(sketchfront.FactsText(facts))
+	return err
+}
+
+// inspectFormsCommand prints the form sites of the root package's run
+// build (sketchfront.InspectForms).
+func inspectFormsCommand(args []string) error {
+	asJSON := false
+	var rest []string
+	for _, arg := range args {
+		if arg == "--json" {
+			asJSON = true
+			continue
+		}
+		rest = append(rest, arg)
+	}
+	opts, err := parseFileOptions("inspect forms", rest)
+	if err != nil {
+		return invalidInvocation(err)
+	}
+	l, err := loadForPlatform(opts.file, opts.target, opts.platform)
+	if err != nil {
+		return err
+	}
+	if !l.result.Checked || l.analysis.Checked() == nil {
+		return refuseUnchecked(l, opts)
+	}
+	sites, err := sketchfront.InspectForms(l.analysis, l.source.Admitted())
+	if err != nil {
+		return err
+	}
+	if asJSON {
+		return printJSON(sites)
+	}
+	_, err = os.Stdout.WriteString(sketchfront.FormsText(sites))
+	return err
+}
+
+const inspectRewritesHelp = `usage: ergo inspect rewrites FILE|DIR [--json]
+
+Lists the rewrite sites of the run build (types.md, Laws 14): for each, its
+position, its law, its ergo.laws entry's level (with the run and the
+foreign keys that gave it), the entry's state (current, stale or missing)
+and whether the build applies it, or why not (a level that changes no
+code, AsWritten, a body the IR path does not reach). It lowers the program
+in process and runs no Go tool. --json prints the same rows as JSON.
+
+Exit status: 0 when the package checks, 1 when it does not, 2 on an
+invalid invocation.
+`
+
+// inspectRewritesCommand prints the rewrite sites of the run build.
+func inspectRewritesCommand(args []string) error {
+	asJSON := false
+	var rest []string
+	for _, arg := range args {
+		if arg == "--json" {
+			asJSON = true
+			continue
+		}
+		rest = append(rest, arg)
+	}
+	opts, err := parseFileOptions("inspect rewrites", rest)
+	if err != nil {
+		return invalidInvocation(err)
+	}
+	l, err := loadForPlatform(opts.file, opts.target, opts.platform)
+	if err != nil {
+		return err
+	}
+	if !l.result.Checked || l.analysis.Checked() == nil {
+		return refuseUnchecked(l, opts)
+	}
+	sites, err := sketchfront.InspectRewrites(l.analysis, l.source.Admitted(), ledgerPath(opts.file))
+	if err != nil {
+		return err
+	}
+	if asJSON {
+		return printJSON(sites)
+	}
+	_, err = os.Stdout.WriteString(sketchfront.RewritesText(sites))
 	return err
 }
 

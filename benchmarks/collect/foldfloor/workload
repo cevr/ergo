@@ -1,0 +1,6 @@
+# scripts/opcount: GP-FOLD's program against the floor: the control folds
+# each part in place, with no slice, which the fused fold also does.
+unit element
+sizes 409600 2457600
+args bench foldfloor {n}
+control benchmarks/collect/testdata/control

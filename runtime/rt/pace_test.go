@@ -211,7 +211,7 @@ func TestPaceFollowsTheCycles(t *testing.T) {
 // memory.max of the process's cgroup and its ancestors, "max" read as no
 // limit, and no limit when the files are missing.
 //
-// Mutant: pace-cgroup-leaf-only.
+// Mutants: pace-cgroup-leaf-only, size-hello-cgroup-root-lost.
 func TestPaceReadsTheCgroupTree(t *testing.T) {
 	root := t.TempDir()
 	write := func(rel, text string) {
@@ -232,5 +232,12 @@ func TestPaceReadsTheCgroupTree(t *testing.T) {
 	}
 	if got := cgroupMemoryLimit(filepath.Join(root, "missing"), filepath.Join(root, "fs")); got != 0 {
 		t.Errorf("limit %d with no cgroup file, want 0", got)
+	}
+	// A process in the root cgroup reads the root's memory.max, after
+	// another hierarchy's line (SIZE-HELLO: the parse without path.Clean).
+	write("root-self", "1:name=systemd:/\n0::/\n")
+	write("rootfs/memory.max", "1073741824\n")
+	if got := cgroupMemoryLimit(filepath.Join(root, "root-self"), filepath.Join(root, "rootfs")); got != 1<<30 {
+		t.Errorf("limit %d in the root cgroup, want the root's 1073741824", got)
 	}
 }

@@ -1,0 +1,3 @@
+type L[T] { // want S108
+	law Holds(x T) { true },
+}

@@ -119,8 +119,22 @@ func (p *printer) decl(d syntax.Decl) {
 		p.token(d.Law, "law")
 		p.space()
 		p.ident(d.Name)
+		if d.TypeParams != nil {
+			p.fieldList(d.TypeParams, "[", "]")
+		}
 		p.fieldList(d.Params, "(", ")")
 		p.space()
+		if e := d.Equation; e != nil {
+			// The rewrite form (Laws 14): its Body is the synthetic
+			// lhs == rhs, printed as the two blocks it was written as.
+			lhs, rhs, eq := d.EquationSides()
+			p.block(&syntax.BlockStmt{Lbrace: e.LhsLbrace, List: []syntax.Stmt{&syntax.ExprStmt{X: lhs}}, Rbrace: e.LhsRbrace}, true)
+			p.space()
+			p.token(eq.OpPos, "==")
+			p.space()
+			p.block(&syntax.BlockStmt{Lbrace: e.RhsLbrace, List: []syntax.Stmt{&syntax.ExprStmt{X: rhs}}, Rbrace: e.RhsRbrace}, true)
+			return
+		}
 		p.block(d.Body, true)
 	}
 }
@@ -802,6 +816,12 @@ func (p *printer) stmt(s syntax.Stmt) {
 		p.token(s.Assert, "assert")
 		p.space()
 		p.expr(s.X)
+	case *syntax.SkipStmt:
+		// skip is a contextual keyword: the name, a space and the reason
+		// on one line, which is what makes it the statement.
+		p.token(s.Skip, "skip")
+		p.space()
+		p.tokenEnd(s.ReasonPos, s.Reason, s.ReasonEnd)
 	case *syntax.BlockStmt:
 		p.block(s, false)
 	case *syntax.IfStmt:

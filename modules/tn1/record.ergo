@@ -1,0 +1,418 @@
+// The feature record: what a host's parser knows about a source file, in
+// a form that does not depend on the host's language. It is version 2 of
+// TN1's input. Ergo's checker fills it (internal/sketch/lint/features);
+// a TypeScript host fills it from its own syntax tree. The engine reads
+// only the record, so one network can decide files of both languages,
+// and every engine (this one, a hand-written JavaScript one) is held to
+// the same conformance vectors (testdata/vectors).
+//
+// The text form, one record per file, one item per line:
+//
+//	tn1-record 2 LANGUAGE
+//	L KIND DEPTH STARTS COMMENT-WORDS CODE-WORDS COMMENT-TEXT
+//	N KIND OFFSET LENGTH LINE COLUMN NAME-WORDS PARAMS STATEMENTS MAX-DEPTH HANDLERS SHAPE
+//
+// Fields are separated by one space. A line kind is blank, code, comment,
+// doc or directive; STARTS is the hexadecimal bit set of the node kinds
+// that start on the line, in the order of StartNames; a word sketch and a
+// shape are 16 hexadecimal digits (64 bits, too wide for a JavaScript
+// number). COMMENT-TEXT is the rest of the line: the line's comment
+// bytes with the spaces and tabs at both ends removed, so it is never a
+// field of its own and may be empty. A node kind is function, type,
+// handler, test or module; HANDLERS is the handler shapes joined by
+// commas, or - for none.
+//
+// Version 3 (TN1-GRAPH-RECORD) adds what a file's place in its project's
+// graph says, all integers, and keeps every version 2 field:
+//
+//	tn1-record 3 LANGUAGE
+//	P NAME-WORDS FILES DECLS EXPORTED FAN-IN FAN-OUT INTERNAL-USES EXTERNAL-USES UP-EDGES DEPTH NEIGHBOUR-WORDS CHURN-TOGETHER
+//	F NAME-WORDS DECLS USES-IN-PACKAGE USES-OUT BEST-OTHER-PACKAGE-SHARE FAN-IN FAN-OUT CHURN-TOGETHER
+//	L ... (as version 2)
+//	N ... (as version 2) CALLERS-IN-PACKAGE CALLERS-OUT TOP-CALLER-PACKAGE-SHARE
+//
+// P is the file's package and F the file itself (at most one of each, P
+// before F, both before the L items). A share is in thousandths; a
+// NAME-WORDS or NEIGHBOUR-WORDS is a word sketch. A version 2 record
+// still parses, and is written again byte for byte.
+
+import strconv
+import strings
+
+// A Line's kind. A line with any code is Code, even with a comment after
+// the code. DocComment is a comment the host's syntax tree attaches to a
+// declaration or a member (an operation, a law, a field); Directive is a
+// tool's directive comment (ergo-lint-disable-next-line, //go:; in
+// TypeScript, ts/record.ergo's list: suppressions, a licence, nosemgrep,
+// a source map URL and the rest).
+type Blank {}
+type Code {}
+type CommentOnly {}
+type DocComment {}
+type Directive {}
+type LineKind = Blank | Code | CommentOnly | DocComment | Directive
+
+// StartNames are the node kinds a line can start, in the bit order of
+// Line.Starts.
+let StartNames = []string{"function", "type", "branch", "loop", "handler", "return", "call", "assignment", "test"}
+
+// Line is one source line. Depth is the syntactic nesting depth of the
+// line's first byte that is not a space (the blocks around it), not its
+// indentation. CommentWords and CodeWords are 64-bit sets of word hashes
+// (the host's word rule: runs of ASCII letters split where a lower-case
+// letter meets an upper-case one, lowercased, three letters or more; bit
+// FNV-1a-32(word) mod 64).
+type Line {
+	Kind         LineKind,
+	Depth        int,
+	Starts       int,
+	CommentWords uint64,
+	CodeWords    uint64,
+	CommentText  string,
+}
+
+// A Node's kind.
+type Function {}
+type Declared {}
+type Handler {}
+type Test {}
+type Module {}
+type NodeKind = Function | Declared | Handler | Test | Module
+
+// A handler's shape: what one arm of a catch does with the failure.
+type Empty {}
+type YieldsLiteral {}
+type Rethrows {}
+type Records {}
+type Translates {}
+type HandlerShape = Empty | YieldsLiteral | Rethrows | Records | Translates
+
+// Node is one declaration-sized node: a function, a type, a handler, a
+// test or the module. Its span is a byte offset and length and the
+// 1-based line and column of its first byte. Shape is a SimHash of the
+// node kinds of its body with the names erased, the clone signal.
+type Node {
+	Kind       NodeKind,
+	Offset     int,
+	Length     int,
+	Line       int,
+	Column     int,
+	NameWords  uint64,
+	Params     int,
+	Statements int,
+	MaxDepth   int,
+	Handlers   []HandlerShape,
+	Shape      uint64,
+	// Version 3: the uses of the node's name from the other files of its
+	// package and from other packages, and the share, in thousandths, of
+	// its outside callers that are in its top caller package (0 with no
+	// outside caller). A version 2 record holds 0.
+	CallersInPackage      int,
+	CallersOut            int,
+	TopCallerPackageShare int,
+}
+
+// PackageItem is a version 3 record's P item: the file's package in its
+// project's import graph. NameWords is the sketch of the package's own
+// names (its directory and its files' base names), NeighbourWords that of
+// the packages it imports or that import it; FanIn and FanOut count
+// packages; InternalUses and ExternalUses are its files' uses of
+// declarations of its own package and of others; UpEdges the imports
+// that go up a declared layering; Depth the longest import chain below
+// it; ChurnTogether the commits that touched it with a neighbour, in
+// buckets (0 when the host reads no history).
+type PackageItem {
+	NameWords      uint64,
+	Files          int,
+	Decls          int,
+	Exported       int,
+	FanIn          int,
+	FanOut         int,
+	InternalUses   int,
+	ExternalUses   int,
+	UpEdges        int,
+	Depth          int,
+	NeighbourWords uint64,
+	ChurnTogether  int,
+}
+
+// FileItem is a version 3 record's F item: the file in its project's
+// import graph. FanIn and FanOut count files; BestOtherPackageShare is
+// the share, in thousandths, of its uses that go to the one other package
+// it uses most (high: the file may belong there).
+type FileItem {
+	NameWords             uint64,
+	Decls                 int,
+	UsesInPackage         int,
+	UsesOut               int,
+	BestOtherPackageShare int,
+	FanIn                 int,
+	FanOut                int,
+	ChurnTogether         int,
+}
+
+// Features is the record of one file. Version is its input version, 2 or
+// 3; Packages and Files hold at most one item each, and only in version 3.
+type Features {
+	Version  int,
+	Language string,
+	Lines    []Line,
+	Nodes    []Node,
+	Packages []PackageItem,
+	Files    []FileItem,
+}
+
+// Malformed is a record or weights text that does not parse: the 1-based
+// line of the text and why.
+type Malformed { Line int, Reason string }
+
+// RecordHeader is the first line of a version 2 record, before its
+// language; RecordHeader3 that of a version 3 record.
+let RecordHeader = "tn1-record 2 "
+let RecordHeader3 = "tn1-record 3 "
+
+// ParseRecord reads the text form of a record, version 2 or 3.
+func ParseRecord(text string) Features fails Malformed {
+	let rows = strings.Split(text, "\n")
+	let mut version = 0
+	let mut header = ""
+	if len(rows) > 0 && strings.HasPrefix(rows[0], RecordHeader) {
+		version = 2
+		header = RecordHeader
+	} else if len(rows) > 0 && strings.HasPrefix(rows[0], RecordHeader3) {
+		version = 3
+		header = RecordHeader3
+	} else {
+		return Malformed{Line: 1, Reason: "the first line is not \"\(RecordHeader)LANGUAGE\" or \"\(RecordHeader3)LANGUAGE\""}
+	}
+	let mut lines = []Line{}
+	let mut nodes = []Node{}
+	let mut packages = []PackageItem{}
+	let mut files = []FileItem{}
+	for i in 1..len(rows) {
+		let row = rows[i]
+		if row == "" {
+			continue
+		}
+		if strings.HasPrefix(row, "L ") {
+			lines = lines.Append(try parseLine(row, i+1))
+		} else if strings.HasPrefix(row, "N ") {
+			nodes = nodes.Append(try parseNode(row, i+1, version))
+		} else if version == 3 && strings.HasPrefix(row, "P ") {
+			if len(packages) > 0 || len(files) > 0 || len(lines) > 0 || len(nodes) > 0 {
+				return Malformed{Line: i + 1, Reason: "a P item comes once, first"}
+			}
+			packages = packages.Append(try parsePackage(row, i+1))
+		} else if version == 3 && strings.HasPrefix(row, "F ") {
+			if len(files) > 0 || len(lines) > 0 || len(nodes) > 0 {
+				return Malformed{Line: i + 1, Reason: "an F item comes once, before the L and N items"}
+			}
+			files = files.Append(try parseFile(row, i+1))
+		} else if version == 3 {
+			return Malformed{Line: i + 1, Reason: "an item starts with P, F, L or N"}
+		} else {
+			return Malformed{Line: i + 1, Reason: "an item starts with L or N"}
+		}
+	}
+	Features{
+		Version:  version,
+		Language: strings.Slice(rows[0], len(header), len(rows[0])),
+		Lines:    lines,
+		Nodes:    nodes,
+		Packages: packages,
+		Files:    files,
+	}
+}
+
+// fields is row's fields after its item letter, want of them.
+func fields(row string, want int, item string, at int) []string fails Malformed {
+	let fs = strings.Split(row, " ")
+	if len(fs) != want+1 {
+		return Malformed{Line: at, Reason: "\(item) item has \(want) fields"}
+	}
+	fs
+}
+
+// parsePackage reads a P item; at is its line in the record.
+func parsePackage(row string, at int) PackageItem fails Malformed {
+	let fs = try fields(row, 12, "a P", at)
+	PackageItem{
+		NameWords:      try hex64(fs[1], at),
+		Files:          try count(fs[2], at),
+		Decls:          try count(fs[3], at),
+		Exported:       try count(fs[4], at),
+		FanIn:          try count(fs[5], at),
+		FanOut:         try count(fs[6], at),
+		InternalUses:   try count(fs[7], at),
+		ExternalUses:   try count(fs[8], at),
+		UpEdges:        try count(fs[9], at),
+		Depth:          try count(fs[10], at),
+		NeighbourWords: try hex64(fs[11], at),
+		ChurnTogether:  try count(fs[12], at),
+	}
+}
+
+// parseFile reads an F item; at is its line in the record.
+func parseFile(row string, at int) FileItem fails Malformed {
+	let fs = try fields(row, 8, "an F", at)
+	FileItem{
+		NameWords:             try hex64(fs[1], at),
+		Decls:                 try count(fs[2], at),
+		UsesInPackage:         try count(fs[3], at),
+		UsesOut:               try count(fs[4], at),
+		BestOtherPackageShare: try share(fs[5], at),
+		FanIn:                 try count(fs[6], at),
+		FanOut:                try count(fs[7], at),
+		ChurnTogether:         try count(fs[8], at),
+	}
+}
+
+// share is a count of thousandths, 0 to 1000.
+func share(s string, at int) int fails Malformed {
+	let n = try count(s, at)
+	if n > 1000 {
+		return Malformed{Line: at, Reason: "\(strconv.Quote(s)) is not a share in thousandths"}
+	}
+	n
+}
+
+// parseLine reads an L item; at is its line in the record.
+func parseLine(row string, at int) Line fails Malformed {
+	let fs = strings.SplitN(row, " ", 7)
+	if len(fs) != 7 {
+		return Malformed{Line: at, Reason: "an L item has six fields and the comment text"}
+	}
+	Line{
+		Kind:         try lineKind(fs[1], at),
+		Depth:        try count(fs[2], at),
+		Starts:       int(try hex64(fs[3], at)),
+		CommentWords: try hex64(fs[4], at),
+		CodeWords:    try hex64(fs[5], at),
+		CommentText:  fs[6],
+	}
+}
+
+// parseNode reads an N item; at is its line in the record.
+func parseNode(row string, at int, version int) Node fails Malformed {
+	let fs = strings.Split(row, " ")
+	if version == 2 && len(fs) != 12 {
+		return Malformed{Line: at, Reason: "an N item has eleven fields"}
+	}
+	if version == 3 && len(fs) != 15 {
+		return Malformed{Line: at, Reason: "an N item has fourteen fields"}
+	}
+	let mut callersIn = 0
+	let mut callersOut = 0
+	let mut top = 0
+	if version == 3 {
+		callersIn = try count(fs[12], at)
+		callersOut = try count(fs[13], at)
+		top = try share(fs[14], at)
+	}
+	let mut shapes = []HandlerShape{}
+	if fs[10] != "-" {
+		for name in strings.Split(fs[10], ",") {
+			shapes = shapes.Append(try handlerShape(name, at))
+		}
+	}
+	Node{
+		Kind:                  try nodeKind(fs[1], at),
+		Offset:                try count(fs[2], at),
+		Length:                try count(fs[3], at),
+		Line:                  try count(fs[4], at),
+		Column:                try count(fs[5], at),
+		NameWords:             try hex64(fs[6], at),
+		Params:                try count(fs[7], at),
+		Statements:            try count(fs[8], at),
+		MaxDepth:              try count(fs[9], at),
+		Handlers:              shapes,
+		Shape:                 try hex64(fs[11], at),
+		CallersInPackage:      callersIn,
+		CallersOut:            callersOut,
+		TopCallerPackageShare: top,
+	}
+}
+
+func lineKind(name string, at int) LineKind fails Malformed {
+	match name {
+	case "blank":
+		Blank
+	case "code":
+		Code
+	case "comment":
+		CommentOnly
+	case "doc":
+		DocComment
+	case "directive":
+		Directive
+	case _:
+		Malformed{Line: at, Reason: "line kind \(strconv.Quote(name))"}
+	}
+}
+
+func nodeKind(name string, at int) NodeKind fails Malformed {
+	match name {
+	case "function":
+		Function
+	case "type":
+		Declared
+	case "handler":
+		Handler
+	case "test":
+		Test
+	case "module":
+		Module
+	case _:
+		Malformed{Line: at, Reason: "node kind \(strconv.Quote(name))"}
+	}
+}
+
+func handlerShape(name string, at int) HandlerShape fails Malformed {
+	match name {
+	case "empty":
+		Empty
+	case "literal":
+		YieldsLiteral
+	case "rethrows":
+		Rethrows
+	case "records":
+		Records
+	case "translates":
+		Translates
+	case _:
+		Malformed{Line: at, Reason: "handler shape \(strconv.Quote(name))"}
+	}
+}
+
+// count is a decimal count, 0 or more.
+func count(s string, at int) int fails Malformed {
+	let n = strconv.Atoi(s) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return Malformed{Line: at, Reason: "\(strconv.Quote(s)) is not a count"}
+	}
+	if n < 0 {
+		return Malformed{Line: at, Reason: "\(strconv.Quote(s)) is not a count"}
+	}
+	n
+}
+
+// hex64 is 1 to 16 hexadecimal digits, lower case.
+func hex64(s string, at int) uint64 fails Malformed {
+	if len(s) == 0 || len(s) > 16 {
+		return Malformed{Line: at, Reason: "\(strconv.Quote(s)) is not 1 to 16 hexadecimal digits"}
+	}
+	let mut v = uint64(0)
+	for i in 0..len(s) {
+		let c = s[i]
+		let mut d = uint64(0)
+		if c >= '0' && c <= '9' {
+			d = uint64(c - '0')
+		} else if c >= 'a' && c <= 'f' {
+			d = uint64(c-'a') + 10
+		} else {
+			return Malformed{Line: at, Reason: "\(strconv.Quote(s)) is not 1 to 16 hexadecimal digits"}
+		}
+		v = v<<4 | d
+	}
+	v
+}

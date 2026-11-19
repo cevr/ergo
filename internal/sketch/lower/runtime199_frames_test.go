@@ -34,7 +34,11 @@ var i1FrameKinds = []i1FrameKind{
 	{name: "decl", goClass: "decl", params: true, sites: map[string]int{"emitBody": 1}, program: func(ps, row, _ string, body string) string {
 		return "func subject(" + ps + ") int" + row + " {\n" + body + "}\n"
 	}},
-	{name: "literal", goClass: "lit", params: true, sites: map[string]int{"funcLitClosure": 1, "closureLit": 1}, program: func(ps, row, attempt string, body string) string {
+	// inPlaceLit (ir_ownlit.go, FORK-INPLACE) is the IR's in-place owning
+	// literal, the emitter's funcLitClosure with fc.l.inPlace set: a
+	// literal frame, which its admission keeps free of returns, rows and
+	// nested literals.
+	{name: "literal", goClass: "lit", params: true, sites: map[string]int{"funcLitClosure": 1, "closureLit": 1, "inPlaceLit": 1}, program: func(ps, row, attempt string, body string) string {
 		return "func subject(" + ps + ") int" + row + " {\nlet local = func() int" + row + " {\n" + body + "}\n" + attempt + "local()\n}\n"
 	}, wrap: func(d int, body string) string {
 		return "let local" + i1Depth(d) + " = func() int {\n" + body + "}\nlocal" + i1Depth(d) + "()\n"
@@ -44,7 +48,7 @@ var i1FrameKinds = []i1FrameKind{
 	}, wrap: func(d int, body string) string {
 		return "let t" + i1Depth(d) + " = task.Go() {\n" + body + "}\nt" + i1Depth(d) + ".Wait()\n"
 	}},
-	{name: "trailing", goClass: "lit", params: true, sites: map[string]int{"funcLitClosure": 1, "plainLit": 1, "closureLit": 1}, program: func(ps, row, attempt string, body string) string {
+	{name: "trailing", goClass: "lit", params: true, sites: map[string]int{"funcLitClosure": 1, "plainLit": 1, "plainLitIR": 1, "closureLit": 1}, program: func(ps, row, attempt string, body string) string {
 		return "func run(f func() int" + row + ") int" + row + " { " + attempt + "f() }\nfunc subject(" + ps + ") int" + row + " {\n" + attempt + "run() {\n" + body + "}\n}\n"
 	}, wrap: func(_ int, body string) string { return "run() {\n" + body + "}\n" }},
 	{name: "provider", goClass: "decl", sites: map[string]int{"emitBody": 1}, program: func(_, _, _ string, body string) string {

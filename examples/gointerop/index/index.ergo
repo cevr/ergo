@@ -1,0 +1,67 @@
+// Package index is a sorted set of whole numbers that answers rank
+// queries. A query searches the live index with Go's sort.SearchInts. Its
+// binding says Go only reads the slice (a fact Go's own escape analysis
+// derives, `// ergo:reads a`), so the index goes to Go with no copy however
+// often it is searched (docs/spec/interop.md, Foreign facts 6); `ergo test`
+// copies it at each call and checks that Go left it as it was.
+
+import go sort
+import slices
+import strconv
+import strings
+
+// Index is the keys, sorted, duplicates kept.
+type Index { keys []int }
+
+// NotAnInt is a field of the input that is not a whole number.
+type NotAnInt { Line int, Text string }
+
+// Build is the index of xs.
+func Build(xs []int) Index {
+	Index{keys: slices.Sort(xs)}
+}
+
+// Read is the whole numbers of text, whitespace-separated.
+func Read(text string) []int fails NotAnInt {
+	let mut out = []int{}
+	for n, l in strings.Split(text, "\n") {
+		for field in strings.Fields(l) {
+			let v = strconv.Atoi(field) catch {
+			case strconv.Malformed, strconv.OutOfRange:
+				return NotAnInt{Line: n + 1, Text: field}
+			}
+			out = out.Append(v)
+		}
+	}
+	out
+}
+
+// Rank is how many keys are less than k.
+func Rank(ix Index, k int) int {
+	sort.SearchInts(ix.keys, k)
+}
+
+// Has reports whether k is a key.
+func Has(ix Index, k int) bool {
+	let i = Rank(ix, k)
+	i < len(ix.keys) && ix.keys[i] == k
+}
+
+// Size is the number of keys.
+func Size(ix Index) int { len(ix.keys) }
+
+// RankCountsTheLess: the rank of k is the count of keys below it.
+law RankCountsTheLess(xs []int, k int) {
+	let mut less = 0
+	for x in xs {
+		if x < k {
+			less += 1
+		}
+	}
+	Rank(Build(xs), k) == less
+}
+
+// HoldsWhatItWasGiven: every number the index was built from is a key.
+law HoldsWhatItWasGiven(xs []int, k int) {
+	Has(Build(xs.Append(k)), k)
+}

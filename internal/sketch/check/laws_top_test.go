@@ -9,22 +9,6 @@ import (
 	"ergo.local/prototype/internal/sketch/sketchtest"
 )
 
-// TestTopLevelLawRules: spec A2. A top-level law follows types.md Laws
-// rules 2 and 4 to 10 as a member law does, with the scope "its
-// parameters, then the package". Each program of sketchtest.LawTopCases
-// gets exactly its want lines, no cascade.
-func TestTopLevelLawRules(t *testing.T) {
-	for _, tc := range sketchtest.LawTopCases {
-		t.Run(tc.Name, func(t *testing.T) {
-			_, diags := check.CheckSource(tc.Src)
-			want, have := expected(tc.Src), got(diags)
-			if strings.Join(want, " ") != strings.Join(have, " ") {
-				t.Errorf("want %v, got %v\n\t%s", want, have, describe(diags))
-			}
-		})
-	}
-}
-
 // TestTopLevelLawMessages pins the text of the new diagnostics (the fix
 // text the S108 gives, the namespace messages and the S001 at the bracket).
 func TestTopLevelLawMessages(t *testing.T) {
@@ -33,7 +17,7 @@ func TestTopLevelLawMessages(t *testing.T) {
 		{"law A() { true }\n\nlaw A() { true }\n", "law A is declared twice"},
 		{"law A() { true }\n\ntest A {\n\tassert true\n}\n", "test A is named like law A"},
 		{"test A {\n\tassert true\n}\n\nlaw A() { true }\n", "law A is named like test A"},
-		{"law L[T](x T) { true }\n", "a law has no type parameters; state it at concrete types, or as a member of the protocol's operation type"},
+		{"law L[T](x T) { true }\n", "only a rewrite law over functions has type parameters, law L[T](x T) { f(g(x)) } == { x }; state a property at concrete types, or as a member of the protocol's operation type"},
 	} {
 		_, diags := check.CheckSource(tc.src)
 		if len(diags) != 1 || diags[0].Message != tc.msg {

@@ -2,7 +2,10 @@
 // std-duration). The language's duration type takes +, -, ordering and
 // ==; these functions give the rest of Go's Duration: its text, its
 // parse, a product and a quotient by an int, and a count of whole units.
-// Each binds a pure runtime/v1 body (timetext.go).
+// The text and the parse bind pure runtime/v1 bodies (timetext.go) until
+// gobind reads Go's Duration (GBX4), and Divide and Count until the IR
+// inlines a small body into its caller (IR1); Times is Ergo, on int64
+// (NP4f-7).
 
 // ParseDuration is the duration s writes, by Go's time.ParseDuration: an
 // optional sign, then one or more decimal numbers, each with an optional
@@ -19,7 +22,23 @@ extern go ergo.local/prototype/runtime/v1.TimeDurationText func DurationText(d d
 // Times is d n times over. A product past the range of a duration is the
 // largest duration of its sign, where Go's d * time.Duration(n) wraps
 // (Effect's Duration.times is unbounded).
-extern go ergo.local/prototype/runtime/v1.TimeTimes func Times(d duration, n int) duration
+func Times(d duration, n int) duration {
+	let x = int64(d)
+	let m = int64(n)
+	if x == 0 || m == 0 {
+		return duration(int64(0))
+	}
+	let p = x * m
+	// The quotient check misses only the smallest duration by -1, whose
+	// product wraps to itself; the sign check catches it.
+	if p / m == x && (p < 0) == ((x < 0) != (m < 0)) {
+		duration(p)
+	} else if (x < 0) != (m < 0) {
+		duration(minDuration)
+	} else {
+		duration(maxDuration)
+	}
+}
 
 // Divide is d / n, toward zero, as Go's d / time.Duration(n). The one
 // quotient past the range, the smallest duration over -1, is the largest
@@ -31,9 +50,14 @@ extern go ergo.local/prototype/runtime/v1.TimeDivide func Divide(d duration, n i
 // defect.
 extern go ergo.local/prototype/runtime/v1.TimeCount func Count(d duration, unit duration) int
 
+// minDuration and maxDuration are the ends of a duration's range, as
+// int64: Go's math.MinInt64 and MaxInt64.
+let minDuration int64 = -9223372036854775808
+let maxDuration int64 = 9223372036854775807
+
 // DurationTextRoundTrips: ParseDuration reads DurationText's text of d
 // back to d.
-law DurationTextRoundTrips(d duration) { try ParseDuration(DurationText(d)) == d }
+law DurationTextRoundTrips(d duration) { try ParseDuration(DurationText(d)) } == { d }
 
 // DivideInvertsTimes: dividing a product by its factor gives the duration
 // back when the product is in range (d is at most 2^63/10^6 and n at most

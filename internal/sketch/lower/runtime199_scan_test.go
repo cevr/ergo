@@ -208,8 +208,14 @@ func TestRuntime199EnvTypeReaders(t *testing.T) {
 		"irBuilder.opsConv":        "the IR's operations adapter: a nil *Env where no environment is bound, no closure (ir_with.go, IRG6)",
 		"irBuilder.sigType":        "the IR's function type, typeCtx.funcType's uniform shape: no body (ir_closure.go, IRG6 r2)",
 		"irBuilder.closureLit":     "the IR's function literal: its *Env parameter, a local of the IR body; the derivative writes the closure (ir_closure.go, IRG6 r2)",
+		"irBuilder.machineFunc":    "the IR's function literal of a machine value's field: its *Env parameter, a local of the IR body; the derivative writes the closure (ir_machine.go, MACHINE-IR)",
+		"irBuilder.funcName":       "the IR's closure of a declared function used as a value: its *Env parameter, a local of the IR body; the derivative writes the closure (ir_fnname.go, FLIP F7 CS)",
 		"lowerer.envCopier":        "the copier interface and join of a held row: method headers copyEnv(d *Env, s Env), no closure (inforce.go)",
 		"lowerer.capsType":         "a capability set's copier type: a method header copyEnv(d *Env, s Env), no closure (inforce.go)",
+		"irBuilder.ownDone":        "an IR static frame's release helper: a declared header func xRelease(env *Env, live *uint64, ...) (ir_own.go, FLIP F7 FORK)",
+		"irBuilder.adaptOperand":   "the IR's adapter of a std body's function parameter: the task block's Env copy, a local of the literal, as childEnv's (ir_adapt.go, FLIP OPC-adapt)",
+		"irBuilder.releaseFuncs":   "the IR release helpers' headers, func xRelease(env *Env, ...) and xFree(env *Env, slot *T), with no body: their bodies are IR (ir_own.go, RELEASE-IR)",
+		"irBuilder.spawnLocalType": "the IR's type of a GoWith capture field: *Env for the environment local, a type, no closure (ir_spawn.go, GP-SPAWN2)",
 	}
 	for _, owner := range sortedKeys(readers) {
 		if _, ok := classified[owner]; !ok {
@@ -223,8 +229,10 @@ func TestRuntime199EnvTypeReaders(t *testing.T) {
 	}
 	// A reader that writes a Go closure whose parameter is not an Env.
 	otherClosure := map[string]string{
-		"lowerer.rootTask": "a root task's body takes the task and builds the root Env inside",
-		"lowerer.initOnce": "the Once.Do body and its recover take no parameter; they run in the caller's task, on ergoInitRun's env",
+		"lowerer.rootTask":       "a root task's body takes the task and builds the root Env inside",
+		"lowerer.initOnce":       "the Once.Do body and its recover take no parameter; they run in the caller's task, on ergoInitRun's env",
+		"irBuilder.ownDone":      "a slot's release closure for Static.Part takes no parameter; it runs on the helper's env",
+		"irBuilder.adaptOperand": "a std body's Go function parameter takes the body's own parameters (a task, values), as adaptTaskFunc's and adaptPlainFunc's; the Ergo value runs on the caller's env or the task block's copy",
 	}
 	src.owners(func(owner string, decl ast.Decl) {
 		if !readers[owner] || owner == "funcCtx.envClosure" || otherClosure[owner] != "" {

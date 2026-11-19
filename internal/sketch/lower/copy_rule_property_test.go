@@ -507,6 +507,37 @@ func (g *copyGen) chain(name string, k int, shape, head, body *string, want *int
 	}
 }
 
+// takes writes the three Take shapes (PRIM-3), after the drawn ones, so
+// the seeds keep their paths: "take loop" drains a Map it owns, a Take
+// whose rest is rebound to its source each time, with no copy; "take
+// param" takes from a parameter its caller still holds, from one copy;
+// "take then put" is below.
+func (g *copyGen) takes() {
+	g.n++
+	loop := fmt.Sprintf("tkLoop%d", g.n)
+	g.fns.WriteString(fmt.Sprintf("func %s(n int) int {\n\tlet mut m = Map[int, int]{}\n\tfor i in 0..n {\n\t\tm[i] = i\n\t}\n\tlet mut s = 0\n\tfor i in 0..n {\n\t\tlet v, rest = m.Take(i)\n\t\tm = rest\n\t\tmatch v {\n\t\tcase Some[int] as x:\n\t\t\ts += x.Value\n\t\tcase None:\n\t\t}\n\t}\n\ts * 10 + szM(m)\n}\n\n", loop))
+	g.main.WriteString(fmt.Sprintf("\tConsole.Println(\"\\(%s(%d))\")\n", loop, 4))
+	g.model[loop], g.mapOnly[loop] = 0, true
+	g.order = append(g.order, loop)
+	g.reached["take loop"] = true
+	g.n++
+	param := fmt.Sprintf("tkParam%d", g.n)
+	g.fns.WriteString(fmt.Sprintf("func %s(m Map[int, int], k int) int {\n\tlet _, rest = m.Take(k)\n\tszM(rest)\n}\n\n", param))
+	g.main.WriteString(fmt.Sprintf("\tlet tm%d = Map[int, int]{1: 1, 2: 2}\n\tConsole.Println(\"\\(%s(tm%d, 1)) \\(szM(tm%d))\")\n", g.n, param, g.n, g.n))
+	g.model[param], g.mapOnly[param] = 1, true
+	g.order = append(g.order, param)
+	g.reached["take param"] = true
+	// "take then put": the Take copies m, which stays live; the Take only
+	// reads m, so the Put that follows writes m in place.
+	g.n++
+	put := fmt.Sprintf("tkPut%d", g.n)
+	g.fns.WriteString(fmt.Sprintf("func %s(n int) int {\n\tlet mut m = Map[int, int]{1: 1, 2: 2}\n\tlet _, rest = m.Take(1)\n\tm = m.Put(n, n)\n\tszM(rest) * 10 + szM(m)\n}\n\n", put))
+	g.main.WriteString(fmt.Sprintf("\tConsole.Println(\"\\(%s(%d))\")\n", put, 5))
+	g.model[put], g.mapOnly[put] = 1, true
+	g.order = append(g.order, put)
+	g.reached["take then put"] = true
+}
+
 // copyAdversaries are the agreement-only shapes of the moved family.
 var copyAdversaries = []string{"rmw snapshot", "rmw kept get", "rmw put shared", "rmw literal shared", "rmw across call", "rmw generic", "rmw option fn", "rmw range", "rmw ref get", "rmw same value", "rmw return between", "update snapshot", "update other", "update shared", "update named shared", "arm snapshot", "arm root in value"}
 
@@ -638,6 +669,7 @@ func copyProgram(seed uint64, reached map[string]bool) (string, *copyGen) {
 			}
 		}
 	}
+	g.takes()
 	var src strings.Builder
 	src.WriteString(copyPrelude)
 	for _, f := range copyFamilies {
@@ -704,7 +736,7 @@ func copyPaths() []string {
 			}
 		}
 	}
-	out = append(out, "chain param", "chain loop", "chain put", "chain delete", "chain root", "elem append", "elem other index")
+	out = append(out, "chain param", "chain loop", "chain put", "chain delete", "chain root", "elem append", "elem other index", "take loop", "take param", "take then put")
 	return out
 }
 

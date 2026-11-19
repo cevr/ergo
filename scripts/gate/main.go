@@ -143,13 +143,25 @@ type Step struct {
 	// caller's GOFLAGS, so Go may replay its tests.
 	// TestCachedGatePackagesAreHermetic checks each of its packages.
 	Hermetic bool
+	// Observe, set on a test step that runs its tests uncached (a fast-tier
+	// step, a full-tier package step), says it runs go test -json: the gate
+	// keeps its tests' times for the size rule (observeStep, testSeconds)
+	// and prints plain go test's text. The hermetic step replays Go's test
+	// cache, whose times are not a run's, and observes nothing.
+	Observe bool
 	// Package, set on a fast-tier test step, is the closure of the test
 	// package it runs: the step replays its last pass while its package
 	// key (replay.PackageKey) is unchanged, and records a pass under it.
+	// A full-tier closure sweep has the closure of what the sweep reads
+	// for its package (keySweeps).
 	Package *replay.Closure
 	// PackageProblem says why the package's closure is keyed on the whole
 	// checkout (testPackages).
 	PackageProblem string
+	// KeyParts are inputs of the package key beyond the closure and the
+	// step's name, argv and variables (packageIdentity): a sweep's facts
+	// about the sweeper's tables (keySweeps).
+	KeyParts []string
 	// Sweep, on a step of the closure sweep (sweepStep), names what it
 	// sweeps: the directory of the one package it sweeps. Only the full
 	// tier sweeps (classHeavy).
@@ -321,6 +333,12 @@ type gate struct {
 	// packageKeys are the start keys of the run's package steps
 	// (Step.Package), made before any step starts.
 	packageKeys map[*Step]packageKey
+	// sweepCollect, set on the merge tier's uncached run (which has no
+	// whole-gate key), collects the facts its closure sweep steps are keyed
+	// by, with the merge tier's name: those steps alone replay a pass of an
+	// earlier merge run at an unchanged key and record theirs (GATE2 GT5).
+	// Every other step of the run stays uncached.
+	sweepCollect func() (*replay.Facts, error)
 }
 
 // packageKey is a package step's key at the start of the run, or why it has
@@ -378,14 +396,35 @@ func (g *gate) collectTier(mechanism string) (*replay.Facts, error) {
 func main() {
 	list := flag.Bool("list", false, "print the checks the gate runs, one per line, and exit")
 	full := flag.Bool("full", false, "the full tier: every test of every package, uncached; the batch gate before main")
-	noCache := flag.Bool("no-cache", false, "the full tier, run even when a pass for identical inputs is recorded")
-	merge := flag.Bool("merge", false, "the merge tier: run every step uncached (every go test with -count=1) and compare each verdict with the full tier's whole-gate record of the checkout's key")
+	noCache := flag.Bool("no-cache", false, "the full tier, run even when a pass for identical inputs is recorded; with --merge, the reference: the uncached run replays no closure sweep")
+	merge := flag.Bool("merge", false, "the merge tier: run every step uncached (every go test with -count=1; a closure sweep whose merge-tier key is unchanged replays, which --no-cache does not) and compare each verdict with the full tier's whole-gate record of the checkout's key")
 	recordDurations := flag.Bool("record-durations", false, "measure the tests of the named Go packages (every test package when none is named) serially and rewrite their rows of "+durationsFile)
 	fast := flag.Bool("fast", false, "with -record-durations: run the named packages' fast-tier steps one at a time and rewrite their CPU seconds in "+fastCPUFile)
 	cpu := flag.Bool("cpu", false, "with -record-durations: measure the CPU seconds of each test of the named packages (the sharded packages when none is named), one test at a time, and rewrite their rows of "+testCPUFile)
 	coverage := flag.Bool("coverage", false, "with -record-durations: record the per-test coverage and reads of the named packages' fast tests (those of the test-impact selection when none is named) in the gate cache, the base the fast tier selects its tests against")
 	sweeps := flag.Bool("sweeps", false, "with -record-durations: run the closure sweep of the named package directories (every swept package when none is named) one at a time and rewrite their real costs in "+sweepCostFile)
+	affected := flag.Bool("affected", false, "the round tier: every test of each package, without -short, narrowed to those the change since BASE (the one argument; default: the merge base with main) reaches by the mutant runner's coverage store; advisory, never a landing verdict ("+roundSelectionVariable+"=full runs every test)")
+	replaySpan := flag.String("replay-affected", "", "FROM..TO: replay the round tier over the first-parent tips of the range against the coverage store, one row per tip (the share of recorded test seconds selected), and exit; with -reds FILE (lines TIP DIR:TEST) fail when a red test is outside its tip's selection")
+	replayOut := flag.String("o", "", "with -replay-affected: write the rows to this file instead of stdout")
+	replayReds := flag.String("reds", "", "with -replay-affected: the reds file")
+	backtest := flag.Bool("backtest", false, "backtest the round tier over the coverage store and the ledgers at the store's commit nearest to HEAD, replay it from there to HEAD, and exit (the full tier's step \"coverage store backtest\")")
+	blameTarget := flag.String("blame", "", "DIR:TEST with one argument GOOD..BAD: list the first-parent tips of the range whose change reaches the test by the coverage store's record, with the reason, precise ones first, and exit (BULK MODE's bisect)")
 	flag.Parse()
+	if *blameTarget != "" {
+		if flag.NArg() != 1 {
+			fatal(errors.New("-blame DIR:TEST takes one argument, GOOD..BAD"))
+		}
+		os.Exit(runBlame(*blameTarget, flag.Arg(0), os.Stdout))
+	}
+	if *backtest {
+		os.Exit(runBacktest(os.Stdout))
+	}
+	if *replaySpan != "" {
+		os.Exit(runReplayAffected(*replaySpan, *replayOut, *replayReds))
+	}
+	if *affected && (*full || *noCache || *merge || *recordDurations || flag.NArg() > 1) {
+		fatal(errors.New("--affected takes at most one argument, BASE, and no other tier"))
+	}
 	if *fast && !*recordDurations {
 		fatal(errors.New("-fast goes with -record-durations only"))
 	}
@@ -398,13 +437,13 @@ func main() {
 	if *sweeps && (!*recordDurations || *fast || *cpu || *coverage) {
 		fatal(errors.New("-sweeps goes with -record-durations only, without -fast, -cpu or -coverage"))
 	}
-	if *merge && *noCache {
-		fatal(errors.New("--merge runs every step uncached already; it takes no --no-cache"))
-	}
-	if flag.NArg() > 0 && !*recordDurations {
+	if flag.NArg() > 0 && !*recordDurations && !*affected {
 		fatal(fmt.Errorf("unexpected arguments %q: only -record-durations takes packages", flag.Args()))
 	}
 	tier := tierFor(*full, *noCache, *merge, *recordDurations)
+	if *affected {
+		tier, roundBase = roundTier, flag.Arg(0)
+	}
 	// Before any process starts, so a stop finds every one (stop.go).
 	stopOnSignals()
 	scope, err := takeScope()
@@ -461,7 +500,10 @@ func main() {
 	// time at the caller's CPU share: 3.1 of the 6.8 s before a std edit's
 	// gate clock started, at 4 CPUs, against 0.8 here (gate-speed GS28).
 	var replayFirst func(*gate)
-	if !*noCache && !*merge {
+	// The round tier's selection depends on its base, which the whole-gate
+	// key does not hold: it never replays a whole gate (its steps still
+	// replay by their keys, which hold their selection).
+	if !*noCache && !*merge && !*affected {
 		replayFirst = func(g *gate) {
 			code, replayed, facts := g.replayWhole(mechanismFact(scope, probed, scopeNote), os.Stdout)
 			if replayed {
@@ -569,9 +611,26 @@ func setUpTier(scope, scopeNote, tier string, beforeSteps func(*gate)) (*gate, e
 	if tier == fastTier {
 		// The fast tier selects the compiler's tests against the coverage
 		// record of its cache (selectTests, gate-speed GS4).
-		g.steps, g.dropped, err = fastStepsSelected(g.root, func(p testPackage, env, names []string) selection {
+		g.steps, g.dropped, err = fastStepsSelected(g.root, g.cacheDir, func(p testPackage, env, names []string) selection {
 			return selectTests(g.root, g.cacheDir, p, env, names)
-		})
+		}, false)
+	} else if tier == roundTier {
+		// The round tier selects every package's tests against the
+		// coverage store's segment at the base (affected.go, CS-ROUND).
+		base := roundBase
+		if base == "" {
+			if base, err = defaultRoundBase(g.root); err != nil {
+				return nil, err
+			}
+		}
+		choose, err := roundSelector(g.root, base)
+		if err != nil {
+			return nil, err
+		}
+		g.steps, g.dropped, err = fastStepsSelected(g.root, g.cacheDir, choose, true)
+		if err != nil {
+			return nil, err
+		}
 	} else {
 		g.steps, err = stepsFor(g.root, tier)
 	}
@@ -662,6 +721,9 @@ func (g *gate) mergeTier(out io.Writer) int {
 	for _, step := range g.steps {
 		uncached = append(uncached, uncachedStep(step))
 	}
+	// The go test steps record their runs, and the sweeps read them
+	// (closurerecord.go).
+	uncached = recordForSweep(g.root, uncached)
 	// The uncached run is the merge verdict, so it runs sandboxed or not at
 	// all: no sandbox, no verdict (sandbox.go).
 	open := g.openSandbox
@@ -710,6 +772,16 @@ func (g *gate) mergeTier(out io.Writer) int {
 			run := g.derive(uncached, true, nil)
 			run.tier = mergeTierName
 			run.enclosure = box
+			if !g.noCache {
+				// --merge --no-cache, the reference, sweeps every package.
+				run.sweepCollect = func() (*replay.Facts, error) {
+					facts, err := g.collectFacts(g.whole.mechanism)
+					if err != nil {
+						return nil, err
+					}
+					return replay.WithTier(facts, mergeTierName), nil
+				}
+			}
 			run.run(out)
 			var names []string
 			for _, step := range uncached {
@@ -949,6 +1021,9 @@ func (g *gate) run(out io.Writer) int {
 			}
 		}
 	}
+	if g.whole == nil && g.sweepCollect != nil {
+		g.keySweepSteps(out)
+	}
 
 	results := make([]*result, len(g.steps))
 	done := make([]chan struct{}, len(g.steps))
@@ -1017,6 +1092,14 @@ func (g *gate) run(out io.Writer) int {
 	var failures []string
 	g.verdicts = map[string]replay.Verdict{}
 	objects := make([]*replay.Object, len(g.steps))
+	// owned are the objects no whole-gate recording holds; each is dropped
+	// after the package records (a committed one is gone already).
+	var owned []*replay.Object
+	defer func() {
+		for _, o := range owned {
+			o.Abort()
+		}
+	}()
 	for i, step := range g.steps {
 		<-done[i]
 		r := results[i]
@@ -1048,6 +1131,14 @@ func (g *gate) run(out io.Writer) int {
 				}
 				destination = io.MultiWriter(out, object)
 			}
+		} else if _, keyed := g.packageKeys[step]; keyed && g.sweepCollect != nil && r.outcome == passed {
+			// A swept pass of the merge tier's uncached run keeps its
+			// output in an object of its own for its package record.
+			if own, err := replay.Open(g.cacheDir).NewObject(); err == nil {
+				object = own
+				owned = append(owned, own)
+				destination = io.MultiWriter(out, object)
+			}
 		}
 		objects[i] = object
 		if err := r.print(destination); err != nil {
@@ -1071,7 +1162,11 @@ func (g *gate) run(out io.Writer) int {
 	}
 	// The end facts, collected once: the package records and the
 	// whole-gate record both compare their start keys with them.
-	end := sync.OnceValues(g.collect)
+	collectEnd := g.collect
+	if g.whole == nil && g.sweepCollect != nil {
+		collectEnd = g.sweepCollect
+	}
+	end := sync.OnceValues(collectEnd)
 	g.recordPackages(out, results, objects, end)
 	if recording != nil {
 		identity := g.whole.identity
@@ -1108,7 +1203,7 @@ func (g *gate) execute(step *Step) *result {
 		switch {
 		case pk.problem != "":
 			notCached = fmt.Sprintf("gate: %s: not cached: %s\n", step.Name, pk.problem)
-		case !g.noCache:
+		case !g.noCache || g.sweepCollect != nil && step.Sweep != "":
 			if r := g.replayPackage(step, pk.key); r != nil {
 				return r
 			}
@@ -1180,6 +1275,17 @@ func (g *gate) execute(step *Step) *result {
 	if command.ProcessState != nil {
 		// A reaped child's usage includes the descendants it reaped.
 		r.cpu = command.ProcessState.UserTime() + command.ProcessState.SystemTime()
+	}
+	// A fast-tier test step printed go test -json: its times go to the
+	// store, and the text plain go test prints is what the gate shows and
+	// records (gate-speed GS33b).
+	if step.Observe {
+		text, observeErr := observeStep(g.cacheDir, g.spoolDir, spool)
+		r.spool = text
+		if observeErr != nil {
+			r.outcome = failed
+			r.output = fmt.Appendf(r.output, "gate: %s: %v\n", step.Name, observeErr)
+		}
 	}
 	if err != nil || used.verdict != "" || used.processIssue != "" {
 		r.outcome = failed
@@ -1310,11 +1416,49 @@ const gitOptionalLocks = "GIT_OPTIONAL_LOCKS"
 // ergoGo selects the go command of ergo's builds (internal/toolchain).
 const ergoGo = "ERGO_GO"
 
+// moduleGo is the go command of the toolchain the checkout's go.mod
+// selects: `go env GOROOT` in the repository root, whose go command has
+// already switched to go.mod's toolchain line (go run ./scripts/gate ran
+// under it, so it is in the module cache and nothing is downloaded). The
+// go command on PATH may be an older release that the IR patch is not
+// ported to, and a step's ergo builds programs in directories with no such
+// line (models, temporary programs), where PATH's go would stay itself
+// (I19 full r2 B10). When the query fails, or names no go command, it is
+// "system", PATH's go. The answer is kept per go command it asks
+// (moduleGoCommand: "go" on PATH, the real one in tests, whose PATH holds
+// stubs).
+func moduleGo() string {
+	if v, ok := moduleGos.Load(moduleGoCommand); ok {
+		return v.(string)
+	}
+	v := "system"
+	if root, err := repositoryRoot(); err == nil {
+		command := exec.Command(moduleGoCommand, "env", "GOROOT")
+		command.Dir = root
+		out, err := command.Output()
+		goroot := strings.TrimSpace(string(out))
+		if err == nil && filepath.IsAbs(goroot) {
+			if info, err := os.Stat(filepath.Join(goroot, "bin", "go")); err == nil && !info.IsDir() {
+				v = filepath.Join(goroot, "bin", "go")
+			}
+		}
+	}
+	moduleGos.Store(moduleGoCommand, v)
+	return v
+}
+
+// moduleGoCommand is the go command moduleGo asks; moduleGos its answers.
+var (
+	moduleGoCommand = "go"
+	moduleGos       sync.Map
+)
+
 // keyedEnvironment is the environment the whole-gate key holds
 // (declaredEnvironment): the caller's variables that testenv names, and no
 // other, as Bazel's strict action environment passes only declared
-// variables, with gitOptionalLocks at 0, ERGO_GO at system unless the
-// caller sets it, with the gate's collector target
+// variables, with gitOptionalLocks at 0, ERGO_GO at system with the go
+// command of the toolchain go.mod selects first on PATH unless the caller
+// sets ERGO_GO (moduleGo), with the gate's collector target
 // and the soft memory limit below the step budget (stepSoftLimit) unless
 // the caller sets them, and
 // GOMAXPROCS and the go command's -p at most the CPU budget
@@ -1340,11 +1484,19 @@ func keyedEnvironment() []string {
 		environment = append(environment, "GOMEMLIMIT="+stepSoftLimit())
 	}
 	environment = setEnvironmentVariable(environment, gitOptionalLocks, "0")
-	// The ergo a step runs builds with the go command on PATH, the one
-	// that runs the gate, and never downloads its pinned release
-	// (internal/toolchain): no step reads the network.
+	// The ergo a step runs builds with the go command of the toolchain
+	// go.mod selects (moduleGo), the release the IR patch is ported to,
+	// and never downloads ergo's managed release (internal/toolchain): no
+	// step reads the network. ERGO_GO in the caller's environment wins.
+	// The go command comes first on PATH and ERGO_GO is system, not its
+	// path, so a test that puts a go stub before it on PATH (a call
+	// logger, a wrapper) still has its stub run (I19 full r3).
 	if _, set := os.LookupEnv(ergoGo); !set {
 		environment = append(environment, ergoGo+"=system")
+		if goCommand := moduleGo(); goCommand != "system" {
+			path, _ := environmentVariable(environment, "PATH")
+			environment = setEnvironmentVariable(environment, "PATH", filepath.Dir(goCommand)+string(os.PathListSeparator)+path)
+		}
 	}
 	cpus := stepCPUs()
 	environment = setEnvironmentVariable(environment, "GOFLAGS", stepGOFLAGS(os.Getenv("GOFLAGS"), cpus))

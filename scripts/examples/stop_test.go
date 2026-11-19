@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"ergo.local/prototype/internal/cases"
 	"ergo.local/prototype/internal/testwait"
 )
 
@@ -39,9 +40,9 @@ func TestEveryExitPathStopsTheGroup(t *testing.T) {
 			return []string{"-timeout", "2s", "p"}
 		}, 1, "FAIL p/basic: hung: no end after 2s, stopped"},
 		{"cap", func(f *fixture, ticks string) []string {
-			f.program("p", "#!/bin/sh\n"+tick+fmt.Sprintf("head -c %d /dev/zero\n", outputCap+1)+caseSleep, "slow\n", map[string]map[string]string{"basic": {"env": "TICKS=" + ticks + "\n", "expected.out": ""}}, nil)
+			f.program("p", "#!/bin/sh\n"+tick+fmt.Sprintf("head -c %d /dev/zero\n", cases.OutputCap+1)+caseSleep, "slow\n", map[string]map[string]string{"basic": {"env": "TICKS=" + ticks + "\n", "expected.out": ""}}, nil)
 			return []string{"-timeout", caseTimeout(f.t), "p"}
-		}, 1, fmt.Sprintf("FAIL p/basic: stdout over %d bytes", outputCap)},
+		}, 1, fmt.Sprintf("FAIL p/basic: stdout over %d bytes", cases.OutputCap)},
 		{"build", func(f *fixture, ticks string) []string {
 			f.program("p", "#!/bin/sh\n# BUILDTICK\necho hi\n", "default\n", map[string]map[string]string{"basic": {"expected.out": "hi\n"}}, nil)
 			return []string{"p"}
@@ -56,7 +57,7 @@ func TestEveryExitPathStopsTheGroup(t *testing.T) {
 		}, 1, "FAIL p: test"},
 		{"record", func(f *fixture, ticks string) []string {
 			f.program("p", "#!/bin/sh\necho port\n", "default\n", map[string]map[string]string{"basic": {"env": "TICKS=" + ticks + "\n", "expected.out": "stale\n"}},
-				map[string]string{"record.sh": tick + "echo orig\n", "origin": "a fixture original\n"})
+				map[string]string{"record.sh": tick + "echo orig\n"})
 			return []string{"-record", "p"}
 		}, 0, "recorded p/basic"},
 	}
@@ -84,14 +85,14 @@ func TestEveryExitPathStopsTheGroup(t *testing.T) {
 
 // A panic on the runner's goroutine while a case runs reaches run's caller,
 // and the deferred stop in execute stops the case's group as it unwinds.
-// Not parallel: it sets testHookStarted, which every execute reads.
+// Not parallel: it sets cases.TestHookStarted, which every execute reads.
 func TestAPanicStopsTheGroup(t *testing.T) {
 	f := newFixture(t)
 	ticks := filepath.Join(t.TempDir(), "ticks")
 	f.program("panicky", "#!/bin/sh\n"+ticker(`"$TICKS"`)+caseSleep, "slow\n",
 		map[string]map[string]string{"basic": {"env": "TICKS=" + ticks + "\n", "expected.out": ""}}, nil)
 	started := false
-	testHookStarted = func(argv []string) {
+	cases.TestHookStarted = func(argv []string) {
 		if filepath.Base(argv[0]) != "panicky" {
 			return
 		}
@@ -99,7 +100,7 @@ func TestAPanicStopsTheGroup(t *testing.T) {
 		testwait.Until(t, func() bool { info, err := os.Stat(ticks); return err == nil && info.Size() > 0 })
 		panic("injected")
 	}
-	defer func() { testHookStarted = nil }()
+	defer func() { cases.TestHookStarted = nil }()
 	recovered := func() (r any) {
 		defer func() { r = recover() }()
 		f.run("-timeout", caseTimeout(t), "panicky")

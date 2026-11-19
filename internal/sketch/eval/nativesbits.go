@@ -1,7 +1,6 @@
 package eval
 
 import (
-	"crypto/sha256"
 	"math/bits"
 	"slices"
 
@@ -9,13 +8,15 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// The pure std functions of bits, sha256 and slices.Repeat (ORACLE O12),
-// from Go's own packages as each std doc comment names them: bits.X is
-// Go's math/bits.X, sha256.Sum the bytes of Go's sha256.Sum256 as a
-// string, slices.Repeat Go's slices.Repeat, whose panic is the defect.
-func registerNativesbits() {
-	pure := func(name string, f func(args []Value) Value) {
-		natives[name] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+// slices.Repeat (ORACLE O12), Go's slices.Repeat, whose panic is the
+// defect; and Go's math/bits, which std bits binds through import go
+// (goNatives). std sha256 calls Go's Sum256 through import go (NP4f-5;
+// nativesgo.go).
+func registerNativesbits(t nativeTables) {
+	natives := t.std
+	goNatives := t.goLib
+	pureIn := func(into map[string]native, name string, f func(args []Value) Value) {
+		into[name] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 			if ab := in.charge(fr, at, 1+argWork(args)); ab != nil {
 				return nil, ab
 			}
@@ -29,21 +30,18 @@ func registerNativesbits() {
 			return out, nil
 		}
 	}
+	goPure := func(name string, f func(args []Value) Value) { pureIn(goNatives, "math/bits."+name, f) }
 	u := func(v Value) uint64 { return v.(uint64) }
-	pure("bits.OnesCount", func(a []Value) Value { return int64(bits.OnesCount64(u(a[0]))) })
-	pure("bits.OnesCount64", func(a []Value) Value { return int64(bits.OnesCount64(u(a[0]))) })
-	pure("bits.LeadingZeros", func(a []Value) Value { return int64(bits.LeadingZeros(uint(u(a[0])))) })
-	pure("bits.LeadingZeros64", func(a []Value) Value { return int64(bits.LeadingZeros64(u(a[0]))) })
-	pure("bits.TrailingZeros", func(a []Value) Value { return int64(bits.TrailingZeros(uint(u(a[0])))) })
-	pure("bits.TrailingZeros64", func(a []Value) Value { return int64(bits.TrailingZeros64(u(a[0]))) })
-	pure("bits.Len", func(a []Value) Value { return int64(bits.Len(uint(u(a[0])))) })
-	pure("bits.Len64", func(a []Value) Value { return int64(bits.Len64(u(a[0]))) })
-	pure("bits.RotateLeft32", func(a []Value) Value { return bits.RotateLeft32(a[0].(uint32), int(a[1].(int64))) })
-	pure("bits.RotateLeft64", func(a []Value) Value { return bits.RotateLeft64(u(a[0]), int(a[1].(int64))) })
-	pure("sha256.Sum", func(a []Value) Value {
-		d := sha256.Sum256([]byte(a[0].(string)))
-		return string(d[:])
-	})
+	goPure("OnesCount", func(a []Value) Value { return int64(bits.OnesCount(uint(u(a[0])))) })
+	goPure("OnesCount64", func(a []Value) Value { return int64(bits.OnesCount64(u(a[0]))) })
+	goPure("LeadingZeros", func(a []Value) Value { return int64(bits.LeadingZeros(uint(u(a[0])))) })
+	goPure("LeadingZeros64", func(a []Value) Value { return int64(bits.LeadingZeros64(u(a[0]))) })
+	goPure("TrailingZeros", func(a []Value) Value { return int64(bits.TrailingZeros(uint(u(a[0])))) })
+	goPure("TrailingZeros64", func(a []Value) Value { return int64(bits.TrailingZeros64(u(a[0]))) })
+	goPure("Len", func(a []Value) Value { return int64(bits.Len(uint(u(a[0])))) })
+	goPure("Len64", func(a []Value) Value { return int64(bits.Len64(u(a[0]))) })
+	goPure("RotateLeft32", func(a []Value) Value { return bits.RotateLeft32(a[0].(uint32), int(a[1].(int64))) })
+	goPure("RotateLeft64", func(a []Value) Value { return bits.RotateLeft64(u(a[0]), int(a[1].(int64))) })
 	natives["slices.Repeat"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		xs, n := args[0].(sliceV), args[1].(int64)
 		// The work and the bytes are paid before the copy; a count Go

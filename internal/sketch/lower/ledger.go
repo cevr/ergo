@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"hash"
 	"io"
+	"maps"
 	"slices"
 	"sort"
 	"strings"
@@ -110,11 +111,15 @@ func (e LedgerEntry) Line() string {
 
 // LawPackage and ProviderPackage are the module-wide names of the
 // packages that declare the entry's law and provider, and LawName and
-// ProviderName their names there (Type.Law, Provider).
+// ProviderName their names there (Type.Law, Provider). A top-level law's
+// entry (no provider) names its law Law, as its package declares it.
 func (e LedgerEntry) LawPackage() (pkg, name string) {
 	i := strings.LastIndex(e.Law, ".")
 	if i < 0 {
 		return "", e.Law
+	}
+	if e.Provider == "" {
+		return e.Law[:i], e.Law[i+1:]
 	}
 	j := strings.LastIndex(e.Law[:i], ".")
 	if j < 0 {
@@ -376,7 +381,9 @@ func newDigester() *digester {
 // construction is closed, and, so that an edit of how a case is drawn
 // makes it stale too, the generator of every type the walk reached: its
 // constructor and, for an operation type, its builder in pkg (check's
-// builders.go), which no name in the law reaches.
+// builders.go), which no name in the law reaches; and the functions each
+// implicit conversion and each generic call's witness the walk meets put
+// in a value (derived: a codec's reader).
 func TargetDigest(pkg *check.Package, law *check.Law, binding []check.LawProvider) string {
 	_, digest := targetDigest(pkg, law, binding)
 	return digest
@@ -384,7 +391,15 @@ func TargetDigest(pkg *check.Package, law *check.Law, binding []check.LawProvide
 
 // targetDigest is TargetDigest and the walk that made it.
 func targetDigest(pkg *check.Package, law *check.Law, binding []check.LawProvider) (*digester, string) {
+	d, slots := targetWalk(law, binding)
+	return d, d.sum(pkg, slots)
+}
+
+// targetWalk is TargetDigest's walk: the digester holding what the run
+// reaches, and its slots.
+func targetWalk(law *check.Law, binding []check.LawProvider) (*digester, []string) {
 	d := newDigester()
+	d.derived = true
 	switch {
 	case law.Owner != nil:
 		d.typ(law.Owner)
@@ -412,7 +427,7 @@ func targetDigest(pkg *check.Package, law *check.Law, binding []check.LawProvide
 		}
 		slots = append(slots, fmt.Sprintf("%d %s %s %t", k, p.Type, closed, p.Value))
 	}
-	return d, d.sum(pkg, slots)
+	return d, slots
 }
 
 // ContextDigest is the digest of every input of the verdict of the run of
@@ -431,7 +446,15 @@ func ContextDigest(pkg *check.Package, law *check.Law, lc check.LawContext) stri
 
 // contextDigest is ContextDigest and the walk that made it.
 func contextDigest(pkg *check.Package, law *check.Law, lc check.LawContext) (*digester, string) {
+	d, slots := contextWalk(law, lc)
+	return d, d.sum(pkg, slots)
+}
+
+// contextWalk is ContextDigest's walk: the digester holding what the run
+// reaches, and its slots.
+func contextWalk(law *check.Law, lc check.LawContext) (*digester, []string) {
 	d := newDigester()
+	d.derived = true
 	d.typ(law.Owner)
 	d.context(lc.Context)
 	var slots []string
@@ -460,7 +483,7 @@ func contextDigest(pkg *check.Package, law *check.Law, lc check.LawContext) (*di
 		}
 	}
 	slots = append(slots, "context "+lc.Context.Name, "unrun "+lc.Unrun)
-	return d, d.sum(pkg, slots)
+	return d, slots
 }
 
 // context adds the declaration of the named context c, and of each
@@ -557,6 +580,43 @@ func (t RunTarget) Digest(pkg *check.Package) string {
 	return TargetDigest(pkg, t.Law, t.Binding)
 }
 
+// DigestWith is Digest with the foreign key of each Go package whose
+// function an `extern go` the walk reached names, as LawDigest takes them:
+// the store's key of a run's verdict (lawcache) changes when the Go code
+// behind it does, a module's own body included, and with the file go
+// build compiles for the target (U1 SIMD-SCAN: a vector kernel's verdict
+// is not its stock twin's). It is Digest when keys is nil or the walk
+// reached no `extern go`.
+func (t RunTarget) DigestWith(pkg *check.Package, keys ForeignKeys) string {
+	var d *digester
+	var digest string
+	if t.Context != nil {
+		d, digest = contextDigest(pkg, t.Law, *t.Context)
+	} else {
+		d, digest = targetDigest(pkg, t.Law, t.Binding)
+	}
+	return d.withForeign(digest, keys)
+}
+
+// TestDigestWith is TestDigest with the foreign keys DigestWith takes.
+func TestDigestWith(pkg *check.Package, t *check.Test, keys ForeignKeys) string {
+	d := newDigester()
+	d.decl("test "+pkg.Path+"."+t.Name, pkg, t.Decl)
+	return d.withForeign(d.sum(pkg, nil), keys)
+}
+
+// withForeign is digest and the foreign keys of the Go packages the walk
+// reached, or digest alone when there are none or keys is nil.
+func (d *digester) withForeign(digest string, keys ForeignKeys) string {
+	if keys == nil || len(d.foreign) == 0 {
+		return digest
+	}
+	h := sha256.New()
+	fmt.Fprintf(h, "%d:%s", len(digest), digest)
+	d.foreignKeys(h, keys)
+	return "h1:" + base64.StdEncoding.EncodeToString(h.Sum(nil))
+}
+
 // RunTargets are the targets of pkg's law runs, in run order. Two runs
 // with one label are no target: a line names one run.
 func RunTargets(pkg *check.Package) []RunTarget {
@@ -647,9 +707,18 @@ type digester struct {
 	indexed map[*check.Package]bool
 	// foreign are the `extern go` targets the walk reached.
 	foreign map[string]bool
+	// nodes are the declarations the walk added, in walk order (reach.go).
+	nodes []ReachedDecl
 	// inputs are the declarations decl added, in the order the walk met
 	// them: the graph rows' Input edges (RunTarget.Inputs).
 	inputs []Input
+	// derived makes the walk follow the code a value reaches with no name
+	// in the source: each implicit conversion's operation functions and
+	// each generic call's witnesses (a codec's decode[R](r) reaches its
+	// reader's functions only so). A verdict's key needs them
+	// (TargetDigest, ContextDigest: LAWCACHE-CODEC); the ledger's
+	// LawDigest does not follow them yet.
+	derived bool
 }
 
 // Input is one declaration whose tokens a verdict's digest covers: its
@@ -684,6 +753,37 @@ func TestInputs(pkg *check.Package, test *check.Test) (string, []Input) {
 		d.decl("test "+pkg.Path+"."+test.Name, pkg, test.Decl)
 	}
 	return d.sum(pkg, nil), d.inputs
+}
+
+// conversion adds the functions an implicit conversion's table puts in
+// the value, and their instances' witnesses.
+func (d *digester) conversion(c check.Conversion) {
+	for _, f := range tableFuncs(c) {
+		d.fn(f)
+	}
+	names := make([]string, 0, len(c.Instances))
+	for n := range c.Instances {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	for _, n := range names {
+		d.instance(c.Instances[n])
+	}
+}
+
+// instance adds the functions the witnesses of a generic function's
+// instance supply, at any depth.
+func (d *digester) instance(in *check.Instance) {
+	if in == nil || d.seen[in] {
+		return
+	}
+	d.seen[in] = true
+	for _, w := range in.Witnesses {
+		for _, op := range w.Ops {
+			d.fn(op.Func)
+			d.instance(op.Inst)
+		}
+	}
 }
 
 // letDecl is a package let's declaration and its package.
@@ -732,7 +832,9 @@ func (d *digester) let(v *check.Var) {
 
 // decl adds the declaration n of p under key and walks it.
 func (d *digester) decl(key string, p *check.Package, n syntax.Node) {
-	d.decls[key+"\n"+syntax.TokenText(declText(p, n))] = true
+	text := syntax.TokenText(declText(p, n))
+	d.decls[key+"\n"+text] = true
+	d.nodes = append(d.nodes, ReachedDecl{Key: key, Text: text, Pkg: p, Node: n})
 	d.inputs = append(d.inputs, Input{Pkg: p, Decl: n})
 	d.walk(p, n)
 }
@@ -773,6 +875,15 @@ func (d *digester) walk(p *check.Package, n syntax.Node) {
 	}
 	d.index(p)
 	syntax.Inspect(n, func(n syntax.Node) bool {
+		if e, ok := n.(syntax.Expr); ok && d.derived {
+			if c, ok := p.Info.Implicit[e]; ok {
+				d.conversion(c)
+			}
+			for _, c := range p.Info.ImplicitElems[e] {
+				d.conversion(c)
+			}
+			d.instance(p.Info.Instances[e])
+		}
 		switch n := n.(type) {
 		case *syntax.CallExpr:
 			if c := p.Info.Calls[n]; c != nil && c.Func != nil {
@@ -862,8 +973,7 @@ type RewriteSite struct {
 // class; a validated entry, a vouched fact whose guard passed or a law
 // whose licence run passed, admits the value class only, and only with
 // the run that gave it named; tested, skipped and refuted admit nothing.
-// The memory-class exception of q193 (LF2b's host-view rows) is LF2b's to
-// add here.
+// The memory-class exception of q193 is admitView.
 func admitLevel(verdict, by string, class trust) bool {
 	switch verdict {
 	case "proved":
@@ -872,6 +982,14 @@ func admitLevel(verdict, by string, class trust) bool {
 		return by != "" && class == valueClass
 	}
 	return false
+}
+
+// admitView is the one memory-class exception of q193 (LAWFFI r2 §1;
+// LF2b): the shortcut host-view, a zero-copy view of a string's bytes at a
+// Go call, rests on a validated fact as a value-class change does. No
+// other memory-class change admits validated.
+func admitView(verdict, by string) bool {
+	return verdict == "proved" || verdict == "validated" && by != ""
 }
 
 // lawRewriteClass is the trust class of a law rewrite: a false law gives a
@@ -1084,12 +1202,25 @@ func (e *LedgerEvidence) Refusals() []string {
 func (e *LedgerEvidence) Applied() int { return e.applied }
 
 // record is the producer record's Go file: the sha256 of the entries the
-// build read (Read) and the rewrites applied, kept in the binary by a
-// store in an init function.
-func (e *LedgerEvidence) record(l *lowerer, applied int) []byte {
+// build read (Read) and the rewrites applied, the windows' and, by level,
+// the rewrites over functions (levels), kept in the binary by a store in
+// an init function.
+func (e *LedgerEvidence) record(l *lowerer, applied int, levels map[string]int) []byte {
+	byLevel := ""
+	for _, level := range slices.Sorted(maps.Keys(levels)) {
+		applied += levels[level]
+		byLevel += fmt.Sprintf(", %s %d", level, levels[level])
+	}
+	if byLevel != "" {
+		byLevel = " (over functions" + byLevel + ")"
+	}
+	if r := l.canon.funcRw; r != nil && r.every > 0 && !r.test {
+		// The canary's mode (LAWFFI r2 §3.7): the record names it.
+		byLevel += fmt.Sprintf("; -rewrites=canary=%d", r.every)
+	}
 	e.applied = applied
 	sum := sha256.Sum256([]byte(e.Read()))
-	text := fmt.Sprintf("%s entries sha256:%x; rewrites applied %d", LedgerFile, sum, applied)
+	text := fmt.Sprintf("%s entries sha256:%x; rewrites applied %d%s", LedgerFile, sum, applied, byLevel)
 	rec, kept := l.names.alloc("ergoLaws"), l.names.alloc("ergoLawsKept")
 	return fmt.Appendf(nil, "package main\n\n// %s is the producer record of the law ledgers this binary was built\n// with (runtime.md, Tests 10).\nvar %s = %q\n\nvar %s string\n\nfunc init() { %s = %s }\n", rec, rec, "ergo producer: "+text, kept, kept, rec)
 }

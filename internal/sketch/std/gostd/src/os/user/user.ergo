@@ -11,16 +11,16 @@ extern go os/user.Group type Group {
 }
 
 // ergo:go func Lookup(username string) (*User, error)
-extern go os/user.Lookup func Lookup(username string) go.Ref[User] fails go.Error needs go.Foreign
+extern go os/user.Lookup func Lookup(username string) Option[go.Ref[User]] fails go.Error needs go.Foreign
 
 // ergo:go func LookupGroup(name string) (*Group, error)
-extern go os/user.LookupGroup func LookupGroup(name string) go.Ref[Group] fails go.Error needs go.Foreign
+extern go os/user.LookupGroup func LookupGroup(name string) Option[go.Ref[Group]] fails go.Error needs go.Foreign
 
 // ergo:go func LookupGroupId(gid string) (*Group, error)
-extern go os/user.LookupGroupId func LookupGroupId(gid string) go.Ref[Group] fails go.Error needs go.Foreign
+extern go os/user.LookupGroupId func LookupGroupId(gid string) Option[go.Ref[Group]] fails go.Error needs go.Foreign
 
 // ergo:go func LookupId(uid string) (*User, error)
-extern go os/user.LookupId func LookupId(uid string) go.Ref[User] fails go.Error needs go.Foreign
+extern go os/user.LookupId func LookupId(uid string) Option[go.Ref[User]] fails go.Error needs go.Foreign
 
 // ergo:go type UnknownGroupError string
 extern go os/user.UnknownGroupError type UnknownGroupError string
@@ -56,4 +56,4 @@ extern go os/user.User type User {
 }
 
 // ergo:go func (*User).GroupIds() ([]string, error)
-extern go os/user.User.GroupIds func (u own *User) GroupIds() []string fails go.Error needs go.Foreign
+extern go os/user.User.GroupIds func (u *User) GroupIds() []string fails go.Error needs go.Foreign

@@ -214,7 +214,7 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 
 **Foreign fact**: A statement about what a Go function does with an operand that may change the code at its calls, such as `reads p`: the function only reads `p`. A fact is checked when the pinned Go toolchain derives it (escape analysis, read by `ergo bind go` into the binding's `// ergo:reads` line) and vouched when a reviewed row asserts it. A law can guard a fact; it never licenses one. See [interop](docs/spec/interop.md#foreign-facts).
 
-**Vouched**: The level of a foreign fact that a reviewed row asserts because Go's analysis cannot see it (an assembly body, a function variable, C). A vouched fact with a passing guard law is validated; without one it is assumed. Contrast a checked fact, which the toolchain derives.
+**Vouched**: The level of a foreign fact that a reviewed row asserts because Go's analysis cannot see it (an assembly body, a function variable, C). A vouched fact whose guard has a current, passing line in the ledger is validated, and only then changes code; without one it is assumed. Contrast a checked fact, which the toolchain derives.
 
 ## Constructs, contracts and laws
 
@@ -302,9 +302,11 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 **Foreign key** (LAWFFI r2 §3.5; LFL): The pin of a law ledger entry to the Go code its law reaches through `extern go`: the pinned toolchain for Go's standard library, the `go.sum` line of the required module that holds the function (a folder replacement: the hash of the package's Go and assembly files), or, for `runtime/v1` and a trusted module's own Go, the hash of every declaration the function reaches, transitively (widened to the package's files where the walk cannot see). It enters the entry's digest and is shown on its line (`with go1.27.4`), so a stale line names what changed. Not a build key, which keys a cached Go build. See [facts](docs/spec/facts.md#evidence), Evidence 3.
 **Validated** (owner q192, q194, q195): The evidence level between proved and tested: a vouched Go fact whose guard has a current, passing ledger entry, or a rewrite law whose licence run (the law-check build, `by native`, or the check-time evaluator, `by eval`) has a current, passing entry and no refutation. It licenses a value-class change of emitted code only (a law rewrite), and of memory-class changes only the shortcut `host-view` rows (q193). Not tested, which is never acted on. See [facts](docs/spec/facts.md#evidence), Evidence 2.
 
+**Skip statement**: `skip "reason"`, a statement of a test or law body that ends that run as skipped, never passed: `ergo test` prints `skip Name: reason` and counts it in the summary's skips, and `ergo check` reports the obligation `skipped` with the reason. The reason is a string literal in the source. `skip` is a contextual keyword: the statement is `skip` followed directly by a string literal, and elsewhere `skip` is an ordinary name ([runtime](docs/spec/runtime.md#tests), Tests 4).
+
 **Law receipt**: The recorded outcome of running a law suite for one revision, seed and target: the status of each law (proved, tested, refuted or skipped), its case count and any counterexample, shrunk. `ergo test DIR --receipt FILE` writes one as JSON ([runtime](docs/spec/runtime.md#tests), Tests 8). A tested law, which held for drawn cases, is not a proved one, which held for every value. The build reads only the canonical receipt; no build reads one yet.
 
-**Rewrite law**: A member law of an operation type whose body is two blocks joined by `==`, `law L(params) [when R() == C] { lhs } == { rhs }`: an equation between two straight-line uses of the type's own operations, the left block a pattern and the right its replacement. It holds for a provider when the two sides read the same, from every state a prefix reaches and the guard admits, for every continuation. The compiler may rewrite a site by it only with evidence for the receiver's provider. A parameter the right side computes with is constant at a site; every other one passes through.
+**Rewrite law**: A member law of an operation type whose body is two blocks joined by `==`, `law L(params) [when R() == C] { lhs } == { rhs }`: an equation between two straight-line uses of the type's own operations, the left block a pattern and the right its replacement. It holds for a provider when the two sides read the same, from every state a prefix reaches and the guard admits, for every continuation. The compiler may rewrite a site by it only with evidence for the receiver's provider. A parameter the right side computes with is constant at a site; every other one passes through. A top-level law of the same form, each side one expression, `law L(s string) { Unquote(Quote(s)) } == { s }`, is a rewrite law over functions: the property `lhs == rhs`, which the compiler may use left to right when the law is in the rewrite's scope (pure functions, a value with key equality, fewer calls on the right, no failure added, declared beside its root function) and its ledger entry admits it, for Go functions and Ergo functions alike.
 
 **Post law**: An ordinary member law of the form `{ Op(params); R() == C }`, such as `law BeginStarts(n int) { BeginObject(n); pos() == AtStart }`: the state a read operation `R` reports after the operation. When its run passed for the provider, the lowering takes it as a fact to decide a rewrite law's guard at a site.
 
@@ -323,6 +325,10 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 ## Runtime and providers
 
 **Lookup in flight**: In std `cache`, the call of a Get's lookup for a key while it runs. The cache holds one per key; every other Get of that key waits for it to end and then reads the entry it left, or, when it failed or its task stopped, runs its own. Go's `singleflight` call, Effect's pending `Deferred` of a `Cache` entry. See [stdlib](docs/spec/stdlib.md#cache).
+
+**Loose reader**: Std `json`'s `DecodeLoose`, which reads text that is nearly JSON, as a model writes it, into a typed value and returns every repair it made as a `Fix`. The repairs are syntax only (prose and fences around the value, trailing commas, bare and single-quoted keys and strings, comments, what the text's end left open, the first of several values); no value changes its kind. See [stdlib](docs/spec/stdlib.md#json), json 9.
+
+**Fix** (json): One repair the loose reader made, a variant of the closed union `json.Fix`, with the span of the original text it names. A read with no fix is a strict read: `Decode` gives the same value.
 
 **Effect runtime provider** (direction): An implementation of the lawful runtime contract that executes Ergo effects on a target. `runtime/ergo` was the native Go provider of the earlier language (removed in batch 14), and the prototype's `rt` package is the first provider of the Go-shaped language. Pinned Effect as the JavaScript provider went with the JavaScript target on 2026-10-26.
 
@@ -361,6 +367,8 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 **Virtual rows (ui)**: A `ui.Rows` list, whose row function the composer runs only for the rows its viewport shows, plus `ui.Overscan` rows on each side. Its viewport is view-local state the host reports (`ui.Scrolled`), and its rows are keyed as `Each` rows are. See [stdlib](docs/spec/stdlib.md#ui).
 
 **Text measure (ui)**: std `ui.Measure`, the operation type through which text layout asks the host how wide text is and how high its lines are (`Width`, `LineHeight`). `ui.LayoutText` breaks text into lines with it, and `ui.CaretAt`, `ui.OffsetAt` and `ui.SelectionRects` give the caret and selection geometry. `ui.Monospace` is the measure of cell grids and tests. See [stdlib](docs/spec/stdlib.md#ui).
+
+**Pacing**: std `pace.Pacing`, the operation type `{ Edge(), Hold(), Release() }` through which a loop marks the end of one unit of its work (a frame, a turn) for Go's collector, and a stretch that must not be paced mid-way (`pace.Held`, a hold: no edge inside collects, and the last release runs the collection owed); the provider `cmd` main binds decides what an edge does (`Default`, `Percent`, `AtEdges`; `Counting` in tests). Not the runtime's heap floor (`rt.Pace`), which every program has. See [stdlib](docs/spec/stdlib.md#pacing).
 
 **UI host**: std `ui.Host[E]`, the operation type of a screen that shows patches and reports events (`Show`, `Next`, `Post`, through which a fetch's task hands its result to the loop, and `Frames`, through which `Run` asks for a `Tick` per frame only while the view animates); a value `ui.Run` drives. `ui.TestHost` is the in-process host of tests and agents: it steps the same `ui.Session` as `Run`. Not a host package's `Host` and not an **Actor host**. See [stdlib](docs/spec/stdlib.md#ui).
 
@@ -449,6 +457,8 @@ The building blocks of domain-driven design, as Ergo writes them. [docs/domain.m
 **Gap**: A wall time a zone skips, as 02:30 on the day clocks go forward: `tz.Gap`, one variant of what `tz.Resolve` gives. No instant shows it.
 
 **Overlap**: A wall time a zone shows twice, as 01:30 on the day clocks go back: `tz.Overlap`, with the earlier and the later instant.
+
+**Cron expression**: When a job fires, as five fields of wall time (minute, hour, day of the month, month, day of the week), `cron.Expr`, read by `cron.Parse`. It fires at wall minutes; in a zone, `cron.Next` gives each the instant `tz.Compatible` chooses, so a minute in a gap fires once, a gap late, and a minute in an overlap fires once, at its first showing. See [stdlib](docs/spec/stdlib.md#cron).
 
 ## Earlier `.ef` language
 

@@ -46,8 +46,8 @@ func TestMain(m *testing.M) {
 
 var agreeSeed = flag.Uint64("agree.seed", 0, "run TestMyGoHostAgreesWithTestHost on this seed only")
 
-// agreeApps are the apps of cmd/hostagree; seed s plays app s mod 7.
-var agreeApps = []string{"counter", "shelf", "form", "load", "pad", "list", "sketch"}
+// agreeApps are the apps of cmd/hostagree; seed s plays app s mod 10.
+var agreeApps = []string{"counter", "shelf", "form", "load", "pad", "list", "sketch", "looks", "roles", "states"}
 
 // words are texts a script types: empty, ASCII, and runes of two and
 // three bytes, so Backspace must take a rune, not a byte.
@@ -73,6 +73,12 @@ func genScript(r *rand.Rand, app string) string {
 			// below the pad's text and its clear button, which the
 			// window's hit test would give the pointer to instead
 			step = fmt.Sprintf("point pad %s %d %d", pick(r, "down", "up", "move", "wheel"), r.IntN(200), 70+r.IntN(50))
+			if r.IntN(3) == 0 {
+				// a move below the pad, over nothing: the pad gets it only
+				// while it holds the pointer, as a Drag (FK12-g1); a press
+				// or release there would hit nothing in the window
+				step = fmt.Sprintf("point pad move %d %d", r.IntN(200), 125+r.IntN(40))
+			}
 			if r.IntN(4) == 0 {
 				step = "tap clear"
 			}
@@ -83,6 +89,12 @@ func genScript(r *rand.Rand, app string) string {
 			step = pick(r, "tap more", "tap less", "tap note", fmt.Sprintf("scroll list %d", r.IntN(3000)), fmt.Sprintf("tap row %d", r.IntN(90)), fmt.Sprintf("tap row %d", r.IntN(20)), "tap down", "tap down", "tap up")
 		case "sketch":
 			step = fmt.Sprintf("point sketch %s %d %d", pick(r, "down", "down", "up", "move"), r.IntN(200), r.IntN(150))
+		case "looks":
+			step = pick(r, "tap next", "tap next", "tap c", "tap a", "tap b")
+		case "roles":
+			step = pick(r, "tap next", "tap next", "tap s0", "tap s3")
+		case "states":
+			step = pick(r, "tap open", "tap close", "tap ask", "tap p1", "tap r1", "key Tab", "key Tab", "key ArrowRight", "key Escape", "point p0 move 3 3", "point r2 move 3 3", "point open move 3 3", "away")
 		}
 		if r.IntN(5) == 0 {
 			step = fmt.Sprintf("focus %d", r.IntN(6))
@@ -106,7 +118,7 @@ var buildHostAgree = sync.OnceValues(func() (string, error) {
 
 // TestMyGoHostAgreesWithTestHost is H3g's acceptance: the desktop driver
 // (hosts/mygo/desktop), fed through a headless MyGo window, agrees with
-// ui.TestHost on seeded scene scripts of seven apps. After every step both
+// ui.TestHost on seeded scene scripts of ten apps. After every step both
 // hosts hold the same tree (ui.SameShapes) and the same app state, and
 // each filled node shows its color in the window's rendered frame at the
 // place the driver laid it out. A tap is a press and a release at the
