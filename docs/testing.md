@@ -32,6 +32,16 @@ test NotFoundIsHandled {
 
 A test declares no `needs` row (S102): the services it uses come from a `with`.
 
+## Diagnostics
+
+A test of what the checker reports is a fixture file, not a test: a program whose `// want CODE` markers name each diagnostic it must get, on its line, with an optional quoted text the message must hold. `ergo check --want FILE|DIR` checks each fixture alone and prints the ones that differ ([tooling](tooling.md)):
+
+```go
+func f(o Option[A | B]) {} // want S104 "A is not an error type"
+```
+
+The checker's own families live in `internal/sketch/check/testdata/fixtures`, one folder each with a README.md that names the rule and its mutants.
+
 ## Running
 
 ```sh
@@ -247,7 +257,7 @@ test ClonesFromHost {
 
 `ergo test` prints `skip ClonesFromHost: git is not on this host`, runs no more of the test's cases, and counts it as a skip: `PASS (1 tests, 1 skipped)`. `ergo check` reports the obligation `skipped` with the reason and the statement's line. The statement stands only in a test or law body, and its reason is a string literal that is not blank. `skip` is a contextual keyword, so a function or a local named `skip` is still legal ([runtime](spec/runtime.md#tests), Tests 4).
 
-A law that cannot run prints a `skip` line with the reason, and the summary counts it: `PASS (2 tests, 1 skipped)`. A provider whose state is a std handle, such as a `sync.Ref`, has no generator; declare its constructor `func NewTally() Tally` (no rows) and each case builds the provider with it; a provider with a constructor is always built by it. The package of an operation type with no provider of its own prints `law Store.PutCountsOne runs where Store has a provider: none is in this package or its imports`. In `examples/`, a skip line that the program's `expected-skips` file does not list fails the gate. A law of a generic operation type is checked and not run yet. So a program need not restate a law as a property test.
+A law that cannot run prints a `skip` line with the reason, and the summary counts it: `PASS (2 tests, 1 skipped)`. A provider whose state is a std handle, such as a `sync.Ref`, has no generator; declare its constructor `func NewTally() Tally` (no rows) and each case builds the provider with it; a provider with a constructor is always built by it. The package of an operation type with no provider of its own prints `law Store.PutCountsOne runs where Store has a provider: none is in this package or its imports`. A skip line that the module's `expected-skips` file (beside `ergo.mod`) does not list fails `ergo test`, exit 1, in `examples/` and everywhere else ([runtime.md](spec/runtime.md), Tests 4). A law of a generic operation type is checked and not run yet. So a program need not restate a law as a property test.
 
 `ergo test DIR --receipt FILE` writes the run's law receipt to FILE: a JSON object with the schema version, the source, its revision, the seed, the target and one entry per law run, `proved` (a listed run, every value), `tested` with its case count, `refuted` with its counterexample, or `skipped` with the reason; a machine's reachability law has the search's report in place of a case count ([runtime](spec/runtime.md#tests), Tests 8). A drawn law that holds is tested, not proved. Without `--receipt` nothing is written.
 

@@ -1,0 +1,15 @@
+type WrongCode {}
+type Other {}
+
+type Signal = WrongCode | Ok{}
+
+type Errs = WrongCode | Other
+
+func check(n int) int fails WrongCode | Other {
+	if n == 0 {
+		return WrongCode
+	}
+	n
+}
+
+func fail() Signal fails WrongCode { WrongCode }
