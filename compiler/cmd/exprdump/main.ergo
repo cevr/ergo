@@ -23,10 +23,15 @@
 // FOREIGN are typedump's: the Go side writes them, for the prelude's, the
 // universe's and the Go imports' types.
 //
+// With -corpus, each package's "O FILE OFFSET LENGTH CODE MESSAGE" lines
+// are compiler/check/diag's own-mark diagnostics (MODES-OWN-CHECK).
+//
 // It is the Ergo side of S3d's expression agreement
-// (internal/selfhostcheck's TestCompilerExprAgreesWithChecker).
+// (internal/selfhostcheck's TestCompilerExprAgreesWithChecker) and of the
+// own-mark agreement (TestCompilerOwnMarksAgreeWithChecker).
 
 import compiler/check/bind
+import compiler/check/diag
 import compiler/check/expr
 import compiler/check/infer
 import compiler/check/load
@@ -280,6 +285,14 @@ func write(b mut strings.Builder, u Unit, d Typed, calls bool, prefix string) {
 	}
 }
 
+// writeOwn prints the own-mark diagnostics of one typed package, "FILE
+// OFFSET LENGTH CODE MESSAGE" after prefix, in the Go checker's order.
+func writeOwn(b mut strings.Builder, u Unit, d Typed, prefix string) {
+	for g in diag.OwnMarks(d.s, d.k, d.t) {
+		b.WriteString("\(prefix)\(u.files[g.File].Name) \(g.Offset) \(g.Length) \(g.Code) \(g.Message)\n")
+	}
+}
+
 // writeDiags prints the typer's diagnostics, "D FILE START END" after
 // prefix, one per line (S3d5).
 func writeDiags(b mut strings.Builder, u Unit, d Typed, prefix string) {
@@ -303,7 +316,8 @@ func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 		// One package per line of the manifest, "PATH EXT FOREIGN
 		// FILE...": its import path (a checked root's @pkg path is main),
 		// its tables and files. Each package's lines are "E …" (types),
-		// "C …" (calls) and "D …" (diagnostics) after its "@pkg I" line.
+		// "C …" (calls), "D …" (diagnostics) and "O …" (own marks) after
+		// its "@pkg I" line.
 		let mut units = []Unit{}
 		for line in strings.Split(try read(argv[1]), "\n") {
 			let g = strings.Fields(line)
@@ -319,6 +333,7 @@ func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 			write(&b, units[i], d, false, "E ")
 			write(&b, units[i], d, true, "C ")
 			writeDiags(&b, units[i], d, "D ")
+			writeOwn(&b, units[i], d, "O ")
 		}
 		io.Stdout.Print(b.String())
 		return

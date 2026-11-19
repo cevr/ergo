@@ -360,7 +360,7 @@ func generic(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], c s
 		case _:
 			fun
 		}
-		t.Insts = t.Insts.Append(Inst{At: pnode(k, t.file, named), Args: targs.Value, Fn: t.fn})
+		t.Insts = t.Insts.Append(Inst{At: pnode(k, t.file, named), Args: targs.Value, Fn: t.fn, Call: pnode(k, t.file, x), Callee: f})
 		let inst = store.TSubst(s, f.Sig, targs.Value)
 		// The callee records the instance: the name when inferred, the
 		// index expression when written.

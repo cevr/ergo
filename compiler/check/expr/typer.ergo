@@ -32,8 +32,9 @@ type Unsure {}
 type Entry { At dense.ID[store.PNode], T dense.ID[store.TKey], Fn int }
 
 // Inst is one inferred call to a generic function: the callee's name
-// node, its type arguments and the calling function.
-type Inst { At dense.ID[store.PNode], Args []dense.ID[store.TKey], Fn int }
+// node, its type arguments and the calling function; the call, and the
+// callee (whose own marks the call reads: types.md, Generics 9).
+type Inst { At dense.ID[store.PNode], Args []dense.ID[store.TKey], Fn int, Call dense.ID[store.PNode], Callee Fn }
 
 // Diag is a type error the typer found: the expression at At, in the
 // function Fn, has a basic type, or is a constant of a basic kind, that is
