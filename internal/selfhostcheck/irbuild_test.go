@@ -162,7 +162,7 @@ func TestCompilerIRAgreesWithBuilder(t *testing.T) {
 			i := slices.IndexFunc(wants, func(w irGoFunc) bool { return bytes.Equal(got, w.data) })
 			if i < 0 {
 				failed++
-				if failed <= 3 {
+				if failed <= 10 {
 					t.Errorf("%s:%s %s: compiler/lower builds another IR body\n ergo: %s\n   go: %s", rel(f[0]), f[1], fn.Name, got, wants[0].data)
 				}
 				continue
@@ -216,12 +216,44 @@ type irGoIndex map[irKey][]irGoFunc
 // irProgramName is the Go builder's names that are program-wide rather
 // than the function's: the split's export of a name two Go packages use
 // (pkgsplit.go: X before an unexported name, again while taken) and a
-// collision suffix (_N).
-var irProgramName = regexp.MustCompile(`^X+([a-z_])|_[0-9]+$`)
+// collision suffix (_N), of a function, a method (T.Xm), a method's
+// record (T_N.m) or a field (irBaseFields).
+// NAME-LOCAL (S4c/naming.md) makes them per package; then names compare
+// exactly.
+var irProgramName = regexp.MustCompile(`^X+([a-z_])|_[0-9]+$|_[0-9]+(\.)`)
+
+var irMethodExport = regexp.MustCompile(`\.X+([a-z_])`)
 
 // irBaseName is name without its program-wide parts.
 func irBaseName(name string) string {
-	return irProgramName.ReplaceAllString(name, "$1")
+	return irMethodExport.ReplaceAllString(irProgramName.ReplaceAllString(name, "${1}${2}"), ".${1}")
+}
+
+// irBaseFields gives each field the Go builder reads in fn its base name:
+// the split exports an unexported field two Go packages read (X + name),
+// a program-wide decision too.
+func irBaseFields(fn *irFunc) {
+	var walk func(v reflect.Value)
+	walk = func(v reflect.Value) {
+		switch v.Kind() {
+		case reflect.Pointer:
+			if !v.IsNil() {
+				walk(v.Elem())
+			}
+		case reflect.Slice:
+			for i := range v.Len() {
+				walk(v.Index(i))
+			}
+		case reflect.Struct:
+			if e, ok := v.Addr().Interface().(*irExpr); ok && e.K == "field" {
+				e.Name = irBaseName(e.Name)
+			}
+			for i := range v.NumField() {
+				walk(v.Field(i))
+			}
+		}
+	}
+	walk(reflect.ValueOf(fn))
 }
 
 // names is the names of the Go functions at k.
@@ -283,11 +315,18 @@ func goIRFuncs(t *testing.T, paths irPathIDs) (irGoIndex, map[string]string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, dir := range targets {
+	// The corpus's own fixture (testdata/bind) is lowered alike; a folder
+	// the Go front end does not load is logged as one it does not lower.
+	fixture := filepath.Join(repoRoot(), "internal", "selfhostcheck", "testdata", "bind")
+	for _, dir := range append(targets, fixture) {
 		if covered[dir] || filepath.Base(filepath.Dir(dir)) == "cmd" {
 			continue
 		}
 		u, err := irspike.Load(dir)
+		if err != nil && dir == fixture {
+			unlowered[dir] = err.Error()
+			continue
+		}
 		if err != nil {
 			t.Fatalf("%s: %v", dir, err)
 		}
@@ -340,6 +379,7 @@ func goIRFuncs(t *testing.T, paths irPathIDs) (irGoIndex, map[string]string) {
 				}
 				raw := fn.Name
 				fn.Name = irBaseName(raw)
+				irBaseFields(fn)
 				data, err := json.Marshal(fn)
 				if err != nil {
 					t.Fatal(err)

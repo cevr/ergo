@@ -22,6 +22,14 @@
 // each is of a non-basic type), and every pass after the build leaves it
 // as it is (fold and merge read calls, the forms passes forms, the end
 // passes locals); and Go builds its body (no gate of the emitter holds).
+//
+// Slice S4c3 adds constant expressions, folded as the checker folds them
+// (the Go builder writes the checker's value), escaped strings and runes,
+// float64 literals, and parameters of a plain record (plainRecord) whose
+// basic fields the body reads; a function whose first parameter is one is
+// the Go method T.name (lower's methodReceiver). Lets and calls wait for
+// NAME-LOCAL: a local's and a callee's Go name is program-wide today
+// (selfhost S4c/naming.md).
 
 import compiler/check/bind
 import compiler/check/expr
@@ -132,6 +140,140 @@ func basicGo(st fnb, t dense.ID[store.TKey]) string {
 	basicNames[n]
 }
 
+// plainRecord is the index in the package's records of the record t
+// names when it is one the slice reads fields of, else -1: a record of
+// the package, not generic, no operation type, with fields, each of a
+// basic type and a Go name that is its own (no keyword, no Error, which
+// the Go lowering renames: decls.go, memberName). Such a record owns
+// nothing and copies as Go copies it, so its parameter is a plain local.
+func plainRecord(st fnb, t dense.ID[store.TKey]) int {
+	if store.KindOfType(st.s, t) != store.KNamed {
+		return -1
+	}
+	let name = store.TypeNameText(st.s, store.ArgOf(st.s, t))
+	for r, rec in st.k.Recs {
+		if rec.Name != name {
+			continue
+		}
+		if rec.Op || len(rec.Params) > 0 || len(rec.Fields) == 0 || !structDecl(st, name) {
+			return -1
+		}
+		for f in rec.Fields {
+			if basicGo(st, f.T) == "" || f.Name == "Error" || strings.HasSuffix(f.Name, "_") || goKeyword(f.Name) {
+				return -1
+			}
+		}
+		return r
+	}
+	-1
+}
+
+// structDecl reports a declaration of the package `type name { ... }`:
+// a record of its own (no union's variant, no extern Go type), with no
+// where, derive or implements clause.
+func structDecl(st fnb, name string) bool {
+	for p in st.k.Parsed {
+		let decls = match syntax.ViewOf(p.Tree, syntax.Root(p.Tree)) {
+		case syntax.File as root:
+			root.Decls
+		case _:
+			continue
+		}
+		for i in 0..syntax.Len(decls) {
+			match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, decls, i)) {
+			case syntax.TypeDecl as td:
+				if nameText(p, td.Name) != name {
+					continue
+				}
+				if dense.Unpack(td.Extern) != None || dense.Unpack(td.TypeParams) != None || dense.Unpack(td.Where) != None || dense.Unpack(td.Derive) != None || syntax.Len(td.Implements) > 0 {
+					return false
+				}
+				match dense.Unpack(td.Spec) {
+				case Some[dense.ID[syntax.Node]] as sp:
+					match syntax.ViewOf(p.Tree, sp.Value) {
+					case syntax.StructType:
+						return true
+					case _:
+						return false
+					}
+				case None:
+					return false
+				}
+			case _:
+			}
+		}
+	}
+	false
+}
+
+// The method names Go's types may answer to (lower's hostProtocols): a
+// function of one of these names on a record takes another name.
+let hostProtocols = []string{"Error", "String", "GoString", "As", "Format", "GobDecode", "GobEncode", "Is", "MarshalJSON", "MarshalXML", "ReadByte", "ReadFrom", "ReadRune", "Scan", "Seek", "UnmarshalJSON", "UnmarshalXML", "UnreadByte", "UnreadRune", "Unwrap"}
+
+// goName is the IR name of the function name whose first parameter's
+// type is first (lower's funcDecl, methodReceiver): T.name, a Go method,
+// when first is a plain record T and no field of T is spelled name; else
+// name. It stops at a name Go's protocols or keywords hold.
+func goName(st fnb, name string, first Option[dense.ID[store.TKey]]) string fails Unported {
+	let t = match first {
+	case Some[dense.ID[store.TKey]] as f:
+		f.Value
+	case None:
+		return name
+	}
+	let r = plainRecord(st, t)
+	if r < 0 {
+		return name
+	}
+	for f in st.k.Recs[r].Fields {
+		if f.Name == name {
+			return name
+		}
+	}
+	for h in hostProtocols {
+		if h == name {
+			return stop("method of a Go protocol's name")
+		}
+	}
+	if goKeyword(name) {
+		return stop("method of a keyword's name")
+	}
+	st.k.Recs[r].Name + "." + name
+}
+
+let goKeywords = []string{"break", "case", "chan", "const", "continue", "default", "defer", "else", "fallthrough", "for", "func", "go", "goto", "if", "import", "interface", "map", "package", "range", "return", "select", "struct", "switch", "type", "var"}
+
+func goKeyword(name string) bool {
+	let mut ok = false
+	for k in goKeywords {
+		ok = ok || k == name
+	}
+	ok
+}
+
+// field is the field the selector se reads, checked: a field of a plain
+// record parameter (plainRecord); its name.
+func field(st fnb, se syntax.SelectorExpr) string fails Unported {
+	let xt = try typeOf(st, se.X, "selector operand")
+	let r = plainRecord(st, xt)
+	if r < 0 {
+		return stop("selector on no plain record")
+	}
+	match syntax.ViewOf(st.p.Tree, se.X) {
+	case syntax.Name:
+		let _ = try paramLocal(st, se.X)
+	case _:
+		return stop("selector on no parameter")
+	}
+	let name = nameText(st.p, se.Sel)
+	for f in st.k.Recs[r].Fields {
+		if f.Name == name {
+			return name
+		}
+	}
+	stop("selector that is no field")
+}
+
 let basicNames = []string{"", "bool", "string", "int", "int8", "int16", "int32", "int64", "uint", "uint8", "uint16", "uint32", "uint64", "uintptr", "float32", "float64"}
 
 // emptyRow reports a row with no member: a signature's error or
@@ -181,8 +323,8 @@ func function(st mut fnb, b mut ir.Builder, f expr.Fn, path string) bool fails U
 		return stop("result not basic")
 	}
 	for i in 0..n {
-		if basicGo(*st, ops[i]) == "" {
-			return stop("parameter not basic")
+		if basicGo(*st, ops[i]) == "" && plainRecord(*st, ops[i]) < 0 {
+			return stop("parameter neither basic nor a plain record")
 		}
 	}
 	if len(f.Names) != n {
@@ -219,7 +361,8 @@ func function(st mut fnb, b mut ir.Builder, f expr.Fn, path string) bool fails U
 	st.fileIx = ir.FileOf(b, path)
 	let fp = pos(*st, syntax.TokPos(p, d.Func))
 	let end = pos(*st, syntax.TokPos(p, rbrace))
-	try ir.Begin(b, name, fp, end)
+	let gname = try goName(*st, name, if n > 0 { Some[dense.ID[store.TKey]]{Value: ops[0]} } else { None })
+	try ir.Begin(b, gname, fp, end)
 	let x = try value(*st, b, tailX)
 	let ret = try ir.Row(b, ir.KindCode(ir.TStmt, "ret"), pos(*st, syntax.NodePos(p, tailX)), []uint32{x})
 	try ir.End(b, ir.List(b, []uint32{ret}))
@@ -288,8 +431,15 @@ func check(st fnb, x dense.ID[syntax.Node]) fails Unported {
 	}
 	match syntax.ViewOf(p.Tree, x) {
 	case syntax.Name:
-		let _ = try typeOf(st, x, "Ident")
+		if basicGo(st, try typeOf(st, x, "Ident")) == "" {
+			return stop("name of a non-basic type")
+		}
 		let _ = try paramLocal(st, x)
+	case syntax.SelectorExpr as se:
+		if basicGo(st, try typeOf(st, x, "SelectorExpr")) == "" {
+			return stop("field of a non-basic type")
+		}
+		let _ = try field(st, se)
 	case syntax.ParenExpr as pe:
 		try check(st, pe.X)
 	case syntax.UnaryExpr as u:
@@ -346,6 +496,11 @@ func value(st fnb, b mut ir.Builder, x dense.ID[syntax.Node]) uint32 fails Unpor
 	case syntax.Name:
 		let i = try paramLocal(st, x)
 		try ir.Row(b, ir.KindCode(ir.TExpr, "local"), at, []uint32{uint32(i)})
+	case syntax.SelectorExpr as se:
+		let name = try field(st, se)
+		let i = try paramLocal(st, se.X)
+		let y = try ir.Row(b, ir.KindCode(ir.TExpr, "local"), pos(st, syntax.NodePos(p, se.X)), []uint32{uint32(i)})
+		try ir.Row(b, ir.KindCode(ir.TExpr, "field"), pos(st, syntax.NodePos(p, se.Sel)), []uint32{y, ir.Text(b, name)})
 	case syntax.ParenExpr as pe:
 		try value(st, b, pe.X)
 	case syntax.UnaryExpr as u:

@@ -539,6 +539,28 @@
       "killers": [
         "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
       ]
+    },
+    {
+      "name": "lower-string-unquoted",
+      "origin": "wf10/selfhost/S4c3",
+      "file": "compiler/lower/lower.ergo",
+      "from": "return CStr{S: s}",
+      "to": "return CStr{S: text}",
+      "rule": "A string constant's value is its literal unquoted as the checker reads it.",
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ]
+    },
+    {
+      "name": "lower-method-name",
+      "origin": "wf10/selfhost/S4c3",
+      "file": "compiler/lower/lower.ergo",
+      "from": "st.k.Recs[r].Name + \".\" + name",
+      "to": "name",
+      "rule": "A function whose first parameter is a plain record of its package is the Go method T.name.",
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ]
     }
   ]
 }
