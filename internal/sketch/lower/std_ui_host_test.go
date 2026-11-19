@@ -1325,7 +1325,7 @@ func advanceTakes(n int, m time.Manual) bool needs Scheduler {
 			return false
 		}
 	}
-	ui.Posted(&h) <= 1 && ui.Frames(&h) == frames
+	ui.Posted(&h) <= 1 && h.Frames() == frames
 }
 
 type pad { open bool, last int, n int }
@@ -5830,29 +5830,36 @@ test UiRunPacesEachEvent(n int) {
 type dragHost { target sync.Ref[Option[ui.Id[int]]], codes sync.Ref[[]int] } implements ui.Host[int]
 
 func Show(h dragHost, ops []ui.Op[int]) {
-	if len(ops) > 0 {
-		let id = dragOpId(ops[0])
-		h.target.Update(func(t Option[ui.Id[int]]) Option[ui.Id[int]] {
-			match t {
-			case Some[ui.Id[int]]:
-				t
-			case None:
-				Some{Value: id}
-			}
-		})
+	for op in ops {
+		match dragOpId(op) {
+		case Some[ui.Id[int]] as id:
+			h.target.Update(func(t Option[ui.Id[int]]) Option[ui.Id[int]] {
+				match t {
+				case Some[ui.Id[int]]:
+					t
+				case None:
+					Some{Value: id.Value}
+				}
+			})
+			return
+		case None:
+		}
 	}
 }
 
-func dragOpId(op ui.Op[int]) ui.Id[int] {
+// dragOpId is the node an op is about; a Define (a look) is about none.
+func dragOpId(op ui.Op[int]) Option[ui.Id[int]] {
 	match op {
 	case ui.Insert[int] as i:
-		i.Id
+		Some{Value: i.Id}
 	case ui.Move[int] as m:
-		m.Id
+		Some{Value: m.Id}
 	case ui.Remove[int] as r:
-		r.Id
+		Some{Value: r.Id}
 	case ui.Set[int] as s:
-		s.Id
+		Some{Value: s.Id}
+	case ui.Define:
+		None
 	}
 }
 
