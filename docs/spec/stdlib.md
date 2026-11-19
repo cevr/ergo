@@ -2202,7 +2202,6 @@ The standard library is an ordinary set of packages ([NORTH_STAR.md](../../NORTH
 | `internal/sketch/check/releaseneeds.go:checker.releaseWider` | `Close` |
 | `internal/sketch/check/stmt.go:checker.isErrorValue` | `go.Error` |
 | `internal/sketch/derive/eval.go:evaluator.callee` | `Of`, the derive plan's constructor |
-| `internal/sketch/eval/arguments.go:interp.argumentType` | the prelude's types |
 | `internal/sketch/eval/machine.go:interp.machineStep` | `Enter`, `Stay`, `Emit`, `Tell`, `Done`, `Next` |
 | `internal/sketch/lower/builders.go:lowerer.builtText` | a prelude constructor, written unqualified |
 | `internal/sketch/lower/calls.go:funcCtx.callee` | a prelude function, written unqualified |

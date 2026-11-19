@@ -82,7 +82,6 @@ language	internal/sketch/check/ownership.go:checker.checkOwnership	Close, the re
 language	internal/sketch/check/releaseneeds.go:checker.releaseWider	Close, the release operation	-
 language	internal/sketch/check/stmt.go:checker.isErrorValue	go.Error of the Go boundary	-
 language	internal/sketch/derive/eval.go:evaluator.callee	Of, the derive plan's constructor	-
-language	internal/sketch/eval/arguments.go:interp.argumentType	prelude types are the program's	-
 language	internal/sketch/eval/machine.go:interp.machineStep	Enter, Stay, Emit, Done and Next of a machine	-
 language	internal/sketch/lower/builders.go:lowerer.builtText	a prelude constructor is written unqualified	-
 language	internal/sketch/lower/calls.go:funcCtx.callee	a prelude function is written unqualified in the call table	-
