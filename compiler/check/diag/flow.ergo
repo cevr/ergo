@@ -127,6 +127,9 @@ type walker {
 	// tries counts the try expressions the walk is in, outside a catch:
 	// a failing call there leaves the frame.
 	tries int,
+	// tryCatch is the catch a try writes around (try … catch), by its
+	// node's index, or -1: the failures no arm of it handles escape.
+	tryCatch int,
 }
 
 // Flow is the ownership flow's S108s of the package k, typed by t, in the
@@ -162,7 +165,7 @@ func Flow(s store.Store, k expr.Pkg, t expr.Typer, srcs []string) []Diag {
 	for src in srcs {
 		lines = lines.Append(syntax.LinesOf(src))
 	}
-	let mut w = walker{res: res, infos: infos, types: ts, calls: cs, fn: 0, file: 0, lines: lines, st: state{reached: false, slots: []slot{}}, vars: []local{}, depth: 0, first: 0, name: "", nested: "", loops: []loopFrame{}, catches: [][]state{}, memos: Map[int, memo]{}, diags: []fdiag{}, tl: frameTail(), serial: 0, active: []int{}, lenders: Map[int, string]{}, pkgLets: []int{}, own: []bool{}, tries: 0}
+	let mut w = walker{res: res, infos: infos, types: ts, calls: cs, fn: 0, file: 0, lines: lines, st: state{reached: false, slots: []slot{}}, vars: []local{}, depth: 0, first: 0, name: "", nested: "", loops: []loopFrame{}, catches: [][]state{}, memos: Map[int, memo]{}, diags: []fdiag{}, tl: frameTail(), serial: 0, active: []int{}, lenders: Map[int, string]{}, pkgLets: []int{}, own: []bool{}, tries: 0, tryCatch: -1}
 	w.pkgLets = letsHolding(&w, s, k, t)
 	let mut out = []Diag{}
 	for fi, f in k.Fns {
@@ -1184,7 +1187,12 @@ func eval(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.ID[s
 		let mut r = h
 		r.failed = 0
 		w.tries = w.tries + 1
-		eval(w, ws, wk, wt, syntax.TryExprOf(wk.Parsed[w.file].Tree, x).X, mode, r)
+		let tx = syntax.TryExprOf(wk.Parsed[w.file].Tree, x).X
+		let inner = un(w, ws, wk, wt, tx)
+		let savedCatch = w.tryCatch
+		w.tryCatch = if syntax.KindOf(wk.Parsed[w.file].Tree, inner) == syntax.KCatchExpr { dense.Index(inner) } else { -1 }
+		eval(w, ws, wk, wt, tx, mode, r)
+		w.tryCatch = savedCatch
 		w.tries = w.tries - 1
 	} else if kind == syntax.KCatchExpr {
 		yieldValue(w, ws, wk, wt, x, mode, h, true)
@@ -1408,6 +1416,11 @@ func yieldValue(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dens
 // that is no call has no failure state here, so its arms are not reached.
 func caught(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.ID[syntax.Node], mode int, h hand) {
 	let ce = syntax.CatchExprOf(wk.Parsed[w.file].Tree, x)
+	// A try around the catch passes on what no arm handles (handlers.go
+	// Partial): each failure leaves the frame too, from the state where
+	// its call failed (the Go checker's catch, saved()).
+	let partial = w.tryCatch == dense.Index(x)
+	w.tryCatch = -1
 	w.catches = w.catches.Append([]state{})
 	let k = len(w.catches)
 	eval(w, ws, wk, wt, ce.X, mode, hand{at: h.at, how: h.how, lend: h.lend, yieldRoot: h.yieldRoot, failed: k, root: false})
@@ -1419,6 +1432,12 @@ func caught(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.ID
 		fail = join(w, ws, wk, wt, fail, f, n)
 	}
 	let mut out = w.st
+	if partial && w.tries > 0 {
+		for f in failing {
+			w.st = pad(f, n)
+			release(w, ws, wk, wt, w.first)
+		}
+	}
 	for i in 0..syntax.Len(ce.Arms) {
 		let a = syntax.Item(wk.Parsed[w.file].Tree, ce.Arms, i)
 		w.st = fail
