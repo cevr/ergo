@@ -108,11 +108,11 @@ law ReleaseThenReuse(seed int, count int) {
 				let m = 1 + k%has
 				c.ReleaseN(id.Value, m)
 				held[v] = has - m
-				if maps.GetOr(held, v, 0) == 0 {
-					live = live.Delete(v)
-					held = held.Delete(v)
-					freed[id.Value] = true
-				}
+			}
+			if op == 2 && has > 0 && maps.GetOr(held, v, 0) == 0 {
+				live = live.Delete(v)
+				held = held.Delete(v)
+				freed[id.Value] = true
 			}
 		case None:
 			let reuse = len(freed) > 0
