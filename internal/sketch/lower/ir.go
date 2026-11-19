@@ -596,6 +596,9 @@ type irBuilder struct {
 	// fuse is the fused match whose callee body is being built: its
 	// results jump to the match's arms (ir_forms_match.go).
 	fuse *fuseSite
+	// preset are the arguments of a component call evaluated once into a
+	// local, which the call in its group's body reads (ir_uigroup.go).
+	preset map[syntax.Expr]int
 }
 
 // gate stops the body for reason; a census records it and goes on.
