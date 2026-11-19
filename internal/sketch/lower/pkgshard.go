@@ -1,6 +1,7 @@
 package lower
 
 import (
+	"encoding/json"
 	"go/ast"
 	"hash/fnv"
 	"path"
@@ -57,6 +58,16 @@ type shardOpts struct {
 // shard holds 24 KiB of cost or more (docs/receipts/compile-speed.md,
 // "Declaration shards").
 var devShards = &shardOpts{pkg: 64 << 10, min: 24 << 10, one: 4}
+
+// SetEveryShardForTest makes the shard lowerings (LowerShards,
+// LowerIRShards) cut every package after each component, the most names
+// that cross, so a test of the cut's laws reaches a package under the
+// 64 KiB a test build cuts from; the func it returns restores the cut.
+func SetEveryShardForTest() func() {
+	old := devShards
+	devShards = &shardOpts{pkg: 1, min: 1, one: 1}
+	return func() { devShards = old }
+}
 
 // shardDir is the folder of the shards of every package.
 const shardDir = "shard"
@@ -135,6 +146,20 @@ func (p *splitPlan) shard(groups []splitGroup, o *shardOpts, name func(g int) st
 		}
 	}
 	return made
+}
+
+// irBodyBytes is fn's body as a cut weighs it, in bytes of Go text: the
+// length of its IR encoding, two thirds of it. The cut's sizes (devShards)
+// are bytes of Go; the IR of a body takes 1.3 to 2.1 times the bytes of
+// the Go text the text path writes for it (measured on the test programs
+// of examples/deps: graph's root 1.32, resolve's root 1.46, graph's
+// harness 2.07), 1.5 taken.
+func irBodyBytes(fn *irFunc) int {
+	data, err := json.Marshal(fn)
+	if err != nil {
+		return 0
+	}
+	return len(data) * 2 / 3
 }
 
 // rootReach is the root's groups that stay in the root: the pinned ones,
