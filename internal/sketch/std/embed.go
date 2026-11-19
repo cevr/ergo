@@ -35,6 +35,7 @@ import "embed"
 //go:embed ratelimit/*.ergo ratelimit/memory/*.ergo
 //go:embed kv/*.ergo kv/memory/*.ergo kv/file/*.ergo
 //go:embed jobs/*.ergo jobs/memory/*.ergo jobs/file/*.ergo
+//go:embed session/*.ergo session/memory/*.ergo session/file/*.ergo
 //go:embed http/*.ergo
 //go:embed actor/*.ergo
 //go:embed journal/*.ergo journal/memory/*.ergo journal/file/*.ergo

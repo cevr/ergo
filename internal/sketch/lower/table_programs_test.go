@@ -67,6 +67,7 @@ var (
 	_ = declarePrograms("TestStdRatelimitLawsRun", testBuildProgram("stdratelimit", stdRatelimitLawsProbe))
 	_ = declarePrograms("TestStdKvLawsRun", testBuildProgram("stdkv", stdKvLawsProbe))
 	_ = declarePrograms("TestStdJobsLawsRun", testBuildProgram("stdjobs", stdJobsLawsProbe))
+	_ = declarePrograms("TestStdSessionLawsRun", testBuildProgram("stdsession", stdSessionLawsProbe))
 	_ = declarePrograms("TestStdBenchLawsRun", testBuildProgram("stdbench", stdBenchProgram))
 	_ = declarePrograms("TestOSProcessRuns", entryProgram("osHost", osProgram), entryProgram("osFake", fakeProgram), entryProgram("osParam", paramProgram))
 )
