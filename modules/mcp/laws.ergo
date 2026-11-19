@@ -1,6 +1,7 @@
 // The server's laws over generated sets of tools.
 
 import json
+import jsonschema
 import strings
 
 // echo is a tool named name that gives its name back.
@@ -66,7 +67,11 @@ law UnknownToolIsATypedError(names []string, asked string) {
 // JSON-RPC error "invalid params", and the tool does not run; arguments
 // that fit run it.
 law ArgumentsOutsideTheSchemaAreRefused(key string, keys []string) {
-	let schema = parsed("{\"type\":\"object\",\"required\":[" + quoted(key) + "]}")
+	let checked = jsonschema.Parse("{\"type\":\"object\",\"required\":[" + quoted(key) + "]}") catch {
+	case jsonschema.Invalid:
+		return false
+	}
+	let schema = jsonschema.Value(checked)
 	let s = Server{Name: "laws", Version: "1", Tools: []Tool{Tool{Name: "t", Description: "t", Input: schema, Call: func(arguments json.Value) json.Value fails ToolError { json.Str{Value: "ran"} }}}}
 	let mut members = []string{}
 	let mut has = false
