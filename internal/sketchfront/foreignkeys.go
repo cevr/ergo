@@ -1,7 +1,9 @@
 package sketchfront
 
 import (
+	"cmp"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"ergo.local/prototype/internal/gobind"
@@ -36,15 +38,21 @@ func foreignKeys(a Analysis, fsys FS) lower.ForeignKeys {
 	}
 	experiments := goExperiments()
 	src.ReadDir = func(dir string) []lower.GoSourceFile { return readGoDir(fsys, dir, platform, experiments) }
-	// A build with experiments names them where the Go code a ledger
-	// entry reaches is another in the stock build (LAW-BUILD-KEY).
+	// The builds a ledger entry's Go code may differ in (LAW-BUILD-KEY):
+	// the stock build, which a build with experiments is named apart
+	// from, and each other supported platform, which this platform is.
 	if len(experiments) > 0 {
 		tags := make([]string, len(experiments))
 		for i, e := range experiments {
 			tags[i] = "goexperiment." + e
 		}
-		src.Build = strings.Join(tags, ",")
-		src.ReadStock = func(dir string) []lower.GoSourceFile { return readGoDir(fsys, dir, platform, nil) }
+		src.Variants = append(src.Variants, lower.BuildVariant{Tag: strings.Join(tags, ","), Read: func(dir string) []lower.GoSourceFile { return readGoDir(fsys, dir, platform, nil) }})
+	}
+	here := gobind.Platform{GOOS: cmp.Or(platform.GOOS, runtime.GOOS), GOARCH: cmp.Or(platform.GOARCH, runtime.GOARCH)}
+	for _, other := range gobind.Platforms {
+		if other != here {
+			src.Variants = append(src.Variants, lower.BuildVariant{Tag: here.String(), Read: func(dir string) []lower.GoSourceFile { return readGoDir(fsys, dir, other, experiments) }})
+		}
 	}
 	return src.Keys()
 }

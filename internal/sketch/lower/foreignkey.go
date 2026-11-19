@@ -2,6 +2,8 @@ package lower
 
 import (
 	"path"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -42,7 +44,7 @@ import (
 // Group is set, Group and a hash of the keys of the group's targets an
 // entry reaches, into the ledger line's `with` field, so a stale entry can
 // say what changed. Build is the build configuration the key depends on
-// (ForeignKeySource.Build), "" when the stock build gives the same key.
+// (ForeignKeySource.Variants), "" when every variant gives the same key.
 type ForeignKey struct{ Key, Shown, Group, Build string }
 
 // ForeignKeys maps an `extern go` target to its key. A nil ForeignKeys
@@ -74,15 +76,17 @@ type ForeignKeySource struct {
 	Toolchain string
 	Module    GoModule
 	ReadDir   func(dir string) []GoSourceFile
-	// Build names the build configuration when it is not the stock one
-	// (sketchfront: goexperiment.simd for GOEXPERIMENT=simd), and
-	// ReadStock reads a folder's files as the stock build compiles them
-	// (LAW-BUILD-KEY). A local package's key names Build when its closure
-	// in the stock build differs, so a ledger entry over a vector kernel
-	// is keyed apart from its stock twin's, and one over code every build
-	// compiles alike is not.
-	Build     string
-	ReadStock func(dir string) []GoSourceFile
+	// Variants are the other builds the program's Go may be compiled
+	// in, each with the tag that names this build apart from it
+	// (LAW-BUILD-KEY): sketchfront gives the stock build, tagged with the
+	// experiments (goexperiment.simd), and each other supported platform
+	// with the same experiments, tagged with this build's platform
+	// (linux/amd64). A local package's key names, sorted and joined by
+	// commas, the tag of each variant whose closure of the function
+	// differs, so a ledger entry over a vector kernel, or over a
+	// kern_linux.go and kern_darwin.go pair, is keyed by the build that
+	// gave it, and one over code every build compiles alike is not.
+	Variants []BuildVariant
 	// worlds are the Go packages the keys have read, one world per local
 	// module: a world's loader reads only its module's folders (LF2m r2:
 	// one world, made at the first key, read only the first module's, so
@@ -163,11 +167,14 @@ func (s *ForeignKeySource) key(target string) ForeignKey {
 			return ForeignKey{Key: "unread " + p, Shown: p + "@unread"}
 		}
 		k := ForeignKey{Key: "closure " + c.Hash, Group: p}
-		if s.Build != "" && s.ReadStock != nil {
-			if sc := s.world(mod, s.ReadStock, "stock ").closure(p, name); sc.Unloaded || sc.Hash != c.Hash {
-				k.Build = s.Build
+		var tags []string
+		for i, v := range s.Variants {
+			if vc := s.world(mod, v.Read, strconv.Itoa(i)+" ").closure(p, name); (vc.Unloaded || vc.Hash != c.Hash) && !slices.Contains(tags, v.Tag) {
+				tags = append(tags, v.Tag)
 			}
 		}
+		slices.Sort(tags)
+		k.Build = strings.Join(tags, ",")
 		return k
 	}
 	if repl != nil {
@@ -180,6 +187,14 @@ func (s *ForeignKeySource) key(target string) ForeignKey {
 		}
 	}
 	return ForeignKey{Key: "sum " + line, Shown: mod + "@" + version}
+}
+
+// BuildVariant is another build of the program's Go: Read reads a
+// folder's files as that build compiles them, and Tag names this build
+// apart from it.
+type BuildVariant struct {
+	Tag  string
+	Read func(dir string) []GoSourceFile
 }
 
 // world is the Go packages of the local module mod as read reads its

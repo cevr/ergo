@@ -356,8 +356,20 @@ func (p ledgerProgram) siteInstances() []string {
 
 // ledgerNote is the line a build prints for the entry of instance in of
 // the package pkg.
-func ledgerNote(pkg, in, state string) string {
-	return "ergo.laws: " + pkg + ".Counter.Joins for " + pkg + ".Tally at " + in + " is " + state + "; run ergo test"
+func ledgerNote(q ledgerProgram, in, state string) string {
+	pkg := q.pkg()
+	return "ergo.laws: " + pkg + ".Counter.Joins for " + pkg + ".Tally at " + in + q.under() + " is " + state + "; run ergo test"
+}
+
+// under is the build part of the program's entries' keys (LAW-BUILD-KEY):
+// a foreign program reaches fast's sum, whose one body is sum_amd64.s, so
+// another supported platform compiles it differently and the entry names
+// the host's platform; a program that reaches no Go names none.
+func (q ledgerProgram) under() string {
+	if !q.foreign {
+		return ""
+	}
+	return " under " + hostPlatform().String()
 }
 
 // TestLedgerGatesRewrites is the ledger's property (runtime.md, Tests 10;
@@ -411,7 +423,7 @@ func TestLedgerGatesRewrites(t *testing.T) {
 	notes := func(q ledgerProgram, state string) []string {
 		var out []string
 		for _, in := range q.siteInstances() {
-			out = append(out, ledgerNote(q.pkg(), in, state))
+			out = append(out, ledgerNote(q, in, state))
 		}
 		slices.Sort(out)
 		return out
@@ -550,7 +562,7 @@ func TestLedgerGatesRewrites(t *testing.T) {
 				if e.handEdit {
 					state = "stale"
 				}
-				want, changes = []string{ledgerNote(q.pkg(), q.siteInstances()[0], state)}, 1
+				want, changes = []string{ledgerNote(q, q.siteInstances()[0], state)}, 1
 			}
 			if e.shows != "" {
 				for i, w := range want {
