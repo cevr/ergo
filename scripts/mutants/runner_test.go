@@ -85,7 +85,8 @@ const seedVariable = "ERGO_MUTANTS_SEED"
 // two/names.go that its named killer's suite cannot build, a kill;
 // regen-step-fails, regen-source-does-not-compile and names-renamed (the
 // same build failure with no step) stay invalid (rgk-any-row,
-// rgk-detail-first-line).
+// rgk-detail-first-line); regen-unnamed-build, whose step breaks a suite
+// the row does not name, stays invalid (rgk-unnamed-killer).
 //
 // It builds Go because the runner's whole job is to build and run go test
 // binaries on mutated copies; no in-process check stands in for that.
@@ -592,6 +593,12 @@ func checkModel(t *testing.T, seed uint64, all bool) {
 		// package compiles, its test does not build, and that is invalid.
 		{&Mutant{Name: "names-renamed", File: "two/names.go", From: "Seven", To: "Eight", Killers: []string{"two:TestNames"}},
 			expect{status: Invalid, detail: "build two: fail"}},
+		// A generator's row that names no killer: its step breaks two's
+		// build, which the coverage pass meets through two:TestReadsOne
+		// (it reads one/f.go). A suite the row does not name stays
+		// invalid, so a careless step cannot pass for a kill.
+		{&Mutant{Name: "regen-unnamed-build", File: "one/f.go", From: `"bye"`, To: `"by"`, Regenerate: &Regenerate{Dir: "two", Argv: []string{"sh", "-c", `printf 'package two\n\nconst Eight = 7\n' > names.go`}}},
+			expect{status: Invalid, covering: []string{"two:TestReadsOne"}, detail: "build two: fail"}},
 		{&Mutant{Name: "src-refused-declared", File: "one/data.src", From: "value 1", To: "value 1 ERROR", Anchor: srcAnchor, Refused: "the refusal is the rule"}, srcExpect(Killed)},
 	}
 	memoryLimit := uint64(0)
