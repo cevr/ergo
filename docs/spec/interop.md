@@ -45,7 +45,7 @@ A declaration that does not map is listed in the binding with its reason, so the
 | `map[K]V` | `Map[K, V]` | as `[]T` |
 | `[N]T` | `[N]T` ([types.md](types.md#arrays)) | Go copies an array whole, so it crosses with no copy; an array whose elements hold a slice or a Map (`[2][]int`) is refused: v1 copies no element at the boundary (batch-14) |
 | `*S`, `S` a named non-interface type, as a parameter | `*S` | a borrow (types.md Borrows); a `go.Ref[S]` is accepted too (q38) |
-| `*S` as the one result beside a last `error`, proven non-nil | `go.Ref[S]` | `ergo bind go` proves from the Go source that every return gives a non-nil pointer or a non-nil error, through the helpers and methods it calls (`gobind/nonnil.go`; GOBIND-NIL, GOBIND-PROVE). A non-nil error includes Go's typed nil: a value of a concrete type, `syscall.EINVAL`, `KeySizeError(k)`. Ergo writes no Go package variable, so a pointer variable no Go function assigns (`time.UTC`) counts as set once. |
+| `*S` as the one result beside a last `error`, proven non-nil | `go.Ref[S]` | `ergo bind go` proves from the Go source that every return gives a non-nil pointer or a non-nil error, through the helpers and methods it calls (`gobind/nonnil.go`; GOBIND-NIL, GOBIND-PROVE), by a forward flow over each body: a nil check that returns, a dereference (`x.f` panics on a nil `x`), a named result's last value, an error carried across branches (`time.LoadLocation`'s `firstErr`), loops and gotos (`gobind/nonnil_flow.go`; GOBIND-FLOW). A non-nil error includes Go's typed nil: a value of a concrete type, `syscall.EINVAL`, `KeySizeError(k)`. Ergo writes no Go package variable, so a pointer variable no Go function assigns (`time.UTC`) counts as set once. |
 | `*S` as the one result beside a last `error`, unproven (an interface method, a function value's call, `return nil, nil`) | `Option[go.Ref[S]]` | nil with a nil error is `None`: `http.ProxyFromEnvironment` returns `nil, nil` for a request that takes no proxy |
 | `*S` as another result or a field | `Option[go.Ref[S]]` | nil is `None` |
 | `*S` in an element, a Map value or a callback result; a pointer to an unnamed type or an interface | none | refused: a pointer there may be nil, and v1 maps a pointer only as a parameter, a result or a field |
@@ -91,7 +91,7 @@ func NewCounter() Counter needs go.Foreign {
 ```
 let sys = go.New(syscall.SysProcAttr{..go.Zero[syscall.SysProcAttr](), Setpgid: true})
 let mut attr = os.ProcAttr{Dir: "", Env: []string{}, Sys: Some{Value: sys}}
-let p = try os.StartProcess("/bin/sh", argv, &attr) // Option[go.Ref[os.Process]]: unproven
+let p = try os.StartProcess("/bin/sh", argv, &attr)
 ```
 
 5. **T** follows rule 1, for both. `go.New(v)` also refuses a `T` that holds a slice or Map through its fields (S108 "go.New(v) of os.ProcAttr: its field Env holds a slice or Map that an Ergo value may share …"). Go could write such a slice through the `go.Ref`, and an Ergo value could share it. A `go.Ref` field is Go's memory already and is admitted.

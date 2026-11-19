@@ -7,43 +7,37 @@ import (
 	"strings"
 )
 
-// Non-nil results (GOBIND-NIL, GOBIND-PROVE; docs/spec/interop.md, Type
-// mapping). A Go function whose results are (*T, error) binds its pointer
-// as go.Ref[T], a value the caller reads without a check, only where the
-// binder proves from the Go source that the pointer is not nil whenever
-// the error is; otherwise as Option[go.Ref[T]]. Go returns nil with no
-// error where it means "none" (http.ProxyFromEnvironment for a request
-// that takes no proxy), so the type alone promises nothing.
+// Non-nil results (GOBIND-NIL, GOBIND-PROVE, GOBIND-FLOW;
+// docs/spec/interop.md, Type mapping). A Go function whose results are
+// (*T, error) binds its pointer as go.Ref[T], a value the caller reads
+// without a check, only where the binder proves from the Go source that
+// the pointer is not nil whenever the error is; otherwise as
+// Option[go.Ref[T]]. Go returns nil with no error where it means "none"
+// (http.ProxyFromEnvironment for a request that takes no proxy), so the
+// type alone promises nothing.
 //
 // The proof is syntactic and conservative, over the bodies of every
 // function of the packages Derive lists, on each platform, to a least
-// fixed point. Each return statement outside a function literal must be
-// one of:
+// fixed point. A forward flow over each body (nonnil_flow.go) knows at
+// each point which local variables and field paths are non-nil and which
+// pairs (x, err) one proven call returned. Each return statement outside
+// a function literal must give, where it stands, one of:
 //
-//   - a non-nil pointer: &x (&T{...} too), new(T), the call of a proven
-//     function of one pointer result, a package variable set once to
-//     &x or new(T) that no function of its package assigns (time.UTC), a
-//     variable an enclosing `if x != nil` (or an && holding it) proves, a
-//     variable an enclosing `if x, err := g(...); err == nil` proves (g
-//     proven), or a local variable every assignment of which is one of
-//     these or `x, err := g(...)`, g proven, followed at once by an
-//     `if err != nil` that returns;
+//   - a non-nil pointer: &x (&T{...} too), new(T), (*T)(p) of a non-nil
+//     p or unsafe.Pointer(p), the call of a proven function of one
+//     pointer result, a package variable set once to &x or new(T) that
+//     no function assigns (time.UTC), or a variable or field path the
+//     flow proves;
 //   - a non-nil error: errors.New(...), fmt.Errorf(...), a composite
 //     literal or its address, a conversion T(v) to a non-interface type
 //     of a listed package (KeySizeError(k)), a constant (syscall.EINVAL),
 //     the call of a proven error function (one error result, every
-//     return a non-nil error), the variable of an enclosing
-//     `if err != nil` (or an && holding it) whose body does not assign
-//     it, a field path `x.f` of an `if x.f != nil` whose body returns at
-//     once, or a package variable set once to a non-nil error that no
-//     function of its package assigns (io.EOF), or any expression whose
+//     return a non-nil error), a package variable set once to a non-nil
+//     error that no function assigns (io.EOF), any expression whose
 //     static type is concrete (a nil *E in an error is Go's typed nil, a
-//     non-nil error);
-//   - `return g(...)`, g a proven (*T, error) function, or `return x, err`
-//     right after `x, err := g(...)` in the same statement list, g
-//     proven, with no statement between them that assigns x or err;
-//   - a parameter x after a top-level `if x == nil { x = <non-nil> }` (or
-//     a body that returns), when the function has no goto.
+//     non-nil error), or a variable or field path the flow proves;
+//   - the two results of one proven call: `return g(...)`, or
+//     `return x, err` where the flow holds the pair (x, err).
 //
 // "No function assigns" spans every listed package: a write `pkg.X = …`
 // from another package counts. Ergo writes no Go package variable.
@@ -56,10 +50,9 @@ import (
 // does not declare itself (an embedded one, an interface's) proves
 // nothing.
 //
-// Every other form (a function value, an interface method, a named
-// result's bare return, a body only assembly holds) proves nothing, so
-// its result is an Option. A function with no return (its body panics)
-// never returns nil.
+// Every other form (a function value, an interface method, a body only
+// assembly holds) proves nothing, so its result is an Option. A function
+// with no return (its body panics) never returns nil.
 
 // nonNilResult is the Facts key of a (*T, error) function's proven
 // pointer result. Parameter names are identifiers, so the key names none.
@@ -115,6 +108,9 @@ type nnWorld struct {
 	vars   map[string]*nnVar
 	consts map[string]bool
 	types  map[string]bool // a non-interface, non-alias type
+	// ptrMethods are the names of the methods with a pointer receiver:
+	// x.M of one evaluates without dereferencing x.
+	ptrMethods map[string]bool
 }
 
 // nonNil adds the nonNilResult fact of every proven (*T, error) function
@@ -134,7 +130,7 @@ func nonNil(pkgs []nnPkg, out Facts) {
 // nnAnalyze reads pkgs' declarations and proves their functions to a
 // least fixed point.
 func nnAnalyze(pkgs []nnPkg) *nnWorld {
-	w := &nnWorld{funcs: map[string]*nnFunc{}, proven: map[string]bool{}, vars: map[string]*nnVar{}, consts: map[string]bool{}, types: map[string]bool{}}
+	w := &nnWorld{funcs: map[string]*nnFunc{}, proven: map[string]bool{}, vars: map[string]*nnVar{}, consts: map[string]bool{}, types: map[string]bool{}, ptrMethods: map[string]bool{}}
 	written := map[string]bool{} // pkg.X a listed package writes from outside
 	for _, p := range pkgs {
 		assigned := map[string]bool{}
@@ -179,6 +175,11 @@ func nnAnalyze(pkgs []nnPkg) *nnWorld {
 						}
 					}
 				case *ast.FuncDecl:
+					if d.Recv != nil && len(d.Recv.List) == 1 {
+						if _, ptr := d.Recv.List[0].Type.(*ast.StarExpr); ptr {
+							w.ptrMethods[d.Name.Name] = true
+						}
+					}
 					if d.Body != nil {
 						ast.Inspect(d.Body, func(n ast.Node) bool {
 							switch n := n.(type) {
@@ -422,214 +423,11 @@ func (w *nnWorld) varType(key string) string {
 type nnProof struct {
 	w  *nnWorld
 	fn *nnFunc
-	// vars are the local variables proven non-nil or not, by name; a
-	// variable whose proof is under way is false there. types are the
-	// local variables' types, "" for none or several.
-	vars, typing map[string]bool
-	types        map[string]string
-}
-
-// guards are what an enclosing if proves: variables non-nil (names), and
-// field paths non-nil for a return that is the body's first statement.
-type guards struct {
-	names, paths []string
-}
-
-func (g guards) has(name string) bool {
-	for _, n := range g.names {
-		if n == name {
-			return true
-		}
-	}
-	return false
-}
-
-// body proves every return of the function outside its function
-// literals.
-func (p *nnProof) body() bool {
-	ok := true
-	var walk func(n ast.Node, g guards)
-	walk = func(n ast.Node, g guards) {
-		ast.Inspect(n, func(c ast.Node) bool {
-			switch c := c.(type) {
-			case *ast.FuncLit:
-				return false
-			case *ast.ReturnStmt:
-				if !p.ret(c, g) {
-					ok = false
-				}
-				return false
-			case *ast.IfStmt:
-				if c.Init != nil {
-					walk(c.Init, guards{names: g.names})
-				}
-				inner := guards{names: g.names[:len(g.names):len(g.names)]}
-				names, paths := nonNilGuards(c.Cond)
-				names = append(names, p.initGuard(c)...)
-				for _, n := range names {
-					if !assigns(c.Body, n) {
-						inner.names = append(inner.names, n)
-					}
-				}
-				list := c.Body.List
-				if r, isRet := firstStmt(list).(*ast.ReturnStmt); isRet && len(paths) > 0 && len(r.Results) == 2 && !calls(r.Results[0]) {
-					// Nothing runs between the check and the read.
-					if !p.ret(r, guards{names: inner.names, paths: paths}) {
-						ok = false
-					}
-					list = list[1:]
-				}
-				for _, s := range list {
-					walk(s, inner)
-				}
-				if c.Else != nil {
-					walk(c.Else, guards{names: g.names})
-				}
-				return false
-			}
-			return true
-		})
-	}
-	// A top-level `if x == nil { … }` that ends the function or sets x
-	// to a non-nil pointer makes x non-nil in the statements after it,
-	// when every assignment of x is non-nil (a parameter's default).
-	var fixed []string
-	gotos := hasGoto(p.fn.fd.Body)
-	for _, s := range p.fn.fd.Body.List {
-		walk(s, guards{names: fixed})
-		if x := p.nilFix(s); x != "" && !gotos {
-			fixed = append(fixed, x)
-		}
-	}
-	return ok
-}
-
-// nilFix is x for `if x == nil { … }`, no init and no else, whose body
-// ends in a return or a panic or sets x at its top level, when every
-// assignment of x in the function is a non-nil pointer; else "".
-func (p *nnProof) nilFix(s ast.Stmt) string {
-	is, ok := s.(*ast.IfStmt)
-	if !ok || is.Init != nil || is.Else != nil || len(is.Body.List) == 0 {
-		return ""
-	}
-	c, ok := ast.Unparen(is.Cond).(*ast.BinaryExpr)
-	if !ok || c.Op != token.EQL || !isIdentNamed(ast.Unparen(c.Y), "nil") {
-		return ""
-	}
-	x, ok := ast.Unparen(c.X).(*ast.Ident)
-	if !ok || !p.local(x.Name) || !p.setsNonNil(x.Name, false) {
-		return ""
-	}
-	if ends(is.Body.List[len(is.Body.List)-1]) {
-		return x.Name
-	}
-	for _, b := range is.Body.List {
-		if a, ok := b.(*ast.AssignStmt); ok && len(a.Lhs) == 1 && isIdentNamed(a.Lhs[0], x.Name) {
-			return x.Name // setsNonNil proved the assignment
-		}
-	}
-	return ""
-}
-
-// ends reports s a return or a panic.
-func ends(s ast.Stmt) bool {
-	switch s := s.(type) {
-	case *ast.ReturnStmt:
-		return true
-	case *ast.ExprStmt:
-		call, ok := s.X.(*ast.CallExpr)
-		return ok && isIdentNamed(call.Fun, "panic")
-	}
-	return false
-}
-
-// hasGoto reports a goto in n: a jump back past a top-level check.
-func hasGoto(n ast.Node) bool {
-	found := false
-	ast.Inspect(n, func(c ast.Node) bool {
-		if b, ok := c.(*ast.BranchStmt); ok && b.Tok == token.GOTO {
-			found = true
-		}
-		return !found
-	})
-	return found
-}
-
-// calls reports a call (or a receive) in x.
-func calls(x ast.Expr) bool {
-	found := false
-	ast.Inspect(x, func(n ast.Node) bool {
-		switch n := n.(type) {
-		case *ast.CallExpr:
-			found = true
-		case *ast.UnaryExpr:
-			found = found || n.Op == token.ARROW
-		}
-		return !found
-	})
-	return found
-}
-
-func firstStmt(list []ast.Stmt) ast.Stmt {
-	if len(list) == 0 {
-		return nil
-	}
-	return list[0]
-}
-
-// initGuard is x for `if x, err := g(...); err == nil`, g a proven
-// (*T, error) function: x is non-nil in the body.
-func (p *nnProof) initGuard(c *ast.IfStmt) []string {
-	a, ok := c.Init.(*ast.AssignStmt)
-	if !ok || len(a.Lhs) != 2 || len(a.Rhs) != 1 {
-		return nil
-	}
-	x, _ := a.Lhs[0].(*ast.Ident)
-	e, _ := a.Lhs[1].(*ast.Ident)
-	b, _ := ast.Unparen(c.Cond).(*ast.BinaryExpr)
-	if x == nil || e == nil || b == nil || b.Op != token.EQL || !isIdentNamed(ast.Unparen(b.X), e.Name) || !isIdentNamed(ast.Unparen(b.Y), "nil") || !p.provenCall(a.Rhs[0], nnPtrErr) {
-		return nil
-	}
-	return []string{x.Name}
-}
-
-// nonNilGuards are the variables and field paths cond proves non-nil in
-// an if's body: `x != nil`, `x.f != nil`, or either side of an &&.
-func nonNilGuards(cond ast.Expr) (names, paths []string) {
-	c, ok := ast.Unparen(cond).(*ast.BinaryExpr)
-	if !ok {
-		return nil, nil
-	}
-	switch c.Op {
-	case token.LAND:
-		n1, p1 := nonNilGuards(c.X)
-		n2, p2 := nonNilGuards(c.Y)
-		return append(n1, n2...), append(p1, p2...)
-	case token.NEQ:
-		if !isIdentNamed(ast.Unparen(c.Y), "nil") {
-			return nil, nil
-		}
-		if id, ok := ast.Unparen(c.X).(*ast.Ident); ok {
-			return []string{id.Name}, nil
-		}
-		if path := fieldPath(c.X); path != "" {
-			return nil, []string{path}
-		}
-	}
-	return nil, nil
-}
-
-// fieldPath is "x.f.g" for a selector chain of identifiers, else "".
-func fieldPath(x ast.Expr) string {
-	switch x := ast.Unparen(x).(type) {
-	case *ast.Ident:
-		return x.Name
-	case *ast.SelectorExpr:
-		if base := fieldPath(x.X); base != "" {
-			return base + "." + x.Sel.Name
-		}
-	}
-	return ""
+	// ids are the function's local variables by identifier
+	// (nonnil_flow.go); types are their types by name, "" for none or
+	// several.
+	ids   map[*ast.Ident]string
+	types map[string]string
 }
 
 // assigns reports an assignment to, a declaration of, or the address of
@@ -672,71 +470,8 @@ func assigns(n ast.Node, name string) bool {
 	return found
 }
 
-// ret proves one return statement.
-func (p *nnProof) ret(r *ast.ReturnStmt, g guards) bool {
-	switch p.fn.kind {
-	case nnPtr:
-		return len(r.Results) == 1 && p.pointer(r.Results[0], g)
-	case nnErr:
-		return len(r.Results) == 1 && p.errorSet(r.Results[0], g)
-	}
-	switch len(r.Results) {
-	case 1:
-		return p.provenCall(r.Results[0], nnPtrErr)
-	case 2:
-		return p.pointer(r.Results[0], g) || p.errorSet(r.Results[1], g) || p.pair(r)
-	}
-	return false // a named result's bare return
-}
-
-// pair reports `return x, err` that a statement `x, err := g(...)` (or
-// =), g proven, comes before in one statement list, with nothing after
-// it in the list that assigns, declares or takes the address of x or
-// err: the two are that call's results.
-func (p *nnProof) pair(r *ast.ReturnStmt) bool {
-	x, ok1 := ast.Unparen(r.Results[0]).(*ast.Ident)
-	e, ok2 := ast.Unparen(r.Results[1]).(*ast.Ident)
-	if !ok1 || !ok2 || x.Name == e.Name || x.Name == "_" || e.Name == "_" {
-		return false
-	}
-	found := false
-	ast.Inspect(p.fn.fd.Body, func(n ast.Node) bool {
-		var list []ast.Stmt
-		switch n := n.(type) {
-		case *ast.FuncLit:
-			return false
-		case *ast.BlockStmt:
-			list = n.List
-		case *ast.CaseClause:
-			list = n.Body
-		case *ast.CommClause:
-			list = n.Body
-		}
-		for i, s := range list {
-			a, ok := s.(*ast.AssignStmt)
-			if !ok || len(a.Lhs) != 2 || len(a.Rhs) != 1 || !isIdentNamed(a.Lhs[0], x.Name) || !isIdentNamed(a.Lhs[1], e.Name) || !p.provenCall(a.Rhs[0], nnPtrErr) {
-				continue
-			}
-			rest := list[i+1:]
-			holds := false
-			for _, t := range rest {
-				if assigns(t, x.Name) || assigns(t, e.Name) {
-					break
-				}
-				if t.Pos() <= r.Pos() && r.End() <= t.End() {
-					holds = true
-					break
-				}
-			}
-			found = found || holds
-		}
-		return !found
-	})
-	return found
-}
-
-// pointer reports x a non-nil pointer.
-func (p *nnProof) pointer(x ast.Expr, g guards) bool {
+// pointer reports x a non-nil pointer where st stands.
+func (p *nnProof) pointer(x ast.Expr, st nnState) bool {
 	switch x := ast.Unparen(x).(type) {
 	case *ast.UnaryExpr:
 		return x.Op == token.AND
@@ -744,25 +479,43 @@ func (p *nnProof) pointer(x ast.Expr, g guards) bool {
 		if isIdentNamed(x.Fun, "new") && len(x.Args) == 1 && !p.local("new") {
 			return true
 		}
+		if _, ok := ast.Unparen(x.Fun).(*ast.StarExpr); ok && len(x.Args) == 1 {
+			// (*T)(v), v a non-nil pointer or unsafe.Pointer of one.
+			return p.pointer(p.unsafePointer(x.Args[0]), st)
+		}
 		return p.provenCall(x, nnPtr)
 	case *ast.Ident:
-		if g.has(x.Name) {
-			return true
+		if id := p.ids[x]; id != "" {
+			return st.nn[id]
 		}
-		if p.local(x.Name) {
-			return p.variable(x.Name)
-		}
-		return p.w.pointerVar(p.fn.pkg + "." + x.Name)
+		return !p.local(x.Name) && p.w.pointerVar(p.fn.pkg+"."+x.Name)
 	case *ast.SelectorExpr:
 		if pkg, ok := x.X.(*ast.Ident); ok && p.fn.imports[pkg.Name] != "" && !p.local(pkg.Name) {
 			return p.w.pointerVar(p.fn.imports[pkg.Name] + "." + x.Sel.Name)
 		}
+		return st.nn[p.path(x)]
 	}
 	return false
 }
 
-// errorSet reports x a non-nil error at its return.
-func (p *nnProof) errorSet(x ast.Expr, g guards) bool {
+// unsafePointer is v for unsafe.Pointer(v), else x.
+func (p *nnProof) unsafePointer(x ast.Expr) ast.Expr {
+	call, ok := ast.Unparen(x).(*ast.CallExpr)
+	if !ok || len(call.Args) != 1 {
+		return x
+	}
+	sel, ok := ast.Unparen(call.Fun).(*ast.SelectorExpr)
+	if !ok || sel.Sel.Name != "Pointer" {
+		return x
+	}
+	if pkg, ok := sel.X.(*ast.Ident); ok && p.fn.imports[pkg.Name] == "unsafe" && !p.local(pkg.Name) {
+		return call.Args[0]
+	}
+	return x
+}
+
+// errorSet reports x a non-nil error at its return where st stands.
+func (p *nnProof) errorSet(x ast.Expr, st nnState) bool {
 	if errorValue(x, p.fn.imports) {
 		return true
 	}
@@ -772,9 +525,25 @@ func (p *nnProof) errorSet(x ast.Expr, g guards) bool {
 		return true
 	}
 	switch x := ast.Unparen(x).(type) {
-	case *ast.Ident:
-		if g.has(x.Name) {
+	case *ast.Ident, *ast.SelectorExpr:
+		return p.errorName(x, st)
+	case *ast.CallExpr:
+		if p.conversion(x) {
 			return true
+		}
+		return p.provenCall(x, nnErr)
+	}
+	return false
+}
+
+// errorName reports the variable, constant or field path x a non-nil
+// error: a local variable st proves, a package variable set once to a
+// non-nil error, a constant, or a field path st proves.
+func (p *nnProof) errorName(x ast.Expr, st nnState) bool {
+	switch x := ast.Unparen(x).(type) {
+	case *ast.Ident:
+		if id := p.ids[x]; id != "" {
+			return st.nn[id]
 		}
 		key := p.fn.pkg + "." + x.Name
 		return !p.local(x.Name) && (p.w.sentinel(key) || p.w.consts[key])
@@ -783,17 +552,7 @@ func (p *nnProof) errorSet(x ast.Expr, g guards) bool {
 			key := p.fn.imports[pkg.Name] + "." + x.Sel.Name
 			return p.w.sentinel(key) || p.w.consts[key]
 		}
-		path := fieldPath(x)
-		for _, gp := range g.paths {
-			if path != "" && gp == path {
-				return true
-			}
-		}
-	case *ast.CallExpr:
-		if p.conversion(x) {
-			return true
-		}
-		return p.provenCall(x, nnErr)
+		return st.nn[p.path(x)]
 	}
 	return false
 }
@@ -1059,140 +818,4 @@ func declares(n ast.Node, name string) bool {
 		return !found
 	})
 	return found
-}
-
-// variable reports the local variable name non-nil wherever the body
-// reads it: no parameter, result or receiver, its address never taken,
-// and every assignment of it (function literals included) a non-nil
-// pointer, or `name, err := g(...)`, g proven, followed at once by
-// `if err != nil` whose body returns or panics.
-func (p *nnProof) variable(name string) bool {
-	if v, ok := p.vars[name]; ok {
-		return v
-	}
-	if p.vars == nil {
-		p.vars = map[string]bool{}
-	}
-	p.vars[name] = false // a proof that reads itself proves nothing
-	v := p.variableOnce(name)
-	p.vars[name] = v
-	return v
-}
-
-func (p *nnProof) variableOnce(name string) bool {
-	return !p.param(name) && p.setsNonNil(name, true)
-}
-
-// setsNonNil reports every assignment of name in the body (function
-// literals included) a non-nil pointer, its address never taken, and,
-// with needOne, at least one assignment.
-func (p *nnProof) setsNonNil(name string, needOne bool) bool {
-	body := p.fn.fd.Body
-	// approved are the assignments a statement list proves.
-	approved := map[*ast.AssignStmt]bool{}
-	ast.Inspect(body, func(n ast.Node) bool {
-		var list []ast.Stmt
-		switch n := n.(type) {
-		case *ast.BlockStmt:
-			list = n.List
-		case *ast.CaseClause:
-			list = n.Body
-		case *ast.CommClause:
-			list = n.Body
-		}
-		for i, s := range list {
-			if a, ok := s.(*ast.AssignStmt); ok && p.assignment(a, list[i+1:], name) {
-				approved[a] = true
-			}
-		}
-		return true
-	})
-	ok, any := true, false
-	ast.Inspect(body, func(n ast.Node) bool {
-		switch n := n.(type) {
-		case *ast.AssignStmt:
-			for _, l := range n.Lhs {
-				if isIdentNamed(l, name) {
-					any = true
-					ok = ok && approved[n]
-				}
-			}
-		case *ast.ValueSpec:
-			for i, id := range n.Names {
-				if id.Name == name {
-					any = true
-					ok = ok && len(n.Values) == len(n.Names) && p.pointer(n.Values[i], guards{})
-				}
-			}
-		case *ast.RangeStmt:
-			if isIdentNamed(n.Key, name) || isIdentNamed(n.Value, name) {
-				ok = false
-			}
-		case *ast.TypeSwitchStmt:
-			if a, isAssign := n.Assign.(*ast.AssignStmt); isAssign && len(a.Lhs) == 1 && isIdentNamed(a.Lhs[0], name) {
-				ok = false
-			}
-		case *ast.UnaryExpr:
-			if n.Op == token.AND && isIdentNamed(ast.Unparen(n.X), name) {
-				ok = false
-			}
-		case *ast.FuncLit:
-			for _, f := range n.Type.Params.List {
-				for _, id := range f.Names {
-					if id.Name == name {
-						ok = false
-					}
-				}
-			}
-		}
-		return ok
-	})
-	return ok && (any || !needOne)
-}
-
-// assignment reports a, a statement of a list followed by rest, setting
-// name only to a non-nil pointer: `name = <pointer>`, or
-// `name, err := g(...)` with g proven and rest starting with an
-// `if err != nil` that returns or panics.
-func (p *nnProof) assignment(a *ast.AssignStmt, rest []ast.Stmt, name string) bool {
-	if a.Tok != token.ASSIGN && a.Tok != token.DEFINE {
-		return false
-	}
-	at := -1
-	for i, l := range a.Lhs {
-		if isIdentNamed(l, name) {
-			at = i
-		}
-	}
-	switch {
-	case at < 0:
-		return false
-	case len(a.Lhs) == len(a.Rhs):
-		return p.pointer(a.Rhs[at], guards{})
-	case at == 0 && len(a.Lhs) == 2 && len(a.Rhs) == 1:
-		e, _ := a.Lhs[1].(*ast.Ident)
-		return e != nil && e.Name != "_" && p.provenCall(a.Rhs[0], nnPtrErr) && len(rest) > 0 && endsOnError(rest[0], e.Name)
-	}
-	return false
-}
-
-// endsOnError reports s `if err != nil { ...; return }` (or a panic last),
-// with no init and no else.
-func endsOnError(s ast.Stmt, err string) bool {
-	is, ok := s.(*ast.IfStmt)
-	if !ok || is.Init != nil || is.Else != nil || len(is.Body.List) == 0 {
-		return false
-	}
-	c, ok := ast.Unparen(is.Cond).(*ast.BinaryExpr)
-	if !ok || c.Op != token.NEQ || !isIdentNamed(ast.Unparen(c.X), err) || !isIdentNamed(ast.Unparen(c.Y), "nil") {
-		return false
-	}
-	switch last := is.Body.List[len(is.Body.List)-1].(type) {
-	case *ast.ReturnStmt:
-		return true
-	case *ast.ExprStmt:
-		call, ok := last.X.(*ast.CallExpr)
-		return ok && isIdentNamed(call.Fun, "panic")
-	}
-	return false
 }

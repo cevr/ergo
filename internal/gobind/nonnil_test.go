@@ -84,6 +84,34 @@ var nnFinal = []nnForm{
 	{"var-address", "s := &S{}\n\tkeep(&s)\n\treturn s, nil", false},
 	{"panic", "panic(\"no\")", true},
 	{"recursion", "if A > 0 {\n\t\treturn SELF(A - 1)\n\t}\n\treturn &S{}, nil", false}, // safe, but its verdict reads itself: the least fixed point
+	// GOBIND-FLOW.
+	{"nil-check", "s := maybe(A)\n\tif s == nil {\n\t\treturn nil, errors.New(\"nil\")\n\t}\n\treturn s, nil", true},
+	{"nil-check-refix", "s := maybe(A)\n\tif s == nil {\n\t\ts = maybe(A + 1)\n\t}\n\treturn s, nil", false},
+	{"deref", "s := maybe(A)\n\ts.X = A\n\treturn s, nil", true},                              // a nil s panics at s.X
+	{"deref-or", "s := maybe(A)\n\tok := A > 1 || s.X > 0\n\t_ = ok\n\treturn s, nil", false}, // s.X may not run
+	{"panic-branch", "var s *S\n\tif A > 1 {\n\t\ts = &S{}\n\t} else {\n\t\tpanic(\"no\")\n\t}\n\treturn s, nil", true},
+	{"deref-method", "s := maybe(A)\n\t_ = s.Self\n\treturn s, nil", false}, // a pointer method's value takes a nil s
+	{"join", "var s *S\n\tvar err error\n\tif A > 1 {\n\t\ts, err = mk(A)\n\t} else {\n\t\ts, err = mk(A + 1)\n\t}\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\treturn s, nil", true},
+	{"join-maybe", "var s *S\n\tvar err error\n\tif A > 1 {\n\t\ts, err = mk(A)\n\t} else {\n\t\ts, err = mkMaybe(A)\n\t}\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\treturn s, nil", false},
+	{"first-error", "var first error\n\tif q, err := mk(A); err == nil {\n\t\treturn q, nil\n\t} else if first == nil {\n\t\tfirst = err\n\t}\n\treturn nil, first", true}, // time.LoadLocation's shape
+	{"first-error-unset", "var first error\n\tif q, err := mk(A); err == nil {\n\t\treturn q, nil\n\t}\n\treturn nil, first", false},
+	{"error-wrapped", "s, err := mk(A)\n\tif err != nil {\n\t\terr = fmt.Errorf(\"w %v\", err)\n\t}\n\treturn s, err", true},
+	{"error-rewrapped", "s, err := mk(A)\n\tif err != nil {\n\t\terr = errOf(A)\n\t}\n\treturn s, err", false},
+	{"loop", "s := &S{}\n\tfor i := 0; i < A; i++ {\n\t\tif i > 2 {\n\t\t\tbreak\n\t\t}\n\t\ts.X++\n\t}\n\treturn s, nil", true},
+	{"loop-rebound", "s := &S{}\n\tfor i := 0; i < A; i++ {\n\t\ts = maybe(i)\n\t}\n\treturn s, nil", false},
+	{"shadow", "s := &S{}\n\tif A > 1 {\n\t\ts := maybe(A)\n\t\t_ = s\n\t}\n\treturn s, nil", true},
+	{"captured", "s := &S{}\n\tfunc() { s = maybe(A) }()\n\treturn s, nil", false},
+	{"captured-checked", "s := maybe(A)\n\tfunc() { s = &S{} }()\n\tif s == nil {\n\t\treturn nil, errors.New(\"nil\")\n\t}\n\treturn s, nil", true},
+	{"switch", "var s *S\n\tswitch {\n\tcase A > 1:\n\t\ts = &S{}\n\tdefault:\n\t\ts = new(S)\n\t}\n\treturn s, nil", true},
+	{"switch-open", "var s *S\n\tswitch {\n\tcase A > 1:\n\t\ts = &S{}\n\t}\n\treturn s, nil", false},
+	{"goto-skip", "s := maybe(A)\n\tif s == nil {\n\t\tgoto done\n\t}\n\ts.X = A\ndone:\n\treturn s, nil", false},
+	{"loop-break", "s := &S{}\n\tfor i := 0; i < A; i++ {\n\t\tif i > 2 {\n\t\t\ts = maybe(i)\n\t\t\tbreak\n\t\t}\n\t}\n\treturn s, nil", false},
+	{"pair-nil-err", "s, err := mk(A)\n\tif s == nil {\n\t\treturn nil, err\n\t}\n\treturn s, nil", true},
+	{"pair-nil-check", "s, err := mk(A)\n\tif s == nil {\n\t\treturn s, nil\n\t}\n\treturn s, err", false},
+	{"goto-retry", "s := maybe(A)\nagain:\n\tif s == nil {\n\t\ts = &S{}\n\t\tgoto again\n\t}\n\treturn s, nil", true},
+	{"field-set", "h := &holder{}\n\th.err = wrapped(A)\n\treturn nil, h.err", true},
+	{"field-set-call", "h := &holder{}\n\th.err = wrapped(A)\n\th.reset()\n\treturn nil, h.err", false},
+	{"recover", "defer func() { recover() }()\n\treturn fresh(A), nil", false}, // safe here, but a recovered panic returns nil, nil
 }
 
 // TestNonNilResultsProperty generates Go packages of (*S, error)
@@ -100,10 +128,12 @@ var nnFinal = []nnForm{
 // gobind-nonnil-any-call, gobind-nonnil-unguarded-err, gobind-nonnil-or-guard,
 // gobind-nonnil-guard-reassigned, gobind-nonnil-var-any-assign,
 // gobind-nonnil-moved-sentinel, gobind-nonnil-unchecked-call,
-// gobind-nonnil-greatest-fixpoint, gobind-nonnil-type-promises, and the
+// gobind-nonnil-greatest-fixpoint, gobind-nonnil-type-promises, the
 // gobind-prove-* rows of GOBIND-PROVE (interface conversions and values,
-// constants, error functions, typed nils, field-path and init guards,
-// pairs, package pointers, nil fixes).
+// constants, error functions, typed nils, field paths, pairs, package
+// pointers), and the gobind-flow-* rows of GOBIND-FLOW (joins, loops,
+// breaks, dead nil checks, pair refinement, dereferences, closures,
+// gotos, defers, field stores, open switches, scopes, panics).
 func TestNonNilResultsProperty(t *testing.T) {
 	seeds := []uint64{1, 2, 3}
 	if s := os.Getenv("ERGO_NONNIL_SEED"); s != "" {
@@ -327,12 +357,22 @@ var defaultB = &builder{}
 		fmt.Fprintf(&b, "func %s%s(a int) (*S, error) {\n\t%s\n}\n\n", recv, fn, strings.Join(body, "\n\t"))
 		model[key] = proven
 	}
-	// A receiver may be nil, and a named result's bare return proves
-	// nothing.
+	// A receiver may be nil. A named result holds what the flow last
+	// gave it (GOBIND-FLOW), and a deferred literal may only set it
+	// non-nil.
 	b.WriteString("func (s *S) Self() (*S, error) { return s, nil }\n\n")
 	b.WriteString("func Named(a int) (r *S, err error) {\n\tr = &S{X: a}\n\treturn\n}\n\n")
+	b.WriteString("func NamedEarly(a int) (r *S, err error) {\n\tif a > 0 {\n\t\treturn\n\t}\n\tr = &S{X: a}\n\treturn\n}\n\n")
+	b.WriteString("func NamedDefer(a int) (r *S, err error) {\n\tdefer func() {\n\t\tif err != nil {\n\t\t\terr = fmt.Errorf(\"w: %w\", err)\n\t\t}\n\t}()\n\tr = &S{X: a}\n\treturn r, nil\n}\n\n")
+	b.WriteString("func NamedDeferNil(a int) (r *S, err error) {\n\tdefer func() {\n\t\tif a > 1 {\n\t\t\tr = nil\n\t\t}\n\t}()\n\treturn &S{X: a}, nil\n}\n\n")
+	// Where err is nil the return gave a pointer, so a deferred literal
+	// may set err to anything there (multipart.Reader.ReadForm).
+	b.WriteString("func NamedDeferClose(a int) (r *S, err error) {\n\tdefer func() {\n\t\tif cerr := errOf(a); err == nil {\n\t\t\terr = cerr\n\t\t}\n\t}()\n\treturn &S{X: a}, nil\n}\n\n")
+	b.WriteString("func NamedDeferAny(a int) (r *S, err error) {\n\tdefer func() {\n\t\tif err != nil {\n\t\t\terr = errOf(a)\n\t\t}\n\t}()\n\tif a > 0 {\n\t\treturn nil, errors.New(\"x\")\n\t}\n\treturn &S{X: a}, nil\n}\n\n")
 	b.WriteString("type Maker interface{ Make() (*S, error) }\n\n")
-	model["S.Self"], model["Named"] = false, false
+	model["S.Self"], model["Named"], model["NamedEarly"], model["NamedDefer"], model["NamedDeferNil"] = false, true, false, true, false
+	b.WriteString("func NamedBlank(a int) (_ *S, err error) {\n\th := &holder{}\n\tdefer func() {\n\t\th.err = nil\n\t}()\n\treturn &S{X: a}, nil\n}\n\n")
+	model["NamedDeferClose"], model["NamedDeferAny"], model["NamedBlank"] = true, false, true
 	// A parameter's nil default fixed at the top level (GOBIND-PROVE):
 	// after `if s == nil { s = &S{} }` s is non-nil, unless the fix may
 	// set nil or a return comes before it.
