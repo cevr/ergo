@@ -44,6 +44,7 @@ func TestNoReadPastTheEnd(t *testing.T) {
 			{"IndexAny2", func() int { return IndexAny2(s, 'y', 'z') }, -1},
 			{"IndexOutside", func() int { return IndexOutside(s, 'a', 'a') }, -1},
 			{"CountByte", func() int { return CountByte(s, 'a') }, n},
+			{"IndexNeedsEscape", func() int { return IndexNeedsEscape(s, true) }, -1},
 		} {
 			func() {
 				defer func() {

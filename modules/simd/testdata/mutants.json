@@ -99,6 +99,70 @@
       "killers": [
         "modules/simd/kernel:TestNoReadPastTheEnd"
       ]
+    },
+    {
+      "name": "quote-tail-misses-control",
+      "origin": "wf10 SIMD-JSON-QUOTE",
+      "file": "modules/simd/kernel/escape_amd64.go",
+      "from": "\t\tif c < 0x20 || c >= 0x80 || c == '\"'",
+      "to": "\t\tif c >= 0x80 || c == '\"'",
+      "rule": "A control byte in the last partial block needs escape: scan.QuoteScanKernelIsTheReference.",
+      "anchor": {
+        "tests": [
+          "examples:modules/simd"
+        ]
+      },
+      "killers": [
+        "examples:modules/simd"
+      ]
+    },
+    {
+      "name": "quote-vector-misses-control",
+      "origin": "wf10 SIMD-JSON-QUOTE",
+      "file": "modules/simd/kernel/escape_amd64.go",
+      "from": "m := v.Less(ctl).Or(",
+      "to": "m := v.Equal(ctl).Or(",
+      "rule": "Every control byte is caught in a whole block: scan.QuoteScanKernelIsTheReference.",
+      "anchor": {
+        "tests": [
+          "examples:modules/simd"
+        ]
+      },
+      "killers": [
+        "examples:modules/simd"
+      ]
+    },
+    {
+      "name": "quote-html-dropped",
+      "origin": "wf10 SIMD-JSON-QUOTE",
+      "file": "modules/simd/kernel/escape_amd64.go",
+      "from": "\t\t\tif html {\n\t\t\t\tm = m.Or(",
+      "to": "\t\t\tif !html && html {\n\t\t\t\tm = m.Or(",
+      "rule": "With html, '<', '>' and '&' end the safe run in a whole block: scan.QuoteScanKernelIsTheReference.",
+      "anchor": {
+        "tests": [
+          "examples:modules/simd"
+        ]
+      },
+      "killers": [
+        "examples:modules/simd"
+      ]
+    },
+    {
+      "name": "quote-reads-one-past",
+      "origin": "wf10 SIMD-JSON-QUOTE",
+      "file": "modules/simd/kernel/escape_amd64.go",
+      "from": "\t\tfor ; i+32 <= len(s); i += 32 {\n\t\t\tv := archsimd.LoadUint8x32(s[i : i+32])\n\t\t\tm :=",
+      "to": "\t\tfor ; i+32 <= len(s)+1; i += 32 {\n\t\t\tv := archsimd.LoadUint8x32(s[i : i+32])\n\t\t\tm :=",
+      "rule": "The quote scan reads no byte after its slice's length.",
+      "anchor": {
+        "tests": [
+          "modules/simd/kernel:TestNoReadPastTheEnd"
+        ]
+      },
+      "killers": [
+        "modules/simd/kernel:TestNoReadPastTheEnd"
+      ]
     }
   ]
 }
