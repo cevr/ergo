@@ -1,0 +1,336 @@
+import actor
+import go ergo.local/prototype/hosts/opentui/screen
+import ergo.local/prototype/hosts/opentui/tui
+import strconv
+import strings
+import time
+import ui
+import utf8
+
+// result is how a step ended on one host: done, or the label it found no
+// node for, or how it failed.
+type result = Done{} | Missing{Label string} | Broke{Why string}
+
+// agree plays steps on both hosts and prints whether they agree after
+// each. The screen is 60 by 40 cells (480 by 640 DIPs, the window of
+// hosts/mygo's hostagree).
+func agree[E comparable, S](m Machine[S, E, int], view own func(f *ui.Frame[E], s S), same func(a S, b S) bool, steps []string) needs Console | Scheduler | go.Foreign {
+	let s = screen.Headless(60, 40) catch {
+	case go.Error as e:
+		Console.Println("differ 0: no screen: \(e.Text)")
+		return
+	}
+	let ta = actor.StartMachine(m, 1, func(o int) {})
+	let da = actor.StartMachine(m, 1, func(o int) {})
+	let mut h = ui.NewTestHost(ta, view, time.NewManual(0), 16) catch {
+	case ui.BadPatch as b:
+		Console.Println("differ 0: test host: \(b.Why)")
+		return
+	}
+	let mut d = tui.New(s, da, view, 16) catch {
+	case ui.BadPatch as b:
+		Console.Println("differ 0: driver: \(b.Why)")
+		return
+	case go.Error as e:
+		Console.Println("differ 0: driver: \(e.Text)")
+		return
+	}
+	match compare(&h, &d, s, same) {
+	case Some[string] as why:
+		Console.Println("differ 0: \(why.Value)")
+	case None:
+		Console.Println("ok 0")
+	}
+	for i, line in steps {
+		let n = i + 1
+		if line == "screen" {
+			// For a person replaying a seed: the screen's rows.
+			for r in s.Rows() {
+				Console.Println("| \(r)")
+			}
+			continue
+		}
+		let (a, b) = run(&h, &d, s, line)
+		if a != b {
+			Console.Println("differ \(n): \(line): test host \(said(a)), terminal \(said(b))")
+			continue
+		}
+		match compare(&h, &d, s, same) {
+		case Some[string] as why:
+			Console.Println("differ \(n): \(line): \(why.Value)")
+		case None:
+			Console.Println("ok \(n)")
+		}
+	}
+	s.Quit() catch {
+	case go.Error:
+	}
+	Console.Println("end")
+}
+
+func said(r result) string {
+	match r {
+	case Done:
+		"done"
+	case Missing as m:
+		"no node \(m.Label)"
+	case Broke as b:
+		"failed \(b.Why)"
+	}
+}
+
+// compare is why the hosts differ now, None when they agree: the tree,
+// the app state, and each text's place on the screen.
+func compare[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *tui.Driver[S, E, D, F], s go.Ref[screen.Screen], same func(a S, b S) bool) Option[string] needs go.Foreign {
+	if !ui.SameShapes(ui.Screen(h), tui.Screen(d)) {
+		return Some{Value: "trees differ:\n\(ui.Screenshot(h))terminal:\n\(shot(tui.Screen(d), ""))"}
+	}
+	if !same(ui.StateOf(h), tui.StateOf(d)) {
+		return Some{Value: "states differ"}
+	}
+	if s.Count() != tui.SceneNodes(d) {
+		return Some{Value: "the scene holds \(s.Count()) nodes, the driver \(tui.SceneNodes(d))"}
+	}
+	shown(d, s, tui.Screen(d), s.Rows())
+}
+
+// shot is the driver's tree as text, one node a line by its kind and
+// label: what a differing step prints beside TestHost's screenshot.
+func shot[E](shapes []ui.Shape[E], indent string) string {
+	let mut out = ""
+	for sh in shapes {
+		let what = match sh.Node {
+		case ui.PressableNode[E] as x:
+			"button \"\(x.Label)\""
+		case ui.TextNode as x:
+			"text \"\(x.Value)\""
+		case ui.InputNode as x:
+			"field \"\(x.Placeholder)\" = \"\(x.Value)\""
+		case _:
+			"node"
+		}
+		out = out + indent + what + "\n" + shot[E](sh.Kids, indent+"  ")
+	}
+	out
+}
+
+// shown is why a text is not where the scene says it is, None when each
+// is: every word of a text (the first node of that value, outside a
+// Scroll, whose rows can scroll away) is on the screen's rows that its
+// box covers.
+func shown[E comparable, S, D, F](d *tui.Driver[S, E, D, F], s go.Ref[screen.Screen], shapes []ui.Shape[E], rows []string) Option[string] needs go.Foreign {
+	for sh in shapes {
+		match sh.Node {
+		case ui.ScrollNode:
+			continue
+		case ui.TextNode as x:
+			match tui.Number(d, x.Value) {
+			case Some[int] as n:
+				let b = s.BoxOf(n.Value)
+				let mut lines = ""
+				for y in b.Y..(b.Y + b.Height) {
+					if y >= 0 && y < len(rows) {
+						lines = lines + rows[y] + "\n"
+					}
+				}
+				for word in strings.Fields(x.Value) {
+					if !strings.Contains(lines, word) {
+						return Some{Value: "text \"\(x.Value)\" is not on rows \(b.Y) to \(b.Y + b.Height - 1) of its box \(b.X),\(b.Y) \(b.Width)x\(b.Height):\n\(lines)"}
+					}
+				}
+			case None:
+			}
+		case _:
+		}
+		match shown[E, S, D, F](d, s, sh.Kids, rows) {
+		case Some[string] as why:
+			return why
+		case None:
+		}
+	}
+	None
+}
+
+// run does one step on each host.
+func run[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *tui.Driver[S, E, D, F], s go.Ref[screen.Screen], line string) (result, result) needs go.Foreign {
+	let (verb, rest) = match strings.Cut(line, " ") {
+	case Some[strings.Halves] as c:
+		(c.Value.Before, c.Value.After)
+	case None:
+		(line, "")
+	}
+	match verb {
+	case "tap":
+		both(h, d, ui.TapOn{Label: rest})
+	case "type":
+		match strings.Cut(rest, "\t") {
+		case Some[strings.Halves] as c:
+			both(h, d, ui.TypeInto{Label: c.Value.Before, Text: c.Value.After})
+		case None:
+			(Broke{Why: "type needs a tab"}, Broke{Why: "type needs a tab"})
+		}
+	case "key":
+		let act = ui.KeyIn{Press: ui.KeyPress{Name: rest, Mods: ui.Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}}
+		// A character typed with a field focused goes into the field on the
+		// terminal; TestHost, which has no focus, types it there too.
+		match (tui.FocusId(d), tui.FocusNode(d)) {
+		case (Some[ui.Id[E]] as id, Some[ui.Node[E]] as n):
+			match n.Value {
+			case ui.InputNode as x:
+				if utf8.RuneCount(rest) == 1 && rest != " " {
+					let b = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | go.Error needs go.Foreign {
+						try tui.Play(d, []ui.Act{act})
+					})
+					let a = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | go.Error needs go.Foreign {
+						try ui.TypeText(h, id.Value, x.Value+rest)
+					})
+					return (a, b)
+				}
+			case _:
+			}
+		case _:
+		}
+		both(h, d, act)
+	case "settle":
+		both(h, d, ui.SettleAll)
+	case "focus":
+		focusPress(h, d, s, atoi(rest))
+	case _:
+		(Broke{Why: "no step \(verb)"}, Broke{Why: "no step \(verb)"})
+	}
+}
+
+func atoi(s string) int {
+	strconv.Atoi(s) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		0
+	}
+}
+
+// both plays one act on each host.
+func both[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *tui.Driver[S, E, D, F], act ui.Act) (result, result) needs go.Foreign {
+	let a = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | go.Error needs go.Foreign {
+		try ui.Play(h, []ui.Act{act})
+	})
+	let b = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | go.Error needs go.Foreign {
+		try tui.Play(d, []ui.Act{act})
+	})
+	(a, b)
+}
+
+func played(f func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | go.Error needs go.Foreign) result needs go.Foreign {
+	f() catch {
+	case ui.NoNode as n:
+		return Missing{Label: n.Label}
+	case ui.Mismatch as m:
+		return Broke{Why: "want \(m.Want), got \(m.Got)"}
+	case actor.Stopped:
+		return Broke{Why: "stopped"}
+	case ui.BadPatch as b:
+		return Broke{Why: b.Why}
+	case ui.Closed:
+		return Broke{Why: "closed"}
+	case go.Error as e:
+		return Broke{Why: e.Text}
+	}
+	Done
+}
+
+// focusOrder is the label of each node Tab visits in shapes, in tree
+// order: a Pressable, a Check, a Toggle or an Input, none under a
+// disabled Fieldset.
+func focusOrder[E](shapes []ui.Shape[E], into []Option[string]) []Option[string] {
+	let mut out = into
+	for sh in shapes {
+		match sh.Node {
+		case ui.FieldsetNode as x:
+			if x.Disabled {
+				continue
+			}
+		case ui.PressableNode[E], ui.CheckNode[E], ui.ToggleNode, ui.InputNode:
+			out = out.Append(labelOfNode(sh.Node))
+		case _:
+		}
+		out = focusOrder[E](sh.Kids, out)
+	}
+	out
+}
+
+// labelOfNode is the label of a node that takes the focus.
+func labelOfNode[E](n ui.Node[E]) Option[string] {
+	match n {
+	case ui.PressableNode[E] as x:
+		Some{Value: x.Label}
+	case ui.CheckNode[E] as x:
+		Some{Value: x.Label}
+	case ui.ToggleNode as x:
+		Some{Value: x.Label}
+	case ui.InputNode as x:
+		Some{Value: x.Placeholder}
+	case _:
+		None
+	}
+}
+
+func named(l Option[string]) string {
+	match l {
+	case Some[string] as s:
+		"\"\(s.Value)\""
+	case None:
+		"none"
+	}
+}
+
+// focusPress clears the focus with a click on the screen's last cell
+// (empty in every app), moves it with Tab k times and presses the focused
+// node with Enter (types "z" into a field); TestHost presses (or types
+// into) the node the terminal focused. The focus order is the tree's:
+// after k Tabs the focus is on the (k-1 mod n)-th of the n focusable
+// nodes.
+func focusPress[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *tui.Driver[S, E, D, F], s go.Ref[screen.Screen], k int) (result, result) needs go.Foreign {
+	let mut keys = tui.Click(s.Cols()-1, s.Lines()-1)
+	for _ in 0..k {
+		keys = keys + "\t"
+	}
+	let b = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | go.Error needs go.Foreign {
+		try tui.Send(d, keys)
+	})
+	// The order is TestHost's tree's, not the driver's.
+	let order = focusOrder(ui.Screen(h), []Option[string]{})
+	let mut want Option[string] = None
+	if k > 0 && len(order) > 0 {
+		want = order[(k-1)%len(order)]
+	}
+	let got = match tui.FocusNode(d) {
+	case Some[ui.Node[E]] as n:
+		labelOfNode(n.Value)
+	case None:
+		None
+	}
+	if (k > 0 && len(order) > 0 && got != want) || ((k == 0 || len(order) == 0) && tui.FocusId(d) != None) {
+		return (Done, Broke{Why: "after \(k) Tabs the focus is on \(named(got)), not on \(named(want)), the node it reaches in tree order (of \(len(order)))"})
+	}
+	match (tui.FocusId(d), tui.FocusNode(d)) {
+	case (Some[ui.Id[E]] as id, Some[ui.Node[E]] as n):
+		match n.Value {
+		case ui.InputNode as x:
+			let b2 = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | go.Error needs go.Foreign {
+				try tui.Send(d, "z")
+			})
+			let a = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | go.Error needs go.Foreign {
+				try ui.TypeText(h, id.Value, x.Value+"z")
+			})
+			return (a, b2)
+		case _:
+			let b2 = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | go.Error needs go.Foreign {
+				try tui.Send(d, "\r")
+			})
+			let a = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | go.Error needs go.Foreign {
+				try ui.Tap(h, id.Value)
+			})
+			return (a, b2)
+		}
+	case _:
+	}
+	(Done, b)
+}

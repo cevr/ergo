@@ -10,3 +10,14 @@ require github.com/ebitengine/purego v0.11.1
 require ergo.local/prototype v0.0.0
 
 replace ergo.local/prototype => ../..
+
+// The examples whose terminal binaries live in cmd/ (Ergo modules: the
+// model, the view and the script of each).
+require (
+	ergo.local/prototype/examples/countergui v0.0.0
+	ergo.local/prototype/examples/todogui v0.0.0
+)
+
+replace ergo.local/prototype/examples/countergui => ../../examples/counter-gui
+
+replace ergo.local/prototype/examples/todogui => ../../examples/todo-gui
