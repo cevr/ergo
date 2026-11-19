@@ -1,6 +1,6 @@
 // Package http1 reads api.Request records from HTTP/1.1 text and writes
-// api.Response records as HTTP/1.1 text. Ergo's std has no net and no
-// http package, and a user extern cannot reach net/http (gap G-ex-c-7),
+// api.Response records as HTTP/1.1 text. Std http's server is Go's
+// net/http, which this program keeps out of its binary (gap G-ex-c-7),
 // so the server is a filter over standard input and output, as a
 // program under inetd or `socat TCP-LISTEN:8080,fork EXEC:deploys` is.
 

@@ -5,7 +5,7 @@
 // by NewTable). Each calls a function of its name and "Holds", which the
 // tests also call with steered requests.
 
-import deploys/jsontext
+import json
 import deploys/deploys
 import strings
 
@@ -27,8 +27,8 @@ law CreateThenShow(store deploys.Store, d deploys.Draft) { CreateThenShowHolds(s
 // EveryRequestHasAStatusHolds checks EveryRequestHasAStatus.
 func EveryRequestHasAStatusHolds(store deploys.Store, method string, path string, body string) bool {
 	let r = with context { deploys.Store: store } { Handle(Request{Method: method, Path: path, Headers: []Header{}, Body: body}) }
-	let _ = jsontext.Parse(r.Body) catch {
-	case jsontext.Malformed:
+	let _ = json.Decode(json.Codec[json.Value]{MaxBytes: 1 << 20, MaxDepth: 32}, r.Body) catch {
+	case _:
 		return false
 	}
 	known(r.Status)
