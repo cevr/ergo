@@ -31,7 +31,8 @@ func (b *irBuilder) selectOther(x *syntax.SelectorExpr, p irPos) *irExpr {
 			// A record with no fields written bare, pkg.A: its zero
 			// value, as the package's own A (ir_union.go).
 			if o.Name == x.Sel.Name {
-				if e := b.bareRecord(o, b.l.info.Types[x], x, p); e != nil {
+				// An alias stands for the aliased record (S109-ALIAS).
+				if e := b.bareRecord(aliased(pn.Pkg, o.Name), b.l.info.Types[x], x, p); e != nil {
 					return e
 				}
 				irNo("package type name as a value")
