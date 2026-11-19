@@ -29,6 +29,7 @@ import "embed"
 //go:embed hex/*.ergo base64/*.ergo sha256/*.ergo crc32/*.ergo sha512/*.ergo sha1/*.ergo hmac/*.ergo uuid/*.ergo
 //go:embed machines/*.ergo
 //go:embed csv/*.ergo codec/*.ergo json/*.ergo toml/*.ergo rpc/*.ergo config/*.ergo
+//go:embed jsonschema/*.ergo
 //go:embed testing/*.ergo explore/*.ergo
 //go:embed tasks/*.ergo pubsub/*.ergo stream/*.ergo
 //go:embed schedule/*.ergo cron/*.ergo
@@ -46,6 +47,7 @@ import "embed"
 //go:embed arena/*.ergo dense/*.ergo
 //go:embed ui/*.ergo
 //go:embed text/*.ergo
+//go:embed llm/*.ergo llm/memory/*.ergo
 //go:embed lint/*.ergo
 //go:embed bench/*.ergo
 //go:embed ui/layout/*.ergo
