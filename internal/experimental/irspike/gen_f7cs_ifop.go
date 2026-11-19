@@ -41,10 +41,18 @@ func GenerateIfOp(seed uint64) string {
 	fmt.Fprintf(&b, "func area(s Shape, x int) int {\n\tx * 1000 + match s {\n\tcase Circle as c:\n\t\tc.R * %d\n\tcase Sq as q:\n\t\tq.S * q.S\n\t}\n}\n\n", 1+k())
 	fmt.Fprintf(&b, "func nested(x int) int {\n\tlet mut n = x\n\tpick(n, if x > %d {\n\t\tif x > %d {\n\t\t\tn = 1\n\t\t\t1\n\t\t} else {\n\t\t\t2\n\t\t}\n\t} else {\n\t\t3\n\t}) + n\n}\n\n", k(), k())
 	b.WriteString("func main() needs Console {\n")
+	// The operands are read from locals: a call whose arguments are all
+	// constants is folded at build time (CF1, ir_constfold.go), and the
+	// program would print the evaluator's values, never run the bodies.
+	var xs, ys []string
 	for i := 0; i < 5; i++ {
-		x, y := r.IntN(12), r.IntN(12)
-		fmt.Fprintf(&b, "\tlet a%d, c%d = tup(%d)\n", i, i, x)
-		fmt.Fprintf(&b, "\tConsole.Println(\"%d: \\(args(%d)) \\(bin(%d)) \\(lit(%d)[1]) \\(rec(%d).Y) \\(text(%d)) \\(same(%d, %d)) \\(a%d) \\(c%d) \\(idx(%d)) \\(pair(%d)) \\(sidx(%d)) \\(area(Circle{R: %d}, %d)) \\(area(Sq{S: %d}, %d)) \\(nested(%d))\")\n",
+		xs, ys = append(xs, fmt.Sprint(r.IntN(12))), append(ys, fmt.Sprint(r.IntN(12)))
+	}
+	fmt.Fprintf(&b, "\tlet xs = []int{%s}\n\tlet ys = []int{%s}\n", strings.Join(xs, ", "), strings.Join(ys, ", "))
+	for i := 0; i < 5; i++ {
+		x, y := fmt.Sprintf("xs[%d]", i), fmt.Sprintf("ys[%d]", i)
+		fmt.Fprintf(&b, "\tlet a%d, c%d = tup(%s)\n", i, i, x)
+		fmt.Fprintf(&b, "\tConsole.Println(\"%d: \\(args(%s)) \\(bin(%s)) \\(lit(%s)[1]) \\(rec(%s).Y) \\(text(%s)) \\(same(%s, %s)) \\(a%d) \\(c%d) \\(idx(%s)) \\(pair(%s)) \\(sidx(%s)) \\(area(Circle{R: %s}, %s)) \\(area(Sq{S: %s}, %s)) \\(nested(%s))\")\n",
 			i, x, x, x, x, x, x, y, i, i, x, x, x, y, x, y, x, x)
 	}
 	b.WriteString("}\n")
