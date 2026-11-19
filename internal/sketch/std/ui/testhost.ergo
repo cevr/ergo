@@ -26,6 +26,9 @@ type TestHost[S, E, D, F] {
 	// captured is the Area a Down went to, which takes every pointer
 	// event until an Up (H5g).
 	captured Option[Id[E]],
+	// heldY is the y of the last pointer event the Area that holds the
+	// pointer took, in its box: where Advance's edge scroll reads it.
+	heldY float64,
 	// said is what the live regions said, in order (Announce).
 	said []string,
 	// step is the counts of the passes since the last input (NS3).
@@ -64,7 +67,7 @@ func hostOf[E comparable, S, D, F](s own Session[S, E, D, F], first []Op[E], pos
 	let mut session = s
 	let mut m = NewMirror[E](Root(&session.frame))
 	try Apply(&m, first)
-	TestHost[S, E, D, F]{clock: clock, start: clock.Now(), period: 16ms, owed: duration(int64(0)), frames: 0, posted: posted, mirror: m, session: session, history: NewMemoryHistory(URL{Path: "/", Query: "", Fragment: ""}), captured: None, said: []string{}, step: NoCounts(), opened: false}
+	TestHost[S, E, D, F]{clock: clock, start: clock.Now(), period: 16ms, owed: duration(int64(0)), frames: 0, posted: posted, mirror: m, session: session, history: NewMemoryHistory(URL{Path: "/", Query: "", Fragment: ""}), captured: None, heldY: 0.0, said: []string{}, step: NoCounts(), opened: false}
 }
 
 // apply steps one event and shows its patch. An input starts a step:
@@ -73,6 +76,12 @@ func apply[E comparable, S, D, F](h *TestHost[S, E, D, F], ev Event[E]) fails ac
 	if isInput(ev) {
 		h.step = NoCounts()
 	}
+	try stepShown(h, ev)
+}
+
+// stepShown steps one event and shows its patch, its passes counted in
+// the step under way.
+func stepShown[E comparable, S, D, F](h *TestHost[S, E, D, F], ev Event[E]) fails actor.Stopped | BadPatch {
 	let passes = h.session.frame.passes
 	let ops = try Step(&h.session, ev)
 	try show(h, ops)
@@ -241,22 +250,176 @@ func Redraw[E comparable, S, D, F](h *TestHost[S, E, D, F]) fails BadPatch {
 // animates never leaves its watcher blocked on a full queue (F-GP4c-1). A
 // fetch the last stretch wakes posts on its own task, and Settle or Pump
 // takes it.
+//
+// While an Area holds the pointer near an edge of the list inside it
+// (edgeListIn), each frame period also scrolls that list by EdgeScroll
+// with EdgeBand and EdgeStep, at the pointer's last y in the Area, as a
+// host does (Host, H5g): the scroll is a Scrolled of the host's, part of
+// the step under way, before the frame's Tick. Frames run while the list
+// still moves, so the scroll stops at the end of its range (law
+// EdgeScrollRunsEachFrame).
 func Advance[E comparable, S, D, F](h *TestHost[S, E, D, F], d duration) fails actor.Stopped | BadPatch {
 	let mut left = d
-	for Animating(&h.session.frame) && left >= h.period-h.owed {
+	for (Animating(&h.session.frame) || edgeMoves(h)) && left >= h.period-h.owed {
 		let due = h.period - h.owed
 		h.clock.Advance(due)
 		left = left - due
 		h.owed = duration(int64(0))
-		h.frames = h.frames + 1
-		try apply(h, Tick{At: h.clock.Now().Sub(h.start)})
+		try edgeFrame(h)
+		if Animating(&h.session.frame) {
+			h.frames = h.frames + 1
+			try apply(h, Tick{At: h.clock.Now().Sub(h.start)})
+		}
 		try Pump(h)
 	}
 	h.clock.Advance(left)
-	if Animating(&h.session.frame) {
+	if Animating(&h.session.frame) || edgeMoves(h) {
 		h.owed = h.owed + left
 	} else {
 		h.owed = duration(int64(0))
+	}
+}
+
+// EdgeScrollRunsEachFrame (H5g): an Area holds the pointer at a drawn y
+// (in its top band, its bottom band or its middle) over a drawn list
+// inside it, whose viewport the host reported at a drawn offset. Each
+// frame period Advance moves scrolls the list by EdgeScroll with
+// EdgeBand and EdgeStep, one Advance a period at a time or one Advance
+// over many, so its offset is EdgeScroll applied once a period and stays
+// at the end of its range once it reaches it; after an Up, Advance moves
+// it no more.
+law EdgeScrollRunsEachFrame(seed int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		edgeFrames(seed, m)
+	}
+}
+
+// edgeFrames is EdgeScrollRunsEachFrame at seed. (a law's helper)
+func edgeFrames(seed int, m time.Manual) bool needs Scheduler {
+	let mut r = seeded(seed)
+	let n = draw(&r, 40) + 1
+	let rh = Length(float64(draw(&r, 20) + 4))
+	let height = Length(float64(draw(&r, 200) + 40))
+	let content = Length(float64(n)) * rh
+	let most = if content > height { content - height } else { Length(0.0) }
+	let start = Length(float64(draw(&r, int(float64(most)) + 1)))
+	let band = draw(&r, 3)
+	let y = if band == 0 { float64(draw(&r, 32)) } else if band == 1 { float64(height) - float64(draw(&r, 32)) } else { float64(height) / 2.0 }
+	let view = func(f *Frame[int], s int) {
+		Area(f, "a", Plain(), func(p PointerEvent) Option[int] { None }) {
+			Rows(f, "list", n, rh, func(i int) Key { ByInt(i) }, func(i int) {
+				Text(f, "row \(i)")
+			})
+		}
+	}
+	let a = actor.StartMachine(zoneMachine(), 1, func(o int) {})
+	let mut h = NewTestHost(a, view, m, 4) catch {
+	case BadPatch:
+		return false
+	}
+	let list = Locate(&h, WithLabel{Label: "list"})
+	let area = Locate(&h, WithLabel{Label: "a"})
+	if len(list) != 1 || len(area) != 1 {
+		return false
+	}
+	ScrollTo(&h, list[0], start, height) catch {
+	case _:
+		return false
+	}
+	PointAt(&h, area[0], PointerEvent{Phase: Down, X: 1.0, Y: y, Zone: None}) catch {
+	case _:
+		return false
+	}
+	let mut want = start
+	for _ in 0..draw(&r, 8) {
+		Advance(&h, 16ms) catch {
+		case _:
+			return false
+		}
+		want = EdgeScroll(want, height, content, Length(y), EdgeBand, EdgeStep)
+		if listOffset(Screen(&h)) != want {
+			return false
+		}
+	}
+	Advance(&h, 1600ms) catch {
+	case _:
+		return false
+	}
+	for _ in 0..100 {
+		want = EdgeScroll(want, height, content, Length(y), EdgeBand, EdgeStep)
+	}
+	if listOffset(Screen(&h)) != want {
+		return false
+	}
+	PointAt(&h, area[0], PointerEvent{Phase: Up, X: 1.0, Y: y, Zone: None}) catch {
+	case _:
+		return false
+	}
+	ScrollTo(&h, list[0], start, height) catch {
+	case _:
+		return false
+	}
+	Advance(&h, 160ms) catch {
+	case _:
+		return false
+	}
+	listOffset(Screen(&h)) == start
+}
+
+// listOffset is the offset of the list in the screen of edgeFrames: the
+// first child of its Area. (a law's helper)
+func listOffset(screen []Shape[int]) Length {
+	if len(screen) != 1 || len(screen[0].Kids) != 1 {
+		return Length(-1.0)
+	}
+	match screen[0].Kids[0].Node {
+	case RowsNode as x:
+		x.Offset
+	case _:
+		Length(-1.0)
+	}
+}
+
+// edgeNext is the list the Area holding the pointer edge-scrolls and the
+// offset EdgeScroll moves it to this frame; None when no Area holds the
+// pointer or it holds no list with a viewport.
+func edgeNext[S, E, D, F](h *TestHost[S, E, D, F]) Option[(edgeList[E], Length)] {
+	match Captured(h) {
+	case Some[Id[E]] as c:
+		match edgeListIn(&h.session.frame, c.Value) {
+		case Some[edgeList[E]] as l:
+			let v = l.Value.view
+			Some{Value: (l.Value, EdgeScroll(v.Offset, v.Height, l.Value.content, Length(h.heldY), EdgeBand, EdgeStep))}
+		case None:
+			None
+		}
+	case None:
+		None
+	}
+}
+
+// edgeMoves is whether this frame's edge scroll moves a list.
+func edgeMoves[S, E, D, F](h *TestHost[S, E, D, F]) bool {
+	match edgeNext(h) {
+	case Some[(edgeList[E], Length)] as x:
+		let (l, next) = x.Value
+		next != l.view.Offset
+	case None:
+		false
+	}
+}
+
+// edgeFrame scrolls the list the held pointer is at an edge of by one
+// frame's EdgeScroll, when that moves it.
+func edgeFrame[E comparable, S, D, F](h *TestHost[S, E, D, F]) fails actor.Stopped | BadPatch {
+	match edgeNext(h) {
+	case Some[(edgeList[E], Length)] as x:
+		let (l, next) = x.Value
+		if next != l.view.Offset {
+			try stepShown(h, Scrolled[E]{Id: l.id, Offset: next, Height: l.view.Height})
+		}
+	case None:
 	}
 }
 
@@ -327,6 +490,7 @@ func point[E comparable, S, D, F](h *TestHost[S, E, D, F], id Id[E], over Option
 		h.captured = None
 	case _:
 	}
+	h.heldY = p.Y
 	try apply(h, Point[E]{Id: to, Pointer: p, Over: over})
 }
 

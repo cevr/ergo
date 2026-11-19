@@ -3377,6 +3377,99 @@ func lawEdgeScrollStaysInRange(o int, hh int, c int, yy int, e int, st int) bool
 	next == at
 }
 
+func lawEdgeScrollRunsEachFrame(seed int) bool {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		edgeFrames(seed, m)
+	}
+}
+
+// edgeFrames is EdgeScrollRunsEachFrame at seed. (a law's helper)
+func edgeFrames(seed int, m time.Manual) bool needs Scheduler {
+	let mut r = seeded(seed)
+	let n = draw(&r, 40) + 1
+	let rh = ui.Length(float64(draw(&r, 20) + 4))
+	let height = ui.Length(float64(draw(&r, 200) + 40))
+	let content = ui.Length(float64(n)) * rh
+	let most = if content > height { content - height } else { ui.Length(0.0) }
+	let start = ui.Length(float64(draw(&r, int(float64(most)) + 1)))
+	let band = draw(&r, 3)
+	let y = if band == 0 { float64(draw(&r, 32)) } else if band == 1 { float64(height) - float64(draw(&r, 32)) } else { float64(height) / 2.0 }
+	let view = func(f *ui.Frame[int], s int) {
+		ui.Area(f, "a", ui.Plain(), func(p ui.PointerEvent) Option[int] { None }) {
+			ui.Rows(f, "list", n, rh, func(i int) ui.Key { ui.ByInt(i) }, func(i int) {
+				ui.Text(f, "row \(i)")
+			})
+		}
+	}
+	let a = actor.StartMachine(zoneMachine(), 1, func(o int) {})
+	let mut h = ui.NewTestHost(a, view, m, 4) catch {
+	case ui.BadPatch:
+		return false
+	}
+	let list = ui.Locate(&h, ui.WithLabel{Label: "list"})
+	let area = ui.Locate(&h, ui.WithLabel{Label: "a"})
+	if len(list) != 1 || len(area) != 1 {
+		return false
+	}
+	ui.ScrollTo(&h, list[0], start, height) catch {
+	case _:
+		return false
+	}
+	ui.PointAt(&h, area[0], ui.PointerEvent{Phase: ui.Down, X: 1.0, Y: y, Zone: None}) catch {
+	case _:
+		return false
+	}
+	let mut want = start
+	for _ in 0..draw(&r, 8) {
+		ui.Advance(&h, 16ms) catch {
+		case _:
+			return false
+		}
+		want = ui.EdgeScroll(want, height, content, ui.Length(y), ui.EdgeBand, ui.EdgeStep)
+		if listOffset(ui.Screen(&h)) != want {
+			return false
+		}
+	}
+	ui.Advance(&h, 1600ms) catch {
+	case _:
+		return false
+	}
+	for _ in 0..100 {
+		want = ui.EdgeScroll(want, height, content, ui.Length(y), ui.EdgeBand, ui.EdgeStep)
+	}
+	if listOffset(ui.Screen(&h)) != want {
+		return false
+	}
+	ui.PointAt(&h, area[0], ui.PointerEvent{Phase: ui.Up, X: 1.0, Y: y, Zone: None}) catch {
+	case _:
+		return false
+	}
+	ui.ScrollTo(&h, list[0], start, height) catch {
+	case _:
+		return false
+	}
+	ui.Advance(&h, 160ms) catch {
+	case _:
+		return false
+	}
+	listOffset(ui.Screen(&h)) == start
+}
+
+// listOffset is the offset of the list in the screen of edgeFrames: the
+// first child of its Area. (a law's helper)
+func listOffset(screen []ui.Shape[int]) ui.Length {
+	if len(screen) != 1 || len(screen[0].Kids) != 1 {
+		return ui.Length(-1.0)
+	}
+	match screen[0].Kids[0].Node {
+	case ui.RowsNode as x:
+		x.Offset
+	case _:
+		ui.Length(-1.0)
+	}
+}
+
 func orderStep(s int, e int) Decision[int, int] {
 	if e == 3 {
 		return Ignore
@@ -6037,6 +6130,10 @@ test UiEdgeScrollStaysInRange(o int, hh int, c int, yy int, e int, st int) {
 	assert lawEdgeScrollStaysInRange(o, hh, c, yy, e, st)
 }
 
+test UiEdgeScrollRunsEachFrame(seed int) {
+	assert lawEdgeScrollRunsEachFrame(seed)
+}
+
 test UiPostedOrderKeepsTheCounts(seed int) {
 	assert lawPostedOrderKeepsTheCounts(seed)
 }
@@ -6209,6 +6306,7 @@ var stdUIHostStatements = map[string]string{
 	"ui CaptureKeepsThePointer":            `CaptureKeepsThePointer(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { captureFollows(seed, steps, m) } }`,
 	"ui AnnounceSaysEachNewText":           `AnnounceSaysEachNewText(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { announceFollows(seed, steps, m) } }`,
 	"ui EdgeScrollStaysInRange":            `EdgeScrollStaysInRange(o int, hh int, c int, yy int, e int, st int) { let height = Length(float64(posMod(hh, 500) + 1)) let content = Length(float64(posMod(c, 2000))) let offset = Length(float64(posMod(o, 2500))) let y = Length(float64(posMod(yy, 700) - 100)) let edge = Length(float64(posMod(e, 60))) let step = Length(float64(posMod(st, 40) + 1)) let most = if content > height { content - height } else { Length(0.0) } let at = if offset > most { most } else { offset } let next = EdgeScroll(offset, height, content, y, edge, step) if next < Length(0.0) || next > most { return false } if edge > Length(0.0) && y < edge { return next < at || at == Length(0.0) } if edge > Length(0.0) && y > height-edge { return next > at || at == most } next == at }`,
+	"ui EdgeScrollRunsEachFrame":           `EdgeScrollRunsEachFrame(seed int) { let m = time.NewManual(0) with context { Scheduler: m } { edgeFrames(seed, m) } }`,
 	"ui PostedOrderKeepsTheCounts":         `PostedOrderKeepsTheCounts(seed int) { let m = time.NewManual(0) with context { Scheduler: m } { postedOrder(seed, m) } }`,
 	"ui TransitionEndsAtLayout":            `TransitionEndsAtLayout(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { let lists = presenceLists(seed) let view = func(f *Frame[int], s int) { OnKey(f, func(k KeyPress) Option[int] { for i in 0..8 { if k.Name == "\(i)" { return Some{Value: i} } } None }) Column(f, Plain()) { Presence(f, lists[s], func(r int) Key { ByInt(r) }, 100ms) func(r int, p Progress) { Text(f, "row \(r)") } } } let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: presenceListStep, After: presenceTimer, Work: presenceWork, Exit: func(s int) Option[func()] { None }}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } FrameEvery(&h, 10ms) let mut x = seed for _ in 0..(steps%10+10)%10+1 { x = (x*1103515245 + 12345) % 2147483648 if x < 0 { x = -x } PressKey(&h, KeyPress{Name: "\(x % 8)", Mods: Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}) catch { case _: return false } Advance(&h, duration(int64(x%15)*int64(10ms))) catch { case _: return false } } Advance(&h, 2s) catch { case _: return false } let s = StateOf(&h) for k in presenceKeys(Screen(&h)) { let (_, motion, t) = k if motion != Present || t != 1.0 { return false } } let mut g = NewFrame[int]() let want = Render(&g, func(f *Frame[int], xs []int) { Column(f, Plain()) { Each(f, xs, func(r int) Key { ByInt(r) }) func(r int) { Box(f, Plain()) { Text(f, "row \(r)") } } } }, lists[s]) let _ = want !WantsFrames(&h) && SameShapes(presenceStripped(Screen(&h)), FrameShape(&g)) } }`,
 	"ui PresenceKeepsTheList":              `PresenceKeepsTheList(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { let lists = presenceLists(seed) let view = func(f *Frame[int], s int) { OnKey(f, func(k KeyPress) Option[int] { for i in 0..8 { if k.Name == "\(i)" { return Some{Value: i} } } None }) Presence(f, lists[s], func(r int) Key { ByInt(r) }, 50ms) func(r int, p Progress) { Text(f, "row \(r)") } } let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: presenceListStep, After: presenceTimer, Work: presenceWork, Exit: func(s int) Option[func()] { None }}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } FrameEvery(&h, 10ms) let mut x = seed + 7 for _ in 0..(steps%14+14)%14+1 { let before = presenceKeys(Screen(&h)) x = (x*1103515245 + 12345) % 2147483648 if x < 0 { x = -x } let i = x % 8 PressKey(&h, KeyPress{Name: "\(i)", Mods: Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}) catch { case _: return false } let after = presenceKeys(Screen(&h)) let list = lists[StateOf(&h)] // The rows not exiting are the list. let mut staying = []int{} let mut moving = false for k in after { let (key, motion, t) = k if t < 0.0 || t > 1.0 || (motion == Present && t != 1.0) { return false } if motion != Exiting { staying = staying.Append(key) } if motion != Present { moving = true } let mut shown = false for b in before { let (bk, _, _) = b shown = shown || bk == key } let mut listed = false for y in list { listed = listed || y == key } if !shown && (motion != Entering || t != 0.0) { return false } if !listed && motion != Exiting { return false } } if staying != list || WantsFrames(&h) != moving { return false } // A lost row comes right after the row before it, or first. for j, b in before { let (bk, _, _) = b let mut listed = false for y in list { listed = listed || y == bk } if listed { continue } let mut at = -1 for q, k in after { let (key, _, _) = k if key == bk { at = q } } if at < 0 { // gone at once only when it was exiting already, or // had not come in at all (T 0) let (_, bm, bt) = b if bm != Exiting && bt != 0.0 { return false } continue } if j > 0 && at > 0 { let (prev, _, _) = before[j-1] let (got, _, _) = after[at-1] let mut prevListed = false for y in list { prevListed = prevListed || y == prev } if prevListed && got != prev { return false } } } if x%2 == 0 { Advance(&h, 10ms) catch { case _: return false } } } true } }`,

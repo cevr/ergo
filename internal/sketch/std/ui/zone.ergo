@@ -115,3 +115,68 @@ func EdgeScroll(offset Length, height Length, content Length, y Length, edge Len
 	}
 	next
 }
+
+// EdgeBand is how near an edge of a Scroll a held pointer starts it
+// scrolling, and EdgeStep how far it scrolls a frame at the edge itself
+// (EdgeScroll's edge and step), in device-independent pixels: what a host
+// uses, and TestHost does.
+let EdgeBand = Length(32.0)
+let EdgeStep = Length(16.0)
+
+// edgeList is the list an Area that holds the pointer scrolls at its
+// edges: the list's node, its viewport and its content's height.
+type edgeList[E] { id Id[E], view Viewport, content Length }
+
+// edgeListIn is the first Rows list inside the Area area, in the order
+// the view wrote them, with a viewport a host reported (a height above
+// 0); None for none. The Area's box is the list's viewport: the pointer's
+// y in the Area is its y in the viewport, as when an Area holds a list
+// whose rows are its zones.
+func edgeListIn[E](f *Frame[E], area Id[E]) Option[edgeList[E]] {
+	let n = f.nodes.Get(area.ref) catch {
+	case arena.Stale:
+		return None
+	}
+	match n.node {
+	case AreaNode:
+		firstList(f, area.ref)
+	case _:
+		None
+	}
+}
+
+// firstList is the first Rows list under r with a reported viewport.
+func firstList[E](f *Frame[E], r arena.Ref[node[E]]) Option[edgeList[E]] {
+	for k in kidsOf(f, r) {
+		let n = f.nodes.Get(k) catch {
+		case arena.Stale:
+			Unreachable("ui: the tree holds a freed node")
+		}
+		match n.node {
+		case RowsNode as x:
+			// The cell holds the viewport the host last reported.
+			match n.binds {
+			case Some[bound[E]] as d:
+				match cellOf(f, d.Value.owner, d.Value.id) {
+				case Some[Cell] as c:
+					match c.Value {
+					case ViewCell as v:
+						if v.Height > Length(0.0) {
+							return Some{Value: edgeList[E]{id: Id[E]{ref: k}, view: Viewport{Offset: v.Offset, Height: v.Height}, content: Length(float64(x.Count)) * x.RowHeight}}
+						}
+					case _:
+					}
+				case None:
+				}
+			case None:
+			}
+		case _:
+		}
+		match firstList(f, k) {
+		case Some[edgeList[E]] as l:
+			return l
+		case None:
+		}
+	}
+	None
+}

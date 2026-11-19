@@ -29,9 +29,11 @@ type Closed {}
 // the zone's box in the Area's box; after a Down on an Area, every pointer
 // event goes to that Area, in its box's coordinates, wherever the pointer
 // is, until an Up (capture); and while an Area holds the pointer near an
-// edge of a Scroll, the host scrolls it by EdgeScroll each frame. A
-// LiveNode is its live region: the host says each text a pass newly shows
-// in it. TestHost does the same (PointAt, PointOver, Captured, Announced).
+// edge of a Scroll, the host scrolls it by EdgeScroll (EdgeBand, EdgeStep)
+// each frame. A LiveNode is its live region: the host says each text a
+// pass newly shows in it. TestHost does the same (PointAt, PointOver,
+// Captured, Announced, and Advance scrolls the list inside the Area that
+// holds the pointer).
 // law-exempt: a host's laws (the mirror of its patches is what it shows, a tap at a node's box sends that node's event, its pointer rules) need a running host and its screen; they run against each provider, not here.
 type Host[E] {
 	// Show applies one pass's changes.

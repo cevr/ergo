@@ -6363,6 +6363,8 @@
       "killers": [
         "internal/sketch/lower:TestLinkedRuntimeHoldsEveryImport"
       ]
-    }
+    },
+    {"name":"ui-edge-no-frames","origin":"wf10 EDGE-SCROLL-MODEL","file":"internal/sketch/std/ui/testhost.ergo","from":"\tfor (Animating(&h.session.frame) || edgeMoves(h)) && left >= h.period-h.owed {","to":"\tfor Animating(&h.session.frame) && left >= h.period-h.owed {","rule":"Advance runs frames while a held pointer edge-scrolls a list (H5g)","killers":["lower:TestUIHostModel"]},
+    {"name":"ui-edge-stale-y","origin":"wf10 EDGE-SCROLL-MODEL","file":"internal/sketch/std/ui/testhost.ergo","from":"\th.heldY = p.Y\n","to":"\n","rule":"the edge scroll reads the held pointer's last y","killers":["lower:TestUIHostModel"]}
   ]
 }
