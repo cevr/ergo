@@ -36,6 +36,10 @@ import (
 //     local or a root declaration yields to, like Go's reserved names.
 //  5. The prelude's declarations are bare and reserved like rule 4's: the
 //     prelude is the same in every program.
+//  6. A Go package of an import go, a user extern or the lowering's own
+//     use, other than rule 4's, is imported as go__<alias of its path>
+//     (HostImportSpelling): a function of the path alone, so which Go
+//     packages other packages import renames nothing.
 //
 // So a local of a function's own body (emitBody, plainScope) yields only
 // to rules 4 and 5, its own package's declarations and its body's names.
@@ -97,9 +101,11 @@ func (l *lowerer) packageScopeName(key pkgKey, base string) string {
 		return base // rule 4
 	}
 	if key.kind == "import" {
-		// A Go package a user extern targets: every body may name it, so
-		// it is reserved below every package's names.
-		name := l.names.alloc(base)
+		// A Go package an extern, an import go or the lowering itself
+		// names (rule 6): go__<alias of its path>, a function of the path
+		// alone, under "__" so no declaration or local takes it.
+		path, _ := key.obj.(string)
+		name := l.names.alloc(HostImportSpelling(path))
 		l.fixed.used[name] = true
 		return name
 	}
@@ -217,6 +223,10 @@ func (l *lowerer) infoPkg() *check.Package {
 	}
 	return nil
 }
+
+// HostImportSpelling is rule 6's Go name of an import of the Go package
+// path. A test that reads a lowered call of a Go package spells it so.
+func HostImportSpelling(path string) string { return "go__" + pkgAlias(path) }
 
 // pkgAlias is the spelling of an import path in a joined name (rule 2): a
 // function of the path alone, one to one, with no "__" in it, and never
