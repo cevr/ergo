@@ -39,6 +39,7 @@ type localCase struct {
 // transport adds.
 type localArrival struct {
 	method, path string
+	rawPath      string
 	query        []HTTPField
 	header       []HTTPField
 	body         string
@@ -95,8 +96,10 @@ var errLocalSink = errors.New("sink refused")
 // TestHTTPLocalMatchesLoopback is the law of the local Network
 // (http.InMemoryNetwork): a fetch answered in memory gives the caller what
 // the same fetch gives through HTTPServe on a loopback socket, and the
-// handler is given the same request, and the target's origin. Seeded over
-// methods, statuses (refused ones too), bodies, paths, queries, headers
+// handler is given the same request, its raw (escaped) path as the
+// client wrote it included, and the target's origin. Seeded over
+// methods, statuses (refused ones too), bodies, paths (with reserved bytes
+// kept and escapes in either case), queries, headers
 // around the header budget, redirects and their hop limits, body budgets,
 // a fresh or a kept-alive connection (a closed kept-alive one is retried),
 // and the streamed form with its accepted statuses and a failing sink.
@@ -105,7 +108,8 @@ var errLocalSink = errors.New("sink refused")
 // outcomes; ERGO_HTTP_LOCAL_SEED=n replays it. An encoded query
 // (HTTPEncodeQuery) arrives as its fields. Mutants (runtime/v1 ledger):
 // local-key-kept, local-answer-unlike-serve, local-header-budget-lost,
-// local-no-keepalive, local-origin-raw, encode-query-unescaped.
+// local-no-keepalive, local-origin-raw, encode-query-unescaped; runtime/v1/http
+// ledger: rawpath-client-ignored, rawpath-serve-decoded, rawpath-local-decoded.
 func TestHTTPLocalMatchesLoopback(t *testing.T) {
 	var (
 		mu      sync.Mutex
@@ -113,7 +117,7 @@ func TestHTTPLocalMatchesLoopback(t *testing.T) {
 		arrived []localArrival
 		dials   *localDials
 	)
-	answer := func(method, path string, query, header []HTTPField, body string) HTTPResponse {
+	answer := func(method, path, rawPath string, query, header []HTTPField, body string) HTTPResponse {
 		if path == "/warm" {
 			// The warm answer waits until the client's write of the
 			// request has returned, so its transport has heard the
@@ -133,23 +137,23 @@ func TestHTTPLocalMatchesLoopback(t *testing.T) {
 		if len(query) == 0 {
 			query = nil
 		}
-		arrived = append(arrived, localArrival{method, path, query, localWithout(header), body})
+		arrived = append(arrived, localArrival{method, path, rawPath, query, localWithout(header), body})
 		if c.redirect && path != "/final" {
 			return HTTPResponse{Status: 307, Header: []HTTPField{{"Location", "/final"}}, Body: "moved"}
 		}
 		return HTTPResponse{Status: c.status, Header: c.answerHeader, Body: c.answer}
 	}
-	l, _ := startHTTPLimits(t, serveLimits(1<<20, 1<<16), func(_ *rt.Task, _ *Exchange, method, path, _ string, query, header []HTTPField, body string, _ bool, _ string) HTTPResponse {
-		return answer(method, path, query, header, body)
+	l, _ := startHTTPLimits(t, serveLimits(1<<20, 1<<16), func(_ *rt.Task, _ *Exchange, method, path, rawPath string, query, header []HTTPField, body string, _ bool, _ string) HTTPResponse {
+		return answer(method, path, rawPath, query, header, body)
 	})
 	origin := "http://" + l.Addr()
 	// The local handler is given the target's origin, which the loopback
 	// handler reads from its listener.
-	local := func(_ *rt.Task, at string, method, path, _ string, query, header []HTTPField, body string) HTTPResponse {
+	local := func(_ *rt.Task, at string, method, path, rawPath string, query, header []HTTPField, body string) HTTPResponse {
 		if at != origin {
 			t.Errorf("the local handler was given the origin %q for %q", at, origin)
 		}
-		return answer(method, path, query, header, body)
+		return answer(method, path, rawPath, query, header, body)
 	}
 	// The generator reaches the two answers net/http decides that a model
 	// would most easily miss: a header over its budget, and a status the
@@ -292,20 +296,29 @@ func TestHTTPLocalMatchesLoopback(t *testing.T) {
 
 func localCaseOf(r *rand.Rand) localCase {
 	text := func(n int) string {
-		const alphabet = "abcXYZ019 -_.~%+&=/?#é\t"
+		const alphabet = "abcXYZ019 -_.~%+&=/?#é\t!$'()*,;:@"
 		var b strings.Builder
 		for range n {
 			b.WriteString(string([]rune(alphabet)[r.IntN(len([]rune(alphabet)))]))
 		}
 		return b.String()
 	}
+	// escape writes s for a URL. An unreserved byte is kept; a
+	// sub-delimiter, ':' or '@', which a path may hold as it is, is kept
+	// one time in two; every other byte is a percent escape, in upper or
+	// lower case hex (HTTP-PATH-ESCAPE: a path already escaped, "%2f"
+	// included, must reach the handler as written, never escaped again).
 	escape := func(s string) string {
 		var b strings.Builder
 		for _, c := range []byte(s) {
 			if c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '_' || c == '.' || c == '~' {
 				b.WriteByte(c)
+			} else if strings.IndexByte("!$'()*,;:@", c) >= 0 && r.IntN(2) == 0 {
+				b.WriteByte(c)
 			} else if r.IntN(4) == 0 && c == ' ' {
 				b.WriteByte('+')
+			} else if r.IntN(2) == 0 {
+				fmt.Fprintf(&b, "%%%02x", c)
 			} else {
 				fmt.Fprintf(&b, "%%%02X", c)
 			}

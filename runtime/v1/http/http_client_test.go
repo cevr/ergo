@@ -35,6 +35,33 @@ func clientText(r *rand.Rand, alphabet string, max int) string {
 	return b.String()
 }
 
+// clientRawPath is a raw (escaped) path as a caller writes one: each byte
+// of its segments unreserved and kept, a sub-delimiter, ':' or '@' kept or
+// escaped, or any byte escaped in upper or lower case hex ("%2f" and
+// "%2F" for a "/" inside a segment). It is a valid encoding, so Go keeps
+// it as the request's escaped path.
+func clientRawPath(r *rand.Rand) string {
+	const bytes = "aZ09-._~!$&'()*+,;=:@/ %?#\xc3\xa9"
+	var b strings.Builder
+	for n := 1 + r.IntN(3); n > 0; n-- {
+		b.WriteByte('/')
+		for k := r.IntN(6); k > 0; k-- {
+			c := bytes[r.IntN(len(bytes))]
+			switch {
+			case c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || strings.IndexByte("-._~", c) >= 0:
+				b.WriteByte(c)
+			case strings.IndexByte("!$&'()*+,;=:@", c) >= 0 && r.IntN(2) == 0:
+				b.WriteByte(c)
+			case r.IntN(2) == 0:
+				fmt.Fprintf(&b, "%%%02x", c)
+			default:
+				fmt.Fprintf(&b, "%%%02X", c)
+			}
+		}
+	}
+	return b.String()
+}
+
 func clientFields(r *rand.Rand, names []string, values string) []HTTPField {
 	var fs []HTTPField
 	for n := r.IntN(4); n > 0; n-- {
@@ -53,12 +80,19 @@ func newClientCase(r *rand.Rand) clientCase {
 		answer: HTTPResponse{Status: statuses[r.IntN(len(statuses))], Header: clientFields(r, []string{"X-R", "X-Ess"}, "az 0,;=")},
 		budget: 1 + r.IntN(24),
 	}
-	switch r.IntN(3) {
+	switch r.IntN(4) {
 	case 0: // an escaped path with a "/" inside a segment ("%2F"), which only RawPath keeps
 		a, b := clientText(r, "ab/ %?é", 4), clientText(r, "ab/ %?é", 4)
 		c.path, c.rawPath = "/"+a+"/"+b, "/"+url.PathEscape(a)+"/"+url.PathEscape(b)
 	case 1: // a raw path that does not encode path, which Go ignores
 		c.rawPath = "/elsewhere%2F"
+	case 2: // a raw path as a caller writes one (HTTP-PATH-ESCAPE: "/@scope%2fname")
+		c.rawPath = clientRawPath(r)
+		p, err := url.PathUnescape(c.rawPath)
+		if err != nil {
+			panic(err)
+		}
+		c.path = p
 	}
 	if c.method != "GET" && c.method != "OPTIONS" {
 		c.body = clientText(r, "ab\n{}é", 16)
@@ -108,7 +142,12 @@ func clientSubset(want, got []HTTPField) bool {
 
 // TestHTTPClientMatchesServer is G9's model property with G1's server on
 // a loopback listener as the peer: each generated request arrives as sent
-// (method, decoded path, query, header and body), and each generated
+// (method, decoded path, query, header and body), its escaped path
+// included when the request's RawPath encodes its Path: byte for byte,
+// "%2f" and kept reserved bytes too, never escaped again. That is what
+// http.InMemory gives its handler (it hands the Request over as it is),
+// so the host Net and the in-memory one deliver the same request
+// (HTTP-PATH-ESCAPE; mutant rawpath-client-ignored). Each generated
 // response comes back as sent (status, header and body; a 3xx is a
 // response, not a redirect), or TooLarge when its body is over the
 // client's budget. A failing seed prints the case and its replay.
