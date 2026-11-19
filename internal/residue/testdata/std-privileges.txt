@@ -117,4 +117,3 @@ debt	internal/sketch/check/lintfacts.go:isStdObj	decides by std membership or a 
 debt	internal/sketch/check/lintfacts.go:stdRoles	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
 debt	internal/sketch/lint/facts.go:extractor.unit	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
 debt	internal/sketch/lint/rule_foreign_where_std.go:checkForeignWhereStd	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
-debt	internal/sketch/lower/std.go:lowerer.runtimeType	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
