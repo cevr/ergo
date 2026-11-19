@@ -20,7 +20,10 @@ import (
 // R20, R21, R42, R43; ownership.go): a use after a hand-off or a maybe
 // hand-off, a hand-off from a block passed to a call, a lent parameter
 // handed off, a lend and a hand-off in one call, a dropped or `_` resource,
-// a replace from a block, a package let handed off and a yielded root.
+// a replace from a block, a package let handed off and a yielded root;
+// and each of those on a value of a type parameter marked own, which
+// names the mark, and such a value dropped at the end of its scope
+// (MODES-OWN-BODY; takes.go ownSite).
 var flowTemplates = []*regexp.Regexp{
 	regexp.MustCompile(`^\S+ was handed off at \d+:\d+ \(.*\) and cannot be used after that \(resources R15, R20\)`),
 	regexp.MustCompile(`^\S+ may have been handed off at \d+:\d+ \(.*\) on one path, and cannot be used after that \(resources R21\)`),
@@ -32,6 +35,8 @@ var flowTemplates = []*regexp.Regexp{
 	regexp.MustCompile(`^\S+ belongs to the enclosing function; .+ cannot replace it \(resources R4\)`),
 	regexp.MustCompile(`^\S+ is a package let, which has no owner to hand it off`),
 	regexp.MustCompile(`^the yielded resource is rooted `),
+	regexp.MustCompile(`, and .+ is marked own, so its value has one owner as a resource's has \(types\.md, Generics 9\)$`),
+	regexp.MustCompile(`^\S+ is lent and handed off \(.*\); write: `),
 }
 
 // goFlow is the Go checker's diagnostics of ds that compiler/check/diag's
@@ -338,13 +343,54 @@ type flowGen struct {
 	n          int
 	vars       []flowVar
 	bare, lead bool
+	// generic draws a generic body whose values are of a type parameter
+	// marked own (MODES-OWN-BODY): flowGenericPrelude, the core kinds.
+	generic bool
 }
 
-// flowProgram is the program of seed: flowPrelude, then a drawn body.
+// flowProgram is the program of seed: flowPrelude, then a drawn body; a
+// third of the seeds draw a generic body over [Res own] instead.
 func flowProgram(seed uint32) string {
-	g := &flowGen{r: rand.New(rand.NewPCG(uint64(seed), 0x666c6f77))}
-	return flowPrint(g.program(5), g.bare)
+	g := &flowGen{r: rand.New(rand.NewPCG(uint64(seed), 0x666c6f77)), generic: seed%3 == 0}
+	return flowPrint(g.program(5), g.bare, g.generic)
 }
+
+// flowGenericPrelude is the declarations a generic body uses: the core
+// callees over an own type parameter. keep hands its value back, so a
+// keep in the body drops a value of the caller's T (not refused, plan
+// 1.3) and the prelude itself has no diagnostic.
+const flowGenericPrelude = `type Bad {}
+
+func lend[T own](r T) {}
+
+func held[T own](r T) bool { true }
+
+func keep[T own](r own T) T { r }
+
+func take[T own](r own T) int {
+	let _ = keep(r)
+	0
+}
+
+func both[T own](r T, n int) {}
+
+func fail(n int) int fails Bad {
+	if n > 5 {
+		return Bad
+	}
+	n
+}
+
+func cond(n int) bool { n > 2 }
+
+func run(f func()) { f() }
+
+`
+
+// flowGenericOff is the kinds a generic body does not draw: a Close, a
+// package let, and the aggregates, containers, unions, conversions, with
+// providers and queues of Res.
+var flowGenericOff = map[int]bool{fClose: true, fShared: true, fBoxNew: true, fBoxLend: true, fBoxKeep: true, fFieldClose: true, fFieldLend: true, fFieldKeep: true, fListNew: true, fIndexLend: true, fIndexClose: true, fForIn: true, fHeldNew: true, fMatchHeld: true, fWithMove: true, fConvert: true, fLitLend: true, fWithShared: true, fQueueNew: true, fQueueLoop: true}
 
 func (g *flowGen) program(size int) []*flowStmt {
 	g.vars = []flowVar{{name: "p", depth: 1}, {name: "q", depth: 1}}
@@ -458,6 +504,9 @@ func (g *flowGen) stmt(depth, nest int, inLoop bool) *flowStmt {
 		if g.lead {
 			g.lead = false
 			k = []int{fIf, fMatch, fLoop, fCatch, fValue}[g.r.IntN(5)]
+		}
+		if g.generic && flowGenericOff[k] {
+			continue
 		}
 		switch k {
 		case fDeclMove, fLend, fClose, fKeep, fBoth, fShort, fBoxNew, fListNew, fHeldNew, fWithMove, fConvert, fLitLend:
@@ -607,9 +656,13 @@ func (g *flowGen) leave(depth int, inLoop bool) *flowStmt {
 
 // flowPrint writes body as the function body of `body` after the prelude
 // (ofPrint's core). A bare body's function has no resource parameters.
-func flowPrint(body []*flowStmt, bare bool) string {
+func flowPrint(body []*flowStmt, bare, generic bool) string {
 	var b strings.Builder
-	b.WriteString(flowPrelude)
+	if generic {
+		b.WriteString(flowGenericPrelude)
+	} else {
+		b.WriteString(flowPrelude)
+	}
 	emit := func(depth int, s string) {
 		b.WriteString(strings.Repeat("\t", depth))
 		b.WriteString(s)
@@ -702,7 +755,7 @@ func flowPrint(body []*flowStmt, bare bool) string {
 				emit(depth, fmt.Sprintf("let _ = open(%d)", k))
 			case fBoth:
 				prefix, arg := "both(", s.y
-				if s.left {
+				if s.left && !generic {
 					prefix, arg = "bothInt(", arg+".id"
 				}
 				if s.temp {
@@ -805,9 +858,14 @@ func flowPrint(body []*flowStmt, bare bool) string {
 		walk(s.els, depth+1)
 		emit(depth, "}"+suffix)
 	}
-	if bare {
+	switch {
+	case generic && bare:
+		emit(0, "func body[Res own](n int, open func(int) Res) fails Bad {")
+	case generic:
+		emit(0, "func body[Res own](n int, p Res, q own Res, open func(int) Res) fails Bad {")
+	case bare:
 		emit(0, "func body(n int) fails Bad {")
-	} else {
+	default:
 		emit(0, "func body(n int, p Res, q own Res) fails Bad {")
 	}
 	walk(body, 1)
