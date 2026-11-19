@@ -138,13 +138,27 @@ func (l *lowerer) namePrelude() {
 // helperName is the name of a generated entity for a subject of package
 // owner (nil: of the program) whose base name is base (rule 3).
 func (l *lowerer) helperName(owner *check.Package, base string) string {
+	alias := ""
+	if owner != nil && owner != l.pkg && !owner.Prelude() {
+		alias = pkgAlias(owner.Path)
+	}
+	return l.names.alloc(helperSpelling(alias, base))
+}
+
+// helperSpelling is rule 3's spelling of a generated entity whose base
+// name is base, for a subject of the package alias ("" for the root's or
+// the program's): ergo__[alias__]base, with base's own "ergo" prefix
+// dropped. The name the lowering gives is it, or it with a _N suffix when
+// one subject has two entities of one base. A test that looks for a
+// generated function by name spells it with this.
+func helperSpelling(alias, base string) string {
 	if rest, ok := strings.CutPrefix(base, "ergo"); ok && rest != "" && unicode.IsUpper(rune(rest[0])) {
 		base = rest
 	}
-	if owner != nil && owner != l.pkg && !owner.Prelude() {
-		base = pkgAlias(owner.Path) + "__" + base
+	if alias != "" {
+		base = alias + "__" + base
 	}
-	return l.names.alloc("ergo__" + base)
+	return "ergo__" + base
 }
 
 // pkgNamer is the namer of package p's own declarations (rule 2), below
