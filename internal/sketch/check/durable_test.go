@@ -71,7 +71,7 @@ const pureStep = `{
 // rule each refused row is accepted.
 func TestDurableStepIsPure(t *testing.T) {
 	const start = "journal.Start(Counter{}, j, 2, 1, func(o int) {})"
-	const literal = "Machine[State, Signal, int]{Initial: Idle, Step: step, After: func(s State) Option[Timeout[Signal]] { None }, Work: func(s State) Option[func(send func(e Signal))] { None }}"
+	const literal = "Machine[State, Signal, int]{Initial: Idle, Step: step, After: func(s State) Option[Timeout[Signal]] { None }, Work: func(s State) Option[func(send func(e Signal))] { None }, Exit: func(s State) Option[func()] { None }}"
 	for _, c := range []struct {
 		name, step, helpers, call, want string
 	}{
@@ -110,11 +110,11 @@ func TestDurableStepIsPure(t *testing.T) {
 		{name: "literal", step: pureStep, call: "journal.Start(" + literal + ", j, 2, 1, func(o int) {})"},
 		{
 			name: "generic step", step: pureStep, helpers: "\nfunc keepStep[S, E](s S, e E) Decision[S, int] { Ignore }\n",
-			call: "journal.Start(Machine[State, Signal, int]{Initial: Idle, Step: keepStep[State, Signal], After: func(s State) Option[Timeout[Signal]] { None }, Work: func(s State) Option[func(send func(e Signal))] { None }}, j, 2, 1, func(o int) {})",
+			call: "journal.Start(Machine[State, Signal, int]{Initial: Idle, Step: keepStep[State, Signal], After: func(s State) Option[Timeout[Signal]] { None }, Work: func(s State) Option[func(send func(e Signal))] { None }, Exit: func(s State) Option[func()] { None }}, j, 2, 1, func(o int) {})",
 		},
 		{
 			name: "generic step impure", step: pureStep, helpers: "\ntype Loud {}\n\nfunc loudStep[S, E](s S, e E) Decision[S, int] fails Loud needs Console {\n\tConsole.Println(\"x\")\n\tIgnore\n}\n",
-			call: "journal.Start(Machine[State, Signal, int, Loud, Console, Console]{Initial: Idle, Step: loudStep[State, Signal], After: func(s State) Option[Timeout[Signal]] { None }, Work: func(s State) Option[func(send func(e Signal)) needs Console] { None }}, j, 2, 1, func(o int) {})",
+			call: "journal.Start(Machine[State, Signal, int, Loud, Console, Console]{Initial: Idle, Step: loudStep[State, Signal], After: func(s State) Option[Timeout[Signal]] { None }, Work: func(s State) Option[func(send func(e Signal)) needs Console] { None }, Exit: func(s State) Option[func() needs Console] { None }}, j, 2, 1, func(o int) {})",
 			want: "step loudStep calls the capability operation Console.Println",
 		},
 		{
@@ -206,8 +206,8 @@ var pureRunnerMachines = []string{
 	"machines.Start(Counted{}, 3)",
 	"counter()",
 	"hidden()",
-	"Machine[State, Signal, int]{Initial: Idle, Step: keepStep[State, Signal], After: func(s State) Option[Timeout[Signal]] { None }, Work: func(s State) Option[func(send func(e Signal))] { None }}",
-	"Machine[State, Signal, int, Loud, Console, Console]{Initial: Idle, Step: loudStep[State, Signal], After: func(s State) Option[Timeout[Signal]] { None }, Work: func(s State) Option[func(send func(e Signal)) needs Console] { None }}",
+	"Machine[State, Signal, int]{Initial: Idle, Step: keepStep[State, Signal], After: func(s State) Option[Timeout[Signal]] { None }, Work: func(s State) Option[func(send func(e Signal))] { None }, Exit: func(s State) Option[func()] { None }}",
+	"Machine[State, Signal, int, Loud, Console, Console]{Initial: Idle, Step: loudStep[State, Signal], After: func(s State) Option[Timeout[Signal]] { None }, Work: func(s State) Option[func(send func(e Signal)) needs Console] { None }, Exit: func(s State) Option[func() needs Console] { None }}",
 }
 
 // pureRunnerProgram is case n of TestPureRunnerAnyPackage with runner as

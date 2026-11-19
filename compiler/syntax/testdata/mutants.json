@@ -1,5 +1,5 @@
 {
-  "about": "compiler/syntax: the scanner (S2a, SL5) and the tree and parser (S2b, SL6), which syntax.Parse decodes since S2d. Since S2e (the Go parser deleted) a row is killed by internal/sketch/syntax's decoder property and parse laws (TestDecodeAgreesWithView, TestFormatParseRoundTrip, TestFormatIsTheCorpusFixpoint and the scan laws), by a fixture or checker test, or, named in gap, by a law of compiler/syntax. Paths are from the repository root.",
+  "about": "compiler/syntax: the scanner (S2a, SL5) and the tree and parser (S2b, SL6). TestScanAgreesWithGo and TestParseAgreesWithGo (internal/sketch/syntax, in process through internal/linked/syntax) kill a row that names them; a gap names the law that kills the rest. Paths are from the repository root.",
   "mutants": [
     {
       "name": "scan-semi-after-rparen",
@@ -574,6 +574,76 @@
       "to": "if p.scanFailed && at > p.scanOffset {",
       "killers": ["internal/sketch/syntax:TestLexicalErrorInLookahead"],
       "rule": "A parser error at the lexical error's own offset reports the lexical error: the token there is the scanner's ILLEGAL, not the source's."
-    }
+    },
+    {
+      "name": "g1-exit-set-twice",
+      "origin": "wf10 FK9-g1c",
+      "file": "compiler/syntax/parse_decl.ergo",
+      "from": " || (isExit && exit) {",
+      "to": " || (isExit && exit && false) {",
+      "rule": "grammar.md Declarations 6: each machine entry is set once; exit is set twice is S001.",
+      "anchor": {
+        "tests": [
+          "check:TestMachineExitDiagnostics"
+        ]
+      },
+      "killers": [
+        "check:TestMachineExitDiagnostics"
+      ]
+    },
+    {
+      "name": "lf6-top-when-accepted",
+      "origin": "wf10 LF6a (ported to compiler/syntax, SELFHOST-MERGE)",
+      "file": "compiler/syntax/parse_decl.ergo",
+      "from": "\tif top && when != none {\n\t\terrorAt(p, tpos(p, int(when)-1), 4,",
+      "to": "\tif false {\n\t\terrorAt(p, tpos(p, int(when)-1), 4,",
+      "rule": "A top-level rewrite law takes no when.",
+      "killers": [
+        "check:TestFunctionRewriteRows"
+      ]
+    },
+    {
+      "name": "lf6-equation-as-member-rewrite",
+      "origin": "wf10 SELFHOST-MERGE (LF6a on S1)",
+      "file": "compiler/syntax/parse_decl.ergo",
+      "from": "if top { uint32(2) } else { uint32(1) }",
+      "to": "uint32(1)",
+      "rule": "types.md Laws 14: a top-level rewrite law is marked 2, so the Go tree reads it as an Equation, not a member's Rewrite.",
+      "killers": [
+        "check:TestFunctionRewriteRows"
+      ]
+    },
+    {
+      "name": "lf6-side-not-one-expression",
+      "origin": "wf10 SELFHOST-MERGE (LF6a on S1)",
+      "file": "compiler/syntax/parse_decl.ergo",
+      "from": "\tif Len(l) == 1 && kindAt(p, wid(Item(p.t, l, 0))) == KExprStmt {",
+      "to": "\tif Len(l) >= 0 {",
+      "rule": "A top-level rewrite law has one expression on each side.",
+      "killers": [
+        "check:TestFunctionRewriteRows"
+      ]
+    },
+    {
+      "name": "keyword-param-says-type",
+      "origin": "wf10 PKG G5 (ported to compiler/syntax, SELFHOST-MERGE)",
+      "file": "compiler/syntax/parse_type.ergo",
+      "from": "\tif isKeyword(k) && typeStarts(peek(p, 1)) {",
+      "to": "\tif false && isKeyword(k) && typeStarts(peek(p, 1)) {",
+      "rule": "A keyword where a parameter or field names itself is reported as a keyword, not only as a missing type (PKG G5).",
+      "killers": [
+        "internal/sketch/check:TestDiagnosticMessagesSayWhatHappened"
+      ],
+      "anchor": {
+        "tests": [
+          "internal/sketch/check:TestDiagnosticMessagesSayWhatHappened"
+        ]
+      }
+    },
+    {"name":"modes4-self-mut-op-dropped","origin":"wf10 MODES-4/5 self","file":"compiler/syntax/parse_decl.ergo","from":"\t\t\t\tmutW = someTok(p.i) // `mut Bump()`","to":"\t\t\t\tmutW = none // `mut Bump()`","rule":"`mut Bump()` records the mode word on the operation (types.md Generics 2; MODES-4).","killers":["internal/sketch/syntax:TestFormatIsTheCorpusFixpoint"]},
+    {"name":"modes5-self-tparam-own-dropped","origin":"wf10 MODES-4/5 self","file":"compiler/syntax/parse_decl.ergo","from":"\t\t\t\townW = someTok(int(p.t.tok[int(ty)]))","to":"\t\t\t\townW = none","rule":"`[T own]` records the mark on the type parameter's field (types.md Generics 9; MODES-5).","killers":["internal/sketch/syntax:TestFormatIsTheCorpusFixpoint"]},
+    {"name":"modes1-parse-mut-unmarked","origin":"wf10 SIMPLIFY MODES-1; SELFHOST-MERGE r2: on compiler/syntax","file":"compiler/syntax/parse_type.ergo","from":"\tif k == Mul || k == Mut {\n\t\tlet star = p.i","to":"\tif k == Mul {\n\t\tlet star = p.i","rule":"mut T is the borrow spelled as the write-in-place mode, kept as written (q169; SIMPLIFY U2).","killers":["internal/sketch/fix:TestMutSpellsTheBorrow"]},
+    {"name":"modes1-own-before-mut","origin":"wf10 SIMPLIFY MODES-1; SELFHOST-MERGE r2: on compiler/syntax","file":"compiler/syntax/parse_type.ergo","from":"func typeStarts(k uint8) bool { k == Ident || k == LBrack || k == Mul || k == Mut || k == Func || k == Escaping }","to":"func typeStarts(k uint8) bool { k == Ident || k == LBrack || k == Mul || k == Func || k == Escaping }","rule":"own reads as the mode word before mut T (q168, q169).","killers":["internal/sketch/fix:TestMutSpellsTheBorrow"]},
+    {"name":"modes1-format-mut-star","origin":"wf10 SIMPLIFY MODES-1; SELFHOST-MERGE r2: on compiler/format","file":"compiler/format/nodes.ergo","from":"\t\t\tp.token(p.tp(s.Star), \"mut\")\n\t\t\tp.space()\n","to":"\t\t\tp.token(p.tp(s.Star), \"*\")\n","rule":"format writes mut T as written (q169).","killers":["internal/sketch/fix:TestMutSpellsTheBorrow"]}
   ]
 }

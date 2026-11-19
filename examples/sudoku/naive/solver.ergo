@@ -28,7 +28,7 @@ func Solve(_ Solver, puzzle board.Grid) board.Grid fails board.Unsolvable {
 
 // fill fills the empty cells of cells from i on, and reports whether it
 // could. On false, cells is as it was.
-func fill(cells *[]int, i int) bool {
+func fill(cells mut []int, i int) bool {
 	if i == 81 {
 		return true
 	}

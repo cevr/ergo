@@ -6,6 +6,7 @@ import (
 	"math/rand/v2"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -82,6 +83,11 @@ func Take(f Fixed, n int) int fails Empty {
 type Holder { s Sink }
 
 func id[T](x T) T { x }
+
+func keep[T](s Sink, v T, k int) T {
+	s.Put(k)
+	v
+}
 
 func both(a Sink, b Sink, k int) int fails Empty {
 	a.Put(k)
@@ -192,6 +198,24 @@ func provProgram(seed uint64, reached map[string]bool) (src string, copies int, 
 		fmt.Fprintf(&calls, "\tlet r%d = f%d(%s, %d) catch {\n\tcase Empty as e:\n\t\t-1000 - e.at\n\t}\n", n, j, providers[p], g.r.IntN(6))
 		fmt.Fprintf(&calls, "\tConsole.Println(\"%d \\(r%d) \\(c.sum) \\(c.puts) \\(l.text)\")\n", n, n)
 	}
+	// keep is generic: its copy for a provider is one instance, the
+	// first call's; a call at another type argument takes keep itself
+	// (Q4: the copy was reused at the other instance's types).
+	first := map[string]string{}
+	for n := range 3 {
+		p := names[g.r.IntN(len(names))]
+		ty, v := "int", strconv.Itoa(g.r.IntN(9))
+		if g.r.IntN(2) == 0 {
+			ty, v = "string", strconv.Quote("w"+v)
+		}
+		g.copies["keep "+p] = true
+		if t, ok := first[p]; !ok {
+			first[p] = ty
+		} else if t != ty {
+			reached["keep: other instance"] = true
+		}
+		fmt.Fprintf(&calls, "\tlet g%d = keep[%s](%s, %s, %d)\n\tConsole.Println(\"keep %d \\(g%d) \\(c.sum)\")\n", n, ty, providers[p], v, n, n, n)
+	}
 	a, b := names[g.r.IntN(len(names))], names[g.r.IntN(len(names))]
 	g.copies["both "+a] = true
 	fmt.Fprintf(&calls, "\tlet rb = both(%s, %s, 3) catch {\n\tcase Empty as e:\n\t\t-1000 - e.at\n\t}\n\tConsole.Println(\"both \\(rb) \\(c.sum) \\(l.text)\")\n", providers[a], providers[b])
@@ -217,7 +241,10 @@ func provProgram(seed uint64, reached map[string]bool) (src string, copies int, 
 // providers (provider.go): each seed writes a program of functions on an
 // operation type Sink that call its operations, loop, fail, pass the
 // Sink on, and in some keep it an interface (a store in a record, a let,
-// a generic argument); main calls them on three providers (by value), calls a function of two Sinks, and on even
+// a generic argument); main calls them on three providers (by value),
+// calls the generic keep at drawn type arguments (a provider's copy is
+// its first call's instance; mutant q4-spec-instance-ignored reuses it at
+// another), calls a function of two Sinks, and on even
 // seeds ends in a defect raised inside a provider's operation. The
 // lowering makes exactly the copies the generator's model names
 // (knownStats.Providers), the reference (providerLowering "dynamic")
@@ -276,13 +303,13 @@ func TestKnownProvidersAgree(t *testing.T) {
 		on, onErr, onCode := runExe(t, exes[fmt.Sprintf("providers%d", seed)])
 		off, offErr, offCode := runExe(t, exes[fmt.Sprintf("providers%ddynamic", seed)])
 		ended := (onCode != 0) == defects[seed] && strings.Contains(on, "both ")
-		if on != off || onErr != offErr || onCode != offCode || !ended {
+		if on != off || !sameReport(onErr, offErr) || onCode != offCode || !ended {
 			t.Errorf("seed %d: the copies and the reference differ (or the program did not end as written)\nReplay: go test -run '^TestKnownProvidersAgree$' ./internal/sketch/lower -args -providers.seed=%d\n%s\n--- copies (exit %d)\n%s%s\n--- reference (exit %d)\n%s%s", seed, seed, sources[seed], onCode, on, onErr, offCode, off, offErr)
 		}
 	}
 	if *provSeed == 0 {
 		var missing []string
-		for _, k := range []string{"take", "pass on", "kept: store", "kept: let", "kept: generic", "provider Counter", "provider Log", "provider Fixed", "call kept", "defect"} {
+		for _, k := range []string{"take", "pass on", "kept: store", "kept: let", "kept: generic", "provider Counter", "provider Log", "provider Fixed", "call kept", "defect", "keep: other instance"} {
 			if !reached[k] {
 				missing = append(missing, k)
 			}

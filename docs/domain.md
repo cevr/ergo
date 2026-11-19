@@ -22,7 +22,9 @@ What Ergo adds to the source library's model: `Decide` has no `needs` row, so it
 | External system | An operation type with laws, bound in `cmd/<name>/main.ergo`; a `testing.Script` of it in a scene | exists |
 | Context (actor, tenant, time, command id) | Data in the command's envelope, never an ambient value (rule 3) | pattern |
 | Api | One operation type: commands and reads as operations, laws beside them | exists |
-| Projection of the Api | `ergo gen rpc` (HTTP, Effect RPC's protocol) and `ergo gen cli` (a std `flag` tree with the law `ArgsRoundTrip`); MCP is planned (AP3); a UI is a pattern (rule 6) | rpc and cli exist |
+| Hub of the Api | `ergo gen api`: `<pkg>api` holds the call as data (`Request`, `Op`, `Reply`, `Failure`, `Outcome`), the one dispatch `Call` and a `Client`, with the laws `CallIsTheOperation` and `ClientIsCall` | exists |
+| Projection of the Api | Transports written over the hub: `ergo gen rpc` (HTTP, Effect RPC's protocol), `ergo gen cli` (a std `flag` tree with the law `ArgsRoundTrip`) and `ergo gen mcp` (tools with the law `ArgumentsFitTheSchema`); a UI is a pattern (rule 6) | rpc, cli and mcp exist |
+| Transport policy | Functions in `cmd/<name>` over the hub's unions, each an exhaustive `match` (exit code, HTTP status) | planned (API-FIRST AF2, AF3) |
 
 ## 2. The aggregate
 
@@ -175,7 +177,7 @@ A command's id makes a resend harmless: the context keeps the receipt of each id
 
 ## 5. The Api, declared once
 
-**Rule 5. The Api is one operation type: commands and reads are its operations, and its laws stand beside them.** Every surface is a provider of it or a caller of it: the in-process model, the generated RPC client (`ergo gen rpc`), the generated command line (`ergo gen cli`), the generated MCP tools (`ergo gen mcp`, whose descriptions are the operations' doc comments), and later a sync replica. `ergo test` runs the Api's laws against each provider that has a constructor, so a projection is admitted by the laws.
+**Rule 5. The Api is one operation type: commands and reads are its operations, and its laws stand beside them.** Every surface is a provider of it or a caller of it: the in-process model, the generated RPC client (`ergo gen rpc`), the generated command line (`ergo gen cli`), the generated MCP tools (`ergo gen mcp`, whose descriptions are the operations' doc comments), and later a sync replica. `ergo gen api` writes the Api's hub, `<pkg>api`: one call as data (`Request`), its operation alone (`Op`), what it ends in (`Outcome`: a `Reply` or a typed `Failure`), and the one dispatch `Call`, with laws that `Call` is the operation and that a `Client` over `Call` is the provider. Every transport is written over the hub, so a call has one type and one dispatch on every surface ([api.md](spec/api.md#ergo-gen-api)). `ergo test` runs the Api's laws against each provider that has a constructor, so a projection is admitted by the laws.
 
 <!-- quote examples/pipeline/pipeline/api.ergo Pipeline -->
 ```go

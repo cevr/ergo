@@ -1,0 +1,383 @@
+// binddump checks one package with compiler/check/task (collect and bind,
+// as package and body tasks) and prints, one per line, unsorted:
+//
+//	binddump FILE...          "FILE OFFSET KIND NAME" per declaration
+//	binddump -uses FILE...    "FILE OFFSET -> FILE OFFSET", "-> outside NAME" or
+//	                          "-> import PATH NAME" per use
+//	binddump -locals FILE...  the declarations, then "FILE OFFSET local|law NAME" per Def
+//	binddump -names FILE...   "FILE OFFSET ID NAME" per local: its name's id and text
+//	binddump -unused FILE...  "FILE L:C: S110 MESSAGE" per unread local or import
+//	                          (compiler/check/diag), in the Go checker's order
+//	binddump -unused -batch MANIFEST
+//	                          -unused for each package of MANIFEST (a line of
+//	                          files each), each after an "@pkg I" line
+//
+// Flags, first: -threads N binds on up to N tasks at once (default 1);
+// -std DIR loads the packages the files import, transitively, as package
+// tasks: a path of the files' module (the ergo.mod above the first file)
+// from the module's folders, any other from DIR/PATH. Without -std an
+// import is an empty interface.
+//
+// It is the Ergo side of the bind agreement (internal/selfhostcheck's
+// TestCompilerBindAgreesWithChecker) and of the unused agreement
+// (TestCompilerUnusedAgreesWithChecker, S3-DIAG).
+
+import compiler/check/bind
+import compiler/check/diag
+import compiler/check/store
+import compiler/check/task
+import compiler/syntax
+import dense
+import fs
+import io
+import os
+import slices
+import strings
+
+func base(path string) string {
+	let i = strings.LastIndex(path, "/")
+	if i < 0 { path } else { path[i+1 : len(path)] }
+}
+
+func dir(path string) string {
+	let i = strings.LastIndex(path, "/")
+	if i < 0 { "." } else if i == 0 { "/" } else { path[0:i] }
+}
+
+func read(path string) string fails os.Exit needs fs.Files {
+	fs.Files.ReadFile(path) catch {
+	case fs.NotFound:
+		return os.Exit{Code: 1, Message: "binddump: no file \(path)"}
+	case fs.Denied:
+		return os.Exit{Code: 1, Message: "binddump: cannot read \(path)"}
+	case fs.Failed as e:
+		return os.Exit{Code: 1, Message: "binddump: cannot read \(path): \(e.Reason)"}
+	}
+}
+
+// Module is the module the files are in: its path and folder, and the
+// modules it requires from a local folder (its go.mod's replace lines
+// whose target is a path); none when no ergo.mod is above the first file.
+type Module { Path string, Dir string, Replaces []Replace }
+
+// Replace is a required module read from a folder.
+type Replace { Path string, Dir string }
+
+// replacesOf is the local replace lines of the go.mod in folder d.
+func replacesOf(d string) []Replace needs fs.Files {
+	let text = fs.Files.ReadFile(d + "/go.mod") catch {
+	case _:
+		""
+	}
+	let mut out = []Replace{}
+	for line in strings.Split(text, "\n") {
+		let l = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "replace "))
+		let i = strings.Index(l, "=>")
+		if i < 0 {
+			continue
+		}
+		let from = strings.Fields(l[0:i])
+		let to = strings.TrimSpace(l[i+2 : len(l)])
+		if len(from) == 0 || !(strings.HasPrefix(to, ".") || strings.HasPrefix(to, "/")) {
+			continue
+		}
+		let target = strings.Fields(to)[0]
+		out = out.Append(Replace{Path: from[0], Dir: if strings.HasPrefix(target, "/") { target } else { d + "/" + target }})
+	}
+	out
+}
+
+// moduleOf finds the ergo.mod in d or a folder above it.
+func moduleOf(d string) Option[Module] needs fs.Files {
+	let mut at = d
+	for {
+		let text = fs.Files.ReadFile(at + "/ergo.mod") catch {
+		case _:
+			""
+		}
+		for line in strings.Split(text, "\n") {
+			let l = strings.TrimSpace(line)
+			if strings.HasPrefix(l, "module ") {
+				return Some[Module]{Value: Module{Path: strings.TrimSpace(l[7:len(l)]), Dir: at, Replaces: replacesOf(at)}}
+			}
+		}
+		if at == "/" || at == "." || at == "" {
+			return None
+		}
+		at = dir(at)
+	}
+}
+
+// folderOf is the folder of the package at import path: in the module, or
+// under std; none when neither holds it.
+func folderOf(path string, m Option[Module], std string) string {
+	match m {
+	case Some[Module] as mod:
+		if path == mod.Value.Path {
+			return mod.Value.Dir
+		}
+		if strings.HasPrefix(path, mod.Value.Path+"/") {
+			return mod.Value.Dir + path[len(mod.Value.Path):len(path)]
+		}
+		for r in mod.Value.Replaces {
+			if path == r.Path {
+				return r.Dir
+			}
+			if strings.HasPrefix(path, r.Path+"/") {
+				return r.Dir + path[len(r.Path):len(path)]
+			}
+		}
+	case None:
+	}
+	std + "/" + path
+}
+
+// loadDir is the package in folder d, its .ergo files in name order; none
+// when d holds no .ergo file or cannot be read.
+func loadDir(path string, d string) Option[task.Package] needs fs.Files {
+	let names = fs.Files.ReadDir(d) catch {
+	case _:
+		return None
+	}
+	let mut files = []bind.File{}
+	for n in names {
+		if !strings.HasSuffix(n, ".ergo") {
+			continue
+		}
+		let src = fs.Files.ReadFile(d + "/" + n) catch {
+		case _:
+			continue
+		}
+		files = files.Append(bind.File{Name: n, Parsed: syntax.Parse(src)})
+	}
+	if len(files) == 0 {
+		return None
+	}
+	Some[task.Package]{Value: task.Package{Path: path, Files: files}}
+}
+
+// program is the root package and, with std, every package it imports,
+// transitively, imports first in the order met; the root is last.
+func program(root task.Package, m Option[Module], std string) []task.Package needs fs.Files {
+	let mut pkgs = []task.Package{}
+	if std == "" {
+		return pkgs.Append(root)
+	}
+	let mut queue = bind.Imports(root.Files)
+	let mut seen = []string{root.Path}
+	let mut i = 0
+	for i < len(queue) {
+		let path = queue[i]
+		i = i + 1
+		if slices.Contains(seen, path) {
+			continue
+		}
+		seen = seen.Append(path)
+		match loadDir(path, folderOf(path, m, std)) {
+		case Some[task.Package] as p:
+			pkgs = pkgs.Append(p.Value)
+			for q in bind.Imports(p.Value.Files) {
+				queue = queue.Append(q)
+			}
+		case None:
+		}
+	}
+	pkgs.Append(root)
+}
+
+// rootPath is the import path of the package of the files at paths: its
+// folder in its module, else main.
+func rootPath(paths []string, m Option[Module]) string {
+	match m {
+	case Some[Module] as mod:
+		let d = dir(paths[0])
+		if d == mod.Value.Dir { mod.Value.Path } else { mod.Value.Path + d[len(mod.Value.Dir):len(d)] }
+	case None:
+		"main"
+	}
+}
+
+// unused writes the S110 lines of the package of the files at paths,
+// "FILE L:C: S110 MESSAGE", in the Go checker's order.
+func unused(b mut strings.Builder, paths []string, std string, threads int) fails os.Exit needs fs.Files {
+	let mut files = []bind.File{}
+	let mut srcs = []string{}
+	for path in paths {
+		let src = try read(path)
+		srcs = srcs.Append(src)
+		files = files.Append(bind.File{Name: base(path), Parsed: syntax.Parse(src)})
+	}
+	if len(files) == 0 {
+		return
+	}
+	let m = moduleOf(dir(paths[0]))
+	let pkgs = program(task.Package{Path: rootPath(paths, m), Files: files}, m, std)
+	let checked = task.Check(pkgs, threads)
+	let c = checked[len(checked)-1]
+	// An import no package answers (with -std: none was loaded for it).
+	let mut missing = []string{}
+	if std != "" {
+		for path in bind.Imports(files) {
+			let mut found = false
+			for p in pkgs {
+				found = found || p.Path == path
+			}
+			if !found {
+				missing = missing.Append(path)
+			}
+		}
+	}
+	let mut lines = []syntax.Lines{}
+	for src in srcs {
+		lines = lines.Append(syntax.LinesOf(src))
+	}
+	for d in diag.Unused(files, store.Of(c.Store), c.Uses, c.Parents, missing) {
+		let at = syntax.PositionOf(lines[d.File], d.Offset)
+		b.WriteString("\(files[d.File].Name) \(at.Line):\(at.Column): \(d.Code) \(d.Message)\n")
+	}
+}
+
+func run(args []string) fails os.Exit needs fs.Files | io.Stdout {
+	let mut threads = 1
+	let mut std = ""
+	let mut rest = args
+	for len(rest) > 1 && (rest[0] == "-threads" || rest[0] == "-std") {
+		if rest[0] == "-std" {
+			std = rest[1]
+		} else {
+			threads = 0
+			for i in 0..len(rest[1]) {
+				threads = threads*10 + int(rest[1][i]) - 48
+			}
+			if threads < 1 {
+				return os.Exit{Code: 2, Message: "binddump: -threads takes a count of 1 or more"}
+			}
+		}
+		rest = rest[2:len(rest)]
+	}
+	if len(rest) > 0 && rest[0] == "-unused" {
+		let mut b = strings.NewBuilder()
+		if len(rest) == 3 && rest[1] == "-batch" {
+			let mut i = 0
+			for line in strings.Split(try read(rest[2]), "\n") {
+				let g = strings.Fields(line)
+				if len(g) == 0 {
+					continue
+				}
+				b.WriteString("@pkg \(i)\n")
+				try unused(&b, g, std, threads)
+				i = i + 1
+			}
+		} else {
+			try unused(&b, rest[1:len(rest)], std, threads)
+		}
+		io.Stdout.Print(b.String())
+		return
+	}
+	let uses = len(rest) > 0 && rest[0] == "-uses"
+	let locals = len(rest) > 0 && rest[0] == "-locals"
+	let names = len(rest) > 0 && rest[0] == "-names"
+	let paths = if uses || locals || names { rest[1:len(rest)] } else { rest }
+	let mut files = []bind.File{}
+	for path in paths {
+		files = files.Append(bind.File{Name: base(path), Parsed: syntax.Parse(try read(path))})
+	}
+	let m = if len(paths) > 0 { moduleOf(dir(paths[0])) } else { None }
+	let pkgs = program(task.Package{Path: if len(paths) > 0 { rootPath(paths, m) } else { "main" }, Files: files}, m, std)
+	let checked = task.Check(pkgs, threads)
+	let c = checked[len(checked)-1]
+	let s = store.Of(c.Store)
+	let deps = store.ImportPaths(s)
+	let ps = c.Parents
+	let u = c.Uses
+	let mut b = strings.NewBuilder()
+	if names {
+		for f, file in files {
+			let p = file.Parsed
+			if p.Failed {
+				continue
+			}
+			for i in 0..syntax.NumNodes(p.Tree) {
+				let id = syntax.NodeAt(p.Tree, i)
+				match bind.LocalName(u, bind.PNodeOf(ps, f, id)) {
+				case Some[dense.ID[dense.Str]] as n:
+					b.WriteString("\(file.Name) \(syntax.NodePos(p, id)) \(dense.Index(n.Value)) \(store.Text(s, n.Value))\n")
+				case None:
+				}
+			}
+		}
+		io.Stdout.Print(b.String())
+		return
+	}
+	if uses {
+		for f, file in files {
+			let p = file.Parsed
+			if p.Failed {
+				continue
+			}
+			for i in 0..syntax.NumNodes(p.Tree) {
+				let id = syntax.NodeAt(p.Tree, i)
+				let at = syntax.NodePos(p, id)
+				match bind.ResolutionOf(u, ps, bind.PNodeOf(ps, f, id)) {
+				case bind.NotUse:
+				case bind.Outside:
+					b.WriteString("\(file.Name) \(at) -> outside \(syntax.TokText(p, syntax.TokStartingAt(p, at)))\n")
+				case bind.Declared as d:
+					let (df, dn) = bind.RowOf(ps, d.At)
+					let dp = files[df].Parsed
+					b.WriteString("\(file.Name) \(at) -> \(files[df].Name) \(syntax.NodePos(dp, syntax.NodeAt(dp.Tree, dn)))\n")
+				case bind.Imported as x:
+					let path = deps[int(x.Ref.Import)-1]
+					let mut name = "?"
+					for k in checked {
+						if k.Path == path {
+							let ds = store.Of(k.Store)
+							name = store.Text(ds, store.DeclOf(ds, store.DeclAt(ds, int(x.Ref.Decl))).Name)
+						}
+					}
+					b.WriteString("\(file.Name) \(at) -> import \(path) \(name)\n")
+				}
+			}
+		}
+		io.Stdout.Print(b.String())
+		return
+	}
+	if locals {
+		for f, file in files {
+			let p = file.Parsed
+			if p.Failed {
+				continue
+			}
+			for i in 0..syntax.NumNodes(p.Tree) {
+				let id = syntax.NodeAt(p.Tree, i)
+				let kind = match bind.DefOf(u, bind.PNodeOf(ps, f, id)) {
+				case bind.NoDef:
+					""
+				case bind.Local:
+					"local"
+				case bind.Law:
+					"law"
+				}
+				if kind != "" {
+					let at = syntax.NodePos(p, id)
+					b.WriteString("\(file.Name) \(at) \(kind) \(syntax.TokText(p, syntax.TokStartingAt(p, at)))\n")
+				}
+			}
+		}
+	}
+	for d in store.Decls(s) {
+		if store.KindName(int(d.Kind)) == "pkg" {
+			continue
+		}
+		let p = files[int(d.File)].Parsed
+		let at = syntax.NodePos(p, syntax.NodeAt(p.Tree, int(d.Node)))
+		b.WriteString("\(files[int(d.File)].Name) \(at) \(store.KindName(int(d.Kind))) \(store.Text(s, d.Name))\n")
+	}
+	io.Stdout.Print(b.String())
+}
+
+func main() fails os.Exit needs Ambient {
+	with context { os.Process: os.NewHost(), fs.Files: fs.NewHost(), io.Stdout: io.NewHost() } {
+		try run(os.Process.Args())
+	}
+}

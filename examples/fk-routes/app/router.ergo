@@ -1,7 +1,6 @@
 // Package app is the program as one machine: the route the address
-// names, and the People page's search, which a People route drives. It
-// declares Location, the address and its history, which the host
-// provides.
+// names, and the People page's search, which a People route drives. The
+// address and its history are the host's (std ui's Location).
 
 import fkroutes/people
 import fkroutes/route
@@ -22,12 +21,13 @@ type App { Route route.Route, Page Page }
 type Key = GH{} | GP{} | GF{} | GN{}
 
 // Signal is what the program reads: the address changed (a push, a back,
-// a typed address), a shortcut, the search field typed in, Search
-// clicked, and the search's answer, which the Loading page's timer gives.
-type Signal = Navigated{Path string} | Pressed{Key Key} | Typed{Text string} | Submit{} | Fetched{}
+// a typed address), a link followed (its path), a shortcut, the search
+// field typed in, Search clicked, and the search's answer, which the
+// Loading page's timer gives.
+type Signal = Navigated{Path string} | Followed{Path string} | Pressed{Key Key} | Typed{Text string} | Submit{} | Fetched{}
 
-// Go is the program's request to navigate: the host pushes Path on the
-// Location and tells the machine Navigated.
+// Go is the program's request to navigate: the host pushes Path on its
+// history (ui.Location) and tells the machine Navigated.
 type Go { Path string }
 
 // SearchTakes is how long a search takes to answer.
@@ -73,8 +73,8 @@ func Open(path string) App {
 // People route also sets the field to its search, records the search and
 // searches again, a new entry, so the search's timer starts anew. Any
 // other route keeps the entry, so a search under way still answers. A
-// shortcut and Search ask the host to navigate (an Emit); the address
-// changes only when the host says so.
+// link, a shortcut and Search ask the host to navigate (an Emit); the
+// address changes only when the host says so.
 func Step(a App, sig Signal) Decision[App, Go] {
 	match sig {
 	case Navigated as n:
@@ -86,6 +86,8 @@ func Step(a App, sig Signal) Decision[App, Go] {
 		case route.Home, route.Nested, route.Person, route.FilesIndex, route.Files, route.NotFound:
 			Stay[App]{Next: App{..a, Route: r}}
 		}
+	case Followed as l:
+		Emit[App, Go]{Next: a, Output: Go{Path: l.Path}}
 	case Pressed as p:
 		Emit[App, Go]{Next: a, Output: Go{Path: route.Print(Target(p.Key))}}
 	case Typed as t:

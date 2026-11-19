@@ -1,0 +1,212 @@
+package lower
+
+import (
+	"path"
+	"strings"
+	"sync"
+
+	"ergo.local/prototype/internal/toolchain"
+	runtimefiles "ergo.local/prototype/runtime"
+)
+
+// Foreign keys (LAWFFI r2 §3.5, LFL; owner q192 to q195). A ledger entry
+// whose law reaches a foreign function, the Go target of an `extern go`
+// (a binding's or a user's), pins its evidence to the version of the Go
+// code behind it: the digest takes each target's foreign key, so a
+// toolchain change, a go.sum bump of the module that holds the function,
+// or an edit of Go code a runtime or trusted function reaches makes the
+// entry stale, and an edit anywhere else does not. The Ergo side needs no
+// key of its own: the digest already covers the tokens of every Ergo
+// declaration the law reaches, which is the content hash of every body
+// both sides reach (q195).
+//
+//	Go's standard library, a builtin    go <toolchain>         shown go1.27.4
+//	a required module                    sum <its go.sum line>  shown <module>@<version>
+//	runtime/v1 and its runtime imports   closure <hash>         shown <import path>@<12 hex>
+//	a local replacement, go.mod's own    closure <hash>         shown <import path>@<12 hex>
+//	none of these                        unknown <path>         shown <import path>@unknown
+//
+// A closure key is the hash of the declarations the function reaches
+// (goclosure.go), widened to the package's files where the walk cannot
+// see; a package's shown hash is over the keys of its targets the entry
+// reaches. The platform is not keyed: the ledger is a function of the
+// module's sources (LAWFFI r2 §3.5, §7 risk 4). A function of module A
+// that calls module B is keyed by A's go.sum line only: B's version
+// reaches the key only through A's own requirements.
+
+// ForeignKey is a target's key: Key goes into the digest; Shown, or, when
+// Group is set, Group and a hash of the keys of the group's targets an
+// entry reaches, into the ledger line's `with` field, so a stale entry can
+// say what changed.
+type ForeignKey struct{ Key, Shown, Group string }
+
+// ForeignKeys maps an `extern go` target to its key. A nil ForeignKeys
+// keys nothing: the digest is the Ergo declarations' alone.
+type ForeignKeys func(target string) ForeignKey
+
+// ShippedForeignKeys are the keys of the packages the compiler ships (std
+// and its ledger): the pinned toolchain and the runtime; std links no Go
+// module.
+var ShippedForeignKeys = ForeignKeySource{Toolchain: toolchain.Version}.Keys()
+
+// ExternPath is the Go import path of an `extern go` target: hash/crc32
+// for hash/crc32.ChecksumIEEE, net/url for net/url.URL.Hostname, math for
+// math.Pi, and "" for a builtin (append), which Go's toolchain defines.
+func ExternPath(target string) string {
+	slash := strings.LastIndex(target, "/")
+	dot := strings.Index(target[slash+1:], ".")
+	if dot < 0 {
+		return ""
+	}
+	return target[:slash+1+dot]
+}
+
+// ForeignKeySource is what the keys are read from: the toolchain's name,
+// the program's Go module (go.mod's requirements and replacements, each
+// local folder absolute, and go.sum), and the Go files of a folder
+// (sketchfront reads them; nil when it cannot).
+type ForeignKeySource struct {
+	Toolchain string
+	Module    GoModule
+	ReadDir   func(dir string) []GoSourceFile
+	// world is the module's Go packages the keys have read.
+	world *goWorld
+}
+
+// Keys is s's ForeignKeys, each target's key computed once.
+func (s ForeignKeySource) Keys() ForeignKeys {
+	s.world = nil
+	var mu sync.Mutex
+	memo := map[string]ForeignKey{}
+	return func(target string) ForeignKey {
+		mu.Lock()
+		defer mu.Unlock()
+		if k, ok := memo[target]; ok {
+			return k
+		}
+		k := s.key(target)
+		memo[target] = k
+		return k
+	}
+}
+
+// module is the module of s that holds the import path p ("" for none),
+// and the folder that holds p when the module is replaced by one.
+func (s ForeignKeySource) module(p string) (mod, version, dir string, repl *GoReplace) {
+	for _, m := range s.Module.Modules {
+		if (p == m || strings.HasPrefix(p, m+"/")) && len(m) > len(mod) {
+			mod = m
+		}
+	}
+	if mod == "" {
+		return "", "", "", nil
+	}
+	for _, r := range s.Module.Require {
+		if r.Path == mod {
+			version = r.Version
+		}
+	}
+	for i, r := range s.Module.Replace {
+		if r.Old == mod && (r.OldVersion == version || r.OldVersion == "" && repl == nil) {
+			repl = &s.Module.Replace[i]
+		}
+	}
+	if repl != nil && (strings.HasPrefix(repl.New, "/") || strings.HasPrefix(repl.New, ".")) {
+		dir = path.Join(repl.New, strings.TrimPrefix(p, mod))
+	}
+	return mod, version, dir, repl
+}
+
+func (s *ForeignKeySource) key(target string) ForeignKey {
+	p := ExternPath(target)
+	name := strings.TrimPrefix(target, p+".")
+	if p == "" {
+		name = target
+	}
+	if rel, ok := strings.CutPrefix(p, runtimefiles.Module+"/"); ok && strings.HasPrefix(rel, "runtime/") {
+		if k, ok := runtimeKeys.Load(target); ok {
+			return k.(ForeignKey)
+		}
+		k := ForeignKey{Key: "closure " + runtimeWorld().closure(p, name).Hash, Group: rel}
+		runtimeKeys.Store(target, k)
+		return k
+	}
+	mod, version, dir, repl := s.module(p)
+	if mod == "" && (p == "" || !strings.Contains(strings.Split(p, "/")[0], ".")) {
+		// Go's standard library: a module path with no dot in its first
+		// element (go.mod's own, such as app) was matched above.
+		return ForeignKey{Key: "go " + s.Toolchain, Shown: s.Toolchain}
+	}
+	if mod == "" {
+		return ForeignKey{Key: "unknown " + p, Shown: p + "@unknown"}
+	}
+	if dir != "" {
+		load := func(ip string) ([]GoSourceFile, bool) {
+			if s.ReadDir == nil {
+				return nil, false
+			}
+			m, _, d, _ := s.module(ip)
+			if m != mod || d == "" {
+				return nil, false
+			}
+			files := s.ReadDir(d)
+			return files, files != nil
+		}
+		if s.world == nil {
+			s.world = newGoWorld(load)
+		}
+		c := s.world.closure(p, name)
+		if c.Unloaded {
+			return ForeignKey{Key: "unread " + p, Shown: p + "@unread"}
+		}
+		return ForeignKey{Key: "closure " + c.Hash, Group: p}
+	}
+	if repl != nil {
+		mod, version = repl.New, repl.NewVersion
+	}
+	line := "none " + mod + " " + version
+	for _, l := range strings.Split(s.Module.Sum, "\n") {
+		if f := strings.Fields(l); len(f) == 3 && f[0] == mod && f[1] == version {
+			line = strings.Join(f, " ")
+		}
+	}
+	return ForeignKey{Key: "sum " + line, Shown: mod + "@" + version}
+}
+
+// short is the first 12 hex digits of a hash, its shown form.
+func short(h string) string {
+	if len(h) > 12 {
+		return h[:12]
+	}
+	return h
+}
+
+// runtimeKeys are the keys of the runtime's targets, which the compiler
+// embeds: each is computed once per process.
+var runtimeKeys sync.Map // target -> ForeignKey
+
+// runtimeWorld is the runtime's Go packages, parsed and typed once.
+var runtimeWorld = sync.OnceValue(func() *goWorld { return newGoWorld(runtimeGoFiles) })
+
+var runtimeGoCache sync.Map // import path -> []GoSourceFile
+
+// runtimeGoFiles are the embedded files of the runtime package at the
+// import path ip, and false for a path that is not one.
+func runtimeGoFiles(ip string) ([]GoSourceFile, bool) {
+	if v, ok := runtimeGoCache.Load(ip); ok {
+		files := v.([]GoSourceFile)
+		return files, files != nil
+	}
+	var out []GoSourceFile
+	if rel, ok := strings.CutPrefix(ip, runtimefiles.Module+"/"); ok && strings.HasPrefix(rel, "runtime/") {
+		if files, err := runtimefiles.Files(rel); err == nil {
+			for _, f := range files {
+				if path.Dir(f.Path) == rel {
+					out = append(out, GoSourceFile{Name: path.Base(f.Path), Data: f.Data})
+				}
+			}
+		}
+	}
+	runtimeGoCache.Store(ip, out)
+	return out, out != nil
+}

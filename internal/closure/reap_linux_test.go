@@ -3,6 +3,7 @@
 package closure
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"io"
@@ -97,7 +98,11 @@ func runReapStage(t *testing.T) {
 		if err != nil || !ok {
 			t.Fatalf("open ended child's exit event: found %t, err %v", ok, err)
 		}
-		exited, err := readableWithin(fd, testwait.Left(t))
+		// Without a test deadline (a test binary run with no -test.timeout,
+		// as the mutant runner runs it) Left is 0, which polled once and
+		// failed: wait for the event alone (GT-COMPILE-b, the stage failed
+		// on the runner's unmutated tree).
+		exited, err := readableWithin(fd, cmp.Or(testwait.Left(t), forever))
 		_ = syscall.Close(fd)
 		if err != nil || !exited {
 			t.Fatalf("child did not complete its exit by the test's deadline: exited %t, err %v", exited, err)

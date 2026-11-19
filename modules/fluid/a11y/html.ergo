@@ -1,0 +1,353 @@
+import ergo.dev/fluid/part
+import strconv
+import strings
+
+// OfHTML is the access tree of markup, by the subset of HTML-AAM the web projector prints:
+// elements with their implicit roles (button, a with href, h1 to h6, input, textarea, ul, li,
+// table), a role attribute over them, aria-* states and relations, id as the key, tabindex,
+// disabled, and hidden, aria-hidden and inert removing a subtree. It reads the markup the
+// projector writes (well formed, attributes quoted); it is not a general HTML parser.
+func OfHTML(s string) Tree {
+	let doc = parse(s)
+	Tree{..box(part.Generic), Kids: joined(fromDom(doc))}
+}
+
+// Dom is an element or a text of parsed markup.
+type Dom = El{Tag string, Attrs []Attr, Kids []Dom} | Txt{S string}
+
+// Attr is an attribute; a bare one has the value "".
+type Attr { Name string, Value string }
+
+// parse reads markup into its top-level nodes.
+func parse(s string) []Dom {
+	let mut p = Parser{s: s, at: 0}
+	parseKids(&p, "")
+}
+
+type Parser { s string, at int }
+
+let voids = []string{"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"}
+
+func isVoid(tag string) bool {
+	for v in voids {
+		if v == tag {
+			return true
+		}
+	}
+	false
+}
+
+// parseKids reads nodes up to the end tag of `until` (or the end of the text) and past it.
+func parseKids(p mut Parser, until string) []Dom {
+	let mut out = []Dom{}
+	for p.at < len(p.s) {
+		if p.s[p.at] == '<' {
+			if p.at+1 < len(p.s) && p.s[p.at+1] == '/' {
+				let end = indexFrom(p.s, ">", p.at)
+				p.at = if end < 0 { len(p.s) } else { end + 1 }
+				return out
+			}
+			if p.at+1 < len(p.s) && p.s[p.at+1] == '!' {
+				let end = indexFrom(p.s, ">", p.at)
+				p.at = if end < 0 { len(p.s) } else { end + 1 }
+				continue
+			}
+			out = out.Append(parseEl(p))
+		} else {
+			let end = indexFrom(p.s, "<", p.at)
+			let stop = if end < 0 { len(p.s) } else { end }
+			out = out.Append(Txt{S: unescape(strings.Slice(p.s, p.at, stop))})
+			p.at = stop
+		}
+	}
+	out
+}
+
+// parseEl reads an element at '<'.
+func parseEl(p mut Parser) Dom {
+	p.at = p.at + 1
+	let tag = word(p)
+	let mut attrs = []Attr{}
+	for p.at < len(p.s) {
+		skipSpace(p)
+		if p.at >= len(p.s) {
+			break
+		}
+		let c = p.s[p.at]
+		if c == '>' {
+			p.at = p.at + 1
+			break
+		}
+		if c == '/' {
+			p.at = p.at + 1
+			continue
+		}
+		let name = word(p)
+		if name == "" {
+			p.at = p.at + 1
+			continue
+		}
+		if p.at < len(p.s) && p.s[p.at] == '=' {
+			p.at = p.at + 1
+			if p.at < len(p.s) && (p.s[p.at] == '"' || p.s[p.at] == '\'') {
+				let q = strings.Slice(p.s, p.at, p.at+1)
+				let end = indexFrom(p.s, q, p.at+1)
+				let stop = if end < 0 { len(p.s) } else { end }
+				attrs = attrs.Append(Attr{Name: name, Value: unescape(strings.Slice(p.s, p.at+1, stop))})
+				p.at = stop + 1
+			} else {
+				attrs = attrs.Append(Attr{Name: name, Value: word(p)})
+			}
+		} else {
+			attrs = attrs.Append(Attr{Name: name, Value: ""})
+		}
+	}
+	if isVoid(tag) {
+		return El{Tag: tag, Attrs: attrs, Kids: []Dom{}}
+	}
+	if tag == "style" || tag == "script" {
+		let end = indexFrom(p.s, "</"+tag, p.at)
+		let stop = if end < 0 { len(p.s) } else { end }
+		let close = indexFrom(p.s, ">", stop)
+		p.at = if close < 0 { len(p.s) } else { close + 1 }
+		return El{Tag: tag, Attrs: attrs, Kids: []Dom{}}
+	}
+	El{Tag: tag, Attrs: attrs, Kids: parseKids(p, tag)}
+}
+
+func word(p mut Parser) string {
+	let from = p.at
+	for p.at < len(p.s) {
+		let c = p.s[p.at]
+		if c == ' ' || c == '>' || c == '=' || c == '/' || c == '\n' || c == '\t' {
+			break
+		}
+		p.at = p.at + 1
+	}
+	strings.ToLower(strings.Slice(p.s, from, p.at))
+}
+
+func skipSpace(p mut Parser) {
+	for p.at < len(p.s) && (p.s[p.at] == ' ' || p.s[p.at] == '\n' || p.s[p.at] == '\t') {
+		p.at = p.at + 1
+	}
+}
+
+func indexFrom(s string, sub string, from int) int {
+	let i = strings.Index(strings.Slice(s, from, len(s)), sub)
+	if i < 0 { -1 } else { from + i }
+}
+
+// unescape decodes the character references the html package writes.
+func unescape(s string) string {
+	if strings.Index(s, "&") < 0 {
+		return s
+	}
+	let mut out = s
+	for pair in [][]string{[]string{"&lt;", "<"}, []string{"&gt;", ">"}, []string{"&quot;", "\""}, []string{"&#39;", "'"}, []string{"&#34;", "\""}, []string{"&amp;", "&"}} {
+		out = strings.ReplaceAll(out, pair[0], pair[1])
+	}
+	out
+}
+
+func attr(attrs []Attr, name string) Option[string] {
+	for a in attrs {
+		if a.Name == name {
+			return Some[string]{Value: a.Value}
+		}
+	}
+	None
+}
+
+func attrOr(attrs []Attr, name string, or string) string {
+	match attr(attrs, name) {
+	case Some as v:
+		v.Value
+	case None:
+		or
+	}
+}
+
+func hasAttr(attrs []Attr, name string) bool {
+	match attr(attrs, name) {
+	case Some:
+		true
+	case None:
+		false
+	}
+}
+
+func fromDom(ds []Dom) []Tree {
+	let mut out = []Tree{}
+	for d in ds {
+		match d {
+		case Txt as t:
+			if t.S != "" {
+				out = out.Append(leaf(t.S))
+			}
+		case El as e:
+			for t in fromEl(e) {
+				out = out.Append(t)
+			}
+		}
+	}
+	out
+}
+
+// fromEl is what an element offers a reader: none, one tree, or (a generic element that
+// states nothing) its kids.
+func fromEl(e El) []Tree {
+	let a = e.Attrs
+	if hasAttr(a, "hidden") || hasAttr(a, "inert") || attrOr(a, "aria-hidden", "") == "true" || e.Tag == "svg" || e.Tag == "style" || e.Tag == "script" || e.Tag == "head" {
+		return []Tree{}
+	}
+	let kids = joined(fromDom(e.Kids))
+	let role = match attr(a, "role") {
+	case Some as r:
+		roleNamed(r.Value)
+	case None:
+		implicit(e)
+	}
+	let native = e.Tag == "button" || e.Tag == "input" || e.Tag == "textarea" || e.Tag == "select" || (e.Tag == "a" && hasAttr(a, "href"))
+	let disabled = hasAttr(a, "disabled") && e.Tag != "a"
+	let tab = attrOr(a, "tabindex", "")
+	let tabStop = (native && !disabled && tab != "-1") || tab == "0"
+	let focus = tabStop || tab == "-1" && !disabled
+	let mut states = []part.State{}
+	if disabled || attrOr(a, "aria-disabled", "") == "true" {
+		states = states.Append(part.Disabled)
+	}
+	for s in []string{"busy", "invalid", "modal", "multiselectable"} {
+		if attrOr(a, "aria-"+s, "") == "true" {
+			states = states.Append(flag(s))
+		}
+	}
+	match attr(a, "aria-checked") {
+	case Some as v:
+		states = states.Append(part.Checked{Value: if v.Value == "true" { part.On } else if v.Value == "mixed" { part.Mixed } else { part.Off }})
+	case None:
+	}
+	for s in []string{"selected", "expanded", "pressed"} {
+		match attr(a, "aria-"+s) {
+		case Some as v:
+			states = states.Append(boolState(s, v.Value == "true"))
+		case None:
+		}
+	}
+	match attr(a, "aria-current") {
+	case Some as v:
+		states = states.Append(part.Current{Kind: v.Value})
+	case None:
+	}
+	match attr(a, "aria-valuenow") {
+	case Some as v:
+		states = states.Append(part.Value{Now: float(v.Value), Min: float(attrOr(a, "aria-valuemin", "0")), Max: float(attrOr(a, "aria-valuemax", "0")), Text: attrOr(a, "aria-valuetext", "")})
+	case None:
+		if e.Tag == "input" && attrOr(a, "type", "") == "range" {
+			states = states.Append(part.Value{Now: float(attrOr(a, "value", "0")), Min: float(attrOr(a, "min", "0")), Max: float(attrOr(a, "max", "100")), Text: ""})
+		}
+	}
+	let mut rels = []part.Rel{}
+	for r in []string{"controls", "labelledby", "describedby", "activedescendant"} {
+		match attr(a, "aria-"+r) {
+		case Some as v:
+			rels = rels.Append(relNamed(r, v.Value))
+		case None:
+		}
+	}
+	match attr(a, "aria-haspopup") {
+	case Some as v:
+		rels = rels.Append(part.HasPopup{Role: if v.Value == "true" { part.Menu } else { roleNamed(v.Value) }})
+	case None:
+	}
+	let label = attrOr(a, "aria-label", "")
+	let name = if label != "" { label } else if FromContent(role) { textOf(kids) } else { "" }
+	let t = Tree{..box(role), Name: name, Key: attrOr(a, "id", ""), States: states, Rels: rels, TabStop: tabStop, Focusable: focus, Keyed: hasAttr(a, "data-web-keys"), Native: native, Kids: if e.Tag == "input" || e.Tag == "textarea" { []Tree{} } else { kids }}
+	if spliced(t) {
+		return kids
+	}
+	[]Tree{t}
+}
+
+func flag(s string) part.State {
+	if s == "busy" {
+		return part.Busy
+	}
+	if s == "invalid" {
+		return part.Invalid
+	}
+	if s == "modal" {
+		return part.Modal
+	}
+	part.MultiSelectable
+}
+
+func boolState(s string, yes bool) part.State {
+	if s == "selected" {
+		return part.Selected{Yes: yes}
+	}
+	if s == "expanded" {
+		return part.Expanded{Yes: yes}
+	}
+	part.Pressed{Yes: yes}
+}
+
+func relNamed(r string, key string) part.Rel {
+	if r == "controls" {
+		return part.Controls{Key: key}
+	}
+	if r == "labelledby" {
+		return part.LabelledBy{Key: key}
+	}
+	if r == "describedby" {
+		return part.DescribedBy{Key: key}
+	}
+	part.ActiveDescendant{Key: key}
+}
+
+func float(s string) float64 {
+	strconv.ParseFloat(s) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		0
+	}
+}
+
+// roleNamed is the role of a role attribute's value; an unknown one is generic.
+func roleNamed(s string) part.Role {
+	for r in Roles() {
+		if RoleName(r) == s {
+			return r
+		}
+	}
+	part.Generic
+}
+
+// implicit is an element's role when it states none.
+func implicit(e El) part.Role {
+	let t = e.Tag
+	if t == "button" {
+		return part.Button
+	}
+	if t == "a" {
+		return if hasAttr(e.Attrs, "href") { part.Link } else { part.Generic }
+	}
+	if len(t) == 2 && t[0] == 'h' && t[1] >= '1' && t[1] <= '6' {
+		return part.Heading{Level: int(t[1]) - int('0')}
+	}
+	if t == "input" {
+		return if attrOr(e.Attrs, "type", "text") == "range" { part.Slider } else { part.TextBox }
+	}
+	if t == "textarea" {
+		return part.TextBox
+	}
+	if t == "ul" || t == "ol" {
+		return part.List
+	}
+	if t == "li" {
+		return part.ListItem
+	}
+	if t == "table" {
+		return part.Table
+	}
+	part.Generic
+}

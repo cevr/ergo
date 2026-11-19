@@ -15,7 +15,7 @@ func NewCounted[T comparable]() Counted[T] {
 // Add is the id of v: its id when v is in the set, else a free id, or a
 // new one, with no holder yet. A value added and never used stays in the
 // set until a Use and a Release of its id.
-func Add[T comparable](c *Counted[T], v T) ID[T] {
+func Add[T comparable](c mut Counted[T], v T) ID[T] {
 	match c.ids.Get(v) {
 	case Some[ID[T]] as id:
 		return id.Value
@@ -36,11 +36,11 @@ func Add[T comparable](c *Counted[T], v T) ID[T] {
 }
 
 // Use counts one more holder of id. An id past the end is a defect.
-func Use[T comparable](c *Counted[T], id ID[T]) { c.counts[int(id.n)] = c.counts[int(id.n)] + 1 }
+func Use[T comparable](c mut Counted[T], id ID[T]) { c.counts[int(id.n)] = c.counts[int(id.n)] + 1 }
 
 // Release counts one holder of id less; at 0 the value leaves the set and
 // id is free. A Release of an id with no holder is a defect.
-func Release[T comparable](c *Counted[T], id ID[T]) {
+func Release[T comparable](c mut Counted[T], id ID[T]) {
 	let i = int(id.n)
 	if c.counts[i] == 0 {
 		Unreachable("dense: Release of an id that no holder holds")

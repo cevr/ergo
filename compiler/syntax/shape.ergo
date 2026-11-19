@@ -15,7 +15,7 @@ func Shape(p Parsed) string {
 	b.String()
 }
 
-func shapeOf(p Parsed, x uint32, b *strings.Builder) {
+func shapeOf(p Parsed, x uint32, b mut strings.Builder) {
 	let t = p.Tree
 	let i = int(x)
 	let k = uint8(t.kind[i])

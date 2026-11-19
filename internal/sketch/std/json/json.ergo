@@ -34,6 +34,8 @@
 
 import strings
 
+import utf8
+
 // Malformed is the failure of a text that is not one JSON value, or is
 // longer than MaxBytes, or nests deeper than MaxDepth: Offset is the byte
 // offset where the text breaks the rule, Reason the rule.
@@ -55,29 +57,36 @@ extern go ergo.local/prototype/runtime/v1.JSONMalformed type Malformed { Offset 
 type Text {
 	..Writer,
 	// Written is the text written so far.
-	Written() string,
+	mut Written() string,
 
 	// raw appends text as it is; the comma state is unchanged.
-	raw(text string),
+	mut raw(text string),
 	// sep writes a comma when one is due.
-	sep(),
+	mut sep(),
 	// commaDue reports that the next value or key needs a comma.
-	commaDue() bool,
+	mut commaDue() bool,
 	// setComma sets whether the next value or key needs a comma.
-	setComma(due bool),
+	mut setComma(due bool),
 	// quote writes s as a JSON string; plainBody a plain s between quotes;
 	// the bodies write a value's text. None writes a comma or sets the
 	// state.
-	quote(s string),
-	plainBody(s string),
-	stringBody(s string),
-	intBody(n int64),
-	uintBody(n uint64),
-	boolBody(b bool),
-	floatBody(f float64),
+	mut quote(s string),
+	mut plainBody(s string),
+	mut stringBody(s string),
+	mut bytesBody(b []byte),
+	mut intBody(n int64),
+	mut uintBody(n uint64),
+	mut boolBody(b bool),
+	mut floatBody(f float64),
 	// finish is the text written, and gives the buffer back to the pool
 	// (Encode only: nothing may use the Text after).
-	finish(hint int) string,
+	mut finish(hint int) string,
+	// bytes is the buffer written so far, read from the Text's value (no
+	// pointer to the cell, so the value rule lends it with no copy); drop
+	// gives it back to the pool (EncodeWith only: nothing may use the Text
+	// after).
+	bytes() []byte,
+	mut drop(hint int),
 
 	law SetCommaSets(due bool) { setComma(due); commaDue() == due },
 
@@ -107,28 +116,26 @@ extern go append func appendString(out []byte, s string) []byte
 
 // The value appenders: out with a value's JSON text added.
 extern go ergo.local/prototype/runtime/v1.JSONAppendQuoted func appendQuoted(out []byte, s string, html bool) []byte
+extern go ergo.local/prototype/runtime/v1.JSONAppendQuotedBytes func appendQuotedBytes(out []byte, b []byte, html bool) []byte
 extern go ergo.local/prototype/runtime/v1.JSONAppendInt func appendInt(out []byte, n int64) []byte
 extern go ergo.local/prototype/runtime/v1.JSONAppendUint func appendUint(out []byte, n uint64) []byte
 extern go ergo.local/prototype/runtime/v1.JSONAppendBool func appendBool(out []byte, b bool) []byte
 extern go ergo.local/prototype/runtime/v1.JSONAppendFloat func appendFloat(out []byte, f float64) []byte
 
-// bytesText is the bytes of out as a string.
-extern go ergo.local/prototype/runtime/v1.JSONBytesText func bytesText(out []byte) string
+func raw(t mut text, s string) { t.out = appendString(t.out, s) }
 
-func raw(t *text, s string) { t.out = appendString(t.out, s) }
-
-func sep(t *text) {
+func sep(t mut text) {
 	if t.comma {
 		t.raw(",")
 	}
 }
 
-func commaDue(t *text) bool { t.comma }
+func commaDue(t mut text) bool { t.comma }
 
 // commaText is the text sep writes when due says whether a comma is due.
 func commaText(due bool) string { if due { "," } else { "" } }
 
-func setComma(t *text, due bool) { t.comma = due }
+func setComma(t mut text, due bool) { t.comma = due }
 
 // plain reports that s is its own JSON string text: every byte is printable
 // ASCII and none of '"', '\', <, > and &, so neither escaping changes it.
@@ -146,7 +153,7 @@ func plain(s string) bool {
 
 // quote writes s quoted. A plain s is written as it is between quotes, so
 // a constant key or tag is constant text after the unfold (PlainIsRaw).
-func quote(t *text, s string) {
+func quote(t mut text, s string) {
 	if plain(s) {
 		t.plainBody(s)
 	} else {
@@ -155,107 +162,136 @@ func quote(t *text, s string) {
 }
 
 // plainBody writes s between quotes: one store of the buffer.
-func plainBody(t *text, s string) { t.out = appendString(appendString(appendString(t.out, "\""), s), "\"") }
+func plainBody(t mut text, s string) { t.out = appendString(appendString(appendString(t.out, "\""), s), "\"") }
 
 // inQuotes is s between quotes.
 func inQuotes(s string) string { "\"" + s + "\"" }
 
-func stringBody(t *text, s string) { t.out = appendQuoted(t.out, s, t.html) }
+func stringBody(t mut text, s string) { t.out = appendQuoted(t.out, s, t.html) }
 
-func intBody(t *text, n int64) { t.out = appendInt(t.out, n) }
+func bytesBody(t mut text, b []byte) { t.out = appendQuotedBytes(t.out, b, t.html) }
 
-func uintBody(t *text, n uint64) { t.out = appendUint(t.out, n) }
+func intBody(t mut text, n int64) { t.out = appendInt(t.out, n) }
 
-func boolBody(t *text, b bool) { t.out = appendBool(t.out, b) }
+func uintBody(t mut text, n uint64) { t.out = appendUint(t.out, n) }
 
-func floatBody(t *text, f float64) { t.out = appendFloat(t.out, f) }
+func boolBody(t mut text, b bool) { t.out = appendBool(t.out, b) }
 
-func Bool(t *text, b bool) {
+func floatBody(t mut text, f float64) { t.out = appendFloat(t.out, f) }
+
+func Bool(t mut text, b bool) {
 	t.sep()
 	t.boolBody(b)
 	t.setComma(true)
 }
 
-func Int(t *text, n int64) {
+func Int(t mut text, n int64) {
 	t.sep()
 	t.intBody(n)
 	t.setComma(true)
 }
 
-func Uint(t *text, n uint64) {
+func Uint(t mut text, n uint64) {
 	t.sep()
 	t.uintBody(n)
 	t.setComma(true)
 }
 
-func Float(t *text, f float64) {
+func Float(t mut text, f float64) {
 	t.sep()
 	t.floatBody(f)
 	t.setComma(true)
 }
 
-func String(t *text, s string) {
+func String(t mut text, s string) {
 	t.sep()
 	t.stringBody(s)
 	t.setComma(true)
 }
 
-func Null(t *text) {
+func StringBytes(t mut text, b []byte) {
+	t.sep()
+	t.bytesBody(b)
+	t.setComma(true)
+}
+
+// StringBytesIsString: StringBytes writes what String writes for the
+// string its bytes spell, after a value (so the comma before it is right)
+// and before one (so the one after it is), in a Text and an HTML Text;
+// the drawn bytes end in < and &, which only an HTML Text escapes.
+law StringBytesIsString(drawn []byte, html bool) {
+	let b = utf8.AppendRune(utf8.AppendRune(drawn, '<'), '&')
+	let t Text = text{comma: false, html: html, out: []byte{}}
+	t.Int(1)
+	t.StringBytes(b)
+	t.Int(2)
+	let u Text = text{comma: false, html: html, out: []byte{}}
+	u.Int(1)
+	u.String(utf8.String(b))
+	u.Int(2)
+	t.Written() == u.Written()
+}
+
+func Null(t mut text) {
 	t.sep()
 	t.raw("null")
 	t.setComma(true)
 }
 
-func Number(t *text, text string) {
+func Number(t mut text, text string) {
 	t.sep()
 	t.raw(text)
 	t.setComma(true)
 }
 
-func BeginList(t *text, n int) {
+func BeginList(t mut text, n int) {
 	t.sep()
 	t.raw("[")
 	t.setComma(false)
 }
 
-func EndList(t *text) {
+func EndList(t mut text) {
 	t.raw("]")
 	t.setComma(true)
 }
 
-func BeginObject(t *text, n int) {
+func BeginObject(t mut text, n int) {
 	t.sep()
 	t.raw("{")
 	t.setComma(false)
 }
 
-func EndObject(t *text) {
+func EndObject(t mut text) {
 	t.raw("}")
 	t.setComma(true)
 }
 
 // Tag writes a union's tag as the member "_tag" (owner q81).
-func Tag(t *text, name string) {
+func Tag(t mut text, name string) {
 	t.sep()
 	t.raw("\"_tag\":")
 	t.quote(name)
 	t.setComma(true)
 }
 
-func Key(t *text, k string) {
+func Key(t mut text, k string) {
 	t.sep()
 	t.quote(k)
 	t.raw(":")
 	t.setComma(false)
 }
 
-func Written(t *text) string { bytesText(t.out) }
+func Written(t mut text) string { t.out.Text() }
 
-func finish(t *text, hint int) string {
+func finish(t mut text, hint int) string {
 	let s = strings.FromBytes(t.out)
 	t.out = strings.Give(t.out, hint)
 	s
 }
+
+func bytes(t text) []byte { t.out }
+
+func drop(t mut text, hint int) { t.out = strings.Give(t.out, hint) }
 
 // NewText is a Text with nothing written.
 func NewText() Text { text{comma: false, html: false, out: []byte{}} }
@@ -281,6 +317,9 @@ extern go ergo.local/prototype/runtime/v1.Cursor type Cursor {
 	Uint() uint64,
 	Float() float64,
 	String() string,
+	// StringBytes is into with the next string's bytes added, as String
+	// reads them (GX12).
+	StringBytes(into []byte) []byte,
 	BeginList() bool,
 	BeginObject() bool,
 	Tag() string,
@@ -371,6 +410,39 @@ func String(r Reader) string fails WireWrongKind {
 	v
 }
 
+func StringBytes(r Reader, into []byte) []byte fails WireWrongKind {
+	let v = r.c.StringBytes(into)
+	if r.c.Wrong() {
+		return WireWrongKind{Path: r.c.Path(), Want: "a string"}
+	}
+	v
+}
+
+// StringBytesReadsString: StringBytes adds to into the bytes String reads
+// from the same text, escapes and all (GX12).
+law StringBytesReadsString(s string, pre []byte) {
+	let t Text = text{comma: false, html: false, out: []byte{}}
+	t.String(s)
+	let doc = t.Written()
+	let a = Open(doc, 0, 0) catch {
+	case _:
+		return false
+	}
+	let b = Open(doc, 0, 0) catch {
+	case _:
+		return false
+	}
+	let got = a.StringBytes(pre) catch {
+	case _:
+		return false
+	}
+	let want = b.String() catch {
+	case _:
+		return false
+	}
+	utf8.String(got) == utf8.String(pre)+want
+}
+
 func BeginList(r Reader) fails WireWrongKind {
 	if !r.c.BeginList() {
 		return WireWrongKind{Path: r.c.Path(), Want: "an array"}
@@ -415,6 +487,20 @@ func Encode[T wire](c Codec[T], v T) string needs wired[T] {
 	let t Text = text{comma: false, html: false, out: strings.Borrow(hint)}
 	encode(v, t)
 	t.finish(hint)
+}
+
+// EncodeWith lends use v's JSON text as bytes, where Encode wrote them,
+// and returns what use returns: no string of the text is made (GX9;
+// http.SuccessJSON writes the bytes to the connection). The buffer goes
+// back to Encode's pool when use returns, so use keeps no part of it.
+// (It borrows with T's hint, as Encode does.)
+func EncodeWith[T wire, U, R](c Codec[T], v T, use func(text []byte) U needs R) U needs R | wired[T] {
+	let hint = strings.Hint[text, T]()
+	let t Text = text{comma: false, html: false, out: strings.Borrow(hint)}
+	encode(v, t)
+	let u = use(t.bytes())
+	t.drop(hint)
+	u
 }
 
 // Decode is the T that text writes: Malformed when the text breaks

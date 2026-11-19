@@ -1,0 +1,36 @@
+// The smallest repro of a function with a Slot row (F, a failure row that
+// stands alone as a type argument of Held) on the IR path (FLIP OPC,
+// downloads' actor.ExitOf): its caller gave its Go function no type
+// argument for F (mutant opc-goarg-slot-row-dropped), and its record
+// literal stored the caught error, a Go error, in Held[F]'s field of Go
+// type F without asserting it (mutant opc-intoslot-unasserted).
+
+type Bad { N int }
+
+type Held[T] { Err T }
+
+func held[F](f func() fails F) Option[Held[F]] {
+	f() catch {
+	case err:
+		return Some[Held[F]]{Value: Held[F]{Err: err}}
+	}
+	None
+}
+
+func run(n int) int {
+	let h = held(func() fails Bad {
+		if n > 1 {
+			return Bad{N: n}
+		}
+	})
+	match h {
+	case Some[Held[Bad]] as s:
+		s.Value.Err.N
+	case None:
+		0
+	}
+}
+
+func main() needs Console {
+	Console.Println("\(run(1)) \(run(4))")
+}

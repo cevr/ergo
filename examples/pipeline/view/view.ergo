@@ -140,8 +140,8 @@ func runText(r run.Run) string {
 }
 
 // View is the view of the screen whose Api is api: the view a host shows.
-func View(api pipeline.Pipeline) func(f *ui.Frame[screen.Signal], s screen.Screen) {
-	func(f *ui.Frame[screen.Signal], s screen.Screen) { Board(f, s, api) }
+func View(api pipeline.Pipeline) func(f mut ui.Frame[screen.Signal], s screen.Screen) {
+	func(f mut ui.Frame[screen.Signal], s screen.Screen) { Board(f, s, api) }
 }
 
 // Board shows s: the form and its buttons, the notice (or the command in
@@ -149,7 +149,7 @@ func View(api pipeline.Pipeline) func(f *ui.Frame[screen.Signal], s screen.Scree
 // version, so an answer or a refresh fetches it again; the picked run is
 // one keyed by its name and the version; a command in flight is a load
 // whose fetch calls the Api, keyed by the version it was sent at.
-func Board(f *ui.Frame[screen.Signal], s screen.Screen, api pipeline.Pipeline) {
+func Board(f mut ui.Frame[screen.Signal], s screen.Screen, api pipeline.Pipeline) {
 	let sh = screen.ShownOf(s)
 	ui.Load(f, ui.ByInt(sh.Version), func() screen.Signal { screen.Loaded{Board: screen.LinesOf(api.Board())} })
 	match sh.Picked {
@@ -207,7 +207,7 @@ func Board(f *ui.Frame[screen.Signal], s screen.Screen, api pipeline.Pipeline) {
 }
 
 // button is a button labelled label that asks r.
-func button(f *ui.Frame[screen.Signal], label string, r screen.Request) {
+func button(f mut ui.Frame[screen.Signal], label string, r screen.Request) {
 	ui.Pressable(f, label, screen.Ask{Req: r}) {
 		ui.Text(f, label)
 	}

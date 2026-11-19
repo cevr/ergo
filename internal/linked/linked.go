@@ -2,13 +2,14 @@
 // (docs/tooling.md, Linked Ergo packages). A feature written in Ergo
 // reaches the binary as checked-in Go: its Ergo source is a module (by
 // default under internal/linked/<name>/ergo; the compiler's packages are
-// the module compiler/), `go run ./scripts/linked` lowers it through the
-// IR (lower.LowerIRLibrary: the library form of `ergo lib`, with IR
-// bodies) and writes the derivative's Go text of what it compiled
-// (irspike.LibraryText; capstone §12 Decided 5) into
+// the module compiler/), `go run ./scripts/linked` lowers it into
 // internal/linked/<name>/<name>.go, and Go packages call the exported Go
-// functions. The Go is generated, never edited: TestLinkedGoIsFresh fails
-// when the checked-in files differ from what Generate writes now.
+// functions. A row with IR set lowers through the IR (lower.LowerIRLibrary:
+// the library form of `ergo lib`, with IR bodies) and writes the
+// derivative's Go text of what it compiled (irspike.LibraryText; capstone
+// §12 Decided 5); the others lower with lower.LowerLibrary (the lowering
+// `ergo lib` uses). The Go is generated, never edited: TestLinkedGoIsFresh
+// fails when the checked-in files differ from what Generate writes now.
 //
 // A package may also list command lines that `ergo gen cli` generates
 // from an operation type of std; Generate writes them into the module
@@ -27,6 +28,7 @@ import (
 	"slices"
 	"strings"
 
+	"ergo.local/prototype/internal/apigen"
 	"ergo.local/prototype/internal/cligen"
 	"ergo.local/prototype/internal/experimental/irspike"
 	"ergo.local/prototype/internal/sketch/check"
@@ -44,6 +46,9 @@ type Package struct {
 	// Exports is the package, by folder in the module, whose exported
 	// functions become the Go functions; "" is the module's root package.
 	Exports string
+	// IR lowers the module through the IR and writes the patched
+	// compile's Go text of it; false lowers it with lower.LowerLibrary.
+	IR bool
 	// CLIs are the command lines generated into the module first.
 	CLIs []CLI
 }
@@ -56,13 +61,17 @@ type CLI struct {
 
 // Packages are the Ergo packages the ergo binary links.
 var Packages = []Package{
+	// ergo code (SEMTOOLS SEM1): std code's Reader over the fact tables.
+	{Name: "code", CLIs: []CLI{{Std: "code", Op: "Reader", Dir: "codecli"}}},
+	// ergo graph (CI-SELECT GRAPH-STD): std codegraph over the graph rows.
+	{Name: "graph"},
 	// The compiler written in Ergo, one package so the binary links
 	// compiler/syntax once (capstone S1d): the formatter (S1a, S2c), which
 	// internal/hostsyntax calls, and compiler/syntax/dump's entries passed
 	// through compiler/api (S2a, S2b), which syntax.Parse decodes since
 	// S2d: the columns, the tokens, the failure and the canonical dumps the
 	// decoder property compares.
-	{Name: "compiler", Source: "compiler", Exports: "api"},
+	{Name: "compiler", Source: "compiler", Exports: "api", IR: true},
 }
 
 // Module is the Go module path of the repository.
@@ -88,6 +97,7 @@ func Generate(root string, p Package) (map[string][]byte, error) {
 	skip := map[string]bool{}
 	for _, c := range p.CLIs {
 		skip[c.Dir] = true
+		skip[apigen.Dir(path.Base(c.Std))] = true
 	}
 	module, err := readModule(source, skip)
 	if err != nil {
@@ -98,13 +108,24 @@ func Generate(root string, p Package) (map[string][]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		files, err := cligen.Generate(pkg, c.Std, c.Op, "")
+		// The hub first (ergo gen api), in the module beside the cli
+		// package, which is written over it.
+		hub, err := apigen.Generate(pkg, c.Std, c.Op)
+		if err != nil {
+			return nil, fmt.Errorf("linked %s: ergo gen api %s.%s: %w", p.Name, c.Std, c.Op, err)
+		}
+		files, err := cligen.Generate(pkg, c.Std, c.Op, moduleName(module)+"/"+hub.Dir)
 		if err != nil {
 			return nil, fmt.Errorf("linked %s: ergo gen cli %s.%s: %w", p.Name, c.Std, c.Op, err)
 		}
-		for name, text := range files.Files {
-			out[path.Join(p.ModuleDir(), c.Dir, name)] = []byte(text)
-			module[path.Join(c.Dir, name)] = text
+		for _, gen := range []struct {
+			dir   string
+			files map[string]string
+		}{{hub.Dir, hub.Files}, {c.Dir, files.Files}} {
+			for name, text := range gen.files {
+				out[path.Join(p.ModuleDir(), gen.dir, name)] = []byte(text)
+				module[path.Join(gen.dir, name)] = text
+			}
 		}
 	}
 	a, err := checkModule(module, p.Exports)
@@ -114,6 +135,25 @@ func Generate(root string, p Package) (map[string][]byte, error) {
 	if len(a.Diagnostics) > 0 {
 		return nil, fmt.Errorf("linked %s: %s does not check: %v", p.Name, source, a.Diagnostics[0])
 	}
+	var text []byte
+	if p.IR {
+		text, err = irText(a, p)
+	} else {
+		text, err = libraryText(a, p)
+	}
+	if err != nil {
+		return nil, err
+	}
+	src, err := format.Source(text)
+	if err != nil {
+		return nil, fmt.Errorf("linked %s: gofmt: %w", p.Name, err)
+	}
+	out[path.Join(p.Dir(), p.Name+".go")] = src
+	return out, nil
+}
+
+// irText is the patched compile's Go text of a lowered through the IR.
+func irText(a sketchfront.Analysis, p Package) ([]byte, error) {
 	unit, err := sketchfront.IRSpikeUnit(a, "")
 	if err != nil {
 		return nil, fmt.Errorf("linked %s: %w", p.Name, err)
@@ -131,12 +171,31 @@ func Generate(root string, p Package) (map[string][]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("linked %s: %w\n%s", p.Name, err, stderr.String())
 	}
-	src, err := format.Source(text)
+	return text, nil
+}
+
+// libraryText is the Go of a as `ergo lib` lowers it (lower.LowerLibrary).
+func libraryText(a sketchfront.Analysis, p Package) ([]byte, error) {
+	files, err := sketchfront.Library(a, "", path.Join(Module, p.Dir()), p.Name)
 	if err != nil {
-		return nil, fmt.Errorf("linked %s: gofmt: %w", p.Name, err)
+		return nil, fmt.Errorf("linked %s: %w", p.Name, err)
 	}
-	out[path.Join(p.Dir(), p.Name+".go")] = src
-	return out, nil
+	for _, f := range files {
+		if f.Path == p.Name+".go" {
+			return f.Data, nil
+		}
+	}
+	return nil, fmt.Errorf("linked %s: the lowering wrote no %s.go", p.Name, p.Name)
+}
+
+// moduleName is the module line's path of the module's ergo.mod.
+func moduleName(module map[string]string) string {
+	for _, line := range strings.Split(module["ergo.mod"], "\n") {
+		if f := strings.Fields(line); len(f) == 2 && f[0] == "module" {
+			return f[1]
+		}
+	}
+	return ""
 }
 
 // stdPackage is the checked std package at the import path std, which

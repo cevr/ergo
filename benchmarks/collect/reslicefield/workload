@@ -1,0 +1,8 @@
+# scripts/opcount: `collectbench bench reslicefield N` is the reslice
+# workload with the line in a record's field and the record's number read
+# after the collect (GP-RESLICE-FIELD). The control copies the field's
+# part into a slice made to size.
+unit element
+sizes 409600 2457600
+args bench reslicefield {n}
+control benchmarks/collect/testdata/control

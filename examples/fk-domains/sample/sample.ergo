@@ -8,12 +8,11 @@ import fk-domains/domains
 import json
 import slices
 
-// Sample is the sample registry. It holds nothing: every answer is a
-// function of the request.
+// Sample is the sample registry, sample.Sample. It holds nothing: every
+// answer is a function of the request. It has no constructor: its one
+// value is the whole provider, so a Registry law over parameters that can
+// be listed (FeaturedFirst) runs every case and is proved.
 type Sample {} implements domains.Registry
-
-// NewSample is the sample registry.
-func NewSample() Sample { Sample }
 
 // prices are the original's demo prices, by TLD.
 let prices = Map[string, float64]{

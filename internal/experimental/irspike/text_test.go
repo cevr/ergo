@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -71,12 +72,20 @@ func textCheckOn(t *testing.T, target exampleTarget) {
 //     (mutant ir-loop-poll-after-terminating-body);
 //   - negfloat (IRFIX-FLOAT): the decoder compiled -1e-12 rounded to
 //     float64, where Go keeps the exact -1/10^12 on the negation its
-//     text spells (derivative mutant M8, the ledger's about).
+//     text spells (derivative mutant M8, the ledger's about);
+//   - scopes (IRFIX-SCOPE): a scalar union local's scatter after the
+//     match it takes apart opened a scope before the match's end, an
+//     internal compiler error in gc (mutant ir-scope-positions-unordered);
+//   - printed (IRFIX-TEXT): a tuple result's body went inside its
+//     multi-line struct result type, a tuple value printed as
+//     (struct{…}){…}, and the structures differed in a function type's
+//     parameter names and a method value's receiver (derivative mutants
+//     MT1-MT4, the ledger's about).
 //
 // It builds Go for the reason TestIRTextChecks does.
 func TestIRTextRepros(t *testing.T) {
 	src, ir := needsBuild(t)
-	for _, r := range []struct{ name, fn string }{{"duplocals", "two"}, {"shadow", "shadow"}, {"pollend", "firstOf"}, {"negfloat", "near"}} {
+	for _, r := range []struct{ name, fn string }{{"duplocals", "two"}, {"shadow", "shadow"}, {"pollend", "firstOf"}, {"negfloat", "near"}, {"scopes", "drive"}, {"printed", "split"}} {
 		t.Run(r.name, func(t *testing.T) {
 			u, err := Load(filepath.Join("testdata", r.name+".ergo"))
 			if err != nil {
@@ -111,7 +120,7 @@ func textCheck(t *testing.T, src, ir Toolchain, what string, files []lower.File,
 		t.Fatalf("%s: %v\n%s", what, err, replay)
 	}
 	if _, err := Build(ir, Text, text, filepath.Join(work, "text.bin"), BuildOptions{GCFlags: []string{"-ergoirshape=" + textShape}}); err != nil {
-		t.Fatalf("%s: the printed Go text does not build: %v\n%s", what, err, replay)
+		t.Fatalf("%s: the printed Go text does not build (%s): %v\n%s", what, errorClasses(err.Error()), err, replay)
 	}
 	vet := exec.Command(filepath.Join(src.GOROOT, "bin", "go"), "vet", "-mod=readonly", ".")
 	vet.Dir, vet.Env = text, goEnv(src.GOROOT, src.GOCACHE)
@@ -139,6 +148,39 @@ func textCheck(t *testing.T, src, ir Toolchain, what string, files []lower.File,
 	}
 	t.Logf("%s: %d IR functions: their Go text builds, vets and compiles to what was compiled", what, funcs)
 }
+
+// errorClasses names the classes of a failed build's compiler errors:
+// each message without its position, with its count, most first. A
+// syntax error after the first may be the parser's recovery from it, so
+// a printer fix's receipt counts each class (IRFIX-TEXT).
+func errorClasses(out string) string {
+	counts := map[string]int{}
+	for _, l := range strings.Split(out, "\n") {
+		if m := compilerError.FindStringSubmatch(strings.TrimSpace(l)); m != nil {
+			counts[m[1]]++
+		}
+	}
+	if len(counts) == 0 {
+		return "no compiler error"
+	}
+	classes := make([]string, 0, len(counts))
+	for c := range counts {
+		classes = append(classes, c)
+	}
+	slices.SortFunc(classes, func(a, b string) int {
+		if counts[a] != counts[b] {
+			return counts[b] - counts[a]
+		}
+		return strings.Compare(a, b)
+	})
+	for i, c := range classes {
+		classes[i] = fmt.Sprintf("%d× %s", counts[c], c)
+	}
+	return strings.Join(classes, "; ")
+}
+
+// compilerError is a compiler error line: a position, then the message.
+var compilerError = regexp.MustCompile(`^\S+:\d+(?::\d+)?: (.+)$`)
 
 // readShapes reads an -ergoirshape file: function name -> its structure.
 func readShapes(t *testing.T, file string) map[string]string {

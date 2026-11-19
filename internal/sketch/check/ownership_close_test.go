@@ -1,9 +1,12 @@
 package check
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
+
+	"ergo.local/prototype/internal/sketch/syntax"
 )
 
 // TestCloseFormsTakeOnce is the smallest repro of B1's double release
@@ -12,11 +15,13 @@ import (
 // a method value of Close (`let f = r.Close`) could be called twice or
 // never. The address form now takes h (a later use is S108); the method
 // value is refused with its text and position (resources R33: a function
-// value owns no resource).
+// value owns no resource). A user operation type's `Close()` takes the
+// value it is called on, so a resource's written Close implements it.
 //
 // Mutants it catches that nothing else does: a Close through `&h` that
 // takes nothing (the borrowed() UnaryExpr arm removed); a method value of
-// Close admitted.
+// Close admitted; an operation type's Close that takes nothing (L8-B2,
+// closeOpTakes: Pipe's clause would be S106).
 func TestCloseFormsTakeOnce(t *testing.T) {
 	base := strings.Count(ofPrelude, "\n")
 	src := ofPrelude + `// r is a Closer, which Res declares.
@@ -32,6 +37,16 @@ func value() {
 	let f = r.Close
 	f()
 }
+
+// Stream lists its own Close(), which takes the value it is called on,
+// as Pipe's Close does: the clause holds.
+type Stream { Close(), Get() int }
+
+type Pipe { n int } implements Stream, Closer
+
+func Get(p Pipe) int { p.n }
+
+func Close(p Pipe) {}
 
 func main() {}
 `
@@ -57,15 +72,15 @@ func main() {}
 
 // TestGenericDropRefused is the text and position row of the refusal
 // that stands in for Gap 42 (#197 L8 B2): a generic body that drops a
-// value of its type parameter cannot release it, so the drop is a copy
-// site and an instance with a resource is S108; with plain data it is
-// admitted.
+// value of its own type parameter cannot release it, so the drop is S108
+// in the body (Generics 9); the calls, with plain data and with a
+// resource, are admitted by the mark.
 //
-// Mutant it catches that nothing else does: a dropped T recorded as no
-// copy site (the resource leaks silently).
+// Mutant it catches that nothing else does: a dropped own T admitted (the
+// resource leaks silently).
 func TestGenericDropRefused(t *testing.T) {
 	base := strings.Count(ofPrelude, "\n")
-	src := ofPrelude + `func drop[T](x own T) {}
+	src := ofPrelude + `func drop[T own](x own T) {}
 
 func main() {
 	drop(1)
@@ -73,9 +88,9 @@ func main() {
 }
 `
 	_, diags := checkFor(src)
-	want := "drop cannot take a Res: drop copies its T at " + strconv.Itoa(base+1) + ":14 (x is dropped at the end of its scope, and a generic body does not release a value of its type parameter yet (#197 Gap 42))"
-	if len(diags) != 1 || diags[0].Code != CodeType || diags[0].Line != base+5 || diags[0].Column != 2 || !strings.Contains(diags[0].Message, want) {
-		t.Errorf("got %+v, want one S108 at %d:2 containing %q", diags, base+5, want)
+	want := "x is dropped at the end of its scope, and a generic body does not release a value of its type parameter yet (#197 Gap 42), and T is marked own"
+	if len(diags) != 1 || diags[0].Code != CodeType || diags[0].Line != base+1 || diags[0].Column != 18 || !strings.Contains(diags[0].Message, want) {
+		t.Errorf("got %+v, want one S108 at %d:18 containing %q", diags, base+1, want)
 	}
 }
 
@@ -125,12 +140,15 @@ func TestArrayOwnership(t *testing.T) {
 // Keeping; this one does not, so a drain of Keeping's shape is an ordinary
 // operation and nothing could release what it keeps (STD-NOPRIV NP3c).
 //
+// The repair it names is `..Closer` at Keeper's declaration (R1: only an
+// operation type that includes Closer releases).
+//
 // Mutants it catches that nothing else does: such a value admitted (its
-// resources leak silently), and keeps-read-by-name (a drain operation
-// counts without the Keeping include).
+// resources leak silently); keeps-read-by-name (a drain operation counts
+// without the Keeping include); the repair that names no declaration.
 func TestNoReleaseRefused(t *testing.T) {
 	base := strings.Count(ofPrelude, "\n")
-	src := ofPrelude + `type Keeper[T] { Put(v own T), own drain() []T }
+	src := ofPrelude + `type Keeper[T own] { Put(v own T), own drain() []T }
 
 type Mem { n int } implements Keeper[Res]
 
@@ -144,8 +162,37 @@ func main() {
 }
 `
 	_, diags := checkFor(src)
-	want := "Keeper[Res] has no release: it holds Keeper[Res], an operation type that keeps the values it takes and has no Close() operation"
-	if len(diags) != 1 || diags[0].Code != CodeType || diags[0].Line != base+10 || diags[0].Column != 6 || !strings.Contains(diags[0].Message, want) {
-		t.Errorf("got %+v, want one S108 at %d:6 containing %q", diags, base+10, want)
+	want := "Keeper[Res] has no release: it holds Keeper[Res], an operation type that keeps the values it takes and does not include Closer, so nothing could release them (resources R1, R13); add ..Closer to Keeper (" + strconv.Itoa(base+1) + ":6)"
+	if len(diags) != 1 || diags[0].Code != CodeType || diags[0].Line != base+10 || diags[0].Column != 6 || diags[0].Message != want {
+		t.Errorf("got %+v, want one S108 at %d:6: %q", diags, base+10, want)
+	}
+}
+
+// TestR22NamesCloser is the text and position row of R22's repair (the
+// diagnostic's text): an operation type that lists Close() but does not
+// include Closer releases nothing (R1), so the refusal names `..Closer` at
+// the type's declaration, in its own file, not "give Stream a Close()
+// operation", which Stream already has.
+func TestR22NamesCloser(t *testing.T) {
+	var files []*syntax.File
+	for _, nf := range [][2]string{
+		{"pipe.ergo", "type Pipe { n int } implements Stream, Closer\n\nfunc Close(p Pipe) {}\n\nfunc Get(p Pipe) int { p.n }\n\nfunc main() {\n\tlet s Stream = Pipe{n: 1}\n\t_ = s\n}\n"},
+		{"stream.ergo", "// Stream lists a Close.\ntype Stream { Close(), Get() int }\n"},
+	} {
+		f, err := syntax.Parse(nf[1])
+		if err != nil {
+			t.Fatal(err)
+		}
+		f.Name = nf[0]
+		files = append(files, f)
+	}
+	_, ds := Check("main", files, nil)
+	want := "8:17 S108 cannot use Pipe as Stream in let s: Pipe is a resource and Stream does not include Closer, so the value would never be released (resources R22); add ..Closer to Stream (stream.ergo:2:6)"
+	var got []string
+	for _, d := range ds {
+		got = append(got, fmt.Sprintf("%d:%d %s %s", d.Line, d.Column, d.Code, d.Message))
+	}
+	if strings.Join(got, "\n") != want {
+		t.Errorf("got  %s\nwant %s", strings.Join(got, "\n     "), want)
 	}
 }

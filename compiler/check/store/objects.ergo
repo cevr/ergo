@@ -1,0 +1,154 @@
+import dense
+
+// Func is a function's row: its name and its signature.
+type Func { Name dense.ID[dense.Str], Sig dense.ID[TKey] }
+
+// Var is a package variable's row (locals live in body stores, §2.3).
+type Var { Name dense.ID[dense.Str], Type dense.ID[TKey] }
+
+// TypeName is a declared type's row: its name and the type it
+// names (a Named type of the pool); a row names its object by name id,
+// and Decl.Obj links the declaration to its row.
+type TypeName { Name dense.ID[dense.Str], Type dense.ID[TKey] }
+
+// Const is a constant's row: its type and its value in the constant pool
+// (CAP-const; an index until that pool exists).
+type Const { Name dense.ID[dense.Str], Type dense.ID[TKey], Value uint32 }
+
+// Context is a context declaration's row.
+type Context { Name dense.ID[dense.Str] }
+
+// Law is a law's row.
+type Law { Name dense.ID[dense.Str] }
+
+// Test is a test's row.
+type Test { Name dense.ID[dense.Str] }
+
+// PkgName is an import's row: its index in the sorted import list.
+type PkgName { Name dense.ID[dense.Str], Import uint32 }
+
+// Object is an object as one value, the view over the kind tables (Go's
+// types.Object). Passes keep ObjRefs; Object is what View reads.
+type Object = FuncObj{Row Func} | VarObj{Row Var} | TypeNameObj{Row TypeName} | ConstObj{Row Const} | ContextObj{Row Context} | LawObj{Row Law} | TestObj{Row Test} | PkgNameObj{Row PkgName}
+
+// Objects is the package's object tables, one per kind.
+type Objects {
+	funcs     dense.Table[Func],
+	vars      dense.Table[Var],
+	typeNames dense.Table[TypeName],
+	consts    dense.Table[Const],
+	contexts  dense.Table[Context],
+	laws      dense.Table[Law],
+	tests     dense.Table[Test],
+	pkgNames  dense.Table[PkgName],
+}
+
+// NewObjects is a package's object tables, empty.
+func NewObjects() Objects {
+	Objects{
+		funcs:     dense.New[Func](),
+		vars:      dense.New[Var](),
+		typeNames: dense.New[TypeName](),
+		consts:    dense.New[Const](),
+		contexts:  dense.New[Context](),
+		laws:      dense.New[Law](),
+		tests:     dense.New[Test](),
+		pkgNames:  dense.New[PkgName](),
+	}
+}
+
+// Add puts o in its kind's table and is its ref.
+func Add(t mut Objects, o Object) ObjRef {
+	match o {
+	case FuncObj as f:
+		refOf(kFunc, dense.Index(dense.Put(&t.funcs, f.Row)))
+	case VarObj as v:
+		refOf(kVar, dense.Index(dense.Put(&t.vars, v.Row)))
+	case TypeNameObj as n:
+		refOf(kTypeName, dense.Index(dense.Put(&t.typeNames, n.Row)))
+	case ConstObj as c:
+		refOf(kConst, dense.Index(dense.Put(&t.consts, c.Row)))
+	case ContextObj as c:
+		refOf(kContext, dense.Index(dense.Put(&t.contexts, c.Row)))
+	case LawObj as l:
+		refOf(kLaw, dense.Index(dense.Put(&t.laws, l.Row)))
+	case TestObj as x:
+		refOf(kTest, dense.Index(dense.Put(&t.tests, x.Row)))
+	case PkgNameObj as p:
+		refOf(kPkgName, dense.Index(dense.Put(&t.pkgNames, p.Row)))
+	}
+}
+
+// View is the object r names. A ref Add did not give is a defect.
+func View(t Objects, r ObjRef) Object {
+	let i = indexOf(r)
+	let k = KindOf(r)
+	if k == kFunc {
+		return FuncObj{Row: dense.Rows(t.funcs)[i]}
+	}
+	if k == kVar {
+		return VarObj{Row: dense.Rows(t.vars)[i]}
+	}
+	if k == kTypeName {
+		return TypeNameObj{Row: dense.Rows(t.typeNames)[i]}
+	}
+	if k == kConst {
+		return ConstObj{Row: dense.Rows(t.consts)[i]}
+	}
+	if k == kContext {
+		return ContextObj{Row: dense.Rows(t.contexts)[i]}
+	}
+	if k == kLaw {
+		return LawObj{Row: dense.Rows(t.laws)[i]}
+	}
+	if k == kTest {
+		return TestObj{Row: dense.Rows(t.tests)[i]}
+	}
+	PkgNameObj{Row: dense.Rows(t.pkgNames)[i]}
+}
+
+// object is the object x picks: its kind from x, its fields from x and
+// the name n.
+func object(n dense.ID[dense.Str], t dense.ID[TKey], x int) Object {
+	let k = at(x, 1, 8)
+	let v = uint32(at(x, 8, 1000))
+	if k == 0 {
+		FuncObj{Row: Func{Name: n, Sig: t}}
+	} else if k == 1 {
+		VarObj{Row: Var{Name: n, Type: t}}
+	} else if k == 2 {
+		TypeNameObj{Row: TypeName{Name: n, Type: t}}
+	} else if k == 3 {
+		ConstObj{Row: Const{Name: n, Type: t, Value: v}}
+	} else if k == 4 {
+		ContextObj{Row: Context{Name: n}}
+	} else if k == 5 {
+		LawObj{Row: Law{Name: n}}
+	} else if k == 6 {
+		TestObj{Row: Test{Name: n}}
+	} else {
+		PkgNameObj{Row: PkgName{Name: n, Import: v}}
+	}
+}
+
+// ObjectViewRoundTrips: after declaring an object per x, each name looks
+// up its declaration, the declaration's ref has the object's kind, and
+// View reads back the object that was declared.
+law ObjectViewRoundTrips(xs []int) {
+	let mut s = New("a", []string{})
+	let t = Slice(&s.pool, Basic(&s.pool, 1))
+	let mut ds = []dense.ID[Decl]{}
+	let mut os = []Object{}
+	for i, x in xs {
+		let n = Name(&s, "d\(i)")
+		let o = object(n, t, x)
+		ds = ds.Append(Declare(&s, n, 0, i, o))
+		os = os.Append(o)
+	}
+	let mut ok = true
+	for i, d in ds {
+		let r = DeclOf(s, d).Obj
+		ok = ok && Lookup(s, "d\(i)") == Some{Value: d} && KindOf(r) == at(xs[i], 1, 8)+1 && View(s.objects, r) == os[i]
+	}
+	ok
+}

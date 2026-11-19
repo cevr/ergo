@@ -1,35 +1,47 @@
-// Package script is the host of stage a: it steps the scene over a script
-// of frames and the user's acts and shows, after each, what the canvas
-// and the controls would. The scene has no timer and no work, so the
-// host steps it directly (machines.Next); a frame is a line, not a
-// clock. A line is one of:
+// Package script is the host of stage b: it runs the program as an actor
+// on std ui's test host, plays a script of frames and the user's acts on
+// the screen, and shows after each what the screen shows: the heading and
+// prompt, the buttons and the count, the sliders, and the canvas, read
+// from its paint. A frame is the host's: the screen asks for frames while
+// its scene runs, and the host sends one each period of the clock it
+// moves. A line is one of:
 //
 //	seed N             the stream's start (the first line only; 1 if none)
-//	frame MS [xK]      K frames (1 if none) of MS milliseconds each
-//	press X Y          press the canvas at (X, Y)
-//	move X Y           move the pointer to (X, Y)
-//	toggle             the play and pause button
-//	clear              the clear (balls) or reset (flow) button
-//	strength V         the flow strength slider
-//	scale V            the noise scale slider
-//	show balls|flow    switch scenes
+//	frame MS [xK]      move the clock K periods (1 if none) of MS milliseconds
+//	press X Y          press the canvas at (X, Y) and let go
+//	move X Y           move the pointer over the canvas to (X, Y)
+//	click NAME         click a button: Balls, Flow, Pause, Play, Clear, Reset
+//	strength V         press the Turbulence slider where it reads V
+//	scale V            press the Noise scale slider where it reads V
 //
 // A blank line or one that starts with # is skipped.
 
+import actor
+import fkflow/app
 import fkflow/flow
-import fkflow/scene
+import fkflow/screen
 import io
 import machines
 import math
 import strconv
 import strings
+import time
+import ui
 
 // Bad is a script line the host cannot read.
 type Bad { Why string }
 
-// Run plays the script on standard input and prints what the scene
-// shows. It returns the exit status: 0, or 1 for a line it cannot read.
-func Run() int needs Console | io.Stdin {
+// Site is the running program.
+type Site = actor.Actor[app.Program, app.Signal, Decision[app.Program, Never]]
+
+// Host is the program on the test host.
+type Host = ui.TestHost[app.Program, app.Signal, Decision[app.Program, Never]]
+
+// Run plays the script on standard input over clock and prints what the
+// screen shows; with stats, the work of each line too; with last, only the
+// last screen, once the script has run. It returns the
+// exit status: 0, or 1 for a line it cannot read or a screen that fails.
+func Run(clock time.Manual, stats bool, last bool) int needs Console | io.Stdin | Scheduler {
 	let mut lines = []string{}
 	for raw in io.Stdin.Lines() {
 		lines = lines.Append(raw)
@@ -52,29 +64,121 @@ func Run() int needs Console | io.Stdin {
 		}
 		break
 	}
-	let mut s = scene.Open(uint64(n))
+	let site = actor.StartMachine(machines.Start(app.Shown{}, uint64(n)), 16, func(o Never) {})
+	let status = played(site, lines, first, n, clock, stats, last) catch {
+	case actor.Stopped:
+		Console.Println("? the program stopped")
+		1
+	case ui.BadPatch as p:
+		Console.Println("? a patch is refused: \(p.Why)")
+		1
+	}
+	site.Stop()
+	status
+}
+
+func played(site Site, lines []string, first int, n int, clock time.Manual, stats bool, last bool) int fails actor.Stopped | ui.BadPatch needs Console | Scheduler {
+	let mut h = try ui.NewTestHost(site, screen.Screen, clock, 16)
+	try ui.Settle(&h)
 	let mut shown = []string{}
 	Console.Println("> seed \(n)")
-	shown = show(shown, view(s))
+	if !last {
+		shown = show(shown, View(&h))
+	}
 	for i in first..len(lines) {
 		let line = strings.TrimSpace(lines[i])
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		Console.Println("> " + line)
-		let sig, times = signalOf(line) catch {
+		if !last {
+			Console.Println("> " + line)
+		}
+		let acts = actsOf(line) catch {
 		case Bad as b:
 			Console.Println("? line \(i + 1): \(b.Why)")
 			return 1
 		}
-		for _ in 0..times {
-			s = machines.Next(s, scene.Step(s, sig))
+		let mut missing = ""
+		let mut counts = ui.NoCounts()
+		let framesBefore = ui.Frames(&h)
+		for a in acts {
+			match a {
+			case Every as e:
+				ui.FrameEvery(&h, e.Period)
+			case Do as d:
+				let before = ui.Counts(&h)
+				ui.Play(&h, []ui.Act{d.Act, ui.SettleAll}) catch {
+				case ui.NoNode as no:
+					missing = "no node: \(no.Label)"
+				case ui.Ambiguous as m:
+					missing = "\(m.Count) nodes: \(m.At)"
+				case ui.Mismatch:
+					missing = "no match"
+				case actor.Stopped as st:
+					return st
+				case ui.BadPatch as b:
+					return b
+				}
+				// A frame is no input: its passes join the step of the act
+				// before it, so the line's share is what it added.
+				let after = ui.Counts(&h)
+				counts = ui.AddCounts(counts, if input(d.Act) { after } else { less(after, before) })
+			}
+			if missing != "" {
+				break
+			}
 		}
-		shown = show(shown, view(s))
+		if missing != "" {
+			Console.Println("  ? " + missing)
+		}
+		if !last {
+			shown = show(shown, View(&h))
+		}
+		if stats {
+			Console.Println("  stats: \(ui.CountsLine(counts)); \(ui.Frames(&h) - framesBefore) frames")
+		}
+	}
+	if last {
+		let _ = show([]string{}, View(&h))
 	}
 	Console.Println("> stop")
 	0
 }
+
+// input is whether a is an input of the test host, which starts a step.
+func input(a ui.Act) bool {
+	match a {
+	case ui.AdvanceBy, ui.SettleAll, ui.ExpectOn:
+		false
+	case _:
+		true
+	}
+}
+
+// less is a with b's counts taken away: the work of a step after b.
+func less(a ui.StepCounts, b ui.StepCounts) ui.StepCounts {
+	ui.StepCounts{Inserted: a.Inserted - b.Inserted, Moved: a.Moved - b.Moved, Removed: a.Removed - b.Removed, Set: a.Set - b.Set, Ran: a.Ran - b.Ran, Kept: a.Kept - b.Kept, GroupsRan: a.GroupsRan - b.GroupsRan, GroupsKept: a.GroupsKept - b.GroupsKept, Visits: a.Visits - b.Visits}
+}
+
+// Receipt is the receipt's script (plan §18.3 FK12: a frame at 600 paths):
+// the flow, 25 bursts of 22 over a 5 by 5 grid on its 55 particles, 40
+// frames so the trails reach their length, then n frames of 16 ms, each
+// one frame of about 600 trails.
+func Receipt(n int) []string {
+	let mut out = []string{"seed 1", "click Flow", "frame 16 x10"}
+	for i in 0..25 {
+		out = out.Append("press \(80 + (i%5)*200) \(80 + (i/5)*110)")
+	}
+	out = out.Append("frame 16 x40")
+	for _ in 0..n {
+		out = out.Append("frame 16")
+	}
+	out
+}
+
+// Step is one step of a line: a frame period for the host's clock, or an
+// act on the screen.
+type Step = Every{Period duration} | Do{Act ui.Act}
 
 func amount(word string, what string) float64 fails Bad {
 	strconv.ParseFloat(word) catch {
@@ -97,17 +201,42 @@ func count(word string) int fails Bad {
 	k
 }
 
-// signalOf is the act a line stands for and how many times it happens.
-func signalOf(line string) (scene.Signal, int) fails Bad {
+// ms is a duration of v milliseconds, to the nanosecond.
+func ms(v float64) duration { duration(int64(math.Round(v * 1000000.0))) }
+
+// frames is K frame periods of MS milliseconds: the host's period, then
+// the clock moved by K of them.
+func frames(period float64, k int) []Step fails Bad {
+	if period < 1.0 || period > 10000.0 {
+		return Bad{Why: "a frame is 1 to 10000 ms"}
+	}
+	[]Step{Every{Period: ms(period)}, Do{Act: ui.AdvanceBy{By: ms(period * float64(k))}}}
+}
+
+// pointer is a pointer event of phase at (x, y), over no zone.
+func pointer(phase ui.Phase, x float64, y float64) ui.PointerEvent {
+	ui.PointerEvent{Phase: phase, X: x, Y: y, Zone: None}
+}
+
+// pressAt presses the Area label at (x, y) and lets go there.
+func pressAt(label string, x float64, y float64) []Step {
+	[]Step{Do{Act: ui.PointOn{Label: label, Pointer: pointer(ui.Down, x, y)}}, Do{Act: ui.PointOn{Label: label, Pointer: pointer(ui.Up, x, y)}}}
+}
+
+// along is where on a slider's track of range lo to hi it reads v.
+func along(v float64, lo float64, hi float64) float64 { (v - lo) / (hi - lo) * screen.SliderWidth }
+
+// actsOf is a line's steps.
+func actsOf(line string) []Step fails Bad {
 	let words = strings.Fields(line)
 	let want = func(k int) bool { len(words) == k }
 	match words[0] {
 	case "frame":
 		if want(2) {
-			return (scene.Ticked{Ms: try amount(words[1], "a frame")}, 1)
+			return try frames(try amount(words[1], "a frame"), 1)
 		}
 		if want(3) {
-			return (scene.Ticked{Ms: try amount(words[1], "a frame")}, try count(words[2]))
+			return try frames(try amount(words[1], "a frame"), try count(words[2]))
 		}
 		Bad{Why: "frame MS [xK]"}
 	case "press", "move":
@@ -117,31 +246,24 @@ func signalOf(line string) (scene.Signal, int) fails Bad {
 		let x = try amount(words[1], "X")
 		let y = try amount(words[2], "Y")
 		if words[0] == "press" {
-			return (scene.Pressed{X: x, Y: y}, 1)
+			return pressAt("Canvas", x, y)
 		}
-		(scene.Moved{X: x, Y: y}, 1)
-	case "toggle":
-		(scene.Toggled, 1)
-	case "clear":
-		(scene.Cleared, 1)
+		[]Step{Do{Act: ui.PointOn{Label: "Canvas", Pointer: pointer(ui.Moved, x, y)}}}
+	case "click":
+		if !want(2) {
+			return Bad{Why: "click NAME"}
+		}
+		[]Step{Do{Act: ui.ClickOn{At: ui.WithRole{Role: ui.Button, Name: words[1]}}}}
 	case "strength":
 		if !want(2) {
 			return Bad{Why: "strength V"}
 		}
-		(scene.SetStrength{Value: try amount(words[1], "a strength")}, 1)
+		pressAt("Turbulence", along(try amount(words[1], "a strength"), flow.StrengthMin, flow.StrengthMax), 4.0)
 	case "scale":
 		if !want(2) {
 			return Bad{Why: "scale V"}
 		}
-		(scene.SetScale{Value: try amount(words[1], "a scale")}, 1)
-	case "show":
-		if want(2) && words[1] == "balls" {
-			return (scene.ShowBalls, 1)
-		}
-		if want(2) && words[1] == "flow" {
-			return (scene.ShowFlow, 1)
-		}
-		Bad{Why: "show balls or show flow"}
+		pressAt("Noise scale", along(try amount(words[1], "a scale"), flow.ScaleMin, flow.ScaleMax), 4.0)
 	case "seed":
 		Bad{Why: "seed is the first line only"}
 	case _:
@@ -149,14 +271,39 @@ func signalOf(line string) (scene.Signal, int) fails Bad {
 	}
 }
 
-// show prints the lines of now that differ from shown, and is now.
+// show prints the lines of now whose part (the words before the first
+// ": ") was absent from shown or read otherwise, and names the parts of
+// shown that are gone; it is now.
 func show(shown []string, now []string) []string needs Console {
-	for k, l in now {
-		if k >= len(shown) || shown[k] != l {
+	for l in now {
+		let mut same = false
+		for s in shown {
+			if s == l {
+				same = true
+			}
+		}
+		if !same {
 			Console.Println("  " + l)
 		}
 	}
+	for s in shown {
+		let part = partOf(s)
+		let mut kept = false
+		for l in now {
+			if partOf(l) == part {
+				kept = true
+			}
+		}
+		if !kept {
+			Console.Println("  \(part): gone")
+		}
+	}
 	now
+}
+
+func partOf(l string) string {
+	let i = strings.Index(l, ": ")
+	if i < 0 { l } else { l[0:i] }
 }
 
 // whole is v to the nearest whole number. Positions are shown whole, so
@@ -164,44 +311,160 @@ func show(shown []string, now []string) []string needs Console {
 // another host, rarely show.
 func whole(v float64) string { strconv.Itoa(int(math.Round(v))) }
 
-func fixed(v float64) string { strconv.FormatFloat(v, 'f', 2) }
+// seen is what the screen shows, read part by part.
+type seen { Page []string, Buttons []string, Texts []string, Sliders []string, Paint []ui.PaintOp, Size string, Frames bool }
 
-func state(running bool) string { if running { "running" } else { "paused" } }
+// View is the screen as lines, one per part: the page's headings and
+// prompt, the buttons and the count, the sliders and their values, and
+// the canvas, read from its paint (Canvas).
+func View(h mut Host) []string {
+	let mut s = seen{Page: []string{}, Buttons: []string{}, Texts: []string{}, Sliders: []string{}, Paint: []ui.PaintOp{}, Size: "", Frames: ui.WantsFrames(h)}
+	for x in ui.Screen(h) {
+		s = walk(x, s, false)
+	}
+	let mut out = []string{"page: " + strings.Join(s.Page, " | "), "controls: " + strings.Join(s.Buttons, ", ") + "; " + strings.Join(s.Texts, ", ")}
+	if len(s.Sliders) > 0 {
+		out = out.Append("sliders: " + strings.Join(s.Sliders, ", "))
+	}
+	out = out.Append("frames: " + if s.Frames { "wanted" } else { "none" })
+	for l in Canvas(s.Size, s.Paint) {
+		out = out.Append(l)
+	}
+	out
+}
 
-// view is what the page shows, a line per part.
-func view(s scene.Scene) []string {
-	match s {
-	case scene.Balls as b:
-		let mut out = []string{"scene: balls, \(state(b.Running)); balls: \(len(b.Field.Balls))"}
-		for x in b.Field.Balls {
-			out = out.Append("ball \(x.ID): at (\(whole(x.X)), \(whole(x.Y))), heading (\(whole(x.VX)), \(whole(x.VY))) px/s, radius \(whole(x.Radius)), \(x.Color)")
+func walk(x ui.Shape[app.Signal], s seen, inButton bool) seen {
+	match x.Node {
+	case ui.TextNode as t:
+		if inButton || t.Value == "" {
+			return s
 		}
-		out
-	case scene.Flow as f:
-		let g = f.Field
-		let pointer = match g.Pointer {
-		case Some[flow.Point] as p:
-			"(\(whole(p.Value.X)), \(whole(p.Value.Y)))"
-		case None:
-			"none"
+		if strings.HasSuffix(t.Value, " balls") || strings.HasSuffix(t.Value, " particles") {
+			return seen{..s, Texts: s.Texts.Append(t.Value)}
 		}
-		let mut bursting = 0
-		let mut sx = 0.0
-		let mut sy = 0.0
-		let mut trail = 0
-		for p in g.Particles {
-			let head = p.Trail[len(p.Trail)-1]
-			sx = sx + head.X
-			sy = sy + head.Y
-			trail = trail + len(p.Trail)
-			match p.InitialAngle {
-			case Some[float64]:
-				bursting = bursting + 1
-			case None:
+		seen{..s, Page: s.Page.Append(t.Value)}
+	case ui.SemanticNode as g:
+		let a = g.Access
+		if a.Role == ui.Heading {
+			return seen{..s, Page: s.Page.Append("# " + a.Name)}
+		}
+		if a.Role == ui.Button {
+			return seen{..s, Buttons: s.Buttons.Append("[\(a.Name)]")}
+		}
+		kids(x, s, inButton)
+	case ui.AreaNode as ar:
+		if ar.Label == "Canvas" {
+			return kids(x, s, inButton)
+		}
+		let mut value = ""
+		for k in x.Kids {
+			match k.Node {
+			case ui.TextNode as t:
+				value = t.Value
+			case _:
 			}
 		}
-		let k = len(g.Particles)
-		let middle = if k == 0 { "none" } else { "(\(whole(sx / float64(k))), \(whole(sy / float64(k))))" }
-		[]string{"scene: flow, \(state(g.Running)), \(fixed(g.Elapsed)) s", "controls: strength \(fixed(g.Strength)), scale \(fixed(g.Scale)), pointer \(pointer)", "particles: \(k) (\(bursting) from bursts), numbered to \(g.NextID), \(trail) trail points, heads centred at \(middle)"}
+		seen{..s, Sliders: s.Sliders.Append("\(ar.Label) \(value)")}
+	case ui.CanvasNode as c:
+		seen{..s, Paint: c.Paint, Size: "\(whole(float64(c.Width)))x\(whole(float64(c.Height)))"}
+	case _:
+		kids(x, s, inButton)
 	}
+}
+
+func kids(x ui.Shape[app.Signal], s seen, inButton bool) seen {
+	let mut out = s
+	for k in x.Kids {
+		out = walk(k, out, inButton)
+	}
+	out
+}
+
+// box is a path's bounding box over its points (a cubic's control points
+// included, which for a circle drawn as four cubics is the circle's box).
+type box { X0 float64, Y0 float64, X1 float64, Y1 float64, Points int }
+
+func boxOf(p ui.Path) box {
+	let mut b = box{X0: 1e18, Y0: 1e18, X1: -1e18, Y1: -1e18, Points: 0}
+	for seg in p.Segs {
+		match seg {
+		case ui.MoveTo as m:
+			b = grow(b, m.X, m.Y)
+		case ui.LineTo as l:
+			b = grow(b, l.X, l.Y)
+		case ui.QuadTo as q:
+			b = grow(grow(b, q.CX, q.CY), q.X, q.Y)
+		case ui.CubicTo as c:
+			b = grow(grow(grow(b, c.C1X, c.C1Y), c.C2X, c.C2Y), c.X, c.Y)
+		case ui.ClosePath:
+		}
+	}
+	b
+}
+
+func grow(b box, x float64, y float64) box {
+	box{X0: lesser(b.X0, x), Y0: lesser(b.Y0, y), X1: greater(b.X1, x), Y1: greater(b.Y1, y), Points: b.Points + 1}
+}
+
+func lesser(a float64, b float64) float64 { if a < b { a } else { b } }
+
+func greater(a float64, b float64) float64 { if a > b { a } else { b } }
+
+// colour is c as "#rrggbb", with "/A" for an alpha under 255.
+func colour(c ui.Color) string {
+	let hex = "0123456789abcdef"
+	let mut out = "#"
+	for v in []int{int(c.R), int(c.G), int(c.B)} {
+		out = out + hex[v/16:v/16+1] + hex[v%16:v%16+1]
+	}
+	if int(c.A) == 255 { out } else { out + "/\(int(c.A))" }
+}
+
+// Canvas is the canvas as lines, read from its paint: its size and what
+// it paints (fills, strokes and the points of their paths), then, for
+// each filled circle under 30 pixels (a ball, or a particle's head), its
+// centre, radius and colour for a few, and the centre of them all.
+func Canvas(size string, ops []ui.PaintOp) []string {
+	if size == "" {
+		return []string{"canvas: none"}
+	}
+	let mut fills = 0
+	let mut strokes = 0
+	let mut points = 0
+	let mut dots = []string{}
+	let mut ndots = 0
+	let mut sx = 0.0
+	let mut sy = 0.0
+	let mut ring = "none"
+	for op in ops {
+		match op {
+		case ui.FillOp as f:
+			fills = fills + 1
+			let b = boxOf(f.Path)
+			points = points + b.Points
+			let r = (b.X1 - b.X0) / 2.0
+			let cx = (b.X0 + b.X1) / 2.0
+			let cy = (b.Y0 + b.Y1) / 2.0
+			if len(f.Path.Segs) == 6 && r < 30.0 {
+				ndots = ndots + 1
+				sx = sx + cx
+				sy = sy + cy
+				if ndots <= 6 {
+					dots = dots.Append("dot \(ndots): at (\(whole(cx)), \(whole(cy))), radius \(whole(r)), \(colour(f.Color))")
+				}
+			} else if len(f.Path.Segs) == 6 && whole(r) == "130" {
+				ring = "(\(whole(cx)), \(whole(cy)))"
+			}
+		case ui.StrokeOp as st:
+			strokes = strokes + 1
+			points = points + boxOf(st.Path).Points
+		case ui.PushTransform, ui.PushClip, ui.PopPaint:
+		}
+	}
+	let middle = if ndots == 0 { "none" } else { "(\(whole(sx / float64(ndots))), \(whole(sy / float64(ndots))))" }
+	let mut out = []string{"canvas: \(size), \(fills) fills, \(strokes) strokes, \(points) points", "dots: \(ndots), centred at \(middle), pointer ring \(ring)"}
+	for d in dots {
+		out = out.Append(d)
+	}
+	out
 }

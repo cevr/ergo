@@ -1,0 +1,355 @@
+// Package part is the tree both hosts draw (spec §2.2): a component's view is a part.Node, the
+// web projector prints it as HTML and the GUI projector draws it on std ui, and a law reads it
+// as a value. A node says what it is to a reader (Sem: role, name, key, states, relations, how
+// it takes focus) and how it looks (Skin: a look and its classes, resolved once); hover, focus
+// and press are not in the tree, since the look says how each state looks and the host knows
+// which state holds.
+
+import ergo.dev/fluid/look
+import strings
+import ui
+
+// Skin is a box's look and the classes the web host prints for it, made once (web.SkinOf) and
+// read by every render. Bare is no look.
+type Skin { Look look.Look, Class string }
+
+// Bare is the skin of a box with no look of its own.
+func Bare() Skin { Skin{Look: look.Plain([]look.Decl{}), Class: ""} }
+
+// Role is what a node is to a reader, as WAI-ARIA names it.
+type Role = Generic{} | Button{} | Link{} | Checkbox{} | Radio{} | RadioGroup{} | Switch{} | Slider{} | SpinButton{} | TextBox{} | SearchBox{} | Tab{} | TabList{} | TabPanel{} | Dialog{} | Menu{} | MenuItem{} | MenuItemCheckbox{} | ListBox{} | Choice{} | ComboBox{} | Grid{} | Row{} | GridCell{} | ColumnHeader{} | RowHeader{} | Table{} | Group{} | Region{} | Navigation{} | List{} | ListItem{} | Separator{} | Tooltip{} | Status{} | Alert{} | Image{} | Toolbar{} | Heading{Level int}
+
+// Tri is a check box's state: unchecked, checked, or mixed.
+type Tri = Off{} | On{} | Mixed{}
+
+// State is a state a reader is told.
+type State = Disabled{} | Busy{} | Invalid{} | Checked{Value Tri} | Selected{Yes bool} | Expanded{Yes bool} | Pressed{Yes bool} | Current{Kind string} | Modal{} | MultiSelectable{} | Value{Now float64, Min float64, Max float64, Text string}
+
+// Rel is a relation to another node, by its key.
+type Rel = Controls{Key string} | LabelledBy{Key string} | DescribedBy{Key string} | ActiveDescendant{Key string} | HasPopup{Role Role}
+
+// Reach is how a node takes focus: not at all, as a native control, as a tab stop, as an item
+// of a roving set (Here: the set's one tab stop), or as the active descendant of a focused node.
+type Reach = Out{} | Native{} | Stop{} | Roving{Here bool} | Descendant{}
+
+// Sem is what a node is to a reader. Name "" takes the name from the node's text; Key "" is a
+// node no relation names; Hidden takes the node and its subtree out of the access tree; Focus
+// asks the host to move focus here after the render.
+type Sem { Role Role, Name string, Key string, States []State, Rels []Rel, Reach Reach, Focus bool, Hidden bool }
+
+// Plain is the semantics of a generic box.
+func Plain() Sem {
+	Sem{Role: Generic, Name: "", Key: "", States: []State{}, Rels: []Rel{}, Reach: Out, Focus: false, Hidden: false}
+}
+
+// Of is the semantics of a role, with nothing else stated.
+func Of(r Role) Sem { Sem{..Plain(), Role: r} }
+
+// Hidden is the semantics of a box no reader sees (a decoration).
+func Hidden() Sem { Sem{..Plain(), Hidden: true} }
+
+// Binding is a key and the signal it sends: a component's keyboard map, as data both hosts bind.
+type Binding[E] { Key string, On E }
+
+// Control is a control's skins: its box, the plate behind its content, and its content row.
+type Control { Root Skin, Plate Skin, Content Skin }
+
+// Node is a node of the tree.
+//
+// - Box: a container. Inline boxes flow in a line (a span on the web).
+// - Text: text, in a box of its own when its skin has a look.
+// - Glyph: an icon's paths, hidden from readers; Stroked draws them as lines.
+// - Press: a control that sends On when pressed; None is a disabled control.
+// - Field: a text input; Lines above 1 is a text area.
+// - Scale: a numeric input over a range.
+// - Layer: content above the flow (a dialog, a menu); Modal hides the rest from readers.
+// - Keyed: a node with an identity across renders.
+// - Live: a message a reader announces.
+// - Host: a leaf each host draws itself (the escape, §2.4): its markup, and what it writes on a
+//   ui frame.
+type Node[E] = Box{Sem Sem, Skin Skin, Inline bool, Keys []Binding[E], Kids []Node[E]} | Text{Value string, Skin Skin} | Glyph{Paths string, Stroked bool, Skin Skin} | Press{Sem Sem, Skin Control, On Option[E], Kids []Node[E]} | Field{Sem Sem, Skin Skin, Name string, Value string, Hint string, Lines int, On func(text string) E} | Scale{Sem Sem, Skin Skin, Name string, Min float64, Max float64, Step float64, Value float64, On func(v float64) E} | Layer{Z int, Modal bool, Dismiss Option[E], Kids []Node[E]} | Keyed{Key string, Node Node[E]} | Live{Text string, Assertive bool} | Host{Web string, Gui func(f mut ui.Frame[E])}
+
+// HasModal reports whether the tree shows a modal layer.
+func HasModal[E](n Node[E]) bool {
+	match n {
+	case Layer as l:
+		l.Modal || anyModal[E](l.Kids)
+	case Box as b:
+		anyModal[E](b.Kids)
+	case Press as x:
+		anyModal[E](x.Kids)
+	case Keyed as k:
+		HasModal[E](k.Node)
+	case Text, Glyph, Field, Scale, Live, Host:
+		false
+	}
+}
+
+func anyModal[E](kids []Node[E]) bool {
+	for k in kids {
+		if HasModal[E](k) {
+			return true
+		}
+	}
+	false
+}
+
+// Shown is which of kids a reader and the keyboard reach: all of them, unless some hold a modal
+// layer; then only those (the rest of the page is inert while a modal layer is shown).
+func Shown[E](kids []Node[E]) []bool {
+	let modal = anyModal[E](kids)
+	let mut out = []bool{}
+	for k in kids {
+		out = out.Append(!modal || HasModal[E](k))
+	}
+	out
+}
+
+// Root is the key of a top-level name; Join is the key of name under k. A name is escaped, so
+// two different paths never give one key (law KeysAreUnique) and a key is a valid HTML id.
+func Root(name string) string { escapeName(name) }
+
+func Join(k string, name string) string { k + "." + escapeName(name) }
+
+func escapeName(name string) string {
+	let mut b = strings.NewBuilder()
+	for i in 0..len(name) {
+		let c = name[i]
+		if c == '%' || c == '.' || c <= ' ' || c >= 127 {
+			b.WriteString("%")
+			b.WriteByte("0123456789ABCDEF"[int(c)/16])
+			b.WriteByte("0123456789ABCDEF"[int(c)%16])
+		} else {
+			b.WriteByte(c)
+		}
+	}
+	if b.Len() == 0 {
+		return "%"
+	}
+	b.String()
+}
+
+// Name is a node's accessible name: its stated name, else the text of what it holds that a
+// reader sees.
+func Name[E](n Node[E]) string {
+	match n {
+	case Box as b:
+		if b.Sem.Hidden {
+			return ""
+		}
+		if b.Sem.Name != "" {
+			return b.Sem.Name
+		}
+		textOf[E](b.Kids)
+	case Press as p:
+		if p.Sem.Hidden {
+			return ""
+		}
+		if p.Sem.Name != "" {
+			return p.Sem.Name
+		}
+		textOf[E](p.Kids)
+	case Field as f:
+		f.Sem.Name
+	case Scale as s:
+		s.Sem.Name
+	case Text as t:
+		t.Value
+	case Keyed as k:
+		Name[E](k.Node)
+	case Layer as l:
+		textOf[E](l.Kids)
+	case Glyph, Live, Host:
+		""
+	}
+}
+
+func textOf[E](kids []Node[E]) string {
+	let mut b = strings.NewBuilder()
+	for k in kids {
+		b.WriteString(Name[E](k))
+	}
+	b.String()
+}
+
+// Keys is every key the tree's nodes state, in tree order.
+func Keys[E](n Node[E]) []string {
+	let mut out = []string{}
+	walk(n, func(s Sem) {
+		if s.Key != "" {
+			out = out.Append(s.Key)
+		}
+	})
+	out
+}
+
+// walk calls f with the semantics of every node of the tree that states them, in tree order.
+func walk[E](n Node[E], f func(s Sem)) {
+	match n {
+	case Box as b:
+		f(b.Sem)
+		for k in b.Kids {
+			walk[E](k, f)
+		}
+	case Press as p:
+		f(p.Sem)
+		for k in p.Kids {
+			walk[E](k, f)
+		}
+	case Field as x:
+		f(x.Sem)
+	case Scale as x:
+		f(x.Sem)
+	case Layer as l:
+		for k in l.Kids {
+			walk[E](k, f)
+		}
+	case Keyed as k:
+		walk[E](k.Node, f)
+	case Text, Glyph, Live, Host:
+	}
+}
+
+// Repeated is the keys the tree states more than once.
+func Repeated[E](n Node[E]) []string {
+	let mut seen = Map[string, int]{}
+	let mut out = []string{}
+	for k in Keys(n) {
+		let c = match seen.Get(k) {
+		case Some as x:
+			x.Value
+		case None:
+			0
+		}
+		if c == 1 {
+			out = out.Append(k)
+		}
+		seen[k] = c + 1
+	}
+	out
+}
+
+// ControlCount is how many controls the tree holds: presses, fields and scales.
+func ControlCount[E](n Node[E]) int {
+	match n {
+	case Box as b:
+		count[E](b.Kids)
+	case Press as p:
+		1 + count[E](p.Kids)
+	case Field, Scale:
+		1
+	case Layer as l:
+		count[E](l.Kids)
+	case Keyed as k:
+		ControlCount[E](k.Node)
+	case Text, Glyph, Live, Host:
+		0
+	}
+}
+
+func count[E](kids []Node[E]) int {
+	let mut n = 0
+	for k in kids {
+		n = n + ControlCount[E](k)
+	}
+	n
+}
+
+// Nameless is the controls of the tree that have no accessible name, as their keys ("" for a
+// control with no key).
+func Nameless[E](n Node[E]) []string {
+	let mut out = []string{}
+	nameless(n, func(k string) { out = out.Append(k) })
+	out
+}
+
+func nameless[E](n Node[E], f func(k string)) {
+	match n {
+	case Box as b:
+		for k in b.Kids {
+			nameless[E](k, f)
+		}
+	case Press as p:
+		if !p.Sem.Hidden && Name[E](n) == "" {
+			f(p.Sem.Key)
+		}
+		for k in p.Kids {
+			nameless[E](k, f)
+		}
+	case Field as x:
+		if x.Sem.Name == "" {
+			f(x.Sem.Key)
+		}
+	case Scale as x:
+		if x.Sem.Name == "" {
+			f(x.Sem.Key)
+		}
+	case Layer as l:
+		for k in l.Kids {
+			nameless[E](k, f)
+		}
+	case Keyed as k:
+		nameless[E](k.Node, f)
+	case Text, Glyph, Live, Host:
+	}
+}
+
+// KeysAreUnique: two different paths of names give two different keys (a name that holds the
+// separator or the escape is not the path it spells), and Repeated finds a key a tree states
+// twice and no other.
+law KeysAreUnique(a []string, b []string, n int) {
+	let ka = path(a)
+	let kb = path(b)
+	let same = len(a) == len(b) && sameNames(a, b)
+	let tree Node[int] = Box{Sem: Plain(), Skin: Bare(), Inline: false, Keys: []Binding[int]{}, Kids: []Node[int]{keyed(ka), keyed(kb), keyed(Join(ka, "x"))}}
+	let rep = Repeated(tree)
+	(ka == kb) == same && (len(rep) == 1) == same && (!same || rep[0] == ka) && (n < 0 || len(Repeated(keyedRow(n%8))) == 0) && path([]string{"a.b"}) != path([]string{"a", "b"}) && path([]string{"a%2Eb"}) != path([]string{"a.b"})
+}
+
+// path is the key of the names under a root "n" (the empty path is no key). (a law's helper)
+func path(names []string) string {
+	let mut k = Root("n")
+	for x in names {
+		k = Join(k, x)
+	}
+	k
+}
+
+func sameNames(a []string, b []string) bool {
+	for i in 0..len(a) {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	true
+}
+
+// keyed is a box with key k. (a law's helper)
+func keyed(k string) Node[int] {
+	Box{Sem: Sem{..Plain(), Key: k}, Skin: Bare(), Inline: false, Keys: []Binding[int]{}, Kids: []Node[int]{}}
+}
+
+// keyedRow is n boxes keyed by Join under one root. (a law's helper)
+func keyedRow(n int) Node[int] {
+	let mut kids = []Node[int]{}
+	for i in 0..n {
+		kids = kids.Append(keyed(Join(Root("row"), "\(i)")))
+	}
+	Box{Sem: Plain(), Skin: Bare(), Inline: false, Keys: []Binding[int]{}, Kids: kids}
+}
+
+// EveryControlHasAName: a control's name is its stated name, else the text it holds (through
+// boxes, never through hidden ones); Nameless finds exactly the controls with neither.
+law EveryControlHasAName(stated string, text string, deep bool, hide bool) {
+	let label Node[int] = Text{Value: text, Skin: Bare()}
+	let inner Node[int] = if deep {
+		Box{Sem: if hide { Hidden() } else { Plain() }, Skin: Bare(), Inline: true, Keys: []Binding[int]{}, Kids: []Node[int]{label}}
+	} else {
+		label
+	}
+	let glyph Node[int] = Glyph{Paths: "", Stroked: true, Skin: Bare()}
+	let p Node[int] = Press{Sem: Sem{..Of(Button), Name: stated, Key: "p"}, Skin: Control{Root: Bare(), Plate: Bare(), Content: Bare()}, On: Some[int]{Value: 1}, Kids: []Node[int]{glyph, inner}}
+	let seen = if deep && hide { "" } else { text }
+	let want = if stated != "" { stated } else { seen }
+	Name(p) == want && (len(Nameless(p)) == 1) == (want == "") && ControlCount(p) == 1
+}

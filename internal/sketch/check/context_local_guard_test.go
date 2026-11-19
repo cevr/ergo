@@ -95,7 +95,7 @@ var contextPlaceRows = map[string]externPlaceRow{
 	"MapType.Value":        {guardType, "func f(m Map[int, @w]) {}\n"},
 	"NeedsClause.Names":    {guardType, "func f() needs @w {}\n"},
 	"ProvidesClause.Names": {guardType, "func main() {\n\t$W\n\t_ = with context provides @w { Greeter: Plain } { Greeter.Greet(\"x\") }\n}\n"},
-	"StarExpr.X":           {guardType, "func f(p *@w) {}\n"},
+	"StarExpr.X":           {guardType, "func f(p mut @w) {}\n"},
 	"TypeDecl.Spec":        {guardType, "type T = @w\n"},
 	"TypeDecl.Implements":  {guardType, "type T {} implements @w\n"},
 	// A where reads only its subject and literals (refine.go): a context
@@ -112,6 +112,7 @@ var contextPlaceRows = map[string]externPlaceRow{
 	"MachineType.Step":   {guardType, machineGuard("initial: Idle,\n\tstep: @w,")},
 	"MachineType.After":  {guardType, machineGuard("initial: Idle,\n\tstep: step,\n\tafter: @w,")},
 	"MachineType.Work":   {guardType, machineGuard("initial: Idle,\n\tstep: step,\n\twork: @w,")},
+	"MachineType.Exit":   {guardType, machineGuard("initial: Idle,\n\tstep: step,\n\texit: @w,")},
 	"LawReach.Targets":   {guardType, machineGuard("initial: Idle,\n\tstep: step,\n\tlaw L reaches @w,")},
 	"LawReach.Pred":      {guardType, machineGuard("initial: Idle,\n\tstep: step,\n\tlaw L always @w,")},
 

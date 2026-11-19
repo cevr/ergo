@@ -877,6 +877,7 @@ func (c *checker) literalType(x *syntax.CompositeLit, hint Type) Type {
 		}
 	}
 	c.recordInstantiation(n.Obj.Name, n.TParams, targs, x)
+	c.recordTypeMark(n, targs, x)
 	return c.instantiate(n, targs)
 }
 
@@ -1234,6 +1235,12 @@ func (c *checker) selector(x *syntax.SelectorExpr) operand {
 					return bad(x)
 				}
 			}
+			if m != nil && m.Sig != nil && m.Sig.MutSelf && !isPointer(base.typ) {
+				// A mut operation writes its receiver: a value of T is
+				// read, so the call needs a mut T (types.md, Generics 2).
+				c.errorf(x.Sel, CodeType, "%s is a mut operation, which writes its receiver, and %s is a read %s; write %s mut %s where it is declared (types.md, Generics 2)", x.Sel.Name, exprText(x.X), tp.Name, exprText(x.X), tp.Name)
+				return bad(x)
+			}
 		}
 		return operand{mode: modeValue, typ: sig, method: m}
 	}
@@ -1308,7 +1315,7 @@ func (c *checker) noMethodHint(t Type, x *syntax.SelectorExpr, called bool) stri
 		case n.Orig != nil && c.identical(fn, n):
 			star := ""
 			if ptr != "" {
-				star = "*"
+				star = "mut " // the borrow, as Ergo writes it (MODES-2)
 			}
 			var tps []string
 			for _, tp := range n.Orig.TParams {
@@ -1353,7 +1360,7 @@ func (c *checker) selfCall(x *syntax.SelectorExpr, base operand, sig *Signature,
 		return bad(x)
 	}
 	if fn.Ptr && !isPointer(base.typ) && !base.addressable {
-		c.errorf(x.X, CodeType, "%s takes *%s, and %s is not addressable", fn.Name, fn.owner.Obj.Name, exprText(x.X))
+		c.errorf(x.X, CodeType, "%s takes mut %s, and %s is not addressable", fn.Name, fn.owner.Obj.Name, exprText(x.X))
 		return bad(x)
 	}
 	if fn.Ptr && !isPointer(base.typ) {
@@ -1486,10 +1493,11 @@ func (c *checker) index(x *syntax.IndexExpr, hint Type) operand {
 			}
 			return operand{mode: modeBuiltin, obj: b, typ: t}
 		}
-		if b, _ := base.obj.(*Builtin); b != nil && b.Name == "go.As" && unparen(x.X) == x.X {
-			// go.As[T]: T is checked at the call (goErrorCall).
+		if b, _ := base.obj.(*Builtin); b != nil && (b.Name == "go.As" || b.Name == "go.New" || b.Name == "go.Zero") && unparen(x.X) == x.X {
+			// go.As[T], go.New[T], go.Zero[T]: T is checked at the call
+			// (goErrorCall).
 			if len(x.Indices) != 1 {
-				c.errorf(x, CodeType, "go.As takes one type argument, not %d", len(x.Indices))
+				c.errorf(x, CodeType, "%s takes one type argument, not %d", b.Name, len(x.Indices))
 				return bad(x)
 			}
 			return operand{mode: modeBuiltin, obj: b, typ: invalid, targ: c.typExpr(x.Indices[0], c.localTypeCtx())}
@@ -1728,6 +1736,14 @@ func (c *checker) assign(op *operand, t Type, what string) bool {
 		// A value of the unnamed base enters a refined type only through
 		// its parse function (types.md, Refinements 6).
 		c.errorf(op.expr, CodeType, "cannot use %s as %s in %s: %s is refined; write %s(…), which checks its where", op.typ, t, what, t, c.parseFunc(t))
+		op.mode = modeInvalid
+		return false
+	}
+	if a.clause == assignGoAny && isPointer(op.typ) && what != "argument" && what != "element" {
+		// A borrow lives no longer than its call (types.md, Borrows): it
+		// goes into a go.Any as a Go call's argument, alone or in the
+		// []go.Any of a variadic one (rows.Scan([]go.Any{&id}); GB2).
+		c.errorf(op.expr, CodeType, "cannot use %s as go.Any in %s: a borrow goes into a go.Any only as a Go call's argument, alone or in its []go.Any (rows.Scan([]go.Any{&id}))", op.typ, what)
 		op.mode = modeInvalid
 		return false
 	}

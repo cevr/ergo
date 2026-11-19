@@ -1,0 +1,7 @@
+# scripts/opcount: `collectbench bench collect N` collects N elements in
+# parts of 64 (GP-COLLECT); the cost of one element is the slope between
+# the two sizes. The control appends each part into a slice made to size.
+unit element
+sizes 409600 2457600
+args bench collect {n}
+control benchmarks/collect/testdata/control

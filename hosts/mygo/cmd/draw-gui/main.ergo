@@ -1,0 +1,173 @@
+// draw-gui is examples/draw-gui in a MyGo window (corpus wave GP3c): the
+// example's tool machine, app and view (a required Ergo module,
+// hosts/mygo/go.mod) on the desktop driver. It is the only place that
+// chooses: the host's files for the picture, and the window and the live
+// clock, or, with -headless, a window with no screen that plays a script
+// from standard input and prints what the example's own `draw-gui scene`
+// prints.
+//
+//	draw-gui FILE                         open the window on FILE
+//	draw-gui -headless [-check] FILE      play the script on standard input
+//
+// A headless script is the example's (script.Parse): each line is input
+// the window gets where a person gives it. down, move and up are the
+// pointer pressed, moved and released at that place on the picture (a
+// move and a release past the picture's edge still reach it, as the
+// window gives a pressed pointer to the node it was pressed on); tool,
+// layer, zoom, pan and delete click the toolbar's buttons; escape is the
+// Escape key. show prints the window's text nodes; export, save and hit
+// read the app's state, as the scene's do. -check holds the driver's kept
+// layout to the tree built anew at every paint (desktop.Check). shot, the
+// scene's screenshot of ui.TestHost, is not a desktop command.
+
+import actor
+import ergo.local/prototype/examples/drawgui/canvas
+import ergo.local/prototype/examples/drawgui/files
+import ergo.local/prototype/examples/drawgui/script
+import ergo.local/prototype/examples/drawgui/window
+import ergo.local/prototype/hosts/mygo/desktop
+import go ergo.local/prototype/hosts/mygo/screen
+import fs
+import io
+import machines
+import os
+import slices
+import strings
+import sync
+import time
+import ui
+
+let Usage = "usage: draw-gui [-headless [-check]] FILE"
+
+// Width and Height are the window's size in DIPs: the picture (800 by
+// 600) under two rows of buttons and the status line, with room right of
+// it and below it, where the scripts' presses past its edge land.
+let Width = 1300.0
+
+let Height = 900.0
+
+// opts is what the arguments chose.
+type opts { headless bool, check bool, file string }
+
+func parse(args []string) opts fails os.Exit {
+	let mut o = opts{headless: false, check: false, file: ""}
+	for a in args {
+		if a == "-headless" {
+			o.headless = true
+		} else if a == "-check" {
+			o.check = true
+		} else if o.file == "" && !strings.HasPrefix(a, "-") {
+			o.file = a
+		} else {
+			return os.Exit{Code: 2, Message: Usage}
+		}
+	}
+	if o.file == "" || (o.check && !o.headless) {
+		return os.Exit{Code: 2, Message: Usage}
+	}
+	o
+}
+
+func main() fails os.Exit needs Ambient | go.Foreign {
+	let o = try parse(with context { os.Process: os.NewHost() } { os.Process.Args() })
+	let store = files.New(fs.NewHost())
+	let pic = with context { canvas.Store: store } {
+		canvas.OpenPicture(o.file) catch {
+		case canvas.Unreadable as u:
+			return os.Exit{Code: 1, Message: "draw-gui: \(u.Name): \(u.Reason)"}
+		case canvas.BadSvg as b:
+			return os.Exit{Code: 1, Message: "draw-gui: \(o.file): line \(b.Line): want \(b.Want)"}
+		}
+	}
+	if o.headless {
+		with context { canvas.Store: store } {
+			try headless(pic, o.file, o.check)
+		}
+		return
+	}
+	with context { Scheduler: NewLiveScheduler() } {
+		let w = screen.Open("Draw", Width, Height) catch {
+		case go.Error as e:
+			return os.Exit{Code: 1, Message: "draw-gui: \(e.Text)"}
+		}
+		let a = actor.StartMachine(machines.Start(window.App{}, pic), 8, func(out canvas.Output) {})
+		desktop.Run(w, a, window.View) catch {
+		case ui.Closed:
+		case actor.Stopped:
+		case ui.BadPatch as b:
+			return os.Exit{Code: 1, Message: "draw-gui: \(b.Why)"}
+		case go.Error as e:
+			return os.Exit{Code: 1, Message: "draw-gui: \(e.Text)"}
+		}
+	}
+}
+
+// headless plays the script on standard input through a window with no
+// screen and prints what the scene prints.
+func headless(pic canvas.Picture, name string, check bool) fails os.Exit needs canvas.Store | Ambient | go.Foreign {
+	let input = io.NewStdin().ReadAll() catch {
+	case io.ReadFailed:
+		return os.Exit{Code: 1, Message: "draw-gui: cannot read the script"}
+	}
+	let out = io.NewHost()
+	with context { Scheduler: time.NewManual(0), io.Stdout: out } {
+		let w = screen.Headless(Width, Height) catch {
+		case go.Error as e:
+			return os.Exit{Code: 1, Message: "draw-gui: \(e.Text)"}
+		}
+		let outputs = sync.NewRef[[]canvas.Output]([]canvas.Output{})
+		let a = actor.StartMachine(machines.Start(window.App{}, pic), 8, func(o canvas.Output) {
+			outputs.Update(func(old []canvas.Output) []canvas.Output { old.Append(o) })
+		})
+		let mut d = desktop.New(w, a, window.View, 8) catch {
+		case ui.BadPatch as b:
+			return os.Exit{Code: 1, Message: "draw-gui: \(b.Why)"}
+		}
+		if check {
+			desktop.Check(&d)
+		}
+		for line in strings.Split(input, "\n") {
+			let l = strings.TrimSuffix(line, "\r")
+			if l == "" || strings.HasPrefix(l, "#") || l == "shot" {
+				continue
+			}
+			let c = script.Parse(l) catch {
+			case script.BadLine as b:
+				out.Println("? \"" + b.Text + "\": want " + b.Want)
+				continue
+			}
+			match c {
+			case script.Show:
+				for t in script.Texts(desktop.Screen(&d)) {
+					out.Println(t)
+				}
+			case script.Export, script.Save, script.Hit:
+				let _ = script.Play(desktop.StateOf(&d), name, slices.Values([]string{l}))
+			case script.Send as m:
+				desktop.Play(&d, []ui.Act{script.Act(m.Signal)}) catch {
+				case ui.NoNode as x:
+					out.Println("? no node " + x.Label)
+				case ui.Mismatch as miss:
+					out.Println("? want " + miss.Want + ", got " + miss.Got)
+				case ui.Ambiguous as amb:
+					out.Println("? \(amb.Count) nodes at " + amb.At)
+				case ui.Closed, actor.Stopped:
+					return os.Exit{Code: 1, Message: "draw-gui: the app stopped"}
+				case ui.BadPatch as b:
+					return os.Exit{Code: 1, Message: "draw-gui: the view's patch did not apply: " + b.Why}
+				}
+				let now = canvas.CanvasOf(desktop.StateOf(&d))
+				for o in outputs.Get() {
+					out.Println(script.Reported(now, o))
+				}
+				outputs.Set([]canvas.Output{})
+			}
+		}
+		match desktop.Differs(&d) {
+		case Some[string] as why:
+			out.Println("? the kept layout differs from the rebuilt one: " + why.Value)
+		case None:
+		}
+		a.Stop()
+	}
+}
