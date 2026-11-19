@@ -94,7 +94,6 @@ func textModel(fallback string, ks []term.Key) string {
 		case term.Escape, term.Interrupt, term.EndOfInput:
 			return "cancel"
 		case _:
-			runes = runes
 		}
 	}
 	"none"
@@ -118,7 +117,6 @@ func pickModel(n int, ks []term.Key) string {
 		case term.Escape, term.Interrupt, term.EndOfInput:
 			return "cancel"
 		case _:
-			at = at
 		}
 	}
 	"none"
@@ -153,7 +151,6 @@ func markModel(n int, ks []term.Key) string {
 		case term.Escape, term.Interrupt, term.EndOfInput:
 			return "cancel"
 		case _:
-			at = at
 		}
 	}
 	"none"
@@ -308,11 +305,9 @@ test SelectStaysInRange(n int, codes []int) {
 			case Some[int] as a:
 				ok = ok && a.Value >= 0 && a.Value < len(options)
 			case None:
-				ok = ok
 			}
 			break
 		case _:
-			s = s
 		}
 		ok = ok && s.At >= 0 && (len(options) > 0 || s.At == 0) && (len(options) == 0 || s.At < len(options))
 	}
@@ -333,7 +328,6 @@ test SecretFramesHideTyping(codes []int) {
 			s = st.Next
 			assert prompt.TypingFrame(s) == prompt.TypingFrame(prompt.Typing{Ask: ask, Typed: strings.Repeat("x", utf8.RuneCount(s.Typed))})
 		case _:
-			s = s
 		}
 	}
 }

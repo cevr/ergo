@@ -405,7 +405,6 @@ test ScriptPlaysKeys(texts []string) {
 		}
 		match term.Terminal.ReadKey() catch { case io.ReadFailed: term.Return } {
 		case term.EndOfInput:
-			ok = ok
 		case _:
 			ok = false
 		}
