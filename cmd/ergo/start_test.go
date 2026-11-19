@@ -3,8 +3,11 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"debug/buildinfo"
+	"debug/elf"
 	"os"
 	"os/exec"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -42,6 +45,60 @@ func TestStartBuildsNoTables(t *testing.T) {
 	}
 	if total > startInitBytes {
 		t.Fatalf("the module's packages allocate %d bytes at init, more than %d:\n%s", total, startInitBytes, moduleInitLines(stderr))
+	}
+}
+
+// TestToolLinksNoCgo: the ergo tool is a static binary built without cgo
+// (internal/ergobuild): its build settings say CGO_ENABLED=0, it links no
+// runtime/cgo, and on Linux it has no program interpreter (the dynamic
+// loader every start of a cgo ergo runs, 0.46 M of `ergo version`'s 3.10 M;
+// ERGO-STARTUP). So a dependency that would bring cgo back fails here, not
+// in a receipt. It counts symbols and headers, never time. It builds Go
+// because the question is the linked tool. Mutant: the setting dropped
+// (start-tool-built-with-cgo).
+func TestToolLinksNoCgo(t *testing.T) {
+	if testing.Short() {
+		t.Skip("full tier: builds Go")
+	}
+	bin := buildTestCLI(t)
+	info, err := buildinfo.ReadFile(bin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cgo := ""
+	for _, s := range info.Settings {
+		if s.Key == "CGO_ENABLED" {
+			cgo = s.Value
+		}
+	}
+	if cgo != "0" {
+		t.Errorf("%s was built with CGO_ENABLED=%q, want 0 (internal/ergobuild)", bin, cgo)
+	}
+	for _, dep := range info.Deps {
+		if dep.Path == "runtime/cgo" {
+			t.Errorf("%s links runtime/cgo", bin)
+		}
+	}
+	if runtime.GOOS != "linux" {
+		return
+	}
+	f, err := elf.Open(bin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	for _, p := range f.Progs {
+		if p.Type == elf.PT_INTERP {
+			t.Errorf("%s is dynamically linked (it names a program interpreter); every start pays the dynamic loader", bin)
+		}
+	}
+	if syms, err := f.Symbols(); err == nil {
+		for _, s := range syms {
+			if strings.HasPrefix(s.Name, "runtime/cgo.") || s.Name == "x_cgo_init" {
+				t.Errorf("%s links cgo's runtime (%s)", bin, s.Name)
+				break
+			}
+		}
 	}
 }
 

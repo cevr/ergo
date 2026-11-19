@@ -3,7 +3,7 @@
 Each folder of `examples/` is one Ergo program with recorded cases. The runner `scripts/examples` builds each program with the checkout's `bin/ergo` and compares what the program prints with its cases: stdout, stderr and the exit status, byte for byte. The gate step `examples (default)` runs the programs tagged `default`.
 
 ```sh
-go build -o bin/ergo ./cmd/ergo
+CGO_ENABLED=0 go build -o bin/ergo ./cmd/ergo
 go run ./scripts/examples                      # the default programs
 go run ./scripts/examples PROGRAM              # one program folder, whatever its tags
 go run ./scripts/examples -tags slow,net       # the programs with either tag

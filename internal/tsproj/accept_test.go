@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"testing"
 
+	"ergo.local/prototype/internal/ergobuild"
 	"ergo.local/prototype/internal/proclimit"
 	"ergo.local/prototype/internal/testwait"
 	tstools "ergo.local/prototype/tools/ts"
@@ -69,7 +70,7 @@ func TestTsProjectionAgrees(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(cli), 0755); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.CommandContext(ctx, "go", "build", "-p", "2", "-o", cli, "./cmd/ergo")
+	cmd := ergobuild.CommandContext(ctx, cli, "./cmd/ergo", "-p", "2")
 	cmd.Dir = "../.."
 	runCheck(t, cmd)
 	for _, entry := range mustReadDir(t, tstools.Sources, ".") {

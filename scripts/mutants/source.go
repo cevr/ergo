@@ -68,7 +68,7 @@ func (w *worker) source(ctx context.Context, c *SourceCheck, path string, mutate
 			return sourceState{}, err
 		}
 		argv := append(append([]string{"go", "build"}, c.Tool.Flags...), "-o", filepath.Join(bin, c.Tool.Name), c.Tool.Package)
-		if o := w.e.exec(ctx, w.root, argv, w.e.env(), buildFloor); o.reason != "" {
+		if o := w.e.exec(ctx, w.root, argv, append(w.e.env(), c.Tool.Env...), buildFloor); o.reason != "" {
 			return sourceState{}, fmt.Errorf("build %s for the source check: %s\n%s", c.Tool.Name, o.reason, lastLines(o.tail, 20))
 		}
 		if w.sourceTools == nil {

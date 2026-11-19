@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"ergo.local/prototype/internal/ergobuild"
 	"ergo.local/prototype/internal/proclimit"
 	"ergo.local/prototype/internal/sketch/eval"
 	"ergo.local/prototype/internal/sketch/eval/evalgen"
@@ -121,7 +122,7 @@ func buildErgo(t *testing.T) string {
 	exe := filepath.Join(t.TempDir(), "ergo")
 	// No VCS stamp: a stamp reads the whole checkout's state, which is no
 	// input of the test (the closure sweep).
-	cmd := exec.Command("go", "build", "-buildvcs=false", "-o", exe, "ergo.local/prototype/cmd/ergo")
+	cmd := ergobuild.Command(exe, "ergo.local/prototype/cmd/ergo", "-buildvcs=false")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("go build ergo: %v\n%s", err, out)
 	}

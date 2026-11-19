@@ -250,7 +250,7 @@ Building ergo from source needs Go 1.27 or later and Git. The programs ergo buil
 ```sh
 git clone https://github.com/cevr/ergo.git
 cd ergo
-go build -o bin/ergo ./cmd/ergo
+CGO_ENABLED=0 go build -o bin/ergo ./cmd/ergo   # ergo needs no C; a static binary starts faster
 
 ./bin/ergo run examples/lookup/cmd/lookup          # prints: 192.0.2.1
 ./bin/ergo test examples/lookup/cmd/lookup         # prints: PASS (4 tests)

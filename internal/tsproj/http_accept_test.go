@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"ergo.local/prototype/internal/ergobuild"
 	"ergo.local/prototype/internal/testwait"
 	tstools "ergo.local/prototype/tools/ts"
 )
@@ -31,7 +32,7 @@ func TestHttpApiClientCallsJobs(t *testing.T) {
 	ctx, cancel := testwait.Context(t, context.Background())
 	defer cancel()
 	cli := filepath.Join(dir, "ergo")
-	build := exec.CommandContext(ctx, "go", "build", "-p", "2", "-o", cli, "./cmd/ergo")
+	build := ergobuild.CommandContext(ctx, cli, "./cmd/ergo", "-p", "2")
 	build.Dir = "../.."
 	runCheck(t, build)
 	for _, entry := range mustReadDir(t, tstools.Sources, ".") {

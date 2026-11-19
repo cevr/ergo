@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"testing"
 
+	"ergo.local/prototype/internal/ergobuild"
 	"ergo.local/prototype/internal/proclimit"
 )
 
@@ -402,7 +403,7 @@ func denseBuildAndRun(t *testing.T) {
 		}
 	}
 	ergo := filepath.Join(dir, "bin", "ergo")
-	build := exec.Command("go", "build", "-buildvcs=false", "-o", ergo, "./cmd/ergo")
+	build := ergobuild.Command(ergo, "./cmd/ergo", "-buildvcs=false")
 	build.Dir = root
 	if out, err := runBound(build); err != nil {
 		denseRun.err = fmt.Errorf("build the ergo CLI: %v\n%s", err, out)

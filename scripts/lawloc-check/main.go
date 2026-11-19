@@ -30,6 +30,7 @@ import (
 	"slices"
 	"strings"
 
+	"ergo.local/prototype/internal/ergobuild"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -72,7 +73,7 @@ func build() (string, error) {
 		return "", err
 	}
 	bin := filepath.Join(dir, "ergo")
-	cmd := exec.Command("go", "build", "-o", bin, "./cmd/ergo")
+	cmd := ergobuild.Command(bin, "./cmd/ergo")
 	cmd.Stdout, cmd.Stderr = os.Stderr, os.Stderr
 	if err := cmd.Run(); err != nil {
 		return "", fmt.Errorf("go build ./cmd/ergo: %v", err)

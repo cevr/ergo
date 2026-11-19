@@ -14,6 +14,7 @@ import (
 	"sync"
 	"testing"
 
+	"ergo.local/prototype/internal/ergobuild"
 	"ergo.local/prototype/internal/proclimit"
 	"ergo.local/prototype/internal/sketch/build"
 	"ergo.local/prototype/internal/testinputs"
@@ -98,9 +99,9 @@ func ergoCLI(t *testing.T) string {
 			return
 		}
 		testCLI.path = filepath.Join(testCLI.dir, "ergo")
-		command := exec.Command("go", "build", "-buildvcs=false", "-o", testCLI.path, "./cmd/ergo")
+		command := ergobuild.Command(testCLI.path, "./cmd/ergo", "-buildvcs=false")
 		command.Dir = filepath.Clean(moduleRoot)
-		command.Env = testCLI.environment
+		command.Env = ergobuild.Env(testCLI.environment)
 		testCLI.output, testCLI.err = command.CombinedOutput()
 	})
 	if testCLI.err != nil {

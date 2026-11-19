@@ -250,7 +250,11 @@ var builtErgo = sync.OnceValues(func() (string, error) {
 	}
 	ergoDir = dir
 	ergo := filepath.Join(dir, "ergo")
-	if out, err := bounded("go", "build", "-C", "../..", "-o", ergo, "./cmd/ergo").CombinedOutput(); err != nil {
+	// The ergo tool is built without cgo, as internal/ergobuild says; this
+	// module cannot import it, so it names the setting itself.
+	build := bounded("go", "build", "-C", "../..", "-o", ergo, "./cmd/ergo")
+	build.Env = append(os.Environ(), "CGO_ENABLED=0")
+	if out, err := build.CombinedOutput(); err != nil {
 		return "", fmt.Errorf("go build ergo: %v\n%s", err, out)
 	}
 	return ergo, nil

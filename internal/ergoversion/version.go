@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"ergo.local/prototype/internal/ergobuild"
 )
 
 // Devel is the version of a binary that carries no module version and no
@@ -63,9 +65,10 @@ func Of(info *debug.BuildInfo) string {
 	return v
 }
 
-// InstallCommand is the command that installs ergo at version.
+// InstallCommand is the command that installs ergo at version, built as
+// every ergo is (internal/ergobuild): without cgo.
 func InstallCommand(version string) string {
-	return "go install github.com/cevr/ergo/cmd/ergo@" + version
+	return ergobuild.Cgo + " go install github.com/cevr/ergo/cmd/ergo@" + version
 }
 
 // Valid is why v is not a semantic version with Go's leading v
