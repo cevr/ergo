@@ -24,8 +24,8 @@ Tag: `default`. It is a port without `origin` and `record.sh`. The original's le
 
 | folder | what it holds |
 | --- | --- |
-| `ecs/` | ritmo's core as values: `Entity`, `Column[T]` (one component's values by entity) and `Command[D]` (a spawn or a despawn queued for the Apply step). Laws on the column. |
-| `topdown/` | The domain. `world.ergo` holds the components, the drafts and the `World`. `machines.ergo` holds the `Facing` and `Locomotion` machines. `systems.ergo` holds the systems and the two schedules. `api.ergo` holds the Api (`Session`, `Request`, `Reply`, `Handle`, the failures) and the `Saves` contract with its laws. `laws.ergo` holds ritmo's invariants and its fuzzer as laws, and `rewind.ergo` the ring's laws. |
+| `ecs/` | ritmo's core as values: `Entity`, `Column[T]` (one component's values by entity) and `Command[D]` (a spawn or a despawn queued for the Apply step), with the column's laws beside it. |
+| `topdown/` | The domain. `world.ergo` holds the components, the drafts and the `World`. `machines.ergo` holds the `Facing` and `Locomotion` machines. `systems.ergo` holds the systems, the two schedules, and ritmo's invariants and fuzzer as laws over them. `api.ergo` holds the Api (`Session`, `Request`, `Reply`, `Handle`, the failures), the ring's rewind laws and the `Saves` contract with its laws. |
 | `memory/` | `Shelf`, the in-memory `topdown.Saves`. |
 | `disk/` | `Folder`, the `topdown.Saves` over std `fs` and `json`. |
 | `screen/` | The world as text, in place of ritmo's renderer adapters. |
