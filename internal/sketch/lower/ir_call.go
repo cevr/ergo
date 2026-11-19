@@ -254,6 +254,20 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 			}
 			irArgs = append(irArgs[:at:at], append([]*irExpr{env}, irArgs[at:]...)...)
 		}
+		// A call of a known instance goes to its plain copy (mono.go), as
+		// callText's does: a plain function, which Go compiles once, in
+		// the copy's package, where an instance of the generic is
+		// compiled again in each package that names it (MONO-HOOKS-MIN).
+		if known == "" && b.copyCall(x, c) == "" {
+			if mono := b.fc.monoAt(x, c, f, c.TypeArgs); mono != nil {
+				if fd.method != nil && !fd.pure {
+					// The copy of a method takes the environment
+					// before its receiver (callText).
+					irArgs = append([]*irExpr{irArgs[1], irArgs[0]}, irArgs[2:]...)
+				}
+				return pre, mark(&irExpr{K: "call", Pos: p, Name: mono.name, Args: irArgs}), !fd.pure
+			}
+		}
 		if known != "" && fd.method != nil {
 			return pre, mark(&irExpr{K: "mcall", Pos: p, Name: known, X: irArgs[0], Args: irArgs[1:]}), !fd.pure
 		} else if known != "" {

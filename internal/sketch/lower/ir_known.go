@@ -27,14 +27,17 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// irInstanceCopy reports a copy the IR does not build (LY-FIX): any copy
-// but one for a known record, so a monomorphic instance (mono.go), a copy
-// for a known provider (provider.go) or for a known witness (witspec.go).
-// Each is one more Go function beside f's, named sp.name; an IR body built
-// for it would take f's name and f's Go declaration, a second body for f
-// at the instance's types (a461a6b13's "Fold is not declared in the Go
-// source"). The emitter writes their bodies.
-func irInstanceCopy(sp *specCopy) bool { return sp != nil && sp.rec == nil }
+// irInstanceCopy reports a copy the IR does not build (LY-FIX): a copy for
+// a known provider (provider.go) or for a known witness (witspec.go). Each
+// is one more Go function beside f's, named sp.name; an IR body built for
+// it would take f's name and f's Go declaration, a second body for f at
+// the instance's types (a461a6b13's "Fold is not declared in the Go
+// source"). The emitter writes their bodies. A monomorphic copy (mono.go)
+// is built: its body takes the copy's name (monoName), and the IR calls it
+// (callParts; MONO-HOOKS-MIN).
+func irInstanceCopy(sp *specCopy) bool {
+	return sp != nil && sp.rec == nil && (sp.prov != nil || sp.wit != nil)
+}
 
 // copyName is the Go name of the copy for a known record that the body of
 // f being built is, or "" when it is f itself.
