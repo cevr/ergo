@@ -202,12 +202,9 @@ func scanNext(r *EventReader, s *partScan) bool {
 }
 
 // scanEnds keeps what s.text left open in r: the open event's text and
-// the line not yet ended.
+// the line not yet ended. It runs after scanNext reported false, which
+// has already taken back a view it lent.
 func scanEnds(r *EventReader, s *partScan) {
-	if s.lent {
-		r.view.event = ""
-		r.view.n = 0
-	}
 	let rest = strings.Slice(s.text, s.i, len(s.text))
 	let ended = strings.Slice(s.text, s.from, s.i)
 	let mut carried = s.carried
