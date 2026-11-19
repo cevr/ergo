@@ -2300,6 +2300,7 @@ func (e *encoder) encFieldsOptions(v *Options) {
 	e.encT14(v.Infer)
 	e.encT14(v.placeLaws)
 	e.encT14(v.mapsRewritten)
+	e.encT14(v.shapesWritten)
 }
 
 func (e *encoder) encOptions(v Options) { e.encFieldsOptions(&v) }
@@ -13571,6 +13572,7 @@ func (d *decoder) decFieldsOptions(v *Options) {
 	v.Infer = d.decT14()
 	v.placeLaws = d.decT14()
 	v.mapsRewritten = d.decT14()
+	v.shapesWritten = d.decT14()
 }
 
 func (d *decoder) decOptions() (v Options) {
