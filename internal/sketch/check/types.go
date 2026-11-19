@@ -465,6 +465,12 @@ func (t *Interface) String() string {
 	return "{ " + strings.Join(parts, ", ") + " }"
 }
 func (t *Union) String() string {
+	if t.Row != nil {
+		// A row value is its row's set: it prints sorted, as every row
+		// does (Row.list), never in the order the check first met its
+		// elements (CK-ROWVALUE-PRINT).
+		return t.Row.String()
+	}
 	parts := make([]string, len(t.Variants))
 	for i, v := range t.Variants {
 		parts[i] = v.String()

@@ -1,0 +1,281 @@
+// A trip: one service on one date, from boarding to arrival, as a
+// machine over the clock's ticks and an operator's delays and
+// cancellations. Its states carry the times still to come, so a delay
+// moves them and the step reads no clock.
+
+import machines
+import time
+
+// BoardingOpens is how long before it leaves a train takes passengers.
+let BoardingOpens = 20m
+
+// Leg is where a trip is: Due holds the instant of each stop still to
+// come, the next first.
+type Scheduled { Due []time.Time }
+type Boarding { Due []time.Time }
+type Running { Next int, Due []time.Time }
+type Arrived { At time.Time }
+type Cancelled { Reason string }
+type Leg = Scheduled | Boarding | Running | Arrived | Cancelled
+
+// Cue is what reaches a trip: the clock at an instant, a delay of the
+// rest of the trip, a cancellation.
+type Tick { At time.Time }
+type Delay { By duration }
+type Cancel { Reason string }
+type Cue = Tick | Delay | Cancel
+
+// Notice is what a trip announces as it moves.
+type BoardingOpen { At time.Time }
+type LeftFirst { At time.Time }
+type Called { Stop int, At time.Time }
+type Reached { At time.Time }
+type Late { By duration }
+type Withdrawn { Reason string }
+type Notice = BoardingOpen | LeftFirst | Called | Reached | Late | Withdrawn
+
+// Plan is the trip's first state: scheduled at calls, the instant of each
+// stop, first to last (Calls).
+func Plan(calls []time.Time) Leg { Scheduled{Due: calls} }
+
+// Step is the trip. A tick at or after the next instant moves it on, one
+// stop at a time: boarding opens BoardingOpens before it leaves, it
+// leaves, it calls at each stop, it arrives at the last. A delay moves
+// every instant still to come; one of no time, or after arrival, is
+// rejected. A train is cancelled before it leaves, never on the way.
+func Step(l Leg, c Cue) Decision[Leg, Notice] {
+	match (l, c) {
+	case (Scheduled as s, Tick as t):
+		if time.Before(t.At, time.Add(s.Due[0], -BoardingOpens)) {
+			return Ignore
+		}
+		Emit[Leg, Notice]{Next: Boarding{Due: s.Due}, Output: BoardingOpen{At: time.Add(s.Due[0], -BoardingOpens)}}
+	case (Boarding as b, Tick as t):
+		if time.Before(t.At, b.Due[0]) {
+			return Ignore
+		}
+		Emit[Leg, Notice]{Next: Running{Next: 1, Due: b.Due[1:]}, Output: LeftFirst{At: b.Due[0]}}
+	case (Running as r, Tick as t):
+		if time.Before(t.At, r.Due[0]) {
+			return Ignore
+		}
+		if len(r.Due) == 1 {
+			return Emit[Leg, Notice]{Next: Arrived{At: r.Due[0]}, Output: Reached{At: r.Due[0]}}
+		}
+		Emit[Leg, Notice]{Next: Running{Next: r.Next + 1, Due: r.Due[1:]}, Output: Called{Stop: r.Next, At: r.Due[0]}}
+	case (Scheduled as s, Delay as d):
+		if d.By <= 0s {
+			return Reject
+		}
+		Emit[Leg, Notice]{Next: Scheduled{Due: later(s.Due, d.By)}, Output: Late{By: d.By}}
+	case (Boarding as b, Delay as d):
+		if d.By <= 0s {
+			return Reject
+		}
+		Emit[Leg, Notice]{Next: Boarding{Due: later(b.Due, d.By)}, Output: Late{By: d.By}}
+	case (Running as r, Delay as d):
+		if d.By <= 0s {
+			return Reject
+		}
+		Emit[Leg, Notice]{Next: Running{Next: r.Next, Due: later(r.Due, d.By)}, Output: Late{By: d.By}}
+	case (Scheduled, Cancel as x):
+		Emit[Leg, Notice]{Next: Cancelled{Reason: x.Reason}, Output: Withdrawn{Reason: x.Reason}}
+	case (Boarding, Cancel as x):
+		Emit[Leg, Notice]{Next: Cancelled{Reason: x.Reason}, Output: Withdrawn{Reason: x.Reason}}
+	case (Running, Cancel):
+		Reject
+	case (Arrived, Tick), (Cancelled, Tick):
+		Ignore
+	case (Arrived, Delay), (Arrived, Cancel), (Cancelled, Delay), (Cancelled, Cancel):
+		Reject
+	}
+}
+
+// later is due with each instant moved by d.
+func later(due []time.Time, d duration) []time.Time {
+	let mut out = []time.Time{}
+	for t in due {
+		out = out.Append(time.Add(t, d))
+	}
+	out
+}
+
+// Trip is one trip as a machine; its input is the instants of its calls.
+type Trip machine[Leg, Cue] {
+	initial: Plan,
+	step:    Step,
+}
+
+// Waits is the instant l waits for, the one a tick must reach to move it
+// on; an ended trip waits for none.
+func Waits(l Leg) Option[time.Time] {
+	match l {
+	case Scheduled as s:
+		Some[time.Time]{Value: time.Add(s.Due[0], -BoardingOpens)}
+	case Boarding as b:
+		Some[time.Time]{Value: b.Due[0]}
+	case Running as r:
+		Some[time.Time]{Value: r.Due[0]}
+	case Arrived, Cancelled:
+		None
+	}
+}
+
+// Name is the word for where l is.
+func Name(l Leg) string {
+	match l {
+	case Scheduled:
+		"scheduled"
+	case Boarding:
+		"boarding"
+	case Running:
+		"running"
+	case Arrived:
+		"arrived"
+	case Cancelled:
+		"cancelled"
+	}
+}
+
+// progress is l's place on the way: scheduled, boarding, past each stop,
+// at the end; cancelled is an end too.
+func progress(l Leg) int {
+	match l {
+	case Scheduled:
+		0
+	case Boarding:
+		1
+	case Running as r:
+		1 + r.Next
+	case Arrived:
+		1000
+	case Cancelled:
+		1000
+	}
+}
+
+// lawCalls is a trip of two to four stops from an instant s seconds from
+// 2026, each leg a whole number of minutes.
+func lawCalls(s int64, legs []int64) []time.Time {
+	let mut t = time.Unix(1767225600+within(s, 0, 315360000), 0)
+	let mut out = []time.Time{t}
+	for m in legs {
+		t = time.Add(t, time.Times(1m, int(within(m, 1, 1440))))
+		out = out.Append(t)
+	}
+	if len(out) == 1 {
+		out = out.Append(time.Add(t, 1h))
+	}
+	out
+}
+
+// lawCue is a cue at an instant up to a day and a half from the trip's
+// start, a delay of up to two hours (none when 0), or a cancellation.
+func lawCue(start time.Time, k int64) Cue {
+	match within(k, 0, 9) {
+	case 0:
+		Delay{By: time.Times(1m, int(within(k/10, 0, 120)))}
+	case 1:
+		Cancel{Reason: "crew"}
+	case _:
+		Tick{At: time.Add(start, time.Times(1m, int(within(k/10, -60, 2160))))}
+	}
+}
+
+// NeverGoesBack: no cue moves a trip back, and an ended trip stays ended.
+law NeverGoesBack(s int64, legs []int64, cues []int64) {
+	let calls = lawCalls(s, legs)
+	let mut l = Plan(calls)
+	for k in cues {
+		let next = machines.Next(l, Step(l, lawCue(calls[0], k)))
+		if progress(next) < progress(l) || progress(l) == 1000 && Name(next) != Name(l) {
+			return false
+		}
+		l = next
+	}
+	true
+}
+
+// TicksAtEachCallArrive: ticking at each instant of the trip, in order,
+// opens boarding, leaves, calls at each stop between and arrives at the
+// last instant, with one notice for each.
+law TicksAtEachCallArrive(s int64, legs []int64) {
+	let calls = lawCalls(s, legs)
+	let mut ticks = []Cue{Tick{At: time.Add(calls[0], -BoardingOpens)}}
+	for t in calls {
+		ticks = ticks.Append(Tick{At: t})
+	}
+	let run = machines.Run(machines.Start(Trip{}, calls), ticks) catch {
+	case machines.Rejected:
+		return false
+	}
+	match run {
+	case machines.Running[Leg, Notice] as r:
+		match r.State {
+		case Arrived as a:
+			time.Equal(a.At, calls[len(calls)-1]) && len(r.Emitted) == len(calls)+1
+		case Scheduled, Boarding, Running, Cancelled:
+			false
+		}
+	case machines.Finished[Leg, Notice]:
+		false
+	}
+}
+
+// DelayMovesTheRest: a delay of d moves every instant still to come by d
+// and keeps where the trip is.
+law DelayMovesTheRest(s int64, legs []int64, k int64, m int64) {
+	let calls = lawCalls(s, legs)
+	let by = time.Times(1m, int(within(m, 1, 600)))
+	let mut l = Plan(calls)
+	let ticks = int(within(k, 0, int64(len(calls))))
+	for i in 0..ticks {
+		l = machines.Next(l, Step(l, Tick{At: calls[i]}))
+	}
+	let next = machines.Next(l, Step(l, Delay{By: by}))
+	let (before, after) = match (l, next) {
+	case (Scheduled as a, Scheduled as b):
+		(a.Due, b.Due)
+	case (Boarding as a, Boarding as b):
+		(a.Due, b.Due)
+	case (Running as a, Running as b):
+		if a.Next != b.Next {
+			return false
+		}
+		(a.Due, b.Due)
+	case (Arrived, Arrived):
+		return true
+	case (_, _):
+		return false
+	}
+	if len(before) != len(after) {
+		return false
+	}
+	for i, t in before {
+		if time.Sub(after[i], t) != by {
+			return false
+		}
+	}
+	true
+}
+
+// CancelOnlyBeforeLeaving: a cancellation ends a trip that has not left
+// and is refused once it runs.
+law CancelOnlyBeforeLeaving(s int64, legs []int64, k int64) {
+	let calls = lawCalls(s, legs)
+	let mut l = Plan(calls)
+	let ticks = int(within(k, 0, int64(len(calls))))
+	for i in 0..ticks {
+		l = machines.Next(l, Step(l, Tick{At: calls[i]}))
+	}
+	match (l, Step(l, Cancel{Reason: "crew"})) {
+	case (Scheduled, Emit[Leg, Notice] as e):
+		Name(e.Next) == "cancelled"
+	case (Boarding, Emit[Leg, Notice] as e):
+		Name(e.Next) == "cancelled"
+	case (Running, Reject), (Arrived, Reject):
+		true
+	case (_, _):
+		false
+	}
+}

@@ -14,7 +14,7 @@ import (
 
 	"ergo.local/prototype/internal/rpcgen"
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -259,7 +259,7 @@ func (g *emitter) schema(t check.Type) string {
 		}
 		return "$Schema.Tuple([" + strings.Join(xs, ", ") + "])"
 	case *check.Named:
-		if u.Obj.Pkg != nil && u.Obj.Pkg.Path == std.PreludePath && u.Obj.Name == "Option" && len(u.TArgs) == 1 {
+		if u.Obj.Pkg != nil && u.Obj.Pkg.Path == stdlib.PreludePath && u.Obj.Name == "Option" && len(u.TArgs) == 1 {
 			return "$Schema.Option(" + g.schema(u.TArgs[0]) + ")"
 		}
 		g.declare(u)

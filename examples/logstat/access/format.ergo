@@ -1,12 +1,13 @@
 import strings
 import time
+import tz
 
 // Format is the line of r, which Parse reads back as r when r is Valid.
-// The time is written in UTC: a time.Time keeps no zone (gap G-ex-a-11).
+// The time is written in UTC, offset +0000.
 func Format(r Request) string {
 	let req = escape(r.Method + " " + r.Target + " " + r.Proto)
 	let size = if r.Bytes == 0 { "-" } else { "\(r.Bytes)" }
-	"\(r.Addr) - - [\(time.Format(r.At, Layout))] \"\(req)\" \(r.Status) \(size) \(Seconds(r.Micros))"
+	"\(r.Addr) - - [\(tz.FormatZoned(tz.Zoned{At: r.At, Zone: tz.UTC()}, Layout))] \"\(req)\" \(r.Status) \(size) \(Seconds(r.Micros))"
 }
 
 // Seconds is micros as seconds, with three decimals, or six when the

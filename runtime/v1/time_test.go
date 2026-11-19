@@ -1,6 +1,7 @@
 package v1
 
 import (
+	"math"
 	"math/rand/v2"
 	"runtime"
 	"sort"
@@ -243,22 +244,47 @@ func TestTimeLaws(t *testing.T) {
 
 	r := rand.New(rand.NewPCG(1, 2))
 	const first, last = -62135596800, 253402300799
-	secs := []int64{first, last, 0, -1, 1}
+	// The round trip draws every Unix second (F5 of the std-spike plan):
+	// the edges of years 0 and 9999, the extremes of int64, and seconds
+	// drawn from years 1 to 9999 and from all of int64.
+	const year0, year10000 = -62167219200, 253402300800
+	secs := []int64{first, last, 0, -1, 1, year0, year0 - 1, year10000, year10000 - 1, math.MaxInt64, math.MinInt64}
 	nsecs := []int64{0, 999_999_999, 1, 500_000_000}
 	for range 10_000 {
-		secs = append(secs, first+r.Int64N(last-first+1))
+		secs = append(secs, first+r.Int64N(last-first+1), int64(r.Uint64()))
 		nsecs = append(nsecs, r.Int64N(1_000_000_000))
 	}
 	nano := "2006-01-02T15:04:05.999999999Z07:00"
 	for i, sec := range secs {
 		nsec := nsecs[i%len(nsecs)]
 		text := TimeFormat(sec, nsec, nano)
-		if want := time.Unix(sec, nsec).UTC().Format(time.RFC3339Nano); text != want {
+		if want := time.Unix(sec, nsec).UTC().Format(time.RFC3339Nano); sec >= year0 && sec < year10000 && text != want {
 			t.Fatalf("Format(%d, %d) = %q, Go %q", sec, nsec, text, want)
 		}
 		back, err := TimeParse(nano, text)
 		if err != nil || back.Sec != sec || back.Nsec != nsec || back.Mono != 0 {
 			t.Fatalf("FormatParseRoundTrip(%d, %d): %q parsed to %+v, %v", sec, nsec, text, back, err)
+		}
+		// The round trip holds for a layout with its year in the middle
+		// and for one that writes the year twice.
+		for _, layout := range []string{"Jan _2 2006 15:04:05.000000000 MST", "2006|2006-01-02 15:04:05.999999999"} {
+			text := TimeFormat(sec, nsec, layout)
+			if back, err := TimeParse(layout, text); err != nil || back.Sec != sec || back.Nsec != nsec {
+				t.Fatalf("FormatParseRoundTrip(%d, %d) in %q: %q parsed to %+v, %v", sec, nsec, layout, text, back, err)
+			}
+		}
+		// Parse refuses a year text Format does not write: an expanded
+		// year with one more leading zero, and a year 0 to 9999 in the
+		// expanded form, so each instant has one text.
+		other := "+00" + text
+		if text[0] == '+' || text[0] == '-' {
+			other = text[:1] + "0" + text[1:]
+		}
+		if back, err := TimeParse(nano, other); err == nil {
+			t.Fatalf("Parse(%q) = %+v, want a ParseError: Format writes %q", other, back, text)
+		}
+		if sec < first || sec > last {
+			continue // SubAddInverse draws years 1 to 9999, as its law does
 		}
 		d := time.Duration(r.Int64N(8_000_000_000_000_000_000) - 4_000_000_000_000_000_000)
 		u := time.Unix(sec, nsec).Add(d)

@@ -128,12 +128,14 @@ test Adds {
 `},
 
 	{"a documented top-level law first in the file", `// Reflexive: every int equals itself.
-law Reflexive(n int) { n == n }
+law Reflexive(n Count) { n == n }
 
 // Symmetric is the second law.
-law Symmetric(a int, b int) {
+law Symmetric(a Count, b Count) {
 	(a == b) == (b == a)
 }
+
+type Count { n int }
 `},
 
 	// Names (rule 2): one namespace for top-level laws and tests, none for
@@ -164,9 +166,11 @@ type Codec {
 	law RoundTrip(v int) { Encode(v) == Encode(v) },
 }
 
-law RoundTrip(v int) { v == v }
+law RoundTrip(v Money) { v == v }
 `},
-	{"a law named like a prelude function", `law len(xs []int) { len(xs) >= 0 }
+	{"a law named like a prelude function", `law len(xs Ints) { len(xs) >= 0 }
+
+type Ints []int
 `},
 	{"a parameter named like a package function", LawTopDecls + `law Shadows(add Money) { add == add }
 `},
@@ -213,8 +217,10 @@ law Named(a Money) { Flag(a == a) }
 	if n < 0 {
 		return true
 	}
-	n >= 0
+	Abs(n) >= 0
 }
+
+func Abs(n int) int { if n < 0 { -n } else { n } }
 `},
 	{"a return of another type", `law Early(n int) {
 	if n < 0 {
@@ -262,7 +268,9 @@ law Named(a Money) { Flag(a == a) }
 `},
 	{"a parameter without a type", `law Untyped(n) { true } // want S104
 `},
-	{"an unnamed parameter", `law Unnamed(int) { true }
+	{"an unnamed parameter", `law Unnamed(Count) { true }
+
+type Count { n int }
 `},
 	{"an unused local", `law Unused(n int) {
 	let x = 1 // want S110
@@ -291,7 +299,7 @@ law Escapes(f own func(int) int) { keep(f) }
 
 	// Frames: a top-level law is a frame of its own, as a test is.
 	{"a task and an owning with in a law", "import task\n\n" + lawTopSiteDecls + `law Spawns(n int) {
-	let t = task.Go() { n }
+	let t = task.Go() { Use(Conn{V: n}) }
 	t.Wait() == n
 }
 
@@ -445,8 +453,14 @@ func GenLaws(seed int64, n int) []GenLaw {
 
 // PlaceLaw is one placement of l: top-level, or a member of an operation
 // type T whose one operation Op the body never names. lawLine is the line
-// of the law keyword.
+// of the law keyword. Both placements take one more parameter, `_ Money`,
+// so the top-level law has a subject in its package (S115; types.md,
+// Laws 15) and the two compare as they did.
 func PlaceLaw(member bool, l GenLaw) (src string, lawLine int) {
+	params := "_ Money"
+	if l.Params != "" {
+		params = l.Params + ", _ Money"
+	}
 	var b strings.Builder
 	b.WriteString(LawDomainHelpers)
 	indent := ""
@@ -455,7 +469,7 @@ func PlaceLaw(member bool, l GenLaw) (src string, lawLine int) {
 		indent = "\t"
 	}
 	lawLine = strings.Count(b.String(), "\n") + 1
-	b.WriteString(indent + "law L(" + l.Params + ") {\n")
+	b.WriteString(indent + "law L(" + params + ") {\n")
 	for _, line := range l.Body {
 		b.WriteString(indent + line + "\n")
 	}

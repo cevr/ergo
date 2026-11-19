@@ -12,15 +12,21 @@ import (
 // applies. File follows Diagnostic.File. Related and Suggestions are a rule
 // pack finding's, as the pack reported them.
 type LintFinding struct {
-	Code        string
-	Rule        string
-	Severity    string
-	Message     string
+	Code     string
+	Rule     string
+	Severity string
+	Message  string
+	// Instead is the finding's remedy (anti-slop AS1); empty for the
+	// runner's codes and a pack's findings.
+	Instead     string
 	File        string
 	Span        Span
 	Fix         *Fix
 	Related     []sdk.Related
 	Suggestions []sdk.Suggestion
+	// Precision is the rule's published precision as a fraction, nil for
+	// a rule with none.
+	Precision *float64
 }
 
 // SuppressionStatus is the outcome of one admitted suppression directive
@@ -74,8 +80,8 @@ func (r *Result) ReportWithLint(snapshot SourceSnapshot, strict bool, advice *Li
 	project := projector(snapshot)
 	var lint []DiagnosticFinding
 	for _, f := range advice.Findings {
-		finding := DiagnosticFinding{Code: f.Code, Rule: f.Rule, File: f.File, Origin: "lint", Severity: f.Severity, Message: f.Message, Span: f.Span, Fix: f.Fix, Related: f.Related, Suggestions: f.Suggestions}
-		lsp := &LSPDiagnostic{Severity: lspSeverity(f.Severity), Code: f.Code, Source: "ergo lint", Message: f.Message}
+		finding := DiagnosticFinding{Code: f.Code, Rule: f.Rule, File: f.File, Origin: "lint", Severity: f.Severity, Message: f.Message, Instead: f.Instead, Span: f.Span, Fix: f.Fix, Related: f.Related, Suggestions: f.Suggestions, Precision: f.Precision}
+		lsp := &LSPDiagnostic{Severity: lspSeverity(f.Severity), Code: f.Code, Source: "ergo lint", Message: finding.Text()}
 		if location, ok := project(f.File, f.Span); ok {
 			finding.LocationAvailable = true
 			lsp.Range = location

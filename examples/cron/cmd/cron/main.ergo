@@ -1,12 +1,15 @@
 // cron reads cron expressions. `cron next EXPR` prints the next times an
 // expression fires; `cron run TABLE` fires the jobs of a table file and
 // prints each firing, on a virtual clock that jumps from one firing to
-// the next, or with -live on the host's clock. Package schedule is the
-// domain; package virtual is the virtual clock. This binary is the only
-// place that chooses the providers: the host's clock, file system,
-// standard output and arguments.
+// the next, or with -live on the host's clock. Minutes are wall times in
+// the zone -tz names (UTC by default), and std cron fires a minute the
+// zone skips or repeats once. Package schedule is the domain; std cron the
+// expression. This binary is the only place that chooses the providers:
+// the host's clock, file system, standard output and arguments, and std's
+// copy of the IANA zones.
 
-import cron/schedule
+import cron
+import crontab/schedule
 import flag
 import fs
 import fstest
@@ -14,14 +17,17 @@ import io
 import os
 import testing
 import time
+import tz
+import tz/iana
 
 // Cmd is a command of cron.
-type Cmd = NextCmd{Expr string, From string, Count int} | RunCmd{Table string, From string, Until string, Live bool}
+type Cmd = NextCmd{Expr string, From string, Count int, Zone string} | RunCmd{Table string, From string, Until string, Live bool, Zone string}
 
 let exprArg = flag.Arg("expr", "the expression, quoted: \"*/5 * * * *\"")
 let tableArg = flag.Arg("table", "the table file: an expression and a job name on each line")
-let fromFlag = flag.String("from", "now", "the `minute` to start after, as 2006-01-02 15:04 in UTC")
-let untilFlag = flag.String("until", "", "the last `minute` to fire, as 2006-01-02 15:04 in UTC (default a day after -from)")
+let fromFlag = flag.String("from", "now", "the `minute` to start after, as 2006-01-02 15:04 in the zone")
+let untilFlag = flag.String("until", "", "the last `minute` to fire, as 2006-01-02 15:04 in the zone (default a day after -from)")
+let zoneFlag = flag.String("tz", "UTC", "the `zone` of the minutes, an IANA name such as America/New_York")
 let countFlag = flag.Int("n", 5, "how many times to print")
 let liveFlag = flag.Bool("live", false, "fire on the host's clock, waiting for each minute")
 
@@ -30,18 +36,18 @@ let commands = []flag.Command[Cmd]{
 		Name:     "next",
 		Commands: []flag.Command[Cmd]{},
 		Usage:    "print the next times an expression fires",
-		Set:      flag.Set{Name: "cron next", Usage: "", Flags: []flag.Flag{fromFlag, countFlag}, Args: []flag.ArgSpec{exprArg}},
+		Set:      flag.Set{Name: "cron next", Usage: "", Flags: []flag.Flag{fromFlag, countFlag, zoneFlag}, Args: []flag.ArgSpec{exprArg}},
 		Build:    func(v flag.Values) Cmd fails flag.Help | flag.Unknown | flag.NeedsValue | flag.Invalid | flag.Missing | flag.Extra | flag.UnknownCommand {
-			NextCmd{Expr: argOf(exprArg, v), From: fromFlag.Get(v), Count: countFlag.Get(v)}
+			NextCmd{Expr: argOf(exprArg, v), From: fromFlag.Get(v), Count: countFlag.Get(v), Zone: zoneFlag.Get(v)}
 		},
 	},
 	flag.Command[Cmd]{
 		Name:     "run",
 		Commands: []flag.Command[Cmd]{},
 		Usage:    "fire the jobs of a table and print each firing",
-		Set:      flag.Set{Name: "cron run", Usage: "", Flags: []flag.Flag{fromFlag, untilFlag, liveFlag}, Args: []flag.ArgSpec{tableArg}},
+		Set:      flag.Set{Name: "cron run", Usage: "", Flags: []flag.Flag{fromFlag, untilFlag, liveFlag, zoneFlag}, Args: []flag.ArgSpec{tableArg}},
 		Build:    func(v flag.Values) Cmd fails flag.Help | flag.Unknown | flag.NeedsValue | flag.Invalid | flag.Missing | flag.Extra | flag.UnknownCommand {
-			RunCmd{Table: argOf(tableArg, v), From: fromFlag.Get(v), Until: untilFlag.Get(v), Live: liveFlag.Get(v)}
+			RunCmd{Table: argOf(tableArg, v), From: fromFlag.Get(v), Until: untilFlag.Get(v), Live: liveFlag.Get(v), Zone: zoneFlag.Get(v)}
 		},
 	},
 }
@@ -56,22 +62,29 @@ func argOf(a flag.ArgSpec, v flag.Values) string {
 	}
 }
 
-let usage = "usage: cron next EXPR [-from MINUTE] [-n N] | cron run TABLE [-from MINUTE] [-until MINUTE] [-live]"
+let usage = "usage: cron next EXPR [-from MINUTE] [-n N] [-tz ZONE] | cron run TABLE [-from MINUTE] [-until MINUTE] [-live] [-tz ZONE]"
 
-// minute is the text as a minute, or the clock's minute for "now".
-func minute(text string) schedule.Instant fails os.Exit needs time.Clock {
+// minute is the text as a minute in z, or the clock's minute for "now".
+func minute(text string, z tz.Zone) time.Time fails os.Exit needs time.Clock {
 	if text == "now" {
 		return schedule.MinuteOf(time.Clock.Now())
 	}
-	let t = time.Parse(time.Custom{Text: "2006-01-02 15:04"}, text) catch {
-	case time.ParseError:
+	schedule.MinuteIn(text, z) catch {
+	case schedule.BadMinute:
 		return os.Exit{Code: 2, Message: "cron: bad minute \"\(text)\": write 2006-01-02 15:04"}
 	}
-	schedule.MinuteOf(t)
+}
+
+// zone is the zone named name.
+func zone(name string) tz.Zone fails os.Exit needs tz.Zones {
+	tz.Zones.Load(name) catch {
+	case tz.UnknownZone:
+		return os.Exit{Code: 2, Message: "cron: no zone \(name)"}
+	}
 }
 
 // run is cron on args.
-func run(args []string) fails os.Exit needs io.Stdout | fs.Files | time.Clock | Scheduler {
+func run(args []string) fails os.Exit needs io.Stdout | fs.Files | time.Clock | Scheduler | tz.Zones {
 	let c = flag.ParseCommand("cron", "", commands, args) catch {
 	case err:
 		try flag.Exit(err, usage)
@@ -79,26 +92,27 @@ func run(args []string) fails os.Exit needs io.Stdout | fs.Files | time.Clock | 
 	}
 	match c {
 	case NextCmd as n:
-		let e = schedule.Parse(n.Expr) catch {
-		case schedule.FieldCount as f:
+		let e = cron.Parse(n.Expr) catch {
+		case cron.FieldCount as f:
 			return os.Exit{Code: 1, Message: "cron: \(f.Got) fields, not 5"}
-		case schedule.BadValue as b:
+		case cron.BadValue as b:
 			return os.Exit{Code: 1, Message: "cron: \(b.Field): no value \(b.Text)"}
-		case schedule.OutOfRange as o:
+		case cron.OutOfRange as o:
 			return os.Exit{Code: 1, Message: "cron: \(o.Field): \(o.Value) is not in \(o.Min)-\(o.Max)"}
-		case schedule.BadStep as s:
+		case cron.BadStep as s:
 			return os.Exit{Code: 1, Message: "cron: \(s.Field): bad step \(s.Text)"}
-		case schedule.BadRange as r:
+		case cron.BadRange as r:
 			return os.Exit{Code: 1, Message: "cron: \(r.Field): range \(r.From)-\(r.To) ends before it starts"}
 		}
-		let from = try minute(n.From)
-		io.Stdout.Println(schedule.Format(e))
-		let times = schedule.Upcoming(e, from, n.Count)
+		let z = try zone(n.Zone)
+		let from = try minute(n.From, z)
+		io.Stdout.Println(cron.Format(e))
+		let times = schedule.Upcoming(e, z, from, n.Count)
 		for t in times {
-			io.Stdout.Println(schedule.Text(t))
+			io.Stdout.Println(schedule.Text(t, z))
 		}
 		if len(times) < n.Count {
-			io.Stdout.Println("(no more firings within \(schedule.Horizon) years)")
+			io.Stdout.Println("(no more firings within \(cron.Horizon()) years)")
 		}
 	case RunCmd as r:
 		let text = fs.Files.ReadFile(r.Table) catch {
@@ -113,17 +127,18 @@ func run(args []string) fails os.Exit needs io.Stdout | fs.Files | time.Clock | 
 		case schedule.BadLine as b:
 			return os.Exit{Code: 1, Message: "cron: \(r.Table):\(b.Line): \(b.Reason)"}
 		}
-		let from = try minute(r.From)
-		let until = if r.Until == "" { from + 1440 } else { try minute(r.Until) }
+		let z = try zone(r.Zone)
+		let from = try minute(r.From, z)
+		let until = if r.Until == "" { time.Add(from, 24h) } else { try minute(r.Until, z) }
 		let print = func(f schedule.Firing) needs io.Stdout {
-			io.Stdout.Println(schedule.Text(f.Due) + "  " + f.Job)
+			io.Stdout.Println(schedule.Text(f.Due, z) + "  " + f.Job)
 		}
 		if r.Live {
-			schedule.Run(jobs, until, print)
+			schedule.Run(jobs, z, until, print)
 		} else {
-			let clock = testing.NewVirtualClock(int64(from) * 60)
+			let clock = testing.NewVirtualClock(time.UnixSeconds(from))
 			with context { time.Clock: clock, Scheduler: clock } {
-				schedule.Run(jobs, until, print)
+				schedule.Run(jobs, z, until, print)
 			}
 		}
 	}
@@ -131,7 +146,7 @@ func run(args []string) fails os.Exit needs io.Stdout | fs.Files | time.Clock | 
 
 func main() fails os.Exit needs Ambient {
 	let host = time.NewHost()
-	with context { os.Process: os.NewHost(), fs.Files: fs.NewHost(), io.Stdout: io.NewHost(), time.Clock: host, Scheduler: NewLiveScheduler() } {
+	with context { os.Process: os.NewHost(), fs.Files: fs.NewHost(), io.Stdout: io.NewHost(), time.Clock: host, Scheduler: NewLiveScheduler(), tz.Zones: iana.New() } {
 		try run(os.Process.Args())
 	}
 }
@@ -147,7 +162,7 @@ func ran(text string, args []string) string fails fs.NotFound | fs.Denied | fs.F
 	let clock = testing.NewVirtualClock(1794139200)
 	let disk = fstest.NewMemory()
 	try disk.WriteFile("jobs", text)
-	with context { io.Stdout: out, fs.Files: disk, time.Clock: clock, Scheduler: clock } {
+	with context { io.Stdout: out, fs.Files: disk, time.Clock: clock, Scheduler: clock, tz.Zones: iana.New() } {
 		run(args) catch {
 		case os.Exit as e:
 			io.Stdout.Println("exit \(e.Code): \(e.Message)")
@@ -164,6 +179,11 @@ test NextPrintsTheFormAndTheTimes {
 test RunFiresADayOfJobs {
 	let out = try ran("0 */6 * * * sync\n30 12 * * * lunch\n", []string{"run", "jobs"})
 	assert out == "2026-11-08 12:30 Sun  lunch\n2026-11-08 18:00 Sun  sync\n2026-11-09 00:00 Mon  sync\n2026-11-09 06:00 Mon  sync\n2026-11-09 12:00 Mon  sync\n"
+}
+
+test NextReadsTheZone {
+	assert try ran("", []string{"next", "30 2 * * *", "-tz", "America/New_York", "-from", "2026-03-07 12:00", "-n", "2"}) == "30 2 * * *\n2026-03-08 03:30 Sun\n2026-03-09 02:30 Mon\n"
+	assert try ran("", []string{"next", "* * * * *", "-tz", "Mars/Olympus"}) == "exit 2: cron: no zone Mars/Olympus\n"
 }
 
 test FailuresExit {
