@@ -30,7 +30,10 @@ law PrintsAsTheTree(seed int) {
 law FailsWhereTheTreeFails(seed int, at int, c byte) {
 	for v in json.Samples(seed) {
 		let text = json.Compact(v)
-		let k = if at < 0 { -at % (len(text) + 1) } else { at % (len(text) + 1) }
+		// at's remainder, made non-negative by adding the modulus: -at
+		// overflows at the least int.
+		let r = at % (len(text) + 1)
+		let k = if r < 0 { r + len(text) + 1 } else { r }
 		let mut b = strings.NewBuilder()
 		b.WriteString(strings.Slice(text, 0, k))
 		b.WriteByte(c)
