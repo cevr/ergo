@@ -11,6 +11,7 @@ import fs
 import io
 import prompt
 import rpc
+import slices
 import strings
 import term
 import github.com/cevr/ergo/modules/work/work
@@ -287,9 +288,102 @@ func argText(a flag.ArgSpec, v flag.Values) string {
 }
 
 // Parse reads args as a command line of work.Api: a command and its
-// flags and arguments.
+// flags and arguments. It builds only the command args[0] names; the
+// list of every command is built only for help or an unknown command.
 func Parse(args []string) Request fails flag.Failure {
-	try flag.ParseCommand("work", "work.Api on a command line", Commands(), args)
+	let first = if len(args) > 0 { args[0] } else { "" }
+	match first {
+	case "init":
+		let c = commandInit()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "work init"}, slices.Slice(args, 1, len(args)))
+		try c.Build(v)
+	case "new":
+		let c = commandNew()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "work new"}, slices.Slice(args, 1, len(args)))
+		try c.Build(v)
+	case "adopt":
+		let c = commandAdopt()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "work adopt"}, slices.Slice(args, 1, len(args)))
+		try c.Build(v)
+	case "adopt-rift":
+		let c = commandAdoptRift()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "work adopt-rift"}, slices.Slice(args, 1, len(args)))
+		try c.Build(v)
+	case "list":
+		let c = commandList()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "work list"}, slices.Slice(args, 1, len(args)))
+		try c.Build(v)
+	case "rm":
+		let c = commandRm()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "work rm"}, slices.Slice(args, 1, len(args)))
+		try c.Build(v)
+	case "gc":
+		let c = commandGc()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "work gc"}, slices.Slice(args, 1, len(args)))
+		try c.Build(v)
+	case "du":
+		let c = commandDu()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "work du"}, slices.Slice(args, 1, len(args)))
+		try c.Build(v)
+	case "ready":
+		let c = commandReady()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "work ready"}, slices.Slice(args, 1, len(args)))
+		try c.Build(v)
+	case "sync":
+		let c = commandSync()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "work sync"}, slices.Slice(args, 1, len(args)))
+		try c.Build(v)
+	case "env":
+		let c = commandEnv()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "work env"}, slices.Slice(args, 1, len(args)))
+		try c.Build(v)
+	case "merge-file":
+		let c = commandMergeFile()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "work merge-file"}, slices.Slice(args, 1, len(args)))
+		try c.Build(v)
+	case "merge-folders":
+		let c = commandMergeFolders()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "work merge-folders"}, slices.Slice(args, 1, len(args)))
+		try c.Build(v)
+	case "derive":
+		let c = commandDerive()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "work derive"}, slices.Slice(args, 1, len(args)))
+		try c.Build(v)
+	case "deps":
+		let c = commandDeps()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "work deps"}, slices.Slice(args, 1, len(args)))
+		try c.Build(v)
+	case "trust":
+		let c = commandTrust()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "work trust"}, slices.Slice(args, 1, len(args)))
+		try c.Build(v)
+	case "doctor":
+		let c = commandDoctor()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "work doctor"}, slices.Slice(args, 1, len(args)))
+		try c.Build(v)
+	case "plugin-test":
+		let c = commandPluginTest()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "work plugin-test"}, slices.Slice(args, 1, len(args)))
+		try c.Build(v)
+	case "refresh":
+		let c = commandRefresh()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "work refresh"}, slices.Slice(args, 1, len(args)))
+		try c.Build(v)
+	case "bases":
+		let c = commandBases()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "work bases"}, slices.Slice(args, 1, len(args)))
+		try c.Build(v)
+	case "shell-init":
+		let c = commandShellInit()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "work shell-init"}, slices.Slice(args, 1, len(args)))
+		try c.Build(v)
+	case "import-rift":
+		let c = commandImportRift()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "work import-rift"}, slices.Slice(args, 1, len(args)))
+		try c.Build(v)
+	case _:
+		try flag.ParseCommand("work", "work.Api on a command line", Commands(), args)
+	}
 }
 
 // Print is a command line that Parse reads as r again: the command,
