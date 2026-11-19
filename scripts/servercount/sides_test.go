@@ -24,7 +24,7 @@ func needsBuild(t testing.TB) {
 // the bytes three server binaries send over a socket, which no in-process
 // check of the lowered Go sees. Mutants servercount-control-listing-order
 // (the control lists the catalog in another order) and
-// servercount-floor-no-body-limit (the floor keeps an over-long pin)
+// servercount-floor-no-body-limit (the floor keeps a pin whose body is too long)
 // survive every other test. A failing seed replays with
 // SERVERCOUNT_SEED=N go test -run TestSidesAnswerAsTheModel ./scripts/servercount.
 func TestSidesAnswerAsTheModel(t *testing.T) {
