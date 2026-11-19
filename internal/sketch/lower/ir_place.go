@@ -97,6 +97,16 @@ func (b *irBuilder) store(s *syntax.AssignStmt, op string) []*irStmt {
 	if len(pre) > 0 && (op != "" || !b.fixed(lhs)) {
 		irNo("store to a place a value with statements may move")
 	}
+	if t := b.l.info.Types[lhs]; op == "*" && roundsFloat(t) {
+		// p *= v of floats is p = T(p * v): the product rounds
+		// (ir_float.go). p is read twice, so it must be a place no
+		// evaluation moves.
+		if to.K == "mapAt" || !b.fixed(lhs) {
+			irNo("float product op-assignment to a place that is not fixed")
+		}
+		p := b.pos(s, s.Pos())
+		return append(pre, &irStmt{K: "store", Pos: p, X: to, Y: b.rounded(s, nil, t, &irExpr{K: "bin", Pos: p, Op: op, X: b.expr(lhs), Y: x})})
+	}
 	return append(pre, &irStmt{K: "store", Pos: b.pos(s, s.Pos()), X: to, Y: x, Op: op})
 }
 
