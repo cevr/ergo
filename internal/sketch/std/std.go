@@ -31,7 +31,7 @@ import (
 //go:embed rand/*.ergo
 //go:embed sync/*.ergo
 //go:embed embed/*.ergo
-//go:embed atomic/*.ergo
+//go:embed atomic/*.ergo pace/*.ergo
 //go:embed arena/*.ergo dense/*.ergo
 //go:embed ui/*.ergo
 //go:embed text/*.ergo
