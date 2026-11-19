@@ -496,7 +496,7 @@ func ticksFollow(seed int, steps int, m time.Manual) bool needs Scheduler {
 			return false
 		}
 		let s = StateOf(&h)
-		if s != model.app || Frames(&h) != model.frames || Now(&h).Sub(start) != model.since || WantsFrames(&h) != (model.app.left > 0) || !SameShapes(Screen(&h), freshShape(spinView, s)) {
+		if s != model.app || h.Frames() != model.frames || Now(&h).Sub(start) != model.since || WantsFrames(&h) != (model.app.left > 0) || !SameShapes(Screen(&h), freshShape(spinView, s)) {
 			return false
 		}
 	}
@@ -537,7 +537,7 @@ func advanceTakes(n int, m time.Manual) bool needs Scheduler {
 			return false
 		}
 	}
-	Posted(&h) <= 1 && Frames(&h) == frames
+	Posted(&h) <= 1 && h.Frames() == frames
 }
 
 // pad is the state of the input app: whether its dialog is open, the

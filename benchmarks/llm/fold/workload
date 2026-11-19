@@ -1,0 +1,10 @@
+# scripts/opcount: `llmbench bench fold N` folds N text deltas, in replies
+# of 64, with llm.Fold (wf10 L1); the cost of one delta is the slope
+# between the two sizes. The control is hand Go: the same deltas as a
+# tagged struct, folded by a switch that appends each text to one buffer.
+# The floor appends each word straight to the buffer: no delta value.
+unit delta
+sizes 409600 2457600
+args bench fold {n}
+control benchmarks/llm/testdata/control
+floor benchmarks/llm/testdata/floor

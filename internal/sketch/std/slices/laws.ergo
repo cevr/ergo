@@ -1,5 +1,6 @@
 // The algebra of package slices (docs/spec/stdlib.md, Std laws). Each law
-// is stated at []int: a top-level law takes no type parameter. The ledger
+// is stated at []int, but for the fusion laws: a rewrite law over function
+// parameters takes type parameters of its own (types.md, Laws 14). The ledger
 // names the Go test that runs each one until #162.
 
 // tagged is an element and its index in the slice it came from: the
@@ -274,3 +275,22 @@ law LenAndAtReadItems(xs []int) {
 	}
 	ok
 }
+
+// The fusion laws (owner q234, "Extend laws"; types.md, Laws 14, Over
+// function parameters): a Transform or a Filter that meets another is
+// one loop. Each is a rewrite law over pure function parameters: a build
+// places its right side at a site the evidence admits, under v1.FuseOr,
+// which runs the left side again on a defect, so the staged form's
+// defect is the one raised.
+
+// TransformFuses: two Transforms are one, of the composed function.
+law TransformFuses[T, U, V comparable](xs []T, f func(x T) U, g func(x U) V) { Transform(Transform(xs, f), g) } == { Transform(xs, func(x T) V { g(f(x)) }) }
+
+// FilterFuses: two Filters are one, of both predicates.
+law FilterFuses[T comparable](xs []T, p func(x T) bool, q func(x T) bool) { Filter(Filter(xs, p), q) } == { Filter(xs, func(x T) bool { p(x) && q(x) }) }
+
+// TransformThenFilter: a Filter of a Transform is one loop.
+law TransformThenFilter[T, U comparable](xs []T, f func(x T) U, p func(x U) bool) { Filter(Transform(xs, f), p) } == { TransformFilter(xs, f, p) }
+
+// FilterThenTransform: a Transform of a Filter is one loop.
+law FilterThenTransform[T, U comparable](xs []T, p func(x T) bool, f func(x T) U) { Transform(Filter(xs, p), f) } == { FilterTransform(xs, p, f) }

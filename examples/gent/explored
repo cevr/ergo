@@ -1,0 +1,7 @@
+# The explore leg searches these tests' schedules (scripts/examples, explored.go).
+# Keys and the model's deltas reach the one draw loop in any order: every
+# frame painted is the frame of a committed state and a typed line
+# (testdata/mutants.json: "gent-e1-draw-from-key-task"). A dfs search with
+# one preemption ran 10,000 schedules with no failure but takes minutes;
+# the leg samples schedules at random.
+cmd/gent DrawsOnlyStatesThatExisted --explore random --schedules 300

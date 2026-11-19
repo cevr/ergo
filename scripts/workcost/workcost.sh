@@ -11,7 +11,7 @@
 #   S       a scratch folder on btrfs; S/src/TREE is the source, a btrfs
 #           subvolume holding a Git checkout
 #   CNT     the cnt binary (go build ./scripts/workcost/cnt)
-#   WORK    the work binary; NPMWORK the bin of an installed @cevr/work
+#   WORK    the work binary; NPMWORK the bin of an installed @cvr/work
 #   RIFT    Rift's npm wrapper (rift); RN Rift's native binary
 #   CAP     the most 30-second waits for a 1-minute load under 48 (20)
 #
