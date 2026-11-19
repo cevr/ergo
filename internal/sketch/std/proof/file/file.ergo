@@ -133,7 +133,7 @@ func step(s Store, op proof.Op) proof.Outcome fails proof.Failed {
 
 // Issue keeps a proof under id.
 func Issue(s Store, id string, d proof.Digest, expires time.Time, attempts int) fails proof.Conflict | proof.Failed {
-	match try apply(s, proof.Issue{ID: id, Digest: d, Expires: expires, Attempts: attempts}) {
+	match try apply(s, proof.IssueOp{ID: id, Digest: d, Expires: expires, Attempts: attempts}) {
 	case proof.Refused:
 		return proof.Conflict
 	case _:
@@ -142,7 +142,7 @@ func Issue(s Store, id string, d proof.Digest, expires time.Time, attempts int) 
 
 // Redeem spends the proof under id.
 func Redeem(s Store, id string, d proof.Digest, now time.Time) fails proof.Unknown | proof.Expired | proof.Spent | proof.TooManyAttempts | proof.Wrong | proof.Failed {
-	match try apply(s, proof.Redeem{ID: id, Digest: d, Now: now}) {
+	match try apply(s, proof.RedeemOp{ID: id, Digest: d, Now: now}) {
 	case proof.Redeemed:
 	case proof.Missing:
 		return proof.Unknown
@@ -161,7 +161,7 @@ func Redeem(s Store, id string, d proof.Digest, now time.Time) fails proof.Unkno
 
 // Claim marks key used until until.
 func Claim(s Store, key string, until time.Time, now time.Time) fails proof.Spent | proof.Failed {
-	match try apply(s, proof.Claim{Key: key, Until: until, Now: now}) {
+	match try apply(s, proof.ClaimOp{Key: key, Until: until, Now: now}) {
 	case proof.Used:
 		return proof.Spent
 	case _:
@@ -318,11 +318,11 @@ func timeText(t time.Time) string { "\(time.UnixSeconds(t))\t\(time.Nanosecond(t
 // lineOf is the log line of op, with its line feed.
 func lineOf(op proof.Op) string {
 	match op {
-	case proof.Issue as i:
+	case proof.IssueOp as i:
 		"iss\t" + strconv.Quote(i.ID) + "\t" + proof.DigestText(i.Digest) + "\t" + timeText(i.Expires) + "\t\(i.Attempts)\n"
-	case proof.Redeem as r:
+	case proof.RedeemOp as r:
 		"red\t" + strconv.Quote(r.ID) + "\t" + proof.DigestText(r.Digest) + "\t" + timeText(r.Now) + "\n"
-	case proof.Claim as c:
+	case proof.ClaimOp as c:
 		"clm\t" + strconv.Quote(c.Key) + "\t" + timeText(c.Until) + "\t" + timeText(c.Now) + "\n"
 	}
 }
@@ -333,11 +333,11 @@ func opOf(path string, n int, line string) proof.Op fails proof.Failed {
 	let bad = proof.Failed{Reason: "\(path):\(n): not a change"}
 	match (f[0], len(f)) {
 	case ("iss", 6):
-		proof.Issue{ID: try unquote(f[1], bad), Digest: try digestOf(f[2], bad), Expires: try timeOf(f[3], f[4], bad), Attempts: try intOf(f[5], bad)}
+		proof.IssueOp{ID: try unquote(f[1], bad), Digest: try digestOf(f[2], bad), Expires: try timeOf(f[3], f[4], bad), Attempts: try intOf(f[5], bad)}
 	case ("red", 5):
-		proof.Redeem{ID: try unquote(f[1], bad), Digest: try digestOf(f[2], bad), Now: try timeOf(f[3], f[4], bad)}
+		proof.RedeemOp{ID: try unquote(f[1], bad), Digest: try digestOf(f[2], bad), Now: try timeOf(f[3], f[4], bad)}
 	case ("clm", 6):
-		proof.Claim{Key: try unquote(f[1], bad), Until: try timeOf(f[2], f[3], bad), Now: try timeOf(f[4], f[5], bad)}
+		proof.ClaimOp{Key: try unquote(f[1], bad), Until: try timeOf(f[2], f[3], bad), Now: try timeOf(f[4], f[5], bad)}
 	case (_, _):
 		bad
 	}

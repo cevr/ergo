@@ -239,7 +239,7 @@ func Outbox(r Recorder) []Sent { sync.Modify(r.sent, func(s []Sent) ([]Sent, []S
 
 // Op is one change of a store, as a value: the log of proof/file keeps
 // them, and Apply runs them.
-type Op = Issue{ID string, Digest Digest, Expires time.Time, Attempts int} | Redeem{ID string, Digest Digest, Now time.Time} | Claim{Key string, Until time.Time, Now time.Time}
+type Op = IssueOp{ID string, Digest Digest, Expires time.Time, Attempts int} | RedeemOp{ID string, Digest Digest, Now time.Time} | ClaimOp{Key string, Until time.Time, Now time.Time}
 
 // Outcome is what Apply of an Op gave.
 type Outcome = Kept{} | Refused{} | Redeemed{} | Missing{} | Late{} | Used{} | Exhausted{} | Mismatch{Left int}
@@ -259,13 +259,13 @@ func Empty() State { State{proofs: Map[string, pending]{}, claims: Map[string, t
 func Apply(s State, op Op) (Outcome, State, bool) {
 	let mut st = s
 	match op {
-	case Issue as i:
+	case IssueOp as i:
 		if st.proofs.Get(i.ID) != None {
 			return (Refused, st, false)
 		}
 		st.proofs[i.ID] = pending{digest: i.Digest, expires: i.Expires, left: i.Attempts, spent: false}
 		(Kept, st, true)
-	case Redeem as r:
+	case RedeemOp as r:
 		match st.proofs.Get(r.ID) {
 		case None:
 			(Missing, st, false)
@@ -287,7 +287,7 @@ func Apply(s State, op Op) (Outcome, State, bool) {
 			st.proofs[r.ID] = pending{digest: p.digest, expires: p.expires, left: p.left, spent: true}
 			(Redeemed, st, true)
 		}
-	case Claim as c:
+	case ClaimOp as c:
 		match st.claims.Get(c.Key) {
 		case Some[time.Time] as until:
 			if c.Now.Before(until.Value) {
