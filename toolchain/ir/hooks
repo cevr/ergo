@@ -11,5 +11,13 @@
 # edits its line and says why; one that shrinks or drops one updates it.
 #
 # file | +added -deleted | the hunk's first changed line | why gc must call us there
+src/cmd/compile/internal/gc/compile.go | +1 -0 | "cmd/compile/internal/noder" | the import of noder, whose ErgoShared set enqueueFunc reads (MONO-SHARED)
+src/cmd/compile/internal/gc/compile.go | +4 -0 | if noder.ErgoShared[fn] { | a generic instance that another package of the Ergo program compiles (the IR file's shared list) is not compiled again here: without it every package compiles its instances and the linker keeps one (DUPOK) (MONO-SHARED)
+src/cmd/compile/internal/noder/reader.go | +6 -0 | if dict.hasTypeParams() { | the reader notes each instance a body uses and each it builds (ergoUse, ergoBuild in noder/ergoshared.go), the only place an instance's symbol meets its dictionary (MONO-SHARED)
+src/cmd/compile/internal/noder/reader.go | +2 -2 | todoDicts = append(todoDicts, func() { | a function instance's shaped object is built late; ergoTag ties that work to the instance's base symbol, so a shared instance's shaped body is skipped with it (MONO-SHARED)
+src/cmd/compile/internal/noder/reader.go | +2 -2 | todoDicts = append(todoDicts, func() { | the same for a type instance's shaped object (MONO-SHARED)
+src/cmd/compile/internal/noder/reader.go | +3 -0 | if r.hasTypeParams() { | a top-level instance body is tied to its base symbol (ergoBody) when it is queued (MONO-SHARED)
+src/cmd/compile/internal/noder/unified.go | +1 -0 | ergoSharedMark() | after the package's bodies are read, the instances the IR file shares are marked in ErgoShared for enqueueFunc (MONO-SHARED)
+src/cmd/compile/internal/noder/unified.go | +2 -0 | done := ergoRead(fn, len(pri.dict.targs) != 0) | each instance body read is bracketed, so the instances it pulls in are attributed to it (MONO-SHARED)
 src/cmd/compile/internal/noder/unified.go | +1 -0 | ergoStub(m, pkg, info, noders) | the one call into the reader: after types2 checked the package and before the unified writer encodes it, the IR bodies are attached as typed syntax and the text and shape views are written (ergoStub, noder/ergoir_hook.go, calls package ergoir's Stub; the -ergoir flags are registered in ergoir/ergoir_flags.go: PATCH-MIN M1, M2 and M4)
-total +1 -0
+total +22 -4
