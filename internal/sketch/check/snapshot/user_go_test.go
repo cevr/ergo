@@ -1,10 +1,11 @@
-package check_test
+package snapshot_test
 
 import (
 	"fmt"
 	"testing"
 
 	"ergo.local/prototype/internal/sketch/check"
+	"ergo.local/prototype/internal/sketch/check/snapshot"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -33,7 +34,7 @@ func TestUserExportCarriesGoImports(t *testing.T) {
 	if len(ds) > 0 {
 		t.Fatal(ds)
 	}
-	u, err := check.NewUserExport(imp)
+	u, err := snapshot.NewUserExport(imp)
 	if err != nil {
 		t.Fatal(err)
 	}

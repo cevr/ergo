@@ -1,4 +1,22 @@
-package check
+// Package snapshot is the checked std snapshot (CHK1b): the universe, the
+// prelude and every std package as the checker leaves them, in a binary
+// form a later process installs instead of checking std from source. The
+// codec is generated (codec_gen.go and syntax's codec_gen.go,
+// internal/sketch/exportgen); this file holds its primitives, the
+// snapshot's root and the install. The bytes are only valid for the
+// compiler that wrote them: the caller keys them on the compiler's
+// identity, whose bytes embed the std sources (internal/sketchfront,
+// stdcache.go), and a snapshot that does not decode is refused, never half
+// installed.
+//
+// It is a package of its own (SELF-CODEC), not a part of package check:
+// the codec is a third of check's compile, and only sketchfront uses it,
+// so out of check it compiles beside the packages that import check
+// instead of before them, off the critical path of ergo's own build
+// (research GRAPH-PERF, SELF-SPLIT). The codec reaches check's unexported
+// names through check's codec_access_gen.go; check reaches an installed
+// snapshot through check.SnapshotSource.
+package snapshot
 
 import (
 	"bytes"
@@ -14,33 +32,10 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/reflectread"
-	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
-
-// The checked std snapshot (CHK1b): the universe, the prelude and every std
-// package as the checker leaves them, in a binary form a later process
-// installs instead of checking std from source. The codec is generated
-// (export_gen.go and syntax's codec_gen.go, internal/sketch/exportgen);
-// this file holds its primitives, the snapshot's root and the install.
-// The bytes are only valid for the compiler that wrote them: the caller
-// keys them on the compiler's identity, whose bytes embed the std sources
-// (internal/sketchfront, stdcache.go), and a snapshot that does not decode
-// is refused, never half installed.
-
-// stdBase is the first segment of the export: the process-wide state that
-// universe and prelude hold, and the id counter after every std package is
-// checked.
-type stdBase struct {
-	universe  *Scope
-	errorName *TypeName
-	goPkg     *Package
-	ref       *Named
-	any       *Named // go.Any (GB2)
-	prelude   preludeResult
-	nextID    int
-}
 
 // stdSnapshot is the export: the base, then every std package, each a
 // segment of its own, in an order where a package comes after the
@@ -50,9 +45,9 @@ type stdBase struct {
 // decodes only the std its imports reach, as Go's importer reads the
 // export data of each imported package).
 type stdSnapshot struct {
-	base     *stdBase
+	base     *check.Codec_stdBase
 	paths    []string
-	packages []*Package
+	packages []*check.Package
 }
 
 // ExportStd checks the prelude and every std package (from source, unless
@@ -62,12 +57,13 @@ type stdSnapshot struct {
 func ExportStd() ([]byte, error) { return ExportSnapshot(nil, nil) }
 
 // ExportSnapshot is ExportStd with the checked packages pkgs of required
-// modules after std, pkgs[i] a segment named keys[i] (ModuleSegment), in
-// an order where a package follows the packages it imports (NP5: std is
+// modules after std, pkgs[i] a segment named keys[i] (check.ModuleSegment),
+// in an order where a package follows the packages it imports (NP5: std is
 // the toolchain's module, and a required module, read-only and named by
 // its content hash, gets the same snapshot). A package must be checked
-// with ModuleImporter, which the codec carries, and declare no derive.
-func ExportSnapshot(pkgs []*Package, keys []string) ([]byte, error) {
+// with check.ModuleImporter, which the codec carries, and declare no
+// derive.
+func ExportSnapshot(pkgs []*check.Package, keys []string) ([]byte, error) {
 	if len(pkgs) != len(keys) {
 		return nil, fmt.Errorf("check: %d packages for %d segment keys", len(pkgs), len(keys))
 	}
@@ -76,137 +72,19 @@ func ExportSnapshot(pkgs []*Package, keys []string) ([]byte, error) {
 		switch {
 		case pkg == nil || pkg.Std():
 			return nil, fmt.Errorf("check: segment %q is not a checked module package", keys[i])
-		case segmentPackage(keys[i]) != pkg.Path || !strings.Contains(keys[i], "\x00") || seen[keys[i]]:
+		case check.SegmentPackage(keys[i]) != pkg.Path || !strings.Contains(keys[i], "\x00") || seen[keys[i]]:
 			return nil, fmt.Errorf("check: %q is not the one segment key of package %s", keys[i], pkg.Path)
 		case !pkg.Derive.Empty():
 			return nil, fmt.Errorf("check: package %s has a derive record, which a snapshot does not carry", pkg.Path)
 		}
 		seen[keys[i]] = true
 	}
-	prelude()
-	for _, path := range stdlib.Packages() {
-		if _, err := Std.Import(path); err != nil {
-			return nil, err
-		}
-	}
-	s, err := stdSnapshotNow(pkgs, keys)
+	base, paths, packages, err := check.StdSnapshotNow()
 	if err != nil {
 		return nil, err
 	}
+	s := &stdSnapshot{base: base, paths: append(paths, keys...), packages: append(packages, pkgs...)}
 	return encodeSnapshot(s)
-}
-
-// stdSnapshotNow is the export of std as this process holds it, checked,
-// with the module packages pkgs after it, pkgs[i] the segment keys[i]
-// (ExportSnapshot).
-func stdSnapshotNow(pkgs []*Package, keys []string) (*stdSnapshot, error) {
-	imp := Std.(*stdImporter)
-	s := &stdSnapshot{base: &stdBase{
-		universe:  universeOnce.scope,
-		errorName: universeOnce.errorName,
-		goPkg:     universeOnce.goPkg,
-		ref:       universeOnce.ref,
-		any:       universeOnce.any,
-		prelude:   preludeOnce.r,
-	}}
-	// The order the packages became available is an order where every
-	// package follows its imports.
-	imp.mu.Lock()
-	for _, path := range imp.order {
-		s.paths = append(s.paths, path)
-		s.packages = append(s.packages, imp.entries[path].pkg)
-	}
-	imp.mu.Unlock()
-	// The codec carries no derive record (exportgen skipFields): a std
-	// package that declared a plan function or a derive would lose it.
-	for i, pkg := range append([]*Package{preludeOnce.r.pkg}, s.packages...) {
-		if pkg != nil && !pkg.Derive.Empty() {
-			name := stdlib.PreludePath
-			if i > 0 {
-				name = s.paths[i-1]
-			}
-			return nil, fmt.Errorf("check: std package %s has a derive record, which the std snapshot does not carry", name)
-		}
-	}
-	s.paths = append(s.paths, keys...)
-	s.packages = append(s.packages, pkgs...)
-	nextID.Lock()
-	s.base.nextID = nextID.n
-	nextID.Unlock()
-	return s, nil
-}
-
-// ModuleSegment is the segment key of the package at path of a required
-// module, module naming the module's version and content hash: no std
-// path holds the separator, so a module segment never serves std, and a
-// segment of another version or content is another key.
-func ModuleSegment(path, module string) string { return path + "\x00" + module }
-
-// segmentPackage is the package path of a segment key.
-func segmentPackage(key string) string {
-	if i := strings.IndexByte(key, 0); i >= 0 {
-		return key[:i]
-	}
-	return key
-}
-
-// InstalledPackage is the module package of segment key (ModuleSegment)
-// in the snapshot this process installed, decoded with the segments it
-// names, and whether the snapshot holds it and it decodes. The caller
-// checks the package from source otherwise. Work.ModulePackagesDecoded
-// counts each module segment decoded.
-func InstalledPackage(key string) (*Package, bool) {
-	if !strings.Contains(key, "\x00") {
-		return nil, false
-	}
-	imp := Std.(*stdImporter)
-	imp.mu.Lock()
-	snap := imp.snap
-	imp.mu.Unlock()
-	if snap == nil {
-		return nil, false
-	}
-	return snap.load(key, imp.decoded)
-}
-
-// ModuleImporter wraps the importer a required module's package is checked
-// with, so the package can go into a snapshot (ExportSnapshot): the codec
-// carries the wrapper and not the importer, which serves the check alone
-// (a checked package imports nothing later). A package decoded from a
-// snapshot is never checked again; its wrapper imports nothing.
-func ModuleImporter(imp interface {
-	GoImporter
-	EmbedImporter
-}) Importer {
-	return &moduleImporter{next: imp}
-}
-
-type moduleImporter struct {
-	next interface {
-		GoImporter
-		EmbedImporter
-	}
-}
-
-func (m *moduleImporter) Import(path string) (*Package, error) {
-	if m.next == nil {
-		return nil, fmt.Errorf("check: a package decoded from a snapshot imports nothing (%s)", path)
-	}
-	return m.next.Import(path)
-}
-
-func (m *moduleImporter) GoBindings() *GoBindings {
-	if m.next == nil {
-		return NewGoBindings(nil)
-	}
-	return m.next.GoBindings()
-}
-
-func (m *moduleImporter) ResolveEmbed(file *syntax.File, pattern string, tree bool) ([]EmbedFile, error) {
-	if m.next == nil {
-		return nil, fmt.Errorf("a package decoded from a snapshot embeds nothing")
-	}
-	return m.next.ResolveEmbed(file, pattern, tree)
 }
 
 // snapshotMagic opens a snapshot, so a file of another format is refused.
@@ -267,11 +145,11 @@ func encodeSnapshot(s *stdSnapshot) (out []byte, err error) {
 	}
 	// Each segment first reaches its files, so its syntax ids follow the
 	// trees, and a map keyed by nodes is written in tree order
-	// (export_order.go).
-	reach := func(pkg *Package) {
+	// (order.go).
+	reach := func(pkg *check.Package) {
 		if pkg != nil {
-			for _, f := range pkg.files {
-				e.nodes.Reach(f.syntax)
+			for _, f := range pkg.Files() {
+				e.nodes.Reach(f)
 			}
 			// Then the declarations the checker made (an inline variant's,
 			// whose type parameters are a copy of its union's), in the
@@ -284,7 +162,7 @@ func encodeSnapshot(s *stdSnapshot) (out []byte, err error) {
 			}
 		}
 	}
-	write("", func() { reach(s.base.prelude.pkg); e.encPtrstdBase(s.base) })
+	write("", func() { reach(check.BasePrelude(s.base)); e.encPtrstdBase(s.base) })
 	for i, pkg := range s.packages {
 		write(s.paths[i], func() { reach(pkg); e.encPtrPackage(pkg) })
 	}
@@ -318,49 +196,25 @@ func encodeSnapshot(s *stdSnapshot) (out []byte, err error) {
 	return buf, nil
 }
 
-// ErrInstalled refuses a snapshot after this process has built its
-// universe: the checked state is already in use.
-var ErrInstalled = fmt.Errorf("check: the universe is already built; a std snapshot installs only before the first check")
-
 // InstallStd reads a snapshot ExportStd wrote, of size bytes, from r: it
 // reads the header and decodes the base and makes it this process's
-// universe and prelude, and lets Std read and decode each std package on
-// its first import, so no std package is checked from source and a check
-// reads only the segments its imports reach (CHK1c: memory, like work,
-// grows with the imports, never with the std). r must stay readable and
-// unchanged while the process checks: the compiler passes the open file,
-// which a later rename of the cache file does not change. It must run
-// before the first check; after it, or on a snapshot whose header or base
-// does not decode, it returns an error and changes nothing. A package
-// segment that does not read or decode later is checked from source, with
-// every segment that names it.
+// universe and prelude, and lets check.Std read and decode each std
+// package on its first import, so no std package is checked from source
+// and a check reads only the segments its imports reach (CHK1c: memory,
+// like work, grows with the imports, never with the std). r must stay
+// readable and unchanged while the process checks: the compiler passes the
+// open file, which a later rename of the cache file does not change. It
+// must run before the first check; after it (check.ErrInstalled), or on a
+// snapshot whose header or base does not decode, it returns an error and
+// changes nothing. A package segment that does not read or decode later is
+// checked from source, with every segment that names it.
 func InstallStd(r io.ReaderAt, size int64) error {
 	growStack(0)
 	snap, base, err := openSnapshot(r, size)
 	if err != nil {
 		return err
 	}
-	installed := false
-	universeOnce.Do(func() {
-		installed = true
-		universeOnce.scope = base.universe
-		universeOnce.errorName = base.errorName
-		universeOnce.goPkg = base.goPkg
-		universeOnce.ref = base.ref
-		universeOnce.any = base.any
-	})
-	if !installed {
-		return ErrInstalled
-	}
-	preludeOnce.Do(func() { preludeOnce.r = base.prelude })
-	imp := Std.(*stdImporter)
-	imp.mu.Lock()
-	imp.snap = snap
-	imp.mu.Unlock()
-	nextID.Lock()
-	nextID.n = max(nextID.n, base.nextID)
-	nextID.Unlock()
-	return nil
+	return check.InstallBase(base, snap)
 }
 
 // growStack grows the calling goroutine's stack in one step, while few
@@ -401,8 +255,11 @@ type snapshot struct {
 	// done[i] is set once segment i is decoded (pkgs[i] its package);
 	// failed[i] once it, or a segment it names, did not decode.
 	done, failed []bool
-	pkgs         []*Package
+	pkgs         []*check.Package
 }
+
+// BytesRead counts the bytes read from the snapshot (check.SnapshotSource).
+func (s *snapshot) BytesRead() int64 { return s.read.Load() }
 
 // objTable holds the decoded segments' objects by id.
 type objTable struct {
@@ -432,7 +289,7 @@ func (t *objTable) obj(id uint64) (any, bool) {
 // openSnapshot reads a snapshot's header and decodes its base. It reads
 // the header and the base alone; a package's segment is read when it is
 // decoded (need).
-func openSnapshot(src io.ReaderAt, size int64) (*snapshot, *stdBase, error) {
+func openSnapshot(src io.ReaderAt, size int64) (*snapshot, *check.Codec_stdBase, error) {
 	malformed := fmt.Errorf("check: malformed std snapshot")
 	s := &snapshot{r: src, byPath: map[string]int{}}
 	if size < 0 {
@@ -533,19 +390,20 @@ func openSnapshot(src io.ReaderAt, size int64) (*snapshot, *stdBase, error) {
 	s.nodes = syntax.NewNodeTable(nodeStarts)
 	s.done = make([]bool, len(s.segs))
 	s.failed = make([]bool, len(s.segs))
-	s.pkgs = make([]*Package, len(s.segs))
-	var base *stdBase
+	s.pkgs = make([]*check.Package, len(s.segs))
+	var base *check.Codec_stdBase
 	if err := s.decode(0, func(d *decoder) { base = d.decPtrstdBase() }); err != nil {
 		return nil, nil, err
 	}
 	return s, base, nil
 }
 
-// load returns the std package at path from the snapshot, decoding its
-// segment and the segments it names, or false when the snapshot does not
-// hold it or a segment does not decode (the caller checks it from source).
-// count receives each package segment decoded.
-func (s *snapshot) load(path string, count func(string)) (*Package, bool) {
+// Load returns the package of segment key path from the snapshot, decoding
+// its segment and the segments it names, or false when the snapshot does
+// not hold it or a segment does not decode (the caller checks it from
+// source). count receives each package segment decoded
+// (check.SnapshotSource).
+func (s *snapshot) Load(path string, count func(string)) (*check.Package, bool) {
 	i, ok := s.byPath[path]
 	if !ok {
 		return nil, false
@@ -574,7 +432,7 @@ func (s *snapshot) need(i int, count func(string)) bool {
 		}
 	}
 	err := s.decode(i, func(d *decoder) { s.pkgs[i] = d.decPtrPackage() })
-	if err != nil || s.pkgs[i] == nil || s.pkgs[i].Path != segmentPackage(s.segs[i].path) {
+	if err != nil || s.pkgs[i] == nil || s.pkgs[i].Path != check.SegmentPackage(s.segs[i].path) {
 		s.failed[i] = true
 		return false
 	}
@@ -681,27 +539,14 @@ func (r *headerReader) string() string {
 	return string(r.bytes(int(n)))
 }
 
-// ResetStdForTest forgets this process's universe, prelude, std packages
-// and id counter, so a test can check the same program from source and
-// from a snapshot in one process (the equality property of CHK1b). Only
-// tests call it, while no check runs; the compiler never does.
-func ResetStdForTest() {
-	universeOnce = universeState{}
-	preludeOnce = preludeState{}
-	Std = newStdImporter()
-	nextID.Lock()
-	nextID.n = 0
-	nextID.Unlock()
-}
-
 // exportError is a value the codec cannot carry, or malformed bytes.
 type exportError struct{ error }
 
 // externals are the process-wide singletons a snapshot names instead of
 // copying: the basic types, NoValue and the std importer.
 func externals() []any {
-	out := []any{NoValue, Std}
-	for _, b := range Typ {
+	out := []any{check.NoValue, check.Std}
+	for _, b := range check.Typ {
 		out = append(out, b)
 	}
 	return out
@@ -724,7 +569,7 @@ type encoder struct {
 	// symbolic, when set (UserExport), names an object of an earlier
 	// segment by its object path instead of its id (tag 4), when the
 	// segment's package may be checked again (compile-speed/cs5b.md §2).
-	symbolic func(seg int, v any) (objPath, bool)
+	symbolic func(seg int, v any) (string, bool)
 	// symbolicNode, when set (UserExport), names a syntax node of an
 	// earlier user segment by its node path (CS5b-4); every node
 	// reference then carries a tag (encoder.node).
@@ -803,7 +648,7 @@ func (e *encoder) ref(v any, isNil bool) bool {
 				if p, ok := e.symbolic(seg, v); ok {
 					e.uint(4)
 					e.uint(uint64(seg))
-					e.string(string(p))
+					e.string(p)
 					return true
 				}
 			}
@@ -904,11 +749,11 @@ type decoder struct {
 	table    *objTable
 	seg      int
 	start    uint64
-	checkers []*checker
+	checkers []*check.Codec_checker
 	// imports, when set (UserExport.Decode), is the current package of an
 	// earlier segment, in which a tag 4 reference's path resolves; paths
 	// caches the resolved paths, so one path is one object.
-	imports func(seg int) *Package
+	imports func(seg int) *check.Package
 	paths   map[pathRef]any
 	// userNodes reads node references in encoder.node's tagged form, and
 	// nodePaths resolves their node paths, one walk per file.
@@ -926,7 +771,7 @@ type nodeRef struct {
 // pathRef is a tag 4 reference: a segment and an object path in it.
 type pathRef struct {
 	seg  int
-	path objPath
+	path string
 }
 
 func (d *decoder) failf(format string, args ...any) {
@@ -961,20 +806,20 @@ func (d *decoder) ref() (any, bool) {
 	case 3:
 		return nil, true
 	case 4:
-		r := pathRef{seg: int(d.uint()), path: objPath(d.string())}
+		r := pathRef{seg: int(d.uint()), path: d.string()}
 		if x, ok := d.paths[r]; ok {
 			return x, false
 		}
-		var pkg *Package
+		var pkg *check.Package
 		if d.imports != nil {
 			pkg = d.imports(r.seg)
 		}
 		if pkg == nil {
 			d.failf("a path into segment %d, which has no current package", r.seg)
 		}
-		x, ok := resolvePath(pkg, r.path)
+		x, ok := check.ResolvePath(pkg, r.path)
 		if !ok {
-			d.failf("the path %s names nothing in %s", r.path, pkg.Path)
+			d.failf("the path %s names nothing in %s", check.PathString(r.path), pkg.Path)
 		}
 		if d.paths == nil {
 			d.paths = map[pathRef]any{}
@@ -989,26 +834,16 @@ func (d *decoder) ref() (any, bool) {
 // add records the object a fresh reference allocated.
 func (d *decoder) add(v any) {
 	d.refs = append(d.refs, v)
-	if c, ok := v.(*checker); ok {
+	if c, ok := v.(*check.Codec_checker); ok {
 		d.checkers = append(d.checkers, c)
 	}
 }
 
-// afterDecode rebuilds what the codec does not carry: each checker's type
-// table substitutes rows through its checker (newChecker), and starts its
-// memos empty (exportgen skipFields).
+// afterDecode rebuilds what the codec does not carry of each decoded
+// checker (check.RestoreChecker).
 func (d *decoder) afterDecode() {
 	for _, c := range d.checkers {
-		if c.types != nil {
-			c.types.substRow = c.substRow
-			c.types.of = map[Type]int32{}
-			c.types.foreign = map[*Row]*Row{}
-			c.types.resolved = map[*Row]*Row{}
-			c.types.varRows = map[*RowVar]*Row{}
-			c.types.scoped = map[Type]int32{}
-			c.types.scopedRows = map[*Row]*Row{}
-			c.types.scopedVarRows = map[*RowVar]*Row{}
-		}
+		check.RestoreChecker(c)
 	}
 }
 
@@ -1035,7 +870,7 @@ func (d *decoder) node() any {
 			if x, ok := d.nodeRefs[r]; ok {
 				return x
 			}
-			var pkg *Package
+			var pkg *check.Package
 			if d.imports != nil {
 				pkg = d.imports(r.seg)
 			}
