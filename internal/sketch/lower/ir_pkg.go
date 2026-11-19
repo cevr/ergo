@@ -713,7 +713,13 @@ func (b *irBuilder) hidden(body v1.Body, x *syntax.CallExpr, c *check.Call, p ir
 		case v1.CallerTask:
 			out = append(out, &irExpr{K: "field", Pos: p, Name: envTask, X: env})
 		case v1.CallerScheduler:
-			out = append(out, &irExpr{K: "field", Pos: p, Name: b.l.envField(schedulerCap(c, x)), X: env})
+			// The body takes the runtime's Sleeper, which the program's
+			// Scheduler interface implements: Go text assigns it, the
+			// decoder takes the parameter's type only, so the IR asserts
+			// it (PORT-CALLS-2: http.Serve's HTTPServe). The checker binds
+			// the provider at the call, so the field is never nil.
+			sched := &irExpr{K: "field", Pos: p, Name: b.l.envField(schedulerCap(c, x)), X: env}
+			out = append(out, &irExpr{K: "assert", Pos: p, T: b.spelling(b.l.rt() + ".Sleeper"), X: sched})
 		case v1.ReadingPackage:
 			if c.Func == nil || c.Func.Pkg == nil {
 				irNo("std call with hidden arguments: a context read without its package")
