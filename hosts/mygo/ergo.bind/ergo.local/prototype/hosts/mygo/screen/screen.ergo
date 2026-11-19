@@ -263,5 +263,8 @@ extern go ergo.local/prototype/hosts/mygo/screen.Window.Wake func (w own *Window
 // ergo:go func (*Window).Wheel(x float64, y float64, dx float64, dy float64)
 extern go ergo.local/prototype/hosts/mygo/screen.Window.Wheel func (w own *Window) Wheel(x float64, y float64, dx float64, dy float64) needs go.Foreign
 
+// ergo:go func (*Window).WritePNG(path string) error
+extern go ergo.local/prototype/hosts/mygo/screen.Window.WritePNG func (w own *Window) WritePNG(path string) fails go.Error needs go.Foreign
+
 // ergo:go const Woken untyped int
 extern go ergo.local/prototype/hosts/mygo/screen.Woken let Woken int
