@@ -1,0 +1,556 @@
+// Package session keeps who is signed in (docs/spec/stdlib.md, session).
+// A client holds a Token, a secret drawn from rand.Secure; a Store keeps
+// only its Digest, the SHA-256 of the token, with the session's Record:
+// the subject, the subject's security revision, when it began and when it
+// was last renewed. A Policy bounds a session three ways: it is renewed
+// (rotated to a new token) after RenewAfter, it ends when it is not
+// renewed within IdleTimeout, and it ends MaxAge after it began, renewed
+// or not. A security revision ends every session of a subject at once.
+//
+// Store is the contract. Its rules are one pure function, Apply, over a
+// State, and one pure Judge of a record; the providers live in packages
+// named after where they keep the state: session/memory in the process
+// and session/file in a log of the host. Start, Check, Refresh and End are
+// the calls a server makes, reading the context's time.Clock and
+// rand.Secure. Signed tokens (Sign, Open, Keyring) are the stateless
+// form: claims under an HMAC, verified with no store.
+//
+// Effect: no module of the pin keeps sessions; the shape is yielded/auth's
+// StatefulSessionPersistence (establish, verify, rotate, revoke,
+// revokeAll), with better-auth's renewal. Go: a map of token digests
+// under a mutex (gorilla/sessions, scs), each request one SHA-256 and one
+// map read.
+
+import hex
+import hmac
+import rand
+import sha256
+import strconv
+import strings
+import time
+
+// Failed is a store that could not keep or read its sessions: Reason is
+// the provider's text.
+type Failed { Reason string }
+
+// Conflict is a write the store refused: an Establish of a digest it
+// holds, or a Rotate of a session that is not live or to a digest it
+// holds. Of two rotations of one session, one wins and the other is a
+// Conflict.
+type Conflict {}
+
+// BadPolicy is a policy NewPolicy refuses.
+type BadPolicy { Reason string }
+
+// Token is the secret a client holds. Start makes one from 32 bytes of
+// rand.Secure; TokenOf reads one back from a cookie's text.
+type Token { text string }
+
+// TokenOf is the token whose text is text.
+func TokenOf(text string) Token { Token{text: text} }
+
+// Text is the text of t, for a cookie.
+func Text(t Token) string { t.text }
+
+// Digest is what a store keeps of a token: its SHA-256. A store holds no
+// Token: Establish takes a Digest.
+type Digest { sum string }
+
+// DigestOf is the digest of t.
+func DigestOf(t Token) Digest { Digest{sum: sha256.Sum(t.text)} }
+
+// DigestText is d in hex, for a store's log.
+func DigestText(d Digest) string { hex.Encode(d.sum) }
+
+// BadDigest is a text that is not a digest's hex.
+type BadDigest { Text string }
+
+// ParseDigest is the digest whose hex is text.
+func ParseDigest(text string) Digest fails BadDigest {
+	let sum = hex.Decode(text) catch {
+	case hex.Malformed:
+		return BadDigest{Text: text}
+	}
+	if len(sum) != 32 {
+		return BadDigest{Text: text}
+	}
+	Digest{sum: sum}
+}
+
+// Record is a session: its subject, the subject's revision when it began,
+// when it began, and when it was last renewed.
+type Record { Subject string, Revision int, Created time.Time, Renewed time.Time }
+
+// Policy bounds sessions; NewPolicy makes one.
+type Policy { renewAfter duration, idle duration, maxAge duration }
+
+// NewPolicy is the policy that renews a session renewAfter after its last
+// renewal, ends it idle after its last renewal, and ends it maxAge after
+// it began. It fails unless 0 < renewAfter < idle <= maxAge.
+func NewPolicy(renewAfter duration, idle duration, maxAge duration) Policy fails BadPolicy {
+	if renewAfter <= 0ns || renewAfter >= idle || idle > maxAge {
+		return BadPolicy{Reason: "want 0 < renewAfter < idle <= maxAge"}
+	}
+	Policy{renewAfter: renewAfter, idle: idle, maxAge: maxAge}
+}
+
+// Verdict is what a store says of a digest at a time: Valid, Renew (valid,
+// and due to be rotated to a new token), or Invalid (no session, ended,
+// revoked, or of an old revision).
+type Verdict = Valid{Record Record} | Renew{Record Record} | Invalid{}
+
+// Judge is the verdict on r at now under p, when floor is the subject's
+// lowest live revision.
+func Judge(p Policy, r Record, floor int, now time.Time) Verdict {
+	if r.Revision < floor || !now.Before(r.Created.Add(p.maxAge)) || !now.Before(r.Renewed.Add(p.idle)) {
+		return Invalid
+	}
+	if !now.Before(r.Renewed.Add(p.renewAfter)) {
+		return Renew{Record: r}
+	}
+	Valid{Record: r}
+}
+
+// Store keeps sessions by digest.
+type Store {
+	// Establish keeps a new session of subject at revision, begun at now,
+	// under d.
+	Establish(d Digest, subject string, revision int, now time.Time) fails Conflict | Failed,
+	// Verify is the verdict on the session under d at now.
+	Verify(d Digest, now time.Time) Verdict fails Failed,
+	// Rotate moves the live session under old to new, renewed at now, and
+	// is its record: old verifies no more.
+	Rotate(old Digest, new Digest, now time.Time) Record fails Conflict | Failed,
+	// Revoke ends the session under d; it is whether there was one.
+	Revoke(d Digest) bool fails Failed,
+	// RevokeAll ends every session of subject whose revision is below
+	// revision, and every one established later below it.
+	RevokeAll(subject string, revision int) fails Failed,
+
+	// VerifyAfterEstablish: a session just established verifies Valid,
+	// with its record.
+	law VerifyAfterEstablish(key string, subject string, revision int, sec int64) {
+		let d = DigestOf(TokenOf(key))
+		let now = time.Unix(sec, 0)
+		try Establish(d, subject, revision, now) catch {
+		case Conflict:
+			return true
+		}
+		try Verify(d, now) == Valid{Record: Record{Subject: subject, Revision: revision, Created: now, Renewed: now}}
+	},
+
+	// RevokedNeverVerifies: after Revoke, the digest verifies Invalid, a
+	// rotation of it is a Conflict, and a second Revoke finds nothing.
+	law RevokedNeverVerifies(key string, subject string, sec int64) {
+		let d = DigestOf(TokenOf(key))
+		let now = time.Unix(sec, 0)
+		try Establish(d, subject, 0, now) catch {
+		case Conflict:
+			return true
+		}
+		if !try Revoke(d) || try Verify(d, now) != Invalid {
+			return false
+		}
+		let _ = try Rotate(d, DigestOf(TokenOf(key + "'")), now) catch {
+		case Conflict:
+			return !try Revoke(d)
+		}
+		false
+	},
+
+	// RotateMovesTheSession: a rotation keeps the record with Renewed at
+	// now; the new digest verifies Valid, the old Invalid, and a second
+	// rotation of the old one is a Conflict.
+	law RotateMovesTheSession(key string, subject string, sec int64) {
+		let old = DigestOf(TokenOf(key))
+		let new = DigestOf(TokenOf(key + "'"))
+		let now = time.Unix(sec, 0)
+		try Establish(old, subject, 0, now) catch {
+		case Conflict:
+			return true
+		}
+		let r = try Rotate(old, new, now) catch {
+		case Conflict:
+			return false
+		}
+		if r != (Record{Subject: subject, Revision: 0, Created: now, Renewed: now}) || try Verify(new, now) != (Valid{Record: r}) || try Verify(old, now) != Invalid {
+			return false
+		}
+		let _ = try Rotate(old, DigestOf(TokenOf(key + "''")), now) catch {
+		case Conflict:
+			return true
+		}
+		false
+	},
+
+	// RevisionEndsEverySession: RevokeAll(subject, revision) ends the
+	// sessions of subject below revision, also one established after it,
+	// and keeps one at revision.
+	law RevisionEndsEverySession(key string, subject string, revision int, sec int64) {
+		let now = time.Unix(sec, 0)
+		let rev = ((revision%1000)+1000)%1000
+		let old = DigestOf(TokenOf(key + "old"))
+		let late = DigestOf(TokenOf(key + "late"))
+		let kept = DigestOf(TokenOf(key + "kept"))
+		try Establish(old, subject, rev, now) catch {
+		case Conflict:
+			return true
+		}
+		try RevokeAll(subject, rev + 1)
+		try Establish(late, subject, rev, now) catch {
+		case Conflict:
+			return true
+		}
+		try Establish(kept, subject, rev + 1, now) catch {
+		case Conflict:
+			return true
+		}
+		try Verify(old, now) == Invalid && try Verify(late, now) == Invalid && try Verify(kept, now) != Invalid
+	},
+}
+
+// Op is one change of a store, as a value: the log of session/file keeps
+// them, and Apply runs them.
+type Op = EstablishOp{Digest Digest, Subject string, Revision int, Now time.Time} | RotateOp{Old Digest, New Digest, Now time.Time} | RevokeOp{Digest Digest} | RevokeAllOp{Subject string, Revision int}
+
+// Outcome is what Apply of an Op gave.
+type Outcome = Kept{} | Moved{Record Record} | Refused{} | Ended{Held bool}
+
+// State is a store's sessions. Empty makes one; Apply changes it.
+type State { sessions Map[string, Record], floors Map[string, int] }
+
+// Empty is a store with no session.
+func Empty() State { State{sessions: Map[string, Record]{}, floors: Map[string, int]{}} }
+
+// VerifyIn is the verdict on the session under d in s at now under p.
+func VerifyIn(p Policy, s State, d Digest, now time.Time) Verdict {
+	match s.sessions.Get(d.sum) {
+	case Some[Record] as r:
+		Judge(p, r.Value, floorOf(s, r.Value.Subject), now)
+	case None:
+		Invalid
+	}
+}
+
+// floorOf is subject's lowest live revision in s.
+func floorOf(s State, subject string) int {
+	match s.floors.Get(subject) {
+	case Some[int] as f:
+		f.Value
+	case None:
+		-9223372036854775807 - 1
+	}
+}
+
+// liveOf is the record of a verdict that is not Invalid.
+func liveOf(v Verdict) Option[Record] {
+	match v {
+	case Valid as l:
+		Some[Record]{Value: l.Record}
+	case Renew as l:
+		Some[Record]{Value: l.Record}
+	case Invalid:
+		None
+	}
+}
+
+// Apply runs op on s under p: the outcome, the state after it, and
+// whether the state changed.
+func Apply(p Policy, s State, op Op) (Outcome, State, bool) {
+	let mut st = s
+	match op {
+	case EstablishOp as e:
+		if st.sessions.Get(e.Digest.sum) != None {
+			return (Refused, st, false)
+		}
+		st.sessions[e.Digest.sum] = Record{Subject: e.Subject, Revision: e.Revision, Created: e.Now, Renewed: e.Now}
+		(Kept, st, true)
+	case RotateOp as r:
+		if st.sessions.Get(r.New.sum) != None {
+			return (Refused, st, false)
+		}
+		match liveOf(VerifyIn(p, st, r.Old, r.Now)) {
+		case Some[Record] as live:
+			let moved = Record{Subject: live.Value.Subject, Revision: live.Value.Revision, Created: live.Value.Created, Renewed: r.Now}
+			st.sessions = st.sessions.Delete(r.Old.sum)
+			st.sessions[r.New.sum] = moved
+			(Moved{Record: moved}, st, true)
+		case None:
+			(Refused, st, false)
+		}
+	case RevokeOp as v:
+		if st.sessions.Get(v.Digest.sum) == None {
+			return (Ended{Held: false}, st, false)
+		}
+		st.sessions = st.sessions.Delete(v.Digest.sum)
+		(Ended{Held: true}, st, true)
+	case RevokeAllOp as a:
+		if a.Revision > floorOf(st, a.Subject) {
+			st.floors[a.Subject] = a.Revision
+		}
+		let mut gone = []string{}
+		for k, r in st.sessions {
+			if r.Subject == a.Subject && r.Revision < a.Revision {
+				gone = gone.Append(k)
+			}
+		}
+		for k in gone {
+			st.sessions = st.sessions.Delete(k)
+		}
+		(Ended{Held: len(gone) > 0}, st, true)
+	}
+}
+
+// Start begins a session of subject at revision: a new token of 32 bytes
+// of rand.Secure, whose digest s keeps.
+func Start(s Store, subject string, revision int) Token fails Conflict | Failed needs rand.Secure | time.Clock {
+	let t = Token{text: hex.Encode(rand.Secure.Bytes(32))}
+	try s.Establish(DigestOf(t), subject, revision, time.Clock.Now())
+	t
+}
+
+// Check is the verdict of s on t now.
+func Check(s Store, t Token) Verdict fails Failed needs time.Clock { try s.Verify(DigestOf(t), time.Clock.Now()) }
+
+// Refresh rotates the session of t to a new token, and is the new token:
+// the call a server makes when Check gives Renew.
+func Refresh(s Store, t Token) Token fails Conflict | Failed needs rand.Secure | time.Clock {
+	let next = Token{text: hex.Encode(rand.Secure.Bytes(32))}
+	let _ = try s.Rotate(DigestOf(t), DigestOf(next), time.Clock.Now())
+	next
+}
+
+// End ends the session of t; it is whether there was one.
+func End(s Store, t Token) bool fails Failed { try s.Revoke(DigestOf(t)) }
+
+// RenewalStaysUnderMaxAge: a session renewed whenever it is due, at
+// generated times, never verifies past MaxAge after it began, and always
+// verifies before IdleTimeout passes since its last renewal while under
+// MaxAge.
+law RenewalStaysUnderMaxAge(gaps []int) {
+	let p = NewPolicy(10ms, 30ms, 100ms) catch {
+	case BadPolicy:
+		return false
+	}
+	let start = time.Unix(0, 0)
+	let mut s = Empty()
+	let mut d = DigestOf(TokenOf("0"))
+	let (_, s0, _) = Apply(p, s, EstablishOp{Digest: d, Subject: "a", Revision: 0, Now: start})
+	s = s0
+	let mut now = start
+	let mut renewed = start
+	for i, g in gaps {
+		now = now.Add(time.Times(1ms, ((g%35)+35)%35))
+		let v = VerifyIn(p, s, d, now)
+		let over = !now.Before(start.Add(100ms)) || !now.Before(renewed.Add(30ms))
+		match v {
+		case Invalid:
+			if !over {
+				return false
+			}
+			return true
+		case Valid:
+			if over || !now.Before(renewed.Add(10ms)) {
+				return false
+			}
+		case Renew:
+			if over || now.Before(renewed.Add(10ms)) {
+				return false
+			}
+			let next = DigestOf(TokenOf("\(i + 1)"))
+			let (o, s1, _) = Apply(p, s, RotateOp{Old: d, New: next, Now: now})
+			s = s1
+			if o != (Moved{Record: Record{Subject: "a", Revision: 0, Created: start, Renewed: now}}) {
+				return false
+			}
+			d = next
+			renewed = now
+		}
+	}
+	true
+}
+
+// Key is one key of a Keyring: an ID that a signed token names, and a
+// secret of 32 bytes or more.
+type Key { ID string, Secret string }
+
+// Keyring signs with its current key and opens tokens of its current and
+// older keys, of its generation or later.
+type Keyring { current Key, older []Key, generation int }
+
+// BadKeyring is a keyring NewKeyring refuses.
+type BadKeyring { Reason string }
+
+// NewKeyring is the keyring that signs with current, also opens tokens of
+// older, and refuses tokens of a generation below generation. It fails
+// for a secret under 32 bytes, an empty ID or one with a dot, two keys of
+// one ID, and a generation below zero.
+func NewKeyring(current Key, older []Key, generation int) Keyring fails BadKeyring {
+	if generation < 0 {
+		return BadKeyring{Reason: "the generation is below zero"}
+	}
+	let all = []Key{current}.Concat(older)
+	for i, k in all {
+		if len(k.Secret) < 32 {
+			return BadKeyring{Reason: "key \(strconv.Quote(k.ID)): the secret is under 32 bytes"}
+		}
+		if k.ID == "" || strings.Contains(k.ID, ".") {
+			return BadKeyring{Reason: "key \(strconv.Quote(k.ID)): an ID is not empty and has no dot"}
+		}
+		for j in 0..i {
+			if all[j].ID == k.ID {
+				return BadKeyring{Reason: "key \(strconv.Quote(k.ID)) is there twice"}
+			}
+		}
+	}
+	Keyring{current: current, older: older, generation: generation}
+}
+
+// Claims is what a signed token says: its subject, when it expires (to
+// the second), and the generation it was signed in.
+type Claims { Subject string, Expires time.Time, Generation int }
+
+// Tampered is a signed token that is not one this keyring signed.
+type Tampered {}
+
+// Expired is a signed token past its expiry.
+type Expired { At time.Time }
+
+// Retired is a signed token of a generation the keyring no longer opens.
+type Retired { Generation int }
+
+// Sign is the token of subject until expires, under k's current key and
+// generation: KID.GEN.SUBJECT.SECONDS.MAC, the subject in hex and the MAC
+// the HMAC-SHA-256 of the four fields before it.
+func Sign(k Keyring, subject string, expires time.Time) string {
+	let body = k.current.ID + "." + strconv.Itoa(k.generation) + "." + hex.Encode(subject) + "." + strconv.FormatInt(time.UnixSeconds(expires), 10)
+	body + "." + hex.Encode(hmac.Sum(hmac.SHA256, k.current.Secret, body))
+}
+
+// Open is the claims of token at now: Tampered when no key of k signed it
+// as it is, Retired when its generation is below k's, Expired at or after
+// its expiry.
+func Open(k Keyring, token string, now time.Time) Claims fails Tampered | Expired | Retired {
+	let f = strings.Split(token, ".")
+	if len(f) != 5 {
+		return Tampered
+	}
+	let mut secret = ""
+	for key in []Key{k.current}.Concat(k.older) {
+		if key.ID == f[0] {
+			secret = key.Secret
+		}
+	}
+	let body = f[0] + "." + f[1] + "." + f[2] + "." + f[3]
+	let mac = hex.Decode(f[4]) catch {
+	case hex.Malformed:
+		return Tampered
+	}
+	if secret == "" || !hmac.Equal(mac, hmac.Sum(hmac.SHA256, secret, body)) {
+		return Tampered
+	}
+	let gen = strconv.Atoi(f[1]) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return Tampered
+	}
+	let subject = hex.Decode(f[2]) catch {
+	case hex.Malformed:
+		return Tampered
+	}
+	let sec = strconv.ParseInt(f[3], 10, 64) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return Tampered
+	}
+	if gen < k.generation {
+		return Retired{Generation: gen}
+	}
+	let expires = time.Unix(sec, 0)
+	if !now.Before(expires) {
+		return Expired{At: expires}
+	}
+	Claims{Subject: subject, Expires: expires, Generation: gen}
+}
+
+// ring is the keyring of the signed-token laws: key "k1" of 32 bytes made
+// from seed, older keys from older, at generation.
+func ring(id string, seed string, older []Key, generation int) Keyring {
+	NewKeyring(Key{ID: id, Secret: sha256.Sum(seed)}, older, generation) catch {
+	case BadKeyring:
+		Unreachable("a ring of the laws is good")
+	}
+}
+
+// expiredAt is whether token opens under k at at as Expired at at.
+func expiredAt(k Keyring, token string, at time.Time) bool {
+	let _ = Open(k, token, at) catch {
+	case Expired as e:
+		return e.At == at
+	case Tampered, Retired:
+		return false
+	}
+	false
+}
+
+// SignedTamperFails: a signed token opens to its claims before it
+// expires and is Expired at its expiry, and a token with any one byte
+// changed is Tampered.
+law SignedTamperFails(subject string, sec int64, at int, by int) {
+	let k = ring("k1", "seed", []Key{}, 0)
+	let expires = time.Unix(((sec%1000000)+1000000)%1000000 + 10, 0)
+	let token = Sign(k, subject, expires)
+	let now = time.Unix(0, 0)
+	let c = Open(k, token, now) catch {
+	case Tampered, Expired, Retired:
+		return false
+	}
+	if c != (Claims{Subject: subject, Expires: expires, Generation: 0}) || !expiredAt(k, token, expires) {
+		return false
+	}
+	let i = ((at%len(token))+len(token))%len(token)
+	let b = 1 + ((by%255)+255)%255
+	let mut bs = strings.Bytes(token)
+	bs[i] = byte((int(bs[i]) + b) % 256)
+	let changed = strings.FromBytes(bs)
+	let _ = Open(k, changed, now) catch {
+	case Tampered:
+		return true
+	case Expired, Retired:
+		return false
+	}
+	false
+}
+
+// OldKeyStillVerifies: a token signed under a key that a later keyring
+// keeps among its older keys opens under that keyring; one whose key it
+// dropped is Tampered.
+law OldKeyStillVerifies(subject string) {
+	let first = ring("k1", "one", []Key{}, 0)
+	let token = Sign(first, subject, time.Unix(100, 0))
+	let kept = ring("k2", "two", []Key{Key{ID: "k1", Secret: sha256.Sum("one")}}, 0)
+	let dropped = ring("k2", "two", []Key{}, 0)
+	let c = Open(kept, token, time.Unix(0, 0)) catch {
+	case Tampered, Expired, Retired:
+		return false
+	}
+	let _ = Open(dropped, token, time.Unix(0, 0)) catch {
+	case Tampered:
+		return c.Subject == subject
+	case Expired, Retired:
+		return false
+	}
+	false
+}
+
+// GenerationBumpEndsTokens: a keyring of a later generation refuses the
+// tokens of earlier ones as Retired, with the same keys.
+law GenerationBumpEndsTokens(subject string, gen int) {
+	let g = ((gen%100)+100)%100
+	let token = Sign(ring("k1", "one", []Key{}, g), subject, time.Unix(100, 0))
+	let _ = Open(ring("k1", "one", []Key{}, g + 1), token, time.Unix(0, 0)) catch {
+	case Retired as r:
+		return r.Generation == g
+	case Tampered, Expired:
+		return false
+	}
+	false
+}

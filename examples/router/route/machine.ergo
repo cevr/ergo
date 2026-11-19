@@ -1,5 +1,6 @@
 import actor
 import machines
+import slices
 import strings
 
 // Board is what every state of the router holds: the table, the requests
@@ -197,17 +198,6 @@ func kept(s Router, b Board) Decision[Router, Output] {
 	}
 }
 
-// without is the queue q with the request id taken out.
-func without(q []Request, id int) []Request {
-	let mut rest = []Request{}
-	for r in q {
-		if r.ID != id {
-			rest = rest.Append(r)
-		}
-	}
-	rest
-}
-
 // submitted is the decision of a new request r in s: it joins the queue,
 // and an Idle router serves it at once. An id the router knows is Reject:
 // each request is answered once.
@@ -233,7 +223,7 @@ func submitted(s Router, r Request) Decision[Router, Output] {
 func aborted(s Router, a Abort) Decision[Router, Output] {
 	let b = BoardOf(s)
 	if waiting(b, a.ID) {
-		return kept(s, answered(Board{..b, Queue: without(b.Queue, a.ID)}, a.ID, Cancelled))
+		return kept(s, answered(Board{..b, Queue: slices.Filter(b.Queue, func(r Request) bool { r.ID != a.ID })}, a.ID, Cancelled))
 	}
 	match s {
 	case Confirming as k:

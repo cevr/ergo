@@ -29,11 +29,17 @@ import "embed"
 //go:embed hex/*.ergo base64/*.ergo sha256/*.ergo crc32/*.ergo sha512/*.ergo sha1/*.ergo hmac/*.ergo uuid/*.ergo
 //go:embed machines/*.ergo
 //go:embed csv/*.ergo codec/*.ergo json/*.ergo toml/*.ergo rpc/*.ergo config/*.ergo
+//go:embed jsonschema/*.ergo
 //go:embed testing/*.ergo explore/*.ergo
 //go:embed tasks/*.ergo pubsub/*.ergo stream/*.ergo
 //go:embed schedule/*.ergo cron/*.ergo
 //go:embed http/*.ergo net/*.ergo nettest/*.ergo
 //go:embed sql/*.ergo sqltest/*.ergo
+//go:embed ratelimit/*.ergo ratelimit/memory/*.ergo
+//go:embed kv/*.ergo kv/memory/*.ergo kv/file/*.ergo
+//go:embed jobs/*.ergo jobs/memory/*.ergo jobs/file/*.ergo
+//go:embed session/*.ergo session/memory/*.ergo session/file/*.ergo
+//go:embed totp/*.ergo proof/*.ergo proof/memory/*.ergo proof/file/*.ergo
 //go:embed actor/*.ergo
 //go:embed journal/*.ergo journal/memory/*.ergo journal/file/*.ergo
 //go:embed llm/*.ergo llm/memory/*.ergo llm/recorded/*.ergo
@@ -41,6 +47,7 @@ import "embed"
 //go:embed arena/*.ergo dense/*.ergo
 //go:embed ui/*.ergo
 //go:embed text/*.ergo
+//go:embed llm/*.ergo llm/memory/*.ergo
 //go:embed lint/*.ergo
 //go:embed bench/*.ergo
 //go:embed ui/layout/*.ergo

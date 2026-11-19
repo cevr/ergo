@@ -25,8 +25,9 @@ import (
 //     Go call takes it as an operand (w.Header().Set: goShares), when it
 //     is never an Ergo value and stays Go's, so a write reaches Go;
 //   - a nullable Go result (a pointer, an interface) whose Ergo type is
-//     Option[T] is None when nil; a go.Ref[S] result that is nil with a nil
-//     error is a defect naming the call (v1.GoNilDefect);
+//     Option[T] is None when nil; a go.Ref[S] result is one the binder
+//     proved non-nil when the error is nil (gobind's nonnil.go), so it
+//     takes no check;
 //   - several Go results are a tuple; a last error is fails go.Error, as G4
 //     lowers a user extern (v1.GoErrorOf);
 //   - a Go panic unwinds as any defect; the call's //line directive
@@ -382,13 +383,10 @@ func (fc *funcCtx) goResult(x syntax.Node, t check.Type, r, e, name string) stri
 		fc.line("}")
 		return v
 	case isGoRef(t):
-		cond := r + " == nil"
-		if e != "" {
-			cond = e + " == nil && " + cond
-		}
-		fc.line("if " + cond + " {")
-		fc.line("\tpanic(&" + fc.l.rt() + ".GoNilDefect{Func: " + strconv.Quote(name) + ", At: " + strconv.Quote(fc.l.siteText(x)) + "})")
-		fc.line("}")
+		// ergo bind go writes go.Ref only where it proves Go's pointer
+		// non-nil when the error is (gobind's nonnil.go, GOBIND-NIL); an
+		// unproven one is an Option above. Only a user extern's adapter
+		// checks (AdaptNonNil, goExtern).
 		return r
 	case fc.l.holdsValue(t) && !goFresh(x, name) && valueRule() && !fc.goShares(x):
 		return fc.reportCopy(x, fc.cloneDeep(t, r, x), whyGoResult) // Go may still write an entry (V8)

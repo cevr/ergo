@@ -1,0 +1,9 @@
+# scripts/opcount: `kvbench bench get N` makes N gets from a std
+# kv/memory store that holds 64 keys (ST3); the cost of one get is the
+# slope between the two sizes. The control is hand Go with a map under a
+# mutex; the floor is a bare map lookup.
+unit get
+sizes 200000 1200000
+args bench get {n}
+control benchmarks/kv/testdata/control
+floor benchmarks/kv/testdata/floor

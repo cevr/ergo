@@ -2,8 +2,9 @@
 // Handle takes a Request record and gives a Response record, with no
 // socket. Every failure of the domain and of the body is caught by name
 // and given its status code, so a request can never escape without one.
-// Ergo's std has no http package yet (#51): package http1 reads and
-// writes these records as HTTP/1.1 text.
+// Std http's server is Go's net/http, which this program keeps out of
+// its binary (G-ex-c-7): package http1 reads and writes these records as
+// HTTP/1.1 text.
 
 import strings
 

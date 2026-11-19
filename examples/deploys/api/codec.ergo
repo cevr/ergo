@@ -1,4 +1,3 @@
-import deploys/jsontext
 import json
 import deploys/deploys
 
@@ -6,23 +5,37 @@ import deploys/deploys
 // deploys.Invalid.
 type BadBody { Field string, Reason string }
 
-// DeployJSON is the JSON form of o.
-func DeployJSON(o deploys.Deploy) jsontext.Value {
-	let mut units = []jsontext.Value{}
-	for l in o.Units {
-		units = units.Append(jsontext.Obj{Fields: []jsontext.Field{
-			jsontext.Field{Name: "image", Value: jsontext.Str{V: l.Image}},
-			jsontext.Field{Name: "replicas", Value: jsontext.Number{Text: "\(l.Replicas)"}},
-			jsontext.Field{Name: "mem", Value: jsontext.Number{Text: "\(l.Mem)"}},
-		}})
+// DeployBody is a deploy as its JSON body: std json derives the text
+// from the record, keys lowered ({"id", "service", "status", "total",
+// "units": [{"image", "replicas", "mem"}]}). Status is the status's name,
+// not the derived form of the union.
+type DeployBody { ID string, Service string, Status string, Total int, Units []deploys.Unit }
+
+// ProblemBody is an error's JSON body: {"error": …}, and "field" only
+// when the failure names one.
+type ProblemBody { Error string, Field json.Optional[string] }
+
+// DeployJSON is the JSON body of o.
+func DeployJSON(o deploys.Deploy) DeployBody {
+	DeployBody{ID: o.ID, Service: o.Service, Status: deploys.Name(o.Status), Total: o.Total, Units: o.Units}
+}
+
+// DeployText is the JSON text of o's body.
+func DeployText(o deploys.Deploy) string { json.Encode(json.Codec[DeployBody]{MaxBytes: 1 << 20, MaxDepth: 32}, DeployJSON(o)) }
+
+// ListText is the JSON text of the bodies of all, in their order.
+func ListText(all []deploys.Deploy) string {
+	let mut bodies = []DeployBody{}
+	for o in all {
+		bodies = bodies.Append(DeployJSON(o))
 	}
-	jsontext.Obj{Fields: []jsontext.Field{
-		jsontext.Field{Name: "id", Value: jsontext.Str{V: o.ID}},
-		jsontext.Field{Name: "service", Value: jsontext.Str{V: o.Service}},
-		jsontext.Field{Name: "status", Value: jsontext.Str{V: deploys.Name(o.Status)}},
-		jsontext.Field{Name: "total", Value: jsontext.Number{Text: "\(o.Total)"}},
-		jsontext.Field{Name: "units", Value: jsontext.Arr{Items: units}},
-	}}
+	json.Encode(json.Codec[[]DeployBody]{MaxBytes: 1 << 20, MaxDepth: 32}, bodies)
+}
+
+// ProblemText is the JSON text of an error's body.
+func ProblemText(message string, field string) string {
+	let named json.Optional[string] = if field == "" { json.Absent } else { json.Present[string]{Value: field} }
+	json.Encode(json.Codec[ProblemBody]{MaxBytes: 1 << 20, MaxDepth: 32}, ProblemBody{Error: message, Field: named})
 }
 
 // draftCodec reads a draft's body. Its limits refuse a body longer than

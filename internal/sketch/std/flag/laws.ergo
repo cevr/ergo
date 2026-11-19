@@ -108,6 +108,26 @@ law DefaultWhenAbsent() {
 	false
 }
 
+// HelpWinsInEveryForm: -h, --h, -help and --help, bare or with "=…",
+// fail Help wherever they stand before "--", after a flag whose value is
+// any text ("--" too) and before an unknown flag.
+law HelpWinsInEveryForm(k int, x string) {
+	let forms = []string{"-h", "--h", "-help", "--help", "-h=" + x, "--help=" + x}
+	let form = forms[((k%6)+6)%6]
+	asksHelp([]string{"-s", x, form, "-q"}) && asksHelp([]string{"-s", "--", form, "-q"})
+}
+
+// asksHelp reports whether Parse of lawSet fails Help on args.
+func asksHelp(args []string) bool {
+	Parse(lawSet(), args) catch {
+	case Help:
+		return true
+	case _:
+		return false
+	}
+	false
+}
+
 // UnknownNamesTheFlag: a flag the set does not declare fails Unknown with
 // its name.
 law UnknownNamesTheFlag(name string) {

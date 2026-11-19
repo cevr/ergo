@@ -44,9 +44,11 @@ const EscapeFlags = "-m -d=escapemutationscalls=1"
 // readsVerdict is the one escape line that is the `reads` fact.
 const readsVerdict = " does not escape, mutate, or call"
 
-// Facts are derived `reads` facts by extern target (`sort.SearchInts`,
+// Facts are derived facts by extern target (`sort.SearchInts`,
 // `sort.IntSlice.Search`): the Go names of the parameters, a method's
-// receiver included, that the function only reads.
+// receiver included, that the function only reads, and nonNilResult for
+// a (*T, error) function whose pointer is non-nil when its error is nil
+// (nonnil.go).
 type Facts map[string]map[string]bool
 
 // escapeLine is one line of the compiler's -m output.
@@ -111,14 +113,16 @@ type listedSource struct {
 // paramFacts walks the Go files of the package path and gives each named
 // parameter of a non-generic function or method its verdict: reads when
 // the escape output has the `reads` line at the parameter's name and no
-// other line there.
-func paramFacts(fset *token.FileSet, path, dir string, files []string, reads, other map[srcPos]bool, out Facts) error {
+// other line there. It returns the parsed files.
+func paramFacts(fset *token.FileSet, path, dir string, files []string, reads, other map[srcPos]bool, out Facts) ([]*ast.File, error) {
+	var parsed []*ast.File
 	for _, name := range files {
 		file := filepath.Clean(filepath.Join(dir, name))
 		f, err := parser.ParseFile(fset, file, nil, parser.SkipObjectResolution)
 		if err != nil {
-			return err
+			return nil, err
 		}
+		parsed = append(parsed, f)
 		for _, d := range f.Decls {
 			fd, ok := d.(*ast.FuncDecl)
 			if !ok || fd.Type.TypeParams != nil {
@@ -152,7 +156,7 @@ func paramFacts(fset *token.FileSet, path, dir string, files []string, reads, ot
 			}
 		}
 	}
-	return nil
+	return parsed, nil
 }
 
 // recvTypeName is T for a receiver T or *T, "" for a generic T[P].
@@ -213,6 +217,7 @@ func Derive(dir string, env []string, p Platform, patterns ...string) (Facts, er
 	}
 	reads, other := ParseEscape(string(out), abs)
 	facts := Facts{}
+	var pkgs []nnPkg
 	fset := token.NewFileSet()
 	dec := json.NewDecoder(bytes.NewReader(listed))
 	for {
@@ -225,10 +230,13 @@ func Derive(dir string, env []string, p Platform, patterns ...string) (Facts, er
 		if l.Error != nil {
 			return nil, fmt.Errorf("go list for %s: %s: %s", p, l.ImportPath, l.Error.Err)
 		}
-		if err := paramFacts(fset, l.ImportPath, l.Dir, l.GoFiles, reads, other, facts); err != nil {
+		files, err := paramFacts(fset, l.ImportPath, l.Dir, l.GoFiles, reads, other, facts)
+		if err != nil {
 			return nil, fmt.Errorf("%s for %s: %v", l.ImportPath, p, err)
 		}
+		pkgs = append(pkgs, nnPkg{l.ImportPath, files})
 	}
+	nonNil(pkgs, facts)
 	return facts, nil
 }
 

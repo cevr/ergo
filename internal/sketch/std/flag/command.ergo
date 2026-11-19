@@ -1,3 +1,4 @@
+import slices
 import strings
 
 // Command is one subcommand of a program whose commands are the union C
@@ -76,12 +77,7 @@ func ParseCommand[C, E](name string, usage string, commands []Command[C, E], arg
 // of group names from the root to this level.
 func parseLevel[C, E](name string, usage string, groups []string, commands []Command[C, E], args []string) C fails E | Help | Unknown | NeedsValue | Invalid | Missing | Extra | UnknownCommand {
 	let first = if len(args) > 0 { args[0] } else { "" }
-	let mut rest = []string{}
-	for i, a in args {
-		if i > 0 {
-			rest = rest.Append(a)
-		}
-	}
+	let rest = if len(args) > 0 { slices.Slice(args, 1, len(args)) } else { args }
 	if len(args) > 0 {
 		for c in commands {
 			if c.Name != "" && c.Name == first {

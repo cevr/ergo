@@ -94,6 +94,18 @@ law FieldsAreGoFields(raw string) {
 	ok
 }
 
+// CollectRefusesPastTheEnd: a span that ends one byte past its text is not
+// In it, so Collect gives None for it: no text of another length, longer
+// or shorter, decides it.
+law CollectRefusesPastTheEnd(s string) {
+	match Collect(s, []Span{Span{Start: 0, End: len(s) + 1}}) {
+	case Some[Spans]:
+		false
+	case None:
+		true
+	}
+}
+
 // CollectChecksEverySpan: Collect makes a Spans exactly when every span is
 // In the text, and its reads are the pieces of the text.
 law CollectChecksEverySpan(s string, xs []int) {

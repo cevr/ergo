@@ -2,6 +2,7 @@
 // these tests run the domain's Create and Apply over it.
 
 import deploys/deploys
+import task
 
 let small = deploys.Unit{Image: "app", Replicas: 2, Mem: 450}
 let big = deploys.Unit{Image: "big", Replicas: 1, Mem: 1200}
@@ -46,4 +47,30 @@ test ApplyFollowsTheLifecycle {
 		assert moved("dep-9", deploys.Approve) == "no deploy dep-9"
 		assert deploys.Name(try deploys.Store.Find(o.ID).Status) == "live"
 	}
+}
+
+// created is the ID of the deploy of service that Create added to t, or
+// "" when Create refused it.
+func created(t Table, service string) string {
+	with context { deploys.Store: t } {
+		let o = deploys.Create(deploys.Draft{Service: service, Units: []deploys.Unit{small}}) catch {
+		case deploys.Invalid:
+			return ""
+		}
+		o.ID
+	}
+}
+
+// TwoCreatesAtOnceBothLand: two tasks that create at once on one Table
+// both get a deploy, under two IDs, as a server that answers two POSTs
+// at once must. The explore leg (explored) runs it under every order of
+// one preemption, where both read the count before either adds.
+test TwoCreatesAtOnceBothLand {
+	let t = NewTable()
+	let a = task.Go() { created(t, "web") }
+	let b = task.Go() { created(t, "db") }
+	let ia = a.Wait()
+	let ib = b.Wait()
+	assert ia != "" && ib != "" && ia != ib
+	assert with context { deploys.Store: t } { deploys.Store.Count() } == 2
 }
