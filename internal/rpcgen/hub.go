@@ -14,7 +14,7 @@
 //   - OpOf, Name (the kebab name every transport uses), Doc (the doc
 //     comment, else the signature) and Schema (the JSON schema of the
 //     arguments);
-//   - Call(r) Outcome needs P, the one dispatch: total, its row is empty;
+//   - Call(r) Outcome needs P: the one dispatch, total; its error row is empty;
 //   - Client, a provider of P over any send(Request) Outcome; an Outcome
 //     that is not the operation's is a defect;
 //   - the laws CallIsTheOperation and ClientIsCall, which run at check time
@@ -35,7 +35,6 @@ import (
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/format"
-	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -266,20 +265,7 @@ func (g *hubGen) checkNames(ops []Op) {
 func (g *hubGen) variant(f check.Type) string { return FailureVariant(g.ops, f) }
 
 // importOf records p's import and is the name source uses for it.
-func (g *hubGen) importOf(p *check.Package) string {
-	if p == nil || p.Path == stdlib.PreludePath {
-		return ""
-	}
-	if p == g.pkg {
-		// The contract's package: checked as a root, the checker names it
-		// main; source imports it by its path.
-		name := lastElem(g.path)
-		g.imports[g.path] = name
-		return name
-	}
-	g.imports[p.Path] = p.Name
-	return p.Name
-}
+func (g *hubGen) importOf(p *check.Package) string { return importName(g.imports, g.pkg, g.path, p) }
 
 // expr is t written in source of the generated package.
 func (g *hubGen) expr(t check.Type) string {
@@ -694,33 +680,65 @@ func object(props, required []string) string {
 // recordOf is t's struct when t is a declared record (not a union).
 func recordOf(t check.Type) (*check.Struct, bool) {
 	n, ok := unalias(t).(*check.Named)
-	if !ok || schemaPair(n) != nil || check.RefinementOf(n) != nil {
+	if !ok || pairOf(n) != nil || check.RefinementOf(n) != nil || check.WireFormOf(n) != check.WireDefault {
 		return nil, false
 	}
 	s, ok := n.Underlying().(*check.Struct)
 	return s, ok
 }
 
-// stdJSON is t's type arguments when t is std json's type name.
-func stdJSON(t check.Type, name string) (*check.Named, bool) {
-	n, ok := unalias(t).(*check.Named)
-	if ok && n.Obj != nil && n.Obj.Pkg != nil && n.Obj.Pkg.Std() && n.Obj.Pkg.Path == "json" && n.Obj.Name == name {
-		return n, true
+// underOf is t's underlying type, through aliases and a declared name.
+func underOf(t check.Type) check.Type {
+	if n, ok := unalias(t).(*check.Named); ok {
+		return n.Underlying()
 	}
-	return nil, false
+	return unalias(t)
 }
 
-// pairOf is the Wire function of t's by-name pair, or nil.
-func schemaPair(n *check.Named) *check.Func {
-	if n.Obj == nil || n.Obj.Pkg == nil || len(n.TArgs) > 0 {
+// payloadOf is the type of the one field of the single-field variant of a
+// two-variant union t (the form WireOmittable and WireNullable require), or
+// nil.
+func payloadOf(t check.Type) check.Type {
+	u, ok := underOf(t).(*check.Union)
+	if !ok {
 		return nil
 	}
-	for _, f := range n.Obj.Pkg.Funcs {
-		if (f.Name == "Wire" || f.Name == "wire") && f.Sig != nil && len(f.Sig.Params) == 1 && len(f.Sig.Results) == 1 && f.Sig.Params[0].Type.String() == n.String() {
-			return f
+	for _, v := range u.Variants {
+		if s, ok := underOf(v).(*check.Struct); ok && len(s.Fields) == 1 {
+			return s.Fields[0].Type
 		}
 	}
 	return nil
+}
+
+// formSchema is the JSON schema of a type that declares its wire form
+// (WireForm; docs/spec/types.md, Codecs), by the form and not by its name,
+// so any module's type of that form has the same schema. ok is false for
+// WireDefault and for WireOmittable, which is a record field's (record)
+// and keeps its tagged form elsewhere.
+func (g *hubGen) formSchema(n *check.Named, seen map[*check.Named]bool, where string) (string, bool) {
+	switch check.WireFormOf(n) {
+	case check.WireBare:
+		// A bare union is any of its variants' values; std json's Value,
+		// every JSON value, is the case that matters.
+		return `{}`, true
+	case check.WireNumberText:
+		return `{"type":"number"}`, true
+	case check.WireNullable:
+		if p := payloadOf(n); p != nil {
+			return `{"anyOf":[` + g.schema(p, seen, where) + `,{"type":"null"}]}`, true
+		}
+	case check.WireMembers:
+		if s, ok := n.Underlying().(*check.Struct); ok && len(s.Fields) == 1 {
+			if list, ok := underOf(s.Fields[0].Type).(*check.Slice); ok {
+				if entry, ok := underOf(list.Elem).(*check.Struct); ok && len(entry.Fields) == 2 {
+					return `{"type":"object","additionalProperties":` + g.schema(entry.Fields[1].Type, seen, where) + `}`, true
+				}
+			}
+		}
+		return `{"type":"object"}`, true
+	}
+	return "", false
 }
 
 // schema is the JSON schema of t's wire form (docs/spec/types.md, Codecs
@@ -759,16 +777,10 @@ func (g *hubGen) schema(t check.Type, seen map[*check.Named]bool, where string) 
 }
 
 func (g *hubGen) named(n *check.Named, seen map[*check.Named]bool, where string) string {
-	if _, ok := stdJSON(n, "Value"); ok {
-		return `{}`
+	if s, ok := g.formSchema(n, seen, where); ok {
+		return s
 	}
-	if _, ok := stdJSON(n, "Num"); ok {
-		return `{"type":"number"}`
-	}
-	if nn, ok := stdJSON(n, "Nullable"); ok && len(nn.TArgs) == 1 {
-		return `{"anyOf":[` + g.schema(nn.TArgs[0], seen, where) + `,{"type":"null"}]}`
-	}
-	if f := schemaPair(n); f != nil {
+	if f := pairOf(n); f != nil {
 		return g.schema(f.Sig.Results[0], seen, where)
 	}
 	if check.RefinementOf(n) != nil {
@@ -818,9 +830,11 @@ func (g *hubGen) record(s *check.Struct, tag string, seen map[*check.Named]bool,
 	}
 	for _, f := range s.Fields {
 		key := check.WireFieldName(f)
-		if opt, ok := stdJSON(f.Type, "Optional"); ok && len(opt.TArgs) == 1 {
-			props = append(props, jsonQuote(key)+":"+g.schema(opt.TArgs[0], seen, where))
-			continue
+		if check.WireFormOf(unalias(f.Type)) == check.WireOmittable {
+			if p := payloadOf(f.Type); p != nil {
+				props = append(props, jsonQuote(key)+":"+g.schema(p, seen, where))
+				continue
+			}
 		}
 		props = append(props, jsonQuote(key)+":"+g.schema(f.Type, seen, where))
 		required = append(required, jsonQuote(key))
