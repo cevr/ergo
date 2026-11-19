@@ -71,7 +71,7 @@ var uiSkipSeed = flag.Uint64("uiskip.seed", 0, "run TestUISkipAgrees on this see
 // ui-pending-cut-kept, ui-pending-cut-counts-kept, ui-block-one-node,
 // ui-block-unplaced, ui-block-first-top, ui-block-kept-first,
 // ui-block-committed-specs, ui-keep-through-never, ui-keep-through-stale,
-// ui-keep-inner-uncounted (and dropped: ui-group-inner-unstamped; trailed: ui-block-one-node).
+// ui-keep-inner-uncounted, ui-cut-gives-back-group-counts (gaveBack) (and dropped: ui-group-inner-unstamped; trailed: ui-block-one-node).
 func TestUISkipAgrees(t *testing.T) {
 	needsBuild(t)
 	var seeds []uint64

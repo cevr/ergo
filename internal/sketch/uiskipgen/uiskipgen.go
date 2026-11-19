@@ -28,6 +28,14 @@ func stopIf(c bool, v int) fails Stop {
 	}
 }
 
+// gate stops a boundary's body when on, as a read whose data has not
+// arrived does (H8a).
+func gate(on bool) fails ui.Pending {
+	if on {
+		return ui.Pending
+	}
+}
+
 func rows(a int) []int {
 	let mut out = []int{}
 	for i in 0..a%4 {
@@ -624,6 +632,161 @@ func growth(n int) needs Console {
 	let _ = ui.Render(&f, list, listed(1, -1))
 	Console.Println("growth \(n) \(first) \(changed) \(compared) \(skips) \(ui.GroupsKept(&f))")
 }
+func gbc0(f *ui.Frame[int], a int, it Item) {
+	gbc2(f, a+1, it)
+	ui.Each(f, rows(a), func(k int) ui.Key { ui.ByInt(k) }) func(k int) {
+		gbc2(f, k, it)
+	}
+}
+
+func gbc1(f *ui.Frame[int], a int, it Item) {
+	ui.Row(f, ui.Plain()) {
+		ui.Check(f, it.Text, it.Done, it.Id)
+	}
+	ui.Fieldset(f, a%2 == 1, "") {
+		if a%2 == 0 {
+			gbc3(f, a, it)
+		}
+		gbc3(f, a, it)
+		gbc4(f, len(rows(a)), it)
+	}
+}
+
+func gbc2(f *ui.Frame[int], a int, it Item) {
+	ui.Boundary(f) {
+		ui.Boundary(f) {
+			ui.Each(f, rows(a), func(k int) ui.Key { ui.ByInt(k) }) func(k int) {
+				gbc4(f, k, it)
+			}
+			ui.Text(f, "c2 \(a) \(it.Text)")
+			let fl1 = ui.NewFlag(f, a%2 == 0)
+			ui.Toggle(f, fl1, "t2")
+			try gate(a%3 == 1)
+			ui.Each(f, rows(a), func(k int) ui.Key { ui.ByInt(k) }) func(k int) {
+				gbc4(f, k, it)
+			}
+			gbc4(f, it.Id, it)
+			ui.Each(f, rows(a), func(k int) ui.Key { ui.ByInt(k) }) func(k int) {
+				gbc3(f, k, it)
+			}
+		} catch {
+		case ui.Pending:
+			ui.Text(f, "wait 2 \(a)")
+		}
+		for k in 0..a%3 {
+			gbc4(f, k, it)
+		}
+		if a%2 == 0 {
+			gbc3(f, it.Id, it)
+		}
+		gbc3(f, it.Id, it)
+		try gate(a%3 == 0)
+		if a%3 == 0 {
+			let fl2 = ui.NewFlag(f, a%2 == 0)
+			ui.Toggle(f, fl2, "t2")
+			ui.Text(f, "c2 \(a) \(it.Text)")
+			ui.Text(f, "c2 \(a) \(it.Text)")
+		}
+	} catch {
+	case ui.Pending:
+		ui.Text(f, "wait 2 \(a)")
+	}
+	gbc3(f, it.Id, it)
+	for k in 0..a%3 {
+		gbc3(f, k, it)
+	}
+}
+
+func gbc3(f *ui.Frame[int], a int, it Item) {
+	ui.Fieldset(f, a%2 == 1, "") {
+		ui.Boundary(f) {
+			ui.Text(f, "c3 \(a) \(it.Text)")
+			try gate(a%3 == 0)
+			gbc4(f, a, it)
+			ui.Text(f, "c3 \(a) \(it.Text)")
+			ui.Each(f, rows(a), func(k int) ui.Key { ui.ByInt(k) }) func(k int) {
+				gbc4(f, k, it)
+			}
+		} catch {
+		case ui.Pending:
+			ui.Text(f, "wait 3 \(a)")
+		}
+		let fl3 = ui.NewFlag(f, a%2 == 0)
+		ui.Toggle(f, fl3, "t3")
+		ui.Each(f, rows(a), func(k int) ui.Key { ui.ByInt(k) }) func(k int) {
+			gbc4(f, k, it)
+		}
+	}
+	for k in 0..a%3 {
+		gbc4(f, k, it)
+	}
+	ui.Boundary(f) {
+		gbc4(f, a, it)
+		ui.Each(f, rows(a), func(k int) ui.Key { ui.ByInt(k) }) func(k int) {
+			gbc4(f, k, it)
+		}
+		wideA(f, Wide{It: it, Tags: rows(a), N: a%3, M: a})
+		wideB(f, Wide{It: it, Tags: rows(a), N: 0, M: 0})
+		bagged(f, Bag{Name: it.Text, Tags: rows(a)})
+		try gate(a%3 == 0)
+		if a%2 == 1 {
+			ui.Text(f, "c3 \(a) \(it.Text)")
+			ui.Text(f, "c3 \(a) \(it.Text)")
+			ui.Text(f, "c3 \(a) \(it.Text)")
+		}
+	} catch {
+	case ui.Pending:
+		ui.Text(f, "wait 3 \(a)")
+	}
+}
+
+func gbc4(f *ui.Frame[int], a int, it Item) {
+	ui.Same(f, ui.ByInt(a%2)) {
+		wideA(f, Wide{It: it, Tags: rows(a), N: a%3, M: a})
+		wideB(f, Wide{It: it, Tags: rows(a), N: 0, M: 0})
+		bagged(f, Bag{Name: it.Text, Tags: rows(a)})
+		ui.Text(f, "leaf \(it.Id)")
+	}
+	if a%3 == 1 {
+		let fl4 = ui.NewFlag(f, a%2 == 0)
+		ui.Toggle(f, fl4, "t4")
+		wideA(f, Wide{It: it, Tags: rows(a), N: a%3, M: a})
+		wideB(f, Wide{It: it, Tags: rows(a), N: 0, M: 0})
+		bagged(f, Bag{Name: it.Text, Tags: rows(a)})
+	}
+}
+
+func gbView(f *ui.Frame[int], s St) {
+	gbc0(f, s.A, s.It)
+	ui.Column(f, ui.Plain()) {
+		ui.Each(f, s.Items, func(it Item) ui.Key { ui.ByInt(it.Id) }) func(it Item) {
+			gbc1(f, s.A, it)
+		}
+	}
+	cards(f, s.Items)
+}
+
+// gaveBack is the repro of NS2-PORT's seed-8 red (IRG-MAIN): FLIP's
+// seed-8 components, whose boundaries stop between component calls and
+// whose catch arms write under the same parent, over its ten passes. A
+// cut that gave back the group identity counts its body took let a group
+// written after it take a cut group's identity and write that group's
+// kept nodes again, stale (33 Sets where the reference wrote 52).
+func gaveBack() needs Console {
+	Console.Println("gaveBack")
+	let mut f8 = ui.NewFrame[int]()
+	step(&f8, gbView, St{A: 3, It: Item{Id: 1, Text: "top", Done: false}, Items: []Item{Item{Id: 0, Text: "i0", Done: false}}}, -1)
+	step(&f8, gbView, St{A: 3, It: Item{Id: 1, Text: "top", Done: false}, Items: []Item{Item{Id: 0, Text: "i0", Done: false}}}, -1)
+	step(&f8, gbView, St{A: 3, It: Item{Id: 1, Text: "top", Done: false}, Items: []Item{Item{Id: 0, Text: "i0", Done: false}, Item{Id: 2, Text: "i2", Done: false}}}, -1)
+	step(&f8, gbView, St{A: 2, It: Item{Id: 1, Text: "top", Done: false}, Items: []Item{Item{Id: 0, Text: "i0", Done: false}, Item{Id: 2, Text: "i2", Done: false}}}, -1)
+	step(&f8, gbView, St{A: 2, It: Item{Id: 1, Text: "top2", Done: false}, Items: []Item{Item{Id: 0, Text: "i0", Done: false}, Item{Id: 2, Text: "i2", Done: false}}}, -1)
+	step(&f8, gbView, St{A: 4, It: Item{Id: 1, Text: "top2", Done: false}, Items: []Item{Item{Id: 0, Text: "i0", Done: false}, Item{Id: 2, Text: "i2", Done: false}}}, -1)
+	step(&f8, gbView, St{A: 4, It: Item{Id: 1, Text: "top2", Done: false}, Items: []Item{Item{Id: 0, Text: "i0", Done: false}, Item{Id: 2, Text: "i2", Done: true}}}, -1)
+	step(&f8, gbView, St{A: 2, It: Item{Id: 1, Text: "top2", Done: false}, Items: []Item{Item{Id: 0, Text: "i0", Done: false}, Item{Id: 2, Text: "i2", Done: true}}}, 11)
+	step(&f8, gbView, St{A: 2, It: Item{Id: 1, Text: "top2", Done: false}, Items: []Item{Item{Id: 0, Text: "i0", Done: false}}}, 32)
+	step(&f8, gbView, St{A: 2, It: Item{Id: 1, Text: "top2", Done: false}, Items: []Item{Item{Id: 0, Text: "i0", Done: false}}}, -1)
+}
+
 `
 
 // uiSkipGen writes one seed's components s<seed>c<i>(f, a, it), each a
@@ -660,7 +823,7 @@ func (g *uiSkipGen) stmt(i, depth int, indent string) {
 		g.stmts(i, depth+1, indent+"\t")
 		w("}")
 	}
-	kind := g.r.IntN(16)
+	kind := g.r.IntN(17)
 	if depth >= 2 && (kind >= 3 && kind <= 5 || kind >= 12 && kind != 15) {
 		kind = 0
 	}
@@ -701,6 +864,20 @@ func (g *uiSkipGen) stmt(i, depth int, indent string) {
 		w("} catch {")
 		w("case Stop:")
 		w("\tui.Text(f, \"stopped\")")
+		w("}")
+	case 16:
+		// A boundary whose body may stop between two runs of statements
+		// that call components, and whose catch arm writes under the
+		// same parent (H8a, FLIP's draw): a cut gives back no group
+		// identity count, so a group written after it never takes the
+		// identity of one the cut took back, and its kept entry.
+		w("ui.Boundary(f) {")
+		g.stmts(i, depth+1, indent+"\t")
+		w("\ttry gate(a%%%d == %d)", 2+g.r.IntN(2), g.r.IntN(2))
+		g.stmts(i, depth+1, indent+"\t")
+		w("} catch {")
+		w("case ui.Pending:")
+		w("\tui.Text(f, \"wait %d \\(a)\")", i)
 		w("}")
 	default:
 		// Names, selections and constants, and computed arguments (NS2a):
@@ -823,7 +1000,7 @@ func Program(seeds []uint64) string {
 		}
 		fmt.Fprintf(&main, "\tpointers([]int{%s})\n", strings.Join(ns, ", "))
 	}
-	main.WriteString("\tfixed()\n\tgrowth(8)\n\tgrowth(64)\n\telsewhere(50)\n\telsewhere(200)\n\tnested()\n\ttallied()\n\tallChange(50)\n\tallChange(200)\n\tsubset()\n\tcardsGuard(50)\n\tcardsGuard(200)\n\taliased()\n\tloopedTwice()\n\tcutTwice()\n\tshrunk(50)\n\tdropped(50)\n\ttrailed(50)\n}\n")
+	main.WriteString("\tgaveBack()\n\tfixed()\n\tgrowth(8)\n\tgrowth(64)\n\telsewhere(50)\n\telsewhere(200)\n\tnested()\n\ttallied()\n\tallChange(50)\n\tallChange(200)\n\tsubset()\n\tcardsGuard(50)\n\tcardsGuard(200)\n\taliased()\n\tloopedTwice()\n\tcutTwice()\n\tshrunk(50)\n\tdropped(50)\n\ttrailed(50)\n}\n")
 	src.WriteString(main.String())
 	return src.String()
 }
