@@ -300,6 +300,17 @@ func typeText(s store.Store, k expr.Pkg, u Unit, none dense.ID[store.TKey], ty d
 
 // writeLets prints the type of each package let's name the typer gives
 // one, "FILE START END TYPE" after prefix (CHECK-VALUE-TYPES).
+// writeOutside prints the values of a record literal of an import
+// outside the run, which the typer types with no expected type.
+func writeOutside(b mut strings.Builder, u Unit, d Typed, prefix string) {
+	for at in d.t.Outside {
+		let (f, row) = bind.RowOf(d.k.Ps, at)
+		let p = u.files[f].Parsed
+		let id = syntax.NodeAt(p.Tree, row)
+		b.WriteString("\(prefix)\(u.files[f].Name) \(syntax.NodePos(p, id)) \(syntax.NodeEnd(p, id))\n")
+	}
+}
+
 func writeLets(b mut strings.Builder, u Unit, d Typed, prefix string) {
 	let mut s = d.s
 	let none = infer.NoValue(&s)
@@ -393,6 +404,7 @@ func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 			writeOwn(&b, units[i], d, "O ")
 			writeFlow(&b, units[i], d, "W ")
 			writeLets(&b, units[i], d, "L ")
+			writeOutside(&b, units[i], d, "X ")
 		}
 		io.Stdout.Print(b.String())
 		return

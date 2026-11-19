@@ -21,7 +21,12 @@ import (
 // leaves untyped (a capability call, a prelude slice method, a derived
 // function) is excluded and logged by cause, never pinned; those causes
 // are units of their own (CHECK-CALL-COVERAGE, PRELUDE-ONE-SOURCE), and
-// when they land the exclusion goes and every value is required.
+// when they land the exclusion goes and every value is required. A value
+// of a record literal of a package outside the run (a module the corpus
+// does not hold, which the Ergo side reads only as an interface) has a
+// field type the Ergo side cannot read: it lists those values (its X
+// lines) and they are excluded as "untyped field outside" until the
+// loader types such packages (LOAD-MODULE-DEPS).
 
 // goValue is one value the Go checker types: its line ("FILE START END
 // TYPE"), the keys of its inputs, and its context: the key of the
@@ -187,9 +192,10 @@ func valueTails(x syntax.Expr) []syntax.Expr {
 // and L lines) misses or types otherwise, and the L lines of got the Go
 // checker has no let for; and the values excluded, by cause: the Go
 // checker's form (forms, by key) of the first input, or the parent, the
-// Ergo side leaves untyped, so each excluded value is counted under one
-// cause.
-func valueDiff(want []goValue, got, gotLets []string, forms map[string]string) (string, map[string]int) {
+// Ergo side leaves untyped, or a field of a record outside the run whose
+// type it cannot read (outside, its X lines), so each excluded value is
+// counted under one cause.
+func valueDiff(want []goValue, got, gotLets []string, outside map[string]bool, forms map[string]string) (string, map[string]int) {
 	formOf := func(key string) string {
 		if f := forms[key]; f != "" {
 			return f
@@ -223,6 +229,8 @@ func valueDiff(want []goValue, got, gotLets []string, forms map[string]string) (
 		case cause != "":
 		case v.tailOf != "" && !required[v.tailOf]:
 			cause = "the tail of an excluded value"
+		case outside[k]:
+			cause = "untyped field outside"
 		case v.parent != "" && byKey[v.parent] == "":
 			cause = "untyped parent: " + formOf(v.parent)
 		}

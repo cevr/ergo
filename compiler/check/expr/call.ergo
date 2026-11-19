@@ -636,6 +636,7 @@ func composite(s mut store.Store, k Pkg, t mut Typer, cl syntax.CompositeLit, w 
 						expr(s, k, t, kv.Value, Exactly{T: infer.Unmarked(*s, ft.Value)})
 						done = true
 					case None:
+						unread(*s, k, t, rt.Value, kv.Value)
 					}
 				}
 			case _:
@@ -651,6 +652,7 @@ func composite(s mut store.Store, k Pkg, t mut Typer, cl syntax.CompositeLit, w 
 						expr(s, k, t, e, Exactly{T: infer.Unmarked(*s, ft)})
 						done = true
 					case None:
+						unread(*s, k, t, rt.Value, e)
 					}
 				}
 			}
@@ -666,6 +668,14 @@ func composite(s mut store.Store, k Pkg, t mut Typer, cl syntax.CompositeLit, w 
 		}
 	}
 	ty
+}
+
+// unread records the value x of a literal of the record type ty when ty
+// is an outside import's, whose field types the typer cannot read.
+func unread(s store.Store, k Pkg, t mut Typer, ty dense.ID[store.TKey], x dense.ID[syntax.Node]) {
+	if outsideRec(s, k, ty) {
+		t.Outside = t.Outside.Append(pnode(k, t.file, x))
+	}
 }
 
 // selOf is the name of the selector x, or none when x is no selector.

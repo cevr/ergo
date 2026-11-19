@@ -56,6 +56,10 @@ type Typer {
 	Diags   []Diag,
 	Insts   []Inst,
 	Calls   []CallTo,
+	// Outside is the values of a record literal of an import outside the
+	// run (outsideRec), whose fields' types the typer cannot read: they
+	// are typed with no expected type.
+	Outside []dense.ID[store.PNode],
 	defs    dense.Col[store.PNode, dense.Opt[store.TKey]],
 	// lets is the package's lets, typed in use order (letState: 0 not
 	// yet, 1 being typed, 2 typed); letAt maps a let's name row to it.
@@ -179,7 +183,7 @@ func checkAll(s mut store.Store, k Pkg, record bool) Typer {
 	for _ in lets {
 		states = states.Append(0)
 	}
-	let mut t = Typer{Entries: slices.WithCapacity[Entry](entries), Diags: []Diag{}, Insts: slices.WithCapacity[Inst](calls), Calls: []CallTo{}, defs: defs, lets: lets, letState: states, letAt: letAt, frame: infer.NewFrame(), boolT: store.TBasic(s, bBool), file: 0, fn: 0, res: None, steps: 0, typed: 0, record: record, reserved: entries + rows + calls}
+	let mut t = Typer{Entries: slices.WithCapacity[Entry](entries), Diags: []Diag{}, Insts: slices.WithCapacity[Inst](calls), Calls: []CallTo{}, Outside: []dense.ID[store.PNode]{}, defs: defs, lets: lets, letState: states, letAt: letAt, frame: infer.NewFrame(), boolT: store.TBasic(s, bBool), file: 0, fn: 0, res: None, steps: 0, typed: 0, record: record, reserved: entries + rows + calls}
 	// An operation type's operations, by name in its laws.
 	for o in k.Ops {
 		t.file = o.File

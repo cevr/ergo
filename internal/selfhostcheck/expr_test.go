@@ -114,6 +114,7 @@ func TestCompilerExprAgreesWithChecker(t *testing.T) {
 	m := filepath.Join(tmp, "manifest")
 	writeLines(t, m, manifest)
 	gotTypes, gotCalls, gotDiags, gotOwn, gotFlow, gotLets := make([][]string, len(folders)), make([][]string, len(folders)), make([][]string, len(folders)), make([][]string, len(folders)), make([][]string, len(folders)), make([][]string, len(folders))
+	gotOutside := make([]map[string]bool, len(folders))
 	at := -1
 	for _, l := range runDump(t, ctx, bin, "-std", stdDir(), "-corpus", m) {
 		switch {
@@ -131,6 +132,11 @@ func TestCompilerExprAgreesWithChecker(t *testing.T) {
 			gotFlow[at] = append(gotFlow[at], l[2:])
 		case at >= 0 && at < len(folders) && strings.HasPrefix(l, "L "):
 			gotLets[at] = append(gotLets[at], l[2:])
+		case at >= 0 && at < len(folders) && strings.HasPrefix(l, "X "):
+			if gotOutside[at] == nil {
+				gotOutside[at] = map[string]bool{}
+			}
+			gotOutside[at][l[2:]] = true
 		}
 	}
 	if at != len(folders)-1 {
@@ -146,7 +152,7 @@ func TestCompilerExprAgreesWithChecker(t *testing.T) {
 		if d := subsetDiff(fo.want, got, 3); d != "" {
 			t.Errorf("%s: expression types differ (go -, ergo +):\n%s", rel(fo.dir), d)
 		}
-		d, ex := valueDiff(fo.values, gotTypes[i], gotLets[i], fo.forms)
+		d, ex := valueDiff(fo.values, gotTypes[i], gotLets[i], gotOutside[i], fo.forms)
 		if d != "" {
 			t.Errorf("%s: value types differ (go -, ergo +):\n%s", rel(fo.dir), d)
 		}
