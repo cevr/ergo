@@ -76,6 +76,171 @@ import strconv
 import sync
 import json
 import hex
+import rand
+
+func sseWritable(events []http.ServerEvent) []http.ServerEvent {
+	let mut out = []http.ServerEvent{}
+	for e in events {
+		let event = strings.ReplaceAll(strings.ReplaceAll(e.Event, "\r", ""), "\n", "")
+		let id = strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(e.ID, "\r", ""), "\n", ""), "\x00", "")
+		out = out.Append(http.ServerEvent{Event: event, Data: strings.ReplaceAll(e.Data, "\r", ""), ID: id})
+	}
+	out
+}
+
+func sseNamed(events []http.ServerEvent) []http.ServerEvent {
+	let mut out = []http.ServerEvent{}
+	for e in events {
+		out = out.Append(http.ServerEvent{..e, Event: if e.Event == "" { "message" } else { e.Event }})
+	}
+	out
+}
+
+func sseFeedIn(text string, sizes []int) (http.EventReader, []http.ServerEvent) {
+	let mut r = http.NewEventReader()
+	let mut out = []http.ServerEvent{}
+	let mut from = 0
+	for k in 0..len(text)+1 {
+		if from >= len(text) || len(sizes) == 0 {
+			break
+		}
+		let s = sizes[k%len(sizes)]
+		let n = if s < 0 { -(s % 10) } else { s % 10 }
+		let to = if from+n > len(text) { len(text) } else { from + n }
+		let next, events = http.Feed(r, strings.Slice(text, from, to))
+		r = next
+		for e in events {
+			out = out.Append(e)
+		}
+		from = to
+	}
+	let last, events = http.Feed(r, strings.Slice(text, from, len(text)))
+	for e in events {
+		out = out.Append(e)
+	}
+	(last, out)
+}
+
+func sseModel(text string) ([]http.ServerEvent, Option[http.Truncated], Option[int]) {
+	let lf = strings.ReplaceAll(strings.ReplaceAll(strings.TrimPrefix(text, "\xEF\xBB\xBF"), "\r\n", "\n"), "\r", "\n")
+	let lines = strings.Split(lf, "\n")
+	let mut out = []http.ServerEvent{}
+	let mut kind = ""
+	let mut data = []string{}
+	let mut id = ""
+	let mut retry Option[int] = None
+	let mut open = ""
+	let mut fields = false
+	for i, ln in lines {
+		if i == len(lines)-1 {
+			break
+		}
+		if ln == "" {
+			if len(data) > 0 {
+				out = out.Append(http.ServerEvent{Event: if kind == "" { "message" } else { kind }, Data: strings.Join(data, "\n"), ID: id})
+			}
+			kind = ""
+			data = []string{}
+			open = ""
+			fields = false
+			continue
+		}
+		open = open + ln + "\n"
+		let (name, value) = match strings.Cut(ln, ":") {
+		case Some[strings.Halves] as h:
+			(h.Value.Before, strings.TrimPrefix(h.Value.After, " "))
+		case None:
+			(ln, "")
+		}
+		if name == "" && strings.HasPrefix(ln, ":") {
+			continue
+		}
+		fields = true
+		if name == "event" {
+			kind = value
+		} else if name == "data" {
+			data = data.Append(value)
+		} else if name == "id" && !strings.Contains(value, "\x00") {
+			id = value
+		} else if name == "retry" && value != "" && strings.TrimLeft(value, "0123456789") == "" {
+			let ms = strconv.Atoi(value) catch {
+			case strconv.Malformed, strconv.OutOfRange:
+				-1
+			}
+			if ms >= 0 {
+				retry = Some[int]{Value: ms}
+			}
+		}
+	}
+	let partial = lines[len(lines)-1]
+	let end = if fields || (partial != "" && !strings.HasPrefix(partial, ":")) { Some[http.Truncated]{Value: http.Truncated{Text: open + partial}} } else { None }
+	(out, end, retry)
+}
+
+test HttpWriteThenRead(events []http.ServerEvent) {
+	let clean = sseWritable(events)
+	let text = http.WriteEvents(clean) catch {
+	case http.Unwritable:
+		assert false
+		return
+	}
+	let back = http.ReadEvents(text) catch {
+	case http.Truncated:
+		assert false
+		return
+	}
+	assert back == sseNamed(clean)
+}
+
+test HttpChunkingDoesNotMatter(events []http.ServerEvent, sizes []int) {
+	let clean = sseWritable(events)
+	let text = http.WriteEvents(clean) catch {
+	case http.Unwritable:
+		assert false
+		return
+	}
+	let r, got = sseFeedIn(text, sizes)
+	assert got == sseNamed(clean) && r.End() == None
+}
+
+test HttpCutIsNotAnEvent(events []http.ServerEvent, k int, sizes []int) {
+	let clean = sseWritable(events)
+	if len(clean) == 0 {
+		return
+	}
+	let before = http.WriteEvents(clean[0:len(clean)-1]) catch {
+	case http.Unwritable:
+		assert false
+		return
+	}
+	let whole = http.WriteEvents(clean) catch {
+	case http.Unwritable:
+		assert false
+		return
+	}
+	let last = len(whole) - len(before)
+	let drop = 1 + (if k < 0 { -(k % (last - 1)) } else { k % (last - 1) })
+	let body = strings.Slice(whole, 0, len(whole)-drop)
+	let r, got = sseFeedIn(body, sizes)
+	assert got == sseNamed(clean[0:len(clean)-1]) && r.End() == Some[http.Truncated]{Value: http.Truncated{Text: strings.Slice(body, len(before), len(body))}}
+}
+
+test HttpFeedMatchesModel(seed int) {
+	let pieces = []string{"data", "data:", "data: ", "event: ", "event", "id: ", "id", "retry: ", "retry:", "12", "x", " ", ":", "\n", "\n", "\r", "\r\n", "\x00", "-1", "\xEF\xBB\xBF", "é"}
+	with context { Random: rand.Seeded(uint64(seed)) } {
+		let mut text = if Random.IntN(4) == 0 { "\xEF\xBB\xBF" } else { "" }
+		for _ in 0..Random.IntN(120) {
+			text = text + pieces[Random.IntN(len(pieces))]
+		}
+		let mut sizes = []int{}
+		for _ in 0..1+Random.IntN(8) {
+			sizes = sizes.Append(Random.IntN(10))
+		}
+		let r, got = sseFeedIn(text, sizes)
+		let want, end, retry = sseModel(text)
+		assert got == want && r.End() == end && http.Retry(r) == retry
+	}
+}
 
 func segment(step int) string {
 	let segments = []string{"..", ".", "", "a.txt", "sub", "out", "in", "%2e%2e", "...", "..a", "b.txt"}
@@ -577,7 +742,7 @@ func TestStdHTTPLawsRun(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("HTTP laws: exit %d\n%s\n%s", code, stdout, stderr)
 	}
-	statements := map[string]string{"http FailureUsesTable": httpFailureStatement, "http SuccessUsesRoute": httpSuccessStatement, "http BuiltPathMatches": httpBuiltPathStatement, "http AllowIsWhatMatches": httpAllowStatement, "http FilesAsksBeneath": httpFilesStatement, "http StreamIsItsWrites": httpStreamStatement, "http WriteAfterStreamFails": httpLateWriteStatement, "http InMemorySendIntoIsSend": httpInMemoryIntoStatement, "http QueryDecodesByTheRule": httpQueryStatement, "http FormIsQuery": httpFormStatement, "http QueryStringBytesReadsString": httpQueryBytesStatement, "http MatchIsSplitMatch": httpSegmentsStatement, "http SuccessJSONIsSuccess": httpSuccessJSONStatement, "http RawPathDecodesToPath": httpRawPathStatement}
+	statements := map[string]string{"http FailureUsesTable": httpFailureStatement, "http SuccessUsesRoute": httpSuccessStatement, "http BuiltPathMatches": httpBuiltPathStatement, "http AllowIsWhatMatches": httpAllowStatement, "http FilesAsksBeneath": httpFilesStatement, "http StreamIsItsWrites": httpStreamStatement, "http WriteAfterStreamFails": httpLateWriteStatement, "http InMemorySendIntoIsSend": httpInMemoryIntoStatement, "http QueryDecodesByTheRule": httpQueryStatement, "http FormIsQuery": httpFormStatement, "http QueryStringBytesReadsString": httpQueryBytesStatement, "http MatchIsSplitMatch": httpSegmentsStatement, "http SuccessJSONIsSuccess": httpSuccessJSONStatement, "http RawPathDecodesToPath": httpRawPathStatement, "http WriteThenRead": sseWriteThenReadStatement, "http ChunkingDoesNotMatter": sseChunkingStatement, "http CutIsNotAnEvent": sseCutStatement, "http FeedMatchesModel": sseModelStatement}
 	lawLabel := func(key string) string { return "Http" + strings.TrimPrefix(key, "http ") }
 	lawledger.Run(t, lawsPassed(t, statements, lawLabel, stdHTTPLawsProbe, stdout, "RouterRefusalsAndHead", "HandlerUnderManual", "FilesAnswersByTheRule"))
 }
@@ -601,3 +766,13 @@ const httpStreamStatement = `StreamIsItsWrites(status int, parts []string) { let
 const httpLateWriteStatement = `WriteAfterStreamFails(text string) { let kept = sync.NewRef[[]BodyWriter]([]BodyWriter{}) let response = with context { Streaming: NewRecorder() } { Stream(200, []Field{}, func(w BodyWriter) fails WriteFailed { kept.Set([]BodyWriter{w}) }) } for w in kept.Get() { w.Write(text) catch { case WriteFailed: return response.Body == "" } } false }`
 
 const httpInMemoryIntoStatement = `InMemorySendIntoIsSend(status int, body string, long bool, explicit bool, listed int, values []int) { let text = if long { strings.Repeat(body+"x", 1100) } else { body } let set = if listed%2 == 0 { values } else { values.Append(status) } let accept Accept = if explicit { Statuses{Values: set} } else { AnySuccess } let mut taken = !explicit && status >= 200 && status < 300 for v in set { taken = taken || explicit && v == status } let h = InMemory(func(r Request) Response needs Streaming { Response{Status: status, Header: []Field{}, Body: text} }) let got = sync.NewRef[string]("") let r = Request{Method: "GET", Path: "/", RawPath: "/", Query: []Field{}, Header: []Field{}, Body: Buffered{Text: ""}} let response = h.SendInto(r, accept, func(part string) fails SinkFailed { got.Update(func(s string) string { s + part }) }) catch { case StatusRefused as s: let want = if len(text) > 1024 { text[0:1024] } else { text } return !taken && s.Status == status && s.Prefix == want && got.Get() == "" case RequestFailed, SinkFailed: return false } taken && got.Get() == text && response.Status == status && response.Body == "" }`
+
+// The SSE laws (NG1), restated by HttpWriteThenRead, HttpChunkingDoesNotMatter,
+// HttpCutIsNotAnEvent and HttpFeedMatchesModel above.
+const sseWriteThenReadStatement = `WriteThenRead(events []ServerEvent) { let clean = writable(events) let text = WriteEvents(clean) catch { case Unwritable: return false } let back = ReadEvents(text) catch { case Truncated: return false } back == typed(clean) }`
+
+const sseChunkingStatement = `ChunkingDoesNotMatter(events []ServerEvent, sizes []int) { let clean = writable(events) let text = WriteEvents(clean) catch { case Unwritable: return false } let r, got = feedIn(text, sizes) got == typed(clean) && r.End() == None }`
+
+const sseCutStatement = `CutIsNotAnEvent(events []ServerEvent, k int, sizes []int) { let clean = writable(events) if len(clean) == 0 { return true } let before = WriteEvents(clean[0:len(clean)-1]) catch { case Unwritable: return false } let whole = WriteEvents(clean) catch { case Unwritable: return false } let last = len(whole) - len(before) let drop = 1 + (if k < 0 { -(k % (last - 1)) } else { k % (last - 1) }) let body = strings.Slice(whole, 0, len(whole)-drop) let r, got = feedIn(body, sizes) got == typed(clean[0:len(clean)-1]) && r.End() == Some[Truncated]{Value: Truncated{Text: strings.Slice(body, len(before), len(body))}} }`
+
+const sseModelStatement = `FeedMatchesModel(seed int) { let pieces = []string{"data", "data:", "data: ", "event: ", "event", "id: ", "id", "retry: ", "retry:", "12", "x", " ", ":", "\n", "\n", "\r", "\r\n", "\x00", "-1", bom, "é"} with context { Random: rand.Seeded(uint64(seed)) } { let mut text = if Random.IntN(4) == 0 { bom } else { "" } for _ in 0..Random.IntN(120) { text = text + pieces[Random.IntN(len(pieces))] } let mut sizes = []int{} for _ in 0..1+Random.IntN(8) { sizes = sizes.Append(Random.IntN(10)) } let r, got = feedIn(text, sizes) let want, end, retry = modelRead(text) got == want && r.End() == end && Retry(r) == retry } }`

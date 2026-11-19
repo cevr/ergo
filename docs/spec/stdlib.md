@@ -1136,6 +1136,53 @@ both against net/http's `DetectContentType`.
     ([Req docs](https://hexdocs.pm/req/Req.html), read 2026-11-10). Go's
     control is a `resp.StatusCode` check before `io.Copy`.
 
+14. **Server-sent events (NG1 SSE).** `events.ergo` reads and writes
+    `text/event-stream` by the WHATWG HTML rules (§9.2.6, "Interpreting
+    an event stream"). The reader is pure: `NewEventReader()`, then
+    `Feed(r EventReader, part string) (EventReader, []ServerEvent)` for
+    each part of the body, in any cuts, and `End(r) Option[Truncated]`
+    at its end. `ServerEvent { Event, Data, ID }`: `Event` is
+    `"message"` when the stream names none, `Data` is the data lines
+    joined by line feeds, and `ID` is the last event id, which an event
+    keeps until a later `id` field changes it (an empty `id` clears it;
+    an `id` with a NUL is ignored). `Retry(r) Option[int]` is the last
+    `retry` field that is all ASCII digits. A line ends at CRLF, LF or
+    CR, also when a CRLF is cut between two parts; one leading byte
+    order mark is dropped, also when it is cut; a line that begins with
+    `:` is a comment; one space after the colon is dropped; a blank line
+    with no data line dispatches nothing. **A body that ends inside an
+    event is `Truncated{Text}`**, the text the stream sent of that event,
+    never a last event: the WHATWG reader drops it silently, and a cut
+    reply read as complete is a dropped tail (BAML findings §4, row 10).
+    `ReadEvents(body) []ServerEvent fails Truncated` reads a whole body.
+    `WriteEvents(events) string fails Unwritable` writes what
+    `ReadEvents` reads back: an `event` line when the type is not
+    `"message"`, an `id` line when the id changes, a `data` line per line
+    of the data and a blank line; an `Event` or `ID` with a line end, an
+    `ID` with a NUL, or `Data` with a CR is `Unwritable{Field, Value}`,
+    since no stream carries it. A handler streams the text through
+    `Stream`. `Events(r, on) Response fails RequestFailed | StatusRefused
+    | SinkFailed | Truncated needs Net` is `DoInto` with the reader: `on`
+    takes each event of a 2xx body as its blank line arrives.
+
+    Laws ([Std laws](#std-laws)): `FeedMatchesModel` holds the reader to
+    a model written apart from it (the BOM dropped, every CRLF and CR made
+    LF, the text split at LF, each line read by `strings.Cut`) over text
+    of drawn pieces (each field, CR, LF, CRLF, NUL, `:`, the BOM) fed in
+    drawn cuts; `WriteThenRead`, `ChunkingDoesNotMatter` and
+    `CutIsNotAnEvent` hold the writer and the reader to each other.
+
+    *Prior art* (from the libraries' documentation as remembered, not re-read for this unit): Effect's `Sse` module (`@effect/experimental` `Sse`,
+    a `makeParser` callback over chunks, then an `Event` with `event`,
+    `id`, `data` and `retry`) gives the behaviour; Ergo keeps it as a
+    pure fold, a part in and events out, with no Channel. Go has no
+    reader in its standard library; the control is a `bufio.Scanner`
+    loop with a split function for the three line ends. Gleam and Elixir
+    have no SSE reader in their standard libraries (Elixir's `Req` and
+    `Mint` stream bodies; Plug writes events by hand); ReScript binds the
+    browser's `EventSource`, which reconnects itself and drops a cut
+    event as the WHATWG rules say.
+
 Prior art for Files (source inspected, not measured): Wisp's `serve_static`
 (main branch) drops every ".." substring from the decoded path, joins it to
 the directory and reads through `simplifile`, so the guard is lexical and a
@@ -1469,6 +1516,10 @@ The exempt types and their reasons are in their doc comments: `Console`, `Ambien
 | `http` | `InMemorySendIntoIsSend` | `InMemorySendIntoIsSend(status int, body string, long bool, explicit bool, listed int, values []int) { let text = if long { strings.Repeat(body+"x", 1100) } else { body } let set = if listed%2 == 0 { values } else { values.Append(status) } let accept Accept = if explicit { Statuses{Values: set} } else { AnySuccess } let mut taken = !explicit && status >= 200 && status < 300 for v in set { taken = taken \|\| explicit && v == status } let h = InMemory(func(r Request) Response needs Streaming { Response{Status: status, Header: []Field{}, Body: text} }) let got = sync.NewRef[string]("") let r = Request{Method: "GET", Path: "/", RawPath: "/", Query: []Field{}, Header: []Field{}, Body: Buffered{Text: ""}} let response = h.SendInto(r, accept, func(part string) fails SinkFailed { got.Update(func(s string) string { s + part }) }) catch { case StatusRefused as s: let want = if len(text) > 1024 { text[0:1024] } else { text } return !taken && s.Status == status && s.Prefix == want && got.Get() == "" case RequestFailed, SinkFailed: return false } taken && got.Get() == text && response.Status == status && response.Body == "" }` | `TestStdHTTPLawsRun` | tested |
 | `http` | `RawPathDecodesToPath` | `RawPathDecodesToPath(segments []string, upper bool) { let mut raw = "" for i, s in segments { let seg = if s == "" { "-" } else { s } raw = raw + "/" + queryEscape(seg, i%2 == 0, upper) } if raw == "" { raw = "/" } let n = InMemoryNetwork(AnyOrigin, Limits{MaxBodyBytes: 1 << 16, MaxHeaderBytes: 1 << 16, IdleTimeout: 30s, ReadHeaderTimeout: 10s, ReadBodyTimeout: 10s}, NoRedirects, func(origin string, r Request) Response needs Streaming { Response{Status: 200, Header: []Field{}, Body: r.RawPath + "\n" + r.Path} }) catch { case InvalidClient, InvalidLimits: return false } let got = n.SendURL(URLRequest{URL: "http://raw.test" + raw, Method: "GET", Header: []Field{}, Credentials: []Credential{}, Body: ""}) catch { case RequestFailed, OriginRefused, RedirectLimit: return false } let decoded = DecodePath(raw) catch { case BadEscape: return false } got.Body == raw + "\n" + decoded }` | `TestStdHTTPLawsRun` | tested |
 | `http` | `QueryDecodesByTheRule` | `QueryDecodesByTheRule(counts []int, numbers []int, texts []string) { let keys = []string{"load", "name", "note", "on", "other key", "page", "size", "tags"} let mut pairs = []Field{} let mut raw = "" let mut i = 0 for j, key in keys { let k = if j < len(counts) { ((counts[j] % 6) + 6) % 6 } else { 5 } let times = if k == 0 { 0 } else if k == 1 { 2 } else if k == 2 { 3 } else { 1 } for _ in 0..times { let n = if len(numbers) == 0 { i } else { numbers[i%len(numbers)] } let m = if n < 0 { -(n % 1000) } else { n % 1000 } let text = if len(texts) == 0 { "" } else { texts[i%len(texts)] } let typed = key == "load" \|\| key == "on" \|\| key == "page" \|\| key == "size" let value = if !typed { text } else if m%7 == 6 { text + "x" } else if key == "on" { if m%2 == 0 { "true" } else { "false" } } else { strconv.Itoa(1000 + 13*m) } pairs = pairs.Append(Field{Name: key, Value: value}) let part = queryEscape(key, m%2 == 0, m%3 == 0) + "=" + queryEscape(value, m%5 != 0, m%3 == 1) raw = if i == 0 { part } else { raw + "&" + part } if m%11 == 0 { raw = raw + "&bad=%zz" } i = i + 1 } } let (want, record) = queryExpected(pairs) let got = DecodeQuery[queryProbe](ParseQuery(raw)) catch { case QueryRepeated as q: return want == "repeated "+q.Key case WireWrongKind as w: return want == "wrong "+w.Path case WireMissingField as f: return want == "missing "+f.Field case WireUnknownTag: return false } want == "ok" && got == record }` | `TestStdHTTPLawsRun` | tested |
+| `http` | `WriteThenRead` | `WriteThenRead(events []ServerEvent) { let clean = writable(events) let text = WriteEvents(clean) catch { case Unwritable: return false } let back = ReadEvents(text) catch { case Truncated: return false } back == typed(clean) }` | `TestStdHTTPLawsRun` | tested |
+| `http` | `ChunkingDoesNotMatter` | `ChunkingDoesNotMatter(events []ServerEvent, sizes []int) { let clean = writable(events) let text = WriteEvents(clean) catch { case Unwritable: return false } let r, got = feedIn(text, sizes) got == typed(clean) && r.End() == None }` | `TestStdHTTPLawsRun` | tested |
+| `http` | `CutIsNotAnEvent` | `CutIsNotAnEvent(events []ServerEvent, k int, sizes []int) { let clean = writable(events) if len(clean) == 0 { return true } let before = WriteEvents(clean[0:len(clean)-1]) catch { case Unwritable: return false } let whole = WriteEvents(clean) catch { case Unwritable: return false } let last = len(whole) - len(before) let drop = 1 + (if k < 0 { -(k % (last - 1)) } else { k % (last - 1) }) let body = strings.Slice(whole, 0, len(whole)-drop) let r, got = feedIn(body, sizes) got == typed(clean[0:len(clean)-1]) && r.End() == Some[Truncated]{Value: Truncated{Text: strings.Slice(body, len(before), len(body))}} }` | `TestStdHTTPLawsRun` | tested |
+| `http` | `FeedMatchesModel` | `FeedMatchesModel(seed int) { let pieces = []string{"data", "data:", "data: ", "event: ", "event", "id: ", "id", "retry: ", "retry:", "12", "x", " ", ":", "\n", "\n", "\r", "\r\n", "\x00", "-1", bom, "é"} with context { Random: rand.Seeded(uint64(seed)) } { let mut text = if Random.IntN(4) == 0 { bom } else { "" } for _ in 0..Random.IntN(120) { text = text + pieces[Random.IntN(len(pieces))] } let mut sizes = []int{} for _ in 0..1+Random.IntN(8) { sizes = sizes.Append(Random.IntN(10)) } let r, got = feedIn(text, sizes) let want, end, retry = modelRead(text) got == want && r.End() == end && Retry(r) == retry } }` | `TestStdHTTPLawsRun` | tested |
 | `http` | `QueryStringBytesReadsString` | `QueryStringBytesReadsString(s string, pre []byte) { let a = queryReaderOf([]Field{Field{Name: "k", Value: s}}) let b = queryReaderOf([]Field{Field{Name: "k", Value: s}}) try a.BeginObject() try b.BeginObject() let _ = a.Key() let _ = b.Key() let got = try a.StringBytes(pre) utf8.String(got) == utf8.String(pre)+try b.String() }` | `TestStdHTTPLawsRun` | tested |
 | `http` | `FormIsQuery` | `FormIsQuery(counts []int, texts []string) { let keys = []string{"tags", "page", "other key", "name", "on", "size", "load", "note"} let mut fields = []Field{} for j, key in keys { let times = if j < len(counts) { ((counts[j] % 3) + 3) % 3 } else { 1 } for t in 0..times { let text = if len(texts) == 0 { "" } else { texts[(j+t)%len(texts)] } let value = if key == "on" { "true" } else if key == "page" \|\| key == "size" \|\| key == "load" { strconv.Itoa(10*j + t) } else { text } fields = fields.Append(Field{Name: key, Value: value}) } } formVerdict(EncodeQuery(fields)) == queryVerdict(fields) }` | `TestStdHTTPLawsRun` | tested |
 | `url` | `QueryRoundTrips` | `QueryRoundTrips(names []string, values []string) { let mut pairs = []Pair{} for i, n in names { pairs = pairs.Append(Pair{Name: n, Value: if i < len(values) { values[i] } else { "" }}) } ParseQuery(EncodeQuery(pairs)) == pairs }` | `TestStdURLLawsRun` | tested |
