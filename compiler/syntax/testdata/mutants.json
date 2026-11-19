@@ -36,7 +36,7 @@
     {
       "name": "scan-keyword-prefix",
       "origin": "wf10 S2a (SL5)",
-      "file": "compiler/syntax/scan.ergo",
+      "file": "compiler/syntax/diag.ergo",
       "from": "\tlet w = src[start:end]\n",
       "to": "\tlet w = src[start:end]\n\tif n > 3 && src[start:start+3] == \"for\" {\n\t\treturn For\n\t}\n",
       "rule": "A word is a keyword only when all of it is: `fortune` is an identifier.",
