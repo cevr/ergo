@@ -13,6 +13,32 @@ import ui/layout
 // scrimColor is a scrim's fill: black at 35%.
 let scrimColor = uint32(0x00000059)
 
+// cover is a box a layer or its scrim painted over the looks and spots
+// painted before it: the first looks of d.looked and the first spots of
+// d.spots.
+type cover { box layout.Box, looks int, spots int }
+
+// coveredLook is whether a layer painted over pixel x, y after the i-th
+// look of the paint, so the look's colour does not show there.
+func coveredLook[S, E, D, F](d *Driver[S, E, D, F], i int, x int, y int) bool {
+	for c in d.covers {
+		if c.looks > i && probeShows(c.box, x, y) {
+			return true
+		}
+	}
+	false
+}
+
+// coveredSpot is coveredLook for the i-th spot of the paint.
+func coveredSpot[S, E, D, F](d *Driver[S, E, D, F], i int, x int, y int) bool {
+	for c in d.covers {
+		if c.spots > i && probeShows(c.box, x, y) {
+			return true
+		}
+	}
+	false
+}
+
 // isLayer is whether n is a layer.
 func isLayer[E](n ui.Node[E]) bool {
 	match n {
@@ -184,9 +210,15 @@ func paintLayers[S, E, D, F](d *Driver[S, E, D, F], line float32, soiled Map[ui.
 		match layerNode(d, l) {
 		case Some[ui.LayerNode[E]] as x:
 			if x.Value.Scrim {
+				d.covers = d.covers.Append(cover{box: full, looks: len(d.looked), spots: len(d.spots)})
 				fill(d, full, 0, scrimColor)
 				d.under = None
 				d.spots = d.spots.Append(spot[E]{id: d.root, node: x.Value, box: full, clip: full})
+			}
+			match d.lids.Get(l) {
+			case Some[layout.Id] as li:
+				d.covers = d.covers.Append(cover{box: boxOf(&d.tree, li.Value), looks: len(d.looked), spots: len(d.spots)})
+			case None:
 			}
 			draw(d, l, 0, 0, full, line, soiled, again)
 		case None:

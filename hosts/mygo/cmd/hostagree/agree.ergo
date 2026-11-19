@@ -197,6 +197,67 @@ func trackedWrong[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *desktop.
 	None
 }
 
+// shielded is whether a layer's scrim covers the list labelled label in
+// shapes: a scrim layer is open and the list is in none.
+func shielded[E](shapes []ui.Shape[E], label string) bool {
+	scrimIn[E](shapes) && !underScrim[E](shapes, label, false)
+}
+
+// underScrim is whether the list labelled label is in a layer with a
+// scrim (covered: shapes are in one).
+func underScrim[E](shapes []ui.Shape[E], label string, covered bool) bool {
+	for s in shapes {
+		match s.Node {
+		case ui.RowsNode as x:
+			if x.Label == label {
+				return covered
+			}
+		case _:
+		}
+		if found[E](s.Kids, label) {
+			return underScrim[E](s.Kids, label, covered || isScrim(s.Node))
+		}
+	}
+	false
+}
+
+// scrimIn is whether a layer with a scrim is anywhere in shapes.
+func scrimIn[E](shapes []ui.Shape[E]) bool {
+	for s in shapes {
+		if isScrim(s.Node) || scrimIn[E](s.Kids) {
+			return true
+		}
+	}
+	false
+}
+
+// isScrim is whether n is a layer with a scrim.
+func isScrim[E](n ui.Node[E]) bool {
+	match n {
+	case ui.LayerNode[E] as l:
+		l.Scrim
+	case _:
+		false
+	}
+}
+
+// found is whether the list labelled label is in shapes.
+func found[E](shapes []ui.Shape[E], label string) bool {
+	for s in shapes {
+		match s.Node {
+		case ui.RowsNode as x:
+			if x.Label == label {
+				return true
+			}
+		case _:
+		}
+		if found[E](s.Kids, label) {
+			return true
+		}
+	}
+	false
+}
+
 // maxOffset is how far the list labelled label scrolls in a viewport
 // height high: its content less the height, at least 0.
 func maxOffset[E](shapes []ui.Shape[E], label string, height float64) float64 {
@@ -415,7 +476,16 @@ func run[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *desktop.Driver[S,
 			return (Broke{Why: "scroll LABEL N"}, Broke{Why: "scroll LABEL N"})
 		}
 		let to = float64(atoi(f[1]))
-		let mut b = played(func() fails ui.NoNode | ui.Ambiguous | ui.Mismatch | actor.Stopped | ui.BadPatch | ui.Closed needs go.Foreign {
+		// Under a scrim the wheel scrolls nothing: the list stays (UG4).
+		let mut stays Option[float64] = None
+		match desktop.Viewport(d, f[0]) {
+		case Some[ui.Viewport] as v:
+			if shielded(desktop.Screen(d), f[0]) {
+				stays = Some{Value: float64(v.Value.Offset)}
+			}
+		case None:
+		}
+		let mut b = played(func() fails ui.NoNode | ui.Ambiguous | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch needs go.Foreign {
 			try desktop.Play(d, []ui.Act{ui.ScrollOn{Label: f[0], Offset: ui.Length(to), Height: 0}})
 		})
 		// The list is where the step scrolled it: at the offset, or as far
@@ -423,7 +493,12 @@ func run[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *desktop.Driver[S,
 		match (b, desktop.Viewport(d, f[0])) {
 		case (Done, Some[ui.Viewport] as v):
 			let most = maxOffset(desktop.Screen(d), f[0], float64(v.Value.Height))
-			let want = if to < most { to } else { most }
+			let want = match stays {
+			case Some[float64] as s:
+				s.Value
+			case None:
+				if to < most { to } else { most }
+			}
 			if float64(v.Value.Offset) != want {
 				b = Broke{Why: "scrolled to \(float64(v.Value.Offset)), want \(want)"}
 			}

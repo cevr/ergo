@@ -311,6 +311,7 @@ func drawAll[S, E, D, F](d *Driver[S, E, D, F], line float32, soiled Map[ui.Id[E
 	d.canvases = []spot[E]{}
 	d.drawn = 0
 	d.looked = []lookProbe{}
+	d.covers = []cover{}
 	d.semantics = []ui.Id[E]{}
 	d.under = Some{Value: paper}
 	d.shadowed = false
