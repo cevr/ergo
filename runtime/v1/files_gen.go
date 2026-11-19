@@ -247,6 +247,8 @@ var bodyTable = []bodyRow{
 	{"HexEncode", bodyFact{body: Body{Params: []Param{{Type: "string"}}, Results: []string{"string"}, Pure: true, Wait: "none", Package: Path + "/digest"}}},
 	{"HexMalformed.Error", bodyFact{body: Body{Results: []string{"string"}, Package: Path + "/digest"}}},
 	{"HmacEqual", bodyFact{body: Body{Params: []Param{{Type: "string"}, {Type: "string"}}, Results: []string{"bool"}, Pure: true, Wait: "none", Package: Path + "/digest"}}},
+	{"HmacKeyState", bodyFact{body: Body{Params: []Param{{Type: "int"}, {Type: "string"}}, Results: []string{"string", "string"}, Pure: true, Wait: "none", Package: Path + "/digest"}}},
+	{"HmacKeyedSum", bodyFact{body: Body{Params: []Param{{Type: "int"}, {Type: "string"}, {Type: "string"}, {Type: "string"}}, Results: []string{"string"}, Pure: true, Wait: "none", Package: Path + "/digest"}}},
 	{"HmacSHA1", bodyFact{body: Body{Params: []Param{{Type: "string"}, {Type: "string"}}, Results: []string{"string"}, Pure: true, Wait: "none", Package: Path + "/digest"}}},
 	{"HmacSHA256", bodyFact{body: Body{Params: []Param{{Type: "string"}, {Type: "string"}}, Results: []string{"string"}, Pure: true, Wait: "none", Package: Path + "/digest"}}},
 	{"HmacSHA512", bodyFact{body: Body{Params: []Param{{Type: "string"}, {Type: "string"}}, Results: []string{"string"}, Pure: true, Wait: "none", Package: Path + "/digest"}}},

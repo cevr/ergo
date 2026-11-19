@@ -51,6 +51,7 @@ func loadNatives() {
 		registerNativescsv()
 		registerNativesembed()
 		registerNativesgo()
+		registerNativeshmac()
 		registerNativeshttp()
 		registerNativesjson()
 		registerNativesmore()
