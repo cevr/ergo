@@ -95,9 +95,7 @@ func (b *irBuilder) store(s *syntax.AssignStmt, op string) []*irStmt {
 	if op == "" && to.K == "mapAt" {
 		return append(append(first, b.fixEntry(lhs, to, pre)...), &irStmt{K: "store", Pos: b.pos(s, s.Pos()), X: to, Y: x}) // ir_mapstore.go
 	}
-	if len(pre) > 0 && op == "" && to.K == "index" && b.sliceElem(lhs) {
-		pre = b.fixElem(lhs, to, pre)
-	} else if len(pre) > 0 && (op != "" || !b.fixed(lhs)) {
+	if len(pre) > 0 && (op != "" || !b.fixed(lhs)) {
 		// The emitter's target with later set (body.go): the place's
 		// pointers, slices, maps and indexes are fixed first, and an
 		// op-assignment reads the place before the value (assign's old).
@@ -114,8 +112,10 @@ func (b *irBuilder) store(s *syntax.AssignStmt, op string) []*irStmt {
 // place writes statements (body.go, later): *p's p; a field through a
 // pointer the pointer, unless no assignment changes it (fixedName); a
 // slice's element its slice and an index that is no constant (a Map's
-// entry is fixEntry's); an array's element its array place and its index. Statements
-// that run after it cannot move the place (FLIP F7 PORT-TEMP).
+// entry is fixEntry's); an array's element its array place and its
+// index. Statements that run after it cannot move the place, and an index
+// out of range fails at the store, after them, on both paths (FLIP F7
+// PORT-TEMP).
 func (b *irBuilder) fixPlace(lhs syntax.Expr, to *irExpr) []*irStmt {
 	var fix []*irStmt
 	bind := func(e *irExpr, s syntax.Expr) *irExpr {
@@ -179,37 +179,6 @@ func (b *irBuilder) storeOld(s *syntax.AssignStmt, op string, to *irExpr, pre []
 	}
 	out := append([]*irStmt{{K: "def", Pos: p, Local: old, X: &read}}, pre...)
 	return append(out, &irStmt{K: "store", Pos: p, X: to, Y: val})
-}
-
-// sliceElem reports whether lhs is an element of a slice.
-func (b *irBuilder) sliceElem(lhs syntax.Expr) bool {
-	x, ok := unparen(lhs).(*syntax.IndexExpr)
-	if !ok || len(x.Indices) != 1 {
-		return false
-	}
-	_, isSlice := b.l.info.Types[x.X].(*check.Slice)
-	return isSlice
-}
-
-// fixElem is the statements of a value stored to the slice element to,
-// lhs in the source: the emitter's target with later set (body.go) binds
-// the slice and an index that is no constant to temporaries before the
-// value's statements run, so they cannot move the element; an index out
-// of range fails at the store, after them, on both paths (FLIP F7
-// PORT-TEMP).
-func (b *irBuilder) fixElem(lhs syntax.Expr, to *irExpr, pre []*irStmt) []*irStmt {
-	x := unparen(lhs).(*syntax.IndexExpr)
-	var fix []*irStmt
-	bind := func(e *irExpr, s syntax.Expr) *irExpr {
-		v := b.temp("e", b.goType(b.operandType(s), s), e.Pos)
-		fix = append(fix, &irStmt{K: "def", Pos: e.Pos, Local: v, X: e})
-		return &irExpr{K: "local", Pos: e.Pos, I: v}
-	}
-	to.X = bind(to.X, x.X)
-	if to.Y.K != "const" {
-		to.Y = bind(to.Y, x.Indices[0])
-	}
-	return append(fix, pre...)
 }
 
 // addrRecv reports whether c calls a *T function on a T receiver, which

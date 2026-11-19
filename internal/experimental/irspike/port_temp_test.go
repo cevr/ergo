@@ -18,8 +18,8 @@ import (
 // with "operation call inside an expression" (mutants
 // port-temp-key-uncollected, port-temp-elem-uncollected). A place before
 // a value with statements fell back with "store to a place a value with
-// statements may move": a slice's element (stepped,
-// port-temp-elem-unfixed), an op-assignment (added,
+// statements may move": a slice's element (both, stepped), an
+// op-assignment (added,
 // port-temp-op-old-refused) and a field through or the target of a let
 // mut pointer (Box.moved, port-temp-place-refused); and a float local's
 // x *= v with "op-assignment of a value with statements" (scaledOwned,
