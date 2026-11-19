@@ -11,7 +11,7 @@ import (
 
 // The guard lines of the reviewed tables in runtime/v1 (LAWFFI LF2d;
 // interop.md, Foreign facts 7) and of the memory-only rows
-// (gofacts.Effects; np4f-plan GBX6). A row of v1.GoSyncCallbacks, a
+// (gofacts.Effects; np4f-plan GBX6). A row of v1.GoSyncCallbacks(), a
 // package of v1.PureImports or a memory-only row acts only on its line in
 // the std ledger, current (the
 // row's digest at the pinned toolchain) and validated by its guard
@@ -25,13 +25,13 @@ import (
 // shipped ledger never stops the run that refreshes it.
 var FactLedger = stdlib.Ledger
 
-// SyncActs reports whether the sync row of target acts: v1.GoSyncCallbacks
+// SyncActs reports whether the sync row of target acts: v1.GoSyncCallbacks()
 // has it with a reason, and its guard line is current and validated; else
 // why not, and whether the line refutes it.
 func SyncActs(target string) (ok, refuted bool, why string) {
-	reason := v1.GoSyncCallbacks[target]
+	reason := v1.GoSyncCallbacks()[target]
 	if reason == "" {
-		return false, false, "v1.GoSyncCallbacks has no reviewed row for it"
+		return false, false, "v1.GoSyncCallbacks() has no reviewed row for it"
 	}
 	return gofacts.Acts(FactLedger(), gofacts.SyncKey(target), gofacts.SyncDigest(target, reason, toolchain.Version), toolchain.Version)
 }
@@ -53,6 +53,6 @@ func PureActs(path string) bool {
 	if !slices.Contains(v1.PureImports, path) {
 		return false
 	}
-	ok, _, _ := gofacts.Acts(FactLedger(), gofacts.PureKey(path), gofacts.PureDigest(path, v1.PureImportsExcept[path], toolchain.Version), toolchain.Version)
+	ok, _, _ := gofacts.Acts(FactLedger(), gofacts.PureKey(path), gofacts.PureDigest(path, v1.PureImportsExcept()[path], toolchain.Version), toolchain.Version)
 	return ok
 }

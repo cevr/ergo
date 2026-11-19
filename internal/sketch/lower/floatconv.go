@@ -1,5 +1,6 @@
 package lower
 
+import "sync"
 import "ergo.local/prototype/internal/sketch/check"
 
 // Float to integer conversion (types.md, Conversions 4). Go leaves T(x) of
@@ -13,19 +14,21 @@ import "ergo.local/prototype/internal/sketch/check"
 
 // floatToIntegerHelpers names the runtime/v1 function of each integer
 // kind; byte and rune are Uint8 and Int32.
-var floatToIntegerHelpers = map[check.BasicKind]string{
-	check.Int:     "FloatToInt",
-	check.Int8:    "FloatToInt8",
-	check.Int16:   "FloatToInt16",
-	check.Int32:   "FloatToInt32",
-	check.Int64:   "FloatToInt64",
-	check.Uint:    "FloatToUint",
-	check.Uint8:   "FloatToUint8",
-	check.Uint16:  "FloatToUint16",
-	check.Uint32:  "FloatToUint32",
-	check.Uint64:  "FloatToUint64",
-	check.Uintptr: "FloatToUintptr",
-}
+var floatToIntegerHelpers = sync.OnceValue(func() map[check.BasicKind]string {
+	return map[check.BasicKind]string{
+		check.Int:     "FloatToInt",
+		check.Int8:    "FloatToInt8",
+		check.Int16:   "FloatToInt16",
+		check.Int32:   "FloatToInt32",
+		check.Int64:   "FloatToInt64",
+		check.Uint:    "FloatToUint",
+		check.Uint8:   "FloatToUint8",
+		check.Uint16:  "FloatToUint16",
+		check.Uint32:  "FloatToUint32",
+		check.Uint64:  "FloatToUint64",
+		check.Uintptr: "FloatToUintptr",
+	}
+})
 
 // floatToInteger returns the runtime/v1 function that converts a value of
 // type from to type to, or "" when the conversion is not of a float to an
@@ -39,7 +42,7 @@ func floatToInteger(from, to check.Type) string {
 	if !ok {
 		return ""
 	}
-	return floatToIntegerHelpers[t.Kind]
+	return floatToIntegerHelpers()[t.Kind]
 }
 
 // float64Of is val, of the float type from, as a float64.

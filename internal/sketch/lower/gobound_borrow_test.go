@@ -34,8 +34,8 @@ func (p P) Same(q *P) bool { return false }
 // binary only, as hostres's are (host_resource_test.go).
 func init() {
 	const reason = "recvBorrowGo: an empty body keeps nothing"
-	v1.GoArgClauses["recvborrow.P.Merge"] = map[int]v1.GoArgClause{0: {Lent: true, Reason: reason}, 2: {Lent: true, Reason: reason}}
-	v1.GoArgClauses["recvborrow.P.Same"] = map[int]v1.GoArgClause{0: {Lent: true, Reason: reason}, 1: {Lent: true, Reason: reason}}
+	v1.GoArgClauses()["recvborrow.P.Merge"] = map[int]v1.GoArgClause{0: {Lent: true, Reason: reason}, 2: {Lent: true, Reason: reason}}
+	v1.GoArgClauses()["recvborrow.P.Same"] = map[int]v1.GoArgClause{0: {Lent: true, Reason: reason}, 1: {Lent: true, Reason: reason}}
 }
 
 // recvBorrowSrc calls each method on a borrow p with p. Merge receives p

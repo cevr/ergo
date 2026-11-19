@@ -68,7 +68,7 @@ func TestNativesAgreeWithRuntime(t *testing.T) {
 			in.steps, in.bytes = 0, 0
 			nat := natives[c.name]
 			if nat == nil {
-				nat = goNatives[c.name]
+				nat = goNatives()[c.name]
 			}
 			if nat == nil {
 				t.Fatalf("no native %s", c.name)
@@ -132,7 +132,7 @@ func TestNativeWorkIsWhatGoReads(t *testing.T) {
 		in.steps, in.bytes = 0, 0
 		nat := natives[name]
 		if nat == nil {
-			nat = goNatives[name] // reached through std's import go strings
+			nat = goNatives()[name] // reached through std's import go strings
 		}
 		if _, ab := nat(in, fr, fr.decl, nil, args); ab != nil {
 			t.Fatalf("%s: %s", name, ab.msg)

@@ -3,6 +3,7 @@ package lower
 import (
 	"ergo.local/prototype/internal/sketch/check"
 	v1 "ergo.local/prototype/runtime/v1"
+	"sync"
 )
 
 // The lowering's body contract (STD-NOPRIV NP4d; docs/spec/interop.md,
@@ -34,26 +35,30 @@ func bodyCatalog() map[string]runtimeBinding {
 	return out
 }
 
-// waitKinds are the lowering's names of the wait kinds v1.WaitKinds lists.
-var waitKinds = map[string]waitTask{
-	"none": noWait, "caller": callerWait, "handle": handleWait, "drain": drainWait, "child": childWait,
-	"member": memberTask, "parent": parentTask, "settle": settleWait, "end": endWait,
-}
+// waitKinds are the lowering's names of the wait kinds v1.WaitKinds() lists.
+var waitKinds = sync.OnceValue(func() map[string]waitTask {
+	return map[string]waitTask{
+		"none": noWait, "caller": callerWait, "handle": handleWait, "drain": drainWait, "child": childWait,
+		"member": memberTask, "parent": parentTask, "settle": settleWait, "end": endWait,
+	}
+})
 
-// releaseRoutes are the lowering's names of the routes v1.ReleaseRoutes
+// releaseRoutes are the lowering's names of the routes v1.ReleaseRoutes()
 // lists.
-var releaseRoutes = map[string]releaseRoute{"": notRelease, "caller": callerRelease, "frame": frameRelease}
+var releaseRoutes = sync.OnceValue(func() map[string]releaseRoute {
+	return map[string]releaseRoute{"": notRelease, "caller": callerRelease, "frame": frameRelease}
+})
 
 // bindingOf is the calling policy body states. Its hidden arguments give
 // the rest: a body that takes the context package reads context values,
 // and one that takes the caller's task for no wait or release of its own
 // takes it to know where it runs (task).
 func bindingOf(body v1.Body) runtimeBinding {
-	wait, ok := waitKinds[body.Wait]
+	wait, ok := waitKinds()[body.Wait]
 	if !ok {
 		panic("lower: runtime/v1 wait kind " + body.Wait + " has no lowering name")
 	}
-	release, ok := releaseRoutes[body.Release]
+	release, ok := releaseRoutes()[body.Release]
 	if !ok {
 		panic("lower: runtime/v1 release route " + body.Release + " has no lowering name")
 	}

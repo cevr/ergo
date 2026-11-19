@@ -1,5 +1,6 @@
 package check
 
+import "sync"
 import "fmt"
 
 // Go builtins as extern targets (OPT4b). `extern go append func Append[T](xs
@@ -30,11 +31,13 @@ import "fmt"
 // Prior art: ReScript's external binds a JavaScript builtin by its name;
 // Gleam's @external names a host function; Go's own builtins have no
 // function value, so a binding is call-only here too (externValue).
-var goBuiltins = map[string]bool{"append": true, "len": true, "cap": true, "copy": true, "clear": true, "delete": true, "min": true, "max": true}
+var goBuiltins = sync.OnceValue(func() map[string]bool {
+	return map[string]bool{"append": true, "len": true, "cap": true, "copy": true, "clear": true, "delete": true, "min": true, "max": true}
+})
 
 // IsGoBuiltin reports whether name is a Go builtin an extern may bind
 // with no package path.
-func IsGoBuiltin(name string) bool { return goBuiltins[name] }
+func IsGoBuiltin(name string) bool { return goBuiltins()[name] }
 
 // GoBuiltin is the Go builtin an extern function f binds, or "" when its
 // target names a function of a Go package.
@@ -43,7 +46,7 @@ func GoBuiltin(f *Func) string {
 		return ""
 	}
 	path, name := f.Decl.Extern.Split()
-	if path != "" || !goBuiltins[name] {
+	if path != "" || !goBuiltins()[name] {
 		return ""
 	}
 	return name

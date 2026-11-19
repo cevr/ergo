@@ -471,7 +471,7 @@ func (c *checker) ident(x *syntax.Ident) operand {
 			// Context 9).
 			return c.contextValue(x)
 		}
-		if form, ok := removedBuiltins[x.Name]; ok {
+		if form, ok := removedBuiltins()[x.Name]; ok {
 			c.errorf(x, CodeUnknown, "%s is not predeclared in Ergo; %s", x.Name, form)
 			return bad(x)
 		}

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"unicode"
 	"unicode/utf8"
 )
@@ -20,7 +21,9 @@ type token struct {
 }
 
 // durationUnits are the duration literal suffixes (grammar.md, Literals).
-var durationUnits = map[string]bool{"ns": true, "us": true, "ms": true, "s": true, "m": true, "h": true}
+var durationUnits = sync.OnceValue(func() map[string]bool {
+	return map[string]bool{"ns": true, "us": true, "ms": true, "s": true, "m": true, "h": true}
+})
 
 // interpolation is an open `\( … )` of an interpreted string: quote is the
 // string's opening quote, depth the parentheses open inside the
@@ -307,7 +310,7 @@ func (s *scanner) identifier(start int) {
 		end += size
 	}
 	word := src[start:end]
-	if tok, ok := keywords[word]; ok {
+	if tok, ok := keywords()[word]; ok {
 		s.emit(tok, start, end, word)
 	} else {
 		s.emit(IDENT, start, end, word)
@@ -325,10 +328,15 @@ func digits(src string, i int) int {
 }
 
 // bases names the integer literal prefixes (grammar.md, Literals 1).
-var bases = map[byte]struct {
+var bases = sync.OnceValue(func() map[byte]struct {
 	base int
 	name string
-}{'x': {16, "hexadecimal"}, 'X': {16, "hexadecimal"}, 'o': {8, "octal"}, 'O': {8, "octal"}, 'b': {2, "binary"}, 'B': {2, "binary"}}
+} {
+	return map[byte]struct {
+		base int
+		name string
+	}{'x': {16, "hexadecimal"}, 'X': {16, "hexadecimal"}, 'o': {8, "octal"}, 'O': {8, "octal"}, 'b': {2, "binary"}, 'B': {2, "binary"}}
+})
 
 // digitValue is the value of the digit c, or 99 when c is no digit.
 func digitValue(c byte) int {
@@ -364,7 +372,7 @@ func badSeparator(lit string, base int, prefixed bool) int {
 // with no digits and a hexadecimal float are S001.
 func (s *scanner) prefixed(start int) {
 	src := s.src
-	b := bases[src[start+1]]
+	b := bases()[src[start+1]]
 	end := start + 2
 	for end < len(src) {
 		r, size := utf8.DecodeRuneInString(src[end:])
@@ -410,7 +418,7 @@ func (s *scanner) prefixed(start int) {
 func (s *scanner) number(start int) {
 	src := s.src
 	if src[start] == '0' && start+1 < len(src) {
-		if _, ok := bases[src[start+1]]; ok {
+		if _, ok := bases()[src[start+1]]; ok {
 			s.prefixed(start)
 			return
 		}
@@ -456,7 +464,7 @@ func (s *scanner) number(start int) {
 	switch {
 	case suffix == "i":
 		s.fail(start, suffixEnd-start, "imaginary literals are not part of the language")
-	case !float && durationUnits[suffix]:
+	case !float && durationUnits()[suffix]:
 		s.emit(DURATION, start, suffixEnd, src[start:suffixEnd])
 		s.offset = suffixEnd
 	default:
@@ -548,11 +556,13 @@ var operators = []struct {
 	{":=", DEFINE}, {"..", DOTDOT},
 }
 
-var singleOperators = map[byte]Token{
-	'+': ADD, '-': SUB, '*': MUL, '/': QUO, '%': REM, '&': AND, '|': OR, '^': XOR,
-	'<': LSS, '>': GTR, '=': ASSIGN, '!': NOT, '(': LPAREN, '[': LBRACK, '{': LBRACE,
-	',': COMMA, '.': PERIOD, ')': RPAREN, ']': RBRACK, '}': RBRACE, ';': SEMICOLON, ':': COLON,
-}
+var singleOperators = sync.OnceValue(func() map[byte]Token {
+	return map[byte]Token{
+		'+': ADD, '-': SUB, '*': MUL, '/': QUO, '%': REM, '&': AND, '|': OR, '^': XOR,
+		'<': LSS, '>': GTR, '=': ASSIGN, '!': NOT, '(': LPAREN, '[': LBRACK, '{': LBRACE,
+		',': COMMA, '.': PERIOD, ')': RPAREN, ']': RBRACK, '}': RBRACE, ';': SEMICOLON, ':': COLON,
+	}
+})
 
 func (s *scanner) operator(start int) {
 	rest := s.src[start:]
@@ -563,7 +573,7 @@ func (s *scanner) operator(start int) {
 			return
 		}
 	}
-	tok, ok := singleOperators[rest[0]]
+	tok, ok := singleOperators()[rest[0]]
 	if !ok {
 		s.fail(start, 1, "unexpected character %q", rest[0])
 		return

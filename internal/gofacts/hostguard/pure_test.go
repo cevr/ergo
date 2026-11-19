@@ -26,7 +26,7 @@ var updateMembers = flag.Bool("update-members", false, "rewrite members_gen.go f
 // TestPureGoFactsHold is the determinism guard of v1.PureImports: every
 // member it can call gives the same results under two host states; a
 // planted member that reads the working directory (filepath.Abs, which
-// v1.PureImportsExcept names) is refuted.
+// v1.PureImportsExcept() names) is refuted.
 //
 // Mutants it alone catches: ffi-pure-guard-one-state (the two states are
 // one).
@@ -45,7 +45,7 @@ func TestPureGoFactsHold(t *testing.T) {
 }
 
 // TestMembersCurrent: members_gen.go is the generator's output for the
-// pinned toolchain and the current v1.PureImports and v1.PureImportsExcept
+// pinned toolchain and the current v1.PureImports and v1.PureImportsExcept()
 // (go test ./internal/gofacts/hostguard -run TestMembersCurrent -args
 // -update-members rewrites it).
 //
@@ -77,7 +77,7 @@ func TestMembersCurrent(t *testing.T) {
 
 // membersSource is the text of members_gen.go: every exported function
 // with no type parameter of each package of v1.PureImports, in the files
-// the build of this platform reads, minus v1.PureImportsExcept.
+// the build of this platform reads, minus v1.PureImportsExcept().
 func membersSource(goroot string) ([]byte, error) {
 	var b, imports bytes.Buffer
 	pkgs := slices.Sorted(slices.Values(v1.PureImports))
@@ -106,7 +106,7 @@ func membersSource(goroot string) ([]byte, error) {
 			}
 			for _, d := range f.Decls {
 				fd, ok := d.(*ast.FuncDecl)
-				if ok && fd.Recv == nil && fd.Type.TypeParams == nil && ast.IsExported(fd.Name.Name) && !slices.Contains(v1.PureImportsExcept[p], fd.Name.Name) {
+				if ok && fd.Recv == nil && fd.Type.TypeParams == nil && ast.IsExported(fd.Name.Name) && !slices.Contains(v1.PureImportsExcept()[p], fd.Name.Name) {
 					names[fd.Name.Name] = true
 				}
 			}

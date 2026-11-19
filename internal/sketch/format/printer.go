@@ -5,6 +5,7 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"sync"
 	"unicode/utf8"
 
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -166,13 +167,15 @@ func (p *printer) lastByte() byte {
 
 // mergers are the byte pairs that would lex as one token, or start a
 // comment, if written without a blank between them.
-var mergers = map[[2]byte]bool{
-	{'-', '-'}: true, {'+', '+'}: true, {'&', '&'}: true, {'&', '^'}: true, {'|', '|'}: true,
-	{'<', '-'}: true, {'<', '<'}: true, {'>', '>'}: true, {'=', '='}: true, {'!', '='}: true,
-	{'<', '='}: true, {'>', '='}: true, {':', '='}: true, {'.', '.'}: true, {'/', '/'}: true,
-	{'/', '*'}: true, {'-', '='}: true, {'+', '='}: true, {'*', '='}: true, {'/', '='}: true,
-	{'%', '='}: true, {'&', '='}: true, {'|', '='}: true, {'^', '='}: true, {'*', '/'}: true,
-}
+var mergers = sync.OnceValue(func() map[[2]byte]bool {
+	return map[[2]byte]bool{
+		{'-', '-'}: true, {'+', '+'}: true, {'&', '&'}: true, {'&', '^'}: true, {'|', '|'}: true,
+		{'<', '-'}: true, {'<', '<'}: true, {'>', '>'}: true, {'=', '='}: true, {'!', '='}: true,
+		{'<', '='}: true, {'>', '='}: true, {':', '='}: true, {'.', '.'}: true, {'/', '/'}: true,
+		{'/', '*'}: true, {'-', '='}: true, {'+', '='}: true, {'*', '='}: true, {'/', '='}: true,
+		{'%', '='}: true, {'&', '='}: true, {'|', '='}: true, {'^', '='}: true, {'*', '/'}: true,
+	}
+})
 
 // write appends text; a text with line breaks (a raw string or block
 // comment) continues on lines that are never re-indented.
@@ -180,7 +183,7 @@ func (p *printer) write(text string) {
 	if text == "" {
 		return
 	}
-	if last := p.lastByte(); last != 0 && mergers[[2]byte{last, text[0]}] {
+	if last := p.lastByte(); last != 0 && mergers()[[2]byte{last, text[0]}] {
 		p.cell.WriteByte(' ')
 	}
 	for {

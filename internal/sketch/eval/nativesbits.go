@@ -28,7 +28,7 @@ func registerNativesbits() {
 			return out, nil
 		}
 	}
-	goPure := func(name string, f func(args []Value) Value) { pureIn(goNatives, "math/bits."+name, f) }
+	goPure := func(name string, f func(args []Value) Value) { pureIn(goNatives(), "math/bits."+name, f) }
 	u := func(v Value) uint64 { return v.(uint64) }
 	goPure("OnesCount", func(a []Value) Value { return int64(bits.OnesCount(uint(u(a[0])))) })
 	goPure("OnesCount64", func(a []Value) Value { return int64(bits.OnesCount64(u(a[0]))) })

@@ -91,9 +91,9 @@ func registerNatives() {
 	// std body or a program reaches through import go (goNatives).
 	var pureIn func(into map[string]native, name string, f func(args []Value) Value)
 	pure := func(name string, f func(args []Value) Value) { pureIn(natives, name, f) }
-	goPure := func(name string, f func(args []Value) Value) { pureIn(goNatives, name, f) }
+	goPure := func(name string, f func(args []Value) Value) { pureIn(goNatives(), name, f) }
 	pureIn = func(into map[string]native, name string, f func(args []Value) Value) {
-		reads := readsOf[name]
+		reads := readsOf()[name]
 		into[name] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 			work := argWork(args)
 			if reads != nil {
@@ -106,7 +106,7 @@ func registerNatives() {
 			if why != "" {
 				return nil, fr.defect(at, "%s", why)
 			}
-			if shares[name] {
+			if shares()[name] {
 				return out, nil
 			}
 			if ab := in.allocate(fr, at, valueSize(out)); ab != nil {
@@ -365,19 +365,21 @@ const randSeedHi = 0x45_72_67_6f_52_61_6e_64
 // (check.CollOpOf, PRIM-4), by operation, never by a declaration's name:
 // each runs as the std function it was before it became an operation.
 // The builder operations have none, as their std helpers had none.
-var collNatives = map[check.CollOp]string{
-	check.CollTakeAt:     "slices.Take",
-	check.CollSlice:      "slices.Slice",
-	check.CollClone:      "maps.Clone",
-	check.CollSliceClone: "slices.Clone",
-	check.CollConcat:     "slices.Concat",
-	check.CollRepeat:     "slices.Repeat",
-	check.CollSubstring:  "strings.Slice",
-	check.CollText:       "strings.builderText",
-	check.CollRuneText:   "utf8.RuneText",
-	check.CollMakeSlice:  "slices.WithCapacity",
-	check.CollBytes:      "strings.stringsBytes",
-}
+var collNatives = sync.OnceValue(func() map[check.CollOp]string {
+	return map[check.CollOp]string{
+		check.CollTakeAt:     "slices.Take",
+		check.CollSlice:      "slices.Slice",
+		check.CollClone:      "maps.Clone",
+		check.CollSliceClone: "slices.Clone",
+		check.CollConcat:     "slices.Concat",
+		check.CollRepeat:     "slices.Repeat",
+		check.CollSubstring:  "strings.Slice",
+		check.CollText:       "strings.builderText",
+		check.CollRuneText:   "utf8.RuneText",
+		check.CollMakeSlice:  "slices.WithCapacity",
+		check.CollBytes:      "strings.stringsBytes",
+	}
+})
 
 // nativeOf is fn's native, nil when the evaluator has none.
 func nativeOf(fn *check.Func) native {
@@ -385,7 +387,7 @@ func nativeOf(fn *check.Func) native {
 		return nil
 	}
 	loadNatives()
-	if key, ok := collNatives[check.CollOpOf(fn)]; ok {
+	if key, ok := collNatives()[check.CollOpOf(fn)]; ok {
 		return natives[key]
 	}
 	return natives[fn.Pkg.Path+"."+fn.Name]
@@ -408,25 +410,29 @@ func guard(f func() Value) (v Value, why string) {
 // parser that slices or tests the rest of its input at each token would
 // pay its input's length per token: steps quadratic in the input where
 // the Go build's work is linear (ORACLE O22).
-var readsOf = map[string]func(a []Value) int64{
-	"strings.Slice":      func(a []Value) int64 { return 0 },
-	"strings.HasPrefix":  func(a []Value) int64 { return int64(len(a[1].(string))) },
-	"strings.HasSuffix":  func(a []Value) int64 { return int64(len(a[1].(string))) },
-	"strings.TrimPrefix": func(a []Value) int64 { return int64(len(a[1].(string))) },
-	"strings.TrimSuffix": func(a []Value) int64 { return int64(len(a[1].(string))) },
-	// IndexByte reads up to the byte it finds (std io's lines: one call
-	// per line on the rest of the text).
-	"strings.IndexByte": func(a []Value) int64 {
-		if i := strings.IndexByte(a[0].(string), a[1].(uint8)); i >= 0 {
-			return int64(i) + 1
-		}
-		return int64(len(a[0].(string)))
-	},
-}
+var readsOf = sync.OnceValue(func() map[string]func(a []Value) int64 {
+	return map[string]func(a []Value) int64{
+		"strings.Slice":      func(a []Value) int64 { return 0 },
+		"strings.HasPrefix":  func(a []Value) int64 { return int64(len(a[1].(string))) },
+		"strings.HasSuffix":  func(a []Value) int64 { return int64(len(a[1].(string))) },
+		"strings.TrimPrefix": func(a []Value) int64 { return int64(len(a[1].(string))) },
+		"strings.TrimSuffix": func(a []Value) int64 { return int64(len(a[1].(string))) },
+		// IndexByte reads up to the byte it finds (std io's lines: one call
+		// per line on the rest of the text).
+		"strings.IndexByte": func(a []Value) int64 {
+			if i := strings.IndexByte(a[0].(string), a[1].(uint8)); i >= 0 {
+				return int64(i) + 1
+			}
+			return int64(len(a[0].(string)))
+		},
+	}
+})
 
 // shares names the pure natives whose result is a view of an argument's
 // bytes (Go's substring), which allocates no value bytes.
-var shares = map[string]bool{"strings.Slice": true, "strings.TrimPrefix": true, "strings.TrimSuffix": true}
+var shares = sync.OnceValue(func() map[string]bool {
+	return map[string]bool{"strings.Slice": true, "strings.TrimPrefix": true, "strings.TrimSuffix": true}
+})
 
 // argWork is the reading work of a native's arguments: a step per byte of
 // each text and per element of each slice.

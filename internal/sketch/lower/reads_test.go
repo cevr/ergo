@@ -107,7 +107,7 @@ func plantReadsFixPure(t *testing.T) {
 	t.Helper()
 	saved := check.FactLedger
 	t.Cleanup(func() { check.FactLedger = saved })
-	line := "fact " + gofacts.PureKey("readsfix") + " validated by guard with " + toolchain.Version + " " + gofacts.PureDigest("readsfix", v1.PureImportsExcept["readsfix"], toolchain.Version) + "\n"
+	line := "fact " + gofacts.PureKey("readsfix") + " validated by guard with " + toolchain.Version + " " + gofacts.PureDigest("readsfix", v1.PureImportsExcept()["readsfix"], toolchain.Version) + "\n"
 	ledger := saved() + line
 	check.FactLedger = func() string { return ledger }
 	if !check.PureActs("readsfix") {

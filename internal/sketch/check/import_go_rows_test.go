@@ -21,7 +21,7 @@ import (
 // hostFn is a Go function of an embedded binding that the generator can
 // call with literals: basic parameters and one basic result. foreign and
 // fails are the reference model's, read independently of the Ergo rows the
-// checker reads: the tier from v1.PureImports and v1.PureImportsExcept
+// checker reads: the tier from v1.PureImports and v1.PureImportsExcept()
 // (docs/spec/interop.md, Purity), and fails from the Go declaration's own
 // text (its last result is error).
 type hostFn struct {
@@ -86,7 +86,7 @@ func hostFns(t *testing.T) []hostFn {
 			id, _ := last.(*ast.Ident)
 			out = append(out, hostFn{
 				pkg: path, name: fd.Name.Name, params: params,
-				foreign: !slices.Contains(v1.PureImports, path) || slices.Contains(v1.PureImportsExcept[path], fd.Name.Name),
+				foreign: !slices.Contains(v1.PureImports, path) || slices.Contains(v1.PureImportsExcept()[path], fd.Name.Name),
 				fails:   id != nil && id.Name == "error",
 			})
 		}

@@ -33,6 +33,7 @@ package lower
 import (
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
+	"sync"
 )
 
 // pureMerge, "off", turns the merge pass off: set with
@@ -330,7 +331,7 @@ func (b *irBuilder) fixedLocals(body []*irStmt) map[int]bool {
 			if v := byIndex[i]; v != nil && binds[i] == 0 && irMemoBasic(v.Type) { // ir_memo.go
 				fixed[i] = true
 			}
-		case binds[i] == 1 && irBasicGo[b.fn.Locals[i-params].Type]:
+		case binds[i] == 1 && irBasicGo()[b.fn.Locals[i-params].Type]:
 			fixed[i] = true
 		}
 	}
@@ -339,8 +340,10 @@ func (b *irBuilder) fixedLocals(body []*irStmt) map[int]bool {
 
 // irBasicGo are the Go types of the values a merged call may take and
 // give.
-var irBasicGo = map[string]bool{
-	"bool": true, "string": true, "int": true, "int8": true, "int16": true, "int32": true, "int64": true,
-	"uint": true, "uint8": true, "uint16": true, "uint32": true, "uint64": true, "uintptr": true,
-	"float32": true, "float64": true, "byte": true, "rune": true,
-}
+var irBasicGo = sync.OnceValue(func() map[string]bool {
+	return map[string]bool{
+		"bool": true, "string": true, "int": true, "int8": true, "int16": true, "int32": true, "int64": true,
+		"uint": true, "uint8": true, "uint16": true, "uint32": true, "uint64": true, "uintptr": true,
+		"float32": true, "float64": true, "byte": true, "rune": true,
+	}
+})

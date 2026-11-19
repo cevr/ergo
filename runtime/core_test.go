@@ -49,7 +49,7 @@ var coreAllowed = map[string]string{
 // redacted bodies did).
 func TestCoreHasNoInitRoots(t *testing.T) {
 	for _, path := range corePackages {
-		for _, name := range packages[path].files {
+		for _, name := range packages()[path].files {
 			data, err := sources.ReadFile(strings.TrimPrefix(path, "runtime/") + "/" + name)
 			if err != nil {
 				t.Fatal(err)

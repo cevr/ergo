@@ -23,7 +23,7 @@ func TestAdmitLevelTable(t *testing.T) {
 		return false
 	}
 	verdicts := []string{""}
-	for v := range ledgerVerdicts {
+	for v := range ledgerVerdicts() {
 		verdicts = append(verdicts, v)
 	}
 	for _, v := range verdicts {

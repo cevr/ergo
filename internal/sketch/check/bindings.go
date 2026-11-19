@@ -44,7 +44,7 @@ func (c *checker) preludeTypeName(name string) bool {
 	if !c.isPreludeName(name) {
 		return false
 	}
-	if predeclaredNames[name] {
+	if predeclaredNames()[name] {
 		return true
 	}
 	o, _ := c.pkg.Scope.parent.lookup(name)

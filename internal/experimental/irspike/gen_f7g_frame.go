@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"strings"
+	"sync"
 )
 
 // frameFuncs are GenerateFrame's functions: each opens a frame scope and
@@ -17,10 +18,12 @@ var frameFuncs = []string{"step", "steps", "guard", "early", "crash", "badExit",
 // (STATIC-EXIT2): steps registers in a loop, so its frame keeps the slots
 // (ExitsOnExit); the others are deferred, with Run for an action that
 // prints and Quiet for one whose block has an empty footprint.
-var exitForms = map[string][]string{
-	"step": {"Run"}, "steps": {"ExitsOnExit"}, "guard": {"Run"}, "early": {"Run"},
-	"crash": {"Run"}, "badExit": {"Run"}, "tally": {"Quiet"}, "pureBad": {"Run", "Quiet"},
-}
+var exitForms = sync.OnceValue(func() map[string][]string {
+	return map[string][]string{
+		"step": {"Run"}, "steps": {"ExitsOnExit"}, "guard": {"Run"}, "early": {"Run"},
+		"crash": {"Run"}, "badExit": {"Run"}, "tally": {"Quiet"}, "pureBad": {"Run", "Quiet"},
+	}
+})
 
 // GenerateFrame is a program of bodies that open a frame scope (GP-FRAME):
 // scope.OnExit registers exit actions, which the frame's deferred End runs

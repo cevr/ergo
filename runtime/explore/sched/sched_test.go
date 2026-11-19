@@ -154,11 +154,11 @@ func TestDependencyTableTotal(t *testing.T) {
 	words := map[string]bool{}
 	for k := rt.OpKind(1); k.String() != "op?"; k++ {
 		words[k.String()] = true
-		if kinds[k.String()] == 0 {
+		if kinds()[k.String()] == 0 {
 			t.Errorf("rt's operation %q has no row in the dependency table", k)
 		}
 	}
-	for w := range kinds {
+	for w := range kinds() {
 		if !words[w] {
 			t.Errorf("the dependency table has a row %q that is no rt operation", w)
 		}

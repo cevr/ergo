@@ -5,6 +5,7 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"sync"
 )
 
 // Shared instances (MONO-SHARED; docs/tooling.md, "Shared instances").
@@ -152,7 +153,7 @@ func (s *splitInsts) closed(t ast.Expr) bool {
 		if g := s.global(t); g >= 0 {
 			return !s.alias[t.Name] && s.params[t.Name] == 0
 		}
-		return t.Obj == nil && s.scope.Lookup(t.Name) == nil && predeclaredLink[t.Name] != ""
+		return t.Obj == nil && s.scope.Lookup(t.Name) == nil && predeclaredLink()[t.Name] != ""
 	case *ast.IndexExpr, *ast.IndexListExpr:
 		return s.instance(t)
 	case *ast.StarExpr:
@@ -169,13 +170,15 @@ func (s *splitInsts) closed(t ast.Expr) bool {
 
 // predeclaredLink is each predeclared type's name in a link string, the
 // spelling of Go's compiler (types.LinkString): an alias is its target.
-var predeclaredLink = map[string]string{
-	"bool": "bool", "string": "string", "error": "error",
-	"int": "int", "int8": "int8", "int16": "int16", "int32": "int32", "int64": "int64",
-	"uint": "uint", "uint8": "uint8", "uint16": "uint16", "uint32": "uint32", "uint64": "uint64", "uintptr": "uintptr",
-	"float32": "float32", "float64": "float64", "complex64": "complex64", "complex128": "complex128",
-	"byte": "uint8", "rune": "int32", "any": "interface {}",
-}
+var predeclaredLink = sync.OnceValue(func() map[string]string {
+	return map[string]string{
+		"bool": "bool", "string": "string", "error": "error",
+		"int": "int", "int8": "int8", "int16": "int16", "int32": "int32", "int64": "int64",
+		"uint": "uint", "uint8": "uint8", "uint16": "uint16", "uint32": "uint32", "uint64": "uint64", "uintptr": "uintptr",
+		"float32": "float32", "float64": "float64", "complex64": "complex64", "complex128": "complex128",
+		"byte": "uint8", "rune": "int32", "any": "interface {}",
+	}
+})
 
 // collect is every instance inst can name in the declarations of
 // non-generic groups, nested ones included.
@@ -221,7 +224,7 @@ func (w *instWriter) key(t ast.Expr) string {
 		if g := w.s.global(t); g >= 0 {
 			return w.base + "/" + w.plan.pkgs[w.s.groups[g].pkg].dir + "." + w.name(t)
 		}
-		return predeclaredLink[t.Name]
+		return predeclaredLink()[t.Name]
 	case *ast.IndexExpr, *ast.IndexListExpr:
 		gen, args := instParts(t)
 		parts := make([]string, len(args))

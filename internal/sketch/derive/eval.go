@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"unicode"
 
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -91,7 +92,9 @@ func (e *evaluator) charge(at origin, end syntax.Pos, what *int, by, limit int, 
 }
 
 // predeclared names the constructors of the closed algebra.
-var predeclared = map[string]bool{"Pattern": true, "Refine": true, "Of": true, "Record": true, "Union": true, "Optional": true, "List": true, "Field": true, "Provider": true}
+var predeclared = sync.OnceValue(func() map[string]bool {
+	return map[string]bool{"Pattern": true, "Refine": true, "Of": true, "Record": true, "Union": true, "Optional": true, "List": true, "Field": true, "Provider": true}
+})
 
 func (e *evaluator) eval(f *frame, x syntax.Expr) any {
 	at := origin{f.file, x.Pos()}
@@ -316,7 +319,7 @@ func (e *evaluator) callee(f *frame, fun syntax.Expr) (*planFunc, string) {
 		if f.pkg.names[fun.Name] || f.pkg.imported(f.file, fun.Name) {
 			return nil, ""
 		}
-		if predeclared[fun.Name] {
+		if predeclared()[fun.Name] {
 			return nil, fun.Name
 		}
 	case *syntax.IndexExpr:

@@ -9,6 +9,7 @@ import (
 	"path"
 	"reflect"
 	"strings"
+	"sync"
 
 	"ergo.local/prototype/internal/sketch/regexpplan"
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -409,14 +410,16 @@ func refineBase(base *plan, f *syntax.File) (string, bool, *evalError) {
 		return "", false, &evalError{base.at, base.at.pos, "Refine refines a named or basic type: write Refine(Of[B](), lo, hi)"}
 	}
 	text := base.file.Src[base.typ.Pos():base.typ.End()]
-	if base.file != f && !basic[text] {
+	if base.file != f && !basic()[text] {
 		return "", false, &evalError{base.at, base.at.pos, "Of in another package names that package's type: pass the plan of the type as a parameter"}
 	}
 	length := text == "string" || strings.HasPrefix(text, "[]")
 	return text, length, nil
 }
 
-var basic = map[string]bool{"int": true, "int8": true, "int16": true, "int32": true, "int64": true, "uint": true, "uint8": true, "uint16": true, "uint32": true, "uint64": true, "byte": true, "string": true, "bool": true, "float64": true, "float32": true, "rune": true}
+var basic = sync.OnceValue(func() map[string]bool {
+	return map[string]bool{"int": true, "int8": true, "int16": true, "int32": true, "int64": true, "uint": true, "uint8": true, "uint16": true, "uint32": true, "uint64": true, "byte": true, "string": true, "bool": true, "float64": true, "float32": true, "rune": true}
+})
 
 // typeText is the type a structural plan gives a field of owner, writing
 // the nominal types it needs into extra. top is the derived type itself.
@@ -425,7 +428,7 @@ func typeText(pl *plan, owner, field string, f *syntax.File, extra *strings.Buil
 	switch pl.kind {
 	case "Of":
 		text := pl.file.Src[pl.typ.Pos():pl.typ.End()]
-		if pl.file != f && !basic[text] {
+		if pl.file != f && !basic()[text] {
 			return "", &evalError{pl.at, pl.at.pos, "Of in another package names that package's type: pass the plan of the type as a parameter"}
 		}
 		if top {
