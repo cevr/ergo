@@ -606,8 +606,10 @@ The `ergo` binary carries the checked prelude and std as a snapshot (`internal/s
   - `log FILE`, which gets a `queue`, `take` and `end` line per command.
   - Every decision reads the file again, and an edit wakes the waiters (Linux's inotify), so an edit takes effect at once. The old `gate-load` key is refused: memory admission replaced the load gate.
 - **Cores and memory, not runs.** A take names its width, and the widths held never sum past `cores`; it is charged a reservation, and the reservations held never sum past `memory`. A wide or large take (a heavy run) waits in the same queue as a narrow one.
-- **Reservations are learnt.** A command's reservation is `--memory`, else the largest memory peak its earlier runs reached (kept per command, with the working folder written as `.`), never less than `default-memory` and never more than `memory`.
-  - Where the user's systemd answers, COMMAND runs in a scope of its own capped at its reservation (`MemoryMax`, no swap), and its peak is the scope's `memory.peak`. A run over its reservation is killed alone (exit 137) and leaves twice its reservation for its next run.
+- **Reservations are learnt, and a kill is for a command that grew.** A command's reservation is `--memory`, else the largest memory peak its earlier runs reached and a quarter more (kept per command, with the working folder written as `.`), else `default-memory`; never more than `memory`.
+  - Where the user's systemd answers, COMMAND runs in a scope of its own inside the budget's slice, which is capped at `memory` (no swap): the budget's commands together never pass it. The scope's `memory.peak` is recorded as the command's peak.
+  - A command that asked (`--memory`) or has a recorded peak is also capped at its reservation: a run past it is killed alone (exit 137) and leaves twice its cap for its next run.
+  - A command never measured is charged `default-memory` but not capped at it: it runs to its end and its peak is recorded. Only the slice can kill it, when the budget's commands together would pass `memory`.
   - Elsewhere the peak is the largest process's resident set, and nothing is capped.
 - **Order.** One queue, served in order with no backfill: a narrow newcomer never passes a wide older waiter.
   - The next waiter is the oldest lane waiter while the lane class holds less than its share, else the oldest crit waiter, else the oldest lane waiter.

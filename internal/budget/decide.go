@@ -148,17 +148,27 @@ func (s *State) Holds(id string) bool {
 	return slices.ContainsFunc(s.Holders, func(e Entry) bool { return e.ID == id })
 }
 
-// Reservation is the memory a take is charged (mem.ergo): what it asks
-// for, else the largest peak its command has reached (the model's mutant
-// LastPeak keeps the last), never less than the default, and never more
+// Reservation is the memory a take is charged, and whether its command is
+// capped at it (mem.ergo). A take that asks is charged and capped at what
+// it asks. A command with a recorded peak (the largest it reached; the
+// model's mutant LastPeak keeps the last) is charged and capped at that
+// peak and a quarter more, so a run is killed only past its own peak. A
+// command never measured is charged the default and not capped on its
+// own: it runs, its peak is recorded, and only the budget's slice can
+// kill it (the model's mutant CapUnknown caps it at the default, which
+// killed a 20G command twice before it fitted). A charge is never more
 // than the whole budget, which no take could then fit.
-func Reservation(r Rules, asked, peak, dflt int64) int64 {
-	res := asked
-	if res <= 0 {
-		res = max(peak, dflt)
+func Reservation(r Rules, asked, peak, dflt int64) (res int64, capped bool) {
+	switch {
+	case asked > 0:
+		res, capped = asked, true
+	case peak > 0:
+		res, capped = peak+peak/4, true
+	default:
+		res = dflt
 	}
 	if r.Memory > 0 && res > r.Memory {
 		res = r.Memory
 	}
-	return res
+	return res, capped
 }

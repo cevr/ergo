@@ -199,7 +199,8 @@ func TestPeakRaisesTheReservation(t *testing.T) {
 	b := testBudget(t, 4, 0, "memory 100", "default-memory 8")
 	ctx, cancel := testwait.Context(t, context.Background())
 	defer cancel()
-	for i, c := range []struct{ peak, want int64 }{{30, 8}, {10, 30}, {0, 30}} {
+	// Reserved: the default, then the largest peak and a quarter.
+	for i, c := range []struct{ peak, want int64 }{{40, 8}, {10, 50}, {0, 50}} {
 		g, err := b.Take(ctx, Request{Width: 1, Lane: "run", Key: "go test ./x"})
 		if err != nil {
 			t.Fatal(err)
@@ -231,6 +232,47 @@ func TestRunCapsAtTheReservation(t *testing.T) {
 	}
 	if got := b.peak("dd"); got != 128<<20 {
 		t.Fatalf("the peak kept after a kill at 64M: %d, want %d (twice the cap)", got, 128<<20)
+	}
+}
+
+// TestUnknownCommandIsNotKilled: a command never measured is charged the
+// default (64M here) but not capped at it: one that needs 200M runs to
+// its end, and its peak is recorded, so its next take reserves it (the
+// orchestrator's ruling of 2026-11-20; mem.ergo UnknownNotCapped). Mutant:
+// budget-cap-unknown.
+func TestUnknownCommandIsNotKilled(t *testing.T) {
+	if !scopes() {
+		t.Skip("needs the user's systemd for a scope")
+	}
+	b := testBudget(t, 2, 0, "memory 1G", "default-memory 64M")
+	ctx, cancel := testwait.Context(t, context.Background())
+	defer cancel()
+	argv := []string{"dd", "if=/dev/zero", "of=/dev/null", "bs=200M", "count=1"}
+	code, err := Run(ctx, b, Request{Width: 1, Lane: "unknown", Key: "dd-unknown"}, argv, nil, io.Discard, io.Discard)
+	if err != nil || code != 0 {
+		t.Fatalf("a never-measured command that needs 200M, charged 64M: code %d, err %v; want 0", code, err)
+	}
+	if got := b.peak("dd-unknown"); got < 200<<20 {
+		t.Fatalf("the peak recorded: %d, want at least 200M", got)
+	}
+}
+
+// TestSliceCapsTheBudget: the budget's commands together are capped at
+// the budget's memory, so a never-measured command that needs more than
+// the whole budget (200M of 128M) is killed by the slice, not the host,
+// and its real peak so far is recorded (mem.ergo RealWithinMemory).
+// Mutant: budget-no-slice-cap.
+func TestSliceCapsTheBudget(t *testing.T) {
+	if !scopes() {
+		t.Skip("needs the user's systemd for a scope")
+	}
+	b := testBudget(t, 2, 0, "memory 128M", "default-memory 64M")
+	ctx, cancel := testwait.Context(t, context.Background())
+	defer cancel()
+	argv := []string{"dd", "if=/dev/zero", "of=/dev/null", "bs=200M", "count=1"}
+	code, err := Run(ctx, b, Request{Width: 1, Lane: "over-budget", Key: "dd-over"}, argv, nil, io.Discard, io.Discard)
+	if err != nil || code != 137 {
+		t.Fatalf("a command past the 128M budget: code %d, err %v; want 137 (killed by the slice)", code, err)
 	}
 }
 

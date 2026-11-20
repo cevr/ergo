@@ -107,23 +107,28 @@ func handOnRun(seed uint64) (string, string) {
 	return "", ""
 }
 
-// TestReservationIsTheLargestPeak: a command's reservation is what it asks
-// for, else the largest peak kept for it, never under the default and
-// never over the budget (mem.ergo); a run killed at its reservation leaves
-// twice it. Mutant: budget-killed-keeps-cap.
+// TestReservationIsTheLargestPeak: a command's reservation is what it
+// asks for (capped), else its largest peak and a quarter (capped), else
+// the default (not capped: a command never measured is never killed by
+// its own cap), and never over the budget (mem.ergo); a run killed at its
+// own cap leaves twice it, and an uncapped run leaves its real peak.
+// Mutants: budget-killed-keeps-cap, budget-cap-unknown.
 func TestReservationIsTheLargestPeak(t *testing.T) {
 	r := Rules{Cores: 4, Memory: 100}
-	for _, c := range []struct{ asked, peak, dflt, want int64 }{
-		{0, 0, 8, 8}, {0, 30, 8, 30}, {0, 3, 8, 8}, {50, 30, 8, 50}, {0, 300, 8, 100},
+	for _, c := range []struct {
+		asked, peak, dflt, want int64
+		capped                  bool
+	}{
+		{0, 0, 8, 8, false}, {0, 40, 8, 50, true}, {0, 4, 8, 5, true}, {50, 30, 8, 50, true}, {0, 300, 8, 100, true},
 	} {
-		if got := Reservation(r, c.asked, c.peak, c.dflt); got != c.want {
-			t.Errorf("Reservation(asked %d, peak %d, default %d) = %d, want %d", c.asked, c.peak, c.dflt, got, c.want)
+		if got, capped := Reservation(r, c.asked, c.peak, c.dflt); got != c.want || capped != c.capped {
+			t.Errorf("Reservation(asked %d, peak %d, default %d) = %d, capped %v; want %d, capped %v", c.asked, c.peak, c.dflt, got, capped, c.want, c.capped)
 		}
 	}
 	if got := KeptPeak(8, 137, 8); got != 16 {
-		t.Errorf("a run killed at its reservation of 8 leaves %d, want 16", got)
+		t.Errorf("a run killed at its own cap of 8 leaves %d, want 16", got)
 	}
-	if got := KeptPeak(8, 0, 5); got != 5 {
-		t.Errorf("a run that ends at a peak of 5 leaves %d, want 5", got)
+	if got := KeptPeak(0, 137, 20); got != 20 {
+		t.Errorf("an uncapped run killed at a peak of 20 leaves %d, want 20", got)
 	}
 }

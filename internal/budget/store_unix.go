@@ -92,6 +92,8 @@ type Grant struct {
 	id     string
 	width  int
 	memory int64
+	capped bool  // the command is capped at memory (Reservation)
+	slice  int64 // the budget in memory, the cap of all commands together
 	key    string
 	lane   string
 	crit   bool
@@ -143,8 +145,9 @@ func (b *Budget) Take(ctx context.Context, req Request) (*Grant, error) {
 		return g, nil
 	}
 	var res int64
+	capped := false
 	if cfg.Memory > 0 {
-		res = Reservation(cfg.rules(), req.Memory, b.peak(req.Key), cfg.DefaultMemory)
+		res, capped = Reservation(cfg.rules(), req.Memory, b.peak(req.Key), cfg.DefaultMemory)
 	}
 	id := fmt.Sprintf("%d-%d-%d", os.Getpid(), time.Now().UnixNano(), seq.Add(1))
 	f, err := os.OpenFile(b.entry(id), os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o644)
@@ -155,7 +158,7 @@ func (b *Budget) Take(ctx context.Context, req Request) (*Grant, error) {
 		f.Close()
 		return nil, err
 	}
-	g := &Grant{b: b, id: id, width: req.Width, memory: res, key: req.Key, lane: req.Lane, crit: req.Crit, file: f}
+	g := &Grant{b: b, id: id, width: req.Width, memory: res, capped: capped, slice: cfg.Memory, key: req.Key, lane: req.Lane, crit: req.Crit, file: f}
 	e := Entry{ID: id, Pid: os.Getpid(), Width: req.Width, Memory: res, Crit: req.Crit, Lane: req.Lane}
 	b.logf("queue %s %d", req.Lane, os.Getpid())
 	woke := make(chan struct{}, 1)

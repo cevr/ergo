@@ -102,12 +102,30 @@
     },
     {
       "name": "budget-killed-keeps-cap",
-      "origin": "wf10 WS4c (model KilledOnce)",
+      "origin": "wf10 WS4c (model KilledPastOwnPeak)",
       "file": "internal/budget/run_unix.go",
-      "from": "\t\treturn 2 * reserved\n",
+      "from": "\t\treturn max(peak, 2*own)\n",
       "to": "\t\treturn peak\n",
-      "rule": "A run killed at its reservation raises the next reservation past the cap.",
+      "rule": "A run killed at its own cap raises the next reservation past the cap.",
       "killers": ["internal/budget:TestReservationIsTheLargestPeak", "internal/budget:TestRunCapsAtTheReservation"]
+    },
+    {
+      "name": "budget-cap-unknown",
+      "origin": "wf10 WS4c (model CapUnknown; c012b9af5's rule)",
+      "file": "internal/budget/decide.go",
+      "from": "\tdefault:\n\t\tres = dflt\n",
+      "to": "\tdefault:\n\t\tres, capped = dflt, true\n",
+      "rule": "A command never measured is not capped at the default: it runs, and its peak is recorded.",
+      "killers": ["internal/budget:TestReservationIsTheLargestPeak", "internal/budget:TestUnknownCommandIsNotKilled"]
+    },
+    {
+      "name": "budget-no-slice-cap",
+      "origin": "wf10 WS4c (model RealWithinMemory)",
+      "file": "internal/budget/run_unix.go",
+      "from": "\t\texec.Command(\"systemctl\", \"--user\", \"set-property\", \"--runtime\", slice, \"MemoryMax=\"+strconv.FormatInt(g.slice, 10), \"MemorySwapMax=0\").Run()\n",
+      "to": "\n",
+      "rule": "The budget's commands together are capped at the budget's memory.",
+      "killers": ["internal/budget:TestSliceCapsTheBudget"]
     },
     {
       "name": "budget-no-cap",

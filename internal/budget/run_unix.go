@@ -4,6 +4,8 @@ package budget
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"io"
 	"os"
@@ -35,11 +37,16 @@ func Run(ctx context.Context, b *Budget, req Request, argv []string, stdin io.Re
 		return 1, err
 	}
 	defer g.Release()
-	// The command is capped at its reservation and its peak measured: in a
-	// scope of its own with MemoryMax (a run over its reservation is
-	// killed alone, mem.ergo), whose cgroup's memory.peak a shell in the
-	// scope reads after the command. Elsewhere the peak is the largest
-	// process's (rusage), with no cap.
+	// With memory budgeted, the command runs in a scope of its own, in the
+	// budget's slice, and its peak is measured: a shell in the scope reads
+	// the scope's memory.peak after the command (mem.ergo).
+	//   - The slice is capped at the budget, so the real use of all the
+	//     budget's commands never passes it (RealWithinMemory).
+	//   - A command with a recorded peak, or one that asked, is capped at its
+	//     reservation too: a run past it is killed alone (KilledPastOwnPeak).
+	//     A command never measured is not (UnknownNotCapped): it runs, and
+	//     its peak is recorded for its next take.
+	// Elsewhere the peak is the largest process's (rusage), with no cap.
 	run, peakFile := argv, ""
 	if g.Memory() > 0 && scopes() {
 		pf, err := os.CreateTemp("", "ergo-budget-peak-")
@@ -49,9 +56,13 @@ func Run(ctx context.Context, b *Budget, req Request, argv []string, stdin io.Re
 		peakFile = pf.Name()
 		pf.Close()
 		defer os.Remove(peakFile)
-		run = append([]string{"systemd-run", "--user", "--scope", "--quiet", "--collect",
-			"-p", "MemoryMax=" + strconv.FormatInt(g.Memory(), 10), "-p", "MemorySwapMax=0", "-p", "OOMPolicy=continue",
-			"sh", "-c", peakScript, "sh", peakFile}, argv...)
+		slice := sliceName(b.state)
+		exec.Command("systemctl", "--user", "set-property", "--runtime", slice, "MemoryMax="+strconv.FormatInt(g.slice, 10), "MemorySwapMax=0").Run()
+		scope := []string{"systemd-run", "--user", "--scope", "--quiet", "--collect", "--slice=" + slice, "-p", "OOMPolicy=continue"}
+		if g.capped {
+			scope = append(scope, "-p", "MemoryMax="+strconv.FormatInt(g.Memory(), 10), "-p", "MemorySwapMax=0")
+		}
+		run = append(append(scope, "sh", "-c", peakScript, "sh", peakFile), argv...)
 	}
 	cmd := exec.Command(run[0], run[1:]...)
 	// The command's streams are files, so cmd.Wait returns when the command
@@ -109,8 +120,19 @@ func Run(ctx context.Context, b *Budget, req Request, argv []string, stdin io.Re
 	if peak == 0 && cmd.ProcessState != nil {
 		peak = maxRSS(cmd.ProcessState)
 	}
-	g.Finish(code, KeptPeak(g.Memory(), code, peak))
+	own := int64(0)
+	if g.capped {
+		own = g.Memory()
+	}
+	g.Finish(code, KeptPeak(own, code, peak))
 	return code, nil
+}
+
+// sliceName is the systemd slice of the budget whose state folder is
+// state: one per budget, so a test's budget never caps the host's.
+func sliceName(state string) string {
+	sum := sha256.Sum256([]byte(state))
+	return "ergo-budget-" + hex.EncodeToString(sum[:4]) + ".slice"
 }
 
 // peakScript runs in the command's scope: it runs the command, then writes
@@ -118,14 +140,16 @@ func Run(ctx context.Context, b *Budget, req Request, argv []string, stdin io.Re
 // command's code (128 plus the signal for one a signal ended, as Run's).
 const peakScript = `p=$1; shift; "$@"; rc=$?; cat "/sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup)/memory.peak" > "$p" 2>/dev/null; exit $rc`
 
-// KeptPeak is the peak a run leaves for its command's next take. A run
-// killed at its reservation (SIGKILL, its peak at the cap) needed more
-// than the cap, by an amount no one measured: it leaves twice the cap, so
-// a command is killed at most log2(its need / the default) times, not
-// once as in mem.ergo, where the real peak is known.
-func KeptPeak(reserved int64, code int, peak int64) int64 {
-	if reserved > 0 && code == 128+int(syscall.SIGKILL) && peak >= reserved {
-		return 2 * reserved
+// KeptPeak is the peak a run leaves for its command's next take; own is
+// the run's own cap, 0 for an uncapped run. An uncapped run's peak is its
+// real one. A run killed at its own cap (SIGKILL, its peak at the cap)
+// needed more than the cap, by an amount no one measured: it leaves twice
+// the cap. Only a command that grew past its own recorded peak (and a
+// quarter) is so killed (mem.ergo KilledPastOwnPeak), once per doubling
+// of its growth.
+func KeptPeak(own int64, code int, peak int64) int64 {
+	if own > 0 && code == 128+int(syscall.SIGKILL) && peak >= own {
+		return max(peak, 2*own)
 	}
 	return peak
 }
