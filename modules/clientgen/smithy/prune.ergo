@@ -363,32 +363,23 @@ law PruneKeepsClosure(kinds []int, refs []int, keepBits []int, dropDocs bool, dr
 // refused trait and an unread key.
 func drawnModel(kinds []int, refs []int, noisy bool) Model {
 	let n = if len(kinds) > 12 { 12 } else { len(kinds) }
-	let mut at = 0
 	let mut shapes = []Shape{}
 	let mut ops = []string{}
 	for i in 0..n {
-		let pick = func() string {
-			let r = if len(refs) == 0 { 0 } else { refs[at%len(refs)] }
-			at = at + 1
-			if n == 0 {
-				return "t#E0"
-			}
-			"t#S\(((r%n)+n)%n)"
-		}
 		let id = "t#S\(i)"
 		let mt = if noisy { []Trait{Known{Id: "smithy.api#documentation", Value: jstr("member of \(i)")}, Refused{Id: "x.test#unread", Value: jstr("m"), Why: "a trait the reader does not read yet"}} } else { []Trait{} }
 		let c = ((kinds[i] % 6) + 6) % 6
 		let mut kind Kind = Simple{Of: StringType}
 		if c == 1 {
-			kind = Structure{Members: []Member{Member{Name: "a", Target: pick(), Traits: mt}, Member{Name: "b", Target: pick(), Traits: mt}}}
+			kind = Structure{Members: []Member{Member{Name: "a", Target: refAt(refs, i*3+0, n), Traits: mt}, Member{Name: "b", Target: refAt(refs, i*3+1, n), Traits: mt}}}
 		} else if c == 2 {
-			kind = List{Member: Member{Name: "member", Target: pick(), Traits: mt}}
+			kind = List{Member: Member{Name: "member", Target: refAt(refs, i*3+0, n), Traits: mt}}
 		} else if c == 3 {
-			kind = Mapping{Key: Member{Name: "key", Target: "smithy.api#String", Traits: mt}, Value: Member{Name: "value", Target: pick(), Traits: mt}}
+			kind = Mapping{Key: Member{Name: "key", Target: "smithy.api#String", Traits: mt}, Value: Member{Name: "value", Target: refAt(refs, i*3+0, n), Traits: mt}}
 		} else if c == 4 {
-			kind = Union{Members: []Member{Member{Name: "x", Target: pick(), Traits: mt}}}
+			kind = Union{Members: []Member{Member{Name: "x", Target: refAt(refs, i*3+0, n), Traits: mt}}}
 		} else if c == 5 {
-			kind = Operation{Input: Some[string]{Value: pick()}, Output: Some[string]{Value: pick()}, Errors: []string{pick()}}
+			kind = Operation{Input: Some[string]{Value: refAt(refs, i*3+0, n)}, Output: Some[string]{Value: refAt(refs, i*3+1, n)}, Errors: []string{refAt(refs, i*3+2, n)}}
 			ops = ops.Append(id)
 		}
 		let mut traits = []Trait{}
@@ -412,4 +403,11 @@ func isIn(m Map[string, bool], k string) bool {
 	case None:
 		false
 	}
+}
+
+// refAt is the k-th drawn reference: the shape t#S<r mod n> for refs' k-th
+// entry (cycled), or t#S0 when nothing is drawn.
+func refAt(refs []int, k int, n int) string {
+	let r = if len(refs) == 0 { 0 } else { refs[k%len(refs)] }
+	"t#S\(((r%n)+n)%n)"
 }
