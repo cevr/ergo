@@ -1,0 +1,1 @@
+{"merchant":"Corner Grocer","items":[{"name":"Oat milk","count":2,"cents":349},{"name":"Rye bread","count":1,"cents":425},{"name":"Apples","count":3,"cents":80}],"total":1363,"paid":{"_tag":"Card","last4":"4242"},"note":"Thank you for shopping local!"}

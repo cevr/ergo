@@ -128,6 +128,12 @@ type program struct {
 	// heavy are the package folders of a library's full-tier file, which
 	// only a -full-tier run tests; tests holds none of them.
 	heavy []string
+	// goFiles are a library's .go files by absolute folder, as the layout
+	// scan found them; goPackages are the folders moduleGoProblems
+	// admitted, the Go packages the module's own externs bind, whose
+	// tests the module's go leg runs.
+	goFiles    map[string][]string
+	goPackages []string
 }
 
 func (p *program) tagged(tag string) bool { return slices.Contains(p.tags, tag) }
@@ -158,9 +164,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if cfg.lawless {
 		return reportLawless(cfg.root, stdout)
 	}
-	programs, problems := loadExamples(cfg.root, cfg.record)
-	modules, moduleProblems := loadModules(cfg.root)
-	problems = append(problems, moduleProblems...)
+	programs, modules, problems := loadLayout(cfg.root, cfg.record)
 	if len(problems) > 0 {
 		for _, problem := range problems {
 			fmt.Fprintln(stderr, problem)
@@ -373,6 +377,24 @@ const originMoved = "unexpected origin; a port's provenance lives in conformance
 
 // loadExamples reads and checks the layout of every folder of examples/,
 // whatever the selection. Each problem names its folder.
+// loadLayout loads the programs of examples/ and the modules of modules/
+// under root, with every layout error of the programs, the ports'
+// provenance (checkPorts) and the modules. run stops on any of them
+// before it runs a program; TestRepoLayoutIsClean holds the repository to
+// none, in the fast tier, building nothing.
+// The root is made absolute first, as parseFlags makes the runner's: the
+// package folders' sources are absolute (packageAssetSources), and a
+// module's full-tier folders are compared with them.
+func loadLayout(root string, record bool) (programs, modules []*program, problems []string) {
+	root, err := filepath.Abs(root)
+	if err != nil {
+		return nil, nil, []string{err.Error()}
+	}
+	programs, problems = loadExamples(root, record)
+	modules, moduleProblems := loadModules(root)
+	return programs, modules, append(problems, moduleProblems...)
+}
+
 func loadExamples(root string, record bool) ([]*program, []string) {
 	examples := filepath.Join(root, "examples")
 	entries, err := os.ReadDir(examples)
@@ -418,6 +440,10 @@ func checkPorts(root string) []string {
 	for _, dir := range dirs {
 		rel, _ := filepath.Rel(root, dir)
 		name := filepath.Base(dir)
+		if name == "README.md" {
+			// The ports' guide (EX-NEUTRAL), not a port.
+			continue
+		}
 		if info, err := os.Stat(filepath.Join(root, "examples", name)); err != nil || !info.IsDir() {
 			problems = append(problems, fmt.Sprintf("%s: no program examples/%s; a port's provenance is named after its program", rel, name))
 			continue
@@ -506,7 +532,7 @@ func loadModuleProgram(p *program, entries []os.DirEntry, record bool) (*program
 			if !entry.Type().IsRegular() {
 				problem("%s is not a regular file", file)
 			}
-		case file == "ergo.mod" || file == "ergo.laws" || file == "README.md" || file == "tags" || file == "record.sh" || file == expectedSkipsFile || file == exploredFile || strings.HasSuffix(file, ".ergo"):
+		case moduleRootFile(file) || file == "tags" || file == "record.sh" || file == exploredFile:
 			if !entry.Type().IsRegular() {
 				problem("%s is not a regular file", file)
 				continue
@@ -707,6 +733,16 @@ func packageAssetSources(p *program, dir, label string, assets map[string]bool) 
 		case strings.HasSuffix(name, ".ergo") && entry.Type().IsRegular():
 			p.sources = append(p.sources, filepath.Join(dir, name))
 		case assets[filepath.Join(dir, name)] && entry.Type().IsRegular():
+		case p.library && strings.HasSuffix(name, ".go") && entry.Type().IsRegular():
+			// A module's own Go (docs/spec/interop.md, Trusted Go 3):
+			// moduleGoProblems admits the folder only when an extern go
+			// of the module binds its package.
+			if p.goFiles == nil {
+				p.goFiles = map[string][]string{}
+			}
+			p.goFiles[dir] = append(p.goFiles[dir], name)
+		case p.library && strings.HasSuffix(name, ".s"):
+			problems = append(problems, fmt.Sprintf("%s/%s is assembly; a module's own Go body is written in Go (docs/spec/interop.md, Trusted Go 3)", label, name))
 		default:
 			problems = append(problems, fmt.Sprintf("unexpected %s/%s; a package folder holds .ergo files and package folders", label, name))
 		}

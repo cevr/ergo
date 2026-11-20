@@ -4,9 +4,9 @@
     {
       "name": "surface-new-word",
       "origin": "wf10 SURFACE-COUNT (LANG-HEALTH 4.3: a new contextual word added to the parser with no README row)",
-      "file": "internal/sketch/syntax/refine.go",
-      "from": "p.tok.lit == \"where\" }",
-      "to": "(p.tok.lit == \"where\" || p.tok.lit == \"whereas\") }",
+      "file": "compiler/syntax/parse_decl.ergo",
+      "from": "func atWhere(p mut parser) bool { isWord(p, \"where\") }",
+      "to": "func atWhere(p mut parser) bool { isWord(p, \"where\") || isWord(p, \"whereas\") }",
       "rule": "A word the parser reads by its spelling is a form with a README row.",
       "killers": ["scripts/surface:TestREADMESurfaceIsCurrent"]
     },
