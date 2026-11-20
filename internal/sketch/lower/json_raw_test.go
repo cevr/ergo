@@ -32,6 +32,8 @@ func reads(text string) string {
 		return "wrong \(e.Path) \(e.Want)"
 	case WireMissingField as e:
 		return "missing \(e.Path) \(e.Field)"
+	case _:
+		return "other"
 	}
 	let t = json.NewText()
 	encode(m, t)
