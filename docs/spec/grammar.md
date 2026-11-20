@@ -335,7 +335,7 @@ Every old spelling is S001 at its own token, with a byte span, line and column. 
 
 For example, `func f() { var count = 0; count = count + 1 }` gives, at `var`, "Ergo has no var; declare with `let x = e`, `let x T = e` or `let mut x = e`; here `let mut count = 0`, since count is reassigned". `count := 0` with no later assignment gives, at `:=`, "…; here `let count = 0`, since count is never reassigned".
 
-The error carries the fix as data: the bytes of `var`, or of `x :=`, and the text that replaces them (`syntax.Error.Fix`, the 7th field of `compiler/syntax/dump.Failure`). `ergo fix` applies it first among its syntactic respells. It parses again after each fix and stops when no error carries one or a fix makes no progress, and prints "let: N rewrites in M files". These keep the plain habit message, with no fix:
+The error carries the fix as data: the bytes of `var`, or of `x :=`, and the text that replaces them (`syntax.Error.Fix`, an exact fix of one edit; `compiler/syntax/dump.Failure` writes each edit of a fix as a line `fix exact|suggested offset length "text"` after the error's line, layout 5). `ergo fix` applies it first among its syntactic respells. It parses again after each fix and stops when no error carries one or a fix makes no progress, and prints "let: N rewrites in M files". These keep the plain habit message, with no fix:
 - `var x T` with no value;
 - a list such as `a, b := e`;
 - a package-level `var`.
