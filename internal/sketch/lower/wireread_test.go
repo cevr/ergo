@@ -45,11 +45,21 @@ func End(w wrap) { w.j.End() }
 
 type pair { A int, B int }
 
-// WireRead reads a pair from a wrap as the list [a, b].
+// WireRead reads a pair from a wrap as the list [a, b], by the Reader's
+// protocol: More before each element and after the last, then End.
 func WireRead(p mut pair, w wrap) fails WireWrongKind {
 	try w.BeginList()
+	if !w.More() {
+		return WireWrongKind{Path: w.Path(), Want: "two integers"}
+	}
 	p.A = int(try w.Int())
+	if !w.More() {
+		return WireWrongKind{Path: w.Path(), Want: "two integers"}
+	}
 	p.B = int(try w.Int())
+	if w.More() {
+		return WireWrongKind{Path: w.Path(), Want: "two integers"}
+	}
 	w.End()
 }
 
