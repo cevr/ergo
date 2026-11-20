@@ -71,6 +71,39 @@
     {"name":"modes4-fix-mutop-twice","origin":"wf10 SIMPLIFY MODES-4","file":"internal/sketch/fix/edit.go","from":"\t\t\tif x.from == at && x.to == at && x.text == \"mut \" {","to":"\t\t\tif false {","rule":"Two instantiations that need one operation marked write mut once (MODES-4).","killers":["internal/sketch/fix:TestFixMarksMutOperations"]},
     {"name":"modes5-fix-own-unwritten","origin":"wf10 MODES-5 (EXM2)","file":"internal/sketch/fix/edit.go","from":"\t\t\t\t\te.add(file, edit{from: end, to: end, text: text})\n\t\t\t\t\treturn file, nil","to":"\t\t\t\t\treturn file, nil","rule":"ergo fix writes [T own] where a resource bound an unmarked T (MODES-5).","killers":["internal/sketch/fix:TestFixWritesOwnMarks"]},
     {"name":"modes5-fix-own-group-joined","origin":"wf10 MODES-5 (EXM2)","file":"internal/sketch/fix/edit.go","from":"\t\t\t\t\t} else if i > 0 {\n\t\t\t\t\t\t// The last name of a group","to":"\t\t\t\t\t} else if false && i > 0 {\n\t\t\t\t\t\t// The last name of a group","rule":"ergo fix splits a group so the mark stays on its name ([A, B] → [A any, B own]).","killers":["internal/sketch/fix:TestFixWritesOwnMarks"]},
+    {
+      "name": "uflat-fix-order",
+      "origin": "wf10 FIX-UNION-FLAT",
+      "file": "internal/sketch/fix/unionflat.go",
+      "from": "\t\tif slices.Equal(names[i:i+len(set)], set) {",
+      "to": "\t\tif len(set) > 0 && slices.Contains(names[i:i+len(set)], set[1]) && slices.Contains(names[i:i+len(set)], set[0]) {",
+      "rule": "A union stands for the entries of another only where they hold its variants in its order: the listing keeps the variants' order.",
+      "killers": [
+        "internal/sketch/fix:TestUnionFlatWritesTheListing"
+      ]
+    },
+    {
+      "name": "uflat-fix-rebuild-arm",
+      "origin": "wf10 FIX-UNION-FLAT",
+      "file": "internal/sketch/fix/unionflat.go",
+      "from": "\tif id, ok := es.X.(*syntax.Ident); !ok || id.Name != as.Name.Name {",
+      "to": "\tif id, ok := es.X.(*syntax.Ident); ok && id.Name != as.Name.Name {",
+      "rule": "Only an arm that hands out its binder and does nothing else is an identity arm.",
+      "killers": [
+        "internal/sketch/fix:TestUnionFlatWritesTheListing"
+      ]
+    },
+    {
+      "name": "uflat-fix-no-move",
+      "origin": "wf10 FIX-UNION-FLAT",
+      "file": "internal/sketch/fix/unionflat.go",
+      "from": "\t\t\teds[file] = append(eds[file], edit{from: int(id.Pos()), to: int(id.End()), text: src[vs.Pos():vs.End()]})",
+      "to": "\t\t\t_, _ = file, src",
+      "rule": "A variant declared in place in the re-listing union moves to the listed union's entry, so its declaration is not lost.",
+      "killers": [
+        "internal/sketch/fix:TestUnionFlatWritesTheListing"
+      ]
+    },
     {"name":"fix-include-leaves-mode","origin":"wf10 RESPELL-2","file":"internal/sketch/fix/edit.go","from":"\t\tfrom := int(m.Pos())\n","to":"\t\tfrom := int(m.Names[0].Pos())\n","rule":"An include deletes the included operation from its mode word on, so no `own` or `mut` is left alone.","killers":["internal/sketch/fix:TestFixIncludeTakesTheModeWord"]},
     {"name":"respell-gen-imports-off","origin":"wf10 RESPELL-2","file":"internal/sketch/fix/mut.go","from":"\t\tfileImports = generatorImports(texts)\n","to":"\t\tfileImports = nil\n","rule":"A generator's piece that names a package another piece imports is Ergo, and its borrow is respelled.","killers":["internal/sketch/fix:TestMutGoReadsAGeneratorsImports"]},
     {"name":"respell-typearg-rewritten","origin":"wf10 RESPELL-2","file":"internal/sketch/fix/mut.go","from":"\t\tif !s.arg {\n\t\t\tstars = append(stars, s.star)\n\t\t}\n","to":"\t\tstars = append(stars, s.star)\n","rule":"A *T that binds a type parameter is left by the respell (a type parameter binds no borrow).","killers":["internal/sketch/fix:TestMutSpellsTheBorrow"]},
