@@ -1051,6 +1051,8 @@ func (c *checker) structType(spec *syntax.StructType, ctx *typeCtx) *Struct {
 			key, err = strconv.Unquote(field.Key.Value)
 			if err != nil || key == "" || !utf8.ValidString(key) {
 				c.errorf(field.Key, CodeType, "a wire key must be non-empty valid UTF-8 (types.md, Codecs 2)")
+			} else {
+				c.wireKeyHabit(field, key)
 			}
 		}
 		for _, name := range field.Names {

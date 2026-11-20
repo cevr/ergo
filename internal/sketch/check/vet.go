@@ -2,6 +2,8 @@ package check
 
 import (
 	"go/constant"
+	"strconv"
+	"strings"
 
 	"ergo.local/prototype/internal/sketch/syntax"
 )
@@ -112,5 +114,41 @@ func (c *checker) decidedBySign(x *syntax.BinaryExpr, l, r operand) bool {
 		return false
 	}
 	c.errorf(x, CodeType, "this comparison is always %t: %s; compare with a value it can take, or delete the comparison", always, why)
+	return true
+}
+
+// goTagKey reports a field key that holds a double quote, and the name a
+// Go struct tag in it names, `json:"name,omitempty"` → name, else the key
+// without its quotes. A field's string is its wire key itself, shared by
+// every format (types.md, Codecs 2), and no format's key is meant with a
+// quote in it: it is the Go tag habit, which json.Encode would write as
+// the key, `{"json:\"name\"": …}`. A colon alone is no sign (`"xml:lang"`
+// is a real key), so a key with no quote passes.
+func goTagKey(key string) (name string, ok bool) {
+	if !strings.ContainsAny(key, "\"") {
+		return "", false
+	}
+	if i := strings.Index(key, ":\""); i > 0 {
+		name = key[i+2:]
+		if j := strings.IndexAny(name, ",\""); j >= 0 {
+			name = name[:j]
+		}
+		return name, true
+	}
+	return strings.Trim(key, "\" "), true
+}
+
+// wireKeyHabit refuses a field key that holds a double quote (S108; go vet
+// structtag). It reports whether it did.
+func (c *checker) wireKeyHabit(field *syntax.Field, key string) bool {
+	name, ok := goTagKey(key)
+	if !ok {
+		return false
+	}
+	fix := "write the key alone, with no quote in it"
+	if name != "" {
+		fix = "write " + strconv.Quote(name)
+	}
+	c.errorf(field.Key, CodeType, "the key %s holds a quote, as a Go struct tag does; a field's string is its wire key itself, for every format: %s (types.md, Codecs 2)", strconv.Quote(key), fix)
 	return true
 }

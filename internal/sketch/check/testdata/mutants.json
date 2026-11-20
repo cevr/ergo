@@ -3460,6 +3460,28 @@
     {"name":"np4furl-fresh-not-go-call","origin":"wf10 NP4f-URL (NS lane)","file":"internal/sketch/check/gofresh.go","from":"\tif call == nil || !c.goCall(call) {\n","to":"\tif call == nil {\n","rule":"interop.md Checking 4: a go.Ref an Ergo function returns is no fresh handle; only a pure-tier Go call's result is.","anchor":{"tests":["check:TestGoFreshRefFields"]},"killers":["check:TestGoFreshRefFields"]},
     {"name":"np4furl-fresh-foreign-call","origin":"wf10 NP4f-URL (NS lane)","file":"internal/sketch/check/gofresh.go","from":"\tif sig == nil || !sig.Uses.Empty() {\n","to":"\tif sig == nil {\n","rule":"interop.md Checking 4: a go.Ref a Go call that needs go.Foreign returns is no fresh handle.","anchor":{"tests":["check:TestGoFreshRefFields"]},"killers":["check:TestGoFreshRefFields"]},
     {"name":"np4furl-fresh-captured","origin":"wf10 NP4f-URL (NS lane)","file":"internal/sketch/check/gofresh.go","from":"\t\t\t\tif id, is := m.(*syntax.Ident); is && id.Name == name {\n\t\t\t\t\tok = false\n","to":"\t\t\t\tif id, is := m.(*syntax.Ident); is && id.Name == name && false {\n\t\t\t\t\tok = false\n","rule":"interop.md Checking 4: a go.Ref a function literal captures is no fresh handle.","anchor":{"tests":["check:TestGoFreshRefFields"]},"killers":["check:TestGoFreshRefFields"]},
-    {"name":"np4furl-fresh-never","origin":"wf10 NP4f-URL (NS lane)","file":"internal/sketch/check/gobinding.go","from":"\t\t\tif shared && !c.freshOperand(x.X) {\n","to":"\t\t\tif shared {\n","rule":"interop.md Checking 4: a field read through a fresh handle charges nothing.","anchor":{"tests":["check:TestGoFreshRefFields"]},"killers":["check:TestGoFreshRefFields"]}
+    {"name":"np4furl-fresh-never","origin":"wf10 NP4f-URL (NS lane)","file":"internal/sketch/check/gobinding.go","from":"\t\t\tif shared && !c.freshOperand(x.X) {\n","to":"\t\t\tif shared {\n","rule":"interop.md Checking 4: a field read through a fresh handle charges nothing.","anchor":{"tests":["check:TestGoFreshRefFields"]},"killers":["check:TestGoFreshRefFields"]},
+    {
+      "name": "vet-wirekey-none",
+      "origin": "wf10 VET-CHECK rank 3",
+      "file": "internal/sketch/check/decl.go",
+      "from": "\t\t\t} else {\n\t\t\t\tc.wireKeyHabit(field, key)\n\t\t\t}\n",
+      "to": "\t\t\t}\n",
+      "rule": "diagnostics.md S108: a field key that holds a double quote (a Go struct tag such as json:\"name\") is refused.",
+      "killers": [
+        "cmd/ergo:TestCheckerFixtures"
+      ]
+    },
+    {
+      "name": "vet-wirekey-colon",
+      "origin": "wf10 VET-CHECK rank 3",
+      "file": "internal/sketch/check/vet.go",
+      "from": "\tif !strings.ContainsAny(key, \"\\\"\") {\n",
+      "to": "\tif !strings.ContainsAny(key, \"\\\":\") {\n",
+      "rule": "diagnostics.md S108: a colon alone is no sign of a Go tag; xml:lang and json:name are keys and pass.",
+      "killers": [
+        "cmd/ergo:TestCheckerFixtures"
+      ]
+    }
   ]
 }
