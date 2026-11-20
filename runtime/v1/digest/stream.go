@@ -1,60 +1,58 @@
 package digest
 
-import "crypto/sha256"
+import (
+	"crypto/sha256"
+	"hash"
+	"unsafe"
+)
 
-// The Go bodies of std sha256's Hasher: a SHA-256 of a text given in
-// parts. The hash's state travels as the string its MarshalBinary writes
-// (as HmacKeyState's does), so a Hasher is an Ergo value: copying one
-// forks the hash, and every body is pure. A pure body names no other
-// function, so each resumes the state itself.
+// Sha256Hasher is std sha256's Hasher: a SHA-256 of a text given in parts,
+// Go's sha256.New with Write and Sum. It is an owned resource (it
+// implements Closer), so the program moves it and its owner's scope
+// releases it; a Write is one call of the hash's Write on the bytes of the
+// text, with no copy, as hand Go's.
+type Sha256Hasher struct{ h hash.Hash }
 
-// Sha256Start is the state of a SHA-256 that has hashed nothing.
+func (*Sha256Hasher) runtimeOnly() {}
+
+// Sha256New is the body of sha256.New: a Hasher that has hashed nothing.
 //
-//ergo:pure
 //ergo:wait none
-func Sha256Start() string {
-	type marshaler interface{ MarshalBinary() ([]byte, error) }
-	b, err := sha256.New().(marshaler).MarshalBinary()
-	if err != nil {
-		panic("sha256: a hash state that does not marshal")
-	}
-	return string(b)
+func Sha256New() *Sha256Hasher { return &Sha256Hasher{h: sha256.New()} }
+
+// Write hashes the bytes of s after those h has hashed. It hands the hash
+// a view of s's bytes: crypto/sha256's Write only reads its argument and
+// keeps none of it (it copies a partial block into its own buffer), so no
+// byte of s is written through or held past the call.
+//
+//ergo:wait none
+func (h *Sha256Hasher) Write(s string) {
+	h.h.Write(unsafe.Slice(unsafe.StringData(s), len(s)))
 }
 
-// Sha256Write is state after the bytes of s: the hash resumed from state,
-// written with s and marshaled again. A state Sha256Start or Sha256Write
-// did not give is a defect.
+// Digest is the 32-byte digest of every byte written to h, in order. h is
+// unchanged, as Go's Sum leaves it: more writes may follow.
 //
-//ergo:pure
 //ergo:wait none
-func Sha256Write(state string, s string) string {
-	type resumable interface {
-		MarshalBinary() ([]byte, error)
-		UnmarshalBinary([]byte) error
-	}
-	d := sha256.New()
-	r := d.(resumable)
-	if r.UnmarshalBinary([]byte(state)) != nil {
-		panic("sha256: a state that sha256.New did not give")
-	}
-	d.Write([]byte(s))
-	b, err := r.MarshalBinary()
-	if err != nil {
-		panic("sha256: a hash state that does not marshal")
-	}
-	return string(b)
-}
-
-// Sha256Digest is the 32-byte digest of the bytes the state has hashed.
-//
-//ergo:pure
-//ergo:wait none
-func Sha256Digest(state string) string {
-	type unmarshaler interface{ UnmarshalBinary([]byte) error }
-	d := sha256.New()
-	if d.(unmarshaler).UnmarshalBinary([]byte(state)) != nil {
-		panic("sha256: a state that sha256.New did not give")
-	}
+func (h *Sha256Hasher) Digest() string {
 	var buf [sha256.Size]byte
-	return string(d.Sum(buf[:0]))
+	return string(h.h.Sum(buf[:0]))
 }
+
+// Clone is a Hasher that has hashed what h has, and goes on alone (Go's
+// hash.Cloner, which crypto/sha256's digest implements).
+//
+//ergo:wait none
+func (h *Sha256Hasher) Clone() *Sha256Hasher {
+	c, err := h.h.(hash.Cloner).Clone()
+	if err != nil {
+		panic("sha256: a hash that does not clone: " + err.Error())
+	}
+	return &Sha256Hasher{h: c}
+}
+
+// Close releases h: its state is dropped for the collector. The checker
+// admits no use of h after it.
+//
+//ergo:wait none
+func (h *Sha256Hasher) Close() { h.h = nil }
