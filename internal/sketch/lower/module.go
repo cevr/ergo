@@ -241,6 +241,14 @@ type lowerer struct {
 	bodies   int        // function bodies lowered (TestNamingWorkIsLinear)
 	formats  int        // go/format runs
 	raw      bool       // Unit.Raw: program skips go/format
+	// unformatted skips go/format (the IR split, lowerIRSplit): only the
+	// compiler reads the split's Go, and the split parses main.go itself,
+	// so go/format's parse and print were the edit's second parse
+	// (SPLIT-AST; owner rule via the orchestrator, 2026-11-19: Go only the
+	// compiler reads needs no gofmt). unformattedText keeps the text before
+	// anchoring, for a refused split's one-package main.go (formatMain).
+	unformatted     bool
+	unformattedText []byte
 
 	// inlineOK holds the inline decisions, inlineGrown the body nodes each
 	// Go function took in under the reference growth rule (growth.go),
@@ -766,6 +774,10 @@ func (l *lowerer) program() ([]byte, error) {
 	out.WriteString(inits)
 	if l.raw {
 		return anchorLines([]byte(out.String())), nil
+	}
+	if l.unformatted {
+		l.unformattedText = []byte(out.String())
+		return anchorLines(l.unformattedText), nil
 	}
 	l.formats++
 	formatted, err := format.Source([]byte(out.String()))

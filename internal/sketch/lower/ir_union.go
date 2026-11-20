@@ -131,7 +131,7 @@ func (b *irBuilder) scalarBasic(t check.Type) *check.Basic {
 // Around it, the row gaps (ir_rowgap.go): what x reads is read as x's type
 // holds it first, and the converted value goes into x's place last.
 func (b *irBuilder) implicit(x syntax.Expr, e *irExpr) *irExpr {
-	if e == nil {
+	if e == nil || x == b.raw {
 		return e
 	}
 	e = b.rowRead(x, e)
