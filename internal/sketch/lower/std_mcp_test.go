@@ -1,6 +1,8 @@
 package lower
 
 import (
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -13,9 +15,10 @@ import (
 // memory.Transport, and memory's CallAnswersOnce, with the packages'
 // helpers restated. MemorySession is a client's whole session, the one
 // place a tool that ran and failed is answered (mutant
-// ap2-tool-error-as-rpc-error). mcp/stdio's Transport holds the process's
-// standard input and output, which only main makes, so its
-// StopsWhenAsked rests on std io's Lines.
+// ap2-tool-error-as-rpc-error). mcp/stdio's Transport keeps
+// StopsWhenAsked under its own named context, overText (stdio's
+// Transport over io.InOver and io.HostOver), which TestStdMCPLawsRun
+// runs with ergo test (stdioStopsWhenAsked).
 const stdMCPLawsProbe = `import json
 import mcp
 import mcp/memory
@@ -256,4 +259,25 @@ func TestStdMCPLawsRun(t *testing.T) {
 		t.Errorf("no ok line for MemorySession:\n%s", stdout)
 	}
 	lawledger.Run(t, lawsPassed(t, stdMCPLawStatements, stdLLMLawTestName, stdMCPLawsProbe, stdout, "MemorySession"))
+	stdioStopsWhenAsked(t)
+}
+
+// stdioStopsWhenAsked runs `ergo test` on std mcp/stdio, where the named
+// context overText feeds mcp.Transport.StopsWhenAsked with stdio's
+// Transport over io.InOver and io.HostOver: the law that stdio's
+// Transport keeps, run under std's own context as a module's laws run,
+// not restated by the probe (LAW-UNFED: a fed law stays fed). Mutant
+// mcp-stdio-messages-ignore-stop.
+func stdioStopsWhenAsked(t *testing.T) {
+	t.Helper()
+	dir, err := filepath.Abs(filepath.Join(moduleRoot, "internal", "sketch", "std", "mcp", "stdio"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(ergoCLI(t), "test", dir)
+	cmd.Dir = t.TempDir()
+	out, err := cmd.CombinedOutput()
+	if err != nil || !strings.Contains(string(out), "ok law mcp.Transport.StopsWhenAsked under overText") {
+		t.Errorf("ergo test std mcp/stdio: %v; want the law mcp.Transport.StopsWhenAsked to pass under overText:\n%s", err, out)
+	}
 }
