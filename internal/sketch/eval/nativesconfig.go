@@ -32,18 +32,23 @@ func registerNativesconfig(t nativeTables) {
 			return out, in.allocate(fr, at, int64(len(out)))
 		}
 	}
+	t.reads["config.flagName"] = "string"
 	natives["config.flagName"] = pure(func(a []string) string {
 		return spellKey(a[0], ".", "-", strings.ToLower)
 	})
+	t.reads["config.envName"] = "string string"
 	natives["config.envName"] = pure(func(a []string) string {
 		return a[0] + "_" + spellKey(a[1], "__", "_", strings.ToUpper)
 	})
+	t.reads["config.flagKey"] = "string"
 	natives["config.flagKey"] = pure(func(a []string) string {
 		return joinKey(a[0], ".", "-", func(s string) string { return s })
 	})
+	t.reads["config.envKey"] = "string"
 	natives["config.envKey"] = pure(func(a []string) string {
 		return joinKey(a[0], "__", "_", strings.ToLower)
 	})
+	t.reads["config.NewRedacted"] = "T"
 	natives["config.NewRedacted"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return &redactedV{v: args[0]}, in.charge(fr, at, 1)
 	}
