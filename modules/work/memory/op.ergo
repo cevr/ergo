@@ -35,8 +35,9 @@ type Op =
 // the reference does not decide (a stack's clone of a changed parent, a
 // sync), and then rm's outcome is the Tool's to tell. Cloned is a
 // reservation whose maker died after its clone and before its marker,
-// and whose folder an agent then wrote in.
-type Expected { Name string, State string, Parent string, Kept bool, Sure bool, Since int64, Path string, Cloned bool }
+// and whose folder an agent then wrote in. Until is the second before
+// which gc keeps a trashed one's trash (gc -idle's IdleTrash), else 0.
+type Expected { Name string, State string, Parent string, Kept bool, Sure bool, Since int64, Path string, Cloned bool, Until int64 }
 
 // pick is one of three names, so sequences reuse them.
 func pick(n int) string { []string{"a", "b", "wf/c"}[((n%3)+3)%3] }
@@ -435,7 +436,7 @@ law ToolAgreesWithTheReference(ops []Op, sharing bool, tree Map[string, string])
 				return false
 			}
 			if !holds(want, name) {
-				let e = Expected{Name: name, State: "active", Parent: theBase, Kept: true, Sure: true, Since: at, Path: work.Home(theBase, "") + "/" + work.FolderOf(name), Cloned: false}
+				let e = Expected{Name: name, State: "active", Parent: theBase, Kept: true, Sure: true, Since: at, Path: work.Home(theBase, "") + "/" + work.FolderOf(name), Cloned: false, Until: 0}
 				want = freed(want, name, if sharing || o.Copy { Some[Expected]{Value: e} } else { None })
 			}
 		case OnOp as o:
@@ -452,7 +453,7 @@ law ToolAgreesWithTheReference(ops []Op, sharing bool, tree Map[string, string])
 					return false
 				}
 				if can {
-					let e = Expected{Name: name, State: "active", Parent: parent.Value.Path, Kept: false, Sure: false, Since: at, Path: made, Cloned: false}
+					let e = Expected{Name: name, State: "active", Parent: parent.Value.Path, Kept: false, Sure: false, Since: at, Path: made, Cloned: false, Until: 0}
 					want = freed(want, name, if made != "" { Some[Expected]{Value: e} } else { None })
 				}
 			case None:
@@ -550,7 +551,7 @@ law ToolAgreesWithTheReference(ops []Op, sharing bool, tree Map[string, string])
 				if !cloned {
 					Plant(w.trees, path, Map[string, string]{"half": "a clone cut short"})
 				}
-				want = want.Append(Expected{Name: name, State: "creating", Parent: theBase, Kept: false, Sure: true, Since: at, Path: path, Cloned: cloned})
+				want = want.Append(Expected{Name: name, State: "creating", Parent: theBase, Kept: false, Sure: true, Since: at, Path: path, Cloned: cloned, Until: 0})
 			}
 		case GcIdOp as o:
 			// gc -id of a reservation whose maker died (workrift's call on
@@ -616,6 +617,13 @@ law ToolAgreesWithTheReference(ops []Op, sharing bool, tree Map[string, string])
 				for name in found {
 					let i = slices.IndexFunc(out.Idle, func(i work.Idle) bool { i.Name == name && i.Removed })
 					want = removed(want, name, false, at, i >= 0, if i >= 0 { out.Idle[i].Id } else { "" })
+					match find(want, name) {
+					case Some[Expected] as e:
+						if e.Value.State == "trashed" && e.Value.Since == at {
+							want = replaced(want, Expected{..e.Value, Until: at + int64(work.IdleTrash)})
+						}
+					case None:
+					}
 				}
 			}
 			let (kept, dropped) = collected(want, int64(older), at)
@@ -1260,7 +1268,7 @@ func collected(want []Expected, older int64, at int64) ([]Expected, []string) {
 	let mut dropped = []string{}
 	for e in want {
 		let age = at - e.Since
-		if (e.State == "trashed" && age >= older) || (e.State == "creating" && !e.Cloned) {
+		if (e.State == "trashed" && age >= older && at >= e.Until) || (e.State == "creating" && !e.Cloned) {
 			dropped = dropped.Append(e.Path)
 		} else {
 			kept = kept.Append(e)
