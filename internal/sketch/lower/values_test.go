@@ -446,7 +446,7 @@ func main() needs Console {
 func TestValueRuleElides(t *testing.T) {
 	p := lowerValueMode(t, "velide", valueElideSource, true)
 	code := p.mainGo()
-	for _, fn := range []string{"build", "collect", "roomy", "drop", "puts", "boxed", "moved", "count", "putOwned", "runes", "addRune", "bytesOf", "bytesTwice", "tagged"} {
+	for _, fn := range []string{"build", "collect", "roomy", "drop", "puts", "boxed", "moved", "count", goHelper("putOwned"), "runes", "addRune", "bytesOf", "bytesTwice", "tagged"} {
 		if body := goFunc(t, code, fn); strings.Contains(body, "Clone") || strings.Contains(body, "Clip(") {
 			t.Errorf("%s copies a fresh value:\n%s", fn, body)
 		}
@@ -475,7 +475,7 @@ func TestValueRuleElides(t *testing.T) {
 	if body := regexp.MustCompile(`(?s)\nfunc Sorted\[.*?\n}\n`).FindString(code); !strings.Contains(body, "SlicesSortOwned[") || strings.Contains(body, "Clone") {
 		t.Errorf("slices.Sorted does not sort the slice it collects in place:\n%s", body)
 	}
-	if body := goFunc(t, code, "keptText"); strings.Count(body, "ergoCloneBuilder(") != 1 {
+	if body := goFunc(t, code, "keptText"); strings.Count(body, goHelper("ergoCloneBuilder")+"(") != 1 {
 		t.Errorf("keptText should copy the builder it writes after String, once:\n%s", body)
 	}
 	if !strings.Contains(code, "ergo.StringsBuilderTextOwned(") {
@@ -483,7 +483,7 @@ func TestValueRuleElides(t *testing.T) {
 	}
 	// The method String itself, which a method value or a host protocol
 	// reaches, copies its receiver before the owned body takes it.
-	if !regexp.MustCompile(`\) String\(env \*Env\) string \{\n\treturn \(ergoCloneBuilder\(\w+\)\)\.StringOwned\(env\)`).MatchString(code) {
+	if !regexp.MustCompile(`\) String\(env \*Env\) string \{\n\treturn \(` + goHelper("ergoCloneBuilder") + `\(\w+\)\)\.StringOwned\(env\)`).MatchString(code) {
 		t.Errorf("the method String does not copy its receiver for the owned body")
 	}
 	if body := goFunc(t, code, "keptOwned"); strings.Count(body, "slices.Clone(") != 1 {
@@ -507,8 +507,10 @@ func TestValueRuleElides(t *testing.T) {
 	// the read kept is copied instead (moveOver). The Map's copy is only
 	// the cell's clone argument, once: maps.Clone under MAPCOPY's entry
 	// rule (V8), whose entries have no write path, else ergoCloneMap.
-	mapCopies := func(body string) int { return strings.Count(body, "ergoCloneMap") + strings.Count(body, "maps.Clone(") }
-	if body := goFunc(t, code, "shelve"); mapCopies(body) != 1 || !strings.Contains(body, "ergoCloneBox(") {
+	mapCopies := func(body string) int {
+		return strings.Count(body, goHelper("ergoCloneMap")) + strings.Count(body, "maps.Clone(")
+	}
+	if body := goFunc(t, code, "shelve"); mapCopies(body) != 1 || !strings.Contains(body, goHelper("ergoCloneBox")+"(") {
 		t.Errorf("shelve copies the whole Map at the bind, not the entry it read:\n%s", body)
 	}
 	// shelveArms binds all in each of two arms (pinata's Change): a use
