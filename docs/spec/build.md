@@ -21,11 +21,19 @@ store: it parses, checks, lowers, compiles, links and starts nothing
    a build or a test the toolchain (the go
    command's resolved path, size and modification time, GOROOT, GOOS and
    GOARCH, GOFLAGS, tags, the reference path and the strip setting), the
-   compiler's identity, and every `GO*`, `CGO_*` and `ERGO_*` variable but
-   `ERGO_STAGE_REPORT` and `ERGO_BUILD`, and the Go experiments
+   compiler's identity, every `GO*`, `CGO_*` and `ERGO_*` variable that can
+   change an answer, and the Go experiments
    `GOEXPERIMENT` turns on, from the environment or the go env file, since
    they choose a module's Go body files (docs/spec/interop.md, Trusted Go
-   3). The output path is not part of it.
+   3). The output path is not part of it. A table classifies the
+   variables (`warmEnv`, `internal/sketchfront/warm.go`). An answer
+   variable is in the key: the target, the Go build's flags, the toolchain
+   and the checker's switches. A location variable is left out: caches,
+   temporary folders (the run budget gives each run its own `GOTMPDIR`),
+   the stage report, the Ergo cache and the budget's scheduling. A variable
+   the table does not name is in the key, and `ergo version` lists it until
+   it is classified. `TestWarmEnvClassifiesTheScripts` holds the table to
+   every such variable the repository's scripts set.
 2. **The manifest.** One file per request key in the Ergo cache
    (`Root/warm/KEY`) lists every input the request read: each file with the
    SHA-256 and size of its bytes (the `.ergo` files, `ergo.mod`, the

@@ -50,6 +50,7 @@ var (
 	_ = declarePrograms("TestNetLaws", testBuildProgram("netlaws", netLawsProbe))
 	_ = declarePrograms("TestFlagLaws", testBuildProgram("flaglaws", flagLawTests))
 	_ = declarePrograms("TestIORecorderBehavesAsBefore", testBuildProgram("recorder", recorderProbe))
+	_ = declarePrograms("TestMethodValueRuns", testBuildProgram("methodvalue", methodValueProbe))
 	_ = declarePrograms("TestGoSeqCrossesTheBoundary", testBuildProgram("goseq", goSeqProbe))
 	_ = declarePrograms("TestStdAscendingMatchesGo", entryProgram("ascending", ascendingProgram))
 	_ = declarePrograms("TestInputLinesMatchesModel", entryProgram("inputlines", inputLinesProgram))

@@ -45,9 +45,15 @@ func TestModuleBuildReadsEachPackagesIR(t *testing.T) {
 	if cmd.Args[0] != release.Go {
 		t.Errorf("go command %q, want the patched release's %q", cmd.Args[0], release.Go)
 	}
+	// The IR file is named relative to the module (GP-SPLIT-EDIT: Go's
+	// action cache keys the compile on the flag), which holds because go
+	// build runs in the module's folder and runs each compile there.
+	if cmd.Dir != dir {
+		t.Errorf("go build runs in %q, want the module's folder %q, where its relative -ergoir paths resolve", cmd.Dir, dir)
+	}
 	for _, want := range []string{
-		"-gcflags=.='-ergoir=" + filepath.Join(dir, "ergoir.json") + "'",
-		"-gcflags=./pkg/a='-ergoir=" + filepath.Join(dir, "pkg/a/ergoir.json") + "'",
+		"-gcflags=.='-ergoir=./ergoir.json'",
+		"-gcflags=./pkg/a='-ergoir=./pkg/a/ergoir.json'",
 	} {
 		if !slices.Contains(cmd.Args, want) {
 			t.Errorf("args %q lack %s", cmd.Args, want)

@@ -421,6 +421,12 @@ type Info struct {
 	// marks the field on the record's entry there, and the generated
 	// release skips it. Added in L8 B2 (additive).
 	FieldTakes map[*syntax.SelectorExpr]FieldTake
+	// MethodValues is each x.f that is not called and takes the function
+	// f on x's type as a value (types.md, Methods 2): f with x bound when
+	// the expression is evaluated, as Go's method value. A generic f has
+	// every type parameter bound by x's type, and its instance is
+	// Instances[x]. Added in CV1 (additive).
+	MethodValues map[*syntax.SelectorExpr]*Func
 	// Handoffs is each use of an owned local or taken parameter that
 	// hands it off (a move or a take), with the owned local it hands off:
 	// the ident's own, or the root of the borrow a Close is called through
@@ -562,6 +568,7 @@ func newInfo() *Info {
 		ReturnedTemps:  map[syntax.Expr]bool{},
 		ArmValues:      map[syntax.Expr]*Drop{},
 		FieldTakes:     map[*syntax.SelectorExpr]FieldTake{},
+		MethodValues:   map[*syntax.SelectorExpr]*Func{},
 		Handoffs:       map[*syntax.Ident]*Var{},
 		PatternOwners:  map[*syntax.CaseClause]PatternOwners{},
 		Takes:          map[*Func][]int{},
@@ -1187,7 +1194,14 @@ type LawRun struct {
 // *Type, so *Type provides the slot and Type does not. The case's Type is
 // built as any provider's is (by Ctor, or generated), and the run binds
 // its address; Conv converts from *Type.
+//
+// Native is a provider whose operations call Go (README Gap 17): its
+// build holds go.Foreign, which the test binary's law case holds and
+// nothing else under a test does (types.md, Laws 10; owner q277). The
+// native run builds it; the check-time evaluator, which runs no Go,
+// reports the binding native, never passed.
 type LawProvider struct {
+	Native bool
 	// Value lends the runner's fresh provider record to pointer operations.
 	// It grants no implicit conversion to a user operation-type value.
 	Value  bool
