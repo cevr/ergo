@@ -129,7 +129,7 @@ func (b *irBuilder) scalarBasic(t check.Type) *check.Basic {
 // records at x (Info.Implicit), as the emitter's convert does.
 func (b *irBuilder) implicit(x syntax.Expr, e *irExpr) *irExpr {
 	conv, ok := b.l.info.Implicit[x]
-	if !ok || e == nil {
+	if !ok || e == nil || x == b.raw {
 		return e
 	}
 	return b.convert(conv, e, x)
