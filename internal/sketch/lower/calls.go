@@ -1005,7 +1005,35 @@ func (fc *funcCtx) methodValue196(x *syntax.SelectorExpr, f *check.Func) string 
 	}
 	recv = fc.spill(recv)
 	fd := fc.l.useFunc(f, x)
+	if fc.plainMVs[x] {
+		return fc.plainMethodValue(fd, sig, x, recv)
+	}
 	return fc.declaredValue(f, fd, sig, x, fc.l.info.Instances[x], recv)
+}
+
+// plainMethodValue is the known pure method value x (pureMethodValue,
+// knownSite) as a plain Go closure, func(params) R, over recv, the
+// receiver's copy: a direct call of the function, which takes no
+// environment and cannot fail, as a known pure literal's body is.
+func (fc *funcCtx) plainMethodValue(fd *funcDecl, sig *check.Signature, x *syntax.SelectorExpr, recv string) string {
+	return fc.envClosure(plainEnv, "", x, func(string) (params []string, results, body string) {
+		args := []string{recv}
+		for _, p := range sig.Params {
+			name := fc.scope.alloc("p")
+			params = append(params, name+" "+fc.goType(p.Type))
+			args = append(args, name)
+		}
+		head := fd.name
+		if fd.method != nil {
+			head, args = args[0]+"."+fd.name, args[1:]
+		}
+		call := head + "(" + strings.Join(args, ", ") + ")"
+		ind := strings.Repeat("\t", fc.depth+1)
+		if len(sig.Results) == 1 {
+			return params, " " + fc.goType(sig.Results[0]), ind + "return " + call + "\n"
+		}
+		return params, "", ind + call + "\n"
+	})
 }
 
 // declaredValue is the closure of the uniform shape that calls the

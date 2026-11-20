@@ -410,7 +410,7 @@ func (l *lowerer) knownBodyCall(info *check.Info, x *syntax.CallExpr, plain map[
 		lit = func(n *syntax.FuncLit) bool { return l.pureLit(info, n, true) }
 	}
 	list := callOperands(x, c)
-	ids, ok := knownOperands(info, f, list, func(v *check.Var) bool { return plain[v] }, lit)
+	ids, ok := knownOperands(info, f, list, func(v *check.Var) bool { return plain[v] }, lit, nil)
 	if ok && l.knownVariant(f) {
 		for _, id := range ids {
 			allowed[id] = true
@@ -434,9 +434,10 @@ func callOperands(x *syntax.CallExpr, c *check.Call) []syntax.Expr {
 
 // knownOperands reports whether each callback operand of a call of f in
 // list is known: a callback parameter of the variant being lowered
-// (plain) or a known pure literal (lit, nil inside a variant's body). It
-// returns the parameter identifiers it passes on.
-func knownOperands(info *check.Info, f *check.Func, list []syntax.Expr, plain func(*check.Var) bool, lit func(*syntax.FuncLit) bool) ([]*syntax.Ident, bool) {
+// (plain), a known pure literal (lit, nil inside a variant's body) or a
+// known pure method value (mv, nil there too). It returns the parameter
+// identifiers it passes on.
+func knownOperands(info *check.Info, f *check.Func, list []syntax.Expr, plain func(*check.Var) bool, lit func(*syntax.FuncLit) bool, mv func(*syntax.SelectorExpr) bool) ([]*syntax.Ident, bool) {
 	cbs := callbackParams(f)
 	if len(cbs) == 0 || len(list) != len(f.Sig.Params) {
 		return nil, false
@@ -452,6 +453,10 @@ func knownOperands(info *check.Info, f *check.Func, list []syntax.Expr, plain fu
 			ids = append(ids, a)
 		case *syntax.FuncLit:
 			if lit == nil || !lit(a) {
+				return nil, false
+			}
+		case *syntax.SelectorExpr:
+			if mv == nil || !mv(a) {
 				return nil, false
 			}
 		default:
@@ -499,6 +504,26 @@ func (l *lowerer) pureLit(info *check.Info, lit *syntax.FuncLit, env bool) bool 
 	return ok
 }
 
+// pureMethodValue reports whether the method value x (check.Info's
+// MethodValues; types.md, Methods 2) is a known pure callback, as a pure
+// literal is: the function it binds is pure, takes no environment, cannot
+// fail, has no type parameters and is Ergo source, and the value's
+// signature is plain. Its receiver is evaluated once where x is, as any
+// method value's is; the plain closure over that copy calls the function
+// directly (plainMethodValue; ir_methodvalue.go).
+func (l *lowerer) pureMethodValue(info *check.Info, x *syntax.SelectorExpr) bool {
+	f := info.MethodValues[x]
+	if f == nil || info.Instances[x] != nil || len(f.Sig.TParams) > 0 || f.Decl == nil || f.Decl.Body == nil || f.Decl.Extern != nil {
+		return false
+	}
+	sig, ok := info.Types[x].(*check.Signature)
+	if !ok || !plainSig(sig) {
+		return false
+	}
+	fd := l.funcDecl(f)
+	return fd.pure && fd.envFree && !fd.fallible && fd.extern == ""
+}
+
 // knownSite reports whether the call x of c.Func goes to its known variant
 // from the code fc writes, and marks its literal operands to be lowered
 // plain (plainLit).
@@ -512,11 +537,18 @@ func (fc *funcCtx) knownSite(x *syntax.CallExpr, c *check.Call) bool {
 	info := fc.l.info
 	list := callOperands(x, c)
 	var lits []*syntax.FuncLit
+	var mvs []*syntax.SelectorExpr
 	_, ok := knownOperands(info, c.Func, list, func(v *check.Var) bool { return fc.plain[v] }, func(lit *syntax.FuncLit) bool {
 		if !fc.l.pureLit(info, lit, fc.env != "") {
 			return false
 		}
 		lits = append(lits, lit)
+		return true
+	}, func(x *syntax.SelectorExpr) bool {
+		if !fc.l.pureMethodValue(info, x) {
+			return false
+		}
+		mvs = append(mvs, x)
 		return true
 	})
 	if !ok || !fc.l.knownVariant(c.Func) {
@@ -527,6 +559,12 @@ func (fc *funcCtx) knownSite(x *syntax.CallExpr, c *check.Call) bool {
 	}
 	for _, lit := range lits {
 		fc.plainLits[lit] = true
+	}
+	if len(mvs) > 0 && fc.plainMVs == nil {
+		fc.plainMVs = map[*syntax.SelectorExpr]bool{}
+	}
+	for _, x := range mvs {
+		fc.plainMVs[x] = true
 	}
 	fc.l.stats.Sites++
 	return true

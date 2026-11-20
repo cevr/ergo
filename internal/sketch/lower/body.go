@@ -192,9 +192,11 @@ type funcCtx struct {
 	resultNames map[string]string
 	// plain marks the callback parameters of a known variant, whose Go
 	// type is the plain func(…) R, and plainLits the pure literals a call
-	// passes to one (known.go).
+	// passes to one (known.go), plainMVs the known pure method values
+	// (pureMethodValue).
 	plain     map[*check.Var]bool
 	plainLits map[*syntax.FuncLit]bool
+	plainMVs  map[*syntax.SelectorExpr]bool
 	// inl is the inline site (plus one) of the code being written, which
 	// its directives name (inline.go, tagPath); inlDepth counts the sites
 	// around it; lits are the literals an inlined body's callback

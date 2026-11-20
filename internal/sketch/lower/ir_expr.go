@@ -125,6 +125,11 @@ func (b *irBuilder) valueOf(x syntax.Expr) ([]*irStmt, *irExpr) {
 		}
 		pre, e = b.gather(sc, y, b.pos(y, y.Pos())) // ir_scalar.go
 	case *syntax.SelectorExpr:
+		if b.l.info.MethodValues[y] != nil {
+			b.plain(y)
+			pre, e = b.methodValue(y) // ir_methodvalue.go
+			break
+		}
 		// A Go package variable whose Option goResult builds: Go's
 		// pointer read once, then the Option (ir_govar.go).
 		if t := b.l.info.Types[y]; hostRecv(b.l.info.Types[y.X]) && (isGoRef(t) || b.optionResult(t)) {
@@ -276,7 +281,11 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 		return &irExpr{K: "deref", Pos: p, X: b.expr(x.X)}
 	case *syntax.SelectorExpr:
 		if b.l.info.MethodValues[x] != nil {
-			irNo("method value of a function on a type") // the emitter's closure (calls.go methodValue196)
+			// Outside a value position (valueOf takes the others,
+			// ir_methodvalue.go) there is no statement to spill the
+			// receiver into: a receiver no assignment changes is read by
+			// the closure itself, which then sees the value it had here.
+			return b.stableMethodValue(x, p)
 		}
 		switch o := check.QualifiedMember(b.l.info, x).(type) {
 		case *check.Func:
