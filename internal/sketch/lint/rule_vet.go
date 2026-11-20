@@ -2,6 +2,7 @@ package lint
 
 import (
 	"go/constant"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -17,9 +18,11 @@ import (
 // never an error: generated Ergo, and code a generator writes on purpose,
 // must check (NORTH_STAR tiebreak, composability). They are in the strict
 // preset, so a lint run reports them only when asked, and they skip a file
-// whose header says it is generated (Go's `// Code generated … DO NOT
-// EDIT.` line, which `ergo bind go`, `ergo gen` and the snapshot writers
-// put first).
+// whose header says it is generated: a whole line matching Go's
+// convention, ^// Code generated .* DO NOT EDIT\.$, before the first
+// declaration (generatedSource), which `ergo bind go` and `ergo gen` put
+// first. A program evalgen writes is never linted at all: its harness
+// checks and runs it, and lint is a separate, asked-for run.
 
 // selfAssignment is go vet's assign: `x = x` stores a place's own value.
 var selfAssignment = &Rule{
@@ -53,19 +56,22 @@ var wireKeyQuote = &Rule{
 	Check:   checkWireKeyQuote,
 }
 
-// generatedSource reports a source whose leading comment holds Go's
-// generated-file line, `// Code generated … DO NOT EDIT.`.
+// generatedLine is Go's generated-file convention (go help generate),
+// matched against a whole line.
+var generatedLine = regexp.MustCompile(`^// Code generated .* DO NOT EDIT\.$`)
+
+// generatedSource reports a source with a line that matches Go's
+// generated-file convention before its first declaration: among the
+// comment and blank lines that lead the file. Any other comment, one
+// that only holds the words, or the line after code, is not the mark.
 func generatedSource(src string) bool {
 	for _, line := range strings.Split(src, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		if !strings.HasPrefix(line, "//") {
-			return false
-		}
-		if strings.HasPrefix(line, "// Code generated ") && strings.HasSuffix(line, " DO NOT EDIT.") {
+		line = strings.TrimSuffix(line, "\r")
+		if generatedLine.MatchString(line) {
 			return true
+		}
+		if t := strings.TrimSpace(line); t != "" && !strings.HasPrefix(t, "//") {
+			return false
 		}
 	}
 	return false
