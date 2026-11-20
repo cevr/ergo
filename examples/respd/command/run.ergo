@@ -11,7 +11,7 @@ func NewSession() Session { Session{Protocol: resp.Resp2} }
 
 // Run is the reply to c in session s. It reads the clock once and gives
 // that time to every operation of the engine and the leases.
-func Run(s *Session, c Command) resp.Value needs store.Engine | store.Leases | time.Clock {
+func Run(s mut Session, c Command) resp.Value needs store.Engine | store.Leases | time.Clock {
 	let now = time.Clock.Now()
 	match c {
 	case Ping as p:
@@ -161,7 +161,7 @@ func lost(name string, token int64) resp.Value { resp.Fault{Text: "LOST \(name) 
 
 // Answer is the bytes of the reply to c, in the protocol s speaks after
 // it: HELLO's reply is in the protocol it asks for.
-func Answer(out []byte, s *Session, c Command) []byte needs store.Engine | store.Leases | time.Clock {
+func Answer(out []byte, s mut Session, c Command) []byte needs store.Engine | store.Leases | time.Clock {
 	let v = Run(s, c)
 	resp.Append(out, v, s.Protocol)
 }

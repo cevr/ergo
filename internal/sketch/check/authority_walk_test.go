@@ -101,6 +101,7 @@ var mentionsParts = map[string]map[string]mentionsPart{
 		"NonEscaping": {why: "a lifetime mark of a parameter's function type"},
 		"Takes":       {why: "parameter indexes of a takes clause (#197)"},
 		"TakesSelf":   {why: "a bare takes of an operation (#197)"},
+		"MutSelf":     {why: "a mark that the operation writes its receiver (MODES-4)"},
 		"Entry":       {why: "a mark that the function is a machine's entry send"},
 	},
 	"Var": {
@@ -126,8 +127,9 @@ var mentionsParts = map[string]map[string]mentionsPart{
 		"Name":       {why: "a name"},
 		"Kind":       {why: "a kind"},
 		"Pos":        {why: "a position"},
-		"Lent":       {why: "a flag: the bracket writes lent"},
 		"Slot":       {why: "a lowering mark (CK-rowarg)"},
+		"Own":        {why: "an ownership mark (Generics 9)"},
+		"lang":       {why: "an ownership mark: a language type's parameter"},
 		"conflict":   {why: "a diagnostic mark"},
 		"id":         {why: "an identity"},
 	},

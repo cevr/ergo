@@ -22,7 +22,7 @@ let TitleLabel = "New card title"
 // its name, its count, its cards and its add button or form; while a
 // pointer drag is over a spot, a drop placeholder there; and the live
 // region with what the program last said.
-func Screen(f *ui.Frame[kanban.Signal], b kanban.Board) {
+func Screen(f mut ui.Frame[kanban.Signal], b kanban.Board) {
 	ui.OnKey(f, keys(b))
 	ui.Area(f, Label, ui.Plain(), pointer(b)) {
 		ui.Row(f, ui.Plain()) {
@@ -37,7 +37,7 @@ func Screen(f *ui.Frame[kanban.Signal], b kanban.Board) {
 // column is a column's zone: its name and count, its cards (with the
 // drop placeholder where a pointer drag would drop), and the form or the
 // add button.
-func column(f *ui.Frame[kanban.Signal], b kanban.Board, c board.Column) {
+func column(f mut ui.Frame[kanban.Signal], b kanban.Board, c board.Column) {
 	ui.Zone(f, ui.ByText(c.ID), ui.Plain()) {
 		ui.Text(f, c.Name)
 		ui.Text(f, "\(len(c.Cards))")
@@ -75,7 +75,7 @@ func column(f *ui.Frame[kanban.Signal], b kanban.Board, c board.Column) {
 // The card's body is a Same keyed by all it shows and sends (its column,
 // its position, its text and its mark), so a pass runs the bodies of only
 // the cards that changed: a pointer move over a long column runs none.
-func cardView(f *ui.Frame[kanban.Signal], b kanban.Board, c board.Column, card board.Card, at int) {
+func cardView(f mut ui.Frame[kanban.Signal], b kanban.Board, c board.Column, card board.Card, at int) {
 	let mark = markOf(b.Drag.State, card.ID)
 	ui.Zone(f, ui.ByText(card.ID), ui.Plain()) {
 		ui.Same(f, ui.ByText("\(c.ID)\n\(at)\n\(card.Title)\n\(card.Description)\n\(mark)")) {
@@ -105,16 +105,16 @@ func markOf(s drag.State, id string) string {
 	}
 }
 
-func placeholder(f *ui.Frame[kanban.Signal]) { ui.Text(f, "(drop here)") }
+func placeholder(f mut ui.Frame[kanban.Signal]) { ui.Text(f, "(drop here)") }
 
-func addButton(f *ui.Frame[kanban.Signal], c board.Column) {
+func addButton(f mut ui.Frame[kanban.Signal], c board.Column) {
 	ui.Pressable(f, AddLabel, kanban.AddClicked{Column: c.ID}) {
 		ui.Text(f, AddLabel)
 	}
 }
 
 // form is the add-card form: the title, Cancel and Add.
-func form(f *ui.Frame[kanban.Signal], b kanban.Board) {
+func form(f mut ui.Frame[kanban.Signal], b kanban.Board) {
 	ui.Input(f, b.Title, TitleLabel, func(t string) kanban.Signal { kanban.Typed{Text: t} })
 	ui.Pressable(f, "Cancel", kanban.Cancelled) {
 		ui.Text(f, "Cancel")

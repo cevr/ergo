@@ -73,12 +73,12 @@ type look { fg uint32, bg uint32, attr int }
 
 // New shows view of a's state on s with the default options. room is how
 // many fetch results may wait for the driver to take them.
-func New[E comparable, S, D, F](s go.Ref[screen.Screen], a actor.Actor[S, E, D, F], view own func(f *ui.Frame[E], st S), room int) Driver[S, E, D, F] fails ui.BadPatch | ScreenFailed needs go.Foreign {
+func New[E comparable, S, D, F](s go.Ref[screen.Screen], a actor.Actor[S, E, D, F], view own func(f mut ui.Frame[E], st S), room int) Driver[S, E, D, F] fails ui.BadPatch | ScreenFailed needs go.Foreign {
 	try NewWith(s, a, view, room, DefaultOptions())
 }
 
 // NewWith is New with the host's options.
-func NewWith[E comparable, S, D, F](s go.Ref[screen.Screen], a actor.Actor[S, E, D, F], view own func(f *ui.Frame[E], st S), room int, o Options) Driver[S, E, D, F] fails ui.BadPatch | ScreenFailed needs go.Foreign {
+func NewWith[E comparable, S, D, F](s go.Ref[screen.Screen], a actor.Actor[S, E, D, F], view own func(f mut ui.Frame[E], st S), room int, o Options) Driver[S, E, D, F] fails ui.BadPatch | ScreenFailed needs go.Foreign {
 	let posted = queue.New[ui.Event[E]](room)
 	try start(s, a, view, posted, o, func(ev ui.Event[E]) {
 		posted.Push(ev) catch {
@@ -88,7 +88,7 @@ func NewWith[E comparable, S, D, F](s go.Ref[screen.Screen], a actor.Actor[S, E,
 	})
 }
 
-func start[E comparable, S, D, F](s go.Ref[screen.Screen], a actor.Actor[S, E, D, F], view own func(f *ui.Frame[E], st S), posted queue.Queue[ui.Event[E]], o Options, post own func(ev ui.Event[E])) Driver[S, E, D, F] fails ui.BadPatch | ScreenFailed needs go.Foreign {
+func start[E comparable, S, D, F](s go.Ref[screen.Screen], a actor.Actor[S, E, D, F], view own func(f mut ui.Frame[E], st S), posted queue.Queue[ui.Event[E]], o Options, post own func(ev ui.Event[E])) Driver[S, E, D, F] fails ui.BadPatch | ScreenFailed needs go.Foreign {
 	let (first, ops) = ui.Start(a, view, post)
 	let mut session = first
 	let root = ui.SessionRoot(&session)
@@ -122,7 +122,7 @@ func start[E comparable, S, D, F](s go.Ref[screen.Screen], a actor.Actor[S, E, D
 }
 
 // show applies one pass's ops to the scene, then paints the screen.
-func show[E comparable, S, D, F](d *Driver[S, E, D, F], ops []ui.Op[E]) fails ui.BadPatch | ScreenFailed needs go.Foreign {
+func show[E comparable, S, D, F](d mut Driver[S, E, D, F], ops []ui.Op[E]) fails ui.BadPatch | ScreenFailed needs go.Foreign {
 	try ui.Apply(&d.mirror, ops)
 	for op in ops {
 		match op {
@@ -165,7 +165,7 @@ func show[E comparable, S, D, F](d *Driver[S, E, D, F], ops []ui.Op[E]) fails ui
 
 // create makes id's scene node, with its text, style and look; a
 // Pressable gets its label until a child comes.
-func create[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) needs go.Foreign {
+func create[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) needs go.Foreign {
 	let n = fresh(d)
 	d.nums[id] = n
 	d.ids[n] = id
@@ -197,7 +197,7 @@ func create[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) needs go.Foreign {
 }
 
 // attach moves id's scene node to its place among parent's children.
-func attach[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], parent ui.Id[E]) needs go.Foreign {
+func attach[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], parent ui.Id[E]) needs go.Foreign {
 	relabel(d, parent)
 	let mut at = 0
 	for i, k in kidsOf(d, parent) {
@@ -212,7 +212,7 @@ func attach[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], parent ui.Id[E]) nee
 // reset shows a Set: a node whose scene kind changed is made anew with
 // its subtree; otherwise its text, style and look change where they
 // differ.
-func reset[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], node ui.Node[E]) needs go.Foreign {
+func reset[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], node ui.Node[E]) needs go.Foreign {
 	let old = match d.nodes.Get(id) {
 	case Some[held[E]] as h:
 		h.Value
@@ -266,7 +266,7 @@ func reset[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], node ui.Node[E]) need
 }
 
 // rebuild makes the scene nodes of id's subtree anew.
-func rebuild[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) needs go.Foreign {
+func rebuild[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) needs go.Foreign {
 	create(d, id)
 	for k in kidsOf(d, id) {
 		rebuild[S, E, D, F](d, k)
@@ -276,7 +276,7 @@ func rebuild[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) needs go.Foreign {
 
 // relabel gives a Pressable with no children its label text, and takes
 // it away when a child comes or the node is no Pressable.
-func relabel[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) needs go.Foreign {
+func relabel[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) needs go.Foreign {
 	let want = match labelText(nodeOf(d, id)) {
 	case Some[string] as t:
 		if len(kidsOf(d, id)) == 0 { Some{Value: t.Value} } else { None }
@@ -302,13 +302,13 @@ func relabel[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) needs go.Foreign {
 	}
 }
 
-func fresh[S, E, D, F](d *Driver[S, E, D, F]) int {
+func fresh[S, E, D, F](d mut Driver[S, E, D, F]) int {
 	d.next = d.next + 1
 	d.next
 }
 
 // numOf is id's scene number; the root's is 0.
-func numOf[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) int {
+func numOf[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) int {
 	match d.nums.Get(id) {
 	case Some[int] as n:
 		n.Value
@@ -317,7 +317,7 @@ func numOf[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) int {
 	}
 }
 
-func nodeOf[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) ui.Node[E] {
+func nodeOf[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) ui.Node[E] {
 	match d.nodes.Get(id) {
 	case Some[held[E]] as h:
 		h.Value.node
@@ -326,7 +326,7 @@ func nodeOf[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) ui.Node[E] {
 	}
 }
 
-func parentOf[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) ui.Id[E] {
+func parentOf[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) ui.Id[E] {
 	match d.parents.Get(id) {
 	case Some[ui.Id[E]] as p:
 		p.Value
@@ -336,7 +336,7 @@ func parentOf[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) ui.Id[E] {
 }
 
 // kidsOf is id's children.
-func kidsOf[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) []ui.Id[E] {
+func kidsOf[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) []ui.Id[E] {
 	match d.nodes.Get(id) {
 	case Some[held[E]] as h:
 		h.Value.kids
@@ -346,7 +346,7 @@ func kidsOf[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) []ui.Id[E] {
 }
 
 // place puts id among parent's children, in front of before or last.
-func place[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], parent ui.Id[E], before Option[ui.Id[E]]) {
+func place[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], parent ui.Id[E], before Option[ui.Id[E]]) {
 	match d.nodes.Get(parent) {
 	case Some[held[E]] as p:
 		let mut kids = []ui.Id[E]{}
@@ -369,7 +369,7 @@ func place[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], parent ui.Id[E], befo
 }
 
 // unplace takes id out of parent's children.
-func unplace[S, E, D, F](d *Driver[S, E, D, F], parent ui.Id[E], id ui.Id[E]) {
+func unplace[S, E, D, F](d mut Driver[S, E, D, F], parent ui.Id[E], id ui.Id[E]) {
 	match d.nodes.Get(parent) {
 	case Some[held[E]] as p:
 		let mut kids = []ui.Id[E]{}
@@ -384,7 +384,7 @@ func unplace[S, E, D, F](d *Driver[S, E, D, F], parent ui.Id[E], id ui.Id[E]) {
 }
 
 // forget forgets id's subtree (the scene destroyed it).
-func forget[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) {
+func forget[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) {
 	for k in kidsOf(d, id) {
 		forget[S, E, D, F](d, k)
 	}
@@ -404,7 +404,7 @@ func forget[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) {
 }
 
 // unnumber forgets the scene numbers of id's subtree.
-func unnumber[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) {
+func unnumber[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) {
 	for k in kidsOf(d, id) {
 		unnumber[S, E, D, F](d, k)
 	}
@@ -427,7 +427,7 @@ func unnumber[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) {
 // mouse press and release (a press of the node under them), a paste (the
 // focused field's text), a resize (laid out again). It fails ui.Closed at
 // the end of the input or on Ctrl+C.
-func Feed[E comparable, S, D, F](d *Driver[S, E, D, F], input screen.Input) fails ui.Closed | actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
+func Feed[E comparable, S, D, F](d mut Driver[S, E, D, F], input screen.Input) fails ui.Closed | actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
 	if input.Kind == screen.Closed {
 		return ui.Closed
 	} else if input.Kind == screen.Key {
@@ -450,7 +450,7 @@ func modsOf(bits int) ui.Mods {
 // field reached has its caret at the end); a focused Input takes its
 // editing keys (EditOf); Enter and space press a focused Pressable, Check
 // or Toggle; the rest go to OnKey.
-func key[E comparable, S, D, F](d *Driver[S, E, D, F], input screen.Input) fails ui.Closed | actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
+func key[E comparable, S, D, F](d mut Driver[S, E, D, F], input screen.Input) fails ui.Closed | actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
 	let mods = modsOf(input.Mods)
 	let chord = mods.Ctrl || mods.Alt || mods.Meta
 	let name = KeyName(input.Code, if chord { "" } else { input.Text })
@@ -511,7 +511,7 @@ func key[E comparable, S, D, F](d *Driver[S, E, D, F], input screen.Input) fails
 func printable(name string) bool { len(runesOf(name)) == 1 && name != "\t" && name != "\r" }
 
 // typed inserts text at the focused Input's caret, else gives each rune to OnKey.
-func typed[E comparable, S, D, F](d *Driver[S, E, D, F], text string) fails actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
+func typed[E comparable, S, D, F](d mut Driver[S, E, D, F], text string) fails actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
 	match (d.focus, focusedNode(d)) {
 	case (Some[ui.Id[E]] as id, Some[ui.Node[E]] as n):
 		match n.Value {
@@ -533,7 +533,7 @@ func typed[E comparable, S, D, F](d *Driver[S, E, D, F], text string) fails acto
 // on presses it. An Area takes the pointer's presses, moves and releases
 // (Point), and holds it from a press to a release (capture); the wheel
 // goes to the Area and scrolls the list under it (wheel).
-func mouse[E comparable, S, D, F](d *Driver[S, E, D, F], input screen.Input) fails actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
+func mouse[E comparable, S, D, F](d mut Driver[S, E, D, F], input screen.Input) fails actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
 	if input.Action == screen.Scroll {
 		try wheel(d, input)
 	} else if input.Action == screen.Move || input.Action == screen.Drag {
@@ -603,7 +603,7 @@ func mouse[E comparable, S, D, F](d *Driver[S, E, D, F], input screen.Input) fai
 // targetAt is the node that takes the mouse at column x, row y: the
 // scene's hit there, or the first of its ancestors that takes input (a
 // Pressable, a Check, a Toggle, an Input or an Area).
-func targetAt[S, E, D, F](d *Driver[S, E, D, F], x int, y int) Option[ui.Id[E]] needs go.Foreign {
+func targetAt[S, E, D, F](d mut Driver[S, E, D, F], x int, y int) Option[ui.Id[E]] needs go.Foreign {
 	let n = d.s.HitTest(x, y)
 	let mut at = match d.ids.Get(n) {
 	case Some[ui.Id[E]] as id:
@@ -621,7 +621,7 @@ func targetAt[S, E, D, F](d *Driver[S, E, D, F], x int, y int) Option[ui.Id[E]] 
 }
 
 // step steps the session with ev and shows its patch.
-func step[E comparable, S, D, F](d *Driver[S, E, D, F], ev ui.Event[E]) fails actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
+func step[E comparable, S, D, F](d mut Driver[S, E, D, F], ev ui.Event[E]) fails actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
 	let ops = try ui.Step(&d.session, ev)
 	if len(ops) > 0 {
 		try show(d, ops)
@@ -631,7 +631,7 @@ func step[E comparable, S, D, F](d *Driver[S, E, D, F], ev ui.Event[E]) fails ac
 
 // setFocus moves the focus to f, on the scene too, and gives the nodes
 // it leaves and reaches their look.
-func setFocus[S, E, D, F](d *Driver[S, E, D, F], f Option[ui.Id[E]]) needs go.Foreign {
+func setFocus[S, E, D, F](d mut Driver[S, E, D, F], f Option[ui.Id[E]]) needs go.Foreign {
 	let old = d.focus
 	d.focus = f
 	match old {
@@ -649,7 +649,7 @@ func setFocus[S, E, D, F](d *Driver[S, E, D, F], f Option[ui.Id[E]]) needs go.Fo
 }
 
 // focusedNode is what the focused node shows.
-func focusedNode[S, E, D, F](d *Driver[S, E, D, F]) Option[ui.Node[E]] {
+func focusedNode[S, E, D, F](d mut Driver[S, E, D, F]) Option[ui.Node[E]] {
 	match d.focus {
 	case Some[ui.Id[E]] as f:
 		match d.nodes.Get(f.Value) {
@@ -665,9 +665,9 @@ func focusedNode[S, E, D, F](d *Driver[S, E, D, F]) Option[ui.Node[E]] {
 
 // Focusables are the nodes Tab visits, in tree order: a Pressable, a
 // Check, a Toggle or an Input not under a disabled Fieldset.
-func Focusables[S, E, D, F](d *Driver[S, E, D, F]) []ui.Id[E] { focusablesIn(d, d.root, []ui.Id[E]{}) }
+func Focusables[S, E, D, F](d mut Driver[S, E, D, F]) []ui.Id[E] { focusablesIn(d, d.root, []ui.Id[E]{}) }
 
-func focusablesIn[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], into []ui.Id[E]) []ui.Id[E] {
+func focusablesIn[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], into []ui.Id[E]) []ui.Id[E] {
 	let mut out = into
 	for k in kidsOf(d, id) {
 		let n = nodeOf(d, k)
@@ -680,7 +680,7 @@ func focusablesIn[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], into []ui.Id[E
 }
 
 // disabled is whether id is under a disabled Fieldset.
-func disabled[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) bool {
+func disabled[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) bool {
 	let mut at = id
 	for at != d.root {
 		at = parentOf(d, at)
@@ -726,7 +726,7 @@ func takesInput[E](n ui.Node[E]) bool {
 }
 
 // Pump takes every fetch result posted so far, without waiting.
-func Pump[E comparable, S, D, F](d *Driver[S, E, D, F]) fails actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
+func Pump[E comparable, S, D, F](d mut Driver[S, E, D, F]) fails actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
 	for {
 		match d.posted.Poll() {
 		case Some[ui.Event[E]] as ev:
@@ -739,7 +739,7 @@ func Pump[E comparable, S, D, F](d *Driver[S, E, D, F]) fails actor.Stopped | ui
 
 // Settle waits until no fetch is in flight and every posted result is
 // taken, as ui.Settle does.
-func Settle[E comparable, S, D, F](d *Driver[S, E, D, F]) fails actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
+func Settle[E comparable, S, D, F](d mut Driver[S, E, D, F]) fails actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
 	for ui.InFlight(&d.session) > 0 || d.posted.Len() > 0 {
 		let ev = d.posted.Pop() catch {
 		case queue.Closed:
@@ -751,9 +751,9 @@ func Settle[E comparable, S, D, F](d *Driver[S, E, D, F]) fails actor.Stopped | 
 
 // Screen is the driver's tree, as its ops built it: what it drives the
 // scene by.
-func Screen[S, E, D, F](d *Driver[S, E, D, F]) []ui.Shape[E] { shapesOf(d, d.root) }
+func Screen[S, E, D, F](d mut Driver[S, E, D, F]) []ui.Shape[E] { shapesOf(d, d.root) }
 
-func shapesOf[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) []ui.Shape[E] {
+func shapesOf[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) []ui.Shape[E] {
 	let mut out = []ui.Shape[E]{}
 	for k in kidsOf(d, id) {
 		out = out.Append(ui.Shape[E]{Node: nodeOf(d, k), Kids: shapesOf[S, E, D, F](d, k)})
@@ -764,20 +764,20 @@ func shapesOf[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) []ui.Shape[E] {
 // SceneNodes is how many scene nodes the driver holds: one a node of its
 // tree (the root aside, which the scene has of its own) and one a
 // Pressable's label. The screen's Count is this many when no op was lost.
-func SceneNodes[S, E, D, F](d *Driver[S, E, D, F]) int { len(d.nums) - 1 + len(d.labels) }
+func SceneNodes[S, E, D, F](d mut Driver[S, E, D, F]) int { len(d.nums) - 1 + len(d.labels) }
 
 // StateOf is the actor's state.
-func StateOf[S, E, D, F](d *Driver[S, E, D, F]) S { d.actor.State() }
+func StateOf[S, E, D, F](d mut Driver[S, E, D, F]) S { d.actor.State() }
 
 // FocusId is the focused node, None for none.
-func FocusId[S, E, D, F](d *Driver[S, E, D, F]) Option[ui.Id[E]] { d.focus }
+func FocusId[S, E, D, F](d mut Driver[S, E, D, F]) Option[ui.Id[E]] { d.focus }
 
 // FocusNode is what the focused node shows, None for none.
-func FocusNode[S, E, D, F](d *Driver[S, E, D, F]) Option[ui.Node[E]] { focusedNode(d) }
+func FocusNode[S, E, D, F](d mut Driver[S, E, D, F]) Option[ui.Node[E]] { focusedNode(d) }
 
 // Number is the scene number of the node labelled label, None when none
 // is: what screen.BoxOf and screen.HitTest name it by.
-func Number[S, E, D, F](d *Driver[S, E, D, F], label string) Option[int] {
+func Number[S, E, D, F](d mut Driver[S, E, D, F], label string) Option[int] {
 	match Find(d, label) {
 	case Some[ui.Id[E]] as id:
 		d.nums.Get(id.Value)
@@ -789,12 +789,12 @@ func Number[S, E, D, F](d *Driver[S, E, D, F], label string) Option[int] {
 // Run shows view of a's state on the live screen s until the input ends
 // or Ctrl+C, as ui.Run does on a ui.Host. A fetch's result reaches the
 // loop through the screen, which it wakes.
-func Run[E comparable, S, D, F](s go.Ref[screen.Screen], a actor.Actor[S, E, D, F], view own func(f *ui.Frame[E], st S)) fails actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
+func Run[E comparable, S, D, F](s go.Ref[screen.Screen], a actor.Actor[S, E, D, F], view own func(f mut ui.Frame[E], st S)) fails actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
 	try RunWith(s, a, view, DefaultOptions())
 }
 
 // RunWith is Run with the host's options.
-func RunWith[E comparable, S, D, F](s go.Ref[screen.Screen], a actor.Actor[S, E, D, F], view own func(f *ui.Frame[E], st S), o Options) fails actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
+func RunWith[E comparable, S, D, F](s go.Ref[screen.Screen], a actor.Actor[S, E, D, F], view own func(f mut ui.Frame[E], st S), o Options) fails actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
 	let fetched = queue.New[ui.Event[E]](64)
 	let posted = queue.New[ui.Event[E]](64)
 	let forward = task.Go() {
@@ -829,7 +829,7 @@ func RunWith[E comparable, S, D, F](s go.Ref[screen.Screen], a actor.Actor[S, E,
 // mode (term.Raw), until the input ends or Ctrl+C. However it ends, the
 // screen quits (the alternate screen left, the cursor shown) and then the
 // terminal's mode is restored.
-func RunTerminal[E comparable, S, D, F](a actor.Actor[S, E, D, F], view own func(f *ui.Frame[E], st S), o Options) fails actor.Stopped | ui.BadPatch | ScreenFailed | term.NotTerminal needs term.Terminal | go.Foreign {
+func RunTerminal[E comparable, S, D, F](a actor.Actor[S, E, D, F], view own func(f mut ui.Frame[E], st S), o Options) fails actor.Stopped | ui.BadPatch | ScreenFailed | term.NotTerminal needs term.Terminal | go.Foreign {
 	try term.Raw() {
 		let s = try open()
 		scope.OnExit() {
@@ -855,7 +855,7 @@ func forwardAll[E](s go.Ref[screen.Screen], fetched queue.Queue[ui.Event[E]], po
 }
 
 // serve feeds the screen's input to d until the input ends or Ctrl+C.
-func serve[E comparable, S, D, F](d *Driver[S, E, D, F]) fails actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
+func serve[E comparable, S, D, F](d mut Driver[S, E, D, F]) fails actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
 	for {
 		let next = try next(d.s)
 		Feed(d, next) catch {

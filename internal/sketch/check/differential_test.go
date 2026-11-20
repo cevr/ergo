@@ -985,12 +985,12 @@ func TestDifferentialInfoNames(t *testing.T) {
 func inferProgram(rng *rand.Rand, wrap int) twin {
 	var b twinBuilder
 	b.each("package p\n\n", "")
-	b.each("type I0[T any] interface{ M(T) T }\n\n", "type I0[T] { M(T) T }\n\n")
-	b.each("type W0 interface {\n\tM(int) int\n\tN()\n}\n\n", "type W0 {\n\tM(int) int,\n\tN(),\n}\n\n")
-	b.each("type J0 interface{ M(int) int }\n\n", "type J0 { M(int) int }\n\n")
-	b.each("type K0 interface{ M(string) string }\n\n", "type K0 { M(string) string }\n\n")
-	b.each("type A0[T any] interface{ M(T) T }\n\n", "type A0[T] { M(T) T }\n\n")
-	b.each("type V0[T any] interface {\n\tM(T) T\n\tN()\n}\n\n", "type V0[T] {\n\tM(T) T,\n\tN(),\n}\n\n")
+	b.each("type I0[T any] interface{ M(T) T }\n\n", "type I0[T] { mut M(T) T }\n\n")
+	b.each("type W0 interface {\n\tM(int) int\n\tN()\n}\n\n", "type W0 {\n\tmut M(int) int,\n\tmut N(),\n}\n\n")
+	b.each("type J0 interface{ M(int) int }\n\n", "type J0 { mut M(int) int }\n\n")
+	b.each("type K0 interface{ M(string) string }\n\n", "type K0 { mut M(string) string }\n\n")
+	b.each("type A0[T any] interface{ M(T) T }\n\n", "type A0[T] { mut M(T) T }\n\n")
+	b.each("type V0[T any] interface {\n\tM(T) T\n\tN()\n}\n\n", "type V0[T] {\n\tmut M(T) T,\n\tmut N(),\n}\n\n")
 	results := []string{"int", "string"}
 	nS := 1 + rng.Intn(3)
 	var values, types []string
@@ -1016,9 +1016,12 @@ func inferProgram(rng *rand.Rand, wrap int) twin {
 			}
 		}
 		b.each(fmt.Sprintf("type S%d struct{}\n\n", k), fmt.Sprintf("type S%d {} implements %s\n\n", k, strings.Join(decl, ", ")))
-		b.each(fmt.Sprintf("func (%s) M(v %s) %s { return v }\n\n", recv, r, r), fmt.Sprintf("func M(_ %s, v %s) %s { return v }\n\n", recv, r, r))
+		// Go's pointer receiver is Ergo's borrow, written mut (MODES-2),
+		// which implements the operations because they are mut (MODES-4).
+		erecv := strings.Replace(recv, "*", "mut ", 1)
+		b.each(fmt.Sprintf("func (%s) M(v %s) %s { return v }\n\n", recv, r, r), fmt.Sprintf("func M(_ %s, v %s) %s { return v }\n\n", erecv, r, r))
 		if withN {
-			b.each(fmt.Sprintf("func (%s) N() {}\n\n", recv), fmt.Sprintf("func N(_ %s) {}\n\n", recv))
+			b.each(fmt.Sprintf("func (%s) N() {}\n\n", recv), fmt.Sprintf("func N(_ %s) {}\n\n", erecv))
 		}
 		values = append(values, fmt.Sprintf("s%d S%d", k, k), fmt.Sprintf("p%d *S%d", k, k))
 		// A borrow *T is only a parameter or receiver type in Ergo
@@ -1042,7 +1045,7 @@ func inferProgram(rng *rand.Rand, wrap int) twin {
 	// constraint too (one group); [T any, P I0[T]] is the other spelling
 	// (grammar.md, Declarations 3).
 	b.each("func Dep[P I0[T], T any](v T, p P) T { return v }\n\n", "func Dep[P I0[T], T](v T, p P) T { return v }\n\n")
-	b.both("func Main(%s) {\n", strings.Join(values, ", "))
+	b.each("func Main("+strings.Join(values, ", ")+") {\n", "func Main("+strings.ReplaceAll(strings.Join(values, ", "), " *S", " mut S")+") {\n")
 	name := func(v string) string { return v[:strings.Index(v, " ")] }
 	for range 1 + rng.Intn(2) {
 		// An argument is a value, or a literal expression (a parameter

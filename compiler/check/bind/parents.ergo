@@ -1,0 +1,168 @@
+import compiler/check/store
+import compiler/syntax
+import dense
+import slices
+
+// Parents is the package's parent column (C0/plan.md §2.7): for each row
+// of each file, laid end to end in file order (a PNode is the file's base
+// plus the row), the row whose child it is, or none for a file's root. It
+// is built once per package before the bodies are bound, and read only
+// after, where the Go checker rebuilt a parent map per body (C0a: 423,362
+// entries in 7,156 rebuilds). It keeps each row's children too, the rows
+// kids[first[n]:first[n+1]] of its file, so a walk reads them in place.
+type Parents {
+	base    []uint32,
+	ids     dense.Count[store.PNode],
+	up      dense.Col[store.PNode, dense.Opt[store.PNode]],
+	first   []uint32,
+	kids    []uint32,
+	written int,
+}
+
+// numKids is the count of PNode n's children; kidAt is the i-th's row in
+// n's file.
+func numKids(ps Parents, n int) int { int(ps.first[n+1]) - int(ps.first[n]) }
+
+func kidAt(ps Parents, n int, i int) int { int(ps.kids[int(ps.first[n])+i]) }
+
+// PNodeOf is the package-wide id of row id of file f.
+func PNodeOf(ps Parents, f int, id dense.ID[syntax.Node]) dense.ID[store.PNode] {
+	dense.IDAt(ps.ids, int(ps.base[f])+dense.Index(id))
+}
+
+// RowOf is the file and the row index of n.
+func RowOf(ps Parents, n dense.ID[store.PNode]) (int, int) {
+	let i = dense.Index(n)
+	let mut f = len(ps.base) - 1
+	for f > 0 && int(ps.base[f]) > i {
+		f = f - 1
+	}
+	(f, i - int(ps.base[f]))
+}
+
+// ParentOf is the row whose child n is, or none for a file's root.
+func ParentOf(ps Parents, n dense.ID[store.PNode]) dense.Opt[store.PNode] { dense.Of(ps.up, n) }
+
+// Written is the count of parent entries written: the package's rows
+// less its files, one per row that is a child (the column's guard).
+func Written(ps Parents) int { ps.written }
+
+// BuildParents is the parent column of the package's files; a file that
+// failed to parse has no rows.
+func BuildParents(files []File) Parents {
+	// The columns are sized once from the package's node count: a node has
+	// one up and one first, and is at most one child.
+	let mut total = 0
+	for file in files {
+		if !file.Parsed.Failed {
+			total = total + syntax.NumNodes(file.Parsed.Tree)
+		}
+	}
+	let mut ps = Parents{base: []uint32{}, ids: dense.NewCount[store.PNode](), up: dense.ColWithCap[store.PNode, dense.Opt[store.PNode]](total), first: []uint32{}, kids: []uint32{}, written: 0}
+	for file in files {
+		ps.base = ps.base.Append(uint32(dense.Total(ps.ids)))
+		let n = if file.Parsed.Failed { 0 } else { syntax.NumNodes(file.Parsed.Tree) }
+		for _ in 0..n {
+			let _ = dense.Next(&ps.ids)
+			dense.Push(&ps.up, dense.NoID[store.PNode]())
+		}
+	}
+	let mut kids = slices.WithCapacity[uint32](total)
+	let mut first = slices.WithCapacity[uint32](total + 1)
+	for f, file in files {
+		if file.Parsed.Failed {
+			continue
+		}
+		let t = file.Parsed.Tree
+		let base = int(ps.base[f])
+		for i in 0..syntax.NumNodes(t) {
+			// The buffer is passed whole and only grows: a re-slice passed
+			// in is a copy, and a copy's append allocates.
+			let from = len(kids)
+			first = first.Append(uint32(from))
+			kids = syntax.Children(t, syntax.NodeAt(t, i), kids)
+			let me = dense.OptOf(dense.IDAt(ps.ids, base+i))
+			for j in from..len(kids) {
+				let c = kids[j]
+				dense.SetOf(&ps.up, dense.IDAt(ps.ids, base+int(c)), me)
+				ps.written = ps.written + 1
+			}
+		}
+	}
+	ps.first = first.Append(uint32(len(kids)))
+	ps.kids = kids
+	ps
+}
+
+// ParentsInvertChildren: each row's parent is the row whose children hold
+// it, a file's root has none, and the column writes one entry per row
+// that is a child: the rows less the files (C0/plan.md §2.7's guard).
+law ParentsInvertChildren(picks []int) {
+	let files = packageOf(picks)
+	let ps = BuildParents(files)
+	let mut ok = true
+	let mut rows = 0
+	let mut parsed = 0
+	let mut kids = []uint32{}
+	for f, file in files {
+		// Every assembly of the fragments parses, so the law is never
+		// vacuous.
+		if file.Parsed.Failed {
+			return false
+		}
+		parsed = parsed + 1
+		let t = file.Parsed.Tree
+		rows = rows + syntax.NumNodes(t)
+		for i in 0..syntax.NumNodes(t) {
+			let me = PNodeOf(ps, f, syntax.NodeAt(t, i))
+			kids = syntax.Children(t, syntax.NodeAt(t, i), kids[0:0])
+			// The column's children of the row are the tree's, in order.
+			let n = dense.Index(me)
+			ok = ok && numKids(ps, n) == len(kids)
+			for j, c in kids {
+				ok = ok && j < numKids(ps, n) && kidAt(ps, n, j) == int(c)
+			}
+			for c in kids {
+				ok = ok && ParentOf(ps, PNodeOf(ps, f, syntax.NodeAt(t, int(c)))) == dense.OptOf(me)
+			}
+		}
+		ok = ok && dense.Unpack(ParentOf(ps, PNodeOf(ps, f, syntax.Root(t)))) == None
+	}
+	ok && Written(ps) == rows-parsed
+}
+
+let fragments = []string{
+	"type P { X int, Y []int }\n",
+	"type U = A | B{x int}\n",
+	"func F(a int, b string) int { let c = a + 1; c }\n",
+	"let (x, y) = (1, 2)\n",
+	"func g(v int) int {\n\tmatch v {\n\tcase 0:\n\t\t1\n\tcase _:\n\t\tv\n\t}\n}\n",
+	"func h(xs []int) int { let mut s = 0; for i, v in xs { s = s + i + v }; s }\n",
+	"type R int where 0 <= it && it < 9\n",
+	"func k(m Map[string, int]) int { m[\"a\"] }\n",
+	"func s(a int) int {\n\tif a > 0 {\n\t\tlet a = 2\n\t\treturn a\n\t}\n\ta\n}\n",
+	"type Ops {\n\tGet(k string) int,\n\tlaw Same(k string) { Get(k) == Get(k) },\n}\n",
+	"func o(v U) int {\n\tmatch v {\n\tcase A:\n\t\t0\n\tcase B as b:\n\t\tb.x\n\t}\n}\n",
+	"func c(n int) func() int { func() int { let m = n; m + F(n, \"\") } }\n",
+	"func one() int { 1 }\n",
+	"func two() int { 2 }\n",
+}
+
+// packageOf is the files the picks assemble: a new file at each pick
+// divisible by 5, at most four.
+func packageOf(picks []int) []File { packageIn(picks, func(src string) string { src }) }
+
+// packageIn is packageOf with each file's source passed through layout.
+func packageIn(picks []int, layout func(string) string) []File {
+	let mut files = []File{}
+	let mut src = ""
+	for k in picks {
+		let n = len(fragments)
+		if k%5 == 0 && src != "" && len(files) < 3 {
+			files = files.Append(File{Name: "f\(len(files)).ergo", Parsed: syntax.Parse(layout(src))})
+			src = ""
+		}
+		src = src + fragments[((k%n)+n)%n]
+	}
+	files.Append(File{Name: "f\(len(files)).ergo", Parsed: syntax.Parse(layout(src))})
+}
