@@ -226,6 +226,11 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 			pre, irArgs = b.recvAddrCall(c, x.Args)
 		} else {
 			pre, irArgs = b.operands(args)
+			for i := range irArgs {
+				if i < len(f.Sig.Params) {
+					irArgs[i] = b.argIntoRow(f.Sig.Params[i].Type, args[i], irArgs[i]) // ir_expr.go
+				}
+			}
 		}
 		b.valueSource(x, c, args, irArgs) // ir_pkg.go
 		if x.Trailing != nil {
