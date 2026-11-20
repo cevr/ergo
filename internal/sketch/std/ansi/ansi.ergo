@@ -2,7 +2,7 @@
 // ansi): styles and colours (the 16 basic colours, the 256 indexed ones
 // and RGB), the cursor's moves and the screen's clears, and Strip, which
 // takes every escape sequence out of a text. A style is painted only
-// where colour is on: Paint needs Colors, whose providers are Always,
+// where colour is on: Paint needs Colors; its providers are Always,
 // Never and Detect's (NO_COLOR, TERM=dumb, and whether standard output is
 // a terminal), so a program that pipes its output, or a person who set
 // NO_COLOR, gets plain text with no change to the program.
