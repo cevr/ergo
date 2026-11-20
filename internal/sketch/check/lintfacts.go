@@ -134,6 +134,35 @@ func (p *Package) ImportsOf(f *syntax.File) []Import {
 	return out
 }
 
+// Qualified is name, declared in q, as p's source spells it, for text a
+// reader of p pastes back (a refuted case's arguments, a law's name): bare
+// when q is p, the prelude or unknown, else qualified by the alias that the
+// first of p's files to write one gives, else by q's name, its path's last
+// element. It reads the resolved imports, never the path's spelling (an
+// import path is unquoted, grammar.md Lexical 6), so the evaluator and the
+// Go build, which both call it, print one text.
+func (p *Package) Qualified(q *Package, name string) string {
+	if q == nil || q == p || q.Prelude() {
+		return name
+	}
+	return p.importName(q) + "." + name
+}
+
+// importName is the name p's files import q under (Qualified).
+func (p *Package) importName(q *Package) string {
+	if p == nil {
+		return q.Name
+	}
+	for _, fi := range p.files {
+		for _, pn := range fi.imports {
+			if !pn.broken && pn.Pkg == q && pn.spec.Name != nil {
+				return pn.Name
+			}
+		}
+	}
+	return q.Name
+}
+
 // FileBinds reports whether name is bound at the top of f, a file of p: an
 // import name of the file, a declaration of the package, or a prelude
 // name. A fix that adds an import of that name would collide with it.

@@ -1,0 +1,7 @@
+# scripts/opcount: `askbench bench decode N` reads the strict reply of
+# ../strict N times with json.Decode (wf10 L6): the strict decoder llm.Parse
+# is measured against. The control is hand Go: encoding/json.
+unit reply
+sizes 20000 120000
+args bench decode {n}
+control benchmarks/llmask/testdata/control

@@ -2648,7 +2648,7 @@
     "TestOutputCapStopsTheGroupAtOnce": 4.11,
     "TestRecordLegWritesGoldensFromTheOriginal": 0.04,
     "TestRecordLegWritesNothingWhenTheOriginalCannotStart": 0,
-    "TestRepoExamplesHoldTheirLaws": 0.96,
+    "TestRepoLayoutIsClean": 0.96,
     "TestTestLeg": 0.09,
     "TestTestLegThatCannotStartFails": 0.01,
     "TestUnifiedDiff": 0
