@@ -16,8 +16,10 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// funcName is the function f, written x at p, as a value of type t.
-func (b *irBuilder) funcName(f *check.Func, t check.Type, x syntax.Node, p irPos) *irExpr {
+// funcName is the function f, written x at p, as a value of type t; inst
+// is the instance a generic function is named at (f[A, B], explicitly
+// instantiated: the emitter's index), nil for a plain name.
+func (b *irBuilder) funcName(f *check.Func, t check.Type, x syntax.Node, p irPos, inst *check.Instance) *irExpr {
 	sig, ok := t.(*check.Signature)
 	if !ok {
 		irNo("function value without a function type")
@@ -45,7 +47,7 @@ func (b *irBuilder) funcName(f *check.Func, t check.Type, x syntax.Node, p irPos
 		irNo("extern as a value")
 	}
 	for _, tp := range f.Sig.TParams {
-		if b.l.goParam(tp) {
+		if b.l.goParam(tp) && inst == nil {
 			irNo("generic function as a value")
 		}
 	}
@@ -66,6 +68,15 @@ func (b *irBuilder) funcName(f *check.Func, t check.Type, x syntax.Node, p irPos
 		args = append(args, &irExpr{K: "local", Pos: p, I: i})
 	}
 	call := &irExpr{K: "call", Pos: p, Name: fd.name, Args: args}
+	if inst != nil && fd.method == nil {
+		// An instance's call goes to its plain copy (mono.go), else names
+		// its Go type arguments, as funcValue's does.
+		if mono := b.fc.monoAt(nil, nil, f, inst.TypeArgs); mono != nil {
+			call.Name = mono.name
+		} else {
+			call.T = b.sigTypeArgs(f.Sig, inst.TypeArgs, x) // ir_pkg.go
+		}
+	}
 	if fd.method != nil {
 		// A method's receiver is the value's first parameter, the
 		// environment its first argument (funcValue, callText).
