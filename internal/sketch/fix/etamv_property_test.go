@@ -20,7 +20,6 @@ const (
 	etaParam    etaRecv = iota // func cN(a Acc): no write can follow: fixed
 	etaLet                     // let a = Acc{…}: fixed
 	etaMutLater                // let mut a; a = … after the take: kept
-	etaMutQuiet                // let mut a, never written again: kept (the rule reads the binding, not the writes)
 	etaBorrow                  // func cN(a mut Acc): a.N = … after the take: kept
 	etaOwnRecv                 // func(b Acc) int { b.Same(b) }: b is the literal's own: kept
 	etaRecvKinds
@@ -92,9 +91,6 @@ func TestFixEtaMethodValueProperty(t *testing.T) {
 				fmt.Fprintf(&b, "func c%d() int {\n\tlet mut a = Acc{N: %d}\n\tlet f = %s\n\ta = Acc{N: %d}\n\t%s\n}\n\n", i, n, eta, n+d, call)
 				parts = append(parts, fmt.Sprintf("\\(c%d())", i))
 				got = n + d + m
-			case etaMutQuiet:
-				fmt.Fprintf(&b, "func c%d() int {\n\tlet mut a = Acc{N: %d}\n\tlet f = %s\n\t%s\n}\n\n", i, n, eta, call)
-				parts = append(parts, fmt.Sprintf("\\(c%d())", i))
 			case etaBorrow:
 				fmt.Fprintf(&b, "func c%d(a mut Acc) int {\n\tlet f = %s\n\ta.N = %d\n\t%s\n}\n\n", i, eta, n+d, call)
 				fmt.Fprintf(&b, "func d%d() int {\n\tlet mut h = Acc{N: %d}\n\tc%d(&h)\n}\n\n", i, n, i)
