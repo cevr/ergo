@@ -837,7 +837,7 @@ func goBoundProgram(uses []goBoundUse, forms []goBoundForm) (string, []int) {
 	}
 	for i, u := range uses {
 		if u.capture && forms[i] == goBoundFull {
-			b.WriteString("func sameRecv[T](x own T) T { x }\n")
+			b.WriteString("func sameRecv[T own](x own T) T { x }\n")
 			break
 		}
 	}
