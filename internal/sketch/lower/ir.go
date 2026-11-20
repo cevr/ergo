@@ -53,6 +53,11 @@ type IRReport struct {
 	Hash   string `json:"hash"`
 	// Folds counts the build-time folds of the IR bodies (ir_constfold.go).
 	Folds FoldCounts `json:"folds"`
+	// CodecText counts the codec functions that keep their text body,
+	// by "name\treason": a cell writer the IR builder refused
+	// (ir_wire.go), an encoder on the reference Writer and a decoder,
+	// which no IR builder takes yet (the text emitter's). In memory only.
+	CodecText map[string]int `json:"-"`
 	// Forms counts the IR forms the bodies held before erasure, by
 	// kind and layout ("match/flat"; ir_forms.go): in memory only.
 	Forms map[string]int `json:"-"`
@@ -76,6 +81,9 @@ type IRReport struct {
 	// Dropped counts the discarded calls that name the variant with no
 	// result (ir_forms_drop.go).
 	Dropped int `json:"-"`
+	// SeqRanges counts the for-in loops over a Seq that range over Go's
+	// range-over-func form (PORT-FORIN, ir_seq.go).
+	SeqRanges int `json:"-"`
 	// CatchDefects counts the full catches whose default panics with the
 	// unreachable defect, naming no failure (ir_catch_defect.go).
 	CatchDefects int `json:"-"`
