@@ -169,6 +169,9 @@ func (w wireWalk) encode(r rtype, wr Value, v Value) *abrupt {
 		return ab
 	}
 	r = r.env.resolve(r.t)
+	if done, ab := w.ownWrite(r, wr, v); done {
+		return ab
+	}
 	switch check.WireFormOf(r.t) {
 	case check.WireNullable:
 		p := wrapperOf(r)
@@ -316,6 +319,34 @@ func (w wireWalk) encode(r rtype, wr Value, v Value) *abrupt {
 	}
 	ice("encode of %s", r.t)
 	return nil
+}
+
+// ownWrite writes v by its type's own write (check.WireWrite; types.md,
+// Codecs 10) when the writer wr is a cell of the write's provider P, as
+// the lowering's wireOwnWrite does: WireWrite(v, &cell), the provider's
+// value borrowed from the operation value that holds it, so the events
+// after it see what it wrote. On any other writer, done is false and v
+// takes its ordinary form.
+func (w wireWalk) ownWrite(r rtype, wr Value, v Value) (done bool, ab *abrupt) {
+	hook, ok := check.WireWriteOf(r.t)
+	if !ok {
+		return false, nil
+	}
+	op, ok := wr.(*operation)
+	for ok {
+		if rec, isRec := op.value.(*record); isRec && rec.t.Obj == hook.Provider.Obj {
+			break
+		}
+		op, ok = op.value.(*operation)
+	}
+	if !ok {
+		return false, nil
+	}
+	if op.cell == nil {
+		op.cell = &slot{v: op.value}
+	}
+	_, ab = w.in.callResolved(w.fr, w.at, hook.Func, nil, []Value{v, &ptrV{root: op.cell}})
+	return true, ab
 }
 
 // encodeRecord writes the record rec of type r: tag is the variant's name

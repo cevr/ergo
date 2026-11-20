@@ -81,6 +81,9 @@ type IRReport struct {
 	// Dropped counts the discarded calls that name the variant with no
 	// result (ir_forms_drop.go).
 	Dropped int `json:"-"`
+	// SeqRanges counts the for-in loops over a Seq that range over Go's
+	// range-over-func form (PORT-FORIN, ir_seq.go).
+	SeqRanges int `json:"-"`
 	// CatchDefects counts the full catches whose default panics with the
 	// unreachable defect, naming no failure (ir_catch_defect.go).
 	CatchDefects int `json:"-"`
@@ -117,7 +120,7 @@ func LowerIR(u Unit) ([]File, IRReport, error) { return lowerIR(u, nil) }
 // LowerIRTests is LowerTests with the IR bodies: the test build's IR
 // path, which the agreement property compares with LowerTests.
 func LowerIRTests(u Unit) ([]File, IRReport, error) {
-	return lowerIR(u, &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}})
+	return lowerIR(u, testLoweringOf(u))
 }
 
 // IRCensus is every reason the IR builder cannot lower each function of a
@@ -158,7 +161,7 @@ func censusIR(u Unit, tests bool, reach []*check.Func) (IRCensus, error) {
 	}
 	var tl *testLowering
 	if tests {
-		tl = &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}}
+		tl = testLoweringOf(u)
 	}
 	l := newBuildLowerer(u, tl)
 	l.ir = &irState{files: map[string]int{}, report: IRReport{Fallback: map[string]int{}}, census: &IRCensus{}, reach: reach}
@@ -199,7 +202,7 @@ func lowerIR(u Unit, tests *testLowering) ([]File, IRReport, error) {
 func LowerIRReference(u Unit, tests bool) ([]File, IRReport, error) {
 	var tl *testLowering
 	if tests {
-		tl = &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}}
+		tl = testLoweringOf(u)
 	}
 	return lowerIRForms(u, tl, true)
 }
@@ -251,7 +254,7 @@ func lowerIRSplit(u Unit, tests bool, base string, sh *shardOpts) ([]File, IRRep
 func lowerIRSplitReaching(u Unit, tests bool, base string, sh *shardOpts, reach []*check.Func) ([]File, IRReport, SplitReport, error) {
 	var tl *testLowering
 	if tests {
-		tl = &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}}
+		tl = testLoweringOf(u)
 	}
 	files, origins, report, l, err := lowerIRModuleReaching(u, tl, false, reach)
 	if err != nil {
@@ -295,7 +298,7 @@ type irModule struct {
 // is written under dir, and a frame of an IR body names the file a frame
 // of the same function's source body names (runtime/v1, sourceDir).
 func lowerIRTestParts(u Unit, dir string) ([]byte, []File, []byte, error) {
-	files, _, report, l, err := lowerIRModule(u, &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}}, false)
+	files, _, report, l, err := lowerIRModule(u, testLoweringOf(u), false)
 	if err != nil {
 		return nil, nil, nil, err
 	}

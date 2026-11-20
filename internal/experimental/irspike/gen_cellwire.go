@@ -30,7 +30,7 @@ func GenerateCellWire(seed uint64) string {
 	b.WriteString(cellTape)
 	for _, e := range cellTapeEvents {
 		body := strings.ReplaceAll(e.bodies[g.n(len(e.bodies))], "$", []string{"", `; t.mark("")`}[g.n(2)])
-		params := "t *tape"
+		params := "t mut tape"
 		if e.param != "" {
 			params += ", " + e.param
 		}

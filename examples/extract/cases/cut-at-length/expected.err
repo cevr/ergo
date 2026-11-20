@@ -1,0 +1,2 @@
+extract: no receipt in the reply (the reply: the reply stopped at its length):
+{"merchant":"Corner Grocer","items":[{"name":"Oat milk","count":2,"cents":349},{"name":"Rye bread","count":1,"cents":425}],"total":1363,"paid":{"_tag":"Card","last4":"42

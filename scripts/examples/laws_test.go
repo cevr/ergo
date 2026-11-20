@@ -148,14 +148,43 @@ func TestModuleProgramOperationTypeNeedsALaw(t *testing.T) {
 	}
 }
 
-// The repository's programs of packages (examples/tidewalk-replay) load
-// with no layout error, so each operation type of their domain packages
-// has a law.
-func TestRepoExamplesHoldTheirLaws(t *testing.T) {
+// The repository's examples, ports and modules load with no layout error
+// (LAYOUT-RED): the runner stops on any one before it runs a program, so
+// one stray file would stop every example. This test builds no program,
+// so the fast tier runs it on every edit it reads. It also holds the
+// programs of packages (examples/tidewalk-replay) to a law on each
+// operation type of their domain packages. A planted tree shows each
+// check firing: a stray file beside the programs, a module with no go.mod
+// or README.md, and a module's own Go (LAYOUT-SIMD; docs/spec/interop.md,
+// Trusted Go 3): a Go package an extern of the module binds, with the law
+// ledger beside ergo.mod, loads clean (good); one no extern binds
+// (stray), Go beside .ergo (mixed), assembly (asm) and a ledger in a
+// package folder do not. Mutants: examples-layout-modules-skipped,
+// examples-layout-programs-skipped, examples-layout-go-unclaimed,
+// examples-layout-ledger-anywhere.
+func TestRepoLayoutIsClean(t *testing.T) {
 	t.Parallel()
-	programs, problems := loadExamples(filepath.Join("..", ".."), false)
+	_, _, planted := loadLayout(filepath.Join("testdata", "layout-bad"), false)
+	for _, want := range []string{
+		"examples/stray.txt: not a program folder",
+		"modules/hello: no go.mod",
+		"modules/stray: kernel: the Go package example.com/stray/kernel is bound by no extern go",
+		"modules/stray: unexpected calc/ergo.laws",
+		"modules/mixed: calc: Go files beside .ergo files",
+		"modules/asm: kernel/twice_amd64.s is assembly",
+	} {
+		if !slices.ContainsFunc(planted, func(p string) bool { return strings.Contains(p, want) }) {
+			t.Errorf("testdata/layout-bad: no %q among the layout errors:\n%s", want, strings.Join(planted, "\n"))
+		}
+	}
+	for _, p := range planted {
+		if strings.HasPrefix(p, "modules/good:") || strings.HasPrefix(p, "modules/mixed: kernel") || strings.HasPrefix(p, "modules/asm: kernel:") {
+			t.Errorf("testdata/layout-bad: a claimed Go package and a ledger beside ergo.mod are a module's own, yet: %s", p)
+		}
+	}
+	programs, _, problems := loadLayout(filepath.Join("..", ".."), false)
 	if len(problems) > 0 {
-		t.Fatalf("layout errors:\n%s", strings.Join(problems, "\n"))
+		t.Fatalf("%d layout errors (see examples/README.md):\n%s", len(problems), strings.Join(problems, "\n"))
 	}
 	modules := 0
 	for _, p := range programs {

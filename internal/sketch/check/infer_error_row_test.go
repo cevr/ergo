@@ -20,13 +20,17 @@ import (
 // Mutant: inf-row-not-error-unnamed (the bare mismatch message).
 func TestInferErrorRowNamesTheCause(t *testing.T) {
 	const caught = "\tlet x = ui.Await(a) catch {\n\tcase Oops:\n\t\t-1\n\tcase ui.Pending:\n\t\t-2\n\t}\n\tx\n}\n"
-	refused := "import ui\n\ntype Oops { V int }\n\nfunc f(a ui.Async[int, Oops]) int {\n" + caught
+	// No row and no catch arm names Oops: the catch's one arm is `_`.
+	const wild = "\tlet x = ui.Await(a) catch {\n\tcase _:\n\t\t-1\n\t}\n\tx\n}\n"
+	refused := "import ui\n\ntype Oops { V int }\n\nfunc f(a ui.Async[int, Oops]) int {\n" + wild
 	_, d := check.CheckSource(refused)
-	want := "Oops binds an error row parameter, and no error row of this package names Oops, so it is no error type here"
+	want := "Oops binds an error row parameter, and no error row or catch arm of this package names Oops, so it is no error type here"
 	if len(d) != 1 || !strings.Contains(d[0].Message, want) {
 		t.Errorf("want one diagnostic holding %q, got %v", want, d)
 	}
 	for _, ok := range []string{
+		// The catch arm `case Oops` names it (INFER-CATCH; Error types 1).
+		"import ui\n\ntype Oops { V int }\n\nfunc f(a ui.Async[int, Oops]) int {\n" + caught,
 		"import ui\n\ntype Oops { V int }\n\nfunc g() fails Oops { Oops{V: 1} }\n\nfunc f(a ui.Async[int, Oops]) int {\n" + caught,
 		"import ui\n\ntype Oops { V int }\n\nfunc f(a ui.Async[int, Oops]) int {\n" + strings.Replace(caught, "ui.Await(a)", "ui.Await[int, Oops](a)", 1),
 	} {

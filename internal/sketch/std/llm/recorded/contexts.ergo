@@ -1,0 +1,19 @@
+// The context llm.Model's laws run under for Record. Record holds its
+// inner Model as a field, and no builder of a Model has a base case a law
+// run could draw, so its member laws (StreamFoldsToGenerate,
+// StreamReturnsItsFold, TruncatedIsNotATurn, CallsAreWhole) run under a
+// Record over a script whose replies reach every branch: text and a whole
+// call, a reply that fails after its first delta, a failed ask and a
+// reply cut short (types.md, Laws 10).
+
+import llm
+import llm/memory
+
+// lawRecord is a Record over the script.
+func lawRecord() Record {
+	let broke llm.Failure = llm.Transport{Reason: "reset"}
+	let busy llm.Failure = llm.Overloaded
+	NewRecord(memory.NewScripted([]string{"the ", "answer"}, []string{"find"}, false, []memory.Reply{memory.Breaks{Deltas: []llm.Delta{llm.Text{Text: "par"}}, Failure: broke}, memory.Fails{Failure: busy}, memory.Cuts{Deltas: []llm.Delta{llm.Text{Text: "cut"}}}}))
+}
+
+let lawRecording = context { llm.Model: lawRecord() }
