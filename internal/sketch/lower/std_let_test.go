@@ -95,7 +95,7 @@ func Framed() string { fixturelet.Join("a", "b") + fixturelet.Default.Sep }
 	libGo += `
 func main() {
 	for i := 0; i < 2; i++ {
-		v, err := Framed(context.Background())
+		v, err := Framed(` + HostImportSpelling("context") + `.Background())
 		if err != nil || v != "a+b++" { panic("library std lets were not initialized") }
 	}
 }

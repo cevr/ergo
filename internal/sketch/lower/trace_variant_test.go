@@ -79,13 +79,14 @@ func TestTracedVariantsHaveTheirErgoNames(t *testing.T) {
 	// The table: one line, which holds std's suffixed names too.
 	_, table, _ := strings.Cut(text, `.RegisterTypeNames("main", `)
 	table, _, _ = strings.Cut(table, "\n")
-	for _, pair := range []string{`"Box_1", "Box"`, `"Go_1", "Go"`, `"Idle_1", "Idle"`} {
+	for _, n := range []string{"Box", "Go", "Idle"} {
+		pair := strconv.Quote(goOf("lib", n)) + ", " + strconv.Quote(n)
 		if !strings.Contains(table, pair) {
 			t.Errorf("the program registers no %s:\n%s", pair, text)
 		}
 	}
 	names := strings.Replace(text, table, "", 1)
-	for _, goName := range []string{"Idle_1", "Go_1", "Box_1"} {
+	for _, goName := range []string{goOf("lib", "Idle"), goOf("lib", "Go"), goOf("lib", "Box")} {
 		if !strings.Contains(text, "type "+goName) {
 			t.Fatalf("the lib's variant is not the Go type %s, so the case is not tested:\n%s", goName, text)
 		}

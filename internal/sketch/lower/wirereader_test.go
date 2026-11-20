@@ -103,7 +103,7 @@ func TestDecodeOnADirectReaderCallsItsFunctions(t *testing.T) {
 			}
 			switch c := call.Fun.(type) {
 			case *ast.Ident:
-				if strings.HasPrefix(c.Name, "ergoRead") || strings.HasPrefix(c.Name, "ergoDecode") {
+				if strings.HasPrefix(c.Name, goHelper("ergoRead")) || strings.HasPrefix(c.Name, goHelper("ergoDecode")) {
 					calls[fn] = append(calls[fn], c.Name)
 				}
 			case *ast.SelectorExpr:
@@ -127,11 +127,11 @@ func TestDecodeOnADirectReaderCallsItsFunctions(t *testing.T) {
 		return len(calls) > 0
 	}
 	for _, fn := range []string{"direct", "generic"} {
-		if !only(calls[fn], "ergoRead", ".Read") {
+		if !only(calls[fn], goHelper("ergoRead"), ".Read") {
 			t.Errorf("%s's decode on a json.Reader calls %v, want only codec functions over the Reader record's Go type", fn, calls[fn])
 		}
 	}
-	if !only(calls["viaReader"], "ergoDecode", ".Dec") {
+	if !only(calls["viaReader"], goHelper("ergoDecode"), ".Dec") {
 		t.Errorf("viaReader's decode on a Reader value calls %v, want the Reader interface path", calls["viaReader"])
 	}
 	typecheckGo(t, []*lowered{o})

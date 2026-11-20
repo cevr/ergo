@@ -22,7 +22,7 @@ func TestLawBodyCopies(t *testing.T) {
 			all.Write(f.Data)
 		}
 	}
-	body := goFuncBody(t, all.String(), "ergoLawApart")
+	body := goFuncBody(t, all.String(), goHelper("ergoLawApart"))
 	if !copyOps.MatchString(body) {
 		t.Errorf("the law's bind of before copies nothing, so put(&b, n) reaches it:\n%s", body)
 	}

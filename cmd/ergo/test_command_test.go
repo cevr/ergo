@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"ergo.local/prototype/internal/sketch/lower"
 )
 
 // testRunCLI runs the CLI in directory with its emission cache under xdg
@@ -256,7 +258,7 @@ func TestBuildAndTestActionsDiffer(t *testing.T) {
 	}
 	// The body is Go text mapped by //line, or a function of the module's
 	// IR (ergoir.json, a test build's bodies) at the source's line 4.
-	body := regexp.MustCompile(`(?m)^\s*//line main\.ergo:4\b|"name":"ergoTestOnlyTest","pos":\[0,3,1\],"end":\[0,5,1\],"body":\[\{"k":"[a-z]+","pos":\[0,4,`)
+	body := regexp.MustCompile(`(?m)^\s*//line main\.ergo:4\b|"name":"` + lower.HelperSpelling("", "ergoTestOnlyTest") + `","pos":\[0,3,1\],"end":\[0,5,1\],"body":\[\{"k":"[a-z]+","pos":\[0,4,`)
 	read := func(dir string) string {
 		data, err := os.ReadFile(filepath.Join(dir, "main.go"))
 		if err != nil {

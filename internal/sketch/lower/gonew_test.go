@@ -54,7 +54,7 @@ func TestGoNew(t *testing.T) {
 		src := "import go hostres\n\n" + decls + "\nfunc main() needs go.Foreign {\n" + body + "}\n"
 		c := ncase{name: g.name, src: src}
 		if g.ok {
-			c.new = "new(" + g.ty + ")"
+			c.new = "new(" + strings.Replace(g.ty, "hostres.", HostImportSpelling("hostres")+".", 1) + ")"
 		} else {
 			c.code, c.want = "S108", g.want
 		}
