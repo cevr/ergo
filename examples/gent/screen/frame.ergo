@@ -313,22 +313,22 @@ law StuckToEndFollows(v View, r agent.Row, rows int, cols int) {
 	Frame(after, w)[w.Rows-3] == Clip(body[len(body)-1], w.Cols)
 }
 
-// ScrolledUpStays: a view scrolled up shows the same transcript lines
-// after a row is added to it: new output does not pull it down.
+// ScrolledUpStays: a view scrolled up to a line of its body shows the
+// same transcript lines after a row is added to it: new output does not
+// pull it down.
 law ScrolledUpStays(v View, r agent.Row, top int, rows int, cols int) {
 	let w = window(rows, cols)
-	let idle = agent.State{..v.State, Phase: agent.Idle}
-	let before = View{..v, State: idle, Scroll: Scroll{Top: top, Stuck: false}}
-	let after = View{..before, State: agent.State{..idle, Log: idle.Log.Append(r)}}
-	let a = Frame(before, w)
-	let b = Frame(after, w)
 	if w.Rows < 3 {
 		return true
 	}
-	let n = len(Shown(before, w.Cols))
+	let idle = agent.State{..v.State, Phase: agent.Idle}
 	let room = w.Rows - 2
+	let scrolled = View{..v, State: idle, Scroll: Scroll{Top: top, Stuck: false}}
+	let n = len(Shown(scrolled, w.Cols))
+	let before = View{..scrolled, Scroll: Scroll{Top: Top(scrolled, n, room), Stuck: false}}
+	let after = View{..before, State: agent.State{..idle, Log: idle.Log.Append(r)}}
 	// The rows above the status line, when the old body filled them.
-	n < room || slices.Equal(a[0:room], b[0:room])
+	n < room || slices.Equal(Frame(before, w)[0:room], Frame(after, w)[0:room])
 }
 
 // ScrollStaysInRange: after any page keys the top line is in the body,
