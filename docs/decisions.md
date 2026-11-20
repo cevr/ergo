@@ -2,6 +2,14 @@
 
 This file is the dated log of the owner's decisions for Ergo, newest first. A decision applies the principles to one feature, construct, stage or tool; [NORTH_STAR.md](../NORTH_STAR.md) holds the principles: what Ergo is for, the pillars, the north stars, the tiebreaks, the owner rules and the rejected directions. Each entry keeps the owner's words, the decision, and its tickets and links as NORTH_STAR.md recorded them; only relative link targets changed, so that they resolve from `docs/`. An entry with two or more dates sorts by its latest date, and entries with the same date keep their order from NORTH_STAR.md. Entries with no date are in the [Undated](#undated) group at the end. Where a moved passage says "above" or "below" and the new order changes what it means, a bracketed note names the entry.
 
+## Owner direction, 2026-11-20
+
+- **Composability and consistency join the north star, and the six keywords are ordered (2026-11-20, q256, q257).** The owner: "I'd like to do an audit on our language. What else is missing that composability? I think another North Star and another thing is that we want our language to be as composable as possible. So composability, performance, guarantee, simplicity, no ceremony, like these are the keywords that we want for our language, and consistency". Asked to confirm the order guarantees, composability, consistency, simplicity, performance at the Go floor (required of every unit, never bought with the first three), no ceremony: "Yes, that order". Asked which of the audit's gaps get a design page: "all, sent to appropriate lanes now". Decided:
+  - [NORTH_STAR.md](../NORTH_STAR.md) gets the **Composability** and **Consistency** paragraphs from the composability audit (COMPOSE-AUDIT §4).
+  - The order of the six keywords heads **Tiebreaks**. Three old tiebreaks now name their rank in it: **Composability** beats **a locally convenient construct** (rank 2), **Reconsidering a prior** beats **consistency with it** (it bounds rank 3), and **Explicit local signatures** beat **inference** (why no ceremony is last where the ceremony is a written clause). No old tiebreak reverses the order.
+  - Every gap of the audit (G1 to G13) gets a design page, in the lane that owns its area.
+  - In the same hour, on contexts: "Context carries its failure row" (q254); "In that same line, it should probably also carry its requirements, right?". On roles: "wouldn't a law generic save both declarations and kind of allow for minor differences".
+
 ## Owner direction, 2026-11-19
 
 - **Any declaration may shadow a prelude name (2026-11-19, owner q244).** The owner: "Allow shadowing". User declarations may shadow built-in and prelude names at any level, as in Go; don't rename to dodge a built-in name. This replaces the eighth round's item 3 (D-D3, "a prelude name cannot be redeclared") and widens q30 (L6), which allowed only a package type. Decided:
