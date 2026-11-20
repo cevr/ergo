@@ -348,6 +348,13 @@ func walk(st mut solve, w walker, x dense.ID[syntax.Node], k int) {
 	}
 }
 
+// BracketNames is the parameter names of the bracket field list l, in
+// order (a top-level law's type parameters).
+func BracketNames(p syntax.Parsed, l dense.ID[syntax.Node]) []string {
+	let (names, _) = bracketNames(p, l)
+	names
+}
+
 // bracketNames is the parameter names of a bracket field list, in order,
 // and whether each is constrained by a type other than `error`.
 func bracketNames(p syntax.Parsed, l dense.ID[syntax.Node]) ([]string, []bool) {

@@ -867,6 +867,9 @@ func walk(b mut binder, x dense.ID[syntax.Node]) {
 	case syntax.LawDecl as d:
 		named(b, d.Name, defLaw)
 		let m = enter(b)
+		// A top-level law's type parameters scope its parameters and
+		// sides, as a function's do (adf427bfe; types.md, Laws).
+		params(b, d.TypeParams)
 		params(b, d.Params)
 		opt(b, d.Body)
 		opt(b, d.Reach)

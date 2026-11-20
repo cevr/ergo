@@ -461,7 +461,15 @@ func Load(s mut store.Store, files []bind.File, u bind.Uses, ps bind.Parents, ex
 						// its body has no result to want (TUPLE-WANT's
 						// tail blocks would type the right side as one).
 						let result = if ld.Equation { store.TTuple(s, []dense.ID[store.TKey]{}) } else { store.TBasic(s, bBool) }
-						fns = fns.Append(declared(s, env, p, file, d, ld.Name, ld.Params, result, ld.Body))
+						// Its type parameters name its parameters' types,
+						// as a function's do (adf427bfe).
+						let lenv = match dense.Unpack(ld.TypeParams) {
+						case Some{Value: tp}:
+							types.NewEnv(*s, parsed, p, types.BracketNames(p, tp), kinds, ext, foreign, deps)
+						case None:
+							env
+						}
+						fns = fns.Append(declared(s, lenv, p, file, d, ld.Name, ld.Params, result, ld.Body))
 					}
 				case syntax.TestDecl as td:
 					fns = fns.Append(declared(s, env, p, file, d, td.Name, td.Params, store.TTuple(s, []dense.ID[store.TKey]{}), dense.OptOf(td.Body)))
