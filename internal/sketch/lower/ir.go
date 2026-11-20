@@ -296,32 +296,9 @@ func lowerIRModule(u Unit, tests *testLowering, formsOff bool) ([]File, map[stri
 	if err := u.Validate(); err != nil {
 		return nil, nil, irModule{}, nil, err
 	}
-	var (
-		l    *lowerer
-		code []byte
-		err  error
-		ims  intMapState
-		why  = map[string]int{}
-	)
-	for round := 0; ; round++ {
-		l = newBuildLowerer(u, tests)
-		l.ir = &irState{files: map[string]int{}, report: IRReport{Fallback: map[string]int{}}, formsOff: formsOff, noFallback: u.NoFallback, maps: ims}
-		if round == intMapRounds {
-			l.ir.maps = intMapState{allGo: true}
-		}
-		code, err = l.program()
-		if err != nil {
-			return nil, nil, irModule{}, nil, err
-		}
-		for k, n := range l.ir.maps.why {
-			why[k] += n
-		}
-		next, again := l.ir.maps.newRound() // intmap.go: a conflict lowers again
-		if !again || round == intMapRounds {
-			l.ir.report.MapRounds, l.ir.report.MapConflicts = round+1, why
-			break
-		}
-		ims = next
+	l, code, err := lowerIRRounds(u, tests, formsOff)
+	if err != nil {
+		return nil, nil, irModule{}, nil, err
 	}
 	// The last round's bodies alone: an earlier round's fallbacks were
 	// the conflicts it lowered again for (intmap.go).
@@ -343,6 +320,50 @@ func lowerIRModule(u Unit, tests *testLowering, formsOff bool) ([]File, map[stri
 	sort.Strings(l.ir.report.IR)
 	sortFormSites(l.ir.report.FormSites) // ir_forms_report.go
 	return files, l.stdOrigins(), irModule{IRReport: l.ir.report, out: &l.ir.out}, l, nil
+}
+
+// lowerIRRounds is the IR lowering of u in rounds: a round whose int maps
+// meet a conflict lowers the whole program again with those maps Go's
+// (intmap.go). Each round starts from nothing but the unit and the maps'
+// facts: its own lowerer, and a fresh record of the test helpers it
+// emitted (testLowering.fresh), so the last round's output is what one
+// round with the last round's facts emits (LAW-GEN-HELPERS: a record
+// shared across rounds left the last round calling generators only an
+// earlier, discarded round had written).
+func lowerIRRounds(u Unit, tests *testLowering, formsOff bool) (*lowerer, []byte, error) {
+	var (
+		l    *lowerer
+		code []byte
+		err  error
+		ims  intMapState
+		why  = map[string]int{}
+	)
+	for round := 0; ; round++ {
+		if round == intMapRounds {
+			ims = intMapState{allGo: true}
+		}
+		l, code, err = lowerIRRound(u, tests.fresh(), formsOff, ims)
+		if err != nil {
+			return nil, nil, err
+		}
+		for k, n := range l.ir.maps.why {
+			why[k] += n
+		}
+		next, again := l.ir.maps.newRound() // intmap.go: a conflict lowers again
+		if !again || round == intMapRounds {
+			l.ir.report.MapRounds, l.ir.report.MapConflicts = round+1, why
+			return l, code, nil
+		}
+		ims = next
+	}
+}
+
+// lowerIRRound is one round of lowerIRRounds, its int maps decided by ims.
+func lowerIRRound(u Unit, tests *testLowering, formsOff bool, ims intMapState) (*lowerer, []byte, error) {
+	l := newBuildLowerer(u, tests)
+	l.ir = &irState{files: map[string]int{}, report: IRReport{Fallback: map[string]int{}}, formsOff: formsOff, noFallback: u.NoFallback, maps: ims}
+	code, err := l.program()
+	return l, code, err
 }
 
 // irState is the IR a LowerIR run collects.
