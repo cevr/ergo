@@ -208,7 +208,7 @@ func (l *lowerer) rewriteRuns(b *strings.Builder, law *check.Law, label string, 
 				cargs = append(cargs, a)
 				cshown = append(cshown, l.litExpr(v.Type, a, law.Decl))
 			}
-			call := strconv.Quote(": provider = " + ctor.Name + "(")
+			call := strconv.Quote(": provider = " + l.pkg.Qualified(ctor.Pkg, ctor.Name) + "(")
 			if len(cshown) > 0 {
 				call += " + " + strings.Join(cshown, ` + ", " + `)
 			}
