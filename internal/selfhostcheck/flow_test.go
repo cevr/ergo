@@ -21,7 +21,8 @@ import (
 // hand-off, a hand-off from a block passed to a call, a lent parameter
 // handed off, a lend and a hand-off in one call, a dropped or `_` resource,
 // a replace from a block, a package let handed off or named by a with's
-// resource provider and a yielded root;
+// resource provider, a for-in's lent element, an element or a field
+// handed off, and a yielded root;
 // and each of those on a value of a type parameter marked own, which
 // names the mark, and such a value dropped at the end of its scope
 // (MODES-OWN-BODY; takes.go ownSite).
@@ -37,6 +38,9 @@ var flowTemplates = []*regexp.Regexp{
 	regexp.MustCompile(`^\S+ is a package let, which has no owner to hand it off`),
 	regexp.MustCompile(`^this resource provider names the package let \S+, which has no owner to hand it to the with`),
 	regexp.MustCompile(`^the yielded resource is rooted `),
+	regexp.MustCompile(`^\S+ is lent from \S+, so it cannot be handed off \(.*\) \(resources R35, Gap 36\)`),
+	regexp.MustCompile(`^\S+\[…\] cannot be handed off: it is an element of \S+, lent by the index`),
+	regexp.MustCompile(`^\S+ cannot be handed off: it is a field of \S+; a field cannot be moved out of its record`),
 	regexp.MustCompile(`, and .+ is marked own, so its value has one owner as a resource's has \(types\.md, Generics 9\)$`),
 	regexp.MustCompile(`^\S+ is lent and handed off \(.*\); write: `),
 }
