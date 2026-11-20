@@ -331,7 +331,14 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 			// which name the generic function.
 			return pre, mark(&irExpr{K: "call", Pos: p, Name: sp, Args: irArgs}), !fd.pure
 		}
-		return pre, b.droppedCall(x, c, fd, b.inlineMark(x, c, fd, mark(&irExpr{K: "call", Pos: p, Name: b.ownedCallName(x, f, fd.name), T: b.typeArgs(c, x), Args: irArgs}))), !fd.envFree // ir_forms_inline.go, ir_forms_drop.go
+		name := b.ownedCallName(x, f, fd.name)
+		if fd.pure && name == fd.name && x.Trailing == nil && c.Site == nil {
+			// The function's table, as the emitter's call reads it (ir_tab.go).
+			if tpre, v := b.tabCall(x, c, irArgs, p); v != nil {
+				return append(pre, tpre...), v, false
+			}
+		}
+		return pre, b.droppedCall(x, c, fd, b.inlineMark(x, c, fd, mark(&irExpr{K: "call", Pos: p, Name: name, T: b.typeArgs(c, x), Args: irArgs}))), !fd.envFree // ir_forms_inline.go, ir_forms_drop.go
 	case check.CallOp:
 		return b.opCall(x, c, p) // ir_pkg.go
 	case check.CallConversion:

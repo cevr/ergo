@@ -3344,6 +3344,39 @@
     {"name":"modes5-own-row-admitted","origin":"wf10 MODES-5 (EXM2)","file":"internal/sketch/check/decl.go","from":"if tp.Name == name.Name && tp.Kind != KindType {","to":"if tp.Name == name.Name && tp.Kind != KindType && false {","rule":"types.md Generics 9: a row parameter takes no own mark.","killers":["check:TestOwnMarkRows"]},
     {"name":"modes5-language-type-marked","origin":"wf10 MODES-5 (EXM2)","file":"internal/sketch/check/resource.go","from":"func languageParam(tp *TypeParam) bool { return tp.lang }","to":"func languageParam(tp *TypeParam) bool { return false }","rule":"types.md Generics 9: Option, Some and go.Ref admit a resource with no mark.","killers":["check:TestLevel2AdapterRelation"]},
     {"name":"modes5-own-mark-unread","origin":"wf10 MODES-5 (EXM2)","file":"internal/sketch/check/decl.go","from":"Own: field.Own != nil, id: newID()}\n\t\t\t\tc.noteOwner(tp, f.Name)","to":"Own: false, id: newID()}\n\t\t\t\tc.noteOwner(tp, f.Name)","rule":"types.md Generics 9: [T own] marks the type parameter.","killers":["check:TestTakesInferenceModel"]},
+    {
+      "name": "uflat-other-pkg",
+      "origin": "wf10 UNION-FLAT (DECL-VALUES §6 unit 1)",
+      "file": "internal/sketch/check/decl.go",
+      "from": "\t\tif p := vn.origin().Obj.Pkg; p != c.pkg {\n\t\t\t// A union's variants are records of its package (196b Q8, a",
+      "to": "\t\tif p := vn.origin().Obj.Pkg; p != c.pkg && !isUnion(t) {\n\t\t\t// A union's variants are records of its package (196b Q8, a",
+      "rule": "types.md Unions 1: only a union of this package may be listed; another package's union is S108 with the wrap text.",
+      "killers": [
+        "cmd/ergo:TestCheckerFixtures"
+      ]
+    },
+    {
+      "name": "uflat-narrow-total",
+      "origin": "wf10 UNION-FLAT (DECL-VALUES §6 unit 1)",
+      "file": "internal/sketch/check/switchunion.go",
+      "from": "\t\t\treturn variantSet, set, t\n",
+      "to": "\t\t\treturn variantSet, append(set, (set[len(set)-1]+1)%u.len()), t\n",
+      "rule": "types.md Unions 4: case A as a covers exactly A's variants, never one outside A.",
+      "killers": [
+        "cmd/ergo:TestCheckerFixtures"
+      ]
+    },
+    {
+      "name": "uflat-dup-variant",
+      "origin": "wf10 UNION-FLAT (DECL-VALUES §6 unit 1)",
+      "file": "internal/sketch/check/decl.go",
+      "from": "\t\t\t\tif key := c.types.id(v); !seen[key] {\n",
+      "to": "\t\t\t\tif key := c.types.id(v); true {\n",
+      "rule": "types.md Unions 1: a variant reached twice, through a listed union and again, is one variant.",
+      "killers": [
+        "cmd/ergo:TestCheckerFixtures"
+      ]
+    },
     {"name":"catch-arm-names-nothing","origin":"wf10 INFER-CATCH","file":"internal/sketch/check/decl.go","from":"\t\t\tif arm, ok := n.(*syntax.CatchArm); ok {","to":"\t\t\tif arm, ok := n.(*syntax.CatchArm); ok && false {","rule":"A type a catch arm tests is an error type of the arm's owner, so a failure parameter inferred from a value argument of it binds as if written (Error types 1).","killers":["internal/sketch/check:TestCatchArmNamesTheFailure"]},
     {"name":"catch-arm-as-unread","origin":"wf10 INFER-CATCH","file":"internal/sketch/check/decl.go","from":"\t\treturn catchArmHead(p.X)","to":"\t\treturn nil","rule":"A catch arm `case T as e` names T as `case T` does.","killers":["internal/sketch/check:TestCatchArmNamesTheFailure"]},
     {"name":"catch-arm-record-unread","origin":"wf10 INFER-CATCH","file":"internal/sketch/check/decl.go","from":"\tcase *syntax.CompositeLit:\n\t\treturn p.Type","to":"\tcase *syntax.CompositeLit:\n\t\treturn nil","rule":"A catch arm's record pattern `case T{…}` names T as `case T` does.","killers":["internal/sketch/check:TestCatchArmNamesTheFailure"]},

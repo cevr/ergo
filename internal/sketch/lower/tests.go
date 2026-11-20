@@ -564,6 +564,11 @@ func (l *lowerer) lawDecl(law *check.Law) {
 		head += fc.resultList(result, true)
 	}
 	fc.depth = 1
+	// The value rule decides a law body's copies as it does a function's
+	// or a test's, before either path lowers it: unanalyzed, `let mut y =
+	// x` would share x (the law-body copy bug, corpus wave HP; on the IR
+	// path, KMEANS-LAW). newBuilder refuses an IR body it has not analyzed.
+	l.analyzeValues(d, l.info)
 	// LowerIR and CensusIR only (ir.go): a body in the IR builder's subset
 	// leaves its Go declaration without a body (ir_assert.go).
 	if l.ir != nil && l.ir.lawBody(fc, law, l.lawFunc(law), needsFrame) {
@@ -578,10 +583,6 @@ func (l *lowerer) lawDecl(law *check.Law) {
 		fc.openFrame(frameErr)
 	}
 	fc.entryPoll(l.info, d)
-	// The value rule decides a law body's copies as it does a function's
-	// or a test's: unanalyzed, `let mut y = x` would share x (the
-	// law-body copy bug, corpus wave HP).
-	l.analyzeValues(d, l.info)
 	fc.body(d.Body.List)
 	if sourced {
 		l.user.WriteString(l.directive(d))
