@@ -108,6 +108,7 @@ func check(path string, files []*syntax.File, imp Importer, under *Package, opts
 	c.derive = derived
 	c.pkg.module, c.pkg.trusted = module, trusted
 	c.pkg.testOf = under
+	c.placeLaws = lawPlacementReported || opts.placeLaws
 	pkg := c.run(met)
 	for _, d := range derivedDiags {
 		d.File = rank[d.File]
@@ -156,6 +157,8 @@ type checker struct {
 	// neverOrigins caches, per union origin, whether a variant holds a
 	// Never (switchUnion.mayHoldNever; types.md, Never).
 	neverOrigins map[*Union]bool
+	// placeLaws reports S115 (lawplace.go, lawPlacementReported).
+	placeLaws bool
 	// closeOp is the release contract's operation name (closeName).
 	closeOp string
 	// caught is the call a catch being checked catches (handlers.go).
@@ -567,6 +570,7 @@ func newChecker(path string, imp Importer, universe *Scope) *checker {
 	pkg := &Package{Path: path, Scope: newScope(universe), Contexts: map[string]*Context{}, Info: newInfo()}
 	c := &checker{
 		pkg:            pkg,
+		placeLaws:      lawPlacementReported,
 		imp:            imp,
 		universe:       universe,
 		seen:           map[string]bool{},

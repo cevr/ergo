@@ -307,8 +307,8 @@
       "name": "GPm-present-headless",
       "origin": "GPm (headless frame buffer)",
       "file": "hosts/mygo/screen/screen.go",
-      "from": "\tif w.fake == nil {\n\t\tw.conn.Surface.PresentPixels(",
-      "to": "\tif true {\n\t\tw.conn.Surface.PresentPixels(",
+      "from": "\t\tif w.fake == nil {\n\t\t\tw.conn.Surface.PresentPixels(",
+      "to": "\t\tif true {\n\t\t\tw.conn.Surface.PresentPixels(",
       "rule": "a Headless window's frame stays in the renderer's image, which Pixel reads; it is not copied into a new buffer of the fake surface each frame",
       "killers": ["hosts/mygo/screen:TestHeadlessFrameKeepsOneBuffer"]
     },
