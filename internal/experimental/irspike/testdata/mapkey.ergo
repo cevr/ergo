@@ -61,7 +61,7 @@ func both(values []int) []int fails Bad needs Console {
 
 // stepped stores under an index the value's call moves: the element is
 // the one the index named before the call (the emitter binds it first).
-func step(p *int) int needs Console {
+func step(p mut int) int needs Console {
 	*p = *p + 1
 	seen(*p * 100)
 }
@@ -77,7 +77,7 @@ func stepped() []int needs Console {
 // poke writes the element p points at, and its result is 1: an
 // op-assignment reads its place before the value's calls run, so
 // out[0] += poke(&out[0]) is old + 1, never 101 (the emitter's old).
-func poke(p *int) int needs Console {
+func poke(p mut int) int needs Console {
 	*p = 100
 	seen(1)
 }
@@ -109,7 +109,7 @@ type Box { n int }
 // moved stores through a let mut pointer the value's statements
 // reassign: the store goes to the record the pointer held before them
 // (the emitter binds the pointer first), for =, op= and *q =.
-func moved(r *Box, k int) int needs Console {
+func moved(r mut Box, k int) int needs Console {
 	let mut other = Box{n: 0}
 	let mut p = r
 	p.n = if k > 1 {
@@ -137,13 +137,13 @@ func moved(r *Box, k int) int needs Console {
 // add and bumped call a *Box function on a Box place whose index or
 // pointer the call's operands move: the call writes the place they picked
 // before (the emitter's &target, fixed first).
-func add(b *Box, k int) {
+func add(b mut Box, k int) {
 	b.n = b.n * 10 + k
 }
 
 type Outer { inner Box }
 
-func bumped(o *Outer, k int) int needs Console {
+func bumped(o mut Outer, k int) int needs Console {
 	let mut boxes = []Box{Box{n: 1}, Box{n: 2}, Box{n: 3}}
 	let mut j = 0
 	boxes[j].add(step(&j))
@@ -160,7 +160,7 @@ func bumped(o *Outer, k int) int needs Console {
 
 type Grid { cells []int }
 
-func gridded(g *Grid, n int) needs Console {
+func gridded(g mut Grid, n int) needs Console {
 	for i in 0..n {
 		g.cells[seen(i)] = seen(i + 7)
 	}
