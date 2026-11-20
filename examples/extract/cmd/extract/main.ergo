@@ -53,7 +53,7 @@ func show(r receipt.Receipt, fixes []json.Fix) string {
 
 func run(args []string) fails os.Exit needs fs.Files | io.Stdout | llm.Model {
 	match reader.Read(try load(args[2])) {
-	case reader.Read as g:
+	case reader.Found as g:
 		io.Stdout.Print(show(g.Receipt, g.Fixes))
 	case reader.Unfit as u:
 		let at = if u.NoFit.Path == "" { "the reply" } else { u.NoFit.Path }

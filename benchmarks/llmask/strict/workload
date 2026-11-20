@@ -6,3 +6,4 @@
 unit reply
 sizes 20000 120000
 args bench strict {n}
+control benchmarks/llmask/testdata/control
