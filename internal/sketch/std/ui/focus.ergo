@@ -477,10 +477,15 @@ func rove[E](f mut Frame[E], k KeyPress) bool {
 	true
 }
 
-// hovered makes id the node the pointer is over (the root: none), and
-// queues the Leave of the node it leaves and the Enter of the node it
-// comes to, each its Area's signal (crossed), when it changed. A finger
-// does not hover (MB4): its events leave the hover where it was.
+// hovered makes id the node the pointer is over (the root: none). The
+// Leave and Enter signals (crossed) follow the Areas that hold that node,
+// as the DOM's pointerleave and pointerenter do (OT-PHASES): each Area
+// that held the node it left and does not hold the new one gets its
+// Leave, the innermost first, then each Area that holds the new node and
+// did not hold the old one gets its Enter, the outermost first. So a move
+// onto a node inside the same Area crosses nothing, and entering an inner
+// Area does not leave the outer one. A finger does not hover (MB4): its
+// events leave the hover where it was.
 func hovered[E](f mut Frame[E], id Id[E], p PointerEvent) {
 	match p.Pointer.Kind {
 	case Finger:
@@ -491,13 +496,161 @@ func hovered[E](f mut Frame[E], id Id[E], p PointerEvent) {
 	if to == f.hover {
 		return
 	}
-	let from = f.hover
 	f.hover = to
-	if arena.Has(f.nodes, from) {
-		cross(f, Id[E]{ref: from}, PointerEvent{Pointer: p.Pointer, Phase: PointerLeave, X: 0, Y: 0, Zone: None})
+	let next = areasOver(f, to)
+	for a in f.over {
+		if arena.Has(f.nodes, a) && !holdsRef(next, a) {
+			cross(f, Id[E]{ref: a}, PointerEvent{Pointer: p.Pointer, Phase: PointerLeave, X: 0, Y: 0, Zone: None})
+		}
 	}
-	if to != arena.Null[node[E]]() {
-		cross(f, id, PointerEvent{Pointer: p.Pointer, Phase: PointerEnter, X: p.X, Y: p.Y, Zone: None})
+	for j in 0..len(next) {
+		let a = next[len(next)-1-j]
+		if !holdsRef(f.over, a) {
+			cross(f, Id[E]{ref: a}, PointerEvent{Pointer: p.Pointer, Phase: PointerEnter, X: p.X, Y: p.Y, Zone: None})
+		}
+	}
+	f.over = next
+}
+
+// areasOver is the Areas that hold r (r itself when it is one, and those
+// above it), the innermost first; none when r is Null or not in the tree.
+func areasOver[E](f mut Frame[E], r arena.Ref[node[E]]) []arena.Ref[node[E]] {
+	let mut out = []arena.Ref[node[E]]{}
+	if !arena.Has(f.nodes, r) {
+		return out
+	}
+	if isArea(f, Id[E]{ref: r}) {
+		out = out.Append(r)
+	}
+	match above(f, r) {
+	case Some[[]arena.Ref[node[E]]] as up:
+		for a in up.Value {
+			if isArea(f, Id[E]{ref: a}) {
+				out = out.Append(a)
+			}
+		}
+	case None:
+	}
+	out
+}
+
+// PointerCrossesAreas (OT-PHASES): over drawn trees of 2 to 6 nested
+// Areas, each holding a Text, drawn pointer moves onto an Area, onto the
+// Text inside it or off every node give the reference's crossings: the
+// Leave of each Area that held the old node and not the new one, the
+// innermost first, then the Enter of each Area that holds the new node
+// and did not hold the old one, the outermost first. A move onto the
+// Text of the Area it is over, or onto an inner Area, leaves no Area.
+law PointerCrossesAreas(seed int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let mut r = seeded(seed)
+		let n = draw(&r, 5) + 2
+		let mut parent = []int{}
+		for i in 0..n {
+			parent = parent.Append(draw(&r, i+1) - 1)
+		}
+		let view = func(f mut Frame[int], s string) { nestScreen(f, parent) }
+		let a = actor.StartMachine(Machine[string, int, int]{Initial: "", Step: crossStep, After: crossTimer, Work: crossWork, Exit: func(at string) Option[func()] { None }}, 1, func(o int) {})
+		let mut h = NewTestHost(a, view, m, 4) catch {
+		case BadPatch:
+			return false
+		}
+		let mut at = []int{}
+		let mut log = ""
+		for _ in 0..draw(&r, 12)+4 {
+			let j = draw(&r, 2*n+1)
+			if j == 2*n {
+				PointNowhere(&h) catch {
+				case _:
+					return false
+				}
+			} else {
+				let label = if j < n { "a\(j)" } else { "t\(j - n)" }
+				Play(&h, []Act{PointOn{Label: label, Pointer: PointerEvent{Pointer: MousePointer, Phase: Moved, X: 2, Y: 2, Zone: None}}}) catch {
+				case _:
+					return false
+				}
+			}
+			let to = if j == 2*n { []int{} } else { nestChain(parent, j%n) }
+			for x in at {
+				if !nestHolds(to, x) {
+					log = log + "\(10*x + 2),"
+				}
+			}
+			for k in 0..len(to) {
+				let x = to[len(to)-1-k]
+				if !nestHolds(at, x) {
+					log = log + "\(10*x + 1),"
+				}
+			}
+			at = to
+			if StateOf(&h) != log {
+				return false
+			}
+		}
+		true
+	}
+}
+
+// nestChain is Area i and the Areas above it, the innermost first. (a
+// law's helper)
+func nestChain(parent []int, i int) []int {
+	let mut out = []int{}
+	let mut x = i
+	for _ in 0..len(parent) {
+		if x < 0 {
+			break
+		}
+		out = out.Append(x)
+		x = parent[x]
+	}
+	out
+}
+
+// nestHolds is whether xs holds x. (a law's helper)
+func nestHolds(xs []int, x int) bool {
+	for y in xs {
+		if y == x {
+			return true
+		}
+	}
+	false
+}
+
+// nestScreen is the Areas "a0" to "a<n-1>", Area i inside Area parent[i]
+// (at the top when it is -1) and holding a Text "t<i>" before its inner
+// Areas; Area i gives 10i+1 on the pointer's enter, 10i+2 on its leave,
+// and nothing else. (a law's helper)
+func nestScreen(f mut Frame[int], parent []int) {
+	Column(f, Plain()) {
+		for i in 0..len(parent) {
+			if parent[i] < 0 {
+				nestArea(f, parent, i)
+			}
+		}
+	}
+}
+
+// nestArea is Area i of nestScreen and the Areas inside it. (a law's
+// helper)
+func nestArea(f mut Frame[int], parent []int, i int) {
+	Area(f, "a\(i)", Plain(), func(p PointerEvent) Option[int] {
+		match p.Phase {
+		case PointerEnter:
+			Some{Value: 10*i + 1}
+		case PointerLeave:
+			Some{Value: 10*i + 2}
+		case _:
+			None
+		}
+	}) {
+		Text(f, "t\(i)")
+		for j in 0..len(parent) {
+			if parent[j] == i {
+				nestArea(f, parent, j)
+			}
+		}
 	}
 }
 

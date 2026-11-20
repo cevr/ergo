@@ -124,11 +124,13 @@ type Frame[E] {
 	lookIds  Map[Looks, int],
 	lookSent int,
 	// UG3 (focus.ergo): hover is the node the pointer is over (Null:
-	// none), crossed the Leave and Enter signals the last event made,
+	// none), over the Areas that hold it, the innermost first (OT-PHASES:
+	// the crossings follow them), crossed the Leave and Enter signals the last event made,
 	// visible whether the focus came from a key, want this pass's Focus
 	// request and wanted the last one applied, openers the focus scopes
 	// the tree holds, roved each roving group's stop.
 	hover   arena.Ref[node[E]],
+	over    []arena.Ref[node[E]],
 	crossed []E,
 	visible bool,
 	want    Option[Key],
@@ -1670,7 +1672,7 @@ type Op[E] = Insert{Id Id[E], Parent Id[E], Before Option[Id[E]], Node Node[E]} 
 func NewFrame[E]() Frame[E] {
 	let mut nodes = arena.New[node[E]]()
 	let root = nodes.Put(fresh[E](BoxNode{Style: Plain()}, ident{site: nowhere, each: nowhere, key: NoKey, n: 0}, None, None, None, false))
-	Frame[E]{nodes: nodes, root: root, specs: []spec[E]{}, nspecs: 0, first: -1, last: -1, nroot: 0, pass: 0, pending: []pendingCounts{}, npending: 0, rootPending: false, unplaced: 0, cells: []cellSpec{}, ncells: 0, loads: []loadSpec[E]{}, nloads: 0, seen: Map[int, tally]{}, seenWide: Map[slotOf, tally]{}, seenLog: []slotOf{}, nseen: 0, index: Map[kid[E], arena.Ref[node[E]]]{}, indexed: Map[arena.Ref[node[E]], bool]{}, held: Map[arena.Ref[node[E]], bool]{}, stopped: Map[int, bool]{}, parent: -1, each: nowhere, key: NoKey, epoch: 0, ops: []Op[E]{}, jobs: []Job[E]{}, keys: []func(k KeyPress) Option[E]{}, nkeys: 0, urls: []func(u URL) Option[E]{}, nurls: 0, anims: []func(at duration) E{}, nanims: 0, rowRuns: 0, skips: 0, written: 0, stops: []CallSite{}, nstops: 0, slow: None, args: newArgs(), kept: Map[groupKey[E], int]{}, keptList: []keptGroup[E]{}, free: []int{}, nfree: 0, keptPasses: 0, nheld: 0, swept: 0, groups: []groupRec[E]{}, ngroups: 0, nested: false, group: -1, groupSeen: Map[int, tally]{}, groupWide: Map[slotOf, tally]{}, groupRuns: 0, sameSkips: 0, sames: 0, keptSames: 0, compared: 0, visits: 0, now: duration(int64(0)), tickAt: None, passes: 0, moving: false, focus: arena.Null[node[E]](), down: arena.Null[node[E]](), lookList: defaultTable(), lookIds: defaultIds(), lookSent: len(defaultTable()), hover: arena.Null[node[E]](), crossed: []E{}, visible: false, want: None, wanted: None, openers: []opener[E]{}, roved: Map[arena.Ref[node[E]], arena.Ref[node[E]]]{}, paint: Paint{ops: []PaintOp{}, segs: []Seg{}, ends: []int{}}, readouts: []Readout{}, nreadouts: 0}
+	Frame[E]{nodes: nodes, root: root, specs: []spec[E]{}, nspecs: 0, first: -1, last: -1, nroot: 0, pass: 0, pending: []pendingCounts{}, npending: 0, rootPending: false, unplaced: 0, cells: []cellSpec{}, ncells: 0, loads: []loadSpec[E]{}, nloads: 0, seen: Map[int, tally]{}, seenWide: Map[slotOf, tally]{}, seenLog: []slotOf{}, nseen: 0, index: Map[kid[E], arena.Ref[node[E]]]{}, indexed: Map[arena.Ref[node[E]], bool]{}, held: Map[arena.Ref[node[E]], bool]{}, stopped: Map[int, bool]{}, parent: -1, each: nowhere, key: NoKey, epoch: 0, ops: []Op[E]{}, jobs: []Job[E]{}, keys: []func(k KeyPress) Option[E]{}, nkeys: 0, urls: []func(u URL) Option[E]{}, nurls: 0, anims: []func(at duration) E{}, nanims: 0, rowRuns: 0, skips: 0, written: 0, stops: []CallSite{}, nstops: 0, slow: None, args: newArgs(), kept: Map[groupKey[E], int]{}, keptList: []keptGroup[E]{}, free: []int{}, nfree: 0, keptPasses: 0, nheld: 0, swept: 0, groups: []groupRec[E]{}, ngroups: 0, nested: false, group: -1, groupSeen: Map[int, tally]{}, groupWide: Map[slotOf, tally]{}, groupRuns: 0, sameSkips: 0, sames: 0, keptSames: 0, compared: 0, visits: 0, now: duration(int64(0)), tickAt: None, passes: 0, moving: false, focus: arena.Null[node[E]](), down: arena.Null[node[E]](), lookList: defaultTable(), lookIds: defaultIds(), lookSent: len(defaultTable()), hover: arena.Null[node[E]](), over: []arena.Ref[node[E]]{}, crossed: []E{}, visible: false, want: None, wanted: None, openers: []opener[E]{}, roved: Map[arena.Ref[node[E]], arena.Ref[node[E]]]{}, paint: Paint{ops: []PaintOp{}, segs: []Seg{}, ends: []int{}}, readouts: []Readout{}, nreadouts: 0}
 }
 
 // IncrementalEqualsFresh: committing the frames of a run of states in

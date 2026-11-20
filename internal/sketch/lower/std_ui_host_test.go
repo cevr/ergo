@@ -6064,6 +6064,125 @@ func lawPointerCrossesOnce(seed int) bool {
 	}
 }
 
+// PointerCrossesAreas (OT-PHASES): over drawn trees of 2 to 6 nested
+// Areas, each holding a Text, drawn pointer moves onto an Area, onto the
+// Text inside it or off every node give the reference's crossings: the
+// Leave of each Area that held the old node and not the new one, the
+// innermost first, then the Enter of each Area that holds the new node
+// and did not hold the old one, the outermost first. A move onto the
+// Text of the Area it is over, or onto an inner Area, leaves no Area.
+func lawPointerCrossesAreas(seed int) bool {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let mut r = seeded(seed)
+		let n = draw(&r, 5) + 2
+		let mut parent = []int{}
+		for i in 0..n {
+			parent = parent.Append(draw(&r, i+1) - 1)
+		}
+		let view = func(f mut ui.Frame[int], s string) { nestScreen(f, parent) }
+		let a = actor.StartMachine(Machine[string, int, int]{Initial: "", Step: crossStep, After: crossTimer, Work: crossWork, Exit: func(at string) Option[func()] { None }}, 1, func(o int) {})
+		let mut h = ui.NewTestHost(a, view, m, 4) catch {
+		case ui.BadPatch:
+			return false
+		}
+		let mut at = []int{}
+		let mut log = ""
+		for _ in 0..draw(&r, 12)+4 {
+			let j = draw(&r, 2*n+1)
+			if j == 2*n {
+				ui.PointNowhere(&h) catch {
+				case _:
+					return false
+				}
+			} else {
+				let label = if j < n { "a\(j)" } else { "t\(j - n)" }
+				ui.Play(&h, []ui.Act{ui.PointOn{Label: label, Pointer: ui.PointerEvent{Pointer: ui.MousePointer, Phase: ui.Moved, X: 2, Y: 2, Zone: None}}}) catch {
+				case _:
+					return false
+				}
+			}
+			let to = if j == 2*n { []int{} } else { nestChain(parent, j%n) }
+			for x in at {
+				if !nestHolds(to, x) {
+					log = log + "\(10*x + 2),"
+				}
+			}
+			for k in 0..len(to) {
+				let x = to[len(to)-1-k]
+				if !nestHolds(at, x) {
+					log = log + "\(10*x + 1),"
+				}
+			}
+			at = to
+			if ui.StateOf(&h) != log {
+				return false
+			}
+		}
+		true
+	}
+}
+// nestChain is Area i and the Areas above it, the innermost first. (a
+// law's helper)
+func nestChain(parent []int, i int) []int {
+	let mut out = []int{}
+	let mut x = i
+	for _ in 0..len(parent) {
+		if x < 0 {
+			break
+		}
+		out = out.Append(x)
+		x = parent[x]
+	}
+	out
+}
+
+// nestHolds is whether xs holds x. (a law's helper)
+func nestHolds(xs []int, x int) bool {
+	for y in xs {
+		if y == x {
+			return true
+		}
+	}
+	false
+}
+
+// nestScreen is the Areas "a0" to "a<n-1>", Area i inside Area parent[i]
+// (at the top when it is -1) and holding a Text "t<i>" before its inner
+// Areas; Area i gives 10i+1 on the pointer's enter, 10i+2 on its leave,
+// and nothing else. (a law's helper)
+func nestScreen(f mut ui.Frame[int], parent []int) {
+	ui.Column(f, ui.Plain()) {
+		for i in 0..len(parent) {
+			if parent[i] < 0 {
+				nestArea(f, parent, i)
+			}
+		}
+	}
+}
+
+// nestArea is Area i of nestScreen and the Areas inside it. (a law's
+// helper)
+func nestArea(f mut ui.Frame[int], parent []int, i int) {
+	ui.Area(f, "a\(i)", ui.Plain(), func(p ui.PointerEvent) Option[int] {
+		match p.Phase {
+		case ui.PointerEnter:
+			Some{Value: 10*i + 1}
+		case ui.PointerLeave:
+			Some{Value: 10*i + 2}
+		case _:
+			None
+		}
+	}) {
+		ui.Text(f, "t\(i)")
+		for j in 0..len(parent) {
+			if parent[j] == i {
+				nestArea(f, parent, j)
+			}
+		}
+	}
+}
+
 // ringScreen writes the drawn items in a Column: 0 a Text "n<i>", 1 a
 // Pressable "p<i>", 2 a Pressable "d<i>" under a disabled Fieldset, 3 a
 // Roving group of sizes[i] Pressables "g<i>m<j>". (a law's helper)
@@ -7335,6 +7454,10 @@ test UiPointerCrossesOnce(seed int) {
 	assert lawPointerCrossesOnce(seed)
 }
 
+test UiPointerCrossesAreas(seed int) {
+	assert lawPointerCrossesAreas(seed)
+}
+
 test UiFocusFollowsTheRing(seed int, steps int) {
 	assert lawFocusFollowsTheRing(seed, steps)
 }
@@ -7813,6 +7936,7 @@ var stdUIHostStatements = map[string]string{
 	"ui TypeIntoNamesTheField":             `TypeIntoNamesTheField(seed int, count int) { let m = time.NewManual(0) with context { Scheduler: m } { let n = (count%4+4)%4 + 2 let s = (seed%64 + 64) % 64 let view = func(f mut Frame[int], st int) { Column(f, Plain()) { for i in 0..n { LabelledInput(f, FieldLabel{Text: typedLabel(s, i), Description: "", Invalid: false}, "", "ph\(i)", func(t string) int { i*1000 + len(t) }) } } } let a = actor.StartMachine(Machine[int, int, int]{Initial: -1, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } for i in 0..n { let label = typedLabel(s, i) let mut name = label if name == "" { name = "ph\(i)" } let mut text = "" for _ in 0..i+1 { text = text + "x" } Play(&h, []Act{TypeInto{Label: name, Text: text}, SettleAll}) catch { case _: return false } if StateOf(&h) != i*1000+i+1 { return false } if label != "" { let mut missing = false Play(&h, []Act{TypeInto{Label: "ph\(i)", Text: "y"}}) catch { case NoNode: missing = true case _: return false } if !missing || StateOf(&h) != i*1000+i+1 { return false } } } true } }`,
 	"ui AccessIsWhatWasDeclared":           `AccessIsWhatWasDeclared(seed int, count int) { let m = time.NewManual(0) with context { Scheduler: m } { let n = (count%6+6)%6 + 2 let view = func(f mut Frame[int], s int) { let ds = semDecls(seed+s*7919, n) Column(f, Plain()) { for i, d in ds { if i%2 == 0 { Semantic(f, d, Some{Value: i + 1}, Plain()) { Text(f, "t\(i)") } } else { Fieldset(f, true, "fs") { Semantic(f, d, Some{Value: i + 1}, Plain()) { Text(f, "t\(i)") } } } } } } let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(s int) Option[func()] { None }}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } for s in 0..2 { let ds = semDecls(seed+StateOf(&h)*7919, n) for i, d in ds { let ids = Locate(&h, WithLabel{Label: d.Name}) if len(ids) != 1 { return false } let mut want = d if i%2 == 1 { want.Disabled = true if d.Description == "" { want.Description = "fs" } } if AccessAt(&h, ids[0]) != want { return false } // The matchers of the new states read the same record. if semHolds(&h, d.Name, ToBeSelected) != (want.Selected == (Some{Value: true})) || semHolds(&h, d.Name, ToBeExpanded) != (want.Expanded == (Some{Value: true})) || semHolds(&h, d.Name, ToBeCollapsed) != (want.Expanded == (Some{Value: false})) || semHolds(&h, d.Name, ToBeInvalid) != want.Invalid { return false } } if s == 0 { // A press on the first: the signal when it is enabled. let first = Locate(&h, WithLabel{Label: "n0"}) Tap(&h, first[0]) catch { case _: return false } Settle(&h) catch { case _: return false } if ds[0].Disabled != (StateOf(&h) == 0) { return false } } } true } }`,
 	"ui HoverCostsNoPass":                  `HoverCostsNoPass(seed int) { let m = time.NewManual(0) with context { Scheduler: m } { let mut r = seeded(seed) let n = draw(&r, 6) + 2 let view = func(f mut Frame[int], s int) { hoverScreen(f, s, n) } let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } let mut at = -1 for _ in 0..draw(&r, 8)+4 { let j = draw(&r, n+1) if j == n { PointNowhere(&h) catch { case _: return false } at = -1 } else { Play(&h, []Act{PointOn{Label: "h\(j)", Pointer: PointerEvent{Pointer: MousePointer, Phase: Moved, X: 1, Y: 1, Zone: None}}}) catch { case _: return false } at = j } if Counts(&h) != NoCounts() { return false } for i in 0..n { let ids = Locate(&h, WithLabel{Label: "h\(i)"}) if len(ids) != 1 { return false } let want LookState = if i == at { Hover } else { Rest } if LookStateAt(&h, ids[0]) != want || LookShownAt(&h, ids[0]) != LookNow(stateLooks(i), want) { return false } } } true } }`,
+	"ui PointerCrossesAreas":               `PointerCrossesAreas(seed int) { let m = time.NewManual(0) with context { Scheduler: m } { let mut r = seeded(seed) let n = draw(&r, 5) + 2 let mut parent = []int{} for i in 0..n { parent = parent.Append(draw(&r, i+1) - 1) } let view = func(f mut Frame[int], s string) { nestScreen(f, parent) } let a = actor.StartMachine(Machine[string, int, int]{Initial: "", Step: crossStep, After: crossTimer, Work: crossWork, Exit: func(at string) Option[func()] { None }}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } let mut at = []int{} let mut log = "" for _ in 0..draw(&r, 12)+4 { let j = draw(&r, 2*n+1) if j == 2*n { PointNowhere(&h) catch { case _: return false } } else { let label = if j < n { "a\(j)" } else { "t\(j - n)" } Play(&h, []Act{PointOn{Label: label, Pointer: PointerEvent{Pointer: MousePointer, Phase: Moved, X: 2, Y: 2, Zone: None}}}) catch { case _: return false } } let to = if j == 2*n { []int{} } else { nestChain(parent, j%n) } for x in at { if !nestHolds(to, x) { log = log + "\(10*x + 2)," } } for k in 0..len(to) { let x = to[len(to)-1-k] if !nestHolds(at, x) { log = log + "\(10*x + 1)," } } at = to if StateOf(&h) != log { return false } } true } }`,
 	"ui PointerCrossesOnce":                `PointerCrossesOnce(seed int) { let m = time.NewManual(0) with context { Scheduler: m } { let mut r = seeded(seed) let n = draw(&r, 4) + 2 let view = func(f mut Frame[int], s string) { crossScreen(f, n) } let a = actor.StartMachine(Machine[string, int, int]{Initial: "", Step: crossStep, After: crossTimer, Work: crossWork, Exit: func(at string) Option[func()] { None }}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } let mut at = -1 let mut log = "" for _ in 0..draw(&r, 10)+4 { let j = draw(&r, n+1) if j == n { PointNowhere(&h) catch { case _: return false } } else { Play(&h, []Act{PointOn{Label: "a\(j)", Pointer: PointerEvent{Pointer: MousePointer, Phase: Moved, X: 2, Y: 2, Zone: None}}}) catch { case _: return false } } let to = if j == n { -1 } else { j } if to != at { if at >= 0 { log = log + "\(10*at + 2)," } if to >= 0 { log = log + "\(10*to + 1)," } at = to } if StateOf(&h) != log { return false } } true } }`,
 	"ui FocusFollowsTheRing":               `FocusFollowsTheRing(seed int, steps int) { let mut r = seeded(seed) let m = time.NewManual(0) with context { Scheduler: m } { let mut kinds = []int{} let mut sizes = []int{} let mut mem = []int{} let mut labels = []string{} for _ in 0..draw(&r, 6)+2 { let k = draw(&r, 4) kinds = kinds.Append(k) sizes = sizes.Append(draw(&r, 3) + 1) mem = mem.Append(0) } for i, k in kinds { if k == 1 { labels = labels.Append("p\(i)") } else if k == 3 { for j in 0..sizes[i] { labels = labels.Append("g\(i)m\(j)") } } } let ks = kinds let ss = sizes let view = func(f mut Frame[int], s int) { ringScreen(f, s, ks, ss) } let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } let mut fi = -1 let mut fm = 0 let mut visible = false for _ in 0..(steps%16+16)%16+4 { let act = draw(&r, 7) if act == 6 && len(labels) == 0 { // nothing to click } else if act == 6 { let l = labels[draw(&r, len(labels))] Play(&h, []Act{ClickOn{At: WithLabel{Label: l}}}) catch { case _: return false } for i, k in kinds { if k == 1 && l == "p\(i)" { fi = i fm = 0 } else if k == 3 { for j in 0..sizes[i] { if l == "g\(i)m\(j)" { fi = i fm = j mem[i] = j } } } } visible = false } else if act < 2 { let back = act == 1 Play(&h, []Act{keyIn("Tab", back)}) catch { case _: return false } let mut ring = []int{} for i, k in kinds { if k == 1 || k == 3 { ring = ring.Append(i) } } let n = len(ring) if n == 0 { fi = -1 } else { let mut pos = -1 for p, i in ring { if i == fi { pos = p } } pos = if pos < 0 { if back { n - 1 } else { 0 } } else if back { (pos + n - 1) % n } else { (pos + 1) % n } fi = ring[pos] fm = if kinds[fi] == 3 { mem[fi] } else { 0 } } visible = true } else { let names = []string{"ArrowRight", "ArrowLeft", "Home", "End"} let key = names[act-2] Play(&h, []Act{keyIn(key, false)}) catch { case _: return false } if fi >= 0 && kinds[fi] == 3 { let k = sizes[fi] fm = if key == "ArrowRight" { (fm + 1) % k } else if key == "ArrowLeft" { (fm + k - 1) % k } else if key == "Home" { 0 } else { k - 1 } mem[fi] = fm visible = true } } let want = if fi < 0 { "" } else { ringName(kinds, fi, fm) } if focusName(&h) != want { return false } match FocusOf(&h) { case Some[Id[int]] as id: let shown LookState = if visible { FocusVisible } else { Hover } if LookStateAt(&h, id.Value) != shown { return false } case None: } } true } }`,
 	"ui FocusStaysInScope":                 `FocusStaysInScope(seed int, steps int) { let mut r = seeded(seed) let m = time.NewManual(0) with context { Scheduler: m } { let outs = draw(&r, 4) + 1 let ins = draw(&r, 4) + 1 let view = func(f mut Frame[int], s int) { scopeScreen(f, s, outs, ins) } let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } Play(&h, []Act{ClickOn{At: WithLabel{Label: "o\(draw(&r, outs))"}}}) catch { case _: return false } if focusName(&h) != "s0" { return false } let n = ins + 1 let mut at = 0 for _ in 0..(steps%12+12)%12+4 { let act = draw(&r, 3) if act == 2 { Play(&h, []Act{keyIn("ArrowDown", false)}) catch { case _: return false } } else { Play(&h, []Act{keyIn("Tab", act == 1)}) catch { case _: return false } at = if act == 1 { (at + n - 1) % n } else { (at + 1) % n } } let want = if at == ins { "close" } else { "s\(at)" } if focusName(&h) != want { return false } } true } }`,
