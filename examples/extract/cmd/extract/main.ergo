@@ -52,7 +52,7 @@ func show(r receipt.Receipt, fixes []json.Fix) string {
 }
 
 func run(args []string) fails os.Exit needs fs.Files | io.Stdout | llm.Model {
-	match reader.Read(try load(args[2])) {
+	match reader.Read(try load(args[1])) {
 	case reader.Found as g:
 		io.Stdout.Print(show(g.Receipt, g.Fixes))
 	case reader.Unfit as u:
@@ -90,12 +90,12 @@ func failed(f llm.Failure) string {
 func main() fails os.Exit needs Ambient {
 	with context { os.Process: os.NewHost(), fs.Files: fs.NewHost(), io.Stdout: io.NewHost() } {
 		let args = os.Process.Args()
-		if len(args) != 3 {
+		if len(args) != 2 {
 			return os.Exit{Code: 2, Message: "usage: extract RECORDING DOCUMENT"}
 		}
-		let exchanges = recorded.Read(try load(args[1])) catch {
+		let exchanges = recorded.Read(try load(args[0])) catch {
 		case recorded.Unreadable as u:
-			return os.Exit{Code: 2, Message: "extract: \(args[1]):\(u.Line): \(u.Reason)"}
+			return os.Exit{Code: 2, Message: "extract: \(args[0]):\(u.Line): \(u.Reason)"}
 		}
 		with context { llm.Model: recorded.NewReplay(exchanges) } {
 			try run(args)
