@@ -18,6 +18,7 @@ extern go encoding/ascii85.Decode func Decode(dst []byte, src []byte, flush bool
 extern go encoding/ascii85.Encode func Encode(dst []byte, src []byte) int needs go.Foreign
 
 // ergo:go func MaxEncodedLen(n int) int
+// ergo:total
 extern go encoding/ascii85.MaxEncodedLen func MaxEncodedLen(n int) int needs go.Foreign
 
 // ergo:go func NewDecoder(r io.Reader) io.Reader

@@ -66,9 +66,19 @@ func (s *stockParker) park() {
 		<-p.c
 		return
 	}
-	// A wake came between the two: take it.
-	p.state.Store(parkEmpty)
+	// A wake came between the two: take it. A parker another goroutine
+	// sleeps on is a misuse, which fails loudly.
+	if !p.state.CompareAndSwap(parkNotified, parkEmpty) {
+		panic(parkTwice)
+	}
 }
+
+// parkTwice is the failure of a second goroutine that parks on a parker
+// one already sleeps on: two goroutines in waits of one task on its own
+// word (Task.Suspend). Dropping either would leave it asleep for good, so
+// the misuse fails at once; a wait that two goroutines of a task may
+// reach parks on a Waiter of its own (waiter.go).
+const parkTwice = "rt: two goroutines park on one task's word at once; a wait two goroutines of a task may share parks on an rt.Waiter"
 
 // unpark wakes the parked waiter, or leaves a wake for its next park.
 // Any goroutine may call it.
@@ -101,7 +111,9 @@ func (s *stockParker) pending() bool { return s.of().state.Load() == parkNotifie
 // it: a Resume since the last Suspend returned, or the stop request of
 // Interrupt. It may return for a wake meant for another wait of t, so the
 // caller loops on its own condition and on Stopped. Call it from t's own
-// goroutine, the only one that may park on t.
+// goroutine, the only one that may park on t: a second goroutine that
+// parks while one sleeps on t's word panics (parkTwice), and a wait two
+// goroutines of a task may reach parks on a Waiter instead.
 func (t *Task) Suspend() { t.wake.park() }
 
 // Resume wakes t's goroutine from its Suspend, or leaves the wake for its
@@ -111,11 +123,14 @@ func (t *Task) Resume() { t.wake.unpark() }
 
 // Waits marks the point where t reaches a wait of the runtime, after the
 // wait registered what it waits for: held output is flushed and
-// WhenWaiting's hook runs. Done calls it; a wait on Suspend calls it
-// before its first park. Call it from t's own goroutine.
+// WhenPolled's and WhenWaiting's hooks run. Done calls it; a wait on
+// Suspend calls it before its first park. Call it from t's own goroutine.
 func (t *Task) Waits() {
 	if waitFlush.pending.Load() {
 		waitFlush.flush()
+	}
+	if t.stopped.v.Load()&flagPolled != 0 {
+		t.firePollHook()
 	}
 	if waitHooks.n.Load() != 0 {
 		t.fireWaitHook()

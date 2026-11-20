@@ -1,6 +1,44 @@
+import strings
+
 // Problem is any failure of Parse: its named row. A catch arm `case err:`
 // of Parse is a Problem, so one function tells them all.
 type Problem = Unexpected | Unterminated | BadEscape | TooBig | Duplicate
+
+// ProblemPointsIntoTheText: a failure names a line of the text and a
+// column of that line, or the one after its end; a duplicate names its
+// first place before it. For text, a sample's print cut at cut with
+// text after it, and a print written twice.
+law ProblemPointsIntoTheText(text string, seed int, cut int) {
+	let printed = Print(Sample(seed))
+	let k = if cut < 0 { -(cut + 1) } else { cut }
+	let broken = strings.Slice(printed, 0, k%(len(printed)+1)) + text
+	for t in []string{text, broken, printed + printed} {
+		let _ = Parse(t) catch {
+		case err:
+			if !Points(err, t) {
+				return false
+			}
+			continue
+		}
+	}
+	true
+}
+
+// Points reports whether the position of p is in text, and a
+// duplicate's first place is before it.
+func Points(p Problem, text string) bool {
+	let lines = strings.Split(text, "\n")
+	let pos = PosOf(p)
+	if pos.Line < 1 || pos.Line > len(lines) || pos.Column < 1 || pos.Column > len(lines[pos.Line-1])+1 {
+		return false
+	}
+	match p {
+	case Duplicate as d:
+		d.First.Line < d.At.Line
+	case Unexpected, Unterminated, BadEscape, TooBig:
+		true
+	}
+}
 
 // PosOf is the position that p names.
 func PosOf(p Problem) Pos {

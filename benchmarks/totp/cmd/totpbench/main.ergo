@@ -1,0 +1,52 @@
+// totpbench is AU3's receipt program: N TOTP checks with std totp's
+// VerifyKey under the secret keyed once (KeyOf; TOTP-FLOOR), as the floor
+// keys its HMAC once, six digits, a period of 30 seconds and a window of one period
+// on each side, so three HMAC-SHA-1s a check. Its hand Go twin and the Go
+// floor are in ../../testdata; the workload is ../../verify (go run
+// ./scripts/opcount -control -rounds 5 benchmarks/totp/verify).
+//
+//	totpbench bench verify N
+//
+// One unit is one check. The codes of the seconds 30·k, k below 1024, are
+// made first; check i verifies code i%1024 at its second plus 31, one
+// period later, so it matches the window's first step. It prints how
+// many checks matched.
+
+import os
+import strconv
+import time
+import totp
+
+func bench(n int) int {
+	let p = totp.Default()
+	let secret = "12345678901234567890"
+	let key = totp.KeyOf(secret)
+	let mut codes = []string{}
+	for k in 0..1024 {
+		codes = codes.Append(totp.Code(p, secret, time.Unix(int64(30*k), 0)))
+	}
+	let mut found = 0
+	for i in 0..n {
+		let k = i % 1024
+		match totp.VerifyKey(p, key, codes[k], time.Unix(int64(30*k+31), 0)) {
+		case Some[int64]:
+			found += 1
+		case None:
+		}
+	}
+	found
+}
+
+func main() fails os.Exit needs Console | Ambient {
+	with context { os.Process: os.NewHost() } {
+		let args = os.Process.Args()
+		if len(args) != 3 {
+			return os.Exit{Code: 2, Message: "usage: totpbench bench verify N"}
+		}
+		let n = strconv.Atoi(args[2]) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return os.Exit{Code: 2, Message: "totpbench: N is not a count"}
+		}
+		Console.Println("\(bench(n))")
+	}
+}

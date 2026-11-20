@@ -136,7 +136,7 @@ func TestOutputCap(t *testing.T) {
 		for i, sizes := range pairs {
 			cases[label(i)] = map[string]string{"args": fmt.Sprintf("%d\n%d\n", sizes[0], sizes[1]), "expected.out": "keep\n"}
 		}
-		dir := f.program("rec", "#!/bin/sh\necho port\n", "slow\n", cases, map[string]string{"record.sh": writer, "origin": "a fixture original\n"})
+		dir := f.program("rec", "#!/bin/sh\necho port\n", "slow\n", cases, map[string]string{"record.sh": writer})
 		code, out := f.run("-timeout", caseTimeout(t), "-record", "rec")
 		small(t, "-record", out)
 		_, fails := verdicts(out)

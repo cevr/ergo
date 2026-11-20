@@ -1,0 +1,166 @@
+// Package desk is the permit desk: the permit machine and the log of its
+// transitions that the inspector shows, newest first.
+
+import permitwizard/permit
+import machines
+
+// Entry is a line of the log: its number, and what happened.
+type Entry { ID int, Summary string }
+
+// Desk is the permit's stage, the log of the newest LogLimit transitions,
+// the next entry's number, and the code field's text (the last Edited's).
+type Desk { Stage permit.Stage, Log []Entry, Next int, Code string }
+
+// Signal is what the desk takes: a signal of the permit, or a text typed
+// in the code field, which the desk keeps as its Code and the permit takes
+// as Edited. The permit's signals carry no text, so its laws are decided
+// on the whole graph.
+type Signal = Do{Signal permit.Signal} | Typed{Text string}
+
+// LogLimit is how many entries the log keeps.
+let LogLimit = 20
+
+// Blank is a new desk: a new permit and an empty log.
+let Blank = Desk{Stage: permit.Start, Log: []Entry{}, Next: 0, Code: ""}
+
+// LogKeepsTheNewest: after n signals the log holds the newest LogLimit
+// entries (all n when fewer), newest first, numbered n-1 down.
+law LogKeepsTheNewest(n int where 0 <= n && n <= 60) {
+	let mut d = Blank
+	for i in 0..n {
+		d = machines.Next(d, Track(d, Do{Signal: permit.Chose{Overnight: i%2 == 0}}))
+	}
+	let kept = if n < LogLimit { n } else { LogLimit }
+	if len(d.Log) != kept || d.Next != n {
+		return false
+	}
+	for k, e in d.Log {
+		if e.ID != n-1-k {
+			return false
+		}
+	}
+	true
+}
+
+// StageName is the name of s's stage.
+func StageName(s permit.Stage) string {
+	match s {
+	case permit.Plan:
+		"Plan"
+	case permit.Supplies:
+		"Supplies"
+	case permit.Permit:
+		"Permit"
+	case permit.Review:
+		"Review"
+	case permit.Filing:
+		"Filing"
+	case permit.Confirmed:
+		"Confirmed"
+	case permit.Cancelled:
+		"Cancelled"
+	}
+}
+
+// SignalName is the name of sig's kind.
+func SignalName(sig permit.Signal) string {
+	match sig {
+	case permit.Continue:
+		"Continue"
+	case permit.Back:
+		"Back"
+	case permit.Cancel:
+		"Cancel"
+	case permit.File:
+		"File"
+	case permit.StartOver:
+		"StartOver"
+	case permit.Filed:
+		"Filed"
+	case permit.Chose:
+		"Chose"
+	case permit.Led:
+		"Led"
+	case permit.Agreed:
+		"Agreed"
+	case permit.Edited:
+		"Edited"
+	case permit.Applied:
+		"Applied"
+	case permit.Unknown:
+		"Unknown"
+	}
+}
+
+// Logged is d with the entry summary at the head of its log, which keeps
+// the newest LogLimit.
+func Logged(d Desk, summary string) Desk {
+	let mut log = []Entry{Entry{ID: d.Next, Summary: summary}}
+	for e in d.Log {
+		if len(log) == LogLimit {
+			break
+		}
+		log = log.Append(e)
+	}
+	Desk{..d, Log: log, Next: d.Next + 1}
+}
+
+// Track steps the permit and logs the step: "from -> to on signal" for a
+// transition, and "signal ignored in stage" for an ignored signal. An
+// ignored signal is a Stay of the desk, so a stage's timer runs on; a
+// transition of the permit is one of the desk. A Typed first keeps its
+// text as the desk's Code.
+func Track(d0 Desk, s Signal) Decision[Desk, Never] {
+	let (d, sig) = match s {
+	case Do as x:
+		(d0, x.Signal)
+	case Typed as t:
+		(Desk{..d0, Code: t.Text}, permit.Edited)
+	}
+	let dec = permit.Step(d.Stage, sig)
+	let next = machines.Next(d.Stage, dec)
+	let moved = Logged(Desk{..d, Stage: next}, "\(StageName(d.Stage)) -> \(StageName(next)) on \(SignalName(sig))")
+	match dec {
+	case Enter[permit.Stage]:
+		Enter[Desk]{Next: moved}
+	case Stay[permit.Stage]:
+		Stay[Desk]{Next: moved}
+	case Ignore, Reject:
+		Stay[Desk]{Next: Logged(d, "\(SignalName(sig)) ignored in \(StageName(d.Stage))")}
+	}
+}
+
+// IgnoredIsAStay: a signal the permit ignores is a Stay of the desk, so
+// the stage's timer runs on through it. The screen never offers one (law
+// ScreenOffersOnlyTransitions), so no case sends one; another host of the
+// desk may.
+law IgnoredIsAStay(s permit.Stage, sig permit.Signal) {
+	match permit.Step(s, sig) {
+	case Ignore, Reject:
+		match Track(Desk{..Blank, Stage: s}, Do{Signal: sig}) {
+		case Stay[Desk]:
+			true
+		case Enter[Desk], Ignore, Reject:
+			false
+		}
+	case Enter[permit.Stage], Stay[permit.Stage]:
+		true
+	}
+}
+
+// Timer is the desk's timer: its permit's.
+func Timer(d Desk) Option[Timeout[Signal]] {
+	match permit.Timer(d.Stage) {
+	case Some[Timeout[permit.Signal]] as t:
+		Some[Timeout[Signal]]{Value: Timeout[Signal]{In: t.Value.In, Signal: Do{Signal: t.Value.Signal}}}
+	case None:
+		None
+	}
+}
+
+// Inspector is the desk as a machine: the permit's, with its log.
+type Inspector machine[Desk, Signal] {
+	initial: Blank,
+	step:    Track,
+	after:   Timer,
+}

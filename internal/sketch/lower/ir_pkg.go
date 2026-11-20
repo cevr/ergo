@@ -165,9 +165,6 @@ func (b *irBuilder) admitArgs(t *check.Named, depth int) {
 // is not generic.
 func (b *irBuilder) typeArgs(c *check.Call, site syntax.Node) string {
 	var out []string
-	if b.l.hasGoRow(c.Func.Sig) {
-		irNo("call of a function with a Go row") // its row is a Go type argument too (rowslot.go; LY-FIX)
-	}
 	for i, tp := range c.Func.Sig.TParams {
 		if !b.l.goParam(tp) {
 			continue
@@ -248,6 +245,10 @@ func (b *irBuilder) valueSource(x *syntax.CallExpr, c *check.Call, args []syntax
 		if len(c.TypeArgs) != 2 {
 			irNo("Map write form")
 		}
+		if _, ok := b.intMapOf(b.l.info.Types[args[0]]); ok { // ir_intmap.go: the table's own copy
+			irArgs[0] = tableCall(irArgs[0].Pos, "Clone", irArgs[0])
+			return
+		}
 		k, v := b.goType(c.TypeArgs[0], x), b.goType(c.TypeArgs[1], x)
 		m := "map[" + k + "]" + v
 		if b.goType(b.l.info.Types[args[0]], x) != m {
@@ -255,7 +256,9 @@ func (b *irBuilder) valueSource(x *syntax.CallExpr, c *check.Call, args []syntax
 		}
 		if keep := "map[" + b.fc.goType(c.TypeArgs[0]) + "]" + b.fc.goType(c.TypeArgs[1]); b.namesTypeParam(keep) {
 			// A generic body's Map type is no package-level type, as
-			// Clip's above (I-FLIP: examples/fk-domains search/cache).
+			// Clip's above (I-FLIP: examples/domain-search search/cache) and
+			// Append's element (I-FLIP reds #15: pipeline's Book[E]
+			// Streams.Put).
 			b.keepImport("var _ = " + b.l.goPkg("maps") + ".Clone[map[string]bool]")
 		} else {
 			b.keepImport("var _ = " + b.l.goPkg("maps") + ".Clone[" + keep + "]")
@@ -331,6 +334,9 @@ func (b *irBuilder) opCall(x *syntax.CallExpr, c *check.Call, p irPos) ([]*irStm
 		irNo("operation call from a pure function")
 	case b.inPlaceSite(x):
 		return b.ownedSiteCall(x, c, b.fc.refSiteOf(x), p) // ir_ownlit.go
+	}
+	if tp, ptr := paramSource(b.l.info.Types[c.Recv]); tp != nil {
+		return b.witnessOpCall(x, c, tp, ptr, p) // ir_witness.go
 	}
 	n, ok := b.l.info.Types[c.Recv].(*check.Named)
 	if !ok {
@@ -461,7 +467,7 @@ func (b *irBuilder) passesPointer(c *check.Call, x *syntax.CallExpr) bool {
 		}
 		recv = x.Args[0]
 	}
-	_, ptr := b.l.info.Types[recv].(*check.Pointer)
+	_, ptr := b.fc.boundType(b.l.info.Types[recv]).(*check.Pointer)
 	return ptr
 }
 
@@ -471,6 +477,12 @@ func (b *irBuilder) passesPointer(c *check.Call, x *syntax.CallExpr) bool {
 func derefNamed(t check.Type) (*check.Named, bool) {
 	if p, ok := t.(*check.Pointer); ok {
 		t = p.Elem
+	}
+	// A go.Ref[T] is Go's *T (gocall.go): its fields are T's. The Ref
+	// itself is never a declaration, so the naming pass gives it no name
+	// (std pace's stats.HeapAlloc stopped the census on that, NAMING-ICE).
+	if e, ok := check.GoRefElem(t); ok {
+		t = e
 	}
 	n, ok := t.(*check.Named)
 	return n, ok

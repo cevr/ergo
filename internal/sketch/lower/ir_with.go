@@ -156,6 +156,20 @@ func (b *irBuilder) withOperand(x *syntax.CallExpr, i int, w *check.With, ret bo
 // emitter's.
 func (b *irBuilder) opsConv(conv check.Conversion, e *irExpr, x syntax.Expr) *irExpr {
 	l := b.l
+	if to, ok := conv.To.(*check.Named); ok && to.Obj.Pkg.Host() && !goAdapterConv(conv) {
+		// A Go value into a Go interface (a go.Ref[strings.Reader] as an
+		// io.Reader): Go's own implicit conversion, as the emitter's
+		// convert leaves it, spelled for the decoder, which inserts none
+		// (IR-GOCALLS-4). A Go interface value into another is Go's
+		// assignment the decoder does not spell.
+		if _, iface := underEqual(conv.From).(*check.Interface); iface {
+			irNo("Go interface value into another Go interface")
+		}
+		b.hostImported(to) // ir_govar.go
+		t := b.goType(conv.To, x)
+		b.keepImport("var _ " + b.fc.goType(conv.To)) // main.go imports its package
+		return &irExpr{K: "toiface", Pos: e.Pos, T: t, X: e}
+	}
 	if check.ScriptOf(conv.From) != nil {
 		irNo("operations conversion of a script")
 	}

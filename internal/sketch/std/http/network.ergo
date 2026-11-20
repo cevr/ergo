@@ -113,8 +113,6 @@ func policyOf(policy OriginPolicy, limits Limits, redirects RedirectPolicy) netP
 	netPolicy{origins: checked, anyOrigin: anyOrigin, limits: limits, hops: hops}
 }
 
-extern go ergo.local/prototype/runtime/v1/http.HTTPCheckNetwork func checkNetwork(origins []string, limits Limits) []string fails InvalidClient | InvalidLimits
-
 func SendURL(n Remote, r URLRequest) Response fails RequestFailed | OriginRefused | RedirectLimit {
 	let mut owners = []string{}
 	let mut fields = []Field{}
@@ -166,6 +164,38 @@ func InMemoryNetwork(policy OriginPolicy, limits Limits, redirects RedirectPolic
 	Local{net: try policyOf(policy, limits, redirects), handle: handle}
 }
 
+// RawPathDecodesToPath: a request sent through an InMemoryNetwork, so
+// through Go's client and server as Serve reads one, reaches its handler
+// with RawPath as the URL wrote the path and Path that RawPath's
+// DecodePath: a "/" inside a segment stays "%2F" in RawPath and only Path
+// splits there. segments are the path's segments, each escaped in upper
+// or lower case hex, every other one with its unreserved bytes plain.
+law RawPathDecodesToPath(segments []string, upper bool) {
+	let mut raw = ""
+	for i, s in segments {
+		let seg = if s == "" { "-" } else { s }
+		raw = raw + "/" + queryEscape(seg, i%2 == 0, upper)
+	}
+	if raw == "" {
+		raw = "/"
+	}
+	let n = InMemoryNetwork(AnyOrigin, Limits{MaxBodyBytes: 1 << 16, MaxHeaderBytes: 1 << 16, IdleTimeout: 30s, ReadHeaderTimeout: 10s, ReadBodyTimeout: 10s}, NoRedirects, func(origin string, r Request) Response needs Streaming {
+		Response{Status: 200, Header: []Field{}, Body: r.RawPath + "\n" + r.Path}
+	}) catch {
+	case InvalidClient, InvalidLimits:
+		return false
+	}
+	let got = n.SendURL(URLRequest{URL: "http://raw.test" + raw, Method: "GET", Header: []Field{}, Credentials: []Credential{}, Body: ""}) catch {
+	case RequestFailed, OriginRefused, RedirectLimit:
+		return false
+	}
+	let decoded = DecodePath(raw) catch {
+	case BadEscape:
+		return false
+	}
+	got.Body == raw+"\n"+decoded
+}
+
 func SendURL(n Local, r URLRequest) Response fails RequestFailed | OriginRefused | RedirectLimit {
 	let m = n.net
 	try fetchLocal(m.origins, m.anyOrigin, m.limits, m.hops, r.Method, r.URL, r.Header, owners(r), credentials(r), r.Body, n.answerer()) catch {
@@ -184,11 +214,11 @@ func SendURLInto(n Local, r URLRequest, accept Accept, put func(part string) fai
 
 // answerer is n's handle as the runtime calls it: the request's parts made a
 // Request, answered under a Recorder.
-func answerer(n Local) func(origin string, method string, path string, query []Field, header []Field, body string) Response {
+func answerer(n Local) func(origin string, method string, path string, rawPath string, query []Field, header []Field, body string) Response {
 	let handle = n.handle
-	func(origin string, method string, path string, query []Field, header []Field, body string) Response {
+	func(origin string, method string, path string, rawPath string, query []Field, header []Field, body string) Response {
 		with context { Streaming: NewRecorder() } {
-			handle(origin, Request{Method: method, Path: path, Query: query, Header: header, Body: Buffered{Text: body}})
+			handle(origin, Request{Method: method, Path: path, RawPath: rawPath, Query: query, Header: header, Body: Buffered{Text: body}})
 		}
 	}
 }
@@ -211,8 +241,8 @@ func credentials(r URLRequest) []Field {
 	out
 }
 
-extern go ergo.local/prototype/runtime/v1/http.HTTPFetchLocal func fetchLocal[R](origins []string, anyOrigin bool, limits Limits, hops int, method string, url string, header []Field, owners []string, credentials []Field, body string, handle func(origin string, method string, path string, query []Field, header []Field, body string) Response needs R) Response fails SendFailed | OriginRefused | RedirectLimit needs R
+extern go ergo.local/prototype/runtime/v1/http.HTTPFetchLocal func fetchLocal[R](origins []string, anyOrigin bool, limits Limits, hops int, method string, url string, header []Field, owners []string, credentials []Field, body string, handle func(origin string, method string, path string, rawPath string, query []Field, header []Field, body string) Response needs R) Response fails SendFailed | OriginRefused | RedirectLimit needs R
 
-extern go ergo.local/prototype/runtime/v1/http.HTTPFetchLocalInto func fetchLocalInto[R](origins []string, anyOrigin bool, limits Limits, hops int, method string, url string, header []Field, owners []string, credentials []Field, body string, accepts func(status int) bool, put func(part string) fails SinkFailed, handle func(origin string, method string, path string, query []Field, header []Field, body string) Response needs R) Response fails SendFailed | OriginRefused | RedirectLimit | StatusRefused | SinkFailed needs R
+extern go ergo.local/prototype/runtime/v1/http.HTTPFetchLocalInto func fetchLocalInto[R](origins []string, anyOrigin bool, limits Limits, hops int, method string, url string, header []Field, owners []string, credentials []Field, body string, accepts func(status int) bool, put func(part string) fails SinkFailed, handle func(origin string, method string, path string, rawPath string, query []Field, header []Field, body string) Response needs R) Response fails SendFailed | OriginRefused | RedirectLimit | StatusRefused | SinkFailed needs R
 
 extern go ergo.local/prototype/runtime/v1/http.HTTPFetch func fetch(origins []string, anyOrigin bool, limits Limits, hops int, method string, url string, header []Field, owners []string, credentials []Field, body string) Response fails SendFailed | OriginRefused | RedirectLimit

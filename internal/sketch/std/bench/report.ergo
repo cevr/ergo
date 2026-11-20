@@ -25,6 +25,16 @@ type Receipt {
 	Cases      []Case,
 }
 
+// NoHomePath: a receipt whose text names home paths publishes none, and
+// not the user's name: not in its block, not in its card.
+law NoHomePath(seed uint64, size int, pick int, n int) {
+	let r = receiptOf(seed, size, pick)
+	let user = "zqx\(within(n, 0, 9999))"
+	let named = Receipt{..r, Builds: Builds{Base: "/home/" + user + "/src/ergo", Head: "/Users/" + user}, Host: Host{..r.Host, Os: "linux /home/" + user}}
+	let text = Markdown(named) + Card(named, 0)
+	!strings.Contains(text, "/home/") && !strings.Contains(text, "/Users/") && !strings.Contains(text, user)
+}
+
 // Host is the host a run ran on: its system, its CPUs, its load average
 // and the priority both sides ran at.
 type Host { Os string, Cpus int, Load float64, Priority int }
@@ -124,6 +134,36 @@ func Table(r Receipt) string {
 	out
 }
 
+// NumberHasItsProof: every line of the table that gives a value gives its
+// bench unit, its pairs, and its interval with its coverage or exact.
+law NumberHasItsProof(seed uint64, size int, pick int) {
+	let r = receiptOf(seed, size, pick)
+	for line in strings.Split(Table(r), "\n")[1:] {
+		if line == "" || strings.Contains(line, ": refused: ") || strings.Contains(line, ": no word: ") {
+			continue
+		}
+		if !strings.Contains(line, " per op (") || !strings.Contains(line, " pairs)") {
+			return false
+		}
+		if !strings.Contains(line, "(exact, ") && !strings.Contains(line, "] at ") {
+			return false
+		}
+	}
+	true
+}
+
+// RefusedHasNoValue: a refused series prints its reason and no value: no
+// percent, no amount per bench unit.
+law RefusedHasNoValue(seed uint64, size int, pick int) {
+	let r = receiptOf(seed, size, pick)
+	for line in strings.Split(Table(r), "\n") {
+		if strings.Contains(line, ": refused: ") && (strings.Contains(line, "%") || strings.Contains(line, " per ")) {
+			return false
+		}
+	}
+	true
+}
+
 // said is a verdict as the table prints it: the word, the difference per
 // bench unit, and its proof (the interval with its coverage, or exact,
 // and the pairs); a refusal prints its reason and no value.
@@ -173,6 +213,16 @@ func amount(d Difference, unit string) string {
 // nonzero value never reads 0. A positive x has its plus sign.
 func figure(x float64, width float64) string {
 	if x > 0.0 { "+" + plain(x, width) } else { plain(x, width) }
+}
+
+// NonzeroNeverPrintsZero: a nonzero value prints a nonzero digit, with its
+// sign, whatever the width of its interval.
+law NonzeroNeverPrintsZero(m int, e int, w int) {
+	let digits = within(m, -999, 999)
+	let x = float64(if digits == 0 { 7 } else { digits }) * math.Pow(10.0, float64(within(e, -16, 6)))
+	let width = if within(w, 0, 10) == 0 { 0.0 } else { math.Pow(10.0, float64(within(w, -8, 3))) }
+	let s = figure(x, width)
+	nonzero(s) && (x > 0.0) == strings.HasPrefix(s, "+") && (x < 0.0) == strings.HasPrefix(s, "-")
 }
 
 // plain is figure with no plus sign.
@@ -236,6 +286,37 @@ func Markdown(r Receipt) string {
 	begin(id) + digest(body) + " -->\n" + body + end(id) + "\n"
 }
 
+// EditIsRefused: an edit of any one character of a block's digest or
+// body (k picks among the 64 digits and the body) makes ReadBlock fail
+// Edited, and Update refuse to replace it.
+law EditIsRefused(seed uint64, size int, pick int, at int) {
+	let r = receiptOf(seed, size, pick)
+	let doc = Markdown(r)
+	let sum = strings.Index(doc, "sha256:") + 7
+	let body = strings.Index(doc, " -->\n") + 5
+	let stop = strings.Index(doc, end(r.Id))
+	let k = within(at, 0, 64+(stop-body)-1)
+	let pos = if k < 64 { sum + k } else { body + k - 64 }
+	let was = doc[pos : pos+1]
+	let edited = doc[:pos] + (if was == "x" { "y" } else { "x" }) + doc[pos+1:]
+	let mut refused = 0
+	let _ = ReadBlock(edited, r.Id) catch {
+	case Edited:
+		refused = refused + 1
+		r
+	case NoBlock, Unreadable:
+		r
+	}
+	let _ = Update(edited, r) catch {
+	case Edited:
+		refused = refused + 1
+		""
+	case Unreadable:
+		""
+	}
+	refused == 2
+}
+
 func blockBody(r Receipt) string { "```text\n" + Table(r) + "```\n\n```json\n" + Encode(r) + "\n```\n" }
 
 func begin(id string) string { "<!-- ergo:bench " + id + " v1 begin sha256:" }
@@ -287,6 +368,54 @@ func ReadBlock(doc string, id string) Receipt fails NoBlock | Edited | Unreadabl
 	Decode(body[open+8 : close])
 }
 
+// BlockRoundTrips: the receipt read back from a document that holds its
+// block is the receipt; a block of another schema is Unreadable.
+law BlockRoundTrips(seed uint64, size int, pick int) {
+	let r = receiptOf(seed, size, pick)
+	let back = ReadBlock("# Receipts\n\n"+Markdown(r)+"\nmore text\n", r.Id) catch {
+	case NoBlock, Edited, Unreadable:
+		return false
+	}
+	let mut other = false
+	let _ = ReadBlock(Markdown(Receipt{..r, Schema: "bench.v2"}), r.Id) catch {
+	case Unreadable:
+		other = true
+		r
+	case NoBlock, Edited:
+		r
+	}
+	back == r && other
+}
+
+// receiptOf is a receipt of one or two cases of one referee run of a
+// drawn plan on a drawn Scripted meter: the laws of the report check how
+// a receipt prints and reads back, which a second run of Judge would not
+// change, so a second case shares the first one's run under its own name.
+func receiptOf(seed uint64, size int, pick int) Receipt {
+	let s = mix(seed)
+	// A small receipt: a fixed design of 3 to 8 pairs and at most one
+	// secondary. A report prints a refused, an unclear and a judged
+	// series, and a secondary, the same at any size and count, and its
+	// text, digest and JSON grow with them; small, a law's cases stay
+	// inside check time's budget (BENCH-LAW-COST).
+	let drawn = planOf(s, pick)
+	let p = Plan{..drawn, Secondaries: if len(drawn.Secondaries) > 1 { drawn.Secondaries[:1] } else { drawn.Secondaries }, Design: Fixed{Pairs: 3 + draw(s, 41, 6)}}
+	let m = scriptOf(s, size, p)
+	let run = with context { Meter: m } { Judge(p) }
+	let mut cases = []Case{}
+	for c in 0..(1 + draw(seed, 100, 2)) {
+		cases = cases.Append(Case{Name: "case\(c)", Unit: "op", Plan: p, Result: run})
+	}
+	Receipt{
+		Schema:     "bench.v1",
+		Id:         "run-\(draw(seed, 101, 1000))",
+		Experiment: 1 + draw(seed, 102, 5),
+		Host:       Host{Os: "linux", Cpus: 16, Load: float64(draw(seed, 103, 400)) / 10.0, Priority: 19},
+		Builds:     Builds{Base: "base", Head: "head"},
+		Cases:      cases,
+	}
+}
+
 // Update is doc with r's block in place of the block of its id, or
 // after doc when it has none. It refuses a block a hand edit broke.
 func Update(doc string, r Receipt) string fails Edited | Unreadable {
@@ -299,6 +428,26 @@ func Update(doc string, r Receipt) string fails Edited | Unreadable {
 		return Edited{Id: id}
 	}
 	doc[:s.from] + Markdown(r) + doc[s.to:]
+}
+
+// UpdateReplacesItsBlock: Update puts the new block where the old one was
+// and keeps the text around it; with no block of the id it appends one.
+// The new receipt has the id, another experiment and another host, so its
+// block differs, with the same referee runs (a second run of Judge would
+// check the referee, not Update).
+law UpdateReplacesItsBlock(seed uint64, size int, pick int) {
+	let r = receiptOf(seed, size, pick)
+	let next = Receipt{..r, Experiment: r.Experiment + 1, Host: Host{..r.Host, Load: r.Host.Load + 1.5}}
+	let doc = "before\n" + Markdown(r) + "after\n"
+	let replaced = Update(doc, next) catch {
+	case Edited, Unreadable:
+		return false
+	}
+	let appended = Update("before", next) catch {
+	case Edited, Unreadable:
+		return false
+	}
+	replaced == "before\n"+Markdown(next)+"after\n" && appended == "before\n"+Markdown(next)
 }
 
 // Card is the SVG card of case c of r: a headline from its primary's
@@ -316,6 +465,15 @@ func Card(r Receipt, c int) string {
 		"<text x=\"16\" y=\"72\" font-family=\"monospace\" font-size=\"12\">" + escape(k.Name+": "+proof) + "</text>\n" +
 		"<text x=\"16\" y=\"102\" font-family=\"monospace\" font-size=\"10\">" + escape(source) + "</text>\n" +
 		"</svg>\n"
+}
+
+// CardNamesItsBlock: a card carries the id and the digest of the block it
+// comes from.
+law CardNamesItsBlock(seed uint64, size int, pick int) {
+	let r = receiptOf(seed, size, pick)
+	let doc = Markdown(r)
+	let sum = doc[strings.Index(doc, "sha256:")+7 : strings.Index(doc, " -->\n")]
+	strings.Contains(Card(r, 0), "ergo:bench "+r.Id+" v1 sha256:"+sum)
 }
 
 // headline is the card's one line: how much fewer or more of the counter

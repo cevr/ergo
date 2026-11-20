@@ -1,0 +1,235 @@
+// Package file is a kv.Store kept in a file of the host, so its entries
+// outlive the process (docs/spec/stdlib.md, kv). The file is a log, one
+// line per write: `put<TAB>"key"<TAB>"value"` or `del<TAB>"key"`, each
+// text quoted by strconv.Quote, which escapes every tab and line feed, so
+// a line holds one record. A put or a delete is one fs AppendFile of its
+// line, and Compact rewrites the log as one put per key with fs
+// WriteFile, which writes a new file and renames it over the log, so a
+// crash leaves the old log or the new one, never a part.
+//
+// Open replays the log into a kv/memory index, which every read answers
+// from: a Get is a map lookup and never reads the file. A crash inside an
+// append can leave a part of the last line, with no line feed: Open
+// drops it and writes the log back without it, so the next append starts
+// a line. A whole line that is not a record is a broken log: Open fails
+// and names the line.
+//
+// One process opens the file at a time. A Store holds the file system it
+// uses as values, as a Go type holds an fs.FS: a provider's operation
+// cannot need a capability its contract does not write (rows.md, Context
+// 2). A program gives Open its fs.Host; a test gives it an fstest.Memory.
+//
+// Effect: KeyValueStore.layerFileSystem (a file per key). Go control: an
+// append-only log under a mutex, replayed into a map at start.
+
+import fs
+import fstest
+import kv
+import kv/memory
+import strconv
+import strings
+
+// Store is the file store of one log. Open makes one.
+type Store {
+	path   string,
+	files  fs.Files,
+	writes fs.Writes,
+	index  memory.Store,
+} implements kv.Store
+
+// record is one line of the log.
+type record = set{key string, value string} | unset{key string}
+
+// Open is the store of the log at path, read with files and written with
+// writes: an empty store when there is no file there yet (the first put
+// makes it). It fails when the log cannot be read, when a line of it is
+// not a record, or when it cannot drop a cut last line.
+func Open(files fs.Files, writes fs.Writes, path string) Store fails kv.Failed {
+	let text = files.ReadFile(path) catch {
+	case fs.NotFound:
+		""
+	case fs.Denied:
+		return kv.Failed{Reason: "\(path): permission denied"}
+	case fs.Failed as f:
+		return kv.Failed{Reason: "\(path): \(f.Reason)"}
+	}
+	let index = memory.New()
+	let mut n = 0
+	let mut whole = 0
+	for raw in strings.Lines(text) {
+		if !strings.HasSuffix(raw, "\n") {
+			break
+		}
+		n = n + 1
+		match try recordOf(path, n, strings.TrimSuffix(raw, "\n")) {
+		case set as s:
+			try index.Put(s.key, s.value)
+		case unset as u:
+			let _ = try index.Delete(u.key)
+		}
+		whole = whole + len(raw)
+	}
+	if whole < len(text) {
+		try write(writes, path, strings.Slice(text, 0, whole))
+	}
+	Store{path: path, files: files, writes: writes, index: index}
+}
+
+// Get is the value key holds, from the index.
+func Get(s Store, key string) Option[string] fails kv.Failed { try s.index.Get(key) }
+
+// Put appends a put of key and value to the log, then makes the index
+// hold it: a put the log did not keep changes nothing. Two tasks that put
+// one key at once may find the other's value after a reopen: the log
+// keeps the order of the appends, the index the order of the puts.
+func Put(s Store, key string, value string) fails kv.Failed {
+	try add(s, "put\t" + strconv.Quote(key) + "\t" + strconv.Quote(value) + "\n")
+	try s.index.Put(key, value)
+}
+
+// Delete appends a delete of key to the log when key holds a value, then
+// drops it from the index. It is whether key held one.
+func Delete(s Store, key string) bool fails kv.Failed {
+	if try s.index.Get(key) == None {
+		return false
+	}
+	try add(s, "del\t" + strconv.Quote(key) + "\n")
+	try s.index.Delete(key)
+}
+
+// Scan is the entries under prefix, by key, from the index.
+// seq-exempt: it is this provider's kv.Store.Scan, whose member law Store.ScanStops states its stop, and FileIsMemory runs it
+func Scan(s Store, prefix string) Seq[kv.Entry] fails kv.Failed { try s.index.Scan(prefix) }
+
+// Compact rewrites the log as one put per key, in key order: the puts
+// that a later one overwrote and the deletes go. No other task may write
+// s while it runs: an append inside it would go to the old file.
+func Compact(s Store) fails kv.Failed {
+	let mut text = ""
+	let all = try s.index.Scan("")
+	all(func(e kv.Entry) bool {
+		text = text + "put\t" + strconv.Quote(e.Key) + "\t" + strconv.Quote(e.Value) + "\n"
+		true
+	})
+	try write(s.writes, s.path, text)
+}
+
+// add appends line to the log.
+func add(s Store, line string) fails kv.Failed {
+	s.writes.AppendFile(s.path, line) catch {
+	case fs.NotFound:
+		return kv.Failed{Reason: "\(s.path): no such directory"}
+	case fs.Denied:
+		return kv.Failed{Reason: "\(s.path): permission denied"}
+	case fs.Failed as f:
+		return kv.Failed{Reason: "\(s.path): \(f.Reason)"}
+	}
+}
+
+// write makes the log at path hold text.
+func write(writes fs.Writes, path string, text string) fails kv.Failed {
+	writes.WriteFile(path, text) catch {
+	case fs.NotFound:
+		return kv.Failed{Reason: "\(path): no such directory"}
+	case fs.Denied:
+		return kv.Failed{Reason: "\(path): permission denied"}
+	case fs.Failed as f:
+		return kv.Failed{Reason: "\(path): \(f.Reason)"}
+	}
+}
+
+// recordOf is the record of line, the n-th of the log at path.
+func recordOf(path string, n int, line string) record fails kv.Failed {
+	let fields = strings.Split(line, "\t")
+	let bad = kv.Failed{Reason: "\(path):\(n): not a record"}
+	match (fields[0], len(fields)) {
+	case ("put", 3):
+		set{key: try unquote(fields[1], bad), value: try unquote(fields[2], bad)}
+	case ("del", 2):
+		unset{key: try unquote(fields[1], bad)}
+	case (_, _):
+		bad
+	}
+}
+
+// unquote is the text of a quoted field, or bad.
+func unquote(field string, bad kv.Failed) string fails kv.Failed {
+	strconv.Unquote(field) catch {
+	case strconv.Malformed:
+		return bad
+	}
+}
+
+// The laws of the file store against the memory store, over an
+// fstest.Memory disk: FileIsMemory is the model-based property, a
+// generated script of puts, deletes, compactions and reopens, ended by a
+// crash that cuts an append; OpenRefusesABrokenLine holds that a whole
+// line that is not a record breaks the log.
+
+// step is one step of a FileIsMemory script. A key is one of four, so
+// the steps meet on keys.
+type step = putStep{Key int, Value string} | deleteStep{Key int} | compactStep{} | reopenStep{}
+
+// keyOf is the key of a step's number.
+func keyOf(n int) string { "k\(((n%4)+4)%4)" }
+
+// entries is every entry of s, by key.
+func entries(s kv.Store) []kv.Entry fails kv.Failed {
+	let mut out = []kv.Entry{}
+	let all = try s.Scan("")
+	all(func(e kv.Entry) bool {
+		out = out.Append(e)
+		true
+	})
+	out
+}
+
+// FileIsMemory: a file store answers a script of puts, deletes,
+// compactions and reopens as a memory store does, and so does the store
+// a reopen gives after a crash cut its last append (torn, a part of a
+// line with no line feed), also after one more put.
+law FileIsMemory(steps []step, torn string) {
+	let disk = fstest.NewMemory()
+	let want = memory.New()
+	let mut got = try Open(disk, disk, "kv.log")
+	for st in steps {
+		match st {
+		case putStep as p:
+			try want.Put(keyOf(p.Key), p.Value)
+			try got.Put(keyOf(p.Key), p.Value)
+		case deleteStep as d:
+			if try want.Delete(keyOf(d.Key)) != try got.Delete(keyOf(d.Key)) {
+				return false
+			}
+		case compactStep:
+			try got.Compact()
+		case reopenStep:
+			got = try Open(disk, disk, "kv.log")
+		}
+	}
+	if try entries(got) != try entries(want) {
+		return false
+	}
+	try disk.AppendFile("kv.log", "put\t" + strings.ReplaceAll(torn, "\n", ""))
+	let back = try Open(disk, disk, "kv.log")
+	if try entries(back) != try entries(want) {
+		return false
+	}
+	try back.Put("after", torn)
+	try want.Put("after", torn)
+	try entries(try Open(disk, disk, "kv.log")) == try entries(want)
+}
+
+// OpenRefusesABrokenLine: a whole line that is not a record, after good
+// ones, makes Open fail.
+law OpenRefusesABrokenLine(key string, value string, line string) {
+	let disk = fstest.NewMemory()
+	let s = try Open(disk, disk, "kv.log")
+	try s.Put(key, value)
+	try disk.AppendFile("kv.log", "x" + strings.ReplaceAll(line, "\n", "") + "\n")
+	let _ = Open(disk, disk, "kv.log") catch {
+	case kv.Failed:
+		return true
+	}
+	false
+}

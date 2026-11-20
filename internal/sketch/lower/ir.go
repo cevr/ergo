@@ -62,6 +62,11 @@ type IRReport struct {
 	// ConstFolds counts the operations of constants folded into one
 	// (ir_constfold.go).
 	ConstFolds int `json:"-"`
+	// MapRounds is the number of lowerings the int map choice ran
+	// (intmap.go; 1 when no Map type conflicts), and MapConflicts counts
+	// the Map types each cause made Go's map, over every round.
+	MapRounds    int            `json:"-"`
+	MapConflicts map[string]int `json:"-"`
 	// Inlined counts the calls whose callee's IR body the pass copied to
 	// their site (ir_forms_inline.go).
 	Inlined int `json:"-"`
@@ -83,6 +88,15 @@ type IRReport struct {
 	// DropBodies counts the variants with no result the IR built
 	// (IR-DROPBODY, ir_forms_drop.go).
 	DropBodies int `json:"-"`
+	// FailJumps counts the inlined failures that jump to their catch arm
+	// (FAIL-INLINE, ir_forms_failjump.go).
+	FailJumps int `json:"-"`
+	// CatchTreeDefects counts the full catches with patterns whose tree's
+	// exit panics with the unreachable defect (FAIL-ELIDE-PAT, ir_fail.go).
+	CatchTreeDefects int `json:"-"`
+	// FailLeaves counts the fallible leaves copied only for their
+	// failures' jumps (FAIL-INLINE, ir_forms_inline.go).
+	FailLeaves int `json:"-"`
 	// DeadZeros counts the zero value sets dropped before an overwrite
 	// (ir_forms_zero.go).
 	DeadZeros int `json:"-"`
@@ -282,16 +296,42 @@ func lowerIRModule(u Unit, tests *testLowering, formsOff bool) ([]File, map[stri
 	if err := u.Validate(); err != nil {
 		return nil, nil, irModule{}, nil, err
 	}
-	l := newBuildLowerer(u, tests)
-	l.ir = &irState{files: map[string]int{}, report: IRReport{Fallback: map[string]int{}}, formsOff: formsOff, noFallback: u.NoFallback}
-	code, err := l.program()
-	if err != nil {
-		return nil, nil, irModule{}, nil, err
+	var (
+		l    *lowerer
+		code []byte
+		err  error
+		ims  intMapState
+		why  = map[string]int{}
+	)
+	for round := 0; ; round++ {
+		l = newBuildLowerer(u, tests)
+		l.ir = &irState{files: map[string]int{}, report: IRReport{Fallback: map[string]int{}}, formsOff: formsOff, noFallback: u.NoFallback, maps: ims}
+		if round == intMapRounds {
+			l.ir.maps = intMapState{allGo: true}
+		}
+		code, err = l.program()
+		if err != nil {
+			return nil, nil, irModule{}, nil, err
+		}
+		for k, n := range l.ir.maps.why {
+			why[k] += n
+		}
+		next, again := l.ir.maps.newRound() // intmap.go: a conflict lowers again
+		if !again || round == intMapRounds {
+			l.ir.report.MapRounds, l.ir.report.MapConflicts = round+1, why
+			break
+		}
+		ims = next
 	}
+	// The last round's bodies alone: an earlier round's fallbacks were
+	// the conflicts it lowered again for (intmap.go).
 	if err := l.ir.refuseFallbacks(); err != nil { // ir_fallback.go
 		return nil, nil, irModule{}, nil, err
 	}
 	if err := irNoForms(&l.ir.out); err != nil { // ir_forms_erase.go
+		return nil, nil, irModule{}, nil, err
+	}
+	if err := irPlaced(&l.ir.out); err != nil { // ir_placed.go
 		return nil, nil, irModule{}, nil, err
 	}
 	sort.Slice(l.ir.out.Funcs, func(i, j int) bool { return l.ir.out.Funcs[i].Name < l.ir.out.Funcs[j].Name })
@@ -325,8 +365,9 @@ type irState struct {
 	funcApplied map[string]int
 	// formsOff builds no IR form (LowerIRReference; ir_forms.go).
 	formsOff bool
-	ops      *opFacts  // the capability bindings (ir_forms_op.go)
-	inl      *irInline // the inliner's marks and frames (ir_forms_inline.go)
+	ops      *opFacts    // the capability bindings (ir_forms_op.go)
+	inl      *irInline   // the inliner's marks and frames (ir_forms_inline.go)
+	maps     intMapState // MI-2: the int map choice (intmap.go)
 	// noFallback is Unit.NoFallback; fallbacks are the bodies the
 	// builder stopped at, with their reasons (ir_fallback.go).
 	noFallback bool
@@ -346,7 +387,10 @@ func (st *irState) restart() *irState {
 	if census != nil {
 		census = &IRCensus{}
 	}
-	*st = irState{files: map[string]int{}, report: IRReport{Fallback: map[string]int{}}, census: census, reach: reach, formsOff: formsOff, noFallback: noFallback}
+	// The round's int map choice stays (its off types and allGo): the
+	// run's conflicts are dropped with its bodies (intmap.go).
+	maps := intMapState{off: st.maps.off, allGo: st.maps.allGo}
+	*st = irState{files: map[string]int{}, report: IRReport{Fallback: map[string]int{}}, census: census, reach: reach, formsOff: formsOff, noFallback: noFallback, maps: maps}
 	return st
 }
 
@@ -355,8 +399,6 @@ type irFile struct {
 	V     int      `json:"v"`
 	Files []string `json:"files"`
 	Funcs []irFunc `json:"funcs"`
-	// Shared are the instances another package compiles (pkginst.go).
-	Shared []string `json:"shared,omitempty"`
 }
 
 type irFunc struct {
@@ -459,9 +501,13 @@ type irBuilder struct {
 	st     *irState
 	fn     *irFunc
 	locals map[*check.Var]int
-	next   int
-	env    int // the environment's local, or -1 in a pure function
-	result check.Type
+	// letInits are the values the body's lets bound to names that keep
+	// their value, for unfoldAt (ir_unfold.go).
+	letInits map[*check.Var]syntax.Expr
+	next     int
+	env      int                      // the environment's local, or -1 in a pure function
+	wits     map[*check.TypeParam]int // each witness parameter's local (ir_witness.go)
+	result   check.Type
 	// reasons are a census's reasons for this body, distinct, in order.
 	reasons []string
 	// loops is the depth of loops around the statement being built.
@@ -593,6 +639,9 @@ type irBuilder struct {
 	// fuse is the fused match whose callee body is being built: its
 	// results jump to the match's arms (ir_forms_match.go).
 	fuse *fuseSite
+	// preset are the arguments of a component call evaluated once into a
+	// local, which the call in its group's body reads (ir_uigroup.go).
+	preset map[syntax.Expr]int
 }
 
 // gate stops the body for reason; a census records it and goes on.
@@ -665,6 +714,9 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	}
 	if n := b.monoName(f); n != "" {
 		name = n // a monomorphic copy (mono.go; ir_golib.go)
+	} else if b.fc.mono && b.copyName(f) == "" && !slices.Contains(gates, "copy for an instance") {
+		// A copy whose name is unknown would take f's (irInstanceCopy).
+		gates = append(gates, "copy for an instance")
 	}
 	pkg := ""
 	if f.Pkg != nil {
@@ -697,49 +749,58 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 		b.gate(g)
 	}
 	if len(fc.witness) > 0 {
-		b.gate("witness parameter")
-	}
-	if b.l.hasGoRow(f.Sig) {
-		b.gate("Go row parameter") // rowslot.go: F is a Go type parameter the IR spells error (LY-FIX)
+		b.witnessGate() // ir_witness.go
 	}
 	if f.Decl.Body == nil {
 		irNo("no body")
 	}
-	// Go parameter order: receiver, environment, parameters (emitBody).
+	// Go parameter order: receiver, environment, parameters (emitBody). A
+	// monomorphic copy of a method is a plain function: environment,
+	// receiver, parameters (mono.go).
+	method := fd.method != nil && b.monoName(f) == ""
 	for i, v := range params {
 		if v == nil {
 			// An unnamed parameter (`_ T`) has its slot; no body reads it.
-			if i == 0 && !fd.pure && fd.method == nil {
+			if i == 0 && !fd.envFree && !method {
 				b.env = b.next
 				b.next++
 			}
+			if i == 0 && fd.method == nil {
+				b.witnessSlots(f) // after the environment (ir_witness.go)
+			}
 			b.next++
-			if i == 0 && fd.method != nil && !fd.pure {
+			if i == 0 && method && !fd.envFree {
 				b.env = b.next
 				b.next++
 			}
 			continue
 		}
-		if i == 0 && fd.method != nil {
+		if i == 0 && method {
 			b.locals[v] = b.next
 			b.next++
-			if !fd.pure {
+			if !fd.envFree {
 				b.env = b.next
 				b.next++
 			}
 			continue
 		}
-		if i == 0 && !fd.pure {
+		if i == 0 && !fd.envFree {
 			b.env = b.next
 			b.next++
+		}
+		if i == 0 {
+			b.witnessSlots(f) // after the environment (ir_witness.go)
 		}
 		b.locals[v] = b.next
 		b.next++
 		b.part(func() { b.goType(v.Type, f.Decl) })
 	}
-	if len(params) == 0 && !fd.pure {
+	if len(params) == 0 && !fd.envFree {
 		b.env = b.next
 		b.next++
+	}
+	if len(params) == 0 {
+		b.witnessSlots(f) // ir_witness.go
 	}
 	if b.result != nil {
 		b.part(func() { b.goType(b.result, f.Decl) })
@@ -766,9 +827,9 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	b.part(b.ownVisited)                                            // ir_own.go
 	b.fn.Body = b.withEntry(b.fn.Body, n)                           // ir_hoist.go
 	b.fn.Body = append(b.fn.Body, b.bodyEnd(b.fn.Body, b.fn.End)...)
-	b.part(func() { b.fn.Body = b.closeMasked(f, b.fn.Body) }) // ir_own.go
-	b.fn.Body = b.deferExits(b.fn.Body)                        // ir_exits.go (STATIC-EXIT2)
-	b.fn.Body = irScopesIncrease(irUseLocals(b.fn.Body))       // ir_end.go
+	b.part(func() { b.fn.Body = b.closeMasked(f, b.fn.Body) })     // ir_own.go
+	b.fn.Body = b.deferExits(b.fn.Body)                            // ir_exits.go (STATIC-EXIT2)
+	b.fn.Body = irScopesIncrease(irUseLocals(b.fn.Body), b.fn.Pos) // ir_end.go
 	if st.census != nil {
 		return false
 	}
@@ -796,6 +857,7 @@ func (st *irState) finish(b *irBuilder, pkg, name string, decl syntax.Node, std 
 		}
 		st.report.Fallback[u.reason]++
 		b.note(u.reason)
+		b.l.intMapBody(b.l.info, decl, u.reason) // intmap.go: its emitter body writes Go's map operations
 		*ok = false
 		if st.noFallback {
 			st.fallbacks = append(st.fallbacks, IRCensusFunc{Pkg: pkg, Name: name, File: st.fileOf(b, decl), Std: std, Reasons: []string{u.reason}})

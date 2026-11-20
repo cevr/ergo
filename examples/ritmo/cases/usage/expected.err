@@ -1,0 +1,2 @@
+invalid value "nowhere" for flag -store: not one of memory, disk
+usage: ritmo [-store memory|disk] [-dir DIR] [-keep TICKS] < SCRIPT

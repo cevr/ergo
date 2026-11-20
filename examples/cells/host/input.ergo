@@ -41,9 +41,21 @@ func Feed[E comparable, S, D, F](h *Host[S, E, D, F], k term.Key) fails ui.Close
 		try key(h, "ArrowLeft")
 	case term.Right:
 		try key(h, "ArrowRight")
+	case term.Home:
+		try key(h, "Home")
+	case term.End:
+		try key(h, "End")
+	case term.Delete:
+		try key(h, "Delete")
+	case term.PageUp:
+		try key(h, "PageUp")
+	case term.PageDown:
+		try key(h, "PageDown")
 	case term.Char as c:
 		try typed(h, c.Text)
-	case term.Other:
+	case term.Paste as p:
+		try typed(h, p.Text)
+	case term.Insert, term.F, term.Chord, term.Wheel, term.Resized, term.Other:
 	}
 }
 
