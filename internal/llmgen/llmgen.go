@@ -31,6 +31,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 
 	format "ergo.local/prototype/internal/hostsyntax"
 	"ergo.local/prototype/internal/rpcgen"
@@ -58,7 +59,7 @@ func Generate(pkg *check.Package, path, opName, apiPath string) (Files, error) {
 	pkgName := lastElem(path)
 	api := lastElem(apiPath)
 	for _, name := range []string{pkgName, api} {
-		if reserved[name] {
+		if reserved()[name] {
 			return Files{}, fmt.Errorf("%s: the package %s is one the generated code names as a local or an import; rename it", opName, name)
 		}
 	}
@@ -78,7 +79,7 @@ func Generate(pkg *check.Package, path, opName, apiPath string) (Files, error) {
 			}
 			t.flatType = expr
 			for p, name := range imports {
-				if p != path && reserved[name] {
+				if p != path && reserved()[name] {
 					return Files{}, fmt.Errorf("%s.%s: the package %s of its parameter's type is one the generated code names as a local or an import; rename it", opName, op.Name, name)
 				}
 				if p != path {
@@ -119,12 +120,14 @@ func Generate(pkg *check.Package, path, opName, apiPath string) (Files, error) {
 
 // reserved are the names the generated file uses for its imports and
 // locals; a contract or hub package of one of these names would clash.
-var reserved = map[string]bool{
-	"json": true, "jsonschema": true, "llm": true, "rpc": true,
-	"c": true, "r": true, "o": true, "x": true, "e": true, "s": true, "m": true, "t": true, "v": true,
-	"id": true, "op": true, "name": true, "text": true, "back": true, "failed": true, "arguments": true,
-	"done": true, "rejected": true, "reply": true, "failure": true, "members": true, "specs": true, "bare": true, "argumentsOf": true,
-}
+var reserved = sync.OnceValue(func() map[string]bool {
+	return map[string]bool{
+		"json": true, "jsonschema": true, "llm": true, "rpc": true,
+		"c": true, "r": true, "o": true, "x": true, "e": true, "s": true, "m": true, "t": true, "v": true,
+		"id": true, "op": true, "name": true, "text": true, "back": true, "failed": true, "arguments": true,
+		"done": true, "rejected": true, "reply": true, "failure": true, "members": true, "specs": true, "bare": true, "argumentsOf": true,
+	}
+})
 
 func lastElem(path string) string {
 	if i := strings.LastIndex(path, "/"); i >= 0 {

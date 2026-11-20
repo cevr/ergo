@@ -6,6 +6,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"sync"
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -37,11 +38,13 @@ type GoBodies interface {
 
 // goBasics are the Go spellings of the basic types a driver reads and
 // writes, by their token kind.
-var goBasics = map[string]string{
-	"int": "i", "int8": "i", "int16": "i", "int32": "i", "int64": "i", "rune": "i",
-	"uint": "u", "uint8": "u", "uint16": "u", "uint32": "u", "uint64": "u", "uintptr": "u", "byte": "u",
-	"float32": "f32", "float64": "f64", "bool": "b", "string": "s",
-}
+var goBasics = sync.OnceValue(func() map[string]string {
+	return map[string]string{
+		"int": "i", "int8": "i", "int16": "i", "int32": "i", "int64": "i", "rune": "i",
+		"uint": "u", "uint8": "u", "uint16": "u", "uint32": "u", "uint64": "u", "uintptr": "u", "byte": "u",
+		"float32": "f32", "float64": "f64", "bool": "b", "string": "s",
+	}
+})
 
 // DriverSource is the Go text of the driver's main package over bodies,
 // whose package i is imported from "<module>/b<i>"; ok is false when a
@@ -55,7 +58,7 @@ func DriverSource(module string, bodies []check.GoBodySource) (string, bool) {
 	}
 	b.WriteString(")\n\nfunc main() {\n\tin := bufio.NewScanner(os.Stdin)\n\tin.Buffer(nil, 1<<30)\n\tout := bufio.NewWriter(os.Stdout)\n\tfor in.Scan() {\n\t\tr := drv.NewReader(in.Text())\n\t\tswitch r.Next() {\n")
 	for i, s := range bodies {
-		if len(s.Body.Results) != 1 || goBasics[s.Body.Results[0]] == "" {
+		if len(s.Body.Results) != 1 || goBasics()[s.Body.Results[0]] == "" {
 			return "", false
 		}
 		fmt.Fprintf(&b, "\t\tcase %q:\n", s.Target)
@@ -68,7 +71,7 @@ func DriverSource(module string, bodies []check.GoBodySource) (string, bool) {
 			fmt.Fprintf(&b, "\t\t\ta%d := %s\n", j, read)
 			args = append(args, fmt.Sprintf("a%d", j))
 		}
-		fmt.Fprintf(&b, "\t\t\tdrv.Reply(out, func() string { return drv.W%s(b%d.%s(%s)) })\n", goBasics[s.Body.Results[0]], i, s.Name, strings.Join(args, ", "))
+		fmt.Fprintf(&b, "\t\t\tdrv.Reply(out, func() string { return drv.W%s(b%d.%s(%s)) })\n", goBasics()[s.Body.Results[0]], i, s.Name, strings.Join(args, ", "))
 	}
 	b.WriteString("\t\tdefault:\n\t\t\tdrv.Reply(out, func() string { panic(\"no such body\") })\n\t\t}\n\t\tout.Flush()\n\t}\n}\n")
 	return b.String(), true
@@ -84,7 +87,7 @@ func driverRead(t string) (string, bool) {
 		}
 		return "drv.Slice(r, func(r *drv.Reader) " + elem + " { return " + read + " })", true
 	}
-	switch goBasics[t] {
+	switch goBasics()[t] {
 	case "i":
 		return t + "(r.Int())", true
 	case "u":

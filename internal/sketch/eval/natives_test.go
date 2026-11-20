@@ -488,9 +488,9 @@ func pureCases(g nativeGen, s, u string, d, m int64, f float64, ints, ints2 []in
 		{name: "time.DurationISO", args: []Value{d}, v1: func() any { return v1.TimeDurationISO(durationOf(d)) }},
 		{name: "time.DurationISO", args: []Value{nsec * int64(x+3)}, v1: func() any { return v1.TimeDurationISO(durationOf(nsec * int64(x+3))) }},
 		{name: "time.ParseDurationISO", args: []Value{iso}, v1: func() any { return result(v1.TimeParseDurationISO(iso)) }},
-		{name: "hash/crc32.Update", args: []Value{crc, goVars["hash/crc32.IEEETable"], bytesValue(s)}, v1: func() any { return v1digest.Crc32Update(crc, s) }},
-		{name: "encoding/base64.Encoding.EncodeToString", args: []Value{goVars["encoding/base64.StdEncoding"], bytesValue(s)}, v1: func() any { return v1digest.Base64StdEncode(s) }},
-		{name: "encoding/base64.Encoding.EncodeToString", args: []Value{goVars["encoding/base64.URLEncoding"], bytesValue(u)}, v1: func() any { return v1digest.Base64URLEncode(u) }},
+		{name: "hash/crc32.Update", args: []Value{crc, goVars()["hash/crc32.IEEETable"], bytesValue(s)}, v1: func() any { return v1digest.Crc32Update(crc, s) }},
+		{name: "encoding/base64.Encoding.EncodeToString", args: []Value{goVars()["encoding/base64.StdEncoding"], bytesValue(s)}, v1: func() any { return v1digest.Base64StdEncode(s) }},
+		{name: "encoding/base64.Encoding.EncodeToString", args: []Value{goVars()["encoding/base64.URLEncoding"], bytesValue(u)}, v1: func() any { return v1digest.Base64URLEncode(u) }},
 	}
 	return cs
 }

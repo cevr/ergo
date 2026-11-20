@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"testing"
 
+	"ergo.local/prototype/internal/ergobuild"
 	"ergo.local/prototype/internal/proclimit"
 	"ergo.local/prototype/internal/testwait"
 )
@@ -68,7 +69,7 @@ func ergoCLI(t *testing.T, ctx context.Context) string {
 		return ergo
 	}
 	ergo = filepath.Join(t.TempDir(), "ergo")
-	build := exec.CommandContext(ctx, "go", "build", "-buildvcs=false", "-o", ergo, "./cmd/ergo")
+	build := ergobuild.CommandContext(ctx, ergo, "./cmd/ergo", "-buildvcs=false")
 	build.Dir = repoRoot()
 	build.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	build.Cancel = func() error { return syscall.Kill(-build.Process.Pid, syscall.SIGKILL) }

@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"reflect"
 	"strconv"
+	"sync"
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -26,28 +27,32 @@ type goVal struct{ v reflect.Value }
 
 // goFuncs are the Go functions the evaluator calls by reflection, by Go
 // path and name.
-var goFuncs = map[string]any{
-	"net/url.Parse":       url.Parse,
-	"net/url.ParseQuery":  url.ParseQuery,
-	"net/netip.ParseAddr": netip.ParseAddr,
-	"strconv.ParseUint":   strconv.ParseUint,
-	"strconv.FormatUint":  strconv.FormatUint,
-}
+var goFuncs = sync.OnceValue(func() map[string]any {
+	return map[string]any{
+		"net/url.Parse":       url.Parse,
+		"net/url.ParseQuery":  url.ParseQuery,
+		"net/netip.ParseAddr": netip.ParseAddr,
+		"strconv.ParseUint":   strconv.ParseUint,
+		"strconv.FormatUint":  strconv.FormatUint,
+	}
+})
 
 // goTypes are the Go types whose methods the evaluator calls and whose
 // values go.New makes, by Go path and name.
-var goTypes = map[string]reflect.Type{
-	"net/url.URL":      reflect.TypeFor[url.URL](),
-	"net/url.Userinfo": reflect.TypeFor[url.Userinfo](),
-	"net/netip.Addr":   reflect.TypeFor[netip.Addr](),
-}
+var goTypes = sync.OnceValue(func() map[string]reflect.Type {
+	return map[string]reflect.Type{
+		"net/url.URL":      reflect.TypeFor[url.URL](),
+		"net/url.Userinfo": reflect.TypeFor[url.Userinfo](),
+		"net/netip.Addr":   reflect.TypeFor[netip.Addr](),
+	}
+})
 
 // goReflectNative is the native of fn when it is a function of goFuncs or
 // a method of a type of goTypes; nil otherwise.
 func goReflectNative(fn *check.Func) native {
 	if fn.Decl.Recv != nil {
 		path, typ, name := fn.Decl.Extern.SplitMethod()
-		if _, ok := goTypes[path+"."+typ]; !ok {
+		if _, ok := goTypes()[path+"."+typ]; !ok {
 			return nil
 		}
 		return func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
@@ -63,7 +68,7 @@ func goReflectNative(fn *check.Func) native {
 		}
 	}
 	path, name := fn.Decl.Extern.Split()
-	f, ok := goFuncs[path+"."+name]
+	f, ok := goFuncs()[path+"."+name]
 	if !ok {
 		return nil
 	}
@@ -319,7 +324,7 @@ func (in *interp) goBuiltin(fr *frame, x *syntax.CallExpr, c *check.Call) (Value
 		if !ok {
 			return nil, fr.unsupported(x, "go.New of %s", describe(v))
 		}
-		gt, ok := goTypes[r.t.Obj.Pkg.Path+"."+r.t.Obj.Name]
+		gt, ok := goTypes()[r.t.Obj.Pkg.Path+"."+r.t.Obj.Name]
 		if !ok {
 			return nil, fr.unsupported(x, "go.New of the Go type %s", r.t)
 		}
