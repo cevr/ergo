@@ -11,8 +11,8 @@ import "testing"
 // reason needsBuild gives: an equality the decoder writes wrong shows only
 // when the patched compile checks it or the test binary runs it.
 //
-// Mutants: gp-eq-assert-refused, gp-eq-assert-bin, gp-eq-branch-refused,
-// gp-eq-variant-refused, gp-eq-variant-shown-converted.
+// Mutants: gp-eq-assert-refused, gp-eq-assert-bin, gp-eq-variant-refused,
+// gp-eq-variant-shown-converted. (The if operand, Branches, is main's binaryOther with inOrder: no mutant of this unit.)
 func TestIREqualTestsMatchSource(t *testing.T) {
 	testBuildsAgree(t, "TestIREqualTestsMatchSource", GenerateEqualTests, "ergoTest", equalTestBodies, "FAIL ", "ok ")
 }
