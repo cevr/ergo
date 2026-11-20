@@ -1,6 +1,10 @@
 package check
 
-import "slices"
+import (
+	"fmt"
+	"path"
+	"slices"
+)
 
 // A law no case can feed, judged over its module (LAW-UNFED; types.md,
 // Laws 10). A contract's laws live with the contract, in its domain
@@ -31,6 +35,27 @@ type unfedBinding struct {
 type fedBinding struct {
 	law      *Law
 	provider Type
+}
+
+// lawSite is where law is declared, as an unfed binding's error at its
+// provider names it: FILE:LINE:COLUMN of the law's name, FILE the
+// package-relative name and, for a law of another package, under that
+// package's path; LINE:COLUMN alone for a file with no name.
+func (c *checker) lawSite(law *Law) string {
+	if law.file == nil || law.Decl == nil {
+		return law.Pkg.Path
+	}
+	f := law.file.syntax
+	line, col := f.Position(law.Decl.Name.Pos())
+	site := fmt.Sprintf("%d:%d", line, col)
+	name := f.Name
+	if law.Pkg != c.pkg {
+		name = path.Join(law.Pkg.Path, name)
+	}
+	if name != "" {
+		site = name + ":" + site
+	}
+	return site
 }
 
 // prepared is the diagnostic report makes, run with no diagnostic kept:

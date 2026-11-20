@@ -29,7 +29,7 @@ func TestUnfedLawIsAnError(t *testing.T) {
 			src: shape + `type Fn { f func(int) int } implements Shape
 func Area(s Fn) int { s.f(1) }
 `,
-			want: []string{"5:40 S108 law Shape.Positive cannot run at Fn: its values have no generator: func(int) int is a function type; bind one in a named context of a test file, let Name = context { Shape: … }, and the law runs under it (types.md, Laws 10)"},
+			want: []string{"5:40 S108 law Shape.Positive, declared at 3:6, cannot run at Fn: its values have no generator: func(int) int is a function type; bind one in a named context of a test file, let Name = context { Shape: … }, and the law runs under it (types.md, Laws 10)"},
 		},
 		{
 			name: "provider a named context builds",
@@ -53,7 +53,7 @@ func Area(_ Nd) int { 1 }
 func Close(_ Nd) needs Console {}
 let Needy = context { Shape: Nd{g: func(n int) int { n }} }
 `,
-			want: []string{"5:40 S108 law Shape.Positive cannot run at Nd: its values have no generator: func(int) int is a function type; bind one in a named context of a test file, let Name = context { Shape: … }, and the law runs under it (types.md, Laws 10)"},
+			want: []string{"5:40 S108 law Shape.Positive, declared at 3:6, cannot run at Nd: its values have no generator: func(int) int is a function type; bind one in a named context of a test file, let Name = context { Shape: … }, and the law runs under it (types.md, Laws 10)"},
 		},
 		{
 			// A law whose slot is a parameter runs under no context, so
@@ -64,7 +64,7 @@ law Same(s Store) { s.Get() == s.Get() }
 type Fn { f func(int) int } implements Store
 func Get(s Fn) int { s.f(1) }
 `,
-			want: []string{"3:40 S108 law Same cannot run at Fn: its values have no generator: func(int) int is a function type; a func NewFn() Fn with no rows would build one for each case (types.md, Laws 10)"},
+			want: []string{"3:40 S108 law Same, declared at 2:5, cannot run at Fn: its values have no generator: func(int) int is a function type; a func NewFn() Fn with no rows would build one for each case (types.md, Laws 10)"},
 		},
 		{
 			name: "parameter at the provider's instance",
@@ -75,7 +75,7 @@ func Get(s Fn) int { s.f(1) }
 type Fns {} implements Box[func(int) int]
 func Put(_ Fns, v own func(int) int) {}
 `,
-			want: []string{"5:24 S108 law Box.Keeps cannot run at Fns: its parameter v has no generator at Box[func(int) int]: func(int) int is a function type (types.md, Laws 10)"},
+			want: []string{"5:24 S108 law Box.Keeps, declared at 3:6, cannot run at Fns: its parameter v has no generator at Box[func(int) int]: func(int) int is a function type (types.md, Laws 10)"},
 		},
 		{
 			// fstest's fs.Root: NewRecorder wraps a Root, so NewTree is

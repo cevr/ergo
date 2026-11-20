@@ -778,10 +778,15 @@ func (c *checker) reportUnfedProviders() {
 				tn := p.Type.Obj
 				var at syntax.Node
 				name := p.Type.String()
+				law := r.Law.Title(c.pkg)
 				switch {
 				case tn.Pkg == c.pkg && tn.file != nil && tn.Decl != nil:
+					// The pair provider × law is unfed, and its fix is
+					// made at the provider: the error is there, and names
+					// where the law is declared.
 					c.cur = tn.file
 					at, name = implementsEntry(p.Type, p.Slot, tn), tn.Name
+					law += ", declared at " + c.lawSite(r.Law) + ","
 				case r.Law.Pkg == c.pkg && r.Law.file != nil:
 					c.cur = r.Law.file
 					at = r.Law.Decl.Name
@@ -793,7 +798,7 @@ func (c *checker) reportUnfedProviders() {
 					if at == nil {
 						p.Unrun += fix
 					} else {
-						c.errorf(at, CodeType, "law %s cannot run at %s: %s%s (types.md, Laws 10)", r.Law.Title(c.pkg), name, p.Unrun, fix)
+						c.errorf(at, CodeType, "law %s cannot run at %s: %s%s (types.md, Laws 10)", law, name, p.Unrun, fix)
 					}
 					continue
 				}
@@ -803,7 +808,7 @@ func (c *checker) reportUnfedProviders() {
 				u := unfedBinding{law: r.Law, provider: p.Type}
 				if at != nil {
 					u.diag = c.prepared(func() {
-						c.errorf(at, CodeType, "law %s cannot run at %s: %s%s; no named context of a package of module %s builds one (types.md, Laws 10)", r.Law.Title(c.pkg), name, p.Unrun, fix, c.pkg.module)
+						c.errorf(at, CodeType, "law %s cannot run at %s: %s%s; no named context of a package of module %s builds one (types.md, Laws 10)", law, name, p.Unrun, fix, c.pkg.module)
 					})
 				}
 				p.Unrun += fix

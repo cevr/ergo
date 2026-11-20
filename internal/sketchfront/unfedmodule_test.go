@@ -38,7 +38,7 @@ func Size(s dom.Fn) int { s.F(1) }
 		want      string // the domain package's one diagnostic; "" for none
 	}{
 		{name: "fed by the memory package", mem: fed},
-		{name: "fed by no package", mem: unfed, want: "S108 law Shape.Positive cannot run at Fn: its values have no generator: func(int) int is a function type; bind one in a named context of a test file, let Name = context { Shape: … }, and the law runs under it; no named context of a package of module m builds one (types.md, Laws 10)"},
+		{name: "fed by no package", mem: unfed, want: "S108 law Shape.Positive, declared at dom.ergo:3:6, cannot run at Fn: its values have no generator: func(int) int is a function type; bind one in a named context of a test file, let Name = context { Shape: … }, and the law runs under it; no named context of a package of module m builds one (types.md, Laws 10)"},
 	}
 	for _, row := range rows {
 		t.Run(row.name, func(t *testing.T) {
