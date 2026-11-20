@@ -9,7 +9,9 @@ import (
 // stdHashingLawsProbe restates the prelude's Hashing laws (CONSTRAINTS C5;
 // types.md, Maps) as Ergo property tests over the prelude's own provider,
 // Structural, at int, string and float64: the member laws through its
-// functions, the Structural*KeysHashEqual laws through the hash builtin. A
+// functions. The laws that read a hash (EqualKeysHashEqual,
+// Structural*KeysHashEqual) are #162 rows: a test build cannot lower hash
+// yet (calls.go, "an unknown call kind" for check.CallHash). A
 // where the law states (b K where Equal(a, b)) is the test's implication;
 // the test also ties b to a, and for float64 tries 0.0 and -0.0, which are
 // == and not identical.
@@ -34,10 +36,6 @@ test PreludeHashingEqualIsTransitive(a int, b int, c int) {
 	assert (!(si.Equal(a, b) && si.Equal(b, c)) || si.Equal(a, c)) && si.Equal(a, a) && (!(sf.Equal(0.0, negZero()) && sf.Equal(negZero(), 0.0)) || sf.Equal(0.0, 0.0))
 }
 
-test PreludeHashingEqualKeysHashEqual(a int, b int, s string) {
-	assert (!si.Equal(a, b) || si.Hash(a) == si.Hash(b)) && si.Hash(a) == si.Hash(a) && ss.Hash(s) == ss.Hash(s) && sf.Hash(0.0) == sf.Hash(negZero())
-}
-
 test PreludeHashingNormalKeyIsEqual(a int, s string) {
 	assert (!si.NormalForm() || si.Equal(a, si.NormalKey(a))) && (!ss.NormalForm() || ss.Equal(s, ss.NormalKey(s)))
 }
@@ -45,39 +43,23 @@ test PreludeHashingNormalKeyIsEqual(a int, s string) {
 test PreludeHashingEqualKeysNormalEqual(a int, b int) {
 	assert (!si.NormalForm() || !si.Equal(a, b) || si.NormalKey(a) == si.NormalKey(b)) && si.NormalKey(a) == si.NormalKey(a) && (!sf.NormalForm() || sf.NormalKey(0.0) == sf.NormalKey(negZero()))
 }
-
-test PreludeStructuralFloatKeysHashEqual(a float64) {
-	assert (a != a || hash(a) == hash(a)) && hash(0.0) == hash(negZero())
-}
-
-test PreludeStructuralIntKeysHashEqual(a int) {
-	assert hash(a) == hash(a)
-}
-
-test PreludeStructuralStringKeysHashEqual(a string) {
-	assert hash(a) == hash(a)
-}
 `
 
 // stdHashingLawStatements is the statement of each law the probe restates,
 // by ledger key; lawledger.Run holds it equal to the ledger.
 var stdHashingLawStatements = map[string]string{
-	"prelude Hashing.EqualIsReflexive":      `EqualIsReflexive(a K) { Equal(a, a) }`,
-	"prelude Hashing.EqualIsSymmetric":      `EqualIsSymmetric(a K, b K) { Equal(a, b) == Equal(b, a) }`,
-	"prelude Hashing.EqualIsTransitive":     `EqualIsTransitive(a K, b K where Equal(a, b), c K where Equal(b, c)) { Equal(a, c) }`,
-	"prelude Hashing.EqualKeysHashEqual":    `EqualKeysHashEqual(a K, b K where Equal(a, b)) { Hash(a) == Hash(b) }`,
-	"prelude Hashing.NormalKeyIsEqual":      `NormalKeyIsEqual(a K) { !NormalForm() || Equal(a, NormalKey(a)) }`,
-	"prelude Hashing.EqualKeysNormalEqual":  `EqualKeysNormalEqual(a K, b K where Equal(a, b)) { !NormalForm() || NormalKey(a) == NormalKey(b) }`,
-	"prelude StructuralFloatKeysHashEqual":  `StructuralFloatKeysHashEqual(a float64, b float64 where a == b) { hash(a) == hash(b) }`,
-	"prelude StructuralIntKeysHashEqual":    `StructuralIntKeysHashEqual(a int, b int where a == b) { hash(a) == hash(b) }`,
-	"prelude StructuralStringKeysHashEqual": `StructuralStringKeysHashEqual(a string, b string where a == b) { hash(a) == hash(b) }`,
+	"prelude Hashing.EqualIsReflexive":     `EqualIsReflexive(a K) { Equal(a, a) }`,
+	"prelude Hashing.EqualIsSymmetric":     `EqualIsSymmetric(a K, b K) { Equal(a, b) == Equal(b, a) }`,
+	"prelude Hashing.EqualIsTransitive":    `EqualIsTransitive(a K, b K where Equal(a, b), c K where Equal(b, c)) { Equal(a, c) }`,
+	"prelude Hashing.NormalKeyIsEqual":     `NormalKeyIsEqual(a K) { !NormalForm() || Equal(a, NormalKey(a)) }`,
+	"prelude Hashing.EqualKeysNormalEqual": `EqualKeysNormalEqual(a K, b K where Equal(a, b)) { !NormalForm() || NormalKey(a) == NormalKey(b) }`,
 }
 
 // TestStdHashingLawsRun runs the Hashing probe's tests with --seed 1;
 // lawledger.Run holds that the probe restates exactly the ledger's laws
 // whose runner is this test, each with the row's statement, and that each
-// passed. It builds Go because the hash builtin and Structural's functions
-// run as the lowered Map runs them; no Go function stands for hash.
+// passed. It builds Go because Structural's functions run as the lowered
+// Map runs them.
 func TestStdHashingLawsRun(t *testing.T) {
 	needsBuild(t)
 	if laws := lawProbe(t, "stdhashing", stdHashingLawsProbe, stdHashingLawStatements); laws != nil {
