@@ -1340,6 +1340,7 @@ func (l *lowerer) acquiredSet(w *check.With) contextSet {
 // unreached provider never runs (Context 7), and an entry whose provider uses
 // a capability of this context is built after that capability's entry.
 func (l *lowerer) contextBuilder(w *check.With, site syntax.Node) string {
+	refuseFallibleContext(w.Contexts[0], site)
 	key := l.acquiredSet(w)
 	if name, ok := l.contexts[key]; ok {
 		return name
@@ -1356,6 +1357,30 @@ func (l *lowerer) context(w *check.Context, site syntax.Node) {
 	if w.Decl.Provides != nil {
 		refuse(w.Decl, "a context header with provides is checked by 196b")
 	}
+	refuseFallibleContext(w, site)
+}
+
+// refuseFallibleContext refuses w, or a named context it embeds at any
+// depth, whose header writes a fails row: its builder returns no error yet,
+// so a failed build has nowhere to go (CTX-ROWS-2b). The checker accepts
+// the program (check/contextneeds.go); the lowering refuses it, never
+// compiles it partly.
+func refuseFallibleContext(w *check.Context, site syntax.Node) {
+	seen := map[*check.Context]bool{}
+	var walk func(*check.Context)
+	walk = func(v *check.Context) {
+		if v == nil || seen[v] {
+			return
+		}
+		seen[v] = true
+		if v.Lit == nil && v.Decl != nil && v.Decl.Fails != nil {
+			refuse(site, "context %s can fail while it is built (its header's fails row); a builder that returns the failure is CTX-ROWS-2b's", v.Name)
+		}
+		for _, e := range v.Entries {
+			walk(e.Embedded)
+		}
+	}
+	walk(w)
 }
 
 // emitContext writes the builder name for the with w. A with that owns a
