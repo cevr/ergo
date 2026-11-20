@@ -11,6 +11,7 @@ import (
 	"go/token"
 	"strconv"
 	"strings"
+	"sync"
 
 	"cmd/compile/internal/syntax"
 	"cmd/compile/internal/types2"
@@ -500,7 +501,7 @@ func (c *ergoChecker) binType(p ergoPos, op syntax.Operator, name string, lt, rt
 		}
 		return types2.Typ[types2.Bool]
 	case syntax.Lss, syntax.Leq, syntax.Gtr, syntax.Geq:
-		if !ergoIsNumeric(lt) && !ergoIsString(lt) {
+		if !ergoOrdered(lt) {
 			return bad()
 		}
 		return types2.Typ[types2.Bool]
@@ -512,6 +513,31 @@ func (c *ergoChecker) binType(p ergoPos, op syntax.Operator, name string, lt, rt
 	}
 	return bad()
 }
+
+// ergoOrdered reports whether Go's < applies to t: a basic number or
+// string, or a type parameter whose type set holds only those (an Ergo
+// ordered parameter, GP-ORDER). types2 judges the type parameter: it
+// satisfies cmp.Ordered's type set, so a constraint with no type terms
+// is not ordered.
+func ergoOrdered(t types2.Type) bool {
+	if _, ok := t.(*types2.TypeParam); !ok {
+		return ergoIsNumeric(t) || ergoIsString(t)
+	}
+	return types2.Satisfies(t, ergoOrderedSet())
+}
+
+// ergoOrderedSet is cmp.Ordered: ~int | … | ~float64 | ~string.
+var ergoOrderedSet = sync.OnceValue(func() *types2.Interface {
+	var terms []*types2.Term
+	for _, k := range []types2.BasicKind{types2.Int, types2.Int8, types2.Int16, types2.Int32, types2.Int64, types2.Uint, types2.Uint8, types2.Uint16, types2.Uint32, types2.Uint64, types2.Uintptr, types2.Float32, types2.Float64, types2.String} {
+		terms = append(terms, types2.NewTerm(true, types2.Typ[k]))
+	}
+	it := types2.NewInterfaceType(nil, []types2.Type{types2.NewUnion(terms)})
+	// Its type set is computed here, once (types2 has no Complete): computed
+	// lazily, two decoder goroutines would both write the one shared value.
+	it.IsMethodSet()
+	return it
+})
 
 // ergoFuncConv reports a conversion between a function type and a type
 // defined over it (Seq[T] of a function literal): identical signatures,

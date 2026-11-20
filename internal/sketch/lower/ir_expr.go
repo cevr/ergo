@@ -162,10 +162,30 @@ func (b *irBuilder) operator(op string, t check.Type, site syntax.Node) {
 	if !irOps[op] {
 		irNo("operator %s", op)
 	}
-	if b.scalarBasic(t) == nil { // ir_union.go: a named scalar's too
+	if b.scalarBasic(t) == nil && !orderedParam(op, t) { // ir_union.go: a named scalar's too
 		irNo("operator %s on a non-basic type", op)
 	}
 	b.goType(t, site)
+}
+
+// orderedParam reports an ordering operator on a type parameter whose
+// constraint is ordered (GP-ORDER): its Go constraint is the generated
+// type-set interface (constraint, decls.go), whose every type is ordered,
+// so Go's < compiles it per GC shape, as the text path writes it. Equality
+// goes through equalOn (ir_equal.go); arithmetic on number is left out
+// until a body needs it.
+func orderedParam(op string, t check.Type) bool {
+	switch op {
+	case "<", "<=", ">", ">=":
+	default:
+		return false
+	}
+	tp, ok := t.(*check.TypeParam)
+	if !ok || tp.Slot || tp.Constraint == nil {
+		return false
+	}
+	it := constraintOf(tp)
+	return it != nil && it.Set == check.SetOrdered
 }
 
 // expr is x after its implicit conversion (implicit, ir_union.go).
