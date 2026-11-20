@@ -69,7 +69,7 @@ func FileLabel(overnight bool, pass permit.Pass) string {
 }
 
 // Screen is the desk: the permit's step, then the inspector.
-func Screen(f *ui.Frame[desk.Signal], d desk.Desk) {
+func Screen(f mut ui.Frame[desk.Signal], d desk.Desk) {
 	ui.Column(f, ui.Plain()) {
 		heading(f, Title, 1)
 		step(f, d.Stage, d.Code)
@@ -78,7 +78,7 @@ func Screen(f *ui.Frame[desk.Signal], d desk.Desk) {
 }
 
 // step is the permit's current step.
-func step(f *ui.Frame[desk.Signal], s permit.Stage, typed string) {
+func step(f mut ui.Frame[desk.Signal], s permit.Stage, typed string) {
 	match s {
 	case permit.Plan as p:
 		heading(f, "Plan the trip", 2)
@@ -138,7 +138,7 @@ func step(f *ui.Frame[desk.Signal], s permit.Stage, typed string) {
 
 // code is the review's code field over the desk's Code: each text
 // typed in it is a desk.Typed (the permit's Edited), and Apply gives the machine the code parsed.
-func code(f *ui.Frame[desk.Signal], typed string) {
+func code(f mut ui.Frame[desk.Signal], typed string) {
 	ui.Input(f, typed, CodePlaceholder, func(t string) desk.Signal { desk.Typed{Text: t} })
 	let applied permit.Signal = match permit.ParseCode(typed) {
 	case Some[permit.Allowance] as a:
@@ -150,7 +150,7 @@ func code(f *ui.Frame[desk.Signal], typed string) {
 }
 
 // inspector is the stage and the log, newest first.
-func inspector(f *ui.Frame[desk.Signal], d desk.Desk) {
+func inspector(f mut ui.Frame[desk.Signal], d desk.Desk) {
 	heading(f, InspectorTitle, 2)
 	ui.Text(f, "Stage: \(desk.StageName(d.Stage))")
 	ui.Semantic(f, named(ui.List, LogName, None), None, ui.Plain()) {
@@ -162,13 +162,13 @@ func inspector(f *ui.Frame[desk.Signal], d desk.Desk) {
 	}
 }
 
-func heading(f *ui.Frame[desk.Signal], text string, level int) {
+func heading(f mut ui.Frame[desk.Signal], text string, level int) {
 	ui.Semantic(f, named(ui.Heading, text, Some{Value: level}), None, ui.Plain()) {
 		ui.Text(f, text)
 	}
 }
 
-func button(f *ui.Frame[desk.Signal], label string, on permit.Signal) {
+func button(f mut ui.Frame[desk.Signal], label string, on permit.Signal) {
 	ui.Pressable(f, label, desk.Do{Signal: on}) {
 		ui.Text(f, label)
 	}

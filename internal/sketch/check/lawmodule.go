@@ -106,6 +106,26 @@ func ReportUnfed(pkgs []*Package) map[*Package][]Diagnostic {
 		}
 	}
 	out := map[*Package][]Diagnostic{}
+	// A member law some package runs, or binds to a provider that is
+	// fed or reported, has a provider; any other is unfed at the law.
+	provided := map[*Law]bool{}
+	for _, p := range pkgs {
+		for _, r := range p.LawRuns {
+			if len(r.Bindings) > 0 || len(r.Contexts) > 0 {
+				provided[r.Law] = true
+			}
+		}
+		for _, u := range p.unfed {
+			provided[u.law] = true
+		}
+	}
+	for _, p := range pkgs {
+		for _, u := range p.unprovided {
+			if !provided[u.law] && u.diag != nil {
+				out[p] = append(out[p], *u.diag)
+			}
+		}
+	}
 	for _, p := range pkgs {
 		for _, u := range p.unfed {
 			if u.diag == nil || slices.ContainsFunc(fed[u.law], func(t Type) bool { return sameProvider(t, u.provider) }) {

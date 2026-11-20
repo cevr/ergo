@@ -1,0 +1,571 @@
+// S108's own-mark rules (MODES-OWN-CHECK; types.md, Generics 9; the Go
+// checker's resource.go checkOwnMarks and checkTypeMark): a type parameter
+// with no mark binds plain data, and a call reads the callee's signature,
+// never its body.
+//
+// This part decides the rules where the package itself says what a type
+// holds: a resource is a type of the package that implements Closer, and
+// a record, union, tuple, slice, array or Map that holds one, a language
+// type (Option, Some, go.Ref) of one, or a value of the caller's own type
+// parameter. A host type with Close, an imported type and an operation
+// type with a taking operation are not read yet: such an argument is no
+// diagnostic here (a later unit's).
+
+import compiler/check/bind
+import compiler/check/expr
+import compiler/check/store
+import compiler/check/types
+import compiler/syntax
+import dense
+import slices
+import strings
+
+// CodeType is the Go checker's code for a type error.
+let CodeType = "S108"
+
+// typeInfo is what the walk reads of a type declaration of the package:
+// whether it implements Closer, its union's variant names, and its
+// bracket parameters with their own marks.
+type typeInfo { closer bool, variants []string, params []string, own []bool, embeds []string, op bool }
+
+// OwnMarks is S108 for each inferred call of t that binds a resource, or
+// a value of the caller's own type parameter, to a type parameter of the
+// callee not marked own, and for each instance, written in the package,
+// of a generic type of the package whose own parameter an unmarked type
+// parameter of the declaration fills; in the Go checker's order. A type
+// of the package prints unqualified, as the Go checker's message writes it.
+func OwnMarks(s store.Store, k expr.Pkg, t expr.Typer) []Diag {
+	let (infos, names) = typeInfos(k)
+	let res = resources(s, k, infos, names)
+	let mut out = []Diag{}
+	for c in t.Insts {
+		// A package let's call (Fn -1) has no type parameters of its own.
+		let (callerOwn, callerParams) = if c.Fn >= 0 { (k.Fns[c.Fn].Own, k.Fns[c.Fn].Params) } else { ([]bool{}, []string{}) }
+		let callee = c.Callee
+		for i, a in c.Args {
+			// A row parameter, and one whose mark the callee does not
+			// say, admits any argument.
+			if i >= len(callee.Rows) || callee.Rows[i] || i >= len(callee.Own) || callee.Own[i] || !holds(s, k, res, callerOwn, a) {
+				continue
+			}
+			let (f, row) = bind.RowOf(k.Ps, c.Call)
+			let p = k.Parsed[f]
+			let call = syntax.NodeAt(p.Tree, row)
+			let (nf, nrow) = bind.RowOf(k.Ps, c.At)
+			let name = textAt(k.Parsed[nf], syntax.NodeAt(k.Parsed[nf].Tree, nrow))
+			let tp = callee.Params[i]
+			let arg = types.Text(s, types.Names{Params: callerParams, Foreign: k.Foreign, Pkg: "", Deps: k.Ifaces}, a)
+			let at = syntax.NodePos(p, call)
+			out = out.Append(Diag{File: f, Offset: at, Length: syntax.NodeEnd(p, call) - at, Code: CodeType, Message: "\(name) cannot take \(arg) as its \(tp): \(tp) is not marked own, so it binds plain data only; write [\(tp) own] where \(name) declares it, which holds its body to a resource's rules (types.md, Generics 9)"})
+		}
+	}
+	for f, p in k.Parsed {
+		if !p.Failed {
+			out = typeMarks(s, k, res, p, f, infos, out)
+		}
+	}
+	Sorted(out)
+}
+
+// typeInfos is each type declaration of the package by its name, and the
+// names in declaration order.
+func typeInfos(k expr.Pkg) (Map[string, typeInfo], []string) {
+	let mut out = Map[string, typeInfo]{}
+	let mut names = []string{}
+	let mut spread = []string{}
+	for p in k.Parsed {
+		if p.Failed {
+			continue
+		}
+		for d in topDecls(p) {
+			match syntax.ViewOf(p.Tree, d) {
+			case syntax.TypeDecl as td:
+				let mut closer = false
+				for j in 0..syntax.Len(td.Implements) {
+					closer = closer || headName(p, syntax.Item(p.Tree, td.Implements, j)) == "Closer"
+				}
+				let mut variants = []string{}
+				let mut embeds = []string{}
+				let mut op = false
+				match dense.Unpack(td.Spec) {
+				case Some[dense.ID[syntax.Node]] as sp:
+					match syntax.ViewOf(p.Tree, sp.Value) {
+					case syntax.InterfaceType as it:
+						op = true
+						for j in 0..syntax.Len(it.Members) {
+							match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, it.Members, j)) {
+							case syntax.VariantSpec as vs:
+								op = false
+								variants = variants.Append(textAt(p, vs.Name))
+							case syntax.Field as fd:
+								// An operation type that embeds Closer
+								// (..Closer) has its Close (implementsCloser).
+								match dense.Unpack(fd.Type) {
+								case Some[dense.ID[syntax.Node]] as ft:
+									if fd.Dots >= 0 {
+										let head = headName(p, ft.Value)
+										closer = closer || head == "Closer"
+										embeds = embeds.Append(head)
+									}
+								case None:
+								}
+							case syntax.LawDecl:
+							case _:
+								// A union's member named by its type
+								// (`Res | Empty`).
+								op = false
+								let m = syntax.Item(p.Tree, it.Members, j)
+								variants = variants.Append(headName(p, m))
+							}
+						}
+					case syntax.StructType as st:
+						// Braces of embeddings only (`{ ..Closer }`): an
+						// operation type when what it embeds is one (read
+						// below, once every declaration is known).
+						match syntax.ViewOf(p.Tree, st.Fields) {
+						case syntax.FieldList as fl:
+							let mut all = syntax.Len(fl.List) > 0
+							for j in 0..syntax.Len(fl.List) {
+								match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, fl.List, j)) {
+								case syntax.Field as fd:
+									match (dense.Unpack(fd.Type), fd.Dots >= 0) {
+									case (Some[dense.ID[syntax.Node]] as ft, true):
+										embeds = embeds.Append(headName(p, ft.Value))
+									case _:
+										all = false
+									}
+								case _:
+									all = false
+								}
+							}
+							if all {
+								spread = spread.Append(textAt(p, td.Name))
+							} else {
+								embeds = []string{}
+							}
+						case _:
+						}
+					case _:
+					}
+				case None:
+				}
+				let (params, own) = match dense.Unpack(td.TypeParams) {
+				case Some[dense.ID[syntax.Node]] as tp:
+					(bracketNames(p, tp.Value), expr.BracketOwn(p, tp.Value))
+				case None:
+					([]string{}, []bool{})
+				}
+				out[textAt(p, td.Name)] = typeInfo{closer: closer, variants: variants, params: params, own: own, embeds: embeds, op: op}
+				names = names.Append(textAt(p, td.Name))
+			case _:
+			}
+		}
+	}
+	// A type of embeddings only is an operation type when each embedded
+	// type is one (Closer, the prelude's, is), and has Close when one has.
+	for name in spread {
+		match out.Get(name) {
+		case Some[typeInfo] as ti:
+			let mut info = ti.Value
+			let mut op = true
+			for e in info.embeds {
+				if e == "Closer" {
+					info.closer = true
+					continue
+				}
+				match out.Get(e) {
+				case Some[typeInfo] as et:
+					op = op && et.Value.op
+				case None:
+					op = false
+				}
+			}
+			info.op = op
+			if !op {
+				info.closer = false
+				info.embeds = []string{}
+			}
+			out[name] = info
+		case None:
+		}
+	}
+	(out, names)
+}
+
+// holds is whether t holds a resource, as far as this part reads (see the
+// package comment above): own marks the caller's type parameters that
+// count as one, and res is the package's types that hold one (resources).
+func holds(s store.Store, k expr.Pkg, res Map[string, bool], own []bool, t dense.ID[store.TKey]) bool {
+	let kind = store.KindOfType(s, t)
+	if kind == store.KParam {
+		let i = store.ArgOf(s, t)
+		return i < len(own) && own[i]
+	}
+	if kind == store.KNamed {
+		return holder(res, store.TypeNameText(s, store.ArgOf(s, t)))
+	}
+	if kind == store.KInstance {
+		let o = store.OriginOfType(s, t)
+		let local = int(o.Import) == 0
+		if !local && !language(k, o) {
+			return false
+		}
+		for a in store.OperandsOf(s, t) {
+			if holds(s, k, res, own, a) {
+				return true
+			}
+		}
+		return local && holder(res, store.DeclText(s, int(o.Decl)))
+	}
+	if kind == store.KSlice || kind == store.KArray || kind == store.KMap || kind == store.KTuple || kind == store.KRowValue {
+		for a in store.OperandsOf(s, t) {
+			if holds(s, k, res, own, a) {
+				return true
+			}
+		}
+	}
+	false
+}
+
+// holder is whether res says the package's type name holds a resource.
+func holder(res Map[string, bool], name string) bool {
+	match res.Get(name) {
+	case Some[bool] as h:
+		h.Value
+	case None:
+		false
+	}
+}
+
+// language is whether the foreign origin o is a language type whose
+// parameter admits a resource with no mark: the prelude's Option and Some,
+// and go.Ref (resource.go languageParam).
+func language(k expr.Pkg, o store.XRef) bool {
+	if int(o.Import) != store.ForeignBit || int(o.Decl) >= len(k.Foreign) {
+		return false
+	}
+	let f = k.Foreign[int(o.Decl)]
+	(f.Path == "prelude" && (f.Name == "Option" || f.Name == "Some")) || (f.Qual == "go" && f.Name == "Ref")
+}
+
+// languageType is whether g, a generic type of the package s, is a
+// language type whose parameter admits a resource with no mark: Option and
+// Some in the prelude itself, as language reads them from an importer
+// (decl.go's lang; builtin.ergo's Take returns Option[V] of an own V).
+func languageType(s store.Store, g string) bool {
+	store.PathOf(s) == "prelude" && (g == "Option" || g == "Some")
+}
+
+// resources is each type name of the package that holds a resource: one
+// that implements Closer, a record a field of which holds one, a union a
+// variant of which does (resources R1, R13). It is the least fixpoint, so
+// a recursive type holds one only when a member does directly; a generic
+// declaration's own parameters count as plain data here (an instance's
+// arguments are read apart). Solved once, each pass reads every field and
+// variant once.
+func resources(s store.Store, k expr.Pkg, infos Map[string, typeInfo], names []string) Map[string, bool] {
+	let mut res = Map[string, bool]{}
+	for name in names {
+		match infos.Get(name) {
+		case Some[typeInfo] as ti:
+			if ti.Value.closer {
+				res[name] = true
+			}
+		case None:
+		}
+	}
+	let mut changed = true
+	for changed {
+		changed = false
+		for r in k.Recs {
+			if r.Op || holder(res, r.Name) {
+				continue
+			}
+			for fd in r.Fields {
+				if holds(s, k, res, []bool{}, fd.T) {
+					res[r.Name] = true
+					changed = true
+					break
+				}
+			}
+		}
+		for name in names {
+			if holder(res, name) {
+				continue
+			}
+			match infos.Get(name) {
+			case Some[typeInfo] as ti:
+				for v in ti.Value.variants {
+					if v != name && holder(res, v) {
+						res[name] = true
+						changed = true
+						break
+					}
+				}
+				for e in ti.Value.embeds {
+					if e != name && holder(res, e) {
+						res[name] = true
+						changed = true
+						break
+					}
+				}
+			case None:
+			}
+		}
+	}
+	res
+}
+
+// typeMarks adds to out the S108s of the generic types of the package
+// written with type arguments in the file p (decl.go typExpr's
+// recordInstantiation and recordTypeMark):
+//   - G[…, a, …] where G's parameter is not marked own and a holds a
+//     resource, or is the enclosing declaration's own parameter
+//     (checkOwnMarks, as at a call);
+//   - G[…, q, …] where G's parameter is marked own and q is a bracket
+//     parameter of the enclosing generic declaration with no mark
+//     (checkTypeMark): G's mark is required of the declarations of its
+//     package.
+// An argument is read from its syntax: a name, an instance, a slice, an
+// array or a Map; an imported generic type is not read yet.
+func typeMarks(s store.Store, k expr.Pkg, res Map[string, bool], p syntax.Parsed, f int, infos Map[string, typeInfo], out0 []Diag) []Diag {
+	let mut out = out0
+	// The generic declarations of the file: their span and their
+	// parameters with their marks.
+	let mut spans = []span{}
+	for d in topDecls(p) {
+		let tps = match syntax.ViewOf(p.Tree, d) {
+		case syntax.TypeDecl as td:
+			td.TypeParams
+		case syntax.FuncDecl as fd:
+			fd.TypeParams
+		case _:
+			dense.NoID[syntax.Node]()
+		}
+		match dense.Unpack(tps) {
+		case Some[dense.ID[syntax.Node]] as tp:
+			spans = spans.Append(span{from: syntax.NodePos(p, d), to: syntax.NodeEnd(p, d), params: bracketNames(p, tp.Value), own: expr.BracketOwn(p, tp.Value), keys: bracketKeys(p, tp.Value)})
+		case None:
+		}
+	}
+	for i in 0..syntax.NumNodes(p.Tree) {
+		let x = syntax.NodeAt(p.Tree, i)
+		if syntax.KindOf(p.Tree, x) == syntax.KMapType {
+			out = mapKey(s, k, res, p, f, infos, spans, syntax.MapTypeOf(p.Tree, x).Key, out)
+			continue
+		}
+		if syntax.KindOf(p.Tree, x) != syntax.KIndexExpr {
+			continue
+		}
+		let ix = syntax.IndexExprOf(p.Tree, x)
+		if syntax.KindOf(p.Tree, ix.X) != syntax.KIdent {
+			continue
+		}
+		let g = textAt(p, ix.X)
+		let gi = match infos.Get(g) {
+		case Some[typeInfo] as ti:
+			ti.Value
+		case None:
+			continue
+		}
+		let at = syntax.NodePos(p, x)
+		let mut encl = span{from: 0, to: 0, params: []string{}, own: []bool{}, keys: []bool{}}
+		for sp in spans {
+			if sp.from <= at && at < sp.to {
+				encl = sp
+			}
+		}
+		for j in 0..syntax.Len(ix.Indices) {
+			if j >= len(gi.params) || j >= len(gi.own) {
+				continue
+			}
+			let a = syntax.Item(p.Tree, ix.Indices, j)
+			let tp = gi.params[j]
+			if !gi.own[j] {
+				if languageType(s, g) {
+					continue
+				}
+				let text = typeText(p, a)
+				if text != "" && synHolds(s, k, res, p, infos, encl, a) {
+					out = out.Append(Diag{File: f, Offset: at, Length: syntax.NodeEnd(p, x) - at, Code: CodeType, Message: "\(g) cannot take \(text) as its \(tp): \(tp) is not marked own, so it binds plain data only; write [\(tp) own] where \(g) declares it, which holds its body to a resource's rules (types.md, Generics 9)"})
+				}
+				continue
+			}
+			if syntax.KindOf(p.Tree, a) != syntax.KIdent {
+				continue
+			}
+			let q = textAt(p, a)
+			let qi = slices.Index(encl.params, q)
+			if qi < 0 || (qi < len(encl.own) && encl.own[qi]) {
+				continue
+			}
+			out = out.Append(Diag{File: f, Offset: at, Length: syntax.NodeEnd(p, x) - at, Code: CodeType, Message: "\(g) marks its \(tp) own, so \(g)[\(q)] may hold a resource, and \(q) is not marked own; write [\(q) own] where \(q) is declared, which holds its uses to a resource's rules (types.md, Generics 9)"})
+		}
+	}
+	out
+}
+
+// mapKey adds to out S112 for the key type x of a Map written in the file
+// p when it may hold a resource: a resource, or an own type parameter of
+// the enclosing generic declaration (resources R40; types.md, Generics 9;
+// decl.go mapKeySite, resource.go checkResourceTypes). A key the Go checker
+// refuses as not comparable is not one: a type parameter's constraint
+// must be comparable or ordered as written; a record's fields are not
+// read for it.
+func mapKey(s store.Store, k expr.Pkg, res Map[string, bool], p syntax.Parsed, f int, infos Map[string, typeInfo], spans []span, x dense.ID[syntax.Node], out []Diag) []Diag {
+	let at = syntax.NodePos(p, x)
+	let mut encl = span{from: 0, to: 0, params: []string{}, own: []bool{}, keys: []bool{}}
+	for sp in spans {
+		if sp.from <= at && at < sp.to {
+			encl = sp
+		}
+	}
+	let text = typeText(p, x)
+	if text == "" || !synHolds(s, k, res, p, infos, encl, x) {
+		return out
+	}
+	if syntax.KindOf(p.Tree, x) == syntax.KIdent {
+		let qi = slices.Index(encl.params, text)
+		if qi >= 0 && !(qi < len(encl.keys) && encl.keys[qi]) {
+			return out
+		}
+	}
+	out.Append(Diag{File: f, Offset: at, Length: syntax.NodeEnd(p, x) - at, Code: "S112", Message: "map key type \(text) holds a resource, and a map key has no owner to release it (resources R40); key the map by a plain value, such as an id"})
+}
+
+// synHolds is holds on the type expression x of the file p, written in
+// the generic declaration encl (none: no parameters).
+func synHolds(s store.Store, k expr.Pkg, res Map[string, bool], p syntax.Parsed, infos Map[string, typeInfo], encl span, x dense.ID[syntax.Node]) bool {
+	match syntax.ViewOf(p.Tree, x) {
+	case syntax.Name:
+		let name = textAt(p, x)
+		let qi = slices.Index(encl.params, name)
+		if qi >= 0 {
+			return qi < len(encl.own) && encl.own[qi]
+		}
+		holder(res, name)
+	case syntax.IndexExpr as ix:
+		if syntax.KindOf(p.Tree, ix.X) != syntax.KIdent {
+			return false
+		}
+		let g = textAt(p, ix.X)
+		let local = isSome(infos.Get(g))
+		if !local && g != "Option" && g != "Some" && g != "Map" {
+			return false
+		}
+		for j in 0..syntax.Len(ix.Indices) {
+			if synHolds(s, k, res, p, infos, encl, syntax.Item(p.Tree, ix.Indices, j)) {
+				return true
+			}
+		}
+		local && holder(res, g)
+	case syntax.ArrayType as at:
+		synHolds(s, k, res, p, infos, encl, at.Elt)
+	case syntax.MapType as mt:
+		synHolds(s, k, res, p, infos, encl, mt.Key) || synHolds(s, k, res, p, infos, encl, mt.Value)
+	case syntax.ParenExpr as pe:
+		synHolds(s, k, res, p, infos, encl, pe.X)
+	case _:
+		false
+	}
+}
+
+// typeText is the Go checker's text of the type expression x, for the
+// forms synHolds reads ("" for another).
+func typeText(p syntax.Parsed, x dense.ID[syntax.Node]) string {
+	match syntax.ViewOf(p.Tree, x) {
+	case syntax.Name:
+		textAt(p, x)
+	case syntax.IndexExpr as ix:
+		let mut parts = []string{}
+		for j in 0..syntax.Len(ix.Indices) {
+			let t = typeText(p, syntax.Item(p.Tree, ix.Indices, j))
+			if t == "" {
+				return ""
+			}
+			parts = parts.Append(t)
+		}
+		let head = typeText(p, ix.X)
+		if head == "" { "" } else { head + "[" + strings.Join(parts, ", ") + "]" }
+	case syntax.ArrayType as at:
+		let e = typeText(p, at.Elt)
+		if e == "" || at.Len >= 0 { "" } else { "[]" + e }
+	case syntax.MapType as mt:
+		let kt = typeText(p, mt.Key)
+		let vt = typeText(p, mt.Value)
+		if kt == "" || vt == "" { "" } else { "Map[" + kt + ", " + vt + "]" }
+	case _:
+		""
+	}
+}
+
+// span is a generic declaration of a file: its byte span and its bracket
+// parameters with their own marks.
+type span { from int, to int, params []string, own []bool, keys []bool }
+
+// topDecls is the file's top-level declarations, in order.
+func topDecls(p syntax.Parsed) []dense.ID[syntax.Node] {
+	let mut out = []dense.ID[syntax.Node]{}
+	match syntax.ViewOf(p.Tree, syntax.Root(p.Tree)) {
+	case syntax.File as root:
+		for i in 0..syntax.Len(root.Decls) {
+			out = out.Append(syntax.Item(p.Tree, root.Decls, i))
+		}
+	case _:
+	}
+	out
+}
+
+// headName is the name an implements item writes: a name, or a
+// selector's.
+func headName(p syntax.Parsed, x dense.ID[syntax.Node]) string {
+	if syntax.KindOf(p.Tree, x) == syntax.KSelectorExpr {
+		return textAt(p, syntax.SelectorExprOf(p.Tree, x).Sel)
+	}
+	textAt(p, x)
+}
+
+// bracketNames is the names of the bracket list l, in order.
+// bracketKeys is whether each name of the bracket list l may key a Map:
+// its constraint is comparable or ordered, as written.
+func bracketKeys(p syntax.Parsed, l dense.ID[syntax.Node]) []bool {
+	let mut out = []bool{}
+	match syntax.ViewOf(p.Tree, l) {
+	case syntax.FieldList as fl:
+		for i in 0..syntax.Len(fl.List) {
+			match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, fl.List, i)) {
+			case syntax.Field as fd:
+				let key = match dense.Unpack(fd.Type) {
+				case Some{Value: c}:
+					syntax.KindOf(p.Tree, c) == syntax.KIdent && (textAt(p, c) == "comparable" || textAt(p, c) == "ordered")
+				case None:
+					false
+				}
+				for _ in 0..syntax.Len(fd.Names) {
+					out = out.Append(key)
+				}
+			case _:
+			}
+		}
+	case _:
+	}
+	out
+}
+
+func bracketNames(p syntax.Parsed, l dense.ID[syntax.Node]) []string {
+	let mut out = []string{}
+	match syntax.ViewOf(p.Tree, l) {
+	case syntax.FieldList as fl:
+		for i in 0..syntax.Len(fl.List) {
+			match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, fl.List, i)) {
+			case syntax.Field as fd:
+				for j in 0..syntax.Len(fd.Names) {
+					out = out.Append(textAt(p, syntax.Item(p.Tree, fd.Names, j)))
+				}
+			case _:
+			}
+		}
+	case _:
+	}
+	out
+}

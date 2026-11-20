@@ -14,11 +14,11 @@ import (
 	"strconv"
 	"strings"
 
+	format "ergo.local/prototype/internal/hostsyntax"
 	"ergo.local/prototype/internal/linked/code"
 	"ergo.local/prototype/internal/report"
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/fix"
-	"ergo.local/prototype/internal/sketch/format"
 	"ergo.local/prototype/internal/sketch/syntax"
 	"ergo.local/prototype/internal/sketchfront"
 )

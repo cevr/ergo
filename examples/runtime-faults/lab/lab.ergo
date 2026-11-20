@@ -142,7 +142,7 @@ type rng { x int }
 
 func seeded(seed int) rng { rng{x: (seed%2147483648 + 2147483648) % 2147483648} }
 
-func draw(r *rng, n int) int {
+func draw(r mut rng, n int) int {
 	r.x = (r.x*1103515245 + 12345) % 2147483648
 	(r.x / 65536) % n
 }

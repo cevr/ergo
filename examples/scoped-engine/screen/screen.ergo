@@ -17,7 +17,7 @@ let StopLabel = "Stop engine"
 let ComputeLabel = "Compute next square"
 
 // Screen is the panel.
-func Screen(f *ui.Frame[engine.Signal], m engine.Mode) {
+func Screen(f mut ui.Frame[engine.Signal], m engine.Mode) {
 	ui.Column(f, ui.Plain()) {
 		ui.Semantic(f, named(ui.Heading, Title, Some{Value: 1}), None, ui.Plain()) {
 			ui.Text(f, Title)
@@ -72,7 +72,7 @@ func Result(m engine.Mode) string {
 	}
 }
 
-func button(f *ui.Frame[engine.Signal], label string, on engine.Signal) {
+func button(f mut ui.Frame[engine.Signal], label string, on engine.Signal) {
 	ui.Pressable(f, label, on) {
 		ui.Text(f, label)
 	}

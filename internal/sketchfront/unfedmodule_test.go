@@ -33,8 +33,9 @@ var unfedSeed = flag.Int64("unfed.seed", -1, "TestUnfedLawIsJudgedOverTheModule:
 // dom's runs as they are. A failing seed prints both sources and the
 // replay command. Mutants lu-fed-by-importing-package-ignored (a context
 // of an importing package feeds nothing), lu-module-unjudged (the shared
-// load makes no judgment) and lu-deferred-binding-kept (a binding left
-// to the module stays a skip) are its kills.
+// load makes no judgment), lu-deferred-binding-kept (a binding left to
+// the module stays a skip) and lu-unprovided-unreported (with no provider
+// of Shape at all, its law is no error) are its kills.
 func TestUnfedLawIsJudgedOverTheModule(t *testing.T) {
 	seeds := []int64{}
 	if *unfedSeed >= 0 {
@@ -57,9 +58,12 @@ func TestUnfedLawIsJudgedOverTheModule(t *testing.T) {
 type unfedModule struct {
 	dom, mem string
 	unfed    map[string]string // provider -> "LINE:COLUMN" of its implements entry
+
+	// unprovided: no provider of Shape, so its law is unfed at the law.
+	unprovided bool
 }
 
-// genUnfedModule draws one to four providers, each fed by dom, by mem,
+// genUnfedModule draws zero to four providers, each fed by dom, by mem,
 // by both or by neither.
 func genUnfedModule(seed int64) unfedModule {
 	r := rand.New(rand.NewPCG(uint64(seed), 7))
@@ -69,7 +73,9 @@ func genUnfedModule(seed int64) unfedModule {
 	var domCtx, memCtx []string
 	g := unfedModule{unfed: map[string]string{}}
 	line := 5
-	for i := range 1 + r.IntN(4) {
+	n := r.IntN(5)
+	g.unprovided = n == 0
+	for i := range n {
 		name := fmt.Sprintf("Fn%d", i)
 		decl := "type " + name + " { F func(int) int } implements "
 		fmt.Fprintf(&dom, "%sShape\nfunc Area(s %s) int { s.F(1) }\n", decl, name)
@@ -92,7 +98,11 @@ func genUnfedModule(seed int64) unfedModule {
 	for _, c := range memCtx {
 		mem.WriteString(c)
 	}
-	mem.WriteString("func Size(s dom.Fn0) int { s.F(1) }\n")
+	if n > 0 {
+		mem.WriteString("func Size(s dom.Fn0) int { s.F(1) }\n")
+	} else {
+		mem.WriteString("func Size(s dom.Shape) int { s.Area() }\n")
+	}
 	g.dom, g.mem = dom.String(), mem.String()
 	return g
 }
@@ -112,6 +122,9 @@ func (g unfedModule) check(t *testing.T) string {
 	}
 	for name, at := range g.unfed {
 		want = append(want, fmt.Sprintf("%s S108 law Shape.Positive, declared at dom.ergo:3:6, cannot run at %s: its values have no generator: func(int) int is a function type; bind one in a named context of a test file, let Name = context { Shape: … }, and the law runs under it; no named context of a package of module m builds one (types.md, Laws 10)", at, name))
+	}
+	if g.unprovided {
+		want = append(want, "3:6 S108 law Shape.Positive cannot run: no package of module m provides Shape, so no case runs it; implement it in a package of the module, or bind a provider in a named context (types.md, Laws 10)")
 	}
 	sort.Strings(got)
 	sort.Strings(want)
