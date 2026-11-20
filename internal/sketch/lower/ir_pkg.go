@@ -95,7 +95,10 @@ func (b *irBuilder) spelling(s string) string {
 			if strings.Contains(s, "[") && strings.HasPrefix(s[i:j], b.l.rt()+".") {
 				b.keepImport("var _ " + b.l.rt() + ".Site")
 			} else {
-				b.keepImport("var _ " + s)
+				// A host instance over a generic body's type parameter
+				// (config's *Redacted[T]) is kept at int, as valueSource
+				// keeps a generic body's element (ir_loops.go).
+				b.keepImport("var _ " + b.typeParamsAt(s, "int"))
 			}
 		}
 		out.WriteString(q)
@@ -124,6 +127,34 @@ func (b *irBuilder) namesTypeParam(s string) bool {
 		i = j
 	}
 	return false
+}
+
+// typeParamsAt is the Go type spelling s with each type parameter of the
+// function the builder lowers spelled as at: a type main.go's top level
+// can name.
+func (b *irBuilder) typeParamsAt(s, at string) string {
+	out := strings.Builder{}
+	for i := 0; i < len(s); {
+		j := i
+		for j < len(s) && isSpellingName(s[j]) {
+			j++
+		}
+		if j == i {
+			out.WriteByte(s[i])
+			i++
+			continue
+		}
+		name := s[i:j]
+		for tp, p := range b.fc.params {
+			if name == p && b.rwBound[tp] == nil {
+				name = at
+				break
+			}
+		}
+		out.WriteString(name)
+		i = j
+	}
+	return out.String()
 }
 
 func isSpellingName(c byte) bool {
