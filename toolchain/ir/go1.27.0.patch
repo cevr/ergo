@@ -1,9 +1,9 @@
 diff --git a/src/cmd/compile/internal/ergoir/ergoir.go b/src/cmd/compile/internal/ergoir/ergoir.go
 new file mode 100644
-index 0000000..76b1438
+index 0000000..004f057
 --- /dev/null
 +++ b/src/cmd/compile/internal/ergoir/ergoir.go
-@@ -0,0 +1,293 @@
+@@ -0,0 +1,297 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -141,6 +141,10 @@ index 0000000..76b1438
 +	// tparams are the type parameters of the function being decoded, its
 +	// receiver's then its own (F1): a type spelling names them first.
 +	tparams []*types2.TypeParam
++	// rangeFunc reports a range over a func in the body being decoded,
++	// outside its function literals: rangefunc.Rewrite names a literal's
++	// results then (ergoir_closure.go).
++	rangeFunc bool
 +	// tdef is the call a "tdef" binds, whose several results call
 +	// admits (ergoir_tuple.go).
 +	tdef *ergoExpr
@@ -561,10 +565,10 @@ index 0000000..2ef77a2
 +}
 diff --git a/src/cmd/compile/internal/ergoir/ergoir_closure.go b/src/cmd/compile/internal/ergoir/ergoir_closure.go
 new file mode 100644
-index 0000000..594e63c
+index 0000000..8c6f7fa
 --- /dev/null
 +++ b/src/cmd/compile/internal/ergoir/ergoir_closure.go
-@@ -0,0 +1,193 @@
+@@ -0,0 +1,214 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -581,6 +585,7 @@ index 0000000..594e63c
 +package ergoir
 +
 +import (
++	"fmt"
 +	"strings"
 +
 +	"cmd/compile/internal/syntax"
@@ -731,14 +736,12 @@ index 0000000..594e63c
 +		c.info.Defs[name] = pv
 +		ft.ParamList = append(ft.ParamList, field(name, pv.Type()))
 +	}
-+	for i := 0; i < sig0.Results().Len(); i++ {
-+		ft.ResultList = append(ft.ResultList, field(nil, sig0.Results().At(i).Type()))
-+	}
 +	sig := types2.NewSignatureType(nil, nil, nil, types2.NewTuple(params...), sig0.Results(), false)
 +	// The body is a function of its own: its returns are the literal's,
 +	// and no loop or label of the enclosing body is in its scope.
-+	sigS, loopsS, loopLabelsS, labelsS, gotosS := c.sig, c.loops, c.loopLabels, c.labels, c.gotos
-+	c.sig, c.loops, c.loopLabels, c.labels, c.gotos = sig, nil, nil, nil, nil
++	sigS, loopsS, loopLabelsS, labelsS, gotosS, rangeFuncS := c.sig, c.loops, c.loopLabels, c.labels, c.gotos, c.rangeFunc
++	c.sig, c.loops, c.loopLabels, c.labels, c.gotos, c.rangeFunc = sig, nil, nil, nil, nil, false
++	defer func() { c.rangeFunc = rangeFuncS }()
 +	before := c.nerr
 +	body := &syntax.BlockStmt{List: c.stmts(x.Body), Rbrace: c.pos(x.End)}
 +	body.SetPos(pos)
@@ -752,6 +755,28 @@ index 0000000..594e63c
 +	c.sig, c.loops, c.loopLabels, c.labels, c.gotos = sigS, loopsS, loopLabelsS, labelsS, gotosS
 +	if failed {
 +		return nil, nil
++	}
++	// A return in a range over a func becomes, in rangefunc.Rewrite, an
++	// assignment to the literal's results, which it names through the
++	// signature's scope (types2.Signature.RenameResult). A decoded
++	// signature has no scope, so the literal names them here, as
++	// RenameResult would: #rv1, #rv2, … (REGEX-ICE). Other literals keep
++	// unnamed results, as their Go text has them.
++	var results []*types2.Var
++	for i := 0; i < sig0.Results().Len(); i++ {
++		rt := sig0.Results().At(i).Type()
++		var name *syntax.Name
++		if c.rangeFunc {
++			rv := types2.NewParam(pos, c.pkg, fmt.Sprintf("#rv%d", i+1), rt)
++			name = syntax.NewName(pos, rv.Name())
++			ergoValue(name, rt, nil)
++			c.info.Defs[name] = rv
++			results = append(results, rv)
++		}
++		ft.ResultList = append(ft.ResultList, field(name, rt))
++	}
++	if results != nil {
++		sig = types2.NewSignatureType(nil, nil, nil, sig.Params(), types2.NewTuple(results...), false)
 +	}
 +	lit := &syntax.FuncLit{Type: ft, Body: body}
 +	lit.SetPos(pos)
@@ -2329,10 +2354,10 @@ index 0000000..f90510c
 +}
 diff --git a/src/cmd/compile/internal/ergoir/ergoir_stmt.go b/src/cmd/compile/internal/ergoir/ergoir_stmt.go
 new file mode 100644
-index 0000000..8c93145
+index 0000000..344964c
 --- /dev/null
 +++ b/src/cmd/compile/internal/ergoir/ergoir_stmt.go
-@@ -0,0 +1,366 @@
+@@ -0,0 +1,369 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -2638,6 +2663,9 @@ index 0000000..8c93145
 +				return nil
 +			}
 +			lhs.ElemList = append(lhs.ElemList, c.name(s.Pos, v, true))
++		}
++		if _, isFunc := types2.CoreType(t).(*types2.Signature); isFunc {
++			c.rangeFunc = true // ergoir_closure.go
 +		}
 +		rc := &syntax.RangeClause{Lhs: lhs, Def: true, X: x}
 +		if elem == nil {

@@ -84,12 +84,16 @@ func textCheckOn(t *testing.T, target exampleTarget) {
 //     (struct{…}){…} (mutants gotext-signature-end, gotext-lit-paren);
 //   - seqloop (PORT-FORIN): a Seq loop ranges over a func with one
 //     variable, which the text spelled k, _ (mutant
-//     gotext-range-func-two-vars).
+//     gotext-range-func-two-vars);
+//   - seqreturn (REGEX-ICE): a return in a Seq loop of a function
+//     literal; rangefunc names the literal's results through its
+//     signature's scope, nil for a decoded literal: gc panicked
+//     (mutant ir-funclit-results-unnamed).
 //
 // It builds Go for the reason TestIRTextChecks does.
 func TestIRTextRepros(t *testing.T) {
 	src, ir := needsBuild(t)
-	for _, r := range []struct{ name, fn string }{{"duplocals", "two"}, {"shadow", "shadow"}, {"pollend", "firstOf"}, {"negfloat", "near"}, {"scopes", "drive"}, {"printed", "split"}, {"seqloop", "total"}} {
+	for _, r := range []struct{ name, fn string }{{"duplocals", "two"}, {"shadow", "shadow"}, {"pollend", "firstOf"}, {"negfloat", "near"}, {"scopes", "drive"}, {"printed", "split"}, {"seqloop", "total"}, {"seqreturn", "over"}} {
 		t.Run(r.name, func(t *testing.T) {
 			u, err := Load(filepath.Join("testdata", r.name+".ergo"))
 			if err != nil {
