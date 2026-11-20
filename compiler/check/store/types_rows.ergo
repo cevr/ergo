@@ -1,0 +1,30 @@
+// S3t's second proposed addition to the store (selfhost/S3t/
+// store-request.md, part 2): the row forms signatures write that
+// types_api.ergo lacks. A new file beside types_api.ergo, so lane C can
+// adopt, rewrite or move it as it did the first; no existing key changes.
+
+import dense
+
+let tRowValue = 18
+let tWired = 19
+let tWiredNeeds = 20
+
+// KRowValue is a row written where a type is expected, A | B as a type
+// argument: the row's value type (decl.go rowValue). Its operands keep
+// the written order, as the Go checker's union of the row's elements
+// prints them.
+let KRowValue = 18
+
+// KWired is wired[P] in an error row, KWiredNeeds in a capability row, P a
+// type parameter (wirecall.go Wired).
+let KWired = 19
+let KWiredNeeds = 20
+
+// TRowValue is the value type of the row of ts, in order.
+func TRowValue(s mut Store, ts []dense.ID[TKey]) dense.ID[TKey] { composite(&s.pool, tRowValue, ts) }
+
+// TWired is wired[p], p a type parameter, in an error row (uses false) or
+// a capability row (uses true).
+func TWired(s mut Store, p dense.ID[TKey], uses bool) dense.ID[TKey] {
+	composite(&s.pool, if uses { tWiredNeeds } else { tWired }, []dense.ID[TKey]{p})
+}

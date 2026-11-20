@@ -1,0 +1,8 @@
+// Lets of basic values before the tail (compiler/lower, capstone S4c6):
+// each is a local the tail or a later let reads (an unread let is S110).
+
+func letSum(a int, b int) int {
+	let s = a + b
+	let d = s * 2
+	d - a
+}

@@ -15,8 +15,8 @@ import (
 const wheelSource = `
 type Digit int where 0 <= it && it <= 9
 type Counter {
-	Add(n Digit),
-	Total() Digit,
+	mut Add(n Digit),
+	mut Total() Digit,
 	law AddJoins(a Digit, b Digit) { Add(a); Add(b) } == { Add(plus(a, b)) },
 }
 type Wheel { at Digit } implements Counter
@@ -35,8 +35,8 @@ func plus(a Digit, b Digit) Digit {
 	case _: 9
 	}
 }
-func Add(w *Wheel, n Digit) { w.at = plus(w.at, n) }
-func Total(w *Wheel) Digit { w.at }
+func Add(w mut Wheel, n Digit) { w.at = plus(w.at, n) }
+func Total(w mut Wheel) Digit { w.at }
 func site() Digit {
 	let mut w = NewWheel()
 	w.Add(1)
@@ -230,7 +230,7 @@ func provedModel(t *testing.T) {
 			}
 			src.WriteString("} }\n")
 		}
-		fmt.Fprintf(&src, "func Inc(p *%s) { ", p)
+		fmt.Fprintf(&src, "func Inc(p mut %s) { ", p)
 		if m.foreign {
 			fmt.Fprintf(&src, "let _ = foreign%s(int(p.s)); ", suffix)
 		}
@@ -242,7 +242,7 @@ func provedModel(t *testing.T) {
 			// extern call alone is a term the symbolic run proves through).
 			fmt.Fprintf(&src, "func foreign%s(n int) bool { strconv.Itoa(n) == \"\" }\n", suffix)
 		}
-		fmt.Fprintf(&src, "func Twice(p *%s) { ", p)
+		fmt.Fprintf(&src, "func Twice(p mut %s) { ", p)
 		if m.bad {
 			fmt.Fprintf(&src, "if int(p.s) == %d { p.s = 0 } else { ", m.n-1)
 		}
@@ -256,7 +256,7 @@ func provedModel(t *testing.T) {
 			fmt.Fprintf(&src, "func odd%s() %s { %s{s: %d} }\n", suffix, p, p, m.n-1)
 		}
 		fmt.Fprintf(&src, "func Ready(p %s) bool { int(p.s) != %d }\n", p, m.n-1)
-		fmt.Fprintf(&src, "type %s { Inc(), Twice(), Read() int, Ready() bool,\n", typ)
+		fmt.Fprintf(&src, "type %s { mut Inc(), mut Twice(), Read() int, Ready() bool,\n", typ)
 		if m.resultBad {
 			src.WriteString("Other() int,\n")
 		}
@@ -274,7 +274,7 @@ func provedModel(t *testing.T) {
 			src.WriteString(" { Inc(); Inc() } == { Twice() }, }\n")
 		}
 		if m.unlisted {
-			fmt.Fprintf(&src, "func Touch(_ *%s, _ int) { }\n", p)
+			fmt.Fprintf(&src, "func Touch(_ mut %s, _ int) { }\n", p)
 		}
 		block := src.String()
 		for _, name := range []string{"Inc", "Twice", "Read", "Ready", "Touch", "Other"} {

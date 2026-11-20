@@ -1,0 +1,585 @@
+{
+  "about": "TPROBE (wf10): one Go test family per kind, the commands of its four forms, the named edit, the seeds, the floor's inputs and the kill matrix that `go run ./scripts/buildcost tests -kills` writes (kills: per form true, false or \"skipped: \u003creason\u003e\"). Commands run in a scratch copy of the tracked tree; a form whose tree is \"overlay\" has testdata/tprobe/\u003ckind\u003e/ergo laid over the copy, and the copies below made in it. {ergo} is the ergo built from the copy, {bin} the form's binary folder, {seed} the seed. Every form runs with GOMAXPROCS=4, GOTOOLCHAIN=local, ERGO_GO=system; the Go forms with GOFLAGS=-p=4 too (ergo's direct path refuses a non-empty GOFLAGS).",
+  "families": {
+    "built": {
+      "goTest": "cmd/ergo:TestJSONParseAgreesWithControl",
+      "about": "examples/jsonparse, linked: both trees against a reference on encoding/json over JSONTestSuite, 200 generated documents and the gen workload. The Ergo forms are the port in the tree (TP-BUILT): the trees read in process (examples/jsonparse/agree) and, past the check-time evaluator's call depth, in a test build (agree/deep: the suite and the depth limit). The go form runs the Go test, which TP-BUILT deletes: measure it on the commit before the deletion.",
+      "package": "./cmd/ergo",
+      "subject": "examples/jsonparse/json",
+      "edit": {
+        "file": "examples/jsonparse/json/parse.ergo",
+        "from": "\tp.depth += 1\n",
+        "to": "\tp.depth = p.depth + 1\n",
+        "why": "the same increment, written out: new tokens, the same behaviour"
+      },
+      "seeds": [
+        1,
+        2,
+        3
+      ],
+      "inputs": [
+        "examples/jsonparse",
+        "cmd/ergo/jsonparse_test.go",
+        "cmd/ergo/testdata/jsonparse"
+      ],
+      "forms": {
+        "control": {
+          "tree": "plain",
+          "run": [
+            [
+              "{ergo}",
+              "build",
+              "-o",
+              "{bin}/jsonparse",
+              "examples/jsonparse/cmd/jsonparse"
+            ],
+            [
+              "go",
+              "build",
+              "-o",
+              "{bin}/control",
+              "./scripts/buildcost/testdata/tprobe/built/control"
+            ],
+            [
+              "{bin}/control"
+            ]
+          ]
+        },
+        "ergo-check": {
+          "tree": "plain",
+          "run": [
+            [
+              "{ergo}",
+              "check",
+              "--eval-steps",
+              "400000000",
+              "examples/jsonparse/agree",
+              "--seed",
+              "{seed}"
+            ]
+          ],
+          "seed": "arg"
+        },
+        "ergo-test": {
+          "tree": "plain",
+          "run": [
+            [
+              "{ergo}",
+              "test",
+              "examples/jsonparse/agree",
+              "--seed",
+              "{seed}"
+            ],
+            [
+              "{ergo}",
+              "test",
+              "examples/jsonparse/agree/deep"
+            ]
+          ],
+          "seed": "arg"
+        },
+        "go": {
+          "tree": "plain",
+          "run": [
+            [
+              "go",
+              "test",
+              "-timeout",
+              "60m",
+              "-run",
+              "^TestJSONParseAgreesWithControl$",
+              "./cmd/ergo"
+            ]
+          ],
+          "env": [
+            "ERGO_TEST_CLI={ergo}"
+          ]
+        }
+      },
+      "mutants": [
+        {
+          "name": "jsonparse-depth-limit-one-short",
+          "ledger": "examples/jsonparse/testdata/mutants.json",
+          "kills": {
+            "control": true,
+            "ergo-check": false,
+            "ergo-test": true,
+            "go": true
+          }
+        },
+        {
+          "name": "jsonparse-return-is-no-space",
+          "ledger": "examples/jsonparse/testdata/mutants.json",
+          "kills": {
+            "control": true,
+            "ergo-check": false,
+            "ergo-test": true,
+            "go": true
+          }
+        },
+        {
+          "name": "jsonparse-invalid-utf8-kept",
+          "ledger": "examples/jsonparse/testdata/mutants.json",
+          "kills": {
+            "control": true,
+            "ergo-check": false,
+            "ergo-test": true,
+            "go": true
+          }
+        },
+        {
+          "name": "jsonparse-newline-in-a-string",
+          "ledger": "examples/jsonparse/testdata/mutants.json",
+          "kills": {
+            "control": true,
+            "ergo-check": false,
+            "ergo-test": true,
+            "go": true
+          }
+        },
+        {
+          "name": "jsonparse-unknown-escape-at-backslash",
+          "ledger": "examples/jsonparse/testdata/mutants.json",
+          "kills": {
+            "control": true,
+            "ergo-check": false,
+            "ergo-test": true,
+            "go": true
+          }
+        },
+        {
+          "name": "jsonparse-index-one-past-the-end",
+          "ledger": "examples/jsonparse/testdata/mutants.json",
+          "kills": {
+            "control": true,
+            "ergo-check": false,
+            "ergo-test": true,
+            "go": true
+          }
+        },
+        {
+          "name": "flat-return-is-no-space",
+          "ledger": "examples/jsonparse/testdata/mutants.json",
+          "kills": {
+            "control": true,
+            "ergo-check": false,
+            "ergo-test": true,
+            "go": true
+          }
+        },
+        {
+          "name": "flat-depth-limit-one-past",
+          "ledger": "examples/jsonparse/testdata/mutants.json",
+          "kills": {
+            "control": true,
+            "ergo-check": false,
+            "ergo-test": true,
+            "go": true
+          }
+        },
+        {
+          "name": "flat-index-one-past-the-end",
+          "ledger": "examples/jsonparse/testdata/mutants.json",
+          "kills": {
+            "control": true,
+            "ergo-check": false,
+            "ergo-test": true,
+            "go": true
+          }
+        }
+      ]
+    },
+    "diagnostics": {
+      "goTest": "internal/sketch/syntax:TestLexicalErrorInLookahead",
+      "about": "Sources that end in a lexical error after a parser lookahead has started: the token stream keeps its invariant, and the parse fails with S001 at the right offset with the message.",
+      "package": "./internal/sketch/syntax",
+      "subject": "compiler/syntax",
+      "edit": {
+        "file": "compiler/syntax/scan.ergo",
+        "from": "\tlet mut i = segStart + 1\n",
+        "to": "\tlet mut i = 1 + segStart\n",
+        "why": "the same start, its operands swapped: new tokens, new linked Go, the same behaviour"
+      },
+      "seeds": [
+        1,
+        2,
+        3
+      ],
+      "inputs": [
+        "compiler/syntax",
+        "internal/sketch/syntax",
+        "internal/linked/compiler"
+      ],
+      "forms": {
+        "control": {
+          "tree": "plain",
+          "run": [
+            [
+              "go",
+              "build",
+              "-o",
+              "{bin}/control",
+              "./scripts/buildcost/testdata/tprobe/diagnostics/control"
+            ],
+            [
+              "{bin}/control"
+            ]
+          ],
+          "relink": true
+        },
+        "ergo-check": {
+          "tree": "overlay",
+          "run": [
+            [
+              "{ergo}",
+              "check",
+              "--eval-steps",
+              "400000000",
+              "compiler/probes/tprobe/diagnostics"
+            ]
+          ]
+        },
+        "ergo-test": {
+          "tree": "overlay",
+          "run": [
+            [
+              "{ergo}",
+              "test",
+              "compiler/probes/tprobe/diagnostics"
+            ]
+          ]
+        },
+        "go": {
+          "tree": "plain",
+          "run": [
+            [
+              "go",
+              "test",
+              "-run",
+              "^TestLexicalErrorInLookahead$",
+              "./internal/sketch/syntax"
+            ]
+          ],
+          "relink": true
+        }
+      },
+      "mutants": [
+        {
+          "name": "diag-string-open-offset",
+          "ledger": "compiler/syntax/testdata/mutants.json",
+          "kills": {
+            "control": true,
+            "ergo-check": false,
+            "ergo-test": true,
+            "go": true
+          }
+        },
+        {
+          "name": "diag-newline-is-unterminated",
+          "ledger": "compiler/syntax/testdata/mutants.json",
+          "kills": {
+            "control": true,
+            "ergo-check": false,
+            "ergo-test": true,
+            "go": true
+          }
+        },
+        {
+          "name": "diag-utf8-byte-value",
+          "ledger": "compiler/syntax/testdata/mutants.json",
+          "kills": {
+            "control": true,
+            "ergo-check": false,
+            "ergo-test": true,
+            "go": true
+          }
+        },
+        {
+          "name": "diag-nbsp-as-char",
+          "ledger": "compiler/syntax/testdata/mutants.json",
+          "kills": {
+            "control": true,
+            "ergo-check": false,
+            "ergo-test": true,
+            "go": true
+          }
+        },
+        {
+          "name": "diag-raw-string-open-offset",
+          "ledger": "compiler/syntax/testdata/mutants.json",
+          "kills": {
+            "control": true,
+            "ergo-check": false,
+            "ergo-test": true,
+            "go": true
+          }
+        },
+        {
+          "name": "diag-parser-error-at-scan-offset-wins",
+          "ledger": "compiler/syntax/testdata/mutants.json",
+          "kills": {
+            "control": true,
+            "ergo-check": false,
+            "ergo-test": true,
+            "go": true
+          }
+        }
+      ]
+    },
+    "property": {
+      "goTest": "internal/selfhostcheck:TestSelfhostFormatLaws",
+      "about": "The formatter's laws on every input, through the hostsyntax facade. The Ergo forms run format.CheckLaws over every examples/ and compiler/ source; the Go family's generated grammar inputs have no Ergo generator yet, and three of its rows edit the Go facade, which no Ergo form runs.",
+      "package": "./internal/selfhostcheck",
+      "subject": "compiler/format",
+      "edit": {
+        "file": "compiler/format/printer.ergo",
+        "from": "\t\t\tci += 1\n",
+        "to": "\t\t\tci = ci + 1\n",
+        "why": "the same increment, written out: new tokens, new linked Go, the same behaviour"
+      },
+      "seeds": [
+        1,
+        2,
+        3
+      ],
+      "inputs": [
+        "compiler",
+        "examples",
+        "internal/selfhostcheck",
+        "internal/hostsyntax",
+        "internal/linked/compiler",
+        "internal/sketch/syntax",
+        "internal/sketch/sketchtest"
+      ],
+      "copies": [
+        {
+          "from": [
+            "examples",
+            "compiler"
+          ],
+          "to": "compiler/probes/tprobe/property/inputs.txt",
+          "suffix": ".ergo",
+          "join": "\u001e\n",
+          "skip": "compiler/probes/"
+        }
+      ],
+      "forms": {
+        "control": {
+          "tree": "plain",
+          "run": [
+            [
+              "go",
+              "build",
+              "-o",
+              "{bin}/control",
+              "./scripts/buildcost/testdata/tprobe/property/control"
+            ],
+            [
+              "{bin}/control"
+            ]
+          ],
+          "relink": true,
+          "seed": "env ERGO_SELFHOST_SEED"
+        },
+        "ergo-check": {
+          "tree": "overlay",
+          "run": [
+            [
+              "{ergo}",
+              "check",
+              "--eval-steps",
+              "400000000",
+              "compiler/probes/tprobe/property"
+            ]
+          ]
+        },
+        "ergo-test": {
+          "tree": "overlay",
+          "run": [
+            [
+              "{ergo}",
+              "test",
+              "compiler/probes/tprobe/property"
+            ]
+          ]
+        },
+        "go": {
+          "tree": "plain",
+          "run": [
+            [
+              "go",
+              "test",
+              "-run",
+              "^TestSelfhostFormatLaws$",
+              "./internal/selfhostcheck"
+            ]
+          ],
+          "relink": true,
+          "seed": "env ERGO_SELFHOST_SEED"
+        }
+      },
+      "mutants": [
+        {
+          "name": "sh-comment-crosses-token",
+          "ledger": "internal/selfhostcheck/testdata/mutants.json",
+          "kills": {
+            "control": true,
+            "ergo-check": false,
+            "ergo-test": false,
+            "go": true
+          }
+        },
+        {
+          "name": "sh-synth-merges-operator",
+          "ledger": "internal/selfhostcheck/testdata/mutants.json",
+          "kills": {
+            "control": true,
+            "ergo-check": false,
+            "ergo-test": false,
+            "go": true
+          }
+        },
+        {
+          "name": "sh-limit-allows-one-extra-byte",
+          "ledger": "internal/selfhostcheck/testdata/mutants.json",
+          "kills": {
+            "control": true,
+            "ergo-check": false,
+            "ergo-test": true,
+            "go": true
+          }
+        },
+        {
+          "name": "sh-one-line-body-holds-two",
+          "ledger": "internal/selfhostcheck/testdata/mutants.json",
+          "kills": {
+            "control": true,
+            "ergo-check": false,
+            "ergo-test": false,
+            "go": true
+          }
+        },
+        {
+          "name": "sh-forces-break-misses-catch",
+          "ledger": "internal/selfhostcheck/testdata/mutants.json",
+          "kills": {
+            "control": true,
+            "ergo-check": false,
+            "ergo-test": false,
+            "go": true
+          }
+        },
+        {
+          "name": "sh-number-selector-glues",
+          "ledger": "internal/selfhostcheck/testdata/mutants.json",
+          "kills": {
+            "control": true,
+            "ergo-check": false,
+            "ergo-test": false,
+            "go": true
+          }
+        },
+        {
+          "name": "b18-format-law-rewrite-as-body",
+          "ledger": "internal/selfhostcheck/testdata/mutants.json",
+          "kills": {
+            "control": true,
+            "ergo-check": false,
+            "ergo-test": true,
+            "go": true
+          }
+        },
+        {
+          "name": "b18-format-law-rewrite-drops-guard",
+          "ledger": "internal/selfhostcheck/testdata/mutants.json",
+          "kills": {
+            "control": true,
+            "ergo-check": false,
+            "ergo-test": false,
+            "go": true
+          }
+        },
+        {
+          "name": "hostsyntax-format-limit-dropped",
+          "ledger": "internal/selfhostcheck/testdata/mutants.json",
+          "kills": {
+            "control": true,
+            "ergo-check": "skipped: the mutant edits Go (internal/hostsyntax/format.go), which no Ergo form runs",
+            "ergo-test": "skipped: the mutant edits Go (internal/hostsyntax/format.go), which no Ergo form runs",
+            "go": true
+          }
+        },
+        {
+          "name": "hostsyntax-format-partial-text",
+          "ledger": "internal/selfhostcheck/testdata/mutants.json",
+          "kills": {
+            "control": true,
+            "ergo-check": "skipped: the mutant edits Go (internal/hostsyntax/format.go), which no Ergo form runs",
+            "ergo-test": "skipped: the mutant edits Go (internal/hostsyntax/format.go), which no Ergo form runs",
+            "go": true
+          }
+        },
+        {
+          "name": "sh-implements-dropped",
+          "ledger": "internal/selfhostcheck/testdata/mutants.json",
+          "kills": {
+            "control": true,
+            "ergo-check": false,
+            "ergo-test": true,
+            "go": true
+          }
+        },
+        {
+          "name": "sh-own-dropped",
+          "ledger": "internal/selfhostcheck/testdata/mutants.json",
+          "kills": {
+            "control": true,
+            "ergo-check": false,
+            "ergo-test": false,
+            "go": true
+          }
+        },
+        {
+          "name": "sh-derive-reads-spec",
+          "ledger": "internal/selfhostcheck/testdata/mutants.json",
+          "kills": {
+            "control": true,
+            "ergo-check": false,
+            "ergo-test": true,
+            "go": true
+          }
+        },
+        {
+          "name": "hostsyntax-syntax-failure-swallowed",
+          "ledger": "internal/selfhostcheck/testdata/mutants.json",
+          "kills": {
+            "control": true,
+            "ergo-check": "skipped: the mutant edits Go (internal/hostsyntax/format.go), which no Ergo form runs",
+            "ergo-test": "skipped: the mutant edits Go (internal/hostsyntax/format.go), which no Ergo form runs",
+            "go": true
+          }
+        },
+        {
+          "name": "sh-token-skips-merge",
+          "ledger": "internal/selfhostcheck/testdata/mutants.json",
+          "kills": {
+            "control": true,
+            "ergo-check": false,
+            "ergo-test": false,
+            "go": true
+          }
+        },
+        {
+          "name": "sh-line-probe-off-by-one",
+          "ledger": "internal/selfhostcheck/testdata/mutants.json",
+          "kills": {
+            "control": true,
+            "ergo-check": false,
+            "ergo-test": true,
+            "go": true
+          }
+        }
+      ]
+    }
+  }
+}

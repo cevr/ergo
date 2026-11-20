@@ -5,11 +5,11 @@ import ui
 // (ui.Access: a Semantic node's declared role, name and states; a Text's value; a live
 // region's text), with layout containers spliced and adjacent text joined as Of does. ui carries
 // no keys, relations or reach, so OfUI's tree is compared with Narrow(Of(tree)).
-func OfUI[E](f *ui.Frame[E]) Tree {
+func OfUI[E](f mut ui.Frame[E]) Tree {
 	Tree{..box(part.Generic), Kids: joined(uiKids[E](f, ui.Root(f)))}
 }
 
-func uiKids[E](f *ui.Frame[E], id ui.Id[E]) []Tree {
+func uiKids[E](f mut ui.Frame[E], id ui.Id[E]) []Tree {
 	let mut out = []Tree{}
 	for k in ui.Kids(f, id) {
 		for t in uiNode[E](f, k) {
@@ -20,7 +20,7 @@ func uiKids[E](f *ui.Frame[E], id ui.Id[E]) []Tree {
 }
 
 // uiNode is what one ui node offers a reader.
-func uiNode[E](f *ui.Frame[E], id ui.Id[E]) []Tree {
+func uiNode[E](f mut ui.Frame[E], id ui.Id[E]) []Tree {
 	let kids = joined(uiKids[E](f, id))
 	match ui.NodeOf(f, id) {
 	case Some as n:

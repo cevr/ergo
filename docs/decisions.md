@@ -33,6 +33,9 @@ This file is the dated log of the owner's decisions for Ergo, newest first. A de
 ## Decided by principle, 2026-11-18
 
 - **A module names the lowest ergo that builds it (SPLIT E1).** `ergo.mod` takes one line `ergo VERSION`, a Go module version of ergo (a tag or a pseudo-version, as `ergo version` prints it). An older ergo refuses the module at the line with the install command; a newer one builds it; a devel ergo (no version stamp: `-buildvcs=false`, test binaries) accepts every line and says so once. Of the build list's lines the highest counts, as Go's `go` line does. Decided: a minimum, not an exact pin, by Go's `go` line and Gleam's `gleam` key (an exact pin would make every std fix a downstream edit) and by "fewest concepts" (std and the runtime ride in the binary, so the ergo version is the only pin a module needs); reverse by reading the line as exact. Surface: one `ergo.mod` line, no language form.
+## Owner direction, 2026-11-17
+
+- **Three parameter modes in one position (2026-11-17, q223; finishes q168, q169 and q172 of 2026-11-13).** The owner, asked whether to finish the 2026-11-13 mode decision (nothing = read, `own` = keep, `mut` = write in place; `lent` and `*T` gone from Ergo source; `[T own]` written): "Yes". Decided, in three units of lane MODES: MODES-1 adds the spelling `mut T` for the borrow, one type with `*T`, and `ergo fix` respells `*T` outside a Go binding, where `*T` stays Go's pointer ([grammar](spec/grammar.md#declarations) Declarations 18); MODES-2 refuses `*T` outside a binding and deletes `[T lent]` (Borrows 7); MODES-3 writes `[T own]` and deletes the body-reading copy-site rule. A parameter that only reads stays `mut` until a read never copies (OWN1); then `ergo fix` may drop the word. Prior art: Mojo's `mut`, Swift's `inout` and Hylo's `inout` stand before the type; the audit (CSX §4.3, §5) has the table.
 
 ## Owner direction, 2026-11-15
 

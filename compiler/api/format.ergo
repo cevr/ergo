@@ -1,0 +1,124 @@
+// Package api is the root of the compiler's linked package
+// (internal/linked/compiler): Go calls its exported functions. Every entry
+// is pure. An entry parses with compiler/syntax, runs the formatter and
+// turns its typed outcome into text a Go caller reads. It makes no layout
+// decision. Only the source and the text cross to Go.
+
+import compiler/format
+import strings
+
+// FormatSource lays out src: "ok\n" and the text, "syntax <code>
+// <len>:<message> <offset> <length> <line> <column>\n" for a source that
+// does not parse, or "limit <n>\n" for a positive limit below the text's
+// size.
+func FormatSource(src string, limit int) string {
+	let text = format.Source(src, limit) catch {
+	case format.SyntaxFailure as f:
+		return "syntax \(f.Code) \(len(f.Message)):" + f.Message + " \(f.Offset) \(f.Length) \(f.Line) \(f.Column)\n"
+	case format.OutputLimit as o:
+		return "limit \(o.Limit)\n"
+	}
+	"ok\n" + text
+}
+
+// FormatWork is the formatter's work counter on src (format.Printed's
+// Walks), or -1 for a source that does not parse.
+func FormatWork(src string) int {
+	let r = format.Print(src, 0) catch {
+	case format.SyntaxFailure:
+		return -1
+	case format.OutputLimit:
+		return -1
+	}
+	r.Walks
+}
+
+// Laws is format.CheckLaws on src: "ok\n" or the broken laws.
+func Laws(src string) string { format.CheckLaws(src) }
+
+// Steps drives the layout state by an encoded command list and renders it:
+// "ok <built>\n" and the text, "limit <n> built <bytes>\n", or "bad <offset>\n"
+// for a list it cannot read. Each command is one letter: s Space,
+// n Newline, b NoBlank, e0 or e1 Emit (with the source's blank line),
+// w<len>:<text> Write, p<len>:<text> Put, | Separator, i<n>; Indent,
+// t<n>; SetIndent, l EndLine.
+func Steps(commands string, limit int) string {
+	let list = readCommands(commands) catch {
+	case BadCommand as b:
+		return "bad \(b.At)\n"
+	}
+	let r = format.Steps(list, limit) catch {
+	case format.OutputLimit as o:
+		return "limit \(o.Limit) built \(o.Built)\n"
+	}
+	"ok \(r.Built)\n" + r.Text
+}
+
+// BadCommand is a command list Steps cannot read, at a byte.
+type BadCommand { At int }
+
+func readCommands(w string) []format.Command fails BadCommand {
+	let mut out = []format.Command{}
+	let mut at = 0
+	for at < len(w) {
+		let c = w[at]
+		match c {
+		case 's':
+			out = out.Append(format.Space)
+			at += 1
+		case 'n':
+			out = out.Append(format.Newline)
+			at += 1
+		case 'b':
+			out = out.Append(format.NoBlank)
+			at += 1
+		case '|':
+			out = out.Append(format.Separator)
+			at += 1
+		case 'l':
+			out = out.Append(format.EndLine)
+			at += 1
+		case 'e':
+			if at+1 >= len(w) || w[at+1] != '0' && w[at+1] != '1' {
+				return BadCommand{At: at}
+			}
+			out = out.Append(format.Emit{Blank: w[at+1] == '1'})
+			at += 2
+		case 'w', 'p':
+			let (n, start) = try decimalAt(w, at+1, ':')
+			if n < 0 || n > len(w)-start {
+				return BadCommand{At: at}
+			}
+			let text = strings.Slice(w, start, start+n)
+			out = out.Append(if c == 'w' { format.Write{Text: text} } else { format.Put{Text: text} })
+			at = start + n
+		case 'i', 't':
+			let (n, next) = try decimalAt(w, at+1, ';')
+			out = out.Append(if c == 'i' { format.Indent{By: n} } else { format.SetIndent{To: n} })
+			at = next
+		case _:
+			return BadCommand{At: at}
+		}
+	}
+	out
+}
+
+// decimalAt reads an optionally negative decimal at at, ended by stop: its
+// value and the offset after stop.
+func decimalAt(w string, at int, stop byte) (int, int) fails BadCommand {
+	let mut i = at
+	let negative = i < len(w) && w[i] == '-'
+	if negative {
+		i += 1
+	}
+	let digits = i
+	let mut n = 0
+	for i < len(w) && w[i] >= '0' && w[i] <= '9' {
+		n = n*10 + int(w[i]-'0')
+		i += 1
+	}
+	if i == digits || i >= len(w) || w[i] != stop {
+		return BadCommand{At: at}
+	}
+	(if negative { -n } else { n }, i + 1)
+}
