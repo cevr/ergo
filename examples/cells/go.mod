@@ -2,6 +2,8 @@ module ergo.local/prototype/examples/cells
 
 go 1.27
 
+toolchain go1.27.4
+
 // The two GUI examples whose views and scene scripts the cell host plays
 // (package scenes, cmd/cells): Ergo modules this one requires (grammar.md,
 // Required modules), from their folders in this repository.

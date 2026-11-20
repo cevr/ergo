@@ -56,6 +56,11 @@ var ArgClauses = []ArgClause{
 	{"actor.changesOf", "changed", "escaping", "ActorChanges keeps it in the Seq it returns and calls it on the iterating task for each state, after changesOf returned"},
 	{"actor.changesOf", "overflowed", "escaping", "ActorChanges keeps it in the Seq it returns and calls it on the iterating task before a state an overflow dropped others for, after changesOf returned"},
 	{"actor.feed", "run", "escaping", "ActorFeed admits it as a source that the actor's runner starts on a task of its own, after feed returned"},
+	// api: Transport is an operation type with no Go body; its providers
+	// are generated Ergo (each transport package's Wire). The clause is the
+	// declaration's own: a transport may hand answer to a server it starts
+	// (an Effect RPC loopback serves it on a task of its own).
+	{"api.Transport.Carry", "answer", "escaping", "no Go body: a provider is Ergo the checker reads; answer is own, so a transport may keep it for a server it starts, as rpc's Loopback runs its handle on a task below the caller"},
 	{"csv.scan", "each", "non-escaping", "CSVScan calls each in a loop over Go's csv.Reader on the caller's goroutine, one record at a time, and keeps nothing"},
 	{"exec.waitFor", "p", "lent", "ExecWaitFor calls p's Wait on the caller's task, or through After on a child that After stops and joins on every exit before it returns; Wait waits on channels and finish runs once, so the child's Wait is sound while the caller owns p; it keeps nothing and never releases p"},
 	// http: a streamed client body (httpStreamURL) is read by a goroutine

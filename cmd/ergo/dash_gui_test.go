@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -67,9 +68,11 @@ func TestDashGuiAgreesWithControl(t *testing.T) {
 		// (std pace, PACE1): when Go collects never changes what it prints.
 		// Under edges, a seed in three also holds the pacing over each run
 		// of at most 100 or 200 frames (-hold, PACE2): a held stretch
-		// changes nothing either.
+		// changes nothing either, and the edges reach the pacing through
+		// pace.NewEvery of 1 to 4 (-every, PROV-COMPOSE): a composed
+		// provider changes nothing.
 		runs := [][]string{
-			{ergoBin, "-pace", "edges", "-hold", strconv.Itoa(int(seed%3) * 100)},
+			{ergoBin, "-pace", "edges", "-hold", strconv.Itoa(int(seed%3) * 100), "-every", strconv.Itoa(int(seed%4) + 1)},
 			{ergoBin, "-pace", "percent"},
 			{ergoBin, "-pace", "default"},
 			{control},
@@ -109,8 +112,16 @@ func TestDashGuiAgreesWithControl(t *testing.T) {
 // cycle is forced (Go's memory limit may still run its own). It kills the
 // mutants no output can see: an AtEdges that never collects, a
 // NewAtEdges that leaves the percent on, a main that binds Default for
-// every -pace, an AtEdges whose edges ignore a hold, and a release that
-// drops the owed collection.
+// every -pace, an AtEdges whose edges ignore a hold, a release that
+// drops the owed collection, and a NewAtEdges that sets no memory limit
+// (GC-EDGE: no cycle under -pace edges starts with the heap past it).
+// dashPaceLimitMB is dash-gui's PaceLimit in MB (main.ergo).
+const dashPaceLimitMB = 256
+
+// gcHeapAtStart reads the heap a cycle started at from a gctrace line
+// ("4->5->1 MB": at start, at end, marked live).
+var gcHeapAtStart = regexp.MustCompile(` (\d+)->\d+->\d+ MB`)
+
 func dashPacesTheCollector(t *testing.T, bin string) {
 	t.Helper()
 	var env []string
@@ -132,8 +143,12 @@ func dashPacesTheCollector(t *testing.T, bin string) {
 		if err := proclimit.Run(command, 1<<30); err != nil {
 			t.Fatalf("dash-gui play -pace %s: %v\n%s", c.pace, err, stderr.Bytes())
 		}
-		forced, paced := 0, 0
+		forced, paced, peak := 0, 0, 0
 		for _, line := range strings.Split(stderr.String(), "\n") {
+			if m := gcHeapAtStart.FindStringSubmatch(line); m != nil && strings.HasPrefix(line, "gc ") {
+				mb, _ := strconv.Atoi(m[1])
+				peak = max(peak, mb)
+			}
 			switch {
 			case !strings.HasPrefix(line, "gc "):
 			case strings.HasSuffix(line, " (forced)"):
@@ -141,6 +156,14 @@ func dashPacesTheCollector(t *testing.T, bin string) {
 			default:
 				paced++
 			}
+		}
+		// The memory bound (GC-EDGE): under -pace edges no cycle starts
+		// with the heap past the limit (dash-gui's PaceLimit, 256 MB), with
+		// a sixteenth for the bytes allocated while a cycle starts. Held
+		// whole, the run allocates about 360 MB with no edge collecting,
+		// so only Go's memory limit keeps the heap under it.
+		if c.pace == "edges" && peak > dashPaceLimitMB+dashPaceLimitMB/16 {
+			t.Errorf("dash-gui play -pace %s -hold %s: a cycle started at a %d MB heap; the memory bound is %d MB\n%s", c.pace, c.hold, peak, dashPaceLimitMB, stderr.Bytes())
 		}
 		held := c.hold != "0"
 		switch {

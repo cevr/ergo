@@ -440,22 +440,19 @@ func appendSymbols(out []*symbol, v Value) []*symbol {
 	return out
 }
 
-// takesHoles marks the natives a template run passes a hole, which
-// holeNative registers (std build's questions about what the build knows).
-var takesHoles = map[string]bool{}
-
-// holeNative registers f as the native of the function named name, which
-// a template run passes a hole: f answers for a symbol itself.
-func holeNative(name string, f native) {
-	natives[name] = f
-	takesHoles[name] = true
+// holeNative registers in t f as the native of the function named name,
+// which a template run passes a hole (std build's questions about what the
+// build knows): f answers for a symbol itself.
+func holeNative(t nativeTables, name string, f native) {
+	t.std[name] = f
+	t.holes[name] = true
 }
 
 // symExtern is a template run's rule for a call of the function fn with
 // no Ergo body: its native runs on known arguments, and an argument that
 // holds a hole stops the run, except for a native holeNative registered.
 func (in *interp) symExtern(fr *frame, at *syntax.CallExpr, fn *check.Func, args []Value) *abrupt {
-	if nativeOf(fn) != nil && takesHoles[fn.Pkg.Path+"."+fn.Name] {
+	if nativeOf(fn) != nil && loadedNatives().holes[fn.Pkg.Path+"."+fn.Name] {
 		return nil
 	}
 	for _, a := range args {

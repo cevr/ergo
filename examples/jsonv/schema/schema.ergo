@@ -6,10 +6,14 @@
 // of every violation. It is pure.
 
 import jsonv/json
+import slices
 import stdjson json
 
 // Schema is what a value must be.
 type Schema = Anything{} | IsNull{} | IsBool{} | IsString{Enum []string, MinLength int} | IsNumber{Integer bool, Min Option[float64], Max Option[float64]} | IsArray{Items Schema, MinItems int} | IsObject{Props []Prop, Required []string, Closed bool}
+
+// AnythingAcceptsAll: Anything has no violation.
+law AnythingAcceptsAll(v json.Tree) { len(Validate(Anything, try json.Lawful(v))) == 0 }
 
 // Prop is one named property of an object schema.
 type Prop { Name string, S Schema }
@@ -41,7 +45,7 @@ func Infer(v stdjson.Value) Schema {
 		let mut names = []string{}
 		for m in o.Members {
 			let s = Infer(m.Value)
-			let at = indexOf(props, m.Key)
+			let at = slices.IndexFunc(props, func(p Prop) bool { p.Name == m.Key })
 			if at < 0 {
 				props = props.Append(Prop{Name: m.Key, S: s})
 				names = names.Append(m.Key)
@@ -51,6 +55,13 @@ func Infer(v stdjson.Value) Schema {
 		}
 		IsObject{Props: props, Required: names, Closed: true}
 	}
+}
+
+// SchemaRoundTrips: an inferred schema, written as JSON and read back, is
+// the same schema.
+law SchemaRoundTrips(v json.Tree) {
+	let s = Infer(try json.Lawful(v))
+	try FromJSON(ToJSON(s)) == s
 }
 
 // Join is a schema that accepts every value a or b accepts: the same
@@ -71,11 +82,11 @@ func Join(a Schema, b Schema) Schema {
 	case (IsObject as x, IsObject as y):
 		let mut props = []Prop{}
 		for p in x.Props {
-			let at = indexOf(y.Props, p.Name)
+			let at = slices.IndexFunc(y.Props, func(q Prop) bool { q.Name == p.Name })
 			props = props.Append(if at < 0 { p } else { Prop{Name: p.Name, S: Join(p.S, y.Props[at].S)} })
 		}
 		for p in y.Props {
-			if indexOf(x.Props, p.Name) < 0 {
+			if slices.IndexFunc(x.Props, func(q Prop) bool { q.Name == p.Name }) < 0 {
 				props = props.Append(p)
 			}
 		}
@@ -89,6 +100,14 @@ func Join(a Schema, b Schema) Schema {
 	case _:
 		Anything
 	}
+}
+
+// JoinAcceptsBoth: the join of two inferred schemas accepts both values.
+law JoinAcceptsBoth(a json.Tree, b json.Tree) {
+	let x = try json.Lawful(a)
+	let y = try json.Lawful(b)
+	let s = Join(Infer(x), Infer(y))
+	len(Validate(s, x)) == 0 && len(Validate(s, y)) == 0
 }
 
 // lower is the lower of two minimums, None when either has none.
@@ -131,15 +150,6 @@ func has(names []string, name string) bool {
 		}
 	}
 	false
-}
-
-func indexOf(props []Prop, name string) int {
-	for i, p in props {
-		if p.Name == name {
-			return i
-		}
-	}
-	-1
 }
 
 // replaced is props with the prop at i replaced by p, in a new slice.

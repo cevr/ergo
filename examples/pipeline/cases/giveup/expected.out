@@ -1,9 +1,9 @@
-> submit test 2
+> submit -id=c4 -run=test -stages=2
   taken as c4 at log position 1
   test: submitted (stages: 2)
   test: started
   test: stage 1 failed
-> submit docs 1
+> submit -id=c5 -run=docs -stages=1
   taken as c5 at log position 3
   docs: submitted (stages: 1)
 > wait
@@ -22,10 +22,10 @@
   docs: stage 1 passed
   docs: finished
   ! docs passed
-> show test
-  test: gave up at stage 2
-> show docs
-  docs: passed
+> run-of -- test
+  gave up at stage 2
+> run-of -- docs
+  passed
 > board
   queued: -
   running: -

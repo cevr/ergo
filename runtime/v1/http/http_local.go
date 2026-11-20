@@ -40,17 +40,17 @@ const httpLocalKey = "Ergo-Local-Exchange"
 type httpLocal struct {
 	key    string
 	origin string
-	handle func(*rt.Task, string, string, string, []HTTPField, []HTTPField, string) HTTPResponse
+	handle func(*rt.Task, string, string, string, string, []HTTPField, []HTTPField, string) HTTPResponse
 	in     chan *httpLocalCall
 	done   chan struct{}
 }
 
 // httpLocalCall is one request the server read, and its answer.
 type httpLocalCall struct {
-	method, path  string
-	query, header []HTTPField
-	body          string
-	out           chan HTTPResponse // buffered: the caller never waits on it
+	method, path, rawPath string
+	query, header         []HTTPField
+	body                  string
+	out                   chan HTTPResponse // buffered: the caller never waits on it
 }
 
 var (
@@ -69,12 +69,12 @@ func (l *httpLocal) calls() <-chan *httpLocalCall {
 
 // answer runs the handler on the caller's task t.
 func (l *httpLocal) answer(t *rt.Task, c *httpLocalCall) {
-	c.out <- l.handle(t, l.origin, c.method, c.path, c.query, c.header, c.body)
+	c.out <- l.handle(t, l.origin, c.method, c.path, c.rawPath, c.query, c.header, c.body)
 }
 
 // httpOpenLocal registers the exchange of target; close forgets it and
 // releases a server request still waiting on it.
-func httpOpenLocal(target *url.URL, handle func(*rt.Task, string, string, string, []HTTPField, []HTTPField, string) HTTPResponse) (*httpLocal, error) {
+func httpOpenLocal(target *url.URL, handle func(*rt.Task, string, string, string, string, []HTTPField, []HTTPField, string) HTTPResponse) (*httpLocal, error) {
 	origin, err := networkOrigin(&url.URL{Scheme: target.Scheme, Host: target.Host})
 	if err != nil {
 		return nil, err
@@ -105,7 +105,7 @@ func httpLocalServe(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		panic(http.ErrAbortHandler)
 	}
-	c := &httpLocalCall{method: r.Method, path: r.URL.Path, query: HTTPParseQuery(r.URL.RawQuery), header: httpFields(r.Header), body: string(body), out: make(chan HTTPResponse, 1)}
+	c := &httpLocalCall{method: r.Method, path: r.URL.Path, rawPath: r.URL.EscapedPath(), query: httpParseQuery(r.URL.RawQuery), header: httpFields(r.Header), body: string(body), out: make(chan HTTPResponse, 1)}
 	select {
 	case l.in <- c:
 	case <-l.done:
@@ -181,7 +181,7 @@ func httpLocalTransportFor(maxHeader int) *http.Transport {
 // target's origin and the request as Serve gives a handler.
 //
 //ergo:wait caller
-func HTTPFetchLocal(t *rt.Task, origins []string, anyOrigin bool, limits HTTPLimits, hops int, method, rawURL string, header []HTTPField, owners []string, credentials []HTTPField, body string, handle func(*rt.Task, string, string, string, []HTTPField, []HTTPField, string) HTTPResponse) (HTTPResponse, error) {
+func HTTPFetchLocal(t *rt.Task, origins []string, anyOrigin bool, limits HTTPLimits, hops int, method, rawURL string, header []HTTPField, owners []string, credentials []HTTPField, body string, handle func(*rt.Task, string, string, string, string, []HTTPField, []HTTPField, string) HTTPResponse) (HTTPResponse, error) {
 	return httpFetch(t, origins, anyOrigin, hops, method, rawURL, header, owners, credentials, body, func(u *url.URL, method string, fields []HTTPField, body string) (HTTPResponse, error) {
 		l, err := httpOpenLocal(u, handle)
 		if err != nil {
@@ -196,7 +196,7 @@ func HTTPFetchLocal(t *rt.Task, origins []string, anyOrigin bool, limits HTTPLim
 // is HTTPFetch.
 //
 //ergo:wait caller
-func HTTPFetchLocalInto(t *rt.Task, origins []string, anyOrigin bool, limits HTTPLimits, hops int, method, rawURL string, header []HTTPField, owners []string, credentials []HTTPField, body string, accepts func(int) bool, put func(*rt.Task, string) error, handle func(*rt.Task, string, string, string, []HTTPField, []HTTPField, string) HTTPResponse) (HTTPResponse, error) {
+func HTTPFetchLocalInto(t *rt.Task, origins []string, anyOrigin bool, limits HTTPLimits, hops int, method, rawURL string, header []HTTPField, owners []string, credentials []HTTPField, body string, accepts func(int) bool, put func(*rt.Task, string) error, handle func(*rt.Task, string, string, string, string, []HTTPField, []HTTPField, string) HTTPResponse) (HTTPResponse, error) {
 	follow := func(r HTTPResponse) bool { return hops != -1 && httpLocation(r) != "" }
 	return httpFetch(t, origins, anyOrigin, hops, method, rawURL, header, owners, credentials, body, func(u *url.URL, method string, fields []HTTPField, body string) (HTTPResponse, error) {
 		l, err := httpOpenLocal(u, handle)

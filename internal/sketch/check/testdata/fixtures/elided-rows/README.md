@@ -10,3 +10,7 @@ diagnostic, or gets exactly its markers.
 Ported from the Go test `TestElidedRowArgFixtures` (TP-DIAG), which named
 no mutant. The seeded property beside it in
 `internal/sketch/check/elided_rows_test.go` stays in Go.
+
+prints-no-fails.ergo (KSIG-FALLIBLE): a signature prints by what its identity
+compares, so Build of a Command[int], its row left out, is func() int, with
+no bare fails. It kills the ledger mutant sig-prints-bare-fails.

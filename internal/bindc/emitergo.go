@@ -136,6 +136,8 @@ func (e *ergoEmitter) file() string {
 				} else if b.unions[t.Elem.Name] {
 					et = b.RecordType(t.Elem.Name)
 				}
+			case ClassOptional:
+				et = "Option[" + e.ergoType(*t.Elem) + "]"
 			case ClassInBuffer, ClassOutBuffer:
 				et = "[]" + e.ergoType(*t.Elem)
 				if et == "[]uint8" {

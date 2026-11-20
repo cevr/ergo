@@ -238,6 +238,13 @@ func FSReadFile(path string) (string, error) {
 	return string(data), nil
 }
 
+// MappedText is the Go type of std fs's Text, a borrow of a Mapped's text:
+// an alias of string, so every string operation reads it as one. fs
+// declares Text by naming it (extern go …/runtime/v1.MappedText), so the
+// checker's borrow rule and the lowering read that declaration, not the
+// package's path: a copy of fs lowers and checks as fs (STD-COPY-SAME).
+type MappedText = string
+
 // Mapped is fs.Mapped: the text of a file read through a read-only shared
 // mapping of it (FSMapFile), or a text held in memory (FSMapText). Close
 // unmaps it. Its methods take no hidden argument.
@@ -432,7 +439,14 @@ func (r *HostRoot) ReadFile(_ *rt.Task, path string) (string, error) {
 	var text string
 	err := r.in(path, func(root *os.Root) error {
 		data, err := root.ReadFile(path)
-		text = string(data)
+		// The text is data itself, not a copy (HTTP-FAST-c9): the slice
+		// ReadFile made is held by nothing else and is never written again.
+		// A read under half the slice's room (a small file in os's
+		// 512-byte minimum) is copied, so its text keeps only its bytes.
+		text = unsafe.String(unsafe.SliceData(data), len(data))
+		if len(data) < cap(data)/2 {
+			text = string(data)
+		}
 		return err
 	})
 	return text, err

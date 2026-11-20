@@ -3,6 +3,7 @@
 // has regions.
 
 import machines
+import time
 
 // Mode is the case of the next letter. ShiftOnce makes one letter upper
 // case; Caps makes every letter upper case until Shift.
@@ -62,7 +63,7 @@ type Shifter machine[Mode, Tap] {
 	// when it comes 0 to CapsWindow after the first; any other gap goes
 	// back to Lower.
 	law SecondShiftLocksWithinTheWindow(gap int) {
-		let g = ms(gap % 3000)
+		let g = time.Times(1ms, gap%3000)
 		let o = machines.Run(Shifter{}, []Tap{ShiftTap{At: 0s}, ShiftTap{At: g}}) catch {
 		case machines.Rejected:
 			return false

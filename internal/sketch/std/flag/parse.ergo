@@ -1,3 +1,4 @@
+import slices
 import strconv
 import strings
 import time
@@ -14,11 +15,15 @@ import time
 // in @effect/cli (helpAsked).
 func Parse(s Set, args []string) Values fails Help | Unknown | NeedsValue | Invalid | Missing | Extra {
 	validateFlags(s.Flags)
-	if helpAsked(s, args) {
+	if mayAskHelp(args) && helpAsked(s, args) {
 		return Help{Text: Usage(s)}
 	}
-	let mut flags Map[string, value]
-	let mut positional = []string{}
+	let none = slot{given: 0, last: noItem(), all: []item{}}
+	let mut slots = slices.WithCapacity[slot](len(s.Flags))
+	for _ in s.Flags {
+		slots = slots.Append(none)
+	}
+	let mut positional = slices.WithCapacity[string](len(args))
 	let mut open = true
 	let mut i = 0
 	for i < len(args) {
@@ -45,45 +50,44 @@ func Parse(s Set, args []string) Values fails Help | Unknown | NeedsValue | Inva
 			given = strings.Slice(body, eq+1, len(body))
 			hasValue = true
 		}
-		match find(s, name) {
-		case None:
+		let at = spelled(s.Flags, name)
+		if at < 0 {
 			return Unknown{Name: name}
-		case Some[Flag] as found:
-			let f = found.Value
-			let canonical = nameOf(f)
-			match scalar(f) {
-			case BoolFlag:
-				if hasValue {
-					let b = strconv.ParseBool(given) catch {
-					case strconv.Malformed:
-						return Invalid{Name: name, Text: given, Reason: "parse error"}
-					}
-					flags[canonical] = collected(f, flags, boolValue{V: b})
-				} else {
-					flags[canonical] = collected(f, flags, boolValue{V: true})
+		}
+		let f = s.Flags[at]
+		let mut x = noItem()
+		if isSwitch(f) {
+			if hasValue {
+				let b = strconv.ParseBool(given) catch {
+				case strconv.Malformed:
+					return Invalid{Name: name, Text: given, Reason: "parse error"}
 				}
-			case StringFlag, IntFlag, ChoiceFlag, DurationFlag:
-				if !hasValue {
-					if i >= len(args) {
-						return NeedsValue{Name: name}
-					}
-					given = args[i]
-					i += 1
-				}
-				flags[canonical] = collected(f, flags, try read(f, name, given))
+				x = item{..x, b: b}
+			} else {
+				x = item{..x, b: true}
 			}
+		} else {
+			if !hasValue {
+				if i >= len(args) {
+					return NeedsValue{Name: name}
+				}
+				given = args[i]
+				i += 1
+			}
+			x = try read(f, name, given)
+		}
+		slots[at].given += 1
+		slots[at].last = x
+		if cardinality(f) == 2 {
+			slots[at].all = slots[at].all.Append(x)
 		}
 	}
-	for f in s.Flags {
-		if isRequired(f) {
-			match flags.Get(nameOf(f)) {
-			case Some[value]:
-			case None:
-				return Missing{Name: nameOf(f)}
-			}
+	for j, f in s.Flags {
+		if slots[j].given == 0 && isRequired(f) {
+			return Missing{Name: nameOf(f)}
 		}
 	}
-	let mut named Map[string, string]
+	let mut named = slices.WithCapacity[slot](len(s.Args))
 	let mut rest = []string{}
 	let mut next = 0
 	for a in s.Args {
@@ -92,24 +96,90 @@ func Parse(s Set, args []string) Values fails Help | Unknown | NeedsValue | Inva
 			if next >= len(positional) {
 				return Missing{Name: a.name}
 			}
-			named[a.name] = positional[next]
+			named = named.Append(slot{..none, given: 1, last: item{..none.last, text: positional[next]}})
 			next += 1
 		case optional:
 			if next < len(positional) {
-				named[a.name] = positional[next]
+				named = named.Append(slot{..none, given: 1, last: item{..none.last, text: positional[next]}})
 				next += 1
+			} else {
+				named = named.Append(none)
 			}
 		case many:
-			for next < len(positional) {
-				rest = rest.Append(positional[next])
-				next += 1
-			}
+			named = named.Append(none)
+			rest = slices.Slice(positional, next, len(positional))
+			next = len(positional)
 		}
 	}
 	if next < len(positional) {
 		return Extra{Text: positional[next]}
 	}
-	Values{set: s, flags: flags, named: named, rest: rest}
+	Values{set: s, slots: slots, args: named, rest: rest}
+}
+
+// IndependentFlagsCommute: the order of two different flags does not
+// matter.
+law IndependentFlagsCommute(a string, n int) {
+	let first = try Parse(lawSet(), []string{"-s=" + a, "-n=" + strconv.Itoa(n)})
+	Equal(first, try Parse(lawSet(), []string{"-n=" + strconv.Itoa(n), "-s=" + a}))
+}
+
+// lawSet is the set the laws parse with.
+func lawSet() Set {
+	Set{Name: "law", Usage: "", Flags: []Flag{lawText, lawNumber, lawSwitch}, Args: []ArgSpec{Remaining("rest", "the rest")}}
+}
+
+// LastWins: of a repeated flag, the last value counts.
+law LastWins(a string, b string) {
+	let v = try Parse(lawSet(), []string{"-s", a, "-s", b})
+	lawText.Get(v) == b
+}
+
+// DefaultWhenAbsent: an absent flag has its default, and an absent
+// required flag fails Missing with its name.
+law DefaultWhenAbsent() {
+	let v = try Parse(lawSet(), []string{})
+	let required = Set{Name: "law", Usage: "", Flags: []Flag{lawText, lawRequired}, Args: []ArgSpec{}}
+	Parse(required, []string{}) catch {
+	case Missing as m:
+		return m.Name == "r" && lawText.Get(v) == "d" && lawNumber.Get(v) == 0 && !lawSwitch.Get(v)
+	case _:
+		return false
+	}
+	false
+}
+
+let lawRequired = RequiredString("r", "a required text")
+
+law AbsentIsNone() {
+	let v = try Parse(treeSet(), []string{})
+	treeText.Get(v) == None && treeNumber.Get(v) == None
+}
+
+// mayAskHelp reports whether an argument could ask for help: -h, -help,
+// --h or --help, with or without "=…". It reads no flag of the set, so
+// most command lines skip helpAsked's second pass (FLAG-FLOOR); helpAsked
+// can only answer true at such an argument. It looks past "--", which
+// may be a flag's value (HelpWinsInEveryForm).
+func mayAskHelp(args []string) bool {
+	for arg in args {
+		let body = if strings.HasPrefix(arg, "--") { strings.Slice(arg, 2, len(arg)) } else if strings.HasPrefix(arg, "-") { strings.Slice(arg, 1, len(arg)) } else { "" }
+		if body == "h" || body == "help" || strings.HasPrefix(body, "h=") || strings.HasPrefix(body, "help=") {
+			return true
+		}
+	}
+	false
+}
+
+// isSwitch reports whether f is a switch, which never takes the next
+// argument as its value.
+func isSwitch(f Flag) bool {
+	match f {
+	case BoolFlag, RepeatedBoolFlag:
+		true
+	case _:
+		false
+	}
 }
 
 // helpAsked reports whether args ask for help: -h, -help or --help (or
@@ -132,62 +202,64 @@ func helpAsked(s Set, args []string) bool {
 		let body = if strings.HasPrefix(arg, "--") { strings.Slice(arg, 2, len(arg)) } else { strings.Slice(arg, 1, len(arg)) }
 		let eq = strings.Index(body, "=")
 		let name = if eq > 0 { strings.Slice(body, 0, eq) } else { body }
-		match find(s, name) {
-		case None:
+		let at = spelled(s.Flags, name)
+		if at < 0 {
 			if name == "h" || name == "help" {
 				return true
 			}
-		case Some[Flag] as found:
-			match scalar(found.Value) {
-			case BoolFlag:
-			case StringFlag, IntFlag, ChoiceFlag, DurationFlag:
-				if eq <= 0 {
-					i += 1
-				}
-			}
+		} else if !isSwitch(s.Flags[at]) && eq <= 0 {
+			i += 1
 		}
 	}
 	false
 }
 
-// read is the value of a flag that takes one, from its text.
-func read(f Flag, name string, given string) value fails Invalid {
-	match scalar(f) {
-	case IntFlag:
+// read is the value of a flag that takes one, from its text: the field
+// of its kind set in an item.
+func read(f Flag, name string, given string) item fails Invalid {
+	match f {
+	case IntFlag, OptionalIntFlag, RepeatedIntFlag:
 		let n = strconv.ParseInt(given, 0, 64) catch {
 		case strconv.Malformed:
 			return Invalid{Name: name, Text: given, Reason: "parse error"}
 		case strconv.OutOfRange:
 			return Invalid{Name: name, Text: given, Reason: "value out of range"}
 		}
-		intValue{V: int(n)}
-	case DurationFlag:
+		item{text: "", n: int(n), b: false, d: 0s}
+	case DurationFlag, RepeatedDurationFlag:
 		let d = time.ParseDuration(given) catch {
 		case time.ParseError:
 			return Invalid{Name: name, Text: given, Reason: "parse error"}
 		}
-		durationValue{V: d}
+		item{text: "", n: 0, b: false, d: d}
 	case ChoiceFlag as c:
-		for choice in c.choices {
-			if choice == given {
-				return textValue{V: given}
-			}
-		}
-		Invalid{Name: name, Text: given, Reason: "not one of " + strings.Join(c.choices, ", ")}
-	case StringFlag, BoolFlag:
-		textValue{V: given}
+		try chosen(c, name, given)
+	case RepeatedChoiceFlag as c:
+		try chosen(c.base, name, given)
+	case StringFlag, OptionalStringFlag, RepeatedStringFlag, BoolFlag, RepeatedBoolFlag:
+		item{text: given, n: 0, b: false, d: 0s}
 	}
+}
+
+// chosen is given as the value of the Choice c, when it is one of its
+// choices. The failure's text is built only on a failure.
+func chosen(c ChoiceFlag, name string, given string) item fails Invalid {
+	for choice in c.choices {
+		if choice == given {
+			return item{text: given, n: 0, b: false, d: 0s}
+		}
+	}
+	Invalid{Name: name, Text: given, Reason: "not one of " + strings.Join(c.choices, ", ")}
 }
 
 // isRequired reports whether f has no default.
 func isRequired(f Flag) bool {
-	if cardinality(f) != 0 { return false }
-	match scalar(f) {
+	match f {
 	case StringFlag as s:
 		s.required
 	case IntFlag as n:
 		n.required
-	case BoolFlag, ChoiceFlag, DurationFlag:
+	case _:
 		false
 	}
 }
@@ -195,16 +267,75 @@ func isRequired(f Flag) bool {
 // A spelling denotes one handle. Declaration errors are defects, not bad
 // user input. Check before help too, so help cannot hide an ambiguous set.
 func validateFlags(flags []Flag) {
-	let mut seen Map[string, bool]
-	for f in flags {
-		let names = if aliasOf(f) == "" { []string{nameOf(f)} } else { []string{nameOf(f), aliasOf(f)} }
-		for name in names {
-			match seen.Get(name) {
-			case Some:
-				Unreachable("flag: a flag spelling is declared twice: " + name)
-			case None:
-				seen[name] = true
+	match doubled(flags) {
+	case Some[string] as d:
+		Unreachable("flag: a flag spelling is declared twice: " + d.Value)
+	case None:
+	}
+}
+
+// doubled is the first spelling (a long name or an alias) that flags
+// declare twice, or None. Each spelling is compared with those before it:
+// no map is built for the few flags of a command line (FLAG-FLOOR).
+func doubled(flags []Flag) Option[string] {
+	for i, f in flags {
+		let (name, alias) = spellings(f)
+		if alias != "" && alias == name {
+			return Some[string]{Value: name}
+		}
+		for j in 0..i {
+			let (gn, ga) = spellings(flags[j])
+			if name == gn || name == ga && ga != "" {
+				return Some[string]{Value: name}
+			}
+			if alias != "" && (alias == gn || alias == ga) {
+				return Some[string]{Value: alias}
 			}
 		}
 	}
+	None
+}
+
+// DoubledSpellingIsFound: doubled finds a spelling exactly when one is
+// declared twice, by long name or alias, and the one it names is declared
+// twice. The spellings come from a small alphabet so that they collide.
+law DoubledSpellingIsFound(picks []int) {
+	let longs = []string{"a", "b", "ab", "c"}
+	let shorts = []string{"", "a", "b", "c"}
+	let mut flags = []Flag{}
+	let mut all = []string{}
+	for p in picks {
+		let k = if p < 0 { -(p + 1) } else { p }
+		let long = longs[k%4]
+		let short = shorts[(k/4)%4]
+		all = all.Append(long)
+		if short == "" {
+			flags = flags.Append(String(long, "", "u"))
+		} else {
+			flags = flags.Append(String(long, "", "u").WithAlias(short))
+			all = all.Append(short)
+		}
+	}
+	match doubled(flags) {
+	case Some[string] as d:
+		occurrences(all, d.Value) >= 2
+	case None:
+		for s in all {
+			if occurrences(all, s) >= 2 {
+				return false
+			}
+		}
+		true
+	}
+}
+
+// occurrences is how many times s is in xs.
+func occurrences(xs []string, s string) int {
+	let mut n = 0
+	for x in xs {
+		if x == s {
+			n += 1
+		}
+	}
+	n
 }

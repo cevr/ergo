@@ -1,0 +1,5 @@
+--script
+world.json
+--allow-shell
+-p
+what files are here?
