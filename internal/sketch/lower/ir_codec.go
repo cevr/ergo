@@ -44,6 +44,20 @@ func (b *irBuilder) codecCall(x *syntax.CallExpr, c *check.Call, p irPos) ([]*ir
 	if _, cell := b.l.cellOf(referenceEvents); cell {
 		irNo("codec on a cell writer")
 	}
+	// The reader or writer operand goes to the codec function as the
+	// prelude's Reader or Writer. A value of another operation type (a
+	// module's sealed Cursor lent to decode, as xml's Decode does) is a Go
+	// interface the decoder would assign by Go's rule, which its check
+	// does not take: it wants identical types (follow-up IFACE-CONV).
+	io, ioName := x.Args[0], check.WireReaderName
+	if dir == "encode" {
+		io, ioName = x.Args[1], check.WireWriterName
+	}
+	if t, ok := b.l.info.Types[io].(*check.Named); ok && t.Underlying() != nil {
+		if _, ops := t.Underlying().(*check.Interface); ops && b.goType(t, io) != b.goType(check.PreludeType(ioName), io) {
+			irNo("operation interface to another interface")
+		}
+	}
 	var pre []*irStmt
 	if b.fc.frame.polls {
 		pre = append(pre, b.poll(x))
