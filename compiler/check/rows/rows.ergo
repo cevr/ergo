@@ -60,7 +60,7 @@ type walker {
 
 // Rows is the S101 and S102 diagnostics of one typed package, in the Go
 // checker's order.
-func Rows(s mut store.Store, k expr.Pkg, t expr.Typer) []diag.Diag {
+func Rows(s store.Store, k expr.Pkg, t expr.Typer) []diag.Diag {
 	let mut rows = 0
 	for p in k.Parsed {
 		if !p.Failed {
@@ -104,17 +104,17 @@ func Rows(s mut store.Store, k expr.Pkg, t expr.Typer) []diag.Diag {
 		}
 		match dense.Unpack(f.Body) {
 		case Some[dense.ID[syntax.Node]] as b:
-			let ops = store.OperandsOf(*s, f.Sig)
+			let ops = store.OperandsOf(s, f.Sig)
 			if len(ops) < 3 {
 				continue
 			}
 			w.file = f.File
-			w.errs = store.OperandsOf(*s, ops[len(ops)-2])
-			w.uses = store.OperandsOf(*s, ops[len(ops)-1])
-			w.known = []bool{simple(*s, w.errs), simple(*s, w.uses)}
+			w.errs = store.OperandsOf(s, ops[len(ops)-2])
+			w.uses = store.OperandsOf(s, ops[len(ops)-1])
+			w.known = []bool{simple(s, w.errs), simple(s, w.uses)}
 			w.tries = 0
 			w.sites = []site{}
-			body(&w, *s, k, b.Value)
+			body(&w, s, k, b.Value)
 			for d in report(&w, s, k, f, fd) {
 				let key = "\(d.File):\(d.Offset):\(d.Code):\(d.Message)"
 				if !isSome(seen.Get(key)) {
