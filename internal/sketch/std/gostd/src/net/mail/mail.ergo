@@ -20,7 +20,7 @@ extern go net/mail.AddressParser type AddressParser {
 }
 
 // ergo:go func (*AddressParser).Parse(address string) (*Address, error)
-extern go net/mail.AddressParser.Parse func (p *AddressParser) Parse(address string) go.Ref[Address] fails go.Error needs go.Foreign
+extern go net/mail.AddressParser.Parse func (p *AddressParser) Parse(address string) Option[go.Ref[Address]] fails go.Error needs go.Foreign
 
 // ergo:go func (*AddressParser).ParseList(list string) ([]*Address, error)
 // ergo:refused AddressParser.ParseList: result 1: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
@@ -47,7 +47,7 @@ extern go net/mail.Message type Message {
 }
 
 // ergo:go func ParseAddress(address string) (*Address, error)
-extern go net/mail.ParseAddress func ParseAddress(address string) go.Ref[Address] fails go.Error needs go.Foreign
+extern go net/mail.ParseAddress func ParseAddress(address string) Option[go.Ref[Address]] fails go.Error needs go.Foreign
 
 // ergo:go func ParseAddressList(list string) ([]*Address, error)
 // ergo:refused ParseAddressList: result 1: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field

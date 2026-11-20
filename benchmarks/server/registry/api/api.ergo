@@ -1,0 +1,241 @@
+// Package api is the mirror over HTTP: the route table, the records a
+// client reads and writes as JSON, and Handle, which answers a request
+// from the Pins in the context. Handle is a plain function: std http's
+// Serve runs it for each request, and the law below calls it with no
+// socket.
+//
+//	GET  /packages        200 the catalog: {"packages":[{"name","version","summary","size"}…]}
+//	POST /pins            201 {"client","pins"} for a body {"client","name","version"};
+//	                      400 a body that is not one, 404 a package the catalog lacks
+//	GET  /pins/:client    200 {"client","pins":[{"name","version"}…]}
+//	GET  /status          200 {"status":"ok","pins":N}
+//	POST /hooks           204 when X-Signature is the hex HMAC-SHA-256 of the body
+//	                      under HookKey, 401 otherwise
+//
+// Any other request is 404 {"error":"no route"}; a body over MaxBody is 413.
+
+import hex
+import hmac
+import http
+import json
+import registry/catalog
+import strconv
+
+// Endpoint is a route's identity.
+type Endpoint = ListPackages{} | AddPin{} | ShowPins{} | ShowStatus{} | TakeHook{}
+
+// Routes is the route table.
+let Routes = []http.Route[Endpoint]{
+	http.Route{Value: ListPackages, Method: "GET", Path: "/packages", Status: 200},
+	http.Route{Value: AddPin, Method: "POST", Path: "/pins", Status: 201},
+	http.Route{Value: ShowPins, Method: "GET", Path: "/pins/:client", Status: 200},
+	http.Route{Value: ShowStatus, Method: "GET", Path: "/status", Status: 200},
+	http.Route{Value: TakeHook, Method: "POST", Path: "/hooks", Status: 204},
+}
+
+// Listing is the body of GET /packages.
+type Listing { Packages []catalog.Package }
+
+// Ask is the body of POST /pins.
+type Ask { Client string, Name string, Version string }
+
+// Kept is the answer to POST /pins: how many pins the client keeps now.
+type Kept { Client string, Pins int }
+
+// Held is the body of GET /pins/:client.
+type Held { Client string, Pins []catalog.Pin }
+
+// Health is the body of GET /status.
+type Health { Status string, Pins int }
+
+// Problem is the body of a refusal.
+type Problem { Error string }
+
+// MaxBody is the longest body the server reads.
+let MaxBody = 1 << 12
+
+// HookKey is the key a hook's sender signs its body with.
+let HookKey = "mirror-hook-key"
+
+let listingCodec = json.Codec[Listing]{MaxBytes: 0, MaxDepth: 0}
+let askCodec = json.Codec[Ask]{MaxBytes: MaxBody, MaxDepth: 2}
+
+// Handle answers r from the Pins in the context.
+func Handle(r http.Request) http.Response needs catalog.Pins | http.Streaming {
+	match http.Match(Routes, r.Method, r.Path) {
+	case http.NotFound, http.MethodNotAllowed:
+		Refuse(404, "no route")
+	case http.Found as f:
+		match f.Route.Value {
+		case ListPackages:
+			http.SuccessJSON(f.Route, listingCodec, Listing{Packages: catalog.Packages})
+		case AddPin:
+			add(f.Route, r.Body)
+		case ShowPins:
+			let client = match f.Params.Get("client") {
+			case Some[string] as c:
+				c.Value
+			case None:
+				""
+			}
+			http.Success(f.Route, json.Encode(json.Codec[Held]{MaxBytes: 0, MaxDepth: 0}, Held{Client: client, Pins: catalog.Pins.Of(client)}))
+		case ShowStatus:
+			http.Success(f.Route, json.Encode(json.Codec[Health]{MaxBytes: 0, MaxDepth: 0}, Health{Status: "ok", Pins: catalog.Pins.Total()}))
+		case TakeHook:
+			hook(f.Route, r)
+		}
+	}
+}
+
+// add keeps the pin a body asks for.
+func add(route http.Route[Endpoint], body http.Body) http.Response needs catalog.Pins {
+	match body {
+	case http.BodyTooLarge:
+		Refuse(413, "body too large")
+	case http.BodyReadFailed:
+		Refuse(400, "bad body")
+	case http.Buffered as b:
+		let a = json.Decode(askCodec, b.Text) catch {
+		case _:
+			return Refuse(400, "bad body")
+		}
+		if a.Client == "" {
+			return Refuse(400, "bad body")
+		}
+		match catalog.Find(a.Name) {
+		case None:
+			Refuse(404, "no package "+a.Name)
+		case Some[int]:
+			let n = catalog.Pins.Add(a.Client, catalog.Pin{Name: a.Name, Version: a.Version})
+			http.Success(route, json.Encode(json.Codec[Kept]{MaxBytes: 0, MaxDepth: 0}, Kept{Client: a.Client, Pins: n}))
+		}
+	}
+}
+
+// hook takes a signed hook: its X-Signature must be Sign(body).
+func hook(route http.Route[Endpoint], r http.Request) http.Response {
+	let text = match r.Body {
+	case http.Buffered as b:
+		b.Text
+	case http.BodyTooLarge:
+		return Refuse(413, "body too large")
+	case http.BodyReadFailed:
+		return Refuse(400, "bad body")
+	}
+	let signature = match http.Header(r.Header, "X-Signature") {
+	case Some[string] as s:
+		s.Value
+	case None:
+		""
+	}
+	if !hmac.Equal(signature, Sign(text)) {
+		return Refuse(401, "bad signature")
+	}
+	http.Success(route, "")
+}
+
+// Sign is the signature of a hook's body: the hex HMAC-SHA-256 under
+// HookKey.
+func Sign(body string) string { hex.Encode(hmac.Sum(hmac.SHA256, HookKey, body)) }
+
+// Refuse is a refusal of status with message.
+func Refuse(status int, message string) http.Response {
+	http.Response{Status: status, Header: []http.Field{http.Field{Name: "Content-Type", Value: "application/json"}}, Body: json.Encode(json.Codec[Problem]{MaxBytes: 0, MaxDepth: 0}, Problem{Error: message})}
+}
+
+// AgreesWithModel: a generated run of requests gets from Handle, at each
+// step, the status and body a model gives (the model keeps each client's
+// pins in a Map and writes the expected bodies itself).
+law AgreesWithModel(pins catalog.Pins, ops []int) { Disagreement(pins, ops) == "" }
+
+// Disagreement is the first step of ops where Handle and the model differ,
+// or "".
+func Disagreement(pins catalog.Pins, ops []int) string {
+	let mut model = Map[string, []string]{}
+	let mut total = 0
+	let mut log = ""
+	with context { catalog.Pins: pins } {
+		for op in ops {
+			let r = RequestOf(op)
+			log = log + r.Method + " " + r.Path + "\n"
+			let got = with context { http.Streaming: http.NewRecorder() } { Handle(r) }
+			let (status, body, client, pin) = expect(model, total, r, op)
+			if got.Status != status || got.Body != body {
+				return log + "handle: \(got.Status) " + got.Body + "\nmodel:  \(status) " + body
+			}
+			if pin != "" {
+				let kept = match model.Get(client) {
+				case Some[[]string] as k:
+					k.Value
+				case None:
+					[]string{}
+				}
+				model[client] = kept.Append(pin)
+				total = total + 1
+			}
+		}
+	}
+	""
+}
+
+// RequestOf is the request a generated op stands for: a pin (of a known
+// or an unknown package, or a body that is not JSON), a client's pins, the
+// status, a hook (signed or not) or a path no route takes. The listing is
+// left out: the model would only restate catalog.Packages.
+func RequestOf(op int) http.Request {
+	let k = (op%1000000 + 1000000) % 1000000
+	let client = "c\(k % 5)"
+	let pkg = catalog.NameOf(k % catalog.Count)
+	match k % 8 {
+	case 0, 1, 2:
+		post("/pins", "{\"client\":\""+client+"\",\"name\":\""+pkg+"\",\"version\":\"1.\(k % 3).0\"}", []http.Field{})
+	case 3:
+		post("/pins", "{\"client\":\""+client+"\",\"name\":\"pkx"+strconv.Itoa(k%10)+"\",\"version\":\"1.0.0\"}", []http.Field{})
+	case 4:
+		post("/pins", "{\"client\":", []http.Field{})
+	case 5:
+		get("/pins/" + client)
+	case 6:
+		let body = "{\"event\":\"sync\",\"n\":\(k)}"
+		let signature = if k/8%2 == 0 { Sign(body) } else { "00" }
+		post("/hooks", body, []http.Field{http.Field{Name: "X-Signature", Value: signature}})
+	case _:
+		if k/8%2 == 0 { get("/status") } else { get("/nowhere") }
+	}
+}
+
+func get(path string) http.Request { http.Request{Method: "GET", Path: path, Query: []http.Field{}, Header: []http.Field{}, Body: http.Buffered{Text: ""}} }
+
+func post(path string, body string, header []http.Field) http.Request { http.Request{Method: "POST", Path: path, Query: []http.Field{}, Header: header, Body: http.Buffered{Text: body}} }
+
+// expect is the model's status and body for r, the op it came from, and,
+// for a pin it keeps, the client and the pin's text.
+func expect(model Map[string, []string], total int, r http.Request, op int) (int, string, string, string) {
+	let k = (op%1000000 + 1000000) % 1000000
+	let client = "c\(k % 5)"
+	let mine = match model.Get(client) {
+	case Some[[]string] as m:
+		m.Value
+	case None:
+		[]string{}
+	}
+	match k % 8 {
+	case 0, 1, 2:
+		let pin = "{\"name\":\"" + catalog.NameOf(k%catalog.Count) + "\",\"version\":\"1.\(k % 3).0\"}"
+		(201, "{\"client\":\"" + client + "\",\"pins\":\(len(mine) + 1)}", client, pin)
+	case 3:
+		(404, "{\"error\":\"no package pkx" + strconv.Itoa(k%10) + "\"}", "", "")
+	case 4:
+		(400, "{\"error\":\"bad body\"}", "", "")
+	case 5:
+		let mut list = ""
+		for i, p in mine {
+			list = list + (if i > 0 { "," } else { "" }) + p
+		}
+		(200, "{\"client\":\"" + client + "\",\"pins\":[" + list + "]}", "", "")
+	case 6:
+		if k/8%2 == 0 { (204, "", "", "") } else { (401, "{\"error\":\"bad signature\"}", "", "") }
+	case _:
+		if k/8%2 == 0 { (200, "{\"status\":\"ok\",\"pins\":\(total)}", "", "") } else { (404, "{\"error\":\"no route\"}", "", "") }
+	}
+}

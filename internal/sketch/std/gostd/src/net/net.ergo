@@ -101,7 +101,7 @@ extern go net.Dial func Dial(network string, address string) Conn fails go.Error
 extern go net.DialIP func DialIP(network string, laddr own *IPAddr, raddr own *IPAddr) go.Ref[IPConn] fails go.Error needs go.Foreign
 
 // ergo:go func DialTCP(network string, laddr *TCPAddr, raddr *TCPAddr) (*TCPConn, error)
-extern go net.DialTCP func DialTCP(network string, laddr own *TCPAddr, raddr own *TCPAddr) go.Ref[TCPConn] fails go.Error needs go.Foreign
+extern go net.DialTCP func DialTCP(network string, laddr own *TCPAddr, raddr own *TCPAddr) Option[go.Ref[TCPConn]] fails go.Error needs go.Foreign
 
 // ergo:go func DialTimeout(network string, address string, timeout time.Duration) (Conn, error)
 extern go net.DialTimeout func DialTimeout(network string, address string, timeout duration) Conn fails go.Error needs go.Foreign
@@ -146,7 +146,7 @@ extern go net.Dialer.DialIP func (d *Dialer) DialIP(network string, laddr netip.
 
 // ergo:go func (*Dialer).DialTCP(ctx context.Context, network string, laddr netip.AddrPort, raddr netip.AddrPort) (*TCPConn, error)
 // ergo:context
-extern go net.Dialer.DialTCP func (d *Dialer) DialTCP(network string, laddr netip.AddrPort, raddr netip.AddrPort) go.Ref[TCPConn] fails go.Error needs go.Foreign
+extern go net.Dialer.DialTCP func (d *Dialer) DialTCP(network string, laddr netip.AddrPort, raddr netip.AddrPort) Option[go.Ref[TCPConn]] fails go.Error needs go.Foreign
 
 // ergo:go func (*Dialer).DialUDP(ctx context.Context, network string, laddr netip.AddrPort, raddr netip.AddrPort) (*UDPConn, error)
 // ergo:context
@@ -303,7 +303,7 @@ extern go net.IPConn type IPConn {} implements Closer
 extern go net.IPConn.Close func (c own *IPConn) Close() fails go.Error needs go.Foreign
 
 // ergo:go func (*conn).File() (f *os.File, err error)
-extern go net.IPConn.File func (c *IPConn) File() go.Ref[os.File] fails go.Error needs go.Foreign
+extern go net.IPConn.File func (c *IPConn) File() Option[go.Ref[os.File]] fails go.Error needs go.Foreign
 
 // ergo:go func (*conn).LocalAddr() Addr
 extern go net.IPConn.LocalAddr func (c *IPConn) LocalAddr() Addr needs go.Foreign
@@ -453,12 +453,15 @@ extern go net.Interfaces func Interfaces() []Interface fails go.Error needs go.F
 extern go net.InvalidAddrError type InvalidAddrError string
 
 // ergo:go func (InvalidAddrError).Error() string
+// ergo:total
 extern go net.InvalidAddrError.Error func (e InvalidAddrError) Error() string needs go.Foreign
 
 // ergo:go func (InvalidAddrError).Temporary() bool
+// ergo:total
 extern go net.InvalidAddrError.Temporary func (e InvalidAddrError) Temporary() bool needs go.Foreign
 
 // ergo:go func (InvalidAddrError).Timeout() bool
+// ergo:total
 extern go net.InvalidAddrError.Timeout func (e InvalidAddrError) Timeout() bool needs go.Foreign
 
 // ergo:go func JoinHostPort(host string, port string) string
@@ -624,13 +627,13 @@ extern go net.ParseMAC func ParseMAC(s string) HardwareAddr fails go.Error needs
 extern go net.Pipe func Pipe() (Conn, Conn) needs go.Foreign
 
 // ergo:go func ResolveIPAddr(network string, address string) (*IPAddr, error)
-extern go net.ResolveIPAddr func ResolveIPAddr(network string, address string) go.Ref[IPAddr] fails go.Error needs go.Foreign
+extern go net.ResolveIPAddr func ResolveIPAddr(network string, address string) Option[go.Ref[IPAddr]] fails go.Error needs go.Foreign
 
 // ergo:go func ResolveTCPAddr(network string, address string) (*TCPAddr, error)
-extern go net.ResolveTCPAddr func ResolveTCPAddr(network string, address string) go.Ref[TCPAddr] fails go.Error needs go.Foreign
+extern go net.ResolveTCPAddr func ResolveTCPAddr(network string, address string) Option[go.Ref[TCPAddr]] fails go.Error needs go.Foreign
 
 // ergo:go func ResolveUDPAddr(network string, address string) (*UDPAddr, error)
-extern go net.ResolveUDPAddr func ResolveUDPAddr(network string, address string) go.Ref[UDPAddr] fails go.Error needs go.Foreign
+extern go net.ResolveUDPAddr func ResolveUDPAddr(network string, address string) Option[go.Ref[UDPAddr]] fails go.Error needs go.Foreign
 
 // ergo:go func ResolveUnixAddr(network string, address string) (*UnixAddr, error)
 extern go net.ResolveUnixAddr func ResolveUnixAddr(network string, address string) go.Ref[UnixAddr] fails go.Error needs go.Foreign
@@ -728,7 +731,7 @@ extern go net.TCPConn.CloseRead func (c *TCPConn) CloseRead() fails go.Error nee
 extern go net.TCPConn.CloseWrite func (c *TCPConn) CloseWrite() fails go.Error needs go.Foreign
 
 // ergo:go func (*conn).File() (f *os.File, err error)
-extern go net.TCPConn.File func (c *TCPConn) File() go.Ref[os.File] fails go.Error needs go.Foreign
+extern go net.TCPConn.File func (c *TCPConn) File() Option[go.Ref[os.File]] fails go.Error needs go.Foreign
 
 // ergo:go func (*conn).LocalAddr() Addr
 extern go net.TCPConn.LocalAddr func (c *TCPConn) LocalAddr() Addr needs go.Foreign
@@ -800,7 +803,7 @@ extern go net.TCPListener.Addr func (l *TCPListener) Addr() Addr needs go.Foreig
 extern go net.TCPListener.Close func (l own *TCPListener) Close() fails go.Error needs go.Foreign
 
 // ergo:go func (*TCPListener).File() (f *os.File, err error)
-extern go net.TCPListener.File func (l *TCPListener) File() go.Ref[os.File] fails go.Error needs go.Foreign
+extern go net.TCPListener.File func (l *TCPListener) File() Option[go.Ref[os.File]] fails go.Error needs go.Foreign
 
 // ergo:go func (*TCPListener).SetDeadline(t time.Time) error
 extern go net.TCPListener.SetDeadline func (l *TCPListener) SetDeadline(t time.Time) fails go.Error needs go.Foreign
@@ -834,7 +837,7 @@ extern go net.UDPConn type UDPConn {} implements Closer
 extern go net.UDPConn.Close func (c own *UDPConn) Close() fails go.Error needs go.Foreign
 
 // ergo:go func (*conn).File() (f *os.File, err error)
-extern go net.UDPConn.File func (c *UDPConn) File() go.Ref[os.File] fails go.Error needs go.Foreign
+extern go net.UDPConn.File func (c *UDPConn) File() Option[go.Ref[os.File]] fails go.Error needs go.Foreign
 
 // ergo:go func (*conn).LocalAddr() Addr
 extern go net.UDPConn.LocalAddr func (c *UDPConn) LocalAddr() Addr needs go.Foreign
@@ -921,7 +924,7 @@ extern go net.UnixConn.CloseRead func (c *UnixConn) CloseRead() fails go.Error n
 extern go net.UnixConn.CloseWrite func (c *UnixConn) CloseWrite() fails go.Error needs go.Foreign
 
 // ergo:go func (*conn).File() (f *os.File, err error)
-extern go net.UnixConn.File func (c *UnixConn) File() go.Ref[os.File] fails go.Error needs go.Foreign
+extern go net.UnixConn.File func (c *UnixConn) File() Option[go.Ref[os.File]] fails go.Error needs go.Foreign
 
 // ergo:go func (*conn).LocalAddr() Addr
 extern go net.UnixConn.LocalAddr func (c *UnixConn) LocalAddr() Addr needs go.Foreign
@@ -987,7 +990,7 @@ extern go net.UnixListener.Addr func (l *UnixListener) Addr() Addr needs go.Fore
 extern go net.UnixListener.Close func (l own *UnixListener) Close() fails go.Error needs go.Foreign
 
 // ergo:go func (*UnixListener).File() (f *os.File, err error)
-extern go net.UnixListener.File func (l *UnixListener) File() go.Ref[os.File] fails go.Error needs go.Foreign
+extern go net.UnixListener.File func (l *UnixListener) File() Option[go.Ref[os.File]] fails go.Error needs go.Foreign
 
 // ergo:go func (*UnixListener).SetDeadline(t time.Time) error
 extern go net.UnixListener.SetDeadline func (l *UnixListener) SetDeadline(t time.Time) fails go.Error needs go.Foreign
@@ -1002,10 +1005,13 @@ extern go net.UnixListener.SetUnlinkOnClose func (l *UnixListener) SetUnlinkOnCl
 extern go net.UnknownNetworkError type UnknownNetworkError string
 
 // ergo:go func (UnknownNetworkError).Error() string
+// ergo:total
 extern go net.UnknownNetworkError.Error func (e UnknownNetworkError) Error() string needs go.Foreign
 
 // ergo:go func (UnknownNetworkError).Temporary() bool
+// ergo:total
 extern go net.UnknownNetworkError.Temporary func (e UnknownNetworkError) Temporary() bool needs go.Foreign
 
 // ergo:go func (UnknownNetworkError).Timeout() bool
+// ergo:total
 extern go net.UnknownNetworkError.Timeout func (e UnknownNetworkError) Timeout() bool needs go.Foreign

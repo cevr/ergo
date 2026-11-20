@@ -39,7 +39,16 @@ func (p *wordParker) park() {
 		return
 	}
 	gopark(parkCommit, unsafe.Pointer(&p.w), parkWaitReason, parkTraceReason, 1)
+	// parkCommit leaves another goroutine's g in place and returns at once:
+	// the misuse fails here. A woken waiter finds the word empty or
+	// notified (unpark takes the g out before it readies it).
+	if parkHeld(atomic.LoadUintptr(&p.w)) {
+		panic(parkTwice)
+	}
 }
+
+// parkHeld reports whether a word holds a parked goroutine's g.
+func parkHeld(w uintptr) bool { return w != parkEmpty && w != parkNotified }
 
 // parkCommit runs on the system stack once the waiter is off its M: it
 // publishes the waiter's g in the empty word, so a waker that sees it
@@ -51,7 +60,9 @@ func parkCommit(gp uintptr, w unsafe.Pointer) bool {
 	if atomic.CompareAndSwapUintptr((*uintptr)(w), parkEmpty, gp) {
 		return true
 	}
-	atomic.StoreUintptr((*uintptr)(w), parkEmpty) // only a waker writes notified
+	// A wake came since park looked: take it. A word that holds another
+	// goroutine's g keeps it (park fails loudly after the return).
+	atomic.CompareAndSwapUintptr((*uintptr)(w), parkNotified, parkEmpty)
 	return false
 }
 

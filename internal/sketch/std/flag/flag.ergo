@@ -41,6 +41,35 @@ type ChoiceFlag { name string, def string, choices []string, usage string, alias
 // Flag is any flag handle.
 type Flag = StringFlag | IntFlag | BoolFlag | ChoiceFlag | DurationFlag | OptionalStringFlag | OptionalIntFlag | RepeatedStringFlag | RepeatedIntFlag | RepeatedBoolFlag | RepeatedDurationFlag | RepeatedChoiceFlag
 
+// HelpNamesEveryFlag: the help has a line for each flag of the set.
+law HelpNamesEveryFlag(names []string) {
+	let mut flags = []Flag{}
+	let mut seen Map[string, bool]
+	for name in names {
+		match seen.Get(name) {
+		case Some[bool]:
+		case None:
+			seen[name] = true
+			flags = flags.Append(String(name, "", "u"))
+		}
+	}
+	let help = Usage(Set{Name: "law", Usage: "", Flags: flags, Args: []ArgSpec{}})
+	for name in names {
+		if !strings.Contains(help, "\n  -"+name+" string\n") {
+			return false
+		}
+	}
+	true
+}
+
+// FlagCrossesPositional: a flag before or after a positional argument
+// gives the same values (owner, 2026-11-06: flags may follow positional
+// arguments).
+law FlagCrossesPositional(p string, a string) {
+	let before = try Parse(lawSet(), []string{"p" + p, "-s=" + a})
+	Equal(before, try Parse(lawSet(), []string{"-s=" + a, "p" + p}))
+}
+
 // ArgSpec is the handle of a positional argument.
 type ArgSpec { name string, usage string, arity arity }
 
@@ -52,10 +81,26 @@ type arity = one{} | optional{} | many{}
 type Set { Name string, Usage string, Flags []Flag, Args []ArgSpec }
 
 // Values is the result of a Parse: read it with each handle's Get.
-type Values { set Set, flags Map[string, value], named Map[string, string], rest []string }
+// slots[i] is what the command line gave set.Flags[i], and args[i] the
+// positional argument of set.Args[i]: a read finds its flag by position,
+// with no map and no boxed value (FLAG-FLOOR).
+type Values { set Set, slots []slot, args []slot, rest []string }
 
-// value is a flag's parsed value.
-type value = textValue{V string} | intValue{V int} | boolValue{V bool} | durationValue{V duration} | listValue{V []value}
+// slot is what a command line gave one flag or positional argument: given
+// counts the occurrences; a scalar or optional flag keeps its last value
+// in last, a repeated flag every occurrence in all, a positional argument
+// its text in last.text. (A slot that also carried the flag's names and
+// kind, read once per Parse, measured slower: FLAG-FLOOR round 1.)
+type slot { given int, last item, all []item }
+
+// noItem is the item of no value.
+func noItem() item { item{text: "", n: 0, b: false, d: 0s} }
+
+// item is one parsed value: the field of its flag's kind holds it.
+type item { text string, n int, b bool, d duration }
+
+// value is a flag's parsed value, as GivenFlags, Render and Equal read it.
+type value = textValue{V string} | intValue{V int} | boolValue{V bool} | durationValue{V duration}
 
 // String is a text flag with a default.
 func String(name string, def string, usage string) StringFlag {
@@ -106,101 +151,195 @@ func Remaining(name string, usage string) ArgSpec { ArgSpec{name: name, usage: u
 // Get is the value of f: the last one given, or its default. A handle
 // that is not a flag of v's set is a defect.
 func Get(f StringFlag, v Values) string {
-	known(v, f)
-	match v.flags.Get(f.name) {
-	case Some[value] as found:
-		match found.Value {
-		case textValue as t:
-			t.V
-		case _:
-			notInSet(f.name)
-		}
-	case None:
-		f.def
-	}
+	let s = v.slots[f.held(v)]
+	if s.given == 0 { f.def } else { s.last.text }
 }
 
 // Get is the value of f: the last one given, or its default. A handle
 // that is not a flag of v's set is a defect.
 func Get(f IntFlag, v Values) int {
-	known(v, f)
-	match v.flags.Get(f.name) {
-	case Some[value] as found:
-		match found.Value {
-		case intValue as n:
-			n.V
-		case _:
-			len(notInSet(f.name))
-		}
-	case None:
-		f.def
-	}
+	let s = v.slots[f.held(v)]
+	if s.given == 0 { f.def } else { s.last.n }
 }
 
 // Get is the value of f: the last one given, or its default. A handle
 // that is not a flag of v's set is a defect.
 func Get(f BoolFlag, v Values) bool {
-	known(v, f)
-	match v.flags.Get(f.name) {
-	case Some[value] as found:
-		match found.Value {
-		case boolValue as b:
-			b.V
-		case _:
-			notInSet(f.name) == ""
-		}
-	case None:
-		f.def
-	}
+	let s = v.slots[f.held(v)]
+	if s.given == 0 { f.def } else { s.last.b }
 }
 
 // Get is the value of f: the last one given, or its default. A handle
 // that is not a flag of v's set is a defect.
 func Get(f ChoiceFlag, v Values) string {
-	known(v, f)
-	match v.flags.Get(f.name) {
-	case Some[value] as found:
-		match found.Value {
-		case textValue as t:
-			t.V
-		case _:
-			notInSet(f.name)
-		}
-	case None:
-		f.def
-	}
+	let s = v.slots[f.held(v)]
+	if s.given == 0 { f.def } else { s.last.text }
 }
 
 // Get is the value of f: the last one given, or its default. A handle
 // that is not a flag of v's set is a defect.
 func Get(f DurationFlag, v Values) duration {
-	known(v, f)
-	match v.flags.Get(f.name) {
-	case Some[value] as found:
-		match found.Value {
-		case durationValue as d:
-			d.V
-		case _:
-			time.Times(1ns, len(notInSet(f.name)))
-		}
-	case None:
-		f.def
-	}
+	let s = v.slots[f.held(v)]
+	if s.given == 0 { f.def } else { s.last.d }
 }
 
 // Get is the positional argument of a, or None when an optional one is
 // absent.
 func Get(a ArgSpec, v Values) Option[string] {
-	match v.named.Get(a.name) {
-	case Some[string] as found:
-		found
-	case None:
-		None
+	for i, spec in v.set.Args {
+		if spec.name == a.name {
+			let s = v.args[i]
+			if s.given == 0 {
+				return None
+			}
+			return Some[string]{Value: s.last.text}
+		}
 	}
+	None
+}
+
+// position is the index of the flag of flags whose long name is name, or
+// -1.
+func position(flags []Flag, name string) int {
+	for i, f in flags {
+		if nameOf(f) == name {
+			return i
+		}
+	}
+	-1
+}
+
+// spelled is the index of the flag of flags that name spells, its long
+// name or its alias, or -1.
+func spelled(flags []Flag, name string) int {
+	for i, f in flags {
+		let (long, alias) = spellings(f)
+		if long == name || alias != "" && alias == name {
+			return i
+		}
+	}
+	-1
+}
+
+// spellings is f's long name and its alias ("" when it has none), from
+// one match of f: nameOf and aliasOf in one.
+func spellings(f Flag) (string, string) {
+	match f {
+	case StringFlag as s:
+		(s.name, s.alias)
+	case IntFlag as n:
+		(n.name, n.alias)
+	case BoolFlag as b:
+		(b.name, b.alias)
+	case ChoiceFlag as c:
+		(c.name, c.alias)
+	case DurationFlag as d:
+		(d.name, d.alias)
+	case OptionalStringFlag as s:
+		(s.base.name, s.base.alias)
+	case OptionalIntFlag as n:
+		(n.base.name, n.base.alias)
+	case RepeatedStringFlag as s:
+		(s.base.name, s.base.alias)
+	case RepeatedIntFlag as n:
+		(n.base.name, n.base.alias)
+	case RepeatedBoolFlag as b:
+		(b.base.name, b.base.alias)
+	case RepeatedDurationFlag as d:
+		(d.base.name, d.base.alias)
+	case RepeatedChoiceFlag as c:
+		(c.base.name, c.base.alias)
+	}
+}
+
+// held is the position in v's set of f: the set's flag of f's name is f,
+// of the same kind with the same default. A handle of another set, or of
+// another kind under the name of one of the set's flags, is a defect. One
+// function per kind, so f is compared as it is, never boxed as a Flag.
+func held(f StringFlag, v Values) int {
+	let i = position(v.set.Flags, f.name)
+	if i >= 0 {
+		match v.set.Flags[i] {
+		case StringFlag as g:
+			if g == f { return i }
+		case _:
+		}
+	}
+	len(notInSet(f.name))
+}
+
+func held(f IntFlag, v Values) int {
+	let i = position(v.set.Flags, f.name)
+	if i >= 0 {
+		match v.set.Flags[i] {
+		case IntFlag as g:
+			if g == f { return i }
+		case _:
+		}
+	}
+	len(notInSet(f.name))
+}
+
+func held(f BoolFlag, v Values) int {
+	let i = position(v.set.Flags, f.name)
+	if i >= 0 {
+		match v.set.Flags[i] {
+		case BoolFlag as g:
+			if g == f { return i }
+		case _:
+		}
+	}
+	len(notInSet(f.name))
+}
+
+func held(f DurationFlag, v Values) int {
+	let i = position(v.set.Flags, f.name)
+	if i >= 0 {
+		match v.set.Flags[i] {
+		case DurationFlag as g:
+			if g == f { return i }
+		case _:
+		}
+	}
+	len(notInSet(f.name))
+}
+
+func held(f ChoiceFlag, v Values) int {
+	let i = position(v.set.Flags, f.name)
+	if i >= 0 {
+		match v.set.Flags[i] {
+		case ChoiceFlag as g:
+			if sameChoice(g, f) { return i }
+		case _:
+		}
+	}
+	len(notInSet(f.name))
+}
+
+// sameChoice reports whether x and y are one Choice handle.
+func sameChoice(x ChoiceFlag, y ChoiceFlag) bool {
+	x.name == y.name && x.def == y.def && x.usage == y.usage && x.alias == y.alias && sameStrings(x.choices, y.choices)
+}
+
+// heldFlag is held for any handle: the position of f in v's set.
+func heldFlag(f Flag, v Values) int {
+	let name = nameOf(f)
+	let i = position(v.set.Flags, name)
+	if i >= 0 && sameHandle(v.set.Flags[i], f) {
+		return i
+	}
+	len(notInSet(name))
 }
 
 // Rest is the positional arguments that the Remaining spec took.
 func Rest(v Values) []string { v.rest }
+
+// DoubleDashEndsFlags: after "--", an argument that looks like a flag is
+// positional.
+law DoubleDashEndsFlags(x string) {
+	let rest = Rest(try Parse(lawSet(), []string{"--", "-" + x}))
+	len(rest) == 1 && rest[0] == "-"+x
+}
 
 // Given is a flag the command line gave: its long name and the text of
 // each occurrence it keeps, in input order (one for a scalar or optional
@@ -262,6 +401,39 @@ func Render(v Values) []string {
 	out
 }
 
+// RenderParseRoundTrip: what parses, rendered and parsed again, gives the
+// same value to every read.
+law RenderParseRoundTrip(args []string) {
+	let v = Parse(lawArgsSet(), args) catch {
+	case _:
+		return true
+	}
+	sameReads(try Parse(lawArgsSet(), Render(v)), v)
+}
+
+let lawText = String("s", "d", "a text")
+
+let lawNumber = Int("n", 0, "a number")
+
+let lawSwitch = Bool("b", false, "a switch")
+
+let lawFirst = Arg("first", "the first")
+
+let lawSecond = OptionalArg("second", "the second")
+
+// lawArgsSet is lawSet with a required and an optional positional argument
+// before the remaining ones.
+func lawArgsSet() Set {
+	Set{Name: "law", Usage: "", Flags: []Flag{lawText, lawNumber, lawSwitch}, Args: []ArgSpec{lawFirst, lawSecond, Remaining("rest", "the rest")}}
+}
+
+// sameReads reports whether a and b give the same value to each read of
+// lawArgsSet: each flag's Get, each argument's Get and Rest. It reads
+// through the handles, not through Render or Equal.
+func sameReads(a Values, b Values) bool {
+	lawText.Get(a) == lawText.Get(b) && lawNumber.Get(a) == lawNumber.Get(b) && lawSwitch.Get(a) == lawSwitch.Get(b) && sameArg(lawFirst.Get(a), lawFirst.Get(b)) && sameArg(lawSecond.Get(a), lawSecond.Get(b)) && sameStrings(Rest(a), Rest(b))
+}
+
 // Equal reports whether a and b have sets with the same flags and
 // argument specs, and hold the same value for each flag and the same
 // positional arguments. It reads each value with its handle's Get, not
@@ -281,6 +453,15 @@ func Equal(a Values, b Values) bool {
 		}
 	}
 	sameStrings(a.rest, b.rest)
+}
+
+// ShortAndLongAgree: -name and --name are one flag.
+law ShortAndLongAgree(v string) {
+	Equal(try Parse(lawSet(), []string{"-s=" + v}), try Parse(lawSet(), []string{"--s=" + v}))
+}
+
+law DeclaredShortAndLongAgree(text string) {
+	Equal(try Parse(treeSet(), []string{"-t=" + text}), try Parse(treeSet(), []string{"--text=" + text}))
 }
 
 // sameStrings reports whether x and y hold the same texts in order.
@@ -361,9 +542,10 @@ func shown(f Flag, v Values) string {
 	}
 }
 
-// nameOf is f's name.
+// nameOf is f's name, read from its own variant: no re-wrap of f as a
+// scalarFlag (FLAG-FLOOR: scalar's re-wrap was 17% of a command line).
 func nameOf(f Flag) string {
-	match scalar(f) {
+	match f {
 	case StringFlag as s:
 		s.name
 	case IntFlag as n:
@@ -374,6 +556,20 @@ func nameOf(f Flag) string {
 		c.name
 	case DurationFlag as d:
 		d.name
+	case OptionalStringFlag as s:
+		s.base.name
+	case OptionalIntFlag as n:
+		n.base.name
+	case RepeatedStringFlag as s:
+		s.base.name
+	case RepeatedIntFlag as n:
+		n.base.name
+	case RepeatedBoolFlag as b:
+		b.base.name
+	case RepeatedDurationFlag as d:
+		d.base.name
+	case RepeatedChoiceFlag as c:
+		c.base.name
 	}
 }
 
@@ -382,65 +578,98 @@ func find(s Set, name string) Option[Flag] { findIn(s.Flags, name) }
 
 // findIn is the flag of flags named name.
 func findIn(flags []Flag, name string) Option[Flag] {
-	for f in flags {
-		if nameOf(f) == name || aliasOf(f) != "" && aliasOf(f) == name {
-			return Some[Flag]{Value: f}
-		}
+	let i = spelled(flags, name)
+	if i < 0 {
+		return None
 	}
-	None
-}
-
-// known holds that f is a flag of v's set: the set's flag of f's name is
-// f, of the same kind with the same default. A handle of another set, or
-// of another kind under the name of one of the set's flags, is a defect.
-func known(v Values, f Flag) {
-	match find(v.set, nameOf(f)) {
-	case Some[Flag] as found:
-		if !sameHandle(found.Value, f) {
-			notInSet(nameOf(f))
-		}
-	case None:
-		notInSet(nameOf(f))
-	}
+	Some[Flag]{Value: flags[i]}
 }
 
 // sameHandle reports whether a and b are one handle: the same kind, name,
 // default, usage and, for a Choice, choices.
 func sameHandle(a Flag, b Flag) bool {
-	if cardinality(a) != cardinality(b) { return false }
-	match scalar(a) {
+	match a {
 	case StringFlag as x:
-		match scalar(b) {
+		match b {
 		case StringFlag as y:
 			x == y
 		case _:
 			false
 		}
 	case IntFlag as x:
-		match scalar(b) {
+		match b {
 		case IntFlag as y:
 			x == y
 		case _:
 			false
 		}
 	case BoolFlag as x:
-		match scalar(b) {
+		match b {
 		case BoolFlag as y:
 			x == y
 		case _:
 			false
 		}
 	case DurationFlag as x:
-		match scalar(b) {
+		match b {
 		case DurationFlag as y:
 			x == y
 		case _:
 			false
 		}
 	case ChoiceFlag as x:
-		match scalar(b) {
+		match b {
 		case ChoiceFlag as y:
-			x.name == y.name && x.def == y.def && x.usage == y.usage && x.alias == y.alias && sameStrings(x.choices, y.choices)
+			sameChoice(x, y)
+		case _:
+			false
+		}
+	case OptionalStringFlag as x:
+		match b {
+		case OptionalStringFlag as y:
+			x.base == y.base
+		case _:
+			false
+		}
+	case OptionalIntFlag as x:
+		match b {
+		case OptionalIntFlag as y:
+			x.base == y.base
+		case _:
+			false
+		}
+	case RepeatedStringFlag as x:
+		match b {
+		case RepeatedStringFlag as y:
+			x.base == y.base
+		case _:
+			false
+		}
+	case RepeatedIntFlag as x:
+		match b {
+		case RepeatedIntFlag as y:
+			x.base == y.base
+		case _:
+			false
+		}
+	case RepeatedBoolFlag as x:
+		match b {
+		case RepeatedBoolFlag as y:
+			x.base == y.base
+		case _:
+			false
+		}
+	case RepeatedDurationFlag as x:
+		match b {
+		case RepeatedDurationFlag as y:
+			x.base == y.base
+		case _:
+			false
+		}
+	case RepeatedChoiceFlag as x:
+		match b {
+		case RepeatedChoiceFlag as y:
+			sameChoice(x.base, y.base)
 		case _:
 			false
 		}
@@ -459,8 +688,43 @@ func notInSet(name string) string {
 // declare h or help): Text is the help. Exit prints it to standard output.
 type Help { Text string }
 
+// HelpWinsInEveryForm: -h, --h, -help and --help, bare or with "=…",
+// fail Help wherever they stand before "--", after a flag whose value is
+// any text ("--" too) and before an unknown flag.
+law HelpWinsInEveryForm(k int, x string) {
+	let forms = []string{"-h", "--h", "-help", "--help", "-h=" + x, "--help=" + x}
+	let form = forms[((k%6)+6)%6]
+	asksHelp([]string{"-s", x, form, "-q"}) && asksHelp([]string{"-s", "--", form, "-q"})
+}
+
+// asksHelp reports whether Parse of lawSet fails Help on args.
+func asksHelp(args []string) bool {
+	Parse(lawSet(), args) catch {
+	case Help:
+		return true
+	case _:
+		return false
+	}
+	false
+}
+
 // Unknown is a flag the set does not declare.
 type Unknown { Name string }
+
+// UnknownNamesTheFlag: a flag the set does not declare fails Unknown with
+// its name.
+law UnknownNamesTheFlag(name string) {
+	if name == "" || name == "h" || name == "help" || name == "s" || name == "n" || name == "b" || strings.Contains(name, "=") || strings.HasPrefix(name, "-") {
+		return true
+	}
+	Parse(lawSet(), []string{"-" + name}) catch {
+	case Unknown as u:
+		return u.Name == name
+	case _:
+		return false
+	}
+	false
+}
 
 // NeedsValue is a flag with no value: it was the last argument.
 type NeedsValue { Name string }
@@ -480,6 +744,30 @@ type Extra { Text string }
 // names from the root to the level that looked it up: empty at the root,
 // ["auth"] for `tool auth bogus`.
 type UnknownCommand { Name string, Known []string, Group []string }
+
+// UnknownCommandNamesItsGroup: a word that names no child of a level with
+// no own leaf, or no word, fails UnknownCommand with the word and the
+// path of group names to that level.
+law UnknownCommandNamesItsGroup(n int, word string) {
+	let depth = treeDepth(n)
+	let groups = treeGroupPath(depth)
+	let name = if word == "read" || word == "group" || strings.HasPrefix(word, "-") { "" } else { word }
+	let args = if name == "" { groups } else { groups.Append(name) }
+	let _ = ParseCommand("tree", "", treeGroups(depth), args) catch {
+	case UnknownCommand as u:
+		return u.Name == name && sameStrings(u.Group, groups)
+	case Help, Unknown, NeedsValue, Invalid, Missing, Extra:
+		return false
+	}
+	false
+}
+
+// treeGroups is treeCommands with no level's own leaf.
+func treeGroups(depth int) []Command[Values] {
+	let leaf = Command[Values]{Name: "read", Usage: "read", Set: treeSet(), Build: treeBuild, Commands: []Command[Values]{}}
+	if depth == 0 { return []Command[Values]{leaf} }
+	[]Command[Values]{leaf, Group("group", "a group", treeGroups(depth-1))}
+}
 
 // Failure is every failure of Parse and ParseCommand.
 type Failure = Help | Unknown | NeedsValue | Invalid | Missing | Extra | UnknownCommand

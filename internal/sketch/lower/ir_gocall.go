@@ -43,7 +43,7 @@ func (b *irBuilder) hostArgs(x *syntax.CallExpr, c *check.Call, f *check.Func, p
 			shapes[i] = b.callbackShape(cb, x)
 			continue
 		}
-		if !b.hostValue(q.Type) && !isGoErrorArg(q.Type) && !basicSlice(q.Type) { // ir_golib.go
+		if !b.hostValue(q.Type) && !isGoErrorArg(q.Type) && !basicSlice(q.Type) && !goAnyArg(q.Type) && !goPointerArg(q.Type) { // ir_golib.go
 			irNo("call of a Go package function")
 		}
 	}
@@ -60,6 +60,12 @@ func (b *irBuilder) hostArgs(x *syntax.CallExpr, c *check.Call, f *check.Func, p
 	for i, q := range f.Sig.Params {
 		if e, ok := b.goErrorArg(q.Type, args[i], p); ok { // ir_golib.go
 			args[i] = e
+		}
+		if check.IsGoAny(q.Type) {
+			args[i] = b.assignedTo(x.Args[i], args[i], q.Type) // ir_union.go: Go's any
+		}
+		if wpre, w, ok := b.goWiden(b.l.info.Types[x.Args[i]], q.Type, args[i], x.Args[i], p); ok { // ir_govar.go
+			pre, args[i] = append(pre, wpre...), w
 		}
 	}
 	for i, shape := range shapes {
@@ -162,6 +168,9 @@ func hostGeneric(f *check.Func) bool {
 func (b *irBuilder) hostValue(t check.Type) bool {
 	if hostBasic(t) {
 		return true
+	}
+	if a, ok := t.(*check.Array); ok && hostBasic(a.Elem) {
+		return true // a Go array of basic values ([32]byte, sha256.Sum256): a value (PORT-CALLS-2)
 	}
 	n, ok := t.(*check.Named)
 	return ok && n.Obj != nil && n.Obj.Pkg.Host() && !check.IsGoError(n) && !isGoRef(n) && len(n.TArgs) == 0 && !b.l.holdsValue(n)

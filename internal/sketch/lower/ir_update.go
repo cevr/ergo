@@ -9,9 +9,11 @@ package lower
 //
 // The IR writes the same value as one literal, T{F: v, G: b.G}: the named
 // fields in source order, then each field the update keeps, read from the
-// base. That needs the base read more than once, so the IR takes a base
-// that is a local or a package let, whose reads have no effect and which
-// no field value can change (a field value assigns nothing).
+// base. That needs the base read more than once: a local or a package
+// let is read in place, which no field value can change (a field value
+// assigns nothing); any other base is computed once, before the field
+// values, into a temporary (PORT-UPDATE), as the emitter's copy runs
+// first.
 
 import (
 	"ergo.local/prototype/internal/sketch/check"
@@ -49,7 +51,13 @@ func (b *irBuilder) updateLit(x *syntax.CompositeLit, t check.Type, p irPos) *ir
 	}
 	base := b.expr(x.Base)
 	if base.K != "local" && base.K != "global" {
-		irNo("record update of a computed base")
+		// A computed base (a call, a field: T{..fresh(n), F: v}) runs
+		// once, first, into a temporary the literal reads, as the
+		// emitter's u := b does before it stores the named fields
+		// (PORT-UPDATE).
+		u := b.temp("base", gt, p)
+		b.runFirst([]*irStmt{{K: "def", Pos: p, Local: u, X: base}}) // ir_order.go
+		base = &irExpr{K: "local", Pos: p, I: u}
 	}
 	lit := &irExpr{K: "lit", Pos: p, T: gt}
 	set := map[string]bool{}

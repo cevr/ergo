@@ -191,3 +191,28 @@ law DrainReleasesLeft(n int) {
 // has taken yet; 0 makes each Push wait for its Pop. A negative capacity
 // is a defect.
 extern go ergo.local/prototype/runtime/v1.New func New[T](capacity int) Queue[T]
+
+// DroppingKeepsTheOldest: Offer into a queue of capacity c keeps the first
+// c values and fails Full on each later one; Pop then gives the kept
+// values in order.
+law DroppingKeepsTheOldest(xs []int, c int) {
+	let capacity = 1 + (c%4+4)%4
+	let q = New[int](capacity)
+	let mut kept = []int{}
+	let mut ok = true
+	for x in xs {
+		q.Offer(x) catch {
+		case Full:
+			ok = ok && len(kept) == capacity
+			continue
+		case Closed:
+			return false
+		}
+		kept = kept.Append(x)
+	}
+	q.End()
+	for k in kept {
+		ok = ok && try q.Pop() == k
+	}
+	ok && q.Len() == 0 && len(kept) <= capacity
+}

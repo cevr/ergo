@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"ergo.local/prototype/internal/sketch/check"
+	"ergo.local/prototype/internal/sketch/check/snapshot"
 	"ergo.local/prototype/internal/sketch/fingerprint"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
@@ -16,7 +17,7 @@ import (
 // taken when its files' bytes, its environment and the interface
 // fingerprints of its imports are what they were: its check would be the
 // same. Its export segment is then decoded against the current check of
-// its imports, whose objects it names by object path (check.UserExport),
+// its imports, whose objects it names by object path (snapshot.UserExport),
 // so an importer is reused while an import it reaches is checked again
 // with an unchanged interface.
 //
@@ -31,7 +32,7 @@ import (
 // positions move to a side table (plan §5.3).
 type CheckCache struct {
 	mu      sync.Mutex
-	u       *check.UserExport
+	u       *snapshot.UserExport
 	entries map[string]cacheEntry // by key
 }
 
@@ -42,6 +43,10 @@ type cacheEntry struct {
 	// package was checked, by Go import path, with their text: a superset
 	// of the ones the check read, so an edit of one checks it again.
 	bindings map[string]string
+	// goBodies are the module Go packages the program had read, by
+	// import path, with the digest of their built files (loader.goBodies),
+	// a superset as bindings are: an edit of a body checks it again.
+	goBodies map[string]string
 	files    int
 }
 
@@ -98,6 +103,12 @@ func (c *CheckCache) reuse(l *loader, p *loadedPackage, key string) (*check.Pack
 			return nil, false
 		}
 	}
+	for path, digest := range e.goBodies {
+		l.GoPackage(path)
+		if l.goBodies[path] != digest {
+			return nil, false
+		}
+	}
 	c.u.SetImporter(l)
 	pkg, err := c.u.DecodeSegment(e.seg, func(path string) *check.Package {
 		if q := l.pkgs[path]; q != nil {
@@ -119,7 +130,7 @@ func (c *CheckCache) store(l *loader, p *loadedPackage, key string, pkg *check.P
 		return // the export does not carry a derive record
 	}
 	if c.u == nil {
-		u, err := check.NewUserExport(l)
+		u, err := snapshot.NewUserExport(l)
 		if err != nil {
 			return
 		}
@@ -134,7 +145,7 @@ func (c *CheckCache) store(l *loader, p *loadedPackage, key string, pkg *check.P
 	if old, ok := c.entries[key]; ok && old.seg != seg {
 		c.u.Release(old.seg)
 	}
-	c.entries[key] = cacheEntry{seg: seg, bindings: copyBindings(l.bindings), files: len(p.files)}
+	c.entries[key] = cacheEntry{seg: seg, bindings: copyBindings(l.bindings), goBodies: copyBindings(l.goBodies), files: len(p.files)}
 }
 
 func copyBindings(m map[string]string) map[string]string {

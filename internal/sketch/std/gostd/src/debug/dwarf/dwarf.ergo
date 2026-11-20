@@ -571,7 +571,7 @@ extern go debug/dwarf.Data.AddSection func (d *Data) AddSection(name string, con
 extern go debug/dwarf.Data.AddTypes func (d *Data) AddTypes(name string, types []byte) fails go.Error needs go.Foreign
 
 // ergo:go func (*Data).LineReader(cu *Entry) (*LineReader, error)
-extern go debug/dwarf.Data.LineReader func (d *Data) LineReader(cu own *Entry) go.Ref[LineReader] fails go.Error needs go.Foreign
+extern go debug/dwarf.Data.LineReader func (d *Data) LineReader(cu own *Entry) Option[go.Ref[LineReader]] fails go.Error needs go.Foreign
 
 // ergo:go func (*Data).Ranges(e *Entry) ([][2]uint64, error)
 extern go debug/dwarf.Data.Ranges func (d *Data) Ranges(e own *Entry) [][2]uint64 fails go.Error needs go.Foreign
@@ -798,7 +798,7 @@ extern go debug/dwarf.Reader.AddressSize func (r *Reader) AddressSize() int need
 extern go debug/dwarf.Reader.ByteOrder func (r *Reader) ByteOrder() binary.ByteOrder needs go.Foreign
 
 // ergo:go func (*Reader).Next() (*Entry, error)
-extern go debug/dwarf.Reader.Next func (r *Reader) Next() go.Ref[Entry] fails go.Error needs go.Foreign
+extern go debug/dwarf.Reader.Next func (r *Reader) Next() Option[go.Ref[Entry]] fails go.Error needs go.Foreign
 
 // ergo:go func (*Reader).Seek(off Offset)
 extern go debug/dwarf.Reader.Seek func (r *Reader) Seek(off Offset) needs go.Foreign

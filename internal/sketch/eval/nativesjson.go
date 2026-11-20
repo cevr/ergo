@@ -25,7 +25,8 @@ import (
 //   - open checks the whole text (phase 1) and fails Malformed at the
 //     first byte that breaks a rule; it parses the text into a tree once,
 //     and a Cursor walks the tree.
-func registerNativesjson() {
+func registerNativesjson(t nativeTables) {
+	natives := t.std
 	natives["json.appendQuoted"] = jsonAppend(func(args []Value) string { return jsonQuote(args[0].(string), args[1].(bool)) })
 	natives["json.appendInt"] = jsonAppend(func(args []Value) string { return strconv.FormatInt(args[0].(int64), 10) })
 	natives["json.appendUint"] = jsonAppend(func(args []Value) string { return strconv.FormatUint(args[0].(uint64), 10) })
@@ -55,10 +56,10 @@ func registerNativesjson() {
 	natives["build.InFold"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return in.fold, in.charge(fr, at, 1)
 	}
-	holeNative("build.Known", func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+	holeNative(t, "build.Known", func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return in.fold && !symbolic(args[0]), in.charge(fr, at, 1)
 	})
-	holeNative("build.Hole", func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+	holeNative(t, "build.Hole", func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		_, hole := args[0].(*symbol)
 		return in.fold && hole, in.charge(fr, at, 1)
 	})
@@ -97,6 +98,23 @@ func registerNativesjson() {
 		return newSlice(nil), in.charge(fr, at, 1)
 	}
 	natives["civil.bytesText"] = bytesText
+	// openChecked and settleText are Decode's one pass (JSON-VALUE-DECODE).
+	// The evaluator checks the text whole as open does, so a text that is
+	// not JSON fails before the decode, which is the outcome settleText gives,
+	// and settleText has nothing left to find.
+	natives["json.isNumber"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		// One number with nothing around it: the parser's number, the whole text.
+		text := args[0].(string)
+		n, _, why := jsonParse(text, 0, 0)
+		number := why == "" && n.kind == 2 && strings.TrimSpace(text) == text
+		return number, in.charge(fr, at, 1+argWork(args))
+	}
+	natives["json.openChecked"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		return natives["json.open"](in, fr, at, fn, args)
+	}
+	natives["json.settleText"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		return unit{}, in.charge(fr, at, 1)
+	}
 	natives["json.open"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		if ab := in.charge(fr, at, 1+argWork(args)); ab != nil {
 			return nil, ab
@@ -645,6 +663,19 @@ func (c *jsonCursor) opCall(in *interp, fr *frame, at syntax.Node, name string, 
 		if n != nil {
 			out = n.text
 		}
+	case "StringBytes":
+		// into with the next string's bytes added, as String reads them
+		// (GX12).
+		n := c.read(3)
+		c.wrong = n == nil
+		s := ""
+		if n != nil {
+			s = n.text
+		}
+		if ab := in.allocate(fr, at, int64(len(s))); ab != nil {
+			return nil, ab
+		}
+		return appendString(nil, args[0], s), nil
 	case "BeginList", "BeginObject":
 		kind := 4
 		if name == "BeginObject" {

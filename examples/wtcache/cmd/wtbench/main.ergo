@@ -1,0 +1,38 @@
+// wtbench is the ENCDEC receipt's workload (benchmarks/laws/encdec/count.sh):
+// K sets through the write-through cache over N keys, each value 48 bytes
+// with a quote and a tab to escape.
+
+import strconv
+import wtcache/memory
+import wtcache/settings
+
+func main() fails strconv.Malformed needs Console {
+	let n = 64
+	let k = 200000
+	let lines = memory.NewLines()
+	let c = settings.NewCache()
+	let mut keys = []string{}
+	for i in 0..n {
+		keys = keys.Append("key" + strconv.Itoa(i))
+	}
+	with context { settings.Backing: lines } {
+		for r in 0..k {
+			let value = "value \"" + strconv.Itoa(r) + "\"\twith some text to quote: abcdefgh"
+			try settings.Set(c, keys[r%n], value)
+		}
+	}
+	let mut total = 0
+	for key in keys {
+		match settings.Get(c, key) {
+		case Some[string] as v:
+			total = total + len(v.Value)
+		case None:
+		}
+		match memory.Read(lines, key) {
+		case Some[string] as l:
+			total = total + len(l.Value)
+		case None:
+		}
+	}
+	Console.Println("\(total) \(memory.Writes(lines))")
+}

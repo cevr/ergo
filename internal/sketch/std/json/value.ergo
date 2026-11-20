@@ -18,6 +18,8 @@ type Array { Items []Value }
 type Member { Key string, Value Value }
 type Object { Members []Member }
 type Value = Null | Boolean | Num | Str | Array | Object
+
+law ValueRoundTrips(d doc) { valueRoundTrips(d) }
 func WireForm(x Value) WireBare { WireBare }
 func WireForm(x Num) WireNumberText { WireNumberText }
 func WireForm(x Object) WireMembers { WireMembers }
@@ -29,7 +31,52 @@ func IntNumber(n int64) Num { Num{text: strconv.FormatInt(n, 10)} }
 // Wire it is Num's by-name pair, so only a valid spelling makes a Num; the
 // codec writes a Num as the number itself, not as Wire's string.
 func ParseNum(text string) Num fails Malformed {
+	// A number spelled exactly, as every decode reads one, needs no
+	// Cursor (JVD-DIRECT): the grammar alone decides.
+	if isNumber(text) {
+		return Num{text: text}
+	}
+	try parseNumOpened(text)
+}
+
+// ParseNumIsOpened: ParseNum, whose fast path takes a number spelled
+// exactly with no Cursor, gives what reading the text by Open gives: the
+// same Num, or the same Malformed at its offset with its reason, on texts
+// made of number pieces, white space and bytes no number has.
+law ParseNumIsOpened(parts []int) { numSaid(numText(parts), true) == numSaid(numText(parts), false) }
+
+// parseNumOpened is ParseNum without its fast path: the text read by
+// Open, the reference the fast path keeps.
+func parseNumOpened(text string) Num fails Malformed {
 	let r = Open(text, 0, 0) catch { case Malformed as m: return m }
 	let s = r.Number() catch { case _: return Malformed{Offset: 0, Reason: "not a number"} }
 	Num{text: s}
+}
+
+// numPieces are what a number text is made of: every part of the
+// grammar, white space and bytes no number has.
+let numPieces = []string{"-", "+", "0", "1", "9", "00", "12", ".", ".5", "e", "E", "e+", "e-", " ", "\n", "x", "\"1\""}
+
+func numText(parts []int) string {
+	let mut text = ""
+	for p in parts {
+		let k = if p < 0 { -(p + 1) } else { p }
+		text = text + numPieces[k%len(numPieces)]
+	}
+	text
+}
+
+func numSaid(text string, fast bool) string {
+	if fast {
+		let n = ParseNum(text) catch {
+		case Malformed as m:
+			return "malformed " + strconv.Itoa(m.Offset) + " " + m.Reason
+		}
+		return "ok " + n.text
+	}
+	let n = parseNumOpened(text) catch {
+	case Malformed as m:
+		return "malformed " + strconv.Itoa(m.Offset) + " " + m.Reason
+	}
+	"ok " + n.text
 }

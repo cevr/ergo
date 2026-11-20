@@ -315,6 +315,7 @@ func inGroup(pid, pgid string) bool {
 // a test of the same name (TestStdLawsRun's naming), and the Runner law
 // against a Script, the std's test provider.
 const execLawsProbe = `import exec
+import strings
 import slices
 import time
 import timeout
@@ -338,6 +339,90 @@ test ExecRunnerStartAgreesWithRun(name string, out string, errs string, status i
 	assert slices.Equal(o, exec.Split(want.Stdout))
 	assert slices.Equal(e, exec.Split(want.Stderr))
 	assert p.Wait() == want.Status
+}
+
+test ExecRunnerStartMergedInterleavesRun(name string, out string, errs string, status int) {
+	let c = exec.New(name, []string{})
+	let mut results = Map[string, exec.Result]{}
+	results[exec.Key(c)] = exec.Result{Status: status, Stdout: out, Stderr: errs}
+	let s = exec.Script{Results: results}
+	let want = try s.Run(c)
+	let p = try s.Start(c, exec.Streams{Stdout: exec.ToCaller, Stderr: exec.ToStdout})
+	let mut got = ""
+	for k in p.Chunks() {
+		assert !k.Stderr
+		got = got + k.Text
+	}
+	assert exec.Interleaves(got, want.Stdout, want.Stderr)
+	assert p.Wait() == want.Status
+}
+
+// onHost runs the Runner laws as written on the test host, in the
+// case's folder: each case runs the Shell it draws.
+let onHost = context needs TestAmbient { exec.Runner: exec.NewTestHost() }
+
+test ExecInterleavesMatchesModel(a string, b string, picks []bool, t string) {
+	let x = upTo5(a)
+	let y = upTo5(b)
+	let s = pickMerge(x, y, picks)
+	let checks = []string{s, swapFirst(s), upTo5(t), s + "x"}
+	assert slices.All(checks, func(u string) bool { exec.Interleaves(u, x, y) == merged(u, x, y) })
+}
+
+// upTo5 is s's first 5 bytes at most, so merged's search stays small.
+func upTo5(s string) string { if len(s) < 5 { s } else { strings.Slice(s, 0, 5) } }
+
+// pickMerge is a and b merged, each in its order: the next byte from a
+// when picks says so (cycling) or b is used up.
+func pickMerge(a string, b string, picks []bool) string {
+	let mut s = ""
+	let mut i = 0
+	let mut j = 0
+	for k in 0..len(a)+len(b) {
+		let fromA = j == len(b) || (i < len(a) && len(picks) > 0 && picks[k%len(picks)])
+		if fromA {
+			s = s + strings.Slice(a, i, i+1)
+			i = i + 1
+		} else {
+			s = s + strings.Slice(b, j, j+1)
+			j = j + 1
+		}
+	}
+	s
+}
+
+// swapFirst is s with its first two bytes swapped.
+func swapFirst(s string) string {
+	if len(s) < 2 {
+		return s
+	}
+	strings.Slice(s, 1, 2) + strings.Slice(s, 0, 1) + strings.Slice(s, 2, len(s))
+}
+
+// merged is Interleaves' model, written apart from it: the first byte of
+// s comes from a or from b, and the rest merges what is left.
+func merged(s string, a string, b string) bool {
+	if a == "" {
+		return s == b
+	}
+	if b == "" {
+		return s == a
+	}
+	if s == "" {
+		return false
+	}
+	let rest = strings.Slice(s, 1, len(s))
+	(s[0] == a[0] && merged(rest, strings.Slice(a, 1, len(a)), b)) || (s[0] == b[0] && merged(rest, a, strings.Slice(b, 1, len(b))))
+}
+
+test ExecRunnerShellRunsAsWritten(out string, errs string, status int) {
+	let sh = exec.Shell{Writes: []exec.ShellWrite{exec.ShellWrite{Text: out, Stderr: false}, exec.ShellWrite{Text: errs, Stderr: true}}, Status: status}
+	let c = exec.ShellCommand(sh)
+	let mut results = Map[string, exec.Result]{}
+	results[exec.Key(c)] = exec.Result{Status: (status % 256 + 256) % 256, Stdout: out, Stderr: errs}
+	let r = try exec.Script{Results: results}.Run(c)
+	assert r.Stdout == out
+	assert r.Stderr == errs
 }
 
 test ExecSpawnerKilledIsNotAlive(name string) {
@@ -415,19 +500,24 @@ test ScriptNotFoundNamesTheProgram(name string, other string) {
 // law's source text as the ledger writes it, by ledger key; lawledger.Run
 // holds it equal to the ledger (fu-ledger-runner).
 var execLawStatements = map[string]string{
-	"exec Runner.StartAgreesWithRun": `StartAgreesWithRun(name string) { let c = New(name, []string{}) let want = Run(c) catch { case NotFound, Denied, Failed: return true } let p = Start(c, Streams{Stdout: ToCaller, Stderr: ToCaller}) catch { case NotFound, Denied, Failed: return false } let mut out = []string{} let mut errs = []string{} for l in p.Lines() { if l.Stderr { errs = errs.Append(l.Text) } else { out = out.Append(l.Text) } } slices.Equal(out, Split(want.Stdout)) && slices.Equal(errs, Split(want.Stderr)) && p.Wait() == want.Status }`,
-	"exec ScriptReplaysRecorded":     `ScriptReplaysRecorded(name string, arg string, status int, out string) { let c = New(name, []string{arg, arg}) let joined = New(name, []string{arg + "," + arg}) let mut results = Map[string, Result]{} results[Key(c)] = Result{Status: status, Stdout: out, Stderr: ""} results[Key(joined)] = Result{Status: status + 1, Stdout: out, Stderr: ""} let r = Script{Results: results}.Run(c) catch { case NotFound, Denied, Failed: return false } let s = Script{Results: results}.Run(joined) catch { case NotFound, Denied, Failed: return false } r.Status == status && r.Stdout == out && r.Stderr == "" && s.Status == status+1 }`,
-	"exec WaitForEndedGivesStatus":   `WaitForEndedGivesStatus(status int, d int64) { let c = New("x", []string{}) let mut results = Map[string, Result]{} results[Key(c)] = Result{Status: status, Stdout: "", Stderr: ""} let p = Script{Results: results}.Start(c, Streams{Stdout: Discard, Stderr: Discard}) catch { case NotFound, Denied, Failed: return false } with context { Scheduler: time.NewManual(0) } { let code = p.WaitFor(duration(d)) catch { case timeout.Expired: return false } code == status } }`,
-	"exec Spawner.KillIsIdempotent":  `KillIsIdempotent(name string) { let d = Spawn(New(name, []string{}), Streams{Stdout: Discard, Stderr: Discard}) catch { case NotFound, Denied, Failed: return true } Kill(d, 0s) Kill(d, 0s) !Alive(d) }`,
-	"exec Spawner.KilledIsNotAlive":  `KilledIsNotAlive(name string) { let d = Spawn(New(name, []string{}), Streams{Stdout: Discard, Stderr: Discard}) catch { case NotFound, Denied, Failed: return true } Kill(d, 0s) !Alive(d) }`,
-	"exec WithEnvKeepsTheOriginal":   `WithEnvKeepsTheOriginal(key string, first string, second string) { let c = New("x", []string{}).WithEnv(key, first) let d = c.WithEnv(key, second) c.Env.Get(key) == Some[string]{Value: first} && d.Env.Get(key) == Some[string]{Value: second} }`,
-	"exec WithEnvOverrides":          `WithEnvOverrides(key string, first string, second string) { let c = New("x", []string{}).WithEnv(key, first).WithEnv(key, second) c.Env.Get(key) == Some[string]{Value: second} }`,
+	"exec Runner.StartAgreesWithRun":        `StartAgreesWithRun(sh Shell) { let c = ShellCommand(sh) let want = Run(c) catch { case NotFound, Denied, Failed: return true } let p = Start(c, Streams{Stdout: ToCaller, Stderr: ToCaller}) catch { case NotFound, Denied, Failed: return false } let mut out = []string{} let mut errs = []string{} for l in p.Lines() { if l.Stderr { errs = errs.Append(l.Text) } else { out = out.Append(l.Text) } } slices.Equal(out, Split(want.Stdout)) && slices.Equal(errs, Split(want.Stderr)) && p.Wait() == want.Status }`,
+	"exec Runner.ShellRunsAsWritten":        `ShellRunsAsWritten(sh Shell) { let r = Run(ShellCommand(sh)) catch { case NotFound, Denied, Failed: return true } let mut out = "" let mut errs = "" for w in sh.Writes { if w.Stderr { errs = errs + w.Text } else { out = out + w.Text } } r.Stdout == out && r.Stderr == errs && r.Status == (sh.Status % 256 + 256) % 256 }`,
+	"exec Runner.StartMergedInterleavesRun": `StartMergedInterleavesRun(sh Shell) { let c = ShellCommand(sh) let want = Run(c) catch { case NotFound, Denied, Failed: return true } let p = Start(c, Streams{Stdout: ToCaller, Stderr: ToStdout}) catch { case NotFound, Denied, Failed: return false } let mut got = "" for k in p.Chunks() { if k.Stderr { return false } got = got + k.Text } Interleaves(got, want.Stdout, want.Stderr) && p.Wait() == want.Status }`,
+	"exec InterleavesMatchesModel":          `InterleavesMatchesModel(a string, b string, picks []bool, t string) { let x = upTo5(a) let y = upTo5(b) let s = pickMerge(x, y, picks) let checks = []string{s, swapFirst(s), upTo5(t), s + "x"} slices.All(checks, func(u string) bool { Interleaves(u, x, y) == merged(u, x, y) }) }`,
+	"exec ScriptReplaysRecorded":            `ScriptReplaysRecorded(name string, arg string, status int, out string) { let c = New(name, []string{arg, arg}) let joined = New(name, []string{arg + "," + arg}) let mut results = Map[string, Result]{} results[Key(c)] = Result{Status: status, Stdout: out, Stderr: ""} results[Key(joined)] = Result{Status: status + 1, Stdout: out, Stderr: ""} let r = Script{Results: results}.Run(c) catch { case NotFound, Denied, Failed: return false } let s = Script{Results: results}.Run(joined) catch { case NotFound, Denied, Failed: return false } r.Status == status && r.Stdout == out && r.Stderr == "" && s.Status == status+1 }`,
+	"exec WaitForEndedGivesStatus":          `WaitForEndedGivesStatus(status int, d int64) { let c = New("x", []string{}) let mut results = Map[string, Result]{} results[Key(c)] = Result{Status: status, Stdout: "", Stderr: ""} let p = Script{Results: results}.Start(c, Streams{Stdout: Discard, Stderr: Discard}) catch { case NotFound, Denied, Failed: return false } with context { Scheduler: time.NewManual(0) } { let code = p.WaitFor(duration(d)) catch { case timeout.Expired: return false } code == status } }`,
+	"exec Spawner.KillIsIdempotent":         `KillIsIdempotent(name string) { let d = Spawn(New(name, []string{}), Streams{Stdout: Discard, Stderr: Discard}) catch { case NotFound, Denied, Failed: return true } Kill(d, 0s) Kill(d, 0s) !Alive(d) }`,
+	"exec Spawner.KilledIsNotAlive":         `KilledIsNotAlive(name string) { let d = Spawn(New(name, []string{}), Streams{Stdout: Discard, Stderr: Discard}) catch { case NotFound, Denied, Failed: return true } Kill(d, 0s) !Alive(d) }`,
+	"exec WithEnvKeepsTheOriginal":          `WithEnvKeepsTheOriginal(key string, first string, second string) { let c = New("x", []string{}).WithEnv(key, first) let d = c.WithEnv(key, second) c.Env.Get(key) == Some[string]{Value: first} && d.Env.Get(key) == Some[string]{Value: second} }`,
+	"exec WithEnvOverrides":                 `WithEnvOverrides(key string, first string, second string) { let c = New("x", []string{}).WithEnv(key, first).WithEnv(key, second) c.Env.Get(key) == Some[string]{Value: second} }`,
 }
 
 // TestExecLaws runs the probe with --seed 1; lawledger.Run holds that it
 // restates exactly the ledger's laws whose runner is this test, each with
 // the row's statement, and that each passed. ScriptNotFoundNamesTheProgram
-// is the probe's own test of the Script provider, not a ledger row.
+// is the probe's own test of the Script provider, not a ledger row. The
+// Runner laws also run as written on the test host (onHost), each case a
+// drawn Shell, and each of those runs must pass.
 //
 // It builds Go because the laws run in the built test binary (ergo test),
 // the only place a law runs.
@@ -441,8 +531,10 @@ func TestExecLaws(t *testing.T) {
 	if code != 0 {
 		t.Errorf("the exec law tests failed: exit %d\n%s\n%s", code, stdout, firstLines(stderr, 20))
 	}
-	if !regexp.MustCompile(`(?m)^ok ScriptNotFoundNamesTheProgram( \(\d+ cases\))?$`).MatchString(stdout) {
-		t.Errorf("no ok line for ScriptNotFoundNamesTheProgram:\n%s", stdout)
+	for _, line := range []string{"ok ScriptNotFoundNamesTheProgram", "ok law exec.Runner.StartAgreesWithRun under onHost", "ok law exec.Runner.StartMergedInterleavesRun under onHost", "ok law exec.Runner.ShellRunsAsWritten under onHost"} {
+		if !regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(line) + `( \(\d+ cases\))?$`).MatchString(stdout) {
+			t.Errorf("no line %q:\n%s", line, stdout)
+		}
 	}
 	lawledger.Run(t, lawsPassed(t, execLawStatements, func(key string) string {
 		pkg, law, _ := strings.Cut(key, " ")

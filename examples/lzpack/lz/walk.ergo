@@ -77,3 +77,21 @@ func Walk(packed string) []Step fails Corrupt {
 	}
 	steps
 }
+
+// WalkAgreesWithUnpack: Walk refuses exactly the streams Unpack refuses,
+// with the same Corrupt.
+law WalkAgreesWithUnpack(body string) {
+	let a = Unpack(Magic + body) catch {
+	case Corrupt as e:
+		let _ = Walk(Magic + body) catch {
+		case Corrupt as f:
+			return e == f
+		}
+		return false
+	}
+	let _ = Walk(Magic + body) catch {
+	case Corrupt:
+		return false
+	}
+	len(a) >= 0
+}

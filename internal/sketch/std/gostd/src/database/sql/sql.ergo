@@ -31,7 +31,7 @@ extern go database/sql.Conn type Conn {} implements Closer
 
 // ergo:go func (*Conn).BeginTx(ctx context.Context, opts *TxOptions) (*Tx, error)
 // ergo:context
-extern go database/sql.Conn.BeginTx func (c *Conn) BeginTx(opts own *TxOptions) go.Ref[Tx] fails go.Error needs go.Foreign
+extern go database/sql.Conn.BeginTx func (c *Conn) BeginTx(opts own *TxOptions) Option[go.Ref[Tx]] fails go.Error needs go.Foreign
 
 // ergo:go func (*Conn).Close() error
 extern go database/sql.Conn.Close func (c own *Conn) Close() fails go.Error needs go.Foreign
@@ -47,12 +47,12 @@ extern go database/sql.Conn.PingContext func (c *Conn) PingContext() fails go.Er
 
 // ergo:go func (*Conn).PrepareContext(ctx context.Context, query string) (*Stmt, error)
 // ergo:context
-extern go database/sql.Conn.PrepareContext func (c *Conn) PrepareContext(query string) go.Ref[Stmt] fails go.Error needs go.Foreign
+extern go database/sql.Conn.PrepareContext func (c *Conn) PrepareContext(query string) Option[go.Ref[Stmt]] fails go.Error needs go.Foreign
 
 // ergo:go func (*Conn).QueryContext(ctx context.Context, query string, args ...any) (*Rows, error)
 // ergo:context
 // ergo:variadic
-extern go database/sql.Conn.QueryContext func (c *Conn) QueryContext(query string, args []go.Any) go.Ref[Rows] fails go.Error needs go.Foreign
+extern go database/sql.Conn.QueryContext func (c *Conn) QueryContext(query string, args []go.Any) Option[go.Ref[Rows]] fails go.Error needs go.Foreign
 
 // ergo:go func (*Conn).QueryRowContext(ctx context.Context, query string, args ...any) *Row
 // ergo:context
@@ -69,18 +69,18 @@ extern go database/sql.Conn.Raw func (c *Conn) Raw(f own func(go.Any) fails go.E
 extern go database/sql.DB type DB {} implements Closer
 
 // ergo:go func (*DB).Begin() (*Tx, error)
-extern go database/sql.DB.Begin func (db *DB) Begin() go.Ref[Tx] fails go.Error needs go.Foreign
+extern go database/sql.DB.Begin func (db *DB) Begin() Option[go.Ref[Tx]] fails go.Error needs go.Foreign
 
 // ergo:go func (*DB).BeginTx(ctx context.Context, opts *TxOptions) (*Tx, error)
 // ergo:context
-extern go database/sql.DB.BeginTx func (db *DB) BeginTx(opts own *TxOptions) go.Ref[Tx] fails go.Error needs go.Foreign
+extern go database/sql.DB.BeginTx func (db *DB) BeginTx(opts own *TxOptions) Option[go.Ref[Tx]] fails go.Error needs go.Foreign
 
 // ergo:go func (*DB).Close() error
 extern go database/sql.DB.Close func (db own *DB) Close() fails go.Error needs go.Foreign
 
 // ergo:go func (*DB).Conn(ctx context.Context) (*Conn, error)
 // ergo:context
-extern go database/sql.DB.Conn func (db *DB) Conn() go.Ref[Conn] fails go.Error needs go.Foreign
+extern go database/sql.DB.Conn func (db *DB) Conn() Option[go.Ref[Conn]] fails go.Error needs go.Foreign
 
 // ergo:go func (*DB).Driver() driver.Driver
 extern go database/sql.DB.Driver func (db *DB) Driver() driver.Driver needs go.Foreign
@@ -102,20 +102,20 @@ extern go database/sql.DB.Ping func (db *DB) Ping() fails go.Error needs go.Fore
 extern go database/sql.DB.PingContext func (db *DB) PingContext() fails go.Error needs go.Foreign
 
 // ergo:go func (*DB).Prepare(query string) (*Stmt, error)
-extern go database/sql.DB.Prepare func (db *DB) Prepare(query string) go.Ref[Stmt] fails go.Error needs go.Foreign
+extern go database/sql.DB.Prepare func (db *DB) Prepare(query string) Option[go.Ref[Stmt]] fails go.Error needs go.Foreign
 
 // ergo:go func (*DB).PrepareContext(ctx context.Context, query string) (*Stmt, error)
 // ergo:context
-extern go database/sql.DB.PrepareContext func (db *DB) PrepareContext(query string) go.Ref[Stmt] fails go.Error needs go.Foreign
+extern go database/sql.DB.PrepareContext func (db *DB) PrepareContext(query string) Option[go.Ref[Stmt]] fails go.Error needs go.Foreign
 
 // ergo:go func (*DB).Query(query string, args ...any) (*Rows, error)
 // ergo:variadic
-extern go database/sql.DB.Query func (db *DB) Query(query string, args []go.Any) go.Ref[Rows] fails go.Error needs go.Foreign
+extern go database/sql.DB.Query func (db *DB) Query(query string, args []go.Any) Option[go.Ref[Rows]] fails go.Error needs go.Foreign
 
 // ergo:go func (*DB).QueryContext(ctx context.Context, query string, args ...any) (*Rows, error)
 // ergo:context
 // ergo:variadic
-extern go database/sql.DB.QueryContext func (db *DB) QueryContext(query string, args []go.Any) go.Ref[Rows] fails go.Error needs go.Foreign
+extern go database/sql.DB.QueryContext func (db *DB) QueryContext(query string, args []go.Any) Option[go.Ref[Rows]] fails go.Error needs go.Foreign
 
 // ergo:go func (*DB).QueryRow(query string, args ...any) *Row
 // ergo:variadic
@@ -385,12 +385,12 @@ extern go database/sql.Stmt.ExecContext func (s *Stmt) ExecContext(args []go.Any
 
 // ergo:go func (*Stmt).Query(args ...any) (*Rows, error)
 // ergo:variadic
-extern go database/sql.Stmt.Query func (s *Stmt) Query(args []go.Any) go.Ref[Rows] fails go.Error needs go.Foreign
+extern go database/sql.Stmt.Query func (s *Stmt) Query(args []go.Any) Option[go.Ref[Rows]] fails go.Error needs go.Foreign
 
 // ergo:go func (*Stmt).QueryContext(ctx context.Context, args ...any) (*Rows, error)
 // ergo:context
 // ergo:variadic
-extern go database/sql.Stmt.QueryContext func (s *Stmt) QueryContext(args []go.Any) go.Ref[Rows] fails go.Error needs go.Foreign
+extern go database/sql.Stmt.QueryContext func (s *Stmt) QueryContext(args []go.Any) Option[go.Ref[Rows]] fails go.Error needs go.Foreign
 
 // ergo:go func (*Stmt).QueryRow(args ...any) *Row
 // ergo:variadic
@@ -417,20 +417,20 @@ extern go database/sql.Tx.Exec func (tx *Tx) Exec(query string, args []go.Any) R
 extern go database/sql.Tx.ExecContext func (tx *Tx) ExecContext(query string, args []go.Any) Result fails go.Error needs go.Foreign
 
 // ergo:go func (*Tx).Prepare(query string) (*Stmt, error)
-extern go database/sql.Tx.Prepare func (tx *Tx) Prepare(query string) go.Ref[Stmt] fails go.Error needs go.Foreign
+extern go database/sql.Tx.Prepare func (tx *Tx) Prepare(query string) Option[go.Ref[Stmt]] fails go.Error needs go.Foreign
 
 // ergo:go func (*Tx).PrepareContext(ctx context.Context, query string) (*Stmt, error)
 // ergo:context
-extern go database/sql.Tx.PrepareContext func (tx *Tx) PrepareContext(query string) go.Ref[Stmt] fails go.Error needs go.Foreign
+extern go database/sql.Tx.PrepareContext func (tx *Tx) PrepareContext(query string) Option[go.Ref[Stmt]] fails go.Error needs go.Foreign
 
 // ergo:go func (*Tx).Query(query string, args ...any) (*Rows, error)
 // ergo:variadic
-extern go database/sql.Tx.Query func (tx *Tx) Query(query string, args []go.Any) go.Ref[Rows] fails go.Error needs go.Foreign
+extern go database/sql.Tx.Query func (tx *Tx) Query(query string, args []go.Any) Option[go.Ref[Rows]] fails go.Error needs go.Foreign
 
 // ergo:go func (*Tx).QueryContext(ctx context.Context, query string, args ...any) (*Rows, error)
 // ergo:context
 // ergo:variadic
-extern go database/sql.Tx.QueryContext func (tx *Tx) QueryContext(query string, args []go.Any) go.Ref[Rows] fails go.Error needs go.Foreign
+extern go database/sql.Tx.QueryContext func (tx *Tx) QueryContext(query string, args []go.Any) Option[go.Ref[Rows]] fails go.Error needs go.Foreign
 
 // ergo:go func (*Tx).QueryRow(query string, args ...any) *Row
 // ergo:variadic

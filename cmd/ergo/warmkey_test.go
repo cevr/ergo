@@ -22,6 +22,9 @@ var warmKeyExempt = map[string]string{
 	"uncached": "a --count 1 test takes no warm answer (testCacheable)",
 	"args":     "run's program arguments: the warm answer is the executable, which they do not change",
 	"affected": "--affected selects which packages run; each selected package runs as `ergo test` runs it (affected.go)",
+	"level":    "a key part of its own: the toolchain's CPU level (prepareWarm, tc.Level; BLV U3)",
+	"release":  "a key part of its own: --release's profile bytes (prepareWarm, tc.PGO; BLV U4)",
+	"profile":  "a key part of its own: the profile's bytes (prepareWarm, tc.PGO; BLV U4)",
 }
 
 // TestWarmKeyCoversOptions: every option of fileOptions changes the warm
