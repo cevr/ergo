@@ -687,6 +687,29 @@ func Recorded(unit string, branch string, tip string, base string, on []OnTip, c
 	LaneRecord{..r, Unit: optional(block.Unit, unit), Intent: optional(block.Intent, r.Intent), Decisions: optional(block.Decisions, []string{}), Changes: told, Owed: optional(block.Owed, []string{}), ForIntegrator: optional(block.ForIntegrator, []string{})}
 }
 
+// RequestWithoutABlockIsItsFirstLine: the block is optional. For a
+// request with no work-record block, the record's intent is the
+// request's first line (its heading marks dropped), and every change has
+// no why and no tests.
+law RequestWithoutABlockIsItsFirstLine(first string, rest string, units Map[int, int]) {
+	let line = strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(first, "\n", " "), "\r", " "), "#", " "))
+	if line == "" {
+		return true
+	}
+	let body = strings.ReplaceAll(rest, "```", "'''")
+	let text = "# " + line + "\n\n" + body
+	let changes = UnitChanges("f", []Unit{}, unitsOf(units, false), None)
+	let r = Recorded("u", "b", "t", "s", []OnTip{}, changes, Some[RequestText]{Value: RequestText{Path: "r.md", Text: text}}) catch {
+	case BadRequest:
+		return false
+	}
+	let mut plain = true
+	for c in r.Changes {
+		plain = plain && c.Why == "" && len(c.Tests) == 0
+	}
+	r.Intent == line && plain && len(r.Changes) == len(changes) && r.Request.Sha256 == hex.Encode(sha256.Sum(text))
+}
+
 // RequestText is a request file: its path as given and its text.
 type RequestText { Path string, Text string }
 
