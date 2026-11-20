@@ -440,6 +440,7 @@ func (b *irBuilder) catchWith(x *syntax.CatchExpr, partial bool, m *check.Match,
 	// takes Go's error as it is: no go.Error box, no type switch, hand
 	// Go's `if err != nil` (GOERR-BOX; SetCatchSwitchForTest keeps the
 	// switch as the reference).
+	call := b.fallibleCall(x.X)
 	plain := call != nil && !patterned && b.hostFails(call) && b.fc.plainCatch(x, m) && catchBinding(b.l.info, x) == nil
 	if plain {
 		b.rawErr = call
