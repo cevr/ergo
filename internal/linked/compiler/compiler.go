@@ -12387,19 +12387,15 @@ func (r *reader) next() (uint32, error) {
 func (r *reader) str() (string, error) {
 	/*line api/ir.ergo:53:17*/ var v uint32
 	/*line api/ir.ergo:53:17*/ var err error
+	/*line api/ir.ergo:53:17*/ _ = err
 	/*line api/ir.ergo:53:17*/ {
 		/*line api/ir.ergo:53:17*/ if r.at >= len(r.words) {
-			/*line api/ir.ergo#ergo-inline-79:45:2*/ err = error(Malformed_1{At: r.at, Why: "past the end"})
-			/*line api/ir.ergo#ergo-inline-79:45:2*/ goto inl79
+			/*line api/ir.ergo:53:17*/ return "", error(Malformed_1{At: r.at, Why: "past the end"})
 		}
 		/*line api/ir.ergo#ergo-inline-79:47:1*/ v = r.words[r.at]
 		/*line api/ir.ergo#ergo-inline-79:48:1*/ r.at += 1
 	}
-	/*line api/ir.ergo:53:17*/ inl79:
 	/*line api/ir.ergo:53:17*/ {
-	}
-	/*line api/ir.ergo:53:17*/ if err != nil {
-		/*line api/ir.ergo:53:17*/ return "", err
 	}
 	/*line api/ir.ergo:53:1*/ i := int(v)
 	/*line api/ir.ergo:54:1*/ if i >= len(r.strs) {
@@ -12414,51 +12410,39 @@ func (r *reader) str() (string, error) {
 func (r *reader) position() (Pos, error) {
 	/*line api/ir.ergo:61:13*/ var a uint32
 	/*line api/ir.ergo:61:13*/ var err error
+	/*line api/ir.ergo:61:13*/ _ = err
 	/*line api/ir.ergo:61:13*/ {
 		/*line api/ir.ergo:61:13*/ if r.at >= len(r.words) {
-			/*line api/ir.ergo#ergo-inline-80:45:2*/ err = error(Malformed_1{At: r.at, Why: "past the end"})
-			/*line api/ir.ergo#ergo-inline-80:45:2*/ goto inl80
+			/*line api/ir.ergo:61:13*/ return Pos{}, error(Malformed_1{At: r.at, Why: "past the end"})
 		}
 		/*line api/ir.ergo#ergo-inline-80:47:1*/ a = r.words[r.at]
 		/*line api/ir.ergo#ergo-inline-80:48:1*/ r.at += 1
 	}
-	/*line api/ir.ergo:61:13*/ inl80:
 	/*line api/ir.ergo:61:13*/ {
-	}
-	/*line api/ir.ergo:61:13*/ if err != nil {
-		/*line api/ir.ergo:61:13*/ return Pos{}, err
 	}
 	/*line api/ir.ergo:62:13*/ var b uint32
 	/*line api/ir.ergo:62:13*/ var err_1 error
+	/*line api/ir.ergo:62:13*/ _ = err_1
 	/*line api/ir.ergo:62:13*/ {
 		/*line api/ir.ergo:62:13*/ if r.at >= len(r.words) {
-			/*line api/ir.ergo#ergo-inline-81:45:2*/ err_1 = error(Malformed_1{At: r.at, Why: "past the end"})
-			/*line api/ir.ergo#ergo-inline-81:45:2*/ goto inl81
+			/*line api/ir.ergo:62:13*/ return Pos{}, error(Malformed_1{At: r.at, Why: "past the end"})
 		}
 		/*line api/ir.ergo#ergo-inline-81:47:1*/ b = r.words[r.at]
 		/*line api/ir.ergo#ergo-inline-81:48:1*/ r.at += 1
 	}
-	/*line api/ir.ergo:62:13*/ inl81:
 	/*line api/ir.ergo:62:13*/ {
-	}
-	/*line api/ir.ergo:62:13*/ if err_1 != nil {
-		/*line api/ir.ergo:62:13*/ return Pos{}, err_1
 	}
 	/*line api/ir.ergo:63:13*/ var c uint32
 	/*line api/ir.ergo:63:13*/ var err_2 error
+	/*line api/ir.ergo:63:13*/ _ = err_2
 	/*line api/ir.ergo:63:13*/ {
 		/*line api/ir.ergo:63:13*/ if r.at >= len(r.words) {
-			/*line api/ir.ergo#ergo-inline-82:45:2*/ err_2 = error(Malformed_1{At: r.at, Why: "past the end"})
-			/*line api/ir.ergo#ergo-inline-82:45:2*/ goto inl82
+			/*line api/ir.ergo:63:13*/ return Pos{}, error(Malformed_1{At: r.at, Why: "past the end"})
 		}
 		/*line api/ir.ergo#ergo-inline-82:47:1*/ c = r.words[r.at]
 		/*line api/ir.ergo#ergo-inline-82:48:1*/ r.at += 1
 	}
-	/*line api/ir.ergo:63:13*/ inl82:
 	/*line api/ir.ergo:63:13*/ {
-	}
-	/*line api/ir.ergo:63:13*/ if err_2 != nil {
-		/*line api/ir.ergo:63:13*/ return Pos{}, err_2
 	}
 	/*line api/ir.ergo:64:1*/ return Pos{File: a, Line: b, Col: c}, nil
 }
@@ -12483,338 +12467,257 @@ func replay(words []uint32, strs []string) (File, error) {
 	/*line api/ir.ergo:79:1*/ r := reader{words: words, at: 0, strs: strs, stack: []uint32{}}
 	/*line api/ir.ergo:80:18*/ var layout uint32
 	/*line api/ir.ergo:80:18*/ var err error
+	/*line api/ir.ergo:80:18*/ _ = err
 	/*line api/ir.ergo:80:18*/ {
 		/*line api/ir.ergo:80:23*/ p0_inl83 := &r
 		/*line api/ir.ergo:80:18*/ if p0_inl83.at >= len(p0_inl83.words) {
-			/*line api/ir.ergo#ergo-inline-83:45:2*/ err = error(Malformed_1{At: p0_inl83.at, Why: "past the end"})
-			/*line api/ir.ergo#ergo-inline-83:45:2*/ goto inl83
+			/*line api/ir.ergo:80:18*/ return File{}, error(Malformed_1{At: p0_inl83.at, Why: "past the end"})
 		}
 		/*line api/ir.ergo#ergo-inline-83:47:1*/ layout = p0_inl83.words[p0_inl83.at]
 		/*line api/ir.ergo#ergo-inline-83:48:1*/ p0_inl83.at += 1
 	}
-	/*line api/ir.ergo:80:18*/ inl83:
 	/*line api/ir.ergo:80:18*/ {
-	}
-	/*line api/ir.ergo:80:18*/ if err != nil {
-		/*line api/ir.ergo:80:18*/ return File{}, err
 	}
 	/*line api/ir.ergo:81:1*/ if layout != uint32(3) {
 		/*line api/ir.ergo:82:2*/ return File{}, Malformed_1{At: 0, Why: "layout " + strconv.FormatUint(uint64(layout), 10)}
 	}
 	/*line api/ir.ergo:84:14*/ var lo uint32
 	/*line api/ir.ergo:84:14*/ var err_1 error
+	/*line api/ir.ergo:84:14*/ _ = err_1
 	/*line api/ir.ergo:84:14*/ {
 		/*line api/ir.ergo:84:19*/ p0_inl84 := &r
 		/*line api/ir.ergo:84:14*/ if p0_inl84.at >= len(p0_inl84.words) {
-			/*line api/ir.ergo#ergo-inline-84:45:2*/ err_1 = error(Malformed_1{At: p0_inl84.at, Why: "past the end"})
-			/*line api/ir.ergo#ergo-inline-84:45:2*/ goto inl84
+			/*line api/ir.ergo:84:14*/ return File{}, error(Malformed_1{At: p0_inl84.at, Why: "past the end"})
 		}
 		/*line api/ir.ergo#ergo-inline-84:47:1*/ lo = p0_inl84.words[p0_inl84.at]
 		/*line api/ir.ergo#ergo-inline-84:48:1*/ p0_inl84.at += 1
 	}
-	/*line api/ir.ergo:84:14*/ inl84:
 	/*line api/ir.ergo:84:14*/ {
-	}
-	/*line api/ir.ergo:84:14*/ if err_1 != nil {
-		/*line api/ir.ergo:84:14*/ return File{}, err_1
 	}
 	/*line api/ir.ergo:85:14*/ var hi uint32
 	/*line api/ir.ergo:85:14*/ var err_2 error
+	/*line api/ir.ergo:85:14*/ _ = err_2
 	/*line api/ir.ergo:85:14*/ {
 		/*line api/ir.ergo:85:19*/ p0_inl85 := &r
 		/*line api/ir.ergo:85:14*/ if p0_inl85.at >= len(p0_inl85.words) {
-			/*line api/ir.ergo#ergo-inline-85:45:2*/ err_2 = error(Malformed_1{At: p0_inl85.at, Why: "past the end"})
-			/*line api/ir.ergo#ergo-inline-85:45:2*/ goto inl85
+			/*line api/ir.ergo:85:14*/ return File{}, error(Malformed_1{At: p0_inl85.at, Why: "past the end"})
 		}
 		/*line api/ir.ergo#ergo-inline-85:47:1*/ hi = p0_inl85.words[p0_inl85.at]
 		/*line api/ir.ergo#ergo-inline-85:48:1*/ p0_inl85.at += 1
 	}
-	/*line api/ir.ergo:85:14*/ inl85:
 	/*line api/ir.ergo:85:14*/ {
-	}
-	/*line api/ir.ergo:85:14*/ if err_2 != nil {
-		/*line api/ir.ergo:85:14*/ return File{}, err_2
 	}
 	/*line api/ir.ergo:86:1*/ b := NewBuilder(int64(uint64(lo) | uint64(hi)<<uint64(32)))
 	/*line api/ir.ergo:87:1*/ for r.at < len(r.words) {
 		/*line api/ir.ergo:88:15*/ var op uint32
 		/*line api/ir.ergo:88:15*/ var err_3 error
+		/*line api/ir.ergo:88:15*/ _ = err_3
 		/*line api/ir.ergo:88:15*/ {
 			/*line api/ir.ergo:88:20*/ p0_inl86 := &r
 			/*line api/ir.ergo:88:15*/ if p0_inl86.at >= len(p0_inl86.words) {
-				/*line api/ir.ergo#ergo-inline-86:45:2*/ err_3 = error(Malformed_1{At: p0_inl86.at, Why: "past the end"})
-				/*line api/ir.ergo#ergo-inline-86:45:2*/ goto inl86
+				/*line api/ir.ergo:88:15*/ return File{}, error(Malformed_1{At: p0_inl86.at, Why: "past the end"})
 			}
 			/*line api/ir.ergo#ergo-inline-86:47:1*/ op = p0_inl86.words[p0_inl86.at]
 			/*line api/ir.ergo#ergo-inline-86:48:1*/ p0_inl86.at += 1
 		}
-		/*line api/ir.ergo:88:15*/ inl86:
 		/*line api/ir.ergo:88:15*/ {
-		}
-		/*line api/ir.ergo:88:15*/ if err_3 != nil {
-			/*line api/ir.ergo:88:15*/ return File{}, err_3
 		}
 		/*line api/ir.ergo:89:2*/ switch op {
 		case uint32(1):
 			/*line api/ir.ergo:91:15*/ var s string
 			/*line api/ir.ergo:91:15*/ var err_4 error
+			/*line api/ir.ergo:91:15*/ _ = err_4
 			/*line api/ir.ergo:91:15*/ {
 				/*line api/ir.ergo:91:19*/ p0_inl87 := &r
 				/*line api/ir.ergo#ergo-inline-87:53:17*/ var v_inl87 uint32
 				/*line api/ir.ergo#ergo-inline-87:53:17*/ var err_inl87 error
+				/*line api/ir.ergo#ergo-inline-87:53:17*/ _ = err_inl87
 				/*line api/ir.ergo:91:15*/ {
 					/*line api/ir.ergo:91:15*/ if p0_inl87.at >= len(p0_inl87.words) {
-						/*line api/ir.ergo#ergo-inline-88:45:2*/ err_inl87 = error(Malformed_1{At: p0_inl87.at, Why: "past the end"})
-						/*line api/ir.ergo#ergo-inline-88:45:2*/ goto inl88
+						/*line api/ir.ergo:91:15*/ return File{}, error(Malformed_1{At: p0_inl87.at, Why: "past the end"})
 					}
 					/*line api/ir.ergo#ergo-inline-88:47:1*/ v_inl87 = p0_inl87.words[p0_inl87.at]
 					/*line api/ir.ergo#ergo-inline-88:48:1*/ p0_inl87.at += 1
 				}
-				/*line api/ir.ergo:91:15*/ inl88:
 				/*line api/ir.ergo:91:15*/ {
-				}
-				/*line api/ir.ergo:91:15*/ if err_inl87 != nil {
-					/*line api/ir.ergo#ergo-inline-87:53:17*/ err_4 = err_inl87
-					/*line api/ir.ergo#ergo-inline-87:53:17*/ goto inl87
 				}
 				/*line api/ir.ergo#ergo-inline-87:53:1*/ i_inl87 := int(v_inl87)
 				/*line api/ir.ergo:91:15*/ if i_inl87 >= len(p0_inl87.strs) {
-					/*line api/ir.ergo#ergo-inline-87:55:2*/ err_4 = error(Malformed_1{At: p0_inl87.at - 1, Why: "no text"})
-					/*line api/ir.ergo#ergo-inline-87:55:2*/ goto inl87
+					/*line api/ir.ergo:91:15*/ return File{}, error(Malformed_1{At: p0_inl87.at - 1, Why: "no text"})
 				}
 				/*line api/ir.ergo#ergo-inline-87:57:1*/ s = p0_inl87.strs[i_inl87]
 			}
-			/*line api/ir.ergo:91:15*/ inl87:
 			/*line api/ir.ergo:91:15*/ {
-			}
-			/*line api/ir.ergo:91:15*/ if err_4 != nil {
-				/*line api/ir.ergo:91:15*/ return File{}, err_4
 			}
 			/*line api/ir.ergo:92:3*/ r.stack = append(r.stack, (&b).Text(s))
 		case uint32(2):
 			/*line api/ir.ergo:94:15*/ var w uint32
 			/*line api/ir.ergo:94:15*/ var err_5 error
+			/*line api/ir.ergo:94:15*/ _ = err_5
 			/*line api/ir.ergo:94:15*/ {
 				/*line api/ir.ergo:94:20*/ p0_inl89 := &r
 				/*line api/ir.ergo:94:15*/ if p0_inl89.at >= len(p0_inl89.words) {
-					/*line api/ir.ergo#ergo-inline-89:45:2*/ err_5 = error(Malformed_1{At: p0_inl89.at, Why: "past the end"})
-					/*line api/ir.ergo#ergo-inline-89:45:2*/ goto inl89
+					/*line api/ir.ergo:94:15*/ return File{}, error(Malformed_1{At: p0_inl89.at, Why: "past the end"})
 				}
 				/*line api/ir.ergo#ergo-inline-89:47:1*/ w = p0_inl89.words[p0_inl89.at]
 				/*line api/ir.ergo#ergo-inline-89:48:1*/ p0_inl89.at += 1
 			}
-			/*line api/ir.ergo:94:15*/ inl89:
 			/*line api/ir.ergo:94:15*/ {
-			}
-			/*line api/ir.ergo:94:15*/ if err_5 != nil {
-				/*line api/ir.ergo:94:15*/ return File{}, err_5
 			}
 			/*line api/ir.ergo:95:3*/ r.stack = append(r.stack, w)
 		case uint32(3):
 			/*line api/ir.ergo:97:15*/ var p Pos
 			/*line api/ir.ergo:97:15*/ var err_6 error
+			/*line api/ir.ergo:97:15*/ _ = err_6
 			/*line api/ir.ergo:97:15*/ {
 				/*line api/ir.ergo:97:24*/ p0_inl90 := &r
 				/*line api/ir.ergo#ergo-inline-90:61:13*/ var a_inl90 uint32
 				/*line api/ir.ergo#ergo-inline-90:61:13*/ var err_inl90 error
+				/*line api/ir.ergo#ergo-inline-90:61:13*/ _ = err_inl90
 				/*line api/ir.ergo:97:15*/ {
 					/*line api/ir.ergo:97:15*/ if p0_inl90.at >= len(p0_inl90.words) {
-						/*line api/ir.ergo#ergo-inline-91:45:2*/ err_inl90 = error(Malformed_1{At: p0_inl90.at, Why: "past the end"})
-						/*line api/ir.ergo#ergo-inline-91:45:2*/ goto inl91
+						/*line api/ir.ergo:97:15*/ return File{}, error(Malformed_1{At: p0_inl90.at, Why: "past the end"})
 					}
 					/*line api/ir.ergo#ergo-inline-91:47:1*/ a_inl90 = p0_inl90.words[p0_inl90.at]
 					/*line api/ir.ergo#ergo-inline-91:48:1*/ p0_inl90.at += 1
 				}
-				/*line api/ir.ergo:97:15*/ inl91:
 				/*line api/ir.ergo:97:15*/ {
-				}
-				/*line api/ir.ergo:97:15*/ if err_inl90 != nil {
-					/*line api/ir.ergo#ergo-inline-90:61:13*/ err_6 = err_inl90
-					/*line api/ir.ergo#ergo-inline-90:61:13*/ goto inl90
 				}
 				/*line api/ir.ergo#ergo-inline-90:62:13*/ var b_inl90 uint32
 				/*line api/ir.ergo#ergo-inline-90:62:13*/ var err_1_inl90 error
+				/*line api/ir.ergo#ergo-inline-90:62:13*/ _ = err_1_inl90
 				/*line api/ir.ergo:97:15*/ {
 					/*line api/ir.ergo:97:15*/ if p0_inl90.at >= len(p0_inl90.words) {
-						/*line api/ir.ergo#ergo-inline-92:45:2*/ err_1_inl90 = error(Malformed_1{At: p0_inl90.at, Why: "past the end"})
-						/*line api/ir.ergo#ergo-inline-92:45:2*/ goto inl92
+						/*line api/ir.ergo:97:15*/ return File{}, error(Malformed_1{At: p0_inl90.at, Why: "past the end"})
 					}
 					/*line api/ir.ergo#ergo-inline-92:47:1*/ b_inl90 = p0_inl90.words[p0_inl90.at]
 					/*line api/ir.ergo#ergo-inline-92:48:1*/ p0_inl90.at += 1
 				}
-				/*line api/ir.ergo:97:15*/ inl92:
 				/*line api/ir.ergo:97:15*/ {
-				}
-				/*line api/ir.ergo:97:15*/ if err_1_inl90 != nil {
-					/*line api/ir.ergo#ergo-inline-90:62:13*/ err_6 = err_1_inl90
-					/*line api/ir.ergo#ergo-inline-90:62:13*/ goto inl90
 				}
 				/*line api/ir.ergo#ergo-inline-90:63:13*/ var c_inl90 uint32
 				/*line api/ir.ergo#ergo-inline-90:63:13*/ var err_2_inl90 error
+				/*line api/ir.ergo#ergo-inline-90:63:13*/ _ = err_2_inl90
 				/*line api/ir.ergo:97:15*/ {
 					/*line api/ir.ergo:97:15*/ if p0_inl90.at >= len(p0_inl90.words) {
-						/*line api/ir.ergo#ergo-inline-93:45:2*/ err_2_inl90 = error(Malformed_1{At: p0_inl90.at, Why: "past the end"})
-						/*line api/ir.ergo#ergo-inline-93:45:2*/ goto inl93
+						/*line api/ir.ergo:97:15*/ return File{}, error(Malformed_1{At: p0_inl90.at, Why: "past the end"})
 					}
 					/*line api/ir.ergo#ergo-inline-93:47:1*/ c_inl90 = p0_inl90.words[p0_inl90.at]
 					/*line api/ir.ergo#ergo-inline-93:48:1*/ p0_inl90.at += 1
 				}
-				/*line api/ir.ergo:97:15*/ inl93:
 				/*line api/ir.ergo:97:15*/ {
-				}
-				/*line api/ir.ergo:97:15*/ if err_2_inl90 != nil {
-					/*line api/ir.ergo#ergo-inline-90:63:13*/ err_6 = err_2_inl90
-					/*line api/ir.ergo#ergo-inline-90:63:13*/ goto inl90
 				}
 				/*line api/ir.ergo#ergo-inline-90:64:1*/ p = Pos{File: a_inl90, Line: b_inl90, Col: c_inl90}
 			}
-			/*line api/ir.ergo:97:15*/ inl90:
 			/*line api/ir.ergo:97:15*/ {
-			}
-			/*line api/ir.ergo:97:15*/ if err_6 != nil {
-				/*line api/ir.ergo:97:15*/ return File{}, err_6
 			}
 			/*line api/ir.ergo:98:3*/ r.stack = append(r.stack, (&b).PosAt(p))
 		case uint32(4):
 			/*line api/ir.ergo:100:19*/ var v_7 uint32
 			/*line api/ir.ergo:100:19*/ var err_7 error
+			/*line api/ir.ergo:100:19*/ _ = err_7
 			/*line api/ir.ergo:100:19*/ {
 				/*line api/ir.ergo:100:24*/ p0_inl94 := &r
 				/*line api/ir.ergo:100:19*/ if p0_inl94.at >= len(p0_inl94.words) {
-					/*line api/ir.ergo#ergo-inline-94:45:2*/ err_7 = error(Malformed_1{At: p0_inl94.at, Why: "past the end"})
-					/*line api/ir.ergo#ergo-inline-94:45:2*/ goto inl94
+					/*line api/ir.ergo:100:19*/ return File{}, error(Malformed_1{At: p0_inl94.at, Why: "past the end"})
 				}
 				/*line api/ir.ergo#ergo-inline-94:47:1*/ v_7 = p0_inl94.words[p0_inl94.at]
 				/*line api/ir.ergo#ergo-inline-94:48:1*/ p0_inl94.at += 1
 			}
-			/*line api/ir.ergo:100:19*/ inl94:
 			/*line api/ir.ergo:100:19*/ {
-			}
-			/*line api/ir.ergo:100:19*/ if err_7 != nil {
-				/*line api/ir.ergo:100:19*/ return File{}, err_7
 			}
 			/*line api/ir.ergo:100:3*/ n := int(v_7)
 			/*line api/ir.ergo:101:16*/ var xs []uint32
 			/*line api/ir.ergo:101:16*/ var err_8 error
+			/*line api/ir.ergo:101:16*/ _ = err_8
 			/*line api/ir.ergo:101:16*/ {
 				/*line api/ir.ergo:101:20*/ p0_inl95 := &r
 				/*line api/ir.ergo:101:16*/ if n < 0 || n > len(p0_inl95.stack) {
-					/*line api/ir.ergo#ergo-inline-95:70:2*/ err_8 = error(Malformed_1{At: p0_inl95.at, Why: "the stack holds fewer words"})
-					/*line api/ir.ergo#ergo-inline-95:70:2*/ goto inl95
+					/*line api/ir.ergo:101:16*/ return File{}, error(Malformed_1{At: p0_inl95.at, Why: "the stack holds fewer words"})
 				}
 				/*line api/ir.ergo#ergo-inline-95:72:1*/ top_inl95 := len(p0_inl95.stack) - n
 				/*line api/ir.ergo#ergo-inline-95:73:1*/ xs = ergo.SlicesClone[uint32](slices.Clip[[]uint32, uint32](p0_inl95.stack[top_inl95:]))
 				/*line api/ir.ergo#ergo-inline-95:74:1*/ p0_inl95.stack = p0_inl95.stack[:top_inl95]
 			}
-			/*line api/ir.ergo:101:16*/ inl95:
 			/*line api/ir.ergo:101:16*/ {
-			}
-			/*line api/ir.ergo:101:16*/ if err_8 != nil {
-				/*line api/ir.ergo:101:16*/ return File{}, err_8
 			}
 			/*line api/ir.ergo:102:3*/ r.stack = append(r.stack, (&b).List(xs))
 		case uint32(5):
 			/*line api/ir.ergo:104:15*/ var k_1 uint32
 			/*line api/ir.ergo:104:15*/ var err_9 error
+			/*line api/ir.ergo:104:15*/ _ = err_9
 			/*line api/ir.ergo:104:15*/ {
 				/*line api/ir.ergo:104:20*/ p0_inl96 := &r
 				/*line api/ir.ergo:104:15*/ if p0_inl96.at >= len(p0_inl96.words) {
-					/*line api/ir.ergo#ergo-inline-96:45:2*/ err_9 = error(Malformed_1{At: p0_inl96.at, Why: "past the end"})
-					/*line api/ir.ergo#ergo-inline-96:45:2*/ goto inl96
+					/*line api/ir.ergo:104:15*/ return File{}, error(Malformed_1{At: p0_inl96.at, Why: "past the end"})
 				}
 				/*line api/ir.ergo#ergo-inline-96:47:1*/ k_1 = p0_inl96.words[p0_inl96.at]
 				/*line api/ir.ergo#ergo-inline-96:48:1*/ p0_inl96.at += 1
 			}
-			/*line api/ir.ergo:104:15*/ inl96:
 			/*line api/ir.ergo:104:15*/ {
-			}
-			/*line api/ir.ergo:104:15*/ if err_9 != nil {
-				/*line api/ir.ergo:104:15*/ return File{}, err_9
 			}
 			/*line api/ir.ergo:105:16*/ var at_1 Pos
 			/*line api/ir.ergo:105:16*/ var err_10 error
+			/*line api/ir.ergo:105:16*/ _ = err_10
 			/*line api/ir.ergo:105:16*/ {
 				/*line api/ir.ergo:105:25*/ p0_inl97 := &r
 				/*line api/ir.ergo#ergo-inline-97:61:13*/ var a_inl97 uint32
 				/*line api/ir.ergo#ergo-inline-97:61:13*/ var err_inl97 error
+				/*line api/ir.ergo#ergo-inline-97:61:13*/ _ = err_inl97
 				/*line api/ir.ergo:105:16*/ {
 					/*line api/ir.ergo:105:16*/ if p0_inl97.at >= len(p0_inl97.words) {
-						/*line api/ir.ergo#ergo-inline-98:45:2*/ err_inl97 = error(Malformed_1{At: p0_inl97.at, Why: "past the end"})
-						/*line api/ir.ergo#ergo-inline-98:45:2*/ goto inl98
+						/*line api/ir.ergo:105:16*/ return File{}, error(Malformed_1{At: p0_inl97.at, Why: "past the end"})
 					}
 					/*line api/ir.ergo#ergo-inline-98:47:1*/ a_inl97 = p0_inl97.words[p0_inl97.at]
 					/*line api/ir.ergo#ergo-inline-98:48:1*/ p0_inl97.at += 1
 				}
-				/*line api/ir.ergo:105:16*/ inl98:
 				/*line api/ir.ergo:105:16*/ {
-				}
-				/*line api/ir.ergo:105:16*/ if err_inl97 != nil {
-					/*line api/ir.ergo#ergo-inline-97:61:13*/ err_10 = err_inl97
-					/*line api/ir.ergo#ergo-inline-97:61:13*/ goto inl97
 				}
 				/*line api/ir.ergo#ergo-inline-97:62:13*/ var b_inl97 uint32
 				/*line api/ir.ergo#ergo-inline-97:62:13*/ var err_1_inl97 error
+				/*line api/ir.ergo#ergo-inline-97:62:13*/ _ = err_1_inl97
 				/*line api/ir.ergo:105:16*/ {
 					/*line api/ir.ergo:105:16*/ if p0_inl97.at >= len(p0_inl97.words) {
-						/*line api/ir.ergo#ergo-inline-99:45:2*/ err_1_inl97 = error(Malformed_1{At: p0_inl97.at, Why: "past the end"})
-						/*line api/ir.ergo#ergo-inline-99:45:2*/ goto inl99
+						/*line api/ir.ergo:105:16*/ return File{}, error(Malformed_1{At: p0_inl97.at, Why: "past the end"})
 					}
 					/*line api/ir.ergo#ergo-inline-99:47:1*/ b_inl97 = p0_inl97.words[p0_inl97.at]
 					/*line api/ir.ergo#ergo-inline-99:48:1*/ p0_inl97.at += 1
 				}
-				/*line api/ir.ergo:105:16*/ inl99:
 				/*line api/ir.ergo:105:16*/ {
-				}
-				/*line api/ir.ergo:105:16*/ if err_1_inl97 != nil {
-					/*line api/ir.ergo#ergo-inline-97:62:13*/ err_10 = err_1_inl97
-					/*line api/ir.ergo#ergo-inline-97:62:13*/ goto inl97
 				}
 				/*line api/ir.ergo#ergo-inline-97:63:13*/ var c_inl97 uint32
 				/*line api/ir.ergo#ergo-inline-97:63:13*/ var err_2_inl97 error
+				/*line api/ir.ergo#ergo-inline-97:63:13*/ _ = err_2_inl97
 				/*line api/ir.ergo:105:16*/ {
 					/*line api/ir.ergo:105:16*/ if p0_inl97.at >= len(p0_inl97.words) {
-						/*line api/ir.ergo#ergo-inline-100:45:2*/ err_2_inl97 = error(Malformed_1{At: p0_inl97.at, Why: "past the end"})
-						/*line api/ir.ergo#ergo-inline-100:45:2*/ goto inl100
+						/*line api/ir.ergo:105:16*/ return File{}, error(Malformed_1{At: p0_inl97.at, Why: "past the end"})
 					}
 					/*line api/ir.ergo#ergo-inline-100:47:1*/ c_inl97 = p0_inl97.words[p0_inl97.at]
 					/*line api/ir.ergo#ergo-inline-100:48:1*/ p0_inl97.at += 1
 				}
-				/*line api/ir.ergo:105:16*/ inl100:
 				/*line api/ir.ergo:105:16*/ {
-				}
-				/*line api/ir.ergo:105:16*/ if err_2_inl97 != nil {
-					/*line api/ir.ergo#ergo-inline-97:63:13*/ err_10 = err_2_inl97
-					/*line api/ir.ergo#ergo-inline-97:63:13*/ goto inl97
 				}
 				/*line api/ir.ergo#ergo-inline-97:64:1*/ at_1 = Pos{File: a_inl97, Line: b_inl97, Col: c_inl97}
 			}
-			/*line api/ir.ergo:105:16*/ inl97:
 			/*line api/ir.ergo:105:16*/ {
-			}
-			/*line api/ir.ergo:105:16*/ if err_10 != nil {
-				/*line api/ir.ergo:105:16*/ return File{}, err_10
 			}
 			/*line api/ir.ergo:106:3*/ if k_1 == uint32(0) || int(k_1) >= NumKinds() {
 				/*line api/ir.ergo:107:4*/ return File{}, Malformed_1{At: r.at, Why: "kind " + strconv.FormatUint(uint64(k_1), 10)}
 			}
 			/*line api/ir.ergo:109:19*/ var slots []uint32
 			/*line api/ir.ergo:109:19*/ var err_11 error
+			/*line api/ir.ergo:109:19*/ _ = err_11
 			/*line api/ir.ergo:109:19*/ {
 				/*line api/ir.ergo:109:23*/ p0_inl101 := &r
 				/*line api/ir.ergo:109:27*/ p1_inl101 := len(KindOf(uint8(k_1)).Slots)
 				/*line api/ir.ergo:109:19*/ if p1_inl101 < 0 || p1_inl101 > len(p0_inl101.stack) {
-					/*line api/ir.ergo#ergo-inline-101:70:2*/ err_11 = error(Malformed_1{At: p0_inl101.at, Why: "the stack holds fewer words"})
-					/*line api/ir.ergo#ergo-inline-101:70:2*/ goto inl101
+					/*line api/ir.ergo:109:19*/ return File{}, error(Malformed_1{At: p0_inl101.at, Why: "the stack holds fewer words"})
 				}
 				/*line api/ir.ergo#ergo-inline-101:72:1*/ top_inl101 := len(p0_inl101.stack) - p1_inl101
 				/*line api/ir.ergo#ergo-inline-101:73:1*/ slots = ergo.SlicesClone[uint32](slices.Clip[[]uint32, uint32](p0_inl101.stack[top_inl101:]))
 				/*line api/ir.ergo#ergo-inline-101:74:1*/ p0_inl101.stack = p0_inl101.stack[:top_inl101]
 			}
-			/*line api/ir.ergo:109:19*/ inl101:
 			/*line api/ir.ergo:109:19*/ {
-			}
-			/*line api/ir.ergo:109:19*/ if err_11 != nil {
-				/*line api/ir.ergo:109:19*/ return File{}, err_11
 			}
 			/*line api/ir.ergo:110:16*/ id, err_12 := (&b).Row(uint8(k_1), at_1, slots)
 			/*line api/ir.ergo:110:16*/ if err_12 != nil {
@@ -12824,163 +12727,118 @@ func replay(words []uint32, strs []string) (File, error) {
 		case uint32(6):
 			/*line api/ir.ergo:113:18*/ var name string
 			/*line api/ir.ergo:113:18*/ var err_13 error
+			/*line api/ir.ergo:113:18*/ _ = err_13
 			/*line api/ir.ergo:113:18*/ {
 				/*line api/ir.ergo:113:22*/ p0_inl102 := &r
 				/*line api/ir.ergo#ergo-inline-102:53:17*/ var v_inl102 uint32
 				/*line api/ir.ergo#ergo-inline-102:53:17*/ var err_inl102 error
+				/*line api/ir.ergo#ergo-inline-102:53:17*/ _ = err_inl102
 				/*line api/ir.ergo:113:18*/ {
 					/*line api/ir.ergo:113:18*/ if p0_inl102.at >= len(p0_inl102.words) {
-						/*line api/ir.ergo#ergo-inline-103:45:2*/ err_inl102 = error(Malformed_1{At: p0_inl102.at, Why: "past the end"})
-						/*line api/ir.ergo#ergo-inline-103:45:2*/ goto inl103
+						/*line api/ir.ergo:113:18*/ return File{}, error(Malformed_1{At: p0_inl102.at, Why: "past the end"})
 					}
 					/*line api/ir.ergo#ergo-inline-103:47:1*/ v_inl102 = p0_inl102.words[p0_inl102.at]
 					/*line api/ir.ergo#ergo-inline-103:48:1*/ p0_inl102.at += 1
 				}
-				/*line api/ir.ergo:113:18*/ inl103:
 				/*line api/ir.ergo:113:18*/ {
-				}
-				/*line api/ir.ergo:113:18*/ if err_inl102 != nil {
-					/*line api/ir.ergo#ergo-inline-102:53:17*/ err_13 = err_inl102
-					/*line api/ir.ergo#ergo-inline-102:53:17*/ goto inl102
 				}
 				/*line api/ir.ergo#ergo-inline-102:53:1*/ i_inl102 := int(v_inl102)
 				/*line api/ir.ergo:113:18*/ if i_inl102 >= len(p0_inl102.strs) {
-					/*line api/ir.ergo#ergo-inline-102:55:2*/ err_13 = error(Malformed_1{At: p0_inl102.at - 1, Why: "no text"})
-					/*line api/ir.ergo#ergo-inline-102:55:2*/ goto inl102
+					/*line api/ir.ergo:113:18*/ return File{}, error(Malformed_1{At: p0_inl102.at - 1, Why: "no text"})
 				}
 				/*line api/ir.ergo#ergo-inline-102:57:1*/ name = p0_inl102.strs[i_inl102]
 			}
-			/*line api/ir.ergo:113:18*/ inl102:
 			/*line api/ir.ergo:113:18*/ {
-			}
-			/*line api/ir.ergo:113:18*/ if err_13 != nil {
-				/*line api/ir.ergo:113:18*/ return File{}, err_13
 			}
 			/*line api/ir.ergo:114:15*/ var p_1 Pos
 			/*line api/ir.ergo:114:15*/ var err_14 error
+			/*line api/ir.ergo:114:15*/ _ = err_14
 			/*line api/ir.ergo:114:15*/ {
 				/*line api/ir.ergo:114:24*/ p0_inl104 := &r
 				/*line api/ir.ergo#ergo-inline-104:61:13*/ var a_inl104 uint32
 				/*line api/ir.ergo#ergo-inline-104:61:13*/ var err_inl104 error
+				/*line api/ir.ergo#ergo-inline-104:61:13*/ _ = err_inl104
 				/*line api/ir.ergo:114:15*/ {
 					/*line api/ir.ergo:114:15*/ if p0_inl104.at >= len(p0_inl104.words) {
-						/*line api/ir.ergo#ergo-inline-105:45:2*/ err_inl104 = error(Malformed_1{At: p0_inl104.at, Why: "past the end"})
-						/*line api/ir.ergo#ergo-inline-105:45:2*/ goto inl105
+						/*line api/ir.ergo:114:15*/ return File{}, error(Malformed_1{At: p0_inl104.at, Why: "past the end"})
 					}
 					/*line api/ir.ergo#ergo-inline-105:47:1*/ a_inl104 = p0_inl104.words[p0_inl104.at]
 					/*line api/ir.ergo#ergo-inline-105:48:1*/ p0_inl104.at += 1
 				}
-				/*line api/ir.ergo:114:15*/ inl105:
 				/*line api/ir.ergo:114:15*/ {
-				}
-				/*line api/ir.ergo:114:15*/ if err_inl104 != nil {
-					/*line api/ir.ergo#ergo-inline-104:61:13*/ err_14 = err_inl104
-					/*line api/ir.ergo#ergo-inline-104:61:13*/ goto inl104
 				}
 				/*line api/ir.ergo#ergo-inline-104:62:13*/ var b_inl104 uint32
 				/*line api/ir.ergo#ergo-inline-104:62:13*/ var err_1_inl104 error
+				/*line api/ir.ergo#ergo-inline-104:62:13*/ _ = err_1_inl104
 				/*line api/ir.ergo:114:15*/ {
 					/*line api/ir.ergo:114:15*/ if p0_inl104.at >= len(p0_inl104.words) {
-						/*line api/ir.ergo#ergo-inline-106:45:2*/ err_1_inl104 = error(Malformed_1{At: p0_inl104.at, Why: "past the end"})
-						/*line api/ir.ergo#ergo-inline-106:45:2*/ goto inl106
+						/*line api/ir.ergo:114:15*/ return File{}, error(Malformed_1{At: p0_inl104.at, Why: "past the end"})
 					}
 					/*line api/ir.ergo#ergo-inline-106:47:1*/ b_inl104 = p0_inl104.words[p0_inl104.at]
 					/*line api/ir.ergo#ergo-inline-106:48:1*/ p0_inl104.at += 1
 				}
-				/*line api/ir.ergo:114:15*/ inl106:
 				/*line api/ir.ergo:114:15*/ {
-				}
-				/*line api/ir.ergo:114:15*/ if err_1_inl104 != nil {
-					/*line api/ir.ergo#ergo-inline-104:62:13*/ err_14 = err_1_inl104
-					/*line api/ir.ergo#ergo-inline-104:62:13*/ goto inl104
 				}
 				/*line api/ir.ergo#ergo-inline-104:63:13*/ var c_inl104 uint32
 				/*line api/ir.ergo#ergo-inline-104:63:13*/ var err_2_inl104 error
+				/*line api/ir.ergo#ergo-inline-104:63:13*/ _ = err_2_inl104
 				/*line api/ir.ergo:114:15*/ {
 					/*line api/ir.ergo:114:15*/ if p0_inl104.at >= len(p0_inl104.words) {
-						/*line api/ir.ergo#ergo-inline-107:45:2*/ err_2_inl104 = error(Malformed_1{At: p0_inl104.at, Why: "past the end"})
-						/*line api/ir.ergo#ergo-inline-107:45:2*/ goto inl107
+						/*line api/ir.ergo:114:15*/ return File{}, error(Malformed_1{At: p0_inl104.at, Why: "past the end"})
 					}
 					/*line api/ir.ergo#ergo-inline-107:47:1*/ c_inl104 = p0_inl104.words[p0_inl104.at]
 					/*line api/ir.ergo#ergo-inline-107:48:1*/ p0_inl104.at += 1
 				}
-				/*line api/ir.ergo:114:15*/ inl107:
 				/*line api/ir.ergo:114:15*/ {
-				}
-				/*line api/ir.ergo:114:15*/ if err_2_inl104 != nil {
-					/*line api/ir.ergo#ergo-inline-104:63:13*/ err_14 = err_2_inl104
-					/*line api/ir.ergo#ergo-inline-104:63:13*/ goto inl104
 				}
 				/*line api/ir.ergo#ergo-inline-104:64:1*/ p_1 = Pos{File: a_inl104, Line: b_inl104, Col: c_inl104}
 			}
-			/*line api/ir.ergo:114:15*/ inl104:
 			/*line api/ir.ergo:114:15*/ {
-			}
-			/*line api/ir.ergo:114:15*/ if err_14 != nil {
-				/*line api/ir.ergo:114:15*/ return File{}, err_14
 			}
 			/*line api/ir.ergo:115:15*/ var e Pos
 			/*line api/ir.ergo:115:15*/ var err_15 error
+			/*line api/ir.ergo:115:15*/ _ = err_15
 			/*line api/ir.ergo:115:15*/ {
 				/*line api/ir.ergo:115:24*/ p0_inl108 := &r
 				/*line api/ir.ergo#ergo-inline-108:61:13*/ var a_inl108 uint32
 				/*line api/ir.ergo#ergo-inline-108:61:13*/ var err_inl108 error
+				/*line api/ir.ergo#ergo-inline-108:61:13*/ _ = err_inl108
 				/*line api/ir.ergo:115:15*/ {
 					/*line api/ir.ergo:115:15*/ if p0_inl108.at >= len(p0_inl108.words) {
-						/*line api/ir.ergo#ergo-inline-109:45:2*/ err_inl108 = error(Malformed_1{At: p0_inl108.at, Why: "past the end"})
-						/*line api/ir.ergo#ergo-inline-109:45:2*/ goto inl109
+						/*line api/ir.ergo:115:15*/ return File{}, error(Malformed_1{At: p0_inl108.at, Why: "past the end"})
 					}
 					/*line api/ir.ergo#ergo-inline-109:47:1*/ a_inl108 = p0_inl108.words[p0_inl108.at]
 					/*line api/ir.ergo#ergo-inline-109:48:1*/ p0_inl108.at += 1
 				}
-				/*line api/ir.ergo:115:15*/ inl109:
 				/*line api/ir.ergo:115:15*/ {
-				}
-				/*line api/ir.ergo:115:15*/ if err_inl108 != nil {
-					/*line api/ir.ergo#ergo-inline-108:61:13*/ err_15 = err_inl108
-					/*line api/ir.ergo#ergo-inline-108:61:13*/ goto inl108
 				}
 				/*line api/ir.ergo#ergo-inline-108:62:13*/ var b_inl108 uint32
 				/*line api/ir.ergo#ergo-inline-108:62:13*/ var err_1_inl108 error
+				/*line api/ir.ergo#ergo-inline-108:62:13*/ _ = err_1_inl108
 				/*line api/ir.ergo:115:15*/ {
 					/*line api/ir.ergo:115:15*/ if p0_inl108.at >= len(p0_inl108.words) {
-						/*line api/ir.ergo#ergo-inline-110:45:2*/ err_1_inl108 = error(Malformed_1{At: p0_inl108.at, Why: "past the end"})
-						/*line api/ir.ergo#ergo-inline-110:45:2*/ goto inl110
+						/*line api/ir.ergo:115:15*/ return File{}, error(Malformed_1{At: p0_inl108.at, Why: "past the end"})
 					}
 					/*line api/ir.ergo#ergo-inline-110:47:1*/ b_inl108 = p0_inl108.words[p0_inl108.at]
 					/*line api/ir.ergo#ergo-inline-110:48:1*/ p0_inl108.at += 1
 				}
-				/*line api/ir.ergo:115:15*/ inl110:
 				/*line api/ir.ergo:115:15*/ {
-				}
-				/*line api/ir.ergo:115:15*/ if err_1_inl108 != nil {
-					/*line api/ir.ergo#ergo-inline-108:62:13*/ err_15 = err_1_inl108
-					/*line api/ir.ergo#ergo-inline-108:62:13*/ goto inl108
 				}
 				/*line api/ir.ergo#ergo-inline-108:63:13*/ var c_inl108 uint32
 				/*line api/ir.ergo#ergo-inline-108:63:13*/ var err_2_inl108 error
+				/*line api/ir.ergo#ergo-inline-108:63:13*/ _ = err_2_inl108
 				/*line api/ir.ergo:115:15*/ {
 					/*line api/ir.ergo:115:15*/ if p0_inl108.at >= len(p0_inl108.words) {
-						/*line api/ir.ergo#ergo-inline-111:45:2*/ err_2_inl108 = error(Malformed_1{At: p0_inl108.at, Why: "past the end"})
-						/*line api/ir.ergo#ergo-inline-111:45:2*/ goto inl111
+						/*line api/ir.ergo:115:15*/ return File{}, error(Malformed_1{At: p0_inl108.at, Why: "past the end"})
 					}
 					/*line api/ir.ergo#ergo-inline-111:47:1*/ c_inl108 = p0_inl108.words[p0_inl108.at]
 					/*line api/ir.ergo#ergo-inline-111:48:1*/ p0_inl108.at += 1
 				}
-				/*line api/ir.ergo:115:15*/ inl111:
 				/*line api/ir.ergo:115:15*/ {
-				}
-				/*line api/ir.ergo:115:15*/ if err_2_inl108 != nil {
-					/*line api/ir.ergo#ergo-inline-108:63:13*/ err_15 = err_2_inl108
-					/*line api/ir.ergo#ergo-inline-108:63:13*/ goto inl108
 				}
 				/*line api/ir.ergo#ergo-inline-108:64:1*/ e = Pos{File: a_inl108, Line: b_inl108, Col: c_inl108}
 			}
-			/*line api/ir.ergo:115:15*/ inl108:
 			/*line api/ir.ergo:115:15*/ {
-			}
-			/*line api/ir.ergo:115:15*/ if err_15 != nil {
-				/*line api/ir.ergo:115:15*/ return File{}, err_15
 			}
 			/*line api/ir.ergo:116:7*/ err_16 := (&b).Begin(name, p_1, e)
 			/*line api/ir.ergo:116:7*/ if err_16 != nil {
@@ -12989,134 +12847,98 @@ func replay(words []uint32, strs []string) (File, error) {
 		case uint32(7):
 			/*line api/ir.ergo:118:18*/ var name_1 string
 			/*line api/ir.ergo:118:18*/ var err_17 error
+			/*line api/ir.ergo:118:18*/ _ = err_17
 			/*line api/ir.ergo:118:18*/ {
 				/*line api/ir.ergo:118:22*/ p0_inl112 := &r
 				/*line api/ir.ergo#ergo-inline-112:53:17*/ var v_inl112 uint32
 				/*line api/ir.ergo#ergo-inline-112:53:17*/ var err_inl112 error
+				/*line api/ir.ergo#ergo-inline-112:53:17*/ _ = err_inl112
 				/*line api/ir.ergo:118:18*/ {
 					/*line api/ir.ergo:118:18*/ if p0_inl112.at >= len(p0_inl112.words) {
-						/*line api/ir.ergo#ergo-inline-113:45:2*/ err_inl112 = error(Malformed_1{At: p0_inl112.at, Why: "past the end"})
-						/*line api/ir.ergo#ergo-inline-113:45:2*/ goto inl113
+						/*line api/ir.ergo:118:18*/ return File{}, error(Malformed_1{At: p0_inl112.at, Why: "past the end"})
 					}
 					/*line api/ir.ergo#ergo-inline-113:47:1*/ v_inl112 = p0_inl112.words[p0_inl112.at]
 					/*line api/ir.ergo#ergo-inline-113:48:1*/ p0_inl112.at += 1
 				}
-				/*line api/ir.ergo:118:18*/ inl113:
 				/*line api/ir.ergo:118:18*/ {
-				}
-				/*line api/ir.ergo:118:18*/ if err_inl112 != nil {
-					/*line api/ir.ergo#ergo-inline-112:53:17*/ err_17 = err_inl112
-					/*line api/ir.ergo#ergo-inline-112:53:17*/ goto inl112
 				}
 				/*line api/ir.ergo#ergo-inline-112:53:1*/ i_inl112 := int(v_inl112)
 				/*line api/ir.ergo:118:18*/ if i_inl112 >= len(p0_inl112.strs) {
-					/*line api/ir.ergo#ergo-inline-112:55:2*/ err_17 = error(Malformed_1{At: p0_inl112.at - 1, Why: "no text"})
-					/*line api/ir.ergo#ergo-inline-112:55:2*/ goto inl112
+					/*line api/ir.ergo:118:18*/ return File{}, error(Malformed_1{At: p0_inl112.at - 1, Why: "no text"})
 				}
 				/*line api/ir.ergo#ergo-inline-112:57:1*/ name_1 = p0_inl112.strs[i_inl112]
 			}
-			/*line api/ir.ergo:118:18*/ inl112:
 			/*line api/ir.ergo:118:18*/ {
-			}
-			/*line api/ir.ergo:118:18*/ if err_17 != nil {
-				/*line api/ir.ergo:118:18*/ return File{}, err_17
 			}
 			/*line api/ir.ergo:119:17*/ var typ_1 string
 			/*line api/ir.ergo:119:17*/ var err_18 error
+			/*line api/ir.ergo:119:17*/ _ = err_18
 			/*line api/ir.ergo:119:17*/ {
 				/*line api/ir.ergo:119:21*/ p0_inl114 := &r
 				/*line api/ir.ergo#ergo-inline-114:53:17*/ var v_inl114 uint32
 				/*line api/ir.ergo#ergo-inline-114:53:17*/ var err_inl114 error
+				/*line api/ir.ergo#ergo-inline-114:53:17*/ _ = err_inl114
 				/*line api/ir.ergo:119:17*/ {
 					/*line api/ir.ergo:119:17*/ if p0_inl114.at >= len(p0_inl114.words) {
-						/*line api/ir.ergo#ergo-inline-115:45:2*/ err_inl114 = error(Malformed_1{At: p0_inl114.at, Why: "past the end"})
-						/*line api/ir.ergo#ergo-inline-115:45:2*/ goto inl115
+						/*line api/ir.ergo:119:17*/ return File{}, error(Malformed_1{At: p0_inl114.at, Why: "past the end"})
 					}
 					/*line api/ir.ergo#ergo-inline-115:47:1*/ v_inl114 = p0_inl114.words[p0_inl114.at]
 					/*line api/ir.ergo#ergo-inline-115:48:1*/ p0_inl114.at += 1
 				}
-				/*line api/ir.ergo:119:17*/ inl115:
 				/*line api/ir.ergo:119:17*/ {
-				}
-				/*line api/ir.ergo:119:17*/ if err_inl114 != nil {
-					/*line api/ir.ergo#ergo-inline-114:53:17*/ err_18 = err_inl114
-					/*line api/ir.ergo#ergo-inline-114:53:17*/ goto inl114
 				}
 				/*line api/ir.ergo#ergo-inline-114:53:1*/ i_inl114 := int(v_inl114)
 				/*line api/ir.ergo:119:17*/ if i_inl114 >= len(p0_inl114.strs) {
-					/*line api/ir.ergo#ergo-inline-114:55:2*/ err_18 = error(Malformed_1{At: p0_inl114.at - 1, Why: "no text"})
-					/*line api/ir.ergo#ergo-inline-114:55:2*/ goto inl114
+					/*line api/ir.ergo:119:17*/ return File{}, error(Malformed_1{At: p0_inl114.at - 1, Why: "no text"})
 				}
 				/*line api/ir.ergo#ergo-inline-114:57:1*/ typ_1 = p0_inl114.strs[i_inl114]
 			}
-			/*line api/ir.ergo:119:17*/ inl114:
 			/*line api/ir.ergo:119:17*/ {
-			}
-			/*line api/ir.ergo:119:17*/ if err_18 != nil {
-				/*line api/ir.ergo:119:17*/ return File{}, err_18
 			}
 			/*line api/ir.ergo:120:15*/ var p_2 Pos
 			/*line api/ir.ergo:120:15*/ var err_19 error
+			/*line api/ir.ergo:120:15*/ _ = err_19
 			/*line api/ir.ergo:120:15*/ {
 				/*line api/ir.ergo:120:24*/ p0_inl116 := &r
 				/*line api/ir.ergo#ergo-inline-116:61:13*/ var a_inl116 uint32
 				/*line api/ir.ergo#ergo-inline-116:61:13*/ var err_inl116 error
+				/*line api/ir.ergo#ergo-inline-116:61:13*/ _ = err_inl116
 				/*line api/ir.ergo:120:15*/ {
 					/*line api/ir.ergo:120:15*/ if p0_inl116.at >= len(p0_inl116.words) {
-						/*line api/ir.ergo#ergo-inline-117:45:2*/ err_inl116 = error(Malformed_1{At: p0_inl116.at, Why: "past the end"})
-						/*line api/ir.ergo#ergo-inline-117:45:2*/ goto inl117
+						/*line api/ir.ergo:120:15*/ return File{}, error(Malformed_1{At: p0_inl116.at, Why: "past the end"})
 					}
 					/*line api/ir.ergo#ergo-inline-117:47:1*/ a_inl116 = p0_inl116.words[p0_inl116.at]
 					/*line api/ir.ergo#ergo-inline-117:48:1*/ p0_inl116.at += 1
 				}
-				/*line api/ir.ergo:120:15*/ inl117:
 				/*line api/ir.ergo:120:15*/ {
-				}
-				/*line api/ir.ergo:120:15*/ if err_inl116 != nil {
-					/*line api/ir.ergo#ergo-inline-116:61:13*/ err_19 = err_inl116
-					/*line api/ir.ergo#ergo-inline-116:61:13*/ goto inl116
 				}
 				/*line api/ir.ergo#ergo-inline-116:62:13*/ var b_inl116 uint32
 				/*line api/ir.ergo#ergo-inline-116:62:13*/ var err_1_inl116 error
+				/*line api/ir.ergo#ergo-inline-116:62:13*/ _ = err_1_inl116
 				/*line api/ir.ergo:120:15*/ {
 					/*line api/ir.ergo:120:15*/ if p0_inl116.at >= len(p0_inl116.words) {
-						/*line api/ir.ergo#ergo-inline-118:45:2*/ err_1_inl116 = error(Malformed_1{At: p0_inl116.at, Why: "past the end"})
-						/*line api/ir.ergo#ergo-inline-118:45:2*/ goto inl118
+						/*line api/ir.ergo:120:15*/ return File{}, error(Malformed_1{At: p0_inl116.at, Why: "past the end"})
 					}
 					/*line api/ir.ergo#ergo-inline-118:47:1*/ b_inl116 = p0_inl116.words[p0_inl116.at]
 					/*line api/ir.ergo#ergo-inline-118:48:1*/ p0_inl116.at += 1
 				}
-				/*line api/ir.ergo:120:15*/ inl118:
 				/*line api/ir.ergo:120:15*/ {
-				}
-				/*line api/ir.ergo:120:15*/ if err_1_inl116 != nil {
-					/*line api/ir.ergo#ergo-inline-116:62:13*/ err_19 = err_1_inl116
-					/*line api/ir.ergo#ergo-inline-116:62:13*/ goto inl116
 				}
 				/*line api/ir.ergo#ergo-inline-116:63:13*/ var c_inl116 uint32
 				/*line api/ir.ergo#ergo-inline-116:63:13*/ var err_2_inl116 error
+				/*line api/ir.ergo#ergo-inline-116:63:13*/ _ = err_2_inl116
 				/*line api/ir.ergo:120:15*/ {
 					/*line api/ir.ergo:120:15*/ if p0_inl116.at >= len(p0_inl116.words) {
-						/*line api/ir.ergo#ergo-inline-119:45:2*/ err_2_inl116 = error(Malformed_1{At: p0_inl116.at, Why: "past the end"})
-						/*line api/ir.ergo#ergo-inline-119:45:2*/ goto inl119
+						/*line api/ir.ergo:120:15*/ return File{}, error(Malformed_1{At: p0_inl116.at, Why: "past the end"})
 					}
 					/*line api/ir.ergo#ergo-inline-119:47:1*/ c_inl116 = p0_inl116.words[p0_inl116.at]
 					/*line api/ir.ergo#ergo-inline-119:48:1*/ p0_inl116.at += 1
 				}
-				/*line api/ir.ergo:120:15*/ inl119:
 				/*line api/ir.ergo:120:15*/ {
-				}
-				/*line api/ir.ergo:120:15*/ if err_2_inl116 != nil {
-					/*line api/ir.ergo#ergo-inline-116:63:13*/ err_19 = err_2_inl116
-					/*line api/ir.ergo#ergo-inline-116:63:13*/ goto inl116
 				}
 				/*line api/ir.ergo#ergo-inline-116:64:1*/ p_2 = Pos{File: a_inl116, Line: b_inl116, Col: c_inl116}
 			}
-			/*line api/ir.ergo:120:15*/ inl116:
 			/*line api/ir.ergo:120:15*/ {
-			}
-			/*line api/ir.ergo:120:15*/ if err_19 != nil {
-				/*line api/ir.ergo:120:15*/ return File{}, err_19
 			}
 			/*line api/ir.ergo:121:7*/ err_20 := (&b).AddLocal(name_1, typ_1, p_2)
 			/*line api/ir.ergo:121:7*/ if err_20 != nil {
@@ -13125,22 +12947,18 @@ func replay(words []uint32, strs []string) (File, error) {
 		case uint32(8):
 			/*line api/ir.ergo:123:19*/ var roots []uint32
 			/*line api/ir.ergo:123:19*/ var err_21 error
+			/*line api/ir.ergo:123:19*/ _ = err_21
 			/*line api/ir.ergo:123:19*/ {
 				/*line api/ir.ergo:123:23*/ p0_inl120 := &r
 				/*line api/ir.ergo:123:27*/ p1_inl120 := 1
 				/*line api/ir.ergo:123:19*/ if p1_inl120 < 0 || p1_inl120 > len(p0_inl120.stack) {
-					/*line api/ir.ergo#ergo-inline-120:70:2*/ err_21 = error(Malformed_1{At: p0_inl120.at, Why: "the stack holds fewer words"})
-					/*line api/ir.ergo#ergo-inline-120:70:2*/ goto inl120
+					/*line api/ir.ergo:123:19*/ return File{}, error(Malformed_1{At: p0_inl120.at, Why: "the stack holds fewer words"})
 				}
 				/*line api/ir.ergo#ergo-inline-120:72:1*/ top_inl120 := len(p0_inl120.stack) - p1_inl120
 				/*line api/ir.ergo#ergo-inline-120:73:1*/ roots = ergo.SlicesClone[uint32](slices.Clip[[]uint32, uint32](p0_inl120.stack[top_inl120:]))
 				/*line api/ir.ergo#ergo-inline-120:74:1*/ p0_inl120.stack = p0_inl120.stack[:top_inl120]
 			}
-			/*line api/ir.ergo:123:19*/ inl120:
 			/*line api/ir.ergo:123:19*/ {
-			}
-			/*line api/ir.ergo:123:19*/ if err_21 != nil {
-				/*line api/ir.ergo:123:19*/ return File{}, err_21
 			}
 			/*line api/ir.ergo:124:7*/ err_22 := (&b).End(roots[0])
 			/*line api/ir.ergo:124:7*/ if err_22 != nil {
@@ -13149,73 +12967,55 @@ func replay(words []uint32, strs []string) (File, error) {
 		case uint32(9):
 			/*line api/ir.ergo:126:18*/ var path string
 			/*line api/ir.ergo:126:18*/ var err_23 error
+			/*line api/ir.ergo:126:18*/ _ = err_23
 			/*line api/ir.ergo:126:18*/ {
 				/*line api/ir.ergo:126:22*/ p0_inl121 := &r
 				/*line api/ir.ergo#ergo-inline-121:53:17*/ var v_inl121 uint32
 				/*line api/ir.ergo#ergo-inline-121:53:17*/ var err_inl121 error
+				/*line api/ir.ergo#ergo-inline-121:53:17*/ _ = err_inl121
 				/*line api/ir.ergo:126:18*/ {
 					/*line api/ir.ergo:126:18*/ if p0_inl121.at >= len(p0_inl121.words) {
-						/*line api/ir.ergo#ergo-inline-122:45:2*/ err_inl121 = error(Malformed_1{At: p0_inl121.at, Why: "past the end"})
-						/*line api/ir.ergo#ergo-inline-122:45:2*/ goto inl122
+						/*line api/ir.ergo:126:18*/ return File{}, error(Malformed_1{At: p0_inl121.at, Why: "past the end"})
 					}
 					/*line api/ir.ergo#ergo-inline-122:47:1*/ v_inl121 = p0_inl121.words[p0_inl121.at]
 					/*line api/ir.ergo#ergo-inline-122:48:1*/ p0_inl121.at += 1
 				}
-				/*line api/ir.ergo:126:18*/ inl122:
 				/*line api/ir.ergo:126:18*/ {
-				}
-				/*line api/ir.ergo:126:18*/ if err_inl121 != nil {
-					/*line api/ir.ergo#ergo-inline-121:53:17*/ err_23 = err_inl121
-					/*line api/ir.ergo#ergo-inline-121:53:17*/ goto inl121
 				}
 				/*line api/ir.ergo#ergo-inline-121:53:1*/ i_inl121 := int(v_inl121)
 				/*line api/ir.ergo:126:18*/ if i_inl121 >= len(p0_inl121.strs) {
-					/*line api/ir.ergo#ergo-inline-121:55:2*/ err_23 = error(Malformed_1{At: p0_inl121.at - 1, Why: "no text"})
-					/*line api/ir.ergo#ergo-inline-121:55:2*/ goto inl121
+					/*line api/ir.ergo:126:18*/ return File{}, error(Malformed_1{At: p0_inl121.at - 1, Why: "no text"})
 				}
 				/*line api/ir.ergo#ergo-inline-121:57:1*/ path = p0_inl121.strs[i_inl121]
 			}
-			/*line api/ir.ergo:126:18*/ inl121:
 			/*line api/ir.ergo:126:18*/ {
-			}
-			/*line api/ir.ergo:126:18*/ if err_23 != nil {
-				/*line api/ir.ergo:126:18*/ return File{}, err_23
 			}
 			/*line api/ir.ergo:127:3*/ (&b).FileOfDropped(path)
 		case uint32(10):
 			/*line api/ir.ergo:129:15*/ var s_1 string
 			/*line api/ir.ergo:129:15*/ var err_24 error
+			/*line api/ir.ergo:129:15*/ _ = err_24
 			/*line api/ir.ergo:129:15*/ {
 				/*line api/ir.ergo:129:19*/ p0_inl123 := &r
 				/*line api/ir.ergo#ergo-inline-123:53:17*/ var v_inl123 uint32
 				/*line api/ir.ergo#ergo-inline-123:53:17*/ var err_inl123 error
+				/*line api/ir.ergo#ergo-inline-123:53:17*/ _ = err_inl123
 				/*line api/ir.ergo:129:15*/ {
 					/*line api/ir.ergo:129:15*/ if p0_inl123.at >= len(p0_inl123.words) {
-						/*line api/ir.ergo#ergo-inline-124:45:2*/ err_inl123 = error(Malformed_1{At: p0_inl123.at, Why: "past the end"})
-						/*line api/ir.ergo#ergo-inline-124:45:2*/ goto inl124
+						/*line api/ir.ergo:129:15*/ return File{}, error(Malformed_1{At: p0_inl123.at, Why: "past the end"})
 					}
 					/*line api/ir.ergo#ergo-inline-124:47:1*/ v_inl123 = p0_inl123.words[p0_inl123.at]
 					/*line api/ir.ergo#ergo-inline-124:48:1*/ p0_inl123.at += 1
 				}
-				/*line api/ir.ergo:129:15*/ inl124:
 				/*line api/ir.ergo:129:15*/ {
-				}
-				/*line api/ir.ergo:129:15*/ if err_inl123 != nil {
-					/*line api/ir.ergo#ergo-inline-123:53:17*/ err_24 = err_inl123
-					/*line api/ir.ergo#ergo-inline-123:53:17*/ goto inl123
 				}
 				/*line api/ir.ergo#ergo-inline-123:53:1*/ i_inl123 := int(v_inl123)
 				/*line api/ir.ergo:129:15*/ if i_inl123 >= len(p0_inl123.strs) {
-					/*line api/ir.ergo#ergo-inline-123:55:2*/ err_24 = error(Malformed_1{At: p0_inl123.at - 1, Why: "no text"})
-					/*line api/ir.ergo#ergo-inline-123:55:2*/ goto inl123
+					/*line api/ir.ergo:129:15*/ return File{}, error(Malformed_1{At: p0_inl123.at - 1, Why: "no text"})
 				}
 				/*line api/ir.ergo#ergo-inline-123:57:1*/ s_1 = p0_inl123.strs[i_inl123]
 			}
-			/*line api/ir.ergo:129:15*/ inl123:
 			/*line api/ir.ergo:129:15*/ {
-			}
-			/*line api/ir.ergo:129:15*/ if err_24 != nil {
-				/*line api/ir.ergo:129:15*/ return File{}, err_24
 			}
 			/*line api/ir.ergo:130:3*/ (&b).Share(s_1)
 		case uint32(11):
@@ -13231,18 +13031,14 @@ func replay(words []uint32, strs []string) (File, error) {
 	}
 	/*line api/ir.ergo:142:5*/ var v_22 File
 	/*line api/ir.ergo:142:5*/ var err_25 error
+	/*line api/ir.ergo:142:5*/ _ = err_25
 	/*line api/ir.ergo:142:5*/ {
 		/*line api/ir.ergo:142:5*/ if b.open {
-			/*line ir/build.ergo#ergo-inline-125:174:2*/ err_25 = error(Malformed_1{At: len(b.file.Funcs), Why: "a function not ended"})
-			/*line ir/build.ergo#ergo-inline-125:174:2*/ goto inl125
+			/*line api/ir.ergo:142:5*/ return File{}, error(Malformed_1{At: len(b.file.Funcs), Why: "a function not ended"})
 		}
 		/*line ir/build.ergo#ergo-inline-125:176:1*/ v_22 = b.file
 	}
-	/*line api/ir.ergo:142:5*/ inl125:
 	/*line api/ir.ergo:142:5*/ {
-	}
-	/*line api/ir.ergo:142:5*/ if err_25 != nil {
-		/*line api/ir.ergo:142:5*/ return File{}, err_25
 	}
 	/*line api/ir.ergo:142:1*/ return v_22, nil
 }
@@ -16871,19 +16667,15 @@ func (w *writer) function(env *Env, fi int) error {
 	/*line ir/json.ergo:89:1*/ (&w.b).WriteString("{\"name\":")
 	/*line ir/json.ergo:90:16*/ var name string
 	/*line ir/json.ergo:90:16*/ var err error
+	/*line ir/json.ergo:90:16*/ _ = err
 	/*line ir/json.ergo:90:16*/ {
 		/*line ir/json.ergo:90:41*/ p1_inl256 := w.file.Funcs[fi].Name
 		/*line ir/json.ergo:90:16*/ if int(p1_inl256) >= len(w.file.Strs) {
-			/*line ir/json.ergo#ergo-inline-256:71:2*/ err = error(Malformed_1{At: int(p1_inl256), Why: "no text " + Itoa(int(p1_inl256))})
-			/*line ir/json.ergo#ergo-inline-256:71:2*/ goto inl256
+			/*line ir/json.ergo:90:16*/ return error(Malformed_1{At: int(p1_inl256), Why: "no text " + Itoa(int(p1_inl256))})
 		}
 		/*line ir/json.ergo#ergo-inline-256:73:1*/ name = w.file.Strs[int(p1_inl256)]
 	}
-	/*line ir/json.ergo:90:16*/ inl256:
 	/*line ir/json.ergo:90:16*/ {
-	}
-	/*line ir/json.ergo:90:16*/ if err != nil {
-		/*line ir/json.ergo:90:16*/ return err
 	}
 	/*line ir/json.ergo:91:17*/ v_1 := Quote(env, name)
 	/*line ir/json.ergo:91:1*/ (&w.b).WriteString(v_1)
@@ -16926,35 +16718,27 @@ func (w *writer) function(env *Env, fi int) error {
 			/*line ir/json.ergo:105:3*/ l := w.file.Funcs[fi].Locals[i]
 			/*line ir/json.ergo:106:16*/ var ln_1 string
 			/*line ir/json.ergo:106:16*/ var err_1 error
+			/*line ir/json.ergo:106:16*/ _ = err_1
 			/*line ir/json.ergo:106:16*/ {
 				/*line ir/json.ergo:106:26*/ p1_inl259 := l.Name
 				/*line ir/json.ergo:106:16*/ if int(p1_inl259) >= len(w.file.Strs) {
-					/*line ir/json.ergo#ergo-inline-259:71:2*/ err_1 = error(Malformed_1{At: int(p1_inl259), Why: "no text " + Itoa(int(p1_inl259))})
-					/*line ir/json.ergo#ergo-inline-259:71:2*/ goto inl259
+					/*line ir/json.ergo:106:16*/ return error(Malformed_1{At: int(p1_inl259), Why: "no text " + Itoa(int(p1_inl259))})
 				}
 				/*line ir/json.ergo#ergo-inline-259:73:1*/ ln_1 = w.file.Strs[int(p1_inl259)]
 			}
-			/*line ir/json.ergo:106:16*/ inl259:
 			/*line ir/json.ergo:106:16*/ {
-			}
-			/*line ir/json.ergo:106:16*/ if err_1 != nil {
-				/*line ir/json.ergo:106:16*/ return err_1
 			}
 			/*line ir/json.ergo:107:16*/ var lt string
 			/*line ir/json.ergo:107:16*/ var err_2 error
+			/*line ir/json.ergo:107:16*/ _ = err_2
 			/*line ir/json.ergo:107:16*/ {
 				/*line ir/json.ergo:107:26*/ p1_inl260 := l.Type
 				/*line ir/json.ergo:107:16*/ if int(p1_inl260) >= len(w.file.Strs) {
-					/*line ir/json.ergo#ergo-inline-260:71:2*/ err_2 = error(Malformed_1{At: int(p1_inl260), Why: "no text " + Itoa(int(p1_inl260))})
-					/*line ir/json.ergo#ergo-inline-260:71:2*/ goto inl260
+					/*line ir/json.ergo:107:16*/ return error(Malformed_1{At: int(p1_inl260), Why: "no text " + Itoa(int(p1_inl260))})
 				}
 				/*line ir/json.ergo#ergo-inline-260:73:1*/ lt = w.file.Strs[int(p1_inl260)]
 			}
-			/*line ir/json.ergo:107:16*/ inl260:
 			/*line ir/json.ergo:107:16*/ {
-			}
-			/*line ir/json.ergo:107:16*/ if err_2 != nil {
-				/*line ir/json.ergo:107:16*/ return err_2
 			}
 			/*line ir/json.ergo:108:3*/ (&w.b).WriteString("{\"name\":")
 			/*line ir/json.ergo:109:19*/ v_4 := Quote(env, ln_1)
@@ -21159,19 +20943,15 @@ func (w *writer) pos(a uint32, b uint32, c uint32) {
 func (w *writer) rows(env *Env, fi int, q uint32, t uint8) error {
 	/*line ir/json.ergo:140:17*/ var v uint32
 	/*line ir/json.ergo:140:17*/ var err error
+	/*line ir/json.ergo:140:17*/ _ = err
 	/*line ir/json.ergo:140:17*/ {
 		/*line ir/json.ergo:140:30*/ p2_inl509 := int(q)
 		/*line ir/json.ergo:140:17*/ if p2_inl509 <= 0 || p2_inl509 >= len(w.file.Funcs[fi].Body.Extra) {
-			/*line ir/json.ergo#ergo-inline-509:132:2*/ err = error(Malformed_1{At: p2_inl509, Why: "past the extra pool"})
-			/*line ir/json.ergo#ergo-inline-509:132:2*/ goto inl509
+			/*line ir/json.ergo:140:17*/ return error(Malformed_1{At: p2_inl509, Why: "past the extra pool"})
 		}
 		/*line ir/json.ergo#ergo-inline-509:134:1*/ v = w.file.Funcs[fi].Body.Extra[p2_inl509]
 	}
-	/*line ir/json.ergo:140:17*/ inl509:
 	/*line ir/json.ergo:140:17*/ {
-	}
-	/*line ir/json.ergo:140:17*/ if err != nil {
-		/*line ir/json.ergo:140:17*/ return err
 	}
 	/*line ir/json.ergo:140:1*/ n := int(v)
 	/*line ir/json.ergo:141:1*/ (&w.b).WriteByte_(uint8(91))
@@ -21182,19 +20962,15 @@ func (w *writer) rows(env *Env, fi int, q uint32, t uint8) error {
 		}
 		/*line ir/json.ergo:146:15*/ var id uint32
 		/*line ir/json.ergo:146:15*/ var err_1 error
+		/*line ir/json.ergo:146:15*/ _ = err_1
 		/*line ir/json.ergo:146:15*/ {
 			/*line ir/json.ergo:146:36*/ p2_inl510 := int(q) + 1 + i
 			/*line ir/json.ergo:146:15*/ if p2_inl510 <= 0 || p2_inl510 >= len(w.file.Funcs[fi].Body.Extra) {
-				/*line ir/json.ergo#ergo-inline-510:132:2*/ err_1 = error(Malformed_1{At: p2_inl510, Why: "past the extra pool"})
-				/*line ir/json.ergo#ergo-inline-510:132:2*/ goto inl510
+				/*line ir/json.ergo:146:15*/ return error(Malformed_1{At: p2_inl510, Why: "past the extra pool"})
 			}
 			/*line ir/json.ergo#ergo-inline-510:134:1*/ id = w.file.Funcs[fi].Body.Extra[p2_inl510]
 		}
-		/*line ir/json.ergo:146:15*/ inl510:
 		/*line ir/json.ergo:146:15*/ {
-		}
-		/*line ir/json.ergo:146:15*/ if err_1 != nil {
-			/*line ir/json.ergo:146:15*/ return err_1
 		}
 		/*line ir/json.ergo:147:2*/ if id == uint32(0) {
 			/*line ir/json.ergo:148:3*/ (&w.b).WriteString("null")
@@ -28939,6 +28715,7 @@ func (w *writer) row(env *Env, fi int, id int, t uint8) error {
 		/*line ir/json.ergo:178:2*/ if si < ns && int(kd.Slots[si]) == j {
 			/*line ir/json.ergo:179:11*/ v = 0
 			/*line ir/json.ergo:179:11*/ var err error
+			/*line ir/json.ergo:179:11*/ _ = err
 			/*line ir/json.ergo:179:11*/ {
 				/*line ir/json.ergo:179:16*/ p0_inl1201 := &w.file.Funcs[fi].Body
 				/*line ir/json.ergo:179:11*/ if si == 0 {
@@ -28951,22 +28728,19 @@ func (w *writer) row(env *Env, fi int, id int, t uint8) error {
 				}
 				/*line ir/kinds.ergo#ergo-inline-1201:98:1*/ at_1_inl1201 := int(p0_inl1201.B[id-1]) + si - 1
 				/*line ir/json.ergo:179:11*/ if at_1_inl1201 <= 0 || at_1_inl1201 >= len(p0_inl1201.Extra) {
-					/*line ir/kinds.ergo#ergo-inline-1201:100:2*/ err = error(Malformed_1{At: id, Why: "slots past the extra pool"})
-					/*line ir/kinds.ergo#ergo-inline-1201:100:2*/ goto inl1201
+					/*line ir/json.ergo:179:11*/ return error(Malformed_1{At: id, Why: "slots past the extra pool"})
 				}
 				/*line ir/kinds.ergo#ergo-inline-1201:102:1*/ v = p0_inl1201.Extra[at_1_inl1201]
 			}
 			/*line ir/json.ergo:179:11*/ inl1201:
 			/*line ir/json.ergo:179:11*/ {
 			}
-			/*line ir/json.ergo:179:11*/ if err != nil {
-				/*line ir/json.ergo:179:11*/ return err
-			}
 			/*line ir/json.ergo:180:3*/ si += 1
 		}
 		/*line ir/json.ergo:182:2*/ if fd.Omit {
 			/*line ir/json.ergo:183:18*/ var none_1 bool
 			/*line ir/json.ergo:183:18*/ var err_1 error
+			/*line ir/json.ergo:183:18*/ _ = err_1
 			/*line ir/json.ergo:183:18*/ {
 				/*line ir/json.ergo:183:34*/ p2_inl1202 := fd.Kind
 				/*line ir/json.ergo:183:18*/ if v == uint32(0) {
@@ -28977,39 +28751,29 @@ func (w *writer) row(env *Env, fi int, id int, t uint8) error {
 				case uint8(1):
 					/*line ir/json.ergo#ergo-inline-1202:204:14*/ var s_inl1202 string
 					/*line ir/json.ergo#ergo-inline-1202:204:14*/ var err_inl1202 error
+					/*line ir/json.ergo#ergo-inline-1202:204:14*/ _ = err_inl1202
 					/*line ir/json.ergo:183:18*/ {
 						/*line ir/json.ergo:183:18*/ if int(v) >= len(w.file.Strs) {
-							/*line ir/json.ergo#ergo-inline-1203:71:2*/ err_inl1202 = error(Malformed_1{At: int(v), Why: "no text " + Itoa(int(v))})
-							/*line ir/json.ergo#ergo-inline-1203:71:2*/ goto inl1203
+							/*line ir/json.ergo:183:18*/ return error(Malformed_1{At: int(v), Why: "no text " + Itoa(int(v))})
 						}
 						/*line ir/json.ergo#ergo-inline-1203:73:1*/ s_inl1202 = w.file.Strs[int(v)]
 					}
-					/*line ir/json.ergo:183:18*/ inl1203:
 					/*line ir/json.ergo:183:18*/ {
-					}
-					/*line ir/json.ergo:183:18*/ if err_inl1202 != nil {
-						/*line ir/json.ergo#ergo-inline-1202:204:14*/ err_1 = err_inl1202
-						/*line ir/json.ergo#ergo-inline-1202:204:14*/ goto inl1202
 					}
 					/*line ir/json.ergo#ergo-inline-1202:205:2*/ none_1 = len(s_inl1202) == 0
 					/*line ir/json.ergo#ergo-inline-1202:205:2*/ goto inl1202
 				case uint8(8), uint8(9), uint8(10):
 					/*line ir/json.ergo#ergo-inline-1202:207:14*/ var n_inl1202 uint32
 					/*line ir/json.ergo#ergo-inline-1202:207:14*/ var err_1_inl1202 error
+					/*line ir/json.ergo#ergo-inline-1202:207:14*/ _ = err_1_inl1202
 					/*line ir/json.ergo:183:18*/ {
 						/*line ir/json.ergo#ergo-inline-1202:207:27*/ p2_inl1204 := int(v)
 						/*line ir/json.ergo:183:18*/ if p2_inl1204 <= 0 || p2_inl1204 >= len(w.file.Funcs[fi].Body.Extra) {
-							/*line ir/json.ergo#ergo-inline-1204:132:2*/ err_1_inl1202 = error(Malformed_1{At: p2_inl1204, Why: "past the extra pool"})
-							/*line ir/json.ergo#ergo-inline-1204:132:2*/ goto inl1204
+							/*line ir/json.ergo:183:18*/ return error(Malformed_1{At: p2_inl1204, Why: "past the extra pool"})
 						}
 						/*line ir/json.ergo#ergo-inline-1204:134:1*/ n_inl1202 = w.file.Funcs[fi].Body.Extra[p2_inl1204]
 					}
-					/*line ir/json.ergo:183:18*/ inl1204:
 					/*line ir/json.ergo:183:18*/ {
-					}
-					/*line ir/json.ergo:183:18*/ if err_1_inl1202 != nil {
-						/*line ir/json.ergo#ergo-inline-1202:207:14*/ err_1 = err_1_inl1202
-						/*line ir/json.ergo#ergo-inline-1202:207:14*/ goto inl1202
 					}
 					/*line ir/json.ergo#ergo-inline-1202:208:2*/ none_1 = n_inl1202 == uint32(0)
 					/*line ir/json.ergo#ergo-inline-1202:208:2*/ goto inl1202
@@ -29020,9 +28784,6 @@ func (w *writer) row(env *Env, fi int, id int, t uint8) error {
 			}
 			/*line ir/json.ergo:183:18*/ inl1202:
 			/*line ir/json.ergo:183:18*/ {
-			}
-			/*line ir/json.ergo:183:18*/ if err_1 != nil {
-				/*line ir/json.ergo:183:18*/ return err_1
 			}
 			/*line ir/json.ergo:184:3*/ if none_1 {
 				/*line ir/json.ergo:185:4*/ continue
@@ -39355,36 +39116,28 @@ func (w *writer) empty(fi int, k_1 uint8, v uint32) (bool, error) {
 	case uint8(1):
 		/*line ir/json.ergo:204:14*/ var s string
 		/*line ir/json.ergo:204:14*/ var err error
+		/*line ir/json.ergo:204:14*/ _ = err
 		/*line ir/json.ergo:204:14*/ {
 			/*line ir/json.ergo:204:14*/ if int(v) >= len(w.file.Strs) {
-				/*line ir/json.ergo#ergo-inline-2166:71:2*/ err = error(Malformed_1{At: int(v), Why: "no text " + Itoa(int(v))})
-				/*line ir/json.ergo#ergo-inline-2166:71:2*/ goto inl2166
+				/*line ir/json.ergo:204:14*/ return false, error(Malformed_1{At: int(v), Why: "no text " + Itoa(int(v))})
 			}
 			/*line ir/json.ergo#ergo-inline-2166:73:1*/ s = w.file.Strs[int(v)]
 		}
-		/*line ir/json.ergo:204:14*/ inl2166:
 		/*line ir/json.ergo:204:14*/ {
-		}
-		/*line ir/json.ergo:204:14*/ if err != nil {
-			/*line ir/json.ergo:204:14*/ return false, err
 		}
 		/*line ir/json.ergo:205:2*/ return len(s) == 0, nil
 	case uint8(8), uint8(9), uint8(10):
 		/*line ir/json.ergo:207:14*/ var n uint32
 		/*line ir/json.ergo:207:14*/ var err_1 error
+		/*line ir/json.ergo:207:14*/ _ = err_1
 		/*line ir/json.ergo:207:14*/ {
 			/*line ir/json.ergo:207:27*/ p2_inl2167 := int(v)
 			/*line ir/json.ergo:207:14*/ if p2_inl2167 <= 0 || p2_inl2167 >= len(w.file.Funcs[fi].Body.Extra) {
-				/*line ir/json.ergo#ergo-inline-2167:132:2*/ err_1 = error(Malformed_1{At: p2_inl2167, Why: "past the extra pool"})
-				/*line ir/json.ergo#ergo-inline-2167:132:2*/ goto inl2167
+				/*line ir/json.ergo:207:14*/ return false, error(Malformed_1{At: p2_inl2167, Why: "past the extra pool"})
 			}
 			/*line ir/json.ergo#ergo-inline-2167:134:1*/ n = w.file.Funcs[fi].Body.Extra[p2_inl2167]
 		}
-		/*line ir/json.ergo:207:14*/ inl2167:
 		/*line ir/json.ergo:207:14*/ {
-		}
-		/*line ir/json.ergo:207:14*/ if err_1 != nil {
-			/*line ir/json.ergo:207:14*/ return false, err_1
 		}
 		/*line ir/json.ergo:208:2*/ return n == uint32(0), nil
 	default:
@@ -39415,18 +39168,14 @@ func (w *writer) value(env *Env, fi int, id int, fd Field_2, kd Kind, v uint32) 
 	case uint8(1):
 		/*line ir/json.ergo:223:14*/ var s string
 		/*line ir/json.ergo:223:14*/ var err error
+		/*line ir/json.ergo:223:14*/ _ = err
 		/*line ir/json.ergo:223:14*/ {
 			/*line ir/json.ergo:223:14*/ if int(v) >= len(w.file.Strs) {
-				/*line ir/json.ergo#ergo-inline-2169:71:2*/ err = error(Malformed_1{At: int(v), Why: "no text " + Itoa(int(v))})
-				/*line ir/json.ergo#ergo-inline-2169:71:2*/ goto inl2169
+				/*line ir/json.ergo:223:14*/ return error(Malformed_1{At: int(v), Why: "no text " + Itoa(int(v))})
 			}
 			/*line ir/json.ergo#ergo-inline-2169:73:1*/ s = w.file.Strs[int(v)]
 		}
-		/*line ir/json.ergo:223:14*/ inl2169:
 		/*line ir/json.ergo:223:14*/ {
-		}
-		/*line ir/json.ergo:223:14*/ if err != nil {
-			/*line ir/json.ergo:223:14*/ return err
 		}
 		/*line ir/json.ergo:224:18*/ v_2 := Quote(env, s)
 		/*line ir/json.ergo:224:2*/ (&w.b).WriteString(v_2)
@@ -39454,51 +39203,39 @@ func (w *writer) value(env *Env, fi int, id int, fd Field_2, kd Kind, v uint32) 
 		} else {
 			/*line ir/json.ergo:247:15*/ var a uint32
 			/*line ir/json.ergo:247:15*/ var err_1 error
+			/*line ir/json.ergo:247:15*/ _ = err_1
 			/*line ir/json.ergo:247:15*/ {
 				/*line ir/json.ergo:247:28*/ p2_inl2170 := int(v)
 				/*line ir/json.ergo:247:15*/ if p2_inl2170 <= 0 || p2_inl2170 >= len(w.file.Funcs[fi].Body.Extra) {
-					/*line ir/json.ergo#ergo-inline-2170:132:2*/ err_1 = error(Malformed_1{At: p2_inl2170, Why: "past the extra pool"})
-					/*line ir/json.ergo#ergo-inline-2170:132:2*/ goto inl2170
+					/*line ir/json.ergo:247:15*/ return error(Malformed_1{At: p2_inl2170, Why: "past the extra pool"})
 				}
 				/*line ir/json.ergo#ergo-inline-2170:134:1*/ a = w.file.Funcs[fi].Body.Extra[p2_inl2170]
 			}
-			/*line ir/json.ergo:247:15*/ inl2170:
 			/*line ir/json.ergo:247:15*/ {
-			}
-			/*line ir/json.ergo:247:15*/ if err_1 != nil {
-				/*line ir/json.ergo:247:15*/ return err_1
 			}
 			/*line ir/json.ergo:248:15*/ var b uint32
 			/*line ir/json.ergo:248:15*/ var err_2 error
+			/*line ir/json.ergo:248:15*/ _ = err_2
 			/*line ir/json.ergo:248:15*/ {
 				/*line ir/json.ergo:248:34*/ p2_inl2171 := int(v) + 1
 				/*line ir/json.ergo:248:15*/ if p2_inl2171 <= 0 || p2_inl2171 >= len(w.file.Funcs[fi].Body.Extra) {
-					/*line ir/json.ergo#ergo-inline-2171:132:2*/ err_2 = error(Malformed_1{At: p2_inl2171, Why: "past the extra pool"})
-					/*line ir/json.ergo#ergo-inline-2171:132:2*/ goto inl2171
+					/*line ir/json.ergo:248:15*/ return error(Malformed_1{At: p2_inl2171, Why: "past the extra pool"})
 				}
 				/*line ir/json.ergo#ergo-inline-2171:134:1*/ b = w.file.Funcs[fi].Body.Extra[p2_inl2171]
 			}
-			/*line ir/json.ergo:248:15*/ inl2171:
 			/*line ir/json.ergo:248:15*/ {
-			}
-			/*line ir/json.ergo:248:15*/ if err_2 != nil {
-				/*line ir/json.ergo:248:15*/ return err_2
 			}
 			/*line ir/json.ergo:249:15*/ var c uint32
 			/*line ir/json.ergo:249:15*/ var err_3 error
+			/*line ir/json.ergo:249:15*/ _ = err_3
 			/*line ir/json.ergo:249:15*/ {
 				/*line ir/json.ergo:249:34*/ p2_inl2172 := int(v) + 2
 				/*line ir/json.ergo:249:15*/ if p2_inl2172 <= 0 || p2_inl2172 >= len(w.file.Funcs[fi].Body.Extra) {
-					/*line ir/json.ergo#ergo-inline-2172:132:2*/ err_3 = error(Malformed_1{At: p2_inl2172, Why: "past the extra pool"})
-					/*line ir/json.ergo#ergo-inline-2172:132:2*/ goto inl2172
+					/*line ir/json.ergo:249:15*/ return error(Malformed_1{At: p2_inl2172, Why: "past the extra pool"})
 				}
 				/*line ir/json.ergo#ergo-inline-2172:134:1*/ c = w.file.Funcs[fi].Body.Extra[p2_inl2172]
 			}
-			/*line ir/json.ergo:249:15*/ inl2172:
 			/*line ir/json.ergo:249:15*/ {
-			}
-			/*line ir/json.ergo:249:15*/ if err_3 != nil {
-				/*line ir/json.ergo:249:15*/ return err_3
 			}
 			/*line ir/json.ergo:250:3*/ {
 				/*line ir/json.ergo#ergo-inline-2173:78:1*/ (&w.b).WriteByte_(uint8(91))
@@ -47735,19 +47472,15 @@ var noFields []Field_2 = []Field_2{}
 func (w *writer) list(env *Env, fi int, k_1 uint8, q uint32) error {
 	/*line ir/json.ergo:275:17*/ var v uint32
 	/*line ir/json.ergo:275:17*/ var err error
+	/*line ir/json.ergo:275:17*/ _ = err
 	/*line ir/json.ergo:275:17*/ {
 		/*line ir/json.ergo:275:30*/ p2_inl2957 := int(q)
 		/*line ir/json.ergo:275:17*/ if p2_inl2957 <= 0 || p2_inl2957 >= len(w.file.Funcs[fi].Body.Extra) {
-			/*line ir/json.ergo#ergo-inline-2957:132:2*/ err = error(Malformed_1{At: p2_inl2957, Why: "past the extra pool"})
-			/*line ir/json.ergo#ergo-inline-2957:132:2*/ goto inl2957
+			/*line ir/json.ergo:275:17*/ return error(Malformed_1{At: p2_inl2957, Why: "past the extra pool"})
 		}
 		/*line ir/json.ergo#ergo-inline-2957:134:1*/ v = w.file.Funcs[fi].Body.Extra[p2_inl2957]
 	}
-	/*line ir/json.ergo:275:17*/ inl2957:
 	/*line ir/json.ergo:275:17*/ {
-	}
-	/*line ir/json.ergo:275:17*/ if err != nil {
-		/*line ir/json.ergo:275:17*/ return err
 	}
 	/*line ir/json.ergo:275:1*/ n := int(v)
 	/*line ir/json.ergo:276:1*/ (&w.b).WriteByte_(uint8(91))
@@ -47758,35 +47491,27 @@ func (w *writer) list(env *Env, fi int, k_1 uint8, q uint32) error {
 		}
 		/*line ir/json.ergo:281:14*/ var e uint32
 		/*line ir/json.ergo:281:14*/ var err_1 error
+		/*line ir/json.ergo:281:14*/ _ = err_1
 		/*line ir/json.ergo:281:14*/ {
 			/*line ir/json.ergo:281:35*/ p2_inl2958 := int(q) + 1 + i
 			/*line ir/json.ergo:281:14*/ if p2_inl2958 <= 0 || p2_inl2958 >= len(w.file.Funcs[fi].Body.Extra) {
-				/*line ir/json.ergo#ergo-inline-2958:132:2*/ err_1 = error(Malformed_1{At: p2_inl2958, Why: "past the extra pool"})
-				/*line ir/json.ergo#ergo-inline-2958:132:2*/ goto inl2958
+				/*line ir/json.ergo:281:14*/ return error(Malformed_1{At: p2_inl2958, Why: "past the extra pool"})
 			}
 			/*line ir/json.ergo#ergo-inline-2958:134:1*/ e = w.file.Funcs[fi].Body.Extra[p2_inl2958]
 		}
-		/*line ir/json.ergo:281:14*/ inl2958:
 		/*line ir/json.ergo:281:14*/ {
-		}
-		/*line ir/json.ergo:281:14*/ if err_1 != nil {
-			/*line ir/json.ergo:281:14*/ return err_1
 		}
 		/*line ir/json.ergo:282:2*/ if k_1 == uint8(9) {
 			/*line ir/json.ergo:283:15*/ var s string
 			/*line ir/json.ergo:283:15*/ var err_2 error
+			/*line ir/json.ergo:283:15*/ _ = err_2
 			/*line ir/json.ergo:283:15*/ {
 				/*line ir/json.ergo:283:15*/ if int(e) >= len(w.file.Strs) {
-					/*line ir/json.ergo#ergo-inline-2959:71:2*/ err_2 = error(Malformed_1{At: int(e), Why: "no text " + Itoa(int(e))})
-					/*line ir/json.ergo#ergo-inline-2959:71:2*/ goto inl2959
+					/*line ir/json.ergo:283:15*/ return error(Malformed_1{At: int(e), Why: "no text " + Itoa(int(e))})
 				}
 				/*line ir/json.ergo#ergo-inline-2959:73:1*/ s = w.file.Strs[int(e)]
 			}
-			/*line ir/json.ergo:283:15*/ inl2959:
 			/*line ir/json.ergo:283:15*/ {
-			}
-			/*line ir/json.ergo:283:15*/ if err_2 != nil {
-				/*line ir/json.ergo:283:15*/ return err_2
 			}
 			/*line ir/json.ergo:284:19*/ v_3 := Quote(env, s)
 			/*line ir/json.ergo:284:3*/ (&w.b).WriteString(v_3)
