@@ -98,6 +98,7 @@ func (tc *typeCtx) goType(t check.Type) string {
 		if t.Orig != nil {
 			origin = t.Orig
 		}
+		tc.l.intMapFields(t) // intmap.go: a generic record's fields are Go's maps
 		var args []string
 		for i, a := range t.TArgs {
 			if i < len(origin.TParams) && origin.TParams[i].Kind == check.KindType {

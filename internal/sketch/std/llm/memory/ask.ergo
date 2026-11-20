@@ -1,0 +1,65 @@
+// The laws of llm.Ask, which need a Model: they sit beside Sequence, as
+// the policies' laws do (llm cannot import llm/memory).
+
+import json
+import jsonschema
+import llm
+
+// asked is the value the Ask laws ask for.
+type asked { Name string, Count int }
+
+func askedCodec() json.Codec[asked] { json.Codec[asked]{MaxBytes: 0, MaxDepth: 0} }
+
+// askVerdict is an answer of Ask or Parse as a value: the read and "", or
+// the NoFit's reply and path, or another failure's name.
+type askVerdict { Read json.Read[asked], NoFit Option[llm.NoFit], Other string }
+
+func askOf(m Sequence, r llm.Request) askVerdict {
+	let empty = json.Read[asked]{Value: asked{Name: "", Count: 0}, Fixes: []json.Fix{}}
+	with context { llm.Model: m } {
+		let got = llm.Ask(askedCodec(), jsonschema.NewEncoded([]string{"name"}), r) catch {
+		case llm.NoFit as n:
+			return askVerdict{Read: empty, NoFit: Some{Value: n}, Other: ""}
+		case _:
+			return askVerdict{Read: empty, NoFit: None, Other: "failure"}
+		}
+		askVerdict{Read: got, NoFit: None, Other: ""}
+	}
+}
+
+func parsing(text string) askVerdict {
+	let empty = json.Read[asked]{Value: asked{Name: "", Count: 0}, Fixes: []json.Fix{}}
+	let got = llm.Parse(askedCodec(), text) catch {
+	case llm.NoFit as n:
+		return askVerdict{Read: empty, NoFit: Some{Value: n}, Other: ""}
+	}
+	askVerdict{Read: got, NoFit: None, Other: ""}
+}
+
+// AskIsParseOfTheReply: Ask gives Parse of the text the model says, a
+// read or a NoFit with the reply, and asks once.
+law AskIsParseOfTheReply(text string) {
+	let m = NewSequence([]Reply{ok(text, none())})
+	askOf(m, plain("q")) == parsing(text) && Asks(m) == 1
+}
+
+// LengthStopIsNotParsed: a reply that stopped at its length is never
+// parsed, even when its text is a whole value: Ask fails NoFit with the
+// reply and no path.
+law LengthStopIsNotParsed(v asked) {
+	let text = json.Encode(askedCodec(), v)
+	let m = NewSequence([]Reply{Says{Deltas: []llm.Delta{llm.Text{Text: text}}, Stop: llm.Length, Usage: none()}})
+	match askOf(m, plain("q")).NoFit {
+	case Some[llm.NoFit] as n:
+		n.Value.Reply == text && n.Value.Path == ""
+	case None:
+		false
+	}
+}
+
+// AskFailsAsTheModel: a failed ask fails Ask as it fails the model, and
+// nothing is parsed.
+law AskFailsAsTheModel(f llm.Failure) {
+	let m = NewSequence([]Reply{Fails{Failure: f}})
+	askOf(m, plain("q")).Other == "failure" && Asks(m) == 1
+}

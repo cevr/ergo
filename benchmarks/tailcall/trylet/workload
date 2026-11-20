@@ -1,0 +1,8 @@
+# scripts/opcount: `tailbench bench trylet N` makes N calls of a function that
+# passes a fallible call's failure on through a try (INLINE-FAIL-LOCAL), its
+# failures caught in the loop. The control is the same in hand Go: an
+# `if err != nil { return 0, err }` and a type switch.
+unit call
+sizes 409600 2457600
+args bench trylet {n}
+control benchmarks/tailcall/testdata/control
