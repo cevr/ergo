@@ -323,7 +323,7 @@ func TestValueRuleElides(t *testing.T) {
 	// A consumed receiver (Bindings 2): String's owned body shares the
 	// buffer through the runtime/v1 owned form; joined calls it with no
 	// copy, and keptText copies the builder it reads again.
-	if body := goFunc(t, code, "joined"); !strings.Contains(body, ".StringOwned(") || strings.Contains(body, "Clone") {
+	if body := goFunc(t, code, "joined"); !strings.Contains(body, "."+goHelperOf("strings", "StringOwned")+"(") || strings.Contains(body, "Clone") {
 		t.Errorf("joined does not hand its dead builder to String:\n%s", body)
 	}
 	if body := goFunc(t, code, "sortedDown"); !strings.Contains(body, "SlicesSortOwned[") {
@@ -334,7 +334,7 @@ func TestValueRuleElides(t *testing.T) {
 	if body := goFunc(t, code, "reversedDown"); !strings.Contains(body, "SlicesReverseOwned[") {
 		t.Errorf("reversedDown does not reverse its dead slice in place:\n%s", body)
 	}
-	if body := regexp.MustCompile(`(?s)\nfunc Sorted\[.*?\n}\n`).FindString(code); !strings.Contains(body, "SlicesSortOwned[") || strings.Contains(body, "Clone") {
+	if body := regexp.MustCompile(`(?s)\nfunc ` + goOf("slices", "Sorted") + `\[.*?\n}\n`).FindString(code); !strings.Contains(body, "SlicesSortOwned[") || strings.Contains(body, "Clone") {
 		t.Errorf("slices.Sorted does not sort the slice it collects in place:\n%s", body)
 	}
 	if body := goFunc(t, code, "keptText"); strings.Count(body, goHelper("ergoCloneBuilder")+"(") != 1 {
@@ -345,7 +345,7 @@ func TestValueRuleElides(t *testing.T) {
 	}
 	// The method String itself, which a method value or a host protocol
 	// reaches, copies its receiver before the owned body takes it.
-	if !regexp.MustCompile(`\) String\(env \*Env\) string \{\n\treturn \(` + goHelper("ergoCloneBuilder") + `\(\w+\)\)\.StringOwned\(env\)`).MatchString(code) {
+	if !regexp.MustCompile(`\) String\(env \*Env\) string \{\n\treturn \(` + goHelper("ergoCloneBuilder") + `\(\w+\)\)\.` + goHelperOf("strings", "StringOwned") + `\(env\)`).MatchString(code) {
 		t.Errorf("the method String does not copy its receiver for the owned body")
 	}
 	if body := goFunc(t, code, goHelper("keptOwned")); strings.Count(body, "slices.Clone(") != 1 {
