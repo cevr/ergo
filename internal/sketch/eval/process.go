@@ -345,20 +345,24 @@ func hostNative(t nativeTables, name string, f func(in *interp, h *host, fr *fra
 
 func registerProcess(t nativeTables) {
 	natives := t.std
+	t.reads["io.hostPrint"] = "string"
 	hostNative(t, "io.hostPrint", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		h.stdout.WriteString(args[0].(string))
 		return unit{}, nil
 	})
+	t.reads["io.hostEprint"] = "string"
 	hostNative(t, "io.hostEprint", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		h.stderr.WriteString(args[0].(string))
 		return unit{}, nil
 	})
 	// The runner's streams are pipes and files, never a terminal.
 	for _, n := range []string{"io.hostIsTerminal", "io.hostStdinIsTerminal", "io.hostStderrIsTerminal"} {
+		t.reads[n] = ""
 		hostNative(t, n, func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 			return false, nil
 		})
 	}
+	t.reads["io.hostReadAll"] = ""
 	hostNative(t, "io.hostReadAll", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		rest := h.stdin[h.read:]
 		h.read = len(h.stdin)
@@ -367,22 +371,28 @@ func registerProcess(t nativeTables) {
 		}
 		return rest, nil
 	})
+	t.reads["io.hostLines"] = ""
 	hostNative(t, "io.hostLines", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return &stdinLines{h: h}, nil
 	})
+	t.reads["os.hostArgs"] = ""
 	hostNative(t, "os.hostArgs", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return stringSlice(h.args), nil
 	})
+	t.reads["os.hostGetwd"] = ""
 	hostNative(t, "os.hostGetwd", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return h.cwd, nil
 	})
+	t.reads["os.hostHasEnv"] = "string"
 	hostNative(t, "os.hostHasEnv", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		_, ok := h.env[args[0].(string)]
 		return ok, nil
 	})
+	t.reads["os.hostGetenv"] = "string"
 	hostNative(t, "os.hostGetenv", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return h.env[args[0].(string)], nil
 	})
+	t.reads["config.hostEnviron"] = "string"
 	hostNative(t, "config.hostEnviron", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		prefix := args[0].(string)
 		// Sorted by name: "A0=x" sorts before "A=y", but A before A0.
@@ -405,15 +415,21 @@ func registerProcess(t nativeTables) {
 	notTerminal := func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return nil, fr.abrupt(ctlFail, at, stdRecord(fn, "NotTerminal", nil), "")
 	}
+	t.reads["term.hostEnterRaw"] = ""
 	hostNative(t, "term.hostEnterRaw", notTerminal)
+	t.reads["term.hostEnterNoEcho"] = ""
 	hostNative(t, "term.hostEnterNoEcho", notTerminal)
+	t.reads["term.hostSize"] = ""
 	hostNative(t, "term.hostSize", notTerminal)
+	t.reads["term.hostLeave"] = ""
 	hostNative(t, "term.hostLeave", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return unit{}, nil
 	})
+	t.reads["time.hostNow"] = ""
 	hostNative(t, "time.hostNow", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return h.clock.opCall(in, fr, at, "Read", nil)
 	})
+	t.reads["prelude.Sleep"] = "T T"
 	hostNative(t, "prelude.Sleep", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return h.clock.opCall(in, fr, at, "Wait", args[1:])
 	})
@@ -439,6 +455,7 @@ func registerProcess(t nativeTables) {
 		}
 		return nil
 	}
+	t.reads["fs.hostReadFile"] = "string"
 	hostNative(t, "fs.hostReadFile", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		given := args[0].(string)
 		_, f, kind, reason := h.resolve(given)
@@ -453,6 +470,7 @@ func registerProcess(t nativeTables) {
 		}
 		return f.data, nil
 	})
+	t.reads["fs.hostReadDir"] = "string"
 	hostNative(t, "fs.hostReadDir", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		given := args[0].(string)
 		p, f, kind, reason := h.resolve(given)
@@ -464,6 +482,7 @@ func registerProcess(t nativeTables) {
 		}
 		return stringSlice(h.children(p)), nil
 	})
+	t.reads["fs.hostStat"] = "string"
 	hostNative(t, "fs.hostStat", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		given := args[0].(string)
 		_, f, kind, reason := h.resolve(given)
@@ -504,8 +523,11 @@ func registerProcess(t nativeTables) {
 			return unit{}, nil
 		}
 	}
+	t.reads["fs.hostWriteFile"] = "string string"
 	hostNative(t, "fs.hostWriteFile", write(false, false))
+	t.reads["fs.hostWriteFileMode"] = "string string int64"
 	hostNative(t, "fs.hostWriteFileMode", write(false, true))
+	t.reads["fs.hostAppendFile"] = "string string"
 	hostNative(t, "fs.hostAppendFile", write(true, false))
 	mkdir := func(exact bool) func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
@@ -530,8 +552,11 @@ func registerProcess(t nativeTables) {
 			return unit{}, nil
 		}
 	}
+	t.reads["fs.hostMkdirAll"] = "string"
 	hostNative(t, "fs.hostMkdirAll", mkdir(false))
+	t.reads["fs.hostMkdirAllMode"] = "string int64"
 	hostNative(t, "fs.hostMkdirAllMode", mkdir(true))
+	t.reads["fs.hostChmod"] = "string int64"
 	hostNative(t, "fs.hostChmod", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		given := args[0].(string)
 		f := h.files[h.abs(given)]
@@ -541,6 +566,7 @@ func registerProcess(t nativeTables) {
 		f.perm = int(args[1].(int64)) & 0o777
 		return unit{}, nil
 	})
+	t.reads["fs.hostRemove"] = "string"
 	hostNative(t, "fs.hostRemove", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		given := args[0].(string)
 		p := h.abs(given)
@@ -556,6 +582,7 @@ func registerProcess(t nativeTables) {
 		delete(h.files, p)
 		return unit{}, nil
 	})
+	t.reads["fs.hostRename"] = "string string"
 	hostNative(t, "fs.hostRename", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		from, to := args[0].(string), args[1].(string)
 		pf, pt := h.abs(from), h.abs(to)
@@ -576,6 +603,7 @@ func registerProcess(t nativeTables) {
 	// OpenRoot's failures: a missing directory, a file. An opened root
 	// names its directory; its reads (Go's os.Root rules for its paths)
 	// are not run yet.
+	t.reads["fs.OpenRoot"] = "string"
 	hostNative(t, "fs.OpenRoot", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		given := args[0].(string)
 		p, f, kind, reason := h.resolve(given)

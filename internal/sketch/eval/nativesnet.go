@@ -133,6 +133,7 @@ func (*exchangeV) opCall(in *interp, fr *frame, at syntax.Node, name string, arg
 
 func registerNativesnet(t nativeTables) {
 	natives := t.std
+	t.reads["http.serve"] = "host:net.Listener *record func/9"
 	natives["http.serve"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		l, ok := args[0].(*listenerV)
 		if !ok {
@@ -163,6 +164,7 @@ func registerNativesnet(t nativeTables) {
 			x.resp, x.done = v.(*record), true
 		}
 	}
+	t.reads["http.send"] = "string *record string string string sliceV sliceV string"
 	natives["http.send"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		if in.host == nil {
 			return nil, fr.unsupported(at, "a Go function (%s), even a pure one", fn.Name)

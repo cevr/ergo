@@ -1,0 +1,118 @@
+// The clause a body's sites ask for (the Go checker's clausefix.go
+// clauseReport, clauseFix and signatureText): every site of one clause
+// prints one text, the declaration's signature with all of that clause's
+// missing elements written, its words joined by one space.
+
+import compiler/check/diag
+import compiler/check/expr
+import compiler/check/store
+import compiler/check/types
+import compiler/syntax
+import dense
+import slices
+import strings
+
+// report is the diagnostics of the sites of the declaration f's body.
+func report(w mut walker, s mut store.Store, k expr.Pkg, f expr.Fn, fd syntax.FuncDecl) []diag.Diag {
+	if len(w.sites) == 0 {
+		return []diag.Diag{}
+	}
+	let p = k.Parsed[f.File]
+	let names = types.Names{Params: f.Params, Foreign: k.Foreign, Pkg: "", Deps: k.Ifaces}
+	let mut missing = [][]dense.ID[store.TKey]{[]dense.ID[store.TKey]{}, []dense.ID[store.TKey]{}}
+	for st in w.sites {
+		for e in st.extra {
+			if !slices.Contains(missing[st.kind], e) {
+				missing[st.kind] = missing[st.kind].Append(e)
+			}
+		}
+	}
+	let mut writes = []string{"", ""}
+	for kind in 0..2 {
+		if len(missing[kind]) > 0 {
+			writes[kind] = "write: " + signature(*s, names, p, fd, kind, missing[kind])
+		}
+	}
+	let fname = "function " + types.NameText(p, f.Name)
+	let mut out = []diag.Diag{}
+	for st in w.sites {
+		let at = syntax.NodePos(p, st.at)
+		let length = syntax.NodeEnd(p, st.at) - at
+		if st.kind == kErrors {
+			let msg = "\(rowText(s, names, st.extra)) escapes \(fname), whose error row \(rowText(s, names, w.errs)) does not list it; \(writes[kErrors])"
+			out = out.Append(diag.Diag{File: f.File, Offset: at, Length: length, Code: "S101", Message: msg})
+		} else {
+			let msg = "this call requires \(types.Text(*s, names, store.TRow(s, st.extra))), which is not in the capability row of \(fname) and no with provides it; \(writes[kUses])"
+			out = out.Append(diag.Diag{File: f.File, Offset: at, Length: length, Code: "S102", Message: msg})
+		}
+	}
+	out
+}
+
+// rowText is a row as a message writes it, in braces (typeops.go rowText).
+func rowText(s mut store.Store, names types.Names, xs []dense.ID[store.TKey]) string {
+	if len(xs) == 0 {
+		return "{}"
+	}
+	"{" + types.Text(*s, names, store.TRow(s, xs)) + "}"
+}
+
+// signature is the header of fd with the elements missing of the clause
+// kind added: after the written elements of that clause, or as a new
+// clause after the results (fails) or after the fails clause (needs).
+func signature(s store.Store, names types.Names, p syntax.Parsed, fd syntax.FuncDecl, kind int, missing []dense.ID[store.TKey]) string {
+	let tr = p.Tree
+	let ft = syntax.FuncTypeOf(tr, fd.Type)
+	let mut add = []string{}
+	for e in missing {
+		add = add.Append(types.Text(s, names, e))
+	}
+	let joined = strings.Join(slices.Sort(add), " | ")
+	let clause = if kind == kErrors { "fails" } else { "needs" }
+	let mut insertAt = syntax.NodeEnd(p, ft.Params)
+	let mut written = -1
+	match dense.Unpack(ft.Results) {
+	case Some[dense.ID[syntax.Node]] as r:
+		let fl = syntax.FieldListOf(tr, r.Value).List
+		for i in 0..syntax.Len(fl) {
+			match dense.Unpack(syntax.FieldOf(tr, syntax.Item(tr, fl, i)).Type) {
+			case Some[dense.ID[syntax.Node]] as ty:
+				let e = syntax.NodeEnd(p, ty.Value)
+				if e > insertAt {
+					insertAt = e
+				}
+				if kind == kErrors && syntax.KindOf(tr, ty.Value) == syntax.KErrorRow {
+					let er = syntax.ErrorRowOf(tr, ty.Value)
+					let n = syntax.Len(er.Types)
+					if n > 0 {
+						written = syntax.NodeEnd(p, syntax.Item(tr, er.Types, n-1))
+					}
+				}
+			case None:
+			}
+		}
+	case None:
+	}
+	if kind == kUses {
+		match dense.Unpack(ft.Needs) {
+		case Some[dense.ID[syntax.Node]] as nd:
+			let nc = syntax.NeedsClauseOf(tr, nd.Value)
+			let n = syntax.Len(nc.Names)
+			if n > 0 {
+				written = syntax.NodeEnd(p, syntax.Item(tr, nc.Names, n-1))
+			}
+		case None:
+		}
+	}
+	let text = if written >= 0 { " | " + joined } else { " " + clause + " " + joined }
+	let at = if written >= 0 { written } else { insertAt }
+	let src = syntax.SourceOf(p)
+	let start = syntax.TokPos(p, fd.Func)
+	let end = match dense.Unpack(fd.Body) {
+	case Some[dense.ID[syntax.Node]] as b:
+		syntax.TokPos(p, syntax.BlockStmtOf(tr, b.Value).Lbrace)
+	case None:
+		at
+	}
+	strings.Join(strings.Fields(src[start:at] + text + src[at:end]), " ")
+}

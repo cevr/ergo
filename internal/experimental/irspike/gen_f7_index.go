@@ -8,7 +8,9 @@ import (
 
 // GenerateIndex is a program of indexes of values that are no slice (F7,
 // "index of a non-slice"): a string's byte at a seeded position, and an
-// array's element, read by index and by a for-in. Each function folds what
+// array's element, read by index and by a for-in, and slices of an array
+// (a parameter and a call's result, which Go slices only once it is a
+// place; SLICE-ARRAY). Each function folds what
 // it reads into an int with seeded weights, so a byte or an element read
 // at another position, or a byte read as a rune, changes the output.
 func GenerateIndex(seed uint64) string {
@@ -23,6 +25,12 @@ func GenerateIndex(seed uint64) string {
 	fmt.Fprintf(&b, "func at(a [5]int, i int) int {\n\tlet j = i %% 5\n\ta[j] * %d + a[4 - j]\n}\n\n", 2+g.n(9))
 	// total: a for-in over the array, weighted by position.
 	fmt.Fprintf(&b, "func total(a [5]int) int {\n\tlet mut s = 0\n\tfor i, x in a {\n\t\ts = s + x * (i + %d)\n\t}\n\ts\n}\n\n", 1+g.n(3))
+	// mk: an array a call returns, which is no place.
+	fmt.Fprintf(&b, "func mk(n int) [5]int {\n\tlet mut a [5]int\n\tfor i in 0..5 {\n\t\ta[i] = n * %d + i\n\t}\n\ta\n}\n\n", 2+g.n(5))
+	// cut: slices of an array, of a parameter and of a call's result, with
+	// both bounds, each one left out, and three indices.
+	fmt.Fprintf(&b, "func cut(a [5]int, i int) int {\n\tlet j = i %% 3\n\tlet b = a[j:j + 2]\n\tlet c = a[:j + 1]\n\tlet d = a[j:]\n\tlet e = a[1:3:4]\n\tlet f = mk(j + %d)[j:]\n\tlen(b) * %d + b[1] * %d + len(c) * %d + c[j] + d[0] * %d + len(d) + e[1] * %d + len(f) * %d + f[0]\n}\n\n",
+		g.n(4), 100000, 1+g.n(9), 10000, 3+g.n(5), 7+g.n(3), 1000)
 	b.WriteString("func main() needs Console {\n")
 	words := []string{`"abc"`, `"zz"`, `"q"`, `"hello"`, `"aXa"`, `""`}
 	for k := 0; k < 3; k++ {
@@ -37,7 +45,7 @@ func GenerateIndex(seed uint64) string {
 			fmt.Fprintf(&b, "\ta%d[%d] = %s\n", k, i, x)
 		}
 		fmt.Fprintf(&b, "\tlet s%d = if len(w%d) > 0 { same(w%d) } else { 0 }\n", k, k, k)
-		fmt.Fprintf(&b, "\tConsole.Println(\"%d: \\(code(w%d, %d)) \\(s%d) \\(at(a%d, %d)) \\(total(a%d))\")\n", k, k, g.n(7), k, k, g.n(9), k)
+		fmt.Fprintf(&b, "\tConsole.Println(\"%d: \\(code(w%d, %d)) \\(s%d) \\(at(a%d, %d)) \\(total(a%d)) \\(cut(a%d, %d))\")\n", k, k, g.n(7), k, k, g.n(9), k, k, g.n(9))
 	}
 	b.WriteString("}\n")
 	return b.String()
