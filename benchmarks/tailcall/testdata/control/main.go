@@ -1,7 +1,10 @@
 // Command control is tailbench's hand Go twin
-// (benchmarks/tailcall/cmd/tailbench), run as `control bench chain N`: the
-// same chain of functions, each returning (int, error) and the next one's
-// call, and a type switch on the error where the loop catches it.
+// (benchmarks/tailcall/cmd/tailbench), run as `control bench KIND N`:
+//   - chain: the same chain of functions, each returning (int, error) and
+//     the next one's call, and a type switch on the error where the loop
+//     catches it;
+//   - trylet: a function that passes c0's error on (`if err != nil`);
+//   - orfail: a Map read, comma-ok, with the error built on the miss only.
 package main
 
 import (
@@ -46,9 +49,38 @@ func c3(x int) (int, error) {
 	return c2(x * 2)
 }
 
+func tryLet(x int) (int, error) {
+	v, err := c0(x)
+	if err != nil {
+		return 0, err
+	}
+	return v + 1, nil
+}
+
+func look(m map[int]int, k int) (int, error) {
+	v, ok := m[k]
+	if !ok {
+		return 0, gone{At: k}
+	}
+	return v, nil
+}
+
+// caught is the loop's catch: the arm's value of err, or v.
+func caught(v int, err error) int {
+	switch e := err.(type) {
+	case nil:
+		return v
+	case gone:
+		return e.At & 1
+	case bad:
+		return e.Why & 3
+	}
+	return 0
+}
+
 func main() {
-	if len(os.Args) != 4 || os.Args[1] != "bench" || os.Args[2] != "chain" {
-		fmt.Fprintln(os.Stderr, "usage: control bench chain N")
+	if len(os.Args) != 4 || os.Args[1] != "bench" {
+		fmt.Fprintln(os.Stderr, "usage: control bench KIND N")
 		os.Exit(2)
 	}
 	n, err := strconv.Atoi(os.Args[3])
@@ -57,17 +89,26 @@ func main() {
 		os.Exit(2)
 	}
 	t := 0
-	for i := 0; i < n; i++ {
-		v, err := c3(i & 4095)
-		if err != nil {
-			switch e := err.(type) {
-			case gone:
-				v = e.At & 1
-			case bad:
-				v = e.Why & 3
-			}
+	switch os.Args[2] {
+	case "chain":
+		for i := 0; i < n; i++ {
+			t += caught(c3(i & 4095))
 		}
-		t += v
+	case "trylet":
+		for i := 0; i < n; i++ {
+			t += caught(tryLet(i & 4095))
+		}
+	case "orfail":
+		m := map[int]int{}
+		for i := 0; i < 1024; i++ {
+			m[i*2] = i
+		}
+		for i := 0; i < n; i++ {
+			t += caught(look(m, i&2047))
+		}
+	default:
+		fmt.Fprintln(os.Stderr, "control: no such kind")
+		os.Exit(2)
 	}
 	fmt.Println(t)
 }
