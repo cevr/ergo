@@ -1,13 +1,13 @@
-func keep(f own func(int) int) bool {
+func keep(f own func()) bool {
 	true
 }
 
-func apply(f func(int) int) bool {
-	f(1) == f(1)
+func apply(f func()) bool {
+	true
 }
 
-law Applies(f func(int) int) { apply(f) }
+law Applies(f func()) { apply(f) }
 
-law Keeps(f func(int) int) { keep(f) } // want S108
+law Keeps(f func()) { keep(f) } // want S108
 
-law Escapes(f own func(int) int) { keep(f) }
+law Escapes(f own func()) { keep(f) }
