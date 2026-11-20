@@ -1,0 +1,8 @@
+# scripts/opcount: `irframe bench ownstatic N` calls a body that owns one
+# value it does not write N times (the static release form, P-L8): the
+# reference ownlist's list form is measured against. The control defers
+# the value's close.
+unit call
+sizes 409600 2457600
+args bench ownstatic {n}
+control benchmarks/frame/testdata/control

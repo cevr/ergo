@@ -9,7 +9,12 @@ import (
 // ownListFuncs are the functions GenerateOwnList writes besides the olN:
 // taker owns its taken parameter beside a local it writes in place, so
 // its frame takes the list form too.
-var ownListFuncs = []string{"Res.taker"}
+var ownListFuncs = []string{"Res.taker", "Res.failing"}
+
+// ownListMark is the line GenerateOwnList's main prints before its last
+// call (whose Close fails): every value opened before it is closed
+// before it, once.
+const ownListMark = "-- every value opened so far is closed"
 
 // GenerateOwnList is a program of frames that open a scope only for their
 // owned values and keep them in the list form (OWNED-LOCAL: a plain frame
@@ -18,7 +23,8 @@ var ownListFuncs = []string{"Res.taker"}
 // reads the written value (v1.OwningAt), and around it opens more, lends
 // them, hands some to a taking function, returns early on some k, and
 // opens values in an inner scope or a loop. taker owns its taken
-// parameter in such a frame. Each Close prints the id and the written
+// parameter in such a frame, and failing does too with an error row (a
+// failure releases both values). Each Close prints the id and the written
 // field, so a value released twice, never, out of order, with its old
 // fields, or after a hand-off changes the output; at the last call a
 // Close that fails shows a defect's release order.
@@ -63,6 +69,27 @@ func taker(r own Res, k int) int needs Console {
 		return use(w)
 	}
 	use(r) + use(w)
+}
+
+type Oops { code int }
+
+// failing owns r and w in a list frame with an error row: a failure
+// releases both, and r is taken only on success.
+func failing(r own Res, k int) int fails Oops needs Console {
+	let mut w = open(800 + k, false)
+	w.n = k + 2
+	if k > 1 {
+		return Oops{code: use(w)}
+	}
+	keep(r)
+	use(w)
+}
+
+func failingAt(k int) int needs Console {
+	failing(open(600 + k, false), k) catch {
+	case Oops as o:
+		o.code
+	}
 }
 
 `)
@@ -118,7 +145,10 @@ func taker(r own Res, k int) int needs Console {
 	for i := 0; i < nf; i++ {
 		fmt.Fprintf(&b, "\t\tConsole.Println(\"ol%d \\(k) \\(ol%d(k, false))\")\n", i, i)
 	}
-	b.WriteString("\t\tConsole.Println(\"taker \\(k) \\(taker(open(700 + k, false), k))\")\n\t}\n")
+	b.WriteString("\t\tConsole.Println(\"taker \\(k) \\(taker(open(700 + k, false), k))\")\n")
+	b.WriteString("\t\tConsole.Println(\"failing \\(k) \\(failingAt(k))\")\n\t}\n")
+	// The opens and closes before this line pair up (TestIROwnedListMatchSource).
+	b.WriteString("\tConsole.Println(\"" + ownListMark + "\")\n")
 	fmt.Fprintf(&b, "\tConsole.Println(\"bad \\(ol%d(1, true))\")\n}\n", r.IntN(nf))
 	return b.String()
 }

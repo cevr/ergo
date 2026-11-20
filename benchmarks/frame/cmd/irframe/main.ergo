@@ -46,11 +46,51 @@ func benchUpdate(n int) int {
 	s + cell.Get()
 }
 
+// Res is a value its frame owns (OWNED-LOCAL): its Close adds its id and
+// its written field to cell.
+type Res { id int, n int, cell sync.Ref[int] } implements Closer
+
+func Close(r Res) {
+	r.cell.Update(func(v int) int { v + r.id + r.n })
+}
+
+// ownList owns r and writes its field in place, so its frame keeps r in
+// the list form (v1.NewOwnerScope, Owning, OwningAt): r is released with
+// its write when ownList returns.
+func ownList(i int, cell sync.Ref[int]) int {
+	let mut r = Res{id: i, n: 0, cell: cell}
+	r.n = i & 3
+	r.id & 7
+}
+
+// ownStatic is ownList's work with r unwritten: the static release form.
+func ownStatic(i int, cell sync.Ref[int]) int {
+	let r = Res{id: i, n: i & 3, cell: cell}
+	r.id & 7
+}
+
+func benchOwn(n int, list bool) int {
+	let cell = sync.NewRef[int](0)
+	let mut s = 0
+	for i in 0..n {
+		if list {
+			s = s + ownList(i, cell)
+		} else {
+			s = s + ownStatic(i, cell)
+		}
+	}
+	s + cell.Get()
+}
+
 func run(kind string, n int) int {
 	if kind == "exit" {
 		benchExit(n)
 	} else if kind == "update" {
 		benchUpdate(n)
+	} else if kind == "ownlist" {
+		benchOwn(n, true)
+	} else if kind == "ownstatic" {
+		benchOwn(n, false)
 	} else {
 		-1
 	}
