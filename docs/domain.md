@@ -273,7 +273,7 @@ law BoardIsFoldOfEvents(acts []Act) {
 			v = Apply(v, id, e)
 			match moved(e) {
 			case Some[Column]:
-				order = without(order, id).Append(id)
+				order = slices.Filter(order, func(x string) bool { x != id }).Append(id)
 			case None:
 			}
 		}
