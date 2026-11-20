@@ -296,7 +296,7 @@ func (c *checker) lawTypeParams(list *syntax.FieldList) []*TypeParam {
 	for _, field := range list.List {
 		cons := c.constraintExpr(field)
 		for _, name := range field.Names {
-			tp := &TypeParam{Name: name.Name, Pos: name.Pos(), Lent: field.Lent > 0, id: newID()}
+			tp := &TypeParam{Name: name.Name, Pos: name.Pos(), Own: field.Own != nil, id: newID()}
 			c.def(name, tp)
 			if cons != nil {
 				constraints = append(constraints, pending{tp, cons})

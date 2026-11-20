@@ -139,7 +139,7 @@ func play(app actor.Actor[subscribe.Form, subscribe.Signal, Decision[subscribe.F
 // after it in parentheses; each button as [LABEL] ([LABEL, disabled] in a
 // disabled fieldset); a status as status{TEXT} and an alert as
 // alert{TEXT}.
-func Shown(h *Host) string {
+func Shown(h mut Host) string {
 	let mut out = []string{}
 	for t in tokens(ui.Screen(h), false, "") {
 		out = out.Append("  " + t)

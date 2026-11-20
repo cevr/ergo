@@ -1,0 +1,68 @@
+import slices
+import strings
+
+// Lines is a source's line table: the offset where each line starts, the
+// first at 0 and one after each newline.
+type Lines { starts []uint32 }
+
+// LinesOf is the line table of src.
+func LinesOf(src string) Lines {
+	// Room for a line per 24 bytes: the corpus has one per 36.
+	let mut starts = slices.WithCapacity[uint32](len(src)/24 + 1)
+	starts = starts.Append(uint32(0))
+	// IndexByte finds each newline (Go's vector search).
+	let mut at = 0
+	for {
+		let k = strings.IndexByte(src[at:], '\n')
+		if k < 0 {
+			break
+		}
+		at = at + k + 1
+		starts = starts.Append(uint32(at))
+	}
+	Lines{starts: starts}
+}
+
+// NumLines is the number of lines.
+func NumLines(l Lines) int { len(l.starts) }
+
+// LineStart is the offset where line i (from 0) starts.
+func LineStart(l Lines, i int) int { int(l.starts[i]) }
+
+// Position is the 1-based line and byte column of offset.
+type Position { Line int, Column int }
+
+// PositionOf is the line and column of offset: the last line that starts
+// at or before it (the Go scanner's lineColumn).
+func PositionOf(l Lines, offset int) Position {
+	let mut lo = 0
+	let mut hi = len(l.starts)
+	// The first line that starts after offset is in [lo, hi].
+	for lo < hi {
+		let mid = (lo + hi) / 2
+		if int(l.starts[mid]) > offset {
+			hi = mid
+		} else {
+			lo = mid + 1
+		}
+	}
+	let i = if lo > 0 { lo - 1 } else { 0 }
+	Position{Line: i + 1, Column: offset - int(l.starts[i]) + 1}
+}
+
+// LinesStartAfterNewlines: each line but the first starts right after a
+// newline, and every newline starts a line.
+law LinesStartAfterNewlines(src string) {
+	let l = LinesOf(src)
+	let mut ok = LineStart(l, 0) == 0
+	let mut newlines = 0
+	for i in 0..len(src) {
+		if src[i] == '\n' {
+			newlines = newlines + 1
+		}
+	}
+	for i in 1..NumLines(l) {
+		ok = ok && src[LineStart(l, i)-1] == '\n'
+	}
+	ok && NumLines(l) == newlines+1
+}
