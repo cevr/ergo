@@ -52,7 +52,8 @@ func TestReadoutsOnTheDesktop(t *testing.T) {
 		t.Errorf("clock-gui shows %q %q with %d laps, want \"00:02.00\" \"%d%%\" with 1", clock, level, laps, n%101)
 	}
 	// The window drew what the readouts read: the last line is the texts
-	// its last paint drew, kept draws too.
+	// its paint after the last reading drew, kept draws too, before the
+	// lap's pass could draw the readouts again.
 	drawn := strings.Split(lines[3], "|")
 	for _, r := range []string{clock, level} {
 		found := false
