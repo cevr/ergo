@@ -17,7 +17,7 @@ import (
 // body. Mutants: wr-unit-result-single (the IR binds such a call's Go pair
 // to the error alone: the decoder refuses the body, "(_ struct{}, err
 // error) is not error", examples/gent's build failure) and
-// wr-unit-return-plain (a no-value frame whose tail is such a call returns
+// wr-unit-return-plain (a frame with no value whose tail is such a call returns
 // its pair as one value). A failing seed
 // prints the Ergo source, both outcomes and its replay command.
 //
