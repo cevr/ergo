@@ -955,7 +955,7 @@ func cellsFollowModel(seed int, steps int, unmount bool) bool {
 			let k = keys[at]
 			let old = rowOf(rows, k)
 			let mut now = old
-			let mut done = ui.Handled[int]{Signal: None, Changed: false}
+			let mut done = ui.Handled[int]{Signal: None, Changed: false, Ops: []ui.Op[int]{}}
 			match what {
 			case 1:
 				now.a = "s\(i % 3)"

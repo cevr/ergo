@@ -1049,7 +1049,7 @@ func lawTreeAgreesWithLocate(seed int) bool {
 	let mut m = ui.NewMirror[int](ui.Root(&f))
 	for _ in 0..3 {
 		let s = genState(&r)
-		let ops = ui.Render(&f, func(g *ui.Frame[int], st []int) {
+		let ops = ui.Render(&f, func(g mut ui.Frame[int], st []int) {
 			for p in ps {
 				render(g, p, st, 0) catch {
 				case Missing:

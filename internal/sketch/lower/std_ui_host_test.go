@@ -3414,7 +3414,7 @@ func edgeFrames(seed int, m time.Manual) bool needs Scheduler {
 	let start = ui.Length(float64(draw(&r, int(float64(most)) + 1)))
 	let band = draw(&r, 3)
 	let y = if band == 0 { float64(draw(&r, 32)) } else if band == 1 { float64(height) - float64(draw(&r, 32)) } else { float64(height) / 2.0 }
-	let view = func(f *ui.Frame[int], s int) {
+	let view = func(f mut ui.Frame[int], s int) {
 		ui.Area(f, "a", ui.Plain(), func(p ui.PointerEvent) Option[int] { None }) {
 			ui.Rows(f, "list", n, rh, func(i int) ui.Key { ui.ByInt(i) }, func(i int) {
 				ui.Text(f, "row \(i)")
@@ -3435,7 +3435,7 @@ func edgeFrames(seed int, m time.Manual) bool needs Scheduler {
 	case _:
 		return false
 	}
-	ui.PointAt(&h, area[0], ui.PointerEvent{Phase: ui.Down, X: 1.0, Y: y, Zone: None}) catch {
+	ui.PointAt(&h, area[0], ui.PointerEvent{Pointer: ui.MousePointer, Phase: ui.Down, X: 1.0, Y: y, Zone: None}) catch {
 	case _:
 		return false
 	}
@@ -3460,7 +3460,7 @@ func edgeFrames(seed int, m time.Manual) bool needs Scheduler {
 	if listOffset(ui.Screen(&h)) != want {
 		return false
 	}
-	ui.PointAt(&h, area[0], ui.PointerEvent{Phase: ui.Up, X: 1.0, Y: y, Zone: None}) catch {
+	ui.PointAt(&h, area[0], ui.PointerEvent{Pointer: ui.MousePointer, Phase: ui.Up, X: 1.0, Y: y, Zone: None}) catch {
 	case _:
 		return false
 	}
@@ -4565,7 +4565,7 @@ func lawPaintIsNotInherited(seed int) bool {
 
 // inkDraw and inkColor restate look.ergo's drawInk and paint.ergo's
 // colorText (OpenTUI gap 1).
-func inkDraw(r *rng) ui.Ink {
+func inkDraw(r mut rng) ui.Ink {
 	ui.Ink{Color: lookColor(r), Bold: draw(r, 2) == 0, Italic: draw(r, 2) == 0, Underline: draw(r, 2) == 0}
 }
 
@@ -4623,7 +4623,7 @@ func typedRunes(s string) int {
 let editPieces = []string{"", "a", "é", "日", "\n", "ab", "x\ny"}
 
 // drawEditText is a drawn text of pieces (a law's helper).
-func drawEditText(r *rng) string {
+func drawEditText(r mut rng) string {
 	let mut out = ""
 	for _ in 0..draw(r, 6) {
 		out = out + editPieces[draw(r, len(editPieces))]
@@ -4646,7 +4646,7 @@ func lawCaretIsTheModels(seed int) bool {
 func caretModel(seed int, m time.Manual) bool needs Scheduler {
 	let mut r = seeded(seed)
 	let lines = 1 + draw(&r, 3)
-	let view = func(f *ui.Frame[int], s int) {
+	let view = func(f mut ui.Frame[int], s int) {
 		let d = ui.NewDraft(f, "")
 		ui.FieldLines(f, d, "draft", lines)
 		ui.InputLines(f, if s == 99 { "reset" } else { "fixed" }, "own", lines, func(t string) int { if t == "go" { 99 } else { 0 } })
@@ -4732,7 +4732,7 @@ func lawInkShowsInTheScreenshot(seed int) bool {
 		let mut r = seeded(seed)
 		let k = if draw(&r, 4) == 0 { ui.PlainInk() } else { inkDraw(&r) }
 		let rd = ui.NewReadout("r")
-		let view = func(f *ui.Frame[int], s int) {
+		let view = func(f mut ui.Frame[int], s int) {
 			let mut inked = ui.Plain()
 			inked.Look = ui.LookFor(f, ui.Steady(ui.Inked(k)))
 			ui.Column(f, ui.Plain()) {
@@ -5401,7 +5401,7 @@ func aimTimer(s aiming) Option[Timeout[aimEvent]] { None }
 func aimWork(s aiming) Option[func(send func(e aimEvent))] { None }
 
 // aimView tracks x to the target on the host, and animates the reference.
-func aimView(f *ui.Frame[aimEvent], s aiming) {
+func aimView(f mut ui.Frame[aimEvent], s aiming) {
 	ui.Track(f, ui.ByText("aimed"), ui.TrackX, s.target, ui.TrackSpring{Stiffness: s.k, Damping: s.c}) {
 		ui.Text(f, "aimed")
 	}
@@ -5457,7 +5457,7 @@ func lawTrackEqualsAnimate(seed int) bool {
 }
 
 // stillView tracks a box's opacity to target n's share; no Animate.
-func stillView(f *ui.Frame[int], s int) {
+func stillView(f mut ui.Frame[int], s int) {
 	ui.Track(f, ui.ByText("faded"), ui.TrackOpacity, float64(s)/4.0, ui.TrackEase{Over: 120ms}) {
 		ui.Text(f, "faded")
 	}
@@ -5521,7 +5521,7 @@ func lawTrackCostsNoPass(seed int) bool {
 }
 
 // drawCurve is a Linear, an Ease or a spring curve.
-func drawCurve(r *rng) ui.TrackCurve {
+func drawCurve(r mut rng) ui.TrackCurve {
 	let kind = draw(r, 3)
 	if kind == 0 {
 		return ui.TrackLinear{Over: duration(int64(draw(r, 400)+1) * int64(1000000))}
@@ -5534,7 +5534,7 @@ func drawCurve(r *rng) ui.TrackCurve {
 }
 
 // faded is the value of the track keyed "faded" (-1: none).
-func faded[S, E, D, F](h *ui.TestHost[S, E, D, F]) float64 {
+func faded[S, E, D, F](h mut ui.TestHost[S, E, D, F]) float64 {
 	match ui.TrackedValue(h, ui.ByText("faded")) {
 	case Some[float64] as v:
 		v.Value
@@ -5544,7 +5544,7 @@ func faded[S, E, D, F](h *ui.TestHost[S, E, D, F]) float64 {
 }
 
 // drawTrack is a track from a drawn place and speed to a drawn target.
-func drawTrack(r *rng) ui.TrackState {
+func drawTrack(r mut rng) ui.TrackState {
 	ui.TrackState{From: float64(draw(r, 801) - 400), Velocity: float64(draw(r, 4001) - 2000), To: float64(draw(r, 801) - 400), Start: 0ns, Curve: drawCurve(r)}
 }
 
@@ -5694,7 +5694,7 @@ func layerKind(k int) ui.Z {
 // layerBody writes layer i while it is open: a Pressable "l<i>" sending
 // 200+i, then, under it, layer i+1 when that one's parent is i. (a law's
 // helper)
-func layerBody(f *ui.Frame[int], s layerApp, i int, kinds []int, scrims []bool, dismiss []bool, parents []int) {
+func layerBody(f mut ui.Frame[int], s layerApp, i int, kinds []int, scrims []bool, dismiss []bool, parents []int) {
 	if s.open&(1<<i) == 0 {
 		return
 	}
@@ -5713,7 +5713,7 @@ func layerBody(f *ui.Frame[int], s layerApp, i int, kinds []int, scrims []bool, 
 // zone keyed 0, an OnKey sending 900 on Escape, and the open layers, each
 // top one keyed by its index, so a layer that closes leaves the next one's
 // nodes their identity. (a law's helper)
-func layerScreen(f *ui.Frame[int], s layerApp, kinds []int, scrims []bool, dismiss []bool, parents []int) {
+func layerScreen(f mut ui.Frame[int], s layerApp, kinds []int, scrims []bool, dismiss []bool, parents []int) {
 	ui.OnKey(f, func(k ui.KeyPress) Option[int] {
 		if k.Name == "Escape" { Some{Value: 900} } else { None }
 	})
@@ -5801,7 +5801,7 @@ func lawLayersDismissFromTheTop(seed int, steps int) bool {
 		let ss = scrims
 		let ds = dismiss
 		let ps = parents
-		let view = func(f *ui.Frame[int], s layerApp) { layerScreen(f, s, ks, ss, ds, ps) }
+		let view = func(f mut ui.Frame[int], s layerApp) { layerScreen(f, s, ks, ss, ds, ps) }
 		let all = (1 << n) - 1
 		let a = actor.StartMachine(Machine[layerApp, int, int]{Initial: layerApp{open: all, log: ""}, Step: layerStep, After: layerTimer, Work: layerWork, Exit: func(at layerApp) Option[func()] { None }}, 1, func(o int) {})
 		let mut h = ui.NewTestHost(a, view, m, 4) catch {
@@ -5894,7 +5894,7 @@ func lawLayersDismissFromTheTop(seed int, steps int) bool {
 }
 
 // isUnderId is whether x is the node id's child. (a law's helper)
-func isUnderId[S, E, D, F](h *ui.TestHost[S, E, D, F], id ui.Id[E], x ui.Id[E]) bool {
+func isUnderId[S, E, D, F](h mut ui.TestHost[S, E, D, F], id ui.Id[E], x ui.Id[E]) bool {
 	for k in ui.KidsAt(h, id) {
 		if k == x {
 			return true
@@ -7460,7 +7460,7 @@ test UiTabWalksTheFocusables(seed int, steps int) {
 let readWords = []string{"00:00", "00:01", "12:34", "", "a reading far wider than its reserve", "9"}
 
 // readoutRows is the readouts' screen at layout s. (a law's helper)
-func readoutRows(f *ui.Frame[int], s int, n int, shown func(i int)) {
+func readoutRows(f mut ui.Frame[int], s int, n int, shown func(i int)) {
 	ui.Column(f, ui.Plain()) {
 		ui.Text(f, "at \(s)")
 		ui.Pressable(f, "next", (s+1)%4) {
@@ -7511,7 +7511,7 @@ func lawLiveCostsNoPass(seed int, steps int) bool {
 		let mut r = seeded(seed)
 		let n = draw(&r, 4) + 1
 		let rs = readoutsOf(n)
-		let view = func(f *ui.Frame[int], s int) {
+		let view = func(f mut ui.Frame[int], s int) {
 			readoutRows(f, s, n, func(i int) { ui.ReadoutText(f, rs[i], "--:--") })
 		}
 		let a = actor.StartMachine(dialMachine(), 1, func(o int) {})
@@ -7595,14 +7595,14 @@ func lawLiveEqualsRerun(seed int, steps int) bool {
 		let mut r = seeded(seed)
 		let n = draw(&r, 4) + 1
 		let rs = readoutsOf(n)
-		let live = func(f *ui.Frame[int], s int) {
+		let live = func(f mut ui.Frame[int], s int) {
 			readoutRows(f, s, n, func(i int) { ui.ReadoutText(f, rs[i], "--:--") })
 		}
 		let mut zero = []int{}
 		for _ in 0..n {
 			zero = zero.Append(0)
 		}
-		let rerun = func(f *ui.Frame[int], s readState) {
+		let rerun = func(f mut ui.Frame[int], s readState) {
 			ui.OnKey(f, func(k ui.KeyPress) Option[int] {
 				for e in 100..100+10*n {
 					if k.Name == "\(e)" {
@@ -7674,7 +7674,7 @@ func lawScrollCostsNoViewPass(seed int, steps int) bool {
 		let mut r = seeded(seed)
 		let n = []int{0, 1, 20, 10000}[draw(&r, 4)]
 		let rh = float64(draw(&r, 30) + 10)
-		let view = func(f *ui.Frame[int], s int) {
+		let view = func(f mut ui.Frame[int], s int) {
 			ui.Text(f, "head \(s)")
 			ui.Rows(f, "list", n, ui.Length(rh), func(i int) ui.Key { ui.ByInt(i) }) func(i int) {
 				ui.Text(f, "row \(i)")
