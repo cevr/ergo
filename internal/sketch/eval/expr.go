@@ -320,6 +320,20 @@ func (in *interp) peekPath(fr *frame, x syntax.Expr, path *[]step) (Value, *slot
 			}
 		}
 	case *syntax.SelectorExpr:
+		if f := fr.info.MethodValues[x]; f != nil {
+			// x.f as a value (types.md, Methods 2): f with x's value bound
+			// now, as a dot call's receiver is passed.
+			ref, ab := in.funcValue(fr, x, f)
+			if ab != nil {
+				return nil, nil, ab
+			}
+			recv, ab := in.receiver(fr, x.X, f)
+			if ab != nil {
+				return nil, nil, ab
+			}
+			r := ref.(*funcRef)
+			return &funcRef{fn: r.fn, targs: r.targs, recv: recv, bound: true}, nil, nil
+		}
 		xf := in.fx(fr, x)
 		if xf.field.t != nil && fr.forms() {
 			// A record's field, checked at an earlier read (ORACLE O33).
