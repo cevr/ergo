@@ -21,6 +21,7 @@ import (
 // Raw's text, the message written in a Text and in an HTML Text, and a
 // failure's text.
 const jsonRawSource = `import json
+import strings
 
 type msg { ID json.Raw, M string }
 
@@ -39,7 +40,13 @@ func reads(text string) string {
 	encode(m, t)
 	let h = json.NewHTMLText()
 	encode(m, h)
-	"\(m.ID.String()) | \(t.Written()) | \(h.Written())"
+	oneLine("\(m.ID.String()) | \(t.Written()) | \(h.Written())")
+}
+
+// oneLine is s with its line breaks and tabs spelled, so one result is one
+// printed line.
+func oneLine(s string) string {
+	strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(s, "\n", "\\n"), "\r", "\\r"), "\t", "\\t")
 }
 `
 
@@ -86,7 +93,8 @@ func rawValue(r *rand.Rand, depth int) string {
 func rawWant(v string) string {
 	line := strings.NewReplacer("\u2028", `\u2028`, "\u2029", `\u2029`)
 	html := strings.NewReplacer("\u2028", `\u2028`, "\u2029", `\u2029`, "<", `\u003c`, ">", `\u003e`, "&", `\u0026`)
-	return v + ` | {"id":` + line.Replace(v) + `,"m":"x"} | {"id":` + html.Replace(v) + `,"m":"x"}`
+	one := strings.NewReplacer("\n", `\n`, "\r", `\r`, "\t", `\t`)
+	return one.Replace(v + ` | {"id":` + line.Replace(v) + `,"m":"x"} | {"id":` + html.Replace(v) + `,"m":"x"}`)
 }
 
 // TestJSONRawAgrees: a json.Raw field reads the value's text as written,
