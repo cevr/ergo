@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 
 	"ergo.local/prototype/internal/producer"
 	"ergo.local/prototype/internal/receipt"
@@ -313,6 +312,58 @@ func (t *checkTree) add(a sketchfront.Analysis, out []byte, exit error) {
 	t.kept = append(t.kept, treeKept{a: a, out: slices.Clone(out)})
 }
 
+// declarationFiles are, by an obligation site's "FILE:LINE:COLUMN", the
+// files (absolute) that declare a test or a law the root package runs at
+// that site: the evaluator names a site by the declaring file's name and
+// the declaration's position (eval's site).
+func declarationFiles(a sketchfront.Analysis, root string) map[string][]string {
+	abs := map[*syntax.File]string{}
+	for _, p := range a.Packages() {
+		for _, f := range p.Files {
+			if f.Syntax != nil {
+				abs[f.Syntax] = filepath.Join(root, filepath.FromSlash(f.Rel))
+			}
+		}
+	}
+	out := map[string][]string{}
+	add := func(pkg *check.Package, decl syntax.Decl) {
+		if pkg == nil || decl == nil {
+			return
+		}
+		for _, f := range pkg.Files() {
+			found := false
+			for _, d := range f.Decls {
+				syntax.Inspect(d, func(n syntax.Node) bool {
+					found = found || n == decl
+					return !found
+				})
+				if found {
+					break
+				}
+			}
+			if name, ok := abs[f]; found && ok {
+				line, col := f.Position(decl.Pos())
+				key := fmt.Sprintf("%s:%d:%d", f.Name, line, col)
+				if !slices.Contains(out[key], name) {
+					out[key] = append(out[key], name)
+				}
+				return
+			}
+		}
+	}
+	pkg := a.Root().Package
+	if pkg == nil {
+		return out
+	}
+	for _, t := range pkg.Tests {
+		add(pkg, t.Decl)
+	}
+	for _, run := range pkg.LawRuns {
+		add(run.Law.Pkg, run.Law.Decl)
+	}
+	return out
+}
+
 // treeUnkept, when not nil, hears why a request was not kept (a test's
 // account of what the store leaves out).
 var treeUnkept func(why string)
@@ -429,18 +480,15 @@ func treeEntryOf(a sketchfront.Analysis, out []byte, root string, srcs map[strin
 		e.Texts = append(e.Texts, rel)
 	}
 	slices.Sort(e.Texts)
-	// The files a site may name: every file of the program, by name.
-	byName := map[string][]string{}
-	for name := range srcs {
-		byName[filepath.Base(name)] = append(byName[filepath.Base(name)], name)
-	}
+	// The files a site may name: the file of each test and law the
+	// package runs whose declaration is at the site. A site names a file
+	// only by its name in its package's folder, which another package of
+	// the program may share.
+	byName := declarationFiles(a, root)
 	sites := map[string][][2]int{}
 	at := func(site report.Site) (string, int, bool) {
 		found, file, token := 0, "", 0
-		for _, name := range byName[filepath.Base(site.File)] {
-			if !strings.HasSuffix(filepath.ToSlash(name), "/"+site.File) && filepath.Base(name) != site.File {
-				continue
-			}
+		for _, name := range byName[fmt.Sprintf("%s:%d:%d", site.File, site.Line, site.Column)] {
 			ts, ok := sites[name]
 			if !ok {
 				ts = syntax.TokenSites(srcs[name])

@@ -35,7 +35,7 @@ var treeEdits = []treeEdit{
 		// Lines and spaces only: every site below the edit moves.
 		i := r.IntN(len(p.Packages) - 1)
 		src := strings.Replace(f[pkgFile(i)], "3 * c.R * c.R", "3*c.R*c.R", 1)
-		src = strings.Replace(src, "\nimport strings\n", "\n\n\nimport strings\n", 1)
+		src = strings.Replace(src, "\nimport strings\n", "\nimport strings\n\n\n", 1)
 		f[pkgFile(i)] = strings.ReplaceAll(src, "\tlet mut total = 0\n", "\tlet mut total = 0\n\n")
 		tests := genprogram.Name(i) + "/tests.ergo"
 		f[tests] = "\n\n" + f[tests]
@@ -102,12 +102,20 @@ func runCheckTree(t *testing.T, pattern string, reference bool) treeRun {
 }
 
 // treeText is what the property holds a check may read of a file: its
-// tokens and its comments' text (syntax.TokenText and the comments, read
-// apart from CheckText, so a key that leaves one out is caught).
-var treeComment = regexp.MustCompile(`//[^\n]*`)
+// tokens, and each comment's text with the line breaks before the next
+// code (a binding's `// ergo:` line is read as the line above a
+// declaration). It is read apart from syntax.CheckText, so a key that
+// leaves a part out is caught. The generated sources have no `//` in a
+// string.
+var treeComment = regexp.MustCompile(`//[^\n]*([ \t\n]*)`)
 
 func treeText(src string) string {
-	return syntax.TokenText(src) + "\x00" + strings.Join(treeComment.FindAllString(src, -1), "\n")
+	var b strings.Builder
+	b.WriteString(syntax.TokenText(src))
+	for _, m := range treeComment.FindAllStringSubmatch(src, -1) {
+		fmt.Fprintf(&b, "\x00%d %s", strings.Count(m[1], "\n"), m[0][:len(m[0])-len(m[1])])
+	}
+	return b.String()
 }
 
 // TestCheckTreeAnswersByTokens is the property of the warm answer of
@@ -167,8 +175,14 @@ func TestCheckTreeAnswersByTokens(t *testing.T) {
 				}
 				edit.apply(rand.New(rand.NewPCG(seed, uint64(len(edit.name)))), head, p, dep)
 				writeFiles(t, dir, head)
-				same := len(head) == len(p.Files)
+				// Only the folders the request reaches count: its own and
+				// those they import.
+				reached := treeReach(p, head, filepath.Dir(pattern), dir)
+				same := true
 				for name, src := range head {
+					if !reached[filepath.Dir(name)] {
+						continue
+					}
 					if old, ok := p.Files[name]; !ok || strings.HasSuffix(name, ".ergo") && treeText(old) != treeText(src) {
 						same = false
 					}
@@ -199,6 +213,40 @@ func TestCheckTreeAnswersByTokens(t *testing.T) {
 			}
 		}
 	}
+}
+
+// treeReach are the folders (relative, slash-separated) a request
+// walking from reaches in files: those below from and every folder they
+// import, transitively, read from the import lines of the base's and the
+// head's files.
+func treeReach(p genprogram.Program, files map[string]string, from, dir string) map[string]bool {
+	rel, _ := filepath.Rel(dir, from)
+	rel = filepath.ToSlash(rel)
+	imp := regexp.MustCompile(`(?m)^import ` + regexp.QuoteMeta(p.Module) + `/(\S+)$`)
+	reached := map[string]bool{}
+	var queue []string
+	for name := range files {
+		if d := filepath.Dir(name); d != "." && (rel == "." || d == rel || strings.HasPrefix(d, rel+"/")) && !reached[d] {
+			reached[d] = true
+			queue = append(queue, d)
+		}
+	}
+	for len(queue) > 0 {
+		d := queue[0]
+		queue = queue[1:]
+		for name, src := range files {
+			if filepath.Dir(name) != d {
+				continue
+			}
+			for _, m := range append(imp.FindAllStringSubmatch(src, -1), imp.FindAllStringSubmatch(p.Files[name], -1)...) {
+				if !reached[m[1]] {
+					reached[m[1]] = true
+					queue = append(queue, m[1])
+				}
+			}
+		}
+	}
+	return reached
 }
 
 // removeExtra removes the files under dir that an edit added and files
