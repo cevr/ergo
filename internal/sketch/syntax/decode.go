@@ -134,12 +134,26 @@ const colHeader = 7
 // failureOf is the *Error of dump.Failure's text, "code offset length line
 // column message".
 func failureOf(text string) error {
-	f := strings.SplitN(text, " ", 6)
-	if len(f) != 6 {
+	f := strings.SplitN(text, " ", 7)
+	if len(f) != 7 {
 		return fmt.Errorf("syntax: a failure the decoder cannot read: %q", text)
 	}
 	n := func(s string) int { v, _ := strconv.Atoi(s); return v }
-	return &Error{Code: f[0], Offset: n(f[1]), Length: n(f[2]), Line: n(f[3]), Column: n(f[4]), Message: f[5]}
+	e := &Error{Code: f[0], Offset: n(f[1]), Length: n(f[2]), Line: n(f[3]), Column: n(f[4]), Message: f[6]}
+	if f[5] != "-" {
+		// offset,length,text: the text Go-quoted, spaces as \x20
+		// (compiler/syntax/dump fixField).
+		x := strings.SplitN(f[5], ",", 3)
+		if len(x) != 3 {
+			return fmt.Errorf("syntax: a failure's fix the decoder cannot read: %q", text)
+		}
+		t, err := strconv.Unquote(x[2])
+		if err != nil {
+			return fmt.Errorf("syntax: a failure's fix the decoder cannot read: %q", text)
+		}
+		e.Fix = &Fix{Offset: n(x[0]), Length: n(x[1]), Text: t}
+	}
+	return e
 }
 
 // rowDecoder reads the columns of one parse.

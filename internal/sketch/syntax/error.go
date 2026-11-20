@@ -20,6 +20,17 @@ type Error struct {
 	Length  int
 	Line    int
 	Column  int
+	// Fix, when set, rewrites the habit the error names into its Ergo
+	// form (compiler/syntax localDecl; ergo fix's let pass applies it).
+	Fix *Fix
+}
+
+// Fix is the edit that rewrites a Go habit into its Ergo form: the Length
+// bytes at Offset become Text. It is data the parser computed; the Go side
+// only applies it.
+type Fix struct {
+	Offset, Length int
+	Text           string
 }
 
 func (e *Error) Error() string {

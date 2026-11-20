@@ -31,12 +31,28 @@ func Tokens(src string) []uint32 {
 }
 
 // Failure is the failure of the parse of src, "" when it parses:
-// "code offset length line column " and the message, the fields of the Go
-// parser's *Error.
+// "code offset length line column fix " and the message, the fields of
+// the Go *syntax.Error. fix is "-" for none, else "offset,length,text":
+// the text Go-quoted with each space written \x20, so the field holds no
+// space (fixField).
 func Failure(src string) string {
 	let p = syntax.Parse(src)
 	if !p.Failed {
 		return ""
 	}
-	p.Code + " " + strconv.Itoa(p.Offset) + " " + strconv.Itoa(p.Length) + " " + strconv.Itoa(p.Line) + " " + strconv.Itoa(p.Column) + " " + p.Message
+	p.Code + " " + strconv.Itoa(p.Offset) + " " + strconv.Itoa(p.Length) + " " + strconv.Itoa(p.Line) + " " + strconv.Itoa(p.Column) + " " + fixField(p) + " " + p.Message
+}
+
+// fixField is the fix of a failed parse as Failure writes it.
+func fixField(p syntax.Parsed) string {
+	if !p.HasFix {
+		return "-"
+	}
+	let q = strconv.Quote(p.FixText)
+	let mut text = ""
+	for i in 0..len(q) {
+		let b = if q[i] == ' ' { "\\x20" } else { q[i:i+1] }
+		text = text + b
+	}
+	strconv.Itoa(p.FixOffset) + "," + strconv.Itoa(p.FixLength) + "," + text
 }

@@ -119,13 +119,14 @@ func check(src string, offset int, msg string) (why string) {
 	if err != nil {
 		return "parse: " + err.Error()
 	}
-	f := strings.SplitN(failure, " ", 6)
-	if len(f) < 6 {
+	// code offset length line column fix message (compiler/syntax/dump).
+	f := strings.SplitN(failure, " ", 7)
+	if len(f) < 7 {
 		return fmt.Sprintf("got %q, want S001", failure)
 	}
 	got, _ := strconv.Atoi(f[1])
-	if f[0] != "S001" || got != offset || msg != "" && f[5] != msg {
-		return fmt.Sprintf("got %s %d %q, want S001 %d %q", f[0], got, f[5], offset, msg)
+	if f[0] != "S001" || got != offset || msg != "" && f[6] != msg {
+		return fmt.Sprintf("got %s %d %q, want S001 %d %q", f[0], got, f[6], offset, msg)
 	}
 	return ""
 }

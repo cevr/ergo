@@ -376,6 +376,14 @@ func respell(roots []string, stdRoot string, write, goLits, asJSON bool) (stdWri
 	if asJSON {
 		out = os.Stderr // stdout holds only the JSON
 	}
+	// The parser's own fixes first (VET-CHECK-VAR): a Go local
+	// declaration becomes let or let mut, applied and parsed again until
+	// no error carries a fix, so the passes after it read Ergo.
+	lets, err := fix.RunLets(fix.Options{Paths: roots, Write: write})
+	if err != nil {
+		return false, err
+	}
+	fmt.Fprint(out, lets.Text())
 	modes, err := fix.RunModes(fix.Options{Paths: roots, Write: write, Go: goLits})
 	if err != nil {
 		return false, err
@@ -393,7 +401,7 @@ func respell(roots []string, stdRoot string, write, goLits, asJSON bool) (stdWri
 	if err != nil {
 		return false, nil
 	}
-	for _, files := range []map[string]string{modes.Files, muts.Files} {
+	for _, files := range []map[string]string{lets.Files, modes.Files, muts.Files} {
 		for file := range files {
 			if abs, err := filepath.Abs(file); err == nil && strings.HasPrefix(abs, std+string(filepath.Separator)) {
 				return true, nil
