@@ -107,6 +107,13 @@ type IRReport struct {
 	// in an inlined fallible body, bound at the site's value and error
 	// (INLINE-RETURN, ir_forms_inline.go irRets).
 	TailPairs int `json:"-"`
+	// FailLocalErrors and FailLocalValues count the failures of inlined
+	// fallible bodies that are a local or a parameter, set as the site's
+	// error: one of type error as it is (a try's error passed on), one of
+	// a failure type converted (INLINE-FAIL-LOCAL, ir_forms_inline.go
+	// irRets.failValue).
+	FailLocalErrors int `json:"-"`
+	FailLocalValues int `json:"-"`
 	// CatchTreeDefects counts the full catches with patterns whose tree's
 	// exit panics with the unreachable defect (FAIL-ELIDE-PAT, ir_fail.go).
 	CatchTreeDefects int `json:"-"`
