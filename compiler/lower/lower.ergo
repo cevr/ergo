@@ -902,6 +902,63 @@ func depOf(st fnb, sel dense.ID[syntax.Node]) fnb fails Unported {
 	}
 }
 
+// aBuiltin is a builtin call the slice builds: a conversion to the basic
+// type t (conv), else len; its one operand.
+type aBuiltin { conv bool, t string, arg dense.ID[syntax.Node] }
+
+// builtinTypes are the universe's basic type names a conversion spells.
+let builtinTypes = []string{"bool", "string", "int", "int8", "int16", "int32", "int64", "uint", "uint8", "uint16", "uint32", "uint64", "uintptr", "float32", "float64", "byte", "rune"}
+
+// builtinName is the universe's name fun spells when it is len or a basic
+// type's (bind's Outside: no declaration shadows it), else "".
+func builtinName(st fnb, fun dense.ID[syntax.Node]) string {
+	let name = nameText(st.p, fun)
+	if name == "" || !outside(st, fun) {
+		return ""
+	}
+	if name == "len" || has(builtinTypes, name) { name } else { "" }
+}
+
+// builtinOf checks the call x of len or of a basic type (lower's callParts,
+// CallLen and conversion), none when x calls neither: one operand that is
+// no constant (Go's checker folds a constant's, which the slice does not
+// port); len of a string (Go's len of its bytes); a conversion between
+// basic types, none an integer to a string (a rune's text) nor a float to
+// an integer (the runtime's checked helper, floatToInteger).
+func builtinOf(st fnb, x dense.ID[syntax.Node], ce syntax.CallExpr) Option[aBuiltin] fails Unported {
+	let name = builtinName(st, ce.Fun)
+	if name == "" {
+		return None
+	}
+	if dense.Unpack(ce.Trailing) != None || syntax.Len(ce.Args) != 1 {
+		return stop("builtin call form")
+	}
+	let a = syntax.Item(st.p.Tree, ce.Args, 0)
+	if isConst(st, a) {
+		return stop("builtin call on a constant (fold)")
+	}
+	let from = basicGo(st, try typeOf(st, a, "builtin operand"))
+	if name == "len" {
+		if from != "string" {
+			return stop("len of a non-string")
+		}
+		return Some[aBuiltin]{Value: aBuiltin{conv: false, t: "", arg: a}}
+	}
+	let to = basicGo(st, try typeOf(st, x, "conversion"))
+	if from == "" || to == "" {
+		return stop("conversion of a non-scalar")
+	}
+	let fromInt = from != "bool" && from != "string" && from != "float32" && from != "float64"
+	if to == "string" && fromInt {
+		return stop("conversion of an integer to a string")
+	}
+	let toInt = to != "bool" && to != "string" && to != "float32" && to != "float64"
+	if (from == "float32" || from == "float64") && toInt {
+		return stop("conversion of a float to an integer (helper)")
+	}
+	Some[aBuiltin]{Value: aBuiltin{conv: true, t: to, arg: a}}
+}
+
 func unparen(st fnb, x dense.ID[syntax.Node]) dense.ID[syntax.Node] {
 	match syntax.ViewOf(st.p.Tree, x) {
 	case syntax.ParenExpr as pe:
@@ -986,7 +1043,9 @@ func calleeNames(st fnb, x dense.ID[syntax.Node], out []string) []string {
 		case syntax.SelectorExpr as se:
 			names = names.Append(nameText(p, se.X) + "." + nameText(p, se.Sel))
 		case _:
-			names = names.Append(nameText(p, ce.Fun))
+			if builtinName(st, ce.Fun) == "" {
+				names = names.Append(nameText(p, ce.Fun))
+			}
 		}
 	case _:
 	}
@@ -1199,6 +1258,12 @@ func check(st fnb, x dense.ID[syntax.Node]) fails Unported {
 		try check(st, be.X)
 		try check(st, be.Y)
 	case syntax.CallExpr as ce:
+		match try builtinOf(st, x, ce) {
+		case Some[aBuiltin] as bi:
+			try check(st, bi.Value.arg)
+			return
+		case None:
+		}
 		let c = try callee(st, x, ce)
 		for a in c.args {
 			try check(st, a)
@@ -1294,6 +1359,15 @@ func value(st fnb, b mut ir.Builder, x dense.ID[syntax.Node]) uint32 fails Unpor
 		// lower's call: the Go function by its name, the operands in order
 		// (each a value with no statements before it), no type arguments;
 		// a method's mcall on its receiver.
+		match try builtinOf(st, x, ce) {
+		case Some[aBuiltin] as bi:
+			let y = try value(st, b, bi.Value.arg)
+			if bi.Value.conv {
+				return try ir.Row(b, ir.KindCode(ir.TExpr, "conv"), at, []uint32{ir.Text(b, bi.Value.t), y})
+			}
+			return try ir.Row(b, ir.KindCode(ir.TExpr, "len"), at, []uint32{y})
+		case None:
+		}
 		let c = try callee(st, x, ce)
 		let mut ids = []uint32{}
 		for a in c.args {
