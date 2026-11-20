@@ -200,15 +200,21 @@ func (b *irBuilder) admitArgs(t *check.Named, depth int) {
 // parameter has no Go type parameter). "" for a call of a function that
 // is not generic.
 func (b *irBuilder) typeArgs(c *check.Call, site syntax.Node) string {
+	return b.sigTypeArgs(c.Func.Sig, c.TypeArgs, site)
+}
+
+// sigTypeArgs is typeArgs for the type arguments targs of a function of
+// signature sig: a call's, or an instance's named as a value (funcName).
+func (b *irBuilder) sigTypeArgs(sig *check.Signature, targs []check.Type, site syntax.Node) string {
 	var out []string
-	for i, tp := range c.Func.Sig.TParams {
+	for i, tp := range sig.TParams {
 		if !b.l.goParam(tp) {
 			continue
 		}
-		if i >= len(c.TypeArgs) {
+		if i >= len(targs) {
 			irNo("generic call without its type arguments")
 		}
-		out = append(out, b.goArg(tp, c.TypeArgs[i], site))
+		out = append(out, b.goArg(tp, targs[i], site))
 	}
 	return strings.Join(out, ", ")
 }
