@@ -293,7 +293,14 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 					// before its receiver (callText).
 					irArgs = append([]*irExpr{irArgs[1], irArgs[0]}, irArgs[2:]...)
 				}
-				return pre, mark(&irExpr{K: "call", Pos: p, Name: mono.name, Args: irArgs}), !fd.envFree
+				call := mark(&irExpr{K: "call", Pos: p, Name: mono.name, Args: irArgs})
+				if irFailArgLowering != "off" {
+					// The copy's body is the instance's, built under the
+					// copy's name: the inliner copies it as any callee's
+					// (INLINE-FAILARG: a generic callee is copied too).
+					call = b.inlineMark(x, c, fd, call)
+				}
+				return pre, call, !fd.envFree
 			}
 		}
 		if known != "" && fd.method != nil {

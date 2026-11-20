@@ -116,6 +116,10 @@ type IRReport struct {
 	// irRets.failValue).
 	FailLocalErrors int `json:"-"`
 	FailLocalValues int `json:"-"`
+	// FailArgs counts the parameters used only as a failure that stand
+	// for their variant-literal argument in a copy, so the failure is
+	// built in place (INLINE-FAILARG, ir_forms_inline.go).
+	FailArgs int `json:"-"`
 	// CatchTreeDefects counts the full catches with patterns whose tree's
 	// exit panics with the unreachable defect (FAIL-ELIDE-PAT, ir_fail.go).
 	CatchTreeDefects int `json:"-"`
