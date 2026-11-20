@@ -1,0 +1,322 @@
+// classes.ergo models the budget's priority classes and its admission:
+// what light.sh does with light.crit, LIGHT_CRIT and the load gate, and
+// what the runner does instead. The world: K = 2 slots and four runners,
+// two of the crit class (C0, C1) and two of the lane class (L0, L1); each
+// runs up to twice. The load of the host goes up and down on its own.
+//
+// The design:
+//   - Any class takes any free slot: no slot is a class's own.
+//   - A runner waits in its class's queue, in order.
+//   - A release hands the slot on in the same step: to the oldest lane
+//     waiter when the lane class holds fewer than Share slots, else to
+//     the oldest crit waiter, else to the oldest lane waiter.
+//   - Admission is the slots alone. The host's load does not stop a take
+//     (memory admission, §6.5, is a later model).
+//
+// The invariants (laws of Classes, each `always`):
+//   - ClassAtMostK: never more than K runners hold a slot.
+//   - NoIdleWhileQueued: no runner waits while a slot is free.
+//   - ShareHeld: no crit runner takes a slot while a lane runner waits
+//     and the lane class holds fewer than Share slots.
+//
+// Mutants, each a machine whose law Breaks must hold:
+//   - SlotLists: light.sh's slot lists. Slot 0 is crit's alone and lane
+//     runners take only slot 1, so a lane runner waits while slot 0 is
+//     free (NoIdleWhileQueued).
+//   - LoadGate: light.sh's gate. No take and no hand-on while the load is
+//     high, so runners wait while slots are free (NoIdleWhileQueued).
+//   - StrictPriority: a release always goes to a crit waiter first, with
+//     no share (ShareHeld).
+// Under a mutant, a waiter that finds a slot it may take free takes it,
+// as light.sh's next poll does.
+//
+// Witnesses (laws of Classes, each `sometimes`): both slots held by crit
+// while a lane runner waits; a release handed to a lane runner over a crit
+// waiter; a lane runner and a crit runner hold a slot at once; a take
+// while the load is high.
+
+type Who = C0{} | C1{} | L0{} | L1{}
+
+type ClassAct = Ask{W Who} | Grab{W Who} | Leave{W Who} | LoadUp{} | LoadDown{}
+
+let Share = 1
+let Runs = 2
+
+let ClassDesign = 0
+let SlotListsMutant = 1
+let LoadGateMutant = 2
+let StrictPriorityMutant = 3
+
+// Class is a world of the classes model. Pc is each runner's step (Idle,
+// Waiting, Holding, as in the budget model); RunsDone its finished runs;
+// Ticket its place in its class's queue, -1 when it does not wait. Slot is
+// each slot's holder, -1 for none. Shared: a crit runner took a slot while
+// a lane runner waited under its share. The other flags are the witnesses'.
+type Class {
+	Pc         []int,
+	RunsDone   []int,
+	Ticket     []int,
+	Slot       []int,
+	NextTicket int,
+	High       bool,
+	Shared     bool,
+	CritBoth   bool,
+	LaneOver   bool,
+	Mixed      bool,
+	TookHigh   bool,
+}
+
+func classWorld() Class {
+	Class{Pc: []int{0, 0, 0, 0}, RunsDone: []int{0, 0, 0, 0}, Ticket: []int{-1, -1, -1, -1}, Slot: []int{-1, -1},
+		NextTicket: 0, High: false, Shared: false, CritBoth: false, LaneOver: false, Mixed: false, TookHigh: false}
+}
+
+func who(w Who) int {
+	match w {
+	case C0:
+		return 0
+	case C1:
+		return 1
+	case L0:
+		return 2
+	case L1:
+		return 3
+	}
+}
+
+func crit(r int) bool { r < 2 }
+
+func everyone() []int { []int{0, 1, 2, 3} }
+
+// laneHeld is the count of slots the lane class holds.
+func laneHeld(c Class) int {
+	let mut n = 0
+	for s in slots() {
+		if c.Slot[s] != -1 && !crit(c.Slot[s]) {
+			n = n + 1
+		}
+	}
+	return n
+}
+
+func laneWaits(c Class) bool {
+	for r in everyone() {
+		if !crit(r) && c.Pc[r] == Waiting {
+			return true
+		}
+	}
+	return false
+}
+
+// oldestOf is the oldest waiter of a class (crit or not), -1 for none.
+func oldestOf(c Class, isCrit bool) int {
+	let mut best = -1
+	for r in everyone() {
+		if crit(r) == isCrit && c.Pc[r] == Waiting && (best == -1 || c.Ticket[r] < c.Ticket[best]) {
+			best = r
+		}
+	}
+	return best
+}
+
+// mayTake reports whether r may take slot s: under SlotLists slot 0 is
+// crit's alone.
+func mayTake(m int, r int, s int) bool { m != SlotListsMutant || s == 1 || crit(r) }
+
+// gated reports LoadGate's refusal: no take while the load is high.
+func gated(m int, c Class) bool { m == LoadGateMutant && c.High }
+
+// grant gives slot s to r and notes a crit take under a starved lane share.
+func grant(c0 Class, s int, r int) Class {
+	let mut c = c0
+	if laneWaits(c) && laneHeld(c) < Share && crit(r) {
+		c.Shared = true
+	}
+	c.Slot[s] = r
+	c.Pc[r] = Holding
+	c.Ticket[r] = -1
+	if c.High {
+		c.TookHigh = true
+	}
+	return c
+}
+
+// handOn gives a released slot to the next waiter, by the class rule.
+func handOn(m int, c0 Class, s int) Class {
+	let mut c = c0
+	if gated(m, c) {
+		return c
+	}
+	let mut lane = oldestOf(c, false)
+	if lane != -1 && !mayTake(m, lane, s) {
+		lane = -1
+	}
+	let first = oldestOf(c, true)
+	let mut to = -1
+	if m != StrictPriorityMutant && lane != -1 && laneHeld(c) < Share {
+		to = lane
+		if first != -1 {
+			c.LaneOver = true
+		}
+	} else if first != -1 {
+		to = first
+	} else {
+		to = lane
+	}
+	if to != -1 {
+		c = grant(c, s, to)
+	}
+	return c
+}
+
+func freeFor(m int, c Class, r int) int {
+	for s in slots() {
+		if c.Slot[s] == -1 && mayTake(m, r, s) {
+			return s
+		}
+	}
+	return -1
+}
+
+func classNext(m int, c0 Class, a ClassAct) Option[Class] {
+	let mut c = c0
+	match a {
+	case Ask as x:
+		let r = who(x.W)
+		if c.Pc[r] != Idle || c.RunsDone[r] == Runs {
+			return None
+		}
+		let s = freeFor(m, c, r)
+		if !gated(m, c) && s != -1 {
+			c = grant(c, s, r)
+		} else {
+			c.Pc[r] = Waiting
+			c.Ticket[r] = c.NextTicket
+			c.NextTicket = c.NextTicket + 1
+		}
+	case Grab as x:
+		let r = who(x.W)
+		let s = freeFor(m, c, r)
+		if m == ClassDesign || c.Pc[r] != Waiting || s == -1 || gated(m, c) {
+			return None
+		}
+		c = grant(c, s, r)
+	case Leave as x:
+		let r = who(x.W)
+		if c.Pc[r] != Holding {
+			return None
+		}
+		c.Pc[r] = Idle
+		c.RunsDone[r] = c.RunsDone[r] + 1
+		for s in slots() {
+			if c.Slot[s] == r {
+				c.Slot[s] = -1
+				c = handOn(m, c, s)
+			}
+		}
+	case LoadUp:
+		if c.High {
+			return None
+		}
+		c.High = true
+	case LoadDown:
+		if !c.High {
+			return None
+		}
+		c.High = false
+	}
+	if c.Slot[0] != -1 && c.Slot[1] != -1 && crit(c.Slot[0]) && crit(c.Slot[1]) && laneWaits(c) {
+		c.CritBoth = true
+	}
+	if c.Slot[0] != -1 && c.Slot[1] != -1 && crit(c.Slot[0]) != crit(c.Slot[1]) {
+		c.Mixed = true
+	}
+	return Some[Class]{Value: c}
+}
+
+func classWith(m int, c Class, a ClassAct) Decision[Class, string] {
+	match classNext(m, c, a) {
+	case None:
+		Ignore
+	case Some[Class] as n:
+		Enter[Class]{Next: n.Value}
+	}
+}
+
+func classDesign(c Class, a ClassAct) Decision[Class, string]    { classWith(ClassDesign, c, a) }
+func slotLists(c Class, a ClassAct) Decision[Class, string]      { classWith(SlotListsMutant, c, a) }
+func loadGate(c Class, a ClassAct) Decision[Class, string]       { classWith(LoadGateMutant, c, a) }
+func strictPriority(c Class, a ClassAct) Decision[Class, string] { classWith(StrictPriorityMutant, c, a) }
+
+func classHolders(c Class) int {
+	let mut n = 0
+	for r in everyone() {
+		if c.Pc[r] == Holding {
+			n = n + 1
+		}
+	}
+	return n
+}
+
+func classAtMostK(c Class) bool { classHolders(c) <= K }
+
+func noIdleWhileQueued(c Class) bool {
+	let mut free = false
+	let mut waits = false
+	for s in slots() {
+		if c.Slot[s] == -1 {
+			free = true
+		}
+	}
+	for r in everyone() {
+		if c.Pc[r] == Waiting {
+			waits = true
+		}
+	}
+	return !(free && waits)
+}
+
+func shareHeld(c Class) bool { !c.Shared }
+
+func idleWhileQueued(c Class) bool { !noIdleWhileQueued(c) }
+func shareLost(c Class) bool       { !shareHeld(c) }
+
+func critBoth(c Class) bool { c.CritBoth }
+func laneOver(c Class) bool { c.LaneOver }
+func mixed(c Class) bool    { c.Mixed }
+func tookHigh(c Class) bool { c.TookHigh }
+
+type Classes machine[Class, ClassAct] {
+	initial: classWorld(),
+	step:    classDesign,
+
+	law ClassAtMostK always classAtMostK,
+	law NoIdleWhileQueued always noIdleWhileQueued,
+	law ShareHeld always shareHeld,
+
+	law CritHoldsBoth sometimes critBoth,
+	law LaneOverCrit sometimes laneOver,
+	law BothClassesHold sometimes mixed,
+	law TakesUnderLoad sometimes tookHigh,
+}
+
+type SlotLists machine[Class, ClassAct] {
+	initial: classWorld(),
+	step:    slotLists,
+
+	law Breaks sometimes idleWhileQueued,
+}
+
+type LoadGate machine[Class, ClassAct] {
+	initial: classWorld(),
+	step:    loadGate,
+
+	law Breaks sometimes idleWhileQueued,
+}
+
+type StrictPriority machine[Class, ClassAct] {
+	initial: classWorld(),
+	step:    strictPriority,
+
+	law Breaks sometimes shareLost,
+}
