@@ -401,6 +401,13 @@ func (b *irBuilder) opCall(x *syntax.CallExpr, c *check.Call, p irPos) ([]*irStm
 		return b.boundOpCall(x, c, n, p)
 	}
 	pre, vals := b.operands(append([]syntax.Expr{c.Recv}, x.Args...))
+	if id, ok := unparen(c.Recv).(*syntax.Ident); ok && vals[0].K == "toiface" {
+		if v, ok := b.l.info.Uses[id].(*check.Var); ok && b.fc.provs[v] != nil {
+			// The parameter of a copy for a known provider: the
+			// adapter's method, a static call (ir_known.go).
+			vals[0] = vals[0].X
+		}
+	}
 	env := &irExpr{K: "local", Pos: p, I: b.env}
 	args := append([]*irExpr{{K: "field", Pos: p, Name: envTask, X: env}}, vals[1:]...)
 	return pre, b.opResult(c, &irExpr{K: "mcall", Pos: p, Name: memberName(c.Op.Name), X: vals[0], Args: args}), true // ir_call.go
@@ -608,16 +615,22 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 		if goFallible(body) || len(tuple.Types) < 2 || len(body.Results) != len(tuple.Types) {
 			irNo("std call with an adapted result")
 		}
-		for i, r := range body.Results {
-			if !b.sameGo(tuple.Types[i], r) {
-				irNo("std call with a converted result")
-			}
-		}
 	}
 	// A generic body's instance (F1): each Go type parameter takes the
 	// call's type argument for the Ergo type parameter of its name, as the
 	// emitter's stdTypeArgs writes it; the body's Go types read with them.
 	targs, subst := b.stdTypeArgs(body, c, x)
+	if isTuple {
+		// Each result is the element's Go type, read as a single result
+		// is (below): spelled alike, or the runtime's at the instance
+		// (TakeAt's (T, []T), actor's shown (S, int), keyState's []byte
+		// as []uint8; CONV-RESULT).
+		for i, r := range body.Results {
+			if !b.sameGo(tuple.Types[i], r) && !b.sameRT(tuple.Types[i], r, subst, body.Package) {
+				irNo("std call with a converted result")
+			}
+		}
+	}
 	// The decoder takes an argument and a result of the runtime's Go type
 	// itself (types2.Identical), where Go text would also assign a
 	// defined type to its underlying one: each must be spelled alike.

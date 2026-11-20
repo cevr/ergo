@@ -1,0 +1,123 @@
+// triage sorts the entries of a log by the order -by names and prints
+// them, one per line.
+//
+//	triage                 the most severe first, then by host, then by line
+//	triage -by host        by host, then the most severe first, then by line
+//	triage -by count       each host and its number of entries, case-free
+//	triage -gen N          print a generated log of N entries
+//
+// Each line of the log on standard input is `SEVERITY HOST`, a severity of
+// debug, info, warn or error. The orders are package entry's providers of
+// cmp.Order, and slices.SortBy takes the one -by names: a copy of the
+// sort for each order calls its Compare directly. This binary is the only
+// place that chooses the providers: the host's streams and arguments.
+
+import flag
+import io
+import os
+import slices
+import strings
+import triage/entry
+
+let byFlag = flag.Choice("by", "severity", []string{"severity", "host", "count"}, "sort by `order`, or count hosts")
+let genFlag = flag.Int("gen", -1, "print a generated log of `n` entries")
+
+let set = flag.Set{
+	Name:  "triage",
+	Usage: "triage sorts a log's entries, the most severe first or by host.",
+	Flags: []flag.Flag{byFlag, genFlag},
+	Args:  []flag.ArgSpec{},
+}
+
+// read is the log's entries, in its order; a line that is not an entry
+// stops the triage.
+func read() []entry.Entry fails os.Exit needs io.Stdin {
+	let mut out = []entry.Entry{}
+	let mut n = 0
+	for line in io.Stdin.Lines() {
+		n += 1
+		if line == "" {
+			continue
+		}
+		let e = entry.Parse(line, n) catch {
+		case entry.Bad as b:
+			return os.Exit{Code: 1, Message: "triage: line \(b.Line): want SEVERITY HOST, got \"\(b.Text)\""}
+		}
+		out = out.Append(e)
+	}
+	out
+}
+
+// counted is each host of the entries and its count, one line each, sorted;
+// hosts are compared by entry.HostCase, each as first written.
+func counted(entries []entry.Entry) string {
+	let mut lines = []string{}
+	for host, n in entry.Counts(entries) {
+		lines = lines.Append(host + " \(n)\n")
+	}
+	strings.Join(slices.Sort(lines), "")
+}
+
+// report is the entries, one line each.
+func report(entries []entry.Entry) string {
+	let mut b = strings.NewBuilder()
+	for e in entries {
+		b.WriteString(entry.Format(e) + "\n")
+	}
+	b.String()
+}
+
+func run(args []string) fails os.Exit needs io.Stdout | io.Stdin {
+	let v = flag.Parse(set, args) catch {
+	case err:
+		try flag.Exit(err, flag.Usage(set))
+		return
+	}
+	let n = genFlag.Get(v)
+	if n >= 0 {
+		io.Stdout.Print(entry.Generate(n))
+		return
+	}
+	let entries = try read()
+	match byFlag.Get(v) {
+	case "host":
+		io.Stdout.Print(report(slices.SortBy(entries, entry.ByHost)))
+	case "count":
+		io.Stdout.Print(counted(entries))
+	case _:
+		io.Stdout.Print(report(slices.SortBy(entries, entry.BySeverity)))
+	}
+}
+
+func main() fails os.Exit needs Ambient {
+	with context { os.Process: os.NewHost(), io.Stdout: io.NewHost(), io.Stdin: io.NewStdin() } {
+		try run(os.Process.Args())
+	}
+}
+
+// The tests run run over scripted input and a Recorder, with no host.
+
+func ran(args []string, input string) string {
+	let out = io.NewRecorder()
+	with context { io.Stdout: out, io.Stdin: io.Input{Text: input} } {
+		run(args) catch {
+		case os.Exit as e:
+			out.Println("exit \(e.Code): \(e.Message)")
+		}
+	}
+	out.Text()
+}
+
+test SortsBySeverityThenHost {
+	let log = "info b\nerror b\ndebug a\nerror a\ninfo b\n"
+	assert ran([]string{}, log) == "error a 4\nerror b 2\ninfo b 1\ninfo b 5\ndebug a 3\n"
+	assert ran([]string{"-by", "host"}, log) == "error a 4\ndebug a 3\nerror b 2\ninfo b 1\ninfo b 5\n"
+}
+
+test CountsHostsWhateverTheirCase {
+	assert ran([]string{"-by", "count"}, "info Web-1\nerror db\nwarn WEB-1\ninfo web-1\n") == "Web-1 3\ndb 1\n"
+}
+
+test RefusesABadLine {
+	assert ran([]string{}, "info a\nfatal a\n") == "exit 1: triage: line 2: want SEVERITY HOST, got \"fatal a\"\n"
+}

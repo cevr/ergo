@@ -138,6 +138,11 @@ const (
 	Defect Status = "defect"
 	// Skipped: the obligation cannot run at check time; Reason says why.
 	Skipped Status = "skipped"
+	// Native: a law binding whose provider calls Go (README Gap 17). The
+	// evaluator runs no Go; the test binary's law case builds the
+	// provider and runs it (types.md, Laws 10; owner q277). Reason names
+	// the provider, and the result's replay is the command that runs it.
+	Native Status = "native"
 	// Incomplete: the budget ran out inside the obligation.
 	Incomplete Status = "incomplete"
 	// NotRun: an earlier defect or an exhausted budget stopped the run

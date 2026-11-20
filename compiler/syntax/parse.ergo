@@ -216,19 +216,19 @@ func fixedWords(k uint8) int {
 	if k == KLawDecl {
 		return 9
 	}
-	if k == KFuncDecl || k == KFuncType {
+	if k == KFuncDecl || k == KFuncType || k == KContextDecl {
 		return 7
 	}
-	if k == KContextDecl || k == KLawReach || k == KSliceExpr {
+	if k == KLawReach || k == KSliceExpr {
 		return 6
 	}
 	if k == KContextEntry || k == KCallExpr || k == KRangeStmt {
 		return 5
 	}
-	if k == KVarDecl || k == KVarSpec || k == KTestDecl || k == KCompositeLit || k == KMachineType || k == KIfStmt {
+	if k == KVarDecl || k == KVarSpec || k == KTestDecl || k == KCompositeLit || k == KMachineType || k == KIfStmt || k == KContextLit {
 		return 4
 	}
-	if k == KVariantSpec || k == KContextLit || k == KSwitchStmt || k == KTypeSwitchStmt {
+	if k == KVariantSpec || k == KSwitchStmt || k == KTypeSwitchStmt {
 		return 3
 	}
 	if k == KFieldList || k == KCatchArm || k == KCaseClause || k == KIndexExpr || k == KMapType || k == KCatchExpr || k == KInterfaceType || k == KTupleExpr {
@@ -253,7 +253,7 @@ func requiredMask(k uint8) int {
 		return 8 | 32
 	}
 	if k == KContextDecl {
-		return 4 | 32
+		return 4 | 64
 	}
 	if k == KTestDecl {
 		return 2 | 8
@@ -271,7 +271,7 @@ func requiredMask(k uint8) int {
 		return 1
 	}
 	if k == KContextLit {
-		return 4
+		return 8
 	}
 	if k == KFuncType {
 		return 8
@@ -299,7 +299,7 @@ func optionalMask(k uint8) int {
 		return 2 | 4 | 16 | 64
 	}
 	if k == KContextDecl {
-		return 8 | 16
+		return 8 | 16 | 32
 	}
 	if k == KTestDecl {
 		return 4
@@ -329,7 +329,7 @@ func optionalMask(k uint8) int {
 		return 8
 	}
 	if k == KContextLit {
-		return 1 | 2
+		return 1 | 2 | 4
 	}
 	if k == KFuncType {
 		return 16 | 32 | 64
@@ -579,6 +579,8 @@ let fragments = []string{
 	"type R int where 0 <= it && it < 9 implements Q\n",
 	"func q() { let v = m[(a, b)] }\n",
 	"type E { f (A, B), x int }\n",
+	"type K[T] { ~int | pkg.T, Label() string }\n",
+	"type H { m Map[string, int, Fnv] }\n",
 	"// doc\nfunc d[T ordered, E any, K comparable](f pure own func() int, xs [3]*T) T { -x }\n",
 }
 

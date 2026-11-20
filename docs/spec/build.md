@@ -85,6 +85,53 @@ compiler, the output deleted or replaced, a blob trimmed, two builds at once)
 against `ERGO_BUILD=full`: equal exits, check output and executable bytes
 after every step, and the least work the model allows.
 
+## Warm answer by tokens: `ergo check DIR/...`
+
+`ergo check DIR/...` with one shared load of its module keeps its answer by
+what a check reads, not by bytes (MONOREPO WS0; `cmd/ergo/checktree.go`).
+The answer is kept in the law-verdict store (`laws/v1`), not in a warm
+manifest.
+
+1. **The package key.** A package's key is the request's options, the
+   environment and the compiler (WarmKey's parts, with no request folder), its
+   import path, its own folder (a skipped obligation's replay command names
+   it), whether the load checked it as `main` or as its path, each file's
+   name and check text (`syntax.CheckText`: the token text, then each
+   comment's text with the token after it and the line breaks between them,
+   since the checker reads a binding's `// ergo:` lines by the line above a
+   declaration), and the keys of the local packages it imports. An edit
+   anywhere a package reaches changes its key; a layout edit (spaces, line
+   breaks away from a comment) keeps it, and a comment edit does not.
+2. **The request's manifest.** Under the request's folder and the same parts
+   it lists every other input the load read, by bytes (`ergo.mod`, `go.mod`,
+   `go.sum`, the law ledger, assets, folder listings, missing paths), the
+   packages the checks reached with their imports, and each package's with
+   work. The with budget is the one part of a check read from a file's size
+   (`check.WithLimit`): a hit needs each package's work to fit its files'
+   size now.
+3. **The answer printed again.** A kept envelope is printed with the
+   revision of the files as they are now, and each obligation's site where
+   its token now is (`syntax.TokenSites`; a site is kept as the ordinal of
+   the token it starts at, in the file that declares the test or law).
+4. **What is not kept.** A request with a failing package, a diagnostic, a
+   reason that names a site (`at FILE.ergo:LINE`, which a layout edit would
+   move), advice (it may quote the source), a site at no one token, a
+   package of a required
+   module, an answer that does not print again as it printed, and a run that
+   stored a verdict (its next run prints that verdict "cached").
+5. **All or nothing.** The request hits when its manifest holds and every
+   printed package's key finds its answer; any miss runs the shared load for
+   every package. Each package's answer is kept under its own key, so a
+   partial replay (WS0b) changes the lookup, not the store.
+   `ERGO_BUILD=full` and `ERGO_LAWCACHE=off` take the normal path.
+
+`TestCheckTreeAnswersByTokens` (`cmd/ergo`) runs seeded modules and edit
+scripts (none, layout, a comment, a body, a signature, a new file, a test, an
+imported package outside a sub-folder request): the answer equals the normal
+path's after every edit, and no file is parsed and no obligation evaluated
+exactly when nothing the request reaches changed in its tokens, comments or
+comments' line breaks.
+
 ## Pin archives
 
 What a pin compiles the same way on every machine ships built, so a cold
@@ -261,7 +308,9 @@ runs to the end of the line, and blank lines are ignored:
 ```
 file    = version { key } .
 version = "version" N .          // the first line; N = 1, 2, ...
-key     = "skip" FOLDER .        // version 1 knows this key only
+key     = "skip" FOLDER          // version 1 knows this key only
+        | "gen" NAME WORD { WORD }      // version 2 (Generators)
+        | "reads" NAME PATH { PATH } .  // version 2 (Generators)
 ```
 
 `FOLDER` is a clean, slash-separated folder below the root (no `..`, no
@@ -273,3 +322,109 @@ absent. Later versions only add keys; `skip` keeps its meaning in each.
 `TestWorkFileRefusesWhatItCannotRead` holds the refusals and
 `TestWorkspaceDiscoveryAgrees` the discovery, over seeded trees of
 modules.
+
+### Generators
+
+A **generator** writes files of the tree that are checked in: a lowered
+Go package, a codec, a snapshot, a ledger. Version 2 of `ergo.work`
+declares one in two keys, and nothing else about it is written down:
+
+- `gen NAME COMMAND...` names it (`NAME` is lower-case letters, digits
+  and `-`, starting with a letter, once per file) and gives its command:
+  `go run ./DIR ARGS...` or `go test ARGS... ./DIR ARGS...`, with one
+  argument naming the package as `./DIR`. The words are split at white
+  space and run with no shell. Another command is a foreign task (MONOREPO
+  WT2), refused here.
+- `reads NAME PATH...` names files and folders the generator reads that
+  its Go build does not hold (`PATH` as `FOLDER` above, existing or not),
+  after the `gen` line it is about; a folder counts with everything below
+  it. A generator may have several `reads` lines, or none.
+
+There is no key for outputs and none for the environment: the runner
+observes the outputs, and the Go environment is in every key.
+
+`ergo task gen [--check] [--fresh] [NAME...] [DIR]` runs the generators
+of the `ergo.work` at `DIR` (default `.`); `ergo task --list [--json]
+[DIR]` prints them with their edges and order (`internal/task`,
+`cmd/ergo/task.go`).
+
+A member's `ergo gen` packages are a generator with no line, named
+`MEMBER:gen` (`MEMBER` its folder): every package below the member (not
+in a nested member) whose first `.ergo` file starts with `ergo gen`'s
+header (`// Code generated by ergo gen KIND; DO NOT EDIT.` and the
+`// Contract PATH.NAME` or `// Type PATH.NAME.` line after it) is
+written again as `ergo gen KIND` writes it, from the contract in the
+folder above, in the process. Its inputs are every file and folder below
+the member and below each member it requires (the workspace's edges,
+transitively), and the identity of the `ergo` binary; its class is
+`derived`, since nothing in the key is declared by hand. Members come in
+the workspace's order (each after the members it requires), so a first
+run already respects the requires edges; after it, their order is by
+what they read, as for every generator.
+
+- **Inputs.** A generator reads its Go build, every file `go list -deps`
+  (with `-test` for `go test`) names below the root, Go, assembly,
+  header and embedded files of each package and its tests, and each
+  module's `go.mod` and `go.sum`; each such package's folder and the
+  folder of each embedded file, by the names it holds; the paths of its
+  `reads` lines, by content, and their folders by names; and the Go
+  environment (`go env GOVERSION GOOS GOARCH GOFLAGS CGO_ENABLED
+  GOEXPERIMENT GOAMD64 GOARM64`).
+- **Outputs** are the files whose stat (size, times, inode) a run
+  changed, and those of its last run that still exist. So a generator
+  writes each of its outputs on every run, the same bytes too (Go's
+  build cache keys on content, so an unchanged rewrite costs no build): a
+  generator that leaves an unchanged file alone shows that output, and
+  its edges, only once the file changes, and until then the passes run
+  again what read it.
+- **Order.** A generator runs after each one that writes a file it reads,
+  or a file in a folder it lists. The edges come from the generators'
+  last runs; a generator never run has none, so after each pass the
+  edges are read again and one whose inputs a later generator wrote runs
+  again, until a pass runs none. Once every generator has run, a pass
+  runs each at most once. Ties go by the order of the `gen` lines.
+  Generators that read each other's outputs (a cycle: a compiler's
+  generators, each built with the others' files) run in the order of
+  their `gen` lines, pass after pass, until a pass runs none of them;
+  `--list` names each cycle. A run settles in at most k+1 passes that
+  run something, k the number of generators in its largest cycle (1 with
+  no cycle: one pass to learn the edges, one in order); a generator that
+  still misses after them keeps changing what another reads, and the run
+  fails naming it rather than loop for ever.
+- **Hits.** A generator's result is kept (the law-verdict store, under its
+  own identity) under the content of its inputs after the run, with the
+  digest of each output; the next run's key is over the files its last
+  run read, so an edit that moves its Go build (an import, a new file in
+  a package folder) is itself in the key. A generator is a hit, and does
+  not run, when the key holds and every output hashes as kept. A failed
+  run is never kept. Each hit prints its class: `vouched: declared
+  reads`, since the key is only as complete as the `reads` lines.
+- **`--check`** writes nothing in the tree: at the first miss the tree is
+  copied (blocks shared where the file system can) and the generators
+  that miss run in the copy; the run fails naming each file the copy's
+  generators wrote that differs from the tree's. So it fails exactly when
+  a fresh regeneration would change a generated file, as far as the
+  `reads` lines are complete.
+- **`--fresh`** ignores hits in its first pass: every generator runs. When
+  a generator was a hit and the fresh run writes an output that differs
+  from the kept one, its `reads` lines are incomplete, and the run fails
+  naming it. Landings and batch heads run `ergo task gen --check
+  --fresh`; lanes may use hits.
+- **Budget.** With `$ERGO_BUDGET` set, the run takes `--jobs` cores (default
+  4) from the host budget once (`internal/budget`; a grant lent by a parent
+  `ergo budget` takes nothing) and gives each generator `GOMAXPROCS` and
+  the lent grant.
+
+`TestGenCheckIsFreshRegeneration` (`internal/task`) holds this, a seeded
+property over workspaces of generators that read data, list folders and
+read each other's outputs in a shuffled declaration order, and over edit
+scripts, against the reference "run every generator until nothing
+changes": `--check` writes nothing and is stale exactly where the
+reference changes a file, `gen` leaves the reference and runs each
+generator once and in order, a second `gen` runs none, and `--check
+--fresh` names a generator that reads a file it does not declare.
+
+`work.toml`'s `derived` lines say how `work derive` remakes a generated
+file after a merge; for a file a `gen` line writes, the line's `by` is
+`ergo task gen NAME`, so the merge tool and the runner run one
+declaration.

@@ -33,7 +33,6 @@ law SecretFramesHideTyping(codes []int) {
 				return false
 			}
 		case _:
-			s = s
 		}
 	}
 	true
@@ -63,7 +62,6 @@ law SelectStaysInRange(n int, codes []int) {
 				return true
 			}
 		case _:
-			s = s
 		}
 		if s.At < 0 || (len(options) == 0 && s.At != 0) || (len(options) > 0 && s.At >= len(options)) {
 			return false
@@ -135,7 +133,6 @@ law MarkedAnswerIsSorted(n int, codes []int) {
 				return true
 			}
 		case _:
-			s = s
 		}
 	}
 	true
