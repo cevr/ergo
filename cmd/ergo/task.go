@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -23,9 +24,11 @@ const taskHelp = `usage: ergo task --list [--json] [DIR]
 
 ergo task runs the generators of the workspace at DIR (default .) in the
 order their inputs and outputs give (docs/spec/build.md, Generators): each
-gen line of DIR's ergo.work. A generator whose inputs are unchanged since
-a run that held, and whose outputs still hash as that run wrote them, is
-a hit and does not run; the hit says its class (vouched: declared reads).
+gen line of DIR's ergo.work, and MEMBER:gen for each member holding a
+package ergo gen wrote. A generator whose inputs are unchanged since a
+run that held, and whose outputs still hash as that run wrote them, is a
+hit and does not run; the hit says its class (vouched: declared reads for
+a gen line, derived for a member's).
 
   --list    print the generators, the edges their last runs give
             (A before B: A writes a file B reads) and the order
@@ -84,7 +87,7 @@ func taskMain(ctx context.Context, args []string, stdout io.Writer) error {
 	dir := "."
 	var names []string
 	for _, a := range rest {
-		if strings.ContainsAny(a, "/.") {
+		if info, err := os.Stat(a); err == nil && info.IsDir() && !strings.Contains(a, ":") {
 			dir = a
 		} else {
 			names = append(names, a)
@@ -98,8 +101,15 @@ func taskMain(ctx context.Context, args []string, stdout io.Writer) error {
 	if err != nil {
 		return exitStatusError{code: 1, message: "ergo task: " + err.Error()}
 	}
-	if len(gens) == 0 {
-		return exitStatusError{code: 1, message: fmt.Sprintf("ergo task: %s holds no ergo.work gen line", dir)}
+	members, refused, err := memberNodes(root)
+	if err != nil {
+		return exitStatusError{code: 1, message: "ergo task: " + err.Error()}
+	}
+	for _, r := range refused {
+		fmt.Fprintf(stdout, "not a task: %s\n", r)
+	}
+	if len(gens) == 0 && len(members) == 0 {
+		return exitStatusError{code: 1, message: fmt.Sprintf("ergo task: %s holds no generator: no ergo.work gen line and no package ergo gen wrote", dir)}
 	}
 	var env []string
 	var release func()
@@ -109,7 +119,7 @@ func taskMain(ctx context.Context, args []string, stdout io.Writer) error {
 		}
 		defer release()
 	}
-	nodes, err := taskNodes(gens, names, env)
+	nodes, err := taskNodes(gens, members, names, env)
 	if err != nil {
 		return exitStatusError{code: 1, message: "ergo task: " + err.Error()}
 	}
@@ -134,9 +144,9 @@ func taskMain(ctx context.Context, args []string, stdout io.Writer) error {
 	return nil
 }
 
-// taskNodes are the nodes of the gen lines, only those named when names
-// is not empty.
-func taskNodes(gens []sketchfront.WorkGen, names, env []string) ([]task.Node, error) {
+// taskNodes are the nodes of the gen lines, then the members' derived
+// ones, only those named when names is not empty.
+func taskNodes(gens []sketchfront.WorkGen, members []task.Node, names, env []string) ([]task.Node, error) {
 	want := map[string]bool{}
 	for _, n := range names {
 		want[n] = true
@@ -152,6 +162,13 @@ func taskNodes(gens []sketchfront.WorkGen, names, env []string) ([]task.Node, er
 			return nil, fmt.Errorf("%s:%d: %v", sketchfront.WorkFile, g.Line, err)
 		}
 		nodes = append(nodes, n)
+	}
+	for _, m := range members {
+		if len(want) > 0 && !want[m.Name] {
+			continue
+		}
+		delete(want, m.Name)
+		nodes = append(nodes, m)
 	}
 	for n := range want {
 		return nil, fmt.Errorf("no gen line names %s", n)
@@ -201,6 +218,8 @@ func taskBudget(ctx context.Context, width int, root string) ([]string, func(), 
 		return nil, nil, err
 	}
 	env = []string{"GOMAXPROCS=" + strconv.Itoa(g.Width()), g.Env()}
+	// The members' gen nodes run in this process, in the grant too.
+	runtime.GOMAXPROCS(g.Width())
 	return env, g.Release, nil
 }
 
