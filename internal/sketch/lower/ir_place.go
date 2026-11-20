@@ -98,7 +98,9 @@ func (b *irBuilder) store(s *syntax.AssignStmt, op string) []*irStmt {
 				if op != "" {
 					irNo("int map entry op-assignment")
 				}
-				return append(b.fixEntry(lhs, to, pre), intMapStore(b.pos(s, s.Pos()), to, x))
+				// first, as for Go's map below: the target's own statements
+				// (a key's call that runs statements) run before the value's.
+				return append(append(first, b.fixEntry(lhs, to, pre)...), intMapStore(b.pos(s, s.Pos()), to, x))
 			}
 		}
 	}

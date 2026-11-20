@@ -14,6 +14,7 @@
 package ergoir
 
 import (
+	"fmt"
 	"strings"
 
 	"cmd/compile/internal/syntax"
@@ -164,14 +165,12 @@ func (c *ergoChecker) funcLit(x *ergoExpr) (syntax.Expr, types2.Type) {
 		c.info.Defs[name] = pv
 		ft.ParamList = append(ft.ParamList, field(name, pv.Type()))
 	}
-	for i := 0; i < sig0.Results().Len(); i++ {
-		ft.ResultList = append(ft.ResultList, field(nil, sig0.Results().At(i).Type()))
-	}
 	sig := types2.NewSignatureType(nil, nil, nil, types2.NewTuple(params...), sig0.Results(), false)
 	// The body is a function of its own: its returns are the literal's,
 	// and no loop or label of the enclosing body is in its scope.
-	sigS, loopsS, loopLabelsS, labelsS, gotosS := c.sig, c.loops, c.loopLabels, c.labels, c.gotos
-	c.sig, c.loops, c.loopLabels, c.labels, c.gotos = sig, nil, nil, nil, nil
+	sigS, loopsS, loopLabelsS, labelsS, gotosS, rangeFuncS := c.sig, c.loops, c.loopLabels, c.labels, c.gotos, c.rangeFunc
+	c.sig, c.loops, c.loopLabels, c.labels, c.gotos, c.rangeFunc = sig, nil, nil, nil, nil, false
+	defer func() { c.rangeFunc = rangeFuncS }()
 	before := c.nerr
 	body := &syntax.BlockStmt{List: c.stmts(x.Body), Rbrace: c.pos(x.End)}
 	body.SetPos(pos)
@@ -185,6 +184,28 @@ func (c *ergoChecker) funcLit(x *ergoExpr) (syntax.Expr, types2.Type) {
 	c.sig, c.loops, c.loopLabels, c.labels, c.gotos = sigS, loopsS, loopLabelsS, labelsS, gotosS
 	if failed {
 		return nil, nil
+	}
+	// A return in a range over a func becomes, in rangefunc.Rewrite, an
+	// assignment to the literal's results, which it names through the
+	// signature's scope (types2.Signature.RenameResult). A decoded
+	// signature has no scope, so the literal names them here, as
+	// RenameResult would: #rv1, #rv2, … (REGEX-ICE). Other literals keep
+	// unnamed results, as their Go text has them.
+	var results []*types2.Var
+	for i := 0; i < sig0.Results().Len(); i++ {
+		rt := sig0.Results().At(i).Type()
+		var name *syntax.Name
+		if c.rangeFunc {
+			rv := types2.NewParam(pos, c.pkg, fmt.Sprintf("#rv%d", i+1), rt)
+			name = syntax.NewName(pos, rv.Name())
+			ergoValue(name, rt, nil)
+			c.info.Defs[name] = rv
+			results = append(results, rv)
+		}
+		ft.ResultList = append(ft.ResultList, field(name, rt))
+	}
+	if results != nil {
+		sig = types2.NewSignatureType(nil, nil, nil, sig.Params(), types2.NewTuple(results...), false)
 	}
 	lit := &syntax.FuncLit{Type: ft, Body: body}
 	lit.SetPos(pos)
