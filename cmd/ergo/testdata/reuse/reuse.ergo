@@ -179,7 +179,7 @@ type Node { kids []int }
 
 type Mirror { nodes Map[int, Node] }
 
-func kidsOf(m *Mirror, id int) int {
+func kidsOf(m mut Mirror, id int) int {
 	match m.nodes.Get(id) {
 	case Some[Node] as v:
 		len(v.Value.kids)
@@ -230,7 +230,7 @@ func keepCard(s Card, k int) Card {
 
 type Pins { cards Map[int, Card] }
 
-func bump(p *Pins, key int, k int) {
+func bump(p mut Pins, key int, k int) {
 	match p.cards.Get(key) {
 	case Some[Card] as v:
 		p.cards[key] = keepCard(v.Value, k)
