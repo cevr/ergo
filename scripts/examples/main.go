@@ -418,6 +418,10 @@ func checkPorts(root string) []string {
 	for _, dir := range dirs {
 		rel, _ := filepath.Rel(root, dir)
 		name := filepath.Base(dir)
+		if name == "README.md" {
+			// The ports' guide (EX-NEUTRAL), not a port.
+			continue
+		}
 		if info, err := os.Stat(filepath.Join(root, "examples", name)); err != nil || !info.IsDir() {
 			problems = append(problems, fmt.Sprintf("%s: no program examples/%s; a port's provenance is named after its program", rel, name))
 			continue
