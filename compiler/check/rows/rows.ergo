@@ -21,8 +21,10 @@
 // the typer gave the call (compiler/check/expr), the capability a call
 // charges is the operation type the typer read its receiver as. Where it
 // cannot tell, it says nothing: a body or call it does not walk yet (a
-// function literal, a call with a trailing block, so every with and go
-// block, a catch's operand, a method's body, a law's and a test's), a row
+// call with a trailing block, so every with and go block; a context
+// literal's providers, charged at the with that names it; a catch's
+// operand; a law's and a test's body), a function literal whose row is
+// inferred, a row
 // whose elements are not all named types, and the failures the Go checker
 // also reads from values (a returned error value, a value tail that is not
 // a call, the covering rules of cover.go).
@@ -64,7 +66,7 @@ type walker {
 
 // Rows is the S101 and S102 diagnostics of one typed package, in the Go
 // checker's order.
-func Rows(s mut store.Store, k expr.Pkg, t expr.Typer) []diag.Diag {
+func Rows(s store.Store, k expr.Pkg, t expr.Typer) []diag.Diag {
 	let mut rows = 0
 	for p in k.Parsed {
 		if !p.Failed {
@@ -112,17 +114,17 @@ func Rows(s mut store.Store, k expr.Pkg, t expr.Typer) []diag.Diag {
 		let fd = syntax.FuncDeclOf(p.Tree, f.Decl)
 		match dense.Unpack(f.Body) {
 		case Some[dense.ID[syntax.Node]] as b:
-			let ops = store.OperandsOf(*s, f.Sig)
+			let ops = store.OperandsOf(s, f.Sig)
 			if len(ops) < 3 {
 				continue
 			}
 			w.file = f.File
-			w.errs = store.OperandsOf(*s, ops[len(ops)-2])
-			w.uses = store.OperandsOf(*s, ops[len(ops)-1])
-			w.known = []bool{simple(*s, w.errs), simple(*s, w.uses)}
+			w.errs = store.OperandsOf(s, ops[len(ops)-2])
+			w.uses = store.OperandsOf(s, ops[len(ops)-1])
+			w.known = []bool{simple(s, w.errs), simple(s, w.uses)}
 			w.tries = 0
 			w.sites = []site{}
-			body(&w, *s, k, b.Value)
+			body(&w, s, k, b.Value)
 			for d in report(&w, s, k, f, fd) {
 				let key = "\(d.File):\(d.Offset):\(d.Code):\(d.Message)"
 				if !isSome(seen.Get(key)) {
@@ -247,6 +249,11 @@ func walk(w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node]) {
 	let kind = syntax.KindOf(tr, x)
 	if kind == syntax.KFuncLit {
 		funcLit(w, s, k, x)
+		return
+	}
+	if kind == syntax.KContextLit {
+		// A local context's provider expressions are charged at each with
+		// that names it (D-E5), which this pass does not walk yet.
 		return
 	}
 	if kind == syntax.KCallExpr {
