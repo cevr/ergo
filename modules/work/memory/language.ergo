@@ -285,6 +285,9 @@ func serving(l Lines) Serving { Serving{s: l, i: l, c: l, status: 0, silent: fal
 func Started(sv Serving) int { sv.runs.Get() }
 
 func Run(sv Serving, c exec.Command) exec.Result fails exec.NotFound | exec.Denied | exec.Failed {
+	if StatesItsStatus(c) {
+		return exec.NotFound{Name: c.Name}
+	}
 	sv.runs.Set(sv.runs.Get() + 1)
 	if sv.status != 0 {
 		return exec.Result{Status: sv.status, Stdout: "", Stderr: "the plugin died\n"}

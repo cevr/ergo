@@ -1496,6 +1496,14 @@
       "to": "\tif false {\n",
       "rule": "clonefile is Unsupported off APFS, where cp -c copies silently (row HFSIsNotCloned; the Mac's u1-mac.sh runs the whole new on HFS+).",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "b24-fake-answers-unmodelled-script", "origin": "wf10 WORK-B24-FALLOUT",
+      "file": "modules/work/memory/hooks.ergo",
+      "from": "\tstrings.HasPrefix(lines[len(lines)-1], \"exit \")\n",
+      "to": "\tfalse && strings.HasPrefix(lines[len(lines)-1], \"exit \")\n",
+      "rule": "A memory fake that does not model a script stating its own status answers exec.NotFound, never status 0: exec.Runner.ShellRunsAsWritten for Runner, Serving and PackageManager.",
+      "anchor": {"tests": ["examples: modules/work"]}
     }
   ]
 }
