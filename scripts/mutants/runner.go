@@ -326,6 +326,12 @@ func newEngine(cfg Config) (*engine, error) {
 	if inside(cfg.Work, cfg.Root) {
 		return nil, fmt.Errorf("work directory %s is inside the checkout %s", cfg.Work, cfg.Root)
 	}
+	// The copies are made under the work directory, each emptied first
+	// (copyTree) and restored by removing what the checkout lacks
+	// (restoreUnder): a checkout inside it could be one of them.
+	if inside(cfg.Root, cfg.Work) {
+		return nil, fmt.Errorf("the checkout %s is inside the work directory %s", cfg.Root, cfg.Work)
+	}
 	mod, err := os.ReadFile(filepath.Join(cfg.Root, "go.mod"))
 	if err != nil {
 		return nil, err
