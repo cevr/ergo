@@ -89,6 +89,14 @@ func TestIRInlineMatchesSource(t *testing.T) {
 		if lower.IRInlineOn() && lower.IRKnownOn() && rep.KnownVariants < 3 {
 			t.Errorf("seed %d: only %d matches on an inlined call built their union in place\n%s", seed, rep.KnownVariants, replay)
 		}
+		// FAIL-INLINE: fetch's and the leaf parity's failures jump to
+		// their arms; parity is copied only for that jump.
+		if lower.IRInlineOn() && lower.IRFailJumpOn() && rep.FailJumps < 2 {
+			t.Errorf("seed %d: only %d inlined failures jumped to their catch arm\n%s", seed, rep.FailJumps, replay)
+		}
+		if lower.IRInlineOn() && lower.IRFailJumpOn() && rep.FailLeaves == 0 {
+			t.Errorf("seed %d: the fallible leaf parity was not copied for its failure's jump\n%s", seed, replay)
+		}
 		if lower.IRDropOn() && rep.Dropped == 0 {
 			t.Errorf("seed %d: no discarded call named the variant with no result\n%s", seed, replay)
 		}

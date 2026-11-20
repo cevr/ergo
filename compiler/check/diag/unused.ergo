@@ -1,0 +1,241 @@
+import compiler/check/bind
+import compiler/check/store
+import compiler/syntax
+import dense
+import go unicode
+import go unicode/utf8
+import slices
+import strings
+
+// Unused is S110 for the package's unread locals and imports, in the Go
+// checker's order (rows.go reportUnused, match.go unusedBindings,
+// handlers.go, decl.go checkUnusedImports):
+//   - "NAME is declared and not used" at a local's name: a name a let or a
+//     range binds that no row of the package reads. A parameter, a
+//     type parameter and an operation's name are read by their callers;
+//     `_` binds nothing (bind declares no local for it).
+//   - "the binding NAME is read nowhere in its arm; …" at a name a match
+//     or catch arm's first pattern binds that no row reads: "write _ in
+//     its place", "drop `as NAME`" for an as-pattern's name, "write case
+//     _" for a catch arm's rest (`case err:`); a capitalised name adds
+//     that no type is so named. A case's later patterns bind the same
+//     names, and a read through any of them reads the first's.
+//   - "package NAME is imported and not used" at an import: a name the
+//     import binds that no row of its file reads. An import reaches only
+//     its own file (the Go checker's file scope). An import of a path in
+//     missing (no package answers it) has its own diagnostic and counts
+//     as read, as does an alias with no name clash (S108: the alias is
+//     only for a clash).
+//
+// Bind decides both: a read of a local resolves to its row (Declared),
+// and a name of an import resolves outside the package, by its text.
+func Unused(files []bind.File, s store.Store, u bind.Uses, ps bind.Parents, missing []string) []Diag {
+	let mut total = 0
+	for file in files {
+		if !file.Parsed.Failed {
+			total = total + syntax.NumNodes(file.Parsed.Tree)
+		}
+	}
+	// read[n] is whether a row reads the local that row n declares.
+	let mut read = slices.Repeat([]bool{false}, total)
+	let mut locals = []dense.ID[store.PNode]{}
+	// The texts each file's rows read outside the package, by file.
+	let mut outside = []Map[string, bool]{}
+	for f, file in files {
+		let mut names = Map[string, bool]{}
+		let p = file.Parsed
+		if !p.Failed {
+			for i in 0..syntax.NumNodes(p.Tree) {
+				let id = syntax.NodeAt(p.Tree, i)
+				let n = bind.PNodeOf(ps, f, id)
+				match bind.ResolutionOf(u, ps, n) {
+				case bind.Declared as d:
+					read[dense.Index(d.At)] = true
+				case bind.Outside:
+					names[textAt(p, id)] = true
+				case bind.Imported:
+					// The selector's name; the import's own name is the
+					// row before it, which resolves outside.
+				case bind.NotUse:
+					match bind.DefOf(u, n) {
+					case bind.Local:
+						locals = locals.Append(n)
+					case _:
+					}
+				}
+			}
+		}
+		outside = outside.Append(names)
+	}
+	let mut out = []Diag{}
+	for n in locals {
+		if read[dense.Index(n)] {
+			continue
+		}
+		let (f, row) = bind.RowOf(ps, n)
+		let p = files[f].Parsed
+		let id = syntax.NodeAt(p.Tree, row)
+		let name = textAt(p, id)
+		let arm = "the binding \(name) is read nowhere in its arm; "
+		let tail = "\(hint(name)) (rows.md, Totality 1)"
+		let message = match binderOf(files, ps, n) {
+		case Let:
+			"\(name) is declared and not used"
+		case ArmName:
+			arm + "write _ in its place" + tail
+		case ArmAs:
+			arm + "drop `as \(name)`" + tail
+		case CatchRest:
+			arm + "write case _" + tail
+		case Unreported:
+			continue
+		}
+		out = out.Append(Diag{File: f, Offset: syntax.NodePos(p, id), Length: len(name), Code: CodeUnused, Message: message})
+	}
+	for f, file in files {
+		let ims = imports(file.Parsed)
+		for im in ims {
+			if im.name == "_" || im.name == "." || isSome(outside[f].Get(im.name)) || (!im.isGo && slices.Contains(missing, im.path)) || refusedAlias(s, ims, im) {
+				continue
+			}
+			out = out.Append(Diag{File: f, Offset: im.at, Length: im.end - im.at, Code: CodeUnused, Message: "package \(im.name) is imported and not used"})
+		}
+	}
+	Sorted(out)
+}
+
+func isSome[T](o Option[T]) bool {
+	match o {
+	case Some[T]:
+		true
+	case None:
+		false
+	}
+}
+
+// Binder is what binds a local, which decides its unused message: a let
+// or a range; a name of a match or catch arm's first pattern, an
+// as-pattern's name there, or a catch arm's rest; or nothing reported (a
+// parameter, a later pattern's name, an as-pattern in a let).
+type Binder = Let{} | ArmName{} | ArmAs{} | CatchRest{} | Unreported{}
+
+// binderOf is what binds the local that row n declares: the nearest row
+// above it that decides. A parameter's is its function type (of a
+// declaration, of a literal, which a let may hold, or written in a
+// pattern's type argument), before any let or arm.
+func binderOf(files []bind.File, ps bind.Parents, n dense.ID[store.PNode]) Binder {
+	let (nf, nrow) = bind.RowOf(ps, n)
+	let t = files[nf].Parsed.Tree
+	// named: the local is an as-pattern's name.
+	let mut named = false
+	// from is the row the climb came from: at an arm, its pattern.
+	let mut from = n
+	for {
+		match dense.Unpack(bind.ParentOf(ps, from)) {
+		case Some[dense.ID[store.PNode]] as up:
+			let (_, row) = bind.RowOf(ps, up.Value)
+			let id = syntax.NodeAt(t, row)
+			let k = syntax.KindOf(t, id)
+			if k == syntax.KVarSpec || k == syntax.KRangeStmt {
+				return if named { Unreported } else { Let }
+			}
+			if k == syntax.KFuncType {
+				return Unreported
+			}
+			if k == syntax.KAsPattern {
+				named = named || syntax.AsPatternOf(t, id).Name == syntax.NodeAt(t, nrow)
+			}
+			if k == syntax.KCaseClause || k == syntax.KCatchArm {
+				let pats = if k == syntax.KCaseClause { syntax.CaseClauseOf(t, id).List } else { syntax.CatchArmOf(t, id).Types }
+				let (_, prow) = bind.RowOf(ps, from)
+				if syntax.Len(pats) == 0 || syntax.Item(t, pats, 0) != syntax.NodeAt(t, prow) {
+					return Unreported
+				}
+				if named {
+					return ArmAs
+				}
+				return if k == syntax.KCatchArm && from == n { CatchRest } else { ArmName }
+			}
+			from = up.Value
+		case None:
+			return Unreported
+		}
+	}
+}
+
+// hint is what a capitalised binding's message adds (match.go
+// capitalisedBinderHint): the name looks like a type's, but no type is
+// named so.
+func hint(name string) string {
+	let (r, _) = utf8.DecodeRuneInString(name)
+	if unicode.IsUpper(r) { "; no type is named \(name), so the pattern binds a new name" } else { "" }
+}
+
+// refusedAlias is whether im is an alias the Go checker refuses (decl.go
+// checkAliases): its path's last element, the name the import would bind
+// without it, is a name, is no package-level declaration's and no other
+// import of the file binds it.
+func refusedAlias(s store.Store, ims []anImport, im anImport) bool {
+	if !im.alias {
+		return false
+	}
+	let sc = syntax.Scan(im.last)
+	if sc.Failed || syntax.NumToks(sc.Toks) < 1 || syntax.Kind(sc.Toks, syntax.TokAt(sc.Toks, 0)) != syntax.Ident || syntax.End(im.last, syntax.Ident, 0) != len(im.last) {
+		return false
+	}
+	let k = store.KindOfName(s, im.last)
+	if k != 0 && k != store.KindPkgName {
+		return false
+	}
+	for other in ims {
+		if other.at != im.at && other.name == im.last {
+			return false
+		}
+	}
+	true
+}
+
+// anImport is an import of a file: the name it binds and the span the Go
+// checker reports it at (ImportSpec.Pos: the name's for a named, dot or
+// Go import, else the path's; to the path's end).
+type anImport { name string, last string, path string, isGo bool, alias bool, at int, end int }
+
+// imports is the file's imports, in source order.
+func imports(p syntax.Parsed) []anImport {
+	let mut out = []anImport{}
+	if p.Failed {
+		return out
+	}
+	match syntax.ViewOf(p.Tree, syntax.Root(p.Tree)) {
+	case syntax.File as root:
+		for i in 0..syntax.Len(root.Decls) {
+			let d = syntax.Item(p.Tree, root.Decls, i)
+			if syntax.KindOf(p.Tree, d) != syntax.KImportDecl {
+				continue
+			}
+			let spec = syntax.ImportDeclOf(p.Tree, d).Spec
+			if syntax.KindOf(p.Tree, spec) != syntax.KImportSpec {
+				continue
+			}
+			let is = syntax.ImportSpecOf(p.Tree, spec)
+			let path = strings.TrimRight(strings.TrimLeft(textAt(p, is.Path), "\""), "\"")
+			let last = path[strings.LastIndex(path, "/")+1 : len(path)]
+			let end = syntax.NodeEnd(p, is.Path)
+			match dense.Unpack(is.Name) {
+			case Some[dense.ID[syntax.Node]] as nm:
+				let alias = textAt(p, nm.Value)
+				let name = if alias == "go" { last } else { alias }
+				out = out.Append(anImport{name: name, last: last, path: path, isGo: alias == "go", alias: alias != "go", at: syntax.NodePos(p, nm.Value), end: end})
+			case None:
+				// import go PATH: the go word is its NamePos, with no name.
+				if is.NamePos >= 0 && syntax.TokKind(p, is.NamePos) == syntax.Go {
+					out = out.Append(anImport{name: last, last: last, path: path, isGo: true, alias: false, at: syntax.TokPos(p, is.NamePos), end: end})
+				} else {
+					out = out.Append(anImport{name: last, last: last, path: path, isGo: false, alias: false, at: syntax.NodePos(p, is.Path), end: end})
+				}
+			}
+		}
+	case _:
+	}
+	out
+}

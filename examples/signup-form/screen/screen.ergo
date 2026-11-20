@@ -33,7 +33,7 @@ let CheckingText = "Checking..."
 let RefusedText = "Sorry, the list could not take the subscription. Please try again."
 
 // Screen is the form.
-func Screen(f *ui.Frame[subscribe.Signal], s subscribe.Form) {
+func Screen(f mut ui.Frame[subscribe.Signal], s subscribe.Form) {
 	let sending = s.Stage == subscribe.Sending
 	ui.OnKey(f, func(k ui.KeyPress) Option[subscribe.Signal] {
 		if k.Name == "Enter" { Some{Value: subscribe.Submitted} } else { None }
@@ -67,7 +67,7 @@ func Screen(f *ui.Frame[subscribe.Signal], s subscribe.Form) {
 
 // field is a text field named label with text, described by said (none
 // when empty); a text typed in it sends edit(text).
-func field(f *ui.Frame[subscribe.Signal], label string, text string, said string, edit own func(t string) subscribe.Signal) {
+func field(f mut ui.Frame[subscribe.Signal], label string, text string, said string, edit own func(t string) subscribe.Signal) {
 	ui.Fieldset(f, false, said) {
 		ui.Input(f, text, label, edit)
 	}

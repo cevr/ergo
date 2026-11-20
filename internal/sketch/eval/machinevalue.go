@@ -119,7 +119,7 @@ func (in *interp) machineOption(to rtype, n *check.Named, name string, fn *check
 			if t.fields[fieldIndex(t.t, "In")].(int64) <= 0 {
 				return nil, fr.unsupported(at, "a machine timer that is not positive, whose defect text the Go build formats")
 			}
-			if check.IsStdEvery(t.t) {
+			if check.IsEvery(t.t) {
 				tv, ab := in.everyTimeout(fr, at, fn, result, t)
 				if ab != nil {
 					return nil, ab

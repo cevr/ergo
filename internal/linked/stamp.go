@@ -57,7 +57,9 @@ func InputsDigest(root string) (string, error) {
 	}
 	files = append(files, filepath.Join(root, "go.mod"))
 	for _, p := range Packages {
-		dir := filepath.Join(root, filepath.FromSlash(p.Dir()), "ergo")
+		// Its Ergo module: internal/linked/<name>/ergo, or its Source
+		// (the self-hosted compiler's module, compiler/).
+		dir := filepath.Join(root, filepath.FromSlash(p.ModuleDir()))
 		err := filepath.WalkDir(dir, func(f string, d fs.DirEntry, err error) error {
 			if err != nil {
 				return err

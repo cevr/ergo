@@ -1,0 +1,433 @@
+import strconv
+import strings
+import utf8
+
+// writer is the state of one Write: the file it reads and the text so far.
+type writer { file File, b strings.Builder }
+
+// Write is the IR file of file as the Go IR builder writes it:
+// encoding/json's Marshal of the builder's irFile, byte for byte. IR it
+// cannot read fails Malformed at the first row or word that is wrong.
+func Write(file File) string fails Malformed {
+	if len(file.Strs) == 0 || len(file.Strs[0]) != 0 {
+		return Malformed{At: 0, Why: "Strs[0] is not \"\""}
+	}
+	let mut w = writer{file: file, b: strings.NewBuilder()}
+	w.b.WriteString("{\"v\":")
+	w.b.WriteString(strconv.FormatInt(file.V, 10))
+	w.b.WriteString(",\"files\":")
+	if file.FilesNil {
+		w.b.WriteString("null")
+	} else {
+		w.b.WriteByte('[')
+		for i in 0..len(file.Files) {
+			if i > 0 {
+				w.b.WriteByte(',')
+			}
+			w.b.WriteString(Quote(file.Files[i]))
+		}
+		w.b.WriteByte(']')
+	}
+	w.b.WriteString(",\"funcs\":")
+	if file.FuncsNil {
+		w.b.WriteString("null")
+	} else {
+		w.b.WriteByte('[')
+		for i in 0..len(file.Funcs) {
+			if i > 0 {
+				w.b.WriteByte(',')
+			}
+			try function(&w, i)
+		}
+		w.b.WriteByte(']')
+	}
+	if len(file.Shared) > 0 {
+		w.b.WriteString(",\"shared\":[")
+		for i in 0..len(file.Shared) {
+			if i > 0 {
+				w.b.WriteByte(',')
+			}
+			w.b.WriteString(Quote(file.Shared[i]))
+		}
+		w.b.WriteByte(']')
+	}
+	w.b.WriteByte('}')
+	w.b.String()
+}
+
+// WriteFunc is Funcs[fi] as Write writes it inside the file's text.
+func WriteFunc(file File, fi int) string fails Malformed {
+	if fi < 0 || fi >= len(file.Funcs) {
+		return Malformed{At: fi, Why: "no function"}
+	}
+	let mut w = writer{file: file, b: strings.NewBuilder()}
+	try function(&w, fi)
+	w.b.String()
+}
+
+// text is Strs[id], or Malformed past the end.
+func text(w mut writer, id uint32) string fails Malformed {
+	if int(id) >= len(w.file.Strs) {
+		return Malformed{At: int(id), Why: "no text " + strconv.Itoa(int(id))}
+	}
+	w.file.Strs[int(id)]
+}
+
+// pos writes a position as Go writes [3]int.
+func pos(w mut writer, a uint32, b uint32, c uint32) {
+	w.b.WriteByte('[')
+	w.b.WriteString(strconv.Itoa(int(a)))
+	w.b.WriteByte(',')
+	w.b.WriteString(strconv.Itoa(int(b)))
+	w.b.WriteByte(',')
+	w.b.WriteString(strconv.Itoa(int(c)))
+	w.b.WriteByte(']')
+}
+
+// function writes Funcs[fi] as Go writes an irFunc.
+func function(w mut writer, fi int) fails Malformed {
+	w.b.WriteString("{\"name\":")
+	let name = try text(w, w.file.Funcs[fi].Name)
+	w.b.WriteString(Quote(name))
+	w.b.WriteString(",\"pos\":")
+	let p = w.file.Funcs[fi].Pos
+	pos(w, p.File, p.Line, p.Col)
+	w.b.WriteString(",\"end\":")
+	let e = w.file.Funcs[fi].End
+	pos(w, e.File, e.Line, e.Col)
+	let nl = len(w.file.Funcs[fi].Locals)
+	if nl > 0 {
+		w.b.WriteString(",\"locals\":[")
+		for i in 0..nl {
+			if i > 0 {
+				w.b.WriteByte(',')
+			}
+			let l = w.file.Funcs[fi].Locals[i]
+			let ln = try text(w, l.Name)
+			let lt = try text(w, l.Type)
+			w.b.WriteString("{\"name\":")
+			w.b.WriteString(Quote(ln))
+			w.b.WriteString(",\"type\":")
+			w.b.WriteString(Quote(lt))
+			w.b.WriteString(",\"pos\":")
+			pos(w, l.Pos.File, l.Pos.Line, l.Pos.Col)
+			w.b.WriteByte('}')
+		}
+		w.b.WriteByte(']')
+	}
+	w.b.WriteString(",\"body\":")
+	let roots = w.file.Funcs[fi].Body.Roots
+	if roots == 0 {
+		w.b.WriteString("null")
+	} else {
+		try rows(w, fi, roots, TStmt)
+	}
+	w.b.WriteByte('}')
+}
+
+// extra is Funcs[fi].Body.Extra[at], or Malformed past the end. Offset 0
+// is never a list or a position.
+func extra(w mut writer, fi int, at int) uint32 fails Malformed {
+	if at <= 0 || at >= len(w.file.Funcs[fi].Body.Extra) {
+		return Malformed{At: at, Why: "past the extra pool"}
+	}
+	w.file.Funcs[fi].Body.Extra[at]
+}
+
+// rows writes the row list at Extra offset q, rows of struct type t; an
+// id of 0 is a nil element, written null.
+func rows(w mut writer, fi int, q uint32, t uint8) fails Malformed {
+	let n = int(try extra(w, fi, int(q)))
+	w.b.WriteByte('[')
+	for i in 0..n {
+		if i > 0 {
+			w.b.WriteByte(',')
+		}
+		let id = try extra(w, fi, int(q)+1+i)
+		if id == 0 {
+			w.b.WriteString("null")
+		} else {
+			try row(w, fi, int(id), t)
+		}
+	}
+	w.b.WriteByte(']')
+}
+
+// row writes row id of Funcs[fi]'s body, which must be of struct type t,
+// as encoding/json writes the struct: every field in the type's order but
+// those omitempty drops, a field outside the kind's slots being Go's zero.
+func row(w mut writer, fi int, id int, t uint8) fails Malformed {
+	if id <= 0 || id > len(w.file.Funcs[fi].Body.Kind) {
+		return Malformed{At: id, Why: "no row"}
+	}
+	let c = w.file.Funcs[fi].Body.Kind[id-1]
+	if int(c) >= NumKinds() || c == 0 {
+		return Malformed{At: id, Why: "kind " + strconv.Itoa(int(c))}
+	}
+	let kd = KindOf(c)
+	if kd.Class != t {
+		return Malformed{At: id, Why: "kind " + kd.Name + " where its struct type is not the field's"}
+	}
+	let fs = Fields(t)
+	let ns = len(kd.Slots)
+	let mut si = 0
+	let mut next = byte('{')
+	for j in 0..len(fs) {
+		let fd = fs[j]
+		let mut v = uint32(0)
+		if si < ns && int(kd.Slots[si]) == j {
+			v = try Slot(&w.file.Funcs[fi].Body, id, si, ns)
+			si += 1
+		}
+		if fd.Omit {
+			let none = try empty(w, fi, fd.Kind, v)
+			if none {
+				continue
+			}
+		}
+		w.b.WriteByte(next)
+		next = byte(',')
+		w.b.WriteString(fd.Key)
+		try value(w, fi, id, fd, kd, v)
+	}
+	w.b.WriteByte('}')
+}
+
+// empty reports whether a field of kind k whose slot word is v holds what
+// omitempty drops: "", 0, false, nil or an empty list.
+func empty(w mut writer, fi int, k uint8, v uint32) bool fails Malformed {
+	if v == 0 {
+		return true
+	}
+	match k {
+	case 1:
+		let s = try text(w, v)
+		len(s) == 0
+	case 8, 9, 10:
+		let n = try extra(w, fi, int(v))
+		n == 0
+	case _:
+		false
+	}
+}
+
+// value writes the field fd of row id, whose slot word is v (0 when the
+// kind has no slot for it).
+func value(w mut writer, fi int, id int, fd Field, kd Kind, v uint32) fails Malformed {
+	match fd.Kind {
+	case 11:
+		w.b.WriteString(kd.Quoted)
+	case 12:
+		pos(w, w.file.Funcs[fi].Body.File[id-1], w.file.Funcs[fi].Body.Line[id-1], w.file.Funcs[fi].Body.Col[id-1])
+	case 1:
+		let s = try text(w, v)
+		w.b.WriteString(Quote(s))
+	case 2:
+		w.b.WriteString(strconv.Itoa(int(int32(v))))
+	case 5:
+		if v == 0 {
+			w.b.WriteString("null")
+		} else {
+			w.b.WriteString(strconv.Itoa(int(v) - 1))
+		}
+	case 3:
+		if v != 0 {
+			w.b.WriteString("true")
+		} else {
+			w.b.WriteString("false")
+		}
+	case 4, 6:
+		if v == 0 {
+			if fd.Kind == FPos {
+				w.b.WriteString("[0,0,0]")
+			} else {
+				w.b.WriteString("null")
+			}
+		} else {
+			let a = try extra(w, fi, int(v))
+			let b = try extra(w, fi, int(v)+1)
+			let c = try extra(w, fi, int(v)+2)
+			pos(w, a, b, c)
+		}
+	case 7:
+		if v == 0 {
+			w.b.WriteString("null")
+		} else {
+			try row(w, fi, int(v), fd.Of)
+		}
+	case 8:
+		if v == 0 {
+			w.b.WriteString("null")
+		} else {
+			try rows(w, fi, v, fd.Of)
+		}
+	case _:
+		if v == 0 {
+			w.b.WriteString("null")
+		} else {
+			try list(w, fi, fd.Kind, v)
+		}
+	}
+}
+
+// list writes the Strs or Ints list at Extra offset q.
+func list(w mut writer, fi int, k uint8, q uint32) fails Malformed {
+	let n = int(try extra(w, fi, int(q)))
+	w.b.WriteByte('[')
+	for i in 0..n {
+		if i > 0 {
+			w.b.WriteByte(',')
+		}
+		let e = try extra(w, fi, int(q)+1+i)
+		if k == FStrs {
+			let s = try text(w, e)
+			w.b.WriteString(Quote(s))
+		} else {
+			w.b.WriteString(strconv.Itoa(int(int32(e))))
+		}
+	}
+	w.b.WriteByte(']')
+}
+
+let hexDigits = "0123456789abcdef"
+
+// Quote is s as encoding/json writes a string with HTML escaping on (Go's
+// default) since Go 1.25's jsonv2 (internal/jsonwire.AppendQuote, the
+// default of the pinned Go 1.27): between double quotes; \" and \\; \b,
+// \f, \n, \r and \t; any other byte below 0x20 and <, > and & as \u00xx;
+// each byte of an invalid UTF-8 sequence as the bytes of U+FFFD (Go's v1
+// encoder wrote the escape \ufffd); U+2028 and U+2029 as \u2028 and
+// \u2029. Every other byte is copied.
+func Quote(s string) string {
+	let mut b = strings.NewBuilder()
+	b.Grow(len(s) + 2)
+	b.WriteByte('"')
+	let mut start = 0
+	let mut i = 0
+	let n = len(s)
+	for i < n {
+		let c = s[i]
+		if c < 0x80 {
+			if c >= 0x20 && c != '"' && c != '\\' && c != '<' && c != '>' && c != '&' {
+				i += 1
+				continue
+			}
+			b.WriteString(strings.Slice(s, start, i))
+			match c {
+			case '"', '\\':
+				b.WriteByte('\\')
+				b.WriteByte(c)
+			case 0x08:
+				b.WriteString("\\b")
+			case 0x0C:
+				b.WriteString("\\f")
+			case '\n':
+				b.WriteString("\\n")
+			case '\r':
+				b.WriteString("\\r")
+			case '\t':
+				b.WriteString("\\t")
+			case _:
+				b.WriteString("\\u00")
+				b.WriteByte(hexDigits[int(c>>4)])
+				b.WriteByte(hexDigits[int(c&0xF)])
+			}
+			i += 1
+			start = i
+			continue
+		}
+		let end = if i+4 < n { i + 4 } else { n }
+		let d = utf8.DecodeRuneInString(strings.Slice(s, i, end))
+		if d.Rune == 0xFFFD && d.Size == 1 {
+			b.WriteString(strings.Slice(s, start, i))
+			b.WriteByte(0xEF)
+			b.WriteByte(0xBF)
+			b.WriteByte(0xBD)
+			i += 1
+			start = i
+			continue
+		}
+		if d.Rune == 0x2028 || d.Rune == 0x2029 {
+			b.WriteString(strings.Slice(s, start, i))
+			b.WriteString("\\u202")
+			b.WriteByte(hexDigits[int(d.Rune&0xF)])
+			i += d.Size
+			start = i
+			continue
+		}
+		i += d.Size
+	}
+	b.WriteString(strings.Slice(s, start, n))
+	b.WriteByte('"')
+	b.String()
+}
+
+// QuoteCopiesSafeText: a text of letters, digits, spaces and the other
+// printable ASCII bytes but " \ < > & is copied between double quotes.
+law QuoteCopiesSafeText(s string) {
+	let mut safe = strings.NewBuilder()
+	for i in 0..len(s) {
+		let c = s[i]
+		if c >= 0x20 && c < 0x7F && c != '"' && c != '\\' && c != '<' && c != '>' && c != '&' {
+			safe.WriteByte(c)
+		}
+	}
+	let t = safe.String()
+	Quote(t) == "\""+t+"\""
+}
+
+// QuoteIsSafe: the quoted text of any s is valid UTF-8, starts and ends
+// with a double quote, and holds no byte below 0x20, no <, > or & and no
+// double quote but an escaped one.
+law QuoteIsSafe(s string) {
+	let q = Quote(s)
+	let mut ok = utf8.ValidString(q) && len(q) >= 2 && q[0] == '"' && q[len(q)-1] == '"'
+	let mut i = 1
+	for i < len(q)-1 {
+		let c = q[i]
+		if c == '\\' {
+			i += 2
+			continue
+		}
+		ok = ok && c >= 0x20 && c != '"' && c != '<' && c != '>' && c != '&'
+		i += 1
+	}
+	ok && i == len(q)-1
+}
+
+// WriteZeroesUnslottedFields: a statement of a kind with no slots is
+// written with its kind, its position and the three positions that are
+// not omitempty as Go's zero, and nothing else; a file of no functions
+// writes Go's nil and empty lists apart.
+law WriteZeroesUnslottedFields(line uint32) {
+	let mut body = Body{
+		Kind:  []uint8{0},
+		A:     []uint32{0},
+		B:     []uint32{0},
+		File:  []uint32{0},
+		Line:  []uint32{line},
+		Col:   []uint32{3},
+		Extra: []uint32{0, 1, 1},
+		Roots: 1,
+	}
+	let mut cont = 0
+	for c in 1..NumKinds() {
+		if KindOf(uint8(c)).Name == "continue" {
+			cont = c
+		}
+	}
+	body.Kind[0] = uint8(cont)
+	let fn = Func{Name: 0, Pos: Pos{File: 0, Line: 1, Col: 1}, End: Pos{File: 0, Line: 2, Col: 1}, Locals: []Local{}, Body: body}
+	let file = File{V: 1, Files: []string{}, FilesNil: false, Funcs: []Func{fn}, FuncsNil: false, Shared: []string{}, Strs: []string{""}}
+	let empty = File{V: 0, Files: []string{}, FilesNil: true, Funcs: []Func{}, FuncsNil: false, Shared: []string{}, Strs: []string{""}}
+	let a = Write(file) catch {
+	case Malformed:
+		return false
+	}
+	let b = Write(empty) catch {
+	case Malformed:
+		return false
+	}
+	let stmt = "{\"k\":\"continue\",\"pos\":[0," + strconv.Itoa(int(line)) + ",3],\"end\":[0,0,0],\"epos\":[0,0,0],\"eend\":[0,0,0]}"
+	a == "{\"v\":1,\"files\":[],\"funcs\":[{\"name\":\"\",\"pos\":[0,1,1],\"end\":[0,2,1],\"body\":["+stmt+"]}]}" && b == "{\"v\":0,\"files\":null,\"funcs\":[]}"
+}

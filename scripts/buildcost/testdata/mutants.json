@@ -1,0 +1,104 @@
+{
+  "about": "scripts/buildcost's mutant ledger: the TPROBE meter (tests.go), its verdict rule and its guards. TestProbeVerdictRule and TestProbeEvidenceRule run in process and build nothing.",
+  "mutants": [
+    {
+      "name": "tprobe-verdict-ignores-coverage",
+      "origin": "wf10/selfhost/TPROBE",
+      "file": "scripts/buildcost/tests.go",
+      "from": "if !ok || !e.covered() || !goSide.Counted {",
+      "to": "if !ok || !goSide.Counted {",
+      "rule": "No speed verdict comes from an Ergo form that misses a kill (equal coverage is the entry condition).",
+      "killers": [
+        "scripts/buildcost:TestProbeVerdictRule"
+      ]
+    },
+    {
+      "name": "tprobe-tie-is-win",
+      "origin": "wf10/selfhost/TPROBE",
+      "file": "scripts/buildcost/tests.go",
+      "from": "\tif !(a.Most < b.Least || b.Most < a.Least) {\n\t\treturn 0\n\t}\n",
+      "to": "",
+      "rule": "Two rows differ only when their least-to-most ranges are disjoint: overlapping ranges are no difference.",
+      "killers": [
+        "scripts/buildcost:TestProbeVerdictRule"
+      ]
+    },
+    {
+      "name": "tprobe-gain-needs-every-scenario",
+      "origin": "wf10/selfhost/TPROBE",
+      "file": "scripts/buildcost/tests.go",
+      "from": "\tcase len(r.Faster) > 0:\n\t\tr.Verdict = \"win\"\n",
+      "to": "\tcase len(r.Faster) > 0 && len(r.Slower) == 0:\n\t\tr.Verdict = \"win\"\n",
+      "rule": "Any gain ports (owner, 2026-11-18): a form faster in one scenario is a win even when another scenario is slower.",
+      "killers": [
+        "scripts/buildcost:TestProbeVerdictRule"
+      ]
+    },
+    {
+      "name": "tprobe-slower-scenario-hidden",
+      "origin": "wf10/selfhost/TPROBE",
+      "file": "scripts/buildcost/tests.go",
+      "from": "\tcase len(r.Faster) > 0:\n\t\tr.Verdict = \"win\"\n",
+      "to": "\tcase len(r.Faster) > 0:\n\t\tr.Verdict, r.Slower = \"win\", nil\n",
+      "rule": "A win lists every scenario where the form is slower, so the cost of the port is in the receipt.",
+      "killers": [
+        "scripts/buildcost:TestProbeVerdictRule"
+      ]
+    },
+    {
+      "name": "tprobe-sides-not-symmetric",
+      "origin": "wf10/selfhost/TPROBE",
+      "file": "scripts/buildcost/tests.go",
+      "from": "if !(a.Most < b.Least || b.Most < a.Least) {",
+      "to": "if !(a.Most < b.Median || b.Most < a.Least) {",
+      "rule": "The comparison reads the same statistic of both sides, so exchanging them exchanges faster and slower.",
+      "killers": [
+        "scripts/buildcost:TestProbeVerdictRule"
+      ]
+    },
+    {
+      "name": "tprobe-no-tests-is-a-count",
+      "origin": "wf10/selfhost/TPROBE",
+      "file": "scripts/buildcost/tests.go",
+      "from": "\tfor _, m := range probeNoRun {\n",
+      "to": "\tfor _, m := range probeNoRun[:0] {\n",
+      "rule": "A run that printed no tests to run, or no test files, gives no count and kills no mutant (NO TESTS IS RED).",
+      "killers": [
+        "scripts/buildcost:TestProbeEvidenceRule"
+      ]
+    },
+    {
+      "name": "tprobe-build-error-kills",
+      "origin": "wf10/selfhost/TPROBE",
+      "file": "scripts/buildcost/tests.go",
+      "from": "if clean[i].Class != \"pass\" || mutated[i].Class != \"fail\" {",
+      "to": "if clean[i].Class == \"fail\" || mutated[i].Class == \"pass\" {",
+      "rule": "A kill is a pass without the mutant and a test verdict with it: a build error, a skip or a failure without the mutant is none.",
+      "killers": [
+        "scripts/buildcost:TestProbeEvidenceRule"
+      ]
+    },
+    {
+      "name": "tprobe-cold-cache-kept",
+      "origin": "wf10/selfhost/TPROBE",
+      "file": "scripts/buildcost/tests.go",
+      "from": "if !r.XDGNew || !r.GoCacheNew {",
+      "to": "if false {",
+      "rule": "A cold row counts only when both cache folders were new.",
+      "killers": [
+        "scripts/buildcost:TestProbeEvidenceRule"
+      ]
+    },
+    {
+      "name": "tprobe-edit-not-applied",
+      "origin": "wf10/selfhost/TPROBE",
+      "file": "scripts/buildcost/tests.go",
+      "from": "if r.EditBefore == \"\" || r.EditBefore == r.EditNow {",
+      "to": "if r.EditBefore == \"\" {",
+      "rule": "An edit row counts only when the edited file's digest changed.",
+      "killers": [
+        "scripts/buildcost:TestProbeEvidenceRule"
+      ]
+    }
+  ]
+}

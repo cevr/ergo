@@ -80,7 +80,7 @@ func crashMachine() Machine[int, int, int, Boom] {
 
 // crashAppView shows the count, a button per signal, and a check box whose
 // flag is view-local state.
-func crashAppView(f *Frame[int], s int) {
+func crashAppView(f mut Frame[int], s int) {
 	Text(f, "count \(s)")
 	Pressable(f, "add", 0) {
 		Text(f, "+")
@@ -109,7 +109,7 @@ func crashText(c Crash[int, int, Boom]) string {
 }
 
 // crashOwnView is the crash app's crash view: what crashed, and a reload.
-func crashOwnView(f *Frame[int], c Crash[int, int, Boom]) {
+func crashOwnView(f mut Frame[int], c Crash[int, int, Boom]) {
 	Text(f, crashText(c))
 	Pressable(f, "reload", 3) {
 		Text(f, "reload")
@@ -208,12 +208,12 @@ func sameCrash(got Option[Crash[int, int, Boom]], want Option[Crash[int, int, Bo
 // crash view, whose signals reload (PlainCrash when the app has none), and
 // Report runs once per crash, on the loop, before the crash view's first
 // pass (a log line, a crash report sent by the program's work).
-type Crashes[S, E, F] { View func(f *Frame[E], c Crash[S, E, F]), Report func(c Crash[S, E, F]) }
+type Crashes[S, E, F] { View func(f mut Frame[E], c Crash[S, E, F]), Report func(c Crash[S, E, F]) }
 
 // PlainCrash is the crash view of an app that gives none: a line that
 // says the program stopped and why, and a line that says whether a signal
 // of the window's caused it. It sends no signal, so it cannot reload.
-func PlainCrash[S, E, F](f *Frame[E], c Crash[S, E, F]) {
+func PlainCrash[S, E, F](f mut Frame[E], c Crash[S, E, F]) {
 	match c.Cause {
 	case DefectCrash as d:
 		Text(f, "The program stopped: a defect ended it: \(d.Reason)")
@@ -275,7 +275,7 @@ func aliveAfter[S, E, O, F](a actor.Actor[S, E, Decision[S, O], F], e E) bool { 
 // capacity signals, on the providers in force, and its session shows
 // crashes.View when that actor crashes, reports it with crashes.Report,
 // and starts a fresh actor from m on a signal of the crash view.
-func StartApp[E comparable, S, O, F, R, W, Q](m Machine[S, E, O, F, R, W], capacity int, view own func(f *Frame[E], s S) needs Q, crashes Crashes[S, E, F], post own func(ev Event[E])) (Session[S, E, Decision[S, O], F], []Op[E]) needs R | W | Scheduler | Q {
+func StartApp[E comparable, S, O, F, R, W, Q](m Machine[S, E, O, F, R, W], capacity int, view own func(f mut Frame[E], s S) needs Q, crashes Crashes[S, E, F], post own func(ev Event[E])) (Session[S, E, Decision[S, O], F], []Op[E]) needs R | W | Scheduler | Q {
 	let ctx = InForce[R | W | Scheduler]()
 	let fresh = func() actor.Actor[S, E, Decision[S, O], F] {
 		with ctx {
@@ -294,11 +294,11 @@ func StartApp[E comparable, S, O, F, R, W, Q](m Machine[S, E, O, F, R, W], capac
 
 // CrashOf is the crash a test host's app shows, None while its actor
 // runs.
-func CrashOf[S, E, D, F](h *TestHost[S, E, D, F]) Option[Crash[S, E, F]] { h.session.crash }
+func CrashOf[S, E, D, F](h mut TestHost[S, E, D, F]) Option[Crash[S, E, F]] { h.session.crash }
 
 // NewAppTestHost is NewTestHost for an app (StartApp): m's actor, its
 // crash view once it crashed, and a fresh actor on a reload.
-func NewAppTestHost[E comparable, S, O, F, R, W, Q](m Machine[S, E, O, F, R, W], capacity int, view own func(f *Frame[E], s S) needs Q, crashes Crashes[S, E, F], clock time.Manual, room int) TestHost[S, E, Decision[S, O], F] fails BadPatch needs R | W | Scheduler | Q {
+func NewAppTestHost[E comparable, S, O, F, R, W, Q](m Machine[S, E, O, F, R, W], capacity int, view own func(f mut Frame[E], s S) needs Q, crashes Crashes[S, E, F], clock time.Manual, room int) TestHost[S, E, Decision[S, O], F] fails BadPatch needs R | W | Scheduler | Q {
 	let posted = queue.New[Event[E]](room)
 	let (s, first) = StartApp(m, capacity, view, crashes, func(ev Event[E]) {
 		posted.Push(ev) catch {
@@ -347,7 +347,7 @@ func reloadInitial(seed int, defect bool, m time.Manual) bool needs Scheduler {
 // closes on a crash, RunApp ends as the actor did, as its Stop does: it
 // fails with the step's failure, or raises the defect; else it fails
 // Closed, and Stopped when the actor ended with a Done or a stop.
-func RunApp[E comparable, S, O, F, R, W, Q](h Host[E], m Machine[S, E, O, F, R, W], capacity int, view own func(f *Frame[E], s S) needs Q, crashes Crashes[S, E, F]) fails Closed | F | actor.Stopped needs R | W | Scheduler | Q {
+func RunApp[E comparable, S, O, F, R, W, Q](h Host[E], m Machine[S, E, O, F, R, W], capacity int, view own func(f mut Frame[E], s S) needs Q, crashes Crashes[S, E, F]) fails Closed | F | actor.Stopped needs R | W | Scheduler | Q {
 	let (s, first) = StartApp(m, capacity, view, crashes, func(ev Event[E]) { h.Post(ev) })
 	let mut session = s
 	h.Show(first)

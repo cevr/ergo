@@ -1,0 +1,260 @@
+import dense
+import slices
+import strings
+
+// Store is one package's tables, owned by its package task (C0/plan.md
+// §2): its names, its scope, its declarations, its objects and its type
+// pool, with the package path and the sorted import paths an XRef's
+// import index reads.
+type Store {
+	path    string,
+	imports []string,
+	names   dense.Strings,
+	scope   dense.Col[dense.Str, dense.Opt[Decl]],
+	decls   dense.Table[Decl],
+	prints  dense.Col[Decl, Prints],
+	objects Objects,
+	pool    Pool,
+}
+
+// New is the empty store of the package at path, which imports the
+// packages at imports (sorted by the caller's load step).
+func New(path string, imports []string) Store {
+	Store{
+		path:    path,
+		imports: imports,
+		names:   dense.NewStrings(),
+		scope:   dense.NewCol[dense.Str, dense.Opt[Decl]](),
+		decls:   dense.New[Decl](),
+		prints:  dense.NewCol[Decl, Prints](),
+		objects: NewObjects(),
+		pool:    NewPool(),
+	}
+}
+
+// Name is the id of text, with a slot in the scope column (C0b's name).
+func Name(s mut Store, text string) dense.ID[dense.Str] {
+	let id = dense.InternText(&s.names, text)
+	for !dense.In(s.scope, id) {
+		dense.Push(&s.scope, dense.NoID[Decl]())
+	}
+	id
+}
+
+// Text is the text of a name id.
+func Text(s Store, n dense.ID[dense.Str]) string { dense.Text(s.names, n) }
+
+// Declare puts a package-level declaration of name n (from Name), of
+// object o, whose row names n too, and binds the name in the package
+// scope unless an earlier declaration holds it: a later function of one
+// name (a member group, types.md Methods 3) is in no scope, as in the Go
+// checker, and a type takes its name from a function declared before it.
+// Bind refuses a second declaration that is no member before it calls
+// Declare. The declaration's fingerprints are zero until SetPrints.
+func Declare(s mut Store, n dense.ID[dense.Str], file int, node int, o Object) dense.ID[Decl] {
+	let r = Add(&s.objects, o)
+	let d = dense.Put(&s.decls, Decl{Kind: uint8(KindOf(r)), Name: n, File: uint32(file), Node: uint32(node), Obj: r})
+	dense.Push(&s.prints, Prints{Fp: Print{Hi: uint64(0), Lo: uint64(0)}, Ifp: Print{Hi: uint64(0), Lo: uint64(0)}})
+	let bind = match dense.Unpack(dense.Of(s.scope, n)) {
+	case Some{Value: prev}:
+		KindOf(r) == kTypeName && int(DeclOf(*s, prev).Kind) == kFunc
+	case None:
+		true
+	}
+	if bind {
+		dense.SetOf(&s.scope, n, dense.OptOf(d))
+	}
+	d
+}
+
+// KindOfName is the object kind the package scope binds text to, or 0.
+func KindOfName(s Store, text string) int {
+	match Lookup(s, text) {
+	case Some{Value: d}:
+		int(DeclOf(s, d).Kind)
+	case None:
+		0
+	}
+}
+
+// Lookup is the package-level declaration of text, if any.
+func Lookup(s Store, text string) Option[dense.ID[Decl]] {
+	match dense.FindText(s.names, text) {
+	case Some{Value: n}:
+		dense.Unpack(dense.Of(s.scope, n))
+	case None:
+		None
+	}
+}
+
+// FindName is the id of text when the package's names hold it: it interns
+// nothing, so body tasks call it on the store frozen while they run.
+func FindName(s Store, text string) Option[dense.ID[dense.Str]] { dense.FindText(s.names, text) }
+
+// ScopeOf is the package-level declaration name n binds, if any.
+func ScopeOf(s Store, n dense.ID[dense.Str]) Option[dense.ID[Decl]] {
+	if !dense.In(s.scope, n) {
+		return None
+	}
+	dense.Unpack(dense.Of(s.scope, n))
+}
+
+// ImportIndex is the place of path in the store's import list, or -1.
+func ImportIndex(s Store, path string) int {
+	for i, p in s.imports {
+		if p == path {
+			return i
+		}
+	}
+	-1
+}
+
+// ImportPaths is the store's import list, sorted: an XRef's import is a
+// place in it plus one.
+func ImportPaths(s Store) []string { s.imports }
+
+// PathOf is the package's import path.
+func PathOf(s Store) string { s.path }
+
+// SetPath gives the package the path its own types are named by. A
+// package checked as a program's root is named main, though its importers
+// (a test's, S3d3) reach it by its folder's path.
+func SetPath(s mut Store, path string) { s.path = path }
+
+// ImportOf is the import d declares (its place in the import list plus
+// one), or 0 when d is no import or a Go import.
+func ImportOf(s Store, d dense.ID[Decl]) int {
+	match View(s.objects, DeclOf(s, d).Obj) {
+	case PkgNameObj as p:
+		int(p.Row.Import)
+	case _:
+		0
+	}
+}
+
+// NumNames is the count of the package's distinct names.
+func NumNames(s Store) int { dense.Texts(s.names) }
+
+// DeclOf is the row of d.
+func DeclOf(s Store, d dense.ID[Decl]) Decl { dense.At(s.decls, d) }
+
+// Print is a fingerprint: the first 16 bytes of a SHA-256, big-endian.
+type Print { Hi uint64, Lo uint64 }
+
+// Prints are a declaration's fingerprints (C0/plan.md §3): Fp over the
+// declaration's tokens, Ifp over the tokens an importer sees.
+type Prints { Fp Print, Ifp Print }
+
+// SetPrints records declaration d's fingerprints.
+func SetPrints(s mut Store, d dense.ID[Decl], p Prints) { dense.SetOf(&s.prints, d, p) }
+
+// PrintsOf is declaration d's fingerprints.
+func PrintsOf(s Store, d dense.ID[Decl]) Prints { dense.Of(s.prints, d) }
+
+// NumDecls is the number of declaration rows; DeclAt is the i-th's id.
+func NumDecls(s Store) int { dense.Len(s.decls) }
+
+func DeclAt(s Store, i int) dense.ID[Decl] { dense.IDOf(s.decls, i) }
+
+// Decls is every declaration row, in collect order.
+func Decls(s Store) []Decl { dense.Rows(s.decls) }
+
+// KindName is the word of an object kind ordinal, as the agreement dumps
+// write it.
+func KindName(k int) string {
+	if k == kFunc { "func" } else if k == kVar { "var" } else if k == kTypeName { "type" } else if k == kConst { "const" } else if k == kContext { "context" } else if k == kLaw { "law" } else if k == kTest { "test" } else { "pkg" }
+}
+
+// Unset is the type a row holds before the signature pass gives it one.
+func Unset(s mut Store) dense.ID[TKey] { Basic(&s.pool, 0) }
+
+// TSubst is t with the type parameter at position i replaced by args[i]
+// (the pool's Subst): inference renames a callee's parameters past its
+// caller's with it (capstone S3d).
+func TSubst(s mut Store, t dense.ID[TKey], args []dense.ID[TKey]) dense.ID[TKey] { Subst(&s.pool, t, args) }
+
+// Frozen is a package's store after its check: immutable, moved into the
+// value every importer task shares with no lock (C0/plan.md §4, Decided
+// 10: the interface is the store, not an export copy).
+type Frozen { s Store }
+
+// Freeze ends the package's writes: the store moves into its interface.
+func Freeze(s Store) Frozen { Frozen{s: s} }
+
+// Of is the store a frozen interface reads.
+func Of(f Frozen) Store { f.s }
+
+// Canon is t's canonical key: the same text for the same type in any
+// package's pool (C0/plan.md §2.4 ruling). A named type and an instance's
+// origin are named by package path and declaration name, through deps,
+// the frozen interfaces of s's imports in s's import order; a row's
+// elements are in their keys' order, since local ids order them
+// differently in each pool.
+func Canon(s Store, deps []Frozen, t dense.ID[TKey]) string {
+	let k = Key(s.pool, t)
+	let kind = int(k.k)
+	if kind == tBasic {
+		return "B\(k.a)"
+	}
+	if kind == tParam {
+		return "P\(k.a)"
+	}
+	if kind == tNamed {
+		let row = dense.Rows(s.objects.typeNames)[int(k.a)]
+		return "N(\(s.path).\(Text(s, row.Name)))"
+	}
+	let mut parts = []string{}
+	for o in Operands(s.pool, t) {
+		parts = parts.Append(Canon(s, deps, o))
+	}
+	if kind == tRow {
+		return "R(" + strings.Join(slices.Sort(parts), ",") + ")"
+	}
+	if kind == tInstance {
+		return "I(" + declName(s, deps, OriginOf(s.pool, t)) + ";" + strings.Join(parts, ",") + ")"
+	}
+	let tag = if kind == tSlice { "S" } else if kind == tMap { "M" } else if kind == tFunc { "F" } else if kind == tRecord { "C" } else { "U" }
+	tag + "(" + strings.Join(parts, ",") + ")"
+}
+
+// declName is "path.name" of the declaration x names.
+func declName(s Store, deps []Frozen, x XRef) string {
+	if x.Import == uint32(0) {
+		return "\(s.path).\(Text(s, dense.Rows(s.decls)[int(x.Decl)].Name))"
+	}
+	let d = Of(deps[int(x.Import)-1])
+	"\(d.path).\(Text(d, dense.Rows(d.decls)[int(x.Decl)].Name))"
+}
+
+// InstanceIdentityIsKey (C0/plan.md §2.4 ruling): program xs built in
+// package a and program ys in package b, whose pool was given other types
+// first, give types with equal canonical keys exactly when the model's
+// texts are equal. So two packages' instances of one origin at equal
+// arguments are one type, though their local ids differ, and a named type
+// of a is never one of b. (S3c runs the same law across 1 and 8 threads.)
+law InstanceIdentityIsKey(xs []int, ys []int) {
+	let deps = []Frozen{lib()}
+	let (a0, an) = setup("a", false)
+	let (b0, bn) = setup("b", true)
+	let mut a = a0
+	let mut b = b0
+	let ta = build(&a, an, xs)
+	let tb = build(&b, bn, ys)
+	let ma = model("a", xs, []string{})
+	let mb = model("b", ys, []string{})
+	let mut ok = true
+	for i, t in ta {
+		ok = ok && Canon(a, deps, t) == ma[i]
+		for j, u in tb {
+			ok = ok && (Canon(a, deps, t) == Canon(b, deps, u)) == (ma[i] == mb[j])
+		}
+	}
+	ok
+}
+
+// BasicOrdinal is t's basic ordinal, -1 for a type that is no basic: a
+// read through the pointer, so no Store is copied (S3d8).
+func BasicOrdinal(s mut Store, t dense.ID[TKey]) int {
+	let key = dense.Value(s.pool.keys, t)
+	if int(key.k) == tBasic { int(key.a) } else { -1 }
+}

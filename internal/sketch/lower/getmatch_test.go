@@ -160,7 +160,7 @@ func TestGetMatchCopiesTheValueNotTheMap(t *testing.T) {
 	copyLowering = "whole"
 	src := `type Box { m Map[int, []int], kept []int }
 
-func look(b *Box, k int) {
+func look(b mut Box, k int) {
 	match b.m.Get(k) {
 	case Some[[]int] as s:
 		b.kept = s.Value
@@ -231,7 +231,7 @@ func TestGetMatchElementCopyAgrees(t *testing.T) {
 				"append":    "\t\ts.Value.Append(9)\n",
 				"read":      "\t\t[]int{len(s.Value), s.Value[0]}\n",
 			}[use]
-			fmt.Fprintf(&b, "func f%d(b *Box, k int) []int {\n\tmatch b.m.Get(k) {\n\tcase Some[[]int] as s:\n%s\tcase None:\n\t\t[]int{0}\n\t}\n}\n\n", i, arm)
+			fmt.Fprintf(&b, "func f%d(b mut Box, k int) []int {\n\tmatch b.m.Get(k) {\n\tcase Some[[]int] as s:\n%s\tcase None:\n\t\t[]int{0}\n\t}\n}\n\n", i, arm)
 			fmt.Fprintf(&calls, "\tlet mut r%d = f%d(&b, %d)\n\tr%d[0] = %d\n\tConsole.Println(\"f%d \\(list(r%d)) \\(list(b.kept)) \\(show(b.m))\")\n", i, i, 1+r.IntN(2), i, 100+i, i, i)
 		}
 		b.WriteString("func show(m Map[int, []int]) string {\n\tlet mut out = \"\"\n\tfor k in 1..3 {\n\t\tmatch m.Get(k) {\n\t\tcase Some[[]int] as s:\n\t\t\tout = out + \"\\(k)=\" + list(s.Value) + \" \"\n\t\tcase None:\n\t\t}\n\t}\n\tout\n}\n\n")

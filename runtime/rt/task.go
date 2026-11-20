@@ -30,6 +30,10 @@ type Task struct {
 	// that fires (runtime/v1 MachineFiringOn). Only the owner goroutine
 	// reads or writes it; it fills the same word.
 	firing bool
+	// consumed is its Handle's: Wait or Stop took the handle. Only the
+	// owner goroutine reads or writes it; it fills the same word, so the
+	// Handle keeps its size class.
+	consumed bool
 	// regions is the stack of open mask regions (regions.go). Only the owner
 	// goroutine reads or writes it, so masking costs no atomic operation.
 	regions regionStack
@@ -47,6 +51,9 @@ type Task struct {
 	// wake is t's park word (park.go): t's goroutine parks on it in a
 	// wait on one value, and a waker or a stop request wakes it.
 	wake parker
+	// waiting is the Waiter of a wait of t that parks on a word of its own
+	// (waiter.go), so Interrupt wakes it; nil when none is.
+	waiting atomic.Pointer[Waiter]
 
 	mu sync.Mutex
 	// stop is made on first use under mu, by the task's Done or by its Go
@@ -206,6 +213,7 @@ func (t *Task) Interrupt() {
 		// A wait parked on t's word ends on the stop: the wake comes after
 		// the flag, so the woken waiter sees it.
 		t.wake.unpark()
+		t.wakeWaits()
 		if t.waker {
 			if wake, ok := wakers.Load(t); ok {
 				wake.(StopWaker).Wake()
@@ -344,8 +352,8 @@ func (t *Task) makeStop() chan struct{} {
 	return t.stop
 }
 
-// stopFlags is one word of three flags: stopped (Load, set); made, which
-// publishes Task.stop to a read without the lock; and polled (WhenPolled). It is the size of the
+// stopFlags is one word of four flags: stopped (Load, set); made, which
+// publishes Task.stop to a read without the lock; ended (Handle.finish); and polled (WhenPolled). It is the size of the
 // atomic.Bool it replaced, so a Task keeps its size class
 // (TestTraceHookKeepsTaskSize).
 type stopFlags struct{ v atomic.Uint32 }
@@ -353,6 +361,7 @@ type stopFlags struct{ v atomic.Uint32 }
 const (
 	flagStopped uint32 = 1 << iota
 	flagMade
+	flagEnded
 	// flagPolled marks a task with a WhenPolled hook. Only the task's own
 	// goroutine sets or clears it.
 	flagPolled
@@ -367,6 +376,13 @@ func (f *stopFlags) set() { f.v.Or(flagStopped) }
 func (f *stopFlags) made() bool { return f.v.Load()&flagMade != 0 }
 
 func (f *stopFlags) setMade() { f.v.Or(flagMade) }
+
+// ended reports whether the task has ended (Handle.finish): its Handle's
+// value and err are final. The flag shares the word so the Handle keeps
+// its size class.
+func (f *stopFlags) ended() bool { return f.v.Load()&flagEnded != 0 }
+
+func (f *stopFlags) setEnded() { f.v.Or(flagEnded) }
 
 // waitFlush is the output the process holds back until a task waits:
 // runtime/v1's standard-output buffer (docs/spec/stdlib.md, io 11). Done

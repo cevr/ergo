@@ -70,7 +70,11 @@ func (b *irBuilder) getMatch(s *syntax.TypeSwitchStmt, ret bool, to *yieldTo) ([
 	p = past(p, pre)
 	v := b.temp("v", b.goType(mt.Elem, call), p)
 	okv := b.temp("ok", "bool", p)
-	pre = append(pre, &irStmt{K: "mapget", Pos: p, Local: v, Val: &okv, X: ops[0], Y: ops[1]})
+	if b.l.intMap(mt) {
+		pre = append(pre, intMapGet(p, v, okv, ops[0], ops[1])) // ir_intmap.go
+	} else {
+		pre = append(pre, &irStmt{K: "mapget", Pos: p, Local: v, Val: &okv, X: ops[0], Y: ops[1]})
+	}
 	okx := &irExpr{K: "local", Pos: p, I: okv}
 	if some.clause == none.clause {
 		return append(pre, b.getArm(some, v, ret, to)...), true

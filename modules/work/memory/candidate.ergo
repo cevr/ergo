@@ -1,0 +1,115 @@
+// A candidate driver line (SEMWS M1) against Git's line merge: the
+// memory tool `drv` and check `chk` it runs, and the law that the
+// candidate is never worse than Git.
+
+import exec
+import fs
+import fstest
+import github.com/cevr/ergo/modules/work/classes
+import strings
+import sync
+import github.com/cevr/ergo/modules/work/work
+
+// Driver is an exec.Runner that plays a candidate line's tool and check
+// on a disk: `drv --version` prints "drv VERSION" (status 127 with no
+// version: the tool is missing); `drv FILE` writes text into FILE and
+// ends with status (127 writes nothing); `chk FILE` prints FILE when its
+// text holds "BAD" (a file that does not parse, as `gofmt -l` prints a
+// file it would change) and nothing else. Every other command ends with
+// status 0. It records "driver" and "check" for each run of either.
+type Driver { disk fstest.Memory, text string, status int, version string, ran sync.Ref[[]string] } implements exec.Runner
+
+// NewDriver is a Driver on disk that ran nothing.
+func NewDriver(disk fstest.Memory, text string, status int, version string) Driver {
+	Driver{disk: disk, text: text, status: status, version: version, ran: sync.NewRef([]string{})}
+}
+
+func Run(d Driver, c exec.Command) exec.Result fails exec.NotFound | exec.Denied | exec.Failed {
+	let command = if c.Name == "sh" && len(c.Args) == 2 { c.Args[1] } else { "" }
+	if command == "drv --version" {
+		if d.version == "" {
+			return exec.Result{Status: 127, Stdout: "", Stderr: "drv: not found\n"}
+		}
+		return exec.Result{Status: 0, Stdout: "drv \(d.version)\n", Stderr: ""}
+	}
+	if strings.HasPrefix(command, "drv ") {
+		d.ran.Set(d.ran.Get().Append("driver"))
+		if d.status == 127 {
+			return exec.Result{Status: 127, Stdout: "", Stderr: "drv: not found\n"}
+		}
+		d.disk.WriteFile(unquoted(strings.TrimPrefix(command, "drv ")), d.text) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			return exec.Failed{Name: "drv", Reason: "drv could not write"}
+		}
+		return exec.Result{Status: d.status, Stdout: "", Stderr: if d.status == 0 { "" } else { "conflict\n" }}
+	}
+	if strings.HasPrefix(command, "chk ") {
+		d.ran.Set(d.ran.Get().Append("check"))
+		let file = unquoted(strings.TrimPrefix(command, "chk "))
+		let text = d.disk.ReadFile(file) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			return exec.Result{Status: 2, Stdout: "", Stderr: "chk: no file\n"}
+		}
+		return exec.Result{Status: 0, Stdout: if strings.Contains(text, "BAD") { file + "\n" } else { "" }, Stderr: ""}
+	}
+	exec.Result{Status: 0, Stdout: "", Stderr: ""}
+}
+
+func Start(d Driver, c exec.Command, s exec.Streams) exec.Running fails exec.NotFound | exec.Denied | exec.Failed {
+	try exec.Script{Results: Map[string, exec.Result]{exec.Key(c): exec.Result{Status: 0, Stdout: "", Stderr: ""}}}.Start(c, s)
+}
+
+// unquoted is a word quoted for sh (with no quote inside) bare.
+func unquoted(s string) string { strings.TrimSuffix(strings.TrimPrefix(s, "'"), "'") }
+
+// Ran is "driver" and "check" for each run, in order.
+func Ran(d Driver) []string { d.ran.Get() }
+
+// candidateConfig is a work.toml whose *.go files merge by the candidate
+// `drv`, version 1.0, checked by `chk`.
+let candidateConfig = "[[class]]\nmatch = \"*.go\"\nkind = \"driver\"\ndriver = \"drv %A\"\ncandidate = true\ncheck = \"chk %A\"\nversion = \"1.0\"\n"
+
+// CandidateNeverWorseThanGit: merge-file auto on a candidate line is Git's
+// line merge, and runs no driver, wherever that merge is clean. Where it
+// conflicts, the driver's text is taken (clean) only when work trust
+// allows it, its tool answers the pinned version, it ends with status 0,
+// leaves no conflict marker and its check holds; its own conflict (status
+// 1) keeps its text, conflicted; anything else (the tool missing, another
+// version, a marker, a failed check, no trust) is Git's line merge,
+// conflicted.
+law CandidateNeverWorseThanGit(base string, ours string, theirs string, same int, outcome int, fault int, gate int) {
+	let o = if same%4 == 0 { base } else { ours }
+	let status = []int{0, 1, 127}[((outcome%3)+3)%3]
+	let f = ((fault % 4) + 4) % 4
+	let (bad, marker) = (f == 1, f == 2)
+	let g = ((gate % 4) + 4) % 4
+	let (trusted, pinned) = (g != 0, g != 1)
+	let text = "merged\n" + (if bad { "BAD\n" } else { "" }) + (if marker { "<<<<<<< ours\n" } else { "" })
+	let disk = fstest.NewMemory()
+	let d = NewDriver(disk, text, status, if pinned { "1.0" } else { "0.9" })
+	let (tool, _) = configuredOn(d, disk, Map[string, string]{"m/b.go": base, "m/o.go": o, "m/t.go": theirs}, candidateConfig, trusted)
+	let mut conflicted = false
+	let _ = tool.MergeFile("auto", theBase+"/m/b.go", theBase+"/m/o.go", theBase+"/m/t.go", work.MergeFileOptions{Path: Some[string]{Value: "f.go"}}) catch {
+	case work.MergeConflict:
+		conflicted = true
+		work.FileMerged{Path: "", Class: "", Regenerate: false}
+	case work.BadClass, work.BadConfig, fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	let got = disk.ReadFile(theBase + "/m/o.go") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	let lines = classes.MergeText(base, o, theirs)
+	if lines.Clashes == 0 {
+		return !conflicted && got == classes.Text(lines) && len(d.Ran()) == 0
+	}
+	let ran = trusted && pinned
+	if ran && status == 0 && !bad && !marker {
+		return !conflicted && got == text
+	}
+	if ran && status == 1 {
+		return conflicted && got == text
+	}
+	conflicted && got == classes.Text(lines) && (ran || len(d.Ran()) == 0)
+}

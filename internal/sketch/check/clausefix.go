@@ -5,7 +5,7 @@ import (
 	"slices"
 	"strings"
 
-	"ergo.local/prototype/internal/sketch/format"
+	format "ergo.local/prototype/internal/hostsyntax"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -21,6 +21,15 @@ type Options struct {
 	// q137, and records them as the clauses that write them
 	// (Package.Clauses). No check, build or test path sets it.
 	Infer bool
+	// placeLaws reports S115 whatever lawPlacementReported says
+	// (checkWith; lawplace.go).
+	placeLaws bool
+}
+
+// checkWith is Check, with S115 reported when placeLaws is set
+// (lawplace.go, lawPlacementReported).
+func checkWith(path string, files []*syntax.File, imp Importer, placeLaws bool) (*Package, []Diagnostic) {
+	return check(path, files, imp, nil, Options{placeLaws: placeLaws})
 }
 
 // CheckOptions checks like Check, in the modes opts selects.
@@ -433,7 +442,7 @@ func (s *speller) typ(t Type) string {
 		s.hide("Map") // the syntax's Map[K, V] (grammar.md, Parser 8)
 		return "Map[" + s.typ(t.Key) + ", " + s.typ(t.Elem) + "]"
 	case *Pointer:
-		return "*" + s.typ(t.Elem) // a borrow, as a function type's parameter
+		return "mut " + s.typ(t.Elem) // a borrow, as a function type's parameter (MODES-2)
 	case *Tuple:
 		return "(" + s.list(t.Types) + ")"
 	case *RowArg:

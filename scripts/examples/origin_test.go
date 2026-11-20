@@ -111,7 +111,7 @@ func TestOriginFollowsUpstream(t *testing.T) {
 // refuses an origin in the program (a folder or a file), and refuses a
 // provenance folder with no program of its name. Mutants: the ports not
 // checked (ex-neutral-ports-unchecked), an origin folder admitted
-// (ex-neutral-origin-admitted).
+// (ex-neutral-origin-admitted-*).
 func TestPortProvenanceIsChecked(t *testing.T) {
 	t.Parallel()
 	layouts := map[string]map[string]string{

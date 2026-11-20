@@ -142,10 +142,12 @@ func (b *irBuilder) adaptOperand(sig *check.Signature, site syntax.Node, e *irEx
 }
 
 // adaptOperands passes each operand of a std body's call that its Go
-// parameter adapts through adaptOperand: args are the IR of x's operands
-// (its trailing block last), after the receiver when the call has one
-// (skip 1).
-func (b *irBuilder) adaptOperands(params []v1.Param, x *syntax.CallExpr, args []*irExpr, skip int, p irPos) []*irStmt {
+// parameter adapts through adaptOperand: ops are the source operands
+// params take, in order (x's arguments, after a slice operation's
+// receiver; PORT-CALLS), x's trailing block after them; args are their IR
+// (the block last), after the receiver of an operation, which params do
+// not take (skip 1).
+func (b *irBuilder) adaptOperands(params []v1.Param, x *syntax.CallExpr, ops []syntax.Expr, args []*irExpr, skip int, p irPos) []*irStmt {
 	var pre []*irStmt
 	for i, q := range params {
 		if !adapted(q) {
@@ -153,9 +155,9 @@ func (b *irBuilder) adaptOperands(params []v1.Param, x *syntax.CallExpr, args []
 		}
 		var sig *check.Signature
 		var site syntax.Node
-		if i < len(x.Args) {
-			site = x.Args[i]
-			t := b.l.info.Types[x.Args[i]]
+		if i < len(ops) {
+			site = ops[i]
+			t := b.l.info.Types[ops[i]]
 			if n, ok := t.(*check.Named); ok {
 				t = n.Underlying()
 			}

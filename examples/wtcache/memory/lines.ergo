@@ -1,0 +1,26 @@
+// Package memory holds Lines, a settings.Backing whose lines live in a
+// map, and counts the lines written, so a run shows what went through.
+
+import sync
+import wtcache/settings
+
+// Lines is a settings.Backing in memory. Its lines are in a sync.Ref, so
+// every copy of a Lines is the same backing. NewLines makes one.
+type Lines { lines sync.Ref[Map[string, string]], writes sync.Ref[int] } implements settings.Backing
+
+// NewLines is an empty Lines.
+func NewLines() Lines {
+	Lines{lines: sync.NewRef[Map[string, string]](Map[string, string]{}), writes: sync.NewRef[int](0)}
+}
+
+// Write makes key hold line.
+func Write(l Lines, key string, line string) {
+	l.lines.Update() func(lines Map[string, string]) Map[string, string] { lines.Put(key, line) }
+	l.writes.Update() func(n int) int { n + 1 }
+}
+
+// Read is the line key holds.
+func Read(l Lines, key string) Option[string] { l.lines.Get().Get(key) }
+
+// Writes counts the lines written.
+func Writes(l Lines) int { l.writes.Get() }
