@@ -111,9 +111,9 @@ func GenerateOmittable(seed uint64) string {
 // BeginObject and BeginList the count they are given.
 const counterDecls = `type Counter {
 	..Writer,
-	Written() string,
+	mut Written() string,
 	// note seals Counter in this package, so its provider is a cell.
-	note(s string),
+	mut note(s string),
 }
 
 type counter { out string } implements Counter
