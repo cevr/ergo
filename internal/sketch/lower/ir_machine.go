@@ -127,7 +127,7 @@ func (l *lowerer) machineValueFunc(conv check.Conversion, n *check.Named, st *ir
 		return name
 	}
 	v := scope.alloc("v")
-	b := &irBuilder{fc: fc, l: l, st: st, locals: map[*check.Var]int{}, env: -1}
+	b := st.newBuilder(fc, nil) // an adapter: no source statements
 	b.names = newNamer(scope)
 	b.next = 1 // v, the plan value
 	decl := n.Obj.Decl

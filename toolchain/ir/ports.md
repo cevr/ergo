@@ -1,6 +1,6 @@
 # Ports of the IR compiler patch
 
-The IR build path compiles Ergo bodies with a patched `cmd/compile` (plan-tier §1.4). `go1.27.0.patch` is the patch, against the pristine Go release named in `lock`. Each Go release ergo pins gets one row here, written by its port (plan-tier §1.5, PORT-<ver>): at rc1 for a minor release, at once for a patch release.
+The IR build path compiles Ergo bodies with a patched `cmd/compile` (plan-tier §1.4). `go1.27.0.patch` is the patch, against the pristine Go release named in `lock`. The patch is derived (PATCH-MERGE): its source is `_go/`, the files it adds to Go's tree under `_go/src` and its hunks in Go's own files in `_go/gofiles.patch`. Edit those and run `go run ./scripts/irport -write`, which writes the patch and its digest in `lock` (TestIRPatchIsCurrent refuses a stale one). A branch that still carries an edited patch runs `go run ./scripts/irport -extract DIR -patch <its patch>` and merges each file of DIR into `_go` with `git merge-file`. Each Go release ergo pins gets one row here, written by its port (plan-tier §1.5, PORT-<ver>): at rc1 for a minor release, at once for a patch release.
 
 Run a port from the repository root, with a pristine Go installation that holds its source (a `golang.org/toolchain` module copy is one; it is read only):
 
