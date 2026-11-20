@@ -1,6 +1,7 @@
 package check_test
 
 import (
+	"flag"
 	"fmt"
 	"maps"
 	"math/rand/v2"
@@ -47,15 +48,32 @@ func (drvImporter) Import(path string) (*check.Package, error) {
 
 func (d drvImporter) GoBindings() *check.GoBindings { return d.set }
 
-// newDrvImporter binds drvGo as ergo bind does, from its source in a
-// module of its own (gobind.Bind), so each result's Go-nil case is what
-// the binder derives: Dial, Cmd and Query return a fresh pointer when
-// the error is nil (go.Ref), and Clone returns its receiver, which a
-// method called on a nil pointer may be (Option; GOBIND-NIL). It builds
-// Go because Bind's facts come from go list and the compiler's -m output
-// (gobind.Derive), which no in-process check gives.
-func newDrvImporter(t *testing.T) drvImporter {
-	t.Helper()
+// drvBindingFile is the binding ergo bind writes for drvGo from its
+// source, checked in as gostd's bindings are, so TestDriverHandleIsLent
+// starts no go command; TestDrvBindingIsCurrent keeps it current. Each
+// result's Go-nil case is what the binder derives: Dial, Cmd and Query
+// return a fresh pointer when the error is nil (go.Ref), and Clone
+// returns its receiver, which a method called on a nil pointer may be
+// (Option; GOBIND-NIL).
+const drvBindingFile = "testdata/drv.binding"
+
+// drvUpdate is the one command that writes drvBindingFile, and drvHeader
+// the line it starts with.
+const (
+	drvUpdate = "go test ./internal/sketch/check -run '^TestDrvBindingIsCurrent$' -update-drv"
+	drvHeader = "// Written by ergo bind (gobind.Bind) from drvGo; do not edit. Rewrite it with: " + drvUpdate + "\n"
+)
+
+var updateDrv = flag.Bool("update-drv", false, "rewrite "+drvBindingFile+" from drvGo with ergo bind")
+
+// TestDrvBindingIsCurrent holds testdata/drv.binding to what ergo bind
+// writes for drvGo now. It builds Go because gobind.Bind reads go list
+// and the compiler's -m output (gobind.Derive), which no in-process
+// check gives. -update-drv rewrites the file.
+func TestDrvBindingIsCurrent(t *testing.T) {
+	if testing.Short() {
+		t.Skip("full tier: builds Go")
+	}
 	dir := t.TempDir()
 	for name, text := range map[string]string{"go.mod": "module drv\n\ngo 1.27\n", "drv.go": drvGo} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(text), 0o644); err != nil {
@@ -66,9 +84,34 @@ func newDrvImporter(t *testing.T) drvImporter {
 	if err != nil {
 		t.Fatal(err)
 	}
-	binding, ok := files["drv"]
+	got, ok := files["drv"]
 	if !ok {
 		t.Fatalf("ergo bind wrote no binding for drv: %v", slices.Sorted(maps.Keys(files)))
+	}
+	got = drvHeader + got
+	if *updateDrv {
+		if err := os.WriteFile(drvBindingFile, []byte(got), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	want, err := os.ReadFile(drvBindingFile)
+	if err != nil || string(want) != got {
+		t.Errorf("%s is not what ergo bind writes for drvGo; rewrite it with %s", drvBindingFile, drvUpdate)
+	}
+}
+
+// newDrvImporter gives drvBindingFile's binding beside Go's standard
+// library.
+func newDrvImporter(t *testing.T) drvImporter {
+	t.Helper()
+	data, err := os.ReadFile(drvBindingFile)
+	if err != nil {
+		t.Fatalf("%v: the checked-in binding is missing; write it with %s", err, drvUpdate)
+	}
+	binding, ok := strings.CutPrefix(string(data), drvHeader)
+	if !ok {
+		t.Fatalf("%s does not start with ergo bind's header; rewrite it with %s", drvBindingFile, drvUpdate)
 	}
 	// The checker takes Clone's receiver whatever the binding writes
 	// (hostTakesRecv): an old or edited binding without the own gobind
@@ -267,13 +310,7 @@ const dsHeader = 9
 // method takes its receiver by default (gb1-recv-taken); no receiver is
 // taken for a result that may hold it (gb1-no-alias-take); a Go method's
 // result keeps nothing (gb1-no-keeps).
-//
-// It builds Go because the binding is ergo bind's from drvGo's source
-// (newDrvImporter): the non-nil facts come from the Go toolchain.
 func TestDriverHandleIsLent(t *testing.T) {
-	if testing.Short() {
-		t.Skip("full tier: builds Go")
-	}
 	imp := newDrvImporter(t)
 	first, n := 1, 160
 	if s := os.Getenv("ERGO_SEED"); s != "" {
