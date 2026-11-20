@@ -401,9 +401,9 @@ func openSnapshot(src io.ReaderAt, size int64) (*snapshot, *check.Codec_stdBase,
 // Load returns the package of segment key path from the snapshot, decoding
 // its segment and the segments it names, or false when the snapshot does
 // not hold it or a segment does not decode (the caller checks it from
-// source). count receives each package segment decoded
+// source). count receives each package segment decoded, with its package
 // (check.SnapshotSource).
-func (s *snapshot) Load(path string, count func(string)) (*check.Package, bool) {
+func (s *snapshot) Load(path string, count func(string, *check.Package)) (*check.Package, bool) {
 	i, ok := s.byPath[path]
 	if !ok {
 		return nil, false
@@ -418,7 +418,7 @@ func (s *snapshot) Load(path string, count func(string)) (*check.Package, bool) 
 
 // need decodes segment i after the segments it names, and reports whether
 // it is decoded.
-func (s *snapshot) need(i int, count func(string)) bool {
+func (s *snapshot) need(i int, count func(string, *check.Package)) bool {
 	if s.done[i] {
 		return true
 	}
@@ -436,7 +436,7 @@ func (s *snapshot) need(i int, count func(string)) bool {
 		s.failed[i] = true
 		return false
 	}
-	count(s.segs[i].path)
+	count(s.segs[i].path, s.pkgs[i])
 	return true
 }
 

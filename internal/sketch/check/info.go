@@ -141,6 +141,9 @@ type Package struct {
 	// packages, by extern target (moduleDoor; docs/spec/interop.md,
 	// Trusted Go 3). Only the package's own check writes it.
 	goBodies map[string]v1.Body
+	// goSource are the effect-free bodies of goBodies standing alone
+	// (v1.Bodies.Source; LAWFFI LF2m), for the licence run's driver.
+	goSource map[string]GoBodySource
 	// host is the binding a Go package is read from (gobinding.go); nil
 	// for an Ergo package.
 	host *hostPkg
@@ -270,6 +273,10 @@ type Info struct {
 	// only runs in place: a non-escaping frame (check/escaping.go,
 	// localFrames).
 	LocalFrames map[*syntax.FuncLit]bool
+	// Relends is every &x whose x is a mut parameter: the borrow it holds
+	// passed on, of x's type mut T, not a borrow of the parameter (types.md,
+	// Borrows 1). Every lowering passes x itself.
+	Relends map[*syntax.UnaryExpr]bool
 	// Loops is every for-in.
 	Loops map[*syntax.RangeStmt]*Loop
 	// Withs is every with site.
@@ -425,25 +432,6 @@ type Info struct {
 	// in Signature.Takes; a function that takes nothing has no key. Added
 	// in L8 A3 (additive).
 	Takes map[*Func][]int
-	// Copies is each generic function's copy sites (#197 L8 A3; plan 1.3;
-	// takes.go): per type parameter of its signature, the first place its
-	// body copies a value of that type (a second use after a hand-off, or a
-	// call of a function that copies it). A call that binds such a type
-	// parameter to a resource is S108. Added in L8 A3 (additive).
-	Copies map[*Func][]CopySite
-}
-
-// CopySite is one place a generic body copies a value of its type
-// parameter TParam (an index into the signature's TParams).
-type CopySite struct {
-	TParam int
-	At     syntax.Node
-	// Where is At as file:line:col; empty for a declaration with no body.
-	Where string
-	// What says how it copies, for the diagnostic: "x is used twice".
-	What string
-	// Key marks a map key (resources R40: S112 at the instantiation).
-	Key bool
 }
 
 // Release is one value a place releases: an owned local or taken
@@ -545,6 +533,7 @@ func newInfo() *Info {
 		Literals:      map[syntax.Node]*Signature{},
 		ValueCaptures: map[syntax.Node][]*Var{},
 		LocalFrames:   map[*syntax.FuncLit]bool{},
+		Relends:       map[*syntax.UnaryExpr]bool{},
 		Loops:         map[*syntax.RangeStmt]*Loop{},
 		Withs:         map[*syntax.CallExpr]*With{},
 		ContextValues: map[syntax.Expr]*With{},
@@ -572,7 +561,6 @@ func newInfo() *Info {
 		Handoffs:       map[*syntax.Ident]*Var{},
 		PatternOwners:  map[*syntax.CaseClause]PatternOwners{},
 		Takes:          map[*Func][]int{},
-		Copies:         map[*Func][]CopySite{},
 	}
 }
 
@@ -687,7 +675,13 @@ func (c *checker) instanceWitnesses(inst *Instance, build func(*Func, []Type) (*
 				return fmt.Sprintf("cannot complete the witness of %s: %s has no operation %s", fn.Name, targs[i], op.Name)
 			}
 			sig := *op.Sig
-			sig.Params = append([]*Var{{Name: "self", Type: targs[i]}}, op.Sig.Params...)
+			self := targs[i]
+			if op.Sig.MutSelf {
+				// mut Bump(): the witness's function writes its receiver
+				// through a pointer (Generics 2; MODES-4).
+				self = &Pointer{Elem: self}
+			}
+			sig.Params = append([]*Var{{Name: "self", Type: self}}, op.Sig.Params...)
 			wo := WitnessOp{Name: op.Name, Sig: &sig, Func: f}
 			if f != nil && f.Sig != nil && len(f.Sig.TParams) > 0 {
 				var why string

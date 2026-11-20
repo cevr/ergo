@@ -27,7 +27,7 @@ func TestSSEViewIsLent(t *testing.T) {
 		{"read inside each", `func Count(body string) int {
 	let mut r = http.NewEventReader()
 	let mut n = 0
-	http.FeedEach(&r, body, func(e *http.EventView) {
+	http.FeedEach(&r, body, func(e mut http.EventView) {
 		n = n + len(http.Data(e)) + len(http.Event(e)) + len(http.ID(e))
 	})
 	n
@@ -35,27 +35,26 @@ func TestSSEViewIsLent(t *testing.T) {
 `, nil},
 		{"kept in a slice", `func Keep(body string) int {
 	let mut r = http.NewEventReader()
-	let mut kept = []*http.EventView{}
-	http.FeedEach(&r, body, func(e *http.EventView) {
+	let mut kept = []http.EventView{}
+	http.FeedEach(&r, body, func(e mut http.EventView) {
 		kept = kept.Append(e)
 	})
 	len(kept)
 }
 `, []string{
-			"5:19 S108 a borrow *T is only a parameter or receiver type (types.md, Borrows 1)",
-			"7:10 S108 cannot complete the witness instance of Append: missing type arguments",
+			"7:22 S108 cannot use mut http.EventView as http.EventView in argument",
 		}},
 		{"captured by a task", `import task
 
 func Later(body string) {
 	let mut r = http.NewEventReader()
-	http.FeedEach(&r, body, func(e *http.EventView) {
+	http.FeedEach(&r, body, func(e mut http.EventView) {
 		let t = task.Go() { http.Data(e) }
 		t.Stop()
 	})
 }
 `, []string{
-			"8:33 S108 e is a borrow (*T), and this function literal or block may outlive the call that lent it or run on another task; an escaping frame never captures a borrow: copy what it needs into a let before it (types.md, Borrows 1)",
+			"8:33 S108 e is a borrow (mut T), and this function literal or block may outlive the call that lent it or run on another task; an escaping frame never captures a borrow: copy what it needs into a let before it (types.md, Borrows 1)",
 		}},
 	}
 	for _, tc := range cases {

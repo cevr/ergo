@@ -6,7 +6,7 @@ import utf8
 
 // basic reads a basic string at its opening quote: its text, with the
 // escapes decoded. A string with no escape is a slice of the source.
-func basic(b *builder) string fails Malformed {
+func basic(b mut builder) string fails Malformed {
 	if strings.HasPrefix(strings.Slice(b.src, b.pos, len(b.src)), "\"\"\"") {
 		return try multiBasic(b)
 	}
@@ -47,7 +47,7 @@ func basic(b *builder) string fails Malformed {
 
 // escape decodes the escape at offset i into out, and is the offset after
 // it.
-func escape(b *builder, out *strings.Builder, i int) int fails Malformed {
+func escape(b mut builder, out mut strings.Builder, i int) int fails Malformed {
 	if i+1 >= len(b.src) {
 		return fail(b, len(b.src), "a string has no closing quote")
 	}
@@ -93,7 +93,7 @@ func digit(c byte) int {
 
 // scalarEscape is the text of the \u or \U escape at offset i, of n hex
 // digits: a Unicode scalar value, never a surrogate.
-func scalarEscape(b *builder, i int, n int) string fails Malformed {
+func scalarEscape(b mut builder, i int, n int) string fails Malformed {
 	let mut r = 0
 	for k in i+2..i+2+n {
 		if k >= len(b.src) || digit(b.src[k]) < 0 {
@@ -108,7 +108,7 @@ func scalarEscape(b *builder, i int, n int) string fails Malformed {
 }
 
 // quotes is how many of the byte q stand at offset i.
-func quotes(b *builder, i int, q byte) int {
+func quotes(b mut builder, i int, q byte) int {
 	let mut k = i
 	for k < len(b.src) && b.src[k] == q {
 		k += 1
@@ -119,7 +119,7 @@ func quotes(b *builder, i int, q byte) int {
 // multiBasic reads a multi-line basic string at its first quote. A
 // newline right after the opening quotes is not part of it; a backslash
 // at the end of a line takes the line break and the blanks after it.
-func multiBasic(b *builder) string fails Malformed {
+func multiBasic(b mut builder) string fails Malformed {
 	b.pos += 3
 	let _ = newline(b)
 	let mut out = strings.NewBuilder()
@@ -183,7 +183,7 @@ func multiBasic(b *builder) string fails Malformed {
 
 // literal reads a literal string at its opening quote: its text as
 // written.
-func literal(b *builder) string fails Malformed {
+func literal(b mut builder) string fails Malformed {
 	if strings.HasPrefix(strings.Slice(b.src, b.pos, len(b.src)), "'''") {
 		return try multiLiteral(b)
 	}
@@ -205,7 +205,7 @@ func literal(b *builder) string fails Malformed {
 }
 
 // multiLiteral reads a multi-line literal string at its first quote.
-func multiLiteral(b *builder) string fails Malformed {
+func multiLiteral(b mut builder) string fails Malformed {
 	b.pos += 3
 	let _ = newline(b)
 	let mut out = strings.NewBuilder()

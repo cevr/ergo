@@ -22,10 +22,10 @@ var floatFuseSeed = flag.Uint64("floatfuse.seed", 0, "run TestFloatProductsRound
 
 // floatFuseForms are the places a product of floats is written that the
 // fixed seeds must reach: a product in an expression, in a let, an
-// argument, a return, and x *= y of a local, of a record field through a
+// argument, a return, with an if as its operand, and x *= y of a local, of a record field through a
 // pointer, of a local record's field, of an array element and of a slice
 // element.
-var floatFuseForms = []string{"expr", "let", "arg", "mul-assign local", "mul-assign pointer field", "mul-assign record field", "mul-assign array", "mul-assign slice"}
+var floatFuseForms = []string{"expr", "let", "arg", "branch operand", "mul-assign local", "mul-assign pointer field", "mul-assign record field", "mul-assign array", "mul-assign slice"}
 
 // floatFuseTypes are the float types a seed draws: both widths and a type
 // defined over float64.
@@ -75,7 +75,7 @@ func floatFuseProgram(r *rand.Rand, reached map[string]bool) (string, int) {
 		form := floatFuseForms[r.IntN(len(floatFuseForms))]
 		reached[form] = true
 		rec := "Rec" + t
-		fmt.Fprintf(&b, "func f%d(a %s, b %s, c %s, p *%s) %s {\n", i, t, t, t, rec, t)
+		fmt.Fprintf(&b, "func f%d(a %s, b %s, c %s, p mut %s) %s {\n", i, t, t, t, rec, t)
 		// prod is a product of floats the form writes, beside expr's.
 		prod := func() string {
 			products++
@@ -88,6 +88,11 @@ func floatFuseProgram(r *rand.Rand, reached map[string]bool) (string, int) {
 			fmt.Fprintf(&b, "\tlet v = %s\n\tv + %s\n", prod(), expr(t, 2))
 		case "arg":
 			fmt.Fprintf(&b, "\tid%s(%s) - c\n", t, prod())
+		case "branch operand":
+			// An if as an operand: its statements run in operand order
+			// (the IR's value form, ir_expr.go).
+			products++
+			fmt.Fprintf(&b, "\tlet v = (if a < b { a } else { %s }) * %s\n\tv + c\n", expr(t, 1), expr(t, 2))
 		case "mul-assign local":
 			products++
 			fmt.Fprintf(&b, "\tlet mut v = %s\n\tv *= %s\n\tv + c\n", expr(t, 2), expr(t, 2))

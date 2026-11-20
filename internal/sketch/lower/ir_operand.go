@@ -14,8 +14,9 @@ import (
 
 // operandFits reports whether the operand x passes as the Go parameter
 // type goType of a runtime/v1 body at a call whose type parameters are
-// subst, with no conversion of its own.
-func (b *irBuilder) operandFits(x syntax.Expr, goType string, subst map[string]string) bool {
+// subst, with no conversion of its own. pkg is the import path of the
+// body's package (v1.Body.Package), whose names goType spells unqualified.
+func (b *irBuilder) operandFits(x syntax.Expr, goType string, subst map[string]string, pkg string) bool {
 	t := b.operandType(x)
-	return b.sameGo(t, goType) || b.sameRT(t, goType, subst)
+	return b.sameGo(t, goType) || b.sameRT(t, goType, subst, pkg)
 }

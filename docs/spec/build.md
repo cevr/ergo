@@ -22,7 +22,10 @@ store: it parses, checks, lowers, compiles, links and starts nothing
    command's resolved path, size and modification time, GOROOT, GOOS and
    GOARCH, GOFLAGS, tags, the reference path and the strip setting), the
    compiler's identity, and every `GO*`, `CGO_*` and `ERGO_*` variable but
-   `ERGO_STAGE_REPORT` and `ERGO_BUILD`. The output path is not part of it.
+   `ERGO_STAGE_REPORT` and `ERGO_BUILD`, and the Go experiments
+   `GOEXPERIMENT` turns on, from the environment or the go env file, since
+   they choose a module's Go body files (docs/spec/interop.md, Trusted Go
+   3). The output path is not part of it.
 2. **The manifest.** One file per request key in the Ergo cache
    (`Root/warm/KEY`) lists every input the request read: each file with the
    SHA-256 and size of its bytes (the `.ergo` files, `ergo.mod`, the
@@ -216,3 +219,57 @@ fingerprint exactly when its import closure has the same sources. `go run
 ./scripts/buildcost reuse` counts what the decision would reuse after each
 edit of generated programs and examples
 ([receipts](../receipts/compile-speed.md#incremental-check-cs5a)).
+
+## Workspace
+
+A workspace is the modules below one folder, its root (MONOREPO WS1). A
+command that names `DIR/...` (`check`, `test`, `fmt`, `lint`, `graph
+export`) runs over the workspace at `DIR` when `DIR` holds an `ergo.work`
+or no module holds `DIR`; inside a module it takes that module's packages
+below `DIR`, as before. `internal/sketchfront.DiscoverWorkspace` finds it.
+Inside a module, `DIR/...` uses the same admission rule as discovery: it
+leaves out `testdata`, hidden and `_` folders and, since WS1, also
+`node_modules` and `vendor`. A package named by its folder
+(`ergo check app/vendor/x`) still checks: the rule chooses what a
+pattern walks, never what a named folder is.
+
+- **Members.** Every folder below the root that holds an `ergo.mod` is a
+  member, the root too, and a module nested in another is a member of its
+  own. Discovery never enters a folder whose name starts with `.` or `_`,
+  `testdata`, `node_modules`, `vendor` or a folder `ergo.work` skips,
+  and it follows no directory link: those hold fixtures and copies.
+- **Edges.** A member resolves another locally when a `replace` line of its
+  `go.mod` names the other's folder (`./x`, `../x` or absolute). Each
+  pair is one edge. A remote replacement, or a folder that is no member,
+  is no edge.
+- **Divergences.** A member whose `go.mod` requires another member's Go
+  module by version with no `replace` builds against the module cache's
+  copy, not the one beside it, and no edge joins them (a local edit does
+  not reach it). `ergo lint DIR/...` at a root reports each as
+  `workspace-divergent-require` at the `require` line, naming both
+  members, the version and the fix (`replace PATH => ../member`), and
+  exits 1.
+- **Once each.** `DIR/...` at a root selects every member's packages once,
+  a member after each member it resolves locally (members in a cycle keep
+  folder order), and each member loads as its own module.
+
+### ergo.work
+
+The file is optional. Its grammar, in lines; `//` starts a comment that
+runs to the end of the line, and blank lines are ignored:
+
+```
+file    = version { key } .
+version = "version" N .          // the first line; N = 1, 2, ...
+key     = "skip" FOLDER .        // version 1 knows this key only
+```
+
+`FOLDER` is a clean, slash-separated folder below the root (no `..`, no
+`.` element) that exists; no member is found in it or below it. A key the
+file's version does not define, or a version newer than the binary reads,
+is an error naming the line, never ignored: a later key changes what a
+run does, so a binary that cannot read it must not run as if it were
+absent. Later versions only add keys; `skip` keeps its meaning in each.
+`TestWorkFileRefusesWhatItCannotRead` holds the refusals and
+`TestWorkspaceDiscoveryAgrees` the discovery, over seeded trees of
+modules.

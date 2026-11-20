@@ -14,9 +14,10 @@ import (
 // the IR path and the source path print the same and exit the same, and
 // parse and every libN get an IR body, so a call failing with go.Error,
 // a variadic spread, an Option of a go.Ref (the niche), a Go method, the
-// task's context and a callback that fails all run from the IR. A failing
-// seed prints the Ergo source, both outcomes and its replay command.
-// Mutants f7l-* (mutants.json) fail it.
+// task's context, a callback that fails and a field read through a
+// go.Ref all run from the IR. A failing seed prints the Ergo source, both
+// outcomes and its replay command. Mutants f7l-* (mutants.json) and the
+// lower ledger's naming-goref-selector-named fail it.
 //
 // It builds Go for the reason needsBuild gives: the question is what the
 // built program's Go calls return and report, which only a run shows.

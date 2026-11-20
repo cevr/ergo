@@ -504,6 +504,7 @@ func (g *glueGen) parts(d *check.Drop, x, taken string) string {
 			i := g.fc.temp("i")
 			b.WriteString("for " + i + " := len(" + x + ") - 1; " + i + " >= 0; " + i + "-- { " + e + " := " + x + "[" + i + "]; " + g.release(d.Elem, e) + "}; ")
 		case *check.Map:
+			g.fc.l.intMapConflict(d.Type) // intmap.go: ranges over Go's map
 			b.WriteString("for _, " + e + " := range " + x + " { " + g.release(d.Elem, e) + "}; ")
 		default:
 			ice(g.site, "a generated release of %s, which has elements but is no slice, array or Map", d.Type)

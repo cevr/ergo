@@ -1,0 +1,186 @@
+// This file gives a generic record or variant written without its type
+// arguments the type its context fixes (grammar.md, Patterns 6; the one
+// spelling of OPTION-ONE): `Some{Value: 1}` where an Option[int] is
+// expected, and `case Some as s:` or `case Some{Value: s}:` on an
+// Option[int] subject, are Some[int] (the Go checker's elided-argument
+// inference, literal.go and patterns.go).
+
+import compiler/check/store
+import compiler/syntax
+import dense
+
+// Elided is the type the bare type name x has where the context's type
+// ctx fixes its arguments: ctx itself when ctx instantiates x, or x's
+// instance when x is a variant of the union ctx instantiates, its
+// arguments the union's that it takes. None when ctx fixes nothing (no
+// instance) or names a union the tables do not describe. An instance at
+// the enclosing function's type parameters fixes them (Some{Value: v}
+// where an Option[E] is expected is Some[E]).
+func Elided(s mut store.Store, e Env, x dense.ID[syntax.Node], ctx dense.ID[store.TKey]) Option[dense.ID[store.TKey]] {
+	if store.KindOfType(*s, ctx) != store.KInstance {
+		return None
+	}
+	let o = store.OriginOfType(*s, ctx)
+	let args = store.OperandsOf(*s, ctx)
+	match headOf(*s, e, x) {
+	case HForeign as f:
+		let ref = foreignRef(f.At)
+		if ref.Import == o.Import && ref.Decl == o.Decl {
+			return Some{Value: ctx}
+		}
+		if o.Import != uint32(store.ForeignBit) || int(o.Decl) >= len(e.foreign) {
+			return None
+		}
+		// A foreign generic union lists a variant that takes the union's
+		// parameters in their order, or none (selfhostcheck's foreign
+		// table): one of the union's arity takes the union's arguments.
+		let u = e.foreign[int(o.Decl)]
+		if u.Arity == len(args) && e.foreign[f.At].Arity == len(args) && hasInt(u.Variants, f.At) {
+			return Some{Value: store.TInstance(s, ref, args)}
+		}
+		None
+	case HLocal as l:
+		let ref = store.XRef{Import: uint32(0), Decl: uint32(dense.Index(l.Decl))}
+		if ref.Import == o.Import && ref.Decl == o.Decl {
+			return Some{Value: ctx}
+		}
+		if o.Import != uint32(0) {
+			return None
+		}
+		localVariant(s, e, l, ref, int(o.Decl), args)
+	case HImport as hi:
+		// An import's generic type, where an instance of it is expected.
+		// A variant of an import's union is not elided yet: its interface
+		// does not say which variants take the union's parameters in order.
+		if hi.Ref.Import == o.Import && hi.Ref.Decl == o.Decl {
+			return Some{Value: ctx}
+		}
+		None
+	case _:
+		None
+	}
+}
+
+// localVariant is the instance of the package's variant l in the package's
+// generic union whose declaration index is union, instantiated with args:
+// an inline variant takes the union's parameters its fields mention, in
+// the union's order (records.go Records); a member written as l[…] is that
+// type with the union's arguments for its parameters.
+func localVariant(s mut store.Store, e Env, l HLocal, ref store.XRef, union int, args []dense.ID[store.TKey]) Option[dense.ID[store.TKey]] {
+	let d = match store.Lookup(*s, store.DeclText(*s, union)) {
+	case Some{Value: d}:
+		d
+	case None:
+		return None
+	}
+	let row = store.DeclOf(*s, d)
+	if int(row.File) >= len(e.files) {
+		return None
+	}
+	let p = e.files[int(row.File)]
+	let td = match dense.Unpack(parentDecl(p, int(row.Node))) {
+	case Some{Value: dn}:
+		match syntax.ViewOf(p.Tree, dn) {
+		case syntax.TypeDecl as td:
+			td
+		case _:
+			return None
+		}
+	case None:
+		return None
+	}
+	let params = match dense.Unpack(td.TypeParams) {
+	case Some{Value: tp}:
+		let (names, _) = bracketNames(p, tp)
+		names
+	case None:
+		return None
+	}
+	if len(params) != len(args) {
+		return None
+	}
+	let members = match dense.Unpack(td.Spec) {
+	case Some{Value: sp}:
+		match syntax.ViewOf(p.Tree, sp) {
+		case syntax.InterfaceType as it:
+			listIDs(p, it.Members)
+		case _:
+			return None
+		}
+	case None:
+		return None
+	}
+	let arity = len(localKinds(e, l.Decl))
+	for m in members {
+		match syntax.ViewOf(p.Tree, m) {
+		case syntax.VariantSpec as vs:
+			if nameText(p, vs.Name) != l.Name {
+				continue
+			}
+			let used = mentioned(p, vs.Fields)
+			let mut vargs = []dense.ID[store.TKey]{}
+			for i, n in params {
+				if contains(used, n) {
+					vargs = vargs.Append(args[i])
+				}
+			}
+			if len(vargs) == 0 || len(vargs) != arity {
+				return None
+			}
+			return Some{Value: store.TInstance(s, ref, vargs)}
+		case syntax.IndexExpr as ix:
+			if syntax.KindOf(p.Tree, ix.X) != syntax.KIdent || nameText(p, ix.X) != l.Name {
+				continue
+			}
+			let mut inner = e
+			inner.p = p
+			inner.params = params
+			let t = Resolve(s, inner, m)
+			if isInvalid(*s, t) {
+				return None
+			}
+			return Some{Value: store.TSubst(s, t, args)}
+		case _:
+		}
+	}
+	None
+}
+
+// Bare is a generic type named without its type arguments: its
+// declaration and, per type parameter, whether it is a row parameter.
+type Bare { Ref store.XRef, Rows []bool }
+
+// BareOf is the generic type the name x names, or none when x names no
+// generic type of the package or of an import.
+func BareOf(s store.Store, e Env, x dense.ID[syntax.Node]) Option[Bare] {
+	let (ref, kinds, arity) = match headOf(s, e, x) {
+	case HLocal as l:
+		let ks = localKinds(e, l.Decl)
+		(store.XRef{Import: uint32(0), Decl: uint32(dense.Index(l.Decl))}, ks, len(ks))
+	case HImport as hi:
+		let ks = importDecl(e.deps, hi.Ref).Kinds
+		(hi.Ref, ks, len(ks))
+	case HForeign as f:
+		(foreignRef(f.At), extKinds(e, f.Text), e.foreign[f.At].Arity)
+	case _:
+		return None
+	}
+	if arity == 0 {
+		return None
+	}
+	let mut rows = []bool{}
+	for i in 0..arity {
+		let k = if i < len(kinds) { kinds[i] } else { kindType }
+		rows = rows.Append(k == kindErrors || k == kindUses)
+	}
+	Some{Value: Bare{Ref: ref, Rows: rows}}
+}
+
+func hasInt(xs []int, x int) bool {
+	for y in xs {
+		if y == x {
+			return true
+		}
+	}
+	false
+}

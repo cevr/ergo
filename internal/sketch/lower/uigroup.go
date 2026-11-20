@@ -537,7 +537,7 @@ func (fc *funcCtx) groupCall(x *syntax.CallExpr, c *check.Call, g *check.Func) (
 		ice(x, "std ui's group takes no CallSite last")
 	}
 	lead := []string{}
-	if !gd.pure {
+	if !gd.envFree {
 		lead = fc.taskDestArgs(x, c, g.Sig)
 	}
 	operands = append(append(lead, operands...), lit, fc.siteValue(x, site))

@@ -63,7 +63,7 @@ func Chunked(body string, size int) int {
 func View(body string) int {
 	let mut r = http.NewEventReader()
 	let mut n = 0
-	http.FeedEach(&r, body, func(e *http.EventView) {
+	http.FeedEach(&r, body, func(e mut http.EventView) {
 		for i in 0..http.DataLines(e) {
 			n = n + len(http.DataLine(e, i)) + 1
 		}

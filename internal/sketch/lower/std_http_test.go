@@ -50,8 +50,11 @@ func TestHTTPHasNoTestProviderDependency(t *testing.T) {
 	seen := map[*check.Package]bool{}
 	var visit func(*check.Package)
 	visit = func(p *check.Package) {
-		if seen[p] || p.Host() {
-			return // a Go package of import go has no Ergo imports
+		if seen[p] || p.Host() || p.Info == nil {
+			// A Go package of import go has no Ergo imports, and nor has
+			// the predeclared go package (go.Error, go.New), which has no
+			// source and so no Info.
+			return
 		}
 		seen[p] = true
 		if p.Path == "fstest" {
@@ -262,7 +265,7 @@ test HttpFeedEachMatchesModel(seed int) {
 			}
 			let s = 1 + sizes[k%len(sizes)]
 			let to = if from+s > len(text) { len(text) } else { from + s }
-			http.FeedEach(&r, strings.Slice(text, from, to), func(e *http.EventView) {
+			http.FeedEach(&r, strings.Slice(text, from, to), func(e mut http.EventView) {
 				let mut data = []string{}
 				for i in 0..http.DataLines(e) {
 					data = data.Append(http.DataLine(e, i))
@@ -782,7 +785,7 @@ func TestStdHTTPLawsRun(t *testing.T) {
 }
 
 // httpRawPathStatement is RawPathDecodesToPath.
-const httpRawPathStatement = `RawPathDecodesToPath(segments []string, upper bool) { let mut raw = "" for i, s in segments { let seg = if s == "" { "-" } else { s } raw = raw + "/" + queryEscape(seg, i%2 == 0, upper) } if raw == "" { raw = "/" } let n = InMemoryNetwork(AnyOrigin, Limits{MaxBodyBytes: 1 << 16, MaxHeaderBytes: 1 << 16, IdleTimeout: 30s, ReadHeaderTimeout: 10s, ReadBodyTimeout: 10s}, NoRedirects, func(origin string, r Request) Response needs Streaming { Response{Status: 200, Header: []Field{}, Body: r.RawPath + "\n" + r.Path} }) catch { case InvalidClient, InvalidLimits: return false } let got = n.SendURL(URLRequest{URL: "http://raw.test" + raw, Method: "GET", Header: []Field{}, Credentials: []Credential{}, Body: ""}) catch { case RequestFailed, OriginRefused, RedirectLimit: return false } let decoded = DecodePath(raw) catch { case BadEscape: return false } got.Body == raw + "\n" + decoded }`
+const httpRawPathStatement = `RawPathDecodesToPath(segments []string, upper bool) { let mut raw = "" for i, s in segments { let seg = if s == "" { "-" } else { s } raw = raw + "/" + queryEscape(seg, i%2 == 0, upper) } if raw == "" { raw = "/" } let n = InMemoryNetwork(AnyOrigin, Limits{MaxBodyBytes: 1 << 16, MaxHeaderBytes: 1 << 16, IdleTimeout: 30s, ReadHeaderTimeout: 10s, ReadBodyTimeout: 10s}, NoRedirects, func(origin string, r Request) Response needs Streaming { Response{Status: 200, Header: []Field{}, Body: r.RawPath + "\n" + r.Path} }) catch { case InvalidClient, InvalidLimits: return false } let got = n.SendURL(URLRequest{URL: "http://raw.test" + raw, Method: "GET", Header: []Field{}, Credentials: []Credential{}, Body: ""}) catch { case RequestFailed, OriginRefused, RedirectLimit: return false } let decoded = DecodePath(raw) catch { case BadEscape: return false } got.Body == raw+"\n"+decoded }`
 
 // httpQueryBytesStatement is QueryStringBytesReadsString (GX12b).
 const httpQueryBytesStatement = `QueryStringBytesReadsString(s string, pre []byte) { let a = queryReaderOf([]Field{Field{Name: "k", Value: s}}) let b = queryReaderOf([]Field{Field{Name: "k", Value: s}}) try a.BeginObject() try b.BeginObject() let _ = a.Key() let _ = b.Key() let got = try a.StringBytes(pre) utf8.String(got) == utf8.String(pre)+try b.String() }`
@@ -812,4 +815,4 @@ const sseCutStatement = `CutIsNotAnEvent(events []ServerEvent, k int, sizes []in
 
 const sseModelStatement = `FeedMatchesModel(seed int) { with context { Random: rand.Seeded(uint64(seed)) } { let text, sizes = drawnText() let r, got = feedIn(text, sizes) let want, end, retry = modelRead(text) got == want && r.End() == end && Retry(r) == retry } }`
 
-const sseEachStatement = `FeedEachMatchesModel(seed int) { with context { Random: rand.Seeded(uint64(seed)) } { let text, sizes = drawnText() let mut r = NewEventReader() let mut got = []ServerEvent{} let mut from = 0 for k in 0..len(text)+1 { if from >= len(text) { break } let s = 1 + sizes[k%len(sizes)] let to = if from+s > len(text) { len(text) } else { from + s } FeedEach(&r, strings.Slice(text, from, to), func(e *EventView) { let mut data = []string{} for i in 0..DataLines(e) { data = data.Append(DataLine(e, i)) } got = got.Append(ServerEvent{Event: Event(e), Data: strings.Join(data, "\n"), ID: ID(e)}) }) from = to } let want, end, retry = modelRead(text) got == want && r.End() == end && Retry(r) == retry } }`
+const sseEachStatement = `FeedEachMatchesModel(seed int) { with context { Random: rand.Seeded(uint64(seed)) } { let text, sizes = drawnText() let mut r = NewEventReader() let mut got = []ServerEvent{} let mut from = 0 for k in 0..len(text)+1 { if from >= len(text) { break } let s = 1 + sizes[k%len(sizes)] let to = if from+s > len(text) { len(text) } else { from + s } FeedEach(&r, strings.Slice(text, from, to), func(e mut EventView) { let mut data = []string{} for i in 0..DataLines(e) { data = data.Append(DataLine(e, i)) } got = got.Append(ServerEvent{Event: Event(e), Data: strings.Join(data, "\n"), ID: ID(e)}) }) from = to } let want, end, retry = modelRead(text) got == want && r.End() == end && Retry(r) == retry } }`

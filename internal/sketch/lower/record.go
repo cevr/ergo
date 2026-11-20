@@ -175,8 +175,7 @@ func (l *lowerer) findRecordParam(f *check.Func) int {
 }
 
 // reserveSpecs gives, in the naming pass, the Go name of the copy of each
-// function of pkgs that has one for each machine of the program's own
-// packages.
+// function of pkgs that has one for each machine of machines.
 func (l *lowerer) reserveSpecs(pkgs []*check.Package, machines []*check.TypeName) {
 	if recordLowering == "opaque" || len(machines) == 0 {
 		return
@@ -193,11 +192,12 @@ func (l *lowerer) reserveSpecs(pkgs []*check.Package, machines []*check.TypeName
 	}
 }
 
-// sourcedMachines are the machine declarations of the program's own
-// packages, in the naming pass's order.
-func (l *lowerer) sourcedMachines() []*check.TypeName {
+// machinesOf are the machine declarations of pkgs, in the naming pass's
+// order: a std package's as a user package's (prompt.Asker, STD-COPY-SAME),
+// so a call that passes one goes to the same copy wherever it is declared.
+func (l *lowerer) machinesOf(pkgs []*check.Package) []*check.TypeName {
 	var out []*check.TypeName
-	for _, p := range l.sourcedPkgs() {
+	for _, p := range pkgs {
 		for _, tn := range l.canon.types(p) {
 			if tn.Decl == nil {
 				continue
@@ -285,7 +285,7 @@ func (fc *funcCtx) specAt(x *syntax.CallExpr, c *check.Call) *specCopy {
 	}
 	name, ok := fc.l.pkgNames[pkgKey{"spec", key}]
 	if !ok {
-		return nil // the naming pass names the machines of the program's own packages and the providers it converts
+		return nil // the naming pass names the machines of the program's packages and the providers it converts
 	}
 	// The copy is one instance: each type argument is a Go type, never a
 	// type parameter of a generic caller (a copy's are Go types).
@@ -360,7 +360,7 @@ func (fc *funcCtx) inlineField(x *syntax.CallExpr, c *check.Call, g *check.Func,
 	if len(g.Sig.Results) == 1 && fc.noValue(x) {
 		return false // a result a block with no value binds: struct{}
 	}
-	if !gd.pure && fc.env == "" {
+	if !gd.envFree && fc.env == "" {
 		return false
 	}
 	if !fc.grow(inlineSize(g.Decl.Body)) {
@@ -414,7 +414,7 @@ func (fc *funcCtx) recordCallText(x *syntax.CallExpr, c *check.Call, sig *check.
 	}
 	gd = fc.l.useFunc(g, x)
 	vals := fc.callArgs(x.Args, x)
-	if !gd.pure {
+	if !gd.envFree {
 		vals = append([]string{fc.envExpr(x)}, vals...)
 	}
 	return gd.name + "(" + strings.Join(vals, ", ") + ")", len(sig.Results) > 0, gd.fallible, true

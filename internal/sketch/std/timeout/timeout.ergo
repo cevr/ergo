@@ -13,7 +13,7 @@ extern go ergo.local/prototype/runtime/v1.Expired type Expired {}
 // f is escaping because it runs on another task. In particular, lending a
 // caller-owned resource here would also lend task-affine resources such as
 // tasks.Set, whose operations must run on their owning task.
-extern go ergo.local/prototype/runtime/v1.After func After[A, E, R](d duration, f own func() A fails E needs R) A fails E | Expired needs R | Scheduler
+extern go ergo.local/prototype/runtime/v1.After func After[A own, E, R](d duration, f own func() A fails E needs R) A fails E | Expired needs R | Scheduler
 
 // AfterKeepsWhatTheBodyTook: a value the body has taken is never lost to
 // the deadline (RT-AFTERDROP). A producer pushes 0 to 39, one a
@@ -152,7 +152,7 @@ extern go ergo.local/prototype/runtime/v1.PopBefore func PopBefore[T](q queue.Qu
 law PopWithinWaitsUpToD(g int, w int) {
 	let m = time.NewManual(0)
 	let gap = ((g % 60) + 60) % 60
-	let d = ((w % 59) + 59) % 59 + 1
+	let d = ((w%59)+59)%59 + 1
 	let start = m.Now()
 	with context { Scheduler: m } {
 		let q = queue.New[int](1)

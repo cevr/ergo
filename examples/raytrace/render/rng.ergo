@@ -17,7 +17,7 @@ func PixelStream(seed uint64, i int) Stream {
 func Seeded(seed uint64) Stream { Stream{state: seed} }
 
 // Next is the stream's next number.
-func Next(s *Stream) uint64 {
+func Next(s mut Stream) uint64 {
 	s.state += 0x9E3779B97F4A7C15
 	let mut z = s.state
 	z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9
@@ -26,11 +26,11 @@ func Next(s *Stream) uint64 {
 }
 
 // Float is the stream's next number in [0, 1).
-func Float(s *Stream) float64 { float64(s.Next()>>11) * (1.0 / 9007199254740992.0) }
+func Float(s mut Stream) float64 { float64(s.Next()>>11) * (1.0 / 9007199254740992.0) }
 
 // InBall is a point drawn uniformly from the ball of radius 1: the first
 // point of the cube [-1, 1)³ drawn that lies inside it.
-func InBall(s *Stream) geom.Vec {
+func InBall(s mut Stream) geom.Vec {
 	for {
 		let p = geom.V(2.0*s.Float()-1.0, 2.0*s.Float()-1.0, 2.0*s.Float()-1.0)
 		let d = geom.Dot(p, p)
@@ -41,4 +41,4 @@ func InBall(s *Stream) geom.Vec {
 }
 
 // OnSphere is a direction drawn uniformly: InBall scaled to length 1.
-func OnSphere(s *Stream) geom.Vec { geom.Unit(s.InBall()) }
+func OnSphere(s mut Stream) geom.Vec { geom.Unit(s.InBall()) }
