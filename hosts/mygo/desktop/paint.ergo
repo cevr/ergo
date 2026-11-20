@@ -240,7 +240,7 @@ func describeRoom(x ui.InputNode, line float32) float32 {
 
 // paint lays the window's tree out at the window's size and gives the
 // window its paint list.
-func paint[S, E, D, F](d *Driver[S, E, D, F]) needs go.Foreign {
+func paint[S, E, D, F](d mut Driver[S, E, D, F]) needs go.Foreign {
 	if d.rebuild {
 		learn(&d.metrics, d.w, "", textSize)
 		for _, h in d.nodes {
@@ -301,7 +301,7 @@ func paint[S, E, D, F](d *Driver[S, E, D, F]) needs go.Foreign {
 // the nodes drawn anew (Drawn). With again, a node none of soiled
 // contains whose box, offset and clip are those of its last draw takes
 // that draw again (the damage paint); without, every node is drawn.
-func drawAll[S, E, D, F](d *Driver[S, E, D, F], line float32, soiled Map[ui.Id[E], bool], again bool) needs go.Foreign {
+func drawAll[S, E, D, F](d mut Driver[S, E, D, F], line float32, soiled Map[ui.Id[E], bool], again bool) needs go.Foreign {
 	d.spots = []spot[E]{}
 	d.canvases = []spot[E]{}
 	d.drawn = 0
@@ -318,7 +318,7 @@ func drawAll[S, E, D, F](d *Driver[S, E, D, F], line float32, soiled Map[ui.Id[E
 // spread is the nodes whose draw changed since the last paint and all
 // their ancestors: each node a pass set, a parent whose children changed,
 // a Scroll that moved, and the nodes that took and lost the focus.
-func spread[S, E, D, F](d *Driver[S, E, D, F]) Map[ui.Id[E], bool] {
+func spread[S, E, D, F](d mut Driver[S, E, D, F]) Map[ui.Id[E], bool] {
 	let mut out = Map[ui.Id[E], bool]{}
 	let mut seeds = []ui.Id[E]{}
 	for id, _ in d.soiled {
@@ -371,7 +371,7 @@ func sameSpots[E](a []spot[E], b []spot[E]) bool {
 type drawn { box layout.Box, dy float32, clip layout.Box, line float32, opacity float64, under Option[uint32], shadow bool, s0 int, s1 int, c0 int, c1 int, m0 int, m1 int }
 
 // keyOf is id's key in the window's list (Mark, Again).
-func keyOf[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) int {
+func keyOf[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) int {
 	match d.keys.Get(id) {
 	case Some[int] as k:
 		k.Value
@@ -386,7 +386,7 @@ func keyOf[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) int {
 // nodes, laid out at the window's size, each list that laid out no taller
 // than 0 given the window's room below its top and the tree laid out
 // again; with its window's box and each node's box.
-func rebuilt[S, E, D, F](d *Driver[S, E, D, F], line float32) (layout.Tree, layout.Id, Map[ui.Id[E], layout.Id]) {
+func rebuilt[S, E, D, F](d mut Driver[S, E, D, F], line float32) (layout.Tree, layout.Id, Map[ui.Id[E], layout.Id]) {
 	let mut t = layout.New()
 	let mut rs = plainStyle()
 	rs.Width = layout.Px{Value: d.width}
@@ -419,7 +419,7 @@ func rebuilt[S, E, D, F](d *Driver[S, E, D, F], line float32) (layout.Tree, layo
 
 // checkKept builds the reference tree beside the kept one and keeps the
 // first box where they differ (Differs), once.
-func checkKept[S, E, D, F](d *Driver[S, E, D, F], line float32) {
+func checkKept[S, E, D, F](d mut Driver[S, E, D, F], line float32) {
 	if d.differ != None {
 		return
 	}
@@ -458,7 +458,7 @@ func checkKept[S, E, D, F](d *Driver[S, E, D, F], line float32) {
 
 // build adds id's children under into, in order, and their subtrees, in
 // the styles styleIn gives them, and names each one's box in ids.
-func build[S, E, D, F](d *Driver[S, E, D, F], t *layout.Tree, id ui.Id[E], into layout.Id, ids *Map[ui.Id[E], layout.Id], line float32) {
+func build[S, E, D, F](d mut Driver[S, E, D, F], t mut layout.Tree, id ui.Id[E], into layout.Id, ids mut Map[ui.Id[E], layout.Id], line float32) {
 	let list = listOf(d, id)
 	for i, k in kidsOf(d, id) {
 		match d.nodes.Get(k) {
@@ -480,7 +480,7 @@ func build[S, E, D, F](d *Driver[S, E, D, F], t *layout.Tree, id ui.Id[E], into 
 // last draw takes that draw again from the window's last list, with the
 // spots it added then: its subtree lays out as it did, so it paints as it
 // did. Any other node is drawn anew and counted (Drawn).
-func draw[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], dy float32, clip layout.Box, line float32, soiled Map[ui.Id[E], bool], again bool) needs go.Foreign {
+func draw[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], dy float32, clip layout.Box, line float32, soiled Map[ui.Id[E], bool], again bool) needs go.Foreign {
 	let laid = match d.lids.Get(id) {
 	case Some[layout.Id] as l:
 		boxOf(&d.tree, l.Value)
@@ -537,7 +537,7 @@ func draw[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], dy float32, clip layou
 }
 
 // drawNode paints id itself at b and draws its children.
-func drawNode[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], laid layout.Box, b layout.Box, dy float32, clip layout.Box, line float32, soiled Map[ui.Id[E], bool], again bool) needs go.Foreign {
+func drawNode[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], laid layout.Box, b layout.Box, dy float32, clip layout.Box, line float32, soiled Map[ui.Id[E], bool], again bool) needs go.Foreign {
 	let n = match d.nodes.Get(id) {
 	case Some[held[E]] as h:
 		h.Value.node
@@ -672,26 +672,26 @@ func drawNode[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], laid layout.Box, b
 }
 
 // drawKids paints id's children in order.
-func drawKids[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], dy float32, clip layout.Box, line float32, soiled Map[ui.Id[E], bool], again bool) needs go.Foreign {
+func drawKids[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], dy float32, clip layout.Box, line float32, soiled Map[ui.Id[E], bool], again bool) needs go.Foreign {
 	for k in kidsOf(d, id) {
 		draw(d, k, dy, clip, line, soiled, again)
 	}
 }
 
 // lines paints text broken as Metrics breaks it at width, from x, y.
-func lines[S, E, D, F](d *Driver[S, E, D, F], text string, x float32, y float32, wide float32, color uint32) needs go.Foreign {
+func lines[S, E, D, F](d mut Driver[S, E, D, F], text string, x float32, y float32, wide float32, color uint32) needs go.Foreign {
 	let step = lineHeight(d.metrics, textSize)
 	for i, l in Lines(d.metrics, text, textSize, wide) {
 		d.w.Text(float64(x), float64(y+float32(i)*step), l, float64(textSize), color)
 	}
 }
 
-func fill[S, E, D, F](d *Driver[S, E, D, F], b layout.Box, radius float32, color uint32) needs go.Foreign {
+func fill[S, E, D, F](d mut Driver[S, E, D, F], b layout.Box, radius float32, color uint32) needs go.Foreign {
 	d.w.Fill(float64(b.X), float64(b.Y), float64(b.W), float64(b.H), float64(radius), color)
 }
 
 // ring is the focus ring around b.
-func ring[S, E, D, F](d *Driver[S, E, D, F], b layout.Box, radius float32) needs go.Foreign {
+func ring[S, E, D, F](d mut Driver[S, E, D, F], b layout.Box, radius float32) needs go.Foreign {
 	d.w.Border(float64(b.X-3), float64(b.Y-3), float64(b.W+6), float64(b.H+6), float64(radius+3), 2, accent)
 }
 
@@ -706,13 +706,13 @@ func cut(clip layout.Box, b layout.Box) layout.Box {
 
 // access adds a node of the window's accessibility tree, named by an
 // id that stays the node's while it shows.
-func access[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], role int, label string, value string, b layout.Box, checked bool, focus bool) needs go.Foreign {
+func access[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], role int, label string, value string, b layout.Box, checked bool, focus bool) needs go.Foreign {
 	d.w.Access(nameOf(d, id), -1, role, label, value, float64(b.X), float64(b.Y), float64(b.W), float64(b.H), checked, focus)
 }
 
 // nameOf is id's node's id in the accessibility tree, given the first
 // time it is asked for.
-func nameOf[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) int {
+func nameOf[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) int {
 	match d.names.Get(id) {
 	case Some[int] as n:
 		n.Value
@@ -724,13 +724,13 @@ func nameOf[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) int {
 }
 
 // nextName is a name no node has had.
-func nextName[S, E, D, F](d *Driver[S, E, D, F]) int {
+func nextName[S, E, D, F](d mut Driver[S, E, D, F]) int {
 	d.named = d.named + 1
 	d.named
 }
 
 // contentHeight is how far the children of a Scroll reach below its top.
-func contentHeight[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) float32 {
+func contentHeight[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) float32 {
 	match d.extents.Get(id) {
 	case Some[float32] as h:
 		h.Value

@@ -14,7 +14,7 @@ type result = Done{} | Missing{Label string} | Broke{Why string}
 // agree plays steps on both hosts and prints whether they agree after
 // each. The screen is 60 by 40 cells (480 by 640 DIPs, the window of
 // hosts/mygo's hostagree).
-func agree[E comparable, S](m Machine[S, E, int], view own func(f *ui.Frame[E], s S), same func(a S, b S) bool, steps []string) needs Console | Scheduler | go.Foreign {
+func agree[E comparable, S](m Machine[S, E, int], view own func(f mut ui.Frame[E], s S), same func(a S, b S) bool, steps []string) needs Console | Scheduler | go.Foreign {
 	let s = screen.Headless(60, 40) catch {
 	case go.Error as e:
 		Console.Println("differ 0: no screen: \(e.Text)")
@@ -90,7 +90,7 @@ func said(r result) string {
 // the app state, whether an Area holds the pointer, each list's rows in
 // their places, and each text's place on the screen. First TestHost takes
 // the viewport the terminal reported for each list (follow).
-func compare[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *tui.Driver[S, E, D, F], s go.Ref[screen.Screen], same func(a S, b S) bool) Option[string] needs go.Foreign {
+func compare[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut tui.Driver[S, E, D, F], s go.Ref[screen.Screen], same func(a S, b S) bool) Option[string] needs go.Foreign {
 	follow(h, d, tui.Screen(d))
 	if !ui.SameShapes(ui.Screen(h), tui.Screen(d)) {
 		return Some{Value: "trees differ:\n\(ui.Screenshot(h))terminal:\n\(shot(tui.Screen(d), ""))"}
@@ -124,7 +124,7 @@ func compare[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *tui.Driver[S,
 // moves it to bring a row into view), and the viewport the terminal
 // reported after the step has that offset, or the list's last offset when
 // the pass's is past it (the scene keeps a scroll inside the content).
-func kept[E comparable, S, D, F](d *tui.Driver[S, E, D, F], shapes []ui.Shape[E]) Option[string] {
+func kept[E comparable, S, D, F](d mut tui.Driver[S, E, D, F], shapes []ui.Shape[E]) Option[string] {
 	for sh in shapes {
 		match sh.Node {
 		case ui.RowsNode as x:
@@ -157,7 +157,7 @@ let cellH = 16.0
 // the list's top plus its index's rows, less the offset, one row high, at
 // the list's left edge, and its label is on the screen's row there when
 // that row is in the list's box.
-func placed[E comparable, S, D, F](d *tui.Driver[S, E, D, F], s go.Ref[screen.Screen], shapes []ui.Shape[E], rows []string) Option[string] needs go.Foreign {
+func placed[E comparable, S, D, F](d mut tui.Driver[S, E, D, F], s go.Ref[screen.Screen], shapes []ui.Shape[E], rows []string) Option[string] needs go.Foreign {
 	for sh in shapes {
 		match sh.Node {
 		case ui.RowsNode as x:
@@ -208,7 +208,7 @@ func placed[E comparable, S, D, F](d *tui.Driver[S, E, D, F], s go.Ref[screen.Sc
 // reported for it: the terminal decides a list's height and where a
 // person scrolled it, and TestHost, which has no screen, takes it as a
 // host's report (ui.ScrollTo). Then both write the same rows.
-func follow[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *tui.Driver[S, E, D, F], shapes []ui.Shape[E]) {
+func follow[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut tui.Driver[S, E, D, F], shapes []ui.Shape[E]) {
 	for sh in shapes {
 		match sh.Node {
 		case ui.RowsNode as x:
@@ -273,7 +273,7 @@ func shot[E](shapes []ui.Shape[E], indent string) string {
 // is: every word of a text (the first node of that value, outside a
 // Scroll or a list, whose rows can scroll away) is on the screen's rows
 // that its box covers.
-func shown[E comparable, S, D, F](d *tui.Driver[S, E, D, F], s go.Ref[screen.Screen], shapes []ui.Shape[E], rows []string) Option[string] needs go.Foreign {
+func shown[E comparable, S, D, F](d mut tui.Driver[S, E, D, F], s go.Ref[screen.Screen], shapes []ui.Shape[E], rows []string) Option[string] needs go.Foreign {
 	for sh in shapes {
 		match sh.Node {
 		case ui.ScrollNode, ui.RowsNode:
@@ -307,7 +307,7 @@ func shown[E comparable, S, D, F](d *tui.Driver[S, E, D, F], s go.Ref[screen.Scr
 }
 
 // run does one step on each host.
-func run[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *tui.Driver[S, E, D, F], s go.Ref[screen.Screen], line string) (result, result) needs go.Foreign {
+func run[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut tui.Driver[S, E, D, F], s go.Ref[screen.Screen], line string) (result, result) needs go.Foreign {
 	let (verb, rest) = match strings.Cut(line, " ") {
 	case Some[strings.Halves] as c:
 		(c.Value.Before, c.Value.After)
@@ -427,7 +427,7 @@ type zoned[E] { area ui.Id[E], zone ui.Id[E], box ui.Rect }
 // labelled label: the pad's Zone (key 7) when the pointer is in the box
 // the terminal laid it out in, None otherwise. The terminal finds the
 // Zone by its own hit test, through the scene; here it is the box.
-func zoneAt[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *tui.Driver[S, E, D, F], label string, x float64, y float64) Option[zoned[E]] needs go.Foreign {
+func zoneAt[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut tui.Driver[S, E, D, F], label string, x float64, y float64) Option[zoned[E]] needs go.Foreign {
 	let (area, zone, mine) = match (ui.Find(h, label), ui.Locate(h, ui.WithZone{Key: ui.ByInt(7)}), tui.Find(d, label), tui.Locate(d, ui.WithZone{Key: ui.ByInt(7)})) {
 	case (Some[ui.Id[E]] as a, zs, Some[ui.Id[E]] as da, dz):
 		if len(zs) == 0 || len(dz) == 0 {
@@ -446,7 +446,7 @@ func zoneAt[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *tui.Driver[S, 
 }
 
 // found is whether TestHost holds a node labelled label.
-func found[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], label string) result {
+func found[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], label string) result {
 	match ui.Find(h, label) {
 	case Some[ui.Id[E]]:
 		Done
@@ -457,7 +457,7 @@ func found[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], label string) resu
 
 // landed is b, unless the list labelled label is not where a step that
 // scrolled it to offset to left it: at to, or as far as its content goes.
-func landed[E comparable, S, D, F](d *tui.Driver[S, E, D, F], label string, b result, to float64) result {
+func landed[E comparable, S, D, F](d mut tui.Driver[S, E, D, F], label string, b result, to float64) result {
 	match (b, tui.Viewport(d, label)) {
 	case (Done, Some[ui.Viewport] as v):
 		let most = maxOffset(tui.Screen(d), label, float64(v.Value.Height))
@@ -480,7 +480,7 @@ func atoi(s string) int {
 }
 
 // both plays one act on each host.
-func both[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *tui.Driver[S, E, D, F], act ui.Act) (result, result) needs go.Foreign {
+func both[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut tui.Driver[S, E, D, F], act ui.Act) (result, result) needs go.Foreign {
 	let a = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
 		try ui.Play(h, []ui.Act{act})
 	})
@@ -531,7 +531,7 @@ func focusOrder[E](shapes []ui.Shape[E], into []Option[string]) []Option[string]
 // twin is TestHost's node of the terminal's node n (id on the terminal):
 // the first with n's label. An Id is the host's (an arena's place), so a
 // row a list wrote in other passes on the two hosts has another Id.
-func twin[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], n ui.Node[E], id ui.Id[E]) ui.Id[E] {
+func twin[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], n ui.Node[E], id ui.Id[E]) ui.Id[E] {
 	match labelOfNode(n) {
 	case Some[string] as l:
 		match ui.Find(h, l.Value) {
@@ -576,7 +576,7 @@ func named(l Option[string]) string {
 // into) the node the terminal focused. The focus order is the tree's:
 // after k Tabs the focus is on the (k-1 mod n)-th of the n focusable
 // nodes.
-func focusPress[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *tui.Driver[S, E, D, F], s go.Ref[screen.Screen], k int) (result, result) needs go.Foreign {
+func focusPress[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut tui.Driver[S, E, D, F], s go.Ref[screen.Screen], k int) (result, result) needs go.Foreign {
 	let mut keys = tui.Click(s.Cols()-1, s.Lines()-1)
 	for _ in 0..k {
 		keys = keys + "\t"

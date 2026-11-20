@@ -87,25 +87,25 @@ const arrayIndexPrelude = `type Box { cells [4]int }
 
 func at4(k int) int { (k % 4 + 4) % 4 }
 
-func poke(a *[4]int, k int, v int) int {
+func poke(a mut [4]int, k int, v int) int {
 	(*a)[k] = v
 	k
 }
 
-func pokeAt(b *Box, k int, v int) int {
+func pokeAt(b mut Box, k int, v int) int {
 	b.cells[k] = v
 	k
 }
 
 func applyK(f func() int) int { f() }
 
-func fieldPure(b *Box, k int) int { b.cells[at4(k)] }
+func fieldPure(b mut Box, k int) int { b.cells[at4(k)] }
 
-func fieldDot(b *Box, k int, v int) int { b.cells[b.pokeAt(k, v)] }
+func fieldDot(b mut Box, k int, v int) int { b.cells[b.pokeAt(k, v)] }
 
-func derefPure(p *[4]int, k int) int { (*p)[at4(k)] }
+func derefPure(p mut [4]int, k int) int { (*p)[at4(k)] }
 
-func derefPoke(p *[4]int, k int, v int) int { (*p)[poke(p, k, v)] }
+func derefPoke(p mut [4]int, k int, v int) int { (*p)[poke(p, k, v)] }
 
 func sum(a [4]int) int { a[0] + 2 * a[1] + 3 * a[2] + 4 * a[3] }
 
