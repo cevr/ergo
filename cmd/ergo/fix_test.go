@@ -122,3 +122,30 @@ func TestFixWriteRefusesAChangedFile(t *testing.T) {
 		}
 	}
 }
+
+// TestFixRespellsAStdThatDoesNotCheck runs ergo fix --std on a std folder
+// of one package whose borrow is written *T, the old spelling, so it does
+// not check: the respell is syntactic and needs no check, so the borrow
+// is written mut T (RESPELL-SYNTAX; before it, ergo fix --std refused a
+// std that did not check and a script respelled std). The checked passes
+// after it may still refuse this partial std: only the respell is read.
+// Mutant (cmd/ergo ledger fix-respell-skips-std): the respell walks only
+// the PATHs, so --std alone respells nothing.
+func TestFixRespellsAStdThatDoesNotCheck(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	std := t.TempDir()
+	path := filepath.Join(std, "ansi", "ansi.ergo")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const src = "// Package ansi is std-shaped.\n\ntype Box { N int }\n\nfunc Bump(b *Box) {\n\tb.N = b.N + 1\n}\n"
+	const want = "// Package ansi is std-shaped.\n\ntype Box { N int }\n\nfunc Bump(b mut Box) {\n\tb.N = b.N + 1\n}\n"
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := command([]string{"fix", "--std", std})
+	if got, _ := os.ReadFile(path); string(got) != want {
+		t.Fatalf("ergo fix --std (err %v) left:\n%s\nwant:\n%s", err, got, want)
+	}
+}

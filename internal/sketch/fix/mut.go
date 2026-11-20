@@ -256,7 +256,8 @@ func RunMut(opts Options) (MutReport, error) {
 
 // goSource reports a string that parses as Ergo but is Go source: a borrow
 // it would rewrite names a type through a qualifier the text imports no
-// package for (`func TestA(t *testing.T) { … }`). An Ergo source names a
+// package for (`func TestA(t *testing.T) { … }`), or a function returns a
+// `*T`, which no Ergo function does. An Ergo source names a
 // package's type only after importing it, so no such text checks as Ergo,
 // and its `*T` is Go's pointer; mutGo leaves it as it is (MODES-2).
 func goSource(text string) bool {
@@ -281,6 +282,19 @@ func goSource(text string) bool {
 		}
 	}
 	foreign := false
+	syntax.Inspect(f, func(node syntax.Node) bool {
+		// A borrow is only a parameter's or a receiver's type: one
+		// written as a result is Go's pointer (`func HostAlarms()
+		// *AlarmClock`, a Go source a test edits).
+		if ft, ok := node.(*syntax.FuncType); ok && ft.Results != nil {
+			for _, r := range ft.Results.List {
+				if s, ok := r.Type.(*syntax.StarExpr); ok && !s.Mut {
+					foreign = true
+				}
+			}
+		}
+		return !foreign
+	})
 	for _, x := range borrowElems(f) {
 		for {
 			if ix, ok := x.(*syntax.IndexExpr); ok {
@@ -327,6 +341,12 @@ func mutGo(file string) (string, int, []string, error) {
 			return true
 		}
 		out, k, err := Mut(text)
+		if read, closes := fragmentFile(file); err != nil && !strings.Contains(err.Error(), "rewritten") && read {
+			// A piece of a source a generator joins, or a fmt format
+			// (MutFragment).
+			out, k = MutFragment(text, closes || ergoMarker(text))
+			err = nil
+		}
 		if err != nil || k == 0 {
 			if err != nil && strings.Contains(err.Error(), "rewritten") {
 				errs = append(errs, fmt.Sprintf("%s#%d: %v", file, fset.Position(bl.ValuePos).Offset, err))
