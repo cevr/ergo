@@ -45,8 +45,8 @@ const (
 	osAuthority = "os.Host has an unexported field, so only package os builds it; use os.NewTestHost or os.NewHost"
 	// io's In and Host are sealed by the same rule; InOver and HostOver
 	// build them with no row (STD-IO-IN).
-	ioInAuthority   = "io.In has an unexported field, so only package io builds it; use io.InOver or io.NewStdin"
-	ioHostAuthority = "io.Host has an unexported field, so only package io builds it; use io.HostOver or io.NewHost"
+	ioInAuthority   = "io.In has an unexported field, so only package io builds it; use io.NewStdin or io.InOver"
+	ioHostAuthority = "io.Host has an unexported field, so only package io builds it; use io.NewHost or io.HostOver"
 	// The prelude's constructor is in scope with no package name.
 	liveAuthority = "prelude.LiveScheduler has an unexported field, so only package prelude builds it; use NewLiveScheduler"
 	// ambientEntryText is the S106 of a context entry for Ambient
