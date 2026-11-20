@@ -112,7 +112,7 @@ func LowerIR(u Unit) ([]File, IRReport, error) { return lowerIR(u, nil) }
 // LowerIRTests is LowerTests with the IR bodies: the test build's IR
 // path, which the agreement property compares with LowerTests.
 func LowerIRTests(u Unit) ([]File, IRReport, error) {
-	return lowerIR(u, &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}})
+	return lowerIR(u, testLoweringOf(u))
 }
 
 // IRCensus is every reason the IR builder cannot lower each function of a
@@ -153,7 +153,7 @@ func censusIR(u Unit, tests bool, reach []*check.Func) (IRCensus, error) {
 	}
 	var tl *testLowering
 	if tests {
-		tl = &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}}
+		tl = testLoweringOf(u)
 	}
 	l := newBuildLowerer(u, tl)
 	l.ir = &irState{files: map[string]int{}, report: IRReport{Fallback: map[string]int{}}, census: &IRCensus{}, reach: reach}
@@ -189,7 +189,7 @@ func lowerIR(u Unit, tests *testLowering) ([]File, IRReport, error) {
 func LowerIRReference(u Unit, tests bool) ([]File, IRReport, error) {
 	var tl *testLowering
 	if tests {
-		tl = &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}}
+		tl = testLoweringOf(u)
 	}
 	return lowerIRForms(u, tl, true)
 }
@@ -226,7 +226,7 @@ func LowerIRShards(u Unit, tests bool) ([]File, IRReport, SplitReport, error) {
 func lowerIRSplit(u Unit, tests bool, base string, sh *shardOpts) ([]File, IRReport, SplitReport, error) {
 	var tl *testLowering
 	if tests {
-		tl = &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}}
+		tl = testLoweringOf(u)
 	}
 	files, origins, report, l, err := lowerIRModule(u, tl, false)
 	if err != nil {
@@ -270,7 +270,7 @@ type irModule struct {
 // is written under dir, and a frame of an IR body names the file a frame
 // of the same function's source body names (runtime/v1, sourceDir).
 func lowerIRTestParts(u Unit, dir string) ([]byte, []File, []byte, error) {
-	files, _, report, l, err := lowerIRModule(u, &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}}, false)
+	files, _, report, l, err := lowerIRModule(u, testLoweringOf(u), false)
 	if err != nil {
 		return nil, nil, nil, err
 	}
