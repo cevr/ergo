@@ -7,6 +7,7 @@ import (
 	"go/token"
 	"go/types"
 	"path/filepath"
+	goruntime "runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -102,4 +103,25 @@ func (s *stdTypes) ImportFrom(p, dir string, _ types.ImportMode) (*types.Package
 		return t, nil
 	}
 	return s.pkgs[ip], nil
+}
+
+// hostStd is the std types of a build of the host's platform with no
+// experiments; a test replaces it.
+var hostStd = func() *stdTypes { return stdTypesOf(GoTarget{GOOS: goruntime.GOOS, GOARCH: goruntime.GOARCH}) }
+
+// stdUntypedWhy is the reason a stale or missing ledger note gives when
+// this process cannot type Go's standard library (no GOROOT, or none with
+// std's source): the closure walk then takes std's names by name, so the
+// keys differ from those of a ledger written where std was typed, and its
+// entries read stale or missing here though nothing changed. "" when std
+// is typed.
+func stdUntypedWhy() string {
+	s := hostStd()
+	if s.ctx.GOROOT == "" {
+		return " (no GOROOT: Go's standard library is read untyped, so the keys differ from a ledger written where it is typed; set GOROOT to the toolchain's)"
+	}
+	if _, err := s.ctx.Import("sync/atomic", "", build.FindOnly); err != nil {
+		return " (Go's standard library has no source at GOROOT " + s.ctx.GOROOT + ": it is read untyped, so the keys differ from a ledger written where it is typed; set GOROOT to the toolchain's)"
+	}
+	return ""
 }

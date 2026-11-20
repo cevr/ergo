@@ -125,11 +125,11 @@ func judgeFunc(key, build string, entry LedgerEntry, found bool, digest, with, l
 	key = ledgerKey(key, "", "", build)
 	switch {
 	case !found:
-		v.State, v.Why = "missing", ledger+key+" is missing; run ergo test"
+		v.State, v.Why = "missing", ledger+key+" is missing"+stdUntypedWhy()+"; run ergo test"
 	case digest != entry.Digest:
-		v.State, v.Why = "stale", ledger+key+" is stale; run ergo test"
+		v.State, v.Why = "stale", ledger+key+" is stale"+stdUntypedWhy()+"; run ergo test"
 		if entry.With != with {
-			v.Why = ledger + key + " was " + entry.Verdict + " with " + orNone(entry.With) + ", and the sources now give " + orNone(with) + "; run ergo test"
+			v.Why = ledger + key + " was " + entry.Verdict + " with " + orNone(entry.With) + ", and the sources now give " + orNone(with) + stdUntypedWhy() + "; run ergo test"
 		}
 	case entry.Verdict == "refuted":
 		v.Why = "law " + key + " is refuted"

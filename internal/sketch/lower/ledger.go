@@ -1082,9 +1082,9 @@ func (e *LedgerEvidence) Admit(law *check.Law, prov *check.Named, in RewriteInst
 	file, line, col := e.file, e.line, e.col
 	site := fmt.Sprintf("%s:%d:%d %s", file, line, col, key)
 	if s := e.sites[site]; s == nil {
-		note := "ergo.laws: " + key + " is " + state + "; run ergo test"
+		note := "ergo.laws: " + key + " is " + state + stdUntypedWhy() + "; run ergo test"
 		if state == "stale" && entry.With != with {
-			note = "ergo.laws: " + key + " was " + entry.Verdict + " with " + orNone(entry.With) + ", and the sources now give " + orNone(with) + "; run ergo test"
+			note = "ergo.laws: " + key + " was " + entry.Verdict + " with " + orNone(entry.With) + ", and the sources now give " + orNone(with) + stdUntypedWhy() + "; run ergo test"
 		}
 		e.sites[site] = &RewriteSite{
 			File: file, Line: line, Column: col,
