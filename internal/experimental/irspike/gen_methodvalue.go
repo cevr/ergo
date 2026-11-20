@@ -58,23 +58,25 @@ func (c mvCase) taken(x string) string {
 	return "func(k int) int { " + x + ".Add(k) }"
 }
 
+// body is the case's function body over its parameters n, d and m: the
+// caller passes them, so no build-time fold computes the case (line).
 func (c mvCase) body() string {
 	var b strings.Builder
 	call := func(f string) string {
 		if c.known {
-			return fmt.Sprintf("apply(%s, %d)", f, c.m)
+			return fmt.Sprintf("apply(%s, m)", f)
 		}
-		return fmt.Sprintf("%s(%d)", f, c.m)
+		return fmt.Sprintf("%s(m)", f)
 	}
 	switch c.write {
 	case mvReassign:
-		fmt.Fprintf(&b, "\tlet mut a = Acc{N: %d}\n\tlet f = %s\n\ta = Acc{N: %d}\n\t%s\n", c.n, c.taken("a"), c.n+c.d, call("f"))
+		fmt.Fprintf(&b, "\tlet mut a = Acc{N: n}\n\tlet f = %s\n\ta = Acc{N: n + d}\n\t%s\n", c.taken("a"), call("f"))
 	case mvBorrow:
-		fmt.Fprintf(&b, "\tlet mut h = Holder{A: Acc{N: %d}}\n\tlet p = &h.A\n\tlet f = %s\n\tp.N = %d\n\t%s\n", c.n, c.taken("p"), c.n+c.d, call("f"))
+		fmt.Fprintf(&b, "\tlet mut h = Holder{A: Acc{N: n}}\n\tlet p = &h.A\n\tlet f = %s\n\tp.N = n + d\n\t%s\n", c.taken("p"), call("f"))
 	case mvLater:
-		fmt.Fprintf(&b, "\tlet mut a = Acc{N: %d}\n\tapplyAfter(%s, bumpBy(&a, %d), %d)\n", c.n, c.taken("a"), c.d, c.m)
+		fmt.Fprintf(&b, "\tlet mut a = Acc{N: n}\n\tapplyAfter(%s, bumpBy(&a, d), m)\n", c.taken("a"))
 	case mvKept:
-		fmt.Fprintf(&b, "\tlet mut a = Acc{N: %d}\n\tlet f = keep(%s)\n\ta = Acc{N: %d}\n\t%s\n", c.n, c.taken("a"), c.n+c.d, call("f"))
+		fmt.Fprintf(&b, "\tlet mut a = Acc{N: n}\n\tlet f = keep(%s)\n\ta = Acc{N: n + d}\n\t%s\n", c.taken("a"), call("f"))
 	}
 	return b.String()
 }
@@ -105,13 +107,18 @@ func GenerateMethodValue(seed uint64) (string, string) {
 	b.WriteString("func bumpBy(a mut Acc, d int) int {\n\ta.N = a.N + d\n\t0\n}\n\n")
 	var parts, want []string
 	for i, c := range cases {
-		fmt.Fprintf(&b, "func c%d() int {\n%s}\n\n", i, c.body())
-		parts = append(parts, fmt.Sprintf("\\(c%d())", i))
+		fmt.Fprintf(&b, "func c%d(n int, d int, m int) int {\n%s}\n\n", i, c.body())
+		parts = append(parts, fmt.Sprintf("\\(c%d(%d + z, %d + z, %d + z))", i, c.n, c.d, c.m))
 		want = append(want, fmt.Sprint(c.want()))
 	}
 	line := strings.Join(want, " ")
-	fmt.Fprintf(&b, "func line() string { \"%s\" }\n\n", strings.Join(parts, " "))
-	fmt.Fprintf(&b, "test MethodValuesAgree {\n\tassert line() == \"%s\"\n}\n\n", line)
-	b.WriteString("func main() needs Console {\n\tConsole.Println(line())\n}\n")
+	// line's z is zero; main passes it as a mutable local, which the IR's
+	// build-time fold does not read (ir_constfold.go: a call that reads a
+	// local stays), so each case runs its IR body. With constants the fold
+	// computed every case in the evaluator, and no IR body ran (CV1
+	// fork-answer.md: cv-mv-ir-late-binding then looked equivalent).
+	fmt.Fprintf(&b, "func line(z int) string { \"%s\" }\n\n", strings.Join(parts, " "))
+	fmt.Fprintf(&b, "test MethodValuesAgree {\n\tassert line(0) == \"%s\"\n}\n\n", line)
+	b.WriteString("func main() needs Console {\n\tlet mut z = 1\n\tz = z - 1\n\tConsole.Println(line(z))\n}\n")
 	return b.String(), line + "\n"
 }

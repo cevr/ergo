@@ -16,9 +16,12 @@ import (
 // prints the model's line on the source path, on the IR path (every case
 // an IR body) and in the evaluator (its test MethodValuesAgree passes). A
 // method value binds the receiver at the take; its non-escaping twin sees
-// the later write. It is the killer of cv-mv-ir-late-binding in lower's
-// ledger (the IR's receiver not spilled), which is unjudged while that
-// mutant is equivalent on the current toolchain (CV1 toolchain-puzzle.md).
+// the later write. The cases take their numbers from main's mutable
+// local, so the IR's build-time fold computes none of them and each runs
+// its IR body. It is the killer of cv-mv-ir-late-binding in lower's
+// ledger (the IR's receiver not spilled): with constant arguments the
+// fold computed every case and the mutant looked equivalent (CV1
+// fork-answer.md).
 // A failing seed prints the Ergo source, the outcomes and its replay. It
 // builds Go for the reason needsBuild gives.
 func TestIRMethodValuesMatchSource(t *testing.T) {
