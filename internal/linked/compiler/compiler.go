@@ -675,98 +675,104 @@ func RepeatMono_i3(xs []bool, n int) []bool {
 //line compiler.go:496
 
 func Compare_1[T ergoOrdered](a T, b T) int {
-	if a != a {
-		if b != b {
-			return int(0)
+	/*line std/cmp/cmp.ergo:11:1*/ if a != a {
+		/*line std/cmp/cmp.ergo:12:2*/ if b != b {
+			/*line std/cmp/cmp.ergo:13:3*/ return 0
 		}
-		return int(-1)
+		/*line std/cmp/cmp.ergo:15:2*/ return (-1)
 	}
-	if b != b {
-		return int(1)
+	/*line std/cmp/cmp.ergo:17:1*/ if b != b {
+		/*line std/cmp/cmp.ergo:18:2*/ return 1
 	}
-	if a < b {
-		return int(-1)
+	/*line std/cmp/cmp.ergo:20:1*/ if a < b {
+		/*line std/cmp/cmp.ergo:21:2*/ return (-1)
 	}
-	if a > b {
-		return int(1)
+	/*line std/cmp/cmp.ergo:23:1*/ if a > b {
+		/*line std/cmp/cmp.ergo:24:2*/ return 1
 	}
-	return int(0)
+	/*line std/cmp/cmp.ergo:26:1*/ return 0
 }
+
+//line compiler.go:498
 
 func CompareMono_i1(a string, b string) int {
-	if a != a {
-		if b != b {
-			return int(0)
+	/*line std/cmp/cmp.ergo:11:1*/ if a != a {
+		/*line std/cmp/cmp.ergo:12:2*/ if b != b {
+			/*line std/cmp/cmp.ergo:13:3*/ return 0
 		}
-		return int(-1)
+		/*line std/cmp/cmp.ergo:15:2*/ return (-1)
 	}
-	if b != b {
-		return int(1)
+	/*line std/cmp/cmp.ergo:17:1*/ if b != b {
+		/*line std/cmp/cmp.ergo:18:2*/ return 1
 	}
-	if a < b {
-		return int(-1)
+	/*line std/cmp/cmp.ergo:20:1*/ if a < b {
+		/*line std/cmp/cmp.ergo:21:2*/ return (-1)
 	}
-	if a > b {
-		return int(1)
+	/*line std/cmp/cmp.ergo:23:1*/ if a > b {
+		/*line std/cmp/cmp.ergo:24:2*/ return 1
 	}
-	return int(0)
+	/*line std/cmp/cmp.ergo:26:1*/ return 0
 }
 
+//line compiler.go:500
+
 func CompareMono_i2(a int, b int) int {
-	if a != a {
-		if b != b {
-			return int(0)
+	/*line std/cmp/cmp.ergo:11:1*/ if a != a {
+		/*line std/cmp/cmp.ergo:12:2*/ if b != b {
+			/*line std/cmp/cmp.ergo:13:3*/ return 0
 		}
-		return int(-1)
+		/*line std/cmp/cmp.ergo:15:2*/ return (-1)
 	}
-	if b != b {
-		return int(1)
+	/*line std/cmp/cmp.ergo:17:1*/ if b != b {
+		/*line std/cmp/cmp.ergo:18:2*/ return 1
 	}
-	if a < b {
-		return int(-1)
+	/*line std/cmp/cmp.ergo:20:1*/ if a < b {
+		/*line std/cmp/cmp.ergo:21:2*/ return (-1)
 	}
-	if a > b {
-		return int(1)
+	/*line std/cmp/cmp.ergo:23:1*/ if a > b {
+		/*line std/cmp/cmp.ergo:24:2*/ return 1
 	}
-	return int(0)
+	/*line std/cmp/cmp.ergo:26:1*/ return 0
 }
+
+//line compiler.go:502
 
 func Bytes_3(s string) []uint8 {
 	/*line std/strings/bytes.ergo:5:30*/ return ergo.StringsBytes(s)
 }
 
-//line compiler.go:555
+//line compiler.go:504
 
 func FromBytesOwned(bs []uint8) string {
 	/*line std/strings/bytes.ergo:12:35*/ return ergo.StringsBuilderTextOwned(bs)
 }
 
-//line compiler.go:557
+//line compiler.go:506
 
 // FromBytes copies its owned arguments into FromBytesOwned; its body is IR (FLIP F7, OWNED-WRAP-IR).
 func FromBytes(bs []uint8) string {
 	/*line std/strings/bytes.ergo:12:5*/ return FromBytesOwned(slices.Clone[[]uint8, uint8](bs))
 }
 
-//line compiler.go:560
+//line compiler.go:509
 
 func NewCount[K any]() Count[K] {
 	/*line std/dense/dense.ergo:338:30*/ return Count[K]{n: uint32(0)}
 }
 
-//line compiler.go:562
+//line compiler.go:511
 
 func NewCountMono_i1() Count[Tok] {
 	/*line std/dense/dense.ergo:338:30*/ return Count[Tok]{n: uint32(0)}
 }
 
-//line compiler.go:564
+//line compiler.go:513
 
 func NewCountMono_i2() Count[Node] {
 	/*line std/dense/dense.ergo:338:30*/ return Count[Node]{n: uint32(0)}
 }
 
-//line compiler.go:566
+//line compiler.go:515
 
 type Opt[K any] struct {
 	n uint32
@@ -776,7 +782,7 @@ func IDIndexMono_i2(id ID[Node]) int {
 	/*line std/dense/dense.ergo:78:30*/ return int(id.n)
 }
 
-//line compiler.go:572
+//line compiler.go:521
 
 func (o Opt[K]) Unpack() Option[ID[K]] {
 	/*line std/dense/dense.ergo:60:1*/ if o.n == uint32(0) {
@@ -785,7 +791,7 @@ func (o Opt[K]) Unpack() Option[ID[K]] {
 	/*line std/dense/dense.ergo:63:1*/ return Option[ID[K]]{}.of0(Some[ID[K]]{Value: ID[K]{n: o.n - uint32(1)}})
 }
 
-//line compiler.go:574
+//line compiler.go:523
 
 func OptUnpackMono_i1(o Opt[Node]) Option[ID[Node]] {
 	/*line std/dense/dense.ergo:60:1*/ if o.n == uint32(0) {
@@ -794,74 +800,74 @@ func OptUnpackMono_i1(o Opt[Node]) Option[ID[Node]] {
 	/*line std/dense/dense.ergo:63:1*/ return Option[ID[Node]]{}.of0(Some[ID[Node]]{Value: ID[Node]{n: o.n - uint32(1)}})
 }
 
-//line compiler.go:576
+//line compiler.go:525
 
 func WithCapacityMono_i5(n int) []Chunk {
 	/*line std/slices/slices.ergo:28:38*/ return ergo.WithCapacity[Chunk](n)
 }
 
-//line compiler.go:578
+//line compiler.go:527
 
 func TrimRight(s string, cutset string) string {
 	/*line std/strings/strings.ergo:40:49*/ return strings.TrimRight(s, cutset)
 }
 
-//line compiler.go:580
+//line compiler.go:529
 
 func SliceMono_i1(xs []int, i int, j int) []int {
 	/*line std/slices/slices.ergo:396:42*/ return ergo.SlicesSlice[int](xs, i, j)
 }
 
-//line compiler.go:582
+//line compiler.go:531
 
 func Log(f_1 float64) float64 {
 	/*line std/math/math.ergo:49:30*/ return math.Log(f_1)
 }
 
-//line compiler.go:584
+//line compiler.go:533
 
 func Exp(f_1 float64) float64 {
 	/*line std/math/math.ergo:53:30*/ return math.Exp(f_1)
 }
 
-//line compiler.go:586
+//line compiler.go:535
 
 func RepeatMono_i4(xs []uint32, n int) []uint32 {
 	/*line std/slices/slices.ergo:378:36*/ return ergo.SlicesRepeat[uint32](slices.Clip[[]uint32, uint32](xs), n)
 }
 
-//line compiler.go:588
+//line compiler.go:537
 
 func NewCountMono_i3() Count[Cmt] {
 	/*line std/dense/dense.ergo:338:30*/ return Count[Cmt]{n: uint32(0)}
 }
 
-//line compiler.go:590
+//line compiler.go:539
 
 func ColWithCap[K any, V any](n int) Col[K, V] {
 	/*line std/dense/dense.ergo:404:41*/ return Col[K, V]{xs: WithCapacity[V](n)}
 }
 
-//line compiler.go:592
+//line compiler.go:541
 
 func ColWithCapMono_i1(n int) Col[Cmt, uint32] {
 	/*line std/dense/dense.ergo:404:41*/ return Col[Cmt, uint32]{xs: WithCapacityMono_i1(n)}
 }
 
-//line compiler.go:594
+//line compiler.go:543
 
 func WithCapacityMono_i6(n int) []ID[Node] {
 	/*line std/slices/slices.ergo:28:38*/ return ergo.WithCapacity[ID[Node]](n)
 }
 
-//line compiler.go:596
+//line compiler.go:545
 
 // children copies its owned arguments into childrenOwned; its body is IR (FLIP F7, OWNED-WRAP-IR).
 func (t Tree) children(x uint32, out []uint32) []uint32 {
 	/*line syntax/parse.ergo:162:5*/ return t.childrenOwned(x, slices.Clone[[]uint32, uint32](out))
 }
 
-//line compiler.go:599
+//line compiler.go:548
 
 func (c *Count[K]) Next() ID[K] {
 	/*line std/dense/dense.ergo:342:1*/ var id ID[K]
@@ -876,7 +882,7 @@ func (c *Count[K]) Next() ID[K] {
 	/*line std/dense/dense.ergo:344:1*/ return id
 }
 
-//line compiler.go:601
+//line compiler.go:550
 
 func CountNextMono_i1(c *Count[Tok]) ID[Tok] {
 	/*line std/dense/dense.ergo:342:1*/ id := nextMono_i1(int(c.n))
@@ -884,19 +890,19 @@ func CountNextMono_i1(c *Count[Tok]) ID[Tok] {
 	/*line std/dense/dense.ergo:344:1*/ return id
 }
 
-//line compiler.go:603
+//line compiler.go:552
 
 func Index_3(s string, sub string) int {
 	/*line std/strings/strings.ergo:65:39*/ return strings.Index(s, sub)
 }
 
-//line compiler.go:605
+//line compiler.go:554
 
 func CountTotalMono_i3(c Count[Node]) int {
 	/*line std/dense/dense.ergo:369:32*/ return int(c.n)
 }
 
-//line compiler.go:607
+//line compiler.go:556
 
 func CountNextMono_i2(c *Count[Node]) ID[Node] {
 	/*line std/dense/dense.ergo:342:1*/ id := nextMono_i2(int(c.n))
@@ -904,7 +910,7 @@ func CountNextMono_i2(c *Count[Node]) ID[Node] {
 	/*line std/dense/dense.ergo:344:1*/ return id
 }
 
-//line compiler.go:609
+//line compiler.go:558
 
 const limit uint32 = uint32(4294967295)
 
@@ -914,25 +920,25 @@ func NoID[K any]() Opt[K] {
 	/*line std/dense/dense.ergo:51:24*/ return Opt[K]{n: uint32(0)}
 }
 
-//line compiler.go:615
+//line compiler.go:564
 
 func NoIDMono_i1() Opt[Node] {
 	/*line std/dense/dense.ergo:51:24*/ return Opt[Node]{n: uint32(0)}
 }
 
-//line compiler.go:617
+//line compiler.go:566
 
 func (id ID[K]) OptOf() Opt[K] {
 	/*line std/dense/dense.ergo:48:33*/ return Opt[K]{n: id.n + uint32(1)}
 }
 
-//line compiler.go:619
+//line compiler.go:568
 
 func IDOptOfMono_i1(id ID[Node]) Opt[Node] {
 	/*line std/dense/dense.ergo:48:33*/ return Opt[Node]{n: id.n + uint32(1)}
 }
 
-//line compiler.go:621
+//line compiler.go:570
 
 func next_1[K any](n int) ID[K] {
 	/*line std/dense/dense.ergo:82:1*/ if n >= 4294967295 {
@@ -941,7 +947,7 @@ func next_1[K any](n int) ID[K] {
 	/*line std/dense/dense.ergo:85:1*/ return ID[K]{n: uint32(n)}
 }
 
-//line compiler.go:623
+//line compiler.go:572
 
 func nextMono_i1(n int) ID[Tok] {
 	/*line std/dense/dense.ergo:82:1*/ if n >= 4294967295 {
@@ -950,7 +956,7 @@ func nextMono_i1(n int) ID[Tok] {
 	/*line std/dense/dense.ergo:85:1*/ return ID[Tok]{n: uint32(n)}
 }
 
-//line compiler.go:625
+//line compiler.go:574
 
 func CountNextMono_i3(c *Count[Cmt]) ID[Cmt] {
 	/*line std/dense/dense.ergo:342:1*/ id := nextMono_i3(int(c.n))
@@ -958,31 +964,31 @@ func CountNextMono_i3(c *Count[Cmt]) ID[Cmt] {
 	/*line std/dense/dense.ergo:344:1*/ return id
 }
 
-//line compiler.go:627
+//line compiler.go:576
 
 func (c *Col[K, V]) Push(v V) {
 	/*line std/dense/dense.ergo:407:40*/ c.xs = append(c.xs, v)
 }
 
-//line compiler.go:629
+//line compiler.go:578
 
 func ColPushMono_i1(c *Col[Cmt, uint32], v uint32) {
 	/*line std/dense/dense.ergo:407:40*/ c.xs = append(c.xs, v)
 }
 
-//line compiler.go:631
+//line compiler.go:580
 
 func ContainsRune(s string, r int32) bool {
 	/*line std/strings/strings.ergo:115:43*/ return strings.ContainsRune(s, r)
 }
 
-//line compiler.go:633
+//line compiler.go:582
 
 func ToUpper(s string) string {
 	/*line std/strings/strings.ergo:62:32*/ return strings.ToUpper(s)
 }
 
-//line compiler.go:635
+//line compiler.go:584
 
 func nextMono_i2(n int) ID[Node] {
 	/*line std/dense/dense.ergo:82:1*/ if n >= 4294967295 {
@@ -991,14 +997,14 @@ func nextMono_i2(n int) ID[Node] {
 	/*line std/dense/dense.ergo:85:1*/ return ID[Node]{n: uint32(n)}
 }
 
-//line compiler.go:637
+//line compiler.go:586
 
 // Children copies its owned arguments into ChildrenOwned; its body is IR (FLIP F7, OWNED-WRAP-IR).
 func (t Tree) Children(id ID[Node], out []uint32) []uint32 {
 	/*line syntax/access.ergo:90:5*/ return t.ChildrenOwned(id, slices.Clone[[]uint32, uint32](out))
 }
 
-//line compiler.go:640
+//line compiler.go:589
 
 func nextMono_i3(n int) ID[Cmt] {
 	/*line std/dense/dense.ergo:82:1*/ if n >= 4294967295 {
@@ -1007,19 +1013,19 @@ func nextMono_i3(n int) ID[Cmt] {
 	/*line std/dense/dense.ergo:85:1*/ return ID[Cmt]{n: uint32(n)}
 }
 
-//line compiler.go:642
+//line compiler.go:591
 
 func SliceMono_i2(xs []ID[Node], i int, j int) []ID[Node] {
 	/*line std/slices/slices.ergo:396:42*/ return ergo.SlicesSlice[ID[Node]](xs, i, j)
 }
 
-//line compiler.go:644
+//line compiler.go:593
 
 func RepeatMono_i5(xs []Walk, n int) []Walk {
 	/*line std/slices/slices.ergo:378:36*/ return ergo.SlicesRepeat[Walk](slices.Clip[[]Walk, Walk](xs), n)
 }
 
-//line compiler.go:646
+//line compiler.go:595
 
 // ergoDecl is one source declaration and its lines (#230).
 type ergoDecl = struct {
