@@ -75,11 +75,14 @@ func layoutFindings(t *testing.T, dir string, conf *lint.Configuration) []string
 // (Wide), when exported in a file of contexts only (Shared) and when
 // unexported in a file with functions (local); not when it binds std
 // providers only (Clocked), in the entry file (Main), in a file of tests
-// (inTests) or unexported in a file of contexts only (fixedStore), whose
-// with in a function is reported at that with (ViaTests). Mutants:
-// lint-context-unchecked, lint-context-no-embedding,
+// (inTests) or unexported in a file of contexts only (fixedStore), or of
+// contexts and the unexported lets they need (viaLet), whose with in a
+// function is reported at that with (ViaTests). A let its contexts do not
+// name (stray), or an exported one (seeded), makes the file no test file.
+// Mutants: lint-context-unchecked, lint-context-no-embedding,
 // lint-context-any-type, lint-testfile-exported, lint-testfile-funcs,
-// lint-testfile-contexts-only.
+// lint-testfile-contexts-only, lint-testfile-let-any, lint-testfile-let-unneeded,
+// lint-testfile-let-exported.
 func TestLayoutPresetOnExamples(t *testing.T) {
 	conf := layoutConf(t, nil)
 	modules, err := filepath.Glob(filepath.Join("..", "..", "..", "examples", "*", "ergo.mod"))
@@ -145,6 +148,9 @@ func ViaTests() int {
 `,
 		"run/bindings.ergo": "import app/store\n\nlet fixedStore = context { store.Store: store.Fixed{N: 7} }\n",
 		"run/shared.ergo":   "import app/store\n\nlet Shared = context { store.Store: store.Fixed{N: 8} }\n",
+		"run/wired.ergo":    "import app/store\n\nlet twelve = store.Fixed{N: twelveN}\n\nlet twelveN = 12\n\nlet viaLet = context { store.Store: twelve }\n",
+		"run/stray.ergo":    "import app/store\n\nlet spare = 13\n\nlet stray = context { store.Store: store.Fixed{N: 14} }\n",
+		"run/seeded.ergo":   "import app/store\n\nlet Seed = store.Fixed{N: 15}\n\nlet seeded = context { store.Store: Seed }\n",
 		"run/helpers.ergo":  "import app/store\n\nlet local = context { store.Store: store.Fixed{N: 11} }\n\nfunc viaLocal() int {\n\twith local {\n\t\tCount()\n\t}\n}\n",
 		"run/tests.ergo": `import app/store
 
@@ -185,7 +191,8 @@ func main() needs Console {
 	want := []string{
 		"run/helpers.ergo:3 with-at-entry", "run/helpers.ergo:6 with-at-entry",
 		"run/run.ergo:26 with-at-entry", "run/run.ergo:28 with-at-entry", "run/run.ergo:33 with-at-entry", "run/run.ergo:9 with-at-entry",
-		"run/shared.ergo:3 with-at-entry", "store/store_service.ergo:1 concept-file-names",
+		"run/seeded.ergo:5 with-at-entry", "run/shared.ergo:3 with-at-entry", "run/stray.ergo:5 with-at-entry",
+		"store/store_service.ergo:1 concept-file-names",
 	}
 	if got := layoutFindings(t, dir, layoutConf(t, []string{"run.Listed"})); !slices.Equal(got, want) {
 		t.Fatalf("the planted module gave %v, want %v", got, want)
