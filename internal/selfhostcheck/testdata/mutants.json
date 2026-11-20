@@ -640,6 +640,17 @@
       "killers": [
         "internal/selfhostcheck:TestIRWriteAgreesWithGo"
       ]
+    },
+    {
+      "name": "snap-decode-skips-segment",
+      "origin": "wf10/selfhost/S3-SNAP",
+      "file": "internal/sketch/check/snapshot/packages.go",
+      "from": "for i := 1; i < len(s.segs); i++ {",
+      "to": "for i := 2; i < len(s.segs); i++ {",
+      "rule": "The snapshot agreement compares every std package of the export: a package the decode leaves out is a listed package that no longer agrees.",
+      "killers": [
+        "internal/selfhostcheck:TestStdSnapshotAgrees"
+      ]
     }
   ]
 }
