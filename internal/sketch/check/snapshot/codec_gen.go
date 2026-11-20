@@ -6782,6 +6782,7 @@ func (e *encoder) encPtrLawHelper(v *check.LawHelper) {
 
 func (e *encoder) encFieldsLawProvider(v *check.LawProvider) {
 	f := check.CodecFieldsOf_LawProvider(v)
+	e.encT14(v.Native)
 	e.encT14(v.Value)
 	e.encPtrNamed(v.Type)
 	e.encConversion(v.Conv)
@@ -17871,6 +17872,7 @@ func (d *decoder) decPtrLawHelper() *check.LawHelper {
 
 func (d *decoder) decFieldsLawProvider(v *check.LawProvider) {
 	f := check.CodecFieldsOf_LawProvider(v)
+	v.Native = d.decT14()
 	v.Value = d.decT14()
 	v.Type = d.decPtrNamed()
 	v.Conv = d.decConversion()
