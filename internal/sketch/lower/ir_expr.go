@@ -70,7 +70,7 @@ func (b *irBuilder) argIntoRow(want check.Type, x syntax.Expr, e *irExpr) *irExp
 func holdsRowParam(t check.Type) bool {
 	switch t := t.(type) {
 	case *check.TypeParam:
-		return false
+		return t.Kind == check.KindErrors && !t.Slot
 	case *check.Union:
 		for _, v := range t.Variants {
 			if holdsRowParam(v) {
