@@ -1,0 +1,8 @@
+// The test file of package memory binds infra.Sweeper to a directory
+// engine whose every row is a leftover (leftoverDirs), so the Sweeper's
+// law runs on an engine with rows (types.md, Laws 10: a context of any
+// package of the module feeds a law no generator can).
+
+import github.com/cevr/ergo/modules/infra
+
+let afterARun = context { infra.Sweeper: leftoverDirs() }
