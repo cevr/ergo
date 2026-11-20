@@ -268,6 +268,10 @@ func TestStdMCPLawsRun(t *testing.T) {
 // Transport keeps, run under std's own context as a module's laws run,
 // not restated by the probe (LAW-UNFED: a fed law stays fed). Mutant
 // mcp-stdio-messages-ignore-stop.
+//
+// It builds Go because the law runs in the test build of std mcp/stdio
+// (ergo test), the only place a law under a package's named context runs;
+// TestStdMCPLawsRun's probe already needs a built test binary too.
 func stdioStopsWhenAsked(t *testing.T) {
 	t.Helper()
 	dir, err := filepath.Abs(filepath.Join(moduleRoot, "internal", "sketch", "std", "mcp", "stdio"))
