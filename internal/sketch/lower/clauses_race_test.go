@@ -180,6 +180,7 @@ var clauseTemplates = []clauseTemplate{
 // hand a callback to, or that this property does not reach, each with the
 // reason.
 var clauseUnreached = map[string]string{
+	"api.Transport.Carry.answer":   "Transport is an operation type with no std provider: Carry has no body to call, and its providers are the generated transports' Wires in the program's own module (cmd/ergo's gen tests and each example's Agrees law run them)",
 	"actor.recovering.recover":     "recovering is unexported; StartDurable and SuperviseDurable call it with std literals over their escaping recover",
 	"actor.recovering.start":       "recovering is unexported; its start is a std literal over StartMachine or launch",
 	"http.sendInto.accepts":        "sendInto is unexported; accepts is Client.SendInto's literal over Accepts, with no capture",
