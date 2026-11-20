@@ -10,6 +10,7 @@
 
 import queue
 import scope
+import sync
 import tasks
 
 // Interrupt is SIGINT: Ctrl-C at a terminal.
@@ -149,17 +150,17 @@ law QuietRunsBody(n int) {
 // kind.
 law StopEndsBody(pick int) {
 	let k = stopOf((pick%3+3)%3 + 1)
-	let cleaned = queue.New[int](1)
+	let cleaned = sync.NewRef[int](0)
 	let never = queue.New[int](0)
 	let _ = UntilStop(NewScript([]Stop{k}), func() int {
-		scope.OnExit() { cleaned.Offer(1) catch { case queue.Full, queue.Closed: () } }
+		scope.OnExit() { cleaned.Update(func(v int) int { v + 1 }) }
 		never.Pop() catch {
 		case queue.Closed:
 			0
 		}
 	}) catch {
 	case Stopped as st:
-		return st.Kind == k && cleaned.Poll() == Some[int]{Value: 1}
+		return st.Kind == k && cleaned.Get() == 1
 	}
 	false
 }
