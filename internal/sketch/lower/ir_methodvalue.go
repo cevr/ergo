@@ -40,7 +40,7 @@ func (b *irBuilder) methodValue(x *syntax.SelectorExpr) ([]*irStmt, *irExpr) {
 	if b.fc.plainMVs[x] {
 		return pre, b.plainMethodValue(f, sig, x, p, local)
 	}
-	return pre, b.declaredLit(f, sig, x, p, local)
+	return pre, b.declaredLit(f, sig, x, p, local, nil)
 }
 
 // stableMethodValue is the method value x where no statement can run
@@ -62,7 +62,7 @@ func (b *irBuilder) stableMethodValue(x *syntax.SelectorExpr, p irPos) *irExpr {
 	if b.fc.plainMVs[x] {
 		return b.plainMethodValue(f, sig, x, p, recv)
 	}
-	return b.declaredLit(f, sig, x, p, recv)
+	return b.declaredLit(f, sig, x, p, recv, nil)
 }
 
 // plainMethodValue is the known pure method value x as the plain closure

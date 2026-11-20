@@ -24,14 +24,16 @@ func (b *irBuilder) funcName(f *check.Func, t check.Type, x syntax.Node, p irPos
 	if !ok {
 		irNo("function value without a function type")
 	}
-	return b.declaredLit(f, sig, x, p, nil)
+	return b.declaredLit(f, sig, x, p, nil, inst)
 }
 
 // declaredLit is the closure of the uniform shape that calls f (funcName),
 // with recv, when not nil, as f's first argument before the value's
 // parameters: a method value's receiver, evaluated once where the value
-// is (ir_methodvalue.go; the emitter's declaredValue).
-func (b *irBuilder) declaredLit(f *check.Func, sig *check.Signature, x syntax.Node, p irPos, recv *irExpr) *irExpr {
+// is (ir_methodvalue.go; the emitter's declaredValue); inst is funcName's
+// instance, nil for a method value (its type parameters are its
+// receiver's, which the checker refuses to leave unbound).
+func (b *irBuilder) declaredLit(f *check.Func, sig *check.Signature, x syntax.Node, p irPos, recv *irExpr, inst *check.Instance) *irExpr {
 	bound := 0
 	if recv != nil {
 		bound = 1
