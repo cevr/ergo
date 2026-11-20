@@ -776,16 +776,38 @@ func (c *checker) reportUnfedProviders() {
 				}
 				seen[key] = true
 				tn := p.Type.Obj
+				var at syntax.Node
+				name := p.Type.String()
 				switch {
 				case tn.Pkg == c.pkg && tn.file != nil && tn.Decl != nil:
 					c.cur = tn.file
-					c.errorf(implementsEntry(p.Type, p.Slot, tn), CodeType, "law %s cannot run at %s: %s%s (types.md, Laws 10)", r.Law.Title(c.pkg), tn.Name, p.Unrun, fix)
+					at, name = implementsEntry(p.Type, p.Slot, tn), tn.Name
 				case r.Law.Pkg == c.pkg && r.Law.file != nil:
 					c.cur = r.Law.file
-					c.errorf(r.Law.Decl.Name, CodeType, "law %s cannot run at %s: %s%s (types.md, Laws 10)", r.Law.Title(c.pkg), p.Type.String(), p.Unrun, fix)
-				default:
-					p.Unrun += fix
+					at = r.Law.Decl.Name
 				}
+				if c.pkg.module == "" {
+					// A package of no module is a program of its own,
+					// which no other package imports: its contexts are
+					// the only ones that could feed the binding.
+					if at == nil {
+						p.Unrun += fix
+					} else {
+						c.errorf(at, CodeType, "law %s cannot run at %s: %s%s (types.md, Laws 10)", r.Law.Title(c.pkg), name, p.Unrun, fix)
+					}
+					continue
+				}
+				// A package of the module that imports this one may feed
+				// it (lawmodule.go): the binding keeps its skip, and the
+				// module's judgment reports the error prepared here.
+				u := unfedBinding{law: r.Law, provider: p.Type}
+				if at != nil {
+					u.diag = c.prepared(func() {
+						c.errorf(at, CodeType, "law %s cannot run at %s: %s%s; no named context of a package of module %s builds one (types.md, Laws 10)", r.Law.Title(c.pkg), name, p.Unrun, fix, c.pkg.module)
+					})
+				}
+				p.Unrun += fix
+				c.pkg.unfed = append(c.pkg.unfed, u)
 			}
 		}
 	}

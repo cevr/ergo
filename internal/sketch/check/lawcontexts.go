@@ -71,6 +71,14 @@ func (c *checker) planLawContexts() {
 			if len(under) == 0 {
 				continue
 			}
+			for _, lc := range under {
+				if lc.Unrun == "" {
+					e := lc.With.Entries[0]
+					if info := providerInfo(c.contextOwners.of[e]); info != nil && e.Provider != nil {
+						c.pkg.fed = append(c.pkg.fed, fedBinding{law: law, provider: info.Types[e.Provider]})
+					}
+				}
+			}
 			if i, ok := runs[law]; ok {
 				r := &c.pkg.LawRuns[i]
 				r.Contexts = under

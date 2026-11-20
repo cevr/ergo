@@ -164,7 +164,11 @@ func loadShared(opts fileOptions, platform gobind.Platform) ([]sketchfront.Packa
 			analysis: a,
 			result:   a.Result(a.Text(), opts.target),
 		}
-		if !loads[i].result.Checked {
+		// A package of a shared load does not check only by its module's
+		// judgment of its law bindings (sketchfront.CheckPackages, a law
+		// no package of the module feeds), which a load of it alone cannot
+		// make: it is reported here, and the others still run.
+		if !loads[i].result.Checked && len(a.Diagnostics) == 0 {
 			return nil, nil, false
 		}
 	}
@@ -224,10 +228,18 @@ func sharedTestCommand(opts fileOptions, module moduleTestOptions) (shared bool,
 	}
 	runs := make([]selected, len(packages))
 	var built []sketchfront.Analysis
+	refused := false
 	for i, l := range loads {
 		a := l.analysis
 		one := opts
 		one.file = packages[i].Dir
+		if !l.result.Checked {
+			// Its module's judgment refused it (loadShared): it is
+			// reported where it runs, and built into no binary.
+			runs[i] = selected{one: one, l: l, index: -1}
+			refused = true
+			continue
+		}
 		run, err := module.select_(&one, l)
 		if err != nil {
 			return true, err
@@ -238,7 +250,7 @@ func sharedTestCommand(opts fileOptions, module moduleTestOptions) (shared bool,
 			built = append(built, a)
 		}
 	}
-	if len(built) == 0 {
+	if len(built) == 0 && !refused {
 		return true, fmt.Errorf("no law %s in selected packages (--law)", module.law)
 	}
 	dir, err := os.MkdirTemp("", "ergo-test-")
@@ -284,11 +296,13 @@ func sharedTestCommand(opts fileOptions, module moduleTestOptions) (shared bool,
 	failed := false
 	for i, r := range runs {
 		fmt.Fprintf(os.Stdout, "package %s\n", packages[i].Path)
-		if r.index < 0 {
+		if r.index < 0 && r.l.result.Checked {
 			continue
 		}
 		var err error
 		switch {
+		case !r.l.result.Checked:
+			err = refuseUnchecked(r.l, r.one)
 		case !stored:
 			err = runTestBinary(r.one, r.l, tc, binary, []string{lower.TestPackageFlag, strconv.Itoa(r.index)}, nil)
 		case own[i] == "":

@@ -101,6 +101,10 @@ var skipFields = map[string]string{
 	// A module's own Go bodies (check/extern.go moduleDoor): std binds no
 	// module Go package, and only a std package is exported.
 	"check.Package.goBodies": "std binds no module Go package (snapshot.ExportStd)",
+	// A module's law bindings left to its loader (check/lawmodule.go):
+	// a std package has no module, so it reports its own at once.
+	"check.Package.unfed": "std has no module (check.ReportUnfed)",
+	"check.Package.fed":   "std has no module (check.ReportUnfed)",
 }
 
 // Generate returns the generated sources, by their path from root (the
