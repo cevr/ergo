@@ -23,7 +23,7 @@ import (
 // under the reference one (SetPureCollectionsForTest(false)).
 //
 // Mutants it kills (testdata/mutants.json): the operand borrow test
-// removed (lends(&c), a borrow as a lent type argument), the parameter
+// removed (lends(&c), a borrow lent to a generic mut parameter), the parameter
 // borrow test removed (Bump(&c), c.Bump()), the
 // operand resource test removed (peek(a)), the result resource test
 // removed (open(1)), the footprint test removed (call(one)), the
@@ -54,7 +54,7 @@ func twice(n int) int { n * 2 }
 
 func Add(c Ctr, k int) Ctr { Ctr{n: c.n + k} }
 
-func Bump(c *Ctr) int {
+func Bump(c mut Ctr) int {
 	c.n += 1
 	c.n
 }
@@ -83,7 +83,7 @@ func parse(n int) int fails Bad {
 
 func noop(n int) {}
 
-func lends[T lent](x T) int { 1 }
+func lends[T](x mut T) int { 1 }
 
 func main() fails Bad needs Console {
 	let n = 3
