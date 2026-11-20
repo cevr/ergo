@@ -17,7 +17,7 @@ import (
 // that went stale here would replay a stale verdict there. It catches
 // gs31b-test-digest-build-mode, gs31b-build-every-package and
 // gs31b-digests-shared-load (cmd/ergo's ledger). The program requires
-// another module, as examples/catalog does: the shared load's main package
+// another module, as examples/fieldnotes does: the shared load's main package
 // then emits a go.mod without the runtime's require, unlike the build's.
 func TestEmittedJSONIsWhatTheCommandsGive(t *testing.T) {
 	t.Setenv("ERGO_CACHE", t.TempDir())
