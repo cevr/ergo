@@ -93,7 +93,7 @@ func TestLicenceOverFunctions(t *testing.T) {
 		if law == nil || law.FuncsRewrite == nil {
 			t.Fatalf("%s is no law over function parameters", name)
 		}
-		l, err := LicenceRun(pkg, law, LicenceBudget(), nil)
+		l, err := LicenceRun(pkg, law, LicenceBudget(), nil, nil)
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}

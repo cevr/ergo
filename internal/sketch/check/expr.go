@@ -434,8 +434,7 @@ func (c *checker) localTypeCtx() *typeCtx {
 // lookup resolves a name in expression position, innermost frame first:
 // locals and the body's frame, the package, the universe and the prelude,
 // then the file's import names (D4). An import named after a prelude name
-// is refused (D-D3) and still binds, so it wins over the prelude name it
-// reuses.
+// hides it in its file (D-D3, owner q244; shadowImport).
 func (c *checker) lookup(name string) Object { return c.lookupWith(name, (*Scope).lookup) }
 
 // lookupWith is lookup with find as the scope search: Scope.lookup, or

@@ -203,21 +203,22 @@ func timeFromBodies(r Reading) time.Time { return time.Unix(r.Sec, r.Nsec) }
 // TestTimeLaws runs the time laws over the Go bodies: NowNeverFalls on the
 // host clock and on a Timeline; FormatParseRoundTrip over every second of
 // years 1 to 9999 and every nanosecond (10,000 seeded cases plus the
-// edges); SubAddInverse; and Sub's saturation, against Go's time.Time.
+// edges), against Go's time.Time. Sub is Ergo (NP4f-17): lower
+// TestStdMatchesGo holds it to Go's Time.Sub.
 func TestTimeLaws(t *testing.T) {
 	// NowNeverFalls: host readings, compared by Mono as Before does; it
 	// is the one ledger row whose runner this test is (fu-ledger-runner).
 	lawledger.Run(t, map[string]lawledger.Law{
 		// ElapsedIsNowSub: the host's Elapsed of a time with a monotonic
-		// reading is TimeSubMono(TimeHostMono(), t.Mono), between the Sub
+		// reading is TimeHostMono() - t.Mono, between the Sub
 		// of a read before it and of a read after it. Kills a TimeHostMono
 		// whose origin is not hostStart, which the law sees as a jump.
 		"time Clock.ElapsedIsNowSub": {Statement: `ElapsedIsNowSub() { let start = Now() let before = Now().Sub(start) let d = Elapsed(start) let after = Now().Sub(start) before <= d && d <= after }`, Check: func(t *testing.T) {
 			start := TimeHostNow()
 			for range 10_000 {
-				before := TimeSubMono(TimeHostNow().Mono, start.Mono)
-				d := TimeSubMono(TimeHostMono(), start.Mono)
-				after := TimeSubMono(TimeHostNow().Mono, start.Mono)
+				before := TimeHostNow().Mono - start.Mono
+				d := TimeHostMono() - start.Mono
+				after := TimeHostNow().Mono - start.Mono
 				if before > d || d > after {
 					t.Fatalf("ElapsedIsNowSub: before %v, Elapsed %v, after %v", before, d, after)
 				}
@@ -283,30 +284,6 @@ func TestTimeLaws(t *testing.T) {
 		if back, err := TimeParse(nano, other); err == nil {
 			t.Fatalf("Parse(%q) = %+v, want a ParseError: Format writes %q", other, back, text)
 		}
-		if sec < first || sec > last {
-			continue // SubAddInverse draws years 1 to 9999, as its law does
-		}
-		d := time.Duration(r.Int64N(8_000_000_000_000_000_000) - 4_000_000_000_000_000_000)
-		u := time.Unix(sec, nsec).Add(d)
-		if got := TimeSub(u.Unix(), int64(u.Nanosecond()), sec, nsec); got != d {
-			t.Fatalf("SubAddInverse(%d, %d, %d) = %d", sec, nsec, d, got)
-		}
-	}
-	// Sub saturates as Go's does.
-	if got := TimeSub(last, 0, first, 0); got != time.Duration(1<<63-1) {
-		t.Errorf("TimeSub saturates up: %d", got)
-	}
-	if got := TimeSub(first, 0, last, 0); got != time.Duration(-1<<63) {
-		t.Errorf("TimeSub saturates down: %d", got)
-	}
-	if got := TimeSubMono(1<<62, -(1 << 62)); got != time.Duration(1<<63-1) {
-		t.Errorf("TimeSubMono saturates up: %d", got)
-	}
-	if got := TimeSubMono(-(1 << 62), 1<<62); got != time.Duration(-1<<63) {
-		t.Errorf("TimeSubMono saturates down: %d", got)
-	}
-	if got := TimeSubMono(10, 3); got != 7 {
-		t.Errorf("TimeSubMono(10, 3) = %d", got)
 	}
 }
 

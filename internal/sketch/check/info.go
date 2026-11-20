@@ -141,6 +141,9 @@ type Package struct {
 	// packages, by extern target (moduleDoor; docs/spec/interop.md,
 	// Trusted Go 3). Only the package's own check writes it.
 	goBodies map[string]v1.Body
+	// goSource are the effect-free bodies of goBodies standing alone
+	// (v1.Bodies.Source; LAWFFI LF2m), for the licence run's driver.
+	goSource map[string]GoBodySource
 	// host is the binding a Go package is read from (gobinding.go); nil
 	// for an Ergo package.
 	host *hostPkg
