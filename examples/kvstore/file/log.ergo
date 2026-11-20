@@ -4,6 +4,8 @@ import kvstore/kv
 import slices
 import strings
 import maps
+import fstest
+import kvstore/memory
 
 // Log is a kv.Store in the file Name in the directory Dir. It holds the
 // file system it reads and writes as values, given by Open's caller: a
@@ -47,6 +49,30 @@ func Open(dir string, files fs.Files, writes fs.Writes) Log fails kv.Broken {
 		}
 	}
 	Log{path: filepath.Join([]string{dir, Name}), files: files, writes: writes}
+}
+
+// FailedWriteKeepsTheStore: when the disk is full, a put fails Broken with
+// the host's reason, and every entry keeps its value.
+law FailedWriteKeepsTheStore(puts []string, key string, value string) {
+	let disk = fstest.NewMemory()
+	let before = with context { kv.Store: try Open("db", disk, disk) } {
+		for k in puts {
+			try kv.Store.Put(k, "v "+k)
+		}
+		try kv.Snapshot()
+	}
+	with context { kv.Store: try Open("db", disk, memory.FullOf(disk)) } {
+		failure(key, value) == "db/kv.log: no space left on device" && try kv.Snapshot() == before
+	}
+}
+
+// failure is the reason Put(key, value) fails with, or "put".
+func failure(key string, value string) string needs kv.Store {
+	kv.Store.Put(key, value) catch {
+	case kv.Broken as b:
+		return b.Reason
+	}
+	"put"
 }
 
 // NewLog is the Log in the working directory, which is always there, so

@@ -1,0 +1,6 @@
+d*20
+save one
+d*20
+load one
+load two
+save ../x

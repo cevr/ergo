@@ -1,3 +1,5 @@
+import vt/traffic
+
 // Event is what the parser hands to a screen: a run of text, one decoded
 // character, a control, or a whole sequence. Strings (OSC, DCS, APC) are
 // handed over once, when they end.
@@ -66,13 +68,57 @@ func NewStream(fast bool) Stream {
 	}
 }
 
+// SplitDoesNotMatter: feeding a stream in pieces gives the events and the
+// tally of feeding it whole. Pieces of 1 to 16 bytes cut UTF-8
+// characters, sequences, OSC strings and text runs.
+law SplitDoesNotMatter(seed int, cuts []int) {
+	let input = traffic.Gen(seed, 600)
+	replay(input, []int{}, true) == replay(input, cuts, true)
+}
+
+// replay is the rendered events and the tally of input fed in pieces:
+// piece k is 1 to 16 bytes long, by cuts[k % len(cuts)]; with no cuts,
+// one piece.
+func replay(input string, cuts []int, fast bool) []string {
+	let mut p = NewStream(fast)
+	let mut at = 0
+	let mut k = 0
+	for at < len(input) {
+		let mut size = len(input) - at
+		if len(cuts) > 0 {
+			let c = cuts[k%len(cuts)] % 16
+			size = (if c < 0 { -c } else { c }) + 1
+			if at+size > len(input) {
+				size = len(input) - at
+			}
+		}
+		p.Feed(input[at : at+size])
+		at += size
+		k += 1
+	}
+	p.Finish()
+	Render(p.Take()).Append(TallyText(p.Tally))
+}
+
+// TallyText is the tally as one line.
+func TallyText(t Tally) string {
+	"bytes \(t.Bytes) dropped \(t.Dropped) bad-text \(t.BadText) osc-cut \(t.OscCut)"
+}
+
+// FastPathMatchesStep: taking a run of text or of OSC data in one step
+// gives what taking each of its bytes through the machine gives.
+law FastPathMatchesStep(seed int, cuts []int) {
+	let input = traffic.Gen(seed, 600)
+	replay(input, cuts, true) == replay(input, cuts, false)
+}
+
 // At is the parser's state.
 func At(p Stream) State { p.parse.At }
 
 // Feed parses input, the next piece of the stream, and keeps its
 // events for Take. In the ground state a byte of 0x80 or more starts a
-// UTF-8 character, and does not reach the machine (Ghostty decodes UTF-8
-// before its parser, and takes no 8-bit control there).
+// UTF-8 character, and does not reach the machine: UTF-8 is decoded before
+// the parser, which takes no 8-bit control there.
 func Feed(p *Stream, input string) {
 	let n = len(input)
 	let mut i = 0

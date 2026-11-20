@@ -1,10 +1,10 @@
 import hex
 import json
-import go net/url
 import slices
 import strconv
 import strings
 import sync
+import url
 import utf8
 
 // QueryRepeated is a query that gives Key more than one value where the
@@ -12,146 +12,47 @@ import utf8
 type QueryRepeated { Key string }
 
 // ParseQuery is the fields of a raw query string ("a=1&b=%20x"), as Serve
-// gives them in Request.Query: Go's url.ParseQuery, with "+" a space and
-// %XX an escape; the fields are in key order, and the values of one key
-// in the order they came. A pair with a malformed escape is dropped, as
-// Go's Request.URL.Query drops it, and so is a pair with a ";" in it. A
-// query of more pairs than Go allows (GODEBUG urlmaxqueryparams, 10000 by
-// default) has no fields.
+// gives them in Request.Query: std url's ParseQuery, which reads as Go's
+// url.ParseQuery does, with "+" a space and %XX an escape; the fields are
+// in key order, and the values of one key in the order they came. A pair
+// with a malformed escape is dropped, as Go's Request.URL.Query drops it.
 func ParseQuery(raw string) []Field {
-	if !queryWithinMax(strings.Count(raw, "&")) {
-		return []Field{}
-	}
 	let mut fields = []Field{}
-	let mut rest = raw
-	for rest != "" {
-		let mut part = rest
-		let amp = strings.IndexByte(rest, '&')
-		if amp >= 0 {
-			part = rest[:amp]
-			rest = rest[amp+1:]
-		} else {
-			rest = ""
-		}
-		if part == "" || strings.IndexByte(part, ';') >= 0 {
-			continue
-		}
-		let mut key = part
-		let mut value = ""
-		let eq = strings.IndexByte(part, '=')
-		if eq >= 0 {
-			key = part[:eq]
-			value = part[eq+1:]
-		}
-		let (k, keyOK) = queryUnescape(key)
-		let (v, valueOK) = queryUnescape(value)
-		if keyOK && valueOK {
-			fields = fields.Append(Field{Name: k, Value: v})
-		}
+	for p in url.ParseQuery(raw) {
+		fields = fields.Append(Field{Name: p.Name, Value: p.Value})
 	}
-	// Go's map gives each key's values in their order; its keys sorted.
 	slices.SortStableFunc(fields, func(a Field, b Field) int { strings.Compare(a.Name, b.Name) })
 }
 
-// queryWithinMax reports whether a query with amps "&" (amps + 1 pairs)
-// is within Go's limit on query pairs, as Go's url.ParseQuery reads it
-// from GODEBUG urlmaxqueryparams: Go's ParseQuery of amps "&" alone, whose
-// only failure is that limit (its pairs are empty, so skipped).
-func queryWithinMax(amps int) bool {
-	let _ = url.ParseQuery(strings.Repeat("&", amps)) catch {
-	case go.Error:
-		return false
-	}
-	true
-}
-
-// queryUnescape is s with "+" a space and each %XX its byte, as Go's
-// url.QueryUnescape; false when a "%" is not followed by two hex digits.
-func queryUnescape(s string) (string, bool) {
-	let mut escapes = 0
-	let mut plus = false
-	let mut i = 0
-	for i < len(s) {
-		let c = s[i]
-		if c == '%' {
-			if i+2 >= len(s) || !isHex(s[i+1]) || !isHex(s[i+2]) {
-				return ("", false)
-			}
-			escapes = escapes + 1
-			i = i + 3
-		} else {
-			if c == '+' {
-				plus = true
-			}
-			i = i + 1
-		}
-	}
-	if escapes == 0 && !plus {
-		return (s, true)
-	}
-	let mut b = []byte{}.Grow(len(s) - 2*escapes)
-	let mut j = 0
-	for j < len(s) {
-		let c = s[j]
-		if c == '%' {
-			b = b.Append(unhex(s[j+1])<<4 | unhex(s[j+2]))
-			j = j + 3
-		} else if c == '+' {
-			b = b.Append(' ')
-			j = j + 1
-		} else {
-			b = b.Append(c)
-			j = j + 1
-		}
-	}
-	(b.Text(), true)
-}
-
-func isHex(c byte) bool { c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F' }
-
-func unhex(c byte) byte {
-	if c <= '9' {
-		return c - '0'
-	}
-	if c <= 'F' {
-		return c - 'A' + 10
-	}
-	c - 'a' + 10
-}
-
 // EncodeQuery is the raw query of fields ("a=1&b=+x"), in their order,
-// each name and value escaped as Go's url.QueryEscape does: the query a
-// Client sends for a Request's Query, for a URLRequest's URL. ParseQuery
-// reads it back as the same fields, in key order.
+// each name and value escaped as Go's url.QueryEscape does (std url's
+// QueryEscape): the query a Client sends for a Request's Query, for a
+// URLRequest's URL. ParseQuery reads it back as the same fields, in key
+// order.
 func EncodeQuery(fields []Field) string {
-	let mut b = []byte{}
+	let mut b = strings.NewBuilder()
 	for i, f in fields {
 		if i > 0 {
-			b = b.Append('&')
+			b.WriteByte('&')
 		}
-		b = queryAppend(b, f.Name)
-		b = b.Append('=')
-		b = queryAppend(b, f.Value)
+		b.WriteString(url.QueryEscape(f.Name))
+		b.WriteByte('=')
+		b.WriteString(url.QueryEscape(f.Value))
 	}
-	b.Text()
+	b.String()
 }
 
-// queryAppend is b with s escaped as Go's url.QueryEscape: the unreserved
-// bytes (RFC 3986: letters, digits, "-", "_", ".", "~") as they are, a
-// space as "+", and every other byte as "%XX" in upper case.
-func queryAppend(b []byte, s string) []byte {
-	let mut out = b
-	for i in 0..len(s) {
-		let c = s[i]
-		if c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '_' || c == '.' || c == '~' {
-			out = out.Append(c)
-		} else if c == ' ' {
-			out = out.Append('+')
-		} else {
-			out = out.Append('%').Append("0123456789ABCDEF"[int(c>>4)]).Append("0123456789ABCDEF"[int(c&15)])
-		}
+// DecodeForm reads a T from a form body (application/x-www-form-urlencoded,
+// as an HTML form posts it): the body's pairs, read by std url's
+// ParseQuery in the order the form gives them, decoded by DecodeQuery's
+// rule, so a form and a query of the same pairs give the same T or the
+// same refusal, the first refused key included.
+func DecodeForm[T wire](body string) T fails QueryRepeated | wired[T] needs wired[T] {
+	let mut fields = []Field{}
+	for p in url.ParseQuery(body) {
+		fields = fields.Append(Field{Name: p.Name, Value: p.Value})
 	}
-	out
+	try DecodeQuery[T](fields)
 }
 
 // DecodeQuery reads a T from query fields through the derived codec
@@ -524,4 +425,55 @@ law QueryDecodesByTheRule(counts []int, numbers []int, texts []string) {
 		return false
 	}
 	want == "ok" && got == record
+}
+
+// queryVerdict is DecodeQuery over queryProbe as a value: "ok" and the
+// record, or the refusal and its key.
+func queryVerdict(fields []Field) (string, queryProbe) {
+	let none = queryProbe{Load: json.Absent, Name: "", Note: json.Absent, On: json.Absent, Page: 0, Size: json.Absent, Tags: []string{}}
+	let got = DecodeQuery[queryProbe](fields) catch {
+	case QueryRepeated as q:
+		return ("repeated " + q.Key, none)
+	case WireWrongKind as w:
+		return ("wrong " + w.Path, none)
+	case WireMissingField as f:
+		return ("missing " + f.Field, none)
+	case WireUnknownTag:
+		return ("tag", none)
+	}
+	("ok", got)
+}
+
+// formVerdict is DecodeForm over queryProbe as a value, as queryVerdict.
+func formVerdict(body string) (string, queryProbe) {
+	let none = queryProbe{Load: json.Absent, Name: "", Note: json.Absent, On: json.Absent, Page: 0, Size: json.Absent, Tags: []string{}}
+	let got = DecodeForm[queryProbe](body) catch {
+	case QueryRepeated as q:
+		return ("repeated " + q.Key, none)
+	case WireWrongKind as w:
+		return ("wrong " + w.Path, none)
+	case WireMissingField as f:
+		return ("missing " + f.Field, none)
+	case WireUnknownTag:
+		return ("tag", none)
+	}
+	("ok", got)
+}
+
+// FormIsQuery (STD-SURVEY SM2): a form body that EncodeQuery writes from
+// fields decodes as DecodeQuery decodes the fields themselves: the same
+// record or the same refusal, whatever the keys' order, how often each
+// comes (counts) and what bytes the text values hold (texts).
+law FormIsQuery(counts []int, texts []string) {
+	let keys = []string{"tags", "page", "other key", "name", "on", "size", "load", "note"}
+	let mut fields = []Field{}
+	for j, key in keys {
+		let times = if j < len(counts) { ((counts[j] % 3) + 3) % 3 } else { 1 }
+		for t in 0..times {
+			let text = if len(texts) == 0 { "" } else { texts[(j+t)%len(texts)] }
+			let value = if key == "on" { "true" } else if key == "page" || key == "size" || key == "load" { strconv.Itoa(10*j + t) } else { text }
+			fields = fields.Append(Field{Name: key, Value: value})
+		}
+	}
+	formVerdict(EncodeQuery(fields)) == queryVerdict(fields)
 }

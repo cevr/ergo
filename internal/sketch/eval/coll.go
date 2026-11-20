@@ -287,7 +287,8 @@ func (in *interp) appendTo(fr *frame, at syntax.Node, xs sliceV, x Value, own *t
 	return sliceV{b: &backing{data: data, owner: own, elem: xs.b.elem}, n: xs.n + 1}, nil
 }
 
-// appendAll is xs with ys's elements added (slices.AppendAll): appendTo's
+// appendAll is xs with ys's elements added, Go's append(xs, ys...) (an
+// extern of append at its spread shape, slices.AppendAll): appendTo's
 // rules for one bulk append. xs's store grows in place only when no value
 // sees past xs's end; else the result has a store of its own.
 func (in *interp) appendAll(fr *frame, at syntax.Node, xs, ys sliceV) (Value, *abrupt) {

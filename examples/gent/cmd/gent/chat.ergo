@@ -3,6 +3,7 @@
 // event at a time, edits the composer or sends the agent a signal, and
 // paints one frame. Nothing else writes to standard output.
 
+import exec
 import gent/agent
 import gent/memory
 import gent/screen
@@ -102,7 +103,7 @@ test DrawsOnlyStatesThatExisted {
 	let world = memory.Scripted{Replies: []memory.Entry{memory.Says{Pieces: []string{"Hel", "lo"}, Calls: []agent.Call{}, End: agent.Finished}}}
 	let out = io.NewRecorder()
 	let c = testing.NewVirtualClock(0)
-	let record = with context { agent.Model: world, agent.Tools: memory.Tree{Files: Map[string, string]{}}, io.Stdout: out, term.Terminal: term.NewScript(keys, w), Scheduler: c, time.Clock: c } {
+	let record = with context { agent.Model: world, agent.Tools: memory.Tree{Files: Map[string, string]{}}, exec.Runner: exec.Script{Results: Map[string, exec.Result]{}}, io.Stdout: out, term.Terminal: term.NewScript(keys, w), Scheduler: c, time.Clock: c } {
 		let s = agent.Open(agent.Limits{MaxSteps: 2, MaxRetries: 0})
 		Chat(s)
 		agent.RecordOf(s)

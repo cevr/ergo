@@ -1,0 +1,215 @@
+// Package route is domain-search' URL (plan §20.2): the route is the single
+// source of the query, the TLD filter, the availability filter and the
+// order, and Parse and Print go between it and the URL's path and query.
+// An invalid parameter is its default (FK10's rule): a pasted link with a
+// typo still opens the search. The URL keeps the filters and the order as
+// well as the query.
+
+import hex
+import http
+import strings
+import domain-search/domains
+
+// Order is the order of the results; Relevance is the catalog's order.
+type Order = Relevance{} | Length{} | PriceAscending{} | PriceDescending{} | Alphabetical{}
+
+// InvalidParamIsDefault: a parameter with an invalid value is its
+// default, and the other parameters keep theirs.
+law InvalidParamIsDefault(which int, bad int) {
+	let bads = []string{"", "bogus", "COM", "%zz", "2", "true"}
+	let b = pick(bads, bad)
+	let w = ((which % 3) + 3) % 3
+	let tld = if w == 0 { b } else { "com" }
+	let available = if w == 1 { b } else { "1" }
+	let sort = if w == 2 { b } else { "length" }
+	let order Order = if w == 2 { Relevance } else { Length }
+	let want = Search{Query: "acme", TLD: if w == 0 { "" } else { "com" }, AvailableOnly: w != 1, Order: order}
+	Parse("/?q=acme&tld=\(tld)&available=\(available)&sort=\(sort)") == want
+}
+
+// Route is the page: Landing (no query), Search, or NotFound for any path
+// but the root. TLD is "" for every TLD, else one of domains.Catalog.
+type Route = Landing{} | Search{Query string, TLD string, AvailableOnly bool, Order Order} | NotFound{Path string}
+
+// UnknownPathIsNotFound: every path but the root is NotFound, with the
+// path as written.
+law UnknownPathIsNotFound(segment string, query string) {
+	if segment == "" {
+		return true
+	}
+	let path = "/" + Escape(segment)
+	Parse(path+"?q="+Escape(query)) == NotFound{Path: path}
+}
+
+// orderName is the order's spelling in the URL.
+func orderName(o Order) string {
+	match o {
+	case Relevance:
+		"relevance"
+	case Length:
+		"length"
+	case PriceAscending:
+		"price-asc"
+	case PriceDescending:
+		"price-desc"
+	case Alphabetical:
+		"alphabetical"
+	}
+}
+
+// Orders are the orders, the default first.
+let Orders = []Order{Relevance, Length, PriceAscending, PriceDescending, Alphabetical}
+
+func orderOf(name string) Order {
+	for o in Orders {
+		if orderName(o) == name {
+			return o
+		}
+	}
+	Relevance
+}
+
+let catalogSet = catalogMap()
+
+func catalogMap() Map[string, bool] {
+	let mut m = Map[string, bool]{}
+	for t in domains.Catalog {
+		m[t] = true
+	}
+	m
+}
+
+func inCatalog(tld string) bool {
+	match catalogSet.Get(tld) {
+	case Some:
+		true
+	case None:
+		false
+	}
+}
+
+// first is the first value of the query parameter name, "" when absent.
+func first(fields []http.Field, name string) string {
+	match http.Query(fields, name) {
+	case Some as v:
+		v.Value
+	case None:
+		""
+	}
+}
+
+// Parse is the route of url, a path with an optional query ("/?q=acme").
+// A path other than "/" is NotFound. An empty or absent q is Landing.
+// tld is a TLD of the catalog or every TLD; available is "1" or not;
+// sort is an order's name or Relevance. Any other value is the default,
+// and an unknown parameter is ignored.
+func Parse(url string) Route {
+	let noFragment = match strings.Cut(url, "#") {
+	case Some as h:
+		h.Value.Before
+	case None:
+		url
+	}
+	let (path, query) = match strings.Cut(noFragment, "?") {
+	case Some as h:
+		(h.Value.Before, h.Value.After)
+	case None:
+		(noFragment, "")
+	}
+	if path != "/" && path != "" {
+		return NotFound{Path: path}
+	}
+	let fields = http.ParseQuery(query)
+	let q = first(fields, "q")
+	if q == "" {
+		return Landing
+	}
+	let tld = first(fields, "tld")
+	Search{
+		Query:         q,
+		TLD:           if inCatalog(tld) { tld } else { "" },
+		AvailableOnly: first(fields, "available") == "1",
+		Order:         orderOf(first(fields, "sort")),
+	}
+}
+
+// ParsePrintRoundTrips: a route survives its URL, whatever bytes its
+// query holds.
+law ParsePrintRoundTrips(q string, tld int, available bool, order int) {
+	let r = routeOf(q, tld, available, order)
+	Parse(Print(r)) == r
+}
+
+func pick[T](xs []T, n int) T { xs[((n%len(xs))+len(xs))%len(xs)] }
+
+// routeOf is a route drawn from a query, a TLD pick (0 is every TLD), an
+// availability and an order pick.
+func routeOf(q string, tld int, available bool, order int) Route {
+	if q == "" {
+		return Landing
+	}
+	let n = len(domains.Catalog) + 1
+	let t = ((tld % n) + n) % n
+	Search{Query: q, TLD: if t == 0 { "" } else { domains.Catalog[t-1] }, AvailableOnly: available, Order: pick(Orders, order)}
+}
+
+// Print is the URL of r: only the parameters that are not their default,
+// in a fixed order, so Print(Parse(u)) is the canonical form of u.
+func Print(r Route) string {
+	match r {
+	case Landing:
+		"/"
+	case NotFound as n:
+		n.Path
+	case Search as s:
+		let mut url = "/?q=" + Escape(s.Query)
+		if s.TLD != "" {
+			url = url + "&tld=" + Escape(s.TLD)
+		}
+		if s.AvailableOnly {
+			url = url + "&available=1"
+		}
+		match s.Order {
+		case Relevance:
+		case _:
+			url = url + "&sort=" + orderName(s.Order)
+		}
+		url
+	}
+}
+
+// PrintParseIsCanonical: printing a parsed URL gives a URL that parses
+// and prints to itself, so a URL has one canonical form. Each drawn pair
+// is a key=value (or a bare key, for a negative draw) between "&"s.
+law PrintParseIsCanonical(pairs []int) {
+	let mut u = "/?"
+	for p in pairs {
+		let k = pick(keys, p)
+		let v = pick(values, p/7)
+		u = u + (if p < 0 { k } else { k + "=" + v }) + "&"
+	}
+	let c = Print(Parse(u))
+	Print(Parse(c)) == c && Parse(c) == Parse(u)
+}
+
+// keys and values are what query strings are drawn from: the four keys,
+// an unknown one and none; valid and invalid values, escapes good and
+// bad, a fragment and a stray "=".
+let keys = []string{"q", "q", "tld", "available", "sort", "x", ""}
+
+let values = []string{"acme", "Foo%20bar", "a+b", "com", "zz", "1", "0", "price-asc", "length", "%zz", "%2F", "#frag", "a=b", ""}
+
+// Escape is s in a query value: the unreserved bytes (RFC 3986: letters,
+// digits, -, ., _ and ~) as they are, every other byte as %XX.
+func Escape(s string) string {
+	let mut out = ""
+	for i in 0..len(s) {
+		let c = s[i]
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '.' || c == '_' || c == '~' {
+			out = out + s[i:i+1]
+		} else {
+			out = out + "%" + strings.ToUpper(hex.Encode(s[i:i+1]))
+		}
+	}
+	out
+}

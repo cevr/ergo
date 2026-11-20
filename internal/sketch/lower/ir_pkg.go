@@ -256,7 +256,7 @@ func (b *irBuilder) valueSource(x *syntax.CallExpr, c *check.Call, args []syntax
 		}
 		if keep := "map[" + b.fc.goType(c.TypeArgs[0]) + "]" + b.fc.goType(c.TypeArgs[1]); b.namesTypeParam(keep) {
 			// A generic body's Map type is no package-level type, as
-			// Clip's above (I-FLIP: examples/fk-domains search/cache) and
+			// Clip's above (I-FLIP: examples/domain-search search/cache) and
 			// Append's element (I-FLIP reds #15: pipeline's Book[E]
 			// Streams.Put).
 			b.keepImport("var _ = " + b.l.goPkg("maps") + ".Clone[map[string]bool]")

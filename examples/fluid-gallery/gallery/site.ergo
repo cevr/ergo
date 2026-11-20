@@ -3,6 +3,8 @@ import ergo.dev/fluid/token
 import ergo.dev/fluid/web
 import appweb github.com/cevr/ergo/modules/web
 import html
+import strconv
+import strings
 import ui
 
 // Route is a page of the gallery: a component's docs.
@@ -37,10 +39,13 @@ func Parse(_ Docs, u ui.URL) Option[Route] {
 // Gone is a page that is no longer served; no route fails today.
 type Gone {}
 
-// Looks is every look the gallery's pages draw: the sheet is built from them.
+// Looks is the gallery's one look list: every look its pages draw, and every look of the module
+// (web.Looks()), which a TypeScript island on a page draws. The short names, the page's sheet and
+// the island's table are all built from it, so an island's classes are the page's and the page's
+// one sheet styles both.
 func Looks() []look.Look {
 	let mut out = chrome()
-	for ls in [][]look.Look{docLooks(), []look.Look{copyControl.Root, copyControl.Plate, copyControl.Content, copyControl.Label}, rowLooks(), buttonLooks(), badgeLooks()} {
+	for ls in [][]look.Look{docLooks(), []look.Look{copyControl.Root, copyControl.Plate, copyControl.Content, copyControl.Label}, rowLooks(), buttonLooks(), badgeLooks(), web.Looks()} {
 		for l in ls {
 			out = out.Append(l)
 		}
@@ -60,8 +65,22 @@ let head = html.Head([]html.Child{
 	html.Meta([]html.Attr{html.Name("viewport"), html.Content("width=device-width, initial-scale=1")}),
 	html.Title([]html.Child{html.Text("Fluid · Ergo")}),
 	html.Style([]html.Attr{}, html.Trust(fontFace)),
-	html.Style([]html.Attr{}, html.Trust(web.SheetNamed(token.Default, names, Looks()))),
+	html.Style([]html.Attr{}, html.Trust(sheet)),
 })
+
+// sheet is the page's one sheet: every atom of the gallery's look list, under its names.
+let sheet = web.SheetNamed(token.Default, names, Looks())
+
+// Island is the module for a TypeScript island on a gallery page: the module's looks as class
+// names under the gallery's naming, and the page's sheet.
+func Island() string { web.TS(web.TableOf(token.Default, Looks())) }
+
+// IslandUsesThePageSheet: the island's table is built from the gallery's one look list, so its
+// sheet is the page's sheet and its classes are the page's (one naming per site: an island never
+// brings a second sheet whose short names collide with the page's).
+law IslandUsesThePageSheet() {
+	strings.Contains(Island(), "export const sheet: string = "+strconv.Quote(sheet)+"\n")
+}
 
 // View is a page of the gallery.
 func View(r Route) html.Node { viewWith(r, buttonOf) }

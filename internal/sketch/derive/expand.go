@@ -60,7 +60,7 @@ func (p *Package) qualified(name string) string { return path.Base(p.Path) + "."
 // diagnostic: a nil record means the same to every reader (an importer's
 // lookup, the lowering's matchers, inspect). The checked-std snapshot
 // carries no derive record and refuses a std package whose record is not
-// empty (check/export.go).
+// empty (check/snapshot/snapshot.go).
 func (p *Package) Empty() bool {
 	return p == nil || len(p.funcs) == 0 && len(p.Derived) == 0 && len(p.Natives) == 0 && len(p.Diags) == 0
 }

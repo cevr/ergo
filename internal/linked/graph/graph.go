@@ -5771,7 +5771,7 @@ func (s *scan) readChunk(env *Env) {
 		k.eof = true
 		s.rare = k
 	default:
-		panic("ergo: defect: no case of the match at std/json/stream.ergo:296:2 matched")
+		panic("ergo: defect: no case of the match at std/json/stream.ergo:302:2 matched")
 	}
 }
 
@@ -8261,10 +8261,10 @@ func ok(text_1 string) []string {
 // inside the program's root task.
 /*line tool.ergo:360:33*/
 func ergoInit(env *Env) {
-//line std/json/stream.ergo:391:5
+//line std/json/stream.ergo:397:5
 	{
-		/*line std/json/stream.ergo:391:5*/ badTok = tok{kind: kBad, text: "", raw: false}
-		/*line std/json/stream.ergo:391:5*/
+		/*line std/json/stream.ergo:397:5*/ badTok = tok{kind: kBad, text: "", raw: false}
+		/*line std/json/stream.ergo:397:5*/
 	}
-	/*line std/json/stream.ergo:391:5*/
+	/*line std/json/stream.ergo:397:5*/
 }

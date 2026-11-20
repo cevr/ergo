@@ -129,7 +129,8 @@ func (*exchangeV) opCall(in *interp, fr *frame, at syntax.Node, name string, arg
 	return nil, fr.unsupported(at, "a streamed http response (%s) over the simulated network yet", name)
 }
 
-func registerNativesnet() {
+func registerNativesnet(t nativeTables) {
+	natives := t.std
 	natives["http.serve"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		l, ok := args[0].(*listenerV)
 		if !ok {

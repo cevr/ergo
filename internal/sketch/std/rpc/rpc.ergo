@@ -17,6 +17,7 @@
 
 import http
 import json
+import net
 import strings
 
 // Failed is a typed failure on the wire: Text is the failure's JSON, a
@@ -51,7 +52,7 @@ extern go ergo.local/prototype/runtime/v1/rpc.RPCEnvelope type Envelope { Tag st
 // one task per request serve RPC as they serve any route. A program that
 // serves other routes beside RPC calls Answer from its own handler.
 // limits are http.Serve's: a body over MaxBodyBytes is refused with 413.
-func Serve[R](l http.Listener, limits http.Limits, mount string, handle own func(tag string, payload string) string fails Failed needs R) fails http.InvalidLimits needs R | Scheduler {
+func Serve[R](l net.Listener, limits http.Limits, mount string, handle own func(tag string, payload string) string fails Failed needs R) fails http.InvalidLimits needs R | Scheduler {
 	try http.Serve(l, limits, func(r http.Request) http.Response needs R | http.Streaming {
 		Answer(r, mount, handle)
 	})
@@ -154,7 +155,7 @@ func Dial(url string) Conn needs Ambient {
 func Loopback(handle own func(tag string, payload string) string fails Failed) Conn {
 	Conn{post: func(tag string, payload string) string fails Failed | Unrepresentable | Transport {
 		let id = nextID()
-		let r = http.Request{Method: "POST", Path: "/rpc/", Query: []http.Field{}, Header: []http.Field{http.Field{Name: "Content-Type", Value: "application/json"}}, Body: http.Buffered{Text: request(id, tag, payload)}}
+		let r = http.Request{Method: "POST", Path: "/rpc/", RawPath: "/rpc/", Query: []http.Field{}, Header: []http.Field{http.Field{Name: "Content-Type", Value: "application/json"}}, Body: http.Buffered{Text: request(id, tag, payload)}}
 		let answer = with context { http.Streaming: http.NewRecorder() } {
 			Answer(r, "/rpc", handle)
 		}

@@ -23,7 +23,7 @@ func (heldAlarm) Stop() bool { return true }
 // queue-delist-keeps-waiter.
 func TestPopBeforeEndsOnAFireWhileParked(t *testing.T) {
 	fire := make(chan func(), 1)
-	dl := &Deadline{clock: NewAlarmClock(func(d time.Duration, f func()) Alarm {
+	dl := &Deadline{clock: NewAlarmClock(func() time.Duration { return 0 }, func(d time.Duration, f func()) Alarm {
 		fire <- f
 		return heldAlarm{}
 	})}

@@ -31,11 +31,51 @@ type Mode = RawMode{} | NoEchoMode{}
 // Window is the terminal's size, in columns and rows.
 extern go ergo.local/prototype/runtime/v1.TermWindow type Window { Cols int, Rows int }
 
-// Key is one key a person pressed. Char is a printable character, one
-// rune. Interrupt is Ctrl-C, which a raw mode passes as a key. EndOfInput
-// is Ctrl-D or the end of the input. Other is a key with no name here, by
-// its bytes (a function key, Alt and a letter).
-type Key = Char{Text string} | Return{} | Backspace{} | Tab{} | Escape{} | Up{} | Down{} | Left{} | Right{} | Interrupt{} | EndOfInput{} | Other{Bytes string}
+// Key is one key a person pressed, or what else the key stream carries.
+// Char is a printable character, one rune. Interrupt is Ctrl-C, which a
+// raw mode passes as a key. EndOfInput is Ctrl-D or the end of the input.
+// Home to PageDown and F (F1 to F12) are the named keys with no modifier;
+// a key with Shift, Ctrl, Alt or Meta held is a Chord of its name
+// (KeyName: "a", "ArrowUp", "Tab", "F5", as ui.KeyPress names it). Paste
+// is a bracketed paste's text (one key, however long). Wheel is a turn of
+// the mouse wheel at a cell, in a terminal that reports the mouse.
+// Resized is the window's new size. Other is a sequence with no name
+// here, by its bytes. The bytes of each are in keys.ergo (Cut, Decode).
+type Key = Char{Text string} | Return{} | Backspace{} | Tab{} | Escape{} | Up{} | Down{} | Left{} | Right{} | Home{} | End{} | Insert{} | Delete{} | PageUp{} | PageDown{} | F{N int} | Chord{Mods Mods, Name string} | Paste{Text string} | Wheel{Up bool, Col int, Row int} | Resized{Window Window} | Interrupt{} | EndOfInput{} | Other{Bytes string}
+
+// ScriptPlaysKeys: a script's ReadKey gives its keys in order, then
+// EndOfInput.
+law ScriptPlaysKeys(texts []string) {
+	let mut keys []Key = []Key{}
+	for t in texts {
+		keys = keys.Append(Char{Text: t})
+	}
+	let s = NewScript(keys, Window{Cols: 1, Rows: 1})
+	let mut ok = true
+	with context { Terminal: s } {
+		for t in texts {
+			match Terminal.ReadKey() catch {
+			case io.ReadFailed:
+				EndOfInput
+			} {
+			case Char as c:
+				ok = ok && c.Text == t
+			case _:
+				ok = false
+			}
+		}
+		match Terminal.ReadKey() catch {
+		case io.ReadFailed:
+			Return
+		} {
+		case EndOfInput:
+			ok = ok
+		case _:
+			ok = false
+		}
+	}
+	ok
+}
 
 // Terminal is the terminal of standard input.
 // law-exempt: SetMode and Restore change the host's terminal, which no law over the operations alone can read back; Script carries the scope laws (RawRestores, NestedRestoresInOrder) and the pty model TestTermModesRestore (lower) checks the host's state.
@@ -45,8 +85,9 @@ type Terminal {
 	// Restore sets back the state before the latest SetMode not yet
 	// restored; with none, it does nothing.
 	Restore(),
-	// ReadKey is the next key of standard input. At the end of the input
-	// it is EndOfInput.
+	// ReadKey is the next key of standard input, or Resized when the
+	// window's size changed while it waited. At the end of the input it is
+	// EndOfInput.
 	ReadKey() Key fails io.ReadFailed,
 	// Size is the window's size.
 	Size() Window fails NotTerminal,
@@ -58,6 +99,36 @@ func Raw[T, E, R](body func() T fails E needs R) T fails E | NotTerminal needs R
 	try Terminal.SetMode(RawMode)
 	scope.OnExit() { Terminal.Restore() }
 	try body()
+}
+
+// RawRestores: after Raw ends, by a value or by a failure of its block,
+// the script holds no mode, and inside it holds RawMode alone.
+law RawRestores(fail bool) {
+	let s = NewScript([]Key{}, Window{Cols: 80, Rows: 24})
+	let mut inside = 0
+	let got = with context { Terminal: s } {
+		Raw() {
+			inside = len(s.Modes())
+			try failWhen(fail)
+		} catch {
+		case failed:
+			-1
+		case NotTerminal:
+			-2
+		}
+	}
+	inside == 1 && len(s.Modes()) == 0 && got == (if fail { -1 } else { 0 })
+}
+
+// failed is the failure a law's block raises to leave by a failure.
+type failed {}
+
+// failWhen fails when fail is true and is 0 otherwise.
+func failWhen(fail bool) int fails failed {
+	if fail {
+		return failed
+	}
+	0
 }
 
 // NoEcho runs body with the terminal in NoEchoMode and restores the state
@@ -91,53 +162,77 @@ func SetMode(_ Host, m Mode) fails NotTerminal {
 // Restore sets back the state before the latest SetMode.
 func Restore(_ Host) { hostLeave() }
 
-// ReadKey is the next key of standard input.
-func ReadKey(_ Host) Key fails io.ReadFailed { Decode(try hostReadKey()) }
+// ReadKey is the next key of standard input: it waits until the bytes
+// standard input holds start with a whole key (Cut), takes that key's
+// bytes alone and names them (Decode). The bytes after it stay in io's
+// buffer for the next read. A change of the window's size while it waits
+// is Resized, with the size then.
+func ReadKey(_ Host) Key fails io.ReadFailed {
+	let mut have = 0
+	for {
+		let p = try hostPeek(have)
+		if p.Resized {
+			match sizeNow() {
+			case Some[Window] as w:
+				return Resized{Window: w.Value}
+			case None:
+			}
+		}
+		let n = Cut(p.Bytes, p.End)
+		if n >= 0 {
+			hostDrop(n)
+			return Decode(p.Bytes[0:n])
+		}
+		have = len(p.Bytes)
+	}
+}
 
 // Size is the window's size.
 func Size(_ Host) Window fails NotTerminal { try hostSize() }
 
-// Decode is the key of a token, the bytes of one key as the host reads
-// them: "" is the end of the input; a carriage return is Return; an arrow
-// is ESC [ and its letter; a printable rune is a Char; any other control
-// byte or escape sequence is Other.
-func Decode(token string) Key {
-	if token == "" || token == "\x04" {
-		EndOfInput
-	} else if token == "\r" {
-		Return
-	} else if token == "\x7f" {
-		Backspace
-	} else if token == "\t" {
-		Tab
-	} else if token == "\x1b" {
-		Escape
-	} else if token == "\x03" {
-		Interrupt
-	} else if token == "\x1b[A" {
-		Up
-	} else if token == "\x1b[B" {
-		Down
-	} else if token == "\x1b[C" {
-		Right
-	} else if token == "\x1b[D" {
-		Left
-	} else if token < " " {
-		Other{Bytes: token}
-	} else {
-		Char{Text: token}
-	}
-}
-
 // Script is a Terminal provider for tests: ReadKey plays Keys in order,
-// then EndOfInput; Size is Window; SetMode and Restore keep the modes set
+// then EndOfInput; Size is Window, then the Window of the last Resized
+// played; SetMode and Restore keep the modes set
 // and not restored, for Modes. Its state is in sync.Refs, so every copy of
 // a Script (the one a context binds, the one the test reads) shares it.
-type Script { keys []Key, window Window, at sync.Ref[int], modes sync.Ref[[]Mode] } implements Terminal
+type Script { keys []Key, window sync.Ref[Window], at sync.Ref[int], modes sync.Ref[[]Mode] } implements Terminal
 
 // NewScript is the Script that plays keys and has the size window.
 func NewScript(keys []Key, window Window) Script {
-	Script{keys: keys, window: window, at: sync.NewRef[int](0), modes: sync.NewRef[[]Mode]([]Mode{})}
+	Script{keys: keys, window: sync.NewRef[Window](window), at: sync.NewRef[int](0), modes: sync.NewRef[[]Mode]([]Mode{})}
+}
+
+// NestedRestoresInOrder: a NoEcho inside a Raw holds both modes, the
+// outer first, and each block's end drops its own mode alone.
+law NestedRestoresInOrder() {
+	let s = NewScript([]Key{}, Window{Cols: 80, Rows: 24})
+	let mut seen = ""
+	with context { Terminal: s } {
+		Raw() {
+			try NoEcho() { seen = seen + names(s.Modes()) }
+			seen = seen + "|" + names(s.Modes())
+		} catch {
+		case NotTerminal:
+			seen = "not a terminal"
+		}
+	}
+	seen == "raw,noecho|raw" && len(s.Modes()) == 0
+}
+
+func names(modes []Mode) string {
+	let mut out = ""
+	for m in modes {
+		if out != "" {
+			out = out + ","
+		}
+		match m {
+		case RawMode:
+			out = out + "raw"
+		case NoEchoMode:
+			out = out + "noecho"
+		}
+	}
+	out
 }
 
 // SetMode keeps m.
@@ -155,11 +250,19 @@ func Restore(s Script) {
 // ReadKey is the next key of the script, or EndOfInput after the last.
 func ReadKey(s Script) Key fails io.ReadFailed {
 	let i = sync.Modify(s.at, func(i int) (int, int) { (i, i + 1) })
-	if i < len(s.keys) { s.keys[i] } else { EndOfInput }
+	if i >= len(s.keys) {
+		return EndOfInput
+	}
+	match s.keys[i] {
+	case Resized as r:
+		s.window.Set(r.Window)
+	case _:
+	}
+	s.keys[i]
 }
 
 // Size is the script's window.
-func Size(s Script) Window fails NotTerminal { s.window }
+func Size(s Script) Window fails NotTerminal { s.window.Get() }
 
 // Modes is the modes set on s and not restored, oldest first.
 func Modes(s Script) []Mode { s.modes.Get() }
@@ -167,5 +270,38 @@ func Modes(s Script) []Mode { s.modes.Get() }
 extern go ergo.local/prototype/runtime/v1.TermEnterRaw func hostEnterRaw() fails NotTerminal
 extern go ergo.local/prototype/runtime/v1.TermEnterNoEcho func hostEnterNoEcho() fails NotTerminal
 extern go ergo.local/prototype/runtime/v1.TermLeave func hostLeave()
-extern go ergo.local/prototype/runtime/v1.TermReadKey func hostReadKey() string fails io.ReadFailed
+// sizeNow is the window's size, None when there is no terminal.
+func sizeNow() Option[Window] {
+	let w = hostSize() catch {
+	case NotTerminal:
+		return None
+	}
+	Some{Value: w}
+}
+
+// peeked is what hostPeek found in standard input's buffer, not taken.
+extern go ergo.local/prototype/runtime/v1.TermPeeked type peeked { Bytes string, End bool, Resized bool }
+extern go ergo.local/prototype/runtime/v1.TermPeek func hostPeek(have int) peeked fails io.ReadFailed
+extern go ergo.local/prototype/runtime/v1.TermDrop func hostDrop(n int)
 extern go ergo.local/prototype/runtime/v1.TermGetSize func hostSize() Window fails NotTerminal
+
+// ScriptResizes: a Script's Size is its window until it plays a Resized,
+// and that Resized's window after.
+law ScriptResizes(cols int, rows int) {
+	let w = Window{Cols: (cols%300+300)%300 + 1, Rows: (rows%100+100)%100 + 1}
+	let s = NewScript([]Key{Char{Text: "a"}, Resized{Window: w}, Char{Text: "b"}}, Window{Cols: 80, Rows: 24})
+	let mut sizes = []Window{}
+	with context { Terminal: s } {
+		for _ in 0..3 {
+			let _ = Terminal.ReadKey() catch {
+			case io.ReadFailed:
+				EndOfInput
+			}
+			sizes = sizes.Append(Terminal.Size() catch {
+			case NotTerminal:
+				Window{Cols: 0, Rows: 0}
+			})
+		}
+	}
+	sizes == []Window{Window{Cols: 80, Rows: 24}, w, w}
+}

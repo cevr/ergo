@@ -22,25 +22,25 @@ func refused(s State, sig Signal) string {
 }
 
 test ForgeWithLeftover {
-	let end, b = Run(Start(Rack()), []Signal{Ore{At: 1s, Worth: 100}, Ore{At: 5s, Worth: 25}, Ore{At: 6s, Worth: 25}, Select{At: 9s, Slot: "A1"}, Tick{At: 11s}})
+	let end, b = Run(Start(rack()), []Signal{Ore{At: 1s, Worth: 100}, Ore{At: 5s, Worth: 25}, Ore{At: 6s, Worth: 25}, Select{At: 9s, Slot: "A1"}, Tick{At: 11s}})
 	assert Name(end) == "idle"
 	assert b == Tally{In: 150, Spent: 125, Leftover: 25, Returned: 0}
 	assert SlotsOf(end)[0].Count == 1
 }
 
 test GuardsRefuse {
-	let s = Heating{Slots: Rack(), Credit: 100, Until: 31s}
+	let s = Heating{Slots: rack(), Credit: 100, Until: 31s}
 	assert refused(s, Select{At: 2s, Slot: "A1"}) == "not enough 100 of 125"
 	assert refused(s, Select{At: 2s, Slot: "B2"}) == "no stock B2"
 	assert refused(s, Select{At: 2s, Slot: "Z9"}) == "no slot Z9"
 	assert refused(s, Ore{At: 2s, Worth: 3}) == "bad ore 3"
-	assert refused(Forging{Slots: Rack(), Slot: "A1", Until: 3s}, Ore{At: 2s, Worth: 25}) == "busy"
-	assert refused(Cold{Slots: Rack()}, Select{At: 2s, Slot: "A1"}) == "cold"
-	assert refused(Idle{Slots: Rack()}, Select{At: 2s, Slot: "A1"}) == "not enough 0 of 125"
+	assert refused(Forging{Slots: rack(), Slot: "A1", Until: 3s}, Ore{At: 2s, Worth: 25}) == "busy"
+	assert refused(Cold{Slots: rack()}, Select{At: 2s, Slot: "A1"}) == "cold"
+	assert refused(Idle{Slots: rack()}, Select{At: 2s, Slot: "A1"}) == "not enough 0 of 125"
 }
 
 test OresExtendTheWait {
-	let end, _ = Run(Start(Rack()), []Signal{Ore{At: 1s, Worth: 25}, Ore{At: 20s, Worth: 25}, Tick{At: 40s}})
+	let end, _ = Run(Start(rack()), []Signal{Ore{At: 1s, Worth: 25}, Ore{At: 20s, Worth: 25}, Tick{At: 40s}})
 	assert CreditOf(end) == 50
 	match Deadline(end) {
 	case Some[duration] as d:
@@ -51,17 +51,17 @@ test OresExtendTheWait {
 }
 
 test TimeoutReturnsTheCredit {
-	let end, b = Run(Start(Rack()), []Signal{Ore{At: 1s, Worth: 25}, Tick{At: 31s}})
+	let end, b = Run(Start(rack()), []Signal{Ore{At: 1s, Worth: 25}, Tick{At: 31s}})
 	assert Name(end) == "idle" && b.Returned == 25
 }
 
 test DropTakesTwoSeconds {
-	let s State = Forging{Slots: Rack(), Slot: "A1", Until: 12s}
+	let s State = Forging{Slots: rack(), Slot: "A1", Until: 12s}
 	assert Name(machines.Next(s, Tried(s, Tick{At: 11s}))) == "forging"
 	assert Name(machines.Next(s, Tried(s, Tick{At: 12s}))) == "idle"
 }
 
 test DouseReturnsAndKindles {
-	let end, b = Run(Start(Rack()), []Signal{Ore{At: 1s, Worth: 100}, Douse{At: 2s}, Ore{At: 3s, Worth: 25}, Kindle{At: 4s}})
+	let end, b = Run(Start(rack()), []Signal{Ore{At: 1s, Worth: 100}, Douse{At: 2s}, Ore{At: 3s, Worth: 25}, Kindle{At: 4s}})
 	assert Name(end) == "idle" && b.Returned == 100 && b.In == 100
 }

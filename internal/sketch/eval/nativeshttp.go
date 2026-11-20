@@ -24,8 +24,8 @@ import (
 // (client.ergo, causeOf).
 const sendMalformed = 3
 
-func registerNativeshttp() {
-	hostNative("http.Listen", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+func registerNativeshttp(t nativeTables) {
+	hostNative(t, "http.Listen", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		addr := args[0].(string)
 		// Only a literal or empty host is resolved without a lookup,
 		// which would read the host's resolver.
@@ -91,11 +91,11 @@ func registerNativeshttp() {
 		}
 		return nil, fr.unsupported(at, "an http exchange: the simulated process has no network")
 	}
-	hostNative("http.fetch", fetch)
-	hostNative("http.fetchInto", fetch)
+	hostNative(t, "http.fetch", fetch)
+	hostNative(t, "http.fetchInto", fetch)
 	// IntoFile runs the fetch with a file it fills; a fetch that fails
 	// before its first part leaves no file. A filled file is not run yet.
-	hostNative("http.IntoFile", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+	hostNative(t, "http.IntoFile", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		if args[1].(string) == "" {
 			return nil, fr.unsupported(at, "an http.IntoFile of an empty path")
 		}

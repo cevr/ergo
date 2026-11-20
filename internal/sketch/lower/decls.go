@@ -1618,7 +1618,7 @@ func staticLiteral(info *check.Info, x syntax.Expr) bool {
 // evaluated to a constant, of type bool, string or an integer type. A Go
 // package variable is a load at every read, and Go folds no expression
 // over it: `h & (Slots - 1)` loads Slots and subtracts on every probe of
-// examples/onebrc's table, and a constant is an immediate. Every read is
+// examples/station-stats's table, and a constant is an immediate. Every read is
 // then v1.Let(name) (letRead), a call of an identity that gc inlines and
 // whose result is no Go constant expression, so Go evaluates every
 // expression over it as it evaluates one over the variable: an integer

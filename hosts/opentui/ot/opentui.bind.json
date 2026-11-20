@@ -1,0 +1,103 @@
+{
+  "header": "opentui.h",
+  "header_sha256": "0f78783bac9d4e3206fe2cbcce1dfea00fb39953d38b4e9cdc3f1c5e46a04ab5",
+  "go": {
+    "package": "ot",
+    "import_path": "ergo.local/prototype/hosts/opentui/ot"
+  },
+  "prefixes": {
+    "function": "ot_",
+    "macro": "OT_",
+    "type": "ot_"
+  },
+  "status": {
+    "type": "ot_status",
+    "macro_prefix": "OT_",
+    "success": "OT_OK",
+    "exclude": [
+      {"name": "OT_EMBEDDED_TERMINAL_BUTTON_NONE", "why": "a mouse button of the embedded terminal (INT32_C, -1), not a status"},
+      {"name": "OT_EMBEDDED_TERMINAL_BUTTON_UNKNOWN", "why": "a mouse button of the embedded terminal (INT32_C, 0), not a status"},
+      {"name": "OT_EMBEDDED_TERMINAL_BUTTON_LEFT", "why": "a mouse button of the embedded terminal (INT32_C, 1), not a status"},
+      {"name": "OT_EMBEDDED_TERMINAL_BUTTON_RIGHT", "why": "a mouse button of the embedded terminal (INT32_C, 2), not a status"},
+      {"name": "OT_EMBEDDED_TERMINAL_BUTTON_MIDDLE", "why": "a mouse button of the embedded terminal (INT32_C, 3), not a status"}
+    ]
+  },
+  "abi": {
+    "function": "ot_context_abi_version",
+    "macro": "OT_CONTEXT_ABI_VERSION"
+  },
+  "handles": [
+    {
+      "type": "ot_context",
+      "create": "ot_context_create",
+      "out": "out_context",
+      "destroy": "ot_context_destroy",
+      "thread": "owner"
+    }
+  ],
+  "autofill": [
+    {"field": "struct_size", "value": "size"},
+    {"field": "abi_version", "value": "abi"}
+  ],
+  "buffers": {
+    "length_names": ["count", "{name}_count", "{name}_length", "{name}_len", "chunk_count", "column_count", "row_count"],
+    "byte_length_names": ["byte_count", "{name}_bytes", "{stem}_byte_count"],
+    "capacity_names": ["capacity"],
+    "count_names": ["out_count", "out_byte_count"],
+    "out_prefix": "out_"
+  },
+  "callbacks": [
+    {"typedef": "ot_output_write_callback", "scope": "call",
+     "key": {"params": ["user_data"], "source": "user_data"}, "default": -1,
+     "why": "ot_session_drain_output: \"No callback or user_data is retained\"; the callback returns \"-1 for failure\""},
+    {"typedef": "ot_scene_measure_callback", "scope": "registered",
+     "key": {"params": ["context_id", "slot", "generation"], "source": "node"},
+     "owner": "ot_context", "ends": ["ot_scene_destroy_node"],
+     "why": "ot_scene_set_measure: \"The callback is borrowed until replacement, unset, node destruction, or Context destruction\""}
+  ],
+  "exceptions": [
+    {"function": "ot_session_drain_stdout", "position": "session", "class": "value",
+     "why": "max_bytes after session limits the drained output; it is not the length of session"},
+    {"function": "ot_session_drain_output", "position": "session", "class": "value",
+     "why": "max_bytes after session limits the drained output; it is not the length of session"},
+    {"callback": "ot_scene_measure_callback", "position": "out_size", "class": "out_array", "array_length": 2,
+     "why": "\"The result is two floats (width, height)\""},
+    {"function": "ot_context_set_edit_event_callback", "position": "#1", "class": "raw",
+     "why": "the key of ot_edit_event_callback (its context_id) has no source in the arguments: an ot_context * does not carry its id, and the contract has no key form for it"},
+    {"function": "ot_session_post_stdout", "position": "session", "class": "value",
+     "why": "max_bytes after session limits the posted output; it is not the length of session"},
+    {"function": "ot_text_buffer_get_info", "position": "#2", "class": "out",
+     "why": "unnamed out-parameter: the call writes one ot_text_buffer_info"},
+    {"function": "ot_text_buffer_view_get_info", "position": "#2", "class": "out",
+     "why": "unnamed out-parameter: the call writes one ot_editor_view_info"},
+    {"function": "ot_text_buffer_view_measure", "position": "#4", "class": "out",
+     "why": "unnamed out-parameter: the call writes one ot_editor_measure"},
+    {"function": "ot_text_buffer_replace_styled_batch", "position": "out", "class": "out",
+     "why": "named out without the out_ prefix: the call writes one ot_text_buffer_replacement_info"},
+    {"function": "ot_buffer_draw", "position": "frame", "class": "optional",
+     "why": "\"frame must be NULL for an owned buffer and non-NULL for a Session\""},
+    {"function": "ot_buffer_stack", "position": "frame", "class": "optional",
+     "why": "\"the same target/frame authority as ot_buffer_draw\""},
+    {"function": "ot_buffer_draw_grid", "position": "frame", "class": "optional",
+     "why": "\"the same target/frame authority as ot_buffer_draw\""},
+    {"function": "ot_buffer_draw_packed", "position": "#2", "class": "optional",
+     "why": "\"Pixel drawing uses the same target/frame authority as ot_buffer_draw\""},
+    {"function": "ot_buffer_draw_supersample", "position": "#2", "class": "optional",
+     "why": "\"Pixel drawing uses the same target/frame authority as ot_buffer_draw\""},
+    {"function": "ot_buffer_draw_grayscale", "position": "#2", "class": "optional",
+     "why": "\"Pixel drawing uses the same target/frame authority as ot_buffer_draw\""},
+    {"function": "ot_buffer_color_matrix", "position": "#2", "class": "optional",
+     "why": "\"Target/frame authority is the same as ot_buffer_draw\""},
+    {"function": "ot_buffer_draw_image", "position": "frame", "class": "optional",
+     "why": "\"Offscreen buffers require NULL frame\""},
+    {"function": "ot_buffer_draw_text_view", "position": "#2", "class": "optional",
+     "why": "\"NULL frame selects an owned offscreen buffer\""},
+    {"function": "ot_buffer_draw_editor_view", "position": "#2", "class": "optional",
+     "why": "\"Same destination rules as ot_buffer_draw_text_view\""},
+    {"function": "ot_buffer_draw_scene_body", "position": "#2", "class": "optional",
+     "why": "\"Same destination rules as ot_buffer_draw_text_view\" (the comment covers the pair after it)"},
+    {"function": "ot_session_render_split", "position": "#2", "class": "optional",
+     "why": "\"A null frame submits snapshots only\""}
+  ],
+  "skips": []
+}

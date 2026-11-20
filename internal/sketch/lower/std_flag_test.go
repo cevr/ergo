@@ -351,6 +351,15 @@ let Json = flag.Bool("json", false, "print JSON")
 
 func main() needs Console | Ambient {
 	let args = with context { os.Process: os.NewHost() } { os.Process.Args() }
+	if args[0] == "doubled" {
+		let _ = flag.Parse(flag.Set{Name: "p", Usage: "", Flags: []flag.Flag{Json, flag.String("json", "", "")}, Args: []flag.ArgSpec{}}, []string{"-h"}) catch {
+		case _:
+			Console.Println("refused")
+			return
+		}
+		Console.Println("parsed")
+		return
+	}
 	let given = if args[1] == "given" { []string{"-json"} } else { []string{} }
 	let v = flag.Parse(flag.Set{Name: "p", Usage: "", Flags: []flag.Flag{Json}, Args: []flag.ArgSpec{}}, given) catch {
 	case _:
@@ -383,6 +392,11 @@ func main() needs Console | Ambient {
 				t.Errorf("%s handle, flag %s: exit %d (want 2), stdout %q, stderr %q", foreign, given, code, stdout, firstLines(stderr, 5))
 			}
 		}
+	}
+	// A set that declares a spelling twice is a defect before help
+	// (validateFlags; mutant flagfloor-doubled-not-checked).
+	if stdout, stderr, code := runExeInput(t, exes["flagforeign"], "", "doubled", "absent"); code != 2 || stdout != "" || !strings.Contains(stderr, "a flag spelling is declared twice: json") {
+		t.Errorf("doubled spelling: exit %d (want 2), stdout %q, stderr %q", code, stdout, firstLines(stderr, 5))
 	}
 }
 
@@ -540,6 +554,22 @@ test FlagDefaultWhenAbsent {
 	assert name == "r"
 }
 
+test FlagHelpWinsInEveryForm(k int, x string) {
+	let forms = []string{"-h", "--h", "-help", "--help", "-h=" + x, "--help=" + x}
+	let form = forms[((k%6)+6)%6]
+	assert asksHelp([]string{"-s", x, form, "-q"}) && asksHelp([]string{"-s", "--", form, "-q"})
+}
+
+func asksHelp(args []string) bool {
+	flag.Parse(set(), args) catch {
+	case flag.Help:
+		return true
+	case _:
+		return false
+	}
+	false
+}
+
 test FlagUnknownNamesTheFlag(name string) {
 	if name == "" || name == "h" || name == "help" || name == "s" || name == "n" || name == "b" || strings.Contains(name, "=") || strings.HasPrefix(name, "-") {
 		return
@@ -622,6 +652,7 @@ var flagLawStatements = map[string]string{
 	"flag EachCommandReaches":      `EachCommandReaches(i int) { let commands = lawCommands() if i < 0 || i >= len(commands) { return true } commandName(try ParseCommand("law", "", commands, []string{commands[i].Name})) == commands[i].Name }`,
 	"flag FlagCrossesPositional":   `FlagCrossesPositional(p string, a string) { let before = try Parse(lawSet(), []string{"p" + p, "-s=" + a}) Equal(before, try Parse(lawSet(), []string{"-s=" + a, "p" + p})) }`,
 	"flag HelpNamesEveryFlag":      `HelpNamesEveryFlag(names []string) { let mut flags = []Flag{} let mut seen Map[string, bool] for name in names { match seen.Get(name) { case Some[bool]: case None: seen[name] = true flags = flags.Append(String(name, "", "u")) } } let help = Usage(Set{Name: "law", Usage: "", Flags: flags, Args: []ArgSpec{}}) for name in names { if !strings.Contains(help, "\n  -"+name+" string\n") { return false } } true }`,
+	"flag HelpWinsInEveryForm":     `HelpWinsInEveryForm(k int, x string) { let forms = []string{"-h", "--h", "-help", "--help", "-h=" + x, "--help=" + x} let form = forms[((k%6)+6)%6] asksHelp([]string{"-s", x, form, "-q"}) && asksHelp([]string{"-s", "--", form, "-q"}) }`,
 	"flag IndependentFlagsCommute": `IndependentFlagsCommute(a string, n int) { let first = try Parse(lawSet(), []string{"-s=" + a, "-n=" + strconv.Itoa(n)}) Equal(first, try Parse(lawSet(), []string{"-n=" + strconv.Itoa(n), "-s=" + a})) }`,
 	"flag LastWins":                `LastWins(a string, b string) { let v = try Parse(lawSet(), []string{"-s", a, "-s", b}) lawText.Get(v) == b }`,
 	"flag RenderParseRoundTrip":    `RenderParseRoundTrip(args []string) { let v = Parse(lawArgsSet(), args) catch { case _: return true } sameReads(try Parse(lawArgsSet(), Render(v)), v) }`,

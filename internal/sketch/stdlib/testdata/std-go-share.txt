@@ -131,7 +131,9 @@ hmac	sum512	library	I22-B22CLASS: crypto/hmac with sha512 through import go (bat
 host	hostEnv	host
 host	hostLocal	host
 host	hostZone	host
+http	BadEscape	type
 http	BodyFile	type
+http	DecodePath	computation	NP4f-7
 http	Exchange	type
 http	Field	type
 http	IntoFile	library	GB3, GB4 and HOST-ROW, as fetch; it writes through fs.HostRoot (GBX1b)
@@ -140,7 +142,6 @@ http	InvalidLimits	type
 http	Limits	type
 http	Listen	library	HOST-ROW: net.Listen through import go charges go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; needs a reviewed fact row that charges the provider's own capability (Ambient) instead; Listener holds a Go net.Listener (GB2, GBX1b)
 http	ListenFailed	type
-http	Listener	type
 http	OriginRefused	type
 http	RedirectLimit	type
 http	Response	type
@@ -183,12 +184,21 @@ machines	firingOff	provider
 machines	firingOn	provider
 machines	notPositive	computation	RTF3: the defect is the runtime's MachineTimerDefect value, which the scheduler reads; an Ergo body raises no runtime type
 math	OutOfRange	type
-math	ToInt16	computation	PRIM range fact (B, BCE1's facts): an Ergo body's guarded T(int64(f)) pays FloatToInt64's compare inside its guard, which only a float range fact drops; NP4f-16 receipt-3b, caller on the IR path, 1.04 to 1.14x the body (a FloatToT fast path on the guard's compares reached 1.00 but cost every plain T(f) 1.08-1.11x, receipt-2)
-math	ToInt32	computation	PRIM range fact (B, BCE1's facts): an Ergo body's guarded T(int64(f)) pays FloatToInt64's compare inside its guard, which only a float range fact drops; NP4f-16 receipt-3b, caller on the IR path, 1.04 to 1.14x the body (a FloatToT fast path on the guard's compares reached 1.00 but cost every plain T(f) 1.08-1.11x, receipt-2)
-math	ToInt8	computation	PRIM range fact (B, BCE1's facts): an Ergo body's guarded T(int64(f)) pays FloatToInt64's compare inside its guard, which only a float range fact drops; NP4f-16 receipt-3b, caller on the IR path, 1.04 to 1.14x the body (a FloatToT fast path on the guard's compares reached 1.00 but cost every plain T(f) 1.08-1.11x, receipt-2)
-math	ToUint16	computation	PRIM range fact (B, BCE1's facts): an Ergo body's guarded T(int64(f)) pays FloatToInt64's compare inside its guard, which only a float range fact drops; NP4f-16 receipt-3b, caller on the IR path, 1.04 to 1.14x the body (a FloatToT fast path on the guard's compares reached 1.00 but cost every plain T(f) 1.08-1.11x, receipt-2)
-math	ToUint32	computation	PRIM range fact (B, BCE1's facts): an Ergo body's guarded T(int64(f)) pays FloatToInt64's compare inside its guard, which only a float range fact drops; NP4f-16 receipt-3b, caller on the IR path, 1.04 to 1.14x the body (a FloatToT fast path on the guard's compares reached 1.00 but cost every plain T(f) 1.08-1.11x, receipt-2)
-math	ToUint8	computation	PRIM range fact (B, BCE1's facts): an Ergo body's guarded T(int64(f)) pays FloatToInt64's compare inside its guard, which only a float range fact drops; NP4f-16 receipt-3b, caller on the IR path, 1.04 to 1.14x the body (a FloatToT fast path on the guard's compares reached 1.00 but cost every plain T(f) 1.08-1.11x, receipt-2)
+math	ToInt16	computation	PRIM range fact (B, BCE1's facts) and ENV-PURE: an Ergo body's guarded int32(f) lowers to the saturating ergo.FloatTo… with its own range tests, which the guard already proved, and the failing body takes env; NP4f-3 count 1.05 to 1.23x the body
+math	ToInt32	computation	PRIM range fact (B, BCE1's facts) and ENV-PURE: an Ergo body's guarded int32(f) lowers to the saturating ergo.FloatTo… with its own range tests, which the guard already proved, and the failing body takes env; NP4f-3 count 1.05 to 1.23x the body
+math	ToInt8	computation	PRIM range fact (B, BCE1's facts) and ENV-PURE: an Ergo body's guarded int32(f) lowers to the saturating ergo.FloatTo… with its own range tests, which the guard already proved, and the failing body takes env; NP4f-3 count 1.05 to 1.23x the body
+math	ToUint16	computation	PRIM range fact (B, BCE1's facts) and ENV-PURE: an Ergo body's guarded int32(f) lowers to the saturating ergo.FloatTo… with its own range tests, which the guard already proved, and the failing body takes env; NP4f-3 count 1.05 to 1.23x the body
+math	ToUint32	computation	PRIM range fact (B, BCE1's facts) and ENV-PURE: an Ergo body's guarded int32(f) lowers to the saturating ergo.FloatTo… with its own range tests, which the guard already proved, and the failing body takes env; NP4f-3 count 1.05 to 1.23x the body
+math	ToUint8	computation	PRIM range fact (B, BCE1's facts) and ENV-PURE: an Ergo body's guarded int32(f) lowers to the saturating ergo.FloatTo… with its own range tests, which the guard already proved, and the failing body takes env; NP4f-3 count 1.05 to 1.23x the body
+net	Conn	type
+net	DialFailed	type
+net	Failed	type
+net	ListenFailed	type
+net	Listener	type
+net	hostDial	host
+net	hostListen	host
+nettest	PipeNet	type
+nettest	newPipeNet	provider
 os	Code	type
 os	Exit	type
 os	NoWorkdir	type
