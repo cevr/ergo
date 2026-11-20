@@ -327,6 +327,12 @@ func mutGo(file string) (string, int, []string, error) {
 			return true
 		}
 		out, k, err := Mut(text)
+		if err != nil && !strings.Contains(err.Error(), "rewritten") && fragmentFile(file) {
+			// A piece of a source a generator joins, or a fmt format
+			// (MutFragment).
+			out, k = MutFragment(text)
+			err = nil
+		}
 		if err != nil || k == 0 {
 			if err != nil && strings.Contains(err.Error(), "rewritten") {
 				errs = append(errs, fmt.Sprintf("%s#%d: %v", file, fset.Position(bl.ValuePos).Offset, err))
