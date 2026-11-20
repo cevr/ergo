@@ -317,7 +317,7 @@
     {
       "name": "cache-args-unkeyed",
       "origin": "wf10 g-b2",
-      "file": "internal/sketch/lawcache/keys.go",
+      "file": "internal/sketch/lawcache/keys.go", "decl": "TestResultKey",
       "from": "\tparts = append(parts, args...)\n",
       "to": "",
       "rule": "A test result is keyed by the binary's arguments: a --run name replays no run of every test.",
@@ -327,7 +327,7 @@
     {
       "name": "cache-env-unkeyed",
       "origin": "wf10 g-b2",
-      "file": "internal/sketch/lawcache/keys.go",
+      "file": "internal/sketch/lawcache/keys.go", "decl": "TestResultKey",
       "from": "\treturn Framed(append(parts, env...)...)",
       "to": "\treturn Framed(parts[:len(parts)-1]...)",
       "rule": "A test result is keyed by the GO*, CGO_* and ERGO_* variables the go command and the runtime read.",

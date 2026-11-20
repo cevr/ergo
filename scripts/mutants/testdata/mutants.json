@@ -218,8 +218,8 @@
       "name": "gt2-edit-unkeyed",
       "origin": "wf10 GATE2 GT2",
       "file": "scripts/mutants/reuse.go",
-      "from": "put(\"row\", m.Name, m.File, m.From, m.To)",
-      "to": "put(\"row\", m.Name, m.File, m.From)",
+      "from": "put(\"row\", m.Name, m.File, m.Decl, m.From, m.To)",
+      "to": "put(\"row\", m.Name, m.File, m.Decl, m.From)",
       "rule": "A row's key holds its edit: an edited row is judged again.",
       "killers": ["scripts/mutants:TestReusedVerdictsAgreeWithAFreshPass"]
     },
