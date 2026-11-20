@@ -107,7 +107,7 @@ law PointersReachTheTreesPlaces(seed int) {
 	true
 }
 
-func fail(b *builder, at int, reason string) json.Malformed { json.Locate(b.src, at, reason) }
+func fail(b mut builder, at int, reason string) json.Malformed { json.Locate(b.src, at, reason) }
 
 // FailsWhereTheTreeFails: a sample's text with the byte at at replaced
 // by c reads flat as it reads into a tree: the same failure at the same

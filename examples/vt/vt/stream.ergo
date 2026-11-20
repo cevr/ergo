@@ -119,7 +119,7 @@ func At(p Stream) State { p.parse.At }
 // events for Take. In the ground state a byte of 0x80 or more starts a
 // UTF-8 character, and does not reach the machine: UTF-8 is decoded before
 // the parser, which takes no 8-bit control there.
-func Feed(p *Stream, input string) {
+func Feed(p mut Stream, input string) {
 	let n = len(input)
 	let mut i = 0
 	p.Tally.Bytes += n

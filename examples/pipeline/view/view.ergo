@@ -231,7 +231,7 @@ law HeldTryShowsRunningThenPassed(pick int) {
 }
 
 // shows is whether the screen of h shows the line.
-func shows[D, F](h *ui.TestHost[screen.Screen, screen.Signal, D, F], line string) bool { ui.Find(h, line) != None }
+func shows[D, F](h mut ui.TestHost[screen.Screen, screen.Signal, D, F], line string) bool { ui.Find(h, line) != None }
 
 // stop stops the screen's actor.
 func stop[S, E, D, F](a actor.Actor[S, E, D, F]) {

@@ -46,7 +46,7 @@ law RoundTrip(e ast.Expr, seed int) {
 	true
 }
 
-func peek(p *parser) Token { p.toks[p.pos] }
+func peek(p mut parser) Token { p.toks[p.pos] }
 
 // next is the token at the position, and moves past it. EndTok is never
 // passed, so the position stays inside the tokens.

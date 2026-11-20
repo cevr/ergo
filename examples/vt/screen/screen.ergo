@@ -118,7 +118,7 @@ func Grown(s mut Screen) int { s.grown }
 
 // Recounts is the count of updates Print and clearRow made to the
 // holder counts of the styles: the work guard of their runs.
-func Recounts(s *Screen) int { s.recounts }
+func Recounts(s mut Screen) int { s.recounts }
 
 // slotRow is the row index, in flags, of ring line n.
 func slotRow(s mut Screen, n int) int { s.rows + n%s.ringLines }
@@ -153,7 +153,7 @@ func set(s mut Screen, ri int, i int, c Cell) {
 
 // clearRow blanks row index ri, releasing its styles, and clears its
 // flags. A styled row is released a run of cells of one style at a time.
-func clearRow(s *Screen, ri int) {
+func clearRow(s mut Screen, ri int) {
 	let at = ri * s.cols
 	if s.flags[ri]&flagStyled != 0 {
 		let end = at + s.cols

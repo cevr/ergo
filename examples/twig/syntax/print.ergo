@@ -31,7 +31,7 @@ law PrintParsesBack(seed int) {
 	true
 }
 
-func indent(b *strings.Builder, depth int) {
+func indent(b mut strings.Builder, depth int) {
 	for _ in 0..depth {
 		b.WriteByte('\t')
 	}

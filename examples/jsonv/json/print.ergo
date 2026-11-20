@@ -119,7 +119,7 @@ law IndentIsIdempotent(t Tree) {
 	Indent(try Parse(once), "  ") == once
 }
 
-func compact(w *writer, v json.Value) {
+func compact(w mut writer, v json.Value) {
 	match v {
 	case json.Array as a:
 		put(w, "[")

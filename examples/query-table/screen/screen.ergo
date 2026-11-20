@@ -144,7 +144,7 @@ func Direction(c query.Column, s query.Sorting) string {
 
 // header is column c's header cell, named by its label, whose button sorts
 // by it; the button's name says the sorting.
-func header(f *ui.Frame[explorer.Signal], c query.Column, s query.Sorting) {
+func header(f mut ui.Frame[explorer.Signal], c query.Column, s query.Sorting) {
 	let dir = Direction(c, s)
 	let name = query.ColumnName(c)
 	let said = match dir {
