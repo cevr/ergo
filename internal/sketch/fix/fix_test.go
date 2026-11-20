@@ -105,6 +105,34 @@ func TestFixMigratesModel(t *testing.T) {
 	}
 }
 
+// TestFixIncludeTakesTheModeWord is the smallest repro of the I22 finding
+// at RESPELL-SYNTAX's merged head: `ergo fix` over
+// internal/sketch/syntax/testdata/edge/modes.ergo wrote `..Closer` for the
+// operation `own Close()` and deleted the operation from its name on,
+// leaving `own` alone, so the fixed text did not parse. The fixed file
+// parses and keeps no mode word without its operation. Mutant (fix
+// ledger): fix-include-leaves-mode.
+func TestFixIncludeTakesTheModeWord(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "ergo.mod"), "module m\n")
+	const src = "type Counter {\n\tmut Bump() int,\n\tPeek() int,\n\town Close(),\n}\n\nfunc keep[T own Counter](x own T) T { x }\n"
+	file := filepath.Join(dir, "modes.ergo")
+	writeFile(t, file, src)
+	if _, err := fix.Run(fix.Options{Paths: []string{dir}, Write: true}); err != nil {
+		t.Fatalf("fix: %v", err)
+	}
+	got, _ := os.ReadFile(file)
+	if !strings.Contains(string(got), "..Closer") {
+		t.Fatalf("no include written (the repro no longer reaches include):\n%s", got)
+	}
+	if _, err := format.Source(string(got)); err != nil {
+		t.Fatalf("the fixed text does not parse: %v\n%s", err, got)
+	}
+	if strings.Contains(string(got), "own\n") || strings.Contains(string(got), "own \n") {
+		t.Errorf("a mode word is left without its operation:\n%s", got)
+	}
+}
+
 func writeFile(t *testing.T, path, text string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

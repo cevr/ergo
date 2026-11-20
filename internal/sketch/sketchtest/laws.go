@@ -170,7 +170,7 @@ type Codec {
 
 law RoundTrip(v Money) { v == v }
 `},
-	{"a law named like a prelude function", `law len(xs Ints) { len(xs) >= 0 }
+	{"a law named like a prelude function", `law len(xs Ints) { len(xs) <= len(xs) + 1 }
 
 type Ints []int
 `},

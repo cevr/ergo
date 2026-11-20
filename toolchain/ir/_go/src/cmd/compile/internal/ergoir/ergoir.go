@@ -135,6 +135,10 @@ type ergoChecker struct {
 	// tparams are the type parameters of the function being decoded, its
 	// receiver's then its own (F1): a type spelling names them first.
 	tparams []*types2.TypeParam
+	// rangeFunc reports a range over a func in the body being decoded,
+	// outside its function literals: rangefunc.Rewrite names a literal's
+	// results then (ergoir_closure.go).
+	rangeFunc bool
 	// tdef is the call a "tdef" binds, whose several results call
 	// admits (ergoir_tuple.go).
 	tdef *ergoExpr
