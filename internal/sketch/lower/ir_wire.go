@@ -45,6 +45,12 @@ func (st *irState) codecText(name, reason string) {
 		st.report.CodecText = map[string]int{}
 	}
 	st.report.CodecText[name+"\t"+reason]++
+	if st.census != nil {
+		// A census counts the function as a body that is not lowered
+		// (PORT-WIRE-READERS step 0), keyed by its Go name: the same
+		// function in two targets is one function (IRCensusFunc.Codec).
+		st.census.Funcs = append(st.census.Funcs, IRCensusFunc{Pkg: "codec", Name: name, Codec: true, Reasons: []string{reason}})
+	}
 }
 
 // wireIRLowering selects the codec writers' form on the IR path: "" (an

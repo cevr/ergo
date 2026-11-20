@@ -246,14 +246,10 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		if b.addrRecv(c) { // ir_place.go
 			pre, irArgs = b.recvAddrCall(c, x.Args)
 		} else {
-			pre, irArgs = b.operands(args)
-			for i := range irArgs {
-				if i < len(f.Sig.Params) {
-					irArgs[i] = b.argIntoRow(f.Sig.Params[i].Type, args[i], irArgs[i]) // ir_expr.go
-				}
-			}
+			pre, irArgs = b.operands(args) // a row parameter's operand goes in by implicit (ir_rowgap.go)
 		}
-		b.valueSource(x, c, args, irArgs) // ir_pkg.go
+		b.valueSource(x, c, args, irArgs)   // ir_pkg.go
+		b.l.intMapCall(x, c.Recv, f, false) // intmap.go: a generic signature's Map is Go's
 		if x.Trailing != nil {
 			irArgs = append(irArgs, b.closureLit(nil, x)) // ir_closure.go
 		}
@@ -317,20 +313,15 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 			// The copy for the known record: one instance (ir_known.go).
 			return pre, mark(&irExpr{K: "call", Pos: p, Name: sp, Args: irArgs}), !fd.envFree
 		}
-		name := b.ownedCallName(x, f, fd.name)
-		if fd.pure && name == fd.name && x.Trailing == nil && c.Site == nil {
-			// The function's table, as the emitter's call reads it (ir_tab.go).
-			if tpre, v := b.tabCall(x, c, irArgs, p); v != nil {
-				return append(pre, tpre...), v, false
-			}
-		}
-		return pre, b.droppedCall(x, c, fd, b.inlineMark(x, c, fd, mark(&irExpr{K: "call", Pos: p, Name: name, T: b.typeArgs(c, x), Args: irArgs}))), !fd.envFree // ir_forms_inline.go, ir_forms_drop.go
+		return pre, b.droppedCall(x, c, fd, b.inlineMark(x, c, fd, mark(&irExpr{K: "call", Pos: p, Name: b.ownedCallName(x, f, fd.name), T: b.typeArgs(c, x), Args: irArgs}))), !fd.envFree // ir_forms_inline.go, ir_forms_drop.go
 	case check.CallOp:
 		return b.opCall(x, c, p) // ir_pkg.go
 	case check.CallConversion:
 		return b.conversion(x, c, p) // ir_pkg.go
 	case check.CallEncode, check.CallDecode:
 		return b.codecCall(x, c, p) // ir_codec.go
+	case check.CallPattern:
+		return b.patternCall(x, c, p) // refinematch.go
 	case check.CallProviderOp, check.CallLawOp:
 		switch {
 		case b.env < 0 || c.Op == nil:

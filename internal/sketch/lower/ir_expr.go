@@ -49,24 +49,10 @@ func (b *irBuilder) intoRow(want check.Type, x syntax.Expr, e *irExpr) *irExpr {
 	return &irExpr{K: "toiface", Pos: e.Pos, T: gt, X: e}
 }
 
-// argIntoRow is e, the operand x of a call, as the callee's parameter of
-// declared type want takes it. A parameter of an error row parameter's
-// type (`f F` where the function `fails F`, or a row that holds one) is a
-// Go error in the callee (types.md, Generics 1), so an error type's value
-// passed to it takes an explicit conversion, as Go assigns it implicitly:
-// the IR's call check wants the argument's type to be the parameter's
-// (toolchain/ir, assignable). A Slot parameter is a Go type parameter
-// (Generics 6), whose argument is the value's own type, so it is left as
-// it is.
-func (b *irBuilder) argIntoRow(want check.Type, x syntax.Expr, e *irExpr) *irExpr {
-	if e == nil || !holdsRowParam(want) || b.goType(b.operandType(x), x) == "error" {
-		return e
-	}
-	return &irExpr{K: "toiface", Pos: e.Pos, T: "error", X: e}
-}
-
 // holdsRowParam reports a parameter type that is an error row parameter
-// that is not a Slot, or a row that holds one.
+// that is not a Slot, or a row that holds one: a Go error in the
+// declaration (types.md, Generics 1), where a Slot is a Go type parameter
+// (Generics 6). The row gaps start from it (rowgap.go).
 func holdsRowParam(t check.Type) bool {
 	switch t := t.(type) {
 	case *check.TypeParam:
@@ -125,6 +111,11 @@ func (b *irBuilder) valueOf(x syntax.Expr) ([]*irStmt, *irExpr) {
 		}
 		pre, e = b.gather(sc, y, b.pos(y, y.Pos())) // ir_scalar.go
 	case *syntax.SelectorExpr:
+		if b.l.info.MethodValues[y] != nil {
+			b.plain(y)
+			pre, e = b.methodValue(y) // ir_methodvalue.go
+			break
+		}
 		// A Go package variable whose Option goResult builds: Go's
 		// pointer read once, then the Option (ir_govar.go).
 		if t := b.l.info.Types[y]; hostRecv(b.l.info.Types[y.X]) && (isGoRef(t) || b.optionResult(t)) {
@@ -176,10 +167,30 @@ func (b *irBuilder) operator(op string, t check.Type, site syntax.Node) {
 	if !irOps[op] {
 		irNo("operator %s", op)
 	}
-	if b.scalarBasic(t) == nil { // ir_union.go: a named scalar's too
+	if b.scalarBasic(t) == nil && !orderedParam(op, t) { // ir_union.go: a named scalar's too
 		irNo("operator %s on a non-basic type", op)
 	}
 	b.goType(t, site)
+}
+
+// orderedParam reports an ordering operator on a type parameter whose
+// constraint is ordered (GP-ORDER): its Go constraint is the generated
+// type-set interface (constraint, decls.go), whose every type is ordered,
+// so Go's < compiles it per GC shape, as the text path writes it. Equality
+// goes through equalOn (ir_equal.go); arithmetic on number is left out
+// until a body needs it.
+func orderedParam(op string, t check.Type) bool {
+	switch op {
+	case "<", "<=", ">", ">=":
+	default:
+		return false
+	}
+	tp, ok := t.(*check.TypeParam)
+	if !ok || tp.Slot || tp.Constraint == nil {
+		return false
+	}
+	it := constraintOf(tp)
+	return it != nil && it.Set == check.SetOrdered
 }
 
 // expr is x after its implicit conversion (implicit, ir_union.go).
@@ -275,6 +286,13 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 		b.goType(t, x)
 		return &irExpr{K: "deref", Pos: p, X: b.expr(x.X)}
 	case *syntax.SelectorExpr:
+		if b.l.info.MethodValues[x] != nil {
+			// Outside a value position (valueOf takes the others,
+			// ir_methodvalue.go) there is no statement to spill the
+			// receiver into: a receiver no assignment changes is read by
+			// the closure itself, which then sees the value it had here.
+			return b.stableMethodValue(x, p)
+		}
 		switch o := check.QualifiedMember(b.l.info, x).(type) {
 		case *check.Func:
 			return b.funcName(o, t, x, p, nil) // pkg.F as a value (ir_fnname.go)
