@@ -625,7 +625,12 @@ func selected(info *check.Info, parent map[syntax.Node]syntax.Node, sel *syntax.
 				}
 				// A receiver of a type parameter: the operation is its
 				// constraint's (vt's Apply[S Screen] calls s.Print).
-				if tp, ok := info.Types[sel.X].(*check.TypeParam); ok {
+				// A mut receiver (s mut S, MODES-4) is a pointer to it.
+				recv := info.Types[sel.X]
+				if p, ok := recv.(*check.Pointer); ok {
+					recv = p.Elem
+				}
+				if tp, ok := recv.(*check.TypeParam); ok {
 					if n := namedOf(tp.Constraint); n != nil {
 						return methodKey{n.Obj, c.Op.Name}, true
 					}
