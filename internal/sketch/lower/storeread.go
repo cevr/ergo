@@ -108,13 +108,9 @@ func (w *valueWalk) reslicesRoot(e syntax.Expr, s *syntax.SliceExpr, vv *vvar) b
 	return true
 }
 
-// keptRead reports whether the read o of the root vv may take its value
-// with no copy: o is the whole initializer of a plain let local that keeps
-// nothing, and no use of vv can write the storage that value reaches.
-func (w *valueWalk) keptRead(vv *vvar, o *vocc) bool {
-	if o.kind != occEscape || !valueOwned() {
-		return false
-	}
+// readOnlyLet reports o's path as the whole initializer of a plain let
+// local of o's frame whose every use, in that frame, keeps nothing.
+func (w *valueWalk) readOnlyLet(o *vocc) bool {
 	var local *vvar
 	for _, cand := range w.order {
 		if cand.init != nil && unparen(cand.init) == unparen(o.path) {
@@ -123,6 +119,16 @@ func (w *valueWalk) keptRead(vv *vvar, o *vocc) bool {
 		}
 	}
 	if local == nil || local.frame != o.frame || !w.letKeepsNothing(local, 0) {
+		return false
+	}
+	return true
+}
+
+// keptRead reports whether the read o of the root vv may take its value
+// with no copy: o is the whole initializer of a plain let local that keeps
+// nothing, and no use of vv can write the storage that value reaches.
+func (w *valueWalk) keptRead(vv *vvar, o *vocc) bool {
+	if o.kind != occEscape || !valueOwned() || !w.readOnlyLet(o) {
 		return false
 	}
 	read := map[string]bool{}

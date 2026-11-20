@@ -64,7 +64,8 @@ import (
 //     with no failure row whose result shares no storage but p's (a pure
 //     runtime/v1 body, or an Ergo body freshFrom proves so), on one place
 //     rooted at a let mut or a borrow, passes p with no copy and takes
-//     the result with none;
+//     the result with none; so does p = T{..p, …} with its base, and a
+//     literal's base is apart from a field it sets (update.go);
 //   - a Ref owns its value (V6, refown.go): the parameter of a function
 //     literal written at Ref.Update or sync.Modify takes the held value
 //     over, as an unshared local; the cell copies a value that may be
@@ -216,6 +217,8 @@ type valueFacts struct {
 	lastRead map[*syntax.Ident]bool
 	// Slice literals that seed a let mut the body grows in place (seedcap.go).
 	seeds map[*syntax.CompositeLit]bool
+	// The fields of a parameter its function's body uses (fieldflow.go).
+	touches map[touchKey]touched
 }
 
 // ownedParam is an owned parameter (V5): its index, counting a dot call's
@@ -258,6 +261,7 @@ func (l *lowerer) valueFacts() *valueFacts {
 			copied:   map[*check.Var]bool{},
 			lastRead: map[*syntax.Ident]bool{},
 			seeds:    map[*syntax.CompositeLit]bool{},
+			touches:  map[touchKey]touched{},
 		}
 	}
 	return l.vals
@@ -974,6 +978,8 @@ func (w *valueWalk) decide() {
 				}
 			}
 		}
+		// The parts of an owned parameter that a let keeps (V5).
+		w.ownedKept()
 	}
 	// A generic result through a borrow (alias.go, borrowResult), or a
 	// part of a borrow returned shared (borrowret.go), when kept.
@@ -1662,7 +1668,12 @@ func (w *valueWalk) handedArg(call *syntax.CallExpr) syntax.Expr {
 // ownedParams are the owned parameters of f (V5), in order: a parameter
 // whose value holds a slice or Map and that f's body takes into a let mut
 // local once, at a bind in the body's own frame and outside any loop, and
-// otherwise only reads, before the bind, in uses that keep nothing. After
+// otherwise only reads, in the body's own frame, in uses that keep
+// nothing or as the value of a let or let mut (`let s = m.S`), before the
+// bind or after it in a statement that ends before the first use of the
+// local (beforeWrites), so the parameter and the local hold one value at
+// each use. A let that keeps a part is decided as a kept read of the
+// local (ownedKept): copied when a write through it can follow. After
 // the bind no failure can leave f: no call that can fail at its site, and
 // no returned value of an error type, so a caller never sees a value f
 // wrote and then failed on. f lowers as a Go function, not a method.
@@ -1891,6 +1902,7 @@ func (w *valueWalk) ownedBind(f *check.Func, vv *vvar) syntax.Expr {
 	}
 	var bind *vocc
 	var value syntax.Expr
+	var into *vvar
 	for _, o := range w.owns {
 		id, ok := unparen(o.value).(*syntax.Ident)
 		if !ok || w.info.Uses[id] != check.Object(vv.v) {
@@ -1904,7 +1916,7 @@ func (w *valueWalk) ownedBind(f *check.Func, vv *vvar) syntax.Expr {
 				bind = oc
 			}
 		}
-		value = o.value
+		value, into = o.value, o.root
 	}
 	if bind == nil || bind.frame != w.root || len(bind.loops) > 0 {
 		return nil
@@ -1916,11 +1928,14 @@ func (w *valueWalk) ownedBind(f *check.Func, vv *vvar) syntax.Expr {
 		if w.returnsBefore(o, bind) {
 			continue
 		}
-		if o.frame != w.root && !w.joinedBefore(o.frame) || o.pre > bind.pre && valueMutant != "own-live" {
+		if o.frame != w.root && !w.joinedBefore(o.frame) {
+			return nil
+		}
+		if o.pre > bind.pre && valueMutant != "own-live" && (o.frame != w.root || !w.beforeWrites(o, bind, into)) {
 			return nil
 		}
 		w.classify(vv, o)
-		if o.kind != occRead {
+		if o.kind != occRead && !w.letValue(o) {
 			return nil
 		}
 	}
@@ -1993,6 +2008,90 @@ func (w *valueWalk) joinsChildren(call *syntax.CallExpr) bool {
 	}
 	body, err := runtimeBody(name)
 	return err == nil && body.Wait == "child"
+}
+
+// letValue reports the use o as the whole value of a one-name let or let
+// mut: a part of the parameter that a local keeps.
+func (w *valueWalk) letValue(o *vocc) bool {
+	parent, child := w.unparenParent(o.path)
+	spec, ok := parent.(*syntax.VarSpec)
+	return ok && spec.Pattern == nil && len(spec.Names) == 1 && len(spec.Values) == 1 && syntax.Node(spec.Values[0]) == child
+}
+
+// beforeWrites reports the use o, after the bind of an owned parameter to
+// the let mut into, as one whose statement ends before the first use of
+// into: up to there the parameter and the local hold one value, which no
+// write has changed. o is outside any loop, in a statement of the body's
+// own block. The declared name of into precedes bind, and so does no
+// use.
+func (w *valueWalk) beforeWrites(o, bind *vocc, into *vvar) bool {
+	d, ok := w.root.node.(*syntax.FuncDecl)
+	if !ok || d.Body == nil || len(o.loops) > 0 {
+		return false
+	}
+	stmt := syntax.Node(o.id)
+	for w.parentOf(stmt) != syntax.Node(d.Body) {
+		if stmt = w.parentOf(stmt); stmt == nil {
+			return false
+		}
+	}
+	for _, u := range into.occs {
+		if u.pre > bind.pre && u.pre < w.postOf(stmt) {
+			return false
+		}
+	}
+	return true
+}
+
+// ownedKept decides the copies of the parts of the body's owned
+// parameters that a let keeps (ownedBind): the parameter and the local
+// its bind takes it into hold one value, so such a let reads the local's
+// value and is copied as a kept read of the local is (V2), when a write
+// through the local can follow it.
+func (w *valueWalk) ownedKept() {
+	for _, b := range w.ownedBinds() {
+		for _, o := range b.param.occs {
+			if o.path == b.bind || o.kind != occEscape || !w.letValue(o) || w.vf.moved[o.path] {
+				continue
+			}
+			if w.needsCopy(b.into, o) {
+				w.vf.clone[o.path] = true
+			}
+		}
+	}
+}
+
+// ownedBound is an owned parameter of the body (param) that its bind
+// (bind, the let mut's value) takes into the let mut into.
+type ownedBound struct {
+	param, into *vvar
+	bind        syntax.Expr
+}
+
+// ownedBinds are the body's owned parameters that a let mut takes whole
+// (ownedBind).
+func (w *valueWalk) ownedBinds() []ownedBound {
+	d, ok := w.root.node.(*syntax.FuncDecl)
+	if !ok || d.Name == nil {
+		return nil
+	}
+	f, ok := w.info.Defs[d.Name].(*check.Func)
+	if !ok {
+		return nil
+	}
+	var out []ownedBound
+	for _, p := range w.l.ownedParams(f) {
+		vv := w.vars[p.v]
+		if p.consumed || p.bind == nil || vv == nil {
+			continue
+		}
+		for _, o := range w.owns {
+			if o.value == p.bind {
+				out = append(out, ownedBound{vv, o.root, p.bind})
+			}
+		}
+	}
+	return out
 }
 
 // failsAfter reports whether f's body can fail after the point at: a call
@@ -2724,7 +2823,7 @@ func (w *valueWalk) needsCopy(vv *vvar, o *vocc) bool {
 	}
 	for _, wr := range vv.writes {
 		if w.later(vv, o, wr) {
-			return !w.keptRead(vv, o)
+			return !w.keptRead(vv, o) && !w.apartRead(vv, o)
 		}
 	}
 	return false
@@ -3139,8 +3238,9 @@ func (w *valueWalk) freshPath(vv *vvar, id *syntax.Ident, path syntax.Expr) bool
 		if o == use || path != nil && valueOwned() && w.disjointRead(o.id, path) {
 			continue
 		}
-		if valueOwned() && (w.baseCovers(use.id, o.id) || w.baseCovers(o.id, use.id)) {
-			// An update's base and a path under a field it names (parts.go).
+		if valueOwned() && (w.baseCovers(use.id, o.id) || w.baseCovers(o.id, use.id)) || w.baseDisjoint(o.id, use.id, unshared) || w.baseDisjoint(use.id, o.id, unshared) {
+			// An update's base and a path under a field it names (parts.go),
+			// or under a field it sets when the value is unshared (update.go).
 			continue
 		}
 		if o.frame != frame {
