@@ -204,7 +204,7 @@ func genFactsProgram(seed uint64, n int) fprogram {
 			case 3:
 				f.params = append(f.params, fparam{name: pn, typ: "string"})
 			default:
-				f.params = append(f.params, fparam{name: pn, typ: "*C", borrow: true})
+				f.params = append(f.params, fparam{name: pn, typ: "mut C", borrow: true})
 			}
 		}
 		// A function whose first parameter is a borrow of the package's

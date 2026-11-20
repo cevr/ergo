@@ -173,7 +173,7 @@ func lineEnd(s string, from int) int {
 
 // lineOf reads one whole line into r, and is the event a blank line
 // ends.
-func lineOf(r *EventReader, ln string) Option[ServerEvent] {
+func lineOf(r mut EventReader, ln string) Option[ServerEvent] {
 	if ln == "" {
 		let had = r.hasData
 		let event = ServerEvent{Event: if r.event == "" { "message" } else { r.event }, Data: r.data, ID: r.id}

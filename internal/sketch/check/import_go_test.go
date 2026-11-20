@@ -114,8 +114,8 @@ func TestImportGoUses(t *testing.T) {
 		{"major-version", "import go math/rand/v2\nfunc F() int needs go.Foreign { rand.IntN(3) }\n", ""},
 		{"pointer-receiver", "import go strings\nfunc F(b strings.Builder) int needs go.Foreign { b.Len() }\n",
 			"2:50:S109 the Go method strings.Builder.Len has a pointer receiver; call it on a go.Ref[strings.Builder] or a borrow, not on a copy (docs/spec/interop.md)"},
-		{"borrow-kept", "import go net/url\nfunc F(p *url.URL) go.Ref[url.URL] { p }\n",
-			"2:38:S108 cannot use *url.URL as go.Ref[url.URL] in the body's tail value: a borrow is not kept as a go.Ref"},
+		{"borrow-kept", "import go net/url\nfunc F(p mut url.URL) go.Ref[url.URL] { p }\n",
+			"2:41:S108 cannot use mut url.URL as go.Ref[url.URL] in the body's tail value: a borrow is not kept as a go.Ref"},
 		{"ops-into-go-interface", "import go fmt\ntype S { String() string }\nfunc F(s S) fmt.Stringer { s }\n",
 			"3:28:S108 cannot use S as fmt.Stringer in the body's tail value: the operations of S take Ergo's calling convention, not the Go methods of fmt.Stringer"},
 		// A sealed operation type the program declares is no std runtime

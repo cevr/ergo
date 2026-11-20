@@ -5,6 +5,7 @@
 //	go run ./scripts/bootstrap verify-seed [-work DIR] [-fresh-cache=false]
 //	go run ./scripts/bootstrap seed-lock [-seed NAME] [-source COMMIT] [-go RELEASE] [-platforms LIST] [-url TEMPLATE] [-work DIR]
 //	go run ./scripts/bootstrap capstone
+//	go run ./scripts/bootstrap seed [-from-source]
 //
 // The default command takes the seed that toolchain/seed.lock names (stage 0)
 // from ergo's cache, else downloads it from the lock's url (a GitHub release
@@ -19,7 +20,8 @@
 // requires both builds to equal the lock. seed-lock makes the same builds
 // and prints the lock a seed bump commits. capstone prints the 15 rows of the
 // capstone probe, owned by the stage that makes each hold; it exits 1 while
-// any row is red.
+// any row is red. seed takes the seed as the default command does and
+// prints its path (TestFormatAgreesWithSeed runs it).
 //
 // Every build is go build -trimpath -buildvcs=false with CGO_ENABLED=0 and an
 // environment reduced to what locates programs and caches (buildEnv), so a
@@ -125,6 +127,13 @@ func run(args []string) error {
 	}
 	d := driver{repo: repo, environ: os.Environ(), tool: tool, cacheRoot: cacheRoot, fromSource: *fromSource}
 	switch cmd {
+	case "seed":
+		path, err := d.ensureSeed(l, hostPlatform())
+		if err != nil {
+			return err
+		}
+		fmt.Println(path)
+		return nil
 	case "build":
 		_, err := d.stages(l, *out, *n)
 		return err
@@ -151,5 +160,5 @@ func run(args []string) error {
 		fmt.Print(l.format())
 		return nil
 	}
-	return usageError{fmt.Errorf("unknown command %q: want build, verify-seed, seed-lock or capstone", cmd)}
+	return usageError{fmt.Errorf("unknown command %q: want build, seed, verify-seed, seed-lock or capstone", cmd)}
 }

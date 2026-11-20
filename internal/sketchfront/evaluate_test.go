@@ -328,8 +328,11 @@ func TestCheckEvalRunnerModel(t *testing.T) {
 				need = append(need, padBytes(o.work))
 			}
 		} else {
+			// The step budget is each case's (TP-BUILT-FAST): an
+			// obligation of n cases needs its steps over n, rounded up.
 			for _, o := range full.Obligations {
-				need = append(need, o.Steps)
+				n := int64(max(1, o.TotalCases))
+				need = append(need, (o.Steps+n-1)/n)
 			}
 			// The initializers run under a step bound of their own
 			// (runtime.md, Tests 9; LITERAL-LET), far past any cut here,
@@ -396,8 +399,8 @@ func TestCheckEvalRunnerModel(t *testing.T) {
 			fail("a %s cut (%+v): runner %v (%s), want the full run's %v with an incomplete record for each obligation that needs more than %d (initializer needs %d, obligations %v)", axis, b, cs, cut.Status, want, limit, init, need)
 		}
 		for _, o := range cut.Obligations {
-			if o.Steps > cut.StepsLimit {
-				fail("a %s cut: %s used %d of %d steps", axis, o.Name, o.Steps, cut.StepsLimit)
+			if o.Steps > cut.StepsLimit*int64(max(1, o.TotalCases)) {
+				fail("a %s cut: %s used %d of %d steps for each of %d cases", axis, o.Name, o.Steps, cut.StepsLimit, o.TotalCases)
 			}
 		}
 	}
