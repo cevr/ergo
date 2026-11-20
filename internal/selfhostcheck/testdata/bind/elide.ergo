@@ -1,0 +1,106 @@
+// Elided fixture: generic literals and patterns written without their
+// type arguments (the one spelling), which the long-form corpus does not
+// reach: the context's type fixes the arguments.
+
+// Pair is a generic union of inline variants: Left takes only A.
+type Pair[A, B] = Both{L A, R B} | Left{L A} | Neither{}
+
+func wrap(n int) Option[int] { Some{Value: n} }
+
+// The expected type, not the literal's default, fixes the argument.
+func wrap8() Option[int8] { Some{Value: 1} }
+
+func left8() Pair[int8, string] { Left{L: 1} }
+
+// An expected type at the function's own type parameter.
+func just[E](v E) Option[E] { Some{Value: v} }
+
+// Box is a generic record.
+type Box[T] { V T }
+
+func box8() Box[int8] { Box{V: 1} }
+
+// Nothing expected: the values bind the arguments.
+func free(n int) int {
+	let o = Some{Value: n}
+	let b = Both{L: n, R: "x"}
+	b.L + len(b.R) + o.Value
+}
+
+// A match or an if that ends a body takes the body's expected type.
+func pick(c bool, n int) Option[int8] {
+	if c {
+		Some{Value: 2}
+	} else {
+		if n == 0 {
+			None
+		} else {
+			Some{Value: 3}
+		}
+	}
+}
+
+func left(n int) Pair[int, string] { Left{L: n} }
+
+func both(n int, s string) Pair[int, string] {
+	let p Pair[int, string] = Both{L: n, R: s}
+	p
+}
+
+func unwrap(o Option[int]) int {
+	match o {
+	case Some{Value: v}:
+		v + 1
+	case None:
+		0
+	}
+}
+
+func named(o Option[string]) string {
+	match o {
+	case Some as s:
+		s.Value
+	case None:
+		""
+	}
+}
+
+func sum(p Pair[int, string]) int {
+	match p {
+	case Both{L: l, R: r}:
+		l + len(r)
+	case Left as x:
+		x.L
+	case Neither:
+		0
+	}
+}
+
+func nested(o Option[Pair[int, string]]) int {
+	match o {
+	case Some{Value: Left{L: l}}:
+		l * 2
+	case Some{Value: Both{L: l, R: _}}:
+		l
+	case _:
+		0
+	}
+}
+
+// A tuple result fixes its parts: the literal takes the first part's type.
+func two8() (Option[int8], int) { (Some{Value: 1}, 2) }
+
+// Shelf is a generic record with a function on its type, as lru's Cache.
+type Shelf[K comparable, V] { key K, item V }
+
+func Take[K comparable, V](s mut Shelf[K, V], k K) Option[V] {
+	if s.key == k { Some{Value: s.item} } else { None }
+}
+
+// A comparison whose first operand the typer leaves untyped (a generic
+// function on a value's type, as lru's tests call Cache.Get): the
+// literal's values bind its arguments.
+func taken(n int) bool {
+	let mut s = Shelf[string, int]{key: "a", item: n}
+	s.Take("a") == Some{n}
+}

@@ -92,7 +92,7 @@ func closure(p Program, from []int) []int {
 }
 
 // include adds pc and what it reaches to v.
-func include(v *visit, p Program, pc int) {
+func include(v mut visit, p Program, pc int) {
 	if v.marked[pc] {
 		return
 	}

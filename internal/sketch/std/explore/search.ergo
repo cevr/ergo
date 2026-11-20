@@ -20,9 +20,9 @@ import dense
 // Graph is what a search explores: its starts, its signals, and its step
 // as an edge, None when the step ends the run (no edge).
 type Graph[S, E] {
-	Starts []S,
+	Starts  []S,
 	Signals []E,
-	Step func(s S, e E) Option[S],
+	Step    func(s S, e E) Option[S],
 }
 
 // Hash is the 128-bit key of a state: the hash of the events of its wire
@@ -60,7 +60,7 @@ func newHasher() hasher { hasher{hi: uint64(0x6c62272e07bb0142), lo: uint64(0x62
 
 // absorb takes in one word: each lane is a multiply and a shift, and the
 // high lane reads the low one, so the state is 128 bits wide.
-func absorb(h *hasher, x uint64) {
+func absorb(h mut hasher, x uint64) {
 	let lo = (h.lo ^ x) * golden
 	let l = lo ^ (lo >> uint64(31))
 	let hi = (h.hi ^ x ^ l) * mixHi
@@ -70,7 +70,7 @@ func absorb(h *hasher, x uint64) {
 }
 
 // absorbText takes in a text: its length, then its bytes, eight to a word.
-func absorbText(h *hasher, s string) {
+func absorbText(h mut hasher, s string) {
 	absorb(h, uint64(len(s)))
 	let mut w = uint64(0)
 	let mut k = 0
@@ -88,21 +88,36 @@ func absorbText(h *hasher, s string) {
 	}
 }
 
-func Null(h *hasher)                { absorb(h, uint64(1)) }
-func Number(h *hasher, text string) { absorb(h, uint64(2)); absorbText(h, text) }
-func Bool(h *hasher, b bool)        { absorb(h, if b { uint64(4) } else { uint64(3) }) }
-func Int(h *hasher, n int64)        { absorb(h, uint64(5)); absorb(h, uint64(n)) }
-func Uint(h *hasher, n uint64)      { absorb(h, uint64(6)); absorb(h, n) }
+func Null(h mut hasher) { absorb(h, uint64(1)) }
+func Number(h mut hasher, text string) {
+	absorb(h, uint64(2))
+	absorbText(h, text)
+}
+func Bool(h mut hasher, b bool) { absorb(h, if b { uint64(4) } else { uint64(3) }) }
+func Int(h mut hasher, n int64) {
+	absorb(h, uint64(5))
+	absorb(h, uint64(n))
+}
+func Uint(h mut hasher, n uint64) {
+	absorb(h, uint64(6))
+	absorb(h, n)
+}
 
 // Float takes in the float's bits as they are: 0 and -0 stay apart, as a
 // step can tell them apart, and a NaN is one state by its payload
 // (batch-15 X1 M1).
-func Float(h *hasher, f float64)    { absorb(h, uint64(7)); absorb(h, math.Float64bits(f)) }
-func String(h *hasher, s string)    { absorb(h, uint64(8)); absorbText(h, s) }
+func Float(h mut hasher, f float64) {
+	absorb(h, uint64(7))
+	absorb(h, math.Float64bits(f))
+}
+func String(h mut hasher, s string) {
+	absorb(h, uint64(8))
+	absorbText(h, s)
+}
 
 // StringBytes takes in the string its bytes spell, as String does, with
 // no string made of them (Writer's StringBytes, GX12).
-func StringBytes(h *hasher, b []byte) {
+func StringBytes(h mut hasher, b []byte) {
 	absorb(h, uint64(8))
 	absorb(h, uint64(len(b)))
 	let mut w = uint64(0)
@@ -120,14 +135,26 @@ func StringBytes(h *hasher, b []byte) {
 		absorb(h, w)
 	}
 }
-func BeginList(h *hasher, n int)    { absorb(h, uint64(9)); absorb(h, uint64(n)) }
-func EndList(h *hasher)             { absorb(h, uint64(10)) }
-func BeginObject(h *hasher, n int)  { absorb(h, uint64(11)); absorb(h, uint64(n)) }
-func Tag(h *hasher, name string)    { absorb(h, uint64(12)); absorbText(h, name) }
-func Key(h *hasher, k string)       { absorb(h, uint64(13)); absorbText(h, k) }
-func EndObject(h *hasher)           { absorb(h, uint64(14)) }
-func Sum(h *hasher) Hash            { Hash{Hi: h.hi, Lo: h.lo} }
-func size(h *hasher) int            { h.n }
+func BeginList(h mut hasher, n int) {
+	absorb(h, uint64(9))
+	absorb(h, uint64(n))
+}
+func EndList(h mut hasher) { absorb(h, uint64(10)) }
+func BeginObject(h mut hasher, n int) {
+	absorb(h, uint64(11))
+	absorb(h, uint64(n))
+}
+func Tag(h mut hasher, name string) {
+	absorb(h, uint64(12))
+	absorbText(h, name)
+}
+func Key(h mut hasher, k string) {
+	absorb(h, uint64(13))
+	absorbText(h, k)
+}
+func EndObject(h mut hasher) { absorb(h, uint64(14)) }
+func Sum(h hasher) Hash      { Hash{Hi: h.hi, Lo: h.lo} }
+func size(h hasher) int      { h.n }
 
 // KeyOf is the key of s and the count of words its wire form took.
 func KeyOf[S wire](s S) (Hash, int) needs wired[S] {
@@ -194,10 +221,10 @@ func sameBits(a Probe, b Probe) bool {
 // saw the whole graph, and the peak count of whole states it kept in its
 // frontier (Frontier: a wide state is rebuilt from its run instead).
 type Stats {
-	States int,
-	Edges int,
-	Depth int,
-	Checked int,
+	States   int,
+	Edges    int,
+	Depth    int,
+	Checked  int,
 	Complete bool,
 	Frontier int,
 }

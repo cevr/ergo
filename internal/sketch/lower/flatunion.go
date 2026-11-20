@@ -307,11 +307,7 @@ func flatBail(n syntax.Node, fu *flatUnion) {
 // this lowering bailed on an interface. Each round turns at least one union
 // into an interface, so the rounds end.
 func (l *lowerer) lowerAgain() ([]byte, error) {
-	var tests *testLowering
-	if l.tests != nil {
-		tests = &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}}
-	}
-	next := lowererOf(l.canon, l.pkg, l.goModule, tests)
+	next := lowererOf(l.canon, l.pkg, l.goModule, l.tests.fresh())
 	next.noEntry, next.matchTest = l.noEntry, l.matchTest
 	next.ir = l.ir.restart() // LowerIR and CensusIR (ir.go)
 	if l.rewrite != nil {

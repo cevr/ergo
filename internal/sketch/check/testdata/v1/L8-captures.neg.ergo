@@ -20,11 +20,11 @@ func counter() func() int {
 	}
 }
 
-func keep(p *C) func() int {
+func keep(p mut C) func() int {
 	func() int { p.n } // want S108
 }
 
-func two(a *C, b *C) {
+func two(a mut C, b mut C) {
 	a.n += 1
 	b.n += 2
 }
