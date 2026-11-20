@@ -129,7 +129,7 @@ func (b *irBuilder) scalarBasic(t check.Type) *check.Basic {
 // records at x (Info.Implicit), as the emitter's convert does.
 func (b *irBuilder) implicit(x syntax.Expr, e *irExpr) *irExpr {
 	conv, ok := b.l.info.Implicit[x]
-	if !ok || e == nil {
+	if !ok || e == nil || x == b.raw {
 		return e
 	}
 	return b.convert(conv, e, x)
@@ -157,6 +157,16 @@ func (b *irBuilder) convert(conv check.Conversion, e *irExpr, x syntax.Expr) *ir
 		return &irExpr{K: "assert", Pos: e.Pos, T: b.goType(conv.To, x), X: e}
 	case check.ConvOperations:
 		return b.opsConv(conv, e, x) // ir_with.go
+	case check.ConvWiden:
+		// A sub-union's value into a union that holds its variants (the
+		// emitter's widen): an assertion between two sealed interfaces.
+		if b.l.flatUnionOf(conv.From) != nil || b.l.flatUnionOf(conv.To) != nil {
+			irNo("sub-union into a flat union")
+		}
+		if b.goType(conv.From, x) == b.goType(conv.To, x) {
+			return e
+		}
+		return &irExpr{K: "assert", Pos: e.Pos, T: b.goType(conv.To, x), X: e}
 	}
 	irNo("implicit conversion")
 	return nil

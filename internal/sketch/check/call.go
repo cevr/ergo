@@ -599,15 +599,21 @@ func (c *checker) callGeneric(x *syntax.CallExpr, sig *Signature, explicit []Typ
 		// A typed argument that does not match its parameter, or
 		// conflicts with what an earlier argument inferred (round-5 M3;
 		// go/types infer.go).
-		if want := c.subst(pt, in.m); in.hasFree(pt) || c.identical(want, pt) {
+		want := c.subst(pt, in.m)
+		switch n := in.notError; {
+		case n != nil && (in.hasFree(pt) || c.identical(want, pt)):
+			// The argument binds an error row parameter directly, F of
+			// `func one[F](f F) fails F`: it is no error type here.
+			c.errorf(at, CodeType, "the argument has type %s, which does not match %s: %s binds an error row parameter, and no error row or catch arm of this package names %s, so it is no error type here; name it in a fails row or a catch arm, or write the type arguments (types.md, Error types 1; D6)", t, pt, n, n)
+		case in.hasFree(pt) || c.identical(want, pt):
 			c.errorf(at, CodeType, "the argument has type %s, which does not match %s (D6; type inference)", t, pt)
-		} else if n := in.notError; n != nil {
+		case n != nil:
 			// An error row parameter binds only to error types: the
-			// argument's type is no error type here, since no error row of
-			// this package names it. A row argument written at the call
-			// names it in a row (Error types 1 and 4).
-			c.errorf(at, CodeType, "the argument has type %s, which does not match %s, inferred for %s: %s binds an error row parameter, and no error row of this package names %s, so it is no error type here; name it in a row, or write the type arguments (types.md, Error types 1; D6)", t, want, pt, n, n)
-		} else {
+			// argument's type is no error type here, since no error row or
+			// catch arm of this package names it. A row argument written
+			// at the call names it in a row (Error types 1 and 4).
+			c.errorf(at, CodeType, "the argument has type %s, which does not match %s, inferred for %s: %s binds an error row parameter, and no error row or catch arm of this package names %s, so it is no error type here; name it in a fails row or a catch arm, or write the type arguments (types.md, Error types 1; D6)", t, want, pt, n, n)
+		default:
 			c.errorf(at, CodeType, "the argument has type %s, which does not match %s, inferred for %s (D6; type inference)", t, want, pt)
 		}
 	}

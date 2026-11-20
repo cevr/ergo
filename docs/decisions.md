@@ -4,11 +4,19 @@ This file is the dated log of the owner's decisions for Ergo, newest first. A de
 
 ## Owner direction, 2026-11-20
 
+- **XML is a std package again (2026-11-20).** The owner: "Let's move XML back into the standard library." This reverses the 2026-11-12 decision that XML is an installable package, not std ([2026-11-12](#owner-direction-2026-11-12)). The no-privilege decision of that day stands unchanged: "Though ideally, even our standard library should not be able to get any special treatment". So the move adds no rule keyed on `xml` or on std membership. `modules/xml` (module `ergo.dev/xml`) became `internal/sketch/std/xml`, imported as `import xml`. The module is deleted, and its importers `examples/catalog` and `examples/fieldnotes` moved in the same change (unit XML-STD). xml still plugs into derived codecs only through the open codec mechanism (types.md, Codecs 10).
 - **Composability and consistency join the north star, and the six keywords are ordered (2026-11-20, q256, q257).** The owner: "I'd like to do an audit on our language. What else is missing that composability? I think another North Star and another thing is that we want our language to be as composable as possible. So composability, performance, guarantee, simplicity, no ceremony, like these are the keywords that we want for our language, and consistency". Asked to confirm the order guarantees, composability, consistency, simplicity, performance at the Go floor (required of every unit, never bought with the first three), no ceremony: "Yes, that order". Asked which of the audit's gaps get a design page: "all, sent to appropriate lanes now". Decided:
   - [NORTH_STAR.md](../NORTH_STAR.md) gets the **Composability** and **Consistency** paragraphs from the composability audit (COMPOSE-AUDIT §4).
   - The order of the six keywords heads **Tiebreaks**. Three old tiebreaks now name their rank in it: **Composability** beats **a locally convenient construct** (rank 2), **Reconsidering a prior** beats **consistency with it** (it bounds rank 3), and **Explicit local signatures** beat **inference** (why no ceremony is last where the ceremony is a written clause). No old tiebreak reverses the order.
   - Every gap of the audit (G1 to G13) gets a design page, in the lane that owns its area.
   - In the same hour, on contexts: "Context carries its failure row" (q254); "In that same line, it should probably also carry its requirements, right?". On roles: "wouldn't a law generic save both declarations and kind of allow for minor differences".
+
+## Decided by principle, 2026-11-20
+
+- **A catch arm names an error type (2026-11-20, orchestrator ruling, wf10 INFER-CATCH; reversible, for the owner to read).** A type that a catch arm tests, `case T`, `case T as e` or `case T{…}`, is an error type of the arm's body owner, read before bodies as a `fails` row is ([types.md](spec/types.md#error-types), Error types 1). Before this, `o.OrFail(Gone) catch { case Gone: … }` and `one(Gone) catch { case Gone: 1 }` were S108 of inference: no error row named `Gone`, so the failure parameter `F` could not bind it. This is the form every `OrFail` user writes.
+  - Decided by the tiebreak guarantees > composability > consistency > simplicity. No guarantee is lost: Catch 2 still makes an arm whose type is not in the caught row S108. It is consistent with Catch 2, which already requires the arm to name a row member. It removes the ceremony of writing a `fails` row only to name the type.
+  - Refused: "inference names" (a value argument bound to a failure parameter names its type). The error-type set would then depend on the order in which bodies are checked.
+  - Reverse: drop the arm case from the checker's pre-pass (collectBodyErrorRows).
 
 ## Owner direction, 2026-11-19
 

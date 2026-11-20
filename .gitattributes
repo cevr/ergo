@@ -29,10 +29,11 @@ toolchain/pin/lock merge=ergo-derived
 internal/sketchfront/stdsnap/std.snap merge=ergo-derived
 **/ergo.laws merge=ergo-derived
 **/expected-skips merge=ergo-derived
-# derived, manual: made from the Go fork's workbench outside this tree
-# (the FLIP line's regen.sh), never by a command in it. Regenerate them
-# there after a merge that says "regenerate":true; never merge them by
-# hand.
+# derived: the IR compiler patch and its lock digest are made from the
+# patch's source tree toolchain/ir/_go (PATCH-MERGE), which merges as
+# text, by `go run ./scripts/irport -write`, the first step of the
+# regeneration order; TestIRPatchIsCurrent refuses a stale one. Edit the
+# files under _go, never the patch. toolchain/ir/hooks is written by hand
+# (the hooks' budget, TestPatchHooksBudgeted) and merges as text.
 toolchain/ir/lock merge=ergo-derived
-toolchain/ir/hooks merge=ergo-derived
 toolchain/ir/go1.27.0.patch merge=ergo-derived

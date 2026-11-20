@@ -20,6 +20,21 @@ type Store { policy session.Policy, state sync.Ref[session.State] } implements s
 func New(p session.Policy) Store { Store{policy: p, state: sync.NewRef(session.Empty())} }
 
 // apply runs op as one step of the Ref.
+// fresh is the context session.Store's laws run Store under (types.md,
+// Laws 10): each case starts from an empty store of the policy this
+// file's laws use.
+let fresh = context { session.Store: newForLaws() }
+
+// newForLaws is an empty store of a valid policy, which NewPolicy does
+// not refuse.
+func newForLaws() Store {
+	let p = session.NewPolicy(10ms, 30ms, 100ms) catch {
+	case session.BadPolicy as b:
+		Unreachable(b.Reason)
+	}
+	New(p)
+}
+
 func apply(s Store, op session.Op) session.Outcome {
 	let p = s.policy
 	sync.Modify(s.state, func(st session.State) (session.Outcome, session.State) {
