@@ -1,6 +1,12 @@
 {
   "about": "The mutant ledger of internal/sketch/stdlib: edits of the std sources (the .ergo declarations and the Go that reads them) that some test, law or example must kill. Run it with go run ./scripts/mutants ./internal/sketch/std; docs/tooling.md, \"Mutant ledger\", says when a change must run it and how to add a mutant. Seeded by ESC1 (wf10, lang audit B F1).",
   "mutants": [
+    {"name":"in-place-sourced-only","origin":"wf10/ir-forms/STD-COPY-ZERO","file":"internal/sketch/lower/inplace.go","from":"\t\tfor _, p := range l.libraries() {\n\t\t\tif !l.isSourced(p) {","to":"\t\tfor _, p := range l.libraries() {\n\t\t\tif false {","rule":"An owned local written in place is released as written, whichever package's body writes it: std ui's Run (its session, &session) as a user package's (OwningPartsAt).","anchor":{"tests":["std:TestStdCopyAgrees"]},"killers":["std:TestStdCopyAgrees"]},
+    {"name":"bind-func-reads-the-directive","origin":"wf10/ir-forms/STD-COPY-ZERO","file":"internal/sketch/lower/std.go","from":"\tif strings.HasPrefix(stripLineDirective(fv), \"func(\") {","to":"\tif strings.HasPrefix(fv, \"func(\") {","rule":"A function literal argument of an extern's callback is adapted in place, not bound first, in a body with //line directives as in one with none (std actor's Changes).","anchor":{"tests":["std:TestStdCopyAgrees"]},"killers":["std:TestStdCopyAgrees"]},
+    {"name":"copy-no-evidence","origin":"wf10/ir-forms/STD-COPY-ZERO","file":"internal/sketch/stdlib/copy_test.go","from":"\t\tu.Rewrite = copyEvidence(t, pair)\n","to":"","rule":"The copy's build reads std's law verdicts under its own names, as a module ledger: without them no law rewrites the copy's calls and std's do (json's Text.Int through SetCommaSinksInt).","anchor":{"tests":["std:TestStdCopyAgrees"]},"killers":["std:TestStdCopyAgrees"]},
+    {"name":"known-record-sourced-machines-only","origin":"wf10/ir-forms/STD-COPY-ZERO","file":"internal/sketch/lower/naming.go","from":"l.machinesOf(append([]*check.Package{l.pkg}, libs...))","to":"l.machinesOf(l.sourcedPkgs())","rule":"A call that passes a machine goes to the known-record copy whichever package declares the machine: a std package's (prompt.Asker) as a user package's.","anchor":{"tests":["std:TestStdCopyAgrees"]},"killers":["std:TestStdCopyAgrees"]},
+    {"name":"copy-row-spans-lines","origin":"wf10/ir-forms/STD-COPY-ZERO","file":"internal/sketch/stdlib/copy_test.go","from":"var copyRow = regexp.MustCompile(`\\b(?:fails|needs) [^ |\\n]+(?: \\| [^ |\\n]+)*`)","to":"var copyRow = regexp.MustCompile(`\\b(?:fails|needs) [^ |]+(?: \\| [^ |]+)*`)","rule":"A row's members are sorted within its line: a member never takes the line break, which would move it (json's Stream.Settle, whose copy's members print in another order).","anchor":{"tests":["std:TestStdCopyAgrees"]},"killers":["std:TestStdCopyAgrees"]},
+    {"name":"copy-no-call-form","origin":"wf10/ir-forms/STD-COPY-ZERO","file":"internal/sketch/stdlib/copy_test.go","from":"\t\tif cands == nil {\n\t\t\tcontinue\n\t\t}\n","to":"\t\tif true {\n\t\t\tcontinue\n\t\t}\n","rule":"A function no caller can take as a value (an extern, a generic over rows, a pure parameter) is taken through a declared caller, so its package's copy is compared (journal, scope, task, tasks, timeout).","anchor":{"tests":["std:TestStdCopyAgrees"]},"killers":["std:TestStdCopyAgrees"]},
     {"name":"mc-conform-ignores-signal-name","origin":"wf10/mc/T2","file":"internal/sketch/std/explore/conform.ergo","from":"\t\t\t\t\tallowed = allowed.Append(e)\n\t\t\t\tcase Differs:\n","to":"\t\t\t\t\tallowed = allowed.Append(e)\n\t\t\t\tcase Differs:\n\t\t\t\t\tallowed = allowed.Append(e)\n","rule":"An observation that names a signal allows only the signals of that variant whose fields fit its args.","killers":["std:TestStdExploreLawsRun"]},
     {"name":"mc-conform-missing-field-must-equal-zero","origin":"wf10/mc/T2","file":"internal/sketch/std/explore/conform.ergo","from":"\t\t\tlet mut ms = b.Members","to":"\t\t\tlet mut ms = []json.Member{}","rule":"A field an observation leaves out is any value: the observed fields are laid over the candidate's wire form, not over nothing.","killers":["std:TestStdExploreLawsRun"]},
     {"name":"mc-conform-hidden-off-by-one","origin":"wf10/mc/T2","file":"internal/sketch/std/explore/conform.ergo","from":"\t\tfor layer < o.Hidden {","to":"\t\tfor layer < o.Hidden-1 {","rule":"Hidden: n closes the candidates under up to n unobserved steps before each observation.","killers":["std:TestStdExploreLawsRun"]},
@@ -29,6 +35,7 @@
     {"name":"pace-counting-hold-opens-nothing","origin":"wf10 RT-SPIKE PACE2","file":"internal/sketch/std/pace/pace.ergo","from":"func Hold(c Counting) { c.holds.Open() }","to":"func Hold(c Counting) {}","rule":"stdlib.md Pacing 5: Counting counts held edges and deferred collections (HeldDefersToTheLastRelease).","anchor":{"tests":["lower:TestStdLawsRun"]},"killers":["lower:TestStdLawsRun"]},
     {"name":"pace-atedges-edge-ignores-holds","origin":"wf10 RT-SPIKE PACE2","file":"internal/sketch/std/pace/pace.ergo","from":"\t\tif p.holds.Owe() {","to":"\t\tif false {","rule":"stdlib.md Pacing 5: under AtEdges no edge inside a hold collects.","anchor":{"tests":["cmd/ergo:TestDashGuiAgreesWithControl"]},"killers":["cmd/ergo:TestDashGuiAgreesWithControl"]},
     {"name":"pace-atedges-release-drops-the-debt","origin":"wf10 RT-SPIKE PACE2","file":"internal/sketch/std/pace/pace.ergo","from":"\tif p.holds.Close() {","to":"\tif p.holds.Close() && false {","rule":"stdlib.md Pacing 5: under AtEdges the last release runs the owed collection.","anchor":{"tests":["cmd/ergo:TestDashGuiAgreesWithControl"]},"killers":["cmd/ergo:TestDashGuiAgreesWithControl"]},
+    {"name":"pace-atedges-sets-no-limit","origin":"wf10 RT-SPIKE GC-EDGE","file":"internal/sketch/std/pace/pace.ergo","from":"\tlet _ = debug.SetMemoryLimit(limit)\n","to":"","rule":"stdlib.md Pacing 9: under AtEdges the memory bound holds inside a unit of work and a held stretch: Go's memory limit collects before the heap passes it.","anchor":{"tests":["cmd/ergo:TestDashGuiAgreesWithControl"]},"killers":["cmd/ergo:TestDashGuiAgreesWithControl"]},
     {"name":"pace-atedges-hold-opens-nothing","origin":"wf10 RT-SPIKE PACE2","file":"internal/sketch/std/pace/pace.ergo","from":"func Hold(p AtEdges) { p.holds.Open() }","to":"func Hold(p AtEdges) {}","rule":"stdlib.md Pacing 5: AtEdges's Hold opens a hold.","anchor":{"tests":["cmd/ergo:TestDashGuiAgreesWithControl"]},"killers":["cmd/ergo:TestDashGuiAgreesWithControl"]},
     {"name":"type-binding-read-by-name","origin":"wf10 STD-NOPRIV NP4c","file":"internal/sketch/check/body.go","from":"\treturn name, v1.Owns(path)","to":"\treturn n.origin().Obj.Name + name[:0], v1.Owns(path)","rule":"stdlib.md The body contract: a type's Go type is the one its declaration names, never one read from its Ergo name.","killers":["std:TestStdRecordTable"]},
     {"name":"esc1-timeout-nonescaping","origin":"wf10 ESC1 r2","file":"internal/sketch/std/timeout/timeout.ergo","from":"f own func() A fails E needs R","to":"f func() A fails E needs R","rule":"A joined child task is not the caller's task: a timeout callback cannot borrow a caller-owned Set.","anchor":{"tests":["lower:TestRetainedForeignArguments"]},"killers":["lower:TestRetainedForeignArguments","lower:TestStdCallbackClausesAdmit","internal/sketch/stdlib:TestExternArgumentClauses"]},
@@ -79,7 +86,7 @@
     {"name":"dense-counted-add-forgets","origin":"wf10 DN2","file":"internal/sketch/std/dense/counted.ergo","from":"\tc.ids = c.ids.Put(v, id)\n","to":"\tc.ids = c.ids\n","rule":"Add of a live value gives its id, never a new one.","anchor":{"tests":["lower:TestStdDenseLawsRun"]},"killers":["lower:TestStdDenseLawsRun"]},
     {"name":"dense-counted-frees-at-one","origin":"wf10 DN2","file":"internal/sketch/std/dense/counted.ergo","from":"\tif c.counts[i] == 0 {\n\t\tc.ids = c.ids.Delete","to":"\tif c.counts[i] <= 1 {\n\t\tc.ids = c.ids.Delete","rule":"Release frees an id only when its count falls to 0.","anchor":{"tests":["lower:TestStdDenseLawsRun"]},"killers":["lower:TestStdDenseLawsRun"]},
     {"name":"dense-counted-never-reuses","origin":"wf10 DN2","file":"internal/sketch/std/dense/counted.ergo","from":"\tif len(c.free) > 0 {","to":"\tif len(c.free) < 0 {","rule":"A new value takes a freed id before a new one.","anchor":{"tests":["lower:TestStdDenseLawsRun"]},"killers":["lower:TestStdDenseLawsRun"]},
-    {"name":"dense-counted-use-counts-nothing","origin":"wf10 DN2","file":"internal/sketch/std/dense/counted.ergo","from":"c.counts[int(id.n)] + 1 }","to":"c.counts[int(id.n)] + 0 }","rule":"Use counts one more holder.","anchor":{"tests":["lower:TestStdDenseLawsRun"]},"killers":["lower:TestStdDenseLawsRun"]},
+    {"name":"dense-counted-use-counts-nothing","origin":"wf10 DN2","file":"internal/sketch/std/dense/counted.ergo","from":"{ UseN(c, id, 1) }","to":"{ UseN(c, id, 0) }","rule":"Use counts one more holder.","anchor":{"tests":["lower:TestStdDenseLawsRun"]},"killers":["lower:TestStdDenseLawsRun"]},
     {"name":"dense-counted-member-first","origin":"wf10 DN2","file":"internal/sketch/std/dense/counted.ergo","from":"func Member[T comparable](c Counted[T], id ID[T]) T { c.rows[int(id.n)] }","to":"func Member[T comparable](c Counted[T], id ID[T]) T { c.rows[0] }","rule":"Member is the value its id names.","anchor":{"tests":["lower:TestStdDenseLawsRun"]},"killers":["lower:TestStdDenseLawsRun"]},
     {"name":"dense-counted-live-counts-slots","origin":"wf10 DN2","file":"internal/sketch/std/dense/counted.ergo","from":"func Live[T comparable](c Counted[T]) int { len(c.ids) }","to":"func Live[T comparable](c Counted[T]) int { len(c.rows) }","rule":"Live counts the values in the set, not the ids made.","anchor":{"tests":["lower:TestStdDenseLawsRun"]},"killers":["lower:TestStdDenseLawsRun"]},
     {"name":"dense-sparse-contains-trusts-index","origin":"wf10 DN2","file":"internal/sketch/std/dense/sparse.ergo","from":"\tk < len(s.members) && s.members[k] == id\n","to":"\tk < len(s.members)\n","rule":"Contains checks that the member at its index is the id: a stale index does not make a member.","anchor":{"tests":["lower:TestStdDenseLawsRun"]},"killers":["lower:TestStdDenseLawsRun"]},
@@ -169,7 +176,7 @@
       "anchor": {"tests": ["internal/sketch/stdlib:TestStdStrengthsFixtures"]},
       "killers": ["internal/sketch/stdlib:TestStdStrengthsFixtures"]
     },
-    {"name":"ss1-host-elapsed-mono","origin":"wf10 std-speed-1","file":"internal/sketch/std/time/clock.ergo","from":"subMono(hostMono(), t.mono)","to":"subMono(t.mono, hostMono())","rule":"stdlib.md time, Clock.ElapsedIsNowSub: the host's Elapsed of a time with a monotonic reading is the monotonic read less t's.","killers":["lower:TestTimeRuns"]},
+    {"name":"ss1-host-elapsed-mono","origin":"wf10 std-speed-1","file":"internal/sketch/std/time/clock.ergo","from":"let m = now - t.mono","to":"let m = t.mono - now","rule":"stdlib.md time, Clock.ElapsedIsNowSub: the host's Elapsed of a time with a monotonic reading is the monotonic read less t's.","killers":["lower:TestTimeRuns"]},
     {"name":"ss1-host-elapsed-wall","origin":"wf10 std-speed-1","file":"internal/sketch/std/time/clock.ergo","from":"\t\th.Now().Sub(t)","to":"\t\tt.Sub(h.Now())","rule":"stdlib.md time, Clock.ElapsedIsNowSub: the host's Elapsed of a time with no monotonic reading is Now().Sub(t) by the wall.","killers":["lower:TestTimeRuns"]},
     {"name":"ss1-input-lines-feed","origin":"wf10 std-speed-1","file":"internal/sketch/std/io/io.ergo","from":"strings.IndexByte(rest, '\\n')","to":"strings.IndexByte(rest, ' ')","rule":"stdlib.md io: Input's Lines splits at each line feed.","killers":["lower:TestInputLinesMatchesModel"]},
     {
@@ -340,9 +347,63 @@
     {
       "name": "copy-normalise-too-much", "origin": "wf10 STD-NOPRIV NP1",
       "file": "internal/sketch/stdlib/copy_test.go",
-      "from": "\t\t\tif to, ok := final[id.Name]; ok {\n\t\t\t\tid.Name = to\n",
-      "to": "\t\t\tif _, ok := final[id.Name]; ok {\n\t\t\t\tid.Name = \"_\"\n",
+      "from": "\t\t\tif to, ok := final[n.Name]; ok && !keep[n] {\n\t\t\t\tn.Name = to\n",
+      "to": "\t\t\tif _, ok := final[n.Name]; ok && !keep[n] {\n\t\t\t\tn.Name = \"_\"\n",
       "rule": "The copy property's normaliser folds only how std ships and is named: one that also folds a callee's Go name would pass a privilege, so its self-test plants one difference per kind.",
+      "anchor": {"tests": ["std:TestStdCopyAgrees"]},
+      "killers": ["std:TestStdCopyAgrees"]
+    },
+    {
+      "name": "mapped-text-read-by-name", "origin": "wf10/ir-forms/STD-COPY-SAME",
+      "file": "internal/sketch/check/mappedtext.go",
+      "from": "func IsMappedText(t Type) bool { return namesRuntimeType(t, \"MappedText\") }",
+      "to": "func IsMappedText(t Type) bool {\n\tn, ok := t.(*Named)\n\treturn ok && namesRuntimeType(t, \"MappedText\") && n.Obj.Pkg.Std() && n.Obj.Pkg.Path == \"fs\"\n}",
+      "rule": "STD HAS NO PRIVILEGES: a mapped text is the type whose declaration names the runtime's MappedText (types.md, Borrows 8), so a trusted copy of fs borrows its text as fs does.",
+      "anchor": {"tests": ["std:TestFSCopyBorrowsItsText"]},
+      "killers": ["std:TestFSCopyBorrowsItsText"]
+    },
+    {
+      "name": "copy-normalise-callee-path-kept", "origin": "wf10/ir-forms/STD-COPY-ROWS",
+      "file": "internal/sketch/stdlib/copy_test.go",
+      "from": "\t\t\t\tb.Value = strings.ReplaceAll(b.Value, \" calls copy/\"+path+\".\", \" calls \"+path+\".\")\n",
+      "to": "",
+      "rule": "A site names its callee by the callee's package path, std's and a user's alike (calls.go callee): the copy's copy/P is how it ships, which the normaliser folds (rpc's and exec's RPCExitLines and RPCExits sites).",
+      "anchor": {"tests": ["std:TestStdCopyAgrees"]},
+      "killers": ["std:TestStdCopyAgrees"]
+    },
+    {
+      "name": "copy-normalise-instance-suffix-kept", "origin": "wf10/ir-forms/STD-COPY-ROWS",
+      "file": "internal/sketch/stdlib/copy_test.go",
+      "from": "var copyNameShape = regexp.MustCompile(`^(.+?)(?:_\\d+)?(_i\\d+)?$`)",
+      "to": "var copyNameShape = regexp.MustCompile(`^(.+?)(?:_\\d+)?()$`)",
+      "rule": "A uniqueness suffix stands before a monomorphised instance's suffix (toml's DecodeMono_1_i1 beside json's DecodeMono_i1, in the order the lowering names std packages): the normaliser folds it as it folds a plain name's.",
+      "anchor": {"tests": ["std:TestStdCopyAgrees"]},
+      "killers": ["std:TestStdCopyAgrees"]
+    },
+    {
+      "name": "copy-normalise-file-root-kept", "origin": "wf10/ir-forms/STD-COPY-SAME",
+      "file": "internal/sketch/stdlib/copy_test.go",
+      "from": "\t\t\tb.Value = strings.Replace(b.Value, `\"`+copyRoot+\"std/\", `\"std/`, 1)\n",
+      "to": "\n",
+      "rule": "A file written as text (a CallSite's File) is std's relative std/P/f.ergo and the copy's under copyRoot: how each ships, which the normaliser folds (ui's choice.ergo CallSites).",
+      "anchor": {"tests": ["std:TestStdCopyAgrees"]},
+      "killers": ["std:TestStdCopyAgrees"]
+    },
+    {
+      "name": "copy-normalise-same-text-ranked", "origin": "wf10/ir-forms/STD-COPY-SAME",
+      "file": "internal/sketch/stdlib/copy_test.go",
+      "from": "if i == 0 || keys[n] != keys[names[i-1]] {",
+      "to": "if i >= 0 {",
+      "rule": "Two declarations of one text are interchangeable (arena's and layout's const none int = -1): which one a body names follows the naming order, so they share one canonical name.",
+      "anchor": {"tests": ["std:TestStdCopyAgrees"]},
+      "killers": ["std:TestStdCopyAgrees"]
+    },
+    {
+      "name": "copy-normalise-keys-by-layout", "origin": "wf10/ir-forms/STD-COPY-SAME",
+      "file": "internal/sketch/stdlib/copy_test.go",
+      "from": "_ = printer.Fprint(&buf, token.NewFileSet(), declOf[n])",
+      "to": "_ = printer.Fprint(&buf, fset, declOf[n])",
+      "rule": "A declaration's rank key is its text, not its layout: a copy's line directives move positions and so the printer's line breaks (tz's two floorDiv, civil's and zone's, ranked apart in the copy alone).",
       "anchor": {"tests": ["std:TestStdCopyAgrees"]},
       "killers": ["std:TestStdCopyAgrees"]
     },
@@ -383,7 +444,7 @@
     {"name":"c1p-life-stamped-zero","origin":"wf10 std-spike C1 perf","file":"internal/sketch/std/cache/cache.ergo","from":"\tif config.Life == 0s && config.Idle == 0s {\n\t\treturn time.Unix(0, 0)","to":"\tif config.Idle == 0s {\n\t\treturn time.Unix(0, 0)","rule":"stdlib.md cache 3: a cache with a life stamps its entries with the clock's time.","killers":["lower:TestStdCacheLawsRun"]},
     {"name":"c1p-idle-stamped-zero","origin":"wf10 std-spike C1 perf","file":"internal/sketch/std/cache/cache.ergo","from":"\tif config.Life == 0s && config.Idle == 0s {\n\t\treturn time.Unix(0, 0)","to":"\tif config.Life == 0s {\n\t\treturn time.Unix(0, 0)","rule":"stdlib.md cache 3: a cache with an idle time stamps its reads with the clock's time.","killers":["lower:TestStdCacheLawsRun"]},
     {"name":"codecopy-hot-roots-every-sourced","origin":"wf10 SM SM-CODECOPY","file":"internal/sketch/lower/hot.go","from":"\t\tif s.pkg != nil && s.pkg == l.pkg && !pkgs[s.pkg] {\n","to":"\t\tif s.pkg != nil && !pkgs[s.pkg] {\n","rule":"The loop-path walk starts at the program's own package: a user library's functions are walked where the walk reaches them, as a std package's are, so std code and its copy inline alike.","killers":["internal/sketch/stdlib:TestStdCopyAgrees"],"anchor":{"tests":["internal/sketch/stdlib:TestStdCopyAgrees"]}},
-    {"name":"codecopy-lib-constant-let-eager","origin":"wf10 SM SM-CODECOPY","file":"internal/sketch/lower/sources.go","from":"\treturn len(d.Specs) > 0\n}\n\n// noteLibLet","to":"\treturn false && len(d.Specs) > 0\n}\n\n// noteLibLet","rule":"A sourced library's constant let is declared where a body reads it, as a std let is, so std code and its copy declare the same lets.","killers":["internal/sketch/stdlib:TestStdCopyAgrees"],"anchor":{"tests":["internal/sketch/stdlib:TestStdCopyAgrees"]}},
+    {"name":"codecopy-lib-constant-let-eager","origin":"wf10 SM SM-CODECOPY","file":"internal/sketch/lower/sources.go","from":"\treturn len(d.Specs) > 0\n}\n\n// libLetLowering","to":"\treturn false && len(d.Specs) > 0\n}\n\n// libLetLowering","rule":"A sourced library's constant let is declared where a body reads it, as a std let is, so std code and its copy declare the same lets.","killers":["internal/sketch/stdlib:TestStdCopyAgrees"],"anchor":{"tests":["internal/sketch/stdlib:TestStdCopyAgrees"]}},
     {"name":"c3-admits-strict","origin":"wf10 std-spike C3","file":"internal/sketch/std/log/level.ergo","from":"l.Rank() >= least.Rank()","to":"l.Rank() > least.Rank()","rule":"stdlib.md log 2: a sink writes the entries whose level ranks at or above its least level.","killers":["lower:TestStdLogLawsRun","lower:TestStdLogMatchesSlog"],"anchor":{"tests":["lower:TestStdLogLawsRun","lower:TestStdLogMatchesSlog"]}},
     {"name":"c3-log-ignores-enabled","origin":"wf10 std-spike C3","file":"internal/sketch/std/log/sink.ergo","from":"\tif Sink.Enabled(level) {\n","to":"\tif true {\n","rule":"stdlib.md log 2: Log writes an entry only for a level the Sink is enabled for.","killers":["lower:TestStdLogLawsRun","lower:TestStdLogMatchesSlog"],"anchor":{"tests":["lower:TestStdLogLawsRun","lower:TestStdLogMatchesSlog"]}},
     {"name":"c3-annotation-key-text-swapped","origin":"wf10 std-spike C3","file":"internal/sketch/std/log/sink.ergo","from":"Attr{Key: pairs[2*i], Text: pairs[2*i+1]}","to":"Attr{Key: pairs[2*i+1], Text: pairs[2*i]}","rule":"stdlib.md log 3: an entry carries each annotation in force as its key and text.","killers":["lower:TestStdLogLawsRun"],"anchor":{"tests":["lower:TestStdLogLawsRun"]}},
@@ -1121,6 +1182,254 @@
     {"name":"tx1-norows-drops-statement","origin":"wf10 STORES TX1","file":"internal/sketch/std/sql/rows.ergo","from":"\t\treturn NoRows{Statement: stmt}","to":"\t\treturn NoRows{Statement: \"\"}","rule":"stdlib.md, sql 1: One of no row is NoRows naming its statement (law RowsReadEachRow).","anchor":{"tests":["lower:TestSQLLaws"]},"killers":["lower:TestSQLLaws"]},
     {"name":"tx1-column-bound-off-by-one","origin":"wf10 STORES TX1","file":"internal/sketch/std/sql/rows.ergo","from":"if i < 0 || i >= len(r.Values) {","to":"if i < 0 || i > len(r.Values) {","rule":"stdlib.md, sql 1: an At of a column the row does not have is Mismatch, never a crash (law RowsReadEachRow).","anchor":{"tests":["lower:TestSQLLaws"]},"killers":["lower:TestSQLLaws"]},
     {"name":"tx1-rows-reads-the-first-only","origin":"wf10 STORES TX1","file":"internal/sketch/std/sql/rows.ergo","from":"\tfor r in rows {","to":"\tfor r in rows[:1] {","rule":"stdlib.md, sql 1: Rows parses every row (law RowsReadEachRow).","anchor":{"tests":["lower:TestSQLLaws"]},"killers":["lower:TestSQLLaws"]},
+    {
+      "name": "jvd-parsenum-fast-any",
+      "origin": "wf10 JVD-DIRECT",
+      "file": "internal/sketch/std/json/value.ergo",
+      "from": "\tif isNumber(text) {\n",
+      "to": "\tif true {\n",
+      "rule": "stdlib.md json: ParseNum gives what reading the text by Open gives (ParseNumIsOpened).",
+      "anchor": {
+        "tests": [
+          "lower:TestJSONStreamAgrees"
+        ]
+      },
+      "killers": [
+        "lower:TestJSONStreamAgrees"
+      ]
+    },
+    {"name":"dense-releasen-releases-one","origin":"wf10 PACE-VT2","file":"internal/sketch/std/dense/counted.ergo","from":"c.counts[i] = c.counts[i] - uint32(n)","to":"c.counts[i] = c.counts[i] - uint32(1)","rule":"ReleaseN counts n holders less, as n Releases do.","anchor":{"tests":["lower:TestStdDenseLawsRun"]},"killers":["lower:TestStdDenseLawsRun"]},
+    {"name":"dense-usen-uses-one","origin":"wf10 PACE-VT2","file":"internal/sketch/std/dense/counted.ergo","from":"c.counts[int(id.n)] + uint32(n)","to":"c.counts[int(id.n)] + uint32(1)","rule":"UseN counts n more holders, as n Uses do.","anchor":{"tests":["lower:TestStdDenseLawsRun"]},"killers":["lower:TestStdDenseLawsRun"]},
+    {
+      "name": "np4f15-parse-unstable",
+      "origin": "wf10 NP4f-15 (NS lane)",
+      "file": "internal/sketch/std/http/query.ergo",
+      "from": "\tslices.SortStableFunc(fields, func(a Field, b Field) int { strings.Compare(a.Name, b.Name) })\n}",
+      "to": "\tslices.SortStableFunc(fields, func(a Field, b Field) int { strings.Compare(a.Name+a.Value, b.Name+b.Value) })\n}",
+      "rule": "std http.ParseQuery keeps each key's values in the order they came.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f15-parse-unsorted",
+      "origin": "wf10 NP4f-15 (NS lane)",
+      "file": "internal/sketch/std/http/query.ergo",
+      "from": "func(a Field, b Field) int { strings.Compare(a.Name, b.Name) })\n}",
+      "to": "func(a Field, b Field) int { 0 })\n}",
+      "rule": "std http.ParseQuery gives the fields in key order, each key's values in the order they came.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f16-toint-lower",
+      "origin": "wf10 NP4f-16 (NS lane)",
+      "file": "internal/sketch/std/math/math.ergo",
+      "from": "func ToInt(f float64) int fails OutOfRange {\n\tif f < 9223372036854775808.0 && f >= -9223372036854775808.0 {",
+      "to": "func ToInt(f float64) int fails OutOfRange {\n\tif f < 9223372036854775808.0 && f > -9223372036854775808.0 {",
+      "rule": "std math.ToInt fails OutOfRange exactly outside the open interval where T(f)'s truncation fits, as the old runtime/v1 body did.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f16-toint-upper",
+      "origin": "wf10 NP4f-16 (NS lane)",
+      "file": "internal/sketch/std/math/math.ergo",
+      "from": "func ToInt(f float64) int fails OutOfRange {\n\tif f < 9223372036854775808.0 && f >= -9223372036854775808.0 {",
+      "to": "func ToInt(f float64) int fails OutOfRange {\n\tif f <= 9223372036854775808.0 && f >= -9223372036854775808.0 {",
+      "rule": "std math.ToInt fails OutOfRange exactly outside the open interval where T(f)'s truncation fits, as the old runtime/v1 body did.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f16-toint64-lower",
+      "origin": "wf10 NP4f-16 (NS lane)",
+      "file": "internal/sketch/std/math/math.ergo",
+      "from": "func ToInt64(f float64) int64 fails OutOfRange {\n\tif f < 9223372036854775808.0 && f >= -9223372036854775808.0 {",
+      "to": "func ToInt64(f float64) int64 fails OutOfRange {\n\tif f < 9223372036854775808.0 && f > -9223372036854775808.0 {",
+      "rule": "std math.ToInt64 fails OutOfRange exactly outside the open interval where T(f)'s truncation fits, as the old runtime/v1 body did.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f16-toint64-upper",
+      "origin": "wf10 NP4f-16 (NS lane)",
+      "file": "internal/sketch/std/math/math.ergo",
+      "from": "func ToInt64(f float64) int64 fails OutOfRange {\n\tif f < 9223372036854775808.0 && f >= -9223372036854775808.0 {",
+      "to": "func ToInt64(f float64) int64 fails OutOfRange {\n\tif f <= 9223372036854775808.0 && f >= -9223372036854775808.0 {",
+      "rule": "std math.ToInt64 fails OutOfRange exactly outside the open interval where T(f)'s truncation fits, as the old runtime/v1 body did.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f16-touint-lower",
+      "origin": "wf10 NP4f-16 (NS lane)",
+      "file": "internal/sketch/std/math/math.ergo",
+      "from": "func ToUint(f float64) uint fails OutOfRange {\n\tif f > -1.0 && f < 18446744073709551616.0 {",
+      "to": "func ToUint(f float64) uint fails OutOfRange {\n\tif f > -2.0 && f < 18446744073709551616.0 {",
+      "rule": "std math.ToUint fails OutOfRange exactly outside the open interval where T(f)'s truncation fits, as the old runtime/v1 body did.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f16-touint-upper",
+      "origin": "wf10 NP4f-16 (NS lane)",
+      "file": "internal/sketch/std/math/math.ergo",
+      "from": "func ToUint(f float64) uint fails OutOfRange {\n\tif f > -1.0 && f < 18446744073709551616.0 {",
+      "to": "func ToUint(f float64) uint fails OutOfRange {\n\tif f > -1.0 && f <= 18446744073709551616.0 {",
+      "rule": "std math.ToUint fails OutOfRange exactly outside the open interval where T(f)'s truncation fits, as the old runtime/v1 body did.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f16-touint64-lower",
+      "origin": "wf10 NP4f-16 (NS lane)",
+      "file": "internal/sketch/std/math/math.ergo",
+      "from": "func ToUint64(f float64) uint64 fails OutOfRange {\n\tif f > -1.0 && f < 18446744073709551616.0 {",
+      "to": "func ToUint64(f float64) uint64 fails OutOfRange {\n\tif f > -2.0 && f < 18446744073709551616.0 {",
+      "rule": "std math.ToUint64 fails OutOfRange exactly outside the open interval where T(f)'s truncation fits, as the old runtime/v1 body did.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f16-touint64-upper",
+      "origin": "wf10 NP4f-16 (NS lane)",
+      "file": "internal/sketch/std/math/math.ergo",
+      "from": "func ToUint64(f float64) uint64 fails OutOfRange {\n\tif f > -1.0 && f < 18446744073709551616.0 {",
+      "to": "func ToUint64(f float64) uint64 fails OutOfRange {\n\tif f > -1.0 && f <= 18446744073709551616.0 {",
+      "rule": "std math.ToUint64 fails OutOfRange exactly outside the open interval where T(f)'s truncation fits, as the old runtime/v1 body did.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f16-touintptr-lower",
+      "origin": "wf10 NP4f-16 (NS lane)",
+      "file": "internal/sketch/std/math/math.ergo",
+      "from": "func ToUintptr(f float64) uintptr fails OutOfRange {\n\tif f > -1.0 && f < 18446744073709551616.0 {",
+      "to": "func ToUintptr(f float64) uintptr fails OutOfRange {\n\tif f > -2.0 && f < 18446744073709551616.0 {",
+      "rule": "std math.ToUintptr fails OutOfRange exactly outside the open interval where T(f)'s truncation fits, as the old runtime/v1 body did.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f16-touintptr-upper",
+      "origin": "wf10 NP4f-16 (NS lane)",
+      "file": "internal/sketch/std/math/math.ergo",
+      "from": "func ToUintptr(f float64) uintptr fails OutOfRange {\n\tif f > -1.0 && f < 18446744073709551616.0 {",
+      "to": "func ToUintptr(f float64) uintptr fails OutOfRange {\n\tif f > -1.0 && f <= 18446744073709551616.0 {",
+      "rule": "std math.ToUintptr fails OutOfRange exactly outside the open interval where T(f)'s truncation fits, as the old runtime/v1 body did.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f17-sub-no-internal-offset",
+      "origin": "wf10 NP4f-17 (NS lane)",
+      "file": "internal/sketch/std/time/time.ergo",
+      "from": "\tlet ts = t.sec + unixToInternal\n\tlet us = u.sec + unixToInternal\n",
+      "to": "\tlet ts = t.sec\n\tlet us = u.sec\n",
+      "rule": "std time's Sub of two times with no monotonic reading works on Go's internal seconds, which wrap where Unix seconds plus 62135596800 overflow, as Go's Time.Sub.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f17-sub-saturates-up-below",
+      "origin": "wf10 NP4f-17 (NS lane)",
+      "file": "internal/sketch/std/time/time.ergo",
+      "from": "\tif ts < us || ts == us && t.nsec < u.nsec {\n\t\treturn duration(minDuration)\n",
+      "to": "\tif ts < us || ts == us && t.nsec < u.nsec {\n\t\treturn duration(maxDuration)\n",
+      "rule": "std time's Sub past the range is the smallest duration when t is before u, as Go's.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f17-sub-carry-short",
+      "origin": "wf10 NP4f-17 (NS lane)",
+      "file": "internal/sketch/std/time/time.ergo",
+      "from": "\t\tdsec = dsec + 1\n\t\tn = n - 1000000000\n",
+      "to": "\t\tdsec = dsec + 1\n\t\tn = n - 999999999\n",
+      "rule": "std time's Sub checks u + d as Go's Add does, carrying a second out of the nanoseconds.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f17-sub-addsec-wraps",
+      "origin": "wf10 NP4f-17 (NS lane)",
+      "file": "internal/sketch/std/time/time.ergo",
+      "from": "\tif (s > us) != (dsec > 0) {\n",
+      "to": "\tif false {\n",
+      "rule": "std time's Sub checks u + d with Go's Add, whose seconds saturate where they would overflow.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f17-sub-mono-reversed",
+      "origin": "wf10 NP4f-17 (NS lane)",
+      "file": "internal/sketch/std/time/time.ergo",
+      "from": "\t\tlet m = t.mono - u.mono\n",
+      "to": "\t\tlet m = u.mono - t.mono\n",
+      "rule": "std time's Sub of two times with monotonic readings is t's reading less u's.",
+      "killers": ["lower:TestTimeRuns"],
+      "gap": "Only a lowered program runs it, so the std ledger judges it uncovered (docs/tooling.md, Mutant ledger); its killer is run by hand: red at NP4f-17, 2026-11-18."
+    },
+    {
+      "name": "np4furl-origin-limits-timeouts",
+      "origin": "wf10 NP4f-URL (NS lane)",
+      "file": "internal/sketch/std/http/origin.ergo",
+      "from": "limits.MaxBodyBytes > 0 && limits.MaxHeaderBytes > 0 && limits.IdleTimeout > 0s && limits.ReadHeaderTimeout > 0s && limits.ReadBodyTimeout > 0s",
+      "to": "limits.MaxBodyBytes > 0 && limits.MaxHeaderBytes > 0",
+      "rule": "stdlib.md http: shared Limits reject a non-positive timeout at NewClient and for a Network policy too (was e4b-client/network-timeouts-unchecked).",
+      "anchor": {"tests":["internal/sketch/eval:TestHTTPPolicyAgreesWithRuntime"]},
+      "killers": ["internal/sketch/eval:TestHTTPPolicyAgreesWithRuntime"]
+    },
+    {
+      "name": "np4furl-origin-user-allowed",
+      "origin": "wf10 NP4f-URL (NS lane)",
+      "file": "internal/sketch/std/http/origin.ergo",
+      "from": "\tif host == \"\" || user {\n",
+      "to": "\tif host == \"\" {\n",
+      "rule": "stdlib.md http: an origin with user information is not a host and port.",
+      "anchor": {"tests":["internal/sketch/eval:TestHTTPPolicyAgreesWithRuntime"]},
+      "killers": ["internal/sketch/eval:TestHTTPPolicyAgreesWithRuntime"]
+    },
+    {
+      "name": "np4furl-origin-force-query",
+      "origin": "wf10 NP4f-URL (NS lane)",
+      "file": "internal/sketch/std/http/origin.ergo",
+      "from": "rawQuery != \"\" || fragment != \"\" || forceQuery {",
+      "to": "rawQuery != \"\" || fragment != \"\" {",
+      "rule": "stdlib.md http: an origin ending in a bare \"?\" has a query.",
+      "anchor": {"tests":["internal/sketch/eval:TestHTTPPolicyAgreesWithRuntime"]},
+      "killers": ["internal/sketch/eval:TestHTTPPolicyAgreesWithRuntime"]
+    },
+    {
+      "name": "np4furl-origin-zone-lowered",
+      "origin": "wf10 NP4f-URL (NS lane)",
+      "file": "internal/sketch/std/http/origin.ergo",
+      "from": "\t\t\thost = host + \"%\" + parts.After\n",
+      "to": "\t\t\thost = host + \"%\" + strings.ToLower(parts.After)\n",
+      "rule": "stdlib.md http: an IPv6 zone keeps its case in the canonical origin.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4furl-origin-default-port-kept",
+      "origin": "wf10 NP4f-URL (NS lane)",
+      "file": "internal/sketch/std/http/origin.ergo",
+      "from": "\tif port == \"80\" && scheme == \"http\" || port == \"443\" && scheme == \"https\" {\n",
+      "to": "\tif port == \"80\" && scheme == \"https\" || port == \"443\" && scheme == \"http\" {\n",
+      "rule": "stdlib.md http: the canonical origin drops the scheme's own default port.",
+      "anchor": {"tests":["internal/sketch/eval:TestHTTPPolicyAgreesWithRuntime"]},
+      "killers": ["internal/sketch/eval:TestHTTPPolicyAgreesWithRuntime"]
+    },
+    {
+      "name": "np4furl-origin-port-unparsed",
+      "origin": "wf10 NP4f-URL (NS lane)",
+      "file": "internal/sketch/std/http/origin.ergo",
+      "from": "\t\tport = strconv.FormatUint(n, 10)\n",
+      "to": "\t\tlet _ = n\n",
+      "rule": "stdlib.md http: a zero-padded port is the number's canonical form.",
+      "anchor": {"tests":["internal/sketch/eval:TestHTTPPolicyAgreesWithRuntime"]},
+      "killers": ["internal/sketch/eval:TestHTTPPolicyAgreesWithRuntime"]
+    },
     {"name":"runner-needs-work-row","origin":"wf10 TP-DIAG (named by fumb-e F1); killer by kill matrix, ST-0 pending (TP-DIAG)","file":"internal/sketch/std/actor/actor.ergo","from":"sink own func(o O) needs R) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler {","to":"sink own func(o O) needs R) Actor[S, E, Decision[S, O], F] needs R | Scheduler {","rule":"runtime.md, Machines and actors 12: the runner actor.StartMachine runs the work, so it needs the work row W as well as R.","killers":["cmd/ergo:TestCheckerFixtures"]},
     {"name":"llm-stream-drops-last-delta","origin":"wf10 LLM L1","file":"internal/sketch/std/llm/memory/scripted.ergo","from":"\tcase Says as y:\n\t\tfor d in y.Deltas {\n\t\t\ttry put(d)\n\t\t}","to":"\tcase Says as y:\n\t\tfor i, d in y.Deltas {\n\t\t\tif i+1 < len(y.Deltas) {\n\t\t\t\ttry put(d)\n\t\t\t}\n\t\t}","rule":"Stream gives put every delta of the reply: its turn is the Fold of what it streamed.","anchor":{"tests":["lower:TestStdLLMLawsRun"]},"killers":["lower:TestStdLLMLawsRun"]},
     {"name":"llm-cut-is-a-turn","origin":"wf10 LLM L1","file":"internal/sketch/std/llm/memory/scripted.ergo","from":"\tcase Cuts as y:\n\t\tllm.Truncated{Text: llm.Fold(y.Deltas).Text}","to":"\tcase Cuts as y:\n\t\ttry turn(Says{Deltas: y.Deltas, Stop: llm.Ended, Usage: llm.Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0}})","rule":"A reply cut before its terminal event is never a turn: it fails Truncated.","anchor":{"tests":["lower:TestStdLLMLawsRun"]},"killers":["lower:TestStdLLMLawsRun"]},
@@ -1183,6 +1492,13 @@
     {"origin":"wf10 SQ2 (NS lane)","name":"sq2-wrap-no-space","file":"internal/sketch/std/text/width.ergo","from":"\t\t\t\tif line != \"\" && used+1+n <= w {","to":"\t\t\t\tif line != \"\" && used+n <= w {","rule":"stdlib.md Text width: every line of Wrap(s, w) takes at most w cells (WrapFits).","killers":["internal/sketch/stdlib:TestStdTextWidthLaws"]},
     {"origin":"wf10 SQ2 (NS lane)","name":"sq2-wrap-drops-line","file":"internal/sketch/std/text/width.ergo","from":"\t\t\t\t\tif line != \"\" {\n\t\t\t\t\t\tout = out.Append(line)","to":"\t\t\t\t\tif false {\n\t\t\t\t\t\tout = out.Append(line)","rule":"stdlib.md Text width: Wrap loses no rune but spaces and newlines (WrapLosesNoRune).","killers":["internal/sketch/stdlib:TestStdTextWidthLaws"]},
     {"origin":"wf10 SQ2 (NS lane)","name":"sq2-columns-by-bytes","file":"internal/sketch/std/text/width.ergo","from":"\t\t\tlet n = Cells(cell)","to":"\t\t\tlet n = len(cell)","rule":"stdlib.md Text width: Columns pads each cell to its column's widest in cells (ColumnsAlign).","killers":["internal/sketch/stdlib:TestStdTextWidthLaws"]},
-    {"name":"jdp-holm-first-two","origin":"wf10 JUDGE-PROP","file":"internal/sketch/std/bench/referee.ergo","from":"for i in 1..len(s.Words) {","to":"for i in 1..(if len(s.Words) < 3 { len(s.Words) } else { 3 }) {","rule":"specs/bench.md, Method 9: every secondary is in Holm's family; a family of three or more, past what a referee law draws, is held by the property (BenchSecondariesAreOneFamily).","anchor":{"tests":["lower:TestStdBenchLawsRun","lower:TestStdBenchJudgeMatchesReference"]},"killers":["lower:TestStdBenchJudgeMatchesReference"]}
+    {"name":"jdp-holm-first-two","origin":"wf10 JUDGE-PROP","file":"internal/sketch/std/bench/referee.ergo","from":"for i in 1..len(s.Words) {","to":"for i in 1..(if len(s.Words) < 3 { len(s.Words) } else { 3 }) {","rule":"specs/bench.md, Method 9: every secondary is in Holm's family; a family of three or more, past what a referee law draws, is held by the property (BenchSecondariesAreOneFamily).","anchor":{"tests":["lower:TestStdBenchLawsRun","lower:TestStdBenchJudgeMatchesReference"]},"killers":["lower:TestStdBenchJudgeMatchesReference"]},
+    {"name":"pace-every-passes-first","origin":"wf10 PROV-COMPOSE","file":"internal/sketch/std/pace/compose.ergo","from":"\tif e.seen.Add(1)%e.n == 0 {\n","to":"\tif e.seen.Add(1)%e.n == 1 {\n","rule":"stdlib.md Pacing 10: Every passes the nth edge, so Every of 1 is its parent (EveryOneIsParent, EveryPassesOneInN, EveryNests).","anchor":{"tests":["lower:TestStdLawsRun"]},"killers":["lower:TestStdLawsRun"]},
+    {"name":"pace-every-drops-hold","origin":"wf10 PROV-COMPOSE","file":"internal/sketch/std/pace/compose.ergo","from":"func Hold[P Pacing](e Every[P]) { e.inner.Hold() }","to":"func Hold[P Pacing](e Every[P]) {}","rule":"stdlib.md Pacing 10: Every passes every hold on (EveryOneIsParent).","anchor":{"tests":["lower:TestStdLawsRun"]},"killers":["lower:TestStdLawsRun"]},
+    {"name":"pace-quiet-drops-release","origin":"wf10 PROV-COMPOSE","file":"internal/sketch/std/pace/compose.ergo","from":"func Release[P Pacing](q Quiet[P]) { q.inner.Release() }","to":"func Release[P Pacing](q Quiet[P]) {}","rule":"stdlib.md Pacing 10: Quiet passes every release on (QuietForwardsHolds).","anchor":{"tests":["lower:TestStdLawsRun"]},"killers":["lower:TestStdLawsRun"]},
+    {"name":"pace-quiet-passes-edges","origin":"wf10 PROV-COMPOSE","file":"internal/sketch/std/pace/compose.ergo","from":"func Edge[P Pacing](_ Quiet[P]) {}","to":"func Edge[P Pacing](q Quiet[P]) { q.inner.Edge() }","rule":"stdlib.md Pacing 10: Quiet passes no edge (QuietForwardsHolds).","anchor":{"tests":["lower:TestStdLawsRun"]},"killers":["lower:TestStdLawsRun"]},
+    {"name":"pace-raised-restores-on-first-close","origin":"wf10 PROV-COMPOSE","file":"internal/sketch/std/pace/compose.ergo","from":"\t\tif len(rest) == 0 {\n\t\t\treturn (None, rest)","to":"\t\tif len(rest) < len(open) {\n\t\t\treturn (None, rest)","rule":"stdlib.md Pacing 10: only the lower that closes the last raise gives the base back (RaisesFollowModel).","anchor":{"tests":["lower:TestStdLawsRun"]},"killers":["lower:TestStdLawsRun"]},
+    {"name":"pace-raises-lowest","origin":"wf10 PROV-COMPOSE","file":"internal/sketch/std/pace/compose.ergo","from":"func highest(xs []int) int {\n\tlet mut m = xs[0]\n\tfor x in xs {\n\t\tif x > m {","to":"func highest(xs []int) int {\n\tlet mut m = xs[0]\n\tfor x in xs {\n\t\tif x < m {","rule":"stdlib.md Pacing 10: the percent in force is the largest open raise (RaisesFollowModel).","anchor":{"tests":["lower:TestStdLawsRun"]},"killers":["lower:TestStdLawsRun"]},
+    {"name":"pace-raises-lower-takes-other","origin":"wf10 PROV-COMPOSE","file":"internal/sketch/std/pace/compose.ergo","from":"\t\tif y == x {\n","to":"\t\tif y != x {\n","rule":"stdlib.md Pacing 10: a lower closes the raise it names (RaisesFollowModel).","anchor":{"tests":["lower:TestStdLawsRun"]},"killers":["lower:TestStdLawsRun"]}
   ]
 }

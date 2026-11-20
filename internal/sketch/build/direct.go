@@ -103,9 +103,14 @@ func (t Toolchain) Build(c Cache, module Module, output string, stderr io.Writer
 		return t.coverBuild(module, output, stderr)
 	}
 	var report Report
-	if t.GoBuild {
+	switch {
+	case t.GoBuild:
 		report.Refused = "go build selected"
-	} else {
+	case t.PGO != "":
+		// A profile recompiles std and the runtime with it: no pin set
+		// and no plan's std archives hold those objects.
+		report.Refused = "a PGO profile (release build)"
+	default:
 		d := direct{t: t, c: c, module: module, output: output}
 		err := d.build()
 		if err == nil {
@@ -225,11 +230,8 @@ func (d *direct) build() error {
 	// with the host's release tags to learn the standard imports the plan
 	// lists, and again with the plan's, which decide the build.
 	guess := planFile{GOOS: d.goos(), GOARCH: d.goarch(), Version: "go1." + strconv.Itoa(hostMinor())}
-	switch guess.GOARCH {
-	case "amd64":
-		guess.LevelKey, guess.LevelValue = "GOAMD64", cmp.Or(os.Getenv("GOAMD64"), "v1")
-	case "arm64":
-		guess.LevelKey, guess.LevelValue = "GOARM64", cmp.Or(os.Getenv("GOARM64"), "v8.0")
+	if v := LevelVariable(guess.GOARCH); v != "" {
+		guess.LevelKey, guess.LevelValue = v, cmp.Or(d.t.Level, os.Getenv(v), DefaultLevel(guess.GOARCH))
 	}
 	tg, err := d.scan(guess)
 	if err != nil {

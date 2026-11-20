@@ -92,6 +92,19 @@ func JSONSettle(c *Cursor) error {
 	return nil
 }
 
+// JSONIsNumber reports that text is one JSON number, with nothing around
+// it: the texts JSONOpen accepts whose one value is a number and that have
+// no white space.
+//
+//ergo:wait none
+func JSONIsNumber(text string) bool {
+	if text == "" {
+		return false // num reads the first byte
+	}
+	v := jsonValidator{s: text}
+	return v.num() && v.i == len(text)
+}
+
 // jsonBlank reports that s is white space only.
 func jsonBlank(s string) bool {
 	v := jsonValidator{s: s}

@@ -27,7 +27,8 @@ import (
 // The body contract; check.GoTypeOf) is that Go type: a record is the
 // struct, and a sealed operation type is a pointer to the type, whose
 // methods are its operations. A defined basic type (os.Code) is the Go
-// defined type. The checker holds the declaration to the Go type's shape
+// defined type, or the alias it names (fs.Text, v1.MappedText, a string
+// the borrow rule keeps). The checker holds the declaration to the Go type's shape
 // (check/body.go runtimeTypeRefusal), so the lowering reads the
 // declaration and never a std name. Every other type of every package is
 // a declaration of the program.
@@ -49,12 +50,6 @@ func (l *lowerer) runtimeType(n *check.Named, site syntax.Node) string {
 			return "*" + ref(goName)
 		}
 		return ref(goName)
-	}
-	// A mapped text is the Go string of its Mapped (v1.Mapped.Text): the
-	// checker's borrow rule (types.md, Borrows 8) is what keeps it, so its
-	// Go form is the plain string every string operation reads.
-	if obj.Pkg.Std() && obj.Pkg.Path == "fs" && obj.Name == "Text" {
-		return "string"
 	}
 	return ""
 }
@@ -704,10 +699,23 @@ func (fc *funcCtx) argSig(arg syntax.Expr, x *syntax.CallExpr) *check.Signature 
 // Go function literal, which reads no variable when it is evaluated: an
 // adapter that calls the value later calls the value as it was here.
 func (fc *funcCtx) bindFunc(fv string) string {
-	if strings.HasPrefix(fv, "func(") {
+	if strings.HasPrefix(stripLineDirective(fv), "func(") {
 		return fv
 	}
 	return fc.spill(fv)
+}
+
+// stripLineDirective is the Go text x without the /*line*/ directive a
+// sourced body writes before an expression (a literal's position): code
+// that reads the expression's form reads it alike in a body with
+// directives and in one with none (STD-COPY-ZERO).
+func stripLineDirective(x string) string {
+	if rest, ok := strings.CutPrefix(x, "/*line "); ok {
+		if _, after, ok := strings.Cut(rest, "*/"); ok {
+			return strings.TrimLeft(after, " ")
+		}
+	}
+	return x
 }
 
 // adaptPlainFunc adapts fv, an Ergo function value of the uniform shape

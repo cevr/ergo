@@ -66,21 +66,6 @@ func registerTasks(t nativeTables) {
 	}
 	// The pure duration helpers of std time, from Go's time package and
 	// the saturation rules their doc comments state.
-	natives["time.subMono"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
-		a, b := args[0].(int64), args[1].(int64)
-		d := a - b
-		switch {
-		case d < 0 && a > b:
-			d = math.MaxInt64
-		case d > 0 && a < b:
-			d = math.MinInt64
-		}
-		return d, nil
-	}
-	natives["time.subWall"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
-		a := time.Unix(args[0].(int64), args[1].(int64))
-		return int64(a.Sub(time.Unix(args[2].(int64), args[3].(int64)))), nil
-	}
 	quotient := func(what string) native {
 		return func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 			d, n := args[0].(int64), args[1].(int64)
