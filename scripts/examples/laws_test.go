@@ -148,14 +148,26 @@ func TestModuleProgramOperationTypeNeedsALaw(t *testing.T) {
 	}
 }
 
-// The repository's programs of packages (examples/tidewalk-replay) load
-// with no layout error, so each operation type of their domain packages
-// has a law.
-func TestRepoExamplesHoldTheirLaws(t *testing.T) {
+// The repository's examples, ports and modules load with no layout error
+// (LAYOUT-RED): the runner stops on any one before it runs a program, so
+// one stray file would stop every example. This test builds no program,
+// so the fast tier runs it on every edit it reads. It also holds the
+// programs of packages (examples/tidewalk-replay) to a law on each
+// operation type of their domain packages. A planted tree with a stray
+// file beside the programs and a module with no go.mod or README.md shows
+// both halves of the check firing. Mutants: examples-layout-modules-
+// skipped, examples-layout-programs-skipped.
+func TestRepoLayoutIsClean(t *testing.T) {
 	t.Parallel()
-	programs, problems := loadExamples(filepath.Join("..", ".."), false)
+	_, _, planted := loadLayout(filepath.Join("testdata", "layout-bad"), false)
+	for _, want := range []string{"examples/stray.txt: not a program folder", "modules/hello: no go.mod"} {
+		if !slices.ContainsFunc(planted, func(p string) bool { return strings.Contains(p, want) }) {
+			t.Errorf("testdata/layout-bad: no %q among the layout errors:\n%s", want, strings.Join(planted, "\n"))
+		}
+	}
+	programs, _, problems := loadLayout(filepath.Join("..", ".."), false)
 	if len(problems) > 0 {
-		t.Fatalf("layout errors:\n%s", strings.Join(problems, "\n"))
+		t.Fatalf("%d layout errors (see examples/README.md):\n%s", len(problems), strings.Join(problems, "\n"))
 	}
 	modules := 0
 	for _, p := range programs {
