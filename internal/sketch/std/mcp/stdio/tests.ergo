@@ -2,7 +2,7 @@
 // Recorder (io.InOver, io.HostOver): no host is read or written, so the
 // context needs no authority.
 
-import github.com/cevr/ergo/modules/mcp
+import mcp
 import io
 
 let overText = context {
