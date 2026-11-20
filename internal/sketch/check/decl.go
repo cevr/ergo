@@ -96,6 +96,7 @@ func (c *checker) runOnce(files []*syntax.File) *Package {
 		// rows are never inferred (D-E5).
 		c.checkExterns,
 		c.collectBodyErrorRows,
+		c.checkSlotArgs,
 		c.checkEntry,
 		// The context pass runs once, before any body, so its budget verdict
 		// does not depend on which body meets a context first (contextsum.go).
@@ -193,8 +194,44 @@ func (c *checker) collectBodyErrorRows() {
 					}
 				}
 			}
+			if ix, ok := n.(*syntax.IndexExpr); ok {
+				// A row written as the argument of a generic type's error
+				// row parameter names its members as a `fails` row does:
+				// `ui.Async[int, Oops]` makes Oops an error type of the
+				// writing body's owner (ROW-PARAM AC3).
+				c.collectRowArgs(ix)
+			}
 			return true
 		})
+	}
+}
+
+// collectRowArgs records the error types that ix, when it instantiates a
+// generic type, writes at the type's failure parameters: each member of
+// the written row, as a `fails` row's (collectBodyErrorRows). A failure
+// parameter is an error row parameter (the head's kinds: its solved ones
+// for a local declaration, its resolved ones for an imported one,
+// slotKinds) or a type parameter that a function of the type's package
+// takes as a Slot row (slotBound: Async's F, which Await fails). Any other
+// index expression names none.
+func (c *checker) collectRowArgs(ix *syntax.IndexExpr) {
+	if _, n := c.namedHead(ix.X); n == nil {
+		return
+	}
+	kinds := c.slotKinds(ix.X)
+	bound := c.slotBound(ix.X)
+	for i, a := range ix.Indices {
+		if i >= len(kinds) || kinds[i] != KindErrors && (i >= len(bound) || bound[i] == "") {
+			continue
+		}
+		for _, x := range orLeaves(a) {
+			if n := c.errorRowHead(x); n != nil {
+				c.addErrorType(n, c.pkg.OwnerOf(ix), x)
+			}
+			for _, n := range c.namedRowHeads(x) {
+				c.addErrorType(n, c.pkg.OwnerOf(ix), x)
+			}
+		}
 	}
 }
 

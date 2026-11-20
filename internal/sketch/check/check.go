@@ -536,6 +536,8 @@ type checker struct {
 	// Info.Defs does not list them.
 	variants  map[*syntax.VariantSpec]*TypeName
 	synthetic map[*syntax.Ident]bool
+	// slotBounds caches slotBound by generic type (slotbound.go).
+	slotBounds map[*Named][]string
 	// pkgPatterns holds the package-level lets that bind several names
 	// from one value (a pattern, or `let q, r = e`), each checked once.
 	pkgPatterns map[*syntax.VarSpec]*pkgPattern
