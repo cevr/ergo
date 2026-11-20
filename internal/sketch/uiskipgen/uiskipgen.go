@@ -903,12 +903,12 @@ func (g *uiSkipGen) stmt(i, depth int, indent string) {
 // program writes the components and the view s<seed>view.
 func (g *uiSkipGen) program() {
 	for i := range g.comps {
-		fmt.Fprintf(&g.out, "\nfunc %s(f *ui.Frame[int], a int, it Item) {\n", g.name(i))
+		fmt.Fprintf(&g.out, "\nfunc %s(f mut ui.Frame[int], a int, it Item) {\n", g.name(i))
 		g.stmts(i, 0, "\t")
 		g.out.WriteString("}\n")
 	}
 	fmt.Fprintf(&g.out, `
-func s%dview(f *ui.Frame[int], s St) {
+func s%dview(f mut ui.Frame[int], s St) {
 	%s(f, s.A, s.It)
 	ui.Column(f, ui.Plain()) {
 		ui.Each(f, s.Items, func(it Item) ui.Key { ui.ByInt(it.Id) }) func(it Item) {
