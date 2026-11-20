@@ -81,6 +81,9 @@ type IRReport struct {
 	// Dropped counts the discarded calls that name the variant with no
 	// result (ir_forms_drop.go).
 	Dropped int `json:"-"`
+	// SeqRanges counts the for-in loops over a Seq that range over Go's
+	// range-over-func form (PORT-FORIN, ir_seq.go).
+	SeqRanges int `json:"-"`
 	// CatchDefects counts the full catches whose default panics with the
 	// unreachable defect, naming no failure (ir_catch_defect.go).
 	CatchDefects int `json:"-"`

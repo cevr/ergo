@@ -76,7 +76,7 @@ func (b *irBuilder) goBuiltinCall(x *syntax.CallExpr, c *check.Call, f *check.Fu
 		if len(args) != 1 {
 			irNo("len form")
 		}
-		return pre, &irExpr{K: "len", Pos: p, X: args[0]}, false
+		return pre, b.foldConst(x, &irExpr{K: "len", Pos: p, X: args[0]}), false // ir_opfold.go: a constant's len
 	case "cap", "min", "max":
 		return pre, &irExpr{K: "builtin", Pos: p, Name: name, Args: args}, false
 	case "copy":
