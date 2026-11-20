@@ -20,7 +20,7 @@ import (
 // (ERGO-STARTUP-2: 61,624 B before), against 1.1 MiB before the start
 // receipt (docs/receipts/compile-speed.md, "Process start"); the std
 // binding catalog alone, built eagerly, adds 41 KiB.
-const startInitBytes = 24 << 10
+const startInitBytes = 16 << 10
 
 // TestStartBuildsNoTables: `ergo version` starts with the module's
 // packages allocating at most startInitBytes in their inits (Go's
