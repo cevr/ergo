@@ -467,9 +467,7 @@ func (b *irBuilder) releaseFuncs(name, helper string, params []string) bool {
 		f.fn = &irFunc{Name: s.helper, Pos: p, End: p, Body: []*irStmt{{K: "expr", Pos: p, X: c}}}
 		b.st.out.Funcs = append(b.st.out.Funcs, *f.fn)
 		t.WriteString("// " + s.helper + " releases one value of " + name + "'s static frame inside its body; its body is IR (FLIP F7, RELEASE-IR).\n")
-		sn := newNamer(l.names) // the helper's own parameter (pkgnames.go)
-		sn.used[b.fc.envExpr(o.site)] = true
-		t.WriteString("func " + s.helper + "(" + b.fc.envExpr(o.site) + " *" + l.env() + ", " + sn.alloc("slot") + " *" + b.fc.goType(s.t) + ")\n\n")
+		t.WriteString("func " + s.helper + "(" + b.fc.envExpr(o.site) + " *" + l.env() + ", " + l.names.alloc("slot") + " *" + b.fc.goType(s.t) + ")\n\n")
 	}
 	l.gen.WriteString(t.String())
 	return true
@@ -717,7 +715,7 @@ func (b *irBuilder) slotRelease(k int, p irPos) *irStmt {
 	o := b.own
 	s := &o.slots[k]
 	if s.helper == "" {
-		s.helper = b.l.names.alloc("ergo__" + strings.ReplaceAll(b.fn.Name, ".", "_") + "Free") // pkgnames.go, rule 3
+		s.helper = b.l.names.alloc(strings.ReplaceAll(b.fn.Name, ".", "_") + "Free")
 	}
 	live := func() *irExpr { return &irExpr{K: "local", Pos: p, I: o.live} }
 	set := &irExpr{K: "bin", Pos: p, Op: "!=", X: &irExpr{K: "bin", Pos: p, Op: "&", X: live(), Y: b.bitConst(k, p)}, Y: &irExpr{K: "const", Pos: p, T: "uint64", V: "0"}}
@@ -986,11 +984,8 @@ func (b *irBuilder) ownDone(name string) {
 	}
 	fc, l, site := b.fc, b.l, o.site
 	env := fc.envExpr(site)
-	helper := l.names.alloc("ergo__" + strings.ReplaceAll(name, ".", "_") + "Release") // a method's name is T.m; pkgnames.go, rule 3
-	// The helper's parameters are its own locals (pkgnames.go).
-	hn := newNamer(l.names)
-	hn.used[env] = true
-	live, kept, rel := hn.alloc("live"), hn.alloc("kept"), hn.alloc("rel")
+	helper := l.names.alloc(strings.ReplaceAll(name, ".", "_") + "Release") // a method's name is T.m
+	live, kept, rel := l.names.alloc("live"), l.names.alloc("kept"), l.names.alloc("rel")
 	params := []string{env + " *" + l.env(), live + " *uint64"}
 	args := []*irExpr{{K: "local", Pos: o.p, I: b.env}, b.addrOf(o.live, o.p)}
 	if o.kept >= 0 {
@@ -1001,7 +996,7 @@ func (b *irBuilder) ownDone(name string) {
 	if fc.frame.fallible {
 		// The frame's named error result, last (namedResults): End
 		// settles the exit into it after the body returned.
-		errArg = hn.alloc("err")
+		errArg = l.names.alloc("err")
 		params = append(params, errArg+" *error")
 		last := 0
 		if b.result != nil {
@@ -1011,7 +1006,7 @@ func (b *irBuilder) ownDone(name string) {
 	}
 	slots := make([]string, len(o.slots))
 	for k, s := range o.slots {
-		slots[k] = hn.alloc("slot")
+		slots[k] = l.names.alloc("slot")
 		params = append(params, slots[k]+" *"+fc.goType(s.t))
 		args = append(args, b.addrOf(s.local, o.p))
 	}
@@ -1059,9 +1054,7 @@ func (b *irBuilder) ownDone(name string) {
 		if s.helper == "" {
 			continue
 		}
-		sn := newNamer(l.names) // the helper's own parameter (pkgnames.go)
-		sn.used[env] = true
-		slot := sn.alloc("slot")
+		slot := l.names.alloc("slot")
 		t.WriteString("// " + s.helper + " releases one value of " + name + "'s static frame inside its body (IR, FLIP F7).\n")
 		t.WriteString("func " + s.helper + "(" + env + " *" + l.env() + ", " + slot + " *" + fc.goType(s.t) + ") {\n\t")
 		t.WriteString(fc.providerRelease(&check.Acquisition{Close: s.d.Close}, env, "(*"+slot+")", site) + "\n}\n\n")
