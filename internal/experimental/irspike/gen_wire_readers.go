@@ -138,7 +138,9 @@ func GenerateWireReaders(seed uint64) string {
 		r.Shuffle(len(fields), func(i, j int) { fields[i], fields[j] = fields[j], fields[i] })
 		s := "{" + strings.Join(fields, ", ") + "}"
 		if bad == 7 { // a truncated text
-			s = s[:len(s)/2]
+			// Cut between escapes: the text is an Ergo string literal,
+			// whose \" must stay whole.
+			s = strings.TrimSuffix(s[:len(s)/2], `\`)
 		}
 		return s
 	}
