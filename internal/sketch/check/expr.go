@@ -1440,7 +1440,7 @@ func (c *checker) methodValueRefused(x *syntax.SelectorExpr, base operand, sig *
 	recv := exprText(x.X)
 	switch {
 	case fn.Ptr:
-		return fmt.Sprintf("borrows %s (*%s)", recv, fn.owner.Obj.Name)
+		return fmt.Sprintf("borrows %s (mut %s)", recv, fn.owner.Obj.Name)
 	case c.holdsResource(base.typ):
 		return fmt.Sprintf("would keep %s, a resource, which has one owner", recv)
 	case sig != nil && len(sig.TParams) > 0:

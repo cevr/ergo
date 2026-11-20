@@ -23,7 +23,7 @@ func TestMethodValueRefusals(t *testing.T) {
 		text      string
 	}{
 		{"f_method_value", "type Acc { N int }\nfunc Add(a Acc, b int) int { a.N + b }\nfunc f(a Acc) int {\n\tlet g = a.Add\n\tg(2)\n}\n", nil, ""},
-		{"f_method_value_ptr", "type Acc { N int }\nfunc Bump(a *Acc, b int) { a.N = a.N + b }\nfunc f(a Acc) {\n\tlet g = a.Bump\n\tg(2)\n}\n", []string{"S108:4"}, "a method value of Bump borrows a (*Acc); write the closure func(…) { a.Bump(…) }"},
+		{"f_method_value_ptr", "type Acc { N int }\nfunc Bump(a mut Acc, b int) { a.N = a.N + b }\nfunc f(a Acc) {\n\tlet g = a.Bump\n\tg(2)\n}\n", []string{"S108:4"}, "a method value of Bump borrows a (mut Acc); write the closure func(…) { a.Bump(…) }"},
 		{"f_method_value_own", "type File {} implements Closer\nfunc Close(_ File) {}\nfunc Name(f File) string { \"f\" }\nfunc use(f File) string {\n\tlet g = f.Name\n\tg()\n}\n", []string{"S108:5"}, "would keep f, a resource"},
 		{"f_method_value_generic", "type Box { N int }\nfunc Pick[T](b Box, x T) T { x }\nfunc f(b Box) {\n\tlet g = b.Pick\n\t_ = g\n}\n", []string{"S108:4"}, "leaves its type parameter T unbound"},
 	}
