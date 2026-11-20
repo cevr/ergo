@@ -9,7 +9,10 @@
 # debt: any other; the unit names who removes it. Debt only shrinks.
 
 seam	internal/sketch/check/check.go:StdFixture	a test fixture checked as std (no Ergo source reaches it)	-
+seam	internal/sketch/check/check.go:installPrelude	installs a snapshot's decoded prelude and marks it std, as prelude marks the checked one	-
 seam	internal/sketch/check/check.go:prelude	loads the embedded prelude and marks it std	-
+seam	internal/sketch/check/check.go:stdImporter.decoded	marks a package decoded from a std segment std, as load marks one it checks; a module segment's stays unmarked	-
+seam	internal/sketch/check/check.go:stdImporter.importAll	finds every embedded std package (stdlib.Packages), so a snapshot of std has them all	-
 seam	internal/sketch/check/check.go:stdImporter.load	loads an embedded std package and marks it std	-
 seam	internal/sketch/check/check.go:stdImporter.testOf	finds the std package a std test package tests	-
 seam	internal/sketch/check/decl.go:checker.importSpec	a std path always names std (no shadowing)	-
