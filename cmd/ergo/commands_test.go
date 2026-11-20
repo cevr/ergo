@@ -101,7 +101,10 @@ func TestHelpListsOnlyTheKeptCommands(t *testing.T) {
 			t.Fatalf("ergo %v: exit %d stdout %q stderr %q", args, code, stdout, stderr)
 		}
 	}
-	for _, word := range []string{"edition", "query", "graph", "explain", "lsp", "mcp", "ergo type"} {
+	// graph left the table with f7837e0b0 and came back as a kept command
+	// with GRAPH-TABLE 4f5f6cbc8 (ergo graph export and its queries,
+	// docs/tooling.md, Graph rows), so help names it.
+	for _, word := range []string{"edition", "query", "explain", "lsp", "mcp", "ergo type"} {
 		if regexp.MustCompile(`\b` + word + `\b`).MatchString(generalHelp()) {
 			t.Fatalf("help names %q", word)
 		}
