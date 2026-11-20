@@ -25,6 +25,8 @@ package lower
 // a Seq loop keeps its source body ("for-in over a non-slice").
 
 import (
+	"strings"
+
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
@@ -53,8 +55,13 @@ func (b *irBuilder) seqRange(s *syntax.RangeStmt, lp *check.Loop, x *irExpr) ([]
 	}
 	p := b.pos(s.X, s.X.Pos())
 	end := p
-	env := "*" + b.l.env()
 	elem := b.goType(lp.Elem, s)
+	// The callback's type is the yield's, func(T) bool, as a function
+	// value of Ergo spells it (sigType): func(*Env, T) (bool, error). Its
+	// first parameter's type is the environment's, so this body names no
+	// Env type of its own (TestRuntime199EnvTypeReaders).
+	cbT := b.sigType(&check.Signature{Params: []*check.Var{{Name: "v", Type: lp.Elem}}, Results: []check.Type{check.Typ[check.Bool]}}, s)
+	env, _, _ := strings.Cut(strings.TrimPrefix(cbT, "func("), ", ")
 	yieldT := "func(" + elem + ") bool"
 	seq := b.temp("seq", b.goType(b.l.info.Types[s.X], s.X), p)
 	pre := []*irStmt{{K: "def", Pos: p, Local: seq, X: x}}
@@ -69,7 +76,7 @@ func (b *irBuilder) seqRange(s *syntax.RangeStmt, lp *check.Loop, x *irExpr) ([]
 	q := b.pos(s.Body, s.Body.Pos())
 	end = q
 	yield, ce, v := b.temp("yield", yieldT, p), b.temp("e", env, p), b.temp("v", elem, p)
-	cb := &irExpr{K: "func", Pos: p, T: "func(" + env + ", " + elem + ") (bool, error)", Params: []int{ce, v}, End: &end,
+	cb := &irExpr{K: "func", Pos: p, T: cbT, Params: []int{ce, v}, End: &end,
 		Body: []*irStmt{{K: "ret", Pos: q, X: &irExpr{K: "vcall", Pos: q, X: &irExpr{K: "local", Pos: q, I: yield}, Args: []*irExpr{{K: "local", Pos: q, I: v}}}}}}
 	// The adapter: func(yield func(T) bool) { _, _ = seq(env, callback) }.
 	r, err := b.temp("r", "struct{}", p), b.temp("err", "error", p)
