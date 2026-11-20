@@ -143,6 +143,312 @@ type Frame[E] {
 	nreadouts int,
 }
 
+// LayersDismissFromTheTop (UG4): over drawn layers of drawn kinds, some
+// nested in the one before, some with a scrim, some dismissable, and
+// drawn Escapes and clicks on the flow's and the layers' Pressables, the
+// program sees the reference model's signals: Escape is the top
+// dismissable layer's dismiss signal, and the page's key function's only
+// when no layer is dismissable; a click outside the top dismissable layer
+// sends its dismiss signal first; a click on a node a scrim covers (outside
+// the top scrim layer) sends nothing else, and any other click its press;
+// a key's press of a node sends its press unless a scrim covers it.
+// The layers stack by kind, then in tree order.
+law LayersDismissFromTheTop(seed int, steps int) {
+	let mut r = seeded(seed)
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let n = draw(&r, 4) + 1
+		let mut kinds = []int{}
+		let mut scrims = []bool{}
+		let mut dismiss = []bool{}
+		let mut parents = []int{}
+		for i in 0..n {
+			kinds = kinds.Append(draw(&r, 4))
+			scrims = scrims.Append(draw(&r, 3) == 0)
+			dismiss = dismiss.Append(draw(&r, 4) != 0)
+			parents = parents.Append(if i > 0 && draw(&r, 2) == 0 { i - 1 } else { -1 })
+		}
+		let ks = kinds
+		let ss = scrims
+		let ds = dismiss
+		let ps = parents
+		let view = func(f mut Frame[int], s layerApp) { layerScreen(f, s, ks, ss, ds, ps) }
+		let all = (1 << n) - 1
+		let a = actor.StartMachine(Machine[layerApp, int, int]{Initial: layerApp{open: all, log: ""}, Step: layerStep, After: layerTimer, Work: layerWork, Exit: func(s layerApp) Option[func()] { None }}, 1, func(o int) {})
+		let mut h = NewTestHost(a, view, m, 4) catch {
+		case BadPatch:
+			return false
+		}
+		let mut open = all
+		let mut log = ""
+		for _ in 0..(steps%16+16)%16+4 {
+			let topD = layerTop(open, kinds, parents, dismiss)
+			let topS = layerTop(open, kinds, parents, scrims)
+			let act = draw(&r, 4)
+			if act == 0 {
+				Play(&h, []Act{KeyIn{Press: KeyPress{Name: "Escape", Mods: Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}}}) catch {
+				case _:
+					return false
+				}
+				if topD >= 0 {
+					log = log + "\(10 + topD),"
+					open = open - (open & (1 << topD))
+				} else {
+					log = log + "900,"
+				}
+			} else {
+				// A click on a flow Pressable (-1) or a shown layer's.
+				let mut shown = []int{-1}
+				for i in 0..n {
+					if layerShown(open, parents, i) {
+						shown = shown.Append(i)
+					}
+				}
+				let at = shown[draw(&r, len(shown))]
+				let j = draw(&r, 3)
+				let label = if at < 0 { "f\(j)" } else { "l\(at)" }
+				let inside = func(l int) bool { at >= 0 && layerUnder(parents, l, at) }
+				if act == 3 {
+					// A key's press: no pointer, so no dismissal; a scrim
+					// stops it outside its layer.
+					let ids = Locate(&h, WithLabel{Label: label})
+					if len(ids) != 1 {
+						return false
+					}
+					Activate(&h, ids[0]) catch {
+					case _:
+						return false
+					}
+					if topS < 0 || inside(topS) {
+						log = log + if at < 0 { "\(100 + j)," } else { "\(200 + at)," }
+					}
+				} else {
+					Play(&h, []Act{TapOn{Label: label}}) catch {
+					case _:
+						return false
+					}
+					if topD >= 0 && (!inside(topD) || (topS >= 0 && !inside(topS))) {
+						log = log + "\(10 + topD),"
+						open = open - (open & (1 << topD))
+					}
+					if topS < 0 || inside(topS) {
+						log = log + if at < 0 { "\(100 + j)," } else { "\(200 + at)," }
+					}
+				}
+			}
+			if StateOf(&h).log != log || StateOf(&h).open != open {
+				return false
+			}
+			// The stack: by kind, then in tree order.
+			let ids = LayersOf(&h)
+			let mut k = 0
+			for z in 0..4 {
+				for i in 0..n {
+					if layerShown(open, parents, i) && kinds[i] == z {
+						if k >= len(ids) {
+							return false
+						}
+						let held = Locate(&h, WithLabel{Label: "l\(i)"})
+						if len(held) != 1 || !isUnderId(&h, ids[k], held[0]) {
+							return false
+						}
+						k = k + 1
+					}
+				}
+			}
+			if k != len(ids) {
+				return false
+			}
+		}
+		true
+	}
+}
+
+// layerApp is the layer law's state: the open layers (bit i for layer i)
+// and the signals seen. (a law's helper)
+type layerApp { open int, log string }
+
+// layerStep closes layer i on its dismiss signal 10+i, and logs every
+// signal. (a law's helper)
+func layerStep(s layerApp, e int) Decision[layerApp, int] {
+	let mut open = s.open
+	if e >= 10 && e < 20 {
+		open = open - (open & (1 << (e - 10)))
+	}
+	Enter[layerApp]{Next: layerApp{open: open, log: s.log + "\(e),"}}
+}
+
+func layerTimer(s layerApp) Option[Timeout[int]] {
+	None
+}
+
+func layerWork(s layerApp) Option[func(send func(e int))] {
+	None
+}
+
+// layerKind is kind k of four. (a law's helper)
+func layerKind(k int) Z {
+	if k == 0 { PopoverZ } else if k == 1 { ModalZ } else if k == 2 { ToastZ } else { TooltipZ }
+}
+
+// layerBody writes layer i while it is open: a Pressable "l<i>" sending
+// 200+i, then, under it, layer i+1 when that one's parent is i. (a law's
+// helper)
+func layerBody(f mut Frame[int], s layerApp, i int, kinds []int, scrims []bool, dismiss []bool, parents []int) {
+	if s.open&(1<<i) == 0 {
+		return
+	}
+	let d = if dismiss[i] { Some{Value: 10 + i} } else { None }
+	Layer(f, Layered[int]{Z: layerKind(kinds[i]), Anchor: Some{Value: ByInt(0)}, Place: Place{Side: SideBottom, Align: AlignStart, Gap: 0}, Scrim: scrims[i], Dismiss: d}, Plain()) {
+		Pressable(f, "l\(i)", 200+i) {
+			Text(f, "x")
+		}
+		if i+1 < len(kinds) && parents[i+1] == i {
+			layerBody(f, s, i+1, kinds, scrims, dismiss, parents)
+		}
+	}
+}
+
+// layerScreen is three Pressables "f0" to "f2" sending 100 to 102, in a
+// zone keyed 0, an OnKey sending 900 on Escape, and the open layers, each
+// top one keyed by its index, so a layer that closes leaves the next one's
+// nodes their identity. (a law's helper)
+func layerScreen(f mut Frame[int], s layerApp, kinds []int, scrims []bool, dismiss []bool, parents []int) {
+	OnKey(f, func(k KeyPress) Option[int] {
+		if k.Name == "Escape" { Some{Value: 900} } else { None }
+	})
+	Zone(f, ByInt(0), Plain()) {
+		for j in 0..3 {
+			Pressable(f, "f\(j)", 100+j) {
+				Text(f, "x")
+			}
+		}
+	}
+	let mut tops = []int{}
+	for i in 0..len(kinds) {
+		if parents[i] < 0 {
+			tops = tops.Append(i)
+		}
+	}
+	Each(f, tops, func(i int) Key { ByInt(i) }) func(i int) {
+		layerBody(f, s, i, kinds, scrims, dismiss, parents)
+	}
+}
+
+// layerShown is whether layer i is in the tree: it and every layer it is
+// under are open. (a law's helper)
+func layerShown(open int, parents []int, i int) bool {
+	let mut k = i
+	for k >= 0 {
+		if open&(1<<k) == 0 {
+			return false
+		}
+		k = parents[k]
+	}
+	true
+}
+
+// layerTop is the top shown layer (by kind, then the later) that pick
+// holds of, -1 for none. (a law's helper)
+func layerTop(open int, kinds []int, parents []int, pick []bool) int {
+	let mut top = -1
+	for i in 0..len(kinds) {
+		if layerShown(open, parents, i) && pick[i] && (top < 0 || kinds[i] >= kinds[top]) {
+			top = i
+		}
+	}
+	top
+}
+
+// layerUnder is whether layer i is layer l or under it. (a law's helper)
+func layerUnder(parents []int, l int, i int) bool {
+	let mut k = i
+	for k >= 0 {
+		if k == l {
+			return true
+		}
+		k = parents[k]
+	}
+	false
+}
+
+// isUnderId is whether x is the node id's child. (a law's helper)
+func isUnderId[S, E, D, F](h mut TestHost[S, E, D, F], id Id[E], x Id[E]) bool {
+	for k in KidsAt(h, id) {
+		if k == x {
+			return true
+		}
+	}
+	false
+}
+
+// ScrollCostsNoViewPass: over drawn lists (a count, a row height, a
+// header above them) and drawn wheel steps and resizes, a scroll whose
+// viewport shows the same rows (Visible) as the last runs no pass (the
+// step's Counts are none), and every scroll leaves the screen the header
+// and the list cut at its viewport, with the offset the host scrolled to:
+// what a pass would have written.
+law ScrollCostsNoViewPass(seed int, steps int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let mut r = seeded(seed)
+		let n = []int{0, 1, 20, 10000}[draw(&r, 4)]
+		let rh = float64(draw(&r, 30) + 10)
+		let view = func(f mut Frame[int], s int) {
+			Text(f, "head \(s)")
+			Rows(f, "list", n, Length(rh), func(i int) Key { ByInt(i) }) func(i int) {
+				Text(f, "row \(i)")
+			}
+		}
+		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})
+		let mut h = NewTestHost(a, view, m, 4) catch {
+		case BadPatch:
+			return false
+		}
+		let most = float64(n) * rh
+		let mut off = 0.0
+		let mut height = float64(draw(&r, 400) + 1)
+		let mut was = Visible(n, Length(rh), Viewport{Offset: 0, Height: 0})
+		for k in 0..(steps%40+40)%40+1 {
+			// The first step reports a height; then mostly wheel steps of
+			// under three rows, sometimes a resize.
+			if k > 0 && draw(&r, 8) == 0 {
+				height = float64(draw(&r, 400) + 1)
+			} else if k > 0 {
+				off = off + float64(draw(&r, int(6.0*rh)+1)) - 3.0*rh
+			}
+			if off < 0.0 {
+				off = 0.0
+			}
+			if off > most {
+				off = most
+			}
+			Play(&h, []Act{ScrollOn{Label: "list", Offset: Length(off), Height: Length(height)}}) catch {
+			case _:
+				return false
+			}
+			let now = Visible(n, Length(rh), Viewport{Offset: Length(off), Height: Length(height)})
+			if now == was && Counts(&h) != NoCounts() {
+				return false
+			}
+			let (first, last) = now
+			let mut rows = []Shape[int]{}
+			for i in first..last {
+				rows = rows.Append(Shape[int]{Node: TextNode{Value: "row \(i)", Style: Plain()}, Kids: []Shape[int]{}})
+			}
+			let want = []Shape[int]{
+				Shape[int]{Node: TextNode{Value: "head 0", Style: Plain()}, Kids: []Shape[int]{}},
+				Shape[int]{Node: RowsNode{Label: "list", Count: n, RowHeight: Length(rh), First: first, Offset: Length(off)}, Kids: rows},
+			}
+			if !SameShapes(Screen(&h), want) {
+				return false
+			}
+			was = now
+		}
+		true
+	}
+}
+
 // KeyedReorderKeepsRows (UC-REORDER): a component that shows keyed rows,
 // each a Same over a component of its own, keeps every row through any
 // reorder. Over drawn permutations of 2 to 6 rows, each committed once or
