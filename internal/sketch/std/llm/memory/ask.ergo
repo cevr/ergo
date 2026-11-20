@@ -61,5 +61,5 @@ law LengthStopIsNotParsed(v asked) {
 // nothing is parsed.
 law AskFailsAsTheModel(f llm.Failure) {
 	let m = NewSequence([]Reply{Fails{Failure: f}})
-	askOf(m, plain("q")).Other == "failure"
+	askOf(m, plain("q")).Other == "failure" && Asks(m) == 1
 }
