@@ -24,15 +24,17 @@ type Op =
 	| ReadyOp{Name int}
 	| SyncOp{Name int}
 	| BaseOp{}
-	| CrashOp{Name int}
+	| CrashOp{Name int, Cloned bool}
 	| GcOp{Older int, Idle int}
 	| WaitOp{Seconds int}
 
 // Expected is the reference's record of one name. Kept is whether its
 // work is in its parent; Sure is false after a step whose effect on that
 // the reference does not decide (a stack's clone of a changed parent, a
-// sync), and then rm's outcome is the Tool's to tell.
-type Expected { Name string, State string, Parent string, Kept bool, Sure bool, Since int64, Path string }
+// sync), and then rm's outcome is the Tool's to tell. Cloned is a
+// reservation whose maker died after its clone and before its marker,
+// and whose folder an agent then wrote in.
+type Expected { Name string, State string, Parent string, Kept bool, Sure bool, Since int64, Path string, Cloned bool }
 
 // pick is one of three names, so sequences reuse them.
 func pick(n int) string { []string{"a", "b", "wf/c"}[((n%3)+3)%3] }
@@ -431,7 +433,7 @@ law ToolAgreesWithTheReference(ops []Op, sharing bool, tree Map[string, string])
 				return false
 			}
 			if !holds(want, name) {
-				let e = Expected{Name: name, State: "active", Parent: theBase, Kept: true, Sure: true, Since: at, Path: work.Home(theBase, "") + "/" + work.FolderOf(name)}
+				let e = Expected{Name: name, State: "active", Parent: theBase, Kept: true, Sure: true, Since: at, Path: work.Home(theBase, "") + "/" + work.FolderOf(name), Cloned: false}
 				want = freed(want, name, if sharing || o.Copy { Some[Expected]{Value: e} } else { None })
 			}
 		case OnOp as o:
@@ -448,7 +450,7 @@ law ToolAgreesWithTheReference(ops []Op, sharing bool, tree Map[string, string])
 					return false
 				}
 				if can {
-					let e = Expected{Name: name, State: "active", Parent: parent.Value.Path, Kept: false, Sure: false, Since: at, Path: made}
+					let e = Expected{Name: name, State: "active", Parent: parent.Value.Path, Kept: false, Sure: false, Since: at, Path: made, Cloned: false}
 					want = freed(want, name, if made != "" { Some[Expected]{Value: e} } else { None })
 				}
 			case None:
@@ -531,8 +533,14 @@ law ToolAgreesWithTheReference(ops []Op, sharing bool, tree Map[string, string])
 				w.registry.Put(work.Workspace{Name: name, Path: path, Parent: theBase, Branch: "", Cloner: "", State: work.Creating, Since: at, Base: "", Latest: "", Deps: "", Id: "crash-" + name, Token: "", Moving: "", Pinned: false, Until: 0}) catch {
 				case work.Unkept:
 				}
-				Plant(w.trees, path, Map[string, string]{"half": "a clone cut short"})
-				want = want.Append(Expected{Name: name, State: "creating", Parent: theBase, Kept: false, Sure: true, Since: at, Path: path})
+				// Cut short before the clone (a folder with no checkout), or
+				// after it: a whole checkout of the base, unmarked, that an
+				// agent wrote in (2026-11-20: rm and gc deleted such a lane).
+				let cloned = o.Cloned && cloneWithWork(w, path)
+				if !cloned {
+					Plant(w.trees, path, Map[string, string]{"half": "a clone cut short"})
+				}
+				want = want.Append(Expected{Name: name, State: "creating", Parent: theBase, Kept: false, Sure: true, Since: at, Path: path, Cloned: cloned})
 			}
 		case GcOp as o:
 			let older = small(o.Older, 7200)
@@ -895,8 +903,10 @@ law StackRecordsItsParent(tree Map[string, string]) {
 // gc, run by another process however old it asks, activates it and keeps
 // its folder and what was written there, never deletes it (2026-11-17: gc
 // deleted such a workspace with two commits). The folder of a reservation
-// cut off before its marker, which nobody was handed, is still collected
-// (CrashOp in the model).
+// cut off before its checkout, which nobody was handed, is still
+// collected; one cut off after its clone and before its marker is kept,
+// and rm takes it only when its work is held or abandoned (CrashOp in
+// the model).
 law MadeCloneOutlivesItsMaker(text string) {
 	let w = worldWith(true, Map[string, string]{"bun.lock": "lock \(len(text))\n"}, "[deps]\nlock = \"bun.lock\"\ninstall = \"bun install\"\n", "")
 	let maker = Sharing(w.lock, 2)
@@ -1052,6 +1062,10 @@ func agrees(w World, want []Expected, gone []string) bool {
 		if !w.trees.Has(g.Path) {
 			return false
 		}
+		// No command deletes a folder that holds unsaved work.
+		if e.Cloned && e.State == "creating" && Files(w.trees, g.Path).Get("draft.txt") == None {
+			return false
+		}
 		if e.State != "trashed" && g.Path != e.Path {
 			return false
 		}
@@ -1066,6 +1080,16 @@ func agrees(w World, want []Expected, gone []string) bool {
 	true
 }
 
+// cloneWithWork clones the base to path, as a maker that died before its
+// marker left it, and writes a draft there, an agent's unsaved work.
+func cloneWithWork(w World, path string) bool {
+	w.trees.Clone(theBase, path) catch {
+	case work.NotSameVolume, work.Unsupported, work.Exists, work.Missing, work.NoSpace, work.CloneFailed:
+		return false
+	}
+	Write(w.trees, path, "draft.txt", "unsaved\n")
+}
+
 // removed is the reference after rm of name at the second at: a leaf (no
 // live workspace is made on it) that is creating, or active with its work
 // kept or abandoned, goes to the trash; any other stays. Where the
@@ -1078,7 +1102,9 @@ func removed(want []Expected, name string, abandon bool, at int64, trashed bool,
 			return want
 		}
 		let keptNow = if e.Value.Sure && parentLive(want, e.Value) { e.Value.Kept } else { trashed }
-		let goes = e.Value.State == "creating" || (e.Value.State == "active" && (keptNow || abandon))
+		// A reservation over a checkout an agent wrote in is held as an
+		// active one is: its work is not kept, so only abandon takes it.
+		let goes = (e.Value.State == "creating" && (!e.Value.Cloned || abandon)) || (e.Value.State == "active" && (keptNow || abandon))
 		if goes {
 			return replaced(want, Expected{..e.Value, State: "trashed", Since: at, Path: work.TrashOf(e.Value.Path, at, id)})
 		}
@@ -1103,13 +1129,14 @@ func idled(want []Expected, idle int64, at int64) []string {
 
 // collected is the reference after gc at the second at with the age
 // older: the records that stay, and the paths deleted. A reservation's
-// maker is gone (the crash), so gc collects it at any age.
+// maker is gone (the crash), so gc collects it at any age, unless its
+// folder is a checkout: gc never deletes what may hold work.
 func collected(want []Expected, older int64, at int64) ([]Expected, []string) {
 	let mut kept = []Expected{}
 	let mut dropped = []string{}
 	for e in want {
 		let age = at - e.Since
-		if (e.State == "trashed" && age >= older) || e.State == "creating" {
+		if (e.State == "trashed" && age >= older) || (e.State == "creating" && !e.Cloned) {
 			dropped = dropped.Append(e.Path)
 		} else {
 			kept = kept.Append(e)
