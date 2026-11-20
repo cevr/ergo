@@ -8,7 +8,7 @@ import (
 )
 
 // localModules are the folders that the go.mod of a program of packages
-// replaces a required Ergo module with (`replace M => ../../modules/xml`,
+// replaces a required Ergo module with (`replace M => ../../modules/web`,
 // grammar.md Source files 1, Required modules (c)), each holding ergo.mod.
 // `ergo test` of the program never runs a dependency's tests, as go test
 // never does; so the test leg runs its packages too (testsOfModule), and
