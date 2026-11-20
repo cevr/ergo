@@ -18,6 +18,10 @@ func recordWorld(files Map[string, string], config string) (work.Tool, Cloner, V
 	Repo(vcs, theBase, "main", files, "c0")
 	let home = work.Home(theBase, "")
 	let disk = fstest.NewMemory()
+	disk.MkdirAll(theBase) catch {
+	case fs.Denied, fs.Failed:
+		Unreachable("a folder of a memory disk")
+	}
 	disk.MkdirAll(home) catch {
 	case fs.Denied, fs.Failed:
 		Unreachable("a folder of a memory disk")
