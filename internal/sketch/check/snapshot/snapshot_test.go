@@ -233,8 +233,10 @@ func TestExportIsDeterministic(t *testing.T) {
 // second install without changing its live identities. A corrupt header
 // installs nothing; a corrupt package segment is checked from source,
 // never decoded into a changed model. It kills install-rechecks-std,
-// lazy-deps-skipped, export-corruption-accepted, header-corruption-accepted
-// and install-overwrites-live;
+// lazy-deps-skipped, export-corruption-accepted, header-corruption-accepted,
+// install-overwrites-live, gb-snap-decoded-unmarked and
+// gb-snap-prelude-unmarked (a decoded std package and the installed
+// prelude are std, though the snapshot carries no mark);
 // source-only checker tests never install bytes.
 func TestStdSnapshotInstall(t *testing.T) {
 	check.ResetStdForTest()
@@ -276,9 +278,21 @@ func TestStdSnapshotInstall(t *testing.T) {
 		if err != nil || p == nil || p.Path != path {
 			t.Fatalf("installed %s: %v, %v", path, p, err)
 		}
+		// The snapshot carries no std mark; the importer marks what it
+		// decodes (gb-snap-decoded-unmarked).
+		if !p.Std() {
+			t.Fatalf("installed %s is not std", path)
+		}
 	}
 	if _, ds := check.CheckSource(budgetProgram); len(ds) != 0 {
 		t.Fatal(ds)
+	}
+	// So does the prelude the base installs (gb-snap-prelude-unmarked):
+	// Option, a prelude type, is declared by a std package.
+	if pkg, ds := check.CheckSource("func none() Option[int] { None }\n"); len(ds) != 0 {
+		t.Fatal(ds)
+	} else if n, ok := pkg.Funcs[0].Sig.Results[0].(*check.Named); !ok || !n.Obj.Pkg.Std() {
+		t.Fatalf("the installed prelude's Option is not std: %v", pkg.Funcs[0].Sig.Results[0])
 	}
 	got := check.WorkDone()
 	if want := (check.Work{StdPackagesDecoded: int64(len(stdlib.Packages())), StdSnapshotBytesRead: got.StdSnapshotBytesRead}); got != want {
