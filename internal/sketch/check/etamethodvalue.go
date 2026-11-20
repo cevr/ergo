@@ -40,7 +40,8 @@ func (c *checker) etaMethodValue(x *syntax.FuncLit, sig *Signature) {
 	}
 	fn := cl.Func
 	v, ok := info.Uses[recv].(*Var)
-	if !ok || v.mut || v.bindRow || isPointer(v.Type) || !isNamedType(v.Type) {
+	// A borrow (mut T) is a pointer, no named type, so it stays a literal.
+	if !ok || v.mut || v.bindRow || !isNamedType(v.Type) {
 		return
 	}
 	if !etaPassesParams(info, x.Type, call.Args) {
