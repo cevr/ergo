@@ -13,7 +13,7 @@ import slices
 import strings
 
 // report is the diagnostics of the sites of the declaration f's body.
-func report(w mut walker, s mut store.Store, k expr.Pkg, f expr.Fn, fd syntax.FuncDecl) []diag.Diag {
+func report(w mut walker, s store.Store, k expr.Pkg, f expr.Fn, fd syntax.FuncDecl) []diag.Diag {
 	if len(w.sites) == 0 {
 		return []diag.Diag{}
 	}
@@ -30,7 +30,7 @@ func report(w mut walker, s mut store.Store, k expr.Pkg, f expr.Fn, fd syntax.Fu
 	let mut writes = []string{"", ""}
 	for kind in 0..2 {
 		if len(missing[kind]) > 0 {
-			writes[kind] = "write: " + signature(*s, names, p, fd, kind, missing[kind])
+			writes[kind] = "write: " + signature(s, names, p, fd, kind, missing[kind])
 		}
 	}
 	let fname = "function " + types.NameText(p, f.Name)
@@ -42,7 +42,7 @@ func report(w mut walker, s mut store.Store, k expr.Pkg, f expr.Fn, fd syntax.Fu
 			let msg = "\(rowText(s, names, st.extra)) escapes \(fname), whose error row \(rowText(s, names, w.errs)) does not list it; \(writes[kErrors])"
 			out = out.Append(diag.Diag{File: f.File, Offset: at, Length: length, Code: "S101", Message: msg})
 		} else {
-			let msg = "this call requires \(types.Text(*s, names, store.TRow(s, st.extra))), which is not in the capability row of \(fname) and no with provides it; \(writes[kUses])"
+			let msg = "this call requires \(types.RowText(s, names, st.extra)), which is not in the capability row of \(fname) and no with provides it; \(writes[kUses])"
 			out = out.Append(diag.Diag{File: f.File, Offset: at, Length: length, Code: "S102", Message: msg})
 		}
 	}
@@ -50,11 +50,11 @@ func report(w mut walker, s mut store.Store, k expr.Pkg, f expr.Fn, fd syntax.Fu
 }
 
 // rowText is a row as a message writes it, in braces (typeops.go rowText).
-func rowText(s mut store.Store, names types.Names, xs []dense.ID[store.TKey]) string {
+func rowText(s store.Store, names types.Names, xs []dense.ID[store.TKey]) string {
 	if len(xs) == 0 {
 		return "{}"
 	}
-	"{" + types.Text(*s, names, store.TRow(s, xs)) + "}"
+	"{" + types.RowText(s, names, xs) + "}"
 }
 
 // signature is the header of fd with the elements missing of the clause
