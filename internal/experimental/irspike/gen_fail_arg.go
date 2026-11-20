@@ -18,7 +18,9 @@ import (
 //     before the bump, so it stays bound at the copy's head;
 //   - failAfter, whose body bumps the counter before it fails: the same;
 //   - orFail with a literal that bumps the counter itself: the bump must
-//     run on every call, hit or miss.
+//     run on every call, hit or miss;
+//   - look, whose try passes orFail's failure on: built in place, it
+//     passes on as it is (failThrough) and jumps to main's arm.
 //
 // main prints the total and the counter; a literal evaluated late, or not
 // at all, changes them.
@@ -32,6 +34,7 @@ func GenerateFailArg(seed uint64) string {
 	b.WriteString("func orFail[T, F](o Option[T], f F) T fails F {\n\tmatch o {\n\tcase Some[T] as s:\n\t\ts.Value\n\tcase None:\n\t\treturn f\n\t}\n}\n\n")
 	b.WriteString("func orFailN(o Option[int], f Gone, n int) int fails Gone {\n\tmatch o {\n\tcase Some[int] as s:\n\t\ts.Value + n\n\tcase None:\n\t\treturn f\n\t}\n}\n\n")
 	fmt.Fprintf(&b, "func failAfter(c mut Ctr, x int, f Gone) int fails Gone {\n\tlet k = bump(c)\n\tif (x + k) %% %d == 0 {\n\t\treturn f\n\t}\n\tx\n}\n\n", 2+n(3))
+	fmt.Fprintf(&b, "func look(m Map[int, int], k int) int fails Gone {\n\tlet v = try orFail(m.Get(k), Gone{At: k + %d})\n\tv + 1\n}\n\n", n(9))
 	b.WriteString("func main() needs Console {\n")
 	keys := make([]string, 4+n(6))
 	for i := range keys {
@@ -46,7 +49,8 @@ func GenerateFailArg(seed uint64) string {
 	b.WriteString("\t\tlet later = orFailN(m.Get(k), Gone{At: c.N}, bump(&c)) catch {\n\t\tcase Gone as g:\n\t\t\tg.At * 3\n\t\t}\n")
 	b.WriteString("\t\tlet after = failAfter(&c, i, Gone{At: c.N + 1}) catch {\n\t\tcase Gone as g:\n\t\t\tg.At * 5\n\t\t}\n")
 	b.WriteString("\t\tlet own = orFail(m.Get(k + 2), Gone{At: bump(&c)}) catch {\n\t\tcase Gone as g:\n\t\t\tg.At * 7\n\t\t}\n")
-	b.WriteString("\t\ttotal = total + a + a2 + later + after + own\n\t}\n")
+	b.WriteString("\t\tlet through = look(m, k + 3) catch {\n\t\tcase Gone as g:\n\t\t\tg.At * 11\n\t\t}\n")
+	b.WriteString("\t\ttotal = total + a + a2 + later + after + own + through\n\t}\n")
 	b.WriteString("\tConsole.Println(\"total \\(total) counter \\(c.N)\")\n}\n")
 	return b.String()
 }

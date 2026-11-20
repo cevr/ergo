@@ -38,13 +38,16 @@ func lowerFailArg(t *testing.T, u lower.Unit, mode string) lower.IRReport {
 }
 
 // TestIRFailArgCounts is INLINE-FAILARG's count guard, in process: in every
-// generated program exactly the two sites whose literal argument may stand
-// for its parameter (orFail and orFailN of the loop's locals) take it, so
-// their failures are built in place and jump to their arms (more
-// FailJumps than with the case off); the three that must not (a later
-// argument, a body or the literal itself that writes the counter) bind
-// it. A count, not a time: only the counters see the substitution
-// dropped (mutant fail-arg-refused) or one of the three taken.
+// generated program the literal argument stands for its parameter at
+// exactly four copies (main's orFail and orFailN of the loop's locals,
+// look's orFail in look and in look's copy in main), the two copies of
+// look pass that failure on as built (failThrough), and three failures
+// jump to main's arms (a, a2, through); the three sites that must not
+// take their literal (a later argument, a body or the literal itself
+// that writes the counter) bind it. With the case off all three counts
+// are 0. A count, not a time: only the counters see the substitution
+// dropped (mutant fail-arg-refused) or the pass-through dropped
+// (fail-through-refused).
 func TestIRFailArgCounts(t *testing.T) {
 	if !lower.IRInlineOn() || !lower.IRFailArgOn() {
 		t.Skip("the inliner or INLINE-FAILARG is off")
@@ -54,8 +57,8 @@ func TestIRFailArgCounts(t *testing.T) {
 		u, text := failArgUnit(t, seed, t.TempDir())
 		on, off := lowerFailArg(t, u, ""), lowerFailArg(t, u, "off")
 		replay := "replay: ERGO_IRSPIKE_SEED=" + itoa(seed) + " ERGO_IRSPIKE_SEEDS=1 go test -run '^TestIRFailArgCounts$' ./internal/experimental/irspike"
-		if on.FailArgs != 2 || off.FailArgs != 0 || on.FailJumps <= off.FailJumps {
-			t.Errorf("seed %d: %d failure arguments in place (%d off), %d failures jump (%d off); want 2, 0 and more\n%s\n%s", seed, on.FailArgs, off.FailArgs, on.FailJumps, off.FailJumps, replay, text)
+		if on.FailArgs != 4 || on.FailThrough != 2 || on.FailJumps != 3 || off.FailArgs+off.FailThrough+off.FailJumps != 0 {
+			t.Errorf("seed %d: %d failure arguments in place, %d passed on as built, %d failures jump (off: %d, %d, %d); want 4, 2, 3 (off 0)\n%s\n%s", seed, on.FailArgs, on.FailThrough, on.FailJumps, off.FailArgs, off.FailThrough, off.FailJumps, replay, text)
 		}
 	}
 }
