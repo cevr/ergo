@@ -276,11 +276,20 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"law of a generic operation type", "G6"},
 	{"law result of an untried fallible call", "G6"},
 	// The codec built-ins take the IR (FLIP OPC-codec), but for these:
+	// PORT-WIRE-READERS step 0: the codec functions that keep their text
+	// body, counted as census bodies (codecText). A decoder by its form.
+	{"codec reader: *", "PORT-WIRE-READERS"},
+	{"codec writer on the reference Writer", "PORT-WIRE-REF"},
+	{"codec writer on a direct writer that is no cell", "PORT-WIRE-REF"},
 	{"codec of a type that holds type parameters", "G4"}, // codec witnesses, with witness parameters
 	{"codec *", "G6"},
 	{"encode on a direct writer", "G6"},
 	// JVD-DIRECT: the IR declines a direct reader's decode as it declines the direct writer's encode.
 	{"decode on a direct reader", "G6"},
+	// XML-ATTR: the IR's check wants a codec's reader or writer as the
+	// prelude's own type; another operation interface waits for IR's
+	// interface-to-interface conversion.
+	{"operation interface to another interface", "IFACE-CONV"},
 	{"call kind 12", "G6"}, // CallEmbed
 	{"call kind 13", "G6"}, // CallPattern: a refinement's matches(it, `…`)
 	{"call kind 9", "G6"},  // CallGoError

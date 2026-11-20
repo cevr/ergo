@@ -172,6 +172,10 @@ func UpdateLedger(a Analysis, req BuildRequest) (int, error) {
 		}
 		next[e.Key()] = e
 	}
+	// An entry whose key this run recomputed into another form is never
+	// read again (LEDGER-SUPERSEDE): it goes, and an entry of another
+	// build stays.
+	changed += lower.DropSuperseded(next, fresh, buildTags(a))
 	// The corpus keeps a law's cases while its package declares it in
 	// the rewrite's scope, by the ledger's pruning rule.
 	for k := range cases {
