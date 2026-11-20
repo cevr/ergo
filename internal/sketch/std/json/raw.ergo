@@ -87,7 +87,7 @@ law RawRoundTrips(d doc, sp int) { rawRoundTrips(d, sp) }
 type rawHeld { ID Raw, N int }
 
 func rawRoundTrips(d doc, sp int) bool {
-	let text = "{\"ID\":" + spell(d, spaces(sp)) + ",\"N\":1}"
+	let text = "{\"id\":" + spell(d, spaces(sp)) + ",\"n\":1}"
 	let h = Decode(c[rawHeld](), text) catch {
 	case _:
 		return false

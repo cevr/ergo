@@ -227,7 +227,7 @@ test JsonRawReadsOneValue(d doc, sp int) {
 }
 
 test JsonRawRoundTrips(d doc, sp int) {
-	let text = "{\"ID\":" + spell(d, spaces(sp)) + ",\"N\":1}"
+	let text = "{\"id\":" + spell(d, spaces(sp)) + ",\"n\":1}"
 	let h = json.Decode(c[rawHeld](), text) catch { case _: assert false; return }
 	assert json.Encode(c[rawHeld](), h) == text
 }
