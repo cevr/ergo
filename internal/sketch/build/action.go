@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -175,10 +176,13 @@ func (t Toolchain) Command(module Module, output string) *exec.Cmd {
 		// The pattern "." is the package in the module directory, the
 		// root, and "./D" the package in its folder D; the quotes keep a
 		// path with a space one word. Go's action cache keys the compile
-		// on the flag, whose path is in the module's folder, named by
-		// the module's key.
+		// on the flag and the Go files, never on the IR file, so the flag
+		// names it relative to the module's folder, where go build runs
+		// the compile: the same in every module an edit writes. The IR's
+		// digest is in a Go file of its package (lower.irKeyed), so its
+		// content changes the key (GP-SPLIT-EDIT).
 		ir := ergoIR(filepath.Join(module.Dir, rel))
-		args = append(args, "-gcflags="+irPattern(rel)+"='"+ir[0]+"="+ir[1]+"'")
+		args = append(args, "-gcflags="+irPattern(rel)+"='"+ir[0]+"="+irPattern(path.Join(rel, IRFile))+"'")
 	}
 	args = append(args, "-o", output, ".")
 	child := exec.Command(t.Go, args...)

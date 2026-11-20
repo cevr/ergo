@@ -32,7 +32,7 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"funcCtx.sealedMethod":     "a sealed std adapter's Env literal for the caller's task (sealedops.go)",
 			"lowerer.rootTask":         "the root Env literal of a root task: main's, the test build's main's (196l), an exported function's (IG11)",
 			"funcCtx.scriptOperations": "a Script adapter's Env literal for the caller's task, as an operation table's (script.go)",
-			"irBuilder.poll":           "the experimental IR's interruption point (Check), as funcCtx.poll's, as an IR node instead of taskOf's text (wf10 IR1)",
+			"irBuilder.pollAt":         "the experimental IR's interruption point (Check) at a given position, as funcCtx.poll's, as an IR node instead of taskOf's text (wf10 IR1; PORT-FORIN 11f4069ec moved it from poll)",
 			"irBuilder.callParts":      "the experimental IR's capability operation call, the caller's task first, as funcCtx.callText's, as an IR node (wf10 IR1)",
 			"irBuilder.opCall":         "the experimental IR's program operation call, the caller's task first, as funcCtx.programOpCall's (IRG4b r2)",
 			"irBuilder.hidden":         "the experimental IR's hidden CallerTask of a std operation call, as funcCtx.hiddenArgs's for runtimeCall, whose checks the source path already ran on the same call (IRG4b r2)",
