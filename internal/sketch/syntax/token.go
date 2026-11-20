@@ -143,6 +143,11 @@ const (
 	SWITCH
 	VAR
 	reservedEnd
+
+	// TILDE is `~`, the mark of a type-set term `~T` (types.md, Generics
+	// 2). It sits after the reserved words so no earlier token's number
+	// moves.
+	TILDE
 )
 
 var tokens = [...]string{
@@ -183,6 +188,8 @@ var tokens = [...]string{
 	CHAN: "chan", CONST: "const", DEFAULT: "default", DEFER: "defer", FALLTHROUGH: "fallthrough",
 	GO: "go", GOTO: "goto", INTERFACE: "interface", MAP: "map", PACKAGE: "package",
 	RANGE: "range", SELECT: "select", STRUCT: "struct", SWITCH: "switch", VAR: "var",
+
+	TILDE: "~",
 }
 
 // String is the token's spelling for operators, keywords and reserved

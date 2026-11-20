@@ -155,6 +155,9 @@ func Inspect(n Node, f func(Node) bool) {
 		walk(n.Elt)
 	case *MapType:
 		walk(n.Key, n.Value)
+		if n.Hashing != nil {
+			walk(n.Hashing)
+		}
 	case *FuncType:
 		walk(n.Params, n.Results, n.Needs, n.Takes)
 	case *StructType:
@@ -168,6 +171,9 @@ func Inspect(n Node, f func(Node) bool) {
 		}
 		for _, l := range n.Laws {
 			Inspect(l, f)
+		}
+		for _, t := range n.Terms {
+			Inspect(t.Type, f)
 		}
 		exprs(n.Union)
 	case *ErrorRow:

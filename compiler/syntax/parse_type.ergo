@@ -579,14 +579,15 @@ func parseFuncType(p mut parser, ctx int) uint32 {
 	parseSignature(p, someTok(fn), ctx, false)
 }
 
-// isMapForm reports `Map[K, V]`: an IndexExpr of two indices on the name
-// Map.
+// isMapForm reports `Map[K, V]` or `Map[K, V, H]`: an IndexExpr of two
+// or three indices on the name Map. The third is the Hashing provider by
+// which the Map finds its keys (CONSTRAINTS C5).
 func isMapForm(p mut parser, x uint32) bool {
-	kindAt(p, x) == KIndexExpr && items(p.t, x, 2) == 2 && identIs(p, fixed(p.t, x, 2, 0), "Map")
+	kindAt(p, x) == KIndexExpr && (items(p.t, x, 2) == 2 || items(p.t, x, 2) == 3) && identIs(p, fixed(p.t, x, 2, 0), "Map")
 }
 
-// mapType turns `Map[K, V]` into a MapType, in place: the two kinds share
-// their record.
+// mapType turns `Map[K, V]` and `Map[K, V, H]` into a MapType, in place:
+// the two kinds share their record.
 func mapType(p mut parser, x uint32) uint32 {
 	if isMapForm(p, x) {
 		p.t.kind[int(x)] = uint32(KMapType)
