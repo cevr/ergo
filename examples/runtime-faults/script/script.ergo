@@ -193,7 +193,7 @@ func playLab(lines []Line, clock time.Manual) []string fails BadLine needs Sched
 }
 
 // common plays a line either app has, and is what it prints.
-func common[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], l Line) []string fails BadLine {
+func common[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], l Line) []string fails BadLine {
 	let done = run(h, l.Cmd) catch {
 	case ui.NoNode as x:
 		return BadLine{Line: l.N, Why: "no node is labelled \(x.Label)"}
@@ -205,7 +205,7 @@ func common[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], l Line) []string 
 	done
 }
 
-func run[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], c Cmd) []string fails ui.NoNode | actor.Stopped | ui.BadPatch {
+func run[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], c Cmd) []string fails ui.NoNode | actor.Stopped | ui.BadPatch {
 	match c {
 	case Tap as t:
 		match ui.Find(h, t.Label) {

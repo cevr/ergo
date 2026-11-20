@@ -9,7 +9,7 @@ import ui
 let Steps = []int{1, 5, 10}
 
 // View shows c.
-func View(f *ui.Frame[counter.Op], c counter.Count) {
+func View(f mut ui.Frame[counter.Op], c counter.Count) {
 	let mut page = ui.Plain()
 	page.Gap = 12
 	page.Padding = ui.All(16)

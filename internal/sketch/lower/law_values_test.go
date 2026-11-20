@@ -12,7 +12,7 @@ import (
 // as a function's does. Mutant: lawDecl decides no copies
 // (mapcopy-law-values-off).
 func TestLawBodyCopies(t *testing.T) {
-	src := "type box { m Map[int, int] }\n\nfunc put(b *box, k int) {\n\tb.m[k] = k\n}\n\n" +
+	src := "type box { m Map[int, int] }\n\nfunc put(b mut box, k int) {\n\tb.m[k] = k\n}\n\n" +
 		"law Apart(n int) {\n\tlet mut b = box{m: Map[int, int]{}}\n\tlet before = b\n\tput(&b, n)\n\tlen(before.m) == 0\n}\n\n" +
 		"func main() {}\n"
 	p := lowerTestBuild(t, "lawcopies", src)

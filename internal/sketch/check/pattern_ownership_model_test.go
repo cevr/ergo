@@ -139,8 +139,8 @@ func ofPatternConsumers(t *testing.T, seed uint64) {
 	// every way a Seq or a function that makes one leaves the call: a let,
 	// an argument, a method value (f = q.Values; f()), a record field, a
 	// returned value and a closure's captured call. In a generic body over
-	// Queue[T] (generic) each is a copy site of T (R44): instantiated with
-	// the shape it is refused, with int it is admitted (plain).
+	// Queue[T] (generic) T is unmarked, so plain data (Generics 9): h with
+	// the shape is refused at the call, with int it is admitted.
 	escape, generic, plain := r.IntN(6), consumer == 4 && r.IntN(2) == 1, false
 	if consumer == 4 {
 		e, p, u, tp := s.typ, pattern, uses, ""
@@ -208,7 +208,7 @@ func pair() Pair { Pair{R: open(1), S: open(2)} }
 		want := "pattern"
 		switch {
 		case generic:
-			want = "h cannot take a " + s.typ + ": h copies its T"
+			want = "h cannot take " + s.typ + " as its T: T is not marked own"
 		case seqOut && escape == 2:
 			want = "q.Values is a method value of Values on q, a resource"
 		case seqOut:
@@ -257,12 +257,14 @@ func pair() Pair { Pair{R: open(1), S: open(2)} }
 // takes a value, one that lends one, one that returns an owned value, a
 // Values() Seq, and Close or none. A use is one of the six escapes of a
 // queue's Values() Seq (ofPatternConsumers) or a lend that keeps
-// nothing. The reference: a resource meets a bound only when the bound
-// has a release (a Close; an operation that takes the value keeps it and
-// releases nothing, R1/R13), every use keeps its release (a lend, or a
-// bound with Close), and a sealed queue never converts to a program's operation type: it
-// declares none (EXC1; routes 5, 6, 8, 10). Mutants:
-// 16a-r4-*, 16a-r5-*.
+// nothing. The reference: a resource binds only a type parameter marked
+// own (Generics 9; MODES-5), which routes 0 to 3 draw, and then the body's
+// escapes are its refusals, with a resource or plain data; a resource
+// meets a bound only when the bound has a release (a Close; an operation
+// that takes the value keeps it and releases nothing, R1/R13); and a
+// sealed queue never converts to a program's operation type: it declares
+// none (EXC1; routes 5, 6, 8, 10). Mutants: 16a-r4-*, 16a-r5-*,
+// modes5-unmarked-admits-resource.
 func ofGenericRoutes(t *testing.T, seed uint64) {
 	r := rand.New(rand.NewPCG(seed, 0x16a4))
 	// The seed walks every route × use × argument bit: 400 seeds reach
@@ -276,7 +278,14 @@ func ofGenericRoutes(t *testing.T, seed uint64) {
 		inst = "int"
 	}
 	escapes := use < 6
-	tp, q, et, extra := "[T]", "queue.Queue[T]", "T", ""
+	// Routes 0 to 4 and 7 mark h's T own (and outer's U, and Run's T,
+	// which stand with it) on one seed in two.
+	marked := (route <= 4 || route == 7) && r.IntN(2) == 0
+	own := ""
+	if marked {
+		own = " own"
+	}
+	tp, q, et, extra := "[T"+own+"]", "queue.Queue[T]", "T", ""
 	var elem, queueB ofBound
 	switch route {
 	case 4, 11:
@@ -288,7 +297,7 @@ func ofGenericRoutes(t *testing.T, seed uint64) {
 		}
 		elem = ofElemBound(r, inst == "TaggedC" && r.IntN(2) == 0)
 		if route == 4 {
-			tp = "[T B]"
+			tp = "[T" + own + " B]"
 		}
 	case 5, 6, 10:
 		queueB = ofQueueBound(r, escapes)
@@ -298,7 +307,7 @@ func ofGenericRoutes(t *testing.T, seed uint64) {
 		}
 	case 7:
 		elem = ofElemBound(r, true)
-		tp, inst, res = "[T B]", "TaggedC", true
+		tp, inst, res = "[T"+own+" B]", "TaggedC", true
 	case 9:
 		// A nested generic whose own type parameter, bound with Close,
 		// binds the inner body's drawn bound: one without Close is the
@@ -333,10 +342,10 @@ func ofGenericRoutes(t *testing.T, seed uint64) {
 	params, call := "q "+q, "h(q)"
 	switch route {
 	case 1:
-		helper += "func outer[U](q queue.Queue[U]) {\nh(q)\n}\n"
+		helper += "func outer[U" + own + "](q queue.Queue[U]) {\nh(q)\n}\n"
 		call = "outer(q)"
 	case 2:
-		helper += "type Run[T] { xs []T }\n"
+		helper += "type Run[T" + own + "] { xs []T }\n"
 		params, call = "r Run[T], q "+q, "Run["+inst+"]{xs: []"+inst+"{}}.h(q)"
 	case 3:
 		call = "let hv = h[" + inst + "]\nhv(q)"
@@ -392,46 +401,61 @@ func Mark(n Num) int { 3 }
 ` + elem.decl("B") + queueB.decl("QB[E]") + helper + "func h" + tp + "(" + params + ") {\n" + extra + esc + "\n}\nfunc Body() {\nlet q = queue.New[" + inst + "](1)\n" + call + "\n}\nfunc main() {}\n"
 	// The reference.
 	const (
-		copies = "copies its"                            // R44: a copy site of the type parameter
+		notOwn = "is not marked own"                     // Generics 9: a resource bound to an unmarked T
+		marks  = "is marked own"                         // Generics 9: a refusal in a marked body
 		r22    = "does not include Closer, so the value" // R22 at the instantiation
 	)
 	var wantBad bool
-	want := []string{copies}
+	want := []string{notOwn}
 	switch route {
 	case 0, 1, 2, 3:
-		wantBad = res && escapes
+		// Unmarked, the resource is refused at the call; marked, the
+		// body's escapes are refused whatever the argument.
+		wantBad = res
+		if marked {
+			wantBad, want = escapes, []string{marks, notOwn}
+		}
 	case 4:
-		// A bound without a release refuses the resource (R22); one with
-		// Close admits it, and the queue's escapes are the copy sites.
-		wantBad = res && (!elem.close || escapes)
-		if res && !elem.close {
-			want = []string{r22, copies}
+		// h's T unmarked: the resource is refused at the call, and by
+		// R22 too under a bound without a release. Marked: R22 alone
+		// decides the argument, and the body's escapes are refused.
+		wantBad, want = res, []string{notOwn, r22}
+		if marked {
+			// (vals, of use 4, binds h's own T to B: R22 there too.)
+			wantBad, want = escapes || res && !elem.close, []string{marks, notOwn, "has no release", r22}
+			if res && !elem.close {
+				want = append([]string{r22}, want...)
+			}
 		}
 	case 5, 6, 10:
 		// A queue bound has no Close (the queue has none): never a release.
-		wantBad, want = res, []string{r22, copies}
+		wantBad, want = res, []string{notOwn, r22}
 		if route == 6 {
 			// The body names the element itself: a Seq boxed in a
 			// record of it is R1/R13's own refusal too.
 			want = append(want, "has no release")
 		}
-	case 7:
+	case 7, 9:
+		// TaggedC, a resource, binds h's (or outer's) unmarked T; marked
+		// (route 7), the body's conversion of x to Tag, which has no
+		// Close, is refused there (R22).
 		wantBad = true
+		if marked {
+			// x, a read own T, is handed off by the conversion too, and
+			// an escape may bind T to an unmarked helper.
+			want = []string{marks, "is lent and handed off", notOwn}
+		}
 	case 8:
-		// Src has no Close: R22 and R44 would name the conversion, which
-		// the declared relation refuses first (below).
+		// Src has no Close: R22 would name the conversion, which the
+		// declared relation refuses first (below).
 		wantBad = res
-	case 9:
-		wantBad = escapes || !elem.close
 	case 11:
 		// The conversion: R22 refuses a resource into a bound without a
 		// release, and a value of a bound that keeps what it takes and
 		// has no Close is R1/R13's refusal, whatever converts to it.
-		wantBad = res && (escapes || !elem.close) || elem.takes && !elem.close
-		want = []string{copies, "has no release"}
-		if res && !elem.close {
-			want = []string{r22, copies, "has no release"}
-		} else if !res {
+		wantBad = res || elem.takes && !elem.close
+		want = []string{notOwn, r22, "has no release"}
+		if !res {
 			want = []string{"has no release"}
 		}
 	}
@@ -440,8 +464,8 @@ func Mark(n Num) int { 3 }
 		// The sealed queue declares none of the program's operation
 		// types, and std cannot (EXC1, q170: a value of an operation
 		// type is used as another only through an include): the
-		// declared relation refuses it first, and the copy sites it
-		// would have made may still be named.
+		// declared relation refuses it first, and the refusals it would
+		// have made may still be named.
 		wantBad, want = true, append([]string{"does not include"}, want...)
 	}
 	_, ds := checkFor(src)
@@ -454,14 +478,14 @@ func Mark(n Num) int { 3 }
 			}
 		}
 		if d.Code != CodeType || !ok {
-			t.Fatalf("generic route seed %d (ERGO_SEED=%d), route %d use %d %s: unexpected diagnostic %v\n%s", seed, seed, route, use, inst, d, src)
+			t.Fatalf("generic route seed %d (ERGO_SEED=%d), route %d use %d %s marked %v: unexpected diagnostic %v\n%s", seed, seed, route, use, inst, marked, d, src)
 		}
 		bad = true
 	}
-	// The route's own rule reports: R22 for a resource under a bound
-	// without Close, R44 for the queue's conversion.
+	// The route's own rule reports: the mark first, or the declared
+	// relation for the queue's conversion.
 	if bad != wantBad || bad && !first {
-		t.Fatalf("generic route seed %d (ERGO_SEED=%d), route %d use %d %s: bad=%v want %v (first rule reported %v)\n%s\n%v", seed, seed, route, use, inst, bad, wantBad, first, src, ds)
+		t.Fatalf("generic route seed %d (ERGO_SEED=%d), route %d use %d %s marked %v: bad=%v want %v (first rule reported %v)\n%s\n%v", seed, seed, route, use, inst, marked, bad, wantBad, first, src, ds)
 	}
 }
 

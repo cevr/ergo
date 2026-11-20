@@ -17,29 +17,30 @@ var witSeed = flag.Uint64("witness.seed", 0, "run TestKnownWitnessesAgree on thi
 var witCopy = regexp.MustCompile(`(?m)^func g[0-9]+(Counter|Log|Fixed)(_[0-9]+)?\(`)
 
 // witPrelude is every TestKnownWitnessesAgree program's operation type
-// Sink, its providers (Counter and Log through a pointer, Fixed by value)
-// and the helpers: conv passes its S to viaOps, which takes a Sink (a
-// conversion of the type parameter, which takes the witness itself), pair
+// Sink, whose operations are mut (Counter and Log write through mut T;
+// Fixed reads its value), its providers, and the helpers: conv passes its
+// read S to viaOps, which takes a Sink (a conversion of the type
+// parameter, which takes the witness itself), pair
 // has two type parameters (no copy), and Tag is the receiver of a dot
 // call. Take(77) on a Counter raises a defect.
 const witPrelude = `type Empty { at int }
 
 type Sink {
-	Put(n int),
-	Total() int,
-	Take(n int) int fails Empty,
+	mut Put(n int),
+	mut Total() int,
+	mut Take(n int) int fails Empty,
 }
 
 type Counter { sum int, puts int } implements Sink
 
-func Put(c *Counter, n int) {
+func Put(c mut Counter, n int) {
 	c.sum = c.sum + n
 	c.puts = c.puts + 1
 }
 
-func Total(c *Counter) int { c.sum }
+func Total(c mut Counter) int { c.sum }
 
-func Take(c *Counter, n int) int fails Empty {
+func Take(c mut Counter, n int) int fails Empty {
 	if n == 77 {
 		let z = []int{1}
 		c.sum = z[n]
@@ -53,11 +54,11 @@ func Take(c *Counter, n int) int fails Empty {
 
 type Log { text string } implements Sink
 
-func Put(l *Log, n int) { l.text = l.text + "+\(n)" }
+func Put(l mut Log, n int) { l.text = l.text + "+\(n)" }
 
-func Total(l *Log) int { len(l.text) }
+func Total(l mut Log) int { len(l.text) }
 
-func Take(l *Log, n int) int fails Empty {
+func Take(l mut Log, n int) int fails Empty {
 	if n > len(l.text) {
 		return Empty{at: 0 - len(l.text)}
 	}
@@ -85,11 +86,11 @@ func viaOps(s Sink, k int) int {
 	s.Total()
 }
 
-func conv[S Sink](s S, k int) int { viaOps(s, k) + s.Total() }
+func conv[S Sink](s S, k int) int { viaOps(s, k) }
 
 type Tag { n int }
 
-func pair[S lent Sink, T](s S, t T, k int) int {
+func pair[S Sink, T](s mut S, t T, k int) int {
 	s.Put(k)
 	s.Total()
 }
@@ -124,7 +125,7 @@ func (g *witGen) copyOf(j int, p string) {
 // t), and calls of pair, which has no copy and takes the witness.
 func (g *witGen) function(j int) {
 	var b strings.Builder
-	fmt.Fprintf(&b, "func g%d[S lent Sink](t Tag, s S, k int) int fails Empty {\n\tlet mut acc = %d + t.n\n", j, j)
+	fmt.Fprintf(&b, "func g%d[S Sink](t Tag, s mut S, k int) int fails Empty {\n\tlet mut acc = %d + t.n\n", j, j)
 	var passes []int
 	for n := range 2 + g.r.IntN(4) {
 		c := g.r.IntN(5)
@@ -158,10 +159,11 @@ func (g *witGen) function(j int) {
 	g.passes = append(g.passes, passes)
 }
 
-// witProviders are the arguments main passes for each provider: Counter
-// and Log through a pointer (their operations write), Fixed by value.
-// provider_property's providers pass each by value (Borrows 6).
-var witProviders = map[string]string{"Counter": "&c", "Log": "&l", "Fixed": "x"}
+// witProviders are the arguments main passes for each provider: each is
+// lent, &v, to gJ's s mut S (Sink's operations are mut; Fixed's functions
+// read their value). provider_property's providers pass each by value
+// (Borrows 6).
+var witProviders = map[string]string{"Counter": "&c", "Log": "&l", "Fixed": "&x"}
 
 // witProgram is the program of seed, the copies its lowering should
 // make, and whether it ends in a defect.
@@ -196,7 +198,7 @@ func witProgram(seed uint64, reached map[string]bool) (src string, copies int, d
 	if defect {
 		j := g.r.IntN(nf)
 		g.copyOf(j, "Counter")
-		g.funcs.WriteString("func boom[S lent Sink](s S, k int) int fails Empty {\n\ts.Put(k)\n\ttry s.Take(77)\n}\n\n")
+		g.funcs.WriteString("func boom[S Sink](s mut S, k int) int fails Empty {\n\ts.Put(k)\n\ttry s.Take(77)\n}\n\n")
 		fmt.Fprintf(&calls, "\tlet rd = g%d(Tag{n: 1}, &c, 1) catch {\n\tcase Empty as e:\n\t\te.at\n\t}\n\tlet re = boom(&c, rd) catch {\n\tcase Empty as e:\n\t\te.at\n\t}\n\tConsole.Println(\"boom \\(re)\")\n", j)
 		reached["defect"] = true
 	}
@@ -208,7 +210,7 @@ func witProgram(seed uint64, reached map[string]bool) (src string, copies int, d
 	var s strings.Builder
 	s.WriteString(witPrelude)
 	s.WriteString(g.funcs.String())
-	s.WriteString("func main() needs Console {\n\tlet mut c = Counter{sum: 0, puts: 0}\n\tlet mut l = Log{text: \"\"}\n\tlet x = Fixed{k: 4}\n")
+	s.WriteString("func main() needs Console {\n\tlet mut c = Counter{sum: 0, puts: 0}\n\tlet mut l = Log{text: \"\"}\n\tlet mut x = Fixed{k: 4}\n")
 	s.WriteString(calls.String())
 	s.WriteString("}\n")
 	n := len(g.copies) + 1 // conv's copy for Fixed
@@ -244,11 +246,11 @@ func sameDefect(on, off string) bool {
 
 // TestKnownWitnessesAgree is the seeded property of the copies for known
 // witnesses (witspec.go): each seed writes a program of generic functions
-// over an operation type Sink, [S lent Sink], that call its operations, loop,
+// over an operation type Sink, [S Sink](s mut S), that call its operations, loop,
 // fail, pass s on to an earlier function (plain or as a dot call), and use
 // the witness itself (a conversion of s to Sink at a call, a
 // call of a function of two type parameters, which has no copy); main
-// calls them on three providers (two through a pointer, one by value),
+// calls them on three providers, each lent (&v),
 // and on even seeds ends in a defect raised inside a provider's
 // operation. The lowering makes exactly the copies the generator's model
 // names (knownStats.Witnessed), each a Go function with no witness, the

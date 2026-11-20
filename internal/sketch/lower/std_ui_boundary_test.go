@@ -28,17 +28,17 @@ func await(a ui.Async[User, NotFound]) User fails NotFound | ui.Pending {
 	}
 }
 
-func bare(f *ui.Frame[int], s State) fails NotFound | ui.Pending {
+func bare(f mut ui.Frame[int], s State) fails NotFound | ui.Pending {
 	let u = try await(s.User)
 	ui.Text(f, u.Name)
 }
 
-func Spelled(f *ui.Frame[int], s State) {
+func Spelled(f mut ui.Frame[int], s State) {
 	let u = try await(s.User)
 	ui.Text(f, u.Name)
 }
 
-func InColumn(f *ui.Frame[int], s State) {
+func InColumn(f mut ui.Frame[int], s State) {
 	ui.Column(f, ui.Plain()) {
 		let u = try await(s.User)
 		ui.Text(f, u.Name)
@@ -66,9 +66,9 @@ func TestUIForgottenBoundary(t *testing.T) {
 		got = append(got, fmt.Sprintf("%s %d:%d %s", d.Code, d.Line, d.Column, d.Message))
 	}
 	want := []string{
-		"S101 24:10 {NotFound | ui.Pending} escapes function Spelled, whose error row {} does not list it; write: func Spelled(f *ui.Frame[int], s State) fails NotFound | ui.Pending",
-		"S101 29:2 {NotFound | ui.Pending} escapes function InColumn, whose error row {} does not list it; write: func InColumn(f *ui.Frame[int], s State) fails NotFound | ui.Pending",
-		"S108 38:24 cannot use func(*ui.Frame[int], State) fails NotFound | ui.Pending as func(*ui.Frame[int], State) in argument: its error row {NotFound | ui.Pending} is wider than {}",
+		"S101 24:10 {NotFound | ui.Pending} escapes function Spelled, whose error row {} does not list it; write: func Spelled(f mut ui.Frame[int], s State) fails NotFound | ui.Pending",
+		"S101 29:2 {NotFound | ui.Pending} escapes function InColumn, whose error row {} does not list it; write: func InColumn(f mut ui.Frame[int], s State) fails NotFound | ui.Pending",
+		"S108 38:24 cannot use func(mut ui.Frame[int], State) fails NotFound | ui.Pending as func(mut ui.Frame[int], State) in argument: its error row {NotFound | ui.Pending} is wider than {}",
 	}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("diagnostics:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
@@ -93,16 +93,16 @@ type Mem {} implements Store
 
 func Name(_ Mem, id int) string { "m\(id)" }
 
-func Unlisted(f *ui.Frame[int], s int) {
+func Unlisted(f mut ui.Frame[int], s int) {
 	ui.Text(f, Store.Name(s))
 }
 
-func Listed(f *ui.Frame[int], s int) needs Store {
+func Listed(f mut ui.Frame[int], s int) needs Store {
 	ui.Load(f, ui.ByInt(s), func() int needs Store { len(Store.Name(s)) })
 	ui.Text(f, Store.Name(s))
 }
 
-func show(view func(f *ui.Frame[int], s int)) {
+func show(view func(f mut ui.Frame[int], s int)) {
 	let mut f = ui.NewFrame[int]()
 	let _ = ui.Render(&f, view, 0)
 }
@@ -134,9 +134,9 @@ func TestUIViewNeeds(t *testing.T) {
 		got = append(got, fmt.Sprintf("%s %d:%d %s", d.Code, d.Line, d.Column, d.Message))
 	}
 	want := []string{
-		"S102 14:13 this call requires Store, which is not in the capability row of function Unlisted and no with provides it; write: func Unlisted(f *ui.Frame[int], s int) needs Store",
+		"S102 14:13 this call requires Store, which is not in the capability row of function Unlisted and no with provides it; write: func Unlisted(f mut ui.Frame[int], s int) needs Store",
 		"S102 33:10 this call requires Store, which is not in the capability row of function main and no with provides it; write: func main() needs Store",
-		"S108 36:8 cannot use func(*ui.Frame[int], int) needs Store as func(*ui.Frame[int], int) in argument: its capability row {Store} is wider than {}",
+		"S108 36:8 cannot use func(mut ui.Frame[int], int) needs Store as func(mut ui.Frame[int], int) in argument: its capability row {Store} is wider than {}",
 	}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("diagnostics:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
