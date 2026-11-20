@@ -96,7 +96,7 @@ func movedAll(r mut Rec, k int) int {
 `)
 	nf := 3 + g.r.IntN(3)
 	for i := 0; i < nf; i++ {
-		fmt.Fprintf(&b, "func pl%d(r *Rec, k int) int {\n\tlet mut loc = Inner{n: k, xs: []int{k, 1, 2}}\n\tif k > 2 {\n\t\tloc = Inner{n: 1, xs: []int{3, k, 5}}\n\t}\n", i)
+		fmt.Fprintf(&b, "func pl%d(r mut Rec, k int) int {\n\tlet mut loc = Inner{n: k, xs: []int{k, 1, 2}}\n\tif k > 2 {\n\t\tloc = Inner{n: 1, xs: []int{3, k, 5}}\n\t}\n", i)
 		for j, n := 0, 5+g.r.IntN(6); j < n; j++ {
 			b.WriteString("\t" + g.stmt() + "\n")
 		}

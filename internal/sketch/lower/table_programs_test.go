@@ -9,6 +9,7 @@ var (
 	_ = declarePrograms("TestScriptHeldCallFailsTheTest", testBuildProgram("scriptheld", scriptHeldProgram))
 	_ = declarePrograms("TestStdCronLawsRun", testBuildProgram("stdcron", stdCronLawsProbe))
 	_ = declarePrograms("TestStdJSONSchemaLawsRun", testBuildProgram("stdjsonschema", stdJSONSchemaLawsProbe))
+	_ = declarePrograms("TestStdMCPLawsRun", testBuildProgram("stdmcp", stdMCPLawsProbe))
 	_ = declarePrograms("TestStdLawsRun", testBuildProgram("stdlaws", stdLawsProbe))
 	_ = declarePrograms("TestStdMachinesLawsRun", testBuildProgram("stdmachines", machinesLawsProbe))
 	_ = declarePrograms("TestStdCSVLawsRun", testBuildProgram("stdcsv", stdCSVLawsProbe))

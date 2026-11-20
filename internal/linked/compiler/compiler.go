@@ -1253,7 +1253,7 @@ var ergoDecls = [...]ergoDecl{
 	{Name: "parser.parseTypeArg", File: "syntax/parse_type.ergo", Line: 664, End: 673},
 	{Name: "parser.parseContextLit", File: "syntax/parse_type.ergo", Line: 678, End: 693},
 	{Name: "parser.parseContextBody", File: "syntax/parse_type.ergo", Line: 696, End: 739},
-	{Name: "parser.keysContinue", File: "syntax/parse_type.ergo", Line: 743, End: 781},
+	{Name: "parser.keysContinue", File: "syntax/parse_type.ergo", Line: 743, End: 778},
 	{Name: "Tree.NameOf", File: "syntax/readers.ergo", Line: 10, End: 14},
 	{Name: "Tree.BasicLitOf", File: "syntax/readers.ergo", Line: 17, End: 21},
 	{Name: "Tree.SelectorExprOf", File: "syntax/readers.ergo", Line: 24, End: 29},
@@ -8135,13 +8135,13 @@ var ergoCalls = [...]ergoCall{
 	{Func: 775, Callee: 426, File: 714, Line: 734, Column: 3},
 	{Func: 775, Callee: 430, File: 714, Line: 737, Column: 2},
 	{Func: 775, Callee: 778, File: 714, Line: 738, Column: 2},
-	{Func: 779, Callee: 433, File: 714, Line: 746, Column: 6},
-	{Func: 779, Callee: 433, File: 714, Line: 750, Column: 11},
-	{Func: 779, Callee: 433, File: 714, Line: 751, Column: 33},
+	{Func: 779, Callee: 433, File: 714, Line: 745, Column: 6},
+	{Func: 779, Callee: 433, File: 714, Line: 747, Column: 11},
+	{Func: 779, Callee: 433, File: 714, Line: 748, Column: 33},
+	{Func: 779, Callee: 433, File: 714, Line: 752, Column: 6},
 	{Func: 779, Callee: 433, File: 714, Line: 755, Column: 6},
-	{Func: 779, Callee: 433, File: 714, Line: 758, Column: 6},
-	{Func: 779, Callee: 433, File: 714, Line: 761, Column: 13},
-	{Func: 779, Callee: 433, File: 714, Line: 776, Column: 6},
+	{Func: 779, Callee: 433, File: 714, Line: 758, Column: 13},
+	{Func: 779, Callee: 433, File: 714, Line: 773, Column: 6},
 	{Func: 780, Callee: 289, File: 781, Line: 11, Column: 17},
 	{Func: 782, Callee: 289, File: 781, Line: 18, Column: 17},
 	{Func: 783, Callee: 289, File: 781, Line: 25, Column: 17},
@@ -44097,45 +44097,43 @@ func (p *parser) parseCapabilityName(what string) uint32 {
 //line syntax/parse_type.ergo:743:1
 func (p *parser) keysContinue() bool {
 	/*line syntax/parse_type.ergo:744:1*/ i := 0
-	/*line syntax/parse_type.ergo:745:1*/ for {
-		/*line syntax/parse_type.ergo:746:2*/ if p.peek(i) != uint8(54) {
-			/*line syntax/parse_type.ergo:747:3*/ return false
+	/*line syntax/parse_type.ergo:745:1*/ for p.peek(i) == uint8(54) {
+		/*line syntax/parse_type.ergo:746:2*/ i = i + 1
+		/*line syntax/parse_type.ergo:747:2*/ k_1 := p.peek(i)
+		/*line syntax/parse_type.ergo:748:2*/ if k_1 != uint8(3) && !(k_1 == uint8(98) && p.peek(i+1) == uint8(55)) {
+			/*line syntax/parse_type.ergo:749:3*/ return false
 		}
-		/*line syntax/parse_type.ergo:749:2*/ i = i + 1
-		/*line syntax/parse_type.ergo:750:2*/ k_1 := p.peek(i)
-		/*line syntax/parse_type.ergo:751:2*/ if k_1 != uint8(3) && !(k_1 == uint8(98) && p.peek(i+1) == uint8(55)) {
-			/*line syntax/parse_type.ergo:752:3*/ return false
+		/*line syntax/parse_type.ergo:751:2*/ i = i + 1
+		/*line syntax/parse_type.ergo:752:2*/ if p.peek(i) == uint8(55) {
+			/*line syntax/parse_type.ergo:753:3*/ i = i + 2
 		}
-		/*line syntax/parse_type.ergo:754:2*/ i = i + 1
-		/*line syntax/parse_type.ergo:755:2*/ if p.peek(i) == uint8(55) {
-			/*line syntax/parse_type.ergo:756:3*/ i = i + 2
-		}
-		/*line syntax/parse_type.ergo:758:2*/ if p.peek(i) == uint8(52) {
-			/*line syntax/parse_type.ergo:759:3*/ depth := 0
-			/*line syntax/parse_type.ergo:760:3*/ for {
-				/*line syntax/parse_type.ergo:761:4*/ b := p.peek(i)
-				/*line syntax/parse_type.ergo:762:4*/ if b == uint8(52) {
-					/*line syntax/parse_type.ergo:763:5*/ depth = depth + 1
+		/*line syntax/parse_type.ergo:755:2*/ if p.peek(i) == uint8(52) {
+			/*line syntax/parse_type.ergo:756:3*/ depth := 0
+			/*line syntax/parse_type.ergo:757:3*/ for {
+				/*line syntax/parse_type.ergo:758:4*/ b := p.peek(i)
+				/*line syntax/parse_type.ergo:759:4*/ if b == uint8(52) {
+					/*line syntax/parse_type.ergo:760:5*/ depth = depth + 1
 				} else {
-					/*line syntax/parse_type.ergo:764:11*/ if b == uint8(57) {
-						/*line syntax/parse_type.ergo:765:5*/ depth = depth - 1
+					/*line syntax/parse_type.ergo:761:11*/ if b == uint8(57) {
+						/*line syntax/parse_type.ergo:762:5*/ depth = depth - 1
 					} else {
-						/*line syntax/parse_type.ergo:766:11*/ if b == uint8(1) {
-							/*line syntax/parse_type.ergo:767:5*/ return false
+						/*line syntax/parse_type.ergo:763:11*/ if b == uint8(1) {
+							/*line syntax/parse_type.ergo:764:5*/ return false
 						}
 					}
 				}
-				/*line syntax/parse_type.ergo:769:4*/ if depth == 0 {
-					/*line syntax/parse_type.ergo:770:5*/ i = i + 1
-					/*line syntax/parse_type.ergo:771:5*/ break
+				/*line syntax/parse_type.ergo:766:4*/ if depth == 0 {
+					/*line syntax/parse_type.ergo:767:5*/ i = i + 1
+					/*line syntax/parse_type.ergo:768:5*/ break
 				}
-				/*line syntax/parse_type.ergo:773:4*/ i = i + 1
+				/*line syntax/parse_type.ergo:770:4*/ i = i + 1
 			}
 		}
-		/*line syntax/parse_type.ergo:776:2*/ if p.peek(i) == uint8(60) {
-			/*line syntax/parse_type.ergo:777:3*/ return true
+		/*line syntax/parse_type.ergo:773:2*/ if p.peek(i) == uint8(60) {
+			/*line syntax/parse_type.ergo:774:3*/ return true
 		}
 	}
+	/*line syntax/parse_type.ergo:777:1*/ return false
 }
 
 //line syntax/parse_type.ergo:744

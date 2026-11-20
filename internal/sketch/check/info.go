@@ -846,6 +846,10 @@ const (
 	// (narrowsRowParams): the type's function narrows each such row value to
 	// its one type and calls the value.
 	ConvNarrow
+	// ConvWiden puts a value of a declared union into a declared union
+	// that holds each of its variants (types.md, Assignability 4;
+	// DECL-VALUES Design B (b)): the value is the same variant.
+	ConvWiden
 )
 
 // Conversion is an implicit conversion at an assignment site: From's value

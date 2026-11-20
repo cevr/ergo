@@ -203,7 +203,7 @@ func (t factTable) of(info *check.Info, x syntax.Expr) *facts {
 	f.releases, f.match = info.Releases[x], info.Matches[x]
 	f.op = opOf(x, f)
 	f.plain = f.ctx == nil && !f.covered && f.owned == nil && len(f.elems) == 0 &&
-		(!f.hasConv || f.conv.Kind == check.ConvVariant || f.conv.Kind == check.ConvRow || f.conv.Kind == check.ConvNarrow)
+		(!f.hasConv || f.conv.Kind == check.ConvVariant || f.conv.Kind == check.ConvRow || f.conv.Kind == check.ConvNarrow || f.conv.Kind == check.ConvWiden)
 	t.put(k, f)
 	return f
 }

@@ -10,6 +10,13 @@ This file is the dated log of the owner's decisions for Ergo, newest first. A de
   - Every gap of the audit (G1 to G13) gets a design page, in the lane that owns its area.
   - In the same hour, on contexts: "Context carries its failure row" (q254); "In that same line, it should probably also carry its requirements, right?". On roles: "wouldn't a law generic save both declarations and kind of allow for minor differences".
 
+## Decided by principle, 2026-11-20
+
+- **A catch arm names an error type (2026-11-20, orchestrator ruling, wf10 INFER-CATCH; reversible, for the owner to read).** A type that a catch arm tests, `case T`, `case T as e` or `case T{…}`, is an error type of the arm's body owner, read before bodies as a `fails` row is ([types.md](spec/types.md#error-types), Error types 1). Before this, `o.OrFail(Gone) catch { case Gone: … }` and `one(Gone) catch { case Gone: 1 }` were S108 of inference: no error row named `Gone`, so the failure parameter `F` could not bind it. This is the form every `OrFail` user writes.
+  - Decided by the tiebreak guarantees > composability > consistency > simplicity. No guarantee is lost: Catch 2 still makes an arm whose type is not in the caught row S108. It is consistent with Catch 2, which already requires the arm to name a row member. It removes the ceremony of writing a `fails` row only to name the type.
+  - Refused: "inference names" (a value argument bound to a failure parameter names its type). The error-type set would then depend on the order in which bodies are checked.
+  - Reverse: drop the arm case from the checker's pre-pass (collectBodyErrorRows).
+
 ## Owner direction, 2026-11-19
 
 - **Any declaration may shadow a prelude name (2026-11-19, owner q244).** The owner: "Allow shadowing". User declarations may shadow built-in and prelude names at any level, as in Go; don't rename to dodge a built-in name. This replaces the eighth round's item 3 (D-D3, "a prelude name cannot be redeclared") and widens q30 (L6), which allowed only a package type. Decided:

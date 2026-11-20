@@ -92,6 +92,14 @@ type testLowering struct {
 	importLaws []check.LawRun
 }
 
+// testLoweringOf is the record of a test build of u, the one every test
+// entry point takes, text and IR (LAW-RUNS-PARITY): the unit's site
+// instances, post laws and imported law runs, and nothing emitted yet. A
+// record built without them would run none of them, silently.
+func testLoweringOf(u Unit) *testLowering {
+	return &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}, instances: u.Instances, posts: u.Posts, importLaws: u.ImportLaws}
+}
+
 // fresh is a record for a lowering that starts again (a round of
 // lowerIRRounds, flatunion.go lowerAgain): the unit's inputs t was made
 // with, and nothing a lowering emitted or set; nil for nil.
@@ -128,7 +136,7 @@ func lowerTestParts(u Unit) ([]byte, []File, error) {
 
 // newTestLowerer is the lowerer of u's test binary.
 func newTestLowerer(u Unit) *lowerer {
-	return newBuildLowerer(u, &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}, instances: u.Instances, posts: u.Posts, importLaws: u.ImportLaws})
+	return newBuildLowerer(u, testLoweringOf(u))
 }
 
 // testHelpers are the harness's package-scope entities: key and preferred
@@ -2271,7 +2279,7 @@ func int64Bits(v *big.Int) string {
 // union t or the members of the row value t: at d <= 0 one of least rank,
 // else any, each equally likely.
 func (l *lowerer) genPick(body *strings.Builder, t check.Type, variants []check.Type, r, d string, scope *namer, site syntax.Node) {
-	small := testplan.SmallVariants(variants)
+	small := testplan.SmallVariants(l.pkg.Builder, variants)
 	if len(small) == 0 {
 		ice(site, "the union %s has no finite value; the checker admits only generatable types", t)
 	}
