@@ -23,7 +23,7 @@ func defined() Mine {
 }
 
 test Generated(a slices.Ascending[int]) { // want S108
-	assert len(a.Items()) >= 0
+	let _ = a.Items()
 }
 
 // The ways in that build no unsorted value check clean: Ascend, a copy, a

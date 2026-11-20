@@ -9,6 +9,24 @@
       "to": "\tcase stage1 || !behind:\n",
       "rule": "New syntax on the same node layout (a line the linked parser refuses) takes two stages under -bootstrap, and a plain run is refused with the instruction.",
       "killers": ["scripts/linked:TestNewSyntaxOnTheSameLayoutTakesTwoStages"]
+    },
+    {
+      "name": "linked-choose-ignores-refusals",
+      "origin": "wf10 LINKED-BOOTSTRAP-2",
+      "file": "scripts/linked/main.go",
+      "from": "\t\tif best < 0 || p.refused < ps[best].refused {\n",
+      "to": "\t\tif best < 0 {\n",
+      "rule": "Stage 1 regenerates with the candidate linked parser that refuses the fewest lines: a merge's side that carries the new syntax, not one whose hold-back takes a declaration std needs.",
+      "killers": ["scripts/linked:TestStageOneTakesTheParserThatReadsTheTree"]
+    },
+    {
+      "name": "linked-choose-unreadable-layout",
+      "origin": "wf10 LINKED-BOOTSTRAP-2",
+      "file": "scripts/linked/main.go",
+      "from": "\t\tif p.refused < 0 || p.layout != syntax.ColumnsVersion && p.layout != syntax.PreviousColumnsVersion {\n",
+      "to": "\t\tif p.refused < 0 {\n",
+      "rule": "Stage 1 never regenerates with a linked parser whose layout the decoder does not read.",
+      "killers": ["scripts/linked:TestStageOneTakesTheParserThatReadsTheTree"]
     }
   ]
 }

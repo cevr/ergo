@@ -32,7 +32,7 @@ test Spans(s Span) {
 }
 
 test Nested(xss [][]string, m Map[int, []bool]) {
-	assert len(xss) >= 0 && len(m) >= 0
+	let _ = len(xss) + len(m)
 }
 
 func main() needs Console {

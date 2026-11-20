@@ -104,6 +104,7 @@ func ownerOf(t *etask) *entryRef {
 func registerRunnerkids(t nativeTables) {
 	natives := t.std
 	stoppedOf := func(fn *check.Func) *check.Named { return stdRecord(fn, "Stopped", nil).t }
+	t.reads["actor.NewHost"] = ""
 	natives["actor.NewHost"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		if ab := in.build(fr, at, 1, 2, 0); ab != nil {
 			return nil, ab
@@ -122,9 +123,11 @@ func registerRunnerkids(t nativeTables) {
 		h.state = hostClosed // no entry owns it
 		return h, nil
 	}
+	t.reads["actor.noHost"] = ""
 	natives["actor.noHost"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return &hostV{none: true, state: hostClosed, stopped: stoppedOf(fn)}, nil
 	}
+	t.reads["actor.child"] = "host:actor.Host T func/2 func/2 func/1 func/1 func/1 func/2 func/1 func/1 func/1 func/2 func/2 int64"
 	natives["actor.child"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return in.actorChild(fr, at, fn, args)
 	}

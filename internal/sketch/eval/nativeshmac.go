@@ -45,6 +45,7 @@ func registerNativeshmac(t nativeTables) {
 			return out, nil
 		}
 	}
+	t.reads["hmac.keyState"] = "int64 string"
 	natives["hmac.keyState"] = run(func(a []Value) Value {
 		newHash, block := hashOf(a[0].(int64))
 		key := []byte(a[1].(string))
@@ -87,6 +88,7 @@ func registerNativeshmac(t nativeTables) {
 		return newSlice(out)
 	}
 	hmacKeyState := natives["hmac.keyState"]
+	t.reads["totp.keyState"] = "string"
 	natives["totp.keyState"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		v, ab := hmacKeyState(in, fr, at, fn, []Value{int64(1), args[0]})
 		if ab != nil {
@@ -95,6 +97,7 @@ func registerNativeshmac(t nativeTables) {
 		st := v.(tuple)
 		return tuple{elems: []Value{sliceOf(st.elems[0].(string)), sliceOf(st.elems[1].(string))}}, nil
 	}
+	t.reads["totp.hotpNumber"] = "sliceV sliceV int64"
 	natives["totp.hotpNumber"] = run(func(a []Value) Value {
 		resume := func(s []byte) hash.Hash {
 			d := sha1.New()
@@ -113,6 +116,7 @@ func registerNativeshmac(t nativeTables) {
 		off := h[len(h)-1] & 15
 		return int64(binary.BigEndian.Uint32(h[off:off+4]) & 0x7fffffff)
 	})
+	t.reads["hmac.keyedSum"] = "int64 string string string"
 	natives["hmac.keyedSum"] = run(func(a []Value) Value {
 		newHash, _ := hashOf(a[0].(int64))
 		resume := func(s string) hash.Hash {
