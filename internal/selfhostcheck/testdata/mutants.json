@@ -690,7 +690,7 @@
       "origin": "wf10/selfhost/S4-PORT S4c9",
       "file": "compiler/lower/lower.ergo",
       "from": "if (from == \"float32\" || from == \"float64\") && toInt {",
-      "to": "if false {",
+      "to": "if toInt && false {",
       "rule": "A float converted to an integer goes through the runtime's checked helper (lower's floatToInteger), never a plain conv.",
       "killers": [
         "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
