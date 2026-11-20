@@ -512,22 +512,59 @@ func commitCopy(dst string, files []treeFile) error {
 }
 
 // verifyCopy checks that every file a mutant touched in the copy at dst is
-// back to the checkout's bytes.
-func (e *engine) verifyCopy(dst string, touched map[string]bool) error {
-	var bad []string
+// back to the checkout's bytes: a file a row edited (mutated), and every
+// file under a regenerate step's folder, which restoreUnder rewrote after
+// the step (for `go run ./scripts/linked`, the whole tree). A file of the
+// second kind that differs at the end was written after its restore, by a
+// test or step that ran in the copy, not left by a mutant: each is named
+// with its first differing line.
+func (e *engine) verifyCopy(dst string, touched, mutated map[string]bool) error {
+	var unrestored, written []string
 	for _, f := range e.files {
 		if !touched[f.path] {
 			continue
 		}
 		data, err := os.ReadFile(filepath.Join(dst, filepath.FromSlash(f.path)))
-		if err != nil || !bytes.Equal(data, f.data) {
-			bad = append(bad, f.path)
+		if err == nil && bytes.Equal(data, f.data) {
+			continue
+		}
+		what := f.path + " (" + firstDiff(f.data, data, err) + ")"
+		if mutated[f.path] {
+			unrestored = append(unrestored, what)
+		} else {
+			written = append(written, what)
 		}
 	}
-	if len(bad) > 0 {
-		return fmt.Errorf("a mutant was not restored: %s in %s differs from the checkout", strings.Join(bad, ", "), dst)
+	var errs []error
+	if len(unrestored) > 0 {
+		errs = append(errs, fmt.Errorf("a mutant was not restored in %s: %s", dst, strings.Join(unrestored, "; ")))
 	}
-	return nil
+	if len(written) > 0 {
+		errs = append(errs, fmt.Errorf("a test or step wrote a file of the checkout in the copy %s after the runner restored it (no row edits it): %s", dst, strings.Join(written, "; ")))
+	}
+	return errors.Join(errs...)
+}
+
+// firstDiff is the first line where the copy's bytes (got, or its read
+// error) differ from the checkout's (want).
+func firstDiff(want, got []byte, err error) string {
+	if err != nil {
+		return "in the copy: " + err.Error()
+	}
+	w, g := strings.Split(string(want), "\n"), strings.Split(string(got), "\n")
+	for i := 0; i < max(len(w), len(g)); i++ {
+		var a, b string
+		if i < len(w) {
+			a = w[i]
+		}
+		if i < len(g) {
+			b = g[i]
+		}
+		if a != b || i >= len(w) || i >= len(g) {
+			return fmt.Sprintf("line %d: checkout %.120q, copy %.120q", i+1, a, b)
+		}
+	}
+	return "same lines, other bytes"
 }
 
 // env is the environment of every child: the runner's own, with the
@@ -1172,7 +1209,7 @@ func (e *engine) measureOne(ctx context.Context, root, bin string, t *covTest, i
 	}
 	if o = neverRan(o); o.reason != "" {
 		t.Failed = true
-		t.Detail = o.reason + ": " + lastLines(o.tail, 20)
+		t.Detail = baseDetail(o)
 		e.logf("coverage: %s fails on the unmutated tree (%s): it kills nothing", t.ID, o.reason)
 	}
 	entries, err := os.ReadDir(dir)
