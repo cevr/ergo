@@ -18,7 +18,7 @@ type NoDeps {}
 type DepsFailed { Command string, Status int, Stderr string }
 
 // DepsRun is what the deps step of new or sync did.
-type DepsRun = Installed | Unchanged | NoDeps | Untrusted | DepsFailed
+type DepsRun = DepsDone | Untrusted | DepsFailed
 
 // DepsDone is what work deps did when it did not fail.
 type DepsDone = Installed | Unchanged | NoDeps
@@ -77,11 +77,7 @@ func Deps(t Tool, o DepsOptions) DepsDone fails NoBase | NotHere | NoWorkspace |
 		u
 	case DepsFailed as f:
 		f
-	case Installed as i:
+	case DepsDone as i:
 		i
-	case Unchanged as u:
-		u
-	case NoDeps as n:
-		n
 	}
 }
