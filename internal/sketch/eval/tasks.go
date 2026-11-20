@@ -21,6 +21,7 @@ type drainer interface{ drain() []Value }
 
 func registerTasks(t nativeTables) {
 	natives := t.std
+	t.reads["task.Go"] = "func/0"
 	natives["task.Go"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		c, ok := args[0].(*closure)
 		if !ok {
@@ -34,6 +35,7 @@ func registerTasks(t nativeTables) {
 		in.handCaptures(fr, c)
 		return &taskV{t: t}, nil
 	}
+	t.reads["scope.OnExit"] = "func/0"
 	natives["scope.OnExit"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		c, ok := args[0].(*closure)
 		if !ok {
@@ -46,6 +48,7 @@ func registerTasks(t nativeTables) {
 		fr.frameOwn.list = append(fr.frameOwn.list, e)
 		return unit{}, nil
 	}
+	t.reads["queue.New"] = "int64"
 	natives["queue.New"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		n := args[0].(int64)
 		if n < 0 {
@@ -78,10 +81,15 @@ func registerTasks(t nativeTables) {
 			return d / n, nil
 		}
 	}
+	t.reads["time.Divide"] = "int64 int64"
 	natives["time.Divide"] = quotient("Divide")
+	t.reads["time.Count"] = "int64 int64"
 	natives["time.Count"] = quotient("Count")
+	t.reads["time.newTimeline"] = "int64 int64"
 	natives["time.newTimeline"] = timeline(false)
+	t.reads["testing.newLine"] = "int64 int64"
 	natives["testing.newLine"] = timeline(true)
+	t.reads["tasks.newSet"] = "int64 int64"
 	natives["tasks.newSet"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		kind, limit := args[0].(int64), args[1].(int64)
 		if kind == 1 {
@@ -92,6 +100,7 @@ func registerTasks(t nativeTables) {
 		}
 		return &setV{restart: kind == 2, limit: limit, owner: in.cur, closed: stdRecord(fn, "Closed", nil).t}, nil
 	}
+	t.reads["tasks.Go"] = "host:tasks.Set func/0"
 	natives["tasks.Go"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		set, ok := args[0].(*setV)
 		if !ok {
