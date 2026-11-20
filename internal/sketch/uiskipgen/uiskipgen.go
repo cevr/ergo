@@ -198,7 +198,7 @@ func shown(f mut ui.Frame[int], n int) {
 func tallied() needs Console {
 	let mut f = ui.NewFrame[int]()
 	let mut c = Counter{N: 0}
-	let view = func(g mut ui.Frame[int], _ int) { shown(g, tally(&c)) }
+	let view = func(g mut ui.Frame[int], s int) { shown(g, tally(&c)) }
 	for _ in 0..4 {
 		let _ = ui.Render(&f, view, 0)
 	}
@@ -604,7 +604,7 @@ func cutKept(f mut ui.Frame[int], s St) {
 func pointers(ns []int) needs Console {
 	let mut f = ui.NewFrame[int]()
 	let mut c = Counter{N: 0}
-	let view = func(g mut ui.Frame[int], _ int) { counted(g, &c) }
+	let view = func(g mut ui.Frame[int], s int) { counted(g, &c) }
 	for n in ns {
 		c.N = n
 		let ops = ui.Render(&f, view, 0)
