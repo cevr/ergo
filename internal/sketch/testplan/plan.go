@@ -122,6 +122,10 @@ type Plan struct {
 	Count  int
 	Listed bool
 	Reason string
+	// Native names a provider whose operations call Go (LawProvider.Native):
+	// only the test binary's law case builds it, so the plan runs natively
+	// and the check-time evaluator reports it native.
+	Native string
 }
 
 func makePlan(inputs []Input) Plan {
@@ -130,6 +134,9 @@ func makePlan(inputs []Input) Plan {
 		if in.Provider != nil {
 			if in.Provider.Unrun != "" {
 				p.Reason = in.Provider.Unrun
+			}
+			if in.Provider.Native && p.Native == "" {
+				p.Native = in.Provider.Type.Obj.Name
 			}
 			if in.Provider.Ctor != nil {
 				p.Listed = false
