@@ -1,0 +1,8 @@
+# scripts/opcount: `tailbench bench chain N` makes N calls of a chain of
+# four fallible functions, each returning the next one's call (INLINE-RETURN),
+# its failures caught in the loop. The control is the same functions in hand
+# Go, each returning (int, error), and a type switch on the error.
+unit call
+sizes 409600 2457600
+args bench chain {n}
+control benchmarks/tailcall/testdata/control
