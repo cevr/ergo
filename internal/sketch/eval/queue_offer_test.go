@@ -39,7 +39,7 @@ test Sliding(xs []int, c int) {
 	let capacity = 1 + (c % 4 + 4) % 4
 	let q = queue.New[int](capacity)
 	for x in xs {
-		try queue.Slide(q, x)
+		try q.Slide(x)
 	}
 	q.End()
 	let from = if len(xs) > capacity { len(xs) - capacity } else { 0 }

@@ -23,14 +23,14 @@ func New(n int) Screen {
 type Marked = Page{Index int} | OutOfRange{}
 
 // Draw writes line i of the buffer; a line past the end is ignored.
-func Draw(s *Screen, i int, text string) {
+func Draw(s mut Screen, i int, text string) {
 	if i >= 0 && i < len(s.lines) {
 		s.lines[i] = text
 	}
 }
 
 // Mark keeps lines from to to (not included) as a page.
-func Mark(s *Screen, from int, to int) Marked {
+func Mark(s mut Screen, from int, to int) Marked {
 	if from < 0 || to > len(s.lines) || from > to {
 		return OutOfRange
 	}

@@ -29,7 +29,7 @@ func work(s int) Option[func(send func(e int))] {
 	None
 }
 
-func view(f *ui.Frame[int], s int) {
+func view(f mut ui.Frame[int], s int) {
 	ui.Column(f, ui.Plain()) {
 		ui.Text(f, "at \(s)")
 		ui.Pressable(f, "add", 1) {

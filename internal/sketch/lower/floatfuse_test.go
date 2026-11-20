@@ -75,7 +75,7 @@ func floatFuseProgram(r *rand.Rand, reached map[string]bool) (string, int) {
 		form := floatFuseForms[r.IntN(len(floatFuseForms))]
 		reached[form] = true
 		rec := "Rec" + t
-		fmt.Fprintf(&b, "func f%d(a %s, b %s, c %s, p *%s) %s {\n", i, t, t, t, rec, t)
+		fmt.Fprintf(&b, "func f%d(a %s, b %s, c %s, p mut %s) %s {\n", i, t, t, t, rec, t)
 		// prod is a product of floats the form writes, beside expr's.
 		prod := func() string {
 			products++

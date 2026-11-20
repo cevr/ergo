@@ -1,0 +1,141 @@
+import strconv
+import strings
+
+// Kind is one IR row kind: the k text the IR file writes ("" for a switch
+// case, which has none), its struct type, and its slots: the indices in
+// Fields(Class) of the fields it may set, in increasing order. A field
+// outside the slots is always Go's zero value.
+//
+// The table is S4b's census of every IR file ergo build writes for the
+// examples (selfhost/S4b/kinds.txt): 49 kinds, at most 7 slots. The Go
+// host refuses a node that sets a field outside its kind's slots, so a
+// field the Go builder starts to set turns TestIRWriteAgreesWithGo red
+// until the table has it (the freeze of capstone §2).
+type Kind { Name string, Quoted string, Class uint8, Slots []uint8 }
+
+func k(name string, class uint8, slots []uint8) Kind {
+	Kind{Name: name, Quoted: Quote(name), Class: class, Slots: slots}
+}
+
+// The slots name exprFields by index: 2 i, 3 t, 4 v, 5 op, 6 x, 7 y,
+// 8 name, 9 args, 10 elems, 11 keys, 12 params, 13 body, 14 end; and
+// stmtFields: 2 local, 3 key, 4 val, 5 x, 6 then, 7 else, 8 body, 9 end,
+// 10 epos, 11 eend, 12 op, 13 cases, 14 label, 15 y, 16 ls; caseFields:
+// 1 types, 2 body, 3 vals, 4 def. The kind's code is its index; 0 is no
+// kind.
+let kinds = []Kind{
+	k("", 0, []uint8{}),
+	k("", TCase, []uint8{1, 2, 3, 4}),
+	k("local", TExpr, []uint8{2}),
+	k("const", TExpr, []uint8{3, 4, 5}),
+	k("field", TExpr, []uint8{6, 8}),
+	k("mcall", TExpr, []uint8{6, 8, 9}),
+	k("lit", TExpr, []uint8{3, 10, 11}),
+	k("zero", TExpr, []uint8{3}),
+	k("bin", TExpr, []uint8{5, 6, 7}),
+	k("call", TExpr, []uint8{3, 8, 9}),
+	k("pcall", TExpr, []uint8{3, 4, 5, 8, 9}),
+	k("index", TExpr, []uint8{6, 7}),
+	k("assert", TExpr, []uint8{3, 6}),
+	k("nil", TExpr, []uint8{3}),
+	k("len", TExpr, []uint8{6}),
+	k("addr", TExpr, []uint8{6}),
+	k("append", TExpr, []uint8{9}),
+	k("conv", TExpr, []uint8{3, 6}),
+	k("toiface", TExpr, []uint8{3, 6}),
+	k("un", TExpr, []uint8{5, 6}),
+	k("func", TExpr, []uint8{3, 12, 13, 14}),
+	k("vcall", TExpr, []uint8{6, 9}),
+	k("global", TExpr, []uint8{8}),
+	k("mapAt", TExpr, []uint8{6, 7}),
+	k("deref", TExpr, []uint8{6}),
+	k("builtin", TExpr, []uint8{8, 9}),
+	k("slice", TExpr, []uint8{6, 9}),
+	k("result", TExpr, []uint8{2}),
+	k("recover", TExpr, []uint8{}),
+	k("def", TStmt, []uint8{2, 5}),
+	k("ret", TStmt, []uint8{5}),
+	k("if", TStmt, []uint8{5, 6, 7, 9, 10, 11}),
+	k("set", TStmt, []uint8{2, 5, 12}),
+	k("expr", TStmt, []uint8{5}),
+	k("store", TStmt, []uint8{5, 12, 15}),
+	k("fail", TStmt, []uint8{5}),
+	k("goto", TStmt, []uint8{14}),
+	k("switch", TStmt, []uint8{5, 7, 9, 10, 13}),
+	k("block", TStmt, []uint8{8, 9, 14}),
+	k("panic", TStmt, []uint8{5}),
+	k("def2", TStmt, []uint8{2, 4, 5}),
+	k("discard", TStmt, []uint8{5}),
+	k("var", TStmt, []uint8{2}),
+	k("range", TStmt, []uint8{3, 4, 5, 8, 9, 14}),
+	k("tswitch", TStmt, []uint8{5, 7, 9, 10, 13}),
+	k("count", TStmt, []uint8{2, 5, 8, 9, 15}),
+	k("while", TStmt, []uint8{5, 8, 9, 14}),
+	k("mapget", TStmt, []uint8{2, 4, 5, 15}),
+	k("continue", TStmt, []uint8{}),
+	k("break", TStmt, []uint8{14}),
+	k("tdef", TStmt, []uint8{5, 16}),
+	k("defer", TStmt, []uint8{5}),
+}
+
+// NumKinds is the number of kind codes, the no-kind 0 included.
+func NumKinds() int { len(kinds) }
+
+// KindOf is the kind whose code is c; c must be below NumKinds.
+func KindOf(c uint8) Kind { kinds[int(c)] }
+
+// Slot is the word of row id's j-th slot (the kind's Slots[j]): a or b for
+// a kind of at most two slots, else a for the first and Extra from the
+// offset in b for the others, of a kind of n slots. b outside Extra is
+// Malformed.
+func Slot(body mut Body, id int, j int, n int) uint32 fails Malformed {
+	if j == 0 {
+		return body.A[id-1]
+	}
+	if n <= 2 {
+		return body.B[id-1]
+	}
+	let at = int(body.B[id-1]) + j - 1
+	if at <= 0 || at >= len(body.Extra) {
+		return Malformed{At: id, Why: "slots past the extra pool"}
+	}
+	body.Extra[at]
+}
+
+// Table is the kinds as text for a host that packs rows: a line per kind,
+// "code class name|slot,slot,...", the case's name empty.
+func Table() string {
+	let mut b = strings.NewBuilder()
+	for c in 1..len(kinds) {
+		let x = kinds[c]
+		b.WriteString(strconv.Itoa(c) + " " + strconv.Itoa(int(x.Class)) + " " + x.Name + "|")
+		for j in 0..len(x.Slots) {
+			if j > 0 {
+				b.WriteByte(',')
+			}
+			b.WriteString(strconv.Itoa(int(x.Slots[j])))
+		}
+		b.WriteByte('\n')
+	}
+	b.String()
+}
+
+// SlotsAreFields: every kind but 0 has a struct type of rows, distinct
+// names within its type, and slots that are fields of that type, past
+// its kind and position, in increasing order; and a code is a byte.
+law SlotsAreFields(c uint8) {
+	let n = NumKinds()
+	let i = int(c) % n
+	let x = kinds[i]
+	let fs = Fields(x.Class)
+	let first = if x.Class == TCase { 1 } else { 2 }
+	let mut ok = n <= 256 && (i == 0) == (len(fs) == 0)
+	for j in 0..len(x.Slots) {
+		let s = int(x.Slots[j])
+		ok = ok && s >= first && s < len(fs) && (j == 0 || int(x.Slots[j-1]) < s)
+	}
+	for o in 1..n {
+		ok = ok && (o == i || i == 0 || kinds[o].Class != x.Class || kinds[o].Name != x.Name)
+	}
+	ok
+}

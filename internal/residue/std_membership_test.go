@@ -75,7 +75,7 @@ func TestCompilerReadsNoStdMembership(t *testing.T) {
 var stdScanDirs = []string{
 	"internal/sketch/check", "internal/sketch/lower", "internal/sketch/eval",
 	"internal/sketch/lint", "internal/sketch/derive", "internal/sketch/build",
-	"internal/sketch/format", "internal/sketchfront", "internal/tsproj",
+	"internal/hostsyntax", "internal/sketchfront", "internal/tsproj",
 	"internal/rpcgen", "cmd/ergo",
 }
 

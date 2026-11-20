@@ -22,6 +22,8 @@ func Edit(l Line, k term.Key) Decision[Line, Never] {
 		Stay[Line]{Next: Line{Text: dropLast(l.Text)}}
 	case term.Return, term.Tab, term.Escape, term.Up, term.Down, term.Left, term.Right, term.Interrupt, term.EndOfInput, term.Other:
 		Ignore
+	case term.Home, term.End, term.Insert, term.Delete, term.PageUp, term.PageDown, term.F, term.Chord, term.Paste, term.Wheel, term.Resized:
+		Ignore
 	}
 }
 
@@ -78,6 +80,8 @@ func Intent(k term.Key, p agent.Phase) Action {
 		Type{Key: k}
 	case (_, term.Return), (_, term.Tab), (_, term.Up), (_, term.Down), (_, term.Left), (_, term.Right), (_, term.Other):
 		Nothing
+	case (_, term.Home), (_, term.End), (_, term.Insert), (_, term.Delete), (_, term.PageUp), (_, term.PageDown), (_, term.F), (_, term.Chord), (_, term.Paste), (_, term.Wheel), (_, term.Resized):
+		Nothing
 	}
 }
 
@@ -108,6 +112,8 @@ func Name(k term.Key) string {
 	case term.Char as c:
 		c.Text
 	case term.Backspace, term.Tab, term.Up, term.Down, term.Left, term.Right, term.EndOfInput, term.Other:
+		"?"
+	case term.Home, term.End, term.Insert, term.Delete, term.PageUp, term.PageDown, term.F, term.Chord, term.Paste, term.Wheel, term.Resized:
 		"?"
 	}
 }

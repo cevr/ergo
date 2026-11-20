@@ -7,9 +7,9 @@ type Shape[E] { Node Node[E], Kids []Shape[E] }
 
 // FrameShape is what f's last pass wrote, the children of the root; a
 // Same the pass skipped (UC-4) wrote the subtree it kept.
-func FrameShape[E](f *Frame[E]) []Shape[E] { frameShapes(f, -1) }
+func FrameShape[E](f mut Frame[E]) []Shape[E] { frameShapes(f, -1) }
 
-func frameShapes[E](f *Frame[E], p int) []Shape[E] {
+func frameShapes[E](f mut Frame[E], p int) []Shape[E] {
 	let mut out = []Shape[E]{}
 	let ks = kidNodes(f, p)
 	for j, s in ks.spec {
@@ -24,9 +24,9 @@ func frameShapes[E](f *Frame[E], p int) []Shape[E] {
 }
 
 // TreeShape is what f's retained tree holds, the children of the root.
-func TreeShape[E](f *Frame[E]) []Shape[E] { treeShapes(f, nodeAt(f, f.root).kids) }
+func TreeShape[E](f mut Frame[E]) []Shape[E] { treeShapes(f, nodeAt(f, f.root).kids) }
 
-func treeShapes[E](f *Frame[E], refs []arena.Ref[node[E]]) []Shape[E] {
+func treeShapes[E](f mut Frame[E], refs []arena.Ref[node[E]]) []Shape[E] {
 	let mut out = []Shape[E]{}
 	for r in refs {
 		let n = nodeAt(f, r)
@@ -85,7 +85,7 @@ func NewMirror[E](root Id[E]) Mirror[E] {
 // half a change, and a host can resync without guessing). A Remove takes
 // its subtree out of the map at once, so a later op of the patch cannot
 // name it, and frees its entries only when the whole patch fits.
-func Apply[E](m *Mirror[E], ops []Op[E]) fails BadPatch {
+func Apply[E](m mut Mirror[E], ops []Op[E]) fails BadPatch {
 	let mut done = []undo[E]{}
 	for op in ops {
 		let u = applyOp(m, op) catch {
@@ -119,7 +119,7 @@ type undo[E] = undoInsert{id Id[E]} | undoMove{id Id[E], before Option[Id[E]]} |
 type dropped[E] { id Id[E], ref arena.Ref[mirrored[E]] }
 
 // applyOp applies one op, and is how to take it back.
-func applyOp[E](m *Mirror[E], op Op[E]) undo[E] fails BadPatch {
+func applyOp[E](m mut Mirror[E], op Op[E]) undo[E] fails BadPatch {
 	match op {
 	case Insert[E] as o:
 		if holds(m, o.Id) {
@@ -159,7 +159,7 @@ func applyOp[E](m *Mirror[E], op Op[E]) undo[E] fails BadPatch {
 		}
 		try checkLook(m, o.Node)
 		let node = o.Node
-		edit(m, r, func(n *mirrored[E]) { n.node = node })
+		edit(m, r, func(n mut mirrored[E]) { n.node = node })
 		undoSet[E]{id: o.Id, node: e.node}
 	case Define as o:
 		if o.Id.n != len(m.looks) {
@@ -171,7 +171,7 @@ func applyOp[E](m *Mirror[E], op Op[E]) undo[E] fails BadPatch {
 }
 
 // checkLook fails when n names a look the mirror does not hold.
-func checkLook[E](m *Mirror[E], n Node[E]) fails BadPatch {
+func checkLook[E](m mut Mirror[E], n Node[E]) fails BadPatch {
 	let id = LookIdOf(n)
 	if id.n < 0 || id.n >= len(m.looks) {
 		return BadPatch{Why: "a node names a look the mirror does not hold"}
@@ -179,14 +179,14 @@ func checkLook[E](m *Mirror[E], n Node[E]) fails BadPatch {
 }
 
 // MirrorLooks is the host's table of looks, by LookId.
-func MirrorLooks[E](m *Mirror[E]) []Looks { m.looks }
+func MirrorLooks[E](m mut Mirror[E]) []Looks { m.looks }
 
 // MirrorLookCount is how many looks the mirror holds, the defaults
 // included.
-func MirrorLookCount[E](m *Mirror[E]) int { len(m.looks) }
+func MirrorLookCount[E](m mut Mirror[E]) int { len(m.looks) }
 
 // rollBack takes back done, the last op first.
-func rollBack[E](m *Mirror[E], done []undo[E]) {
+func rollBack[E](m mut Mirror[E], done []undo[E]) {
 	for i in 0..len(done) {
 		match done[len(done)-1-i] {
 		case undoInsert[E] as x:
@@ -210,14 +210,14 @@ func rollBack[E](m *Mirror[E], done []undo[E]) {
 			attachAt(m, pr, x.id, x.before)
 		case undoSet[E] as x:
 			let node = x.node
-			edit(m, refOf(m, x.id), func(n *mirrored[E]) { n.node = node })
+			edit(m, refOf(m, x.id), func(n mut mirrored[E]) { n.node = node })
 		case undoDefine:
 			m.looks = m.looks[:len(m.looks)-1]
 		}
 	}
 }
 
-func holds[E](m *Mirror[E], id Id[E]) bool {
+func holds[E](m mut Mirror[E], id Id[E]) bool {
 	match m.refs.Get(id) {
 	case Some[arena.Ref[mirrored[E]]]:
 		true
@@ -226,7 +226,7 @@ func holds[E](m *Mirror[E], id Id[E]) bool {
 	}
 }
 
-func held[E](m *Mirror[E], id Id[E]) arena.Ref[mirrored[E]] fails BadPatch {
+func held[E](m mut Mirror[E], id Id[E]) arena.Ref[mirrored[E]] fails BadPatch {
 	match m.refs.Get(id) {
 	case Some[arena.Ref[mirrored[E]]] as r:
 		r.Value
@@ -236,7 +236,7 @@ func held[E](m *Mirror[E], id Id[E]) arena.Ref[mirrored[E]] fails BadPatch {
 }
 
 // checkBefore fails when before names no child of parent, or names id.
-func checkBefore[E](m *Mirror[E], parent Id[E], id Id[E], before Option[Id[E]]) fails BadPatch {
+func checkBefore[E](m mut Mirror[E], parent Id[E], id Id[E], before Option[Id[E]]) fails BadPatch {
 	match before {
 	case Some[Id[E]] as b:
 		if b.Value == id {
@@ -256,50 +256,50 @@ func checkBefore[E](m *Mirror[E], parent Id[E], id Id[E], before Option[Id[E]]) 
 
 // attachAt puts id, which no list holds, in front of before in pr's children,
 // or last for None.
-func attachAt[E](m *Mirror[E], pr arena.Ref[mirrored[E]], id Id[E], before Option[Id[E]]) {
+func attachAt[E](m mut Mirror[E], pr arena.Ref[mirrored[E]], id Id[E], before Option[Id[E]]) {
 	let mut prev Option[Id[E]] = None
 	match before {
 	case Some[Id[E]] as b:
 		let br = refOf(m, b.Value)
 		prev = entry(m, br).prev
-		edit(m, br, func(n *mirrored[E]) { n.prev = Some{Value: id} })
+		edit(m, br, func(n mut mirrored[E]) { n.prev = Some{Value: id} })
 	case None:
 		prev = entry(m, pr).last
-		edit(m, pr, func(n *mirrored[E]) { n.last = Some{Value: id} })
+		edit(m, pr, func(n mut mirrored[E]) { n.last = Some{Value: id} })
 	}
 	match prev {
 	case Some[Id[E]] as p:
-		edit(m, refOf(m, p.Value), func(n *mirrored[E]) { n.next = Some{Value: id} })
+		edit(m, refOf(m, p.Value), func(n mut mirrored[E]) { n.next = Some{Value: id} })
 	case None:
-		edit(m, pr, func(n *mirrored[E]) { n.first = Some{Value: id} })
+		edit(m, pr, func(n mut mirrored[E]) { n.first = Some{Value: id} })
 	}
 	let next = before
-	edit(m, refOf(m, id), func(n *mirrored[E]) {
+	edit(m, refOf(m, id), func(n mut mirrored[E]) {
 		n.prev = prev
 		n.next = next
 	})
 }
 
 // detach takes the child r out of pr's children.
-func detach[E](m *Mirror[E], pr arena.Ref[mirrored[E]], r arena.Ref[mirrored[E]]) {
+func detach[E](m mut Mirror[E], pr arena.Ref[mirrored[E]], r arena.Ref[mirrored[E]]) {
 	let e = entry(m, r)
 	match e.prev {
 	case Some[Id[E]] as p:
 		let next = e.next
-		edit(m, refOf(m, p.Value), func(n *mirrored[E]) { n.next = next })
+		edit(m, refOf(m, p.Value), func(n mut mirrored[E]) { n.next = next })
 	case None:
 		let next = e.next
-		edit(m, pr, func(n *mirrored[E]) { n.first = next })
+		edit(m, pr, func(n mut mirrored[E]) { n.first = next })
 	}
 	match e.next {
 	case Some[Id[E]] as x:
 		let prev = e.prev
-		edit(m, refOf(m, x.Value), func(n *mirrored[E]) { n.prev = prev })
+		edit(m, refOf(m, x.Value), func(n mut mirrored[E]) { n.prev = prev })
 	case None:
 		let prev = e.prev
-		edit(m, pr, func(n *mirrored[E]) { n.last = prev })
+		edit(m, pr, func(n mut mirrored[E]) { n.last = prev })
 	}
-	edit(m, r, func(n *mirrored[E]) {
+	edit(m, r, func(n mut mirrored[E]) {
 		n.prev = None
 		n.next = None
 	})
@@ -307,7 +307,7 @@ func detach[E](m *Mirror[E], pr arena.Ref[mirrored[E]], r arena.Ref[mirrored[E]]
 
 // edit changes the entry r names in place; every Ref the map holds is
 // live.
-func edit[E](m *Mirror[E], r arena.Ref[mirrored[E]], f func(n *mirrored[E])) {
+func edit[E](m mut Mirror[E], r arena.Ref[mirrored[E]], f func(n mut mirrored[E])) {
 	m.reads = m.reads + 1
 	arena.Update(&m.store, r, f) catch {
 	case arena.Stale:
@@ -316,14 +316,14 @@ func edit[E](m *Mirror[E], r arena.Ref[mirrored[E]], f func(n *mirrored[E])) {
 }
 
 // entry is a copy of the entry r names.
-func entry[E](m *Mirror[E], r arena.Ref[mirrored[E]]) mirrored[E] {
+func entry[E](m mut Mirror[E], r arena.Ref[mirrored[E]]) mirrored[E] {
 	let mut out = mirrored[E]{node: BoxNode{Style: Plain()}, parent: m.root, first: None, last: None, next: None, prev: None}
-	edit(m, r, func(n *mirrored[E]) { out = *n })
+	edit(m, r, func(n mut mirrored[E]) { out = *n })
 	out
 }
 
 // refOf is the Ref of an Id a link names; a list holds only held Ids.
-func refOf[E](m *Mirror[E], id Id[E]) arena.Ref[mirrored[E]] {
+func refOf[E](m mut Mirror[E], id Id[E]) arena.Ref[mirrored[E]] {
 	match m.refs.Get(id) {
 	case Some[arena.Ref[mirrored[E]]] as r:
 		r.Value
@@ -333,7 +333,7 @@ func refOf[E](m *Mirror[E], id Id[E]) arena.Ref[mirrored[E]] {
 }
 
 // entryOf is the entry id names, None for an Id m does not hold.
-func entryOf[E](m *Mirror[E], id Id[E]) Option[mirrored[E]] {
+func entryOf[E](m mut Mirror[E], id Id[E]) Option[mirrored[E]] {
 	match m.refs.Get(id) {
 	case Some[arena.Ref[mirrored[E]]] as r:
 		Some{Value: entry(m, r.Value)}
@@ -343,7 +343,7 @@ func entryOf[E](m *Mirror[E], id Id[E]) Option[mirrored[E]] {
 }
 
 // childIds is the children of the entry e, in order: one read per child.
-func childIds[E](m *Mirror[E], e mirrored[E]) []Id[E] {
+func childIds[E](m mut Mirror[E], e mirrored[E]) []Id[E] {
 	let mut out = []Id[E]{}
 	let mut at = e.first
 	for {
@@ -359,7 +359,7 @@ func childIds[E](m *Mirror[E], e mirrored[E]) []Id[E] {
 
 // dropTree takes the subtree of id out of the map, and is its entries, which
 // stay in the store until the patch fits.
-func dropTree[E](m *Mirror[E], id Id[E], acc []dropped[E]) []dropped[E] {
+func dropTree[E](m mut Mirror[E], id Id[E], acc []dropped[E]) []dropped[E] {
 	let r = refOf(m, id)
 	let mut out = acc.Append(dropped[E]{id: id, ref: r})
 	for k in childIds(m, entry(m, r)) {
@@ -370,7 +370,7 @@ func dropTree[E](m *Mirror[E], id Id[E], acc []dropped[E]) []dropped[E] {
 }
 
 // MirrorShape is what m shows, the children of the root.
-func MirrorShape[E](m *Mirror[E]) []Shape[E] {
+func MirrorShape[E](m mut Mirror[E]) []Shape[E] {
 	match entryOf(m, m.root) {
 	case Some[mirrored[E]] as r:
 		mirrorShapes(m, childIds(m, r.Value))
@@ -379,7 +379,7 @@ func MirrorShape[E](m *Mirror[E]) []Shape[E] {
 	}
 }
 
-func mirrorShapes[E](m *Mirror[E], ids []Id[E]) []Shape[E] {
+func mirrorShapes[E](m mut Mirror[E], ids []Id[E]) []Shape[E] {
 	let mut out = []Shape[E]{}
 	for id in ids {
 		match entryOf(m, id) {
@@ -392,12 +392,12 @@ func mirrorShapes[E](m *Mirror[E], ids []Id[E]) []Shape[E] {
 }
 
 // Held is the number of nodes m holds, its root included.
-func Held[E](m *Mirror[E]) int { len(m.refs) }
+func Held[E](m mut Mirror[E]) int { len(m.refs) }
 
 // MirrorReads is the number of entries m has read or changed since it was
 // made: the work of its patches and its lookups, counted. An op reads a
 // fixed number; a Locate reads each node once.
-func MirrorReads[E](m *Mirror[E]) int { m.reads }
+func MirrorReads[E](m mut Mirror[E]) int { m.reads }
 
 // MirrorWorkIsLinear (FK11-g8, FK13-g2): a mount of k, 2k and 4k keyed
 // rows of a column (the composer inserts each row before the one after
@@ -414,7 +414,7 @@ law MirrorWorkIsLinear(n int, seed int) {
 		for i in 0..size {
 			xs = xs.Append(i)
 		}
-		let view = func(f *Frame[int], rows []int) {
+		let view = func(f mut Frame[int], rows []int) {
 			Column(f, Plain()) {
 				Each(f, rows, func(x int) Key { ByInt(x) }) func(x int) {
 					Text(f, "row \(x)")
@@ -439,7 +439,7 @@ law MirrorWorkIsLinear(n int, seed int) {
 
 // badPatchView is the law's view: columns of keyed text rows, keys from
 // cols. (a law's helper)
-func badPatchView(f *Frame[int], cols [][]int) {
+func badPatchView(f mut Frame[int], cols [][]int) {
 	for c in cols {
 		Column(f, Plain()) {
 			Each(f, c, func(x int) Key { ByInt(x) }) func(x int) {
