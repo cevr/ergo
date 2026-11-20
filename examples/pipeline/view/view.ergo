@@ -147,8 +147,8 @@ func runText(r run.Run) string {
 }
 
 // View is the view of the screen whose Api is api: the view a host shows.
-func View(api pipeline.Pipeline) func(f *ui.Frame[screen.Signal], s screen.Screen) {
-	func(f *ui.Frame[screen.Signal], s screen.Screen) { Board(f, s, api) }
+func View(api pipeline.Pipeline) func(f mut ui.Frame[screen.Signal], s screen.Screen) {
+	func(f mut ui.Frame[screen.Signal], s screen.Screen) { Board(f, s, api) }
 }
 
 // ReplyIsShown: the view of a screen whose last command got reply shows a
@@ -231,7 +231,7 @@ law HeldTryShowsRunningThenPassed(pick int) {
 }
 
 // shows is whether the screen of h shows the line.
-func shows[D, F](h *ui.TestHost[screen.Screen, screen.Signal, D, F], line string) bool { ui.Find(h, line) != None }
+func shows[D, F](h mut ui.TestHost[screen.Screen, screen.Signal, D, F], line string) bool { ui.Find(h, line) != None }
 
 // stop stops the screen's actor.
 func stop[S, E, D, F](a actor.Actor[S, E, D, F]) {
@@ -279,7 +279,7 @@ law HeldAskShowsSendingThenReceipt(id string, at int) {
 // version, so an answer or a refresh fetches it again; the picked run is
 // one keyed by its name and the version; a command in flight is a load
 // whose fetch calls the Api, keyed by the version it was sent at.
-func Board(f *ui.Frame[screen.Signal], s screen.Screen, api pipeline.Pipeline) {
+func Board(f mut ui.Frame[screen.Signal], s screen.Screen, api pipeline.Pipeline) {
 	let sh = screen.ShownOf(s)
 	ui.Load(f, ui.ByInt(sh.Version), func() screen.Signal { screen.Loaded{Board: screen.LinesOf(api.Board())} })
 	match sh.Picked {
@@ -337,7 +337,7 @@ func Board(f *ui.Frame[screen.Signal], s screen.Screen, api pipeline.Pipeline) {
 }
 
 // button is a button labelled label that asks r.
-func button(f *ui.Frame[screen.Signal], label string, r screen.Request) {
+func button(f mut ui.Frame[screen.Signal], label string, r screen.Request) {
 	ui.Pressable(f, label, screen.Ask{Req: r}) {
 		ui.Text(f, label)
 	}

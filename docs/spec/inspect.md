@@ -10,17 +10,14 @@ ergo inspect api --diff OLD NEW [--json]
 1. The view lists each exported function and method in name order. A
    function reached as a method is qualified by its receiver type. It shows
    its checked signature, `fails`, `needs`, its written `takes`
-   clause, and the checker's copy policy for its generic type parameters.
-   Each body copy says `copies T at file:line:column (plain data only)` and
-   gives the checker's reason. A bodiless generic says `foreign body` in
-   place of a location: it may copy each parameter unless the reviewed
-   runtime table lists it as moving only. Inspection queries that same
-   checker policy; it does not infer another one. No copy mark is written
-   in source.
+   clause, and the own marks of its type parameters: each `[T own]` says
+   `own T (a resource may bind it)`; a type parameter without the mark
+   binds plain data only (types.md, Generics 9; MODES-5). Inspection reads
+   the mark as written; it does not infer another one.
 2. The summary diff reports added, removed and changed contracts. Takes
-   and copies are API facts, not implementation-only details. A newly taken
-   parameter or newly copying type parameter says **breaks callers that
-   pass a resource**. Removing those restrictions does not carry that
+   and own marks are API facts, not implementation-only details. A newly
+   taken parameter or a dropped own mark says **breaks callers that pass a
+   resource**. Removing those restrictions does not carry that
    warning. Moving an existing copy site's location changes its docs but
    does not introduce a new restriction. A plain-data signature change is
    still an API change, without this resource warning.

@@ -244,6 +244,10 @@ func nativeCases(g nativeGen) []nativeCase {
 	base, bits := g.r.IntN(40)-1, g.r.IntN(70)-2
 	fmtc := []byte("efgxbEG?")[g.r.IntN(8)]
 	f := []float64{0, 1.5, -2.25, 1e21, math.NaN(), math.Inf(-1), 123456.789}[g.r.IntN(7)]
+	// cmp.Max and Min's float operands reach Go's special cases: NaN
+	// and the two zeros (EVAL-BUILDER).
+	edge := []float64{0, math.Copysign(0, -1), math.NaN(), 1.5, -2.25, math.Inf(1)}
+	fa, fb := edge[g.r.IntN(len(edge))], edge[g.r.IntN(len(edge))]
 	num := []string{"12", "-0", "+7", "9223372036854775807", "9223372036854775808", "-9223372036854775809", "0x1f", "1e3", "1_000", "", "-", "abc", "1.5", "1e400", "true", "F", "\"a\\tb\"", "`x`", "'c'"}[g.r.IntN(19)]
 	ints, ints2 := g.ints(), g.ints()
 	fl := g.floats()
@@ -372,6 +376,10 @@ func nativeCases(g nativeGen) []nativeCase {
 		{name: "slices.Sort", args: []Value{li(ints)}, v1: func() any { return v1.SlicesSort(ints) }},
 		{name: "slices.Sort", args: []Value{lf(fl)}, v1: func() any { return v1.SlicesSort(fl) }},
 		{name: "slices.Sort", args: []Value{ls(xs)}, v1: func() any { return v1.SlicesSort(xs) }},
+		{name: "cmp.Max", args: []Value{fa, fb}, v1: func() any { return v1.CmpMax(fa, fb) }},
+		{name: "cmp.Min", args: []Value{fa, fb}, v1: func() any { return v1.CmpMin(fa, fb) }},
+		{name: "cmp.Max", args: []Value{s, u}, v1: func() any { return v1.CmpMax(s, u) }},
+		{name: "cmp.Min", args: []Value{d, m}, v1: func() any { return v1.CmpMin(d, m) }},
 		{name: "slices.Slice", args: []Value{li(ints), si, sj}, anyDefect: true, v1: func() any { return v1.SlicesSlice(ints, int(si), int(sj)) }},
 		{name: "slices.SortStableFunc", args: []Value{li(ints), byMod3}, v1: func() any {
 			return v1.SlicesSortStableFunc(ints, func(a, b int64) int { return cmp.Compare(mod3(a), mod3(b)) })

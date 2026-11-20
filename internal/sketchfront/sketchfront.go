@@ -1,6 +1,6 @@
 // Package sketchfront is Ergo's one front end: a thin adapter
 // that parses with internal/sketch/syntax, checks with internal/sketch/check,
-// and formats with internal/sketch/format. It maps every diagnostic to a
+// and formats with internal/hostsyntax. It maps every diagnostic to a
 // report diagnostic with a UTF-8 byte span, so every surface projects it
 // with the shared report code. The CLI checks and formats sources only
 // through Check and Format, so it reports one identity.
@@ -29,10 +29,10 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	format "ergo.local/prototype/internal/hostsyntax"
 	"ergo.local/prototype/internal/report"
 	"ergo.local/prototype/internal/sketch/build"
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/format"
 	"ergo.local/prototype/internal/sketch/lawcache"
 	"ergo.local/prototype/internal/sketch/lower"
 	"ergo.local/prototype/internal/sketch/stdlib"

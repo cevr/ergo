@@ -144,7 +144,7 @@ var nnFinal = []nnForm{
 // built: go build -gcflags compiles the small packages, as Derive does.
 //
 // Mutants it alone catches: gobind-nonnil-any-return, gobind-nonnil-nil-error,
-// gobind-nonnil-any-call, gobind-nonnil-unguarded-err, gobind-nonnil-or-guard,
+// gobind-nonnil-any-call, gobind-nonnil-any-error-call, gobind-nonnil-or-guard,
 // gobind-nonnil-guard-reassigned, gobind-nonnil-var-any-assign,
 // gobind-nonnil-moved-sentinel, gobind-nonnil-unchecked-call,
 // gobind-nonnil-greatest-fixpoint, gobind-nonnil-type-promises, the

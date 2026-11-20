@@ -1,0 +1,241 @@
+import dense
+import slices
+
+// Node is the row tag of syntax nodes.
+type Node {}
+
+// The node kinds: one per node of the Go parser's tree
+// (internal/sketch/syntax/ast.go), but TypeGuard, which the view makes from
+// a match's subject.
+let KFile = uint8(1)
+let KImportDecl = uint8(2)
+let KImportSpec = uint8(3)
+let KVarDecl = uint8(4)
+let KVarSpec = uint8(5)
+let KTypeDecl = uint8(6)
+let KFuncDecl = uint8(7)
+let KContextDecl = uint8(8)
+let KTestDecl = uint8(9)
+let KLawDecl = uint8(10)
+let KLawReach = uint8(11)
+let KExternSpec = uint8(12)
+let KContextBody = uint8(13)
+let KContextEntry = uint8(14)
+let KField = uint8(15)
+let KFieldList = uint8(16)
+let KNeedsClause = uint8(17)
+let KTakesClause = uint8(18)
+let KProvidesClause = uint8(19)
+let KMachineEntry = uint8(20)
+let KCatchArm = uint8(21)
+let KCaseClause = uint8(22)
+let KVariantSpec = uint8(23)
+let KIdent = uint8(24)
+let KBasicLit = uint8(25)
+let KCompositeLit = uint8(26)
+let KKeyValueExpr = uint8(27)
+let KFuncLit = uint8(28)
+let KParenExpr = uint8(29)
+let KSelectorExpr = uint8(30)
+let KIndexExpr = uint8(31)
+let KSliceExpr = uint8(32)
+let KCallExpr = uint8(34)
+let KStarExpr = uint8(35)
+let KUnaryExpr = uint8(36)
+let KBinaryExpr = uint8(37)
+let KTryExpr = uint8(38)
+let KCatchExpr = uint8(39)
+let KContextLit = uint8(40)
+let KArrayType = uint8(41)
+let KMapType = uint8(42)
+let KFuncType = uint8(43)
+let KStructType = uint8(44)
+let KInterfaceType = uint8(45)
+let KErrorRow = uint8(46)
+let KMachineType = uint8(47)
+let KTupleExpr = uint8(48)
+let KAsPattern = uint8(49)
+let KOrPattern = uint8(50)
+let KInterpolatedString = uint8(51)
+let KDeclStmt = uint8(52)
+let KExprStmt = uint8(53)
+let KAssignStmt = uint8(54)
+let KReturnStmt = uint8(55)
+let KBranchStmt = uint8(56)
+let KBlockStmt = uint8(57)
+let KIfStmt = uint8(58)
+let KSwitchStmt = uint8(59)
+let KTypeSwitchStmt = uint8(60)
+let KForStmt = uint8(61)
+let KRangeStmt = uint8(62)
+let KAssertStmt = uint8(63)
+// KSkipStmt is `skip "reason"`: tok is skip, a the reason's token.
+let KSkipStmt = uint8(64)
+
+// Tree is the syntax tree of one file as rows (self-layout plan §2.2): a
+// kind, a main token and two operand words per node, 13 bytes, and one
+// pool of words, extra, for the lists and the operands of nodes that need
+// more than two. A node's row comes after its children's, and the file is
+// the last row. What a and b mean is fixed by the kind; only View and Put
+// read and write them.
+//
+// The row columns keep their length apart from their slices (n), extra is
+// as long as its words (ne), so a record moves to it in one append; a
+// checkpoint is three lengths and a rewind cuts them with no copy; stack
+// is the scratch stack a list is built on (push its items, then move them
+// to extra at once), and Put encodes on it too.
+type Tree {
+	ids   dense.Count[Node],
+	n     int,
+	kind  []uint32,
+	tok   []uint32,
+	a     []uint32,
+	b     []uint32,
+	extra []uint32,
+	ne    int,
+	stack []uint32,
+	top   int,
+}
+
+// NewTree is an empty tree with room for rows rows and words extra words.
+func NewTree(rows int, words int) Tree {
+	Tree{
+		ids:   dense.NewCount[Node](),
+		n:     0,
+		kind:  zeros32(rows + 1),
+		tok:   zeros32(rows + 1),
+		a:     zeros32(rows + 1),
+		b:     zeros32(rows + 1),
+		extra: slices.WithCapacity[uint32](words + 1),
+		ne:    0,
+		stack: zeros32(256),
+		top:   0,
+	}
+}
+
+// NumNodes is the number of rows.
+func NumNodes(t Tree) int { t.n }
+
+// NodeAt is the id of the row at index i.
+func NodeAt(t Tree, i int) dense.ID[Node] { dense.IDAt(t.ids, i) }
+
+// Root is the last row: the file.
+func Root(t Tree) dense.ID[Node] { dense.IDAt(t.ids, t.n-1) }
+
+// KindOf is the kind of node id.
+func KindOf(t Tree, id dense.ID[Node]) uint8 { uint8(t.kind[dense.Index(id)]) }
+
+// ExtraWords is the number of words in the extra pool.
+func ExtraWords(t Tree) int { t.ne }
+
+// row appends a row and returns its index.
+func row(t mut Tree, kind uint8, tok uint32, a uint32, b uint32) uint32 {
+	let i = t.n
+	if i >= len(t.kind) {
+		growRows(t)
+	}
+	t.kind[i] = uint32(kind)
+	t.tok[i] = tok
+	t.a[i] = a
+	t.b[i] = b
+	if i == dense.Total(t.ids) {
+		let _ = dense.Next(&t.ids)
+	}
+	t.n = i + 1
+	uint32(i)
+}
+
+// The row columns are as long as their room, so a write is a store: a row
+// past the room doubles it (the tree keeps its lengths in n, ne and top).
+func zeros32(n int) []uint32 { slices.Repeat([]uint32{uint32(0)}, n) }
+
+func growRows(t mut Tree) {
+	let n = len(t.kind)
+	t.kind = slices.AppendAll(t.kind, zeros32(n))
+	t.tok = slices.AppendAll(t.tok, zeros32(n))
+	t.a = slices.AppendAll(t.a, zeros32(n))
+	t.b = slices.AppendAll(t.b, zeros32(n))
+}
+
+// push puts w on the scratch stack.
+func pushW(t mut Tree, w uint32) {
+	if t.top >= len(t.stack) {
+		growStack(t)
+	}
+	t.stack[t.top] = w
+	t.top = t.top + 1
+}
+
+// growStack doubles the scratch stack, out of pushW so Go inlines pushW
+// (capstone S2f).
+func growStack(t mut Tree) { t.stack = slices.AppendAll(t.stack, zeros32(len(t.stack))) }
+
+// mark is the stack's height, where a list starts.
+func mark(t Tree) int { t.top }
+
+// rec appends a row whose record is the stack's words from m on: they move
+// to extra, a is where they start and b how many they are, and the stack
+// is cut back to m.
+func rec(t mut Tree, kind uint8, tok uint32, m int) uint32 {
+	let start = t.ne
+	let count = t.top - m
+	t.extra = slices.AppendAll(t.extra, t.stack[m:t.top])
+	t.ne = start + count
+	t.top = m
+	row(t, kind, tok, uint32(start), uint32(count))
+}
+
+func putExtra(t mut Tree, w uint32) {
+	t.extra = t.extra.Append(w)
+	t.ne = t.ne + 1
+}
+
+// cutStack drops the stack's words from m on.
+func cutStack(t mut Tree, m int) { t.top = m }
+
+// Checkpoint is a tree's three lengths: a rewind to it cuts what was put
+// after it.
+type Checkpoint { n int, ne int, top int }
+
+func checkpoint(t Tree) Checkpoint { Checkpoint{n: t.n, ne: t.ne, top: t.top} }
+
+func rewind(t mut Tree, c Checkpoint) {
+	t.n = c.n
+	t.ne = c.ne
+	t.extra = t.extra[:c.ne]
+	t.top = c.top
+}
+
+// dropLast removes the last row and its record, which the caller knows
+// ends extra.
+func dropLast(t mut Tree) {
+	let i = t.n - 1
+	if t.b[i] > uint32(0) && int(t.a[i])+int(t.b[i]) == t.ne && recorded(uint8(t.kind[i])) {
+		t.ne = int(t.a[i])
+		t.extra = t.extra[:t.ne]
+	}
+	t.n = i
+}
+
+// rowA, rowB and rowTok are the words of row i.
+func rowA(t Tree, i uint32) uint32 { t.a[int(i)] }
+
+func rowB(t Tree, i uint32) uint32 { t.b[int(i)] }
+
+func rowTok(t Tree, i uint32) uint32 { t.tok[int(i)] }
+
+func rowKind(t Tree, i uint32) uint8 { uint8(t.kind[int(i)]) }
+
+// fixed is word k of the f fixed words that end row i's record.
+func fixed(t Tree, i uint32, f int, k int) uint32 { t.extra[int(t.a[int(i)])+int(t.b[int(i)])-f+k] }
+
+// setFixed sets word k of the f fixed words that end row i's record.
+func setFixed(t mut Tree, i uint32, f int, k int, w uint32) { t.extra[int(t.a[int(i)])+int(t.b[int(i)])-f+k] = w }
+
+// item is item j of row i's record.
+func item(t Tree, i uint32, j int) uint32 { t.extra[int(t.a[int(i)])+j] }
+
+// recorded reports a kind whose a and b are a record in extra.
+func recorded(k uint8) bool {
+	k == KFile || k == KVarDecl || k == KVarSpec || k == KTypeDecl || k == KFuncDecl || k == KContextDecl || k == KTestDecl || k == KLawDecl || k == KLawReach || k == KContextBody || k == KContextEntry || k == KField || k == KFieldList || k == KNeedsClause || k == KTakesClause || k == KProvidesClause || k == KCatchArm || k == KCaseClause || k == KVariantSpec || k == KCompositeLit || k == KIndexExpr || k == KSliceExpr || k == KCallExpr || k == KCatchExpr || k == KContextLit || k == KMapType || k == KFuncType || k == KInterfaceType || k == KErrorRow || k == KMachineType || k == KTupleExpr || k == KOrPattern || k == KInterpolatedString || k == KBlockStmt || k == KIfStmt || k == KSwitchStmt || k == KTypeSwitchStmt || k == KRangeStmt
+}

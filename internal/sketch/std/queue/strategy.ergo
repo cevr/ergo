@@ -2,29 +2,9 @@
 // strategies: suspend, dropping, sliding). Ergo does not fix the strategy
 // in the queue: each send says it. Push waits for room (back-pressure);
 // Offer, caught on Full, drops the new value and keeps the oldest; Slide
-// drops the oldest and keeps the newest. One queue can take all three.
-
-// Slide adds v at the back without waiting: when the queue is full it
-// takes the value at the front and drops it, then adds v, so the queue
-// keeps the newest values (Effect's sliding strategy). Another producer may
-// take the room first; Slide then drops one more and tries again. It fails
-// with Closed on a closed queue. A capacity of 0 is a defect: there is
-// never room to slide into.
-func Slide[T](q Queue[T], v T) fails Closed {
-	if q.Cap() == 0 {
-		Unreachable("queue.Slide: a queue of capacity 0 has no room to slide into")
-	}
-	for {
-		q.Offer(v) catch {
-		case Full:
-			let _ = q.Poll()
-			continue
-		case Closed:
-			return Closed
-		}
-		return
-	}
-}
+// drops the oldest and keeps the newest, in one step of the queue (an
+// operation of Queue, not a retry of Offer: a value of an own T is handed
+// off once). One queue can take all three.
 
 // SlidingKeepsTheNewest: Slide into a queue of capacity c never waits and
 // leaves the last c values sent, in order.
@@ -32,11 +12,11 @@ law SlidingKeepsTheNewest(xs []int, c int) {
 	let capacity = 1 + (c%4+4)%4
 	let q = New[int](capacity)
 	for x in xs {
-		try Slide(q, x)
+		try q.Slide(x)
 	}
 	q.End()
 	let from = if len(xs) > capacity { len(xs) - capacity } else { 0 }
-	let mut ok = q.Len() == len(xs) - from
+	let mut ok = q.Len() == len(xs)-from
 	for i in from..len(xs) {
 		ok = ok && try q.Pop() == xs[i]
 	}

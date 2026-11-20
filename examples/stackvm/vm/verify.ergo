@@ -103,7 +103,7 @@ func Verify(program []Instr) Option[Verified] {
 
 // walk visits subroutine f from its start, and is false when the program
 // must be refused.
-func walk(v *verifier, f int) bool {
+func walk(v mut verifier, f int) bool {
 	let size = len(v.program)
 	v.at = slices.Repeat([]int{Reach + 1}, size)
 	v.work = []int{}
@@ -166,7 +166,7 @@ func walk(v *verifier, f int) bool {
 // pc is outside the program, d is past Reach, or another path reaches pc
 // with another depth. The program's end takes any depth: the run ends
 // there.
-func reach(v *verifier, pc int, d int) bool {
+func reach(v mut verifier, pc int, d int) bool {
 	let size = len(v.program)
 	if pc < 0 || pc > size || d > Reach || d < -Reach {
 		return false
@@ -186,7 +186,7 @@ func reach(v *verifier, pc int, d int) bool {
 }
 
 // demand raises subroutine f's need to n, and is false past Reach.
-func demand(v *verifier, f int, n int) bool {
+func demand(v mut verifier, f int, n int) bool {
 	if n <= v.sums[f].need {
 		return true
 	}
@@ -200,7 +200,7 @@ func demand(v *verifier, f int, n int) bool {
 
 // returns records that a Ret of subroutine f finds depth d, and is false
 // when another Ret of f found another depth.
-func returns(v *verifier, f int, d int) bool {
+func returns(v mut verifier, f int, d int) bool {
 	let s = v.sums[f]
 	if s.returns {
 		return s.delta == d

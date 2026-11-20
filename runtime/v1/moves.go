@@ -3,13 +3,14 @@ package v1
 // movesOnly is the reviewed table of generic bodies in this package that
 // only move the values of their type parameters: each value it is given
 // is stored once, handed back once, or released, and never duplicated
-// (#197 L8 A3; plan 1.3, D-B). The checker reads it through MovesOnly: a
-// generic extern with no entry copies each type parameter, so a call that
-// binds one to a resource is refused (resources R44). The names are
-// BodyOf names. A body joins the table only after review of its Go code;
-// TestMovesOnlyNamesBodies checks that each name is a generic body here.
+// (#197 L8 A3; plan 1.3, D-B). The checker reads it through MovesOnly: an
+// extern may mark a type parameter own, [T own], only when its body is
+// listed here, so the table is the review ledger of the std marks (types.md,
+// Generics 9; MODES-5). The names are BodyOf names. A body joins the table
+// only after review of its Go code; TestMovesOnlyNamesBodies checks that
+// each name is a generic body here.
 //
-// Not listed, so refused with a resource: the machine runner and the actor
+// Not listed, so unmarked, and refused with a resource: the machine runner and the actor
 // (they copy the state into snapshots), sync.Ref's Modify (it returns the
 // old value beside the new), and the slice and Map helpers that return a
 // second slice or Map over the same elements.

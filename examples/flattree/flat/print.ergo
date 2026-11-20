@@ -18,7 +18,7 @@ func Indent(t Tree, id dense.ID[Node]) string {
 	b.String()
 }
 
-func compact(b *strings.Builder, t Tree, id dense.ID[Node]) {
+func compact(b mut strings.Builder, t Tree, id dense.ID[Node]) {
 	match ViewOf(t, id) {
 	case Null:
 		b.WriteString("null")
@@ -51,14 +51,14 @@ func compact(b *strings.Builder, t Tree, id dense.ID[Node]) {
 	}
 }
 
-func newline(b *strings.Builder, depth int) {
+func newline(b mut strings.Builder, depth int) {
 	b.WriteByte('\n')
 	for _ in 0..depth {
 		b.WriteString("  ")
 	}
 }
 
-func indent(b *strings.Builder, t Tree, id dense.ID[Node], depth int) {
+func indent(b mut strings.Builder, t Tree, id dense.ID[Node], depth int) {
 	match ViewOf(t, id) {
 	case Array as a:
 		if len(a.Items) == 0 {

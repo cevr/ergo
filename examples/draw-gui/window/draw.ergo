@@ -7,7 +7,7 @@ import ergo.local/prototype/examples/drawgui/canvas
 import ui
 
 // Draw paints s's picture as the window shows it.
-func Draw(p *ui.Paint, s canvas.State) {
+func Draw(p mut ui.Paint, s canvas.State) {
 	let c = canvas.CanvasOf(s)
 	let screen = canvas.Box{Lo: canvas.Point{X: 0, Y: 0}, Hi: canvas.Screen}
 	for placed in canvas.Order(c.Pic) {
@@ -33,7 +33,7 @@ func Draw(p *ui.Paint, s canvas.State) {
 }
 
 // shape paints one shape in screen units.
-func shape(p *ui.Paint, v canvas.View, sh canvas.Shape, ink ui.Color) {
+func shape(p mut ui.Paint, v canvas.View, sh canvas.Shape, ink ui.Color) {
 	match sh {
 	case canvas.Stroke as k:
 		ui.Stroke(p, polyline(v, k.Points), ink, 2.0)

@@ -1,0 +1,61 @@
+// askbench holds llm.Parse's counted probe (wf10 L6), with a hand Go twin
+// in ../../testdata/control; the workloads are ../../strict, ../../decode
+// and ../../fenced (go run ./scripts/opcount -control -rounds 3
+// benchmarks/llmask/strict).
+//
+//	askbench bench KIND N
+//
+// KIND strict: a model's strict JSON reply read N times by llm.Parse.
+// KIND decode: the same text read N times by json.Decode; the two counts
+// give Parse's cost on a strict reply over the strict decoder's.
+// KIND fenced: the reply in a sentence and a markdown fence, read N times
+// by llm.Parse. One unit is one reply.
+
+import json
+import llm
+import os
+import strconv
+
+type box { Label string, Count int, Tags []string, Weight float64 }
+
+let strict = "{\"label\":\"crate\",\"count\":12,\"tags\":[\"wood\",\"heavy\"],\"weight\":30.5}"
+
+let fenced = "Sure! Here is the record:\n```json\n" + strict + "\n```\n"
+
+let codec = json.Codec[box]{MaxBytes: 0, MaxDepth: 0}
+
+// bench is the sum of the counts of N reads, or -1 when a read fails.
+func bench(kind string, n int) int {
+	let mut sum = 0
+	for _ in 0..n {
+		if kind == "decode" {
+			let b = json.Decode(codec, strict) catch {
+			case _:
+				return -1
+			}
+			sum = sum + b.Count
+		} else {
+			let text = if kind == "fenced" { fenced } else { strict }
+			let r = llm.Parse(codec, text) catch {
+			case llm.NoFit:
+				return -1
+			}
+			sum = sum + r.Value.Count
+		}
+	}
+	sum
+}
+
+func main() fails os.Exit needs Console | Ambient {
+	with context { os.Process: os.NewHost() } {
+		let args = os.Process.Args()
+		if len(args) != 3 {
+			return os.Exit{Code: 2, Message: "usage: askbench bench KIND N"}
+		}
+		let n = strconv.Atoi(args[2]) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return os.Exit{Code: 2, Message: "askbench: N is not a count"}
+		}
+		Console.Println("\(bench(args[1], n))")
+	}
+}

@@ -112,7 +112,7 @@ func Root(t Tree) dense.ID[Node] {
 func Size(t Tree) int { dense.Total(t.ids) }
 
 // Intern is the id of text in t's keys, put there when it is new.
-func Intern(t *Tree, text string) dense.ID[Key] {
+func Intern(t mut Tree, text string) dense.ID[Key] {
 	match t.keys.ids.Get(text) {
 	case Some[dense.ID[Key]] as id:
 		id.Value
@@ -130,7 +130,7 @@ func Lookup(t Tree, text string) Option[dense.ID[Key]] { t.keys.ids.Get(text) }
 func KeyText(t Tree, id dense.ID[Key]) string { dense.At(t.keys.texts, id).Text }
 
 // put adds a value; it becomes the root, the last value put.
-func put(t *Tree, r cell) dense.ID[Node] {
+func put(t mut Tree, r cell) dense.ID[Node] {
 	let id = dense.Next(&t.ids)
 	dense.Push(&t.kind, r.kind)
 	dense.Push(&t.a, r.a)
@@ -139,13 +139,13 @@ func put(t *Tree, r cell) dense.ID[Node] {
 	id
 }
 
-func putArray(t *Tree, items []dense.ID[Node]) dense.ID[Node] {
+func putArray(t mut Tree, items []dense.ID[Node]) dense.ID[Node] {
 	let run = dense.PutList(&t.items, items)
 	let at = dense.Index(dense.Put(&t.arrays, run))
 	put(t, cell{kind: kArray, a: uint32(at), b: 0})
 }
 
-func putObject(t *Tree, members []Member) dense.ID[Node] {
+func putObject(t mut Tree, members []Member) dense.ID[Node] {
 	let run = dense.PutList(&t.members, members)
 	let at = dense.Index(dense.Put(&t.objects, run))
 	put(t, cell{kind: kObject, a: uint32(at), b: 0})
@@ -232,7 +232,7 @@ func same(a View, b View) bool {
 // Encode puts the value v views and is its id. Every id in an Array or
 // an Object must be a value of t, and every key a key of t: they are its
 // children, so they come first.
-func Encode(t *Tree, v View) dense.ID[Node] {
+func Encode(t mut Tree, v View) dense.ID[Node] {
 	match v {
 	case Null:
 		put(t, cell{kind: kNull, a: 0, b: 0})

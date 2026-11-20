@@ -10,19 +10,19 @@ import utf8
 type Text {
 	..Writer,
 	// Written is the text written so far.
-	Written() string,
+	mut Written() string,
 
 	// raw appends text as it is.
-	raw(s string),
+	mut raw(s string),
 	// open writes the start tag of a value's element, and close the end
 	// tag of the innermost element still open.
-	open(name string),
-	close(),
+	mut open(name string),
+	mut close(),
 	// enter starts a value: in a list, its item element.
-	enter(),
+	mut enter(),
 	// finish is the text written, and gives the buffer back (Encode
 	// only: nothing may use the Text after).
-	finish(hint int) string,
+	mut finish(hint int) string,
 
 	law RawJoins(a string, b string) { raw(a); raw(b) } == { raw(a + b) },
 }
@@ -44,10 +44,10 @@ extern go append func appendString(out []byte, s string) []byte
 
 extern go append func appendByte[T](out []T, b T) []T
 
-func raw(t *text, s string) { t.out = appendString(t.out, s) }
+func raw(t mut text, s string) { t.out = appendString(t.out, s) }
 
 // push opens an element named name, whose start tag was written.
-func push(t *text, name string) {
+func push(t mut text, name string) {
 	if t.depth < len(t.stack) {
 		t.stack[t.depth] = element{name: name, list: false, end: len(t.out)}
 	} else {
@@ -58,7 +58,7 @@ func push(t *text, name string) {
 
 // nest starts an object (list false) or a list, the innermost element's
 // content.
-func nest(t *text, list bool) {
+func nest(t mut text, list bool) {
 	if t.depth > 0 {
 		t.stack[t.depth-1].list = list
 	}
@@ -70,7 +70,7 @@ func nest(t *text, list bool) {
 // For a constant name, the build folds Name(name) and unfolds open by its
 // definition, so a record's key is one constant append, "<name>", that
 // RawJoins joins with the text before it.
-func open(t *text, name string) {
+func open(t mut text, name string) {
 	if Name(name) {
 		t.raw("<")
 		t.raw(name)
@@ -82,14 +82,14 @@ func open(t *text, name string) {
 }
 
 // other opens an element for a name that is not an XML name.
-func other(t *text, name string) {
+func other(t mut text, name string) {
 	t.raw("<_ key=\"")
 	t.escape(name, true)
 	t.raw("\">")
 	t.push("_")
 }
 
-func close(t *text) {
+func close(t mut text) {
 	if t.depth == 0 {
 		return
 	}
@@ -99,26 +99,26 @@ func close(t *text) {
 	t.raw(">")
 }
 
-func enter(t *text) {
+func enter(t mut text) {
 	if t.depth > 0 && t.stack[t.depth-1].list {
 		t.raw("<item>")
 		t.push("item")
 	}
 }
 
-func Null(t *text) {
+func Null(t mut text) {
 	t.enter()
 	t.raw("<null/>")
 	t.close()
 }
 
-func Number(t *text, text string) {
+func Number(t mut text, text string) {
 	t.enter()
 	t.escape(text, false)
 	t.close()
 }
 
-func Bool(t *text, b bool) {
+func Bool(t mut text, b bool) {
 	t.enter()
 	if b {
 		t.raw("true")
@@ -132,13 +132,13 @@ func Bool(t *text, b bool) {
 // strconv's appenders, as std json's writer does. (escape writes to t.out
 // itself too: a function of this package given t.out and returning it
 // would be given a copy, since t still holds the buffer.)
-func Int(t *text, n int64) {
+func Int(t mut text, n int64) {
 	t.enter()
 	t.out = strconv.AppendInt(t.out, n, 10)
 	t.close()
 }
 
-func Uint(t *text, n uint64) {
+func Uint(t mut text, n uint64) {
 	t.enter()
 	t.out = strconv.AppendUint(t.out, n, 10)
 	t.close()
@@ -149,7 +149,7 @@ func Uint(t *text, n uint64) {
 // character XML cannot hold as U+FFFD. In an attribute value (attr) it
 // also writes ", a tab and a line feed as character references, which a
 // reader keeps.
-func escape(t *text, s string, attr bool) {
+func escape(t mut text, s string, attr bool) {
 	let mut from = 0
 	let mut i = 0
 	for i < len(s) {
@@ -196,13 +196,13 @@ func escape(t *text, s string, attr bool) {
 }
 
 // Float writes f's shortest spelling that reads back as f (Go's 'g', -1).
-func Float(t *text, f float64) {
+func Float(t mut text, f float64) {
 	t.enter()
 	t.out = strconv.AppendFloat(t.out, f, 'g', -1)
 	t.close()
 }
 
-func String(t *text, s string) {
+func String(t mut text, s string) {
 	t.enter()
 	t.escape(s, false)
 	t.close()
@@ -210,38 +210,38 @@ func String(t *text, s string) {
 
 // StringBytes writes the string whose bytes are b, as String does (the
 // prelude Writer's StringBytes, GX10).
-func StringBytes(t *text, b []byte) { t.String(utf8.String(b)) }
+func StringBytes(t mut text, b []byte) { t.String(utf8.String(b)) }
 
-func BeginList(t *text, n int) {
+func BeginList(t mut text, n int) {
 	t.enter()
 	t.nest(true)
 }
 
-func EndList(t *text) {
+func EndList(t mut text) {
 	t.close()
 }
 
-func BeginObject(t *text, n int) {
+func BeginObject(t mut text, n int) {
 	t.enter()
 	t.nest(false)
 }
 
-func EndObject(t *text) {
+func EndObject(t mut text) {
 	t.close()
 }
 
 // Tag writes a union's variant as the first child, <_tag>Name</_tag>.
-func Tag(t *text, name string) {
+func Tag(t mut text, name string) {
 	t.raw("<_tag>")
 	t.escape(name, false)
 	t.raw("</_tag>")
 }
 
-func Key(t *text, k string) { t.open(k) }
+func Key(t mut text, k string) { t.open(k) }
 
-func Written(t *text) string { strings.FromBytes(t.out) }
+func Written(t mut text) string { strings.FromBytes(t.out) }
 
-func finish(t *text, hint int) string {
+func finish(t mut text, hint int) string {
 	let s = strings.FromBytes(t.out)
 	t.out = strings.Give(t.out, hint)
 	s

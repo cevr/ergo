@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"ergo.local/prototype/internal/sketch/format"
+	format "ergo.local/prototype/internal/hostsyntax"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 

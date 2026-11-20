@@ -262,6 +262,10 @@ func registerNatives(t nativeTables) {
 	})
 	pure("slices.Sort", func(a []Value) Value { return sortValues(elems(a[0])) })
 	pure("slices.sortOwned", func(a []Value) Value { return sortValues(elems(a[0])) })
+	// cmp.Max and Min are Go's builtin max and min: a float's NaN gives
+	// NaN, and max(-0, +0) is +0, min(-0, +0) is -0 (EVAL-BUILDER).
+	pure("cmp.Max", func(a []Value) Value { return pick(a[0], a[1], true) })
+	pure("cmp.Min", func(a []Value) Value { return pick(a[0], a[1], false) })
 	natives["slices.Slice"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		xs := args[0].(sliceV)
 		i, j := args[1].(int64), args[2].(int64)
@@ -529,6 +533,44 @@ func sortValues(xs []Value) Value {
 		return sortAs[string](xs)
 	}
 	panic(fmt.Sprintf("a sort of %T", xs[0]))
+}
+
+// pick is Go's builtin max(a, b) when larger, else min(a, b), over the
+// ordered value types.
+func pick(a, b Value, larger bool) Value {
+	switch a := a.(type) {
+	case float64:
+		return pickOf(a, b.(float64), larger)
+	case float32:
+		return pickOf(a, b.(float32), larger)
+	case int64:
+		return pickOf(a, b.(int64), larger)
+	case int32:
+		return pickOf(a, b.(int32), larger)
+	case int16:
+		return pickOf(a, b.(int16), larger)
+	case int8:
+		return pickOf(a, b.(int8), larger)
+	case uint64:
+		return pickOf(a, b.(uint64), larger)
+	case uint32:
+		return pickOf(a, b.(uint32), larger)
+	case uint16:
+		return pickOf(a, b.(uint16), larger)
+	case uint8:
+		return pickOf(a, b.(uint8), larger)
+	case string:
+		return pickOf(a, b.(string), larger)
+	}
+	ice("cmp.Max or Min of %T", a)
+	return nil
+}
+
+func pickOf[T cmp.Ordered](a, b T, larger bool) Value {
+	if larger {
+		return max(a, b)
+	}
+	return min(a, b)
 }
 
 func sortAs[T cmp.Ordered](xs []Value) Value {

@@ -27,7 +27,7 @@ type App machine[Calm, Signal] {
 }
 
 // View is the app's one screen: the Crash button.
-func View(f *ui.Frame[Signal], s Calm) {
+func View(f mut ui.Frame[Signal], s Calm) {
 	ui.Pressable(f, "Crash", ClickedCrash) {
 		ui.Text(f, "Crash")
 	}
@@ -93,7 +93,7 @@ func defectReason[F](c Option[ui.Crash[Calm, Signal, F]]) string {
 
 // CrashView is what the window shows once the app crashed: what went
 // wrong (a defect's reason), and a Reload button that starts the app afresh.
-func CrashView[F](f *ui.Frame[Signal], c ui.Crash[Calm, Signal, F]) {
+func CrashView[F](f mut ui.Frame[Signal], c ui.Crash[Calm, Signal, F]) {
 	ui.Text(f, "Something went wrong")
 	match c.Cause {
 	case ui.DefectCrash as d:

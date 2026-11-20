@@ -17,7 +17,7 @@ type Pending {}
 // sibling after the boundary keeps its identity however far body got;
 // two calls of one boundary site under one parent with one row key share
 // their counts (stdlib.md, UI 15).
-func Boundary[E, F, R](f *Frame[E], body func() fails F needs R, at CallSite) fails F needs R {
+func Boundary[E, F, R](f mut Frame[E], body func() fails F needs R, at CallSite) fails F needs R {
 	let m = markOf(f)
 	f.each = at
 	body() catch {
@@ -245,7 +245,7 @@ func failMissing(b bool) fails Missing {
 // does the arm after a cut, at the same spec index and under the same
 // parent: their identities differ only by the boundary's site and the
 // counts the cut gives back.
-func labelled(f *Frame[int], name string) {
+func labelled(f mut Frame[int], name string) {
 	Row(f, Plain()) {
 		let d = NewDraft(f, name)
 		Field(f, d, name)
@@ -256,7 +256,7 @@ func labelShape(vals Map[string, string], n string) Shape[int] {
 	Shape[int]{Node: RowNode{Style: Plain()}, Kids: []Shape[int]{input(vals, n, n)}}
 }
 
-func bview(f *Frame[int], s bstate) {
+func bview(f mut Frame[int], s bstate) {
 	Column(f, Plain()) {
 		let side = NewDraft(f, "side")
 		Field(f, side, "side")
@@ -379,7 +379,7 @@ func dropGroup(vals Map[string, string]) Map[string, string] {
 // how many it had, and the row a group in an Each started in.
 type mark { ngroups int, nspecs int, ncells int, nloads int, nkeys int, nurls int, nanims int, nseen int, parent int, last int, nkids int, each CallSite, key Key }
 
-func markOf[E](f *Frame[E]) mark {
+func markOf[E](f mut Frame[E]) mark {
 	mark{ngroups: f.ngroups, nspecs: f.nspecs, ncells: f.ncells, nloads: f.nloads, nkeys: f.nkeys, nurls: f.nurls, nanims: f.nanims, nseen: f.nseen, parent: f.parent, last: lastKid(f, f.parent), nkids: kidsWritten(f, f.parent), each: f.each, key: f.key}
 }
 
@@ -393,7 +393,7 @@ func markOf[E](f *Frame[E]) mark {
 // new one is fetched; one under a spec that goes stays in that spec's old
 // node, which is parked, or moves to the parent when the old node does
 // not hold it.
-func cut[E](f *Frame[E], m mark) {
+func cut[E](f mut Frame[E], m mark) {
 	// The groups written since go with their specs (group.ergo), and a
 	// slot one of them took new is freed.
 	for i in m.ngroups..f.ngroups {
@@ -460,13 +460,13 @@ func cut[E](f *Frame[E], m mark) {
 
 // heldBy is whether the node r names (Null for none) holds load id with
 // key.
-func heldBy[E](f *Frame[E], r arena.Ref[node[E]], id ident, key Key) bool {
+func heldBy[E](f mut Frame[E], r arena.Ref[node[E]], id ident, key Key) bool {
 	liveLoad(f, r, id, key) != None
 }
 
 // liveLoad is the load id with key of the node r names (Null for none),
 // None when it holds none.
-func liveLoad[E](f *Frame[E], r arena.Ref[node[E]], id ident, key Key) Option[slot] {
+func liveLoad[E](f mut Frame[E], r arena.Ref[node[E]], id ident, key Key) Option[slot] {
 	if !arena.Has(f.nodes, r) {
 		return None
 	}
@@ -482,9 +482,9 @@ func liveLoad[E](f *Frame[E], r arena.Ref[node[E]], id ident, key Key) Option[sl
 }
 
 // parkedOf is the parked children of the node r names.
-func parkedOf[E](f *Frame[E], r arena.Ref[node[E]]) []arena.Ref[node[E]] {
+func parkedOf[E](f mut Frame[E], r arena.Ref[node[E]]) []arena.Ref[node[E]] {
 	let mut out = []arena.Ref[node[E]]{}
-	change(f, r, func(n *node[E]) {
+	change(f, r, func(n mut node[E]) {
 		if len(n.parked) > 0 {
 			out = n.parked
 		}
@@ -493,12 +493,12 @@ func parkedOf[E](f *Frame[E], r arena.Ref[node[E]]) []arena.Ref[node[E]] {
 }
 
 // parkedCount is the number of parked children of the node r names.
-func parkedCount[E](f *Frame[E], r arena.Ref[node[E]]) int {
+func parkedCount[E](f mut Frame[E], r arena.Ref[node[E]]) int {
 	let mut c = 0
-	change(f, r, func(n *node[E]) { c = len(n.parked) })
+	change(f, r, func(n mut node[E]) { c = len(n.parked) })
 	c
 }
 
 // stops is whether a group directly under spec p (-1 the root) stopped in
 // this pass.
-func stops[E](f *Frame[E], p int) bool { has(f.stopped, p) }
+func stops[E](f mut Frame[E], p int) bool { has(f.stopped, p) }

@@ -175,7 +175,7 @@ func TestTemplateAgrees(t *testing.T) {
 		var outs [2]outcome
 		for i, mode := range []string{"", "off"} {
 			prev := lower.SetConstTemplateLoweringForTest(mode)
-			rep, err := Emit(u, IR, filepath.Join(dir, "ir"+mode))
+			rep, err := EmitFold(u, filepath.Join(dir, "ir"+mode), "") // the fold on: the template switch alone varies
 			lower.SetConstTemplateLoweringForTest(prev)
 			if err != nil {
 				t.Fatal(err)

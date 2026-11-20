@@ -34,8 +34,8 @@ func TestDiagnosticMessagesSayWhatHappened(t *testing.T) {
 		// call-only (K4 x G1, batch 12).
 		{"extern-value", stdNap + "func apply(f func(d duration), d duration) { f(d) }\nfunc use() { apply(Nap, 1s) }\n",
 			"Nap is an extern and is not a value; pass func(d duration) { Nap(d) }"},
-		{"dot-instance", "type Box[T] { v T }\nfunc Twice(b *Box[int]) { b.v = b.v * 2 }\nfunc main() needs Console {\n\tlet mut b = Box[int]{v: 1}\n\tb.Twice()\n\tConsole.Println(\"\\(b.v)\")\n}\n",
-			"Twice takes *Box[int], one instance, and a dot call reaches a function on a generic type only when its first parameter takes the function's own type parameters: write func Twice[T](b *Box[T]), or call Twice(&b)"},
+		{"dot-instance", "type Box[T] { v T }\nfunc Twice(b mut Box[int]) { b.v = b.v * 2 }\nfunc main() needs Console {\n\tlet mut b = Box[int]{v: 1}\n\tb.Twice()\n\tConsole.Println(\"\\(b.v)\")\n}\n",
+			"Twice takes mut Box[int], one instance, and a dot call reaches a function on a generic type only when its first parameter takes the function's own type parameters: write func Twice[T](b mut Box[T]), or call Twice(&b)"},
 		{"extern-value-with-a-row", stdNap + "func apply(f func(d duration) fails Late | Lost, d duration) fails Late | Lost { try f(d) }\nfunc use() fails Late | Lost { try apply(NapOr, 1s) }\n",
 			"NapOr is an extern and is not a value; pass func(d duration) fails Late | Lost { NapOr(d) }"},
 		{"duplicate-function", "type Engine {}\ntype Program { n int }\nfunc Compile(s string) Program { Program{n: 1} }\nfunc Compile(_ Engine, s string) Program { Program{n: 2} }\n",
@@ -84,7 +84,7 @@ func TestOneDiagnosticEach(t *testing.T) {
 	for _, src := range []string{
 		"type Missing { Name string }\nfunc find(name string) string fails Missing {\n\tif name == \"\" {\n\t\treturn Missing{Name: name}\n\t}\n\tname\n}\nfunc shown(s string) bool { s != \"\" }\nfunc main() needs Console {\n\tlet ok = shown(find(\"x\")) catch {\n\tcase Missing:\n\t\tfalse\n\t}\n\tConsole.Println(\"\\(ok)\")\n}\n",
 		"func first(words []string, n int) []string { words[0..n] }\n",
-		"type Box[T] { v T }\nfunc Twice(b *Box[int]) { b.v = b.v * 2 }\nfunc main() needs Console {\n\tlet mut b = Box[int]{v: 1}\n\tb.Twice()\n\tConsole.Println(\"\\(b.v)\")\n}\n",
+		"type Box[T] { v T }\nfunc Twice(b mut Box[int]) { b.v = b.v * 2 }\nfunc main() needs Console {\n\tlet mut b = Box[int]{v: 1}\n\tb.Twice()\n\tConsole.Println(\"\\(b.v)\")\n}\n",
 	} {
 		if _, d := check.CheckSource(src); len(d) != 1 {
 			t.Errorf("want one diagnostic, got %s\n%s", describe(d), src)
@@ -220,7 +220,7 @@ func TestDiagnosticTypeNamesResolve(t *testing.T) {
 // of a declaration the caller does not own, and never names an
 // unexported function the caller cannot call.
 func TestDotCallHintAcrossPackages(t *testing.T) {
-	const lib = "type Box[T] { V T }\nfunc Twice(b *Box[int]) { b.V = b.V * 2 }\nfunc half(b Box[int]) int { b.V / 2 }\nfunc Half(b Box[int]) int { half(b) }\n"
+	const lib = "type Box[T] { V T }\nfunc Twice(b mut Box[int]) { b.V = b.V * 2 }\nfunc half(b Box[int]) int { b.V / 2 }\nfunc Half(b Box[int]) int { half(b) }\n"
 	lf, err := syntax.Parse(lib)
 	if err != nil {
 		t.Fatal(err)
@@ -230,7 +230,7 @@ func TestDotCallHintAcrossPackages(t *testing.T) {
 		t.Fatalf("library: %s", describe(ds))
 	}
 	for _, tc := range []struct{ name, body, want, not string }{
-		{"exported", "let mut b = a.Box[int]{V: 1}\n\tb.Twice()\n\tb.V", "Twice takes *a.Box[int], one instance, and a dot call reaches a function on a generic type only when its first parameter takes the function's own type parameters: call a.Twice(&b)", "write func"},
+		{"exported", "let mut b = a.Box[int]{V: 1}\n\tb.Twice()\n\tb.V", "Twice takes mut a.Box[int], one instance, and a dot call reaches a function on a generic type only when its first parameter takes the function's own type parameters: call a.Twice(&b)", "write func"},
 		{"unexported", "let b = a.Box[int]{V: 1}\n\tb.half()", "a.Box[int] has no field or method half", "half takes"},
 	} {
 		src := "import a\nfunc f() int {\n\t" + tc.body + "\n}\n"

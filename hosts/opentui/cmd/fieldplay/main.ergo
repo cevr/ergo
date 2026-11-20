@@ -49,7 +49,7 @@ func fieldMachine() Machine[field, fieldEvent, int] {
 	Machine[field, fieldEvent, int]{Initial: field{text: ""}, Step: fieldStep, After: none, Work: idle}
 }
 
-func fieldView(f *ui.Frame[fieldEvent], s field) {
+func fieldView(f mut ui.Frame[fieldEvent], s field) {
 	ui.Column(f, ui.Plain()) {
 		ui.Input(f, s.text, "type here", func(t string) fieldEvent { Typed{Text: t} })
 		ui.OnKey(f, func(k ui.KeyPress) Option[fieldEvent] {

@@ -134,7 +134,7 @@ func HrefOf(u Url) string { u.href }
 // writer is the text so far, and whether it ends a line (or is empty).
 type writer { out strings.Builder, nl bool }
 
-func lit(w *writer, s string) {
+func lit(w mut writer, s string) {
 	if s == "" {
 		return
 	}
@@ -143,13 +143,13 @@ func lit(w *writer, s string) {
 }
 
 // cr ends the line unless it is ended.
-func cr(w *writer) {
+func cr(w mut writer) {
 	if !w.nl {
 		lit(w, "\n")
 	}
 }
 
-func open(w *writer, tag string, attrs []Attr, selfClose bool) {
+func open(w mut writer, tag string, attrs []Attr, selfClose bool) {
 	lit(w, "<")
 	lit(w, tag)
 	for a in attrs {
@@ -162,13 +162,13 @@ func open(w *writer, tag string, attrs []Attr, selfClose bool) {
 	lit(w, if selfClose { " />" } else { ">" })
 }
 
-func close(w *writer, tag string) {
+func close(w mut writer, tag string) {
 	lit(w, "</")
 	lit(w, tag)
 	lit(w, ">")
 }
 
-func kids(w *writer, ns []Node) {
+func kids(w mut writer, ns []Node) {
 	for k in ns {
 		write(w, k)
 	}
@@ -177,7 +177,7 @@ func kids(w *writer, ns []Node) {
 // write writes n with CommonMark's line breaks: a block element starts
 // and ends on a line of its own, a list or a quote also puts its
 // children on lines of their own, and br ends its line.
-func write(w *writer, n Node) {
+func write(w mut writer, n Node) {
 	match n {
 	case Text as t:
 		lit(w, Escape(t.S))

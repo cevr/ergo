@@ -113,7 +113,7 @@ func play(chat Chat, echo memory.Echo, clock time.Manual) int fails actor.Stoppe
 
 // act does a script line and settles; it says whether the line acts, so
 // the screen shows after it.
-func act(h *Host, chat Chat, echo memory.Echo, clock time.Manual, line string, raw string) bool fails Bad | actor.Stopped | ui.BadPatch needs Console | Scheduler | time.Clock | talk.Channel {
+func act(h mut Host, chat Chat, echo memory.Echo, clock time.Manual, line string, raw string) bool fails Bad | actor.Stopped | ui.BadPatch needs Console | Scheduler | time.Clock | talk.Channel {
 	let w = strings.Fields(line)
 	// The rest is the raw line after the word and one space, spaces and all.
 	let rest = strings.TrimPrefix(raw[strings.Index(raw, w[0])+len(w[0]):], " ")
@@ -175,7 +175,7 @@ func act(h *Host, chat Chat, echo memory.Echo, clock time.Manual, line string, r
 
 // on plays a and settles. A locator that finds no node, or more than one,
 // does nothing and says so.
-func on(h *Host, a ui.Act) fails actor.Stopped | ui.BadPatch needs Console {
+func on(h mut Host, a ui.Act) fails actor.Stopped | ui.BadPatch needs Console {
 	ui.Play(h, []ui.Act{a, ui.SettleAll}) catch {
 	case ui.NoNode as no:
 		Console.Println("  ? no node: \(no.Label)")
@@ -192,7 +192,7 @@ func on(h *Host, a ui.Act) fails actor.Stopped | ui.BadPatch needs Console {
 // send sends the outbox, first text first, and answers the chat for each:
 // Sent at the clock's time, or Unsent when no line is open. Each echo
 // comes after its send.
-func send(h *Host, chat Chat, echo memory.Echo, clock time.Manual) fails actor.Stopped | ui.BadPatch needs Scheduler | talk.Channel {
+func send(h mut Host, chat Chat, echo memory.Echo, clock time.Manual) fails actor.Stopped | ui.BadPatch needs Scheduler | talk.Channel {
 	for text in talk.Outbox(chat.State()) {
 		memory.Send(echo, text) catch {
 		case talk.Unavailable:
@@ -219,7 +219,7 @@ func button(label string) ui.Locator { ui.WithRole{Role: ui.Button, Name: label}
 // Shown is the screen in a line, in screen order: the field as <VALUE>,
 // each button as [LABEL] ([LABEL, disabled] in a disabled fieldset), each
 // heading as # NAME, each other named region as NAME{...}, and each text.
-func Shown(h *Host) string { strings.Join(tokens(ui.Screen(h), false), " ") }
+func Shown(h mut Host) string { strings.Join(tokens(ui.Screen(h), false), " ") }
 
 func tokens(shapes []ui.Shape[talk.Signal], off bool) []string {
 	let mut out = []string{}

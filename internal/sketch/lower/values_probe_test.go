@@ -152,11 +152,11 @@ func main() needs Console {
 `, "1 10 11\n"},
 	{"Pborrow", `type Box { M Map[int, int] }
 
-func add(b *Box, k int) {
+func add(b mut Box, k int) {
 	b.M[k] = k
 }
 
-func leak(b *Box) Map[int, int] {
+func leak(b mut Box) Map[int, int] {
 	b.M
 }
 

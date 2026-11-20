@@ -88,16 +88,16 @@ func TestLetMutReassignment(t *testing.T) {
 // parameter is *T, could change x, so x must be a let mut, which the
 // borrow counts as reassigned (Q3).
 func TestLetMutPointers(t *testing.T) {
-	const decls = "type R { N int }\nfunc bump(r *R) { r.N = r.N + 1 }\n"
+	const decls = "type R { N int }\nfunc bump(r mut R) { r.N = r.N + 1 }\n"
 	runD1(t, []d1Case{
-		{"write-through-parameter", decls + "func f(p *R) { p.N = 2 }\n", nil},
-		{"write-through-deref", decls + "func f(p *R) { (*p).N = 2 }\n", nil},
+		{"write-through-parameter", decls + "func f(p mut R) { p.N = 2 }\n", nil},
+		{"write-through-deref", decls + "func f(p mut R) { (*p).N = 2 }\n", nil},
 		{"borrow-let", decls + "func f() int {\n\tlet r = R{N: 1}\n\tlet p = &r\n\tp.bump()\n\tr.N\n}\n", []string{"S108:5"}},
 		{"borrow-let-mut", decls + "func f() int {\n\tlet mut r = R{N: 1}\n\tlet p = &r\n\tp.bump()\n\tr.N\n}\n", nil},
-		{"borrow-parameter", decls + "func take(p *R) {}\nfunc f(r R) { take(&r) }\n", []string{"S108:4"}},
+		{"borrow-parameter", decls + "func take(p mut R) {}\nfunc f(r R) { take(&r) }\n", []string{"S108:4"}},
 		{"implicit-borrow-let", decls + "func f() int {\n\tlet r = R{N: 1}\n\tr.bump()\n\tr.N\n}\n", []string{"S108:5"}},
 		{"implicit-borrow-let-mut", decls + "func f() int {\n\tlet mut r = R{N: 1}\n\tr.bump()\n\tr.N\n}\n", nil},
-		{"reassign-pointer", decls + "func f(a *R, b *R) {\n\tlet p = a\n\tp = b\n\tp.N = 1\n}\n", []string{"S108:5"}},
+		{"reassign-pointer", decls + "func f(a mut R, b mut R) {\n\tlet p = a\n\tp = b\n\tp.N = 1\n}\n", []string{"S108:5"}},
 	})
 }
 
@@ -113,6 +113,18 @@ func TestLetMutNeverReassigned(t *testing.T) {
 		{"through-field", decls + "func f(r R) int {\n\tlet mut c = r\n\tc.N = 1\n\tc.N\n}\n", nil},
 		{"in-loop-literal", decls + "func f() int {\n\tlet mut n = 0\n\tlet run = func() {\n\t\tlet mut i = 0\n\t\tfor i < 3 {\n\t\t\ti += 1\n\t\t}\n\t\tn = i\n\t}\n\trun()\n\tn\n}\n", nil},
 		{"literal-local-never", decls + "func f() {\n\tlet h = func() int {\n\t\tlet mut k = 1\n\t\tk\n\t}\n\tuse(h())\n}\n", []string{"S110:5"}},
+	})
+}
+
+// TestOneMemberRowValue is the smallest repro of SM WEB1's status table: a
+// value of a one-member error row is its record (rows.md, Catch 7), so a
+// named function of the record checks as the equivalent literal does
+// where func(f F) is expected with F the row.
+func TestOneMemberRowValue(t *testing.T) {
+	const decls = "type M { S string }\ntype Site[F] { Status func(f F) int }\n"
+	runD1(t, []d1Case{
+		{"named", decls + "func status(m M) int { len(m.S) }\nfunc f() Site[M] { Site[M]{Status: status} }\n", nil},
+		{"literal", decls + "func f() Site[M] { Site[M]{Status: func(m M) int { len(m.S) }} }\n", nil},
 	})
 }
 

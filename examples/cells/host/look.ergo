@@ -186,7 +186,7 @@ func showsEveryName(seed int) bool needs Scheduler {
 
 // namesShown is whether every node below id shows its name or leaves it
 // out.
-func namesShown[S, E, D, F](h *Host[S, E, D, F], id ui.Id[E]) bool {
+func namesShown[S, E, D, F](h mut Host[S, E, D, F], id ui.Id[E]) bool {
 	for k in kidsOf(h, id) {
 		let n = match h.nodes.Get(k) {
 		case Some[held[E]] as x:

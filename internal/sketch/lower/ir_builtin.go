@@ -31,6 +31,11 @@ func (b *irBuilder) goBuiltinCall(x *syntax.CallExpr, c *check.Call, f *check.Fu
 	if c.Recv != nil {
 		list = append([]syntax.Expr{c.Recv}, list...)
 	}
+	if check.AppendSpreads(f) {
+		// The decoder admits append's string shape only (ergoir_builtin.go),
+		// so a bulk append (SL2) keeps its function's Go body.
+		irNo("bulk append (SL2) on the IR")
+	}
 	pre, args := b.operands(list) // ir_fail.go
 	if check.AppendsString(f) {
 		// Go's append(xs, s...): the bytes of s at the end of xs. Its
@@ -71,7 +76,7 @@ func (b *irBuilder) goBuiltinCall(x *syntax.CallExpr, c *check.Call, f *check.Fu
 		if len(args) != 1 {
 			irNo("len form")
 		}
-		return pre, &irExpr{K: "len", Pos: p, X: args[0]}, false
+		return pre, b.foldConst(x, &irExpr{K: "len", Pos: p, X: args[0]}), false // ir_opfold.go: a constant's len
 	case "cap", "min", "max":
 		return pre, &irExpr{K: "builtin", Pos: p, Name: name, Args: args}, false
 	case "copy":

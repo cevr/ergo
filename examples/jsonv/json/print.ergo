@@ -6,7 +6,7 @@ import strings
 // at the end, so printing is linear in the output.
 type writer { parts []string }
 
-func put(w *writer, s string) { w.parts = w.parts.Append(s) }
+func put(w mut writer, s string) { w.parts = w.parts.Append(s) }
 
 // Compact is v with no white space.
 func Compact(v json.Value) string {
@@ -119,7 +119,7 @@ law IndentIsIdempotent(t Tree) {
 	Indent(try Parse(once), "  ") == once
 }
 
-func compact(w *writer, v json.Value) {
+func compact(w mut writer, v json.Value) {
 	match v {
 	case json.Array as a:
 		put(w, "[")
@@ -148,7 +148,7 @@ func compact(w *writer, v json.Value) {
 
 // pretty prints v; newline is a line feed and the indent of the level v
 // is at.
-func pretty(w *writer, v json.Value, indent string, newline string) {
+func pretty(w mut writer, v json.Value, indent string, newline string) {
 	let inner = newline + indent
 	match v {
 	case json.Array as a:
@@ -180,7 +180,7 @@ func pretty(w *writer, v json.Value, indent string, newline string) {
 	}
 }
 
-func scalar(w *writer, v json.Value) {
+func scalar(w mut writer, v json.Value) {
 	match v {
 	case json.Null:
 		put(w, "null")
@@ -201,7 +201,7 @@ func scalar(w *writer, v json.Value) {
 // below 0x20 and 0x7f are escaped, with \b, \f, \n, \r and \t where JSON
 // has them; any other byte is written as it is. Invalid UTF-8 is written
 // as U+FFFD, as Go's encoding/json writes it.
-func quote(w *writer, raw string) {
+func quote(w mut writer, raw string) {
 	let s = strings.ToValidUTF8(raw, "\ufffd")
 	put(w, "\"")
 	let mut run = 0

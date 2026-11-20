@@ -21,6 +21,9 @@ type PackageManager { disk fstest.Memory, runs sync.Ref[int] } implements exec.R
 func NewPackageManager(disk fstest.Memory) PackageManager { PackageManager{disk: disk, runs: sync.NewRef(0)} }
 
 func Run(p PackageManager, c exec.Command) exec.Result fails exec.NotFound | exec.Denied | exec.Failed {
+	if StatesItsStatus(c) {
+		return exec.NotFound{Name: c.Name}
+	}
 	p.runs.Set(p.runs.Get() + 1)
 	let text = p.disk.ReadFile(filepath.Join([]string{c.Dir, "package.json"})) catch {
 	case fs.NotFound, fs.Denied, fs.Failed:

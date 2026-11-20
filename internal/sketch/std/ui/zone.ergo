@@ -15,7 +15,7 @@ import sync
 // of the Area around it: an event over it carries, in PointerEvent.Zone,
 // the keys of the zones from the Area down to it, its box and the
 // pointer's offset in that box.
-func Zone[E, F, R](f *Frame[E], key Key, style Style, body func() fails F needs R, at CallSite) fails F needs R {
+func Zone[E, F, R](f mut Frame[E], key Key, style Style, body func() fails F needs R, at CallSite) fails F needs R {
 	try open(f, ZoneNode{Key: key, Style: style}, body, at)
 }
 
@@ -68,7 +68,7 @@ func sameHit(a Option[ZoneHit], b Option[ZoneHit]) bool {
 }
 
 // foundId is the node label finds; the laws name only nodes on the screen.
-func foundId[S, D, F](h *TestHost[S, int, D, F], label string) Id[int] {
+func foundId[S, D, F](h mut TestHost[S, int, D, F], label string) Id[int] {
 	match Find(h, label) {
 	case Some[Id[int]] as id:
 		id.Value
@@ -97,7 +97,7 @@ func zoneFollows(seed int, n int, m time.Manual) bool needs Scheduler {
 		cards = cards.Append(draw(&r, 3) + 1)
 	}
 	let got = sync.NewRef[Option[ZoneHit]](None)
-	let view = func(f *Frame[int], s int) {
+	let view = func(f mut Frame[int], s int) {
 		Pressable(f, "drop", 1) {
 			Text(f, "drop")
 		}
@@ -195,7 +195,7 @@ type ZoneBox[E] { Id Id[E], Box Rect }
 
 // zoneHit is the ZoneHit of over for a pointer at p in the Area area:
 // None when over names no zone f holds, or one that is not under area.
-func zoneHit[E](f *Frame[E], area Id[E], over ZoneBox[E], p PointerEvent) Option[ZoneHit] {
+func zoneHit[E](f mut Frame[E], area Id[E], over ZoneBox[E], p PointerEvent) Option[ZoneHit] {
 	if !arena.Has(f.nodes, area.ref) || !arena.Has(f.nodes, over.Id.ref) {
 		return None
 	}
@@ -215,7 +215,7 @@ func zoneHit[E](f *Frame[E], area Id[E], over ZoneBox[E], p PointerEvent) Option
 // zonePath is the keys of the zones on the way from r (not counted) down
 // to target, target's last; None when target is not under r. It visits
 // r's subtree in order, so its work is at most that subtree's size.
-func zonePath[E](f *Frame[E], r arena.Ref[node[E]], target arena.Ref[node[E]]) Option[[]Key] {
+func zonePath[E](f mut Frame[E], r arena.Ref[node[E]], target arena.Ref[node[E]]) Option[[]Key] {
 	for i in 0..kidCount(f, r) {
 		let k = kidAt(f, r, i)
 		let mut own = []Key{}
@@ -240,9 +240,9 @@ func zonePath[E](f *Frame[E], r arena.Ref[node[E]], target arena.Ref[node[E]]) O
 }
 
 // zoneKey is the key of the zone r, None for a node that is not one.
-func zoneKey[E](f *Frame[E], r arena.Ref[node[E]]) Option[Key] {
+func zoneKey[E](f mut Frame[E], r arena.Ref[node[E]]) Option[Key] {
 	let mut out Option[Key] = None
-	change(f, r, func(n *node[E]) {
+	change(f, r, func(n mut node[E]) {
 		match n.node {
 		case ZoneNode as z:
 			out = Some{Value: z.Key}
@@ -256,7 +256,7 @@ func zoneKey[E](f *Frame[E], r arena.Ref[node[E]]) Option[Key] {
 // text once, politely (after what it is saying), as the web's aria-live
 // "polite" region does. An empty text says nothing. A pass that writes
 // the same text as the last one says nothing again.
-func Announce[E](f *Frame[E], text string, at CallSite) {
+func Announce[E](f mut Frame[E], text string, at CallSite) {
 	let _ = put(f, LiveNode{Text: text}, None, None, at)
 }
 
@@ -284,7 +284,7 @@ func announceFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 		texts = texts.Append(words[draw(&r, 4)])
 	}
 	let shift = sync.NewRef(0)
-	let view = func(f *Frame[int], s int) {
+	let view = func(f mut Frame[int], s int) {
 		let shown = (s + shift.Get()) % 6
 		OnKey(f, func(k KeyPress) Option[int] {
 			for i in 0..6 {
@@ -428,7 +428,7 @@ type edgeList[E] { id Id[E], view Viewport, content Length }
 // 0); None for none. The Area's box is the list's viewport: the pointer's
 // y in the Area is its y in the viewport, as when an Area holds a list
 // whose rows are its zones.
-func edgeListIn[E](f *Frame[E], area Id[E]) Option[edgeList[E]] {
+func edgeListIn[E](f mut Frame[E], area Id[E]) Option[edgeList[E]] {
 	let n = f.nodes.Get(area.ref) catch {
 	case arena.Stale:
 		return None
@@ -442,7 +442,7 @@ func edgeListIn[E](f *Frame[E], area Id[E]) Option[edgeList[E]] {
 }
 
 // firstList is the first Rows list under r with a reported viewport.
-func firstList[E](f *Frame[E], r arena.Ref[node[E]]) Option[edgeList[E]] {
+func firstList[E](f mut Frame[E], r arena.Ref[node[E]]) Option[edgeList[E]] {
 	for k in kidsOf(f, r) {
 		let n = f.nodes.Get(k) catch {
 		case arena.Stale:

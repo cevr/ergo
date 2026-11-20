@@ -1,20 +1,23 @@
 // Package linked writes the Go of the Ergo packages the ergo binary links
-// (docs/tooling.md, Linked Ergo packages). Until the mixed binary of
-// capstone S1 links an Ergo package into this Go one, a feature written in
-// Ergo reaches the binary as checked-in Go: its Ergo source is a module
-// under internal/linked/<name>/ergo, `go run ./scripts/linked` lowers it
-// with lower.LowerLibrary (the lowering `ergo lib` uses) into
-// internal/linked/<name>/<name>.go, and cmd/ergo calls the exported Go
-// functions. The Go is generated, never edited: TestLinkedGoIsFresh fails
-// when the checked-in files differ from what Generate writes now.
+// (docs/tooling.md, Linked Ergo packages). A feature written in Ergo
+// reaches the binary as checked-in Go: its Ergo source is a module (by
+// default under internal/linked/<name>/ergo; the compiler's packages are
+// the module compiler/), `go run ./scripts/linked` lowers it into
+// internal/linked/<name>/<name>.go, and Go packages call the exported Go
+// functions. A row with IR set lowers through the IR (lower.LowerIRLibrary:
+// the library form of `ergo lib`, with IR bodies) and writes the
+// derivative's Go text of what it compiled (irspike.LibraryText; capstone
+// §12 Decided 5); the others lower with lower.LowerLibrary (the lowering
+// `ergo lib` uses). The Go is generated, never edited: TestLinkedGoIsFresh
+// fails when the checked-in files differ from what Generate writes now.
 //
 // A package may also list command lines that `ergo gen cli` generates
 // from an operation type of std; Generate writes them into the module
 // before it lowers it, as `ergo gen cli` would.
 //
 // One list, one generator, one test: every Ergo package the binary links
-// is a row of Packages. At capstone S1 the linker joins the Ergo package
-// itself, and this package is deleted.
+// is a row of Packages. The package lasts through capstone S4; at S5
+// `ergo` is compiler/cmd/ergo, built from the seed, and it is deleted.
 package linked
 
 import (
@@ -29,7 +32,9 @@ import (
 
 	"ergo.local/prototype/internal/apigen"
 	"ergo.local/prototype/internal/cligen"
+	"ergo.local/prototype/internal/experimental/irspike"
 	"ergo.local/prototype/internal/sketch/check"
+	"ergo.local/prototype/internal/sketch/lower"
 	"ergo.local/prototype/internal/sketchfront"
 )
 
@@ -37,6 +42,15 @@ import (
 type Package struct {
 	// Name is the Go package name and the folder internal/linked/<Name>.
 	Name string
+	// Source is the module's folder from the repository root; "" is
+	// internal/linked/<Name>/ergo.
+	Source string
+	// Exports is the package, by folder in the module, whose exported
+	// functions become the Go functions; "" is the module's root package.
+	Exports string
+	// IR lowers the module through the IR and writes the patched
+	// compile's Go text of it; false lowers it with lower.LowerLibrary.
+	IR bool
 	// CLIs are the command lines generated into the module first.
 	CLIs []CLI
 }
@@ -53,6 +67,13 @@ var Packages = []Package{
 	{Name: "code", CLIs: []CLI{{Std: "code", Op: "Reader", Dir: "codecli"}}},
 	// ergo graph (CI-SELECT GRAPH-STD): std codegraph over the graph rows.
 	{Name: "graph"},
+	// The compiler written in Ergo, one package so the binary links
+	// compiler/syntax once (capstone S1d): the formatter (S1a, S2c), which
+	// internal/hostsyntax calls, and compiler/syntax/dump's entries passed
+	// through compiler/api (S2a, S2b), which syntax.Parse decodes since
+	// S2d: the columns, the tokens, the failure and the canonical dumps the
+	// decoder property compares.
+	{Name: "compiler", Source: "compiler", Exports: "api", IR: true},
 }
 
 // Module is the Go module path of the repository.
@@ -61,12 +82,20 @@ const Module = "ergo.local/prototype"
 // Dir is the folder of p, from the repository root.
 func (p Package) Dir() string { return path.Join("internal/linked", p.Name) }
 
+// ModuleDir is the folder of p's Ergo module, from the repository root.
+func (p Package) ModuleDir() string {
+	if p.Source != "" {
+		return p.Source
+	}
+	return path.Join(p.Dir(), "ergo")
+}
+
 // Generate is every file that p's generation writes, by path from the
 // repository root root: the generated command lines (Ergo) and the
 // lowered package (Go).
 func Generate(root string, p Package) (map[string][]byte, error) {
 	out := map[string][]byte{}
-	source := filepath.Join(root, filepath.FromSlash(p.Dir()), "ergo")
+	source := filepath.Join(root, filepath.FromSlash(p.ModuleDir()))
 	skip := map[string]bool{}
 	for _, c := range p.CLIs {
 		skip[c.Dir] = true
@@ -96,40 +125,73 @@ func Generate(root string, p Package) (map[string][]byte, error) {
 			files map[string]string
 		}{{hub.Dir, hub.Files}, {c.Dir, files.Files}} {
 			for name, text := range gen.files {
-				out[path.Join(p.Dir(), "ergo", gen.dir, name)] = []byte(text)
+				out[path.Join(p.ModuleDir(), gen.dir, name)] = []byte(text)
 				module[path.Join(gen.dir, name)] = text
 			}
 		}
 	}
-	a, err := checkModule(module)
+	a, err := checkModule(module, p.Exports)
 	if err != nil {
 		return nil, fmt.Errorf("linked %s: %w", p.Name, err)
 	}
 	if len(a.Diagnostics) > 0 {
 		return nil, fmt.Errorf("linked %s: %s does not check: %v", p.Name, source, a.Diagnostics[0])
 	}
+	var text []byte
+	if p.IR {
+		text, err = irText(a, p)
+	} else {
+		text, err = libraryText(a, p)
+	}
+	if err != nil {
+		return nil, err
+	}
+	// gofmt to its fixed point: one pass leaves a /*line*/ comment before
+	// a union's marker method on the method's line, and a second pass
+	// moves it, so the gate's gofmt step and the checked-in file would
+	// disagree (the 36 lines of codego-stale.md, SELFHOST-MERGE).
+	src, err := gofmtFixpoint(text)
+	if err != nil {
+		return nil, fmt.Errorf("linked %s: gofmt: %w", p.Name, err)
+	}
+	out[path.Join(p.Dir(), p.Name+".go")] = src
+	return out, nil
+}
+
+// irText is the patched compile's Go text of a lowered through the IR.
+func irText(a sketchfront.Analysis, p Package) ([]byte, error) {
+	unit, err := sketchfront.IRSpikeUnit(a, "")
+	if err != nil {
+		return nil, fmt.Errorf("linked %s: %w", p.Name, err)
+	}
+	files, _, err := lower.LowerIRLibrary(unit, p.Name)
+	if err != nil {
+		return nil, fmt.Errorf("linked %s: %w", p.Name, err)
+	}
+	_, tc, err := irspike.ErgoToolchains()
+	if err != nil {
+		return nil, fmt.Errorf("linked %s: the patched toolchain: %w", p.Name, err)
+	}
+	var stderr strings.Builder
+	text, err := irspike.LibraryText(files, tc, p.Name, &stderr)
+	if err != nil {
+		return nil, fmt.Errorf("linked %s: %w\n%s", p.Name, err, stderr.String())
+	}
+	return text, nil
+}
+
+// libraryText is the Go of a as `ergo lib` lowers it (lower.LowerLibrary).
+func libraryText(a sketchfront.Analysis, p Package) ([]byte, error) {
 	files, err := sketchfront.Library(a, "", path.Join(Module, p.Dir()), p.Name)
 	if err != nil {
 		return nil, fmt.Errorf("linked %s: %w", p.Name, err)
 	}
 	for _, f := range files {
 		if f.Path == p.Name+".go" {
-			// gofmt to its fixed point: one pass leaves a /*line*/
-			// comment before a union's marker method on the method's line,
-			// and a second pass moves it, so the gate's gofmt step and the
-			// checked-in file would disagree (the 36 lines of
-			// codego-stale.md, SELFHOST-MERGE).
-			src, err := gofmtFixpoint(f.Data)
-			if err != nil {
-				return nil, fmt.Errorf("linked %s: gofmt: %w", p.Name, err)
-			}
-			out[path.Join(p.Dir(), f.Path)] = src
+			return f.Data, nil
 		}
 	}
-	if _, ok := out[path.Join(p.Dir(), p.Name+".go")]; !ok {
-		return nil, fmt.Errorf("linked %s: the lowering wrote no %s.go", p.Name, p.Name)
-	}
-	return out, nil
+	return nil, fmt.Errorf("linked %s: the lowering wrote no %s.go", p.Name, p.Name)
 }
 
 // gofmtFixpoint formats src until gofmt leaves it unchanged.

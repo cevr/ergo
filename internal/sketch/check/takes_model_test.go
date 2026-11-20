@@ -13,34 +13,38 @@ import (
 )
 
 // TestTakesInferenceModel (#197 L8 A3) is a seeded property of takes
-// inference and copy sites (takes.go). It generates a package's call
-// graph: functions, exported (a written takes clause, chosen at random)
-// and unexported (none: inferred), whose bodies lend a parameter, hand it
-// off (to a function that takes it, through a function value whose type
-// takes it, or on one path only), call another generated function (any,
-// so recursion and mutual recursion), and name one as a value; and
-// generic functions that move their T, copy it, or call another generic
-// function, each called with a resource and with an int. A reference
-// fixpoint in the test, written from plan 1.1 and 1.3, computes each
-// inferred clause, each copy site and every S108 position (a use after a
+// inference (takes.go) and of the own mark (types.md, Generics 9; EXM2).
+// It generates a package's call graph: functions, exported (a written
+// takes clause, chosen at random) and unexported (none: inferred), whose
+// bodies lend a parameter, hand it off (to a function that takes it,
+// through a function value whose type takes it, or on one path only),
+// call another generated function (any, so recursion and mutual
+// recursion), and name one as a value; and generic functions, each marked
+// [T own] or not, that move their T, copy it, call another generic
+// function, or key a map by it, each called with a resource and with an
+// int. A reference in the test, written from plan 1.1 and Generics 9,
+// computes each inferred clause and every diagnostic: a use after a
 // hand-off, a lent parameter handed off, a function value whose clause
-// differs from the expected type's, a generic call that binds a copied T
-// to a resource); they must equal the checker's. ERGO_SEED=<n> replays one
-// seed; a failure prints the Ergo source and both results. A two-package
-// case checks that the facts cross an import. Each seed runs twice: under
-// ergo fix's clause writer (Options.Infer), the only place the inference
-// lives (q137, EX3), against the fixpoint; and in the default mode against
-// the model with no inferred clause, where an unexported function's
-// hand-off of a parameter is S108 and a generic body's hand-off of its
-// lent T is a copy site.
+// differs from the expected type's; a marked body that copies its T, binds
+// it to an unmarked callee, or keys a map by it (S112); a call that binds
+// a resource to an unmarked T. They must equal the checker's (a generic
+// body's line by its codes, the rest by position). ERGO_SEED=<n> replays
+// one seed; a failure prints the Ergo source and both results. A
+// two-package case checks that the facts cross an import. Each seed runs
+// twice: under ergo fix's clause writer (Options.Infer), the only place
+// the inference lives (q137, EX3), against the fixpoint; and in the
+// default mode against the model with no inferred clause, where an
+// unexported function's hand-off of a parameter is S108.
 //
-// Mutants it kills that no other test does (ledger: takes.go): inference
-// misses a take two calls deep; mutual recursion stops after one round;
-// an exported function that takes without the clause admitted; function
-// types equal without the clause; a call through a function value does
-// not move; a copy site not propagated through a generic callee; a copy
-// site reported at a call with an int; a bodiless generic outside the
-// table treated as moving.
+// Mutants it kills that no other test does (ledgers: takes.go,
+// resource.go): inference misses a take two calls deep; mutual recursion
+// stops after one round; an exported function that takes without the
+// clause admitted; function types equal without the clause; a call
+// through a function value does not move; a marked body that copies is
+// accepted (modes5-own-copy-admitted); a call through a generic callee does
+// not propagate the mark (modes5-own-arg-unchecked); an own map key
+// admitted (modes5-own-key-admitted); a resource binds an unmarked T
+// (modes5-unmarked-admits-resource).
 func TestTakesInferenceModel(t *testing.T) {
 	seeds := make([]uint64, 0, 300)
 	if s := os.Getenv("ERGO_SEED"); s != "" {
@@ -76,8 +80,19 @@ func tkSeed(t *testing.T, seed uint64, explicit bool) {
 			check = checkFor
 		}
 		c, diags := check(src)
+		hLines := map[int]bool{}
+		for _, h := range g.generics {
+			hLines[h.line] = true
+		}
 		var got []string
 		for _, d := range diags {
+			if hLines[d.Line] {
+				// A generic body's line, by its codes (ownCodes).
+				if k := fmt.Sprintf("L%d %s", d.Line, d.Code); !slices.Contains(got, k) {
+					got = append(got, k)
+				}
+				continue
+			}
 			got = append(got, fmt.Sprintf("%d:%d %s", d.Line, d.Column, d.Code))
 		}
 		gotTakes := tkInferred(c)
@@ -88,7 +103,7 @@ func tkSeed(t *testing.T, seed uint64, explicit bool) {
 			for _, d := range diags {
 				full = append(full, d.String())
 			}
-			t.Fatalf("seed %d, explicit %v (replay: ERGO_SEED=%d go test -run TestTakesInferenceModel ./internal/sketch/check)\nsource:\n%s\nchecker diagnostics: %v\nmodel diagnostics:   %v\n%s\nchecker clauses and copies: %v\nmodel clauses and copies:   %v",
+			t.Fatalf("seed %d, explicit %v (replay: ERGO_SEED=%d go test -run TestTakesInferenceModel ./internal/sketch/check)\nsource:\n%s\nchecker diagnostics: %v\nmodel diagnostics:   %v\n%s\nchecker clauses: %v\nmodel clauses:   %v",
 				seed, explicit, seed, ofNumbered(src), got, want, strings.Join(full, "\n"), gotTakes, wantTakes)
 		}
 	}
@@ -107,8 +122,6 @@ func keep(r own Res) {}
 func cond(n int) bool { n > 2 }
 
 func use(f func(n int, a Res, b Res, g func(r own Res))) {}
-
-func first[T](a own T, b own T) T { a }
 
 func keyed[K comparable](m Map[K, int], x own K) K { x }
 
@@ -136,11 +149,13 @@ type tkFunc struct {
 	body     []*tkStmt
 }
 
-// tkGeneric is h<i>[T](x T) T: body 0 moves x, 1 copies it
-// (first(x, x)), 2 calls h<callee>(x), 3 keys a map by T (resources R40:
-// S112 at a call with a resource).
+// tkGeneric is h<i>[T own?](x own T) T: body 0 moves x, 1 copies it
+// (let (a, _) = (x, x)), 2 calls h<callee>(x), 3 keys a map by T through
+// keyed, whose K is unmarked.
 type tkGeneric struct {
 	body, callee int
+	marked       bool
+	line         int // the line of h<i>'s declaration
 	callLine     int // the line of `let v<i> = h<i>(open(…))`
 }
 
@@ -169,7 +184,7 @@ func tkGen(r *rand.Rand) *tkModel {
 	}
 	k := 1 + r.IntN(4)
 	for range k {
-		m.generics = append(m.generics, &tkGeneric{body: r.IntN(4), callee: r.IntN(k)})
+		m.generics = append(m.generics, &tkGeneric{body: r.IntN(4), callee: r.IntN(k), marked: r.IntN(2) == 0})
 	}
 	return m
 }
@@ -239,13 +254,18 @@ func (m *tkModel) print() string {
 		case 0:
 			body = "x"
 		case 1:
-			body = "first(x, x)"
+			body = "let (a, _) = (x, x); a"
 		case 2:
 			body = fmt.Sprintf("h%d(x)", h.callee)
 		default:
 			body = "keyed(Map[T, int]{}, x)"
 		}
-		emit(fmt.Sprintf("func h%d[T comparable](x T) T { %s }", i, body))
+		mark := ""
+		if h.marked {
+			mark = " own"
+		}
+		h.line = line
+		emit(fmt.Sprintf("func h%d[T%s comparable](x own T) T { %s }", i, mark, body))
 		emit("")
 	}
 	emit("func callers() {")
@@ -302,31 +322,33 @@ func (m *tkModel) handsOff(s *tkStmt, cl [][2]bool) bool {
 	return false
 }
 
-// copies is the reference fixpoint of plan 1.3 over the generic functions;
-// key marks a copy site that is a map key (S112 at the call, R40).
-func (m *tkModel) copies() (out, key []bool) {
-	out, key = make([]bool, len(m.generics)), make([]bool, len(m.generics))
-	for changed := true; changed; {
-		changed = false
-		for i, h := range m.generics {
-			// Explicit: h's x is lent (no clause is written), so its
-			// hand-off (body 0, x returned) is a copy of it.
-			c := h.body == 1 || h.body == 3 || h.body == 2 && out[h.callee] || m.explicit && h.body == 0
-			if c && !out[i] {
-				out[i] = true
-				key[i] = h.body == 3 || h.body == 2 && key[h.callee]
-				changed = true
-			}
-		}
+// ownCodes is the reference of Generics 9 for h<i>'s body: the codes on
+// its line. An unmarked T is plain data; under the mark a copy is S108, a
+// call of an unmarked callee is S108, and a map key is S112 with S108 for
+// keyed's unmarked K (and for the map it drops).
+func (m *tkModel) ownCodes(h *tkGeneric) []string {
+	if !h.marked {
+		return nil
 	}
-	return out, key
+	switch h.body {
+	case 1:
+		return []string{"S108"}
+	case 2:
+		if !m.generics[h.callee].marked {
+			return []string{"S108"}
+		}
+	case 3:
+		return []string{"S108", "S112"}
+	}
+	return nil
 }
 
 // reference is every diagnostic's position and code: the flow of each
 // function's body over its parameters' states, given the clauses; a
 // function value whose clause is not empty (an inferred one is refused as
-// a value, a written one is not use's parameter type); a generic call
-// with a resource whose callee copies.
+// a value, a written one is not use's parameter type); a generic body's
+// codes on its line (ownCodes); a call with a resource whose callee's T is
+// unmarked.
 func (m *tkModel) reference() []string {
 	cl := m.clauses()
 	var out []string
@@ -369,19 +391,18 @@ func (m *tkModel) reference() []string {
 			}
 		}
 	}
-	cp, key := m.copies()
-	for i, h := range m.generics {
-		switch {
-		case key[i]:
-			at(h.callLine, 11, "S112")
-		case cp[i]:
+	for _, h := range m.generics {
+		for _, code := range m.ownCodes(h) {
+			out = append(out, fmt.Sprintf("L%d %s", h.line, code))
+		}
+		if !h.marked {
 			at(h.callLine, 11, "S108")
 		}
 	}
 	return out
 }
 
-// inferred is the reference's inferred clauses and copy sites, as text.
+// inferred is the reference's inferred clauses, as text.
 func (m *tkModel) inferred() []string {
 	cl := m.clauses()
 	var out []string
@@ -397,35 +418,12 @@ func (m *tkModel) inferred() []string {
 		}
 		out = append(out, m.name(i)+" takes "+strings.Join(ix, ","))
 	}
-	cp, _ := m.copies()
-	for i, c := range cp {
-		if c {
-			out = append(out, fmt.Sprintf("h%d copies T", i))
-		}
-	}
-	// h<i> takes x when its body hands x off: it moves it, gives it to
-	// first, or to a generic callee that takes it. Explicit: none.
-	takes := make([]bool, len(m.generics))
-	for changed := !m.explicit; changed; {
-		changed = false
-		for i, h := range m.generics {
-			if !takes[i] && (h.body != 2 || takes[h.callee]) {
-				takes[i] = true
-				changed = true
-			}
-		}
-	}
-	for i, t := range takes {
-		if t {
-			out = append(out, fmt.Sprintf("h%d takes 0", i))
-		}
-	}
 	slices.Sort(out)
 	return out
 }
 
-// tkInferred is the checker's Info.Takes and Info.Copies, as text, for the
-// generated functions (the prelude's first infers nothing: it writes).
+// tkInferred is the checker's Info.Takes, as text, for the generated
+// functions (h<i> writes own on x: it infers nothing).
 func tkInferred(c *checker) []string {
 	if c == nil {
 		return nil
@@ -438,23 +436,15 @@ func tkInferred(c *checker) []string {
 		}
 		out = append(out, f.Name+" takes "+strings.Join(s, ","))
 	}
-	for f, cs := range c.pkg.Info.Copies {
-		if f.Name == "first" || f.Name == "keyed" {
-			continue
-		}
-		for _, s := range cs {
-			out = append(out, fmt.Sprintf("%s copies %s", f.Name, f.Sig.TParams[s.TParam].Name))
-		}
-	}
 	slices.Sort(out)
 	return out
 }
 
 // tkTwoPackages checks that the facts cross an import: main hands a value
 // to lib's exported Keep and to lib's keeper hold through Hold (written
-// clauses), and calls lib's generic Dup, which copies its T, with a
-// resource (refused) and with an int (admitted); std slices.Clone, an extern
-// generic outside runtime/v1's moving table, copies its T.
+// clauses); calls lib's generic Dup, whose T is unmarked, with a resource
+// (refused) and with an int (admitted), and lib's Pass, marked [T own],
+// with a resource (admitted); std slices.Clone writes no mark.
 func tkTwoPackages(t *testing.T) {
 	lib := `type Res { id int } implements Closer
 
@@ -472,7 +462,7 @@ func Hold(r own Res) Holder { hold(r) }
 
 func Dup[T](x T) (T, T) { (x, x) }
 
-func Pass[T](x own T) T { x }
+func Pass[T own](x own T) T { x }
 `
 	main := `import lib
 import slices

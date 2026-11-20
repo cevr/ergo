@@ -36,7 +36,7 @@ internal/sketch/lower/checked_lowered_test.go	a needs row, both
 
 # a comma that ends a list element after a one-name row (grammar.md, Declarations rule 9:
 # parameters and type arguments keep their commas)
-internal/sketch/format/rows_test.go	needs ROW, Put()
+internal/hostsyntax/rows_test.go	needs ROW, Put()
 internal/sketch/lower/generic_test.go	func apply[A, E, R](f func(A) A fails E needs R, x A) A fails E needs R {
 # FUSION's one-loop helpers: two function parameters, each with a one-name row
 docs/spec/stdlib.md	f func(x T) U fails E needs R, keep func(x U) bool
@@ -83,7 +83,7 @@ internal/sketch/std/actor/actor.ergo	step own func(s S, e E) D fails F needs R, 
 docs/spec/grammar.md	so `func(func() needs A, B)` takes two parameters
 docs/spec/grammar.md	A parenthesised row, `needs (A, B)` or
 docs/spec/diagnostics.md	(`needs A, B`, `needs (A | B)`; 196n)
-internal/sketch/syntax/parser.go	`f func() needs A, B`: the entries
+compiler/syntax/parse_type.ergo	`f func() needs A, B`: the entries
 internal/residue/row_residue_test.go	writes `needs A, B` or
 internal/residue/row_residue_test.go	// `provides A, B` is prose
 internal/residue/residue_host_test.go	{"needs A, B", "provides A, B", "needs (A, B)", "x needs pkg.A ,B", "provides\tA,\tB"}

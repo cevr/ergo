@@ -203,7 +203,6 @@ law FormatThenRead(e journal.Entry, day int) {
 	journal.Same(back, n)
 }
 
-
 // BadNote is a note of the folder that cannot be read: its file, and the
 // line and reason.
 type BadNote { File string, No int, Reason string }

@@ -46,7 +46,7 @@ type presenceItem { key Key, motion int, started bool, start duration, from floa
 // does not run (its last subtree stays), and when the pass cannot keep
 // that subtree (a cell under it changed, its group stopped) it is removed
 // at once.
-func Presence[E, F, R, T](f *Frame[E], xs []T, key func(x T) Key, dur duration, row func(x T, p Progress) fails F needs R, at CallSite) fails F needs R {
+func Presence[E, F, R, T](f mut Frame[E], xs []T, key func(x T) Key, dur duration, row func(x T, p Progress) fails F needs R, at CallSite) fails F needs R {
 	let (where, c) = remember(f, PresenceCell{Items: []presenceItem{}, Fresh: true}, at)
 	let mut old = []presenceItem{}
 	let mut fresh = false
@@ -289,7 +289,7 @@ func motionOf(m int) Motion {
 
 // keptRun runs body as a Box whose run is recorded under key, so a later
 // pass can keep its subtree (keepExit), as a Same does; it never skips.
-func keptRun[E, F, R](f *Frame[E], key Key, body func() fails F needs R, at CallSite) fails F needs R {
+func keptRun[E, F, R](f mut Frame[E], key Key, body func() fails F needs R, at CallSite) fails F needs R {
 	let m = markOf(f)
 	let i = put(f, BoxNode{Style: Plain()}, None, None, at)
 	f.specs[i].memo = i
@@ -306,7 +306,7 @@ func keptRun[E, F, R](f *Frame[E], key Key, body func() fails F needs R, at Call
 // keepExit keeps the subtree the Box at this place last wrote under key,
 // and is whether it could: false (writing nothing) when that subtree is
 // gone or a cell under it changed.
-func keepExit[E](f *Frame[E], key Key, at CallSite) bool {
+func keepExit[E](f mut Frame[E], key Key, at CallSite) bool {
 	let m = markOf(f)
 	let i = put(f, BoxNode{Style: Plain()}, None, None, at)
 	match skippable(f, i, key) {
@@ -411,7 +411,7 @@ law TransitionEndsAtLayout(seed int, steps int) {
 	let m = time.NewManual(0)
 	with context { Scheduler: m } {
 		let lists = presenceLists(seed)
-		let view = func(f *Frame[int], s int) {
+		let view = func(f mut Frame[int], s int) {
 			OnKey(f, func(k KeyPress) Option[int] {
 				for i in 0..8 {
 					if k.Name == "\(i)" {
@@ -459,7 +459,7 @@ law TransitionEndsAtLayout(seed int, steps int) {
 			}
 		}
 		let mut g = NewFrame[int]()
-		let want = Render(&g, func(f *Frame[int], xs []int) {
+		let want = Render(&g, func(f mut Frame[int], xs []int) {
 			Column(f, Plain()) {
 				Each(f, xs, func(r int) Key { ByInt(r) }) func(r int) {
 					Box(f, Plain()) {
@@ -484,7 +484,7 @@ law PresenceKeepsTheList(seed int, steps int) {
 	let m = time.NewManual(0)
 	with context { Scheduler: m } {
 		let lists = presenceLists(seed)
-		let view = func(f *Frame[int], s int) {
+		let view = func(f mut Frame[int], s int) {
 			OnKey(f, func(k KeyPress) Option[int] {
 				for i in 0..8 {
 					if k.Name == "\(i)" {
@@ -609,7 +609,7 @@ law ExitTakesItsDuration(n int) {
 	with context { Scheduler: m } {
 		let k = (n%10+10)%10 + 1
 		let lists = [][]int{[]int{0}, []int{0, 1}, []int{0}}
-		let view = func(f *Frame[int], s int) {
+		let view = func(f mut Frame[int], s int) {
 			OnKey(f, func(kp KeyPress) Option[int] {
 				for i in 0..3 {
 					if kp.Name == "\(i)" {
@@ -699,7 +699,7 @@ law NoTickWhenRowsSettle(seed int, wait int) {
 	let m = time.NewManual(0)
 	with context { Scheduler: m } {
 		let lists = presenceLists(seed)
-		let view = func(f *Frame[int], s int) {
+		let view = func(f mut Frame[int], s int) {
 			OnKey(f, func(k KeyPress) Option[int] {
 				for i in 0..8 {
 					if k.Name == "\(i)" {

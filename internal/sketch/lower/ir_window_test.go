@@ -33,9 +33,9 @@ func TestIRWindowWritesFromItsCalls(t *testing.T) {
 	inlineLowering = "call" // the operations stay calls, so the IR shows them
 	defer func() { inlineLowering = saved }()
 	src := `type T {
-	Add(n int),
-	Inc(),
-	Twice(),
+	mut Add(n int),
+	mut Inc(),
+	mut Twice(),
 	Halve(),
 	Read() int,
 
@@ -46,14 +46,14 @@ func TestIRWindowWritesFromItsCalls(t *testing.T) {
 
 type P { n int } implements T
 
-func Add(p *P, n int) { p.n = p.n + n }
-func Inc(p *P) { p.n = p.n + 1 }
-func Twice(p *P) { p.n = p.n + 2 }
+func Add(p mut P, n int) { p.n = p.n + n }
+func Inc(p mut P) { p.n = p.n + 1 }
+func Twice(p mut P) { p.n = p.n + 2 }
 func Halve(p P) { }
 func Read(p P) int { p.n }
 
 type U {
-	Inc(),
+	mut Inc(),
 	Halve(),
 	Read() int,
 
@@ -62,7 +62,7 @@ type U {
 
 type Q { n int } implements U
 
-func Inc(q *Q) { q.n = q.n + 1 }
+func Inc(q mut Q) { q.n = q.n + 1 }
 func Halve(q Q) { }
 func Read(q Q) int { q.n }
 

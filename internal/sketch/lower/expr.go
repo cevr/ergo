@@ -774,6 +774,10 @@ func (fc *funcCtx) rangeValue(x *syntax.BinaryExpr) string {
 // unary lowers -x, +x, !x, ^x and &x.
 func (fc *funcCtx) unary(x *syntax.UnaryExpr) string {
 	op := x.Op.String()
+	if fc.l.info.Relends[x] {
+		// &x of a mut parameter passes its pointer on (Info.Relends).
+		return fc.value(x.X)
+	}
 	if id, ok := unparen(x.X).(*syntax.Ident); ok && op == "&" && fc.l.info.Handoffs[id] != nil {
 		// A Close through the address of an owned local takes it: its
 		// entry ends here, as at a by-address receiver (place).

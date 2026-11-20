@@ -33,7 +33,7 @@ type Flag { On bool, at cellAt }
 // remember reads the cell at the call's identity: its value from the last
 // pass when the enclosing node kept its identity and the cell was read
 // there, else init.
-func remember[E](f *Frame[E], init Cell, at CallSite) (cellAt, Cell) {
+func remember[E](f mut Frame[E], init Cell, at CallSite) (cellAt, Cell) {
 	let id = identify(f, at)
 	let o = owner(f, f.parent)
 	let mut c = init
@@ -74,7 +74,7 @@ func cellKind(c Cell) int {
 }
 
 // NewDraft is the draft text at this call, init on its first pass.
-func NewDraft[E](f *Frame[E], init string, at CallSite) Draft {
+func NewDraft[E](f mut Frame[E], init string, at CallSite) Draft {
 	let (where, c) = remember(f, TextCell{Value: init}, at)
 	match c {
 	case TextCell as t:
@@ -85,7 +85,7 @@ func NewDraft[E](f *Frame[E], init string, at CallSite) Draft {
 }
 
 // NewFlag is the flag at this call, init on its first pass.
-func NewFlag[E](f *Frame[E], init bool, at CallSite) Flag {
+func NewFlag[E](f mut Frame[E], init bool, at CallSite) Flag {
 	let (where, c) = remember(f, FlagCell{On: init}, at)
 	match c {
 	case FlagCell as b:
@@ -97,25 +97,25 @@ func NewFlag[E](f *Frame[E], init bool, at CallSite) Flag {
 
 // Field shows a text field over d: a text the host takes in it becomes the
 // draft's value at the next pass, and sends no signal.
-func Field[E](f *Frame[E], d Draft, placeholder string, at CallSite) {
+func Field[E](f mut Frame[E], d Draft, placeholder string, at CallSite) {
 	let _ = put(f, InputNode{Value: d.Value, Placeholder: placeholder, Label: "", Description: "", Invalid: false}, None, Some{Value: d.at}, at)
 }
 
 // LabelledField is a Field that says what it is (FieldLabel), as
 // LabelledInput is an Input that does.
-func LabelledField[E](f *Frame[E], label FieldLabel, d Draft, placeholder string, at CallSite) {
+func LabelledField[E](f mut Frame[E], label FieldLabel, d Draft, placeholder string, at CallSite) {
 	let _ = put(f, InputNode{Value: d.Value, Placeholder: placeholder, Label: label.Text, Description: label.Description, Invalid: label.Invalid}, None, Some{Value: d.at}, at)
 }
 
 // Toggle shows a check box over fl: a press flips the flag and sends no
 // signal.
-func Toggle[E](f *Frame[E], fl Flag, label string, at CallSite) {
+func Toggle[E](f mut Frame[E], fl Flag, label string, at CallSite) {
 	let _ = put(f, ToggleNode{Label: label, On: fl.On}, None, Some{Value: fl.at}, at)
 }
 
 // Submit is a Pressable that also empties d when pressed: a press sends on
 // (made from d's value by the view) and the draft is "" at the next pass.
-func Submit[E, F, R](f *Frame[E], d Draft, label string, on E, body func() fails F needs R, at CallSite) fails F needs R {
+func Submit[E, F, R](f mut Frame[E], d Draft, label string, on E, body func() fails F needs R, at CallSite) fails F needs R {
 	let m = markOf(f)
 	f.parent = put(f, PressableNode{Label: label, On: on, Style: PressStyle()}, None, Some{Value: d.at}, at)
 	body() catch {
@@ -198,7 +198,7 @@ type Job[E] = Fetch{Epoch int, Run func() E} | Cancel{Epoch int}
 // with around the host's entry, or a with the view wrote around this
 // subtree), which Load holds with InForce, not with those of the task
 // that runs it.
-func Load[E, R](f *Frame[E], key Key, fetch own func() E needs R, at CallSite) needs R {
+func Load[E, R](f mut Frame[E], key Key, fetch own func() E needs R, at CallSite) needs R {
 	let id = identify(f, at)
 	// A load its node already holds with key starts no fetch (settle), so
 	// only a load that may start holds its providers: a kept load costs
@@ -285,7 +285,7 @@ func fetchABC() int needs capA | capB | capC { capA.tagA() + 10*capB.tagB() + 10
 
 // loadFor writes load i with the fetch of its set; its signal is
 // 1000*(i+1) plus the fetch's tags.
-func loadFor(f *Frame[int], i int, set int) needs capA | capB | capC {
+func loadFor(f mut Frame[int], i int, set int) needs capA | capB | capC {
 	let base = 1000 * (i + 1)
 	match set {
 	case 1:
@@ -309,7 +309,7 @@ func loadFor(f *Frame[int], i int, set int) needs capA | capB | capC {
 
 // boundView writes each load under a Box of its own, in an inner with of
 // the other provider of each pair when it is drawn so.
-func boundView(f *Frame[int], plan []boundLoad, outer []int) needs capA | capB | capC {
+func boundView(f mut Frame[int], plan []boundLoad, outer []int) needs capA | capB | capC {
 	for i, l in plan {
 		Box(f, Plain()) {
 			if l.inner {
@@ -360,7 +360,7 @@ func loadsBound(seed int, m time.Manual) bool needs Scheduler {
 	}
 	with context { capA: aIs{v: outer[0]}, capB: bIs{v: outer[1]}, capC: cIs{v: outer[2]} } {
 		let a = actor.StartMachine(logMachine(), 4, func(o int) {})
-		let mut h = NewTestHost(a, func(f *Frame[int], s []int) needs capA | capB | capC { boundView(f, plan, outer) }, m, 8) catch {
+		let mut h = NewTestHost(a, func(f mut Frame[int], s []int) needs capA | capB | capC { boundView(f, plan, outer) }, m, 8) catch {
 		case BadPatch:
 			return false
 		}
@@ -508,7 +508,7 @@ type Boxed {}
 type want { at place, key int }
 
 // loadView writes a Load of key w.key whose fetch sends the key.
-func loadView(f *Frame[int], w want) {
+func loadView(f mut Frame[int], w want) {
 	let k = w.key
 	match w.at {
 	case Nowhere:
@@ -529,17 +529,17 @@ type loaded { at place, key int, epoch int }
 type fetching { epoch int, run func() int }
 
 // Jobs are the jobs of the last commit, in order.
-func Jobs[E](f *Frame[E]) []Job[E] { f.jobs }
+func Jobs[E](f mut Frame[E]) []Job[E] { f.jobs }
 
 // Arrive is whether the fetch of epoch is still wanted: its load is live
 // with that epoch. A host loop gives the program the signal of a fetch
 // only when Arrive is true, so a result never shows for a key it was not
 // fetched for.
-func Arrive[E](f *Frame[E], epoch int) bool {
+func Arrive[E](f mut Frame[E], epoch int) bool {
 	live(f, f.root, epoch)
 }
 
-func live[E](f *Frame[E], r arena.Ref[node[E]], epoch int) bool {
+func live[E](f mut Frame[E], r arena.Ref[node[E]], epoch int) bool {
 	let n = nodeAt(f, r)
 	for _, l in n.loads {
 		if l.epoch == epoch {
@@ -561,7 +561,7 @@ func live[E](f *Frame[E], r arena.Ref[node[E]], epoch int) bool {
 
 // settle stores the pass's cells and loads in the nodes that own them,
 // after reconcile, and decides the jobs of the loads.
-func settle[E](f *Frame[E]) {
+func settle[E](f mut Frame[E]) {
 	let mut cells = Map[arena.Ref[node[E]], Map[ident, Cell]]{}
 	for i in 0..f.ncells {
 		let c = f.cells[i]
@@ -618,7 +618,7 @@ func settle[E](f *Frame[E]) {
 			}
 		} else {
 			let up = memoRef(f, s.parent)
-			change(f, s.ref, func(n *node[E]) {
+			change(f, s.ref, func(n mut node[E]) {
 				n.binds = b
 				match s.same {
 				case Some[memoRun[E]] as run:
@@ -634,7 +634,7 @@ func settle[E](f *Frame[E]) {
 		let c = f.cells[i]
 		if c.parent >= 0 {
 			let memo = memoRef(f, c.parent)
-			change(f, made(f, c.parent), func(n *node[E]) { n.memo = memo })
+			change(f, made(f, c.parent), func(n mut node[E]) { n.memo = memo })
 		}
 	}
 	let mut parks = Map[arena.Ref[node[E]], bool]{}
@@ -657,16 +657,16 @@ func settle[E](f *Frame[E]) {
 // a skipped Same and what is under it, which keep what they hold.
 // A node that holds no cell or load and gets none keeps its empty maps:
 // only the nodes with state are written (GP frame cost, UC-2).
-func keep[E](f *Frame[E], r arena.Ref[node[E]], cells Map[arena.Ref[node[E]], Map[ident, Cell]], loads Map[arena.Ref[node[E]], Map[ident, slot]], parks Map[arena.Ref[node[E]], bool]) {
+func keep[E](f mut Frame[E], r arena.Ref[node[E]], cells Map[arena.Ref[node[E]], Map[ident, Cell]], loads Map[arena.Ref[node[E]], Map[ident, slot]], parks Map[arena.Ref[node[E]], bool]) {
 	if hasState(f, r) || has(cells, r) || has(loads, r) {
 		store(f, r, cells, loads, has(parks, r))
 	}
 }
 
 // hasState is whether the node r names holds a cell or a load.
-func hasState[E](f *Frame[E], r arena.Ref[node[E]]) bool {
+func hasState[E](f mut Frame[E], r arena.Ref[node[E]]) bool {
 	let mut any = false
-	change(f, r, func(n *node[E]) { any = len(n.cells) > 0 || len(n.loads) > 0 })
+	change(f, r, func(n mut node[E]) { any = len(n.cells) > 0 || len(n.loads) > 0 })
 	any
 }
 
@@ -680,22 +680,22 @@ func has[K comparable, V](m Map[K, V], k K) bool {
 }
 
 // cellOf is the cell id of the node r names, None for none.
-func cellOf[E](f *Frame[E], r arena.Ref[node[E]], id ident) Option[Cell] {
+func cellOf[E](f mut Frame[E], r arena.Ref[node[E]], id ident) Option[Cell] {
 	let mut c Option[Cell] = None
-	change(f, r, func(n *node[E]) { c = n.cells.Get(id) })
+	change(f, r, func(n mut node[E]) { c = n.cells.Get(id) })
 	c
 }
 
 // loadAt is the load id of the node r names, None for none.
-func loadAt[E](f *Frame[E], r arena.Ref[node[E]], id ident) Option[slot] {
+func loadAt[E](f mut Frame[E], r arena.Ref[node[E]], id ident) Option[slot] {
 	let mut s Option[slot] = None
-	change(f, r, func(n *node[E]) { s = n.loads.Get(id) })
+	change(f, r, func(n mut node[E]) { s = n.loads.Get(id) })
 	s
 }
 
 // store gives the node r names this pass's cells and loads, and cancels
 // each load it held that this pass does not keep.
-func store[E](f *Frame[E], r arena.Ref[node[E]], cells Map[arena.Ref[node[E]], Map[ident, Cell]], loads Map[arena.Ref[node[E]], Map[ident, slot]], hold bool) {
+func store[E](f mut Frame[E], r arena.Ref[node[E]], cells Map[arena.Ref[node[E]], Map[ident, Cell]], loads Map[arena.Ref[node[E]], Map[ident, slot]], hold bool) {
 	let n = nodeAt(f, r)
 	let mut now = loadsOf(loads, r)
 	for id, l in n.loads {
@@ -720,7 +720,7 @@ func store[E](f *Frame[E], r arena.Ref[node[E]], cells Map[arena.Ref[node[E]], M
 			}
 		}
 	}
-	change(f, r, func(m *node[E]) {
+	change(f, r, func(m mut node[E]) {
 		m.cells = c
 		m.loads = now
 	})
@@ -728,7 +728,7 @@ func store[E](f *Frame[E], r arena.Ref[node[E]], cells Map[arena.Ref[node[E]], M
 
 // memoRef is the node of this pass of the nearest Same at or above spec
 // p (-1 the root), Null for none.
-func memoRef[E](f *Frame[E], p int) arena.Ref[node[E]] {
+func memoRef[E](f mut Frame[E], p int) arena.Ref[node[E]] {
 	let m = memoOf(f, p)
 	if m < 0 {
 		return arena.Null[node[E]]()
@@ -737,7 +737,7 @@ func memoRef[E](f *Frame[E], p int) arena.Ref[node[E]] {
 }
 
 // made is the node of this pass that spec index p (-1 the root) became.
-func made[E](f *Frame[E], p int) arena.Ref[node[E]] {
+func made[E](f mut Frame[E], p int) arena.Ref[node[E]] {
 	if p < 0 {
 		return f.root
 	}
@@ -775,7 +775,7 @@ type Handled[E] { Signal Option[E], Changed bool }
 // list's viewport (Scrolled) becomes its cell and sends nothing. A press
 // or a text on a node under a disabled Fieldset does nothing. An event
 // on a node f no longer holds (it raced a commit) does nothing.
-func Handle[E](f *Frame[E], event Event[E]) Handled[E] {
+func Handle[E](f mut Frame[E], event Event[E]) Handled[E] {
 	let mut out = Handled[E]{Signal: None, Changed: false}
 	if len(f.crossed) > 0 {
 		f.crossed = []E{}
@@ -917,13 +917,13 @@ func Handle[E](f *Frame[E], event Event[E]) Handled[E] {
 
 // write sets the cell b names, when its owner still holds it; it is
 // whether the cell changed.
-func write[E](f *Frame[E], b bound[E], c Cell) bool {
+func write[E](f mut Frame[E], b bound[E], c Cell) bool {
 	if !arena.Has(f.nodes, b.owner) {
 		return false
 	}
 	match nodeAt(f, b.owner).cells.Get(b.id) {
 	case Some[Cell] as old:
-		change(f, b.owner, func(n *node[E]) { n.cells[b.id] = c })
+		change(f, b.owner, func(n mut node[E]) { n.cells[b.id] = c })
 		if old.Value != c {
 			touched(f, b.owner)
 		}

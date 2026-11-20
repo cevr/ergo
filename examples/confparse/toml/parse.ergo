@@ -24,18 +24,18 @@ type Duplicate { At Pos, Key string, First Pos }
 // owns it, and each rule takes it by borrow and moves it on.
 type cursor { text string, line int, pos int }
 
-func at(c *cursor) Pos { Pos{Line: c.line, Column: c.pos + 1} }
+func at(c mut cursor) Pos { Pos{Line: c.line, Column: c.pos + 1} }
 
-func done(c *cursor) bool { c.pos >= len(c.text) }
+func done(c mut cursor) bool { c.pos >= len(c.text) }
 
-func blanks(c *cursor) {
+func blanks(c mut cursor) {
 	for !done(c) && (c.text[c.pos] == ' ' || c.text[c.pos] == '\t') {
 		c.pos += 1
 	}
 }
 
 // got is the next character for a message, or "the end of the line".
-func got(c *cursor) string {
+func got(c mut cursor) string {
 	if done(c) { "the end of the line" } else { strconv.Quote(strings.Slice(c.text, c.pos, c.pos+1)) }
 }
 
@@ -87,7 +87,7 @@ func fresh(cur Table, tables []Table, t Table) fails Duplicate {
 }
 
 // lineEnd reads blanks and a comment to the end of the line.
-func lineEnd(c *cursor) fails Unexpected {
+func lineEnd(c mut cursor) fails Unexpected {
 	blanks(c)
 	if !done(c) && c.text[c.pos] != '#' {
 		return Unexpected{At: at(c), Want: "a comment or the end of the line", Got: got(c)}
@@ -95,7 +95,7 @@ func lineEnd(c *cursor) fails Unexpected {
 }
 
 // header reads [name] or [[name]].
-func header(c *cursor) Table fails Unexpected | Unterminated {
+func header(c mut cursor) Table fails Unexpected | Unterminated {
 	let start = at(c)
 	c.pos += 1
 	let many = !done(c) && c.text[c.pos] == '['
@@ -121,7 +121,7 @@ func isKeyByte(b byte) bool {
 }
 
 // key reads a bare key; a table name may also hold dots.
-func key(c *cursor, dots bool) string fails Unexpected {
+func key(c mut cursor, dots bool) string fails Unexpected {
 	let start = c.pos
 	for !done(c) && (isKeyByte(c.text[c.pos]) || (dots && c.text[c.pos] == '.')) {
 		c.pos += 1
@@ -133,7 +133,7 @@ func key(c *cursor, dots bool) string fails Unexpected {
 }
 
 // entry reads key = value.
-func entry(c *cursor) Entry fails Unexpected | Unterminated | BadEscape | TooBig {
+func entry(c mut cursor) Entry fails Unexpected | Unterminated | BadEscape | TooBig {
 	let keyAt = at(c)
 	let k = try key(c, false)
 	blanks(c)
@@ -148,7 +148,7 @@ func entry(c *cursor) Entry fails Unexpected | Unterminated | BadEscape | TooBig
 }
 
 // value reads a string, an integer, a boolean or an array.
-func value(c *cursor) Value fails Unexpected | Unterminated | BadEscape | TooBig {
+func value(c mut cursor) Value fails Unexpected | Unterminated | BadEscape | TooBig {
 	if done(c) {
 		return Unexpected{At: at(c), Want: "a value", Got: got(c)}
 	}
@@ -176,7 +176,7 @@ func value(c *cursor) Value fails Unexpected | Unterminated | BadEscape | TooBig
 }
 
 // basic reads "…" with the escapes \" \\ \n \t and \r.
-func basic(c *cursor) string fails Unterminated | BadEscape {
+func basic(c mut cursor) string fails Unterminated | BadEscape {
 	let start = at(c)
 	c.pos += 1
 	let mut parts = []string{}
@@ -217,7 +217,7 @@ func basic(c *cursor) string fails Unterminated | BadEscape {
 }
 
 // literal reads '…', which has no escapes.
-func literal(c *cursor) string fails Unterminated {
+func literal(c mut cursor) string fails Unterminated {
 	let start = at(c)
 	c.pos += 1
 	let from = c.pos
@@ -233,7 +233,7 @@ func literal(c *cursor) string fails Unterminated {
 
 // integer reads a decimal integer with an optional sign; an underscore
 // may stand between two digits.
-func integer(c *cursor) int fails Unexpected | TooBig {
+func integer(c mut cursor) int fails Unexpected | TooBig {
 	let start = at(c)
 	let from = c.pos
 	if c.text[c.pos] == '+' || c.text[c.pos] == '-' {
@@ -264,7 +264,7 @@ func integer(c *cursor) int fails Unexpected | TooBig {
 }
 
 // array reads [v, v, …] on one line; a comma may follow the last value.
-func array(c *cursor) Value fails Unexpected | Unterminated | BadEscape | TooBig {
+func array(c mut cursor) Value fails Unexpected | Unterminated | BadEscape | TooBig {
 	let start = at(c)
 	c.pos += 1
 	let mut items = []Item{}

@@ -1,0 +1,70 @@
+import strconv
+import strings
+
+// Shape is the text of a parse's tree without positions and comments, the
+// formatter's law ShapeKept compares (compiler/format): per node, in
+// preorder, its kind; the text of its main token when that is a name, a
+// literal or an operator; whether each token or flag word of its record is
+// set (a doc comment left out); and its children in brackets. Formatting
+// changes blanks, commas and semicolons, which no shape holds.
+func Shape(p Parsed) string {
+	let mut b = strings.NewBuilder()
+	if p.Tree.n > 0 {
+		shapeOf(p, uint32(p.Tree.n-1), &b)
+	}
+	b.String()
+}
+
+func shapeOf(p Parsed, x uint32, b mut strings.Builder) {
+	let t = p.Tree
+	let i = int(x)
+	let k = uint8(t.kind[i])
+	b.WriteString(strconv.Itoa(int(k)))
+	let j = int(t.tok[i])
+	if j < len(p.kinds) {
+		let tk = uint8(p.kinds[j])
+		if tk >= Ident && tk <= StringTail || tk >= Add && tk <= Define {
+			b.WriteByte(' ')
+			b.WriteString(TokText(p, j))
+		}
+	}
+	if k == KArrayType {
+		b.WriteString(if t.b[i] != uint32(0) { " len" } else { " -" })
+	}
+	let f = recordWords(k)
+	if f > 0 {
+		b.WriteByte(' ')
+		let req = requiredMask(k)
+		let opt = optionalMask(k)
+		for w in 0..f {
+			if (req>>w)&1 == 1 || (opt>>w)&1 == 1 || w == 0 && hasDoc(k) {
+				continue
+			}
+			let v = fixed(t, x, f, w)
+			if w == 0 && (k == KCatchArm || k == KCaseClause) {
+				b.WriteString(strconv.Itoa(int(v)))
+			} else {
+				b.WriteByte(if v != uint32(0) { '1' } else { '0' })
+			}
+		}
+	}
+	b.WriteByte('[')
+	for c in children(t, x, []uint32{}) {
+		shapeOf(p, c, b)
+		b.WriteByte(',')
+	}
+	b.WriteByte(']')
+}
+
+// recordWords is fixedWords for a kind whose row holds a record, else 0.
+func recordWords(k uint8) int {
+	if k == KIdent || k == KBasicLit || k == KBranchStmt || k == KSkipStmt || k == KKeyValueExpr || k == KFuncLit || k == KSelectorExpr || k == KBinaryExpr || k == KAsPattern || k == KAssignStmt || k == KImportDecl || k == KMachineEntry || k == KParenExpr || k == KStarExpr || k == KUnaryExpr || k == KTryExpr || k == KArrayType || k == KStructType || k == KDeclStmt || k == KExprStmt || k == KAssertStmt || k == KExternSpec || k == KImportSpec || k == KReturnStmt || k == KForStmt {
+		return 0
+	}
+	fixedWords(k)
+}
+
+// hasDoc reports a record whose first fixed word is its doc comment.
+func hasDoc(k uint8) bool {
+	k == KVarDecl || k == KTypeDecl || k == KFuncDecl || k == KContextDecl || k == KTestDecl || k == KLawDecl || k == KContextEntry || k == KField
+}

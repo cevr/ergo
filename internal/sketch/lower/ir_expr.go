@@ -49,6 +49,38 @@ func (b *irBuilder) intoRow(want check.Type, x syntax.Expr, e *irExpr) *irExpr {
 	return &irExpr{K: "toiface", Pos: e.Pos, T: gt, X: e}
 }
 
+// argIntoRow is e, the operand x of a call, as the callee's parameter of
+// declared type want takes it. A parameter of an error row parameter's
+// type (`f F` where the function `fails F`, or a row that holds one) is a
+// Go error in the callee (types.md, Generics 1), so an error type's value
+// passed to it takes an explicit conversion, as Go assigns it implicitly:
+// the IR's call check wants the argument's type to be the parameter's
+// (toolchain/ir, assignable). A Slot parameter is a Go type parameter
+// (Generics 6), whose argument is the value's own type, so it is left as
+// it is.
+func (b *irBuilder) argIntoRow(want check.Type, x syntax.Expr, e *irExpr) *irExpr {
+	if e == nil || !holdsRowParam(want) || b.goType(b.operandType(x), x) == "error" {
+		return e
+	}
+	return &irExpr{K: "toiface", Pos: e.Pos, T: "error", X: e}
+}
+
+// holdsRowParam reports a parameter type that is an error row parameter
+// that is not a Slot, or a row that holds one.
+func holdsRowParam(t check.Type) bool {
+	switch t := t.(type) {
+	case *check.TypeParam:
+		return t.Kind == check.KindErrors && !t.Slot
+	case *check.Union:
+		for _, v := range t.Variants {
+			if holdsRowParam(v) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // value is x as an IR expression, after the statements that must run
 // before it (polls, an if expression's branches). An if or a match inside an
 // operand runs first too, after the operands to its left (exprOf, ir_order.go).
@@ -227,6 +259,10 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 		switch op {
 		case "!", "-", "+", "^":
 		case "&":
+			if b.l.info.Relends[x] {
+				// &x of a mut parameter passes its pointer on (Info.Relends).
+				return b.expr(x.X)
+			}
 			b.goType(t, x)
 			return &irExpr{K: "addr", Pos: p, X: b.place(x.X)}
 		default:
@@ -329,12 +365,7 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 					irNo("keyed slice literal")
 				}
 			}
-			lit.Elems = b.inOrder(x.Elts) // ir_order.go
-			if check.IsGoAny(tt.Elem) {
-				for i, e := range lit.Elems {
-					lit.Elems[i] = b.assignedTo(x.Elts[i], e, tt.Elem) // ir_union.go: Go's any (IR-GOCALLS)
-				}
-			}
+			lit.Elems = b.listElems(x, tt.Elem)
 			if b.l.valueFacts().seeds[x] && len(lit.Elems) == 1 {
 				// append(slices.Grow([]T{}, seedCap), e) (seedcap.go).
 				et := b.goType(tt.Elem, x)
@@ -347,6 +378,17 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 				b.seedSites++
 				return &irExpr{K: "append", Pos: p, Args: []*irExpr{room, lit.Elems[0]}}
 			}
+		case *check.Array:
+			// The checker took every element in order, or none for the
+			// default (types.md, Arrays 2), as the emitter writes it:
+			// [N]T{e1, …, eN}, or [N]T{}, the decoder's zero of an array.
+			if len(x.Elts) == 0 {
+				if b.l.holdsMap(tt) {
+					irNo("literal of an array whose default holds a Map") // the emitter's default, built in a loop
+				}
+				return &irExpr{K: "zero", Pos: p, T: lit.T}
+			}
+			lit.Elems = b.listElems(x, tt.Elem)
 		case *check.Map:
 			if b.l.intMap(tt) { // ir_intmap.go
 				if len(x.Elts) > 0 {
@@ -501,4 +543,17 @@ func (b *irBuilder) constant(t check.Type, v constant.Value, x syntax.Expr, p ir
 	}
 	irNo("constant kind %s", v.Kind())
 	return nil
+}
+
+// listElems are the elements of a slice or array literal x, in order
+// (ir_order.go), each as an element of type elem holds it: a value into
+// Go's any by assignedTo (ir_union.go, IR-GOCALLS), any other as written.
+func (b *irBuilder) listElems(x *syntax.CompositeLit, elem check.Type) []*irExpr {
+	elems := b.inOrder(x.Elts) // ir_order.go
+	if check.IsGoAny(elem) {
+		for i, e := range elems {
+			elems[i] = b.assignedTo(x.Elts[i], e, elem) // ir_union.go
+		}
+	}
+	return elems
 }

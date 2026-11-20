@@ -163,15 +163,7 @@
       "anchor": {"tests": ["examples:regex"]},
       "killers": ["examples:regex"]
     },
-    {
-      "name": "R2-stale-frontier",
-      "file": "examples/regex/nfa/workspace.ergo",
-      "from": "func reset(w *Workspace) {\n\tw.side = 0\n\tw.count = 0",
-      "to": "func reset(w *Workspace) {\n\tw.side = 0",
-      "rule": "A line starts with no frontier from the preceding line; WorkspaceAgreesWithReferences reuses storage across generated texts.",
-      "anchor": {"tests": ["examples:regex"]},
-      "killers": ["examples:regex"]
-    },
+    {"name":"R2-stale-frontier","file":"examples/regex/nfa/workspace.ergo","from":"func reset(w mut Workspace) {\n\tw.side = 0\n\tw.count = 0","to":"func reset(w mut Workspace) {\n\tw.side = 0","rule":"A line starts with no frontier from the preceding line; WorkspaceAgreesWithReferences reuses storage across generated texts.","anchor":{"tests":["examples:regex"]},"killers":["examples:regex"]},
     {
       "name": "R2-stale-marks",
       "file": "examples/regex/nfa/workspace.ergo",
@@ -217,15 +209,7 @@
       "anchor": {"tests": ["examples:regex"]},
       "killers": ["examples:regex"]
     },
-    {
-      "name": "R2-reallocate",
-      "file": "examples/regex/nfa/workspace.ergo",
-      "from": "func reset(w *Workspace) {\n\tw.side = 0",
-      "to": "func reset(w *Workspace) {\n\tw.storage()\n\tw.side = 0",
-      "rule": "WorkspaceReusesStorage rejects repeating storage initialization per line even when outputs agree.",
-      "anchor": {"tests": ["examples:regex"]},
-      "killers": ["examples:regex"]
-    },
+    {"name":"R2-reallocate","file":"examples/regex/nfa/workspace.ergo","from":"func reset(w mut Workspace) {\n\tw.side = 0","to":"func reset(w mut Workspace) {\n\tw.storage()\n\tw.side = 0","rule":"WorkspaceReusesStorage rejects repeating storage initialization per line even when outputs agree.","anchor":{"tests":["examples:regex"]},"killers":["examples:regex"]},
     {
       "name": "R2-yield-stop",
       "file": "examples/regex/nfa/workspace.ergo",

@@ -133,7 +133,7 @@ func play(app actor.Actor[weather.Lookup, weather.Signal, Decision[weather.Looku
 // <VALUE>, each button as [LABEL] ([LABEL, disabled] in a disabled
 // fieldset), each heading as # NAME, each other named region as
 // NAME{...}, and each text.
-func Shown(h *Host) string { strings.Join(tokens(ui.Screen(h), false), " ") }
+func Shown(h mut Host) string { strings.Join(tokens(ui.Screen(h), false), " ") }
 
 func tokens(shapes []ui.Shape[weather.Signal], off bool) []string {
 	let mut out = []string{}

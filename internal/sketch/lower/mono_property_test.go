@@ -118,7 +118,7 @@ func depth[T](b Box[T], k int) int {
 	depth[T](b, k - 1) + d
 }
 
-func add[T](b *Box[T], v T, k int) {
+func add[T](b mut Box[T], v T, k int) {
 	for _ in 0..k {
 		b.items = b.items.Append(v)
 	}

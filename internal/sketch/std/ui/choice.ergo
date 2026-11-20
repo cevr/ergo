@@ -14,7 +14,7 @@ import time
 // sends on(its option); ArrowDown and ArrowRight pick the option after the
 // selected one and ArrowUp and ArrowLeft the one before, wrapping round,
 // as ARIA's radio group does; Home and End pick the first and the last.
-func Radios[E](f *Frame[E], label string, options []string, selected string, on own func(v string) E, at CallSite) {
+func Radios[E](f mut Frame[E], label string, options []string, selected string, on own func(v string) E, at CallSite) {
 	choose(f, RadioGroup, label, options, selected, on, at)
 }
 
@@ -23,7 +23,7 @@ func Radios[E](f *Frame[E], label string, options []string, selected string, on 
 // picks the option after the selected one and ArrowUp the one before,
 // stopping at the ends, as ARIA's list box does; Home and End pick the
 // first and the last.
-func Select[E](f *Frame[E], label string, options []string, selected string, on own func(v string) E, at CallSite) {
+func Select[E](f mut Frame[E], label string, options []string, selected string, on own func(v string) E, at CallSite) {
 	choose(f, ListBox, label, options, selected, on, at)
 }
 
@@ -31,7 +31,7 @@ func Select[E](f *Frame[E], label string, options []string, selected string, on 
 // its keys while the focus is in it (OnFocusKey, UC-FOCUS): a press on an
 // option puts it there, so of two choices on a screen the arrows move the
 // one last pressed.
-func choose[E](f *Frame[E], group Role, label string, options []string, selected string, on own func(v string) E, at CallSite) {
+func choose[E](f mut Frame[E], group Role, label string, options []string, selected string, on own func(v string) E, at CallSite) {
 	let radio = group == RadioGroup
 	let mut g = Named(group, label)
 	g.Value = Some{Value: selected}
@@ -130,7 +130,7 @@ func choiceIndex(options []string, v string) int {
 // option and exactly that option is checked (a radio) or selected (an
 // option), each found by its role and name and by its label.
 // (a law's helper)
-func choiceShown[S, D, F](h *TestHost[S, int, D, F], n int, sel int, radio bool) bool {
+func choiceShown[S, D, F](h mut TestHost[S, int, D, F], n int, sel int, radio bool) bool {
 	let options = choiceOptions(n)
 	let group = if radio { RadioGroup } else { ListBox }
 	let item = if radio { Radio } else { ListOption }
@@ -159,7 +159,7 @@ func choiceShown[S, D, F](h *TestHost[S, int, D, F], n int, sel int, radio bool)
 }
 
 // choiceKey presses the key named name on h. (a law's helper)
-func choiceKey[S, D, F](h *TestHost[S, int, D, F], name string) bool {
+func choiceKey[S, D, F](h mut TestHost[S, int, D, F], name string) bool {
 	PressKey(h, KeyPress{Name: name, Mods: Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}) catch {
 	case actor.Stopped:
 		return false
@@ -171,7 +171,7 @@ func choiceKey[S, D, F](h *TestHost[S, int, D, F], name string) bool {
 
 // choiceWalk presses key steps times on h, and is whether each press
 // moves the state by by. (a law's helper)
-func choiceWalk[D, F](h *TestHost[int, int, D, F], key string, steps int, by int) bool {
+func choiceWalk[D, F](h mut TestHost[int, int, D, F], key string, steps int, by int) bool {
 	for _ in 0..steps {
 		let was = StateOf(h)
 		if !choiceKey(h, key) || StateOf(h) != was+by {
@@ -200,7 +200,7 @@ law ChoiceIsAnnouncedAndReachable(n int, from int, to int, radio bool) {
 		let options = choiceOptions(k)
 		let start = (from%k + k) % k
 		let target = (to%k + k) % k
-		let view = func(f *Frame[int], s int) {
+		let view = func(f mut Frame[int], s int) {
 			let on = func(v string) int { choiceIndex(options, v) }
 			if radio {
 				Radios(f, "pick", options, options[s], on)
@@ -267,7 +267,7 @@ func namedOptions(p string, n int) []string {
 // over ob, each a radio group (ra, rb) or a list box, and a button
 // "elsewhere"; the state is the first's selection times 10 plus the
 // second's. (a law's helper)
-func twoChoices(f *Frame[int], s int, oa []string, ob []string, ra bool, rb bool) {
+func twoChoices(f mut Frame[int], s int, oa []string, ob []string, ra bool, rb bool) {
 	let a = s / 10
 	let b = s % 10
 	Column(f, Plain()) {
@@ -333,7 +333,7 @@ law ChoicesTakeKeysWhenFocused(seed int, steps int) {
 		let rb = draw(&r, 2) == 0
 		let mut a = draw(&r, len(oa))
 		let mut b = draw(&r, len(ob))
-		let view = func(f *Frame[int], s int) { twoChoices(f, s, oa, ob, ra, rb) }
+		let view = func(f mut Frame[int], s int) { twoChoices(f, s, oa, ob, ra, rb) }
 		let start = a*10 + b
 		let app = actor.StartMachine(Machine[int, int, int]{Initial: start, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})
 		let mut h = NewTestHost(app, view, m, 4) catch {
@@ -402,7 +402,7 @@ type prog = pText{slot int} | pInput{slot int} | pCheck{slot int} | pSwap{slot i
 // rng is the laws' generator (a linear congruence).
 type rng { x int }
 
-func draw(r *rng, n int) int {
+func draw(r mut rng, n int) int {
 	r.x = (r.x*1103515245 + 12345) % 2147483648
 	(r.x / 65536) % n
 }
@@ -411,7 +411,7 @@ func seeded(seed int) rng { rng{x: (seed%2147483648 + 2147483648) % 2147483648} 
 
 let slots = 6
 
-func genProg(r *rng, depth int, bounded bool) prog {
+func genProg(r mut rng, depth int, bounded bool) prog {
 	let kind = draw(r, 12)
 	if kind == 9 && bounded {
 		return pRead{slot: draw(r, slots)}
@@ -452,7 +452,7 @@ func genProg(r *rng, depth int, bounded bool) prog {
 	}
 }
 
-func genState(r *rng) []int {
+func genState(r mut rng) []int {
 	let mut s = []int{}
 	for _ in 0..slots {
 		s = s.Append(draw(r, 64))
@@ -695,7 +695,7 @@ func boundRows(x pBound, s []int, row int) []int {
 
 func leaf(n Node[int]) Shape[int] { Shape[int]{Node: n, Kids: []Shape[int]{}} }
 
-func genRoot(r *rng) []prog {
+func genRoot(r mut rng) []prog {
 	let mut ps = []prog{}
 	for _ in 0..draw(r, 4)+1 {
 		ps = ps.Append(genProg(r, 3, false))
@@ -703,7 +703,7 @@ func genRoot(r *rng) []prog {
 	ps
 }
 
-func shuffled(xs []int, r *rng) []int {
+func shuffled(xs []int, r mut rng) []int {
 	let mut out = xs
 	for i in 0..len(out) {
 		let j = i + draw(r, len(out)-i)
@@ -719,7 +719,7 @@ func shuffled(xs []int, r *rng) []int {
 // paints reads the state, so a new state repaints.
 type pp = ppFill{k int} | ppStroke{k int} | ppRect{k int} | ppMove{k int, kids []pp} | ppClip{k int, kids []pp}
 
-func genPaint(r *rng, depth int) []pp {
+func genPaint(r mut rng, depth int) []pp {
 	let mut out = []pp{}
 	for _ in 0..draw(r, 4) {
 		let k = draw(r, 50)
@@ -745,7 +745,7 @@ func genPaint(r *rng, depth int) []pp {
 // pick is a subset of the keys 0 to 5 in a drawn order; all of them when
 // keepAll. A quarter of the other picks are empty, so a pass leaves every
 // row out and the column that held their cells holds none.
-func pick(r *rng, keepAll bool) []int {
+func pick(r mut rng, keepAll bool) []int {
 	let mut keys = []int{}
 	if !keepAll && draw(r, 4) == 0 {
 		return keys

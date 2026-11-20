@@ -31,9 +31,9 @@ func TestExchangePathsAreTheNames(t *testing.T) {
 	r := rand.New(rand.NewPCG(seed, 0))
 	for c := 0; c < 120; c++ {
 		dir := t.TempDir()
-		x, y := genName(r, 1+r.IntN(255)), genName(r, 1+r.IntN(255))
+		x, y := genPair(r)
 		for x == y {
-			y = genName(r, 1+r.IntN(255))
+			x, y = genPair(r)
 		}
 		files := map[string]string{x: "x", y: "y"}
 		for _, n := range []string{x, y} {
@@ -46,7 +46,9 @@ func TestExchangePathsAreTheNames(t *testing.T) {
 		}
 		files[x], files[y] = "x", "y"
 		for n, text := range files {
-			write(t, filepath.Join(dir, n), text)
+			if err := os.WriteFile(filepath.Join(dir, n), []byte(text), 0o644); err != nil {
+				t.Fatalf("case %d (seed %d): the generator drew a name this host refuses: %q: %v", c, seed, n, err)
+			}
 		}
 		if err := FSExchange(filepath.Join(dir, x), filepath.Join(dir, y)); err != nil {
 			t.Fatalf("case %d (seed %d): FSExchange(%q, %q) = %v", c, seed, x, y, err)
@@ -74,21 +76,38 @@ func TestExchangePathsAreTheNames(t *testing.T) {
 	}
 }
 
-// genName is a file name of at most n bytes and at least one: printable
-// ASCII but '/' and '.', and two- and three-byte UTF-8 runes (APFS takes
-// only UTF-8 names).
+// nameRunes are the runes a generated name draws from beside ASCII: each
+// is assigned in every Unicode version the tested hosts' file systems
+// read (APFS refuses a name with a rune it does not know, EILSEQ, as it
+// refuses invalid UTF-8), lower case or caseless, precomposed, and no two
+// fold together, so two distinct names stay two files on a host that
+// compares names case- and normalization-insensitively (APFS's default).
+var nameRunes = [][2]rune{
+	{0xE0, 0xF6}, {0xF8, 0xFE}, // Latin-1 lower case letters
+	{0x3B1, 0x3C1}, {0x3C3, 0x3C9}, // Greek lower case, final sigma left out (it folds to sigma)
+	{0x430, 0x44F},   // Cyrillic lower case
+	{0x3041, 0x3094}, // Hiragana
+	{0x4E00, 0x9FA5}, // CJK unified ideographs of Unicode 1.1
+}
+
+// genName is a file name of at most n bytes and at least one, valid UTF-8
+// that every tested host's file system accepts: printable ASCII but '/'
+// and the capitals (a space and '.' included, so a name may hold spaces
+// or end in a dot), and two- and three-byte runes from nameRunes. A name
+// never starts with a dot, so no name or prefix of one is "." or "..".
+// A host that refuses a drawn name at create is this generator's
+// error, which the test reports as one.
 func genName(r *rand.Rand, n int) string {
 	var b strings.Builder
 	for {
 		var c rune
 		switch r.IntN(8) {
-		case 0:
-			c = rune(0x80 + r.IntN(0x780))
-		case 1:
-			c = rune(0x800 + r.IntN(0xD000-0x800))
+		case 0, 1:
+			span := nameRunes[r.IntN(len(nameRunes))]
+			c = span[0] + rune(r.IntN(int(span[1]-span[0])+1))
 		default:
-			c = rune(0x21 + r.IntN(0x5e))
-			if c == '/' || c == '.' {
+			c = rune(0x20 + r.IntN(0x5f))
+			if c == '/' || 'A' <= c && c <= 'Z' {
 				c = '_'
 			}
 		}
@@ -97,10 +116,40 @@ func genName(r *rand.Rand, n int) string {
 		}
 		b.WriteRune(c)
 	}
-	if b.Len() == 0 {
-		return "n"
+	name := b.String()
+	if name == "" || name[0] == '.' {
+		// No name, and no prefix of one (the decoys, the cut), is "."
+		// or "..": a name never starts with a dot.
+		name = "n" + name[min(1, len(name)):]
 	}
-	return b.String()
+	return name
+}
+
+// genPair is two distinct names: independent, or, one case in three, y
+// sharing x's first bytes up to a long prefix and differing only after it.
+// One name in four ends in a dot.
+func genPair(r *rand.Rand) (string, string) {
+	x := genName(r, 1+r.IntN(255))
+	var y string
+	for y == "" || y == x {
+		if len(x) > 16 && r.IntN(3) == 0 {
+			p := runePrefix(x, len(x)-1-r.IntN(8))
+			y = p + genName(r, 1+r.IntN(255-len(p)))
+		} else {
+			y = genName(r, 1+r.IntN(255))
+		}
+	}
+	dot := func(n string) string {
+		if len(n) < 255 && r.IntN(4) == 0 {
+			return n + "."
+		}
+		return n
+	}
+	x, y = dot(x), dot(y)
+	if x == y {
+		y = genName(r, 1+r.IntN(255))
+	}
+	return x, y
 }
 
 // runePrefix is the longest prefix of s of at most n bytes that ends on a

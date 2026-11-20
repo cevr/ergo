@@ -23,7 +23,7 @@ func lockMachine() Machine[lock, lockEvent, int] {
 	Machine[lock, lockEvent, int]{Initial: lock{locked: false, n: 0, text: ""}, Step: lockStep, After: none[lock, lockEvent], Work: idle[lock, lockEvent]}
 }
 
-func lockView(f *ui.Frame[lockEvent], s lock) {
+func lockView(f mut ui.Frame[lockEvent], s lock) {
 	ui.Column(f, ui.Plain()) {
 		ui.Check(f, "locked", s.locked, Locked)
 		ui.Fieldset(f, s.locked, "the counter") {

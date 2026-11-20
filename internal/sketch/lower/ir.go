@@ -53,6 +53,11 @@ type IRReport struct {
 	Hash   string `json:"hash"`
 	// Folds counts the build-time folds of the IR bodies (ir_constfold.go).
 	Folds FoldCounts `json:"folds"`
+	// CodecText counts the codec functions that keep their text body,
+	// by "name\treason": a cell writer the IR builder refused
+	// (ir_wire.go), an encoder on the reference Writer and a decoder,
+	// which no IR builder takes yet (the text emitter's). In memory only.
+	CodecText map[string]int `json:"-"`
 	// Forms counts the IR forms the bodies held before erasure, by
 	// kind and layout ("match/flat"; ir_forms.go): in memory only.
 	Forms map[string]int `json:"-"`
@@ -76,6 +81,9 @@ type IRReport struct {
 	// Dropped counts the discarded calls that name the variant with no
 	// result (ir_forms_drop.go).
 	Dropped int `json:"-"`
+	// SeqRanges counts the for-in loops over a Seq that range over Go's
+	// range-over-func form (PORT-FORIN, ir_seq.go).
+	SeqRanges int `json:"-"`
 	// CatchDefects counts the full catches whose default panics with the
 	// unreachable defect, naming no failure (ir_catch_defect.go).
 	CatchDefects int `json:"-"`
@@ -112,7 +120,7 @@ func LowerIR(u Unit) ([]File, IRReport, error) { return lowerIR(u, nil) }
 // LowerIRTests is LowerTests with the IR bodies: the test build's IR
 // path, which the agreement property compares with LowerTests.
 func LowerIRTests(u Unit) ([]File, IRReport, error) {
-	return lowerIR(u, &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}})
+	return lowerIR(u, testLoweringOf(u))
 }
 
 // IRCensus is every reason the IR builder cannot lower each function of a
@@ -153,7 +161,7 @@ func censusIR(u Unit, tests bool, reach []*check.Func) (IRCensus, error) {
 	}
 	var tl *testLowering
 	if tests {
-		tl = &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}}
+		tl = testLoweringOf(u)
 	}
 	l := newBuildLowerer(u, tl)
 	l.ir = &irState{files: map[string]int{}, report: IRReport{Fallback: map[string]int{}}, census: &IRCensus{}, reach: reach}
@@ -163,14 +171,19 @@ func censusIR(u Unit, tests bool, reach []*check.Func) (IRCensus, error) {
 	return *l.ir.census, nil
 }
 
-// reachAll queues a census's extra bodies (CensusStd); program calls it
-// once the package's own declarations are lowered.
+// reachAll queues a census's extra bodies (CensusStd, and
+// LowerIRSplitReaching's); program calls it once the package's own
+// declarations are lowered.
 func (st *irState) reachAll(l *lowerer) {
 	st.reached = append(st.reached, st.reach...)
 	for _, f := range st.reach {
 		func() {
 			defer func() {
 				if r := recover(); r != nil {
+					if st.census == nil {
+						st.report.Fallback["std body not reachable alone"]++
+						return
+					}
 					st.census.Funcs = append(st.census.Funcs, IRCensusFunc{Pkg: f.Pkg.Path, Name: f.Name, Std: f.Pkg.Std(), Reasons: []string{"std body not reachable alone"}})
 				}
 			}()
@@ -189,7 +202,7 @@ func lowerIR(u Unit, tests *testLowering) ([]File, IRReport, error) {
 func LowerIRReference(u Unit, tests bool) ([]File, IRReport, error) {
 	var tl *testLowering
 	if tests {
-		tl = &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}}
+		tl = testLoweringOf(u)
 	}
 	return lowerIRForms(u, tl, true)
 }
@@ -223,12 +236,27 @@ func LowerIRShards(u Unit, tests bool) ([]File, IRReport, SplitReport, error) {
 	return lowerIRSplit(u, tests, programModule, devShards)
 }
 
+// LowerIRSplitReaching is LowerIRSplit (of the test build with tests) with
+// every function of funcs lowered too, as a library body within u that
+// its program need not call (CensusStd's reach), each with the IR body it
+// gets. The agreement of the self-hosted IR builder (internal/selfhostcheck,
+// TestCompilerIRAgreesWithBuilder) compares every function it builds,
+// reached by a program or not. A function the lowering cannot reach alone
+// is a fallback "std body not reachable alone".
+func LowerIRSplitReaching(u Unit, tests bool, funcs []*check.Func) ([]File, IRReport, SplitReport, error) {
+	return lowerIRSplitReaching(u, tests, programModule, nil, funcs)
+}
+
 func lowerIRSplit(u Unit, tests bool, base string, sh *shardOpts) ([]File, IRReport, SplitReport, error) {
+	return lowerIRSplitReaching(u, tests, base, sh, nil)
+}
+
+func lowerIRSplitReaching(u Unit, tests bool, base string, sh *shardOpts, reach []*check.Func) ([]File, IRReport, SplitReport, error) {
 	var tl *testLowering
 	if tests {
-		tl = &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}}
+		tl = testLoweringOf(u)
 	}
-	files, origins, report, l, err := lowerIRModule(u, tl, false)
+	files, origins, report, l, err := lowerIRModuleReaching(u, tl, false, reach)
 	if err != nil {
 		return nil, IRReport{}, SplitReport{}, err
 	}
@@ -270,7 +298,7 @@ type irModule struct {
 // is written under dir, and a frame of an IR body names the file a frame
 // of the same function's source body names (runtime/v1, sourceDir).
 func lowerIRTestParts(u Unit, dir string) ([]byte, []File, []byte, error) {
-	files, _, report, l, err := lowerIRModule(u, &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}}, false)
+	files, _, report, l, err := lowerIRModule(u, testLoweringOf(u), false)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -293,35 +321,18 @@ func lowerIRTestParts(u Unit, dir string) ([]byte, []File, []byte, error) {
 // lowerIRModule lowers u with IR bodies: the module's files without an IR
 // file, the std origins of its names (the split's), and the IR.
 func lowerIRModule(u Unit, tests *testLowering, formsOff bool) ([]File, map[string]*check.Package, irModule, *lowerer, error) {
+	return lowerIRModuleReaching(u, tests, formsOff, nil)
+}
+
+// lowerIRModuleReaching is lowerIRModule with reach's bodies lowered too
+// (LowerIRSplitReaching).
+func lowerIRModuleReaching(u Unit, tests *testLowering, formsOff bool, reach []*check.Func) ([]File, map[string]*check.Package, irModule, *lowerer, error) {
 	if err := u.Validate(); err != nil {
 		return nil, nil, irModule{}, nil, err
 	}
-	var (
-		l    *lowerer
-		code []byte
-		err  error
-		ims  intMapState
-		why  = map[string]int{}
-	)
-	for round := 0; ; round++ {
-		l = newBuildLowerer(u, tests)
-		l.ir = &irState{files: map[string]int{}, report: IRReport{Fallback: map[string]int{}}, formsOff: formsOff, noFallback: u.NoFallback, maps: ims}
-		if round == intMapRounds {
-			l.ir.maps = intMapState{allGo: true}
-		}
-		code, err = l.program()
-		if err != nil {
-			return nil, nil, irModule{}, nil, err
-		}
-		for k, n := range l.ir.maps.why {
-			why[k] += n
-		}
-		next, again := l.ir.maps.newRound() // intmap.go: a conflict lowers again
-		if !again || round == intMapRounds {
-			l.ir.report.MapRounds, l.ir.report.MapConflicts = round+1, why
-			break
-		}
-		ims = next
+	l, code, err := lowerIRRounds(u, tests, formsOff, reach)
+	if err != nil {
+		return nil, nil, irModule{}, nil, err
 	}
 	// The last round's bodies alone: an earlier round's fallbacks were
 	// the conflicts it lowered again for (intmap.go).
@@ -343,6 +354,50 @@ func lowerIRModule(u Unit, tests *testLowering, formsOff bool) ([]File, map[stri
 	sort.Strings(l.ir.report.IR)
 	sortFormSites(l.ir.report.FormSites) // ir_forms_report.go
 	return files, l.stdOrigins(), irModule{IRReport: l.ir.report, out: &l.ir.out}, l, nil
+}
+
+// lowerIRRounds is the IR lowering of u in rounds: a round whose int maps
+// meet a conflict lowers the whole program again with those maps Go's
+// (intmap.go). Each round starts from nothing but the unit and the maps'
+// facts: its own lowerer, and a fresh record of the test helpers it
+// emitted (testLowering.fresh), so the last round's output is what one
+// round with the last round's facts emits (LAW-GEN-HELPERS: a record
+// shared across rounds left the last round calling generators only an
+// earlier, discarded round had written).
+func lowerIRRounds(u Unit, tests *testLowering, formsOff bool, reach []*check.Func) (*lowerer, []byte, error) {
+	var (
+		l    *lowerer
+		code []byte
+		err  error
+		ims  intMapState
+		why  = map[string]int{}
+	)
+	for round := 0; ; round++ {
+		if round == intMapRounds {
+			ims = intMapState{allGo: true}
+		}
+		l, code, err = lowerIRRound(u, tests.fresh(), formsOff, ims, reach)
+		if err != nil {
+			return nil, nil, err
+		}
+		for k, n := range l.ir.maps.why {
+			why[k] += n
+		}
+		next, again := l.ir.maps.newRound() // intmap.go: a conflict lowers again
+		if !again || round == intMapRounds {
+			l.ir.report.MapRounds, l.ir.report.MapConflicts = round+1, why
+			return l, code, nil
+		}
+		ims = next
+	}
+}
+
+// lowerIRRound is one round of lowerIRRounds, its int maps decided by ims.
+func lowerIRRound(u Unit, tests *testLowering, formsOff bool, ims intMapState, reach []*check.Func) (*lowerer, []byte, error) {
+	l := newBuildLowerer(u, tests)
+	l.ir = &irState{files: map[string]int{}, report: IRReport{Fallback: map[string]int{}}, formsOff: formsOff, noFallback: u.NoFallback, maps: ims, reach: reach}
+	code, err := l.program()
+	return l, code, err
 }
 
 // irState is the IR a LowerIR run collects.

@@ -36,7 +36,7 @@ func HasKey(s Keys, hi uint64, lo uint64) bool {
 }
 
 // AddKey puts the key (hi, lo) in s and reports whether it was new.
-func AddKey(s *Keys, hi uint64, lo uint64) bool {
+func AddKey(s mut Keys, hi uint64, lo uint64) bool {
 	let l = if hi == uint64(0) && lo == uint64(0) { uint64(1) } else { lo }
 	if (s.used+1)*4 > len(s.lo)*3 {
 		growKeys(s)
@@ -56,7 +56,7 @@ func AddKey(s *Keys, hi uint64, lo uint64) bool {
 }
 
 // growKeys doubles the slots, at least 16, and places every key again.
-func growKeys(s *Keys) {
+func growKeys(s mut Keys) {
 	let n = if len(s.lo) < 8 { 16 } else { len(s.lo) * 2 }
 	let mut hi = []uint64{}
 	let mut lo = []uint64{}

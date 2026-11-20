@@ -491,14 +491,20 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 		if lp != nil && lp.Domain == check.LoopRange {
 			return b.memoLoop(b.next, func() []*irStmt { return b.countLoop(s, lp) }) // ir_pkg.go, ir_memo.go
 		}
-		if lp == nil || !goRange(lp.Domain) { // ir_pkg.go
+		seq := b.seqLoop(s)                           // ir_seq.go
+		if lp == nil || !goRange(lp.Domain) && !seq { // ir_pkg.go
 			b.gate("for-in over a non-slice")
 		}
 		if _, ok := b.intMapOf(b.l.info.Types[s.X]); ok && lp.Domain == check.LoopMap {
 			irNo("for-in over an int map") // ir_intmap.go: its emitter body ranges over Go's map
 		}
 		pre, x := b.foldRangeValue(s) // ir_collectfold.go: rangeValue (ir_order.go), run once before the loop, unless fused
-		first := b.next               // before the key and value: ir_memo.go
+		if seq {
+			var bind []*irStmt
+			bind, x = b.seqRange(s, lp, x) // ir_seq.go
+			pre = append(pre, bind...)
+		}
+		first := b.next // before the key and value: ir_memo.go
 		st := &irStmt{K: "range", Pos: b.pos(s, s.Pos()), X: x, End: b.pos(s.Body, s.Body.Rbrace)}
 		bind := func(e syntax.Expr) *int {
 			if !bound(e) {
@@ -522,6 +528,11 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 		}
 		b.part(func() { st.Key = bind(s.Key) })
 		b.part(func() { st.Val = bind(s.Value) })
+		if seq {
+			// A range over a func has one variable, the element: the
+			// range's first (ir_seq.go).
+			st.Key, st.Val = st.Val, nil
+		}
 		loop := b.memoLoop(first, func() []*irStmt { // ir_memo.go
 			b.loopBody(st, s, s.Body)
 			return []*irStmt{st}

@@ -44,7 +44,7 @@ func Sum(b Board) int {
 	s
 }
 
-func Bump(b *Board) {
+func Bump(b mut Board) {
 	b.h.Set(b.h.Get() + 1)
 	b.hs = b.hs.Append(sync.NewRef[int](b.n))
 	b.n = b.n + 1

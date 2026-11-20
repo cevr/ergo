@@ -212,7 +212,7 @@ func played[R](site Site, gone queue.Queue[[]gallery.Command], s Script, clock t
 // ago: the jobs it added (its work runs them), and what its step gave the
 // host. A push of the site's own URL is followed at once, and what that
 // navigation asks shows next; a page elsewhere is left for.
-func run(h *Host, gone queue.Queue[[]gallery.Command], seen int) Ran fails actor.Stopped | ui.BadPatch {
+func run(h mut Host, gone queue.Queue[[]gallery.Command], seen int) Ran fails actor.Stopped | ui.BadPatch {
 	let mut ran = asked(h, Ran{Seen: seen, Asks: []string{}})
 	for {
 		let cs = match gone.Poll() {
@@ -237,7 +237,7 @@ func run(h *Host, gone queue.Queue[[]gallery.Command], seen int) Ran fails actor
 }
 
 // asked adds to r the jobs the site asked for after the first r.Seen.
-func asked(h *Host, r Ran) Ran {
+func asked(h mut Host, r Ran) Ran {
 	let s = ui.StateOf(h)
 	let mut asks = r.Asks
 	for j in s.Jobs {
@@ -292,7 +292,7 @@ func Run(clock time.Manual, stats bool) int needs Console | io.Stdin | time.Cloc
 // View is the screen in three lines: the address and its depth, the page
 // (a heading as # NAME, a link as <NAME>, the field as ?TEXT?, each text
 // itself), and the log's newest entry.
-func View(h *Host) []string {
+func View(h mut Host) []string {
 	let all = tokens(ui.Screen(h))
 	let mut page = []string{}
 	let mut log = ""

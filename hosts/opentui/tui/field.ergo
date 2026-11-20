@@ -97,7 +97,7 @@ law EditOfIsTheTable(shift bool, ctrl bool, alt bool, meta bool) {
 // edited makes one edit in the field id, which shows value: a changed
 // text is a ui.Type; then the buffer takes the value the program shows,
 // if that differs from what was typed, and the screen shows the caret.
-func edited[E comparable, S, D, F](d *Driver[S, E, D, F], id ui.Id[E], value string, op int, col int, text string) fails actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
+func edited[E comparable, S, D, F](d mut Driver[S, E, D, F], id ui.Id[E], value string, op int, col int, text string) fails actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
 	let n = numOf(d, id)
 	let now = try edit(d.s, n, op, col, text)
 	if now != value {
@@ -118,7 +118,7 @@ func edited[E comparable, S, D, F](d *Driver[S, E, D, F], id ui.Id[E], value str
 }
 
 // fieldValue is the text of the Input id shows, None when id is no Input.
-func fieldValue[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) Option[string] {
+func fieldValue[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) Option[string] {
 	match nodeOf(d, id) {
 	case ui.InputNode as x:
 		Some{Value: x.Value}

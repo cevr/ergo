@@ -35,13 +35,14 @@ func (f memFS) Stat(name string) (fs.FileInfo, error)     { return fs.Stat(f.m, 
 func (f memFS) Lstat(name string) (fs.FileInfo, error)    { return fs.Stat(f.m, f.rel(name)) }
 
 // checkModule checks the module whose files are files (by path in the
-// module) as one program in memory.
-func checkModule(files map[string]string) (sketchfront.Analysis, error) {
+// module) in memory, as the program whose root package is the folder
+// exports ("" is the module's root).
+func checkModule(files map[string]string, exports string) (sketchfront.Analysis, error) {
 	m := fstest.MapFS{}
 	for p, text := range files {
 		m[p] = &fstest.MapFile{Data: []byte(text), Mode: 0o644}
 	}
-	return sketchfront.CheckDirFS(memFS{m}, memRoot, gobind.Platform{GOOS: runtime.GOOS, GOARCH: runtime.GOARCH})
+	return sketchfront.CheckDirFS(memFS{m}, path.Join(memRoot, exports), gobind.Platform{GOOS: runtime.GOOS, GOARCH: runtime.GOARCH})
 }
 
 // readModule is the files of the module at dir on the host, by path in

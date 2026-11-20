@@ -22,7 +22,7 @@ type pushed { was ui.Affine, clip bool }
 let curveSteps = 16
 
 // paintCanvas replays ops in the canvas's box b, inside clip.
-func paintCanvas[S, E, D, F](d *Driver[S, E, D, F], ops []ui.PaintOp, b layout.Box, clip layout.Box) needs go.Foreign {
+func paintCanvas[S, E, D, F](d mut Driver[S, E, D, F], ops []ui.PaintOp, b layout.Box, clip layout.Box) needs go.Foreign {
 	let inner = cut(clip, b)
 	d.w.Clip(float64(inner.X), float64(inner.Y), float64(inner.W), float64(inner.H))
 	let mut m = ui.Translate(float64(b.X), float64(b.Y))
@@ -110,7 +110,7 @@ func sqrt(x float64) float64 {
 // walks the path, with no contour built. A contour of one point is left
 // out, as flatten leaves it out: a stroke begins with a contour's second
 // point.
-func strokePath[S, E, D, F](d *Driver[S, E, D, F], path ui.Path, m ui.Affine, width float64, color uint32) needs go.Foreign {
+func strokePath[S, E, D, F](d mut Driver[S, E, D, F], path ui.Path, m ui.Affine, width float64, color uint32) needs go.Foreign {
 	let mut c = contour{n: 0, first: pt{X: 0, Y: 0}, width: width, color: color}
 	let mut at = pt{X: 0, Y: 0}
 	let mut start = pt{X: 0, Y: 0}
@@ -154,7 +154,7 @@ type contour { n int, first pt, width float64, color uint32 }
 
 // add is c with point p, sent to the window: the contour's stroke begins
 // with its second point.
-func add[S, E, D, F](d *Driver[S, E, D, F], c contour, p pt) contour needs go.Foreign {
+func add[S, E, D, F](d mut Driver[S, E, D, F], c contour, p pt) contour needs go.Foreign {
 	if c.n == 0 {
 		return contour{..c, n: 1, first: p}
 	}
@@ -167,7 +167,7 @@ func add[S, E, D, F](d *Driver[S, E, D, F], c contour, p pt) contour needs go.Fo
 }
 
 // end ends c's stroke, if it began, and is the next contour's start.
-func end[S, E, D, F](d *Driver[S, E, D, F], c contour) contour needs go.Foreign {
+func end[S, E, D, F](d mut Driver[S, E, D, F], c contour) contour needs go.Foreign {
 	if c.n > 1 {
 		d.w.StrokeEnd()
 	}
@@ -267,7 +267,7 @@ func axisRect(cs [][]pt) bool {
 type crossing { x float64, wind int }
 
 // fillPath fills the contours cs with color, inside clip.
-func fillPath[S, E, D, F](d *Driver[S, E, D, F], cs [][]pt, color uint32, clip layout.Box) needs go.Foreign {
+func fillPath[S, E, D, F](d mut Driver[S, E, D, F], cs [][]pt, color uint32, clip layout.Box) needs go.Foreign {
 	if len(cs) == 0 {
 		return
 	}

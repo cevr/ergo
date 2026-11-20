@@ -466,7 +466,7 @@ func (c *checker) checkImplementsClauses() {
 			// receiver to each conversion, which checks it at the instance
 			// (assignableTo, implementsCapturing).
 			checkReceiver := !(len(n.TParams) > 0 && isHostNamed(op))
-			if why := c.implementsCapturing(&Pointer{Elem: self}, it, checkReceiver, &foreign); why != "" {
+			if why := c.implementsAt(&Pointer{Elem: self}, it, checkReceiver, &foreign, op); why != "" {
 				c.errorf(n.implExprs[i], CodeProvider, "%s does not implement %s: %s (types.md, Interface assignability 1)", n.Obj.Name, op, strings.TrimPrefix(why, "*"))
 			}
 		}
@@ -570,8 +570,20 @@ type LegacyPair struct {
 	// Include is set when Type is an operation type: its members `..Op`.
 	Include bool
 	// Site names the reader of the old rule: "conversion", "constraint",
-	// "law", "release".
+	// "law", "release", "mut".
 	Site string
+	// MutOp, with Site "mut", is the operation of the operation type Type
+	// that a function on mut T implements at a constraint, which the old
+	// rule admitted through [T lent C]: the fix writes mut before it
+	// (MODES-4). Op is nil then.
+	MutOp string
+	// Own, with Site "own", is a type parameter that a resource binds,
+	// which the old copy-site inference admitted: the fix writes own after
+	// it, [T own] (MODES-5). Decl names its declaration (a function or a
+	// type, Type nil), and At is its offset in the declaring file.
+	Own  string
+	Decl string
+	At   int
 }
 
 // legacyRecord, when set, records each pair the old rule admits (ergo
@@ -627,6 +639,74 @@ func (c *checker) recordLegacy(v Type, op Type, site string) {
 	legacyRecord(pair)
 }
 
+// recordMutOp records, for ergo fix, that the operation op of the
+// constraint t must be marked mut, and reports whether it did.
+func (c *checker) recordMutOp(t Type, op string) bool {
+	n, ok := t.(*Named)
+	if legacyRecord == nil || !ok {
+		return false
+	}
+	o := declaringOp(n.origin(), op, map[*Named]bool{})
+	if o == nil || o.Obj == nil || o.Obj.Decl == nil || o.Obj.Pkg == nil || isHostNamed(o) {
+		return false
+	}
+	legacyRecord(LegacyPair{Type: o.Obj, Pkg: o.Obj.Pkg.Path, Site: "mut", MutOp: op})
+	return true
+}
+
+// tpOwner is each type parameter's declaration while a recorder is set:
+// its package's path and its name (MODES-5).
+var tpOwner = map[*TypeParam][2]string{}
+
+// noteOwner records tp's declaration for ergo fix.
+func (c *checker) noteOwner(tp *TypeParam, decl string) {
+	if legacyRecord != nil && c.pkg != nil {
+		tpOwner[tp] = [2]string{c.pkg.Path, decl}
+	}
+}
+
+// recordOwnLegacy records, for ergo fix, a type parameter without the own
+// mark that a resource binds: the old copy-site inference admitted the
+// instance (a clean program had no other kind), and the fix writes the
+// mark. It reports whether it recorded, so the check goes on.
+func (c *checker) recordOwnLegacy(tp *TypeParam) bool {
+	o, ok := tpOwner[tp]
+	if legacyRecord == nil || !ok || o[0] == "" {
+		return false
+	}
+	legacyRecord(LegacyPair{Pkg: o[0], Site: "own", Own: tp.Name, Decl: o[1], At: int(tp.Pos)})
+	return true
+}
+
+// declaringOp is the operation type that declares the operation op among
+// n and the types its members `..I` include, so the fix marks it where it
+// is written; nil when none does.
+func declaringOp(n *Named, op string, seen map[*Named]bool) *Named {
+	if n == nil || seen[n] {
+		return nil
+	}
+	seen[n] = true
+	if n.Obj != nil && n.Obj.Decl != nil {
+		if spec, ok := n.Obj.Decl.Spec.(*syntax.InterfaceType); ok {
+			for _, m := range spec.Methods {
+				if len(m.Names) > 0 && m.Names[0].Name == op {
+					return n
+				}
+			}
+		}
+	}
+	it := asInterface(n)
+	if it == nil {
+		return nil
+	}
+	for _, inc := range it.includes {
+		if d := declaringOp(inc.origin(), op, seen); d != nil {
+			return d
+		}
+	}
+	return nil
+}
+
 // sameOps reports whether every operation of op is an operation of k with
 // the same shape, rows and takes.
 func (c *checker) sameOps(k, op *Interface) bool {
@@ -636,7 +716,7 @@ func (c *checker) sameOps(k, op *Interface) bool {
 	for _, m := range op.Methods {
 		km := k.method(m.Name)
 		if km == nil || km.Sig == nil || m.Sig == nil || !c.sameShape(km.Sig, m.Sig) ||
-			km.Sig.Fallible != m.Sig.Fallible || km.Sig.TakesSelf != m.Sig.TakesSelf ||
+			km.Sig.Fallible != m.Sig.Fallible || km.Sig.TakesSelf != m.Sig.TakesSelf || km.Sig.MutSelf != m.Sig.MutSelf ||
 			!km.Sig.Errors.equal(c.types, m.Sig.Errors) || !km.Sig.Uses.equal(c.types, m.Sig.Uses) {
 			return false
 		}
@@ -714,6 +794,12 @@ func (c *checker) recordLegacyReleases() {
 
 // String prints a pair for ergo fix's report.
 func (p LegacyPair) String() string {
+	if p.Own != "" {
+		return fmt.Sprintf("%s.%s marks %s own (%s)", p.Pkg, p.Decl, p.Own, p.Site)
+	}
+	if p.MutOp != "" {
+		return fmt.Sprintf("%s.%s marks %s mut (%s)", p.Pkg, p.Type.Name, p.MutOp, p.Site)
+	}
 	op := "?"
 	if p.Op != nil {
 		op = p.Op.String()

@@ -11,5 +11,5 @@
 # edits its line and says why; one that shrinks or drops one updates it.
 #
 # file | +added -deleted | the hunk's first changed line | why gc must call us there
-src/cmd/compile/internal/noder/unified.go | +1 -0 | ergoStub(m, pkg, info, noders) | the one call into the reader: after types2 checked the package and before the unified writer encodes it, the IR bodies are attached as typed syntax and the text and shape views are written (ergoStub, noder/ergoir_hook.go, calls package ergoir's Stub; the -ergoir flags are registered in ergoir/ergoir_flags.go: PATCH-MIN M1, M2 and M4)
+src/cmd/compile/internal/noder/unified.go | +1 -0 | otherInfo = ergoStub(m, pkg, info, noders, otherInfo) | the one call into the reader: after types2 checked the package and before the unified writer encodes it, the IR bodies are attached as typed syntax and the text and shape views are written (ergoStub, noder/ergoir_hook.go, calls package ergoir's Stub; the -ergoir flags are registered in ergoir/ergoir_flags.go: PATCH-MIN M1, M2 and M4); with -ergoir, Go's rangefunc.Rewrite then runs over the IR bodies, whose range-over-func literals the writer needs in otherInfo (PORT-FORIN: a Seq loop)
 total +1 -0

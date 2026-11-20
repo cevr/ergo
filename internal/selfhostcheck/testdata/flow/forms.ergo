@@ -1,0 +1,92 @@
+// The forms the walk reads: a value if and match (an arm's name moves or
+// is lent where the value goes), a catch's arm on the failure path, a
+// loop's second pass, break and continue, a short circuit, a with's block
+// in the same frame, and a body with no diagnostic.
+
+type Res { id int } implements Closer
+
+type Bad {}
+
+func Close(r Res) {}
+
+func open(n int) Res { Res{id: n} }
+
+func lend(r Res) {}
+
+func keep(r own Res) {}
+
+func take(r own Res) int { 0 }
+
+func cond(n int) bool { n > 2 }
+
+func fail(n int) int fails Bad {
+	if n > 5 {
+		return Bad
+	}
+	n
+}
+
+func valued(n int) {
+	let a = open(1)
+	let b = if cond(n) { a } else { open(2) }
+	lend(a) //want: flow
+	keep(b)
+}
+
+func matched(n int) {
+	let a = open(1)
+	keep(match n {
+	case 0:
+		a
+	case _:
+		open(2)
+	})
+	lend(a) //want: flow
+}
+
+func caught(n int) {
+	let a = open(1)
+	let _ = fail(n) catch {
+	case Bad:
+		keep(a)
+		0
+	}
+	lend(a) //want: flow
+}
+
+func looped(n int) {
+	let a = open(1)
+	for _ in 0..n {
+		keep(a) //want: flow
+	}
+}
+
+func broken(n int) {
+	let a = open(1)
+	for _ in 0..n {
+		if cond(n) {
+			keep(a)
+			break
+		}
+	}
+	lend(a) //want: flow
+}
+
+func short(n int) {
+	let a = open(1)
+	let _ = cond(n) && take(a) > 0
+	lend(a) //want: flow
+}
+
+func clean(n int) {
+	let a = open(1)
+	if cond(n) {
+		keep(a)
+	} else {
+		a.Close()
+	}
+	let b = open(2)
+	lend(b)
+}
+
+func main() {}

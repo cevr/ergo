@@ -21,7 +21,7 @@ func counterMachine() Machine[int, int, int] {
 	Machine[int, int, int]{Initial: 0, Step: counterStep, After: none[int, int], Work: idle[int, int]}
 }
 
-func counterView(f *ui.Frame[int], s int) {
+func counterView(f mut ui.Frame[int], s int) {
 	let mut col = ui.Plain()
 	col.Gap = 8
 	col.Padding = ui.All(16)
@@ -97,7 +97,7 @@ func shelfMachine() Machine[shelf, int, int] {
 
 // shelfView: row k's delete button is labelled "del k"; the list is 64
 // DIPs high (4 cells), so a tap on a row past it scrolls it into view.
-func shelfView(f *ui.Frame[int], s shelf) {
+func shelfView(f mut ui.Frame[int], s shelf) {
 	ui.Column(f, ui.Plain()) {
 		ui.Text(f, "\(len(s.rows)) rows")
 		ui.Pressable(f, "add", 0) {
@@ -145,7 +145,7 @@ func formMachine() Machine[form, formEvent, int] {
 	Machine[form, formEvent, int]{Initial: form{name: "", done: false, sent: 0}, Step: formStep, After: none[form, formEvent], Work: idle[form, formEvent]}
 }
 
-func formView(f *ui.Frame[formEvent], s form) {
+func formView(f mut ui.Frame[formEvent], s form) {
 	let mut col = ui.Plain()
 	col.Gap = 6
 	col.Padding = ui.All(12)
@@ -179,7 +179,7 @@ func loadMachine() Machine[chosen, int, int] {
 	Machine[chosen, int, int]{Initial: chosen{key: 0, ready: -1}, Step: chosenStep, After: none[chosen, int], Work: idle[chosen, int]}
 }
 
-func loadView(f *ui.Frame[int], s chosen) {
+func loadView(f mut ui.Frame[int], s chosen) {
 	ui.Column(f, ui.Plain()) {
 		ui.Pressable(f, "next", 1) {
 			ui.Text(f, "Next")

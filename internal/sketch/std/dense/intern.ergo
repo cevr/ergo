@@ -27,7 +27,7 @@ func NewInterner[T comparable]() Interner[T] { Interner[T]{ids: Map[T, ID[T]]{},
 
 // Intern is the id of v: the id an equal value was given before, or a new
 // one.
-func Intern[T comparable](s *Interner[T], v T) ID[T] {
+func Intern[T comparable](s mut Interner[T], v T) ID[T] {
 	match s.ids.Get(v) {
 	case Some[ID[T]] as id:
 		id.Value
@@ -167,7 +167,7 @@ func FindText(s Strings, text string) Option[ID[Str]] {
 }
 
 // place puts id in the first free slot of its text's probe sequence.
-func place(s *Strings, id ID[Str], text string) {
+func place(s mut Strings, id ID[Str], text string) {
 	let mask = len(s.slots) - 1
 	let mut at = int(hash(text)) & mask
 	for s.slots[at] != 0 {
@@ -178,7 +178,7 @@ func place(s *Strings, id ID[Str], text string) {
 }
 
 // grow doubles the slots, at least 16, and places every id again.
-func grow(s *Strings) {
+func grow(s mut Strings) {
 	let mut n = len(s.slots) * 2
 	if n < 16 {
 		n = 16
@@ -196,7 +196,7 @@ func grow(s *Strings) {
 }
 
 // settle joins the waiting texts onto the one string.
-func settle(s *Strings) {
+func settle(s mut Strings) {
 	let mut start = len(s.text)
 	let mut parts = []string{s.text}
 	for t in s.tail {
@@ -214,7 +214,7 @@ func settle(s *Strings) {
 
 // InternText is the id of text: the id an equal text was given before, or
 // a new one.
-func InternText(s *Strings, text string) ID[Str] {
+func InternText(s mut Strings, text string) ID[Str] {
 	match FindText(*s, text) {
 	case Some[ID[Str]] as found:
 		return found.Value

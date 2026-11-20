@@ -73,6 +73,13 @@ func (b *irBuilder) admitNamed(t *check.Named, depth int) {
 			}
 			return
 		}
+		if isPreludeType(t, "Seq") && irSeqRangeLowering != "off" {
+			// A Seq is a function value of the uniform shape, spelled as
+			// the program's Seq[T] (PORT-FORIN, ir_seq.go): its instance's
+			// function type is admitted as any function value's is.
+			b.admit(t.Underlying(), depth+1)
+			return
+		}
 		irNo("type defined over a non-basic type")
 	case kindAlias:
 		b.admit(td.defined, depth+1)

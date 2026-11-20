@@ -106,8 +106,13 @@ func stdRuntimeExterns(t *testing.T) []string {
 	t.Helper()
 	var out []string
 	// The prelude is no importable package: its declarations are read from
-	// its parsed source.
+	// its parsed source. Its builtin.ergo is the language's own operations
+	// on slices, Maps, strings and runes (check/collop.go, PRIM-2b): their
+	// bodies are the language's, as + is int's, not Go that std binds.
 	for name, src := range stdlib.Prelude() {
+		if name == "builtin.ergo" {
+			continue
+		}
 		f, err := syntax.Parse(src)
 		if err != nil {
 			t.Fatalf("prelude %s: %v", name, err)

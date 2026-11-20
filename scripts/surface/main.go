@@ -6,9 +6,9 @@
 //	go run ./scripts/surface -write docs/spec/README.md
 //
 // The measures: the keywords and reserved words (the token table), the
-// words the parser reads by their spelling (a string compared with a
-// token's literal or a name in internal/sketch/syntax, less the keywords
-// and Go's predeclared names), the productions of grammar.md, the clause
+// words the parser reads by their spelling (the word each isWord call of
+// compiler/syntax, the parser, names, less the keywords and Go's
+// predeclared names), the productions of grammar.md, the clause
 // kinds of a signature (the *Clause productions of grammar.md and the
 // *Clause syntax nodes, less a match's case), the rule bullets of
 // diagnostics.md, and the words of docs/spec.
@@ -127,7 +127,7 @@ const (
 // planned rows that name no grammar word are the forms the spec describes
 // in prose (facts.md's `given`, `gives`, `keeps`), kept as written.
 func measure(root string, old *Block) (*Surface, error) {
-	words, err := parserWords(filepath.Join(root, "internal/sketch/syntax"))
+	words, err := parserWords(filepath.Join(root, "compiler/syntax"))
 	if err != nil {
 		return nil, err
 	}
@@ -191,69 +191,54 @@ func measure(root string, old *Block) (*Surface, error) {
 	return s, nil
 }
 
-// parserWords returns the words the parser reads by their spelling: a
-// string literal compared (== or !=, or a switch case) with a selector
-// `.lit` or `.Name` in a non-test file of the syntax package, less the
-// keywords and Go's predeclared names (a type such as `error` or `any`
-// is a name the parser inspects, not a form).
+// parserWords returns the words the parser reads by their spelling: the
+// string literal each isWord call of the parser's non-test files names
+// (compiler/syntax, the parser Parse decodes since S2d; isWord compares
+// an identifier's text with the word), less the keywords and Go's
+// predeclared names (a type such as `error` or `any` is a name the
+// parser inspects, not a form).
 func parserWords(dir string) ([]string, error) {
-	fset := token.NewFileSet()
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, err
 	}
 	var words []string
-	add := func(lit ast.Expr) {
-		b, ok := lit.(*ast.BasicLit)
-		if !ok || b.Kind != token.STRING {
-			return
-		}
-		w, err := strconv.Unquote(b.Value)
-		if err != nil || !isWord(w) || syntax.IsKeyword(w) || predeclared(w) {
-			return
-		}
-		words = append(words, w)
-	}
 	for _, e := range entries {
 		name := e.Name()
-		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+		if !strings.HasSuffix(name, ".ergo") || strings.HasSuffix(name, "_test.ergo") {
 			continue
 		}
-		f, err := parser.ParseFile(fset, filepath.Join(dir, name), nil, 0)
+		src, err := os.ReadFile(filepath.Join(dir, name))
 		if err != nil {
 			return nil, err
 		}
-		ast.Inspect(f, func(n ast.Node) bool {
-			switch x := n.(type) {
-			case *ast.BinaryExpr:
-				if x.Op != token.EQL && x.Op != token.NEQ {
-					return true
-				}
-				if spelling(x.X) {
-					add(x.Y)
-				} else if spelling(x.Y) {
-					add(x.X)
-				}
-			case *ast.SwitchStmt:
-				if x.Tag == nil || !spelling(x.Tag) {
-					return true
-				}
-				for _, c := range x.Body.List {
-					for _, v := range c.(*ast.CaseClause).List {
-						add(v)
-					}
-				}
+		f, err := syntax.Parse(string(src))
+		if err != nil {
+			return nil, fmt.Errorf("%s: %v", name, err)
+		}
+		syntax.Inspect(f, func(n syntax.Node) bool {
+			c, ok := n.(*syntax.CallExpr)
+			if !ok || len(c.Args) != 2 {
+				return true
+			}
+			if id, ok := c.Fun.(*syntax.Ident); !ok || id.Name != "isWord" {
+				return true
+			}
+			b, ok := c.Args[1].(*syntax.BasicLit)
+			if !ok || b.Kind != syntax.STRING {
+				return true
+			}
+			w, err := strconv.Unquote(b.Value)
+			if err == nil && isWord(w) && !syntax.IsKeyword(w) && !predeclared(w) {
+				words = append(words, w)
 			}
 			return true
 		})
 	}
+	if len(words) == 0 {
+		return nil, fmt.Errorf("%s: no isWord call names a word; the parser reads its contextual words elsewhere now", dir)
+	}
 	return sortedSet(words), nil
-}
-
-// spelling reports a token's literal or a name's spelling: `x.lit`, `x.Name`.
-func spelling(x ast.Expr) bool {
-	sel, ok := x.(*ast.SelectorExpr)
-	return ok && (sel.Sel.Name == "lit" || sel.Sel.Name == "Name")
 }
 
 var wordRE = regexp.MustCompile(`^[a-z][a-z]*$`)

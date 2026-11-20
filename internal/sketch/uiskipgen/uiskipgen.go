@@ -96,7 +96,7 @@ func show(ops []ui.Op[int]) string {
 	out
 }
 
-func ids(f *ui.Frame[int], id ui.Id[int]) []ui.Id[int] {
+func ids(f mut ui.Frame[int], id ui.Id[int]) []ui.Id[int] {
 	let mut out = []ui.Id[int]{}
 	for k in ui.Kids(f, id) {
 		out = out.Append(k)
@@ -116,7 +116,7 @@ func sent(o Option[int]) string {
 	}
 }
 
-func step(f *ui.Frame[int], view func(f *ui.Frame[int], s St), s St, press int) needs Console {
+func step(f mut ui.Frame[int], view func(f mut ui.Frame[int], s St), s St, press int) needs Console {
 	let ops = ui.Render(f, view, s)
 	Console.Println("ops \(show(ops)) len \(ui.Len(f))")
 	Console.Println(shot(ui.FrameShape(f), ""))
@@ -128,14 +128,14 @@ func step(f *ui.Frame[int], view func(f *ui.Frame[int], s St), s St, press int) 
 	}
 }
 
-func card(f *ui.Frame[int], it Item) {
+func card(f mut ui.Frame[int], it Item) {
 	ui.Row(f, ui.Plain()) {
 		ui.Check(f, it.Text, it.Done, it.Id)
 		ui.Text(f, "#\(it.Id)")
 	}
 }
 
-func list(f *ui.Frame[int], xs []Item) {
+func list(f mut ui.Frame[int], xs []Item) {
 	ui.Each(f, xs, func(it Item) ui.Key { ui.ByInt(it.Id) }) func(it Item) {
 		card(f, it)
 	}
@@ -143,14 +143,14 @@ func list(f *ui.Frame[int], xs []Item) {
 
 // framed is a component around a card: when only its tag changes it runs
 // and the card in it, whose argument stayed, is written again.
-func framed(f *ui.Frame[int], it Item, tag int) {
+func framed(f mut ui.Frame[int], it Item, tag int) {
 	ui.Column(f, ui.Plain()) {
 		ui.Text(f, "tag \(tag)")
 		card(f, it)
 	}
 }
 
-func framedView(f *ui.Frame[int], s St) {
+func framedView(f mut ui.Frame[int], s St) {
 	framed(f, s.It, s.A)
 }
 
@@ -166,13 +166,13 @@ func nested() needs Console {
 	Console.Println("nested \(ui.GroupRuns(&f))")
 }
 
-func empty(f *ui.Frame[int], s St) {
+func empty(f mut ui.Frame[int], s St) {
 	ui.Text(f, "empty \(s.A)")
 }
 
 // headed is the cards under a header that shows a: a pass that changes
 // a changes no row.
-func headed(f *ui.Frame[int], s St) {
+func headed(f mut ui.Frame[int], s St) {
 	ui.Text(f, "tick \(s.A)")
 	ui.Column(f, ui.Plain()) {
 		list(f, s.Items)
@@ -181,16 +181,16 @@ func headed(f *ui.Frame[int], s St) {
 
 // tally counts its calls in c: an argument that calls it shows how often
 // the argument was evaluated.
-func tally(c *Counter) int {
+func tally(c mut Counter) int {
 	c.N = c.N + 1
 	c.N / 3
 }
 
-func shown(f *ui.Frame[int], n int) {
+func shown(f mut ui.Frame[int], n int) {
 	ui.Text(f, "shown \(n)")
 }
 
-func talliedView(f *ui.Frame[int], c *Counter) {
+func talliedView(f mut ui.Frame[int], c mut Counter) {
 	shown(f, tally(c))
 }
 
@@ -207,7 +207,7 @@ func tallied() needs Console {
 	Console.Println(shot(ui.FrameShape(&f), ""))
 }
 
-func labelled(f *ui.Frame[int], id int, label string) {
+func labelled(f mut ui.Frame[int], id int, label string) {
 	ui.Row(f, ui.Plain()) {
 		ui.Text(f, label)
 		ui.Check(f, "c", false, id)
@@ -216,7 +216,7 @@ func labelled(f *ui.Frame[int], id int, label string) {
 
 // computed is the cards of elsewhere written with a computed label, a
 // call that is a group since NS2a: a change of the header alone runs none.
-func computed(f *ui.Frame[int], s St) {
+func computed(f mut ui.Frame[int], s St) {
 	ui.Text(f, "tick \(s.A)")
 	ui.Column(f, ui.Plain()) {
 		ui.Each(f, s.Items, func(it Item) ui.Key { ui.ByInt(it.Id) }) func(it Item) {
@@ -277,22 +277,22 @@ func label(w Wide) string {
 }
 
 // wideA reads It and, through label, N: never Tags or M.
-func wideA(f *ui.Frame[int], w Wide) {
+func wideA(f mut ui.Frame[int], w Wide) {
 	ui.Text(f, "wide \(w.It.Text) \(label(w))")
 }
 
 // wideB reads Tags, a slice: no group.
-func wideB(f *ui.Frame[int], w Wide) {
+func wideB(f mut ui.Frame[int], w Wide) {
 	ui.Text(f, "tags \(len(w.Tags))")
 }
 
-func wideView(f *ui.Frame[int], w Wide) {
+func wideView(f mut ui.Frame[int], w Wide) {
 	wideA(f, w)
 }
 
 // cards is a list holder: a component whose argument is a slice, a group
 // compared by its structural equality against a copy it keeps (NS2c).
-func cards(f *ui.Frame[int], xs []Item) {
+func cards(f mut ui.Frame[int], xs []Item) {
 	ui.Column(f, ui.Plain()) {
 		ui.Each(f, xs, func(it Item) ui.Key { ui.ByInt(it.Id) }) func(it Item) {
 			ui.Text(f, "card \(it.Text) \(b(it.Done))")
@@ -300,7 +300,7 @@ func cards(f *ui.Frame[int], xs []Item) {
 	}
 }
 
-func cardsView(f *ui.Frame[int], s St) {
+func cardsView(f mut ui.Frame[int], s St) {
 	ui.Text(f, "tick \(s.A)")
 	cards(f, s.Items)
 }
@@ -308,7 +308,7 @@ func cardsView(f *ui.Frame[int], s St) {
 // Bag is a record with a nested slice, read whole by bagged.
 type Bag { Name string, Tags []int }
 
-func bagged(f *ui.Frame[int], g Bag) {
+func bagged(f mut ui.Frame[int], g Bag) {
 	ui.Text(f, "bag \(g.Name) \(len(g.Tags))")
 }
 
@@ -328,7 +328,7 @@ func cardsGuard(n int) needs Console {
 }
 
 // headedOnce is headed with a component after the cards while a is 0.
-func headedOnce(f *ui.Frame[int], s St) {
+func headedOnce(f mut ui.Frame[int], s St) {
 	headed(f, s)
 	if s.A == 0 {
 		shown(f, 1)
@@ -349,7 +349,7 @@ func dropped(n int) needs Console {
 
 // trailedView is a header, the list's rows as its own children, and a
 // line after them.
-func trailedView(f *ui.Frame[int], s St) {
+func trailedView(f mut ui.Frame[int], s St) {
 	ui.Text(f, "tick \(s.A)")
 	list(f, s.Items)
 	ui.Text(f, "end")
@@ -381,13 +381,13 @@ func shrunk(n int) needs Console {
 }
 
 // looped writes n texts at one site: tops that share a site and row.
-func looped(f *ui.Frame[int], n int) {
+func looped(f mut ui.Frame[int], n int) {
 	for k in 0..n {
 		ui.Text(f, "loop \(k)")
 	}
 }
 
-func loopedView(f *ui.Frame[int], s St) {
+func loopedView(f mut ui.Frame[int], s St) {
 	looped(f, 3)
 }
 
@@ -402,7 +402,7 @@ func loopedTwice() needs Console {
 
 // cutView writes a boundary that stops after writing, between two
 // texts in a column: its arm writes at the place the cut gave back.
-func cutView(f *ui.Frame[int], s St) {
+func cutView(f mut ui.Frame[int], s St) {
 	ui.Column(f, ui.Plain()) {
 		ui.Text(f, "a")
 		ui.Boundary(f) {
@@ -430,27 +430,27 @@ func cutTwice() needs Console {
 // marks shows its first card, then writes it through a let mut of its
 // parameter, dead after it, so in place, into the array it was called
 // with.
-func marks(f *ui.Frame[int], xs []Item) {
+func marks(f mut ui.Frame[int], xs []Item) {
 	ui.Text(f, "first \(xs[0].Text)")
 	let mut ys = xs
 	ys[0] = Item{Id: 0, Text: "seen", Done: true}
 	ui.Text(f, "after \(ys[0].Text)")
 }
 
-func marksView(f *ui.Frame[int], s St) {
+func marksView(f mut ui.Frame[int], s St) {
 	marks(f, s.Items)
 }
 
 // tagged takes two values (compared as fields of one), then writes its
 // tags in place through a let mut of its parameter.
-func tagged(f *ui.Frame[int], name string, tags []int) {
+func tagged(f mut ui.Frame[int], name string, tags []int) {
 	ui.Text(f, "tag \(name) \(tags[0])")
 	let mut t = tags
 	t[0] = 99
 	ui.Text(f, "t \(t[0])")
 }
 
-func taggedView(f *ui.Frame[int], g Bag) {
+func taggedView(f mut ui.Frame[int], g Bag) {
 	tagged(f, g.Name, g.Tags)
 }
 
@@ -488,35 +488,35 @@ func subset() needs Console {
 	Console.Println(shot(ui.FrameShape(&f), "wide "))
 }
 
-func counted(f *ui.Frame[int], c *Counter) {
+func counted(f mut ui.Frame[int], c mut Counter) {
 	ui.Text(f, "n \(c.N)")
 }
 
-func counterView(f *ui.Frame[int], c *Counter) {
+func counterView(f mut ui.Frame[int], c mut Counter) {
 	counted(f, c)
 }
 
 // flagged is a component whose Same holds a toggle: in a pass that
 // changes a but not a%2 it runs and skips the Same, so it read no cell,
 // yet the cell under the Same is state its arguments do not say.
-func flagged(f *ui.Frame[int], a int) {
+func flagged(f mut ui.Frame[int], a int) {
 	ui.Same(f, ui.ByInt(a%2)) {
 		let fl = ui.NewFlag(f, false)
 		ui.Toggle(f, fl, "t")
 	}
 }
 
-func flaggedView(f *ui.Frame[int], s St) {
+func flaggedView(f mut ui.Frame[int], s St) {
 	flagged(f, s.A)
 }
 
-func checked(f *ui.Frame[int], n int) {
+func checked(f mut ui.Frame[int], n int) {
 	ui.Check(f, "c", false, n)
 }
 
 // fenced puts a component under a Fieldset that a%2 disables: the
 // component's arguments stay, its node's disabled state does not.
-func fenced(f *ui.Frame[int], s St) {
+func fenced(f mut ui.Frame[int], s St) {
 	ui.Fieldset(f, s.A%2 == 1, "") {
 		checked(f, 7)
 	}
@@ -524,7 +524,7 @@ func fenced(f *ui.Frame[int], s St) {
 
 // pressLast presses the last node of f's tree in depth-first order (a
 // view's only control here), once.
-func pressLast(f *ui.Frame[int]) needs Console {
+func pressLast(f mut ui.Frame[int]) needs Console {
 	let all = ids(f, ui.Root(f))
 	let h = ui.Handle(f, ui.Press[int]{Id: all[len(all)-1]})
 	Console.Println("pressed \(sent(h.Signal)) \(b(h.Changed))")
@@ -557,7 +557,7 @@ func fixed() needs Console {
 
 // checks writes two checks at one site: tops that do not each take the
 // first count of their identity, so a group of them is never deferred.
-func checks(f *ui.Frame[int], n int) {
+func checks(f mut ui.Frame[int], n int) {
 	for k in 0..2 {
 		ui.Check(f, "c", false, n+k)
 	}
@@ -565,7 +565,7 @@ func checks(f *ui.Frame[int], n int) {
 
 // fencedTwo is fenced over checks: the disabled state is checked on the
 // path that takes each top's count. Mutant ui-group-off-unchecked.
-func fencedTwo(f *ui.Frame[int], s St) {
+func fencedTwo(f mut ui.Frame[int], s St) {
 	ui.Fieldset(f, s.A%2 == 1, "") {
 		checks(f, 7)
 	}
@@ -575,7 +575,7 @@ func fencedTwo(f *ui.Frame[int], s St) {
 // a text after it, then stops when stop: a cut that takes back a kept
 // group, written again in that pass, whose counts are deferred (and taken
 // by the text when more). Two calls of one boundary share their counts.
-func boundShown(f *ui.Frame[int], stop bool, more bool) {
+func boundShown(f mut ui.Frame[int], stop bool, more bool) {
 	ui.Boundary(f) {
 		shown(f, 1)
 		if more {
@@ -592,7 +592,7 @@ func boundShown(f *ui.Frame[int], stop bool, more bool) {
 // when a is 1. In that pass its shown is written again and cut, so the
 // second's shown takes the counts its nodes take when nothing is kept.
 // Mutants ui-pending-cut-kept and ui-pending-cut-counts-kept.
-func cutKept(f *ui.Frame[int], s St) {
+func cutKept(f mut ui.Frame[int], s St) {
 	ui.Column(f, ui.Plain()) {
 		boundShown(f, s.A == 1, false)
 		boundShown(f, false, false)
@@ -632,14 +632,14 @@ func growth(n int) needs Console {
 	let _ = ui.Render(&f, list, listed(1, -1))
 	Console.Println("growth \(n) \(first) \(changed) \(compared) \(skips) \(ui.GroupsKept(&f))")
 }
-func gbc0(f *ui.Frame[int], a int, it Item) {
+func gbc0(f mut ui.Frame[int], a int, it Item) {
 	gbc2(f, a+1, it)
 	ui.Each(f, rows(a), func(k int) ui.Key { ui.ByInt(k) }) func(k int) {
 		gbc2(f, k, it)
 	}
 }
 
-func gbc1(f *ui.Frame[int], a int, it Item) {
+func gbc1(f mut ui.Frame[int], a int, it Item) {
 	ui.Row(f, ui.Plain()) {
 		ui.Check(f, it.Text, it.Done, it.Id)
 	}
@@ -652,7 +652,7 @@ func gbc1(f *ui.Frame[int], a int, it Item) {
 	}
 }
 
-func gbc2(f *ui.Frame[int], a int, it Item) {
+func gbc2(f mut ui.Frame[int], a int, it Item) {
 	ui.Boundary(f) {
 		ui.Boundary(f) {
 			ui.Each(f, rows(a), func(k int) ui.Key { ui.ByInt(k) }) func(k int) {
@@ -697,7 +697,7 @@ func gbc2(f *ui.Frame[int], a int, it Item) {
 	}
 }
 
-func gbc3(f *ui.Frame[int], a int, it Item) {
+func gbc3(f mut ui.Frame[int], a int, it Item) {
 	ui.Fieldset(f, a%2 == 1, "") {
 		ui.Boundary(f) {
 			ui.Text(f, "c3 \(a) \(it.Text)")
@@ -740,7 +740,7 @@ func gbc3(f *ui.Frame[int], a int, it Item) {
 	}
 }
 
-func gbc4(f *ui.Frame[int], a int, it Item) {
+func gbc4(f mut ui.Frame[int], a int, it Item) {
 	ui.Same(f, ui.ByInt(a%2)) {
 		wideA(f, Wide{It: it, Tags: rows(a), N: a%3, M: a})
 		wideB(f, Wide{It: it, Tags: rows(a), N: 0, M: 0})
@@ -756,7 +756,7 @@ func gbc4(f *ui.Frame[int], a int, it Item) {
 	}
 }
 
-func gbView(f *ui.Frame[int], s St) {
+func gbView(f mut ui.Frame[int], s St) {
 	gbc0(f, s.A, s.It)
 	ui.Column(f, ui.Plain()) {
 		ui.Each(f, s.Items, func(it Item) ui.Key { ui.ByInt(it.Id) }) func(it Item) {

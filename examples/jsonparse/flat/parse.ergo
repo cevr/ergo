@@ -58,7 +58,10 @@ law PrintsAsTheTree(seed int) {
 law FailsWhereTheTreeFails(seed int, at int, c byte) {
 	for v in json.Samples(seed) {
 		let text = json.Compact(v)
-		let k = if at < 0 { -at % (len(text) + 1) } else { at % (len(text) + 1) }
+		// at's remainder, made non-negative by adding the modulus: -at
+		// overflows at the least int.
+		let r = at % (len(text) + 1)
+		let k = if r < 0 { r + len(text) + 1 } else { r }
 		let mut b = strings.NewBuilder()
 		b.WriteString(strings.Slice(text, 0, k))
 		b.WriteByte(c)
@@ -107,16 +110,16 @@ law PointersReachTheTreesPlaces(seed int) {
 	true
 }
 
-func fail(b *builder, at int, reason string) json.Malformed { json.Locate(b.src, at, reason) }
+func fail(b mut builder, at int, reason string) json.Malformed { json.Locate(b.src, at, reason) }
 
-func found(b *builder) string {
+func found(b mut builder) string {
 	if b.pos >= len(b.src) {
 		return "the end"
 	}
 	strconv.Quote(strings.Slice(b.src, b.pos, b.pos+1))
 }
 
-func skip(b *builder) {
+func skip(b mut builder) {
 	for b.pos < len(b.src) {
 		let c = b.src[b.pos]
 		if c != ' ' && c != '\n' && c != '\t' && c != '\r' {
@@ -127,13 +130,13 @@ func skip(b *builder) {
 }
 
 // add appends n and is its id.
-func add(b *builder, n Node) NodeId {
+func add(b mut builder, n Node) NodeId {
 	b.nodes = b.nodes.Append(n)
 	NodeId(int32(len(b.nodes) - 1))
 }
 
 // push puts id on the stack of open children.
-func push(b *builder, id NodeId) {
+func push(b mut builder, id NodeId) {
 	if b.top < len(b.stack) {
 		b.stack[b.top] = id
 	} else {
@@ -144,7 +147,7 @@ func push(b *builder, id NodeId) {
 
 // close copies the stack's entries from mark to extras, lowers top to
 // mark, and is where they start in extras.
-func close(b *builder, mark int) int32 {
+func close(b mut builder, mark int) int32 {
 	let start = len(b.extras)
 	for k in mark..b.top {
 		b.extras = b.extras.Append(b.stack[k])
@@ -153,7 +156,7 @@ func close(b *builder, mark int) int32 {
 	int32(start)
 }
 
-func value(b *builder) NodeId fails json.Malformed {
+func value(b mut builder) NodeId fails json.Malformed {
 	if b.pos >= len(b.src) {
 		return fail(b, b.pos, "expected a value, found the end")
 	}
@@ -182,7 +185,7 @@ func value(b *builder) NodeId fails json.Malformed {
 	}
 }
 
-func word(b *builder, w string) fails json.Malformed {
+func word(b mut builder, w string) fails json.Malformed {
 	for k in 0..len(w) {
 		if b.pos >= len(b.src) || b.src[b.pos] != w[k] {
 			return fail(b, b.pos, "expected \(w), found "+found(b))
@@ -192,7 +195,7 @@ func word(b *builder, w string) fails json.Malformed {
 }
 
 // numeral reads a number with json's machine and keeps its span.
-func numeral(b *builder) NodeId fails json.Malformed {
+func numeral(b mut builder) NodeId fails json.Malformed {
 	let start = b.pos
 	let (n, broken) = json.Scan(strings.Slice(b.src, start, len(b.src)))
 	match broken {
@@ -206,7 +209,7 @@ func numeral(b *builder) NodeId fails json.Malformed {
 
 // text reads a string: a span of the source when it has no escape and
 // only ASCII, else json's decoding, kept in the pool.
-func text(b *builder) NodeId fails json.Malformed {
+func text(b mut builder) NodeId fails json.Malformed {
 	let start = b.pos + 1
 	let mut i = start
 	for i < len(b.src) {
@@ -227,7 +230,7 @@ func text(b *builder) NodeId fails json.Malformed {
 }
 
 // enter opens a container: one level deeper, at most json.MaxDepth.
-func enter(b *builder) fails json.Malformed {
+func enter(b mut builder) fails json.Malformed {
 	b.depth += 1
 	if b.depth > json.MaxDepth {
 		return fail(b, b.pos, "nesting deeper than \(json.MaxDepth)")
@@ -236,7 +239,7 @@ func enter(b *builder) fails json.Malformed {
 	skip(b)
 }
 
-func array(b *builder) NodeId fails json.Malformed {
+func array(b mut builder) NodeId fails json.Malformed {
 	try enter(b)
 	let mark = b.top
 	if b.pos < len(b.src) && b.src[b.pos] == ']' {
@@ -265,7 +268,7 @@ func array(b *builder) NodeId fails json.Malformed {
 	}
 }
 
-func object(b *builder) NodeId fails json.Malformed {
+func object(b mut builder) NodeId fails json.Malformed {
 	try enter(b)
 	let mark = b.top
 	if b.pos < len(b.src) && b.src[b.pos] == '}' {

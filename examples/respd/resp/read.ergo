@@ -253,7 +253,7 @@ func NewReader() Reader { Reader{buf: []byte{}, next: 0} }
 
 // Feed gives r the next chunk. The bytes of values already read are
 // dropped then.
-func Feed(r *Reader, chunk []byte) {
+func Feed(r mut Reader, chunk []byte) {
 	if r.next > 0 {
 		r.buf = slices.Concat(r.buf[r.next:], chunk)
 		r.next = 0
@@ -264,7 +264,7 @@ func Feed(r *Reader, chunk []byte) {
 
 // Next is the next value of r. Incomplete leaves r as it was, to read
 // again after the next Feed.
-func Next(r *Reader) Value fails Incomplete | Malformed {
+func Next(r mut Reader) Value fails Incomplete | Malformed {
 	let f = try value(r.buf, r.next, 0)
 	r.next = f.Used
 	f.Value

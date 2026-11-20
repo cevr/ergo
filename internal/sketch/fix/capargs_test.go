@@ -219,7 +219,7 @@ func (g *argGen) fn(d int) string {
 		switch g.r.IntN(4) {
 		case 0:
 			g.reached["borrow"] = true
-			params = append(params, "*"+g.named())
+			params = append(params, "mut "+g.named())
 		case 1:
 			esc := ""
 			if g.r.IntN(2) == 0 {

@@ -3425,10 +3425,38 @@ func (w *valueWalk) resultsFresh() bool {
 	return ok
 }
 
+// copyElemSource is the type of src in x, a call of an extern bound to
+// Go's copy(dst, src), when src's elements hold a slice or Map, else nil.
+// Go's copy stores each element in dst's array, so an element's slice or
+// Map would be shared by dst and src, and a write through one would reach
+// the other (a []Box copied into a fresh array shared each Box's S with
+// the source, and `d[0].S[0] = 99` wrote the source's; found by NB-CUT's
+// TestCutAgrees). The value walk reads src as a read of a pure call whose
+// int result shares nothing with it, so the copy is here, where the
+// builtin is lowered, the text's and the IR's alike. A source whose
+// elements hold no slice or Map (the []int push) copies nothing.
+// TestGoCopyKeepsValues is its property.
+func copyElemSource(l *lowerer, x *syntax.CallExpr, c *check.Call, typeOf func(syntax.Expr) check.Type) check.Type {
+	if c == nil || c.Func == nil || check.GoBuiltin(c.Func) != "copy" {
+		return nil
+	}
+	ops := callOperands(x, c)
+	if len(ops) != 2 {
+		return nil
+	}
+	t := typeOf(ops[1])
+	if !l.holdsValue(elemOf(t)) {
+		return nil
+	}
+	return t
+}
+
 // valueSource lowers the source operand of a call of the prelude's Append,
 // Delete or Put that must not write it (V3): Append takes the source
 // clipped to its length, so Go's append makes a new array, and Delete and
 // Put take a copy of the Map. vals are the call's lowered operands, the source first.
+// Go's copy(dst, src) takes a copy of src when its elements hold a slice
+// or Map (copyElemSource).
 func (fc *funcCtx) valueSource(x *syntax.CallExpr, c *check.Call, vals []string) []string {
 	if !valueRule() || len(vals) == 0 || fc.l.valueFacts().inPlace[x] || fc.l.valueFacts().lineage[x] || valueMutant == "in-place" {
 		return vals
@@ -3438,6 +3466,10 @@ func (fc *funcCtx) valueSource(x *syntax.CallExpr, c *check.Call, vals []string)
 		vals[0] = fc.l.goPkg("slices") + ".Clip(" + vals[0] + ")"
 	case preludeMapWrite(c.Func) || preludeMapTake(c.Func):
 		vals[0] = fc.reportCopy(x, fc.l.goPkg("maps")+".Clone("+vals[0]+")", whyMapWrite)
+	case len(vals) == 2:
+		if t := copyElemSource(fc.l, x, c, fc.typeOf); t != nil {
+			vals[1] = fc.reportCopy(x, fc.cloneValue(t, vals[1], x), whyCopyElem)
+		}
 	}
 	return vals
 }

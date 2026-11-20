@@ -41,10 +41,11 @@ import (
 // as the non-escaping function-value rule is (escaping.go), so a position
 // the checker gains later is refused until it is listed here.
 //
-// A borrow instantiates a type parameter only as a lend (Borrows 7;
-// v1-audit-3 G4; borrowtargs.go): a call whose type argument holds a *T,
-// written or inferred, is S108 when the generic body may keep a value of
-// that parameter, and a literal of a generic type built over one is S108.
+// A type parameter binds no borrow (Borrows 7; v1-audit-3 G4; MODES-4
+// deleted [T lent]): a call whose type argument holds a mut T, written or
+// inferred, is S108, and a literal of a generic type built over one is
+// S108. A generic function that writes through its argument declares
+// x mut T (Generics 2).
 // A function type that takes a borrow holds none (typeArgBorrow).
 //
 // Prior art: Rust gives `&mut T as &mut dyn Trait` the lifetime of the
@@ -55,12 +56,12 @@ import (
 // a pointer escapes it to the heap and is always legal.
 
 const (
-	borrowConvText          = "%s is a borrow (*T), and as %s it keeps the borrow's lifetime: bind it with a let and call its operations, never return, store or pass it or convert it again (types.md, Borrows 6)"
-	borrowHolderText        = "%s holds a borrow (*T) as %s, which lives only as long as the call that lent it: call its operations or bind it with a let, never return, store or pass it or convert it again (types.md, Borrows 6)"
-	borrowHolderCaptureText = "%s holds a borrow (*T) as %s, and this function literal or block may outlive the call that lent it or run on another task; call its operations before it (types.md, Borrows 6)"
-	borrowCtxText           = "%s is a borrow (*T), and a context that provides it keeps the borrow's lifetime: provide it only in the context of a with, never in a context value or a local context (types.md, Borrows 6)"
-	borrowTypeArgText       = "%s cannot take a borrow as its %s (%s): its signature does not write %s, so its body may keep a value of %s; a borrow instantiates only a type parameter whose signature writes lent (types.md, Borrows 7)"
-	borrowValueText         = "this value of %s holds a borrow (*T), and a record or a collection never holds a borrow (types.md, Borrows 7)"
+	borrowConvText          = "%s is a borrow (mut T), and as %s it keeps the borrow's lifetime: bind it with a let and call its operations, never return, store or pass it or convert it again (types.md, Borrows 6)"
+	borrowHolderText        = "%s holds a borrow (mut T) as %s, which lives only as long as the call that lent it: call its operations or bind it with a let, never return, store or pass it or convert it again (types.md, Borrows 6)"
+	borrowHolderCaptureText = "%s holds a borrow (mut T) as %s, and this function literal or block may outlive the call that lent it or run on another task; call its operations before it (types.md, Borrows 6)"
+	borrowCtxText           = "%s is a borrow (mut T), and a context that provides it keeps the borrow's lifetime: provide it only in the context of a with, never in a context value or a local context (types.md, Borrows 6)"
+	borrowTypeArgText       = "%s cannot take a borrow as its %s (%s): a type parameter binds no borrow; to write through the argument, declare the parameter x mut %s and pass &x (types.md, Generics 2)%.0s"
+	borrowValueText         = "this value of %s holds a borrow (mut T), and a record or a collection never holds a borrow (types.md, Borrows 1)"
 )
 
 // typeArgBorrow reports whether t, a type argument or the type of a value
@@ -92,7 +93,7 @@ func typeArgBorrow(t Type) bool {
 // union literal, a map) built over one.
 func (w *escWalk) checkBorrowInstance(x syntax.Expr) {
 	if inst, tp, a, why := w.borrowInstance(x); why != "" && !w.refusedArgument(x) {
-		w.c.errorf(x, CodeType, borrowTypeArgText, inst.Func.Name, tp.Name, a, lentMark(tp), tp.Name)
+		w.c.errorf(x, CodeType, borrowTypeArgText, inst.Func.Name, tp.Name, a, tp.Name, tp.Name)
 		return
 	}
 	if _, ok := x.(*syntax.CompositeLit); ok {
@@ -113,10 +114,10 @@ func (w *escWalk) borrowInstance(x syntax.Expr) (*Instance, *TypeParam, Type, st
 		if !typeArgBorrow(a) || i >= len(inst.Func.Sig.TParams) {
 			continue
 		}
-		tp := inst.Func.Sig.TParams[i]
-		if why := w.keepsTParam(inst.Func, tp); why != "" {
-			return inst, tp, a, why
-		}
+		// A type parameter never binds a borrow: a generic function that
+		// writes through its argument says x mut T (types.md, Generics 2;
+		// MODES-4 deleted [T lent] and Borrows 7).
+		return inst, inst.Func.Sig.TParams[i], a, "a type parameter binds no borrow"
 	}
 	return nil, nil, nil, ""
 }

@@ -25,14 +25,14 @@ import cmp
 
 // WithCapacity is an empty slice with room for n elements. It makes no
 // element; a negative n is a defect, as Go's make panics.
-func WithCapacity[T](n int) []T { MakeSlice[T](n) }
+func WithCapacity[T own](n int) []T { MakeSlice[T](n) }
 
 // Take gives up xs and returns its element at i and the remaining slice,
 // in order. With resource elements, the element and remainder have
 // separate owners. Plain-data xs is unchanged. An index outside
 // 0..len(xs) is a defect, as Go's index is: the caller's frame keeps xs
 // until TakeAt returns (check.HoldsTaken), so that defect releases it.
-func Take[T](xs own []T, i int) (T, []T) { xs.TakeAt(i) }
+func Take[T own](xs own []T, i int) (T, []T) { xs.TakeAt(i) }
 
 // Sort is a copy of xs in ascending order. A float NaN sorts first, as in
 // Go.

@@ -530,7 +530,7 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 		// --schedule alone replays: it needs the explored build too.
 		opts.explore = true
 	}
-	if recursivePattern(opts.file) && (command == "check" || command == "test") {
+	if recursivePattern(opts.file) && (command == "check" || command == "test" || command == "lint") {
 		return opts, nil
 	}
 	if isPackageFolder(opts.file) {

@@ -27,7 +27,7 @@ func stateText(s ui.LookState) string {
 // lookStatesDiffer is why a labelled node's look state on the window
 // differs from the test host's, None when they agree. A label the test
 // host finds more than once is skipped.
-func lookStatesDiffer[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *desktop.Driver[S, E, D, F]) Option[string] {
+func lookStatesDiffer[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut desktop.Driver[S, E, D, F]) Option[string] {
 	for at in desktop.LookStates(d) {
 		let ids = ui.Locate(h, ui.WithLabel{Label: at.Label})
 		if len(ids) == 1 {

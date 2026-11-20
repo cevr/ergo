@@ -1,5 +1,5 @@
 {
-  "about": "jsonparse's mutants (wf10 corpus wave 1, PA1): each law's mutant, killed by `ergo test` of its package, and the edits no law or case sees, which TestJSONParseAgreesWithControl in cmd/ergo (JSONTestSuite, generated documents and the workload against a reference on encoding/json and the hand Go control) kills.",
+  "about": "jsonparse's mutants (wf10 corpus wave 1, PA1): each law's mutant, killed by `ergo test` of its package, and the edits no law or case sees, which the Ergo tests of agree/ and agree/deep/ (JSONTestSuite, drawn documents and the depth limit; killer examples:jsonparse) kill. They replaced cmd/ergo's TestJSONParseAgreesWithControl (wf10 TP-BUILT); the examples suite runs them as the test leg of every package folder, and the TPROBE kill matrix (scripts/buildcost/testdata/tprobe/families.json, built) shows them killing each row at seeds 1, 2 and 3.",
   "mutants": [
     {
       "name": "jsonparse-pointer-escapes-slash-first", "origin": "wf10 PA1",
@@ -71,7 +71,7 @@
       "from": "if p.depth > MaxDepth {",
       "to": "if p.depth >= MaxDepth {",
       "rule": "Arrays and objects nest 10000 deep, as in encoding/json, and the 10001st fails at its bracket.",
-      "killers": ["cmd/ergo:TestJSONParseAgreesWithControl"]
+      "killers": ["examples:jsonparse"]
     },
     {
       "name": "jsonparse-return-is-no-space", "origin": "wf10 PA1",
@@ -79,7 +79,7 @@
       "from": "if c != ' ' && c != '\\n' && c != '\\t' && c != '\\r' {",
       "to": "if c != ' ' && c != '\\n' && c != '\\t' {",
       "rule": "A carriage return is whitespace between tokens (RFC 8259, section 2).",
-      "killers": ["cmd/ergo:TestJSONParseAgreesWithControl"]
+      "killers": ["examples:jsonparse"]
     },
     {
       "name": "jsonparse-invalid-utf8-kept", "origin": "wf10 PA1",
@@ -87,7 +87,7 @@
       "from": "if d.Size == 1 {",
       "to": "if d.Size == 0 {",
       "rule": "A byte of a string that is not UTF-8 reads as U+FFFD, as in encoding/json, so every printed text is UTF-8.",
-      "killers": ["cmd/ergo:TestJSONParseAgreesWithControl"]
+      "killers": ["examples:jsonparse"]
     },
     {
       "name": "jsonparse-newline-in-a-string", "origin": "wf10 PA1",
@@ -95,7 +95,7 @@
       "from": "} else if c < 0x20 {",
       "to": "} else if c < 0x0a {",
       "rule": "A string holds no control byte unescaped: a raw newline in a string is not JSON.",
-      "killers": ["cmd/ergo:TestJSONParseAgreesWithControl"]
+      "killers": ["examples:jsonparse"]
     },
     {
       "name": "jsonparse-unknown-escape-at-backslash", "origin": "wf10 PA1",
@@ -103,7 +103,7 @@
       "from": "return fail(p, i+1, \"an unknown escape\")",
       "to": "return fail(p, i, \"an unknown escape\")",
       "rule": "A failure names the first byte that is not JSON: after a backslash, the byte that is no escape.",
-      "killers": ["cmd/ergo:TestJSONParseAgreesWithControl"]
+      "killers": ["examples:jsonparse"]
     },
     {
       "name": "jsonparse-index-one-past-the-end", "origin": "wf10 PA1",
@@ -111,7 +111,7 @@
       "from": "if i < 0 || i >= len(a.Items) {",
       "to": "if i < 0 || i > len(a.Items) {",
       "rule": "A pointer's index names an element only below the array's length.",
-      "killers": ["cmd/ergo:TestJSONParseAgreesWithControl"]
+      "killers": ["examples:jsonparse"]
     },
     {
       "name": "flat-close-keeps-the-stack", "origin": "wf10 PA flat",
@@ -159,7 +159,7 @@
       "from": "if c != ' ' && c != '\\n' && c != '\\t' && c != '\\r' {",
       "to": "if c != ' ' && c != '\\n' && c != '\\t' {",
       "rule": "The flat reader takes a carriage return as whitespace, as the tree reader does. The law FailsWhereTheTreeFails draws a byte for a place of compact text, where a return is rarely whitespace; the suite's and the generator's whitespace reach it.",
-      "killers": ["cmd/ergo:TestJSONParseAgreesWithControl"]
+      "killers": ["examples:jsonparse"]
     },
     {
       "name": "flat-pool-id-one-past", "origin": "wf10 PA flat",
@@ -175,7 +175,7 @@
       "from": "if b.depth > json.MaxDepth {",
       "to": "if b.depth > json.MaxDepth+1 {",
       "rule": "The flat reader nests at most json.MaxDepth deep, as the tree reader and encoding/json do.",
-      "killers": ["cmd/ergo:TestJSONParseAgreesWithControl"]
+      "killers": ["examples:jsonparse"]
     },
     {
       "name": "flat-index-one-past-the-end", "origin": "wf10 PA flat",
@@ -183,7 +183,7 @@
       "from": "if i < 0 || i >= int(n.B) {",
       "to": "if i < 0 || i > int(n.B) {",
       "rule": "A pointer's index names an element of the flat tree only below the array's count.",
-      "killers": ["cmd/ergo:TestJSONParseAgreesWithControl"]
+      "killers": ["examples:jsonparse"]
     }
   ]
 }

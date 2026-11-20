@@ -68,7 +68,7 @@ func outs(r ro) [][]int { r.out }
 
 func tab(r ro) Map[int, []int] { r.m }
 
-func deref[T](p *T) T { *p }
+func deref[T](p mut T) T { *p }
 
 type bx { xs []int }
 
@@ -98,41 +98,41 @@ func glen(xs []string) int { len(xs) * 10 + len(xs[0]) }
 
 func total2(xs []int, k int) int { total(xs) + k }
 
-func total3(xs []int, r *ro) int {
+func total3(xs []int, r mut ro) int {
 	r.s[1] = 70
 	total(xs)
 }
 
-func Sum3(n Nums, r *ro) int {
+func Sum3(n Nums, r mut ro) int {
 	r.s[1] = 70
 	Sum(n)
 }
 
 func ident(xs []int) []int { xs }
 
-func firsto(r *ro) []int {
+func firsto(r mut ro) []int {
 	for o in outs(*r) {
 		return o
 	}
 	[]int{0}
 }
 
-func bump(r *ro) int {
+func bump(r mut ro) int {
 	r.s[1] = 70
 	1
 }
 
-func grow(r *ro) []int {
+func grow(r mut ro) []int {
 	r.s[0] = 50
 	[]int{50, 2, 3}
 }
 
-func bumpv(r *ro) int {
+func bumpv(r mut ro) int {
 	r.s[0] = 50
 	0
 }
 
-func setv(p *int) int {
+func setv(p mut int) int {
 	*p = 4
 	0
 }
@@ -199,7 +199,7 @@ func roProgram(seed uint64) (src string, model map[string]int, order []string) {
 	model = map[string]int{}
 	add := func(value string, ptr bool, want int) {
 		name := fmt.Sprintf("f%d", len(fns)+1)
-		head := fmt.Sprintf("func %s(r *ro) int {\n", name)
+		head := fmt.Sprintf("func %s(r mut ro) int {\n", name)
 		digest := "dro(*r)"
 		if !ptr {
 			head = fmt.Sprintf("func %s() int {\n\tlet mut r = newro()\n", name)
@@ -235,7 +235,7 @@ func roProgram(seed uint64) (src string, model map[string]int, order []string) {
 		name := fmt.Sprintf("f%d", i+1)
 		b.WriteString(fns[i] + "\n")
 		order = append(order, name)
-		if strings.HasPrefix(fns[i], "func "+name+"(r *ro)") {
+		if strings.HasPrefix(fns[i], "func "+name+"(r mut ro)") {
 			main.WriteString(fmt.Sprintf("\tlet mut r%d = newro()\n\tConsole.Println(\"\\(%s(&r%d)) \\(dro(r%d))\")\n", i+1, name, i+1, i+1))
 		} else {
 			main.WriteString(fmt.Sprintf("\tConsole.Println(\"\\(%s())\")\n", name))

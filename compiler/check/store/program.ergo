@@ -1,0 +1,115 @@
+// The seeded type programs the pool's and Canon's laws run. A program is
+// a list of ints; each builds one type from the ones before it. build
+// runs it in a store and model runs it on canonical texts, with no store,
+// so a law compares the two.
+
+import dense
+import slices
+import strings
+
+// at is a position of 0..n, from x / d.
+func at(x int, d int, n int) int {
+	let u = (x%1000003 + 1000003) % 1000003
+	(u / d) % n
+}
+
+// declareType declares a type name text in s and is its row's id.
+func declareType(s mut Store, text string) dense.ID[TypeName] {
+	let n = Name(s, text)
+	let d = Declare(s, n, 0, 0, TypeNameObj{Row: TypeName{Name: n, Type: Basic(&s.pool, 0)}})
+	dense.IDOf(s.objects.typeNames, indexOf(DeclOf(*s, d).Obj))
+}
+
+// lib is the frozen package "lib" that declares the generic types G0 and
+// G1 (declarations 0 and 1).
+func lib() Frozen {
+	let mut s = New("lib", []string{})
+	let _ = declareType(&s, "G0")
+	let _ = declareType(&s, "G1")
+	Freeze(s)
+}
+
+// setup is a store of path that imports lib and declares T0 and T1. With
+// noise, it interns other types first, so its local ids differ from a
+// store set up without.
+func setup(path string, noise bool) (Store, []dense.ID[TypeName]) {
+	let mut s = New(path, []string{"lib"})
+	if noise {
+		let _ = Slice(&s.pool, Basic(&s.pool, 2))
+		let _ = MapOf(&s.pool, Basic(&s.pool, 1), Param(&s.pool, 1))
+	}
+	let t0 = declareType(&s, "T0")
+	let t1 = declareType(&s, "T1")
+	(s, []dense.ID[TypeName]{t0, t1})
+}
+
+// build runs program xs in s and is the id of each type, B0 first.
+func build(s mut Store, named []dense.ID[TypeName], xs []int) []dense.ID[TKey] {
+	let mut ts = []dense.ID[TKey]{Basic(&s.pool, 0)}
+	for x in xs {
+		let n = len(ts)
+		let a = ts[at(x, 8, n)]
+		let b = ts[at(x, 64, n)]
+		let c = ts[at(x, 512, n)]
+		let op = at(x, 1, 8)
+		let t = if op == 0 {
+			Basic(&s.pool, at(x, 8, 3))
+		} else if op == 1 {
+			Param(&s.pool, at(x, 8, 2))
+		} else if op == 2 {
+			Slice(&s.pool, a)
+		} else if op == 3 {
+			MapOf(&s.pool, a, b)
+		} else if op == 4 {
+			FuncOf(&s.pool, []dense.ID[TKey]{a}, b)
+		} else if op == 5 {
+			Row(&s.pool, []dense.ID[TKey]{a, b, c})
+		} else if op == 6 {
+			Named(&s.pool, named[at(x, 8, 2)])
+		} else {
+			Instance(&s.pool, XRef{Import: uint32(1), Decl: uint32(at(x, 8, 2))}, []dense.ID[TKey]{b})
+		}
+		ts = ts.Append(t)
+	}
+	ts
+}
+
+// model is the canonical text of each type of program xs built in the
+// package at path, with parameter i read as params[i] where there is
+// one; B0 first.
+func model(path string, xs []int, params []string) []string {
+	let mut ts = []string{"B0"}
+	for x in xs {
+		let n = len(ts)
+		let a = ts[at(x, 8, n)]
+		let b = ts[at(x, 64, n)]
+		let c = ts[at(x, 512, n)]
+		let op = at(x, 1, 8)
+		let t = if op == 0 {
+			"B\(at(x, 8, 3))"
+		} else if op == 1 {
+			let i = at(x, 8, 2)
+			if i < len(params) { params[i] } else { "P\(i)" }
+		} else if op == 2 {
+			"S(\(a))"
+		} else if op == 3 {
+			"M(\(a),\(b))"
+		} else if op == 4 {
+			"F(\(a),\(b))"
+		} else if op == 5 {
+			let mut set = []string{}
+			for e in slices.Sort([]string{a, b, c}) {
+				if len(set) == 0 || set[len(set)-1] != e {
+					set = set.Append(e)
+				}
+			}
+			"R(" + strings.Join(set, ",") + ")"
+		} else if op == 6 {
+			"N(\(path).T\(at(x, 8, 2)))"
+		} else {
+			"I(lib.G\(at(x, 8, 2));\(b))"
+		}
+		ts = ts.Append(t)
+	}
+	ts
+}

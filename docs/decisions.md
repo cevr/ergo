@@ -2,6 +2,21 @@
 
 This file is the dated log of the owner's decisions for Ergo, newest first. A decision applies the principles to one feature, construct, stage or tool; [NORTH_STAR.md](../NORTH_STAR.md) holds the principles: what Ergo is for, the pillars, the north stars, the tiebreaks, the owner rules and the rejected directions. Each entry keeps the owner's words, the decision, and its tickets and links as NORTH_STAR.md recorded them; only relative link targets changed, so that they resolve from `docs/`. An entry with two or more dates sorts by its latest date, and entries with the same date keep their order from NORTH_STAR.md. Entries with no date are in the [Undated](#undated) group at the end. Where a moved passage says "above" or "below" and the new order changes what it means, a bracketed note names the entry.
 
+## Owner direction, 2026-11-20
+
+- **Composability and consistency join the north star, and the six keywords are ordered (2026-11-20, q256, q257).** The owner: "I'd like to do an audit on our language. What else is missing that composability? I think another North Star and another thing is that we want our language to be as composable as possible. So composability, performance, guarantee, simplicity, no ceremony, like these are the keywords that we want for our language, and consistency". Asked to confirm the order guarantees, composability, consistency, simplicity, performance at the Go floor (required of every unit, never bought with the first three), no ceremony: "Yes, that order". Asked which of the audit's gaps get a design page: "all, sent to appropriate lanes now". Decided:
+  - [NORTH_STAR.md](../NORTH_STAR.md) gets the **Composability** and **Consistency** paragraphs from the composability audit (COMPOSE-AUDIT §4).
+  - The order of the six keywords heads **Tiebreaks**. Three old tiebreaks now name their rank in it: **Composability** beats **a locally convenient construct** (rank 2), **Reconsidering a prior** beats **consistency with it** (it bounds rank 3), and **Explicit local signatures** beat **inference** (why no ceremony is last where the ceremony is a written clause). No old tiebreak reverses the order.
+  - Every gap of the audit (G1 to G13) gets a design page, in the lane that owns its area.
+  - In the same hour, on contexts: "Context carries its failure row" (q254); "In that same line, it should probably also carry its requirements, right?". On roles: "wouldn't a law generic save both declarations and kind of allow for minor differences".
+
+## Decided by principle, 2026-11-20
+
+- **A catch arm names an error type (2026-11-20, orchestrator ruling, wf10 INFER-CATCH; reversible, for the owner to read).** A type that a catch arm tests, `case T`, `case T as e` or `case T{…}`, is an error type of the arm's body owner, read before bodies as a `fails` row is ([types.md](spec/types.md#error-types), Error types 1). Before this, `o.OrFail(Gone) catch { case Gone: … }` and `one(Gone) catch { case Gone: 1 }` were S108 of inference: no error row named `Gone`, so the failure parameter `F` could not bind it. This is the form every `OrFail` user writes.
+  - Decided by the tiebreak guarantees > composability > consistency > simplicity. No guarantee is lost: Catch 2 still makes an arm whose type is not in the caught row S108. It is consistent with Catch 2, which already requires the arm to name a row member. It removes the ceremony of writing a `fails` row only to name the type.
+  - Refused: "inference names" (a value argument bound to a failure parameter names its type). The error-type set would then depend on the order in which bodies are checked.
+  - Reverse: drop the arm case from the checker's pre-pass (collectBodyErrorRows).
+
 ## Owner direction, 2026-11-19
 
 - **Any declaration may shadow a prelude name (2026-11-19, owner q244).** The owner: "Allow shadowing". User declarations may shadow built-in and prelude names at any level, as in Go; don't rename to dodge a built-in name. This replaces the eighth round's item 3 (D-D3, "a prelude name cannot be redeclared") and widens q30 (L6), which allowed only a package type. Decided:
@@ -26,6 +41,9 @@ This file is the dated log of the owner's decisions for Ergo, newest first. A de
 ## Decided by principle, 2026-11-18
 
 - **A module names the lowest ergo that builds it (SPLIT E1).** `ergo.mod` takes one line `ergo VERSION`, a Go module version of ergo (a tag or a pseudo-version, as `ergo version` prints it). An older ergo refuses the module at the line with the install command; a newer one builds it; a devel ergo (no version stamp: `-buildvcs=false`, test binaries) accepts every line and says so once. Of the build list's lines the highest counts, as Go's `go` line does. Decided: a minimum, not an exact pin, by Go's `go` line and Gleam's `gleam` key (an exact pin would make every std fix a downstream edit) and by "fewest concepts" (std and the runtime ride in the binary, so the ergo version is the only pin a module needs); reverse by reading the line as exact. Surface: one `ergo.mod` line, no language form.
+## Owner direction, 2026-11-17
+
+- **Three parameter modes in one position (2026-11-17, q223; finishes q168, q169 and q172 of 2026-11-13).** The owner, asked whether to finish the 2026-11-13 mode decision (nothing = read, `own` = keep, `mut` = write in place; `lent` and `*T` gone from Ergo source; `[T own]` written): "Yes". Decided, in three units of lane MODES: MODES-1 adds the spelling `mut T` for the borrow, one type with `*T`, and `ergo fix` respells `*T` outside a Go binding, where `*T` stays Go's pointer ([grammar](spec/grammar.md#declarations) Declarations 18); MODES-2 refuses `*T` outside a binding and deletes `[T lent]` (Borrows 7); MODES-3 writes `[T own]` and deletes the body-reading copy-site rule. A parameter that only reads stays `mut` until a read never copies (OWN1); then `ergo fix` may drop the word. Prior art: Mojo's `mut`, Swift's `inout` and Hylo's `inout` stand before the type; the audit (CSX §4.3, §5) has the table.
 
 ## Owner direction, 2026-11-15
 

@@ -52,7 +52,11 @@ func (tc *typeCtx) witnessType(tp *check.TypeParam, self check.Type) string {
 	it := constraintOf(tp)
 	fields := make([]string, len(it.Methods))
 	for i, m := range it.Methods {
-		fields[i] = memberName(m.Name) + " " + tc.funcType(selfSig(self, m.Sig))
+		recv := self
+		if m.Sig.MutSelf {
+			recv = &check.Pointer{Elem: self} // mut Bump() writes through *T
+		}
+		fields[i] = memberName(m.Name) + " " + tc.funcType(selfSig(recv, m.Sig))
 	}
 	return "struct{ " + strings.Join(fields, "; ") + " }"
 }
@@ -191,7 +195,12 @@ func (fc *funcCtx) witnessMethod(tc *typeCtx, locals *namer, recv string, op *ch
 	task := locals.alloc("t")
 	params := []string{task + " *" + l.taskPkg() + ".Task"}
 	val := self + ".v"
-	if ptr {
+	switch {
+	case op.Sig.MutSelf && !ptr:
+		// A mut operation's witness takes *S (witnessType): the adapter
+		// lends the value it holds (MODES-4).
+		val = "&" + val
+	case ptr && !op.Sig.MutSelf:
 		val = "*" + val
 	}
 	args := []string{"&" + l.env() + "{" + envTask + ": " + task + "}"}

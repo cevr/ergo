@@ -83,7 +83,7 @@ func AsValid[T Valid](x T) Valid {
 	x
 }
 
-func One[T Valid](x *T) bool {
+func One[T Valid](x mut T) bool {
 	x.Check()
 }
 

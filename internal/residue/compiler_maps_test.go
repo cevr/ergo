@@ -23,7 +23,8 @@ import (
 // compiler/ is a builtin or std type, or a type compiler/ defines over
 // string (a path, a name); never a borrow, never a record, union, operation
 // type or machine compiler/ declares (a node, a type or a symbol as a
-// value), and never a defined integer compiler/ declares (a dense id). The
+// value), and never a dense id: a defined integer compiler/ declares, or
+// std dense's ID[K] or Opt[K] (the store's ids, capstone S3a). The
 // module does not exist before S1 of the capstone; the rule holds from its
 // first file.
 func TestCompilerHasNoPointerKeyedMaps(t *testing.T) {
@@ -90,8 +91,10 @@ func compilerMapKeys(dir string) ([]string, error) {
 	}
 	var findings []string
 	for _, f := range files {
-		// Each import of the module names the folder its qualifier reads.
+		// Each import of the module names the folder its qualifier reads;
+		// stdDense is the qualifier of std dense in this file, if imported.
 		folders := map[string]string{}
+		stdDense := ""
 		for _, d := range f.ast.Decls {
 			id, ok := d.(*syntax.ImportDecl)
 			if !ok {
@@ -103,7 +106,17 @@ func compilerMapKeys(dir string) ([]string, error) {
 				if p, err := strconv.Unquote(path); err == nil {
 					path = p
 				}
-				if s.Kind == syntax.ImportGo || module == "" {
+				if s.Kind == syntax.ImportGo {
+					continue
+				}
+				if path == "dense" {
+					stdDense = "dense"
+					if s.Kind == syntax.ImportNamed && s.Name != nil {
+						stdDense = s.Name.Name
+					}
+					continue
+				}
+				if module == "" {
 					continue
 				}
 				rest, ok := strings.CutPrefix(path, module+"/")
@@ -131,6 +144,13 @@ func compilerMapKeys(dir string) ([]string, error) {
 			case *syntax.SelectorExpr:
 				if q, ok := k.X.(*syntax.Ident); ok && folders[q.Name] != "" {
 					what = kinds[[2]string{folders[q.Name], k.Sel.Name}]
+				}
+			case *syntax.IndexExpr:
+				// std dense's ID[K] and Opt[K] are dense ids of any kind.
+				if s, ok := k.X.(*syntax.SelectorExpr); ok && (s.Sel.Name == "ID" || s.Sel.Name == "Opt") {
+					if q, ok := s.X.(*syntax.Ident); ok && stdDense != "" && q.Name == stdDense {
+						what = "a dense id"
+					}
 				}
 			}
 			if what != "" {

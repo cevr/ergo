@@ -85,7 +85,7 @@ func tri(s int, k int) Path {
 }
 
 // paintProg paints prog at s through the package's painting functions.
-func paintProg(p *Paint, prog []pp, s int) {
+func paintProg(p mut Paint, prog []pp, s int) {
 	for op in prog {
 		match op {
 		case ppFill as x:
@@ -159,17 +159,17 @@ func canvasOf(shapes []Shape[int], label string) ([]PaintOp, bool) {
 func paintFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 	let mut r = seeded(seed)
 	let prog = genPaint(&r, 2)
-	let view = func(f *Frame[int], s int) {
+	let view = func(f mut Frame[int], s int) {
 		Text(f, "at \(s)")
 		Pressable(f, "next", (s*5+3)%11) {
 			Text(f, "next")
 		}
-		Canvas(f, "board", 120, 80) func(p *Paint) {
+		Canvas(f, "board", 120, 80) func(p mut Paint) {
 			paintProg(p, prog, s)
 		}
-		Canvas(f, "rest", 120, 80) func(p *Paint) {
+		Canvas(f, "rest", 120, 80) func(p mut Paint) {
 			paintProg(p, prog, s+1)
-			Canvas(f, "inner", 40, 40) func(q *Paint) {
+			Canvas(f, "inner", 40, 40) func(q mut Paint) {
 				paintProg(q, prog, s+2)
 			}
 		}
@@ -205,26 +205,26 @@ func paintFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 }
 
 // Fill fills path with c.
-func Fill(p *Paint, path Path, c Color) {
+func Fill(p mut Paint, path Path, c Color) {
 	p.segs = slices.AppendAll(p.segs, path.Segs)
 	add(p, FillOp{Path: Path{Segs: []Seg{}}, Color: c})
 }
 
 // Stroke strokes path with c, width wide.
-func Stroke(p *Paint, path Path, c Color, width float64) {
+func Stroke(p mut Paint, path Path, c Color, width float64) {
 	p.segs = slices.AppendAll(p.segs, path.Segs)
 	add(p, StrokeOp{Path: Path{Segs: []Seg{}}, Color: c, Width: width})
 }
 
 // add writes op, whose path is the segments added since the last op.
-func add(p *Paint, op PaintOp) {
+func add(p mut Paint, op PaintOp) {
 	p.ops = p.ops.Append(op)
 	p.ends = p.ends.Append(len(p.segs))
 }
 
 // Transformed paints body under m, composed with the transforms around
 // it.
-func Transformed(p *Paint, m Affine, body func()) {
+func Transformed(p mut Paint, m Affine, body func()) {
 	add(p, PushTransform{M: m})
 	body()
 	add(p, PopPaint)
@@ -232,7 +232,7 @@ func Transformed(p *Paint, m Affine, body func()) {
 
 // Clipped paints body inside the rectangle at x, y of w by h, in the
 // coordinates of the transforms around it.
-func Clipped(p *Paint, x float64, y float64, w float64, h float64, body func()) {
+func Clipped(p mut Paint, x float64, y float64, w float64, h float64, body func()) {
 	add(p, PushClip{X: x, Y: y, W: w, H: h})
 	body()
 	add(p, PopPaint)
@@ -243,7 +243,7 @@ func Clipped(p *Paint, x float64, y float64, w float64, h float64, body func()) 
 // into f's scratch after what is there (an enclosing canvas's ops, when
 // this one is written inside another's draw), and the canvas's list is
 // what it added (paintList).
-func Canvas[E](f *Frame[E], label string, width Length, height Length, draw func(p *Paint), at CallSite) {
+func Canvas[E](f mut Frame[E], label string, width Length, height Length, draw func(p mut Paint), at CallSite) {
 	let from = len(f.paint.ops)
 	let segsFrom = len(f.paint.segs)
 	draw(&f.paint)
@@ -254,7 +254,7 @@ func Canvas[E](f *Frame[E], label string, width Length, height Length, draw func
 // paintList is the list of p's ops from from on, each path its own
 // segments from segsFrom on, in a list of ops and a list of segments of
 // its own; p is cut back to from and segsFrom.
-func paintList(p *Paint, from int, segsFrom int) []PaintOp {
+func paintList(p mut Paint, from int, segsFrom int) []PaintOp {
 	let segs = p.segs[segsFrom:]
 	let mut out = slices.WithCapacity[PaintOp](len(p.ops) - from)
 	let mut at = 0

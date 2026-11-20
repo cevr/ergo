@@ -172,6 +172,6 @@ Decided: the self-hosted IR builder holds its state as dense columns from its fi
 
 ### Known gaps
 
-- The GC share of the IR lowering is not in this receipt. Its run (`perf stat -e instructions:u`, `GOGC=100` against `GOGC=off`) was cut short by BATCH HEAVY. The command is in the request of this unit, for the batch run.
+- The GC share of the IR lowering is not in this receipt. Its run (`perf stat -e instructions:u`, median of 3, 3 lowerings of each program) stopped before its last leg. It measured: load only 39,423 M at `GOGC=100` and 27,168 M at `GOGC=off`; load and lower 1,526,338 M at `GOGC=100`. The leg "load and lower at `GOGC=off`" is missing, so the share is owed to the batch run.
 - 4,145 bodies (21 %) still fall back to Go text. Their emitter's allocations are in the shared and text-only classes. When FLIP removes the fallback, those classes become smaller.
 - The class of a file comes from `lower-map.md` at `2e7a7bbdb`. A file added since then is unmapped, and an `ir*.go` file is the IR builder by name.

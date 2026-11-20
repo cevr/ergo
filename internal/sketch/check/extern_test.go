@@ -906,6 +906,20 @@ func main() {
 	use(Mine)
 }
 `,
+	// std ansi (UC2): open; a program may decide colour its own way, as
+	// Always, Never and Detect's provider do.
+	"ansi.Colors": `import ansi
+
+type Mine {} implements ansi.Colors
+
+func On(_ Mine) bool { true }
+
+func use(_ ansi.Colors) {}
+
+func main() {
+	use(Mine)
+}
+`,
 	// std exec (S3c): open, as no std extern's result names it (stdlib.md,
 	// exec). exec.Script is the std's test provider of it.
 	"exec.Runner": `import exec
@@ -1385,6 +1399,98 @@ func main() {
 `,
 	// std pace (PACE1): open; a program provides it (pace.Default,
 	// pace.Percent).
+	// The store contracts of ST3 (stdlib.md, Stores): a program or a
+	// module provides each one over its own store and runs the same laws.
+	"jobs.Queue": `import jobs
+import time
+
+type Mine {} implements jobs.Queue[int]
+
+func EnqueueAt(_ Mine, job int, at time.Time) int fails jobs.Failed { return jobs.Failed{Reason: "x"} }
+func ReserveAt(_ Mine, now time.Time) Option[jobs.Lease[int]] fails jobs.Failed { None }
+func AckAt(_ Mine, t jobs.Ticket, now time.Time) fails jobs.Unknown | jobs.Failed { return jobs.Unknown{Ticket: t} }
+func FailAt(_ Mine, t jobs.Ticket, why string, now time.Time) fails jobs.Unknown | jobs.Failed { return jobs.Unknown{Ticket: t} }
+func DeadLetters(_ Mine) []jobs.Dead[int] fails jobs.Failed { []jobs.Dead[int]{} }
+func Count(_ Mine) jobs.Counts fails jobs.Failed { jobs.Counts{Waiting: 0, Leased: 0, Done: 0, Dead: 0} }
+
+func use(_ jobs.Queue[int]) {}
+
+func main() {
+	use(Mine)
+}
+`,
+	"kv.Store": `import kv
+
+type Mine {} implements kv.Store
+
+func Get(_ Mine, key string) Option[string] fails kv.Failed { None }
+func Put(_ Mine, key string, value string) fails kv.Failed { return kv.Failed{Reason: "x"} }
+func Delete(_ Mine, key string) bool fails kv.Failed { false }
+func Scan(_ Mine, prefix string) Seq[kv.Entry] fails kv.Failed { return kv.Failed{Reason: "x"} }
+
+func use(_ kv.Store) {}
+
+func main() {
+	use(Mine)
+}
+`,
+	"proof.Delivery": `import proof
+
+type Mine {} implements proof.Delivery
+
+func Send(_ Mine, dest string, purpose string, code string) fails proof.Undelivered { return proof.Undelivered{Reason: "x"} }
+
+func use(_ proof.Delivery) {}
+
+func main() {
+	use(Mine)
+}
+`,
+	"proof.Store": `import proof
+import time
+
+type Mine {} implements proof.Store
+
+func Issue(_ Mine, id string, d proof.Digest, expires time.Time, attempts int) fails proof.Conflict | proof.Failed { return proof.Conflict }
+func Redeem(_ Mine, id string, d proof.Digest, now time.Time) fails proof.Unknown | proof.Expired | proof.Spent | proof.TooManyAttempts | proof.Wrong | proof.Failed { return proof.Unknown }
+func Claim(_ Mine, key string, until time.Time, now time.Time) fails proof.Spent | proof.Failed { return proof.Spent }
+
+func use(_ proof.Store) {}
+
+func main() {
+	use(Mine)
+}
+`,
+	"ratelimit.Limiter": `import ratelimit
+import time
+
+type Mine {} implements ratelimit.Limiter
+
+func TakeAt(_ Mine, key string, cost int, now time.Time) ratelimit.Grant fails ratelimit.Limited | ratelimit.BadCost { return ratelimit.BadCost{Cost: cost, Limit: 0} }
+
+func use(_ ratelimit.Limiter) {}
+
+func main() {
+	use(Mine)
+}
+`,
+	"session.Store": `import session
+import time
+
+type Mine {} implements session.Store
+
+func Establish(_ Mine, d session.Digest, subject string, revision int, now time.Time) fails session.Conflict | session.Failed { return session.Conflict }
+func Verify(_ Mine, d session.Digest, now time.Time) session.Verdict fails session.Failed { session.Invalid }
+func Rotate(_ Mine, old session.Digest, new session.Digest, now time.Time) session.Record fails session.Conflict | session.Failed { return session.Conflict }
+func Revoke(_ Mine, d session.Digest) bool fails session.Failed { false }
+func RevokeAll(_ Mine, subject string, revision int) fails session.Failed { return session.Failed{Reason: "x"} }
+
+func use(_ session.Store) {}
+
+func main() {
+	use(Mine)
+}
+`,
 	"pace.Pacing": `import pace
 type Mine {} implements pace.Pacing
 func Edge(_ Mine) {}
@@ -1499,6 +1605,7 @@ var openStd = map[string]bool{
 	"io.Source":         true,
 	"bench.Meter":       true,
 	"pace.Pacing":       true,
+	"ansi.Colors":       true,
 	"code.Reader":       true,
 	"code.Files":        true,
 	"code.Checker":      true,
@@ -1507,6 +1614,12 @@ var openStd = map[string]bool{
 	"log.Sink":          true,
 	"tz.Zones":          true,
 	"tz.Local":          true,
+	"jobs.Queue":        true, // open: std's own providers are other packages (jobs/memory.Queue, jobs/file), and a database's queue is a module's
+	"kv.Store":          true, // open: examples/kvstore's memory.Table and file.Log implement it, beside std's kv/memory and kv/file
+	"proof.Delivery":    true, // open: the program sends the code (mail, SMS) by its own provider; std has only proof.Recorder, for tests
+	"proof.Store":       true, // open: std's own providers are other packages (proof/memory.Store, proof/file), and a database's is a module's
+	"ratelimit.Limiter": true, // open: std's provider is another package (ratelimit/memory), and a limiter shared across processes is a module's
+	"session.Store":     true, // open: std's own providers are other packages (session/memory.Store, session/file), and a database's is a module's
 	"testing.Allocs":    true,
 	"llm.Model":         true,
 	// The layout's text measure, which a host provides with its fonts.
@@ -1855,7 +1968,7 @@ func main() { with W { A.Use() } }
 		"pointer-close-value-provider": `type A { Use() }
 type P {} implements A, Closer
 func Use(_ P) {}
-func Close(_ *P) {}
+func Close(_ mut P) {}
 let W = context { A: P }
 func main() { with W { A.Use() } }
 `,

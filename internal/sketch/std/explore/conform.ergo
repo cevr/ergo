@@ -317,7 +317,7 @@ func absentIn(obs json.Value, got json.Value, at string) string {
 				for n in g.Members {
 					if n.Key == m.Key {
 						hit = true
-						let deeper = absentIn(m.Value, n.Value, at + "." + m.Key)
+						let deeper = absentIn(m.Value, n.Value, at+"."+m.Key)
 						if deeper != "" {
 							return deeper
 						}
@@ -448,7 +448,7 @@ func noCandidates[S]() candidates[S] { candidates[S]{states: []S{}, nodes: []int
 // trail is the runs of every candidate seen: parent node and signal.
 type trail { parent []int32, sig []int32 }
 
-func addNode(t *trail, parent int, sig int) int {
+func addNode(t mut trail, parent int, sig int) int {
 	t.parent = t.parent.Append(int32(parent))
 	t.sig = t.sig.Append(int32(sig))
 	len(t.parent) - 1
@@ -466,7 +466,7 @@ type broke { laws int, at []int }
 
 // reach records node, reached by a step from parent (-1: a start) to s
 // before or at line: parent's breaks, and line for each law s breaks first.
-func reach[S](b *broke, parent int, s S, line int, laws []Invariant[S]) {
+func reach[S](b mut broke, parent int, s S, line int, laws []Invariant[S]) {
 	for l in 0..b.laws {
 		let mut at = if parent >= 0 { b.at[parent*b.laws+l] } else { -1 }
 		if at < 0 && !laws[l].Holds(s) {
@@ -490,7 +490,7 @@ func candidateKey[S wire](s S, node int, b broke) Hash needs wired[S] {
 				absorb(&h, k.Lo)
 				any = true
 			}
-			absorb(&h, uint64(l + 1))
+			absorb(&h, uint64(l+1))
 		}
 	}
 	if any { Hash{Hi: h.hi, Lo: h.lo} } else { k }
@@ -498,7 +498,7 @@ func candidateKey[S wire](s S, node int, b broke) Hash needs wired[S] {
 
 // put adds s, reached as node, unless the set has it; it reports whether
 // it did.
-func put[S wire](c *candidates[S], s S, node int, b broke) bool needs wired[S] {
+func put[S wire](c mut candidates[S], s S, node int, b broke) bool needs wired[S] {
 	let k = candidateKey(s, node, b)
 	if !dense.AddKey(&c.keys, k.Hi, k.Lo) {
 		return false
@@ -820,7 +820,6 @@ func finish[S, E wire](rep Report, g Graph[S, E], taken []bool, fields []string,
 // records of three fields and whose signals are Go{K} and Tick, so a trace
 // can leave out a signal's name, its field, and any of the state's fields.
 
-
 // CState is a generated machine's state: state n is {A: n%4, B: n/4, C:
 // n%3 == 0}, so no two states of a table share their fields.
 type CState { A int, B int, C bool }
@@ -948,7 +947,7 @@ func cWalk(table []int, k int, seed uint64, n int) cRun {
 			return r
 		}
 		x = x + golden
-		let e = moves[int(splitmix(x) % uint64(len(moves)))]
+		let e = moves[int(splitmix(x)%uint64(len(moves)))]
 		s = table[s*k+e]
 		r.Signals = r.Signals.Append(e)
 		r.States = r.States.Append(s)
@@ -994,7 +993,7 @@ law ProjectionsConform(seed uint64, size uint8, signals uint8, length uint8, mas
 	let n = 1 + int(size%uint8(12))
 	let k = 1 + int(signals%uint8(4))
 	let table = refTable(seed, n, k)
-	let run = cWalk(table, k, seed ^ mask, int(length%uint8(7)))
+	let run = cWalk(table, k, seed^mask, int(length%uint8(7)))
 	let drop = int(h % uint8(3))
 	let obs = cProject(run, k, mask, gone, drop)
 	match cVerdict(table, k, obs, drop+int(extra%uint8(2)), extra%uint8(4) >= uint8(2), 0) {
@@ -1015,7 +1014,7 @@ law ConformAgreesWithReference(seed uint64, size uint8, signals uint8, length ui
 	let n = 1 + int(size%uint8(12))
 	let k = 1 + int(signals%uint8(4))
 	let table = refTable(seed, n, k)
-	let run = cWalk(table, k, seed ^ mask, 1+int(length%uint8(5)))
+	let run = cWalk(table, k, seed^mask, 1+int(length%uint8(5)))
 	let mut obs = cProject(run, k, mask, uint64(0), 0)
 	let hidden = int(h % uint8(3))
 	if len(obs) > 0 {
@@ -1109,7 +1108,7 @@ law ConformBreaksWithReference(seed uint64, size uint8, signals uint8, length ui
 	let n = 1 + int(size%uint8(12))
 	let k = 1 + int(signals%uint8(4))
 	let table = refTable(seed, n, k)
-	let run = cWalk(table, k, seed ^ mask, 1+int(length%uint8(6)))
+	let run = cWalk(table, k, seed^mask, 1+int(length%uint8(6)))
 	let hidden = int(h % uint8(3))
 	let obs = cProject(run, k, mask, gone, hidden)
 	let b = uint64(bad)
@@ -1186,7 +1185,7 @@ law LimitNeverConforms(seed uint64, size uint8, signals uint8, length uint8, mas
 	let n = 1 + int(size%uint8(12))
 	let k = 1 + int(signals%uint8(4))
 	let table = refTable(seed, n, k)
-	let run = cWalk(table, k, seed ^ mask, int(length%uint8(5)))
+	let run = cWalk(table, k, seed^mask, int(length%uint8(5)))
 	let obs = cProject(run, k, mask, uint64(0), 0)
 	let l = 1 + int(limit%uint8(3))
 	match cVerdict(table, k, obs, int(h%uint8(3)), false, l) {
@@ -1208,10 +1207,10 @@ type FMode = Idle{} | Busy{K int}
 
 type FRec { Mode FMode, On bool, N int, Flags []bool }
 
-func fMode(x uint64) FMode { if x%3 == 0 { Idle } else { Busy{K: int(x/3%2)} } }
+func fMode(x uint64) FMode { if x%3 == 0 { Idle } else { Busy{K: int(x / 3 % 2)} } }
 
 func fRec(x uint64) FRec {
-	FRec{Mode: fMode(x), On: x/6%2 == 1, N: int(x/12%3), Flags: []bool{x/36%2 == 1, x/72%2 == 1}}
+	FRec{Mode: fMode(x), On: x/6%2 == 1, N: int(x / 12 % 3), Flags: []bool{x/36%2 == 1, x/72%2 == 1}}
 }
 
 // fProject is w's wire form with the members (and the nested object's

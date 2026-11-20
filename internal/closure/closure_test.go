@@ -138,7 +138,7 @@ var declared = map[string][]allowance{
 	},
 	"internal/sketch/lint": {
 		{"examples", subtree, "TestLayoutPresetOnExamples lints every example module under the layout preset (DiscoverPackages walks each, the loader reads its sources)"},
-		{"modules", subtree, "TestLayoutPresetOnExamples: examples import the bundled modules (ergo.dev/domain, mcp, xml), which their ergo.mod replaces with modules/, and the loader reads each module's sources"},
+		{"modules", subtree, "TestLayoutPresetOnExamples: examples import the bundled modules (ergo.dev/domain, xml), which their ergo.mod replaces with modules/, and the loader reads each module's sources"},
 	},
 	"internal/sketch/lower": declare(
 		[]allowance{
@@ -177,10 +177,7 @@ var declared = map[string][]allowance{
 		{"cmd/ergo", program, "TestEvalAgreesWithLowering builds the ergo CLI and builds each generated program with it"},
 		{"runtime/v1/testdata/toml-test/corpus.json", file, "the toml native's tests hold the evaluator to the public toml-test corpus that runtime/v1's tests use (nativestoml_test.go)"},
 		{"examples", subtree, "TestEvalAgreesOnExamples walks every example program and its cases (filepath.WalkDir) and runs each case in the evaluator"},
-		{"modules", subtree, "TestEvalAgreesOnExamples: examples import the bundled modules (ergo.dev/domain, mcp, xml), which their ergo.mod replaces with modules/, and the loader reads each module's sources"},
-	},
-	"internal/rpcgen": {
-		{"modules/mcp", subtree, "the MCP projection's tests check against the bundled ergo.dev/mcp module, whose sources the loader reads"},
+		{"modules", subtree, "TestEvalAgreesOnExamples: examples import the bundled modules (ergo.dev/domain, xml), which their ergo.mod replaces with modules/, and the loader reads each module's sources"},
 	},
 	"runtime/v1": {
 		{"docs/spec/stdlib.md", file, "the std law runners of the Go bodies pass their laws to lawledger.Run, which reads the Std laws ledger (fu-ledger-runner)"},
@@ -205,7 +202,7 @@ var declared = map[string][]allowance{
 			{"docs/previews/2026-10-28-without-go-syntax.md", file, "the decided syntax matches the preview it was decided from"},
 		},
 	),
-	"internal/sketch/format": declare(
+	"internal/hostsyntax": declare(
 		[]allowance{{"internal/sketch/syntax/testdata/corpus", subtree, "the formatter round-trips the parser's corpus: sketchtest.Corpus walks it (filepath.WalkDir)"}},
 		glob("internal/sketch/syntax/testdata/decided/*.ergo", "the formatter round-trips the decided-syntax fixtures"),
 		glob("internal/sketch/syntax/testdata/edge/*.ergo", "the formatter round-trips the edge fixtures"),
@@ -215,14 +212,13 @@ var declared = map[string][]allowance{
 	),
 	"internal/selfhostcheck": declare(
 		[]allowance{
-			{"examples", subtree, "TestSelfhostBridgeAgrees parses every examples/**/*.ergo through the Go adapter and the Ergo decoder (filepath.WalkDir)"},
-			{"internal/sketch/syntax/testdata/corpus", subtree, "the bridge property's inputs include sketchtest.Positive, whose Corpus walks the parser's corpus (filepath.WalkDir)"},
-			{"internal/sketch/format/testdata/fuzz/FuzzFormat", subtree, "TestSelfhostFormatAgrees's inputs include the formatter's checked-in fuzz seeds (fuzzSeeds reads the folder)"},
+			{"examples", subtree, "TestSelfhostFormatLaws formats every examples/**/*.ergo on both sides (sourceInputs walks it with filepath.WalkDir)"},
+			{"internal/sketch/syntax/testdata/corpus", subtree, "the format property's inputs include sketchtest.Positive, whose Corpus walks the parser's corpus (filepath.WalkDir)"},
+			{"internal/hostsyntax/testdata/fuzz/FuzzFormat", subtree, "TestSelfhostFormatLaws's inputs include the formatter's checked-in fuzz seeds (fuzzSeeds reads the folder)"},
 		},
-		glob("docs/spec/*.md", "the bridge property's inputs include every go fence of the language spec (sketchtest.SpecFences)"),
-		glob("docs/research/ef-migrate/*.ergo", "the bridge property's inputs include the migrated examples (sketchtest.Repository)"),
-		exactly("the driver's go build asks whether the repository module, which replaces ergo.local/prototype, also holds the driver's and the pilot's packages (Go's ambiguous-import check): it looks these paths up, and they do not exist",
-			"selfhostprobe", "selfhost/hostsyntax"),
+		glob("docs/spec/*.md", "the format property's inputs include every go fence of the language spec (sketchtest.SpecFences)"),
+		glob("docs/research/ef-migrate/*.ergo", "the format property's inputs include the migrated examples (sketchtest.Repository)"),
+		[]allowance{{"compiler", subtree, "the format property's inputs include every compiler/**/*.ergo (sourceInputs walks it)"}},
 	),
 	"cmd/ergo": {
 		{"README.md", file, "the README smoke test runs the README's go blocks and commands"},
@@ -231,8 +227,10 @@ var declared = map[string][]allowance{
 		{"examples/editions/sketch/*", files, "smokeWorkspace copies each file of the 2026 example; it has no subdirectory, so the copy reads one level"},
 		{"scripts/examples", program, "the package-folder test runs `go run ./scripts/examples` with the CLI under test (packages_test.go, tidewalk-replay)"},
 		{"examples", subtree, "the package-folder test runs scripts/examples, which loads every program folder of examples/ whatever the selection (loadExamples) and walks the selected one, so a changed example reruns it"},
+		{"compiler", subtree, "TestLinkedGoIsFresh regenerates the linked package compiler from the module compiler/ (linked.Generate reads the module's folders) and compares the checked-in files, so an edit of the module reruns it"},
+		{"internal/linked/compiler", listing, "TestLinkedGoIsFresh lists the generated folder to find a file the generator does not write"},
 		{"internal/linked/code/ergo", subtree, "TestLinkedGoIsFresh regenerates the linked package code from its Ergo module (linked.Generate reads the module's folders) and compares the checked-in files, so an edit of the module reruns it"},
-		{"modules", subtree, "the package-folder test's scripts/examples run loads examples that import the bundled modules (ergo.dev/domain, infra, mcp, xml), which their ergo.mod replaces with modules/, and the loader reads each module's sources"},
+		{"modules", subtree, "the package-folder test's scripts/examples run loads examples that import the bundled modules (ergo.dev/domain, infra, xml), which their ergo.mod replaces with modules/, and the loader reads each module's sources"},
 		{"conformance/upstream", subtree, "the package-folder test's scripts/examples run walks each vendored upstream folder that an example's origin/source names (checkOrigin, FKsrc)"},
 	},
 	"internal/experimental/irspike": {
@@ -244,14 +242,14 @@ var declared = map[string][]allowance{
 		{"internal/sketch/testdata/probes", subtree, "TestIRCoverage walks the lowering corpus (CorpusDirs)"},
 		{"benchmarks", subtree, "TestIRCoverage walks the lowering corpus (CorpusDirs)"},
 		{"ergo.mod", file, "loading a program folder looks up the module file in each folder above it, up to the repository root"},
-		{"modules", subtree, "TestIRCoverage and TestIRAgreesOnExamples: examples import the bundled modules (ergo.dev/domain, mcp, xml), which their ergo.mod replaces with modules/, and the loader reads each module's sources"},
+		{"modules", subtree, "TestIRCoverage and TestIRAgreesOnExamples: examples import the bundled modules (ergo.dev/domain, xml), which their ergo.mod replaces with modules/, and the loader reads each module's sources"},
 	},
 	"internal/sketchfront": {
 		{"examples/editions/sketch/main.ergo", file, "TestSketchBuildRunsProgram and the lease test build the 2026 example program"},
 		{"examples/editions/sketch/expected.out", file, "TestSketchBuildRunsProgram compares the run with the expected output"},
 		{"examples", subtree, "TestExamplesOutputIsAFunctionOfInput walks every example package folder (filepath.WalkDir) and checks and lowers each, in this process and in two children; TestDirectMatchesGoBuild walks the example programs and builds each by the direct path and by go build"},
 		{"ergo.mod", file, "CheckDir of a one-folder example looks for its module upward and stats the checkout root's ergo.mod (absent); adding one makes the example a package of it"},
-		{"modules", subtree, "TestPathsRoundTrip checks every example program, and since B7e every one exports, so the examples that import the bundled modules (ergo.dev/domain, mcp, xml; their ergo.mod replaces them with modules/) are checked through, and the loader reads each module's sources"},
+		{"modules", subtree, "TestPathsRoundTrip checks every example program, and since B7e every one exports, so the examples that import the bundled modules (ergo.dev/domain, xml; their ergo.mod replaces them with modules/) are checked through, and the loader reads each module's sources"},
 		{"internal/sketch/check/testdata/corpus", subtree, "TestStdSnapshotAgrees checks the checker's corpus with std from source and from each snapshot (stdCorpus globs its archives)"},
 	},
 	"internal/testinputs": declare(
@@ -285,14 +283,14 @@ var declared = map[string][]allowance{
 	},
 	"internal/sketch/facts": {
 		{"examples", subtree, "TestTablesAgreeWithScanOnExamples checks every example program (examples/*/cmd/*), and the loader reads each package it imports, so a changed example reruns it"},
-		{"modules", subtree, "TestTablesAgreeWithScanOnExamples: examples import the bundled modules (ergo.dev/domain, mcp, xml), which their ergo.mod replaces with modules/, and the loader reads each module's sources"},
+		{"modules", subtree, "TestTablesAgreeWithScanOnExamples: examples import the bundled modules (ergo.dev/domain, xml), which their ergo.mod replaces with modules/, and the loader reads each module's sources"},
 	},
 	"scripts/examples": declare(
 		[]allowance{
 			{"conformance/upstream", subtree, "checkOrigin walks each vendored upstream folder that an example's origin/source names, for its test titles (FKsrc)"},
-			{"examples", subtree, "TestRepoExamplesHoldTheirLaws loads every program folder of the repository's examples/ (loadExamples lists it and walks each program, packages and cmd/ included), so an added or changed example reruns it"},
+			{"examples", subtree, "TestRepoLayoutIsClean loads every program folder of the repository's examples/ and every module of modules/ (loadLayout lists them and walks each program, packages and cmd/ included), so an added or changed example reruns it"},
 			{"docs/domain.md", file, "TestDomainDocQuotesResolve holds each code block of the domain modeling page to the examples/ declarations it quotes (DK1)"},
-			{"modules", subtree, "TestRepoExamplesHoldTheirLaws: examples import the bundled modules (ergo.dev/domain, mcp, xml), which their ergo.mod replaces with modules/, and the loader reads each module's sources"},
+			{"modules", subtree, "TestRepoLayoutIsClean: examples import the bundled modules (ergo.dev/domain, xml), which their ergo.mod replaces with modules/, and the loader reads each module's sources"},
 		},
 		exactly("an example's workload names its input generator and its hand-Go control by path, and reading the workload (internal/opcount) looks each up",
 			"cmd/ergo/testdata/station-stats/control", "cmd/ergo/testdata/station-stats/gen", "cmd/ergo/testdata/vt/control"),
