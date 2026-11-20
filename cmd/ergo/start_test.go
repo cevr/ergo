@@ -24,7 +24,9 @@ const startInitBytes = 16 << 10
 
 // TestStartBuildsNoTables: `ergo version` starts with the module's
 // packages allocating at most startInitBytes in their inits (Go's
-// GODEBUG=inittrace=1 lines, one per package). Every ergo process pays its
+// GODEBUG=inittrace=1 lines, one per package, cmd/ergo's own `init main`
+// included: it held 18 KiB of tables, regexps among them, that the rule
+// did not see before ERGO-STARTUP-2). Every ergo process pays its
 // inits, a warm answer included, whose budget is a millisecond. It kills
 // start-gomod-eager and start-bindings-eager. It builds Go because the
 // question is a process's start: a test binary has already run every init
@@ -127,12 +129,13 @@ func initBytes(t *testing.T, trace []byte) (int, int) {
 	return total, lines
 }
 
-// moduleInitLines are the inittrace lines of the module's packages.
+// moduleInitLines are the inittrace lines of the module's packages, the
+// command's package main among them.
 func moduleInitLines(trace []byte) string {
 	var b strings.Builder
 	s := bufio.NewScanner(bytes.NewReader(trace))
 	for s.Scan() {
-		if strings.HasPrefix(s.Text(), "init ergo.local/prototype/") {
+		if strings.HasPrefix(s.Text(), "init ergo.local/prototype/") || strings.HasPrefix(s.Text(), "init main ") {
 			b.WriteString(s.Text() + "\n")
 		}
 	}
