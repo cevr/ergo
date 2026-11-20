@@ -20,10 +20,10 @@ type reader { text string, c cursor, a attrs } implements Cursor
 // decode[T] may borrow.
 type Cursor {
 	..Reader,
-	seal(),
+	mut seal(),
 }
 
-func seal(r *reader) {}
+func seal(r mut reader) {}
 
 // cursor is a reader's place: at is the next byte of the value being
 // read. closed says that value's element was <name/>, so its content is
@@ -53,7 +53,7 @@ func readerOf(text string) reader {
 // has one more. (The key attribute of a <_> element is a key too: a
 // record has no field "key" that its own element would not write after
 // it, and the last key read wins.)
-func attribute(r *reader) bool {
+func attribute(r mut reader) bool {
 	let i = skipSpace(r.text, r.a.next)
 	if i >= len(r.text) || r.text[i] == '>' || r.text[i] == '/' {
 		r.a = noAttrs
@@ -175,7 +175,7 @@ func value(text string, c cursor) (string, cursor, bool) {
 
 // read is the text of the value at c, the reader's place, which it takes,
 // or the failure of a value of the kind want that holds an element.
-func read(r *reader, c cursor, want string) string fails WireWrongKind {
+func read(r mut reader, c cursor, want string) string fails WireWrongKind {
 	if r.a.key > 0 {
 		let v = unescape(r.text, r.a.val, r.a.end) catch {
 		case Malformed:
@@ -194,7 +194,7 @@ func read(r *reader, c cursor, want string) string fails WireWrongKind {
 
 // wrong is the failure of a value of the kind want at c, the reader's
 // place before it read the value's text.
-func wrong(r *reader, c cursor, want string) WireWrongKind {
+func wrong(r mut reader, c cursor, want string) WireWrongKind {
 	r.c = c
 	WireWrongKind{Path: Path(r), Want: want}
 }
@@ -203,7 +203,7 @@ func wrong(r *reader, c cursor, want string) WireWrongKind {
 // root, each with its index among its parent's elements,
 // "/catalog[0]/products[1]/item[2]". It reads the text again up to the
 // reader's place, only for a failure's text.
-func Path(r *reader) string {
+func Path(r mut reader) string {
 	let at = r.c.at
 	let mut p = NewParser(r.text, 0)
 	let mut names = []string{}
@@ -232,7 +232,7 @@ func Path(r *reader) string {
 // nameAtTag is the name of the start tag at i.
 func nameAtTag(text string, i int) string { strings.Slice(text, i+1, nameAt(text, i+1)) }
 
-func TakeNull(r *reader) bool {
+func TakeNull(r mut reader) bool {
 	if r.a.key > 0 {
 		return false
 	}
@@ -260,7 +260,7 @@ func TakeNull(r *reader) bool {
 	true
 }
 
-func Peek(r *reader) WireKind {
+func Peek(r mut reader) WireKind {
 	let c = r.c
 	if c.closed || r.a.key > 0 {
 		return WireString
@@ -275,15 +275,15 @@ func Peek(r *reader) WireKind {
 	}
 }
 
-func String(r *reader) string fails WireWrongKind { try read(r, r.c, "string") }
+func String(r mut reader) string fails WireWrongKind { try read(r, r.c, "string") }
 
 // StringBytes is into with the next string's bytes added, as String reads
 // them (the prelude Reader's StringBytes, GX12).
-func StringBytes(r *reader, into []byte) []byte fails WireWrongKind { appendString(into, try r.String()) }
+func StringBytes(r mut reader, into []byte) []byte fails WireWrongKind { appendString(into, try r.String()) }
 
-func Number(r *reader) string fails WireWrongKind { strings.TrimSpace(try read(r, r.c, "number")) }
+func Number(r mut reader) string fails WireWrongKind { strings.TrimSpace(try read(r, r.c, "number")) }
 
-func Bool(r *reader) bool fails WireWrongKind {
+func Bool(r mut reader) bool fails WireWrongKind {
 	let c = r.c
 	match strings.TrimSpace(try read(r, c, "bool")) {
 	case "true":
@@ -295,7 +295,7 @@ func Bool(r *reader) bool fails WireWrongKind {
 	}
 }
 
-func Int(r *reader) int64 fails WireWrongKind {
+func Int(r mut reader) int64 fails WireWrongKind {
 	let c = r.c
 	let s = try read(r, c, "int")
 	strconv.ParseInt(strings.TrimSpace(s), 10, 64) catch {
@@ -304,7 +304,7 @@ func Int(r *reader) int64 fails WireWrongKind {
 	}
 }
 
-func Uint(r *reader) uint64 fails WireWrongKind {
+func Uint(r mut reader) uint64 fails WireWrongKind {
 	let c = r.c
 	let s = try read(r, c, "uint")
 	let digits = strings.TrimSpace(s)
@@ -327,7 +327,7 @@ func Uint(r *reader) uint64 fails WireWrongKind {
 	n
 }
 
-func Float(r *reader) float64 fails WireWrongKind {
+func Float(r mut reader) float64 fails WireWrongKind {
 	let c = r.c
 	let s = try read(r, c, "float")
 	strconv.ParseFloat(strings.TrimSpace(s)) catch {
@@ -337,7 +337,7 @@ func Float(r *reader) float64 fails WireWrongKind {
 }
 
 // begin opens an object or a list: its content is elements, not text.
-func begin(r *reader, want string) fails WireWrongKind {
+func begin(r mut reader, want string) fails WireWrongKind {
 	if r.a.key > 0 {
 		return WireWrongKind{Path: Path(r), Want: want}
 	}
@@ -351,16 +351,16 @@ func begin(r *reader, want string) fails WireWrongKind {
 	}
 }
 
-func BeginList(r *reader) fails WireWrongKind { try begin(r, "list") }
+func BeginList(r mut reader) fails WireWrongKind { try begin(r, "list") }
 
 // BeginObject starts an object; its start tag's attributes are its
 // first keys.
-func BeginObject(r *reader) fails WireWrongKind {
+func BeginObject(r mut reader) fails WireWrongKind {
 	try begin(r, "object")
 	r.a = attrs{..noAttrs, next: nameAt(r.text, r.c.tag+1)}
 }
 
-func Tag(r *reader) string fails WireMissingField {
+func Tag(r mut reader) string fails WireMissingField {
 	let c = r.c
 	if !c.closed && r.a.key == 0 {
 		let k = blank(r.text, c.at)
@@ -375,7 +375,7 @@ func Tag(r *reader) string fails WireMissingField {
 
 // More takes the next value's start tag, when there is one before the
 // end of the object or list.
-func More(r *reader) bool {
+func More(r mut reader) bool {
 	if r.a.next > 0 && r.attribute() {
 		return true
 	}
@@ -394,7 +394,7 @@ func More(r *reader) bool {
 
 // Key is the name of the element More took: a field's key, or the key
 // attribute of a <_> element.
-func Key(r *reader) string {
+func Key(r mut reader) string {
 	if r.a.key > 0 {
 		return strings.Slice(r.text, r.a.key, r.a.kend)
 	}
@@ -422,7 +422,7 @@ func Key(r *reader) string {
 
 // Skip takes the rest of the value whose start tag was taken, through its
 // end tag.
-func Skip(r *reader) {
+func Skip(r mut reader) {
 	if r.a.key > 0 {
 		r.a = attrs{..r.a, key: 0}
 		return
@@ -458,7 +458,7 @@ func Skip(r *reader) {
 }
 
 // End takes the rest of the object or list, through its end tag.
-func End(r *reader) {
+func End(r mut reader) {
 	r.a = noAttrs
 	Skip(r)
 }

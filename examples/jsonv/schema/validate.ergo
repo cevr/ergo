@@ -61,9 +61,9 @@ law PathsAreRooted(a json.Tree, b json.Tree) {
 
 type report { found []Violation }
 
-func add(w *report, x Violation) { w.found = w.found.Append(x) }
+func add(w mut report, x Violation) { w.found = w.found.Append(x) }
 
-func validate(w *report, s Schema, v stdjson.Value, path string) {
+func validate(w mut report, s Schema, v stdjson.Value, path string) {
 	match s {
 	case Anything:
 	case IsNull:

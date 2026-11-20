@@ -49,21 +49,21 @@ func resolve(l Length, b float32) (float32, bool) {
 	}
 }
 
-func padX(t *Tree, i int) float32 { t.nodes[i].style.Padding[1] + t.nodes[i].style.Padding[3] }
+func padX(t mut Tree, i int) float32 { t.nodes[i].style.Padding[1] + t.nodes[i].style.Padding[3] }
 
-func padY(t *Tree, i int) float32 { t.nodes[i].style.Padding[0] + t.nodes[i].style.Padding[2] }
+func padY(t mut Tree, i int) float32 { t.nodes[i].style.Padding[0] + t.nodes[i].style.Padding[2] }
 
-func marginX(t *Tree, i int) float32 { t.nodes[i].style.Margin[1] + t.nodes[i].style.Margin[3] }
+func marginX(t mut Tree, i int) float32 { t.nodes[i].style.Margin[1] + t.nodes[i].style.Margin[3] }
 
-func marginY(t *Tree, i int) float32 { t.nodes[i].style.Margin[0] + t.nodes[i].style.Margin[2] }
+func marginY(t mut Tree, i int) float32 { t.nodes[i].style.Margin[0] + t.nodes[i].style.Margin[2] }
 
 // clampW and clampH keep a size no smaller than the padding, as CSS's
 // border box.
-func clampW(t *Tree, i int, w float32) float32 { fmax(w, padX(t, i)) }
+func clampW(t mut Tree, i int, w float32) float32 { fmax(w, padX(t, i)) }
 
-func clampH(t *Tree, i int, h float32) float32 { fmax(h, padY(t, i)) }
+func clampH(t mut Tree, i int, h float32) float32 { fmax(h, padY(t, i)) }
 
-func isRow(t *Tree, i int) bool {
+func isRow(t mut Tree, i int) bool {
 	match t.nodes[i].style.Direction {
 	case Row:
 		true
@@ -72,7 +72,7 @@ func isRow(t *Tree, i int) bool {
 	}
 }
 
-func flows(t *Tree, i int) bool {
+func flows(t mut Tree, i int) bool {
 	match t.nodes[i].style.Position {
 	case Flow:
 		true
@@ -82,7 +82,7 @@ func flows(t *Tree, i int) bool {
 }
 
 // holdsBoxes is whether node i lays out children: it holds no text.
-func holdsBoxes(t *Tree, i int) bool {
+func holdsBoxes(t mut Tree, i int) bool {
 	match t.nodes[i].style.Content {
 	case Boxes:
 		true
@@ -93,7 +93,7 @@ func holdsBoxes(t *Tree, i int) bool {
 
 // selfAlign is how child c aligns across its parent's line, whose
 // children align by items.
-func selfAlign(t *Tree, c int, items Align) Align {
+func selfAlign(t mut Tree, c int, items Align) Align {
 	match t.nodes[c].style.Self {
 	case Some[Align] as s:
 		s.Value
@@ -102,7 +102,7 @@ func selfAlign(t *Tree, c int, items Align) Align {
 	}
 }
 
-func stretches(t *Tree, c int, items Align) bool {
+func stretches(t mut Tree, c int, items Align) bool {
 	match selfAlign(t, c, items) {
 	case Stretch:
 		true
@@ -112,7 +112,7 @@ func stretches(t *Tree, c int, items Align) bool {
 }
 
 // intrinsic is node i's max-content or min-content border-box width.
-func intrinsic(t *Tree, i int, maxContent bool) float32 needs Measure {
+func intrinsic(t mut Tree, i int, maxContent bool) float32 needs Measure {
 	let (v, ok) = resolve(t.nodes[i].style.Width, -1)
 	if ok {
 		return clampW(t, i, v)
@@ -122,7 +122,7 @@ func intrinsic(t *Tree, i int, maxContent bool) float32 needs Measure {
 
 // contentWidth is the max-content or min-content width of node i's
 // content and padding, measured once until it changes.
-func contentWidth(t *Tree, i int, maxContent bool) float32 needs Measure {
+func contentWidth(t mut Tree, i int, maxContent bool) float32 needs Measure {
 	let k = if maxContent { 0 } else { 1 }
 	if t.nodes[i].intrOK[k] {
 		return t.nodes[i].intr[k]
@@ -133,7 +133,7 @@ func contentWidth(t *Tree, i int, maxContent bool) float32 needs Measure {
 	w
 }
 
-func measureIntrinsic(t *Tree, i int, maxContent bool) float32 needs Measure {
+func measureIntrinsic(t mut Tree, i int, maxContent bool) float32 needs Measure {
 	match t.nodes[i].style.Content {
 	case Text as text:
 		let ws = textWidths(t, text.Value, text.Size)
@@ -180,7 +180,7 @@ func measureIntrinsic(t *Tree, i int, maxContent bool) float32 needs Measure {
 
 // autoMinWidth is the least width of an item of a row: its content's
 // min-content width, no wider than its width.
-func autoMinWidth(t *Tree, c int) float32 needs Measure {
+func autoMinWidth(t mut Tree, c int) float32 needs Measure {
 	let mut w = intrinsic(t, c, false)
 	let (v, ok) = resolve(t.nodes[c].style.Width, -1)
 	if ok {
@@ -191,7 +191,7 @@ func autoMinWidth(t *Tree, c int) float32 needs Measure {
 
 // fitWidth is the width of node i sized by its content within avail
 // DIPs, in a container cbW wide.
-func fitWidth(t *Tree, i int, avail float32, cbW float32) float32 needs Measure {
+func fitWidth(t mut Tree, i int, avail float32, cbW float32) float32 needs Measure {
 	let (v, ok) = resolve(t.nodes[i].style.Width, base(cbW))
 	if ok {
 		return clampW(t, i, v)
@@ -204,13 +204,13 @@ func fitWidth(t *Tree, i int, avail float32, cbW float32) float32 needs Measure 
 	clampW(t, i, fmin(mx, fmax(mn, avail)))
 }
 
-func heightAt(t *Tree, i int, w float32, cbH float32) float32 needs Measure {
+func heightAt(t mut Tree, i int, w float32, cbH float32) float32 needs Measure {
 	clampH(t, i, naturalHeight(t, i, w, cbH))
 }
 
 // naturalHeight is node i's height when it is w wide: its flex base size
 // in a column. The height measured at one width is kept until it changes.
-func naturalHeight(t *Tree, i int, w float32, cbH float32) float32 needs Measure {
+func naturalHeight(t mut Tree, i int, w float32, cbH float32) float32 needs Measure {
 	let (v, ok) = resolve(t.nodes[i].style.Height, base(cbH))
 	if ok {
 		return v
@@ -225,7 +225,7 @@ func naturalHeight(t *Tree, i int, w float32, cbH float32) float32 needs Measure
 	h
 }
 
-func contentHeight(t *Tree, i int, cw float32) float32 needs Measure {
+func contentHeight(t mut Tree, i int, cw float32) float32 needs Measure {
 	match t.nodes[i].style.Content {
 	case Text as text:
 		return textHeight(t, text.Value, text.Size, fmax(cw, 1))
@@ -240,7 +240,7 @@ func contentHeight(t *Tree, i int, cw float32) float32 needs Measure {
 
 // crossOf is the width a child of a column gets: its own, the column's
 // when it stretches, or its content's.
-func crossOf(t *Tree, c int, cw float32, items Align) float32 needs Measure {
+func crossOf(t mut Tree, c int, cw float32, items Align) float32 needs Measure {
 	let (v, ok) = resolve(t.nodes[c].style.Width, base(cw))
 	if ok {
 		return clampW(t, c, v)
@@ -253,7 +253,7 @@ func crossOf(t *Tree, c int, cw float32, items Align) float32 needs Measure {
 
 // layoutBox gives node i its size and lays out its children, unless it
 // was laid out at that size and nothing in it changed since.
-func layoutBox(t *Tree, i int, w float32, h float32) needs Measure {
+func layoutBox(t mut Tree, i int, w float32, h float32) needs Measure {
 	if t.nodes[i].laid && t.nodes[i].laidW == w && t.nodes[i].laidH == h {
 		return
 	}
@@ -290,7 +290,7 @@ type item {
 // push puts it on the stack of items, t.items[:t.top], reusing the slots
 // of items popped before: the slice keeps its length, so a pop is t.top
 // moving down and never a reslice, which would copy the slice.
-func push(t *Tree, it item) {
+func push(t mut Tree, it item) {
 	if t.top < len(t.items) {
 		t.items[t.top] = it
 	} else {
@@ -303,7 +303,7 @@ func push(t *Tree, it item) {
 // (inf when unknown) and is the size they take. With commit it gives them
 // their boxes, relative to i, and lays each out in turn. Its items sit on
 // the stack of items (push) above those of the boxes laying out around it.
-func flexLayout(t *Tree, i int, cw float32, ch float32, commit bool) (float32, float32) needs Measure {
+func flexLayout(t mut Tree, i int, cw float32, ch float32, commit bool) (float32, float32) needs Measure {
 	let row = isRow(t, i)
 	let mut mainSize = ch
 	let mut crossSize = cw
@@ -501,7 +501,7 @@ func flexLayout(t *Tree, i int, cw float32, ch float32, commit bool) (float32, f
 // fill space (CSS Flexbox 9.7): growing by their grow factors, shrinking
 // by their shrink factors times their inner base sizes, freezing those
 // clamped by their minimums or maximums.
-func resolveFlexible(t *Tree, first int, end int, space float32, growing bool) {
+func resolveFlexible(t mut Tree, first int, end int, space float32, growing bool) {
 	for k in first..end {
 		t.items[k].frozen = false
 		let n = t.items[k].n
@@ -589,7 +589,7 @@ func justifyOffsets(j Justify, free float32, n int) (float32, float32) {
 // layoutAbsolute places node i's children out of the flow at their
 // offsets from its padding box, as wide and high as their own sizes or
 // their content's.
-func layoutAbsolute(t *Tree, i int) needs Measure {
+func layoutAbsolute(t mut Tree, i int) needs Measure {
 	let pw = t.nodes[i].w
 	let ph = t.nodes[i].h
 	let mut c = t.nodes[i].first

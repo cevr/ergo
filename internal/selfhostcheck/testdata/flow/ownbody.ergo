@@ -1,0 +1,114 @@
+// MODES-OWN-BODY: a generic body holds a value of a type parameter marked
+// own to a resource's rules (types.md, Generics 9; the Go checker's
+// ownSite): a use after a hand-off or a maybe hand-off, a lent parameter
+// handed off (the signature to write), a hand-off from a block passed to
+// run, a lend and a hand-off in one call, and a value dropped at the end of
+// its scope (#197 Gap 42), each naming the mark. A value of an own T a call
+// makes and the statement drops is not refused (plan 1.3), and an unmarked
+// T is plain data.
+
+type Res { id int } implements Closer
+
+func Close(r Res) {}
+
+func lend[T own](x T) {}
+
+func keep[T own](x own T) {} //want: flow
+
+func both[T own](x T, y own T) {} //want: flow
+
+func cond(n int) bool { n > 2 }
+
+func run(f func()) { f() }
+
+func give[T own](x own T) T { x }
+
+func moved[T own](a own T) {
+	let b = a
+	lend(a) //want: flow
+	keep(b)
+}
+
+func maybe[T own](a own T, n int) { //want: flow
+	if cond(n) {
+		keep(a)
+	}
+	lend(a) //want: flow
+}
+
+func lent[T own](p T) {
+	keep(p) //want: flow
+}
+
+func fromBlock[T own](a own T) {
+	run(func() {
+		keep(a) //want: flow
+	})
+	keep(a)
+}
+
+func oneCall[T own](a own T) {
+	both(a, a) //want: flow
+}
+
+func dropped[T own](a own T) {} //want: flow
+
+func returned[T own](a own T, n int) T {
+	if cond(n) {
+		return give(a)
+	}
+	a
+}
+
+func discarded[T own](mk func() T) {
+	mk()
+}
+
+func pair[A, B own](a A, b own B) {
+	keep(b)
+}
+
+func mixed[A, B own](x own (A, B)) {} //want: flow
+
+func plain[T](a T) T {
+	let b = a
+	lend2(a)
+	b
+}
+
+func lend2[T](x T) {}
+
+type Bad {}
+
+func fail(n int) int fails Bad {
+	if n > 5 {
+		return Bad
+	}
+	n
+}
+
+func failTake[T own](c bool, x own T) int fails Bad { //want: flow
+	if c {
+		return Bad
+	}
+	keep(x)
+	0
+}
+
+func runMk[T own](mk func() T, f func(func() T) fails Bad) fails Bad { try f(mk) }
+
+// Only a call that fails leaves the frame under a try: a is handed off
+// before failTake fails, so cond's call drops nothing.
+func tryMovedFirst[T own](a own T, n int) fails Bad {
+	let _ = try failTake(cond(n), a)
+}
+
+// A block is a frame of its own: the try around runMk does not reach its
+// calls, and its untried failure is S105, not a drop of b.
+func tryBlock[T own](mk func() T, n int) fails Bad {
+	try runMk(mk, func(m func() T) fails Bad {
+		let b = m()
+		let _ = fail(n)
+		keep(b)
+	})
+}

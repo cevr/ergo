@@ -30,7 +30,9 @@ import (
 // oracle-o1-outer-binding-wins, oracle-o1-with-binding-leaks,
 // oracle-o1-callee-loses-caps, oracle-o1-member-law-unbound,
 // oracle-o1-context-law-unbound, oracle-o1-ops-table-dropped,
-// oracle-o1-named-entry-sees-caller, oracle-o1-native-ref-update-lost.
+// oracle-o1-named-entry-sees-caller, oracle-o1-native-ref-update-lost,
+// tbf-context-law-one-case (a run cut to the context law's need per case:
+// the law has 100 cases' steps).
 func TestEvalEffectsAgreeWithModel(t *testing.T) {
 	n := 120
 	if testing.Short() {
@@ -68,9 +70,31 @@ func TestEvalEffectsAgreeWithModel(t *testing.T) {
 				t.Fatalf("seed %d: no obligation %s in %+v", seed, want, rep.Results)
 			}
 		}
+		// The step budget is each case's (TP-BUILT-FAST): cut to the
+		// context law's own need per case, the law still passes.
+		for _, res := range rep.Results {
+			if res.Name != "law Store.DeleteAfterPut under Doubled" || res.TotalCases < 2 {
+				continue
+			}
+			b := DefaultBudget()
+			b.Steps = (res.Steps + int64(res.TotalCases) - 1) / int64(res.TotalCases)
+			cut, err := Run(pkg, b)
+			if err != nil {
+				t.Fatalf("seed %d: %v", seed, err)
+			}
+			for _, c := range cut.Results {
+				if c.Name == res.Name && c.Status != Passed {
+					t.Fatalf("seed %d: with %d steps a case, %s is %s (%s); it needs %d steps over %d cases\nreplay: ERGO_EVAL_EFFECT_SEED=%d go test -run TestEvalEffectsAgreeWithModel ./internal/sketch/eval",
+						seed, b.Steps, c.Name, c.Status, c.Reason, res.Steps, res.TotalCases, seed)
+				}
+				if c.Name == res.Name {
+					reached["context-law-cut"] = true
+				}
+			}
+		}
 	}
 	if n > 1 {
-		for _, k := range effectForms {
+		for _, k := range append(effectForms, "context-law-cut") {
 			if !reached[k] {
 				t.Fatalf("the seeds never reached the form %s (reached %v)", k, reached)
 			}

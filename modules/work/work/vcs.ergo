@@ -1,5 +1,6 @@
 import maps
 import slices
+import strings
 
 // VcsFailed is a version-control call that could not run or answer.
 type VcsFailed { Reason string }
@@ -72,6 +73,12 @@ type Vcs {
 	Start(root string, branch string, commit string) fails VcsFailed,
 	// GuardPushes stops every push from the checkout to each of its remotes.
 	GuardPushes(root string) fails VcsFailed,
+	// Guarded is the remotes whose push URL is the guard GuardPushes
+	// writes (another push URL is not work's).
+	Guarded(root string) []string fails VcsFailed,
+	// Unguard drops the push URL GuardPushes wrote from each remote that
+	// has it, and no other push URL.
+	Unguard(root string) fails VcsFailed,
 	// Locals is each local branch and each stash entry of the checkout.
 	Locals(root string) []Local fails VcsFailed,
 	// Tracked reports whether the checkout's index holds path.
@@ -80,10 +87,15 @@ type Vcs {
 	// (.git/info/exclude, never committed) unless it is there already.
 	Exclude(root string, pattern string) fails VcsFailed,
 	// Remote reports whether a remote-tracking ref of the checkout
-	// (refs/remotes/...) contains commit.
-	Remote(root string, commit string) bool fails VcsFailed,
+	// (refs/remotes/...) contains commit; with onDefault, only the ref a
+	// remote's HEAD names (its default branch): another may be stale, its
+	// branch deleted on the remote since the last fetch.
+	Remote(root string, commit string, onDefault bool) bool fails VcsFailed,
 	// Configure sets key to value in the checkout's own configuration.
 	Configure(root string, key string, value string) fails VcsFailed,
+	// Setting is the value of key in the checkout's configuration, ""
+	// when no file of it sets key.
+	Setting(root string, key string) string fails VcsFailed,
 	// StatDirty is the number of tracked files whose stat the index does
 	// not match: the next Git command reads each again.
 	StatDirty(root string) int fails VcsFailed,
@@ -143,6 +155,17 @@ type Vcs {
 		let tree = try Snapshot(".")
 		let _ = try Keep(".", tree)
 		before == Outline{Head: try Head("."), Branch: try Branch("."), Clean: try Clean(".")}
+	},
+
+	// SettingIsWhatConfigureSet: a key Configure set reads back as its
+	// value (doctor's check of the merge drivers rests on it).
+	law SettingIsWhatConfigureSet(value string) {
+		let v = "v" + strings.ReplaceAll(strings.ReplaceAll(value, "\n", " "), "\x00", " ")
+		Configure(".", "work.law", v) catch {
+		case VcsFailed:
+			return true
+		}
+		(try Setting(".", "work.law")) == v
 	},
 
 	// CompareAndSetIsAtomic: two writers, each setting a ref from the
@@ -208,11 +231,12 @@ type Write { Writer int, Read bool, Value int }
 // with its head held, or its snapshot is the one ready last handed to the
 // parent (latest, which the parent's ref snapshotRef still names). A
 // workspace whose work is not kept is removed only when it is abandoned.
-func Kept(root string, parent string, latest string, snapshotRef string) bool fails VcsFailed needs Vcs {
-	if len(try Unheld(root, parent)) > 0 {
+// onDefault is Held's.
+func Kept(root string, parent string, latest string, snapshotRef string, onDefault bool) bool fails VcsFailed needs Vcs {
+	if len(try Unheld(root, parent, onDefault)) > 0 {
 		return false
 	}
-	if try Vcs.Clean(root) && try Held(root, parent, try Vcs.Head(root)) {
+	if try Vcs.Clean(root) && try Held(root, parent, try Vcs.Head(root), onDefault) {
 		return true
 	}
 	latest != "" && try Vcs.Snapshot(root) == latest && try Vcs.Ref(parent, snapshotRef) != ""
@@ -220,17 +244,18 @@ func Kept(root string, parent string, latest string, snapshotRef string) bool fa
 
 // Held reports whether commit of the checkout at root is safe without it:
 // a branch of parent contains it, or a remote-tracking ref of root does
-// (it is on a remote already).
-func Held(root string, parent string, commit string) bool fails VcsFailed needs Vcs {
-	try Vcs.Holds(parent, commit) || try Vcs.Remote(root, commit)
+// (it is on a remote already); with onDefault, only a remote's default
+// branch counts (gc -idle, as workrift prune: rm by hand trusts any).
+func Held(root string, parent string, commit string, onDefault bool) bool fails VcsFailed needs Vcs {
+	try Vcs.Holds(parent, commit) || try Vcs.Remote(root, commit, onDefault)
 }
 
 // Unheld is each local branch and stash entry of the checkout at root
 // whose commit is not Held: the work that only this checkout has.
-func Unheld(root string, parent string) []Local fails VcsFailed needs Vcs {
+func Unheld(root string, parent string, onDefault bool) []Local fails VcsFailed needs Vcs {
 	let mut out = []Local{}
 	for l in try Vcs.Locals(root) {
-		if !try Held(root, parent, l.Commit) {
+		if !try Held(root, parent, l.Commit, onDefault) {
 			out = out.Append(l)
 		}
 	}

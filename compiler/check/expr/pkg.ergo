@@ -1,0 +1,660 @@
+// Package expr types a package's expressions (capstone S3d): each
+// expression of a function body gets its type in the pool, as the Go
+// checker's Info.Types records it, and each call to a generic function its
+// type arguments, inferred with compiler/check/infer on the argument types
+// it gives. It reads the package's bound store (compiler/check/bind), the
+// signatures and record fields compiler/check/types resolves, its
+// imports' interfaces (types.Iface: an Ergo import's types are XRefs into
+// them) and the foreign table of the prelude's, the universe's and the Go
+// imports' types.
+//
+// An expression whose type this pass does not know yet is left without
+// one, and so is a constant whose type its context decides when the
+// context is one the pass does not read: the result is sound where it
+// speaks (the agreement compares every typed expression) and its reach is
+// measured (TestCompilerExprAgreesWithChecker logs it).
+
+import compiler/check/bind
+import compiler/check/infer
+import compiler/check/store
+import compiler/check/types
+import compiler/syntax
+import dense
+import slices
+import strings
+
+// Fn is one function declaration of the package with its signature: its
+// file, its declaration and name nodes, its bracket parameters and their
+// row bits and own marks ([T own]: types.md, Generics 9), its
+// parameters' name nodes (none for an unnamed one), its signature in the
+// pool and its body; whether it takes each parameter (Takes, in the
+// signature's order: a parameter written own whose type is no function
+// type, one a takes clause names, and a Close's receiver: the Go
+// checker's Signature.Takes), each parameter's name (Pnames, "" for an
+// unnamed one) and whether it is a Close of the R1 shape on a type of its
+// package that implements Closer (Close: the Go checker's Info.Closes). A
+// law or a test is one too, with the signature its parameters and result
+// make (a law's result is bool).
+type Fn {
+	File   int,
+	Decl   dense.ID[syntax.Node],
+	Name   dense.ID[syntax.Node],
+	Params []string,
+	Rows   []bool,
+	Own    []bool,
+	Names  []dense.Opt[syntax.Node],
+	Sig    dense.ID[store.TKey],
+	Body   dense.Opt[syntax.Node],
+	Takes  []bool,
+	Pnames []string,
+	Close  bool,
+}
+
+// Field is a record field: its name and type (the record's bracket
+// parameters are the pool's Param(0), Param(1), …).
+type Field { Name string, T dense.ID[store.TKey] }
+
+// OpName is an operation of an operation type of the package: its file,
+// its name node and its signature. Inside the type's laws its bare name
+// is a value of that signature (bind declares it there).
+type OpName { File int, Name dense.ID[syntax.Node], T dense.ID[store.TKey] }
+
+// Rec is a record of the package: its name, bracket parameters and fields;
+// or, Op set, an operation type with its operations as fields, each of
+// its signature's type (S3d3).
+type Rec { Name string, Params []string, Fields []Field, Op bool }
+
+// Pkg is what typing a package reads.
+type Pkg {
+	Files   []bind.File,
+	Parsed  []syntax.Parsed,
+	U       bind.Uses,
+	Ps      bind.Parents,
+	Kinds   types.Kinds,
+	Ext     []types.Ext,
+	Foreign []types.Foreign,
+	Ifaces  []types.Iface,
+	Fns     []Fn,
+	Recs    []Rec,
+	// Ops is the operations of the package's operation types with no
+	// bracket parameters, which their laws (Fns too) call by name.
+	Ops []OpName,
+	// Parses is the parse functions the package's refined types derive
+	// (ParsePort for Port): each named by its type's name node, where
+	// bind declares it.
+	Parses []OpName,
+	Deps   []Dep,
+	// Unions is the unions a call's inference may meet, the package's
+	// and its imports' (types.UnionsOf).
+	Unions infer.Unions,
+	fnBy   dense.Col[store.PNode, int],
+	// named is the last function of each name; sameName[i] the one
+	// before function i of its name, -1 for none (methods.ergo).
+	named    dense.Side[dense.Str, int],
+	sameName []int,
+	recBy    dense.Side[store.Decl, int],
+}
+
+// paramNames is the name node of each parameter of the function type ft,
+// in order (an unnamed parameter has none).
+func paramNames(p syntax.Parsed, ft dense.ID[syntax.Node]) []dense.Opt[syntax.Node] {
+	match syntax.ViewOf(p.Tree, ft) {
+	case syntax.FuncType as t:
+		listNames(p, t.Params)
+	case _:
+		[]dense.Opt[syntax.Node]{}
+	}
+}
+
+// listNames is the name node of each field of the field list l, in order
+// (an unnamed field has none).
+func listNames(p syntax.Parsed, l dense.ID[syntax.Node]) []dense.Opt[syntax.Node] {
+	let mut out = []dense.Opt[syntax.Node]{}
+	match syntax.ViewOf(p.Tree, l) {
+	case syntax.FieldList as fl:
+		for i in 0..syntax.Len(fl.List) {
+			match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, fl.List, i)) {
+			case syntax.Field as fd:
+				let n = syntax.Len(fd.Names)
+				if n == 0 {
+					out = out.Append(dense.NoID[syntax.Node]())
+				}
+				for j in 0..n {
+					out = out.Append(dense.OptOf(syntax.Item(p.Tree, fd.Names, j)))
+				}
+			case _:
+			}
+		}
+	case _:
+	}
+	out
+}
+
+// BracketOwn is whether each name of the bracket list l is marked own,
+// in order: the mark is its field's, so [A, B own] marks both (decl.go
+// typeParams).
+func BracketOwn(p syntax.Parsed, l dense.ID[syntax.Node]) []bool {
+	let mut out = []bool{}
+	match syntax.ViewOf(p.Tree, l) {
+	case syntax.FieldList as fl:
+		for i in 0..syntax.Len(fl.List) {
+			match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, fl.List, i)) {
+			case syntax.Field as fd:
+				for _ in 0..syntax.Len(fd.Names) {
+					out = out.Append(fd.Own >= 0)
+				}
+			case _:
+			}
+		}
+	case _:
+	}
+	out
+}
+
+// hasSig is whether t holds a signature.
+func hasSig(s store.Store, t dense.ID[store.TKey]) bool {
+	if store.KindOfType(s, t) == store.KSig {
+		return true
+	}
+	for o in store.OperandsOf(s, t) {
+		if hasSig(s, o) {
+			return true
+		}
+	}
+	false
+}
+
+// declared is a law's or a test's Fn: its parameters' types from the
+// field list params (none when absent) and its result.
+func declared(s mut store.Store, env types.Env, p syntax.Parsed, file int, decl dense.ID[syntax.Node], name dense.ID[syntax.Node], params dense.Opt[syntax.Node], result dense.ID[store.TKey], b dense.Opt[syntax.Node]) Fn {
+	let mut ts = []dense.ID[store.TKey]{}
+	let mut names = []dense.Opt[syntax.Node]{}
+	match dense.Unpack(params) {
+	case Some{Value: l}:
+		for f in fieldsOf(s, env, p, l) {
+			ts = ts.Append(f.T)
+		}
+		// A law's function-typed parameter has a row the law's draw
+		// leaves open, which the pool does not write: it is not declared.
+		for i, n in listNames(p, l) {
+			names = names.Append(if i < len(ts) && hasSig(*s, ts[i]) { dense.NoID[syntax.Node]() } else { n })
+		}
+	case None:
+	}
+	let none = store.TRow(s, []dense.ID[store.TKey]{})
+	Fn{File: file, Decl: decl, Name: name, Params: []string{}, Rows: []bool{}, Own: []bool{}, Names: names, Sig: store.TSig(s, ts, result, none, none), Body: b, Takes: []bool{}, Pnames: []string{}, Close: false}
+}
+
+// sigFacts is what a function's declaration says of its parameters: the
+// takes (Fn.Takes), their names, and whether it is a Close of the R1 shape
+// (Fn.Close).
+type sigFacts { taken []bool, names []string, close bool }
+
+// factsOf is the sigFacts of a function named name declared with the
+// function type ft and the signature sig (resource.go ownParams and
+// takesClause, close.go closeTakes and closeFacts): it takes a parameter
+// written own whose type is no function type, one its takes clause names,
+// and with no clause the receiver of a Close of the R1 shape (one
+// parameter, no result, no failure) on a type of closers, the package's
+// types that implement Closer.
+func factsOf(s store.Store, p syntax.Parsed, name string, ft dense.ID[syntax.Node], sig dense.ID[store.TKey], closers []string) sigFacts {
+	let ops = store.OperandsOf(s, sig)
+	let n = len(ops) - 3
+	let mut out = []bool{}
+	for _ in 0..n {
+		out = out.Append(false)
+	}
+	let mut close = false
+	if name == "Close" && n == 1 && store.KindOfType(s, ops[1]) == store.KTuple && len(store.OperandsOf(s, ops[1])) == 0 && len(store.OperandsOf(s, ops[2])) == 0 {
+		let mut r = ops[0]
+		if store.KindOfType(s, r) == store.KPointer {
+			r = store.OperandsOf(s, r)[0]
+		}
+		close = store.KindOfType(s, r) == store.KNamed && slices.Contains(closers, store.TypeNameText(s, store.ArgOf(s, r)))
+	}
+	let w = written(s, p, ft, ops, n, out)
+	let mut taken = w.taken
+	if close && !w.clause {
+		taken[0] = true
+	}
+	sigFacts{taken: taken, names: w.names, close: close}
+}
+
+// writtenTakes is what a signature writes: the parameters it takes, their
+// names, and whether it writes a takes clause.
+type writtenTakes { taken []bool, names []string, clause bool }
+
+// written is factsOf's writtenTakes: out has one false per parameter of
+// ops' n.
+func written(s store.Store, p syntax.Parsed, ft dense.ID[syntax.Node], ops []dense.ID[store.TKey], n int, out0 []bool) writtenTakes {
+	let mut out = out0
+	let f = match syntax.ViewOf(p.Tree, ft) {
+	case syntax.FuncType as v:
+		v
+	case _:
+		return writtenTakes{taken: out, names: []string{}, clause: false}
+	}
+	let mut at = 0
+	let mut names = []string{}
+	match syntax.ViewOf(p.Tree, f.Params) {
+	case syntax.FieldList as fl:
+		for i in 0..syntax.Len(fl.List) {
+			match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, fl.List, i)) {
+			case syntax.Field as fd:
+				let count = if syntax.Len(fd.Names) == 0 { 1 } else { syntax.Len(fd.Names) }
+				for j in 0..count {
+					names = names.Append(if j < syntax.Len(fd.Names) { types.NameText(p, syntax.Item(p.Tree, fd.Names, j)) } else { "" })
+					if fd.Own >= 0 && at < n {
+						let kind = store.KindOfType(s, ops[at])
+						if kind != store.KSig && kind != store.KOwn && kind != store.KEntry {
+							out[at] = true
+						}
+					}
+					at = at + 1
+				}
+			case _:
+			}
+		}
+	case _:
+	}
+	match dense.Unpack(f.Takes) {
+	case Some[dense.ID[syntax.Node]] as tc:
+		match syntax.ViewOf(p.Tree, tc.Value) {
+		case syntax.TakesClause as c:
+			for i in 0..syntax.Len(c.Names) {
+				let k = slices.Index(names, types.NameText(p, syntax.Item(p.Tree, c.Names, i)))
+				if k >= 0 && k < n {
+					out[k] = true
+				}
+			}
+		case _:
+		}
+		return writtenTakes{taken: out, names: names, clause: true}
+	case None:
+	}
+	writtenTakes{taken: out, names: names, clause: false}
+}
+
+// closerNames is the names of the types of parsed that write implements
+// Closer.
+func closerNames(parsed []syntax.Parsed) []string {
+	let mut out = []string{}
+	for p in parsed {
+		if p.Failed {
+			continue
+		}
+		match syntax.ViewOf(p.Tree, syntax.Root(p.Tree)) {
+		case syntax.File as root:
+			for i in 0..syntax.Len(root.Decls) {
+				match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, root.Decls, i)) {
+				case syntax.TypeDecl as td:
+					for j in 0..syntax.Len(td.Implements) {
+						let x = syntax.Item(p.Tree, td.Implements, j)
+						let head = if syntax.KindOf(p.Tree, x) == syntax.KSelectorExpr { syntax.SelectorExprOf(p.Tree, x).Sel } else { x }
+						if syntax.KindOf(p.Tree, head) == syntax.KIdent && types.NameText(p, head) == "Closer" {
+							out = out.Append(types.NameText(p, td.Name))
+						}
+					}
+				case _:
+				}
+			}
+		case _:
+		}
+	}
+	out
+}
+
+// opTypes is recs with p's operation types that have no bracket
+// parameters: each operation a field of its signature's type.
+func opTypes(s mut store.Store, p syntax.Parsed, parsed []syntax.Parsed, kinds types.Kinds, ext []types.Ext, foreign []types.Foreign, deps []types.Iface, recs []Rec) []Rec {
+	let mut out = recs
+	let env = types.NewEnv(*s, parsed, p, []string{}, kinds, ext, foreign, deps)
+	match syntax.ViewOf(p.Tree, syntax.Root(p.Tree)) {
+	case syntax.File as root:
+		for i in 0..syntax.Len(root.Decls) {
+			match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, root.Decls, i)) {
+			case syntax.TypeDecl as td:
+				if isSome(dense.Unpack(td.TypeParams)) {
+					continue
+				}
+				match dense.Unpack(td.Spec) {
+				case Some{Value: sp}:
+					match syntax.ViewOf(p.Tree, sp) {
+					case syntax.InterfaceType as it:
+						let mut ops = []Field{}
+						let mut any = false
+						for j in 0..syntax.Len(it.Members) {
+							match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, it.Members, j)) {
+							case syntax.Field as fd:
+								match dense.Unpack(fd.Type) {
+								case Some{Value: ft}:
+									if syntax.KindOf(p.Tree, ft) == syntax.KFuncType && syntax.Len(fd.Names) == 1 {
+										any = true
+										ops = ops.Append(Field{Name: types.NameText(p, syntax.Item(p.Tree, fd.Names, 0)), T: types.Resolve(s, env, ft)})
+									}
+								case None:
+								}
+							case _:
+							}
+						}
+						if any {
+							out = out.Append(Rec{Name: types.NameText(p, td.Name), Params: []string{}, Fields: ops, Op: true})
+						}
+					case _:
+					}
+				case None:
+				}
+			case _:
+			}
+		}
+	case _:
+	}
+	out
+}
+
+// fieldsOf is the written fields of the field list l, resolved in env.
+func fieldsOf(s mut store.Store, env types.Env, p syntax.Parsed, l dense.ID[syntax.Node]) []Field {
+	let mut out = []Field{}
+	match syntax.ViewOf(p.Tree, l) {
+	case syntax.FieldList as fl:
+		for i in 0..syntax.Len(fl.List) {
+			match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, fl.List, i)) {
+			case syntax.Field as fd:
+				if fd.Dots >= 0 {
+					continue
+				}
+				match dense.Unpack(fd.Type) {
+				case Some{Value: t}:
+					let ty = types.Resolve(s, env, t)
+					for j in 0..syntax.Len(fd.Names) {
+						out = out.Append(Field{Name: types.NameText(p, syntax.Item(p.Tree, fd.Names, j)), T: ty})
+					}
+				case None:
+				}
+			case _:
+			}
+		}
+	case _:
+	}
+	out
+}
+
+// writesWired is whether a token of the node x is the name wired: a type
+// with none writes no wired[T] (types.WiredOfType), so its walk is
+// skipped (S3d9). A token's text is read only for a name with room for
+// five bytes before the next token (the loop reads the next token's
+// offset anyway).
+func writesWired(p syntax.Parsed, x dense.ID[syntax.Node]) bool {
+	let hi = syntax.NodeEnd(p, x)
+	let mut j = syntax.TokStartingAt(p, syntax.NodePos(p, x))
+	if j < 0 {
+		return false
+	}
+	let mut at = syntax.TokPos(p, j)
+	for at < hi {
+		let next = syntax.TokPos(p, j+1)
+		if next-at >= 5 && syntax.TokKind(p, j) == syntax.Ident && syntax.TokText(p, j) == "wired" {
+			return true
+		}
+		j = j + 1
+		at = next
+	}
+	false
+}
+
+// Load is the package of files, collected and bound into s: its
+// signatures and record fields resolved with ext0 and foreign0 (the
+// kinds and types of the prelude, the universe and the Go imports) and
+// deps (its Ergo imports' interfaces, in s's import list's order; an
+// import the program does not hold is types.EmptyIface), prelude telling
+// whether the package is the prelude.
+func Load(s mut store.Store, files []bind.File, u bind.Uses, ps bind.Parents, ext0 []types.Ext, foreign0 []types.Foreign, deps []types.Iface, prelude bool) Pkg {
+	let mut parsed = []syntax.Parsed{}
+	for f in files {
+		parsed = parsed.Append(f.Parsed)
+	}
+	let mut ext = ext0
+	for x in types.ExtOf(*s, deps) {
+		ext = ext.Append(x)
+	}
+	let foreign = types.WithAliases(foreign0, *s, deps)
+	let kinds = types.SolveKinds(*s, parsed, ext)
+	let mut fns = []Fn{}
+	let closers = closerNames(parsed)
+	for f in types.SolveFuncKinds(*s, parsed, ext, kinds) {
+		let p = parsed[f.File]
+		match syntax.ViewOf(p.Tree, f.Decl) {
+		case syntax.FuncDecl as fd:
+			let env = types.NewEnv(*s, parsed, p, f.Params, kinds, ext, foreign, deps)
+			if writesWired(p, fd.Type) && types.WiredOfType(*s, env, fd.Type) {
+				continue
+			}
+			let sig = types.Resolve(s, env, fd.Type)
+			let mut rows = []bool{}
+			for k in f.Kinds {
+				rows = rows.Append(k != 1)
+			}
+			let own = match dense.Unpack(fd.TypeParams) {
+			case Some[dense.ID[syntax.Node]] as tp:
+				BracketOwn(p, tp.Value)
+			case None:
+				[]bool{}
+			}
+			let facts = factsOf(*s, p, types.NameText(p, fd.Name), fd.Type, sig, closers)
+			fns = fns.Append(Fn{File: f.File, Decl: f.Decl, Name: fd.Name, Params: f.Params, Rows: rows, Own: own, Names: paramNames(p, fd.Type), Sig: sig, Body: fd.Body, Takes: facts.taken, Pnames: facts.names, Close: facts.close})
+		case _:
+		}
+	}
+	let mut ops = []OpName{}
+	let mut parses = []OpName{}
+	for file, p in parsed {
+		if p.Failed {
+			continue
+		}
+		let env = types.NewEnv(*s, parsed, p, []string{}, kinds, ext, foreign, deps)
+		match syntax.ViewOf(p.Tree, syntax.Root(p.Tree)) {
+		case syntax.File as root:
+			for i in 0..syntax.Len(root.Decls) {
+				let d = syntax.Item(p.Tree, root.Decls, i)
+				match syntax.ViewOf(p.Tree, d) {
+				case syntax.LawDecl as ld:
+					if ld.Body != dense.NoID[syntax.Node]() {
+						// A top-level rewrite law, { lhs } == { rhs }, is
+						// a block of its two sides, and the checker types
+						// it as lhs == rhs: no side is the law's bool, so
+						// its body has no result to want (TUPLE-WANT's
+						// tail blocks would type the right side as one).
+						let result = if ld.Equation { store.TTuple(s, []dense.ID[store.TKey]{}) } else { store.TBasic(s, bBool) }
+						// Its type parameters name its parameters' types,
+						// as a function's do (adf427bfe).
+						let mut lenv = env
+						let mut tnames = []string{}
+						let mut towns = []bool{}
+						match dense.Unpack(ld.TypeParams) {
+						case Some{Value: tp}:
+							tnames = types.BracketNames(p, tp)
+							towns = BracketOwn(p, tp)
+							lenv = types.NewEnv(*s, parsed, p, tnames, kinds, ext, foreign, deps)
+						case None:
+						}
+						let mut lf = declared(s, lenv, p, file, d, ld.Name, ld.Params, result, ld.Body)
+						lf.Params = tnames
+						lf.Own = towns
+						for _ in tnames {
+							lf.Rows = lf.Rows.Append(false)
+						}
+						fns = fns.Append(lf)
+					}
+				case syntax.TestDecl as td:
+					fns = fns.Append(declared(s, env, p, file, d, td.Name, td.Params, store.TTuple(s, []dense.ID[store.TKey]{}), dense.OptOf(td.Body)))
+				case syntax.TypeDecl as td:
+					// A refined type with no bracket parameters derives its
+					// parse function (types.RefinedParse).
+					if isSome(dense.Unpack(td.Where)) && !isSome(dense.Unpack(td.TypeParams)) {
+						match dense.Unpack(td.Spec) {
+						case Some[dense.ID[syntax.Node]] as base:
+							parses = parses.Append(OpName{File: file, Name: td.Name, T: types.RefinedParse(s, env, base.Value, types.NameText(p, td.Name))})
+						case None:
+						}
+					}
+					// An operation type's laws, and its operations they call.
+					if !isSome(dense.Unpack(td.TypeParams)) {
+						match dense.Unpack(td.Spec) {
+						case Some[dense.ID[syntax.Node]] as sp:
+							match syntax.ViewOf(p.Tree, sp.Value) {
+							case syntax.InterfaceType as it:
+								// A type that embeds another (..fs.Files) has
+								// operations its laws call that are not its
+								// own: its laws are not typed.
+								let mut embeds = false
+								for j in 0..syntax.Len(it.Members) {
+									match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, it.Members, j)) {
+									case syntax.Field as fd:
+										embeds = embeds || fd.Dots >= 0
+									case _:
+									}
+								}
+								for j in 0..syntax.Len(it.Members) {
+									let m = syntax.Item(p.Tree, it.Members, j)
+									match syntax.ViewOf(p.Tree, m) {
+									case syntax.Field as fd:
+										match dense.Unpack(fd.Type) {
+										case Some[dense.ID[syntax.Node]] as ft:
+											if syntax.KindOf(p.Tree, ft.Value) == syntax.KFuncType && syntax.Len(fd.Names) == 1 {
+												ops = ops.Append(OpName{File: file, Name: syntax.Item(p.Tree, fd.Names, 0), T: types.Resolve(s, env, ft.Value)})
+											}
+										case None:
+										}
+									case syntax.LawDecl as ld:
+										if ld.Body != dense.NoID[syntax.Node]() && !embeds {
+											fns = fns.Append(declared(s, env, p, file, m, ld.Name, ld.Params, store.TBasic(s, bBool), ld.Body))
+										}
+									case _:
+									}
+								}
+							case _:
+							}
+						case None:
+						}
+					}
+				case _:
+				}
+			}
+		case _:
+		}
+	}
+	let mut recs = []Rec{}
+	for p in parsed {
+		if p.Failed {
+			continue
+		}
+		for r in types.Records(p, prelude) {
+			let env = types.NewEnv(*s, parsed, p, r.Params, kinds, ext, foreign, deps)
+			recs = recs.Append(Rec{Name: r.Name, Params: r.Params, Fields: fieldsOf(s, env, p, r.Fields), Op: false})
+		}
+		recs = opTypes(s, p, parsed, kinds, ext, foreign, deps, recs)
+	}
+	// The functions by their name's node and the records by their
+	// declaration: a lookup per expression reads one slot, so typing a
+	// body costs the same in a package of any size.
+	// fnBy holds one slot per row of the package (-1: no function's
+	// name), sized once.
+	let mut rows = 0
+	for p in parsed {
+		if !p.Failed {
+			rows = rows + syntax.NumNodes(p.Tree)
+		}
+	}
+	let mut fnBy = dense.ColWithCap[store.PNode, int](rows)
+	for _ in 0..rows {
+		dense.Push(&fnBy, -1)
+	}
+	for i, f in fns {
+		dense.SetOf(&fnBy, bind.PNodeOf(ps, f.File, f.Name), i)
+	}
+	let mut named = dense.NewSide[dense.Str, int](-1)
+	let mut sameName = []int{}
+	for i, f in fns {
+		sameName = sameName.Append(-1)
+		match store.FindName(*s, types.NameText(parsed[f.File], f.Name)) {
+		case Some{Value: n}:
+			sameName[i] = dense.SideOf(named, n)
+			dense.SideSet(&named, n, i)
+		case None:
+		}
+	}
+	let mut recBy = dense.NewSide[store.Decl, int](-1)
+	for i, r in recs {
+		match store.Lookup(*s, r.Name) {
+		case Some{Value: d}:
+			dense.SideSet(&recBy, d, i)
+		case None:
+		}
+	}
+	// The unions a call meets, read once: inference looks one up per
+	// union argument, not per declaration.
+	let unions = if len(parsed) > 0 { types.UnionsOf(s, types.NewEnv(*s, parsed, parsed[0], []string{}, kinds, ext, foreign, deps)) } else { infer.NoUnions() }
+	Pkg{Files: files, Parsed: parsed, U: u, Ps: ps, Kinds: kinds, Ext: ext, Foreign: foreign, Ifaces: deps, Fns: fns, Recs: recs, Ops: ops, Parses: parses, Deps: []Dep{}, Unions: unions, fnBy: fnBy, named: named, sameName: sameName, recBy: recBy}
+}
+
+// parseFn is the parse function the refined type named at the package
+// node at derives, as a function of no body; none when no refined type is
+// named there.
+func parseFn(k Pkg, at dense.ID[store.PNode]) Option[Fn] {
+	for o in k.Parses {
+		if bind.PNodeOf(k.Ps, o.File, o.Name) == at {
+			return Some[Fn]{Value: Fn{File: o.File, Decl: o.Name, Name: o.Name, Params: []string{}, Rows: []bool{}, Own: []bool{}, Names: []dense.Opt[syntax.Node]{dense.NoID[syntax.Node]()}, Sig: o.T, Body: dense.NoID[syntax.Node](), Takes: []bool{false}, Pnames: []string{""}, Close: false}}
+		}
+	}
+	None
+}
+
+// TyperWorkPerFunctionIsConstant: each further function of one shape adds
+// the same steps, the same typed expressions and the same reserved slots,
+// whatever the package's size, so no expression's typing reads the whole
+// package and the package-sized tables grow by the function, not faster.
+law TyperWorkPerFunctionIsConstant(n int) {
+	let m = 1 + ((n%3)+3)%3
+	let (s1, e1, r1) = typedShape(m)
+	let (s2, e2, r2) = typedShape(2 * m)
+	let (s3, e3, r3) = typedShape(3 * m)
+	e2 > e1 && s2-s1 == s3-s2 && e2-e1 == e3-e2 && r2 > r1 && r2-r1 == r3-r2
+}
+
+// shaped is the source of a package of m functions of one shape, which
+// reaches the typer's forms: a written and an inferred let, a generic
+// call, an index, a range, a condition and a final value.
+func shaped(m int) string {
+	let mut b = strings.NewBuilder()
+	b.WriteString("func id[T](x T) T { x }\n")
+	for i in 0..m {
+		b.WriteString("\nfunc f\(i)(p int, q string, xs []int) int {\n\tlet mut acc = p + 1\n\tlet a = id(p)\n\tlet c int = xs[0] * 2\n\tfor j, e in xs {\n\t\tacc = acc + e - j\n\t}\n\tif acc > 3 && q != \"x\" {\n\t\tacc = acc + len(q)\n\t}\n\tacc + a + c\n}\n")
+	}
+	b.String()
+}
+
+// typedShape types the package of m shaped functions: the typer's steps,
+// its count of typed expressions and the slots it reserved.
+func typedShape(m int) (int, int, int) {
+	let files = []bind.File{bind.File{Name: "p.ergo", Parsed: syntax.Parse(shaped(m))}}
+	let ps = bind.BuildParents(files)
+	let (bound, u) = bind.Bind(bind.Collect("p", files), []store.Frozen{}, ps, files, 1)
+	let mut s = bound
+	let k = Load(&s, files, u, ps, []types.Ext{}, []types.Foreign{}, []types.Iface{}, false)
+	let t = Check(&s, k)
+	(Steps(t), len(t.Entries), Reserved(t))
+}
+
+// FnAt is the index in k.Fns of the function whose name node is the
+// package node at, -1 when none is.
+func FnAt(k Pkg, at dense.ID[store.PNode]) int { if dense.In(k.fnBy, at) { dense.Of(k.fnBy, at) } else { -1 } }
+
+// recOf is the index in k.Recs of the record named name, -1 when none is.
+func recOf(s store.Store, k Pkg, name string) int {
+	match store.Lookup(s, name) {
+	case Some{Value: d}:
+		dense.SideOf(k.recBy, d)
+	case None:
+		-1
+	}
+}

@@ -149,7 +149,7 @@ func Has[T](t Table[T], id ID[T]) bool { int(id.n) < len(t.rows) }
 
 // Put appends v and returns its id. Every id that named a row before
 // still names the same row.
-func Put[T](t *Table[T], v T) ID[T] {
+func Put[T](t mut Table[T], v T) ID[T] {
 	let n = len(t.rows)
 	let grows = room(t.rows) == n
 	// A table's room is at most one per id (WithCap, and the regrowth
@@ -245,7 +245,7 @@ law GetAgreesWithHas(xs []int) {
 }
 
 // Set replaces the row id names. An id past the end is a defect.
-func Set[T](t *Table[T], id ID[T], v T) { t.rows[int(id.n)] = v }
+func Set[T](t mut Table[T], id ID[T], v T) { t.rows[int(id.n)] = v }
 
 // SetThenAt: At reads what Set wrote, and Set changes no other row.
 law SetThenAt(xs []int, k int, v int) {
@@ -338,7 +338,7 @@ type Count[K] { n uint32 }
 func NewCount[K]() Count[K] { Count[K]{n: uint32(0)} }
 
 // Next is the id of the next row.
-func Next[K](c *Count[K]) ID[K] {
+func Next[K](c mut Count[K]) ID[K] {
 	let id = next[K](int(c.n))
 	c.n = c.n + 1
 	id
@@ -404,7 +404,7 @@ func NewCol[K, V]() Col[K, V] { Col[K, V]{xs: []V{}} }
 func ColWithCap[K, V](n int) Col[K, V] { Col[K, V]{xs: slices.WithCapacity[V](n)} }
 
 // Push appends the value of the next row.
-func Push[K, V](c *Col[K, V], v V) { c.xs = c.xs.Append(v) }
+func Push[K, V](c mut Col[K, V], v V) { c.xs = c.xs.Append(v) }
 
 // In reports whether the column holds a value for id.
 func In[K, V](c Col[K, V], id ID[K]) bool { int(id.n) < len(c.xs) }
@@ -413,7 +413,7 @@ func In[K, V](c Col[K, V], id ID[K]) bool { int(id.n) < len(c.xs) }
 func Of[K, V](c Col[K, V], id ID[K]) V { c.xs[int(id.n)] }
 
 // SetOf replaces the value of id. An id past the end is a defect.
-func SetOf[K, V](c *Col[K, V], id ID[K], v V) { c.xs[int(id.n)] = v }
+func SetOf[K, V](c mut Col[K, V], id ID[K], v V) { c.xs[int(id.n)] = v }
 
 // Side holds data that few rows of K have, with a default for the rest:
 // where Go keeps a map keyed by a pointer. It is as long as the largest
@@ -449,7 +449,7 @@ func SideOf[K, V](s Side[K, V], id ID[K]) V {
 }
 
 // SideSet sets the value of id.
-func SideSet[K, V](s *Side[K, V], id ID[K], v V) {
+func SideSet[K, V](s mut Side[K, V], id ID[K], v V) {
 	let i = int(id.n)
 	for len(s.xs) <= i {
 		s.xs = s.xs.Append(s.zero)
@@ -483,7 +483,7 @@ func PoolWithCap[E](n int) Pool[E] { Pool[E]{items: slices.WithCapacity[E](n)} }
 // PutList appends xs as one list and returns its run. No earlier list
 // changes. The items go in one bulk append, and an empty list does no
 // work but give its run the pool's end.
-func PutList[E](p *Pool[E], xs []E) Run[E] {
+func PutList[E](p mut Pool[E], xs []E) Run[E] {
 	let start = len(p.items)
 	if len(xs) == 0 {
 		return Run[E]{start: uint32(start), n: uint32(0)}
@@ -539,7 +539,7 @@ func NewStack[T]() Stack[T] { Stack[T]{items: []T{}, top: 0} }
 func StackWithCap[T](n int) Stack[T] { Stack[T]{items: slices.WithCapacity[T](n), top: 0} }
 
 // StackPush puts v on top of s.
-func StackPush[T](s *Stack[T], v T) {
+func StackPush[T](s mut Stack[T], v T) {
 	if s.top < len(s.items) {
 		s.items[s.top] = v
 	} else {
@@ -567,7 +567,7 @@ func Since[T](s Stack[T], m int) []T {
 // Cut drops the rows pushed after mark m: Depth is m after it, and the
 // rows below m are unchanged. A mark above the top, or below 0, is a
 // defect.
-func Cut[T](s *Stack[T], m int) {
+func Cut[T](s mut Stack[T], m int) {
 	if m < 0 || m > s.top {
 		Unreachable("dense: a mark above the stack's top")
 	}
@@ -577,7 +577,7 @@ func Cut[T](s *Stack[T], m int) {
 // PutSince puts the rows pushed on s after mark m into p as one list and
 // cuts s to m: PutList(p, Since(s, m)), then Cut(s, m), with no copy
 // between.
-func PutSince[E](p *Pool[E], s *Stack[E], m int) Run[E] {
+func PutSince[E](p mut Pool[E], s mut Stack[E], m int) Run[E] {
 	if m < 0 || m > s.top {
 		Unreachable("dense: a mark above the stack's top")
 	}

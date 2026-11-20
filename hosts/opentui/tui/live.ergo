@@ -12,7 +12,7 @@ import ui
 
 // speak says the text of each live region ops write, after the screen
 // shows them.
-func speak[S, E, D, F](d *Driver[S, E, D, F], ops []ui.Op[E]) fails ScreenFailed needs go.Foreign {
+func speak[S, E, D, F](d mut Driver[S, E, D, F], ops []ui.Op[E]) fails ScreenFailed needs go.Foreign {
 	for op in ops {
 		match op {
 		case ui.Insert[E] as x:
@@ -40,4 +40,4 @@ func sayLive[E](s go.Ref[screen.Screen], n ui.Node[E]) fails ScreenFailed needs 
 
 // Said is each text the driver said on the terminal, in order (a
 // headless screen keeps them), for a test to hold to ui.Announced.
-func Said[S, E, D, F](d *Driver[S, E, D, F]) []string needs go.Foreign { d.s.Said() }
+func Said[S, E, D, F](d mut Driver[S, E, D, F]) []string needs go.Foreign { d.s.Said() }

@@ -188,9 +188,11 @@ func TestCaseBudgetStopsGeneration(t *testing.T) {
 		if report.Results[0].Status != Passed || report.Steps < streamWork {
 			t.Fatalf("seed %d: stream work %d, report %+v", seed, streamWork, report)
 		}
-		b.Steps = streamWork / 2
+		// The budget is each case's (TP-BUILT-FAST): 100 cases of a
+		// half share each cannot pay the stream's work.
+		b.Steps = streamWork / 2 / 100
 		report, err = Run(pkg, b)
-		if err != nil || report.Results[0].Status != Incomplete || report.Steps > b.Steps {
+		if err != nil || report.Results[0].Status != Incomplete || report.Steps > b.Steps*100 {
 			t.Fatalf("seed %d: bounded generation %+v %v", seed, report, err)
 		}
 	}

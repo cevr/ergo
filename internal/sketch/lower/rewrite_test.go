@@ -222,7 +222,7 @@ func digit(n int) Digit {
 // exactly as Add itself does in the handle-backed reference provider.
 func (a agreeType) valueSource() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "type %s { Add(n Digit), Inc(), Halve(), Clear(), Read() int, Even() bool,\n", a.name)
+	fmt.Fprintf(&b, "type %s { mut Add(n Digit), mut Inc(), mut Halve(), mut Clear(), Read() int, Even() bool,\n", a.name)
 	for _, law := range a.laws {
 		text := law.text()
 		head := text[:strings.LastIndex(text, " == ")]
@@ -260,10 +260,10 @@ func (a agreeType) valueSource() string {
 		// k is 0 in every state New and the operations reach; a value
 		// built outside them (agreeProgram's open sites) may hold another.
 		fmt.Fprintf(&b, "type %s { s Digit, k Digit } implements %s\nfunc New%s() %s { %s{s: 0, k: 0} }\n", p, a.name, p, p, p)
-		fmt.Fprintf(&b, "func Add(p *%s, n Digit) { p.s = digit(int(p.s) + int(n)*%d + int(p.k)) }\n", p, a.c)
-		fmt.Fprintf(&b, "func Inc(p *%s) { p.s = digit(int(p.s) + %d) }\n", p, provider.delta)
-		fmt.Fprintf(&b, "func Halve(p *%s) { p.s = digit(int(p.s)/2) }\n", p)
-		fmt.Fprintf(&b, "func Clear(p *%s) { p.s = digit(int(p.s)&^1) }\n", p)
+		fmt.Fprintf(&b, "func Add(p mut %s, n Digit) { p.s = digit(int(p.s) + int(n)*%d + int(p.k)) }\n", p, a.c)
+		fmt.Fprintf(&b, "func Inc(p mut %s) { p.s = digit(int(p.s) + %d) }\n", p, provider.delta)
+		fmt.Fprintf(&b, "func Halve(p mut %s) { p.s = digit(int(p.s)/2) }\n", p)
+		fmt.Fprintf(&b, "func Clear(p mut %s) { p.s = digit(int(p.s)&^1) }\n", p)
 		fmt.Fprintf(&b, "func Read(p %s) int { int(p.s)&1 }\nfunc Even(p %s) bool { int(p.s)&1 == 0 }\n", p, p)
 	}
 	return a.rename(b.String())

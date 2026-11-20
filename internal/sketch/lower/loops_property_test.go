@@ -133,7 +133,7 @@ func (g *loopGen) fill(defect bool) {
 			idx, _ = loopIndex(0, "c")
 		}
 	}
-	fn := fmt.Sprintf("func CASE(g *Grid, lo int, hi int, c int, v int) {\n%s\tfor i in lo..hi {\n\t\t%s[%s] = %s\n\t}\n%s}\n", pre, place, idx, value, post)
+	fn := fmt.Sprintf("func CASE(g mut Grid, lo int, hi int, c int, v int) {\n%s\tfor i in lo..hi {\n\t\t%s[%s] = %s\n\t}\n%s}\n", pre, place, idx, value, post)
 	idiom := !strings.Contains(value, "p.") && value != "i"
 	keys := []string{"fill " + elem, "offset " + loopOffsets[f], fmt.Sprintf("fill local %v", local), "fill value " + label}
 	if lo >= hi {
@@ -161,7 +161,7 @@ func (g *loopGen) move(defect bool) {
 			break
 		}
 	}
-	fn := fmt.Sprintf("func CASE(g *Grid, lo int, hi int, d int, s int) {\n\tfor i in lo..hi {\n\t\tg.nums[%s] = %s[%s]\n\t}\n}\n", di, src, si)
+	fn := fmt.Sprintf("func CASE(g mut Grid, lo int, hi int, d int, s int) {\n\tfor i in lo..hi {\n\t\tg.nums[%s] = %s[%s]\n\t}\n}\n", di, src, si)
 	keys := []string{"offset " + loopOffsets[fd], "offset " + loopOffsets[fs]}
 	switch {
 	case other:
@@ -192,7 +192,7 @@ func (g *loopGen) collect(defect bool) {
 	}
 	n := map[string]int{"g.more": g.more, "g.arr": 6, "out": 2}[src]
 	lo, hi, c := g.bounds(n, at, defect)
-	fn := fmt.Sprintf("func CASE(g *Grid, lo int, hi int, c int) {\n\tlet mut out = []int{100, 101}\n\tfor i in lo..hi {\n\t\tout = out.Append(%s[%s])\n\t}\n\tg.nums = out\n}\n", src, idx)
+	fn := fmt.Sprintf("func CASE(g mut Grid, lo int, hi int, c int) {\n\tlet mut out = []int{100, 101}\n\tfor i in lo..hi {\n\t\tout = out.Append(%s[%s])\n\t}\n\tg.nums = out\n}\n", src, idx)
 	keys := []string{"collect " + src, "offset " + loopOffsets[f]}
 	if lo >= hi {
 		keys = append(keys, "empty")
@@ -230,7 +230,7 @@ func loopProgram(seed uint64, reached map[string]bool) (src string, idioms int, 
 	b.WriteString("type Cell { a int, b int }\n\ntype Grid { nums []int, more []int, cells []Cell, arr [6]int }\n\n")
 	b.WriteString("let seven = 7\n\nlet blank = Cell{a: -1, b: -2}\n\nlet empty = Cell{a: 0, b: 0}\n\n")
 	fmt.Fprintf(&b, "func fresh() Grid {\n\tGrid{nums: []int{%s}, more: []int{%s}, cells: []Cell{%s}, arr: [6]int{%s}}\n}\n\n", seq(g.nums, 1), seq(g.more, 20), strings.Join(cells, ", "), seq(6, 40))
-	b.WriteString("func show(g *Grid) string {\n\tlet mut s = \"\"\n\tfor x in g.nums {\n\t\ts = s + \"\\(x),\"\n\t}\n\tfor x in g.cells {\n\t\ts = s + \" \\(x.a)/\\(x.b)\"\n\t}\n\ts\n}\n\n")
+	b.WriteString("func show(g mut Grid) string {\n\tlet mut s = \"\"\n\tfor x in g.nums {\n\t\ts = s + \"\\(x),\"\n\t}\n\tfor x in g.cells {\n\t\ts = s + \" \\(x.a)/\\(x.b)\"\n\t}\n\ts\n}\n\n")
 	b.WriteString(g.funcs.String())
 	b.WriteString("func main() needs Console {\n\tlet mut g = fresh()\n" + g.calls.String() + "}\n")
 	return b.String(), g.idioms, defect

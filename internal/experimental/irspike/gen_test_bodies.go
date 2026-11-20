@@ -8,14 +8,15 @@ import (
 
 // testBodies is the number of tests GenerateTests writes: each gets an IR
 // body in every seed (G6).
-const testBodies = 10
+const testBodies = 11
 
 // GenerateTests is a program of test declarations (G6): asserts whose
 // failure shows its operands (a comparison of ints, of strings, of a
 // multi-line string, which adds a line diff, and of bools), asserts that
 // show only their source text (a call, a comparison of two constants), a
-// test whose try passes a failure on, an assert that a try starts, a property test of a seed, and a
-// test that calls a function value. The seed decides which asserts hold,
+// test whose try passes a failure on, an assert that a try starts, a property test of a seed, a
+// test that calls a function value, and asserts of == on records, a union
+// and its variant, and slices. The seed decides which asserts hold,
 // so a run reports passes and failures with their texts.
 func GenerateTests(seed uint64) string {
 	r := rand.New(rand.NewPCG(seed, seed^0x9e3779b97f4a7c15))
@@ -48,6 +49,17 @@ func GenerateTests(seed uint64) string {
 	fmt.Fprintf(&b, "test Caught {\n\tlet v = check(%d) catch {\n\tcase Bad as e:\n\t\t0 - e.N\n\t}\n\tassert v %s 0\n}\n\n", r.IntN(7), pick(">", "<"))
 	fmt.Fprintf(&b, "test Holds(seed int) {\n\tlet n = seed %% 50\n\tassert scale(n) %s n * %d\n}\n\n", pick("==", "!="), k)
 	fmt.Fprintf(&b, "test Values {\n\tlet f = func(a int) int { a + %d }\n\tlet mut s = 0\n\tfor i in []int{1, 2, 3} {\n\t\tlet v = f(i)\n\t\ts = s + v\n\t}\n\tassert s == %s\n}\n\n", k, pick(fmt.Sprint(6+3*k), fmt.Sprint(7+3*k)))
+	// == on records, a union and its variant, and slices: the equality
+	// the IR writes for a type that is not basic (FLIP F7 CS), its
+	// failure showing the operands.
+	z := r.IntN(7)
+	b.WriteString("type Won { Moves int }\n\ntype Lost { At string }\n\ntype End = Won | Lost\n\ntype Pt { X int, Y int }\n\n")
+	b.WriteString("func ending(n int) End {\n\tif n > 3 {\n\t\treturn Won{Moves: n}\n\t}\n\tLost{At: \"gate\"}\n}\n\n")
+	// A dropped call of a generic function whose row is empty here: its
+	// Go form returns the value and a nil error, both bound and dropped
+	// (lru's memo test).
+	b.WriteString("func first[E](f func() int fails E) int fails E {\n\ttry f()\n}\n\n")
+	fmt.Fprintf(&b, "test Records {\n\tlet _ = first(func() int { 1 })\n\tassert ending(%d) == Won{Moves: %s}\n\tassert Pt{X: %d, Y: 1} == Pt{X: %d, Y: %s}\n\tassert []int{%d, 1} != []int{%d, %s}\n}\n\n", z, pick(fmt.Sprint(z), fmt.Sprint(z+1)), z, z, pick("1", "2"), z, z, pick("2", "1"))
 	b.WriteString("func main() needs Console {\n\tConsole.Println(\"\\(scale(2))\")\n}\n")
 	return b.String()
 }
