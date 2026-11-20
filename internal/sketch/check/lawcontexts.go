@@ -145,6 +145,11 @@ func (c *checker) lawContext(law *Law, w *Context) (LawContext, bool) {
 	fact.Acquired = c.acquire(w, fact.Entries, c.contextOwners.of)
 	lc := LawContext{Context: w, With: fact, Params: params}
 	lc.Unrun = c.lawRelease(fact)
+	if c.readContextHeader(w); lc.Unrun == "" && !w.needs.Empty() {
+		// A case provides no capability from a with site
+		// (contextneeds.go): only TestAmbient, the runner's.
+		lc.Unrun = "context " + w.Name + " needs " + rowText(w.needs) + " from the with site that builds it, which a law case does not provide"
+	}
 	if lc.Unrun == "" && params != nil {
 		// A non-generic law's parameters were judged when it was planned.
 		for i, p := range law.Params {
