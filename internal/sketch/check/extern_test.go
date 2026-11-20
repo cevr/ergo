@@ -1437,9 +1437,9 @@ import time
 
 type Mine {} implements proof.Store
 
-func Issue(_ Mine, id string, d proof.Digest, expires time.Time, attempts int) fails proof.Conflict | proof.Failed { return proof.Conflict{} }
-func Redeem(_ Mine, id string, d proof.Digest, now time.Time) fails proof.Unknown | proof.Expired | proof.Spent | proof.TooManyAttempts | proof.Wrong | proof.Failed { return proof.Unknown{} }
-func Claim(_ Mine, key string, until time.Time, now time.Time) fails proof.Spent | proof.Failed { return proof.Spent{} }
+func Issue(_ Mine, id string, d proof.Digest, expires time.Time, attempts int) fails proof.Conflict | proof.Failed { return proof.Conflict }
+func Redeem(_ Mine, id string, d proof.Digest, now time.Time) fails proof.Unknown | proof.Expired | proof.Spent | proof.TooManyAttempts | proof.Wrong | proof.Failed { return proof.Unknown }
+func Claim(_ Mine, key string, until time.Time, now time.Time) fails proof.Spent | proof.Failed { return proof.Spent }
 
 func use(_ proof.Store) {}
 
@@ -1465,9 +1465,9 @@ import time
 
 type Mine {} implements session.Store
 
-func Establish(_ Mine, d session.Digest, subject string, revision int, now time.Time) fails session.Conflict | session.Failed { return session.Conflict{} }
-func Verify(_ Mine, d session.Digest, now time.Time) session.Verdict fails session.Failed { session.Invalid{} }
-func Rotate(_ Mine, old session.Digest, new session.Digest, now time.Time) session.Record fails session.Conflict | session.Failed { return session.Conflict{} }
+func Establish(_ Mine, d session.Digest, subject string, revision int, now time.Time) fails session.Conflict | session.Failed { return session.Conflict }
+func Verify(_ Mine, d session.Digest, now time.Time) session.Verdict fails session.Failed { session.Invalid }
+func Rotate(_ Mine, old session.Digest, new session.Digest, now time.Time) session.Record fails session.Conflict | session.Failed { return session.Conflict }
 func Revoke(_ Mine, d session.Digest) bool fails session.Failed { false }
 func RevokeAll(_ Mine, subject string, revision int) fails session.Failed { return session.Failed{Reason: "x"} }
 
