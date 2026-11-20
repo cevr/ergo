@@ -6,6 +6,7 @@ import compiler/check/store
 import compiler/check/types
 import compiler/syntax
 import dense
+import strings
 
 func isSome[T](o Option[T]) bool {
 	match o {
@@ -104,10 +105,16 @@ func emptiedFails(s store.Store, t dense.ID[store.TKey], targs []dense.ID[store.
 	false
 }
 
-// resultOf is a call's type from its signature's result: none when it has
-// none.
-func resultOf(s store.Store, r dense.ID[store.TKey]) Option[dense.ID[store.TKey]] {
-	if store.KindOfType(s, r) == store.KTuple && len(store.OperandsOf(s, r)) == 0 { None } else { some(r) }
+// resultOf is a call's type from its signature's result: no value (the
+// empty tuple) when it has none, as the Go checker's NoValue.
+func resultOf(s store.Store, r dense.ID[store.TKey]) Option[dense.ID[store.TKey]] { some(r) }
+
+// derivesParse is whether the name x is a refined type's parse function's
+// (ParsePort, parsePort), which bind declares at the type's name: the
+// type's own name there is a conversion.
+func derivesParse(k Pkg, t Typer, x dense.ID[syntax.Node]) bool {
+	let text = types.NameText(k.Parsed[t.file], x)
+	strings.HasPrefix(text, "Parse") || strings.HasPrefix(text, "parse")
 }
 
 // args types a call's arguments against params (Unsure past them).
@@ -152,13 +159,18 @@ func call(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], c synt
 				None
 			} else {
 				let i = fnOf(k, t, d.At)
-				if i >= 0 { Some[Fn]{Value: k.Fns[i]} } else { None }
+				if i >= 0 { Some[Fn]{Value: k.Fns[i]} } else if derivesParse(k, *t, fun) { parseFn(k, d.At) } else { None }
 			}
 		case _:
 			None
 		}
 	} else {
 		importedFn(s, k, t, selOf(tr, fun))
+	}
+	match callee {
+	case Some[Fn] as cf:
+		t.Calls = t.Calls.Append(CallTo{Call: pnode(k, t.file, x), Callee: cf.Value, Recv: false})
+	case None:
 	}
 	if c.Trailing == dense.NoID[syntax.Node]() && !indexed && !isSome(callee) && syntax.KindOf(tr, fun) == syntax.KSelectorExpr {
 		return valueCall(s, k, t, x, c, fun)
@@ -268,7 +280,7 @@ func valueCall(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], c
 			return None
 		}
 	}
-	match fieldType(s, k, xt, name) {
+	match fieldType(s, k, xt, name, -1) {
 	case Some[dense.ID[store.TKey]] as ft:
 		note(k, t, fun, ft.Value)
 		let f = infer.Unmarked(*s, ft.Value)
@@ -285,6 +297,7 @@ func valueCall(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], c
 	match methodOf(s, k, t, xt, name) {
 	case Some[Fn] as mf:
 		let f = mf.Value
+		t.Calls = t.Calls.Append(CallTo{Call: pnode(k, t.file, x), Callee: f, Recv: true})
 		if len(f.Params) > 0 {
 			return generic(s, k, t, x, c, fun, []dense.ID[syntax.Node]{}, f, some(xt))
 		}
@@ -312,8 +325,8 @@ func generic(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], c s
 	let m = if isSome(recv) { 1 } else { 0 }
 	let (params, r) = sigParts(*s, k, f.Sig, n+m)
 	arity(k, t, x, n+m, len(params))
-	let me = k.Fns[t.fn]
-	let base = len(me.Params)
+	let mine = ownParams(k, *t)
+	let base = len(mine)
 	let mut rename = []dense.ID[store.TKey]{}
 	for i in 0..len(f.Params) {
 		rename = rename.Append(store.TParam(s, base+i))
@@ -346,7 +359,7 @@ func generic(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], c s
 			ins = ins.Append(infer.Unknown)
 		}
 	}
-	let env = types.NewEnv(*s, k.Parsed, k.Parsed[t.file], me.Params, k.Kinds, k.Ext, k.Foreign, k.Ifaces)
+	let env = types.NewEnv(*s, k.Parsed, k.Parsed[t.file], mine, k.Kinds, k.Ext, k.Foreign, k.Ifaces)
 	let mut explicit = []dense.ID[store.TKey]{}
 	for w in written {
 		explicit = explicit.Append(types.Resolve(s, env, w))
@@ -406,20 +419,20 @@ func recordOf(s store.Store, k Pkg, ty dense.ID[store.TKey]) (int, []dense.ID[st
 	(-1, []dense.ID[store.TKey]{})
 }
 
-func fieldType(s mut store.Store, k Pkg, ty dense.ID[store.TKey], name string) Option[dense.ID[store.TKey]] {
+func fieldType(s mut store.Store, k Pkg, ty dense.ID[store.TKey], name string, at int) Option[dense.ID[store.TKey]] {
 	// A field of *T is T's (Go's selector dereferences).
 	if store.KindOfType(*s, ty) == store.KPointer {
-		return fieldType(s, k, store.OperandsOf(*s, ty)[0], name)
+		return fieldType(s, k, store.OperandsOf(*s, ty)[0], name, at)
 	}
 	let (r, targs) = recordOf(*s, k, ty)
 	if r < 0 {
-		return importedField(s, k, ty, name)
+		return importedField(s, k, ty, name, at)
 	}
 	if len(targs) != len(k.Recs[r].Params) {
 		return None
 	}
-	for fd in k.Recs[r].Fields {
-		if fd.Name == name {
+	for j, fd in k.Recs[r].Fields {
+		if at < 0 && fd.Name == name || j == at {
 			return some(store.TSubst(s, fd.T, targs))
 		}
 	}
@@ -502,7 +515,7 @@ func inferable(s mut store.Store, k Pkg, t Typer, cl syntax.CompositeLit, tx den
 			}
 			(names[i], el)
 		}
-		match fieldType(s, k, gen, name) {
+		match fieldType(s, k, gen, name, -1) {
 		case Some{Value: ft}:
 			values = values.Append(value)
 			fields = fields.Append(ft)
@@ -618,11 +631,12 @@ func composite(s mut store.Store, k Pkg, t mut Typer, cl syntax.CompositeLit, w 
 					expr(s, k, t, kv.Value, Exactly{T: ops[1]})
 					done = true
 				} else if syntax.KindOf(tr, kv.Key) == syntax.KIdent {
-					match fieldType(s, k, rt.Value, types.NameText(p, kv.Key)) {
+					match fieldType(s, k, rt.Value, types.NameText(p, kv.Key), -1) {
 					case Some[dense.ID[store.TKey]] as ft:
 						expr(s, k, t, kv.Value, Exactly{T: infer.Unmarked(*s, ft.Value)})
 						done = true
 					case None:
+						unread(*s, k, t, rt.Value, kv.Value)
 					}
 				}
 			case _:
@@ -630,6 +644,16 @@ func composite(s mut store.Store, k Pkg, t mut Typer, cl syntax.CompositeLit, w 
 					let ops = store.OperandsOf(*s, rt.Value)
 					expr(s, k, t, e, Exactly{T: ops[len(ops)-1]})
 					done = true
+				} else {
+					// A record's values written in order take its fields'
+					// types (Some{v}).
+					match fieldType(s, k, rt.Value, "", i) {
+					case Some{Value: ft}:
+						expr(s, k, t, e, Exactly{T: infer.Unmarked(*s, ft)})
+						done = true
+					case None:
+						unread(*s, k, t, rt.Value, e)
+					}
 				}
 			}
 		case None:
@@ -646,6 +670,14 @@ func composite(s mut store.Store, k Pkg, t mut Typer, cl syntax.CompositeLit, w 
 	ty
 }
 
+// unread records the value x of a literal of the record type ty when ty
+// is an outside import's, whose field types the typer cannot read.
+func unread(s store.Store, k Pkg, t mut Typer, ty dense.ID[store.TKey], x dense.ID[syntax.Node]) {
+	if outsideRec(s, k, ty) {
+		t.Outside = t.Outside.Append(pnode(k, t.file, x))
+	}
+}
+
 // selOf is the name of the selector x, or none when x is no selector.
 func selOf(tr syntax.Tree, x dense.ID[syntax.Node]) dense.Opt[syntax.Node] {
 	if syntax.KindOf(tr, x) == syntax.KSelectorExpr { dense.OptOf(syntax.SelectorExprOf(tr, x).Sel) } else { dense.NoID[syntax.Node]() }
@@ -659,9 +691,14 @@ func selector(s mut store.Store, k Pkg, t mut Typer, se syntax.SelectorExpr) Opt
 		return if len(f.Value.Params) == 0 { some(f.Value.Sig) } else { None }
 	case None:
 	}
+	match importedBare(s, k, t, se.Sel) {
+	case Some[dense.ID[store.TKey]] as b:
+		return some(b.Value)
+	case None:
+	}
 	match expr(s, k, t, se.X, Free) {
 	case Some[dense.ID[store.TKey]] as xt:
-		fieldType(s, k, xt.Value, types.NameText(k.Parsed[t.file], se.Sel))
+		fieldType(s, k, xt.Value, types.NameText(k.Parsed[t.file], se.Sel), -1)
 	case None:
 		None
 	}

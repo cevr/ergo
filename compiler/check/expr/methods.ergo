@@ -189,10 +189,121 @@ func opReceiver(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node]) 
 		match bind.ResolutionOf(k.U, k.Ps, pnode(k, t.file, x)) {
 		case bind.Declared as d:
 			if isSome(dense.Unpack(dense.Of(t.defs, d.At))) { None } else { opTypeAt(s, k, t, x, d.At) }
+		case bind.Outside:
+			preludeOp(s, k, t, x)
 		case _:
 			None
 		}
 	}
+}
+
+// bare is whether the record name of the package k (in the pool s) has no
+// fields and no bracket parameters: its name is its one value, written
+// bare (Absent, IntT).
+func bare(s store.Store, k Pkg, name string) bool {
+	let r = recOf(s, k, name)
+	r >= 0 && !k.Recs[r].Op && len(k.Recs[r].Fields) == 0 && len(k.Recs[r].Params) == 0
+}
+
+// bareRecord is the type of the name x, declared at the package node at,
+// when it names a record of the package with no fields: the record.
+func bareRecord(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], at dense.ID[store.PNode]) Option[dense.ID[store.TKey]] {
+	let text = types.NameText(k.Parsed[t.file], x)
+	if !bare(*s, k, text) {
+		return None
+	}
+	match store.Lookup(*s, text) {
+	case Some[dense.ID[store.Decl]] as d:
+		let decl = store.DeclOf(*s, d.Value)
+		if store.KindName(int(decl.Kind)) != "type" {
+			return None
+		}
+		let here = bind.PNodeOf(k.Ps, int(decl.File), syntax.NodeAt(k.Parsed[int(decl.File)].Tree, int(decl.Node)))
+		if here == at { some(store.TNamed(s, d.Value)) } else { None }
+	case None:
+		None
+	}
+}
+
+// namesBare is whether x is a name, or an import's selector, of a record
+// with no fields.
+func namesBare(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node]) bool {
+	let tr = tree(k, t.file)
+	let y = unparen(tr, x)
+	match syntax.ViewOf(tr, y) {
+	case syntax.Name:
+		match bind.ResolutionOf(k.U, k.Ps, pnode(k, t.file, y)) {
+		case bind.Declared as d:
+			isSome(bareRecord(s, k, t, y, d.At))
+		case _:
+			false
+		}
+	case syntax.SelectorExpr as se:
+		isSome(importedBare(s, k, t, se.Sel))
+	case _:
+		false
+	}
+}
+
+// importedBare is the type of the selector name sel when it names a
+// record of an import with no fields (ast.IntT): the importer's
+// reference into the import's interface.
+func importedBare(s mut store.Store, k Pkg, t mut Typer, sel dense.ID[syntax.Node]) Option[dense.ID[store.TKey]] {
+	if len(k.Deps) == 0 {
+		return None
+	}
+	match bind.ResolutionOf(k.U, k.Ps, pnode(k, t.file, sel)) {
+	case bind.Imported as im:
+		let i = int(im.Ref.Import) - 1
+		let paths = store.ImportPaths(*s)
+		if i < 0 || i >= len(paths) {
+			return None
+		}
+		let di = depOf(k, paths[i])
+		if di < 0 {
+			return None
+		}
+		let d = k.Deps[di]
+		let decl = store.DeclOf(d.S, store.DeclAt(d.S, int(im.Ref.Decl)))
+		let text = store.DeclText(d.S, int(im.Ref.Decl))
+		if store.KindName(int(decl.Kind)) != "type" || !bare(d.S, d.K, text) {
+			return None
+		}
+		imported(s, k, d.Path, text, []dense.ID[store.TKey]{})
+	case _:
+		None
+	}
+}
+
+// preludeBare is the type of the name x when it names a record of the
+// prelude with no fields (None): the foreign type of the name.
+func preludeBare(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node]) Option[dense.ID[store.TKey]] {
+	let di = depOf(k, "prelude")
+	if di < 0 {
+		return None
+	}
+	let text = types.NameText(k.Parsed[t.file], x)
+	if !bare(k.Deps[di].S, k.Deps[di].K, text) {
+		return None
+	}
+	let f = foreignAt(k, "prelude", text)
+	if f >= 0 { some(store.TForeign(s, f)) } else { None }
+}
+
+// preludeOp is the type of the name x when it names an operation type of
+// the prelude (Random): the foreign type of the name.
+func preludeOp(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node]) Option[dense.ID[store.TKey]] {
+	let di = depOf(k, "prelude")
+	if di < 0 {
+		return None
+	}
+	let text = types.NameText(k.Parsed[t.file], x)
+	let r = recOf(k.Deps[di].S, k.Deps[di].K, text)
+	if r < 0 || !k.Deps[di].K.Recs[r].Op {
+		return None
+	}
+	let f = foreignAt(k, "prelude", text)
+	if f >= 0 { some(store.TForeign(s, f)) } else { None }
 }
 
 // importedOp is the type of the selector name sel when it names an

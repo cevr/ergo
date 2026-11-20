@@ -2182,6 +2182,7 @@ The standard library is an ordinary set of packages ([NORTH_STAR.md](../../NORTH
 | `internal/sketch/check/authority.go:isAmbient` | `Ambient` |
 | `internal/sketch/check/authority.go:isTestAmbient` | `TestAmbient` |
 | `internal/sketch/check/call.go:checker.preludeOp` | a prelude operation, reached by the dot form |
+| `internal/sketch/check/decl.go:checker.resolveNamed` | `Option` and `Some`, language types whose `T` admits a resource with no own mark ([types](types.md#generics) Generics 9) |
 | `internal/sketch/check/call.go:isUnreachable` | `Unreachable` |
 | `internal/sketch/check/contextvalues.go:contextRow` | `Context` |
 | `internal/sketch/check/decl.go:checker.resolveNamed` | `Option` and `Some`, whose T needs no own mark (types.md, Generics 9) |

@@ -28,13 +28,19 @@ type Exactly { T dense.ID[store.TKey] }
 type Unsure {}
 
 // Entry is one typed expression: its node, its type and the function it
-// is in (whose bracket parameters its type may name).
+// is in (whose bracket parameters its type may name), -1 for a package
+// let's value.
 type Entry { At dense.ID[store.PNode], T dense.ID[store.TKey], Fn int }
 
 // Inst is one inferred call to a generic function: the callee's name
 // node, its type arguments and the calling function; the call, and the
 // callee (whose own marks the call reads: types.md, Generics 9).
 type Inst { At dense.ID[store.PNode], Args []dense.ID[store.TKey], Fn int, Call dense.ID[store.PNode], Callee Fn }
+
+// CallTo is one call whose callee is a function the typer resolved: of the
+// package or of an import by name, or x.f(…) of a function f on x's type
+// (Recv: x is its first argument, the Go checker's Call.Recv).
+type CallTo { Call dense.ID[store.PNode], Callee Fn, Recv bool }
 
 // Diag is a type error the typer found: the expression at At, in the
 // function Fn, has a basic type, or is a constant of a basic kind, that is
@@ -49,11 +55,21 @@ type Typer {
 	Entries []Entry,
 	Diags   []Diag,
 	Insts   []Inst,
+	Calls   []CallTo,
+	// Outside is the values of a record literal of an import outside the
+	// run (outsideRec), whose fields' types the typer cannot read: they
+	// are typed with no expected type.
+	Outside []dense.ID[store.PNode],
 	defs    dense.Col[store.PNode, dense.Opt[store.TKey]],
-	frame   infer.Frame,
-	file    int,
-	fn      int,
-	res     Option[dense.ID[store.TKey]],
+	// lets is the package's lets, typed in use order (letState: 0 not
+	// yet, 1 being typed, 2 typed); letAt maps a let's name row to it.
+	lets     []pkgLet,
+	letState []int,
+	letAt    Map[int, int],
+	frame    infer.Frame,
+	file     int,
+	fn       int,
+	res      Option[dense.ID[store.TKey]],
 	// boolT is bool, interned once per check.
 	boolT dense.ID[store.TKey],
 	steps int,
@@ -64,6 +80,12 @@ type Typer {
 	// reserved is the room the package-sized tables were given: entries
 	// and locals (one per row each), and instances (one per call).
 	reserved int,
+}
+
+// DefType is the type the typer gave the local or parameter declared at
+// the name node at, none when it gave it none.
+func DefType(t Typer, at dense.ID[store.PNode]) Option[dense.ID[store.TKey]] {
+	if dense.In(t.defs, at) { dense.Unpack(dense.Of(t.defs, at)) } else { None }
 }
 
 // Steps is the typer's work: one step per expression typed and per
@@ -156,7 +178,22 @@ func checkAll(s mut store.Store, k Pkg, record bool) Typer {
 		dense.Push(&defs, dense.NoID[store.TKey]())
 	}
 	let entries = if record { rows } else { 0 }
-	let mut t = Typer{Entries: slices.WithCapacity[Entry](entries), Diags: []Diag{}, Insts: slices.WithCapacity[Inst](calls), defs: defs, frame: infer.NewFrame(), boolT: store.TBasic(s, bBool), file: 0, fn: 0, res: None, steps: 0, typed: 0, record: record, reserved: entries + rows + calls}
+	let (lets, letAt) = packageLets(k)
+	let mut states = []int{}
+	for _ in lets {
+		states = states.Append(0)
+	}
+	let mut t = Typer{Entries: slices.WithCapacity[Entry](entries), Diags: []Diag{}, Insts: slices.WithCapacity[Inst](calls), Calls: []CallTo{}, Outside: []dense.ID[store.PNode]{}, defs: defs, lets: lets, letState: states, letAt: letAt, frame: infer.NewFrame(), boolT: store.TBasic(s, bBool), file: 0, fn: 0, res: None, steps: 0, typed: 0, record: record, reserved: entries + rows + calls}
+	// An operation type's operations, by name in its laws.
+	for o in k.Ops {
+		t.file = o.File
+		def(k, &t, o.Name, o.T)
+	}
+	// The package's lets first, each when its value's names are typed
+	// (a let a function or an earlier let uses is typed at that use).
+	for i in 0..len(t.lets) {
+		packageLet(s, k, &t, i)
+	}
 	for i, f in k.Fns {
 		match dense.Unpack(f.Body) {
 		case Some[dense.ID[syntax.Node]] as b:
@@ -228,7 +265,7 @@ func result(s store.Store, k Pkg, t Typer) Option[dense.ID[store.TKey]] { t.res 
 
 // envOf is the resolver's environment at the function in hand.
 func envOf(s store.Store, k Pkg, t Typer) types.Env {
-	types.NewEnv(s, k.Parsed, k.Parsed[t.file], k.Fns[t.fn].Params, k.Kinds, k.Ext, k.Foreign, k.Ifaces)
+	types.NewEnv(s, k.Parsed, k.Parsed[t.file], ownParams(k, t), k.Kinds, k.Ext, k.Foreign, k.Ifaces)
 }
 
 // valid is whether t names no invalid type, and no instance with an
@@ -322,7 +359,7 @@ func recordPattern(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node
 			if syntax.KindOf(tr, kv.Key) != syntax.KIdent {
 				continue
 			}
-			let ft = match fieldType(s, k, rt, types.NameText(p, kv.Key)) {
+			let ft = match fieldType(s, k, rt, types.NameText(p, kv.Key), -1) {
 			case Some{Value: f}:
 				infer.Unmarked(*s, f)
 			case None:
@@ -582,7 +619,18 @@ func stmt(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node]) {
 	let tr = tree(k, t.file)
 	let kd = syntax.KindOf(tr, x)
 	if kd == syntax.KExprStmt {
-		expr(s, k, t, syntax.ExprStmtOf(tr, x).X, Free)
+		let e = syntax.ExprStmtOf(tr, x).X
+		if syntax.KindOf(tr, e) == syntax.KCatchExpr {
+			// A catch statement discards its value, and its arms theirs.
+			t.steps = t.steps + 1
+			match caught(s, k, t, syntax.CatchExprOf(tr, e), Free, true) {
+			case Some[dense.ID[store.TKey]] as r:
+				note(k, t, e, r.Value)
+			case None:
+			}
+		} else {
+			expr(s, k, t, e, Free)
+		}
 	} else if kd == syntax.KDeclStmt {
 		let d = syntax.DeclStmtOf(tr, x)
 		if syntax.KindOf(tr, d.Decl) == syntax.KVarDecl {
@@ -935,6 +983,12 @@ func exprType(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], w 
 	if kd == syntax.KBinaryExpr {
 		return binary(s, k, t, syntax.BinaryExprOf(tr, x), w)
 	}
+	if kd == syntax.KIfStmt || kd == syntax.KSwitchStmt || kd == syntax.KTypeSwitchStmt {
+		return branches(s, k, t, x, w)
+	}
+	if kd == syntax.KCatchExpr {
+		return caught(s, k, t, syntax.CatchExprOf(tr, x), w, false)
+	}
 	match syntax.ViewOf(tr, x) {
 	case syntax.ParenExpr as pe:
 		expr(s, k, t, pe.X, w)
@@ -988,8 +1042,14 @@ func exprType(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], w 
 		case None:
 		}
 		if !isSome(out) {
+			// An untyped X leaves open whether its indices are values or
+			// type arguments (rpc.Decode[domains.Down]): a fieldless
+			// record's name, both at once, is not typed.
 			for i in 0..syntax.Len(ie.Indices) {
-				expr(s, k, t, syntax.Item(tr, ie.Indices, i), Unsure)
+				let ix = syntax.Item(tr, ie.Indices, i)
+				if !namesBare(s, k, t, ix) {
+					expr(s, k, t, ix, Unsure)
+				}
 			}
 		}
 		out
@@ -999,19 +1059,6 @@ func exprType(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], w 
 		block(s, k, t, x)
 		None
 	case _:
-		// An if or a match used as a value passes an expected type to the
-		// values its branches end in (tail). With none, the Go checker
-		// unifies the branches (`if c { raw[i] } else { 0 }` is a byte),
-		// which the typer does not: their values are Unsure.
-		if kd == syntax.KIfStmt || kd == syntax.KSwitchStmt || kd == syntax.KTypeSwitchStmt {
-			match w {
-			case Exactly:
-				tail(s, k, t, x, w)
-			case _:
-				tail(s, k, t, x, Unsure)
-			}
-			return None
-		}
 		// A tuple an expected tuple type fixes: each element takes its
 		// part.
 		if kd == syntax.KTupleExpr {
@@ -1133,6 +1180,12 @@ func ident(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node]) Optio
 			return ty
 		case None:
 		}
+		match t.letAt.Get(dense.Index(d.At)) {
+		case Some[int] as l:
+			packageLet(s, k, t, l.Value)
+			return dense.Unpack(dense.Of(t.defs, d.At))
+		case None:
+		}
 		let f = fnOf(k, t, d.At)
 		if f >= 0 && len(k.Fns[f].Params) == 0 {
 			return some(k.Fns[f].Sig)
@@ -1175,7 +1228,7 @@ func ident(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node]) Optio
 				return some(store.TForeign(s, fi))
 			}
 		}
-		None
+		preludeBare(s, k, t, x)
 	case _:
 		None
 	}

@@ -772,6 +772,21 @@ type UnionOf { p syntax.Parsed, members []dense.ID[syntax.Node] }
 func unionVariants(s store.Store, e Env, d dense.ID[store.Decl]) Option[UnionOf] { unionMembers(s, e.files, d) }
 
 func unionMembers(s store.Store, files []syntax.Parsed, d dense.ID[store.Decl]) Option[UnionOf] {
+	match unionSpec(s, files, d) {
+	case Some{Value: u}:
+		if len(u.params) > 0 { None } else { Some{Value: UnionOf{p: u.p, members: u.members}} }
+	case None:
+		None
+	}
+}
+
+// UnionSpec is a union declaration's file, members and its bracket
+// parameters' names (none for a union with no parameters).
+type UnionSpec { p syntax.Parsed, members []dense.ID[syntax.Node], params []string }
+
+// unionSpec is the union the type declaration d declares, or none when d
+// declares no union (an op type, a record, an alias).
+func unionSpec(s store.Store, files []syntax.Parsed, d dense.ID[store.Decl]) Option[UnionSpec] {
 	let row = store.DeclOf(s, d)
 	if int(row.File) >= len(files) {
 		return None
@@ -781,10 +796,12 @@ func unionMembers(s store.Store, files []syntax.Parsed, d dense.ID[store.Decl]) 
 	case Some[dense.ID[syntax.Node]] as dn:
 		match syntax.ViewOf(p.Tree, dn.Value) {
 		case syntax.TypeDecl as td:
-			match dense.Unpack(td.TypeParams) {
-			case Some[dense.ID[syntax.Node]]:
-				return None
+			let params = match dense.Unpack(td.TypeParams) {
+			case Some{Value: tp}:
+				let (names, _) = bracketNames(p, tp)
+				names
 			case None:
+				[]string{}
 			}
 			match dense.Unpack(td.Spec) {
 			case Some[dense.ID[syntax.Node]] as sp:
@@ -803,7 +820,7 @@ func unionMembers(s store.Store, files []syntax.Parsed, d dense.ID[store.Decl]) 
 						case _:
 						}
 					}
-					Some[UnionOf]{Value: UnionOf{p: p, members: ms}}
+					Some{Value: UnionSpec{p: p, members: ms, params: params}}
 				case _:
 					None
 				}

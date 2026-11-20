@@ -38,8 +38,10 @@ func TestCompilerExprLawsRun(t *testing.T) {
 // expression compiler/check/expr types (cmd/exprdump) has the type the Go
 // checker's Info.Types gives it, printed as its Type.String; and each
 // generic call it infers (exprdump -calls) has the Go checker's
-// Info.Calls TypeArgs. An expression the Ergo side leaves untyped is not
-// compared: the run logs, by syntax form, how many of the Go checker's
+// Info.Calls TypeArgs. Each package let's name, and each if, match and
+// catch whose value is used, has the Go checker's type, none missed
+// (CHECK-VALUE-TYPES, values_test.go). Any other expression the Ergo
+// side leaves untyped is not compared: the run logs, by syntax form, how many of the Go checker's
 // typed expressions the Ergo side types. The Go side writes the
 // prelude's, the universe's and the Go imports' types; an Ergo import's
 // types are XRefs into its interface, which exprdump computes from the
@@ -61,6 +63,7 @@ func TestCompilerExprAgreesWithChecker(t *testing.T) {
 	type folder struct {
 		dir             string
 		want, wantCalls []string
+		values          []goValue
 		forms           map[string]string
 	}
 	// The Go checker's side of each folder, the folders on GOMAXPROCS
@@ -70,6 +73,7 @@ func TestCompilerExprAgreesWithChecker(t *testing.T) {
 		ok              bool
 		path            string
 		want, wantCalls []string
+		values          []goValue
 		forms           map[string]string
 		ext, foreign    []string
 	}
@@ -87,7 +91,8 @@ func TestCompilerExprAgreesWithChecker(t *testing.T) {
 				want, forms := goExprTypes(pkg, "")
 				_, ext := goKinds(pkg)
 				_, foreign := goTypes(pkg)
-				sides[i] = goSide{ok: true, path: importPath(dirs[i], pkg), want: dropChargedTypes(want), wantCalls: goCallArgs(pkg, ""), forms: forms, ext: ext, foreign: foreign}
+				values := goValues(pkg, "")
+				sides[i] = goSide{ok: true, path: importPath(dirs[i], pkg), want: dropChargedTypes(want), wantCalls: goCallArgs(pkg, ""), values: values, forms: forms, ext: ext, foreign: foreign}
 			}
 		})
 	}
@@ -107,11 +112,12 @@ func TestCompilerExprAgreesWithChecker(t *testing.T) {
 		writeLines(t, e, g.ext)
 		writeLines(t, f, g.foreign)
 		manifest = append(manifest, strings.Join(append([]string{g.path, e, f}, ergoFiles(t, dirs[i])...), " "))
-		folders = append(folders, folder{dir: dirs[i], want: g.want, wantCalls: g.wantCalls, forms: g.forms})
+		folders = append(folders, folder{dir: dirs[i], want: g.want, wantCalls: g.wantCalls, values: g.values, forms: g.forms})
 	}
 	m := filepath.Join(tmp, "manifest")
 	writeLines(t, m, manifest)
-	gotTypes, gotCalls, gotDiags, gotOwn := make([][]string, len(folders)), make([][]string, len(folders)), make([][]string, len(folders)), make([][]string, len(folders))
+	gotTypes, gotCalls, gotDiags, gotOwn, gotFlow, gotLets := make([][]string, len(folders)), make([][]string, len(folders)), make([][]string, len(folders)), make([][]string, len(folders)), make([][]string, len(folders)), make([][]string, len(folders))
+	gotOutside := make([]map[string]bool, len(folders))
 	// The Ergo side's cause of each call it left untyped, by "FILE START
 	// END" (exprdump's U lines).
 	gotCauses := make([]map[string]string, len(folders))
@@ -135,6 +141,15 @@ func TestCompilerExprAgreesWithChecker(t *testing.T) {
 				}
 				gotCauses[at][strings.Join(f[:3], " ")] = f[3]
 			}
+		case at >= 0 && at < len(folders) && strings.HasPrefix(l, "W "):
+			gotFlow[at] = append(gotFlow[at], l[2:])
+		case at >= 0 && at < len(folders) && strings.HasPrefix(l, "L "):
+			gotLets[at] = append(gotLets[at], l[2:])
+		case at >= 0 && at < len(folders) && strings.HasPrefix(l, "X "):
+			if gotOutside[at] == nil {
+				gotOutside[at] = map[string]bool{}
+			}
+			gotOutside[at][l[2:]] = true
 		}
 	}
 	if at != len(folders)-1 {
@@ -147,10 +162,20 @@ func TestCompilerExprAgreesWithChecker(t *testing.T) {
 	causes := map[string]map[string]int{}
 	kindNames := syntaxKindNames(t)
 	calls := [2]int{}
+	values := 0
+	excluded := map[string]int{}
 	for i, fo := range folders {
 		got := dropChargedTypes(gotTypes[i])
 		if d := subsetDiff(fo.want, got, 3); d != "" {
 			t.Errorf("%s: expression types differ (go -, ergo +):\n%s", rel(fo.dir), d)
+		}
+		d, ex := valueDiff(fo.values, gotTypes[i], gotLets[i], gotOutside[i], fo.forms)
+		if d != "" {
+			t.Errorf("%s: value types differ (go -, ergo +):\n%s", rel(fo.dir), d)
+		}
+		values += len(fo.values)
+		for c, n := range ex {
+			excluded[c] += n
 		}
 		have := map[string]bool{}
 		for _, l := range got {
@@ -190,6 +215,10 @@ func TestCompilerExprAgreesWithChecker(t *testing.T) {
 		if len(gotOwn[i]) > 0 {
 			t.Errorf("%s: the Go checker accepts the package, the Ergo side reports %d own-mark errors: %s", rel(fo.dir), len(gotOwn[i]), strings.Join(gotOwn[i][:min(3, len(gotOwn[i]))], "; "))
 		}
+		// And no ownership flow S108 (OWN-WALK).
+		if len(gotFlow[i]) > 0 {
+			t.Errorf("%s: the Go checker accepts the package, the Ergo side reports %d ownership flow errors: %s", rel(fo.dir), len(gotFlow[i]), strings.Join(gotFlow[i][:min(3, len(gotFlow[i]))], "; "))
+		}
 		if d := subsetDiff(fo.wantCalls, gotCalls[i], 2); d != "" {
 			t.Errorf("%s: inferred type arguments differ (go -, ergo +):\n%s", rel(fo.dir), d)
 		}
@@ -204,7 +233,6 @@ func TestCompilerExprAgreesWithChecker(t *testing.T) {
 		lines = append(lines, fmt.Sprintf("%-28s %7d of %7d", form, r[0], r[1]))
 	}
 	sort.Strings(lines)
-	t.Logf("typed %d of %d expressions in %d folders; inferred %d of %d generic calls:\n%s", all[0], all[1], len(folders), calls[0], calls[1], strings.Join(lines, "\n"))
 	type count struct {
 		form, cause string
 		n           int
@@ -223,6 +251,16 @@ func TestCompilerExprAgreesWithChecker(t *testing.T) {
 		byCause = append(byCause, fmt.Sprintf("%-20s %6d  %s", c.form, c.n, c.cause))
 	}
 	t.Logf("untyped calls by the Ergo side's cause (exprdump U lines):\n%s", strings.Join(byCause, "\n"))
+	// The excluded values by cause, logged and never pinned: each value
+	// under one cause, so the lines add up to the total.
+	var byExcluded []string
+	total := 0
+	for c, n := range excluded {
+		total += n
+		byExcluded = append(byExcluded, fmt.Sprintf("%7d %s", n, c))
+	}
+	sort.Sort(sort.Reverse(sort.StringSlice(byExcluded)))
+	t.Logf("typed %d of %d expressions in %d folders; inferred %d of %d generic calls; %d package lets and value ifs, matches and catches, %d excluded:\n%s\n%s", all[0], all[1], len(folders), calls[0], calls[1], values, total, strings.Join(byExcluded, "\n"), strings.Join(lines, "\n"))
 	if all[0] == 0 || calls[0] == 0 {
 		t.Fatal("the Ergo side typed no expression or inferred no call")
 	}
@@ -237,7 +275,7 @@ func TestCompilerExprAgreesWithChecker(t *testing.T) {
 	// len (S3d5), and a tuple a result's type fixes (TUPLE-WANT): each
 	// kind typed somewhere, since the subset check alone would not see
 	// one lost.
-	for _, kind := range []string{"CallExpr method", "CallExpr prelude", "CallExpr op", "CallExpr capability", "SelectorExpr ptrfield", "CallExpr builtin", "TupleExpr"} {
+	for _, kind := range []string{"CallExpr method", "CallExpr prelude", "CallExpr op", "CallExpr capability", "CallExpr preludecap", "SelectorExpr ptrfield", "CallExpr builtin", "TupleExpr"} {
 		if reach[kind][0] == 0 {
 			t.Errorf("the Ergo side typed no %s", kind)
 		}
@@ -349,7 +387,8 @@ func pkgFiles(pkg *check.Package, unnamed string) map[*syntax.File]string {
 	return out
 }
 
-// goExprTypes is the Go checker's Info.Types of pkg's function bodies as
+// goExprTypes is the Go checker's Info.Types of pkg's function bodies and
+// package lets' values as
 // "FILE START END TYPE" lines, and each line's key ("FILE START END")
 // mapped to its syntax form.
 func goExprTypes(pkg *check.Package, unnamed string) ([]string, map[string]string) {
@@ -358,16 +397,19 @@ func goExprTypes(pkg *check.Package, unnamed string) ([]string, map[string]strin
 	binders := patternBinders(pkg)
 	for sf, name := range pkgFiles(pkg, unnamed) {
 		syntax.Inspect(sf, func(n syntax.Node) bool {
-			var body *syntax.BlockStmt
+			var body syntax.Node
 			switch d := n.(type) {
 			case *syntax.FuncDecl:
-				if d.Recv == nil {
+				if d.Recv == nil && d.Body != nil {
 					body = d.Body
 				}
 			case *syntax.LawDecl:
 				body = d.Body
 			case *syntax.TestDecl:
 				body = d.Body
+			case *syntax.VarDecl:
+				// A package let's value (CHECK-VALUE-TYPES).
+				body = d
 			default:
 				return true
 			}
@@ -563,7 +605,8 @@ func formOf(pkg *check.Package, x syntax.Expr) string {
 
 // selectorKind is what the selector e names: "pkg", "field", a field
 // through a pointer ("ptrfield"), an operation on a value ("op") or on
-// the capability named ("capability"), the prelude's
+// the capability named ("capability"; "preludecap" for a prelude
+// operation type's, Random.IntN), the prelude's
 // function on a slice or Map ("prelude"), another function on the value's
 // type ("method"), or "other".
 func selectorKind(pkg *check.Package, e *syntax.SelectorExpr) string {
@@ -603,6 +646,9 @@ func selectorKind(pkg *check.Package, e *syntax.SelectorExpr) string {
 			switch x := unparenX(e.X).(type) {
 			case *syntax.Ident:
 				if fmt.Sprintf("%T", pkg.Info.Uses[x]) == "*check.capBinding" {
+					if n, ok := xt.(*check.Named); ok && n.Obj != nil && n.Obj.Pkg != nil && n.Obj.Pkg.Path == "prelude" {
+						return "preludecap"
+					}
 					return "capability"
 				}
 			case *syntax.SelectorExpr:

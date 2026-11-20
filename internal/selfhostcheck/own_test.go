@@ -19,10 +19,13 @@ import (
 // own mark (MODES-OWN-CHECK; types.md, Generics 9; resource.go
 // checkOwnMarks and checkTypeMark): a resource, or an own type
 // parameter, bound to a type parameter with no mark, and a generic type's
-// own parameter filled by an unmarked one.
+// own parameter filled by an unmarked one; and S112 for a map key type
+// that may hold a resource, a resource or an own type parameter
+// (MODES-OWN-BODY; resources R40).
 var ownTemplates = []*regexp.Regexp{
 	regexp.MustCompile(`^\S+ cannot take .+ as its \S+: \S+ is not marked own, so it binds plain data only; `),
 	regexp.MustCompile(`^\S+ marks its \S+ own, so .+ may hold a resource, and \S+ is not marked own; `),
+	regexp.MustCompile(`^map key type .+ holds a resource, and a map key has no owner to release it \(resources R40\)`),
 }
 
 // goOwnMarks is the Go checker's diagnostics of ds that compiler/check/diag
@@ -30,7 +33,7 @@ var ownTemplates = []*regexp.Regexp{
 func goOwnMarks(file string, ds []check.Diagnostic) []string {
 	var out []string
 	for _, d := range ds {
-		if d.Code != check.CodeType {
+		if d.Code != check.CodeType && d.Code != "S112" {
 			continue
 		}
 		for _, re := range ownTemplates {

@@ -60,7 +60,7 @@ func TestCompilerExprBareOperationIsUndeclared(t *testing.T) {
 	writeLines(t, f, foreign)
 	run := func(src string) []string {
 		writeLines(t, file, []string{src})
-		_, diags := splitDiags(runDump(t, ctx, bin, append([]string{e, f, file}, group...)...))
+		_, diags, _ := splitDiags(runDump(t, ctx, bin, append([]string{e, f, file}, group...)...))
 		return diags
 	}
 	if d := run(good); len(d) > 0 {
