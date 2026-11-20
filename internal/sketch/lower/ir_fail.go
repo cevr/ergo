@@ -336,7 +336,6 @@ func (b *irBuilder) bindMatch(x syntax.Expr, m syntax.Stmt) (pre []*irStmt, v, e
 	return append(pre, b.matchStmt(m, true, &yieldTo{local: v, t: t, fails: true, err: e})...), v, e // ir_match.go
 }
 
-// isNoValue reports the type of a call with no value.
 // unitPair reports a call of a function whose declared result is a type
 // parameter: Go returns that parameter's value, struct{} when the call
 // has no value (term.Raw[T] at unit: (struct{}, error)), so a fallible
@@ -350,6 +349,7 @@ func (b *irBuilder) unitPair(call *syntax.CallExpr) bool {
 	return ok
 }
 
+// isNoValue reports the type of a call with no value.
 func isNoValue(t check.Type) bool {
 	if tu, ok := t.(*check.Tuple); ok && len(tu.Types) == 0 {
 		return true
