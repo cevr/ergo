@@ -88,7 +88,7 @@ type treeEntry struct {
 }
 
 // treeSite is an obligation's site (or its declaration's) as the token
-// it starts at, in a file named by its absolute path.
+// it starts at, in a file named by its path from the module's root.
 type treeSite struct {
 	Obligation int    `json:"obligation"`
 	Decl       bool   `json:"decl,omitempty"`
@@ -99,8 +99,9 @@ type treeSite struct {
 // checkTree is one `ergo check DIR/...` request's warm answer by tokens.
 type checkTree struct {
 	store *lawcache.Store
-	base  string // the request's part of every key
-	rec   *sketchfront.Recorder
+	base   string // the request's options, environment and compiler: a part of every key
+	folder string // the folder the request walks: a part of the manifest's key
+	rec    *sketchfront.Recorder
 	puts  int // the store's Puts when the normal path started
 	// kept are the selected packages' answers so far; complete is false
 	// once one cannot be kept.
@@ -127,15 +128,20 @@ func startTree(opts fileOptions) *checkTree {
 		return nil
 	}
 	store := lawStoreOf(compiler)
-	base := sketchfront.WarmKey(treeSchema, source.Admitted(), warmOptions(opts))
+	// The packages' keys name no folder, so a package's answer is found
+	// again from another request that reaches it (a module of a
+	// workspace, WS2); the manifest is the request's.
+	base := sketchfront.WarmKey(treeSchema, warmOptions(opts))
 	if store == nil || base == "" {
 		return nil
 	}
-	return &checkTree{store: store, base: base, complete: true}
+	return &checkTree{store: store, base: base, folder: source.Admitted(), complete: true}
 }
 
 // manifestKey is the key of the request's manifest.
-func (t *checkTree) manifestKey() string { return lawcache.Key(treeSchema, "manifest", t.base) }
+func (t *checkTree) manifestKey() string {
+	return lawcache.Key(treeSchema, "manifest", t.base, t.folder)
+}
 
 // lookup is the printed answer of every selected package, in order, when
 // the request is kept and nothing it read changed but layout.
@@ -183,13 +189,25 @@ func (t *checkTree) lookup() ([][]byte, bool) {
 	return outs, true
 }
 
-// treeKeys is each package's key: its import path, its files' names and
-// check text, and the keys of its imports. ok is false when an import is
-// not among packages, which each come after their imports.
+// treeKeys is each package's key: its import path, whether the load
+// checked it as main (no package of the load imports it) or as its path,
+// its files' names and check text, and the keys of its imports. ok is
+// false when an import is not among packages, which each come after
+// their imports.
 func treeKeys(base string, packages []treePackage, srcs map[string]string) (map[string]string, bool) {
+	imported := map[string]bool{}
+	for _, p := range packages {
+		for _, q := range p.Imports {
+			imported[q] = true
+		}
+	}
 	keys := map[string]string{}
 	for _, p := range packages {
-		parts := []string{treeSchema, "package", base, p.Path}
+		as := "main"
+		if imported[p.Path] {
+			as = "imported"
+		}
+		parts := []string{treeSchema, "package", base, p.Path, as}
 		for _, name := range p.Files {
 			parts = append(parts, filepath.Base(name), syntax.CheckText(srcs[name]))
 		}
@@ -239,14 +257,15 @@ func renderTree(e treeEntry, root string, srcs map[string]string) ([]byte, bool)
 	env.Evaluation.Revision = revision
 	sites := map[string][][2]int{}
 	for _, s := range e.Sites {
-		src, ok := srcs[s.File]
+		name := filepath.Join(root, filepath.FromSlash(s.File))
+		src, ok := srcs[name]
 		if !ok || s.Obligation >= len(env.Evaluation.Obligations) {
 			return nil, false
 		}
-		at, ok := sites[s.File]
+		at, ok := sites[name]
 		if !ok {
 			at = syntax.TokenSites(src)
-			sites[s.File] = at
+			sites[name] = at
 		}
 		if s.Token >= len(at) {
 			return nil, false
@@ -405,7 +424,8 @@ func treeEntryOf(a sketchfront.Analysis, out []byte, root string, srcs map[strin
 				}
 			}
 		}
-		return file, token, found == 1
+		rel, err := filepath.Rel(root, file)
+		return filepath.ToSlash(rel), token, found == 1 && err == nil
 	}
 	for i, o := range env.Evaluation.Obligations {
 		if o.Status != "passed" || o.Reason != "" || o.Advice != "" {
