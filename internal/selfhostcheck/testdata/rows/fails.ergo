@@ -1,0 +1,73 @@
+// S101: a failure that escapes a function declaration's body and is not
+// in its error row: under try (the try, or an argument of a call under
+// it), returned, or the body's value (its tail, a branch's tail); the
+// clause to write after a written row or as a new clause.
+
+type Bad {}
+
+type Worse {}
+
+type Console { Println(s string) }
+
+func fail(n int) int fails Bad {
+	if n > 5 {
+		return Bad
+	}
+	n
+}
+
+func failBW(n int) int fails Bad | Worse {
+	if n > 5 {
+		return Bad
+	}
+	if n > 3 {
+		return Worse
+	}
+	n
+}
+
+func pass(n int) int fails Bad { try fail(n) }
+
+func none(n int) int {
+	let m = try fail(n) //want: rows
+	m
+}
+
+func part(n int) int fails Bad {
+	let m = try failBW(n) //want: rows
+	m
+}
+
+func swapped(n int) int fails Worse {
+	let m = try fail(n) //want: rows
+	m + 1
+}
+
+func args(n int) int fails Worse {
+	let m = try failBW(fail(n)) //want: rows
+	m
+}
+
+func returned(n int) int {
+	if n > 1 {
+		return fail(n) //want: rows
+	}
+	n
+}
+
+func tail(n int) int fails Worse {
+	fail(n) //want: rows
+}
+
+func branch(n int) int {
+	if n > 1 {
+		fail(n) //want: rows
+	} else {
+		n
+	}
+}
+
+func needsToo(n int) int needs Console {
+	let m = try fail(n) //want: rows
+	m
+}

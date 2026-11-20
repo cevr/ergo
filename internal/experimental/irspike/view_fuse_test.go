@@ -2,8 +2,10 @@ package irspike
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -85,8 +87,15 @@ func fusedViews(t *testing.T, src, ir Toolchain, first, count uint64) {
 	}
 }
 
+// readName matches Read and its monomorphic copies (mono.go: ReadMono,
+// ReadMono_i1 …): since b9f4df7cf the IR calls a generic Read's copy at
+// its known type arguments, so a Generic seed past the budget calls
+// ReadMono_i1, not Read (fuse seed 16).
+var readName = regexp.MustCompile(`^Read(Mono(_i[0-9]+)?)?$`)
+
 // fuseSites counts, in each function of an IR file (by its name without a
-// receiver), the calls of Read and the switches on a field named tag.
+// receiver), the calls of Read (or its monomorphic copy) and the switches
+// on a field named tag.
 func fuseSites(t *testing.T, file string) (calls, tags map[string]int) {
 	t.Helper()
 	data, err := os.ReadFile(file)
@@ -110,7 +119,7 @@ func fuseSites(t *testing.T, file string) (calls, tags map[string]int) {
 		walk = func(x any) {
 			switch x := x.(type) {
 			case map[string]any:
-				if (x["k"] == "call" || x["k"] == "mcall") && x["name"] == "Read" {
+				if (x["k"] == "call" || x["k"] == "mcall") && readName.MatchString(fmt.Sprint(x["name"])) {
 					calls[name]++
 				}
 				if s, ok := x["x"].(map[string]any); ok && x["k"] == "switch" && s["k"] == "field" && s["name"] == "tag" {

@@ -90,8 +90,10 @@ func ParseFiles(srcs []string) (files []*File, errs []error) {
 
 // ColumnsVersion is the layout of syntax.Columns this decoder reads, the
 // one this tree's compiler/syntax writes (its ColumnsVersion). 3: a law's
-// row gains TypeParams, its word 2 (adf427bfe), so it has 9 fixed words.
-const ColumnsVersion = 3
+// row gains TypeParams, its word 2 (adf427bfe), so it has 9 fixed words. 4:
+// a context declaration's and literal's rows gain Fails before Needs
+// (CTX-ROWS-1b), so they have 7 and 4.
+const ColumnsVersion = 4
 
 // PreviousColumnsVersion is the layout before ColumnsVersion, which this
 // decoder still reads: the linked parser writes it until scripts/linked
@@ -99,7 +101,7 @@ const ColumnsVersion = 3
 // bootstrapped in two stages (go run ./scripts/linked -bootstrap): stage 1
 // regenerates with the linked parser one layout behind, stage 2 with the
 // parser stage 1 wrote.
-const PreviousColumnsVersion = 2
+const PreviousColumnsVersion = 3
 
 // LayoutError is a parse whose rows have a layout this decoder cannot
 // read: the linked parser is more than one layout behind or ahead.
@@ -355,19 +357,24 @@ func (d *rowDecoder) node(r uint32) Node {
 			Body:       opt[*BlockStmt](d, d.fixed(r, 7, 6)),
 		}
 	case kContextDecl:
-		return &ContextDecl{Doc: d.doc(d.fixed(r, 6, 0)), Let: d.pos(t), Context: d.pos(d.fixed(r, 6, 1)), Name: one[*Ident](d, d.fixed(r, 6, 2)), Provides: opt[*ProvidesClause](d, d.fixed(r, 6, 3)), Needs: opt[*NeedsClause](d, d.fixed(r, 6, 4)), Body: one[*ContextBody](d, d.fixed(r, 6, 5))}
+		// Layout 4 put Fails at word 4; layout 3 has no such word.
+		w, s := 7, 1
+		if d.layout == PreviousColumnsVersion {
+			w, s = 6, 0
+		}
+		x := &ContextDecl{Doc: d.doc(d.fixed(r, w, 0)), Let: d.pos(t), Context: d.pos(d.fixed(r, w, 1)), Name: one[*Ident](d, d.fixed(r, w, 2)), Provides: opt[*ProvidesClause](d, d.fixed(r, w, 3)), Needs: opt[*NeedsClause](d, d.fixed(r, w, 4+s)), Body: one[*ContextBody](d, d.fixed(r, w, 5+s))}
+		if s == 1 {
+			x.Fails = opt[*ErrorRow](d, d.fixed(r, w, 4))
+		}
+		return x
 	case kTestDecl:
 		return &TestDecl{Doc: d.doc(d.fixed(r, 4, 0)), Test: d.pos(t), Name: one[*Ident](d, d.fixed(r, 4, 1)), Params: opt[*FieldList](d, d.fixed(r, 4, 2)), Body: one[*BlockStmt](d, d.fixed(r, 4, 3))}
 	case kLawDecl:
-		// Layout 3 put TypeParams at word 2; layout 2 has no such word.
+		// Layouts 3 and 4 hold TypeParams at word 2 (layout 2, which had
+		// no such word, is no longer read).
 		w, s := 9, 1
-		if d.layout == PreviousColumnsVersion {
-			w, s = 8, 0
-		}
 		l := &LawDecl{Doc: d.doc(d.fixed(r, w, 0)), Law: d.pos(t), Name: one[*Ident](d, d.fixed(r, w, 1)), Params: opt[*FieldList](d, d.fixed(r, w, 2+s)), Body: opt[*BlockStmt](d, d.fixed(r, w, 3+s)), Reach: opt[*LawReach](d, d.fixed(r, w, 4+s))}
-		if s == 1 {
-			l.TypeParams = opt[*FieldList](d, d.fixed(r, w, 2))
-		}
+		l.TypeParams = opt[*FieldList](d, d.fixed(r, w, 2))
 		switch d.fixed(r, w, 5+s) {
 		case 1:
 			l.Rewrite = &LawRewrite{When: d.opos(d.fixed(r, w, 6+s)), Eq: d.opos(d.fixed(r, w, 7+s))}
@@ -473,7 +480,16 @@ func (d *rowDecoder) node(r uint32) Node {
 	case kCatchExpr:
 		return &CatchExpr{X: one[Expr](d, d.fixed(r, 2, 0)), Catch: d.pos(t), Lbrace: d.pos(t + 1), Arms: list[*CatchArm](d, r, 0, d.items(r, 2)), Rbrace: d.pos(d.fixed(r, 2, 1))}
 	case kContextLit:
-		return &ContextLit{Context: d.pos(t), Provides: opt[*ProvidesClause](d, d.fixed(r, 3, 0)), Needs: opt[*NeedsClause](d, d.fixed(r, 3, 1)), Body: one[*ContextBody](d, d.fixed(r, 3, 2))}
+		// Layout 4 put Fails at word 1; layout 3 has no such word.
+		w, s := 4, 1
+		if d.layout == PreviousColumnsVersion {
+			w, s = 3, 0
+		}
+		x := &ContextLit{Context: d.pos(t), Provides: opt[*ProvidesClause](d, d.fixed(r, w, 0)), Needs: opt[*NeedsClause](d, d.fixed(r, w, 1+s)), Body: one[*ContextBody](d, d.fixed(r, w, 2+s))}
+		if s == 1 {
+			x.Fails = opt[*ErrorRow](d, d.fixed(r, w, 1))
+		}
+		return x
 	case kArrayType:
 		x := &ArrayType{Lbrack: d.pos(t), Elt: one[Expr](d, a)}
 		if b != 0 {
