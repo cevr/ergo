@@ -116,14 +116,18 @@ func (c *ergoChecker) unionExpr(x *ergoExpr) (e syntax.Expr, t types2.Type, ok b
 	pos := c.pos(x.Pos)
 	switch x.K {
 	case "toiface":
-		// T(x): a variant x to the sealed interface T it implements.
+		// T(x): a variant x to the sealed interface T it implements, or
+		// an interface value x to an interface T its method set
+		// implements (an Ergo operation type lent as the prelude's
+		// Reader or Writer, IFACE-CONV): Go's conversion, which the
+		// compiler lowers to an itab lookup.
 		t := c.typ(x.Pos, x.T)
 		v, vt := c.expr(x.X)
 		if t == nil || v == nil {
 			return nil, nil, true
 		}
 		iface, isIface := t.Underlying().(*types2.Interface)
-		if !isIface || vt == nil || types2.IsInterface(vt) || !types2.Implements(vt, iface) {
+		if !isIface || vt == nil || !types2.Implements(vt, iface) {
 			c.errorf(x.Pos, "ergoir: conversion of %v to %v", vt, t)
 			return nil, nil, true
 		}
