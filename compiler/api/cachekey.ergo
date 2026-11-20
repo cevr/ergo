@@ -1,0 +1,42 @@
+import compiler/cachekey
+
+// The driver's cache keys (compiler/cachekey) for a Go host. The agreement
+// properties TestKeysAgreeWithErgo (internal/sketch/lawcache) and
+// TestActionKeysAgreeWithErgo (internal/sketch/build) compare them with the
+// Go keys on the same parts.
+
+// KeyFields is cachekey.Fields of names[i], values[i] pairs, or "" when
+// the two lists differ in length.
+func KeyFields(names []string, values []string) string {
+	if len(names) != len(values) {
+		return ""
+	}
+	let mut fs = []cachekey.Field{}
+	for i, n in names {
+		fs = fs.Append(cachekey.Field{Name: n, Value: values[i]})
+	}
+	cachekey.Fields(fs)
+}
+
+// KeyBuildID is cachekey.BuildID.
+func KeyBuildID(key string, parts int) string { cachekey.BuildID(key, parts) }
+
+// KeyLaw is cachekey.LawKey.
+func KeyLaw(parts []string) string { cachekey.LawKey(parts) }
+
+// KeyFramed is cachekey.Framed.
+func KeyFramed(parts []string) string { cachekey.Framed(parts) }
+
+// KeyEnviron is cachekey.Environ, one entry per line.
+func KeyEnviron(environ []string, skip string) string {
+	let mut out = ""
+	for kv in cachekey.Environ(environ, skip) {
+		out = out + kv + "\n"
+	}
+	out
+}
+
+// KeyTestResult is cachekey.TestResult.
+func KeyTestResult(id string, ledger string, limit uint64, args []string, environ []string, skip string) string {
+	cachekey.TestResult(id, ledger, limit, args, environ, skip)
+}

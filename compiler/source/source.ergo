@@ -1,0 +1,105 @@
+// Package source is the self-hosted driver's source admission (capstone
+// S5, the pure part): every command reads its source through it. It is
+// ported from internal/source, which stays the reference until the S5
+// swap. The decision is pure: whether a bound is valid, whether a node
+// may be read, and whether what was read fits the bound. The host reads
+// that fill it are the operation type Host. Its implementation (an open
+// that cannot block on a FIFO, a stat of the open descriptor, its
+// physical path, a bounded read of the open file) waits on the std file
+// handle the B7 census names (selfhost/B7-CENSUS/from-pf.md).
+
+// NegativeLimit is a size bound below zero.
+type NegativeLimit {}
+
+// NotRegular is a source node that is not a regular file: a FIFO, a
+// device or a folder.
+type NotRegular {}
+
+// TooLarge is a source longer than the caller's bound, Limit bytes.
+// Callers own the user-facing wording for the bound.
+type TooLarge { Limit int }
+
+// Unreadable is a host failure to stat or read the source, in the host's
+// words.
+type Unreadable { Path string, Reason string }
+
+// Node is what the host knows of a source node: whether it is a regular
+// file, and its size in bytes.
+type Node { Regular bool, Size int }
+
+// Host is the host side of admission.
+type Host {
+	// Stat is the node at path.
+	Stat(path string) Node fails Unreadable,
+
+	// Read is the content at path, at most limit bytes when limit is
+	// positive, all of it when limit is 0.
+	Read(path string, limit int) string fails Unreadable,
+
+	// ReadIsBounded: a bounded read never returns more than its bound.
+	law ReadIsBounded(path string, limit int) {
+		if limit <= 0 {
+			return true
+		}
+		let text = Read(path, limit) catch {
+		case Unreadable:
+			return true
+		}
+		len(text) <= limit
+	},
+}
+
+// The texts of the failures, Go's error strings.
+let NegativeLimitText = "source size limit must not be negative"
+let NotRegularText = "source must be a regular file"
+let TooLargeText = "source exceeds configured limit"
+
+// CheckLimit refuses a negative bound. A bound of 0 means no bound.
+func CheckLimit(limit int) fails NegativeLimit {
+	if limit < 0 {
+		return NegativeLimit
+	}
+}
+
+// Admit refuses a node that is not a regular file.
+func Admit(n Node) fails NotRegular {
+	if !n.Regular {
+		return NotRegular
+	}
+}
+
+// ReadLimit is how much a bounded read takes: one byte past the bound, so
+// a source longer than the bound is seen to be, and 0 (all of it) when
+// there is no bound.
+func ReadLimit(limit int) int { if limit > 0 { limit + 1 } else { 0 } }
+
+// Fit is data when it fits the bound: TooLarge when a positive limit is
+// exceeded.
+func Fit(data string, limit int) string fails TooLarge {
+	if limit > 0 && len(data) > limit {
+		return TooLarge{Limit: limit}
+	}
+	data
+}
+
+// FitIsTheBound: with a positive bound, a text fits exactly when it is no
+// longer than the bound; with none, every text fits.
+law FitIsTheBound(data string, limit int) {
+	let fits = if limit > 0 { len(data) <= limit } else { true }
+	let got = Fit(data, limit) catch {
+	case TooLarge:
+		return !fits
+	}
+	fits && got == data
+}
+
+// ReadRegularFile admits the node at path and reads it under limit, in Go
+// ReadRegularFile's order: the bound, the stat, the regular-file rule,
+// the read, the fit.
+func ReadRegularFile(path string, limit int) string fails NegativeLimit | NotRegular | TooLarge | Unreadable needs Host {
+	try CheckLimit(limit)
+	let n = try Host.Stat(path)
+	try Admit(n)
+	let data = try Host.Read(path, ReadLimit(limit))
+	try Fit(data, limit)
+}

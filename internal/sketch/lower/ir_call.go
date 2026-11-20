@@ -297,7 +297,10 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 					// before its receiver (callText).
 					irArgs = append([]*irExpr{irArgs[1], irArgs[0]}, irArgs[2:]...)
 				}
-				return pre, mark(&irExpr{K: "call", Pos: p, Name: mono.name, Args: irArgs}), !fd.envFree
+				// The copy's own IR body is the inliner's to copy, as
+				// the text path's OPT4a writes the instance's body at
+				// its call (lru's Churn: Cache.Get; IR-GETMATCH).
+				return pre, b.inlineMark(x, c, fd, mark(&irExpr{K: "call", Pos: p, Name: mono.name, Args: irArgs})), !fd.envFree // ir_forms_inline.go
 			}
 		}
 		if known != "" && fd.method != nil {
@@ -318,8 +321,13 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		// A generic function's call names its Go type arguments (the
 		// emitter's typeArgs), never left to Go's inference (ir_pkg.go).
 		if sp := b.copyCall(x, c); sp != "" {
-			// The copy for the known record: one instance (ir_known.go).
-			return pre, mark(&irExpr{K: "call", Pos: p, Name: sp, Args: irArgs}), !fd.envFree
+			// The copy for the known record or provider: one instance
+			// (ir_known.go), a provider's adapter at its parameter.
+			env := 1
+			if fd.envFree {
+				env = 0
+			}
+			return pre, mark(&irExpr{K: "call", Pos: p, Name: sp, Args: b.provArg(x, c, irArgs, env)}), !fd.envFree
 		}
 		if sp := b.instanceCopy(x, c); sp != "" {
 			// The copy for the instance (ir_instance.go): no type
