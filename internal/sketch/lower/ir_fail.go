@@ -418,11 +418,13 @@ func (b *irBuilder) catch(x *syntax.CatchExpr, partial bool) ([]*irStmt, *irExpr
 			}
 			as = append(as, p)
 			switch {
+			// A named row's arm lists its variants (namedrow.go); its
+			// binding is the error itself, as Go's error is its type.
 			case p.Kind == check.PatTypeTest:
-				ar.types = append(ar.types, b.goType(p.Type, te))
+				ar.types = append(ar.types, b.l.caseGoTypes(p.Type, func(t check.Type) string { return b.goType(t, te) })...)
 			case p.Kind == check.PatAs && len(a.Types) == 1 && len(p.Elems) == 1 && p.Elems[0].Kind == check.PatTypeTest && p.Var != nil:
 				ar.asT = b.goType(p.Elems[0].Type, te)
-				ar.types = append(ar.types, ar.asT)
+				ar.types = append(ar.types, b.l.caseGoTypes(p.Elems[0].Type, func(t check.Type) string { return b.goType(t, te) })...)
 				ar.as = p.Var
 			default:
 				patterned = true
