@@ -1671,7 +1671,7 @@
       "from": "\tif h.Clashes == 0 {\n\t\ttry t.writes.WriteFile(ours, classes.Text(h))\n\t\treturn FileMerged{Path: path, Class: \"text\", Regenerate: false}\n\t}\n\tlet run",
       "to": "\tlet run",
       "rule": "A candidate never runs where Git's line merge is clean, and that merge is the file (law CandidateNeverWorseThanGit).",
-      "anchor": {"tests": ["examples: modules/work"]}
+      "anchor": {"tests": ["examples:modules/work"]}
     },
     {
       "name": "m1-candidate-unchecked", "origin": "wf10/semws M1",
@@ -1679,7 +1679,7 @@
       "from": "\tif line.Check != \"\" {\n\t\tlet k",
       "to": "\tif false {\n\t\tlet k",
       "rule": "A candidate that fails its check (a Go file that does not parse) is withdrawn for Git's line merge (law CandidateNeverWorseThanGit).",
-      "anchor": {"tests": ["examples: modules/work"]}
+      "anchor": {"tests": ["examples:modules/work"]}
     },
     {
       "name": "m1-own-conflict-hidden", "origin": "wf10/semws M1",
@@ -1687,7 +1687,7 @@
       "from": "\tif r.Status != 0 {\n\t\treturn CandidateConflicted",
       "to": "\tif false {\n\t\treturn CandidateConflicted",
       "rule": "The driver's own conflict (a status other than 0) is a conflict, never a clean merge (law CandidateNeverWorseThanGit).",
-      "anchor": {"tests": ["examples: modules/work"]}
+      "anchor": {"tests": ["examples:modules/work"]}
     },
     {
       "name": "m1-marker-unseen", "origin": "wf10/semws M1",
@@ -1695,7 +1695,7 @@
       "from": "\tif strings.HasPrefix(text, \"<<<<<<<\") || strings.Contains(text, \"\\n<<<<<<<\") {\n",
       "to": "\tif false {\n",
       "rule": "A driver that ends with status 0 and leaves a conflict marker is withdrawn (law CandidateNeverWorseThanGit).",
-      "anchor": {"tests": ["examples: modules/work"]}
+      "anchor": {"tests": ["examples:modules/work"]}
     },
     {
       "name": "m1-missing-is-clean", "origin": "wf10/semws M1",
@@ -1703,7 +1703,7 @@
       "from": "\tif r.Status == 127 {\n\t\treturn CandidateWithdrawn",
       "to": "\tif r.Status == 127 {\n\t\treturn CandidateTaken\n\t}\n\tif false {\n\t\treturn CandidateWithdrawn",
       "rule": "A missing tool (status 127) is Git's line merge, conflicted, never read as clean (law CandidateNeverWorseThanGit).",
-      "anchor": {"tests": ["examples: modules/work"]}
+      "anchor": {"tests": ["examples:modules/work"]}
     },
     {
       "name": "m1-version-unpinned", "origin": "wf10/semws M1",
@@ -1711,7 +1711,7 @@
       "from": "\t\tif v.Status != 0 || !strings.Contains(v.Stdout, line.Version) {\n",
       "to": "\t\tif v.Status != 0 {\n",
       "rule": "A tool of another version than the pin never merges (law CandidateNeverWorseThanGit).",
-      "anchor": {"tests": ["examples: modules/work"]}
+      "anchor": {"tests": ["examples:modules/work"]}
     },
     {
       "name": "m1-candidate-untrusted", "origin": "wf10/semws M1",
@@ -1719,7 +1719,7 @@
       "from": "\tif !trusted(t, c) {\n\t\treturn CandidateWithdrawn",
       "to": "\tif false {\n\t\treturn CandidateWithdrawn",
       "rule": "A candidate's driver runs only after work trust (law CandidateNeverWorseThanGit).",
-      "anchor": {"tests": ["examples: modules/work"]}
+      "anchor": {"tests": ["examples:modules/work"]}
     },
     {
       "name": "m1-check-untrusted", "origin": "wf10/semws M1",
@@ -1727,7 +1727,7 @@
       "from": "\t\tif line.Check != \"\" {\n\t\t\tout = out.Append",
       "to": "\t\tif false {\n\t\t\tout = out.Append",
       "rule": "A candidate's check is a command work trust allows: a changed check asks again (law CandidateCommandsAreTrusted).",
-      "anchor": {"tests": ["examples: modules/work"]}
+      "anchor": {"tests": ["examples:modules/work"]}
     }
   ]
 }

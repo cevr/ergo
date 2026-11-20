@@ -24,7 +24,7 @@
       "origin": "wf10/semws M1",
       "file": "plugins/go/split.go",
       "from": "\t\tcuts = append(cuts, cut{end: lineEnd(end), unit: u})\n",
-      "to": "\t\tcuts = append(cuts, cut{end: end, unit: u})\n",
+      "to": "\t\tcuts = append(cuts, cut{end: end + 0*lineEnd(end), unit: u})\n",
       "rule": "The comment after a declaration on its line stays in its unit (TestKeysAreNames; EditStaysInItsUnit).",
       "killers": ["plugins/go:TestKeysAreNames"]
     },
@@ -42,7 +42,7 @@
       "origin": "wf10/semws M1",
       "file": "plugins/go/split.go",
       "from": "\t\tif i == len(cuts)-1 {\n\t\t\tend = len(text)\n\t\t}\n",
-      "to": "",
+      "to": "\t\tif i < 0 {\n\t\t\tend = len(text)\n\t\t}\n",
       "rule": "The units join to the whole file, its last comment included (law UnitsAreTheFile, TestSplitterLaws).",
       "killers": ["plugins/go:TestSplitterLaws"]
     },
@@ -51,7 +51,7 @@
       "origin": "wf10/semws M1",
       "file": "plugins/go/main.go",
       "from": "\tif errors.As(err, &u) {\n",
-      "to": "\tif false {\n",
+      "to": "\tif errors.As(err, &u) && false {\n",
       "rule": "A file go/parser cannot read is Unreadable, never a file of no units (TestProtocol).",
       "killers": ["plugins/go:TestProtocol"]
     }
