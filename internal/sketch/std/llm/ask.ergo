@@ -35,11 +35,9 @@ func Parse[T wire](c json.Codec[T], reply string) json.Read[T] fails NoFit needs
 		return NoFit{Reply: reply, Path: "", Reason: m.Reason}
 	case WireWrongKind as w:
 		return NoFit{Reply: reply, Path: w.Path, Reason: "not " + w.Want}
-	case WireMissingField as f:
-		return NoFit{Reply: reply, Path: f.Path, Reason: "no member " + f.Field}
-	case WireUnknownTag as u:
-		return NoFit{Reply: reply, Path: u.Path, Reason: "no variant " + u.Tag}
 	case _:
+		// A generic T's row names only its wrong kind; a missing member
+		// or an unknown tag is the reply's as a whole.
 		return NoFit{Reply: reply, Path: "", Reason: "a value its type refuses"}
 	}
 }
