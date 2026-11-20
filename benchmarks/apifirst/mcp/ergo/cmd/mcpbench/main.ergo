@@ -7,7 +7,7 @@
 
 import mcpbench/counter
 import mcpbench/counter/countermcp
-import github.com/cevr/ergo/modules/mcp
+import mcp
 import os
 import strconv
 

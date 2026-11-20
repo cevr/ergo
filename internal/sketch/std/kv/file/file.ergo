@@ -75,6 +75,20 @@ func Open(files fs.Files, writes fs.Writes, path string) Store fails kv.Failed {
 	Store{path: path, files: files, writes: writes, index: index}
 }
 
+// onMemoryDisk is the context kv.Store's laws run Store under (types.md,
+// Laws 10): each case opens a fresh log on its own fstest.Memory disk.
+let onMemoryDisk = context { kv.Store: openOnMemory() }
+
+// openOnMemory is the store Open gives for a log not yet on a fresh
+// memory disk, which it reads as empty: such an Open does not fail.
+func openOnMemory() Store {
+	let disk = fstest.NewMemory()
+	Open(disk, disk, "kv.log") catch {
+	case kv.Failed as f:
+		Unreachable(f.Reason)
+	}
+}
+
 // Get is the value key holds, from the index.
 func Get(s Store, key string) Option[string] fails kv.Failed { try s.index.Get(key) }
 

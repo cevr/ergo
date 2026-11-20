@@ -8,8 +8,8 @@
 
 import api
 import json
+import mcp
 import rpc
-import github.com/cevr/ergo/modules/mcp
 import pipeline/board
 import pipeline/pipeline
 import pipeline/pipeline/pipelineapi

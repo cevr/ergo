@@ -333,6 +333,51 @@ func benchLoop(n int) int {
 	return s
 }
 
+// widen and rebuild: hand Go's sub-union is an interface that embeds the
+// larger one, so the conversion is free (UNION-FLAT).
+type quiz interface{ isQuiz() }
+type settled interface {
+	quiz
+	isSettled()
+}
+type calculating struct{ next int }
+type asked struct{ q int }
+type shown struct{ n int }
+
+func (calculating) isQuiz() {}
+func (asked) isQuiz()       {}
+func (asked) isSettled()    {}
+func (shown) isQuiz()       {}
+func (shown) isSettled()    {}
+
+//go:noinline
+func settledOf(i int) settled {
+	if i%3 == 0 {
+		return asked{q: i & 7}
+	}
+	return shown{n: i & 3}
+}
+
+func score(q quiz) int {
+	switch v := q.(type) {
+	case calculating:
+		return v.next
+	case asked:
+		return v.q
+	case shown:
+		return v.n + 1
+	}
+	return 0
+}
+
+func benchWiden(n int) int {
+	s := 0
+	for i := 0; i < n; i++ {
+		s += score(settledOf(i))
+	}
+	return s
+}
+
 func main() {
 	if len(os.Args) != 4 {
 		fmt.Fprintln(os.Stderr, "usage: control bench KIND N")
@@ -366,6 +411,8 @@ func main() {
 		out = benchCtx(n)
 	case "ref":
 		out = benchRef(n)
+	case "widen", "rebuild":
+		out = benchWiden(n)
 	}
 	fmt.Println(out)
 }

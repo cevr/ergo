@@ -37,7 +37,7 @@ func GenerateOwnLit(seed uint64) string {
 	// value to one let mut first and returns it last writes the cell's
 	// value through a pointer.
 	fmt.Fprintf(&b, "func push(r sync.Ref[S], k int) {\n\tr.Update() func(v S) S {\n\t\tlet mut s = v\n\t\ts.Items = s.Items.Append(k)\n\t\ts.N = s.N + %d\n\t\ts\n\t}\n}\n\n", 1+g.n(4))
-	b.WriteString("func bump(s *S, k int) int {\n\ts.N = s.N * 2 + k\n\ts.N\n}\n\n")
+	b.WriteString("func bump(s mut S, k int) int {\n\ts.N = s.N * 2 + k\n\ts.N\n}\n\n")
 	b.WriteString("func bumpn(r sync.Ref[S], k int) int {\n\tsync.Modify(r, func(v S) (int, S) {\n\t\tlet mut s = v\n\t\tlet x = bump(&s, k)\n\t\t(x + len(s.Items), s)\n\t})\n}\n\n")
 	b.WriteString("func at(m Map[string, int], k string) int {\n\tmatch m.Get(k) {\n\tcase Some[int] as v:\n\t\tv.Value\n\tcase None:\n\t\t-1\n\t}\n}\n\n")
 	b.WriteString("func mtext(m Map[string, int]) string {\n\t\"a=\\(at(m, \"a\")) b=\\(at(m, \"b\")) c=\\(at(m, \"c\"))\"\n}\n\n")

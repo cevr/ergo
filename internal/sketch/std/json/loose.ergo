@@ -49,11 +49,15 @@ type Fix = Surrounded | Fenced | TrailingComma | UnquotedKey | SingleQuoted | Co
 // value that repairs to JSON, fails Open's Malformed for the text itself;
 // a value that is JSON but not a T fails decode[T]'s shape failure.
 func DecodeLoose[T wire](c Codec[T], text string) Read[T] fails Malformed | wired[T] needs wired[T] {
-	let r = Open(text, c.MaxBytes, c.MaxDepth) catch {
+	// The strict path is Decode's one pass (JSON-VALUE-DECODE): a JSON
+	// reply is read once; only a text Decode finds Malformed is repaired.
+	let v = Decode(c, text) catch {
 	case Malformed as m:
 		return try looseRead(c, text, m)
+	case err:
+		return err
 	}
-	Read[T]{Value: try decode[T](r), Fixes: []Fix{}}
+	Read[T]{Value: v, Fixes: []Fix{}}
 }
 
 // looseRead reads the candidates of a text Open refused with strict.
