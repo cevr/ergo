@@ -846,6 +846,27 @@ func writeFile(t *testing.T, path, text string) {
 	}
 }
 
+// TestCopyStartsNoMaintenance: the runner's copy is a Git repository whose
+// own configuration turns automatic gc and maintenance off, so no git a
+// test runs in it starts a repack (wf10, 2026-11-19: repacks of the
+// scratch repositories ran 13 and 40 minutes on a nearly full disk). The
+// configuration is read from the copy's file, not through git's
+// environment, which the runner also sets. Mutant:
+// mutants-copy-maintenance-on.
+func TestCopyStartsNoMaintenance(t *testing.T) {
+	dst := t.TempDir()
+	writeFile(t, filepath.Join(dst, "f.go"), "package f\n")
+	if err := commitCopy(dst, []treeFile{{path: "f.go", mode: 0o644, data: []byte("package f\n")}}); err != nil {
+		t.Fatal(err)
+	}
+	config := filepath.Join(dst, ".git", "config")
+	for key, want := range map[string]string{"gc.auto": "0", "maintenance.auto": "false"} {
+		if got := git(t, dst, "config", "--file", config, "--get", key); got != want {
+			t.Errorf("the copy's %s is %q, want %q", key, got, want)
+		}
+	}
+}
+
 func git(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	cmd := exec.Command("git", append([]string{"--no-optional-locks"}, args...)...)

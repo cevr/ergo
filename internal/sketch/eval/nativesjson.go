@@ -656,6 +656,19 @@ func (c *jsonCursor) opCall(in *interp, fr *frame, at syntax.Node, name string, 
 		if n != nil {
 			out = n.text
 		}
+	case "StringBytes":
+		// into with the next string's bytes added, as String reads them
+		// (GX12).
+		n := c.read(3)
+		c.wrong = n == nil
+		s := ""
+		if n != nil {
+			s = n.text
+		}
+		if ab := in.allocate(fr, at, int64(len(s))); ab != nil {
+			return nil, ab
+		}
+		return appendString(nil, args[0], s), nil
 	case "BeginList", "BeginObject":
 		kind := 4
 		if name == "BeginObject" {
