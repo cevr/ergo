@@ -14,7 +14,7 @@ func askedCodec() json.Codec[asked] { json.Codec[asked]{MaxBytes: 0, MaxDepth: 0
 // the NoFit's reply and path, or another failure's name.
 type askVerdict { Read json.Read[asked], NoFit Option[llm.NoFit], Other string }
 
-func asking(m Sequence, r llm.Request) askVerdict {
+func askOf(m Sequence, r llm.Request) askVerdict {
 	let empty = json.Read[asked]{Value: asked{Name: "", Count: 0}, Fixes: []json.Fix{}}
 	with context { llm.Model: m } {
 		let got = llm.Ask(askedCodec(), jsonschema.NewEncoded([]string{"name"}), r) catch {
@@ -40,7 +40,7 @@ func parsing(text string) askVerdict {
 // read or a NoFit with the reply, and asks once.
 law AskIsParseOfTheReply(text string) {
 	let m = NewSequence([]Reply{ok(text, none())})
-	asking(m, plain("q")) == parsing(text) && Asks(m) == 1
+	askOf(m, plain("q")) == parsing(text) && Asks(m) == 1
 }
 
 // LengthStopIsNotParsed: a reply that stopped at its length is never
@@ -49,7 +49,7 @@ law AskIsParseOfTheReply(text string) {
 law LengthStopIsNotParsed(v asked) {
 	let text = json.Encode(askedCodec(), v)
 	let m = NewSequence([]Reply{Says{Deltas: []llm.Delta{llm.Text{Text: text}}, Stop: llm.Length, Usage: none()}})
-	match asking(m, plain("q")).NoFit {
+	match askOf(m, plain("q")).NoFit {
 	case Some[llm.NoFit] as n:
 		n.Value.Reply == text && n.Value.Path == ""
 	case None:
@@ -61,5 +61,5 @@ law LengthStopIsNotParsed(v asked) {
 // nothing is parsed.
 law AskFailsAsTheModel(f llm.Failure) {
 	let m = NewSequence([]Reply{Fails{Failure: f}})
-	asking(m, plain("q")).Other == "failure"
+	askOf(m, plain("q")).Other == "failure"
 }
