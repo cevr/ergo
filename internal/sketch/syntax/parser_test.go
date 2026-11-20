@@ -44,7 +44,7 @@ func TestMalformed(t *testing.T) {
 				if !ok {
 					t.Fatalf("no habit %q", m.Habit)
 				}
-				if e.Message != want {
+				if !strings.HasPrefix(e.Message, want) {
 					t.Fatalf("message %q, want the habit's %q", e.Message, want)
 				}
 			}

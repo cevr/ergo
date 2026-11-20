@@ -105,6 +105,19 @@ func fixCommand(args []string) error {
 		return nil
 	}
 	lawPaths, paths := paths, fixFolders(paths)
+	// Go local declarations (var, :=) become let or let mut, as their
+	// S001 names them; syntactic, so the passes below read the new text.
+	lets, err := fix.RunLets(fix.Options{Paths: paths, Write: write})
+	if err != nil {
+		return exitStatusError{code: 1, message: "ergo fix: " + err.Error()}
+	}
+	if text := lets.Text(); text != "" {
+		out := os.Stdout
+		if asJSON {
+			out = os.Stderr // stdout holds only the JSON
+		}
+		fmt.Fprint(out, text)
+	}
 	impl, err := fix.Run(fix.Options{Paths: paths, StdRoot: stdRoot, Write: write, Go: goLits})
 	if err != nil {
 		return exitStatusError{code: 1, message: "ergo fix: " + err.Error()}

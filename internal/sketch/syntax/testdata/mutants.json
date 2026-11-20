@@ -41,6 +41,39 @@
     {"name":"tskip-interpolated-reason","origin":"wf10 TSKIP","file":"internal/sketch/syntax/parse_stmt.go","from":"\tif p.tok.tok == STRING_HEAD {\n\t\tp.errorAt(p.tok.pos","to":"\tif p.tok.tok == STRING_HEAD+1000 {\n\t\tp.errorAt(p.tok.pos","rule":"A skip's reason has no interpolation, and the message says so.","killers":["internal/sketch/check:TestSkipNamesItsReason"]},
     {"name":"tskip-format-drops-reason","origin":"wf10 TSKIP","file":"internal/sketch/format/nodes.go","from":"\t\tp.tokenEnd(s.ReasonPos, s.Reason, s.ReasonEnd)\n\tcase *syntax.BlockStmt:","to":"\tcase *syntax.BlockStmt:","rule":"The formatter prints a skip's reason, so formatting keeps the program.","killers":["internal/sketch/format:TestCommentsAtEveryBoundary"]},
     {"name":"tskip-scanner-reserves","origin":"wf10 TSKIP","file":"internal/sketch/syntax/scanner.go","from":"\tif tok, ok := keywords[word]; ok {","to":"\tif tok, ok := keywords[word]; ok || word == \"skip\" {","rule":"skip is a contextual keyword: the scanner reads it as a name, so no program loses the name.","killers":["internal/sketch/syntax:TestSkipIsAName"]},
-    {"name":"tskip-call-is-skip","origin":"wf10 TSKIP","file":"internal/sketch/syntax/parse_stmt.go","from":"\treturn next == STRING || next == STRING_HEAD\n","to":"\treturn next != SEMICOLON && next != EOF\n","rule":"Only skip followed directly by a string literal is the statement; skip(x) is a call.","killers":["internal/sketch/syntax:TestSkipIsAName"]}
+    {"name":"tskip-call-is-skip","origin":"wf10 TSKIP","file":"internal/sketch/syntax/parse_stmt.go","from":"\treturn next == STRING || next == STRING_HEAD\n","to":"\treturn next != SEMICOLON && next != EOF\n","rule":"Only skip followed directly by a string literal is the statement; skip(x) is a call.","killers":["internal/sketch/syntax:TestSkipIsAName"]},
+    {
+      "name": "localdecl-never-mut",
+      "origin": "wf10 VET-CHECK var tip",
+      "file": "internal/sketch/syntax/habitfix.go",
+      "from": "\t\tkw = \"let mut\"\n",
+      "to": "\t\tkw = \"let\"\n",
+      "rule": "grammar.md Old spellings: a Go local declaration's S001 names let mut when a later statement of its block assigns the name.",
+      "killers": [
+        "internal/sketch/syntax:TestLocalDeclNamesTheLetForm"
+      ]
+    },
+    {
+      "name": "localdecl-selector-chain",
+      "origin": "wf10 VET-CHECK var tip",
+      "file": "internal/sketch/syntax/habitfix.go",
+      "from": "\t\tcase PERIOD:\n\t\tcase IDENT:\n",
+      "to": "\t\tcase IDENT:\n",
+      "rule": "grammar.md Old spellings: p.X = e assigns p, so p := e is named let mut.",
+      "killers": [
+        "internal/sketch/syntax:TestLocalDeclNamesTheLetForm"
+      ]
+    },
+    {
+      "name": "localdecl-block-start",
+      "origin": "wf10 VET-CHECK var tip",
+      "file": "internal/sketch/syntax/habitfix.go",
+      "from": "\t\t\tdepth++\n\t\t\tstart = true\n",
+      "to": "\t\t\tdepth++\n\t\t\tstart = false\n",
+      "rule": "grammar.md Old spellings: an assignment in a nested block counts, so var c int with c += 2 inside an if is named let mut.",
+      "killers": [
+        "internal/sketch/syntax:TestLocalDeclNamesTheLetForm"
+      ]
+    }
   ]
 }

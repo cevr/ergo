@@ -133,6 +133,18 @@ func (p *parser) errorCode(code string, pos Pos, length int, message string) {
 	panic(bailout{})
 }
 
+// errorFix reports a syntax error with the fix that rewrites it.
+func (p *parser) errorFix(pos Pos, length int, message string, fix *Fix) {
+	if p.s.err != nil && pos >= Pos(p.s.err.Offset) {
+		p.err = p.s.err
+	} else {
+		p.err = newError(p.src, p.s.lines, pos, length, message)
+		p.err.Code = CodeSyntax
+		p.err.Fix = fix
+	}
+	panic(bailout{})
+}
+
 // errorf reports an error at the current token. A Go token that Ergo does
 // not use (a reserved word or a removed operator) gets its habit message
 // in place of the generic one (#196, D2), wherever the parser meets it.

@@ -20,6 +20,9 @@ type Error struct {
 	Length  int
 	Line    int
 	Column  int
+	// Fix, when set, rewrites the habit the error names into its Ergo
+	// form (ergo fix's let pass).
+	Fix *Fix
 }
 
 func (e *Error) Error() string {

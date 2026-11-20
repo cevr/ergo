@@ -108,7 +108,12 @@ func (p *parser) parseStmt() Stmt {
 		return p.parseForStmt()
 	case LBRACE:
 		p.errorf("unexpected \"{\": a block follows a header such as if, for or with")
+	case VAR:
+		p.localDecl(habitVar)
 	case IDENT:
+		if p.peek(1).tok == DEFINE {
+			p.localDecl(habitDefine)
+		}
 		if p.peek(1).tok == COLON {
 			p.habit(p.tok.pos, len(p.tok.lit)+1, habitLabel)
 		}
