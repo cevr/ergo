@@ -13,8 +13,10 @@ import (
 // button, which sits beside the level readout in a row, is where it was
 // before any reading, since a readout lays out by its reserve
 // (mutant live-desktop-box-follows-reading); each reading's wake paints
-// the window (mutant live-desktop-reading-unpainted); and the readouts
-// read the last readings.
+// the window (mutant live-desktop-reading-unpainted); the readouts
+// read the last readings; and the window's last paint drew those
+// readings, not a kept draw of an earlier one (mutant
+// UIB24-reading-kept-stale).
 //
 // It builds and runs a Go binary because the window driver is Ergo source
 // that calls Go (go.Foreign): no in-process check runs it, and
@@ -34,8 +36,8 @@ func TestReadoutsOnTheDesktop(t *testing.T) {
 		t.Fatalf("clock-gui -headless %d: %v\n%s", n, err, out)
 	}
 	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
-	if len(lines) != 3 {
-		t.Fatalf("clock-gui -headless %d printed %d lines, want 3:\n%s", n, len(lines), out)
+	if len(lines) != 4 {
+		t.Fatalf("clock-gui -headless %d printed %d lines, want 4:\n%s", n, len(lines), out)
 	}
 	if !strings.HasPrefix(lines[0], "lap at ") || lines[1] != lines[0] {
 		t.Errorf("the lap button moved: %q before the readings, %q after them and a pass", lines[0], lines[1])
@@ -48,6 +50,18 @@ func TestReadoutsOnTheDesktop(t *testing.T) {
 	// 120 readings at 60 a second are 2 seconds; the level saws to 100%.
 	if clock != "00:02.00" || level != fmt.Sprintf("%d%%", n%101) || laps != 1 {
 		t.Errorf("clock-gui shows %q %q with %d laps, want \"00:02.00\" \"%d%%\" with 1", clock, level, laps, n%101)
+	}
+	// The window drew what the readouts read: the last line is the texts
+	// its last paint drew, kept draws too.
+	drawn := strings.Split(lines[3], "|")
+	for _, r := range []string{clock, level} {
+		found := false
+		for _, s := range drawn[1:] {
+			found = found || s == r
+		}
+		if drawn[0] != "drew" || !found {
+			t.Errorf("the window's last paint drew %q, not the reading %q", lines[3], r)
+		}
 	}
 	// One paint for the first pass, then one for each of the 2n wakes.
 	if painted < 2*n+1 {

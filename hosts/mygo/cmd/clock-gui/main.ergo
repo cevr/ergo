@@ -96,7 +96,19 @@ func headless(view own func(f *ui.Frame[int], laps int), clock ui.Readout, meter
 		}
 		out.Println(lapAt(&d))
 		out.Println("\(ui.Reading(clock)) \(ui.Reading(meter)) laps \(desktop.StateOf(&d)) painted \(desktop.Painted(&d))")
+		out.Println(drew(&d))
 	}
+}
+
+// drew is the texts the window's last paint drew, kept draws too, as
+// "drew" and each text after a "|": what the window shows, where the line
+// before it prints what the program read.
+func drew[S, E, D, F](d *desktop.Driver[S, E, D, F]) string {
+	let mut line = "drew"
+	for at in desktop.Inks(d) {
+		line = line + "|" + at.Label
+	}
+	line
 }
 
 // publishAll publishes n readings of each readout, the window taking
