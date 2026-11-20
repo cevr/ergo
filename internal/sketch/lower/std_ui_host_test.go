@@ -4577,6 +4577,11 @@ func caretModel(seed int, m time.Manual) bool needs Scheduler {
 	if fieldAt(ui.Screen(&h), 0) != (Some{Value: kept}) {
 		return false
 	}
+	// A one-line field holds no newline, whatever was typed into it; a
+	// field of more lines holds every one.
+	if strings.Contains(kept.Text, "\n") != (lines > 1 && strings.Contains(text, "\n")) {
+		return false
+	}
 	// An Edit moves the caret and selects: the pass shows both, and the
 	// next pass, after an event elsewhere, keeps them.
 	let moved = ui.FitCaret(ui.Editing{Text: kept.Text, Caret: draw(&r, len(kept.Text)+1), Anchor: draw(&r, len(kept.Text)+1)})
