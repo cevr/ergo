@@ -29,13 +29,15 @@ var preludeUnionNames = []string{"Option", "Some", "None"}
 // patch's Go glue (toolchain/ir).
 var preludeUnionDirs = []string{"internal/sketch/check", "internal/sketch/lower", "internal/sketch/eval", "toolchain/ir"}
 
-// preludeUnionUnits are the units of ADT-NOPRIV §6 that remove a row:
+// preludeUnionUnits are the units of ADT-NOPRIV that remove a row:
 // OPTION-SHAPE (Option through the general layout), SHAPE-BOUNDARY (the
-// pointer form and the Go boundary by shape, and with it the places where
-// the compiler builds the type: go.As, the any-cast, a machine's fields)
-// and KNOWN-VARIANT (the known-variant jump that replaces the comma-ok
-// Get special case).
-var preludeUnionUnits = []string{"OPTION-SHAPE", "SHAPE-BOUNDARY", "KNOWN-VARIANT"}
+// pointer form and the Go boundary by shape), KNOWN-VARIANT (the
+// known-variant jump that replaces the comma-ok Get special case) and
+// ADT-LANG (where the compiler itself produces the value, go.As, the
+// any-cast, a machine's After, Work and Exit and the evaluator's Some and
+// None, it reads the type from the prelude declaration it is given and
+// builds the variant through the general union path).
+var preludeUnionUnits = []string{"OPTION-SHAPE", "SHAPE-BOUNDARY", "KNOWN-VARIANT", "ADT-LANG"}
 
 // TestLoweringNamesNoPreludeUnion is ADT-NOPRIV's residue rule (§4 step 1,
 // acceptance AC6): no non-test Go file of preludeUnionDirs names the
