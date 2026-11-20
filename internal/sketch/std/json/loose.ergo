@@ -212,7 +212,7 @@ law RepairIsOnePass(text string) {
 
 // looseFixer repairs one value of src from i. A repair splices: out is the
 // strict text up to from, and src[from:i] is copied as it is when the next
-// repair or the end needs it, so a value with no repair inside is a slice
+// repair or the end calls for it: a value with no repair inside is a slice
 // of the text, never copied (spliced false). stack is the open brackets
 // (opens where each opened), key whether a key is next, comma a comma held
 // back (its offset, or -1) until the next token shows it is not trailing
