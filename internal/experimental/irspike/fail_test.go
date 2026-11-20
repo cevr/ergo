@@ -39,6 +39,12 @@ func TestIRFailuresMatchSource(t *testing.T) {
 		if a != b {
 			t.Fatalf("seed %d: the paths differ\nsource: %+v\nir:     %+v\nreplay: ERGO_IRSPIKE_SEED=%d ERGO_IRSPIKE_SEEDS=1 go test -run TestIRFailuresMatchSource ./internal/experimental/irspike\n%s", seed, a, b, seed, text)
 		}
+		// gate's wrapper failed with its worker's failure (gateCalls): a
+		// run where it did not reached no wrapper's failure, so a wrapper
+		// that drops it (irf-wrapper-drops-failure) would pass unseen.
+		if !strings.Contains(a.stdout, gateFailed) {
+			t.Fatalf("seed %d: the generator's call of gate through a function value printed no %q: no wrapper failed\n%s", seed, gateFailed, text)
+		}
 		if a.exit != 0 {
 			defects++
 		}
