@@ -1,10 +1,12 @@
 package fix
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -27,23 +29,39 @@ func Lets(src string) (out string, n int) {
 	for {
 		_, err := syntax.Parse(out)
 		var e *syntax.Error
-		if !errors.As(err, &e) || e.Fix == nil {
+		if !errors.As(err, &e) || e.Fix == nil || e.Fix.Class != "exact" {
 			return out, n
 		}
 		f := e.Fix
-		if last != nil && *f == *last {
+		if last != nil && slices.Equal(f.Edits, last.Edits) {
 			return out, n
 		}
-		if f.Offset < 0 || f.Length < 0 || f.Offset+f.Length > len(out) {
-			return out, n
-		}
-		next := out[:f.Offset] + f.Text + out[f.Offset+f.Length:]
-		if next == out {
+		next, ok := applyEdits(out, f.Edits)
+		if !ok || next == out {
 			return out, n
 		}
 		out, last = next, f
 		n++
 	}
+}
+
+// applyEdits is src with the edits applied, each against src's offsets;
+// false when an edit falls outside src or two overlap.
+func applyEdits(src string, edits []syntax.Edit) (string, bool) {
+	es := slices.Clone(edits)
+	slices.SortFunc(es, func(a, b syntax.Edit) int { return cmp.Compare(a.Offset, b.Offset) })
+	var b strings.Builder
+	at := 0
+	for _, e := range es {
+		if e.Offset < at || e.Length < 0 || e.Offset+e.Length > len(src) {
+			return "", false
+		}
+		b.WriteString(src[at:e.Offset])
+		b.WriteString(e.Text)
+		at = e.Offset + e.Length
+	}
+	b.WriteString(src[at:])
+	return b.String(), true
 }
 
 // LetReport is what RunLets did.

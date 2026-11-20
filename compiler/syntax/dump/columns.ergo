@@ -30,29 +30,37 @@ func Tokens(src string) []uint32 {
 	out
 }
 
-// Failure is the failure of the parse of src, "" when it parses:
-// "code offset length line column fix " and the message, the fields of
-// the Go *syntax.Error. fix is "-" for none, else "offset,length,text":
-// the text Go-quoted with each space written \x20, so the field holds no
-// space (fixField).
+// Failure is the failure of the parse of src, "" when it parses. Its
+// first line is "code offset length line column " and the message, the
+// fields of the Go *syntax.Error. Each further line is one edit of the
+// error's fix, "fix exact offset length " and the replacement Go-quoted
+// (fixLines). A message and a quoted text hold no newline.
 func Failure(src string) string {
 	let p = syntax.Parse(src)
 	if !p.Failed {
 		return ""
 	}
-	p.Code + " " + strconv.Itoa(p.Offset) + " " + strconv.Itoa(p.Length) + " " + strconv.Itoa(p.Line) + " " + strconv.Itoa(p.Column) + " " + fixField(p) + " " + p.Message
+	p.Code + " " + strconv.Itoa(p.Offset) + " " + strconv.Itoa(p.Length) + " " + strconv.Itoa(p.Line) + " " + strconv.Itoa(p.Column) + " " + p.Message + fixLines(p)
 }
 
-// fixField is the fix of a failed parse as Failure writes it.
-func fixField(p syntax.Parsed) string {
+// fixLines is the fix of a failed parse as Failure writes it: "" for
+// none, else its one edit. The parser's fixes are exact (VET-CHECK-VAR).
+func fixLines(p syntax.Parsed) string {
 	if !p.HasFix {
-		return "-"
+		return ""
 	}
-	let q = strconv.Quote(p.FixText)
-	let mut text = ""
-	for i in 0..len(q) {
-		let b = if q[i] == ' ' { "\\x20" } else { q[i:i+1] }
-		text = text + b
+	FixLines("exact", []int{p.FixOffset}, []int{p.FixLength}, []string{p.FixText})
+}
+
+// FixLines is a fix of class ("exact" or "suggested") as Failure writes
+// it: a line per edit, each after a newline, "fix class offset length "
+// and the edit's text Go-quoted, so it holds no newline. Edit i replaces
+// the lengths[i] bytes at offsets[i] with texts[i]; the three lists are
+// as long as each other.
+func FixLines(class string, offsets []int, lengths []int, texts []string) string {
+	let mut out = ""
+	for i in 0..len(offsets) {
+		out = out + "\nfix " + class + " " + strconv.Itoa(offsets[i]) + " " + strconv.Itoa(lengths[i]) + " " + strconv.Quote(texts[i])
 	}
-	strconv.Itoa(p.FixOffset) + "," + strconv.Itoa(p.FixLength) + "," + text
+	out
 }

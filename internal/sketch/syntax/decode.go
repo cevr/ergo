@@ -92,8 +92,11 @@ func ParseFiles(srcs []string) (files []*File, errs []error) {
 // one this tree's compiler/syntax writes (its ColumnsVersion). 3: a law's
 // row gains TypeParams, its word 2 (adf427bfe), so it has 9 fixed words. 4:
 // a context declaration's and literal's rows gain Fails before Needs
-// (CTX-ROWS-1b), so they have 7 and 4.
-const ColumnsVersion = 4
+// (CTX-ROWS-1b), so they have 7 and 4. 5: the rows are 4's, and a failed
+// parse's text carries its fix as lines after the error's line, which is
+// 4's six fields byte for byte (failureOf; VET-CHECK-VAR), so both read
+// alike.
+const ColumnsVersion = 5
 
 // PreviousColumnsVersion is the layout before ColumnsVersion, which this
 // decoder still reads: the linked parser writes it until scripts/linked
@@ -101,7 +104,7 @@ const ColumnsVersion = 4
 // bootstrapped in two stages (go run ./scripts/linked -bootstrap): stage 1
 // regenerates with the linked parser one layout behind, stage 2 with the
 // parser stage 1 wrote.
-const PreviousColumnsVersion = 3
+const PreviousColumnsVersion = 4
 
 // LayoutError is a parse whose rows have a layout this decoder cannot
 // read: the linked parser is more than one layout behind or ahead.
@@ -131,27 +134,34 @@ func LinkedLayout() (uint32, error) {
 // words, comments, comment groups, failed.
 const colHeader = 7
 
-// failureOf is the *Error of dump.Failure's text, "code offset length line
-// column message".
+// failureOf is the *Error of dump.Failure's text. Its first line is
+// "code offset length line column message"; each further line is one edit
+// of the error's fix, "fix class offset length "text"", the text Go-quoted
+// (compiler/syntax/dump FixLines). Every edit names the same class.
 func failureOf(text string) error {
-	f := strings.SplitN(text, " ", 7)
-	if len(f) != 7 {
+	lines := strings.Split(text, "\n")
+	f := strings.SplitN(lines[0], " ", 6)
+	if len(f) != 6 {
 		return fmt.Errorf("syntax: a failure the decoder cannot read: %q", text)
 	}
 	n := func(s string) int { v, _ := strconv.Atoi(s); return v }
-	e := &Error{Code: f[0], Offset: n(f[1]), Length: n(f[2]), Line: n(f[3]), Column: n(f[4]), Message: f[6]}
-	if f[5] != "-" {
-		// offset,length,text: the text Go-quoted, spaces as \x20
-		// (compiler/syntax/dump fixField).
-		x := strings.SplitN(f[5], ",", 3)
-		if len(x) != 3 {
+	e := &Error{Code: f[0], Offset: n(f[1]), Length: n(f[2]), Line: n(f[3]), Column: n(f[4]), Message: f[5]}
+	for _, line := range lines[1:] {
+		x := strings.SplitN(line, " ", 5)
+		bad := len(x) != 5 || x[0] != "fix" || x[1] != "exact" && x[1] != "suggested" || e.Fix != nil && e.Fix.Class != x[1]
+		var t string
+		if !bad {
+			var err error
+			t, err = strconv.Unquote(x[4])
+			bad = err != nil
+		}
+		if bad {
 			return fmt.Errorf("syntax: a failure's fix the decoder cannot read: %q", text)
 		}
-		t, err := strconv.Unquote(x[2])
-		if err != nil {
-			return fmt.Errorf("syntax: a failure's fix the decoder cannot read: %q", text)
+		if e.Fix == nil {
+			e.Fix = &Fix{Class: x[1]}
 		}
-		e.Fix = &Fix{Offset: n(x[0]), Length: n(x[1]), Text: t}
+		e.Fix.Edits = append(e.Fix.Edits, Edit{Offset: n(x[2]), Length: n(x[3]), Text: t})
 	}
 	return e
 }
@@ -164,16 +174,13 @@ type rowDecoder struct {
 	extra                       []uint32
 	toks                        []token
 	groups                      []*CommentGroup
-	// layout is the rows' layout version (ColumnsVersion or the one
-	// before it).
-	layout uint32
 }
 
 // Decode builds the tree of src from cols, the words syntax.Columns packs
 // for a parse that did not fail.
 func Decode(src string, cols []uint32) *File {
 	ntok, nrows, nextra, ncmt, ngroups := int(cols[1]), int(cols[2]), int(cols[3]), int(cols[4]), int(cols[5])
-	d := &rowDecoder{src: src, layout: cols[0]}
+	d := &rowDecoder{src: src}
 	w := colHeader
 	d.toks = tokensOfColumns(src, cols[w:w+ntok], cols[w+ntok:w+2*ntok], cols[w+2*ntok:w+3*ntok])
 	w += 3 * ntok
@@ -371,20 +378,13 @@ func (d *rowDecoder) node(r uint32) Node {
 			Body:       opt[*BlockStmt](d, d.fixed(r, 7, 6)),
 		}
 	case kContextDecl:
-		// Layout 4 put Fails at word 4; layout 3 has no such word.
-		w, s := 7, 1
-		if d.layout == PreviousColumnsVersion {
-			w, s = 6, 0
-		}
-		x := &ContextDecl{Doc: d.doc(d.fixed(r, w, 0)), Let: d.pos(t), Context: d.pos(d.fixed(r, w, 1)), Name: one[*Ident](d, d.fixed(r, w, 2)), Provides: opt[*ProvidesClause](d, d.fixed(r, w, 3)), Needs: opt[*NeedsClause](d, d.fixed(r, w, 4+s)), Body: one[*ContextBody](d, d.fixed(r, w, 5+s))}
-		if s == 1 {
-			x.Fails = opt[*ErrorRow](d, d.fixed(r, w, 4))
-		}
-		return x
+		// Layouts 4 and 5 put Fails at word 4 (layout 3, which had no such
+		// word, is no longer read).
+		return &ContextDecl{Doc: d.doc(d.fixed(r, 7, 0)), Let: d.pos(t), Context: d.pos(d.fixed(r, 7, 1)), Name: one[*Ident](d, d.fixed(r, 7, 2)), Provides: opt[*ProvidesClause](d, d.fixed(r, 7, 3)), Fails: opt[*ErrorRow](d, d.fixed(r, 7, 4)), Needs: opt[*NeedsClause](d, d.fixed(r, 7, 5)), Body: one[*ContextBody](d, d.fixed(r, 7, 6))}
 	case kTestDecl:
 		return &TestDecl{Doc: d.doc(d.fixed(r, 4, 0)), Test: d.pos(t), Name: one[*Ident](d, d.fixed(r, 4, 1)), Params: opt[*FieldList](d, d.fixed(r, 4, 2)), Body: one[*BlockStmt](d, d.fixed(r, 4, 3))}
 	case kLawDecl:
-		// Layouts 3 and 4 hold TypeParams at word 2 (layout 2, which had
+		// Layouts 4 and 5 hold TypeParams at word 2 (layout 2, which had
 		// no such word, is no longer read).
 		w, s := 9, 1
 		l := &LawDecl{Doc: d.doc(d.fixed(r, w, 0)), Law: d.pos(t), Name: one[*Ident](d, d.fixed(r, w, 1)), Params: opt[*FieldList](d, d.fixed(r, w, 2+s)), Body: opt[*BlockStmt](d, d.fixed(r, w, 3+s)), Reach: opt[*LawReach](d, d.fixed(r, w, 4+s))}
@@ -494,16 +494,8 @@ func (d *rowDecoder) node(r uint32) Node {
 	case kCatchExpr:
 		return &CatchExpr{X: one[Expr](d, d.fixed(r, 2, 0)), Catch: d.pos(t), Lbrace: d.pos(t + 1), Arms: list[*CatchArm](d, r, 0, d.items(r, 2)), Rbrace: d.pos(d.fixed(r, 2, 1))}
 	case kContextLit:
-		// Layout 4 put Fails at word 1; layout 3 has no such word.
-		w, s := 4, 1
-		if d.layout == PreviousColumnsVersion {
-			w, s = 3, 0
-		}
-		x := &ContextLit{Context: d.pos(t), Provides: opt[*ProvidesClause](d, d.fixed(r, w, 0)), Needs: opt[*NeedsClause](d, d.fixed(r, w, 1+s)), Body: one[*ContextBody](d, d.fixed(r, w, 2+s))}
-		if s == 1 {
-			x.Fails = opt[*ErrorRow](d, d.fixed(r, w, 1))
-		}
-		return x
+		// Layouts 4 and 5 put Fails at word 1 (layout 3 is no longer read).
+		return &ContextLit{Context: d.pos(t), Provides: opt[*ProvidesClause](d, d.fixed(r, 4, 0)), Fails: opt[*ErrorRow](d, d.fixed(r, 4, 1)), Needs: opt[*NeedsClause](d, d.fixed(r, 4, 2)), Body: one[*ContextBody](d, d.fixed(r, 4, 3))}
 	case kArrayType:
 		x := &ArrayType{Lbrack: d.pos(t), Elt: one[Expr](d, a)}
 		if b != 0 {
