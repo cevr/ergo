@@ -529,15 +529,32 @@ func fieldMembers(p mut Printer, list dense.ID[syntax.Node], tight bool) {
 	}, tight)
 }
 
-// operationType prints the includes, operations and laws of an operation
-// type in source order: they may interleave.
+// operationType prints the includes, operations, laws and type set of an
+// operation type in source order: they may interleave. The terms of the
+// type-set member (`~int | ~int64`) are one member, at its first term, on
+// one line.
 func operationType(p mut Printer, t dense.ID[syntax.Node]) {
 	let x = syntax.InterfaceTypeOf(p.P.Tree, t)
-	let nodes = p.ids(x.Members)
+	let mut nodes = []dense.ID[syntax.Node]{}
+	let mut terms = []dense.ID[syntax.Node]{}
+	for m in p.ids(x.Members) {
+		if p.kind(m) != syntax.KField && p.kind(m) != syntax.KLawDecl {
+			if len(terms) == 0 {
+				nodes = nodes.Append(m)
+			}
+			terms = terms.Append(m)
+		} else {
+			nodes = nodes.Append(m)
+		}
+	}
 	p.members(p.tp(x.Lbrace), p.tp(x.Rbrace), nodes, func(i int, aligned bool) {
 		let m = nodes[i]
 		if p.kind(m) == syntax.KLawDecl {
 			p.memberLaw(m)
+			return
+		}
+		if p.kind(m) != syntax.KField {
+			p.typeTerms(terms)
 			return
 		}
 		let f = syntax.FieldOf(p.P.Tree, m)
@@ -556,6 +573,25 @@ func operationType(p mut Printer, t dense.ID[syntax.Node]) {
 		p.ident(p.nth(f.Names, 0))
 		p.signature(the(f.Type))
 	}, false)
+}
+
+// typeTerms prints the terms of a type-set member joined by `|`: `~T` (a
+// UnaryExpr of op `~`) or a bare type.
+func typeTerms(p mut Printer, terms []dense.ID[syntax.Node]) {
+	for i, m in terms {
+		if i > 0 {
+			p.space()
+			p.synth("|")
+			p.space()
+		}
+		if p.kind(m) == syntax.KUnaryExpr {
+			let u = syntax.UnaryExprOf(p.P.Tree, m)
+			p.token(p.tp(u.Op), "~")
+			p.typ(u.X)
+		} else {
+			p.typ(m)
+		}
+	}
 }
 
 // lawBody prints a law's block. A law is usually one equation after its
@@ -1213,7 +1249,10 @@ func expr1(p mut Printer, x dense.ID[syntax.Node], depth int) {
 	} else if k == syntax.KMapType {
 		let m = syntax.MapTypeOf(p.P.Tree, x)
 		p.token(p.start(m.X), "Map")
-		let params = []dense.ID[syntax.Node]{m.Key, m.Value}
+		let mut params = []dense.ID[syntax.Node]{m.Key, m.Value}
+		if some(m.Hashing) {
+			params = params.Append(the(m.Hashing)) // `Map[K, V, H]` (CONSTRAINTS C5)
+		}
 		p.list(p.tp(m.Lbrack), "[", p.starts(params), func(i int) { p.typ(params[i]) }, p.tp(m.Rbrack), "]")
 	} else if k == syntax.KFuncType {
 		p.funcType(x)

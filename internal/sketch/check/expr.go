@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -697,6 +698,10 @@ func (c *checker) compositeLit(x *syntax.CompositeLit, hint Type) operand {
 		c.orphanElements(x, mark, lt())
 		return bad(x)
 	}
+	if IsProviderMap(t) && c.pkg.Path != stdlib.PreludePath {
+		// The prelude builds its table as the record it is.
+		return c.providerLit(x, t, mark, lt) // mapprovider.go
+	}
 	if RefinementOf(t) != nil {
 		// The elements still check, so nothing cascades (Refinements 6).
 		c.errorf(x, CodeType, "a literal of %s is not checked against its where; write %s(%s{…})", t, c.parseFunc(t), refinedBase(t))
@@ -724,37 +729,7 @@ func (c *checker) compositeLit(x *syntax.CompositeLit, hint Type) operand {
 	case *Array:
 		c.arrayElements(x, t, u, lt)
 	case *Map:
-		// A constant key appears once, compared after conversion to the
-		// key type, as in Go (N3).
-		type constKey struct {
-			typ int32 // the interned id of the key's dynamic type
-			val string
-		}
-		seen := map[constKey]bool{}
-		for _, e := range x.Elts {
-			kv, ok := e.(*syntax.KeyValueExpr)
-			if !ok {
-				c.errorf(e, CodeType, "a map literal's elements are key: value pairs")
-				c.orphanValue(e, mark, lt(), false)
-				continue
-			}
-			k := c.elementValue(kv.Key, u.Key, lt, true)
-			if c.assign(&k, u.Key, "map key") && k.mode == modeConst && k.val != nil {
-				// Keys of an interface type compare by dynamic type and
-				// value: int(1) and int64(1) are distinct (round-2 M7).
-				dyn := u.Key
-				if asInterface(u.Key) != nil {
-					dyn = k.typ
-				}
-				key := constKey{c.types.id(dyn), k.val.Kind().String() + ":" + k.val.ExactString()}
-				if seen[key] {
-					c.errorf(kv.Key, CodeType, "the key %s appears twice in this map literal", k.val.ExactString())
-				}
-				seen[key] = true
-			}
-			v := c.elementValue(kv.Value, u.Elem, lt, false)
-			c.assign(&v, u.Elem, "map value")
-		}
+		c.mapElements(x, u.Key, u.Elem, mark, lt)
 	case *MachineType:
 		if len(x.Elts) > 0 {
 			c.errorf(x, CodeType, "a machine value has no fields")
@@ -766,6 +741,41 @@ func (c *checker) compositeLit(x *syntax.CompositeLit, hint Type) operand {
 		return bad(x)
 	}
 	return operand{mode: modeValue, typ: t}
+}
+
+// mapElements checks a Map literal's key: value elements against the key
+// and value types: a constant key appears once, compared after conversion
+// to the key type, as in Go (N3).
+func (c *checker) mapElements(x *syntax.CompositeLit, keyT, elemT Type, mark int, lt func() litType) {
+	type constKey struct {
+		typ int32 // the interned id of the key's dynamic type
+		val string
+	}
+	seen := map[constKey]bool{}
+	for _, e := range x.Elts {
+		kv, ok := e.(*syntax.KeyValueExpr)
+		if !ok {
+			c.errorf(e, CodeType, "a map literal's elements are key: value pairs")
+			c.orphanValue(e, mark, lt(), false)
+			continue
+		}
+		k := c.elementValue(kv.Key, keyT, lt, true)
+		if c.assign(&k, keyT, "map key") && k.mode == modeConst && k.val != nil {
+			// Keys of an interface type compare by dynamic type and
+			// value: int(1) and int64(1) are distinct (round-2 M7).
+			dyn := keyT
+			if asInterface(keyT) != nil {
+				dyn = k.typ
+			}
+			key := constKey{c.types.id(dyn), k.val.Kind().String() + ":" + k.val.ExactString()}
+			if seen[key] {
+				c.errorf(kv.Key, CodeType, "the key %s appears twice in this map literal", k.val.ExactString())
+			}
+			seen[key] = true
+		}
+		v := c.elementValue(kv.Value, elemT, lt, false)
+		c.assign(&v, elemT, "map value")
+	}
 }
 
 // literalType resolves a composite literal's written type. A generic type
@@ -1571,6 +1581,16 @@ func (c *checker) index(x *syntax.IndexExpr, hint Type) operand {
 		return bad(x)
 	}
 	t := base.typ
+	if key, elem, _, ok := c.mapParts(t); ok && IsProviderMap(t) {
+		k := c.valueExpr(x.Indices[0], key)
+		c.assign(&k, key, "map key")
+		if c.writeTarget != x {
+			c.errorf(x, CodeType, "a Map read may miss; write m.Get(k), which returns an Option")
+			return bad(x)
+		}
+		// The store becomes m = m.Put(k, v) (mapprovider.go, assignStmt).
+		return operand{mode: modeValue, typ: elem, mapElem: true}
+	}
 	if r, ok := unparen(x.Indices[0]).(*syntax.BinaryExpr); ok && r.Op == syntax.DOTDOT && (isSliceType(t) || isString(t)) {
 		// words[0..n]: one diagnostic at the index, and no mismatch of the
 		// element type where the part was meant (K4, cron's ParseTable).
@@ -1755,6 +1775,8 @@ func (c *checker) assign(op *operand, t Type, what string) bool {
 		switch msg := literalMismatch(op.expr, t); {
 		case msg != "":
 			c.errorf(op.expr, CodeType, "%s", msg)
+		case c.mapProviderMismatch(op.typ, t) != "":
+			c.errorf(op.expr, CodeType, "%s", c.mapProviderMismatch(op.typ, t)) // mapprovider.go
 		case repair != "":
 			c.errorf(op.expr, CodeType, "cannot use %s as %s in %s; write %s", op.typ, t, what, repair)
 		case why != "":
