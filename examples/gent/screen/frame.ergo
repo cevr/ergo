@@ -8,12 +8,15 @@ import gent/agent
 import slices
 import strings
 import term
+import time
 import utf8
 
 // View is what a frame shows: the agent's state, the composer's line,
-// where the transcript is scrolled to, and whether finished calls show
-// their detail.
-type View { State agent.State, Line Line, Scroll Scroll, Detail bool }
+// where the transcript is scrolled to, whether finished calls show their
+// detail, when the work under way began (Since) and the time the frame is
+// drawn at (Now). screen reads no clock: the draw loop puts its reading
+// in Now, and the spinner is a function of Now less Since.
+type View { State agent.State, Line Line, Scroll Scroll, Detail bool, Since time.Time, Now time.Time }
 
 // Scroll is where the transcript is scrolled to: stuck to its end, so new
 // output shows as it comes, or with the line Top of the wrapped body at
@@ -48,7 +51,7 @@ func Frame(v View, w term.Window) []string {
 	for line in body[from:to] {
 		out = out.Append(Clip(line, cols))
 	}
-	out.Append(Clip(Spin(v.State)+Status(v.State), cols)).Append(composer)
+	out.Append(Clip(Spin(v)+Status(v.State), cols)).Append(composer)
 }
 
 // Top is the first line of a body of n lines that a view shows in room
@@ -113,15 +116,41 @@ func Wrap(text string, cols int) []string {
 	out.Append(rest)
 }
 
-// Spin is the spinner before the status line while the agent works:
-// one of four marks, by the turns of the agent's Spinner (s.Turn).
-func Spin(s agent.State) string {
-	match s.Phase {
-	case agent.Asking, agent.Running:
-		let marks = []string{"- ", "\\ ", "| ", "/ "}
-		marks[((s.Turn%4)+4)%4]
-	case agent.Idle, agent.Waiting, agent.Approving, agent.Ended:
+// Turn is how long the spinner shows one mark.
+let Turn = 120ms
+
+// Turns is how many turns of the spinner fit between since and now: none
+// before since.
+func Turns(since time.Time, now time.Time) int {
+	let d = now.Sub(since)
+	if d < 0s { 0 } else { int(int64(d) / int64(Turn)) }
+}
+
+// Spin is the spinner before the status line while the agent works: one
+// of four marks, by the turns since the work began.
+func Spin(v View) string {
+	match v.State.Phase {
+	case agent.Asking, agent.Waiting, agent.Running:
+		Marks[Turns(v.Since, v.Now)%4]
+	case agent.Idle, agent.Approving, agent.Ended:
 		""
+	}
+}
+
+// Marks is the spinner's marks, in turn order.
+let Marks = []string{"- ", "\\ ", "| ", "/ "}
+
+// SpinIsTheClock: while the agent works, the spinner shows the mark of
+// the turns between the work's start and the frame's time, a mark per
+// Turn; at rest it shows none.
+law SpinIsTheClock(v View, ms int) {
+	let d = ((ms % 100000) + 100000) % 100000
+	let at = View{..v, Now: v.Since.Add(duration(int64(d) * 1000000))}
+	match v.State.Phase {
+	case agent.Asking, agent.Waiting, agent.Running:
+		Spin(at) == Marks[(d/120)%4]
+	case agent.Idle, agent.Approving, agent.Ended:
+		Spin(at) == ""
 	}
 }
 

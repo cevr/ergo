@@ -5,6 +5,7 @@
 import exec
 import gent/agent
 import strings
+import task
 import testing
 import time
 
@@ -64,27 +65,34 @@ law ReplayIsTheRun(s Scripted, t Tree, texts []string, allow bool) {
 	agent.Replay(record) == live
 }
 
-// SpinnerTurnsWhileAToolRuns: while a read the model asked for is held,
-// the agent stays Running and the Spinner of that entry turns more than
-// once (each turn restarts its timer): 1s of a virtual clock.
-test SpinnerTurnsWhileAToolRuns {
+// JournalIgnoresElapsedTime: a session's journal does not depend on how
+// long its work took: two runs of one script, whose read is answered at
+// once in one and 5s later (a virtual clock) in the other, commit the
+// same signals. So nothing that only marks time (a spinner's turn) is a
+// signal of the agent.
+test JournalIgnoresElapsedTime {
+	assert slowRead(0s) == slowRead(5s)
+}
+
+// slowRead is the record of a session that asks the model of a script
+// that reads a.txt, whose read answers after d on a virtual clock.
+func slowRead(d duration) agent.Recorded {
 	let tools = testing.Script[agent.Tools]{}
 	tools.Read.Hold()
 	let read = agent.Call{Id: "c1", Name: "read", Arguments: "{\"path\":\"a.txt\"}"}
 	let world = Scripted{Replies: []Entry{Says{Pieces: []string{"Let me read."}, Calls: []agent.Call{read}, End: agent.ToolUse}, Says{Pieces: []string{"Done."}, Calls: []agent.Call{}, End: agent.Finished}}}
 	let c = testing.NewVirtualClock(0)
-	let during = with context { agent.Model: world, agent.Tools: tools, exec.Runner: exec.Script{Results: Map[string, exec.Result]{}}, Scheduler: c, time.Clock: c } {
+	with context { agent.Model: world, agent.Tools: tools, exec.Runner: exec.Script{Results: Map[string, exec.Result]{}}, Scheduler: c, time.Clock: c } {
 		let s = agent.Open(agent.Limits{MaxSteps: 2, MaxRetries: 0})
-		s.Agent.Send(agent.Submit{Text: "read a.txt"}) catch {
-		case _:
+		let said = task.Go() { agent.Say(s, "read a.txt") }
+		if d > 0s {
+			Scheduler.Sleep(d)
 		}
-		Scheduler.Sleep(1s)
-		let now = s.Agent.State()
 		tools.Read.Release(func(path string) string fails agent.NotFound | agent.Denied | agent.Escapes | agent.Unreadable { "hello" })
+		let _ = said.Wait()
 		s.Agent.Stop()
-		now
+		agent.RecordOf(s)
 	}
-	assert during.Phase != agent.Idle && during.Turn >= 2
 }
 
 // entry is the entry that answers p, or the failure of a script that has
