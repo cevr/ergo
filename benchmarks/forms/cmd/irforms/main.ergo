@@ -404,8 +404,64 @@ func benchUpdateFields(n int) int {
 	a + 1 + 2 + 3 + e + (f & 1023)
 }
 
+// ---- widen and rebuild: a sub-union's value into its union (UNION-FLAT) ----
+
+type Settled = Asked{Q int} | Shown{N int}
+type Quiz = Calculating{Next int} | Settled
+
+func widenQ(s Settled) Quiz { s }
+
+// rebuildQ is the hand rebuild that widening replaces.
+func rebuildQ(s Settled) Quiz {
+	match s {
+	case Asked as a:
+		a
+	case Shown as v:
+		v
+	}
+}
+
+func score(q Quiz) int {
+	match q {
+	case Calculating as c:
+		c.Next
+	case Asked as a:
+		a.Q
+	case Shown as v:
+		v.N + 1
+	}
+}
+
+func settledOf(i int) Settled {
+	if i % 3 == 0 {
+		Asked{Q: i & 7}
+	} else {
+		Shown{N: i & 3}
+	}
+}
+
+func benchWiden(n int) int {
+	let mut s = 0
+	for i in 0..n {
+		s = s + score(widenQ(settledOf(i)))
+	}
+	s
+}
+
+func benchRebuild(n int) int {
+	let mut s = 0
+	for i in 0..n {
+		s = s + score(rebuildQ(settledOf(i)))
+	}
+	s
+}
+
 func run(kind string, n int) int {
-	if kind == "pipeloops" {
+	if kind == "widen" {
+		benchWiden(n)
+	} else if kind == "rebuild" {
+		benchRebuild(n)
+	} else if kind == "pipeloops" {
 		benchPipeLoops(n)
 	} else if kind == "pipefused" {
 		benchPipeFused(n)
