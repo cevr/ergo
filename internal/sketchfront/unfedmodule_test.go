@@ -27,12 +27,14 @@ var unfedSeed = flag.Int64("unfed.seed", -1, "TestUnfedLawIsJudgedOverTheModule:
 // the shared one and each package checked alone, no package's law runs
 // hold a binding of a provider with no generator, so `ergo test` of any
 // package neither runs nor skips it (the contexts' runs are the law's).
-// A failing seed prints both sources and the replay command. Mutants
-// lu-fed-by-importing-package-ignored (a context of an importing package
-// feeds nothing), lu-module-unjudged (the shared load makes no judgment),
-// lu-deferred-binding-kept (a binding left to the module stays a skip)
-// and lu-default-binding-kept (a binding of two other packages stays a
-// skip in mem) are its kills.
+// So a package's test verdict, and the test cache's key, which holds the
+// package and its imports, do not depend on the contexts of the packages
+// that import it: adding or removing a feeding context in mem leaves
+// dom's runs as they are. A failing seed prints both sources and the
+// replay command. Mutants lu-fed-by-importing-package-ignored (a context
+// of an importing package feeds nothing), lu-module-unjudged (the shared
+// load makes no judgment) and lu-deferred-binding-kept (a binding left
+// to the module stays a skip) are its kills.
 func TestUnfedLawIsJudgedOverTheModule(t *testing.T) {
 	seeds := []int64{}
 	if *unfedSeed >= 0 {

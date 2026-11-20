@@ -18,8 +18,8 @@ import (
 // load. It is an error only once no package of its module feeds it
 // either, which ReportUnfed decides over a load that holds the whole
 // module. One decision serves check and test, since the law runs a test
-// build lowers are the checked LawRuns. A package of no module is a
-// program of its own and reports at once.
+// build lowers are the checked LawRuns. Std is one module (StdModule). A
+// package of no module is a program of its own and reports at once.
 
 // unfedBinding is a binding of law to provider that no case of its
 // package feeds (Package.unfed), and the diagnostic its package reports
@@ -37,6 +37,22 @@ type unfedBinding struct {
 type fedBinding struct {
 	law      *Law
 	provider Type
+}
+
+// StdModule names the standard library as one module for this rule:
+// std's contracts are fed by contexts of its other packages (llm/memory
+// feeds llm's Model laws) as a module's are, and StdSnapshotNow, which
+// checks every std package, judges them (ReportUnfed).
+const StdModule = "std"
+
+// unfedModule is the module the package's law bindings are judged over:
+// its loader's module, std for a std package, "" for a program of its
+// own.
+func (c *checker) unfedModule() string {
+	if c.pkg.std {
+		return StdModule
+	}
+	return c.pkg.module
 }
 
 // lawSite is where law is declared, as an unfed binding's error at its

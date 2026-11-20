@@ -750,11 +750,10 @@ func (c *checker) lawProvider(tn *TypeName, own *Named) (LawProvider, bool) {
 // (builtByContext). The error sits at the provider's implements entry
 // when this package declares the provider, else at the law when this
 // package declares it, with the fix the law's shape admits
-// (lawProviderFix). A binding of two other packages is dropped: the
-// provider's package names the law's operation type in its implements
-// clause, so it sees the pair and judges it, and here the law is neither
-// run nor skipped for that provider. In a package of a module the error
-// is left to the module (lawmodule.go).
+// (lawProviderFix); a binding of two other packages keeps its skip, with
+// that fix, since this package can change neither. In a package of a
+// module (std is one) the error is left to the module, and the binding
+// leaves the package's runs (lawmodule.go).
 func (c *checker) reportUnfedProviders() {
 	saved := c.cur
 	defer func() { c.cur = saved }()
@@ -795,14 +794,12 @@ func (c *checker) reportUnfedProviders() {
 					at = r.Law.Decl.Name
 				}
 				if at == nil {
-					// A binding of two other packages: the provider's
-					// package, which names the law's operation type in
-					// its implements clause, judges it, so here it is
-					// neither run nor a skip.
-					drop[key] = true
+					// A binding of two other packages keeps its skip,
+					// with its fix: this package can change neither.
+					p.Unrun += fix
 					continue
 				}
-				if c.pkg.module == "" {
+				if c.unfedModule() == "" {
 					// A package of no module is a program of its own,
 					// which no other package imports: its contexts are
 					// the only ones that could feed the binding.
@@ -816,7 +813,7 @@ func (c *checker) reportUnfedProviders() {
 				// prepared here when no package of the module feeds it.
 				u := unfedBinding{law: r.Law, provider: p.Type}
 				u.diag = c.prepared(func() {
-					c.errorf(at, CodeType, "law %s cannot run at %s: %s%s; no named context of a package of module %s builds one (types.md, Laws 10)", law, name, p.Unrun, fix, c.pkg.module)
+					c.errorf(at, CodeType, "law %s cannot run at %s: %s%s; no named context of a package of module %s builds one (types.md, Laws 10)", law, name, p.Unrun, fix, c.unfedModule())
 				})
 				c.pkg.unfed = append(c.pkg.unfed, u)
 				drop[key] = true

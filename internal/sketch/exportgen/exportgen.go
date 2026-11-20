@@ -109,10 +109,12 @@ var skipFields = map[string]string{
 	"check.Package.goBodies": "std binds no module Go package (snapshot.ExportStd)",
 	"check.Package.goSource": "std binds no module Go package (snapshot.ExportStd; LAWFFI LF2m)",
 
-	// A module's law bindings left to its loader (check/lawmodule.go):
-	// a std package has no module, so it reports its own at once.
-	"check.Package.unfed": "std has no module (check.ReportUnfed)",
-	"check.Package.fed":   "std has no module (check.ReportUnfed)",
+	// A module's law bindings left to its judgment (check/lawmodule.go):
+	// std's is made when its packages are checked, before a snapshot of
+	// them is written (check.StdSnapshotNow), so a decoded package needs
+	// neither.
+	"check.Package.unfed": "judged before the snapshot is written (check.ReportUnfed)",
+	"check.Package.fed":   "judged before the snapshot is written (check.ReportUnfed)",
 }
 
 // Generate returns the generated sources, by their path from root (the
