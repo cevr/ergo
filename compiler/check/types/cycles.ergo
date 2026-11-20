@@ -1,0 +1,573 @@
+// The instantiation-cycle check at the declaration level (S108; the Go
+// checker's mono.go). Each instantiation G[targs] written in a generic
+// declaration D (a type's body, or a function's signature) adds, for each
+// type parameter Q of D in targs[i], an edge from Q to G's i-th
+// parameter: weight 0 when targs[i] is Q, 1 when Q is inside a larger type.
+// A strongly connected component of the parameter graph that holds a
+// weight-1 edge instantiates D with ever larger types: it is reported once,
+// at its first weight-1 edge.
+
+import compiler/check/store
+import compiler/syntax
+import dense
+
+// Cycle is one reported instantiation cycle: the file and offset of the
+// growing instantiation, the instantiated type's name and its argument's
+// text.
+type Cycle { File int, Offset int, Inst string, Arg string }
+
+// monoEdge is an edge of the parameter graph: vertices are parameter
+// places (gen.base + i for a type's, after every type's for a function's).
+type monoEdge { from int, to int, weight int, file int, at int, inst string, arg string }
+
+// byFrom[v] is the indices in edges of v's edges, in edges' order.
+type mono { edges []monoEdge, byFrom [][]int, steps int }
+
+// edgeAt is the index of the edge from-to, or -1.
+func edgeAt(m mono, from int, to int) int {
+	if from < len(m.byFrom) {
+		for i in m.byFrom[from] {
+			if m.edges[i].to == to {
+				return i
+			}
+		}
+	}
+	-1
+}
+
+// pushEdge appends e and indexes it by its source.
+func pushEdge(m mut mono, e monoEdge) {
+	for len(m.byFrom) <= e.from {
+		m.byFrom = m.byFrom.Append([]int{})
+	}
+	m.byFrom[e.from] = m.byFrom[e.from].Append(len(m.edges))
+	m.edges = m.edges.Append(e)
+}
+
+// addEdge adds the edge from-to, or makes an existing one heavier (the
+// heavier kept, in its place).
+func addEdge(m mut mono, e monoEdge) {
+	let i = edgeAt(*m, e.from, e.to)
+	if i < 0 {
+		pushEdge(m, e)
+	} else if m.edges[i].weight < e.weight {
+		m.edges[i] = e
+	}
+}
+
+// occursIn reports whether the parameter q occurs in t (mono.go occurs).
+// The Go walk skips a signature's capability row; a type parameter there
+// is a conflicted one, whose instantiation validArgs refuses, so walking
+// every operand finds the same.
+func occursIn(s mut store.Store, t dense.ID[store.TKey], q dense.ID[store.TKey]) bool {
+	if t == q {
+		return true
+	}
+	for x in store.OperandsOf(*s, t) {
+		if occursIn(s, x, q) {
+			return true
+		}
+	}
+	false
+}
+
+// owner is the declaration whose instantiations a walk records: its
+// parameter names, their vertices, whether each is a type and their
+// kinds.
+type owner { names []string, verts []int, typed []bool, kinds []int }
+
+type cyc { s store.Store, files []syntax.Parsed, gens []gen, kinds Kinds, ext []Ext, foreign []Foreign, deps []Iface, ownMap bool, m mono, heads solve }
+
+// genIndex is the index in gens of the local generic type the head x
+// names, or -1 (localGen, on the solve Cycles set up once).
+func genIndex(c cyc, p syntax.Parsed, x dense.ID[syntax.Node]) int { localGen(c.heads, p, x) }
+
+// record adds the edges of the instantiation head[indices] at.
+func record(c mut cyc, o owner, f int, env Env, head dense.ID[syntax.Node], indices []dense.ID[syntax.Node], at dense.ID[syntax.Node]) {
+	let p = env.p
+	let g = genIndex(*c, p, head)
+	if g < 0 {
+		return
+	}
+	let ks = c.kinds.Of[g]
+	if !validArgs(c, o, env, p, ks, indices) {
+		// An instantiation the checker rejects records nothing
+		// (decl.go instantiateExprs returns before it).
+		return
+	}
+	for i, a in indices {
+		// A row parameter's argument adds no edge (mono.go: type
+		// parameters only). Its growth is CK-ROWGROW, which the Go
+		// checker does not end on, so no test reaches this yet.
+		if i >= len(c.gens[g].params) || (i < len(ks) && (ks[i] == kindErrors || ks[i] == kindUses)) {
+			continue
+		}
+		let leaves = orLeaves(p, a)
+		let t = if len(leaves) > 1 { rowValue(&c.s, env, leaves) } else { Resolve(&c.s, env, a) }
+		for j, v in o.verts {
+			if !o.typed[j] {
+				continue
+			}
+			let q = store.TParam(&c.s, j)
+			if !occursIn(&c.s, t, q) {
+				continue
+			}
+			// A diagnostic names the package's own types bare.
+			let arg = Text(c.s, Names{Params: o.names, Foreign: c.foreign, Pkg: "", Deps: c.deps}, t)
+			addEdge(&c.m, monoEdge{from: v, to: c.gens[g].base + i, weight: if t == q { 0 } else { 1 }, file: f, at: syntax.NodePos(p, at), inst: nameText(p, head), arg: arg})
+		}
+	}
+}
+
+// paramKind is the kind of the owner's parameter a bare name x names,
+// or -1 when x names none.
+func paramKind(o owner, p syntax.Parsed, x dense.ID[syntax.Node]) int {
+	let t = nameText(p, unparen(p, x))
+	for j, n in o.names {
+		if n == t && t != "" {
+			return if j < len(o.kinds) { o.kinds[j] } else { kindType }
+		}
+	}
+	-1
+}
+
+// conflicted reports whether x is a conflicted parameter of o.
+func conflicted(o owner, p syntax.Parsed, x dense.ID[syntax.Node]) bool { paramKind(o, p, x) == KindConflict }
+
+// refused reports whether the checker refuses the type argument x: x is
+// a borrow, or a conflicted parameter, which resolves to nothing
+// (decl.go typExpr, rowArg); an instance takes a refused argument; or a
+// function type's row names a conflicted parameter. A slice, map or a
+// function's parameter of one stays a type of an invalid part.
+func refused(o owner, p syntax.Parsed, x dense.ID[syntax.Node]) bool {
+	match syntax.ViewOf(p.Tree, x) {
+	case syntax.Name:
+		conflicted(o, p, x)
+	case syntax.ParenExpr as pe:
+		refused(o, p, pe.X)
+	case syntax.StarExpr:
+		// A borrow is only a parameter or receiver type (types.md,
+		// Borrows 1): as a type argument it is refused.
+		true
+	case syntax.IndexExpr as ix:
+		for a in listIDs(p, ix.Indices) {
+			for l in orLeaves(p, a) {
+				if refused(o, p, l) {
+					return true
+				}
+			}
+		}
+		false
+	case syntax.FuncType as ft:
+		let mut written = []string{}
+		match dense.Unpack(ft.Results) {
+		case Some[dense.ID[syntax.Node]] as r:
+			match syntax.ViewOf(p.Tree, r.Value) {
+			case syntax.FieldList as fl:
+				for fx in listIDs(p, fl.List) {
+					match syntax.ViewOf(p.Tree, fx) {
+					case syntax.Field as fd:
+						match dense.Unpack(fd.Type) {
+						case Some[dense.ID[syntax.Node]] as t:
+							match syntax.ViewOf(p.Tree, t.Value) {
+							case syntax.ErrorRow:
+								names(p, t.Value, &written)
+							case _:
+							}
+						case None:
+						}
+					case _:
+					}
+				}
+			case syntax.ErrorRow:
+				names(p, r.Value, &written)
+			case _:
+			}
+		case None:
+		}
+		match dense.Unpack(ft.Needs) {
+		case Some[dense.ID[syntax.Node]] as n:
+			match syntax.ViewOf(p.Tree, n.Value) {
+			case syntax.NeedsClause as nc:
+				for name in listIDs(p, nc.Names) {
+					written = written.Append(nameText(p, name))
+				}
+			case _:
+			}
+		case None:
+		}
+		for w in written {
+			for j, n in o.names {
+				if n == w && j < len(o.kinds) && o.kinds[j] == KindConflict {
+					return true
+				}
+			}
+		}
+		false
+	case _:
+		false
+	}
+}
+
+// validArgs reports whether the checker takes the arguments indices for
+// parameters of kinds ks (decl.go instantiateExprs and rowArg): a row
+// parameter takes parameters of its kind and named types; a row written
+// for a type parameter takes error row parameters and named types; any
+// other argument is a type that resolves.
+func validArgs(c mut cyc, o owner, env Env, p syntax.Parsed, ks []int, indices []dense.ID[syntax.Node]) bool {
+	for i, a in indices {
+		if refused(o, p, a) {
+			return false
+		}
+		let k = if i < len(ks) { ks[i] } else { kindType }
+		let leaves = orLeaves(p, a)
+		let row = k == kindErrors || k == kindUses
+		if !row && len(leaves) == 1 {
+			// Resolve first: it grows the pool isInvalid reads.
+			let t = Resolve(&c.s, env, a)
+			if isInvalid(c.s, t) {
+				return false
+			}
+			continue
+		}
+		let want = if row { k } else { kindErrors }
+		for x in leaves {
+			let pk = paramKind(o, p, x)
+			if pk >= 0 {
+				if pk != want {
+					return false
+				}
+				continue
+			}
+			let t = Resolve(&c.s, env, x)
+			let tk = store.KindOfType(c.s, t)
+			if tk != store.KNamed && tk != store.KInstance && tk != store.KForeign {
+				return false
+			}
+		}
+	}
+	true
+}
+
+func cfields(c mut cyc, o owner, f int, env Env, l dense.ID[syntax.Node]) {
+	let p = env.p
+	match syntax.ViewOf(p.Tree, l) {
+	case syntax.FieldList as fl:
+		for x in listIDs(p, fl.List) {
+			match syntax.ViewOf(p.Tree, x) {
+			case syntax.Field as fd:
+				match dense.Unpack(fd.Type) {
+				case Some[dense.ID[syntax.Node]] as t:
+					cwalk(c, o, f, env, t.Value)
+				case None:
+				}
+			case _:
+			}
+		}
+	case _:
+	}
+}
+
+// cwalk records the instantiations of the type expression x of file
+// env.p (c.files[f]), inner ones first (an instantiation's arguments
+// resolve before it). The walk takes the owner's Env from Cycles, made
+// once from its parameters: reading c.files[f] or making an Env of c's
+// fields per node copies the file whole.
+func cwalk(c mut cyc, o owner, f int, env Env, x dense.ID[syntax.Node]) {
+	let p = env.p
+	match syntax.ViewOf(p.Tree, x) {
+	case syntax.ParenExpr as pe:
+		cwalk(c, o, f, env, pe.X)
+	case syntax.BinaryExpr as b:
+		cwalk(c, o, f, env, b.X)
+		cwalk(c, o, f, env, b.Y)
+	case syntax.IndexExpr as ix:
+		let indices = listIDs(p, ix.Indices)
+		for a in indices {
+			cwalk(c, o, f, env, a)
+		}
+		record(c, o, f, env, ix.X, indices, x)
+	case syntax.ArrayType as a:
+		cwalk(c, o, f, env, a.Elt)
+	case syntax.MapType as mt:
+		cwalk(c, o, f, env, mt.Key)
+		cwalk(c, o, f, env, mt.Value)
+		if c.ownMap {
+			record(c, o, f, env, mt.X, []dense.ID[syntax.Node]{mt.Key, mt.Value}, x)
+		}
+	case syntax.StarExpr as s:
+		cwalk(c, o, f, env, s.X)
+	case syntax.FuncType as ft:
+		cfields(c, o, f, env, ft.Params)
+		match dense.Unpack(ft.Results) {
+		case Some[dense.ID[syntax.Node]] as r:
+			cfields(c, o, f, env, r.Value)
+		case None:
+		}
+		match dense.Unpack(ft.Needs) {
+		case Some[dense.ID[syntax.Node]] as n:
+			match syntax.ViewOf(p.Tree, n.Value) {
+			case syntax.NeedsClause as nc:
+				for name in listIDs(p, nc.Names) {
+					cwalk(c, o, f, env, name)
+				}
+			case _:
+			}
+		case None:
+		}
+	case syntax.ErrorRow as er:
+		for t in listIDs(p, er.Types) {
+			cwalk(c, o, f, env, t)
+		}
+	case syntax.StructType as st:
+		cfields(c, o, f, env, st.Fields)
+	case syntax.InterfaceType as it:
+		// Operations, includes and union members written as types; an
+		// inline variant is its own declaration, a law no type.
+		for mb in listIDs(p, it.Members) {
+			match syntax.ViewOf(p.Tree, mb) {
+			case syntax.Field as fd:
+				match dense.Unpack(fd.Type) {
+				case Some[dense.ID[syntax.Node]] as t:
+					cwalk(c, o, f, env, t.Value)
+				case None:
+				}
+			case syntax.LawDecl:
+			case syntax.VariantSpec:
+			case _:
+				cwalk(c, o, f, env, mb)
+			}
+		}
+	case syntax.MachineType as m:
+		cwalk(c, o, f, env, m.State)
+		cwalk(c, o, f, env, m.Signal)
+	case _:
+	}
+}
+
+// isOps reports whether a type's body is an operation type: an interface
+// with an operation or an include (a union's members are types).
+func isOps(p syntax.Parsed, body dense.ID[syntax.Node]) bool {
+	match syntax.ViewOf(p.Tree, body) {
+	case syntax.InterfaceType as it:
+		for mb in listIDs(p, it.Members) {
+			match syntax.ViewOf(p.Tree, mb) {
+			case syntax.Field:
+				return true
+			case _:
+			}
+		}
+		false
+	case _:
+		false
+	}
+}
+
+// link joins a function's parameters to its receiver type's, both ways
+// at weight 0, when its first parameter writes a local generic type that
+// is no operation type with distinct parameters of the function, one per
+// type parameter and one per function parameter (mono.go monoLinkSelf;
+// decl.go selfOwner).
+func link(c mut cyc, o owner, f int, env Env, fd syntax.FuncDecl) {
+	let p = env.p
+	let mut first = dense.NoID[syntax.Node]()
+	match syntax.ViewOf(p.Tree, fd.Type) {
+	case syntax.FuncType as ft:
+		match syntax.ViewOf(p.Tree, ft.Params) {
+		case syntax.FieldList as fl:
+			if syntax.Len(fl.List) == 0 {
+				return
+			}
+			match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, fl.List, 0)) {
+			case syntax.Field as f0:
+				first = f0.Type
+			case _:
+			}
+		case _:
+		}
+	case _:
+	}
+	let rt0 = match dense.Unpack(first) {
+	case Some[dense.ID[syntax.Node]] as t:
+		unparen(p, t.Value)
+	case None:
+		return
+	}
+	let rt = match syntax.ViewOf(p.Tree, rt0) {
+	case syntax.StarExpr as s:
+		unparen(p, s.X)
+	case _:
+		rt0
+	}
+	let (head, indices) = match syntax.ViewOf(p.Tree, rt) {
+	case syntax.IndexExpr as ix:
+		(ix.X, listIDs(p, ix.Indices))
+	case syntax.MapType as m:
+		if !c.ownMap {
+			return
+		}
+		(m.X, []dense.ID[syntax.Node]{m.Key, m.Value})
+	case _:
+		return
+	}
+	let g = genIndex(*c, p, head)
+	if g < 0 || isOps(c.files[c.gens[g].file], c.gens[g].body) || len(indices) != len(c.gens[g].params) || len(indices) != len(o.names) {
+		return
+	}
+	let mut seen = []string{}
+	for a in indices {
+		let t = nameText(p, a)
+		if t == "" || contains(seen, t) || !contains(o.names, t) {
+			return
+		}
+		seen = seen.Append(t)
+	}
+	let ks = c.kinds.Of[g]
+	for i, a in indices {
+		let t = nameText(p, a)
+		for j, n in o.names {
+			if n != t || !o.typed[j] || (i < len(ks) && (ks[i] == kindErrors || ks[i] == kindUses)) {
+				continue
+			}
+			let q = c.gens[g].base + i
+			if q == o.verts[j] {
+				continue
+			}
+			let at = syntax.NodePos(p, a)
+			linkEdge(&c.m, monoEdge{from: o.verts[j], to: q, weight: 0, file: f, at: at, inst: nameText(p, head), arg: n})
+			linkEdge(&c.m, monoEdge{from: q, to: o.verts[j], weight: 0, file: f, at: at, inst: nameText(p, head), arg: n})
+		}
+	}
+}
+
+// linkEdge adds e unless its pair of vertices has an edge already.
+func linkEdge(m mut mono, e monoEdge) {
+	if edgeAt(*m, e.from, e.to) < 0 {
+		pushEdge(m, e)
+	}
+}
+
+func typedOf(kinds []int) []bool {
+	let mut out = []bool{}
+	for k in kinds {
+		// A conflicted parameter is no type: it resolves to nothing.
+		out = out.Append(k != kindErrors && k != kindUses && k != KindConflict)
+	}
+	out
+}
+
+// Cycles is the package's instantiation cycles, in the order their
+// growing instantiations were recorded: the type declarations' bodies in
+// collect order, then each function's receiver link and signature.
+func Cycles(s store.Store, files []syntax.Parsed, kinds Kinds, funcs []FuncKinds, ext []Ext, foreign []Foreign, deps []Iface) []Cycle {
+	let mut ownMap = false
+	match store.Lookup(s, "Map") {
+	case Some[dense.ID[store.Decl]] as d:
+		ownMap = store.KindName(int(store.DeclOf(s, d.Value).Kind)) == "type"
+	case None:
+	}
+	let gens = gensOf(files)
+	let mut c = cyc{s: s, files: files, gens: gens, kinds: kinds, ext: ext, foreign: foreign, deps: deps, ownMap: ownMap, m: mono{edges: []monoEdge{}, byFrom: [][]int{}, steps: 0}, heads: solve{s: s, gens: gens, genAt: genSide(s, files, gens), ext: ext, sv: solver{parent: []int{}, seen: []int{}, steps: 0}, ownMap: ownMap, fn: false, local: kinds}}
+	let mut next = 0
+	for i, g in gens {
+		let mut verts = []int{}
+		for j, _ in g.params {
+			verts = verts.Append(g.base + j)
+		}
+		next = g.base + len(g.params)
+		let o = owner{names: g.params, verts: verts, typed: typedOf(kinds.Of[i]), kinds: kinds.Of[i]}
+		match syntax.ViewOf(files[g.file].Tree, g.body) {
+		case syntax.FieldList:
+			cfields(&c, o, g.file, NewEnv(s, files, files[g.file], o.names, kinds, ext, foreign, deps), g.body)
+		case _:
+			cwalk(&c, o, g.file, NewEnv(s, files, files[g.file], o.names, kinds, ext, foreign, deps), g.body)
+		}
+	}
+	for fk in funcs {
+		if len(fk.Params) == 0 || fk.Name == "main" {
+			continue
+		}
+		let mut verts = []int{}
+		for j, _ in fk.Params {
+			verts = verts.Append(next + j)
+		}
+		next = next + len(fk.Params)
+		let o = owner{names: fk.Params, verts: verts, typed: typedOf(fk.Kinds), kinds: fk.Kinds}
+		match syntax.ViewOf(files[fk.File].Tree, fk.Decl) {
+		case syntax.FuncDecl as fd:
+			let env = NewEnv(s, files, files[fk.File], o.names, kinds, ext, foreign, deps)
+			link(&c, o, fk.File, env, fd)
+			cwalk(&c, o, fk.File, env, fd.Type)
+		case _:
+		}
+	}
+	report(c.m, next)
+}
+
+// tarjan is the state of Tarjan's strongly connected components.
+type tarjan { index []int, low []int, on []bool, comp []int, stack []int, next int, ncomp int }
+
+func visit(m mono, t mut tarjan, v int) {
+	t.index[v] = t.next
+	t.low[v] = t.next
+	t.next = t.next + 1
+	t.stack = t.stack.Append(v)
+	t.on[v] = true
+	let out = if v < len(m.byFrom) { m.byFrom[v] } else { []int{} }
+	for i in out {
+		let w = m.edges[i].to
+		if t.index[w] < 0 {
+			visit(m, t, w)
+			t.low[v] = if t.low[w] < t.low[v] { t.low[w] } else { t.low[v] }
+		} else if t.on[w] {
+			t.low[v] = if t.index[w] < t.low[v] { t.index[w] } else { t.low[v] }
+		}
+	}
+	if t.low[v] == t.index[v] {
+		for {
+			let top = t.stack[len(t.stack)-1]
+			t.stack = t.stack[0 : len(t.stack)-1]
+			t.on[top] = false
+			t.comp[top] = t.ncomp
+			if top == v {
+				break
+			}
+		}
+		t.ncomp = t.ncomp + 1
+	}
+}
+
+// report is each component's first weight-1 edge inside it.
+func report(m mono, n int) []Cycle {
+	let mut t = tarjan{index: []int{}, low: []int{}, on: []bool{}, comp: []int{}, stack: []int{}, next: 0, ncomp: 0}
+	for _ in 0..n {
+		t.index = t.index.Append(-1)
+		t.low = t.low.Append(0)
+		t.on = t.on.Append(false)
+		t.comp = t.comp.Append(-1)
+	}
+	for e in m.edges {
+		for v in []int{e.from, e.to} {
+			if t.index[v] < 0 {
+				visit(m, &t, v)
+			}
+		}
+	}
+	let mut done = []int{}
+	let mut out = []Cycle{}
+	for e in m.edges {
+		if e.weight == 0 || t.comp[e.from] != t.comp[e.to] {
+			continue
+		}
+		let mut seen = false
+		for d in done {
+			seen = seen || d == t.comp[e.from]
+		}
+		if seen {
+			continue
+		}
+		done = done.Append(t.comp[e.from])
+		out = out.Append(Cycle{File: e.file, Offset: e.at, Inst: e.inst, Arg: e.arg})
+	}
+	out
+}

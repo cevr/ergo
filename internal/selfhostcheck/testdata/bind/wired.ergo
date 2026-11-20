@@ -1,0 +1,23 @@
+// A function whose type writes wired[X] of a concrete X: the row is the
+// codec rows of what X reaches, which the self-hosted Load does not
+// resolve yet, so the typer leaves the function out (S3d10). modeReader
+// names it as a value, so a typer that resolved it anyway would give
+// that name a type the Go checker does not.
+
+// Mode has a by-name wire form: it encodes as its text.
+type Mode { name string }
+type BadMode { Text string }
+
+func ParseMode(s string) Mode fails BadMode {
+	if s == "" { return BadMode{Text: s} }
+	Mode{name: s}
+}
+
+func Wire(m Mode) string { m.name }
+
+func readMode(text string) Mode fails wired[Mode] { Mode{name: text} }
+
+func modeReader() int {
+	let _ = readMode
+	1
+}

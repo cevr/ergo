@@ -73,7 +73,7 @@ func Contains[K](s Sparse[K], id ID[K]) bool {
 }
 
 // Insert makes id a member; a member stays as it is.
-func Insert[K](s *Sparse[K], id ID[K]) {
+func Insert[K](s mut Sparse[K], id ID[K]) {
 	if Contains(*s, id) {
 		return
 	}
@@ -86,7 +86,7 @@ func Insert[K](s *Sparse[K], id ID[K]) {
 }
 
 // Remove makes id no member; an id that is none stays none.
-func Remove[K](s *Sparse[K], id ID[K]) {
+func Remove[K](s mut Sparse[K], id ID[K]) {
 	if !Contains(*s, id) {
 		return
 	}
@@ -98,7 +98,7 @@ func Remove[K](s *Sparse[K], id ID[K]) {
 }
 
 // Clear removes every member, in constant time.
-func Clear[K](s *Sparse[K]) { s.members = s.members[0:0] }
+func Clear[K](s mut Sparse[K]) { s.members = s.members[0:0] }
 
 // Members is the members, in the order above: a window, no copy.
 func Members[K](s Sparse[K]) []ID[K] { s.members }

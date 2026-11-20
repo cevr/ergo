@@ -49,14 +49,14 @@ The receipts compare the two trees on one input.
 
 ## Layout
 
-- `json/`: values, the number machine, the parser, the printers, pointers, the generator and the laws.
-- `flat/`: the flat tree, its reader, printers and pointer walk, and the laws that tie it to `json/`.
+- `json/`: values, the number machine, the parser, the printers, pointers and the generator, each with its laws beside it.
+- `flat/`: the flat tree, its reader, printers and pointer walk; the laws that tie it to `json/` stand beside its reader.
 - `app/`: the `Documents` contract and the commands (`flat.ergo`: the `-flat` ones), from a document's name to output, error line and status.
 - `files/`: `Documents` over a file system (`fs.Files`); `NewDisk` builds one over an `fstest.Memory`, so `Repeatable` runs on it. `memory/`: `Documents` over texts in memory.
 - `workload/`: the generator of the receipts' document.
 - `cmd/jsonparse/main.ergo`: binds `files` over `fs.NewHost()`.
-- `testdata/JSONTestSuite-1ef36fa0/`: [JSONTestSuite](https://github.com/nst/JSONTestSuite)'s `test_parsing` files at that commit, unchanged, with its MIT license (`SOURCE` names the pin).
+- `agree/`: tests that hold both trees to what the generator built, over drawn documents with whitespace, bytes that are not UTF-8, control bytes, unknown escapes and pointers past an array's end. `agree/deep/`: the tests past the check-time evaluator's depth: every file of `JSONTestSuite-1ef36fa0/` ([JSONTestSuite](https://github.com/nst/JSONTestSuite)'s `test_parsing` files at that commit, unchanged, with its MIT license; `SOURCE` names the pin) reads as its name says (`y_` accepted, `n_` rejected) into both trees alike, and the depth limit. They replaced cmd/ergo's Go test TestJSONParseAgreesWithControl (wf10 TP-BUILT) and kill its mutants (`testdata/mutants.json`, killer `examples:jsonparse`).
 
 ## The Go control
 
-`cmd/ergo/testdata/jsonparse/control` is the same design in hand-written Go: the same recursive descent over the whole text, one tagged value struct, the same printers. `control check -std FILE` counts the same document through encoding/json, for scale. `TestJSONParseAgreesWithControl` (cmd/ergo, full tier) runs both on every JSONTestSuite file (`y_` accepted, `n_` rejected), on seeded generated documents and on each with a few bytes changed, and on the workload, and checks that both print what a reference on encoding/json computes: its tree printed by the test's own printers, and the position of the first byte encoding/json cannot read on from. The receipts (instructions, allocations, GC share and peak memory per byte, against the control) are files of the run, not tests.
+`cmd/ergo/testdata/jsonparse/control` is the same design in hand-written Go: the same recursive descent over the whole text, one tagged value struct, the same printers. `control check -std FILE` counts the same document through encoding/json, for scale. It is the hand Go of the receipts (instructions, allocations, GC share and peak memory per byte, against the control), which are files of the run, not tests.

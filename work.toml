@@ -4,3 +4,27 @@
 [work]
 # storage = "../.work/<base>"
 # leave_out = []          # a lane copies everything, as Rift's --copy-all did
+
+# Go merges (SEMWS M1). A generated Go file is made again, never merged
+# (as .gitattributes says); every other Go file is Git's line merge where
+# that is clean, and only where it conflicts Mergiraf's (a GPL-3.0 tool,
+# run as a binary, pinned here), kept only when gofmt reads it as a
+# formatted Go file. A clone without mergiraf 0.20.0 on its PATH merges
+# Go files as Git does. The lines run only after `work trust`.
+[[class]]
+match = "*_gen.go"
+kind = "derived"
+
+[[class]]
+match = "*.go"
+kind = "driver"
+driver = "mergiraf merge --git %O %A %B -p %P"
+candidate = true
+check = "gofmt -l %A"
+version = "mergiraf 0.20.0"
+
+# The Go Splitter (level 1, go/parser): the units of a Go file for
+# `work plugin-test go` and the lane record's change sets.
+[language.go]
+command = "go run ./plugins/go"
+files = ["*.go"]

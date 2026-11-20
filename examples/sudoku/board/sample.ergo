@@ -9,7 +9,7 @@ let base = "53467891267219534819834256785976142342685379171392485696153728428741
 type source { state uint64 }
 
 // next is a number in 0..n-1. n is above 0.
-func next(g *source, n int) int {
+func next(g mut source, n int) int {
 	g.state = g.state*6364136223846793005 + 1442695040888963407
 	int((g.state >> 33) % uint64(n))
 }
@@ -41,7 +41,7 @@ func Solution(seed int) Grid {
 
 // order is a permutation of 0..8 that keeps each band of three together:
 // the bands in some order, and the lines of each band in some order.
-func order(g *source) []int {
+func order(g mut source) []int {
 	let bands = g.three()
 	let mut out = []int{}
 	for b in bands {
@@ -53,7 +53,7 @@ func order(g *source) []int {
 }
 
 // three is a permutation of 0, 1, 2.
-func three(g *source) []int {
+func three(g mut source) []int {
 	match g.next(6) {
 	case 0:
 		[]int{0, 1, 2}

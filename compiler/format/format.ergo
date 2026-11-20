@@ -1,0 +1,102 @@
+// Package format is Ergo's formatter written in Ergo: one canonical layout
+// with no options, printed from compiler/syntax's parse, read through its
+// rows (the self-hosting capstone, S2c). It translated the Go formatter
+// (internal/sketch/format, deleted at S1c) rule for rule; the seed's
+// formatter is its oracle since (TestFormatAgreesWithSeed).
+//
+// The layout is gofmt's for every construct Go has: tabs indent, spaces
+// align (struct fields, trailing comments, the keys of multi-line
+// composite literals, context and machine entries), lines are never
+// wrapped, each gap between tokens keeps "line break or not" from the
+// source, runs of blank lines collapse to one, and an explicit `;` becomes
+// a line break. An own-line comment takes the indentation of the block or
+// clause body that contains it.
+//
+// Every function is pure.
+
+import compiler/syntax
+
+// SyntaxFailure is a source that does not parse: the parser's first
+// diagnostic, located.
+type SyntaxFailure { Code string, Message string, Offset int, Length int, Line int, Column int }
+
+// Source formats src: its parse, laid out. A positive limit bounds the
+// output as in Finish.
+func Source(src string, limit int) string fails SyntaxFailure | OutputLimit {
+	let r = try Print(src, limit)
+	r.Text
+}
+
+// Printed is a formatted text and the printer's work counter: the walks
+// of binary expressions it computed (a memoised walk is not counted).
+type Printed { Text string, Walks int }
+
+// Print is Source with the printer's work counter.
+func Print(src string, limit int) Printed fails SyntaxFailure | OutputLimit {
+	// The printer owns the parse it makes. The value rule still copies it
+	// here: it does not prove Parse's result fresh (a follow-up of the
+	// lowering, capstone S1d).
+	let mut p = Printer{
+		P:            syntax.Parse(src),
+		Src:          src,
+		EOF:          0,
+		Lines:        syntax.LinesOf(src),
+		ALine:        0,
+		ALo:          0,
+		AHi:          0,
+		BLine:        0,
+		BLo:          0,
+		BHi:          0,
+		CSlash:       []int{},
+		CEnd:         []int{},
+		CText:        []string{},
+		Ci:           0,
+		L:            NewLayoutFor(len(src)),
+		LastEnd:      NoPos,
+		LastTok:      NoPos,
+		LastEndLine:  0,
+		LastTokLine:  0,
+		Walked:       []Walk{},
+		WalkedSet:    []bool{},
+		Walks:        0,
+		ListIndented: false,
+	}
+	if p.P.Failed {
+		return SyntaxFailure{Code: p.P.Code, Message: p.P.Message, Offset: p.P.Offset, Length: p.P.Length, Line: p.P.Line, Column: p.P.Column}
+	}
+	p.load()
+	p.printFile()
+	let r = try p.finish(limit)
+	Printed{Text: r.Text, Walks: p.Walks}
+}
+
+// Layouter is the contract of the layout state: commands in, text out.
+// Render returns the text of the commands' layout, or OutputLimit when a
+// positive limit is smaller than it, decided before the text is built.
+type Layouter {
+	Render(commands []Command, limit int) Rendered fails OutputLimit,
+
+	// A limit refuses exactly the texts longer than it, and a refusal
+	// builds nothing.
+	law Bounded(commands []Command, limit int) { BoundedLayout(commands, limit) },
+	// Two line break requests in a row are one.
+	law NewlinesCoalesce(commands []Command) { CoalescedLayout(commands) },
+	// A text never starts with a blank line and ends with one line break.
+	law Lines(commands []Command) { LinesLayout(commands) },
+}
+
+// Cells is this package's provider of Layouter: the layout of layout.ergo
+// and align.ergo.
+type Cells {} implements Layouter
+
+func Render(_ Cells, commands []Command, limit int) Rendered fails OutputLimit { Steps(commands, limit) }
+
+// Steps drives a layout by commands and renders it: the layout state alone,
+// with no tree.
+func Steps(commands []Command, limit int) Rendered fails OutputLimit {
+	let mut l = NewLayout()
+	for c in commands {
+		l.step(c)
+	}
+	l.Finish(limit)
+}

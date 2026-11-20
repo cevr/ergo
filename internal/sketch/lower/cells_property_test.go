@@ -19,9 +19,9 @@ import (
 // *Box; Get and Sum read. A Box starts with two elements, so Get and Put
 // at 0 and 1 are in range.
 const cellHeader = `type Bag {
-	Push(n int),
-	Put(i int, n int),
-	Bump(n int),
+	mut Push(n int),
+	mut Put(i int, n int),
+	mut Bump(n int),
 	Get(i int) int,
 	Sum() int,
 	seal(),
@@ -30,9 +30,9 @@ const cellHeader = `type Bag {
 type Box { xs []int, n int } implements Bag
 
 func NewBox() Box { Box{xs: []int{1, 2}, n: 0} }
-func Push(b *Box, n int) { b.xs = b.xs.Append(n) }
-func Put(b *Box, i int, n int) { b.xs[i] = n }
-func Bump(b *Box, n int) { b.n = b.n + n }
+func Push(b mut Box, n int) { b.xs = b.xs.Append(n) }
+func Put(b mut Box, i int, n int) { b.xs[i] = n }
+func Bump(b mut Box, n int) { b.n = b.n + n }
 func Get(b Box, i int) int { b.xs[i] }
 func Sum(b Box) int {
 	let mut s = b.n * 1000
@@ -162,8 +162,8 @@ func cellProgram(rng *rand.Rand) (string, string) {
 // cellCounterSource is the counter of TestProvedRunsModel with its
 // operation type sealed (seal), used through a cell local.
 var cellCounterSource = strings.NewReplacer(
-	"\tTotal() Digit,\n", "\tTotal() Digit,\n\tseal(),\n",
-	"func Total(w *Wheel) Digit { w.at }\n", "func Total(w *Wheel) Digit { w.at }\nfunc seal(w Wheel) {}\n",
+	"\tmut Total() Digit,\n", "\tmut Total() Digit,\n\tseal(),\n",
+	"func Total(w mut Wheel) Digit { w.at }\n", "func Total(w mut Wheel) Digit { w.at }\nfunc seal(w Wheel) {}\n",
 	"\tlet mut w = NewWheel()\n\tw.Add(1)\n\tw.Add(2)\n\tw.Add(4)\n\tw.Total()\n", "\tlet c Counter = NewWheel()\n\tc.Add(1)\n\tc.Add(2)\n\tc.Add(4)\n\tc.Total()\n",
 ).Replace(wheelSource)
 
@@ -177,13 +177,13 @@ func Close(r Res) {}
 
 type Bag {
 	..Closer,
-	Add(n int),
+	mut Add(n int),
 	seal(),
 }
 
 type Kept { r Res, n int, log sync.Ref[int] } implements Bag
 
-func Add(k *Kept, n int) { k.n = k.n + n }
+func Add(k mut Kept, n int) { k.n = k.n + n }
 func Close(k Kept) { k.log.Set(k.log.Get() * 100 + k.n + 1) }
 func seal(k Kept) {}
 
