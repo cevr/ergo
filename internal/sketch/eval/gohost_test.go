@@ -12,8 +12,8 @@ import (
 // Go's limit on query pairs, which Go's url.ParseQuery reads from GODEBUG
 // urlmaxqueryparams (NP4f-URL), run here over Go's own ParseQuery
 // (gohost.go). Each query's field count is held to Go's under the default
-// and two custom limits. Mutant it alone catches:
-// np4furl-query-default-limit (the fixed 10000 of before).
+// and two custom limits. Its mutant row left with NP4f-URL's body when SM2
+// moved ParseQuery to std url (the b24 merge, I-FLIP).
 func TestParseQueryReadsGODEBUG(t *testing.T) {
 	pkg := checked(t, "import http\n\ntest T {\n\tassert http.AnySuccess == http.AnySuccess\n}\n")
 	var fn *check.Func
