@@ -173,12 +173,7 @@ func (l *lowerer) listedRuns(b *strings.Builder, law *check.Law, label string, b
 			pv := provide(bd[owner], vs[0])
 			if generic {
 				args = append(args, pv)
-				tc := &typeCtx{l: l, site: law.Decl}
-				targs := make([]string, len(bd[owner].Slot.TArgs))
-				for i, a := range bd[owner].Slot.TArgs {
-					targs[i] = tc.goType(a)
-				}
-				callee += "[" + strings.Join(targs, ", ") + "]"
+				callee = l.lawCallee(law, lawGenericOwner(law), bd[owner].Slot.TArgs) // mono.go
 			} else {
 				bind += e + "." + l.envField(law.Slots[owner].Type) + " = " + pv + "; "
 			}

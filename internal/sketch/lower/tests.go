@@ -196,6 +196,9 @@ func (l *lowerer) nameTests() {
 	}
 	for _, r := range l.runLaws() {
 		l.lawFunc(r.Law)
+		if lawGenericOwner(r.Law) != nil && r.Law.Rewrite == nil {
+			l.reserveLawMono(r.Law) // mono.go
+		}
 		if r.Law.Rewrite != nil {
 			l.rewriteSide(r.Law, false)
 			l.rewriteSide(r.Law, true)
@@ -487,7 +490,7 @@ func lawFrame(info *check.Info, d *syntax.LawDecl, result check.Type) *frame {
 // error. A member law's bare operation calls read the capability of its
 // operation type from env, which the run binds to the provider under test.
 // A rewrite law lowers to its sides instead (rewriteDecl).
-func (l *lowerer) lawDecl(law *check.Law) {
+func (l *lowerer) lawDecl(law *check.Law, sp *specCopy) {
 	if law.Rewrite != nil {
 		l.rewriteDecl(law)
 		return
@@ -514,13 +517,22 @@ func (l *lowerer) lawDecl(law *check.Law) {
 	fc.env = scope.alloc("env")
 	parts := []string{fc.env + " *" + l.env()}
 	tparams := ""
+	name := l.lawFunc(law)
 	if own := lawGenericOwner(law); own != nil {
-		// A law of a generic operation type is a Go generic function in
-		// the type's parameters (types.md, Generics 5), and takes the
-		// provider under test after the environment: its instance is no
-		// environment field, since the law's own type names T (Laws 10).
+		// A law of a generic operation type takes the provider under
+		// test after the environment: its instance is no environment
+		// field, since the law's own type names T (Laws 10). Its run
+		// calls its copy at the provider's instance (sp, mono.go
+		// lawMonoFor), each type parameter bound to its Go type; under
+		// the reference (genericLowering "stencil") it is a Go generic
+		// function in the type's parameters (types.md, Generics 5).
 		var names map[*check.TypeParam]string
-		tparams, names = l.typeParams(own.TParams, scope, d)
+		if sp != nil {
+			names, fc.mono, fc.bound = sp.typeArgs, true, sp.bound
+			name = sp.name
+		} else {
+			tparams, names = l.typeParams(own.TParams, scope, d)
+		}
 		fc.params = names
 		args := make([]string, len(own.TParams))
 		for i, tp := range own.TParams {
@@ -542,7 +554,7 @@ func (l *lowerer) lawDecl(law *check.Law) {
 		fc.locals[v] = n
 		parts = append(parts, n+" "+fc.goType(v.Type))
 	}
-	head := "func " + l.lawFunc(law) + tparams + "(" + strings.Join(parts, ", ") + ")"
+	head := "func " + name + tparams + "(" + strings.Join(parts, ", ") + ")"
 	frameErr := ""
 	needsFrame := l.bodyNeedsFrame(d.Body.List)
 	if needsFrame {
@@ -559,7 +571,7 @@ func (l *lowerer) lawDecl(law *check.Law) {
 	l.analyzeValues(d, l.info)
 	// LowerIR and CensusIR only (ir.go): a body in the IR builder's subset
 	// leaves its Go declaration without a body (ir_assert.go).
-	if l.ir != nil && l.ir.lawBody(fc, law, l.lawFunc(law), needsFrame) {
+	if l.ir != nil && l.ir.lawBody(fc, law, name, needsFrame) {
 		if sourced {
 			l.user.WriteString(l.directive(d))
 		}
@@ -837,9 +849,13 @@ func (l *lowerer) testEntry(b *strings.Builder) {
 		return s + "\t\treturn " + l.helper("Tests") + "(" + env + ", " + seed + ")\n"
 	}) + ")\n}\n\n")
 	for _, r := range l.runLaws() {
-		if lawLowered(r) && r.Law.Decl.Reach == nil {
-			l.lawDecl(r.Law)
+		if !lawLowered(r) || r.Law.Decl.Reach != nil {
+			continue
 		}
+		if lawGenericOwner(r.Law) != nil && r.Law.Rewrite == nil && l.takes("mono-instance") {
+			continue // its runs call its copies (mono.go lawMonoFor), drained after
+		}
+		l.lawDecl(r.Law, nil)
 	}
 	b.WriteString(l.testRunner())
 	b.WriteString(l.harness())
@@ -1184,12 +1200,7 @@ func (l *lowerer) lawTarget(b *strings.Builder, law *check.Law, label string, bd
 				// after the environment, at the instance the provider
 				// fixes (lawDecl).
 				args = append(args, provide(tg.b[k], "provider", "provider"))
-				tc := &typeCtx{l: l, site: law.Decl}
-				targs := make([]string, len(tg.b[k].Slot.TArgs))
-				for i, a := range tg.b[k].Slot.TArgs {
-					targs[i] = tc.goType(a)
-				}
-				callee += "[" + strings.Join(targs, ", ") + "]"
+				callee = l.lawCallee(law, lawGenericOwner(law), tg.b[k].Slot.TArgs) // mono.go
 				continue
 			}
 			if s.Param < 0 {

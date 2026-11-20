@@ -409,7 +409,7 @@ type lowerer struct {
 	recParams map[*check.Func]int
 	specs     map[specKey]*specCopy
 	monos     map[monoKey]*specCopy // monomorphic copies (mono.go)
-	monoCount map[*check.Func]int   // copies made per function (mono.go)
+	monoCount map[monoDecl]int      // copies made per declaration (mono.go)
 	// provParams memoizes each function's operation-type parameter a copy
 	// for a known provider is made for (provider.go).
 	provParams map[*check.Func]int

@@ -66,11 +66,27 @@ import (
 // nothing to instantiate.
 var genericLowering string
 
-// monoKey is one copy: the callee and its Go type arguments.
+// monoKey is one copy: the declaration it instantiates and its Go type
+// arguments.
 type monoKey struct {
-	f    *check.Func
+	decl monoDecl
 	args string
 }
+
+// monoDecl is a declaration that has copies: a generic function
+// (monoFunc), or a law of a generic operation type (monoLaw, G6), whose
+// copy the law's run calls at each provider's instance.
+type monoDecl interface {
+	// base is the reserved naming-pass key of the declaration's copies.
+	base() pkgKey
+}
+
+type monoFunc struct{ f *check.Func }
+
+type monoLaw struct{ law *check.Law }
+
+func (d monoFunc) base() pkgKey { return monoBase(d.f) }
+func (d monoLaw) base() pkgKey  { return pkgKey{"mono", d.law} }
 
 // monoBase is the reserved naming-pass key of f's copies.
 func monoBase(f *check.Func) pkgKey { return pkgKey{"mono", f} }
@@ -119,6 +135,17 @@ func (l *lowerer) reserveMono(pkgs []*check.Package) {
 			l.names.monoBases[name] = true
 		}
 	}
+}
+
+// reserveLawMono reserves, in the test build's naming pass (tests.go),
+// the base name of the copies of the law of a generic operation type law:
+// the law's Go name, then Mono.
+func (l *lowerer) reserveLawMono(law *check.Law) {
+	name := l.pkgName(monoLaw{law}.base(), l.lawFunc(law)+"Mono")
+	if l.names.monoBases == nil {
+		l.names.monoBases = map[string]bool{}
+	}
+	l.names.monoBases[name] = true
 }
 
 // monoAt is the copy that a use of f at the type arguments args goes to,
@@ -177,25 +204,87 @@ func (fc *funcCtx) monoFor(f *check.Func, args []check.Type) *specCopy {
 	if len(spelled) == 0 {
 		return nil
 	}
-	key := monoKey{f, strings.Join(spelled, "\x00")}
+	sp, made := l.monoCopy(monoFunc{f}, base, spelled, f.Decl.Name)
+	if made {
+		sp.f, sp.fd, sp.typeArgs, sp.bound = f, fd, typeArgs, bound
+		l.pending = append(l.pending, func() { l.emitBody(fd, false, sp, false) })
+	}
+	return sp
+}
+
+// monoCopy is the copy of decl at the Go type arguments spelled, named
+// base_iN at its first use (made); its caller fills it and queues its
+// body.
+func (l *lowerer) monoCopy(decl monoDecl, base string, spelled []string, site syntax.Node) (sp *specCopy, made bool) {
+	key := monoKey{decl, strings.Join(spelled, "\x00")}
 	if sp := l.monos[key]; sp != nil {
-		return sp
+		return sp, false
 	}
 	if l.monos == nil {
 		l.monos = map[monoKey]*specCopy{}
-		l.monoCount = map[*check.Func]int{}
+		l.monoCount = map[monoDecl]int{}
 	}
-	l.monoCount[f]++
-	name := base + "_i" + strconv.Itoa(l.monoCount[f])
+	l.monoCount[decl]++
+	name := base + "_i" + strconv.Itoa(l.monoCount[decl])
 	if l.names.used[name] {
-		ice(f.Decl.Name, "the copy name %s is a reserved package name", name)
+		ice(site, "the copy name %s is a reserved package name", name)
 	}
 	l.names.used[name] = true
-	sp := &specCopy{f: f, fd: fd, name: name, param: -1, typeArgs: typeArgs, bound: bound}
+	sp = &specCopy{name: name, param: -1}
 	l.monos[key] = sp
 	l.took("mono-instance")
-	l.pending = append(l.pending, func() { l.emitBody(fd, false, sp, false) })
+	return sp, true
+}
+
+// lawMonoFor is the copy of the law of a generic operation type law for
+// the operation type's arguments targs (the instance a provider fixes),
+// lowered by lawDecl with each type parameter bound to its Go type, or
+// nil under the reference (genericLowering "stencil"), whose run calls
+// the generic law at targs.
+func (l *lowerer) lawMonoFor(law *check.Law, own *check.Named, targs []check.Type) *specCopy {
+	if !l.takes("mono-instance") {
+		return nil
+	}
+	base, ok := l.pkgNames[monoLaw{law}.base()]
+	if !ok {
+		ice(law.Decl, "the law %s has no reserved copy name (reserveLawMono)", law.Name)
+	}
+	tc := &typeCtx{l: l, site: law.Decl}
+	typeArgs := map[*check.TypeParam]string{}
+	bound := map[*check.TypeParam]check.Type{}
+	var spelled []string
+	for i, tp := range own.TParams {
+		if i >= len(targs) {
+			ice(law.Decl, "the law %s run at %d of its %d type arguments", law.Name, len(targs), len(own.TParams))
+		}
+		g := tc.goType(targs[i])
+		typeArgs[tp] = g
+		spelled = append(spelled, g)
+		if !mentionsTypeParam(targs[i]) {
+			bound[tp] = targs[i]
+		}
+	}
+	sp, made := l.monoCopy(monoLaw{law}, base, spelled, law.Decl)
+	if made {
+		sp.typeArgs, sp.bound = typeArgs, bound
+		l.pending = append(l.pending, func() { l.lawDecl(law, sp) })
+	}
 	return sp
+}
+
+// lawCallee is the Go function a run of the law of a generic operation
+// type law calls at the instance targs: its copy, or the generic law at
+// targs under the reference.
+func (l *lowerer) lawCallee(law *check.Law, own *check.Named, targs []check.Type) string {
+	if sp := l.lawMonoFor(law, own, targs); sp != nil {
+		return sp.name
+	}
+	tc := &typeCtx{l: l, site: law.Decl}
+	spelled := make([]string, len(targs))
+	for i, a := range targs {
+		spelled[i] = tc.goType(a)
+	}
+	return l.lawFunc(law) + "[" + strings.Join(spelled, ", ") + "]"
 }
 
 // isMonoName reports a name of the form base_iN for a reserved copy base:
