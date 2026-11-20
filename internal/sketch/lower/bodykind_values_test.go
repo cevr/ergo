@@ -39,7 +39,7 @@ var kindsSeedCount = flag.Int("kinds.seeds", 3, "run TestValueRuleEveryBodyKind 
 
 // kindsNames are the tests and laws each seed's package declares, as
 // ergo test labels them.
-var kindsNames = []string{"VFunc", "VTest", "VLit", "law VLaw", "law Holder.VMember for Fixed"}
+var kindsNames = []string{"VFunc", "VTest", "VLit", "law VLaw", "law Holder.VMember for Fixed", "law VGeneric"}
 
 // kindsProgram is seed's package.
 func kindsProgram(seed uint64) string {
@@ -83,6 +83,13 @@ func kindsProgram(seed uint64) string {
 	fmt.Fprintf(&b, "law VLaw(a int) {\n%s\t%s\n}\n\n", body.String(), check)
 	fmt.Fprintf(&b, "type Holder {\n\tSeed() int,\n\tlaw VMember(a int) {\n%s\t\t%s\n\t},\n}\n\n", kindsIndent(body.String()), check)
 	b.WriteString("type Fixed { n int } implements Holder\n\nfunc Seed(f Fixed) int { f.n }\n\n")
+	// A generic record holding an int-keyed Map through its parameter,
+	// copied in a law and in a generic function the law calls: its Go
+	// field is Go's map in every instance (intmap.go intMapFields; std/jobs
+	// failed to build when its laws' copies were first analyzed).
+	b.WriteString("type Box[T] { M Map[int, T] }\n\n")
+	b.WriteString("func grow[T](b Box[T], k int, v T) Box[T] {\n\tlet mut c = b\n\tc.M = c.M.Put(k, v)\n\tc\n}\n\n")
+	fmt.Fprintf(&b, "law VGeneric(a int) {\n\tlet x = Box[int]{M: Map[int, int]{1: a}}\n\tlet y = grow(x, 2, a)\n\tlet mut z = x\n\tz.M = z.M.Put(%d, a)\n\tlen(x.M) == 1 && len(y.M) == 2 && len(z.M) == 2\n}\n\n", 3+r.IntN(5))
 	b.WriteString("func main() needs Console {\n\tConsole.Println(\"x\")\n}\n")
 	return b.String()
 }
