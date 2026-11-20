@@ -167,6 +167,7 @@ func (c *checker) runOnce(files []*syntax.File) *Package {
 	}
 	c.publishErrorTypes()
 	c.cur = nil
+	c.pkg.withSpent = c.withs.used + 1
 	return c.pkg
 }
 

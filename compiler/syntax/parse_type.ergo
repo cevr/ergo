@@ -675,12 +675,18 @@ func parseTypeArg(p mut parser) uint32 {
 
 // ---------------------------------------------------------------- contexts
 
-// parseContextLit parses `context [provides …] [needs …] { entries }`.
+// parseContextLit parses `context [provides …] [fails …] [needs …] { entries }`:
+// the header's rows in a signature's order (parseSignature), fails before
+// needs (CTX-ROWS-1b).
 func parseContextLit(p mut parser) uint32 {
 	let c = want(p, KwContext)
 	let mut prov = none
 	if p.tk == Provides {
 		prov = some(parseProvides(p))
+	}
+	let mut fl = none
+	if p.tk == Fails {
+		fl = some(parseFails(p))
 	}
 	let mut nd = none
 	if p.tk == Needs {
@@ -690,7 +696,7 @@ func parseContextLit(p mut parser) uint32 {
 		expected(p, "expected \"{\" after context, found ")
 	}
 	let body = parseContextBody(p)
-	mkContextLit(&p.t, mark(p.t), c, prov, nd, body)
+	mkContextLit(&p.t, mark(p.t), c, prov, fl, nd, body)
 }
 
 // parseContextBody parses `{ entry, … }`.

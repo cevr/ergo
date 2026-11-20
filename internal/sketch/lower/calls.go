@@ -989,6 +989,60 @@ func (fc *funcCtx) funcValue(f *check.Func, t check.Type, site syntax.Node, inst
 			}
 		}
 	}
+	return fc.declaredValue(f, fd, sig, site, inst, "")
+}
+
+// methodValue196 lowers x.f, the function f on x's type taken as a value
+// (types.md, Methods 2; check.Info.MethodValues): x is evaluated here,
+// once, and the closure funcValue writes passes it as f's first argument,
+// as Go's method value binds its receiver. The checker admits only an
+// Ergo function whose first parameter takes x by value.
+func (fc *funcCtx) methodValue196(x *syntax.SelectorExpr, f *check.Func) string {
+	sig, ok := fc.typeOf(x).(*check.Signature)
+	if !ok {
+		ice(x, "the method value %s has no function type", x.Sel.Name)
+	}
+	recv := fc.value(x.X)
+	if _, ptr := fc.typeOf(x.X).(*check.Pointer); ptr {
+		recv = "*" + recv // a borrow's value, copied as a call's argument is
+	}
+	recv = fc.spill(recv)
+	fd := fc.l.useFunc(f, x)
+	if fc.plainMVs[x] {
+		return fc.plainMethodValue(fd, sig, x, recv)
+	}
+	return fc.declaredValue(f, fd, sig, x, fc.l.info.Instances[x], recv)
+}
+
+// plainMethodValue is the known pure method value x (pureMethodValue,
+// knownSite) as a plain Go closure, func(params) R, over recv, the
+// receiver's copy: a direct call of the function, which takes no
+// environment and cannot fail, as a known pure literal's body is.
+func (fc *funcCtx) plainMethodValue(fd *funcDecl, sig *check.Signature, x *syntax.SelectorExpr, recv string) string {
+	return fc.envClosure(plainEnv, "", x, func(string) (params []string, results, body string) {
+		args := []string{recv}
+		for _, p := range sig.Params {
+			name := fc.scope.alloc("p")
+			params = append(params, name+" "+fc.goType(p.Type))
+			args = append(args, name)
+		}
+		head := fd.name
+		if fd.method != nil {
+			head, args = args[0]+"."+fd.name, args[1:]
+		}
+		call := head + "(" + strings.Join(args, ", ") + ")"
+		ind := strings.Repeat("\t", fc.depth+1)
+		if len(sig.Results) == 1 {
+			return params, " " + fc.goType(sig.Results[0]), ind + "return " + call + "\n"
+		}
+		return params, "", ind + call + "\n"
+	})
+}
+
+// declaredValue is the closure of the uniform shape that calls the
+// declared function f (funcValue), with recv, when not "", as its first
+// argument before the value's parameters (methodValue196).
+func (fc *funcCtx) declaredValue(f *check.Func, fd *funcDecl, sig *check.Signature, site syntax.Node, inst *check.Instance, recv string) string {
 	// The value has the one Go shape of every function value; for a pure
 	// function the closure discards its environment (pure.go).
 	envParam := "env"
@@ -998,6 +1052,9 @@ func (fc *funcCtx) funcValue(f *check.Func, t check.Type, site syntax.Node, inst
 	return fc.envClosure(callerEnv, envParam, site, func(env string) (params []string, results, body string) {
 		lead := fd.envLead(env)
 		var args []string
+		if recv != "" {
+			args = append(args, recv)
+		}
 		for _, p := range sig.Params {
 			name := fc.scope.alloc("p")
 			params = append(params, name+" "+fc.goType(p.Type))

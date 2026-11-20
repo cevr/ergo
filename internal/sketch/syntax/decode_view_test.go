@@ -128,6 +128,7 @@ func (d *dumper) node(depth int, n Node) {
 		d.line(depth, "ContextDecl %s doc=%d Let=%d Context=%d", at, d.doc(x.Doc), x.Let, x.Context)
 		d.node(c, x.Name)
 		d.node(c, x.Provides)
+		d.node(c, x.Fails)
 		d.node(c, x.Needs)
 		d.node(c, x.Body)
 	case *TestDecl:
@@ -306,6 +307,7 @@ func (d *dumper) node(depth int, n Node) {
 	case *ContextLit:
 		d.line(depth, "ContextLit %s Context=%d", at, x.Context)
 		d.node(c, x.Provides)
+		d.node(c, x.Fails)
 		d.node(c, x.Needs)
 		d.node(c, x.Body)
 	case *ArrayType:

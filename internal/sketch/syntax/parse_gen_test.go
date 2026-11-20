@@ -228,7 +228,7 @@ func (g *progGen) expr() {
 		g.w(" ")
 		g.block()
 	case 14:
-		g.w("context { A: x, B, C: y }")
+		g.w("context ", g.pick("", "fails E ", "fails E needs C "), "{ A: x, B, C: y }")
 	case 15:
 		g.w(g.pick("1", "2.5", "500ms", "'c'", "`raw`", "`raw\nlines`", "\"s\"", "0x1F"))
 	case 16:
@@ -366,7 +366,7 @@ func (g *progGen) decl() {
 	case 6:
 		g.w("let ", g.pick("x", "Ctx", "mut y"), " = ")
 		if g.r.Intn(3) == 0 {
-			g.w("context provides A | B needs C { A: x, B: y }")
+			g.w("context ", g.pick("provides A | B needs C", "fails E", "provides A fails E | F needs C", "fails E needs C", ""), " { A: x, B: y }")
 		} else {
 			g.expr()
 		}

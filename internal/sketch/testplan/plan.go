@@ -128,6 +128,10 @@ type Plan struct {
 	// generators read it, the test build's and the evaluator's, through
 	// testgen.Stream.Tie.
 	Ties [][]int
+	// Native names a provider whose operations call Go (LawProvider.Native):
+	// only the test binary's law case builds it, so the plan runs natively
+	// and the check-time evaluator reports it native.
+	Native string
 }
 
 // withTies sets p.Ties from the parameters' ties; the parameter i is the
@@ -174,6 +178,9 @@ func makePlan(inputs []Input) Plan {
 		if in.Provider != nil {
 			if in.Provider.Unrun != "" {
 				p.Reason = in.Provider.Unrun
+			}
+			if in.Provider.Native && p.Native == "" {
+				p.Native = in.Provider.Type.Obj.Name
 			}
 			if in.Provider.Ctor != nil {
 				p.Listed = false

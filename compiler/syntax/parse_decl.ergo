@@ -1141,13 +1141,14 @@ func parseLetDecl(p mut parser, doc uint32, top bool) uint32 {
 			}
 			// The literal's parts move to the declaration, and its row goes.
 			let ctxTok = int(p.t.tok[int(w)])
-			let prov = fixed(p.t, w, 3, 0)
-			let nds = fixed(p.t, w, 3, 1)
-			let body = fixed(p.t, w, 3, 2)
+			let prov = fixed(p.t, w, 4, 0)
+			let fl = fixed(p.t, w, 4, 1)
+			let nds = fixed(p.t, w, 4, 2)
+			let body = fixed(p.t, w, 4, 3)
 			dropLast(&p.t)
 			let name = p.t.stack[pm]
 			cutStack(&p.t, pm)
-			return mkContextDecl(&p.t, pm, doc, letTok, ctxTok, name, prov, nds, body)
+			return mkContextDecl(&p.t, pm, doc, letTok, ctxTok, name, prov, fl, nds, body)
 		}
 		value = some(parseExpr(p))
 	}

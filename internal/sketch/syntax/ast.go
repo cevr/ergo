@@ -193,12 +193,14 @@ type FuncDecl struct {
 	Derived *TypeDecl
 }
 
-// ContextDecl is `context Name [provides A | B] [needs C | D] { entries }`.
+// ContextDecl is `context Name [provides A | B] [fails E | F] [needs C | D] { entries }`.
 // Provides lists the capabilities the context exposes; the entries it builds
-// and does not list stay private to its build. Needs lists the capabilities
-// its providers require from the with site. Either clause may be nil.
+// and does not list stay private to its build. Fails is the failure row of
+// its build, a signature's error row (CTX-ROWS-1b). Needs lists the
+// capabilities its providers require from the with site. Any clause may be
+// nil.
 //
-// The decided spelling is `let Name = context [provides …] [needs …] { … }` at
+// The decided spelling is `let Name = context [provides …] [fails …] [needs …] { … }` at
 // package level (#196); Let is the position of `let`.
 type ContextDecl struct {
 	Doc      *CommentGroup
@@ -206,6 +208,7 @@ type ContextDecl struct {
 	Context  Pos
 	Name     *Ident
 	Provides *ProvidesClause
+	Fails    *ErrorRow
 	Needs    *NeedsClause
 	Body     *ContextBody
 }
@@ -648,11 +651,12 @@ type (
 		Rbrace Pos
 	}
 
-	// ContextLit is a context literal `context [provides …] [needs …] { … }`; either
-	// clause may be nil.
+	// ContextLit is a context literal `context [provides …] [fails …] [needs …] { … }`;
+	// any clause may be nil.
 	ContextLit struct {
 		Context  Pos
 		Provides *ProvidesClause
+		Fails    *ErrorRow
 		Needs    *NeedsClause
 		Body     *ContextBody
 	}
