@@ -77,8 +77,8 @@
       "name": "budget-run-leaves-group",
       "origin": "wf10 WS4a (leaked process groups)",
       "file": "internal/budget/run_unix.go",
-      "from": "\tsyscall.Kill(-pgid, syscall.SIGKILL)\n\tvar exit",
-      "to": "\tvar exit",
+      "from": "\tsyscall.Kill(-pgid, syscall.SIGKILL)\n",
+      "to": "\n",
       "rule": "Run kills what its command left running in its process group.",
       "killers": ["internal/budget:TestRunKillsTheGroup"]
     }

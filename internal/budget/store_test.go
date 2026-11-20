@@ -178,16 +178,22 @@ func TestLentGrantTakesNothing(t *testing.T) {
 
 // TestRunKillsTheGroup: `ergo budget -- <cmd>` gives the command
 // GOMAXPROCS as its width and its exit code back, and kills what the
-// command left running in its group (a leaked process group). Mutant:
-// budget-run-leaves-group.
+// command left running in its group (a leaked process group): when Run
+// returns, the background child is gone or has SIGKILL pending. Mutant:
+// budget-run-leaves-group. The child does not hold the command's output:
+// one that did would keep Run waiting under the mutant, a hang no test
+// can call a kill.
 func TestRunKillsTheGroup(t *testing.T) {
+	if _, err := os.Stat("/proc/self/status"); err != nil {
+		t.Skip("reads a process's state from /proc")
+	}
 	b := testBudget(t, 2, 0)
 	ctx, cancel := testwait.Context(t, context.Background())
 	defer cancel()
 	pidFile := filepath.Join(t.TempDir(), "pid")
 	var out bytes.Buffer
 	code, err := Run(ctx, b, Request{Width: 2, Lane: "run"},
-		[]string{"sh", "-c", "sleep 1000 & echo $! > " + pidFile + "; echo $GOMAXPROCS; exit 3"}, nil, &out, os.Stderr)
+		[]string{"sh", "-c", "sleep 1000 </dev/null >/dev/null 2>&1 & echo $! > " + pidFile + "; echo $GOMAXPROCS; exit 3"}, nil, &out, os.Stderr)
 	if err != nil || code != 3 {
 		t.Fatalf("Run: code %d, err %v; want 3", code, err)
 	}
@@ -202,23 +208,34 @@ func TestRunKillsTheGroup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The background child is this test's own; it dies even when Run left it.
-	t.Cleanup(func() { syscall.Kill(pid, syscall.SIGKILL) })
-	if !testwait.Until(t, func() bool { return gone(pid) }) {
-		t.Errorf("the command's background child %d still runs after Run", pid)
+	if !killed(pid) {
+		// The background child is this test's own; it dies even when Run left it.
+		syscall.Kill(pid, syscall.SIGKILL)
+		t.Errorf("the command's background child %d still runs after Run, with no SIGKILL pending", pid)
 	}
 }
 
-// gone reports a process that is not running: no such process, or a
-// zombie waiting for its new parent.
-func gone(pid int) bool {
-	if syscall.Kill(pid, 0) != nil {
-		return true
-	}
-	data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
+// killed reports a process that is gone (no such process, or a zombie) or
+// has SIGKILL pending: kill(2) has returned, so the signal is queued even
+// when the process has not yet run to its exit.
+func killed(pid int) bool {
+	data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/status")
 	if err != nil {
 		return true
 	}
-	_, rest, _ := strings.Cut(string(data), ") ")
-	return strings.HasPrefix(rest, "Z")
+	for _, line := range strings.Split(string(data), "\n") {
+		key, value, _ := strings.Cut(line, ":")
+		value = strings.TrimSpace(value)
+		switch key {
+		case "State":
+			if strings.HasPrefix(value, "Z") || strings.HasPrefix(value, "X") {
+				return true
+			}
+		case "SigPnd", "ShdPnd":
+			if mask, err := strconv.ParseUint(value, 16, 64); err == nil && mask&(1<<(uint(syscall.SIGKILL)-1)) != 0 {
+				return true
+			}
+		}
+	}
+	return false
 }
