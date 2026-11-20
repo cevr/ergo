@@ -179,8 +179,8 @@
       "name": "budget-shared",
       "origin": "wf10 ORACLE O22 (was incomplete-continues, EV1)",
       "file": "internal/sketch/eval/interp.go",
-      "from": "\tin.stepsAt, in.bytesAt = in.steps, in.bytes\n\tin.stepsEnd = in.stepsAt + in.budget.Steps\n",
-      "to": "\tin.stepsEnd = in.stepsAt + in.budget.Steps\n",
+      "from": "\tin.stepsAt, in.bytesAt, in.perCase = in.steps, in.bytes, 0\n\tin.stepsEnd = in.stepsAt + in.budget.Steps\n",
+      "to": "\tin.perCase = 0\n\tin.stepsEnd = in.stepsAt + in.budget.Steps\n",
       "rule": "The step budget is per obligation: an incomplete obligation leaves the whole budget to the next one (docs/testing.md, Budgets; ORACLE O22 replaces the L7 plan's per-request budget).",
       "killers": ["internal/sketch/eval:TestRunStopsTheRun"]
     },
@@ -2105,6 +2105,10 @@
       "anchor": {"tests":["internal/sketch/eval:TestEvalAgreesWithLowering"]},
       "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
     },
+    {"name":"tpdiag-isletter-is-isdigit","origin":"wf10 TP-DIAG","file":"internal/sketch/eval/nativesgo.go","from":"\t\"unicode.IsLetter\":  goRune(unicode.IsLetter),","to":"\t\"unicode.IsLetter\":  goRune(unicode.IsDigit),","rule":"An import go function runs its own Go function.","killers":["internal/sketch/eval:TestPreflightAdmitsWhatRuns"]},
+    {"name":"evalbuilder-max-is-min","origin":"wf10 EVAL-BUILDER","file":"internal/sketch/eval/natives.go","from":"pure(\"cmp.Max\", func(a []Value) Value { return pick(a[0], a[1], true) })","to":"pure(\"cmp.Max\", func(a []Value) Value { return pick(a[0], a[1], false) })","rule":"cmp.Max is Go's builtin max.","killers":["internal/sketch/eval:TestNativesAgreeWithRuntime"]},
+    {"name":"tbf-budget-one-case","origin":"wf10 TP-BUILT-FAST","file":"internal/sketch/eval/cases.go","from":"\tin.casesBudget(p.Count)\n","to":"\tin.casesBudget(1)\n","rule":"testing.md, Budgets: the step budget is each case's, so a test or law of n cases may spend n times it.","killers":["internal/sketchfront:TestCheckEvalRunnerModel"]},
+    {"name":"tbf-context-law-one-case","origin":"wf10 TP-BUILT-FAST","file":"internal/sketch/eval/lawcontext.go","from":"\tin.casesBudget(testplan.Cases)\n","to":"\n","rule":"testing.md, Budgets: a law run under a named context runs 100 cases, so it has 100 cases' steps.","killers":["internal/sketch/eval:TestEvalEffectsAgreeWithModel"]},
     {"name":"evalifp-append-spread-one","origin":"wf10 EVAL-IFP","file":"internal/sketch/eval/interp.go","from":"\t\t\tif spreads {\n\t\t\t\treturn in.appendAll(","to":"\t\t\tif false {\n\t\t\t\treturn in.appendAll(","rule":"An extern of Go's append at its spread shape, [T](xs []T, ys []T) []T (slices.AppendAll), appends each element of ys, as Go's append(xs, ys...) does (check/builtin.go).","killers":["internal/sketch/eval:TestEvalAgreesWithModel"]},
     {"name":"slide-eval-evicted-dropped","origin":"wf10 SLIDE-RELEASE","file":"internal/sketch/eval/tasks.go","from":"\t\treturn in.option(fr, call, old, evicted)","to":"\t\treturn in.option(fr, call, old, false)","rule":"The evaluator's Slide gives the evicted value back, so the caller's scope releases it (SLIDE-RELEASE).","killers":["internal/sketch/eval:TestEvalSlideReleasesTheEvicted"]}
   ]

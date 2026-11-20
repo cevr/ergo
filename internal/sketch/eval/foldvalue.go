@@ -222,9 +222,15 @@ func (in *interp) runLet(site letSite) letOutcome {
 		return letOutcome{why: why}
 	}
 	budget, steps, bytes, stepsAt, bytesAt, depth, sym := in.budget, in.steps, in.bytes, in.stepsAt, in.bytesAt, in.depth, in.sym
+	stepsEnd, perCase := in.stepsEnd, in.perCase
 	in.budget.Steps, in.stepsAt, in.bytesAt, in.depth, in.sym = foldLetSteps, in.steps, in.bytes, 0, nil
+	// The let's bound is one evaluation's, never a case count's, and
+	// charge's cached end is the let's own (not the obligation's, which
+	// lies past it).
+	in.perCase, in.stepsEnd = 0, in.steps+foldLetSteps
 	defer func() {
 		in.budget, in.steps, in.bytes, in.stepsAt, in.bytesAt, in.depth, in.sym = budget, steps, bytes, stepsAt, bytesAt, depth, sym
+		in.stepsEnd, in.perCase = stepsEnd, perCase
 	}()
 	fr := in.newFrame(site.pkg, site.decl)
 	if ab := in.letSpec(fr, site.spec); ab != nil {

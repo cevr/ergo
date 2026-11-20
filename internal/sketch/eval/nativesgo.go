@@ -4,7 +4,9 @@ import (
 	"crypto/sha256"
 	"hash/crc32"
 	"math"
+	"strconv"
 	"strings"
+	"unicode"
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -28,6 +30,14 @@ var goNatives = map[string]native{
 	"math.Float64frombits": goBits(math.Float64frombits),
 	"math.Float32bits":     goBits(math.Float32bits),
 	"math.Float32frombits": goBits(math.Float32frombits),
+	// compiler/syntax's scanner calls these through import go (TP-DIAG):
+	// an Ergo rune is an int32, an int an int64.
+	"unicode.IsLetter":  goRune(unicode.IsLetter),
+	"unicode.IsDigit":   goRune(unicode.IsDigit),
+	"strconv.QuoteRune": goText(func(a []Value) string { return strconv.QuoteRune(rune(a[0].(int32))) }),
+	"strconv.Quote":     goText(func(a []Value) string { return strconv.Quote(a[0].(string)) }),
+	"strconv.Itoa":      goText(func(a []Value) string { return strconv.Itoa(int(a[0].(int64))) }),
+	"strconv.FormatInt": goText(func(a []Value) string { return strconv.FormatInt(a[0].(int64), int(a[1].(int64))) }),
 }
 
 // Go's math for float64, which std/math/math.ergo binds through import go,
@@ -86,6 +96,27 @@ func registerNativesgo() {
 	}
 	goNatives["math.IsInf"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return math.IsInf(args[0].(float64), int(args[1].(int64))), in.charge(fr, at, 1)
+	}
+}
+
+func goRune(f func(rune) bool) native {
+	return func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		return f(rune(args[0].(int32))), in.charge(fr, at, 1)
+	}
+}
+
+// goText runs f, whose Go function may panic (FormatInt's base), as the
+// built program would: a panic is a defect.
+func goText(f func([]Value) string) native {
+	return func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		if ab := in.charge(fr, at, 1+argWork(args)); ab != nil {
+			return nil, ab
+		}
+		out, why := guard(func() Value { return f(args) })
+		if why != "" {
+			return nil, fr.defect(at, "%s", why)
+		}
+		return out, in.allocate(fr, at, int64(len(out.(string))))
 	}
 }
 
