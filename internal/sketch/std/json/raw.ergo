@@ -110,7 +110,7 @@ func rawIsValue(d doc, sp int) bool {
 	case _:
 		return false
 	}
-	Encode(c[Value](), Wire(x)) == Encode(c[Value](), v) && x.text == strings.TrimSpace(text) && ParseRaw(v).text == spell(d, "")
+	Encode(c[Value](), x.Wire()) == Encode(c[Value](), v) && x.text == strings.TrimSpace(text) && ParseRaw(v).text == spell(d, "")
 }
 
 // spaces is white space between tokens: none, or a run drawn from sp.

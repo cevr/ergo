@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"ergo.local/prototype/internal/lawledger"
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/eval"
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -197,9 +198,21 @@ func TestJSONRawAgrees(t *testing.T) {
 	if err != nil {
 		t.Errorf("ergo test -run Raw std json: %v\n%s", err, lawOut)
 	}
-	for _, law := range []string{"RawReadsOneValue", "RawRoundTrips", "RawIsValue"} {
-		if !regexp.MustCompile(`(?m)^ok law (json\.)?` + law + `\b`).Match(lawOut) {
-			t.Errorf("ergo test std json: law %s did not pass:\n%s", law, lawOut)
-		}
+	laws := map[string]lawledger.Law{}
+	for key, statement := range jsonRawLawStatements {
+		_, law, _ := strings.Cut(key, " ")
+		laws[key] = lawledger.Law{Statement: statement, Check: func(t *testing.T) {
+			if !regexp.MustCompile(`(?m)^ok law (json\.)?` + law + `\b`).Match(lawOut) {
+				t.Errorf("ergo test std json: law %s did not pass:\n%s", law, lawOut)
+			}
+		}}
 	}
+	lawledger.Run(t, laws)
+}
+
+// jsonRawLawStatements is each Raw law's ledger statement.
+var jsonRawLawStatements = map[string]string{
+	"json RawReadsOneValue": `RawReadsOneValue(x Raw) { let v = RawOf(x.text) catch { case _: return true } let r = Reader{c: open("[7," + v.text + ",7]", 0, 0) catch { case _: return false }} let (a, y, b) = decode[(int, Raw, int)](r) catch { case _: return false } a == 7 && y == v && b == 7 }`,
+	"json RawRoundTrips": `RawRoundTrips(d doc, sp int) { rawRoundTrips(d, sp) }`,
+	"json RawIsValue": `RawIsValue(d doc, sp int) { rawIsValue(d, sp) }`,
 }
