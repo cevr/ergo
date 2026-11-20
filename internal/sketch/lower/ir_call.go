@@ -246,12 +246,7 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		if b.addrRecv(c) { // ir_place.go
 			pre, irArgs = b.recvAddrCall(c, x.Args)
 		} else {
-			pre, irArgs = b.operands(args)
-			for i := range irArgs {
-				if i < len(f.Sig.Params) {
-					irArgs[i] = b.argIntoRow(f.Sig.Params[i].Type, args[i], irArgs[i]) // ir_expr.go
-				}
-			}
+			pre, irArgs = b.operands(args) // a row parameter's operand goes in by implicit (ir_rowgap.go)
 		}
 		b.valueSource(x, c, args, irArgs)   // ir_pkg.go
 		b.l.intMapCall(x, c.Recv, f, false) // intmap.go: a generic signature's Map is Go's

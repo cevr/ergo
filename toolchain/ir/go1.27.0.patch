@@ -479,7 +479,7 @@ index 0000000..9dbb397
 +}
 diff --git a/src/cmd/compile/internal/ergoir/ergoir_call.go b/src/cmd/compile/internal/ergoir/ergoir_call.go
 new file mode 100644
-index 0000000..be785d3
+index 0000000..2ef77a2
 --- /dev/null
 +++ b/src/cmd/compile/internal/ergoir/ergoir_call.go
 @@ -0,0 +1,76 @@
@@ -760,7 +760,7 @@ index 0000000..594e63c
 +}
 diff --git a/src/cmd/compile/internal/ergoir/ergoir_expr.go b/src/cmd/compile/internal/ergoir/ergoir_expr.go
 new file mode 100644
-index 0000000..f053c01
+index 0000000..9d743ae
 --- /dev/null
 +++ b/src/cmd/compile/internal/ergoir/ergoir_expr.go
 @@ -0,0 +1,526 @@
@@ -2265,7 +2265,7 @@ index 0000000..f90510c
 +}
 diff --git a/src/cmd/compile/internal/ergoir/ergoir_stmt.go b/src/cmd/compile/internal/ergoir/ergoir_stmt.go
 new file mode 100644
-index 0000000..a54bb61
+index 0000000..8c93145
 --- /dev/null
 +++ b/src/cmd/compile/internal/ergoir/ergoir_stmt.go
 @@ -0,0 +1,366 @@
@@ -3165,10 +3165,10 @@ index 0000000..f32141c
 +}
 diff --git a/src/cmd/compile/internal/ergoir/ergoir_union.go b/src/cmd/compile/internal/ergoir/ergoir_union.go
 new file mode 100644
-index 0000000..a06fafe
+index 0000000..c486108
 --- /dev/null
 +++ b/src/cmd/compile/internal/ergoir/ergoir_union.go
-@@ -0,0 +1,140 @@
+@@ -0,0 +1,144 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -3287,14 +3287,18 @@ index 0000000..a06fafe
 +	pos := c.pos(x.Pos)
 +	switch x.K {
 +	case "toiface":
-+		// T(x): a variant x to the sealed interface T it implements.
++		// T(x): a variant x to the sealed interface T it implements, or
++		// an interface value x to an interface T its method set
++		// implements (an Ergo operation type lent as the prelude's
++		// Reader or Writer, IFACE-CONV): Go's conversion, which the
++		// compiler lowers to an itab lookup.
 +		t := c.typ(x.Pos, x.T)
 +		v, vt := c.expr(x.X)
 +		if t == nil || v == nil {
 +			return nil, nil, true
 +		}
 +		iface, isIface := t.Underlying().(*types2.Interface)
-+		if !isIface || vt == nil || types2.IsInterface(vt) || !types2.Implements(vt, iface) {
++		if !isIface || vt == nil || !types2.Implements(vt, iface) {
 +			c.errorf(x.Pos, "ergoir: conversion of %v to %v", vt, t)
 +			return nil, nil, true
 +		}
@@ -3311,7 +3315,7 @@ index 0000000..a06fafe
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_hook.go b/src/cmd/compile/internal/noder/ergoir_hook.go
 new file mode 100644
-index 0000000..22a171b
+index 0000000..4953d06
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_hook.go
 @@ -0,0 +1,39 @@
