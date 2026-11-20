@@ -362,10 +362,9 @@ func ledgerNote(q ledgerProgram, in, state string) string {
 }
 
 // under is the build part of the program's entries' keys (LAW-BUILD-KEY):
-// every program reaches the runtime's sync bodies, whose closure (the walk
-// takes every method of a name a Go standard library value calls) holds
-// runtime/v1 declarations with a body per platform (term_linux.go,
-// term_darwin.go), and a foreign program reaches fast's sum, whose one
+// every program reaches the runtime's sync bodies, whose closure holds
+// runtime/v1 declarations another supported platform compiles
+// differently, and a foreign program reaches fast's sum, whose one
 // body is sum_amd64.s; so another supported platform compiles each
 // differently and the entry names the host's platform (r3).
 func (q ledgerProgram) under() string {
