@@ -141,30 +141,55 @@ func (s *switchUnion) bind(tp *TypeParam) Type {
 	return tp
 }
 
+// variantSet is caseVariant's result for a declared union whose every
+// variant is one of the subject's: its indexes come in the set.
+const variantSet = -4
+
 // caseVariant resolves a case type to its variant index in the union, -1
 // for _ or the subject's own type, -2 on an error (reported), or variantOver when the switch's step
 // counter ran out (reported once by the switch). It is a keyed lookup, not a scan:
 // resolving the cases stays linear before the solvers' counters (round-5
-// M2; D16 as amended in round 5).
-func (c *checker) caseVariant(e syntax.Expr, u *switchUnion, subj Type, b *lookupSteps) int {
+// M2; D16 as amended in round 5). A declared union whose variants are all
+// the subject's, `case A as a`, is variantSet with their indexes in
+// A's order and the type A (types.md, Unions 1; DECL-VALUES Design B (b)).
+func (c *checker) caseVariant(e syntax.Expr, u *switchUnion, subj Type, b *lookupSteps) (int, []int, Type) {
 	if id, ok := e.(*syntax.Ident); ok && id.Name == "_" {
-		return -1
+		return -1, nil, nil
 	}
 	t := c.typExpr0(e, c.localTypeCtx())
 	if isInvalid(t) {
-		return -2
+		return -2, nil, nil
 	}
 	if c.identical(t, subj) {
-		return -1 // The subject's own union type covers all its values.
+		return -1, nil, nil // The subject's own union type covers all its values.
 	}
 	if n, ok := t.(*Named); ok && n.Orig == nil && len(n.TParams) > 0 {
 		if sn, ok := subj.(*Named); ok && sn.origin() == n {
-			return -1 // A generic own type may omit its subject's arguments.
+			return -1, nil, nil // A generic own type may omit its subject's arguments.
+		}
+	}
+	if n, ok := t.(*Named); ok && (n.Orig != nil || len(n.TParams) == 0) {
+		if su := asUnion(t); su != nil && su.Row == nil && len(su.Variants) > 0 {
+			set := make([]int, 0, len(su.Variants))
+			for _, v := range su.Variants {
+				i := u.lookup(v, b)
+				if i == variantOver {
+					return variantOver, nil, nil
+				}
+				if i < 0 {
+					if !u.bad() {
+						c.errorf(e, CodeType, "%s holds %s, which is not a variant of %s (rows.md, Totality 1)", t, v, subj)
+					}
+					return -2, nil, nil
+				}
+				set = append(set, i)
+			}
+			return variantSet, set, t
 		}
 	}
 	i := u.lookup(t, b)
 	if i >= 0 || i == variantOver {
-		return i
+		return i, nil, nil
 	}
 	if !u.bad() {
 		what := t.String()
@@ -173,5 +198,5 @@ func (c *checker) caseVariant(e syntax.Expr, u *switchUnion, subj Type, b *looku
 		}
 		c.errorf(e, CodeType, "%s is not a variant of %s (rows.md, Totality 1)", what, subj)
 	}
-	return -2
+	return -2, nil, nil
 }
