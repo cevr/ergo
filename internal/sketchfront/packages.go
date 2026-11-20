@@ -35,6 +35,19 @@ type CheckedPackage struct {
 	// read it, with complete false). Nil when the package was not checked
 	// (it does not parse, or it imports a broken package).
 	Partial *check.Package
+	// Imports are the import paths of the local packages it imports, in
+	// the order it first imports them.
+	Imports []string
+}
+
+// ModuleRoot is the folder of the module of a program read from a
+// folder, the folder every file's Rel is relative to; "" for one source
+// text or a program with no module.
+func (a Analysis) ModuleRoot() string {
+	if a.program == nil || a.program.module == "" {
+		return ""
+	}
+	return a.program.modRoot
 }
 
 // CheckedFile is one source file of a CheckedPackage.
@@ -98,6 +111,9 @@ func (a Analysis) Packages() []CheckedPackage {
 		}
 		for _, f := range p.files {
 			c.Files = append(c.Files, CheckedFile{Rel: f.rel, Syntax: f.syntax})
+		}
+		for _, imp := range p.imports {
+			c.Imports = append(c.Imports, imp.path)
 		}
 		out = append(out, c)
 	}

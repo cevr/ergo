@@ -212,24 +212,33 @@ func (w *worker) regenerate(ctx context.Context, g *Regenerate) string {
 		return fmt.Sprintf("regenerate %q in %s: %s: %s", g.Argv, g.Dir, o.reason, lastLines(o.tail, 20))
 	}
 	// verifyCopy checks that restoreUnder put back what the step wrote.
-	prefix := path.Clean(g.Dir) + "/"
 	for _, f := range w.e.files {
-		if strings.HasPrefix(f.path, prefix) {
+		if under(f.path, g.Dir) {
 			w.touched[f.path] = true
 		}
 	}
 	return ""
 }
 
+// under reports whether the checkout path p is in the folder dir: every
+// path is in the module root ".", the folder of `go run ./scripts/linked`.
+func under(p, dir string) bool {
+	dir = path.Clean(dir)
+	return dir == "." || strings.HasPrefix(p, dir+"/")
+}
+
 // restoreUnder puts every file of the checkout under dir back as the
 // checkout has it, and removes the files a step wrote there that the
 // checkout does not have.
 func (w *worker) restoreUnder(dir string) error {
-	prefix := path.Clean(dir) + "/"
+	// It removes files: only ever in a copy under the work directory.
+	if !inside(w.root, w.e.cfg.Work) {
+		return fmt.Errorf("restore %s: %s is not a copy under the work directory %s", dir, w.root, w.e.cfg.Work)
+	}
 	known := map[string]bool{}
 	var errs []error
 	for _, f := range w.e.files {
-		if !strings.HasPrefix(f.path, prefix) || f.mode&fs.ModeSymlink != 0 {
+		if !under(f.path, dir) || f.mode&fs.ModeSymlink != 0 {
 			continue
 		}
 		known[f.path] = true
@@ -243,6 +252,11 @@ func (w *worker) restoreUnder(dir string) error {
 	}
 	base := filepath.Join(w.root, filepath.FromSlash(dir))
 	errs = append(errs, filepath.WalkDir(base, func(p string, d fs.DirEntry, err error) error {
+		// The copy's own repository (commitCopy) is no file of the
+		// checkout's, and stays.
+		if err == nil && d.IsDir() && p == filepath.Join(w.root, ".git") {
+			return filepath.SkipDir
+		}
 		if err != nil || d.IsDir() {
 			return err
 		}
