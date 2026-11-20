@@ -22,7 +22,7 @@ Owner, 2026-10-26, on performance: "zero cost subtractions [abstractions] is ver
 4. Laws and proofs.
 5. Error and dependency tracking.
 6. Agent interpretability.
-7. Performance: every construct lowers to code no slower than hand-written Go, and a feature that is not used costs nothing. Beat hand-optimized Go where the language knows facts Go cannot. Claims need measured evidence.
+7. Performance: reach the Go floor, then lower it. Every construct lowers to code no slower than hand-written Go, and a feature that is not used costs nothing: the Go floor is the required minimum. Past it, the Go fork and the IR path are the levers that go below hand Go. A lever never changes a result, so the program stays correct on stock Go, and each lever is licensed by a law or a property. Claims need measured evidence. Owner, 2026-11-20: "Let me restate the one aspect of the North Star when it comes to performance. The goal is to reach the floor, the go floor, and then lower it with whatever levers that we have available via the fork or the IR path."
 
 Score every construct and spike against all seven pillars. Observability and agent interpretability are language concerns, not tooling afterthoughts. Pillar 4 names proofs, so the earlier "no proofs" position on laws is re-opened rather than closed. A passing finite law suite is reported as tested, never as proved, and never acted on (q115).
 
