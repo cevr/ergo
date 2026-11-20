@@ -19,6 +19,20 @@ type NoDir struct{ Message string }
 // writes a record's.
 func (e NoDir) Error() string { return "os.NoDir{Message:" + e.Message + "}" }
 
+// absDir is a Self directory from Go's answer: Go's error, or a relative
+// directory (Go returns $HOME or $XDG_*_HOME as set, so HOME=relative/dir
+// gives "relative/dir"), is NoDir, so every directory Self names is
+// absolute (law DirsAreAbsolute).
+func absDir(dir string, err error) (string, error) {
+	if err != nil {
+		return "", NoDir{Message: err.Error()}
+	}
+	if !filepath.IsAbs(dir) {
+		return "", NoDir{Message: "the directory " + dir + " is relative"}
+	}
+	return dir, nil
+}
+
 // OSPid is the body of os.Host's Pid: Go's os.Getpid.
 //
 //ergo:host
@@ -30,11 +44,7 @@ func OSPid() int { return os.Getpid() }
 //ergo:host
 //ergo:wait none
 func OSHomeDir() (string, error) {
-	dir, err := os.UserHomeDir()
-	if err != nil {
-		return "", NoDir{Message: err.Error()}
-	}
-	return dir, nil
+	return absDir(os.UserHomeDir())
 }
 
 // OSCacheDir is the body of os.Host's CacheDir: Go's os.UserCacheDir.
@@ -42,11 +52,7 @@ func OSHomeDir() (string, error) {
 //ergo:host
 //ergo:wait none
 func OSCacheDir() (string, error) {
-	dir, err := os.UserCacheDir()
-	if err != nil {
-		return "", NoDir{Message: err.Error()}
-	}
-	return dir, nil
+	return absDir(os.UserCacheDir())
 }
 
 // OSConfigDir is the body of os.Host's ConfigDir: Go's os.UserConfigDir.
@@ -54,11 +60,7 @@ func OSCacheDir() (string, error) {
 //ergo:host
 //ergo:wait none
 func OSConfigDir() (string, error) {
-	dir, err := os.UserConfigDir()
-	if err != nil {
-		return "", NoDir{Message: err.Error()}
-	}
-	return dir, nil
+	return absDir(os.UserConfigDir())
 }
 
 // OSExecutable is the body of os.Host's Executable: Go's os.Executable,

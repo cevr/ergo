@@ -1242,6 +1242,9 @@ test FstestRemoveAllTouchesOnlyPath(paths []string, pick int) {
 			case fs.NotFound:
 				assert fsUnder(q, target)
 				continue
+			case fs.Denied, fs.Failed:
+				assert false
+				return
 			}
 			assert !fsUnder(q, target) && gone.Name != ""
 		}
@@ -1274,6 +1277,9 @@ test FstestScratchIsRemoved(name string) {
 	let path = try made()
 	let _ = m.Lstat(path) catch {
 	case fs.NotFound:
+		return
+	case fs.Denied, fs.Failed:
+		assert false
 		return
 	}
 	assert false

@@ -27,7 +27,7 @@ law SumIs32Bytes(s string) { len(Sum(s)) == 32 }
 // Only New and Clone make one.
 // law-exempt: only New and Clone make one; PartsAreTheWhole,
 // NothingIsSumOfEmpty, DigestKeepsTheHasher and CloneForks check it.
-extern go ergo.local/prototype/runtime/v1/digest.Sha256Hasher type Hasher {
+extern go ergo.local/prototype/runtime/v1/digest.Hasher type Hasher {
 	..Closer,
 	runtimeOnly(),
 	// Write hashes the bytes of s after those the hasher has hashed.

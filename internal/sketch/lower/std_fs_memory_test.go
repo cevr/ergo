@@ -437,7 +437,7 @@ func fsOps(r *rand.Rand, n int) []string {
 	var ops []string
 	for range n {
 		var line string
-		switch r.IntN(23) {
+		switch r.IntN(25) {
 		case 0:
 			line = "ReadFile\t" + q(path())
 		case 1:
@@ -479,9 +479,12 @@ func fsOps(r *rand.Rand, n int) []string {
 }
 
 // fsLawLine is a Law line for one of the laws, with generated arguments.
+// Law lines are 6 in 25 of fsOps's lines, and RenameMoves is 2 in 13 of
+// them: its law is vacuous unless from holds a file it can rename, and
+// each law must hold in 20 cases that are not vacuous.
 func fsLawLine(r *rand.Rand, path, text, fileMode func() string) string {
 	q := strconv.Quote
-	switch r.IntN(12) {
+	switch r.IntN(13) {
 	case 10:
 		return "Law\t" + q("LstatDirIsStatDir") + "\t" + q(path())
 	case 11:
@@ -492,7 +495,7 @@ func fsLawLine(r *rand.Rand, path, text, fileMode func() string) string {
 		return "Law\t" + q("MkdirAllIsIdempotent") + "\t" + q(path())
 	case 2:
 		return "Law\t" + q("RemoveThenNotFound") + "\t" + q(path())
-	case 3:
+	case 3, 12:
 		return "Law\t" + q("RenameMoves") + "\t" + q(path()) + "\t" + q(path()) + "\t" + q(text())
 	case 4:
 		return "Law\t" + q("WriteThenRead") + "\t" + q(path()) + "\t" + q(text())

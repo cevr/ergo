@@ -1118,6 +1118,51 @@ func main() {
 	use(Mine)
 }
 `,
+	"sha256.Hasher": `import sha256
+
+type Mine {} implements Closer
+
+func Write(_ Mine, s string) {}
+func Digest(_ Mine) string { "" }
+func Clone(_ Mine) sha256.Hasher { sha256.New() }
+func Close(_ Mine) {}
+
+func use(h sha256.Hasher) { _ = h.Digest() }
+
+func main() {
+	use(Mine)
+}
+`,
+	"os.Self": `import os
+
+type Mine {} implements os.Self
+
+func Environ(_ Mine) []string { []string{} }
+func Pid(_ Mine) int { 1 }
+func HomeDir(_ Mine) string fails os.NoDir { "/home" }
+func CacheDir(_ Mine) string fails os.NoDir { "/home/.cache" }
+func ConfigDir(_ Mine) string fails os.NoDir { "/home/.config" }
+func Executable(_ Mine) string fails os.NoDir { "/bin/mine" }
+
+func use(s os.Self) { _ = s.Pid() }
+
+func main() {
+	use(Mine)
+}
+`,
+	"signal.Stops": `import signal
+
+type Mine {} implements signal.Stops
+
+func Next(_ Mine) signal.Stop { signal.Interrupt }
+func Poll(_ Mine) Option[signal.Stop] { None }
+
+func use(s signal.Stops) { _ = s.Poll() }
+
+func main() {
+	use(Mine)
+}
+`,
 	// The prelude's Ambient (host-authority H1): its one operation is
 	// unexported, so no program type implements it (sealedBy), though no
 	// std extern names it (unexportedStd).
@@ -1676,6 +1721,8 @@ var openStd = map[string]bool{
 	"prelude.Writer":    true,
 	"prelude.Reader":    true,
 	"os.Process":        true,
+	"os.Self":           true,
+	"signal.Stops":      true,
 	"fs.Files":          true,
 	"fs.Writes":         true,
 	"fs.Root":           true,

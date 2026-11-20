@@ -11,27 +11,37 @@ import (
 // or outside it.
 const fsTreesLinks = `import fs
 
-let onHost = context needs TestAmbient { fs.Files: fs.NewTestHost(), fs.Writes: fs.NewTestHost() }
+// Links makes symbolic links in the case's folder: fs.Symlink takes the
+// Host, which only a context that needs TestAmbient may make.
+type Links {
+	Link(target string, path string) fails fs.NotFound | fs.Denied | fs.Failed,
+}
+
+type hostLinks { h fs.Host } implements Links
+
+func Link(l hostLinks, target string, path string) fails fs.NotFound | fs.Denied | fs.Failed {
+	try fs.Symlink(l.h, target, path)
+}
+
+let onHost = context needs TestAmbient { fs.Files: fs.NewTestHost(), fs.Writes: fs.NewTestHost(), Links: hostLinks{h: fs.NewTestHost()} }
 
 test WalkListsALinkOnce {
-	let h = fs.NewTestHost()
-	try fs.MkdirAll(h, "t/d")
-	try fs.WriteFile(h, "t/d/f", "x")
-	try fs.Symlink(h, "d", "t/link")
-	try fs.Symlink(h, "..", "t/d/up")
 	with onHost {
+		try fs.Writes.MkdirAll("t/d")
+		try fs.Writes.WriteFile("t/d/f", "x")
+		try Links.Link("d", "t/link")
+		try Links.Link("..", "t/d/up")
 		assert try fs.Walk("t") == []string{"t", "t/d", "t/d/f", "t/d/up", "t/link"}
 	}
 }
 
 test RemoveAllKeepsWhatALinkLeadsTo {
-	let h = fs.NewTestHost()
-	try fs.MkdirAll(h, "keep")
-	try fs.WriteFile(h, "keep/f", "x")
-	try fs.MkdirAll(h, "gone/d")
-	try fs.Symlink(h, "../keep", "gone/out")
-	try fs.Symlink(h, "../../keep", "gone/d/deep")
 	with onHost {
+		try fs.Writes.MkdirAll("keep")
+		try fs.Writes.WriteFile("keep/f", "x")
+		try fs.Writes.MkdirAll("gone/d")
+		try Links.Link("../keep", "gone/out")
+		try Links.Link("../../keep", "gone/d/deep")
 		try fs.RemoveAll("gone")
 		assert try fs.Files.ReadFile("keep/f") == "x"
 		assert try fs.Files.ReadDir(".") == []string{"keep"}
