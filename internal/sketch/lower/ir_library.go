@@ -34,6 +34,7 @@ func LowerIRLibrary(u Unit, name string) ([]File, IRReport, error) {
 	if err != nil {
 		return nil, IRReport{}, err
 	}
+	code = l.ir.flatEnd(l, code) // the flat workers' Go heads, as a program's (ir_forms_flat.go)
 	sort.Slice(l.ir.out.Funcs, func(i, j int) bool { return l.ir.out.Funcs[i].Name < l.ir.out.Funcs[j].Name })
 	l.ir.out.V = 1
 	for _, decl := range slices.Sorted(maps.Keys(l.ir.keep)) {
