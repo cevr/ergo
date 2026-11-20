@@ -70,7 +70,12 @@ func LoadConfig(path string) (Config, error) {
 				c.DefaultMemory = v
 			}
 		case "gate-load":
-			return Config{}, fmt.Errorf("%s:%d: gate-load was removed: memory admission replaces the load gate (WS4c); delete the line", path, n)
+			// `gate-load 0` (off) is what every budget now does, so a file
+			// the previous build read still works while the switch to this
+			// one is under way; any other value would not take effect.
+			if value != "0" {
+				return Config{}, fmt.Errorf("%s:%d: gate-load was removed: memory admission replaces the load gate (WS4c); delete the line", path, n)
+			}
 		case "state", "log":
 			if value == "" {
 				return Config{}, bad()
