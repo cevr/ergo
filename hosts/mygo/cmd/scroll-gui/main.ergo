@@ -70,7 +70,7 @@ func headless(n int) fails os.Exit needs Ambient | go.Foreign {
 		}
 		for i in 1..n+1 {
 			desktop.Play(&d, []ui.Act{ui.ScrollOn{Label: "rows", Offset: ui.Length(float64(7 * i)), Height: 0}}) catch {
-			case ui.NoNode, ui.Ambiguous, ui.Closed, actor.Stopped:
+			case ui.NoNode, ui.Ambiguous, ui.Mismatch, ui.Closed, actor.Stopped:
 				return os.Exit{Code: 1, Message: "scroll-gui: no list"}
 			case ui.BadPatch as b:
 				return os.Exit{Code: 1, Message: "scroll-gui: \(b.Why)"}

@@ -161,14 +161,21 @@ func touched[E comparable, S, D, F](d *Driver[S, E, D, F], input screen.Input) f
 		let ev = if input.Kind == screen.Up { ui.FingerUp{Id: TheFinger.Id, X: input.X, Y: input.Y, At: at} } else { ui.FingerMove{Id: TheFinger.Id, X: input.X, Y: input.Y, At: at} }
 		let (n, sig) = ui.TouchStep(f.Value.touch, ev, d.look)
 		try fingerTo(d, fingered[E]{touch: n, scrolls: f.Value.scrolls, target: f.Value.target})
-		if input.Kind == screen.Up {
+		// A finger still pressed when it lifts lets go here; one that
+		// dragged let go when it began to (fingerTo).
+		let pressed = match f.Value.touch.Phase {
+		case ui.TouchPressed:
+			true
+		case _:
+			false
+		}
+		if input.Kind == screen.Up && pressed {
 			match f.Value.target {
 			case Some[ui.Id[E]] as id:
 				match spotOf(d, id.Value) {
 				case Some[spot[E]] as sp:
-					// The finger lets go of the node it went down on, a tap
-					// or a drag: its press state ends (MB4 x UG3: a drag
-					// that scrolled leaves no row active).
+					// The finger lets go of the node it went down on (a
+					// drag let go of it already, fingerTo).
 					try fingerPointed(d, sp.Value, ui.Up, x, y)
 					let tapped = match sig {
 					case Some[ui.TouchSignal] as s:
@@ -189,10 +196,6 @@ func touched[E comparable, S, D, F](d *Driver[S, E, D, F], input screen.Input) f
 					}
 					paint(d)
 				case None:
-					// The drag took the node out of the drawn rows: the
-					// finger still lets go of it.
-					try step(d, ui.Point[E]{Id: id.Value, Pointer: ui.PointerEvent{Pointer: TheFinger, Phase: ui.Up, X: 0, Y: 0, Zone: None}, Over: None})
-					paint(d)
 				}
 			case None:
 			}
@@ -204,7 +207,25 @@ func touched[E comparable, S, D, F](d *Driver[S, E, D, F], input screen.Input) f
 // fingerTo keeps f and shows the offset its machine gives; a finger
 // lifted with nothing moving is gone, and a fling or a return asks the
 // window for frames until it rests.
-func fingerTo[E comparable, S, D, F](d *Driver[S, E, D, F], f fingered[E]) fails actor.Stopped | ui.BadPatch needs go.Foreign {
+func fingerTo[E comparable, S, D, F](d *Driver[S, E, D, F], g fingered[E]) fails actor.Stopped | ui.BadPatch needs go.Foreign {
+	// A touch that turned into a drag, a fling or a return is no press:
+	// the finger lets go of the node it went down on, so it is not left
+	// active, and its lift taps nothing (MB4 x UG3).
+	let dragged = match g.touch.Phase {
+	case ui.TouchDragging, ui.TouchFlinging, ui.TouchSettling:
+		true
+	case _:
+		false
+	}
+	let mut f = g
+	if dragged {
+		match g.target {
+		case Some[ui.Id[E]] as id:
+			try step(d, ui.Point[E]{Id: id.Value, Pointer: ui.PointerEvent{Pointer: TheFinger, Phase: ui.Up, X: 0, Y: 0, Zone: None}, Over: None})
+			f = fingered[E]{touch: g.touch, scrolls: g.scrolls, target: None}
+		case None:
+		}
+	}
 	let rested = match f.touch.Phase {
 	case ui.TouchIdle:
 		true

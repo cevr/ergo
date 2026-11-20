@@ -89,7 +89,7 @@ func headless(view own func(f *ui.Frame[int], laps int), clock ui.Readout, meter
 		}
 		// A lap runs a pass, which lays the meter out again.
 		desktop.Play(&d, []ui.Act{ui.TapOn{Label: "lap"}}) catch {
-		case ui.NoNode, ui.Ambiguous, ui.Closed, actor.Stopped:
+		case ui.NoNode, ui.Ambiguous, ui.Mismatch, ui.Closed, actor.Stopped:
 			return os.Exit{Code: 1, Message: "clock-gui: no lap button"}
 		case ui.BadPatch as b:
 			return os.Exit{Code: 1, Message: "clock-gui: \(b.Why)"}
