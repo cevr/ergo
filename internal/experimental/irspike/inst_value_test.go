@@ -22,7 +22,8 @@ const evalScriptStop = "check-time evaluation does not run a literal of testing.
 // never passes on the source form alone. A failing seed prints the Ergo
 // source, the outputs and its replay command. Mutants:
 // sr-inst-value-refused (an instance as a value refused again),
-// sr-script-field-refused (a Script's field refused again).
+// sr-script-field-refused (a Script's field refused again),
+// g6-script-conv-refused (a Script's operations conversion refused again).
 //
 // The evaluator leg admits one stop, evalScriptStop, until MX's evaluator
 // item (the evaluator runs a testing.Script literal) lands; then the
