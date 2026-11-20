@@ -189,6 +189,10 @@ func touched[E comparable, S, D, F](d *Driver[S, E, D, F], input screen.Input) f
 					}
 					paint(d)
 				case None:
+					// The drag took the node out of the drawn rows: the
+					// finger still lets go of it.
+					try step(d, ui.Point[E]{Id: id.Value, Pointer: ui.PointerEvent{Pointer: TheFinger, Phase: ui.Up, X: 0, Y: 0, Zone: None}, Over: None})
+					paint(d)
 				}
 			case None:
 			}

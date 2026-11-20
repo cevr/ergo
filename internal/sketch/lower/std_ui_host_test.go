@@ -5247,7 +5247,7 @@ func lawTrackCostsNoPass(seed int) bool {
 				return false
 			}
 			let tapped = ui.Counts(&h)
-			let frames = ui.Frames(&h)
+			let frames = h.Frames()
 			let from = faded(&h)
 			ui.Play(&h, []ui.Act{ui.AdvanceBy{By: duration(int64(draw(&r, 8)+1) * int64(16000000))}}) catch {
 			case _:
@@ -5256,7 +5256,7 @@ func lawTrackCostsNoPass(seed int) bool {
 			if ui.Counts(&h) != tapped {
 				return false
 			}
-			if n != was && (ui.Frames(&h) == frames || faded(&h) == from) {
+			if n != was && (h.Frames() == frames || faded(&h) == from) {
 				return false
 			}
 			ui.Play(&h, []ui.Act{ui.AdvanceBy{By: 200ms}}) catch {

@@ -325,6 +325,11 @@ func placed[E comparable, S, D, F](d *desktop.Driver[S, E, D, F], shapes []ui.Sh
 	for s in shapes {
 		match s.Node {
 		case ui.RowsNode as x:
+			// A list a scrim covers is reported once the scrim goes: its
+			// viewport may lag its box till then.
+			if shielded(desktop.Screen(d), x.Label) {
+				continue
+			}
 			let (v, lb) = match (desktop.Viewport(d, x.Label), desktop.BoxOf(d, x.Label)) {
 			case (Some[ui.Viewport] as v, Some[layout.Box] as b):
 				(v.Value, b.Value)
