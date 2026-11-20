@@ -1,7 +1,6 @@
 package lower
 
 import (
-	"cmp"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -366,7 +365,7 @@ func (d *digester) foreignKeys(h io.Writer, keys ForeignKeys) (with, build strin
 	groups := map[string]hash.Hash{}
 	for _, p := range targets {
 		k := keys(p)
-		build = cmp.Or(build, k.Build)
+		build = UnionBuild(build, k.Build)
 		s := p + " " + k.Key
 		fmt.Fprintf(h, "f%d:%s", len(s), s)
 		if k.Group == "" {

@@ -14,13 +14,15 @@ import (
 // over generated key changes: a law's Go code compiles to one of a few
 // closures in each build (the four supported platforms, stock and with
 // GOEXPERIMENT=simd), before and after an edit. Every build had written its
-// key's entry, by the rule of ForeignKeySource.Keys (a build names its
-// platform when another platform of its experiment set compiles another
-// closure, and its experiment when the stock build of its platform does);
-// then one build reruns and writes its fresh key. After DropSuperseded:
-//   - no entry is lost that a build of the run's experiment set looks up
+// key's entry into one ledger, by the rule of ForeignKeySource.Keys (a
+// build names its platform when another platform of its experiment set
+// compiles another closure, and a build with experiments always names
+// them: LEDGER-EXP-KEY); then one build reruns and writes its fresh key.
+// After DropSuperseded:
+//   - no entry is lost that any build, of either experiment set, looks up
 //     now, and no entry of another experiment set goes at all;
-//   - in a stock run, every entry no stock build looks up now is gone.
+//   - every entry of the run's experiment set that no build looks up now
+//     is gone.
 //
 // A failing seed prints both closure maps, the ledger and the replay
 // command. Mutant (lower mutants.json): lsd-other-platform-dropped.
@@ -53,7 +55,7 @@ func TestLedgerDropsSuperseded(t *testing.T) {
 				break
 			}
 		}
-		if b.simd && c[build{b.plat, false}] != c[b] {
+		if b.simd {
 			tags = append(tags, "goexperiment.simd")
 		}
 		slices.Sort(tags)
@@ -99,10 +101,14 @@ func TestLedgerDropsSuperseded(t *testing.T) {
 		if _, ok := ledger[fresh.Key()]; !ok {
 			fail("the fresh entry %q is gone", fresh.Key())
 		}
+		// The run's set reads its keys of the edited code; the other set,
+		// which did not rerun, reads both its old keys and, once it
+		// reruns, its new ones.
 		live := map[string]bool{}
 		for _, b := range builds {
-			if b.simd == h.simd {
-				live[entry(keyOf(after, b)).Key()] = true
+			live[entry(keyOf(after, b)).Key()] = true
+			if b.simd != h.simd {
+				live[entry(keyOf(before, b)).Key()] = true
 			}
 		}
 		for k := range old {
@@ -115,11 +121,11 @@ func TestLedgerDropsSuperseded(t *testing.T) {
 			mine := slices.Equal(exps, map[bool][]string{false: {}, true: {"goexperiment.simd"}}[h.simd])
 			switch {
 			case !kept && live[k]:
-				fail("%q is looked up by a build of the run's experiment set, and was dropped", k)
+				fail("%q is looked up by a build, and was dropped", k)
 			case !kept && !mine:
 				fail("%q is another experiment set's, and was dropped", k)
-			case kept && !h.simd && mine && !live[k]:
-				fail("%q is looked up by no stock build, and was kept", k)
+			case kept && mine && !live[k]:
+				fail("%q is the run's experiment set's, looked up by no build, and was kept", k)
 			}
 		}
 	}

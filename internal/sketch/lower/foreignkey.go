@@ -104,6 +104,13 @@ type ForeignKeySource struct {
 	// kern_linux.go and kern_darwin.go pair, is keyed by the build that
 	// gave it, and one over code every build compiles alike is not.
 	Variants []BuildVariant
+	// Always are the tags every key of Go code the variants compare names,
+	// whatever the comparison finds: the experiments of this build
+	// (goexperiment.simd; LEDGER-EXP-KEY). A build with experiments
+	// never shares a key with the stock build, even where the two compile
+	// one closure, so no two builds read one entry by accident and the
+	// writer can tell whose an entry is (DropSuperseded).
+	Always []string
 	// Target is this build (LAW-BUILD-KEY r3): the runtime's embedded
 	// files are read as it compiles them, and as each variant's Target
 	// does, so a runtime function with a body per platform
@@ -188,8 +195,7 @@ func (s *ForeignKeySource) key(target string) ForeignKey {
 				tags = append(tags, v.Tag)
 			}
 		}
-		slices.Sort(tags)
-		k.Build = strings.Join(tags, ",")
+		k.Build = s.buildOf(tags)
 		runtimeKeys.Store(memo, k)
 		return k
 	}
@@ -226,8 +232,7 @@ func (s *ForeignKeySource) key(target string) ForeignKey {
 				tags = append(tags, v.Tag)
 			}
 		}
-		slices.Sort(tags)
-		k.Build = strings.Join(tags, ",")
+		k.Build = s.buildOf(tags)
 		return k
 	}
 	if repl != nil {
@@ -253,6 +258,27 @@ func (s *ForeignKeySource) everyTag() string {
 	for _, v := range s.Variants {
 		if !slices.Contains(tags, v.Tag) {
 			tags = append(tags, v.Tag)
+		}
+	}
+	return s.buildOf(tags)
+}
+
+// buildOf is a key's build part: the tags of the variants that differ and
+// the Always tags, each once, sorted and joined by commas.
+func (s *ForeignKeySource) buildOf(tags []string) string {
+	return UnionBuild(strings.Join(tags, ","), strings.Join(s.Always, ","))
+}
+
+// UnionBuild is the build part naming every tag of the build parts bs,
+// each once, sorted: an entry reaching several packages names each
+// build any of them depends on.
+func UnionBuild(bs ...string) string {
+	var tags []string
+	for _, b := range bs {
+		for _, tag := range strings.Split(b, ",") {
+			if tag != "" && !slices.Contains(tags, tag) {
+				tags = append(tags, tag)
+			}
 		}
 	}
 	slices.Sort(tags)
