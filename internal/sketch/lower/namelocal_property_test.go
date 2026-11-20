@@ -39,8 +39,8 @@ const nameLocalDefault = "import go strings\n\ntype Reg (int, Map[int, int])\n\n
 	"func D(k int) int {\n\tlet r Reg\n\tlet (_, m) = r\n\tlet mut w = m\n\tlet q = id(k)\n\tw[two(q, 1)] = 5\n\tlen(w)\n}\n\n" +
 	"func H(s string) int needs go.Foreign { strings.Count(s, \"a\") }\n\n" +
 	"type Bad { n int }\n\nfunc chk(a int) int fails Bad {\n\tif a < 0 {\n\t\tlet b = Bad{n: a}\n\t\treturn b\n\t}\n\ta + 1\n}\n\n" +
-	"func J(k int) int {\n\tlet v = chk(k - 9) catch {\n\tcase Bad as b:\n\t\tb.n\n\t}\n\tv * 2\n}\n\n" +
-	"func K(k int) int {\n\tlet v = chk(k) catch {\n\tcase Bad as b:\n\t\tb.n\n\t}\n\tv + 3\n}\n\n"
+	"func J(k int) int {\n\tlet mut t = 0\n\tfor i in 0..k {\n\t\tt = t + (chk(i - 9) catch {\n\t\tcase Bad as b:\n\t\t\tb.n\n\t\t})\n\t}\n\tt * 2\n}\n\n" +
+	"func K(k int) int {\n\tlet mut t = 0\n\tfor i in 0..k {\n\t\tt = t + (chk(i - 1) catch {\n\t\tcase Bad as b:\n\t\t\tb.n\n\t\t})\n\t}\n\tt + 3\n}\n\n"
 
 var nameLocalHelperNames = []string{"DefaultReg", "ergoDefaultReg", "strings"}
 
@@ -83,6 +83,11 @@ func genNameLocal(seed uint64) nameLocalProgram {
 		prev = l
 	}
 	fmt.Fprintf(&h, "\t%s\n}\n", prev)
+	// K's call of chk is an inline site on the IR whose callee fails with
+	// a local (INLINE-FAIL-LOCAL): its copy's lines carry the site's key
+	// (rule 7), which must not move when a package is added.
+	h.WriteString("\ntype Bad { n int }\n\nfunc chk(a int) int fails Bad {\n\tif a < 0 {\n\t\tlet b = Bad{n: a}\n\t\treturn b\n\t}\n\ta + 1\n}\n\n")
+	h.WriteString("func K(k int) int {\n\tlet mut t = 0\n\tfor i in 0..k {\n\t\tt = t + (chk(i - 1) catch {\n\t\tcase Bad as b:\n\t\t\tb.n\n\t\t})\n\t}\n\tt + 3\n}\n")
 	p.helper = h.String()
 
 	var noise strings.Builder
@@ -125,7 +130,7 @@ func nameLocalUse(form int) string {
 	if form == nameLocalReach {
 		g = "lib.G(k) + lib.J(k) + "
 	}
-	return "\nfunc use(k int) int needs go.Foreign { " + g + "lib.F(k) + lib.D(k) + lib.E(k) + lib.H(\"aa\") + lib.K(k) }\n"
+	return "\nfunc use(k int) int needs go.Foreign { " + g + "lib.F(k) + lib.D(k) + lib.E(k) + lib.H(\"aa\") + lib.K(k) + K(k) }\n"
 }
 
 func (p nameLocalProgram) main(form int) string {
@@ -302,11 +307,11 @@ func TestFunctionNamesIgnoreUnrelatedPackages(t *testing.T) {
 		rootIR, rootText, rp := nameLocalFuncs(t, p, nameLocalRoot, fmt.Sprintf("namelocal%droot", seed))
 		reachIR, reachText, xp := nameLocalFuncs(t, p, nameLocalReach, fmt.Sprintf("namelocal%dreach", seed))
 		progs = append(progs, bp, np, rp, xp)
-		// K's call of chk is inlined on the IR (its lines carry the
+		// A K's call of chk is inlined on the IR (its lines carry the
 		// site's tag), so rule 7 is checked on a fail-local copy.
 		inlinedK := false
 		for key, ir := range baseIR {
-			if strings.HasSuffix(key, " K") && strings.Contains(ir, "#ergo-inline-") {
+			if strings.HasSuffix(key, " K") && strings.Contains(ir, "ergo-inline-") {
 				inlinedK = true
 			}
 		}
