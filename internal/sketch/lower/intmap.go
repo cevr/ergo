@@ -42,6 +42,9 @@ type intMapState struct {
 	// builder's reason, or "helper " and the emitter file that wrote Go's
 	// map operations (IRReport.MapConflicts).
 	why map[string]int
+	// fields are the generic record instances (typeKey) intMapFields has
+	// walked this round.
+	fields map[string]bool
 }
 
 // intKey reports a key type IntMap takes: a Go integer type.
@@ -127,6 +130,37 @@ func (l *lowerer) intMapConflict(t check.Type, why ...string) {
 		}
 	}
 	walk(t)
+}
+
+// intMapFields records a conflict for each int map that an instance t of
+// a generic record holds through a field whose declared type names a type
+// parameter: the record's Go type is declared once, over its parameters,
+// so that field is Go's map in every instance (intMap), and an instance's
+// Map type must be Go's map too wherever the program uses it (a copy of
+// the record, KMEANS-LAW's std/jobs; a read of the field). goType calls it
+// for each instance it writes.
+func (l *lowerer) intMapFields(t *check.Named) {
+	if l.ir == nil || t.Orig == nil || len(t.TArgs) == 0 {
+		return
+	}
+	key := l.typeKey(t)
+	if l.ir.maps.fields[key] {
+		return
+	}
+	if l.ir.maps.fields == nil {
+		l.ir.maps.fields = map[string]bool{}
+	}
+	l.ir.maps.fields[key] = true
+	inst, ok := t.Underlying().(*check.Struct)
+	orig, ok2 := t.Orig.Underlying().(*check.Struct)
+	if !ok || !ok2 || len(inst.Fields) != len(orig.Fields) {
+		return
+	}
+	for i, f := range orig.Fields {
+		if mentionsTypeParam(f.Type) {
+			l.intMapConflict(inst.Fields[i].Type, "generic record field")
+		}
+	}
 }
 
 // intMapBody records a conflict for each int map that a node of decl

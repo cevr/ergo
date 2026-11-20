@@ -96,6 +96,9 @@ type SplitReport struct {
 	// Shards counts the Go packages that declaration shards made below
 	// the packages of the program (pkgshard.go).
 	Shards int
+	// err is the IR files' failure, after the split renamed the IR in
+	// place (irSplit.files): no fallback, the lowering fails.
+	err error
 }
 
 // splitDir is the folder of the Go packages of the program's Ergo
@@ -966,7 +969,7 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 	if irs != nil {
 		files, withIR, err := irs.files(func(i int) int { return groups[irs.owner[i]].pkg }, rename, plan)
 		if err != nil {
-			return nil, SplitReport{Reason: err.Error()}
+			return nil, SplitReport{Reason: err.Error(), err: err}
 		}
 		outFiles = append(outFiles, files...)
 		rep.IRPackages = withIR

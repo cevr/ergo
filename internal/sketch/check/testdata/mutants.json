@@ -1,6 +1,9 @@
 {
   "about": "The mutant ledger of internal/sketch/check: edits of the package's source that some test, law or example must kill. Run it with go run ./scripts/mutants check; docs/tooling.md, \"Mutant ledger\", says when a change must run it and how to add a mutant. Seeded from the test-speed plan (wf10, 2026-11-08) and the units' verify mutants.",
   "mutants": [
+    {"name":"bw-builder-ranks-zero","origin":"wf10 BUILDER-WELLFOUNDED","file":"internal/sketch/check/tests.go","from":"\t\t_, params = b.Instance(n)\n\t\treturn params, true, true","to":"\t\t_ = b\n\t\treturn nil, true, true","rule":"An operation type ranks one more than its builder's greatest parameter, so a builder that needs its own type gives it no finite value.","killers":["internal/sketch/eval:TestGenerationEndsOrIsRefused","internal/sketch/check:TestBuilderWithoutBaseIsRefused"]},
+    {"name":"bw-builder-params-unreached","origin":"wf10 BUILDER-WELLFOUNDED","file":"internal/sketch/check/tests.go","from":"\t\t\tfor _, p := range params {\n\t\t\t\treach(p)\n\t\t\t}","to":"\t\t\t_ = params","rule":"The ranks solve the builder's parameters with the operation type, so a builder over a finite type ranks finite.","killers":["internal/sketch/eval:TestGenerationEndsOrIsRefused"]},
+    {"name":"bw-builder-text-generic","origin":"wf10 BUILDER-WELLFOUNDED","file":"internal/sketch/check/tests.go","from":"\" takes an argument that has none, as a builder that needs its own type does\"","to":"\": each of its values holds another\"","rule":"A builder with no base case is named in the refusal, as the cause.","killers":["internal/sketch/check:TestBuilderWithoutBaseIsRefused"]},
     {"name":"every-std-only","origin":"wf10/ir-forms/STD-COPY-ZERO","file":"internal/sketch/check/entry.go","from":"\t_, ok = at.Obj.Pkg.Scope.names[\"Clock\"].(*TypeName)\n\treturn ok\n}","to":"\t_, ok = at.Obj.Pkg.Scope.names[\"Clock\"].(*TypeName)\n\treturn ok && o.Obj.Pkg.std\n}","rule":"An Every timer is admitted by its shape, never by the package that declares it: a user package's record of the shape is one.","killers":["cmd/ergo:TestCheckerFixtures"]},
     {"name":"every-any-shape","origin":"wf10/ir-forms/STD-COPY-ZERO","file":"internal/sketch/check/entry.go","from":"\tif !ok || len(st.Fields) != 2 {\n\t\treturn false\n\t}\n\tin, _ := st.field(\"In\")","to":"\tif !ok {\n\t\treturn false\n\t}\n\tin, _ := st.field(\"In\")","rule":"An Every timer's record has exactly the fields In and Signal: a record with another field is no timer.","killers":["cmd/ergo:TestCheckerFixtures"]},
     {"name":"lf6-value-class-skipped","origin":"wf10 LF6a","file":"internal/sketch/check/funcrewrite.go","from":"if why := rewriteValueWhy(t, map[Type]bool{}); why != \"\" {","to":"if why := rewriteValueWhy(t, map[Type]bool{}); false && why != \"\" {","rule":"A rewrite law's sides are values with key equality and no identity or Go type.","killers":["check:TestFunctionRewriteRows"]},
@@ -3302,6 +3305,45 @@
     {"name":"modes5-own-row-admitted","origin":"wf10 MODES-5 (EXM2)","file":"internal/sketch/check/decl.go","from":"if tp.Name == name.Name && tp.Kind != KindType {","to":"if tp.Name == name.Name && tp.Kind != KindType && false {","rule":"types.md Generics 9: a row parameter takes no own mark.","killers":["check:TestOwnMarkRows"]},
     {"name":"modes5-language-type-marked","origin":"wf10 MODES-5 (EXM2)","file":"internal/sketch/check/resource.go","from":"func languageParam(tp *TypeParam) bool { return tp.lang }","to":"func languageParam(tp *TypeParam) bool { return false }","rule":"types.md Generics 9: Option, Some and go.Ref admit a resource with no mark.","killers":["check:TestLevel2AdapterRelation"]},
     {"name":"modes5-own-mark-unread","origin":"wf10 MODES-5 (EXM2)","file":"internal/sketch/check/decl.go","from":"Own: field.Own != nil, id: newID()}\n\t\t\t\tc.noteOwner(tp, f.Name)","to":"Own: false, id: newID()}\n\t\t\t\tc.noteOwner(tp, f.Name)","rule":"types.md Generics 9: [T own] marks the type parameter.","killers":["check:TestTakesInferenceModel"]},
+    {
+      "name": "uflat-other-pkg",
+      "origin": "wf10 UNION-FLAT (DECL-VALUES §6 unit 1)",
+      "file": "internal/sketch/check/decl.go",
+      "from": "\t\tif p := vn.origin().Obj.Pkg; p != c.pkg {\n\t\t\t// A union's variants are records of its package (196b Q8, a",
+      "to": "\t\tif p := vn.origin().Obj.Pkg; p != c.pkg && !isUnion(t) {\n\t\t\t// A union's variants are records of its package (196b Q8, a",
+      "rule": "types.md Unions 1: only a union of this package may be listed; another package's union is S108 with the wrap text.",
+      "killers": [
+        "cmd/ergo:TestCheckerFixtures"
+      ]
+    },
+    {
+      "name": "uflat-narrow-total",
+      "origin": "wf10 UNION-FLAT (DECL-VALUES §6 unit 1)",
+      "file": "internal/sketch/check/switchunion.go",
+      "from": "\t\t\treturn variantSet, set, t\n",
+      "to": "\t\t\treturn variantSet, append(set, (set[len(set)-1]+1)%u.len()), t\n",
+      "rule": "types.md Unions 4: case A as a covers exactly A's variants, never one outside A.",
+      "killers": [
+        "cmd/ergo:TestCheckerFixtures"
+      ]
+    },
+    {
+      "name": "uflat-dup-variant",
+      "origin": "wf10 UNION-FLAT (DECL-VALUES §6 unit 1)",
+      "file": "internal/sketch/check/decl.go",
+      "from": "\t\t\t\tif key := c.types.id(v); !seen[key] {\n",
+      "to": "\t\t\t\tif key := c.types.id(v); true {\n",
+      "rule": "types.md Unions 1: a variant reached twice, through a listed union and again, is one variant.",
+      "killers": [
+        "cmd/ergo:TestCheckerFixtures"
+      ]
+    },
+    {"name":"catch-arm-names-nothing","origin":"wf10 INFER-CATCH","file":"internal/sketch/check/decl.go","from":"\t\t\tif arm, ok := n.(*syntax.CatchArm); ok {","to":"\t\t\tif arm, ok := n.(*syntax.CatchArm); ok && false {","rule":"A type a catch arm tests is an error type of the arm's owner, so a failure parameter inferred from a value argument of it binds as if written (Error types 1).","killers":["internal/sketch/check:TestCatchArmNamesTheFailure"]},
+    {"name":"catch-arm-as-unread","origin":"wf10 INFER-CATCH","file":"internal/sketch/check/decl.go","from":"\t\treturn catchArmHead(p.X)","to":"\t\treturn nil","rule":"A catch arm `case T as e` names T as `case T` does.","killers":["internal/sketch/check:TestCatchArmNamesTheFailure"]},
+    {"name":"catch-arm-record-unread","origin":"wf10 INFER-CATCH","file":"internal/sketch/check/decl.go","from":"\tcase *syntax.CompositeLit:\n\t\treturn p.Type","to":"\tcase *syntax.CompositeLit:\n\t\treturn nil","rule":"A catch arm's record pattern `case T{…}` names T as `case T` does.","killers":["internal/sketch/check:TestCatchArmNamesTheFailure"]},
+    {"name":"catch-arm-owner-not-scoped","origin":"wf10 INFER-CATCH","file":"internal/sketch/check/decl.go","from":"\t\t\t\t\tif n := c.errorRowHead(x); n != nil {\n\t\t\t\t\t\tc.addErrorType(n, c.pkg.OwnerOf(arm), x)","to":"\t\t\t\t\tif n := c.errorRowHead(x); n != nil {\n\t\t\t\t\t\tc.addErrorType(n, OwnerProduction, x)","rule":"A catch arm in a test names its type for the tests alone; the run build gives it no Error method.","killers":["internal/sketch/check:TestCatchArmNamingRows"]},
+    {"name":"infer-unnamed-error-text","origin":"wf10 INFER-CATCH","file":"internal/sketch/check/call.go","from":"\t\tcase n != nil && (in.hasFree(pt) || c.identical(want, pt)):","to":"\t\tcase false && n != nil:","rule":"A value argument of no error type at a free failure parameter says no error row or catch arm names it, and how to name it.","killers":["internal/sketch/check:TestCatchArmNamingRows"]},
+    {"name":"catch-arm-widens-row","origin":"wf10 INFER-CATCH","file":"internal/sketch/check/handlers.go","from":"\tif valid && !row.has(c.types, it.t) {","to":"\tif false && valid && !row.has(c.types, it.t) {","rule":"A catch arm naming a type makes it an error type, never a member of the caught row: an arm for a type the body cannot fail with is still Catch 2's error.","killers":["internal/sketch/check:TestCatchArmNamingRows"]},
     {"name":"fusion-withcapacity-unmarked","origin":"wf10 FUSION-LOWER","file":"runtime/v1/files_gen.go","from":"Results: []string{\"[]T\"}, Pure: true, Wait: \"none\", Package: Path}}},\n\t{\"actorTimer.Run\"","to":"Results: []string{\"[]T\"}, Wait: \"none\", Package: Path}}},\n\t{\"actorTimer.Run\"","rule":"slices.WithCapacity's body is pure, so Transform is pure over a pure function.","killers":["internal/sketch/check:TestFootprintsPureStd"]},
     {"name":"fusion-generic-runs","origin":"wf10 FUSION-CHECK","file":"internal/sketch/check/laws.go","from":"\tif len(law.TParams) > 0 {\n\t\t// A rewrite over functions","to":"\tif false {\n\t\t// A rewrite over functions","rule":"A law with type parameters of its own does not run until a run instantiates them.","killers":["internal/sketch/check:TestRewriteOverFunctions"]},
     {"name":"fusion-left-literal-admitted","origin":"wf10 FUSION-CHECK","file":"internal/sketch/check/funcrewrite.go","from":"\t\t\tif left {\n\t\t\t\treturn e, \"its left side is a call tree, and a function literal is not a call\"\n\t\t\t}\n","to":"","rule":"A function literal stands only on a rewrite's right side.","killers":["internal/sketch/check:TestRewriteOverFunctionsRows"]},

@@ -564,6 +564,29 @@ func Configure(v Vcs, root string, key string, value string) fails work.VcsFaile
 
 func Setting(v Vcs, root string, key string) string fails work.VcsFailed { maps.GetOr(try checkout(v, root), ".git/config/"+key, "") }
 
+// notesFolder holds a checkout's notes, one file per commit.
+let notesFolder = ".git/notes/work/"
+
+func TreeOf(v Vcs, root string, commit string) string fails work.NoRevision | work.VcsFailed {
+	let _ = try checkout(v, root)
+	match v.store.Get().commits.Get(commit) {
+	case Some[Node] as n:
+		n.Value.Tree
+	case None:
+		work.NoRevision{Rev: commit}
+	}
+}
+
+func Note(v Vcs, root string, commit string) string fails work.VcsFailed { maps.GetOr(try checkout(v, root), notesFolder+commit, "") }
+
+func SetNote(v Vcs, root string, commit string, text string) fails work.VcsFailed {
+	let _ = try checkout(v, root)
+	if v.store.Get().commits.Get(commit) == None {
+		return work.VcsFailed{Reason: "\(root): no commit \(commit)"}
+	}
+	let _ = Write(v.trees, root, notesFolder+commit, text)
+}
+
 // Touch gives n index entries of the checkout at root a stale stat, as
 // a copy made file by file or a touch of a file does.
 func Touch(v Vcs, root string, n int) {
