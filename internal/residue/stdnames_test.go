@@ -78,12 +78,13 @@ func TestLoweringKeysOnNoStdName(t *testing.T) {
 		}
 	}
 	listed := readStdNames(t)
-	// A function this inventory does not hold that names the prelude's
-	// Option, Some or None is held by testdata/prelude-unions.txt
-	// (TestLoweringNamesNoPreludeUnion, ADT-NOPRIV), which names the unit
-	// that removes it.
+	// A row this inventory held when the rule landed and that moved to
+	// testdata/prelude-unions.txt (TestLoweringNamesNoPreludeUnion,
+	// ADT-NOPRIV: getPattern, isOptionType) is held there, with the unit
+	// that removes it. No other function leaves this rule by being listed
+	// there.
 	for key := range readPreludeUnions(t) {
-		if k := strings.TrimPrefix(key, "lower/"); listed[k] == "" {
+		if k := strings.TrimPrefix(key, "lower/"); listed[k] == "" && slices.Contains(stdNamesBaseline, "abi "+k) {
 			delete(found, k)
 		}
 	}
