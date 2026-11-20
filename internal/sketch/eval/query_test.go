@@ -3,16 +3,14 @@ package eval
 import "testing"
 
 // TestQueryParsesAtCheckTime: std http.ParseQuery runs at check time as
-// the build's (runtime/v1/http HTTPParseQuery: Go's url.ParseQuery): "+"
-// is a space and %XX an escape, a pair with a malformed escape is
-// dropped, the fields come in key order and one key's values in the
-// order they came. Before MX-EVQUERY it was skipped ("a Go function
-// (ParseQuery)"), so fk-domains' 41 obligations never ran at check time.
-// No example kills its mutants (testdata/mutants.json): without the
-// native fk-domains' rows only turn back into skips, and its queries
-// carry neither a "+" nor keys out of order, so evquery-unsorted and
-// evquery-plus-literal leave its verdicts as they are; this test kills
-// evquery-missing, evquery-unsorted and evquery-plus-literal.
+// the build's: its Ergo body (std/http/query.ergo, NP4f-15) over Go's
+// url.ParseQuery for the limit, where "+" is a space and %XX an escape, a
+// pair with a malformed escape is dropped, the fields come in key order
+// and one key's values in the order they came. Before MX-EVQUERY it was
+// skipped ("a Go function (ParseQuery)"), so fk-domains' 41 obligations
+// never ran at check time; the Ergo body needs eval's bs.Grow native, and
+// this test kills evgrow-unmapped (testdata/mutants.json). The order and
+// escape rules are the std ledger's np4f15 rows, against Go's.
 func TestQueryParsesAtCheckTime(t *testing.T) {
 	pkg := checked(t, `import http
 

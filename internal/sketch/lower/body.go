@@ -249,6 +249,9 @@ type funcCtx struct {
 	path []*growthAcct
 	// bounds are the facts in force at the code being written (bounds.go).
 	bounds []*boundFact
+	// factLocal reports a local of the IR builder's body (ir_bounds.go),
+	// which stable takes as it takes the emitter's locals; nil outside one.
+	factLocal func(*check.Var) bool
 }
 
 func newFuncCtx(l *lowerer, scope *namer, directives bool) *funcCtx {

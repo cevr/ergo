@@ -62,11 +62,19 @@ func (t benchTime) Format(layout benchLayout) string {
 	return TimeFormat(t.sec, t.nsec, benchLayoutText(layout))
 }
 
+// Sub is Go's Time.Sub, as std time's Sub (Ergo since NP4f-17) computes it.
 func (t benchTime) Sub(u benchTime) time.Duration {
 	if t.hasMono && u.hasMono {
-		return TimeSubMono(t.mono, u.mono)
+		d := time.Duration(t.mono - u.mono)
+		switch {
+		case d < 0 && t.mono > u.mono:
+			return time.Duration(1<<63 - 1)
+		case d > 0 && t.mono < u.mono:
+			return time.Duration(-1 << 63)
+		}
+		return d
 	}
-	return TimeSub(t.sec, t.nsec, u.sec, u.nsec)
+	return time.Unix(t.sec, t.nsec).Sub(time.Unix(u.sec, u.nsec))
 }
 
 var benchSink any

@@ -233,7 +233,7 @@ func (b *irBuilder) machineCall(f *check.Func, env int, args []*irExpr, p irPos,
 	case len(witnessParams(f.Sig)) > 0:
 		irNo("call that passes witnesses")
 	}
-	if !fd.pure {
+	if !fd.envFree {
 		at := 0
 		if fd.method != nil {
 			at = 1
@@ -268,7 +268,7 @@ func (b *irBuilder) machineSome(t check.Type, o int, p irPos, site syntax.Node, 
 		return &irStmt{K: "switch", Pos: p, End: p, X: b.tagOf(o, p), Cases: []*irCase{{Pos: p, Vals: []*irExpr{{K: "const", Pos: p, T: "uint8", V: strconv.Itoa(k)}}, Body: body}}}
 	}
 	body := append([]*irStmt{{K: "def", Pos: p, Local: w, X: &irExpr{K: "assert", Pos: p, T: gs, X: &irExpr{K: "local", Pos: p, I: o}}}}, then(w)...)
-	return &irStmt{K: "tswitch", Pos: p, End: p, X: &irExpr{K: "local", Pos: p, I: o}, Cases: []*irCase{{Pos: p, Types: []string{gs}, Body: body}}}
+	return &irStmt{K: "tswitch", Pos: p, End: p, ElsePos: p, X: &irExpr{K: "local", Pos: p, I: o}, Cases: []*irCase{{Pos: p, Types: []string{gs}, Body: body}}}
 }
 
 // recordField is the field name of the record value x of the named type

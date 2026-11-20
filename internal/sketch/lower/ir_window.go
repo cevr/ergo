@@ -180,7 +180,7 @@ func (b *irBuilder) window(stmts []*irStmt, win []irWindowCall) ([]*irStmt, bool
 // window w writes: the same Go call kind, environment and receiver.
 func (b *irBuilder) windowShape(fn *check.Func, w irWindowCall) bool {
 	fd, wd := b.l.useFunc(fn, w.call), b.l.useFunc(w.fn, w.call)
-	if (fd.method != nil) != (wd.method != nil) || fd.pure != wd.pure || fn.Ptr != w.fn.Ptr {
+	if (fd.method != nil) != (wd.method != nil) || fd.envFree != wd.envFree || fn.Ptr != w.fn.Ptr {
 		return false
 	}
 	// An owned variant's call (ir_own.go ownedCallName) is the window's

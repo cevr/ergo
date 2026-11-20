@@ -335,6 +335,17 @@ func (b *irBuilder) startsOnFrame(c *check.Call) bool {
 	return ok && hasHidden(body.Hidden, v1.Frame)
 }
 
+// ergoBodyCall reports a call c of a function with an Ergo body
+// (tasks.NewSet, a user's function) whose result holds a running task:
+// the callee started it on its own frame and hands it back, as any owned
+// result (Returned), so the caller's frame registers it as an owned local
+// (listLet) with its Close, as the emitter's own does (PORT-CALLS). A
+// function value or an operation keeps its source body.
+func ergoBodyCall(c *check.Call) bool {
+	f := c.Func
+	return c.Kind == check.CallFunc && f != nil && !f.Pkg.Host() && f.Decl != nil && f.Decl.Extern == nil && f.Decl.Body != nil
+}
+
 // frameArg is the hidden frame argument of a std call (v1.Frame): the
 // address of the body's frame scope (openScope; the emitter's
 // frameScope). A call outside one keeps its source body.

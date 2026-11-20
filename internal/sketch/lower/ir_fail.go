@@ -236,6 +236,9 @@ func (b *irBuilder) failExpr(x syntax.Expr) ([]*irStmt, *irExpr) {
 
 // try is try call: its value, after a failure leaves the frame.
 func (b *irBuilder) try(call *syntax.CallExpr) ([]*irStmt, *irExpr) {
+	if pre, val, ok := b.unfoldAt(call); ok {
+		return pre, val // a fallible law's right side, which cannot fail (ir_unfold.go)
+	}
 	pre, v, e := b.bind(call)
 	p := b.pos(call, call.Pos())
 	pre = append(pre, b.propagate(e, p))
@@ -253,6 +256,19 @@ func (b *irBuilder) bind(call *syntax.CallExpr) (pre []*irStmt, v, e int) {
 	}
 	if pre, v, e, ok := b.hostBind(call); ok { // ir_golib.go: a fallible Go call
 		return pre, v, e
+	}
+	if upre, val, ok := b.unfoldAt(call); ok {
+		// A fallible law's right side, which cannot fail: its error is
+		// nil (ir_unfold.go).
+		p := b.pos(call, call.Pos())
+		e = b.temp("err", "error", p)
+		upre = append(upre, &irStmt{K: "var", Pos: p, Local: e})
+		v = -1
+		if t := b.l.info.Types[call]; t != nil && !isNoValue(t) {
+			v = b.temp("v", b.goType(t, call), p)
+			upre = append(upre, &irStmt{K: "def", Pos: p, Local: v, X: val})
+		}
+		return upre, v, e
 	}
 	pre, x := b.rawCall(call)
 	p := b.pos(call, call.Pos())
@@ -435,8 +451,15 @@ func (b *irBuilder) catch(x *syntax.CatchExpr, partial bool) ([]*irStmt, *irExpr
 	if patterned {
 		t := &treeIR{b: b, s: x, site: x, p: p}
 		t.body = func(i int) []*irStmt { return b.armBody(x.Arms[i], result, m.Result) }
+		// The tree's exit is a catch's default too: a full catch's names
+		// no failure (FAIL-ELIDE-PAT, ir_catch_defect.go).
 		t.exit = func(ep irPos) []*irStmt {
-			return []*irStmt{{K: k, Pos: ep, X: &irExpr{K: "local", Pos: ep, I: e}}}
+			n := b.st.report.CatchDefects
+			d := b.catchDefault(x, k, partial, e, ep)
+			if b.st.report.CatchDefects > n {
+				b.st.report.CatchTreeDefects++
+			}
+			return []*irStmt{d}
 		}
 		then = t.write([]treeHead{{e, &check.Union{Variants: m.Subjects}}}, alts, sw.End)
 		arms = nil
@@ -458,7 +481,10 @@ func (b *irBuilder) catch(x *syntax.CatchExpr, partial bool) ([]*irStmt, *irExpr
 	sw.Else = []*irStmt{b.catchDefault(x, k, partial, e, sw.ElsePos)} // ir_catch_defect.go
 	if plain {
 		then = b.armBody(x.Arms[0], result, m.Result)
-	} else if then == nil {
+	} else if !patterned {
+		// A patterned catch's tree is its whole then, empty for a catch
+		// whose one arm, `case _:`, does nothing: that swallows the
+		// failure, where sw, with no cases, panics with it.
 		then = []*irStmt{sw}
 	}
 	ifs := &irStmt{K: "if", Pos: p, End: sw.End, X: b.notNil(e, p), Then: then}

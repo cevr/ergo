@@ -22,7 +22,10 @@ store: it parses, checks, lowers, compiles, links and starts nothing
    command's resolved path, size and modification time, GOROOT, GOOS and
    GOARCH, GOFLAGS, tags, the reference path and the strip setting), the
    compiler's identity, and every `GO*`, `CGO_*` and `ERGO_*` variable but
-   `ERGO_STAGE_REPORT` and `ERGO_BUILD`. The output path is not part of it.
+   `ERGO_STAGE_REPORT` and `ERGO_BUILD`, and the Go experiments
+   `GOEXPERIMENT` turns on, from the environment or the go env file, since
+   they choose a module's Go body files (docs/spec/interop.md, Trusted Go
+   3). The output path is not part of it.
 2. **The manifest.** One file per request key in the Ergo cache
    (`Root/warm/KEY`) lists every input the request read: each file with the
    SHA-256 and size of its bytes (the `.ergo` files, `ergo.mod`, the

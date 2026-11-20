@@ -433,7 +433,7 @@ func (fc *funcCtx) rewriteWindow(list []syntax.Stmt) int {
 func (fc *funcCtx) rewriteCall(f *check.Func, recv string, args []string, site syntax.Node) string {
 	fd := fc.l.useFunc(f, site)
 	var lead []string
-	if !fd.pure {
+	if !fd.envFree {
 		lead = []string{fc.envExpr(site)}
 	}
 	if fd.method != nil {

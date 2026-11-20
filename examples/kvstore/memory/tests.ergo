@@ -3,7 +3,10 @@
 // whose laws ergo test skips (expected-skips), so the two stores keep one
 // contract.
 
+import io
 import kvstore/kv
+import pace
+import strings
 
 test TableGetAfterPut(key string, value string) {
 	with context { kv.Store: NewTable() } {
@@ -46,4 +49,20 @@ test ACopySharesTheEntries {
 	let copy = t
 	try copy.Put("a", "1")
 	assert try t.Get("a") == "1"
+}
+
+// SessionPacesEachRequest: a session marks one pacing edge for each line
+// it answers, whatever the line answers (one line, several, none or a
+// refusal), so the pacing main chooses skips no request and never splits
+// one.
+test SessionPacesEachRequest(lines []string) {
+	let mut input = ""
+	for line in lines {
+		input = input + strings.ReplaceAll(line, "\n", " ") + "\n"
+	}
+	let c = pace.NewCounting()
+	with context { kv.Store: NewTable(), io.Stdin: io.NewInput(input), io.Stdout: io.NewRecorder(), pace.Pacing: c } {
+		try kv.Session()
+	}
+	assert c.Edges() == int64(len(lines))
 }

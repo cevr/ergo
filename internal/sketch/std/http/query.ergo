@@ -1,5 +1,7 @@
 import hex
 import json
+import go net/url
+import slices
 import strconv
 import strings
 import sync
@@ -13,14 +15,144 @@ type QueryRepeated { Key string }
 // gives them in Request.Query: Go's url.ParseQuery, with "+" a space and
 // %XX an escape; the fields are in key order, and the values of one key
 // in the order they came. A pair with a malformed escape is dropped, as
-// Go's Request.URL.Query drops it.
-extern go ergo.local/prototype/runtime/v1/http.HTTPParseQuery func ParseQuery(raw string) []Field
+// Go's Request.URL.Query drops it, and so is a pair with a ";" in it. A
+// query of more pairs than Go allows (GODEBUG urlmaxqueryparams, 10000 by
+// default) has no fields.
+func ParseQuery(raw string) []Field {
+	if !queryWithinMax(strings.Count(raw, "&")) {
+		return []Field{}
+	}
+	let mut fields = []Field{}
+	let mut rest = raw
+	for rest != "" {
+		let mut part = rest
+		let amp = strings.IndexByte(rest, '&')
+		if amp >= 0 {
+			part = rest[:amp]
+			rest = rest[amp+1:]
+		} else {
+			rest = ""
+		}
+		if part == "" || strings.IndexByte(part, ';') >= 0 {
+			continue
+		}
+		let mut key = part
+		let mut value = ""
+		let eq = strings.IndexByte(part, '=')
+		if eq >= 0 {
+			key = part[:eq]
+			value = part[eq+1:]
+		}
+		let (k, keyOK) = queryUnescape(key)
+		let (v, valueOK) = queryUnescape(value)
+		if keyOK && valueOK {
+			fields = fields.Append(Field{Name: k, Value: v})
+		}
+	}
+	// Go's map gives each key's values in their order; its keys sorted.
+	slices.SortStableFunc(fields, func(a Field, b Field) int { strings.Compare(a.Name, b.Name) })
+}
+
+// queryWithinMax reports whether a query with amps "&" (amps + 1 pairs)
+// is within Go's limit on query pairs, as Go's url.ParseQuery reads it
+// from GODEBUG urlmaxqueryparams: Go's ParseQuery of amps "&" alone, whose
+// only failure is that limit (its pairs are empty, so skipped).
+func queryWithinMax(amps int) bool {
+	let _ = url.ParseQuery(strings.Repeat("&", amps)) catch {
+	case go.Error:
+		return false
+	}
+	true
+}
+
+// queryUnescape is s with "+" a space and each %XX its byte, as Go's
+// url.QueryUnescape; false when a "%" is not followed by two hex digits.
+func queryUnescape(s string) (string, bool) {
+	let mut escapes = 0
+	let mut plus = false
+	let mut i = 0
+	for i < len(s) {
+		let c = s[i]
+		if c == '%' {
+			if i+2 >= len(s) || !isHex(s[i+1]) || !isHex(s[i+2]) {
+				return ("", false)
+			}
+			escapes = escapes + 1
+			i = i + 3
+		} else {
+			if c == '+' {
+				plus = true
+			}
+			i = i + 1
+		}
+	}
+	if escapes == 0 && !plus {
+		return (s, true)
+	}
+	let mut b = []byte{}.Grow(len(s) - 2*escapes)
+	let mut j = 0
+	for j < len(s) {
+		let c = s[j]
+		if c == '%' {
+			b = b.Append(unhex(s[j+1])<<4 | unhex(s[j+2]))
+			j = j + 3
+		} else if c == '+' {
+			b = b.Append(' ')
+			j = j + 1
+		} else {
+			b = b.Append(c)
+			j = j + 1
+		}
+	}
+	(b.Text(), true)
+}
+
+func isHex(c byte) bool { c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F' }
+
+func unhex(c byte) byte {
+	if c <= '9' {
+		return c - '0'
+	}
+	if c <= 'F' {
+		return c - 'A' + 10
+	}
+	c - 'a' + 10
+}
 
 // EncodeQuery is the raw query of fields ("a=1&b=+x"), in their order,
 // each name and value escaped as Go's url.QueryEscape does: the query a
 // Client sends for a Request's Query, for a URLRequest's URL. ParseQuery
 // reads it back as the same fields, in key order.
-extern go ergo.local/prototype/runtime/v1/http.HTTPEncodeQuery func EncodeQuery(fields []Field) string
+func EncodeQuery(fields []Field) string {
+	let mut b = []byte{}
+	for i, f in fields {
+		if i > 0 {
+			b = b.Append('&')
+		}
+		b = queryAppend(b, f.Name)
+		b = b.Append('=')
+		b = queryAppend(b, f.Value)
+	}
+	b.Text()
+}
+
+// queryAppend is b with s escaped as Go's url.QueryEscape: the unreserved
+// bytes (RFC 3986: letters, digits, "-", "_", ".", "~") as they are, a
+// space as "+", and every other byte as "%XX" in upper case.
+func queryAppend(b []byte, s string) []byte {
+	let mut out = b
+	for i in 0..len(s) {
+		let c = s[i]
+		if c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '_' || c == '.' || c == '~' {
+			out = out.Append(c)
+		} else if c == ' ' {
+			out = out.Append('+')
+		} else {
+			out = out.Append('%').Append("0123456789ABCDEF"[int(c>>4)]).Append("0123456789ABCDEF"[int(c&15)])
+		}
+	}
+	out
+}
 
 // DecodeQuery reads a T from query fields through the derived codec
 // (types.md, Codecs), as json.Decode reads one from a text, so a query

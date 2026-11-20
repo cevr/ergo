@@ -218,21 +218,27 @@ func record[E](f *Frame[E], g groupRec[E]) int {
 	r
 }
 
+// groupCount is how many group identities of s this pass took, which it
+// then moves by d (count, frame.ergo).
+func groupCount[E](f *Frame[E], s slotOf, d int) int {
+	let k = slotKey(s)
+	if k >= 0 {
+		let n = thisPass(f.groupSeen.Get(k), f.pass)
+		f.groupSeen[k] = tally{pass: f.pass, n: n + d}
+		return n
+	}
+	let n = thisPass(f.groupWide.Get(s), f.pass)
+	f.groupWide[s] = tally{pass: f.pass, n: n + d}
+	n
+}
+
 // groupIdent is the identity of a group under the current parent, counted
 // apart from the nodes' (identify): a node keeps the identity it has when
 // the call is no group, so cells and matching see the same nodes under
 // either lowering.
 func groupIdent[E](f *Frame[E], at CallSite) ident {
 	let s = slotOf{parent: f.parent, b: base{site: at, each: f.each, key: f.key}}
-	let mut n = 0
-	match f.groupSeen.Get(s) {
-	case Some[tally] as t:
-		if t.Value.pass == f.pass {
-			n = t.Value.n
-		}
-	case None:
-	}
-	f.groupSeen[s] = tally{pass: f.pass, n: n + 1}
+	let n = groupCount(f, s, 1)
 	ident{site: at, each: f.each, key: f.key, n: n}
 }
 
@@ -337,8 +343,7 @@ func takePending[E](f *Frame[E], p int) {
 			let e = f.pending[b].entry
 			for k in 0..len(f.keptList[e].tops) {
 				let id = f.keptList[e].tops[k].id
-				let s = slotOf{parent: p, b: base{site: id.site, each: id.each, key: id.key}}
-				f.seen[s] = tally{pass: f.pass, n: seenOf(f, s) + 1}
+				count(f, slotOf{parent: p, b: base{site: id.site, each: id.each, key: id.key}}, 1)
 			}
 			f.pending[b].done = true
 		}
@@ -360,8 +365,7 @@ func giveBack[E](f *Frame[E], start int) {
 			let e = g.entry
 			for k in 0..len(f.keptList[e].tops) {
 				let id = f.keptList[e].tops[k].id
-				let s = slotOf{parent: g.parent, b: base{site: id.site, each: id.each, key: id.key}}
-				f.seen[s] = tally{pass: f.pass, n: seenOf(f, s) - 1}
+				count(f, slotOf{parent: g.parent, b: base{site: id.site, each: id.each, key: id.key}}, -1)
 			}
 		}
 	}
@@ -371,8 +375,7 @@ func giveBack[E](f *Frame[E], start int) {
 func unsee[E](f *Frame[E], n int) {
 	for _ in 0..n {
 		f.nseen = f.nseen - 1
-		let s = f.seenLog[f.nseen]
-		f.seen[s] = tally{pass: f.pass, n: seenOf(f, s) - 1}
+		count(f, f.seenLog[f.nseen], -1)
 	}
 }
 
