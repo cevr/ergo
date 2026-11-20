@@ -24,6 +24,7 @@ var (
 	_ = declarePrograms("TestStdBuildLawsRun", testBuildProgram("stdbuild", stdBuildLawsProbe))
 	_ = declarePrograms("TestJSONFieldsAgree", testBuildProgram("jsonfields", jsonFieldsProbe))
 	_ = declarePrograms("TestJSONValueAgrees", testBuildProgram("jsonvalue", jsonValueProbe))
+	_ = declarePrograms("TestJSONRawAgrees", testBuildProgram("jsonrawlaws", jsonRawLawProbe))
 	_ = declarePrograms("TestJSONStreamAgrees", testBuildProgram("jsonstream", jsonStreamProbe))
 	_ = declarePrograms("TestQueuePollLaws", testBuildProgram("queuepolllaws", queuePollLawsProbe))
 	_ = declarePrograms("TestStdRandLawsRun", testBuildProgram("stdrand", stdRandLawsProbe))

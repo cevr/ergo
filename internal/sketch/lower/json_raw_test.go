@@ -4,9 +4,6 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
-	"os/exec"
-	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -102,8 +99,9 @@ func rawWant(v string) string {
 // is, with the characters a Text escapes in a string escaped; the
 // lowered Go and the evaluator give the same, and both give what the Go
 // model rawWant gives. Seeded texts (ERGO_JSON_RAW_SEED replays one).
-// It also runs std json's Raw laws under ergo test (fed as a module's
-// laws run: RawReadsOneValue, RawRoundTrips, RawIsValue). Mutants:
+// It also runs std json's Raw laws (RawReadsOneValue, RawRoundTrips,
+// RawIsValue), restated over json's public names by the jsonrawlaws
+// probe. Mutants:
 // raw-skiptext-space (runtime SkipText keeps the white space before the
 // value), raw-eval-span (the evaluator's span), raw-escape-dropped
 // (WireWrite writes U+2028 as it is).
@@ -197,28 +195,52 @@ func TestJSONRawAgrees(t *testing.T) {
 	if !ran {
 		t.Errorf("seed %d: eval ran no EvalReadsRawAsGo\n%s", seed, replay)
 	}
-	// std json's Raw laws run as a module's laws run.
-	dir, err := filepath.Abs(filepath.Join(moduleRoot, "internal", "sketch", "std", "json"))
-	if err != nil {
-		t.Fatal(err)
+	// std json's Raw laws, restated over json's public names by the probe
+	// (ergo test cannot reach a std folder: scripts/ergotests, std_test.go).
+	lawOut, lawErr, lawCode := runExeArgs(t, tableExe(t, "jsonrawlaws"), "--seed", "1")
+	if lawCode != 0 {
+		t.Errorf("json Raw law probe: exit %d\n%s\n%s", lawCode, lawOut, firstLines(lawErr, 20))
 	}
-	cmd := exec.Command(ergoCLI(t), "test", "--run", "Raw", dir)
-	cmd.Dir = t.TempDir()
-	lawOut, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Errorf("ergo test --run Raw std json: %v\n%s", err, lawOut)
-	}
-	laws := map[string]lawledger.Law{}
-	for key, statement := range jsonRawLawStatements {
+	lawledger.Run(t, lawsPassed(t, jsonRawLawStatements, func(key string) string {
 		_, law, _ := strings.Cut(key, " ")
-		laws[key] = lawledger.Law{Statement: statement, Check: func(t *testing.T) {
-			if !regexp.MustCompile(`(?m)^ok law (json\.)?` + law + `\b`).Match(lawOut) {
-				t.Errorf("ergo test std json: law %s did not pass:\n%s", law, lawOut)
-			}
-		}}
-	}
-	lawledger.Run(t, laws)
+		return "Json" + law
+	}, jsonRawLawProbe, lawOut))
 }
+
+// jsonRawLawProbe restates std json's Raw laws over its public names
+// (String for the private text), on the documents of jsonDocSource.
+const jsonRawLawProbe = `import json
+import strconv
+import strings
+` + jsonDocSource + `
+func spaces(sp int) string {
+	let k = ((sp % 4) + 4) % 4
+	if k == 0 { "" } else if k == 1 { " " } else if k == 2 { "\n\t" } else { " \r\n " }
+}
+
+type rawHeld { ID json.Raw, N int }
+
+test JsonRawReadsOneValue(d doc, sp int) {
+	let v = json.RawOf(spell(d, spaces(sp))) catch { case _: assert false; return }
+	let (a, y, b) = json.Decode(c[(int, json.Raw, int)](), "[7," + v.String() + ",7]") catch { case _: assert false; return }
+	assert a == 7 && y == v && b == 7
+}
+
+test JsonRawRoundTrips(d doc, sp int) {
+	let text = "{\"ID\":" + spell(d, spaces(sp)) + ",\"N\":1}"
+	let h = json.Decode(c[rawHeld](), text) catch { case _: assert false; return }
+	assert json.Encode(c[rawHeld](), h) == text
+}
+
+test JsonRawIsValue(d doc, sp int) {
+	let text = spell(d, spaces(sp))
+	let x = json.Decode(c[json.Raw](), text) catch { case _: assert false; return }
+	let v = json.Decode(c[json.Value](), text) catch { case _: assert false; return }
+	assert json.Encode(c[json.Value](), x.Wire()) == json.Encode(c[json.Value](), v)
+	assert x.String() == strings.TrimSpace(text)
+	assert json.ParseRaw(v).String() == spell(d, "")
+}
+`
 
 // jsonRawLawStatements is each Raw law's ledger statement.
 var jsonRawLawStatements = map[string]string{
