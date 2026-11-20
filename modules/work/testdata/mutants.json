@@ -1749,7 +1749,7 @@
       "name": "wl-driver-plays-a-stated-status", "origin": "wf10/semws WORK-LAWS",
       "file": "modules/work/memory/candidate.ergo",
       "from": "func Run(d Driver, c exec.Command) exec.Result fails exec.NotFound | exec.Denied | exec.Failed {\n\tif StatesItsStatus(c) {\n",
-      "to": "func Run(d Driver, c exec.Command) exec.Result fails exec.NotFound | exec.Denied | exec.Failed {\n\tif false && StatesItsStatus(c) {\n",
+      "to": "func Run(d Driver, c exec.Command) exec.Result fails exec.NotFound | exec.Denied | exec.Failed {\n\tif StatesItsStatus(c) && c.Name == \"\" {\n",
       "rule": "memory's Driver never answers a status a script did not state: a script ending in its own exit is NotFound (memory's law exec.Runner.ShellRunsAsWritten for Driver).",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     }
