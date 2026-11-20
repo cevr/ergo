@@ -296,6 +296,8 @@ func (fc *funcCtx) convert(conv check.Conversion, val string, site syntax.Node) 
 		return val + ".(" + fc.goType(conv.To) + ")"
 	case check.ConvNarrow:
 		return fc.narrowFunc(conv, val, site)
+	case check.ConvWiden:
+		return fc.widen(conv, val, site)
 	case check.ConvMachine:
 		// A machine's value is a Machine of its plan's initial value and
 		// its step function (README Gap 46; machine.go). The plan value has
@@ -314,6 +316,13 @@ func (fc *funcCtx) convert(conv check.Conversion, val string, site syntax.Node) 
 	}
 	ice(site, "an unknown implicit conversion")
 	return ""
+}
+
+// widen is val, a value of the declared union conv.From, as one of
+// conv.To, which holds each of its variants (ConvWiden; types.md,
+// Assignability 4; subunion.go).
+func (fc *funcCtx) widen(conv check.Conversion, val string, site syntax.Node) string {
+	return fc.unionInto(conv.From, conv.To, val, site)
 }
 
 // narrowFunc is val, a function value of conv.From, as one of conv.To

@@ -157,6 +157,16 @@ func (b *irBuilder) convert(conv check.Conversion, e *irExpr, x syntax.Expr) *ir
 		return &irExpr{K: "assert", Pos: e.Pos, T: b.goType(conv.To, x), X: e}
 	case check.ConvOperations:
 		return b.opsConv(conv, e, x) // ir_with.go
+	case check.ConvWiden:
+		// A sub-union's value into a union that holds its variants (the
+		// emitter's widen): an assertion between two sealed interfaces.
+		if b.l.flatUnionOf(conv.From) != nil || b.l.flatUnionOf(conv.To) != nil {
+			irNo("sub-union into a flat union")
+		}
+		if b.goType(conv.From, x) == b.goType(conv.To, x) {
+			return e
+		}
+		return &irExpr{K: "assert", Pos: e.Pos, T: b.goType(conv.To, x), X: e}
 	}
 	irNo("implicit conversion")
 	return nil
