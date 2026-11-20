@@ -214,7 +214,7 @@ func TestBuildableSealed(t *testing.T) {
 		{"no-implementer", "type R { inner() int }\n", false},
 		{"implementer-with-authority", "type R { inner() int }\ntype A { root string }\nfunc inner(_ A) int { 1 }\n", false},
 		{"open-implementer", "type R { inner() int }\ntype A { N int }\nfunc inner(_ A) int { 1 }\n", true},
-		{"borrow-implementer", "type R { inner() int }\ntype A {}\nfunc inner(_ *A) int { 1 }\n", true},
+		{"borrow-implementer", "type R { inner() int }\ntype A {}\nfunc inner(_ mut A) int { 1 }\n", true},
 		{"one-of-two-open", "type R { inner() int, Outer() int }\ntype A { root string }\ntype B { N int }\nfunc inner(_ A) int { 1 }\nfunc Outer(_ A) int { 2 }\nfunc inner(_ B) int { 1 }\nfunc Outer(_ B) int { 2 }\n", true},
 		{"open-type-lacks-an-operation", "type R { inner() int, Outer() int }\ntype A { root string }\ntype B { N int }\nfunc inner(_ A) int { 1 }\nfunc Outer(_ A) int { 2 }\nfunc inner(_ B) int { 1 }\n", false},
 		{"generic-implementer", "type R { inner() int }\ntype G[T] { X T }\nfunc inner[T](_ G[T]) int { 1 }\n", true},
@@ -236,7 +236,7 @@ func TestBuildableSealed(t *testing.T) {
 // TestBuildableBorrow: a borrow *T (a parameter type) is built when T is.
 func TestBuildableBorrow(t *testing.T) {
 	for typ, want := range map[string]bool{"lib.Auth": false, "lib.Open": true, "[]lib.Auth": true} {
-		pkg, ds := buildableIn(t, "", "func probe(_ *"+typ+") {}\n")
+		pkg, ds := buildableIn(t, "", "func probe(_ mut "+typ+") {}\n")
 		if len(ds) != 0 {
 			t.Fatalf("%s: %v", typ, ds)
 		}

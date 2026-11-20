@@ -67,7 +67,7 @@ type Stack { words []int, top int }
 
 func zerosN(n int) []int { slices.Repeat([]int{0}, n) }
 
-func pushOn(s *Stack, w int) {
+func pushOn(s mut Stack, w int) {
 	if s.top >= len(s.words) {
 		s.words = slices.Concat(s.words, zerosN(len(s.words) + 1))
 	}
@@ -75,7 +75,7 @@ func pushOn(s *Stack, w int) {
 	s.top = s.top + 1
 }
 
-func sdigest(s *Stack) int {
+func sdigest(s mut Stack) int {
 	let mut d = s.top
 	for i in 0..s.top {
 		d = (d * 31 + s.words[i]) % 1000003
@@ -87,21 +87,21 @@ type Box[T] { items []T, n int }
 
 type Missing { At int }
 
-func at[T](b *Box[T], i int) T fails Missing {
+func at[T](b mut Box[T], i int) T fails Missing {
 	if i < 0 || i >= len(b.items) {
 		return Missing{At: i}
 	}
 	b.items[i]
 }
 
-func update[T](b *Box[T], i int, f func(v *T)) fails Missing {
+func update[T](b mut Box[T], i int, f func(v mut T)) fails Missing {
 	if i < 0 || i >= len(b.items) {
 		return Missing{At: i}
 	}
 	f(&b.items[i])
 }
 
-func pick(b *Box[int], i int) int {
+func pick(b mut Box[int], i int) int {
 	at(b, i) catch {
 	case Missing:
 		-1
@@ -113,11 +113,11 @@ func pick(b *Box[int], i int) int {
 // failure label only when it failed; bumpVia's other failing return keeps
 // that label); bumpSlow has a loop, so it stays a call. safeAt declares a failure it never returns (its site has no
 // failure label to place).
-func atVia(b *Box[int], i int) int fails Missing {
+func atVia(b mut Box[int], i int) int fails Missing {
 	at(b, i)
 }
 
-func bumpSlow(b *Box[int], i int) fails Missing {
+func bumpSlow(b mut Box[int], i int) fails Missing {
 	for x in b.items {
 		if x == -12345 {
 			return Missing{At: x}
@@ -129,30 +129,30 @@ func bumpSlow(b *Box[int], i int) fails Missing {
 	b.items[i] = b.items[i] + 1
 }
 
-func bumpVia(b *Box[int], i int) fails Missing {
+func bumpVia(b mut Box[int], i int) fails Missing {
 	if i == -77 {
 		return Missing{At: i}
 	}
 	bumpSlow(b, i)
 }
 
-func safeAt(b *Box[int], i int) int fails Missing {
+func safeAt(b mut Box[int], i int) int fails Missing {
 	clampAt(b, i)
 }
 
-func bump(b *Box[int], i int, d int) {
-	update(b, i, func(v *int) { *v = *v * 3 % 1009 + d }) catch {
+func bump(b mut Box[int], i int, d int) {
+	update(b, i, func(v mut int) { *v = *v * 3 % 1009 + d }) catch {
 	case Missing:
 		b.n = b.n + 1
 	}
 }
 
-func twice(b *Box[int], i int) int {
+func twice(b mut Box[int], i int) int {
 	let x = pick(b, i)
 	x + pick(b, i + 1)
 }
 
-func clampAt(b *Box[int], i int) int {
+func clampAt(b mut Box[int], i int) int {
 	if i < 0 {
 		return 0
 	}
@@ -162,7 +162,7 @@ func clampAt(b *Box[int], i int) int {
 	b.items[i]
 }
 
-func clampOr[T](b *Box[T], i int, d T) T {
+func clampOr[T](b mut Box[T], i int, d T) T {
 	if i < 0 {
 		return d
 	}
@@ -185,7 +185,7 @@ func sumOf[T](b Box[T], w func(x T) int) int {
 	w(b.items[0]) + b.n
 }
 
-func total(b *Box[int]) int {
+func total(b mut Box[int]) int {
 	let mut s = 0
 	for x in b.items {
 		s = s + x
@@ -193,31 +193,31 @@ func total(b *Box[int]) int {
 	s
 }
 
-func mustAt(b *Box[int], i int) int {
+func mustAt(b mut Box[int], i int) int {
 	at(b, i) catch {
 	case Missing:
 		Unreachable("no item \(i)")
 	}
 }
 
-func raw[T](b *Box[T], i int) T { b.items[i] }
+func raw[T](b mut Box[T], i int) T { b.items[i] }
 
-func deep(b *Box[int], i int, unreachable bool) int {
+func deep(b mut Box[int], i int, unreachable bool) int {
 	if unreachable {
 		return mustAt(b, i) + 1
 	}
 	raw(b, i) + 1
 }
 
-func poke(b *Box[int], i int, k int) {
-	update(b, i, func(v *int) {
+func poke(b mut Box[int], i int, k int) {
+	update(b, i, func(v mut int) {
 		*v = 100 / k
 	}) catch {
 	case Missing:
 	}
 }
 
-func swapIn[T](b *Box[T], i int, v T) T {
+func swapIn[T](b mut Box[T], i int, v T) T {
 	let old = b.items[i]
 	b.items[i] = v
 	old
@@ -225,7 +225,7 @@ func swapIn[T](b *Box[T], i int, v T) T {
 
 func diff[T number](x T, y T) T { x - y }
 
-func keep[T](v T, p *T, w T) T {
+func keep[T](v T, p mut T, w T) T {
 	*p = w
 	v
 }
@@ -251,7 +251,7 @@ func weigh[T](t Ptok, d T) int {
 	}
 }
 
-func probeAt[T](p Probe, b *Box[T]) int {
+func probeAt[T](p Probe, b mut Box[T]) int {
 	match p {
 	case Hit as h:
 		h.At + b.n
@@ -260,13 +260,13 @@ func probeAt[T](p Probe, b *Box[T]) int {
 	}
 }
 
-func guarded(b *Box[int]) {
+func guarded(b mut Box[int]) {
 	scope.OnExit() {
 		let _ = deep(b, 9, false)
 	}
 }
 
-func digest(b *Box[int]) int {
+func digest(b mut Box[int]) int {
 	let mut d = b.n
 	for x in b.items {
 		d = (d * 31 + x) % 1000003
@@ -302,7 +302,7 @@ func viaTriple(x int) int {
 
 func crash(x int) int { 100 / (x - x) }
 
-func apply(b *Box[int], i int, f func(x int) int) int {
+func apply(b mut Box[int], i int, f func(x int) int) int {
 	if i < 0 || i >= len(b.items) {
 		return -1
 	}

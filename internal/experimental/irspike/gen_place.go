@@ -33,21 +33,21 @@ type Inner { n int, xs []int }
 
 type Rec { a int, inr Inner, items []Inner }
 
-func grow(i *Inner, k int) {
+func grow(i mut Inner, k int) {
 	i.n = i.n + k
 	i.xs[0] = i.xs[0] * 2 + k
 }
 
-func reset(i *Inner, k int) {
+func reset(i mut Inner, k int) {
 	*i = Inner{n: k + i.n % 7, xs: []int{i.xs[2], i.xs[0], k}}
 }
 
-func bump(r *Rec, k int) {
+func bump(r mut Rec, k int) {
 	r.a = r.a * 3 + k
 	r.items[1].xs[2] += r.inr.n
 }
 
-func digest(r *Rec) int {
+func digest(r mut Rec) int {
 	let mut d = r.a
 	d = d * 31 + r.inr.n
 	for x in r.inr.xs {
@@ -68,7 +68,7 @@ func mk(k int) Rec {
 
 // moved stores through p, a let mut, a value whose statements move p:
 // the store goes to the record p held before them (r).
-func moved(r *Rec, k int) int {
+func moved(r mut Rec, k int) int {
 	let mut other = mk(k + 7)
 	let mut p = r
 	p.a = if k > 1 {
@@ -81,7 +81,7 @@ func moved(r *Rec, k int) int {
 }
 
 // movedAll is moved's store to *q itself.
-func movedAll(r *Rec, k int) int {
+func movedAll(r mut Rec, k int) int {
 	let mut other = mk(k + 7)
 	let mut q = r
 	*q = if k > 2 {

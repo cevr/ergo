@@ -1,0 +1,13 @@
+// MODES-5's accept probe tparam-own (EXM2): a type parameter marked own
+// admits a resource and plain data. It checks clean.
+type Res { n int } implements Closer
+
+func Close(r own Res) {}
+
+func pass[T own](x own T) T { x }
+
+func main() needs Console {
+	let r = pass(Res{n: 1})
+	let n = pass(2)
+	Console.Println("\(r.n + n)")
+}
