@@ -826,6 +826,33 @@ func (c *checker) reportUnfedProviders() {
 			return slices.ContainsFunc(b, func(p LawProvider) bool { return p.Type != nil && drop[[2]any{r.Law, p.Type.Obj}] })
 		})
 	}
+	c.prepareUnprovided()
+}
+
+// prepareUnprovided prepares, for each member law this package declares
+// that no run of it holds, the error its module reports when no package
+// of the module provides the law's operation type either (ReportUnfed):
+// a law no case runs is an unfed law, not a printed line. A law of a
+// generic operation type is not run yet (Laws 10), so it has none; a
+// package of no module keeps the line, "runs where T has a provider".
+func (c *checker) prepareUnprovided() {
+	module := c.unfedModule()
+	if module == "" {
+		return
+	}
+	saved := c.cur
+	defer func() { c.cur = saved }()
+	for _, law := range c.pkg.Laws {
+		if law.Owner == nil || law.Unrun != "" || law.file == nil || law.Decl == nil || len(law.Slots) != 1 || law.Slots[0].Param >= 0 || len(law.Slots[0].Type.TParams) > 0 {
+			continue
+		}
+		c.cur = law.file
+		u := unfedBinding{law: law}
+		u.diag = c.prepared(func() {
+			c.errorf(law.Decl.Name, CodeType, "law %s cannot run: no package of module %s provides %s, so no case runs it; implement it in a package of the module, or bind a provider in a named context (types.md, Laws 10)", law.Title(c.pkg), module, law.Owner.Name)
+		})
+		c.pkg.unprovided = append(c.pkg.unprovided, u)
+	}
 }
 
 // implementsEntry is the entry of n's implements clause that names slot's

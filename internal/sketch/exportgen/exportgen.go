@@ -113,8 +113,9 @@ var skipFields = map[string]string{
 	// std's is made when its packages are checked, before a snapshot of
 	// them is written (check.StdSnapshotNow), so a decoded package needs
 	// neither.
-	"check.Package.unfed": "judged before the snapshot is written (check.ReportUnfed)",
-	"check.Package.fed":   "judged before the snapshot is written (check.ReportUnfed)",
+	"check.Package.unfed":      "judged before the snapshot is written (check.ReportUnfed)",
+	"check.Package.fed":        "judged before the snapshot is written (check.ReportUnfed)",
+	"check.Package.unprovided": "judged before the snapshot is written (check.ReportUnfed)",
 }
 
 // Generate returns the generated sources, by their path from root (the
