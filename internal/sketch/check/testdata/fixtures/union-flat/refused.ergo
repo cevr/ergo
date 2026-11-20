@@ -4,8 +4,8 @@
 type Maybe = Option[int] | Nothing{} // want S108 "a union's variants are records of its package; wrap Option[int]"
 
 // A union that lists itself, through another, has no variants.
-type Loop1 = Loop2 | L1{}
-type Loop2 = Loop1 | L2{} // want S108 "a union that lists itself"
+type Loop1 = Loop2 | L1{} // want S108 "Loop1 lists Loop2, which lists Loop1 again"
+type Loop2 = Loop1 | L2{} // want S108 "Loop2 lists Loop1, which lists Loop2 again"
 
 type A = A1{} | A2{}
 type AB = A | B1{}

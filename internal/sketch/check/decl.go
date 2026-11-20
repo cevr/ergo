@@ -1247,22 +1247,60 @@ func (c *checker) unionType(n *Named, spec *syntax.InterfaceType, ctx *typeCtx) 
 // lists at x: ok when vn is declared as a union of two or more entries
 // (one entry is an alias, which resolves to its target), and nil when it
 // has no variants to give: refused at its own declaration, or a listing
-// cycle, reported here (S108, as an alias cycle is).
+// cycle (S108). A cycle is found from the declarations' text
+// (unionReaches), so each union on it is refused at the entry that leads
+// back to it, in any declaration order.
 func (c *checker) listedUnion(n, vn *Named, x syntax.Expr) (*Union, bool) {
 	o := vn.origin()
-	decl := o.Obj.Decl
-	if decl == nil {
+	if !listsUnions(o.Obj.Decl) {
 		return nil, false
 	}
-	if it, isUnion := decl.Spec.(*syntax.InterfaceType); !isUnion || len(it.Union) == 0 || aliasTarget(decl) != nil {
-		return nil, false
+	if c.unionReaches(o.Obj, n.Obj, map[*TypeName]bool{}) {
+		c.errorf(x, CodeType, "%s lists %s, which lists %s again: a union that lists itself has no variants (types.md, Unions 1)", n.Obj.Name, o.Obj.Name, n.Obj.Name)
+		return nil, true
 	}
 	if o.state == 1 {
-		c.errorf(x, CodeType, "%s lists %s, which lists %s: a union that lists itself has no variants (types.md, Unions 1)", n.Obj.Name, o.Obj.Name, n.Obj.Name)
-		return nil, true
+		return nil, true // a cycle that unionReaches reports where it closes
 	}
 	c.resolveNamed(o)
 	return asUnion(vn), true
+}
+
+// listsUnions reports a union declaration of two or more entries: one
+// that may list a union (an alias, one existing type, resolves to it).
+func listsUnions(d *syntax.TypeDecl) bool {
+	if d == nil {
+		return false
+	}
+	it, isUnion := d.Spec.(*syntax.InterfaceType)
+	return isUnion && len(it.Union) > 0 && aliasTarget(d) == nil
+}
+
+// unionReaches reports whether the union declaration from lists target,
+// itself or through other unions of this package, read from the entries'
+// names, not from resolved types.
+func (c *checker) unionReaches(from, target *TypeName, seen map[*TypeName]bool) bool {
+	if from == target {
+		return true
+	}
+	if seen[from] || !listsUnions(from.Decl) {
+		return false
+	}
+	seen[from] = true
+	for _, x := range from.Decl.Spec.(*syntax.InterfaceType).Union {
+		if ix, ok := x.(*syntax.IndexExpr); ok {
+			x = ix.X
+		}
+		id, ok := x.(*syntax.Ident)
+		if !ok {
+			continue
+		}
+		o, _ := c.pkg.Scope.lookup(id.Name)
+		if tn, ok := o.(*TypeName); ok && tn.Pkg == c.pkg && c.unionReaches(tn, target, seen) {
+			return true
+		}
+	}
+	return false
 }
 
 // ---------------------------------------------------------------- type expressions
