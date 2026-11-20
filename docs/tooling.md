@@ -595,23 +595,31 @@ The `ergo` binary carries the checked prelude and std as a snapshot (`internal/s
 
 ## ergo budget
 
-`ergo budget [--config FILE] [--width N] [--class crit|lane] [--lane NAME] -- COMMAND [ARGS...]` (`cmd/ergo/budget.go`, `internal/budget`, unit WS4a) runs COMMAND once the host's budget has `--width` cores free for it, and gives the cores back when COMMAND ends. Every `ergo budget` on the host shares one budget, so ten workspaces cannot each take every core. Its design is the model `models/gatebudget`, checked by `ergo test ./models/gatebudget`.
+`ergo budget [--config FILE] [--width N] [--memory SIZE] [--class crit|lane] [--lane NAME] -- COMMAND [ARGS...]` (`cmd/ergo/budget.go`, `internal/budget`, units WS4a and WS4c) runs COMMAND once the host's budget has `--width` cores and its memory free for it, and gives them back when COMMAND ends. Every `ergo budget` on the host shares one budget, so ten workspaces cannot each take every core or all the memory. Its design is the model `models/gatebudget`, checked by `ergo test ./models/gatebudget`.
 
 - **The budget file.** The host's owner writes it, because the host may be shared. It is named by `--config` or `$ERGO_BUDGET`, with one `key value` per line:
-  - `cores N`, the budget, required;
-  - `share N`, the lane class's share of the budget;
-  - `gate-load N`, the interim load gate;
+  - `cores N`, the budget in cores, required;
+  - `memory SIZE` (`40G`, `512M` or bytes), the budget in memory; without it, memory is not counted;
+  - `default-memory SIZE`, the reservation of a command never measured, by default 8G;
+  - `share N`, the lane class's share of the cores;
   - `state DIR`, the folder of the budget's state, by default `FILE.state`;
   - `log FILE`, which gets a `queue`, `take` and `end` line per command.
-- **Cores, not runs.** A take names its width, and the widths held never sum past `cores`. A wide take (a heavy run) waits in the same queue as a narrow one.
+  - Every decision reads the file again, and an edit wakes the waiters (Linux's inotify), so an edit takes effect at once. The old `gate-load` key is refused: memory admission replaced the load gate.
+- **Cores and memory, not runs.** A take names its width, and the widths held never sum past `cores`; it is charged a reservation, and the reservations held never sum past `memory`. A wide or large take (a heavy run) waits in the same queue as a narrow one.
+- **Reservations are learnt, and a kill is for a command that grew.** A command's reservation is `--memory`, else the largest memory peak its earlier runs reached and a quarter more (kept per command, with the working folder written as `.`), else `default-memory`; never more than `memory`. It is read when the command is admitted, not when it joins the queue, so a peak recorded or deleted while it waits counts.
+  - Where the user's systemd answers, COMMAND runs in a scope of its own inside the budget's slice, which is capped at `memory` (no swap): the budget's commands together never pass it. The scope's `memory.peak` is recorded as the command's peak.
+  - A command that asked (`--memory`) or has a recorded peak is also capped at its reservation: a run past it is killed alone (exit 137, or the code of the shell that ran the killed process; the scope's OOM kill count says it was the cap) and leaves twice its cap for its next run.
+  - A run that fails without an OOM kill records no peak: it may have stopped before its work's peak.
+  - A command never measured is charged `default-memory` but not capped at it: it runs to its end and its peak is recorded. Only the slice can kill it, when the budget's commands together would pass `memory`.
+  - Elsewhere the peak is the largest process's resident set, and nothing is capped.
 - **Order.** One queue, served in order with no backfill: a narrow newcomer never passes a wide older waiter.
   - The next waiter is the oldest lane waiter while the lane class holds less than its share, else the oldest crit waiter, else the oldest lane waiter.
-  - A release hands the cores on at once. Waiters sleep on the holders' locks, so a release and a crash wake them.
-- **Crashes.** Each waiter and holder owns a file under the state folder, flocked for its lifetime, so the kernel frees a dead runner's cores. The lock is never inherited by COMMAND.
-- **Children.** COMMAND runs with `GOMAXPROCS` set to the width and the grant lent in `$ERGO_BUDGET_GRANT`. An `ergo budget` inside it, of at most that width, runs in the grant and takes nothing, so a holder never waits on its own child.
+  - A release hands the cores on at once. Waiters sleep on the holders' locks, so a release and a crash wake them; there is no clock.
+- **Crashes.** Each waiter and holder owns a file under the state folder, flocked for its lifetime, so the kernel frees a dead runner's share. The lock is never inherited by COMMAND.
+- **Children.** COMMAND runs with `GOMAXPROCS` set to the width and the grant lent in `$ERGO_BUDGET_GRANT`. An `ergo budget` inside it runs in the grant (at most its width, in its memory) and takes nothing, so a holder never waits on its own child.
   - COMMAND runs in its own process group, which is killed when COMMAND ends.
   - On Linux, COMMAND also dies with `ergo budget`.
-- **The interim load gate.** With `gate-load N`, the lane class takes nothing while the 1-minute load is over N, and the load is read again every 15 seconds. Crit is never gated. The memory-admission unit (WS4c) replaces the gate.
+- **The log.** `queue LANE PID`; `take LANE CLASS/WIDTH PID RESERVED`; `end LANE CLASS/WIDTH PID CODE PEAK`.
 - **Exit.** COMMAND's exit code (128 plus the signal for a signal); 2 for an invalid invocation; 1 when the budget cannot be read.
 
 ## ergo dev
