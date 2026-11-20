@@ -2280,7 +2280,7 @@ func int64Bits(v *big.Int) string {
 // union t or the members of the row value t: at d <= 0 one of least rank,
 // else any, each equally likely.
 func (l *lowerer) genPick(body *strings.Builder, t check.Type, variants []check.Type, r, d string, scope *namer, site syntax.Node) {
-	small := testplan.SmallVariants(variants)
+	small := testplan.SmallVariants(l.pkg.Builder, variants)
 	if len(small) == 0 {
 		ice(site, "the union %s has no finite value; the checker admits only generatable types", t)
 	}

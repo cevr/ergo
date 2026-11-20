@@ -277,7 +277,7 @@ law ParityWithLaneRift(verbs []Verb) {
 				pushed = false
 			}
 			let mut handed = true
-			let _ = w.tool.Ready(work.ReadyOptions{Name: Some[string]{Value: "work"}}) catch {
+			let _ = w.tool.Ready(work.ReadyOptions{Name: Some[string]{Value: "work"}, Request: None}) catch {
 			case _:
 				handed = false
 				work.Handed{Name: "", Branch: "", Commit: "", Snapshot: "", Parent: ""}
@@ -485,7 +485,7 @@ law ToolAgreesWithTheReference(ops []Op, sharing bool, tree Map[string, string])
 			}
 		case ReadyOp as o:
 			let name = pick(o.Name)
-			let handed = w.tool.Ready(work.ReadyOptions{Name: Some[string]{Value: name}}) catch {
+			let handed = w.tool.Ready(work.ReadyOptions{Name: Some[string]{Value: name}, Request: None}) catch {
 			case _:
 				work.Handed{Name: "", Branch: "", Commit: "", Snapshot: "", Parent: ""}
 			}
@@ -587,7 +587,7 @@ law UseKeepsAWorkspace(sync bool) {
 			return false
 		}
 	} else {
-		let _ = w.tool.Ready(work.ReadyOptions{Name: Some[string]{Value: "a"}}) catch {
+		let _ = w.tool.Ready(work.ReadyOptions{Name: Some[string]{Value: "a"}, Request: None}) catch {
 		case _:
 			return false
 		}

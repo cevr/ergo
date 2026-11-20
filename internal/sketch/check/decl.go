@@ -193,9 +193,42 @@ func (c *checker) collectBodyErrorRows() {
 					}
 				}
 			}
+			if arm, ok := n.(*syntax.CatchArm); ok {
+				// A type a catch arm tests names an error type of the
+				// arm's owner, as a fails row does (Error types 1; Catch
+				// 2 still holds the arm to the caught row).
+				for _, p := range arm.Types {
+					x := catchArmHead(p)
+					if x == nil {
+						continue
+					}
+					if n := c.errorRowHead(x); n != nil {
+						c.addErrorType(n, c.pkg.OwnerOf(arm), x)
+					}
+					for _, n := range c.namedRowHeads(x) {
+						c.addErrorType(n, c.pkg.OwnerOf(arm), x)
+					}
+				}
+			}
 			return true
 		})
 	}
+}
+
+// catchArmHead is the type a catch arm's pattern tests, written as a type
+// (`T`, `pkg.T`, `T[A]`): of a type test, of `T as e`, and of a record
+// pattern `T{…}`; nil for `_`, a binder (`case err:`) resolves to no type
+// and is dropped by errorRowHead.
+func catchArmHead(p syntax.Expr) syntax.Expr {
+	switch p := unparen(p).(type) {
+	case *syntax.AsPattern:
+		return catchArmHead(p.X)
+	case *syntax.CompositeLit:
+		return p.Type
+	case *syntax.Ident, *syntax.SelectorExpr, *syntax.IndexExpr:
+		return p
+	}
+	return nil
 }
 
 // errorRowHead returns the origin struct type an error-row element names by
