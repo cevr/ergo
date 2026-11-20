@@ -36,6 +36,7 @@ import compiler/check/expr
 import compiler/check/facts
 import compiler/check/infer
 import compiler/check/load
+import compiler/check/rows
 import compiler/check/store
 import compiler/check/types
 import compiler/syntax
@@ -180,6 +181,16 @@ func writeFlow(b mut strings.Builder, u load.Unit, d load.Typed, prefix string) 
 		srcs = srcs.Append(try read(path))
 	}
 	for g in diag.Flow(d.S, d.K, d.T, srcs) {
+		b.WriteString("\(prefix)\(u.Files[g.File].Name) \(g.Offset) \(g.Length) \(g.Code) \(g.Message)\n")
+	}
+}
+
+// writeRows prints the row pass's S101 and S102 of one typed package,
+// "FILE OFFSET LENGTH CODE MESSAGE" after prefix, in the Go checker's
+// order (S3-ROWS).
+func writeRows(b mut strings.Builder, u load.Unit, d load.Typed, prefix string) {
+	let mut s = d.S
+	for g in rows.Rows(&s, d.K, d.T) {
 		b.WriteString("\(prefix)\(u.Files[g.File].Name) \(g.Offset) \(g.Length) \(g.Code) \(g.Message)\n")
 	}
 }
@@ -397,6 +408,7 @@ func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 			writeOwn(&b, u, d, "O ")
 			writeCauses(&b, u, d, "U ")
 			try writeFlow(&b, u, d, "W ")
+			writeRows(&b, u, d, "R ")
 			writeLets(&b, u, d, "L ")
 			writeOutside(&b, u, d, "X ")
 			writeRefinements(&b, u, d, "R ")
