@@ -8,13 +8,14 @@ import (
 
 // equalTestBodies is the number of tests GenerateEqualTests writes: each
 // gets an IR body in every seed (GP-DEFINED, the operator family).
-const equalTestBodies = 4
+const equalTestBodies = 5
 
 // GenerateEqualTests is a program of tests whose asserts compare values of
 // types that are not basic (GP-DEFINED, "operator on a non-basic type"):
-// == and != on slices of ints and of strings, on a record and on a union,
-// and a comparison with an if as its operand bound to a local. The seed
-// decides the values and which asserts hold, so a run reports passes and
+// == and != on slices of ints and of strings, on a record, on a union, on
+// a union against a variant's literal (shown as the variant), and a
+// comparison with an if as its operand bound to a local. The seed decides
+// the values and which asserts hold, so a run reports passes and
 // failures, each with its operands shown.
 func GenerateEqualTests(seed uint64) string {
 	r := rand.New(rand.NewPCG(seed, seed^0x6a09e667f3bcc909))
@@ -47,6 +48,11 @@ func GenerateEqualTests(seed uint64) string {
 	m := r.IntN(6)
 	fmt.Fprintf(&b, "test Unions {\n\tassert mode(%d) == mode(%s)\n\tassert mode(%d) != mode(%s)\n}\n\n",
 		m, pick(fmt.Sprint(m), fmt.Sprint(m+1)), m, pick(fmt.Sprint(m+3), fmt.Sprint(m)))
+	// A union compared with a variant's literal, on either side: the
+	// failure shows the variant as itself.
+	v := r.IntN(6)
+	fmt.Fprintf(&b, "test Variants {\n\tassert mode(%d) == Hi{N: %s}\n\tassert Hi{N: %s} != mode(%d)\n}\n\n",
+		v, pick(fmt.Sprint(v), fmt.Sprint(v+1)), pick(fmt.Sprint(v+1), fmt.Sprint(v)), v)
 	c := r.IntN(6)
 	fmt.Fprintf(&b, "test Branches {\n\tlet same = (if %d > 2 { evens(3) } else { evens(2) }) == %s\n\tassert same\n}\n\n",
 		c, pick(map[bool]string{true: ints(3, 0), false: ints(2, 0)}[c > 2], ints(4, 0)))

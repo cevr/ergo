@@ -173,16 +173,30 @@ func (b *irBuilder) assert(s *syntax.AssertStmt) []*irStmt {
 		op := x.Op.String()
 		// == and != on a type that is not basic compare as binaryOther
 		// does (ir_equal.go), as the emitter's assertCompare calls
-		// binaryOf; each operand is shown as its own type, so one that
-		// converts first keeps the source body.
+		// binaryOf. Each operand is shown as its own type, as the
+		// emitter's operands(…, false) leaves it: a variant compared with
+		// its union is built and spilled as the variant (b.shown) and goes
+		// into the union for the comparison only. Any other conversion
+		// keeps the source body.
 		eq := b.equalOther(x)
 		if eq == nil {
 			b.operator(op, l.info.Types[x.X], x)
 		}
+		var into syntax.Expr // the operand that goes into the union
+		var conv check.Conversion
 		for _, e := range []syntax.Expr{x.X, x.Y} {
-			if conv, ok := l.info.Implicit[e]; ok && conv.Kind != 0 && eq != nil {
+			c, ok := l.info.Implicit[e]
+			if !ok || c.Kind == 0 || eq == nil {
+				continue
+			}
+			if c.Kind != check.ConvVariant || into != nil {
 				irNo("operator %s on operands of two types", op)
 			}
+			into, conv = e, c
+		}
+		if into != nil {
+			b.shown = unparen(into)
+			defer func() { b.shown = nil }()
 		}
 		var vals []*irExpr
 		// A try that starts the assert covers the whole comparison: its
@@ -203,8 +217,19 @@ func (b *irBuilder) assert(s *syntax.AssertStmt) []*irStmt {
 			pre = append(pre, &irStmt{K: "def", Pos: vals[k].Pos, Local: t, X: vals[k]})
 			vals[k] = &irExpr{K: "local", Pos: vals[k].Pos, I: t}
 		}
+		b.shown = nil
 		if eq != nil {
-			cond = b.equalOf(x, eq, func() (*irExpr, *irExpr) { return vals[0], vals[1] })
+			cond = b.equalOf(x, eq, func() (*irExpr, *irExpr) {
+				// The variant goes into its union here only: the
+				// failure text shows it as itself.
+				l, r := vals[0], vals[1]
+				if into == x.X {
+					l = b.convert(conv, l, into)
+				} else if into == x.Y {
+					r = b.convert(conv, r, into)
+				}
+				return l, r
+			})
 		} else {
 			cond = &irExpr{K: "bin", Pos: b.pos(x, x.OpPos), Op: op, X: vals[0], Y: vals[1]}
 		}
