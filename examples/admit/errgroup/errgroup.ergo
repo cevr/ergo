@@ -38,7 +38,13 @@ func Check(c Checker, js []jobs.Job) fails jobs.BadPayload needs go.Foreign {
 	let (g, _) = errgroup.WithContext()
 	match g {
 	case Some[go.Ref[errgroup.Group]] as gr:
-		gr.Value.SetLimit(c.limit)
+		// A Checker the law cases generate may hold any limit; Go's
+		// errgroup takes none at 0, which would leave every Go waiting.
+		let mut limit = c.limit
+		if limit < 1 {
+			limit = 1
+		}
+		gr.Value.SetLimit(limit)
 		for j in js {
 			let p = j.Payload
 			gr.Value.Go(func() fails go.Error { try numbers(p) })
