@@ -215,14 +215,14 @@ func (s *ForeignKeySource) key(target string) ForeignKey {
 		return ForeignKey{Key: "unknown " + p, Shown: p + "@unknown", Build: s.everyTag()}
 	}
 	if dir != "" {
-		c := s.world(mod, s.ReadDir, "").closure(p, name)
+		c := s.world(mod, s.ReadDir, "", s.Target).closure(p, name)
 		if c.Unloaded {
 			return ForeignKey{Key: "unread " + p, Shown: p + "@unread", Build: s.everyTag()}
 		}
 		k := ForeignKey{Key: "closure " + c.Hash, Group: p}
 		var tags []string
 		for i, v := range s.Variants {
-			if vc := s.world(mod, v.Read, strconv.Itoa(i)+" ").closure(p, name); (vc.Unloaded || vc.Hash != c.Hash) && !slices.Contains(tags, v.Tag) {
+			if vc := s.world(mod, v.Read, strconv.Itoa(i)+" ", &v.Target).closure(p, name); (vc.Unloaded || vc.Hash != c.Hash) && !slices.Contains(tags, v.Tag) {
 				tags = append(tags, v.Tag)
 			}
 		}
@@ -271,7 +271,7 @@ type BuildVariant struct {
 
 // world is the Go packages of the local module mod as read reads its
 // folders, one world per module and reader (tag tells the readers apart).
-func (s *ForeignKeySource) world(mod string, read func(dir string) []GoSourceFile, tag string) *goWorld {
+func (s *ForeignKeySource) world(mod string, read func(dir string) []GoSourceFile, tag string, target *GoTarget) *goWorld {
 	if s.worlds == nil {
 		s.worlds = map[string]*goWorld{}
 	}
@@ -289,6 +289,9 @@ func (s *ForeignKeySource) world(mod string, read func(dir string) []GoSourceFil
 			files := read(d)
 			return files, files != nil
 		})
+		if target != nil {
+			w.std = stdTypesOf(*target)
+		}
 		s.worlds[name] = w
 	}
 	return w
@@ -314,7 +317,7 @@ func runtimeWorldFor(t GoTarget) *goWorld {
 	if w, ok := runtimeWorlds.Load(t.ID()); ok {
 		return w.(*goWorld)
 	}
-	w, _ := runtimeWorlds.LoadOrStore(t.ID(), newGoWorld(func(ip string) ([]GoSourceFile, bool) {
+	nw := newGoWorld(func(ip string) ([]GoSourceFile, bool) {
 		all, ok := runtimeGoFiles(ip)
 		if !ok {
 			return nil, false
@@ -326,7 +329,9 @@ func runtimeWorldFor(t GoTarget) *goWorld {
 			}
 		}
 		return out, true
-	}))
+	})
+	nw.std = stdTypesOf(t)
+	w, _ := runtimeWorlds.LoadOrStore(t.ID(), nw)
 	return w.(*goWorld)
 }
 

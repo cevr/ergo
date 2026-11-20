@@ -88,6 +88,9 @@ type goWorld struct {
 	load goPackages
 	fset *token.FileSet
 	pkgs map[string]*goPkg // nil: outside the walk
+	// std types Go's standard library as the world's target compiles it
+	// (gostd.go); nil leaves std's packages empty.
+	std *stdTypes
 }
 
 func newGoWorld(load goPackages) *goWorld {
@@ -100,6 +103,11 @@ func newGoWorld(load goPackages) *goWorld {
 func (w *goWorld) Import(p string) (*types.Package, error) {
 	if g := w.get(p); g != nil && g.types != nil {
 		return g.types, nil
+	}
+	if isStdPath(p) {
+		if t := w.std.imported(p); t != nil {
+			return t, nil
+		}
 	}
 	name := path.Base(p)
 	if strings.HasPrefix(name, "v") && strings.Trim(name[1:], "0123456789") == "" && strings.Contains(p, "/") {
@@ -309,7 +317,18 @@ func (w *goWorld) closure(entry, name string) GoClosure {
 	}
 	// object takes a resolved object of a package of the world.
 	object := func(obj types.Object) {
-		if obj == nil || obj.Pkg() == nil || w.pkgs[obj.Pkg().Path()] == nil {
+		if obj == nil || obj.Pkg() == nil {
+			return
+		}
+		// An interface method, of the world or of std (io.Writer.Write),
+		// may run any method of its name: by name, wherever it is declared.
+		if fn, ok := obj.(*types.Func); ok {
+			if recv := fn.Type().(*types.Signature).Recv(); recv != nil && types.IsInterface(recv.Type()) {
+				named(fn.Name())
+				return
+			}
+		}
+		if w.pkgs[obj.Pkg().Path()] == nil {
 			return
 		}
 		q := obj.Pkg().Path()
