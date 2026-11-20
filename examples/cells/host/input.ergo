@@ -179,7 +179,7 @@ func Tap[E comparable, S, D, F](h mut Host[S, E, D, F], c int, r int) fails acto
 				let over = zoneAt(h, s.Value, c, r)
 				try step(h, ui.Point[E]{Id: id.Value, Pointer: ui.PointerEvent{Pointer: ui.MousePointer, Phase: ui.Down, X: x, Y: y, Zone: None}, Over: over})
 				try step(h, ui.Point[E]{Id: id.Value, Pointer: ui.PointerEvent{Pointer: ui.MousePointer, Phase: ui.Up, X: x, Y: y, Zone: None}, Over: over})
-			case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.TextNode, ui.PressableNode[E], ui.CheckNode[E], ui.InputNode, ui.ToggleNode, ui.CanvasNode, ui.RowsNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode, ui.TransitionNode, ui.SemanticNode[E]:
+			case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.TextNode, ui.PressableNode[E], ui.CheckNode[E], ui.InputNode, ui.ToggleNode, ui.CanvasNode, ui.RowsNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode, ui.TransitionNode, ui.SemanticNode[E], ui.ReadoutNode, ui.LayerNode[E], ui.TrackNode:
 				if pressable(s.Value.node) {
 					try step(h, ui.Press[E]{Id: id.Value})
 				}
@@ -221,7 +221,7 @@ func topZone[S, E, D, F](h mut Host[S, E, D, F], area spot[E], hit func(b layout
 			if under(h, area.id, z.id) && hit(b) {
 				over = Some{Value: ui.ZoneBox[E]{Id: z.id, Box: ui.Rect{X: points(b.X - area.box.X), Y: points(b.Y - area.box.Y), W: points(b.W), H: points(b.H)}}}
 			}
-		case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.TextNode, ui.PressableNode[E], ui.CheckNode[E], ui.InputNode, ui.ToggleNode, ui.AreaNode, ui.CanvasNode, ui.RowsNode, ui.FieldsetNode, ui.LiveNode, ui.TransitionNode, ui.SemanticNode[E]:
+		case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.TextNode, ui.PressableNode[E], ui.CheckNode[E], ui.InputNode, ui.ToggleNode, ui.AreaNode, ui.CanvasNode, ui.RowsNode, ui.FieldsetNode, ui.LiveNode, ui.TransitionNode, ui.SemanticNode[E], ui.ReadoutNode, ui.LayerNode[E], ui.TrackNode:
 		}
 	}
 	over

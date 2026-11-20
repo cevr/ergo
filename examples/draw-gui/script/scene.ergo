@@ -122,7 +122,7 @@ func Texts(shapes []ui.Shape[canvas.Signal]) []string {
 			out = out.Append(t.Value)
 		case ui.PressableNode:
 			continue
-		case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.CheckNode, ui.InputNode, ui.ToggleNode, ui.AreaNode, ui.CanvasNode, ui.RowsNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode, ui.ReadoutNode, ui.TransitionNode, ui.SemanticNode, ui.LayerNode:
+		case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.CheckNode, ui.InputNode, ui.ToggleNode, ui.AreaNode, ui.CanvasNode, ui.RowsNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode, ui.ReadoutNode, ui.TransitionNode, ui.SemanticNode, ui.LayerNode, ui.TrackNode:
 		}
 		for t in Texts(s.Kids) {
 			out = out.Append(t)
