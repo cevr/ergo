@@ -55,7 +55,7 @@ func defaultsProgram(seed uint64) string {
 	for i := range n {
 		m := defaultsMaps[r.IntN(len(defaultsMaps))]
 		fmt.Fprintf(&body, "\tlet mut m%d %s\n\tassert len(m%d) == 0\n", i, m.typ, i)
-		writes := r.IntN(3)
+		writes := 1 + r.IntN(2) // a let mut is written (S110)
 		for range writes {
 			fmt.Fprintf(&body, "\tm%d[%s] = %s\n", i, m.key, m.val)
 		}
