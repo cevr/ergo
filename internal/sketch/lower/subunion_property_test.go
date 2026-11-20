@@ -82,11 +82,19 @@ func subUnionProgram(seed uint64, paths map[string]bool) string {
 		}
 		return fmt.Sprintf("\"%s\"", name(i))
 	}
+	// arm is the case of record i whose body is its text: a record with no
+	// fields binds nothing (S110 for an unread binding).
+	arm := func(i int) string {
+		if fields[i] == "" {
+			return fmt.Sprintf("\tcase %s:\n\t\t%s\n", name(i), text(i, ""))
+		}
+		return fmt.Sprintf("\tcase %s as v:\n\t\t%s\n", name(i), text(i, "v"))
+	}
 	all := append(append([]int(nil), inA...), rest...)
 	show := func(fn, typ string, of []int) {
 		fmt.Fprintf(&b, "func %s(x %s) string {\n\tmatch x {\n", fn, typ)
 		for _, i := range of {
-			fmt.Fprintf(&b, "\tcase %s as v:\n\t\t%s\n", name(i), text(i, "v"))
+			b.WriteString(arm(i))
 		}
 		b.WriteString("\t}\n}\n\n")
 	}
@@ -104,14 +112,14 @@ func subUnionProgram(seed uint64, paths map[string]bool) string {
 	// The sub-union arm against the hand arms over A's variants.
 	b.WriteString("func viaA(x B) string {\n\tmatch x {\n\tcase A as a:\n\t\t\"A \" + showA(a)\n")
 	for _, i := range rest {
-		fmt.Fprintf(&b, "\tcase %s as v:\n\t\t%s\n", name(i), text(i, "v"))
+		b.WriteString(arm(i))
 	}
 	b.WriteString("\t}\n}\n\nfunc byHand(x B) string {\n\tmatch x {\n")
 	for _, i := range inA {
 		fmt.Fprintf(&b, "\tcase %s as v:\n\t\t\"A \" + showA(v)\n", name(i))
 	}
 	for _, i := range rest {
-		fmt.Fprintf(&b, "\tcase %s as v:\n\t\t%s\n", name(i), text(i, "v"))
+		b.WriteString(arm(i))
 	}
 	b.WriteString("\t}\n}\n\n")
 	value := func(i int) string {
