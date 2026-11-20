@@ -12,13 +12,29 @@ import (
 // root written in place (b.Start() on a board, EXH1; resources R17) is
 // released with its writes. The static form keeps a copy in its slot, so
 // a frame with such a local takes the list form (staticPlan). The scan
-// covers the sourced files, once per lowering; a std body writes no
-// owned local in place.
+// covers every lowered body, once per lowering: the sourced files and
+// those of each other package the program reaches, std's among them, by
+// one rule (std ui's Run writes its session in place; STD-COPY-ZERO).
 func (l *lowerer) writtenInPlace(v *check.Var) bool {
 	if l.inPlaceVars == nil {
 		l.inPlaceVars = map[*check.Var]bool{}
+		type file struct {
+			info *check.Info
+			file *syntax.File
+		}
+		var files []file
 		for _, s := range l.srcs {
-			info := s.pkg.Info
+			files = append(files, file{s.pkg.Info, s.file})
+		}
+		for _, p := range l.libraries() {
+			if !l.isSourced(p) {
+				for _, f := range p.Files() {
+					files = append(files, file{p.Info, f})
+				}
+			}
+		}
+		for _, s := range files {
+			info := s.info
 			mark := func(x syntax.Expr) {
 				if v := placeRoot(info, x); v != nil {
 					l.inPlaceVars[v] = true

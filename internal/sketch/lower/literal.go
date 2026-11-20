@@ -167,6 +167,7 @@ func (l *lowerer) litFunc(t check.Type, site syntax.Node) string {
 		body.WriteString("\tfor _, " + e + " := range " + v + " {\n\t\t" + parts + " = append(" + parts + ", " + l.litExpr(u.Elem, e, site) + ")\n\t}\n")
 		body.WriteString("\treturn " + q(l.ergoType(t)+"{") + " + " + l.helper("strings") + ".Join(" + parts + ", \", \") + \"}\"\n")
 	case *check.Map:
+		l.intMapConflict(u) // intmap.go: ranges over Go's map
 		less := "nil"
 		if b, basic := u.Key.(*check.Basic); basic && b.Kind != check.Bool && b.Kind != check.Complex64 && b.Kind != check.Complex128 {
 			kt := tc.goType(u.Key)

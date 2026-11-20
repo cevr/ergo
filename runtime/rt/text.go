@@ -11,10 +11,12 @@ import (
 // every program because the defect report and the cause text wrote values
 // with %v. Text writes what fmt's %v writes for the values an Ergo
 // program can raise or fail with: a text, an error, a Go runtime error, a
-// Stringer, a boolean and a number. A value of any other Go type comes
-// only through import go; a program that imports go links the gofmt leaf
-// of runtime/v1, which sets the host text to fmt's, and Text then writes
-// every value as fmt does.
+// Stringer, a boolean and a number. A value of any other Go type, which
+// comes only through import go, it writes as Go's runtime writes a panic
+// of it (otherText), so a program that imports go needs no fmt. A program
+// that writes a machine state links the gofmt leaf of runtime/v1, which
+// sets the host text to fmt's, and Text then writes every value as fmt
+// does.
 
 // hostText is fmt's text of v (%v, or with typed, the Go type's name and
 // %+v); nil until a program links the gofmt leaf.
@@ -30,7 +32,7 @@ func UseHostText(f func(v any, typed bool) string) (prev func(v any, typed bool)
 
 // unknownText is the text of a value Text does not know when no host text
 // is linked.
-const unknownText = "(a Go value whose text only fmt writes; a program that imports go links fmt)"
+const unknownText = "(a Go value whose text only fmt writes)"
 
 // Text is v's text as fmt's %v writes it.
 func Text(v any) string {
@@ -75,7 +77,18 @@ func Text(v any) string {
 	case interface{ String() string }:
 		return methodText(v, "String", x.String)
 	}
-	return unknownText
+	return otherText(v)
+}
+
+// otherText is the text of a value of any other Go type, as Go's runtime
+// writes a panic of one: its type in parentheses and the interface's data
+// word in hex, "(main.T) 0xc000012345" (runtime.printpanicval). A value
+// of a defined type over a basic one is written the same way, where Go's
+// runtime writes main.N(5): without reflect the core cannot read the
+// basic kind under the type.
+func otherText(v any) string {
+	word := uintptr((*[2]unsafe.Pointer)(unsafe.Pointer(&v))[1])
+	return "(" + TypeString(v) + ") 0x" + strconv.FormatUint(uint64(word), 16)
 }
 
 // TypedText is v's Go type name and its text as fmt's %+v writes it

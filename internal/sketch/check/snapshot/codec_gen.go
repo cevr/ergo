@@ -4002,6 +4002,7 @@ func (e *encoder) encFieldsVar(v *check.Var) {
 	e.encSyntax_Expr(*f.F_byValue)
 	e.encT14(*f.F_undiagnosed)
 	e.encT14(*f.F_refused)
+	e.encT14(*f.F_freshRef)
 }
 
 func (e *encoder) encVar(v check.Var) { e.encFieldsVar(&v) }
@@ -15011,6 +15012,7 @@ func (d *decoder) decFieldsVar(v *check.Var) {
 	*f.F_byValue = d.decSyntax_Expr()
 	*f.F_undiagnosed = d.decT14()
 	*f.F_refused = d.decT14()
+	*f.F_freshRef = d.decT14()
 }
 
 func (d *decoder) decVar() (v check.Var) {

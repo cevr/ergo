@@ -1,0 +1,22 @@
+// IR-GOCALLS-4: a Go call bound with a go.Ref result that Go returns as
+// nil is a defect naming the Go target and the site (v1.GoNilDefect), on
+// both paths. The nil comes from a user's extern go, which promises a
+// go.Ref that flag.Lookup does not keep for an unknown flag (as
+// lower's TestLevel2NonNilDefect); the binder proves the promises of the
+// std bindings (GOBIND-NIL). Without the IR's check (mutant
+// irgc-nil-check-dropped) the IR path reads through Go's nil pointer and
+// panics with another message.
+
+import go flag
+
+extern go flag.Lookup func lookup(name string) go.Ref[flag.Flag] needs go.Foreign
+
+func name() string needs go.Foreign {
+	let f = lookup("no-such-flag")
+	f.Name
+}
+
+func main() needs Console | go.Foreign {
+	Console.Println("start")
+	Console.Println(name())
+}

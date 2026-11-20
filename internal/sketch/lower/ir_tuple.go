@@ -104,10 +104,8 @@ func (b *irBuilder) hostCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p
 	effect := len(rowElems(f.Sig.Uses)) > 0 // the foreign tier
 	if f.Sig.Fallible {
 		// Go's results are the value and the error, which the fail
-		// forms bind and convert to go.Error (ir_fail.go bind).
-		if len(results) > 1 {
-			irNo("call of a Go package function")
-		}
+		// forms bind and convert to go.Error (ir_fail.go bind; several
+		// values into a tuple, hostBind).
 		if !failsHere(c) {
 			irNo("fallible call with an empty row at its site")
 		}

@@ -146,6 +146,7 @@ func (l *lowerer) equalFunc(t check.Type, site syntax.Node) (string, []*check.Ty
 		body.WriteString("\tfor " + i + " := range " + a + " {\n")
 		body.WriteString("\t\tif !" + tc.equalCall(u.Elem, a+"["+i+"]", b+"["+i+"]", site) + " {\n\t\t\treturn false\n\t\t}\n\t}\n\treturn true\n")
 	case *check.Map:
+		l.intMapConflict(u) // intmap.go: Go's map operations
 		k, v, w, ok := scope.alloc("k"), scope.alloc("v"), scope.alloc("w"), scope.alloc("ok")
 		body.WriteString("\tif len(" + a + ") != len(" + b + ") {\n\t\treturn false\n\t}\n")
 		body.WriteString("\tfor " + k + ", " + v + " := range " + a + " {\n")
