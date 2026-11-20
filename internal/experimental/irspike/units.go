@@ -276,6 +276,11 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"law of a generic operation type", "G6"},
 	{"law result of an untried fallible call", "G6"},
 	// The codec built-ins take the IR (FLIP OPC-codec), but for these:
+	// PORT-WIRE-READERS step 0: the codec functions that keep their text
+	// body, counted as census bodies (codecText). A decoder by its form.
+	{"codec reader: *", "PORT-WIRE-READERS"},
+	{"codec writer on the reference Writer", "PORT-WIRE-REF"},
+	{"codec writer on a direct writer that is no cell", "PORT-WIRE-REF"},
 	{"codec of a type that holds type parameters", "G4"}, // codec witnesses, with witness parameters
 	{"codec *", "G6"},
 	{"encode on a direct writer", "G6"},
