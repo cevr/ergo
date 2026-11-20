@@ -22,7 +22,7 @@ func Counts(entries []Entry) Map[string, int, HostCase] {
 	let mut out = Map[string, int, HostCase]{}
 	for e in entries {
 		let n = match out.Get(e.Host) {
-			case Some{Value}: Value + 1
+			case Some[int] as c: c.Value + 1
 			case None: 1
 		}
 		out[e.Host] = n
