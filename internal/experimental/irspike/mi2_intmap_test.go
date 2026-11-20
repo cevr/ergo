@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -15,13 +16,16 @@ import (
 // source path keeps Go's map (the reference), and each program prints the
 // same under both. Each of intMapFuncs has an IR body, and that body
 // calls the table's methods, so the property runs the table and not a
-// lowering that fell back to Go's map. A failing seed prints the Ergo
+// lowering that fell back to Go's map. Each of intMapCallFuncs passes an
+// int-keyed Map to a generic function (std maps.*, a user generic) or to
+// Go's maps package and has an IR body with that Map Go's map
+// (INTMAP-CALL; mutant mi2-generic-call-ignored). A failing seed prints the Ergo
 // source, both outcomes and its replay command.
 //
 // It builds Go because the table's entries, lengths and copies show only
 // when the compiled program reads them back.
 func TestIRIntMapsMatchSource(t *testing.T) {
-	f7Property(t, "TestIRIntMapsMatchSource", GenerateIntMap, intMapFuncs...)
+	f7Property(t, "TestIRIntMapsMatchSource", GenerateIntMap, append(slices.Clone(intMapFuncs), intMapCallFuncs...)...)
 	first, count := envInt("ERGO_IRSPIKE_SEED", 1), envInt("ERGO_IRSPIKE_SEEDS", 4)
 	for seed := first; seed < first+count; seed++ {
 		text := GenerateIntMap(seed)
@@ -41,6 +45,12 @@ func TestIRIntMapsMatchSource(t *testing.T) {
 		for _, f := range intMapFuncs {
 			if !strings.Contains(bodies[f], `"k":"mcall"`) || !strings.Contains(bodies[f], `"name":"Put"`) {
 				t.Errorf("seed %d: %s's Map is not an IntMap on the IR\n%s", seed, f, text)
+			}
+		}
+		// A Map passed to a generic function is Go's map (INTMAP-CALL).
+		for _, f := range intMapCallFuncs {
+			if strings.Contains(bodies[f], `"name":"NewIntMap"`) {
+				t.Errorf("seed %d: %s passes an IntMap to a generic function\n%s", seed, f, text)
 			}
 		}
 		// walked's Map type conflicts: Go's map, iterated on the IR.
