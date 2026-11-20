@@ -40,6 +40,12 @@ var treeEdits = []treeEdit{
 		tests := genprogram.Name(i) + "/tests.ergo"
 		f[tests] = "\n\n" + f[tests]
 	}},
+	{name: "layout of the request's package", apply: func(r *rand.Rand, f map[string]string, p genprogram.Program, dep int) {
+		// Every site of the sub-folder request's package moves, the
+		// site its reasons name too (an even seed's).
+		i := genprogram.Width
+		f[pkgFile(i)] = strings.Replace(f[pkgFile(i)], "\nimport strings\n", "\nimport strings\n\n", 1)
+	}},
 	{name: "comment", apply: func(r *rand.Rand, f map[string]string, p genprogram.Program, dep int) {
 		i := r.IntN(len(p.Packages) - 1)
 		f[pkgFile(i)] = strings.Replace(f[pkgFile(i)], "// Area is the area of s.", "// Area is the area of s, as the edit says.", 1)
@@ -124,10 +130,12 @@ func treeText(src string) string {
 // body, a signature, a new file, a test, a package outside the request
 // that it imports), for the whole module and for a sub-folder, the answer
 // is byte-equal to the normal path's (ERGO_BUILD=full) after every edit,
-// and files_parsed, obligations_evaluated and eval_steps are 0 exactly
-// when no file's tokens and comments changed. Mutants ws0-key-by-bytes,
-// ws0-key-omits-imports, ws0-key-omits-comments, ws0-site-replayed and
-// ws0-revision-replayed.
+// and, for a kept base, files_parsed, obligations_evaluated and
+// eval_steps are 0 exactly when nothing the request reaches changed in
+// its tokens, comments or comments' line breaks. An even seed's base has
+// a reason that names a site, and is never kept. Mutants
+// ws0-key-by-bytes, ws0-key-omits-imports, ws0-key-omits-comments,
+// ws0-site-replayed, ws0-revision-replayed and ws0-keeps-site-reasons.
 func TestCheckTreeAnswersByTokens(t *testing.T) {
 	seeds := []uint64{}
 	for s := range uint64(treeSeeds) {
@@ -154,6 +162,13 @@ func TestCheckTreeAnswersByTokens(t *testing.T) {
 			t.Fatalf("seed %d: package %d imports nothing", seed, sub)
 		}
 		dep, _ := strconv.Atoi(deps[0][1])
+		if seed%2 == 0 {
+			// A package let whose initializer calls Go: check time skips
+			// the package's obligations with a reason that names the let's
+			// site (eval's siteText).
+			src := p.Files[pkgFile(sub)]
+			p.Files[pkgFile(sub)] = strings.Replace(src, "\nimport strings\n", "\nimport strings\nimport ansi\n", 1) + "\n// Reverse is reverse video.\nlet Reverse = ansi.SGR(ansi.Style{..ansi.Plain, Reverse: true})\n"
+		}
 		dir := t.TempDir()
 		writeFiles(t, dir, p.Files)
 		patterns := []string{filepath.Join(dir, "..."), filepath.Join(dir, genprogram.Name(sub), "...")}
@@ -163,11 +178,17 @@ func TestCheckTreeAnswersByTokens(t *testing.T) {
 				// so the second run keeps the answer.
 				writeFiles(t, dir, p.Files)
 				removeExtra(t, dir, p.Files)
-				unkept = nil
 				for range 2 {
+					unkept = nil
 					if r := runCheckTree(t, pattern, false); r.err != nil {
 						t.Fatalf("seed %d: the base does not check: %v\n%s", seed, r.err, r.out)
 					}
+				}
+				// An even seed's base has a reason that names a site, which
+				// a layout edit moves: it is never kept.
+				kept := len(unkept) == 0
+				if kept == (seed%2 == 0) {
+					t.Fatalf("seed %d, %s: the base kept %v; reasons %q", seed, pattern, kept, unkept)
 				}
 				head := map[string]string{}
 				for name, src := range p.Files {
@@ -207,7 +228,7 @@ func TestCheckTreeAnswersByTokens(t *testing.T) {
 					fail("the answer differs from the normal path's\n got %v\n%s\nwant %v\n%s", got.err, got.out, want.err, want.out)
 				}
 				work := got.counts["files_parsed"] + got.counts["obligations_evaluated"] + got.counts["eval_steps"]
-				if same != (work == 0) {
+				if kept && same != (work == 0) || !kept && work == 0 {
 					fail("no token or comment changed: %v, but the run parsed %d files and evaluated %d obligations in %d steps", same, got.counts["files_parsed"], got.counts["obligations_evaluated"], got.counts["eval_steps"])
 				}
 			}

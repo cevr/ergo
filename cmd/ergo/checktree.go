@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 
 	"ergo.local/prototype/internal/producer"
@@ -24,10 +25,12 @@ import (
 // request in which no package's check text changed prints the same
 // envelopes with no parse, no check and no evaluation.
 //
-//   - Each package is keyed by its files' check text (syntax.CheckText:
-//     tokens and comments, no layout) and the keys of the local packages
-//     it imports, composed in dependency order (treeKeys): an edit
-//     anywhere a package reaches changes its key.
+//   - Each package is keyed by its folder (a replay command names it),
+//     its files' check text (syntax.CheckText: tokens and comments, no
+//     layout) and the keys of the local packages it imports, composed in
+//     dependency order (treeKeys): an edit anywhere a package reaches
+//     changes its key. The key names no request, so another request that
+//     reaches the package (a workspace root's, WS2) finds it.
 //   - The request's manifest holds every other input the shared load read
 //     (ergo.mod, go.mod, go.sum, the law ledger, assets, folder listings),
 //     compared by bytes, and each package's with work: the with budget is
@@ -37,9 +40,10 @@ import (
 //     revision (report.Revision of the program's text) and each
 //     obligation's site, kept as the ordinal of the token it starts at
 //     (syntax.TokenSites). An answer this cannot print exactly is not
-//     kept: one with a diagnostic (a span), an obligation not passed (a
-//     reason may quote the source or a position), advice, a site at no
-//     token start, or one whose printing from its own files differs.
+//     kept: one with a diagnostic (a span), a reason that names a site
+//     (treeSiteText), advice (it may quote the source), a site at no one
+//     token, or one whose printing from its own files differs. A package
+//     whose obligation fails does not pass, so its request is not kept.
 //   - It is kept only from a run that stored no verdict: a law run whose
 //     verdict this run stored prints "cached" in the next run, so this
 //     run's envelope is not what the next one prints (lawcache Puts).
@@ -72,7 +76,10 @@ type treeManifest struct {
 
 // treePackage is one local package of a kept request.
 type treePackage struct {
-	Path     string   `json:"path"`
+	Path string `json:"path"`
+	// Dir is the package's folder, absolute: an obligation's replay
+	// command names it.
+	Dir      string   `json:"dir"`
 	Files    []string `json:"files"`
 	Imports  []string `json:"imports"`
 	WithWork int      `json:"withWork"`
@@ -207,7 +214,7 @@ func treeKeys(base string, packages []treePackage, srcs map[string]string) (map[
 		if imported[p.Path] {
 			as = "imported"
 		}
-		parts := []string{treeSchema, "package", base, p.Path, as}
+		parts := []string{treeSchema, "package", base, p.Path, p.Dir, as}
 		for _, name := range p.Files {
 			parts = append(parts, filepath.Base(name), syntax.CheckText(srcs[name]))
 		}
@@ -364,6 +371,13 @@ func declarationFiles(a sketchfront.Analysis, root string) map[string][]string {
 	return out
 }
 
+// treeSiteText finds a site in an obligation's reason, as the evaluator
+// writes one ("at FILE.ergo:LINE", eval's siteText): a layout edit moves
+// it, and a kept answer would print where it was. The other texts a reason
+// quotes from the source are a failed assert's and a refuted licence's,
+// whose package does not pass, so it is not kept.
+var treeSiteText = regexp.MustCompile(`\.ergo:[0-9]|(^|\s):[0-9]`)
+
 // treeUnkept, when not nil, hears why a request was not kept (a test's
 // account of what the store leaves out).
 var treeUnkept func(why string)
@@ -415,7 +429,7 @@ func (t *checkTree) keep() (why string) {
 			if !ok {
 				return "a package this process did not check"
 			}
-			tp := treePackage{Path: p.Path, Imports: p.Imports, WithWork: work}
+			tp := treePackage{Path: p.Path, Dir: p.Dir, Imports: p.Imports, WithWork: work}
 			for _, f := range p.Files {
 				if f.Syntax == nil {
 					return "a file that did not parse"
@@ -505,10 +519,8 @@ func treeEntryOf(a sketchfront.Analysis, out []byte, root string, srcs map[strin
 	}
 	for i, o := range env.Evaluation.Obligations {
 		switch {
-		case o.Status != "passed":
-			return treeEntry{}, "an obligation " + o.Status
-		case o.Reason != "":
-			return treeEntry{}, "a reason"
+		case treeSiteText.MatchString(o.Reason):
+			return treeEntry{}, "a reason that names a site"
 		case o.Advice != "":
 			return treeEntry{}, "advice"
 		}
