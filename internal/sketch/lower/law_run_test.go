@@ -150,7 +150,8 @@ func TestLawRunState(t *testing.T) {
 }
 
 // lawRunStore and lawRunProviders are G-exup-1 and G-exup-3 in the layout
-// AGENTS.md prescribes: the domain package kv declares the operation type
+// AGENTS.md prescribes: the domain package lawkv (not kv, which std
+// owns) declares the operation type
 // Store with a member law and a top-level law that takes a Store, and the
 // package that imports it provides Store. Last keeps GetAfterPut and
 // breaks PutKeepsOthers, and Zero breaks both.
@@ -172,10 +173,10 @@ law PutKeepsOthers(s Store, k int, v int) {
 }
 `
 
-const lawRunProviders = `import kv
+const lawRunProviders = `import lawkv
 import sync
 
-type Last { v sync.Ref[int] } implements kv.Store
+type Last { v sync.Ref[int] } implements lawkv.Store
 
 func NewLast() Last { Last{v: sync.NewRef(0)} }
 
@@ -183,15 +184,15 @@ func Put(l Last, k int, v int) { l.v.Set(v) }
 
 func Get(l Last, k int) int { l.v.Get() }
 
-type Zero { n int } implements kv.Store
+type Zero { n int } implements lawkv.Store
 
 func Put(z Zero, k int, v int) {}
 
 func Get(z Zero, k int) int { z.n }
 
 func main() needs Console {
-	let s kv.Store = NewLast()
-	with context { kv.Store: s } { Console.Println("\(kv.Store.Get(1))") }
+	let s lawkv.Store = NewLast()
+	with context { lawkv.Store: s } { Console.Println("\(lawkv.Store.Get(1))") }
 }
 `
 
@@ -203,8 +204,8 @@ func main() needs Console {
 // packages that provide Store, so none is silent there.
 func TestLawRunOtherPackage(t *testing.T) {
 	needsBuild(t)
-	kv := cxPackage(t, "kv", lawRunStore)
-	imports := cxImporter{"kv": kv}
+	kv := cxPackage(t, "lawkv", lawRunStore)
+	imports := cxImporter{"lawkv": kv}
 	f, err := syntax.Parse(lawRunProviders)
 	if err != nil {
 		t.Fatal(err)
@@ -231,10 +232,10 @@ func TestLawRunOtherPackage(t *testing.T) {
 		t.Fatalf("exit %d, stdout:\n%s\nstderr:\n%s", code, stdout, firstLines(stderr, 8))
 	}
 	want := []struct{ line, prefix, suffix string }{
-		{line: "ok law kv.Store.GetAfterPut for Last (100 cases)"},
-		{prefix: "FAIL law kv.Store.GetAfterPut for Zero (case ", suffix: "law refuted at lib.ergo:6:3: the law is false"},
-		{prefix: "FAIL law kv.PutKeepsOthers with s = Last (case ", suffix: "law refuted at lib.ergo:14:3: the law is false"},
-		{prefix: "FAIL law kv.PutKeepsOthers with s = Zero (case ", suffix: "law refuted at lib.ergo:14:3: the law is false"},
+		{line: "ok law lawkv.Store.GetAfterPut for Last (100 cases)"},
+		{prefix: "FAIL law lawkv.Store.GetAfterPut for Zero (case ", suffix: "law refuted at lib.ergo:6:3: the law is false"},
+		{prefix: "FAIL law lawkv.PutKeepsOthers with s = Last (case ", suffix: "law refuted at lib.ergo:14:3: the law is false"},
+		{prefix: "FAIL law lawkv.PutKeepsOthers with s = Zero (case ", suffix: "law refuted at lib.ergo:14:3: the law is false"},
 		{line: "FAIL (3 of 4 tests)"},
 	}
 	for i, w := range want {
@@ -259,12 +260,12 @@ func TestLawRunOtherPackage(t *testing.T) {
 	}
 }
 
-// lawRunMem provides kv.Store in a package of its own, which imports kv to
+// lawRunMem provides lawkv.Store in a package of its own, which imports lawkv to
 // declare it.
-const lawRunMem = `import kv
+const lawRunMem = `import lawkv
 import sync
 
-type Last { v sync.Ref[int] } implements kv.Store
+type Last { v sync.Ref[int] } implements lawkv.Store
 
 func NewLast() Last { Last{v: sync.NewRef(0)} }
 
@@ -272,41 +273,41 @@ func Put(l Last, k int, v int) { l.v.Set(v) }
 
 func Get(l Last, k int) int { l.v.Get() }
 
-type Zero { n int } implements kv.Store
+type Zero { n int } implements lawkv.Store
 
 func Put(z Zero, k int, v int) {}
 
 func Get(z Zero, k int) int { z.n }
 `
 
-const lawRunBinder = `import kv
+const lawRunBinder = `import lawkv
 import mem
 
 func main() needs Console {
-	let s kv.Store = mem.NewLast()
-	with context { kv.Store: s } { Console.Println("\(kv.Store.Get(1))") }
+	let s lawkv.Store = mem.NewLast()
+	with context { lawkv.Store: s } { Console.Println("\(lawkv.Store.Get(1))") }
 }
 `
 
 // TestLawRunLeastPackage: a law runs in the least package that sees its
 // operation type and a provider. A provider declares the operation type it
 // implements (EXC1), so its package imports the operation type's and is
-// that least package: mem runs kv's laws against its own providers, and
+// that least package: mem runs lawkv's laws against its own providers, and
 // a binder that imports both runs none again.
 func TestLawRunLeastPackage(t *testing.T) {
 	needsBuild(t)
-	kv := cxPackage(t, "kv", lawRunStore)
+	kv := cxPackage(t, "lawkv", lawRunStore)
 	mf, err := syntax.Parse(lawRunMem)
 	if err != nil {
 		t.Fatal(err)
 	}
-	memImports := cxImporter{"kv": kv}
+	memImports := cxImporter{"lawkv": kv}
 	memPkg, ds := check.Check("mem", []*syntax.File{mf}, memImports)
 	if len(ds) != 0 {
 		t.Fatalf("mem: %v", ds)
 	}
 	mem := Unit{Package: memPkg, Files: []*syntax.File{mf}, Sources: []Source{{Path: "/ergo-test/mem/lib.ergo", Text: lawRunMem}}}
-	imports := cxImporter{"kv": kv, "mem": mem}
+	imports := cxImporter{"lawkv": kv, "mem": mem}
 	f, err := syntax.Parse(lawRunBinder)
 	if err != nil {
 		t.Fatal(err)
@@ -332,10 +333,10 @@ func TestLawRunLeastPackage(t *testing.T) {
 	stdout, stderr, code := runExeArgs(t, exes["lawrun_mem"], "--seed", "7")
 	got := verdicts(stdout)
 	want := []string{
-		"ok law kv.Store.GetAfterPut for Last (100 cases)",
-		"FAIL law kv.Store.GetAfterPut for Zero (case ",
-		"FAIL law kv.PutKeepsOthers with s = Last (case ",
-		"FAIL law kv.PutKeepsOthers with s = Zero (case ",
+		"ok law lawkv.Store.GetAfterPut for Last (100 cases)",
+		"FAIL law lawkv.Store.GetAfterPut for Zero (case ",
+		"FAIL law lawkv.PutKeepsOthers with s = Last (case ",
+		"FAIL law lawkv.PutKeepsOthers with s = Zero (case ",
 		"FAIL (3 of 4 tests)",
 	}
 	if code != 1 || len(got) != len(want) {
