@@ -67,7 +67,7 @@ func TestBuiltinAppendRunsAtCheckTime(t *testing.T) {
 
 type buf { out []byte }
 
-func put(b *buf, x byte) { b.out = push(b.out, x) }
+func put(b mut buf, x byte) { b.out = push(b.out, x) }
 
 test Bytes {
 	let mut b = buf{out: []byte{}}

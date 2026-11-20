@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -31,11 +30,14 @@ type stdBase struct {
 // SnapshotSource is an installed snapshot, as the std importer reads it:
 // Load decodes the package of segment key path (a std path or a
 // ModuleSegment), with the segments it names, calling count for each
-// package segment decoded, and reports false when the snapshot does not
-// hold it or it does not decode; BytesRead counts the bytes read from it
-// (Work.StdSnapshotBytesRead).
+// package segment decoded with its key and package, and reports false
+// when the snapshot does not hold it or it does not decode; BytesRead
+// counts the bytes read from it (Work.StdSnapshotBytesRead). A snapshot
+// does not carry the std mark: the std importer's count marks each
+// package of a std segment, as its load marks a std package it checks
+// (check.go).
 type SnapshotSource interface {
-	Load(path string, count func(string)) (*Package, bool)
+	Load(path string, count func(string, *Package)) (*Package, bool)
 	BytesRead() int64
 }
 
@@ -47,12 +49,10 @@ type SnapshotSource interface {
 // not carry (exportgen skipFields).
 func StdSnapshotNow() (base *stdBase, paths []string, pkgs []*Package, err error) {
 	prelude()
-	for _, path := range stdlib.Packages() {
-		if _, err := Std.Import(path); err != nil {
-			return nil, nil, nil, err
-		}
-	}
 	imp := Std.(*stdImporter)
+	if err := imp.importAll(); err != nil {
+		return nil, nil, nil, err
+	}
 	base = &stdBase{
 		universe:  universeOnce.scope,
 		errorName: universeOnce.errorName,
@@ -69,13 +69,9 @@ func StdSnapshotNow() (base *stdBase, paths []string, pkgs []*Package, err error
 		pkgs = append(pkgs, imp.entries[path].pkg)
 	}
 	imp.mu.Unlock()
-	for i, pkg := range append([]*Package{preludeOnce.r.pkg}, pkgs...) {
+	for _, pkg := range append([]*Package{preludeOnce.r.pkg}, pkgs...) {
 		if pkg != nil && !pkg.Derive.Empty() {
-			name := stdlib.PreludePath
-			if i > 0 {
-				name = paths[i-1]
-			}
-			return nil, nil, nil, fmt.Errorf("check: std package %s has a derive record, which the std snapshot does not carry", name)
+			return nil, nil, nil, fmt.Errorf("check: std package %s has a derive record, which the std snapshot does not carry", pkg.Path)
 		}
 	}
 	nextID.Lock()
@@ -109,7 +105,7 @@ func InstallBase(base *stdBase, src SnapshotSource) error {
 	if !installed {
 		return ErrInstalled
 	}
-	preludeOnce.Do(func() { preludeOnce.r = base.prelude })
+	installPrelude(base.prelude) // check.go marks it std
 	imp := Std.(*stdImporter)
 	imp.mu.Lock()
 	imp.snap = src

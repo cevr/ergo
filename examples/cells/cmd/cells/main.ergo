@@ -46,7 +46,7 @@ let usage = "usage: cells counter|todo [-frames] [-cols C] [-rows R] < script | 
 
 // play plays acts on h, printing each step's end, then the screen or the
 // frames.
-func play[E comparable, S, D, F](h *host.Host[S, E, D, F], acts []ui.Act, frames bool) fails os.Exit needs io.Stdout {
+func play[E comparable, S, D, F](h mut host.Host[S, E, D, F], acts []ui.Act, frames bool) fails os.Exit needs io.Stdout {
 	let mut out = []string{}
 	for f in host.Take(h) {
 		out = out.Append(f)
@@ -86,7 +86,7 @@ func play[E comparable, S, D, F](h *host.Host[S, E, D, F], acts []ui.Act, frames
 
 // live runs h on the terminal in raw mode until Ctrl-C or the end of the
 // input.
-func live[E comparable, S, D, F](h *host.Host[S, E, D, F]) fails os.Exit needs io.Stdout | term.Terminal {
+func live[E comparable, S, D, F](h mut host.Host[S, E, D, F]) fails os.Exit needs io.Stdout | term.Terminal {
 	term.Raw() {
 		host.Run(h)
 	} catch {

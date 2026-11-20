@@ -7,7 +7,7 @@ import strings
 func isDigit(c byte) bool { c >= '0' && c <= '9' }
 
 // digitsAt says whether n decimal digits stand at offset i.
-func digitsAt(b *builder, i int, n int) bool {
+func digitsAt(b mut builder, i int, n int) bool {
 	if i+n > len(b.src) {
 		return false
 	}
@@ -20,7 +20,7 @@ func digitsAt(b *builder, i int, n int) bool {
 }
 
 // scalar reads a number, or a date or a time, at the next byte.
-func scalar(b *builder) Value fails Malformed {
+func scalar(b mut builder) Value fails Malformed {
 	if digitsAt(b, b.pos, 4) && b.pos+4 < len(b.src) && b.src[b.pos+4] == '-' {
 		return try moment(b)
 	}
@@ -46,7 +46,7 @@ func ofBase(c byte, base int) bool {
 
 // run is the end of the digits of base at offset i, with one underscore
 // at most between two digits, written without the underscores into out.
-func run(b *builder, i int, base int, out *strings.Builder) int fails Malformed {
+func run(b mut builder, i int, base int, out mut strings.Builder) int fails Malformed {
 	if i >= len(b.src) || !ofBase(b.src[i], base) {
 		return fail(b, i, "expected a digit, found "+found(b, i))
 	}
@@ -70,7 +70,7 @@ func run(b *builder, i int, base int, out *strings.Builder) int fails Malformed 
 }
 
 // numeral reads an integer or a float at the next byte.
-func numeral(b *builder) Value fails Malformed {
+func numeral(b mut builder) Value fails Malformed {
 	let start = b.pos
 	let mut i = start
 	let mut out = strings.NewBuilder()
@@ -147,7 +147,7 @@ func numeral(b *builder) Value fails Malformed {
 }
 
 // two is the number the two digits at offset i spell.
-func two(b *builder, i int) int { int(b.src[i]-'0')*10 + int(b.src[i+1]-'0') }
+func two(b mut builder, i int) int { int(b.src[i]-'0')*10 + int(b.src[i+1]-'0') }
 
 // leap says whether year is a leap year.
 func leap(year int) bool { year%4 == 0 && (year%100 != 0 || year%400 == 0) }
@@ -166,7 +166,7 @@ func days(year int, month int) int {
 
 // clock reads a time HH:MM:SS with an optional fraction at offset i into
 // out, and is the offset after it.
-func clock(b *builder, i int, out *strings.Builder) int fails Malformed {
+func clock(b mut builder, i int, out mut strings.Builder) int fails Malformed {
 	if !digitsAt(b, i, 2) || i+2 >= len(b.src) || b.src[i+2] != ':' || !digitsAt(b, i+3, 2) || i+5 >= len(b.src) || b.src[i+5] != ':' || !digitsAt(b, i+6, 2) {
 		return fail(b, i, "a time is HH:MM:SS")
 	}
@@ -188,7 +188,7 @@ func clock(b *builder, i int, out *strings.Builder) int fails Malformed {
 }
 
 // moment reads a date, a time or both at the next byte.
-func moment(b *builder) Value fails Malformed {
+func moment(b mut builder) Value fails Malformed {
 	let start = b.pos
 	let mut out = strings.NewBuilder()
 	if b.src[start+2] == ':' {
