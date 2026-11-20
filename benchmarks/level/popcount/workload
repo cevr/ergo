@@ -1,0 +1,8 @@
+# scripts/opcount: `level bench popcount N` counts the one bits of N words;
+# the cost of one word is the slope between the two sizes (U3 CPU-LEVEL).
+# Count it at GOAMD64=v1 and at GOAMD64=v3.
+unit word
+sizes 4096000 24576000
+args bench popcount {n}
+control benchmarks/level/testdata/control
+binary level

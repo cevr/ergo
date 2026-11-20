@@ -10,18 +10,30 @@ package lower
 // (ir_order.go), and Go checks the bounds at the expression's position.
 // The value rule's copy of the result is expr's, as for any value.
 //
-// A string keeps its reason until its proved-bounds forms (rt.StringAt,
-// rt.StringN) are built on the same kind (IR2's F4); an array, which Go
-// slices only as a place, keeps it too.
+// x[lo:hi] of a string (or a named type over one) is the same kind, Go's
+// substring, which the decoder takes (ergoir_slice.go; PORT-SLICE). The
+// emitter's proved-bounds forms (rt.StringAt, rt.StringN) read the
+// bounds facts its own walk gathers, which the IR has not: its substring
+// is the checked one, as its string index is. An array, which Go slices
+// only as a place and the decoder takes no operand of, keeps its reason.
 
 import (
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// sliceOf is the slice expression x of a slice.
+// sliceOf is the slice expression x of a slice or a string.
 func (b *irBuilder) sliceOf(x *syntax.SliceExpr, p irPos) *irExpr {
-	if _, ok := underEqual(b.l.info.Types[x.X]).(*check.Slice); !ok {
+	if e, ok := b.uncheckedCut(x, p); ok { // ir_bounds.go
+		return e
+	}
+	switch t := underEqual(b.l.info.Types[x.X]).(type) {
+	case *check.Slice:
+	case *check.Basic:
+		if t.Kind != check.String || x.Slice3 {
+			irNo("expression %T", x)
+		}
+	default:
 		irNo("expression %T", x)
 	}
 	idx := []syntax.Expr{x.Low, x.High}

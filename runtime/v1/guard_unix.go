@@ -1,5 +1,9 @@
 //go:build linux || darwin
 
+// The page form needs syscall.Mprotect, which Go's syscall package has on
+// linux and darwin only; every other platform takes the heap form
+// (guard_other.go).
+
 package v1
 
 import (

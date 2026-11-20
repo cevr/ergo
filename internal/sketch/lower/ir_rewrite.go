@@ -63,6 +63,8 @@ type funcRewrites struct {
 	// shipped ledger's evidence by package.
 	laws    []*check.Law
 	shipped map[*check.Package]*shippedEvidence
+	// fallible are the fallible laws unfoldAt places (ir_unfold.go).
+	fallible []*check.Law
 	// canarySites are the canary's site indexes by position: a lowering
 	// that runs again from the start (lowerAgain) meets a site again.
 	canarySites map[string]int

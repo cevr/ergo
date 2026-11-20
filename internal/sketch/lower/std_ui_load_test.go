@@ -863,7 +863,7 @@ type row { a string, b string, on bool }
 
 func cellRows(f *ui.Frame[int], keys []int) {
 	ui.Column(f, ui.Plain()) {
-		ui.Each(f, keys, func(k int) ui.Key { ui.ByInt(k) }) func(k int) {
+		ui.Each(f, keys, rowKey) func(k int) {
 			let a = ui.NewDraft(f, "")
 			ui.Field(f, a, "a")
 			ui.Text(f, a.Value)
@@ -878,6 +878,13 @@ func cellRows(f *ui.Frame[int], keys []int) {
 			}
 		}
 	}
+}
+
+func rowKey(k int) ui.Key {
+	if k%2 == 0 {
+		return ui.ByInt(k)
+	}
+	ui.ByText("k\(k)")
 }
 
 func cellShape(keys []int, rows Map[int, row]) []ui.Shape[int] {

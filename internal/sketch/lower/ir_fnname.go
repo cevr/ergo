@@ -57,7 +57,7 @@ func (b *irBuilder) funcName(f *check.Func, t check.Type, x syntax.Node, p irPos
 	env := b.temp("env", "*"+b.l.env(), p)
 	lit := &irExpr{K: "func", Pos: p, T: b.sigType(sig, x), Params: []int{env}}
 	var args []*irExpr
-	if !fd.pure {
+	if !fd.envFree {
 		args = append(args, &irExpr{K: "local", Pos: p, I: env})
 	}
 	for _, prm := range sig.Params {

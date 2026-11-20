@@ -297,8 +297,19 @@ func (l frLaw) model() frVerdict {
 	if len(lhsCalls) == 0 {
 		return frVerdict{"shape", "its left side calls no declared function"}
 	}
-	if len(rhsCalls) >= len(lhsCalls) {
-		return frVerdict{"fewer", fmt.Sprintf("its right side makes %d calls and its left side %d", len(rhsCalls), len(lhsCalls))}
+	// Rule 2 (LAWFFI LF2m): the pair (calls of Ergo bodies, calls),
+	// compared in order.
+	ergo := func(calls []*frExpr) int {
+		n := 0
+		for _, e := range calls {
+			if e.fn.ergo {
+				n++
+			}
+		}
+		return n
+	}
+	if le, re := ergo(lhsCalls), ergo(rhsCalls); re > le || re == le && len(rhsCalls) >= len(lhsCalls) {
+		return frVerdict{"fewer", fmt.Sprintf("its right side makes %d calls, %d of Ergo bodies, and its left side %d, %d of Ergo bodies", len(rhsCalls), re, len(lhsCalls), le)}
 	}
 	if l.where {
 		return frVerdict{"guard", "parameter " + l.params[0] + " takes a where"}
