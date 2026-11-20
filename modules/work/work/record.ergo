@@ -813,11 +813,12 @@ func Record(t Tool, tip string) LaneRecord fails NoBase | NoRevision | NoRecord 
 			roots = roots.Append(w.Path)
 		}
 	}
+	// The tip is named where the working folder is (HEAD is that
+	// checkout's), and that commit is looked for in each repository. A
+	// workspace whose checkout does not read is passed over.
 	let mut known = ""
 	for root in roots {
-		// A workspace whose checkout does not read is passed over: the
-		// tip is asked of the others.
-		let commit = t.vcs.Resolve(root, tip) catch {
+		let commit = t.vcs.Resolve(root, if known == "" { tip } else { known }) catch {
 		case NoRevision, VcsFailed:
 			continue
 		}

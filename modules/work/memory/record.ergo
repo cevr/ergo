@@ -91,6 +91,8 @@ test ReadyWritesTheRecord {
 	let stacked = try tool.Ready(work.ReadyOptions{Name: Some[string]{Value: "v"}, Request: None})
 	let s = try tool.Record(stacked.Commit)
 	assert s.On == []work.OnTip{work.OnTip{Unit: "w", Tip: handed.Commit, Landed: false}} && s.Intent == "" && s.Request.Sha256 == ""
+	// HEAD is the base's own (c0, never handed back), not a workspace's.
+	assert noRecord(tool, "HEAD") == "c0"
 }
 
 // noRecord is the tip NoRecord names for tip ("" for a record, else the
