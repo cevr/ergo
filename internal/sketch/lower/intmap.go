@@ -42,6 +42,9 @@ type intMapState struct {
 	// builder's reason, or "helper " and the emitter file that wrote Go's
 	// map operations (IRReport.MapConflicts).
 	why map[string]int
+	// fields are the generic record instances (typeKey) intMapFields has
+	// walked this round.
+	fields map[string]bool
 }
 
 // intKey reports a key type IntMap takes: a Go integer type.
@@ -127,6 +130,130 @@ func (l *lowerer) intMapConflict(t check.Type, why ...string) {
 		}
 	}
 	walk(t)
+}
+
+// intMapCall records a conflict for each int map that an operand or the
+// value of the call x of f carries, when f's Go signature spells Go's
+// map (goSpellsMap): a Map of a generic signature that names a type
+// parameter (the generic function, its known variant and its monomorphic
+// copy, mono.go, all write map[K]V, which an instance reads as map[int]V),
+// or any Map of a Go function's signature (host is true: the Go
+// boundary). The next round lowers those Map types as Go's map, so the
+// call keeps its IR body and passes the one Go type both sides spell
+// (INTMAP-CALL: modules/work memory/cloner.ergo's maps.GetOr(seen, …) on
+// a Map[int, bool] passed *IntMap to GetOrMono_i1(m map[int]bool, …)).
+func (l *lowerer) intMapCall(x *syntax.CallExpr, recv syntax.Expr, f *check.Func, host bool) {
+	if l.ir == nil || f == nil || f.Sig == nil || !goMapSig(f.Sig, host) {
+		return
+	}
+	const why = "call: a Go signature spells Go's map"
+	if recv != nil {
+		l.intMapConflict(l.info.Types[recv], why)
+	}
+	for _, a := range x.Args {
+		l.intMapConflict(l.info.Types[a], why)
+	}
+	l.intMapConflict(l.info.Types[x], why)
+}
+
+// goMapSig reports whether a parameter or result of sig spells Go's map
+// (goSpellsMap).
+func goMapSig(sig *check.Signature, host bool) bool {
+	for _, p := range sig.Params {
+		if goSpellsMap(p.Type, host) {
+			return true
+		}
+	}
+	for _, r := range sig.Results {
+		if goSpellsMap(r, host) {
+			return true
+		}
+	}
+	return false
+}
+
+// goSpellsMap reports whether t, a declared type that Go spells once for
+// every instance (a generic signature's parameter or result, a generic
+// record's field), holds Go's map: a Map that names a type parameter,
+// reached through slices, arrays, pointers, tuples, type arguments and
+// function types; with host, any Map (a Go function's signature: the Go
+// boundary). The one predicate of the int map choice's declared-type
+// conflicts: intMapCall's (INTMAP-CALL) and intMapFields' (KMEANS-LAW).
+func goSpellsMap(t check.Type, host bool) bool {
+	seen := map[check.Type]bool{}
+	var has func(t check.Type) bool
+	has = func(t check.Type) bool {
+		if t == nil || seen[t] {
+			return false
+		}
+		seen[t] = true
+		switch t := t.(type) {
+		case *check.Map:
+			return host || mentionsTypeParam(t) || has(t.Key) || has(t.Elem)
+		case *check.Slice:
+			return has(t.Elem)
+		case *check.Array:
+			return has(t.Elem)
+		case *check.Pointer:
+			return has(t.Elem)
+		case *check.Tuple:
+			for _, e := range t.Types {
+				if has(e) {
+					return true
+				}
+			}
+		case *check.Named:
+			for _, a := range t.TArgs {
+				if has(a) {
+					return true
+				}
+			}
+		case *check.Signature:
+			for _, p := range t.Params {
+				if has(p.Type) {
+					return true
+				}
+			}
+			for _, r := range t.Results {
+				if has(r) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	return has(t)
+}
+
+// intMapFields records a conflict for each int map that an instance t of
+// a generic record holds through a field whose declared type spells Go's
+// map (goSpellsMap): the record's Go type is declared once, over its
+// parameters, so that field is Go's map in every instance (intMap), and
+// an instance's Map type must be Go's map too wherever the program uses
+// it (a copy of the record, KMEANS-LAW's std/jobs; a read of the field).
+// goType calls it for each instance it writes.
+func (l *lowerer) intMapFields(t *check.Named) {
+	if l.ir == nil || t.Orig == nil || len(t.TArgs) == 0 {
+		return
+	}
+	key := l.typeKey(t)
+	if l.ir.maps.fields[key] {
+		return
+	}
+	if l.ir.maps.fields == nil {
+		l.ir.maps.fields = map[string]bool{}
+	}
+	l.ir.maps.fields[key] = true
+	inst, ok := t.Underlying().(*check.Struct)
+	orig, ok2 := t.Orig.Underlying().(*check.Struct)
+	if !ok || !ok2 || len(inst.Fields) != len(orig.Fields) {
+		return
+	}
+	for i, f := range orig.Fields {
+		if goSpellsMap(f.Type, false) {
+			l.intMapConflict(inst.Fields[i].Type, "generic record field")
+		}
+	}
 }
 
 // intMapBody records a conflict for each int map that a node of decl

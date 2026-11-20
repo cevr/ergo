@@ -237,9 +237,9 @@ func (fc *funcCtx) assigned(x syntax.Expr) string {
 func (fc *funcCtx) convertAt(x syntax.Expr, val string) string {
 	conv, ok := fc.l.info.Implicit[x]
 	if !ok {
-		return val
+		return fc.rowWrite(x, val) // rowgap.go
 	}
-	return fc.convert(conv, val, x)
+	return fc.rowWrite(x, fc.convert(conv, val, x)) // rowgap.go
 }
 
 // elemAt applies the implicit conversion of element i of x, a value that a
@@ -336,39 +336,34 @@ func (fc *funcCtx) narrowFunc(conv check.Conversion, val string, site syntax.Nod
 	if !ok || !ok2 || len(from.Params) != len(to.Params) {
 		ice(site, "a narrowing conversion of %s to %s", conv.From, conv.To)
 	}
-	f := fc.scope.alloc("f")
-	inner := fc.envClosure(callerEnv, "e", site, func(env string) (params []string, results, body string) {
-		args := []string{env}
-		for i, p := range to.Params {
-			name := fc.scope.alloc("p")
-			params = append(params, name+" "+fc.goType(p.Type))
-			arg := name
-			if u, isRow := p.Type.(*check.Union); isRow && u.Row != nil {
-				if fu, same := from.Params[i].Type.(*check.Union); !same || fu.Row == nil {
-					arg = name + ".(" + fc.goType(from.Params[i].Type) + ")"
-				}
+	var asserts []int
+	for i, p := range to.Params {
+		if u, isRow := p.Type.(*check.Union); isRow && u.Row != nil {
+			if fu, same := from.Params[i].Type.(*check.Union); !same || fu.Row == nil {
+				asserts = append(asserts, i)
 			}
-			args = append(args, arg)
 		}
-		var result check.Type
-		if len(to.Results) == 1 {
-			result = to.Results[0]
-		}
-		return params, fc.valueResults(result), strings.Repeat("\t", fc.depth+1) + "return " + f + "(" + strings.Join(args, ", ") + ")\n"
-	})
-	return "func(" + f + " " + fc.goType(conv.From) + ") " + fc.goType(conv.To) + " { return " + inner + " }(" + val + ")"
+	}
+	return fc.rowFunc(from, to, fc.goType(conv.From), fc.goType(conv.To), asserts, val, site) // rowgap.go
 }
 
 // expr lowers x; in a statement header, a composite literal value is
-// parenthesized (header.go).
+// parenthesized (header.go). A declaration's place that x reads is read as
+// x's type holds it (rowRead, rowgap.go).
 func (fc *funcCtx) expr(x syntax.Expr) operand {
 	if v, ok := fc.preset[x]; ok {
 		return operand{val: v} // evaluated once already (uigroup.go)
 	}
+	var o operand
 	if fc.l.info.TryCovers[x] != nil {
-		return fc.covered(x)
+		o = fc.covered(x)
+	} else {
+		o = fc.expr1(x)
 	}
-	return fc.expr1(x)
+	if o.val != "" {
+		o.val = fc.rowRead(x, o.val)
+	}
+	return o
 }
 
 // covered lowers x, the right operand that a try in operand position on

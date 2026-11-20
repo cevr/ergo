@@ -40,6 +40,7 @@ var builtinRules = []*Rule{
 	narrationComment, commentedCode,
 	snapshotArgument, repeatedTraversal, quadraticScan, concatInLoop, largeValueCopy,
 	addedClone, scatteredEdit,
+	selfAssignment, signDecided, wireKeyQuote,
 }
 
 // builtinPresets are the built-in presets over builtinRules.
@@ -64,13 +65,14 @@ func builtinPresets() []Preset {
 		},
 		{
 			Name: Strict,
-			Doc:  "Complexity caps (cognitive and cyclomatic 21, Halstead difficulty 79), style (known-value widening, banned words) and dead or duplicate code: unused declarations and type parameters, duplicate tests and shapes, identical arms, unbuilt variants; and needless indirection: forwarding functions, lone providers, mode parameters, stringly state, a literal that is a method value; tests that wait by letting time pass; and defensive code: defaults on any failure, repeated pure calls, guards a refined type proves, and the same guard in three functions; and the anti-slop family: a dropped cause, a failure returned as a value, a test that cannot fail, parameter clumps, constant arguments and long parameter lists.",
+			Doc:  "Complexity caps (cognitive and cyclomatic 21, Halstead difficulty 79), style (known-value widening, banned words) and dead or duplicate code: unused declarations and type parameters, duplicate tests and shapes, identical arms, unbuilt variants; and needless indirection: forwarding functions, lone providers, mode parameters, stringly state, a literal that is a method value; tests that wait by letting time pass; and defensive code: defaults on any failure, repeated pure calls, guards a refined type proves, and the same guard in three functions; and the anti-slop family: a dropped cause, a failure returned as a value, a test that cannot fail, parameter clumps, constant arguments and long parameter lists; and the vet rules: a self-assignment, a comparison its sign decides, a wire key written as a Go struct tag.",
 			Rules: on(cognitiveComplexity, cyclomaticComplexity, halsteadDifficulty, knownValueWidening, bannedWords,
 				unusedDeclaration, unusedTypeParameter, duplicateTest, duplicateShape, identicalArms, unbuiltVariant,
 				forwardingFunc, loneProvider, modeParameter, stringlyState, etaMethodValue, testWaitsOnTime,
 				defaultOnFailure, repeatedPureCall, guardTheTypeProves, repeatedGuard,
 				causeDropped, failureAsVariant, vacuousTest, parameterClump, constantArgument, longParameterList,
-				derivedField, optionFollowsVariant, constantRestated, repeatedCase),
+				derivedField, optionFollowsVariant, constantRestated, repeatedCase,
+				selfAssignment, signDecided, wireKeyQuote),
 		},
 		{
 			Name:  Layout,

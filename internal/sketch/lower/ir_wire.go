@@ -45,6 +45,12 @@ func (st *irState) codecText(name, reason string) {
 		st.report.CodecText = map[string]int{}
 	}
 	st.report.CodecText[name+"\t"+reason]++
+	if st.census != nil {
+		// A census counts the function as a body that is not lowered
+		// (PORT-WIRE-READERS step 0), keyed by its Go name: the same
+		// function in two targets is one function (IRCensusFunc.Codec).
+		st.census.Funcs = append(st.census.Funcs, IRCensusFunc{Pkg: "codec", Name: name, Codec: true, Reasons: []string{reason}})
+	}
 }
 
 // wireIRLowering selects the codec writers' form on the IR path: "" (an
@@ -106,7 +112,8 @@ func (st *irState) wireCell(l *lowerer, name string, t check.Type, em wireEvents
 	scope := newNamer(params)
 	fc := newFuncCtx(l, scope, false)
 	fc.site = site
-	b := &irBuilder{fc: fc, l: l, st: st, locals: map[*check.Var]int{}, env: 0, next: 3, fn: &irFunc{Name: name}, names: scope}
+	b := st.newBuilder(fc, nil) // a codec cell: no source statements
+	b.env, b.next, b.fn, b.names = 0, 3, &irFunc{Name: name}, scope
 	keep := st.keep
 	files := len(st.out.Files)
 	g := &wireGen{b: b, cw: cw, em: em, site: site, env: 0, wv: 1}

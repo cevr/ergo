@@ -17,7 +17,7 @@ import (
 // Credo suggest for the eta form.
 var etaMethodValue = &Rule{
 	Name:    "eta-method-value",
-	Code:    "L159",
+	Code:    "L162",
 	Doc:     "A function literal that only calls r.f with its parameters, in order, where r is a parameter or a let, is the method value r.f; write r.f.",
 	Instead: "write the method value r.f",
 	Default: Hint,

@@ -69,6 +69,8 @@ var (
 	_ = declarePrograms("TestStdTzIanaLawsRun", testBuildProgram("stdtziana", stdIanaLawsProbe))
 	_ = declarePrograms("TestHostAuthorityRuns", entryProgram("hostAuthority", hostAuthorityProgram))
 	_ = declarePrograms("TestStdCacheLawsRun", testBuildProgram("stdcache", stdCacheLawsProbe))
+	_ = declarePrograms("TestStdXmlLawsRun", testBuildProgram("stdxml", stdXmlLawsProbe))
+	_ = declarePrograms("TestStdXmlRowsRun", testBuildProgram("stdxmlrows", stdXmlRowsProbe))
 	_ = declarePrograms("TestStdLogLawsRun", testBuildProgram("stdlog", stdLogLawsProbe))
 	_ = declarePrograms("TestStdStreamLawsRun", testBuildProgram("stdstream", stdStreamLawsProbe))
 	_ = declarePrograms("TestStdLogMatchesSlog", entryProgram("logSlog", logSlogProgram))

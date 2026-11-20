@@ -277,6 +277,7 @@ func (e *encoder) encFieldsContextDecl(v *ContextDecl) {
 	e.encPos(v.Context)
 	e.encPtrIdent(v.Name)
 	e.encPtrProvidesClause(v.Provides)
+	e.encPtrErrorRow(v.Fails)
 	e.encPtrNeedsClause(v.Needs)
 	e.encPtrContextBody(v.Body)
 }
@@ -314,6 +315,7 @@ func (e *encoder) encPtrContextEntry(v *ContextEntry) {
 func (e *encoder) encFieldsContextLit(v *ContextLit) {
 	e.encPos(v.Context)
 	e.encPtrProvidesClause(v.Provides)
+	e.encPtrErrorRow(v.Fails)
 	e.encPtrNeedsClause(v.Needs)
 	e.encPtrContextBody(v.Body)
 }
@@ -2043,6 +2045,7 @@ func (d *decoder) decFieldsContextDecl(v *ContextDecl) {
 	v.Context = d.decPos()
 	v.Name = d.decPtrIdent()
 	v.Provides = d.decPtrProvidesClause()
+	v.Fails = d.decPtrErrorRow()
 	v.Needs = d.decPtrNeedsClause()
 	v.Body = d.decPtrContextBody()
 }
@@ -2086,6 +2089,7 @@ func (d *decoder) decPtrContextEntry() *ContextEntry {
 func (d *decoder) decFieldsContextLit(v *ContextLit) {
 	v.Context = d.decPos()
 	v.Provides = d.decPtrProvidesClause()
+	v.Fails = d.decPtrErrorRow()
 	v.Needs = d.decPtrNeedsClause()
 	v.Body = d.decPtrContextBody()
 }

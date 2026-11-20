@@ -3,6 +3,7 @@ package irspike
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
@@ -56,11 +57,11 @@ func main() needs Console {
 `
 
 // TestLentCursorBuilds: a program that lends its own sealed Cursor to
-// decode[T] as the prelude's Reader builds on the IR path and prints what
-// the source path prints (XML-ATTR: the IR's check wants the Reader's own
-// type, so that codec call keeps its text body). Mutant:
-// ir-codec-iface-passed (the call takes the IR with the Cursor as it is:
-// the IR build fails).
+// decode[T] as the prelude's Reader builds on the IR path, load has an IR
+// body (IFACE-CONV: the Cursor is converted to the Reader, ergoir's
+// toiface of an interface; XML-ATTR kept it text), and it prints what the
+// source path prints. Mutant: ir-codec-iface-unconverted (the call takes
+// the IR with the Cursor as it is: the IR build fails).
 //
 // It builds Go because the failure under test is the IR compiler's check
 // of the IR body, which only a build runs.
@@ -75,9 +76,12 @@ func TestLentCursorBuilds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sb, ib, _ := both(t, u, src, ir, dir, BuildOptions{})
+	sb, ib, rep := both(t, u, src, ir, dir, BuildOptions{})
 	a, b := run(t, sb), run(t, ib)
 	if a != b || a.stdout != "3 a\n" {
 		t.Fatalf("source %+v, ir %+v, want both to print \"3 a\"", a, b)
+	}
+	if !slices.Contains(rep.IR, "load") {
+		t.Errorf("load has no IR body (IR bodies: %v; fallback: %v)", rep.IR, rep.Fallback)
 	}
 }

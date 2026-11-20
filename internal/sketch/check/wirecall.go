@@ -499,6 +499,11 @@ func (c *checker) wireRow(t Type) *Row {
 			row = row.union(c.types, c.types.resolve(c.funcSig(p.Parse).Errors))
 			return
 		}
+		if f := c.wireReadFunc(t); f != nil {
+			// X's own read (types.md, Codecs 11): its row joins the
+			// decode's, and X's ordinary form below reads other readers.
+			row = row.union(c.types, c.types.resolve(c.funcSig(f).Errors))
+		}
 		switch u := under(t).(type) {
 		case *Struct:
 			if len(u.Fields) > 0 {

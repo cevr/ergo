@@ -50,7 +50,7 @@ type View =
 		Type       dense.ID[Node],
 		Body       dense.Opt[Node],
 	}
-	| ContextDecl{Doc int, Let int, Context int, Name dense.ID[Node], Provides dense.Opt[Node], Needs dense.Opt[Node], Body dense.ID[Node]}
+	| ContextDecl{Doc int, Let int, Context int, Name dense.ID[Node], Provides dense.Opt[Node], Fails dense.Opt[Node], Needs dense.Opt[Node], Body dense.ID[Node]}
 	| TestDecl{Doc int, Test int, Name dense.ID[Node], Params dense.Opt[Node], Body dense.ID[Node]}
 	| LawDecl{
 		Doc        int,
@@ -106,7 +106,7 @@ type View =
 	| BinaryExpr{X dense.ID[Node], Op int, Y dense.ID[Node]}
 	| TryExpr{Try int, X dense.ID[Node]}
 	| CatchExpr{X dense.ID[Node], Catch int, Arms List, Rbrace int}
-	| ContextLit{Context int, Provides dense.Opt[Node], Needs dense.Opt[Node], Body dense.ID[Node]}
+	| ContextLit{Context int, Provides dense.Opt[Node], Fails dense.Opt[Node], Needs dense.Opt[Node], Body dense.ID[Node]}
 	| ArrayType{Lbrack int, Len int, Elt dense.ID[Node]}
 	| MapType{X dense.ID[Node], Lbrack int, Key dense.ID[Node], Value dense.ID[Node], Rbrack int}
 	| FuncType{
@@ -411,7 +411,7 @@ func Put(t mut Tree, v View) dense.ID[Node] {
 	case FuncDecl as x:
 		mkFuncDecl(t, m, wtok(x.Doc), wopt(x.Extern), x.Func, wopt(x.Recv), wid(x.Name), wopt(x.TypeParams), wid(x.Type), wopt(x.Body))
 	case ContextDecl as x:
-		mkContextDecl(t, m, wtok(x.Doc), x.Let, x.Context, wid(x.Name), wopt(x.Provides), wopt(x.Needs), wid(x.Body))
+		mkContextDecl(t, m, wtok(x.Doc), x.Let, x.Context, wid(x.Name), wopt(x.Provides), wopt(x.Fails), wopt(x.Needs), wid(x.Body))
 	case TestDecl as x:
 		mkTestDecl(t, m, wtok(x.Doc), x.Test, wid(x.Name), wopt(x.Params), wid(x.Body))
 	case LawDecl as x:
@@ -489,7 +489,7 @@ func Put(t mut Tree, v View) dense.ID[Node] {
 		pushList(t, x.Arms)
 		mkCatch(t, m, wid(x.X), x.Catch, x.Rbrace)
 	case ContextLit as x:
-		mkContextLit(t, m, x.Context, wopt(x.Provides), wopt(x.Needs), wid(x.Body))
+		mkContextLit(t, m, x.Context, wopt(x.Provides), wopt(x.Fails), wopt(x.Needs), wid(x.Body))
 	case ArrayType as x:
 		row(t, KArrayType, uint32(x.Lbrack), wid(x.Elt), wtok(x.Len))
 	case MapType as x:
@@ -602,11 +602,12 @@ func mkFuncDecl(t mut Tree, m int, doc uint32, ext uint32, fn int, recv uint32, 
 	rec(t, KFuncDecl, uint32(fn), m)
 }
 
-func mkContextDecl(t mut Tree, m int, doc uint32, letTok int, contextW int, name uint32, providesW uint32, needsW uint32, body uint32) uint32 {
+func mkContextDecl(t mut Tree, m int, doc uint32, letTok int, contextW int, name uint32, providesW uint32, failsW uint32, needsW uint32, body uint32) uint32 {
 	pushW(t, doc)
 	pushW(t, uint32(contextW))
 	pushW(t, name)
 	pushW(t, providesW)
+	pushW(t, failsW)
 	pushW(t, needsW)
 	pushW(t, body)
 	rec(t, KContextDecl, uint32(letTok), m)
@@ -730,8 +731,9 @@ func mkCatch(t mut Tree, m int, x uint32, catchW int, rbrace int) uint32 {
 	rec(t, KCatchExpr, uint32(catchW), m)
 }
 
-func mkContextLit(t mut Tree, m int, contextW int, providesW uint32, needsW uint32, body uint32) uint32 {
+func mkContextLit(t mut Tree, m int, contextW int, providesW uint32, failsW uint32, needsW uint32, body uint32) uint32 {
 	pushW(t, providesW)
+	pushW(t, failsW)
 	pushW(t, needsW)
 	pushW(t, body)
 	rec(t, KContextLit, uint32(contextW), m)

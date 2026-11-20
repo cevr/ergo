@@ -8,8 +8,8 @@
 
 import api
 import json
-import rpc
 import mcp
+import rpc
 import mcpbench/counter
 import mcpbench/counter/counterapi
 

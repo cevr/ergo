@@ -27,7 +27,7 @@ func TestIROmittableMatchSource(t *testing.T) {
 func cellCodecText(rep lower.IRReport) string {
 	var kept []string
 	for k := range rep.CodecText {
-		if strings.HasSuffix(k, "\tcodec writer on the reference Writer") || strings.HasSuffix(k, "\tcodec writer on a direct writer that is no cell") || strings.HasSuffix(k, "\tcodec reader") {
+		if strings.HasSuffix(k, "\tcodec writer on the reference Writer") || strings.HasSuffix(k, "\tcodec writer on a direct writer that is no cell") || strings.Contains(k, "\tcodec reader: ") {
 			continue
 		}
 		kept = append(kept, strings.ReplaceAll(k, "\t", ": "))
