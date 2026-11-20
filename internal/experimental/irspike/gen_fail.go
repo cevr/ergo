@@ -326,6 +326,8 @@ func (g *fgen) arm(in, e string, unit bool) string {
 	case unit && slices.Contains(g.cur.needs, "Console"):
 		return fmt.Sprintf("%s\tcase %s:\n%s\t\tConsole.Println(\"%s caught %s\")\n", in, e, in, g.cur.name, e)
 	case unit:
+		// A unit arm that calls: pick's result is bound, as check S110
+		// asks of a call whose value is otherwise unused.
 		return fmt.Sprintf("%s\tcase %s:\n%s\t\tlet _ = pick(1, 2)\n", in, e, in)
 	case g.n(2) == 0 && e == "E1":
 		return fmt.Sprintf("%s\tcase E1 as x:\n%s\t\tx.Code + %s\n", in, in, val)

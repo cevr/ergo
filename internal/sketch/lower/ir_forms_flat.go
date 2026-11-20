@@ -605,7 +605,17 @@ func (st *irState) flatEnd(l *lowerer, code []byte) []byte {
 	sort.Slice(fls, func(i, j int) bool { return fls[i].worker < fls[j].worker })
 	src := string(code)
 	for _, fl := range fls {
-		head, params, ok := flatHead(src, fl)
+		// The out parameter's name is none of the worker body's locals:
+		// a library's Go text (LibraryText) declares them by name.
+		var locals []string
+		for _, fn := range st.out.Funcs {
+			if fn.Name == fl.worker {
+				for _, lc := range fn.Locals {
+					locals = append(locals, lc.Name)
+				}
+			}
+		}
+		head, params, ok := flatHead(src, fl, locals)
 		if !ok {
 			ice(fl.f.Decl, "the flat function %s has no Go head %s in main.go", fl.f.Name, fl.name)
 		}
@@ -619,8 +629,9 @@ func (st *irState) flatEnd(l *lowerer, code []byte) []byte {
 }
 
 // flatHead is the worker's Go head, written from the wrapper's in src,
-// and the wrapper's parameter names.
-func flatHead(src string, fl *flatRes) (string, map[string]bool, bool) {
+// and the names taken: the wrapper's parameters, the worker's locals and
+// the out parameter.
+func flatHead(src string, fl *flatRes, locals []string) (string, map[string]bool, bool) {
 	re := regexp.MustCompile(`(?m)^(/\*line [^\n]*?\*/)?func ` + regexp.QuoteMeta(fl.name) + `\(.*$`)
 	line := re.FindString(src)
 	if line == "" {
@@ -644,6 +655,9 @@ func flatHead(src string, fl *flatRes) (string, map[string]bool, bool) {
 		for _, n := range f.Names {
 			names[n.Name] = true
 		}
+	}
+	for _, n := range locals {
+		names[n] = true
 	}
 	out := freeName("out", names)
 	params := strings.TrimSpace(text[from+1 : to])
