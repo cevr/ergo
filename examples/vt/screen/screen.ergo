@@ -39,6 +39,7 @@ type Screen {
 	title     string,
 	styles    dense.Counted[vt.Style],
 	grown     int,
+	recounts  int,
 } implements vt.Screen
 
 // New is a blank screen of config's size: at least 1 row and 2 columns.
@@ -66,6 +67,7 @@ func New(config vt.Config) Screen {
 		title:     "",
 		styles:    dense.NewCounted[vt.Style](),
 		grown:     0,
+		recounts:  0,
 	}
 	s.grow(rows)
 	for _ in 0..active {
@@ -114,6 +116,10 @@ func Pages(s *Screen) int { (len(s.flags) - s.rows) / vt.PageRows }
 // Grown is the count of cells the screen has made.
 func Grown(s *Screen) int { s.grown }
 
+// Recounts is the count of updates Print and clearRow made to the
+// holder counts of the styles: the work guard of their runs.
+func Recounts(s *Screen) int { s.recounts }
+
 // slotRow is the row index, in flags, of ring line n.
 func slotRow(s *Screen, n int) int { s.rows + n%s.ringLines }
 
@@ -146,13 +152,24 @@ func set(s *Screen, ri int, i int, c Cell) {
 }
 
 // clearRow blanks row index ri, releasing its styles, and clears its
-// flags.
+// flags. A styled row is released a run of cells of one style at a time.
 func clearRow(s *Screen, ri int) {
 	let at = ri * s.cols
 	if s.flags[ri]&flagStyled != 0 {
-		for i in at..at+s.cols {
-			release(&s.styles, s.cells[i].style)
-			s.cells[i] = Blank
+		let end = at + s.cols
+		let mut i = at
+		for i < end {
+			let st = s.cells[i].style
+			let mut j = i
+			for j < end && s.cells[j].style == st {
+				s.cells[j] = Blank
+				j += 1
+			}
+			if st != noStyle {
+				releaseN(&s.styles, st, j-i)
+				s.recounts += 1
+			}
+			i = j
 		}
 	} else {
 		for i in at..at+s.cols {
@@ -199,14 +216,26 @@ func Print(s *Screen, run string) {
 		s.split(ri, col, col+k)
 		let at = ri*s.cols + col
 		let id = s.penID
-		for j in 0..k {
-			let c = Cell{bits: uint32(run[i+j]), style: id}
+		// A run of cells of one old style is recounted once: the old
+		// style released, and the pen's style retained once for all.
+		let mut taken = 0
+		let mut j = 0
+		for j < k {
 			let old = s.cells[at+j].style
-			if old != id {
-				retain(&s.styles, id)
-				release(&s.styles, old)
+			let mut e = j
+			for e < k && s.cells[at+e].style == old {
+				s.cells[at+e] = Cell{bits: uint32(run[i+e]), style: id}
+				e += 1
 			}
-			s.cells[at+j] = c
+			if old != id {
+				releaseN(&s.styles, old, e-j)
+				taken += e - j
+				s.recounts += 1
+			}
+			j = e
+		}
+		if taken > 0 {
+			retainN(&s.styles, id, taken)
 		}
 		if id != noStyle {
 			s.flags[ri] = s.flags[ri] | flagStyled

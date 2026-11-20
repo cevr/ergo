@@ -124,7 +124,8 @@ func (e MathOutOfRange) Error() string {
 	return "math.OutOfRange{Value:" + strconv.FormatFloat(e.Value, 'g', -1, 64) + "}"
 }
 
-// The checked forms (std math.ToInt, ToInt8 … ToUintptr): each is f
+// The checked forms of the narrow widths (std math.ToInt8 … ToUint32;
+// the wider ones are Ergo, NP4f-16): each is f
 // toward zero when the result fits the type, and MathOutOfRange for NaN,
 // an infinity or a value out of range, where the conversion saturates.
 // Each guards one Go conversion with the open interval in which the
@@ -133,17 +134,6 @@ func (e MathOutOfRange) Error() string {
 // itself the least value, so the lower compare is >=. NaN fails both
 // compares. A pure body names no other top-level function, so each width
 // spells out its compares.
-
-// MathToInt is std math.ToInt, the checked form of int(f).
-//
-//ergo:pure
-//ergo:wait none
-func MathToInt(f float64) (int, error) {
-	if f >= -0x1p63 && f < 0x1p63 {
-		return int(f), nil
-	}
-	return 0, MathOutOfRange{Value: f}
-}
 
 // MathToInt8 is std math.ToInt8, the checked form of int8(f).
 //
@@ -178,28 +168,6 @@ func MathToInt32(f float64) (int32, error) {
 	return 0, MathOutOfRange{Value: f}
 }
 
-// MathToInt64 is std math.ToInt64, the checked form of int64(f).
-//
-//ergo:pure
-//ergo:wait none
-func MathToInt64(f float64) (int64, error) {
-	if f >= -0x1p63 && f < 0x1p63 {
-		return int64(f), nil
-	}
-	return 0, MathOutOfRange{Value: f}
-}
-
-// MathToUint is std math.ToUint, the checked form of uint(f).
-//
-//ergo:pure
-//ergo:wait none
-func MathToUint(f float64) (uint, error) {
-	if f > -1 && f < 0x1p64 {
-		return uint(f), nil
-	}
-	return 0, MathOutOfRange{Value: f}
-}
-
 // MathToUint8 is std math.ToUint8, the checked form of uint8(f).
 //
 //ergo:pure
@@ -229,28 +197,6 @@ func MathToUint16(f float64) (uint16, error) {
 func MathToUint32(f float64) (uint32, error) {
 	if f > -1 && f < 4294967296 {
 		return uint32(f), nil
-	}
-	return 0, MathOutOfRange{Value: f}
-}
-
-// MathToUint64 is std math.ToUint64, the checked form of uint64(f).
-//
-//ergo:pure
-//ergo:wait none
-func MathToUint64(f float64) (uint64, error) {
-	if f > -1 && f < 0x1p64 {
-		return uint64(f), nil
-	}
-	return 0, MathOutOfRange{Value: f}
-}
-
-// MathToUintptr is std math.ToUintptr, the checked form of uintptr(f).
-//
-//ergo:pure
-//ergo:wait none
-func MathToUintptr(f float64) (uintptr, error) {
-	if f > -1 && f < 0x1p64 {
-		return uintptr(f), nil
 	}
 	return 0, MathOutOfRange{Value: f}
 }

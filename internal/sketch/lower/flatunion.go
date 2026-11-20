@@ -1237,7 +1237,7 @@ func (l *lowerer) variantNamer(b interface{ WriteString(string) (int, error) }, 
 	}
 	names := make([]string, len(fu.variants))
 	for k, v := range fu.variants {
-		name, ok := l.variantName(tc.goType(v))
+		name, ok := l.ergoVariantName(tc.goType(v))
 		if !ok {
 			ice(td.tn.Decl.Name, "the flat union %s has the variant %s, whose Go type the lowering cannot name", td.tn.Name, v.Obj.Name)
 		}

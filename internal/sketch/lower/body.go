@@ -206,7 +206,12 @@ type funcCtx struct {
 	// lowered, until its inlined call takes it (knownmatch.go).
 	pendingKnown *knownMatch
 	lits         map[*check.Var]*litSub
-	inlined      *operand
+	// argOf is an inlined body's operand for each parameter, as the caller
+	// wrote it (seen through the caller's own inlined parameters): a rule
+	// that needs the operand's syntax, a literal or a constant, reads it
+	// through the parameter (argSource; repeat.go).
+	argOf   map[*check.Var]syntax.Expr
+	inlined *operand
 	// hot marks an inlined body whose site is on a loop path (inline.go,
 	// onLoopPath): its own sites run once per iteration too.
 	hot bool
@@ -249,6 +254,9 @@ type funcCtx struct {
 	path []*growthAcct
 	// bounds are the facts in force at the code being written (bounds.go).
 	bounds []*boundFact
+	// factLocal reports a local of the IR builder's body (ir_bounds.go),
+	// which stable takes as it takes the emitter's locals; nil outside one.
+	factLocal func(*check.Var) bool
 }
 
 func newFuncCtx(l *lowerer, scope *namer, directives bool) *funcCtx {

@@ -12,7 +12,11 @@ import (
 // Go is built). The law DecEnc is `Dec(Enc(s)) == s`; F's body is the
 // site, H's site has an operand that is a call (Read), G's site is inside
 // AsWritten; PickDrops's right side drops its operand b, so P's Read is
-// still evaluated, once, though no side reads it.
+// still evaluated, once, though no side reads it. Pick and Id read their
+// operand (a[:len(a)]): a call that only moves its operands is computed
+// at build time by CF2's template (ir_template.go), which runs before the
+// rewrite pass, so P and M would hold no site (the red of 0b9985881's
+// merge; M's IdId then hid lf6p-right-side-not-walked).
 //
 //   - Run build, the laws validated by a named run: F and H call no Enc;
 //     H calls Read once; P calls no Pick and Read once. G calls Enc, and
@@ -51,7 +55,7 @@ func G(t string) string { AsWritten(Dec(Enc(t))) }
 
 func H(t string) string { Dec(Enc(Read(t))) }
 
-func Pick(a string, b string) string { a }
+func Pick(a string, b string) string { a[:len(a)] }
 
 law PickDrops(a string, b string) { Pick(Enc(a), b) } == { Enc(a) }
 
@@ -71,7 +75,7 @@ law HalfDbl(x float64) { Half(Dbl(x)) } == { x }
 
 func R(x float64) float64 { Half(Dbl(x)) }
 
-func Id(s string) string { s }
+func Id(s string) string { s[:len(s)] }
 
 law IdId(s string) { Id(Id(Id(s))) } == { Dec(Enc(s)) }
 

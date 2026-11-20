@@ -791,7 +791,7 @@ func (s *httpServer) serveConn(c *httpConn, l *engineListener) {
 		c.enter(phaseFree)
 		in := httpIncoming{Method: req.method, Path: req.path, RawPath: req.rawPath, Header: req.fields}
 		if req.rawQuery != "" {
-			in.Query = HTTPParseQuery(req.rawQuery)
+			in.Query = httpParseQuery(req.rawQuery)
 		}
 		w := &e.resp
 		w.reset(e, req.method == "HEAD", req.wantsClose, req.contentLength > 0)
