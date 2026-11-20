@@ -6,18 +6,21 @@
 //
 //	go run ./scripts/linked
 //
-// The ergo binary parses with the linked compiler/syntax, so a change of
-// its node layout (syntax.ColumnsVersion) is bootstrapped in two stages:
+// The ergo binary parses with the linked compiler/syntax, so a tree the
+// linked parser cannot read is bootstrapped in two stages:
 //
 //	go run ./scripts/linked -bootstrap
 //
-// Stage 1 regenerates with the linked parser one layout behind, which the
-// decoder still reads (syntax.PreviousColumnsVersion). A std or compiler
-// line in new syntax that parser refuses is held back for stage 1 only:
-// it is commented out on disk, and put back when stage 1 ends. Stage 2
-// then regenerates with the parser stage 1 wrote. Without -bootstrap, a
-// linked parser one layout behind is refused with this instruction, never
-// decoded at the wrong width.
+// The tree needs it when the linked parser cannot parse it: its node
+// layout is one behind this tree's (syntax.PreviousColumnsVersion, which
+// the decoder still reads), or it refuses a line of the std or compiler
+// sources the linked packages read (new syntax on the same layout, such
+// as a new token). Stage 1 regenerates with the linked parser, each line
+// it refuses held back: commented out on disk, and put back when stage 1
+// ends. Stage 2 then regenerates with the parser stage 1 wrote. -bootstrap
+// on a tree the linked parser reads regenerates once. Without -bootstrap,
+// a tree that needs two stages is refused with this instruction: never
+// decoded at the wrong width, never regenerated without its new syntax.
 package main
 
 import (
@@ -25,9 +28,11 @@ import (
 	"flag"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"ergo.local/prototype/internal/linked"
@@ -60,17 +65,43 @@ func run() error {
 		return err
 	}
 	behind := layout == syntax.PreviousColumnsVersion
-	switch {
-	case layout != syntax.ColumnsVersion && !behind:
+	if layout != syntax.ColumnsVersion && !behind {
 		return &syntax.LayoutError{Linked: layout}
-	case behind && *bootstrap:
-		return twoStages(root)
-	case behind && !*stage1:
-		return fmt.Errorf("the linked parser writes node layout %d and this tree's compiler/syntax layout %d: a layout change is bootstrapped in two stages: go run ./scripts/linked -bootstrap", layout, syntax.ColumnsVersion)
-	case !behind && *bootstrap:
-		fmt.Fprintln(os.Stderr, "linked: the linked parser already writes this tree's layout; regenerating once")
+	}
+	held, err := refused(root)
+	if err != nil {
+		return err
+	}
+	two, err := stages(layout, held, *bootstrap, *stage1)
+	if err != nil {
+		return err
+	}
+	if two {
+		return twoStages(root, held)
+	}
+	if *bootstrap {
+		fmt.Fprintln(os.Stderr, "linked: the linked parser reads this tree; regenerating once")
 	}
 	return generate(root)
+}
+
+// stages reports whether a run regenerates in two stages: when the linked
+// parser cannot parse the tree, because its layout is one behind or it
+// refuses a line held (each such file), and -bootstrap asks for it. Stage 1
+// itself regenerates once whatever it reads. Without -bootstrap such a
+// tree is refused with the instruction.
+func stages(layout uint32, held map[string]heldFile, bootstrap, stage1 bool) (bool, error) {
+	behind := layout == syntax.PreviousColumnsVersion
+	switch {
+	case stage1 || !behind && len(held) == 0:
+		return false, nil
+	case bootstrap:
+		return true, nil
+	case behind:
+		return false, fmt.Errorf("the linked parser writes node layout %d and this tree's compiler/syntax layout %d: a layout change is bootstrapped in two stages: go run ./scripts/linked -bootstrap", layout, syntax.ColumnsVersion)
+	}
+	paths := slices.Sorted(maps.Keys(held))
+	return false, fmt.Errorf("the linked parser refuses lines of %d sources, such as %s (new syntax): regenerate in two stages: go run ./scripts/linked -bootstrap", len(paths), paths[0])
 }
 
 func generate(root string) error {
@@ -105,26 +136,28 @@ func generate(root string) error {
 	return nil
 }
 
-// twoStages holds back what the linked parser refuses, runs stage 1 as a
-// fresh build (std is embedded, so the held sources must be compiled in),
-// puts the sources back, and runs stage 2 with the parser stage 1 wrote.
-func twoStages(root string) error {
-	held, err := holdBack(root)
+// twoStages writes held (what the linked parser refuses, held back), runs
+// stage 1 as a fresh build (std is embedded, so the held sources must be
+// compiled in), puts the sources back, and runs stage 2 with the parser
+// stage 1 wrote.
+func twoStages(root string, held map[string]heldFile) error {
+	var written []string
 	restore := func() {
-		for path, src := range held {
-			if werr := os.WriteFile(path, []byte(src), 0o644); werr != nil {
+		for _, path := range written {
+			if werr := os.WriteFile(path, []byte(held[path].orig), 0o644); werr != nil {
 				fmt.Fprintln(os.Stderr, "linked: put back", path, werr)
 			}
 		}
 	}
-	if err != nil {
-		restore()
-		return err
-	}
-	for path := range held {
+	for _, path := range slices.Sorted(maps.Keys(held)) {
+		if err := os.WriteFile(path, []byte(held[path].src), 0o644); err != nil {
+			restore()
+			return err
+		}
+		written = append(written, path)
 		fmt.Fprintln(os.Stderr, "linked: stage 1 holds back lines of", path)
 	}
-	err = goRun(root, "-stage1")
+	err := goRun(root, "-stage1")
 	restore()
 	if err != nil {
 		return fmt.Errorf("stage 1: %w", err)
@@ -144,11 +177,16 @@ func goRun(root string, args ...string) error {
 // heldMark starts a line stage 1 holds back.
 const heldMark = "// held back by scripts/linked stage 1: "
 
-// holdBack comments out, in the Ergo sources the linked packages read (std
-// and compiler, not their testdata), each line the linked parser refuses,
-// until every file parses. It answers each changed file's original text.
-func holdBack(root string) (map[string]string, error) {
-	held := map[string]string{}
+// heldFile is a source with lines the linked parser refuses: its text on
+// disk, and the text stage 1 reads, those lines held back.
+type heldFile struct{ orig, src string }
+
+// refused comments out, in memory, in the Ergo sources the linked packages
+// read (std and compiler, not their testdata), each line the linked parser
+// refuses, until every file parses. It answers each such file, by path; a
+// tree the linked parser reads answers none. It writes nothing.
+func refused(root string) (map[string]heldFile, error) {
+	held := map[string]heldFile{}
 	for _, dir := range []string{"internal/sketch/std", "compiler"} {
 		err := filepath.WalkDir(filepath.Join(root, dir), func(path string, e fs.DirEntry, err error) error {
 			if err != nil {
@@ -184,8 +222,7 @@ func holdBack(root string) (map[string]string, error) {
 				src = strings.Join(lines, "\n")
 			}
 			if src != orig {
-				held[path] = orig
-				return os.WriteFile(path, []byte(src), 0o644)
+				held[path] = heldFile{orig: orig, src: src}
 			}
 			return nil
 		})

@@ -94,11 +94,11 @@ func (in *interp) tailK(fr *frame, x syntax.Expr, f *facts) (Value, *abrupt) {
 	if f.owned != nil {
 		in.register(fr, x, v, f.owned, x) // a temporary its statement owns (R43)
 	}
-	// A variant or a row value goes into its union unchanged: the value
+	// A variant, a sub-union's value (ConvWiden) or a row value goes into its union unchanged: the value
 	// keeps its record type; so does a function narrowed to a row value's
 	// one error type (ConvNarrow), whose row value is that type's value. A provider goes into an operation type as an
 	// operation value (effects.go); a machine table waits for a later unit.
-	if conv := f.conv; f.hasConv && conv.Kind != check.ConvVariant && conv.Kind != check.ConvRow && conv.Kind != check.ConvNarrow {
+	if conv := f.conv; f.hasConv && conv.Kind != check.ConvVariant && conv.Kind != check.ConvRow && conv.Kind != check.ConvNarrow && conv.Kind != check.ConvWiden {
 		return in.toOperation(fr, x, v, conv)
 	}
 	if convs := f.elems; len(convs) > 0 {
@@ -108,7 +108,7 @@ func (in *interp) tailK(fr *frame, x syntax.Expr, f *facts) (Value, *abrupt) {
 		}
 		var out tuple
 		for i, conv := range convs {
-			if conv.Kind == 0 || conv.Kind == check.ConvVariant || conv.Kind == check.ConvRow || conv.Kind == check.ConvNarrow {
+			if conv.Kind == 0 || conv.Kind == check.ConvVariant || conv.Kind == check.ConvRow || conv.Kind == check.ConvNarrow || conv.Kind == check.ConvWiden {
 				continue
 			}
 			if out.elems == nil {
@@ -320,6 +320,20 @@ func (in *interp) peekPath(fr *frame, x syntax.Expr, path *[]step) (Value, *slot
 			}
 		}
 	case *syntax.SelectorExpr:
+		if f := fr.info.MethodValues[x]; f != nil {
+			// x.f as a value (types.md, Methods 2): f with x's value bound
+			// now, as a dot call's receiver is passed.
+			ref, ab := in.funcValue(fr, x, f)
+			if ab != nil {
+				return nil, nil, ab
+			}
+			recv, ab := in.receiver(fr, x.X, f)
+			if ab != nil {
+				return nil, nil, ab
+			}
+			r := ref.(*funcRef)
+			return &funcRef{fn: r.fn, targs: r.targs, recv: recv, bound: true}, nil, nil
+		}
 		xf := in.fx(fr, x)
 		if xf.field.t != nil && fr.forms() {
 			// A record's field, checked at an earlier read (ORACLE O33).

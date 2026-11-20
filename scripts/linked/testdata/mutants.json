@@ -1,0 +1,14 @@
+{
+  "about": "scripts/linked's bootstrap decision: a tree the linked parser cannot parse (a layout one behind, or a refused line of new syntax) is regenerated in two stages.",
+  "mutants": [
+    {
+      "name": "linked-refusals-ignored",
+      "origin": "wf10 LINKED-BOOTSTRAP",
+      "file": "scripts/linked/main.go",
+      "from": "\tcase stage1 || !behind && len(held) == 0:\n",
+      "to": "\tcase stage1 || !behind:\n",
+      "rule": "New syntax on the same node layout (a line the linked parser refuses) takes two stages under -bootstrap, and a plain run is refused with the instruction.",
+      "killers": ["scripts/linked:TestNewSyntaxOnTheSameLayoutTakesTwoStages"]
+    }
+  ]
+}

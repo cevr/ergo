@@ -273,6 +273,7 @@ func (c *checker) contextLit(w *syntax.ContextLit) (binds *capSet, known bool, c
 // contextHeader refuses the header of an inline or a local context as a
 // named context's is (checkContexts): never read partly (rows.md, Context 8).
 func (c *checker) contextHeader(w *syntax.ContextLit) {
+	c.contextFails(w.Fails)
 	if w.Provides != nil {
 		c.errorf(w.Provides, CodeOutside, "a context's provides clause is #196 stage b's (the context header, rows.md Context 8); it is not checked yet")
 	}
@@ -636,6 +637,7 @@ func (c *checker) checkContexts() {
 	for _, w := range contexts {
 		c.cur = w.file
 		d := w.Decl
+		c.contextFails(d.Fails)
 		// The context header (#217) is checked by #196's second stage; until
 		// then it is refused, never read partly (rows.md, Context 8).
 		if d.Provides != nil {

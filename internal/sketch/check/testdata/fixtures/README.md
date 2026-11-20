@@ -26,3 +26,4 @@ and the mutants it kills.
 | elided-rows | `TestElidedRowArgFixtures` | trailing row parameters may be left out (types.md, Generics 7; SS4a) |
 | tail-failure | `TestAmbiguousTailFailure` | a tail value of an error type (rows.md, Tail results 3) |
 | laws-top | `TestTopLevelLawRules` | top-level laws (law-top spec A2; types.md, Laws) |
+| union-flat | (new, UNION-FLAT) | a union lists a union of its package; widening by subset; `case A as a` (types.md, Unions 1, 2 and 4) |
