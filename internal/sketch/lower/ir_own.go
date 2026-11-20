@@ -345,7 +345,7 @@ func (b *irBuilder) taskClose(d *check.Drop, owned int, p irPos) (*irExpr, bool)
 	if !ok || !b.l.runtimeNamed(n, b.own.site) {
 		return nil, false
 	}
-	name := n.Obj.Name + "." + cl.Op.Name
+	name := check.RuntimeTypeName(n) + "." + cl.Op.Name
 	if _, bound := runtimeBindings()[name]; !bound {
 		return nil, false
 	}
@@ -585,7 +585,7 @@ func (b *irBuilder) stdCloseCall(cl *check.Close, s irSlot, slot int, p irPos) (
 	if !ok || !b.l.runtimeNamed(n, b.own.site) || !strings.HasPrefix(b.fc.goType(s.t), "*") {
 		return nil, false
 	}
-	name := n.Obj.Name + "." + cl.Op.Name
+	name := check.RuntimeTypeName(n) + "." + cl.Op.Name
 	if _, bound := runtimeBindings()[name]; !bound {
 		return nil, false
 	}
