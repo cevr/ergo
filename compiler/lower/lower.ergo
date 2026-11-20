@@ -86,6 +86,10 @@ type fnb {
 	// //line directives, where a call site may be marked for inlining
 	// (lower's inlineMark), which the slice does not port.
 	sourced bool,
+	// calls is check/expr's resolved calls (Typer.Calls); callAt maps a
+	// call's row to its index in calls plus one (0: none).
+	calls  []expr.CallTo,
+	callAt dense.Side[store.PNode, int],
 }
 
 // Package builds the IR of every function of the checked package k; paths
@@ -124,6 +128,10 @@ func Package(s store.Store, k expr.Pkg, t expr.Typer, paths []string, path strin
 	for e in t.Entries {
 		dense.SideSet(&types, e.At, dense.OptOf(e.T))
 	}
+	let mut callAt = dense.NewSide[store.PNode, int](0)
+	for i, c in t.Calls {
+		dense.SideSet(&callAt, c.Call, i+1)
+	}
 	let mut b = ir.NewBuilder(1)
 	let mut lines = []syntax.Lines{}
 	for p in k.Parsed {
@@ -134,7 +142,7 @@ func Package(s store.Store, k expr.Pkg, t expr.Typer, paths []string, path strin
 	for f in k.Fns {
 		let p = k.Parsed[f.File]
 		let at = syntax.NodePos(p, f.Decl)
-		let mut st = fnb{k: k, s: s, types: types, file: f.File, p: p, lines: lines[f.File], fileIx: uint32(0), params: []dense.ID[store.PNode]{}, locals: []int{}, alias: alias, prelude: prelude, sourced: sourced}
+		let mut st = fnb{k: k, s: s, types: types, file: f.File, p: p, lines: lines[f.File], fileIx: uint32(0), params: []dense.ID[store.PNode]{}, locals: []int{}, alias: alias, prelude: prelude, sourced: sourced, calls: t.Calls, callAt: callAt}
 		let built = function(&st, &b, f, paths[f.File]) catch {
 		case Unported as u:
 			stops = stops.Append(Stop{File: f.File, At: at, Cause: u.Cause})
@@ -752,46 +760,86 @@ func letOf(st fnb, s dense.ID[syntax.Node], local int) aLet fails Unported {
 	aLet{tok: vd.Var, at: at, name: name, typ: gt, value: value, local: local}
 }
 
-// callee checks the call x of a function the slice builds a call of and
-// is the callee's name and the call's operands: a function of the
-// package by its name (no method, no function value, no other package's,
-// no trailing block) that is a leaf (leafCallee), from a std body (a
-// sourced body's call may be inlined, inlineMark), on operands not all
-// constants (lower's fold evaluates a call on constants) and none a call
-// or a literal (lower's template), with no rewrite law over it
-// (rewritePass).
-func callee(st fnb, x dense.ID[syntax.Node], ce syntax.CallExpr) (string, []dense.ID[syntax.Node]) fails Unported {
+// aCall is a call the slice builds: the callee's Go name, whether it is
+// a Go method (the IR's mcall, on its first operand; name is then the
+// member's), and the operands in order, a method call's receiver first.
+type aCall { name string, method bool, args []dense.ID[syntax.Node] }
+
+// callee checks the call x of a function the slice builds a call of: a
+// function check/expr resolved (Typer.Calls) of the package by its name,
+// of the package on a record of its own (x.f(…), the receiver first), or
+// of another Ergo package of the program (pkg.f(…), lower's useFunc: a
+// function of the one Go package, alias__name), not the prelude's; no
+// trailing block; a leaf (leafCallee), from a std body (a sourced body's
+// call may be inlined, inlineMark), on operands not all constants (lower's
+// fold evaluates a call on constants) and none a call or a literal
+// (lower's template), with no rewrite law over it (rewritePass). The
+// callee is a Go method when its first parameter is a record of its
+// package (goName, lower's methodReceiver).
+func callee(st fnb, x dense.ID[syntax.Node], ce syntax.CallExpr) aCall fails Unported {
 	let p = st.p
 	if dense.Unpack(ce.Trailing) != None {
 		return stop("call with a trailing block")
 	}
-	let at = match syntax.ViewOf(p.Tree, ce.Fun) {
-	case syntax.Name:
-		match bind.ResolutionOf(st.k.U, st.k.Ps, bind.PNodeOf(st.k.Ps, st.file, ce.Fun)) {
-		case bind.Declared as d:
-			d.At
-		case bind.Imported:
-			return stop("call of another package's function")
+	let ci = dense.SideOf(st.callAt, bind.PNodeOf(st.k.Ps, st.file, x))
+	if ci == 0 {
+		match syntax.ViewOf(p.Tree, ce.Fun) {
+		case syntax.Name:
+			match bind.ResolutionOf(st.k.U, st.k.Ps, bind.PNodeOf(st.k.Ps, st.file, ce.Fun)) {
+			case bind.Declared:
+				return stop("call of a function value")
+			case _:
+				return stop("call of no declaration")
+			}
 		case _:
-			return stop("call of no declaration")
+			return stop("call of a selector or a value")
 		}
-	case _:
-		return stop("call of a selector or a value")
 	}
-	let i = expr.FnAt(st.k, at)
+	let to = st.calls[ci-1]
+	let mut cst = st
+	let mut i = -1
+	let mut args = []dense.ID[syntax.Node]{}
+	if to.Recv {
+		let se = match syntax.ViewOf(p.Tree, ce.Fun) {
+		case syntax.SelectorExpr as se:
+			se
+		case _:
+			return stop("method call spelling")
+		}
+		if plainRecord(st, try typeOf(st, se.X, "receiver")) < 0 {
+			return stop("method call on no plain record")
+		}
+		i = expr.FnAt(st.k, bind.PNodeOf(st.k.Ps, to.Callee.File, to.Callee.Name))
+		args = args.Append(se.X)
+	} else {
+		match syntax.ViewOf(p.Tree, ce.Fun) {
+		case syntax.Name:
+			match bind.ResolutionOf(st.k.U, st.k.Ps, bind.PNodeOf(st.k.Ps, st.file, ce.Fun)) {
+			case bind.Declared as d:
+				i = expr.FnAt(st.k, d.At)
+			case _:
+			}
+		case syntax.SelectorExpr as se:
+			cst = try depOf(st, se.Sel)
+			i = expr.FnAt(cst.k, bind.PNodeOf(cst.k.Ps, to.Callee.File, to.Callee.Name))
+		case _:
+		}
+	}
 	if i < 0 {
 		return stop("call of a function value")
 	}
-	let name = nameText(p, ce.Fun)
 	if st.sourced {
 		return stop("call in a sourced body (inline decision)")
 	}
-	try leafCallee(st, i, name)
+	let f = cst.k.Fns[i]
+	let name = nameText(cst.k.Parsed[f.File], f.Name)
+	let first = try leafCallee(cst, i, name)
 	let n = syntax.Len(ce.Args)
-	let mut args = []dense.ID[syntax.Node]{}
-	let mut closed = true
 	for j in 0..n {
-		let a = syntax.Item(p.Tree, ce.Args, j)
+		args = args.Append(syntax.Item(p.Tree, ce.Args, j))
+	}
+	let mut closed = true
+	for j, a in args {
 		match syntax.ViewOf(p.Tree, unparen(st, a)) {
 		case syntax.CallExpr:
 			return stop("call with a call operand (template)")
@@ -800,10 +848,10 @@ func callee(st fnb, x dense.ID[syntax.Node], ce syntax.CallExpr) (string, []dens
 		case _:
 		}
 		closed = closed && isConst(st, a)
-		if basicGo(st, try typeOf(st, a, "call operand")) == "" {
+		let at = try typeOf(st, a, "call operand")
+		if basicGo(st, at) == "" && (j > 0 || !first || plainRecord(st, at) < 0) {
 			return stop("call operand of a non-basic type")
 		}
-		args = args.Append(a)
 	}
 	if closed {
 		return stop("call on constants (fold)")
@@ -811,11 +859,47 @@ func callee(st fnb, x dense.ID[syntax.Node], ce syntax.CallExpr) (string, []dens
 	if basicGo(st, try typeOf(st, x, "CallExpr")) == "" {
 		return stop("call of a non-basic result")
 	}
-	if lawOver(st, name) {
+	if lawOver(st, name) || lawOver(cst, name) {
 		return stop("call under a rewrite law")
 	}
-	let _ = try declName(st, name)
-	(name, args)
+	let ops = store.OperandsOf(cst.s, f.Sig)
+	let recv = if first { Some[dense.ID[store.TKey]]{Value: ops[0]} } else { None }
+	let g = try goName(cst, name, recv)
+	if strings.Contains(g, ".") {
+		return aCall{name: name, method: true, args: args}
+	}
+	aCall{name: g, method: false, args: args}
+}
+
+// depOf is the build state of the Ergo package of the program that the
+// selector's name sel names a function of (pkg.f): its checked package,
+// pool and alias. The prelude's functions are its intrinsics and Go
+// helpers (lower's intrinsic), which the slice does not call.
+func depOf(st fnb, sel dense.ID[syntax.Node]) fnb fails Unported {
+	match bind.ResolutionOf(st.k.U, st.k.Ps, bind.PNodeOf(st.k.Ps, st.file, sel)) {
+	case bind.Imported as im:
+		let ix = int(im.Ref.Import) - 1
+		let paths = store.ImportPaths(st.s)
+		if ix < 0 || ix >= len(paths) {
+			return stop("call of no package")
+		}
+		if paths[ix] == "prelude" {
+			return stop("call of a prelude function")
+		}
+		for d in st.k.Deps {
+			if d.Path == paths[ix] {
+				let mut out = st
+				out.k = d.K
+				out.s = d.S
+				out.alias = pkgAlias(d.Path)
+				out.sourced = false
+				return out
+			}
+		}
+		return stop("call of a package not read")
+	case _:
+		return stop("call of a selector or a value")
+	}
 }
 
 func unparen(st fnb, x dense.ID[syntax.Node]) dense.ID[syntax.Node] {
@@ -831,8 +915,10 @@ func unparen(st fnb, x dense.ID[syntax.Node]) dense.ID[syntax.Node] {
 // calls: a function lower calls pure (pure.go: an Ergo body, no row, no
 // witness, not main or Close) with basic parameters and result that calls
 // nothing and holds no function literal, so its footprint is empty and
-// its purity needs no fixed point; its name is the package's once.
-func leafCallee(st fnb, i int, name string) fails Unported {
+// its purity needs no fixed point; its name is the package's once. Its
+// first parameter may be a plain record (plainRecord), whose function is
+// then a Go method (goName); the result tells which.
+func leafCallee(st fnb, i int, name string) bool fails Unported {
 	let f = st.k.Fns[i]
 	let p = st.k.Parsed[f.File]
 	let d = match syntax.ViewOf(p.Tree, f.Decl) {
@@ -861,14 +947,16 @@ func leafCallee(st fnb, i int, name string) fails Unported {
 	if !emptyRow(st, ops[n+1]) || !emptyRow(st, ops[n+2]) {
 		return stop("callee: a row")
 	}
+	let first = n > 0 && plainRecord(st, ops[0]) >= 0
 	for j in 0..n+1 {
-		if basicGo(st, ops[j]) == "" {
+		if basicGo(st, ops[j]) == "" && (j > 0 || !first) {
 			return stop("callee: a type not basic")
 		}
 	}
 	if callsIn(p, body) {
 		return stop("callee: calls (purity)")
 	}
+	first
 }
 
 // callsIn reports a call or a function literal in x.
@@ -894,7 +982,12 @@ func calleeNames(st fnb, x dense.ID[syntax.Node], out []string) []string {
 	let mut names = out
 	match syntax.ViewOf(p.Tree, x) {
 	case syntax.CallExpr as ce:
-		names = names.Append(nameText(p, ce.Fun))
+		match syntax.ViewOf(p.Tree, ce.Fun) {
+		case syntax.SelectorExpr as se:
+			names = names.Append(nameText(p, se.X) + "." + nameText(p, se.Sel))
+		case _:
+			names = names.Append(nameText(p, ce.Fun))
+		}
 	case _:
 	}
 	for c in syntax.Children(p.Tree, x, []uint32{}) {
@@ -1106,8 +1199,8 @@ func check(st fnb, x dense.ID[syntax.Node]) fails Unported {
 		try check(st, be.X)
 		try check(st, be.Y)
 	case syntax.CallExpr as ce:
-		let (_, args) = try callee(st, x, ce)
-		for a in args {
+		let c = try callee(st, x, ce)
+		for a in c.args {
 			try check(st, a)
 		}
 	case _:
@@ -1191,13 +1284,17 @@ func value(st fnb, b mut ir.Builder, x dense.ID[syntax.Node]) uint32 fails Unpor
 		try ir.Row(b, ir.KindCode(ir.TExpr, "bin"), pos(st, syntax.TokPos(p, be.Op)), []uint32{ir.Text(b, op), l, r})
 	case syntax.CallExpr as ce:
 		// lower's call: the Go function by its name, the operands in order
-		// (each a value with no statements before it), no type arguments.
-		let (name, args) = try callee(st, x, ce)
+		// (each a value with no statements before it), no type arguments;
+		// a method's mcall on its receiver.
+		let c = try callee(st, x, ce)
 		let mut ids = []uint32{}
-		for a in args {
+		for a in c.args {
 			ids = ids.Append(try value(st, b, a))
 		}
-		try ir.Row(b, ir.KindCode(ir.TExpr, "call"), at, []uint32{ir.Text(b, ""), ir.Text(b, try declName(st, name)), ir.List(b, ids)})
+		if c.method {
+			return try ir.Row(b, ir.KindCode(ir.TExpr, "mcall"), at, []uint32{ids[0], ir.Text(b, c.name), ir.List(b, ids[1:len(ids)])})
+		}
+		try ir.Row(b, ir.KindCode(ir.TExpr, "call"), at, []uint32{ir.Text(b, ""), ir.Text(b, c.name), ir.List(b, ids)})
 	case _:
 		return stop("expression form")
 	}
