@@ -149,6 +149,13 @@ func (b *irBuilder) admit(t check.Type, depth int) {
 					// emitter's goType of a row), no Go type of their own.
 					continue
 				}
+				if _, ok := v.(*check.Wired); ok {
+					// wired[T]: decode[T]'s shape failures, error types
+					// T's argument decides (types.md, Codecs 2), values
+					// of the Go error as an error row parameter's are
+					// (the emitter's isErrorValue).
+					continue
+				}
 				b.admit(v, depth+1)
 			}
 			return

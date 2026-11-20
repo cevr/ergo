@@ -1,0 +1,123 @@
+// The lane record on memory providers (SEMWS M2): ready writes the
+// record of the tip it hands back, work record reads it.
+
+import exec
+import fs
+import fstest
+import hex
+import github.com/cevr/ergo/modules/work/work
+import sha256
+import time
+
+// recordWorld is a base of files with config as its work.toml (trusted),
+// initialized, over the reference language's plugin: the tool, its trees,
+// its Git and its disk.
+func recordWorld(files Map[string, string], config string) (work.Tool, Cloner, Vcs, fstest.Memory) {
+	let trees = NewCloner()
+	let vcs = VcsOver(trees)
+	Repo(vcs, theBase, "main", files, "c0")
+	let home = work.Home(theBase, "")
+	let disk = fstest.NewMemory()
+	disk.MkdirAll(theBase) catch {
+	case fs.Denied, fs.Failed:
+		Unreachable("a folder of a memory disk")
+	}
+	disk.MkdirAll(home) catch {
+	case fs.Denied, fs.Failed:
+		Unreachable("a folder of a memory disk")
+	}
+	disk.WriteFile(theBase+"/"+work.ConfigFile, config) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		Unreachable("a file of a memory disk")
+	}
+	let lock = NewLock()
+	let sv = NewServing()
+	let runner exec.Runner = sv
+	let p = work.Providers{Cloners: []work.Cloner{trees}, Copier: Beside(trees, false), Registry: NewRegistry(), Lock: lock, Hooks: Recording(lock, ""), Vcs: vcs, Files: disk, Writes: disk, Runner: runner, Clock: time.NewManual(1000)}
+	let tool = work.NewTool(theBase, home, "/data", p, "/")
+	let _ = tool.Init() catch {
+	case work.BadConfig, work.Unkept, fs.Denied, fs.Failed:
+		Unreachable("init of a memory base")
+	}
+	let _ = tool.Trust() catch {
+	case _:
+		Unreachable("trust of a memory base")
+	}
+	(tool, trees, vcs, disk)
+}
+
+let recordConfig = "[language.lines]\ncommand = \"lines\"\nfiles = [\"*.lines\"]\n\n[[class]]\nmatch = \"ledger.json\"\nkind = \"rows\"\n"
+
+let recordFiles = Map[string, string]{
+	"a.lines":     "unit A(x)\n  call b\nunit b(y)\n  two\n",
+	"doc.md":      "# Title\n\none two\nthree\n",
+	"x.txt":       "x\n",
+	"ledger.json": "{\"mutants\": [{\"name\": \"m1\", \"to\": \"a\"}, {\"name\": \"m2\", \"to\": \"b\"}]}\n",
+}
+
+let recordRequest = "# The intent line\n\n```work-record\n{\"intent\": \"Add c.\", \"on\": [{\"unit\": \"typed\", \"tip\": \"x\"}], \"changes\": [{\"unit\": \"c\", \"why\": \"c is needed\", \"tests\": [\"T1\"]}], \"owed\": [\"full gate\"]}\n```\n"
+
+// ready -request writes the record of the tip, not of the branch name:
+// a comment, a rewrap and a row's layout are no change; an added unit,
+// section and row, a renamed unit and a changed file are; the request's
+// why and tests reach their change, its digest is of its own text, and
+// On is computed (a typed "on" is not read): the workspace stacked on
+// another names that one.
+test ReadyWritesTheRecord {
+	let (tool, trees, vcs, disk) = recordWorld(recordFiles, recordConfig)
+	let w = try tool.New("w", work.NewOptions{Copy: false, From: None, Branch: None, On: None, Token: None})
+	assert Write(trees, w.Path, "a.lines", "unit A(x)\n  call b\n# a note\nunit renamedB(y)\n  two\nunit c(z)\n  new\n")
+	assert Write(trees, w.Path, "doc.md", "# Title\n\none\ntwo three\n\n## Added\n\nnew\n")
+	assert Write(trees, w.Path, "x.txt", "y\n")
+	assert Write(trees, w.Path, "ledger.json", "{\"mutants\": [{\"name\": \"m1\",   \"to\": \"a\"}, {\"name\": \"m2\", \"to\": \"b\"}, {\"name\": \"m3\", \"to\": \"c\"}]}\n")
+	assert Commit(vcs, w.Path, "c1")
+	disk.WriteFile("/req.md", recordRequest) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		Unreachable("a file of a memory disk")
+	}
+	let handed = try tool.Ready(work.ReadyOptions{Name: Some[string]{Value: "w"}, Request: Some[string]{Value: "/req.md"}})
+	let r = try tool.Record(handed.Commit)
+	assert r.Tip == handed.Commit && r.Branch == handed.Branch && r.Unit == "w" && r.Intent == "Add c." && r.Owed == []string{"full gate"}
+	assert r.Request == work.RequestRef{Path: "/req.md", Sha256: hex.Encode(sha256.Sum(recordRequest))}
+	assert r.On == []work.OnTip{}
+	let mut seen = []string{}
+	for c in r.Changes {
+		seen = seen.Append("\(c.Kind) \(c.Unit) \(c.From) \(c.Why)")
+	}
+	assert seen == []string{"Added c  c is needed", "Renamed renamedB b ", "Added doc.md#Title > Added  ", "Added row:mutants/m3  ", "BodyChanged x.txt  "}
+	let v = try tool.New("v", work.NewOptions{Copy: false, From: None, Branch: None, On: Some[string]{Value: "w"}, Token: None})
+	assert Write(trees, v.Path, "x.txt", "z\n")
+	assert Commit(vcs, v.Path, "c2")
+	let stacked = try tool.Ready(work.ReadyOptions{Name: Some[string]{Value: "v"}, Request: None})
+	let s = try tool.Record(stacked.Commit)
+	assert s.On == []work.OnTip{work.OnTip{Unit: "w", Tip: handed.Commit, Landed: false}} && s.Intent == "" && s.Request.Sha256 == ""
+	// HEAD is the base's own (c0, never handed back), not a workspace's.
+	assert noRecord(tool, "HEAD") == "c0"
+}
+
+// noRecord is the tip NoRecord names for tip ("" for a record, else the
+// other failure's name).
+func noRecord(tool work.Tool, tip string) string {
+	let _ = tool.Record(tip) catch {
+	case work.NoRecord as n:
+		return n.Tip
+	case _:
+		return "another failure"
+	}
+	""
+}
+
+// A tip ready never handed back has no record; a request that is not
+// there hands nothing back.
+test RecordNeedsReady {
+	let (tool, _, _, _) = recordWorld(recordFiles, recordConfig)
+	assert noRecord(tool, "c0") == "c0"
+	let _ = try tool.New("w", work.NewOptions{Copy: false, From: None, Branch: None, On: None, Token: None})
+	let missing = tool.Ready(work.ReadyOptions{Name: Some[string]{Value: "w"}, Request: Some[string]{Value: "/nope.md"}}) catch {
+	case work.BadRequest as b:
+		work.Handed{Name: b.Why, Branch: "", Commit: "", Snapshot: "", Parent: ""}
+	case _:
+		work.Handed{Name: "another failure", Branch: "", Commit: "", Snapshot: "", Parent: ""}
+	}
+	assert missing.Name == "no such file"
+}

@@ -194,9 +194,42 @@ func (c *checker) collectBodyErrorRows() {
 					}
 				}
 			}
+			if arm, ok := n.(*syntax.CatchArm); ok {
+				// A type a catch arm tests names an error type of the
+				// arm's owner, as a fails row does (Error types 1; Catch
+				// 2 still holds the arm to the caught row).
+				for _, p := range arm.Types {
+					x := catchArmHead(p)
+					if x == nil {
+						continue
+					}
+					if n := c.errorRowHead(x); n != nil {
+						c.addErrorType(n, c.pkg.OwnerOf(arm), x)
+					}
+					for _, n := range c.namedRowHeads(x) {
+						c.addErrorType(n, c.pkg.OwnerOf(arm), x)
+					}
+				}
+			}
 			return true
 		})
 	}
+}
+
+// catchArmHead is the type a catch arm's pattern tests, written as a type
+// (`T`, `pkg.T`, `T[A]`): of a type test, of `T as e`, and of a record
+// pattern `T{…}`; nil for `_`, a binder (`case err:`) resolves to no type
+// and is dropped by errorRowHead.
+func catchArmHead(p syntax.Expr) syntax.Expr {
+	switch p := unparen(p).(type) {
+	case *syntax.AsPattern:
+		return catchArmHead(p.X)
+	case *syntax.CompositeLit:
+		return p.Type
+	case *syntax.Ident, *syntax.SelectorExpr, *syntax.IndexExpr:
+		return p
+	}
+	return nil
 }
 
 // errorRowHead returns the origin struct type an error-row element names by
@@ -1168,7 +1201,10 @@ func (c *checker) defParams(ft *syntax.FuncType, sig *Signature) {
 
 func (c *checker) unionType(n *Named, spec *syntax.InterfaceType, ctx *typeCtx) Type {
 	u := &Union{}
-	seen := map[int32]bool{}
+	// seen holds the variants so far; written, those written in this
+	// declaration. A variant reached through a listed union and again is
+	// one variant (a union is a set); one written twice is S108.
+	seen, written := map[int32]bool{}, map[int32]bool{}
 	for _, x := range spec.Union {
 		t := c.typExpr(x, ctx)
 		if isInvalid(t) {
@@ -1182,18 +1218,31 @@ func (c *checker) unionType(n *Named, spec *syntax.InterfaceType, ctx *typeCtx) 
 			continue
 		}
 		if p := vn.origin().Obj.Pkg; p != c.pkg {
-			if isUnion(t) {
-				c.errorf(x, CodeType, "a union variant is a record declared in this package, not %s (types.md, Unions 1)", t)
-				u.Bad = true
-				continue
-			}
 			// A union's variants are records of its package (196b Q8, a
 			// permanent rule): a union's marker is a function of the
 			// variant's type, and a type's functions live in the package
-			// that declares it (196m). An error row still names a foreign
-			// error type directly.
+			// that declares it (196m). So another package's union, as its
+			// record, is wrapped. An error row still names a foreign error
+			// type directly.
 			c.errorf(x, CodeType, "a union's variants are records of its package; wrap %s: type %s = … | %s{ Cause %s }", t, n.Obj.Name, vn.origin().Obj.Name, t)
 			u.Bad = true
+			continue
+		}
+		if listed, ok := c.listedUnion(n, vn, x); ok {
+			// A union of this package listed in a union means its
+			// variants, in its order (types.md, Unions 1; DECL-VALUES
+			// Design B (b)).
+			if listed == nil {
+				u.Bad = true
+				continue
+			}
+			u.Bad = u.Bad || listed.Bad
+			for _, v := range listed.Variants {
+				if key := c.types.id(v); !seen[key] {
+					seen[key] = true
+					u.Variants = append(u.Variants, v)
+				}
+			}
 			continue
 		}
 		// The variant's kind comes from its declaration, so a variant that is
@@ -1208,8 +1257,12 @@ func (c *checker) unionType(n *Named, spec *syntax.InterfaceType, ctx *typeCtx) 
 			continue
 		}
 		key := c.types.id(t)
-		if seen[key] {
+		if written[key] {
 			c.errorf(x, CodeType, "variant %s is listed twice", t)
+			continue
+		}
+		written[key] = true
+		if seen[key] {
 			continue
 		}
 		seen[key] = true
@@ -1222,6 +1275,66 @@ func (c *checker) unionType(n *Named, spec *syntax.InterfaceType, ctx *typeCtx) 
 		return invalid
 	}
 	return u
+}
+
+// listedUnion is the union vn, of this package, that the declaration of n
+// lists at x: ok when vn is declared as a union of two or more entries
+// (one entry is an alias, which resolves to its target), and nil when it
+// has no variants to give: refused at its own declaration, or a listing
+// cycle (S108). A cycle is found from the declarations' text
+// (unionReaches), so each union on it is refused at the entry that leads
+// back to it, in any declaration order.
+func (c *checker) listedUnion(n, vn *Named, x syntax.Expr) (*Union, bool) {
+	o := vn.origin()
+	if !listsUnions(o.Obj.Decl) {
+		return nil, false
+	}
+	if c.unionReaches(o.Obj, n.Obj, map[*TypeName]bool{}) {
+		c.errorf(x, CodeType, "%s lists %s, which lists %s again: a union that lists itself has no variants (types.md, Unions 1)", n.Obj.Name, o.Obj.Name, n.Obj.Name)
+		return nil, true
+	}
+	if o.state == 1 {
+		return nil, true // a cycle that unionReaches reports where it closes
+	}
+	c.resolveNamed(o)
+	return asUnion(vn), true
+}
+
+// listsUnions reports a union declaration of two or more entries: one
+// that may list a union (an alias, one existing type, resolves to it).
+func listsUnions(d *syntax.TypeDecl) bool {
+	if d == nil {
+		return false
+	}
+	it, isUnion := d.Spec.(*syntax.InterfaceType)
+	return isUnion && len(it.Union) > 0 && aliasTarget(d) == nil
+}
+
+// unionReaches reports whether the union declaration from lists target,
+// itself or through other unions of this package, read from the entries'
+// names, not from resolved types.
+func (c *checker) unionReaches(from, target *TypeName, seen map[*TypeName]bool) bool {
+	if from == target {
+		return true
+	}
+	if seen[from] || !listsUnions(from.Decl) {
+		return false
+	}
+	seen[from] = true
+	for _, x := range from.Decl.Spec.(*syntax.InterfaceType).Union {
+		if ix, ok := x.(*syntax.IndexExpr); ok {
+			x = ix.X
+		}
+		id, ok := x.(*syntax.Ident)
+		if !ok {
+			continue
+		}
+		o, _ := c.pkg.Scope.lookup(id.Name)
+		if tn, ok := o.(*TypeName); ok && tn.Pkg == c.pkg && c.unionReaches(tn, target, seen) {
+			return true
+		}
+	}
+	return false
 }
 
 // ---------------------------------------------------------------- type expressions

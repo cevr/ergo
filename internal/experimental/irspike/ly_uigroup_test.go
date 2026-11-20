@@ -23,5 +23,5 @@ import (
 // ly-ns2-ir-reads-whole, ly-ns2-ir-keep-aliases.
 func TestIRUISkipMatchesSource(t *testing.T) {
 	lyProperty(t, "TestIRUISkipMatchesSource", func(seed uint64) string { return uiskipgen.Program([]uint64{seed}) },
-		[]string{"group", "groupBy"}, "card", "list", "framed", "headed", "talliedView", "wideView", "cardsView", "bagged")
+		[]string{"group", "groupBy"}, "card", "list", "framed", "headed", "tallied", "wideView", "cardsView", "bagged")
 }

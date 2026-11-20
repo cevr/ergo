@@ -620,7 +620,7 @@ func (in *interp) genBuilt(fr *frame, r *testgen.Stream, n *check.Named, d int) 
 
 func (in *interp) genVariant(fr *frame, r *testgen.Stream, vs []check.Type, d int) Value {
 	if d <= 0 {
-		vs = testplan.SmallVariants(vs)
+		vs = testplan.SmallVariants(in.root.Builder, vs)
 	}
 	if len(vs) == 0 {
 		ice("a union with no finite variant")
