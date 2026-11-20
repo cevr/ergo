@@ -13,7 +13,7 @@ var intMapFuncs = []string{"steps", "small", "flags", "boxed", "copied"}
 
 // intMapCallFuncs are GenerateIntMap's functions that pass an int-keyed
 // Map to a generic function: each has an IR body, with its Map Go's map.
-var intMapCallFuncs = []string{"seen", "throughStd", "throughUser"}
+var intMapCallFuncs = []string{"seen", "throughStd", "throughUser", "throughGo"}
 
 // GenerateIntMap is a program over Maps with an integer key (MI-2): seeded
 // steps of Put (m[k] = v and m.Put), Delete and Get on a Map[int, int]
@@ -47,7 +47,7 @@ func GenerateIntMap(seed uint64) string {
 		return s.String()
 	}
 	m := func() string { return "m" }
-	b.WriteString("import maps\nimport slices\n\n")
+	b.WriteString("import maps\nimport slices\nimport go gomaps maps\n\n")
 	b.WriteString("type Box { index Map[int, int], name string }\n\n")
 	b.WriteString("func look(m Map[int, int], k int) int {\n\tmatch m.Get(k) {\n\tcase Some[int] as v:\n\t\tv.Value\n\tcase None:\n\t\t-7\n\t}\n}\n\n")
 	b.WriteString("func steps() int {\n\tlet mut m = Map[int, int]{}\n\tlet mut sum = 0\n")
@@ -101,10 +101,17 @@ func GenerateIntMap(seed uint64) string {
 	b.WriteString("\tfor k in slices.Sorted(maps.Keys(g)) {\n\t\ts = s * 31 + int(k) + maps.GetOr(g, k, 0)\n\t}\n\ts\n}\n\n")
 	b.WriteString("func sizeOf[K comparable, V](m Map[K, V], k K) int {\n\tmatch m.Get(k) {\n\tcase Some[V]:\n\t\tlen(m) * 2 + 1\n\tcase None:\n\t\tlen(m) * 2\n\t}\n}\n\n")
 	b.WriteString("func throughUser(n int) int {\n\tlet mut m = Map[uint32, int]{}\n\tlet mut s = 0\n\tfor i in 0..n {\n\t\tm[uint32(i * 5 % 17)] = i\n\t\ts = s * 7 + sizeOf(m, uint32(i % 9))\n\t}\n\ts\n}\n\n")
+	// throughGo passes a Map[uint8, int] to Go's own maps package, a
+	// function of a Go package (hostCall): the Go boundary sees Go's map
+	// (INTMAP-CALL-2).
+	b.WriteString("func throughGo(n int) int needs go.Foreign {\n\tlet mut m = Map[uint8, int]{}\n\tfor i in 0..n {\n\t\tm[uint8(i * 3 % 50)] = i\n\t}\n")
+	b.WriteString("\tlet mut c = gomaps.Clone(m)\n\tc[uint8(1)] = 999\n")
+	b.WriteString("\tlet mut s = len(c)\n\tfor k in 0..50 {\n\t\tmatch c.Get(uint8(k)) {\n\t\tcase Some[int] as v:\n\t\t\ts = s * 31 + v.Value\n\t\tcase None:\n\t\t\ts = s * 7 + 1\n\t\t}\n\t}\n")
+	b.WriteString("\ts\n}\n\n")
 	xs := make([]string, 5+r.IntN(20))
 	for i := range xs {
 		xs[i] = fmt.Sprint(r.IntN(12))
 	}
-	fmt.Fprintf(&b, "func main() needs Console {\n\tConsole.Println(\"\\(steps()) \\(small()) \\(flags(%d)) \\(boxed()) \\(copied()) \\(walked(%d)) \\(seen([]int{%s})) \\(throughStd(%d)) \\(throughUser(%d))\")\n}\n", 50+r.IntN(400), 10+r.IntN(60), strings.Join(xs, ", "), 5+r.IntN(40), 5+r.IntN(40))
+	fmt.Fprintf(&b, "func main() needs Console | go.Foreign {\n\tConsole.Println(\"\\(steps()) \\(small()) \\(flags(%d)) \\(boxed()) \\(copied()) \\(walked(%d)) \\(seen([]int{%s})) \\(throughStd(%d)) \\(throughUser(%d)) \\(throughGo(%d))\")\n}\n", 50+r.IntN(400), 10+r.IntN(60), strings.Join(xs, ", "), 5+r.IntN(40), 5+r.IntN(40), 5+r.IntN(60))
 	return b.String()
 }
