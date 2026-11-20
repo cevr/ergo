@@ -184,9 +184,11 @@ type Vcs {
 	},
 
 	// SettingIsWhatConfigureSet: a key Configure set reads back as its
-	// value (doctor's check of the merge drivers rests on it).
-	law SettingIsWhatConfigureSet(value string) {
-		let v = "v" + strings.ReplaceAll(strings.ReplaceAll(value, "\n", " "), "\x00", " ")
+	// value (doctor's check of the merge drivers rests on it), its own
+	// spaces kept: half the cases start the value with a space and half
+	// end it with one, as Git keeps (and quotes) them.
+	law SettingIsWhatConfigureSet(value string, lead bool, trail bool) {
+		let v = (if lead { " " } else { "" }) + "v" + strings.ReplaceAll(strings.ReplaceAll(value, "\n", " "), "\x00", " ") + (if trail { " " } else { "" })
 		Configure(".", "work.law", v) catch {
 		case VcsFailed:
 			return true

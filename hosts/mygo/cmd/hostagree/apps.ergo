@@ -143,7 +143,9 @@ func formView(f mut ui.Frame[formEvent], s form) {
 		let bold = ui.NewFlag(f, false)
 		ui.Toggle(f, bold, "bold")
 		let note = ui.NewDraft(f, "")
-		ui.Field(f, note, "note")
+		// A phone shows the note's field an email keyboard and a Send key
+		// (MB5).
+		ui.HintedField(f, ui.FieldLabel{Text: "", Description: "", Invalid: false}, ui.Hints{Keyboard: ui.EmailKeys, Return: ui.ReturnSend, Capitalize: ui.CapNone, Autocorrect: false}, note, "note")
 		ui.Pressable(f, "send", Sent) {
 			ui.Text(f, "Send \(s.sent)")
 		}
@@ -325,8 +327,12 @@ func sketchView(f mut ui.Frame[int], s sketch) {
 // looks (UG1): boxes and buttons with looks of their own, a theme that a
 // tap changes, a shadow in one theme and a dimmed group a tap turns on, so
 // the window paints each look from the tree's table (fills, a border,
+// an underlined text in the theme's ink,
 // corners, a shadow, opacity) where both hosts hold the same Looks.
 type looksApp { theme int, dim bool }
+
+// inkedReading is the looks app's readout, drawn in the theme's ink.
+let inkedReading = ui.NewReadout("reading")
 
 func looksStep(s looksApp, e int) Decision[looksApp, int] {
 	if e == 0 {
@@ -355,6 +361,12 @@ func looksView(f mut ui.Frame[int], s looksApp) {
 	col.Padding = ui.All(16)
 	ui.Column(f, col) {
 		ui.Text(f, "theme \(s.theme)")
+		// A Text and a Readout in the theme's ink, underlined (bold in
+		// theme 1, italic in theme 2): the window's underline is a probe
+		// of the ink's colour, and its count of slanted runs is checked.
+		let inked = ui.Inked(ui.Ink{Color: ui.Rgb(accents[s.theme]), Bold: s.theme == 1, Italic: s.theme == 2, Underline: true})
+		ui.TextStyled(f, "inked", looked(f, inked, 0))
+		ui.ReadoutStyled(f, inkedReading, "reading", looked(f, inked, 0))
 		ui.Pressable(f, "next", 0) {
 			ui.Text(f, "Next")
 		}
@@ -384,6 +396,15 @@ func looksView(f mut ui.Frame[int], s looksApp) {
 		}
 		ui.PressableStyled(f, "b", 0, looked(f, b, 0)) {
 			ui.Text(f, "B")
+		}
+		// A Pressable on a track at rest 24 DIP right of its place (TRACKS).
+		let mut tr = ui.Bare()
+		tr.Fill = ui.Rgb(0x884488)
+		tr.Corners = ui.Round(4)
+		ui.Track(f, ui.ByInt(7), ui.TrackX, 24.0, ui.TrackSpring{Stiffness: 170.0, Damping: 26.0}) {
+			ui.PressableStyled(f, "t", 0, looked(f, tr, 6)) {
+				ui.Text(f, "T")
+			}
 		}
 		let mut group = ui.Bare()
 		group.Opacity = if s.dim { 0.5 } else { 1.0 }

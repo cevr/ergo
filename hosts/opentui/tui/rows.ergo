@@ -200,7 +200,7 @@ func point[E comparable, S, D, F](d mut Driver[S, E, D, F], id ui.Id[E], input s
 	let c = d.options.Cell
 	let b = d.s.BoxOf(numOf(d, id))
 	let over = zoneUnder(d, id, b, input.X, input.Y)
-	try step(d, ui.Point[E]{Id: id, Pointer: ui.PointerEvent{Phase: phase, X: float64(input.X-b.X) * c.W, Y: float64(input.Y-b.Y) * c.H, Zone: None}, Over: over})
+	try step(d, ui.Point[E]{Id: id, Pointer: ui.PointerEvent{Pointer: ui.MousePointer, Phase: phase, X: float64(input.X-b.X) * c.W, Y: float64(input.Y-b.Y) * c.H, Zone: None}, Over: over})
 }
 
 // zoneUnder is the topmost Zone of the Area area under column x, row y,

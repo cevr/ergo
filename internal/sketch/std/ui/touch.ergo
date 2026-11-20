@@ -1,0 +1,812 @@
+// Fingers (MB4): the touch scroll machine, the reach margin and the
+// insets. Std ui owns touch as it owns the mouse: a host feeds a finger's
+// touches, moves and lifts and its frames to the machine, and shows the
+// offsets it gives, so every host scrolls a finger's drag alike, as every
+// host hit-tests alike. The machine is pure: no clock but the times its
+// inputs carry, which is why its laws can say what holds at a time t.
+// Not here (MOBILE Q3): pinch, pull to refresh, edge back and selection
+// handles.
+
+import math
+
+// TouchLook is a platform's touch constants, data and not code: Slop, the
+// distance in DIP a finger moves before it drags (below it, a lift is a
+// tap); LongPress, how long a still finger holds before it long-presses;
+// Friction, the rate per second at which a fling's speed decays (its
+// speed after t seconds is v·e^(-Friction·t), so the decay is per time,
+// whatever the frames); MinFling, the speed in DIP per second under which
+// a lift does not fling and a fling rests; MaxFling, the fastest fling;
+// Stretch, how much of a drag past the content's edge the offset follows
+// (0 to 1); Return, the rate per second at which an offset past the edge
+// returns to it; Rest, the distance from the edge at which it is there.
+type TouchLook { Slop float64, LongPress duration, Friction float64, MinFling float64, MaxFling float64, Stretch float64, Return float64, Rest float64 }
+
+// IOSTouch is iOS's: UIScrollView's normal deceleration (0.998 per ms),
+// a 10 DIP slop and a half-strength rubber band.
+func IOSTouch() TouchLook {
+	TouchLook{Slop: 10, LongPress: 500ms, Friction: 2.0, MinFling: 50, MaxFling: 8000, Stretch: 0.5, Return: 12, Rest: 0.5}
+}
+
+// AndroidTouch is Android's: ViewConfiguration's 8 DIP slop, 400 ms long
+// press, 50 to 8000 DIP per second flings, a faster decay and a stiffer
+// edge.
+func AndroidTouch() TouchLook {
+	TouchLook{Slop: 8, LongPress: 400ms, Friction: 3.0, MinFling: 50, MaxFling: 8000, Stretch: 0.3, Return: 16, Rest: 0.5}
+}
+
+// Axis is the direction a drag scrolls.
+type Axis = AxisX | AxisY
+
+// AxisX is a horizontal scroll.
+type AxisX {}
+
+// AxisY is a vertical scroll.
+type AxisY {}
+
+// TouchPhase is where the machine is: Idle → Pressed (a finger down, not
+// yet past the slop) → Dragging (past it, locked to one axis) → Flinging
+// (lifted while moving) or Settling (lifted past the content's edge) →
+// Idle. A finger down during a fling or a return catches it.
+type TouchPhase = TouchIdle | TouchPressed | TouchDragging{Axis Axis} | TouchFlinging{Axis Axis, Speed float64} | TouchSettling{Axis Axis}
+
+// TouchIdle is no finger and nothing moving.
+type TouchIdle {}
+
+// TouchPressed is a finger down that has not moved past the slop.
+type TouchPressed {}
+
+// TouchInput is what a host feeds the machine: a finger's touch, move,
+// lift or cancel (the system took it), each with the finger's Id, its
+// position in the container's box and the time; or a frame at a time.
+type TouchInput = FingerDown{Id int, X float64, Y float64, At duration} | FingerMove{Id int, X float64, Y float64, At duration} | FingerUp{Id int, X float64, Y float64, At duration} | FingerCancel{Id int, At duration} | TouchFrame{At duration}
+
+// TouchSignal is what a finger meant besides a scroll: a tap (a lift
+// within the slop, before the long press) or a long press (still for
+// LongPress), at the finger's touch.
+type TouchSignal = Tapped{X float64, Y float64} | LongPressed{X float64, Y float64}
+
+// Touch is the machine's state for one container: its Phase and its
+// offsets X and Y, from 0 to the room the content leaves on each axis
+// (past it only while a finger stretches it or it returns). One finger
+// owns it from its touch to its lift; another finger's inputs change
+// nothing meanwhile.
+type Touch {
+	Phase  TouchPhase,
+	X      float64,
+	Y      float64,
+	roomX  float64,
+	roomY  float64,
+	finger int,
+	downX  float64,
+	downY  float64,
+	downAt duration,
+	// from is the finger's position on the axis and base the offset when
+	// the drag locked, so the offset follows the finger from there.
+	from    float64,
+	base    float64,
+	lastP   float64,
+	lastAt  duration,
+	speed   float64,
+	frameAt duration,
+	long    bool,
+	caught  bool,
+}
+
+// NewTouch is the machine at rest at offset 0 on a content that leaves
+// roomX and roomY to scroll (content less viewport; 0: the axis does not
+// scroll).
+func NewTouch(roomX float64, roomY float64) Touch {
+	Touch{Phase: TouchIdle, X: 0, Y: 0, roomX: nonNegative(roomX), roomY: nonNegative(roomY), finger: -1, downX: 0, downY: 0, downAt: duration(int64(0)), from: 0, base: 0, lastP: 0, lastAt: duration(int64(0)), speed: 0, frameAt: duration(int64(0)), long: false, caught: false}
+}
+
+// TouchRoom is t over a content whose room changed (a list grew, a window
+// resized): the offsets stay, and the next frame of a fling or a return
+// works against the new edges.
+func TouchRoom(t Touch, roomX float64, roomY float64) Touch {
+	let mut n = t
+	n.roomX = nonNegative(roomX)
+	n.roomY = nonNegative(roomY)
+	n
+}
+
+// TouchMoving is whether t moves with no finger on it (a fling or a
+// return): a host asks for frames while it does.
+func TouchMoving(t Touch) bool {
+	match t.Phase {
+	case TouchFlinging, TouchSettling:
+		true
+	case TouchIdle, TouchPressed, TouchDragging:
+		false
+	}
+}
+
+func nonNegative(v float64) float64 { if v > 0 { v } else { 0 } }
+
+func touchSeconds(d duration) float64 { float64(int64(d)) / 1000000000.0 }
+
+func touchAbs(v float64) float64 { if v < 0 { -v } else { v } }
+
+func roomOn(t Touch, a Axis) float64 {
+	match a {
+	case AxisX:
+		t.roomX
+	case AxisY:
+		t.roomY
+	}
+}
+
+func offsetOn(t Touch, a Axis) float64 {
+	match a {
+	case AxisX:
+		t.X
+	case AxisY:
+		t.Y
+	}
+}
+
+func withOffset(t Touch, a Axis, v float64) Touch {
+	let mut n = t
+	match a {
+	case AxisX:
+		n.X = v
+	case AxisY:
+		n.Y = v
+	}
+	n
+}
+
+// edgeOf is the nearest offset of the content to o: o itself inside it.
+func edgeOf(o float64, room float64) float64 {
+	if o < 0 {
+		return 0
+	}
+	if o > room {
+		return room
+	}
+	o
+}
+
+// stretched is the offset a drag to raw shows: raw inside the content,
+// and Stretch of the way past its edge.
+func stretched(raw float64, room float64, look TouchLook) float64 {
+	let e = edgeOf(raw, room)
+	e + (raw-e)*look.Stretch
+}
+
+// TouchStep is the machine's step: t after the input, and the signal it
+// meant, if any.
+func TouchStep(t Touch, input TouchInput, look TouchLook) (Touch, Option[TouchSignal]) {
+	match input {
+	case FingerDown as d:
+		match t.Phase {
+		case TouchPressed, TouchDragging:
+			// Another finger owns the container.
+			return (t, None)
+		case TouchIdle, TouchFlinging, TouchSettling:
+		}
+		let mut n = t
+		n.caught = TouchMoving(t)
+		n.Phase = TouchPressed
+		n.finger = d.Id
+		n.downX = d.X
+		n.downY = d.Y
+		n.downAt = d.At
+		n.long = false
+		n.speed = 0
+		(n, None)
+	case FingerMove as m:
+		if m.Id != t.finger {
+			return (t, None)
+		}
+		match t.Phase {
+		case TouchPressed:
+			let dx = m.X - t.downX
+			let dy = m.Y - t.downY
+			if dx*dx+dy*dy <= look.Slop*look.Slop {
+				return stillFor(t, m.At, look)
+			}
+			// Past the slop: the drag locks to the axis this move went
+			// further along, and follows the finger from here.
+			let axis Axis = if touchAbs(dx) > touchAbs(dy) { AxisX } else { AxisY }
+			let p = along(axis, m.X, m.Y)
+			let mut n = t
+			n.Phase = TouchDragging{Axis: axis}
+			n.from = p
+			n.base = offsetOn(t, axis)
+			n.lastP = p
+			n.lastAt = m.At
+			n.speed = 0
+			(n, None)
+		case TouchDragging as g:
+			(dragTo(t, g.Axis, m.X, m.Y, m.At, look), None)
+		case TouchIdle, TouchFlinging, TouchSettling:
+			(t, None)
+		}
+	case FingerUp as u:
+		if u.Id != t.finger {
+			return (t, None)
+		}
+		match t.Phase {
+		case TouchPressed:
+			let (s, sig) = stillFor(t, u.At, look)
+			let mut n = s
+			n.finger = -1
+			n.Phase = TouchIdle
+			match sig {
+			case Some[TouchSignal]:
+				return (n, sig)
+			case None:
+			}
+			if s.long || t.caught {
+				return (n, None)
+			}
+			(n, Some{Value: Tapped{X: t.downX, Y: t.downY}})
+		case TouchDragging as g:
+			let moved = dragTo(t, g.Axis, u.X, u.Y, u.At, look)
+			// A finger held still before it lifts flings nothing.
+			let held = int64(u.At-t.lastAt) > int64(100ms)
+			(lifted(moved, g.Axis, if held { 0.0 } else { moved.speed }, u.At, look), None)
+		case TouchIdle, TouchFlinging, TouchSettling:
+			(t, None)
+		}
+	case FingerCancel as c:
+		if c.Id != t.finger {
+			return (t, None)
+		}
+		match t.Phase {
+		case TouchDragging as g:
+			// The system took the finger: no fling, a return if past the
+			// edge.
+			(lifted(t, g.Axis, 0.0, c.At, look), None)
+		case TouchPressed:
+			let mut n = t
+			n.finger = -1
+			n.Phase = TouchIdle
+			(n, None)
+		case TouchIdle, TouchFlinging, TouchSettling:
+			(t, None)
+		}
+	case TouchFrame as fr:
+		match t.Phase {
+		case TouchPressed:
+			stillFor(t, fr.At, look)
+		case TouchFlinging as fl:
+			(flung(t, fl.Axis, fl.Speed, fr.At, look), None)
+		case TouchSettling as st:
+			(settled(t, st.Axis, fr.At, look), None)
+		case TouchIdle, TouchDragging:
+			(t, None)
+		}
+	}
+}
+
+func along(a Axis, x float64, y float64) float64 {
+	match a {
+	case AxisX:
+		x
+	case AxisY:
+		y
+	}
+}
+
+// stillFor is a pressed finger still at time at: its long press once it
+// held LongPress.
+func stillFor(t Touch, at duration, look TouchLook) (Touch, Option[TouchSignal]) {
+	if t.long || t.caught || int64(at-t.downAt) < int64(look.LongPress) {
+		return (t, None)
+	}
+	let mut n = t
+	n.long = true
+	(n, Some{Value: LongPressed{X: t.downX, Y: t.downY}})
+}
+
+// dragTo is a dragging finger at x, y at time at: the offset on the
+// locked axis follows it (an axis with no room stays), and its speed is
+// the last move's.
+func dragTo(t Touch, a Axis, x float64, y float64, at duration, look TouchLook) Touch {
+	let p = along(a, x, y)
+	let room = roomOn(t, a)
+	let mut n = t
+	if room > 0 {
+		n = withOffset(t, a, stretched(t.base-(p-t.from), room, look))
+	}
+	let dt = touchSeconds(at - t.lastAt)
+	if dt > 0 {
+		n.speed = -(p - t.lastP) / dt
+	}
+	n.lastP = p
+	n.lastAt = at
+	n
+}
+
+// lifted is the finger gone at time at with the offset moving at speed:
+// a return when past the edge, a fling when fast enough, else rest.
+func lifted(t Touch, a Axis, speed float64, at duration, look TouchLook) Touch {
+	let mut n = t
+	n.finger = -1
+	n.frameAt = at
+	let o = offsetOn(t, a)
+	let room = roomOn(t, a)
+	if o != edgeOf(o, room) {
+		n.Phase = TouchSettling{Axis: a}
+		return n
+	}
+	if room > 0 && touchAbs(speed) >= look.MinFling {
+		let v = if speed > look.MaxFling { look.MaxFling } else if speed < -look.MaxFling { -look.MaxFling } else { speed }
+		n.Phase = TouchFlinging{Axis: a, Speed: v}
+		return n
+	}
+	n.Phase = TouchIdle
+	n
+}
+
+// flung is a fling at time at: its speed decays by e^(-Friction·dt) and
+// the offset moves by the speed's integral, so where it is at a time does
+// not depend on the frames before it. It rests at an edge it reaches, or
+// where its speed falls under MinFling.
+func flung(t Touch, a Axis, speed float64, at duration, look TouchLook) Touch {
+	let dt = touchSeconds(at - t.frameAt)
+	if dt <= 0 {
+		return t
+	}
+	let decay = math.Exp(-look.Friction * dt)
+	let room = roomOn(t, a)
+	let o = offsetOn(t, a) + speed*(1.0-decay)/look.Friction
+	let v = speed * decay
+	let mut n = withOffset(t, a, edgeOf(o, room))
+	n.frameAt = at
+	if o != edgeOf(o, room) || touchAbs(v) < look.MinFling {
+		n.Phase = TouchIdle
+		return n
+	}
+	n.Phase = TouchFlinging{Axis: a, Speed: v}
+	n
+}
+
+// settled is a return at time at: the distance past the edge shrinks by
+// e^(-Return·dt), and the offset is at the edge once it is within Rest.
+func settled(t Touch, a Axis, at duration, look TouchLook) Touch {
+	let dt = touchSeconds(at - t.frameAt)
+	if dt <= 0 {
+		return t
+	}
+	let o = offsetOn(t, a)
+	let e = edgeOf(o, roomOn(t, a))
+	let next = e + (o-e)*math.Exp(-look.Return*dt)
+	let mut n = t
+	n.frameAt = at
+	if touchAbs(next-e) < look.Rest {
+		n = withOffset(n, a, e)
+		n.Phase = TouchIdle
+		return n
+	}
+	withOffset(n, a, next)
+}
+
+// Reachable is a control a finger may hit: its box in the window and
+// whether it takes a press.
+type Reachable { Box Rect, Enabled bool }
+
+// ReachMargin is MyGo's reach margin for a finger, in DIP.
+let ReachMargin = 14.0
+
+// Reach is the control a finger at x, y hits (MB4), as an index of
+// targets, which are in paint order (the last on top): the top one whose
+// box holds the point, enabled or not (a disabled control under the
+// finger takes it, so nothing is pressed); else the enabled one whose box
+// is nearest the point, within margin, the top one of those as near; else
+// None. A mouse hits only what is under it: a host calls Reach for a
+// finger.
+func Reach(targets []Reachable, x float64, y float64, margin float64) Option[int] {
+	let mut i = len(targets) - 1
+	for i >= 0 {
+		if reachDistance(targets[i].Box, x, y) == 0 {
+			return Some{Value: i}
+		}
+		i = i - 1
+	}
+	let mut best = -1
+	let mut bestD = 0.0
+	for j, r in targets {
+		if r.Enabled {
+			let d = reachDistance(r.Box, x, y)
+			if d <= margin && (best < 0 || d <= bestD) {
+				best = j
+				bestD = d
+			}
+		}
+	}
+	if best < 0 {
+		return None
+	}
+	Some{Value: best}
+}
+
+// reachDistance is how far x, y is from the box: 0 inside it or on its
+// edge.
+func reachDistance(b Rect, x float64, y float64) float64 {
+	let l = float64(b.X)
+	let t = float64(b.Y)
+	let r = l + float64(b.W)
+	let btm = t + float64(b.H)
+	let dx = if x < l { l - x } else if x > r { x - r } else { 0.0 }
+	let dy = if y < t { t - y } else if y > btm { y - btm } else { 0.0 }
+	math.Sqrt(dx*dx + dy*dy)
+}
+
+// Insets are the parts of a window the system covers (its bars, a
+// cutout, the keyboard), in DIP from each edge. A host lays the root out
+// inside them (InsetRect), so no content is under them; the window's
+// background still fills them.
+type Insets { Top Length, Right Length, Bottom Length, Left Length }
+
+// NoInsets is a window the system covers nowhere.
+let NoInsets = Insets{Top: 0, Right: 0, Bottom: 0, Left: 0}
+
+// InsetRect is the part of view the insets leave, never less than empty.
+func InsetRect(view Rect, ins Insets) Rect {
+	let w = float64(view.W) - float64(ins.Left) - float64(ins.Right)
+	let h = float64(view.H) - float64(ins.Top) - float64(ins.Bottom)
+	Rect{X: view.X + ins.Left, Y: view.Y + ins.Top, W: Length(if w > 0 { w } else { 0.0 }), H: Length(if h > 0 { h } else { 0.0 })}
+}
+
+// tms is n milliseconds. (a law's helper)
+func tms(n int) duration { duration(int64(n) * int64(1ms)) }
+
+// lookOf is platform look k of two. (a law's helper)
+func lookOf(k int) TouchLook { if k == 0 { IOSTouch() } else { AndroidTouch() } }
+
+// fed is t after input, its signal dropped. (a law's helper)
+func fed(t Touch, input TouchInput, look TouchLook) Touch {
+	let (n, _) = TouchStep(t, input, look)
+	n
+}
+
+// lockedTo is the axis t's drag is locked to, None when it is not
+// dragging. (a law's helper)
+func lockedTo(t Touch) Option[Axis] {
+	match t.Phase {
+	case TouchDragging as d:
+		Some{Value: d.Axis}
+	case TouchIdle, TouchPressed, TouchFlinging, TouchSettling:
+		None
+	}
+}
+
+// isIdle is whether t is at rest. (a law's helper)
+func isIdle(t Touch) bool {
+	match t.Phase {
+	case TouchIdle:
+		true
+	case TouchPressed, TouchDragging, TouchFlinging, TouchSettling:
+		false
+	}
+}
+
+// isFlinging is whether t flings. (a law's helper)
+func isFlinging(t Touch) bool {
+	match t.Phase {
+	case TouchFlinging:
+		true
+	case TouchIdle, TouchPressed, TouchDragging, TouchSettling:
+		false
+	}
+}
+
+// FingerLocksOneAxis (MB4): over drawn looks, rooms on both axes, moves
+// within the slop and a first move past it in a drawn direction, the drag
+// locks to the axis that move went further along, and through drawn moves
+// after it, in any direction, the other axis's offset does not move and
+// the lock stays.
+law FingerLocksOneAxis(seed int) {
+	let mut r = seeded(seed)
+	let look = lookOf(draw(&r, 2))
+	let slop = int(look.Slop)
+	let mut t = NewTouch(float64(draw(&r, 2000)+1), float64(draw(&r, 2000)+1))
+	t = fed(t, FingerDown{Id: 3, X: 500.0, Y: 500.0, At: tms(0)}, look)
+	let mut at = 0
+	for _ in 0..draw(&r, 3) {
+		at = at + draw(&r, 20) + 1
+		t = fed(t, FingerMove{Id: 3, X: 500.0 + float64(draw(&r, slop+1)-slop/2), Y: 500.0 + float64(draw(&r, slop+1)-slop/2), At: tms(at)}, look)
+	}
+	if lockedTo(t) != None {
+		return false
+	}
+	let mut dx = draw(&r, 121) - 60
+	let dy = draw(&r, 121) - 60
+	if dx*dx+dy*dy <= slop*slop {
+		dx = if dx < 0 { dx - 2*slop } else { dx + 2*slop }
+	}
+	let want Axis = if dx*dx > dy*dy { AxisX } else { AxisY }
+	at = at + 10
+	t = fed(t, FingerMove{Id: 3, X: 500.0 + float64(dx), Y: 500.0 + float64(dy), At: tms(at)}, look)
+	if lockedTo(t) != (Some{Value: want}) || t.X != 0 || t.Y != 0 {
+		return false
+	}
+	for _ in 0..draw(&r, 12)+1 {
+		at = at + draw(&r, 30) + 1
+		t = fed(t, FingerMove{Id: 3, X: 500.0 + float64(draw(&r, 801)-400), Y: 500.0 + float64(draw(&r, 801)-400), At: tms(at)}, look)
+		let other = match want {
+		case AxisX:
+			t.Y
+		case AxisY:
+			t.X
+		}
+		if other != 0 || lockedTo(t) != (Some{Value: want}) {
+			return false
+		}
+	}
+	true
+}
+
+// flingFrom is a vertical drag on a room of room DIP to its middle, then
+// a move of dist DIP (down when back) in 10 ms and a lift there: a fling
+// from the middle at dist·100 DIP per second. (a law's helper)
+func flingFrom(room int, dist int, back bool, look TouchLook) Touch {
+	let mut t = NewTouch(0, float64(room))
+	let slop = int(look.Slop)
+	t = fed(t, FingerDown{Id: 1, X: 100.0, Y: 2000.0, At: tms(0)}, look)
+	let y0 = 2000 - slop - 1
+	t = fed(t, FingerMove{Id: 1, X: 100.0, Y: float64(y0), At: tms(10)}, look)
+	let y1 = y0 - room/2
+	t = fed(t, FingerMove{Id: 1, X: 100.0, Y: float64(y1), At: tms(20)}, look)
+	let y2 = if back { y1 + dist } else { y1 - dist }
+	t = fed(t, FingerMove{Id: 1, X: 100.0, Y: float64(y2), At: tms(30)}, look)
+	fed(t, FingerUp{Id: 1, X: 100.0, Y: float64(y2), At: tms(30)}, look)
+}
+
+// FlingStops (MB4): a fling from any speed, either way, on drawn rooms,
+// looks and frame periods, stays inside the content at every frame and
+// is at rest within the frames its friction allows (the speed falls from
+// MaxFling to MinFling in ln(MaxFling/MinFling)/Friction seconds); and
+// where it is at a time does not depend on the frames before it: frames
+// three times as far apart give the same offset, to a thousandth of a
+// DIP, at each time both still fling.
+law FlingStops(seed int) {
+	let mut r = seeded(seed)
+	let look = lookOf(draw(&r, 2))
+	let room = draw(&r, 6000) + 200
+	let back = draw(&r, 2) == 0
+	let dist = draw(&r, room/2-1) + 1
+	let period = []int{8, 16, 17, 33}[draw(&r, 4)]
+	let mut a = flingFrom(room, dist, back, look)
+	let mut b = a
+	let most = int(math.Log(look.MaxFling/look.MinFling)/look.Friction/(float64(period)/1000.0)) + 2
+	for k in 1..most+1 {
+		let at = tms(30 + k*period)
+		a = fed(a, TouchFrame{At: at}, look)
+		if a.Y < 0 || a.Y > float64(room) || a.X != 0 {
+			return false
+		}
+		if k%3 == 0 {
+			b = fed(b, TouchFrame{At: at}, look)
+			if isFlinging(a) && isFlinging(b) && math.Abs(a.Y-b.Y) > 0.001 {
+				return false
+			}
+		}
+	}
+	isIdle(a)
+}
+
+// OverscrollReturns (MB4): a drag past either edge of a drawn room, held
+// and lifted, returns: at each frame of a drawn period the offset is on
+// the same side of the edge, no further from it, and within the frames
+// the return's rate allows it is at the edge exactly and at rest.
+law OverscrollReturns(seed int) {
+	let mut r = seeded(seed)
+	let look = lookOf(draw(&r, 2))
+	let room = draw(&r, 1000) + 50
+	let top = draw(&r, 2) == 0
+	let past = draw(&r, 400) + 10
+	let slop = int(look.Slop)
+	let mut t = NewTouch(0, float64(room))
+	t = fed(t, FingerDown{Id: 2, X: 100.0, Y: 2000.0, At: tms(0)}, look)
+	let y0 = if top { 2000 + slop + 1 } else { 2000 - slop - 1 }
+	t = fed(t, FingerMove{Id: 2, X: 100.0, Y: float64(y0), At: tms(10)}, look)
+	let y1 = if top { y0 + past } else { y0 - room - past }
+	t = fed(t, FingerMove{Id: 2, X: 100.0, Y: float64(y1), At: tms(20)}, look)
+	t = fed(t, FingerUp{Id: 2, X: 100.0, Y: float64(y1), At: tms(400)}, look)
+	let edge = if top { 0.0 } else { float64(room) }
+	let mut gap = t.Y - edge
+	if gap == 0 || isIdle(t) {
+		return false
+	}
+	let period = []int{8, 16, 17, 33}[draw(&r, 4)]
+	let most = int(math.Log(math.Abs(gap)/look.Rest)/look.Return/(float64(period)/1000.0)) + 2
+	for k in 1..most+1 {
+		t = fed(t, TouchFrame{At: tms(400 + k*period)}, look)
+		let g = t.Y - edge
+		if math.Abs(g) > math.Abs(gap) || g*gap < 0 {
+			return false
+		}
+		gap = g
+	}
+	isIdle(t) && t.Y == edge
+}
+
+// TapIsNotADrag (MB4): a finger that moves only within the slop and lifts
+// before the long press sends one tap, at its touch, and scrolls nothing;
+// one the system cancels sends nothing.
+law TapIsNotADrag(seed int) {
+	let mut r = seeded(seed)
+	let look = lookOf(draw(&r, 2))
+	let slop = int(look.Slop)
+	let id = draw(&r, 5)
+	let x = float64(draw(&r, 300))
+	let y = float64(draw(&r, 300))
+	let mut t = NewTouch(float64(draw(&r, 500)), float64(draw(&r, 500)))
+	let mut sent = []TouchSignal{}
+	let mut at = 0
+	let steps = []TouchInput{FingerDown{Id: id, X: x, Y: y, At: tms(0)}}
+	let mut all = steps
+	for _ in 0..draw(&r, 6) {
+		at = at + draw(&r, 40) + 1
+		all = all.Append(FingerMove{Id: id, X: x + float64(draw(&r, slop+1)-slop/2), Y: y + float64(draw(&r, slop+1)-slop/2), At: tms(at)})
+	}
+	let cancel = draw(&r, 3) == 0
+	at = at + 1
+	all = all.Append(if cancel { FingerCancel{Id: id, At: tms(at)} } else { FingerUp{Id: id, X: x, Y: y, At: tms(at)} })
+	for input in all {
+		let (n, s) = TouchStep(t, input, look)
+		t = n
+		match s {
+		case Some[TouchSignal] as v:
+			sent = sent.Append(v.Value)
+		case None:
+		}
+	}
+	if !isIdle(t) || t.X != 0 || t.Y != 0 {
+		return false
+	}
+	if cancel {
+		return len(sent) == 0
+	}
+	len(sent) == 1 && sent[0] == Tapped{X: x, Y: y}
+}
+
+// LongPressNeedsStillness (MB4): over drawn steps of a pressed finger
+// (frames, moves within the slop, a move past it) at drawn times, and its
+// lift, the machine long-presses once exactly when the finger was still
+// for LongPress before any move past the slop, at the first step that
+// sees it, and a lift taps exactly when it neither long-pressed nor
+// dragged.
+law LongPressNeedsStillness(seed int) {
+	let mut r = seeded(seed)
+	let look = lookOf(draw(&r, 2))
+	let slop = int(look.Slop)
+	let lp = int(int64(look.LongPress) / int64(1ms))
+	let mut t = NewTouch(0, 1000)
+	t = fed(t, FingerDown{Id: 0, X: 50.0, Y: 500.0, At: tms(0)}, look)
+	let mut at = 0
+	let mut dragged = false
+	let mut long = false
+	let mut fx = 50.0
+	let mut fy = 500.0
+	for _ in 0..draw(&r, 10) {
+		at = at + draw(&r, 200)
+		let kind = draw(&r, 6)
+		let input TouchInput = if kind == 0 {
+			fy = 500.0 - float64(slop+1+draw(&r, 50))
+			FingerMove{Id: 0, X: fx, Y: fy, At: tms(at)}
+		} else if kind < 3 {
+			if !dragged {
+				fx = 50.0 + float64(draw(&r, slop+1)-slop/2)
+				fy = 500.0 + float64(draw(&r, slop+1)-slop/2)
+			}
+			FingerMove{Id: 0, X: fx, Y: fy, At: tms(at)}
+		} else {
+			TouchFrame{At: tms(at)}
+		}
+		let wasDragged = dragged
+		if kind == 0 {
+			dragged = true
+		}
+		let (n, s) = TouchStep(t, input, look)
+		t = n
+		let due = !wasDragged && !dragged && !long && at >= lp
+		match s {
+		case Some[TouchSignal] as v:
+			if !due || v.Value != (LongPressed{X: 50.0, Y: 500.0}) {
+				return false
+			}
+			long = true
+		case None:
+			if due {
+				return false
+			}
+		}
+	}
+	at = at + draw(&r, 300)
+	let (_, s) = TouchStep(t, FingerUp{Id: 0, X: fx, Y: fy, At: tms(at)}, look)
+	let dueAtLift = !dragged && !long && at >= lp
+	match s {
+	case Some[TouchSignal] as v:
+		if dueAtLift {
+			return v.Value == (LongPressed{X: 50.0, Y: 500.0})
+		}
+		!dragged && !long && v.Value == (Tapped{X: 50.0, Y: 500.0})
+	case None:
+		dragged || long
+	}
+}
+
+// SecondFingerWaits (MB4): while one finger drags a container, a second
+// finger's touches, moves and lifts, interleaved at drawn steps, change
+// nothing: the offsets after each step are those of the first finger
+// alone, and the second finger sends no signal.
+law SecondFingerWaits(seed int) {
+	let mut r = seeded(seed)
+	let look = lookOf(draw(&r, 2))
+	let slop = int(look.Slop)
+	let mut alone = NewTouch(float64(draw(&r, 900)+100), float64(draw(&r, 900)+100))
+	let mut both = alone
+	let first = []TouchInput{FingerDown{Id: 1, X: 300.0, Y: 300.0, At: tms(0)}, FingerMove{Id: 1, X: 300.0, Y: float64(300 - slop - 1), At: tms(5)}}
+	let mut mine = first
+	let mut at = 5
+	for _ in 0..draw(&r, 8)+1 {
+		at = at + draw(&r, 20) + 1
+		mine = mine.Append(FingerMove{Id: 1, X: 300.0 + float64(draw(&r, 41)-20), Y: float64(300 - slop - 1 - draw(&r, 200) + 100), At: tms(at)})
+	}
+	for i, input in mine {
+		alone = fed(alone, input, look)
+		both = fed(both, input, look)
+		if i > 0 {
+			let other = []TouchInput{FingerDown{Id: 2, X: float64(draw(&r, 600)), Y: float64(draw(&r, 600)), At: tms(at)}, FingerMove{Id: 2, X: float64(draw(&r, 600)), Y: float64(draw(&r, 600)), At: tms(at)}, FingerUp{Id: 2, X: float64(draw(&r, 600)), Y: float64(draw(&r, 600)), At: tms(at)}, FingerCancel{Id: 2, At: tms(at)}}[draw(&r, 4)]
+			let (n, s) = TouchStep(both, other, look)
+			both = n
+			if s != None {
+				return false
+			}
+		}
+		if both.X != alone.X || both.Y != alone.Y || both.Phase != alone.Phase {
+			return false
+		}
+	}
+	true
+}
+
+// biggest is the largest of a, b and 0. (a law's helper)
+func biggest(a float64, b float64) float64 { if a > b && a > 0 { a } else if b > 0 { b } else { 0.0 } }
+
+// reachDist is how far x, y is from b, 0 inside it. (a law's helper)
+func reachDist(b Rect, x float64, y float64) float64 {
+	let dx = biggest(float64(b.X)-x, x-float64(b.X)-float64(b.W))
+	let dy = biggest(float64(b.Y)-y, y-float64(b.Y)-float64(b.H))
+	math.Sqrt(dx*dx + dy*dy)
+}
+
+// ReachPicksTheNearest (MB4): over drawn targets (boxes, enabled or not,
+// in paint order), points and margins, Reach is the top target under the
+// point when there is one; else an enabled target within the margin that
+// no enabled target is nearer than, the top one of those as near; and
+// None exactly when no enabled target is within the margin.
+law ReachPicksTheNearest(seed int) {
+	let mut r = seeded(seed)
+	let mut ts = []Reachable{}
+	for _ in 0..draw(&r, 7) {
+		ts = ts.Append(Reachable{Box: Rect{X: Length(float64(draw(&r, 300))), Y: Length(float64(draw(&r, 300))), W: Length(float64(draw(&r, 80))), H: Length(float64(draw(&r, 80)))}, Enabled: draw(&r, 3) != 0})
+	}
+	let x = float64(draw(&r, 400) - 20)
+	let y = float64(draw(&r, 400) - 20)
+	let margin = float64(draw(&r, 21))
+	let got = Reach(ts, x, y, margin)
+	let mut under = -1
+	for i, t in ts {
+		if reachDist(t.Box, x, y) == 0 {
+			under = i
+		}
+	}
+	if under >= 0 {
+		return got == (Some{Value: under})
+	}
+	let mut near = -1
+	for i, t in ts {
+		if t.Enabled && reachDist(t.Box, x, y) <= margin && (near < 0 || reachDist(t.Box, x, y) <= reachDist(ts[near].Box, x, y)) {
+			near = i
+		}
+	}
+	if near < 0 {
+		return got == None
+	}
+	got == (Some{Value: near})
+}
