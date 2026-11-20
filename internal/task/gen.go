@@ -195,60 +195,97 @@ func orderOf(nodes []Node, edges [][2]int) (order []int, cycles [][]int) {
 
 // contentKey is the key of node n's result over the inputs in now: its
 // name, identity and environment, each file's digest and each folder's
-// listing.
-func contentKey(n Node, env string, in Inputs, root string, h *hasher) (string, error) {
+// listing. fileSums and dirSums are the digests it is made of, in the
+// order of in.Files and in.Dirs.
+func contentKey(n Node, env string, in Inputs, root string, h *hasher) (key string, fileSums, dirSums []string, err error) {
 	parts := []string{"task entry", n.Name, n.Ident, env}
 	for _, f := range in.Files {
 		d, err := h.digest(f)
 		if err != nil {
-			return "", err
+			return "", nil, nil, err
 		}
+		fileSums = append(fileSums, d)
 		parts = append(parts, "f "+f+" "+d)
 	}
 	for _, dir := range in.Dirs {
 		l, err := listing(root, dir)
 		if err != nil {
-			return "", err
+			return "", nil, nil, err
 		}
+		dirSums = append(dirSums, lawcache.Key(l))
 		parts = append(parts, "d "+dir+" "+l)
 	}
-	return lawcache.Key(parts...), nil
+	return lawcache.Key(parts...), fileSums, dirSums, nil
 }
 
 // lookup is node n's stored result for the tree at root as it is now: the
 // outputs of a run over the same inputs, when the tree's outputs still
-// hash as that run wrote them.
-func (r *Runner) lookup(n Node, env, root string, h *hasher) (outs []output, hit bool, err error) {
+// hash as that run wrote them. On a miss, why names its reason: no last
+// run, the environment, the first input whose digest moved since the
+// last run, the stored entry gone, or an output that no longer hashes as
+// stored.
+func (r *Runner) lookup(n Node, env, root string, h *hasher) (outs []output, hit bool, why string, err error) {
 	text, ok := r.Store.Get(lastKey(n))
 	if !ok {
-		return nil, false, nil
+		return nil, false, "no stored last run", nil
 	}
 	last, ok := decodeRecord(text)
-	if !ok || last.env != env {
-		return nil, false, nil
+	if !ok {
+		return nil, false, "the stored last run does not read (an older format)", nil
 	}
-	key, err := contentKey(n, env, last.in, root, h)
+	if last.env != env {
+		return nil, false, "the environment changed: " + firstDiff(last.env, env), nil
+	}
+	key, fileSums, dirSums, err := contentKey(n, env, last.in, root, h)
 	if err != nil {
-		return nil, false, err
+		return nil, false, "", err
 	}
 	text, ok = r.Store.Get(key)
 	if !ok {
-		return nil, false, nil
+		for i, f := range last.in.Files {
+			if fileSums[i] != last.fileSums[i] {
+				return nil, false, "input " + f + " changed", nil
+			}
+		}
+		for i, d := range last.in.Dirs {
+			if dirSums[i] != last.dirSums[i] {
+				return nil, false, "the names in folder " + d + " changed", nil
+			}
+		}
+		return nil, false, "no stored result for these inputs (the store dropped it)", nil
 	}
 	entry, ok := decodeRecord(text)
 	if !ok {
-		return nil, false, nil
+		return nil, false, "the stored result does not read (an older format)", nil
 	}
 	for _, o := range entry.outs {
 		d, err := h.digest(o.path)
 		if err != nil {
-			return nil, false, err
+			return nil, false, "", err
 		}
 		if d != o.digest {
-			return entry.outs, false, nil
+			return entry.outs, false, "output " + o.path + " no longer hashes as stored", nil
 		}
 	}
-	return entry.outs, true, nil
+	return entry.outs, true, "", nil
+}
+
+// firstDiff is the first line where a and b differ, as "OLD -> NEW".
+func firstDiff(a, b string) string {
+	al, bl := strings.Split(a, "\n"), strings.Split(b, "\n")
+	for i := range max(len(al), len(bl)) {
+		var x, y string
+		if i < len(al) {
+			x = al[i]
+		}
+		if i < len(bl) {
+			y = bl[i]
+		}
+		if x != y {
+			return fmt.Sprintf("%q -> %q", x, y)
+		}
+	}
+	return "(the same lines)"
 }
 
 // run runs node n in the tree at root and stores its result: the outputs
@@ -298,12 +335,12 @@ func (r *Runner) run(ctx context.Context, n Node, env, root string, h *hasher) (
 	}
 	in.Files = sortedUnique(in.Files)
 	in.Dirs = sortedUnique(in.Dirs)
-	key, err := contentKey(n, env, in, root, h)
+	key, fileSums, dirSums, err := contentKey(n, env, in, root, h)
 	if err != nil {
 		return nil, err
 	}
 	r.Store.Put(key, record{env: env, outs: outs}.encode())
-	r.Store.Put(lastKey(n), record{env: env, in: in, outs: outs}.encode())
+	r.Store.Put(lastKey(n), record{env: env, in: in, fileSums: fileSums, dirSums: dirSums, outs: outs}.encode())
 	return outs, nil
 }
 
@@ -386,7 +423,7 @@ func (r *Runner) Gen(ctx context.Context, nodes []Node, mode Mode) (Report, erro
 		if running == k+1 {
 			var still []string
 			for _, i := range g.Order {
-				if _, hit, err := r.lookup(nodes[i], envs[i], root, h); err == nil && !hit {
+				if _, hit, _, err := r.lookup(nodes[i], envs[i], root, h); err == nil && !hit {
 					still = append(still, nodes[i].Name)
 				}
 			}
@@ -397,7 +434,7 @@ func (r *Runner) Gen(ctx context.Context, nodes []Node, mode Mode) (Report, erro
 		ran := false
 		for _, i := range g.Order {
 			n := nodes[i]
-			stored, hit, err := r.lookup(n, envs[i], root, h)
+			stored, hit, why, err := r.lookup(n, envs[i], root, h)
 			if err != nil {
 				return rep, fmt.Errorf("gen %s: %v", n.Name, err)
 			}
@@ -410,7 +447,7 @@ func (r *Runner) Gen(ctx context.Context, nodes []Node, mode Mode) (Report, erro
 				if err := toCopy(); err != nil {
 					return rep, err
 				}
-				if stored, hit, err = r.lookup(n, envs[i], root, h); err != nil {
+				if stored, hit, why, err = r.lookup(n, envs[i], root, h); err != nil {
 					return rep, fmt.Errorf("gen %s: %v", n.Name, err)
 				}
 			}
@@ -428,7 +465,10 @@ func (r *Runner) Gen(ctx context.Context, nodes []Node, mode Mode) (Report, erro
 				fmt.Fprintf(r.Out, "gen %s: a fresh run writes what its stored result does not (%s): its declared reads are incomplete\n", n.Name, n.Class)
 				continue
 			}
-			fmt.Fprintf(r.Out, "gen %s: ran\n", n.Name)
+			if hit {
+				why = "--fresh"
+			}
+			fmt.Fprintf(r.Out, "gen %s: ran (%s)\n", n.Name, why)
 		}
 		if !ran {
 			break

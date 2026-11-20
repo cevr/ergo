@@ -481,6 +481,65 @@ func TestGenStopsARestlessCycle(t *testing.T) {
 	}
 }
 
+// TestGenMissSaysWhy: every miss names its reason, the first input whose
+// digest moved since the last run (a file, a listed folder's names, the
+// environment), so an unexplained miss cannot pass unseen (MONOREPO WT1b,
+// the c10 miss). It catches task-why-unnamed (testdata/mutants.json).
+func TestGenMissSaysWhy(t *testing.T) {
+	root := t.TempDir()
+	write := func(rel, text string) {
+		t.Helper()
+		p := filepath.Join(root, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("in/a.txt", "a")
+	write("in/b.txt", "b")
+	env := "go1"
+	node := Node{
+		Name: "n", Class: Vouched, Ident: "n",
+		Env: func(context.Context) (string, error) { return env, nil },
+		Inputs: func(context.Context, string) (Inputs, error) {
+			return Inputs{Files: []string{"in/a.txt", "in/b.txt"}, Dirs: []string{"in"}}, nil
+		},
+		Run: func(_ context.Context, root string) ([]byte, error) {
+			a, _ := os.ReadFile(filepath.Join(root, "in/a.txt"))
+			b, _ := os.ReadFile(filepath.Join(root, "in/b.txt"))
+			return nil, os.WriteFile(filepath.Join(root, "out.txt"), append(a, b...), 0o644)
+		},
+	}
+	r := &Runner{Root: root, Store: lawcache.Memory(StoreIdentity)}
+	gen := func() string {
+		t.Helper()
+		var log strings.Builder
+		r.Out = &log
+		if _, err := r.Gen(context.Background(), []Node{node}, Mode{}); err != nil {
+			t.Fatal(err)
+		}
+		return log.String()
+	}
+	for _, step := range []struct {
+		edit func()
+		want string
+	}{
+		{func() {}, "ran (no stored last run)"},
+		{func() { write("in/b.txt", "b2") }, "ran (input in/b.txt changed)"},
+		{func() { write("in/c.txt", "c") }, "ran (the names in folder in changed)"},
+		{func() { env = "go2" }, `ran (the environment changed: "go1" -> "go2")`},
+		{func() { write("out.txt", "hand") }, "ran (output out.txt no longer hashes as stored)"},
+		{func() {}, "hit"},
+	} {
+		step.edit()
+		if log := gen(); !strings.Contains(log, step.want) {
+			t.Fatalf("want %q in:\n%s", step.want, log)
+		}
+	}
+}
+
 func maps2Equal(a, b map[string]string) bool {
 	if len(a) != len(b) {
 		return false

@@ -124,9 +124,14 @@ const StoreIdentity = "ergo-task/1"
 // the manifest and the outputs, each output with its digest ("-" for a
 // file the run removed).
 type record struct {
-	env  string
-	in   Inputs
-	outs []output
+	env string
+	in  Inputs
+	// fileSums and dirSums are the digest of each of in.Files and the
+	// listing digest of each of in.Dirs when the run's key was made, so
+	// that a later miss can name the input that differs (a miss always
+	// has a reason: lookup's why).
+	fileSums, dirSums []string
+	outs              []output
 }
 
 type output struct {
@@ -135,13 +140,13 @@ type output struct {
 
 func (r record) encode() string {
 	var b strings.Builder
-	b.WriteString("ergo-task/1\n")
+	b.WriteString("ergo-task/2\n")
 	fmt.Fprintf(&b, "env %q\n", r.env)
-	for _, f := range r.in.Files {
-		fmt.Fprintf(&b, "in %s\n", f)
+	for i, f := range r.in.Files {
+		fmt.Fprintf(&b, "in %s %s\n", r.fileSums[i], f)
 	}
-	for _, d := range r.in.Dirs {
-		fmt.Fprintf(&b, "dir %s\n", d)
+	for i, d := range r.in.Dirs {
+		fmt.Fprintf(&b, "dir %s %s\n", r.dirSums[i], d)
 	}
 	for _, o := range r.outs {
 		fmt.Fprintf(&b, "out %s %s\n", o.digest, o.path)
@@ -151,7 +156,7 @@ func (r record) encode() string {
 
 func decodeRecord(text string) (record, bool) {
 	lines := strings.Split(strings.TrimSuffix(text, "\n"), "\n")
-	if len(lines) < 2 || lines[0] != "ergo-task/1" {
+	if len(lines) < 2 || lines[0] != "ergo-task/2" {
 		return record{}, false
 	}
 	var r record
@@ -162,10 +167,16 @@ func decodeRecord(text string) (record, bool) {
 			if _, err := fmt.Sscanf(rest, "%q", &r.env); err != nil {
 				return record{}, false
 			}
-		case "in":
-			r.in.Files = append(r.in.Files, rest)
-		case "dir":
-			r.in.Dirs = append(r.in.Dirs, rest)
+		case "in", "dir":
+			sum, p, ok := strings.Cut(rest, " ")
+			if !ok {
+				return record{}, false
+			}
+			if key == "in" {
+				r.in.Files, r.fileSums = append(r.in.Files, p), append(r.fileSums, sum)
+			} else {
+				r.in.Dirs, r.dirSums = append(r.in.Dirs, p), append(r.dirSums, sum)
+			}
 		case "out":
 			d, p, ok := strings.Cut(rest, " ")
 			if !ok {

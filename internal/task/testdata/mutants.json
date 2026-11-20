@@ -54,6 +54,15 @@
       "to": "\t\tif false {\n",
       "rule": "A cycle of k generators settles in k+1 running passes; one still missing after them fails naming it, never loops (only the coarse backstop would stop it, past the bound).",
       "killers": ["internal/task:TestGenStopsARestlessCycle"]
+    },
+    {
+      "name": "task-why-unnamed",
+      "origin": "wf10 MONOREPO WT1b miss diagnosis",
+      "file": "internal/task/gen.go",
+      "from": "\t\t\tif fileSums[i] != last.fileSums[i] {\n",
+      "to": "\t\t\tif false {\n",
+      "rule": "A miss names the first input whose digest moved since the last run.",
+      "killers": ["internal/task:TestGenMissSaysWhy"]
     }
   ]
 }
