@@ -146,7 +146,7 @@ func justifyOf(j ui.Justify) float64 {
 
 // restyle sets the layout of scene node num from old's (None: a node just
 // made, every property) to node's, only where they differ.
-func restyle[S, E, D, F](d *Driver[S, E, D, F], num int, old Option[ui.Node[E]], node ui.Node[E]) needs go.Foreign {
+func restyle[S, E, D, F](d mut Driver[S, E, D, F], num int, old Option[ui.Node[E]], node ui.Node[E]) needs go.Foreign {
 	let c = d.options.Cell
 	let now = layoutOf(node)
 	let s = now.style
@@ -188,7 +188,7 @@ func restyle[S, E, D, F](d *Driver[S, E, D, F], num int, old Option[ui.Node[E]],
 // edges sets the four edges of a Padding or a Margin that changed (all:
 // those that are not 0): left and right in columns, top and bottom in
 // rows.
-func edges[S, E, D, F](d *Driver[S, E, D, F], num int, prop int, all bool, was ui.Edges, now ui.Edges) needs go.Foreign {
+func edges[S, E, D, F](d mut Driver[S, E, D, F], num int, prop int, all bool, was ui.Edges, now ui.Edges) needs go.Foreign {
 	let c = d.options.Cell
 	if (all && now.Left != 0) || (!all && was.Left != now.Left) {
 		d.s.SetStyle(num, prop, 0, Cells(now.Left, c.W))
@@ -209,7 +209,7 @@ func edges[S, E, D, F](d *Driver[S, E, D, F], num int, prop int, all bool, was u
 // disabled Fieldset; a focused Check, Toggle or Input is bold; an Input
 // is underlined (its placeholder dim, the editor's); a text under a Pressable is
 // dark, and bold when the Pressable is focused.
-func lookOf[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) look {
+func lookOf[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) look {
 	let n = nodeOf(d, id)
 	let on = d.focus == (Some{Value: id})
 	let off = disabled(d, id)
@@ -233,13 +233,13 @@ func lookOf[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) look {
 }
 
 // textOn is the look of a text inside the Pressable p.
-func textOn[S, E, D, F](d *Driver[S, E, D, F], p ui.Id[E]) look {
+func textOn[S, E, D, F](d mut Driver[S, E, D, F], p ui.Id[E]) look {
 	let on = d.focus == (Some{Value: p})
 	look{fg: if disabled(d, p) { grey } else { black }, bg: 0, attr: if on { screen.Bold } else { 0 }}
 }
 
 // pressableAbove is the nearest Pressable that holds id.
-func pressableAbove[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) Option[ui.Id[E]] {
+func pressableAbove[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) Option[ui.Id[E]] {
 	let mut at = id
 	for at != d.root {
 		at = parentOf(d, at)
@@ -254,7 +254,7 @@ func pressableAbove[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) Option[ui.Id
 
 // relook gives id's scene node (and a Pressable's label) its look, when
 // it changed.
-func relook[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) needs go.Foreign {
+func relook[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) needs go.Foreign {
 	paint(d, numOf(d, id), lookOf(d, id))
 	match d.labels.Get(id) {
 	case Some[int] as l:
@@ -264,14 +264,14 @@ func relook[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) needs go.Foreign {
 }
 
 // relookTree relooks id's subtree.
-func relookTree[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) needs go.Foreign {
+func relookTree[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) needs go.Foreign {
 	relook(d, id)
 	for k in kidsOf(d, id) {
 		relookTree[S, E, D, F](d, k)
 	}
 }
 
-func paint[S, E, D, F](d *Driver[S, E, D, F], num int, l look) needs go.Foreign {
+func paint[S, E, D, F](d mut Driver[S, E, D, F], num int, l look) needs go.Foreign {
 	if num == 0 || d.looks.Get(num) == (Some{Value: l}) {
 		return
 	}

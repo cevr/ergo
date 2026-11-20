@@ -20,6 +20,7 @@ func (in *interp) contextLaw(law *check.Law, lc *check.LawContext, res Result) (
 	start := in.steps
 	out = res
 	out.TotalCases = testplan.Cases
+	in.casesBudget(testplan.Cases)
 	defer func() {
 		if r := recover(); r != nil {
 			ab, ok := r.(*abrupt)

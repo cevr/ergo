@@ -1,0 +1,24 @@
+import compiler/syntax/dump
+
+// Scan is dump.Scan: the dump of one scan of src, which
+// internal/sketch/syntax's scanner tests read.
+func Scan(src string) string { dump.Scan(src) }
+
+// Parse is dump.Parse: the canonical dump of one parse of src, which the
+// decoder property compares.
+func Parse(src string) string { dump.Parse(src) }
+
+// Columns is dump.Columns: the parse of src packed for the Go decoder
+// (internal/sketch/syntax/decode.go).
+func Columns(src string) []uint32 { dump.Columns(src) }
+
+// ColumnsAll is dump.ColumnsAll: Columns of each source, in order, each
+// file on a task of its own, at most workers at once.
+func ColumnsAll(srcs []string, workers int) [][]uint32 { dump.ColumnsAll(srcs, workers) }
+
+// Tokens is dump.Tokens: kind, start and end per token of the scan of src.
+func Tokens(src string) []uint32 { dump.Tokens(src) }
+
+// Failure is dump.Failure: the failure of the parse of src, "" when it
+// parses.
+func Failure(src string) string { dump.Failure(src) }

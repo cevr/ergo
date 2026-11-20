@@ -17,7 +17,7 @@ import queue
 type Session[S, E, D, F] {
 	frame    Frame[E],
 	actor    actor.Actor[S, E, D, F],
-	view     func(f *Frame[E], s S),
+	view     func(f mut Frame[E], s S),
 	post     func(ev Event[E]),
 	inflight Map[int, Task[bool]],
 	stale    sync.Ref[bool],
@@ -28,7 +28,7 @@ type Session[S, E, D, F] {
 	exit        func(a actor.Actor[S, E, D, F]) Option[CrashCause[F]],
 	alive       func(a actor.Actor[S, E, D, F], e E) bool,
 	fresh       Option[func() actor.Actor[S, E, D, F]],
-	crashView   func(f *Frame[E], c Crash[S, E, F]),
+	crashView   func(f mut Frame[E], c Crash[S, E, F]),
 	report      func(c Crash[S, E, F]),
 	crash       Option[Crash[S, E, F]],
 	run         int,
@@ -81,7 +81,7 @@ func workCrashWork(gate queue.Queue[int]) func(s int) Option[func(send func(e in
 
 // keyView is the session law's view: its key presses are its signals, by
 // the key's name ("1", "5"), and it shows the state.
-func keyView(f *Frame[int], s int) {
+func keyView(f mut Frame[int], s int) {
 	OnKey(f, func(k KeyPress) Option[int] {
 		if k.Name == "1" {
 			return Some{Value: 1}
@@ -95,7 +95,7 @@ func keyView(f *Frame[int], s int) {
 }
 
 // keyCrashView is its crash view: any key reloads.
-func keyCrashView(f *Frame[int], c Crash[int, int, Boom]) {
+func keyCrashView(f mut Frame[int], c Crash[int, int, Boom]) {
 	OnKey(f, func(k KeyPress) Option[int] { Some{Value: 0} })
 	Text(f, "crashed")
 }
@@ -106,7 +106,7 @@ func key(name string) Event[int] {
 
 // endedOf takes the posted events up to the Ended of run, stepping the
 // others, and is that Ended's patch.
-func endedOf(session *Session[int, int, Decision[int, int], Boom], posted queue.Queue[Event[int]], run int) Option[[]Op[int]] {
+func endedOf(session mut Session[int, int, Decision[int, int], Boom], posted queue.Queue[Event[int]], run int) Option[[]Op[int]] {
 	for {
 		let ev = posted.Pop() catch {
 		case queue.Closed:
@@ -195,7 +195,7 @@ func crashFollows() bool needs Scheduler {
 
 // endsQuiet is whether the Ended of run, when the loop takes it, changes
 // nothing on the screen.
-func endsQuiet(session *Session[int, int, Decision[int, int], Boom], posted queue.Queue[Event[int]], run int) bool {
+func endsQuiet(session mut Session[int, int, Decision[int, int], Boom], posted queue.Queue[Event[int]], run int) bool {
 	match endedOf(session, posted, run) {
 	case Some[[]Op[int]] as ops:
 		len(ops.Value) == 0
@@ -216,9 +216,9 @@ func endsQuiet(session *Session[int, int, Decision[int, int], Boom], posted queu
 // InForce, so a Step needs none of its own. An actor that ends under
 // Start's session ends the loop (Step fails Stopped); StartApp's shows
 // its crash view instead.
-func Start[E comparable, S, D, F, R](a actor.Actor[S, E, D, F], view own func(f *Frame[E], s S) needs R, post own func(ev Event[E])) (Session[S, E, D, F], []Op[E]) needs R {
+func Start[E comparable, S, D, F, R](a actor.Actor[S, E, D, F], view own func(f mut Frame[E], s S) needs R, post own func(ev Event[E])) (Session[S, E, D, F], []Op[E]) needs R {
 	let ctx = InForce[R]()
-	let shown = func(f *Frame[E], st S) {
+	let shown = func(f mut Frame[E], st S) {
 		with ctx {
 			view(f, st)
 		}
@@ -284,7 +284,7 @@ func noReport[S, E, F](c Crash[S, E, F]) {}
 // while it is not; a pass clears it. The first state Changes gives is the
 // state when its loop began, which may be after the first pass, so it
 // posts too. When the actor ends, it posts Ended with the actor's run.
-func watchActor[E comparable, S, D, F](s *Session[S, E, D, F]) {
+func watchActor[E comparable, S, D, F](s mut Session[S, E, D, F]) {
 	let a = s.actor
 	let post = s.post
 	let stale = s.stale
@@ -305,7 +305,7 @@ func watchActor[E comparable, S, D, F](s *Session[S, E, D, F]) {
 
 // newer is whether the actor committed a state after the one the last
 // pass read.
-func newer[E comparable, S, D, F](s *Session[S, E, D, F]) bool { s.actor.Version() > s.shown.Get() }
+func newer[E comparable, S, D, F](s mut Session[S, E, D, F]) bool { s.actor.Version() > s.shown.Get() }
 
 // versioned is the actor's state and a Version no later than it: exact
 // when no commit came between the reads around it, which a State read
@@ -332,7 +332,7 @@ func versioned[S, E, D, F](a actor.Actor[S, E, D, F]) (S, int) {
 // runPass renders the actor's state (the crash view of the crash, once
 // the actor crashed), then starts each Fetch of the commit as a task and
 // stops the task of each Cancel.
-func runPass[E comparable, S, D, F](s *Session[S, E, D, F]) []Op[E] {
+func runPass[E comparable, S, D, F](s mut Session[S, E, D, F]) []Op[E] {
 	s.stale.Set(false)
 	let ops = match s.crash {
 	case Some[Crash[S, E, F]] as c:
@@ -366,7 +366,7 @@ func runPass[E comparable, S, D, F](s *Session[S, E, D, F]) []Op[E] {
 // finish stops the task of epoch, if one is in flight, and waits until it
 // has ended: a cancelled fetch stops; a fetch that posted its result has
 // ended or is ending.
-func finish[S, E, D, F](s *Session[S, E, D, F], epoch int) {
+func finish[S, E, D, F](s mut Session[S, E, D, F], epoch int) {
 	let found, rest = s.inflight.Take(epoch)
 	s.inflight = rest
 	match found {
@@ -397,7 +397,7 @@ func finish[S, E, D, F](s *Session[S, E, D, F], epoch int) {
 // warning. So an event that finds the session's own signals not yet
 // drawn runs their pass first, and the result is both passes' patches,
 // in order; their Committed then finds the state drawn.
-func Step[E comparable, S, D, F](s *Session[S, E, D, F], ev Event[E]) []Op[E] fails actor.Stopped {
+func Step[E comparable, S, D, F](s mut Session[S, E, D, F], ev Event[E]) []Op[E] fails actor.Stopped {
 	let mut first = []Op[E]{}
 	match ev {
 	case Committed, Ended:
@@ -419,7 +419,7 @@ func Step[E comparable, S, D, F](s *Session[S, E, D, F], ev Event[E]) []Op[E] fa
 
 // stepEvent is Step's handling of ev, once the session's own signals are
 // drawn.
-func stepEvent[E comparable, S, D, F](s *Session[S, E, D, F], ev Event[E]) []Op[E] fails actor.Stopped {
+func stepEvent[E comparable, S, D, F](s mut Session[S, E, D, F], ev Event[E]) []Op[E] fails actor.Stopped {
 	match ev {
 	case Arrived[E] as x:
 		finish(s, x.Epoch)
@@ -476,33 +476,33 @@ func stepEvent[E comparable, S, D, F](s *Session[S, E, D, F], ev Event[E]) []Op[
 
 // SessionRoot is the Id of the root of s's tree, the parent of the first
 // patch's top nodes: a host's mirror starts from it.
-func SessionRoot[S, E, D, F](s *Session[S, E, D, F]) Id[E] { Root(&s.frame) }
+func SessionRoot[S, E, D, F](s mut Session[S, E, D, F]) Id[E] { Root(&s.frame) }
 
 // SessionHovered is the node the pointer is over in s's frame (Hovered,
 // UG3).
-func SessionHovered[S, E, D, F](s *Session[S, E, D, F]) Option[Id[E]] { Hovered(&s.frame) }
+func SessionHovered[S, E, D, F](s mut Session[S, E, D, F]) Option[Id[E]] { Hovered(&s.frame) }
 
 // SessionLookState is the state whose look a host paints for the node id
 // (LookStateIn, UG3).
-func SessionLookState[S, E, D, F](s *Session[S, E, D, F], id Id[E]) LookState { LookStateIn(&s.frame, id) }
+func SessionLookState[S, E, D, F](s mut Session[S, E, D, F], id Id[E]) LookState { LookStateIn(&s.frame, id) }
 
 // SessionAnimates is whether s's last pass made an Animate: whether its
 // host should send frames (Run's Host.Frames).
-func SessionAnimates[S, E, D, F](s *Session[S, E, D, F]) bool { Animating(&s.frame) }
+func SessionAnimates[S, E, D, F](s mut Session[S, E, D, F]) bool { Animating(&s.frame) }
 
 // SessionFocus is the node the keyboard is on in s's frame (Focused),
 // for a host that draws the focus.
-func SessionFocus[S, E, D, F](s *Session[S, E, D, F]) Option[Id[E]] { Focused(&s.frame) }
+func SessionFocus[S, E, D, F](s mut Session[S, E, D, F]) Option[Id[E]] { Focused(&s.frame) }
 
 // FocusSession puts the focus of s's frame on id, or nowhere (FocusOn).
-func FocusSession[S, E, D, F](s *Session[S, E, D, F], id Option[Id[E]]) { FocusOn(&s.frame, id) }
+func FocusSession[S, E, D, F](s mut Session[S, E, D, F], id Option[Id[E]]) { FocusOn(&s.frame, id) }
 
 // judgedPass is a pass an event of the loop caused (an input, a fetch's
 // result, a frame), whose Slow signals the session sends (judge). A pass
 // of a commit the loop did not cause (Committed: a work's reply, and the
 // Slow signals themselves) is not judged, so a slow warning is never
 // judged on its own account.
-func judgedPass[E comparable, S, D, F](s *Session[S, E, D, F]) []Op[E] {
+func judgedPass[E comparable, S, D, F](s mut Session[S, E, D, F]) []Op[E] {
 	let ops = runPass(s)
 	judge(s)
 	ops
@@ -512,7 +512,7 @@ func judgedPass[E comparable, S, D, F](s *Session[S, E, D, F]) []Op[E] {
 // it (the session then shows the crash). While the crash view shows, e is
 // its signal: a reload when the session can start a fresh actor, else
 // nothing.
-func signal[E comparable, S, D, F](s *Session[S, E, D, F], e E) bool fails actor.Stopped {
+func signal[E comparable, S, D, F](s mut Session[S, E, D, F], e E) bool fails actor.Stopped {
 	match s.crash {
 	case Some[Crash[S, E, F]]:
 		match s.fresh {
@@ -551,7 +551,7 @@ func signal[E comparable, S, D, F](s *Session[S, E, D, F], e E) bool fails actor
 // asked for them (OnSlow). Each is a signal the actor steps, so it counts
 // in the Signals of the pass that shows it (UC-SIGNALS0), as an input's
 // signal does.
-func judge[E comparable, S, D, F](s *Session[S, E, D, F]) {
+func judge[E comparable, S, D, F](s mut Session[S, E, D, F]) {
 	match s.frame.slow {
 	case Some[slowWatch[E]] as w:
 		let over = SlowsOf(SessionStats(s), w.Value.budget)
@@ -568,25 +568,25 @@ func judge[E comparable, S, D, F](s *Session[S, E, D, F]) {
 
 // crashFrom is the crash of the session's ended actor by cause, on the
 // signal on.
-func crashFrom[S, E, D, F](s *Session[S, E, D, F], cause CrashCause[F], on Option[E]) Crash[S, E, F] {
+func crashFrom[S, E, D, F](s mut Session[S, E, D, F], cause CrashCause[F], on Option[E]) Crash[S, E, F] {
 	Crash[S, E, F]{Cause: cause, State: s.actor.State(), Signal: on}
 }
 
 // crashed takes the crash c and renders the crash view.
-func crashed[E comparable, S, D, F](s *Session[S, E, D, F], c Crash[S, E, F]) []Op[E] {
+func crashed[E comparable, S, D, F](s mut Session[S, E, D, F], c Crash[S, E, F]) []Op[E] {
 	takeCrash(s, c)
 	runPass(s)
 }
 
 // takeCrash makes c the session's crash and reports it: each caller takes
 // a crash only while the session shows none, so a crash is reported once.
-func takeCrash[S, E, D, F](s *Session[S, E, D, F], c Crash[S, E, F]) {
+func takeCrash[S, E, D, F](s mut Session[S, E, D, F], c Crash[S, E, F]) {
 	s.crash = Some{Value: c}
 	s.report(c)
 }
 
 // crashing is whether the session shows a crash.
-func crashing[S, E, D, F](s *Session[S, E, D, F]) bool {
+func crashing[S, E, D, F](s mut Session[S, E, D, F]) bool {
 	match s.crash {
 	case Some[Crash[S, E, F]]:
 		true
@@ -596,4 +596,4 @@ func crashing[S, E, D, F](s *Session[S, E, D, F]) bool {
 }
 
 // InFlight is the number of fetches started and not yet taken or stopped.
-func InFlight[S, E, D, F](s *Session[S, E, D, F]) int { len(s.inflight) }
+func InFlight[S, E, D, F](s mut Session[S, E, D, F]) int { len(s.inflight) }

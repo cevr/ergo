@@ -52,7 +52,7 @@ func (w *ownWalk) resourceParts(parts []patternPart) []patternPart {
 
 func (w *ownWalk) patternRefuse(t Type, at syntax.Node, format string, args ...any) {
 	if w.genericOnly(t) {
-		w.copySite(t, at, fmt.Sprintf(format, args...), false)
+		w.ownSite(t, at, fmt.Sprintf(format, args...))
 		return
 	}
 	w.report(at, format, args...)
