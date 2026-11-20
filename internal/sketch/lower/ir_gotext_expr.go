@@ -598,7 +598,7 @@ func (p *irPrinter) lit(x *irExpr) gx {
 		for i, e := range x.Elems {
 			elems = append(elems, x.Keys[i]+": "+p.expr(e, true).s)
 		}
-	case *types.Slice:
+	case *types.Slice, *types.Array:
 		for _, e := range x.Elems {
 			elems = append(elems, p.expr(e, true).s)
 		}
