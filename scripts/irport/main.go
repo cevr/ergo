@@ -10,6 +10,15 @@
 // tests with -noder, and checks stock equivalence: without -ergoir the
 // patched compiler builds every example (or the -examples named) byte for
 // byte as the pristine one does. It exits 1 when any step fails.
+//
+//	go run ./scripts/irport -write
+//	go run ./scripts/irport -extract DIR [-patch FILE]
+//
+// -write makes the patch from its source tree toolchain/ir/_go (PATCH-MERGE;
+// internal/toolchain DerivePatch) and writes its digest into the lock: the
+// first step of the regeneration order. -extract writes the source tree of
+// a patch into a new DIR, a branch's edited patch as files to merge with
+// git merge-file against toolchain/ir/_go.
 package main
 
 import (
@@ -37,7 +46,23 @@ func main() {
 	lock := flag.String("lock", "toolchain/ir/lock", "the lock the patch must match; empty to skip (a planted patch)")
 	examples := flag.String("examples", "", "comma-separated example binary folders (default: every example binary)")
 	noder := flag.Bool("noder", false, "run go test -short cmd/compile/internal/noder in the patched copy")
+	write := flag.Bool("write", false, "write the patch and its lock digest from the source tree toolchain/ir/_go (PATCH-MERGE), and exit")
+	extract := flag.String("extract", "", "write the source tree of -patch into this new directory (a branch's edited patch, to merge with git merge-file), and exit")
 	flag.Parse()
+	if *write {
+		if err := writePatch("toolchain/ir/_go", *patch, *lock); err != nil {
+			fmt.Fprintln(os.Stderr, "irport:", err)
+			os.Exit(1)
+		}
+		return
+	}
+	if *extract != "" {
+		if err := extractPatch(*patch, *extract); err != nil {
+			fmt.Fprintln(os.Stderr, "irport:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if *goroot == "" || *work == "" {
 		fmt.Fprintln(os.Stderr, "usage: irport -goroot DIR -work DIR [-patch FILE] [-lock FILE] [-examples a,b] [-noder]")
 		os.Exit(2)

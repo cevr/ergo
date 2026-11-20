@@ -1,0 +1,12 @@
+diff --git a/src/cmd/compile/internal/noder/unified.go b/src/cmd/compile/internal/noder/unified.go
+index 9ec2e40..f02b73d 100644
+--- a/src/cmd/compile/internal/noder/unified.go
++++ b/src/cmd/compile/internal/noder/unified.go
+@@ -320,6 +320,7 @@ func readBodies(target *ir.Package, duringInlining bool, profile *pgoir.Profile)
+ // and returns the result.
+ func writePkgStub(m posMap, noders []*noder) string {
+ 	pkg, info, otherInfo := checkFiles(m, noders)
++	otherInfo = ergoStub(m, pkg, info, noders, otherInfo) // -ergoir (ergoir_flags.go)
+ 
+ 	pw := newPkgWriter(m, pkg, info, otherInfo)
+ 
