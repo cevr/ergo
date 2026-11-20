@@ -34,7 +34,7 @@ test CatalogAtOneSize {
 `
 	code := lowerTestBuild(t, "lawvalues", src).mainGo()
 	copies := func(body string) int { return strings.Count(body, "Clip(") + strings.Count(body, "Clone(") }
-	law, test := goFunc(t, code, "ergoLawCatalogHasN"), goFunc(t, code, "ergoTestCatalogAtOneSize")
+	law, test := goFunc(t, code, goHelper("ergoLawCatalogHasN")), goFunc(t, code, goHelper("ergoTestCatalogAtOneSize"))
 	if lc, tc := copies(law), copies(test); lc != tc || lc != 0 {
 		t.Errorf("the law body has %d copy sites and the same body as a test %d, want 0 and 0:\n%s\n%s", lc, tc, law, test)
 	}
