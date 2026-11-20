@@ -101,12 +101,9 @@ func taskMain(ctx context.Context, args []string, stdout io.Writer) error {
 	if err != nil {
 		return exitStatusError{code: 1, message: "ergo task: " + err.Error()}
 	}
-	members, refused, err := memberNodes(root)
+	members, elsewhere, err := memberNodes(root)
 	if err != nil {
 		return exitStatusError{code: 1, message: "ergo task: " + err.Error()}
-	}
-	for _, r := range refused {
-		fmt.Fprintf(stdout, "not a task: %s\n", r)
 	}
 	if len(gens) == 0 && len(members) == 0 {
 		return exitStatusError{code: 1, message: fmt.Sprintf("ergo task: %s holds no generator: no ergo.work gen line and no package ergo gen wrote", dir)}
@@ -129,11 +126,32 @@ func taskMain(ctx context.Context, args []string, stdout io.Writer) error {
 		if err != nil {
 			return exitStatusError{code: 1, message: "ergo task: " + err.Error()}
 		}
-		return printTaskGraph(stdout, g, *asJSON)
+		if err := printTaskGraph(stdout, g, *asJSON); err != nil {
+			return err
+		}
+		if !*asJSON {
+			owner, _ := ownedElsewhere(r, nodes, elsewhere)
+			for _, p := range elsewhere {
+				by := "gen " + owner[p.Pkg]
+				if owner[p.Pkg] == "" {
+					by = "no generator's last run (ergo task gen fails until one writes it)"
+				}
+				fmt.Fprintf(stdout, "%s: from %s, written by %s\n", p.Pkg, p.Contract, by)
+			}
+		}
+		return nil
 	}
 	rep, err := r.Gen(ctx, nodes, task.Mode{Check: *check, Fresh: *fresh})
 	if err != nil {
 		return exitStatusError{code: 1, message: "ergo task: " + err.Error()}
+	}
+	// A package with ergo gen's header that no member node writes must be
+	// another generator's output, or nothing keeps it current. With names
+	// given, the generator that writes it may not have been asked for.
+	if len(names) == 0 {
+		if _, err := ownedElsewhere(r, nodes, elsewhere); err != nil {
+			return exitStatusError{code: 1, message: "ergo task: " + err.Error()}
+		}
 	}
 	if len(rep.Stale) > 0 {
 		return exitStatusError{code: 1, message: "ergo task gen --check: stale: " + strings.Join(rep.Stale, ", ") + "; run ergo task gen"}

@@ -245,6 +245,40 @@ test HttpFeedMatchesModel(seed int) {
 	}
 }
 
+test HttpFeedEachMatchesModel(seed int) {
+	let pieces = []string{"data", "data:", "data: ", "event: ", "event", "id: ", "id", "retry: ", "retry:", "12", "x", " ", ":", "\n", "\n", "\r", "\r\n", "\x00", "-1", "\xEF\xBB\xBF", "é"}
+	with context { Random: rand.Seeded(uint64(seed)) } {
+		let mut text = if Random.IntN(4) == 0 { "\xEF\xBB\xBF" } else { "" }
+		for _ in 0..Random.IntN(120) {
+			text = text + pieces[Random.IntN(len(pieces))]
+		}
+		let mut sizes = []int{}
+		for _ in 0..1+Random.IntN(8) {
+			sizes = sizes.Append(Random.IntN(10))
+		}
+		let mut r = http.NewEventReader()
+		let mut got = []http.ServerEvent{}
+		let mut from = 0
+		for k in 0..len(text)+1 {
+			if from >= len(text) {
+				break
+			}
+			let s = 1 + sizes[k%len(sizes)]
+			let to = if from+s > len(text) { len(text) } else { from + s }
+			http.FeedEach(&r, strings.Slice(text, from, to), func(e mut http.EventView) {
+				let mut data = []string{}
+				for i in 0..http.DataLines(e) {
+					data = data.Append(http.DataLine(e, i))
+				}
+				got = got.Append(http.ServerEvent{Event: http.Event(e), Data: strings.Join(data, "\n"), ID: http.ID(e)})
+			})
+			from = to
+		}
+		let want, end, retry = sseModel(text)
+		assert got == want && r.End() == end && http.Retry(r) == retry
+	}
+}
+
 func segment(step int) string {
 	let segments = []string{"..", ".", "", "a.txt", "sub", "out", "in", "%2e%2e", "...", "..a", "b.txt"}
 	let i = if step < 0 { -(step % len(segments)) } else { step % len(segments) }
@@ -745,7 +779,7 @@ func TestStdHTTPLawsRun(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("HTTP laws: exit %d\n%s\n%s", code, stdout, stderr)
 	}
-	statements := map[string]string{"http FailureUsesTable": httpFailureStatement, "http SuccessUsesRoute": httpSuccessStatement, "http BuiltPathMatches": httpBuiltPathStatement, "http AllowIsWhatMatches": httpAllowStatement, "http FilesAsksBeneath": httpFilesStatement, "http StreamIsItsWrites": httpStreamStatement, "http WriteAfterStreamFails": httpLateWriteStatement, "http InMemorySendIntoIsSend": httpInMemoryIntoStatement, "http QueryDecodesByTheRule": httpQueryStatement, "http FormIsQuery": httpFormStatement, "http QueryStringBytesReadsString": httpQueryBytesStatement, "http MatchIsSplitMatch": httpSegmentsStatement, "http SuccessJSONIsSuccess": httpSuccessJSONStatement, "http RawPathDecodesToPath": httpRawPathStatement, "http WriteThenRead": sseWriteThenReadStatement, "http ChunkingDoesNotMatter": sseChunkingStatement, "http CutIsNotAnEvent": sseCutStatement, "http FeedMatchesModel": sseModelStatement}
+	statements := map[string]string{"http FailureUsesTable": httpFailureStatement, "http SuccessUsesRoute": httpSuccessStatement, "http BuiltPathMatches": httpBuiltPathStatement, "http AllowIsWhatMatches": httpAllowStatement, "http FilesAsksBeneath": httpFilesStatement, "http StreamIsItsWrites": httpStreamStatement, "http WriteAfterStreamFails": httpLateWriteStatement, "http InMemorySendIntoIsSend": httpInMemoryIntoStatement, "http QueryDecodesByTheRule": httpQueryStatement, "http FormIsQuery": httpFormStatement, "http QueryStringBytesReadsString": httpQueryBytesStatement, "http MatchIsSplitMatch": httpSegmentsStatement, "http SuccessJSONIsSuccess": httpSuccessJSONStatement, "http RawPathDecodesToPath": httpRawPathStatement, "http WriteThenRead": sseWriteThenReadStatement, "http ChunkingDoesNotMatter": sseChunkingStatement, "http CutIsNotAnEvent": sseCutStatement, "http FeedMatchesModel": sseModelStatement, "http FeedEachMatchesModel": sseEachStatement}
 	lawLabel := func(key string) string { return "Http" + strings.TrimPrefix(key, "http ") }
 	lawledger.Run(t, lawsPassed(t, statements, lawLabel, stdHTTPLawsProbe, stdout, "RouterRefusalsAndHead", "HandlerUnderManual", "FilesAnswersByTheRule"))
 }
@@ -771,11 +805,14 @@ const httpLateWriteStatement = `WriteAfterStreamFails(text string) { let kept = 
 const httpInMemoryIntoStatement = `InMemorySendIntoIsSend(status int, body string, long bool, explicit bool, listed int, values []int) { let text = if long { strings.Repeat(body+"x", 1100) } else { body } let set = if listed%2 == 0 { values } else { values.Append(status) } let accept Accept = if explicit { Statuses{Values: set} } else { AnySuccess } let mut taken = !explicit && status >= 200 && status < 300 for v in set { taken = taken || explicit && v == status } let h = InMemory(func(r Request) Response needs Streaming { Response{Status: status, Header: []Field{}, Body: text} }) let got = sync.NewRef[string]("") let r = Request{Method: "GET", Path: "/", RawPath: "/", Query: []Field{}, Header: []Field{}, Body: Buffered{Text: ""}} let response = h.SendInto(r, accept, func(part string) fails SinkFailed { got.Update(func(s string) string { s + part }) }) catch { case StatusRefused as s: let want = if len(text) > 1024 { text[0:1024] } else { text } return !taken && s.Status == status && s.Prefix == want && got.Get() == "" case RequestFailed, SinkFailed: return false } taken && got.Get() == text && response.Status == status && response.Body == "" }`
 
 // The SSE laws (NG1), restated by HttpWriteThenRead, HttpChunkingDoesNotMatter,
-// HttpCutIsNotAnEvent and HttpFeedMatchesModel above.
+// HttpCutIsNotAnEvent, HttpFeedMatchesModel and HttpFeedEachMatchesModel
+// above.
 const sseWriteThenReadStatement = `WriteThenRead(events []ServerEvent) { let clean = writable(events) let text = WriteEvents(clean) catch { case Unwritable: return false } let back = ReadEvents(text) catch { case Truncated: return false } back == typed(clean) }`
 
 const sseChunkingStatement = `ChunkingDoesNotMatter(events []ServerEvent, sizes []int) { let clean = writable(events) let text = WriteEvents(clean) catch { case Unwritable: return false } let r, got = feedIn(text, sizes) got == typed(clean) && r.End() == None }`
 
 const sseCutStatement = `CutIsNotAnEvent(events []ServerEvent, k int, sizes []int) { let clean = writable(events) if len(clean) == 0 { return true } let before = WriteEvents(clean[0:len(clean)-1]) catch { case Unwritable: return false } let whole = WriteEvents(clean) catch { case Unwritable: return false } let last = len(whole) - len(before) let drop = 1 + (if k < 0 { -(k % (last - 1)) } else { k % (last - 1) }) let body = strings.Slice(whole, 0, len(whole)-drop) let r, got = feedIn(body, sizes) got == typed(clean[0:len(clean)-1]) && r.End() == Some[Truncated]{Value: Truncated{Text: strings.Slice(body, len(before), len(body))}} }`
 
-const sseModelStatement = `FeedMatchesModel(seed int) { let pieces = []string{"data", "data:", "data: ", "event: ", "event", "id: ", "id", "retry: ", "retry:", "12", "x", " ", ":", "\n", "\n", "\r", "\r\n", "\x00", "-1", bom, "é"} with context { Random: rand.Seeded(uint64(seed)) } { let mut text = if Random.IntN(4) == 0 { bom } else { "" } for _ in 0..Random.IntN(120) { text = text + pieces[Random.IntN(len(pieces))] } let mut sizes = []int{} for _ in 0..1+Random.IntN(8) { sizes = sizes.Append(Random.IntN(10)) } let r, got = feedIn(text, sizes) let want, end, retry = modelRead(text) got == want && r.End() == end && Retry(r) == retry } }`
+const sseModelStatement = `FeedMatchesModel(seed int) { with context { Random: rand.Seeded(uint64(seed)) } { let text, sizes = drawnText() let r, got = feedIn(text, sizes) let want, end, retry = modelRead(text) got == want && r.End() == end && Retry(r) == retry } }`
+
+const sseEachStatement = `FeedEachMatchesModel(seed int) { with context { Random: rand.Seeded(uint64(seed)) } { let text, sizes = drawnText() let mut r = NewEventReader() let mut got = []ServerEvent{} let mut from = 0 for k in 0..len(text)+1 { if from >= len(text) { break } let s = 1 + sizes[k%len(sizes)] let to = if from+s > len(text) { len(text) } else { from + s } FeedEach(&r, strings.Slice(text, from, to), func(e mut EventView) { let mut data = []string{} for i in 0..DataLines(e) { data = data.Append(DataLine(e, i)) } got = got.Append(ServerEvent{Event: Event(e), Data: strings.Join(data, "\n"), ID: ID(e)}) }) from = to } let want, end, retry = modelRead(text) got == want && r.End() == end && Retry(r) == retry } }`
