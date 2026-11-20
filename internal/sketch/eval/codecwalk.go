@@ -349,6 +349,39 @@ func (w wireWalk) ownWrite(r rtype, wr Value, v Value) (done bool, ab *abrupt) {
 	return true, ab
 }
 
+// ownRead reads a value of r by its type's own read (check.WireRead;
+// types.md, Codecs 11) when the reader rd is an R, the read's direct
+// reader, or the operation value that holds one (the Reader interface
+// path), as the lowering's wireOwnRead does: WireRead(&x, r) into a zero
+// x, its failure the decode's. On any other reader, done is false and the
+// value takes its ordinary form.
+func (w wireWalk) ownRead(r rtype, rd Value) (v Value, done bool, ab *abrupt) {
+	hook, ok := check.WireReadOf(r.t)
+	if !ok {
+		return nil, false, nil
+	}
+	reader := rd
+	for {
+		if rec, isRec := reader.(*record); isRec && rec.t.Obj == hook.Reader.Obj {
+			break
+		}
+		op, isOp := reader.(*operation)
+		if !isOp {
+			return nil, false, nil
+		}
+		reader = op.value
+	}
+	x, ab := w.in.zero(w.fr, w.at, r)
+	if ab != nil {
+		return nil, true, ab
+	}
+	cell := &slot{v: x}
+	if _, ab := w.in.callResolved(w.fr, w.at, hook.Func, nil, []Value{&ptrV{root: cell}, reader}); ab != nil {
+		return nil, true, ab
+	}
+	return cell.v, true, nil
+}
+
 // encodeRecord writes the record rec of type r: tag is the variant's name
 // of a union value, "" for a record.
 func (w wireWalk) encodeRecord(r rtype, wr Value, rec *record, tag string) *abrupt {
@@ -409,6 +442,9 @@ func (w wireWalk) decode(r rtype, rd Value) (Value, *abrupt) {
 		return nil, ab
 	}
 	r = r.env.resolve(r.t)
+	if v, done, ab := w.ownRead(r, rd); done {
+		return v, ab // R's own read of r (types.md, Codecs 11)
+	}
 	switch check.WireFormOf(r.t) {
 	case check.WireNullable:
 		p := wrapperOf(r)
