@@ -580,6 +580,7 @@ type irBuilder struct {
 	// their value, for unfoldAt (ir_unfold.go).
 	letInits map[*check.Var]syntax.Expr
 	next     int
+	slots    int                      // the Go parameter slots, witnesses too (ir_forms_inline.go)
 	env      int                      // the environment's local, or -1 in a pure function
 	wits     map[*check.TypeParam]int // each witness parameter's local (ir_witness.go)
 	result   check.Type
@@ -882,6 +883,7 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	if len(params) == 0 {
 		b.witnessSlots(f) // ir_witness.go
 	}
+	b.slots = b.next
 	if b.result != nil {
 		b.part(func() { b.goType(b.result, f.Decl) })
 	}
