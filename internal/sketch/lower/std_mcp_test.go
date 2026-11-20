@@ -13,7 +13,7 @@ import (
 // memory.Transport, and memory's CallAnswersOnce, with the packages'
 // helpers restated. MemorySession is a client's whole session, the one
 // place a tool that ran and failed is answered (mutant
-// ap2-tool-error-as-refusal). mcp/stdio's Transport holds the process's
+// ap2-tool-error-as-rpc-error). mcp/stdio's Transport holds the process's
 // standard input and output, which only main makes, so its
 // StopsWhenAsked rests on std io's Lines.
 const stdMCPLawsProbe = `import json
