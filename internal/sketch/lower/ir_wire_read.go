@@ -32,6 +32,12 @@ var wireReadForms = map[string]bool{"basic": true, "record": true, "list": true,
 func (st *irState) wireRead(l *lowerer, name string, t check.Type, tc *typeCtx, params *namer, site syntax.Node) (ok bool) {
 	// Under a census it builds too: a decoder it takes is not counted as
 	// a text body, one it refuses is, by its reason (codecText).
+	if _, own := check.WireReadOf(t); own {
+		// A type's own read (wireread.go) first tries its reader's
+		// adapter: R4 builds it.
+		st.codecText(name, "codec reader: own read")
+		return false
+	}
 	if form := l.wireReadForm(t); wireReadLowering == "text" || tc.readVia != 0 || !wireReadForms[form] {
 		st.codecText(name, "codec reader: "+form)
 		return false
