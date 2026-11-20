@@ -1,7 +1,9 @@
-// Runes of a field's text, for Backspace and for typed text a view's
+// Runes of a text, for typed text a view's
 // OnKey takes rune by rune.
 
+import actor
 import strings
+import ui
 import utf8
 
 // runesOf is the text of each rune of s, in order.
@@ -16,17 +18,62 @@ func runesOf(s string) []string {
 	out
 }
 
-// withoutLast is s without its last rune.
-func withoutLast(s string) string {
-	let rs = runesOf(s)
-	if len(rs) == 0 {
-		return s
-	}
-	let mut out = ""
-	for i, r in rs {
-		if i < len(rs)-1 {
-			out = out + r
+// edited takes the window's Edited input number n: an input method
+// committed an edit, and the focused field's committed text is now text
+// (MB5). The field's value becomes it; a composition sends none, so the
+// program never sees half a character.
+func edited[E comparable, S, D, F](d mut Driver[S, E, D, F], n int, text string) fails actor.Stopped | ui.BadPatch needs go.Foreign {
+	d.edited = n
+	match focused(d) {
+	case Some[spot[E]] as s:
+		match s.Value.node {
+		case ui.InputNode as x:
+			if x.Value != text {
+				let was = d.painted
+				try step(d, ui.Type[E]{Id: s.Value.id, Text: text})
+				if d.painted != was {
+					return
+				}
+			}
+		case _:
 		}
+	case None:
 	}
-	out
+	// Nothing was painted (the program kept its value): a paint names
+	// the edit taken, so the window's copy of the field follows.
+	paint(d)
+}
+
+// ComposeOn focuses the field labelled label and composes text over all
+// of its text, as an input method does before a candidate is chosen
+// (MB5); CommitComposition commits it.
+func ComposeOn[E comparable, S, D, F](d mut Driver[S, E, D, F], label string, text string) fails ui.NoNode | ui.Ambiguous | ui.Closed | actor.Stopped | ui.BadPatch needs go.Foreign {
+	let b = try at(d, label)
+	tap(d, b)
+	try Drain(d)
+	d.w.ComposeOver(0, 1073741824, text)
+	try Drain(d)
+}
+
+// CommitComposition commits the input method's composition.
+func CommitComposition[E comparable, S, D, F](d mut Driver[S, E, D, F]) fails ui.Closed | actor.Stopped | ui.BadPatch needs go.Foreign {
+	d.w.Commit()
+	try Drain(d)
+}
+
+// Keyboard is the keyboard the window was told the focused field asks for
+// ("" with none focused), and the one its hints name.
+func Keyboard[S, E, D, F](d mut Driver[S, E, D, F]) (string, string) needs go.Foreign {
+	let want = match focused(d) {
+	case Some[spot[E]] as s:
+		match s.Value.node {
+		case ui.InputNode as x:
+			ui.KeyboardName(x.Hints.Keyboard)
+		case _:
+			""
+		}
+	case None:
+		""
+	}
+	(d.w.EditingKeyboard(), want)
 }

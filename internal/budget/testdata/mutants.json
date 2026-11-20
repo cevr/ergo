@@ -137,11 +137,20 @@
       "killers": ["internal/budget:TestPeakIsReadAtAdmission"]
     },
     {
+      "name": "budget-cap-below-default",
+      "origin": "wf10 WS4c (model CapAtPeak; 2026-11-20: a fast exit-0 run's peak of 1.1G capped its full rerun, killed at 1.4G)",
+      "file": "internal/budget/decide.go",
+      "from": "\t\tcapAt = max(res, dflt)\n",
+      "to": "\t\tcapAt = res\n",
+      "rule": "A command with a recorded peak is never capped below the default: a short run's low peak lowers the charge, never the kill.",
+      "killers": ["internal/budget:TestReservationIsTheLargestPeak"]
+    },
+    {
       "name": "budget-cap-unknown",
       "origin": "wf10 WS4c (model CapUnknown; c012b9af5's rule)",
       "file": "internal/budget/decide.go",
       "from": "\tdefault:\n\t\tres = dflt\n",
-      "to": "\tdefault:\n\t\tres, capped = dflt, true\n",
+      "to": "\tdefault:\n\t\tres, capAt = dflt, dflt\n",
       "rule": "A command never measured is not capped at the default: it runs, and its peak is recorded.",
       "killers": ["internal/budget:TestReservationIsTheLargestPeak", "internal/budget:TestUnknownCommandIsNotKilled"]
     },

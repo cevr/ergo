@@ -184,7 +184,7 @@ func Shown(shapes []ui.Shape[screen.Signal], w Window) []string {
 				}
 			}
 			continue
-		case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.CheckNode, ui.InputNode, ui.ToggleNode, ui.AreaNode, ui.CanvasNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode, ui.TransitionNode, ui.SemanticNode:
+		case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.CheckNode, ui.InputNode, ui.ToggleNode, ui.AreaNode, ui.CanvasNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode, ui.ReadoutNode, ui.TransitionNode, ui.SemanticNode, ui.LayerNode, ui.TrackNode:
 		}
 		for t in Shown(s.Kids, w) {
 			out = out.Append(t)
