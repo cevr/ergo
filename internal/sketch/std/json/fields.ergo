@@ -5,6 +5,30 @@
 type Absent {}
 type Present[T] { Value T }
 type Optional[T] = Absent | Present[T]
+
+law OptionalRoundTrips(v Option[int]) { optionalRoundTrips(v) }
+
+// Option inputs give the law runner ordinary, seeded generators. The wire
+// records contain the JSON-specific alternatives, not Option wire values.
+type optionalField { Value Optional[int] }
+
+func optionalOf[T](v Option[T]) Optional[T] {
+	match v {
+	case None:
+		Absent
+	case Some[T] as p:
+		Present{Value: p.Value}
+	}
+}
+
+func optionalRoundTrips(v Option[int]) bool {
+	let field = optionalField{Value: optionalOf(v)}
+	let back = Decode(c[optionalField](), Encode(c[optionalField](), field)) catch {
+	case _:
+		return false
+	}
+	back == field
+}
 func WireForm[T](x Optional[T]) WireOmittable { WireOmittable }
 
 // Nullable writes null or the value directly. A Nullable record field is
@@ -13,4 +37,26 @@ func WireForm[T](x Optional[T]) WireOmittable { WireOmittable }
 type Null {}
 type NonNull[T] { Value T }
 type Nullable[T] = Null | NonNull[T]
+
+law NullableRoundTrips(v Option[int]) { nullableRoundTrips(v) }
+
+type nullableField { Value Nullable[int] }
+
+func nullableOf[T](v Option[T]) Nullable[T] {
+	match v {
+	case None:
+		Null
+	case Some[T] as p:
+		NonNull{Value: p.Value}
+	}
+}
+
+func nullableRoundTrips(v Option[int]) bool {
+	let field = nullableField{Value: nullableOf(v)}
+	let back = Decode(c[nullableField](), Encode(c[nullableField](), field)) catch {
+	case _:
+		return false
+	}
+	back == field
+}
 func WireForm[T](x Nullable[T]) WireNullable { WireNullable }

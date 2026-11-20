@@ -134,7 +134,7 @@ func Handle(s Run, c Command) Decision[Run, []Event] fails WrongState | WrongSta
 
 The aggregate is a machine, and its rules are laws of the machine:
 
-<!-- quote examples/pipeline/run/laws.ergo Life -->
+<!-- quote examples/pipeline/run/life.ergo Life -->
 ```go
 // Life is the run as a machine: its step is Handle, so a durable actor
 // of it keeps the commands and replays them (std journal).
@@ -238,7 +238,8 @@ type Runner {
 func Apply(v View, id string, e run.Event) View {
 	match moved(e) {
 	case Some[Column] as c:
-		let out = View{Queued: without(v.Queued, id), Running: without(v.Running, id), Failing: without(v.Failing, id), Passed: without(v.Passed, id), Stopped: without(v.Stopped, id)}
+		let other = func(x string) bool { x != id }
+		let out = View{Queued: slices.Filter(v.Queued, other), Running: slices.Filter(v.Running, other), Failing: slices.Filter(v.Failing, other), Passed: slices.Filter(v.Passed, other), Stopped: slices.Filter(v.Stopped, other)}
 		put(out, c.Value, id)
 	case None:
 		v
@@ -246,7 +247,7 @@ func Apply(v View, id string, e run.Event) View {
 }
 ```
 
-<!-- quote examples/pipeline/board/laws.ergo BoardIsFoldOfEvents -->
+<!-- quote examples/pipeline/board/board.ergo BoardIsFoldOfEvents -->
 ```go
 // BoardIsFoldOfEvents: the board folded from the events of every run is
 // the board of the runs' states, with each run once, in the column of
@@ -272,7 +273,7 @@ law BoardIsFoldOfEvents(acts []Act) {
 			v = Apply(v, id, e)
 			match moved(e) {
 			case Some[Column]:
-				order = without(order, id).Append(id)
+				order = slices.Filter(order, func(x string) bool { x != id }).Append(id)
 			case None:
 			}
 		}
@@ -303,7 +304,7 @@ func React(id string, e run.Event) []Notice {
 
 **The log is the source; a view and a policy are its followers.** `examples/pipeline`'s desk keeps each step's entries in the stream `pipeline` of a `domain.Log` before it commits the step, and a restart folds the stream back into the desk (`domain.Sourced` with `Evolve`). A command taken while the desk runs a try or waits out a backoff is committed with `domain.Keep`, which keeps the entry: the try and the wait go on (`CommandKeepsTheWait`). The board and the notices are not part of the desk: each is a `domain.Follow` follower of the stream with its own cursor, so a follower added later reads the whole history, and one that falls behind catches up from its cursor. The laws hold the parts together: the stream folds back into the desk the scene ended in, a restart part-way goes on to the story's end, and the followed board is the fold of the entries.
 
-<!-- quote examples/pipeline/pipeline/log_laws.ergo RestartGoesOn restarted -->
+<!-- quote examples/pipeline/pipeline/scene.ergo RestartGoesOn restarted -->
 ```go
 // RestartGoesOn: a context stopped after the acts before cut and opened
 // again over the same log (a restart: it recovers by Evolve, then

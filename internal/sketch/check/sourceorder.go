@@ -12,7 +12,7 @@ import (
 // pass that ranges over a map keyed by nodes and builds identities (the
 // type table's ids, a row) visits the keys in this order, never in Go's
 // map order, so two checks of the same source intern in one order and
-// export the same bytes (export_order.go, Law ExportIsDeterministic).
+// export the same bytes (check/snapshot/order.go, Law ExportIsDeterministic).
 func (c *checker) sourceOrder() map[syntax.Node]int {
 	if c.nodeOrder == nil {
 		c.nodeOrder = map[syntax.Node]int{}

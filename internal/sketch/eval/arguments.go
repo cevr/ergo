@@ -150,7 +150,7 @@ func (in *interp) builtText(n *check.Named) string {
 		return in.argumentType(n)
 	}
 	text := b.Func.Name
-	if p := b.Func.Pkg; p != nil && p != in.root && p.Path != "prelude" {
+	if p := b.Func.Pkg; p != nil && p != in.root && !p.Prelude() {
 		text = p.Name + "." + text
 	}
 	if targs, _ := b.Instance(n); len(targs) > 0 {
@@ -170,7 +170,7 @@ func (in *interp) argumentType(t check.Type) string {
 	switch t := t.(type) {
 	case *check.Named:
 		n := t.Obj.Name
-		if p := t.Obj.Pkg; p != nil && p != in.root && p.Path != "prelude" {
+		if p := t.Obj.Pkg; p != nil && p != in.root && !p.Prelude() {
 			n = p.Name + "." + n
 		}
 		if len(t.TArgs) > 0 {

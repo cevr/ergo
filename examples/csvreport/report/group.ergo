@@ -49,6 +49,38 @@ func Total(readings []Reading) Summary {
 	slices.Fold(readings, Summary{Key: "total", Readings: 0, Hours: 0, Energy: 0}, add)
 }
 
+// TotalIsFold: the total counts every reading once, and its energy is the
+// sum of hours times kW, as a loop computes it.
+law TotalIsFold(readings []Reading) {
+	let t = Total(readings)
+	let mut hours = 0
+	let mut energy = int64(0)
+	for s in readings {
+		hours += s.Hours
+		energy += int64(s.Hours) * s.Kw
+	}
+	t.Readings == len(readings) && t.Hours == hours && t.Energy == energy
+}
+
+// GroupsSumToTotal: the groups, under either key, add up to the total,
+// and each key has one group.
+law GroupsSumToTotal(readings []Reading, byDevice bool) {
+	let groups = Group(readings, if byDevice { ByDevice } else { BySite })
+	let t = Total(readings)
+	let mut n = 0
+	let mut hours = 0
+	let mut energy = int64(0)
+	for i, g in groups {
+		n += g.Readings
+		hours += g.Hours
+		energy += g.Energy
+		if i > 0 && groups[i-1].Key >= g.Key {
+			return false
+		}
+	}
+	n == t.Readings && hours == t.Hours && energy == t.Energy
+}
+
 // Group is a summary per key of readings under k, in key order.
 func Group(readings []Reading, k Key) []Summary {
 	let mut by = Map[string, Summary]{}
@@ -71,6 +103,23 @@ func Group(readings []Reading, k Key) []Summary {
 
 // Filter is the readings that k keeps, in order.
 func Filter(readings []Reading, k Keep) []Reading { slices.Filter(readings, func(s Reading) bool { Kept(k, s) }) }
+
+// FilterKeepsOnly: a filter keeps exactly the readings its Keep keeps, in
+// order.
+law FilterKeepsOnly(readings []Reading, hours int) {
+	let k = AtLeast{Hours: hours}
+	let kept = Filter(readings, k)
+	let mut j = 0
+	for s in readings {
+		if Kept(k, s) {
+			if j >= len(kept) || kept[j] != s {
+				return false
+			}
+			j += 1
+		}
+	}
+	j == len(kept)
+}
 
 // Table is the report of readings under k: a line per group, then the
 // total, in aligned columns.

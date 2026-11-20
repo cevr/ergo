@@ -2,7 +2,7 @@
 // the life of the process. ergo test runs the Store laws here, against a
 // Table that NewTable makes.
 
-import jobs/jobs
+import jobsapp/jobs
 import maps
 import slices
 import sync

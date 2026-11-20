@@ -1,0 +1,55 @@
+// Decimal is the text form of the integers Incr reads and writes.
+
+// Decimal is the int64 that text writes in decimal, as Redis reads the
+// value of an INCR: an optional minus sign and digits, with no sign
+// before 0, no leading zero, no space and no plus sign. Any other text is
+// None.
+func Decimal(text string) Option[int64] {
+	let n = len(text)
+	if n == 0 || n > 20 {
+		return None
+	}
+	let negative = text[0] == '-'
+	let start = if negative { 1 } else { 0 }
+	if start == n || (text[start] == '0' && (n > start+1 || negative)) {
+		return None
+	}
+	let mut v = int64(0)
+	for i in start..n {
+		let c = text[i]
+		if c < '0' || c > '9' {
+			return None
+		}
+		let d = int64(c - '0')
+		if negative {
+			if v < (-9223372036854775807-1+d)/10 {
+				return None
+			}
+			v = v*10 - d
+		} else {
+			if v > (9223372036854775807-d)/10 {
+				return None
+			}
+			v = v*10 + d
+		}
+	}
+	Some[int64]{Value: v}
+}
+
+// Sum is a + b, or None when it is outside int64.
+func Sum(a int64, b int64) Option[int64] {
+	if b > 0 && a > 9223372036854775807-b {
+		return None
+	}
+	if b < 0 && a < -9223372036854775807-1-b {
+		return None
+	}
+	Some[int64]{Value: a + b}
+}
+
+// DecimalReadsItsText: the decimal text of any int64 reads back as it,
+// and the same text with a leading zero, a plus sign or a space does not.
+law DecimalReadsItsText(n int64) {
+	let text = "\(n)"
+	Decimal(text) == Some[int64]{Value: n} && Decimal("0"+text) == None && Decimal("+"+text) == None && Decimal(text+" ") == None
+}

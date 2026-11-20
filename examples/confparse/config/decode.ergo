@@ -293,3 +293,25 @@ func Decode(d toml.Doc, env Map[string, string]) Config fails Problem {
 	}
 	Config{Name: name, Listen: Listen{Host: host, Port: p}, Log: log, Upstreams: ups}
 }
+
+// DecodeInvertsEncode: a Valid configuration, encoded, printed and read
+// back, decodes as itself.
+law DecodeInvertsEncode(c Config, seed int) {
+	for x in []Config{c, Sample(seed)} {
+		if !Valid(x) {
+			continue
+		}
+		let d = toml.Parse(toml.Print(Encode(x))) catch {
+		case _:
+			return false
+		}
+		let back = Decode(d, Map[string, string]{}) catch {
+		case _:
+			return false
+		}
+		if back != x {
+			return false
+		}
+	}
+	true
+}

@@ -1,5 +1,6 @@
 import machines
 import tui/keys
+import slices
 
 // Outcome is a run of the picker over keys: each mode it showed, the
 // first one included, how many keys it rejected, and the choice, or None
@@ -27,6 +28,31 @@ func Run(m Mode, ks []keys.Key) Outcome {
 		}
 	}
 	Outcome{Frames: frames, Rejected: rejected, Choice: None}
+}
+
+// CursorStaysOnTheList: after any keys, the cursor is on a visible item,
+// or at 0 when none is visible.
+law CursorStaysOnTheList(items []string, ks []keys.Key) {
+	cursorStays(items, ks) && cursorStays(langs, ks) && cursorStays(langs, slices.Concat(narrow, ks))
+}
+
+// langs is the items of the scripted sessions.
+let langs = []string{"Gleam", "ReScript", "Elixir", "Elm"}
+
+// narrow is keys that move down and then narrow the list under the
+// cursor.
+let narrow = []keys.Key{keys.Down, keys.Down, keys.Down, keys.Char{Text: "/"}, keys.Char{Text: "m"}}
+
+// cursorStays checks CursorStaysOnTheList for one run.
+func cursorStays(items []string, ks []keys.Key) bool {
+	for m in Run(Start(items), ks).Frames {
+		let v = ViewOf(m)
+		let n = len(Visible(v))
+		if v.Cursor < 0 || (n == 0 && v.Cursor != 0) || (n > 0 && v.Cursor >= n) {
+			return false
+		}
+	}
+	true
 }
 
 // Last is the last mode of o.

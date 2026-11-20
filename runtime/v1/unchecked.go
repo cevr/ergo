@@ -57,7 +57,7 @@ func StringN(s string, i, n int) string {
 // stringOf is the string of the n bytes at p, built as its two words (a
 // pointer and a length, the layout of every Go string), not by
 // unsafe.String: unsafe.String checks n and p+n again at run time (a
-// compare and a branch per cut, measured on examples/onebrc), and the
+// compare and a branch per cut, measured on examples/station-stats), and the
 // proof has already ruled out both failures. p points inside a live
 // string's bytes and n > 0 stays inside them.
 func stringOf(p unsafe.Pointer, n int) string {

@@ -1,5 +1,5 @@
 binding report: fixture.h
-header sha256 915501db7116c8687d5213f58e356c6c0329fccec84626aa91d31e8d46c08a56
+header sha256 b1cbfc1620152fe364123f95fcc8dd1c8aa3029d57be5e97dcc0cf8698ec995e
 go package fixture (ergo.local/bind/fixture)
 status fx_status: success FX_OK, 5 codes
 abi fx_abi_version() == FX_ABI_VERSION (2)
@@ -7,7 +7,7 @@ handle fx_context (Context): create fx_context_create.out_context, destroy fx_co
 autofill struct_size = size
 autofill abi_version = abi
 
-typed functions (22):
+typed functions (23):
   fx_abi_version: func AbiVersion() (uint32, error)
   fx_context_create: func ContextCreate(options ContextOptions) (*Context, error)
   fx_context_destroy: func ContextDestroy(context *Context) error
@@ -30,6 +30,7 @@ typed functions (22):
   fx_context_counters: func ContextCounters(context *Context) (Counters, error)
   fx_thread_id: func ThreadId() (uint64, error)
   fx_shape_area: func ShapeArea(context *Context, shape ShapeHeaderRecord) (int64, error)
+  fx_box_z: func BoxZ(context *Context, clip *Box) (int64, error)
 
 raw-only functions (5):
   fx_node_set_text: param 2 (text): fx_text holds a pointer (Go memory that holds Go pointers must not reach C)
@@ -52,12 +53,13 @@ pointer fields (2):
   fx_shape_label.text: raw: pointer field (a struct that holds a pointer reaches C only through the raw layer: Go memory that holds Go pointers must not reach C)
 
 counts:
-  functions 27: typed 22, raw-only 5, skipped 0
-  pointer positions 69 (parameters and results 67, fields 2): handle 23, value 13, out 11, in_buffer 2, out_buffer 1, out_count 1, callback 4, key 3, raw 11
+  functions 28: typed 23, raw-only 5, skipped 0
+  pointer positions 72 (parameters and results 70, fields 2): handle 24, value 13, optional 1, out 12, in_buffer 2, out_buffer 1, out_count 1, callback 4, key 3, raw 11
   constants 25, status codes 5
 
-exceptions (1):
+exceptions (2):
   fx_measure_callback out_size: out_array of 2: out_size is two floats (width, height)
+  fx_box_z clip: optional: a NULL clip is no clip
 
 skips (4):
   FX_SMALL (not a status code): a limit of the constant forms (INT8_C gives int), not a status code

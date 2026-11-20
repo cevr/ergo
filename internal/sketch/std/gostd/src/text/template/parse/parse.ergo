@@ -362,6 +362,7 @@ extern go text/template/parse.NodeText let NodeText NodeType
 extern go text/template/parse.NodeType type NodeType int
 
 // ergo:go func (NodeType).Type() NodeType
+// ergo:total
 extern go text/template/parse.NodeType.Type func (t NodeType) Type() NodeType needs go.Foreign
 
 // ergo:go const NodeVariable NodeType
@@ -436,6 +437,7 @@ extern go text/template/parse.PipeNode.Type func (t PipeNode) Type() NodeType ne
 extern go text/template/parse.Pos type Pos int
 
 // ergo:go func (Pos).Position() Pos
+// ergo:total
 extern go text/template/parse.Pos.Position func (p Pos) Position() Pos needs go.Foreign
 
 // ergo:go type RangeNode struct

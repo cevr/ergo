@@ -227,7 +227,7 @@
       "file": "examples/flattree/app/app.ergo",
       "from": "done(flat.Indent(t, at) + \"\\n\")",
       "to": "done(flat.Compact(t, at) + \"\\n\")",
-      "rule": "path prints the value in jq's layout (case path-object).",
+      "rule": "path prints the value indented (case path-object).",
       "killers": [
         "examples:flattree"
       ]

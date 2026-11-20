@@ -12,11 +12,6 @@
 //
 // Like the MyGo desktop driver, it is not a ui.Host provider: it steps the
 // Session itself, so a script is synchronous (ui.TestHost's choice, H4).
-//
-// Prior art: ratatui and Bubble Tea redraw a buffer per frame and write
-// its difference; Textual and Ink lay out a tree with flexbox and round
-// to cells; notcurses and Ghostty's renderer use mode 2026 to show a
-// frame whole.
 
 import actor
 import arena

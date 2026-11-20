@@ -1,0 +1,237 @@
+// Package command is what respd does with a request: Parse reads a RESP
+// frame as a Command, and Run answers it on the engine and the leases in
+// its context, at the time of its clock. A connection, a pipe or a test
+// all answer through Run, so they cannot answer differently.
+
+import respd/resp
+import respd/store
+import strings
+
+// Command is one request. Invalid is a request respd knows but whose
+// arguments are wrong: its Reason is the error Redis answers. Unknown is
+// a command respd does not know.
+type Command = Ping{Message Option[string]} | Echo{Text string} | Get{Key string} | Set{Key string, Value string, When store.When, For Option[int64]} | Del{Keys []string} | Expire{Key string, Ms int64} | Persist{Key string} | TTL{Key string, Unit Unit} | Incr{Key string, By int64} | Hello{Version Option[int64]} | Acquire{Name string, Owner string, Ms int64} | Renew{Name string, Owner string, Token int64, Ms int64} | Release{Name string, Owner string, Token int64} | Invalid{Reason string} | Unknown{Name string, Args []string}
+
+// Unit is the unit a TTL answers in: TTL's seconds or PTTL's
+// milliseconds.
+type Unit = Seconds{} | Millis{}
+
+// Parse is the command of the frame v: an array of bulk strings, the
+// command's name first, in any case.
+func Parse(v resp.Value) Command {
+	let words = match v {
+	case resp.Array as a:
+		bulks(a.Items)
+	case _:
+		None
+	}
+	match words {
+	case None:
+		Invalid{Reason: "ERR Protocol error: expected an array of bulk strings"}
+	case Some[[]string] as w:
+		if len(w.Value) == 0 {
+			return Invalid{Reason: "ERR Protocol error: empty command"}
+		}
+		named(strings.ToUpper(w.Value[0]), w.Value[0], w.Value[1:])
+	}
+}
+
+// bulks is the data of each item, when every item is a bulk string.
+func bulks(items []resp.Value) Option[[]string] {
+	let mut out = []string{}
+	for x in items {
+		match x {
+		case resp.Bulk as b:
+			out = out.Append(b.Data)
+		case _:
+			return None
+		}
+	}
+	Some[[]string]{Value: out}
+}
+
+// named is the command name with args; given is the name as sent.
+func named(name string, given string, args []string) Command {
+	let n = len(args)
+	match name {
+	case "PING":
+		if n > 1 {
+			return arity(given)
+		}
+		if n == 1 {
+			return Ping{Message: Some[string]{Value: args[0]}}
+		}
+		Ping{Message: None}
+	case "ECHO":
+		if n != 1 {
+			return arity(given)
+		}
+		Echo{Text: args[0]}
+	case "GET":
+		if n != 1 {
+			return arity(given)
+		}
+		Get{Key: args[0]}
+	case "SET":
+		if n < 2 {
+			return arity(given)
+		}
+		set(args[0], args[1], args[2:])
+	case "DEL":
+		if n < 1 {
+			return arity(given)
+		}
+		Del{Keys: args}
+	case "EXPIRE", "PEXPIRE":
+		if n != 2 {
+			return arity(given)
+		}
+		match store.Decimal(args[1]) {
+		case Some[int64] as d:
+			let scale = if name == "EXPIRE" { int64(1000) } else { int64(1) }
+			let ms = d.Value * scale
+			if d.Value > Longest/scale || d.Value < -Longest/scale {
+				return Invalid{Reason: "ERR invalid expire time in '\(strings.ToLower(given))' command"}
+			}
+			Expire{Key: args[0], Ms: ms}
+		case None:
+			NotAnInteger
+		}
+	case "PERSIST":
+		if n != 1 {
+			return arity(given)
+		}
+		Persist{Key: args[0]}
+	case "TTL":
+		if n != 1 {
+			return arity(given)
+		}
+		TTL{Key: args[0], Unit: Seconds}
+	case "PTTL":
+		if n != 1 {
+			return arity(given)
+		}
+		TTL{Key: args[0], Unit: Millis}
+	case "INCR":
+		if n != 1 {
+			return arity(given)
+		}
+		Incr{Key: args[0], By: 1}
+	case "DECR":
+		if n != 1 {
+			return arity(given)
+		}
+		Incr{Key: args[0], By: -1}
+	case "INCRBY":
+		if n != 2 {
+			return arity(given)
+		}
+		match store.Decimal(args[1]) {
+		case Some[int64] as d:
+			Incr{Key: args[0], By: d.Value}
+		case None:
+			NotAnInteger
+		}
+	case "HELLO":
+		if n == 0 {
+			return Hello{Version: None}
+		}
+		match store.Decimal(args[0]) {
+		case Some[int64] as d:
+			Hello{Version: Some[int64]{Value: d.Value}}
+		case None:
+			Invalid{Reason: "ERR Protocol version is not an integer or out of range"}
+		}
+	case "LEASE.ACQUIRE":
+		if n != 3 {
+			return arity(given)
+		}
+		match positive(args[2], 1) {
+		case Some[int64] as ms:
+			Acquire{Name: args[0], Owner: args[1], Ms: ms.Value}
+		case None:
+			BadTime
+		}
+	case "LEASE.RENEW":
+		if n != 4 {
+			return arity(given)
+		}
+		match (store.Decimal(args[2]), positive(args[3], 1)) {
+		case (Some[int64] as t, Some[int64] as ms):
+			Renew{Name: args[0], Owner: args[1], Token: t.Value, Ms: ms.Value}
+		case _:
+			NotAnInteger
+		}
+	case "LEASE.RELEASE":
+		if n != 3 {
+			return arity(given)
+		}
+		match store.Decimal(args[2]) {
+		case Some[int64] as t:
+			Release{Name: args[0], Owner: args[1], Token: t.Value}
+		case None:
+			NotAnInteger
+		}
+	case _:
+		Unknown{Name: given, Args: args}
+	}
+}
+
+// set reads SET's options: NX or XX, and EX seconds or PX milliseconds.
+func set(key string, value string, opts []string) Command {
+	let mut when store.When = store.Always
+	let mut ttl Option[int64] = None
+	let mut i = 0
+	for i < len(opts) {
+		let o = strings.ToUpper(opts[i])
+		if (o == "NX" || o == "XX") && when == store.Always {
+			when = if o == "NX" { store.IfAbsent } else { store.IfPresent }
+			i += 1
+			continue
+		}
+		if (o == "EX" || o == "PX") && ttl == None && i+1 < len(opts) {
+			let scale = if o == "EX" { int64(1000) } else { int64(1) }
+			match positive(opts[i+1], scale) {
+			case Some[int64] as d:
+				ttl = Some[int64]{Value: d.Value * scale}
+			case None:
+				return Invalid{Reason: "ERR invalid expire time in 'set' command"}
+			}
+			i += 2
+			continue
+		}
+		return Syntax
+	}
+	Set{Key: key, Value: value, When: when, For: ttl}
+}
+
+// Longest is the most milliseconds a time argument may give, 2^42, some
+// 139 years: a duration of it fits Go's int64 nanoseconds, so no expiry
+// overflows.
+let Longest = int64(4398046511104)
+
+// positive is the count of text when it is above 0 and at most
+// Longest/scale, scale being the milliseconds of its unit.
+func positive(text string, scale int64) Option[int64] {
+	match store.Decimal(text) {
+	case Some[int64] as d:
+		if d.Value <= 0 || d.Value > Longest/scale {
+			return None
+		}
+		d
+	case None:
+		None
+	}
+}
+
+// arity is the error of a command given the wrong count of arguments.
+func arity(given string) Command { Invalid{Reason: "ERR wrong number of arguments for '\(strings.ToLower(given))' command"} }
+
+// NotAnInteger is the error of an argument that is not an integer.
+let NotAnInteger = Invalid{Reason: "ERR value is not an integer or out of range"}
+
+// Syntax is the error of an option respd does not know.
+let Syntax = Invalid{Reason: "ERR syntax error"}
+
+// BadTime is the error of a lease time that is not a positive integer.
+let BadTime = Invalid{Reason: "ERR invalid lease time"}
