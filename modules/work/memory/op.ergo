@@ -4,6 +4,7 @@
 
 import fs
 import fstest
+import github.com/cevr/ergo/modules/work/classes
 import github.com/cevr/ergo/modules/work/work
 import maps
 import slices
@@ -42,14 +43,318 @@ func small(n int, limit int) int { ((n % limit) + limit) % limit }
 // let theBase is the base the property clones; otherBase is a second
 // base on the same disk, with a workspace in its trash.
 let theBase = "/w/base"
-let otherBase = "/w/other"
-
 // World is a Tool over memory providers and the handles the driver uses.
 type World { tool work.Tool, trees Cloner, vcs Vcs, registry work.Registry, clock time.Manual, disk fstest.Memory, hooks Hooks, lock Lock, runner Runner }
 
 // world is a fresh World: the base committed as c0, initialized; the
 // sharing Cloner refuses every clone when sharing is false.
 func world(sharing bool) World { worldWith(sharing, Map[string, string]{}, "", "") }
+
+// RemovingIsIdempotent: rm -expect of a workspace's id trashes it; the
+// retry answers AlreadyRemoved, and so does a retry after gc purged it
+// (its tomb), and the retries change no record.
+law RemovingIsIdempotent(name int) {
+	let w = world(true)
+	let n = pick(name)
+	let a = w.tool.New(n, fresh(false)) catch {
+	case _:
+		return false
+	}
+	let first = w.tool.Rm(n, expecting(some(a.Id))) catch {
+	case _:
+		return false
+	}
+	let again = []work.Removed{work.Removed{Name: n, Id: a.Id, Trash: "", Already: true}}
+	let second = w.tool.Rm(n, expecting(some(a.Id))) catch {
+	case _:
+		return false
+	}
+	let listed = w.tool.List() catch {
+	case _:
+		return false
+	}
+	let _ = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: some(a.Id), Archive: false}) catch {
+	case _:
+		return false
+	}
+	let third = w.tool.Rm(n, expecting(some(a.Id))) catch {
+	case _:
+		return false
+	}
+	let purged = w.tool.List() catch {
+	case _:
+		return false
+	}
+	len(first) == 1 && first[0].Id == a.Id && !first[0].Already && second == again && third == again && len(listed) == 1 && len(purged) == 0
+}
+
+// expecting are rm's options with the expected id and -abandon.
+func expecting(id Option[string]) work.RmOptions { work.RmOptions{Abandon: true, Expect: id, Tree: false} }
+
+// RemovingSparesTheReplacement: after the workspace at a name was removed
+// and purged (the name is taken until gc) and a new one took the name,
+// rm -expect of the first id answers already and leaves the new one.
+law RemovingSparesTheReplacement() {
+	let w = world(true)
+	let first = w.tool.New("a", fresh(false)) catch {
+	case _:
+		return false
+	}
+	let _ = w.tool.Rm("a", expecting(None)) catch {
+	case _:
+		return false
+	}
+	let _ = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: None, Archive: false}) catch {
+	case _:
+		return false
+	}
+	let second = w.tool.New("a", fresh(false)) catch {
+	case _:
+		return false
+	}
+	let answer = w.tool.Rm("a", expecting(some(first.Id))) catch {
+	case _:
+		return false
+	}
+	answer == []work.Removed{work.Removed{Name: "a", Id: first.Id, Trash: "", Already: true}} && w.trees.Has(second.Path) && second.Id != first.Id
+}
+
+// ReservingWithATokenTwiceIsOnce: a second new with the token of the
+// first, under any name, answers the workspace the first made and makes
+// no second record.
+law ReservingWithATokenTwiceIsOnce(token string, again int) {
+	if token == "" {
+		return true
+	}
+	let w = world(true)
+	let o = work.NewOptions{..fresh(false), Token: some(token)}
+	let first = w.tool.New("a", o) catch {
+	case _:
+		return false
+	}
+	let second = w.tool.New(pick(again), o) catch {
+	case _:
+		return false
+	}
+	let after = w.tool.List() catch {
+	case _:
+		return false
+	}
+	second.Id == first.Id && second.Path == first.Path && second.Name == "a" && len(after) == 1
+}
+
+// PurgingTouchesOneEntry: gc -id purges that entry only: its record goes
+// (its tomb stays), and every other record and tree stays.
+law PurgingTouchesOneEntry() {
+	let w = world(true)
+	let a = w.tool.New("a", fresh(false)) catch {
+	case _:
+		return false
+	}
+	let _ = w.tool.New("b", fresh(false)) catch {
+	case _:
+		return false
+	}
+	let _ = w.tool.Rm("a", expecting(None)) catch {
+	case _:
+		return false
+	}
+	let gone = w.tool.Rm("b", expecting(None)) catch {
+	case _:
+		return false
+	}
+	let before = w.tool.List() catch {
+	case _:
+		return false
+	}
+	let purged = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: some(a.Id), Archive: false}) catch {
+	case _:
+		return false
+	}
+	let after = w.tool.List() catch {
+	case _:
+		return false
+	}
+	let tombs = w.registry.Tombs() catch {
+	case work.Unkept:
+		return false
+	}
+	purged.Purged == []string{"a"} && after == slices.Filter(before, func(x work.Workspace) bool { x.Name != "a" }) && w.trees.Has(gone[0].Trash) && slices.IndexFunc(tombs, func(t work.Tomb) bool { t.Id == a.Id }) >= 0
+}
+
+// ClaimReadsTheParentAgain: a new -on x that looked at x and read its
+// branch, and then lost x to an rm (and, when replaced, to a gc and a new
+// x at the same folder), claims nothing: its claim under the lock is
+// NoWorkspace, and no reservation names the x it looked at (rift#56).
+law ClaimReadsTheParentAgain(replaced bool) {
+	let w = world(true)
+	let x = w.tool.New("x", fresh(false)) catch {
+	case _:
+		return false
+	}
+	let o = on("x")
+	let looked = match (w.tool.Look("y", o) catch {
+	case _:
+		return false
+	}) {
+	case work.Making as m:
+		m
+	case work.Created:
+		return false
+	}
+	let begun = w.tool.Begin(looked, o) catch {
+	case _:
+		return false
+	}
+	let _ = w.tool.Rm("x", expecting(None)) catch {
+	case _:
+		return false
+	}
+	if replaced {
+		let _ = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: None, Archive: false}) catch {
+		case _:
+			return false
+		}
+		let again = w.tool.New("x", fresh(false)) catch {
+		case _:
+			return false
+		}
+		if again.Path != x.Path || again.Id == x.Id {
+			return false
+		}
+	}
+	let _ = w.tool.Claim(begun, o.On) catch {
+	case work.NoWorkspace as n:
+		let all = w.tool.List() catch {
+		case _:
+			return false
+		}
+		return n.Name == "x" && slices.IndexFunc(all, func(r work.Workspace) bool { r.Name == "y" }) < 0
+	case _:
+		return false
+	}
+	false
+}
+
+// ParityWithLaneRift: a lane made as lane-rift.sh create makes it (a
+// clone and a branch at the base's head) and a workspace ergo work new
+// makes, driven by the same verbs, leave the base's two branches at the
+// same files, each at its side's head after a hand-back, and agree on
+// which verbs succeed.
+law ParityWithLaneRift(verbs []Verb) {
+	let w = world(true)
+	let lane = "/w/lane"
+	let start = Head(w.vcs, theBase) catch {
+	case work.VcsFailed:
+		return false
+	}
+	w.trees.Clone(theBase, lane) catch {
+	case _:
+		return false
+	}
+	w.vcs.Start(lane, "lane", start) catch {
+	case work.VcsFailed:
+		return false
+	}
+	let made = w.tool.New("work", fresh(false)) catch {
+	case _:
+		return false
+	}
+	let path = made.Path
+	let mut n = 0
+	for verb in verbs {
+		n = n + 1
+		match verb {
+		case Change:
+			let both = Write(w.trees, lane, "f.txt", "\(n)\n") && Commit(w.vcs, lane, "l\(n)") && Write(w.trees, path, "f.txt", "\(n)\n") && Commit(w.vcs, path, "w\(n)")
+			if !both {
+				return false
+			}
+		case Hand:
+			let mut pushed = true
+			Push(w.vcs, lane, theBase, []work.Pushed{work.Pushed{From: "HEAD", To: "refs/heads/lane", Force: false}}) catch {
+			case work.NotFastForward, work.VcsFailed:
+				pushed = false
+			}
+			let mut handed = true
+			let _ = w.tool.Ready(work.ReadyOptions{Name: Some[string]{Value: "work"}}) catch {
+			case _:
+				handed = false
+				work.Handed{Name: "", Branch: "", Commit: "", Snapshot: "", Parent: ""}
+			}
+			if pushed != handed || !atHead(w, lane, "lane") || !atHead(w, path, "work") {
+				return false
+			}
+		case Advance:
+			let _ = Write(w.trees, theBase, "main.ergo", "// main \(n)\n") && Commit(w.vcs, theBase, "b\(n)")
+		case Follow:
+			let mut merged = true
+			let _ = Merge(w.vcs, lane, theBase, "main") catch {
+			case work.Conflicted, work.VcsFailed:
+				merged = false
+				""
+			}
+			let mut synced = true
+			let _ = w.tool.Sync(work.SyncOptions{Name: Some[string]{Value: "work"}}) catch {
+			case _:
+				synced = false
+				work.Synced{Commit: "", Deps: work.NoDeps}
+			}
+			if merged != synced {
+				return false
+			}
+		}
+		if !sameBranches(w, "lane", "work") {
+			return false
+		}
+	}
+	true
+}
+
+// Verb is one step of ParityWithLaneRift on both sides: a committed
+// change, a hand-back (lane-rift.sh push; ergo work ready), a commit on
+// the base's main, and a merge of main (git fetch and merge; ergo work
+// sync).
+type Verb = Change{} | Hand{} | Advance{} | Follow{}
+
+// atHead reports whether the base's branch is the head of the checkout at
+// root, once the branch was handed back.
+func atHead(w World, root string, branch string) bool {
+	let held = Ref(w.vcs, theBase, "refs/heads/"+branch) catch {
+	case work.VcsFailed:
+		return false
+	}
+	let head = Head(w.vcs, root) catch {
+	case work.VcsFailed:
+		return false
+	}
+	held == "" || held == head
+}
+
+// sameBranches reports whether the base's two branches are both absent,
+// or both hold the same files.
+func sameBranches(w World, one string, two string) bool {
+	let a = Ref(w.vcs, theBase, "refs/heads/"+one) catch {
+	case work.VcsFailed:
+		return false
+	}
+	let b = Ref(w.vcs, theBase, "refs/heads/"+two) catch {
+	case work.VcsFailed:
+		return false
+	}
+	if a == "" || b == "" {
+		return a == b
+	}
+	let x = treeOf(w.vcs, theBase, a) catch {
+	case work.VcsFailed:
+		return false
+	}
+	let y = treeOf(w.vcs, theBase, b) catch {
+	case work.VcsFailed:
+		return false
+	}
+	x == y
+}
 
 // worldWith is a fresh World whose base also holds the files tree (each
 // committed), installed packages (node_modules, untracked and not
@@ -343,6 +648,50 @@ law ArchiveKeepsTheWork(text string, archive bool, side bool, stash bool) {
 		}) == c
 	}
 	gone && out.Idle[0].Archived == ref && out.Idle[0].Removed && tree == files && keeps(prefix+"/heads/side", sideCommit) && keeps(prefix+"/stash/0", stashCommit)
+}
+
+// IdleKeepsAStaleBranch: a clean idle workspace whose side branch only
+// a remote-tracking ref holds (pushed, then deleted on the remote: the
+// ref is stale) is not held for gc -idle (the verifier's M2): without
+// -archive it stays NotHeld; with -archive it goes and the base keeps the
+// branch, still there after the trash is purged. A branch on the
+// remote's default branch (its HEAD, onDefault) is held, and it goes.
+law IdleKeepsAStaleBranch(text string, archive bool, onDefault bool) {
+	let w = world(true)
+	let a = w.tool.New("a", fresh(false)) catch {
+	case _:
+		return false
+	}
+	let c = SideCommit(w.vcs, a.Path, "side", "side.txt", text)
+	let ref = if onDefault { ".git/refs/remotes/origin/HEAD" } else { ".git/refs/remotes/origin/side" }
+	if c == "" || !Write(w.trees, a.Path, ref, c) {
+		return false
+	}
+	w.clock.Advance(time.Times(1s, 7200))
+	let out = w.tool.Gc(work.GcOptions{Older: None, Idle: Some[string]{Value: "1h"}, Id: None, Archive: archive}) catch {
+	case _:
+		return false
+	}
+	if len(out.Idle) != 1 {
+		return false
+	}
+	let gone = !w.trees.Has(a.Path)
+	if onDefault {
+		return gone && out.Idle[0].Removed && out.Idle[0].Archived == ""
+	}
+	if !archive {
+		return !gone && out.Idle[0].Why == "NotHeld"
+	}
+	w.clock.Advance(time.Times(1s, 2*int(work.IdleTrash)))
+	let purged = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: None, Archive: false}) catch {
+	case _:
+		return false
+	}
+	let kept = w.vcs.Resolve(theBase, work.ArchivePrefix("a", a.Id)+"/heads/side") catch {
+	case _:
+		""
+	}
+	gone && out.Idle[0].Removed && len(purged.Purged) == 1 && kept == c
 }
 
 // RmKeepsEveryBranch: rm of a clean workspace whose head its parent
@@ -868,4 +1217,305 @@ law RemovedAgainInOneSecond(name int, times int) {
 		return false
 	}
 	len(listed) == k && len(trashes) == k && len(out.Purged) == k && len(after) == 0
+}
+
+// CloneLeavesTheRiftMarker: new of a base that holds Rift's marker
+// (.rift, the copy's id) clones every other file, and no workspace holds
+// the marker, made on the base or on another workspace (WK-MARKER).
+law CloneLeavesTheRiftMarker(id string, on bool) {
+	let w = world(true)
+	if !Write(w.trees, theBase, work.RiftMarker, id+"\n") || !Write(w.trees, theBase, "kept.txt", id) {
+		return false
+	}
+	let a = w.tool.New("a", fresh(false)) catch {
+	case _:
+		return false
+	}
+	let made = if on {
+		(w.tool.New("b", work.NewOptions{Copy: false, From: None, Branch: None, On: Some[string]{Value: "a"}, Token: None}) catch {
+		case _:
+			return false
+		}).Path
+	} else {
+		a.Path
+	}
+	let files = Files(w.trees, made)
+	files.Get(work.RiftMarker) == None && files.Get("kept.txt") == Some[string]{Value: id} && Files(w.trees, theBase).Get(work.RiftMarker) != None
+}
+
+// BasesAreTheLiveOnes: of the bases init registered, bases lists those
+// whose folder is there, in order; prune-bases forgets exactly the gone
+// ones and leaves the list the live ones; forget-base drops one base, gone
+// or live, and nothing else (the Mac's WK-BASES: a scratch base a test
+// registered and deleted sent a caller into a missing folder).
+law BasesAreTheLiveOnes(live []bool, forget int) {
+	let w = world(true)
+	let mut lines = []string{theBase}
+	let mut want = []string{theBase}
+	let mut gone = []string{}
+	for i, here in live {
+		let b = "/elsewhere/b\(i)"
+		lines = lines.Append(b)
+		if here {
+			w.disk.MkdirAll(b) catch {
+			case _:
+				return false
+			}
+			want = want.Append(b)
+		} else {
+			gone = gone.Append(b)
+		}
+	}
+	w.disk.WriteFile(work.BasesFile("/data"), strings.Join(lines, "\n")+"\n") catch {
+	case _:
+		return false
+	}
+	let listed = w.tool.Bases() catch {
+	case _:
+		return false
+	}
+	let k = small(forget, len(lines))
+	let left = w.tool.ForgetBase(lines[k]) catch {
+	case _:
+		return false
+	}
+	let wantLeft = slices.Filter(lines, func(b string) bool { b != lines[k] })
+	let pruned = w.tool.PruneBases() catch {
+	case _:
+		return false
+	}
+	let after = w.tool.Bases() catch {
+	case _:
+		return false
+	}
+	let liveLeft = slices.Filter(want, func(b string) bool { b != lines[k] })
+	// The list itself no longer names a gone base: the next walker of the
+	// file (journal.BaseHolding, an older work) does not meet one either.
+	let file = w.disk.ReadFile(work.BasesFile("/data")) catch {
+	case _:
+		return false
+	}
+	let kept = if len(liveLeft) == 0 { "" } else { strings.Join(liveLeft, "\n") + "\n" }
+	listed == want && left == wantLeft && pruned == slices.Filter(gone, func(b string) bool { b != lines[k] }) && after == liveLeft && file == kept
+}
+
+// AdoptLeavesPushesToTheOwner: adopt writes no push guard into the copy
+// it takes (its pushes are its owner's: the Mac's fork); a copy an older
+// adopt guarded is noted by doctor and, with -unguard, loses that guard
+// and no push URL of the owner's; a workspace new made keeps its guard
+// either way.
+law AdoptLeavesPushesToTheOwner(own bool) {
+	let w = world(true)
+	let made = w.tool.New("n", fresh(false)) catch {
+	case _:
+		return false
+	}
+	Repo(w.vcs, "/w/fresh", "main", Map[string, string]{"a.txt": "a\n"}, "c7")
+	Repo(w.vcs, "/w/old", "main", Map[string, string]{"a.txt": "a\n"}, "c8")
+	let mine = if own { "https://example.invalid/fork.git" } else { Guard }
+	let _ = Write(w.trees, "/w/old", ".git/config/remote.origin.pushurl", mine)
+	let before = Files(w.trees, "/w/fresh")
+	let _ = w.tool.Adopt("/w/fresh", work.AdoptOptions{Name: None}) catch {
+	case _:
+		return false
+	}
+	let _ = w.tool.Adopt("/w/old", work.AdoptOptions{Name: None}) catch {
+	case _:
+		return false
+	}
+	let o = work.DoctorOptions{Rift: false, Registry: None, Unguard: false, Fix: false}
+	let noted = w.tool.Doctor(o) catch {
+	case _:
+		return false
+	}
+	let note = slices.Contains(noted.Notes, "1 adopted workspaces carry the push guard an older adopt wrote: run work doctor -unguard")
+	let still = Files(w.trees, "/w/old").Get(".git/config/remote.origin.pushurl") == Some[string]{Value: mine}
+	let fixed = w.tool.Doctor(work.DoctorOptions{..o, Unguard: true}) catch {
+	case _:
+		return false
+	}
+	let left = Files(w.trees, "/w/old").Get(".git/config/remote.origin.pushurl")
+	let newKept = Files(w.trees, made.Path).Get(".git/config/remote.origin.pushurl") == Some[string]{Value: Guard}
+	let fixedNote = slices.Contains(fixed.Notes, "dropped the push guard of 1 adopted workspaces")
+	Files(w.trees, "/w/fresh") == before && still && newKept && note == !own && fixedNote == !own && left == (if own { Some[string]{Value: mine} } else { None })
+}
+
+// ledgerPath and ledgerLine are the mutant ledger of the merge laws and
+// the attributes line that gives it the rows driver, as this
+// repository's .gitattributes does.
+let ledgerPath = "a/testdata/mutants.json"
+let ledgerLine = "**/testdata/mutants.json merge=ergo-rows\n"
+
+// ledger is a mutant ledger whose rows are named by names, each row's
+// `to` the value of the same index in tos.
+func ledger(names []string, tos []string) string {
+	let mut rows = []string{}
+	for i, n in names {
+		rows = rows.Append("    {\"name\":\"\(n)\",\"from\":\"x\",\"to\":\"\(tos[i])\"}")
+	}
+	"{\n  \"about\": \"t\",\n  \"mutants\": [\n" + strings.Join(rows, ",\n") + "\n  ]\n}\n"
+}
+
+// unregistered drops work's merge drivers from the configuration of the
+// checkout at root, as a base made before work wrote them has none.
+func unregistered(w World, root string) {
+	for kv in work.DriverSettings() {
+		let _ = Unlink(w.trees, root, ".git/config/"+kv[0])
+	}
+	let _ = Unlink(w.trees, root, ".git/config/"+work.DriversKey)
+}
+
+// NewWorkspaceMergesByClass: in a base whose .gitattributes gives its
+// ledger the rows driver and whose Git config names no driver (a base
+// made before work wrote them), a workspace new makes, or a copy adopt
+// took and doctor -fix fixed, merges the base's branch that edits one
+// row into its own edit of another row and its new row with Git's merge
+// (Sync), clean, to merge-file's answer (classes.Merge by rows), and its
+// config has rerere.enabled. Without the fix the adopted copy's merge
+// conflicts, as the model's merge of a file both sides changed does.
+law NewWorkspaceMergesByClass(rows int, mine int, theirs int, adopt bool) {
+	let k = 2 + small(rows, 4)
+	let mut names = []string{}
+	let mut tos = []string{}
+	for i in 0..k {
+		names = names.Append("r\(i)")
+		tos = tos.Append("y")
+	}
+	let i = small(mine, k)
+	let j = (i + 1 + small(theirs, k-1)) % k
+	let base = ledger(names, tos)
+	let mut oursTos = slices.Clone(tos)
+	oursTos[i] = "ours"
+	let ours = ledger(names.Append("m"), oursTos.Append("y"))
+	let mut theirsTos = slices.Clone(tos)
+	theirsTos[j] = "theirs"
+	let other = ledger(names, theirsTos)
+	let w = worldWith(true, Map[string, string]{ledgerPath: base}, "", "")
+	unregistered(w, theBase)
+	if !attributed(w, theBase) || !Commit(w.vcs, theBase, "c1") {
+		return false
+	}
+	let root = if adopt {
+		"/w/copy"
+	} else {
+		(w.tool.New("ws", fresh(false)) catch {
+		case _:
+			return false
+		}).Path
+	}
+	if adopt {
+		// A copy work did not make (as Rift made them): the base's files
+		// and Git folder, with no driver configured.
+		w.trees.Clone(theBase, root) catch {
+		case _:
+			return false
+		}
+		if !attributed(w, root) {
+			return false
+		}
+		let _ = w.tool.Adopt(root, work.AdoptOptions{Name: None}) catch {
+		case _:
+			return false
+		}
+	}
+	let side = SideCommit(w.vcs, theBase, "side", ledgerPath, other)
+	if side == "" || !Write(w.trees, root, ledgerPath, ours) || !Commit(w.vcs, root, "c-ours") {
+		return false
+	}
+	if adopt {
+		// The model's merge of a file both sides changed, with no driver,
+		// is a conflict: the one doctor -fix ends.
+		let before = w.vcs.Merge(root, theBase, "side") catch {
+		case work.Conflicted:
+			"conflicted"
+		case work.VcsFailed:
+			return false
+		}
+		if before != "conflicted" {
+			return false
+		}
+		let _ = w.tool.Doctor(work.DoctorOptions{Rift: false, Registry: None, Unguard: false, Fix: true}) catch {
+		case _:
+			return false
+		}
+	}
+	let _ = w.vcs.Merge(root, theBase, "side") catch {
+	case _:
+		return false
+	}
+	let want = classes.Merge(classes.Rows, base, ours, other) catch {
+	case classes.Unreadable:
+		return false
+	}
+	let files = Files(w.trees, root)
+	len(want.Conflicts) == 0 && files.Get(ledgerPath) == Some[string]{Value: want.Text} && files.Get(".git/config/rerere.enabled") == Some[string]{Value: "true"}
+}
+
+// attributed gives the checkout at root the ledger's attributes line, in
+// its tree and on the disk (one file on a host; the memory providers
+// keep Git's trees and the files work reads apart).
+func attributed(w World, root string) bool {
+	if !Write(w.trees, root, ".gitattributes", ledgerLine) {
+		return false
+	}
+	w.disk.MkdirAll(root) catch {
+	case _:
+		return false
+	}
+	w.disk.WriteFile(root+"/.gitattributes", ledgerLine) catch {
+	case _:
+		return false
+	}
+	true
+}
+
+// DoctorSeesAnUnregisteredDriver: doctor names an adopted copy whose
+// attributes give a file a driver its Git config lacks, and a merge line
+// of the base that takes no file; with -fix the copy's drivers are
+// registered and a second doctor is quiet about it; the base, which init
+// registered, is never named.
+law DoctorSeesAnUnregisteredDriver(fix bool, gone bool) {
+	let w = worldWith(true, Map[string, string]{ledgerPath: ledger([]string{"r0"}, []string{"y"})}, "", "")
+	if !attributed(w, theBase) || !Commit(w.vcs, theBase, "c1") {
+		return false
+	}
+	let copy = "/w/copy"
+	w.trees.Clone(theBase, copy) catch {
+	case _:
+		return false
+	}
+	unregistered(w, copy)
+	if !attributed(w, copy) {
+		return false
+	}
+	if gone {
+		w.disk.WriteFile(theBase+"/.gitattributes", ledgerLine+"gone/ledger.json merge=ergo-rows\n") catch {
+		case _:
+			return false
+		}
+	}
+	let _ = w.tool.Adopt(copy, work.AdoptOptions{Name: None}) catch {
+	case _:
+		return false
+	}
+	let o = work.DoctorOptions{Rift: false, Registry: None, Unguard: false, Fix: fix}
+	let first = w.tool.Doctor(o) catch {
+	case _:
+		return false
+	}
+	let second = w.tool.Doctor(work.DoctorOptions{..o, Fix: false}) catch {
+	case _:
+		return false
+	}
+	let lacks = copy + ": its attributes name merge drivers its Git config lacks (ergo-rows), so Git merges those files as text: run work doctor -fix"
+	let named = slices.Contains(first.Notes, lacks)
+	let fixedNote = slices.Contains(first.Notes, "registered the merge drivers of \(copy)")
+	let registered = (w.vcs.Setting(copy, "merge.ergo-rows.driver") catch {
+	case work.VcsFailed:
+		return false
+	}) != ""
+	let baseNamed = slices.IndexFunc(first.Notes, func(n string) bool { strings.HasPrefix(n, theBase+":") }) >= 0
+	let goneNamed = slices.Contains(first.Notes, "the merge line gone/ledger.json takes no file of the base")
+	let ledgerNamed = slices.IndexFunc(first.Notes, func(n string) bool { strings.Contains(n, "**/testdata") }) >= 0
+	named == !fix && fixedNote == fix && registered == fix && slices.Contains(second.Notes, lacks) == !fix && !baseNamed && goneNamed == gone && !ledgerNamed
 }
