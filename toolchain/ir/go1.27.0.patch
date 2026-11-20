@@ -2320,10 +2320,10 @@ index 0000000..c4434f6
 +}
 diff --git a/src/cmd/compile/internal/ergoir/ergoir_slice.go b/src/cmd/compile/internal/ergoir/ergoir_slice.go
 new file mode 100644
-index 0000000..f90510c
+index 0000000..e699f98
 --- /dev/null
 +++ b/src/cmd/compile/internal/ergoir/ergoir_slice.go
-@@ -0,0 +1,58 @@
+@@ -0,0 +1,66 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -2334,8 +2334,9 @@ index 0000000..f90510c
 +// named type over one): X is the operand, Args the indices, two or three,
 +// a missing low or high index null. Go's own slice expression, so gc
 +// lowers it to OSLICE or OSLICESTR and checks its bounds at the
-+// expression's position. An array is no operand: Go slices an
-+// addressable array only.
++// expression's position. An array place (ergoPlace) is an operand too,
++// and the result is a slice of its element (OSLICEARR); Go slices an
++// addressable array only, so an array value that is no place is refused.
 +
 +package ergoir
 +
@@ -2355,8 +2356,15 @@ index 0000000..f90510c
 +		c.errorf(x.Pos, "ergoir: slice with %d indices", n)
 +		return nil, nil
 +	}
-+	switch types2.CoreType(xt).(type) {
++	rt := xt
++	switch ct := types2.CoreType(xt).(type) {
 +	case *types2.Slice:
++	case *types2.Array:
++		if !ergoPlace(xs) {
++			c.errorf(x.Pos, "ergoir: slice of an array that is no place")
++			return nil, nil
++		}
++		rt = types2.NewSlice(ct.Elem())
 +	default:
 +		if !ergoIsString(xt) || n == 3 {
 +			c.errorf(x.Pos, "ergoir: slice of %v", xt)
@@ -2379,8 +2387,8 @@ index 0000000..f90510c
 +		e.Index[i] = v
 +	}
 +	e.SetPos(c.pos(x.Pos))
-+	ergoValue(e, xt, nil)
-+	return e, xt
++	ergoValue(e, rt, nil)
++	return e, rt
 +}
 diff --git a/src/cmd/compile/internal/ergoir/ergoir_stmt.go b/src/cmd/compile/internal/ergoir/ergoir_stmt.go
 new file mode 100644
