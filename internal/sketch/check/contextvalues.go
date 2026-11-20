@@ -89,6 +89,13 @@ func (c *checker) contextConversion(x syntax.Expr, want *Named, row *Row) (opera
 	if w == nil {
 		return bad(x), true
 	}
+	if fails := c.buildFails(w); !fails.Empty() {
+		// The conversion is the build (rows.md, Context values); a build
+		// that may fail there is CTX-ROWS-2b's, with the builder that
+		// returns the failure.
+		c.errorf(x, CodeOutside, "a Context value of context %s, which can fail with %s while it is built, is CTX-ROWS-2b's: with try %s builds it in a with", w.Name, rowText(fails), w.Name)
+		return bad(x), true
+	}
 	fact := &With{Contexts: []*Context{w}}
 	ok := true
 	for _, cap := range row.Elems() {

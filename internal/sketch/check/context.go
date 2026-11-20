@@ -37,7 +37,18 @@ func (c *checker) with(x *syntax.CallExpr, hint Type) operand {
 		c.pushFrame(t, x, frames[0])
 	}
 	for _, a := range x.Args {
-		binds, known, context, value, installs := c.withArg(a)
+		// `with try W { … }`: the try marks the build's failures, which
+		// escape there (contextneeds.go, rule 3; owner q280).
+		arg, tried := a, (*syntax.TryExpr)(nil)
+		if tr, ok := unparen(a).(*syntax.TryExpr); ok {
+			arg, tried = tr.X, tr
+		}
+		binds, known, context, value, installs := c.withArg(arg)
+		if value == nil && installs == nil {
+			c.withBuildFails(arg, tried, context)
+		} else if tried != nil {
+			c.errorf(tried, CodeType, "try on a context whose build cannot fail: drop the try (rows.md, With 6)")
+		}
 		// unknown: discharge everything, so no cascade. A context binding
 		// discharges nothing: its block's row is the enclosing one's. A
 		// push past the with budget leaves the frame unknown too
@@ -327,6 +338,15 @@ func (c *checker) contextBody(body *syntax.ContextBody, w *Context) (*capSet, bo
 			if inner != nil {
 				c.testAmbientEmbed(e.Key, inner)
 				c.chargeContextNeeds(e.Key, inner)
+				switch fails := c.buildFails(inner); {
+				case fails.Empty():
+				case build != nil:
+					// Into the build that embeds it, which its own fails
+					// row bounds (contextneeds.go, rule 3).
+					c.escape(e.Key, fails)
+				default:
+					c.errorf(e.Key, CodeOutside, "an inline or a local context embeds context %s, which can fail with %s while it is built; that is CTX-ROWS-2b's: embed it in a named context whose header lists those failures, and with try that one", inner.Name, rowText(fails))
+				}
 			}
 			if inner != nil && c.silent == 0 {
 				w.Entries = append(w.Entries, &ContextEntry{Embedded: inner})
@@ -626,9 +646,10 @@ func (c *checker) contextEntryKey(k syntax.Expr) Type {
 	return t
 }
 
-// checkContexts checks the named contexts: their entries, in a closed build
-// context (README Gap 6: a named context requires nothing from the with site
-// and lets no failure escape).
+// checkContexts checks the named contexts: their entries, in a build whose
+// rows are the header's (contextneeds.go, rule 1): with no header, a
+// closed one that requires nothing from the with site and lets no failure
+// escape.
 func (c *checker) checkContexts() {
 	var contexts []*Context
 	for _, w := range c.pkg.Contexts {
@@ -640,9 +661,9 @@ func (c *checker) checkContexts() {
 	for _, w := range contexts {
 		c.cur = w.file
 		d := w.Decl
-		c.contextFails(d.Fails)
-		// The context header (#217) is checked by #196's second stage; until
-		// then it is refused, never read partly (rows.md, Context 8).
+		// The header's provides clause (#217) is checked by #196's second
+		// stage; until then it is refused, never read partly (rows.md,
+		// Context 8).
 		if d.Provides != nil {
 			c.errorf(d.Provides, CodeOutside, "a context's provides clause is #196 stage b's (the context header, rows.md Context 8); it is not checked yet")
 		}
@@ -654,6 +675,11 @@ func (c *checker) checkContexts() {
 			// testambient.go, rule 1). A name the row refuses is reported
 			// here, once.
 			t.declUses = c.rowExpr(d.Needs.Names, KindUses, &typeCtx{params: map[string]*TypeParam{}})
+		}
+		if d.Fails != nil {
+			// Its build may fail with what its header writes (contextneeds.go,
+			// rule 1). A name the row refuses is reported here, once.
+			t.declErrors = c.rowExpr(d.Fails.Types, KindErrors, &typeCtx{params: map[string]*TypeParam{}})
 		}
 		// The context's providers may use what the context binds (Context 4).
 		t.internal = c.contextBinds(w)
