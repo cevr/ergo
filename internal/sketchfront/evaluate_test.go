@@ -331,6 +331,10 @@ func TestCheckEvalRunnerModel(t *testing.T) {
 			for _, o := range full.Obligations {
 				need = append(need, o.Steps)
 			}
+			// The initializers run under a step bound of their own
+			// (runtime.md, Tests 9; LITERAL-LET), far past any cut here,
+			// so a steps cut never stops them.
+			init = 0
 		}
 		most := init
 		for i := range need {
@@ -389,7 +393,7 @@ func TestCheckEvalRunnerModel(t *testing.T) {
 		}
 		ok = ok && (slices.Contains(cs, "incomplete") || kept)
 		if !ok || cut.Status != modelSummary(cs) || cut.Status == "passed" {
-			fail("a %s cut (%+v): runner %v (%s), want the full run's %v with an incomplete record for each obligation that needs more than %d", axis, b, cs, cut.Status, want, limit)
+			fail("a %s cut (%+v): runner %v (%s), want the full run's %v with an incomplete record for each obligation that needs more than %d (initializer needs %d, obligations %v)", axis, b, cs, cut.Status, want, limit, init, need)
 		}
 		for _, o := range cut.Obligations {
 			if o.Steps > cut.StepsLimit {
