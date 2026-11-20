@@ -1,31 +1,31 @@
-// Package loopback is the registry through the wire: the generated RPC
-// client of a sample registry that its generated server serves in this
-// process (rpc.Loopback). Each search crosses Effect RPC's HTTP wire and
-// the contract's codecs both ways, so `ergo test` runs the
-// domains.Registry laws against it, under the context tests.ergo binds,
-// as against sample: the laws hold through the wire.
+// Package loopback builds the generated clients of a registry its caller
+// passes in, served in this process: NewLoopback's RPC client crosses
+// Effect RPC's HTTP wire and the contract's codecs both ways
+// (rpc.Loopback), and NewHub's hub client carries each Request to a Call
+// on it. `ergo test` runs the domains.Registry laws against both, under
+// the contexts tests.ergo binds, as against sample: the laws hold through
+// each.
 
-import json
 import rpc
 import domain-search/domains
+import domain-search/domains/domainsapi
 import domain-search/domains/domainsrpc
 
-// Loopback is a domains.Registry whose every search is an RPC call.
-type Loopback { client domainsrpc.Client } implements domains.Registry
-
-// NewLoopback serves inner in process and is its client. It takes the
+// NewLoopback serves inner in process and is its RPC client. It takes the
 // registry it serves and picks none: tests.ergo picks a sample, as an
 // entry would pick its registry (lint with-at-entry).
-func NewLoopback(inner domains.Registry) Loopback {
-	let conn = rpc.Loopback(func(tag string, payload string) string fails rpc.Failed {
+func NewLoopback(inner domains.Registry) domainsrpc.Client {
+	domainsrpc.NewClient(rpc.Loopback(func(tag string, payload string) string fails rpc.Failed {
 		with context { domains.Registry: inner } {
 			try domainsrpc.Handle(tag, payload)
 		}
-	})
-	Loopback{client: domainsrpc.NewClient(conn)}
+	}))
 }
 
-// SearchDomains is domains.Registry's SearchDomains, over the wire.
-func SearchDomains(l Loopback, label domains.Label, offset json.Optional[domains.Offset], limit json.Optional[domains.Limit]) []domains.Listing fails domains.Down {
-	try domainsrpc.SearchDomains(l.client, label, offset, limit)
+// NewHub is the hub client of inner: each Request is a Call with inner
+// bound, so its laws hold exactly when inner's and Call's do.
+func NewHub(inner domains.Registry) domainsapi.Client {
+	domainsapi.NewClient(func(r domainsapi.Request) domainsapi.Outcome {
+		with context { domains.Registry: inner } { domainsapi.Call(r) }
+	})
 }
