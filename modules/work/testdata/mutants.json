@@ -1818,6 +1818,22 @@
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     },
     {
+      "name": "wl-setting-trims-the-value", "origin": "wf10/semws WORK-LAWS",
+      "file": "modules/work/git/git.ergo",
+      "from": "\tstrings.TrimSuffix(r.Stdout, \"\\n\")\n",
+      "to": "\tstrings.TrimSpace(r.Stdout)\n",
+      "rule": "git.Setting reads back what Configure set, its own spaces kept; only git config's newline goes (git's law work.Vcs.SettingIsWhatConfigureSet under onShell).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wl-driver-plays-a-stated-status", "origin": "wf10/semws WORK-LAWS",
+      "file": "modules/work/memory/candidate.ergo",
+      "from": "func Run(d Driver, c exec.Command) exec.Result fails exec.NotFound | exec.Denied | exec.Failed {\n\tif StatesItsStatus(c) {\n",
+      "to": "func Run(d Driver, c exec.Command) exec.Result fails exec.NotFound | exec.Denied | exec.Failed {\n\tif StatesItsStatus(c) && c.Name == \"\" {\n",
+      "rule": "memory's Driver never answers a status a script did not state: a script ending in its own exit is NotFound (memory's law exec.Runner.ShellRunsAsWritten for Driver).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
       "name": "wcg-gc-deletes-a-creating-checkout", "origin": "wf10/semws WORK-CREATING-GUARD",
       "file": "modules/work/work/remove.ergo",
       "from": "strings.HasPrefix(w.Path, t.home+\"/\") && !t.copier.Has(w.Path+\"/.git\") {",
