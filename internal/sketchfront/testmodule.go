@@ -167,6 +167,9 @@ func CheckPackages(dirs []string, platform gobind.Platform) ([]Analysis, error) 
 		return nil, ErrNotShared
 	}
 	if l.coversModule(dirs) {
+		// Only a load of the whole module judges (check.ReportUnfed); a
+		// load of part of it decides nothing, and the bindings it leaves
+		// are neither run nor skipped.
 		l.reportUnfed(selected, out)
 	}
 	return out, nil

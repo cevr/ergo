@@ -750,13 +750,17 @@ func (c *checker) lawProvider(tn *TypeName, own *Named) (LawProvider, bool) {
 // package builds is fed by that context and its binding is gone
 // (builtByContext). The error sits at the provider's implements entry
 // when this package declares the provider, else at the law when this
-// package declares it; a binding of two other packages keeps its skip,
-// with the fix the law's shape admits (lawProviderFix), since this
-// package can change neither.
+// package declares it, with the fix the law's shape admits
+// (lawProviderFix). A binding of two other packages is dropped: the
+// provider's package names the law's operation type in its implements
+// clause, so it sees the pair and judges it, and here the law is neither
+// run nor skipped for that provider. In a package of a module the error
+// is left to the module (lawmodule.go).
 func (c *checker) reportUnfedProviders() {
 	saved := c.cur
 	defer func() { c.cur = saved }()
 	seen := map[[2]any]bool{}
+	drop := map[[2]any]bool{}
 	for _, r := range c.pkg.LawRuns {
 		for _, b := range r.Bindings {
 			for k := range b {
@@ -791,30 +795,40 @@ func (c *checker) reportUnfedProviders() {
 					c.cur = r.Law.file
 					at = r.Law.Decl.Name
 				}
+				if at == nil {
+					// A binding of two other packages: the provider's
+					// package, which names the law's operation type in
+					// its implements clause, judges it, so here it is
+					// neither run nor a skip.
+					drop[key] = true
+					continue
+				}
 				if c.pkg.module == "" {
 					// A package of no module is a program of its own,
 					// which no other package imports: its contexts are
 					// the only ones that could feed the binding.
-					if at == nil {
-						p.Unrun += fix
-					} else {
-						c.errorf(at, CodeType, "law %s cannot run at %s: %s%s (types.md, Laws 10)", law, name, p.Unrun, fix)
-					}
+					c.errorf(at, CodeType, "law %s cannot run at %s: %s%s (types.md, Laws 10)", law, name, p.Unrun, fix)
 					continue
 				}
 				// A package of the module that imports this one may feed
-				// it (lawmodule.go): the binding keeps its skip, and the
-				// module's judgment reports the error prepared here.
+				// it, and this check cannot see one (lawmodule.go): the
+				// binding leaves the package's runs, neither run nor a
+				// skip here, and the module's judgment reports the error
+				// prepared here when no package of the module feeds it.
 				u := unfedBinding{law: r.Law, provider: p.Type}
-				if at != nil {
-					u.diag = c.prepared(func() {
-						c.errorf(at, CodeType, "law %s cannot run at %s: %s%s; no named context of a package of module %s builds one (types.md, Laws 10)", law, name, p.Unrun, fix, c.pkg.module)
-					})
-				}
-				p.Unrun += fix
+				u.diag = c.prepared(func() {
+					c.errorf(at, CodeType, "law %s cannot run at %s: %s%s; no named context of a package of module %s builds one (types.md, Laws 10)", law, name, p.Unrun, fix, c.pkg.module)
+				})
 				c.pkg.unfed = append(c.pkg.unfed, u)
+				drop[key] = true
 			}
 		}
+	}
+	for i := range c.pkg.LawRuns {
+		r := &c.pkg.LawRuns[i]
+		r.Bindings = slices.DeleteFunc(r.Bindings, func(b []LawProvider) bool {
+			return slices.ContainsFunc(b, func(p LawProvider) bool { return p.Type != nil && drop[[2]any{r.Law, p.Type.Obj}] })
+		})
 	}
 }
 
