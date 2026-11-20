@@ -111,30 +111,30 @@ func GenerateOmittable(seed uint64) string {
 // BeginObject and BeginList the count they are given.
 const counterDecls = `type Counter {
 	..Writer,
-	Written() string,
+	mut Written() string,
 	// note seals Counter in this package, so its provider is a cell.
-	note(s string),
+	mut note(s string),
 }
 
 type counter { out string } implements Counter
 
-func note(t *counter, s string) { t.out = t.out + s }
+func note(t mut counter, s string) { t.out = t.out + s }
 
-func Null(t *counter) { t.note("null ") }
-func Number(t *counter, s string) { t.out = t.out + "num " + s + " " }
-func Bool(t *counter, b bool) { t.out = t.out + "\(b) " }
-func Int(t *counter, n int64) { t.out = t.out + "\(n) " }
-func Uint(t *counter, n uint64) { t.out = t.out + "u\(n) " }
-func Float(t *counter, f float64) { t.out = t.out + "f\(f) " }
-func String(t *counter, s string) { t.out = t.out + "'" + s + "' " }
-func StringBytes(t *counter, b []byte) { t.out = t.out + "bytes " }
-func BeginList(t *counter, n int) { t.out = t.out + "[\(n) " }
-func EndList(t *counter) { t.out = t.out + "] " }
-func BeginObject(t *counter, n int) { t.out = t.out + "{\(n) " }
-func Tag(t *counter, s string) { t.out = t.out + "#" + s + " " }
-func Key(t *counter, k string) { t.out = t.out + k + ": " }
-func EndObject(t *counter) { t.out = t.out + "} " }
-func Written(t *counter) string { t.out }
+func Null(t mut counter) { t.note("null ") }
+func Number(t mut counter, s string) { t.out = t.out + "num " + s + " " }
+func Bool(t mut counter, b bool) { t.out = t.out + "\(b) " }
+func Int(t mut counter, n int64) { t.out = t.out + "\(n) " }
+func Uint(t mut counter, n uint64) { t.out = t.out + "u\(n) " }
+func Float(t mut counter, f float64) { t.out = t.out + "f\(f) " }
+func String(t mut counter, s string) { t.out = t.out + "'" + s + "' " }
+func StringBytes(t mut counter, b []byte) { t.out = t.out + "bytes " }
+func BeginList(t mut counter, n int) { t.out = t.out + "[\(n) " }
+func EndList(t mut counter) { t.out = t.out + "] " }
+func BeginObject(t mut counter, n int) { t.out = t.out + "{\(n) " }
+func Tag(t mut counter, s string) { t.out = t.out + "#" + s + " " }
+func Key(t mut counter, k string) { t.out = t.out + k + ": " }
+func EndObject(t mut counter) { t.out = t.out + "} " }
+func Written(t mut counter) string { t.out }
 
 func newCounter() Counter { counter{out: ""} }
 

@@ -30,6 +30,7 @@ import "embed"
 //go:embed machines/*.ergo
 //go:embed csv/*.ergo codec/*.ergo json/*.ergo toml/*.ergo rpc/*.ergo config/*.ergo
 //go:embed jsonschema/*.ergo
+//go:embed mcp/*.ergo mcp/memory/*.ergo mcp/stdio/*.ergo
 //go:embed testing/*.ergo explore/*.ergo
 //go:embed tasks/*.ergo pubsub/*.ergo stream/*.ergo
 //go:embed schedule/*.ergo cron/*.ergo

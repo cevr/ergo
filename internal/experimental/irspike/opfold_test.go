@@ -69,7 +69,7 @@ func TestIRConstFoldsMatchSource(t *testing.T) {
 	}
 }
 
-// constOps counts, per IR function, the bin, un and conv nodes whose
+// constOps counts, per IR function, the bin, un, conv and len nodes whose
 // operands are all constants.
 func constOps(t *testing.T, file string) map[string]int {
 	t.Helper()
@@ -102,7 +102,7 @@ func constOps(t *testing.T, file string) map[string]int {
 					if isConst(v["x"]) && isConst(v["y"]) {
 						out[f.Name]++
 					}
-				case "un", "conv":
+				case "un", "conv", "len":
 					if isConst(v["x"]) {
 						out[f.Name]++
 					}

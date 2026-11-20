@@ -26,9 +26,20 @@ import (
 // rounded is e, the IR of a product of type t at site, under an explicit
 // conversion to t when t is a float type and the product is no constant
 // (x, its source expression, when it has one); e itself otherwise.
+//
+// A product of IR constants (a package let is one, constLet, though the
+// checker does not fold it) is folded first, at t's precision as Go
+// rounds a typed constant operation (ir_opfold.go): a constant is not an
+// operation, so nothing is left to fuse and it needs no conversion, as the
+// emitter writes a checked constant product (FOLD-FLOATCONV).
 func (b *irBuilder) rounded(site syntax.Node, x syntax.Expr, t check.Type, e *irExpr) *irExpr {
 	if e == nil || e.K != "bin" || e.Op != "*" || !roundsFloat(t) || x != nil && b.fc.isConst(x) {
 		return e
+	}
+	if x != nil {
+		if f := b.foldConst(x, e); f != e {
+			return f
+		}
 	}
 	return &irExpr{K: "conv", Pos: e.Pos, T: b.goType(t, site), X: e}
 }

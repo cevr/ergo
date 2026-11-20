@@ -73,6 +73,13 @@ func (b *irBuilder) admitNamed(t *check.Named, depth int) {
 			}
 			return
 		}
+		if isPreludeType(t, "Seq") && irSeqRangeLowering != "off" {
+			// A Seq is a function value of the uniform shape, spelled as
+			// the program's Seq[T] (PORT-FORIN, ir_seq.go): its instance's
+			// function type is admitted as any function value's is.
+			b.admit(t.Underlying(), depth+1)
+			return
+		}
 		irNo("type defined over a non-basic type")
 	case kindAlias:
 		b.admit(td.defined, depth+1)
@@ -150,6 +157,16 @@ func (b *irBuilder) convert(conv check.Conversion, e *irExpr, x syntax.Expr) *ir
 		return &irExpr{K: "assert", Pos: e.Pos, T: b.goType(conv.To, x), X: e}
 	case check.ConvOperations:
 		return b.opsConv(conv, e, x) // ir_with.go
+	case check.ConvWiden:
+		// A sub-union's value into a union that holds its variants (the
+		// emitter's widen): an assertion between two sealed interfaces.
+		if b.l.flatUnionOf(conv.From) != nil || b.l.flatUnionOf(conv.To) != nil {
+			irNo("sub-union into a flat union")
+		}
+		if b.goType(conv.From, x) == b.goType(conv.To, x) {
+			return e
+		}
+		return &irExpr{K: "assert", Pos: e.Pos, T: b.goType(conv.To, x), X: e}
 	}
 	irNo("implicit conversion")
 	return nil
