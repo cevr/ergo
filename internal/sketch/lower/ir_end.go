@@ -90,6 +90,14 @@ func irBreaks(list []*irStmt, label string) bool {
 // first (ir_forms_erase.go).
 func irUseLocals(body []*irStmt) []*irStmt {
 	body = irReachable(eraseForms(body, nil))
+	// A label left off can leave statements after a terminating one
+	// unreachable, and dropping them can leave another label unnamed.
+	for dropped := true; dropped; {
+		body, dropped = irLabelsNamed(body)
+		if dropped {
+			body = irReachable(body)
+		}
+	}
 	read := map[int]bool{}
 	var stmts func(list []*irStmt)
 	var expr func(e *irExpr)
@@ -170,6 +178,44 @@ func irUseLocals(body []*irStmt) []*irStmt {
 		return out
 	}
 	return mark(body)
+}
+
+// irLabelsNamed is body with the labels no break, continue or goto names
+// left off (a function literal's labels are its own): irReachable drops a
+// goto after a statement that terminates, as an inlined body's jump to
+// its end (inl…) or a failure's to its arm (fj…), and the label it named
+// would be one Go refuses, defined and not used, in the body's Go text.
+// dropped reports a label left off.
+func irLabelsNamed(body []*irStmt) (_ []*irStmt, dropped bool) {
+	named := map[string]bool{}
+	var walk func(list []*irStmt, f func(*irStmt))
+	walk = func(list []*irStmt, f func(*irStmt)) {
+		for _, s := range list {
+			f(s)
+			walk(s.Then, f)
+			walk(s.Else, f)
+			walk(s.Body, f)
+			for _, c := range s.Cases {
+				walk(c.Body, f)
+			}
+		}
+	}
+	walk(body, func(s *irStmt) {
+		if s.K == "break" || s.K == "continue" || s.K == "goto" {
+			named[s.Label] = true
+		}
+	})
+	walk(body, func(s *irStmt) {
+		if s.Label != "" && s.K != "break" && s.K != "continue" && s.K != "goto" && !named[s.Label] {
+			s.Label, dropped = "", true
+		}
+		irLiterals(s, func(e *irExpr) {
+			var d bool
+			e.Body, d = irLabelsNamed(e.Body)
+			dropped = dropped || d
+		})
+	})
+	return body, dropped
 }
 
 // irReachable is list without the statements after one that terminates,

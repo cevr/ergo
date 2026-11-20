@@ -220,12 +220,13 @@ func union(xs []string) string {
 	return "$Schema.Union([" + strings.Join(xs, ", ") + "])"
 }
 func (g *emitter) schema(t check.Type) string {
-	if arg := jsonArgument(t, "Nullable"); arg != nil {
+	if arg := formPayload(t, check.WireNullable); arg != nil {
 		return "$Schema.NullOr(" + g.schema(arg) + ")"
 	}
-	// std json.Value is written as the JSON value itself, untagged, so its
-	// wire projection is any JSON value, not the six-variant union.
-	if rpcgen.StdJSON(t, "Value", 0) != nil {
+	// A bare union (std json.Value) is written as its variant's value
+	// itself, untagged, so its projection is any JSON value, as the hub's
+	// schema of it is any value.
+	if check.WireFormOf(t) == check.WireBare {
 		return "$Schema.Json"
 	}
 	switch u := t.(type) {
@@ -425,17 +426,19 @@ func (g *emitter) fields(s *check.Struct, local bool) {
 // JSON's field form depends on the instantiated field type, not its spelling.
 // Optional remains tagged in a slice, a tuple or an operation's result.
 func (g *emitter) fieldSchema(t check.Type) string {
-	if arg := jsonArgument(t, "Optional"); arg != nil {
+	if arg := formPayload(t, check.WireOmittable); arg != nil {
 		return "$Schema.optionalKey(" + g.schema(arg) + ")"
 	}
 	return g.schema(t)
 }
 
-func jsonArgument(t check.Type, name string) check.Type {
-	if n := rpcgen.StdJSON(t, name, 1); n != nil {
-		return n.TArgs[0]
+// formPayload is the payload of t when t declares the JSON form form
+// (WireNullable, WireOmittable), read as the hub reads it.
+func formPayload(t check.Type, form check.WireForm) check.Type {
+	if check.WireFormOf(t) != form {
+		return nil
 	}
-	return nil
+	return rpcgen.PayloadOf(t)
 }
 
 // Projected properties keep the default name. When explicit keys make a
