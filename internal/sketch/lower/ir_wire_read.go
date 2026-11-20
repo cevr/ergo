@@ -70,6 +70,7 @@ func (st *irState) wireRead(l *lowerer, name string, t check.Type, tc *typeCtx, 
 	b.fn.Pos, b.fn.End = d.p, d.p
 	b.fn.Body = irScopesIncrease(irUseLocals(body), b.fn.Pos) // ir_end.go
 	st.out.Funcs = append(st.out.Funcs, *b.fn)
+	st.report.CodecRead = append(st.report.CodecRead, name)
 	return true
 }
 
@@ -199,7 +200,7 @@ func (d *wireReader) body(t check.Type) []*irStmt {
 		vpre, e := d.value(u.Elem)
 		body = append(body, vpre...)
 		key := &irExpr{K: "conv", Pos: d.p, T: b.goType(u.Key, d.site), X: d.local(k)}
-		body = append(body, &irStmt{K: "store", Pos: d.p, X: &irExpr{K: "index", Pos: d.p, X: d.local(out), Y: key}, Y: e})
+		body = append(body, &irStmt{K: "store", Pos: d.p, X: &irExpr{K: "mapAt", Pos: d.p, X: d.local(out), Y: key}, Y: e}) // ergoir_mapstore.go
 		return append(pre, &irStmt{K: "while", Pos: d.p, End: d.p, X: d.op("More"), Body: body}, end, ret(d.local(out)))
 	case *check.Struct:
 		n, ok := t.(*check.Named)

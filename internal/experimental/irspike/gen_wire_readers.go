@@ -7,8 +7,8 @@ import (
 )
 
 // wireReaderSites are GenerateWireReaders's functions with an IR body in
-// every seed: take decodes on the prelude's Reader interface.
-var wireReaderSites = []string{"take", "show"}
+// every seed: take and cut decode on the prelude's Reader interface.
+var wireReaderSites = []string{"take", "cut"}
 
 // wireReaderDecls are the types GenerateWireReaders decodes and the
 // functions that decode and print them: records of basics (narrow
@@ -44,8 +44,6 @@ func take(r Reader) string {
 		return "kind \(w.Path) \(w.Want)"
 	case WireMissingField as m:
 		return "missing \(m.Path) \(m.Field)"
-	case _:
-		return "other"
 	}
 	show(e)
 }

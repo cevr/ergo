@@ -9,14 +9,16 @@ import (
 )
 
 // TestIRWireReadersMatchSource is PORT-WIRE-READERS R1's property: Ev's
-// decoder functions on the prelude's Reader (a record of basics with
-// narrow integers, a nested record, a list of records, a map, a list of
-// ints) take IR bodies, none keeps its text for an R1 form, and each
-// program prints what the source path's prints, with the build-time fold
-// on and off. GenerateWireReaders's texts reach every failure the decoder
-// gives (a missing field, the wrong kind, an integer out of its range),
-// an unknown key, a key given twice and a text cut short mid-decode (on a
-// second reader, codec's Replay), and print each
+// decoder functions on the prelude's Reader interface (ergoDecode*: a
+// record of basics with narrow integers, a nested record, a list of
+// records, a map, a list of ints) take IR bodies, none keeps its text,
+// and each program prints what the source path's prints, with the
+// build-time fold on and off. take's decode is on the interface, so these
+// are the bodies that run. The decoders on a direct reader (ergoRead*,
+// R2) keep their text. GenerateWireReaders's texts reach every failure
+// the decoder gives (a missing field, the wrong kind, an integer out of
+// its range), an unknown key, a key given twice and a text cut short
+// mid-decode (on a second reader, codec's Replay), and print each
 // failure's value and place.
 //
 // Mutants: pwr-reader-text (no decoder takes the IR), pwr-reader-range
@@ -30,16 +32,19 @@ func TestIRWireReadersMatchSource(t *testing.T) {
 	f7PropertyWith(t, "TestIRWireReadersMatchSource", GenerateWireReaders, func(rep lower.IRReport) string {
 		var kept []string
 		for k := range rep.CodecText {
-			for _, form := range []string{"basic", "record", "list", "map"} {
-				if strings.HasSuffix(k, "\tcodec reader: "+form) {
-					kept = append(kept, strings.ReplaceAll(k, "\t", ": "))
-				}
+			if strings.HasPrefix(k, "ergoDecode") {
+				kept = append(kept, strings.ReplaceAll(k, "\t", ": "))
 			}
 		}
-		if len(kept) == 0 {
-			return ""
+		if len(kept) > 0 {
+			sort.Strings(kept)
+			return "decoders on the Reader interface keep their text: " + strings.Join(kept, "; ")
 		}
-		sort.Strings(kept)
-		return "decoders of R1's forms keep their text: " + strings.Join(kept, "; ")
+		for _, name := range rep.CodecRead {
+			if strings.HasPrefix(name, "ergoDecodeEv") {
+				return ""
+			}
+		}
+		return "Ev's decoder on the Reader interface has no IR body"
 	}, wireReaderSites...)
 }
