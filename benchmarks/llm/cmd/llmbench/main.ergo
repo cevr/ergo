@@ -1,0 +1,98 @@
+// llmbench holds std llm's counted probes (wf10 L1 to L3), each with a hand Go
+// twin in ../../testdata/control and a floor in ../../testdata/floor; a
+// workload per kind in ../../KIND (go run ./scripts/opcount -control
+// -rounds 5 benchmarks/llm/KIND).
+//
+//	llmbench bench KIND N
+//
+// KIND fold: N text deltas, in replies of 64, each reply folded by
+// llm.Fold into its text. One unit is one delta: the cost of a streamed
+// token from its delta to the reply's text.
+//
+// KIND policy: N asks by Generate through Metered{Retry{Fallback{
+// Scripted}}}, each a one-delta reply that succeeds at once. One unit is
+// one ask: the cost of the three policies around a model that answers.
+//
+// KIND replay: N times, one recorded exchange (eight text deltas) read
+// from its line by recorded.Read and its request asked of a Replay by
+// Generate. One unit is one exchange: the cost of a replayed ask from
+// its line to its turn.
+
+import llm
+import llm/memory
+import llm/recorded
+import os
+import schedule
+import strconv
+import time
+
+let part = 64
+
+let words = []string{"the ", "model ", "said ", "a ", "few ", "short ", "words ", "now "}
+
+// reply is the 64 text deltas of reply r.
+func reply(r int) []llm.Delta {
+	let mut ds = []llm.Delta{}
+	for i in 0..part {
+		ds = ds.Append(llm.Text{Text: words[(r+i)&7]})
+	}
+	ds
+}
+
+func bench(kind string, n int) int needs Ambient {
+	let mut t = 0
+	if kind == "fold" {
+		for r in 0..n/part {
+			t = t + len(llm.Fold(reply(r)).Text)
+		}
+	}
+	if kind == "policy" {
+		let script = memory.Scripted{Replies: []memory.Reply{memory.Says{Deltas: []llm.Delta{llm.Text{Text: "ok"}}, Stop: llm.Ended, Usage: llm.Usage{Input: 1, Output: 1, CacheRead: 0, CacheWrite: 0}}}}
+		let retry = llm.Retry{Inner: llm.Fallback{Members: []llm.Model{script}}, Schedule: schedule.Recurs(3), Clock: time.NewHost(), Sleep: NewLiveScheduler()}
+		let m = llm.NewMetered(retry)
+		let r = llm.Request{System: "", Messages: []llm.Message{llm.User{Text: "q"}}, Tools: []llm.ToolSpec{}, Choice: llm.Auto, Format: llm.Prose, MaxTokens: 0}
+		for _ in 0..n {
+			let turn = m.Generate(r) catch {
+			case _:
+				return -1
+			}
+			t = t + len(turn.Text)
+		}
+		t = t + llm.Used(m).Output
+	}
+	if kind == "replay" {
+		let r = llm.Request{System: "", Messages: []llm.Message{llm.User{Text: "q"}}, Tools: []llm.ToolSpec{}, Choice: llm.Auto, Format: llm.Prose, MaxTokens: 0}
+		let mut ds = []llm.Delta{}
+		for i in 0..8 {
+			ds = ds.Append(llm.Text{Text: words[i]})
+		}
+		let turn = llm.Turn{Text: llm.Fold(ds).Text, Calls: []llm.Call{}, Stop: llm.Ended, Usage: llm.Usage{Input: 1, Output: 8, CacheRead: 0, CacheWrite: 0}}
+		let line = recorded.Write([]recorded.Exchange{recorded.Exchange{Digest: recorded.Digest(r), Deltas: ds, End: recorded.Answered{Turn: turn}}})
+		for _ in 0..n {
+			let xs = recorded.Read(line) catch {
+			case _:
+				return -1
+			}
+			let got = recorded.NewReplay(xs).Generate(r) catch {
+			case _:
+				return -1
+			}
+			t = t + len(got.Text)
+		}
+	}
+	t
+}
+
+func main() fails os.Exit needs Console | Ambient {
+	with context { os.Process: os.NewHost() } {
+		let args = os.Process.Args()
+		if len(args) != 3 {
+			return os.Exit{Code: 2, Message: "usage: llmbench bench KIND N"}
+		}
+		let n = strconv.Atoi(args[2]) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return os.Exit{Code: 2, Message: "llmbench: N is not a count"}
+		}
+		Console.Println("\(bench(args[1], n))")
+	}
+}

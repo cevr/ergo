@@ -215,6 +215,7 @@ func TestRuntime199EnvTypeReaders(t *testing.T) {
 		"irBuilder.ownDone":        "an IR static frame's release helper: a declared header func xRelease(env *Env, live *uint64, ...) (ir_own.go, FLIP F7 FORK)",
 		"irBuilder.adaptOperand":   "the IR's adapter of a std body's function parameter: the task block's Env copy, a local of the literal, as childEnv's (ir_adapt.go, FLIP OPC-adapt)",
 		"irBuilder.releaseFuncs":   "the IR release helpers' headers, func xRelease(env *Env, ...) and xFree(env *Env, slot *T), with no body: their bodies are IR (ir_own.go, RELEASE-IR)",
+		"irBuilder.spawnLocalType": "the IR's type of a GoWith capture field: *Env for the environment local, a type, no closure (ir_spawn.go, GP-SPAWN2)",
 	}
 	for _, owner := range sortedKeys(readers) {
 		if _, ok := classified[owner]; !ok {

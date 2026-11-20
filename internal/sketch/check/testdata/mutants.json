@@ -1108,200 +1108,200 @@
     },
     {
       "name": "l6-2 a constant outside the where is admitted",
-      "origin": "wf10 v1-lang-B L6",
+      "origin": "wf10 v1-lang-B L6; killer by kill matrix, ST-0 pending (TP-DIAG)",
       "file": "internal/sketch/check/refine.go",
       "from": "if r.Holds(v) && (r.Pattern",
       "to": "if true || r.Holds(v) && (r.Pattern",
       "rule": "types.md, Refinements 6: a constant enters N only when its value lies in the set.",
       "killers": [
-        "check:TestFixtures"
+        "cmd/ergo:TestCheckerFixtures"
       ]
     },
     {
       "name": "l6-3 a conversion of a value into a refined type is admitted",
-      "origin": "wf10 v1-lang-B L6",
+      "origin": "wf10 v1-lang-B L6; killer by kill matrix, ST-0 pending (TP-DIAG)",
       "file": "internal/sketch/check/operators.go",
       "from": "\t\t} else if !c.inDerived(t) {\n\t\t\targ := exprText(x.Args[0])",
       "to": "\t\t} else if false {\n\t\t\targ := exprText(x.Args[0])",
       "rule": "types.md, Refinements 6: a conversion N(x) of a value that is not a constant is S108, except in ParseN's own body.",
       "killers": [
-        "check:TestFixtures"
+        "cmd/ergo:TestCheckerFixtures"
       ]
     },
     {
       "name": "l6-4 a conversion is refused in the derived parse function",
-      "origin": "wf10 v1-lang-B L6",
+      "origin": "wf10 v1-lang-B L6; killer by kill matrix, ST-0 pending (TP-DIAG)",
       "file": "internal/sketch/check/operators.go",
       "from": "\t\t} else if !c.inDerived(t) {\n\t\t\targ := exprText(x.Args[0])",
       "to": "\t\t} else if true {\n\t\t\targ := exprText(x.Args[0])",
       "rule": "types.md, Refinements 4 and 6: ParseN's body converts it into N.",
       "killers": [
-        "check:TestFixtures"
+        "cmd/ergo:TestCheckerFixtures"
       ]
     },
     {
       "name": "l6-5 an assignment from the base is admitted",
-      "origin": "wf10 v1-lang-B L6",
+      "origin": "wf10 v1-lang-B L6; killer by kill matrix, ST-0 pending (TP-DIAG)",
       "file": "internal/sketch/check/expr.go",
       "from": "if a.clause == assignUnderlying && RefinementOf(t) != nil && !c.inDerived(t) {",
       "to": "if a.clause == assignUnderlying && RefinementOf(t) != nil && false {",
       "rule": "types.md, Refinements 6: an assignment from the unnamed base is S108.",
       "killers": [
-        "check:TestFixtures"
+        "cmd/ergo:TestCheckerFixtures"
       ]
     },
     {
       "name": "l6-6 a composite literal of a refined type is admitted",
-      "origin": "wf10 v1-lang-B L6",
+      "origin": "wf10 v1-lang-B L6; killer by kill matrix, ST-0 pending (TP-DIAG)",
       "file": "internal/sketch/check/expr.go",
       "from": "\tif RefinementOf(t) != nil {\n\t\t// The elements still check",
       "to": "\tif false {\n\t\t// The elements still check",
       "rule": "types.md, Refinements 6: a composite literal of N is S108.",
       "killers": [
-        "check:TestFixtures"
+        "cmd/ergo:TestCheckerFixtures"
       ]
     },
     {
       "name": "l6-7 a slice of a refined value is admitted",
-      "origin": "wf10 v1-lang-B L6",
+      "origin": "wf10 v1-lang-B L6; killer by kill matrix, ST-0 pending (TP-DIAG)",
       "file": "internal/sketch/check/expr.go",
       "from": "\tif RefinementOf(base.typ) != nil {",
       "to": "\tif false {",
       "rule": "types.md, Refinements 7: a slice expression of a refined value is S108.",
       "killers": [
-        "check:TestFixtures"
+        "cmd/ergo:TestCheckerFixtures"
       ]
     },
     {
       "name": "l6-8 arithmetic on a refined operand is admitted",
-      "origin": "wf10 v1-lang-B L6",
+      "origin": "wf10 v1-lang-B L6; killer by kill matrix, ST-0 pending (TP-DIAG)",
       "file": "internal/sketch/check/refine.go",
       "from": "func (c *checker) refinedArith(x syntax.Node, op syntax.Token, t Type) bool {\n\tif RefinementOf(t) == nil {",
       "to": "func (c *checker) refinedArith(x syntax.Node, op syntax.Token, t Type) bool {\n\tif true {",
       "rule": "types.md, Refinements 7: an arithmetic operator on a refined operand is S108.",
       "killers": [
-        "check:TestFixtures"
+        "cmd/ergo:TestCheckerFixtures"
       ]
     },
     {
       "name": "l6-9 a refined type whose zero fails its where is defaultable",
-      "origin": "wf10 v1-lang-B L6",
+      "origin": "wf10 v1-lang-B L6; killer by kill matrix, ST-0 pending (TP-DIAG)",
       "file": "internal/sketch/check/typeops.go",
       "from": "r != nil && (!r.Holds(big.NewInt(0)) ||",
       "to": "r != nil && (false && !r.Holds(big.NewInt(0)) ||",
       "rule": "types.md, Refinements 8: let p Port is S108 when 0 fails the where.",
       "killers": [
-        "check:TestFixtures"
+        "cmd/ergo:TestCheckerFixtures"
       ]
     },
     {
       "name": "l11-1",
-      "origin": "wf10 v1-lang-B L11",
+      "origin": "wf10 v1-lang-B L11; killer by kill matrix, ST-0 pending (TP-DIAG)",
       "file": "internal/sketch/check/wire.go",
       "from": "if !isExported(f.Name) {\n\t\t\t\treturn",
       "to": "if false && !isExported(f.Name) {\n\t\t\t\treturn",
       "rule": "types.md, Codecs 1: a record only its package builds does not satisfy wire.",
       "killers": [
-        "check:TestFixtures"
+        "cmd/ergo:TestCheckerFixtures"
       ]
     },
     {
       "name": "l11-2",
-      "origin": "wf10 v1-lang-B L11",
+      "origin": "wf10 v1-lang-B L11; killer by kill matrix, ST-0 pending (TP-DIAG)",
       "file": "internal/sketch/check/wire.go",
       "from": "if !isString(u.Key) {",
       "to": "if false && !isString(u.Key) {",
       "rule": "types.md, Codecs 1: a Map's key is a string.",
       "killers": [
-        "check:TestFixtures"
+        "cmd/ergo:TestCheckerFixtures"
       ]
     },
     {
       "name": "l11-3",
-      "origin": "wf10 v1-lang-B L11",
+      "origin": "wf10 v1-lang-B L11; killer by kill matrix, ST-0 pending (TP-DIAG)",
       "file": "internal/sketch/check/wire.go",
       "from": "return \"\", &wireFault{t, \"is an operation type\"}",
       "to": "return \"\", nil",
       "rule": "types.md, Codecs 1: an operation type does not satisfy wire.",
       "killers": [
-        "check:TestFixtures"
+        "cmd/ergo:TestCheckerFixtures"
       ]
     },
     {
       "name": "l11-4",
-      "origin": "wf10 v1-lang-B L11",
+      "origin": "wf10 v1-lang-B L11; killer by kill matrix, ST-0 pending (TP-DIAG)",
       "file": "internal/sketch/check/wire.go",
       "from": "return \"\", &wireFault{t, \"is a function\"}",
       "to": "return \"\", nil",
       "rule": "types.md, Codecs 1: a function does not satisfy wire.",
       "killers": [
-        "check:TestFixtures"
+        "cmd/ergo:TestCheckerFixtures"
       ]
     },
     {
       "name": "l11-5",
-      "origin": "wf10 v1-lang-B L11",
+      "origin": "wf10 v1-lang-B L11; killer by kill matrix, ST-0 pending (TP-DIAG)",
       "file": "internal/sketch/check/wire.go",
       "from": "if typeSet(tp) == SetWire {",
       "to": "if typeSet(tp) == SetWire || true {",
       "rule": "types.md, Codecs 1: a type parameter is wire only under wire.",
       "killers": [
-        "check:TestFixtures"
+        "cmd/ergo:TestCheckerFixtures"
       ]
     },
     {
       "name": "l11-6",
-      "origin": "wf10 v1-lang-B L11",
+      "origin": "wf10 v1-lang-B L11; killer by kill matrix, ST-0 pending (TP-DIAG)",
       "file": "internal/sketch/check/wirecall.go",
       "from": "\t\t\tif len(u.Fields) > 0 {\n\t\t\t\tadd(WireMissingName)",
       "to": "\t\t\tif len(u.Fields) < 0 {\n\t\t\t\tadd(WireMissingName)",
       "rule": "types.md, Codecs 3: a record with fields adds WireMissingField to decode's row.",
       "killers": [
-        "check:TestFixtures"
+        "cmd/ergo:TestCheckerFixtures"
       ]
     },
     {
       "name": "l11-7",
-      "origin": "wf10 v1-lang-B L11",
+      "origin": "wf10 v1-lang-B L11; killer by kill matrix, ST-0 pending (TP-DIAG)",
       "file": "internal/sketch/check/wirecall.go",
       "from": "\t\t\trow = row.union(c.types, c.types.resolve(c.funcSig(p.Parse).Errors))",
       "to": "\t\t\t_ = p",
       "rule": "types.md, Codecs 3: a by-name ParseX's row joins decode's.",
       "killers": [
-        "check:TestFixtures"
+        "cmd/ergo:TestCheckerFixtures"
       ]
     },
     {
       "name": "l11b-1",
-      "origin": "wf10 v1-lang-B L11b",
+      "origin": "wf10 v1-lang-B L11b; killer by kill matrix, ST-0 pending (TP-DIAG)",
       "file": "internal/sketch/check/typeops.go",
       "from": "\t\treturn &RowArg{Row: c.wireRow(b)}",
       "to": "\t\treturn t",
       "rule": "types.md, Codecs 6: an instance replaces wired[T] by its argument's wire row.",
       "killers": [
-        "check:TestFixtures"
+        "cmd/ergo:TestCheckerFixtures"
       ]
     },
     {
       "name": "l11b-2",
-      "origin": "wf10 v1-lang-B L11b",
+      "origin": "wf10 v1-lang-B L11b; killer by kill matrix, ST-0 pending (TP-DIAG)",
       "file": "internal/sketch/check/wirecall.go",
       "from": "\t\t\trow = row.with(c.types, &Wired{T: tp})",
       "to": "\t\t\t_ = tp",
       "rule": "types.md, Codecs 6: a wire type parameter's part of decode's row is wired[T].",
       "killers": [
-        "check:TestFixtures"
+        "cmd/ergo:TestCheckerFixtures"
       ]
     },
     {
       "name": "l11b-3",
-      "origin": "wf10 v1-lang-B L11b",
+      "origin": "wf10 v1-lang-B L11b; killer by kill matrix, ST-0 pending (TP-DIAG)",
       "file": "internal/sketch/check/decl.go",
       "from": "if t, ok := c.wiredElem(x, kind, ctx); ok {",
       "to": "if t, ok := c.wiredElem(x, kind, ctx); ok && false {",
       "rule": "types.md, Codecs 6: wired[X] in a fails row is the row of decode[X].",
       "killers": [
-        "check:TestFixtures"
+        "cmd/ergo:TestCheckerFixtures"
       ]
     },
     {
@@ -2887,46 +2887,46 @@
     },
     {
       "name": "fkg1-every-runner-no-clock",
-      "origin": "wf10 FKG1",
+      "origin": "wf10 FKG1; killer by kill matrix, ST-0 pending (TP-DIAG)",
       "file": "internal/sketch/check/entry.go",
       "from": "\t\t\tworks = works.with(c.types, clock)\n",
       "to": "\t\t\t_ = clock\n",
       "rule": "runtime.md, Machines and actors 9 (FKG1): an Every timer's runner reads time.Clock, so the machine's runner row W carries it.",
       "killers": [
-        "check:TestEveryRow"
+        "cmd/ergo:TestCheckerFixtures"
       ]
     },
     {
       "name": "fkg1-every-clock-in-step",
-      "origin": "wf10 FKG1",
+      "origin": "wf10 FKG1; killer by kill matrix, ST-0 pending (TP-DIAG)",
       "file": "internal/sketch/check/entry.go",
       "from": "\t\t\tworks = works.with(c.types, clock)\n",
       "to": "\t\t\tuses = uses.with(c.types, clock)\n",
       "rule": "runtime.md, Machines and actors 9 (FKG1): a fold fires no timer, so an Every machine's step row R needs no clock.",
       "killers": [
-        "check:TestEveryRow"
+        "cmd/ergo:TestCheckerFixtures"
       ]
     },
     {
       "name": "fkg1-every-after-row-admitted",
-      "origin": "wf10 FKG1",
+      "origin": "wf10 FKG1; killer by kill matrix, ST-0 pending (TP-DIAG)",
       "file": "internal/sketch/check/entry.go",
       "from": "\t\tok = c.assign(&op, wantSig, \"machine \"+tn.Name+\"'s after\")\n",
       "to": "\t\t_ = op\n",
       "rule": "runtime.md, Machines and actors 9 (FKG1): an Every after has no error or capability row.",
       "killers": [
-        "check:TestEveryRow"
+        "cmd/ergo:TestCheckerFixtures"
       ]
     },
     {
       "name": "fkg1-after-every-refused",
-      "origin": "wf10 FKG1",
+      "origin": "wf10 FKG1; killer by kill matrix, ST-0 pending (TP-DIAG)",
       "file": "internal/sketch/check/entry.go",
       "from": "return c.identical(sig.Results[0], want) || c.machineAfterEvery(sig, signal)",
       "to": "return c.identical(sig.Results[0], want)",
       "rule": "runtime.md, Machines and actors 9 (FKG1): an after may give Option[machines.Every[E]].",
       "killers": [
-        "check:TestEveryRow"
+        "cmd/ergo:TestCheckerFixtures"
       ]
     },
     {"name":"i20-implements-hidden-record","origin":"wf10 I20 batch-20pre","file":"internal/sketch/check/implements.go","from":"(id.Name == n.Obj.Name || c.hidesNoOps(id.Name))","to":"(id.Name == n.Obj.Name)","rule":"An implements clause names operation types, so a package type that is not one hides no prelude operation type there (types.md, Interface assignability 1): std json's Stream implements the prelude Reader.","killers":["check:TestStdDecodeGrowsWithImports"]},
@@ -3188,12 +3188,12 @@
     {"name":"ck-extrow-results-ignored","origin":"wf10 CK-EXTROW","file":"internal/sketch/check/externrow.go","from":"\tfor _, r := range sig.Results {\n\t\tif holdsParam(q, r, 0) {","to":"\tfor _, r := range sig.Results[:0] {\n\t\tif holdsParam(q, r, 0) {","rule":"An extern that returns a value whose type holds the callback's row parameter is not charged it: whoever calls the callback later is (rows.md, Capability rows 8).","killers":["check:TestExternRowCoversCallbacks"]},
     {"name":"ck-extrow-received-charged","origin":"wf10 CK-EXTROW","file":"internal/sketch/check/externrow.go","from":"\t\t\tadd(t.Uses)\n\t\t\tfor _, r := range t.Results {","to":"\t\t\tadd(t.Uses)\n\t\t\tfor _, p := range t.Params {\n\t\t\t\twalk(p.Type, depth+1)\n\t\t\t}\n\t\t\tfor _, r := range t.Results {","rule":"A function the host hands to a callback is the host's: its row charges the extern nothing (rows.md, Capability rows 8).","killers":["check:TestExternRowCoversCallbacks"]},
     {"name":"ck-extrow-at-declaration","origin":"wf10 CK-EXTROW","file":"internal/sketch/check/externrow.go","from":"\t\t\t\tc.errorf(field.Type, \"S102\",","to":"\t\t\t\tc.errorf(d.Name, \"S102\",","rule":"The S102 of a dropped callback row is at the callback parameter's type (rows.md, Capability rows 8).","killers":["check:TestExternRowCoversCallbacks"]},
-    {"name":"ck-failparam-any-member","origin":"wf10 CK-FAILPARAM","file":"internal/sketch/check/typeops.go","from":"if m := c.oneMember(tp); m == nil || !c.identical(m, vp) {","to":"if m := c.oneMember(tp); m == nil {","rule":"A row value of one error type narrows only to that type: a function of another type stays S108 (types.md, Assignability clause 5).","killers":["check:TestFixtures"]},
-    {"name":"ck-failparam-results-free","origin":"wf10 CK-FAILPARAM","file":"internal/sketch/check/typeops.go","from":"\tfor i := range v.Results {\n\t\tif !c.mayBeIdentical(v.Results[i], t.Results[i]) {\n\t\t\treturn false\n\t\t}\n\t}\n\treturn narrowed","to":"\treturn narrowed","rule":"A narrowed function's results stay the type's (types.md, Assignability clause 5).","killers":["check:TestFixtures"]},
+    {"name":"ck-failparam-any-member","origin":"wf10 CK-FAILPARAM","file":"internal/sketch/check/typeops.go","from":"if m := c.oneMember(tp); m == nil || !c.identical(m, vp) {","to":"if m := c.oneMember(tp); m == nil {","rule":"A row value of one error type narrows only to that type: a function of another type stays S108 (types.md, Assignability clause 5).","killers":["cmd/ergo:TestCheckerFixtures"]},
+    {"name":"ck-failparam-results-free","origin":"wf10 CK-FAILPARAM","file":"internal/sketch/check/typeops.go","from":"\tfor i := range v.Results {\n\t\tif !c.mayBeIdentical(v.Results[i], t.Results[i]) {\n\t\t\treturn false\n\t\t}\n\t}\n\treturn narrowed","to":"\treturn narrowed","rule":"A narrowed function's results stay the type's (types.md, Assignability clause 5).","killers":["cmd/ergo:TestCheckerFixtures"]},
     {"name":"ck-failparam-off","origin":"wf10 CK-FAILPARAM","file":"internal/sketch/check/typeops.go","from":"\t\tif !c.narrowsRowParams(vs, ts) {","to":"\t\tif true {","rule":"A function of an error type goes where a row value of that one type is its parameter (types.md, Assignability clause 5; CK-FAILPARAM).","killers":["lower:TestNarrowedFunctionTypeChecks"]},
-    {"name":"ck-blocktail-invalid-none","origin":"wf10 CK-FAILPARAM (SB3 cascade)","file":"internal/sketch/check/call.go","from":"\t\t\t\tsig.Results = []Type{invalid}\n\t\t\tcase res != NoValue:","to":"\t\t\tcase res != NoValue:","rule":"A trailing block whose tail is invalid (reported) has an invalid result, so nothing cascades (D3).","killers":["check:TestFixtures"]},
-    {"name":"ck-littail-invalid-none","origin":"wf10 CK-FAILPARAM (SB3 cascade)","file":"internal/sketch/check/call.go","from":"\t\t\t\tsig.Results = []Type{invalid} // reported, as in blockLit","to":"","rule":"A literal with untyped parameters whose tail is invalid (reported) has an invalid result, so nothing cascades (D3).","killers":["check:TestFixtures"]},
-    {"name":"ck-invalid-lit-infers","origin":"wf10 CK-FAILPARAM (SB3 cascade)","file":"internal/sketch/check/call.go","from":"\t\t\tif lt != nil && containsInvalid(lt) {","to":"\t\t\tif lt != nil && false {","rule":"A literal with an invalid result binds nothing, and the call is invalid without a cannot-infer diagnostic (D3).","killers":["check:TestFixtures"]},
+    {"name":"ck-blocktail-invalid-none","origin":"wf10 CK-FAILPARAM (SB3 cascade)","file":"internal/sketch/check/call.go","from":"\t\t\t\tsig.Results = []Type{invalid}\n\t\t\tcase res != NoValue:","to":"\t\t\tcase res != NoValue:","rule":"A trailing block whose tail is invalid (reported) has an invalid result, so nothing cascades (D3).","killers":["cmd/ergo:TestCheckerFixtures"]},
+    {"name":"ck-littail-invalid-none","origin":"wf10 CK-FAILPARAM (SB3 cascade)","file":"internal/sketch/check/call.go","from":"\t\t\t\tsig.Results = []Type{invalid} // reported, as in blockLit","to":"","rule":"A literal with untyped parameters whose tail is invalid (reported) has an invalid result, so nothing cascades (D3).","killers":["cmd/ergo:TestCheckerFixtures"]},
+    {"name":"ck-invalid-lit-infers","origin":"wf10 CK-FAILPARAM (SB3 cascade)","file":"internal/sketch/check/call.go","from":"\t\t\tif lt != nil && containsInvalid(lt) {","to":"\t\t\tif lt != nil && false {","rule":"A literal with an invalid result binds nothing, and the call is invalid without a cannot-infer diagnostic (D3).","killers":["cmd/ergo:TestCheckerFixtures"]},
     {"name":"std-broken-as-unknown","origin":"wf10 CK TM std-unknown","file":"internal/sketch/check/decl.go","from":"if reason := findImportError(err); reason != nil && reason.Broken {","to":"if reason := findImportError(err); reason != nil && false {","rule":"A std package that does not check is not unknown: its import names it and its first diagnostic (grammar.md, Packages and modules).","killers":["check:TestStdImportNamesBrokenPackage"]},
     {"name":"std-broken-no-file","origin":"wf10 CK TM std-unknown","file":"internal/sketch/check/check.go","from":"\t\t\tat = files[d.File].Name + \":\"","to":"\t\t\tat = \"\"","rule":"The broken std package's first diagnostic names its file.","killers":["check:TestStdImportNamesBrokenPackage"]},
     {"name":"gb1-recv-taken","origin":"wf10 GB1","file":"internal/sketch/check/hostclauses.go","from":"\tif d, ok := at.(*syntax.FuncDecl); ok && d.Recv != nil {\n\t\toff = 1\n\t}","to":"\tif d, ok := at.(*syntax.FuncDecl); ok && d.Recv != nil {\n\t\toff = 1\n\t\tsig.TakesSelf = true\n\t}","rule":"A Go method lends its receiver for the call, so one handle serves many calls (interop.md, Resources 5).","killers":["check:TestDriverHandleIsLent"]},
@@ -3281,6 +3281,18 @@
     {"name":"modes5-type-mark-unrequired","origin":"wf10 MODES-5 (EXM2)","file":"internal/sketch/check/resource.go","from":"\tq, ok := s.arg.(*TypeParam)\n\tif !ok ||","to":"\tq, ok := s.arg.(*TypeParam)\n\tif true || !ok ||","rule":"types.md Generics 9: a generic type's mark is required of its functions (a method of the type does not ignore it).","killers":["check:TestOwnMarkRows"]},
     {"name":"modes5-own-row-admitted","origin":"wf10 MODES-5 (EXM2)","file":"internal/sketch/check/decl.go","from":"if tp.Name == name.Name && tp.Kind != KindType {","to":"if tp.Name == name.Name && tp.Kind != KindType && false {","rule":"types.md Generics 9: a row parameter takes no own mark.","killers":["check:TestOwnMarkRows"]},
     {"name":"modes5-language-type-marked","origin":"wf10 MODES-5 (EXM2)","file":"internal/sketch/check/resource.go","from":"func languageParam(tp *TypeParam) bool { return tp.lang }","to":"func languageParam(tp *TypeParam) bool { return false }","rule":"types.md Generics 9: Option, Some and go.Ref admit a resource with no mark.","killers":["check:TestLevel2AdapterRelation"]},
-    {"name":"modes5-own-mark-unread","origin":"wf10 MODES-5 (EXM2)","file":"internal/sketch/check/decl.go","from":"Own: field.Own != nil, id: newID()}\n\t\t\t\tc.noteOwner(tp, f.Name)","to":"Own: false, id: newID()}\n\t\t\t\tc.noteOwner(tp, f.Name)","rule":"types.md Generics 9: [T own] marks the type parameter.","killers":["check:TestTakesInferenceModel"]}
+    {"name":"modes5-own-mark-unread","origin":"wf10 MODES-5 (EXM2)","file":"internal/sketch/check/decl.go","from":"Own: field.Own != nil, id: newID()}\n\t\t\t\tc.noteOwner(tp, f.Name)","to":"Own: false, id: newID()}\n\t\t\t\tc.noteOwner(tp, f.Name)","rule":"types.md Generics 9: [T own] marks the type parameter.","killers":["check:TestTakesInferenceModel"]},
+    {"name":"fusion-withcapacity-unmarked","origin":"wf10 FUSION-LOWER","file":"runtime/v1/files_gen.go","from":"Results: []string{\"[]T\"}, Pure: true, Wait: \"none\", Package: Path}}},\n\t{\"actorTimer.Run\"","to":"Results: []string{\"[]T\"}, Wait: \"none\", Package: Path}}},\n\t{\"actorTimer.Run\"","rule":"slices.WithCapacity's body is pure, so Transform is pure over a pure function.","killers":["internal/sketch/check:TestFootprintsPureStd"]},
+    {"name":"fusion-generic-runs","origin":"wf10 FUSION-CHECK","file":"internal/sketch/check/laws.go","from":"\tif len(law.TParams) > 0 {\n\t\t// A rewrite over functions","to":"\tif false {\n\t\t// A rewrite over functions","rule":"A law with type parameters of its own does not run until a run instantiates them.","killers":["internal/sketch/check:TestRewriteOverFunctions"]},
+    {"name":"fusion-left-literal-admitted","origin":"wf10 FUSION-CHECK","file":"internal/sketch/check/funcrewrite.go","from":"\t\t\tif left {\n\t\t\t\treturn e, \"its left side is a call tree, and a function literal is not a call\"\n\t\t\t}\n","to":"","rule":"A function literal stands only on a rewrite's right side.","killers":["internal/sketch/check:TestRewriteOverFunctionsRows"]},
+    {"name":"fusion-impure-param-admitted","origin":"wf10 FUSION-CHECK","file":"internal/sketch/check/funcrewrite.go","from":"if sig, ok := under(v.Type).(*Signature); ok && (sig.Errors","to":"if sig, ok := under(v.Type).(*Signature); false && ok && (sig.Errors","rule":"A rewrite's function parameter fails nothing and needs nothing.","killers":["internal/sketch/check:TestRewriteOverFunctionsRows"]},
+    {"name":"fusion-tparam-value-class","origin":"wf10 FUSION-CHECK","file":"internal/sketch/check/funcrewrite.go","from":"\t\tif len(law.TParams) > 0 {\n\t\t\tm := ","to":"\t\tif false {\n\t\t\tm := ","rule":"A law's own type parameter is read at int for the value class.","killers":["internal/sketch/check:TestRewriteOverFunctions"]},
+    {"name":"fusion-pure-args-refused","origin":"wf10 FUSION-CHECK","file":"internal/sketch/check/funcrewrite.go","from":"if rw.OverFuncs && pureOverArgs(info, call, e) {","to":"if false {","rule":"A function that only calls its function parameters is pure in a rewrite over pure function arguments.","killers":["internal/sketch/check:TestRewriteOverFunctions"]},
+    {"name":"fusion-overfuncs-unmarked","origin":"wf10 FUSION-CHECK","file":"internal/sketch/check/funcrewrite.go","from":"rw != nil && rw.OverFuncs {","to":"rw != nil && false {","rule":"A rewrite over function parameters takes Law.FuncsRewrite, never Law.FuncRewrite, until its lowering exists.","killers":["internal/sketch/check:TestRewriteOverFunctions"]},
+    {"name":"fold-needs-step-row-only","origin":"wf10 TP-DIAG (named by fumb-e F1); killer by kill matrix, ST-0 pending (TP-DIAG)","file":"internal/sketch/check/entry.go","from":"\t\tworks = wr\n","to":"\t\tworks = wr\n\t\tuses = uses.union(c.types, wr)\n","rule":"runtime.md, Machines and actors 12: a machine's work row W is apart from its step's R, so a fold (machines.Run) needs R only.","killers":["cmd/ergo:TestCheckerFixtures"]},
+    {"name":"row-keeps-every-element","origin":"wf10 TP-DIAG (named by fumb-b F8); killer by kill matrix, ST-0 pending (TP-DIAG)","file":"internal/sketch/check/kinds.go","from":"\t\treturn append(orLeaves(b.X), orLeaves(b.Y)...)","to":"\t\treturn orLeaves(b.X)","rule":"types.md, Generics 7: a written row argument A | B keeps every element.","killers":["cmd/ergo:TestCheckerFixtures"]},
+    {"name":"row-in-index","origin":"wf10 TP-DIAG (named by fumb-b F8); killer by kill matrix, ST-0 pending (TP-DIAG)","file":"internal/sketch/check/call.go","from":"\t\t\tra := c.rowArg(a, tp.Kind, ctx)\n\t\t\tif ra == nil {\n\t\t\t\treturn bad(x)","to":"\t\t\tra := c.rowArg(a, tp.Kind, ctx)\n\t\t\tif ra == nil || len(orLeaves(a)) > 1 {\n\t\t\t\tc.errorf(x, CodeType, \"a row is no index\")\n\t\t\t\treturn bad(x)","rule":"types.md, Generics 7: an expression's index f[A | B] takes a row as a type's type arguments do.","killers":["cmd/ergo:TestCheckerFixtures"]},
+    {"name":"row-for-a-type","origin":"wf10 TP-DIAG (named by fumb-b F8, owner q47); killer by kill matrix, ST-0 pending (TP-DIAG)","file":"internal/sketch/check/decl.go","from":"\t\tif b, ok := unparen(a).(*syntax.BinaryExpr); ok && b.Op == syntax.OR {\n\t\t\t// A row written for a type parameter","to":"\t\tif b, ok := unparen(a).(*syntax.BinaryExpr); false && ok && b.Op == syntax.OR {\n\t\t\t// A row written for a type parameter","rule":"types.md, Generics 1 (q47): a row written for a type parameter is the row's value type, so a capability row there has none (S104).","killers":["cmd/ergo:TestCheckerFixtures"]},
+    {"name":"fusion-format-drops-tparams","origin":"wf10 FUSION-CHECK (SELFHOST-MERGE x batch 23: on the self-hosted formatter)","file":"compiler/format/nodes.ergo","from":"\t\tp.ident(x.Name)\n\t\tif some(x.TypeParams) {\n\t\t\tp.fieldList(the(x.TypeParams), \"[\", \"]\")\n\t\t}\n\t\tp.fieldList(the(x.Params), \"(\", \")\")\n","to":"\t\tp.ident(x.Name)\n\t\tp.fieldList(the(x.Params), \"(\", \")\")\n","rule":"The formatter keeps a law's type parameters.","killers":["internal/sketch/check:TestRewriteOverFunctions"],"gap":"survived at its named Go killer (scripts/mutants -run, 2026-11-19, SELFHOST-MERGE x batch 23): the killer runs the linked Go of compiler/, which the runner does not regenerate from the mutated .ergo; it needs an Ergo-test killer (ergotests) or a regenerate step (follow-up, every compiler/ row)"}
   ]
 }

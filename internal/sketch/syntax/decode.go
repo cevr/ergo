@@ -52,8 +52,8 @@ func ParseRows(src string) (*File, error) {
 
 // decodeColumns is the file of src's columns, or the parse's failure.
 func decodeColumns(src string, cols []uint32) (*File, error) {
-	if len(cols) < colHeader || cols[0] != columnsVersion {
-		return nil, fmt.Errorf("syntax: the rows of compiler/syntax have another layout (version %d)", cols[0])
+	if len(cols) < colHeader || cols[0] != ColumnsVersion && cols[0] != PreviousColumnsVersion {
+		return nil, &LayoutError{Linked: layoutOf(cols)}
 	}
 	if cols[6] != 0 {
 		text, err := linked.Failure(context.Background(), src)
@@ -88,8 +88,42 @@ func ParseFiles(srcs []string) (files []*File, errs []error) {
 	return files, errs
 }
 
-// columnsVersion is the layout of syntax.Columns this decoder reads.
-const columnsVersion = 2
+// ColumnsVersion is the layout of syntax.Columns this decoder reads, the
+// one this tree's compiler/syntax writes (its ColumnsVersion). 3: a law's
+// row gains TypeParams, its word 2 (adf427bfe), so it has 9 fixed words.
+const ColumnsVersion = 3
+
+// PreviousColumnsVersion is the layout before ColumnsVersion, which this
+// decoder still reads: the linked parser writes it until scripts/linked
+// regenerates that parser from this tree. A node-layout change is
+// bootstrapped in two stages (go run ./scripts/linked -bootstrap): stage 1
+// regenerates with the linked parser one layout behind, stage 2 with the
+// parser stage 1 wrote.
+const PreviousColumnsVersion = 2
+
+// LayoutError is a parse whose rows have a layout this decoder cannot
+// read: the linked parser is more than one layout behind or ahead.
+type LayoutError struct{ Linked uint32 }
+
+func (e *LayoutError) Error() string {
+	return fmt.Sprintf("syntax: the linked parser writes rows of layout %d; this decoder reads %d and %d: regenerate it (go run ./scripts/linked -bootstrap) from a tree one layout apart", e.Linked, PreviousColumnsVersion, ColumnsVersion)
+}
+
+func layoutOf(cols []uint32) uint32 {
+	if len(cols) == 0 {
+		return 0
+	}
+	return cols[0]
+}
+
+// LinkedLayout is the layout of the rows the linked parser writes.
+func LinkedLayout() (uint32, error) {
+	cols, err := linked.Columns(context.Background(), "")
+	if err != nil {
+		return 0, err
+	}
+	return layoutOf(cols), nil
+}
 
 // colHeader is the words of the header: version, tokens, rows, extra
 // words, comments, comment groups, failed.
@@ -114,13 +148,16 @@ type rowDecoder struct {
 	extra                       []uint32
 	toks                        []token
 	groups                      []*CommentGroup
+	// layout is the rows' layout version (ColumnsVersion or the one
+	// before it).
+	layout uint32
 }
 
 // Decode builds the tree of src from cols, the words syntax.Columns packs
 // for a parse that did not fail.
 func Decode(src string, cols []uint32) *File {
 	ntok, nrows, nextra, ncmt, ngroups := int(cols[1]), int(cols[2]), int(cols[3]), int(cols[4]), int(cols[5])
-	d := &rowDecoder{src: src}
+	d := &rowDecoder{src: src, layout: cols[0]}
 	w := colHeader
 	d.toks = tokensOfColumns(src, cols[w:w+ntok], cols[w+ntok:w+2*ntok], cols[w+2*ntok:w+3*ntok])
 	w += 3 * ntok
@@ -322,12 +359,20 @@ func (d *rowDecoder) node(r uint32) Node {
 	case kTestDecl:
 		return &TestDecl{Doc: d.doc(d.fixed(r, 4, 0)), Test: d.pos(t), Name: one[*Ident](d, d.fixed(r, 4, 1)), Params: opt[*FieldList](d, d.fixed(r, 4, 2)), Body: one[*BlockStmt](d, d.fixed(r, 4, 3))}
 	case kLawDecl:
-		l := &LawDecl{Doc: d.doc(d.fixed(r, 8, 0)), Law: d.pos(t), Name: one[*Ident](d, d.fixed(r, 8, 1)), Params: opt[*FieldList](d, d.fixed(r, 8, 2)), Body: opt[*BlockStmt](d, d.fixed(r, 8, 3)), Reach: opt[*LawReach](d, d.fixed(r, 8, 4))}
-		switch d.fixed(r, 8, 5) {
+		// Layout 3 put TypeParams at word 2; layout 2 has no such word.
+		w, s := 9, 1
+		if d.layout == PreviousColumnsVersion {
+			w, s = 8, 0
+		}
+		l := &LawDecl{Doc: d.doc(d.fixed(r, w, 0)), Law: d.pos(t), Name: one[*Ident](d, d.fixed(r, w, 1)), Params: opt[*FieldList](d, d.fixed(r, w, 2+s)), Body: opt[*BlockStmt](d, d.fixed(r, w, 3+s)), Reach: opt[*LawReach](d, d.fixed(r, w, 4+s))}
+		if s == 1 {
+			l.TypeParams = opt[*FieldList](d, d.fixed(r, w, 2))
+		}
+		switch d.fixed(r, w, 5+s) {
 		case 1:
-			l.Rewrite = &LawRewrite{When: d.opos(d.fixed(r, 8, 6)), Eq: d.opos(d.fixed(r, 8, 7))}
+			l.Rewrite = &LawRewrite{When: d.opos(d.fixed(r, w, 6+s)), Eq: d.opos(d.fixed(r, w, 7+s))}
 		case 2:
-			equation(l, d.opos(d.fixed(r, 8, 7)))
+			equation(l, d.opos(d.fixed(r, w, 7+s)))
 		}
 		return l
 	case kLawReach:

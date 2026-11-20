@@ -100,7 +100,7 @@ func played(site Site, lines []string, first int, n int, clock time.Manual, stat
 		}
 		let mut missing = ""
 		let mut counts = ui.NoCounts()
-		let framesBefore = ui.Frames(&h)
+		let framesBefore = h.Frames()
 		for a in acts {
 			match a {
 			case Every as e:
@@ -135,7 +135,7 @@ func played(site Site, lines []string, first int, n int, clock time.Manual, stat
 			shown = show(shown, View(&h))
 		}
 		if stats {
-			Console.Println("  stats: \(ui.CountsLine(counts)); \(ui.Frames(&h) - framesBefore) frames")
+			Console.Println("  stats: \(ui.CountsLine(counts)); \(h.Frames() - framesBefore) frames")
 		}
 	}
 	if last {

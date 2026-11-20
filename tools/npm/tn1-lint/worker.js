@@ -1,7 +1,8 @@
 "use strict";
 // The worker thread of lint.js: it keeps one `tn1-lint serve` process,
-// writes each request it is posted as a line, and posts back each reply
-// line, then wakes the caller blocked in Atomics.wait. A sidecar that
+// writes each request line it is posted, and posts back each reply line,
+// decoded against Reply (wire.js; one that is not the declared JSON is an
+// error reply), then wakes the caller blocked in Atomics.wait. A sidecar that
 // exits fails the request in flight; the next request starts another, up
 // to MAX_STARTS per process. A start that fails (spawn throws, as fork
 // does with ENOMEM in a process holding much memory, or the binary cannot
@@ -9,6 +10,7 @@
 const { spawn } = require("node:child_process");
 const readline = require("node:readline");
 const { workerData } = require("node:worker_threads");
+const { decodeReply } = require("./wire.js");
 
 const READY = 0;
 const STARTS = 1;
@@ -41,11 +43,13 @@ function launch() {
   Atomics.add(shared, STARTS, 1);
   Atomics.store(shared, GROUP, started.pid ?? 0);
   readline.createInterface({ input: started.stdout }).on("line", (line) => {
+    let decoded;
     try {
-      reply(JSON.parse(line));
-    } catch {
-      reply({ diagnostics: [], error: `tn1-lint: an unreadable reply: ${line.slice(0, 200)}` });
+      decoded = decodeReply(line);
+    } catch (error) {
+      decoded = { diagnostics: [], error: error.message };
     }
+    reply(decoded);
   });
   const gone = (reason, fatal) => {
     if (child !== started) return;
@@ -66,6 +70,7 @@ function launch() {
 }
 
 port.on("message", (request) => {
+  // request is a line of wire.js's encodeRequest.
   pending = true;
   if (child === undefined) {
     if (Atomics.load(shared, STARTS) >= MAX_STARTS) {
@@ -79,5 +84,5 @@ port.on("message", (request) => {
       return;
     }
   }
-  child.stdin.write(`${JSON.stringify(request)}\n`);
+  child.stdin.write(`${request}\n`);
 });

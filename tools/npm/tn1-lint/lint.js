@@ -1,5 +1,5 @@
 "use strict";
-// The synchronous API of @cevr/tn1-lint, for a caller that cannot wait on
+// The synchronous API of @cvr/tn1-lint, for a caller that cannot wait on
 // a promise (an oxlint rule): lintSync(request) is the diagnostics
 // `tn1-lint lint` reports for one text.
 //
@@ -8,8 +8,12 @@
 // Atomics.wait until the worker has its reply (the pattern of synckit and
 // oxlint-plugin-jev). N files cost one process start, not N.
 //
-//   const { lintSync, processStarts } = require("@cevr/tn1-lint/lint");
+//   const { lintSync, processStarts } = require("@cvr/tn1-lint/lint");
 //   lintSync({ rule, weights, path, text }) // => [{ message, code, severity, filename, labels }]
+//
+// The request and reply are tn1-lint's Ergo types Request and Reply
+// (wire.js, generated from them by examples/tn1-lint/ts/wire.ts); a reply
+// that is not the declared JSON throws, as a failure does.
 //
 // A failure (unreadable weights, a malformed network, a sidecar that
 // died) throws an Error with tn1-lint's reason. A sidecar that cannot
@@ -24,6 +28,7 @@
 // started, in case it has not.
 const path = require("node:path");
 const { MessageChannel, Worker, receiveMessageOnPort } = require("node:worker_threads");
+const { encodeRequest } = require("./wire.js");
 
 // Slots of the shared Int32Array: the reply flag, the process-start
 // count, and the process group the worker started (0 when none).
@@ -81,12 +86,7 @@ function lintSync(request) {
   const { port, shared } = sidecar;
   if (sidecar.broken !== undefined) throw down(sidecar.broken);
   Atomics.store(shared, READY, 0);
-  port.postMessage({
-    rule: String(request.rule),
-    weights: String(request.weights),
-    path: String(request.path),
-    text: String(request.text),
-  });
+  port.postMessage(encodeRequest(request));
   if (Atomics.wait(shared, READY, 0, HANG_MS) === "timed-out") {
     sidecar.broken = "tn1-lint: the sidecar did not answer (its worker stopped)";
     throw down(sidecar.broken);
