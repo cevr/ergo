@@ -17,7 +17,8 @@
 // sources the linked packages read (new syntax on the same layout, such
 // as a new token). Stage 1 regenerates with the linked parser that reads
 // the tree best: of the one on disk and the ones the parent commits hold
-// (a merge's two sides, or MERGE_HEAD's while a merge is uncommitted),
+// (a merge's two sides: HEAD^1 and HEAD^2, or HEAD and MERGE_HEAD while
+// the merge is uncommitted),
 // the one of a layout the decoder reads that refuses the fewest lines.
 // After a merge of a syntax port with a layout change, neither side's
 // parser reads the whole tree, and a line held back can take a
@@ -225,7 +226,7 @@ func twoStages(root string) error {
 	}
 	srcs := [][]byte{disk}
 	from := []string{"the disk"}
-	for _, rev := range []string{"MERGE_HEAD", "HEAD^1", "HEAD^2"} {
+	for _, rev := range []string{"HEAD", "MERGE_HEAD", "HEAD^1", "HEAD^2"} {
 		out, err := exec.Command("git", "-C", root, "show", rev+":"+compilerFile).Output()
 		if err != nil || slices.ContainsFunc(srcs, func(b []byte) bool { return bytes.Equal(b, out) }) {
 			continue
