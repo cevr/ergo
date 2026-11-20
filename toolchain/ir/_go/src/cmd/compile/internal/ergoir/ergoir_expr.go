@@ -255,7 +255,7 @@ func (c *ergoChecker) expr(x *ergoExpr) (syntax.Expr, types2.Type) {
 		}
 		call := &syntax.CallExpr{Fun: fun, ArgList: []syntax.Expr{e0}}
 		call.SetPos(pos)
-		ergoValue(call, t, nil)
+		ergoValue(call, t, ergoConstConv(e0.GetTypeInfo().Value, et, t))
 		return call, t
 	case "global":
 		v, ok := c.pkg.Scope().Lookup(x.Name).(*types2.Var)
@@ -523,4 +523,42 @@ func ergoFuncConv(t, from types2.Type) bool {
 	}
 	fs, ok := types2.CoreType(from).(*types2.Signature)
 	return ok && types2.Identical(ts, fs)
+}
+
+// ergoConstConv is T(v) of a constant v of type from, a constant of type
+// to, as Go's checker folds a constant conversion: the conversion's tree
+// is then the literal the text's T(v) compiles to, not a conversion of
+// one. nil (no fold) when v is not a constant, or the kinds differ in a
+// way the fold would round: an integer to any integer type that holds
+// it, a float to a float of its size, a string or a bool to its kind.
+//
+// A constant the target cannot hold is never folded. Ergo's checker
+// refuses it in source, where gc refuses int8(300): "the constant N
+// overflows T", and for a float that is not whole, "the constant X
+// truncates to an integer" (check/operators.go, conversion; rows in
+// check's TestLiteralRules). A named target takes such a constant only
+// through its base, so the base's conversion is the one refused. A read
+// of a package let is a value, not a constant (TestConstLetsStayValues),
+// so int8(Big + 100) wraps at run time as Ergo means; left unfolded here,
+// it does the same.
+func ergoConstConv(v constant.Value, from, to types2.Type) constant.Value {
+	switch {
+	case v == nil:
+		return nil
+	case ergoIsInteger(from) && ergoIsInteger(to) && v.Kind() == constant.Int:
+		return ergoConstant(to, v.ExactString())
+	case ergoIsFloat(from) && ergoIsFloat(to):
+		if ergoFloat32(from) == ergoFloat32(to) {
+			return v
+		}
+	case ergoIsString(from) && ergoIsString(to) && v.Kind() == constant.String,
+		ergoIsBool(from) && ergoIsBool(to) && v.Kind() == constant.Bool:
+		return v
+	}
+	return nil
+}
+
+func ergoFloat32(t types2.Type) bool {
+	b, _ := types2.CoreType(t).(*types2.Basic)
+	return b != nil && b.Kind() == types2.Float32
 }
