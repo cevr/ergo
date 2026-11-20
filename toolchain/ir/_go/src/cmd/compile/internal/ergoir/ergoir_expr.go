@@ -11,6 +11,7 @@ import (
 	"go/token"
 	"strconv"
 	"strings"
+	"sync"
 
 	"cmd/compile/internal/syntax"
 	"cmd/compile/internal/types2"
@@ -255,7 +256,7 @@ func (c *ergoChecker) expr(x *ergoExpr) (syntax.Expr, types2.Type) {
 		}
 		call := &syntax.CallExpr{Fun: fun, ArgList: []syntax.Expr{e0}}
 		call.SetPos(pos)
-		ergoValue(call, t, nil)
+		ergoValue(call, t, ergoConstConv(e0.GetTypeInfo().Value, et, t))
 		return call, t
 	case "global":
 		v, ok := c.pkg.Scope().Lookup(x.Name).(*types2.Var)
@@ -500,7 +501,7 @@ func (c *ergoChecker) binType(p ergoPos, op syntax.Operator, name string, lt, rt
 		}
 		return types2.Typ[types2.Bool]
 	case syntax.Lss, syntax.Leq, syntax.Gtr, syntax.Geq:
-		if !ergoIsNumeric(lt) && !ergoIsString(lt) {
+		if !ergoOrdered(lt) {
 			return bad()
 		}
 		return types2.Typ[types2.Bool]
@@ -513,6 +514,31 @@ func (c *ergoChecker) binType(p ergoPos, op syntax.Operator, name string, lt, rt
 	return bad()
 }
 
+// ergoOrdered reports whether Go's < applies to t: a basic number or
+// string, or a type parameter whose type set holds only those (an Ergo
+// ordered parameter, GP-ORDER). types2 judges the type parameter: it
+// satisfies cmp.Ordered's type set, so a constraint with no type terms
+// is not ordered.
+func ergoOrdered(t types2.Type) bool {
+	if _, ok := t.(*types2.TypeParam); !ok {
+		return ergoIsNumeric(t) || ergoIsString(t)
+	}
+	return types2.Satisfies(t, ergoOrderedSet())
+}
+
+// ergoOrderedSet is cmp.Ordered: ~int | … | ~float64 | ~string.
+var ergoOrderedSet = sync.OnceValue(func() *types2.Interface {
+	var terms []*types2.Term
+	for _, k := range []types2.BasicKind{types2.Int, types2.Int8, types2.Int16, types2.Int32, types2.Int64, types2.Uint, types2.Uint8, types2.Uint16, types2.Uint32, types2.Uint64, types2.Uintptr, types2.Float32, types2.Float64, types2.String} {
+		terms = append(terms, types2.NewTerm(true, types2.Typ[k]))
+	}
+	it := types2.NewInterfaceType(nil, []types2.Type{types2.NewUnion(terms)})
+	// Its type set is computed here, once (types2 has no Complete): computed
+	// lazily, two decoder goroutines would both write the one shared value.
+	it.IsMethodSet()
+	return it
+})
+
 // ergoFuncConv reports a conversion between a function type and a type
 // defined over it (Seq[T] of a function literal): identical signatures,
 // which Go converts as identical underlying types (GP-DEFINED).
@@ -523,4 +549,42 @@ func ergoFuncConv(t, from types2.Type) bool {
 	}
 	fs, ok := types2.CoreType(from).(*types2.Signature)
 	return ok && types2.Identical(ts, fs)
+}
+
+// ergoConstConv is T(v) of a constant v of type from, a constant of type
+// to, as Go's checker folds a constant conversion: the conversion's tree
+// is then the literal the text's T(v) compiles to, not a conversion of
+// one. nil (no fold) when v is not a constant, or the kinds differ in a
+// way the fold would round: an integer to any integer type that holds
+// it, a float to a float of its size, a string or a bool to its kind.
+//
+// A constant the target cannot hold is never folded. Ergo's checker
+// refuses it in source, where gc refuses int8(300): "the constant N
+// overflows T", and for a float that is not whole, "the constant X
+// truncates to an integer" (check/operators.go, conversion; rows in
+// check's TestLiteralRules). A named target takes such a constant only
+// through its base, so the base's conversion is the one refused. A read
+// of a package let is a value, not a constant (TestConstLetsStayValues),
+// so int8(Big + 100) wraps at run time as Ergo means; left unfolded here,
+// it does the same.
+func ergoConstConv(v constant.Value, from, to types2.Type) constant.Value {
+	switch {
+	case v == nil:
+		return nil
+	case ergoIsInteger(from) && ergoIsInteger(to) && v.Kind() == constant.Int:
+		return ergoConstant(to, v.ExactString())
+	case ergoIsFloat(from) && ergoIsFloat(to):
+		if ergoFloat32(from) == ergoFloat32(to) {
+			return v
+		}
+	case ergoIsString(from) && ergoIsString(to) && v.Kind() == constant.String,
+		ergoIsBool(from) && ergoIsBool(to) && v.Kind() == constant.Bool:
+		return v
+	}
+	return nil
+}
+
+func ergoFloat32(t types2.Type) bool {
+	b, _ := types2.CoreType(t).(*types2.Basic)
+	return b != nil && b.Kind() == types2.Float32
 }

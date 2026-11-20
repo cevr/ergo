@@ -376,7 +376,7 @@ func generatedHeader(text string) (gateGen, bool) {
 		return gateGen{}, false
 	}
 	kind, ok = strings.CutSuffix(kind, "; DO NOT EDIT.")
-	if !ok || (kind != "rpc" && kind != "cli" && kind != "mcp") {
+	if !ok || (kind != "api" && kind != "rpc" && kind != "cli" && kind != "mcp") {
 		return gateGen{}, false
 	}
 	second, _, _ := strings.Cut(rest, "\n")

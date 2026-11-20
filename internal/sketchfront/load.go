@@ -1059,10 +1059,16 @@ func (a Analysis) Text() string {
 	if a.program == nil {
 		return a.source
 	}
+	return ProgramText(a.program.texts)
+}
+
+// ProgramText is the text of a program read from a folder whose files
+// (Files) are texts: its revision is report.Revision of it.
+func ProgramText(texts map[string]string) string {
 	var b strings.Builder
-	for _, name := range sortedNames(a.program.texts) {
-		fmt.Fprintf(&b, "%d:%s%d:", len(name), name, len(a.program.texts[name]))
-		b.WriteString(a.program.texts[name])
+	for _, name := range sortedNames(texts) {
+		fmt.Fprintf(&b, "%d:%s%d:", len(name), name, len(texts[name]))
+		b.WriteString(texts[name])
 	}
 	return b.String()
 }

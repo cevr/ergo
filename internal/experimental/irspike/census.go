@@ -47,6 +47,11 @@ type Census struct {
 	// Failed are the targets that did not load or lower, and the std
 	// census if it did not, each with its error.
 	Failed []string
+	// CodecReached counts, by reason and domain, the targets that reach
+	// each codec function that keeps its text body. Funcs holds each such
+	// function once (by its Go name); this counts it once per target, a
+	// number of lowerings, never of functions (PORT-WIRE-READERS step 0).
+	CodecReached map[string]map[Domain]int
 }
 
 type censusBuilder struct {
@@ -58,6 +63,19 @@ func (b *censusBuilder) add(d Domain, fs []lower.IRCensusFunc) {
 	for _, f := range fs {
 		key := f.Pkg + "." + f.Name
 		switch {
+		case f.Codec:
+			// One function, whichever target reaches it first; each
+			// target that reaches it counts in CodecReached.
+			key = "codec " + f.Name
+			for _, r := range f.Reasons {
+				if b.c.CodecReached == nil {
+					b.c.CodecReached = map[string]map[Domain]int{}
+				}
+				if b.c.CodecReached[r] == nil {
+					b.c.CodecReached[r] = map[Domain]int{}
+				}
+				b.c.CodecReached[r][d]++
+			}
 		case f.Std:
 			key = "std " + key
 		case f.File != "":
@@ -333,6 +351,40 @@ func (c *Census) WriteTable(w io.Writer) {
 		fmt.Fprintf(w, "| %s | %s |", strings.ReplaceAll(r.Reason, "|", `\|`), r.Unit)
 		for _, d := range Domains {
 			fmt.Fprintf(w, " %d | %d |", r.All[d], r.First[d])
+		}
+		fmt.Fprintln(w)
+	}
+	if len(c.CodecReached) == 0 {
+		return
+	}
+	// The codec rows above count functions; this counts the lowerings
+	// that reach them, one per target (never a function count).
+	fmt.Fprintf(w, "\nCodec functions with a text body: functions (the rows above, by the domain that reaches each first) and targets reaching them.\n\n| reason | functions |")
+	for _, d := range Domains {
+		fmt.Fprintf(w, " %s targets reaching |", d)
+	}
+	fmt.Fprintf(w, "\n|---|---:|")
+	for range Domains {
+		fmt.Fprintf(w, "---:|")
+	}
+	fmt.Fprintln(w)
+	funcs := map[string]int{}
+	for _, f := range c.Funcs {
+		if strings.HasPrefix(f.Key, "codec ") {
+			for _, r := range f.Reasons {
+				funcs[r]++
+			}
+		}
+	}
+	reasons := make([]string, 0, len(c.CodecReached))
+	for r := range c.CodecReached {
+		reasons = append(reasons, r)
+	}
+	sort.Strings(reasons)
+	for _, r := range reasons {
+		fmt.Fprintf(w, "| %s | %d |", r, funcs[r])
+		for _, d := range Domains {
+			fmt.Fprintf(w, " %d |", c.CodecReached[r][d])
 		}
 		fmt.Fprintln(w)
 	}
