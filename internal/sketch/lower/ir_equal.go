@@ -32,7 +32,8 @@ func (b *irBuilder) binaryOther(x *syntax.BinaryExpr, p irPos) *irExpr {
 		return nil
 	}
 	return b.equalOf(x, t, func() (*irExpr, *irExpr) {
-		return b.expr(x.X), b.expr(x.Y) // each with its implicit conversion
+		vals := b.inOrder([]syntax.Expr{x.X, x.Y}) // ir_order.go, each with its implicit conversion
+		return vals[0], vals[1]
 	})
 }
 

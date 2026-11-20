@@ -43,6 +43,10 @@ type cacheEntry struct {
 	// package was checked, by Go import path, with their text: a superset
 	// of the ones the check read, so an edit of one checks it again.
 	bindings map[string]string
+	// goBodies are the module Go packages the program had read, by
+	// import path, with the digest of their built files (loader.goBodies),
+	// a superset as bindings are: an edit of a body checks it again.
+	goBodies map[string]string
 	files    int
 }
 
@@ -99,6 +103,12 @@ func (c *CheckCache) reuse(l *loader, p *loadedPackage, key string) (*check.Pack
 			return nil, false
 		}
 	}
+	for path, digest := range e.goBodies {
+		l.GoPackage(path)
+		if l.goBodies[path] != digest {
+			return nil, false
+		}
+	}
 	c.u.SetImporter(l)
 	pkg, err := c.u.DecodeSegment(e.seg, func(path string) *check.Package {
 		if q := l.pkgs[path]; q != nil {
@@ -135,7 +145,7 @@ func (c *CheckCache) store(l *loader, p *loadedPackage, key string, pkg *check.P
 	if old, ok := c.entries[key]; ok && old.seg != seg {
 		c.u.Release(old.seg)
 	}
-	c.entries[key] = cacheEntry{seg: seg, bindings: copyBindings(l.bindings), files: len(p.files)}
+	c.entries[key] = cacheEntry{seg: seg, bindings: copyBindings(l.bindings), goBodies: copyBindings(l.goBodies), files: len(p.files)}
 }
 
 func copyBindings(m map[string]string) map[string]string {

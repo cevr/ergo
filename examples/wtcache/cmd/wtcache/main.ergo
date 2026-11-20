@@ -1,0 +1,57 @@
+// wtcache runs a session of settings commands from standard input, one per
+// line: set KEY VALUE, get KEY, load KEY and writes. The settings write
+// through to a memory backing. This binary is the only place that chooses
+// the backing.
+
+import io
+import os
+import strconv
+import strings
+import wtcache/memory
+import wtcache/settings
+
+// answer is the line that answers the command words, with the cache and
+// the backing.
+func answer(words []string, c settings.Cache, lines memory.Lines) string fails strconv.Malformed needs settings.Backing {
+	match (words[0], len(words)) {
+	case ("set", 3):
+		try settings.Set(c, words[1], words[2])
+		"ok"
+	case ("get", 2):
+		shown(settings.Get(c, words[1]))
+	case ("load", 2):
+		shown(try settings.Load(c, words[1]))
+	case ("writes", 1):
+		strconv.Itoa(memory.Writes(lines))
+	case (_, _):
+		"usage: set KEY VALUE | get KEY | load KEY | writes"
+	}
+}
+
+// shown is a value's text, or "none".
+func shown(v Option[string]) string {
+	match v {
+	case Some[string] as s:
+		strconv.Quote(s.Value)
+	case None:
+		"none"
+	}
+}
+
+func main() fails os.Exit needs Ambient {
+	let lines = memory.NewLines()
+	let c = settings.NewCache()
+	with context { io.Stdout: io.NewHost(), io.Stdin: io.NewStdin(), settings.Backing: lines } {
+		for line in io.Stdin.Lines() {
+			let words = strings.Fields(line)
+			if len(words) == 0 {
+				continue
+			}
+			let out = answer(words, c, lines) catch {
+			case strconv.Malformed:
+				"malformed line"
+			}
+			io.Stdout.Println(out)
+		}
+	}
+}

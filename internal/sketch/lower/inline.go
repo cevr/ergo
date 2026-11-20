@@ -550,7 +550,7 @@ func (fc *funcCtx) inlineAt(x *syntax.CallExpr, c *check.Call) bool {
 		return false
 	}
 	fd := fc.l.funcDecl(f)
-	if !fd.pure && fc.env == "" {
+	if !fd.envFree && fc.env == "" {
 		return false
 	}
 	list := callOperands(x, c)
@@ -691,11 +691,22 @@ func (fc *funcCtx) inlineCall(x *syntax.CallExpr, c *check.Call, fd *funcDecl, l
 			ic.bound[tp] = t
 		}
 	}
+	if ps := paramVars(f); len(ps) == len(list) {
+		for i, p := range ps {
+			if p == nil || p.Mut() {
+				continue
+			}
+			if ic.argOf == nil {
+				ic.argOf = map[*check.Var]syntax.Expr{}
+			}
+			ic.argOf[p] = fc.argSource(list[i]) // the caller's info, before the body's
+		}
+	}
 	ic.owner = f.Name
 	if fd.method != nil {
 		ic.owner = fd.method.tn.Name + "." + f.Name
 	}
-	if !fd.pure {
+	if !fd.envFree {
 		ic.env = fc.env
 	}
 	ic.inl = fc.site0(x, c)

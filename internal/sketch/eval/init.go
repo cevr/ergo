@@ -18,6 +18,13 @@ import (
 // or that uses a form the evaluator does not run, skips every obligation:
 // no obligation runs under a world the native runner would not build.
 
+// initSteps is the initializer bound (runtime.md, Tests 9): it bounds the
+// work of a run's package initializers, all of them together, apart from
+// each obligation's budget; as foldLetSteps bounds one let a fold reads, a
+// world a law reads may take more than one obligation's budget to build.
+// When the obligation budget is larger, the initializers have that.
+var initSteps int64 = 50_000_000
+
 // initFailure is why the initializers did not all run.
 type initFailure struct {
 	status Status
@@ -29,6 +36,15 @@ type initFailure struct {
 // imports, and binds their lets in in.globals.
 func (in *interp) initialize(pkg *check.Package) *initFailure {
 	in.globals = map[*check.Var]*slot{}
+	// The initializers run once a run, under a bound of their own
+	// (initSteps), not one obligation's: an obligation's budget bounds the
+	// work of its own cases, and a package let that decodes a large text
+	// is the world every obligation reads (LITERAL-LET). The first
+	// obligation's begin starts its own budget after them.
+	steps := in.budget.Steps
+	in.budget.Steps = max(steps, initSteps)
+	in.begin()
+	defer func() { in.budget.Steps = steps }()
 	var order []*check.Package
 	seen := map[*check.Package]bool{}
 	var visit func(p *check.Package)
@@ -125,6 +141,9 @@ func (in *interp) initPackage(p *check.Package) *initFailure {
 			case ctlDefect:
 				return &initFailure{Defect, "a package initializer hit a defect: " + ab.msg, at}
 			case ctlExhausted:
+				if in.steps-in.stepsAt >= in.budget.Steps {
+					return &initFailure{Incomplete, fmt.Sprintf("the package initializers of %s used the initializer bound of %d steps (the bound of the initializers, not a law's budget)", p.Path, in.budget.Steps), at}
+				}
 				return &initFailure{Incomplete, "a package initializer: " + ab.msg, at}
 			case ctlUnsupported:
 				return &initFailure{Skipped, fmt.Sprintf("the package initializer at %s cannot run at check time: %s", siteText(site), ab.msg), site}

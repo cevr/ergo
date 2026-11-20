@@ -105,7 +105,10 @@ func goNativeOf(fn *check.Func) native {
 		return nil
 	}
 	path, name := fn.Decl.Extern.Split()
-	return loadedNatives().goLib[path+"."+name]
+	if nat := loadedNatives().goLib[path+"."+name]; nat != nil {
+		return nat
+	}
+	return goReflectNative(fn) // gohost.go
 }
 
 // goBits is a one-argument conversion of basic values, one step.
