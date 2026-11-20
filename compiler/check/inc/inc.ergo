@@ -1,0 +1,444 @@
+// Package inc is the plan of the incremental check (capstone S3e;
+// C0/plan.md §5, CAP-incr), on the Ergo store. A declaration's cached row
+// holds its fingerprint fp and its reads: each interface entry its check
+// looked up, with what the lookup saw. After an edit, the plan checks
+// again a declaration whose fp changed or one of whose reads now sees
+// another entry. Every other row is taken from the cache.
+// models/checkinc is the design this follows: there the rule is proved
+// over every edit sequence of a small world. The law here holds the code
+// to it on seeded edit sequences of a real program, checked by task.Check.
+//
+// What a row's check gave (Result) is the declaration's fingerprint and
+// its resolutions in a form that an edit elsewhere does not move: a local
+// by its row offset in the declaration, a package-level name or an import
+// by its name and the target's interface fingerprint ifp. The ifp stands
+// in for the types the later passes read through it. Until S3-SWAP this
+// is a plan and a law only; no `ergo check` reads it.
+
+import compiler/check/bind
+import compiler/check/store
+import compiler/check/task
+import compiler/syntax
+import dense
+
+// Read is one interface entry a declaration's check looked up. Via is
+// the import name of a selector, or empty for a name of the declaration's
+// own package. Name is the name. Seen is what the check saw: the target's
+// ifp, missing, or noImport when Via names no import. A name that did not
+// resolve is a read too (a negative read): a later declaration of it must
+// check the reader again.
+type Read { Via string, Name string, Seen string }
+
+// Row is one declaration's check. Key is its package path, its name and
+// its place among that package's declarations of the name.
+type Row { Key string, Pkg string, Fp string, Result string, Reads []Read }
+
+// Scope is what a package's names resolve to: the package-level
+// declarations its scope holds, with their ifp and whether an importer
+// sees them, and its imports.
+type Scope { Path string, Imports []string, Names []string, Ifps []string, Exported []bool }
+
+// Snap is a check from scratch: every declaration's row, in package and
+// collect order, and each package's scope.
+type Snap { Rows []Row, Scopes []Scope }
+
+let missing = "missing"
+
+let noImport = "no import"
+
+func printText(p store.Print) string { "\(p.Hi).\(p.Lo)" }
+
+func exportedName(text string) bool { len(text) > 0 && text[0] >= 65 && text[0] <= 90 }
+
+// lastSegment is an import path's last element, the name a selector uses.
+func lastSegment(path string) string {
+	let mut at = 0
+	for i in 0..len(path) {
+		if path[i] == '/' {
+			at = i + 1
+		}
+	}
+	path[at:]
+}
+
+// importNamed is the import path whose name is via, or "".
+func importNamed(imports []string, via string) string {
+	for path in imports {
+		if lastSegment(path) == via {
+			return path
+		}
+	}
+	""
+}
+
+func scopeOf(s store.Store) Scope {
+	let mut names = []string{}
+	let mut ifps = []string{}
+	let mut exported = []bool{}
+	for i in 0..store.NumDecls(s) {
+		let d = store.DeclAt(s, i)
+		let text = store.Text(s, store.DeclOf(s, d).Name)
+		match store.Lookup(s, text) {
+		case Some{Value: held}:
+			if held == d {
+				names = names.Append(text)
+				ifps = ifps.Append(printText(store.PrintsOf(s, d).Ifp))
+				exported = exported.Append(exportedName(text))
+			}
+		case None:
+		}
+	}
+	Scope{Path: store.PathOf(s), Imports: store.ImportPaths(s), Names: names, Ifps: ifps, Exported: exported}
+}
+
+// ifpIn is name's ifp in sc, missing when sc holds no such name or, for
+// an importer, when it is not exported.
+func ifpIn(sc Scope, name string, importer bool) string {
+	for i, n in sc.Names {
+		if n == name {
+			if importer && !sc.Exported[i] {
+				return missing
+			}
+			return sc.Ifps[i]
+		}
+	}
+	missing
+}
+
+func findScope(now Snap, path string) Option[Scope] {
+	for sc in now.Scopes {
+		if sc.Path == path {
+			return Some{Value: sc}
+		}
+	}
+	None
+}
+
+// Lookup is what read r of a declaration of package pkg resolves to in
+// the program now.
+func Lookup(now Snap, pkg string, r Read) string {
+	let own = match findScope(now, pkg) {
+	case Some{Value: sc}:
+		sc
+	case None:
+		Scope{Path: pkg, Imports: []string{}, Names: []string{}, Ifps: []string{}, Exported: []bool{}}
+	}
+	if r.Via == "" {
+		return ifpIn(own, r.Name, false)
+	}
+	let path = importNamed(own.Imports, r.Via)
+	if path == "" {
+		return noImport
+	}
+	match findScope(now, path) {
+	case Some{Value: target}:
+		ifpIn(target, r.Name, true)
+	case None:
+		missing
+	}
+}
+
+func checkedOf(checked []task.Checked, path string) Option[task.Checked] {
+	for c in checked {
+		if c.Path == path {
+			return Some{Value: c}
+		}
+	}
+	None
+}
+
+func identText(p syntax.Parsed, id dense.ID[syntax.Node]) string { syntax.TokText(p, syntax.NameOf(p.Tree, id).Tok) }
+
+// declAround is the place in s's declarations of the one of file f whose
+// row spans offset at, or -1.
+func declAround(s store.Store, files []bind.File, f int, at int) int {
+	for i in 0..store.NumDecls(s) {
+		let d = store.DeclOf(s, store.DeclAt(s, i))
+		if int(d.File) == f {
+			let p = files[f].Parsed
+			let node = syntax.NodeAt(p.Tree, int(d.Node))
+			if syntax.NodePos(p, node) <= at && at < syntax.NodeEnd(p, node) {
+				return i
+			}
+		}
+	}
+	-1
+}
+
+// rowOf is declaration i's row: its result and reads, from the package's
+// Uses as bind gave them.
+func rowOf(c task.Checked, files []bind.File, checked []task.Checked, i int, key string) Row {
+	let s = store.Of(c.Store)
+	let d = store.DeclOf(s, store.DeclAt(s, i))
+	let f = int(d.File)
+	let p = files[f].Parsed
+	let t = p.Tree
+	let top = syntax.NodeAt(t, int(d.Node))
+	let lo = syntax.NodePos(p, top)
+	let hi = syntax.NodeEnd(p, top)
+	let fp = printText(store.PrintsOf(s, store.DeclAt(s, i)).Fp)
+	let mut result = fp
+	let mut reads = []Read{}
+	for j in 0..syntax.NumNodes(t) {
+		let id = syntax.NodeAt(t, j)
+		let at = syntax.NodePos(p, id)
+		if at < lo || at >= hi || syntax.NodeEnd(p, id) > hi {
+			continue
+		}
+		let k = syntax.KindOf(t, id)
+		if k == syntax.KSelectorExpr {
+			let sel = syntax.SelectorExprOf(t, id)
+			if syntax.KindOf(t, sel.X) != syntax.KIdent {
+				continue
+			}
+			match bind.ResolutionOf(c.Uses, c.Parents, bind.PNodeOf(c.Parents, f, sel.X)) {
+			case bind.Outside:
+				let via = identText(p, sel.X)
+				let name = identText(p, sel.Sel)
+				let seen = match bind.ResolutionOf(c.Uses, c.Parents, bind.PNodeOf(c.Parents, f, sel.Sel)) {
+				case bind.Imported as x:
+					let path = store.ImportPaths(s)[int(x.Ref.Import)-1]
+					match checkedOf(checked, path) {
+					case Some{Value: dep}:
+						let ds = store.Of(dep.Store)
+						printText(store.PrintsOf(ds, store.DeclAt(ds, int(x.Ref.Decl))).Ifp)
+					case None:
+						missing
+					}
+				case _:
+					if importNamed(store.ImportPaths(s), via) == "" { noImport } else { missing }
+				}
+				reads = reads.Append(Read{Via: via, Name: name, Seen: seen})
+				result = result + " s:" + via + "." + name + "@" + seen
+			case _:
+			}
+			continue
+		}
+		if k != syntax.KIdent {
+			continue
+		}
+		let pn = bind.PNodeOf(c.Parents, f, id)
+		match bind.ResolutionOf(c.Uses, c.Parents, pn) {
+		case bind.Outside:
+			// The X or Sel of a selector is the selector's read.
+			let inSelector = match dense.Unpack(bind.ParentOf(c.Parents, pn)) {
+			case Some{Value: up}:
+				let (_, row) = bind.RowOf(c.Parents, up)
+				syntax.KindOf(t, syntax.NodeAt(t, row)) == syntax.KSelectorExpr
+			case None:
+				false
+			}
+			if !inSelector {
+				let name = identText(p, id)
+				reads = reads.Append(Read{Via: "", Name: name, Seen: missing})
+				result = result + " o:" + name
+			}
+		case bind.Declared as x:
+			match bind.DefOf(c.Uses, x.At) {
+			case bind.NoDef:
+				let name = identText(p, id)
+				let (fa, ra) = bind.RowOf(c.Parents, x.At)
+				let target = declAround(s, files, fa, syntax.NodePos(files[fa].Parsed, syntax.NodeAt(files[fa].Parsed.Tree, ra)))
+				let seen = if target < 0 { missing } else { printText(store.PrintsOf(s, store.DeclAt(s, target)).Ifp) }
+				reads = reads.Append(Read{Via: "", Name: name, Seen: seen})
+				result = result + " d:" + name + "@" + seen
+			case _:
+				let (_, ra) = bind.RowOf(c.Parents, x.At)
+				result = result + " l:\(ra - int(d.Node))"
+			}
+		case _:
+		}
+	}
+	Row{Key: key, Pkg: c.Path, Fp: fp, Result: result, Reads: reads}
+}
+
+// Scratch is the snapshot of a check from scratch of pkgs.
+func Scratch(pkgs []task.Package, checked []task.Checked) Snap {
+	let mut rows = []Row{}
+	let mut scopes = []Scope{}
+	for pkg in pkgs {
+		match checkedOf(checked, pkg.Path) {
+		case Some{Value: c}:
+			let s = store.Of(c.Store)
+			scopes = scopes.Append(scopeOf(s))
+			let mut seen = []string{}
+			for i in 0..store.NumDecls(s) {
+				let name = store.Text(s, store.DeclOf(s, store.DeclAt(s, i)).Name)
+				let mut n = 0
+				for m in seen {
+					if m == name {
+						n = n + 1
+					}
+				}
+				seen = seen.Append(name)
+				rows = rows.Append(rowOf(c, pkg.Files, checked, i, pkg.Path+"."+name+"#\(n)"))
+			}
+		case None:
+		}
+	}
+	Snap{Rows: rows, Scopes: scopes}
+}
+
+func cachedRow(cache []Row, key string) Option[Row] {
+	for r in cache {
+		if r.Key == key {
+			return Some{Value: r}
+		}
+	}
+	None
+}
+
+// Plan is, for each row of now, whether the incremental check checks it
+// again: it has no cached row, its fp changed, or one of its cached reads
+// now resolves to another entry. now's fingerprints and scopes are what
+// the collect pass and the frozen interfaces give; its results are not
+// read.
+func Plan(cache []Row, now Snap) []bool {
+	let mut again = []bool{}
+	for row in now.Rows {
+		let stale = match cachedRow(cache, row.Key) {
+		case Some{Value: old}:
+			let mut moved = old.Fp != row.Fp
+			for r in old.Reads {
+				if !moved && Lookup(now, row.Pkg, r) != r.Seen {
+					moved = true
+				}
+			}
+			moved
+		case None:
+			true
+		}
+		again = again.Append(stale)
+	}
+	again
+}
+
+// Apply is the incremental check's rows: now's row where Plan checks it
+// again, the cached row elsewhere.
+func Apply(cache []Row, now Snap, again []bool) []Row {
+	let mut out = []Row{}
+	for i, row in now.Rows {
+		if again[i] {
+			out = out.Append(row)
+		} else {
+			match cachedRow(cache, row.Key) {
+			case Some{Value: old}:
+				out = out.Append(old)
+			case None:
+				out = out.Append(row)
+			}
+		}
+	}
+	out
+}
+
+func readsText(r Row) string {
+	let mut out = ""
+	for x in r.Reads {
+		out = out + x.Via + "." + x.Name + "@" + x.Seen + ";"
+	}
+	out
+}
+
+// Named is the set the rule names, from two checks from scratch: a row
+// that is new, whose fp changed, or one of whose reads saw another entry.
+func Named(prev Snap, now Snap) []bool {
+	let mut out = []bool{}
+	for row in now.Rows {
+		let named = match cachedRow(prev.Rows, row.Key) {
+		case Some{Value: old}:
+			old.Fp != row.Fp || readsText(old) != readsText(row)
+		case None:
+			true
+		}
+		out = out.Append(named)
+	}
+	out
+}
+
+// IncrementalAgreesWithScratch: over a seeded sequence of edits of a
+// program of three packages, the incremental check after each edit equals
+// the check from scratch, row for row, and Plan checks again exactly the
+// rows the rule names. The edits are models/checkinc's: a comment, a body,
+// a signature, a new export, a new file, a generic body, an import
+// added or removed, and edits in b and c. a.Double and a.helper read each
+// other; b reads a, including the names a only declares after an edit;
+// c reads b. Each edit flips one flag, so every A to B to A sequence is
+// reachable. The law fails if no row was ever taken from the cache, so
+// that it cannot hold vacuously. (Invalidation of c through b is the
+// model's CutoffPasses: here b's interface does not change.)
+law IncrementalAgreesWithScratch(edits []int) {
+	let mut flags = []bool{}
+	for _ in 0..incFlags {
+		flags = flags.Append(false)
+	}
+	let mut prev = scratchOf(flags)
+	let mut cache = prev.Rows
+	let mut ok = true
+	let mut reused = 0
+	for k, e in edits {
+		if k >= 8 || !ok {
+			break
+		}
+		let i = ((e % incFlags) + incFlags) % incFlags
+		flags[i] = !flags[i]
+		let now = scratchOf(flags)
+		let again = Plan(cache, now)
+		let rows = Apply(cache, now, again)
+		let named = Named(prev, now)
+		ok = len(rows) == len(now.Rows)
+		for j, row in now.Rows {
+			if ok {
+				ok = rows[j].Result == row.Result && readsText(rows[j]) == readsText(row) && again[j] == named[j]
+			}
+			if !again[j] {
+				reused = reused + 1
+			}
+		}
+		cache = rows
+		prev = now
+	}
+	ok && (len(edits) == 0 || reused > 0)
+}
+
+let incFlags = 10
+
+// incProgram is the law's program: inc/a, inc/b (imports inc/a while
+// flags[6] is false) and inc/c (imports inc/b), written from the flags.
+func incProgram(flags []bool) []task.Package {
+	let mut a = ""
+	if flags[0] {
+		a = a + "// Package a doubles.\n"
+	}
+	a = a + (if flags[1] { "func Double(n int) int {\n\thelper(n) * 2\n}\n" } else { "func Double(n int) int {\n\thelper(n) + n\n}\n" })
+	a = a + (if flags[2] { "\nfunc helper(m int) int {\n\tif m > 100 { Double(m - 100) } else { m }\n}\n" } else { "\nfunc helper(n int) int {\n\tif n > 100 { Double(n - 100) } else { n }\n}\n" })
+	a = a + (if flags[5] { "\nfunc Map[T](xs []T) []T {\n\tlet ys = xs\n\tys\n}\n" } else { "\nfunc Map[T](xs []T) []T {\n\txs\n}\n" })
+	a = a + "\ntype Box { V int }\n"
+	a = a + (if flags[9] { "\nfunc Open(box Box) int {\n\tbox.V\n}\n" } else { "\nfunc Open(b Box) int {\n\tb.V\n}\n" })
+	if flags[3] {
+		a = a + "\nfunc Triple(n int) int {\n\tn * 3\n}\n"
+	}
+	let mut aFiles = []bind.File{incFile("a.ergo", a)}
+	if flags[4] {
+		aFiles = aFiles.Append(incFile("extra.ergo", "func Extra() int {\n\t1\n}\n"))
+	}
+	let mut b = if flags[6] { "" } else { "import inc/a\n\n" }
+	b = b + (if flags[7] { "func Quad(n int) int {\n\ta.Double(n) + a.Double(n)\n}\n" } else { "func Quad(n int) int {\n\ta.Double(a.Double(n))\n}\n" })
+	b = b + "\nfunc Unbox(n int) int {\n\ta.Open(a.Box{V: n})\n}\n"
+	b = b + "\nfunc UseTriple(n int) int {\n\ta.Triple(n)\n}\n"
+	b = b + "\nfunc UseExtra() int {\n\ta.Extra()\n}\n"
+	b = b + "\nfunc UseMap(xs []int) []int {\n\ta.Map(xs)\n}\n"
+	let c = if flags[8] { "import inc/b\n\nfunc Top(n int) int {\n\tb.Quad(n) + 1\n}\n" } else { "import inc/b\n\nfunc Top(n int) int {\n\tb.Quad(n)\n}\n" }
+	[]task.Package{
+		task.Package{Path: "inc/a", Files: aFiles},
+		task.Package{Path: "inc/b", Files: []bind.File{incFile("b.ergo", b)}},
+		task.Package{Path: "inc/c", Files: []bind.File{incFile("c.ergo", c)}},
+	}
+}
+
+func incFile(name string, src string) bind.File { bind.File{Name: name, Parsed: syntax.Parse(src)} }
+
+func scratchOf(flags []bool) Snap {
+	let pkgs = incProgram(flags)
+	Scratch(pkgs, task.Check(pkgs, 1))
+}
