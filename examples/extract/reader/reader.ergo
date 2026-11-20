@@ -1,0 +1,102 @@
+// Package reader asks a model for the receipt in a document: one llm.Ask
+// for a receipt.Receipt of the generated schema. The reply is read by
+// std json's loose reader, so a fenced, commented or cut reply still reads
+// and each repair is reported; a reply that is no receipt is an Unfit
+// with the reply, never a receipt of defaults.
+
+import extract/receipt
+import extract/receipt/receiptschema
+import json
+import jsonschema
+import llm
+import llm/memory
+
+// Outcome is what a read gives: the receipt found and the repairs its reply
+// needed, a reply that is no receipt, or the model's failure.
+type Outcome = Found{Receipt receipt.Receipt, Fixes []json.Fix} | Unfit{NoFit llm.NoFit} | Failed{Failure llm.Failure}
+
+// instructions is the system text of every ask; Format adds the schema.
+let instructions = "You read receipts. Amounts are in cents. Paid is a card with its last four digits, or cash."
+
+// Ask is the request for the receipt in document.
+func Ask(document string) llm.Request {
+	llm.Request{System: instructions, Messages: []llm.Message{llm.User{Text: document}}, Tools: []llm.ToolSpec{}, Choice: llm.Auto, Format: llm.Prose, MaxTokens: 1024}
+}
+
+let codec = json.Codec[receipt.Receipt]{MaxBytes: 1 << 16, MaxDepth: 16}
+
+// Read asks the bound model for the receipt in document.
+func Read(document string) Outcome needs llm.Model {
+	let got = llm.Ask(codec, jsonschema.Encode(receiptschema.Receipt()), Ask(document)) catch {
+	case llm.NoFit as n:
+		return Unfit{NoFit: n}
+	case f:
+		let failure llm.Failure = f
+		return Failed{Failure: failure}
+	}
+	Found{Receipt: got.Value, Fixes: got.Fixes}
+}
+
+// ReplyReadsBack: the codec's JSON of a receipt, as a model says it bare
+// or in a fence after a sentence, reads back as the receipt, with no
+// repair or with the fence's; the same JSON cut at the reply's length is
+// Unfit, never a receipt.
+law ReplyReadsBack(r receipt.Receipt, fence bool) {
+	let text = json.Encode(codec, r)
+	let said = if fence { "Here it is:\n```json\n" + text + "\n```" } else { text }
+	let whole = reading(said, llm.Ended)
+	let read = match whole {
+	case Found as g:
+		g.Receipt == r && fence == (len(g.Fixes) > 0) && onlyFences(g.Fixes)
+	case Unfit, Failed:
+		false
+	}
+	let cut = match reading(said, llm.Length) {
+	case Unfit as u:
+		u.NoFit.Reply == said
+	case Found, Failed:
+		false
+	}
+	read && cut
+}
+
+// onlyFences is whether every fix cuts the value from its prose or fence.
+func onlyFences(fs []json.Fix) bool {
+	for f in fs {
+		match f {
+		case json.Surrounded, json.Fenced:
+		case _:
+			return false
+		}
+	}
+	true
+}
+
+// reading is Read of a document under a model that says text and stops
+// by stop.
+func reading(text string, stop llm.Stop) Outcome {
+	let m = memory.NewSequence([]memory.Reply{memory.Says{Deltas: []llm.Delta{llm.Text{Text: text}}, Stop: stop, Usage: llm.Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0}}})
+	with context { llm.Model: m } { Read("a receipt") }
+}
+
+// FixName is a repair as the program prints it.
+func FixName(f json.Fix) string {
+	match f {
+	case json.Surrounded:
+		"found in prose"
+	case json.Fenced:
+		"cut from a fence"
+	case json.TrailingComma:
+		"trailing comma"
+	case json.UnquotedKey as k:
+		"bare key \(k.Key)"
+	case json.SingleQuoted:
+		"single quotes"
+	case json.Comment:
+		"comment"
+	case json.Closed as c:
+		"closed \(c.Depth) open at the end"
+	case json.Chose as c:
+		"value \(c.Index + 1) of \(c.Of)"
+	}
+}
