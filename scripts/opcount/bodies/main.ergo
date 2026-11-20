@@ -615,6 +615,14 @@ func run(kind string, n int) string fails os.Exit {
 		for i in 0..n {
 			acc += len(config.EnvKey("APP", envs[i & 7]))
 		}
+	case "strings.TrimFunc":
+		for i in 0..n {
+			acc += len(strings.TrimFunc(lines[i & 3], utf8.IsSpace))
+		}
+	case "strings.FieldsFunc":
+		for i in 0..n {
+			acc += len(strings.FieldsFunc(lines[i & 3], utf8.IsSpace))
+		}
 	case _:
 		return os.Exit{Code: 2, Message: "bodies: no kind \(strconv.Quote(kind))"}
 	}
