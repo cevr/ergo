@@ -45,29 +45,6 @@ func httpFailed(kind int, reason string) HTTPSendFailed {
 	return HTTPSendFailed{Kind: kind, Reason: reason}
 }
 
-// HTTPCheckOrigin accepts scheme://authority with the scheme http or
-// https and nothing after the authority (a lone "/" is allowed). It is
-// pure: http.NewClient holds the authority to choose the host.
-//
-//ergo:wait none
-func HTTPCheckOrigin(origin string, limits HTTPLimits) error {
-	if !limits.valid() {
-		return HTTPInvalidLimits(limits)
-	}
-	u, err := url.Parse(origin)
-	switch {
-	case err != nil:
-		return HTTPInvalidClient{origin, err.Error()}
-	case u.Scheme != "http" && u.Scheme != "https":
-		return HTTPInvalidClient{origin, "the scheme is not http or https"}
-	case u.Host == "" || u.User != nil:
-		return HTTPInvalidClient{origin, "the authority is not a host and port"}
-	case u.Path != "" && u.Path != "/", u.RawQuery != "", u.Fragment != "", u.ForceQuery:
-		return HTTPInvalidClient{origin, "an origin has no path, query or fragment"}
-	}
-	return nil
-}
-
 // httpTransports holds one Go transport per response header budget, so
 // clients with one budget share their idle connections.
 var httpTransports sync.Map // int -> *http.Transport
@@ -148,7 +125,7 @@ func httpRequestURL(t *rt.Task, origin, method, path, rawPath string, query, hea
 	}
 	// Go sends rawPath when it is an encoding of path (url.URL.EscapedPath),
 	// and path escaped by its own rule otherwise.
-	u.Path, u.RawPath, u.RawQuery = path, rawPath, HTTPEncodeQuery(query)
+	u.Path, u.RawPath, u.RawQuery = path, rawPath, httpEncodeQuery(query)
 	return u, nil
 }
 

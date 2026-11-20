@@ -102,6 +102,13 @@ func registerNativesjson(t nativeTables) {
 	// The evaluator checks the text whole as open does, so a text that is
 	// not JSON fails before the decode, which is the outcome settleText gives,
 	// and settleText has nothing left to find.
+	natives["json.isNumber"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		// One number with nothing around it: the parser's number, the whole text.
+		text := args[0].(string)
+		n, _, why := jsonParse(text, 0, 0)
+		number := why == "" && n.kind == 2 && strings.TrimSpace(text) == text
+		return number, in.charge(fr, at, 1+argWork(args))
+	}
 	natives["json.openChecked"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return natives["json.open"](in, fr, at, fn, args)
 	}
@@ -656,6 +663,19 @@ func (c *jsonCursor) opCall(in *interp, fr *frame, at syntax.Node, name string, 
 		if n != nil {
 			out = n.text
 		}
+	case "StringBytes":
+		// into with the next string's bytes added, as String reads them
+		// (GX12).
+		n := c.read(3)
+		c.wrong = n == nil
+		s := ""
+		if n != nil {
+			s = n.text
+		}
+		if ab := in.allocate(fr, at, int64(len(s))); ab != nil {
+			return nil, ab
+		}
+		return appendString(nil, args[0], s), nil
 	case "BeginList", "BeginObject":
 		kind := 4
 		if name == "BeginObject" {

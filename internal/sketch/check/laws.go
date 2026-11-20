@@ -296,7 +296,6 @@ func (c *checker) lawTypeParams(list *syntax.FieldList) []*TypeParam {
 	for _, field := range list.List {
 		cons := c.constraintExpr(field)
 		for _, name := range field.Names {
-			c.preludeName(name)
 			tp := &TypeParam{Name: name.Name, Pos: name.Pos(), Lent: field.Lent > 0, id: newID()}
 			c.def(name, tp)
 			if cons != nil {
@@ -907,9 +906,9 @@ func (c *checker) checkLaw(law *Law) {
 					c.errorf(id, CodeType, "%s is already a parameter of %s", id.Name, name)
 					continue
 				}
-				// D-D3, else D-D2 against the operations; the parameter
-				// still binds.
-				if !c.preludeName(id) {
+				// D-D2 against the operations, unless the binder already
+				// has its diagnostic; the parameter still binds.
+				if !c.refusedBinder(id) {
 					c.shadowed(id, frame)
 				}
 				c.def(id, v)

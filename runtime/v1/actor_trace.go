@@ -108,14 +108,82 @@ func RegisteredGraph[S, E any]() *MachineGraph {
 }
 
 // VariantOf is the variant name of a value of the Go type T, as a runner
-// names one it holds: the type's name. The reference lowering names a
-// graph's variants with it at start-up; the default lowering writes the
-// same names as constants. A generic flat union's ErgoVariant reads it
-// lazily, on the trace path (binsize BS8): the variant's type arguments
-// are the instance's, so no constant can spell them.
+// names one it holds: the type's name, under its Ergo names
+// (ErgoTypeName). The reference lowering names a graph's variants with it
+// at start-up; the default lowering writes the same names as constants. A
+// generic flat union's ErgoVariant reads it lazily, on the trace path
+// (binsize BS8): the variant's type arguments are the instance's, so no
+// constant can spell them.
 func VariantOf[T any]() string {
 	var p *T
-	return rt.TypeName(strings.TrimPrefix(rt.TypeString(p), "*"))
+	return ErgoTypeName(rt.TypeName(strings.TrimPrefix(rt.TypeString(p), "*")), typePkg, typeNames)
+}
+
+// typeNames maps the Go name of each type of the program that the lowering
+// suffixed to keep a Go name unique (Idle_1 beside the root's Idle) to its
+// Ergo name, and typePkg is the Go package that declares them: the table
+// a program that starts a machine actor registers (RegisterTypeNames), so
+// a traced runner never names a variant by a suffixed Go name
+// (TRACE-VARIANT-SUFFIX). Written once, by the program's init.
+var (
+	typeNames map[string]string
+	typePkg   string
+)
+
+// RegisterTypeNames registers the program's suffixed type names: pairs
+// holds each Go name and then its Ergo name; pkg is the import path of
+// the Go package that declares them, as Go's type strings qualify a name
+// (main for a program).
+func RegisterTypeNames(pkg string, pairs ...string) {
+	m := make(map[string]string, len(pairs)/2)
+	for i := 0; i+1 < len(pairs); i += 2 {
+		m[pairs[i]] = pairs[i+1]
+	}
+	typePkg, typeNames = pkg, m
+}
+
+// ErgoTypeName is s, a type's name as reflect's Type.Name spells it
+// (Box_1[main.Idle_1]), with each name names maps, the head and each type
+// argument the package of import path pkg declares, spelled as its Ergo
+// name (Box[main.Idle]). The
+// lowering writes a graph's names through it with the table it registers,
+// so a name it writes and one the runtime reads agree.
+func ErgoTypeName(s, pkg string, names map[string]string) string {
+	if len(names) == 0 {
+		return s
+	}
+	var b strings.Builder
+	for i := 0; i < len(s); {
+		j := i
+		for j < len(s) && identByte(s[j]) {
+			j++
+		}
+		if j == i {
+			b.WriteByte(s[i])
+			i++
+			continue
+		}
+		tok := s[i:j]
+		q := i - 1 - len(pkg) // where a qualifier pkg. would start
+		qualified := q >= 0 && s[i-1] == '.' && s[q:i-1] == pkg && (q == 0 || !pathByte(s[q-1]))
+		if n, ok := names[tok]; ok && (i == 0 || qualified) {
+			tok = n
+		}
+		b.WriteString(tok)
+		i = j
+	}
+	return b.String()
+}
+
+// pathByte reports whether c may be a byte of an import path.
+func pathByte(c byte) bool {
+	return identByte(c) || c == '/' || c == '.' || c == '-'
+}
+
+// identByte reports whether c may be a byte of a Go identifier: a letter,
+// a digit, an underscore, or a byte of a non-ASCII letter.
+func identByte(c byte) bool {
+	return c == '_' || c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= 0x80
 }
 
 // typeID is the identity of the Go type T without reflect (binsize BS2):
@@ -138,7 +206,7 @@ func variant(g *MachineGraph, v any) string {
 	if v == nil {
 		return ""
 	}
-	return rt.TypeName(rt.TypeString(v))
+	return ErgoTypeName(rt.TypeName(rt.TypeString(v)), typePkg, typeNames)
 }
 
 // arm is the site of g's first arm that takes the pair (state, signal),

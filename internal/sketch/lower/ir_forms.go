@@ -141,6 +141,33 @@ func unionTag(u check.Type, v check.Type) int {
 	return -1
 }
 
+// copyFor is the match facts m of a statement whose cases are from, for
+// a copy of the statement whose cases are to, its locals renamed by local
+// (-1: the copy no longer holds the subject in a local). The one IR tree
+// copy (ir_treecopy.go: the inliner's clone, the spawn's capture copy)
+// copies a form's facts with it by this rule: an arm's bind, the first statement
+// of its case's body, is the copy's first statement there, so the facts
+// point into the copy, not the original (MATCH-BIND-ICE: a copy that kept
+// the original's facts failed verifyMatch). A bind out of its place is
+// kept, so verifyMatch still reports it.
+func (m *irMatch) copyFor(from, to []*irCase, local func(int) int) *irMatch {
+	if m == nil {
+		return nil
+	}
+	n := *m
+	n.Arms = make([]irArm, len(m.Arms))
+	for i, a := range m.Arms {
+		n.Arms[i] = irArm{Tags: append([]int(nil), a.Tags...), Bind: a.Bind}
+		if a.Bind != nil && i < len(from) && i < len(to) && len(from[i].Body) > 0 && from[i].Body[0] == a.Bind && len(to[i].Body) > 0 {
+			n.Arms[i].Bind = to[i].Body[0]
+		}
+	}
+	if n.Subj >= 0 {
+		n.Subj = local(n.Subj)
+	}
+	return &n
+}
+
 // verifyMatch reports what is wrong with a "match" form, "" when nothing:
 // its erased kind fits its layout and each case names as many variants as
 // it has types (interface) or values (flat, scalar).

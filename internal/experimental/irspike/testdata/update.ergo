@@ -1,0 +1,30 @@
+// PORT-UPDATE: a record update whose base is computed, T{..fresh(n), F:
+// v}, computes the base once, before the field values, as the emitter's
+// u := b does (mutant pu-computed-base-refused keeps the source body,
+// which the fns list catches). The base and the field value both print,
+// so their order is in the output; so are the kept fields.
+
+type Shelf { Name string, Count int, Tags []string }
+
+type Store { Main Shelf }
+
+func fresh(name string) Shelf needs Console {
+	Console.Println("fresh \(name)")
+	Shelf{Name: name, Count: 0, Tags: []string{name}}
+}
+
+func count(n int) int needs Console {
+	Console.Println("count \(n)")
+	n
+}
+
+func bump(name string) Shelf needs Console { Shelf{..fresh(name), Count: count(1)} }
+
+func moved(s Store) Shelf { Shelf{..s.Main, Count: s.Main.Count + 1} }
+
+func main() needs Console {
+	let a = bump("a")
+	Console.Println("\(a.Name) \(a.Count) \(len(a.Tags))")
+	let m = moved(Store{Main: a})
+	Console.Println("\(m.Name) \(m.Count) \(a.Count)")
+}

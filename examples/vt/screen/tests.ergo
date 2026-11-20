@@ -1,0 +1,26 @@
+import dense
+import vt/vt
+
+// The screen's work guard: Print and clearRow update the holder counts of
+// the styles once per run of cells that held one style, not once per
+// cell, so a regression back to per-cell updates shows as a count, not a
+// time. ScreenMatchesPlain holds that the counts stay right.
+
+// line is a full row of the 80-column screen below.
+let line = "0123456789012345678901234567890123456789012345678901234567890123456789012345678x"
+
+test StyleRunsRecountOnce {
+	let mut s = New(vt.Config{Rows: 2, Cols: 80, Scrollback: 0})
+	let red = vt.Style{Fg: vt.Color(2), Bg: vt.Color(0), Flags: 0}
+	let bold = vt.Style{Fg: vt.Color(0), Bg: vt.Color(0), Flags: 1}
+	s.SetPen(red)
+	s.Print(line)
+	s.MoveTo(1, 1)
+	s.SetPen(bold)
+	s.Print(line.Slice(0, 40))
+	s.EraseDisplay(2)
+	// One run of default cells taking red, one of red taking bold, and the
+	// cleared row's two runs: bold, then red.
+	assert s.Recounts() == 4
+	assert dense.Live(s.styles) == 1
+}

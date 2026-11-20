@@ -64,7 +64,7 @@ func TestFuncLawEvidenceKeysReachedBodies(t *testing.T) {
 		if l.FuncRewrite == nil {
 			t.Fatalf("law %s is not in the rewrite's scope", name)
 		}
-		digest, with := FuncLawDigest(l, keysAt("go1.27.4"))
+		digest, with, _ := FuncLawDigest(l, keysAt("go1.27.4"))
 		e := LedgerEntry{Law: l.Pkg.Path + "." + name, Verdict: "validated", By: "native", With: with, Digest: digest}
 		entries[e.Key()] = e
 	}
