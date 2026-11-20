@@ -72,6 +72,10 @@ func Float64(p PCG) float64 { p.src.Float64() }
 
 extern go ergo.local/prototype/runtime/v1/rand.NewStream func newStream(seed uint64) Stream
 
+// seededStream is the context Stream's laws run under (types.md, Laws
+// 10), the stream Seeded(1) draws from.
+let seededStream = context { Stream: newStream(1) }
+
 // Host is the host's Random provider: Go's global math/rand/v2 functions,
 // seeded by the runtime (ChaCha8 per thread), with no stream to replay.
 // Its field gives this package the construction authority, so only

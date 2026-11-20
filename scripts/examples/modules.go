@@ -2,10 +2,14 @@ package main
 
 import (
 	"fmt"
+	"maps"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"ergo.local/prototype/internal/sketch/check"
 )
 
 // A module of modules/ (MK0) is an Ergo library of this repository: its
@@ -87,7 +91,7 @@ func loadModule(dir, name string) (*program, []string) {
 			// only, never source. The original itself is not vendored when its
 			// text has no licence (modules/fluid).
 			problems = append(problems, originNotes(filepath.Join(dir, file))...)
-		case file == "ergo.mod" || file == "go.mod" || file == "go.sum" || file == "README.md" || file == "NOTICE" || file == expectedSkipsFile || file == fullTierFile || strings.HasSuffix(file, ".ergo"):
+		case moduleRootFile(file) || file == "NOTICE" || file == fullTierFile:
 			if !entry.Type().IsRegular() {
 				problem("%s is not a regular file", file)
 				continue
@@ -100,7 +104,7 @@ func loadModule(dir, name string) (*program, []string) {
 		case entry.IsDir():
 			problems = append(problems, packageSources(p, filepath.Join(dir, file), file)...)
 		default:
-			problem("unexpected %s; a module holds ergo.mod, go.mod, README.md and package folders, and may hold go.sum, NOTICE, expected-skips, full-tier, origin/ and testdata/", file)
+			problem("unexpected %s; a module holds ergo.mod, go.mod, README.md and package folders, and may hold ergo.laws, go.sum, NOTICE, expected-skips, full-tier, origin/ and testdata/", file)
 		}
 	}
 	for _, required := range []string{"ergo.mod", "go.mod", "README.md"} {
@@ -125,6 +129,11 @@ func loadModule(dir, name string) (*program, []string) {
 		problem("no .ergo file")
 	}
 	slices.Sort(p.sources)
+	goModule := "" // with no go.mod no Go package is the module's own
+	if present["go.mod"] {
+		goModule, _ = moduleName(filepath.Join(dir, "go.mod"))
+	}
+	problems = append(problems, moduleGoProblems(p, goModule)...)
 	problems = append(problems, moduleLawProblems(p)...)
 	if present[fullTierFile] {
 		heavy, err := fullTierFolders(filepath.Join(dir, fullTierFile))
@@ -192,6 +201,30 @@ func (r *runner) runModule(p *program) {
 		return
 	}
 	r.testProgram(p)
+	r.goLeg(p)
+}
+
+// goLeg runs `go test` over the module's own Go packages (p.goPackages,
+// moduleGoProblems): a kernel's tests, such as a guard against reading
+// past the end, run in the gate as the module's laws do. The module
+// cache is read as the mod leg reads it, with no proxy.
+func (r *runner) goLeg(p *program) {
+	if len(p.goPackages) == 0 {
+		return
+	}
+	args := []string{"go", "test", "-count=1"}
+	for _, folder := range p.goPackages {
+		rel, _ := filepath.Rel(p.dir, folder)
+		args = append(args, "./"+filepath.ToSlash(rel))
+	}
+	o, err := r.live.Execute(args, p.dir, modEnv(), "", r.cfg.timeout, 0)
+	if err == nil && o.Passed() {
+		fmt.Fprintf(r.out, "ok %s: go test\n", p.name)
+		return
+	}
+	fmt.Fprintf(r.out, "FAIL %s: go test (exit %s%s)\n", p.name, o.StatusText(), o.Why(r.cfg.timeout))
+	r.printOutput(o, err)
+	r.fail(p.name + ": go test")
 }
 
 // selectModules is the modules a run takes: those named, or every one.
@@ -231,6 +264,55 @@ func originNotes(dir string) []string {
 	}
 	if !readme {
 		problems = append(problems, "origin/README.md: missing; it names the original and its pins")
+	}
+	return problems
+}
+
+// moduleGoProblems admits a module's own Go (docs/spec/interop.md, Trusted
+// Go 3): a folder of .go files is a package folder only when it is a Go
+// package of the module (goModule, go.mod's module path, plus the
+// folder's path) that an extern go of one of the module's packages binds.
+// The claim is read from the checked package, as the checker resolved it
+// (check.ModuleBody: it read the body from that package), never from the
+// text. Go beside .ergo files, and a folder no extern binds, stay layout
+// errors; the admitted folders are p.goPackages, whose tests the go leg
+// runs.
+func moduleGoProblems(p *program, goModule string) []string {
+	if len(p.goFiles) == 0 {
+		return nil
+	}
+	claimed := map[string]bool{}
+	var problems []string
+	folders := map[string]bool{}
+	for _, source := range p.sources {
+		folders[filepath.Dir(source)] = true
+	}
+	for _, folder := range slices.Sorted(maps.Keys(folders)) {
+		a, err := p.checkedDir(folder)
+		if err != nil {
+			continue
+		}
+		for _, pkg := range a.Checked() {
+			for _, f := range pkg.Funcs {
+				if _, ok := check.ModuleBody(f); ok {
+					path, _ := f.Decl.Extern.Split()
+					claimed[path] = true
+				}
+			}
+		}
+	}
+	for _, folder := range slices.Sorted(maps.Keys(p.goFiles)) {
+		rel, _ := filepath.Rel(p.dir, folder)
+		rel = filepath.ToSlash(rel)
+		importPath := path.Join(goModule, rel)
+		switch {
+		case folders[folder]:
+			problems = append(problems, fmt.Sprintf("%s: Go files beside .ergo files (%s); a module's own Go package is a folder of .go files that an extern go of the module binds (docs/spec/interop.md, Trusted Go 3)", rel, strings.Join(p.goFiles[folder], ", ")))
+		case goModule == "" || !claimed[importPath]:
+			problems = append(problems, fmt.Sprintf("%s: the Go package %s is bound by no extern go of the module (%s); a module holds only the Go its packages bind (docs/spec/interop.md, Trusted Go 3)", rel, importPath, strings.Join(p.goFiles[folder], ", ")))
+		default:
+			p.goPackages = append(p.goPackages, folder)
+		}
 	}
 	return problems
 }

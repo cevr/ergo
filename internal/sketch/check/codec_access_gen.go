@@ -1973,10 +1973,12 @@ type CodecFields_patResolver struct {
 	F_letFor   *bool
 	F_local    *bool
 	F_own      *map[*syntax.Ident]bool
+	F_nested   *int
+	F_more     *[]solverRow
 }
 
 func CodecFieldsOf_patResolver(v *patResolver) CodecFields_patResolver {
-	return CodecFields_patResolver{F_c: &v.c, F_sp: &v.sp, F_info: &v.info, F_resolve: &v.resolve, F_binds: &v.binds, F_bound: &v.bound, F_bad: &v.bad, F_bindings: &v.bindings, F_letFor: &v.letFor, F_local: &v.local, F_own: &v.own}
+	return CodecFields_patResolver{F_c: &v.c, F_sp: &v.sp, F_info: &v.info, F_resolve: &v.resolve, F_binds: &v.binds, F_bound: &v.bound, F_bad: &v.bad, F_bindings: &v.bindings, F_letFor: &v.letFor, F_local: &v.local, F_own: &v.own, F_nested: &v.nested, F_more: &v.more}
 }
 
 type CodecFields_patSpace struct {
@@ -2255,13 +2257,14 @@ func CodecFieldsOf_resWalk(v *resWalk) CodecFields_resWalk {
 
 type CodecFields_resolved struct {
 	F_pat  *int
+	F_more *[]int
 	F_has  *bool
 	F_t    *Type
 	F_info **Pattern
 }
 
 func CodecFieldsOf_resolved(v *resolved) CodecFields_resolved {
-	return CodecFields_resolved{F_pat: &v.pat, F_has: &v.has, F_t: &v.t, F_info: &v.info}
+	return CodecFields_resolved{F_pat: &v.pat, F_more: &v.more, F_has: &v.has, F_t: &v.t, F_info: &v.info}
 }
 
 type CodecFields_resourceLoan struct {

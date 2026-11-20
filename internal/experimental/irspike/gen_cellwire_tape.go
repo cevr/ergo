@@ -6,10 +6,10 @@ package irspike
 // that does not prints, and a state the walk carries wrong shows.
 const cellTape = `type Tape {
 	..Writer,
-	Written() string,
-	raw(text string),
-	mark(k string),
-	echo(),
+	mut Written() string,
+	mut raw(text string),
+	mut mark(k string),
+	mut echo(),
 
 	law RawJoins(a string, b string) { raw(a); raw(b) } == { raw(a + b) },
 	law MarkLast(a string, b string) { mark(a); mark(b) } == { mark(b) },
@@ -19,10 +19,10 @@ const cellTape = `type Tape {
 type tape { last string, out string } implements Tape
 
 func NewTape() Tape { tape{last: "", out: ""} }
-func raw(t *tape, s string) { t.out = t.out + s }
-func mark(t *tape, k string) { t.last = k }
-func echo(t *tape) { t.out = t.out + t.last }
-func Written(t *tape) string { t.out }
+func raw(t mut tape, s string) { t.out = t.out + s }
+func mark(t mut tape, k string) { t.last = k }
+func echo(t mut tape) { t.out = t.out + t.last }
+func Written(t mut tape) string { t.out }
 func empty(s string) bool { s == "" }
 `
 

@@ -14,7 +14,9 @@ import (
 // of llm/recorded (wf10 L3) over its exported API, the Fold, SafetyOf and Valid laws over generated
 // values, and memory's CutIsTruncated. The helpers are the package's own,
 // restated over its exported API.
-const stdLLMLawsProbe = `import llm
+const stdLLMLawsProbe = `import json
+import jsonschema
+import llm
 import llm/memory
 import llm/recorded
 import schedule
@@ -543,6 +545,115 @@ test RecordedDigestIsTheRequest(a llm.Request, c llm.Request, part int) { assert
 test RecordedUnknownRequestDiverges(replies []memory.Reply, drawn []int) { assert lawUnknownRequestDiverges(replies, drawn) }
 
 test RecordedRecordingHoldsNoKey(key string, replies []memory.Reply) { assert lawRecordingHoldsNoKey(key, replies) }
+
+type askProbe { Name string, Count int, Tags []string }
+
+func askProbeSchema() jsonschema.Encoded {
+	let s = jsonschema.Parse("{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"},\"count\":{\"type\":\"integer\"},\"tags\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}}},\"required\":[\"name\",\"count\",\"tags\"],\"additionalProperties\":false}") catch {
+	case _:
+		return jsonschema.NewEncoded([]string{})
+	}
+	jsonschema.Encode(s)
+}
+
+func askProbeCodec() json.Codec[askProbe] { json.Codec[askProbe]{MaxBytes: 0, MaxDepth: 0} }
+
+func lawFormatAgreesWithCodec(v askProbe) bool {
+	let text = json.Encode(askProbeCodec(), v)
+	let doc = json.Decode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, text) catch {
+	case _:
+		return false
+	}
+	let back = llm.Parse(askProbeCodec(), text) catch {
+	case _:
+		return false
+	}
+	jsonschema.Conforms(jsonschema.SchemaOf(askProbeSchema()), doc) && back.Value == v && len(back.Fixes) == 0
+}
+
+func lawFormatKeepsTheRequest(system string, max int) bool {
+	let r = llm.Request{System: system, Messages: []llm.Message{llm.User{Text: "hi"}}, Tools: []llm.ToolSpec{}, Choice: llm.Auto, Format: llm.Prose, MaxTokens: max}
+	let f = llm.Format(r, askProbeSchema())
+	let text = jsonschema.TextOf(askProbeSchema())
+	let form = match f.Format {
+	case llm.JSON as j:
+		j.Schema == text
+	case llm.Prose:
+		false
+	}
+	form && strings.HasSuffix(f.System, text) && strings.HasPrefix(f.System, system) && f.Messages == r.Messages && f.MaxTokens == max
+}
+
+func lawParseDecodesOrFails(reply string) bool {
+	let want = json.DecodeLoose(askProbeCodec(), reply) catch {
+	case _:
+		let _ = llm.Parse(askProbeCodec(), reply) catch {
+		case llm.NoFit as n:
+			return n.Reply == reply
+		}
+		return false
+	}
+	let got = llm.Parse(askProbeCodec(), reply) catch {
+	case _:
+		return false
+	}
+	got == want
+}
+
+type askAnswer = askRead{Read json.Read[askProbe]} | askNoFit{NoFit llm.NoFit} | askFailed{}
+
+func askThrough(m memory.Sequence) askAnswer {
+	with context { llm.Model: m } {
+		let got = llm.Ask(askProbeCodec(), askProbeSchema(), plain("q")) catch {
+		case llm.NoFit as n:
+			return askNoFit{NoFit: n}
+		case _:
+			return askFailed
+		}
+		askRead{Read: got}
+	}
+}
+
+func parseOf(text string) askAnswer {
+	let got = llm.Parse(askProbeCodec(), text) catch {
+	case llm.NoFit as n:
+		return askNoFit{NoFit: n}
+	}
+	askRead{Read: got}
+}
+
+func lawAskIsParseOfTheReply(text string) bool {
+	let m = memory.NewSequence([]memory.Reply{ok(text, none())})
+	askThrough(m) == parseOf(text) && memory.Asks(m) == 1
+}
+
+func lawLengthStopIsNotParsed(v askProbe) bool {
+	let text = json.Encode(askProbeCodec(), v)
+	let m = memory.NewSequence([]memory.Reply{memory.Says{Deltas: []llm.Delta{llm.Text{Text: text}}, Stop: llm.Length, Usage: none()}})
+	match askThrough(m) {
+	case askNoFit as n:
+		n.NoFit.Reply == text && n.NoFit.Path == ""
+	case askRead, askFailed:
+		false
+	}
+}
+
+func lawAskFailsAsTheModel(f llm.Failure) bool {
+	let m = memory.NewSequence([]memory.Reply{memory.Fails{Failure: f}})
+	askThrough(m) == askFailed && memory.Asks(m) == 1
+}
+
+test LlmFormatAgreesWithCodec(v askProbe) { assert lawFormatAgreesWithCodec(v) }
+
+test LlmFormatKeepsTheRequest(system string, max int) { assert lawFormatKeepsTheRequest(system, max) }
+
+test LlmParseDecodesOrFails(reply string) { assert lawParseDecodesOrFails(reply) }
+
+test MemoryAskIsParseOfTheReply(text string) { assert lawAskIsParseOfTheReply(text) }
+
+test MemoryLengthStopIsNotParsed(v askProbe) { assert lawLengthStopIsNotParsed(v) }
+
+test MemoryAskFailsAsTheModel(f llm.Failure) { assert lawAskFailsAsTheModel(f) }
 `
 
 // stdLLMLawStatements is the statement of each llm law, as the ledger
@@ -564,6 +675,12 @@ var stdLLMLawStatements = map[string]string{
 	"llm/memory FallbackIsFirstSuccess":   `FallbackIsFirstSuccess(fs []llm.Failure, succeeds bool) { let mut members = []llm.Model{} let mut seqs = []Sequence{} for f in fs { let s = NewSequence([]Reply{Breaks{Deltas: []llm.Delta{}, Failure: f}}) seqs = seqs.Append(s) members = members.Append(s) } let last = NewSequence([]Reply{ok("last", none())}) if succeeds { members = members.Append(last) } let t = llm.Fallback{Members: members}.Generate(plain("q")) catch { case f: let got llm.Failure = f let want llm.Failure = if len(fs) == 0 { llm.InvalidRequest{Reason: "a fallback with no member"} } else { bare(fs[len(fs)-1]) } return !succeeds && got == want && askedOnce(seqs) } succeeds && t.Text == "last" && askedOnce(seqs) && Asks(last) == 1 }`,
 	"llm/memory UsageAdds":                `UsageAdds(us []llm.Usage, f llm.Failure) { meter(us, f, false).Summed && meter(us, f, true).Summed }`,
 	"llm/memory MeteredIsTransparent":     `MeteredIsTransparent(us []llm.Usage, f llm.Failure) { meter(us, f, false).Transparent && meter(us, f, true).Transparent }`,
+	"llm FormatAgreesWithCodec":           `FormatAgreesWithCodec(v askProbe) { let text = json.Encode(askCodec(), v) let doc = json.Decode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, text) catch { case _: return false } let back = Parse(askCodec(), text) catch { case _: return false } jsonschema.Conforms(jsonschema.SchemaOf(askProbeSchema()), doc) && back.Value == v && len(back.Fixes) == 0 }`,
+	"llm FormatKeepsTheRequest":           `FormatKeepsTheRequest(system string, max int) { let r = Request{System: system, Messages: []Message{User{Text: "hi"}}, Tools: []ToolSpec{}, Choice: Auto, Format: Prose, MaxTokens: max} let f = Format(r, askProbeSchema()) let text = jsonschema.TextOf(askProbeSchema()) let form = match f.Format { case JSON as j: j.Schema == text case Prose: false } form && strings.HasSuffix(f.System, text) && strings.HasPrefix(f.System, system) && f.Messages == r.Messages && f.MaxTokens == max }`,
+	"llm ParseDecodesOrFails":             `ParseDecodesOrFails(reply string) { let want = json.DecodeLoose(askCodec(), reply) catch { case _: let _ = Parse(askCodec(), reply) catch { case NoFit as n: return n.Reply == reply } return false } let got = Parse(askCodec(), reply) catch { case _: return false } got == want }`,
+	"llm/memory AskIsParseOfTheReply":     `AskIsParseOfTheReply(text string) { let m = NewSequence([]Reply{ok(text, none())}) askOf(m, plain("q")) == parsing(text) && Asks(m) == 1 }`,
+	"llm/memory LengthStopIsNotParsed":    `LengthStopIsNotParsed(v asked) { let text = json.Encode(askedCodec(), v) let m = NewSequence([]Reply{Says{Deltas: []llm.Delta{llm.Text{Text: text}}, Stop: llm.Length, Usage: none()}}) match askOf(m, plain("q")).NoFit { case Some[llm.NoFit] as n: n.Value.Reply == text && n.Value.Path == "" case None: false } }`,
+	"llm/memory AskFailsAsTheModel":       `AskFailsAsTheModel(f llm.Failure) { let m = NewSequence([]Reply{Fails{Failure: f}}) askOf(m, plain("q")).Other == "failure" && Asks(m) == 1 }`,
 	"llm/recorded ReplayIsTheRecording":   `ReplayIsTheRecording(replies []memory.Reply, drawn []int, recordBy []bool, replayBy []bool) { let picks = four(drawn) let rec = NewRecord(memory.NewSequence(replies)) let alone = memory.NewSequence(replies) let mut got = []seen{} for k, p in picks { let want = asked(alone, request(p), true) if asked(rec, request(p), !flag(recordBy, k)) != shown(want, !flag(recordBy, k)) { return false } got = got.Append(want) } let replay = NewReplay(Exchanges(rec)) let mut i = 0 for want in 0..3 { for k, p in picks { if (p%3+3)%3 != want { continue } let stream = !flag(replayBy, i) i = i + 1 if asked(replay, request(p), stream) != shown(got[k], stream) { return false } } } true }`,
 	"llm/recorded FileIsTheRecording":     `FileIsTheRecording(x Exchange) { let y = Exchange{Digest: "d", Deltas: []llm.Delta{}, End: Failed{Failure: llm.Overloaded}} let back = Read(Write([]Exchange{x, y})) catch { case _: return false } back == []Exchange{x, y} }`,
 	"llm/recorded DigestIsTheRequest":     `DigestIsTheRequest(a llm.Request, c llm.Request, part int) { let b = spliced(a, c, part) (Digest(a) == Digest(b)) == (a == b) }`,

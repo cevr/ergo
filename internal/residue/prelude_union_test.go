@@ -55,8 +55,12 @@ var preludeUnionDirs = []string{"internal/sketch/check", "internal/sketch/lower"
 // ADT-LANG (where the compiler itself produces the value, go.As, the
 // any-cast, a machine's After, Work and Exit and the evaluator's Some and
 // None, it reads the type from the prelude declaration it is given and
-// builds the variant through the general union path).
-var preludeUnionUnits = []string{"OPTION-SHAPE", "SHAPE-BOUNDARY", "KNOWN-VARIANT", "ADT-LANG"}
+// builds the variant through the general union path). GEN9-GENERAL
+// (MODES) is not ADT-NOPRIV's: the type parameter of Option and Some admits
+// an unmarked resource (types.md, Generics 9) by a rule read from the
+// declaration, so a user's generic union admits it too (orchestrator,
+// 2026-11-20: the named rule does not stay).
+var preludeUnionUnits = []string{"OPTION-SHAPE", "SHAPE-BOUNDARY", "KNOWN-VARIANT", "ADT-LANG", "GEN9-GENERAL"}
 
 // TestLoweringNamesNoPreludeUnion is ADT-NOPRIV's residue rule (§4 step 1,
 // acceptance AC6): no non-test Go file of preludeUnionDirs names the
@@ -284,6 +288,7 @@ func preludeDeclName(d ast.Decl) string {
 // join or count more.
 var preludeUnionBaseline = []string{
 	"check/cells.go:optionParams 2",
+	"check/decl.go:checker.resolveNamed 2",
 	"check/entry.go:checker.machineAfterShape 2",
 	"check/entry.go:checker.machineAfterEvery 1",
 	"check/entry.go:IsEvery 2",
