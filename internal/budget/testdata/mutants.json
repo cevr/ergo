@@ -74,6 +74,15 @@
       "killers": ["internal/budget:TestLentGrantTakesNothing"]
     },
     {
+      "name": "budget-gated-head-blocks",
+      "origin": "wf10 WS4a (model GatedHead; the live bug of 2026-11-20)",
+      "file": "internal/budget/decide.go",
+      "from": "\tif r.High {\n\t\tlane = -1\n\t}\n",
+      "to": "",
+      "rule": "A gated lane waiter is never next: a crit waiter behind it is served at once while cores are free.",
+      "killers": ["internal/budget:TestHandOnKeepsTheModelsInvariants", "internal/budget:TestCritPassesAGatedLaneHead"]
+    },
+    {
       "name": "budget-lend-wider-queues",
       "origin": "wf10 WS4a (model ChildQueues, a child wider than its grant)",
       "file": "internal/budget/store_unix.go",

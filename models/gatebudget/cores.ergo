@@ -30,8 +30,9 @@
 //
 // The invariants (laws of Cores, each `always`):
 //   - WithinBudget: the widths held never sum past B.
-//   - NextNotIdle: the next waiter never waits while it fits, unless it
-//     is of the lane class and the load is high (the gate's reason).
+//   - NextNotIdle: the next waiter never waits while it fits. While the
+//     load is high the lane class is not eligible to be next, so the gate
+//     keeps only lane waiters idle, never a crit waiter behind them.
 //   - InOrder: no runner takes while an older waiter of its own class
 //     waits, and no lane runner takes while a crit waiter waits, unless
 //     the lane class is under its share.
@@ -46,6 +47,9 @@
 //   - Backfill: a release hands free cores to any waiter that fits, and
 //     so a narrow runner passes a wide
 //     older one (InOrder).
+//   - GatedHead: a gated lane waiter can be next, and stops the hand-on,
+//     so a crit waiter behind it waits with cores free (NextNotIdle; the
+//     first build's bug, found live on 2026-11-20).
 //
 // Witnesses (laws of Cores, each `sometimes`): H holds while a narrow
 // runner waits; a narrow runner waits behind H while a core is free (the
@@ -64,6 +68,7 @@ let ByCountMutant = 1
 let GateAllMutant = 2
 let PollAfterLoadMutant = 3
 let BackfillMutant = 4
+let GatedHeadMutant = 5
 
 // Cores is a world of this model: per runner (A, N, H, C) its step (Idle,
 // Waiting, Holding), its finished runs and its ticket; Passed: a take
@@ -170,9 +175,16 @@ func oldestIn(c Cores, critClass bool) int {
 	return best
 }
 
-// nextWaiter is the waiter the hand-on serves next, -1 for none.
-func nextWaiter(c Cores) int {
-	let lane = oldestIn(c, false)
+// nextWaiter is the waiter the hand-on serves next, -1 for none. A gated
+// waiter is not next: while the load is high the lane class is skipped, so
+// a crit waiter behind a gated lane waiter is served at once. (GatedHead,
+// the first build's rule, chose a gated lane waiter and stopped there: a
+// crit waiter waited with 12 of 16 cores free, live, 2026-11-20.)
+func nextWaiter(m int, c Cores) int {
+	let mut lane = oldestIn(c, false)
+	if c.High && m != GatedHeadMutant {
+		lane = -1
+	}
 	let first = oldestIn(c, true)
 	if lane != -1 && laneUsed(c) < Share {
 		return lane
@@ -221,7 +233,7 @@ func admit(c0 Cores, r int) Cores {
 func handOn(m int, c0 Cores) Cores {
 	let mut c = c0
 	for _ in all4() {
-		let mut to = nextWaiter(c)
+		let mut to = nextWaiter(m, c)
 		if m == BackfillMutant {
 			to = -1
 			for r in all4() {
@@ -256,7 +268,7 @@ func coreNext(m int, c0 Cores, a CoreAct) Option[Cores] {
 		// Only PollAfterLoad's waiters poll: after the load fell, a waiter
 		// finds the free cores on its own.
 		let r = rn(x.R)
-		if m != PollAfterLoadMutant || c.Pc[r] != Waiting || r != nextWaiter(c) || !fits(m, c, r) || gatedFor(m, c, r) {
+		if m != PollAfterLoadMutant || c.Pc[r] != Waiting || r != nextWaiter(m, c) || !fits(m, c, r) || gatedFor(m, c, r) {
 			return None
 		}
 		c = admit(c, r)
@@ -273,6 +285,9 @@ func coreNext(m int, c0 Cores, a CoreAct) Option[Cores] {
 			return None
 		}
 		c.High = true
+		// The lane class leaves the order: a crit waiter behind a lane
+		// head may now be next, and is served at once.
+		c = handOn(m, c)
 	case Calm:
 		if !c.High {
 			return None
@@ -308,15 +323,18 @@ func byCount(c Cores, a CoreAct) Decision[Cores, string]       { coreWith(ByCoun
 func gateAll(c Cores, a CoreAct) Decision[Cores, string]       { coreWith(GateAllMutant, c, a) }
 func pollAfterLoad(c Cores, a CoreAct) Decision[Cores, string] { coreWith(PollAfterLoadMutant, c, a) }
 func backfill(c Cores, a CoreAct) Decision[Cores, string]      { coreWith(BackfillMutant, c, a) }
+func gatedHead(c Cores, a CoreAct) Decision[Cores, string]     { coreWith(GatedHeadMutant, c, a) }
 
 func withinBudget(c Cores) bool { used(c) <= B }
 
+// nextNotIdle: the design's next waiter, which is never gated, does not
+// wait while it fits.
 func nextNotIdle(c Cores) bool {
-	let r = nextWaiter(c)
+	let r = nextWaiter(CoreDesign, c)
 	if r == -1 {
 		return true
 	}
-	return !(used(c) + width(r) <= B && !(c.High && !isCrit(r)))
+	return used(c) + width(r) > B
 }
 
 func inOrder2(c Cores) bool { !c.Passed }
@@ -371,4 +389,11 @@ type Backfill machine[Cores, CoreAct] {
 	step:    backfill,
 
 	law Breaks sometimes passed2,
+}
+
+type GatedHead machine[Cores, CoreAct] {
+	initial: coreWorld(),
+	step:    gatedHead,
+
+	law Breaks sometimes nextIdle,
 }

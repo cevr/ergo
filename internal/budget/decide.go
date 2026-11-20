@@ -74,9 +74,16 @@ func oldest(ws []Entry, crit bool) int {
 // Next is the waiter the hand-on serves next, by the model's rule
 // (cores.ergo nextWaiter): the oldest lane waiter while the lane class
 // holds fewer than Share cores, else the oldest crit waiter, else the
-// oldest lane waiter. It is -1 when no one waits.
+// oldest lane waiter. A gated waiter is never next: while the load is high
+// the lane class is skipped, so a crit waiter behind a gated lane waiter
+// is served at once (NextNotIdle; the model's mutant GatedHead, this
+// package's first build, chose the gated lane waiter and stopped). It is
+// -1 when no one eligible waits.
 func (s *State) Next(r Rules) int {
 	lane, crit := oldest(s.Waiters, false), oldest(s.Waiters, true)
+	if r.High {
+		lane = -1
+	}
 	if lane != -1 && s.laneUsed() < r.Share {
 		return lane
 	}

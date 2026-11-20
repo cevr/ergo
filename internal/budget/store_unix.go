@@ -141,8 +141,11 @@ func (b *Budget) Take(ctx context.Context, req Request) (*Grant, error) {
 			}
 		}
 		mu.Unlock()
+		// With the load gate on, every waiter reads the load again: a rise
+		// or a fall changes who is next, crit included, and no entry ends
+		// to wake it.
 		var tick <-chan time.Time
-		if Gated(b.rules(), e) {
+		if b.cfg.GateLoad > 0 {
 			tick = time.After(gateEvery)
 		}
 		select {

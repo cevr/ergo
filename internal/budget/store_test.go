@@ -126,6 +126,43 @@ func waiters(t *testing.T, b *Budget) int {
 	return len(s.Waiters)
 }
 
+// TestCritPassesAGatedLaneHead: the live case of 2026-11-20. With the load
+// over the gate, a lane waiter at the head of the queue waits, and a crit
+// take behind it, with cores free, is admitted at once: its context is
+// already done, so a crit take that queued returns its error. Mutant:
+// budget-gated-head-blocks.
+func TestCritPassesAGatedLaneHead(t *testing.T) {
+	b := testBudget(t, 16, 8)
+	b.cfg.GateLoad = 44
+	b.load = func() float64 { return 54 }
+	ctx, cancel := testwait.Context(t, context.Background())
+	defer cancel()
+	holder, err := b.Take(ctx, Request{Width: 4, Crit: true, Lane: "crit-holder"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer holder.Release()
+	laneCtx, stopLane := context.WithCancel(ctx)
+	laneDone := make(chan struct{})
+	go func() {
+		defer close(laneDone)
+		if g, err := b.Take(laneCtx, Request{Width: 4, Lane: "gated-lane"}); err == nil {
+			g.Release()
+		}
+	}()
+	defer func() { stopLane(); <-laneDone }()
+	if !testwait.Until(t, func() bool { return waiters(t, b) == 1 }) {
+		t.Fatal("the lane take never queued")
+	}
+	done, stop := context.WithCancel(ctx)
+	stop()
+	g, err := b.Take(done, Request{Width: 4, Crit: true, Lane: "crit-behind"})
+	if err != nil {
+		t.Fatalf("a crit take behind a gated lane head, 12 of 16 cores free: %v", err)
+	}
+	g.Release()
+}
+
 // TestCrashFreesTheCores: a holder that dies without Release (its entry's
 // lock dropped by the kernel, here by closing its file) frees its cores,
 // and the waiter it blocked gets them. Mutant: budget-dead-entry-alive.

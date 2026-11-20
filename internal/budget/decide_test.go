@@ -17,13 +17,48 @@ import (
 // older waiter of its own class). A failing seed prints its trace.
 //
 // Mutants (testdata/mutants.json): budget-admit-by-count,
-// budget-gate-all, budget-newest-first, budget-release-hands-nothing.
+// budget-gate-all, budget-newest-first, budget-release-hands-nothing,
+// budget-gated-head-blocks.
 func TestHandOnKeepsTheModelsInvariants(t *testing.T) {
 	for seed := uint64(1); seed <= 300; seed++ {
 		if trace, why := handOnRun(seed); why != "" {
 			t.Fatalf("seed %d: %s\n%s\nreplay: go test ./internal/budget -run TestHandOnKeepsTheModelsInvariants (seed %d)", seed, why, trace, seed)
 		}
 	}
+}
+
+// eligibleNext is the reference for the next waiter, written apart from
+// State.Next (the first build's property asked Next itself, and so missed
+// its gated head): the eligible waiters are all of them, or only crit
+// while the load is high; of those, the oldest lane waiter while the lane
+// class holds less than its share, else the oldest crit, else the oldest
+// lane waiter.
+func eligibleNext(s State, r Rules) (Entry, bool) {
+	var lane, crit *Entry
+	laneUsed := 0
+	for _, h := range s.Holders {
+		if !h.Crit {
+			laneUsed += h.Width
+		}
+	}
+	for i := range s.Waiters {
+		w := &s.Waiters[i]
+		switch {
+		case w.Crit && (crit == nil || w.Ticket < crit.Ticket):
+			crit = w
+		case !w.Crit && !r.High && (lane == nil || w.Ticket < lane.Ticket):
+			lane = w
+		}
+	}
+	switch {
+	case lane != nil && laneUsed < r.Share:
+		return *lane, true
+	case crit != nil:
+		return *crit, true
+	case lane != nil:
+		return *lane, true
+	}
+	return Entry{}, false
 }
 
 func handOnRun(seed uint64) (string, string) {
@@ -56,8 +91,8 @@ func handOnRun(seed uint64) (string, string) {
 		if s.Used() > r.Cores {
 			return trace.String(), fmt.Sprintf("WithinBudget: %d cores held of %d", s.Used(), r.Cores)
 		}
-		if i := s.Next(r); i != -1 && s.Fits(r, s.Waiters[i]) && !(r.High && !s.Waiters[i].Crit) {
-			return trace.String(), fmt.Sprintf("NextNotIdle: %s waits and fits", s.Waiters[i].ID)
+		if w, ok := eligibleNext(s, r); ok && s.Used()+w.Width <= r.Cores {
+			return trace.String(), fmt.Sprintf("NextNotIdle: %s waits and fits (%d of %d held, load high %v)", w.ID, s.Used(), r.Cores, r.High)
 		}
 		for _, id := range admitted {
 			var x Entry
