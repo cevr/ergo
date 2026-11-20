@@ -622,6 +622,8 @@ The `ergo` binary carries the checked prelude and std as a snapshot (`internal/s
 - **The log.** `queue LANE PID`; `take LANE CLASS/WIDTH PID RESERVED`; `end LANE CLASS/WIDTH PID CODE PEAK`.
 - **Exit.** COMMAND's exit code (128 plus the signal for a signal); 2 for an invalid invocation; 1 when the budget cannot be read.
 
+The host's wrappers are `scripts/budget/light.sh` (a light check: width 4, nice 19) and `scripts/budget/heavy.sh` (a heavy run: its declared width, in a systemd user unit that outlives its caller, `heavy.sh wait NAME` to reattach). A host calls them from a thin script of its own that names its files: `ERGO_BUDGET` (the budget file), `ERGO_BUDGET_BIN` (the ergo), `ERGO_BUDGET_CRIT` (the workspaces whose runs are crit; no variable of a caller's makes a run crit). Each file's header lists the rest. Each run gets its own `TMPDIR` and `GOTMPDIR` under `ERGO_BUDGET_SCRATCH` (default `ergo-budget` in the caller's `TMPDIR`, else `/tmp`: the volume its scratch was on before), removed when it ends; a killed run's is removed by the next run's sweep (`scripts/budget/scratch.sh`).
+
 ## ergo dev
 
 `ergo dev [DIR] [--idle DURATION]` (`cmd/ergo/dev.go`, issue #203) is one daemon for each workspace (DIR, by default the working directory) and Ergo release. It answers a warm `ergo check` with no process start. Its lifecycle is the model `models/dev`, checked by `ergo test models/dev`. The model holds three invariants: at most one daemon per workspace and release; a request is answered by a daemon of the client's release, or in process; no request is lost at idle exit or at a crash.
