@@ -1190,7 +1190,14 @@ type LawRun struct {
 // *Type, so *Type provides the slot and Type does not. The case's Type is
 // built as any provider's is (by Ctor, or generated), and the run binds
 // its address; Conv converts from *Type.
+//
+// Native is a provider whose operations call Go (README Gap 17): its
+// build holds go.Foreign, which the test binary's law case holds and
+// nothing else under a test does (types.md, Laws 10; owner q277). The
+// native run builds it; the check-time evaluator, which runs no Go,
+// reports the binding native, never passed.
 type LawProvider struct {
+	Native bool
 	// Value lends the runner's fresh provider record to pointer operations.
 	// It grants no implicit conversion to a user operation-type value.
 	Value  bool
