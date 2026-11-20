@@ -376,7 +376,14 @@ const originMoved = "unexpected origin; a port's provenance lives in conformance
 // provenance (checkPorts) and the modules. run stops on any of them
 // before it runs a program; TestRepoLayoutIsClean holds the repository to
 // none, in the fast tier, building nothing.
+// The root is made absolute first, as parseFlags makes the runner's: the
+// package folders' sources are absolute (packageAssetSources), and a
+// module's full-tier folders are compared with them.
 func loadLayout(root string, record bool) (programs, modules []*program, problems []string) {
+	root, err := filepath.Abs(root)
+	if err != nil {
+		return nil, nil, []string{err.Error()}
+	}
 	programs, problems = loadExamples(root, record)
 	modules, moduleProblems := loadModules(root)
 	return programs, modules, append(problems, moduleProblems...)
