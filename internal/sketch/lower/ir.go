@@ -660,7 +660,10 @@ type irBuilder struct {
 	slots    int                      // the Go parameter slots, witnesses too (ir_forms_inline.go)
 	env      int                      // the environment's local, or -1 in a pure function
 	wits     map[*check.TypeParam]int // each witness parameter's local (ir_witness.go)
-	result   check.Type
+	// raw is the operand whose implicit conversion is not applied: a
+	// direct reader passed as itself (directDecode, ir_codec_direct.go).
+	raw    syntax.Expr
+	result check.Type
 	// reasons are a census's reasons for this body, distinct, in order.
 	reasons []string
 	// loops is the depth of loops around the statement being built.
