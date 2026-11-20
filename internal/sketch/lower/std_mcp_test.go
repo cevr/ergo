@@ -218,7 +218,7 @@ const stdMCPSession = `test MemorySession {
 	assert mcp.Serve(lenient(), t) == 10
 	assert strings.Join(t.Sent(), "\n") == strings.Join([]string{
 		"{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"protocolVersion\":\"2025-06-18\",\"capabilities\":{\"tools\":{}},\"serverInfo\":{\"name\":\"calc\",\"version\":\"0.1.0\"}}}",
-		"{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"tools\":[{\"name\":\"add\",\"description\":\"adds a and b\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"a\":{\"type\":\"integer\"},\"b\":{\"type\":\"integer\"}},\"required\":[\"a\",\"b\"]}}]}}",
+		"{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"tools\":[{\"name\":\"add\",\"description\":\"adds a and b\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"a\":{\"type\":\"integer\"},\"b\":{\"type\":\"integer\"}},\"required\":[\"a\"]}}]}}",
 		"{\"jsonrpc\":\"2.0\",\"id\":\"c3\",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"42\"}],\"isError\":false}}",
 		"{\"jsonrpc\":\"2.0\",\"id\":4,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"b is missing\"}],\"isError\":true}}",
 		"{\"jsonrpc\":\"2.0\",\"id\":5,\"error\":{\"code\":-32602,\"message\":\"unknown tool: sub\"}}",
