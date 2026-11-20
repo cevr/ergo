@@ -66,7 +66,7 @@ func TestIRTablesMatchSource(t *testing.T) {
 			t.Fatalf("seed %d: the source path tabulates no function\n%s", seed, text)
 		}
 		for _, m := range tabled {
-			if !regexp.MustCompile(`"k":"call"[^{}]*"name":"` + m[1] + `Read"`).Match(irText) {
+			if !regexp.MustCompile(`"k":"call"[^{}]*"name":"` + m[1] + `Fill"`).Match(irText) {
 				t.Errorf("seed %d: the IR does not read %s's table\n%s\n%s", seed, m[1], replay, text)
 			}
 			reads++

@@ -2,18 +2,15 @@ package lower
 
 // IR builder: a call of a tabulated decision (TAB-IR; tabulate.go, VI1).
 // A call the emitter reads through the function's table reads it on IR
-// too, by the same rule (tabTable) and the same index as tabAt:
+// too, by the same rule (tabTable) and the same statements as tabAt:
 //
 //	a0 := arg0; …               each argument once, in order
 //	i := 0; i = i*n0 + int(a0.tag) | int(a0) | (i *= 2; if a0 { i += 1 })
-//	tabFRead(i, a0, …)          tabFK[i] ready: tabFV[i]; else tabFFill(i, a0, …)
+//	var v R
+//	if tabFK[i].Ready() { v = tabFV[i] } else { v = tabFFill(i, a0, …) }
 //
-// The table and its functions are Go text in the generated part
-// (tabDecl), which the IR names by a call only: a package split gives an
-// IR body of another package the table's variables through getters,
-// whose results are no places (the 20e3b4fbe fallout: &tabExplainK[i] in
-// lzpack's main, "address of a non-place"), and a function through a
-// forwarder, which Go inlines as it inlines tabFRead.
+// The table, its flags and its fill function are Go text in the
+// generated part (tabDecl), which the IR names as globals and as a call.
 // The reference is tabLowering "call", where no call is tabulated on
 // either path; vt's ClassOf(byte) is the counted case (VT-PROFILE).
 
@@ -61,9 +58,20 @@ func (b *irBuilder) tabCall(x *syntax.CallExpr, c *check.Call, args []*irExpr, p
 			irNo("tabulated parameter of kind %s", pa.kind)
 		}
 	}
-	readArgs := []*irExpr{local(i)}
-	for _, a := range as {
-		readArgs = append(readArgs, local(a))
+	v := b.temp("v", b.goType(c.Func.Sig.Results[0], x), p)
+	at := func(name string) *irExpr {
+		return &irExpr{K: "index", Pos: p, X: &irExpr{K: "global", Pos: p, Name: name}, Y: local(i)}
 	}
-	return out, &irExpr{K: "call", Pos: p, Name: tab.read, Args: readArgs}
+	ready := &irExpr{K: "mcall", Pos: p, Name: "Ready", X: &irExpr{K: "addr", Pos: p, X: at(tab.flags)}}
+	fillArgs := []*irExpr{local(i)}
+	for _, a := range as {
+		fillArgs = append(fillArgs, local(a))
+	}
+	out = append(out,
+		&irStmt{K: "var", Pos: p, Local: v},
+		&irStmt{K: "if", Pos: p, End: p, ElsePos: p, ElseEnd: p, X: ready,
+			Then: []*irStmt{{K: "set", Pos: p, Local: v, X: at(tab.vals)}},
+			Else: []*irStmt{{K: "set", Pos: p, Local: v, X: &irExpr{K: "call", Pos: p, Name: tab.fill, Args: fillArgs}}},
+		})
+	return out, local(v)
 }
