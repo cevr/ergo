@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"maps"
 	"math/rand/v2"
 	"os"
 	"path/filepath"
@@ -12,7 +13,9 @@ import (
 	"strings"
 	"testing"
 
+	"ergo.local/prototype/internal/gobind"
 	"ergo.local/prototype/internal/report"
+	"ergo.local/prototype/internal/sketch/fingerprint"
 	"ergo.local/prototype/internal/sketch/syntax"
 	"ergo.local/prototype/internal/stage"
 	"ergo.local/prototype/internal/testinputs/genprogram"
@@ -132,10 +135,13 @@ func treeText(src string) string {
 // is byte-equal to the normal path's (ERGO_BUILD=full) after every edit,
 // and, for a kept base, files_parsed, obligations_evaluated and
 // eval_steps are 0 exactly when nothing the request reaches changed in
-// its tokens, comments or comments' line breaks. An even seed's base has
-// a reason that names a site, and is never kept. Mutants
-// ws0-key-by-bytes, ws0-key-omits-imports, ws0-key-omits-comments,
-// ws0-site-replayed, ws0-revision-replayed and ws0-keeps-site-reasons.
+// its tokens, comments or comments' line breaks. The packages the cutoff
+// evaluates again (WS0b, checkcut.go) are exactly those the reference
+// loads' fingerprints name. An even seed's base has a reason that names a
+// site, and is never kept. Mutants ws0-key-by-bytes, ws0-key-omits-imports,
+// ws0-key-omits-comments, ws0-site-replayed, ws0-revision-replayed,
+// ws0-keeps-site-reasons, ws0b-impl-not-verified, ws0b-keeps-after-puts,
+// ws0b-key-omits-interface and ws0b-replays-with-diagnostics.
 func TestCheckTreeAnswersByTokens(t *testing.T) {
 	seeds := []uint64{}
 	for s := range uint64(treeSeeds) {
@@ -178,12 +184,22 @@ func TestCheckTreeAnswersByTokens(t *testing.T) {
 				// so the second run keeps the answer.
 				writeFiles(t, dir, p.Files)
 				removeExtra(t, dir, p.Files)
+				// A store of its own, so the base's second run keeps every
+				// package's evaluation and the cutoff's account below starts
+				// from the base alone.
+				t.Setenv("ERGO_CACHE", t.TempDir())
+				var cutKept map[string]bool
 				for range 2 {
 					unkept = nil
-					if r := runCheckTree(t, pattern, false); r.err != nil {
+					cutKept = map[string]bool{}
+					treeCutKept = func(path string, obligations bool) { cutKept[path] = obligations }
+					r := runCheckTree(t, pattern, false)
+					treeCutKept = nil
+					if r.err != nil {
 						t.Fatalf("seed %d: the base does not check: %v\n%s", seed, r.err, r.out)
 					}
 				}
+				before := treeFingerprints(t, pattern)
 				// An even seed's base has a reason that names a site, which
 				// a layout edit moves: it is never kept.
 				kept := len(unkept) == 0
@@ -213,7 +229,11 @@ func TestCheckTreeAnswersByTokens(t *testing.T) {
 				// run prints ("cached").
 				runCheckTree(t, pattern, true)
 				want := runCheckTree(t, pattern, true)
+				after := treeFingerprints(t, pattern)
+				reran := map[string]bool{}
+				treeRerun = func(path string) { reran[path] = true }
 				got := runCheckTree(t, pattern, false)
+				treeRerun = nil
 				fail := func(format string, args ...any) {
 					t.Helper()
 					var diff strings.Builder
@@ -231,9 +251,81 @@ func TestCheckTreeAnswersByTokens(t *testing.T) {
 				if kept && same != (work == 0) || !kept && work == 0 {
 					fail("no token or comment changed: %v, but the run parsed %d files and evaluated %d obligations in %d steps", same, got.counts["files_parsed"], got.counts["obligations_evaluated"], got.counts["eval_steps"])
 				}
+				// The cutoff (WS0b, checkcut.go): a package is evaluated
+				// again exactly when its base was not kept, it has a
+				// diagnostic, its source changed, an import's interface
+				// changed, or it holds an obligation and an import's
+				// implementation changed. The fingerprints are the
+				// reference loads' (CS5a, TestIncrementalCheckDecides).
+				if want, ok := treeWantRerun(before, after, cutKept); !ok {
+					fail("the reference loads do not share a load")
+				} else if kept && same {
+					if len(reran) > 0 {
+						fail("nothing changed, but the run evaluated %v", slices.Sorted(maps.Keys(reran)))
+					}
+				} else if !maps.Equal(want, reran) {
+					fail("the cutoff evaluated %v, want %v (kept at the base: %v)", slices.Sorted(maps.Keys(reran)), slices.Sorted(maps.Keys(want)), cutKept)
+				}
 			}
 		}
 	}
+}
+
+// treeFP is one selected package's fingerprints in a reference load, with
+// its local imports' interfaces and implementations.
+type treeFP struct {
+	source string
+	diags  bool
+	ifaces map[string]string
+	impls  map[string]string
+}
+
+// treeFingerprints are the selected packages' fingerprints of one
+// shared load of pattern (loadShared, check only), by import path; nil
+// when the packages do not share a load.
+func treeFingerprints(t *testing.T, pattern string) map[string]treeFP {
+	t.Helper()
+	_, loads, ok := loadShared(fileOptions{command: "check", target: report.Target, file: pattern}, gobind.Platform{})
+	if !ok {
+		return nil
+	}
+	out := map[string]treeFP{}
+	for _, l := range loads {
+		fps := l.analysis.Fingerprints()
+		by := map[string]fingerprint.Package{}
+		for _, fp := range fps {
+			by[fp.Path] = fp
+		}
+		root := fps[len(fps)-1]
+		e := treeFP{source: root.Source, diags: len(l.analysis.Diagnostics) > 0, ifaces: map[string]string{}, impls: map[string]string{}}
+		for _, imp := range root.Imports {
+			e.ifaces[imp], e.impls[imp] = by[imp].Interface, by[imp].Implementation
+		}
+		out[l.analysis.Root().Path] = e
+	}
+	return out
+}
+
+// treeWantRerun are the packages the cutoff evaluates after the base
+// (before, with cutKept, the packages whose evaluation the base kept and
+// whether each holds an obligation) is edited to after.
+func treeWantRerun(before, after map[string]treeFP, cutKept map[string]bool) (map[string]bool, bool) {
+	if before == nil || after == nil {
+		return nil, false
+	}
+	want := map[string]bool{}
+	for path, a := range after {
+		b, ok := before[path]
+		obligations, kept := cutKept[path]
+		rerun := !ok || !kept || a.diags || a.source != b.source || !maps.Equal(a.ifaces, b.ifaces)
+		if obligations && !maps.Equal(a.impls, b.impls) {
+			rerun = true
+		}
+		if rerun {
+			want[path] = true
+		}
+	}
+	return want, true
 }
 
 // treeReach are the folders (relative, slash-separated) a request

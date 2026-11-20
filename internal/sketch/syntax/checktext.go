@@ -8,11 +8,12 @@ import (
 // CheckText is what a check of src can read of it, apart from where its
 // tokens sit: TokenText, then each gap between tokens that is not all
 // space, with the ordinal of the token after it (in TokenText's order),
-// the line breaks before and after its first and last byte that is not
-// space, and those bytes. The checker reads comments (a binding's
-// `// ergo:` lines, which it finds by their line right above a
-// declaration), so the bytes between tokens are part of it; a reformat
-// that moves no such byte against its tokens' lines keeps it. The warm
+// the line breaks between its last byte that is not space and that
+// token, and its bytes with the space around them trimmed. The checker
+// reads comments (a binding's `// ergo:` lines, which it finds by their
+// line right above a declaration), so the bytes between tokens are part
+// of it; a reformat that keeps each such run of bytes as many lines above
+// the token after it keeps it. The warm
 // answer of `ergo check DIR/...` keys a file by it (cmd/ergo,
 // checktree.go), and TokenSites gives the positions it leaves out.
 //
@@ -28,9 +29,8 @@ func CheckText(src string) string {
 		if text == "" {
 			continue
 		}
-		lead := strings.Count(g.text[:strings.Index(g.text, text)], "\n")
 		trail := strings.Count(g.text[strings.LastIndex(g.text, text)+len(text):], "\n")
-		b.WriteString("gap " + strconv.Itoa(g.next) + " " + strconv.Itoa(lead) + " " + strconv.Itoa(trail) + " " + strconv.Quote(text) + "\n")
+		b.WriteString("gap " + strconv.Itoa(g.next) + " " + strconv.Itoa(trail) + " " + strconv.Quote(text) + "\n")
 	}
 	return b.String()
 }
