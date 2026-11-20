@@ -1,0 +1,285 @@
+// Package task checks a program's packages as package tasks (capstone
+// S3c; C0/plan.md §3 and §4): a package task starts once every package it
+// imports has frozen its interface, collects and binds its package (its
+// bodies as body tasks, compiler/check/bind), and freezes its store, which
+// its importers then read with no lock. Packages whose imports are all
+// frozen run at once, at most threads at a time; the result is in the
+// program's package order, whatever order the tasks end in.
+
+import compiler/check/bind
+import compiler/check/store
+import tasks
+import compiler/syntax
+import dense
+
+// Package is one package to check: its import path and its files.
+type Package { Path string, Files []bind.File }
+
+// Checked is a package after its task: its frozen interface, its parent
+// column and its Uses.
+type Checked { Path string, Store store.Frozen, Parents bind.Parents, Uses bind.Uses }
+
+// levels is the order in which the packages run: levels[i] is the wave of
+// package i, one more than the highest wave of the packages it imports
+// (an import the program does not hold counts as none). A package in an
+// import cycle gets -1 and is not checked.
+func levels(pkgs []Package) []int {
+	let mut level = []int{}
+	let mut imports = [][]int{}
+	for p in pkgs {
+		level = level.Append(-1)
+		let mut own = []int{}
+		for path in bind.Imports(p.Files) {
+			let i = indexOf(pkgs, path)
+			if i >= 0 {
+				own = own.Append(i)
+			}
+		}
+		imports = imports.Append(own)
+	}
+	// Each pass places the packages whose imports are all placed; a pass
+	// that places none leaves the cycles at -1.
+	let mut placed = true
+	for placed {
+		placed = false
+		for i in 0..len(pkgs) {
+			if level[i] >= 0 {
+				continue
+			}
+			let mut top = 0
+			let mut ready = true
+			for j in imports[i] {
+				if level[j] < 0 {
+					ready = false
+				} else if level[j]+1 > top {
+					top = level[j] + 1
+				}
+			}
+			if ready {
+				level[i] = top
+				placed = true
+			}
+		}
+	}
+	level
+}
+
+func indexOf(pkgs []Package, path string) int {
+	for i, p in pkgs {
+		if p.Path == path {
+			return i
+		}
+	}
+	-1
+}
+
+// checkOne is one package task: collect, the parent column, bind as body
+// tasks against deps (the frozen interfaces of its imports, in its import
+// list's order), then freeze.
+func checkOne(p Package, deps []store.Frozen, threads int) Checked {
+	let s = bind.Collect(p.Path, p.Files)
+	let ps = bind.BuildParents(p.Files)
+	let (bound, u) = bind.Bind(s, deps, ps, p.Files, threads)
+	Checked{Path: p.Path, Store: store.Freeze(bound), Parents: ps, Uses: u}
+}
+
+// depsOf is the frozen interfaces of p's imports in its import list's
+// order: a package the program does not hold, or has not checked, is an
+// empty interface, so its names resolve to nothing.
+func depsOf(p Package, pkgs []Package, done []Option[Checked]) []store.Frozen {
+	let mut out = []store.Frozen{}
+	for path in bind.Imports(p.Files) {
+		let i = indexOf(pkgs, path)
+		let found = if i >= 0 {
+			match done[i] {
+			case Some{Value: c}:
+				Some{Value: c.Store}
+			case None:
+				None
+			}
+		} else {
+			None
+		}
+		match found {
+		case Some{Value: f}:
+			out = out.Append(f)
+		case None:
+			out = out.Append(store.Freeze(store.New(path, []string{})))
+		}
+	}
+	out
+}
+
+// Check checks the program's packages: wave by wave, each wave's packages
+// as tasks, at most threads at once; each package binds its bodies on up
+// to threads tasks too. The result has one Checked per package, in pkgs'
+// order. The packages of an import cycle run last, against empty
+// interfaces for the imports of the cycle.
+func Check(pkgs []Package, threads int) []Checked {
+	let level = levels(pkgs)
+	let mut done = []Option[Checked]{}
+	let mut top = 0
+	for i in 0..len(pkgs) {
+		done = done.Append(None)
+		if level[i] > top {
+			top = level[i]
+		}
+	}
+	for w in 0..top+2 {
+		let wave = if w <= top { w } else { -1 }
+		let mut members = []int{}
+		for i in 0..len(pkgs) {
+			if level[i] == wave {
+				members = members.Append(i)
+			}
+		}
+		if len(members) == 0 {
+			continue
+		}
+		let frozen = done
+		let out = tasks.Transform(members, threads, func(i int) Checked { checkOne(pkgs[i], depsOf(pkgs[i], pkgs, frozen), threads) })
+		for k, i in members {
+			done[i] = Some{Value: out[k]}
+		}
+	}
+	let mut result = []Checked{}
+	for d in done {
+		match d {
+		case Some{Value: c}:
+			result = result.Append(c)
+		case None:
+		}
+	}
+	result
+}
+
+// ImportsNameTheirDeclarations: a name the binder resolves into an import
+// names a package-level declaration of that import with its own text,
+// exported, and the selector it ends reads a name of the importing
+// package (an import), never a local; m/top's two selectors and m/app's
+// H1 always resolve, so the law is never vacuous.
+law ImportsNameTheirDeclarations(picks []int) {
+	let pkgs = programOf(picks)
+	let checked = Check(pkgs, 1)
+	let mut ok = len(checked) == 4
+	let mut resolved = 0
+	for c in checked {
+		let s = store.Of(c.Store)
+		let p = pkgs[indexOf(pkgs, c.Path)]
+		for f, file in p.Files {
+			let t = file.Parsed.Tree
+			for i in 0..syntax.NumNodes(t) {
+				let id = syntax.NodeAt(t, i)
+				match bind.ResolutionOf(c.Uses, c.Parents, bind.PNodeOf(c.Parents, f, id)) {
+				case bind.Imported as x:
+					resolved = resolved + 1
+					let path = store.ImportPaths(s)[int(x.Ref.Import)-1]
+					let dep = store.Of(checked[indexOf(pkgs, path)].Store)
+					let name = store.Text(dep, store.DeclOf(dep, store.DeclAt(dep, int(x.Ref.Decl))).Name)
+					let text = rowText(file.Parsed, id)
+					ok = ok && name == text && text[0] >= 65 && text[0] <= 90
+					// The selector's X is the import's name, no local.
+					match dense.Unpack(bind.ParentOf(c.Parents, bind.PNodeOf(c.Parents, f, id))) {
+					case Some[dense.ID[store.PNode]] as up:
+						let (_, row) = bind.RowOf(c.Parents, up.Value)
+						let sel = syntax.NodeAt(t, row)
+						ok = ok && syntax.KindOf(t, sel) == syntax.KSelectorExpr
+						if syntax.KindOf(t, sel) == syntax.KSelectorExpr {
+							let xid = syntax.SelectorExprOf(t, sel).X
+							ok = ok && bind.DefOf(c.Uses, bind.PNodeOf(c.Parents, f, xid)) == bind.NoDef
+							match bind.ResolutionOf(c.Uses, c.Parents, bind.PNodeOf(c.Parents, f, xid)) {
+							case bind.Outside:
+							case _:
+								ok = false
+							}
+						}
+					case None:
+						ok = false
+					}
+				case _:
+				}
+			}
+		}
+	}
+	ok && resolved >= 3
+}
+
+let libFragments = []string{
+	"type P { X int }\n",
+	"func F(a int) int { a }\n",
+	"func g() int { 1 }\n",
+	"type U = A | B\n",
+	"func F(p P) int { p.X }\n",
+}
+
+let appFragments = []string{
+	"func H2(p lib.P) int { p.X }\n",
+	"func H3(lib lib.P) int { lib.F }\n",
+	"func H4() lib.U { lib.A }\n",
+	"func H5() int { lib.g() }\n",
+	"func H6() int {\n\tlet lib = 2\n\tlib.F\n}\n",
+}
+
+func file(name string, src string) bind.File { bind.File{Name: name, Parsed: syntax.Parse(src)} }
+
+// programOf is the four packages: m/lib whole, m/app with H1 and the
+// picked fragments, m/top; the picks' first element orders them.
+func programOf(picks []int) []Package {
+	let mut lib = ""
+	for f in libFragments {
+		lib = lib + f
+	}
+	let mut app = "import m/lib\n\nfunc H1() int { lib.F(1) }\n"
+	for k in picks {
+		let n = len(appFragments)
+		app = app + appFragments[((k%n)+n)%n]
+	}
+	let l = Package{Path: "m/lib", Files: []bind.File{file("lib.ergo", lib)}}
+	let a = Package{Path: "m/app", Files: []bind.File{file("app.ergo", app)}}
+	let t = Package{Path: "m/top", Files: []bind.File{file("top.ergo", "import m/app\nimport m/lib\n\nfunc T() int { app.H1() + lib.F(2) }\n")}}
+	let d = Package{Path: "m/side", Files: []bind.File{file("side.ergo", "import m/lib\n\nfunc S() int { lib.F(3) }\n")}}
+	let order = if len(picks) == 0 { 0 } else { ((picks[0] % 3) + 3) % 3 }
+	if order == 0 { []Package{t, a, d, l} } else if order == 1 { []Package{l, d, a, t} } else { []Package{a, t, l, d} }
+}
+
+func rowText(p syntax.Parsed, id dense.ID[syntax.Node]) string { syntax.TokText(p, syntax.TokStartingAt(p, syntax.NodePos(p, id))) }
+
+// ProgramIsThreadFree: the program checked on one task and on up to 8
+// gives every package the same resolutions, imports included, in the
+// packages' order (C0/plan.md §3 rule 4 for package tasks).
+law ProgramIsThreadFree(picks []int, n int) {
+	let pkgs = programOf(picks)
+	let one = Check(pkgs, 1)
+	let many = Check(pkgs, 1+((n%8)+8)%8)
+	let mut ok = len(one) == len(many)
+	for k, c in one {
+		if !ok {
+			break
+		}
+		let d = many[k]
+		ok = c.Path == d.Path && c.Path == pkgs[k].Path
+		for f, file in pkgs[k].Files {
+			let t = file.Parsed.Tree
+			for i in 0..syntax.NumNodes(t) {
+				let a = bind.PNodeOf(c.Parents, f, syntax.NodeAt(t, i))
+				ok = ok && same(bind.ResolutionOf(c.Uses, c.Parents, a), bind.ResolutionOf(d.Uses, d.Parents, a))
+			}
+		}
+	}
+	ok
+}
+
+func same(a bind.Resolution, b bind.Resolution) bool {
+	match (a, b) {
+	case (bind.NotUse, bind.NotUse):
+		true
+	case (bind.Outside, bind.Outside):
+		true
+	case (bind.Declared as x, bind.Declared as y):
+		x.At == y.At
+	case (bind.Imported as x, bind.Imported as y):
+		x.Ref == y.Ref
+	case _:
+		false
+	}
+}

@@ -82,6 +82,15 @@ func (in *interp) witnessCall(fr *frame, at *syntax.CallExpr, env *tenv, tp *che
 				return v, ab, true
 			}
 		}
+		if p, ok := recv.(*ptrV); ok {
+			// A borrow of an operation-type value: its provider runs on
+			// the value the place holds.
+			v, ab := in.read(fr, p.root.v, p.path)
+			if ab != nil {
+				return nil, ab, true
+			}
+			recv = v
+		}
 		v, ab := in.dispatch(fr, at, recv, name, args)
 		return v, ab, true
 	}
@@ -92,6 +101,16 @@ func (in *interp) witnessCall(fr *frame, at *syntax.CallExpr, env *tenv, tp *che
 			targs = append(targs, wv.env.resolve(t))
 		}
 		wits = witnessesOf(op.Inst, wv.env)
+	}
+	if p, ok := recv.(*ptrV); ok && len(op.Func.Sig.Params) > 0 && !isPointer(op.Func.Sig.Params[0].Type) {
+		// A `mut S` receiver whose witness takes its type by value (a read
+		// on a borrow, MODES-1): the function reads the borrowed place as
+		// it is now, as the test build's witness does.
+		v, ab := in.read(fr, p.root.v, p.path)
+		if ab != nil {
+			return nil, ab, true
+		}
+		recv = v
 	}
 	all := make([]Value, 0, len(args)+1)
 	all = append(append(all, recv), args...)

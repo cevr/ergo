@@ -74,12 +74,12 @@ func newInlines(refs Map[string, Ref]) inlines {
 	inlines{subject: "", pos: 0, nodes: []inline{}, delims: []delim{}, top: -1, brackets: []bracket{}, refs: refs}
 }
 
-func newNode(q *inlines, k IKind, s string) int {
+func newNode(q mut inlines, k IKind, s string) int {
 	q.nodes = q.nodes.Append(inline{kind: k, text: s, dest: "", title: "", parent: -1, first: -1, last: -1, prev: -1, next: -1})
 	len(q.nodes) - 1
 }
 
-func appendInline(q *inlines, parent int, child int) {
+func appendInline(q mut inlines, parent int, child int) {
 	let prev = q.nodes[parent].last
 	q.nodes[child].parent = parent
 	q.nodes[child].prev = prev
@@ -92,7 +92,7 @@ func appendInline(q *inlines, parent int, child int) {
 	q.nodes[parent].last = child
 }
 
-func unlinkInline(q *inlines, id int) {
+func unlinkInline(q mut inlines, id int) {
 	let n = q.nodes[id]
 	if n.prev >= 0 {
 		q.nodes[n.prev].next = n.next
@@ -110,7 +110,7 @@ func unlinkInline(q *inlines, id int) {
 }
 
 // insertAfter puts the unlinked inline id right after at.
-func insertAfter(q *inlines, at int, id int) {
+func insertAfter(q mut inlines, at int, id int) {
 	let next = q.nodes[at].next
 	let parent = q.nodes[at].parent
 	q.nodes[id].parent = parent
@@ -124,14 +124,14 @@ func insertAfter(q *inlines, at int, id int) {
 	}
 }
 
-func addText(q *inlines, parent int, s string) { appendInline(q, parent, newNode(q, Str, s)) }
+func addText(q mut inlines, parent int, s string) { appendInline(q, parent, newNode(q, Str, s)) }
 
-func peek(q *inlines) int {
+func peek(q mut inlines) int {
 	if q.pos < len(q.subject) { int(q.subject[q.pos]) } else { -1 }
 }
 
 // parseInlines reads content's inlines under a new root, and is the root.
-func parseInlines(q *inlines, content string) int {
+func parseInlines(q mut inlines, content string) int {
 	q.subject = trimSpace(content)
 	q.pos = 0
 	q.delims = []delim{}
@@ -144,7 +144,7 @@ func parseInlines(q *inlines, content string) int {
 	root
 }
 
-func parseInline(q *inlines, root int) bool {
+func parseInline(q mut inlines, root int) bool {
 	let c = peek(q)
 	if c == -1 {
 		return false
@@ -193,7 +193,7 @@ func special(c byte) bool {
 	c == '\n' || c == '`' || c == '[' || c == ']' || c == '\\' || c == '!' || c == '<' || c == '&' || c == '*' || c == '_' || c == '\'' || c == '"'
 }
 
-func plainRun(q *inlines, root int) bool {
+func plainRun(q mut inlines, root int) bool {
 	let start = q.pos
 	for q.pos < len(q.subject) && !special(q.subject[q.pos]) {
 		q.pos += 1
@@ -205,7 +205,7 @@ func plainRun(q *inlines, root int) bool {
 	true
 }
 
-func newline(q *inlines, root int) {
+func newline(q mut inlines, root int) {
 	q.pos += 1
 	let last = q.nodes[root].last
 	if last >= 0 && q.nodes[last].kind == Str && strings.HasSuffix(q.nodes[last].text, " ") {
@@ -226,7 +226,7 @@ func Escapable(c byte) bool {
 	(c >= '!' && c <= '/') || (c >= ':' && c <= '@') || (c >= '[' && c <= '`') || (c >= '{' && c <= '~')
 }
 
-func backslash(q *inlines, root int) {
+func backslash(q mut inlines, root int) {
 	q.pos += 1
 	let c = peek(q)
 	if c == '\n' {
@@ -240,7 +240,7 @@ func backslash(q *inlines, root int) {
 	}
 }
 
-func backticks(q *inlines, root int) {
+func backticks(q mut inlines, root int) {
 	let start = q.pos
 	for peek(q) == '`' {
 		q.pos += 1
@@ -318,7 +318,7 @@ func Flanking(cc byte, before rune, after rune) Flanks {
 	Flanks{Open: left, Close: right}
 }
 
-func handleDelim(q *inlines, cc byte, root int) {
+func handleDelim(q mut inlines, cc byte, root int) {
 	let start = q.pos
 	for peek(q) == int(cc) {
 		q.pos += 1
@@ -337,7 +337,7 @@ func handleDelim(q *inlines, cc byte, root int) {
 	}
 }
 
-func removeDelim(q *inlines, d int) {
+func removeDelim(q mut inlines, d int) {
 	let x = q.delims[d]
 	if x.prev >= 0 {
 		q.delims[x.prev].next = x.next
@@ -351,7 +351,7 @@ func removeDelim(q *inlines, d int) {
 
 // processEmphasis matches the closers above bottom with their openers,
 // as CommonMark's "process emphasis" does.
-func processEmphasis(q *inlines, bottom int) {
+func processEmphasis(q mut inlines, bottom int) {
 	let mut openersBottom = slices.Repeat([]int{bottom}, 12)
 	let mut closer = q.top
 	for closer >= 0 && q.delims[closer].prev != bottom {
@@ -420,7 +420,7 @@ func processEmphasis(q *inlines, bottom int) {
 	}
 }
 
-func addBracket(q *inlines, node int, index int, image bool) {
+func addBracket(q mut inlines, node int, index int, image bool) {
 	let n = len(q.brackets)
 	if n > 0 {
 		q.brackets[n-1].bracketAfter = true
@@ -428,13 +428,13 @@ func addBracket(q *inlines, node int, index int, image bool) {
 	q.brackets = q.brackets.Append(bracket{node: node, prevDelim: q.top, index: index, image: image, active: true, bracketAfter: false})
 }
 
-func popBracket(q *inlines) { q.brackets = slices.Slice(q.brackets, 0, len(q.brackets)-1) }
+func popBracket(q mut inlines) { q.brackets = slices.Slice(q.brackets, 0, len(q.brackets)-1) }
 
 // Target is a link's destination and title.
 type Target { Dest string, Title string }
 
 // inlineTarget reads (destination "title") after a ], if it is there.
-func inlineTarget(q *inlines) Option[Target] {
+func inlineTarget(q mut inlines) Option[Target] {
 	if peek(q) != '(' {
 		return None
 	}
@@ -463,7 +463,7 @@ func inlineTarget(q *inlines) Option[Target] {
 	None
 }
 
-func closeBracket(q *inlines, root int) {
+func closeBracket(q mut inlines, root int) {
 	q.pos += 1
 	let start = q.pos
 	if len(q.brackets) == 0 {
@@ -525,7 +525,7 @@ func closeBracket(q *inlines, root int) {
 
 // spnl moves past spaces and tabs, at most one line ending, and spaces
 // and tabs.
-func spnl(q *inlines) {
+func spnl(q mut inlines) {
 	for peek(q) == ' ' || peek(q) == '\t' {
 		q.pos += 1
 	}
@@ -539,7 +539,7 @@ func spnl(q *inlines) {
 
 // linkDestination reads a link destination: <…>, or a run with balanced
 // parentheses and no space.
-func linkDestination(q *inlines) Option[string] {
+func linkDestination(q mut inlines) Option[string] {
 	let s = q.subject
 	if peek(q) == '<' {
 		let mut i = q.pos + 1
@@ -593,7 +593,7 @@ func linkDestination(q *inlines) Option[string] {
 }
 
 // linkTitle reads a link title in "", '' or ().
-func linkTitle(q *inlines) Option[string] {
+func linkTitle(q mut inlines) Option[string] {
 	let s = q.subject
 	if q.pos >= len(s) {
 		return None
@@ -625,7 +625,7 @@ func linkTitle(q *inlines) Option[string] {
 
 // linkLabel is the length of the link label at the position, or 0: [ ]
 // around at most 999 characters, with no unescaped bracket.
-func linkLabel(q *inlines) int {
+func linkLabel(q mut inlines) int {
 	let s = q.subject
 	if peek(q) != '[' {
 		return 0
@@ -673,7 +673,7 @@ func NormalizeLabel(label string) string {
 	strings.ReplaceAll(strings.ToUpper(strings.ToLower(b.String())), "ß", "SS")
 }
 
-func autolink(q *inlines, root int) bool {
+func autolink(q mut inlines, root int) bool {
 	let s = strings.Slice(q.subject, q.pos, len(q.subject))
 	let e = emailAutolink(s)
 	if e > 0 {
@@ -762,7 +762,7 @@ func emailAutolink(s string) int {
 	if i < len(s) && s[i] == '>' { i + 1 } else { 0 }
 }
 
-func htmlInline(q *inlines, root int) bool {
+func htmlInline(q mut inlines, root int) bool {
 	let n = HtmlTag(strings.Slice(q.subject, q.pos, len(q.subject)))
 	if n == 0 {
 		return false
@@ -772,7 +772,7 @@ func htmlInline(q *inlines, root int) bool {
 	true
 }
 
-func entityInline(q *inlines, root int) bool {
+func entityInline(q mut inlines, root int) bool {
 	match EntityAt(strings.Slice(q.subject, q.pos, len(q.subject))) {
 	case Some as e:
 		addText(q, root, e.Value.Text)
@@ -900,7 +900,7 @@ func ParseReference(s string) Option[Def] {
 
 // lineEnd moves past spaces and tabs and a line ending, or says there is
 // more on the line.
-func lineEnd(q *inlines) bool {
+func lineEnd(q mut inlines) bool {
 	let mut i = q.pos
 	for i < len(q.subject) && (q.subject[i] == ' ' || q.subject[i] == '\t') {
 		i += 1

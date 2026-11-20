@@ -13,7 +13,7 @@ let Width = 256
 let Height = 64
 
 // View shows d and asks the host for frames.
-func View(f *ui.Frame[Signal], d Dash) {
+func View(f mut ui.Frame[Signal], d Dash) {
 	ui.Animate(f, func(at duration) Signal { Next })
 	let b = d.Board
 	let mut ids = []int{}
@@ -34,7 +34,7 @@ func View(f *ui.Frame[Signal], d Dash) {
 						ui.Text(f, policyText(b.Policies[i]))
 					}
 				}
-				ui.Canvas(f, "panel \(i)", ui.Length(float64(Width)), ui.Length(float64(Height))) func(p *ui.Paint) {
+				ui.Canvas(f, "panel \(i)", ui.Length(float64(Width)), ui.Length(float64(Height))) func(p mut ui.Paint) {
 					Draw(p, s, b.Frame)
 				}
 			}
@@ -72,7 +72,7 @@ func policyText(p feed.Policy) string {
 // tick at each entry's value. One stroke a panel, not one a column, keeps
 // a frame's paint list to a few ops. Every coordinate is a whole number of
 // pixels, so the paint list is exact.
-func Draw(p *ui.Paint, s panel.State, f int) {
+func Draw(p mut ui.Paint, s panel.State, f int) {
 	let ink = inkOf(s)
 	match panel.PanelOf(s).View {
 	case panel.ChartView as c:

@@ -75,7 +75,7 @@ func Kids(tr Tree, id dense.ID[Node]) []dense.ID[Node] { dense.List(tr.pool, den
 func Pooled(tr Tree) int { dense.Items(tr.pool) }
 
 // add puts one row with the child run kids and returns its id.
-func add(tr *Tree, kind int, tok int, kids dense.Run[dense.ID[Node]]) dense.ID[Node] {
+func add(tr mut Tree, kind int, tok int, kids dense.Run[dense.ID[Node]]) dense.ID[Node] {
 	let id = dense.Next(&tr.ids)
 	dense.Push(&tr.kind, uint8(kind))
 	dense.Push(&tr.tok, uint32(tok))
