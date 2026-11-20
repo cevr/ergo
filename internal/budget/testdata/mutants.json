@@ -1,0 +1,104 @@
+{
+  "about": "The host budget (WS4a): each row is one of the model's mutants (models/gatebudget) ported to the implementation.",
+  "mutants": [
+    {
+      "name": "budget-admit-by-count",
+      "origin": "wf10 WS4a (model ByCount)",
+      "file": "internal/budget/decide.go",
+      "from": "func (s *State) Fits(r Rules, e Entry) bool { return s.Used()+e.Width <= r.Cores }",
+      "to": "func (s *State) Fits(r Rules, e Entry) bool { return len(s.Holders) < r.Cores }",
+      "rule": "Admission is by cores: the widths held never sum past the budget.",
+      "killers": ["internal/budget:TestHandOnKeepsTheModelsInvariants"]
+    },
+    {
+      "name": "budget-gate-all",
+      "origin": "wf10 WS4a (model GateAll)",
+      "file": "internal/budget/decide.go",
+      "from": "func Gated(r Rules, e Entry) bool { return r.High && !e.Crit }",
+      "to": "func Gated(r Rules, e Entry) bool { return r.High }",
+      "rule": "The interim load gate stops only the lane class; crit is never gated.",
+      "killers": ["internal/budget:TestHandOnKeepsTheModelsInvariants"]
+    },
+    {
+      "name": "budget-newest-first",
+      "origin": "wf10 WS4a (model Newest)",
+      "file": "internal/budget/decide.go",
+      "from": "if w.Crit == crit && (best == -1 || w.Ticket < ws[best].Ticket) {",
+      "to": "if w.Crit == crit && (best == -1 || w.Ticket > ws[best].Ticket) {",
+      "rule": "The hand-on serves the oldest waiter of a class: no take passes an older waiter of its own class.",
+      "killers": ["internal/budget:TestHandOnKeepsTheModelsInvariants"]
+    },
+    {
+      "name": "budget-release-hands-nothing",
+      "origin": "wf10 WS4a (model Poll)",
+      "file": "internal/budget/decide.go",
+      "from": "\ts.Waiters = slices.DeleteFunc(s.Waiters, func(e Entry) bool { return e.ID == id })\n\treturn s.Admit(r)\n",
+      "to": "\ts.Waiters = slices.DeleteFunc(s.Waiters, func(e Entry) bool { return e.ID == id })\n\treturn nil\n",
+      "rule": "A release hands the freed cores on in the same step: no waiter waits while it fits.",
+      "killers": ["internal/budget:TestHandOnKeepsTheModelsInvariants"]
+    },
+    {
+      "name": "budget-store-admit-by-count",
+      "origin": "wf10 WS4a (model ByCount, in the store)",
+      "file": "internal/budget/store_unix.go",
+      "from": "\treturn Rules{Cores: b.cfg.Cores, Share: b.cfg.Share, High: high}",
+      "to": "\treturn Rules{Cores: 2 * b.cfg.Cores, Share: b.cfg.Share, High: high}",
+      "rule": "The store decides with the host owner's budget, not a larger one.",
+      "killers": ["internal/budget:TestFullBudgetQueues"]
+    },
+    {
+      "name": "budget-watch-never-wakes",
+      "origin": "wf10 WS4a (model Poll, in the store)",
+      "file": "internal/budget/store_unix.go",
+      "from": "\tselect {\n\tcase woke <- struct{}{}:\n\tdefault:\n\t}\n}",
+      "to": "}",
+      "rule": "An entry's end (a release or a crash) wakes the waiters, so they take the freed cores.",
+      "killers": ["internal/budget:TestTakersShareTheBudget", "internal/budget:TestCrashFreesTheCores"]
+    },
+    {
+      "name": "budget-dead-entry-alive",
+      "origin": "wf10 WS4a (model LeakedChild)",
+      "file": "internal/budget/store_unix.go",
+      "from": "\tif err := flock(f, syscall.LOCK_SH|syscall.LOCK_NB); err == nil {\n\t\tos.Remove(b.entry(id))\n\t\treturn false\n\t}",
+      "to": "\tif false {\n\t\treturn false\n\t}",
+      "rule": "A crash frees its cores: an entry whose lock the kernel dropped is pruned.",
+      "killers": ["internal/budget:TestCrashFreesTheCores"]
+    },
+    {
+      "name": "budget-lend-ignored",
+      "origin": "wf10 WS4a (model ChildQueues)",
+      "file": "internal/budget/store_unix.go",
+      "from": "\tif g := b.lent(req); g != nil {\n\t\treturn g, nil\n\t}",
+      "to": "",
+      "rule": "A child runs in its parent's lent grant and never queues for the budget.",
+      "killers": ["internal/budget:TestLentGrantTakesNothing"]
+    },
+    {
+      "name": "budget-gated-head-blocks",
+      "origin": "wf10 WS4a (model GatedHead; the live bug of 2026-11-20)",
+      "file": "internal/budget/decide.go",
+      "from": "\tif r.High {\n\t\tlane = -1\n\t}\n",
+      "to": "",
+      "rule": "A gated lane waiter is never next: a crit waiter behind it is served at once while cores are free.",
+      "killers": ["internal/budget:TestHandOnKeepsTheModelsInvariants", "internal/budget:TestCritPassesAGatedLaneHead"]
+    },
+    {
+      "name": "budget-lend-wider-queues",
+      "origin": "wf10 WS4a (model ChildQueues, a child wider than its grant)",
+      "file": "internal/budget/store_unix.go",
+      "from": "\tif err != nil || w < 1 || !b.alive(parts[1]) {",
+      "to": "\tif err != nil || w < req.Width || !b.alive(parts[1]) {",
+      "rule": "A child wider than its parent's grant runs in the grant at the grant's width and never queues.",
+      "killers": ["internal/budget:TestWiderChildRunsInTheGrant"]
+    },
+    {
+      "name": "budget-run-leaves-group",
+      "origin": "wf10 WS4a (leaked process groups)",
+      "file": "internal/budget/run_unix.go",
+      "from": "\tsyscall.Kill(-pgid, syscall.SIGKILL)\n",
+      "to": "\n",
+      "rule": "Run kills what its command left running in its process group.",
+      "killers": ["internal/budget:TestRunKillsTheGroup"]
+    }
+  ]
+}
