@@ -5,8 +5,10 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"maps"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -18,8 +20,10 @@ import (
 // into the write-in-place mode `mut T` (q169; SIMPLIFY U2, MODES-1). The
 // two spellings are one borrow type, so the rewrite changes no checked
 // fact and no emitted Go. It is syntactic, so it reads a file that does
-// not check, and it is idempotent: its output has no such `*T`. n is the
-// number of borrows rewritten.
+// not check, and it is idempotent: its output has no such `*T` but those
+// that bind a type parameter (typeArgBorrows), which it leaves for the
+// author, since a type parameter binds no borrow. n is the number of
+// borrows rewritten.
 //
 // It also deletes `lent` (MODES-4): `[T lent C]` becomes `[T C]`, and
 // each parameter of the declaration whose type is that T, in its
@@ -134,13 +138,65 @@ func borrowElems(f *syntax.File) []syntax.Expr {
 }
 
 // borrows are the borrow types `*T` written in a type of f outside a Go
-// binding (borrowStars).
+// binding (borrowStars), but for those that bind a type parameter
+// (typeArgBorrows).
 func borrows(f *syntax.File) []*syntax.StarExpr {
 	var stars []*syntax.StarExpr
+	for _, s := range typedStars(f) {
+		if !s.arg {
+			stars = append(stars, s.star)
+		}
+	}
+	return stars
+}
+
+// typeArgBorrows are the `*T` written as a type argument, or inside one
+// (`Render[*Counter]`, `Option[[]*P]`), outside a function type's
+// parameters there. A type parameter binds no borrow, so `mut T` would
+// not be the same type: Mut leaves each one and RunMut prints its line.
+func typeArgBorrows(f *syntax.File) []*syntax.StarExpr {
+	var stars []*syntax.StarExpr
+	for _, s := range typedStars(f) {
+		if s.arg {
+			stars = append(stars, s.star)
+		}
+	}
+	return stars
+}
+
+// A typedStar is a `*T` written in a type of a file outside a Go
+// binding, and whether it is in a type argument (typeArgBorrows).
+type typedStar struct {
+	star *syntax.StarExpr
+	arg  bool
+}
+
+// typedStars are the `*T` written in a type of f outside a Go binding: a
+// field's type (a parameter, a result, a record field, an operation) at
+// any depth. An indirection `*p` in a body is no type, and is not one.
+func typedStars(f *syntax.File) []typedStar {
+	var stars []typedStar
+	inArg := map[*syntax.StarExpr]bool{}
+	args := func(x *syntax.IndexExpr) {
+		for _, a := range x.Indices {
+			syntax.Inspect(a, func(node syntax.Node) bool {
+				switch n := node.(type) {
+				case *syntax.FuncType:
+					return false // its parameters take modes again
+				case *syntax.StarExpr:
+					inArg[n] = true
+				}
+				return true
+			})
+		}
+	}
 	inType := func(t syntax.Expr) {
 		syntax.Inspect(t, func(node syntax.Node) bool {
+			if x, ok := node.(*syntax.IndexExpr); ok {
+				args(x)
+			}
 			if s, ok := node.(*syntax.StarExpr); ok && !s.Mut {
-				stars = append(stars, s)
+				stars = append(stars, typedStar{s, inArg[s]})
 			}
 			return true
 		})
@@ -164,11 +220,29 @@ func borrows(f *syntax.File) []*syntax.StarExpr {
 	return stars
 }
 
+// keptLines are the lines of src (1-based) where a `*T` binds a type
+// parameter (typeArgBorrows), which Mut leaves.
+func keptLines(src string) []int {
+	f, err := syntax.Parse(src)
+	if err != nil {
+		return nil
+	}
+	var lines []int
+	for _, s := range typeArgBorrows(f) {
+		lines = append(lines, 1+strings.Count(src[:min(int(s.Star), len(src))], "\n"))
+	}
+	return lines
+}
+
+// keptNote is the line RunMut prints for a `*T` it leaves.
+const keptNote = "*T binds a type parameter, and a type parameter binds no borrow: not rewritten; pass the value, or take the parameter as mut T"
+
 // MutReport is what RunMut did.
 type MutReport struct {
 	Files map[string]string // the edited files' new texts
 	Edits map[string]int    // per edited file, the borrows rewritten
 	Errs  []string          // files the rewrite would break
+	Kept  []string          // FILE:LINE of each *T left (typeArgBorrows)
 }
 
 // Text is the report's summary: the rewrites, the files and each file
@@ -178,13 +252,18 @@ func (r MutReport) Text() string {
 	for _, k := range r.Edits {
 		n += k
 	}
-	if n == 0 && len(r.Errs) == 0 {
+	if n == 0 && len(r.Errs) == 0 && len(r.Kept) == 0 {
 		return ""
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "mut: %d borrows rewritten in %d files\n", n, len(r.Edits))
+	if n > 0 || len(r.Errs) > 0 {
+		fmt.Fprintf(&b, "mut: %d borrows rewritten in %d files\n", n, len(r.Edits))
+	}
 	for _, e := range r.Errs {
 		b.WriteString("not rewritten: " + e + "\n")
+	}
+	for _, k := range r.Kept {
+		b.WriteString("left: " + k + ": " + keptNote + "\n")
 	}
 	return b.String()
 }
@@ -201,6 +280,9 @@ func RunMut(opts Options) (MutReport, error) {
 			if err != nil {
 				return err
 			}
+			for _, l := range keptLines(string(src)) {
+				rep.Kept = append(rep.Kept, fmt.Sprintf("%s:%d", file, l))
+			}
 			out, n, err := Mut(string(src))
 			if err != nil {
 				if strings.Contains(err.Error(), "rewritten") {
@@ -212,11 +294,12 @@ func RunMut(opts Options) (MutReport, error) {
 				rep.Files[file], rep.Edits[file] = out, n
 			}
 		case opts.Go && strings.HasSuffix(file, ".go"):
-			out, n, errs, err := mutGo(file)
+			out, n, errs, kept, err := mutGo(file)
 			if err != nil {
 				return err
 			}
 			rep.Errs = append(rep.Errs, errs...)
+			rep.Kept = append(rep.Kept, kept...)
 			if n > 0 {
 				rep.Files[file], rep.Edits[file] = out, n
 			}
@@ -256,31 +339,38 @@ func RunMut(opts Options) (MutReport, error) {
 
 // goSource reports a string that parses as Ergo but is Go source: a borrow
 // it would rewrite names a type through a qualifier the text imports no
-// package for (`func TestA(t *testing.T) { … }`). An Ergo source names a
+// package for (`func TestA(t *testing.T) { … }`), or a function returns a
+// `*T`, which no Ergo function does. An Ergo source names a
 // package's type only after importing it, so no such text checks as Ergo,
 // and its `*T` is Go's pointer; mutGo leaves it as it is (MODES-2).
-func goSource(text string) bool {
+// fileImports are the packages the rest of a generator imports
+// (generatorImports), or nil.
+func goSource(text string, fileImports map[string]bool) bool {
 	f, err := syntax.Parse(text)
 	if err != nil {
 		return false
 	}
-	imported := map[string]bool{}
-	for _, d := range f.Decls {
-		id, ok := d.(*syntax.ImportDecl)
-		if !ok {
-			continue
-		}
-		for _, sp := range id.Specs {
-			switch {
-			case sp.Name != nil:
-				imported[sp.Name.Name] = true
-			case sp.Path != nil:
-				p := strings.Trim(sp.Path.Value, "\"`")
-				imported[p[strings.LastIndex(p, "/")+1:]] = true
-			}
-		}
+	imported := maps.Clone(fileImports)
+	if imported == nil {
+		imported = map[string]bool{}
+	}
+	for name := range importsOf(f) {
+		imported[name] = true
 	}
 	foreign := false
+	syntax.Inspect(f, func(node syntax.Node) bool {
+		// A borrow is only a parameter's or a receiver's type: one
+		// written as a result is Go's pointer (`func HostAlarms()
+		// *AlarmClock`, a Go source a test edits).
+		if ft, ok := node.(*syntax.FuncType); ok && ft.Results != nil {
+			for _, r := range ft.Results.List {
+				if s, ok := r.Type.(*syntax.StarExpr); ok && !s.Mut {
+					foreign = true
+				}
+			}
+		}
+		return !foreign
+	})
 	for _, x := range borrowElems(f) {
 		for {
 			if ix, ok := x.(*syntax.IndexExpr); ok {
@@ -298,18 +388,61 @@ func goSource(text string) bool {
 	return foreign
 }
 
+// importsOf are the names the imports of f bind.
+func importsOf(f *syntax.File) map[string]bool {
+	imported := map[string]bool{}
+	for _, d := range f.Decls {
+		id, ok := d.(*syntax.ImportDecl)
+		if !ok {
+			continue
+		}
+		for _, sp := range id.Specs {
+			switch {
+			case sp.Name != nil:
+				imported[sp.Name.Name] = true
+			case sp.Path != nil:
+				p := strings.Trim(sp.Path.Value, "\"`")
+				imported[p[strings.LastIndex(p, "/")+1:]] = true
+			}
+		}
+	}
+	return imported
+}
+
+// ergoImportRE matches an Ergo import line in a generator's piece: Go
+// quotes its paths, Ergo does not (`import arena`, `import go net/url`).
+var ergoImportRE = regexp.MustCompile(`(?m)^import ((go )?[a-z][a-z0-9_/.]*)\s*$`)
+
+// generatorImports are the packages the Ergo pieces of a generator's
+// literals import, by the name they bind. A generator writes its import
+// in one piece and a signature naming the package in another
+// (`import arena`, then `func take[T](ar *arena.Of[Slot[T]], …)`; irspike
+// gen_irinline.go, TestIRInlineMatchesSource): the signature's qualifier
+// is imported, so its borrow is Ergo's.
+func generatorImports(lits []string) map[string]bool {
+	imported := map[string]bool{}
+	for _, text := range lits {
+		for _, m := range ergoImportRE.FindAllStringSubmatch(text, -1) {
+			p := strings.TrimPrefix(m[1], "go ")
+			imported[p[strings.LastIndex(p, "/")+1:]] = true
+		}
+	}
+	return imported
+}
+
 // mutGo applies Mut to each string literal of a Go file that parses as
 // an Ergo source and writes a borrow.
-func mutGo(file string) (string, int, []string, error) {
+func mutGo(file string) (string, int, []string, []string, error) {
 	src, err := os.ReadFile(file)
 	if err != nil {
-		return "", 0, nil, err
+		return "", 0, nil, nil, err
 	}
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, file, src, parser.SkipObjectResolution)
 	if err != nil {
-		return "", 0, nil, nil
+		return "", 0, nil, nil, nil
 	}
+	var kept []string
 	type rewrite struct {
 		from, to int
 		text     string
@@ -317,16 +450,40 @@ func mutGo(file string) (string, int, []string, error) {
 	var rws []rewrite
 	n := 0
 	var errs []string
+	read, closes := fragmentFile(file)
+	var fileImports map[string]bool
+	if closes {
+		// A generator: its pieces import for each other.
+		var texts []string
+		ast.Inspect(f, func(node ast.Node) bool {
+			if bl, ok := node.(*ast.BasicLit); ok && bl.Kind == token.STRING {
+				if text, err := strconv.Unquote(bl.Value); err == nil {
+					texts = append(texts, text)
+				}
+			}
+			return true
+		})
+		fileImports = generatorImports(texts)
+	}
 	ast.Inspect(f, func(node ast.Node) bool {
 		bl, ok := node.(*ast.BasicLit)
 		if !ok || bl.Kind != token.STRING {
 			return true
 		}
 		text, err := strconv.Unquote(bl.Value)
-		if err != nil || !strings.Contains(text, "*") || goSource(text) {
+		if err != nil || !strings.Contains(text, "*") || goSource(text, fileImports) {
 			return true
 		}
+		for _, l := range keptLines(text) {
+			kept = append(kept, fmt.Sprintf("%s:%d", file, fset.Position(bl.ValuePos).Line+l-1))
+		}
 		out, k, err := Mut(text)
+		if err != nil && !strings.Contains(err.Error(), "rewritten") && read {
+			// A piece of a source a generator joins, or a fmt format
+			// (MutFragment).
+			out, k = mutFragment(text, closes || ergoMarker(text), fileImports)
+			err = nil
+		}
 		if err != nil || k == 0 {
 			if err != nil && strings.Contains(err.Error(), "rewritten") {
 				errs = append(errs, fmt.Sprintf("%s#%d: %v", file, fset.Position(bl.ValuePos).Offset, err))
@@ -344,5 +501,5 @@ func mutGo(file string) (string, int, []string, error) {
 	for _, r := range rws {
 		out = out[:r.from] + r.text + out[r.to:]
 	}
-	return out, n, errs, nil
+	return out, n, errs, kept, nil
 }

@@ -50,8 +50,8 @@ func TestMain(m *testing.M) {
 
 var agreeSeed = flag.Uint64("agree.seed", 0, "run TestMyGoHostAgreesWithTestHost on this seed only")
 
-// agreeApps are the apps of cmd/hostagree; seed s plays app s mod 10.
-var agreeApps = []string{"counter", "shelf", "form", "load", "pad", "list", "sketch", "looks", "roles", "states"}
+// agreeApps are the apps of cmd/hostagree; seed s plays app s mod 11.
+var agreeApps = []string{"counter", "shelf", "form", "load", "pad", "list", "sketch", "looks", "roles", "states", "layers"}
 
 // words are texts a script types: empty, ASCII, and runes of two and
 // three bytes, so Backspace must take a rune, not a byte.
@@ -70,7 +70,7 @@ func genScript(r *rand.Rand, app string) string {
 		case "shelf":
 			step = pick(r, "tap add", "tap add", "tap del", "tap del", "tap row 1")
 		case "form":
-			step = pick(r, "type name\t"+pick(r, words...), "type note\t"+pick(r, words...), "tap done", "tap bold", "tap send", "key a")
+			step = pick(r, "type name\t"+pick(r, words...), "type note\t"+pick(r, words...), "tap done", "tap bold", "tap send", "key a", "compose name\t"+pick(r, words...), "compose note\t"+pick(r, words...))
 		case "load":
 			step = pick(r, "tap next", "settle", "settle")
 		case "pad":
@@ -90,13 +90,15 @@ func genScript(r *rand.Rand, app string) string {
 			// rows past the window's fold and past the overscan, which a
 			// tap reaches by scrolling first or finds no node for; down
 			// and up move the cursor the list keeps in view (RowsKeeping)
-			step = pick(r, "tap more", "tap less", "tap note", fmt.Sprintf("scroll list %d", r.IntN(3000)), fmt.Sprintf("tap row %d", r.IntN(90)), fmt.Sprintf("tap row %d", r.IntN(20)), "tap down", "tap down", "tap up")
+			step = pick(r, "tap more", "tap less", "tap note", fmt.Sprintf("scroll list %d", r.IntN(3000)), fmt.Sprintf("tap row %d", r.IntN(90)), fmt.Sprintf("tap row %d", r.IntN(20)), "tap down", "tap down", "tap up", fmt.Sprintf("finger scroll list %d", r.IntN(3000)), fmt.Sprintf("finger tap row %d", r.IntN(20)))
 		case "sketch":
 			step = fmt.Sprintf("point sketch %s %d %d", pick(r, "down", "down", "up", "move"), r.IntN(200), r.IntN(150))
 		case "looks":
 			step = pick(r, "tap next", "tap next", "tap c", "tap a", "tap b")
 		case "roles":
 			step = pick(r, "tap next", "tap next", "tap s0", "tap s3")
+		case "layers":
+			step = pick(r, "tap menu", "tap menu", "tap item0", "tap item1", "tap item2", "tap dialog", "tap dialog", "tap ok", "tap inside", "tap plain", "tap plain", "key Escape", "key Escape", "tap pin", fmt.Sprintf("scroll rows %d", r.IntN(200)), fmt.Sprintf("scroll rows %d", r.IntN(800)), "finger tap pin", "finger near pin", fmt.Sprintf("finger scroll rows %d", r.IntN(800)), "insets 47 0 34 0", "insets 0 0 0 0")
 		case "states":
 			step = pick(r, "tap open", "tap close", "tap ask", "tap p1", "tap r1", "key Tab", "key Tab", "key ArrowRight", "key Escape", "point p0 move 3 3", "point r2 move 3 3", "point open move 3 3", "away")
 		}
@@ -122,7 +124,7 @@ var buildHostAgree = sync.OnceValues(func() (string, error) {
 
 // TestMyGoHostAgreesWithTestHost is H3g's acceptance: the desktop driver
 // (hosts/mygo/desktop), fed through a headless MyGo window, agrees with
-// ui.TestHost on seeded scene scripts of ten apps. After every step both
+// ui.TestHost on seeded scene scripts of eleven apps. After every step both
 // hosts hold the same tree (ui.SameShapes) and the same app state, and
 // each filled node shows its color in the window's rendered frame at the
 // place the driver laid it out. A tap is a press and a release at the

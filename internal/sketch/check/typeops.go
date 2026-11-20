@@ -91,6 +91,12 @@ func (c *checker) subst(t Type, m map[*TypeParam]Type) Type {
 		return s
 	case *Interface:
 		it := &Interface{Set: t.Set, Methods: make([]*Method, len(t.Methods)), obj: t.obj}
+		if t.Terms != nil {
+			it.Terms = make([]*Term, len(t.Terms))
+			for i, term := range t.Terms {
+				it.Terms[i] = &Term{Tilde: term.Tilde, Type: c.subst(term.Type, m)}
+			}
+		}
 		newOf := make(map[*Method]*Method, len(t.Methods))
 		for i, mt := range t.Methods {
 			it.Methods[i] = &Method{Name: mt.Name, Sig: c.subst(mt.Sig, m).(*Signature), Pos: mt.Pos, pkg: mt.pkg}
@@ -280,7 +286,8 @@ func (a assignment) ok() bool { return a.clause != assignRefused }
 //     parameter: no conversion;
 //  3. t's underlying type is an operation type and v implements it:
 //     ConvOperations with its table, none when v is an operation type;
-//  4. a variant or a row value into a union: ConvVariant or ConvRow;
+//  4. a variant or a row value into a union: ConvVariant or ConvRow; a
+//     union whose variants it all holds: ConvWiden;
 //  5. a function value into a function type whose rows are supersets, at
 //     least one side unnamed: no conversion (every function value has one
 //     Go shape, spec D5); where t's parameter is a row value of one error
@@ -362,6 +369,9 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 		}
 		if it.Set != SetAll {
 			return assignment{}, fmt.Sprintf("%s is a constraint only", it.Set)
+		}
+		if it.Terms != nil {
+			return assignment{}, fmt.Sprintf("%s has a type set, so it is a constraint only", t)
 		}
 		if why := c.undeclared(v, t, "conversion"); why != "" {
 			return assignment{}, why
@@ -487,6 +497,16 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 					}
 				}
 				return assignment{clause: assignUnion, conv: Conversion{Kind: ConvRow, From: v, To: t}}, ""
+			}
+			if vu := asUnion(v); vu != nil && vu.Row == nil && len(vu.Variants) > 0 {
+				// A declared union goes into one that holds each of its
+				// variants: a subset (ConvWiden).
+				for _, e := range vu.Variants {
+					if !c.hasVariant(u, e) {
+						return assignment{}, fmt.Sprintf("%s may hold %s, which %s does not list", v, e, t)
+					}
+				}
+				return assignment{clause: assignUnion, conv: Conversion{Kind: ConvWiden, From: v, To: t}}, ""
 			}
 			for _, variant := range u.Variants {
 				if c.identical(variant, v) {
@@ -1045,7 +1065,18 @@ func comparableSeen(t Type, seen map[Type]bool) bool {
 	case *Pointer:
 		return true
 	case *TypeParam:
-		return typeSet(u) >= SetComparable
+		// A type parameter compares when its set holds comparable types
+		// only (the predeclared comparable, or terms that all compare).
+		terms := paramTerms(u)
+		if terms == nil {
+			return false
+		}
+		for _, term := range terms {
+			if !term.isComparableTerm() && !comparable(term.Type) {
+				return false
+			}
+		}
+		return true
 	}
 	return false
 }
@@ -1107,8 +1138,8 @@ func equatableSeen(t Type, seen map[Type]bool) bool {
 	return comparable(t)
 }
 
-// typeSet is the predeclared type set a type parameter's constraint names
-// (comparable, ordered or number), SetAll for any other type or
+// typeSet is the predeclared constraint a type parameter's constraint
+// names (lent, comparable or the codec one), SetAll for any other type or
 // constraint.
 func typeSet(t Type) TypeSet {
 	tp, ok := t.(*TypeParam)
@@ -1121,9 +1152,8 @@ func typeSet(t Type) TypeSet {
 	return SetAll
 }
 
-// inSet reports whether t lies in the type set s (types.md, Generics 2):
-// a type parameter by its own constraint's set, any other type by its
-// underlying type.
+// inSet reports whether t lies in the predeclared constraint s (types.md,
+// Generics 2). A type-set member is read by inTypeSet (typeset.go).
 func inSet(t Type, s TypeSet) bool {
 	switch s {
 	case SetAll:
@@ -1131,18 +1161,8 @@ func inSet(t Type, s TypeSet) bool {
 	case SetComparable:
 		return comparable(t)
 	}
-	if _, ok := t.(*TypeParam); ok {
-		return typeSet(t) >= s
-	}
-	if RefinementOf(t) != nil {
-		// ordered and number give + to a generic body, which could leave
-		// the where (Refinements 7).
-		return false
-	}
-	if s == SetOrdered && (isString(t) || isDuration(under(t))) {
-		return true
-	}
-	return isInteger(t) || isFloat(t)
+	// The codec constraint is read by satisfies before it reaches here.
+	return false
 }
 
 // satisfies checks a type argument against its constraint.
@@ -1171,6 +1191,16 @@ func (c *checker) satisfies(t Type, constraint Type) string {
 			return fmt.Sprintf("%s is not %s", t, it.Set)
 		}
 		return ""
+	}
+	if it.Terms != nil {
+		// A type set is satisfied by membership, with no clause; a
+		// constraint with operations too needs both (types.md, Generics 2).
+		if !c.inTypeSet(t, it.Terms) {
+			return notInSetText(t, constraint, it)
+		}
+		if len(it.Methods) == 0 {
+			return ""
+		}
 	}
 	if why := c.undeclared(t, constraint, "constraint"); why != "" {
 		return why
@@ -1215,6 +1245,11 @@ func defaultable(t Type) bool {
 	if r := RefinementOf(t); r != nil && (!r.Holds(big.NewInt(0)) || r.Pattern != nil && !r.Pattern.Match("")) {
 		// The base's zero (0, or length 0) fails the where (Refinements 8).
 		return false
+	}
+	if _, h, _, ok := providerParts(t); ok {
+		// A Map's default is its empty Map, with its provider's default
+		// (mapprovider.go).
+		return defaultable(h)
 	}
 	switch u := under(t).(type) {
 	case *Basic:

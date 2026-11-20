@@ -108,6 +108,32 @@ type Vcs {
 	// Merge brings the parent's branch into the checkout's branch (a
 	// fast-forward when it can) and is the parent's commit it merged.
 	Merge(root string, parent string, branch string) string fails Conflicted | VcsFailed,
+	// TreeOf is the tree of a commit (what Read takes).
+	TreeOf(root string, commit string) string fails NoRevision | VcsFailed,
+	// Note is the note of commit under refs/notes/work, "" when it has
+	// none: the lane record ready wrote for that tip.
+	Note(root string, commit string) string fails VcsFailed,
+	// SetNote makes text the note of commit under refs/notes/work, in
+	// place of any it had. ready writes it in the parent, where the tip
+	// went: two lanes never push one notes ref past each other.
+	SetNote(root string, commit string, text string) fails VcsFailed,
+
+	// NoteIsWhatSetNoteWrote: a note set on the head reads back as its
+	// text, and a second set replaces it.
+	law NoteIsWhatSetNoteWrote(first string, second string) {
+		let clean = func(s string) string { "n" + strings.ReplaceAll(strings.ReplaceAll(s, "\x00", " "), "\r", " ") }
+		let head = Head(".") catch {
+		case VcsFailed:
+			return true
+		}
+		SetNote(".", head, clean(first)) catch {
+		case VcsFailed:
+			return true
+		}
+		let once = try Note(".", head)
+		try SetNote(".", head, clean(second))
+		once == clean(first) && (try Note(".", head)) == clean(second)
+	},
 
 	// OwnBranchHoldsItsHead: a checkout on a branch holds its own head,
 	// so a workspace cloned from a base and not changed since is kept in
@@ -158,9 +184,11 @@ type Vcs {
 	},
 
 	// SettingIsWhatConfigureSet: a key Configure set reads back as its
-	// value (doctor's check of the merge drivers rests on it).
-	law SettingIsWhatConfigureSet(value string) {
-		let v = "v" + strings.ReplaceAll(strings.ReplaceAll(value, "\n", " "), "\x00", " ")
+	// value (doctor's check of the merge drivers rests on it), its own
+	// spaces kept: half the cases start the value with a space and half
+	// end it with one, as Git keeps (and quotes) them.
+	law SettingIsWhatConfigureSet(value string, lead bool, trail bool) {
+		let v = (if lead { " " } else { "" }) + "v" + strings.ReplaceAll(strings.ReplaceAll(value, "\n", " "), "\x00", " ") + (if trail { " " } else { "" })
 		Configure(".", "work.law", v) catch {
 		case VcsFailed:
 			return true

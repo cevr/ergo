@@ -90,10 +90,12 @@ func (b *irBuilder) retOf(x syntax.Expr, p irPos) []*irStmt {
 			pre, v := b.try(call)
 			return append(pre, &irStmt{K: "ret", Pos: p, X: b.implicit(x, v)})
 		}
-		if c := b.l.info.Calls[call]; c != nil && (c.Kind == check.CallFuncValue || b.unitPair(call)) && b.result == nil {
-			// A function value's pair, or a generic's whose result is
-			// no value (unitPair): its failure leaves, then the frame
-			// returns with no value (ir_closure.go).
+		if c := b.l.info.Calls[call]; c != nil && (c.Kind == check.CallFuncValue || b.unitPair(call) || b.fc.frame.unit) && b.result == nil {
+			// A function value's pair, a generic's whose result is no
+			// value (unitPair), or any fallible call a literal with no
+			// value returns (its Go form is (struct{}, error), the call's
+			// is not: G6): its failure leaves, then the frame returns with
+			// no value (ir_closure.go, unitReturns).
 			pre, _ := b.try(call)
 			return append(pre, &irStmt{K: "ret", Pos: p})
 		}
@@ -110,7 +112,7 @@ func (b *irBuilder) retOf(x syntax.Expr, p irPos) []*irStmt {
 			return out
 		}
 		pre, e := b.rawCall(call)
-		return append(pre, &irStmt{K: "ret", Pos: p, X: e})
+		return append(pre, &irStmt{K: "ret", Pos: p, X: e, Pair: true})
 	}
 	if b.isFailure(x) {
 		pre, e := b.value(x)

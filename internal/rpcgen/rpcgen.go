@@ -280,18 +280,22 @@ func (g *gen) fail(format string, args ...any) {
 }
 
 // importOf records p's import and is the name source uses for it.
-func (g *gen) importOf(p *check.Package) string {
+func (g *gen) importOf(p *check.Package) string { return importName(g.imports, g.pkg, g.path, p) }
+
+// importName records p's import in imports and is the name source uses for
+// it: "" for a prelude name, which is written unqualified. contract is the
+// contract's package, whose import path is path: checked as a root, the
+// checker names it main, so source imports it by its path.
+func importName(imports map[string]string, contract *check.Package, path string, p *check.Package) string {
 	if p == nil || p.Path == stdlib.PreludePath {
 		return ""
 	}
-	if p == g.pkg {
-		// The contract's package: checked as a root, the checker names
-		// it main; source imports it by its path.
-		name := lastElem(g.path)
-		g.imports[g.path] = name
+	if p == contract {
+		name := lastElem(path)
+		imports[path] = name
 		return name
 	}
-	g.imports[p.Path] = p.Name
+	imports[p.Path] = p.Name
 	return p.Name
 }
 

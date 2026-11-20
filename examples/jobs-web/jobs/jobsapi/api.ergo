@@ -10,7 +10,7 @@ import sync
 import jobsweb/jobs
 
 // Request is one call of jobs.Jobs: a variant per operation, whose fields
-// are the operation's parameters. It is the wire's request.
+// are the operation's parameters. It is the request every transport carries.
 type Request = SubmitRequest{Spec jobs.Spec} | CancelRequest{Id int} | StatusRequest{Id int} | ListRequest{} | WorkRequest{Ticks int}
 
 // Op is an operation of jobs.Jobs: what a policy matches on.
@@ -20,7 +20,7 @@ type Op = SubmitOp{} | CancelOp{} | StatusOp{} | ListOp{} | WorkOp{}
 type Reply = SubmitReply{Value int} | CancelReply{} | StatusReply{Value Option[jobs.Job]} | ListReply{Value []jobs.Job} | WorkReply{}
 
 // Failure is a failure of an operation: a variant per failure type of
-// any row, named like the type (its tag on the wire).
+// any row, named like the type (its JSON tag).
 type Failure = RejectedFailure{E jobs.Rejected} | NoSuchJob{E jobs.NoSuchJob} | AlreadyDone{E jobs.AlreadyDone}
 
 // Outcome is what one call ends in: its operation's value or one of
@@ -84,7 +84,7 @@ func valueOf(text string) json.Value {
 }
 
 // Schema is the JSON schema of op's arguments: an object whose keys are
-// its parameters' wire keys, or the fields of its one record parameter.
+// its parameters' JSON keys, or the fields of its one record parameter.
 func Schema(op Op) json.Value {
 	match op {
 	case SubmitOp:

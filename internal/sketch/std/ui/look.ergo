@@ -20,6 +20,7 @@
 // where CSS has text; Flutter's BoxDecoration.
 
 import actor
+import strings
 import time
 import json
 
@@ -29,8 +30,102 @@ import json
 // fill, its border and its shadows; each of Shadows paints under the box
 // (or, Inset, inside it), the first lowest, a transparent one nothing;
 // Opacity, from 0 to 1, multiplies the alpha of all that the node and its
-// subtree paint.
-type Look { Fill Color, Border Border, Corners Corners, Shadows [4]Shadow, Opacity float64 }
+// subtree paint; Ink is how the node's own text is drawn.
+type Look { Fill Color, Border Border, Corners Corners, Shadows [4]Shadow, Opacity float64, Ink Ink }
+
+// Ink is how a node draws its own text (OpenTUI gap 1): in Color (a
+// transparent Color is the host's own text colour), bold, italic,
+// underlined. Only a node that draws text of its own uses it, a Text or a
+// Readout (TextStyled and ReadoutStyled give one a look); it is not inherited, as no part of a Look is, so a Text
+// inside a Box drawn in red is in the host's colour unless its own look
+// says otherwise. Like the rest of a Look it is per interaction state, so
+// a focused or hovered text can change ink with no pass.
+//
+// Prior art: CSS's color, font-weight, font-style and text-decoration on
+// the element itself (here never inherited, as StyleX's atomic classes
+// are applied); OpenTUI's fg and its BOLD, ITALIC and UNDERLINE
+// attributes; Elm UI's Font.color, Font.bold, Font.italic, Font.underline.
+type Ink { Color Color, Bold bool, Italic bool, Underline bool }
+
+// PlainInk is the host's own text: its colour, regular, not underlined.
+func PlainInk() Ink { Ink{Color: Clear(), Bold: false, Italic: false, Underline: false} }
+
+// inkText is what a screenshot prints for an ink other than PlainInk.
+func inkText(k Ink) string {
+	if k == PlainInk() {
+		return ""
+	}
+	let mut out = " ink"
+	if k.Color.A != 0 {
+		out = out + " \(colorText(k.Color))"
+	}
+	if k.Bold {
+		out = out + " bold"
+	}
+	if k.Italic {
+		out = out + " italic"
+	}
+	if k.Underline {
+		out = out + " underline"
+	}
+	out
+}
+
+// drawInk is a drawn ink. (a law's helper)
+func drawInk(r mut rng) Ink {
+	Ink{Color: drawLookColor(r), Bold: draw(r, 2) == 0, Italic: draw(r, 2) == 0, Underline: draw(r, 2) == 0}
+}
+
+// InkShowsInTheScreenshot (OpenTUI gap 1): over drawn inks k, a Text
+// given Inked(k) holds that look in the test host, and its screenshot
+// line names k's colour (when it is not transparent) and each of bold,
+// italic and underline that k has, and nothing when k is PlainInk; a
+// Readout given Inked(k) holds and shows it the same; a Text inside a Box
+// whose look has ink k shows no ink: ink is not inherited.
+law InkShowsInTheScreenshot(seed int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let mut r = seeded(seed)
+		let k = if draw(&r, 4) == 0 { PlainInk() } else { drawInk(&r) }
+		let rd = NewReadout("r")
+		let view = func(f mut Frame[int], s int) {
+			let mut inked = Plain()
+			inked.Look = LookFor(f, Steady(Inked(k)))
+			Column(f, Plain()) {
+				TextStyled(f, "a", inked)
+				ReadoutStyled(f, rd, "rr", inked)
+				Box(f, inked) {
+					Text(f, "b")
+				}
+			}
+		}
+		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})
+		let mut h = NewTestHost(a, view, m, 4) catch {
+		case BadPatch:
+			return false
+		}
+		let screen = Screen(&h)
+		if len(screen) != 1 || len(screen[0].Kids) != 3 || len(screen[0].Kids[2].Kids) != 1 {
+			return false
+		}
+		let mut parts = ""
+		if k.Color.A != 0 {
+			parts = parts + " " + colorText(k.Color)
+		}
+		if k.Bold {
+			parts = parts + " bold"
+		}
+		if k.Italic {
+			parts = parts + " italic"
+		}
+		if k.Underline {
+			parts = parts + " underline"
+		}
+		let want = if k == PlainInk() { "" } else { " { ink" + parts + " }" }
+		let lines = strings.Split(Screenshot(&h), "\n")
+		len(lines) == 6 && lines[1] == "  text \"a\""+want && lines[2] == "  text \"r\""+want && lines[4] == "    text \"b\"" && LooksOf(&h, screen[0].Kids[0].Node) == Steady(Inked(k)) && LooksOf(&h, screen[0].Kids[1].Node) == Steady(Inked(k))
+	}
+}
 
 // Border is a line Width wide along the inside of a box's edge.
 type Border { Width Length, Color Color }
@@ -119,9 +214,17 @@ type queryNested { Name string, Inner queryRecord }
 func NoShadow() Shadow { Shadow{X: 0, Y: 0, Blur: 0, Spread: 0, Color: Clear(), Inset: false} }
 
 // Bare is the look that paints nothing: no fill, no border, square
-// corners, no shadow, opaque.
+// corners, no shadow, opaque, its text in the host's own ink.
 func Bare() Look {
-	Look{Fill: Clear(), Border: Border{Width: 0, Color: Clear()}, Corners: Round(0), Shadows: [4]Shadow{NoShadow(), NoShadow(), NoShadow(), NoShadow()}, Opacity: 1.0}
+	Look{Fill: Clear(), Border: Border{Width: 0, Color: Clear()}, Corners: Round(0), Shadows: [4]Shadow{NoShadow(), NoShadow(), NoShadow(), NoShadow()}, Opacity: 1.0, Ink: PlainInk()}
+}
+
+// Inked is Bare with its text in ink k: the look of a Text that changes
+// only how its text is drawn.
+func Inked(k Ink) Look {
+	let mut l = Bare()
+	l.Ink = k
+	l
 }
 
 // Steady is l in every state.
@@ -223,6 +326,8 @@ func StyleOf[E](n Node[E]) Option[Style] {
 		Some{Value: x.Style}
 	case TextNode as x:
 		Some{Value: x.Style}
+	case ReadoutNode as x:
+		Some{Value: x.Style}
 	case PressableNode[E] as x:
 		Some{Value: x.Style}
 	case AreaNode as x:
@@ -284,7 +389,7 @@ func lookText(l Look) string {
 	if l.Opacity != 1.0 {
 		out = out + " opacity \(l.Opacity)"
 	}
-	out
+	out + inkText(l.Ink)
 }
 
 // looksText is what a screenshot prints after a node for its looks:

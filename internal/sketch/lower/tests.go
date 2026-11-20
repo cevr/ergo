@@ -92,6 +92,14 @@ type testLowering struct {
 	importLaws []check.LawRun
 }
 
+// testLoweringOf is the record of a test build of u, the one every test
+// entry point takes, text and IR (LAW-RUNS-PARITY): the unit's site
+// instances, post laws and imported law runs, and nothing emitted yet. A
+// record built without them would run none of them, silently.
+func testLoweringOf(u Unit) *testLowering {
+	return &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}, instances: u.Instances, posts: u.Posts, importLaws: u.ImportLaws}
+}
+
 // fresh is a record for a lowering that starts again (a round of
 // lowerIRRounds, flatunion.go lowerAgain): the unit's inputs t was made
 // with, and nothing a lowering emitted or set; nil for nil.
@@ -128,7 +136,7 @@ func lowerTestParts(u Unit) ([]byte, []File, error) {
 
 // newTestLowerer is the lowerer of u's test binary.
 func newTestLowerer(u Unit) *lowerer {
-	return newBuildLowerer(u, &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}, instances: u.Instances, posts: u.Posts, importLaws: u.ImportLaws})
+	return newBuildLowerer(u, testLoweringOf(u))
 }
 
 // testHelpers are the harness's package-scope entities: key and preferred
@@ -188,6 +196,11 @@ func (l *lowerer) nameTests() {
 	}
 	for _, r := range l.runLaws() {
 		l.lawFunc(r.Law)
+		for _, adm := range r.Law.Admit {
+			if adm != nil {
+				l.lawFunc(adm) // its where's function (lawnear.go)
+			}
+		}
 		if r.Law.Rewrite != nil {
 			l.rewriteSide(r.Law, false)
 			l.rewriteSide(r.Law, true)
@@ -521,6 +534,13 @@ func (l *lowerer) lawDecl(law *check.Law) {
 		l.tests.lawOwn = scope.alloc("own")
 		parts = append(parts, l.tests.lawOwn+" "+fc.goType(own)+"["+strings.Join(args, ", ")+"]")
 		defer func() { l.tests.lawOwn = "" }()
+		// A parameter that operations constrain, Ranked's T in
+		// type Ranked[T Ranked[T]], takes its witness after the provider,
+		// as a generic function does (witness.go; CONSTRAINTS C2).
+		for _, tp := range lawWitnessParams(own) {
+			fc.witness[tp] = scope.alloc("w" + tp.Name)
+			parts = append(parts, fc.witness[tp]+" "+fc.witnessType(tp, tp))
+		}
 	}
 	result := check.Type(check.Typ[check.Bool])
 	fc.frame = lawFrame(l.info, d, result)
@@ -544,6 +564,11 @@ func (l *lowerer) lawDecl(law *check.Law) {
 		head += fc.resultList(result, true)
 	}
 	fc.depth = 1
+	// The value rule decides a law body's copies as it does a function's
+	// or a test's, before either path lowers it: unanalyzed, `let mut y =
+	// x` would share x (the law-body copy bug, corpus wave HP; on the IR
+	// path, KMEANS-LAW). newBuilder refuses an IR body it has not analyzed.
+	l.analyzeValues(d, l.info)
 	// LowerIR and CensusIR only (ir.go): a body in the IR builder's subset
 	// leaves its Go declaration without a body (ir_assert.go).
 	if l.ir != nil && l.ir.lawBody(fc, law, l.lawFunc(law), needsFrame) {
@@ -558,10 +583,6 @@ func (l *lowerer) lawDecl(law *check.Law) {
 		fc.openFrame(frameErr)
 	}
 	fc.entryPoll(l.info, d)
-	// The value rule decides a law body's copies as it does a function's
-	// or a test's: unanalyzed, `let mut y = x` would share x (the
-	// law-body copy bug, corpus wave HP).
-	l.analyzeValues(d, l.info)
 	fc.body(d.Body.List)
 	if sourced {
 		l.user.WriteString(l.directive(d))
@@ -830,6 +851,11 @@ func (l *lowerer) testEntry(b *strings.Builder) {
 	for _, r := range l.runLaws() {
 		if lawLowered(r) && r.Law.Decl.Reach == nil {
 			l.lawDecl(r.Law)
+			for _, adm := range r.Law.Admit {
+				if adm != nil {
+					l.lawDecl(adm) // lawnear.go
+				}
+			}
 		}
 	}
 	b.WriteString(l.testRunner())
@@ -971,13 +997,16 @@ func (l *lowerer) testRun(b *strings.Builder, t *check.Test, scope *namer, env, 
 		// argument as an Ergo literal of its type (literal.go), written
 		// only when it fails.
 		shown := []string{strconv.Quote("case "), conv + ".Itoa(" + i + ")", strconv.Quote(" of " + strconv.Itoa(testCases) + ", seed "), conv + ".FormatUint(" + seed + ", 10)", strconv.Quote(", size "), conv + ".Itoa(" + i + " / 4)"}
-		for k, v := range testplan.Test(t).Inputs {
+		plan := testplan.Test(t)
+		drawn := make([]string, len(plan.Inputs))
+		for k, v := range plan.Inputs {
 			base := v.Name
 			if base == "_" {
 				base = "arg"
 			}
 			a := inner.alloc(base)
-			b.WriteString("\t\t\t" + a + " := " + l.genExpr(v.Type, r, strconv.Itoa(testDepth), inner, t.Decl) + "\n")
+			drawn[k] = a
+			b.WriteString("\t\t\t" + a + " := " + l.tieExpr(plan, k, drawn, v.Type, r, l.genExpr(v.Type, r, strconv.Itoa(testDepth), inner, t.Decl), t.Decl) + "\n")
 			args = append(args, a)
 			sep := ", "
 			if k == 0 {
@@ -1008,6 +1037,29 @@ func (t *testLowering) lawOwnOf(c *check.Call) string {
 // type that runs (its first slot), nil for any other law.
 func lawGenericOwner(law *check.Law) *check.Named {
 	return testplan.GenericOwner(law)
+}
+
+// lawWitnessParams are the type parameters of a generic owner that take a
+// witness in its law's function: those operations constrain, in order
+// (check.LawProvider.Witnesses holds one for each).
+func lawWitnessParams(own *check.Named) []*check.TypeParam {
+	var out []*check.TypeParam
+	for _, tp := range witnessParams(&check.Signature{TParams: own.TParams}) {
+		if !isWireParam(tp) {
+			out = append(out, tp)
+		}
+	}
+	return out
+}
+
+// lawWitnessArgs are the witnesses a run of law passes at its provider
+// p's instance, after the provider (lawDecl).
+func (fc *funcCtx) lawWitnessArgs(p check.LawProvider, site syntax.Node) []string {
+	out := make([]string, len(p.Witnesses))
+	for i := range p.Witnesses {
+		out[i] = fc.witnessValue(&p.Witnesses[i], site)
+	}
+	return out
 }
 
 func lawSlotParam(law *check.Law, i int) bool {
@@ -1175,6 +1227,7 @@ func (l *lowerer) lawTarget(b *strings.Builder, law *check.Law, label string, bd
 				// after the environment, at the instance the provider
 				// fixes (lawDecl).
 				args = append(args, provide(tg.b[k], "provider", "provider"))
+				args = append(args, fc.lawWitnessArgs(tg.b[k], law.Decl)...)
 				tc := &typeCtx{l: l, site: law.Decl}
 				targs := make([]string, len(tg.b[k].Slot.TArgs))
 				for i, a := range tg.b[k].Slot.TArgs {
@@ -1189,9 +1242,13 @@ func (l *lowerer) lawTarget(b *strings.Builder, law *check.Law, label string, bd
 			}
 		}
 		paramPlans := plan.Inputs
+		offset := 0
 		if len(paramPlans) > 0 && paramPlans[0].Param < 0 {
 			paramPlans = paramPlans[1:]
+			offset = 1
 		}
+		drawn := make([]string, len(plan.Inputs))
+		admitted, distinct := "", "" // a searched case's flags (lawnear.go)
 		for k, v := range law.Params {
 			input := paramPlans[k]
 			vt := input.Type
@@ -1208,7 +1265,21 @@ func (l *lowerer) lawTarget(b *strings.Builder, law *check.Law, label string, bd
 			if input.Where != nil {
 				gen = l.genRefined(vt, input.Where, r, strconv.Itoa(testDepth), inner, law.Decl)
 			}
-			b.WriteString("\t\t\t" + a + " := " + gen + "\n")
+			drawn[k+offset] = a
+			if adm := admissionOf(law, k); adm != nil {
+				// A where over earlier parameters: found by search
+				// (lawnear.go).
+				if admitted == "" {
+					admitted, distinct = inner.alloc("admitted"), inner.alloc("distinct")
+					b.WriteString("\t\t\t" + admitted + ", " + distinct + " := true, false\n")
+				}
+				l.nearDraw(b, law, adm, k, a, vt, gen, args, bind, callee, e, env, r, admitted, distinct, inner, drawn, offset)
+				args = append(args, a)
+				shown = append(shown, strconv.Quote(sep+v.Name+" = "), l.litExpr(vt, a, law.Decl))
+				sep = ", "
+				continue
+			}
+			b.WriteString("\t\t\t" + a + " := " + l.tieExpr(plan, k+offset, drawn, vt, r, gen, law.Decl) + "\n")
 			args = append(args, a)
 			shown = append(shown, strconv.Quote(sep+v.Name+" = "), l.litExpr(vt, a, law.Decl))
 			sep = ", "
@@ -1221,6 +1292,11 @@ func (l *lowerer) lawTarget(b *strings.Builder, law *check.Law, label string, bd
 			s := inner.alloc("s")
 			prefix = "for _, " + s + " := range " + list + " { " + s + "(" + e + "." + l.envField(tg.b[0].Slot) + ") }; "
 		}
+		if admitted != "" {
+			// A case its wheres do not admit is not run (lawnear.go).
+			b.WriteString("\t\t\tif " + admitted + " { " + r + ".admitted++ }; if " + admitted + " && " + distinct + " { " + r + ".distinct++ }\n")
+			prefix = "if !" + admitted + " { return nil }; " + prefix
+		}
 		body := e + " := *" + env + "; " + strings.Join(append(bind, ""), "; ") + prefix +
 			held + ", " + err + " := " + callee + "(" + strings.Join(args, ", ") + "); if " + err + " != nil { return " + err + " }; if !" + held + " { " + l.helper("Refuted") + "(" + at + ") }; return nil"
 		b.WriteString("\t\t\treturn func() string { return " + strings.Join(shown, " + ") + " }, func() error { " + body + " }\n\t\t\t})\n")
@@ -1228,6 +1304,10 @@ func (l *lowerer) lawTarget(b *strings.Builder, law *check.Law, label string, bd
 		okLine := strconv.Quote(fmt.Sprintf("ok %s (%d cases)", tg.label, cases))
 		if l.postRun(law, tg.b) {
 			okLine = strconv.Quote(fmt.Sprintf("ok %s (%d cases, prefixes up to ", tg.label, cases)) + " + " + conv + ".Itoa(" + r + ".deepest) + " + strconv.Quote(" operations)")
+		}
+		if admitted != "" {
+			l.nearReport(b, law, tg.label, cases, r, ok)
+			okLine = strconv.Quote(fmt.Sprintf("ok %s (%d cases, ", tg.label, cases)) + " + " + conv + ".Itoa(" + r + ".distinct) + " + strconv.Quote(" with distinct admitted values)")
 		}
 		b.WriteString("\t\tif " + ok + " {\n\t\t\t" + fmtPkg + ".Println(" + okLine + ")\n")
 		b.WriteString("\t\t} else {\n\t\t\t" + failed + "++\n")
@@ -1526,6 +1606,8 @@ func $Record(label string, r *$Rand, why string) {
 	switch {
 	case r == nil:
 		rec += ", \"status\": \"skipped\", \"why\": " + $JSON(why)
+	case r.skip != "" && r.failure == "":
+		rec += ", \"status\": \"skipped\", \"why\": " + $JSON(r.skip)
 	case r.failure != "":
 		rec += ", \"status\": \"refuted\", \"cases\": " + $strconv.Itoa(r.cases) + ", \"counterexample\": " + $JSON(r.failure)
 	case r.proved:
@@ -1725,6 +1807,11 @@ type $Rand struct {
 	// deepest is the longest drawn prefix of a rewrite or post law's
 	// run: the depth of the states its cases reached.
 	deepest int
+	// A run with a where over earlier parameters (lawnear.go): the
+	// admitted cases whose searched values differ from their sources,
+	// and the reason it is a skip when none did.
+	distinct int
+	skip     string
 }
 
 // start begins case i of a run: its size is i/4, and its world is empty,
@@ -2271,7 +2358,7 @@ func int64Bits(v *big.Int) string {
 // union t or the members of the row value t: at d <= 0 one of least rank,
 // else any, each equally likely.
 func (l *lowerer) genPick(body *strings.Builder, t check.Type, variants []check.Type, r, d string, scope *namer, site syntax.Node) {
-	small := testplan.SmallVariants(variants)
+	small := testplan.SmallVariants(l.pkg.Builder, variants)
 	if len(small) == 0 {
 		ice(site, "the union %s has no finite value; the checker admits only generatable types", t)
 	}

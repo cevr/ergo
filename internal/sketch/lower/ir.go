@@ -18,10 +18,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"go/format"
 	"maps"
 	"path"
 	"slices"
 	"sort"
+	"strings"
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -55,9 +57,12 @@ type IRReport struct {
 	Folds FoldCounts `json:"folds"`
 	// CodecText counts the codec functions that keep their text body,
 	// by "name\treason": a cell writer the IR builder refused
-	// (ir_wire.go), an encoder on the reference Writer and a decoder,
-	// which no IR builder takes yet (the text emitter's). In memory only.
+	// (ir_wire.go), an encoder on the reference Writer and a decoder of
+	// a form no IR builder takes yet (the text emitter's). In memory only.
 	CodecText map[string]int `json:"-"`
+	// CodecRead names the decoders the IR builds (ir_wire_read.go). In
+	// memory only.
+	CodecRead []string `json:"-"`
 	// Forms counts the IR forms the bodies held before erasure, by
 	// kind and layout ("match/flat"; ir_forms.go): in memory only.
 	Forms map[string]int `json:"-"`
@@ -99,6 +104,29 @@ type IRReport struct {
 	// FailJumps counts the inlined failures that jump to their catch arm
 	// (FAIL-INLINE, ir_forms_failjump.go).
 	FailJumps int `json:"-"`
+	// InlinedReturns counts the inlined calls in return position, whose
+	// copy's returns and failures are the caller's own (INLINE-RETURN,
+	// ir_forms_inline.go); Inlined counts them too.
+	InlinedReturns int `json:"-"`
+	// TailPairs counts the returns of a fallible call's value and error
+	// in an inlined fallible body, bound at the site's value and error
+	// (INLINE-RETURN, ir_forms_inline.go irRets).
+	TailPairs int `json:"-"`
+	// FailLocalErrors and FailLocalValues count the failures of inlined
+	// fallible bodies that are a local or a parameter, set as the site's
+	// error: one of type error as it is (a try's error passed on), one of
+	// a failure type converted (INLINE-FAIL-LOCAL, ir_forms_inline.go
+	// irRets.failValue).
+	FailLocalErrors int `json:"-"`
+	FailLocalValues int `json:"-"`
+	// FailArgs counts the parameters used only as a failure that stand
+	// for their variant-literal argument in a copy, so the failure is
+	// built in place (INLINE-FAILARG, ir_forms_inline.go).
+	FailArgs int `json:"-"`
+	// FailThrough counts the failures built in place that a copy's try
+	// passes on as they are, not through its error local
+	// (INLINE-FAILARG, ir_forms_failjump.go failThrough).
+	FailThrough int `json:"-"`
 	// CatchTreeDefects counts the full catches with patterns whose tree's
 	// exit panics with the unreachable defect (FAIL-ELIDE-PAT, ir_fail.go).
 	CatchTreeDefects int `json:"-"`
@@ -120,7 +148,7 @@ func LowerIR(u Unit) ([]File, IRReport, error) { return lowerIR(u, nil) }
 // LowerIRTests is LowerTests with the IR bodies: the test build's IR
 // path, which the agreement property compares with LowerTests.
 func LowerIRTests(u Unit) ([]File, IRReport, error) {
-	return lowerIR(u, &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}})
+	return lowerIR(u, testLoweringOf(u))
 }
 
 // IRCensus is every reason the IR builder cannot lower each function of a
@@ -132,10 +160,13 @@ type IRCensus struct {
 // IRCensusFunc is one lowered body. Reasons are distinct, in the order the
 // builder met them; none means the builder lowers it.
 type IRCensusFunc struct {
-	Pkg     string   `json:"pkg"`
-	Name    string   `json:"name"`
-	File    string   `json:"file,omitempty"` // the source file, for a sourced body
-	Std     bool     `json:"std,omitempty"`
+	Pkg  string `json:"pkg"`
+	Name string `json:"name"`
+	File string `json:"file,omitempty"` // the source file, for a sourced body
+	Std  bool   `json:"std,omitempty"`
+	// Codec marks a codec function that keeps its text body (codecText):
+	// no Ergo body, Name its Go name.
+	Codec   bool     `json:"codec,omitempty"`
 	Reasons []string `json:"reasons,omitempty"`
 }
 
@@ -161,7 +192,7 @@ func censusIR(u Unit, tests bool, reach []*check.Func) (IRCensus, error) {
 	}
 	var tl *testLowering
 	if tests {
-		tl = &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}}
+		tl = testLoweringOf(u)
 	}
 	l := newBuildLowerer(u, tl)
 	l.ir = &irState{files: map[string]int{}, report: IRReport{Fallback: map[string]int{}}, census: &IRCensus{}, reach: reach}
@@ -202,13 +233,13 @@ func lowerIR(u Unit, tests *testLowering) ([]File, IRReport, error) {
 func LowerIRReference(u Unit, tests bool) ([]File, IRReport, error) {
 	var tl *testLowering
 	if tests {
-		tl = &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}}
+		tl = testLoweringOf(u)
 	}
 	return lowerIRForms(u, tl, true)
 }
 
 func lowerIRForms(u Unit, tests *testLowering, formsOff bool) ([]File, IRReport, error) {
-	files, _, report, _, err := lowerIRModule(u, tests, formsOff)
+	files, _, report, _, err := lowerIRModule(u, tests, formsOff, false)
 	if err != nil {
 		return nil, IRReport{}, err
 	}
@@ -219,7 +250,34 @@ func lowerIRForms(u Unit, tests *testLowering, formsOff bool) ([]File, IRReport,
 	sum := sha256.Sum256(data)
 	report.Hash = hex.EncodeToString(sum[:])
 	files = append(files, File{Path: IRFileName, Data: data})
-	return files, report.IRReport, nil
+	return irKeyed(files), report.IRReport, nil
+}
+
+// irKeyed is files with the digest of each IR file in a comment at the end
+// of a Go file of its package. go build keys a package's compile on its Go
+// files and flags and never reads the file -ergoir names, so its flag
+// names the IR by a path relative to the module (build.Toolchain.Command),
+// the same in every module an edit writes, and the IR's content reaches
+// the key through the Go file. An absolute path changed with the module's
+// folder, so go build compiled every package of a split program again on
+// each edit, each unchanged (GP-SPLIT-EDIT).
+func irKeyed(files []File) []File {
+	out := slices.Clone(files)
+	for _, ir := range files {
+		if path.Base(ir.Path) != IRFileName {
+			continue
+		}
+		dir := path.Dir(ir.Path)
+		at := slices.IndexFunc(out, func(f File) bool {
+			return path.Dir(f.Path) == dir && strings.HasSuffix(f.Path, ".go") && !strings.HasSuffix(f.Path, "_test.go")
+		})
+		if at < 0 {
+			continue
+		}
+		sum := sha256.Sum256(ir.Data)
+		out[at].Data = slices.Concat(out[at].Data, []byte("\n// "+IRFileName+" sha256 "+hex.EncodeToString(sum[:])+"\n"))
+	}
+	return out
 }
 
 // LowerIRSplit is LowerIR (LowerIRTests when tests is set) with the
@@ -235,6 +293,13 @@ func LowerIRSplit(u Unit, tests bool) ([]File, IRReport, SplitReport, error) {
 func LowerIRShards(u Unit, tests bool) ([]File, IRReport, SplitReport, error) {
 	return lowerIRSplit(u, tests, programModule, devShards)
 }
+
+// splitFormatLowering selects the split's main.go: "" (the lowering's own
+// text, which the split parses once) or "format" (go/format's, the
+// reference before SPLIT-AST), set by
+// -ldflags=-X=ergo.local/prototype/internal/sketch/lower.splitFormatLowering=format.
+// TestSplitTextKeepsPositions compares the two.
+var splitFormatLowering string
 
 // LowerIRSplitReaching is LowerIRSplit (of the test build with tests) with
 // every function of funcs lowered too, as a library body within u that
@@ -254,9 +319,9 @@ func lowerIRSplit(u Unit, tests bool, base string, sh *shardOpts) ([]File, IRRep
 func lowerIRSplitReaching(u Unit, tests bool, base string, sh *shardOpts, reach []*check.Func) ([]File, IRReport, SplitReport, error) {
 	var tl *testLowering
 	if tests {
-		tl = &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}}
+		tl = testLoweringOf(u)
 	}
-	files, origins, report, l, err := lowerIRModuleReaching(u, tl, false, reach)
+	files, origins, report, l, err := lowerIRModuleReaching(u, tl, false, splitFormatLowering != "format", reach)
 	if err != nil {
 		return nil, IRReport{}, SplitReport{}, err
 	}
@@ -265,6 +330,9 @@ func lowerIRSplitReaching(u Unit, tests bool, base string, sh *shardOpts, reach 
 	rep := SplitReport{Reason: "no main.go"}
 	if i >= 0 {
 		out, rep = splitMain(u, files[i].Data, base, origins, l.harnessNames(), &l.ir.out, sh)
+		if rep.err != nil {
+			return nil, IRReport{}, SplitReport{}, rep.err
+		}
 	}
 	res := files
 	if out == nil {
@@ -276,12 +344,40 @@ func lowerIRSplitReaching(u Unit, tests bool, base string, sh *shardOpts, reach 
 			return nil, IRReport{}, SplitReport{}, err
 		}
 		res = append(slices.Clone(files), File{Path: IRFileName, Data: data})
+		if i >= 0 && l.unformattedText != nil {
+			// The one package's main.go is go/format's, as LowerIR's.
+			if res[i].Data, err = l.formatMain(); err != nil {
+				return nil, IRReport{}, SplitReport{}, err
+			}
+		}
 	} else {
 		res = append(slices.Clone(files[:i]), out...)
 		res = append(res, files[i+1:]...)
 	}
+	res = irKeyed(res)
 	report.Hash = irHash(res)
 	return res, report.IRReport, rep, nil
+}
+
+// withKeeps is main.go's code with the declarations that keep the imports
+// IR bodies name used.
+func (l *lowerer) withKeeps(code []byte) []byte {
+	for _, decl := range slices.Sorted(maps.Keys(l.ir.keep)) {
+		code = append(code, []byte("\n"+decl+" // an import an IR body names\n")...)
+	}
+	return code
+}
+
+// formatMain is main.go as an unsplit lowering writes it, go/format's,
+// from the unformatted lowering's text (lowerer.unformatted): a refused
+// split's one package.
+func (l *lowerer) formatMain() ([]byte, error) {
+	l.formats++
+	formatted, err := format.Source(l.unformattedText)
+	if err != nil {
+		return nil, fmt.Errorf("lower: the emitted Go does not parse (a compiler defect): %w", err)
+	}
+	return l.withKeeps(anchorLines(formatted)), nil
 }
 
 // irModule is what lowerIRModule made: the report and the IR file.
@@ -298,7 +394,7 @@ type irModule struct {
 // is written under dir, and a frame of an IR body names the file a frame
 // of the same function's source body names (runtime/v1, sourceDir).
 func lowerIRTestParts(u Unit, dir string) ([]byte, []File, []byte, error) {
-	files, _, report, l, err := lowerIRModule(u, &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}}, false)
+	files, _, report, l, err := lowerIRModule(u, testLoweringOf(u), false, false)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -320,17 +416,17 @@ func lowerIRTestParts(u Unit, dir string) ([]byte, []File, []byte, error) {
 
 // lowerIRModule lowers u with IR bodies: the module's files without an IR
 // file, the std origins of its names (the split's), and the IR.
-func lowerIRModule(u Unit, tests *testLowering, formsOff bool) ([]File, map[string]*check.Package, irModule, *lowerer, error) {
-	return lowerIRModuleReaching(u, tests, formsOff, nil)
+func lowerIRModule(u Unit, tests *testLowering, formsOff, unformatted bool) ([]File, map[string]*check.Package, irModule, *lowerer, error) {
+	return lowerIRModuleReaching(u, tests, formsOff, unformatted, nil)
 }
 
 // lowerIRModuleReaching is lowerIRModule with reach's bodies lowered too
 // (LowerIRSplitReaching).
-func lowerIRModuleReaching(u Unit, tests *testLowering, formsOff bool, reach []*check.Func) ([]File, map[string]*check.Package, irModule, *lowerer, error) {
+func lowerIRModuleReaching(u Unit, tests *testLowering, formsOff, unformatted bool, reach []*check.Func) ([]File, map[string]*check.Package, irModule, *lowerer, error) {
 	if err := u.Validate(); err != nil {
 		return nil, nil, irModule{}, nil, err
 	}
-	l, code, err := lowerIRRounds(u, tests, formsOff, reach)
+	l, code, err := lowerIRRounds(u, tests, formsOff, unformatted, reach)
 	if err != nil {
 		return nil, nil, irModule{}, nil, err
 	}
@@ -347,10 +443,7 @@ func lowerIRModuleReaching(u Unit, tests *testLowering, formsOff bool, reach []*
 	}
 	sort.Slice(l.ir.out.Funcs, func(i, j int) bool { return l.ir.out.Funcs[i].Name < l.ir.out.Funcs[j].Name })
 	l.ir.out.V = 1
-	for _, decl := range slices.Sorted(maps.Keys(l.ir.keep)) {
-		code = append(code, []byte("\n"+decl+" // an import an IR body names\n")...)
-	}
-	files := l.withRecord(u, append(moduleFiles(u.Go, code), l.assetFiles()...))
+	files := l.withRecord(u, append(moduleFiles(u.Go, l.withKeeps(code)), l.assetFiles()...))
 	sort.Strings(l.ir.report.IR)
 	sortFormSites(l.ir.report.FormSites) // ir_forms_report.go
 	return files, l.stdOrigins(), irModule{IRReport: l.ir.report, out: &l.ir.out}, l, nil
@@ -364,7 +457,7 @@ func lowerIRModuleReaching(u Unit, tests *testLowering, formsOff bool, reach []*
 // round with the last round's facts emits (LAW-GEN-HELPERS: a record
 // shared across rounds left the last round calling generators only an
 // earlier, discarded round had written).
-func lowerIRRounds(u Unit, tests *testLowering, formsOff bool, reach []*check.Func) (*lowerer, []byte, error) {
+func lowerIRRounds(u Unit, tests *testLowering, formsOff, unformatted bool, reach []*check.Func) (*lowerer, []byte, error) {
 	var (
 		l    *lowerer
 		code []byte
@@ -376,7 +469,7 @@ func lowerIRRounds(u Unit, tests *testLowering, formsOff bool, reach []*check.Fu
 		if round == intMapRounds {
 			ims = intMapState{allGo: true}
 		}
-		l, code, err = lowerIRRound(u, tests.fresh(), formsOff, ims, reach)
+		l, code, err = lowerIRRound(u, tests.fresh(), formsOff, unformatted, ims, reach)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -393,9 +486,10 @@ func lowerIRRounds(u Unit, tests *testLowering, formsOff bool, reach []*check.Fu
 }
 
 // lowerIRRound is one round of lowerIRRounds, its int maps decided by ims.
-func lowerIRRound(u Unit, tests *testLowering, formsOff bool, ims intMapState, reach []*check.Func) (*lowerer, []byte, error) {
+func lowerIRRound(u Unit, tests *testLowering, formsOff, unformatted bool, ims intMapState, reach []*check.Func) (*lowerer, []byte, error) {
 	l := newBuildLowerer(u, tests)
 	l.ir = &irState{files: map[string]int{}, report: IRReport{Fallback: map[string]int{}}, formsOff: formsOff, noFallback: u.NoFallback, maps: ims, reach: reach}
+	l.unformatted = unformatted
 	code, err := l.program()
 	return l, code, err
 }
@@ -427,6 +521,11 @@ type irState struct {
 	// builder stopped at, with their reasons (ir_fallback.go).
 	noFallback bool
 	fallbacks  []IRCensusFunc
+	// opFuncs are the implementing functions of closed types' operations
+	// (ir_instance.go staticOpFunc), filled on first use.
+	opFuncs map[opFuncKey]*check.WitnessOp
+	// totals are the functions decided total so far (ir_sink.go).
+	totals map[*check.Func]bool
 }
 
 // restart empties st for a lowering that runs again from the start
@@ -506,6 +605,10 @@ type irStmt struct {
 	// memory only (ir_forms_variant.go); an arm's Bind is only whether
 	// its case's body starts with the binding.
 	Was *irMatch `json:"-"`
+	// Pair marks a "ret" of a fallible Ergo call's value and error as
+	// they are (ir_fail.go retOf), in memory only: an inlined copy binds
+	// both at its site (ir_forms_inline.go irRets).
+	Pair bool `json:"-"`
 }
 
 type irExpr struct {
@@ -549,6 +652,26 @@ type irUnsupported struct{ reason string }
 
 func irNo(format string, args ...any) { panic(irUnsupported{fmt.Sprintf(format, args...)}) }
 
+// newBuilder is the one way to start an IR body. root is the declaration
+// whose source statements the body lowers (a function, a test, a law),
+// and the value rule must have analyzed it first (analyzeValues): the
+// builder reads the rule's copies as facts (valueCopy, copyOf), and a body
+// built before them shares what the rule copies, silently (KMEANS-LAW: a
+// law's IR body was built before its analysis, so `let mut y = x` shared
+// x and a write through y reached x). A body built from an unanalyzed root
+// stops the lowering here, so no path can get the order wrong. root is nil
+// only for a body with no source statements of its own: a machine value's
+// adapter, a codec cell, an owned wrapper and the release helpers of an
+// analyzed body.
+func (st *irState) newBuilder(fc *funcCtx, root syntax.Node) *irBuilder {
+	if root != nil && !isNilNode(root) {
+		if _, ok := fc.l.valueFacts().roots[root]; !ok {
+			unreachable(root, ruleValuesFirst, "the IR body of %T built before the value rule analyzed it", root)
+		}
+	}
+	return &irBuilder{fc: fc, l: fc.l, st: st, locals: map[*check.Var]int{}, env: -1}
+}
+
 // irBuilder builds one function's IR body.
 type irBuilder struct {
 	fc     *funcCtx
@@ -560,9 +683,13 @@ type irBuilder struct {
 	// their value, for unfoldAt (ir_unfold.go).
 	letInits map[*check.Var]syntax.Expr
 	next     int
+	slots    int                      // the Go parameter slots, witnesses too (ir_forms_inline.go)
 	env      int                      // the environment's local, or -1 in a pure function
 	wits     map[*check.TypeParam]int // each witness parameter's local (ir_witness.go)
-	result   check.Type
+	// raw is the operand whose implicit conversion is not applied: a
+	// direct reader passed as itself (directDecode, ir_codec_direct.go).
+	raw    syntax.Expr
+	result check.Type
 	// reasons are a census's reasons for this body, distinct, in order.
 	reasons []string
 	// loops is the depth of loops around the statement being built.
@@ -744,7 +871,12 @@ func (b *irBuilder) part(f func()) {
 // name (a gate keeps it a Go body).
 func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []string, drop bool) (ok bool) {
 	f := fd.fn
-	b := &irBuilder{fc: fc, l: fc.l, st: st, locals: map[*check.Var]int{}, env: -1, result: fc.frame.result}
+	var root syntax.Node
+	if f != nil && f.Decl != nil {
+		root = f.Decl
+	}
+	b := st.newBuilder(fc, root)
+	b.result = fc.frame.result
 	b.factLocals() // ir_bounds.go
 	// A body that falls back is the emitter's, whose walk starts with no
 	// facts: none of this walk's stays (deferred first, so it runs after
@@ -857,6 +989,7 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	if len(params) == 0 {
 		b.witnessSlots(f) // ir_witness.go
 	}
+	b.slots = b.next
 	if b.result != nil {
 		b.part(func() { b.goType(b.result, f.Decl) })
 	}

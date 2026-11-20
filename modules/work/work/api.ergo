@@ -79,7 +79,7 @@ type NewOptions { Copy bool, From Option[string], Branch Option[string], On Opti
 
 // ReadyOptions, SyncOptions and EnvOptions name the workspace (-name);
 // when absent it is the one the working folder is in.
-type ReadyOptions { Name Option[string] }
+type ReadyOptions { Name Option[string], Request Option[string] }
 
 type SyncOptions { Name Option[string] }
 
@@ -217,7 +217,13 @@ type Api {
 	// Ready snapshots the workspace and hands its branch (fast-forward
 	// only) and the snapshot to the parent's repository; it changes no
 	// file of the parent and never pushes to origin.
-	Ready(o ReadyOptions) Handed fails NoBase | NotHere | NoWorkspace | Busy | Detached | NotFastForward | Moved | Unkept | VcsFailed | Locked,
+	// With -request FILE, the record ready writes (work record) takes the
+	// request's digest and its work-record block.
+	Ready(o ReadyOptions) Handed fails NoBase | NotHere | NoWorkspace | Busy | Detached | NotFastForward | Moved | Unkept | VcsFailed | Locked | BadRequest,
+	// Record is the lane record ready wrote for the commit tip (HEAD
+	// too), read in the workspace the working folder is in, else the
+	// base.
+	Record(tip string) LaneRecord fails NoBase | NoRevision | NoRecord | BadRecord | Unkept | VcsFailed,
 	// Sync merges the parent's branch into the workspace's (Git's merge)
 	// and records the parent's commit as its base; it is that commit.
 	Sync(o SyncOptions) Synced fails NoBase | BadConfig | NotHere | NoWorkspace | Busy | Detached | Dirty | Conflicted | Unkept | VcsFailed | Locked,
@@ -441,14 +447,25 @@ func initialized(t Tool) fails NoBase {
 func config(t Tool) Config fails BadConfig {
 	let text = t.files.ReadFile(filepath.Join([]string{t.base, ConfigFile})) catch {
 	case fs.NotFound:
-		return Config{..EmptyConfig(), Classes: PresetLines([]ClassLine{}, presentLocks(t, t.base))}
+		return try overBase(t, EmptyConfig())
 	case fs.Denied:
 		return BadConfig{Line: 0, Why: "\(ConfigFile): permission denied"}
 	case fs.Failed as f:
 		return BadConfig{Line: 0, Why: "\(ConfigFile): \(f.Reason)"}
 	}
-	let c = try ParseConfig(text)
-	Config{..c, Classes: PresetLines(c.Classes, presentLocks(t, t.base))}
+	try overBase(t, try ParseConfig(text))
+}
+
+// overBase is c with what the base adds: its own Git setting work.trash
+// (LocalTrash) and the presets of the lock files at its root.
+func overBase(t Tool, c Config) Config fails BadConfig {
+	// A base Git cannot read has no setting: the next source decides.
+	let setting = t.vcs.Setting(t.base, TrashKey) catch {
+	case VcsFailed:
+		""
+	}
+	let local = try LocalTrash(c, setting)
+	Config{..local, Classes: PresetLines(local.Classes, presentLocks(t, t.base))}
 }
 
 // live is the record of name unless it is trashed.
@@ -827,13 +844,14 @@ func active(w Workspace) Workspace fails Busy {
 	}
 }
 
-func Ready(t Tool, o ReadyOptions) Handed fails NoBase | NotHere | NoWorkspace | Busy | Detached | NotFastForward | Moved | Unkept | VcsFailed | Locked {
+func Ready(t Tool, o ReadyOptions) Handed fails NoBase | NotHere | NoWorkspace | Busy | Detached | NotFastForward | Moved | Unkept | VcsFailed | Locked | BadRequest {
 	try initialized(t)
 	let w = try active(try chosen(t, o.Name))
 	let branch = try t.vcs.Branch(w.Path)
 	if branch == "" {
 		return Detached{Path: w.Path}
 	}
+	let request = try requestOf(t, o.Request)
 	let tree = try t.vcs.Snapshot(w.Path)
 	let commit = try t.vcs.Keep(w.Path, tree)
 	try t.vcs.SetRef(w.Path, LatestRef, try t.vcs.Ref(w.Path, LatestRef), commit)
@@ -845,6 +863,11 @@ func Ready(t Tool, o ReadyOptions) Handed fails NoBase | NotHere | NoWorkspace |
 	case VcsFailed as e:
 		return e
 	}
+	// The record is the tip's note, in the parent that holds the tip and
+	// in the workspace: never the branch name's.
+	let record = EncodeRecord(try recordOf(t, w, branch, held, request))
+	try t.vcs.SetNote(w.Parent, held, record)
+	try t.vcs.SetNote(w.Path, held, record)
 	try put(t, Workspace{..w, Branch: branch, Latest: tree, Since: now(t)})
 	Handed{Name: w.Name, Branch: branch, Commit: held, Snapshot: tree, Parent: w.Parent}
 }
@@ -903,7 +926,7 @@ func MergeFile(t Tool, class string, base string, ours string, theirs string, o 
 		}
 		return BadClass{Name: class, Known: slices.Concat(slices.Concat(classes.ClassNames, names), []string{"auto"})}
 	}
-	try mergeWith(t, c, class, path, base, ours, theirs)
+	try mergeWith(t, c, class, "", path, base, ours, theirs)
 }
 
 // mark writes the marker of the workspace at path: its id in its Git

@@ -56,7 +56,9 @@ func Columns(p Parsed) []uint32 {
 }
 
 // ColumnsVersion is the first word of Columns: a host that reads another
-// layout refuses it. 3: a law's row gains TypeParams, its word 2. A change
+// layout refuses it. 3: a law's row gains TypeParams, its word 2. 4: a
+// context declaration's and literal's rows gain Fails, before Needs
+// (CTX-ROWS-1b): 7 and 4 fixed words. A change
 // of the layout is bootstrapped (go run ./scripts/linked -bootstrap): the
 // host reads this layout and the one before it.
-let ColumnsVersion = uint32(3)
+let ColumnsVersion = uint32(4)

@@ -32,6 +32,8 @@ let tokens = []string{
 	"",
 	"chan", "const", "default", "defer", "fallthrough", "go", "goto", "interface", "map", "package",
 	"range", "select", "struct", "switch", "var",
+	"",
+	"~",
 }
 
 // tokenText is the spelling of token kind n.

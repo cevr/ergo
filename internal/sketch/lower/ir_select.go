@@ -38,7 +38,7 @@ func (b *irBuilder) selectOther(x *syntax.SelectorExpr, p irPos) *irExpr {
 			}
 		case *check.Func:
 			if o.Name == x.Sel.Name {
-				return b.funcName(o, b.l.info.Types[x], x, p) // ir_fnname.go
+				return b.funcName(o, b.l.info.Types[x], x, p, nil) // ir_fnname.go
 			}
 		case *check.Var:
 			if o.Name != x.Sel.Name {

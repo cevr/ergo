@@ -204,9 +204,12 @@ type lowerer struct {
 	src      string       // its admitted path, which //line directives name
 	cur      int          // its index in srcs
 
-	srcs    []srcFile                // every source file in canonical order (canon.srcs)
-	tpSrc   map[*check.TypeParam]int // each type parameter's source file (paramFile)
-	nodeIDs map[syntax.Node]int      // node identities for keys (nodeID)
+	srcs []srcFile // every source file in canonical order (canon.srcs)
+	// rowPlaces are the places a row gap can be found at in each
+	// package's Info (rowgap.go, findRowPlaces), found once for each.
+	rowPlaces map[*check.Info]*rowPlaces
+	tpSrc     map[*check.TypeParam]int // each type parameter's source file (paramFile)
+	nodeIDs   map[syntax.Node]int      // node identities for keys (nodeID)
 	// groups is the group function of each generic frame type, nil for
 	// one with none (uigroup.go, groupFrame).
 	groups map[*check.Named]*check.Func
@@ -238,6 +241,14 @@ type lowerer struct {
 	bodies   int        // function bodies lowered (TestNamingWorkIsLinear)
 	formats  int        // go/format runs
 	raw      bool       // Unit.Raw: program skips go/format
+	// unformatted skips go/format (the IR split, lowerIRSplit): only the
+	// compiler reads the split's Go, and the split parses main.go itself,
+	// so go/format's parse and print were the edit's second parse
+	// (SPLIT-AST; owner rule via the orchestrator, 2026-11-19: Go only the
+	// compiler reads needs no gofmt). unformattedText keeps the text before
+	// anchoring, for a refused split's one-package main.go (formatMain).
+	unformatted     bool
+	unformattedText []byte
 
 	// inlineOK holds the inline decisions, inlineGrown the body nodes each
 	// Go function took in under the reference growth rule (growth.go),
@@ -303,7 +314,7 @@ type lowerer struct {
 	goVars   map[pkgKey]bool          // getters of Go package variables emitted (ir_govar.go)
 	machines map[pkgKey]string        // generated machine value functions emitted, to their Go result (ir_machine.go)
 	vals     *valueFacts              // the value rule's decisions (values.go)
-	sets     map[check.TypeSet]string // generated constraint interfaces emitted (decls.go, constraint)
+	sets     map[*check.TypeName]bool // type-set constraint interfaces emitted (ir_typeset.go)
 	holds    map[*check.Named]holdState
 	typeKeys map[check.Type]string
 	// directWriters are the sealed std types whose values encode writes
@@ -526,7 +537,7 @@ func lowererOf(c *canonical, pkg *check.Package, goModule GoModule, tests *testL
 		texts:     map[pkgKey]bool{},
 		defaults:  map[pkgKey]bool{},
 		equals:    map[pkgKey]bool{},
-		sets:      map[check.TypeSet]string{},
+		sets:      map[*check.TypeName]bool{},
 		holds:     map[*check.Named]holdState{},
 		typeKeys:  map[check.Type]string{},
 		methods:   map[*check.Package]map[*check.TypeName][]*check.Func{},
@@ -763,6 +774,10 @@ func (l *lowerer) program() ([]byte, error) {
 	out.WriteString(inits)
 	if l.raw {
 		return anchorLines([]byte(out.String())), nil
+	}
+	if l.unformatted {
+		l.unformattedText = []byte(out.String())
+		return anchorLines(l.unformattedText), nil
 	}
 	l.formats++
 	formatted, err := format.Source([]byte(out.String()))

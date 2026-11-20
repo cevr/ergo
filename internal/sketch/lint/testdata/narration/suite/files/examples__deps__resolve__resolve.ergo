@@ -64,7 +64,7 @@ func Resolve(root []Requirement) Plan fails NoVersion | NoPlan | TooHard | Circu
 
 // solve extends pins until every wanted package is pinned, or is None
 // when no extension keeps every want.
-func solve(s *search, root []Requirement, pins Map[string, semver.Version]) Option[Map[string, semver.Version]] fails TooHard | UnknownPackage | UnknownVersion needs Index {
+func solve(s mut search, root []Requirement, pins Map[string, semver.Version]) Option[Map[string, semver.Version]] fails TooHard | UnknownPackage | UnknownVersion needs Index {
 	s.steps = s.steps + 1
 	if s.steps > MaxSteps {
 		return TooHard{Steps: MaxSteps}
@@ -110,7 +110,7 @@ func solve(s *search, root []Requirement, pins Map[string, semver.Version]) Opti
 
 // note keeps the clash of name and wants, when it is the first and no
 // version of name keeps every want.
-func note(s *search, name string, wants []Want) fails UnknownPackage needs Index {
+func note(s mut search, name string, wants []Want) fails UnknownPackage needs Index {
 	match s.clash {
 	case Some[Clash]:
 		return
