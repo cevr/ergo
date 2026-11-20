@@ -297,7 +297,10 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 					// before its receiver (callText).
 					irArgs = append([]*irExpr{irArgs[1], irArgs[0]}, irArgs[2:]...)
 				}
-				return pre, mark(&irExpr{K: "call", Pos: p, Name: mono.name, Args: irArgs}), !fd.envFree
+				// The copy's own IR body is the inliner's to copy, as
+				// the text path's OPT4a writes the instance's body at
+				// its call (lru's Churn: Cache.Get; IR-GETMATCH).
+				return pre, b.inlineMark(x, c, fd, mark(&irExpr{K: "call", Pos: p, Name: mono.name, Args: irArgs})), !fd.envFree // ir_forms_inline.go
 			}
 		}
 		if known != "" && fd.method != nil {
