@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"hash/fnv"
 	"math/rand/v2"
+	"runtime"
+	"runtime/debug"
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -362,6 +364,31 @@ func (in *interp) start(site string, body func(t *etask) (Value, *abrupt)) *etas
 	return t
 }
 
+// taskPanic is a Go runtime fault on a task's goroutine, which the root
+// raises again when the schedule ends (shutdown): it keeps the stack of
+// the goroutine where the fault happened, which the raise on the root's
+// goroutine would hide. Any other panic value is raised as it is, since
+// its recoverers match it by type (internalError, *abrupt) and its
+// message names its site.
+type taskPanic struct {
+	fault runtime.Error
+	stack []byte
+}
+
+func (p taskPanic) Error() string {
+	return fmt.Sprintf("%v\n\nthe goroutine of the task that faulted:\n%s", p.fault, p.stack)
+}
+
+// withTaskStack is r, a task goroutine's recovered panic, with that
+// goroutine's stack when it is a runtime fault. It is called in the
+// recovering defer, while the faulting frames are still on the stack.
+func withTaskStack(r any) any {
+	if f, ok := r.(runtime.Error); ok {
+		return taskPanic{fault: f, stack: debug.Stack()}
+	}
+	return r
+}
+
 // runTask is a task's goroutine: it waits for the baton, runs the body,
 // records the exit and hands the baton on.
 func (in *interp) runTask(t *etask) {
@@ -372,7 +399,7 @@ func (in *interp) runTask(t *etask) {
 		if r := recover(); r != nil {
 			// An internal error on this goroutine: the root raises it.
 			if s.panicked == nil {
-				s.panicked = r
+				s.panicked = withTaskStack(r)
 			}
 			if s.fatal == nil {
 				s.fatal = &abrupt{kind: ctlAbort, msg: "an internal error"}

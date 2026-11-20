@@ -1,0 +1,104 @@
+// Package memory is an mcp.Transport in the process's memory (AP2): the
+// client's messages are given at the start, and what the server sends is
+// kept for the test to read.
+
+import json
+import mcp
+import strings
+import sync
+
+// Transport is a session whose client sends Input. Its values are copies
+// of one session.
+type Transport { Input []string, sent sync.Ref[[]string] } implements mcp.Transport
+
+// New is a session whose client sends input.
+func New(input []string) Transport { Transport{Input: input, sent: sync.NewRef([]string{})} }
+
+// Messages is Input, in order.
+func Messages(t Transport) Seq[string] {
+	let input = t.Input
+	Seq[string](func(yield func(v string) bool) {
+		for m in input {
+			if !yield(m) {
+				return
+			}
+		}
+	})
+}
+
+// Send keeps message.
+func Send(t Transport, message string) { t.sent.Update(func(xs []string) []string { xs.Append(message) }) }
+
+// Sent is what the server sent, in order.
+func Sent(t Transport) []string { t.sent.Get() }
+
+// The session's law, on this transport.
+
+// add is a tool that adds the integers a and b of its arguments, and
+// fails ToolError when one is missing.
+func add() mcp.Tool {
+	let schema = json.Decode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, "{\"type\":\"object\",\"properties\":{\"a\":{\"type\":\"integer\"},\"b\":{\"type\":\"integer\"}},\"required\":[\"a\",\"b\"]}") catch {
+	case _:
+		json.Null
+	}
+	mcp.Tool{Name: "add", Description: "adds a and b", Input: schema, Call: func(arguments json.Value) json.Value fails mcp.ToolError {
+		let a = try integer(arguments, "a")
+		let b = try integer(arguments, "b")
+		json.IntNumber(a + b)
+	}}
+}
+
+// integer is the integer key of arguments.
+func integer(arguments json.Value, key string) int64 fails mcp.ToolError {
+	match mcp.Field(arguments, key) {
+	case Some[json.Value] as v:
+		let n = json.Decode(json.Codec[int64]{MaxBytes: 0, MaxDepth: 0}, json.Encode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, v.Value)) catch {
+		case _:
+			return mcp.ToolError{Message: "\(key) is not an integer"}
+		}
+		n
+	case None:
+		mcp.ToolError{Message: "\(key) is missing"}
+	}
+}
+
+// calc is the server of the session.
+let calc = mcp.Server{Name: "calc", Version: "0.1.0", Tools: []mcp.Tool{add()}}
+
+// CallAnswersOnce: in a session of requests and notifications, each
+// request gets exactly one answer, carrying its id, in the order of the
+// requests, and a notification gets none.
+law CallAnswersOnce(kinds []int) {
+	let mut input = []string{}
+	let mut ids = []string{}
+	for i, k in kinds {
+		let method = match ((k % 3) + 3) % 3 {
+		case 0:
+			"tools/call\",\"params\":{\"name\":\"add\",\"arguments\":{\"a\":\(i),\"b\":1}}"
+		case 1:
+			"tools/list\""
+		case _:
+			"ping\""
+		}
+		if k%2 == 0 {
+			input = input.Append("{\"jsonrpc\":\"2.0\",\"id\":\"r\(i)\",\"method\":\"" + method + "}")
+			ids = ids.Append("r\(i)")
+		} else {
+			input = input.Append("{\"jsonrpc\":\"2.0\",\"method\":\"" + method + "}")
+		}
+	}
+	let t = New(input)
+	if mcp.Serve(calc, t) != len(kinds) {
+		return false
+	}
+	let sent = t.Sent()
+	if len(sent) != len(ids) {
+		return false
+	}
+	for i, line in sent {
+		if !strings.HasPrefix(line, "{\"jsonrpc\":\"2.0\",\"id\":\"\(ids[i])\",\"result\":") {
+			return false
+		}
+	}
+	true
+}

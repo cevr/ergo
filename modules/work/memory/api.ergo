@@ -33,8 +33,12 @@ func Gc(w Workspaces, o work.GcOptions) work.Collected fails work.NoBase | work.
 
 func Du(w Workspaces) []work.Space fails work.NoBase | work.Unsupported | work.Missing | work.CloneFailed | work.Unkept { try w.tool.Du() }
 
-func Ready(w Workspaces, o work.ReadyOptions) work.Handed fails work.NoBase | work.NotHere | work.NoWorkspace | work.Busy | work.Detached | work.NotFastForward | work.Moved | work.Unkept | work.VcsFailed | work.Locked {
+func Ready(w Workspaces, o work.ReadyOptions) work.Handed fails work.NoBase | work.NotHere | work.NoWorkspace | work.Busy | work.Detached | work.NotFastForward | work.Moved | work.Unkept | work.VcsFailed | work.Locked | work.BadRequest {
 	try w.tool.Ready(o)
+}
+
+func Record(w Workspaces, tip string) work.LaneRecord fails work.NoBase | work.NoRevision | work.NoRecord | work.BadRecord | work.Unkept | work.VcsFailed {
+	try w.tool.Record(tip)
 }
 
 func Sync(w Workspaces, o work.SyncOptions) work.Synced fails work.NoBase | work.BadConfig | work.NotHere | work.NoWorkspace | work.Busy | work.Detached | work.Dirty | work.Conflicted | work.Unkept | work.VcsFailed | work.Locked {
