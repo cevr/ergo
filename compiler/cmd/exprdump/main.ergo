@@ -367,7 +367,7 @@ func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 		}
 		// Each package is written as it is typed (compiler/check/load), so
 		// the run holds one package's typing at a time.
-		let p = load.LoadAll(units, load.Outside(units, std))
+		let p = load.LoadAll(units, load.Outside(units, std), 4)
 		for i in 0..len(p.Loaded) {
 			let u = units[p.Units[i]]
 			let d = load.TypeAt(p, i)
@@ -401,7 +401,7 @@ func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 	for g in groups {
 		units = units.Append(try unitOf(g))
 	}
-	let p = load.LoadAll(units, load.Outside(units, std))
+	let p = load.LoadAll(units, load.Outside(units, std), 4)
 	let d = load.TypeAt(p, 0)
 	write(&b, units[p.Units[0]], d, calls, "")
 	if !calls {
