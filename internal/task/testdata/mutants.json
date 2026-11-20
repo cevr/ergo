@@ -45,6 +45,15 @@
       "to": "\t\t\tif hit {\n",
       "rule": "--fresh runs every generator: a stored result keyed without a file the generator reads is caught by the fresh run.",
       "killers": ["internal/task:TestGenCheckIsFreshRegeneration"]
+    },
+    {
+      "name": "task-cycle-unbounded",
+      "origin": "wf10 MONOREPO WT1a addendum",
+      "file": "internal/task/gen.go",
+      "from": "\t\tif running == k+1 {\n",
+      "to": "\t\tif false {\n",
+      "rule": "A cycle of k generators settles in k+1 running passes; one still missing after them fails naming it, never loops (only the coarse backstop would stop it, past the bound).",
+      "killers": ["internal/task:TestGenStopsARestlessCycle"]
     }
   ]
 }

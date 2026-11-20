@@ -372,8 +372,11 @@ of the `ergo.work` at `DIR` (default `.`); `ergo task --list [--json]
   Generators that read each other's outputs (a cycle: a compiler's
   generators, each built with the others' files) run in the order of
   their `gen` lines, pass after pass, until a pass runs none of them;
-  `--list` names each cycle. A run that has not settled after one pass
-  more than there are generators fails.
+  `--list` names each cycle. A run settles in at most k+1 passes that
+  run something, k the number of generators in its largest cycle (1 with
+  no cycle: one pass to learn the edges, one in order); a generator that
+  still misses after them keeps changing what another reads, and the run
+  fails naming it rather than loop for ever.
 - **Hits.** A generator's result is kept (the law-verdict store, under its
   own identity) under the content of its inputs after the run, with the
   digest of each output; the next run's key is over the files its last

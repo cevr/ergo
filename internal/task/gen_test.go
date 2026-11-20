@@ -396,6 +396,91 @@ func genProperty(t *testing.T, seed int64) {
 	}
 }
 
+// ringNodes are n generators in a ring: ring/i.out is written from the
+// output of the one before it. A restless ring appends a mark to what it
+// read, so it never settles; a settling ring writes one mark more than
+// it read, at most cap of them, so it settles once every output holds cap.
+func ringNodes(n, capMarks int, restless bool) []Node {
+	var nodes []Node
+	out := func(i int) string { return fmt.Sprintf("ring/%d.out", i) }
+	for i := range n {
+		prev := out((i + n - 1) % n)
+		nodes = append(nodes, Node{
+			Name:   fmt.Sprintf("r%d", i),
+			Class:  Vouched,
+			Ident:  fmt.Sprint(i),
+			Env:    func(context.Context) (string, error) { return "env", nil },
+			Inputs: func(context.Context, string) (Inputs, error) { return Inputs{Files: []string{prev}}, nil },
+			Run: func(_ context.Context, root string) ([]byte, error) {
+				data, _ := os.ReadFile(filepath.Join(root, prev))
+				text := string(data) + "x"
+				if !restless && len(text) > capMarks {
+					text = text[:capMarks]
+				}
+				if err := os.MkdirAll(filepath.Join(root, "ring"), 0o755); err != nil {
+					return nil, err
+				}
+				return nil, os.WriteFile(filepath.Join(root, out(i)), []byte(text), 0o644)
+			},
+		})
+	}
+	return nodes
+}
+
+// TestGenStopsARestlessCycle is the bound on passes (build.md,
+// Generators): over seeded rings of 2 to 5 generators that read each
+// other's outputs, declared in a shuffled order, a ring that settles is
+// run to its fixed point (every output holds the cap) with no error, and
+// a ring that never settles fails within k+1 running passes, k its size,
+// naming its generators, rather than loop. It catches
+// task-cycle-unbounded (testdata/mutants.json). A failing seed prints
+// `go test ./internal/task -run TestGenStopsARestlessCycle -task.seed N`.
+func TestGenStopsARestlessCycle(t *testing.T) {
+	seeds := []int64{}
+	if *taskSeed != 0 {
+		seeds = append(seeds, *taskSeed)
+	} else {
+		for s := int64(1); s <= 20; s++ {
+			seeds = append(seeds, s)
+		}
+	}
+	for _, seed := range seeds {
+		rng := rand.New(rand.NewPCG(uint64(seed), 11))
+		n := 2 + rng.IntN(4)
+		restless := rng.IntN(2) == 0
+		capMarks := 1 + rng.IntN(n) // a ring of n settles in n+1 passes at a cap of at most n
+		nodes := ringNodes(n, capMarks, restless)
+		rng.Shuffle(len(nodes), func(i, j int) { nodes[i], nodes[j] = nodes[j], nodes[i] })
+		root := t.TempDir()
+		var log strings.Builder
+		r := &Runner{Root: root, Store: lawcache.Memory(StoreIdentity), Out: &log}
+		rep, err := r.Gen(context.Background(), nodes, Mode{})
+		replay := fmt.Sprintf("seed %d (ring of %d, restless %v, cap %d)\nlog:\n%s\nreplay: go test ./internal/task -run TestGenStopsARestlessCycle -task.seed %d", seed, n, restless, capMarks, log.String(), seed)
+		running := 0
+		for _, c := range rep.Ran {
+			running = max(running, c)
+		}
+		if restless {
+			if err == nil || !strings.Contains(err.Error(), "keep changing") {
+				t.Fatalf("a restless ring: %v\n%s", err, replay)
+			}
+			if running > n+1 {
+				t.Fatalf("a restless ring ran a generator %d times, past the bound %d\n%s", running, n+1, replay)
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatalf("a settling ring: %v\n%s", err, replay)
+		}
+		for i := range n {
+			data, _ := os.ReadFile(filepath.Join(root, fmt.Sprintf("ring/%d.out", i)))
+			if string(data) != strings.Repeat("x", capMarks) {
+				t.Fatalf("a settling ring left ring/%d.out = %q, want %d marks\n%s", i, data, capMarks, replay)
+			}
+		}
+	}
+}
+
 func maps2Equal(a, b map[string]string) bool {
 	if len(a) != len(b) {
 		return false

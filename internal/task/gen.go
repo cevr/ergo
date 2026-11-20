@@ -341,9 +341,12 @@ func (r *Runner) Gen(ctx context.Context, nodes []Node, mode Mode) (Report, erro
 			return rep, err
 		}
 	}
+	running := 0 // the passes that ran a node
 	for pass := 1; ; pass++ {
-		if pass > len(nodes)+1 {
-			return rep, fmt.Errorf("gen does not settle after %d passes: a node's run changes what another read before it, every pass", len(nodes)+1)
+		// A backstop past every bound below: the graph of a pass is read
+		// from the store, so a run whose stored edges keep moving still ends.
+		if running > len(nodes)+1 {
+			return rep, fmt.Errorf("gen does not settle after %d passes", running)
 		}
 		g, err := r.Graph(nodes)
 		if err != nil {
@@ -354,6 +357,25 @@ func (r *Runner) Gen(ctx context.Context, nodes []Node, mode Mode) (Report, erro
 			rep.Order = append(rep.Order, nodes[i].Name)
 		}
 		rep.Passes = pass
+		// A cycle of k generators settles in k+1 passes that run
+		// something (every generator alone settles in 2: one to learn the
+		// edges, one in order); a generator still running after that keeps
+		// changing what another reads, and would loop for ever.
+		k := 1
+		for _, c := range g.Cycles {
+			k = max(k, len(c))
+		}
+		if running == k+1 {
+			var still []string
+			for _, i := range g.Order {
+				if _, hit, err := r.lookup(nodes[i], envs[i], root, h); err == nil && !hit {
+					still = append(still, nodes[i].Name)
+				}
+			}
+			if len(still) > 0 {
+				return rep, fmt.Errorf("gen %s keep changing what another reads: they still miss after %d passes, the most a cycle of %d settles in; a generator whose output never settles must not loop", strings.Join(still, ", "), running, k)
+			}
+		}
 		ran := false
 		for _, i := range g.Order {
 			n := nodes[i]
@@ -393,6 +415,7 @@ func (r *Runner) Gen(ctx context.Context, nodes []Node, mode Mode) (Report, erro
 		if !ran {
 			break
 		}
+		running++
 	}
 	if inCopy {
 		for _, p := range sortedUnique(written) {
