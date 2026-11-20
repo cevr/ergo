@@ -14,113 +14,61 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// The seeded property "a default the IR states is the emitter's": a field
-// a record literal leaves out, and a `let mut m Map[…]` with no value,
-// start at their default (types.md, Defaults): Go's zero value, or an
-// empty Map (an int-keyed Map's empty table), field by field through a
-// nested record. The IR builder states each default in the literal
-// (defaultOf, ir_letpat.go) instead of keeping the emitter's body.
+// The seeded property "a Map's default the IR states is the emitter's":
+// `let mut m T` with no value starts at T's default (types.md, Defaults 3),
+// an empty Map for a Map, an int-keyed Map's empty table on the IR. The IR
+// builder states it (defaultOf, ir_letpat.go) instead of keeping the
+// emitter's body. The same defaultOf fills the fields a record literal
+// leaves out, which only a literal the checker admits without every field
+// has (a script recorder's empty literal, `recorder[Screen]{}`: source
+// literals name every field, Zero values 2); the examples that hold one
+// (particles, pipeline) run on both paths in TestIRAgreesOnExamples.
 //
-// TestIRDefaultsMatchEmitter writes, per seed, records whose fields mix
-// scalars, slices, string- and int-keyed Maps and a nested record holding
-// a Map; one test body builds literals that leave out a random subset of
-// fields, and declares Maps with no value; it then writes into each
-// defaulted Map in place and checks every length and value. Each seed
-// runs on the evaluator, the text path's test build and `ergo test
-// --native` (the IR), which must all pass, and the IR build keeps no
-// body for either census reason. Replay: go test -run
-// '^TestIRDefaultsMatchEmitter$' ./internal/sketch/lower -args -defaults.seed=N
+// TestIRDefaultsMatchEmitter writes, per seed, a test body that declares
+// Maps of several key and value types with no value, writes into each in
+// place and checks its length and entries. Each seed runs on the
+// evaluator, the text path's test build and `ergo test --native` (the
+// IR), which must all pass, and the IR build keeps no body for the
+// default. Replay: go test -run '^TestIRDefaultsMatchEmitter$'
+// ./internal/sketch/lower -args -defaults.seed=N
 //
-// Mutant (lower ledger): ir-default-map-nil (an omitted Map field is
-// Go's nil map: the first write through it panics on the IR).
+// Mutant (lower ledger): ir-default-map-nil (a Map's default is Go's nil
+// map: the first write through it panics on the IR).
 
 var defaultsSeed = flag.Uint64("defaults.seed", 0, "run TestIRDefaultsMatchEmitter on this seed only")
 
-// defaultsField is one field kind: its Ergo type, a write into a value v
-// of the field (in place), and the facts that hold after it.
-type defaultsField struct {
-	typ, write, fact string
-}
-
-var defaultsKinds = []defaultsField{
-	{"int", "", "%s == 0"},
-	{"string", "", "%s == \"\""},
-	{"[]int", "", "len(%s) == 0"},
-	{"Map[string, int]", "%s[\"k\"] = 7", "len(%s) == 1 && %s[\"k\"] == 7"},
-	{"Map[int, int]", "%s[3] = 9", "len(%s) == 1 && %s[3] == 9"},
-	{"Inner", "%s.M[1] = true", "len(%s.M) == 1"},
+// defaultsMaps are the Map types a seed declares with no value, a key and
+// a value of each.
+var defaultsMaps = []struct{ typ, key, val string }{
+	{"Map[int, string]", "3", "\"x\""},
+	{"Map[string, int]", "\"k\"", "7"},
+	{"Map[int64, []int]", "int64(2)", "[]int{1}"},
+	{"Map[uint8, bool]", "uint8(5)", "true"},
+	{"Map[string, Map[int, int]]", "\"m\"", "Map[int, int]{1: 2}"},
 }
 
 // defaultsProgram is seed's package.
 func defaultsProgram(seed uint64) string {
 	r := rand.New(rand.NewPCG(seed, 0x64656661)) // "defa"
-	var b strings.Builder
-	b.WriteString("type Inner { M Map[int, bool], N int }\n\n")
 	var body strings.Builder
-	for ri := 0; ri < 2; ri++ {
-		n := 2 + r.IntN(4)
-		var fields []string
-		kinds := make([]defaultsField, n)
-		for i := range n {
-			kinds[i] = defaultsKinds[r.IntN(len(defaultsKinds))]
-			fields = append(fields, fmt.Sprintf("F%d %s", i, kinds[i].typ))
+	n := 2 + r.IntN(4)
+	for i := range n {
+		m := defaultsMaps[r.IntN(len(defaultsMaps))]
+		fmt.Fprintf(&body, "\tlet mut m%d %s\n\tassert len(m%d) == 0\n", i, m.typ, i)
+		writes := r.IntN(3)
+		for range writes {
+			fmt.Fprintf(&body, "\tm%d[%s] = %s\n", i, m.key, m.val)
 		}
-		fmt.Fprintf(&b, "type R%d { %s }\n\n", ri, strings.Join(fields, ", "))
-		// The literal gives some fields and leaves the rest out; at
-		// least one is left out.
-		var given []string
-		var omitted []int
-		for i := range n {
-			if r.IntN(3) == 0 && len(omitted) < n-1 || i == n-1 && len(omitted) == 0 {
-				omitted = append(omitted, i)
-				continue
-			}
-			given = append(given, fmt.Sprintf("F%d: %s", i, defaultsValue(kinds[i].typ)))
+		want := 0
+		if writes > 0 {
+			want = 1
 		}
-		v := fmt.Sprintf("r%d", ri)
-		fmt.Fprintf(&body, "\tlet mut %s = R%d{%s}\n", v, ri, strings.Join(given, ", "))
-		for _, i := range omitted {
-			f := fmt.Sprintf("%s.F%d", v, i)
-			k := kinds[i]
-			if k.write != "" {
-				fmt.Fprintf(&body, "\t"+k.write+"\n", f)
-			}
-			fmt.Fprintf(&body, "\tassert "+k.fact+"\n", repeatArg(k.fact, f)...)
-		}
+		fmt.Fprintf(&body, "\tassert len(m%d) == %d\n", i, want)
 	}
-	// A Map declared with no value, written in place.
-	fmt.Fprintf(&body, "\tlet mut m Map[int, string]\n\tm[%d] = \"x\"\n\tassert len(m) == 1\n", r.IntN(9))
-	fmt.Fprintf(&body, "\tlet mut s Map[string, int]\n\ts[\"a\"] = %d\n\tassert len(s) == 1\n", r.IntN(9))
+	var b strings.Builder
 	fmt.Fprintf(&b, "test Defaults {\n%s}\n\n", body.String())
 	b.WriteString("func main() needs Console {\n\tConsole.Println(\"x\")\n}\n")
 	return b.String()
-}
-
-// defaultsValue is a value of the field type typ that is not its
-// default.
-func defaultsValue(typ string) string {
-	switch typ {
-	case "int":
-		return "4"
-	case "string":
-		return "\"s\""
-	case "[]int":
-		return "[]int{1}"
-	case "Map[string, int]":
-		return "Map[string, int]{\"a\": 1}"
-	case "Map[int, int]":
-		return "Map[int, int]{1: 2}"
-	}
-	return "Inner{M: Map[int, bool]{5: true}, N: 1}"
-}
-
-// repeatArg is f once for each %s of format.
-func repeatArg(format, f string) []any {
-	var out []any
-	for range strings.Count(format, "%s") {
-		out = append(out, f)
-	}
-	return out
 }
 
 // TestIRDefaultsMatchEmitter is the property above.
@@ -167,7 +115,7 @@ func TestIRDefaultsMatchEmitter(t *testing.T) {
 			t.Fatalf("seed %d: LowerIRTests: %v\n%s", seed, err, replay)
 		}
 		for reason := range irRep.Fallback {
-			if strings.Contains(reason, "without every field") || strings.Contains(reason, "default that holds a Map") {
+			if strings.Contains(reason, "default that holds a Map") {
 				t.Errorf("seed %d: the IR keeps the emitter's body: %s\n%s", seed, reason, replay)
 			}
 		}
