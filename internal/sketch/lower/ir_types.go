@@ -32,6 +32,9 @@ func (b *irBuilder) goType(t check.Type, site syntax.Node) string {
 }
 
 func (b *irBuilder) admit(t check.Type, depth int) {
+	if t == check.NoValue {
+		return // a type parameter bound by a block with no value: Go's struct{} (goType), which the decoder spells (PORT-CALLS-2)
+	}
 	switch t := t.(type) {
 	case *check.Basic:
 		switch t.Kind {
@@ -99,6 +102,9 @@ func (b *irBuilder) admit(t check.Type, depth int) {
 			// that every program may name (SP4: a Go call's failure).
 			b.keepImport("var _ " + b.l.rt() + ".GoError")
 			return
+		}
+		if check.IsGoAny(t) {
+			return // Go's any (GB2), the predeclared go.Any (IR-GOCALLS)
 		}
 		if t.Obj.Pkg != nil && t.Obj.Pkg.Host() || isGoRef(t) {
 			b.admitHost(t, depth) // ir_gocall.go (FORK-GOCALL, FORK-GOLIB)

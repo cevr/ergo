@@ -25,31 +25,6 @@ import (
 const sendMalformed = 3
 
 func registerNativeshttp(t nativeTables) {
-	natives := t.std
-	natives["http.checkNetwork"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
-		origins := args[0].(sliceV).elems()
-		if ab := in.charge(fr, at, 1+argWork(args[:1])); ab != nil {
-			return nil, ab
-		}
-		limits := args[1].(*record)
-		if !limitsValid(limits) {
-			return nil, httpFail(fn, fr, at, "InvalidLimits", limitsFields(limits))
-		}
-		out := make([]Value, 0, len(origins))
-		for _, o := range origins {
-			origin := o.(string)
-			if reason := originReason(origin); reason != "" {
-				return nil, httpFail(fn, fr, at, "InvalidClient", map[string]Value{"Origin": origin, "Reason": reason})
-			}
-			u, _ := url.Parse(origin)
-			canonical, why := canonicalOrigin(u)
-			if why != "" {
-				return nil, httpFail(fn, fr, at, "InvalidClient", map[string]Value{"Origin": origin, "Reason": "the origin is not valid"})
-			}
-			out = append(out, canonical)
-		}
-		return newSlice(out), in.allocate(fr, at, valueSize(newSlice(out)))
-	}
 	hostNative(t, "http.Listen", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		addr := args[0].(string)
 		// Only a literal or empty host is resolved without a lookup,
@@ -179,23 +154,6 @@ func limitsFields(r *record) map[string]Value {
 		out[n] = r.fields[fieldIndex(r.t, n)]
 	}
 	return out
-}
-
-// originReason is why origin is not scheme://authority of http or https,
-// or "" (http.ergo, NewClient's origin rule).
-func originReason(origin string) string {
-	u, err := url.Parse(origin)
-	switch {
-	case err != nil:
-		return err.Error()
-	case u.Scheme != "http" && u.Scheme != "https":
-		return "the scheme is not http or https"
-	case u.Host == "" || u.User != nil:
-		return "the authority is not a host and port"
-	case u.Path != "" && u.Path != "/", u.RawQuery != "", u.Fragment != "", u.ForceQuery:
-		return "an origin has no path, query or fragment"
-	}
-	return ""
 }
 
 // canonicalOrigin is u's origin as the policy compares it: a lower-case

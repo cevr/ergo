@@ -23,6 +23,15 @@
       "killers": ["scripts/mutants:TestRunnerMatchesModel"]
     },
     {
+      "name": "mutants-copy-maintenance-on",
+      "origin": "wf10 MUTANTS-NOGC",
+      "file": "scripts/mutants/runner.go",
+      "from": "\t\t{\"config\", \"gc.auto\", \"0\"},\n\t\t{\"config\", \"maintenance.auto\", \"false\"},\n",
+      "to": "",
+      "rule": "The runner's copy is a Git repository whose own configuration turns automatic gc and maintenance off, so no git run in it starts a repack.",
+      "killers": ["scripts/mutants:TestCopyStartsNoMaintenance"]
+    },
+    {
       "name": "mutclean-other-package-killer-dropped",
       "origin": "wf10 MUT-clean",
       "file": "scripts/mutants/main.go",
