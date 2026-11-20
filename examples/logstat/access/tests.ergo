@@ -28,15 +28,15 @@ test SecondsAreExact {
 }
 
 test FailuresNameTheirColumn {
-	assert Column("") == 1
-	assert Column("1.2.3.4") == 8
-	assert Column("1.2.3.4 - - 08/Nov/2026") == 13
-	assert Column("1.2.3.4 - - [08/Nov/2026:10:00:00 +0000") == 40
-	assert Column("1.2.3.4 - - [8 Nov 2026] \"GET / HTTP/1.1\" 200 1 0.1") == 14
-	assert Column("1.2.3.4 - - [08/Nov/2026:10:00:00 +0000] \"GET /\" 200 1 0.1") == 43
-	assert Column("1.2.3.4 - - [08/Nov/2026:10:00:00 +0000] \"GET / HTTP/1.1\" 2x0 1 0.1") == 59
-	assert Column("1.2.3.4 - - [08/Nov/2026:10:00:00 +0000] \"GET / HTTP/1.1\" 200 1 .5") == 65
-	assert Column("1.2.3.4 - - [08/Nov/2026:10:00:00 +0000] \"GET / HTTP/1.1\" 200 1 0.5 extra") == 69
+	assert column("") == 1
+	assert column("1.2.3.4") == 8
+	assert column("1.2.3.4 - - 08/Nov/2026") == 13
+	assert column("1.2.3.4 - - [08/Nov/2026:10:00:00 +0000") == 40
+	assert column("1.2.3.4 - - [8 Nov 2026] \"GET / HTTP/1.1\" 200 1 0.1") == 14
+	assert column("1.2.3.4 - - [08/Nov/2026:10:00:00 +0000] \"GET /\" 200 1 0.1") == 43
+	assert column("1.2.3.4 - - [08/Nov/2026:10:00:00 +0000] \"GET / HTTP/1.1\" 2x0 1 0.1") == 59
+	assert column("1.2.3.4 - - [08/Nov/2026:10:00:00 +0000] \"GET / HTTP/1.1\" 200 1 .5") == 65
+	assert column("1.2.3.4 - - [08/Nov/2026:10:00:00 +0000] \"GET / HTTP/1.1\" 200 1 0.5 extra") == 69
 }
 
 test FailuresAreTyped {

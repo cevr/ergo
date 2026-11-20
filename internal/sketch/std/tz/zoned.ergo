@@ -188,6 +188,20 @@ law ZonedAddKeepsWall(i int64, s int64, n int64) {
 	ok
 }
 
+// anyZoned is a zoned time at the instant s names in the zone i names,
+// or, when fixed, in the fixed zone of an offset of up to 18 hours.
+func anyZoned(i int64, s int64, ns int64, fixed bool) Zoned {
+	let z = if fixed {
+		FixedOffset(int(within(i, -64800, 64800))) catch {
+		case BadOffset:
+			Unreachable("an offset of 18 hours or less is fixed")
+		}
+	} else {
+		anyZone(i)
+	}
+	Zoned{At: anyInstant(s, ns), Zone: z}
+}
+
 // TextRoundTrips: ParseText reads Text's text back as the same instant in
 // a zone of the same name and the same offset at it.
 law TextRoundTrips(i int64, s int64, ns int64, fixed bool) {
@@ -201,6 +215,21 @@ law TextRoundTrips(i int64, s int64, ns int64, fixed bool) {
 		ok = time.Equal(back.At, z.At) && Name(back.Zone) == Name(z.Zone) && OffsetAt(back.Zone, back.At) == OffsetAt(z.Zone, z.At)
 	}
 	ok
+}
+
+// lawZones is the laws' provider of Zones over std's IANA copy.
+type lawZones {} implements Zones
+
+// Load is the zone name of std's IANA copy, or UnknownZone.
+func Load(_ lawZones, name string) Zone fails UnknownZone {
+	let data = ianaZone(name)
+	if len(data) == 0 {
+		return UnknownZone{Name: name}
+	}
+	FromTZif(name, data) catch {
+	case BadData:
+		Unreachable("std's IANA copy holds only zones Go's reader reads")
+	}
 }
 
 // ParseTextChecksOffset: a text whose offset is not its zone's at that

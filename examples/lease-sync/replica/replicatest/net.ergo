@@ -15,6 +15,7 @@ import lease-sync/domain
 import lease-sync/lease
 import lease-sync/replica
 import lease-sync/replica/server
+import slices
 import time
 
 type Client = replica.State[lease.Pool, lease.Cmd, lease.Refusal]
@@ -64,16 +65,6 @@ func get(n Net, b bool) Peer { if b { n.B } else { n.A } }
 
 func set(n Net, b bool, p Peer) Net { if b { Net{..n, B: p} } else { Net{..n, A: p} } }
 
-func without[T](xs []T, i int) []T {
-	let mut out = []T{}
-	for j, x in xs {
-		if j != i {
-			out = out.Append(x)
-		}
-	}
-	out
-}
-
 // deliver gives the authority m. A client learns outcomes from frames
 // only, so the answer is dropped, as a lost answer is.
 func deliver(a Authority, m domain.Envelope[lease.Cmd]) {
@@ -116,14 +107,14 @@ func Apply(n Net, op int) Net {
 		}
 		let i = if k == 6 { len(p.Sent) - 1 } else { x % len(p.Sent) }
 		deliver(n.Auth, p.Sent[i])
-		let sent = if k == 5 { p.Sent } else { without(p.Sent, i) }
+		let sent = if k == 5 { p.Sent } else { slices.Delete(p.Sent, i, i+1) }
 		return set(n, who, Peer{..p, Sent: sent})
 	}
 	if k == 7 {
 		if len(p.Sent) == 0 {
 			return n
 		}
-		return set(n, who, Peer{..p, Sent: without(p.Sent, x%len(p.Sent))})
+		return set(n, who, Peer{..p, Sent: slices.Delete(p.Sent, x%len(p.Sent), x%len(p.Sent)+1)})
 	}
 	if k <= 9 {
 		// The pull loop asks from the cursor, or from an older position
@@ -143,7 +134,7 @@ func Apply(n Net, op int) Net {
 		}
 		let i = if k == 10 { 0 } else { x % len(p.Frames) }
 		let st = step(p.State, replica.Pulled[lease.Pool, lease.Event, lease.Refusal]{Frame: p.Frames[i], At: at})
-		let frames = if x%5 == 0 { p.Frames } else { without(p.Frames, i) }
+		let frames = if x%5 == 0 { p.Frames } else { slices.Delete(p.Frames, i, i+1) }
 		return set(n, who, Peer{..p, State: st, Frames: frames})
 	}
 	if k == 12 {

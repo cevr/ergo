@@ -7,7 +7,7 @@
 // The screen has Rows × Cols cells and a cursor in them. Rows and
 // columns count from 0; a command's 1-based arguments are its own. Every
 // command below states what it does; where real terminals differ, it
-// follows xterm and Ghostty, and README.md lists the choices.
+// follows xterm, and README.md lists the choices.
 //
 //   - Printing writes the character with the pen's style at the cursor
 //     and moves it right by the character's width. When the cursor
@@ -24,7 +24,7 @@
 //     line that leaves the top goes to the history.
 //   - The history keeps at most HistoryLimit(config) lines. When a line
 //     would pass the limit, the oldest PageRows lines are dropped at
-//     once (a page, as Ghostty frees its oldest page).
+//     once (a page).
 //   - Erased and scrolled-in cells are blank and take the default style
 //     (no background-colour erase).
 //   - A scroll by n of a region of h rows moves min(n, h) rows.
@@ -148,7 +148,7 @@ type Feeds int where 0 <= it && it <= 64
 let LawSize = Config{Rows: 4, Cols: 10, Scrollback: 0}
 
 // Config is the size of a screen: its rows and columns, and the bytes
-// its history may take, as Ghostty bounds its scrollback in bytes.
+// its history may take: the scrollback is bounded in bytes.
 type Config { Rows int, Cols int, Scrollback int }
 
 // PageRows is the rows of one page: the history grows and shrinks by

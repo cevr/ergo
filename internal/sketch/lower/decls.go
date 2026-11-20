@@ -77,9 +77,13 @@ type funcDecl struct {
 	extern   string
 	library  bool
 	emitted  bool
-	// pure is a function with no environment parameter, called with none
-	// (pure.go, D-S5-10).
-	pure bool
+	// pure is a pure function (pure.go, D-S5-10): no failure, no
+	// environment, the fact tabulation, memo, folding and facts read.
+	// envFree is a function with no environment parameter, called with
+	// none: one that nothing it runs reads the environment of, failing or
+	// not (pure.go, ENV-FREE-FALLIBLE). Every pure function is envFree.
+	pure    bool
+	envFree bool
 	// lowered is set when the Go body has been written, and readsEnv then
 	// says whether that body names its environment parameter: the fact a
 	// machine plan's Step reads to decide whether it takes one (machine.go).
@@ -730,12 +734,13 @@ func (l *lowerer) funcDecl(f *check.Func) *funcDecl {
 	l.funcs[f] = fd
 	fd.fallible = len(rowElems(f.Sig.Errors)) > 0
 	fd.pure = l.isPure(f) || l.pureIntrinsic(f)
+	fd.envFree = fd.pure || l.isEnvFree(f)
 	if f.Decl != nil && f.Decl.Extern != nil && f.Decl.Extern.Target != nil {
 		fd.extern = strings.Trim(f.Decl.Extern.Target.Value, "\"`")
 	}
 	if td, ptr := l.methodReceiver(f); td != nil {
 		fd.method, fd.ptr, fd.name = td, ptr, memberName(f.Name)
-		if fd.pure {
+		if fd.envFree {
 			fd.name = l.protocolFreeName(f, td, fd.name)
 		}
 		return fd
@@ -1177,7 +1182,7 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 	// body binds none (pure.go, D-S5-10), so a read of it is a located ICE
 	// (envExpr).
 	var parts []string
-	if !fd.pure {
+	if !fd.envFree {
 		fc.env = scope.alloc("env")
 		parts = append(parts, fc.env+" *"+l.env())
 		args = append(args, fc.env)
@@ -1558,10 +1563,54 @@ func (l *lowerer) packageVar(spec *syntax.VarSpec, id *syntax.Ident, x syntax.Ex
 	if ok && l.consts[v] {
 		ice(id, "the constant let %s needs statements", id.Name)
 	}
+	if name != "_" && fc.out.Len() == 0 && staticLiteral(l.info, x) && !strings.Contains(val, fc.env) {
+		// Constant data (LITERAL-LET): the Go variable's initializer is
+		// the literal, which gc lays out as static data, so the program
+		// does no work at start for it; a literal of constants cannot
+		// fail, and reads no other let, so its place in InitOrder does
+		// not matter.
+		l.stats.StaticLets++
+		l.letDecl(id, "var "+name+" "+goType+" = "+val+"\n\n")
+		return
+	}
 	if name != "_" {
 		l.letDecl(id, "var "+name+" "+goType+"\n\n")
 	}
 	l.addInit(x, id, fc.out.String(), []string{name + " = " + val})
+}
+
+// staticLiteral reports whether x is constant data: a constant, or a
+// composite literal of a slice, an array or a record (no record update)
+// whose elements are constant data. Such a let lowers to a Go variable
+// initialized by the literal (packageVar), not to code in initFunc.
+func staticLiteral(info *check.Info, x syntax.Expr) bool {
+	switch e := x.(type) {
+	case *syntax.ParenExpr:
+		return staticLiteral(info, e.X)
+	case *syntax.KeyValueExpr:
+		return staticLiteral(info, e.Value)
+	case *syntax.CompositeLit:
+		if e.Base != nil {
+			return false
+		}
+		t := info.Types[e]
+		if n, ok := t.(*check.Named); ok {
+			t = n.Underlying()
+		}
+		switch t.(type) {
+		case *check.Slice, *check.Array, *check.Struct:
+		default:
+			return false
+		}
+		for _, el := range e.Elts {
+			if !staticLiteral(info, el) {
+				return false
+			}
+		}
+		return true
+	}
+	_, constant := info.Values[x]
+	return constant
 }
 
 // constValueLet reports whether the package let v, of spec, lowers to a Go
@@ -1569,7 +1618,7 @@ func (l *lowerer) packageVar(spec *syntax.VarSpec, id *syntax.Ident, x syntax.Ex
 // evaluated to a constant, of type bool, string or an integer type. A Go
 // package variable is a load at every read, and Go folds no expression
 // over it: `h & (Slots - 1)` loads Slots and subtracts on every probe of
-// examples/onebrc's table, and a constant is an immediate. Every read is
+// examples/station-stats's table, and a constant is an immediate. Every read is
 // then v1.Let(name) (letRead), a call of an identity that gc inlines and
 // whose result is no Go constant expression, so Go evaluates every
 // expression over it as it evaluates one over the variable: an integer

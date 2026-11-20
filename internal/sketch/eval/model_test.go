@@ -26,7 +26,11 @@ import (
 // Mutants it kills (testdata/mutants.json): slice-write-shared,
 // map-write-shared, append-tip-owned, handover-lends-not, record-field-shared,
 // range-snapshot-domain, int8-conversion-dropped, literal-frame-copies,
-// init-order-ignored, string-range-bytes.
+// init-order-ignored, string-range-bytes, evalfp-row-one-member-union (a
+// match on FBad[F] where F, named by the fails row, is bound to the row
+// Oops; std/ui's AwaitIsTheMatch, EVAL-FAILS-PARAM), evalifp-append-spread-one
+// (slices.AppendAll, Go's append(xs, ys...), run as an append of ys as
+// one element; compiler/check/bind's law IfpCutsBodies, EVAL-IFP).
 func TestEvalAgreesWithModel(t *testing.T) {
 	n := 300
 	if testing.Short() {

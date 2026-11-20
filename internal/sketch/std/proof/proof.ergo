@@ -1,0 +1,346 @@
+// Package proof is one-time codes that prove a person holds an address or
+// a device (docs/spec/stdlib.md, proof): a code sent by mail or SMS to
+// confirm an address, reset a password or sign in, and the guard that
+// keeps a TOTP period's code from being used twice. A proof is single
+// use, expires, takes a bounded number of wrong codes, and is bound to
+// its purpose: a code sent to confirm an address does not reset a
+// password.
+//
+// Store is the contract. It keeps only a Digest of each code, the SHA-256
+// of the purpose and the code, so a store read by an attacker gives no
+// code to redeem. Its rules are one pure function, Apply, over a State;
+// the providers live in packages named after where they keep the state:
+// proof/memory in the process and proof/file in a log of the host. SendCode,
+// RedeemCode and VerifyCode are the calls a server makes, reading the
+// context's time.Clock and rand.Secure. Delivery is the application's: it
+// sends a code by mail or SMS; Recorder keeps what it was asked to send,
+// for tests.
+//
+// Effect: none; the pin keeps no codes. The shape is yielded/auth's
+// proofs (scoped, expiring, single use, attempt limits, delivery
+// services). Go: a table of hashed codes with an expiry and a count of
+// attempts, as in mix phx.gen.auth's users_tokens and Ory Kratos.
+
+import hex
+import rand
+import sha256
+import strconv
+import strings
+import sync
+import time
+import totp
+
+// Failed is a store that could not keep or read its proofs: Reason is
+// the provider's text.
+type Failed { Reason string }
+
+// Conflict is an Issue of an ID the store holds.
+type Conflict {}
+
+// Unknown is a Redeem of an ID the store does not hold.
+type Unknown {}
+
+// Expired is a Redeem at or after the proof's expiry.
+type Expired {}
+
+// Spent is a Redeem of a proof already redeemed, or a Claim of a key
+// already claimed.
+type Spent {}
+
+// TooManyAttempts is a Redeem of a proof whose wrong codes reached its
+// limit: it is spent, and the right code no longer redeems it.
+type TooManyAttempts {}
+
+// Wrong is a Redeem with a code that is not the proof's, or of another
+// purpose; Left is the wrong codes it still takes.
+type Wrong { Left int }
+
+// Undelivered is a Delivery that could not send: Reason is its text.
+type Undelivered { Reason string }
+
+// Digest is what a store keeps of a code: the SHA-256 of its purpose and
+// the code.
+type Digest { sum string }
+
+// DigestOf is the digest of code for purpose.
+func DigestOf(purpose string, code string) Digest { Digest{sum: sha256.Sum(strconv.Quote(purpose) + code)} }
+
+// DigestText is d in hex, for a store's log.
+func DigestText(d Digest) string { hex.Encode(d.sum) }
+
+// BadDigest is a text that is not a digest's hex.
+type BadDigest { Text string }
+
+// ParseDigest is the digest whose hex is text.
+func ParseDigest(text string) Digest fails BadDigest {
+	let sum = hex.Decode(text) catch {
+	case hex.Malformed:
+		return BadDigest{Text: text}
+	}
+	if len(sum) != 32 {
+		return BadDigest{Text: text}
+	}
+	Digest{sum: sum}
+}
+
+// Store keeps proofs by ID, and claimed keys.
+type Store {
+	// Issue keeps a proof under id whose code has digest d, good until
+	// expires for attempts wrong codes.
+	Issue(id string, d Digest, expires time.Time, attempts int) fails Conflict | Failed,
+	// Redeem spends the proof under id when d is its code's digest, before
+	// it expires.
+	Redeem(id string, d Digest, now time.Time) fails Unknown | Expired | Spent | TooManyAttempts | Wrong | Failed,
+	// Claim marks key used until until; a second Claim of it before then
+	// is Spent.
+	Claim(key string, until time.Time, now time.Time) fails Spent | Failed,
+
+	// RedeemOnce: a proof redeems with its code once; a second Redeem is
+	// Spent.
+	law RedeemOnce(id string, purpose string, code string, sec int64) {
+		let now = time.Unix(sec % 1000000000, 0)
+		let d = DigestOf(purpose, code)
+		try Issue(id, d, now.Add(1m), 3) catch {
+		case Conflict:
+			return true
+		}
+		try Redeem(id, d, now) catch {
+		case Unknown, Expired, Spent, TooManyAttempts, Wrong:
+			return false
+		}
+		try Redeem(id, d, now) catch {
+		case Spent:
+			return true
+		case Unknown, Expired, TooManyAttempts, Wrong:
+			return false
+		}
+		false
+	},
+
+	// ExpiredFails: a proof does not redeem at or after its expiry, and
+	// redeems just before it.
+	law ExpiredFails(id string, code string, sec int64) {
+		let now = time.Unix(sec % 1000000000, 0)
+		let d = DigestOf("p", code)
+		try Issue(id, d, now, 3) catch {
+		case Conflict:
+			return true
+		}
+		try Issue(id + "'", d, now, 3) catch {
+		case Conflict:
+			return true
+		}
+		try Redeem(id + "'", d, now.Add(-1ns)) catch {
+		case Unknown, Expired, Spent, TooManyAttempts, Wrong:
+			return false
+		}
+		try Redeem(id, d, now) catch {
+		case Expired:
+			return true
+		case Unknown, Spent, TooManyAttempts, Wrong:
+			return false
+		}
+		false
+	},
+
+	// AttemptsAreBounded: a proof of n attempts takes n wrong codes, each
+	// Wrong with one fewer left; after them the right code is
+	// TooManyAttempts.
+	law AttemptsAreBounded(id string, code string, n int) {
+		let limit = 1 + ((n%5)+5)%5
+		let now = time.Unix(0, 0)
+		let d = DigestOf("p", code)
+		try Issue(id, d, now.Add(1m), limit) catch {
+		case Conflict:
+			return true
+		}
+		for i in 0..limit {
+			try Redeem(id, DigestOf("p", code + "x"), now) catch {
+			case Wrong as w:
+				if w.Left != limit - i - 1 {
+					return false
+				}
+			case Unknown, Expired, Spent, TooManyAttempts:
+				return false
+			}
+		}
+		try Redeem(id, d, now) catch {
+		case TooManyAttempts:
+			return true
+		case Unknown, Expired, Spent, Wrong:
+			return false
+		}
+		false
+	},
+
+	// WrongPurposeFails: the code of a proof given for another purpose is
+	// Wrong, and the proof still redeems with its own.
+	law WrongPurposeFails(id string, code string) {
+		let now = time.Unix(0, 0)
+		try Issue(id, DigestOf("confirm", code), now.Add(1m), 3) catch {
+		case Conflict:
+			return true
+		}
+		try Redeem(id, DigestOf("reset", code), now) catch {
+		case Wrong:
+		case Unknown, Expired, Spent, TooManyAttempts:
+			return false
+		}
+		try Redeem(id, DigestOf("confirm", code), now) catch {
+		case Unknown, Expired, Spent, TooManyAttempts, Wrong:
+			return false
+		}
+		true
+	},
+
+	// ClaimOnce: a key claims once until its end, and again after it.
+	law ClaimOnce(key string, sec int64) {
+		let now = time.Unix(sec % 1000000000, 0)
+		try Claim(key, now.Add(1m), now) catch {
+		case Spent:
+			return true
+		}
+		try Claim(key, now.Add(1m), now.Add(59s)) catch {
+		case Spent:
+			try Claim(key, now.Add(2m), now.Add(1m)) catch {
+			case Spent:
+				return false
+			}
+			return true
+		}
+		false
+	},
+}
+
+// Delivery sends a code to an address: the application's mail or SMS.
+// law-exempt: a send hands the code to the world outside the program (a mail or SMS gateway), which no law can read back; the Recorder a test binds has no rule of its own, and memory's SentCodeRedeems states what it records.
+type Delivery {
+	// Send sends code for purpose to dest.
+	Send(dest string, purpose string, code string) fails Undelivered,
+}
+
+// Sent is one code a Recorder was asked to send.
+type Sent { Dest string, Purpose string, Code string }
+
+// Recorder is a Delivery that keeps what it is asked to send, for tests.
+// Every copy of a Recorder is the same one.
+type Recorder { sent sync.Ref[[]Sent] } implements Delivery
+
+// NewRecorder is a Recorder that has sent nothing.
+func NewRecorder() Recorder { Recorder{sent: sync.NewRef([]Sent{})} }
+
+// Send keeps the code.
+func Send(r Recorder, dest string, purpose string, code string) fails Undelivered {
+	let one = Sent{Dest: dest, Purpose: purpose, Code: code}
+	r.sent.Update(func(s []Sent) []Sent { s.Append(one) })
+}
+
+// Outbox is every code r was asked to send, oldest first.
+func Outbox(r Recorder) []Sent { sync.Modify(r.sent, func(s []Sent) ([]Sent, []Sent) { (s, s) }) }
+
+// Op is one change of a store, as a value: the log of proof/file keeps
+// them, and Apply runs them.
+type Op = IssueOp{ID string, Digest Digest, Expires time.Time, Attempts int} | RedeemOp{ID string, Digest Digest, Now time.Time} | ClaimOp{Key string, Until time.Time, Now time.Time}
+
+// Outcome is what Apply of an Op gave.
+type Outcome = Kept{} | Refused{} | Redeemed{} | Missing{} | Late{} | Used{} | Exhausted{} | Mismatch{Left int}
+
+// pending is a proof the store holds: its digest, expiry, the wrong codes
+// it still takes, and whether it is spent.
+type pending { digest Digest, expires time.Time, left int, spent bool }
+
+// State is a store's proofs and claims. Empty makes one; Apply changes it.
+type State { proofs Map[string, pending], claims Map[string, time.Time] }
+
+// Empty is a store with no proof and no claim.
+func Empty() State { State{proofs: Map[string, pending]{}, claims: Map[string, time.Time]{}} }
+
+// Apply runs op on s: the outcome, the state after it, and whether the
+// state changed.
+func Apply(s State, op Op) (Outcome, State, bool) {
+	let mut st = s
+	match op {
+	case IssueOp as i:
+		if st.proofs.Get(i.ID) != None {
+			return (Refused, st, false)
+		}
+		st.proofs[i.ID] = pending{digest: i.Digest, expires: i.Expires, left: i.Attempts, spent: false}
+		(Kept, st, true)
+	case RedeemOp as r:
+		match st.proofs.Get(r.ID) {
+		case None:
+			(Missing, st, false)
+		case Some[pending] as found:
+			let p = found.Value
+			if p.spent {
+				return (Used, st, false)
+			}
+			if p.left <= 0 {
+				return (Exhausted, st, false)
+			}
+			if !r.Now.Before(p.expires) {
+				return (Late, st, false)
+			}
+			if p.digest != r.Digest {
+				st.proofs[r.ID] = pending{digest: p.digest, expires: p.expires, left: p.left - 1, spent: false}
+				return (Mismatch{Left: p.left - 1}, st, true)
+			}
+			st.proofs[r.ID] = pending{digest: p.digest, expires: p.expires, left: p.left, spent: true}
+			(Redeemed, st, true)
+		}
+	case ClaimOp as c:
+		match st.claims.Get(c.Key) {
+		case Some[time.Time] as until:
+			if c.Now.Before(until.Value) {
+				return (Used, st, false)
+			}
+		case None:
+		}
+		st.claims[c.Key] = c.Until
+		(Kept, st, true)
+	}
+}
+
+// Challenge is a proof Send issued: the ID to redeem it under.
+type Challenge { ID string }
+
+// codeOf is a code of six digits drawn from rand.Secure, each of the
+// million equally likely: draws of four bytes at or above the last whole
+// million under 2^32 are drawn again.
+func codeOf() string needs rand.Secure {
+	let mut n = 4294000000
+	for n >= 4294000000 {
+		let b = strings.Bytes(rand.Secure.Bytes(4))
+		n = int(b[0]) << 24 | int(b[1]) << 16 | int(b[2]) << 8 | int(b[3])
+	}
+	let text = strconv.Itoa(n % 1000000)
+	strings.Repeat("0", 6 - len(text)) + text
+}
+
+// SendCode issues a proof for purpose, good for ttl and attempts wrong codes,
+// and sends its code to dest with d: the challenge to redeem it under.
+func SendCode(s Store, d Delivery, dest string, purpose string, ttl duration, attempts int) Challenge fails Conflict | Failed | Undelivered needs rand.Secure | time.Clock {
+	let id = hex.Encode(rand.Secure.Bytes(16))
+	let code = codeOf()
+	try s.Issue(id, DigestOf(purpose, code), time.Clock.Now().Add(ttl), attempts)
+	try d.Send(dest, purpose, code)
+	Challenge{ID: id}
+}
+
+// RedeemCode spends the proof of c with code for purpose, now.
+func RedeemCode(s Store, c Challenge, purpose string, code string) fails Unknown | Expired | Spent | TooManyAttempts | Wrong | Failed needs time.Clock {
+	try s.Redeem(c.ID, DigestOf(purpose, code), time.Clock.Now())
+}
+
+// VerifyCode checks a TOTP code of subject's secret now, and claims its
+// period in s so it is used once: Wrong when no period of p's window has
+// that code, Spent when its period's code was used.
+func VerifyCode(s Store, p totp.Params, subject string, secret string, code string) fails Wrong | Spent | Failed needs time.Clock {
+	let now = time.Clock.Now()
+	match totp.Verify(p, secret, code, now) {
+	case Some[int64] as step:
+		try s.Claim("totp\t" + strconv.Quote(subject) + "\t\(step.Value)", now.Add(time.Times(totp.Period(p), totp.Window(p) * 2 + 2)), now)
+	case None:
+		return Wrong{Left: 0}
+	}
+}

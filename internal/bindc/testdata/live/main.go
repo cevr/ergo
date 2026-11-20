@@ -156,6 +156,16 @@ func main() {
 	wantStatus("ShapeArea(nil)", err, fixture.StatusInvalidArgument)
 	ok("record kinds")
 
+	// An optional value: nil passes NULL (C answers -1), a value passes a
+	// filled copy (C checks its struct_size and abi_version).
+	if z, err := fixture.BoxZ(ctx, nil); err != nil || z != -1 {
+		fail("BoxZ(nil): %d %v, want -1", z, err)
+	}
+	if z, err := fixture.BoxZ(ctx, &fixture.Box{Z: 9}); err != nil || z != 9 {
+		fail("BoxZ(&Box{Z: 9}): %d %v, want 9", z, err)
+	}
+	ok("optional value")
+
 	done := make(chan error)
 	go func() {
 		runtime.LockOSThread()

@@ -90,15 +90,115 @@ func (b *irBuilder) store(s *syntax.AssignStmt, op string) []*irStmt {
 	if op != "" {
 		b.operator(op, b.l.info.Types[lhs], s)
 	}
-	to := b.storeTo(lhs) // ir_mapstore.go: a Map's entry, else a place
+	first, to := b.storeTo(lhs) // ir_mapstore.go: a Map's entry, else a place
 	pre, x := b.value(s.Rhs[0])
+	if to.K == "mapAt" {
+		if ix, ok := unparen(lhs).(*syntax.IndexExpr); ok {
+			if _, ok := b.intMapOf(b.l.info.Types[ix.X]); ok { // ir_intmap.go
+				if op != "" {
+					irNo("int map entry op-assignment")
+				}
+				return append(b.fixEntry(lhs, to, pre), intMapStore(b.pos(s, s.Pos()), to, x))
+			}
+		}
+	}
 	if op == "" && to.K == "mapAt" {
-		return append(b.fixEntry(lhs, to, pre), &irStmt{K: "store", Pos: b.pos(s, s.Pos()), X: to, Y: x}) // ir_mapstore.go
+		return append(append(first, b.fixEntry(lhs, to, pre)...), &irStmt{K: "store", Pos: b.pos(s, s.Pos()), X: to, Y: x}) // ir_mapstore.go
 	}
 	if len(pre) > 0 && (op != "" || !b.fixed(lhs)) {
-		irNo("store to a place a value with statements may move")
+		// The emitter's target with later set (body.go): the place's
+		// pointers, slices, maps and indexes are fixed first, and an
+		// op-assignment reads the place before the value (assign's old).
+		first = append(first, b.fixPlace(lhs, to)...)
+		if op != "" {
+			return append(first, b.storeOld(s, op, to, pre, x)...)
+		}
 	}
-	return append(pre, &irStmt{K: "store", Pos: b.pos(s, s.Pos()), X: to, Y: x, Op: op})
+	if t := b.l.info.Types[lhs]; op == "*" && roundsFloat(t) {
+		// p *= v of floats is p = T(p * v): the product rounds
+		// (ir_float.go). p is read twice, so it must be a place no
+		// evaluation moves.
+		if to.K == "mapAt" || !b.fixed(lhs) {
+			irNo("float product op-assignment to a place that is not fixed")
+		}
+		p := b.pos(s, s.Pos())
+		return append(append(first, pre...), &irStmt{K: "store", Pos: p, X: to, Y: b.rounded(s, nil, t, &irExpr{K: "bin", Pos: p, Op: op, X: b.expr(lhs), Y: x})})
+	}
+	return append(append(first, pre...), &irStmt{K: "store", Pos: b.pos(s, s.Pos()), X: to, Y: x, Op: op})
+}
+
+// fixPlace binds the operands that pick the place to (lhs in the source)
+// to temporaries, as the emitter's target does when something after the
+// place writes statements (body.go, later): *p's p; a field through a
+// pointer the pointer, unless no assignment changes it (fixedName); a
+// slice's element its slice and an index that is no constant (a Map's
+// entry is fixEntry's); an array's element its array place and its
+// index. Statements that run after it cannot move the place, and an index
+// out of range fails at the store, after them, on both paths (FLIP F7
+// PORT-TEMP).
+func (b *irBuilder) fixPlace(lhs syntax.Expr, to *irExpr) []*irStmt {
+	var fix []*irStmt
+	bind := func(e *irExpr, s syntax.Expr) *irExpr {
+		if e.K == "const" {
+			return e
+		}
+		v := b.temp("p", b.goType(b.operandType(s), s), e.Pos)
+		fix = append(fix, &irStmt{K: "def", Pos: e.Pos, Local: v, X: e})
+		return &irExpr{K: "local", Pos: e.Pos, I: v}
+	}
+	var walk func(x syntax.Expr, e *irExpr)
+	walk = func(x syntax.Expr, e *irExpr) {
+		x = unparen(x)
+		switch x := x.(type) {
+		case *syntax.Ident:
+			return // a local or a global: the name is the place
+		case *syntax.StarExpr:
+			if e.K == "deref" {
+				e.X = bind(e.X, x.X)
+				return
+			}
+		case *syntax.SelectorExpr:
+			if e.K == "field" {
+				if _, isPtr := b.l.info.Types[x.X].(*check.Pointer); !isPtr {
+					walk(x.X, e.X)
+				} else if !b.fc.fixedName(x.X) {
+					e.X = bind(e.X, x.X)
+				}
+				return
+			}
+		case *syntax.IndexExpr:
+			if e.K == "index" {
+				if _, isArray := b.l.info.Types[x.X].(*check.Array); isArray {
+					walk(x.X, e.X)
+				} else {
+					e.X = bind(e.X, x.X)
+				}
+				e.Y = bind(e.Y, x.Indices[0])
+				return
+			}
+		}
+		irNo("store to a place of the IR kind %s", e.K)
+	}
+	walk(lhs, to)
+	return fix
+}
+
+// storeOld is p op= v after fixPlace, for a value v (x) that runs
+// statements (pre): the emitter's assign reads the place first, old := p,
+// then runs v's statements and stores p = old op v; a float product
+// rounds there, T(old * v) (floatLowering).
+func (b *irBuilder) storeOld(s *syntax.AssignStmt, op string, to *irExpr, pre []*irStmt, x *irExpr) []*irStmt {
+	p := b.pos(s, s.Pos())
+	t := b.l.info.Types[s.Lhs[0]]
+	gt := b.goType(t, s)
+	read := *to // never a Map's entry: a Map read may miss, so the checker refuses m[k] op= v
+	old := b.temp("old", gt, p)
+	val := &irExpr{K: "bin", Pos: p, Op: op, X: &irExpr{K: "local", Pos: p, I: old}, Y: x}
+	if op == "*" && floatLowering != "fuse" && isFloatType(t) {
+		val = &irExpr{K: "conv", Pos: p, T: gt, X: val}
+	}
+	out := append([]*irStmt{{K: "def", Pos: p, Local: old, X: &read}}, pre...)
+	return append(out, &irStmt{K: "store", Pos: p, X: to, Y: val})
 }
 
 // addrRecv reports whether c calls a *T function on a T receiver, which
@@ -107,7 +207,9 @@ func (b *irBuilder) addrRecv(c *check.Call) bool {
 	if c.Recv == nil || !c.Func.Ptr {
 		return false
 	}
-	_, isPtr := b.l.info.Types[c.Recv].(*check.Pointer)
+	// In a copy, a type parameter is its bound type: a witness copy's S
+	// bound to *Screen is a pointer already (G4, examples/vt).
+	_, isPtr := b.fc.boundType(b.l.info.Types[c.Recv]).(*check.Pointer)
 	return !isPtr
 }
 
@@ -131,7 +233,10 @@ func (b *irBuilder) recvAddrCall(c *check.Call, args []syntax.Expr) ([]*irStmt, 
 	}
 	argPre, vals := b.operands(args)
 	if len(argPre) > 0 && isPlace && !b.fixed(c.Recv) {
-		irNo("call on a receiver's address that operands with statements may move")
+		// The emitter's place takes &target(x, later): the receiver's
+		// pointers, slices and indexes are fixed before the operands'
+		// statements, so they cannot move it (fixPlace, FLIP F7 PORT-TEMP).
+		pre = b.fixPlace(c.Recv, recv.X)
 	}
 	return append(pre, argPre...), append([]*irExpr{recv}, vals...)
 }

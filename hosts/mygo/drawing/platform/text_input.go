@@ -12,6 +12,8 @@ type TextSelection = impl.TextSelection
 
 type TextInputClient = impl.TextInputClient
 
+type TextSelectionSetter = impl.TextSelectionSetter
+
 type InputComposition = impl.InputComposition
 
 func UTF16Len(s string) int {

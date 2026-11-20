@@ -1,0 +1,22 @@
+import time
+
+type S = Idle{} | Busy{}
+
+type Sig = Go{} | Tick{At time.Time}
+
+func step(s S, e Sig) Decision[S, Never] {
+	match e {
+	case Go:
+		Enter[S]{Next: Busy}
+	case Tick:
+		Enter[S]{Next: Idle}
+	}
+}
+
+func tickAt(at time.Time) Sig { Tick{At: at} }
+
+type Beat[E] { In duration, Signal func(at time.Time) E }
+
+func beat(s S) Option[Beat[Sig]] { Some{Beat[Sig]{In: 1ms, Signal: tickAt}} }
+
+type M machine[S, Sig] { initial: Idle, step: step, after: beat }

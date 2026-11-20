@@ -10,6 +10,7 @@ import flag
 import io
 import prompt
 import rpc
+import slices
 import strings
 import term
 import clibench/counter
@@ -60,9 +61,22 @@ func argText(a flag.ArgSpec, v flag.Values) string {
 }
 
 // Parse reads args as a command line of counter.Counter: a command and its
-// flags and arguments.
+// flags and arguments. It builds only the command args[0] names; the
+// list of every command is built only for help or an unknown command.
 func Parse(args []string) Request fails flag.Failure {
-	try flag.ParseCommand("counter", "counter.Counter on a command line", Commands(), args)
+	let first = if len(args) > 0 { args[0] } else { "" }
+	match first {
+	case "add":
+		let c = commandAdd()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "counter add"}, slices.Slice(args, 1, len(args)))
+		try c.Build(v)
+	case "get":
+		let c = commandGet()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "counter get"}, slices.Slice(args, 1, len(args)))
+		try c.Build(v)
+	case _:
+		try flag.ParseCommand("counter", "counter.Counter on a command line", Commands(), args)
+	}
 }
 
 // Print is a command line that Parse reads as r again: the command,
