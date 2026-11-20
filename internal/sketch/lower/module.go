@@ -304,19 +304,23 @@ type lowerer struct {
 	// rows of ergo inspect facts that no Go pass reads.
 	foreign  []placedFact
 	contexts map[contextSet]string
-	adapters map[string]string        // operation-table adapters by source and target Go types
-	scripts  map[string]bool          // Script structs emitted, by instance key (script.go)
-	texts    map[pkgKey]bool          // generated text functions emitted
-	defaults map[pkgKey]bool          // generated default functions emitted (types.go, Defaults)
-	equals   map[pkgKey]bool          // generated equality functions emitted (equal.go)
-	wires    map[pkgKey]bool          // generated codec functions emitted (wire.go)
-	clones   map[pkgKey]bool          // generated copy functions emitted (values.go)
-	goVars   map[pkgKey]bool          // getters of Go package variables emitted (ir_govar.go)
-	machines map[pkgKey]string        // generated machine value functions emitted, to their Go result (ir_machine.go)
-	vals     *valueFacts              // the value rule's decisions (values.go)
-	sets     map[check.TypeSet]string // generated constraint interfaces emitted (decls.go, constraint)
-	holds    map[*check.Named]holdState
-	typeKeys map[check.Type]string
+	adapters map[string]string // operation-table adapters by source and target Go types
+	// adapterConvs is the conversion of each adapter the naming pass
+	// named, by key, so a codec function that names one can emit it
+	// (wireread.go).
+	adapterConvs map[string]check.Conversion
+	scripts      map[string]bool          // Script structs emitted, by instance key (script.go)
+	texts        map[pkgKey]bool          // generated text functions emitted
+	defaults     map[pkgKey]bool          // generated default functions emitted (types.go, Defaults)
+	equals       map[pkgKey]bool          // generated equality functions emitted (equal.go)
+	wires        map[pkgKey]bool          // generated codec functions emitted (wire.go)
+	clones       map[pkgKey]bool          // generated copy functions emitted (values.go)
+	goVars       map[pkgKey]bool          // getters of Go package variables emitted (ir_govar.go)
+	machines     map[pkgKey]string        // generated machine value functions emitted, to their Go result (ir_machine.go)
+	vals         *valueFacts              // the value rule's decisions (values.go)
+	sets         map[check.TypeSet]string // generated constraint interfaces emitted (decls.go, constraint)
+	holds        map[*check.Named]holdState
+	typeKeys     map[check.Type]string
 	// directWriters are the sealed std types whose values encode writes
 	// on directly (wiredirect.go), in typeKey order.
 	directWriters []check.Type
@@ -516,32 +520,33 @@ func newBuildLowerer(u Unit, tests *testLowering) *lowerer {
 // root unit requires the Go modules goModule.
 func lowererOf(c *canonical, pkg *check.Package, goModule GoModule, tests *testLowering) *lowerer {
 	l := &lowerer{
-		tests:     tests,
-		canon:     c,
-		goModule:  goModule,
-		pkg:       pkg,
-		info:      pkg.Info,
-		file:      c.srcs[0].file,
-		src:       c.srcs[0].path,
-		srcs:      c.srcs,
-		names:     newNamer(nil),
-		pkgNames:  map[pkgKey]string{},
-		types:     map[*check.TypeName]*typeDecl{},
-		funcs:     map[*check.Func]*funcDecl{},
-		vars:      map[*check.Var]string{},
-		consts:    map[*check.Var]bool{},
-		constVals: map[*check.Var]constant.Value{},
-		contexts:  map[contextSet]string{},
-		adapters:  map[string]string{},
-		scripts:   map[string]bool{},
-		texts:     map[pkgKey]bool{},
-		defaults:  map[pkgKey]bool{},
-		equals:    map[pkgKey]bool{},
-		sets:      map[check.TypeSet]string{},
-		holds:     map[*check.Named]holdState{},
-		typeKeys:  map[check.Type]string{},
-		methods:   map[*check.Package]map[*check.TypeName][]*check.Func{},
-		envFields: map[string]string{},
+		tests:        tests,
+		canon:        c,
+		goModule:     goModule,
+		pkg:          pkg,
+		info:         pkg.Info,
+		file:         c.srcs[0].file,
+		src:          c.srcs[0].path,
+		srcs:         c.srcs,
+		names:        newNamer(nil),
+		pkgNames:     map[pkgKey]string{},
+		types:        map[*check.TypeName]*typeDecl{},
+		funcs:        map[*check.Func]*funcDecl{},
+		vars:         map[*check.Var]string{},
+		consts:       map[*check.Var]bool{},
+		constVals:    map[*check.Var]constant.Value{},
+		contexts:     map[contextSet]string{},
+		adapters:     map[string]string{},
+		adapterConvs: map[string]check.Conversion{},
+		scripts:      map[string]bool{},
+		texts:        map[pkgKey]bool{},
+		defaults:     map[pkgKey]bool{},
+		equals:       map[pkgKey]bool{},
+		sets:         map[check.TypeSet]string{},
+		holds:        map[*check.Named]holdState{},
+		typeKeys:     map[check.Type]string{},
+		methods:      map[*check.Package]map[*check.TypeName][]*check.Func{},
+		envFields:    map[string]string{},
 	}
 	l.reads = l.readVars()
 	return l
