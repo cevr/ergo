@@ -96,6 +96,8 @@ func (c *checker) runOnce(files []*syntax.File) *Package {
 		// rows are never inferred (D-E5).
 		c.checkExterns,
 		c.collectBodyErrorRows,
+		// After the error types: a named row is its row (namedrow.go).
+		c.knowRows,
 		c.checkEntry,
 		// The context pass runs once, before any body, so its budget verdict
 		// does not depend on which body meets a context first (contextsum.go).
