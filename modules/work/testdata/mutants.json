@@ -1840,6 +1840,14 @@
       "to": "let local = try LocalTrash(c, strings.TrimPrefix(setting, setting))",
       "rule": "the base's Git setting work.trash (host-local) decides rm's trash over work.toml and the default; doctor says which (memory's TheHostSettingDecidesTrash).",
       "anchor": {"tests": ["modules/work/memory:law:TheHostSettingDecidesTrash"]}, "killers": ["modules/work/memory:law:TheHostSettingDecidesTrash"]
+    },
+    {
+      "name": "wcr-repair-activates-nothing", "origin": "wf10/semws WORK-CREATING (c)",
+      "file": "modules/work/work/doctor.ergo",
+      "from": "\t\thead != \"\"\n\tcase Active, Landing, Landed, Abandoned, Trashed:\n\t\tfalse\n\t}\n}",
+      "to": "\t\thead == \"never\"\n\tcase Active, Landing, Landed, Abandoned, Trashed:\n\t\tfalse\n\t}\n}",
+      "rule": "doctor -repair activates a record left Creating over a whole clone whose maker is gone, and names it (memory's ToolAgreesWithTheReference, CrashOp Cloned then RepairOp).",
+      "anchor": {"tests": ["modules/work/memory:law:ToolAgreesWithTheReference"]}, "killers": ["modules/work/memory:law:ToolAgreesWithTheReference"]
     }
   ]
 }

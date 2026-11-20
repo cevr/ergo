@@ -259,7 +259,7 @@ type Api {
 	// Doctor reports on the base: the clone providers, the file system,
 	// whether a purge is one call, a stale index, the trust; with -rift,
 	// the base's Rift copies no workspace holds yet.
-	Doctor(o DoctorOptions) Report fails NoBase | BadConfig | Unkept | VcsFailed | RiftUnread,
+	Doctor(o DoctorOptions) Report fails NoBase | BadConfig | Unkept | VcsFailed | RiftUnread | Locked,
 	// PluginTest runs the laws of the language contracts against a plugin
 	// (a command, or the [language.NAME] it names) on the base's files, and
 	// refuses it with the law it broke.

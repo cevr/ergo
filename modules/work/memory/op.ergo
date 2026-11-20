@@ -27,6 +27,7 @@ type Op =
 	| CrashOp{Name int, Cloned bool}
 	| GcOp{Older int, Idle int}
 	| GcIdOp{Name int}
+	| RepairOp{}
 	| WaitOp{Seconds int}
 
 // Expected is the reference's record of one name. Kept is whether its
@@ -494,7 +495,15 @@ law ToolAgreesWithTheReference(ops []Op, sharing bool, tree Map[string, string])
 			}
 			match find(want, name) {
 			case Some[Expected] as e:
-				if e.Value.State == "active" && parentLive(want, e.Value) {
+				if e.Value.Cloned && e.Value.State == "active" {
+					// A clone doctor -repair activated: the reference does not
+					// decide its ready; one that took holds its snapshot.
+					if handed.Name == name && handedHeld(w, e.Value, handed) {
+						want = replaced(want, Expected{..e.Value, Kept: true, Sure: true, Since: at})
+					} else if handed.Name != "" {
+						return false
+					}
+				} else if e.Value.State == "active" && parentLive(want, e.Value) {
 					if handed.Name != name || !handedHeld(w, e.Value, handed) {
 						return false
 					}
@@ -566,6 +575,28 @@ law ToolAgreesWithTheReference(ops []Op, sharing bool, tree Map[string, string])
 				}
 			case None:
 			}
+		case RepairOp:
+			// doctor -repair activates each reservation over a whole clone
+			// whose maker is gone, and names it; the rest stay as they are.
+			let report = w.tool.Doctor(work.DoctorOptions{Rift: false, Registry: None, Unguard: false, Fix: false, Repair: true}) catch {
+			case _:
+				return false
+			}
+			let mut next = []Expected{}
+			for e in want {
+				if e.State == "creating" && e.Cloned {
+					if !slices.Contains(report.Notes, "activated \(e.Name): its clone is whole and its maker is gone") {
+						return false
+					}
+					next = next.Append(Expected{..e, State: "active", Since: at})
+				} else {
+					next = next.Append(e)
+				}
+			}
+			if len(slices.Filter(report.Notes, func(n string) bool { strings.HasPrefix(n, "activated ") })) != len(slices.Filter(want, func(e Expected) bool { e.State == "creating" && e.Cloned })) {
+				return false
+			}
+			want = next
 		case GcOp as o:
 			let older = small(o.Older, 7200)
 			let idle = if o.Idle > 0 { Some[string]{Value: "\(small(o.Idle, 7200))s"} } else { None }
@@ -942,7 +973,7 @@ law TheHostSettingDecidesTrash(toml int, local int) {
 		(true, "default")
 	}
 	let bad = l == 4
-	let report = w.tool.Doctor(work.DoctorOptions{Rift: false, Registry: None, Unguard: false, Fix: false}) catch {
+	let report = w.tool.Doctor(work.DoctorOptions{Rift: false, Registry: None, Unguard: false, Fix: false, Repair: false}) catch {
 	case work.BadConfig:
 		return bad && removedBadly(w, a.Id)
 	case _:
@@ -1152,7 +1183,7 @@ func agrees(w World, want []Expected, gone []string) bool {
 			return false
 		}
 		// No command deletes a folder that holds unsaved work.
-		if e.Cloned && e.State == "creating" && Files(w.trees, g.Path).Get("draft.txt") == None {
+		if e.Cloned && e.State != "trashed" && Files(w.trees, g.Path).Get("draft.txt") == None {
 			return false
 		}
 		if e.State != "trashed" && g.Path != e.Path {
@@ -1514,7 +1545,7 @@ law AdoptLeavesPushesToTheOwner(own bool) {
 	case _:
 		return false
 	}
-	let o = work.DoctorOptions{Rift: false, Registry: None, Unguard: false, Fix: false}
+	let o = work.DoctorOptions{Rift: false, Registry: None, Unguard: false, Fix: false, Repair: false}
 	let noted = w.tool.Doctor(o) catch {
 	case _:
 		return false
@@ -1625,7 +1656,7 @@ law NewWorkspaceMergesByClass(rows int, mine int, theirs int, adopt bool) {
 		if before != "conflicted" {
 			return false
 		}
-		let _ = w.tool.Doctor(work.DoctorOptions{Rift: false, Registry: None, Unguard: false, Fix: true}) catch {
+		let _ = w.tool.Doctor(work.DoctorOptions{Rift: false, Registry: None, Unguard: false, Fix: true, Repair: false}) catch {
 		case _:
 			return false
 		}
@@ -1689,7 +1720,7 @@ law DoctorSeesAnUnregisteredDriver(fix bool, gone bool) {
 	case _:
 		return false
 	}
-	let o = work.DoctorOptions{Rift: false, Registry: None, Unguard: false, Fix: fix}
+	let o = work.DoctorOptions{Rift: false, Registry: None, Unguard: false, Fix: fix, Repair: false}
 	let first = w.tool.Doctor(o) catch {
 	case _:
 		return false
