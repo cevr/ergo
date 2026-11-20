@@ -13,4 +13,4 @@ work rm feature-x
 
 Configuration is `work.toml` at the root of the repository; `work import-rift` prints one from a `.rift.toml`. Hooks and installs run only after `work trust`. The source and the full manual are in [modules/work](https://github.com/cevr/ergo/tree/main/modules/work).
 
-The package holds no program of its own: its optional dependency for the platform (`@cvr/work-linux-x64`, `@cvr/work-linux-arm64`, `@cvr/work-darwin-arm64`) holds the static binary, and the install puts it at `bin/work`, so `work` starts no Node process.
+The package holds no program of its own: its optional dependency for the platform (`@cvr/work-linux-x64`, `@cvr/work-linux-arm64`, `@cvr/work-darwin-arm64`) holds the static binary, and the install puts it at `bin/work`, so `work` starts no Node process. Where the install script does not run (bun, which blocks dependencies' postinstall by default, `bun add -g`, `npm install --ignore-scripts`), `bin/work` is a small sh launcher that follows its link and runs the platform package's binary (`scripts/npmwork-check.sh` installs the packed tarballs all three ways).
