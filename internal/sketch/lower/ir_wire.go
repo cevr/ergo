@@ -338,7 +338,7 @@ func (g *wireGen) bare(t check.Type, v *irExpr) []wireStep {
 	if b.flatOf(t) != nil {
 		irNo("codec writer of a bare flat union")
 	}
-	sw := &irStmt{K: "tswitch", Pos: g.p, End: g.p, ElsePos: g.p, X: v}
+	sw := &irStmt{K: "tswitch", Pos: g.p, End: g.p, ElsePos: g.p, X: v} // a bare union: no tag
 	var arms [][]wireStep
 	var heads [][]*irStmt
 	for _, vt := range wireUnder(t).(*check.Union).Variants {
