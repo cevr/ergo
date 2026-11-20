@@ -85,7 +85,7 @@ func shapeOf(id string, v json.Value) Shape fails NotSmithy {
 	match kind {
 	case Unsupported:
 		return Shape{Id: id, Kind: kind, Traits: []Trait{}, Keys: []Unread{}}
-	case Simple, Enum, IntEnum, List, Map, Structure, Union, Operation, Service, Resource:
+	case Simple, Enum, IntEnum, List, Mapping, Structure, Union, Operation, Service, Resource:
 	}
 	let mut traits = []Trait{}
 	let mut keys = []Unread{}
@@ -122,7 +122,7 @@ func kindOf(t string, o json.Object, path string) Kind fails NotSmithy {
 		return List{Member: try memberOf("member", try field(o, "member", path), path + "/member")}
 	}
 	if t == "map" {
-		return Map{Key: try memberOf("key", try field(o, "key", path), path + "/key"), Value: try memberOf("value", try field(o, "value", path), path + "/value")}
+		return Mapping{Key: try memberOf("key", try field(o, "key", path), path + "/key"), Value: try memberOf("value", try field(o, "value", path), path + "/value")}
 	}
 	if t == "operation" {
 		return Operation{Input: try targetAt(o, "input", path), Output: try targetAt(o, "output", path), Errors: try targetsAt(o, "errors", path)}
@@ -166,33 +166,33 @@ func kindOf(t string, o json.Object, path string) Kind fails NotSmithy {
 }
 
 func scalarOf(t string) Option[Scalar] {
-	let mut s Scalar = BlobType{}
+	let mut s Scalar = BlobType
 	if t == "blob" {
-		s = BlobType{}
+		s = BlobType
 	} else if t == "boolean" {
-		s = BooleanType{}
+		s = BooleanType
 	} else if t == "string" {
-		s = StringType{}
+		s = StringType
 	} else if t == "byte" {
-		s = ByteType{}
+		s = ByteType
 	} else if t == "short" {
-		s = ShortType{}
+		s = ShortType
 	} else if t == "integer" {
-		s = IntegerType{}
+		s = IntegerType
 	} else if t == "long" {
-		s = LongType{}
+		s = LongType
 	} else if t == "float" {
-		s = FloatType{}
+		s = FloatType
 	} else if t == "double" {
-		s = DoubleType{}
+		s = DoubleType
 	} else if t == "bigInteger" {
-		s = BigIntegerType{}
+		s = BigIntegerType
 	} else if t == "bigDecimal" {
-		s = BigDecimalType{}
+		s = BigDecimalType
 	} else if t == "timestamp" {
-		s = TimestampType{}
+		s = TimestampType
 	} else if t == "document" {
-		s = DocumentType{}
+		s = DocumentType
 	} else {
 		return None
 	}
@@ -442,7 +442,7 @@ func shapeValue(s Shape) json.Value {
 		ms = ms.Append(json.Member{Key: "type", Value: jstr("union")}).Append(json.Member{Key: "members", Value: membersValue(k.Members)})
 	case List as k:
 		ms = ms.Append(json.Member{Key: "type", Value: jstr("list")}).Append(json.Member{Key: "member", Value: memberValue(k.Member)})
-	case Map as k:
+	case Mapping as k:
 		ms = ms.Append(json.Member{Key: "type", Value: jstr("map")}).Append(json.Member{Key: "key", Value: memberValue(k.Key)}).Append(json.Member{Key: "value", Value: memberValue(k.Value)})
 	case Operation as k:
 		ms = ms.Append(json.Member{Key: "type", Value: jstr("operation")})

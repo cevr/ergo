@@ -9,7 +9,7 @@
 // modules/clientgen/smithy/testdata is made by this binary and no other
 // tool (orchestrator, q11: one path).
 
-import clientgen/smithy
+import github.com/cevr/ergo/modules/clientgen/smithy
 import fs
 import hex
 import io
@@ -57,7 +57,7 @@ func run(args []string) fails os.Exit needs io.Stdout | fs.Files | fs.Writes {
 }
 
 func main() fails os.Exit needs Ambient {
-	with context { fs.Files: fs.NewHost(), fs.Writes: fs.NewHost(), io.Stdout: io.NewHost() } {
+	with context { os.Process: os.NewHost(), fs.Files: fs.NewHost(), fs.Writes: fs.NewHost(), io.Stdout: io.NewHost() } {
 		try run(os.Process.Args())
 	}
 }

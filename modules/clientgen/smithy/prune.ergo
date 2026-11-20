@@ -45,8 +45,8 @@ func stripped(s Shape, drop []string) Shape {
 		Union{Members: strippedMembers(e.Members, drop)}
 	case List as l:
 		List{Member: strippedMember(l.Member, drop)}
-	case Map as mm:
-		Map{Key: strippedMember(mm.Key, drop), Value: strippedMember(mm.Value, drop)}
+	case Mapping as mm:
+		Mapping{Key: strippedMember(mm.Key, drop), Value: strippedMember(mm.Value, drop)}
 	case Simple, Operation, Service, Resource, Unsupported:
 		s.Kind
 	}
@@ -129,7 +129,7 @@ func pruned(m Model, keep []string) Model fails Unknown {
 		case Some[int] as i:
 			match m.Shapes[i.Value].Kind {
 			case Operation:
-			case Simple, Enum, IntEnum, List, Map, Structure, Union, Service, Resource, Unsupported:
+			case Simple, Enum, IntEnum, List, Mapping, Structure, Union, Service, Resource, Unsupported:
 				return Unknown{Id: k}
 			}
 		case None:
@@ -154,7 +154,7 @@ func pruned(m Model, keep []string) Model fails Unknown {
 				services[s.Id] = kept
 				roots = roots.Concat(v.Errors)
 			}
-		case Simple, Enum, IntEnum, List, Map, Structure, Union, Operation, Resource, Unsupported:
+		case Simple, Enum, IntEnum, List, Mapping, Structure, Union, Operation, Resource, Unsupported:
 		}
 	}
 	let reached = reach(m, index, roots)
@@ -167,7 +167,7 @@ func pruned(m Model, keep []string) Model fails Unknown {
 				out = out.Append(Shape{Id: s.Id, Kind: Service{Version: v.Version, Operations: kept.Value, Resources: []string{}, Errors: v.Errors, Rename: v.Rename}, Traits: s.Traits, Keys: s.Keys})
 			case None:
 			}
-		case Simple, Enum, IntEnum, List, Map, Structure, Union, Operation, Resource, Unsupported:
+		case Simple, Enum, IntEnum, List, Mapping, Structure, Union, Operation, Resource, Unsupported:
 			if isIn(reached, s.Id) {
 				out = out.Append(s)
 			}
@@ -207,7 +207,7 @@ func opsUnder(m Model, index Map[string, int], ops []string, resources []string)
 				}
 				out = out.Concat(v.Operations).Concat(v.CollectionOperations)
 				work = work.Concat(v.Resources)
-			case Simple, Enum, IntEnum, List, Map, Structure, Union, Operation, Service, Unsupported:
+			case Simple, Enum, IntEnum, List, Mapping, Structure, Union, Operation, Service, Unsupported:
 			}
 		case None:
 		}
@@ -254,7 +254,7 @@ func refsOf(k Kind) []string {
 		case None:
 		}
 		out
-	case Simple, Enum, IntEnum, List, Map, Structure, Union, Service, Resource, Unsupported:
+	case Simple, Enum, IntEnum, List, Mapping, Structure, Union, Service, Resource, Unsupported:
 		let mut out = []string{}
 		for mem in membersOf(k) {
 			out = out.Append(mem.Target)
@@ -299,7 +299,7 @@ law PruneKeepsClosure(kinds []int, refs []int, keepBits []int, dropDocs bool, dr
 				keep = keep.Append(s.Id)
 			}
 			k = k + 1
-		case Simple, Enum, IntEnum, List, Map, Structure, Union, Service, Resource, Unsupported:
+		case Simple, Enum, IntEnum, List, Mapping, Structure, Union, Service, Resource, Unsupported:
 		}
 	}
 	let p = Prune(m, keep, drop) catch {
@@ -347,7 +347,7 @@ law PruneKeepsClosure(kinds []int, refs []int, keepBits []int, dropDocs bool, dr
 			if len(keep) == 0 || v.Operations != keep {
 				return false
 			}
-		case Simple, Enum, IntEnum, List, Map, Structure, Union, Operation, Resource, Unsupported:
+		case Simple, Enum, IntEnum, List, Mapping, Structure, Union, Operation, Resource, Unsupported:
 			if !isIn(allowed, s.Id) {
 				return false
 			}
@@ -378,13 +378,13 @@ func drawnModel(kinds []int, refs []int, noisy bool) Model {
 		let id = "t#S\(i)"
 		let mt = if noisy { []Trait{Known{Id: "smithy.api#documentation", Value: jstr("member of \(i)")}, Refused{Id: "x.test#unread", Value: jstr("m"), Why: "a trait the reader does not read yet"}} } else { []Trait{} }
 		let c = ((kinds[i] % 6) + 6) % 6
-		let mut kind Kind = Simple{Of: StringType{}}
+		let mut kind Kind = Simple{Of: StringType}
 		if c == 1 {
 			kind = Structure{Members: []Member{Member{Name: "a", Target: pick(), Traits: mt}, Member{Name: "b", Target: pick(), Traits: mt}}}
 		} else if c == 2 {
 			kind = List{Member: Member{Name: "member", Target: pick(), Traits: mt}}
 		} else if c == 3 {
-			kind = Map{Key: Member{Name: "key", Target: "smithy.api#String", Traits: mt}, Value: Member{Name: "value", Target: pick(), Traits: mt}}
+			kind = Mapping{Key: Member{Name: "key", Target: "smithy.api#String", Traits: mt}, Value: Member{Name: "value", Target: pick(), Traits: mt}}
 		} else if c == 4 {
 			kind = Union{Members: []Member{Member{Name: "x", Target: pick(), Traits: mt}}}
 		} else if c == 5 {
