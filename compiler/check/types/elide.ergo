@@ -31,9 +31,9 @@ func Elided(s mut store.Store, e Env, x dense.ID[syntax.Node], ctx dense.ID[stor
 		if o.Import != uint32(store.ForeignBit) || int(o.Decl) >= len(e.foreign) {
 			return None
 		}
-		// A foreign generic union lists a variant only when the variant
-		// takes the union's parameters in their order (selfhostcheck's
-		// foreign table), so its arguments are the union's.
+		// A foreign generic union lists a variant that takes the union's
+		// parameters in their order, or none (selfhostcheck's foreign
+		// table): one of the union's arity takes the union's arguments.
 		let u = e.foreign[int(o.Decl)]
 		if u.Arity == len(args) && e.foreign[f.At].Arity == len(args) && hasInt(u.Variants, f.At) {
 			return Some{Value: store.TInstance(s, ref, args)}

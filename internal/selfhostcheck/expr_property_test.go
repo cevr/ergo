@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -48,6 +49,9 @@ func TestCompilerExprProperty(t *testing.T) {
 	tmp := t.TempDir()
 	file := filepath.Join(tmp, "p.ergo")
 	e, f := filepath.Join(tmp, "ext"), filepath.Join(tmp, "foreign")
+	// The prelude is every case's import: its builtin.ergo declares the
+	// operations the cases call on slices, strings, []byte and runes.
+	group := preludeGroup(t, tmp)
 	reached := map[string]int{}
 	caught := map[int]int{}
 	ran, failed, refused := 0, 0, ""
@@ -68,8 +72,8 @@ func TestCompilerExprProperty(t *testing.T) {
 		writeLines(t, e, ext)
 		writeLines(t, f, foreign)
 		writeLines(t, file, []string{src})
-		got, diags := splitDiags(runDump(t, ctx, bin, e, f, file))
-		gotCalls := runDump(t, ctx, bin, "-calls", e, f, file)
+		got, diags := splitDiags(runDump(t, ctx, bin, append([]string{e, f, file}, group...)...))
+		gotCalls := runDump(t, ctx, bin, append([]string{"-calls", e, f, file}, group...)...)
 		if len(diags) > 0 {
 			failed++
 			if failed <= 3 {
@@ -81,7 +85,7 @@ func TestCompilerExprProperty(t *testing.T) {
 		bad, which := genBad(seed)
 		if _, bds := check.CheckSource(bad); len(bds) > 0 {
 			writeLines(t, file, []string{bad})
-			_, badDiags := splitDiags(runDump(t, ctx, bin, e, f, file))
+			_, badDiags := splitDiags(runDump(t, ctx, bin, append([]string{e, f, file}, group...)...))
 			if len(badDiags) == 0 {
 				failed++
 				if failed <= 3 {
@@ -103,6 +107,9 @@ func TestCompilerExprProperty(t *testing.T) {
 			// call names).
 			form, _, _ := strings.Cut(forms[keyOf(l, 3)], " ")
 			reached[form]++
+			if op := operationOf(src, l); op != "" {
+				reached[op]++
+			}
 		}
 		if len(gotCalls) > 0 {
 			reached["generic call"]++
@@ -177,7 +184,57 @@ func genBad(seed uint32) (string, int) {
 
 // exprForms are the syntax forms (and inferred generic calls) the cases
 // must get typed.
-var exprForms = []string{"Ident", "BasicLit", "BinaryExpr", "UnaryExpr", "ParenExpr", "CallExpr", "CompositeLit", "SelectorExpr", "IndexExpr", "InterpolatedString", "FuncLit", "generic call"}
+var exprForms = []string{"Ident", "BasicLit", "BinaryExpr", "UnaryExpr", "ParenExpr", "CallExpr", "CompositeLit", "SelectorExpr", "IndexExpr", "InterpolatedString", "FuncLit", "generic call", "slice operation", "string operation", "[]byte operation", "rune operation", "variant argument", "tuple let", "tuple pattern", "generic variant argument", "plain variant of a generic union", "bare record variant"}
+
+// operationCall is a call of the language's operations the generator
+// writes (case 18), and the receiver it reaches the operation from.
+var operationCall = regexp.MustCompile(`^[\w\[\]{}, ]+\.(Append|Bytes|Text|RuneText)\(([\w{}: ]*)\)$`)
+
+// tupleName is a name a tuple let of the generator binds (case 18): by
+// names (vNta) or by a tuple pattern (vNpa).
+var tupleName = regexp.MustCompile(`^v[0-9]+([tp])[ab]$`)
+
+// operationOf is the receiver class of the typed call at line l ("FILE
+// START END TYPE") of src, when it calls one of the language's operations
+// the generator writes: a slice's Append, a string's Bytes, a []byte's
+// Text or a rune's RuneText, and an Append of a variant ([]Shape's
+// Append(Sq{…})) as "variant argument", one on []Option[int] as "generic
+// variant argument" (Some) or "plain variant of a generic union" (None),
+// []Shape's Append(Dot) as "bare record variant",
+// and a use of a name a tuple let
+// binds by names as "tuple let" and by a pattern as "tuple pattern"; else
+// "".
+func operationOf(src, l string) string {
+	f := strings.Fields(l)
+	if len(f) < 3 {
+		return ""
+	}
+	start, err1 := strconv.Atoi(f[1])
+	end, err2 := strconv.Atoi(f[2])
+	if err1 != nil || err2 != nil || start < 0 || end > len(src) || start >= end {
+		return ""
+	}
+	if m := tupleName.FindStringSubmatch(src[start:end]); m != nil {
+		return map[string]string{"t": "tuple let", "p": "tuple pattern"}[m[1]]
+	}
+	m := operationCall.FindStringSubmatch(src[start:end])
+	if m == nil {
+		return ""
+	}
+	if m[1] == "Append" && strings.HasPrefix(src[start:end], "[]Option") && m[2] == "None" {
+		return "plain variant of a generic union"
+	}
+	if m[1] == "Append" && strings.HasPrefix(src[start:end], "[]Option") {
+		return "generic variant argument"
+	}
+	if m[1] == "Append" && m[2] == "Dot" {
+		return "bare record variant"
+	}
+	if m[1] == "Append" && strings.ContainsRune(m[2], '{') {
+		return "variant argument"
+	}
+	return map[string]string{"Append": "slice operation", "Bytes": "string operation", "Text": "[]byte operation", "RuneText": "rune operation"}[m[1]]
+}
 
 // genExpr is the source of the expression case seed: a few functions whose
 // bodies draw statements from a pool of the typer's forms, each local
@@ -194,6 +251,7 @@ func genExpr(seed uint32) string {
 		"func first[T](xs []T, d T) T { if len(xs) > 0 { xs[0] } else { d } }",
 		"func boxed[T](x T) Box[T] { Box[T]{v: x} }",
 		"func twice(x int) int { x * 2 }",
+		"func split(x int) (int, string) { (x * 2, \"s\") }",
 		"",
 	}
 	k := func() string { return strconv.Itoa(1 + r.n(9)) }
@@ -211,7 +269,34 @@ func genExpr(seed uint32) string {
 				continue
 			}
 			x := local()
-			switch r.n(18) {
+			switch r.n(19) {
+			case 18:
+				// The language's operations on a slice, a string, a
+				// []byte and a rune (builtin.ergo, D-D8).
+				switch r.n(6) {
+				case 0:
+					add("\tlet "+x+" = xs.Append(acc)", "\tacc = acc + len("+x+")")
+				case 1:
+					add("\tlet "+x+" = q.Bytes()", "\tacc = acc + len("+x+")")
+				case 2:
+					add("\tlet "+x+" = []byte{1, 2}.Text()", "\tacc = acc + len("+x+")")
+				case 3:
+					add("\tlet "+x+"r rune = "+k(), "\tlet "+x+" = "+x+"r.RuneText()", "\tacc = acc + len("+x+")")
+				case 4:
+					// A variant argument where T is bound to its union
+					// (INFER-VARIANT-ARG): the receiver binds T first.
+					// A generic union's variants too: Option[int]'s Some[int] and
+					// None (INFER-VARIANT-GENERIC).
+					call := []string{"[]Shape{sh}.Append(Dot)", "[]Shape{sh}.Append(Sq{W: acc})", "[]Option[int]{}.Append(Some{Value: acc})", "[]Option[int]{}.Append(None)"}[r.n(4)]
+					add("\tlet "+x+" = "+call, "\tacc = acc + len("+x+")")
+				case 5:
+					// A let of a tuple's parts, by names or by a tuple pattern.
+					if r.n(2) == 0 {
+						add("\tlet "+x+"ta, "+x+"tb = split(acc)", "\tacc = acc + "+x+"ta + len("+x+"tb)")
+					} else {
+						add("\tlet ("+x+"pa, "+x+"pb) = split(acc)", "\tacc = acc + "+x+"pa + len("+x+"pb)")
+					}
+				}
 			case 0:
 				add("\tlet "+x+" = p + "+k(), "\tacc = acc + "+x)
 			case 1:

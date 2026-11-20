@@ -78,8 +78,11 @@ func receiverBase(s store.Store, t dense.ID[store.TKey]) dense.ID[store.TKey] {
 // sameHead is whether the first parameter's base p names base's type:
 // the same named type, the same origin (a generic first parameter's
 // arguments are f's own parameters, which the call binds), or for the
-// prelude's operations the same unnamed form: any slice for []T, any Map
-// for Map[K, V], and exactly []byte, string or rune for those (D-D8).
+// prelude's operations the same unnamed form: a slice, a Map, or exactly
+// string or rune. A []byte operation (bs.Text()) is matched as any slice:
+// no []T operation shares its name, so only a program the Go checker
+// refuses (xs.Text() on []int) would tell them apart, and the typer
+// reports no missing function.
 func sameHead(s store.Store, p dense.ID[store.TKey], base dense.ID[store.TKey]) bool {
 	let pk = store.KindOfType(s, p)
 	let bk = store.KindOfType(s, base)
@@ -87,9 +90,6 @@ func sameHead(s store.Store, p dense.ID[store.TKey], base dense.ID[store.TKey]) 
 		return false
 	}
 	if pk == store.KNamed || pk == store.KForeign || pk == store.KBasic {
-		return p == base
-	}
-	if pk == store.KSlice && store.KindOfType(s, store.OperandsOf(s, p)[0]) != store.KParam {
 		return p == base
 	}
 	if pk == store.KInstance {

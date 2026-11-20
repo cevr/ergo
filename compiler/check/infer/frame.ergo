@@ -37,7 +37,7 @@ law FramesNest(picks []int) {
 	let outer = Begin(&f, []bool{false, true}, 5)
 	Bind(&f, outer, 0, store.TBasic(&s, 3))
 	let k = caseOf(&s, &f, picks)
-	let inner = Infer(&s, &f, k.callee, []dense.ID[store.TKey]{}, k.args)
+	let inner = Infer(&s, &f, NoUnions(), k.callee, []dense.ID[store.TKey]{}, k.args)
 	let kept = match Binding(f, outer, 0) {
 	case Some[dense.ID[store.TKey]] as b:
 		b.Value == store.TBasic(&s, 3)
