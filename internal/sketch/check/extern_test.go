@@ -303,6 +303,8 @@ type Mine {} implements fs.Files
 func ReadFile(_ Mine, path string) string fails fs.NotFound | fs.Denied | fs.Failed { "" }
 func ReadDir(_ Mine, path string) []string fails fs.NotFound | fs.Denied | fs.Failed { []string{} }
 func Stat(_ Mine, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { fs.Info{Name: path, Size: 0, Dir: false, Perm: 292} }
+
+func Lstat(_ Mine, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { fs.Info{Name: path, Size: 0, Dir: false, Perm: 292} }
 func use(f embed.FS) { _ = f.ReadDir(".") catch { case fs.NotFound, fs.Denied, fs.Failed: []string{} } }
 func main() {
 	use(Mine)
@@ -859,6 +861,10 @@ func Stat(_ Mine, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed
 	fs.Info{Name: path, Size: 0, Dir: false, Perm: 0}
 }
 
+func Lstat(_ Mine, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed {
+	fs.Info{Name: path, Size: 0, Dir: false, Perm: 0}
+}
+
 func use(f fs.Files) { _ = f.ReadFile("a") catch { case fs.NotFound, fs.Denied, fs.Failed: "" } }
 
 func main() {
@@ -878,6 +884,7 @@ func AppendFile(_ Mine, path string, text string) fails fs.NotFound | fs.Denied 
 func Chmod(_ Mine, path string, mode fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed {}
 func Rename(_ Mine, from string, to string) fails fs.NotFound | fs.Denied | fs.Failed {}
 func Remove(_ Mine, path string) fails fs.NotFound | fs.Denied | fs.Failed {}
+func Mkdir(_ Mine, path string, mode fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed | fs.Exists {}
 
 func use(w fs.Writes) { w.MkdirAll("a") catch { case fs.Denied, fs.Failed: } }
 

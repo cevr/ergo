@@ -1,0 +1,189 @@
+// Whole trees and symbolic links. Walk, RemoveAll, MkdirTemp, Glob and
+// Scratch are functions over Files and Writes, so every provider of those,
+// fstest.Memory and a program's own, has them with no operation of its
+// own (decision O8: one authority, not split). The link functions are of
+// Host only, as Link and SameFile are (G6): a store in memory has no links.
+
+import filepath
+import strconv
+import strings
+
+// Walk is path and every path below it, as Go's filepath.WalkDir visits
+// them: path first, as given, then each directory's entries in ReadDir's
+// order (sorted), depth first, each written filepath.Join(parent, name).
+// A symbolic link is listed and not followed (Lstat), so a walk ends on a
+// tree with a cycle of links. A file is itself alone.
+func Walk(path string) []string fails NotFound | Denied | Failed needs Files {
+	try walkInto(path, []string{})
+}
+
+// walkInto is out with path's walk after it.
+func walkInto(path string, out []string) []string fails NotFound | Denied | Failed needs Files {
+	let mut o = out.Append(path)
+	let info = try Files.Lstat(path)
+	if !info.Dir {
+		return o
+	}
+	for name in try Files.ReadDir(path) {
+		o = try walkInto(filepath.Join([]string{path, name}), o)
+	}
+	o
+}
+
+// RemoveAll removes path and everything below it, as Go's os.RemoveAll:
+// nothing at path, or no directory above it, is no failure, nor is the
+// empty path; a path that ends in "." is Failed "invalid argument". It
+// removes path first and reads it as a directory only when that fails,
+// so a symbolic link is removed and never followed, and nothing outside
+// path is touched.
+func RemoveAll(path string) fails Denied | Failed needs Files | Writes {
+	if path == "" {
+		return
+	}
+	// Go refuses a path that ends in "."; the check reads the path as
+	// given, before a test's Host resolves it to the folder itself.
+	if path == "." || strings.HasSuffix(path, "/.") {
+		return Failed{Path: path, Reason: "invalid argument"}
+	}
+	Writes.Remove(path) catch {
+	case NotFound:
+		return
+	case Denied as d:
+		return d
+	case Failed as f:
+		let names = Files.ReadDir(path) catch {
+		case NotFound:
+			return
+		case Denied, Failed:
+			return f
+		}
+		for name in names {
+			try RemoveAll(filepath.Join([]string{path, name}))
+		}
+		Writes.Remove(path) catch {
+		case NotFound:
+		case Denied as d:
+			return d
+		case Failed as again:
+			return again
+		}
+	}
+}
+
+// MkdirTemp makes a new directory in dir with mode PrivateDir() and is
+// its path, filepath.Join(dir, prefix + n), for the least n from 1 up
+// whose Mkdir does not fail Exists: Mkdir makes a name only when nothing
+// is there, so no two callers get one directory. The name is not random,
+// as Go's is: a provider gives the same tree on every run, and a name
+// another writer took is passed over. The empty dir is NotFound; a prefix
+// with a "/" is Failed "pattern contains path separator"; a missing dir is
+// NotFound naming the path tried.
+func MkdirTemp(dir string, prefix string) string fails NotFound | Denied | Failed needs Writes {
+	if dir == "" {
+		return NotFound{Path: dir}
+	}
+	if strings.Contains(prefix, "/") {
+		return Failed{Path: dir, Reason: "pattern contains path separator"}
+	}
+	let mut n = 1
+	for {
+		let path = filepath.Join([]string{dir, prefix + strconv.Itoa(n)})
+		if try madeDir(path) {
+			return path
+		}
+		n = n + 1
+	}
+}
+
+// madeDir reports whether Mkdir made path, false when something was there.
+func madeDir(path string) bool fails NotFound | Denied | Failed needs Writes {
+	Writes.Mkdir(path, PrivateDir()) catch {
+	case Exists:
+		return false
+	case NotFound as e:
+		return e
+	case Denied as e:
+		return e
+	case Failed as e:
+		return e
+	}
+	true
+}
+
+// Glob is each path of root's Walk, root included, that matches pattern
+// as filepath.Match reads it, in Walk's order. A pattern's "*" never
+// matches a "/", so a pattern of n elements matches paths of n elements.
+func Glob(root string, pattern string) []string fails NotFound | Denied | Failed | filepath.BadPattern needs Files {
+	let mut out = []string{}
+	for p in try Walk(root) {
+		if try filepath.Match(pattern, p) {
+			out = out.Append(p)
+		}
+	}
+	out
+}
+
+// Scratch is a temporary directory as a resource: NewScratch makes it with
+// MkdirTemp, and its owner's scope removes it, with everything in it, on
+// every exit (resources R5). Path is where it is. It keeps the providers
+// it was made with, so its release needs none.
+type Scratch { files Files, writes Writes, Path string } implements Closer
+
+// NewScratch is a new empty directory in dir, named prefix and a number,
+// removed when its owner's scope ends.
+func NewScratch(files Files, writes Writes, dir string, prefix string) Scratch fails NotFound | Denied | Failed {
+	let path = with context { Writes: writes } { try MkdirTemp(dir, prefix) }
+	Scratch{files: files, writes: writes, Path: path}
+}
+
+// Close removes the directory and everything in it. A failure to remove
+// it leaves it there: a release has no failure row (resources R2).
+func Close(s own Scratch) {
+	with context { Files: s.files, Writes: s.writes } {
+		RemoveAll(s.Path) catch {
+		case Denied, Failed:
+		}
+	}
+}
+
+// IsLink reports whether path itself, not followed, is a symbolic link.
+func IsLink(h Host, path string) bool fails NotFound | Denied | Failed {
+	try hostIsLink(try at(h, path))
+}
+
+// Readlink is the target of the symbolic link at path, as it was written.
+func Readlink(h Host, path string) string fails NotFound | Denied | Failed {
+	try hostReadlink(try at(h, path))
+}
+
+// Symlink makes a symbolic link at path whose target is target, as given;
+// target need not exist, and a file at path is Failed "file exists". A
+// test's Host confines the link's path; the target is text, read only
+// when the link is followed, and a followed link that leads out is Denied
+// there.
+func Symlink(h Host, target string, path string) fails NotFound | Denied | Failed {
+	try hostSymlink(target, try at(h, path))
+}
+
+// Resolve is path with every symbolic link in it replaced by its target,
+// cleaned (Go's filepath.EvalSymlinks). A test's Host resolves in its
+// folder and gives the path below it, or Denied when it leads out.
+func Resolve(h Host, path string) string fails NotFound | Denied | Failed {
+	let resolved = try hostResolve(try at(h, path))
+	if h.root == "" {
+		return resolved
+	}
+	let rel = filepath.Rel(h.root, resolved) catch {
+	case filepath.NotRelative:
+		return Denied{Path: path}
+	}
+	if strings.HasPrefix(rel, "..") {
+		return Denied{Path: path}
+	}
+	rel
+}
+
+extern go ergo.local/prototype/runtime/v1.FSIsLink func hostIsLink(path string) bool fails NotFound | Denied | Failed
+extern go ergo.local/prototype/runtime/v1.FSReadlink func hostReadlink(path string) string fails NotFound | Denied | Failed
+extern go ergo.local/prototype/runtime/v1.FSSymlink func hostSymlink(target string, path string) fails NotFound | Denied | Failed
+extern go ergo.local/prototype/runtime/v1.FSResolve func hostResolve(path string) string fails NotFound | Denied | Failed

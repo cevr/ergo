@@ -50,3 +50,21 @@ func FilepathRel(base, target string) (string, error) {
 	}
 	return rel, nil
 }
+
+// BadPattern is filepath.BadPattern: a pattern Match cannot read.
+type BadPattern struct{ Pattern string }
+
+// Error is the failure's text: its Ergo name and fields.
+func (e BadPattern) Error() string { return "filepath.BadPattern{Pattern:" + e.Pattern + "}" }
+
+// FilepathMatch is the body of filepath.Match: Go's filepath.Match.
+//
+//ergo:pure
+//ergo:wait none
+func FilepathMatch(pattern, name string) (bool, error) {
+	ok, err := filepath.Match(pattern, name)
+	if err != nil {
+		return false, BadPattern{Pattern: pattern}
+	}
+	return ok, nil
+}

@@ -1,0 +1,160 @@
+// Memory's Lstat and Mkdir, and the laws of fs's tree functions (Walk,
+// RemoveAll, MkdirTemp, Scratch) over a Memory: each builds its tree from
+// the generated paths, so a law reads no disk.
+
+import filepath
+import fs
+import strings
+import sync
+
+// Lstat is Stat: Memory has no symbolic links.
+func Lstat(m Memory, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed {
+	try Stat(m, path)
+}
+
+// Mkdir makes the one directory path with exactly mode when nothing is
+// there, and fails fs.Exists when something is.
+func Mkdir(m Memory, path string, mode fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed | fs.Exists {
+	let perm = fs.Perm(mode)
+	let made = sync.Modify(m.tree, func(t Map[string, entry]) (outcome, Map[string, entry]) {
+		let mut u = t
+		match find(t, path) {
+		case NoParent:
+			(Missing{Path: path}, u)
+		case UnderFile:
+			(Broken{Path: path, Reason: "not a directory"}, u)
+		case Taken:
+			(Broken{Path: path, Reason: "file exists"}, u)
+		case Free:
+			u[filepath.Clean(path)] = entry{Dir: true, Text: "", More: NoParts, Perm: perm}
+			(Changed, u)
+		}
+	})
+	match made {
+	case Broken as b:
+		if b.Reason == "file exists" {
+			return fs.Exists{Path: path}
+		}
+	case Changed, Missing:
+	}
+	try raise(made)
+}
+
+// grown is a new Memory with a file "x" at each of paths that can hold
+// one, its directories made first; a path that cannot is left out.
+func grown(paths []string) Memory {
+	let m = NewMemory()
+	for p in paths {
+		m.MkdirAll(filepath.Dir(p)) catch {
+		case fs.Denied, fs.Failed:
+		}
+		m.WriteFile(p, "x") catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+		}
+	}
+	m
+}
+
+// under reports whether the cleaned path q is p or below it.
+func under(q string, p string) bool { q == p || strings.HasPrefix(q, p + "/") }
+
+// WalkVisitsEachOnce: a walk of "." lists "." first and every path once,
+// each after its directory, and lists every file the tree holds.
+law WalkVisitsEachOnce(paths []string) {
+	let m = grown(paths)
+	with context { fs.Files: m, fs.Writes: m } {
+		let walked = try fs.Walk(".")
+		if len(walked) == 0 || walked[0] != "." {
+			return false
+		}
+		let mut seen = Map[string, int]{}
+		let mut i = 0
+		for w in walked {
+			if seen.Get(w) != None {
+				return false
+			}
+			if i > 0 && seen.Get(filepath.Dir(w)) == None {
+				return false
+			}
+			seen[w] = i
+			i = i + 1
+		}
+		for p in paths {
+			let info = m.Stat(p) catch {
+			case fs.NotFound, fs.Denied, fs.Failed:
+				continue
+			}
+			if !info.Dir && seen.Get(filepath.Clean(p)) == None {
+				return false
+			}
+		}
+		true
+	}
+}
+
+// RemoveAllTouchesOnlyPath: RemoveAll of a path of the tree leaves
+// nothing at or below it and every other path of the tree where it was.
+law RemoveAllTouchesOnlyPath(paths []string, pick int) {
+	let m = grown(paths)
+	with context { fs.Files: m, fs.Writes: m } {
+		let before = try fs.Walk(".")
+		let target = before[(pick%len(before)+len(before))%len(before)]
+		if target == "." {
+			return true
+		}
+		try fs.RemoveAll(target)
+		for q in before {
+			let _ = m.Lstat(q) catch {
+			case fs.NotFound:
+				if !under(q, target) {
+					return false
+				}
+				continue
+			case fs.Denied, fs.Failed:
+				return false
+			}
+			if under(q, target) {
+				return false
+			}
+		}
+		true
+	}
+}
+
+// MkdirTempIsNew: two MkdirTemp in one directory give two new empty
+// directories in it.
+law MkdirTempIsNew(paths []string, prefix string) {
+	if strings.Contains(prefix, "/") {
+		return true
+	}
+	let m = grown(paths)
+	with context { fs.Files: m, fs.Writes: m } {
+		let a = try fs.MkdirTemp(".", prefix)
+		let b = try fs.MkdirTemp(".", prefix)
+		let inA = try fs.Walk(a)
+		let inB = try fs.Walk(b)
+		a != b && filepath.Dir(a) == "." && filepath.Dir(b) == "." && len(inA) == 1 && len(inB) == 1
+	}
+}
+
+// ScratchIsRemoved: a Scratch is gone, with what was written in it, once
+// its owner's scope ends.
+law ScratchIsRemoved(name string) {
+	if name == "" || strings.Contains(name, "/") || name == "." || name == ".." {
+		return true
+	}
+	let m = NewMemory()
+	let made = func() string fails fs.NotFound | fs.Denied | fs.Failed {
+		let s = try fs.NewScratch(m, m, ".", "t")
+		try m.WriteFile(filepath.Join([]string{s.Path, name}), "x")
+		s.Path
+	}
+	let path = try made()
+	let _ = m.Lstat(path) catch {
+	case fs.NotFound:
+		return true
+	case fs.Denied, fs.Failed:
+		return false
+	}
+	false
+}

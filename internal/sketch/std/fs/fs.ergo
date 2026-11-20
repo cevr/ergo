@@ -27,6 +27,10 @@ extern go ergo.local/prototype/runtime/v1.Failed type Failed { Path string, Reas
 // Link never copies instead (G6).
 extern go ergo.local/prototype/runtime/v1.CrossDevice type CrossDevice { From string, To string }
 
+// Exists is the failure of Mkdir when something, a file, a directory or
+// a link, is at Path already.
+extern go ergo.local/prototype/runtime/v1.Exists type Exists { Path string }
+
 // Info describes the file at a path: its last element, its size in bytes,
 // whether it is a directory, and its permission bits as Perm gives them
 // (Go's fs.FileMode.Perm), so `info.Perm == fs.Perm(fs.Private())` tests
@@ -92,6 +96,22 @@ type Files {
 	// ReadDir is the names of the entries of the directory path, sorted.
 	ReadDir(path string) []string fails NotFound | Denied | Failed,
 	Stat(path string) Info fails NotFound | Denied | Failed,
+	// Lstat is Stat, but a symbolic link at path is described itself, not
+	// followed: a link is never Dir. A provider with no links gives Stat.
+	Lstat(path string) Info fails NotFound | Denied | Failed,
+
+	// LstatDirIsStatDir: a directory Lstat sees is one Stat sees too.
+	law LstatDirIsStatDir(path string) {
+		let l = Lstat(path) catch {
+		case NotFound, Denied, Failed:
+			return true
+		}
+		if !l.Dir {
+			return true
+		}
+		let s = try Stat(path)
+		s.Dir
+	},
 
 	// ReadIsRepeatable: with no writer, two reads of one path agree: both
 	// give the same text, or both fail with the same failure, its kind and
@@ -169,6 +189,27 @@ type Writes {
 	Rename(from string, to string) fails NotFound | Denied | Failed,
 	// Remove removes the file, or the empty directory, at path.
 	Remove(path string) fails NotFound | Denied | Failed,
+	// Mkdir makes the one directory path, with exactly mode, whatever the
+	// umask, when nothing is at path; anything there, a link included, is
+	// Exists. So of two Mkdir of one path at most one succeeds: MkdirTemp
+	// rests on it. A missing parent is NotFound.
+	Mkdir(path string, mode Mode) fails NotFound | Denied | Failed | Exists,
+
+	// MkdirThenExists: when Mkdir(path, mode) succeeds, a second
+	// Mkdir(path, mode) fails Exists.
+	law MkdirThenExists(path string) {
+		Mkdir(path, PrivateDir()) catch {
+		case NotFound, Denied, Failed, Exists:
+			return true
+		}
+		Mkdir(path, PrivateDir()) catch {
+		case Exists:
+			return true
+		case NotFound, Denied, Failed:
+			return false
+		}
+		false
+	},
 
 	// MkdirAllIsIdempotent: when MkdirAll(path) succeeds, a second
 	// MkdirAll(path) succeeds too.
@@ -377,6 +418,11 @@ func Stat(h Host, path string) Info fails NotFound | Denied | Failed {
 	try hostStat(try at(h, path))
 }
 
+// Lstat is Stat of path itself: a symbolic link is not followed.
+func Lstat(h Host, path string) Info fails NotFound | Denied | Failed {
+	try hostLstat(try at(h, path))
+}
+
 // WriteFile makes the file at path hold text, by a new file in its
 // directory renamed over it.
 func WriteFile(h Host, path string, text string) fails NotFound | Denied | Failed {
@@ -386,6 +432,11 @@ func WriteFile(h Host, path string, text string) fails NotFound | Denied | Faile
 // MkdirAll makes the directory path and each missing parent.
 func MkdirAll(h Host, path string) fails Denied | Failed {
 	try hostMkdirAll(try at(h, path))
+}
+
+// Mkdir makes the one directory path with exactly mode, or fails Exists.
+func Mkdir(h Host, path string, mode Mode) fails NotFound | Denied | Failed | Exists {
+	try hostMkdir(try at(h, path), Perm(mode))
 }
 
 // WriteFileMode makes the file at path hold text with exactly mode, by a
@@ -483,6 +534,8 @@ extern go ergo.local/prototype/runtime/v1.FSReadFile func hostReadFile(path stri
 extern go ergo.local/prototype/runtime/v1.FSMapFile func hostMapFile(path string) Mapped fails NotFound | Denied | Failed
 extern go ergo.local/prototype/runtime/v1.FSReadDir func hostReadDir(path string) []string fails NotFound | Denied | Failed
 extern go ergo.local/prototype/runtime/v1.FSStat func hostStat(path string) Info fails NotFound | Denied | Failed
+extern go ergo.local/prototype/runtime/v1.FSLstat func hostLstat(path string) Info fails NotFound | Denied | Failed
+extern go ergo.local/prototype/runtime/v1.FSMkdir func hostMkdir(path string, perm int) fails NotFound | Denied | Failed | Exists
 extern go ergo.local/prototype/runtime/v1.FSWriteFile func hostWriteFile(path string, text string) fails NotFound | Denied | Failed
 extern go ergo.local/prototype/runtime/v1.FSMkdirAll func hostMkdirAll(path string) fails Denied | Failed
 extern go ergo.local/prototype/runtime/v1.FSWriteFileMode func hostWriteFileMode(path string, text string, perm int) fails NotFound | Denied | Failed
