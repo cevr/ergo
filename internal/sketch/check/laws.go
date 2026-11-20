@@ -846,6 +846,13 @@ func (c *checker) prepareUnprovided() {
 		if law.Owner == nil || law.Unrun != "" || law.file == nil || law.Decl == nil || len(law.Slots) != 1 || law.Slots[0].Param >= 0 || len(law.Slots[0].Type.TParams) > 0 {
 			continue
 		}
+		if law.Owner.Decl != nil && law.Owner.Decl.Extern != nil {
+			// A Go host type's law (atomic.Int64, time.Timeline): its
+			// provider is the bound Go type, which no Ergo package
+			// implements; it keeps the printed line until that is
+			// ruled.
+			continue
+		}
 		c.cur = law.file
 		u := unfedBinding{law: law}
 		u.diag = c.prepared(func() {
