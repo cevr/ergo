@@ -24,6 +24,8 @@ import (
 // A member law is restated for each kind of provider the std makes: a
 // queue of capacity 0 and one with room, a waiting task.
 const stdLawsProbe = `import queue
+import sync
+import signal
 import os
 import api
 import atomic
@@ -1092,6 +1094,79 @@ test MathToUintptrFailsOnlyOutside(f float64) {
 		assert lawUintptr(g)
 	}
 }
+
+func signalOf(p int) signal.Stop {
+	let c = (p%3+3)%3
+	if c == 0 {
+		signal.Interrupt{}
+	} else if c == 1 {
+		signal.Terminate{}
+	} else {
+		signal.Hangup{}
+	}
+}
+
+test SignalRaisedInOrder(picks []int) {
+	let mut raised = []signal.Stop{}
+	for p in picks {
+		raised = raised.Append(signalOf(p))
+	}
+	let s = signal.NewScript(raised)
+	for k in raised {
+		assert s.Next() == k
+	}
+	assert s.Poll() == None
+}
+
+test SignalPollTakesOnce(pick int) {
+	let k = signalOf(pick)
+	let s = signal.NewScript([]signal.Stop{k})
+	assert s.Poll() == Some[signal.Stop]{Value: k}
+	assert s.Poll() == None
+}
+
+test SignalQuietRunsBody(n int) {
+	let got = signal.UntilStop(signal.NewScript([]signal.Stop{}), func() int { n }) catch {
+	case signal.Stopped:
+		assert false
+		0
+	}
+	assert got == n
+}
+
+test SignalStopEndsBody(pick int) {
+	let k = signalOf(pick)
+	let cleaned = sync.NewRef[int](0)
+	let never = queue.New[int](0)
+	let _ = signal.UntilStop(signal.NewScript([]signal.Stop{k}), func() int {
+		scope.OnExit() { cleaned.Update(func(v int) int { v + 1 }) }
+		never.Pop() catch {
+		case queue.Closed:
+			0
+		}
+	}) catch {
+	case signal.Stopped as st:
+		assert st.Kind == k
+		assert cleaned.Get() == 1
+		return
+	}
+	assert false
+}
+
+test SignalStatusIsTheShells(pick int) {
+	let k = signalOf(pick)
+	let s = int(signal.StatusOf(k))
+	let want = match k {
+	case signal.Interrupt:
+		130
+	case signal.Terminate:
+		143
+	case signal.Hangup:
+		129
+	}
+	assert s == want
+	assert !(1 <= s && s <= 125)
+}
 `
 
 // stdLawsTestName is the probe test that restates the law of a ledger row.
@@ -1104,6 +1179,11 @@ func stdLawsTestName(pkg, law string) string {
 // holds it equal to the ledger, so a law changed in source fails here
 // until its restatement in the probe is changed with it.
 var stdLawsStatements = map[string]string{
+	"signal StatusIsTheShells":             `StatusIsTheShells(pick int) { let k = stopOf((pick%3+3)%3 + 1) let s = int(StatusOf(k)) s == 128 + hostNumber(codeOf(k)) && !(1 <= s && s <= 125) }`,
+	"signal RaisedInOrder":                 `RaisedInOrder(picks []int) { let mut raised = []Stop{} for p in picks { raised = raised.Append(stopOf((p%3+3)%3 + 1)) } let s = NewScript(raised) for k in raised { if s.Next() != k { return false } } s.Poll() == None }`,
+	"signal PollTakesOnce":                 `PollTakesOnce(pick int) { let k = stopOf((pick%3+3)%3 + 1) let s = NewScript([]Stop{k}) s.Poll() == Some[Stop]{Value: k} && s.Poll() == None }`,
+	"signal QuietRunsBody":                 `QuietRunsBody(n int) { let got = UntilStop(NewScript([]Stop{}), func() int { n }) catch { case Stopped: return false } got == n }`,
+	"signal StopEndsBody":                  `StopEndsBody(pick int) { let k = stopOf((pick%3+3)%3 + 1) let cleaned = sync.NewRef[int](0) let never = queue.New[int](0) let _ = UntilStop(NewScript([]Stop{k}), func() int { scope.OnExit() { cleaned.Update(func(v int) int { v + 1 }) } never.Pop() catch { case queue.Closed: 0 } }) catch { case Stopped as st: return st.Kind == k && cleaned.Get() == 1 } false }`,
 	"api ExitKeepsTheCode":                 `ExitKeepsTheCode(o Output) { let want = if o.Code >= 1 && o.Code <= 125 || o.Code >= 129 && o.Code <= 192 { o.Code } else if o.Code == 0 { 0 } else { 1 } ExitOf(o) catch { case os.Exit as e: return int(e.Code) == want && want != 0 } want == 0 }`,
 	"api KebabRoundTrips":                  `KebabRoundTrips(words []string) { let mut name = "" let mut parts = []string{} for w in words { let low = word(w) parts = parts.Append(low) name = name + strings.ToUpper(low[0:1]) + low[1:] } let k = Kebab(name) k == strings.Join(parts, "-") && Kebab(k) == k }`,
 	"api AgreesSeesTheLoss":                `AgreesSeesTheLoss(c string, o int) { Agrees(echo, c, o) && !Agrees(dropping, c+"!", o) }`,
