@@ -24,6 +24,10 @@ extern go ergo.local/prototype/runtime/v1.FS type FS {
 // NewEmpty is an empty read-only tree, useful when a program has no assets.
 extern go ergo.local/prototype/runtime/v1.NewEmptyFS func NewEmpty() FS
 
+// empty is the context FS's laws run under (types.md, Laws 10). An
+// embedded tree is a program's own, so std's is the empty one.
+let empty = context { FS: NewEmpty() }
+
 law EmptyHasNoFiles(path string) {
 	let _ = NewEmpty().ReadFile(path) catch {
 	case fs.NotFound:
