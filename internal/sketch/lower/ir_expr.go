@@ -240,7 +240,7 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 		case *check.Const:
 			return &irExpr{K: "const", Pos: p, T: "bool", V: strconv.FormatBool(o.Val)}
 		case *check.Func:
-			return b.funcName(o, t, x, p) // ir_fnname.go
+			return b.funcName(o, t, x, p, nil) // ir_fnname.go
 		case *check.TypeName:
 			if e := b.bareRecord(o, t, x, p); e != nil { // ir_union.go
 				return e
@@ -277,7 +277,7 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 	case *syntax.SelectorExpr:
 		switch o := check.QualifiedMember(b.l.info, x).(type) {
 		case *check.Func:
-			return b.funcName(o, t, x, p) // pkg.F as a value (ir_fnname.go)
+			return b.funcName(o, t, x, p, nil) // pkg.F as a value (ir_fnname.go)
 		case *check.TypeName:
 			// pkg.T of a record with no fields, as the bare name T is.
 			if e := b.bareRecord(o, t, x, p); e != nil {
@@ -319,6 +319,13 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 		b.goType(n, x)
 		// goType queued the declaration, unless the runtime's Go type
 		// stands for n (IRG4: a std record such as os.Exit), as fieldName.
+		if check.ScriptOf(n) != nil {
+			// A Script's field is its operation's, as the emitter's
+			// fieldName (expr.go) names it: the Go struct script.go
+			// writes has one field per operation (testing.Script[Runner]'s
+			// s.Run).
+			return &irExpr{K: "field", Pos: b.pos(x.Sel, x.Sel.Pos()), Name: memberName(x.Sel.Name), X: b.expr(x.X)}
+		}
 		td := b.l.typeDecl(n.Obj, x)
 		if td.goError {
 			return b.goErrorText(x, td, p) // ir_golib.go
@@ -337,6 +344,15 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 		}
 		return &irExpr{K: "field", Pos: b.pos(x.Sel, x.Sel.Pos()), Name: field, X: b.expr(x.X)}
 	case *syntax.IndexExpr:
+		// A generic function named at its type arguments, f[A, B], is a
+		// value of the instance (the emitter's index, funcValue).
+		if sig, ok := b.l.info.Types[x.X].(*check.Signature); ok && len(sig.TParams) > 0 {
+			inst := b.l.info.Instances[x]
+			if inst == nil {
+				irNo("index form")
+			}
+			return b.funcName(inst.Func, b.l.info.Types[x], x, p, inst) // ir_fnname.go
+		}
 		if len(x.Indices) != 1 {
 			irNo("index form")
 		}
