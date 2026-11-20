@@ -20,7 +20,8 @@ import (
 // R20, R21, R42, R43; ownership.go): a use after a hand-off or a maybe
 // hand-off, a hand-off from a block passed to a call, a lent parameter
 // handed off, a lend and a hand-off in one call, a dropped or `_` resource,
-// a replace from a block, a package let handed off and a yielded root;
+// a replace from a block, a package let handed off or named by a with's
+// resource provider and a yielded root;
 // and each of those on a value of a type parameter marked own, which
 // names the mark, and such a value dropped at the end of its scope
 // (MODES-OWN-BODY; takes.go ownSite).
@@ -34,6 +35,7 @@ var flowTemplates = []*regexp.Regexp{
 	regexp.MustCompile(`^the .+ bound to _ is discarded, and a resource has one owner`),
 	regexp.MustCompile(`^\S+ belongs to the enclosing function; .+ cannot replace it \(resources R4\)`),
 	regexp.MustCompile(`^\S+ is a package let, which has no owner to hand it off`),
+	regexp.MustCompile(`^this resource provider names the package let \S+, which has no owner to hand it to the with`),
 	regexp.MustCompile(`^the yielded resource is rooted `),
 	regexp.MustCompile(`, and .+ is marked own, so its value has one owner as a resource's has \(types\.md, Generics 9\)$`),
 	regexp.MustCompile(`^\S+ is lent and handed off \(.*\); write: `),
