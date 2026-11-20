@@ -36,7 +36,7 @@ test Wd {
 	}
 	for _, f := range files {
 		text := string(f.Data)
-		at := strings.Index(text, "func "+goHelper("ergoTestWd")+"(")
+		at := strings.Index(text, "func ergoTestWd(")
 		if at < 0 {
 			continue
 		}
@@ -49,5 +49,5 @@ test Wd {
 		}
 		return
 	}
-	t.Fatal("no lowered file declares " + goHelper("ergoTestWd"))
+	t.Fatal("no lowered file declares ergoTestWd")
 }

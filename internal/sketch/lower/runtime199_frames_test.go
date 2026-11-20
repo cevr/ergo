@@ -270,7 +270,7 @@ func TestRuntime199FrameClassCoverage(t *testing.T) {
 						continue
 					}
 					var bodies []*ast.BlockStmt
-					if frame.name == "context" && fd.Name.Name == goHelper("buildDeep") {
+					if frame.name == "context" && fd.Name.Name == "buildDeep" {
 						bodies = append(bodies, fd.Body)
 					}
 					if frame.name == "initializer" && fd.Name.Name == "ergoInit" {
