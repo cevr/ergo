@@ -227,6 +227,11 @@ command that names `DIR/...` (`check`, `test`, `fmt`, `lint`, `graph
 export`) runs over the workspace at `DIR` when `DIR` holds an `ergo.work`
 or no module holds `DIR`; inside a module it takes that module's packages
 below `DIR`, as before. `internal/sketchfront.DiscoverWorkspace` finds it.
+Inside a module, `DIR/...` uses the same admission rule as discovery: it
+leaves out `testdata`, hidden and `_` folders and, since WS1, also
+`node_modules` and `vendor`. A package named by its folder
+(`ergo check app/vendor/x`) still checks: the rule chooses what a
+pattern walks, never what a named folder is.
 
 - **Members.** Every folder below the root that holds an `ergo.mod` is a
   member, the root too, and a module nested in another is a member of its
@@ -237,6 +242,13 @@ below `DIR`, as before. `internal/sketchfront.DiscoverWorkspace` finds it.
   `go.mod` names the other's folder (`./x`, `../x` or absolute). Each
   pair is one edge. A remote replacement, or a folder that is no member,
   is no edge.
+- **Divergences.** A member whose `go.mod` requires another member's Go
+  module by version with no `replace` builds against the module cache's
+  copy, not the one beside it, and no edge joins them (a local edit does
+  not reach it). `ergo lint DIR/...` at a root reports each as
+  `workspace-divergent-require` at the `require` line, naming both
+  members, the version and the fix (`replace PATH => ../member`), and
+  exits 1.
 - **Once each.** `DIR/...` at a root selects every member's packages once,
   a member after each member it resolves locally (members in a cycle keep
   folder order), and each member loads as its own module.

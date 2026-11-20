@@ -34,6 +34,19 @@ type Workspace struct {
 	Edges []ModuleEdge
 	// Skip are the folders ergo.work leaves out, relative to Root.
 	Skip []string
+	// Divergences are the requirements of one member on another member's
+	// Go module by version with no replace line: the member builds
+	// against a copy from the module cache, not the one beside it.
+	Divergences []Divergence
+}
+
+// Divergence is a member's go.mod line `require PATH VERSION` where PATH is
+// another member's Go module and no replace line of the same go.mod
+// replaces PATH. From and To index Members; Line is the require's line.
+type Divergence struct {
+	From, To      int
+	Path, Version string
+	Line          int
 }
 
 // Member is one module of a workspace.
@@ -158,7 +171,8 @@ func DiscoverWorkspace(fsys FS, root string) (Workspace, error) {
 	for i, m := range ws.Members {
 		byDir[m.Dir] = i
 	}
-	seen := map[ModuleEdge]bool{}
+	goMods := make([]*goMod, len(ws.Members))
+	byGoModule := map[string]int{}
 	for i, m := range ws.Members {
 		data, err := fsys.ReadFile(filepath.Join(m.Dir, GoModFile))
 		if errors.Is(err, fs.ErrNotExist) {
@@ -170,6 +184,26 @@ func DiscoverWorkspace(fsys FS, root string) (Workspace, error) {
 		gm, err := parseGoMod(string(data))
 		if err != nil {
 			continue // the member's own load reports its go.mod
+		}
+		goMods[i] = &gm
+		if gm.module != "" {
+			byGoModule[gm.module] = i
+		}
+	}
+	seen := map[ModuleEdge]bool{}
+	for i, gm := range goMods {
+		if gm == nil {
+			continue
+		}
+		m := ws.Members[i]
+		replaced := map[string]bool{}
+		for _, r := range gm.replace {
+			replaced[r.old] = true
+		}
+		for _, q := range gm.require {
+			if j, ok := byGoModule[q.path]; ok && j != i && !replaced[q.path] {
+				ws.Divergences = append(ws.Divergences, Divergence{From: i, To: j, Path: q.path, Version: q.version, Line: q.line})
+			}
 		}
 		for _, r := range gm.replace {
 			if !localReplacement(r.new) {

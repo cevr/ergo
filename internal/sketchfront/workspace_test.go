@@ -18,6 +18,10 @@ type wsTree struct {
 	names   map[string]string // member folder -> module name
 	edges   [][2]string       // member folder -> member folder, sorted, once
 	pkgs    map[string]string // package folder -> its member's folder
+	// diverge are the requirements on another member's Go module by
+	// version with no replace: "from -> to path version", in member then
+	// line order.
+	diverge []string
 }
 
 // genWorkspace draws a tree of modules: members at nested folders (a
@@ -56,6 +60,7 @@ func genWorkspace(r *rand.Rand) wsTree {
 		return dir + "/" + name
 	}
 	seen := map[[2]string]bool{}
+	hasGoMod := map[int]bool{}
 	for i, dir := range dirs {
 		name := fmt.Sprintf("m%d", i)
 		t.members = append(t.members, dir)
@@ -66,7 +71,16 @@ func genWorkspace(r *rand.Rand) wsTree {
 			t.files[pkg+"/p.ergo"] = fmt.Sprintf("func F%d() int { %d }\n", p, p)
 			t.pkgs[pkg] = dir
 		}
-		var replaces []string
+		var replaces, requires []string
+		replaced := map[string]bool{}
+		for k := 0; k < r.IntN(3); k++ {
+			// A requirement of an earlier member's Go module by version:
+			// replaced below or not, a divergence when not.
+			if i > 0 {
+				j := r.IntN(i)
+				requires = append(requires, fmt.Sprintf("example.com/m%d v1.%d.0", j, k))
+			}
+		}
 		for k := 0; k < r.IntN(4); k++ {
 			switch {
 			case i > 0 && r.IntN(3) > 0:
@@ -77,6 +91,7 @@ func genWorkspace(r *rand.Rand) wsTree {
 					rel = "./" + rel
 				}
 				replaces = append(replaces, fmt.Sprintf("example.com/m%d => %s", j, rel))
+				replaced[fmt.Sprintf("example.com/m%d", j)] = true
 				e := [2]string{dir, dirs[j]}
 				if !seen[e] {
 					seen[e] = true
@@ -89,8 +104,21 @@ func genWorkspace(r *rand.Rand) wsTree {
 				replaces = append(replaces, "example.com/remote => example.com/fork v1.2.3")
 			}
 		}
-		if len(replaces) > 0 || r.IntN(2) == 0 {
+		if len(replaces) > 0 || len(requires) > 0 || r.IntN(2) == 0 {
 			gomod := fmt.Sprintf("module example.com/m%d\n\ngo 1.27\n", i)
+			if len(requires) == 1 {
+				gomod += "require " + requires[0] + "\n"
+			} else if len(requires) > 1 {
+				gomod += "require (\n\t" + strings.Join(requires, "\n\t") + "\n)\n"
+			}
+			for _, q := range requires {
+				path, version, _ := strings.Cut(q, " ")
+				var j int
+				fmt.Sscanf(path, "example.com/m%d", &j)
+				if !replaced[path] && hasGoMod[j] {
+					t.diverge = append(t.diverge, dir+" -> "+dirs[j]+" "+path+" "+version)
+				}
+			}
 			if r.IntN(2) == 0 {
 				for _, l := range replaces {
 					gomod += "replace " + l + "\n"
@@ -99,6 +127,7 @@ func genWorkspace(r *rand.Rand) wsTree {
 				gomod += "replace (\n\t" + strings.Join(replaces, "\n\t") + "\n)\n"
 			}
 			t.files[at(dir, GoModFile)] = gomod
+			hasGoMod[i] = true
 		}
 	}
 	decoys := []string{"testdata", ".hidden", "_draft", "node_modules", "vendor"}
@@ -114,6 +143,14 @@ func genWorkspace(r *rand.Rand) wsTree {
 		t.files["skipped/away/y/y.ergo"] = "func Y() int { 0 }\n"
 	}
 	slices.Sort(t.members)
+	// Discovery reports divergences in member order (the folders sorted),
+	// each member's in its go.mod's line order: requires are written in
+	// draw order, so a stable sort by the from folder is that order.
+	slices.SortStableFunc(t.diverge, func(a, b string) int {
+		fa, _, _ := strings.Cut(a, " -> ")
+		fb, _, _ := strings.Cut(b, " -> ")
+		return strings.Compare(fa, fb)
+	})
 	slices.SortFunc(t.edges, func(a, b [2]string) int {
 		if c := strings.Compare(a[0], b[0]); c != 0 {
 			return c
@@ -191,6 +228,13 @@ func TestWorkspaceDiscoveryAgrees(t *testing.T) {
 		}
 		if !slices.Equal(edges, tree.edges) {
 			fail("edges %v, want %v", edges, tree.edges)
+		}
+		var diverge []string
+		for _, d := range ws.Divergences {
+			diverge = append(diverge, ws.Members[d.From].Rel+" -> "+ws.Members[d.To].Rel+" "+d.Path+" "+d.Version)
+		}
+		if !slices.Equal(diverge, tree.diverge) {
+			fail("divergences %v, want %v", diverge, tree.diverge)
 		}
 		// A root that is a module, with no ergo.work, is that module:
 		// ./... there is its packages alone, as before workspaces.

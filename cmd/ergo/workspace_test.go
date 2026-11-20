@@ -16,8 +16,10 @@ import (
 // ROOT/... --json` holds a module row for each member, the one with no
 // package too, and a requires row for the local replace. The selection
 // itself is TestWorkspaceDiscoveryAgrees's property; this is the smallest
-// tree that runs it through the command. It kills ws-graph-no-module-rows
-// and ws-graph-requires-dropped.
+// tree that runs it through the command. A vendor folder inside a module
+// is left out of ./... (one admission rule), yet the package named by its
+// folder still checks. It kills ws-graph-no-module-rows and
+// ws-graph-requires-dropped.
 func TestCheckAtAWorkspaceRoot(t *testing.T) {
 	root := t.TempDir()
 	write := func(name, text string) {
@@ -40,6 +42,7 @@ func TestCheckAtAWorkspaceRoot(t *testing.T) {
 	write("empty/ergo.mod", "module empty\n")
 	write("app/testdata/fixture/ergo.mod", "module fixture\n")
 	write("app/testdata/fixture/f/fixture.ergo", "this is not Ergo\n")
+	write("app/vendor/copied/copied.ergo", "func Copied() int { 2 }\n")
 
 	out := captureCommand(t, root, func() error { return checkCommand([]string{root + "/..."}) })
 	// One envelope per package; a package's revision is its source's, so
@@ -60,6 +63,10 @@ func TestCheckAtAWorkspaceRoot(t *testing.T) {
 	}
 	if strings.Contains(out, "fixture") {
 		t.Errorf("ergo check ROOT/... entered testdata:\n%s", out)
+	}
+	named := captureCommand(t, root, func() error { return checkCommand([]string{filepath.Join(root, "app", "vendor", "copied")}) })
+	if !strings.Contains(named, `"checked":true`) {
+		t.Errorf("ergo check of a package named under vendor/ did not check it:\n%s", named)
 	}
 
 	rows := captureCommand(t, root, func() error { return graphCommand([]string{"export", root + "/...", "--json"}) })
@@ -101,6 +108,63 @@ func TestCheckAtAWorkspaceRoot(t *testing.T) {
 	}
 	if requires != 1 {
 		t.Errorf("graph export at a root has %d requires rows, want 1:\n%s", requires, rows)
+	}
+}
+
+// TestLintAtAWorkspaceRootNamesADivergentRequire: `ergo lint ROOT/...` at
+// a workspace root reports a member that requires another member's Go
+// module by version with no replace line, naming both, the version, the
+// go.mod line and the replace that fixes it, and fails; with the replace
+// it reports nothing and lints every package. TestWorkspaceDiscoveryAgrees
+// holds which requirements diverge; this is the command's report. It
+// kills ws-lint-divergence-unreported.
+func TestLintAtAWorkspaceRootNamesADivergentRequire(t *testing.T) {
+	root := t.TempDir()
+	write := func(name, text string) {
+		t.Helper()
+		path := filepath.Join(root, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("lib/ergo.mod", "module lib\n")
+	write("lib/go.mod", "module example.com/lib\n\ngo 1.27\n")
+	write("lib/num/libnum.ergo", "func Twice(n int) int { n * 2 }\n")
+	write("app/ergo.mod", "module app\n")
+	write("app/go.mod", "module example.com/app\n\ngo 1.27\n\nrequire example.com/lib v1.4.0\n")
+	write("app/core/appcore.ergo", "func One() int { 1 }\n")
+	lint := func() (string, error) {
+		t.Helper()
+		f, err := os.CreateTemp(t.TempDir(), "stdout-")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+		saved := os.Stdout
+		os.Stdout = f
+		err = lintCommand([]string{root + "/..."})
+		os.Stdout = saved
+		b, readErr := os.ReadFile(f.Name())
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		return string(b), err
+	}
+	out, err := lint()
+	want := "app/go.mod:5: workspace-divergent-require: app requires example.com/lib v1.4.0 by version, but example.com/lib is the member lib beside it"
+	if !strings.Contains(out, want) || !strings.Contains(out, "add replace example.com/lib => ../lib") {
+		t.Errorf("ergo lint ROOT/... with a divergent require printed:\n%s\nwant a line with %q and its replace", out, want)
+	}
+	if exitCode(err) != 1 {
+		t.Errorf("ergo lint ROOT/... with a divergent require: %v, want exit 1", err)
+	}
+	write("app/go.mod", "module example.com/app\n\ngo 1.27\n\nrequire example.com/lib v1.4.0\n\nreplace example.com/lib => ../lib\n")
+	out, err = lint()
+	if err != nil || strings.Contains(out, "workspace-divergent-require") {
+		t.Errorf("ergo lint ROOT/... with the replace: %v\n%s", err, out)
 	}
 }
 
