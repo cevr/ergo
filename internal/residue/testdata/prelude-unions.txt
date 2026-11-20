@@ -1,0 +1,35 @@
+# The compiler's mentions of the prelude's Option, Some and None
+# (TestLoweringNamesNoPreludeUnion; ADT-NOPRIV, design A, approved
+# 2026-11-20). A line is
+# `dir/file.go:function<TAB>count<TAB>verdict<TAB>unit<TAB>reason`:
+# count is the function's string literals "Option", "Some" or "None";
+# verdict is `by name` (a decision keyed on the name), `language` (the
+# compiler builds the type there) or `debt` (another inventory holds the
+# row as debt); unit is the ADT-NOPRIV unit that removes it. The list only
+# shrinks, and the rule is done when it is empty. Seeded from the
+# findings' census (§1): a site of the census with no literal of its own
+# (extern.go's adapters, provider.go, nicheAdmitted, gocall.go's callers,
+# moveout.go) reaches the name through the helper that holds the row.
+check/cells.go:optionParams	2	by name	SHAPE-BOUNDARY	Option and Some, as go.Ref, may hold a confined Go value (their code sends nothing to a task): by the two-variant shape
+check/entry.go:checker.machineAfterShape	1	language	SHAPE-BOUNDARY	a machine's After is func(S) Option[…]: read the prelude Machine record's declared field type
+check/entry.go:checker.machineAfterEvery	1	language	SHAPE-BOUNDARY	a machine's After (every) is func(S) Option[…]: read the declared field type
+check/exit.go:checker.machineExitRow	1	language	SHAPE-BOUNDARY	a machine's Exit is func(S) Option[func()]: read the declared field type
+check/extern.go:optionElem	1	by name	SHAPE-BOUNDARY	a Go result (T, bool), a nilable pointer or (…, error) adapts to Option: any union of the two-variant shape (q271)
+check/goany.go:checker.goAnyAs	1	language	SHAPE-BOUNDARY	the any-cast returns Option[T]: the type go.As's prelude declaration names
+check/goerror.go:checker.goErrorCall	1	language	SHAPE-BOUNDARY	go.As[T] returns Option[T]: the type its prelude declaration names
+check/work.go:checker.machineWorkRow	1	language	SHAPE-BOUNDARY	a machine's Work is func(S) Option[…]: read the declared field type
+eval/machinevalue.go:interp.machineOption	1	debt	SHAPE-BOUNDARY	the evaluator builds a machine field's Some or None; std-privileges.txt's debt row (B20-NP)
+eval/machinevalue.go:optionOf	2	language	SHAPE-BOUNDARY	the evaluator builds Some or None for Get and machine fields: build the type the declaration names
+lower/decls.go:lowerer.intrinsic	1	by name	SHAPE-BOUNDARY	Take's result (Option[V], Map) binds the runtime body's (T, bool): by shape
+lower/decls.go:optionVariants	2	by name	SHAPE-BOUNDARY	a std body's or a Go function's (T, bool) or nil result becomes Some or None (optionReturn)
+lower/flatunion.go:lowerer.flatUnionSet	1	by name	OPTION-SHAPE	Option's own flat form (optionShape, optionCycle): the general rule gives the same bytes
+lower/flatunion.go:lowerer.layoutOf	1	by name	OPTION-SHAPE	Option's own layout beside the general one
+lower/flatunion.go:lowerer.lowerAgain	1	by name	OPTION-SHAPE	counts Option bails apart from union bails (a statistic)
+lower/flatunion.go:lowerer.nicheElem	1	by name	SHAPE-BOUNDARY	Option[go.Ref[S]] is the Go pointer *S: any union of the two-variant shape
+lower/genericunion.go:lowerer.genericUnions	1	by name	OPTION-SHAPE	every generic union but Option goes through the general rule
+lower/getmatch.go:funcCtx.getArmsLower	1	by name	KNOWN-VARIANT	match m.Get(k) builds no Option: the known-variant jump gives it
+lower/getmatch.go:getPattern	3	by name	KNOWN-VARIANT	the arms of a comma-ok Get match: Some, None, Option (was std-names.txt's abi row)
+lower/getmatch.go:preludeGet	1	by name	KNOWN-VARIANT	the Get whose result is Option (CollGet and Option)
+lower/gocall.go:isOptionType	1	by name	SHAPE-BOUNDARY	Option at a Go import boundary (was std-names.txt's abi row): any union of the shape (q271)
+lower/ir_get.go:irBuilder.getArm	1	by name	KNOWN-VARIANT	the IR's comma-ok Get builds Some's record: the known-variant jump gives it
+lower/std.go:funcCtx.stdResult	1	by name	SHAPE-BOUNDARY	a std body's (T, bool) result becomes Option: by shape

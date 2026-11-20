@@ -78,6 +78,15 @@ func TestLoweringKeysOnNoStdName(t *testing.T) {
 		}
 	}
 	listed := readStdNames(t)
+	// A function this inventory does not hold that names the prelude's
+	// Option, Some or None is held by testdata/prelude-unions.txt
+	// (TestLoweringNamesNoPreludeUnion, ADT-NOPRIV), which names the unit
+	// that removes it.
+	for key := range readPreludeUnions(t) {
+		if k := strings.TrimPrefix(key, "lower/"); listed[k] == "" {
+			delete(found, k)
+		}
+	}
 	for key := range found {
 		if _, ok := listed[key]; !ok {
 			t.Errorf("%s decides by a std name and is not in testdata/std-names.txt: decide by a checked fact (OPT4a ruling)", key)
