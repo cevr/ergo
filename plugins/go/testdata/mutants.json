@@ -1,0 +1,59 @@
+{
+  "about": "work's Go plugin (SEMWS M1): the Splitter of plugins/go/split.go, judged by its own tests (the Splitter laws on generated files and on every Go file of this repository, the key rows, the protocol).",
+  "mutants": [
+    {
+      "name": "m1-method-without-receiver",
+      "origin": "wf10/semws M1",
+      "file": "plugins/go/split.go",
+      "from": "\t\t\t\tname = recvName(d.Recv.List[0].Type) + \".\" + name\n",
+      "to": "",
+      "rule": "A method is keyed with its receiver's type: two types' String methods are two units (TestKeysAreNames; TestSplitterLaws's KeysAreUnique).",
+      "killers": ["plugins/go:TestKeysAreNames"]
+    },
+    {
+      "name": "m1-pointer-receiver-kept",
+      "origin": "wf10/semws M1",
+      "file": "plugins/go/split.go",
+      "from": "\t\tcase *ast.StarExpr:\n\t\t\te = x.X\n",
+      "to": "\t\tcase *ast.StarExpr:\n\t\t\treturn \"*\"\n",
+      "rule": "A pointer receiver's method is keyed by its type, as a value receiver's (TestKeysAreNames).",
+      "killers": ["plugins/go:TestKeysAreNames"]
+    },
+    {
+      "name": "m1-line-comment-cut",
+      "origin": "wf10/semws M1",
+      "file": "plugins/go/split.go",
+      "from": "\t\tcuts = append(cuts, cut{end: lineEnd(end), unit: u})\n",
+      "to": "\t\tcuts = append(cuts, cut{end: end + 0*lineEnd(end), unit: u})\n",
+      "rule": "The comment after a declaration on its line stays in its unit (TestKeysAreNames; EditStaysInItsUnit).",
+      "killers": ["plugins/go:TestKeysAreNames"]
+    },
+    {
+      "name": "m1-twice-keyed-once",
+      "origin": "wf10/semws M1",
+      "file": "plugins/go/split.go",
+      "from": "\t\tif n := seen[u.Key]; n > 1 {\n\t\t\tu.Key",
+      "to": "\t\tif n := seen[u.Key]; n > 9 {\n\t\t\tu.Key",
+      "rule": "A key taken twice (two init funcs) is unique as \"K #2\" (law KeysAreUnique, TestKeysAreNames).",
+      "killers": ["plugins/go:TestKeysAreNames"]
+    },
+    {
+      "name": "m1-last-unit-short",
+      "origin": "wf10/semws M1",
+      "file": "plugins/go/split.go",
+      "from": "\t\tif i == len(cuts)-1 {\n\t\t\tend = len(text)\n\t\t}\n",
+      "to": "\t\tif i < 0 {\n\t\t\tend = len(text)\n\t\t}\n",
+      "rule": "The units join to the whole file, its last comment included (law UnitsAreTheFile, TestSplitterLaws).",
+      "killers": ["plugins/go:TestSplitterLaws"]
+    },
+    {
+      "name": "m1-unreadable-is-empty",
+      "origin": "wf10/semws M1",
+      "file": "plugins/go/main.go",
+      "from": "\tif errors.As(err, &u) {\n",
+      "to": "\tif errors.As(err, &u) && false {\n",
+      "rule": "A file go/parser cannot read is Unreadable, never a file of no units (TestProtocol).",
+      "killers": ["plugins/go:TestProtocol"]
+    }
+  ]
+}

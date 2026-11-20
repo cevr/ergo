@@ -943,7 +943,10 @@ func (s *stdImporter) available(path string) {
 
 // decoded counts a package segment decoded from the snapshot; its Load
 // calls it under the snapshot's lock, for each segment in import order.
-func (s *stdImporter) decoded(path string) {
+// The snapshot does not carry the std mark: a std segment's package is
+// std, as load marks a std package it checks, and a module segment's is
+// not.
+func (s *stdImporter) decoded(path string, pkg *Package) {
 	s.mu.Lock()
 	module := strings.Contains(path, "\x00") // ModuleSegment
 	if module {
@@ -953,8 +956,29 @@ func (s *stdImporter) decoded(path string) {
 	}
 	s.mu.Unlock()
 	if !module {
+		pkg.std = true
 		s.available(path)
 	}
+}
+
+// installPrelude makes the prelude a decoded snapshot's base holds this
+// process's prelude, marked std as the checked one is (prelude).
+func installPrelude(r preludeResult) {
+	preludeOnce.Do(func() {
+		r.pkg.std = true
+		preludeOnce.r = r
+	})
+}
+
+// importAll imports every package the embedded std holds, in path order,
+// so a snapshot of std has them all (StdSnapshotNow).
+func (s *stdImporter) importAll() error {
+	for _, path := range stdlib.Packages() {
+		if _, err := s.Import(path); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Work counts the std work an importer did (CHK1, CHK1b): the std package
