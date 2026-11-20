@@ -399,6 +399,10 @@ func (c *checker) matchTypes(x *syntax.BinaryExpr, l, r *operand) bool {
 // duration.
 func signable(t Type) bool { return isNumeric(t) || isDuration(t) }
 
+// Ordered reports ordered(t) to the lowering: a type parameter whose set
+// orders compiles Go's < per GC shape (lower's orderedParam).
+func Ordered(t Type) bool { return ordered(t) }
+
 // ordered reports whether <, <=, > and >= are defined on t: an ordered
 // basic type, or a type parameter whose every type-set term is one
 // (types.md, Generics 2).

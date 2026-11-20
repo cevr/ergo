@@ -190,8 +190,9 @@ func orderedParam(op string, t check.Type) bool {
 	if !ok || tp.Slot || tp.Constraint == nil {
 		return false
 	}
-	it := constraintOf(tp)
-	return it != nil && it.Set == check.SetOrdered
+	// ordered is a prelude type set (CONSTRAINTS C1): a parameter orders
+	// when every term of its set does, whatever the set's name.
+	return check.Ordered(tp)
 }
 
 // expr is x after its implicit conversion (implicit, ir_union.go).
