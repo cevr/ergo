@@ -287,15 +287,12 @@ func freshName(taken map[string]bool, prefix string) string {
 func (s *irSplit) files(pkgOf func(i int) int, rename map[string]string, plan *splitPlan) ([]File, int, error) {
 	byPkg := map[int][]irFunc{1: nil}
 	for i := range s.ir.Funcs {
-		// A copy: the split may still fall back to the one-package IR.
-		data, err := json.Marshal(&s.ir.Funcs[i])
-		if err != nil {
-			return nil, 0, err
-		}
-		var fn irFunc
-		if err := json.Unmarshal(data, &fn); err != nil {
-			return nil, 0, err
-		}
+		// Renamed in place: the split no longer falls back to the
+		// one-package IR once it writes the IR files, and an error here
+		// fails the lowering (lowerIRSplit). A JSON round trip of each
+		// function copied it before GP-SPLIT-EDIT, half of the split's
+		// own work.
+		fn := &s.ir.Funcs[i]
 		p := pkgOf(i)
 		renamed := func(n *string) {
 			if r, ok := rename[*n]; ok {
@@ -321,8 +318,8 @@ func (s *irSplit) files(pkgOf func(i int) int, rename map[string]string, plan *s
 			fn.Name += "." + method
 		}
 		fn.walk(own, renamed)
-		if err := pcalls(&fn, s.qual[p]); err != nil {
-			return nil, 0, err
+		if err := pcalls(fn, s.qual[p]); err != nil {
+			return nil, 0, err // after the rename: the lowering fails (SplitReport.err)
 		}
 		if get := s.getters[p]; len(get) > 0 {
 			fn.exprs(func(x *irExpr) {
@@ -331,7 +328,7 @@ func (s *irSplit) files(pkgOf func(i int) int, rename map[string]string, plan *s
 				}
 			})
 		}
-		byPkg[p] = append(byPkg[p], fn)
+		byPkg[p] = append(byPkg[p], *fn)
 	}
 	var out []File
 	withIR := 0

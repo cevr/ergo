@@ -50,6 +50,11 @@ func (b *irBuilder) spelling(s string) string {
 			i += k
 			continue
 		}
+		if strings.HasPrefix(s[i:], "struct{") {
+			k := b.structSpelling(s, i, &out)
+			i += k
+			continue
+		}
 		j := i
 		for j < len(s) && isSpellingName(s[j]) {
 			j++
@@ -265,6 +270,12 @@ func (b *irBuilder) valueSource(x *syntax.CallExpr, c *check.Call, args []syntax
 		}
 		src := irArgs[0]
 		irArgs[0] = &irExpr{K: "pcall", Pos: src.Pos, T: "maps", Name: "Clone", V: m + ", " + k + ", " + v, Args: []*irExpr{src}}
+	case len(irArgs) == 2:
+		// Go's copy of elements that hold a slice or Map (values.go,
+		// copyElemSource): the source is copied, as the emitter's is.
+		if t := copyElemSource(b.l, x, c, b.fc.typeOf); t != nil {
+			irArgs[1] = b.copyDeep(t, x, irArgs[1], !entryRule())
+		}
 	}
 }
 
@@ -428,6 +439,10 @@ func (b *irBuilder) countLoop(s *syntax.RangeStmt, lp *check.Loop) []*irStmt {
 func (b *irBuilder) conversion(x *syntax.CallExpr, c *check.Call, p irPos) ([]*irStmt, *irExpr, bool) {
 	if len(x.Args) != 1 {
 		irNo("conversion form")
+	}
+	if b.funcConversion(x, c) { // ir_defined.go
+		pre, v := b.value(x.Args[0])
+		return pre, &irExpr{K: "conv", Pos: p, T: b.goType(c.Type, x), X: v}, false
 	}
 	from, to := b.scalarBasic(b.l.info.Types[x.Args[0]]), b.scalarBasic(c.Type)
 	if from == nil || to == nil {
