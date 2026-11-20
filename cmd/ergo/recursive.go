@@ -129,9 +129,10 @@ func (module moduleTestOptions) select_(one *fileOptions, l loaded) (bool, error
 	return true, nil
 }
 
-// loadShared loads the packages below opts.file with one load of their
-// module (sketchfront.CheckPackages): each package as loadFolder loads it
-// alone, the same source, snapshot, analysis and result. ok is false when
+// loadShared loads the packages below opts.file with one load of each
+// module (sketchfront.CheckPackages; at a workspace root, one per member,
+// in selection order): each package as loadFolder loads it alone, the
+// same source, snapshot, analysis and result. ok is false when
 // they cannot share a load or a package does not check; the caller then
 // loads each package alone, which reports it as before.
 func loadShared(opts fileOptions, platform gobind.Platform) ([]sketchfront.PackageTarget, []loaded, bool) {
@@ -154,13 +155,23 @@ func loadSharedFS(opts fileOptions, platform gobind.Platform, fsys sketchfront.F
 		dirs[i] = sources[i].Admitted()
 	}
 	var analyses []sketchfront.Analysis
-	if fsys == nil {
-		analyses, err = sketchfront.CheckPackages(dirs, platform)
-	} else {
-		analyses, err = sketchfront.CheckPackagesFS(fsys, dirs, platform)
-	}
-	if err != nil {
-		return nil, nil, false
+	for start := 0; start < len(dirs); {
+		end := start + 1
+		for end < len(dirs) && packages[end].Root == packages[start].Root {
+			end++
+		}
+		var as []sketchfront.Analysis
+		var err error
+		if fsys == nil {
+			as, err = sketchfront.CheckPackages(dirs[start:end], platform)
+		} else {
+			as, err = sketchfront.CheckPackagesFS(fsys, dirs[start:end], platform)
+		}
+		if err != nil {
+			return nil, nil, false
+		}
+		analyses = append(analyses, as...)
+		start = end
 	}
 	loads := make([]loaded, len(analyses))
 	for i, a := range analyses {
