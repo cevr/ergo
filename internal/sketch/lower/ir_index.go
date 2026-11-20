@@ -23,7 +23,8 @@ func (b *irBuilder) indexOther(x *syntax.IndexExpr, p irPos) *irExpr {
 			irNo("index of a non-slice")
 		}
 	}
-	return &irExpr{K: "index", Pos: p, X: b.expr(x.X), Y: b.expr(x.Indices[0])}
+	xs := b.inOrder([]syntax.Expr{x.X, x.Indices[0]}) // ir_order.go
+	return &irExpr{K: "index", Pos: p, X: xs[0], Y: xs[1]}
 }
 
 // arrayPrefix is the "[N]" that starts the Go type spelling s of an
