@@ -763,7 +763,7 @@ new file mode 100644
 index 0000000..f053c01
 --- /dev/null
 +++ b/src/cmd/compile/internal/ergoir/ergoir_expr.go
-@@ -0,0 +1,513 @@
+@@ -0,0 +1,526 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -1169,6 +1169,19 @@ index 0000000..f053c01
 +			}
 +			lit.NKeys = len(x.Keys)
 +		case *types2.Slice:
++			for _, ex := range x.Elems {
++				e, et := c.expr(ex)
++				if e == nil || !c.assignable(ex.Pos, "element", et, u.Elem()) {
++					return nil, nil
++				}
++				lit.ElemList = append(lit.ElemList, e)
++			}
++		case *types2.Array:
++			// Every element in order (Ergo's Arrays 2; the empty literal is a "zero").
++			if int64(len(x.Elems)) != u.Len() {
++				c.errorf(x.Pos, "ergoir: %v literal with %d of %d elements", t, len(x.Elems), u.Len())
++				return nil, nil
++			}
 +			for _, ex := range x.Elems {
 +				e, et := c.expr(ex)
 +				if e == nil || !c.assignable(ex.Pos, "element", et, u.Elem()) {
