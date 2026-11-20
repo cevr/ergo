@@ -1100,11 +1100,11 @@ test MathToUintptrFailsOnlyOutside(f float64) {
 func signalOf(p int) signal.Stop {
 	let c = (p%3+3)%3
 	if c == 0 {
-		signal.Interrupt{}
+		signal.Interrupt
 	} else if c == 1 {
-		signal.Terminate{}
+		signal.Terminate
 	} else {
-		signal.Hangup{}
+		signal.Hangup
 	}
 }
 

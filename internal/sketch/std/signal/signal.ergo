@@ -228,10 +228,10 @@ func codeOf(k Stop) int {
 // stopOf is the Stop of a code codeOf gave.
 func stopOf(c int) Stop {
 	if c == 1 {
-		Interrupt{}
+		Interrupt
 	} else if c == 2 {
-		Terminate{}
+		Terminate
 	} else {
-		Hangup{}
+		Hangup
 	}
 }
