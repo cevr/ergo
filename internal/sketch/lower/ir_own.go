@@ -79,10 +79,16 @@ type irSlot struct {
 // body that starts a task, registers an exit action or receives a Task).
 // A fallible one has named results (namedResults); its exit settles on
 // the error result's address ("result", the emitter's End(&err)). A
-// plain frame not in the static form (owned values in the list form) is
-// the emitter's.
+// plain frame not in the static form keeps its owned values in the list
+// form of a plain scope (openScope, openList; OWNED-LOCAL).
 func irFrame(fc *funcCtx) bool {
-	return fc.frame != nil && (fc.frame.static != nil || !fc.frame.plain && frameScopeLowering != "off")
+	if fc.frame == nil || fc.frame.static != nil {
+		return fc.frame != nil
+	}
+	if fc.frame.plain {
+		return frameListLowering != "off" // owned values only: the list form (openList)
+	}
+	return frameScopeLowering != "off"
 }
 
 // frameScopeLowering selects the frame scope on the IR: "" builds it,
@@ -133,10 +139,12 @@ func (b *irBuilder) openOwn(f *check.Func, params []*check.Var) []*irStmt {
 // deferred End on the error result's address, or nil with no error row
 // (the emitter's openFrame). A std call that takes the frame passes the
 // local's address (frameArg). The scope's owned values are the emitter's
-// list form: a taken parameter stops the body here, and an owned local
-// or temporary where it is bound (ownable, releaseAt).
+// list form: a taken parameter registered here, and an owned local or
+// temporary where it is bound (ownable, releaseAt). A plain frame (owned
+// values only) opens v1.NewOwnerScope.
 func (b *irBuilder) openScope(f *check.Func, params []*check.Var) []*irStmt {
-	if b.fc.frame.plain || b.l.ownsParams(params) {
+	plain, takes := b.fc.frame.plain, b.l.ownsParams(params)
+	if (plain || takes) && frameListLowering == "off" {
 		irNo("owned local") // owned values in a frame scope: the list form
 	}
 	if b.env < 0 {
@@ -153,20 +161,40 @@ func (b *irBuilder) openScope(f *check.Func, params []*check.Var) []*irStmt {
 		}
 		errArg = &irExpr{K: "addr", Pos: p, X: &irExpr{K: "result", Pos: p, I: last}}
 	}
-	if b.l.staticExits(f.Decl.Body.List) {
+	if !plain && !takes && b.l.staticExits(f.Decl.Body.List) {
 		return b.openExits(p, task, errArg) // ir_exits.go (STATIC-EXIT)
+	}
+	// A frame that opens its scope only for its owned values opens a
+	// plain one, whose End is no interruption point (the emitter's
+	// openFrame).
+	ctor := "NewScope"
+	if plain {
+		ctor = "NewOwnerScope"
 	}
 	fs := b.temp("fs", b.spelling(b.l.rt()+".Scope"), p)
 	b.frame = fs + 1
-	b.keepImport("var _ = " + b.l.rt() + ".NewScope")
-	if b.ownsLocals(f.Decl.Body) && frameListLowering != "off" {
+	b.keepImport("var _ = " + b.l.rt() + "." + ctor)
+	if (takes || b.ownsLocals(f.Decl.Body)) && frameListLowering != "off" {
 		b.openList(f, p)
 	}
-	return []*irStmt{
+	out := []*irStmt{
 		{K: "var", Pos: p, Local: fs},
-		{K: "set", Pos: p, Local: fs, X: &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: "NewScope", Args: []*irExpr{task}}},
+		{K: "set", Pos: p, Local: fs, X: &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: ctor, Args: []*irExpr{task}}},
 		{K: "defer", Pos: p, X: &irExpr{K: "mcall", Pos: p, Name: "End", X: b.addrOf(fs, p), Args: []*irExpr{errArg}}},
 	}
+	// A taken parameter is registered before the entry poll (R8; the
+	// emitter's ownVar after openFrame).
+	for _, v := range params {
+		if v == nil || b.l.info.OwnedVars[v] == nil {
+			continue
+		}
+		i, ok := b.locals[v]
+		if !ok {
+			irNo("owned parameters")
+		}
+		out = append(out, b.ownLet(v, i, f.Decl.Name, nil)...)
+	}
+	return out
 }
 
 // frameListLowering selects the list form of a frame scope's owned locals
@@ -247,10 +275,17 @@ func (b *irBuilder) listLet(v *check.Var, i int, d *check.Drop, site syntax.Node
 		here = b.goType(n.TArgs[0], site) // v1.Task's T: the IR names a generic function with its type arguments
 	}
 	rel := b.listRelease(d, v.Type, typ, p, here)
-	return []*irStmt{
+	out := []*irStmt{
 		{K: "def", Pos: p, Local: h, X: &irExpr{K: "mcall", Pos: p, Name: "Owner", X: b.frameArg(p)}},
 		{K: "expr", Pos: p, X: b.ownCall("Owning", typ, p, &irExpr{K: "local", Pos: p, I: h}, &irExpr{K: "local", Pos: p, I: i}, rel)},
 	}
+	if b.l.writtenInPlace(v) {
+		// A local the code writes in place is released with its writes
+		// (v1.OwningAt; the emitter's ownAt).
+		at := b.listRelease(d, v.Type, typ, p, here)
+		out = append(out, &irStmt{K: "expr", Pos: p, X: b.ownCall("OwningAt", typ, p, &irExpr{K: "local", Pos: p, I: h}, b.addrOf(i, p), at)})
+	}
+	return out
 }
 
 // listRelease is the release of an owned value of type t, Go type typ: a
