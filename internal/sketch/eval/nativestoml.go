@@ -22,6 +22,7 @@ import (
 // runtime/v1, value for value and failure for failure.
 func registerNativestoml(t nativeTables) {
 	natives := t.std
+	t.reads["toml.parse"] = "string int64 int64"
 	natives["toml.parse"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		text := args[0].(string)
 		if ab := in.charge(fr, at, 1+int64(len(text))); ab != nil {

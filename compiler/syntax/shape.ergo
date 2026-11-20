@@ -23,7 +23,7 @@ func shapeOf(p Parsed, x uint32, b mut strings.Builder) {
 	let j = int(t.tok[i])
 	if j < len(p.kinds) {
 		let tk = uint8(p.kinds[j])
-		if tk >= Ident && tk <= StringTail || tk >= Add && tk <= Define {
+		if tk >= Ident && tk <= StringTail || tk >= Add && tk <= Define || tk == Tilde {
 			b.WriteByte(' ')
 			b.WriteString(TokText(p, j))
 		}
