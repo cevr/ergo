@@ -50,7 +50,7 @@ type Placed = At{Slot int, Depth int} | NoParent{}
 
 // Place puts node id under parent: its slot is the number of siblings
 // placed before it, and its path is its parent's path and that slot.
-func Place(p *Pass, parent int, id int) Placed {
+func Place(p mut Pass, parent int, id int) Placed {
 	let mut path = []int{}
 	match p.paths.Get(parent) {
 	case Some[[]int] as q:
