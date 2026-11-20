@@ -122,6 +122,7 @@ func (c *checker) runOnce(files []*syntax.File) *Package {
 		// After every body, test and law: the inferred rows are final.
 		c.checkWireNeeds,
 		c.checkWireWrites,
+		c.checkWireReads,
 		c.finishInfo,
 		c.closeFacts,
 		c.recordLegacyReleases,
