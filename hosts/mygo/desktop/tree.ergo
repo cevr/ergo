@@ -5,7 +5,7 @@ import ui
 
 // TreeLines is the screen as ui.TreeOf gives it, with the boxes of the last
 // paint, each a ui.TreeLine.
-func TreeLines[S, E, D, F](d *Driver[S, E, D, F]) []string {
+func TreeLines[S, E, D, F](d mut Driver[S, E, D, F]) []string {
 	let mut boxes = Map[ui.Id[E], ui.Rect]{}
 	for id, b in d.boxes {
 		boxes[id] = rectOf(b)

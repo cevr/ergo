@@ -50,7 +50,7 @@ func lookStatesDiffer[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mu
 // Readout shows as a Text of its reading, with its Style), in the
 // node's state (rest, for a node the locator does not find). A text the
 // test host shows more than once is skipped.
-func inksDiffer[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *desktop.Driver[S, E, D, F]) Option[string] {
+func inksDiffer[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut desktop.Driver[S, E, D, F]) Option[string] {
 	for at in desktop.Inks(d) {
 		let ids = ui.Locate(h, ui.WithLabel{Label: at.Label})
 		let shown = textsShowing(ui.Screen(h), at.Label)

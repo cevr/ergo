@@ -36,7 +36,7 @@ func layersMachine() Machine[layersApp, int, int] {
 }
 
 // layerLook is a layer's panel: white, a border, rounded.
-func layerLook(f *ui.Frame[int]) ui.Style {
+func layerLook(f mut ui.Frame[int]) ui.Style {
 	let mut l = ui.Bare()
 	l.Fill = ui.Rgb(0xffffff)
 	l.Border = ui.Border{Width: 1, Color: ui.Rgb(0x8c959f)}
@@ -48,7 +48,7 @@ func layerLook(f *ui.Frame[int]) ui.Style {
 	s
 }
 
-func layersView(f *ui.Frame[int], s layersApp) {
+func layersView(f mut ui.Frame[int], s layersApp) {
 	let mut col = ui.Plain()
 	col.Gap = 8
 	col.Padding = ui.All(12)
@@ -132,7 +132,7 @@ func layersView(f *ui.Frame[int], s layersApp) {
 // layersPlacedWrong is why a layer of the window is not where
 // ui.PlaceLayer puts it against its anchor's box in the window, None when
 // each is.
-func layersPlacedWrong[E comparable, S, D, F](d *desktop.Driver[S, E, D, F]) Option[string] {
+func layersPlacedWrong[E comparable, S, D, F](d mut desktop.Driver[S, E, D, F]) Option[string] {
 	for l in desktop.LayerBoxes(d) {
 		let view = ui.Rect{X: ui.Length(float64(l.View.X)), Y: ui.Length(float64(l.View.Y)), W: ui.Length(float64(l.View.W)), H: ui.Length(float64(l.View.H))}
 		let anchor = match l.Anchor {

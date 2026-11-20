@@ -7,7 +7,7 @@
 import ui
 
 // runTrack runs a TrackNode a patch wrote.
-func runTrack[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], n ui.Node[E]) needs go.Foreign {
+func runTrack[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], n ui.Node[E]) needs go.Foreign {
 	match n {
 	case ui.TrackNode as x:
 		let now = duration(d.w.Now())
@@ -24,7 +24,7 @@ func runTrack[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], n ui.Node[E]) need
 }
 
 // tracksMoving is whether a track of the window is not yet at rest.
-func tracksMoving[S, E, D, F](d *Driver[S, E, D, F]) bool needs go.Foreign {
+func tracksMoving[S, E, D, F](d mut Driver[S, E, D, F]) bool needs go.Foreign {
 	let now = duration(d.w.Now())
 	for _, t in d.tracks {
 		if !ui.TrackDone(t, now) {
@@ -36,7 +36,7 @@ func tracksMoving[S, E, D, F](d *Driver[S, E, D, F]) bool needs go.Foreign {
 
 // trackedNow is the value id's track has at the paint's time (trackAt;
 // target: none yet).
-func trackedNow[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], target float64) float64 needs go.Foreign {
+func trackedNow[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], target float64) float64 needs go.Foreign {
 	match d.tracks.Get(id) {
 	case Some[ui.TrackState] as t:
 		let (v, _) = ui.TrackAt(t.Value, duration(d.trackAt))
@@ -48,7 +48,7 @@ func trackedNow[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], target float64) 
 
 // trackFrame repaints the moving tracks at a frame, and stops the frames
 // once every track rests and nothing animates.
-func trackFrame[S, E, D, F](d *Driver[S, E, D, F]) needs go.Foreign {
+func trackFrame[S, E, D, F](d mut Driver[S, E, D, F]) needs go.Foreign {
 	if len(d.tracks) == 0 {
 		return
 	}

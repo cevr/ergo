@@ -29,7 +29,7 @@ func main() fails os.Exit needs Ambient | go.Foreign {
 	let args = with context { os.Process: os.NewHost() } { os.Process.Args() }
 	let clock = ui.NewReadout(stamp(0))
 	let meter = ui.NewReadout(level(0))
-	let view = func(f *ui.Frame[int], laps int) { screenOf(f, laps, clock, meter) }
+	let view = func(f mut ui.Frame[int], laps int) { screenOf(f, laps, clock, meter) }
 	if len(args) > 1 && args[0] == "-headless" {
 		let n = strconv.Atoi(args[1]) catch {
 		case strconv.Malformed, strconv.OutOfRange:
@@ -68,7 +68,7 @@ func main() fails os.Exit needs Ambient | go.Foreign {
 // headless publishes n readings of each readout through a window with no
 // screen, taking each wake as the window does, and prints what it shows
 // and how many passes ran.
-func headless(view own func(f *ui.Frame[int], laps int), clock ui.Readout, meter ui.Readout, n int) fails os.Exit needs Ambient | go.Foreign {
+func headless(view own func(f mut ui.Frame[int], laps int), clock ui.Readout, meter ui.Readout, n int) fails os.Exit needs Ambient | go.Foreign {
 	let out = io.NewHost()
 	with context { Scheduler: time.NewManual(0) } {
 		let w = screen.Headless(320, 200) catch {
@@ -106,7 +106,7 @@ func headless(view own func(f *ui.Frame[int], laps int), clock ui.Readout, meter
 // drew is the texts the window's last paint drew, kept draws too, as
 // "drew" and each text after a "|": what the window shows, where the line
 // before it prints what the program read.
-func drew[S, E, D, F](d *desktop.Driver[S, E, D, F]) string {
+func drew[S, E, D, F](d mut desktop.Driver[S, E, D, F]) string {
 	let mut line = "drew"
 	for at in desktop.Inks(d) {
 		line = line + "|" + at.Label
@@ -116,7 +116,7 @@ func drew[S, E, D, F](d *desktop.Driver[S, E, D, F]) string {
 
 // publishAll publishes n readings of each readout, the window taking
 // each wake as it comes.
-func publishAll[E comparable, S, D, F](d *desktop.Driver[S, E, D, F], clock ui.Readout, meter ui.Readout, n int) fails actor.Stopped | ui.BadPatch needs go.Foreign {
+func publishAll[E comparable, S, D, F](d mut desktop.Driver[S, E, D, F], clock ui.Readout, meter ui.Readout, n int) fails actor.Stopped | ui.BadPatch needs go.Foreign {
 	for i in 1..n+1 {
 		ui.Publish(clock, stamp(i))
 		ui.Publish(meter, level(i))
@@ -126,7 +126,7 @@ func publishAll[E comparable, S, D, F](d *desktop.Driver[S, E, D, F], clock ui.R
 
 // lapAt is where the lap button is: the meter beside it lays out by its
 // reserve, so no reading moves it.
-func lapAt[S, E, D, F](d *desktop.Driver[S, E, D, F]) string {
+func lapAt[S, E, D, F](d mut desktop.Driver[S, E, D, F]) string {
 	match desktop.BoxOf(d, "lap") {
 	case Some[layout.Box] as b:
 		"lap at \(b.Value.X) \(b.Value.Y)"
@@ -137,7 +137,7 @@ func lapAt[S, E, D, F](d *desktop.Driver[S, E, D, F]) string {
 
 // screenOf is the window: the time, the level, the laps and the button
 // that counts one.
-func screenOf(f *ui.Frame[int], laps int, clock ui.Readout, meter ui.Readout) {
+func screenOf(f mut ui.Frame[int], laps int, clock ui.Readout, meter ui.Readout) {
 	let mut page = ui.Plain()
 	page.Gap = 8
 	page.Padding = ui.All(16)

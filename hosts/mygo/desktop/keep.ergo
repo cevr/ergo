@@ -161,7 +161,7 @@ func styleIn[E](list Option[ui.RowsNode], i int, node ui.Node[E], line float32) 
 }
 
 // layerBase is the style layer l lays out in before placeLayers moves it.
-func layerBase[S, E, D, F](d *Driver[S, E, D, F], l ui.Id[E], line float32) Option[layout.Style] {
+func layerBase[S, E, D, F](d mut Driver[S, E, D, F], l ui.Id[E], line float32) Option[layout.Style] {
 	match (d.lparent.Get(l), d.nodes.Get(l)) {
 	case (Some[ui.Id[E]] as p, Some[held[E]] as h):
 		for i, k in kidsOf(d, p.Value) {
@@ -181,7 +181,7 @@ func layerBase[S, E, D, F](d *Driver[S, E, D, F], l ui.Id[E], line float32) Opti
 // layout each list no taller than 0 is given the window's room below its
 // top (giveRoom), then each layer goes to its place, as the reference
 // does.
-func layOutKept[S, E, D, F](d *Driver[S, E, D, F], line float32) {
+func layOutKept[S, E, D, F](d mut Driver[S, E, D, F], line float32) {
 	restyle(d, d.top, rootStyle(d))
 	for l in stacked(d) {
 		match (d.lids.Get(l), layerBase(d, l, line)) {

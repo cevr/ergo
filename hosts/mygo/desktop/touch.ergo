@@ -19,7 +19,7 @@ type fingered[E] { touch ui.Touch, scrolls Option[ui.Id[E]], target Option[ui.Id
 let TheFinger = ui.Pointer{Id: 0, Kind: ui.Finger}
 
 // SetInsets lays the root out inside insets from now on, and repaints.
-func SetInsets[E comparable, S, D, F](d *Driver[S, E, D, F], insets ui.Insets) fails actor.Stopped | ui.BadPatch needs go.Foreign {
+func SetInsets[E comparable, S, D, F](d mut Driver[S, E, D, F], insets ui.Insets) fails actor.Stopped | ui.BadPatch needs go.Foreign {
 	d.insets = insets
 	paint(d)
 	try report(d)
@@ -27,12 +27,12 @@ func SetInsets[E comparable, S, D, F](d *Driver[S, E, D, F], insets ui.Insets) f
 
 // RootBox is where the root lies in the window, and the part of the
 // window the insets leave.
-func RootBox[S, E, D, F](d *Driver[S, E, D, F]) (Option[layout.Box], ui.Rect) {
+func RootBox[S, E, D, F](d mut Driver[S, E, D, F]) (Option[layout.Box], ui.Rect) {
 	(d.boxes.Get(d.root), ui.InsetRect(ui.Rect{X: 0, Y: 0, W: ui.Length(float64(d.width)), H: ui.Length(float64(d.height))}, d.insets))
 }
 
 // fingerMoving is whether a fling or a return is under way.
-func fingerMoving[S, E, D, F](d *Driver[S, E, D, F]) bool {
+func fingerMoving[S, E, D, F](d mut Driver[S, E, D, F]) bool {
 	match d.finger {
 	case Some[fingered[E]] as f:
 		ui.TouchMoving(f.Value.touch)
@@ -43,7 +43,7 @@ func fingerMoving[S, E, D, F](d *Driver[S, E, D, F]) bool {
 
 // reachAt is the spot a finger at x, y hits: the top one under it, else
 // the nearest pressable one within the reach margin (ui.Reach).
-func reachAt[S, E, D, F](d *Driver[S, E, D, F], x float32, y float32) Option[spot[E]] {
+func reachAt[S, E, D, F](d mut Driver[S, E, D, F], x float32, y float32) Option[spot[E]] {
 	let mut ts = []ui.Reachable{}
 	let mut ss = []spot[E]{}
 	for s in d.spots {
@@ -73,7 +73,7 @@ func visible[E](s spot[E]) layout.Box {
 }
 
 // scrollsAt is the innermost Scroll or list under x, y.
-func scrollsAt[S, E, D, F](d *Driver[S, E, D, F], x float32, y float32) Option[spot[E]] {
+func scrollsAt[S, E, D, F](d mut Driver[S, E, D, F], x float32, y float32) Option[spot[E]] {
 	let mut out Option[spot[E]] = None
 	for s in d.spots {
 		match s.node {
@@ -88,12 +88,12 @@ func scrollsAt[S, E, D, F](d *Driver[S, E, D, F], x float32, y float32) Option[s
 }
 
 // fingerPointed sends a finger's pointer event to a spot.
-func fingerPointed[E comparable, S, D, F](d *Driver[S, E, D, F], s spot[E], phase ui.Phase, x float32, y float32) fails actor.Stopped | ui.BadPatch needs go.Foreign {
+func fingerPointed[E comparable, S, D, F](d mut Driver[S, E, D, F], s spot[E], phase ui.Phase, x float32, y float32) fails actor.Stopped | ui.BadPatch needs go.Foreign {
 	try step(d, ui.Point[E]{Id: s.id, Pointer: ui.PointerEvent{Pointer: TheFinger, Phase: phase, X: float64(x - s.box.X), Y: float64(y - s.box.Y), Zone: None}, Over: None})
 }
 
 // touched takes a finger's input (input.Finger): Down, Move or Up.
-func touched[E comparable, S, D, F](d *Driver[S, E, D, F], input screen.Input) fails actor.Stopped | ui.BadPatch needs go.Foreign {
+func touched[E comparable, S, D, F](d mut Driver[S, E, D, F], input screen.Input) fails actor.Stopped | ui.BadPatch needs go.Foreign {
 	let x = float32(input.X)
 	let y = float32(input.Y)
 	let at = duration(input.At)
@@ -207,7 +207,7 @@ func touched[E comparable, S, D, F](d *Driver[S, E, D, F], input screen.Input) f
 // fingerTo keeps f and shows the offset its machine gives; a finger
 // lifted with nothing moving is gone, and a fling or a return asks the
 // window for frames until it rests.
-func fingerTo[E comparable, S, D, F](d *Driver[S, E, D, F], g fingered[E]) fails actor.Stopped | ui.BadPatch needs go.Foreign {
+func fingerTo[E comparable, S, D, F](d mut Driver[S, E, D, F], g fingered[E]) fails actor.Stopped | ui.BadPatch needs go.Foreign {
 	// A touch that turned into a drag, a fling or a return is no press:
 	// the finger lets go of the node it went down on, so it is not left
 	// active, and its lift taps nothing (MB4 x UG3).
@@ -249,7 +249,7 @@ func fingerTo[E comparable, S, D, F](d *Driver[S, E, D, F], g fingered[E]) fails
 }
 
 // touchFrame moves a fling or a return to the frame's time.
-func touchFrame[E comparable, S, D, F](d *Driver[S, E, D, F], at duration) fails actor.Stopped | ui.BadPatch needs go.Foreign {
+func touchFrame[E comparable, S, D, F](d mut Driver[S, E, D, F], at duration) fails actor.Stopped | ui.BadPatch needs go.Foreign {
 	match d.finger {
 	case Some[fingered[E]] as f:
 		if ui.TouchMoving(f.Value.touch) {
@@ -262,7 +262,7 @@ func touchFrame[E comparable, S, D, F](d *Driver[S, E, D, F], at duration) fails
 
 // fingerStep moves the window's clock by ms and plays a finger's input
 // there, then takes what it caused.
-func fingerStep[E comparable, S, D, F](d *Driver[S, E, D, F], ms int, kind int, x float32, y float32) fails ui.Closed | actor.Stopped | ui.BadPatch needs go.Foreign {
+func fingerStep[E comparable, S, D, F](d mut Driver[S, E, D, F], ms int, kind int, x float32, y float32) fails ui.Closed | actor.Stopped | ui.BadPatch needs go.Foreign {
 	d.fingerAt = d.fingerAt + int64(ms)*int64(1000000)
 	d.w.SetClock(d.fingerAt)
 	if kind == screen.Down {
@@ -279,7 +279,7 @@ func fingerStep[E comparable, S, D, F](d *Driver[S, E, D, F], ms int, kind int, 
 // its content moves by dy (positive: as a wheel's down), from its centre:
 // past the slop, then by dy in four moves 10 ms apart, then held still
 // for 200 ms before it lifts, so it does not fling.
-func FingerScroll[E comparable, S, D, F](d *Driver[S, E, D, F], label string, dy float32) fails ui.NoNode | ui.Ambiguous | ui.Closed | actor.Stopped | ui.BadPatch needs go.Foreign {
+func FingerScroll[E comparable, S, D, F](d mut Driver[S, E, D, F], label string, dy float32) fails ui.NoNode | ui.Ambiguous | ui.Closed | actor.Stopped | ui.BadPatch needs go.Foreign {
 	let id = try found(d, label)
 	match spotOf(d, id) {
 	case Some[spot[E]] as s:
@@ -301,7 +301,7 @@ func FingerScroll[E comparable, S, D, F](d *Driver[S, E, D, F], label string, dy
 // FingerTap taps a finger on the node labelled label: at its centre, or
 // past its right edge by beyond DIP when beyond is more than 0 (within
 // the reach margin, a finger still hits it).
-func FingerTap[E comparable, S, D, F](d *Driver[S, E, D, F], label string, beyond float32) fails ui.NoNode | ui.Ambiguous | ui.Closed | actor.Stopped | ui.BadPatch needs go.Foreign {
+func FingerTap[E comparable, S, D, F](d mut Driver[S, E, D, F], label string, beyond float32) fails ui.NoNode | ui.Ambiguous | ui.Closed | actor.Stopped | ui.BadPatch needs go.Foreign {
 	let id = try found(d, label)
 	try reveal(d, id)
 	match spotOf(d, id) {

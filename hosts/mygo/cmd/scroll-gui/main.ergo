@@ -86,7 +86,7 @@ func headless(n int) fails os.Exit needs Ambient | go.Foreign {
 }
 
 // view is the screen: a title and the list.
-func view(f *ui.Frame[int], s int) {
+func view(f mut ui.Frame[int], s int) {
 	views.Set(views.Get() + 1)
 	ui.Column(f, ui.Plain()) {
 		ui.Text(f, "rows")

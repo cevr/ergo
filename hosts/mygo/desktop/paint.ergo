@@ -232,7 +232,7 @@ func labelOf[E](n ui.Node[E]) Option[string] {
 // fieldText draws an Input's value, a line of it per line, under the
 // selection the model holds (OpenTUI gap 2) when the field has the focus:
 // a fill behind each line's selected part.
-func fieldText[S, E, D, F](d *Driver[S, E, D, F], x ui.InputNode, inner layout.Box, line float32, focus bool) needs go.Foreign {
+func fieldText[S, E, D, F](d mut Driver[S, E, D, F], x ui.InputNode, inner layout.Box, line float32, focus bool) needs go.Foreign {
 	let (lo, hi) = ui.Selected(ui.EditingOf(x))
 	let mut start = 0
 	let mut row = 0
@@ -254,7 +254,7 @@ func fieldText[S, E, D, F](d *Driver[S, E, D, F], x ui.InputNode, inner layout.B
 
 // caretAt is where the caret at byte caret of value stands in its field:
 // across its line and down by the lines before it.
-func caretAt[S, E, D, F](d *Driver[S, E, D, F], value string, caret int, line float32) (float32, float32) {
+func caretAt[S, E, D, F](d mut Driver[S, E, D, F], value string, caret int, line float32) (float32, float32) {
 	let mut start = 0
 	let mut row = 0
 	for l in strings.Split(value, "\n") {
@@ -295,7 +295,7 @@ func describeRoom(x ui.InputNode, line float32) float32 {
 
 // paint lays the window's tree out at the window's size and gives the
 // window its paint list.
-func paint[S, E, D, F](d *Driver[S, E, D, F]) needs go.Foreign {
+func paint[S, E, D, F](d mut Driver[S, E, D, F]) needs go.Foreign {
 	d.trackAt = d.w.Now()
 	if d.rebuild {
 		learn(&d.metrics, d.w, "", textSize)
@@ -380,7 +380,7 @@ func drawAll[S, E, D, F](d mut Driver[S, E, D, F], line float32, soiled Map[ui.I
 // spread is the nodes whose draw changed since the last paint and all
 // their ancestors: each node a pass set, a parent whose children changed,
 // a Scroll that moved, and the nodes that took and lost the focus.
-func spread[S, E, D, F](d *Driver[S, E, D, F]) Map[ui.Id[E], bool] needs go.Foreign {
+func spread[S, E, D, F](d mut Driver[S, E, D, F]) Map[ui.Id[E], bool] needs go.Foreign {
 	let mut out = Map[ui.Id[E], bool]{}
 	let mut seeds = []ui.Id[E]{}
 	for id, _ in d.soiled {
@@ -461,7 +461,7 @@ func keyOf[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) int {
 
 // rootStyle is the window's box: the window's size, the root laid out
 // inside the insets (MB4).
-func rootStyle[S, E, D, F](d *Driver[S, E, D, F]) layout.Style {
+func rootStyle[S, E, D, F](d mut Driver[S, E, D, F]) layout.Style {
 	let mut rs = plainStyle()
 	rs.Width = layout.Px{Value: d.width}
 	rs.Height = layout.Px{Value: d.height}
@@ -473,7 +473,7 @@ func rootStyle[S, E, D, F](d *Driver[S, E, D, F]) layout.Style {
 // lays the tree out again (UG4); a layer anchored in a layer that moved
 // goes again, so this ends after at most one round per layer. It is the
 // layout work it took.
-func placeAll[S, E, D, F](d *Driver[S, E, D, F], t *layout.Tree, top layout.Id, ids Map[ui.Id[E], layout.Id]) int needs layout.Measure {
+func placeAll[S, E, D, F](d mut Driver[S, E, D, F], t mut layout.Tree, top layout.Id, ids Map[ui.Id[E], layout.Id]) int needs layout.Measure {
 	let mut work = 0
 	for _ in 0..len(stacked(d))+1 {
 		if !placeLayers(d, t, ids) {
@@ -492,7 +492,7 @@ func placeAll[S, E, D, F](d *Driver[S, E, D, F], t *layout.Tree, top layout.Id, 
 // than 0 given the window's room below its top and the tree laid out
 // again, then each layer placed; with its window's box and each node's
 // box.
-func rebuilt[S, E, D, F](d *Driver[S, E, D, F], line float32) (layout.Tree, layout.Id, Map[ui.Id[E], layout.Id]) {
+func rebuilt[S, E, D, F](d mut Driver[S, E, D, F], line float32) (layout.Tree, layout.Id, Map[ui.Id[E], layout.Id]) {
 	let mut t = layout.New()
 	let top = layout.Add(&t, rootStyle(d))
 	let mut ids = Map[ui.Id[E], layout.Id]{}
@@ -563,7 +563,7 @@ func checkKept[S, E, D, F](d mut Driver[S, E, D, F], line float32) {
 // build adds id's children under into, in order, and their subtrees, in
 // the styles styleIn gives them, and names each one's box in ids. A layer
 // goes under the window's box (top) instead, out of the flow (UG4).
-func build[S, E, D, F](d *Driver[S, E, D, F], t *layout.Tree, id ui.Id[E], into layout.Id, top layout.Id, ids *Map[ui.Id[E], layout.Id], line float32) {
+func build[S, E, D, F](d mut Driver[S, E, D, F], t mut layout.Tree, id ui.Id[E], into layout.Id, top layout.Id, ids mut Map[ui.Id[E], layout.Id], line float32) {
 	let list = listOf(d, id)
 	for i, k in kidsOf(d, id) {
 		match d.nodes.Get(k) {
@@ -585,7 +585,7 @@ func build[S, E, D, F](d *Driver[S, E, D, F], t *layout.Tree, id ui.Id[E], into 
 // last draw takes that draw again from the window's last list, with the
 // spots, looks, underlines, inks and italic runs it added then: its subtree lays out as it did, so it paints as it
 // did. Any other node is drawn anew and counted (Drawn).
-func draw[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], dx float32, dy float32, clip layout.Box, line float32, soiled Map[ui.Id[E], bool], again bool) needs go.Foreign {
+func draw[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], dx float32, dy float32, clip layout.Box, line float32, soiled Map[ui.Id[E], bool], again bool) needs go.Foreign {
 	let laid = match d.lids.Get(id) {
 	case Some[layout.Id] as l:
 		boxOf(&d.tree, l.Value)
@@ -659,7 +659,7 @@ func draw[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], dx float32, dy float32
 }
 
 // drawNode paints id itself at b and draws its children.
-func drawNode[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], laid layout.Box, b layout.Box, dx float32, dy float32, clip layout.Box, line float32, soiled Map[ui.Id[E], bool], again bool) needs go.Foreign {
+func drawNode[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], laid layout.Box, b layout.Box, dx float32, dy float32, clip layout.Box, line float32, soiled Map[ui.Id[E], bool], again bool) needs go.Foreign {
 	let n = match d.nodes.Get(id) {
 	case Some[held[E]] as h:
 		h.Value.node
@@ -834,7 +834,7 @@ func drawNode[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], laid layout.Box, b
 
 // drawKids paints id's children in order, but its layers, which
 // paintLayers paints over the flow (UG4).
-func drawKids[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], dx float32, dy float32, clip layout.Box, line float32, soiled Map[ui.Id[E], bool], again bool) needs go.Foreign {
+func drawKids[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], dx float32, dy float32, clip layout.Box, line float32, soiled Map[ui.Id[E], bool], again bool) needs go.Foreign {
 	for k in kidsOf(d, id) {
 		match layerNode(d, k) {
 		case Some[ui.LayerNode[E]]:
@@ -854,7 +854,7 @@ func lines[S, E, D, F](d mut Driver[S, E, D, F], text string, x float32, y float
 
 // inkedLines draws a Text's lines in its look's ink (OpenTUI gap 1), one
 // inkedRun a line.
-func inkedLines[S, E, D, F](d *Driver[S, E, D, F], text string, x float32, y float32, wide float32, k ui.Ink, clip layout.Box) needs go.Foreign {
+func inkedLines[S, E, D, F](d mut Driver[S, E, D, F], text string, x float32, y float32, wide float32, k ui.Ink, clip layout.Box) needs go.Foreign {
 	let step = lineHeight(d.metrics, textSize)
 	for i, l in Lines(d.metrics, text, textSize, wide) {
 		inkedRun(d, l, x, y+float32(i)*step, k, clip)
@@ -868,7 +868,7 @@ func inkedLines[S, E, D, F](d *Driver[S, E, D, F], text string, x float32, y flo
 // slanted each italic run; underlined as a fill of a dip under the run,
 // on a whole pixel row. An opaque underline inside clip is a probe
 // (Probes), so a test reads the ink's colour off the window.
-func inkedRun[S, E, D, F](d *Driver[S, E, D, F], l string, x float32, at float32, k ui.Ink, clip layout.Box) needs go.Foreign {
+func inkedRun[S, E, D, F](d mut Driver[S, E, D, F], l string, x float32, at float32, k ui.Ink, clip layout.Box) needs go.Foreign {
 	let color = if k.Color.A != 0 { rgba(k.Color) } else { ink }
 	let opaque = (k.Color.A == 0 || k.Color.A == 255) && d.w.Opacity() == 1.0
 	let step = lineHeight(d.metrics, textSize)
@@ -906,7 +906,7 @@ func inkColor(k ui.Ink) uint32 {
 	ink
 }
 
-func fill[S, E, D, F](d *Driver[S, E, D, F], b layout.Box, radius float32, color uint32) needs go.Foreign {
+func fill[S, E, D, F](d mut Driver[S, E, D, F], b layout.Box, radius float32, color uint32) needs go.Foreign {
 	d.w.Fill(float64(b.X), float64(b.Y), float64(b.W), float64(b.H), float64(radius), color)
 }
 
