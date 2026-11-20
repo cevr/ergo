@@ -98,11 +98,11 @@ type treeSite struct {
 
 // checkTree is one `ergo check DIR/...` request's warm answer by tokens.
 type checkTree struct {
-	store *lawcache.Store
+	store  *lawcache.Store
 	base   string // the request's options, environment and compiler: a part of every key
 	folder string // the folder the request walks: a part of the manifest's key
 	rec    *sketchfront.Recorder
-	puts  int // the store's Puts when the normal path started
+	puts   int // the store's Puts when the normal path started
 	// kept are the selected packages' answers so far; complete is false
 	// once one cannot be kept.
 	kept     []treeKept
