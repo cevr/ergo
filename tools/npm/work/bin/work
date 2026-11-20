@@ -24,10 +24,10 @@ Darwin-arm64) pkg=work-darwin-arm64 ;;
 	exit 1
 	;;
 esac
-for dir in "$here/../node_modules/@cevr/$pkg" "$here/../../$pkg" "$here/../../../@cevr/$pkg"; do
+for dir in "$here/../node_modules/@cvr/$pkg" "$here/../../$pkg" "$here/../../../@cvr/$pkg"; do
 	if [ -x "$dir/bin/work" ]; then
 		exec "$dir/bin/work" "$@"
 	fi
 done
-echo "work: the package @cevr/$pkg is not installed (an install without optional dependencies)" >&2
+echo "work: the package @cvr/$pkg is not installed (an install without optional dependencies)" >&2
 exit 1

@@ -1,0 +1,11 @@
+# scripts/opcount (from the repository root, NAME ../benchmarks/apifirst/mcp/ergo):
+# `mcpbench bench N` answers N tools/call lines with module mcp's Handle
+# over the generated tools of counter.Counter, over a cycle of six lines
+# (values, typed failures, arguments outside the schema, an unknown tool);
+# the cost of one line is the slope between the two sizes. The control is
+# the hand Go answer of API-FIRST spec §3's MCP row: one pass over the
+# line with no encoding/json, and a switch on the tool.
+unit call
+sizes 20000 220000
+args bench {n}
+control benchmarks/apifirst/mcp/control

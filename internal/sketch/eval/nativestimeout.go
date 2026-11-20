@@ -15,7 +15,8 @@ import (
 // stopped and drained on every path. A body that returned a value the
 // deadline beat holds no store the evaluator releases (Gap 47): a value
 // that holds one is a skip.
-func registerNativestimeout() {
+func registerNativestimeout(t nativeTables) {
+	natives := t.std
 	natives["timeout.After"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		if in.sched == nil {
 			return nil, fr.unsupported(at, "a timeout outside a run's tasks")

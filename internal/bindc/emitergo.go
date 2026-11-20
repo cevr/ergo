@@ -105,6 +105,17 @@ func (e *ergoEmitter) file() string {
 		}
 		e.p("}\n\n")
 	}
+	for _, d := range b.k.m.Types {
+		if !b.unions[d.Name] {
+			continue
+		}
+		var kinds []string
+		for _, k := range b.kinds[d.Name] {
+			kinds = append(kinds, b.GoTypes[k])
+		}
+		e.p("// %s is a record that starts with a %s.\ntype %s = %s\n\n", b.RecordType(d.Name), b.GoTypes[d.Name],
+			b.RecordType(d.Name), strings.Join(kinds, "\n\t| "))
+	}
 
 	for _, f := range b.Funcs {
 		if why := f.ErgoUnbound(); why != "" {
@@ -122,7 +133,11 @@ func (e *ergoEmitter) file() string {
 				et = e.ergoType(*t.Elem)
 				if t.LenExpr != "" {
 					et = "[]" + et
+				} else if b.unions[t.Elem.Name] {
+					et = b.RecordType(t.Elem.Name)
 				}
+			case ClassOptional:
+				et = "Option[" + e.ergoType(*t.Elem) + "]"
 			case ClassInBuffer, ClassOutBuffer:
 				et = "[]" + e.ergoType(*t.Elem)
 				if et == "[]uint8" {

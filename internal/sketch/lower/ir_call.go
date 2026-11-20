@@ -42,6 +42,9 @@ func (b *irBuilder) call(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr) {
 		}
 		return pre, v
 	}
+	if pre, e, ok := b.fuseAt(x); ok {
+		return pre, e // a site of a law over function parameters (ir_fusion.go)
+	}
 	if b.asWrittenCall(x) {
 		// A call tree inside AsWritten is kept as written (ir_rewrite.go).
 		b.keep++
@@ -124,7 +127,7 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 	if x.Trailing != nil && (c.Kind != check.CallFunc || c.Func == nil || c.Func.Pkg.Host() || userExtern(c.Func)) {
 		irNo("trailing block")
 	}
-	if c.StartsTask {
+	if c.StartsTask && !b.startsOnFrame(c) {
 		irNo("task call")
 	}
 	if len(c.TypeArgs) > 0 && c.Kind != check.CallFunc {
@@ -176,7 +179,7 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 			// Go's library, or one read from its binding (import go;
 			// gostd's runtime.NumCPU). The emitter calls its Go target
 			// (hostCall), and useFunc would ask the naming pass for a
-			// name it never gave (examples/onebrc). The IR calls the
+			// name it never gave (examples/station-stats). The IR calls the
 			// target by its import path, in the plain domain, by the
 			// call's shape and types alone (ir_tuple.go; SP4).
 			return b.hostCall(x, c, f, p)

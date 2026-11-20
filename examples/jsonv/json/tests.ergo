@@ -86,7 +86,7 @@ test PrefixesFail(t Tree) {
 	}
 }
 
-// The printer escapes what jq escapes: a quote, a backslash, a control
+// The printer escapes a quote, a backslash, a control
 // byte and DEL; invalid UTF-8 prints as U+FFFD.
 test QuotedEscapes {
 	assert Quoted("\"\\\u0001\u007f\xff") == "\"\\\"\\\\\\u0001\\u007f\ufffd\""

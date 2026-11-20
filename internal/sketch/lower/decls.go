@@ -1299,7 +1299,7 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 		for _, g := range []struct {
 			on     bool
 			reason string
-		}{{irInstanceCopy(sp), "copy for an instance"}, {drop, "variant with no result"}, {slot, "slot variant (UNI2)"}, {needsFrame && !irFrame(fc), "body that needs a frame"}} {
+		}{{irInstanceCopy(sp), "copy for an instance"}, {drop && irDropBodyLowering == "off", "variant with no result"}, {slot, "slot variant (UNI2)"}, {needsFrame && !irFrame(fc), "body that needs a frame"}} {
 			if g.on {
 				gates = append(gates, g.reason)
 			}
@@ -1569,7 +1569,7 @@ func (l *lowerer) packageVar(spec *syntax.VarSpec, id *syntax.Ident, x syntax.Ex
 // evaluated to a constant, of type bool, string or an integer type. A Go
 // package variable is a load at every read, and Go folds no expression
 // over it: `h & (Slots - 1)` loads Slots and subtracts on every probe of
-// examples/onebrc's table, and a constant is an immediate. Every read is
+// examples/station-stats's table, and a constant is an immediate. Every read is
 // then v1.Let(name) (letRead), a call of an identity that gc inlines and
 // whose result is no Go constant expression, so Go evaluates every
 // expression over it as it evaluates one over the variable: an integer

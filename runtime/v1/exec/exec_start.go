@@ -63,7 +63,13 @@ const (
 	execDiscard  = 1
 	execToFile   = 2
 	execToCaller = 3
+	execToStdout = 4 // standard error's only: where standard output goes (2>&1)
 )
+
+// execToItself is the failure of a standard output whose sink is ToStdout.
+func execToItself(name string) error {
+	return ExecFailed{Name: name, Reason: "stdout: ToStdout is a sink of standard error, and standard output cannot go to itself"}
+}
 
 // execChunkBuffer is how many chunks of the ToCaller streams wait for the
 // caller. A full buffer stops the readers, the pipe fills, and the program
@@ -484,6 +490,7 @@ func execStart(t *rt.Task, root string, name string, args []string, env map[stri
 	var files []*os.File  // the sinks' files, the parent's copies
 	var writes []*os.File // the write ends of the ToCaller pipes, the parent's copies
 	var reads [2]*os.File // the read ends: stdout's, stderr's
+	var outW *os.File     // what standard output goes to; nil for the null device
 	fail := func(err error) (*Running, error) {
 		for _, f := range slices.Concat(files, writes, reads[:]) {
 			if f != nil {
@@ -523,10 +530,16 @@ func execStart(t *rt.Task, root string, name string, args []string, env map[stri
 			reads[i] = pr
 			writes = append(writes, pw)
 			w = pw
+		case execToStdout:
+			if i == 0 {
+				return fail(execToItself(name))
+			}
+			w = outW // the very file standard output goes to: one pipe or file keeps the write order of the two
 		default:
 			panic("exec: unknown sink kind")
 		}
 		if i == 0 {
+			outW = w
 			if w != nil {
 				cmd.Stdout = w
 			}

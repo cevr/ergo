@@ -28,6 +28,33 @@ let BlockMax = 65536
 // Window is the span a match reaches back: offsets are below it.
 let Window = 65536
 
+// NeverReadsOutsideWindow: every copy Pack writes starts 1 to Window-1
+// bytes back and within the bytes so far, and the steps write the input's
+// length.
+law NeverReadsOutsideWindow(s string, k int) {
+	let input = sample(s, k)
+	let steps = Walk(Pack(input)) catch {
+	case Corrupt:
+		return false
+	}
+	let mut total = 0
+	for st in steps {
+		match st {
+		case Literals as l:
+			if l.At != total {
+				return false
+			}
+			total += l.Len
+		case Copy as c:
+			if c.At != total || c.Offset < 1 || c.Offset >= Window || c.Offset > c.At || c.Len < MinMatch {
+				return false
+			}
+			total += c.Len
+		}
+	}
+	total == len(input)
+}
+
 // WindowMask is Window - 1: a position's slot in a window-sized ring.
 let WindowMask = 65535
 

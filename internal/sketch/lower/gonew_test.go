@@ -64,6 +64,10 @@ func TestGoNew(t *testing.T) {
 		ncase{name: "pure-frame", src: "import go hostres\n\nfunc f() go.Ref[hostres.Counter] {\n\tgo.New[hostres.Counter]()\n}\n\nfunc main() needs go.Foreign {\n\tlet _ = f().Add(1)\n}\n", code: "S102", want: "go.Foreign"},
 		ncase{name: "arguments", src: "import go hostres\n\nfunc main() needs go.Foreign {\n\tlet p = go.New[hostres.Counter](go.Zero[hostres.Counter](), go.Zero[hostres.Counter]())\n\tlet _ = p\n}\n", code: "S108", want: "takes no argument (Go's zero T) or one"},
 		ncase{name: "no-type", src: "import go hostres\n\nfunc main() needs go.Foreign {\n\tlet p = go.New()\n\tlet _ = p\n}\n", code: "S108", want: "needs the Go type"},
+		// GBX-CHAIN's repro: a method called on go.New(v) itself lowered
+		// to &n.Add(1), the address of the call's result, which Go refuses
+		// (std/http's origin.ergo went through a let).
+		ncase{name: "new-value-chained", src: "import go hostres\n\nfunc main() needs go.Foreign {\n\tlet _ = go.New(go.Zero[hostres.Counter]()).Add(1)\n}\n", new: ".Add(int(1))"},
 	)
 	only := os.Getenv("ERGO_GONEW_CASE")
 	var programs []*lowered

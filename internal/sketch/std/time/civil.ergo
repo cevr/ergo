@@ -171,6 +171,21 @@ law DateRoundTrip(sec int64, nsec int64) {
 	Date(c.Year, c.Month, c.Day, c.Hour, c.Minute, c.Second, c.Nanosecond) == t
 }
 
+// within is n moved into lo..hi, so a law covers every n.
+func within(n int64, lo int64, hi int64) int64 {
+	let span = hi - lo + 1
+	let r = n % span
+	if r < 0 {
+		lo + (r + span)
+	} else {
+		lo + r
+	}
+}
+
+// anyYear is n moved into the seconds RFC 3339 writes: the first second
+// of year 1 to the last second of year 9999.
+func anyYear(n int64) int64 { within(n, -62135596800, 253402300799) }
+
 // WeekdayStep: a day later is the next weekday, Saturday then Sunday.
 law WeekdayStep(sec int64) {
 	let t = Unix(anyYear(sec), 0)

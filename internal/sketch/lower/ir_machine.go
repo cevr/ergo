@@ -268,7 +268,7 @@ func (b *irBuilder) machineSome(t check.Type, o int, p irPos, site syntax.Node, 
 		return &irStmt{K: "switch", Pos: p, End: p, X: b.tagOf(o, p), Cases: []*irCase{{Pos: p, Vals: []*irExpr{{K: "const", Pos: p, T: "uint8", V: strconv.Itoa(k)}}, Body: body}}}
 	}
 	body := append([]*irStmt{{K: "def", Pos: p, Local: w, X: &irExpr{K: "assert", Pos: p, T: gs, X: &irExpr{K: "local", Pos: p, I: o}}}}, then(w)...)
-	return &irStmt{K: "tswitch", Pos: p, End: p, X: &irExpr{K: "local", Pos: p, I: o}, Cases: []*irCase{{Pos: p, Types: []string{gs}, Body: body}}}
+	return &irStmt{K: "tswitch", Pos: p, End: p, ElsePos: p, X: &irExpr{K: "local", Pos: p, I: o}, Cases: []*irCase{{Pos: p, Types: []string{gs}, Body: body}}}
 }
 
 // recordField is the field name of the record value x of the named type
@@ -333,7 +333,7 @@ func (b *irBuilder) machineAfter(conv check.Conversion, n *check.Named, p irPos,
 			}
 			cond := &irExpr{K: "bin", Pos: p, Op: "<=", X: in(), Y: b.constant(inType, constant.MakeInt64(0), nil, p)}
 			raise := &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: timerPanic, V: gst, Args: []*irExpr{
-				{K: "const", Pos: p, T: "string", V: irString(n.Obj.Name)}, {K: "local", Pos: p, I: ps[0]}, in()}}
+				irStringConst(p, "string", n.Obj.Name), {K: "local", Pos: p, I: ps[0]}, in()}}
 			return []*irStmt{{K: "if", Pos: p, End: p, X: cond, Then: []*irStmt{{K: "expr", Pos: p, X: raise}}}}
 		}))
 		return append(out, &irStmt{K: "ret", Pos: p, X: &irExpr{K: "local", Pos: p, I: o}})

@@ -23,6 +23,7 @@ internal/sketch/check/testdata/provenance-manifest.txt merge=ergo-lines
 # "regenerate":true, and the file must be made again from the merged
 # inputs before the merge is committed.
 *_gen.go merge=ergo-derived
+**/testdata/kills.json merge=ergo-derived
 tools/ts/bun.lock merge=ergo-derived
 toolchain/pin/lock merge=ergo-derived
 internal/sketchfront/stdsnap/std.snap merge=ergo-derived

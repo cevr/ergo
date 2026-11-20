@@ -19,7 +19,7 @@ func Run(args []string, tables string) []string {
 		return b.Out
 	}
 	with context { code.Reader: code.IndexOf(t) } {
-		let out = codecli.Run(args)
+		let out = codecli.Run(args, codecli.Defaults())
 		[]string{strconv.Itoa(out.Code), out.Out, out.Err}
 	}
 }

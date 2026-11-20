@@ -25,6 +25,7 @@ import (
 // queue of capacity 0 and one with room, a waiting task.
 const stdLawsProbe = `import queue
 import os
+import api
 import atomic
 import tasks
 import embed
@@ -37,6 +38,119 @@ import trace
 import log
 import strings
 import testing
+import pace
+
+type apiEcho {} implements api.Transport[string, int]
+
+func Carry(t apiEcho, c string, answer own func(c string) int) int { answer(c) }
+
+type apiDropping {} implements api.Transport[string, int]
+
+func Carry(t apiDropping, c string, answer own func(c string) int) int {
+	if len(c) == 0 {
+		answer(c)
+	} else {
+		answer(c[0:len(c)-1])
+	}
+}
+
+test ApiExitKeepsTheCode(o api.Output) {
+	let want = if o.Code >= 1 && o.Code <= 125 { o.Code } else if o.Code == 0 { 0 } else { 1 }
+	api.ExitOf(o) catch {
+	case os.Exit as e:
+		assert int(e.Code) == want && want != 0
+		return
+	}
+	assert want == 0
+}
+
+test ApiKebabRoundTrips(words []string) {
+	let mut name = ""
+	let mut parts = []string{}
+	for w in words {
+		let mut low = ""
+		for i in 0..len(w) {
+			let c = w[i]
+			if c >= 'a' && c <= 'z' {
+				low = low + w[i:i+1]
+			} else if c >= 'A' && c <= 'Z' {
+				low = low + strings.ToLower(w[i:i+1])
+			}
+		}
+		for len(low) < 2 {
+			low = low + "x"
+		}
+		parts = parts.Append(low)
+		name = name + strings.ToUpper(low[0:1]) + low[1:]
+	}
+	let k = api.Kebab(name)
+	assert k == strings.Join(parts, "-") && api.Kebab(k) == k
+}
+
+test ApiAgreesSeesTheLoss(c string, o int) {
+	assert api.Agrees(apiEcho, c, o) && !api.Agrees(apiDropping, c + "!", o)
+}
+
+test ApiWordsReadLine(args []string) {
+	let back = api.Words(api.Line(args)) catch {
+	case api.Unclosed:
+		assert false
+		return
+	}
+	assert back == args
+}
+
+func apiEchoed(args []string) api.Output {
+	api.Output{Out: strings.Join(args, "|"), Err: "", Code: if len(args) == 3 { 1 } else { 0 }}
+}
+
+test ApiSessionIsEachLine(script [][]string) {
+	let mut lines = []string{}
+	for a in script {
+		lines = lines.Append(" " + api.Line(a))
+		lines = lines.Append("# " + api.Line(a))
+		lines = lines.Append("")
+	}
+	let mut want = []api.Step{}
+	for k, a in script {
+		if len(a) == 0 {
+			continue
+		}
+		let o = apiEchoed(a)
+		want = want.Append(api.Step{Line: 3*k + 1, Text: api.Line(a), Output: o})
+		if o.Code != 0 {
+			break
+		}
+	}
+	assert api.Session(lines, apiEchoed) == want
+}
+
+test ApiCompletionNamesEachCommand(words []string, shell api.Shell) {
+	let mut commands = []api.Entry{}
+	for w in words {
+		let mut low = ""
+		for i in 0..len(w) {
+			let c = w[i]
+			if c >= 'a' && c <= 'z' {
+				low = low + w[i:i+1]
+			} else if c >= 'A' && c <= 'Z' {
+				low = low + strings.ToLower(w[i:i+1])
+			}
+		}
+		for len(low) < 2 {
+			low = low + "x"
+		}
+		commands = commands.Append(api.Entry{Name: low, Doc: "does " + w + "\nmore"})
+	}
+	let text = api.Completion("prog", shell, commands)
+	let mut at = 0
+	for c in commands {
+		let i = strings.Index(text[at:], c.Name)
+		assert i >= 0
+		at = at + i + len(c.Name)
+	}
+	assert !strings.Contains(text, "\nmore")
+}
 
 test OsCodeWhere(v os.Code) {
 	let it = int(v)
@@ -478,6 +592,131 @@ test TimeoutDeadlineFirstExpires() {
 	assert expired
 }
 
+func paceWithin(n int, lo int, hi int) int {
+	let span = hi - lo + 1
+	let r = n % span
+	if r < 0 { lo + (r + span) } else { lo + r }
+}
+
+func paceKeeps(xs []int, s string) bool needs pace.Pacing {
+	let kept = xs.Append(len(s))
+	let text = s + "."
+	pace.Pacing.Edge()
+	let mut same = len(kept) == len(xs)+1 && kept[len(xs)] == len(s) && text == s+"."
+	for i, x in xs {
+		same = same && kept[i] == x
+	}
+	same
+}
+
+test PacePacingEdgeKeepsValues(xs []int, s string) {
+	assert with context { pace.Pacing: pace.Default } { paceKeeps(xs, s) }
+	assert with context { pace.Pacing: pace.NewCounting() } { paceKeeps(xs, s) }
+}
+
+test PaceDefaultReachesNothing(xs []int, n int) {
+	let kept = xs.Append(n)
+	with context { pace.Pacing: pace.Default } {
+		for _ in 0..paceWithin(n, 0, 64) {
+			pace.Pacing.Edge()
+		}
+	}
+	assert len(kept) == len(xs) + 1 && kept[len(xs)] == n
+}
+
+test PaceNextReadLeavesRoom(grown int64, edges int64, room int64) {
+	let g = int64(paceWithin(int(grown % 1000000000), 0, 999999999))
+	let e = int64(paceWithin(int(edges % 1000), 1, 1000))
+	let perEdge = if g / e < 1 { int64(1) } else { g / e }
+	let r = perEdge*int64(paceWithin(int(room%1000), -2, 600)) + int64(paceWithin(int(room%7), 0, 6))
+	let next = pace.NextRead(g, e, r)
+	assert 1 <= next && next <= pace.MaxSpan && (next == 1 || g == 0 || next * perEdge <= r / 2)
+}
+
+test PaceCountingCountsEachEdge(n int) {
+	let k = paceWithin(n, 0, 64)
+	let c = pace.NewCounting()
+	let before = c.Edges()
+	with context { pace.Pacing: c } {
+		for _ in 0..k {
+			pace.Pacing.Edge()
+		}
+	}
+	assert before == 0 && c.Edges() == int64(k)
+}
+
+func paceHoldKeeps(xs []int, n int) bool needs pace.Pacing {
+	let kept = xs.Append(n)
+	pace.Pacing.Hold()
+	pace.Pacing.Edge()
+	pace.Pacing.Release()
+	len(kept) == len(xs)+1 && kept[len(xs)] == n
+}
+
+test PacePacingHoldKeepsValues(xs []int, n int) {
+	assert with context { pace.Pacing: pace.Default } { paceHoldKeeps(xs, n) }
+	assert with context { pace.Pacing: pace.NewCounting() } { paceHoldKeeps(xs, n) }
+}
+
+test PaceHoldsOweTheLastClose(ops []int) {
+	let h = pace.NewHolds()
+	let mut depth = 0
+	let mut owed = false
+	let mut same = true
+	for op in ops {
+		let kind = paceWithin(op, 0, 2)
+		if kind == 0 {
+			h.Open()
+			depth = depth + 1
+		} else if kind == 1 && depth > 0 {
+			let collects = h.Close()
+			depth = depth - 1
+			same = same && collects == (depth == 0 && owed)
+			if depth == 0 {
+				owed = false
+			}
+		} else if kind == 2 {
+			same = same && h.Owe() == (depth > 0)
+			owed = owed || depth > 0
+		}
+		same = same && h.Depth() == int64(depth)
+	}
+	assert same
+}
+
+type paceStopped {}
+
+func paceNest(depth int, edges int, stop bool) fails paceStopped needs pace.Pacing {
+	pace.Held() { try paceInner(depth, edges, stop) }
+}
+
+func paceInner(depth int, edges int, stop bool) fails paceStopped needs pace.Pacing {
+	if depth > 1 {
+		try paceNest(depth-1, edges, stop)
+		return
+	}
+	for _ in 0..edges {
+		pace.Pacing.Edge()
+	}
+	if stop {
+		return paceStopped
+	}
+}
+
+test PaceHeldDefersToTheLastRelease(n int, k int, stop bool) {
+	let edges = paceWithin(n, 0, 16)
+	let depth = paceWithin(k, 1, 4)
+	let c = pace.NewCounting()
+	with context { pace.Pacing: c } {
+		paceNest(depth, edges, stop) catch {
+		case paceStopped:
+		}
+		pace.Pacing.Edge()
+	}
+	let owed = if edges > 0 { int64(1) } else { int64(0) }
+	assert c.Edges() == int64(edges+1) && c.HeldEdges() == int64(edges) && c.Deferred() == owed
+}
+
 test TraceInnerSpanShadows(outer string, inner string) {
 	let got = with trace.Span(outer) {
 		with trace.Span(inner) { trace.Current() }
@@ -677,6 +916,12 @@ func stdLawsTestName(pkg, law string) string {
 // holds it equal to the ledger, so a law changed in source fails here
 // until its restatement in the probe is changed with it.
 var stdLawsStatements = map[string]string{
+	"api ExitKeepsTheCode":                 `ExitKeepsTheCode(o Output) { let want = if o.Code >= 1 && o.Code <= 125 { o.Code } else if o.Code == 0 { 0 } else { 1 } ExitOf(o) catch { case os.Exit as e: return int(e.Code) == want && want != 0 } want == 0 }`,
+	"api KebabRoundTrips":                  `KebabRoundTrips(words []string) { let mut name = "" let mut parts = []string{} for w in words { let low = word(w) parts = parts.Append(low) name = name + strings.ToUpper(low[0:1]) + low[1:] } let k = Kebab(name) k == strings.Join(parts, "-") && Kebab(k) == k }`,
+	"api AgreesSeesTheLoss":                `AgreesSeesTheLoss(c string, o int) { Agrees(echo, c, o) && !Agrees(dropping, c+"!", o) }`,
+	"api CompletionNamesEachCommand":       `CompletionNamesEachCommand(words []string, shell Shell) { let mut commands = []Entry{} for w in words { commands = commands.Append(Entry{Name: word(w), Doc: "does " + w + "\nmore"}) } let text = Completion("prog", shell, commands) let mut at = 0 for c in commands { let i = strings.Index(text[at:], c.Name) if i < 0 { return false } at = at + i + len(c.Name) } !strings.Contains(text, "\nmore") }`,
+	"api WordsReadLine":                    `WordsReadLine(args []string) { let back = Words(Line(args)) catch { case Unclosed: return false } back == args }`,
+	"api SessionIsEachLine":                `SessionIsEachLine(script [][]string) { let mut lines = []string{} for a in script { lines = lines.Append(" " + Line(a)) lines = lines.Append("# " + Line(a)) lines = lines.Append("") } let mut want = []Step{} for k, a in script { if len(a) == 0 { continue } let o = echoed(a) want = want.Append(Step{Line: 3*k + 1, Text: Line(a), Output: o}) if o.Code != 0 { break } } Session(lines, echoed) == want }`,
 	"os CodeWhere":                         `CodeWhere(v Code) { let it = int(v) (1 <= it && it <= 125) && try ParseCode(it) == v }`,
 	"atomic InitialValues":                 `InitialValues(value int64, flag bool) { NewInt64(value).Load() == value && NewBool(flag).Load() == flag }`,
 	"atomic Int64.StoresAndAdds":           `StoresAndAdds(a int64, b int64) { Store(a) let sum = Add(b) let seen = Load() let previous = Swap(a) let changed = CompareAndSwap(a, b) let unchanged = !CompareAndSwap(b+1, a) sum == a+b && seen == sum && previous == sum && changed && unchanged && Load() == b }`,
@@ -710,6 +955,13 @@ var stdLawsStatements = map[string]string{
 	"testing WorldsAreFresh":               `WorldsAreFresh(text string) { with World() { try fs.Writes.WriteFile("f", text) } with World() { fs.Files.Stat("f") catch { case fs.NotFound: return true case fs.Denied, fs.Failed: return false } false } }`,
 	"testing ScriptRecordsEachCall":        `ScriptRecordsEachCall(ks []string, n int) { let s = Script[probe]{} s.Has.Answer(func(k string) bool { len(k) > 0 }) with context { probe: s } { for i, k in ks { probe.Put(k, n + i) let _ = probe.Has(k) } } let puts = s.Put.Calls() let mut same = len(puts) == len(ks) && len(s.Has.Calls()) == len(ks) && len(s.Size.Calls()) == 0 for i, k in ks { same = same && puts[i] == (k, n + i) && s.Has.Calls()[i] == k } same }`,
 	"timeout QuickBodyWins":                `QuickBodyWins(n int) { with context { Scheduler: time.NewManual(0) } { try After(1h) { n } == n } }`,
+	"pace Pacing.EdgeKeepsValues":          `EdgeKeepsValues(xs []int, s string) { let kept = xs.Append(len(s)) let text = s + "." Edge() let mut same = len(kept) == len(xs)+1 && kept[len(xs)] == len(s) && text == s+"." for i, x in xs { same = same && kept[i] == x } same }`,
+	"pace DefaultReachesNothing":           `DefaultReachesNothing(xs []int, n int) { let kept = xs.Append(n) with context { Pacing: Default } { for _ in 0..within(n, 0, 64) { Pacing.Edge() } } len(kept) == len(xs)+1 && kept[len(xs)] == n }`,
+	"pace NextReadLeavesRoom":              `NextReadLeavesRoom(grown int64, edges int64, room int64) { let g = int64(within(int(grown%1000000000), 0, 999999999)) let e = int64(within(int(edges%1000), 1, 1000)) let perEdge = if g/e < 1 { int64(1) } else { g / e } let r = perEdge*int64(within(int(room%1000), -2, 600)) + int64(within(int(room%7), 0, 6)) let next = NextRead(g, e, r) 1 <= next && next <= MaxSpan && (next == 1 || g == 0 || next*perEdge <= r/2) }`,
+	"pace CountingCountsEachEdge":          `CountingCountsEachEdge(n int) { let k = within(n, 0, 64) let c = NewCounting() let before = c.Edges() with context { Pacing: c } { for _ in 0..k { Pacing.Edge() } } before == 0 && c.Edges() == int64(k) }`,
+	"pace Pacing.HoldKeepsValues":          `HoldKeepsValues(xs []int, n int) { let kept = xs.Append(n) Hold() Edge() Release() len(kept) == len(xs)+1 && kept[len(xs)] == n }`,
+	"pace HoldsOweTheLastClose":            `HoldsOweTheLastClose(ops []int) { let h = NewHolds() let mut depth = 0 let mut owed = false let mut same = true for op in ops { let kind = within(op, 0, 2) if kind == 0 { h.Open() depth = depth + 1 } else if kind == 1 && depth > 0 { let collects = h.Close() depth = depth - 1 same = same && collects == (depth == 0 && owed) if depth == 0 { owed = false } } else if kind == 2 { same = same && h.Owe() == (depth > 0) owed = owed || depth > 0 } same = same && h.Depth() == int64(depth) } same }`,
+	"pace HeldDefersToTheLastRelease":      `HeldDefersToTheLastRelease(n int, k int, stop bool) { let edges = within(n, 0, 16) let depth = within(k, 1, 4) let c = NewCounting() with context { Pacing: c } { nest(depth, edges, stop) catch { case stopped: } Pacing.Edge() } let owed = if edges > 0 { int64(1) } else { int64(0) } c.Edges() == int64(edges+1) && c.HeldEdges() == int64(edges) && c.Deferred() == owed }`,
 	"trace InnerSpanShadows":               `InnerSpanShadows(outer string, inner string) { with Span(outer) { with Span(inner) { Current() == Some[string]{Value: inner} } } }`,
 	"trace SpanEndRestores":                `SpanEndRestores(name string) { let before = Current() with Span(name) { Current() } Current() == before }`,
 }

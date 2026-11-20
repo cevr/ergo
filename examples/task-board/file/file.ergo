@@ -1,0 +1,99 @@
+// Package file holds Sheet, a board.Store that keeps the board in one JSON
+// file, the saved board:
+//
+//	{"columns":[{"id":"todo","name":"To Do","cards":[{"id":"card-1","title":"Align the finder scope","description":"","sortKey":"V"}]}]}
+//
+// std json derives both directions from the record types, so the file's
+// shape cannot drift from them. A save writes the whole file, which
+// fs.Writes' WriteFile replaces at once, so a crash leaves the old board
+// or the new one.
+
+import taskboard/board
+import fs
+import json
+import fstest
+import strings
+
+// Sheet is a board.Store in the file at path. It holds the file system it
+// reads and writes as values (as kvstore's Log does).
+type Sheet { path string, files fs.Files, writes fs.Writes } implements board.Store
+
+// Name is the file of a Sheet made by NewSheet.
+let Name = "board.json"
+
+// NewSheet is the Sheet in Name in the working directory.
+func NewSheet(files fs.Files, writes fs.Writes) Sheet { At(Name, files, writes) }
+
+// At is the Sheet in the file path.
+func At(path string, files fs.Files, writes fs.Writes) Sheet { Sheet{path: path, files: files, writes: writes} }
+
+// Load is the board in the file, or None when there is no file.
+func Load(s Sheet) Option[[]board.Column] fails board.Broken {
+	let text = s.files.ReadFile(s.path) catch {
+	case fs.NotFound:
+		return None
+	case fs.Denied as d:
+		return board.Broken{Why: "permission denied: " + d.Path}
+	case fs.Failed as f:
+		return board.Broken{Why: f.Path + ": " + f.Reason}
+	}
+	Some[[]board.Column]{Value: try Decode(s.path, text)}
+}
+
+// Save writes columns as the file.
+func Save(s Sheet, columns []board.Column) fails board.Broken {
+	s.writes.WriteFile(s.path, Encode(columns)) catch {
+	case fs.NotFound as n:
+		return board.Broken{Why: "no directory for " + n.Path}
+	case fs.Denied as d:
+		return board.Broken{Why: "permission denied: " + d.Path}
+	case fs.Failed as f:
+		return board.Broken{Why: f.Path + ": " + f.Reason}
+	}
+}
+
+// saved is the file's one object.
+type saved { Columns []board.Column }
+
+// codec reads a file of up to a megabyte; a board nests four deep.
+func codec() json.Codec[saved] { json.Codec[saved]{MaxBytes: 1 << 20, MaxDepth: 8} }
+
+// Encode is the file's text for columns.
+func Encode(columns []board.Column) string { json.Encode(codec(), saved{Columns: columns}) + "\n" }
+
+// ACutFileIsNamed: a file cut short anywhere before its last byte loads
+// as Broken, naming the file.
+law ACutFileIsNamed(n int, cut int where 0 <= cut) {
+	let disk = fstest.NewMemory()
+	let text = Encode(board.Sample(n))
+	let at = cut % (len(text) - 1)
+	try disk.WriteFile(Name, text[:at])
+	let _ = NewSheet(disk, disk).Load() catch {
+	case board.Broken as b:
+		return strings.HasPrefix(b.Why, Name+": ")
+	}
+	false
+}
+
+// Decode is the board of a file's text; path names the file in the
+// failure, with the place the text breaks.
+func Decode(path string, text string) []board.Column fails board.Broken {
+	let s = json.Decode(codec(), text) catch {
+	case json.Malformed as m:
+		return board.Broken{Why: "\(path): offset \(m.Offset): \(m.Reason)"}
+	case WireMissingField as m:
+		return board.Broken{Why: "\(path): \(at(m.Path, m.Field)) is missing"}
+	case WireWrongKind as w:
+		return board.Broken{Why: "\(path): \(at(w.Path, "")) is not \(w.Want)"}
+	}
+	s.Columns
+}
+
+// at is the place a failure names: the path from the top, and field
+// under it.
+func at(path string, field string) string {
+	if path == "" && field == "" { return "the board" }
+	if path == "" { return field }
+	if field == "" { return path }
+	path + "." + field
+}

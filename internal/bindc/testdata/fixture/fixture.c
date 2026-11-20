@@ -49,6 +49,8 @@
 #define FIXTURE_ID_fx_context_wide 24
 #define FIXTURE_ID_fx_context_unbound 25
 #define FIXTURE_ID_fx_node_measure_as 26
+#define FIXTURE_ID_fx_shape_area 27
+#define FIXTURE_ID_fx_box_z 28
 #ifdef FIXTURE_OMIT
 #if FIXTURE_CAT(FIXTURE_ID_, FIXTURE_OMIT) == 0
 #error FIXTURE_OMIT does not name a function of fixture.h
@@ -435,6 +437,47 @@ fx_status fx_context_unbound(fx_context *c, void *user_data, fx_unbound_callback
     if (st != FX_OK) return st;
     if (callback == NULL) return FX_INVALID_ARGUMENT;
     INVOKE(c, callback(user_data, 7));
+    return FX_OK;
+}
+#endif
+
+#if !OMITTED(27)
+fx_status fx_shape_area(fx_context *c, const fx_shape_header *shape, int64_t *out_area) {
+    fx_status st = owned(c);
+    if (st != FX_OK) return st;
+    if (shape == NULL || out_area == NULL) return FX_INVALID_ARGUMENT;
+    if (shape->abi_version != FX_ABI_VERSION) return FX_UNSUPPORTED_VERSION;
+    switch (shape->kind) {
+    case FX_SHAPE_NONE:
+        if (shape->struct_size != sizeof(fx_shape_header)) return FX_UNSUPPORTED_VERSION;
+        *out_area = 0;
+        return FX_OK;
+    case FX_SHAPE_DOT:
+        if (shape->struct_size != sizeof(fx_shape_dot)) return FX_UNSUPPORTED_VERSION;
+        *out_area = ((const fx_shape_dot *)shape)->weight;
+        return FX_OK;
+    case FX_SHAPE_RECT: {
+        if (shape->struct_size != sizeof(fx_shape_rect)) return FX_UNSUPPORTED_VERSION;
+        const fx_shape_rect *r = (const fx_shape_rect *)shape;
+        *out_area = (int64_t)r->width * r->height;
+        return FX_OK;
+    }
+    }
+    return FX_INVALID_ARGUMENT;
+}
+#endif
+
+#if !OMITTED(28)
+fx_status fx_box_z(fx_context *c, const fx_box *clip, int64_t *out_z) {
+    fx_status st = owned(c);
+    if (st != FX_OK) return st;
+    if (out_z == NULL) return FX_INVALID_ARGUMENT;
+    if (clip == NULL) {
+        *out_z = -1;
+        return FX_OK;
+    }
+    if (clip->struct_size != sizeof(fx_box) || clip->abi_version != FX_ABI_VERSION) return FX_UNSUPPORTED_VERSION;
+    *out_z = clip->z;
     return FX_OK;
 }
 #endif

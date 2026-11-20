@@ -1,5 +1,5 @@
 // MaxParams is the most parameters a sequence keeps; a CSI with more is
-// dropped, as Ghostty drops it.
+// dropped whole.
 let MaxParams = 24
 
 // MaxIntermediates is the most intermediate bytes a sequence keeps; more
@@ -83,12 +83,12 @@ type Parser machine[Parse, Class] {
 	// overrun.
 	law ParamsStayBounded always bounded,
 
-	// ParamsReachTheLimit: some run completes 24 parameters, Ghostty's
-	// MAX_PARAMS, so the bound is not tighter than Ghostty's.
+	// ParamsReachTheLimit: some run completes 24 parameters, MaxParams,
+	// so the bound is reached, not only kept.
 	law ParamsReachTheLimit sometimes fullParams,
 
-	// IntermediatesReachTheLimit: some run keeps 4 intermediates, Ghostty's
-	// MAX_INTERMEDIATE.
+	// IntermediatesReachTheLimit: some run keeps 4 intermediates,
+	// MaxIntermediates.
 	law IntermediatesReachTheLimit sometimes fullIntermediates,
 }
 
@@ -97,8 +97,8 @@ func bounded(p Parse) bool {
 	0 <= p.Counts.Params && p.Counts.Params <= MaxParams && 0 <= p.Counts.Inter && p.Counts.Inter <= MaxIntermediates
 }
 
-// fullParams reports whether p holds Ghostty's 24 parameters.
+// fullParams reports whether p holds 24 parameters, MaxParams.
 func fullParams(p Parse) bool { p.Counts.Params == 24 }
 
-// fullIntermediates reports whether p holds Ghostty's 4 intermediates.
+// fullIntermediates reports whether p holds 4 intermediates, MaxIntermediates.
 func fullIntermediates(p Parse) bool { p.Counts.Inter == 4 }

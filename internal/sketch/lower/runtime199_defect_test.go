@@ -860,6 +860,10 @@ func TestRuntime199DefectOwner(t *testing.T) {
 		{"report", "mainStatus"}: true,
 		// LogFailures writes a member's exit as main's exit report does.
 		{"report", "end"}: true,
+		// FuseOr drops the fused loop's fresh defect and runs the left
+		// side, which raises the staged form's own; a carried exit passes
+		// through (fuse.go). The defect that leaves reaches capture.
+		{"recover without capture", "FuseOr.func"}: true,
 	}
 	seen := map[use]bool{}
 	for _, u := range uses {

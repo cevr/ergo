@@ -74,7 +74,7 @@ const cacheVersion = "ergo-examples-cache v2"
 // the lowering emits from std's bodies is in the emitted digest.
 var (
 	driverRoots   = []string{"./cmd/ergo", "./scripts/examples"}
-	emissionRoots = []string{"internal/sketch/check", "internal/sketch/lower", "internal/sketch/std", "internal/sketch/stdlib", "internal/sketch/std/gostd"}
+	emissionRoots = []string{"internal/sketch/check", "internal/sketch/check/snapshot", "internal/sketch/lower", "internal/sketch/std", "internal/sketch/stdlib", "internal/sketch/std/gostd"}
 )
 
 // cacheKeep is how many entries of one program the cache keeps: the newest.
@@ -143,8 +143,13 @@ func (r *runner) legKey(h io.Writer, p *program) string {
 	if p.module && len(targets) > 1 {
 		pattern = filepath.Join(p.dir, "...")
 		calls = append(calls, []string{"test", "--emitted", "--json", pattern})
+		if r.cfg.rewrites != "" {
+			// The pattern's build digest is the default build's; a
+			// -rewrites run keys its own build (EVIDENCE-REPORT).
+			calls = append(calls, r.buildArgs("--emitted", p.main))
+		}
 	} else {
-		calls = append(calls, []string{"build", "--emitted", p.main})
+		calls = append(calls, r.buildArgs("--emitted", p.main))
 		for _, target := range targets {
 			calls = append(calls, []string{"check", target}, []string{"test", "--emitted", target})
 		}
@@ -294,6 +299,17 @@ func coveredPackages(p *program, targets []string, lines []emittedLine) string {
 // key's result: on a miss the fmt leg and each check leg run once, not
 // twice (gate-speed GS20).
 func keyedCall(args []string) string { return strings.Join(args, "\x00") }
+
+// buildArgs is an ergo build call of args, with -rewrites when the run
+// names a mode; the verdict cache keys on these words, so a run under
+// another mode never replays the default's pass.
+func (r *runner) buildArgs(args ...string) []string {
+	out := append([]string{"build"}, args...)
+	if r.cfg.rewrites != "" {
+		out = append(out, "-rewrites="+r.cfg.rewrites)
+	}
+	return out
+}
 
 // withoutProducer is a check envelope less its producers (its own and its
 // snapshot's), the digest of the compiler's own bytes, which every compiler

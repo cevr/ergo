@@ -32,7 +32,10 @@ The go command is chosen by ERGO_GO:
   system            the go command on PATH
   PATH              that go command
 
-It downloads nothing. --json prints the same facts as one JSON object.
+It downloads nothing. --json prints the same facts as one JSON object,
+with "features": what this ergo has that a tool driving it may require
+(versionFeatures), since a version orders builds by time, and a build of
+another branch may be newer and lack them.
 Exit status: 0, or 2 on an invalid invocation.
 `
 
@@ -49,7 +52,20 @@ type versionReport struct {
 	Command string `json:"command"`
 	// Installed says whether the managed release is in the cache.
 	Installed bool `json:"installed,omitempty"`
+	// Features is versionFeatures.
+	Features []string `json:"features"`
 }
+
+// versionFeatures are the abilities a tool that drives ergo checks for
+// (orrery, MODELCHECK T3d O1), by name, never removed once listed:
+//
+//	check-strict       check --strict exits 1 on a law it did not decide
+//	machine-laws       check searches a machine's laws by predicate
+//	conform            ergo conform DIR --machine M --trace FILE
+//	conform-exit-codes conform exits 0, 20 mismatch, 21 trace error,
+//	                   22 over the limit, 23 a law broken (everystate's)
+//	version-features   this list
+var versionFeatures = []string{"check-strict", "machine-laws", "conform", "conform-exit-codes", "version-features"}
 
 func versionCommand(args []string) error {
 	json := false
@@ -64,7 +80,7 @@ func versionCommand(args []string) error {
 		return err
 	}
 	t, installed := toolchain.Status(os.Getenv, root)
-	report := versionReport{Version: ergoversion.Current(), Go: toolchain.Version, Toolchain: t.Mode, Command: t.Go, Installed: installed}
+	report := versionReport{Version: ergoversion.Current(), Go: toolchain.Version, Toolchain: t.Mode, Command: t.Go, Installed: installed, Features: versionFeatures}
 	if json {
 		return printJSON(report)
 	}

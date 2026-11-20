@@ -27,8 +27,12 @@ type expr interface{ render() string }
 type (
 	eLit  struct{ tok token }
 	eName struct{ tok token }
-	eCall struct{ fn, arg token }
-	eNeg  struct {
+	eCall struct {
+		fn, arg token
+		// neg: the argument is a negated literal (a signed INTn_C only).
+		neg bool
+	}
+	eNeg struct {
 		op token
 		x  expr
 	}
@@ -39,9 +43,14 @@ type (
 	}
 )
 
-func (e eLit) render() string   { return e.tok.text }
-func (e eName) render() string  { return e.tok.text }
-func (e eCall) render() string  { return e.fn.text + "(" + e.arg.text + ")" }
+func (e eLit) render() string  { return e.tok.text }
+func (e eName) render() string { return e.tok.text }
+func (e eCall) render() string {
+	if e.neg {
+		return e.fn.text + "(-" + e.arg.text + ")"
+	}
+	return e.fn.text + "(" + e.arg.text + ")"
+}
 func (e eParen) render() string { return "(" + e.x.render() + ")" }
 func (e eBin) render() string   { return e.x.render() + " " + e.op.text + " " + e.y.render() }
 func (e eNeg) render() string {
@@ -241,6 +250,13 @@ func (p *exprParser) primary() expr {
 				fail(t, CodeMacroBody, t.text+" needs one literal argument")
 			}
 			arg := p.next()
+			// A signed INTn_C takes a negated literal, as glibc and
+			// Apple libc paste the argument as is: INT32_C(-1) is -1,
+			// of the macro's type (OpenTUI 0.9.3, BINDC-OT).
+			neg := false
+			if arg.is("-") && strings.HasPrefix(t.text, "INT") {
+				neg, arg = true, p.next()
+			}
 			if arg.kind != tNumber {
 				p.i--
 				fail(arg, CodeMacroBody, t.text+" takes one integer literal without a sign")
@@ -253,13 +269,15 @@ func (p *exprParser) primary() expr {
 				fail(arg, CodeMacroBody, msg)
 			}
 			if v.Cmp(m.max) > 0 {
+				// A negated argument is bounded by max too: -(max+1)
+				// pasted is the negation of a literal of no type.
 				fail(arg, CodeConstantRange, arg.text+" is out of range for "+t.text)
 			}
 			if c := p.next(); !c.is(")") {
 				p.i--
 				fail(c, CodeMacroBody, t.text+" takes one argument")
 			}
-			return eCall{t, arg}
+			return eCall{t, arg, neg}
 		}
 		if !p.known(t.text) {
 			fail(t, CodeMacroBody, quote(t.text)+" is not the name of an earlier constant")
@@ -284,6 +302,9 @@ func evalExpr(e expr) cval {
 		return cval{typ, v}
 	case eCall:
 		v, _ := literalValue(e.arg.text)
+		if e.neg {
+			v.Neg(v)
+		}
 		return cval{intCMacros[e.fn.text].typ, v}
 	case eParen:
 		return evalExpr(e.x)

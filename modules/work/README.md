@@ -1,6 +1,6 @@
 # work
 
-An Ergo module of this repository (`modules/`, MK0): `work`, copy-on-write workspaces of any Git repository (SEMWS WS0, WG0). A workspace is a folder that holds a full clone of its base, the tracked files, the Git folder and every untracked file (installed packages and build output included), with a name, an id, a branch and a lifecycle. It replaces Rift. The binary is `examples/work/cmd/work` (a module has no `cmd/`); `ergo work ARGS` runs `work` from `PATH`, and a repository with no `ergo.mod` needs only `work`. The npm package `@cevr/work` installs the binary.
+An Ergo module of this repository (`modules/`, MK0): `work`, copy-on-write workspaces of any Git repository (SEMWS WS0, WG0). A workspace is a folder that holds a full clone of its base, the tracked files, the Git folder and every untracked file (installed packages and build output included), with a name, an id, a branch and a lifecycle. It replaces Rift. The binary is `examples/work/cmd/work` (a module has no `cmd/`); `ergo work ARGS` runs `work` from `PATH`, and a repository with no `ergo.mod` needs only `work`. The npm package `@cvr/work` installs the binary.
 
 ```
 /workspaces/ergo/                         the base

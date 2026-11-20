@@ -89,7 +89,7 @@ type funcEvidence interface {
 
 func (e *LedgerEvidence) funcVerdict(law *check.Law) funcVerdict {
 	key := e.names.funcLaw(law)
-	if law.FuncRewrite == nil {
+	if law.TopRewrite() == nil {
 		return funcVerdict{Key: key, Why: "law " + key + " is not in the scope of a rewrite"}
 	}
 	entry, found := e.entries[key]
@@ -107,7 +107,7 @@ func (e *LedgerEvidence) funcVerdict(law *check.Law) funcVerdict {
 // refuses the rewrite and stops nothing: the compiler shipped it.
 func (e *shippedEvidence) funcVerdict(law *check.Law) funcVerdict {
 	key := LedgerNames(nil).funcLaw(law)
-	if law.FuncRewrite == nil {
+	if law.TopRewrite() == nil {
 		return funcVerdict{Key: key, Why: "law " + key + " is not in the scope of a rewrite"}
 	}
 	entry, found := e.entries[key]

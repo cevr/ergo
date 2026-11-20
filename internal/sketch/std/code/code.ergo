@@ -23,6 +23,7 @@
 
 import strconv
 import strings
+import slices
 
 // NoSymbol is the failure of an address that names no declaration.
 type NoSymbol { Address string }
@@ -192,6 +193,119 @@ type Reader {
 	// MachineArmsStopAtAWholeArm: the arms of each reachable pair take
 	// it, in match order, and each but the last is partial.
 	law MachineArmsStopAtAWholeArm(pick int) { machineArmsStopAtAWholeArm(pick) },
+}
+
+// CallsAreSteps: a calls answer at depth n+1 begins with the answer at
+// depth n, and the hops it adds are at depth n+1; at depth 1 out of a
+// declaration, they are exactly the calls it makes.
+func callsAreSteps(pick int, depth int, inbound bool) bool needs Reader {
+	let n = 1 + slot(depth, 3)
+	match picked(pick) {
+	case None:
+		true
+	case Some[Decl] as d:
+		if !callable(d.Value.Kind) {
+			return true
+		}
+		let dir = Some[string]{Value: if inbound { "in" } else { "out" }}
+		let short = Reader.Calls(CallQuery{Of: d.Value.Handle, Direction: dir, Depth: Some[int]{Value: n}, Offset: None, Limit: Some[int]{Value: MaxLimit}}) catch {
+		case _:
+			return false
+		}
+		let long = Reader.Calls(CallQuery{Of: d.Value.Handle, Direction: dir, Depth: Some[int]{Value: n + 1}, Offset: None, Limit: Some[int]{Value: MaxLimit}}) catch {
+		case _:
+			return false
+		}
+		let mut ok = len(long.Hops) >= len(short.Hops)
+		for i, h in long.Hops {
+			ok = ok && (if i < len(short.Hops) { h == short.Hops[i] } else { h.Depth == n + 1 })
+		}
+		if n == 1 {
+			for h in short.Hops {
+				ok = ok && (if inbound { h.Call.To } else { h.Call.From }) == d.Value.Handle
+			}
+		}
+		ok
+	}
+}
+
+// MachineArmsStopAtAWholeArm: in a machine view, the arms of each pair
+// all take it, each but the last is partial, and they are in match order.
+func machineArmsStopAtAWholeArm(pick int) bool needs Reader {
+	match picked(pick) {
+	case None:
+		true
+	case Some[Decl] as d:
+		let v = Reader.MachineOf(d.Value.Handle) catch {
+		case NotMachine:
+			return d.Value.Kind != "machine"
+		case _:
+			return false
+		}
+		let mut ok = true
+		for p in v.Reachable {
+			let mut last = -1
+			for k, at in p.Arms {
+				let i = slices.IndexFunc(v.Graph.Arms, func(a Arm) bool { a.At == at })
+				ok = ok && i > last && takesIt(v.Graph.Arms[i], p.State, p.Signal) && (k == len(p.Arms) - 1 || partialAt(v.Graph.Arms[i], p.State, p.Signal))
+				last = i
+			}
+		}
+		ok
+	}
+}
+
+// ReachChainsAreCalls: each function of a reach answer is a declaration of
+// the reader, and its chain is a chain of calls that each bring what was
+// asked about, from the function to a declaration whose own calls bring
+// it no further, or back to a declaration of the chain; no discharge
+// brings a capability (a failure a catch takes only some values of is
+// both caught and raised at its call, and a chain may pass it).
+func reachChainsAreCalls(pick int) bool needs Reader {
+	match picked(pick) {
+	case None:
+		true
+	case Some[Decl] as d:
+		let page = Reader.Reach(ReachQuery{Of: d.Value.Handle, Offset: None, Limit: Some[int]{Value: MaxLimit}}) catch {
+		case _:
+			return false
+		}
+		let mut ok = true
+		for r in page.Reached {
+			let _ = Reader.Symbol(r.Function) catch {
+			case _:
+				return false
+			}
+			let mut at = r.Function
+			let mut on = []string{}
+			for c in r.Chain {
+				ok = ok && c.From == at && carries(c, page.Of)
+				on = on.Append(at)
+				at = c.To
+			}
+			if len(r.Chain) > 0 {
+				ok = ok && (!bringsFurther(at, page.Of) || has(on, at))
+			}
+		}
+		for c in page.Discharges {
+			ok = ok && stops(c, page.Of) && !has(c.Brings, page.Of)
+		}
+		ok
+	}
+}
+
+// bringsFurther is whether a call of the declaration at h brings x.
+func bringsFurther(h string, x string) bool needs Reader {
+	let page = Reader.Calls(CallQuery{Of: h, Direction: None, Depth: None, Offset: None, Limit: Some[int]{Value: MaxLimit}}) catch {
+	case _:
+		return false
+	}
+	for hop in page.Hops {
+		if carries(hop.Call, x) {
+			return true
+		}
+	}
+	false
 }
 
 // DefaultLimit is a page's size when a query sets none; MaxLimit is the

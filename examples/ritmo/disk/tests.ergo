@@ -1,0 +1,11 @@
+// The Saves laws run against a Folder over an fstest.Memory, so the
+// worlds go through the JSON file and back.
+
+import fstest
+import ritmo/topdown
+
+// mem is the file system in memory that the Folder reads and writes.
+let mem = fstest.NewMemory()
+
+// overMemory is a Folder in mem.
+let overMemory = context { topdown.Saves: At("saves", mem, mem) }

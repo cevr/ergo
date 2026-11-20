@@ -172,7 +172,7 @@ extern go crypto/tls.Config.BuildNameToCertificate func (c *Config) BuildNameToC
 extern go crypto/tls.Config.Clone func (c *Config) Clone() Option[go.Ref[Config]] needs go.Foreign
 
 // ergo:go func (*Config).DecryptTicket(identity []byte, cs ConnectionState) (*SessionState, error)
-extern go crypto/tls.Config.DecryptTicket func (c *Config) DecryptTicket(identity []byte, cs ConnectionState) go.Ref[SessionState] fails go.Error needs go.Foreign
+extern go crypto/tls.Config.DecryptTicket func (c *Config) DecryptTicket(identity []byte, cs ConnectionState) Option[go.Ref[SessionState]] fails go.Error needs go.Foreign
 
 // ergo:go func (*Config).EncryptTicket(cs ConnectionState, ss *SessionState) ([]byte, error)
 extern go crypto/tls.Config.EncryptTicket func (c *Config) EncryptTicket(cs ConnectionState, ss own *SessionState) []byte fails go.Error needs go.Foreign

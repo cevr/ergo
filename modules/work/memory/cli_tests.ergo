@@ -10,7 +10,7 @@ import github.com/cevr/ergo/modules/work/work/workcli
 // could not, and registers nothing.
 test CopyRefusedSaysTheBytes {
 	let w = world(false)
-	let o = with context { work.Api: w.tool } { workcli.Run([]string{"new", "a"}) }
+	let o = with context { work.Api: w.tool } { workcli.Run([]string{"new", "a"}, workcli.Defaults()) }
 	assert o.Code == 1
 	assert o.Err == "CopyRefused: {\"_tag\":\"CopyRefused\",\"from\":\"/w/base\",\"bytes\":601,\"why\":\"memory: this disk has no copy-on-write clone\"}\n"
 	let listed = w.tool.List() catch {
@@ -26,7 +26,7 @@ test CopyRefusedSaysTheBytes {
 test NotSameVolumeNamesBoth {
 	let w = world(true)
 	Mount(w.trees, "/w/.work", "other")
-	let o = with context { work.Api: w.tool } { workcli.Run([]string{"new", "a"}) }
+	let o = with context { work.Api: w.tool } { workcli.Run([]string{"new", "a"}, workcli.Defaults()) }
 	assert o.Code == 1
 	assert o.Err == "NotSameVolume: {\"_tag\":\"NotSameVolume\",\"from\":\"/w/base\",\"to\":\"/w/.work/base/a\"}\n"
 }
@@ -41,7 +41,7 @@ test UntrustedHookSaysTheDigest {
 		assert false
 		return
 	}
-	let o = with context { work.Api: w.tool } { workcli.Run([]string{"new", "a"}) }
+	let o = with context { work.Api: w.tool } { workcli.Run([]string{"new", "a"}, workcli.Defaults()) }
 	assert o.Code == 0
 	assert o.Out == "{\"name\":\"a\",\"id\":\"7013c0fa874ff412\",\"path\":\"/w/.work/base/a\",\"branch\":\"a\",\"deps\":{\"_tag\":\"NoDeps\"},\"hooks\":{\"_tag\":\"Untrusted\",\"digest\":\"e16cec248c0fea3998d553128b37ee8bee97cac8fba0d999f25b9bd4de5e336e\",\"commands\":[\"hooks.postcreate: bun install\"]}}\n"
 }
@@ -56,7 +56,7 @@ test IdMismatchNamesBothIds {
 		assert false
 		return
 	}
-	let o = with context { work.Api: w.tool } { workcli.Run([]string{"rm", "-expect", "0123456789abcdef", "a"}) }
+	let o = with context { work.Api: w.tool } { workcli.Run([]string{"rm", "-expect", "0123456789abcdef", "a"}, workcli.Defaults()) }
 	assert o.Code == 1
 	assert o.Err == "IdMismatch: {\"_tag\":\"IdMismatch\",\"name\":\"a\",\"expected\":\"0123456789abcdef\",\"found\":\"7013c0fa874ff412\"}\n"
 }
@@ -75,7 +75,7 @@ test HasDescendantsNamesThePaths {
 		assert false
 		return
 	}
-	let o = with context { work.Api: w.tool } { workcli.Run([]string{"rm", "-abandon", "a"}) }
+	let o = with context { work.Api: w.tool } { workcli.Run([]string{"rm", "-abandon", "a"}, workcli.Defaults()) }
 	assert o.Code == 1
 	assert o.Err == "HasDescendants: {\"_tag\":\"HasDescendants\",\"name\":\"a\",\"paths\":[\"/w/.work/base/b\"]}\n"
 }
@@ -90,7 +90,7 @@ test LockedNamesTheRegistry {
 		assert false
 		return
 	}
-	let o = with context { work.Api: w.tool } { workcli.Run([]string{"new", "a"}) }
+	let o = with context { work.Api: w.tool } { workcli.Run([]string{"new", "a"}, workcli.Defaults()) }
 	assert o.Code == 1
 	assert o.Err == "Locked: {\"_tag\":\"Locked\",\"path\":\"/w/.work/base/.registry\"}\n"
 }
@@ -99,7 +99,7 @@ test LockedNamesTheRegistry {
 // hook, the command, its status and stderr), with the workspace's path.
 test FailedHookIsInCreated {
 	let w = worldWith(true, Map[string, string]{}, "[hooks]\npostcreate = [\"make\"]\n", "make")
-	let o = with context { work.Api: w.tool } { workcli.Run([]string{"new", "a"}) }
+	let o = with context { work.Api: w.tool } { workcli.Run([]string{"new", "a"}, workcli.Defaults()) }
 	assert o.Code == 0
 	assert o.Out == "{\"name\":\"a\",\"id\":\"7013c0fa874ff412\",\"path\":\"/w/.work/base/a\",\"branch\":\"a\",\"deps\":{\"_tag\":\"NoDeps\"},\"hooks\":{\"_tag\":\"HookFailed\",\"hook\":\"postcreate\",\"command\":\"make\",\"status\":1,\"stderr\":\"failed\\n\"}}\n"
 }

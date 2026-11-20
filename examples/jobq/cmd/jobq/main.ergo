@@ -17,6 +17,7 @@ import queue
 import strconv
 import strings
 import testing
+import time
 
 let Workers = flag.Int("workers", 2, "how many jobs run at once")
 let Attempts = flag.Int("attempts", 3, "how many times a job is tried")
@@ -34,9 +35,6 @@ func Set() flag.Set {
 // Options is the command line, read.
 type Options { C sched.Config, Live bool }
 
-// ms is n milliseconds.
-func ms(n int) duration { duration(int64(n) * int64(1ms)) }
-
 // read is the options of args, None after help, or the end of the
 // program.
 func read(args []string) Option[Options] fails os.Exit needs io.Stdout {
@@ -49,7 +47,7 @@ func read(args []string) Option[Options] fails os.Exit needs io.Stdout {
 	if Workers.Get(v) < 1 || Attempts.Get(v) < 1 || Burst.Get(v) < 1 || BackoffMs.Get(v) < 0 || EveryMs.Get(v) < 0 || MaxMs.Get(v) < BackoffMs.Get(v) {
 		return os.Exit{Code: 2, Message: "jobq: -workers, -attempts and -burst are at least 1, the times are not negative, and -max-ms is at least -backoff-ms"}
 	}
-	let c = sched.Config{Workers: Workers.Get(v), Policy: jobs.Policy{Attempts: Attempts.Get(v), Base: ms(BackoffMs.Get(v)), Max: ms(MaxMs.Get(v))}, Burst: Burst.Get(v), Every: ms(EveryMs.Get(v))}
+	let c = sched.Config{Workers: Workers.Get(v), Policy: jobs.Policy{Attempts: Attempts.Get(v), Base: time.Times(1ms, BackoffMs.Get(v)), Max: time.Times(1ms, MaxMs.Get(v))}, Burst: Burst.Get(v), Every: time.Times(1ms, EveryMs.Get(v))}
 	Some[Options]{Value: Options{C: c, Live: Live.Get(v)}}
 }
 
@@ -92,7 +90,7 @@ func Parse(text string) []jobs.Job fails BadJob {
 		if cost < 0 || flaky < 0 || (fatal && w[3] != "fatal") {
 			return bad
 		}
-		out = out.Append(jobs.Job{ID: len(out) + 1, Name: w[0], Takes: ms(cost), Flaky: flaky, Fatal: fatal})
+		out = out.Append(jobs.Job{ID: len(out) + 1, Name: w[0], Takes: time.Times(1ms, cost), Flaky: flaky, Fatal: fatal})
 	}
 	out
 }

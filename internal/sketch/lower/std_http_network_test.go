@@ -48,7 +48,7 @@ func main() fails http.InvalidClient | http.InvalidLimits needs Ambient | Consol
 	let b = try http.ForOrigin(args[1], http.Field{Name: "X-Mark-B", Value: "mark-B"})
 	let path = "/0/" + args[4] + "/" + args[7]
 	let request = http.URLRequest{URL: args[0] + path, Method: "GET", Header: []http.Field{}, Credentials: []http.Credential{a, b}, Body: ""}
-	let fixed = http.Request{Method: "GET", Path: path, Query: []http.Field{}, Header: []http.Field{}, Body: http.Buffered{Text: ""}}
+	let fixed = http.Request{Method: "GET", Path: path, RawPath: path, Query: []http.Field{}, Header: []http.Field{}, Body: http.Buffered{Text: ""}}
 	let text = with context { http.Network: net, http.Net: client } { body(request, fixed, args) } catch {
 	case http.OriginRefused as o: Console.Println("origin " + o.Origin); return
 	case http.RedirectLimit as l: Console.Println("limit " + strconv.Itoa(l.Limit)); return
