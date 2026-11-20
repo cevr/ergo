@@ -30,7 +30,10 @@ func GenerateWitnessSlots(seed uint64) string {
 	fmt.Fprintf(&b, "func Scale(r Rect, k int) int fails Bad {\n\tif k < %d {\n\t\tBad{At: k}\n\t} else {\n\t\tr.W * k + r.H\n\t}\n}\n\n", n(4)-1)
 	fmt.Fprintf(&b, "func Area(s Sq) int {\n\ts.S * s.S - %d\n}\n\n", n(4))
 	fmt.Fprintf(&b, "func Scale(s Sq, k int) int fails Bad {\n\tif k %% %d == 0 {\n\t\tBad{At: k + 1}\n\t} else {\n\t\ts.S * %d + k\n\t}\n}\n\n", 2+n(3), 1+n(6))
-	fmt.Fprintf(&b, "func note(t *Tally, what string) {\n\tt.n = t.n * %d + len(what) + %d\n\tt.last = what\n}\n\n", 3+n(5), n(7))
+	// note calls mix, so it is no Go leaf: the inliner copies a small
+	// non-leaf in (irInlSite.pays), as it copies vt's note.
+	fmt.Fprintf(&b, "func mix(a int, k int) int {\n\ta * %d + k\n}\n\n", 3+n(5))
+	fmt.Fprintf(&b, "func note(t *Tally, what string) {\n\tt.n = mix(t.n, len(what) + %d)\n\tt.last = what\n}\n\n", n(7))
 	words := []string{"osc", "csi", "esc", "dcs", "apc"}
 	w := func() string { return words[n(len(words))] }
 	b.WriteString("func walk[P Shape, Q Shape](p P, q Q, k int, t *Tally) int {\n")
