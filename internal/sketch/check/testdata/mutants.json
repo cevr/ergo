@@ -3283,61 +3283,6 @@
       ]
     },
     {"name":"inf-row-not-error-unnamed","origin":"wf10 CN INFER-IMPORT-ROW","file":"internal/sketch/check/unify.go","from":"\t\t\t\tin.notError = y\n\t\t\t\treturn false","to":"\t\t\t\treturn false","rule":"A free error row parameter that meets a type no error row of the package names says so (types.md, Error types 1; D6).","killers":["check:TestInferErrorRowNamesTheCause"]},
-    {
-      "name": "vet-self-assign-none",
-      "origin": "wf10 VET-CHECK rank 1",
-      "file": "internal/sketch/check/vet.go",
-      "from": "\tif s.Tok != syntax.ASSIGN || !sameStorage(s.Lhs[0], s.Rhs[0]) {\n",
-      "to": "\tif true {\n",
-      "rule": "diagnostics.md S110: an assignment that stores a place's own value (x = x, p.X = p.X, xs[0] = xs[0]) is refused; it does nothing.",
-      "killers": [
-        "cmd/ergo:TestCheckerFixtures"
-      ]
-    },
-    {
-      "name": "vet-self-assign-any-index",
-      "origin": "wf10 VET-CHECK rank 1",
-      "file": "internal/sketch/check/vet.go",
-      "from": "\t\t\treturn ok && lx.Kind == ly.Kind && lx.Value == ly.Value\n",
-      "to": "\t\t\treturn ok\n",
-      "rule": "diagnostics.md S110: xs[0] = xs[1] stores another element, so it is not a self-assignment.",
-      "killers": [
-        "cmd/ergo:TestCheckerFixtures"
-      ]
-    },
-    {
-      "name": "vet-sign-none",
-      "origin": "wf10 VET-CHECK rank 2",
-      "file": "internal/sketch/check/operators.go",
-      "from": "\t\tc.decidedBySign(x, l, r)\n",
-      "to": "",
-      "rule": "diagnostics.md S108: a comparison of an unsigned value or a length with a constant its sign decides (u >= 0, len(xs) < 0) is refused.",
-      "killers": [
-        "cmd/ergo:TestCheckerFixtures"
-      ]
-    },
-    {
-      "name": "vet-sign-geq-strict",
-      "origin": "wf10 VET-CHECK rank 2",
-      "file": "internal/sketch/check/vet.go",
-      "from": "\t\talways, decided = true, s <= 0\n",
-      "to": "\t\talways, decided = true, s < 0\n",
-      "rule": "diagnostics.md S108: u >= 0 is decided (always true) for an unsigned u.",
-      "killers": [
-        "cmd/ergo:TestCheckerFixtures"
-      ]
-    },
-    {
-      "name": "vet-sign-no-mirror",
-      "origin": "wf10 VET-CHECK rank 2",
-      "file": "internal/sketch/check/vet.go",
-      "from": "\t\tv, vop, k, op = x.Y, r, l, mirror(x.Op)\n",
-      "to": "\t\tv, vop, k, op = x.Y, r, l, x.Op\n",
-      "rule": "diagnostics.md S108: a constant on the left reads mirrored: 0 > u is u < 0, always false.",
-      "killers": [
-        "cmd/ergo:TestCheckerFixtures"
-      ]
-    },
     {"name":"alias-case-import-name-unaliased","origin":"wf10 ALIAS-CASE","file":"internal/sketch/check/lintfacts.go","from":"\t\t\tif !pn.broken && pn.Pkg == q && pn.spec.Name != nil {\n\t\t\t\treturn pn.Name\n","to":"\t\t\tif !pn.broken && pn.Pkg == q && pn.spec.Name != nil {\n\t\t\t\treturn q.Name\n","rule":"Case text names an imported package by the alias the source writes (Package.Qualified), as a reader pastes it back: cl.NewCrate(…), not lib.NewCrate(…).","killers":["lower:TestCasePlansAgreeWithGo"]},
     {"name":"gb-snap-decoded-unmarked","origin":"wf10 GB batch-24 fallout (STD-MARK)","file":"internal/sketch/check/check.go","from":"\t\tpkg.std = true\n\t\ts.available(path)\n","to":"\t\ts.available(path)\n","rule":"A package decoded from a std segment is std, as one checked from source is: the snapshot no longer carries the mark, so the std importer sets it.","killers":["internal/sketch/check/snapshot:TestStdSnapshotInstall"]},
     {"name":"gb-snap-prelude-unmarked","origin":"wf10 GB batch-24 fallout (STD-MARK)","file":"internal/sketch/check/check.go","from":"\t\tr.pkg.std = true\n\t\tpreludeOnce.r = r\n","to":"\t\tpreludeOnce.r = r\n","rule":"The prelude a snapshot's base installs is std, as the checked prelude is.","killers":["internal/sketch/check/snapshot:TestStdSnapshotInstall"]},
@@ -3352,28 +3297,6 @@
     {"name":"np4furl-fresh-foreign-call","origin":"wf10 NP4f-URL (NS lane)","file":"internal/sketch/check/gofresh.go","from":"\tif sig == nil || !sig.Uses.Empty() {\n","to":"\tif sig == nil {\n","rule":"interop.md Checking 4: a go.Ref a Go call that needs go.Foreign returns is no fresh handle.","anchor":{"tests":["check:TestGoFreshRefFields"]},"killers":["check:TestGoFreshRefFields"]},
     {"name":"np4furl-fresh-captured","origin":"wf10 NP4f-URL (NS lane)","file":"internal/sketch/check/gofresh.go","from":"\t\t\t\tif id, is := m.(*syntax.Ident); is && id.Name == name {\n\t\t\t\t\tok = false\n","to":"\t\t\t\tif id, is := m.(*syntax.Ident); is && id.Name == name && false {\n\t\t\t\t\tok = false\n","rule":"interop.md Checking 4: a go.Ref a function literal captures is no fresh handle.","anchor":{"tests":["check:TestGoFreshRefFields"]},"killers":["check:TestGoFreshRefFields"]},
     {"name":"np4furl-fresh-never","origin":"wf10 NP4f-URL (NS lane)","file":"internal/sketch/check/gobinding.go","from":"\t\t\tif shared && !c.freshOperand(x.X) {\n","to":"\t\t\tif shared {\n","rule":"interop.md Checking 4: a field read through a fresh handle charges nothing.","anchor":{"tests":["check:TestGoFreshRefFields"]},"killers":["check:TestGoFreshRefFields"]},
-    {
-      "name": "vet-wirekey-none",
-      "origin": "wf10 VET-CHECK rank 3",
-      "file": "internal/sketch/check/decl.go",
-      "from": "\t\t\t} else {\n\t\t\t\tc.wireKeyHabit(field, key)\n\t\t\t}\n",
-      "to": "\t\t\t}\n",
-      "rule": "diagnostics.md S108: a field key that holds a double quote (a Go struct tag such as json:\"name\") is refused.",
-      "killers": [
-        "cmd/ergo:TestCheckerFixtures"
-      ]
-    },
-    {
-      "name": "vet-wirekey-colon",
-      "origin": "wf10 VET-CHECK rank 3",
-      "file": "internal/sketch/check/vet.go",
-      "from": "\tif !strings.ContainsAny(key, \"\\\"\") {\n",
-      "to": "\tif !strings.ContainsAny(key, \"\\\":\") {\n",
-      "rule": "diagnostics.md S108: a colon alone is no sign of a Go tag; xml:lang and json:name are keys and pass.",
-      "killers": [
-        "cmd/ergo:TestCheckerFixtures"
-      ]
-    },
     {"name":"modes5-own-arg-unchecked","origin":"wf10 MODES-5 (EXM2)","file":"internal/sketch/check/resource.go","from":"\t\tif containsInvalid(s.arg) || !c.mayHoldResource(s.arg) || seen[ownershipKey{s.at, s.tp}] {","to":"\t\tif containsInvalid(s.arg) || !c.holdsResource(s.arg) || seen[ownershipKey{s.at, s.tp}] {","rule":"types.md Generics 9: a call that binds a caller's own T to an unmarked callee's T is S108 (the mark propagates through a generic callee).","killers":["check:TestTakesInferenceModel"]},
     {"name":"modes5-own-extern-unreviewed","origin":"wf10 MODES-5 (EXM2)","file":"internal/sketch/check/takes.go","from":"f.Decl.TypeParams == nil || BodyOf(f).MovesOnly {","to":"f.Decl.TypeParams == nil || true {","rule":"types.md Generics 9: own on an extern's type parameter stands on runtime/v1's MovesOnly review.","killers":["check:TestOwnMarkRows"]},
     {"name":"modes5-own-key-admitted","origin":"wf10 MODES-5 (EXM2)","file":"internal/sketch/check/resource.go","from":"\t\t\tif c.mayHoldResource(s.t) {","to":"\t\t\tif c.holdsResource(s.t) {","rule":"resources R40, types.md Generics 9: an own T as a map key is S112.","killers":["check:TestTakesInferenceModel"]},

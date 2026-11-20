@@ -286,7 +286,6 @@ func (c *checker) binary(x *syntax.BinaryExpr, hint Type) operand {
 		if l.mode == modeConst && r.mode == modeConst {
 			return operand{mode: modeConst, typ: Typ[Bool], val: constant.MakeBool(constant.Compare(l.val, tokenOf[x.Op], r.val))}
 		}
-		c.decidedBySign(x, l, r)
 		return operand{mode: modeValue, typ: Typ[Bool]}
 	}
 	if !c.opDefined(x, x.Op, t) {

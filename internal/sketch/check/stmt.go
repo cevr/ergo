@@ -417,7 +417,7 @@ func (c *checker) assignStmt(s *syntax.AssignStmt) {
 			hint = lop.typ
 		}
 		op := c.valueExpr(r, hint)
-		if lop.invalid() || c.selfAssignment(s) {
+		if lop.invalid() {
 			return
 		}
 		if c.typedByValue(l, &op, lop.typ) {

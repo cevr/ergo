@@ -33,10 +33,7 @@ func TestWireKeysDeclared(t *testing.T) {
 		r := rand.New(rand.NewPCG(seed, 98))
 		name := wireName(r)
 		for _, clash := range []bool{false, true} {
-			// A backslash and a rune past ASCII make the literal need
-			// escaping; a double quote would make the key the Go tag habit
-			// (S108, VET-CHECK rank 3).
-			key := "renamed_" + strconv.FormatUint(seed, 10) + " 🧭\\"
+			key := "renamed_" + strconv.FormatUint(seed, 10) + " 🧭\"\\"
 			if clash {
 				key = wireKeyReference(name)
 			}
