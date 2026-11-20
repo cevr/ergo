@@ -137,10 +137,13 @@ const (
 	LawOf
 	// Input: task -> each declaration its key covers.
 	Input
+	// Requires: module -> module of the workspace it resolves locally (a
+	// replace line of its go.mod that lands on the other's folder).
+	Requires
 	edgeKindEnd
 )
 
-var edgeKindNames = [...]string{"", "contains", "imports", "uses", "needs", "fails", "provides", "reexports", "testof", "lawof", "input"}
+var edgeKindNames = [...]string{"", "contains", "imports", "uses", "needs", "fails", "provides", "reexports", "testof", "lawof", "input", "requires"}
 
 func (k EdgeKind) String() string {
 	if k < edgeKindEnd {
@@ -258,7 +261,19 @@ type namedKey struct {
 
 // Build writes the rows of the program pkgs, in import dependency order
 // (the loader's, the root last).
-func Build(pkgs []SourcePackage) *Table {
+func Build(pkgs []SourcePackage) *Table { return BuildWorkspace(nil, pkgs) }
+
+// ModuleRow is a module of a workspace: its name and the modules it
+// resolves locally.
+type ModuleRow struct {
+	Name     string
+	Requires []string
+}
+
+// BuildWorkspace is Build with a workspace's modules: a module node for
+// each of mods first, in their order, also one with no package, and a
+// requires edge from a module to each it resolves locally.
+func BuildWorkspace(mods []ModuleRow, pkgs []SourcePackage) *Table {
 	b := &builder{
 		t:       &Table{Strings: []string{""}},
 		strs:    map[string]uint32{"": 0},
@@ -275,16 +290,19 @@ func Build(pkgs []SourcePackage) *Table {
 		table *facts.Table
 		path  string
 	}
+	for _, m := range mods {
+		b.module(m.Name)
+	}
+	for _, m := range mods {
+		for _, r := range m.Requires {
+			b.edge(Edge{Kind: Requires, From: b.module(m.Name), To: b.module(r)}, Pos{File: NoNode})
+		}
+	}
 	all := make([]built, len(pkgs))
 	for i, p := range pkgs {
 		parent := NoNode
 		if p.Module != "" {
-			m, ok := b.mods[p.Module]
-			if !ok {
-				m = b.node(Node{Kind: Module, Parent: NoNode, Name: b.str(p.Module)}, Pos{File: NoNode})
-				b.mods[p.Module] = m
-			}
-			parent = m
+			parent = b.module(p.Module)
 		}
 		pn := b.packageNode(p.Path, parent, 0)
 		files := make([]uint32, len(p.Files))
@@ -322,6 +340,16 @@ func Build(pkgs []SourcePackage) *Table {
 		}
 	}
 	return b.t
+}
+
+// module is the node of the module named name, added on first sight.
+func (b *builder) module(name string) uint32 {
+	m, ok := b.mods[name]
+	if !ok {
+		m = b.node(Node{Kind: Module, Parent: NoNode, Name: b.str(name)}, Pos{File: NoNode})
+		b.mods[name] = m
+	}
+	return m
 }
 
 func (b *builder) str(s string) uint32 {

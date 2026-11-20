@@ -166,14 +166,19 @@ func censusIR(u Unit, tests bool, reach []*check.Func) (IRCensus, error) {
 	return *l.ir.census, nil
 }
 
-// reachAll queues a census's extra bodies (CensusStd); program calls it
-// once the package's own declarations are lowered.
+// reachAll queues a census's extra bodies (CensusStd, and
+// LowerIRSplitReaching's); program calls it once the package's own
+// declarations are lowered.
 func (st *irState) reachAll(l *lowerer) {
 	st.reached = append(st.reached, st.reach...)
 	for _, f := range st.reach {
 		func() {
 			defer func() {
 				if r := recover(); r != nil {
+					if st.census == nil {
+						st.report.Fallback["std body not reachable alone"]++
+						return
+					}
 					st.census.Funcs = append(st.census.Funcs, IRCensusFunc{Pkg: f.Pkg.Path, Name: f.Name, Std: f.Pkg.Std(), Reasons: []string{"std body not reachable alone"}})
 				}
 			}()
@@ -226,12 +231,27 @@ func LowerIRShards(u Unit, tests bool) ([]File, IRReport, SplitReport, error) {
 	return lowerIRSplit(u, tests, programModule, devShards)
 }
 
+// LowerIRSplitReaching is LowerIRSplit (of the test build with tests) with
+// every function of funcs lowered too, as a library body within u that
+// its program need not call (CensusStd's reach), each with the IR body it
+// gets. The agreement of the self-hosted IR builder (internal/selfhostcheck,
+// TestCompilerIRAgreesWithBuilder) compares every function it builds,
+// reached by a program or not. A function the lowering cannot reach alone
+// is a fallback "std body not reachable alone".
+func LowerIRSplitReaching(u Unit, tests bool, funcs []*check.Func) ([]File, IRReport, SplitReport, error) {
+	return lowerIRSplitReaching(u, tests, programModule, nil, funcs)
+}
+
 func lowerIRSplit(u Unit, tests bool, base string, sh *shardOpts) ([]File, IRReport, SplitReport, error) {
+	return lowerIRSplitReaching(u, tests, base, sh, nil)
+}
+
+func lowerIRSplitReaching(u Unit, tests bool, base string, sh *shardOpts, reach []*check.Func) ([]File, IRReport, SplitReport, error) {
 	var tl *testLowering
 	if tests {
 		tl = &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}}
 	}
-	files, origins, report, l, err := lowerIRModule(u, tl, false)
+	files, origins, report, l, err := lowerIRModuleReaching(u, tl, false, reach)
 	if err != nil {
 		return nil, IRReport{}, SplitReport{}, err
 	}
@@ -296,6 +316,12 @@ func lowerIRTestParts(u Unit, dir string) ([]byte, []File, []byte, error) {
 // lowerIRModule lowers u with IR bodies: the module's files without an IR
 // file, the std origins of its names (the split's), and the IR.
 func lowerIRModule(u Unit, tests *testLowering, formsOff bool) ([]File, map[string]*check.Package, irModule, *lowerer, error) {
+	return lowerIRModuleReaching(u, tests, formsOff, nil)
+}
+
+// lowerIRModuleReaching is lowerIRModule with reach's bodies lowered too
+// (LowerIRSplitReaching).
+func lowerIRModuleReaching(u Unit, tests *testLowering, formsOff bool, reach []*check.Func) ([]File, map[string]*check.Package, irModule, *lowerer, error) {
 	if err := u.Validate(); err != nil {
 		return nil, nil, irModule{}, nil, err
 	}
@@ -308,7 +334,7 @@ func lowerIRModule(u Unit, tests *testLowering, formsOff bool) ([]File, map[stri
 	)
 	for round := 0; ; round++ {
 		l = newBuildLowerer(u, tests)
-		l.ir = &irState{files: map[string]int{}, report: IRReport{Fallback: map[string]int{}}, formsOff: formsOff, noFallback: u.NoFallback, maps: ims}
+		l.ir = &irState{files: map[string]int{}, report: IRReport{Fallback: map[string]int{}}, formsOff: formsOff, noFallback: u.NoFallback, maps: ims, reach: reach}
 		if round == intMapRounds {
 			l.ir.maps = intMapState{allGo: true}
 		}
