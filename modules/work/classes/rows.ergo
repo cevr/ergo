@@ -75,7 +75,7 @@ func KeyedRows(text string) Map[string, string] fails Unreadable {
 			continue
 		}
 		for r in try rowsOf(m.Raw, "rows") {
-			out[m.Key + "/" + r.Key] = Bare(r.Raw)
+			out[m.Key+"/"+r.Key] = Bare(r.Raw)
 		}
 	}
 	out
