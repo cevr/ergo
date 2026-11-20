@@ -11,7 +11,7 @@ type Event = Text{C byte} | Control{C byte}
 
 type Stream { count int }
 
-func step(p *Stream, b byte, out []Event) []Event {
+func step(p mut Stream, b byte, out []Event) []Event {
 	let mut ev = out
 	p.count += 1
 	if b < 0x20 {
@@ -22,7 +22,7 @@ func step(p *Stream, b byte, out []Event) []Event {
 	ev
 }
 
-func Feed(p *Stream, input string, out []Event) []Event {
+func Feed(p mut Stream, input string, out []Event) []Event {
 	let mut ev = out
 	for i in 0..len(input) {
 		ev = p.step(input[i], ev)

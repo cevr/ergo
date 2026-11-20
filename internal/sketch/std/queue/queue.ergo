@@ -11,7 +11,7 @@ extern go ergo.local/prototype/runtime/v1.Closed type Closed {}
 extern go ergo.local/prototype/runtime/v1.Full type Full {}
 
 // Queue is a queue of T with a fixed capacity.
-extern go ergo.local/prototype/runtime/v1.Queue type Queue[T] {
+extern go ergo.local/prototype/runtime/v1.Queue type Queue[T own] {
 	runtimeOnly(),
 	// Push adds v at the back, waiting while the queue is full. It fails
 	// with Closed when the queue is closed, or closes while it waits. It
@@ -45,6 +45,17 @@ extern go ergo.local/prototype/runtime/v1.Queue type Queue[T] {
 	// dropping strategy: the oldest values stay), or calls Slide. On a
 	// queue of capacity 0 it always fails Full. It takes v, as Push does.
 	Offer(v own T) fails Closed | Full,
+	// Slide adds v at the back now, never waiting: when the queue holds its
+	// capacity, the value at the front leaves it and Slide gives it back,
+	// so the queue keeps the newest values (Effect's sliding strategy) and
+	// the caller owns the evicted one: a resource must be bound, and its
+	// scope releases it (resources R42), as for Poll. The eviction and
+	// the entry are one step of the queue, so v enters exactly once and no
+	// other producer takes the room between them. A Push still waiting for
+	// room keeps waiting. It fails with Closed on a closed queue; a capacity
+	// of 0 is a defect: there is never room to slide into. It takes v, as
+	// Push does.
+	Slide(v own T) Option[T] fails Closed,
 	// Cap is the capacity New gave the queue.
 	Cap() int,
 	// Len is how many values are in the queue that nothing has taken yet,
@@ -190,7 +201,7 @@ law DrainReleasesLeft(n int) {
 // New makes an open, empty queue that holds up to capacity values no Pop
 // has taken yet; 0 makes each Push wait for its Pop. A negative capacity
 // is a defect.
-extern go ergo.local/prototype/runtime/v1.New func New[T](capacity int) Queue[T]
+extern go ergo.local/prototype/runtime/v1.New func New[T own](capacity int) Queue[T]
 
 // DroppingKeepsTheOldest: Offer into a queue of capacity c keeps the first
 // c values and fails Full on each later one; Pop then gives the kept

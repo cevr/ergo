@@ -116,7 +116,7 @@ func boxed(n int) Box {
 
 type Text { B []byte }
 
-func addRune(r rune, t *Text) { t.B = utf8.AppendRune(t.B, r) }
+func addRune(r rune, t mut Text) { t.B = utf8.AppendRune(t.B, r) }
 
 func runes(n int) Text {
 	let mut p = []byte{}

@@ -418,6 +418,10 @@ func (fc *funcCtx) opCall(t check.Type, op *check.Method, result check.Type, val
 	// receiver passes the value it points to.
 	if p, ok := t.(*check.Pointer); ok {
 		if tp, ok := p.Elem.(*check.TypeParam); ok {
+			if op.Sig.MutSelf {
+				// mut Bump(): the witness writes through the pointer.
+				return fc.witnessCall(tp, op, vals, env, site)
+			}
 			return fc.witnessCall(tp, op, append([]string{"*(" + vals[0] + ")"}, vals[1:]...), env, site)
 		}
 	}
@@ -510,6 +514,21 @@ func (fc *funcCtx) stdResult(body v1.Body, result check.Type, env string, site s
 			ice(site, "a std body returns (%s, bool) for the Ergo type %s", body.Results[0], result)
 		}
 		ind := strings.Repeat("\t", fc.depth)
+		if goFallible(body) {
+			// (T, bool, error) is the Option and the failure (queue's
+			// Slide): None with the error, else Some when ok, else None.
+			v, ok, err := fc.scope.alloc("v"), fc.scope.alloc("ok"), fc.scope.alloc("err")
+			return "func() (" + fc.goType(result) + ", error) {\n" +
+				ind + "\t" + v + ", " + ok + ", " + err + " := " + call(env) + "\n" +
+				ind + "\tif " + err + " != nil {\n" +
+				ind + "\t\treturn " + fc.optionNone(result, site) + ", " + err + "\n" +
+				ind + "\t}\n" +
+				ind + "\tif " + ok + " {\n" +
+				ind + "\t\treturn " + fc.optionSome(result, v, site) + ", nil\n" +
+				ind + "\t}\n" +
+				ind + "\treturn " + fc.optionNone(result, site) + ", nil\n" +
+				ind + "}()"
+		}
 		return "func() " + fc.goType(result) + " {\n" + fc.optionReturn(result, ind+"\t", call(env), site) + ind + "}()"
 	}
 	if !defersCall(body) {
@@ -544,10 +563,15 @@ func (fc *funcCtx) stdResult(body v1.Body, result check.Type, env string, site s
 	})
 }
 
-// commaOk reports a std body whose Go form is (T, bool): the Go form of an
-// Option[T] result (stdResult).
+// commaOk reports a std body whose Go form is (T, bool), or (T, bool,
+// error) for a fallible one: the Go form of an Option[T] result
+// (stdResult).
 func commaOk(body v1.Body) bool {
-	return len(body.Results) == 2 && body.Results[1] == "bool"
+	n := len(body.Results)
+	if n == 3 && body.Results[2] == "error" {
+		n = 2
+	}
+	return n == 2 && len(body.Results) >= 2 && body.Results[1] == "bool"
 }
 
 // goFallible reports whether a std body's Go form returns an error: its

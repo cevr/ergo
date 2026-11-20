@@ -1,0 +1,13 @@
+// MODES-5's accept probe tparam-unmarked (EXM2): a type parameter with no
+// mark binds plain data only, and the call reads the signature, never the
+// body. pass copies nothing, yet the call is S108 naming [T own].
+type Res { n int } implements Closer
+
+func Close(r own Res) {}
+
+func pass[T](x T) T { x }
+
+func main() needs Console {
+	let r = pass(Res{n: 1}) //want: own
+	Console.Println("\(r.n)")
+}

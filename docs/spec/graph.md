@@ -8,7 +8,7 @@ ergo graph export [DIR|DIR/...] [--json]
 
 The queries over these rows are std `codegraph`'s functions, and `ergo graph cycles | why | affected | hidden | chains | fan | layers` their command line ([stdlib, Graph and codegraph](stdlib.md#graph-and-codegraph); `ergo graph --help`).
 
-`DIR/...` takes every package below `DIR`: of `DIR`'s module, or, when `DIR` is in no module, of every module below it (testdata, hidden and `_` folders skipped).
+`DIR/...` takes every package below `DIR`: of `DIR`'s module, or, at a workspace root (an `ergo.work`, or no module holds `DIR`), of every member ([build](build.md#workspace)). At a workspace root the rows hold a `module` node for every member, also one with no package, and a `requires` edge for each member another resolves locally.
 
 ## Nodes
 
@@ -38,6 +38,7 @@ A task's `subject` is the test's or law's declaration (an owner's or machine's f
 | `testof` | test -> each declaration of its package it names |
 | `lawof` | law -> its subjects (a top-level law's, `Law.Subjects`), or its type or machine |
 | `input` | task -> each declaration whose tokens its key covers |
+| `requires` | module -> workspace module it resolves locally: a `replace` line of its `go.mod` whose folder is the other's (at a workspace root only) |
 
 Locals, parameters and type parameters are no nodes: their sites stay inside one declaration. A name the program does not import a package for (a predeclared one) is no node either.
 

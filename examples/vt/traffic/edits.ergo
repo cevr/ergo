@@ -26,7 +26,7 @@ func Edits(seed int, n int) string {
 }
 
 // edit is one piece of Edits.
-func edit(r *Rand) string {
+func edit(r mut Rand) string {
 	let k = r.below(100)
 	if k < 25 {
 		let mut text = ""
