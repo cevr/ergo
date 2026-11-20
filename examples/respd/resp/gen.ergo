@@ -74,6 +74,54 @@ func Samples(seed int) []Value {
 	}
 }
 
+// SplitAnywhereParsesTheSame: a stream of values cut into two chunks at
+// any byte reads as the same values: before the last byte of a value
+// arrives the reader says Incomplete, and it never reads a value twice or
+// loses one. A bulk string that a parser ends early, or a CRLF it looks
+// for past its chunk, breaks it.
+law SplitAnywhereParsesTheSame(seed int) {
+	let vs = Samples(seed)
+	let mut stream = []byte{}
+	for v in vs {
+		stream = Append(stream, v, Resp3)
+	}
+	for k in 0..len(stream)+1 {
+		let mut r = NewReader()
+		let mut got = []Value{}
+		Feed(&r, stream[:k])
+		got = drain(&r, got) catch {
+		case Malformed:
+			return false
+		}
+		Feed(&r, stream[k:])
+		got = drain(&r, got) catch {
+		case Malformed:
+			return false
+		}
+		if len(got) != len(vs) || Buffered(r) != 0 {
+			return false
+		}
+		for i, v in vs {
+			if !Equal(got[i], Clean(v)) {
+				return false
+			}
+		}
+	}
+	true
+}
+
+// drain is got with every value r holds, until r is Incomplete.
+func drain(r *Reader, got []Value) []Value fails Malformed {
+	let mut out = got
+	for {
+		let v = try Next(r) catch {
+		case Incomplete:
+			return out
+		}
+		out = out.Append(v)
+	}
+}
+
 // Alphabet is the bytes the generator draws noise from: RESP's type bytes,
 // digits, signs, CR and LF, a letter, and a byte that is no type.
 let Alphabet = "+-:$*_#%~0123456789\r\n-tfa!"

@@ -113,8 +113,6 @@ func policyOf(policy OriginPolicy, limits Limits, redirects RedirectPolicy) netP
 	netPolicy{origins: checked, anyOrigin: anyOrigin, limits: limits, hops: hops}
 }
 
-extern go ergo.local/prototype/runtime/v1/http.HTTPCheckNetwork func checkNetwork(origins []string, limits Limits) []string fails InvalidClient | InvalidLimits
-
 func SendURL(n Remote, r URLRequest) Response fails RequestFailed | OriginRefused | RedirectLimit {
 	let mut owners = []string{}
 	let mut fields = []Field{}
@@ -164,6 +162,38 @@ type Local { net netPolicy, handle func(origin string, r Request) Response needs
 // answers. It needs no Ambient: it reaches no host.
 func InMemoryNetwork(policy OriginPolicy, limits Limits, redirects RedirectPolicy, handle own func(origin string, r Request) Response needs Streaming) Local fails InvalidClient | InvalidLimits {
 	Local{net: try policyOf(policy, limits, redirects), handle: handle}
+}
+
+// RawPathDecodesToPath: a request sent through an InMemoryNetwork, so
+// through Go's client and server as Serve reads one, reaches its handler
+// with RawPath as the URL wrote the path and Path that RawPath's
+// DecodePath: a "/" inside a segment stays "%2F" in RawPath and only Path
+// splits there. segments are the path's segments, each escaped in upper
+// or lower case hex, every other one with its unreserved bytes plain.
+law RawPathDecodesToPath(segments []string, upper bool) {
+	let mut raw = ""
+	for i, s in segments {
+		let seg = if s == "" { "-" } else { s }
+		raw = raw + "/" + queryEscape(seg, i%2 == 0, upper)
+	}
+	if raw == "" {
+		raw = "/"
+	}
+	let n = InMemoryNetwork(AnyOrigin, Limits{MaxBodyBytes: 1 << 16, MaxHeaderBytes: 1 << 16, IdleTimeout: 30s, ReadHeaderTimeout: 10s, ReadBodyTimeout: 10s}, NoRedirects, func(origin string, r Request) Response needs Streaming {
+		Response{Status: 200, Header: []Field{}, Body: r.RawPath + "\n" + r.Path}
+	}) catch {
+	case InvalidClient, InvalidLimits:
+		return false
+	}
+	let got = n.SendURL(URLRequest{URL: "http://raw.test" + raw, Method: "GET", Header: []Field{}, Credentials: []Credential{}, Body: ""}) catch {
+	case RequestFailed, OriginRefused, RedirectLimit:
+		return false
+	}
+	let decoded = DecodePath(raw) catch {
+	case BadEscape:
+		return false
+	}
+	got.Body == raw+"\n"+decoded
 }
 
 func SendURL(n Local, r URLRequest) Response fails RequestFailed | OriginRefused | RedirectLimit {

@@ -129,14 +129,7 @@
       "rule": "A route other than People keeps the entry, so a search under way keeps its timer (law NavigationSetsTheRoute).",
       "anchor": {"tests": ["examples:address-routes"]}, "killers": ["examples:address-routes"]
     },
-    {
-      "name": "fk8-people-keeps-field", "origin": "wf10/fk8a",
-      "file": "examples/address-routes/app/router.ergo",
-      "from": "Enter[App]{Next: App{Route: r, Page: Page{Input: s,",
-      "to": "Enter[App]{Next: App{Route: r, Page: Page{Input: a.Page.Input,",
-      "rule": "A People address sets the field to its search (law NavigationSetsTheRoute).",
-      "anchor": {"tests": ["examples:address-routes"]}, "killers": ["examples:address-routes"]
-    },
+    {"name":"fk8-people-keeps-field","origin":"wf10/fk8a","file":"examples/address-routes/app/router.ergo","from":"Enter[App]{Next: App{Route: r, Page: Page{Input: s, History: people.Remember(a.Page.History, s), Results: Loading{Query: s}}}}\n\t\t","to":"Enter[App]{Next: App{Route: r, Page: Page{Input: a.Page.Input, History: people.Remember(a.Page.History, s), Results: Loading{Query: s}}}}\n\t\t","rule":"A People address sets the field to its search (law NavigationSetsTheRoute).","anchor":{"tests":["examples:address-routes"]},"killers":["examples:address-routes"]},
     {
       "name": "fk8-gn-goes-to-files", "origin": "wf10/fk8a",
       "file": "examples/address-routes/app/router.ergo",

@@ -26,6 +26,20 @@ import domain-search/search/window
 // (Debouncing), or a label whose ranges load and show (Showing).
 type Phase = Landing{} | Invalid{Query string} | Debouncing{Label string} | Showing{Label string}
 
+// ReachesShowing: from every state a drawn script reaches, a new label
+// and the debounce reach Showing.
+law ReachesShowing(ops []int) {
+	let m = drawn(ops)
+	let next = if Query(m.S.Route) == "zzz" { "zzy" } else { "zzz" }
+	let after = Wait(Feed(m, Typed{Text: next}), 200)
+	match after.S.Phase {
+	case Showing as s:
+		s.Label == next
+	case Landing, Invalid, Debouncing:
+		false
+	}
+}
+
 // Key is one load: a range of a label's listings, and the cache
 // generation its answer must carry to be taken.
 type Key { Label string, Offset int, Limit int, Gen int }
@@ -62,12 +76,103 @@ type Search {
 	Cart        []domains.Available,
 }
 
+// SearchFollowsModel: over drawn scripts of keys, time, answers in any
+// order (also of cut fetches), data changes, scrolls, orders, filters,
+// retries and navigations, the machine keeps the six invariants of
+// models/domainsearch and the URL follows the state.
+law SearchFollowsModel(ops []int) {
+	// A refuted case prints the run's last state, after the drawn script
+	// and the replay command of the law's report.
+	let m = drawn(ops)
+	if len(m.Broken) > 0 {
+		assert Show(m) == "the invariants hold"
+	}
+	true
+}
+
+// small is the first 130 TLDs of the catalog: four ranges.
+func small() []string { domains.Catalog[0:130] }
+
+func pick[T](xs []T, n int) T { xs[((n%len(xs))+len(xs))%len(xs)] }
+
+// drawn runs a drawn script on the small catalog. Each op is one of six
+// phrases, so that a short script reaches the orders of events the model
+// explores: a key and a pause (none, inside or past the debounce); an
+// answer of any fetch, also a cut one; a failure of one; time passing
+// (inside or past the freshness), with a change of the server's data;
+// the window, the order or a filter; a retry or a navigation.
+func drawn(ops []int) Sim {
+	let mut m = open("/", small(), 5)
+	let texts = []string{"acme", "beta", "acme.io", "", "b@d"}
+	let pauses = []int{0, 60, 200}
+	let times = []int{60, 200, 20000, Freshness() + 1000}
+	let urls = []string{"/?q=acme", "/", "/?q=beta&sort=price-asc", "/?q=acme&available=1"}
+	let tlds = []string{"", "com", "dev", small()[100]}
+	for o in ops {
+		let op = if o < 0 { -(o / 2) } else { o }
+		let a = op / 6
+		let b = a / 8
+		let c = op % 6
+		if c == 0 {
+			m = Wait(Feed(m, Typed{Text: pick(texts, a)}), pick(pauses, b))
+		} else if c == 1 {
+			m = Answer(m, a, true)
+		} else if c == 2 {
+			m = Answer(m, a, false)
+		} else if c == 3 {
+			if b%3 == 0 {
+				m = Sim{..m, Version: m.Version + 1}
+			}
+			m = Wait(m, pick(times, a))
+		} else if c == 4 {
+			let w = a % 5
+			if w == 0 {
+				m = Feed(m, Scrolled{Top: (b % 140) * RowHeight()})
+			} else if w == 1 {
+				m = Feed(m, Ordered{Order: pick(route.Orders, b)})
+			} else if w == 2 {
+				m = Feed(m, FilteredTLD{TLD: pick(tlds, b)})
+			} else if w == 3 {
+				m = Feed(m, FilteredAvailable{On: b%2 == 1})
+			} else {
+				m = Feed(m, Resized{Viewport: (2 + b%8) * RowHeight()})
+			}
+		} else if a%2 == 0 {
+			m = Feed(m, Retry)
+		} else {
+			m = Feed(m, Navigated{URL: pick(urls, a)})
+		}
+	}
+	m
+}
+
 // Signal is what the machine reads: a key in the field (Typed), the
 // clear button or Escape (Cleared), a URL the host navigated to (back,
 // forward, a link: Navigated), the debounce's end (Quiet, the timer's),
 // an answer (Loaded, Failed), the list's scroll and size (Scrolled,
 // Resized), the order and the filters, a retry, and the cart.
 type Signal = Typed{Text string} | Cleared{} | Navigated{URL string} | Quiet{} | Loaded{Key Key, Listings []domains.Listing} | Failed{Key Key} | Scrolled{Top int} | Resized{Viewport int} | Ordered{Order route.Order} | FilteredTLD{TLD string} | FilteredAvailable{On bool} | Retry{} | Added{Domain domains.Available} | Removed{Name string}
+
+// RetryLoadsOnlyTheFailedRange: with the top four loaded and the rest of
+// the first page failed, a retry asks for that range alone.
+law RetryLoadsOnlyTheFailedRange(later int where 0 <= later && later <= 100000) {
+	let top = Answer(Wait(Feed(open("/", domains.Catalog, 15), Typed{Text: "acme"}), 150), 0, true)
+	let broken = Wait(Answer(top, 0, false), later)
+	let retried = Feed(broken, Retry)
+	len(retried.Fetches) == 3 && retried.Fetches[2].Offset == 4 && retried.Fetches[2].Limit == 56 && retried.S.Checked == 4
+}
+
+// ScrollKeepsIndex: a scroll or a resize never builds the index again
+// (target P3): the builds a drawn script made, then any scrolls.
+law ScrollKeepsIndex(ops []int, tops []int) {
+	let m = drawn(ops)
+	let mut at = m
+	for t in tops {
+		at = Feed(at, Scrolled{Top: (if t < 0 { -t } else { t }) % 100000})
+		at = Feed(at, Resized{Viewport: 240 + (if t < 0 { -t } else { t })%400})
+	}
+	at.S.IndexBuilds == m.S.IndexBuilds
+}
 
 // Effect is what the machine tells the host: fetch a range (the host
 // calls domains.Registry and answers Loaded or Failed with the key),
@@ -83,6 +188,16 @@ type Opening { URL string, Catalog []string, Viewport int }
 // cache (one minute); Capacity is how many settled answers the cache
 // keeps.
 func Freshness() int { 60000 }
+
+// UrlFollowsState: after any drawn script the address bar is the state's
+// route.
+law UrlFollowsState(ops []int) {
+	let m = drawn(ops)
+	if !Holds(m, []string{"UrlFollowsState"}) {
+		assert Show(m) == "the URL follows the state"
+	}
+	true
+}
 
 func Capacity() int { 100 }
 

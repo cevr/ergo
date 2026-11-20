@@ -172,6 +172,6 @@ test FilesKeepTheSourceLaws(path string) {
 }
 
 test SpiceReachesEveryMarkupByte {
-	assert Spice("abz_-") == "<>&\"'"
+	assert spice("abz_-") == "<>&\"'"
 	assert !Inert("<") && !Inert("a & b") && Inert("&lt;&amp;") && Inert("")
 }

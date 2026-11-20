@@ -84,23 +84,23 @@
     {
       "name": "fd2-cache-hit-renews-freshness", "origin": "wf10/fd2a",
       "file": "examples/domain-search/search/cache/cache.ergo",
-      "from": "\t\t\t\treturn Got[K, V]{Cache: Cache[K, V]{..c, recent: without(c.recent, k).Append(k)}, Look: Fresh[V]{Value: s.Value}}\n",
-      "to": "\t\t\t\tlet mut renewed = c.entries\n\t\t\t\trenewed[k] = Settled[V]{Value: s.Value, At: now}\n\t\t\t\treturn Got[K, V]{Cache: Cache[K, V]{..c, entries: renewed, recent: without(c.recent, k).Append(k)}, Look: Fresh[V]{Value: s.Value}}\n",
+      "from": "\t\t\t\treturn Got[K, V]{Cache: Cache[K, V]{..c, recent: slices.Filter(c.recent, func(x K) bool { x != k }).Append(k)}, Look: Fresh[V]{Value: s.Value}}\n",
+      "to": "\t\t\t\tlet mut renewed = c.entries\n\t\t\t\trenewed[k] = Settled[V]{Value: s.Value, At: now}\n\t\t\t\treturn Got[K, V]{Cache: Cache[K, V]{..c, entries: renewed, recent: slices.Filter(c.recent, func(x K) bool { x != k }).Append(k)}, Look: Fresh[V]{Value: s.Value}}\n",
       "rule": "A hit changes the recency, never the freshness (law HitKeepsFreshness; the model's RenewOnHit).",
       "anchor": {"tests": ["examples:domain-search"]}, "killers": ["examples:domain-search"]
     },
     {
       "name": "fd2-cache-pending-evicted", "origin": "wf10/fd2a",
       "file": "examples/domain-search/search/cache/cache.ergo",
-      "from": "entries: entries, recent: without(c.recent, k), next: c.next + 1}",
-      "to": "entries: entries, recent: without(c.recent, k).Append(k), next: c.next + 1}",
+      "from": "entries: entries, recent: slices.Filter(c.recent, func(x K) bool { x != k }), next: c.next + 1}",
+      "to": "entries: entries, recent: slices.Filter(c.recent, func(x K) bool { x != k }).Append(k), next: c.next + 1}",
       "rule": "A pending entry is never evicted (law PendingNeverEvicted).",
       "anchor": {"tests": ["examples:domain-search"]}, "killers": ["examples:domain-search"]
     },
     {
       "name": "fd2-cache-hit-keeps-recency", "origin": "wf10/fd2a",
       "file": "examples/domain-search/search/cache/cache.ergo",
-      "from": "Cache: Cache[K, V]{..c, recent: without(c.recent, k).Append(k)}, Look: Fresh",
+      "from": "Cache: Cache[K, V]{..c, recent: slices.Filter(c.recent, func(x K) bool { x != k }).Append(k)}, Look: Fresh",
       "to": "Cache: c, Look: Fresh",
       "rule": "A hit makes the entry the most recent; the least recent goes (law EvictsLeastRecent).",
       "anchor": {"tests": ["examples:domain-search"]}, "killers": ["examples:domain-search"]
@@ -209,14 +209,7 @@
       "rule": "A cold search asks for {0,4} then {4,56} (law FirstIsFourThenFiftySix).",
       "anchor": {"tests": ["examples:domain-search"]}, "killers": ["examples:domain-search"]
     },
-    {
-      "name": "fd2-plan-price-pages", "origin": "wf10/fd2a",
-      "file": "examples/domain-search/search/plan/plan.ergo",
-      "from": "\tcase route.PriceAscending, route.PriceDescending:\n\t\ttrue\n",
-      "to": "\tcase route.PriceAscending, route.PriceDescending:\n\t\tavailableOnly\n",
-      "rule": "A price order loads the whole catalog in one range (law PriceOrderLoadsWhole).",
-      "anchor": {"tests": ["examples:domain-search"]}, "killers": ["examples:domain-search"]
-    },
+    {"name":"fd2-plan-price-pages","origin":"wf10/fd2a","file":"examples/domain-search/search/plan/plan.ergo","from":"\tcase route.PriceAscending, route.PriceDescending:\n\t\ttrue\n\tcase route.Relevance, route.Length, route.Alphabetical:\n\t\tavailableOnly\n\t}\n}","to":"\tcase route.PriceAscending, route.PriceDescending:\n\t\tavailableOnly\n\tcase route.Relevance, route.Length, route.Alphabetical:\n\t\tavailableOnly\n\t}\n}","rule":"A price order loads the whole catalog in one range (law PriceOrderLoadsWhole).","anchor":{"tests":["examples:domain-search"]},"killers":["examples:domain-search"]},
     {
       "name": "fd2-plan-asks-loaded-again", "origin": "wf10/fd2a",
       "file": "examples/domain-search/search/plan/plan.ergo",

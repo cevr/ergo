@@ -4002,6 +4002,7 @@ func (e *encoder) encFieldsVar(v *check.Var) {
 	e.encSyntax_Expr(*f.F_byValue)
 	e.encT14(*f.F_undiagnosed)
 	e.encT14(*f.F_refused)
+	e.encT14(*f.F_freshRef)
 }
 
 func (e *encoder) encVar(v check.Var) { e.encFieldsVar(&v) }
@@ -7692,6 +7693,7 @@ func (e *encoder) encFieldsinferer(v *check.Codec_inferer) {
 	e.encT156(*f.F_m)
 	e.encT185(*f.F_set)
 	e.encT185(*f.F_joined)
+	e.encPtrNamed(*f.F_notError)
 }
 
 func (e *encoder) encinferer(v check.Codec_inferer) { e.encFieldsinferer(&v) }
@@ -14973,6 +14975,7 @@ func (d *decoder) decFieldsVar(v *check.Var) {
 	*f.F_byValue = d.decSyntax_Expr()
 	*f.F_undiagnosed = d.decT14()
 	*f.F_refused = d.decT14()
+	*f.F_freshRef = d.decT14()
 }
 
 func (d *decoder) decVar() (v check.Var) {
@@ -19398,6 +19401,7 @@ func (d *decoder) decFieldsinferer(v *check.Codec_inferer) {
 	*f.F_m = d.decT156()
 	*f.F_set = d.decT185()
 	*f.F_joined = d.decT185()
+	*f.F_notError = d.decPtrNamed()
 }
 
 func (d *decoder) decinferer() (v check.Codec_inferer) {

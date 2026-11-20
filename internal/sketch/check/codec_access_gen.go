@@ -643,10 +643,11 @@ type CodecFields_Var struct {
 	F_byValue     *syntax.Expr
 	F_undiagnosed *bool
 	F_refused     *bool
+	F_freshRef    *bool
 }
 
 func CodecFieldsOf_Var(v *Var) CodecFields_Var {
-	return CodecFields_Var{F_id: &v.id, F_used: &v.used, F_param: &v.param, F_pkg: &v.pkg, F_group: &v.group, F_bindRow: &v.bindRow, F_let: &v.let, F_mut: &v.mut, F_reassigned: &v.reassigned, F_byValue: &v.byValue, F_undiagnosed: &v.undiagnosed, F_refused: &v.refused}
+	return CodecFields_Var{F_id: &v.id, F_used: &v.used, F_param: &v.param, F_pkg: &v.pkg, F_group: &v.group, F_bindRow: &v.bindRow, F_let: &v.let, F_mut: &v.mut, F_reassigned: &v.reassigned, F_byValue: &v.byValue, F_undiagnosed: &v.undiagnosed, F_refused: &v.refused, F_freshRef: &v.freshRef}
 }
 
 type CodecFields_argList struct {
@@ -1427,14 +1428,15 @@ func CodecFieldsOf_include(v *include) CodecFields_include {
 }
 
 type CodecFields_inferer struct {
-	F_c      **checker
-	F_m      *map[*TypeParam]Type
-	F_set    *map[*TypeParam]bool
-	F_joined *map[*TypeParam]bool
+	F_c        **checker
+	F_m        *map[*TypeParam]Type
+	F_set      *map[*TypeParam]bool
+	F_joined   *map[*TypeParam]bool
+	F_notError **Named
 }
 
 func CodecFieldsOf_inferer(v *inferer) CodecFields_inferer {
-	return CodecFields_inferer{F_c: &v.c, F_m: &v.m, F_set: &v.set, F_joined: &v.joined}
+	return CodecFields_inferer{F_c: &v.c, F_m: &v.m, F_set: &v.set, F_joined: &v.joined, F_notError: &v.notError}
 }
 
 type CodecFields_initDeps struct {

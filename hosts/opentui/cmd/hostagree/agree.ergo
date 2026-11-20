@@ -105,6 +105,11 @@ func compare[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *tui.Driver[S,
 	if held != (tui.Captured(d) != None) {
 		return Some{Value: "an Area holds the pointer on TestHost: \(held); on the terminal: \(!held)"}
 	}
+	match kept(d, tui.Screen(d)) {
+	case Some[string] as why:
+		return why
+	case None:
+	}
 	let rows = s.Rows()
 	match placed(d, s, tui.Screen(d), rows) {
 	case Some[string] as why:
@@ -112,6 +117,35 @@ func compare[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *tui.Driver[S,
 	case None:
 	}
 	shown(d, s, tui.Screen(d), rows)
+}
+
+// kept is why a list does not show the offset its pass chose, None when
+// each does: a list's node carries the offset the pass used (RowsKeeping
+// moves it to bring a row into view), and the viewport the terminal
+// reported after the step has that offset, or the list's last offset when
+// the pass's is past it (the scene keeps a scroll inside the content).
+func kept[E comparable, S, D, F](d *tui.Driver[S, E, D, F], shapes []ui.Shape[E]) Option[string] {
+	for sh in shapes {
+		match sh.Node {
+		case ui.RowsNode as x:
+			match tui.Viewport(d, x.Label) {
+			case Some[ui.Viewport] as v:
+				let (off, want) = (float64(v.Value.Offset), float64(x.Offset))
+				let most = maxOffset(shapes, x.Label, float64(v.Value.Height))
+				if off != want && !(want > most && off == most) {
+					return Some{Value: "list \(x.Label): the pass chose offset \(want), the terminal shows \(off)"}
+				}
+			case None:
+			}
+		case _:
+			match kept[E, S, D, F](d, sh.Kids) {
+			case Some[string] as why:
+				return Some{Value: why.Value}
+			case None:
+			}
+		}
+	}
+	None
 }
 
 // cellH is the DIPs of a cell's height (the driver's default Cell).

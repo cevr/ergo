@@ -40,6 +40,7 @@ extern go os.DevNull let DevNull string
 // ergo:refused DirEntry: a Go alias; the binding names the type it stands for
 
 // ergo:go func DirFS(dir string) fs.FS
+// ergo:total
 extern go os.DirFS func DirFS(dir string) fs.FS needs go.Foreign
 
 // ergo:go func Environ() []string
@@ -211,6 +212,7 @@ extern go os.IsExist func IsExist(err go.Error) bool needs go.Foreign
 extern go os.IsNotExist func IsNotExist(err go.Error) bool needs go.Foreign
 
 // ergo:go func IsPathSeparator(c uint8) bool
+// ergo:total
 extern go os.IsPathSeparator func IsPathSeparator(c uint8) bool needs go.Foreign
 
 // ergo:go func IsPermission(err error) bool

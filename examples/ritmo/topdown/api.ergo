@@ -3,6 +3,7 @@
 // input) only reads requests and prints replies; it decides nothing.
 
 import strings
+import rand
 
 // Keep is how many ticks a session rewinds by default: ten seconds at Hz.
 let Keep = 600
@@ -168,6 +169,13 @@ law RewindReplays(seed int, k int, keep int) {
 		Advance(&s, c)
 	}
 	s.Now() == end
+}
+
+// inputsOf is n ticks of fuzzed input from seed.
+func inputsOf(seed int, n int) []Controls {
+	with context { Random: rand.Seeded(uint64(seed)) } {
+		Fuzz(n)
+	}
 }
 
 // RewindKeepsNoMore: a session of any keep, past the wrap of its ring,

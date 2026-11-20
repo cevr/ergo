@@ -176,6 +176,7 @@ extern go log/slog.Level type Level int
 extern go log/slog.Level.AppendText func (l Level) AppendText(b []byte) []byte fails go.Error needs go.Foreign
 
 // ergo:go func (Level).Level() Level
+// ergo:total
 extern go log/slog.Level.Level func (l Level) Level() Level needs go.Foreign
 
 // ergo:go func (Level).MarshalJSON() ([]byte, error)

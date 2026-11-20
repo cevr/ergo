@@ -31,6 +31,34 @@ func Validate(s Schema, v stdjson.Value) []Violation {
 	w.found
 }
 
+// InferredAccepts: the schema inferred from a value accepts that value.
+law InferredAccepts(v json.Tree) {
+	let w = try json.Lawful(v)
+	len(Validate(Infer(w), w)) == 0
+}
+
+// OtherKindsAreRejected: the schema inferred from a value rejects a value
+// of another kind, at the root.
+law OtherKindsAreRejected(a json.Tree, b json.Tree) {
+	let x = try json.Lawful(a)
+	let y = try json.Lawful(b)
+	if json.Kind(x) == json.Kind(y) {
+		return true
+	}
+	let found = Validate(Infer(x), y)
+	len(found) == 1 && PathOf(found[0]) == "$"
+}
+
+// PathsAreRooted: every violation names a path from $.
+law PathsAreRooted(a json.Tree, b json.Tree) {
+	for x in Validate(Infer(try json.Lawful(a)), try json.Lawful(b)) {
+		if !strings.HasPrefix(PathOf(x), "$") {
+			return false
+		}
+	}
+	true
+}
+
 type report { found []Violation }
 
 func add(w *report, x Violation) { w.found = w.found.Append(x) }

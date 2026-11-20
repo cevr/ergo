@@ -5,6 +5,7 @@
 
 import slices
 import strings
+import mdhtml/html
 
 // Kind is what a block is.
 type Kind = Document | Quote | ListBlock | Item | Para | Heading | Rule | Code | RawHtml
@@ -857,4 +858,22 @@ func trimSpace(s string) string {
 		j -= 1
 	}
 	strings.Slice(s, i, j)
+}
+
+// CodeSpanKeepsText: text between backticks is code as it is, escaped.
+law CodeSpanKeepsText(s string) {
+	let mut b = strings.NewBuilder()
+	for i in 0..len(s) {
+		let c = s[i]
+		if c != '`' && c != '\n' && c != '\r' && c != 0 {
+			b.WriteByte(c)
+		}
+	}
+	let t = trimSpace(b.String())
+	if t == "" {
+		return true
+	}
+	let code = "<p><code>" + html.Escape(t) + "</code></p>\n"
+	// One space at each end goes; a space at one end only stays.
+	md("`"+t+"`") == code && md("` "+t+" `") == code && md("` "+t+"`") == "<p><code> "+html.Escape(t)+"</code></p>\n"
 }

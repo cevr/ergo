@@ -57,6 +57,32 @@ func placeRows[S, E, D, F](d *Driver[S, E, D, F]) needs go.Foreign {
 	}
 }
 
+// keep scrolls each list whose pass chose an offset other than the one
+// the driver last reported (RowsKeeping brought a row into view, or the
+// first pass's) to that offset, in whole cells, and is whether it
+// scrolled any.
+func keep[S, E, D, F](d *Driver[S, E, D, F]) bool fails ScreenFailed needs go.Foreign {
+	let c = d.options.Cell.H
+	let mut moved = false
+	for id, _ in d.lists {
+		match nodeOf(d, id) {
+		case ui.RowsNode as x:
+			let at = match d.viewports.Get(id) {
+			case Some[ui.Viewport] as v:
+				v.Value.Offset
+			case None:
+				ui.Length(0.0)
+			}
+			if x.Offset != at {
+				try scrollTo(d.s, numOf(d, id), int(float64(x.Offset)/c+0.5), false)
+				moved = true
+			}
+		case _:
+		}
+	}
+	moved
+}
+
 // report tells the session the viewport of a list (its scroll offset and
 // its height, in DIPs) that changed since the last report: the next pass
 // writes the rows it shows, and that pass's show reports again, until no
@@ -81,9 +107,14 @@ func report[E comparable, S, D, F](d *Driver[S, E, D, F]) fails ui.BadPatch | Sc
 	}
 }
 
-// repaint paints the screen and reports the lists' viewports.
+// repaint paints the screen, scrolls each list to the offset its pass
+// chose (painting again when one moved), and reports the lists'
+// viewports.
 func repaint[E comparable, S, D, F](d *Driver[S, E, D, F]) fails ui.BadPatch | ScreenFailed needs go.Foreign {
 	try present(d.s)
+	if try keep(d) {
+		try present(d.s)
+	}
 	try report(d)
 }
 

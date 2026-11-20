@@ -101,7 +101,7 @@ func (f *fixture) lanework(dir string, args ...string) (string, error) {
 // to the main checkout although the lane's main-checkout remote carries a
 // push guard: work new's (no-push:workspaces-never-push-origin) on a lane
 // work made, or an older create's string. FK2, LH, G, IR2, SQ and others
-// could not hand back (2026-11-19). Mutant: push to the main-checkout
+// could not hand back (2026-11-19). Mutant: push to the main checkout's
 // remote again (lanework-push-by-remote).
 func TestPushReachesTheMainCheckoutOfAGuardedLane(t *testing.T) {
 	for _, guard := range []string{"no-push:workspaces-never-push-origin", "no-push:lanes-never-push-origin"} {
@@ -128,8 +128,8 @@ func TestPushReachesTheMainCheckoutOfAGuardedLane(t *testing.T) {
 // TestCreateLeavesOnlyOriginGuarded: a lane create makes keeps origin's
 // push guard and drops the one work new puts on main-checkout, the remote
 // its pushDefault names, so a plain git push of the lane reaches the main
-// checkout too. Mutant: create keeps work's guard on main-checkout
-// (lanework-create-keeps-guard).
+// checkout too. Mutant: create keeps work's guard on the main checkout's
+// remote (lanework-create-keeps-guard).
 func TestCreateLeavesOnlyOriginGuarded(t *testing.T) {
 	f := newFixture(t, "no-push:workspaces-never-push-origin")
 	out, err := f.lanework(f.dir, "create", "lane-b", "main")

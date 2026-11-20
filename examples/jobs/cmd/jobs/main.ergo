@@ -12,8 +12,8 @@ import fs
 import http
 import net
 import io
-import jobs/api
-import jobs/memory
+import jobsapp/api
+import jobsapp/memory
 import os
 import queue
 import strconv

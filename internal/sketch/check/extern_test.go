@@ -1395,6 +1395,52 @@ func main() {
 	use(Mine)
 }
 `,
+	// std timeout: NewDeadline's extern makes the Deadline, and runtimeOnly seals it.
+	"timeout.Deadline": `import timeout
+
+type Mine {}
+
+func Arm(_ Mine, d duration) {}
+func Armed(_ Mine) bool { false }
+func Stop(_ Mine) {}
+
+func use(dl timeout.Deadline) { dl.Stop() }
+
+func main() {
+	use(Mine)
+}
+`,
+	// std testing (MX-P3 F6): the authority to read the heap's counters is AllocCounter's (its unexported field and NewAllocCounter's TestAmbient); the Allocs contract itself takes a program's counter, as time.Clock takes a Manual.
+	"testing.Allocs": `import testing
+
+type Mine {} implements testing.Allocs
+
+func PerRun(_ Mine, runs int, f func()) int { 0 }
+
+func use(a testing.Allocs) { _ = a.PerRun(1, func() {}) }
+
+func main() {
+	use(Mine)
+}
+`,
+	// std llm (L1): a vendor's client is a program's provider of the model contract, as llm/memory's Scripted and llm/recorded are std's.
+	"llm.Model": `import llm
+
+type Mine {} implements llm.Model
+
+func Generate(_ Mine, r llm.Request) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema {
+	llm.Turn{Text: "", Calls: []llm.Call{}, Stop: llm.Ended, Usage: llm.Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0}}
+}
+func Stream(_ Mine, r llm.Request, put func(d llm.Delta) fails llm.SinkFailed) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema | llm.SinkFailed {
+	llm.Turn{Text: "", Calls: []llm.Call{}, Stop: llm.Ended, Usage: llm.Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0}}
+}
+
+func use(_ llm.Model) {}
+
+func main() {
+	use(Mine)
+}
+`,
 }
 
 // unexportedStd is the std operation types sealed by an unexported
@@ -1415,7 +1461,7 @@ var unexportedStd = map[string]string{
 // std seal at the migration base. Some already have private operations,
 // listed in unexportedStd. Every other entry now declares its seal.
 var openStd = map[string]bool{
-	"api.Transport":     true,
+	"api.Transport":     true, // open: each generated transport package (ergo gen rpc, cli, mcp) provides it as its Wire, in the program's own module
 	"prelude.Closer":    true,
 	"prelude.Console":   true,
 	"prelude.Scheduler": true,
@@ -1461,6 +1507,8 @@ var openStd = map[string]bool{
 	"log.Sink":          true,
 	"tz.Zones":          true,
 	"tz.Local":          true,
+	"testing.Allocs":    true,
+	"llm.Model":         true,
 	// The layout's text measure, which a host provides with its fonts.
 }
 

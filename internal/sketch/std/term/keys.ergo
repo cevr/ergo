@@ -165,6 +165,17 @@ func Decode(token string) Key {
 	withAlt(Decode(token[1:]), token)
 }
 
+// DecodeNamesControls: a token that starts with a control byte is never a
+// Char, and a token that does not is a Char unless it is the delete byte.
+law DecodeNamesControls(token string) {
+	match Decode(token) {
+	case Char as c:
+		c.Text == token && token >= " " && token != "\x7f"
+	case _:
+		token < " " || token == "\x7f" || token == ""
+	}
+}
+
 // byteKey is the key of the one byte c (token).
 func byteKey(c byte, token string) Key {
 	if c == 0x04 {

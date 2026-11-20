@@ -41,7 +41,7 @@ func TestModuleBuildReadsEachPackagesIR(t *testing.T) {
 		"pkg/b/b.go":        "package b\n",
 	})
 	release := toolchain.Patched{Root: "/patched/goroot", Go: "/patched/goroot/bin/go"}
-	cmd := moduleBuild(release, dir, "/scratch/overlay.json", "/scratch/bin")
+	cmd := moduleBuild(release, dir, "/scratch/overlay.json", "/scratch/bin", "")
 	if cmd.Args[0] != release.Go {
 		t.Errorf("go command %q, want the patched release's %q", cmd.Args[0], release.Go)
 	}

@@ -2,6 +2,8 @@ import actor
 import sync
 import task
 import testing
+import time
+import queue
 
 // Session is the loop of one view over one actor, whatever the host: the
 // frame, the actor whose state the view shows, the view, where the
@@ -34,6 +36,174 @@ type Session[S, E, D, F] {
 	passSignals int,
 }
 
+// SessionCrashFollowsTheEnd (H6a): an app's session, as RunApp drives it,
+// shows the crash view after a signal whose step defects and reports it
+// once, also when the crashed actor's Ended comes after (it changes
+// nothing); a reload's patch shows the fresh actor, and the Ended of an
+// actor a reload replaced changes nothing either; a defect of the fresh
+// actor's work, which no signal of the loop caused, reaches the loop as
+// Ended and shows the crash view. Each crash is reported once, the step's
+// on its signal and the work's on none, each with its defect's reason and
+// the state it crashed in (FK13-g1).
+law SessionCrashFollowsTheEnd(n int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		crashFollows()
+	}
+}
+
+// workCrashStep: 1 is a defect of the step; 5 enters the state -1, whose
+// work defects once the law releases it.
+func workCrashStep(s int, e int) Decision[int, int] fails Boom {
+	if e == 1 {
+		Unreachable("crash app: a defect, on purpose")
+	}
+	if e == 5 {
+		return Enter[int]{Next: -1}
+	}
+	Enter[int]{Next: s}
+}
+
+func workCrashWork(gate queue.Queue[int]) func(s int) Option[func(send func(e int))] {
+	func(s int) Option[func(send func(e int))] {
+		if s != -1 {
+			return None
+		}
+		Some{Value: func(send func(e int)) {
+			let _ = gate.Pop() catch {
+			case queue.Closed:
+				return
+			}
+			Unreachable("crash app: a defect of the work, on purpose")
+		}}
+	}
+}
+
+// keyView is the session law's view: its key presses are its signals, by
+// the key's name ("1", "5"), and it shows the state.
+func keyView(f *Frame[int], s int) {
+	OnKey(f, func(k KeyPress) Option[int] {
+		if k.Name == "1" {
+			return Some{Value: 1}
+		}
+		if k.Name == "5" {
+			return Some{Value: 5}
+		}
+		None
+	})
+	Text(f, "at \(s)")
+}
+
+// keyCrashView is its crash view: any key reloads.
+func keyCrashView(f *Frame[int], c Crash[int, int, Boom]) {
+	OnKey(f, func(k KeyPress) Option[int] { Some{Value: 0} })
+	Text(f, "crashed")
+}
+
+func key(name string) Event[int] {
+	KeyDown{Press: KeyPress{Name: name, Mods: Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}}
+}
+
+// endedOf takes the posted events up to the Ended of run, stepping the
+// others, and is that Ended's patch.
+func endedOf(session *Session[int, int, Decision[int, int], Boom], posted queue.Queue[Event[int]], run int) Option[[]Op[int]] {
+	for {
+		let ev = posted.Pop() catch {
+		case queue.Closed:
+			return None
+		}
+		let ops = Step(session, ev) catch {
+		case actor.Stopped:
+			return None
+		}
+		match ev {
+		case Ended as x:
+			if x.Run == run {
+				return Some{Value: ops}
+			}
+		case _:
+		}
+	}
+}
+
+func crashFollows() bool needs Scheduler {
+	let gate = queue.New[int](1)
+	let posted = queue.New[Event[int]](64)
+	let reports = sync.NewRef(0)
+	let mach = Machine[int, int, int, Boom]{Initial: 0, Step: workCrashStep, After: replyTimer, Work: workCrashWork(gate), Exit: replyExit}
+	let reported = sync.NewRef([]Crash[int, int, Boom]{})
+	let crashes = Crashes[int, int, Boom]{View: keyCrashView, Report: func(c Crash[int, int, Boom]) {
+		reports.Update(func(k int) int { k + 1 })
+		reported.Update(func(cs []Crash[int, int, Boom]) []Crash[int, int, Boom] { cs.Append(c) })
+	}}
+	let (s, first) = StartApp(mach, 1, keyView, crashes, func(ev Event[int]) {
+		posted.Push(ev) catch {
+		case queue.Closed:
+		}
+	})
+	let mut session = s
+	if !writesText(first, "at 0") {
+		return false
+	}
+	// A defect of a step; its actor's Ended comes before the reload.
+	let a = Step(&session, key("1")) catch {
+	case actor.Stopped:
+		return false
+	}
+	if !writesText(a, "crashed") || reports.Get() != 1 || !endsQuiet(&session, posted, 0) || reports.Get() != 1 {
+		return false
+	}
+	let b = Step(&session, key("r")) catch {
+	case actor.Stopped:
+		return false
+	}
+	// A defect of the second actor; its Ended comes after the reload.
+	let c = Step(&session, key("1")) catch {
+	case actor.Stopped:
+		return false
+	}
+	let d = Step(&session, key("r")) catch {
+	case actor.Stopped:
+		return false
+	}
+	if !writesText(b, "at 0") || !writesText(c, "crashed") || !writesText(d, "at 0") || !endsQuiet(&session, posted, 1) || reports.Get() != 2 {
+		return false
+	}
+	// A defect of the third actor's work.
+	let e = Step(&session, key("5")) catch {
+	case actor.Stopped:
+		return false
+	}
+	if !writesText(e, "at -1") {
+		return false
+	}
+	gate.Push(0) catch {
+	case queue.Closed:
+		return false
+	}
+	let shown = match endedOf(&session, posted, 2) {
+	case Some[[]Op[int]] as ops:
+		writesText(ops.Value, "crashed") && reports.Get() == 3
+	case None:
+		false
+	}
+	let cs = reported.Get()
+	let step = Crash[int, int, Boom]{Cause: DefectCrash{Reason: "crash app: a defect, on purpose"}, State: 0, Signal: Some{Value: 1}}
+	let work = Crash[int, int, Boom]{Cause: DefectCrash{Reason: "crash app: a defect of the work, on purpose"}, State: -1, Signal: None}
+	shown && len(cs) == 3 && sameCrash(Some{Value: cs[0]}, Some{Value: step}) && sameCrash(Some{Value: cs[1]}, Some{Value: step}) && sameCrash(Some{Value: cs[2]}, Some{Value: work})
+}
+
+// endsQuiet is whether the Ended of run, when the loop takes it, changes
+// nothing on the screen.
+func endsQuiet(session *Session[int, int, Decision[int, int], Boom], posted queue.Queue[Event[int]], run int) bool {
+	match endedOf(session, posted, run) {
+	case Some[[]Op[int]] as ops:
+		len(ops.Value) == 0
+	case None:
+		false
+	}
+}
+
 // Start renders the first pass of view over a's state and starts its
 // fetches; post gets each fetch's result as an Arrived event, on the
 // fetch's task, and a Committed when the actor commits a state by its own
@@ -57,6 +227,50 @@ func Start[E comparable, S, D, F, R](a actor.Actor[S, E, D, F], view own func(f 
 	watchActor(&s)
 	let ops = runPass(&s)
 	(s, ops)
+}
+
+// WatcherShowsWorkReplies (DOMAIN PX3a): a Session, as Run drives it,
+// shows each reply its actor's work commits with no event of the host's:
+// the session's watcher posts Committed, and the Step of it writes the
+// reply's text (a Committed of a state a pass showed already writes
+// nothing, and the law takes the next). The law waits for each post; a session that never posts hangs the law, which
+// the test's deadline names.
+// WatcherHoldsOneState (F-GP4c-1): a host that never takes its events
+// blocks the session's watcher in its first post; while it stays blocked,
+// the actor commits a drawn number of states, and the watcher's
+// subscription holds at most one of them (actor.Held), not each: the
+// host's heap does not grow with the commits.
+law WatcherHoldsOneState(n int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		watcherHolds(n, m)
+	}
+}
+
+func watcherHolds(n int, m time.Manual) bool needs Scheduler {
+	let commits = (n%8+8)%8 + 3
+	let gate = queue.New[int](1)
+	let a = actor.StartMachine(spinMachine(), 1, func(o int) {})
+	let (s, _) = Start(a, spinView, func(ev Event[int]) {
+		let _ = gate.Pop() catch {
+		case queue.Closed:
+			return
+		}
+	})
+	let _ = s
+	// The watcher has subscribed and is blocked in its first post.
+	m.Advance(0ns)
+	for i in 0..commits {
+		a.Send(i) catch {
+		case actor.Stopped:
+			return false
+		}
+	}
+	m.Advance(0ns)
+	let held = a.Held()
+	gate.End()
+	a.Stop()
+	held <= 1
 }
 
 func noExit[S, E, D, F](a actor.Actor[S, E, D, F]) Option[CrashCause[F]] { None }

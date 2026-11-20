@@ -6,6 +6,8 @@
 // package declares the contract it needs, Subscribers, with its laws; the
 // provider lives in memory.
 
+import strings
+
 // Name is a valid name: at least two bytes. The where derives ParseName,
 // which fails Unsatisfied for a shorter text.
 type Name string where len(it) >= 2
@@ -17,6 +19,31 @@ type Name string where len(it) >= 2
 // JavaScript's \s. The where derives ParseEmail, which fails
 // Unsatisfied for any other text.
 type Email string where matches(it, "[^\\s\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff@]+@[^\\s\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff@]+\\.[^\\s\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff@]+")
+
+// EmailIsThePattern: local@host.top parses back as that address when no
+// part is empty or holds a space or an @; a space (one of JavaScript's \s),
+// a second @, or no dot with text on both sides fails the
+// where.
+law EmailIsThePattern(local string, host string, top string, cut int, space int) {
+	let a = clean(local, "a")
+	let h = clean(host, "b")
+	let t = clean(top, "c")
+	let text = a + "@" + h + "." + t
+	let e = ParseEmail(text) catch {
+	case Unsatisfied:
+		return false
+	}
+	let at = ((cut % len(text)) + len(text)) % len(text)
+	let spaces = []string{" ", "\t", "\u00a0", "\u2003"}
+	let sp = spaces[((space%len(spaces))+len(spaces))%len(spaces)]
+	malformed(text[:at]+sp+text[at:]) && malformed(text+"@x.y") && malformed(a+"@"+h+t) && malformed(a+"@."+h+t) && string(e) == text
+}
+
+// clean is s with no space and no @, or or when that is empty.
+func clean(s string, or string) string {
+	let c = strings.ReplaceAll(strings.Join(strings.Fields(s), ""), "@", "")
+	if c == "" || strings.Contains(c, ".") { or } else { c }
+}
 
 // The reasons a field is invalid.
 type TooShort {}

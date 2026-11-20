@@ -105,9 +105,11 @@ func isIdent(s string) bool {
 
 // listedSource is go list's view of one package's compiled Go files.
 type listedSource struct {
-	ImportPath, Dir string
-	GoFiles         []string
-	Error           *struct{ Err string }
+	ImportPath, Dir, Export string
+	GoFiles                 []string
+	ImportMap               map[string]string
+	DepOnly                 bool
+	Error                   *struct{ Err string }
 }
 
 // paramFacts walks the Go files of the package path and gives each named
@@ -203,7 +205,7 @@ func Derive(dir string, env []string, p Platform, patterns ...string) (Facts, er
 		err := cmd.Run()
 		return stdout.Bytes(), stderr.Bytes(), err
 	}
-	listed, stderr, err := run(append([]string{"list", "-json=ImportPath,Dir,GoFiles,Error"}, patterns...)...)
+	listed, stderr, err := run(append([]string{"list", "-deps", "-export", "-json=ImportPath,Dir,Export,GoFiles,ImportMap,DepOnly,Error"}, patterns...)...)
 	if err != nil {
 		return nil, fmt.Errorf("go list for %s: %v: %s", p, err, bytes.TrimSpace(stderr))
 	}
@@ -218,6 +220,8 @@ func Derive(dir string, env []string, p Platform, patterns ...string) (Facts, er
 	reads, other := ParseEscape(string(out), abs)
 	facts := Facts{}
 	var pkgs []nnPkg
+	var roots []listedSource
+	exports := map[string]string{}
 	fset := token.NewFileSet()
 	dec := json.NewDecoder(bytes.NewReader(listed))
 	for {
@@ -230,13 +234,25 @@ func Derive(dir string, env []string, p Platform, patterns ...string) (Facts, er
 		if l.Error != nil {
 			return nil, fmt.Errorf("go list for %s: %s: %s", p, l.ImportPath, l.Error.Err)
 		}
+		exports[l.ImportPath] = l.Export
+		if !l.DepOnly {
+			roots = append(roots, l)
+		}
+	}
+	imp := exportImporter(fset, exports)
+	var checked []*totalPkg
+	for _, l := range roots {
 		files, err := paramFacts(fset, l.ImportPath, l.Dir, l.GoFiles, reads, other, facts)
 		if err != nil {
 			return nil, fmt.Errorf("%s for %s: %v", l.ImportPath, p, err)
 		}
 		pkgs = append(pkgs, nnPkg{l.ImportPath, files})
+		if c := checkSource(fset, l.ImportPath, files, l.ImportMap, p.GOARCH, imp); c != nil {
+			checked = append(checked, c)
+		}
 	}
 	nonNil(pkgs, facts)
+	total(checked, facts)
 	return facts, nil
 }
 
@@ -278,6 +294,7 @@ func meet(all []Facts) Facts {
 func (d *Decl) reads(path string, facts Facts) {
 	f := facts[d.Target(path)]
 	d.Reads, d.Vouched = nil, nil
+	d.Total = (d.Kind == Func || d.Kind == Method) && f[totalFact]
 	rows := gofacts.Of(d.Target(path))
 	for _, r := range d.readable {
 		if f[r.goName] {

@@ -527,7 +527,7 @@ law ExecAgreesWithChecked(seed int, fuel int) {
 	let mut bent = Called(seed)
 	let mut d = Seed(seed + 5)
 	bent[d.Next(len(bent))] = Program(seed+11, len(bent))[d.Next(len(bent))]
-	for p in [][]Instr{Stacked(seed, 16), Bent(seed, 16), Program(seed, 16), Countdown(seed % 8), Joined(n % 2), calls, bent, Down(n % 4), Uneven(n % 2), Short(n)} {
+	for p in [][]Instr{Stacked(seed, 16), Bent(seed, 16), Program(seed, 16), countdown(seed % 8), Joined(n % 2), calls, bent, Down(n % 4), Uneven(n % 2), Short(n)} {
 		if !agrees(p, f) {
 			return false
 		}
