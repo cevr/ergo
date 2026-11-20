@@ -102,6 +102,40 @@ test ApiAgreesSeesTheLoss(c string, o int) {
 	assert api.Agrees(apiEcho, c, o) && !api.Agrees(apiDropping, c + "!", o)
 }
 
+test ApiWordsReadLine(args []string) {
+	let back = api.Words(api.Line(args)) catch {
+	case api.Unclosed:
+		assert false
+		return
+	}
+	assert back == args
+}
+
+func apiEchoed(args []string) api.Output {
+	api.Output{Out: strings.Join(args, "|"), Err: "", Code: if len(args) == 3 { 1 } else { 0 }}
+}
+
+test ApiSessionIsEachLine(script [][]string) {
+	let mut lines = []string{}
+	for a in script {
+		lines = lines.Append(" " + api.Line(a))
+		lines = lines.Append("# " + api.Line(a))
+		lines = lines.Append("")
+	}
+	let mut want = []api.Step{}
+	for k, a in script {
+		if len(a) == 0 {
+			continue
+		}
+		let o = apiEchoed(a)
+		want = want.Append(api.Step{Line: 3*k + 1, Text: api.Line(a), Output: o})
+		if o.Code != 0 {
+			break
+		}
+	}
+	assert api.Session(lines, apiEchoed) == want
+}
+
 test ApiCompletionNamesEachCommand(words []string, shell api.Shell) {
 	let mut commands = []api.Entry{}
 	for w in words {
@@ -1079,6 +1113,8 @@ var stdLawsStatements = map[string]string{
 	"math ToUint64FailsOnlyOutside":        `ToUint64FailsOnlyOutside(f float64) { let n = ToUint64(f) catch { case OutOfRange: return IsNaN(f) || f >= 18446744073709551616.0 || Trunc(f) < 0.0 } float64(n) == Trunc(f) && n == uint64(f) }`,
 	"math ToUintFailsOnlyOutside":          `ToUintFailsOnlyOutside(f float64) { let n = ToUint(f) catch { case OutOfRange: return IsNaN(f) || f >= 18446744073709551616.0 || Trunc(f) < 0.0 } float64(n) == Trunc(f) && n == uint(f) }`,
 	"math ToUintptrFailsOnlyOutside":       `ToUintptrFailsOnlyOutside(f float64) { let n = ToUintptr(f) catch { case OutOfRange: return IsNaN(f) || f >= 18446744073709551616.0 || Trunc(f) < 0.0 } float64(n) == Trunc(f) && n == uintptr(f) }`,
+	"api WordsReadLine":                    `WordsReadLine(args []string) { let back = Words(Line(args)) catch { case Unclosed: return false } back == args }`,
+	"api SessionIsEachLine":                `SessionIsEachLine(script [][]string) { let mut lines = []string{} for a in script { lines = lines.Append(" " + Line(a)) lines = lines.Append("# " + Line(a)) lines = lines.Append("") } let mut want = []Step{} for k, a in script { if len(a) == 0 { continue } let o = echoed(a) want = want.Append(Step{Line: 3*k + 1, Text: Line(a), Output: o}) if o.Code != 0 { break } } Session(lines, echoed) == want }`,
 	"os CodeWhere":                         `CodeWhere(v Code) { let it = int(v) (1 <= it && it <= 125) && try ParseCode(it) == v }`,
 	"atomic InitialValues":                 `InitialValues(value int64, flag bool) { NewInt64(value).Load() == value && NewBool(flag).Load() == flag }`,
 	"atomic Int64.StoresAndAdds":           `StoresAndAdds(a int64, b int64) { Store(a) let sum = Add(b) let seen = Load() let previous = Swap(a) let changed = CompareAndSwap(a, b) let unchanged = !CompareAndSwap(b+1, a) sum == a+b && seen == sum && previous == sum && changed && unchanged && Load() == b }`,

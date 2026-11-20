@@ -59,7 +59,7 @@ func main() needs Console {
 // It reads the IR in process; TestIRFloatsUnfusedOnArm64 (irspike) builds
 // it for arm64 and finds no fused instruction.
 //
-// Mutants: float-strict-binary-fused, float-strict-operand-fused,
+// Mutants: float-strict-binary-fused,
 // float-strict-assign-fused, float-strict-assign-value-fused,
 // float-strict-store-fused, float-strict-ints-converted.
 func TestIRFloatProductsRound(t *testing.T) {

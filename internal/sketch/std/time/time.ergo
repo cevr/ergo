@@ -185,6 +185,13 @@ func Sub(t Time, u Time) duration {
 // unixToInternal is Go's offset of its internal seconds (from January 1,
 // year 1) to Unix seconds.
 let unixToInternal int64 = 62135596800
+// SubAddInverse: t.Add(d).Sub(t) is d, for a d that keeps t.Add(d) in
+// range.
+law SubAddInverse(sec int64, nsec int64, n int64) {
+	let t = Unix(anyYear(sec), nsec)
+	let d = duration(within(n, -4000000000000000000, 4000000000000000000))
+	t.Add(d).Sub(t) == d
+}
 
 // Before reports whether t is before u.
 func Before(t Time, u Time) bool {
@@ -384,6 +391,18 @@ law OverlapsIffIntersect(a int64, b int64, c int64, d int64) {
 // (+010000, -000001), where Go writes 10000 and -0001, which Go's Parse
 // refuses; Parse reads it back (law FormatParseRoundTrip).
 func Format(t Time, layout Layout) string { format(t.sec, t.nsec, LayoutText(layout)) }
+
+// FormatParseRoundTrip: Parse reads back the instant Format writes in
+// RFC3339Nano, for every Unix second and every nanosecond: a year past
+// 9999 or before 0 is the ISO 8601 expanded year Format writes.
+law FormatParseRoundTrip(sec int64, nsec int64) {
+	let t = Unix(sec, within(nsec, 0, 999999999))
+	let back = Parse(RFC3339Nano, t.Format(RFC3339Nano)) catch {
+	case ParseError:
+		return false
+	}
+	back.Equal(t) && back == t
+}
 
 // Parse is the instant value writes in layout, as Go's time.Parse, with no
 // monotonic reading. A value with a zone offset is that instant; Format

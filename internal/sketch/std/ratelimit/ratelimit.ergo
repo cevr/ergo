@@ -1,0 +1,195 @@
+// Package ratelimit limits how often a key may do something: a take of
+// some tokens is granted while the key's rule has room for it, and
+// refused with the exact time after which the same take is granted
+// (docs/spec/stdlib.md, ratelimit). Limiter is the contract; the providers
+// live in packages named after where they keep each key's state:
+// ratelimit/memory keeps it in the process. A provider over a shared store
+// (Redis, a database) is a module that runs the same laws.
+//
+// Effect: RateLimiter (effect/persistence), whose consume takes a key, a
+// cost, a limit and a window, by the token-bucket or the fixed-window
+// algorithm, and either fails RateLimitExceeded with retryAfter
+// (onExceeded "fail") or sleeps it (onExceeded "delay"). Here the two
+// choices are two functions: Take and Wait. Go: golang.org/x/time/rate
+// (AllowN(now, n) and WaitN, a burst and an interval per token).
+
+import time
+
+// Grant is a take the limiter allowed: Remaining whole tokens are left
+// for the key right after it.
+type Grant { Remaining int }
+
+// Limited is a take the limiter refused: the key has no room for its cost
+// now, and the same take is granted RetryAfter later if no other take of
+// the key comes between. RetryAfter is above zero.
+type Limited { RetryAfter duration }
+
+// BadCost is a take that no wait would grant: its cost is below one or
+// above the rule's Limit.
+type BadCost { Cost int, Limit int }
+
+// BadRule is a rule a provider refuses: a limit below one or a time of
+// zero or less.
+type BadRule { Reason string }
+
+// Rule is how much a key may take, by one of three algorithms.
+//
+// TokenBucket holds Capacity tokens and gives one back each Every, up to
+// Capacity: bursts of Capacity, then one take per Every (x/time/rate's
+// NewLimiter(rate.Every(Every), Capacity); Effect's "token-bucket").
+// FixedWindow grants Limit tokens in each Window, the first window
+// starting at the key's first take and each next one at the first take
+// after it ends (Effect's "fixed-window"). SlidingWindow grants at most
+// Limit tokens in every span of Window, however placed: the exact rule,
+// for the memory of one entry per grant in the last Window.
+type Rule = TokenBucket{Capacity int, Every duration} | FixedWindow{Limit int, Window duration} | SlidingWindow{Limit int, Window duration}
+
+// LimitOf is the most tokens one take of rule may cost.
+func LimitOf(rule Rule) int {
+	match rule {
+	case TokenBucket as b:
+		b.Capacity
+	case FixedWindow as f:
+		f.Limit
+	case SlidingWindow as s:
+		s.Limit
+	}
+}
+
+// Check is rule when a provider can keep it, or BadRule.
+func Check(rule Rule) Rule fails BadRule {
+	let (n, d) = match rule {
+	case TokenBucket as b:
+		(b.Capacity, b.Every)
+	case FixedWindow as f:
+		(f.Limit, f.Window)
+	case SlidingWindow as s:
+		(s.Limit, s.Window)
+	}
+	if n < 1 {
+		return BadRule{Reason: "the limit is below one"}
+	}
+	if d <= 0ns {
+		return BadRule{Reason: "the time is not above zero"}
+	}
+	rule
+}
+
+// CheckRefusesBadRules: Check keeps a rule of each algorithm exactly when
+// its limit is one or more and its time is above zero.
+law CheckRefusesBadRules(pick int, n int, d duration) {
+	let rule Rule = match ((pick%3)+3)%3 {
+	case 0:
+		TokenBucket{Capacity: n, Every: d}
+	case 1:
+		FixedWindow{Limit: n, Window: d}
+	case _:
+		SlidingWindow{Limit: n, Window: d}
+	}
+	let kept = Check(rule) catch {
+	case BadRule:
+		return n < 1 || d <= 0ns
+	}
+	n >= 1 && d > 0ns && kept == rule && LimitOf(rule) == n
+}
+
+// Limiter grants or refuses takes of tokens per key, at a time its caller
+// gives: an operation carries no capability (types.md, Capabilities 4),
+// so the time is an argument, as in x/time/rate's AllowN(now, n). Take
+// and Wait read it from the context's time.Clock.
+type Limiter {
+	// TakeAt grants cost tokens of key at now, or fails Limited with the
+	// wait after which it would be granted. A refused take changes
+	// nothing. A now before the key's last grant counts as the time of
+	// that grant, so tasks that read the clock in one order and take in
+	// the other never break the rule.
+	TakeAt(key string, cost int, now time.Time) Grant fails Limited | BadCost,
+
+	// RefusalChangesNothing: at one instant, a take refused once is
+	// refused again, with the same RetryAfter.
+	law RefusalChangesNothing(key string, cost int, sec int64) {
+		let c = 1 + ((cost%3)+3)%3
+		let now = time.NewTime(sec, 0)
+		for _ in 0..10000 {
+			TakeAt(key, c, now) catch {
+			case Limited as first:
+				let again = TakeAt(key, c, now) catch {
+				case Limited as second:
+					return second.RetryAfter == first.RetryAfter
+				case BadCost:
+					return false
+				}
+				return again.Remaining < 0
+			case BadCost:
+				return true
+			}
+		}
+		true
+	},
+
+	// RetryAfterIsExact: a refused take is still refused one nanosecond
+	// before its RetryAfter, and granted at it.
+	law RetryAfterIsExact(key string, cost int, sec int64) {
+		let c = 1 + ((cost%3)+3)%3
+		let now = time.NewTime(sec, 0)
+		for _ in 0..10000 {
+			TakeAt(key, c, now) catch {
+			case Limited as l:
+				if l.RetryAfter <= 0ns {
+					return false
+				}
+				let early = TakeAt(key, c, now.Add(l.RetryAfter-1ns)) catch {
+				case Limited:
+					let late = TakeAt(key, c, now.Add(l.RetryAfter)) catch {
+					case Limited, BadCost:
+						return false
+					}
+					return late.Remaining >= 0
+				case BadCost:
+					return false
+				}
+				return early.Remaining < 0
+			case BadCost:
+				return true
+			}
+		}
+		true
+	},
+
+	// CostBelowOneIsBad: a take of no tokens or fewer fails BadCost.
+	law CostBelowOneIsBad(key string, cost int, sec int64) {
+		let c = -(((cost % 1000) + 1000) % 1000)
+		let g = TakeAt(key, c, time.NewTime(sec, 0)) catch {
+		case BadCost:
+			return true
+		case Limited:
+			return false
+		}
+		g.Remaining < 0
+	},
+}
+
+// Take grants cost tokens of key now, by the context's time.Clock, or
+// fails Limited with the wait after which it would be granted (Effect's
+// onExceeded "fail", x/time/rate's AllowN).
+func Take(l Limiter, key string, cost int) Grant fails Limited | BadCost needs time.Clock {
+	try l.TakeAt(key, cost, time.Clock.Now())
+}
+
+// Wait takes cost tokens of key from l, sleeping on the context's
+// Scheduler for each RetryAfter it is told, until a take is granted
+// (Effect's onExceeded "delay", x/time/rate's WaitN). Takes of other
+// callers may come first: Wait promises no order among waiters. A stop of
+// the calling task ends the sleep.
+func Wait(l Limiter, key string, cost int) Grant fails BadCost needs time.Clock | Scheduler {
+	for {
+		let g = l.TakeAt(key, cost, time.Clock.Now()) catch {
+		case Limited as w:
+			Scheduler.Sleep(w.RetryAfter)
+			continue
+		case BadCost as b:
+			return b
+		}
+		return g
+	}
+}

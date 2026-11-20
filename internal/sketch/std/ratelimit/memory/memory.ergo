@@ -1,0 +1,372 @@
+// Package memory is a ratelimit.Limiter that keeps each key's state in the
+// process's memory (docs/spec/stdlib.md, ratelimit). Every copy of a
+// Limiter is the same limiter: the keys are in a sync.Ref, so tasks that
+// take at once see one state, and each take is one atomic step of its
+// key. A program whose limit must hold across processes uses a provider
+// over a shared store instead.
+//
+// Effect: RateLimiter's layerStoreMemory. Go control: a map under a mutex,
+// with x/time/rate's arithmetic per key.
+
+import ratelimit
+import sync
+import task
+import time
+
+// Limiter is the memory limiter of one rule. New makes one.
+type Limiter {
+	rule ratelimit.Rule,
+	keys sync.Ref[Map[string, entry]],
+} implements ratelimit.Limiter
+
+// entry is one key's state: seen is the time of its last grant, and a
+// take at an earlier time counts as one at seen. TokenBucket keeps in at
+// the time its bucket is full again, the theoretical arrival time of the
+// generic cell rate algorithm (GCRA): the bucket holds Capacity tokens
+// less one for each Every from now to at. FixedWindow keeps in at the
+// start of the key's window and in used the tokens granted in it.
+// SlidingWindow keeps in log the grants of the last Window, oldest first.
+type entry { seen time.Time, at time.Time, used int, log []slot }
+
+// slot is one grant of a sliding window: when, and how many tokens.
+type slot { at time.Time, cost int }
+
+// outcome is what one step of a key decided.
+type outcome = granted{Remaining int} | refused{RetryAfter duration}
+
+// New is an empty limiter of rule: every key starts with its whole limit.
+// It fails BadRule when rule's limit is below one or its time is not
+// above zero.
+func New(rule ratelimit.Rule) Limiter fails ratelimit.BadRule {
+	Limiter{rule: try ratelimit.Check(rule), keys: sync.NewRef(Map[string, entry]{})}
+}
+
+// TakeAt grants cost tokens of key at now, or fails Limited with the
+// exact wait from now. A refused take stores nothing.
+func TakeAt(l Limiter, key string, cost int, now time.Time) ratelimit.Grant fails ratelimit.Limited | ratelimit.BadCost {
+	let limit = ratelimit.LimitOf(l.rule)
+	if cost < 1 || cost > limit {
+		return ratelimit.BadCost{Cost: cost, Limit: limit}
+	}
+	let rule = l.rule
+	let o = sync.Modify(l.keys, func(keys Map[string, entry]) (outcome, Map[string, entry]) {
+		let e = match keys.Get(key) {
+		case Some[entry] as s:
+			s.Value
+		case None:
+			entry{seen: now, at: now, used: 0, log: []slot{}}
+		}
+		let late = e.seen.After(now)
+		let at = if late { e.seen } else { now }
+		let (d, next) = step(rule, e, at, cost)
+		match d {
+		case granted:
+			let mut kept = keys
+			kept[key] = next
+			(d, kept)
+		case refused as r:
+			if late {
+				return (refused{RetryAfter: r.RetryAfter + e.seen.Sub(now)}, keys)
+			}
+			(d, keys)
+		}
+	})
+	match o {
+	case granted as g:
+		ratelimit.Grant{Remaining: g.Remaining}
+	case refused as r:
+		ratelimit.Limited{RetryAfter: r.RetryAfter}
+	}
+}
+
+// step is one take of cost tokens at now from a key in state e, by rule:
+// what it decided and the key's next state.
+func step(rule ratelimit.Rule, e entry, now time.Time, cost int) (outcome, entry) {
+	match rule {
+	case ratelimit.TokenBucket as b:
+		bucket(b.Capacity, b.Every, e, now, cost)
+	case ratelimit.FixedWindow as f:
+		window(f.Limit, f.Window, e, now, cost)
+	case ratelimit.SlidingWindow as s:
+		sliding(s.Limit, s.Window, e, now, cost)
+	}
+}
+
+// bucket is a take from a token bucket by GCRA: the take moves the time
+// the bucket is full again by cost tokens' time, from now when it is full
+// already. The bucket has room when that time is at most Capacity tokens'
+// time from now.
+func bucket(capacity int, every duration, e entry, now time.Time, cost int) (outcome, entry) {
+	let base = if e.at.After(now) { e.at } else { now }
+	let next = base.Add(time.Times(every, cost))
+	let ahead = next.Sub(now)
+	let room = time.Times(every, capacity)
+	if ahead > room {
+		return (refused{RetryAfter: ahead - room}, e)
+	}
+	(granted{Remaining: time.Count(room-ahead, every)}, entry{seen: now, at: next, used: 0, log: e.log})
+}
+
+// window is a take from a fixed window: a window that has ended starts
+// again at now, with nothing used.
+func window(limit int, width duration, e entry, now time.Time, cost int) (outcome, entry) {
+	let fresh = now.Sub(e.at) >= width
+	let start = if fresh { now } else { e.at }
+	let used = if fresh { 0 } else { e.used }
+	if used+cost > limit {
+		return (refused{RetryAfter: width - now.Sub(start)}, e)
+	}
+	(granted{Remaining: limit - used - cost}, entry{seen: now, at: start, used: used + cost, log: e.log})
+}
+
+// sliding is a take from a sliding window: the grants of the last width,
+// with cost, are at most limit. A refused take waits until enough of the
+// oldest grants leave the window.
+func sliding(limit int, width duration, e entry, now time.Time, cost int) (outcome, entry) {
+	let mut first = 0
+	for first < len(e.log) && now.Sub(e.log[first].at) >= width {
+		first += 1
+	}
+	let mut used = 0
+	for i in first..len(e.log) {
+		used += e.log[i].cost
+	}
+	if used+cost <= limit {
+		let log = e.log.Slice(first, len(e.log)).Append(slot{at: now, cost: cost})
+		return (granted{Remaining: limit - used - cost}, entry{seen: now, at: e.at, used: 0, log: log})
+	}
+	let need = used + cost - limit
+	let mut freed = 0
+	let mut i = first
+	for freed < need {
+		freed += e.log[i].cost
+		i += 1
+	}
+	(refused{RetryAfter: width - now.Sub(e.log[i-1].at)}, e)
+}
+
+// mgrant is one grant of the model of AgreesWithTheModel: the key, the
+// time since the start, and the cost.
+type mgrant { key int, at duration, cost int }
+
+// level is a token bucket of the model: whole tokens, and the time spent
+// toward the next one.
+type level { tokens int, since duration }
+
+// fill is lv after d: one token back for each Every, up to Capacity, and
+// a full bucket spends no time toward a token it cannot hold.
+func fill(b ratelimit.TokenBucket, lv level, d duration) level {
+	let total = lv.since + d
+	let n = time.Count(total, b.Every)
+	if lv.tokens+n >= b.Capacity {
+		return level{tokens: b.Capacity, since: 0ns}
+	}
+	level{tokens: lv.tokens + n, since: total - time.Times(b.Every, n)}
+}
+
+// model is what a take of cost tokens of key at now decides, by rule's
+// definition over every grant before it: a fold of the grants, where the
+// providers keep one state per key.
+func model(rule ratelimit.Rule, grants []mgrant, key int, now duration, cost int) outcome {
+	match rule {
+	case ratelimit.TokenBucket as b:
+		let mut lv = level{tokens: b.Capacity, since: 0ns}
+		let mut last = 0ns
+		for g in grants {
+			if g.key == key {
+				lv = fill(b, lv, g.at-last)
+				lv = level{tokens: lv.tokens - g.cost, since: lv.since}
+				last = g.at
+			}
+		}
+		lv = fill(b, lv, now-last)
+		if lv.tokens >= cost {
+			return granted{Remaining: lv.tokens - cost}
+		}
+		refused{RetryAfter: time.Times(b.Every, cost-lv.tokens) - lv.since}
+	case ratelimit.FixedWindow as f:
+		let mut open = false
+		let mut start = 0ns
+		let mut used = 0
+		for g in grants {
+			if g.key == key {
+				if !open || g.at-start >= f.Window {
+					open = true
+					start = g.at
+					used = 0
+				}
+				used += g.cost
+			}
+		}
+		if !open || now-start >= f.Window {
+			start = now
+			used = 0
+		}
+		if used+cost <= f.Limit {
+			return granted{Remaining: f.Limit - used - cost}
+		}
+		refused{RetryAfter: f.Window - (now - start)}
+	case ratelimit.SlidingWindow as s:
+		// The cost of the grants later than after in the window that
+		// ends at u.
+		let inWindow = func(u duration, after duration) int {
+			let mut n = 0
+			for g in grants {
+				if g.key == key && u-g.at < s.Window && g.at > after {
+					n += g.cost
+				}
+			}
+			n
+		}
+		if inWindow(now, -1ns)+cost <= s.Limit {
+			return granted{Remaining: s.Limit - inWindow(now, -1ns) - cost}
+		}
+		// The first grant whose leaving, with the grants before it, makes
+		// room.
+		for g in grants {
+			if g.key == key && now-g.at < s.Window && inWindow(now, g.at)+cost <= s.Limit {
+				return refused{RetryAfter: g.at + s.Window - now}
+			}
+		}
+		refused{RetryAfter: -1ns}
+	}
+}
+
+// AgreesWithTheModel: over a script of takes and waits drawn from seed,
+// on two keys and a rule of each algorithm, every take is granted with
+// the Remaining the model gives, or refused with its RetryAfter, or fails
+// BadCost when its cost is outside 1..Limit. The script waits by drawn
+// times and by the RetryAfter last told, and one nanosecond less.
+law AgreesWithTheModel(seed int64) {
+	let mut s = seed
+	let draw = func(n int) int {
+		s = s*6364136223846793005 + 1442695040888963407
+		let r = (s >> 33) % int64(n)
+		int(if r < 0 { r + int64(n) } else { r })
+	}
+	let unit = time.Times(1ms, 1+draw(20))
+	let n = 1 + draw(4)
+	let rule ratelimit.Rule = match draw(3) {
+	case 0:
+		ratelimit.TokenBucket{Capacity: n, Every: unit}
+	case 1:
+		ratelimit.FixedWindow{Limit: n, Window: time.Times(unit, n)}
+	case _:
+		ratelimit.SlidingWindow{Limit: n, Window: time.Times(unit, n)}
+	}
+	let l = New(rule) catch {
+	case ratelimit.BadRule:
+		return false
+	}
+	let start = time.Unix(seed%1000000, 0)
+	let mut grants = []mgrant{}
+	let mut now = 0ns
+	let mut wait = 0ns
+	for _ in 0..80 {
+		let op = draw(10)
+		if op < 6 {
+			let key = draw(2)
+			let cost = draw(n + 2)
+			let mut retry = 0ns
+			let mut bad = false
+			let g = TakeAt(l, if key == 0 { "a" } else { "b" }, cost, start.Add(now)) catch {
+			case ratelimit.Limited as x:
+				retry = x.RetryAfter
+				ratelimit.Grant{Remaining: -1}
+			case ratelimit.BadCost:
+				bad = true
+				ratelimit.Grant{Remaining: -1}
+			}
+			if cost < 1 || cost > n {
+				if !bad {
+					return false
+				}
+			} else {
+				match model(rule, grants, key, now, cost) {
+				case granted as w:
+					if bad || g.Remaining != w.Remaining {
+						return false
+					}
+					grants = grants.Append(mgrant{key: key, at: now, cost: cost})
+				case refused as w:
+					if bad || g.Remaining != -1 || retry != w.RetryAfter {
+						return false
+					}
+					wait = w.RetryAfter
+				}
+			}
+		} else if op < 8 {
+			now = now + time.Times(1ms, draw(3*time.Count(unit, 1ms)))
+		} else if op < 9 {
+			now = now + wait
+		} else if wait > 1ns {
+			now = now + wait - 1ns
+		}
+	}
+	true
+}
+
+// WaitSleepsTheRetryAfter: ratelimit.Wait on a bucket of one token that
+// a take emptied sleeps one token's time, Every, and is granted then, not
+// before. Advance first waits until the task waits (stdlib.md, time 6:
+// Advance settles), so no loop reads Sleepers.
+law WaitSleepsTheRetryAfter(n int) {
+	let d = time.Times(1ns, 2+((n%1000)+1000)%1000)
+	let l = New(ratelimit.TokenBucket{Capacity: 1, Every: d}) catch {
+	case ratelimit.BadRule:
+		return false
+	}
+	let m = time.NewManual(0)
+	with context { time.Clock: m, Scheduler: m } {
+		let first = ratelimit.Take(l, "k", 1) catch {
+		case ratelimit.Limited, ratelimit.BadCost:
+			return false
+		}
+		let t = task.Go() {
+			ratelimit.Wait(l, "k", 1) catch {
+			case ratelimit.BadCost:
+				ratelimit.Grant{Remaining: -1}
+			}
+		}
+		m.Advance(d - 1ns)
+		let asleep = m.Sleepers() == 1
+		m.Advance(1ns)
+		first.Remaining == 0 && asleep && t.Wait().Remaining == 0
+	}
+}
+
+// LateTakeCountsAsTheLastGrant: a take at a time before the key's last
+// grant is decided as one at that grant's time, and its RetryAfter counts
+// from its own time.
+law LateTakeCountsAsTheLastGrant(seed int64, back int) {
+	let rules = []ratelimit.Rule{ratelimit.TokenBucket{Capacity: 2, Every: 10ms}, ratelimit.FixedWindow{Limit: 2, Window: 20ms}, ratelimit.SlidingWindow{Limit: 2, Window: 20ms}}
+	let t = time.Unix(seed%1000000, 0)
+	let early = t.Add(time.Times(1ms, -1-((back%50)+50)%50))
+	let mut ok = true
+	for rule in rules {
+		let late = New(rule) catch {
+		case ratelimit.BadRule:
+			return false
+		}
+		let ontime = New(rule) catch {
+		case ratelimit.BadRule:
+			return false
+		}
+		for at in []time.Time{t, early, early, t} {
+			let a = TakeAt(late, "k", 1, at) catch {
+			case ratelimit.Limited as x:
+				ratelimit.Grant{Remaining: -1 - int(int64(x.RetryAfter - t.Sub(at)))}
+			case ratelimit.BadCost:
+				return false
+			}
+			let b = TakeAt(ontime, "k", 1, t) catch {
+			case ratelimit.Limited as x:
+				ratelimit.Grant{Remaining: -1 - int(int64(x.RetryAfter))}
+			case ratelimit.BadCost:
+				return false
+			}
+			ok = ok && a == b
+		}
+	}
+	ok
+}

@@ -3,7 +3,9 @@
 // can take through import go. The program lays out, hit tests and paints
 // (Ergo package desktop); screen turns the window's surface events into
 // Inputs, and turns the program's paint calls into MyGo's display list,
-// rasterized by MyGo's CPU renderer. It uses no MyGo widget.
+// drawn by the GPU renderer MyGo has for the surface (Metal, OpenGL or
+// OpenGL ES, render.go) or by its CPU renderer where there is none. It
+// uses no MyGo widget.
 //
 // Threading follows MyGo's rules (v1-gui plan §1.3): the surface's events
 // and frames arrive on the main thread, which only queues Inputs and
@@ -137,6 +139,11 @@ type Window struct {
 	r    raster.Renderer
 	sc   scene.Scene
 	sys  *text.System
+	// gpu is the surface's GPU renderer, nil where frames draw in memory;
+	// gpuTried tells that the surface's native objects were looked at.
+	// The main thread owns both.
+	gpu      gpuRenderer
+	gpuTried bool
 
 	// laid and lastLaid are the layouts of text the list being made and
 	// the one before used, by text and size, under tmu: a text the next
@@ -183,9 +190,7 @@ type stroke struct {
 var maskSeed = maphash.MakeSeed()
 
 func newWindow(width, height float64) *Window {
-	w := &Window{wake: make(chan struct{}, 1), start: time.Now(), width: width, height: height, sys: text.Shared(), segs: map[int]seg{}, prev: map[int]seg{}, opacity: 1}
-	fastPango(func() { w.sys.Metrics(text.Style{Size: 13}) })
-	return w
+	return &Window{wake: make(chan struct{}, 1), start: time.Now(), width: width, height: height, sys: text.Shared(), segs: map[int]seg{}, prev: map[int]seg{}, opacity: 1}
 }
 
 // Open opens a desktop window of the size, titled title, once MyGo's app
@@ -267,6 +272,12 @@ func (w *Window) event(ev platform.SurfaceEvent) bool {
 		if on {
 			w.push(Input{Kind: Frame, At: time.Since(w.start).Nanoseconds()})
 		}
+	case platform.SurfaceRenew, platform.SurfaceLowMemory:
+		// The surface's native objects are new (a phone app back from the
+		// background), or the system wants memory back: the next frame
+		// makes the renderer again, with its textures and atlases.
+		w.dropGPU()
+		w.conn.Surface.RequestFrame()
 	case platform.SurfaceResize:
 		width, height, _ := w.conn.Surface.Size()
 		w.mu.Lock()
@@ -873,7 +884,6 @@ func (w *Window) layout(s string, size float32) *text.Layout {
 	}
 	l, ok := w.lastLaid[k]
 	if !ok {
-		shaping()
 		l = w.sys.Shape(text.Params{Text: s, Style: text.Style{Size: size}, NoWrap: true, KeepSpaces: true})
 	}
 	if w.laid == nil {
@@ -898,7 +908,10 @@ func (w *Window) LineHeight(size float64) float64 {
 	return math.Ceil(float64(h))
 }
 
-// draw renders the shown list into the surface, on the main thread.
+// draw renders the shown list into the surface, on the main thread: with
+// the surface's GPU renderer where it has one (render.go), else with the
+// CPU renderer, whose pixels the surface presents. A phone's surface
+// presents no pixels, so there only the GPU shows a frame.
 func (w *Window) draw() {
 	if w.conn == nil {
 		return
@@ -917,11 +930,14 @@ func (w *Window) draw() {
 		w.build(width, height, scale)
 	}
 	w.mu.Unlock()
-	w.r.Render(&w.sc)
-	// A Headless window's frame stays in the renderer's image, which Pixel
-	// reads: the fake surface would copy it into a new buffer a frame.
-	if w.fake == nil {
-		w.conn.Surface.PresentPixels(w.r.Image.Pix, w.r.Image.Stride, w.r.Image.W, w.r.Image.H)
+	if !w.renderGPU(&w.sc) {
+		w.r.Render(&w.sc)
+		// A Headless window's frame stays in the renderer's image, which
+		// Pixel reads: the fake surface would copy it into a new buffer a
+		// frame.
+		if w.fake == nil {
+			w.conn.Surface.PresentPixels(w.r.Image.Pix, w.r.Image.Stride, w.r.Image.W, w.r.Image.H)
+		}
 	}
 	w.sys.EndFrame()
 }

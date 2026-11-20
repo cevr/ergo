@@ -65,7 +65,7 @@ func Report(b *Binding) []byte {
 		len(b.Model.Functions), len(typed), len(raw), len(b.Model.Functions)-len(b.Funcs))
 	fmt.Fprintf(&w, "  pointer positions %d (parameters and results %d, fields %d):",
 		funcPositions+len(b.Fields), funcPositions, len(b.Fields))
-	for i, cl := range []Class{ClassHandle, ClassValue, ClassOut, ClassInBuffer, ClassOutBuffer, ClassOutCount, ClassCallback, ClassKey, ClassRaw} {
+	for i, cl := range []Class{ClassHandle, ClassValue, ClassOptional, ClassOut, ClassInBuffer, ClassOutBuffer, ClassOutCount, ClassCallback, ClassKey, ClassRaw} {
 		if i > 0 {
 			w.WriteString(",")
 		}

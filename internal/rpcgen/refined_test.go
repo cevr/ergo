@@ -8,7 +8,7 @@ import (
 )
 
 // TestRefinedIntConvertsThroughItsBase is the smallest repro of FD1-g1
-// (fk-domains, FD1a): the int walker of a refined int wrote int64(v),
+// (domain-search, FD1a): the int walker of a refined int wrote int64(v),
 // which the checker refuses ("cannot convert domains.Offset to int64 in
 // one step"), so a contract with a refined int parameter generated a
 // package that did not check. It catches rpcgen-refined-one-step, which

@@ -81,6 +81,13 @@ const seedVariable = "ERGO_MUTANTS_SEED"
 // failing part kills it in the named pass (gtf-family-one-part,
 // gtf-family-start-unseen).
 //
+// Batch 23 fallout: regen-breaks-build's regenerate step writes a
+// two/names.go that its named killer's suite cannot build, a kill;
+// regen-step-fails, regen-source-does-not-compile and names-renamed (the
+// same build failure with no step) stay invalid (rgk-any-row,
+// rgk-detail-first-line); regen-unnamed-build, whose step breaks a suite
+// the row does not name, stays invalid (rgk-unnamed-killer).
+//
 // It builds Go because the runner's whole job is to build and run go test
 // binaries on mutated copies; no in-process check stands in for that.
 func TestRunnerMatchesModel(t *testing.T) {
@@ -329,6 +336,10 @@ func TestSrc(t *testing.T) {
 
 // srcTool is the source check's tool: "fmt FILE" fails on a double space,
 // "check DIR" prints one E1 diagnostic per ERROR in DIR's .src files.
+// regenNames is the regenerate step of two/names.go: it declares the
+// name two/names.txt holds, as go generate writes drawgen's packages.
+var regenNames = &Regenerate{Dir: "two", Argv: []string{"sh", "-c", `printf 'package two\n\nconst %s = 7\n' "$(cat names.txt)" > names.go`}}
+
 const srcTool = `package main
 
 import (
@@ -482,6 +493,11 @@ func checkModel(t *testing.T, seed uint64, all bool) {
 		"one/src_test.go": srcTest,
 		"cmd/src/main.go": srcTool,
 		"one/word.txt":    "hi\n",
+		// two/names.go is generated from two/names.txt (regenNames), and
+		// TestNames uses the name it declares.
+		"two/names.txt":     "Seven\n",
+		"two/names.go":      "package two\n\nconst Seven = 7\n",
+		"two/names_test.go": "package two\n\nimport \"testing\"\n\nfunc TestNames(t *testing.T) {\n\tif Seven != 7 {\n\t\tt.Fatal(Seven)\n\t}\n}\n",
 	}
 	for name, text := range files {
 		writeFile(t, filepath.Join(repo, name), text)
@@ -562,6 +578,27 @@ func checkModel(t *testing.T, seed uint64, all bool) {
 		{&Mutant{Name: "src-value", File: "one/data.src", From: "value 1", To: "value 2", Anchor: srcAnchor}, srcExpect(Killed)},
 		{&Mutant{Name: "src-unformatted", File: "one/data.src", From: "value 1", To: "value  1", Anchor: srcAnchor}, srcExpect(Invalid)},
 		{&Mutant{Name: "src-refused", File: "one/data.src", From: "value 1", To: "value 1 ERROR", Anchor: srcAnchor}, srcExpect(Invalid)},
+		// A generator's row (MUT-REGEN): the step writes two/names.go from
+		// the mutated names.txt, which no longer declares Seven, so its
+		// named killer's suite does not build: a kill. The same build
+		// failure with a step that fails, or with a mutated source that
+		// does not compile, is invalid (batch 23 fallout).
+		{&Mutant{Name: "regen-breaks-build", File: "two/names.txt", From: "Seven", To: "Eight", Killers: []string{"two:TestNames"}, Regenerate: regenNames},
+			expect{status: Killed, killers: []string{"two:TestNames"}, covering: []string{"two:TestNames"}, reason: "build", detail: "killed by build failure after regenerate: two/names_test.go:6:5: undefined: Seven"}},
+		{&Mutant{Name: "regen-step-fails", File: "two/names.txt", From: "Seven", To: "Eight", Killers: []string{"two:TestNames"}, Regenerate: &Regenerate{Dir: "two", Argv: []string{"sh", "-c", "exit 3"}}},
+			expect{status: Invalid, detail: "regenerate "}},
+		{&Mutant{Name: "regen-source-does-not-compile", File: "gen/g.go", From: "return 1 }", To: "return \"x\" }", Killers: []string{"two:TestNames"}, Regenerate: regenNames},
+			expect{status: Invalid, detail: "does not compile: gen/g.go:3:"}},
+		// The same edit to the generated file itself, with no step: its
+		// package compiles, its test does not build, and that is invalid.
+		{&Mutant{Name: "names-renamed", File: "two/names.go", From: "Seven", To: "Eight", Killers: []string{"two:TestNames"}},
+			expect{status: Invalid, detail: "build two: fail"}},
+		// A generator's row that names no killer: its step breaks two's
+		// build, which the coverage pass meets through two:TestReadsOne
+		// (it reads one/f.go). A suite the row does not name stays
+		// invalid, so a careless step cannot pass for a kill.
+		{&Mutant{Name: "regen-unnamed-build", File: "one/f.go", From: `"bye"`, To: `"by"`, Regenerate: &Regenerate{Dir: "two", Argv: []string{"sh", "-c", `printf 'package two\n\nconst Eight = 7\n' > names.go`}}},
+			expect{status: Invalid, covering: []string{"two:TestReadsOne"}, detail: "build two: fail"}},
 		{&Mutant{Name: "src-refused-declared", File: "one/data.src", From: "value 1", To: "value 1 ERROR", Anchor: srcAnchor, Refused: "the refusal is the rule"}, srcExpect(Killed)},
 	}
 	memoryLimit := uint64(0)
@@ -806,6 +843,27 @@ func writeFile(t *testing.T, path, text string) {
 	}
 	if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestCopyStartsNoMaintenance: the runner's copy is a Git repository whose
+// own configuration turns automatic gc and maintenance off, so no git a
+// test runs in it starts a repack (wf10, 2026-11-19: repacks of the
+// scratch repositories ran 13 and 40 minutes on a nearly full disk). The
+// configuration is read from the copy's file, not through git's
+// environment, which the runner also sets. Mutant:
+// mutants-copy-maintenance-on.
+func TestCopyStartsNoMaintenance(t *testing.T) {
+	dst := t.TempDir()
+	writeFile(t, filepath.Join(dst, "f.go"), "package f\n")
+	if err := commitCopy(dst, []treeFile{{path: "f.go", mode: 0o644, data: []byte("package f\n")}}); err != nil {
+		t.Fatal(err)
+	}
+	config := filepath.Join(dst, ".git", "config")
+	for key, want := range map[string]string{"gc.auto": "0", "maintenance.auto": "false"} {
+		if got := git(t, dst, "config", "--file", config, "--get", key); got != want {
+			t.Errorf("the copy's %s is %q, want %q", key, got, want)
+		}
 	}
 }
 

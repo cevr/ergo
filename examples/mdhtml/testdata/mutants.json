@@ -73,15 +73,7 @@
       "rule": "A label matches in any case (law markdown.DefinitionsAnywhere).",
       "killers": ["examples:mdhtml"]
     },
-    {
-      "name": "mdhtml-bad-reference-is-its-number",
-      "origin": "wf10 PA3",
-      "file": "examples/mdhtml/markdown/entity.ergo",
-      "from": "|| (v >= 0xD800 && v <= 0xDFFF) { '\\uFFFD' }",
-      "to": "|| (v >= 0xD800 && v <= 0xDFFF) { '?' }",
-      "rule": "A numeric reference past U+10FFFF or of a surrogate is U+FFFD (law markdown.EntitiesAreTheirText).",
-      "killers": ["examples:mdhtml"]
-    },
+    {"name":"mdhtml-bad-reference-is-its-number","origin":"wf10 PA3","file":"examples/mdhtml/markdown/entity.ergo","from":"|| (v >= 0xD800 && v <= 0xDFFF) { '\\uFFFD' } else { rune(v) }\n\t\t","to":"|| (v >= 0xD800 && v <= 0xDFFF) { '?' } else { rune(v) }\n\t\t","rule":"A numeric reference past U+10FFFF or of a surrogate is U+FFFD (law markdown.EntitiesAreTheirText).","killers":["examples:mdhtml"]},
     {
       "name": "mdhtml-keywords-drop-a-space",
       "origin": "wf10 PA3",
@@ -181,15 +173,7 @@
       "rule": "Two blocks of one item apart by a blank line make the list loose (spec example 312).",
       "killers": ["cmd/ergo:TestMdhtmlAgreesWithControl"]
     },
-    {
-      "name": "mdhtml-null-reference-is-null",
-      "origin": "wf10 PA3",
-      "file": "examples/mdhtml/markdown/entity.ergo",
-      "from": "let r = if v == 0 || v > 0x10FFFF",
-      "to": "let r = if v > 0x10FFFF",
-      "rule": "&#0; is U+FFFD (spec example 26).",
-      "killers": ["cmd/ergo:TestMdhtmlAgreesWithControl"]
-    },
+    {"name":"mdhtml-null-reference-is-null","origin":"wf10 PA3","file":"examples/mdhtml/markdown/entity.ergo","from":"let r = if v == 0 || v > 0x10FFFF || (v >= 0xD800 && v <= 0xDFFF) { '\\uFFFD' } else { rune(v) }\n\t\t","to":"let r = if v > 0x10FFFF || (v >= 0xD800 && v <= 0xDFFF) { '\\uFFFD' } else { rune(v) }\n\t\t","rule":"&#0; is U+FFFD (spec example 26).","killers":["cmd/ergo:TestMdhtmlAgreesWithControl"]},
     {
       "name": "mdhtml-safe-mode-keeps-data-text",
       "origin": "wf10 PA3",

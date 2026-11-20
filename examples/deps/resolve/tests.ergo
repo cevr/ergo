@@ -1,19 +1,19 @@
 // The resolver's tests: a small registry by hand. The laws run under ergo
 // test over generated registries.
 
-import deps/semver
+import semver
 
 func v(text string) semver.Version {
-	semver.ParseVersion(text) catch {
-	case semver.BadVersion:
-		semver.Version{Major: 0, Minor: 0, Patch: 0}
+	semver.Parse(text) catch {
+	case semver.Malformed:
+		semver.Version{Major: 0, Minor: 0, Patch: 0, Pre: []string{}, Build: []string{}}
 	}
 }
 
 func req(name string, want string) Requirement {
-	let c = semver.ParseConstraint(want) catch {
-	case semver.BadConstraint:
-		semver.Any()
+	let c = ParseConstraint(want) catch {
+	case semver.Malformed:
+		Any()
 	}
 	Requirement{Name: name, Want: c}
 }

@@ -56,7 +56,7 @@ func TestHTTPPolicyAgreesWithRuntime(t *testing.T) {
 	fr := in.newFrame(pkg, pkg.Tests[0].Decl)
 	call := func(name string, args ...Value) string {
 		in.steps, in.bytes = 0, 0
-		return outcome(func() (Value, *abrupt) { return natives[name](in, fr, fr.decl, funcs[name], args) })
+		return outcome(func() (Value, *abrupt) { return loadedNatives().std[name](in, fr, fr.decl, funcs[name], args) })
 	}
 	// callErgo runs a std function with an Ergo body.
 	callErgo := func(name string, args ...Value) string {

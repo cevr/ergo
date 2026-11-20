@@ -105,45 +105,68 @@ func TestOriginFollowsUpstream(t *testing.T) {
 	}
 }
 
-// Both layouts of a program, one folder and a program of packages, check an
-// origin folder's tests.txt, and neither wants a record.sh beside it.
-// Mutants: either layout's call of checkOrigin removed.
-func TestOriginFolderIsChecked(t *testing.T) {
+// A port's provenance lives in conformance/upstream/<source>/ports/<name>/,
+// never in the example: for both layouts of a program (one folder, and a
+// program of packages) the examples check reads the provenance's tests.txt,
+// refuses an origin in the program (a folder or a file), and refuses a
+// provenance folder with no program of its name. Mutants: the ports not
+// checked (ex-neutral-ports-unchecked), an origin folder admitted
+// (ex-neutral-origin-admitted-*).
+func TestPortProvenanceIsChecked(t *testing.T) {
 	t.Parallel()
 	layouts := map[string]map[string]string{
 		"single": {"main.ergo": "func main() {}\n"},
 		"module": {"ergo.mod": "module m\n", "cmd/module/main.ergo": "func main() {}\n"},
 	}
+	program := func(t *testing.T, root, name string, files map[string]string) string {
+		dir := filepath.Join(root, "examples", name)
+		for file, content := range files {
+			writeFile(t, filepath.Join(dir, file), content)
+		}
+		writeFile(t, filepath.Join(dir, "README.md"), "# "+name+"\n")
+		writeFile(t, filepath.Join(dir, "tags"), "default\n")
+		writeFile(t, filepath.Join(dir, "cases", "basic", "expected.out"), "")
+		return dir
+	}
+	has := func(problems []string, text string) bool {
+		return slices.ContainsFunc(problems, func(p string) bool { return strings.Contains(p, text) })
+	}
 	for name, files := range layouts {
 		for _, complete := range []bool{true, false} {
 			root := t.TempDir()
 			writeFile(t, filepath.Join(root, "up", "src", "story.test.ts"), "test('one', () => {})\ntest('two', () => {})\n")
-			dir := filepath.Join(root, "examples", name)
-			for file, content := range files {
-				writeFile(t, filepath.Join(dir, file), content)
-			}
-			writeFile(t, filepath.Join(dir, "README.md"), "# "+name+"\n")
-			writeFile(t, filepath.Join(dir, "tags"), "default\n")
-			writeFile(t, filepath.Join(dir, "cases", "basic", "expected.out"), "")
-			writeFile(t, filepath.Join(dir, "origin", "README.md"), "# origin\n")
-			writeFile(t, filepath.Join(dir, "origin", "source"), "up\n")
+			program(t, root, name, files)
+			ports := filepath.Join(root, "conformance", "upstream", "up", "ports", name)
+			writeFile(t, filepath.Join(ports, "README.md"), "# origin\n")
+			writeFile(t, filepath.Join(ports, "source"), "up\n")
 			tests := "src/story.test.ts: one -> T1\n"
 			if complete {
 				tests += "src/story.test.ts: two -> not restated: a reason\n"
 			}
-			writeFile(t, filepath.Join(dir, "origin", "tests.txt"), tests)
-			_, problems := loadProgram(dir, name, false)
-			missing := false
-			for _, p := range problems {
-				missing = missing || strings.Contains(p, "no line for src/story.test.ts: two")
-				if strings.Contains(p, "record.sh") || strings.Contains(p, "not a regular file") {
-					t.Errorf("%s: an origin folder is refused: %q", name, problems)
-				}
-			}
-			if missing == complete {
+			writeFile(t, filepath.Join(ports, "tests.txt"), tests)
+			_, problems := loadExamples(root, false)
+			if missing := has(problems, "no line for src/story.test.ts: two"); missing == complete {
 				t.Errorf("%s, complete %v: want the missing title named exactly when it is missing; %q", name, complete, problems)
 			}
+			if complete && len(problems) > 0 {
+				t.Errorf("%s: a complete provenance is refused: %q", name, problems)
+			}
 		}
+		for _, form := range []string{"origin/README.md", "origin"} {
+			root := t.TempDir()
+			with := maps.Clone(files)
+			with[form] = "an original\n"
+			program(t, root, name, with)
+			if _, problems := loadExamples(root, false); !has(problems, "never in the example") {
+				t.Errorf("%s with %s: want the origin refused; %q", name, form, problems)
+			}
+		}
+	}
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "examples", "README.md"), "# examples\n")
+	writeFile(t, filepath.Join(root, "conformance", "upstream", "up", "ports", "gone", "README.md"), "# origin\n")
+	if _, problems := loadExamples(root, false); !has(problems, "no program examples/gone") {
+		t.Errorf("a provenance with no program: want it named; %q", problems)
 	}
 }
 

@@ -189,7 +189,7 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 			// Go's library, or one read from its binding (import go;
 			// gostd's runtime.NumCPU). The emitter calls its Go target
 			// (hostCall), and useFunc would ask the naming pass for a
-			// name it never gave (examples/onebrc). The IR calls the
+			// name it never gave (examples/station-stats). The IR calls the
 			// target by its import path, in the plain domain, by the
 			// call's shape and types alone (ir_tuple.go; SP4).
 			return b.hostCall(x, c, f, p)

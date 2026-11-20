@@ -1,5 +1,7 @@
 import dense
 import vt/vt
+import vt/traffic
+import strings
 
 // Row flags.
 let flagWrap = byte(1)
@@ -72,6 +74,26 @@ func New(config vt.Config) Screen {
 		s.grow(vt.PageRows)
 	}
 	s
+}
+
+// ScrollbackIsBounded: once the history is full, more output makes no
+// cell (the oldest page is cleared and used again), and the ring never
+// holds more than the history's pages, the buffer's, and one.
+law ScrollbackIsBounded(seed int) {
+	let config = configOf(seed)
+	let input = traffic.Gen(seed, 2000) + fill(config)
+	let mut d = New(config)
+	let _ = vt.Play(&d, input, 512)
+	let full = d.Grown()
+	let _ = vt.Play(&d, input, 512)
+	let active = (d.Rows() + vt.PageRows - 1) / vt.PageRows
+	d.Grown() == full && d.Pages() <= vt.HistoryPages(config)+active+1
+}
+
+// fill is output that leaves the alternate buffer and the scroll region
+// and then scrolls the main buffer past its history's limit.
+func fill(config vt.Config) string {
+	"\x1bc" + strings.Repeat("x\n", vt.HistoryLimit(config)+config.Rows+vt.PageRows)
 }
 
 // home is the cursor of a new screen.

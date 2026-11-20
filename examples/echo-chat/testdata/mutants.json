@@ -1,0 +1,150 @@
+{
+  "about": "echo-chat's application mutants; each is judged by the example's laws and cases (scripts/examples), not by a compiler test.",
+  "mutants": [
+    {
+      "name": "fk14-broken-takes-a-late-open", "origin": "wf10/fk14a",
+      "file": "examples/echo-chat/talk/session.ergo",
+      "from": "\tcase (Connecting, Opened):\n",
+      "to": "\tcase (Connecting, Opened), (Broken, Opened):\n",
+      "rule": "The news of a line that ended changes nothing (law ReconnectIsAFreshEntry).",
+      "anchor": {"tests": ["examples:echo-chat"]}, "killers": ["examples:echo-chat"]
+    },
+    {
+      "name": "fk14-open-ends-the-entry", "origin": "wf10/fk14a",
+      "file": "examples/echo-chat/talk/session.ergo",
+      "from": "\t\tStay[Session]{Next: Session{..s, Link: Online{Log: []Said{}, Out: []string{}}}}\n",
+      "to": "\t\tEnter[Session]{Next: Session{..s, Link: Online{Log: []Said{}, Out: []string{}}}}\n",
+      "rule": "Opening is a Stay, so the entry that holds the line lasts through Online (case tour: the line is held, and a send gets its echo).",
+      "anchor": {"tests": ["examples:echo-chat"]}, "killers": ["examples:echo-chat"]
+    },
+    {
+      "name": "fk14-blank-sent", "origin": "wf10/fk14a",
+      "file": "examples/echo-chat/talk/session.ergo",
+      "from": "\t\tif text == \"\" {\n",
+      "to": "\t\tif false {\n",
+      "rule": "A blank or whitespace-only input is not sent (law SendOnlyWhenOnline).",
+      "anchor": {"tests": ["examples:echo-chat"]}, "killers": ["examples:echo-chat"]
+    },
+    {
+      "name": "fk14-untrimmed-send", "origin": "wf10/fk14a",
+      "file": "examples/echo-chat/talk/session.ergo",
+      "from": "Out: o.Out.Append(text)",
+      "to": "Out: o.Out.Append(s.Input + text[0:0])",
+      "rule": "The trimmed input is sent (law SendOnlyWhenOnline).",
+      "anchor": {"tests": ["examples:echo-chat"]}, "killers": ["examples:echo-chat"]
+    },
+    {
+      "name": "fk14-close-is-a-failure", "origin": "wf10/fk14a",
+      "file": "examples/echo-chat/talk/session.ergo",
+      "from": "\tcase (Online, Closed):\n\t\tEnter[Session]{Next: Session{..s, Link: Offline}}\n",
+      "to": "\tcase (Online, Closed):\n\t\tEnter[Session]{Next: Session{..s, Link: Broken{Why: \"closed\"}}}\n",
+      "rule": "The server's close leaves Offline (law DisconnectReleasesTheConnection).",
+      "anchor": {"tests": ["examples:echo-chat"]}, "killers": ["examples:echo-chat"]
+    },
+    {"name":"fk14-failure-reason-changed","origin":"wf10/fk14a","file":"examples/echo-chat/talk/session.ergo","from":"Link: Broken{Why: f.Why}}}\n\tcase (","to":"Link: Broken{Why: f.Why + \"!\"}}}\n\tcase (","rule":"A failure shows its reason (law DisconnectReleasesTheConnection).","anchor":{"tests":["examples:echo-chat"]},"killers":["examples:echo-chat"]},
+    {
+      "name": "fk14-received-as-mine", "origin": "wf10/fk14a",
+      "file": "examples/echo-chat/talk/session.ergo",
+      "from": "Said{Text: r.Text, Mine: false, At: r.At}",
+      "to": "Said{Text: r.Text, Mine: true, At: r.At}",
+      "rule": "A frame received is the server's line (law ConversationKeepsOrder).",
+      "anchor": {"tests": ["examples:echo-chat"]}, "killers": ["examples:echo-chat"]
+    },
+    {
+      "name": "fk14-hangup-read-as-failure", "origin": "wf10/fk14a",
+      "file": "examples/echo-chat/talk/session.ergo",
+      "from": "\t\t\t\tcase Hangup:\n\t\t\t\t\tsend(Closed)\n",
+      "to": "\t\t\t\tcase Hangup:\n\t\t\t\t\tsend(Failed{Why: \"closed\"})\n",
+      "rule": "The work tells a server's close from a failure (case tour: hangup leaves offline).",
+      "anchor": {"tests": ["examples:echo-chat"]}, "killers": ["examples:echo-chat"]
+    },
+    {
+      "name": "fk14-echo-release-keeps-the-line", "origin": "wf10/fk14a",
+      "file": "examples/echo-chat/memory/echo.ergo",
+      "from": "\t\t\t\te.open.Set(None)\n\t\t\t}\n\t\tcase None:\n\t\t}\n\t\tframes.End()\n",
+      "to": "\t\t\t\te.open.Set(e.open.Get())\n\t\t\t}\n\t\tcase None:\n\t\t}\n",
+      "rule": "A released line takes no send: the release forgets the line and ends its frames (law talk.Channel.ClosedLineTakesNoSend for Echo).",
+      "anchor": {"tests": ["examples:echo-chat"]}, "killers": ["examples:echo-chat"]
+    },
+    {
+      "name": "fk14-echo-release-uncounted", "origin": "wf10/fk14a",
+      "file": "examples/echo-chat/memory/echo.ergo",
+      "from": "\t\te.out.Set(e.out.Get() - 1)\n",
+      "to": "\t\te.out.Set(e.out.Get())\n",
+      "rule": "The end of a line's entry releases the line (case tour: lines held).",
+      "anchor": {"tests": ["examples:echo-chat"]}, "killers": ["examples:echo-chat"]
+    },
+    {
+      "name": "fk14-refusal-never-ends", "origin": "wf10/fk14a",
+      "file": "examples/echo-chat/memory/echo.ergo",
+      "from": "\t\te.refuse.Set(None)\n",
+      "to": "\t\te.refuse.Set(e.refuse.Get())\n",
+      "rule": "A refusal refuses one dial (case tour: Try again connects).",
+      "anchor": {"tests": ["examples:echo-chat"]}, "killers": ["examples:echo-chat"]
+    },
+    {
+      "name": "fk14b-timeout-late", "origin": "wf10/fk14b",
+      "file": "examples/echo-chat/talk/session.ergo",
+      "from": "let DialTimeout = 5s\n",
+      "to": "let DialTimeout = 6s\n",
+      "rule": "A dial times out after upstream's 5 seconds (cases tour and scenes: the error at 5,000 ms).",
+      "anchor": {"tests": ["examples:echo-chat"]}, "killers": ["examples:echo-chat"]
+    },
+    {
+      "name": "fk14b-timeout-keeps-the-line", "origin": "wf10/fk14b",
+      "file": "examples/echo-chat/talk/session.ergo",
+      "from": "\tcase (Connecting, TimedOut):\n\t\tEnter[Session]{Next: Session{..s, Link: Broken{Why: TimeoutWhy}}}\n",
+      "to": "\tcase (Connecting, TimedOut):\n\t\tStay[Session]{Next: Session{..s, Link: Broken{Why: TimeoutWhy}}}\n",
+      "rule": "A timed-out dial ends the entry, so its work and the dial stop (law DisconnectReleasesTheConnection).",
+      "anchor": {"tests": ["examples:echo-chat"]}, "killers": ["examples:echo-chat"]
+    },
+    {
+      "name": "fk14b-timeout-online", "origin": "wf10/fk14b",
+      "file": "examples/echo-chat/talk/session.ergo",
+      "from": "\tcase (Connecting, TimedOut):\n",
+      "to": "\tcase (Connecting, TimedOut), (Online, TimedOut):\n",
+      "rule": "The dial's timer does not reach an open line (law DisconnectReleasesTheConnection; case tour: wait 6000 while online).",
+      "anchor": {"tests": ["examples:echo-chat"]}, "killers": ["examples:echo-chat"]
+    },
+    {
+      "name": "fk14b-frame-unstamped", "origin": "wf10/fk14b",
+      "file": "examples/echo-chat/talk/session.ergo",
+      "from": "send(Received{Text: text, At: time.Clock.Now()})",
+      "to": "send(Received{Text: text, At: time.Unix(0, 0)})",
+      "rule": "A frame is stamped when it comes (case tour: 00:01:02).",
+      "anchor": {"tests": ["examples:echo-chat"]}, "killers": ["examples:echo-chat"]
+    },
+    {
+      "name": "fk14b-stamp-no-seconds", "origin": "wf10/fk14b",
+      "file": "examples/echo-chat/screen/screen.ergo",
+      "from": "func Stamp(t time.Time) string { t.Format(time.TimeOnly) }",
+      "to": "func Stamp(t time.Time) string { t.Format(time.Custom{Text: \"15:04\"}) }",
+      "rule": "A line's time shows hour, minute and second, as upstream's (cases).",
+      "anchor": {"tests": ["examples:echo-chat"]}, "killers": ["examples:echo-chat"]
+    },
+    {
+      "name": "fk14b-send-always-enabled", "origin": "wf10/fk14b",
+      "file": "examples/echo-chat/screen/screen.ergo",
+      "from": "ui.Fieldset(f, talk.IsBlank(input), \"\")",
+      "to": "ui.Fieldset(f, false, \"\")",
+      "rule": "Send is disabled while the field is blank (upstream's isDisabled; cases tour and scenes).",
+      "anchor": {"tests": ["examples:echo-chat"]}, "killers": ["examples:echo-chat"]
+    },
+    {
+      "name": "fk14b-enter-sends-nothing", "origin": "wf10/fk14b",
+      "file": "examples/echo-chat/screen/screen.ergo",
+      "from": "if k.Name == \"Enter\" { Some{Value: talk.Submit} } else { None }",
+      "to": "if k.Name == \"Return\" { Some{Value: talk.Submit} } else { None }",
+      "rule": "Enter in the field sends, as the form's submit does (case tour).",
+      "anchor": {"tests": ["examples:echo-chat"]}, "killers": ["examples:echo-chat"]
+    },
+    {
+      "name": "fk14b-stall-answers", "origin": "wf10/fk14b",
+      "file": "examples/echo-chat/memory/echo.ergo",
+      "from": "\tif e.stall.Get() {\n",
+      "to": "\tif e.stall.Get() && false {\n",
+      "rule": "A stalled dial waits with no answer, so only the timer ends it (case tour, case scenes).",
+      "anchor": {"tests": ["examples:echo-chat"]}, "killers": ["examples:echo-chat"]
+    }
+  ]
+}

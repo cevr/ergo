@@ -71,6 +71,27 @@ type Nothing {}
 // fail: x * 0 stays, and so does a division by a literal zero.
 func Fold(e ast.Expr) ast.Expr { fold(e, Nothing) }
 
+// FoldIsIdempotent: folding a folded expression changes nothing.
+law FoldIsIdempotent(e ast.Expr, seed int) {
+	for x in ast.Samples(e, seed) {
+		if Fold(Fold(x)) != Fold(x) {
+			return false
+		}
+	}
+	true
+}
+
+// FoldNeverGrows: a folded expression has at most the nodes of the
+// expression.
+law FoldNeverGrows(e ast.Expr, seed int) {
+	for x in ast.Samples(e, seed) {
+		if ast.Size(Fold(x)) > ast.Size(x) {
+			return false
+		}
+	}
+	true
+}
+
 func fold(e ast.Expr, k Consts) ast.Expr {
 	match e {
 	case ast.Num, ast.BoolLit:

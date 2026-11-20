@@ -789,16 +789,6 @@ func trialOf(sources []Source, c Change) Trial {
 	Trial{Ok: true, Sources: sources, Store: store, Plan: p}
 }
 
-// isReady is whether a verdict is Ready.
-func isReady(v Verdict) bool {
-	match v {
-	case Ready:
-		true
-	case Blocked:
-		false
-	}
-}
-
 // textOf is the text of file in sources, "" when there is none.
 func textOf(sources []Source, file string) string {
 	for s in sources {
