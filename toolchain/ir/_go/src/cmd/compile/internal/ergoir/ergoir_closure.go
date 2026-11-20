@@ -14,6 +14,7 @@
 package ergoir
 
 import (
+	"go/token"
 	"strings"
 
 	"cmd/compile/internal/syntax"
@@ -49,23 +50,40 @@ func (c *ergoChecker) literalType(p ergoPos, s string) (t types2.Type, ok bool) 
 	default:
 		results = []string{rest}
 	}
-	tuple := func(list []string) (*types2.Tuple, bool) {
+	tuple := func(list []string, named bool) (*types2.Tuple, bool) {
 		var vars []*types2.Var
 		for _, e := range list {
+			name := ""
+			if named {
+				name, e = ergoResultName(e)
+			}
 			et := c.typ(p, e)
 			if et == nil {
 				return nil, false
 			}
-			vars = append(vars, types2.NewParam(c.pos(p), c.pkg, "", et))
+			vars = append(vars, types2.NewParam(c.pos(p), c.pkg, name, et))
 		}
 		return types2.NewTuple(vars...), true
 	}
-	pt, ok1 := tuple(params)
-	rt, ok2 := tuple(results)
+	pt, ok1 := tuple(params, false)
+	rt, ok2 := tuple(results, true)
 	if !ok1 || !ok2 {
 		return nil, true
 	}
 	return types2.NewSignatureType(nil, nil, nil, pt, rt, false), true
+}
+
+// ergoResultName splits a result's spelling "name T" (a frame literal's
+// "(_ R, err error)", whose deferred End sets err: the "result" form a
+// function has) into its name and type; a spelling with no name is all
+// type.
+func ergoResultName(s string) (name, t string) {
+	s = strings.TrimSpace(s)
+	first, rest, ok := strings.Cut(s, " ")
+	if !ok || !token.IsIdentifier(first) && first != "_" {
+		return "", s
+	}
+	return first, strings.TrimSpace(rest)
 }
 
 // ergoSplitList splits "(A, B) rest" at the commas outside any bracket:
@@ -165,7 +183,15 @@ func (c *ergoChecker) funcLit(x *ergoExpr) (syntax.Expr, types2.Type) {
 		ft.ParamList = append(ft.ParamList, field(name, pv.Type()))
 	}
 	for i := 0; i < sig0.Results().Len(); i++ {
-		ft.ResultList = append(ft.ResultList, field(nil, sig0.Results().At(i).Type()))
+		// A named result is declared, so "result" I names it in the body
+		// (resultExpr) as in a function's.
+		r := sig0.Results().At(i)
+		var name *syntax.Name
+		if r.Name() != "" {
+			name = syntax.NewName(pos, r.Name())
+			c.info.Defs[name] = r
+		}
+		ft.ResultList = append(ft.ResultList, field(name, r.Type()))
 	}
 	sig := types2.NewSignatureType(nil, nil, nil, types2.NewTuple(params...), sig0.Results(), false)
 	// The body is a function of its own: its returns are the literal's,
