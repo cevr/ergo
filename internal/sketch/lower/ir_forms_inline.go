@@ -133,10 +133,9 @@ func (st *irState) inlineCallee(b *irBuilder, fd *funcDecl, params []*check.Var)
 		return
 	}
 	st.inlState()
-	n := len(params)
-	if !fd.envFree {
-		n++
-	}
+	// Every Go parameter slot: the parameters, the environment and the
+	// witnesses (ir_witness.go), whose type stays "" (no copy binds one).
+	n := b.slots
 	body := &irInlBody{f: fd.fn, params: make([]string, n), tps: map[*check.TypeParam]string{}, env: b.env}
 	for tp, name := range b.fc.params {
 		body.tps[tp] = b.spelling(name)
