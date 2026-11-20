@@ -55,7 +55,7 @@ import "embed"
 //go:embed semver/*.ergo
 //go:embed code/*.ergo
 //go:embed graph/*.ergo codegraph/*.ergo
-//go:embed html/*.ergo
+//go:embed html/*.ergo xml/*.ergo
 //go:embed build/*.ergo
 var Sources embed.FS
 
