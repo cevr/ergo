@@ -133,7 +133,7 @@ func TestCompare(t *testing.T) {
 // Same holds a law and its reformatted text the same, and a law whose
 // tokens or literals changed different. Mutants it kills
 // (internal/lawledger/testdata/mutants.json): same-counts-all-space,
-// same-drops-word-space, same-drops-op-space, same-strips-literals,
+// same-joins-tokens, same-drops-op-space, same-strips-literals,
 // same-ends-literal-at-escape.
 func TestSame(t *testing.T) {
 	for _, c := range []struct {

@@ -80,7 +80,7 @@ var unformat = strings.NewReplacer(
 // A failing law prints its key and the edit; the seed is fixed (1).
 //
 // Mutant only it kills (internal/lawledger/testdata/mutants.json):
-// same-brackets-are-operators.
+// same-paren-in-word.
 func TestLawledgerSameIsTheFormatters(t *testing.T) {
 	sources := stdLawSources(t)
 	if len(sources) == 0 {

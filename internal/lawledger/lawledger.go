@@ -116,56 +116,63 @@ func Normalize(statement string) string {
 	return strings.TrimSpace(spaces.ReplaceAllString(statement, " "))
 }
 
-// Same reports whether a and b state the same law: they differ at most in
-// the white space the formatter adds or drops, so a reformatted law is not
-// a changed one. A run of white space between two word characters
-// (letters, digits, _) or two operator characters (+-*/%&|^<>=!:.~?)
-// separates tokens and counts as one space; any other run does not count.
-// White space inside a string or rune literal counts as written.
-func Same(a, b string) bool { return tokenText(a) == tokenText(b) }
+// Same reports whether a and b state the same law: they are the same
+// tokens, so they differ at most in the white space the formatter adds or
+// drops, and a reformatted law is not a changed one. A token is a word
+// (letters, digits and _), a string, rune or raw literal as written, an
+// operator of Ergo's scanner (the longest of operators, below, that
+// starts there) or any other one character. White space only separates
+// tokens: a - -b is not a --b, but a!=-b is a != -b.
+func Same(a, b string) bool { return slices.Equal(tokens(a), tokens(b)) }
 
-// tokenText is s with only the white space Same counts.
-func tokenText(s string) string {
-	out := make([]byte, 0, len(s))
-	quote, space := byte(0), false
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		switch {
-		case quote != 0:
-			out = append(out, c)
-			if c == '\\' && quote != '`' && i+1 < len(s) {
-				i++
-				out = append(out, s[i])
-			} else if c == quote {
-				quote = 0
-			}
-			continue
-		case c == ' ' || c == '\t' || c == '\n' || c == '\r':
-			space = true
-			continue
-		}
-		if space && len(out) > 0 && charClass(out[len(out)-1]) != 0 && charClass(out[len(out)-1]) == charClass(c) {
-			out = append(out, ' ')
-		}
-		space = false
-		if c == '"' || c == '\'' || c == '`' {
-			quote = c
-		}
-		out = append(out, c)
-	}
-	return string(out)
+// operators are the scanner's operators of more than one character
+// (internal/sketch/syntax/token.go), the longest first.
+var operators = []string{
+	"&^=", "<<=", ">>=", "...",
+	"!=", "%=", "&&", "&=", "&^", "*=", "++", "+=", "--", "-=", "..", "/=", ":=",
+	"<-", "<<", "<=", "==", ">=", ">>", "^=", "|=", "||",
 }
 
-// charClass is 1 for a word character (a byte of a multi-byte rune
-// included), 2 for an operator character, 0 for any other.
-func charClass(c byte) int {
-	switch {
-	case c == '_' || c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= 0x80:
-		return 1
-	case strings.IndexByte("+-*/%&|^<>=!:.~?", c) >= 0:
-		return 2
+// tokens is s as Same reads it.
+func tokens(s string) []string {
+	var out []string
+	for i := 0; i < len(s); {
+		c := s[i]
+		n := 1
+		switch {
+		case c == ' ' || c == '\t' || c == '\n' || c == '\r':
+			i++
+			continue
+		case c == '"' || c == '\'' || c == '`':
+			for n < len(s)-i && s[i+n] != c {
+				if s[i+n] == '\\' && c != '`' {
+					n++
+				}
+				n++
+			}
+			n = min(n+1, len(s)-i)
+		case isWord(c):
+			for n < len(s)-i && isWord(s[i+n]) {
+				n++
+			}
+		default:
+			for _, op := range operators {
+				if strings.HasPrefix(s[i:], op) {
+					n = len(op)
+					break
+				}
+			}
+		}
+		out = append(out, s[i:i+n])
+		i += n
 	}
-	return 0
+	return out
+}
+
+// isWord reports a byte of a word: a letter, a digit, _ or a byte of a
+// multi-byte rune.
+func isWord(c byte) bool {
+	return c == '_' || c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= 0x80
 }
 
 // Read reads the ledger of the module that encloses the working directory.
