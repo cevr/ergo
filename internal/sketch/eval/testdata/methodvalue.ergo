@@ -37,6 +37,20 @@ test MethodValueBindsAtTheTake(n int, m int) {
 	assert f(m) == n + m && g(m) == n + m && k(m) == n + 2 + m && a.Add(m) == n + 1 + m
 }
 
+func applyAfter(f func(b int) int, k int, x int) int { f(x) + k }
+
+func bump(a mut Acc) int {
+	a.N = a.N + 1
+	0
+}
+
+// Passed to a known-callback variant (applyAfter), the value is the plain
+// closure, and x is still bound before the later argument writes it.
+test MethodValueBindsBeforeLaterArguments(n int, m int) {
+	let mut a = Acc{N: n}
+	assert applyAfter(a.Add, bump(&a), m) == n + m && a.N == n + 1
+}
+
 // A generic function on a generic type, every type parameter bound by x.
 test MethodValueOfAnInstance(s string) {
 	let b = Box[string]{V: s}

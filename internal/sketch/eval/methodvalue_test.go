@@ -17,7 +17,7 @@ func TestMethodValueAgrees(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]bool{"MethodValueIsTheClosure": true, "MethodValueBindsAtTheTake": true, "MethodValueOfAnInstance": true}
+	want := map[string]bool{"MethodValueIsTheClosure": true, "MethodValueBindsAtTheTake": true, "MethodValueOfAnInstance": true, "MethodValueBindsBeforeLaterArguments": true}
 	for _, r := range evalSeeded(t, string(src), 1).Results {
 		if r.Status != Passed {
 			t.Errorf("%s: %s %s", r.Name, r.Status, r.Reason)
