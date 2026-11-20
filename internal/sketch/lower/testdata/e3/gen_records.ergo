@@ -52,11 +52,11 @@ test Temps(c Celsius) {
 }
 
 test Pairs(p Pair[int, string]) {
-	assert len(p.Second) >= 0
+	let _ = len(p.Second)
 }
 
 test Forests(f Forest) {
-	assert len(f.Trees) >= 0
+	let _ = len(f.Trees)
 }
 
 func main() needs Console {

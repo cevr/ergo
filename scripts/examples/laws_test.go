@@ -40,7 +40,7 @@ func TestLawlessTypes(t *testing.T) {
 		want   []string // "LINE NAME"
 	}{
 		{"operation, no law", "// x\ntype Library {\n\tReplays() []string,\n}\n", []string{"2 Library"}},
-		{"operation and law", "type Library {\n\tReplays() []string,\n\tlaw Named() { len(Replays()) >= 0 },\n}\n", nil},
+		{"operation and law", "type Library {\n\tReplays() []string,\n\tlaw Named() { len(Replays()) == len(Replays()) },\n}\n", nil},
 		{"law body over lines", "type Store {\n\tGet(k string) int,\n\n\tlaw L(k string) {\n\t\tlet v = Get(k)\n\t\tv == v\n\t},\n}\n", nil},
 		{"one line", "type Bad {}\ntype Codec { Encode(v int) string, Decode(s string) int fails Bad }\n", []string{"2 Codec"}},
 		{"generic operation type", "type Box[K comparable, V] {\n\tGet(k K) V,\n}\n", []string{"1 Box"}},
@@ -134,7 +134,7 @@ func TestModuleProgramOperationTypeNeedsALaw(t *testing.T) {
 	}
 	lawful := newFixture(t)
 	setup(lawful)
-	lawful.write("examples/walker/walk/replays.ergo", "type Replay { Name string }\n\ntype Library {\n\tReplays() []Replay,\n\tlaw Named() { len(Replays()) >= 0 },\n}\n")
+	lawful.write("examples/walker/walk/replays.ergo", "type Replay { Name string }\n\ntype Library {\n\tReplays() []Replay,\n\tlaw Named() { len(Replays()) == len(Replays()) },\n}\n")
 	if code, out := lawful.run(); code != 0 {
 		t.Errorf("lawful: exit %d, want 0\n%s", code, out)
 	}

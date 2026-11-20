@@ -12,7 +12,8 @@ test Floats(a float32, b float64) {
 }
 
 test Others(s string, ok bool, r rune, d duration) {
-	assert len(s) >= 0 && (ok || !ok) && r == r && d == d
+	let _ = len(s)
+	assert (ok || !ok) && r == r && d == d
 }
 
 func main() needs Console {

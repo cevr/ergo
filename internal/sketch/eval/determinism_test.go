@@ -69,7 +69,7 @@ func deterministicProgram(seed uint64) string {
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "type Pair { A Map[%s, int], B Map[%s, string] }\n\n", key, key)
-	fmt.Fprintf(&b, "test Sizes(p Pair) { assert len(p.A) >= 0 && len(p.B) >= 0 }\n\n")
+	fmt.Fprintf(&b, "test Sizes(p Pair) { let _ = len(p.A) + len(p.B) }\n\n")
 	n := 4 + r.IntN(12)
 	var entries []string
 	for i := range n {
