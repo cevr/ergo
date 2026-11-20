@@ -70,6 +70,12 @@ func WorkDone() Work {
 // module, with one load, and returns the Analysis of each as its own
 // program, in the order of dirs.
 func CheckPackages(dirs []string, platform gobind.Platform) ([]Analysis, error) {
+	return CheckPackagesFS(hostFS{}, dirs, platform)
+}
+
+// CheckPackagesFS is CheckPackages reading through fsys (a warm request's
+// Recorder, which lists every input the load read).
+func CheckPackagesFS(fsys FS, dirs []string, platform gobind.Platform) ([]Analysis, error) {
 	if len(dirs) == 0 {
 		return nil, fmt.Errorf("sketchfront: no package to check")
 	}
@@ -78,7 +84,7 @@ func CheckPackages(dirs []string, platform gobind.Platform) ([]Analysis, error) 
 			return nil, fmt.Errorf("sketchfront: the package folder %s is not absolute and clean", dir)
 		}
 	}
-	l := newLoader(hostFS{}, platform, dirs[0], moduleCache())
+	l := newLoader(fsys, platform, dirs[0], moduleCache())
 	work.loads.Add(1)
 	found, err := l.findModule(dirs[0])
 	if err != nil {
