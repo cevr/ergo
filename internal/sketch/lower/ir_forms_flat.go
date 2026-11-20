@@ -361,6 +361,15 @@ func (b *irBuilder) flatWorker(fl *flatRes, body []*irStmt) ([]*irStmt, bool) {
 			known = false
 		}
 	})
+	// A frame's deferred End(&err) settles the function's named error
+	// result ("result", ir_own.go): the worker's one result is its flag,
+	// so such a body keeps its own form, as the inliner keeps it
+	// (ir_forms_inline.go).
+	irWalk(body, false, func(*irStmt, bool) {}, func(e *irExpr, _ bool) {
+		if e.K == "result" {
+			known = false
+		}
+	})
 	if !known {
 		return body, false
 	}
