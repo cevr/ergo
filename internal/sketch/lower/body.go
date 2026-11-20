@@ -200,7 +200,7 @@ type funcCtx struct {
 	// around it; lits are the literals an inlined body's callback
 	// parameters stand for; inlined is the value of the call callText
 	// just inlined.
-	inl      int
+	inl      string
 	inlDepth int
 	// pendingKnown is the fold of the match whose subject is being
 	// lowered, until its inlined call takes it (knownmatch.go).

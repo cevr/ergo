@@ -190,6 +190,11 @@ func cellEvidenceLower(t *testing.T, place cellEvidencePlace, provider, caller, 
 		b.Write(f.Data)
 	}
 	enc := cellEvidenceEncode(b.String())
+	if place.pkg != "" {
+		// A declaration of another package is its package's alias and
+		// its name (pkgnames.go, rules 2 and 3); the root's is its name.
+		enc = strings.ReplaceAll(enc, goOf(place.pkg, ""), "")
+	}
 	if enc == "" {
 		t.Fatalf("the %s lowering writes no codec function\n%s", place.name, replay)
 	}
@@ -204,7 +209,7 @@ func cellEvidenceEncode(text string) string {
 	var b strings.Builder
 	in := false
 	for _, line := range strings.Split(text, "\n") {
-		if strings.HasPrefix(line, "func ergoWrite") {
+		if strings.HasPrefix(line, "func "+goHelper("ergoWrite")) {
 			in = true
 		}
 		if in {

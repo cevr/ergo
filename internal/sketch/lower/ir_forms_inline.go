@@ -46,7 +46,7 @@ package lower
 //     call's own local, with no caught copy (ir_fail.go).
 //
 // Defects stay exact (runtime.md, Exit causes 6): the copy's positions
-// name the callee's file with the inline site's tag (path#ergo-inline-N),
+// name the callee's file with the inline site's tag (path#ergo-inline-K, K the site's key),
 // and the site joins the program's inline table (v1.RegisterInlines), as
 // the text path's //line directives tag them, so the report writes the
 // frames the calls would have had. A scope's open and close in the copy
@@ -101,7 +101,6 @@ func SetInlineReturnLoweringForTest(mode string) string {
 type irInline struct {
 	sites  map[*irExpr]*irInlSite
 	bodies map[string]*irInlBody
-	anon   int // the anon copies made, for unique names
 }
 
 // irInlSite is a marked call.
@@ -342,10 +341,11 @@ func (in *irInliner) newLocal(name, t string, p irPos) int {
 // inline site (plus one) it is in and that site's depth, whether a loop
 // runs it, the growth its path has taken, and whether it is cold.
 type irPath struct {
-	parent, depth int
-	loop, cold    bool
-	spent         int
-	lit           bool // in a function literal's body: its return is the literal's
+	parent     string // the inline site's key, "" for none (inline.go inlineSite)
+	depth      int
+	loop, cold bool
+	spent      int
+	lit        bool // in a function literal's body: its return is the literal's
 }
 
 // stmts inlines the marked whole-statement calls of list, on the path p
@@ -428,14 +428,18 @@ func (in *irInliner) splice(s *irStmt, p *irPath) []*irStmt {
 	if mode == "def2" && irInlineReturnLowering != "off" && in.localType(s.Local) == "" {
 		return nil // a returned pair's temporary takes the site's type (irRets)
 	}
-	n := len(in.l.inlineSites)
-	id, parent := strconv.Itoa(n), n+1 // the copy's names; the site its lines are in
+	// The copy's names count the function's own sites; its lines' tag is
+	// the site's key (inline.go inlineKey), a function of the site alone.
+	id := strconv.Itoa(in.count)
+	parent := p.parent
+	tag := inlineTag + "s" + id
 	if site.anon {
 		// No site of the table: its lines stay in the enclosing site.
-		id, parent = "s"+strconv.Itoa(in.st.inl.anon), p.parent
-		in.st.inl.anon++
+		id = "s" + id
+	} else {
+		parent = in.l.inlineKey(site.src, site.offset, p.parent)
+		tag = inlineTag + parent
 	}
-	tag := inlineTag + id
 	files := map[int]int{}
 	file := func(k int) int {
 		if j, ok := files[k]; ok {
@@ -471,10 +475,10 @@ func (in *irInliner) splice(s *irStmt, p *irPath) []*irStmt {
 		}
 		subst[i] = nil // bound below, once the copy's locals are known
 	}
-	if !site.anon {
-		in.l.inlineSites = append(in.l.inlineSites, inlineSite{src: site.src, offset: site.offset, parent: p.parent})
-	} else {
+	if site.anon {
 		in.st.report.StdInlined++
+	} else {
+		in.l.addInlineSite(inlineSite{src: site.src, offset: site.offset, key: parent, parent: p.parent})
 	}
 	if site.failLeaf {
 		in.st.report.FailLeaves++

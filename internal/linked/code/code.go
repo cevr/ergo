@@ -29240,32 +29240,36 @@ var ergoDecls = [...]ergoDecl{
 
 // ergoInlines lists the program's inlined calls: each one's call table
 // entry and the inlined call around it, or -1 (runtime.md, Exit causes 6).
-var ergoInlines = [...]struct{ Call, Parent int }{
-	{Call: 137, Parent: -1},
-	{Call: 141, Parent: -1},
-	{Call: 145, Parent: -1},
-	{Call: 149, Parent: -1},
-	{Call: 153, Parent: -1},
-	{Call: 157, Parent: -1},
-	{Call: 161, Parent: -1},
-	{Call: 165, Parent: -1},
-	{Call: 84, Parent: -1},
-	{Call: 85, Parent: -1},
-	{Call: 86, Parent: -1},
-	{Call: 87, Parent: -1},
-	{Call: 88, Parent: -1},
-	{Call: 89, Parent: -1},
-	{Call: 99, Parent: -1},
-	{Call: 103, Parent: -1},
-	{Call: 104, Parent: -1},
-	{Call: 111, Parent: -1},
-	{Call: 112, Parent: -1},
-	{Call: 113, Parent: -1},
-	{Call: 114, Parent: -1},
-	{Call: 121, Parent: -1},
-	{Call: 125, Parent: -1},
-	{Call: 126, Parent: -1},
-	{Call: 133, Parent: -1},
+var ergoInlines = [...]struct {
+	Key    string
+	Call   int
+	Parent string
+}{
+	{Key: "0", Call: 137, Parent: ""},
+	{Key: "1", Call: 141, Parent: ""},
+	{Key: "2", Call: 145, Parent: ""},
+	{Key: "3", Call: 149, Parent: ""},
+	{Key: "4", Call: 153, Parent: ""},
+	{Key: "5", Call: 157, Parent: ""},
+	{Key: "6", Call: 161, Parent: ""},
+	{Key: "7", Call: 165, Parent: ""},
+	{Key: "8", Call: 84, Parent: ""},
+	{Key: "9", Call: 85, Parent: ""},
+	{Key: "10", Call: 86, Parent: ""},
+	{Key: "11", Call: 87, Parent: ""},
+	{Key: "12", Call: 88, Parent: ""},
+	{Key: "13", Call: 89, Parent: ""},
+	{Key: "14", Call: 99, Parent: ""},
+	{Key: "15", Call: 103, Parent: ""},
+	{Key: "16", Call: 104, Parent: ""},
+	{Key: "17", Call: 111, Parent: ""},
+	{Key: "18", Call: 112, Parent: ""},
+	{Key: "19", Call: 113, Parent: ""},
+	{Key: "20", Call: 114, Parent: ""},
+	{Key: "21", Call: 121, Parent: ""},
+	{Key: "22", Call: 125, Parent: ""},
+	{Key: "23", Call: 126, Parent: ""},
+	{Key: "24", Call: 133, Parent: ""},
 }
 
 // ergoCall is the Ergo identity of one lowered call (#230).

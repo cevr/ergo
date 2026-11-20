@@ -446,7 +446,7 @@ func main() needs Console {
 func TestValueRuleElides(t *testing.T) {
 	p := lowerValueMode(t, "velide", valueElideSource, true)
 	code := p.mainGo()
-	for _, fn := range []string{"build", "collect", "roomy", "drop", "puts", "boxed", "moved", "count", "putOwned", "runes", "addRune", "bytesOf", "bytesTwice", "tagged"} {
+	for _, fn := range []string{"build", "collect", "roomy", "drop", "puts", "boxed", "moved", "count", goHelper("putOwned"), "runes", "addRune", "bytesOf", "bytesTwice", "tagged"} {
 		if body := goFunc(t, code, fn); strings.Contains(body, "Clone") || strings.Contains(body, "Clip(") {
 			t.Errorf("%s copies a fresh value:\n%s", fn, body)
 		}
@@ -455,13 +455,13 @@ func TestValueRuleElides(t *testing.T) {
 	// callback has ended by then: each's (non-escaping) and
 	// tasks.Transform's (its children are joined; joinedBefore). The
 	// owned body takes m with no copy; the wrapper copies it once.
-	if body := goFunc(t, code, "joinedPutOwned"); body == "" || strings.Contains(body, "Clone") {
+	if body := goFunc(t, code, goHelper("joinedPutOwned")); body == "" || strings.Contains(body, "Clone") {
 		t.Errorf("joinedPut does not own m, whose callbacks end before its bind:\n%s", body)
 	}
 	// A consumed receiver (Bindings 2): String's owned body shares the
 	// buffer through the runtime/v1 owned form; joined calls it with no
 	// copy, and keptText copies the builder it reads again.
-	if body := goFunc(t, code, "joined"); !strings.Contains(body, ".StringOwned(") || strings.Contains(body, "Clone") {
+	if body := goFunc(t, code, "joined"); !strings.Contains(body, "."+goHelperOf("strings", "StringOwned")+"(") || strings.Contains(body, "Clone") {
 		t.Errorf("joined does not hand its dead builder to String:\n%s", body)
 	}
 	if body := goFunc(t, code, "sortedDown"); !strings.Contains(body, "SlicesSortOwned[") {
@@ -472,10 +472,10 @@ func TestValueRuleElides(t *testing.T) {
 	if body := goFunc(t, code, "reversedDown"); !strings.Contains(body, "SlicesReverseOwned[") {
 		t.Errorf("reversedDown does not reverse its dead slice in place:\n%s", body)
 	}
-	if body := regexp.MustCompile(`(?s)\nfunc Sorted\[.*?\n}\n`).FindString(code); !strings.Contains(body, "SlicesSortOwned[") || strings.Contains(body, "Clone") {
+	if body := regexp.MustCompile(`(?s)\nfunc ` + goOf("slices", "Sorted") + `\[.*?\n}\n`).FindString(code); !strings.Contains(body, "SlicesSortOwned[") || strings.Contains(body, "Clone") {
 		t.Errorf("slices.Sorted does not sort the slice it collects in place:\n%s", body)
 	}
-	if body := goFunc(t, code, "keptText"); strings.Count(body, "ergoCloneBuilder(") != 1 {
+	if body := goFunc(t, code, "keptText"); strings.Count(body, goHelper("ergoCloneBuilder")+"(") != 1 {
 		t.Errorf("keptText should copy the builder it writes after String, once:\n%s", body)
 	}
 	if !strings.Contains(code, "ergo.StringsBuilderTextOwned(") {
@@ -483,10 +483,10 @@ func TestValueRuleElides(t *testing.T) {
 	}
 	// The method String itself, which a method value or a host protocol
 	// reaches, copies its receiver before the owned body takes it.
-	if !regexp.MustCompile(`\) String\(env \*Env\) string \{\n\treturn \(ergoCloneBuilder\(\w+\)\)\.StringOwned\(env\)`).MatchString(code) {
+	if !regexp.MustCompile(`\) String\(env \*Env\) string \{\n\treturn \(` + goHelper("ergoCloneBuilder") + `\(\w+\)\)\.` + goHelperOf("strings", "StringOwned") + `\(env\)`).MatchString(code) {
 		t.Errorf("the method String does not copy its receiver for the owned body")
 	}
-	if body := goFunc(t, code, "keptOwned"); strings.Count(body, "slices.Clone(") != 1 {
+	if body := goFunc(t, code, goHelper("keptOwned")); strings.Count(body, "slices.Clone(") != 1 {
 		t.Errorf("kept should copy the kept read once:\n%s", body)
 	}
 	// kept is inlined into main, its own copy of a slice with it; build's
@@ -507,8 +507,10 @@ func TestValueRuleElides(t *testing.T) {
 	// the read kept is copied instead (moveOver). The Map's copy is only
 	// the cell's clone argument, once: maps.Clone under MAPCOPY's entry
 	// rule (V8), whose entries have no write path, else ergoCloneMap.
-	mapCopies := func(body string) int { return strings.Count(body, "ergoCloneMap") + strings.Count(body, "maps.Clone(") }
-	if body := goFunc(t, code, "shelve"); mapCopies(body) != 1 || !strings.Contains(body, "ergoCloneBox(") {
+	mapCopies := func(body string) int {
+		return strings.Count(body, goHelper("ergoCloneMap")) + strings.Count(body, "maps.Clone(")
+	}
+	if body := goFunc(t, code, "shelve"); mapCopies(body) != 1 || !strings.Contains(body, goHelper("ergoCloneBox")+"(") {
 		t.Errorf("shelve copies the whole Map at the bind, not the entry it read:\n%s", body)
 	}
 	// shelveArms binds all in each of two arms (pinata's Change): a use
@@ -538,7 +540,7 @@ func TestValueRuleElides(t *testing.T) {
 	// audit takes t whole with no copy, s keeps t.S, which no write
 	// through at reaches, and best takes at.Best, which nothing reads
 	// before Tally{..at, Best: best} replaces it (moves.go, a late take).
-	if body := goFuncBody(t, code, "auditOwned"); strings.Contains(body, "Clone") {
+	if body := goFuncBody(t, code, goHelper("auditOwned")); strings.Contains(body, "Clone") {
 		t.Errorf("audit copies the Tally it owns:\n%s", body)
 	}
 	// And where a use reaches the field, the let copies it: keepBest's b
@@ -550,11 +552,11 @@ func TestValueRuleElides(t *testing.T) {
 	// again before the update. liveAfter reads t after at's write, so t
 	// is not owned.
 	for _, fn := range []string{"keepBestOwned", "handBestOwned", "peekTakeOwned", "handTakeOwned", "handViaOwned", "peekLateOwned", "loopTakeOwned"} {
-		if body := goFuncBody(t, code, fn); !strings.Contains(body, "maps.Clone(") {
+		if body := goFuncBody(t, code, goHelper(fn)); !strings.Contains(body, "maps.Clone(") {
 			t.Errorf("%s shares a field a use of the record reaches:\n%s", fn, body)
 		}
 	}
-	if strings.Contains(code, "liveAfterOwned") {
+	if strings.Contains(code, goHelper("liveAfterOwned")) {
 		t.Errorf("liveAfter owns a parameter it reads after its bind's write")
 	}
 	// m = maps.Update(m, k, bump) is inlined at its site (inline.go):
@@ -566,7 +568,7 @@ func TestValueRuleElides(t *testing.T) {
 		t.Errorf("m = maps.Update(m, k, bump) is not inlined with bump called directly:\n%s", body)
 	}
 	called := lowerValueMode(t, "velidecall", valueElideSource, true, "call").mainGo()
-	update := regexp.MustCompile(`(?s)\nfunc UpdateOwned\[.*?\n}\n`).FindString(called)
+	update := regexp.MustCompile(`(?s)\nfunc ` + goHelperOf("maps", "UpdateOwned") + `\[.*?\n}\n`).FindString(called)
 	if update == "" || strings.Contains(update, "Clone") || !strings.Contains(goFunc(t, called, "count"), "UpdateOwned[") || strings.Contains(goFunc(t, called, "count"), "Clone") {
 		t.Errorf("m = maps.Update(m, k, f) copies the Map:\n%s\n%s", update, goFunc(t, called, "count"))
 	}
