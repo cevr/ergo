@@ -262,6 +262,10 @@ func registerNatives(t nativeTables) {
 	})
 	pure("slices.Sort", func(a []Value) Value { return sortValues(elems(a[0])) })
 	pure("slices.sortOwned", func(a []Value) Value { return sortValues(elems(a[0])) })
+	// cmp.Max and Min are Go's builtin max and min: a float's NaN gives
+	// NaN, and max(-0, +0) is +0, min(-0, +0) is -0 (EVAL-BUILDER).
+	pure("cmp.Max", func(a []Value) Value { return pick(a[0], a[1], true) })
+	pure("cmp.Min", func(a []Value) Value { return pick(a[0], a[1], false) })
 	natives["slices.Slice"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		xs := args[0].(sliceV)
 		i, j := args[1].(int64), args[2].(int64)
@@ -277,6 +281,19 @@ func registerNatives(t nativeTables) {
 			return nil, fr.defect(at, "runtime error: slice bounds out of range [%d:%d] with length %d", i, j, xs.n)
 		}
 		return newSlice(append([]Value{}, xs.elems()[i:j]...)), nil
+	}
+	// bytes.grow is bs.Grow(n) (CollGrow; runtime/v1.StringsBuilderGrow):
+	// the same bytes with room for n more, which the evaluator does not
+	// hold apart from its length, so the value itself; a negative n is
+	// Go's defect.
+	natives["bytes.grow"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		if n := args[1].(int64); n < 0 {
+			return nil, fr.defect(at, "strings.Builder.Grow: negative count")
+		}
+		if ab := in.charge(fr, at, 1); ab != nil {
+			return nil, ab
+		}
+		return args[0], nil
 	}
 	natives["slices.Take"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		xs, i := args[0].(sliceV).elems(), args[1].(int64)
@@ -381,7 +398,8 @@ const randSeedHi = 0x45_72_67_6f_52_61_6e_64
 // collNatives are the natives of the operations of the built-in types
 // (check.CollOpOf, PRIM-4), by operation, never by a declaration's name:
 // each runs as the std function it was before it became an operation.
-// The builder operations have none, as their std helpers had none.
+// Of the builder operations only Grow has one (std http's ParseQuery
+// calls it); the others have none, as their std helpers had none.
 var collNatives = map[check.CollOp]string{
 	check.CollTakeAt:     "slices.Take",
 	check.CollSlice:      "slices.Slice",
@@ -394,6 +412,7 @@ var collNatives = map[check.CollOp]string{
 	check.CollRuneText:   "utf8.RuneText",
 	check.CollMakeSlice:  "slices.WithCapacity",
 	check.CollBytes:      "strings.stringsBytes",
+	check.CollGrow:       "bytes.grow",
 }
 
 // nativeOf is fn's native, nil when the evaluator has none.
@@ -514,6 +533,44 @@ func sortValues(xs []Value) Value {
 		return sortAs[string](xs)
 	}
 	panic(fmt.Sprintf("a sort of %T", xs[0]))
+}
+
+// pick is Go's builtin max(a, b) when larger, else min(a, b), over the
+// ordered value types.
+func pick(a, b Value, larger bool) Value {
+	switch a := a.(type) {
+	case float64:
+		return pickOf(a, b.(float64), larger)
+	case float32:
+		return pickOf(a, b.(float32), larger)
+	case int64:
+		return pickOf(a, b.(int64), larger)
+	case int32:
+		return pickOf(a, b.(int32), larger)
+	case int16:
+		return pickOf(a, b.(int16), larger)
+	case int8:
+		return pickOf(a, b.(int8), larger)
+	case uint64:
+		return pickOf(a, b.(uint64), larger)
+	case uint32:
+		return pickOf(a, b.(uint32), larger)
+	case uint16:
+		return pickOf(a, b.(uint16), larger)
+	case uint8:
+		return pickOf(a, b.(uint8), larger)
+	case string:
+		return pickOf(a, b.(string), larger)
+	}
+	ice("cmp.Max or Min of %T", a)
+	return nil
+}
+
+func pickOf[T cmp.Ordered](a, b T, larger bool) Value {
+	if larger {
+		return max(a, b)
+	}
+	return min(a, b)
 }
 
 func sortAs[T cmp.Ordered](xs []Value) Value {

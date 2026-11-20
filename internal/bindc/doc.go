@@ -320,7 +320,7 @@
 //
 // ErgoText emits the Ergo signatures of the Go package (<header>.ergo). The
 // text is provisional: it parses with internal/sketch/syntax and is in
-// canonical internal/sketch/format form, and the checker does not read it
+// canonical internal/hostsyntax form, and the checker does not read it
 // yet. It holds:
 //
 //   - a provenance header and `import go <import path>`, unquoted, because

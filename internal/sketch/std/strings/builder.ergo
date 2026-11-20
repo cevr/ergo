@@ -11,13 +11,13 @@ type Builder { buf []byte }
 func NewBuilder() Builder { Builder{buf: []byte{}} }
 
 // WriteString adds s at the end of b, as Go's Builder.WriteString.
-func WriteString(b *Builder, s string) { b.buf = b.buf.AppendString(s) }
+func WriteString(b mut Builder, s string) { b.buf = b.buf.AppendString(s) }
 
 // WriteByte adds c at the end of b, as Go's Builder.WriteByte.
-func WriteByte(b *Builder, c byte) { b.buf = b.buf.Append(c) }
+func WriteByte(b mut Builder, c byte) { b.buf = b.buf.Append(c) }
 
 // WriteBytes adds the bytes of bs at the end of b, as Go's Builder.Write.
-func WriteBytes(b *Builder, bs []byte) { b.buf = b.buf.AppendBytes(bs) }
+func WriteBytes(b mut Builder, bs []byte) { b.buf = b.buf.AppendBytes(bs) }
 
 // WriteFrom adds n bytes at the end of b, copied from b's text at start
 // on, as an LZ77 decoder copies a match: byte k of the n is the byte at
@@ -27,12 +27,12 @@ func WriteBytes(b *Builder, bs []byte) { b.buf = b.buf.AppendBytes(bs) }
 // its end with n > 0, is a defect. It copies whole runs, never byte by byte: a run the text holds
 // already is one append, as hand Go copies from its own []byte (Go's
 // Builder has no such write).
-func WriteFrom(b *Builder, start int, n int) { b.buf = b.buf.AppendFrom(start, n) }
+func WriteFrom(b mut Builder, start int, n int) { b.buf = b.buf.AppendFrom(start, n) }
 
 // Grow makes room for n more bytes in b, so that the next n bytes written
 // allocate nothing, as Go's Builder.Grow; a negative n is a defect, as Go
 // panics.
-func Grow(b *Builder, n int) { b.buf = b.buf.Grow(n) }
+func Grow(b mut Builder, n int) { b.buf = b.buf.Grow(n) }
 
 // Len is the number of bytes written to b.
 func Len(b Builder) int { len(b.buf) }

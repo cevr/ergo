@@ -32,9 +32,9 @@ import (
 	"sort"
 	"strings"
 
+	format "ergo.local/prototype/internal/hostsyntax"
 	"ergo.local/prototype/internal/rpcgen"
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/format"
 )
 
 // Files is the generated package: its folder, relative to the contract's

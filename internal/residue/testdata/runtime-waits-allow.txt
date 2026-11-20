@@ -15,7 +15,6 @@ runtime/v1/net/net.go	deadline.set	handshake: a deadline's timer fired, and its 
 runtime/v1/net/net.go	waitOn	follow-up NET-PARK: a task's wait on an in-memory pipe (nettest.Pipe) does not park yet, so a manual clock's Advance waits for it; the pipe's write and close are to wake it (rt.Wake)
 
 # a send that never waits
-runtime/v1/queue.go	Queue.signal	no wait: each waiter's channel has room for its one token and is in the waiters once, empty; a domain waiter is unparked first
 runtime/v1/http/http.go	httpServer.timeouts	no task: a connection's timer goroutine waits for its next phase outside every task; only its sleeps are tasks, and they sleep on the Scheduler
 runtime/v1/http/http_client.go	httpDoVia	no wait: got has room for the exchange's one result; the receive is host: the response of a host exchange, or of a local one, whose in-memory server goroutines answer with no clock
 runtime/v1/http/http_local.go	httpLocal.answer	no wait: out has room for the handler's one answer
@@ -53,6 +52,7 @@ runtime/v1/http/http_client.go	httpRefusedStatus	host: the next event of a refus
 runtime/v1/rpc/rpc.go	rpcRun.end	host: the handle of a call that ended; it has ended, so the wait returns
 runtime/v1/rpc/rpc.go	rpcRun.start	handshake: a call task waits until its spawner set its handle, then hands its end to the serve loop
 runtime/v1/host.go	lineReader.readAll	host: the next read of standard input, or the reader's stop
+runtime/v1/term.go	lineReader.peek	host: the next read of standard input, a resize signal, or the task's stop (UC1: a key read in raw mode)
 runtime/v1/exec/exec_spawn.go	ExecKill	host: the detached group's end within the grace, which no event reports
 runtime/v1/http/http_client.go	httpStreamVia	host: the next event of a streamed response (a local one's comes from the in-memory server's goroutines, which need no clock)
 runtime/v1/exec/exec_sandbox_linux.go	execHelperFor	host: another command of the same case waits for its helper's start (TH1c)

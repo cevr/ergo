@@ -59,6 +59,9 @@ func (tc *typeCtx) wireCodecFuncs(self check.Type) string {
 	for i, w := range tc.l.directWriters {
 		s += "; " + directField(i) + " " + tc.wireDirectType(w, self)
 	}
+	for i := range tc.l.directReaders {
+		s += "; " + readField(i) + " " + tc.wireReadType(i, self)
+	}
 	return s
 }
 
@@ -156,6 +159,7 @@ func (fc *funcCtx) wireWitness(t check.Type, site syntax.Node) string {
 		return params, tc.valueResults(t), tc.wireDecode(t, e, r, x, "*new("+gt+")", fc.scope) + "return " + x + ", nil\n"
 	})
 	direct := fc.wireDirectFuncs(tc, t, t, func(v string) string { return v })
+	direct += fc.wireReadFuncs(tc, t, t, func(v string) string { return v })
 	return tc.wireCodecType(t) + "{Enc: " + enc + ", Dec: " + dec + direct + ", Field: " + fc.wireFieldWitness(tc, t, site) + "}"
 }
 
@@ -200,6 +204,8 @@ func wireBase(dir string, t check.Type) string {
 		head = "ergoDecode"
 	case directIndex(dir) >= 0:
 		head = "ergoWrite"
+	case readIndex(dir) >= 0:
+		head = "ergoRead"
 	}
 	switch u := t.(type) {
 	case *check.Named:
@@ -246,6 +252,7 @@ func wireUnder(t check.Type) check.Type {
 // program's encode and decode calls can reach.
 func (l *lowerer) reserveWires(pkgs []*check.Package, reserve func(key pkgKey, base string, sort string)) {
 	l.collectDirectWriters(pkgs)
+	l.collectDirectReaders(pkgs)
 	walked := map[string]bool{}
 	var walk func(dir string, info *check.Info, t check.Type)
 	walk = func(dir string, info *check.Info, t check.Type) {
@@ -265,7 +272,7 @@ func (l *lowerer) reserveWires(pkgs []*check.Package, reserve func(key pkgKey, b
 		if l.wireInline(t) {
 			// A call site writes it inline, but decode[T] of an inline T
 			// is a call of its decode function (wireCall).
-			if dir == "decode" {
+			if dir == "decode" || readIndex(dir) >= 0 {
 				reserve(key, wireBase(dir, t), key.kind+" "+key.obj.(string))
 			}
 			return
@@ -312,6 +319,9 @@ func (l *lowerer) reserveWires(pkgs []*check.Package, reserve func(key pkgKey, b
 				}
 			case check.CallDecode:
 				walk("decode", p.Info, c.Type)
+				if i, ok := l.directReaderIndex(p.Info, x.Args[0]); ok {
+					walk(readDir(i), p.Info, c.Type)
+				}
 			}
 		}
 		// A generic function's wire argument: its witness calls the
@@ -326,6 +336,9 @@ func (l *lowerer) reserveWires(pkgs []*check.Package, reserve func(key pkgKey, b
 					walk("decode", p.Info, inst.TypeArgs[i])
 					for d := range l.directWriters {
 						walk(directDir(d), p.Info, inst.TypeArgs[i])
+					}
+					for d := range l.directReaders {
+						walk(readDir(d), p.Info, inst.TypeArgs[i])
 					}
 				}
 			}
@@ -347,9 +360,17 @@ func (fc *funcCtx) wireCall(x *syntax.CallExpr, c *check.Call) operand {
 			em = wireEvents{via: i}
 		}
 	}
-	vals := fc.callArgs(x.Args, x)
-	env := fc.envExpr(x)
+	var vals []string
 	tc := fc.wireCtx(x)
+	if i, ok := fc.l.directReaderIndex(fc.l.info, x.Args[0]); c.Kind == check.CallDecode && ok {
+		// A direct reader: its value, not the Reader adapter around it
+		// (wirereader.go).
+		vals = []string{fc.value(x.Args[0])}
+		tc = tc.reading(i)
+	} else {
+		vals = fc.callArgs(x.Args, x)
+	}
+	env := fc.envExpr(x)
 	if c.Kind == check.CallEncode {
 		w := vals[1]
 		if cw, ok := fc.l.cellOf(em); ok {
@@ -372,9 +393,9 @@ func (fc *funcCtx) wireCall(x *syntax.CallExpr, c *check.Call) operand {
 	}
 	call := ""
 	if tp, ok := c.Type.(*check.TypeParam); ok {
-		call = tc.wireOf(tp) + ".Dec(" + env + ", " + vals[0] + ")"
+		call = tc.wireOf(tp) + "." + tc.decodeField() + "(" + env + ", " + vals[0] + ")"
 	} else {
-		call = fc.l.wireFunc("decode", c.Type, x) + "(" + env + tc.wireWits(c.Type) + ", " + vals[0] + ")"
+		call = fc.l.wireFunc(tc.decodeDir(), c.Type, x) + "(" + env + tc.wireWits(c.Type) + ", " + vals[0] + ")"
 	}
 	v, e := fc.temp("v"), fc.temp("err")
 	fc.line(v + ", " + e + " := " + call)
@@ -418,7 +439,6 @@ func (tc *typeCtx) wireEncodeWith(em wireEvents, t check.Type, env, w, v string)
 // enclosing function on a failure.
 func (tc *typeCtx) wireDecode(t check.Type, env, r, into, zero string, scope *namer) string {
 	l := tc.l
-	task := taskOf(env)
 	if l.wireInline(t) {
 		b := wireUnder(t).(*check.Basic)
 		gt := tc.goType(t)
@@ -435,7 +455,7 @@ func (tc *typeCtx) wireDecode(t check.Type, env, r, into, zero string, scope *na
 			read = "Uint"
 		}
 		var s strings.Builder
-		s.WriteString(raw + ", " + err + " := " + r + "." + read + "(" + task + ")\n")
+		s.WriteString(raw + ", " + err + " := " + tc.readOp(env, r, read) + "\n")
 		s.WriteString("if " + err + " != nil {\nreturn " + zero + ", " + err + "\n}\n")
 		if lo, hi, ok := intRange(b.Kind); ok {
 			s.WriteString("if " + raw + " < " + lo + " || " + raw + " > " + hi + " {\nreturn " + zero + ", " + tc.wireKind(env, r, b.Name) + "\n}\n")
@@ -448,9 +468,9 @@ func (tc *typeCtx) wireDecode(t check.Type, env, r, into, zero string, scope *na
 	err := scope.alloc("err")
 	call := ""
 	if tp, ok := t.(*check.TypeParam); ok {
-		call = tc.wireOf(tp) + ".Dec(" + env + ", " + r + ")"
+		call = tc.wireOf(tp) + "." + tc.decodeField() + "(" + env + ", " + r + ")"
 	} else {
-		call = l.wireFunc("decode", t, tc.site) + "(" + env + tc.wireWits(t) + ", " + r + ")"
+		call = l.wireFunc(tc.decodeDir(), t, tc.site) + "(" + env + tc.wireWits(t) + ", " + r + ")"
 	}
 	return into + ", " + err + " := " + call + "\nif " + err + " != nil {\nreturn " + zero + ", " + err + "\n}\n"
 }
@@ -502,7 +522,7 @@ func (tc *typeCtx) wireFailure(name string, vals ...string) string {
 
 // wireKind is the WireWrongKind of r's place, wanting want.
 func (tc *typeCtx) wireKind(env, r, want string) string {
-	return tc.wireFailure(check.WireKindName, r+".Path("+taskOf(env)+")", strconv.Quote(want))
+	return tc.wireFailure(check.WireKindName, tc.readOp(env, r, "Path"), strconv.Quote(want))
 }
 
 // wireFunc is the codec function of t in direction dir, emitted once, at
@@ -588,6 +608,15 @@ func (l *lowerer) wireFunc(dir string, t check.Type, site syntax.Node) string {
 				l.gen.WriteString(head(n) + w + " := &" + param + "\n" + l.cellEventsFrom(cw, env, w, raw, &start, site) + "\nreturn " + param + "\n}\n\n")
 			}
 		}
+		if !cell && l.ir != nil {
+			// No IR builder takes an encoder on the reference Writer, or
+			// on a direct writer that is no cell, yet.
+			why := "codec writer on the reference Writer"
+			if via >= 0 {
+				why = "codec writer on a direct writer that is no cell"
+			}
+			l.ir.codecText(name, why)
+		}
 		l.gen.WriteString(head(name) + text + "}\n\n")
 		if cell && cf.pending {
 			cf.pending = false
@@ -596,9 +625,15 @@ func (l *lowerer) wireFunc(dir string, t check.Type, site syntax.Node) string {
 		return name
 	}
 	r := scope.alloc("r")
-	reader := tc.goType(check.PreludeType(check.WireReaderName))
+	if i := readIndex(dir); i >= 0 {
+		tc.readVia = i + 1 // direct reader i (wirereader.go)
+	}
+	reader := tc.readerGoType()
 	zero := "*new(" + goType + ")"
 	l.wireDecodeBody(tc, &body, t, env, task, r, zero, scope)
+	if l.ir != nil {
+		l.ir.codecText(name, "codec reader") // no IR builder takes a decoder yet
+	}
 	l.gen.WriteString("func " + name + tlist + "(" + lead + ", " + r + " " + reader + ") (" + goType + ", error) {\n" + body.String() + "}\n\n")
 	return name
 }
@@ -608,7 +643,7 @@ func (l *lowerer) wireFunc(dir string, t check.Type, site syntax.Node) string {
 func (l *lowerer) wireCallFunc(f *check.Func, env string, site syntax.Node, args ...string) string {
 	fd := l.useFunc(f, site)
 	lead := []string{}
-	if !fd.pure {
+	if !fd.envFree {
 		lead = []string{env}
 	}
 	if fd.method != nil {
@@ -681,6 +716,7 @@ func (l *lowerer) wireEncodeBody(em wireEvents, tc *typeCtx, b *strings.Builder,
 		b.WriteString("for _, " + e + " := range " + v + " {\n" + tc.wireEncodeWith(em, u.Elem, env, w, e) + "\n}\n")
 		b.WriteString(em.close(true, task, w))
 	case *check.Map:
+		l.intMapConflict(u) // intmap.go: the codec reads Go's map
 		k := scope.alloc("k")
 		b.WriteString(em.open(false, "len("+v+")", task, w))
 		b.WriteString("for _, " + k + " := range " + l.pkgName(pkgKey{"import", runtimeImport}, "ergo") + ".WireKeys(" + v + ") {\n")
@@ -772,7 +808,7 @@ func (l *lowerer) wireDecodeBody(tc *typeCtx, b *strings.Builder, t check.Type, 
 		// own buffer, so a kept one is never written again.
 		buf, raw, err := scope.alloc("buf"), scope.alloc("raw"), scope.alloc("err")
 		b.WriteString("var " + buf + " [64]byte\n")
-		b.WriteString(raw + ", " + err + " := " + r + ".StringBytes(" + task + ", " + buf + "[:0])\n")
+		b.WriteString(raw + ", " + err + " := " + tc.readOp(env, r, "StringBytes", buf+"[:0]") + "\n")
 		b.WriteString("if " + err + " != nil {\nreturn " + zero + ", " + err + "\n}\n")
 		b.WriteString(l.wireParseReturn(p.Parse, env, tc.site, raw))
 		return
@@ -804,7 +840,7 @@ func (l *lowerer) wireDecodeBody(tc *typeCtx, b *strings.Builder, t check.Type, 
 		if len(seen) > 0 {
 			b.WriteString("var " + strings.Join(seen, ", ") + " bool\n")
 		}
-		b.WriteString("for " + r + ".More(" + task + ") {\nswitch " + r + ".Key(" + task + ") {\n")
+		b.WriteString("for " + tc.readOp(env, r, "More") + " {\nswitch " + tc.readOp(env, r, "Key") + " {\n")
 		for i, f := range s.Fields {
 			fv := scope.alloc("f")
 			b.WriteString("case " + strconv.Quote(check.WireFieldName(f)) + ":\n")
@@ -830,9 +866,9 @@ func (l *lowerer) wireDecodeBody(tc *typeCtx, b *strings.Builder, t check.Type, 
 			}
 			b.WriteString(out + "." + td.fieldName[f.Name] + " = " + fv + "\n" + seen[i] + " = true\n")
 		}
-		b.WriteString("default:\n" + r + ".Skip(" + task + ")\n}\n}\n" + r + ".End(" + task + ")\n")
+		b.WriteString("default:\n" + tc.readOp(env, r, "Skip") + "\n}\n}\n" + tc.readOp(env, r, "End") + "\n")
 		for i, f := range s.Fields {
-			missing := "return " + zero + ", " + tc.wireFailure(check.WireMissingName, r+".Path("+task+")", strconv.Quote(check.WireFieldName(f))) + "\n"
+			missing := "return " + zero + ", " + tc.wireFailure(check.WireMissingName, tc.readOp(env, r, "Path"), strconv.Quote(check.WireFieldName(f))) + "\n"
 			if wit, _, ok := tc.paramField(f.Type); ok {
 				b.WriteString("if !" + seen[i] + " {\nif " + wit + ".Field == nil {\n" + missing + "}\n" + out + "." + td.fieldName[f.Name] + " = " + wit + ".Field.Empty\n}\n")
 				continue
@@ -847,34 +883,35 @@ func (l *lowerer) wireDecodeBody(tc *typeCtx, b *strings.Builder, t check.Type, 
 	}
 	begin := func(what string) {
 		err := scope.alloc("err")
-		b.WriteString("if " + err + " := " + r + ".Begin" + what + "(" + task + "); " + err + " != nil {\nreturn " + zero + ", " + err + "\n}\n")
+		b.WriteString("if " + err + " := " + tc.readOp(env, r, "Begin"+what) + "; " + err + " != nil {\nreturn " + zero + ", " + err + "\n}\n")
 	}
 	switch u := wireUnder(t).(type) {
 	case *check.Slice:
 		out := scope.alloc("out")
 		begin("List")
-		b.WriteString(out + " := " + goType + "{}\nfor " + r + ".More(" + task + ") {\n")
+		b.WriteString(out + " := " + goType + "{}\nfor " + tc.readOp(env, r, "More") + " {\n")
 		e := scope.alloc("e")
 		b.WriteString(tc.wireDecode(u.Elem, env, r, e, zero, scope))
-		b.WriteString(out + " = append(" + out + ", " + e + ")\n}\n" + r + ".End(" + task + ")\nreturn " + out + ", nil\n")
+		b.WriteString(out + " = append(" + out + ", " + e + ")\n}\n" + tc.readOp(env, r, "End") + "\nreturn " + out + ", nil\n")
 	case *check.Map:
+		l.intMapConflict(u) // intmap.go: the codec makes Go's map
 		out, k := scope.alloc("out"), scope.alloc("k")
 		begin("Object")
-		b.WriteString(out + " := " + goType + "{}\nfor " + r + ".More(" + task + ") {\n" + k + " := " + r + ".Key(" + task + ")\n")
+		b.WriteString(out + " := " + goType + "{}\nfor " + tc.readOp(env, r, "More") + " {\n" + k + " := " + tc.readOp(env, r, "Key") + "\n")
 		e := scope.alloc("e")
 		b.WriteString(tc.wireDecode(u.Elem, env, r, e, zero, scope))
-		b.WriteString(out + "[" + tc.goType(u.Key) + "(" + k + ")] = " + e + "\n}\n" + r + ".End(" + task + ")\nreturn " + out + ", nil\n")
+		b.WriteString(out + "[" + tc.goType(u.Key) + "(" + k + ")] = " + e + "\n}\n" + tc.readOp(env, r, "End") + "\nreturn " + out + ", nil\n")
 	case *check.Tuple:
 		begin("List")
 		var parts []string
 		for i, e := range u.Types {
 			ev := scope.alloc("e")
-			b.WriteString("if !" + r + ".More(" + task + ") {\nreturn " + zero + ", " + tc.wireKind(env, r, "a list of "+strconv.Itoa(len(u.Types))) + "\n}\n")
+			b.WriteString("if !" + tc.readOp(env, r, "More") + " {\nreturn " + zero + ", " + tc.wireKind(env, r, "a list of "+strconv.Itoa(len(u.Types))) + "\n}\n")
 			b.WriteString(tc.wireDecode(e, env, r, ev, zero, scope))
 			parts = append(parts, tupleField(i)+": "+ev)
 		}
-		b.WriteString("if " + r + ".More(" + task + ") {\nreturn " + zero + ", " + tc.wireKind(env, r, "a list of "+strconv.Itoa(len(u.Types))) + "\n}\n")
-		b.WriteString(r + ".End(" + task + ")\nreturn " + goType + "{" + strings.Join(parts, ", ") + "}, nil\n")
+		b.WriteString("if " + tc.readOp(env, r, "More") + " {\nreturn " + zero + ", " + tc.wireKind(env, r, "a list of "+strconv.Itoa(len(u.Types))) + "\n}\n")
+		b.WriteString(tc.readOp(env, r, "End") + "\nreturn " + goType + "{" + strings.Join(parts, ", ") + "}, nil\n")
 	case *check.Struct:
 		n, ok := t.(*check.Named)
 		if !ok {
@@ -889,7 +926,7 @@ func (l *lowerer) wireDecodeBody(tc *typeCtx, b *strings.Builder, t check.Type, 
 	case *check.Union:
 		begin("Object")
 		tag, err := scope.alloc("tag"), scope.alloc("err")
-		b.WriteString(tag + ", " + err + " := " + r + ".Tag(" + task + ")\nif " + err + " != nil {\nreturn " + zero + ", " + err + "\n}\n")
+		b.WriteString(tag + ", " + err + " := " + tc.readOp(env, r, "Tag") + "\nif " + err + " != nil {\nreturn " + zero + ", " + err + "\n}\n")
 		b.WriteString("switch " + tag + " {\n")
 		fu := l.flatUnionOf(t)
 		for k, vt := range u.Variants {
@@ -907,7 +944,7 @@ func (l *lowerer) wireDecodeBody(tc *typeCtx, b *strings.Builder, t check.Type, 
 			}
 			b.WriteString("return " + out + ", nil\n")
 		}
-		b.WriteString("}\nreturn " + zero + ", " + tc.wireFailure(check.WireTagName, r+".Path("+task+")", tag) + "\n")
+		b.WriteString("}\nreturn " + zero + ", " + tc.wireFailure(check.WireTagName, tc.readOp(env, r, "Path"), tag) + "\n")
 	default:
 		ice(tc.site, "the type %s reached decode with no wire form", t)
 	}

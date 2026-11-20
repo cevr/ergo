@@ -44,7 +44,7 @@ law StylesAreCounted(seed int, chunk Chunk) {
 
 // Audit checks the style counts and the styled flags of every live row:
 // the alternate buffer and the ring's lines from base on.
-func Audit(s *Screen) bool {
+func Audit(s mut Screen) bool {
 	let mut seen = Map[dense.ID[vt.Style], int]{}
 	let mut cells = []dense.Opt[vt.Style]{s.penID}
 	let mut rows = []int{}

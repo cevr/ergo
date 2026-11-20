@@ -7,6 +7,7 @@ import (
 	"math"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -14,10 +15,11 @@ import (
 	"ergo.local/prototype/internal/producer"
 	"ergo.local/prototype/internal/report"
 	"ergo.local/prototype/internal/sketch/lint"
+	"ergo.local/prototype/internal/sketchfront"
 	sourcefile "ergo.local/prototype/internal/source"
 )
 
-const lintHelp = "usage: ergo lint FILE|DIR [--preset P]... [--lint-config FILE] [--rules MANIFEST]... [--gate P] [--diff[=REV] [--purpose TEXT]] [--strict] [--json] [--target go]\n" +
+const lintHelp = "usage: ergo lint FILE|DIR|DIR/... [--preset P]... [--lint-config FILE] [--rules MANIFEST]... [--gate P] [--diff[=REV] [--purpose TEXT]] [--strict] [--json] [--target go]\n" +
 	"Runs the lint rules over checked source: the recommended preset, then the module's ergo.lint.json\n" +
 	"(beside ergo.mod: version, extends, rules), then each --preset in order. Presets: recommended (the rules\n" +
 	"with a published precision of at least 0.80), justifiers, strict, layout.\n" +
@@ -177,7 +179,9 @@ func lintScopeFlags(args []string) (scope lintScope, rest []string, err error) {
 	return scope, rest, nil
 }
 
-// lintCommand lints one source or package folder.
+// lintCommand lints one source or package folder, or with DIR/... every
+// package DiscoverPackages selects there, each as alone; at a workspace
+// root it first reports the workspace's rows (lintWorkspace).
 func lintCommand(args []string) error {
 	scope, args, err := lintScopeFlags(args)
 	if err != nil {
@@ -191,6 +195,79 @@ func lintCommand(args []string) error {
 	if err != nil {
 		return invalidInvocation(err)
 	}
+	if recursivePattern(opts.file) {
+		failed, err := lintWorkspace(opts)
+		if err != nil {
+			return err
+		}
+		err = recursiveCommand(opts, nil, func(one fileOptions) error { return lintPackage(one, scope, presets, sel) })
+		if err == nil && failed {
+			err = exitStatusError{code: 1, handled: true}
+		}
+		return err
+	}
+	return lintPackage(opts, scope, presets, sel)
+}
+
+// workspaceDivergentRequire is the rule of a member that requires another
+// member's Go module by version with no replace line (lintWorkspace).
+const workspaceDivergentRequire = "workspace-divergent-require"
+
+// lintWorkspace reports the workspace rows of `ergo lint DIR/...` when DIR
+// is a workspace root (docs/spec/build.md, Workspace), one line each on
+// stdout before the packages' reports, or a JSON object each with --json:
+// workspace-divergent-require, a member that requires another member's Go
+// module by version with no replace, so it builds against a copy from the
+// module cache and not the one beside it. failed is true when it reported
+// one; elsewhere it reports nothing.
+func lintWorkspace(opts fileOptions) (failed bool, err error) {
+	dir := filepath.Dir(filepath.Clean(opts.file))
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return false, err
+	}
+	if abs, err = filepath.EvalSymlinks(abs); err != nil {
+		return false, err
+	}
+	if root, err := sketchfront.IsWorkspaceRoot(nil, abs); err != nil || !root {
+		return false, err
+	}
+	ws, err := sketchfront.DiscoverWorkspace(nil, abs)
+	if err != nil {
+		return false, invalidInvocation(err)
+	}
+	for _, d := range ws.Divergences {
+		from, to := ws.Members[d.From], ws.Members[d.To]
+		file := path.Join(from.Rel, sketchfront.GoModFile)
+		target, err := filepath.Rel(from.Dir, to.Dir)
+		if err != nil {
+			return false, err
+		}
+		target = filepath.ToSlash(target)
+		if !strings.HasPrefix(target, "../") {
+			target = "./" + target
+		}
+		message := fmt.Sprintf("%s requires %s %s by version, but %s is the member %s beside it: it builds against the module cache's copy, not that one", from.Name(), d.Path, d.Version, d.Path, to.Name())
+		fix := fmt.Sprintf("replace %s => %s", d.Path, target)
+		if opts.json {
+			if err := printJSON(struct {
+				Rule    string `json:"rule"`
+				File    string `json:"file"`
+				Line    int    `json:"line"`
+				Message string `json:"message"`
+				Fix     string `json:"fix"`
+			}{workspaceDivergentRequire, file, d.Line, message, fix}); err != nil {
+				return false, err
+			}
+		} else if _, err := fmt.Fprintf(os.Stdout, "%s:%d: %s: %s; add %s\n", file, d.Line, workspaceDivergentRequire, message, fix); err != nil {
+			return false, err
+		}
+	}
+	return len(ws.Divergences) > 0, nil
+}
+
+// lintPackage lints the one source or package folder opts names.
+func lintPackage(opts fileOptions, scope lintScope, presets []string, sel packSelection) error {
 	l, err := loadForPlatform(opts.file, opts.target, opts.platform)
 	if err != nil {
 		return err

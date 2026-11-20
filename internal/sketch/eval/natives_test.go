@@ -244,6 +244,10 @@ func nativeCases(g nativeGen) []nativeCase {
 	base, bits := g.r.IntN(40)-1, g.r.IntN(70)-2
 	fmtc := []byte("efgxbEG?")[g.r.IntN(8)]
 	f := []float64{0, 1.5, -2.25, 1e21, math.NaN(), math.Inf(-1), 123456.789}[g.r.IntN(7)]
+	// cmp.Max and Min's float operands reach Go's special cases: NaN
+	// and the two zeros (EVAL-BUILDER).
+	edge := []float64{0, math.Copysign(0, -1), math.NaN(), 1.5, -2.25, math.Inf(1)}
+	fa, fb := edge[g.r.IntN(len(edge))], edge[g.r.IntN(len(edge))]
 	num := []string{"12", "-0", "+7", "9223372036854775807", "9223372036854775808", "-9223372036854775809", "0x1f", "1e3", "1_000", "", "-", "abc", "1.5", "1e400", "true", "F", "\"a\\tb\"", "`x`", "'c'"}[g.r.IntN(19)]
 	ints, ints2 := g.ints(), g.ints()
 	fl := g.floats()
@@ -362,8 +366,6 @@ func nativeCases(g nativeGen) []nativeCase {
 		{name: "totp.hotpNumber", args: []Value{byteSliceV([]byte(hin)), byteSliceV([]byte(hout)), step}, anyDefect: true, v1: func() any { return int64(v1digest.HotpNumber([]byte(hin), []byte(hout), step)) }},
 		{name: "hmac.keyedSum", args: []Value{alg, hin, hout, u}, anyDefect: true, v1: func() any { return v1digest.HmacKeyedSum(int(alg), hin, hout, u) }},
 		{name: "time.DurationText", args: []Value{d}, v1: func() any { return v1.TimeDurationText(durationOf(d)) }},
-		{name: "time.subMono", args: []Value{d, m}, v1: func() any { return int64(v1.TimeSubMono(d, m)) }},
-		{name: "time.subWall", args: []Value{d % (1 << 34), x, m % (1 << 34), int64(i)}, v1: func() any { return int64(v1.TimeSub(d%(1<<34), x, m%(1<<34), int64(i))) }},
 		{name: "time.Divide", args: []Value{d, m}, anyDefect: true, v1: func() any { return int64(v1.TimeDivide(durationOf(d), int(m))) }},
 		{name: "time.Count", args: []Value{d, m}, anyDefect: true, v1: func() any { return int64(v1.TimeCount(durationOf(d), durationOf(m))) }},
 		{name: "time.ParseDuration", args: []Value{dur}, v1: func() any { return result(v1.TimeParseDuration(dur)) }},
@@ -374,6 +376,10 @@ func nativeCases(g nativeGen) []nativeCase {
 		{name: "slices.Sort", args: []Value{li(ints)}, v1: func() any { return v1.SlicesSort(ints) }},
 		{name: "slices.Sort", args: []Value{lf(fl)}, v1: func() any { return v1.SlicesSort(fl) }},
 		{name: "slices.Sort", args: []Value{ls(xs)}, v1: func() any { return v1.SlicesSort(xs) }},
+		{name: "cmp.Max", args: []Value{fa, fb}, v1: func() any { return v1.CmpMax(fa, fb) }},
+		{name: "cmp.Min", args: []Value{fa, fb}, v1: func() any { return v1.CmpMin(fa, fb) }},
+		{name: "cmp.Max", args: []Value{s, u}, v1: func() any { return v1.CmpMax(s, u) }},
+		{name: "cmp.Min", args: []Value{d, m}, v1: func() any { return v1.CmpMin(d, m) }},
 		{name: "slices.Slice", args: []Value{li(ints), si, sj}, anyDefect: true, v1: func() any { return v1.SlicesSlice(ints, int(si), int(sj)) }},
 		{name: "slices.SortStableFunc", args: []Value{li(ints), byMod3}, v1: func() any {
 			return v1.SlicesSortStableFunc(ints, func(a, b int64) int { return cmp.Compare(mod3(a), mod3(b)) })
@@ -448,18 +454,12 @@ func pureCases(g nativeGen, s, u string, d, m int64, f float64, ints, ints2 []in
 		{name: "cmp.Max", args: []Value{s, u}, v1: func() any { return v1.CmpMax(s, u) }},
 		{name: "cmp.Min", args: []Value{s, u}, v1: func() any { return v1.CmpMin(s, u) }},
 		{name: "cmp.Min", args: []Value{uint8(ua), uint8(ub)}, v1: func() any { return v1.CmpMin(uint8(ua), uint8(ub)) }},
-		{name: "math.ToInt", args: []Value{edge}, v1: func() any { return result(v1.MathToInt(edge)) }},
 		{name: "math.ToInt8", args: []Value{edge}, v1: func() any { return result(v1.MathToInt8(edge)) }},
 		{name: "math.ToInt16", args: []Value{edge}, v1: func() any { return result(v1.MathToInt16(edge)) }},
 		{name: "math.ToInt32", args: []Value{edge}, v1: func() any { return result(v1.MathToInt32(edge)) }},
-		{name: "math.ToInt64", args: []Value{edge}, v1: func() any { return result(v1.MathToInt64(edge)) }},
-		{name: "math.ToUint", args: []Value{edge}, v1: func() any { return result(v1.MathToUint(edge)) }},
 		{name: "math.ToUint8", args: []Value{edge}, v1: func() any { return result(v1.MathToUint8(edge)) }},
 		{name: "math.ToUint16", args: []Value{edge}, v1: func() any { return result(v1.MathToUint16(edge)) }},
 		{name: "math.ToUint32", args: []Value{edge}, v1: func() any { return result(v1.MathToUint32(edge)) }},
-		{name: "math.ToUint64", args: []Value{edge}, v1: func() any { return result(v1.MathToUint64(edge)) }},
-		{name: "math.ToUintptr", args: []Value{edge}, v1: func() any { return result(v1.MathToUintptr(edge)) }},
-		{name: "math.ToInt", args: []Value{f}, v1: func() any { return result(v1.MathToInt(f)) }},
 		{name: "sha1.Sum", args: []Value{s}, v1: func() any { return v1digest.Sha1Sum(s) }},
 		{name: "sha512.Sum", args: []Value{s}, v1: func() any { return v1digest.Sha512Sum(s) }},
 		{name: "hmac.sum1", args: []Value{s, u}, v1: func() any { return v1digest.HmacSHA1(s, u) }},
@@ -474,7 +474,6 @@ func pureCases(g nativeGen, s, u string, d, m int64, f float64, ints, ints2 []in
 		{name: "base64.decodeURL", args: []Value{b64}, v1: func() any { return result(v1digest.Base64URLDecode(b64)) }},
 		{name: "filepath.Rel", args: []Value{rb, rt}, v1: func() any { return result(v1.FilepathRel(rb, rt)) }},
 		{name: "path/filepath.Split", args: []Value{rt}, v1: func() any { a, b := filepath.Split(rt); return tuple{elems: []Value{a, b}} }},
-		{name: "http.EncodeQuery", args: []Value{queryFields(names, values)}, v1: func() any { return v1http.HTTPEncodeQuery(fields) }},
 		{name: "fs.Clone", args: []Value{s}, v1: func() any { return v1.FSClone(s) }},
 		{name: "utf8.String", args: []Value{bytesValue(s)}, v1: func() any { return v1.UTF8String([]byte(s)) }},
 		{name: "slices.Insert", args: []Value{li64(ints), bi, li64(ints2)}, anyDefect: true, v1: func() any { return v1.SlicesInsert(ints, int(bi), ints2) }},

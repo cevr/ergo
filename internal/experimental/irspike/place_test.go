@@ -17,11 +17,12 @@ import (
 // v, and the *T calls on a T place all run from the IR. A failing seed
 // prints the Ergo source, both outcomes and its replay command. Mutant
 // ir-place-addr-copy (the receiver's address taken of a copy) fails it,
-// and so do STOREMOVE's: a store through r of a value with statements
-// refused (storemove-pointer-field-refused, storemove-deref-refused: a plN
-// has no IR body), or one through a let mut that those statements move
-// taken (storemove-mut-pointer-fixed, storemove-mut-deref-fixed: moved and
-// movedAll write the record moved to).
+// and so do STOREMOVE's: a store through a let mut that the value's
+// statements move taken as fixed (storemove-mut-pointer-fixed,
+// storemove-mut-deref-fixed: moved and movedAll write the record moved
+// to), and PORT-TEMP's fixPlace without its pointer binds
+// (port-temp-ptr-unbound, port-temp-deref-unbound). No such store is
+// refused since PORT-TEMP, so STOREMOVE's refusal mutants are gone.
 //
 // It builds Go for the reason needsBuild gives: the question is what the
 // built program writes where, which only a run shows.
