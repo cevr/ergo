@@ -129,6 +129,88 @@ func (l *lowerer) intMapConflict(t check.Type, why ...string) {
 	walk(t)
 }
 
+// intMapCall records a conflict for each int map that an operand or the
+// value of the call x of f carries, when f's Go signature spells Go's
+// map: a Map of a generic signature that names a type parameter (the
+// generic function, its known variant and its monomorphic copy, mono.go,
+// all write map[K]V, which an instance reads as map[int]V), or any Map of
+// a Go function's signature (host is true: the Go boundary). The next
+// round lowers those Map types as Go's map, so the call keeps its IR
+// body and passes the one Go type both sides spell (INTMAP-CALL:
+// modules/work memory/cloner.ergo's maps.GetOr(seen, …) on a
+// Map[int, bool] passed *IntMap to GetOrMono_i1(m map[int]bool, …)).
+func (l *lowerer) intMapCall(x *syntax.CallExpr, recv syntax.Expr, f *check.Func, host bool) {
+	if l.ir == nil || f == nil || f.Sig == nil || !goMapSig(f.Sig, host) {
+		return
+	}
+	const why = "call: a Go signature spells Go's map"
+	if recv != nil {
+		l.intMapConflict(l.info.Types[recv], why)
+	}
+	for _, a := range x.Args {
+		l.intMapConflict(l.info.Types[a], why)
+	}
+	l.intMapConflict(l.info.Types[x], why)
+}
+
+// goMapSig reports whether sig's Go spelling has a Go map: any Map when
+// host, else a Map that names a type parameter.
+func goMapSig(sig *check.Signature, host bool) bool {
+	seen := map[check.Type]bool{}
+	var has func(t check.Type) bool
+	has = func(t check.Type) bool {
+		if t == nil || seen[t] {
+			return false
+		}
+		seen[t] = true
+		switch t := t.(type) {
+		case *check.Map:
+			return host || mentionsTypeParam(t) || has(t.Key) || has(t.Elem)
+		case *check.Slice:
+			return has(t.Elem)
+		case *check.Array:
+			return has(t.Elem)
+		case *check.Pointer:
+			return has(t.Elem)
+		case *check.Tuple:
+			for _, e := range t.Types {
+				if has(e) {
+					return true
+				}
+			}
+		case *check.Named:
+			for _, a := range t.TArgs {
+				if has(a) {
+					return true
+				}
+			}
+		case *check.Signature:
+			for _, p := range t.Params {
+				if has(p.Type) {
+					return true
+				}
+			}
+			for _, r := range t.Results {
+				if has(r) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	for _, p := range sig.Params {
+		if has(p.Type) {
+			return true
+		}
+	}
+	for _, r := range sig.Results {
+		if has(r) {
+			return true
+		}
+	}
+	return false
+}
+
 // intMapBody records a conflict for each int map that a node of decl
 // has a value of: decl keeps its emitter body (the IR builder refused
 // it), whose Map operations are Go's.
