@@ -138,8 +138,13 @@ func TestUnfoldAtSites(t *testing.T) {
 		if !ok || !r.Applied {
 			t.Errorf("run build: %s's site is %+v; want ReadShow applied", fn, r)
 		}
-		if slices.Contains(calls[fn], "read") || slices.Contains(calls[fn], "dec") {
-			t.Errorf("run build: %s calls %v; want no read and no dec, the right side n", fn, calls[fn])
+		// The left side's calls, also through their flat workers
+		// (IRF-2): a row applied while the call is built as written
+		// is no rewrite.
+		for _, left := range []string{"read", "dec", "readFlat", "decFlat"} {
+			if slices.Contains(calls[fn], left) {
+				t.Errorf("run build: %s calls %v; want no read and no dec, the right side n", fn, calls[fn])
+			}
 		}
 	}
 	for fn, why := range map[string]string{"Mut": "is a let mut", "Again": "would evaluate it again"} {
