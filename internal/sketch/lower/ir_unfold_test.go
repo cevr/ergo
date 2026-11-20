@@ -158,7 +158,11 @@ func TestUnfoldAtSites(t *testing.T) {
 		}
 	}
 	_, tcalls := lowerWith("test build", "", true)
-	if !slices.Contains(tcalls["Direct"], "read") && !slices.Contains(tcalls["Direct"], "show") {
-		t.Errorf("test build: Direct calls %v; want the left side as written", tcalls["Direct"])
+	// Unrewritten, Direct keeps its fallible body, which IRF-2 builds as
+	// its flat worker DirectFlat (ir_forms_flat.go flatSplit): Direct is
+	// the wrapper that calls it, and the left side is the worker's.
+	direct := append(tcalls["Direct"], tcalls["DirectFlat"]...)
+	if !slices.Contains(direct, "read") && !slices.Contains(direct, "show") {
+		t.Errorf("test build: Direct and its flat worker call %v; want the left side as written", direct)
 	}
 }

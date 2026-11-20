@@ -263,21 +263,29 @@ func (b *irBuilder) bind(call *syntax.CallExpr) (pre []*irStmt, v, e int) {
 	if pre, v, e, ok := b.hostBind(call); ok { // ir_golib.go: a fallible Go call
 		return pre, v, e
 	}
-	if upre, val, ok := b.unfoldAt(call); ok {
-		// A fallible law's right side, which cannot fail: its error is
-		// nil (ir_unfold.go).
-		p := b.pos(call, call.Pos())
-		e = b.temp("err", "error", p)
-		upre = append(upre, &irStmt{K: "var", Pos: p, Local: e})
-		v = -1
-		if t := b.l.info.Types[call]; t != nil && !isNoValue(t) {
-			v = b.temp("v", b.goType(t, call), p)
-			upre = append(upre, &irStmt{K: "def", Pos: p, Local: v, X: val})
-		}
+	if upre, v, e, ok := b.unfoldBind(call); ok {
 		return upre, v, e
 	}
 	pre, x := b.rawCall(call)
 	return b.bindCall(pre, x, call)
+}
+
+// unfoldBind is bind of call as a fallible law's right side, which cannot
+// fail: its error is nil (ir_unfold.go). ok false: no law applies.
+func (b *irBuilder) unfoldBind(call *syntax.CallExpr) (pre []*irStmt, v, e int, ok bool) {
+	upre, val, ok := b.unfoldAt(call)
+	if !ok {
+		return nil, -1, -1, false
+	}
+	p := b.pos(call, call.Pos())
+	e = b.temp("err", "error", p)
+	upre = append(upre, &irStmt{K: "var", Pos: p, Local: e})
+	v = -1
+	if t := b.l.info.Types[call]; t != nil && !isNoValue(t) {
+		v = b.temp("v", b.goType(t, call), p)
+		upre = append(upre, &irStmt{K: "def", Pos: p, Local: v, X: val})
+	}
+	return upre, v, e, true
 }
 
 // bindCall is bind's binding of x, the Go form of call, after pre.
@@ -406,7 +414,11 @@ func (b *irBuilder) catch(x *syntax.CatchExpr, partial bool) ([]*irStmt, *irExpr
 		src = x.X
 		bindSrc = func() ([]*irStmt, int, int) { return b.bindMatch(x.X, m) }
 	} else if _, with := b.isWith(call); !with {
-		if pre, v, ok := b.flatCatch(x, partial, call, m); ok {
+		if upre, uv, ue, ok := b.unfoldBind(call); ok {
+			// A fallible law's right side before the flat form, as
+			// try takes it: the rewrite removes the call.
+			bindSrc = func() ([]*irStmt, int, int) { return upre, uv, ue }
+		} else if pre, v, ok := b.flatCatch(x, partial, call, m); ok {
 			return pre, v // ir_forms_flat.go
 		}
 	}
