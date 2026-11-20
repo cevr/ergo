@@ -37,6 +37,7 @@ var coverage = map[string][]string{
 	"sha1":     {"crypto/sha1"},
 	"sha256":   {"crypto/sha256"},
 	"sha512":   {"crypto/sha512"},
+	"signal":   {"os/signal"},
 	"sql":      {"database/sql"},
 	"xml":      {"encoding/xml"},
 	"slices":   {"slices", "sort"},
