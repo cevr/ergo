@@ -3390,6 +3390,7 @@
         "internal/sketchfront:TestStdSnapshotIsCurrent"
       ]
     },
-    {"name":"inf-row-not-error-unnamed","origin":"wf10 CN INFER-IMPORT-ROW","file":"internal/sketch/check/unify.go","from":"\t\t\t\tin.notError = y\n\t\t\t\treturn false","to":"\t\t\t\treturn false","rule":"A free error row parameter that meets a type no error row of the package names says so (types.md, Error types 1; D6).","killers":["check:TestInferErrorRowNamesTheCause"]}
+    {"name":"inf-row-not-error-unnamed","origin":"wf10 CN INFER-IMPORT-ROW","file":"internal/sketch/check/unify.go","from":"\t\t\t\tin.notError = y\n\t\t\t\treturn false","to":"\t\t\t\treturn false","rule":"A free error row parameter that meets a type no error row of the package names says so (types.md, Error types 1; D6).","killers":["check:TestInferErrorRowNamesTheCause"]},
+    {"name":"sig-prints-bare-fails","origin":"wf10 KSIG-FALLIBLE","file":"internal/sketch/check/types.go","from":"\t\tb.WriteString(\" fails \" + errs)\n\t}\n","to":"\t\tb.WriteString(\" fails \" + errs)\n\t} else if t.Fallible {\n\t\tb.WriteString(\" fails\")\n\t}\n","rule":"A signature prints by what its identity compares: a written fails whose row is empty prints no fails (Fallible is the lowering's error-result fact).","killers":["cmd/ergo:TestCheckerFixtures"]}
   ]
 }
