@@ -23,49 +23,6 @@ package syntax
 // clearer split.
 const maxAlternatives = 64
 
-// parseAlternatives parses `Pattern { "|" Pattern }` where a nested
-// pattern stands. Outside a case's patterns a | is S001.
-func (p *parser) parseAlternatives() Expr {
-	first := p.parsePattern()
-	if p.tok.tok != OR {
-		return first
-	}
-	if !p.orAllowed {
-		p.errorf("alternatives with | stand only in a case's patterns; a let or for pattern matches one shape")
-		return first
-	}
-	or := &OrPattern{Alts: []Expr{first}}
-	for p.tok.tok == OR {
-		or.Bars = append(or.Bars, p.tok.pos)
-		p.next()
-		or.Alts = append(or.Alts, p.parsePattern())
-	}
-	return or
-}
-
-// expandCase is a case's patterns and, when one holds an OrPattern, the
-// patterns as written: the first result is then the expansion.
-func (p *parser) expandCase(list []Expr) ([]Expr, []Expr) {
-	has := false
-	for _, x := range list {
-		if holdsOr(x) {
-			has = true
-			break
-		}
-	}
-	if !has {
-		return list, nil
-	}
-	var out []Expr
-	for _, x := range list {
-		out = append(out, expandPattern(x)...)
-	}
-	if len(out) > maxAlternatives {
-		p.errorAt(list[0].Pos(), int(list[len(list)-1].End()-list[0].Pos()), "this case expands to %d patterns, more than %d: split it into several cases", len(out), maxAlternatives)
-	}
-	return out, list
-}
-
 // holdsOr reports whether the pattern x holds an OrPattern.
 func holdsOr(x Expr) bool {
 	found := false

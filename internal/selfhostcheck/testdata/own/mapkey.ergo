@@ -1,0 +1,35 @@
+// MODES-OWN-BODY: a map key has no owner to release it (resources R40),
+// so a key type that may hold a resource is S112: a resource, a record
+// holding one, and a type parameter marked own (types.md, Generics 9), in
+// a body, a signature and a type. An unmarked type parameter is plain
+// data.
+type Res { id int } implements Closer
+
+func Close(r Res) {}
+
+type Box { r Res }
+
+func keyed[T own comparable](x own T) T {
+	let m = Map[T, int]{} //want: own
+	x
+}
+
+func keyedPlain[T comparable](x T) {
+	let m = Map[T, int]{}
+}
+
+func keyedAny[T own](x own T) T {
+	let m = Map[T, int]{}
+	x
+}
+
+func keyedNested[T own comparable](x own T) T {
+	let m = Map[int, Map[T, int]]{} //want: own
+	x
+}
+
+func boxKeyed(m Map[Box, int]) {} //want: own
+
+type Index[K own comparable] { m Map[K, int] } //want: own
+
+func sig[T own comparable](m Map[T, string]) {} //want: own

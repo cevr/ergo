@@ -20,7 +20,7 @@ import ui
 let SliderWidth = 200.0
 
 // Screen is the page for p.
-func Screen(f *ui.Frame[app.Signal], p app.Program) {
+func Screen(f mut ui.Frame[app.Signal], p app.Program) {
 	if app.Running(p.Scene) {
 		ui.Animate(f, func(at duration) app.Signal { app.Framed{At: float64(int64(at)) / 1000000.0} })
 	}
@@ -38,7 +38,7 @@ func Screen(f *ui.Frame[app.Signal], p app.Program) {
 	}
 }
 
-func ballsView(f *ui.Frame[app.Signal], b scene.Balls) {
+func ballsView(f mut ui.Frame[app.Signal], b scene.Balls) {
 	heading(f, "Canvas Art")
 	ui.Text(f, "Click the canvas to spawn a ball.")
 	ui.Area(f, "Canvas", ui.Plain(), func(e ui.PointerEvent) Option[app.Signal] {
@@ -49,7 +49,7 @@ func ballsView(f *ui.Frame[app.Signal], b scene.Balls) {
 			None
 		}
 	}) {
-		ui.Canvas(f, "Canvas", ui.Length(balls.Width), ui.Length(balls.Height)) func(pt *ui.Paint) {
+		ui.Canvas(f, "Canvas", ui.Length(balls.Width), ui.Length(balls.Height)) func(pt mut ui.Paint) {
 			ui.Fill(pt, ui.RectPath(0.0, 0.0, balls.Width, balls.Height), hex("#0a0a0f"))
 			for x in b.Field.Balls {
 				ui.Fill(pt, Circle(x.X, x.Y, x.Radius), hex(x.Color))
@@ -63,7 +63,7 @@ func ballsView(f *ui.Frame[app.Signal], b scene.Balls) {
 	}
 }
 
-func flowView(f *ui.Frame[app.Signal], fl flow.Field) {
+func flowView(f mut ui.Frame[app.Signal], fl flow.Field) {
 	heading(f, "Prism Field")
 	ui.Text(f, "Move to stir. Click to bloom.")
 	ui.Area(f, "Canvas", ui.Plain(), func(e ui.PointerEvent) Option[app.Signal] {
@@ -76,7 +76,7 @@ func flowView(f *ui.Frame[app.Signal], fl flow.Field) {
 			None
 		}
 	}) {
-		ui.Canvas(f, "Canvas", ui.Length(flow.Width), ui.Length(flow.Height)) func(pt *ui.Paint) {
+		ui.Canvas(f, "Canvas", ui.Length(flow.Width), ui.Length(flow.Height)) func(pt mut ui.Paint) {
 			paintFlow(pt, fl)
 		}
 	}
@@ -93,7 +93,7 @@ func flowView(f *ui.Frame[app.Signal], fl flow.Field) {
 // whose press at x asks for the value at x of the range (the scene keeps
 // it in range and on its step). A move is no press: the Area cannot tell
 // a drag from a hover, so only a press sets the value (gap FK12-g1).
-func slider(f *ui.Frame[app.Signal], label string, value float64, lo float64, hi float64, set own func(v float64) scene.Signal) {
+func slider(f mut ui.Frame[app.Signal], label string, value float64, lo float64, hi float64, set own func(v float64) scene.Signal) {
 	ui.Area(f, label, ui.Plain(), func(e ui.PointerEvent) Option[app.Signal] {
 		match e.Phase {
 		case ui.Down:
@@ -127,7 +127,7 @@ let twoPi = 6.283185307179586
 // paintFlow paints the flow: the background, the
 // three nebula glows, each particle's trail (a glow and a core stroke),
 // each particle's head, the vignette's strips, and the pointer's ring.
-func paintFlow(pt *ui.Paint, fl flow.Field) {
+func paintFlow(pt mut ui.Paint, fl flow.Field) {
 	ui.Fill(pt, ui.RectPath(0.0, 0.0, flow.Width, flow.Height), hex("#04030a"))
 	let speeds = []float64{0.11, 0.07, 0.13}
 	let offX = []float64{0.3, 0.72, 0.52}
@@ -265,13 +265,13 @@ func channel(n float64, h float64, l float64, c float64) float64 {
 	l - c*t
 }
 
-func button(f *ui.Frame[app.Signal], label string, sig scene.Signal) {
+func button(f mut ui.Frame[app.Signal], label string, sig scene.Signal) {
 	ui.Semantic(f, named(ui.Button, label), Some[app.Signal]{Value: app.On{Signal: sig}}, ui.Plain()) {
 		ui.Text(f, label)
 	}
 }
 
-func heading(f *ui.Frame[app.Signal], text string) {
+func heading(f mut ui.Frame[app.Signal], text string) {
 	ui.Semantic(f, ui.Access{..named(ui.Heading, text), Level: Some[int]{Value: 1}}, None, ui.Plain()) {
 		ui.Text(f, text)
 	}

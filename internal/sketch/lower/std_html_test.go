@@ -21,7 +21,7 @@ type tattr { name string, value string, bare bool }
 
 type trng { x int }
 
-func tdraw(r *trng, n int) int {
+func tdraw(r mut trng, n int) int {
 	r.x = (r.x*1103515245 + 12345) % 2147483648
 	(r.x / 65536) % n
 }
@@ -30,7 +30,7 @@ func pieces() []string {
 	[]string{"a", "Zz", "<", ">", "&", "\"", "'", "&amp;", "&lt;", "</style>", "</script>", "<script>alert(1)</script>", "javascript:", " ", "=", "/>", "-->", "é", "\t", "{\"@type\":\"Post\"}"}
 }
 
-func tstring(r *trng) string {
+func tstring(r mut trng) string {
 	let mut b = strings.NewBuilder()
 	for _ in 0..tdraw(r, 5) {
 		let ps = pieces()
@@ -70,7 +70,7 @@ func tname(s string) string {
 	b.String()
 }
 
-func tattrs(r *trng, unsafe *int) ([]tattr, []html.Attr) {
+func tattrs(r mut trng, unsafe mut int) ([]tattr, []html.Attr) {
 	let mut model = []tattr{}
 	let mut out = []html.Attr{}
 	for _ in 0..tdraw(r, 4) {
@@ -106,7 +106,7 @@ func tattrs(r *trng, unsafe *int) ([]tattr, []html.Attr) {
 	(model, out)
 }
 
-func tkids(r *trng, d int, unsafe *int) built {
+func tkids(r mut trng, d int, unsafe mut int) built {
 	let mut model = []tnode{}
 	let mut kids = []html.Child{}
 	for _ in 0..tdraw(r, 5) {
@@ -225,7 +225,7 @@ type tparser { s string, i int, ok bool }
 
 func tvoids() []string { []string{"br", "img", "input", "hr", "meta"} }
 
-func ptext(p *tparser) string {
+func ptext(p mut tparser) string {
 	let start = p.i
 	for p.i < len(p.s) && p.s[p.i] != '<' {
 		p.i = p.i + 1
@@ -233,7 +233,7 @@ func ptext(p *tparser) string {
 	unescape(strings.Slice(p.s, start, p.i))
 }
 
-func pname(p *tparser) string {
+func pname(p mut tparser) string {
 	let start = p.i
 	for p.i < len(p.s) && p.s[p.i] != ' ' && p.s[p.i] != '=' && p.s[p.i] != '>' && p.s[p.i] != '/' && p.s[p.i] != '"' && p.s[p.i] != '\'' && p.s[p.i] != '<' {
 		p.i = p.i + 1
@@ -244,7 +244,7 @@ func pname(p *tparser) string {
 	strings.Slice(p.s, start, p.i)
 }
 
-func pattrs(p *tparser) []tattr {
+func pattrs(p mut tparser) []tattr {
 	let mut out = []tattr{}
 	let mut more = true
 	for more && p.ok && p.i < len(p.s) && p.s[p.i] == ' ' {
@@ -274,7 +274,7 @@ func pattrs(p *tparser) []tattr {
 	out
 }
 
-func pkids(p *tparser, close string) []tnode {
+func pkids(p mut tparser, close string) []tnode {
 	let mut out = []tnode{}
 	let mut done = false
 	for !done && p.ok {
@@ -300,7 +300,7 @@ func pkids(p *tparser, close string) []tnode {
 	out
 }
 
-func pelement(p *tparser) tnode {
+func pelement(p mut tparser) tnode {
 	p.i = p.i + 1
 	let tag = pname(p)
 	let as2 = pattrs(p)

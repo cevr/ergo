@@ -68,7 +68,7 @@ func firstOf(p Pair) []int { p.a }
 
 func inner(p Pair) Box[int] { p.b }
 
-func get[T](b *Box[T], i int) T { b.items[i] }
+func get[T](b mut Box[T], i int) T { b.items[i] }
 
 // via, via2 and at2 return a part of b through a let, an assignment and
 // a call: each depends on b.
@@ -88,31 +88,31 @@ func via2[T](b Box[T], d T) T {
 func at2[T](b Box[T], i int) T { at(b, i) }
 
 // keep returns its callback (escaping), so it has no known variant.
-func keep(b *Box[int], f own func(v *int)) func(v *int) {
+func keep(b mut Box[int], f own func(v mut int)) func(v mut int) {
 	f(&b.items[0])
 	f
 }
 
 func sumWith(b Box[int], k int) int { dbi(b) + k }
 
-func bump(b *Box[int]) int {
+func bump(b mut Box[int]) int {
 	b.items[0] = b.items[0] + 100
 	0
 }
 
-func bumps(b *Box[[]int]) int {
+func bumps(b mut Box[[]int]) int {
 	b.items[1][0] = b.items[1][0] + 100
 	1
 }
 
-func update[T](b *Box[T], i int, f func(v *T)) fails Missing {
+func update[T](b mut Box[T], i int, f func(v mut T)) fails Missing {
 	if i >= len(b.items) {
 		return Missing{At: i}
 	}
 	f(&b.items[i])
 }
 
-func each[T](b *Box[T], f func(v *T)) {
+func each[T](b mut Box[T], f func(v mut T)) {
 	for i in 0..len(b.items) {
 		f(&b.items[i])
 	}
@@ -126,26 +126,26 @@ func fold[T](b Box[T], z int, f func(acc int, v T) int) int {
 	acc
 }
 
-func fwd[T](b *Box[T], i int, f func(v *T)) {
+func fwd[T](b mut Box[T], i int, f func(v mut T)) {
 	update(b, i, f) catch {
 	case Missing:
 		b.n = b.n + 1
 	}
 }
 
-func fwd2[T](b *Box[T], f func(v *T)) {
+func fwd2[T](b mut Box[T], f func(v mut T)) {
 	fwd(b, 0, f)
 	each(b, f)
 }
 
 // bumpAll runs unknown code only through its known sites: its footprint
 // is their literals' (H2-fp), so it has no entry poll.
-func bumpAll(b *Box[int], c int) {
-	each(b, func(v *int) { *v = *v + c })
-	fwd(b, 1, func(v *int) { *v = *v * 2 % 10007 })
+func bumpAll(b mut Box[int], c int) {
+	each(b, func(v mut int) { *v = *v + c })
+	fwd(b, 1, func(v mut int) { *v = *v * 2 % 10007 })
 }
 
-func spin[T](b *Box[T], f func(v *T)) {
+func spin[T](b mut Box[T], f func(v mut T)) {
 	for {
 		f(&b.items[0])
 	}
@@ -332,7 +332,7 @@ func (g *knownGen) stmt() {
 		g.reached["write-replace"] = true
 	case 12:
 		i, c := g.r.IntN(5), g.small()
-		g.line(fmt.Sprintf("update(&bi, %d, func(v *int) { *v = *v + %d }) catch {", i, c))
+		g.line(fmt.Sprintf("update(&bi, %d, func(v mut int) { *v = *v + %d }) catch {", i, c))
 		g.line("case Missing as m:")
 		g.line("\tConsole.Println(\"missing \\(m.At)\")")
 		g.line("}")
@@ -345,7 +345,7 @@ func (g *knownGen) stmt() {
 		}
 	case 13:
 		c := g.small()
-		g.line(fmt.Sprintf("each(&bi, func(v *int) { *v = *v * %d %% 10007 })", c))
+		g.line(fmt.Sprintf("each(&bi, func(v mut int) { *v = *v * %d %% 10007 })", c))
 		for i := range g.bi.items {
 			g.bi.items[i] = g.bi.items[i] * c % 10007
 		}
@@ -361,7 +361,7 @@ func (g *knownGen) stmt() {
 				d = x.value()
 			}
 		}
-		g.line(fmt.Sprintf("each(&bi, func(v *int) { *v = (*v + %s) %% 10007 })", k))
+		g.line(fmt.Sprintf("each(&bi, func(v mut int) { *v = (*v + %s) %% 10007 })", k))
 		for i := range g.bi.items {
 			g.bi.items[i] = (g.bi.items[i] + d) % 10007
 		}
@@ -371,7 +371,7 @@ func (g *knownGen) stmt() {
 		if len(g.fns) == 0 || g.r.IntN(3) == 0 {
 			f = g.name("h")
 			c := g.small()
-			g.line(fmt.Sprintf("let %s = func(v *int) { *v = *v + %d }", f, c))
+			g.line(fmt.Sprintf("let %s = func(v mut int) { *v = *v + %d }", f, c))
 			g.fns = append(g.fns, f)
 			g.fnAdd[f] = c
 		} else {
@@ -381,7 +381,7 @@ func (g *knownGen) stmt() {
 			g.line(fmt.Sprintf("each(&bi, %s)", f))
 			g.reached["each-opaque-let"] = true
 		} else {
-			g.line(fmt.Sprintf("each(&bi, func(v *int) { %s(v) })", f))
+			g.line(fmt.Sprintf("each(&bi, func(v mut int) { %s(v) })", f))
 			g.reached["each-opaque-lit"] = true
 		}
 		for i := range g.bi.items {
@@ -389,7 +389,7 @@ func (g *knownGen) stmt() {
 		}
 	case 17:
 		i, c := []int{0, 1, 2, 7}[g.r.IntN(4)], g.small()
-		g.line(fmt.Sprintf("fwd(&bi, %d, func(v *int) { *v = *v - %d })", i, c))
+		g.line(fmt.Sprintf("fwd(&bi, %d, func(v mut int) { *v = *v - %d })", i, c))
 		if i < len(g.bi.items) {
 			g.bi.items[i] -= c
 			g.reached["fwd-ok"] = true
@@ -399,7 +399,7 @@ func (g *knownGen) stmt() {
 		}
 	case 18:
 		c := g.small()
-		g.line(fmt.Sprintf("fwd2(&bs, func(v *[]int) { *v = []int{len(*v), %d} })", c))
+		g.line(fmt.Sprintf("fwd2(&bs, func(v mut []int) { *v = []int{len(*v), %d} })", c))
 		g.bs.items[0] = []int{len(g.bs.items[0]), c}
 		for i := range g.bs.items {
 			g.bs.items[i] = []int{len(g.bs.items[i]), c}
@@ -450,7 +450,7 @@ func (g *knownGen) stmt() {
 	case 23:
 		c := g.small()
 		f := g.name("h")
-		g.line(fmt.Sprintf("let %s = keep(&bi, func(v *int) { *v = *v + %d })", f, c))
+		g.line(fmt.Sprintf("let %s = keep(&bi, func(v mut int) { *v = *v + %d })", f, c))
 		g.bi.items[0] += c
 		g.line(fmt.Sprintf("each(&bi, %s)", f))
 		for i := range g.bi.items {
@@ -504,12 +504,12 @@ func knownProgram(seed uint64, reached map[string]bool) (src, want string) {
 	// Two tasks loop forever through spin; the stop ends each at its
 	// loop's point: one with a known pure literal, one with an opaque
 	// function value.
-	for i, cb := range []string{"func(v *int) { *v = *v + 1 }", "h"} {
+	for i, cb := range []string{"func(v mut int) { *v = *v + 1 }", "h"} {
 		g.line(fmt.Sprintf("let r%d = queue.New[int](0)", i))
 		g.line(fmt.Sprintf("let t%d = task.Go() {", i))
 		g.line("\tlet mut b = Box[int]{items: []int{0}, n: 0}")
 		if cb == "h" {
-			g.line("\tlet h = func(v *int) { *v = *v + 2 }")
+			g.line("\tlet h = func(v mut int) { *v = *v + 2 }")
 		}
 		g.line(fmt.Sprintf("\tr%d.Push(1) catch {", i))
 		g.line("\tcase queue.Closed:")
