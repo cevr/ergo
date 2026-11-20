@@ -188,10 +188,11 @@ func TestCheckTreeAnswersByTokens(t *testing.T) {
 				// package's evaluation and the cutoff's account below starts
 				// from the base alone.
 				t.Setenv("ERGO_CACHE", t.TempDir())
-				var cutKept map[string]bool
+				// Kept by either run: the first keeps the packages whose
+				// evaluation stored no verdict.
+				cutKept := map[string]bool{}
 				for range 2 {
 					unkept = nil
-					cutKept = map[string]bool{}
 					treeCutKept = func(path string, obligations bool) { cutKept[path] = obligations }
 					r := runCheckTree(t, pattern, false)
 					treeCutKept = nil
