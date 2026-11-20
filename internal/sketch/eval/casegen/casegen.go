@@ -106,6 +106,9 @@ func Sum(t Two) int { t.l.L() + t.r.R() }
 // type, and Metered's g by its provider's constructor. First is each law's
 // first refuting case and Shows the text its arguments hold: Lib's names as
 // Source spells them, cl.NewCrate(…), never lib.NewCrate(…) (ALIAS-CASE).
+// A law's label (law Metered with g = lib.Meter) keeps the package's name:
+// it is the law's key in the verdict ledger and for --law, so it must not
+// change with a file's alias.
 type Imported struct {
 	LibPath, Lib, Source string
 	First                map[string]int
@@ -131,10 +134,10 @@ type Rack { c cl.Crate, g cl.Gauge } implements Racks
 func Count(r Rack) int { lib() }
 law Metered(g cl.Gauge) { g.Level() * 0 == 1 }
 `,
-		First:   map[string]int{"law Racks.Bare for Rack": 1, "law Metered with g = cl.Meter": 1},
+		First: map[string]int{"law Racks.Bare for Rack": 1, "law Metered with g = lib.Meter": 1},
 		Shows: map[string][]string{
-			"law Racks.Bare for Rack":       {"Rack{c: cl.NewCrate(…), g: cl.NewMeter(…)}"},
-			"law Metered with g = cl.Meter": {"g = cl.NewMeter("},
+			"law Racks.Bare for Rack":        {"Rack{c: cl.NewCrate(…), g: cl.NewMeter(…)}"},
+			"law Metered with g = lib.Meter": {"g = cl.NewMeter("},
 		},
 	}
 }
