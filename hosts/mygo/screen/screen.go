@@ -110,9 +110,29 @@ type Window struct {
 	access  []platform.AccessNode
 	focus   uint64
 	field   platform.TextInputState
-	z       vec.Rasterizer
-	frames  bool
-	start   time.Time
+
+	// The strokes of the list being made and of the shown one (a stroke's
+	// op is a placeholder that draw turns into its mask) and their points
+	// (each list's arena, which its strokes index), the one StrokeBegin
+	// opened (inStroke), how many masks draw rasterized, and how many
+	// strokes it drew as Lines since the atlas left their mask out.
+	strokes, shownStrokes, refStrokes []stroke
+	pts, shownPts, refPts             []float32
+	drawing                           stroke
+	inStroke                          bool
+	// published is the accessibility tree last given the surface, and
+	// publishedFocus its focus; pix, q and disc rasterize's buffers.
+	published      []platform.AccessNode
+	publishedFocus uint64
+	pix            []byte
+	q              []float32
+	disc           [][2]float32
+	masks, lined   int
+	// vw and vh are the frame being built's size in device pixels.
+	vw, vh float32
+	z      vec.Rasterizer
+	frames bool
+	start  time.Time
 	// doc is the focused field's document as the input methods see it,
 	// and keyboard the keyboard the field asked for (textclient.go).
 	doc      document

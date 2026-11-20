@@ -303,6 +303,11 @@ func report[E comparable, S, D, F](d *Driver[S, E, D, F]) fails actor.Stopped | 
 	for s in d.spots {
 		match s.node {
 		case ui.RowsNode:
+			// A list a scrim covers takes no report (the frame drops it,
+			// UG4): it is reported once the scrim goes.
+			if ui.SessionShielded(&d.session, s.id) {
+				continue
+			}
 			let v = ui.Viewport{Offset: ui.Length(float64(scrolledBy(d, s.id))), Height: ui.Length(float64(s.box.H))}
 			if d.viewports.Get(s.id) != (Some{Value: v}) {
 				d.viewports[s.id] = v
