@@ -277,7 +277,7 @@ law ParityWithLaneRift(verbs []Verb) {
 				pushed = false
 			}
 			let mut handed = true
-			let _ = w.tool.Ready(work.ReadyOptions{Name: Some[string]{Value: "work"}}) catch {
+			let _ = w.tool.Ready(work.ReadyOptions{Name: Some[string]{Value: "work"}, Request: None}) catch {
 			case _:
 				handed = false
 				work.Handed{Name: "", Branch: "", Commit: "", Snapshot: "", Parent: ""}
@@ -485,7 +485,7 @@ law ToolAgreesWithTheReference(ops []Op, sharing bool, tree Map[string, string])
 			}
 		case ReadyOp as o:
 			let name = pick(o.Name)
-			let handed = w.tool.Ready(work.ReadyOptions{Name: Some[string]{Value: name}}) catch {
+			let handed = w.tool.Ready(work.ReadyOptions{Name: Some[string]{Value: name}, Request: None}) catch {
 			case _:
 				work.Handed{Name: "", Branch: "", Commit: "", Snapshot: "", Parent: ""}
 			}
@@ -587,7 +587,7 @@ law UseKeepsAWorkspace(sync bool) {
 			return false
 		}
 	} else {
-		let _ = w.tool.Ready(work.ReadyOptions{Name: Some[string]{Value: "a"}}) catch {
+		let _ = w.tool.Ready(work.ReadyOptions{Name: Some[string]{Value: "a"}, Request: None}) catch {
 		case _:
 			return false
 		}
@@ -796,6 +796,77 @@ law IdleTrashWaitsADay(wait int) {
 		return false
 	}
 	len(first.Idle) == 1 && first.Idle[0].Removed && len(first.Purged) == 0 && (len(later.Purged) == 1) == (s >= work.IdleTrash)
+}
+
+// NoTrashDeletesForGood: in a base whose work.toml says trash = false,
+// rm -expect ID (or gc -idle, when viaGc) of a workspace whose work its
+// parent holds deletes it for good at once: its folder and its trash
+// folder are gone, rm names no trash, and no record of its id is left.
+// One with a commit only it has is still refused (NotHeld) and stays.
+// The delete takes that one id: a workspace trashed before the key was
+// set keeps its record and its trash folder after rm (a gc purges it
+// anyway, as any gc purges the trash).
+law NoTrashDeletesForGood(viaGc bool, unsaved bool) {
+	let w = world(true)
+	let mut made = []work.Created{}
+	for name in []string{"a", "b"} {
+		let n = w.tool.New(name, fresh(false)) catch {
+		case _:
+			return false
+		}
+		made = made.Append(n)
+	}
+	let a = made[0]
+	let b = made[1]
+	let _ = w.tool.Rm("b", work.RmOptions{Abandon: false, Expect: Some[string]{Value: b.Id}, Tree: false}) catch {
+	case _:
+		return false
+	}
+	w.disk.WriteFile(theBase+"/"+work.ConfigFile, "[work]\ntrash = false\n") catch {
+	case _:
+		return false
+	}
+	if unsaved && SideCommit(w.vcs, a.Path, "side", "side.txt", "only here") == "" {
+		return false
+	}
+	let mut removed = false
+	let mut trash = "unread"
+	if viaGc {
+		w.clock.Advance(time.Times(1s, 7200))
+		let out = w.tool.Gc(work.GcOptions{Older: None, Idle: Some[string]{Value: "1h"}, Id: None, Archive: false}) catch {
+		case _:
+			return false
+		}
+		let i = slices.IndexFunc(out.Idle, func(x work.Idle) bool { x.Name == "a" })
+		if i < 0 || (!out.Idle[i].Removed && out.Idle[i].Why != "NotHeld") {
+			return false
+		}
+		removed = out.Idle[i].Removed
+		trash = ""
+	} else {
+		let out = w.tool.Rm("a", work.RmOptions{Abandon: false, Expect: Some[string]{Value: a.Id}, Tree: false}) catch {
+		case work.NotHeld:
+			[]work.Removed{}
+		case _:
+			return false
+		}
+		removed = len(out) == 1
+		if removed {
+			trash = out[0].Trash
+		}
+	}
+	let at = w.clock.Now().UnixSeconds()
+	let all = w.tool.List() catch {
+	case _:
+		return false
+	}
+	// gc purges every trash old enough, b's too: b is the rm path's check.
+	let kept = viaGc || slices.IndexFunc(all, func(r work.Workspace) bool { r.Id == b.Id && work.InTrash(r.Path) && w.trees.Has(r.Path) }) >= 0
+	if unsaved {
+		return !removed && kept && w.trees.Has(a.Path)
+	}
+	let left = slices.IndexFunc(all, func(r work.Workspace) bool { r.Id == a.Id }) >= 0
+	removed && trash == "" && kept && !left && !w.trees.Has(a.Path) && !w.trees.Has(work.TrashOf(a.Path, at, a.Id))
 }
 
 // StackRecordsItsParent: a workspace made -on another records that
