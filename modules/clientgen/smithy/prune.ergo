@@ -1,0 +1,282 @@
+// Prune reduces a model to named operations and the shapes they reach, so
+// ergo commits only the slice of a provider's model that its infra needs
+// (owner, 2026-11-20: people run the generator on what they want; ergo
+// holds only what its own drivers use).
+
+import json
+import strings
+
+// Prune is m with only the operations keep names and the shapes they
+// reach: input, output and errors, member targets, list and map members,
+// union variants, transitively. A service that reaches a kept operation
+// (directly or through its resources) stays, its operations trimmed to the
+// kept ones and its resources dropped; its errors stay, with their
+// shapes. Shapes keep their traits as written and the order of m, so a
+// slice diffs cleanly when the model is synced again. An id of keep that
+// is not an operation of m fails Unknown.
+func Prune(m Model, keep []string) Model fails Unknown {
+	let index = indexOf(m)
+	for k in keep {
+		match index.Get(k) {
+		case Some[int] as i:
+			match m.Shapes[i.Value].Kind {
+			case Operation:
+			case Simple, Enum, IntEnum, List, Map, Structure, Union, Service, Resource, Unsupported:
+				return Unknown{Id: k}
+			}
+		case None:
+			return Unknown{Id: k}
+		}
+	}
+	// The services that reach a kept operation, with the kept operations
+	// each reaches; their errors join the roots.
+	let mut roots = keep
+	let mut services = Map[string, []string]{}
+	for s in m.Shapes {
+		match s.Kind {
+		case Service as v:
+			let ops = opsUnder(m, index, v.Operations, v.Resources)
+			let mut kept = []string{}
+			for op in ops {
+				if has(keep, op) {
+					kept = kept.Append(op)
+				}
+			}
+			if len(kept) > 0 {
+				services[s.Id] = kept
+				roots = roots.Concat(v.Errors)
+			}
+		case Simple, Enum, IntEnum, List, Map, Structure, Union, Operation, Resource, Unsupported:
+		}
+	}
+	let reached = reach(m, index, roots)
+	let mut out = []Shape{}
+	for s in m.Shapes {
+		match s.Kind {
+		case Service as v:
+			match services.Get(s.Id) {
+			case Some[[]string] as kept:
+				out = out.Append(Shape{Id: s.Id, Kind: Service{Version: v.Version, Operations: kept.Value, Resources: []string{}, Errors: v.Errors, Rename: v.Rename}, Traits: s.Traits, Keys: s.Keys})
+			case None:
+			}
+		case Simple, Enum, IntEnum, List, Map, Structure, Union, Operation, Resource, Unsupported:
+			if isIn(reached, s.Id) {
+				out = out.Append(s)
+			}
+		}
+	}
+	Model{Version: m.Version, Metadata: m.Metadata, Shapes: out}
+}
+
+// indexOf is each shape id's place in m.Shapes.
+func indexOf(m Model) Map[string, int] {
+	let mut index = Map[string, int]{}
+	for i, s in m.Shapes {
+		index[s.Id] = i
+	}
+	index
+}
+
+// opsUnder is every operation a service or resource lists, directly or
+// through its resources (lifecycle, operations and collection operations).
+func opsUnder(m Model, index Map[string, int], ops []string, resources []string) []string {
+	let mut out = ops
+	let mut seen = Map[string, bool]{}
+	let mut work = resources
+	for len(work) > 0 {
+		let r = work[len(work)-1]
+		work = work[:len(work)-1]
+		if isIn(seen, r) {
+			continue
+		}
+		seen[r] = true
+		match index.Get(r) {
+		case Some[int] as i:
+			match m.Shapes[i.Value].Kind {
+			case Resource as v:
+				for l in v.Lifecycle {
+					out = out.Append(l.Target)
+				}
+				out = out.Concat(v.Operations).Concat(v.CollectionOperations)
+				work = work.Concat(v.Resources)
+			case Simple, Enum, IntEnum, List, Map, Structure, Union, Operation, Service, Unsupported:
+			}
+		case None:
+		}
+	}
+	out
+}
+
+// reach is the set of ids reachable from roots through the references of
+// shapes (refsOf). Ids the model does not declare (Smithy's prelude,
+// `smithy.api#String`) are reached but hold nothing.
+func reach(m Model, index Map[string, int], roots []string) Map[string, bool] {
+	let mut seen = Map[string, bool]{}
+	let mut work = roots
+	for len(work) > 0 {
+		let id = work[len(work)-1]
+		work = work[:len(work)-1]
+		if isIn(seen, id) {
+			continue
+		}
+		seen[id] = true
+		match index.Get(id) {
+		case Some[int] as i:
+			work = work.Concat(refsOf(m.Shapes[i.Value].Kind))
+		case None:
+		}
+	}
+	seen
+}
+
+// refsOf is every shape id a kind names, except a service's or
+// resource's (Prune trims those).
+func refsOf(k Kind) []string {
+	match k {
+	case Operation as o:
+		let mut out = o.Errors
+		match o.Input {
+		case Some[string] as t:
+			out = out.Append(t.Value)
+		case None:
+		}
+		match o.Output {
+		case Some[string] as t:
+			out = out.Append(t.Value)
+		case None:
+		}
+		out
+	case Simple, Enum, IntEnum, List, Map, Structure, Union, Service, Resource, Unsupported:
+		let mut out = []string{}
+		for mem in membersOf(k) {
+			out = out.Append(mem.Target)
+		}
+		out
+	}
+}
+
+// closure is the shapes of m reachable from id, in m's order.
+func closure(m Model, id string) []Shape {
+	let reached = reach(m, indexOf(m), []string{id})
+	let mut out = []Shape{}
+	for s in m.Shapes {
+		if isIn(reached, s.Id) {
+			out = out.Append(s)
+		}
+	}
+	out
+}
+
+// PruneKeepsClosure: on a drawn model (references in every position: an
+// operation's input, output and errors, structure and union members, list
+// and map members, a service over every operation), each kept operation
+// reaches the same shapes, traits and all, in the pruned model as in the
+// whole one, and the pruned model holds no shape outside those closures
+// and the trimmed service's errors.
+law PruneKeepsClosure(kinds []int, refs []int, keepBits []int) {
+	let m = drawnModel(kinds, refs, false)
+	let mut keep = []string{}
+	let mut k = 0
+	for s in m.Shapes {
+		match s.Kind {
+		case Operation:
+			if k < len(keepBits) && keepBits[k]%2 != 0 {
+				keep = keep.Append(s.Id)
+			}
+			k = k + 1
+		case Simple, Enum, IntEnum, List, Map, Structure, Union, Service, Resource, Unsupported:
+		}
+	}
+	let p = Prune(m, keep) catch {
+	case Unknown:
+		return false
+	}
+	let mut allowed = Map[string, bool]{}
+	for op in keep {
+		if closure(p, op) != closure(m, op) {
+			return false
+		}
+		for s in closure(m, op) {
+			allowed[s.Id] = true
+		}
+	}
+	for s in closure(m, "t#Svc") {
+		match s.Kind {
+		case Service:
+		case Simple, Enum, IntEnum, List, Map, Structure, Union, Operation, Resource, Unsupported:
+			if strings.HasPrefix(s.Id, "t#E") {
+				allowed[s.Id] = true
+			}
+		}
+	}
+	for s in p.Shapes {
+		match s.Kind {
+		case Service as v:
+			if len(keep) == 0 || v.Operations != keep {
+				return false
+			}
+		case Simple, Enum, IntEnum, List, Map, Structure, Union, Operation, Resource, Unsupported:
+			if !isIn(allowed, s.Id) {
+				return false
+			}
+		}
+	}
+	true
+}
+
+// drawnModel is a model of at most 12 shapes `t#S<i>` (string, structure,
+// list, map, union or operation by kinds[i]) whose references are drawn
+// from refs, an error shape `t#E0` and a service `t#Svc` over every
+// operation with that error. With noisy, shapes also carry a known and a
+// refused trait and an unread key.
+func drawnModel(kinds []int, refs []int, noisy bool) Model {
+	let n = if len(kinds) > 12 { 12 } else { len(kinds) }
+	let mut at = 0
+	let mut shapes = []Shape{}
+	let mut ops = []string{}
+	for i in 0..n {
+		let pick = func() string {
+			let r = if len(refs) == 0 { 0 } else { refs[at%len(refs)] }
+			at = at + 1
+			if n == 0 {
+				return "t#E0"
+			}
+			"t#S\(((r%n)+n)%n)"
+		}
+		let id = "t#S\(i)"
+		let c = ((kinds[i] % 6) + 6) % 6
+		let mut kind Kind = Simple{Of: StringType{}}
+		if c == 1 {
+			kind = Structure{Members: []Member{Member{Name: "a", Target: pick(), Traits: []Trait{}}, Member{Name: "b", Target: pick(), Traits: []Trait{}}}}
+		} else if c == 2 {
+			kind = List{Member: Member{Name: "member", Target: pick(), Traits: []Trait{}}}
+		} else if c == 3 {
+			kind = Map{Key: Member{Name: "key", Target: "smithy.api#String", Traits: []Trait{}}, Value: Member{Name: "value", Target: pick(), Traits: []Trait{}}}
+		} else if c == 4 {
+			kind = Union{Members: []Member{Member{Name: "x", Target: pick(), Traits: []Trait{}}}}
+		} else if c == 5 {
+			kind = Operation{Input: Some[string]{Value: pick()}, Output: Some[string]{Value: pick()}, Errors: []string{pick()}}
+			ops = ops.Append(id)
+		}
+		let mut traits = []Trait{}
+		let mut keys = []Unread{}
+		if noisy {
+			traits = []Trait{Known{Id: "smithy.api#documentation", Value: jstr("doc \(i)")}, Refused{Id: "x.test#unread", Value: jstr("v"), Why: "a trait the reader does not read yet"}}
+			keys = []Unread{Unread{Key: "mixins", Value: targets([]string{"t#S0"})}}
+		}
+		shapes = shapes.Append(Shape{Id: id, Kind: kind, Traits: traits, Keys: keys})
+	}
+	shapes = shapes.Append(Shape{Id: "t#E0", Kind: Structure{Members: []Member{}}, Traits: []Trait{Known{Id: "smithy.api#error", Value: jstr("client")}}, Keys: []Unread{}})
+	shapes = shapes.Append(Shape{Id: "t#Svc", Kind: Service{Version: "1", Operations: ops, Resources: []string{}, Errors: []string{"t#E0"}, Rename: jobj([]json.Member{})}, Traits: []Trait{}, Keys: []Unread{}})
+	Model{Version: "2.0", Metadata: jobj([]json.Member{}), Shapes: shapes}
+}
+
+// isIn is whether m holds k.
+func isIn(m Map[string, bool], k string) bool {
+	match m.Get(k) {
+	case Some[bool]:
+		true
+	case None:
+		false
+	}
+}
