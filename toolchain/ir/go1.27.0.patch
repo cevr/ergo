@@ -711,7 +711,7 @@ new file mode 100644
 index 0000000..ca3e2a9
 --- /dev/null
 +++ b/src/cmd/compile/internal/ergoir/ergoir_expr.go
-@@ -0,0 +1,496 @@
+@@ -0,0 +1,510 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -949,12 +949,14 @@ index 0000000..ca3e2a9
 +	case "conv":
 +		// T(x) between basic types: numeric to numeric, string to
 +		// string, bool to bool.
++		// Or between a function type and a type defined over it
++		// (Seq[T] of a function literal; ergoFuncConv).
 +		t := c.typ(x.Pos, x.T)
 +		e0, et := c.expr(x.X)
 +		if t == nil || e0 == nil {
 +			return nil, nil
 +		}
-+		if !(ergoIsNumeric(t) && ergoIsNumeric(et) || ergoIsString(t) && ergoIsString(et) || ergoIsBool(t) && ergoIsBool(et)) {
++		if !(ergoIsNumeric(t) && ergoIsNumeric(et) || ergoIsString(t) && ergoIsString(et) || ergoIsBool(t) && ergoIsBool(et) || ergoFuncConv(t, et)) {
 +			c.errorf(x.Pos, "ergoir: conversion of %v to %v", et, t)
 +			return nil, nil
 +		}
@@ -1207,6 +1209,18 @@ index 0000000..ca3e2a9
 +		return lt
 +	}
 +	return bad()
++}
++
++// ergoFuncConv reports a conversion between a function type and a type
++// defined over it (Seq[T] of a function literal): identical signatures,
++// which Go converts as identical underlying types (GP-DEFINED).
++func ergoFuncConv(t, from types2.Type) bool {
++	ts, ok := types2.CoreType(t).(*types2.Signature)
++	if !ok {
++		return false
++	}
++	fs, ok := types2.CoreType(from).(*types2.Signature)
++	return ok && types2.Identical(ts, fs)
 +}
 diff --git a/src/cmd/compile/internal/ergoir/ergoir_f7.go b/src/cmd/compile/internal/ergoir/ergoir_f7.go
 new file mode 100644
