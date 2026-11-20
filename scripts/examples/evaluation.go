@@ -142,6 +142,14 @@ func (r *runner) compareEvaluation(p *program, leg string, e *report.Evaluation,
 		switch o.Status {
 		case "skipped", "incomplete", "not run":
 			fmt.Fprintf(r.out, "skip %s: %s: %s: %s (%s); native test still runs\n", p.name, leg, o.Name, o.Status, o.Reason)
+		case "native":
+			// A law over a Go-backed provider (types.md, Laws 10): the check
+			// runs no Go, so the native run must have run it and passed.
+			if n, ok := native[o.Name]; !ok || n.status != "passed" {
+				fail(o.Name, fmt.Sprintf("check native (%s), but the native run did not pass it (native %s; present %t)", o.Reason, n.status, ok))
+			} else {
+				fmt.Fprintf(r.out, "native %s: %s: %s runs only natively, and `%s` passed it (%s)\n", p.name, leg, o.Name, o.Replay, n.evidence)
+			}
 		case "passed":
 			n, ok := native[o.Name]
 			if !ok || n.status != "passed" || n.evidence != o.Evidence || (o.Machine == nil && n.cases != o.Cases) {
