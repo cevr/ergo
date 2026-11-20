@@ -93,8 +93,9 @@ The answer is kept in the law-verdict store (`laws/v1`), not in a warm
 manifest.
 
 1. **The package key.** A package's key is the request's options, the
-   environment and the compiler (WarmKey's parts, with no folder), its import
-   path, whether the load checked it as `main` or as its path, each file's
+   environment and the compiler (WarmKey's parts, with no request folder), its
+   import path, its own folder (a skipped obligation's replay command names
+   it), whether the load checked it as `main` or as its path, each file's
    name and check text (`syntax.CheckText`: the token text, then each
    comment's text with the token after it and the line breaks between them,
    since the checker reads a binding's `// ergo:` lines by the line above a
@@ -112,9 +113,10 @@ manifest.
    revision of the files as they are now, and each obligation's site where
    its token now is (`syntax.TokenSites`; a site is kept as the ordinal of
    the token it starts at, in the file that declares the test or law).
-4. **What is not kept.** A request with a failing package, a diagnostic, an
-   obligation that did not pass, a reason or advice (either may quote the
-   source or a position), a site at no one token, a package of a required
+4. **What is not kept.** A request with a failing package, a diagnostic, a
+   reason that names a site (`at FILE.ergo:LINE`, which a layout edit would
+   move), advice (it may quote the source), a site at no one token, a
+   package of a required
    module, an answer that does not print again as it printed, and a run that
    stored a verdict (its next run prints that verdict "cached").
 5. **All or nothing.** The request hits when its manifest holds and every
