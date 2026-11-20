@@ -30,10 +30,10 @@ var nameLocalPool = []string{"x", "count", "total", "item", "acc", "step", "live
 // spellings of D's default without rule 3's ergo__ and alias, and the host
 // import's: every added declaration set holds them, so a helper or an
 // import spelled outside "__" meets one.
-const nameLocalDefault = "import go strings\n\ntype Reg (int, Map[int, int])\n\nfunc id[T](v T) T { v }\n\n" +
-	"func G(k int) int {\n\tlet s = id(\"x\")\n\tlen(s) + k\n}\n\n" +
+const nameLocalDefault = "import go strings\n\ntype Reg (int, Map[int, int])\n\nfunc id[T](v T) T { v }\n\nfunc two[T](v T, n int) T {\n\tif n > 0 {\n\t\treturn two(v, n - 1)\n\t}\n\tv\n}\n\n" +
+	"func G(k int) int {\n\tlet s = id(\"x\")\n\tlet r Reg\n\tlet (_, m) = r\n\tlet mut w = m\n\tlet t = id(s)\n\tw[k] = len(two(t, 1))\n\tlen(w)\n}\n\n" +
 	"func E(k int) int {\n\tlet q = id(k)\n\tq + 1\n}\n\n" +
-	"func D(k int) int {\n\tlet r Reg\n\tlet (_, m) = r\n\tlet mut w = m\n\tlet q = id(k)\n\tw[q] = 5\n\tlen(w)\n}\n\n" +
+	"func D(k int) int {\n\tlet r Reg\n\tlet (_, m) = r\n\tlet mut w = m\n\tlet q = id(k)\n\tw[two(q, 1)] = 5\n\tlen(w)\n}\n\n" +
 	"func H(s string) int needs go.Foreign { strings.Count(s, \"a\") }\n\n"
 
 var nameLocalHelperNames = []string{"DefaultReg", "ergoDefaultReg", "strings"}
