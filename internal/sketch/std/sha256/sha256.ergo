@@ -18,3 +18,52 @@ func Sum(s string) string {
 
 // SumIs32Bytes: every digest is 32 bytes.
 law SumIs32Bytes(s string) { len(Sum(s)) == 32 }
+
+// Hasher is a SHA-256 of a text given in parts, as Go's sha256.New with
+// Write and Sum: a cache key folds files in order without joining them
+// first. It is a value: a copy is a fork of the hash, which goes on
+// alone. Its field gives this package the construction authority, so a
+// Hasher is New's or a Write's.
+type Hasher { state string }
+
+// New is a Hasher that has hashed nothing.
+func New() Hasher { Hasher{state: start()} }
+
+// Write hashes the bytes of s after those h has hashed.
+func Write(h mut Hasher, s string) { h.state = write(h.state, s) }
+
+// Digest is the 32-byte digest of every byte written to h, in order. h
+// is unchanged: more writes may follow.
+func Digest(h Hasher) string { digest(h.state) }
+
+extern go ergo.local/prototype/runtime/v1/digest.Sha256Start func start() string
+extern go ergo.local/prototype/runtime/v1/digest.Sha256Write func write(state string, s string) string
+extern go ergo.local/prototype/runtime/v1/digest.Sha256Digest func digest(state string) string
+
+// PartsAreTheWhole: s written to a Hasher in parts, cut anywhere, has
+// the digest Sum gives s at once.
+law PartsAreTheWhole(s string, cuts []int) {
+	let mut h = New()
+	let mut at = 0
+	for c in cuts {
+		let end = at + (c%(len(s)+1)+len(s)+1)%(len(s)+1)
+		let stop = if end > len(s) { len(s) } else { end }
+		h.Write(s[at:stop])
+		at = stop
+	}
+	h.Write(s[at:len(s)])
+	h.Digest() == Sum(s)
+}
+
+// NothingIsSumOfEmpty: a Hasher that hashed nothing has the digest of
+// the empty text.
+law NothingIsSumOfEmpty() { New().Digest() == Sum("") }
+
+// DigestKeepsTheHasher: a Digest between two writes changes nothing.
+law DigestKeepsTheHasher(a string, b string) {
+	let mut h = New()
+	h.Write(a)
+	let _ = h.Digest()
+	h.Write(b)
+	h.Digest() == Sum(a + b)
+}
