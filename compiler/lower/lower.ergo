@@ -1204,7 +1204,13 @@ func value(st fnb, b mut ir.Builder, x dense.ID[syntax.Node]) uint32 fails Unpor
 }
 
 func constRow(b mut ir.Builder, at ir.Pos, t string, v string) uint32 fails ir.Malformed {
-	try ir.Row(b, ir.KindCode(ir.TExpr, "const"), at, []uint32{ir.Text(b, t), ir.Text(b, v)})
+	// A constant that is not UTF-8 (a string's bytes) is its Go quoted
+	// form, op "quoted": the IR file's JSON carries only UTF-8 (lower's
+	// irStringConst).
+	if !utf8.ValidString(v) {
+		return try ir.Row(b, ir.KindCode(ir.TExpr, "const"), at, []uint32{ir.Text(b, t), ir.Text(b, strconv.Quote(v)), ir.Text(b, "quoted")})
+	}
+	try ir.Row(b, ir.KindCode(ir.TExpr, "const"), at, []uint32{ir.Text(b, t), ir.Text(b, v), ir.Text(b, "")})
 }
 
 // Cv is a constant's value as the checker computes it (go/constant,

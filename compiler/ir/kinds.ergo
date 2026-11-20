@@ -27,7 +27,7 @@ let kinds = []Kind{
 	k("", 0, []uint8{}),
 	k("", TCase, []uint8{1, 2, 3, 4}),
 	k("local", TExpr, []uint8{2}),
-	k("const", TExpr, []uint8{3, 4}),
+	k("const", TExpr, []uint8{3, 4, 5}),
 	k("field", TExpr, []uint8{6, 8}),
 	k("mcall", TExpr, []uint8{6, 8, 9}),
 	k("lit", TExpr, []uint8{3, 10, 11}),
