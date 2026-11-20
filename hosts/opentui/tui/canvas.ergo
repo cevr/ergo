@@ -66,6 +66,10 @@ func Raster(ops []ui.PaintOp, w int, h int, sx float64, sy float64) []byte {
 			stack = stack.Append(pushed{was: m, clip: clip})
 			let (lo, hi) = bounds(flatten(ui.RectPath(x.X, x.Y, x.W, x.H), m))
 			clip = area{x0: fmax(clip.x0, lo.X), y0: fmax(clip.y0, lo.Y), x1: fmin(clip.x1, hi.X), y1: fmin(clip.y1, hi.Y)}
+		case ui.ImageOp:
+			// The terminal decodes no image source yet: an image paints
+			// nothing (follow-up OT-IMAGE: decode Src and blend its pixels
+			// into the picture as fill does).
 		case ui.PopPaint:
 			if len(stack) > 0 {
 				let top = stack[len(stack)-1]

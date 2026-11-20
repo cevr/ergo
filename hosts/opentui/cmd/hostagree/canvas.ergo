@@ -100,7 +100,7 @@ func probeOf(ops []ui.PaintOp) Option[probe] {
 				let (hx, hy) = hi
 				last = Some{Value: probe{x: (lx + hx) / 2, y: (ly + hy) / 2, color: x.Color}}
 			}
-		case ui.StrokeOp, ui.PushClip:
+		case ui.StrokeOp, ui.PushClip, ui.ImageOp:
 			last = None
 		case ui.PushTransform as x:
 			stack = stack.Append(m)
