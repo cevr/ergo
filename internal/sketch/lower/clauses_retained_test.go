@@ -41,8 +41,8 @@ func TestRetainedForeignArguments(t *testing.T) {
 			{"unknown-after-take", "import go hostres", "f own go.Ref[hostres.Handle]", "needs go.Foreign", "hostres.Unknown(f)\nf.Use()", false, true},
 			{"recursive-interface-lent", "import go hostres", "f own hostres.Recursive, g hostres.Recursive", "needs go.Foreign", "f.Chain(g)", false, true},
 			{"unknown-callback-clause", "import go hostres", "", "needs go.Foreign", "hostres.Callback(func() {})", false, true},
-			{"unknown-pointer-borrow", "import go hostres", "f *hostres.Handle", "needs go.Foreign", "hostres.Pointer(f)", false, true},
-			{"reviewed-receiver-borrow", "import go hostres", "f *hostres.Handle", "needs go.Foreign", "f.Use()", true, true},
+			{"unknown-pointer-borrow", "import go hostres", "f mut hostres.Handle", "needs go.Foreign", "hostres.Pointer(f)", false, true},
+			{"reviewed-receiver-borrow", "import go hostres", "f mut hostres.Handle", "needs go.Foreign", "f.Use()", true, true},
 			{"timeout-set", "import tasks\nimport timeout\ntype NoFail {}", "", "needs Scheduler", "let set = tasks.NewSet[NoFail](tasks.FailFast)\nlet _ = timeout.After(1s) { set.Len() } catch { case timeout.Expired: 0 }", false, false},
 			{"timeout-local-set", "import tasks\nimport timeout\ntype NoFail {}", "", "needs Scheduler", "let _ = timeout.After(1s) { let set = tasks.NewSet[NoFail](tasks.FailFast); set.Len() } catch { case timeout.Expired: 0 }", true, false},
 		} {

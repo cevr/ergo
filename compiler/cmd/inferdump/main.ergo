@@ -1,0 +1,392 @@
+// inferdump infers the type arguments of one package's calls to its own
+// generic functions with compiler/check/infer and prints one line per call
+// it infers, unsorted:
+//
+//	inferdump [-std DIR] EXT FOREIGN FILE...   "FILE OFFSET T1 ; T2 …" per call
+//
+// OFFSET is the callee name's; the types print as the Go checker's
+// Type.String (compiler/check/types Text), a result parameter bound to no
+// value as "no value". A call is inferred when its callee is a generic
+// function declared in the package, called by name (with or without
+// written type arguments) from a function declaration, and each argument
+// is a basic literal or a parameter of that declaration: the types the
+// signatures give. EXT and FOREIGN are typedump's: the Go side writes
+// them, for the prelude's, the universe's and the Go imports' types. An
+// Ergo import's types are XRefs into its interface (types.Iface), which
+// -std DIR loads as typedump does (compiler/check/load); without it each
+// is empty and a type of an Ergo import resolves invalid.
+//
+// It is the Ergo side of S3d's inference agreement
+// (internal/selfhostcheck's TestCompilerInferAgreesWithChecker).
+
+import compiler/check/bind
+import compiler/check/infer
+import compiler/check/load
+import compiler/check/store
+import compiler/check/types
+import compiler/syntax
+import dense
+import fs
+import io
+import os
+import strconv
+import strings
+
+func base(path string) string {
+	let i = strings.LastIndex(path, "/")
+	if i < 0 { path } else { path[i+1 : len(path)] }
+}
+
+func bit(w string) int {
+	if w == "type" { 1 } else if w == "errors" { 2 } else if w == "uses" { 4 } else { 8 }
+}
+
+func read(path string) string fails os.Exit needs fs.Files {
+	fs.Files.ReadFile(path) catch {
+	case fs.NotFound:
+		return os.Exit{Code: 1, Message: "inferdump: no file \(path)"}
+	case fs.Denied:
+		return os.Exit{Code: 1, Message: "inferdump: cannot read \(path)"}
+	case fs.Failed as e:
+		return os.Exit{Code: 1, Message: "inferdump: cannot read \(path): \(e.Reason)"}
+	}
+}
+
+// Tables is what EXT and FOREIGN hold (typedump reads them alike).
+type Tables { ext []types.Ext, foreign []types.Foreign, pkgName string, pkgPath string }
+
+func tables(extText string, foreignText string) Tables {
+	let mut ext = []types.Ext{}
+	for line in strings.Split(extText, "\n") {
+		let parts = strings.Fields(line)
+		if len(parts) != 2 {
+			continue
+		}
+		let mut ks = []int{}
+		for w in strings.Split(parts[1], ",") {
+			ks = ks.Append(bit(w))
+		}
+		ext = ext.Append(types.Ext{Head: parts[0], Kinds: ks})
+	}
+	let mut foreign = []types.Foreign{}
+	let mut pkgName = "main"
+	let mut pkgPath = "main"
+	for line in strings.Split(foreignText, "\n") {
+		let parts = strings.Fields(line)
+		if len(parts) == 4 && parts[0] == "@pkg" {
+			pkgName = if parts[3] == "1" { parts[1] } else { "" }
+			pkgPath = parts[2]
+			continue
+		}
+		if len(parts) != 6 {
+			continue
+		}
+		let n = strconv.Atoi(parts[2]) catch {
+		case _:
+			0
+		}
+		foreign = foreign.Append(types.Foreign{Qual: parts[0], Name: parts[1], Arity: n, Path: parts[3], Print: strings.ReplaceAll(parts[4], "^", " "), Key: parts[5], Variants: []int{}})
+	}
+	Tables{ext: ext, foreign: types.WithUnions(foreign, foreignText), pkgName: pkgName, pkgPath: pkgPath}
+}
+
+// Fn is one function declaration of the package with its signature: its
+// file, its declaration and name nodes, its bracket parameters and their
+// row bits, its parameters' name nodes (one per parameter, none for an
+// unnamed one) and its signature in the pool.
+type Fn {
+	file   int,
+	decl   dense.ID[syntax.Node],
+	name   dense.ID[syntax.Node],
+	params []string,
+	rows   []bool,
+	names  []dense.Opt[syntax.Node],
+	sig    dense.ID[store.TKey],
+}
+
+// paramNames is the name node of each parameter of the function type ft,
+// in order (an unnamed parameter has none).
+func paramNames(p syntax.Parsed, ft dense.ID[syntax.Node]) []dense.Opt[syntax.Node] {
+	let mut out = []dense.Opt[syntax.Node]{}
+	match syntax.ViewOf(p.Tree, ft) {
+	case syntax.FuncType as t:
+		match syntax.ViewOf(p.Tree, t.Params) {
+		case syntax.FieldList as fl:
+			for i in 0..syntax.Len(fl.List) {
+				match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, fl.List, i)) {
+				case syntax.Field as fd:
+					let n = syntax.Len(fd.Names)
+					if n == 0 {
+						out = out.Append(dense.NoID[syntax.Node]())
+					}
+					for j in 0..n {
+						out = out.Append(dense.OptOf(syntax.Item(p.Tree, fd.Names, j)))
+					}
+				case _:
+				}
+			}
+		case _:
+		}
+	case _:
+	}
+	out
+}
+
+func unparen(p syntax.Parsed, x dense.ID[syntax.Node]) dense.ID[syntax.Node] {
+	match syntax.ViewOf(p.Tree, x) {
+	case syntax.ParenExpr as pe:
+		unparen(p, pe.X)
+	case _:
+		x
+	}
+}
+
+// declOf is the index in fns of the function whose name node is at, -1
+// when none is.
+func declOf(fns []Fn, file int, at dense.ID[syntax.Node]) int {
+	for i, f in fns {
+		if f.file == file && f.name == at {
+			return i
+		}
+	}
+	-1
+}
+
+// literal is the default type of the basic literal x, or of a numeric one
+// with a sign; none for any other expression.
+func literal(s mut store.Store, p syntax.Parsed, x dense.ID[syntax.Node]) Option[dense.ID[store.TKey]] {
+	match syntax.ViewOf(p.Tree, x) {
+	case syntax.UnaryExpr as u:
+		let op = syntax.TokKind(p, u.Op)
+		let y = unparen(p, u.X)
+		if (op == syntax.Sub || op == syntax.Add) && syntax.KindOf(p.Tree, y) == syntax.KBasicLit {
+			let k = syntax.TokKind(p, syntax.BasicLitOf(p.Tree, y).Tok)
+			if k == syntax.Int || k == syntax.Float || k == syntax.Duration {
+				return literal(s, p, y)
+			}
+		}
+		None
+	case syntax.BasicLit as b:
+		let k = syntax.TokKind(p, b.Tok)
+		// The basic ordinals of types.BasicName: string 2, int 3, int32
+		// (rune) 6, float64 15, duration 18.
+		if k == syntax.Int {
+			Some[dense.ID[store.TKey]]{Value: store.TBasic(s, 3)}
+		} else if k == syntax.Float {
+			Some[dense.ID[store.TKey]]{Value: store.TBasic(s, 15)}
+		} else if k == syntax.String {
+			Some[dense.ID[store.TKey]]{Value: store.TBasic(s, 2)}
+		} else if k == syntax.Rune {
+			Some[dense.ID[store.TKey]]{Value: store.TBasic(s, 6)}
+		} else if k == syntax.Duration {
+			Some[dense.ID[store.TKey]]{Value: store.TBasic(s, 18)}
+		} else {
+			None
+		}
+	case _:
+		None
+	}
+}
+
+// isCallSite is whether t is the prelude's CallSite.
+func isCallSite(s store.Store, foreign []types.Foreign, t dense.ID[store.TKey]) bool {
+	if store.KindOfType(s, t) != store.KForeign {
+		return false
+	}
+	let f = foreign[store.ArgOf(s, t)]
+	f.Name == "CallSite" && f.Path == "prelude"
+}
+
+func run(args0 []string) fails os.Exit needs fs.Files | io.Stdout {
+	let mut std = ""
+	let mut args = args0
+	if len(args) > 1 && args[0] == "-std" {
+		std = args[1]
+		args = args[2:len(args)]
+	}
+	if len(args) < 2 {
+		return os.Exit{Code: 2, Message: "usage: inferdump [-std DIR] EXT FOREIGN FILE..."}
+	}
+	let tab = tables(try read(args[0]), try read(args[1]))
+	let mut files = []bind.File{}
+	let mut parsed = []syntax.Parsed{}
+	for path in args[2:len(args)] {
+		let p = syntax.Parse(try read(path))
+		files = files.Append(bind.File{Name: base(path), Parsed: p})
+		parsed = parsed.Append(p)
+	}
+	let collected = bind.Collect(tab.pkgPath, files)
+	let ps = bind.BuildParents(files)
+	let (bound, u) = bind.Bind(collected, []store.Frozen{}, ps, files, 1)
+	let mut s = bound
+	let mod = if len(args) > 2 { load.ModuleOf(load.Dir(args[2])) } else { None }
+	let pkgs = load.Imported(bind.Imports(files), []string{tab.pkgPath}, mod, std)
+	let deps = load.Deps(s, load.Interfaces(pkgs, tab.ext, tab.foreign, []types.Iface{}))
+	let ext = load.Join(tab.ext, types.ExtOf(s, deps))
+	let table = types.WithAliases(tab.foreign, s, deps)
+	let kinds = types.SolveKinds(s, parsed, ext)
+	let mut fns = []Fn{}
+	for f in types.SolveFuncKinds(s, parsed, ext, kinds) {
+		let p = parsed[f.File]
+		match syntax.ViewOf(p.Tree, f.Decl) {
+		case syntax.FuncDecl as fd:
+			let env = types.NewEnv(s, parsed, p, f.Params, kinds, ext, table, deps)
+			if types.WiredOfType(s, env, fd.Type) {
+				continue
+			}
+			let sig = types.Resolve(&s, env, fd.Type)
+			let mut rows = []bool{}
+			for k in f.Kinds {
+				rows = rows.Append(k != 1)
+			}
+			fns = fns.Append(Fn{file: f.File, decl: f.Decl, name: fd.Name, params: f.Params, rows: rows, names: paramNames(p, fd.Type), sig: sig})
+		case _:
+		}
+	}
+	let mut frame = infer.NewFrame()
+	let unions = if len(parsed) > 0 { types.UnionsOf(&s, types.NewEnv(s, parsed, parsed[0], []string{}, kinds, ext, table, deps)) } else { infer.NoUnions() }
+	let mut b = strings.NewBuilder()
+	for fi, file in files {
+		let p = file.Parsed
+		if p.Failed {
+			continue
+		}
+		for i in 0..syntax.NumNodes(p.Tree) {
+			let id = syntax.NodeAt(p.Tree, i)
+			if syntax.KindOf(p.Tree, id) != syntax.KCallExpr {
+				continue
+			}
+			let call = syntax.CallExprOf(p.Tree, id)
+			if call.Trailing != dense.NoID[syntax.Node]() {
+				continue
+			}
+			// The callee: a name, or a name with written type arguments.
+			let mut fun = unparen(p, call.Fun)
+			let mut written = []dense.ID[syntax.Node]{}
+			match syntax.ViewOf(p.Tree, fun) {
+			case syntax.IndexExpr as ix:
+				fun = unparen(p, ix.X)
+				for j in 0..syntax.Len(ix.Indices) {
+					written = written.Append(syntax.Item(p.Tree, ix.Indices, j))
+				}
+			case _:
+			}
+			if syntax.KindOf(p.Tree, fun) != syntax.KIdent {
+				continue
+			}
+			let callee = match bind.ResolutionOf(u, ps, bind.PNodeOf(ps, fi, fun)) {
+			case bind.Declared as d:
+				let (df, dn) = bind.RowOf(ps, d.At)
+				declOf(fns, df, syntax.NodeAt(parsed[df].Tree, dn))
+			case _:
+				-1
+			}
+			if callee < 0 || len(fns[callee].params) == 0 || len(written) > len(fns[callee].params) {
+				continue
+			}
+			// The caller: the function declaration around the call.
+			let mut up = bind.PNodeOf(ps, fi, id)
+			let mut caller = -1
+			for caller < 0 {
+				match dense.Unpack(bind.ParentOf(ps, up)) {
+				case Some[dense.ID[store.PNode]] as q:
+					up = q.Value
+					let (_, row) = bind.RowOf(ps, up)
+					let n = syntax.NodeAt(p.Tree, row)
+					if syntax.KindOf(p.Tree, n) == syntax.KFuncDecl {
+						let at = syntax.FuncDeclOf(p.Tree, n).Name
+						caller = declOf(fns, fi, at)
+						if caller < 0 {
+							break
+						}
+					}
+				case None:
+					break
+				}
+			}
+			if caller < 0 {
+				continue
+			}
+			let from = fns[caller]
+			let to = fns[callee]
+			// The callee's parameters, renamed past the caller's.
+			let m = len(from.params)
+			let mut rename = []dense.ID[store.TKey]{}
+			for k in 0..len(to.params) {
+				rename = rename.Append(store.TParam(&s, m+k))
+			}
+			let ops = store.OperandsOf(s, to.sig)
+			// A final CallSite parameter the call leaves out is the
+			// call's site, no argument (call.go siteless).
+			let mut np = len(ops) - 3
+			if np > 0 && syntax.Len(call.Args) == np-1 && isCallSite(s, table, ops[np-1]) {
+				np = np - 1
+			}
+			let mut params = []dense.ID[store.TKey]{}
+			for k in 0..np {
+				params = params.Append(store.TSubst(&s, ops[k], rename))
+			}
+			let callerOps = store.OperandsOf(s, from.sig)
+			let mut inArgs = []infer.Arg{}
+			let mut known = syntax.Len(call.Args) == len(params)
+			for j in 0..syntax.Len(call.Args) {
+				if !known {
+					break
+				}
+				let x = unparen(p, syntax.Item(p.Tree, call.Args, j))
+				if syntax.KindOf(p.Tree, x) == syntax.KIdent {
+					let mut t = -1
+					match bind.ResolutionOf(u, ps, bind.PNodeOf(ps, fi, x)) {
+					case bind.Declared as d:
+						let (df, dn) = bind.RowOf(ps, d.At)
+						let at = syntax.NodeAt(parsed[df].Tree, dn)
+						for k, n in from.names {
+							if df == fi && n == dense.OptOf(at) {
+								t = k
+							}
+						}
+					case _:
+					}
+					if t < 0 {
+						known = false
+					} else {
+						inArgs = inArgs.Append(infer.Typed{T: infer.Unmarked(s, callerOps[t])})
+					}
+					continue
+				}
+				match literal(&s, p, x) {
+				case Some[dense.ID[store.TKey]] as d:
+					inArgs = inArgs.Append(infer.Literal{Default: d.Value})
+				case None:
+					known = false
+				}
+			}
+			if !known {
+				continue
+			}
+			let env = types.NewEnv(s, parsed, p, from.params, kinds, ext, table, deps)
+			let mut explicit = []dense.ID[store.TKey]{}
+			for w in written {
+				explicit = explicit.Append(types.Resolve(&s, env, w))
+			}
+			match infer.Infer(&s, &frame, unions, infer.Callee{Params: params, Rows: to.rows, Base: m}, explicit, inArgs) {
+			case Some[[]dense.ID[store.TKey]] as targs:
+				let names = types.Names{Params: from.params, Foreign: table, Pkg: tab.pkgName, Deps: deps}
+				let none = infer.NoValue(&s)
+				let mut texts = []string{}
+				for t in targs.Value {
+					texts = texts.Append(if t == none { "no value" } else { types.Text(s, names, t) })
+				}
+				b.WriteString("\(file.Name) \(syntax.NodePos(p, fun)) \(strings.Join(texts, " ; "))\n")
+			case None:
+			}
+		}
+	}
+	io.Stdout.Print(b.String())
+}
+
+func main() fails os.Exit needs Ambient {
+	with context { os.Process: os.NewHost(), fs.Files: fs.NewHost(), io.Stdout: io.NewHost() } {
+		try run(os.Process.Args())
+	}
+}

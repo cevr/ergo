@@ -22,6 +22,7 @@
 
 import fs
 import slices
+import strings
 import sync
 
 // Source gives an input in chunks, in order.
@@ -110,9 +111,54 @@ func File(host fs.Host, path string, size int) Memory fails fs.NotFound | fs.Den
 // read of the host uses, so a Read goes on where a Lines or ReadAll
 // before it stopped, and it gives what the host has delivered without
 // waiting to fill a chunk.
-func Read(_ In) Option[string] fails ReadFailed {
-	let chunk = try hostRead(DefaultChunk)
-	if chunk == "" { None } else { Some[string]{Value: chunk} }
+// An InOver (InOver) reads its text's next chunk, from the place its
+// other reads share.
+func Read(src In) Option[string] fails ReadFailed {
+	match src.given {
+	case Some[Memory] as m:
+		try m.Value.Read()
+	case None:
+		let chunk = try hostRead(DefaultChunk)
+		if chunk == "" { None } else { Some[string]{Value: chunk} }
+	}
+}
+
+// takeRest is the rest of m's text, from its place to the end, and moves
+// the place to the end (past every cut), so the next read of m is None.
+func takeRest(m Memory) string {
+	let text = m.text
+	let cuts = len(m.cuts)
+	sync.Modify(m.pos, func(p place) (string, place) {
+		if len(text) <= p.at {
+			return ("", p)
+		}
+		(text[p.at:], place{at: len(text), next: cuts})
+	})
+}
+
+// takeLine is the next line of m's text without its line feed, or None at
+// the end, and moves the place past the line and its line feed (and past
+// the cuts it covers), as the host's Lines leaves the rest after a line.
+func takeLine(m Memory) Option[string] {
+	let text = m.text
+	let cuts = m.cuts
+	sync.Modify(m.pos, func(p place) (Option[string], place) {
+		if len(text) <= p.at {
+			return (None, p)
+		}
+		let rest = text[p.at:]
+		let i = strings.IndexByte(rest, '\n')
+		let line = if i < 0 { rest } else { rest[:i] }
+		let at = if i < 0 { len(text) } else { p.at + i + 1 }
+		let mut next = p.next
+		for _ in next..len(cuts) {
+			if cuts[next] > at {
+				break
+			}
+			next = 1 + next
+		}
+		(Some[string]{Value: line}, place{at: at, next: next})
+	})
 }
 
 // ChunksJoinToInput: the chunks of a Memory, read until None, are not

@@ -31,7 +31,7 @@ type Mix { state uint64 }
 func Seeded(seed uint64) Mix { Mix{state: seed} }
 
 // Next is the stream's next 64 bits.
-func Next(m *Mix) uint64 {
+func Next(m mut Mix) uint64 {
 	m.state += 0x9E3779B97F4A7C15
 	let mut z = m.state
 	z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9
@@ -40,7 +40,7 @@ func Next(m *Mix) uint64 {
 }
 
 // Below is a draw from 0 to n-1; n > 0.
-func Below(m *Mix, n int) int { int(m.Next() % uint64(n)) }
+func Below(m mut Mix, n int) int { int(m.Next() % uint64(n)) }
 
 // Words are the vocabulary of Prose, short ones first, so a skewed draw
 // makes the frequent words short, as in a natural text.
@@ -73,7 +73,7 @@ func Generate(k Kind, n int, seed uint64) string {
 
 // prose writes sentences of words drawn with a skew toward the first
 // words, a line break every few sentences.
-func prose(b *strings.Builder, m *Mix, n int) {
+func prose(b mut strings.Builder, m mut Mix, n int) {
 	let mut sentence = 0
 	for b.Len() < n {
 		let words = 4 + m.Below(12)
@@ -96,7 +96,7 @@ func prose(b *strings.Builder, m *Mix, n int) {
 
 // records writes 16-byte records: a counter that rises by small steps, a
 // kind from four, a flags byte, two zero bytes and a value that drifts.
-func records(b *strings.Builder, m *Mix, n int) {
+func records(b mut strings.Builder, m mut Mix, n int) {
 	let mut counter = 0
 	let mut value = 1000
 	for b.Len() < n {
@@ -112,7 +112,7 @@ func records(b *strings.Builder, m *Mix, n int) {
 }
 
 // le writes the low size bytes of v, low first.
-func le(b *strings.Builder, v int, size int) {
+func le(b mut strings.Builder, v int, size int) {
 	for i in 0..size {
 		b.WriteByte(byte(v >> (uint(i) * 8)))
 	}

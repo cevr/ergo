@@ -37,3 +37,13 @@ func WireKeysIn[K ~string, V any](buf *[WireKeyRoom]K, m map[K]V) []K {
 	}
 	return ks
 }
+
+// WireTextRoom is the room of the buffer an append-form pair's Wire
+// writes its text into (check.WirePair).
+const WireTextRoom = 64
+
+// WireTextIn is buf with no bytes, for an append-form pair's Wire to
+// append its text to (CW-IR's codec writers, PORT-WIRE): buf is an array
+// of the caller's frame, as the text form's `var buf [64]byte` is, and Go
+// inlines this, so a text of up to WireTextRoom bytes stays on the stack.
+func WireTextIn(buf *[WireTextRoom]byte) []byte { return buf[:0] }

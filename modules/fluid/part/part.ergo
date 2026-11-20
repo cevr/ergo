@@ -67,7 +67,7 @@ type Control { Root Skin, Plate Skin, Content Skin }
 // - Live: a message a reader announces.
 // - Host: a leaf each host draws itself (the escape, §2.4): its markup, and what it writes on a
 //   ui frame.
-type Node[E] = Box{Sem Sem, Skin Skin, Inline bool, Keys []Binding[E], Kids []Node[E]} | Text{Value string, Skin Skin} | Glyph{Paths string, Stroked bool, Skin Skin} | Press{Sem Sem, Skin Control, On Option[E], Kids []Node[E]} | Field{Sem Sem, Skin Skin, Name string, Value string, Hint string, Lines int, On func(text string) E} | Scale{Sem Sem, Skin Skin, Name string, Min float64, Max float64, Step float64, Value float64, On func(v float64) E} | Layer{Z int, Modal bool, Dismiss Option[E], Kids []Node[E]} | Keyed{Key string, Node Node[E]} | Live{Text string, Assertive bool} | Host{Web string, Gui func(f *ui.Frame[E])}
+type Node[E] = Box{Sem Sem, Skin Skin, Inline bool, Keys []Binding[E], Kids []Node[E]} | Text{Value string, Skin Skin} | Glyph{Paths string, Stroked bool, Skin Skin} | Press{Sem Sem, Skin Control, On Option[E], Kids []Node[E]} | Field{Sem Sem, Skin Skin, Name string, Value string, Hint string, Lines int, On func(text string) E} | Scale{Sem Sem, Skin Skin, Name string, Min float64, Max float64, Step float64, Value float64, On func(v float64) E} | Layer{Z int, Modal bool, Dismiss Option[E], Kids []Node[E]} | Keyed{Key string, Node Node[E]} | Live{Text string, Assertive bool} | Host{Web string, Gui func(f mut ui.Frame[E])}
 
 // HasModal reports whether the tree shows a modal layer.
 func HasModal[E](n Node[E]) bool {

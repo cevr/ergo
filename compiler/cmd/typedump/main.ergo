@@ -1,0 +1,246 @@
+// typedump resolves the types of one package with compiler/check/types
+// and prints them: one line "REC [P,…]" per record with its parameters and
+// one per written field, then the base of each defined type and the
+// signature of each function declaration; with -kinds, the solved kinds
+// of its generic types and functions instead:
+//
+//	typedump [-std DIR] EXT FOREIGN FILE...          "REC.FIELD TYPE", "def NAME TYPE", "func NAME TYPE"
+//	typedump [-std DIR] -kinds EXT FOREIGN FILE...   "NAME KIND,…", "func NAME KIND,…", "cycle LINE:COL INST ARG"
+//
+// -std DIR loads the Ergo packages the files import, transitively
+// (compiler/check/load: the module's folders, its go.mod's local
+// replaces, then DIR/PATH); each import's types are an XRef into its
+// interface (types.Iface), computed in import order. EXT is the kinds of the
+// prelude's generic types and FOREIGN its types and a Go import's ("QUAL
+// NAME ARITY PATH PRINT KEY", PRINT with its spaces as ^;
+// "@pkg NAME PATH QUALIFY", the package's own). The Go
+// side writes both. It is the Ergo side of S3t's type agreement.
+
+import compiler/check/bind
+import compiler/check/load
+import compiler/check/store
+import compiler/check/types
+import compiler/syntax
+import dense
+import fs
+import io
+import os
+import strconv
+import strings
+
+func base(path string) string {
+	let i = strings.LastIndex(path, "/")
+	if i < 0 { path } else { path[i+1 : len(path)] }
+}
+
+func word(k int) string {
+	if k == 1 { "type" } else if k == 2 { "errors" } else if k == 4 { "uses" } else { "conflict" }
+}
+
+func bit(w string) int {
+	if w == "type" { 1 } else if w == "errors" { 2 } else if w == "uses" { 4 } else { 8 }
+}
+
+func read(path string) string fails os.Exit needs fs.Files {
+	fs.Files.ReadFile(path) catch {
+	case fs.NotFound:
+		return os.Exit{Code: 1, Message: "typedump: no file \(path)"}
+	case fs.Denied:
+		return os.Exit{Code: 1, Message: "typedump: cannot read \(path)"}
+	case fs.Failed as e:
+		return os.Exit{Code: 1, Message: "typedump: cannot read \(path): \(e.Reason)"}
+	}
+}
+
+// fieldLines appends "REC.FIELD TYPE" for each written field of list l.
+func fieldLines(s mut store.Store, env types.Env, names types.Names, p syntax.Parsed, rec string, l dense.ID[syntax.Node], out mut []string) {
+	match syntax.ViewOf(p.Tree, l) {
+	case syntax.FieldList as fl:
+		for i in 0..syntax.Len(fl.List) {
+			match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, fl.List, i)) {
+			case syntax.Field as fd:
+				if fd.Dots >= 0 {
+					continue
+				}
+				match dense.Unpack(fd.Type) {
+				case Some{Value: t}:
+					let ty = types.Resolve(s, env, t)
+					let text = types.Text(*s, names, ty)
+					for j in 0..syntax.Len(fd.Names) {
+						*out = (*out).Append("\(rec).\(types.NameText(p, syntax.Item(p.Tree, fd.Names, j))) \(text)")
+					}
+				case None:
+				}
+			case _:
+			}
+		}
+	case _:
+	}
+}
+
+func run(args0 []string) fails os.Exit needs fs.Files | io.Stdout {
+	let mut std = ""
+	let mut kindsOnly = false
+	let mut args = args0
+	for len(args) > 0 && (args[0] == "-std" || args[0] == "-kinds") {
+		if args[0] == "-kinds" {
+			kindsOnly = true
+			args = args[1:len(args)]
+		} else if len(args) > 1 {
+			std = args[1]
+			args = args[2:len(args)]
+		} else {
+			return os.Exit{Code: 2, Message: "typedump: -std takes a folder"}
+		}
+	}
+	if len(args) < 2 {
+		return os.Exit{Code: 2, Message: "usage: typedump [-std DIR] [-kinds] EXT FOREIGN FILE..."}
+	}
+	let mut ext = []types.Ext{}
+	for line in strings.Split(try read(args[0]), "\n") {
+		let parts = strings.Fields(line)
+		if len(parts) != 2 {
+			continue
+		}
+		let mut ks = []int{}
+		for w in strings.Split(parts[1], ",") {
+			ks = ks.Append(bit(w))
+		}
+		ext = ext.Append(types.Ext{Head: parts[0], Kinds: ks})
+	}
+	let mut foreign = []types.Foreign{}
+	let mut pkgName = "main"
+	let mut pkgPath = "main"
+	for line in strings.Split(try read(args[1]), "\n") {
+		let parts = strings.Fields(line)
+		// "@pkg NAME PATH QUALIFY": the package's name and path, and
+		// whether its types print with its name (the prelude's do not).
+		if len(parts) == 4 && parts[0] == "@pkg" {
+			pkgName = if parts[3] == "1" { parts[1] } else { "" }
+			pkgPath = parts[2]
+			continue
+		}
+		if len(parts) != 6 {
+			continue
+		}
+		let n = strconv.Atoi(parts[2]) catch {
+		case _:
+			0
+		}
+		foreign = foreign.Append(types.Foreign{Qual: parts[0], Name: parts[1], Arity: n, Path: parts[3], Print: strings.ReplaceAll(parts[4], "^", " "), Key: parts[5], Variants: []int{}})
+	}
+	foreign = types.WithUnions(foreign, try read(args[1]))
+	let mut files = []bind.File{}
+	let mut parsed = []syntax.Parsed{}
+	let mut srcs = []string{}
+	for path in args[2:len(args)] {
+		let src = try read(path)
+		let p = syntax.Parse(src)
+		files = files.Append(bind.File{Name: base(path), Parsed: p})
+		parsed = parsed.Append(p)
+		srcs = srcs.Append(src)
+	}
+	let paths = args[2:len(args)]
+	let m = if len(paths) > 0 { load.ModuleOf(load.Dir(paths[0])) } else { None }
+	let pkgs = load.Imported(bind.Imports(files), []string{pkgPath}, m, std)
+	let done = load.Interfaces(pkgs, ext, foreign, []types.Iface{})
+	let mut s = bind.Collect(pkgPath, files)
+	let deps = load.Deps(s, done)
+	let ext2 = load.Join(ext, types.ExtOf(s, deps))
+	let table = types.WithAliases(foreign, s, deps)
+	let kinds = types.SolveKinds(s, parsed, ext2)
+	let mut out = []string{}
+	if kindsOnly {
+		for i, name in kinds.Names {
+			let mut ws = []string{}
+			for x in kinds.Of[i] {
+				ws = ws.Append(word(x))
+			}
+			out = out.Append("\(name) \(strings.Join(ws, ","))")
+		}
+		let fks = types.SolveFuncKinds(s, parsed, ext2, kinds)
+		// "cycle LINE:COL INST ARG": an instantiation cycle (S108).
+		for cy in types.Cycles(s, parsed, kinds, fks, ext2, table, deps) {
+			let pos = syntax.PositionOf(syntax.LinesOf(srcs[cy.File]), cy.Offset)
+			out = out.Append("cycle \(pos.Line):\(pos.Column) \(cy.Inst) \(cy.Arg)")
+		}
+		for fk in fks {
+			if len(fk.Kinds) == 0 {
+				continue
+			}
+			let mut ws = []string{}
+			for x in fk.Kinds {
+				ws = ws.Append(word(x))
+			}
+			out = out.Append("func \(fk.Name) \(strings.Join(ws, ","))")
+		}
+		let mut b = strings.NewBuilder()
+		for l in out {
+			b.WriteString(l + "\n")
+		}
+		io.Stdout.Print(b.String())
+		return
+	}
+	for p in parsed {
+		if p.Failed {
+			continue
+		}
+		for r in types.Records(p, pkgName == "") {
+			let env = types.NewEnv(s, parsed, p, r.Params, kinds, ext2, table, deps)
+			let names = types.Names{Params: r.Params, Foreign: table, Pkg: pkgName, Deps: deps}
+			out = out.Append("\(r.Name) [\(strings.Join(r.Params, ","))]")
+			fieldLines(&s, env, names, p, r.Name, r.Fields, &out)
+		}
+	}
+	for p in parsed {
+		if p.Failed {
+			continue
+		}
+		for d in types.Defined(p) {
+			let env = types.NewEnv(s, parsed, p, d.Params, kinds, ext2, table, deps)
+			let names = types.Names{Params: d.Params, Foreign: table, Pkg: pkgName, Deps: deps}
+			// Resolve first: it adds to the pool Text reads.
+			let t = types.Resolve(&s, env, d.Base)
+			out = out.Append("def \(d.Name) \(types.Text(s, names, t))")
+		}
+	}
+	for p in parsed {
+		if p.Failed {
+			continue
+		}
+		for r in types.Refined(p) {
+			let env = types.NewEnv(s, parsed, p, []string{}, kinds, ext2, table, deps)
+			let names = types.Names{Params: []string{}, Foreign: table, Pkg: pkgName, Deps: deps}
+			let t = types.RefinedParse(&s, env, r.Base, r.Name)
+			out = out.Append("func \(r.Parse) \(types.Text(s, names, t))")
+		}
+	}
+	for f in types.SolveFuncKinds(s, parsed, ext2, kinds) {
+		let p = parsed[f.File]
+		match syntax.ViewOf(p.Tree, f.Decl) {
+		case syntax.FuncDecl as fd:
+			let env = types.NewEnv(s, parsed, p, f.Params, kinds, ext2, table, deps)
+			let names = types.Names{Params: f.Params, Foreign: table, Pkg: pkgName, Deps: deps}
+			if types.WiredOfType(s, env, fd.Type) {
+				// Not resolved yet: the agreement test skips it, by the
+				// same rule on the Go side.
+				out = out.Append("func \(f.Name) ?")
+				continue
+			}
+			let t = types.Resolve(&s, env, fd.Type)
+			out = out.Append("func \(f.Name) \(types.Text(s, names, t))")
+		case _:
+		}
+	}
+	let mut b = strings.NewBuilder()
+	for l in out {
+		b.WriteString(l + "\n")
+	}
+	io.Stdout.Print(b.String())
+}
+
+func main() fails os.Exit needs Ambient {
+	with context { os.Process: os.NewHost(), fs.Files: fs.NewHost(), io.Stdout: io.NewHost() } {
+		try run(os.Process.Args())
+	}
+}

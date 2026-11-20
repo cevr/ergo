@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"ergo.local/prototype/internal/sketch/lower"
 )
 
 // TestIRLetDefaultsMatchSource is the seeded property over lets with no
@@ -23,6 +25,13 @@ func TestIRLetDefaultsMatchSource(t *testing.T) {
 // function of funcs has an IR body. Its callers state why they build Go.
 func f7Property(t *testing.T, name string, gen func(uint64) string, funcs ...string) {
 	t.Helper()
+	f7PropertyWith(t, name, gen, nil, funcs...)
+}
+
+// f7PropertyWith is f7Property that also checks each seed's IR report
+// (check reports what it finds wrong; nil checks nothing more).
+func f7PropertyWith(t *testing.T, name string, gen func(uint64) string, check func(lower.IRReport) string, funcs ...string) {
+	t.Helper()
 	src, ir := needsBuild(t)
 	first, count := envInt("ERGO_IRSPIKE_SEED", 1), envInt("ERGO_IRSPIKE_SEEDS", 4)
 	for seed := first; seed < first+count; seed++ {
@@ -41,6 +50,11 @@ func f7Property(t *testing.T, name string, gen func(uint64) string, funcs ...str
 		a, b := run(t, sb), run(t, ib)
 		if a != b {
 			t.Fatalf("the paths differ\nsource: %+v\nir:     %+v\n%s\n%s", a, b, replay, text)
+		}
+		if check != nil {
+			if why := check(rep); why != "" {
+				t.Errorf("seed %d: %s\n%s\n%s", seed, why, replay, text)
+			}
 		}
 		got := map[string]bool{}
 		for _, f := range rep.IR {
