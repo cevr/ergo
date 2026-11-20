@@ -29,7 +29,7 @@ seam	internal/sketchfront/load.go:shippedImport	std paths resolve to the embedde
 seam	internal/sketchfront/load.go:isStdPath	a std path names std: the loader reads no module package for it (no shadowing, C30)	-
 seam	internal/sketchfront/load.go:modulePathProblem	a module path may not take a std package's name	-
 seam	internal/sketchfront/sketchfront.go:stdDependencies	the digest of std's sources in the build key	-
-language	internal/rpcgen/rpcgen.go:gen.importOf	a prelude name is written unqualified	-
+language	internal/rpcgen/rpcgen.go:importName	a prelude name is written unqualified	-
 language	internal/rpcgen/rpcgen.go:pairOf	Wire, the codec's conversion protocol	-
 language	internal/sketch/check/authority.go:authorityText	a prelude constructor is named unqualified in a diagnostic	-
 language	internal/sketch/check/authority.go:isAmbient	Ambient, the host authority	-
@@ -103,7 +103,6 @@ debt	internal/sketchfront/inspect.go:ergoBody	inspect skips std	NP5
 debt	internal/sketchfront/rewrite.go:FreshStdLedger	std's ledger is written by a std-only path	NP5
 debt	internal/tsproj/http.go:httpFailureStatuses	http.FailureStatus by name	NP7
 debt	internal/tsproj/http.go:httpTables	http.Route by name	NP7
-debt	internal/rpcgen/hub.go:StdJSON	json's wire forms by name (moved from tsproj/project.go:stdJSON, one function for the hub's and tsproj's schemas)	NP7
 debt	internal/sketch/check/call.go:IsInForce	decides by std membership or a std name; came with a batch-21 unit developed beside the rule (batch 21 integration)	B21-NP
 debt	internal/sketch/lower/gobody.go:viewExtern	decides by std membership or a std name; came with a batch-21 unit developed beside the rule (batch 21 integration)	B21-NP
 debt	internal/sketch/lower/ir_assert.go:irState.lawBody	decides by std membership or a std name; came with a batch-21 unit developed beside the rule (batch 21 integration)	B21-NP
