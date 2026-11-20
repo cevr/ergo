@@ -592,6 +592,54 @@
       "killers": [
         "examples:gent"
       ]
+    },
+    {
+      "name": "harness-e4b-spinner-turns-once",
+      "origin": "wf10/gent-e4b",
+      "file": "examples/gent/agent/loop.ergo",
+      "from": "func spin(n Turns, t Turned) Decision[Turns, int] { Emit[Turns, int]{Next: Turns{N: n.N + 1}, Output: n.N + 1} }",
+      "to": "func spin(n Turns, t Turned) Decision[Turns, int] { Tell[Turns, int]{Next: Turns{N: n.N + 1}, Output: n.N + 1} }",
+      "rule": "Each turn of the spinner re-enters it, so its timer turns again (law Spinner.EachTurnTellsAndRestarts).",
+      "anchor": {
+        "tests": [
+          "examples:gent"
+        ]
+      },
+      "killers": [
+        "examples:gent"
+      ]
+    },
+    {
+      "name": "harness-e4b-spun-ignored-while-running",
+      "origin": "wf10/gent-e4b",
+      "file": "examples/gent/agent/loop.ergo",
+      "from": "\tcase (Asking, Spun), (Running, Spun):\n",
+      "to": "\tcase (Asking, Spun):\n",
+      "rule": "A turn of the spinner counts in a phase that works (law Agent.SpunOnlyTurns).",
+      "anchor": {
+        "tests": [
+          "examples:gent"
+        ]
+      },
+      "killers": [
+        "examples:gent"
+      ]
+    },
+    {
+      "name": "harness-e4b-running-starts-no-spinner",
+      "origin": "wf10/gent-e4b",
+      "file": "examples/gent/agent/loop.ergo",
+      "from": "\t\t\tspinning(send)\n\t\t\tsend(ToolDone{Outcome: Run(req)})\n",
+      "to": "\t\t\tsend(ToolDone{Outcome: Run(req)})\n",
+      "rule": "Running's work starts the Spinner, so the spinner turns while a tool runs (test SpinnerTurnsWhileAToolRuns).",
+      "anchor": {
+        "tests": [
+          "examples:gent"
+        ]
+      },
+      "killers": [
+        "examples:gent"
+      ]
     }
   ]
 }
