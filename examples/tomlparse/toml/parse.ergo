@@ -93,10 +93,10 @@ func Locate(src string, offset int, reason string) Malformed {
 	Malformed{Offset: offset, Line: line, Col: offset - start + 1, Reason: reason}
 }
 
-func fail(b *builder, at int, reason string) Malformed { Locate(b.src, at, reason) }
+func fail(b mut builder, at int, reason string) Malformed { Locate(b.src, at, reason) }
 
 // found is how a failure names the byte at offset at.
-func found(b *builder, at int) string {
+func found(b mut builder, at int) string {
 	if at >= len(b.src) {
 		return "the end"
 	}
@@ -104,7 +104,7 @@ func found(b *builder, at int) string {
 }
 
 // checkUTF8 fails at the first byte of src that is not UTF-8.
-func checkUTF8(b *builder) fails Malformed {
+func checkUTF8(b mut builder) fails Malformed {
 	let mut i = 0
 	for i < len(b.src) {
 		if b.src[i] < 0x80 {
@@ -120,7 +120,7 @@ func checkUTF8(b *builder) fails Malformed {
 }
 
 // blank moves past spaces and tabs.
-func blank(b *builder) {
+func blank(b mut builder) {
 	for b.pos < len(b.src) && (b.src[b.pos] == ' ' || b.src[b.pos] == '\t') {
 		b.pos += 1
 	}
@@ -132,7 +132,7 @@ func control(c byte) bool { (c < 0x20 && c != '\t') || c == 0x7f }
 
 // comment moves past a comment that starts at the next byte, up to the
 // end of its line.
-func comment(b *builder) fails Malformed {
+func comment(b mut builder) fails Malformed {
 	b.pos += 1
 	for b.pos < len(b.src) {
 		let c = b.src[b.pos]
@@ -148,7 +148,7 @@ func comment(b *builder) fails Malformed {
 
 // newline moves past a newline at the next byte, and says whether there
 // was one.
-func newline(b *builder) bool {
+func newline(b mut builder) bool {
 	if b.pos < len(b.src) && b.src[b.pos] == '\n' {
 		b.pos += 1
 		return true
@@ -162,7 +162,7 @@ func newline(b *builder) bool {
 
 // endLine moves past the rest of a line: blanks, a comment, and the
 // newline or the end of the text.
-func endLine(b *builder) fails Malformed {
+func endLine(b mut builder) fails Malformed {
 	blank(b)
 	if b.pos < len(b.src) && b.src[b.pos] == '#' {
 		try comment(b)
@@ -179,7 +179,7 @@ func bare(c byte) bool {
 }
 
 // key reads a dotted key: one key or more, joined by dots.
-func key(b *builder) []Seg fails Malformed {
+func key(b mut builder) []Seg fails Malformed {
 	let mut segs = []Seg{}
 	for {
 		let at = b.pos
@@ -237,7 +237,7 @@ func joined(path string, name string) string {
 }
 
 // add puts a node below parent and is its id.
-func add(b *builder, parent int, name string, shape Shape, form Form) int {
+func add(b mut builder, parent int, name string, shape Shape, form Form) int {
 	b.nodes = b.nodes.Append(node{parent: parent, name: name, shape: shape, form: form, val: Bool{B: false}, last: 0})
 	len(b.nodes) - 1
 }
@@ -246,7 +246,7 @@ func add(b *builder, parent int, name string, shape Shape, form Form) int {
 // machine Definition: the node of the key, made when it is new, or the
 // table it leads into (the last table of an array of tables, or the table
 // that Append adds). shown is the key's dotted path.
-func touch(b *builder, parent int, seg Seg, u Use, shown string) int fails Duplicate | Clash {
+func touch(b mut builder, parent int, seg Seg, u Use, shown string) int fails Duplicate | Clash {
 	let at = slot{parent: parent, name: seg.Name}
 	let mut id = -1
 	let mut s Shape = Absent
@@ -302,7 +302,7 @@ func touch(b *builder, parent int, seg Seg, u Use, shown string) int fails Dupli
 
 // header reads a [table] or [[array of tables]] header and makes its
 // table the one that key/value pairs go to.
-func header(b *builder) fails Malformed | Duplicate | Clash {
+func header(b mut builder) fails Malformed | Duplicate | Clash {
 	let tables = b.pos+1 < len(b.src) && b.src[b.pos+1] == '['
 	b.pos += if tables { 2 } else { 1 }
 	blank(b)
@@ -325,7 +325,7 @@ func header(b *builder) fails Malformed | Duplicate | Clash {
 
 // keyval reads a key/value pair into the table node table, whose dotted
 // path is path.
-func keyval(b *builder, table int, path string) fails Malformed | Duplicate | Clash {
+func keyval(b mut builder, table int, path string) fails Malformed | Duplicate | Clash {
 	let segs = try key(b)
 	if b.pos >= len(b.src) || b.src[b.pos] != '=' {
 		return fail(b, b.pos, "expected '=' after a key, found "+found(b, b.pos))
@@ -344,7 +344,7 @@ func keyval(b *builder, table int, path string) fails Malformed | Duplicate | Cl
 
 // value reads the value at the next byte into the node id, whose dotted
 // path is shown.
-func value(b *builder, id int, shown string) fails Malformed | Duplicate | Clash {
+func value(b mut builder, id int, shown string) fails Malformed | Duplicate | Clash {
 	if b.pos >= len(b.src) {
 		return fail(b, b.pos, "expected a value, found the end")
 	}
@@ -373,20 +373,20 @@ func value(b *builder, id int, shown string) fails Malformed | Duplicate | Clash
 	}
 }
 
-func leaf(b *builder, id int, v Value) {
+func leaf(b mut builder, id int, v Value) {
 	let mut n = b.nodes[id]
 	n.val = v
 	b.nodes[id] = n
 }
 
-func reform(b *builder, id int, f Form) {
+func reform(b mut builder, id int, f Form) {
 	let mut n = b.nodes[id]
 	n.form = f
 	b.nodes[id] = n
 }
 
 // word moves past the literal w, which must end there.
-func word(b *builder, w string) fails Malformed {
+func word(b mut builder, w string) fails Malformed {
 	if !strings.HasPrefix(strings.Slice(b.src, b.pos, len(b.src)), w) {
 		return fail(b, b.pos, "expected a value, found "+found(b, b.pos))
 	}
@@ -396,7 +396,7 @@ func word(b *builder, w string) fails Malformed {
 
 // ended fails unless a value may end at offset at: at the end of the
 // text, a blank, a newline, a comma, a closing bracket or a comment.
-func ended(b *builder, at int) fails Malformed {
+func ended(b mut builder, at int) fails Malformed {
 	if at >= len(b.src) {
 		return
 	}
@@ -409,7 +409,7 @@ func ended(b *builder, at int) fails Malformed {
 
 // enter opens an array or an inline table: one level deeper, at most
 // MaxDepth.
-func enter(b *builder) fails Malformed {
+func enter(b mut builder) fails Malformed {
 	b.depth += 1
 	if b.depth > MaxDepth {
 		return fail(b, b.pos, "nesting deeper than \(MaxDepth)")
@@ -419,7 +419,7 @@ func enter(b *builder) fails Malformed {
 
 // fill moves past what may stand between the values of an array: blanks,
 // newlines and comments.
-func fill(b *builder) fails Malformed {
+func fill(b mut builder) fails Malformed {
 	for {
 		blank(b)
 		if b.pos < len(b.src) && b.src[b.pos] == '#' {
@@ -432,7 +432,7 @@ func fill(b *builder) fails Malformed {
 }
 
 // array reads an array after its [ into the node id.
-func array(b *builder, id int, shown string) fails Malformed | Duplicate | Clash {
+func array(b mut builder, id int, shown string) fails Malformed | Duplicate | Clash {
 	try enter(b)
 	reform(b, id, Items)
 	for {
@@ -461,7 +461,7 @@ func array(b *builder, id int, shown string) fails Malformed | Duplicate | Clash
 // inline reads an inline table after its { into the node id. Its keys
 // need no closing when it ends: the node id is Closed (Set made it), and
 // every later use reaches them only through it.
-func inline(b *builder, id int, shown string) fails Malformed | Duplicate | Clash {
+func inline(b mut builder, id int, shown string) fails Malformed | Duplicate | Clash {
 	try enter(b)
 	reform(b, id, Keys)
 	blank(b)
@@ -488,7 +488,7 @@ func inline(b *builder, id int, shown string) fails Malformed | Duplicate | Clas
 }
 
 // tree is the root table the builder's nodes make.
-func tree(b *builder) Value {
+func tree(b mut builder) Value {
 	let n = len(b.nodes)
 	let mut first = slices.Repeat([]int{0}, n+1)
 	for id in 1..n {
@@ -507,7 +507,7 @@ func tree(b *builder) Value {
 	build(b, first, kids, 0)
 }
 
-func build(b *builder, first []int, kids []int, id int) Value {
+func build(b mut builder, first []int, kids []int, id int) Value {
 	let n = b.nodes[id]
 	match n.form {
 	case Leaf:

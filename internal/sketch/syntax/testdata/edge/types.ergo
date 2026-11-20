@@ -17,6 +17,13 @@ type Store {
 	Put(id string, o Order),
 }
 
+// A mut operation writes its receiver (types.md, Generics 2; MODES-4).
+// expect: "	mut Bump() int,"
+type Counter {
+	mut   Bump() int,
+	Get() int,
+}
+
 // Included records (types.md, Structs 7).
 type Visit { ..Owned, S Session }
 

@@ -6,12 +6,12 @@ import (
 	"strings"
 	"testing"
 
-	"ergo.local/prototype/internal/sketch/format"
+	format "ergo.local/prototype/internal/hostsyntax"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
 // TestErgoTextParses: both golden Ergo texts parse with
-// internal/sketch/syntax and are in canonical internal/sketch/format form;
+// internal/sketch/syntax and are in canonical internal/hostsyntax form;
 // each holds `import go <path>`, one extern per typed function (target
 // <path>.<GoName>, no needs row) and one `// not bound` line per raw-only
 // function; and a control with a broken extern does not parse.

@@ -10,11 +10,9 @@
 
 abi	calls.go:funcCtx.callee	the call table's Callee text (#230): prelude functions are written unqualified in the defect report
 abi	calls.go:lowerer.hostImportNames	the Go import list: std time is imported by the runtime ABI already, so it is not added twice
-abi	decls.go:isPreludeType	the runtime type representation of the prelude's Option, Some and None
+abi	decls.go:isPreludeType	the runtime type representation of a prelude type its callers name (Range, Seq, Decision's variants; Option's callers are in prelude-unions.txt)
 abi	decls.go:lowerer.intrinsic	the prelude collection wrappers Append and Put bind runtime/v1 bodies
-abi	getmatch.go:getPattern	the prelude Some's field Value, the comma-ok form of the prelude Get
 abi	gocall.go:funcCtx.goErrorCall	go.Is and go.As bind v1.GoIs and v1.GoAs (IG5)
-abi	gocall.go:isOptionType	the runtime type representation of the prelude Option at a Go import boundary
 abi	library.go:hostProvides	the host entry's capabilities Console and Ambient (rows.md, Entry 4)
 abi	module.go:lowerer.hostFields	the host entry's capabilities Console and Ambient (rows.md, Entry 4)
 abi	std.go:lowerer.runtimeType	the runtime type representation of std fs.Text, a mapped text, as the Go string of its Mapped (MAPPED; batch-19 combined integration)

@@ -3,26 +3,16 @@ import slices
 import strings
 
 // The public contracts of a package (SEMTOOLS SEM2): each exported
-// function and method, with its signature, its rows and what it takes and
-// copies, as the checker gives them. `ergo inspect api` prints a package's
+// function and method, with its signature, its rows, what it takes and the
+// type parameters it marks own, as the checker gives them. `ergo inspect api` prints a package's
 // view and the diff of two; a plan reports the diff of its base and its
 // result as its contract impact.
-
-// CopySite is a type parameter's first checked copy site: the parameter,
-// where (empty for a foreign body: not a claim that the parameter only
-// moves), what is copied, and whether it is a map key.
-type CopySite {
-	ParameterIndex int,
-	Parameter      string,
-	Where          string,
-	What           string,
-	Key            bool,
-}
 
 // Contract is an exported function's contract: its name (Type.Name for a
 // method), its signature, its type parameters, its fails and needs rows,
 // the parameters it takes ("self" for a bare operation's take), whether
-// the takes are inferred, and its copy sites.
+// the takes are inferred, and the type parameters written [T own], which a
+// resource may bind (types.md, Generics 9).
 type Contract {
 	Name            string,
 	Signature       string,
@@ -33,7 +23,7 @@ type Contract {
 	TakesParameters []int,
 	TakesSelf       bool,
 	TakesInferred   bool,
-	Copies          []CopySite,
+	Own             []string,
 }
 
 // ApiQuery asks for the contracts of a package, the root package (the
@@ -113,8 +103,9 @@ func ApiDiff(old []Contract, new []Contract) []ApiChange {
 					breaks = true
 				}
 			}
-			for c in y.Value.Copies {
-				if slices.IndexFunc(x.Value.Copies, func(o CopySite) bool { o.ParameterIndex == c.ParameterIndex }) < 0 {
+			// A dropped mark refuses the callers that bind a resource.
+			for mark in x.Value.Own {
+				if !slices.Contains(y.Value.Own, mark) {
 					breaks = true
 				}
 			}
@@ -126,7 +117,7 @@ func ApiDiff(old []Contract, new []Contract) []ApiChange {
 }
 
 // ApiText is the docs view of contracts: each function's name and
-// signature, its type parameters, what it takes, and its copy sites.
+// signature, its type parameters, what it takes, and its own marks.
 func ApiText(fs []Contract) string {
 	let mut b = ""
 	for f in fs {
@@ -137,9 +128,8 @@ func ApiText(fs []Contract) string {
 		let taken = if len(f.Takes) > 0 { strings.Join(f.Takes, ", ") } else { "nothing" }
 		let origin = if f.TakesInferred { "inferred" } else { "written" }
 		b = b + "\n  takes \(taken) (\(origin))\n"
-		for c in f.Copies {
-			let where = if c.Where == "" { "foreign body" } else { c.Where }
-			b = b + "  copies \(c.Parameter) at \(where) (plain data only): \(c.What)\n"
+		for n in f.Own {
+			b = b + "  own \(n) (a resource may bind it)\n"
 		}
 	}
 	if len(fs) == 0 {
@@ -227,8 +217,8 @@ func allContracts(seed int) []Contract {
 
 // ApiDiffBreaksOnANewTake: one contract changed one way is one change,
 // with its old and new sides; it breaks resource callers exactly when the
-// new side takes a parameter, or self, the old did not, or copies a type
-// parameter the old did not.
+// new side takes a parameter, or self, the old did not, or drops a type
+// parameter's own mark the old wrote.
 law ApiDiffBreaksOnANewTake(seed int, pick int, how int) { apiDiffBreaksOnANewTake(seed, pick, how) }
 
 func apiDiffBreaksOnANewTake(seed int, pick int, how int) bool {
@@ -243,7 +233,7 @@ func apiDiffBreaksOnANewTake(seed int, pick int, how int) bool {
 	case 1:
 		(Contract{..f, TakesSelf: true}, !f.TakesSelf)
 	case 2:
-		(Contract{..f, Copies: f.Copies.Append(CopySite{ParameterIndex: 9, Parameter: "U", Where: "", What: "a value", Key: false})}, true)
+		(Contract{..f, Own: []string{}}, len(f.Own) > 0)
 	case 3:
 		(Contract{..f, Signature: f.Signature + " needs Clock"}, false)
 	case 4:
@@ -257,7 +247,7 @@ func apiDiffBreaksOnANewTake(seed int, pick int, how int) bool {
 	}
 	let removed = ApiDiff([]Contract{f}, []Contract{})
 	let added = ApiDiff([]Contract{}, []Contract{g})
-	len(changes) == 1 && changes[0] == ApiChange{Name: f.Name, Old: Some[Contract]{Value: f}, New: Some[Contract]{Value: g}, BreaksResourceCallers: breaks} &&
+		len(changes) == 1 && changes[0] == ApiChange{Name: f.Name, Old: Some[Contract]{Value: f}, New: Some[Contract]{Value: g}, BreaksResourceCallers: breaks} &&
 		removed == []ApiChange{ApiChange{Name: f.Name, Old: Some[Contract]{Value: f}, New: None, BreaksResourceCallers: false}} &&
 		added == []ApiChange{ApiChange{Name: g.Name, Old: None, New: Some[Contract]{Value: g}, BreaksResourceCallers: false}}
 }

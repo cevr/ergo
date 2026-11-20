@@ -169,11 +169,19 @@ func sealedSource(s stdOpType, imports []string, decl, target string) string {
 	body := "\n" + decl + "\nfunc Conv" + s.tparams + "(s " + mode + s.ref(s.tpnames) + ") " + target + " { s }\n"
 	var b strings.Builder
 	seen := map[string]bool{}
-	for _, list := range [][]string{s.imports, imports} {
+	// s's own imports are the ones its type names, so they are matched
+	// without the target: a Go target io.Writer names Go's io, not std io
+	// (json.Cursor->writer imported std io beside `import go io`).
+	own := decl + s.tparams + s.ref(s.tpnames)
+	for k, list := range [][]string{s.imports, imports} {
+		names := body
+		if k == 0 {
+			names = own
+		}
 		for _, i := range list {
 			for _, p := range strings.Fields(strings.TrimPrefix(i, "import")) {
 				// Only the packages the program names: an unused import is S110.
-				if !seen[p] && regexp.MustCompile(`\b`+path.Base(p)+`\.`).MatchString(body) {
+				if !seen[p] && regexp.MustCompile(`\b`+path.Base(p)+`\.`).MatchString(names) {
 					seen[p] = true
 					b.WriteString("import " + p + "\n")
 				}

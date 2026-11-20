@@ -180,7 +180,7 @@ func headless(rows []catalog.Star, height int) fails os.Exit needs Ambient | go.
 }
 
 // send gives the screen the input of a table signal.
-func send[D, F](d *tui.Driver[catalog.State, window.Signal, D, F], s go.Ref[screen.Screen], sig catalog.Signal) fails ui.NoNode | ui.Mismatch | ui.Closed | actor.Stopped | ui.BadPatch | tui.ScreenFailed needs go.Foreign {
+func send[D, F](d mut tui.Driver[catalog.State, window.Signal, D, F], s go.Ref[screen.Screen], sig catalog.Signal) fails ui.NoNode | ui.Mismatch | ui.Closed | actor.Stopped | ui.BadPatch | tui.ScreenFailed needs go.Foreign {
 	match sig {
 	case catalog.Type as t:
 		// The field reports its whole text: the letters go after what it
@@ -201,7 +201,7 @@ func send[D, F](d *tui.Driver[catalog.State, window.Signal, D, F], s go.Ref[scre
 
 // unfocus clicks the list, which takes no focus, so a key goes to the
 // table and not to a focused button or field.
-func unfocus[D, F](d *tui.Driver[catalog.State, window.Signal, D, F], s go.Ref[screen.Screen]) fails ui.Closed | actor.Stopped | ui.BadPatch | tui.ScreenFailed needs go.Foreign {
+func unfocus[D, F](d mut tui.Driver[catalog.State, window.Signal, D, F], s go.Ref[screen.Screen]) fails ui.Closed | actor.Stopped | ui.BadPatch | tui.ScreenFailed needs go.Foreign {
 	if tui.FocusId(d) == None {
 		return
 	}
@@ -214,7 +214,7 @@ func unfocus[D, F](d *tui.Driver[catalog.State, window.Signal, D, F], s go.Ref[s
 }
 
 // follow scrolls the list to the table's window.
-func follow[D, F](d *tui.Driver[catalog.State, window.Signal, D, F]) fails os.Exit needs go.Foreign {
+func follow[D, F](d mut tui.Driver[catalog.State, window.Signal, D, F]) fails os.Exit needs go.Foreign {
 	let g = catalog.GridOf(tui.StateOf(d))
 	let rh = window.RowHeight
 	tui.Play(d, []ui.Act{ui.ScrollOn{Label: "stars", Offset: rh * ui.Length(float64(g.Top)), Height: rh * ui.Length(float64(g.Height))}}) catch {

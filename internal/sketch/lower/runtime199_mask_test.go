@@ -418,7 +418,7 @@ func viaGeneric(fail bool, signal queue.Queue[int]) needs Ambient {
 		extra: `
 type Held { Fail bool } implements Closer
 
-func Close(h *Held) needs Scheduler {
+func Close(h mut Held) needs Scheduler {
 	Scheduler.Sleep(4h)
 	if h.Fail {
 		let xs = []int{}
