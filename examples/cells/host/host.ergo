@@ -533,8 +533,22 @@ func drawNode[S, E, D, F](h mut Host[S, E, D, F], g mut grid.Grid, t mut layout.
 		drawKids(h, g, t, ids, id, dy, clip)
 	case ui.TransitionNode:
 		drawKids(h, g, t, ids, id, dy, clip)
+	case ui.LayerNode[E], ui.TrackNode:
+		// a layer lays out in the flow and a track shows its target: the
+		// grid has no stacking and no motion (Omissions: Motion)
+		drawKids(h, g, t, ids, id, dy, clip)
 	case ui.LiveNode as x:
 		d = named(g, x.Text, at.C, at.R, d, pen)
+	case ui.ReadoutNode as x:
+		// what the readout reads now, in the reserve's box; its reserve
+		// before the first reading
+		let reading = match ui.ReadingIn(&h.session, x.Readout) {
+		case Some[string] as r:
+			r.Value
+		case None:
+			x.Reserve
+		}
+		d = named(g, reading, at.C, at.R, d, pen)
 	case ui.SemanticNode[E] as x:
 		if focusable(n) {
 			h.spots = h.spots.Append(s)
@@ -670,7 +684,7 @@ func sendersIn[E](spots []spot[E]) []ui.Id[E] {
 		match s.node {
 		case ui.ZoneNode, ui.SemanticNode[E]:
 			out = out.Append(s.id)
-		case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.TextNode, ui.PressableNode[E], ui.CheckNode[E], ui.InputNode, ui.ToggleNode, ui.AreaNode, ui.CanvasNode, ui.RowsNode, ui.FieldsetNode, ui.LiveNode, ui.TransitionNode:
+		case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.TextNode, ui.PressableNode[E], ui.CheckNode[E], ui.InputNode, ui.ToggleNode, ui.AreaNode, ui.CanvasNode, ui.RowsNode, ui.FieldsetNode, ui.LiveNode, ui.TransitionNode, ui.ReadoutNode, ui.LayerNode[E], ui.TrackNode:
 		}
 	}
 	out
