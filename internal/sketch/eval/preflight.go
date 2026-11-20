@@ -174,6 +174,11 @@ func (p *preflight) generator(fr *frame, t check.Type, provider *check.LawProvid
 	}
 	var children []check.Type
 	switch u := t.(type) {
+	case *check.TypeParam:
+		if p.in.atInt[u] {
+			return ""
+		}
+		return fmt.Sprintf("a generator for %s", t)
 	case *check.Basic:
 		return ""
 	case *check.Slice:
