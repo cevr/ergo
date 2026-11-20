@@ -241,15 +241,20 @@ func checkShapes(t *testing.T, name, code string, program func(*shapeModel) (str
 		}
 	}
 	savedEffects := gofacts.Effects
-	savedConcurrent := v1.GoConcurrentTypes()
+	// GoConcurrentTypes is built once per process (ERGO-STARTUP-2): plant
+	// the entry in it and take it out again.
+	concurrent := v1.GoConcurrentTypes()
+	savedPlanted, hadPlanted := concurrent["shapes.A"]
 	savedLedger := check.FactLedger
 	t.Cleanup(func() {
-		gofacts.Effects, v1.GoConcurrentTypes(), check.FactLedger = savedEffects, savedConcurrent, savedLedger
+		gofacts.Effects, check.FactLedger = savedEffects, savedLedger
+		if hadPlanted {
+			concurrent["shapes.A"] = savedPlanted
+		} else {
+			delete(concurrent, "shapes.A")
+		}
 	})
-	v1.GoConcurrentTypes() = map[string]string{"shapes.A": "planted: safe for concurrent use"}
-	for k, v := range savedConcurrent {
-		v1.GoConcurrentTypes()[k] = v
-	}
+	concurrent["shapes.A"] = "planted: safe for concurrent use"
 	yes, no := 0, 0
 	for _, seed := range seeds {
 		m := newShapeModel(rand.New(rand.NewPCG(seed, 0x6b2ace)))
