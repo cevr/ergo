@@ -1599,14 +1599,12 @@ var openStd = map[string]bool{
 	"log.Sink":          true,
 	"tz.Zones":          true,
 	"tz.Local":          true,
-	// The store contracts of ST3: a program or a module provides each one
-	// over its own store (a database, Redis) and runs the same laws.
-	"jobs.Queue":        true,
-	"kv.Store":          true,
-	"proof.Delivery":    true,
-	"proof.Store":       true,
-	"ratelimit.Limiter": true,
-	"session.Store":     true,
+	"jobs.Queue":        true, // open: std's own providers are other packages (jobs/memory.Queue, jobs/file), and a database's queue is a module's
+	"kv.Store":          true, // open: examples/kvstore's memory.Table and file.Log implement it, beside std's kv/memory and kv/file
+	"proof.Delivery":    true, // open: the program sends the code (mail, SMS) by its own provider; std has only proof.Recorder, for tests
+	"proof.Store":       true, // open: std's own providers are other packages (proof/memory.Store, proof/file), and a database's is a module's
+	"ratelimit.Limiter": true, // open: std's provider is another package (ratelimit/memory), and a limiter shared across processes is a module's
+	"session.Store":     true, // open: std's own providers are other packages (session/memory.Store, session/file), and a database's is a module's
 	"testing.Allocs":    true,
 	"llm.Model":         true,
 	// The layout's text measure, which a host provides with its fonts.
