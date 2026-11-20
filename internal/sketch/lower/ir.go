@@ -499,10 +499,6 @@ func irNo(format string, args ...any) { panic(irUnsupported{fmt.Sprintf(format, 
 
 // irBuilder builds one function's IR body.
 type irBuilder struct {
-	// shown is the operand of a shown assert built as its own type, its
-	// implicit conversion left to the comparison (assertEqual,
-	// ir_assert.go); nil otherwise.
-	shown  syntax.Expr
 	fc     *funcCtx
 	l      *lowerer
 	st     *irState

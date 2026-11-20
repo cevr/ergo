@@ -171,67 +171,41 @@ func (b *irBuilder) assert(s *syntax.AssertStmt) []*irStmt {
 		// stays inline): the comparison and the failure text read them.
 		b.plain(x)
 		op := x.Op.String()
-		// == and != on a type that is not basic compare as binaryOther
-		// does (ir_equal.go), as the emitter's assertCompare calls
-		// binaryOf. Each operand is shown as its own type, as the
-		// emitter's operands(…, false) leaves it: a variant compared with
-		// its union is built and spilled as the variant (b.shown) and goes
-		// into the union for the comparison only. Any other conversion
-		// keeps the source body.
-		eq := b.equalOther(x)
-		if eq == nil {
-			b.operator(op, l.info.Types[x.X], x)
-		}
-		var into syntax.Expr // the operand that goes into the union
-		var conv check.Conversion
-		for _, e := range []syntax.Expr{x.X, x.Y} {
-			c, ok := l.info.Implicit[e]
-			if !ok || c.Kind == 0 || eq == nil {
-				continue
-			}
-			if c.Kind != check.ConvVariant || into != nil {
-				irNo("operator %s on operands of two types", op)
-			}
-			into, conv = e, c
-		}
-		if into != nil {
-			b.shown = unparen(into)
-			defer func() { b.shown = nil }()
-		}
 		var vals []*irExpr
-		// A try that starts the assert covers the whole comparison: its
-		// operands are built under it (the emitter's assert, q105).
-		inTry := tried(s.X) != s.X
-		if inTry {
-			b.tries++
-		}
-		pre, vals = b.operands([]syntax.Expr{x.X, x.Y}) // ir_fail.go
-		if inTry {
-			b.tries--
-		}
-		for k, e := range []syntax.Expr{x.X, x.Y} {
-			if vals[k].K == "const" || vals[k].K == "local" {
-				continue
+		build := func() []*irExpr {
+			// A try that starts the assert covers the whole comparison:
+			// its operands are built under it (the emitter's assert, q105).
+			inTry := tried(s.X) != s.X
+			if inTry {
+				b.tries++
 			}
-			t := b.temp("arg", b.goType(l.info.Types[e], e), vals[k].Pos)
-			pre = append(pre, &irStmt{K: "def", Pos: vals[k].Pos, Local: t, X: vals[k]})
-			vals[k] = &irExpr{K: "local", Pos: vals[k].Pos, I: t}
-		}
-		b.shown = nil
-		if eq != nil {
-			cond = b.equalOf(x, eq, func() (*irExpr, *irExpr) {
-				// The variant goes into its union here only: the
-				// failure text shows it as itself.
-				l, r := vals[0], vals[1]
-				if into == x.X {
-					l = b.convert(conv, l, into)
-				} else if into == x.Y {
-					r = b.convert(conv, r, into)
+			pre, vals = b.operands([]syntax.Expr{x.X, x.Y}) // ir_fail.go
+			if inTry {
+				b.tries--
+			}
+			for k, e := range []syntax.Expr{x.X, x.Y} {
+				if vals[k].K == "const" || vals[k].K == "local" {
+					continue
 				}
-				return l, r
-			})
-		} else {
+				t := b.temp("arg", b.goType(b.operandType(e), e), vals[k].Pos)
+				pre = append(pre, &irStmt{K: "def", Pos: vals[k].Pos, Local: t, X: vals[k]})
+				vals[k] = &irExpr{K: "local", Pos: vals[k].Pos, I: t}
+			}
+			return vals
+		}
+		// == and != on a type that is not basic: the emitter's binaryOf
+		// on the spilled operands, as any comparison (ir_equal.go).
+		if cond = b.equalOn(x, build); cond == nil {
+			b.operator(op, l.info.Types[x.X], x)
+			build()
 			cond = &irExpr{K: "bin", Pos: b.pos(x, x.OpPos), Op: op, X: vals[0], Y: vals[1]}
+		}
+		// The spilled operands hold their implicit conversions (a variant
+		// compared with its union is the union's value): the helper takes
+		// them at those types and prints the value it holds.
+		lt, rt = b.operandType(x.X), b.operandType(x.Y)
+		if !l.printable(lt, map[*check.Named]bool{}) || !l.printable(rt, map[*check.Named]bool{}) {
+			irNo("assert of a converted operand that does not print")
 		}
 		show := &irExpr{K: "call", Pos: p, Name: l.assertShowFunc(s, lt, rt, x), Args: vals}
 		text = &irExpr{K: "bin", Pos: p, Op: "+", X: text, Y: show}
