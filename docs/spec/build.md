@@ -360,7 +360,12 @@ transitively), and the identity of the `ergo` binary; its class is
 `derived`, since nothing in the key is declared by hand. Members come in
 the workspace's order (each after the members it requires), so a first
 run already respects the requires edges; after it, their order is by
-what they read, as for every generator.
+what they read, as for every generator. A package whose header names a
+contract other than the folder above it was not written by `ergo gen` in
+place (the `linked` generator writes std `code`'s Reader hub and command
+line into `codetool`): it is no member's, and some generator's last run
+must have written it, or `ergo task gen` fails naming it, since nothing
+would keep it current; `--list` names its writer.
 
 - **Inputs.** A generator reads its Go build, every file `go list -deps`
   (with `-test` for `go test`) names below the root, Go, assembly,
