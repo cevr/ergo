@@ -1,23 +1,23 @@
 {
-  "about": "The host budget (WS4a): each row is one of the model's mutants (models/gatebudget) ported to the implementation.",
+  "about": "The host budget (WS4a, WS4c): each row is one of the model's mutants (models/gatebudget) ported to the implementation.",
   "mutants": [
     {
       "name": "budget-admit-by-count",
       "origin": "wf10 WS4a (model ByCount)",
       "file": "internal/budget/decide.go",
-      "from": "func (s *State) Fits(r Rules, e Entry) bool { return s.Used()+e.Width <= r.Cores }",
-      "to": "func (s *State) Fits(r Rules, e Entry) bool { return len(s.Holders) < r.Cores }",
+      "from": "\treturn s.Used()+e.Width <= r.Cores && (r.Memory == 0 || s.MemoryUsed()+e.Memory <= r.Memory)",
+      "to": "\treturn len(s.Holders) < r.Cores && (r.Memory == 0 || s.MemoryUsed()+e.Memory <= r.Memory)",
       "rule": "Admission is by cores: the widths held never sum past the budget.",
       "killers": ["internal/budget:TestHandOnKeepsTheModelsInvariants"]
     },
     {
-      "name": "budget-gate-all",
-      "origin": "wf10 WS4a (model GateAll)",
+      "name": "budget-admit-by-cores",
+      "origin": "wf10 WS4c (model ByCores)",
       "file": "internal/budget/decide.go",
-      "from": "func Gated(r Rules, e Entry) bool { return r.High && !e.Crit }",
-      "to": "func Gated(r Rules, e Entry) bool { return r.High }",
-      "rule": "The interim load gate stops only the lane class; crit is never gated.",
-      "killers": ["internal/budget:TestHandOnKeepsTheModelsInvariants"]
+      "from": "\treturn s.Used()+e.Width <= r.Cores && (r.Memory == 0 || s.MemoryUsed()+e.Memory <= r.Memory)",
+      "to": "\treturn s.Used()+e.Width <= r.Cores",
+      "rule": "Admission is by memory too: the reservations held never sum past the memory budget.",
+      "killers": ["internal/budget:TestHandOnKeepsTheModelsInvariants", "internal/budget:TestMemoryQueues"]
     },
     {
       "name": "budget-newest-first",
@@ -41,8 +41,8 @@
       "name": "budget-store-admit-by-count",
       "origin": "wf10 WS4a (model ByCount, in the store)",
       "file": "internal/budget/store_unix.go",
-      "from": "\treturn Rules{Cores: b.cfg.Cores, Share: b.cfg.Share, High: high}",
-      "to": "\treturn Rules{Cores: 2 * b.cfg.Cores, Share: b.cfg.Share, High: high}",
+      "from": "func (c Config) rules() Rules { return Rules{Cores: c.Cores, Memory: c.Memory, Share: c.Share} }",
+      "to": "func (c Config) rules() Rules { return Rules{Cores: 2 * c.Cores, Memory: c.Memory, Share: c.Share} }",
       "rule": "The store decides with the host owner's budget, not a larger one.",
       "killers": ["internal/budget:TestFullBudgetQueues"]
     },
@@ -74,15 +74,6 @@
       "killers": ["internal/budget:TestLentGrantTakesNothing"]
     },
     {
-      "name": "budget-gated-head-blocks",
-      "origin": "wf10 WS4a (model GatedHead; the live bug of 2026-11-20)",
-      "file": "internal/budget/decide.go",
-      "from": "\tif r.High {\n\t\tlane = -1\n\t}\n",
-      "to": "",
-      "rule": "A gated lane waiter is never next: a crit waiter behind it is served at once while cores are free.",
-      "killers": ["internal/budget:TestHandOnKeepsTheModelsInvariants", "internal/budget:TestCritPassesAGatedLaneHead"]
-    },
-    {
       "name": "budget-lend-wider-queues",
       "origin": "wf10 WS4a (model ChildQueues, a child wider than its grant)",
       "file": "internal/budget/store_unix.go",
@@ -99,6 +90,51 @@
       "to": "\n",
       "rule": "Run kills what its command left running in its process group.",
       "killers": ["internal/budget:TestRunKillsTheGroup"]
+    },
+    {
+      "name": "budget-last-peak",
+      "origin": "wf10 WS4c (model LastPeak)",
+      "file": "internal/budget/store_unix.go",
+      "from": "\tif peak > peaks[key] {",
+      "to": "\tif peak > 0 {",
+      "rule": "A command's reservation is the largest peak it reached; a smaller later peak does not shrink it.",
+      "killers": ["internal/budget:TestPeakRaisesTheReservation"]
+    },
+    {
+      "name": "budget-killed-keeps-cap",
+      "origin": "wf10 WS4c (model KilledOnce)",
+      "file": "internal/budget/run_unix.go",
+      "from": "\t\treturn 2 * reserved\n",
+      "to": "\t\treturn peak\n",
+      "rule": "A run killed at its reservation raises the next reservation past the cap.",
+      "killers": ["internal/budget:TestReservationIsTheLargestPeak", "internal/budget:TestRunCapsAtTheReservation"]
+    },
+    {
+      "name": "budget-no-cap",
+      "origin": "wf10 WS4c (model: a run over its reservation is killed alone)",
+      "file": "internal/budget/run_unix.go",
+      "from": "\tif g.Memory() > 0 && scopes() {",
+      "to": "\tif false {",
+      "rule": "With memory budgeted, a command runs capped at its reservation.",
+      "killers": ["internal/budget:TestRunCapsAtTheReservation"]
+    },
+    {
+      "name": "budget-conf-not-reread",
+      "origin": "wf10 WS4c (an edit that does not take effect)",
+      "file": "internal/budget/store_unix.go",
+      "from": "\tif b.cfg.Path != \"\" {",
+      "to": "\tif false {",
+      "rule": "Every decision reads the budget's file again.",
+      "killers": ["internal/budget:TestConfigEditWakesAWaiter"]
+    },
+    {
+      "name": "budget-conf-edit-no-wake",
+      "origin": "wf10 WS4c (an edit that does not take effect)",
+      "file": "internal/budget/store_unix.go",
+      "from": "\tdefer watchConfig(cfg.Path, woke)()\n",
+      "to": "\n",
+      "rule": "An edit of the budget's file wakes the waiters.",
+      "killers": ["internal/budget:TestConfigEditWakesAWaiter"]
     }
   ]
 }
