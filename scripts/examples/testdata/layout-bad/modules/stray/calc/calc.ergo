@@ -1,0 +1,4 @@
+// Package calc doubles a number in Ergo.
+
+// Double is n doubled.
+func Double(n int) int { n * 2 }
