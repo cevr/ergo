@@ -261,8 +261,15 @@ type Api {
 	// Refresh refreshes the stat data of the base's Git index, so that a
 	// clone starts fresh; it is the number of stale entries it had.
 	Refresh() int fails NoBase | Unkept | VcsFailed,
-	// Bases is every base init registered on this host.
+	// Bases is every base init registered on this host whose folder is
+	// there.
 	Bases() []string fails Unkept,
+	// ForgetBase drops base from the list of bases; its folder and its
+	// workspaces stay. It is the bases still registered.
+	ForgetBase(base string) []string fails Unkept | fs.Denied | fs.Failed,
+	// PruneBases forgets every base whose folder is gone; it is the
+	// bases it forgot.
+	PruneBases() []string fails Unkept | fs.Denied | fs.Failed,
 	// ShellInit is a shell function for eval "$(work shell-init)": work
 	// new changes to the new workspace.
 	ShellInit() string,
@@ -408,6 +415,16 @@ func CheckName(name string) fails BadName {
 			return BadName{Name: name, Why: "each part of a name between slashes is a word that does not start with a dot"}
 		}
 	}
+}
+
+// FolderIsOneLevel: the folder of a name that checks is one path element.
+law FolderIsOneLevel(name string) {
+	CheckName(name) catch {
+	case BadName:
+		return true
+	}
+	let folder = FolderOf(name)
+	folder != "" && !strings.Contains(folder, "/") && folder != "." && folder != ".."
 }
 
 func now(t Tool) int64 { t.clock.Now().UnixSeconds() }
@@ -564,6 +581,9 @@ func startIn(t Tool, by Cloner, path string, branch string, start string) fails 
 	try t.vcs.Start(path, branch, start)
 	try guarded(t, path)
 	try t.vcs.Configure(path, "core.untrackedCache", "true")
+	// The merge drivers, in the clone's own config: a base registered
+	// before work wrote them, or never, gives its clones none (M0).
+	try RegisterDrivers(t, path)
 	if !by.KeepsInodes() {
 		try t.vcs.Configure(path, "core.checkStat", "minimal")
 		try t.vcs.Configure(path, "core.trustctime", "false")
@@ -609,7 +629,7 @@ func idOf(t Tool, name string, path string) string {
 
 // register adds the base to the user's list of bases, once.
 func register(t Tool) fails Unkept | fs.Denied | fs.Failed {
-	let all = try Bases(t)
+	let all = try registered(t)
 	for b in all {
 		if b == t.base {
 			return
@@ -717,7 +737,6 @@ func Adopt(t Tool, dir string, o AdoptOptions) Workspace fails NoBase | BadName 
 	if !t.copier.Has(folder) {
 		return Missing{Path: folder}
 	}
-	try guarded(t, folder)
 	let w = Workspace{Name: name, Id: idOf(t, name, folder), Path: folder, Parent: t.base, Branch: try t.vcs.Branch(folder), Cloner: "adopted", State: Active, Since: now(t), Base: try t.vcs.Head(folder), Latest: "", Deps: "", Token: "", Moving: "", Pinned: false, Until: 0}
 	try put(t, w)
 	w

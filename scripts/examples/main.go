@@ -158,9 +158,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if cfg.lawless {
 		return reportLawless(cfg.root, stdout)
 	}
-	programs, problems := loadExamples(cfg.root, cfg.record)
-	modules, moduleProblems := loadModules(cfg.root)
-	problems = append(problems, moduleProblems...)
+	programs, modules, problems := loadLayout(cfg.root, cfg.record)
 	if len(problems) > 0 {
 		for _, problem := range problems {
 			fmt.Fprintln(stderr, problem)
@@ -373,6 +371,24 @@ const originMoved = "unexpected origin; a port's provenance lives in conformance
 
 // loadExamples reads and checks the layout of every folder of examples/,
 // whatever the selection. Each problem names its folder.
+// loadLayout loads the programs of examples/ and the modules of modules/
+// under root, with every layout error of the programs, the ports'
+// provenance (checkPorts) and the modules. run stops on any of them
+// before it runs a program; TestRepoLayoutIsClean holds the repository to
+// none, in the fast tier, building nothing.
+// The root is made absolute first, as parseFlags makes the runner's: the
+// package folders' sources are absolute (packageAssetSources), and a
+// module's full-tier folders are compared with them.
+func loadLayout(root string, record bool) (programs, modules []*program, problems []string) {
+	root, err := filepath.Abs(root)
+	if err != nil {
+		return nil, nil, []string{err.Error()}
+	}
+	programs, problems = loadExamples(root, record)
+	modules, moduleProblems := loadModules(root)
+	return programs, modules, append(problems, moduleProblems...)
+}
+
 func loadExamples(root string, record bool) ([]*program, []string) {
 	examples := filepath.Join(root, "examples")
 	entries, err := os.ReadDir(examples)
@@ -418,6 +434,10 @@ func checkPorts(root string) []string {
 	for _, dir := range dirs {
 		rel, _ := filepath.Rel(root, dir)
 		name := filepath.Base(dir)
+		if name == "README.md" {
+			// The ports' guide (EX-NEUTRAL), not a port.
+			continue
+		}
 		if info, err := os.Stat(filepath.Join(root, "examples", name)); err != nil || !info.IsDir() {
 			problems = append(problems, fmt.Sprintf("%s: no program examples/%s; a port's provenance is named after its program", rel, name))
 			continue
