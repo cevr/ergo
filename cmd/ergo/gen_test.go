@@ -49,8 +49,10 @@ func TestGenCheckReadsThePackage(t *testing.T) {
 
 // TestGenCliCheckIsRedOnAStaleFile catches ap1-cli-check-blind (ergo gen
 // cli --check passes a cli.ergo the contract no longer generates),
-// ap1-cli-stale-rpc (the cli package is written over a hub that is stale
-// or missing, so the two packages disagree) and ap1-cli-own-request (the
+// ap1-cli-stale-rpc (--check compares no file's text, so a changed
+// contract passes), af-register-transport-skips-hub (ergo gen cli writes
+// no hub, so the cli package names a missing one; and --check passes a
+// hub edited by hand) and ap1-cli-own-request (the
 // cli package is written over no hub, so a caller holds two types for one
 // call). It runs in process: the question is which files the command
 // compares, not what they do.
@@ -68,15 +70,13 @@ func TestGenCliCheckIsRedOnAStaleFile(t *testing.T) {
 	write(filepath.Join(mod, "ergo.mod"), "module mod\n")
 	write(filepath.Join(mod, "api", "api.ergo"), "type Item { Count int }\ntype API { Read(key string) Item }\n")
 	t.Chdir(mod)
-	// No hub yet: the cli package is written over one.
-	if err := genCommand([]string{"cli", "api.API"}); err == nil || !strings.Contains(err.Error(), "run ergo gen api first") {
-		t.Errorf("ergo gen cli with no hub: %v", err)
-	}
-	if err := genCommand([]string{"api", "api.API"}); err != nil {
-		t.Fatal(err)
-	}
+	// No hub yet: ergo gen cli writes the hub it is written over too, so
+	// no order of gen commands leaves it naming a missing hub.
 	if err := genCommand([]string{"cli", "api.API"}); err != nil {
 		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(mod, "api", "apiapi", "api.ergo")); err != nil {
+		t.Errorf("ergo gen cli wrote no hub: %v", err)
 	}
 	if err := genCommand([]string{"cli", "--check", "api.API"}); err != nil {
 		t.Fatalf("--check of a current cli package: %v", err)
@@ -85,12 +85,18 @@ func TestGenCliCheckIsRedOnAStaleFile(t *testing.T) {
 	if err := genCommand([]string{"cli", "--check", "api.API"}); err == nil {
 		t.Error("--check passed a cli package whose contract changed")
 	}
-	// The hub is stale now: the cli package is not written over it.
-	if err := genCommand([]string{"cli", "api.API"}); err == nil || !strings.Contains(err.Error(), "run ergo gen api first") {
-		t.Errorf("ergo gen cli over a stale hub: %v", err)
-	}
-	if err := genCommand([]string{"api", "api.API"}); err != nil {
+	if err := genCommand([]string{"cli", "api.API"}); err != nil {
 		t.Fatal(err)
+	}
+	// A hub edited by hand: the cli package's --check checks the hub too.
+	hub := filepath.Join(mod, "api", "apiapi", "api.ergo")
+	text, err := os.ReadFile(hub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(hub, string(text)+"\n// edited\n")
+	if err := genCommand([]string{"cli", "--check", "api.API"}); err == nil || !strings.Contains(err.Error(), "apiapi") {
+		t.Errorf("--check of a cli package over a hub edited by hand: %v", err)
 	}
 	if err := genCommand([]string{"cli", "api.API"}); err != nil {
 		t.Fatal(err)

@@ -47,15 +47,19 @@ func (b *irBuilder) codecCall(x *syntax.CallExpr, c *check.Call, p irPos) ([]*ir
 	// The reader or writer operand goes to the codec function as the
 	// prelude's Reader or Writer. A value of another operation type (a
 	// module's sealed Cursor lent to decode, as xml's Decode does) is a Go
-	// interface the decoder would assign by Go's rule, which its check
-	// does not take: it wants identical types (follow-up IFACE-CONV).
-	io, ioName := x.Args[0], check.WireReaderName
+	// interface the text path assigns by Go's rule; the IR converts it,
+	// to, explicitly (IFACE-CONV: ergoir's toiface of an interface that
+	// implements the target).
+	io, ioAt, ioName := x.Args[0], 0, check.WireReaderName
 	if dir == "encode" {
-		io, ioName = x.Args[1], check.WireWriterName
+		io, ioAt, ioName = x.Args[1], 1, check.WireWriterName
 	}
+	var to string
 	if t, ok := b.l.info.Types[io].(*check.Named); ok && t.Underlying() != nil {
-		if _, ops := t.Underlying().(*check.Interface); ops && b.goType(t, io) != b.goType(check.PreludeType(ioName), io) {
-			irNo("operation interface to another interface")
+		if _, ops := t.Underlying().(*check.Interface); ops {
+			if want := b.goType(check.PreludeType(ioName), io); b.goType(t, io) != want {
+				to = want
+			}
 		}
 	}
 	var pre []*irStmt
@@ -64,6 +68,9 @@ func (b *irBuilder) codecCall(x *syntax.CallExpr, c *check.Call, p irPos) ([]*ir
 	}
 	argPre, args := b.operands(x.Args)
 	pre = append(pre, argPre...)
+	if to != "" {
+		args[ioAt] = &irExpr{K: "toiface", Pos: args[ioAt].Pos, T: to, X: args[ioAt]}
+	}
 	if dir == "encode" {
 		args = []*irExpr{args[1], args[0]} // the writer, then the value
 	}
