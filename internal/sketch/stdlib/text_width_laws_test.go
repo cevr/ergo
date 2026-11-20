@@ -49,7 +49,7 @@ func TestStdTextWidthLaws(t *testing.T) {
 	}
 	for key, statement := range stdTextWidthLaws {
 		law := textLawSource(t, sources, strings.TrimPrefix(key, "text "))
-		if lawledger.Normalize(law) != lawledger.Normalize(statement) {
+		if !lawledger.Same(law, statement) {
 			t.Errorf("%s: the source law %q is not the restated %q", key, law, statement)
 		}
 	}

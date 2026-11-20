@@ -89,7 +89,7 @@ func TestRunReportsAndRunsEachLaw(t *testing.T) {
 }
 
 // Compare passes a runner only when it restates exactly its rows, each
-// with the row's statement (white space free) and a check.
+// with the row's statement (up to the formatter's spacing, Same) and a check.
 func TestCompare(t *testing.T) {
 	rows, err := Parse(doc)
 	if err != nil {
@@ -126,6 +126,29 @@ func TestCompare(t *testing.T) {
 		problems := Compare(c.runner, rows, laws)
 		if !slices.ContainsFunc(problems, func(p string) bool { return strings.Contains(p, c.want) }) {
 			t.Errorf("%s: problems %q, want one with %q", c.name, problems, c.want)
+		}
+	}
+}
+
+// Same holds a law and its reformatted text the same, and a law whose
+// tokens or literals changed different. Mutants it kills
+// (internal/lawledger/testdata/mutants.json): same-counts-all-space,
+// same-drops-word-space, same-drops-op-space, same-strips-literals,
+// same-ends-literal-at-escape.
+func TestSame(t *testing.T) {
+	for _, c := range []struct {
+		a, b string
+		same bool
+	}{
+		{"F(xs []int) { len(xs) + 1 > 0 }", "F(xs []int) {\n\tlen(xs)+1 > 0\n}", true},
+		{"F(s string) { raw + \"\\n\" + s }", "F(s string) { raw+\"\\n\"+s }", true},
+		{"F() { let it = 1 it }", "F() { letit = 1 it }", false},
+		{"F(a int, b int) { a - -b }", "F(a int, b int) { a --b }", false},
+		{"F() { \"a, b\" == x }", "F() { \"a,b\" == x }", false},
+		{"F() { \"a\\\" b\" == x }", "F() { \"a\\\"b\" == x }", false},
+	} {
+		if got := Same(c.a, c.b); got != c.same {
+			t.Errorf("Same(%q, %q) = %v, want %v", c.a, c.b, got, c.same)
 		}
 	}
 }

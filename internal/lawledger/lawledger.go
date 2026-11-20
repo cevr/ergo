@@ -116,6 +116,58 @@ func Normalize(statement string) string {
 	return strings.TrimSpace(spaces.ReplaceAllString(statement, " "))
 }
 
+// Same reports whether a and b state the same law: they differ at most in
+// the white space the formatter adds or drops, so a reformatted law is not
+// a changed one. A run of white space between two word characters
+// (letters, digits, _) or two operator characters (+-*/%&|^<>=!:.~?)
+// separates tokens and counts as one space; any other run does not count.
+// White space inside a string or rune literal counts as written.
+func Same(a, b string) bool { return tokenText(a) == tokenText(b) }
+
+// tokenText is s with only the white space Same counts.
+func tokenText(s string) string {
+	out := make([]byte, 0, len(s))
+	quote, space := byte(0), false
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case quote != 0:
+			out = append(out, c)
+			if c == '\\' && quote != '`' && i+1 < len(s) {
+				i++
+				out = append(out, s[i])
+			} else if c == quote {
+				quote = 0
+			}
+			continue
+		case c == ' ' || c == '\t' || c == '\n' || c == '\r':
+			space = true
+			continue
+		}
+		if space && len(out) > 0 && charClass(out[len(out)-1]) != 0 && charClass(out[len(out)-1]) == charClass(c) {
+			out = append(out, ' ')
+		}
+		space = false
+		if c == '"' || c == '\'' || c == '`' {
+			quote = c
+		}
+		out = append(out, c)
+	}
+	return string(out)
+}
+
+// charClass is 1 for a word character (a byte of a multi-byte rune
+// included), 2 for an operator character, 0 for any other.
+func charClass(c byte) int {
+	switch {
+	case c == '_' || c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= 0x80:
+		return 1
+	case strings.IndexByte("+-*/%&|^<>=!:.~?", c) >= 0:
+		return 2
+	}
+	return 0
+}
+
 // Read reads the ledger of the module that encloses the working directory.
 func Read() ([]Row, error) {
 	root, err := moduleRoot()
@@ -233,7 +285,7 @@ func Compare(runner string, rows []Row, laws map[string]Law) []string {
 			problems = append(problems, fmt.Sprintf("%s restates %s, which no row runs in it", runner, key))
 		case law.Check == nil:
 			problems = append(problems, fmt.Sprintf("%s restates %s with no check", runner, key))
-		case Normalize(law.Statement) != Normalize(row.Statement):
+		case !Same(law.Statement, row.Statement):
 			problems = append(problems, fmt.Sprintf("stdlib.md:%d: %s restates %s as\n\t%s\nthe ledger and the source say\n\t%s", row.Line, runner, key, Normalize(law.Statement), Normalize(row.Statement)))
 		}
 	}
