@@ -737,6 +737,28 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 				if groups[groupOf[name]].pkg != p {
 					cross[name] = true
 					irs.foreign(p, name)
+					// Its forwarder (irSplit.foreignDecls) spells the
+					// declaration's parameter and result types in p: a
+					// package-scope type they name crosses too.
+					var sig ast.Node
+					switch n := defOf.node[name].(type) {
+					case *ast.FuncDecl:
+						sig = n.Type
+					case *ast.ValueSpec:
+						if n.Type != nil {
+							sig = n.Type
+						}
+					}
+					if sig != nil {
+						ast.Inspect(sig, func(x ast.Node) bool {
+							if id, ok := x.(*ast.Ident); ok {
+								if _, def := defPkg[id.Name]; def && groups[groupOf[id.Name]].pkg != p {
+									cross[id.Name] = true
+								}
+							}
+							return true
+						})
+					}
 				}
 			}
 		}

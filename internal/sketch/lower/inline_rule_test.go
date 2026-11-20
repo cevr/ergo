@@ -79,7 +79,7 @@ func main() needs Console {
 	// A call of a known variant (known.go, nameKnown) or of a monomorphic
 	// copy (mono.go) is a call too.
 	calls := func(name string) bool {
-		return regexp.MustCompile(`\b` + name + `(Known|Mono_i[0-9]+)?(_[0-9]+)?(\[[^\]]*\])?\(`).MatchString(body)
+		return regexp.MustCompile(`\b(?:` + goHelper(name+"Known") + `|` + name + `(?:Mono_i[0-9]+)?)(_[0-9]+)?(\[[^\]]*\])?\(`).MatchString(body)
 	}
 	for _, row := range []struct {
 		name, why string

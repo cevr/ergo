@@ -36,23 +36,17 @@ import compiler/check/expr
 import compiler/check/infer
 import compiler/check/load
 import compiler/check/store
-import compiler/check/task
 import compiler/check/types
 import compiler/syntax
 import dense
 import fs
 import io
 import os
-import strconv
 import strings
 
 func base(path string) string {
 	let i = strings.LastIndex(path, "/")
 	if i < 0 { path } else { path[i+1 : len(path)] }
-}
-
-func bit(w string) int {
-	if w == "type" { 1 } else if w == "errors" { 2 } else if w == "uses" { 4 } else { 8 }
 }
 
 func read(path string) string fails os.Exit needs fs.Files {
@@ -66,241 +60,65 @@ func read(path string) string fails os.Exit needs fs.Files {
 	}
 }
 
-// Tables is what EXT and FOREIGN hold (typedump reads them alike).
-type Tables { ext []types.Ext, foreign []types.Foreign, pkgName string, pkgPath string }
-
-func tables(extText string, foreignText string) Tables {
-	let mut ext = []types.Ext{}
-	for line in strings.Split(extText, "\n") {
-		let parts = strings.Fields(line)
-		if len(parts) != 2 {
-			continue
-		}
-		let mut ks = []int{}
-		for w in strings.Split(parts[1], ",") {
-			ks = ks.Append(bit(w))
-		}
-		ext = ext.Append(types.Ext{Head: parts[0], Kinds: ks})
+func unitOf(g []string) load.Unit fails os.Exit needs fs.Files {
+	if len(g) < 2 {
+		return os.Exit{Code: 2, Message: "exprdump: a package needs EXT FOREIGN FILE..."}
 	}
-	let mut foreign = []types.Foreign{}
-	let mut pkgName = "main"
-	let mut pkgPath = "main"
-	for line in strings.Split(foreignText, "\n") {
-		let parts = strings.Fields(line)
-		if len(parts) == 4 && parts[0] == "@pkg" {
-			pkgName = if parts[3] == "1" { parts[1] } else { "" }
-			pkgPath = parts[2]
-			continue
-		}
-		if len(parts) != 6 {
-			continue
-		}
-		let n = strconv.Atoi(parts[2]) catch {
-		case _:
-			0
-		}
-		foreign = foreign.Append(types.Foreign{Qual: parts[0], Name: parts[1], Arity: n, Path: parts[3], Print: strings.ReplaceAll(parts[4], "^", " "), Key: parts[5], Variants: []int{}})
-	}
-	Tables{ext: ext, foreign: types.WithUnions(foreign, foreignText), pkgName: pkgName, pkgPath: pkgPath}
-}
-
-func parseAll(paths []string) []bind.File fails os.Exit needs fs.Files {
+	let tab = load.TablesOf(try read(g[0]), try read(g[1]))
+	let paths = g[2:len(g)]
 	let mut files = []bind.File{}
 	for path in paths {
 		files = files.Append(bind.File{Name: base(path), Parsed: syntax.Parse(try read(path))})
 	}
-	files
-}
-
-// Unit is one package of the run: its tables, files, import path and
-// folder.
-type Unit { tab Tables, files []bind.File, path string, dir string }
-
-func unitOf(g []string) Unit fails os.Exit needs fs.Files {
-	if len(g) < 2 {
-		return os.Exit{Code: 2, Message: "exprdump: a package needs EXT FOREIGN FILE..."}
-	}
-	let tab = tables(try read(g[0]), try read(g[1]))
-	Unit{tab: tab, files: try parseAll(g[2:len(g)]), path: tab.pkgPath, dir: if len(g) > 2 { load.Dir(g[2]) } else { "." }}
-}
-
-// Typed is one package typed: its store, what Load made of it and the
-// typer's result.
-type Typed { s store.Store, k expr.Pkg, t expr.Typer }
-
-func isSome[T](o Option[T]) bool {
-	match o {
-	case Some[T]:
-		true
-	case None:
-		false
-	}
-}
-
-// outside is the interfaces of the packages the units import and do not
-// hold, loaded from std, transitively: each unit's, against its tables.
-func outside(units []Unit, std string) []types.Iface needs fs.Files {
-	let mut held = []string{}
-	for u in units {
-		held = held.Append(u.path)
-	}
-	let mut have = []types.Iface{}
-	for u in units {
-		let pkgs = load.Imported(bind.Imports(u.files), held, load.ModuleOf(u.dir), std)
-		for p in pkgs {
-			held = held.Append(p.Path)
-		}
-		have = load.Interfaces(pkgs, u.tab.ext, u.tab.foreign, have)
-	}
-	have
-}
-
-// typeAll binds the units as package tasks in import waves (check/task:
-// each binds against its imports' frozen stores), loads each once, its
-// imports' interfaces (types.Iface) done first (those of have, the
-// imports outside the run), then types each with its imports' loaded
-// packages as its deps (S3d3, S3d12).
-func typeAll(units []Unit, have0 []types.Iface) []Typed {
-	let mut pkgs = []task.Package{}
-	for u in units {
-		pkgs = pkgs.Append(task.Package{Path: u.path, Files: u.files})
-	}
-	let checked = task.Check(pkgs, 4)
-	let mut stores = []store.Store{}
-	let mut have = have0
-	let mut done = []bool{}
-	let mut ks = []Option[expr.Pkg]{}
-	for i, c in checked {
-		// Its importers reach it by its path; its own types are named
-		// by the path its tables give (main for a checked root).
-		let mut s = store.Of(c.Store)
-		store.SetPath(&s, units[i].tab.pkgPath)
-		stores = stores.Append(s)
-		done = done.Append(false)
-		ks = ks.Append(None)
-	}
-	// A pass loads the units whose imports in the program are all
-	// loaded; when none is ready (an import cycle), the first one left
-	// loads against what is done.
-	let mut left = len(units)
-	for left > 0 {
-		let mut progress = false
-		for pass in 0..2 {
-			if progress {
-				break
-			}
-			for i, c in checked {
-				if isSome(ks[i]) || (pass == 1 && progress) {
-					continue
-				}
-				let mut ready = true
-				for path in store.ImportPaths(stores[i]) {
-					for j, u in units {
-						if u.path == path && j != i && !done[j] {
-							ready = false
-						}
-					}
-				}
-				if pass == 0 && !ready {
-					continue
-				}
-				let deps = load.Deps(stores[i], have)
-				let mut s = stores[i]
-				let k = expr.Load(&s, units[i].files, c.Uses, c.Parents, units[i].tab.ext, units[i].tab.foreign, deps, units[i].tab.pkgName == "")
-				// Its importers read it by its import path, which its
-				// types print with (a checked root's own path is main).
-				let mut at = s
-				store.SetPath(&at, units[i].path)
-				have = have.Append(types.Interface(at, k.Parsed, k.Kinds, k.Ext, units[i].tab.foreign, deps))
-				done[i] = true
-				stores[i] = s
-				ks[i] = Some[expr.Pkg]{Value: k}
-				left = left - 1
-				progress = true
-			}
-		}
-	}
-	let mut loaded = []expr.Dep{}
-	for i, c in checked {
-		match ks[i] {
-		case Some[expr.Pkg] as k:
-			loaded = loaded.Append(expr.Dep{Path: c.Path, S: stores[i], K: k.Value})
-		case None:
-		}
-	}
-	let mut out = []Typed{}
-	for d in loaded {
-		// The prelude is every package's: its Append, Get, Put and Delete
-		// are functions on slices and Maps (types.md, Methods 7).
-		let mut deps = []expr.Dep{}
-		for e in loaded {
-			if e.Path == "prelude" && d.Path != "prelude" {
-				deps = deps.Append(e)
-				break
-			}
-		}
-		for path in store.ImportPaths(d.S) {
-			for e in loaded {
-				if e.Path == path {
-					deps = deps.Append(e)
-					break
-				}
-			}
-		}
-		let mut s = d.S
-		let k = expr.WithDeps(d.K, deps)
-		let t = expr.Check(&s, k)
-		out = out.Append(Typed{s: s, k: k, t: t})
-	}
-	out
+	load.UnitOf(tab, files, paths)
 }
 
 // write prints one typed package's lines: its expressions' types, or
 // with calls its inferred calls; each line after prefix.
-func write(b mut strings.Builder, u Unit, d Typed, calls bool, prefix string) {
-	let mut s0 = d.s
+func write(b mut strings.Builder, u load.Unit, d load.Typed, calls bool, prefix string) {
+	let mut s0 = d.S
 	let none = infer.NoValue(&s0)
 	let s = s0
-	let k = d.k
+	let k = d.K
 	let text = func(ty dense.ID[store.TKey], fn int) string {
-		if ty == none { "no value" } else { types.Text(s, types.Names{Params: k.Fns[fn].Params, Foreign: k.Foreign, Pkg: u.tab.pkgName, Deps: k.Ifaces}, ty) }
+		if ty == none { "no value" } else { types.Text(s, types.Names{Params: k.Fns[fn].Params, Foreign: k.Foreign, Pkg: u.Tab.PkgName, Deps: k.Ifaces}, ty) }
 	}
 	if calls {
-		for c in d.t.Insts {
+		for c in d.T.Insts {
 			let (f, row) = bind.RowOf(k.Ps, c.At)
-			let p = u.files[f].Parsed
+			let p = u.Files[f].Parsed
 			let mut ts = []string{}
 			for a in c.Args {
 				ts = ts.Append(text(a, c.Fn))
 			}
-			b.WriteString("\(prefix)\(u.files[f].Name) \(syntax.NodePos(p, syntax.NodeAt(p.Tree, row))) \(strings.Join(ts, " ; "))\n")
+			b.WriteString("\(prefix)\(u.Files[f].Name) \(syntax.NodePos(p, syntax.NodeAt(p.Tree, row))) \(strings.Join(ts, " ; "))\n")
 		}
 	} else {
-		for e in d.t.Entries {
+		for e in d.T.Entries {
 			let (f, row) = bind.RowOf(k.Ps, e.At)
-			let p = u.files[f].Parsed
+			let p = u.Files[f].Parsed
 			let id = syntax.NodeAt(p.Tree, row)
-			b.WriteString("\(prefix)\(u.files[f].Name) \(syntax.NodePos(p, id)) \(syntax.NodeEnd(p, id)) \(text(e.T, e.Fn))\n")
+			b.WriteString("\(prefix)\(u.Files[f].Name) \(syntax.NodePos(p, id)) \(syntax.NodeEnd(p, id)) \(text(e.T, e.Fn))\n")
 		}
 	}
 }
 
 // writeOwn prints the own-mark diagnostics of one typed package, "FILE
 // OFFSET LENGTH CODE MESSAGE" after prefix, in the Go checker's order.
-func writeOwn(b mut strings.Builder, u Unit, d Typed, prefix string) {
-	for g in diag.OwnMarks(d.s, d.k, d.t) {
-		b.WriteString("\(prefix)\(u.files[g.File].Name) \(g.Offset) \(g.Length) \(g.Code) \(g.Message)\n")
+func writeOwn(b mut strings.Builder, u load.Unit, d load.Typed, prefix string) {
+	for g in diag.OwnMarks(d.S, d.K, d.T) {
+		b.WriteString("\(prefix)\(u.Files[g.File].Name) \(g.Offset) \(g.Length) \(g.Code) \(g.Message)\n")
 	}
 }
 
 // writeDiags prints the typer's diagnostics, "D FILE START END" after
 // prefix, one per line (S3d5).
-func writeDiags(b mut strings.Builder, u Unit, d Typed, prefix string) {
-	for g in expr.Diags(d.t) {
-		let (f, row) = bind.RowOf(d.k.Ps, g.At)
-		let p = u.files[f].Parsed
+func writeDiags(b mut strings.Builder, u load.Unit, d load.Typed, prefix string) {
+	for g in expr.Diags(d.T) {
+		let (f, row) = bind.RowOf(d.K.Ps, g.At)
+		let p = u.Files[f].Parsed
 		let id = syntax.NodeAt(p.Tree, row)
-		b.WriteString("\(prefix)\(u.files[f].Name) \(syntax.NodePos(p, id)) \(syntax.NodeEnd(p, id))\n")
+		b.WriteString("\(prefix)\(u.Files[f].Name) \(syntax.NodePos(p, id)) \(syntax.NodeEnd(p, id))\n")
 	}
 }
 
@@ -318,22 +136,26 @@ func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 		// its tables and files. Each package's lines are "E …" (types),
 		// "C …" (calls), "D …" (diagnostics) and "O …" (own marks) after
 		// its "@pkg I" line.
-		let mut units = []Unit{}
+		let mut units = []load.Unit{}
 		for line in strings.Split(try read(argv[1]), "\n") {
 			let g = strings.Fields(line)
 			if len(g) > 0 {
 				let mut u = try unitOf(g[1:len(g)])
-				u.path = g[0]
+				u.Path = g[0]
 				units = units.Append(u)
 			}
 		}
-		let typed = typeAll(units, outside(units, std))
-		for i, d in typed {
+		// Each package is written as it is typed (compiler/check/load), so
+		// the run holds one package's typing at a time.
+		let p = load.LoadAll(units, load.Outside(units, std))
+		for i in 0..len(p.Loaded) {
+			let u = units[p.Units[i]]
+			let d = load.TypeAt(p, i)
 			b.WriteString("@pkg \(i)\n")
-			write(&b, units[i], d, false, "E ")
-			write(&b, units[i], d, true, "C ")
-			writeDiags(&b, units[i], d, "D ")
-			writeOwn(&b, units[i], d, "O ")
+			write(&b, u, d, false, "E ")
+			write(&b, u, d, true, "C ")
+			writeDiags(&b, u, d, "D ")
+			writeOwn(&b, u, d, "O ")
 		}
 		io.Stdout.Print(b.String())
 		return
@@ -351,14 +173,15 @@ func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 			groups[len(groups)-1] = groups[len(groups)-1].Append(a)
 		}
 	}
-	let mut units = []Unit{}
+	let mut units = []load.Unit{}
 	for g in groups {
 		units = units.Append(try unitOf(g))
 	}
-	let typed = typeAll(units, outside(units, std))
-	write(&b, units[0], typed[0], calls, "")
+	let p = load.LoadAll(units, load.Outside(units, std))
+	let d = load.TypeAt(p, 0)
+	write(&b, units[p.Units[0]], d, calls, "")
 	if !calls {
-		writeDiags(&b, units[0], typed[0], "D ")
+		writeDiags(&b, units[p.Units[0]], d, "D ")
 	}
 	io.Stdout.Print(b.String())
 }

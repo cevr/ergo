@@ -110,15 +110,29 @@ type rwMatch struct {
 	ops  map[*check.Var]syntax.Expr
 }
 
-// rwMark is a body's locals before a site's temporaries.
-type rwMark struct{ locals, next int }
+// rwMark is a body's locals before a site's temporaries, and the number
+// of declarations each open loop's pre-header holds (ir_memo.go).
+type rwMark struct {
+	locals, next int
+	memos        []int
+}
 
-func (b *irBuilder) mark() rwMark { return rwMark{len(b.fn.Locals), b.next} }
+func (b *irBuilder) mark() rwMark {
+	memos := make([]int, len(b.memos))
+	for i, m := range b.memos {
+		memos[i] = len(m.decls)
+	}
+	return rwMark{len(b.fn.Locals), b.next, memos}
+}
 
-// unmark drops the locals declared since m: a site that was not applied
-// declares none.
+// unmark drops the locals declared since m, and the pre-header
+// declarations of the calls memoized since: a site that was not applied
+// declares none, and no later local reuses the index of one it declared.
 func (b *irBuilder) unmark(m rwMark) {
 	b.fn.Locals, b.next = b.fn.Locals[:m.locals], m.next
+	for i, n := range m.memos[:min(len(m.memos), len(b.memos))] {
+		b.memos[i].decls = b.memos[i].decls[:n]
+	}
 }
 
 // patterns are the scope's laws as patterns, by the head of their left

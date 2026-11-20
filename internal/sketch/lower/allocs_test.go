@@ -42,7 +42,7 @@ func TestTestCountsItsAllocations(t *testing.T) {
 		all.Write(f.Data)
 	}
 	text := all.String()
-	at := strings.Index(text, "func ergoTestStepAllocatesNothing(")
+	at := strings.Index(text, "func "+goHelper("ergoTestStepAllocatesNothing")+"(")
 	if at < 0 {
 		t.Fatalf("no lowered test StepAllocatesNothing:\n%s", text)
 	}

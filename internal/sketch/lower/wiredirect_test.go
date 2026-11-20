@@ -119,7 +119,7 @@ func TestEncodeOnADirectWriterCallsItsMethods(t *testing.T) {
 				}
 				switch c := call.Fun.(type) {
 				case *ast.Ident:
-					if strings.HasPrefix(c.Name, "ergoWrite") || strings.HasPrefix(c.Name, "ergoEncode") {
+					if strings.HasPrefix(c.Name, goHelper("ergoWrite")) || strings.HasPrefix(c.Name, goHelper("ergoEncode")) {
 						out[fn] = append(out[fn], c.Name)
 					}
 				case *ast.SelectorExpr:
@@ -134,7 +134,7 @@ func TestEncodeOnADirectWriterCallsItsMethods(t *testing.T) {
 	}
 	direct := func(calls []string) bool {
 		for _, c := range calls {
-			if !strings.HasPrefix(c, "ergoWrite") && !strings.HasPrefix(c, ".Direct") {
+			if !strings.HasPrefix(c, goHelper("ergoWrite")) && !strings.HasPrefix(c, ".Direct") {
 				return false
 			}
 		}
@@ -142,7 +142,7 @@ func TestEncodeOnADirectWriterCallsItsMethods(t *testing.T) {
 	}
 	reference := func(calls []string) bool {
 		for _, c := range calls {
-			if !strings.HasPrefix(c, "ergoEncode") && c != ".Enc" {
+			if !strings.HasPrefix(c, goHelper("ergoEncode")) && c != ".Enc" {
 				return false
 			}
 		}
@@ -191,7 +191,7 @@ func joinsFirstKey(t *testing.T, o *lowered) bool {
 	found := false
 	for _, d := range f.Decls {
 		fd, ok := d.(*ast.FuncDecl)
-		if !ok || !strings.HasPrefix(fd.Name.Name, "ergoWritePort") {
+		if !ok || !strings.HasPrefix(fd.Name.Name, goHelper("ergoWritePort")) {
 			continue
 		}
 		ast.Inspect(fd.Body, func(n ast.Node) bool {
