@@ -22,6 +22,7 @@ skip law work.Vcs.OwnBranchHoldsItsHead for Vcs: its values have no generator: e
 skip law work.Vcs.CompareAndSetIsAtomic for Vcs: its values have no generator: exec.Runner is an operation type with no builder: neither exec nor exectest, as this package sees them, declares a New<X> with no row whose X provides it; a func NewVcs() Vcs with no rows would build one for each case
 skip law work.Vcs.SnapshotChangesNoBranch for Vcs: its values have no generator: exec.Runner is an operation type with no builder: neither exec nor exectest, as this package sees them, declares a New<X> with no row whose X provides it; a func NewVcs() Vcs with no rows would build one for each case
 skip law work.Vcs.ListedIsTheSnapshot for Vcs: its values have no generator: exec.Runner is an operation type with no builder: neither exec nor exectest, as this package sees them, declares a New<X> with no row whose X provides it; a func NewVcs() Vcs with no rows would build one for each case
+skip law work.Vcs.SettingIsWhatConfigureSet for Vcs: its values have no generator: exec.Runner is an operation type with no builder: neither exec nor exectest, as this package sees them, declares a New<X> with no row whose X provides it; a func NewVcs() Vcs with no rows would build one for each case
 # sh.Hooks runs sh through an exec.Runner, as the Cloners do; the law runs
 # under sh's onHost context (sh for real in each case's folder), and
 # against memory.Hooks (whose "exit N" is sh's).
