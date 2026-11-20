@@ -52,6 +52,48 @@ func benchUpdate(n int) int {
 	return s + cell.v
 }
 
+// res is the owned value of the own workloads (OWNED-LOCAL): its close
+// adds its id and its written field to cell.
+type res struct {
+	id, n int
+	cell  *ref
+}
+
+func (r res) close() {
+	r.cell.mu.Lock()
+	r.cell.v += r.id + r.n
+	r.cell.mu.Unlock()
+}
+
+// ownList closes r with its write on every exit, as a person writes it:
+// a deferred closure that reads r when it runs.
+func ownList(i int, cell *ref) int {
+	r := res{id: i, cell: cell}
+	defer func() { r.close() }()
+	r.n = i & 3
+	return r.id & 7
+}
+
+// ownStatic defers the close of r, which it does not write.
+func ownStatic(i int, cell *ref) int {
+	r := res{id: i, n: i & 3, cell: cell}
+	defer r.close()
+	return r.id & 7
+}
+
+func benchOwn(n int, list bool) int {
+	cell := &ref{}
+	s := 0
+	for i := 0; i < n; i++ {
+		if list {
+			s += ownList(i, cell)
+		} else {
+			s += ownStatic(i, cell)
+		}
+	}
+	return s + cell.v
+}
+
 func main() {
 	if len(os.Args) != 4 {
 		fmt.Fprintln(os.Stderr, "usage: control bench KIND N")
@@ -67,6 +109,10 @@ func main() {
 		out = benchExit(n)
 	case "update":
 		out = benchUpdate(n)
+	case "ownlist":
+		out = benchOwn(n, true)
+	case "ownstatic":
+		out = benchOwn(n, false)
 	}
 	fmt.Println(out)
 }

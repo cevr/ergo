@@ -50,6 +50,11 @@ func (b *irBuilder) spelling(s string) string {
 			i += k
 			continue
 		}
+		if strings.HasPrefix(s[i:], "struct{") {
+			k := b.structSpelling(s, i, &out)
+			i += k
+			continue
+		}
 		j := i
 		for j < len(s) && isSpellingName(s[j]) {
 			j++
