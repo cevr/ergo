@@ -88,8 +88,8 @@ func kindsProgram(seed uint64) string {
 	// field is Go's map in every instance (intmap.go intMapFields; std/jobs
 	// failed to build when its laws' copies were first analyzed).
 	b.WriteString("type Box[T] { M Map[int, T] }\n\n")
-	b.WriteString("func grow[T](b Box[T], k int, v T) Box[T] {\n\tlet mut c = b\n\tc.M = c.M.Put(k, v)\n\tc\n}\n\n")
-	fmt.Fprintf(&b, "law VGeneric(a int) {\n\tlet x = Box[int]{M: Map[int, int]{1: a}}\n\tlet y = grow(x, 2, a)\n\tlet mut z = x\n\tz.M = z.M.Put(%d, a)\n\tlen(x.M) == 1 && len(y.M) == 2 && len(z.M) == 2\n}\n\n", 3+r.IntN(5))
+	b.WriteString("func grow[T](b Box[T], k int, v T) Box[T] {\n\tlet mut c = b\n\tc.M[k] = v\n\tc\n}\n\n")
+	fmt.Fprintf(&b, "law VGeneric(a int) {\n\tlet x = Box[int]{M: Map[int, int]{1: a}}\n\tlet y = grow(x, 2, a)\n\tlet mut z = x\n\tz.M[%d] = a\n\tlen(x.M) == 1 && len(y.M) == 2 && len(z.M) == 2\n}\n\n", 3+r.IntN(5))
 	b.WriteString("func main() needs Console {\n\tConsole.Println(\"x\")\n}\n")
 	return b.String()
 }
