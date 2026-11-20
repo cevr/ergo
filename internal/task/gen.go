@@ -45,6 +45,24 @@ func (r *Runner) Graph(nodes []Node) (Graph, error) {
 	return g, nil
 }
 
+// LastOutputs are the outputs of n's last run, as stored; none when n
+// has not run.
+func (r *Runner) LastOutputs(n Node) []string {
+	text, ok := r.Store.Get(lastKey(n))
+	if !ok {
+		return nil
+	}
+	rec, ok := decodeRecord(text)
+	if !ok {
+		return nil
+	}
+	var out []string
+	for _, o := range rec.outs {
+		out = append(out, o.path)
+	}
+	return out
+}
+
 // edgesOf are the edges of the nodes' last runs: a before b when an
 // output of a is a file b read or lies in a folder b listed.
 func edgesOf(recs []*record) [][2]int {
