@@ -115,7 +115,24 @@ func Use(r Runner, root string, why string) {
 	r.uses.Set(uses)
 }
 
+// StatesItsStatus reports whether c is a shell script whose last line
+// is its own exit status (sh -c "…\nexit N"), the program
+// exec.ShellCommand writes. A fake that answers every command one way
+// does not model such a script, so it answers exec.NotFound, as
+// exec.Script does for a command it was not given: never a status the
+// script did not state.
+func StatesItsStatus(c exec.Command) bool {
+	if c.Name != "sh" || len(c.Args) != 2 || c.Args[0] != "-c" {
+		return false
+	}
+	let lines = strings.Split(c.Args[1], "\n")
+	strings.HasPrefix(lines[len(lines)-1], "exit ")
+}
+
 func Run(r Runner, c exec.Command) exec.Result fails exec.NotFound | exec.Denied | exec.Failed {
+	if StatesItsStatus(c) {
+		return exec.NotFound{Name: c.Name}
+	}
 	if c.Name == "sh" && len(c.Args) >= 4 && c.Args[2] == work.UseProbe {
 		return exec.Result{Status: 0, Stdout: maps.GetOr(r.uses.Get(), c.Args[3], ""), Stderr: ""}
 	}
@@ -124,6 +141,9 @@ func Run(r Runner, c exec.Command) exec.Result fails exec.NotFound | exec.Denied
 }
 
 func Start(r Runner, c exec.Command, s exec.Streams) exec.Running fails exec.NotFound | exec.Denied | exec.Failed {
+	if StatesItsStatus(c) {
+		return exec.NotFound{Name: c.Name}
+	}
 	r.ran.Set(r.ran.Get().Append(exec.Key(c)))
 	try exec.Script{Results: Map[string, exec.Result]{exec.Key(c): exec.Result{Status: 0, Stdout: "", Stderr: ""}}}.Start(c, s)
 }

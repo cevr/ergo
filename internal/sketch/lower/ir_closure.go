@@ -199,10 +199,12 @@ func irLiterals(s *irStmt, f func(*irExpr)) {
 
 // valueCall is the call x of a function value (CallFuncValue): the value,
 // then the environment and the operands, its (value, error) pair as it
-// is. A value of a named function type, a known callback's direct call
-// and a task's destination stay the emitter's.
+// is. A value of a type defined over a function type (Seq[T]) calls
+// through its signature, as Go calls it and as the emitter does
+// (GP-DEFINED, ir_defined.go). A known callback's direct call and a task's
+// destination stay the emitter's.
 func (b *irBuilder) valueCall(x *syntax.CallExpr, c *check.Call, p irPos) ([]*irStmt, *irExpr) {
-	if _, ok := b.l.info.Types[x.Fun].(*check.Signature); !ok {
+	if definedSig(b.l.info.Types[x.Fun]) == nil {
 		irNo("call of a value of a named function type")
 	}
 	if id, ok := unparen(x.Fun).(*syntax.Ident); ok {
