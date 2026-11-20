@@ -148,7 +148,7 @@ type heightKey { text string, size float32, width float32 }
 let keep = 4096
 
 // textWidths is what Measure says of Widths(text, size), kept.
-func textWidths(t *Tree, text string, size float32) Intrinsic needs Measure {
+func textWidths(t mut Tree, text string, size float32) Intrinsic needs Measure {
 	let k = textKey{text: text, size: size}
 	match t.widths.Get(k) {
 	case Some[Intrinsic] as w:
@@ -165,7 +165,7 @@ func textWidths(t *Tree, text string, size float32) Intrinsic needs Measure {
 }
 
 // textHeight is what Measure says of Height(text, size, width), kept.
-func textHeight(t *Tree, text string, size float32, width float32) float32 needs Measure {
+func textHeight(t mut Tree, text string, size float32, width float32) float32 needs Measure {
 	let k = heightKey{text: text, size: size, width: width}
 	match t.heights.Get(k) {
 	case Some[float32] as h:

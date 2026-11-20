@@ -1,0 +1,222 @@
+import strconv
+
+// Builder writes an IR file's rows as the IR builder makes them (capstone
+// S4): a builder that has the typed program's facts calls Begin for each
+// function, Row for each node once its children are rows (children
+// first, as encoding/json's tree is written root first from them), List
+// for each list, and End; Finish gives the File that Write writes. Texts
+// are interned once per file (Text), files get their index in File.Files
+// the first time a position names them (FileOf), as the Go builder's pos
+// does.
+//
+// A Row's slot words are the kind's slots in order, each as ir.ergo's
+// encodings say: Text for a Str, the int32 for an Int, the int plus one
+// for an IntPtr, 0 or 1 for a Bool, PosAt (or 0 for a zero Pos) for a
+// position, a row id for a Node, List for Nodes, Strs and Ints, and 0 for
+// a nil one. The Builder checks what it can check without the tree (the
+// kind and the slot count); Write checks the rest.
+type Builder { file File, ids Map[string, uint32], files Map[string, uint32], fn Func, open bool }
+
+// NewBuilder is a builder of an IR file of version v, with no file, no
+// function and no text yet (Go's nil lists, written null).
+func NewBuilder(v int64) Builder {
+	Builder{
+		file:  File{V: v, Files: []string{}, FilesNil: true, Funcs: []Func{}, FuncsNil: true, Shared: []string{}, Strs: []string{""}},
+		ids:   Map[string, uint32]{"": uint32(0)},
+		files: Map[string, uint32]{},
+		fn:    emptyFunc(),
+		open:  false,
+	}
+}
+
+func emptyFunc() Func {
+	Func{
+		Name:   0,
+		Pos:    Pos{File: 0, Line: 0, Col: 0},
+		End:    Pos{File: 0, Line: 0, Col: 0},
+		Locals: []Local{},
+		Body:   Body{Kind: []uint8{}, A: []uint32{}, B: []uint32{}, File: []uint32{}, Line: []uint32{}, Col: []uint32{}, Extra: []uint32{0}, Roots: 0},
+	}
+}
+
+// Text is the id of s in the file's texts, interned: 0 for "".
+func Text(b mut Builder, s string) uint32 {
+	match b.ids.Get(s) {
+	case Some[uint32] as id:
+		id.Value
+	case None:
+		let id = uint32(len(b.file.Strs))
+		b.file.Strs = b.file.Strs.Append(s)
+		b.ids = b.ids.Put(s, id)
+		id
+	}
+}
+
+// FileOf is the index of path in File.Files, added the first time.
+func FileOf(b mut Builder, path string) uint32 {
+	match b.files.Get(path) {
+	case Some[uint32] as i:
+		i.Value
+	case None:
+		let i = uint32(len(b.file.Files))
+		b.file.Files = b.file.Files.Append(path)
+		b.file.FilesNil = false
+		b.files = b.files.Put(path, i)
+		i
+	}
+}
+
+// NoFiles makes the file's list of files empty rather than nil while it
+// names none: Go writes [] for it, not null.
+func NoFiles(b mut Builder) { b.file.FilesNil = false }
+
+// NoFuncs makes the file's list of functions empty rather than nil while
+// it has none.
+func NoFuncs(b mut Builder) { b.file.FuncsNil = false }
+
+// Share adds a shared declaration's text to the file.
+func Share(b mut Builder, s string) { b.file.Shared = b.file.Shared.Append(s) }
+
+// Begin starts a function: its rows follow, then End.
+func Begin(b mut Builder, name string, pos Pos, end Pos) fails Malformed {
+	if b.open {
+		return Malformed{At: len(b.file.Funcs), Why: "a function begun inside another"}
+	}
+	let mut fn = emptyFunc()
+	fn.Name = Text(b, name)
+	fn.Pos = pos
+	fn.End = end
+	b.fn = fn
+	b.open = true
+	b.file.FuncsNil = false
+}
+
+// AddLocal adds a local to the function begun.
+func AddLocal(b mut Builder, name string, typ string, pos Pos) fails Malformed {
+	if !b.open {
+		return Malformed{At: len(b.file.Funcs), Why: "a local outside a function"}
+	}
+	let l = Local{Name: Text(b, name), Type: Text(b, typ), Pos: pos}
+	b.fn.Locals = b.fn.Locals.Append(l)
+}
+
+// PosAt is the slot word of a position: its offset in the extra pool.
+func PosAt(b mut Builder, p Pos) uint32 {
+	let q = uint32(len(b.fn.Body.Extra))
+	b.fn.Body.Extra = b.fn.Body.Extra.Append(p.File).Append(p.Line).Append(p.Col)
+	q
+}
+
+// List is the slot word of a list: the offset in the extra pool of its
+// length and its words (row ids, 0 for a nil element; text ids; int32s).
+func List(b mut Builder, words []uint32) uint32 {
+	let q = uint32(len(b.fn.Body.Extra))
+	b.fn.Body.Extra = b.fn.Body.Extra.Append(uint32(len(words)))
+	for i in 0..len(words) {
+		b.fn.Body.Extra = b.fn.Body.Extra.Append(words[i])
+	}
+	q
+}
+
+// Row adds a row of kind code c at position at, its slots' words in the
+// kind's order, and is its id. A code outside the table, or another count
+// of words than the kind's slots, is Malformed.
+func Row(b mut Builder, c uint8, at Pos, slots []uint32) uint32 fails Malformed {
+	let id = len(b.fn.Body.Kind) + 1
+	if !b.open {
+		return Malformed{At: id, Why: "a row outside a function"}
+	}
+	if c == 0 || int(c) >= NumKinds() {
+		return Malformed{At: id, Why: "kind " + strconv.Itoa(int(c))}
+	}
+	let n = len(KindOf(c).Slots)
+	if len(slots) != n {
+		return Malformed{At: id, Why: "kind " + KindOf(c).Name + " takes " + strconv.Itoa(n) + " slots"}
+	}
+	let mut a = uint32(0)
+	let mut w = uint32(0)
+	if n > 0 {
+		a = slots[0]
+	}
+	if n == 2 {
+		w = slots[1]
+	}
+	if n > 2 {
+		w = uint32(len(b.fn.Body.Extra))
+		for j in 1..n {
+			b.fn.Body.Extra = b.fn.Body.Extra.Append(slots[j])
+		}
+	}
+	b.fn.Body.Kind = b.fn.Body.Kind.Append(c)
+	b.fn.Body.A = b.fn.Body.A.Append(a)
+	b.fn.Body.B = b.fn.Body.B.Append(w)
+	b.fn.Body.File = b.fn.Body.File.Append(at.File)
+	b.fn.Body.Line = b.fn.Body.Line.Append(at.Line)
+	b.fn.Body.Col = b.fn.Body.Col.Append(at.Col)
+	uint32(id)
+}
+
+// End ends the function begun; roots is the List of its statements, or 0
+// for Go's nil body.
+func End(b mut Builder, roots uint32) fails Malformed {
+	if !b.open {
+		return Malformed{At: len(b.file.Funcs), Why: "an end outside a function"}
+	}
+	b.fn.Body.Roots = roots
+	b.file.Funcs = b.file.Funcs.Append(b.fn)
+	b.fn = emptyFunc()
+	b.open = false
+}
+
+// Finish is the file built, or Malformed while a function is open.
+func Finish(b Builder) File fails Malformed {
+	if b.open {
+		return Malformed{At: len(b.file.Funcs), Why: "a function not ended"}
+	}
+	b.file
+}
+
+// KindCode is the code of the kind named name of struct type class, or 0.
+func KindCode(class uint8, name string) uint8 {
+	let mut c = uint8(0)
+	for i in 1..len(kinds) {
+		if kinds[i].Class == class && kinds[i].Name == name {
+			c = uint8(i)
+		}
+	}
+	c
+}
+
+// BuiltRowsAreWritten: a function of one statement of kind "def" whose
+// slots are a local and an expression row is written as Go writes it, and
+// the rows a builder adds are ids 1, 2, ... in order.
+law BuiltRowsAreWritten(local int32, line uint32) {
+	let mut b = NewBuilder(1)
+	let f = FileOf(&b, "a.ergo")
+	let at = Pos{File: f, Line: line, Col: 2}
+	let zero = Pos{File: 0, Line: 0, Col: 0}
+	let ok = build(&b, local, at, zero) catch {
+	case Malformed:
+		return false
+	}
+	let file = Finish(b) catch {
+	case Malformed:
+		return false
+	}
+	let text = Write(file) catch {
+	case Malformed:
+		return false
+	}
+	let p = "[0," + strconv.Itoa(int(line)) + ",2]"
+	let lk = if local == 0 { "" } else { "\"local\":" + strconv.Itoa(int(local)) + "," }
+	let want = "{\"v\":1,\"files\":[\"a.ergo\"],\"funcs\":[{\"name\":\"f\",\"pos\":" + p + ",\"end\":[0,0,0],\"body\":[{\"k\":\"def\",\"pos\":" + p + "," + lk + "\"x\":{\"k\":\"zero\",\"pos\":" + p + ",\"t\":\"int\"},\"end\":[0,0,0],\"epos\":[0,0,0],\"eend\":[0,0,0]}]}]}"
+	ok && text == want
+}
+
+func build(b mut Builder, local int32, at Pos, zero Pos) bool fails Malformed {
+	try Begin(b, "f", at, zero)
+	let x = try Row(b, KindCode(TExpr, "zero"), at, []uint32{Text(b, "int")})
+	let s = try Row(b, KindCode(TStmt, "def"), at, []uint32{uint32(local), x})
+	try End(b, List(b, []uint32{s}))
+	x == 1 && s == 2
+}

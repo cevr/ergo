@@ -88,7 +88,7 @@ type groupRec[E] { parent int, id ident, slot int, start int, end int, outer int
 
 // pendingUnder is whether a kept group under parent spec p (-1 the top)
 // has not taken its tops' counts yet.
-func pendingUnder[E](f *Frame[E], p int) bool {
+func pendingUnder[E](f mut Frame[E], p int) bool {
 	if p < 0 {
 		return f.rootPending
 	}
@@ -98,7 +98,7 @@ func pendingUnder[E](f *Frame[E], p int) bool {
 // takePending takes the counts of the tops of each kept group under p
 // that has not taken them: a write under p is about to ask for one. They
 // are not logged: a cut gives them back by its pending groups (giveBack).
-func takePending[E](f *Frame[E], p int) {
+func takePending[E](f mut Frame[E], p int) {
 	for b in 0..f.npending {
 		if f.pending[b].parent == p && !f.pending[b].done {
 			let e = f.pending[b].entry
@@ -118,7 +118,7 @@ func takePending[E](f *Frame[E], p int) {
 
 // giveBack drops the pending groups a cut to spec index start takes back,
 // giving back the counts of those that took theirs.
-func giveBack[E](f *Frame[E], start int) {
+func giveBack[E](f mut Frame[E], start int) {
 	for f.npending > 0 && f.pending[f.npending-1].start >= start {
 		f.npending = f.npending - 1
 		let g = f.pending[f.npending]
@@ -139,7 +139,7 @@ func giveBack[E](f *Frame[E], start int) {
 // pass did not keep is freed, with its slot, as is the new slot of a group
 // not kept. The groups are taken from the last to the first, so the
 // groups inside a group are known when it is kept.
-func keepGroups[E](f *Frame[E]) {
+func keepGroups[E](f mut Frame[E]) {
 	f.keptPasses = f.keptPasses + 1
 	let stamp = f.keptPasses
 	// stamped counts the held entries this pass keeps: when it is every
@@ -256,7 +256,7 @@ func keepGroups[E](f *Frame[E]) {
 // keptThrough is whether kept group i is inside a group the pass kept:
 // the group within names still holds it (it is in the gen that took it)
 // and was kept by the pass, itself or through its own outer group.
-func keptThrough[E](f *Frame[E], i int, stamp int) bool {
+func keptThrough[E](f mut Frame[E], i int, stamp int) bool {
 	let w = f.keptList[i].within
 	if w < 0 || !f.keptList[w].held || f.keptList[w].gen != f.keptList[i].withinGen {
 		return false
@@ -266,7 +266,7 @@ func keptThrough[E](f *Frame[E], i int, stamp int) bool {
 
 // restamp marks kept group i kept by the pass stamp: 1 when it was not
 // yet, 0 when the pass marked it already.
-func restamp[E](f *Frame[E], i int, stamp int) int {
+func restamp[E](f mut Frame[E], i int, stamp int) int {
 	if f.keptList[i].stamp == stamp {
 		return 0
 	}
@@ -277,18 +277,18 @@ func restamp[E](f *Frame[E], i int, stamp int) int {
 // Swept is how many kept entries the last Commit of f walked to free the
 // ones the pass did not keep: none when it kept every held entry. A
 // growth guard counts it, never times.
-func Swept[E](f *Frame[E]) int { f.swept }
+func Swept[E](f mut Frame[E]) int { f.swept }
 
 // GroupRuns is how many component calls the last pass of f ran: a call
 // written again from the last pass does not count. A growth guard counts
 // it (one changed row of many runs one row's component), never times.
-func GroupRuns[E](f *Frame[E]) int { f.groupRuns }
+func GroupRuns[E](f mut Frame[E]) int { f.groupRuns }
 
 // Compared is how many nodes the last Commit of f compared with the node
 // they were, or made: a kept group's nodes written again are kept whole
 // and not counted. A growth guard counts it.
-func Compared[E](f *Frame[E]) int { f.compared }
+func Compared[E](f mut Frame[E]) int { f.compared }
 
 // GroupsKept is how many groups f keeps for its next pass, and so how many
 // argument slots it holds: the memo's size.
-func GroupsKept[E](f *Frame[E]) int { argsHeld(f.args) }
+func GroupsKept[E](f mut Frame[E]) int { argsHeld(f.args) }

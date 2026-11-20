@@ -43,7 +43,7 @@ package syntax
 func RoundTripLawName(name string) string { return name + "RoundTrips" }
 
 // derivePairs appends to f the round-trip law of each pair f declares.
-func (p *parser) derivePairs(f *File) {
+func derivePairs(f *File, src string) {
 	parses := map[string]*FuncDecl{}
 	for _, d := range f.Decls {
 		if d, ok := d.(*FuncDecl); ok && d.Derived == nil {
@@ -56,12 +56,12 @@ func (p *parser) derivePairs(f *File) {
 		if !ok || wire.Name.Name != "Wire" {
 			continue
 		}
-		x, b, appends, ok := p.wireHalf(wire)
+		x, b, appends, ok := wireHalf(src, wire)
 		if !ok {
 			continue
 		}
 		parse := parses[ParseName(x.Name)]
-		if parse == nil || !p.parseHalf(parse, x.Name, b) {
+		if parse == nil || !parseHalf(src, parse, x.Name, b) {
 			continue
 		}
 		laws = append(laws, pairLaw(wire, x, appends, parseFails(parse)))
@@ -71,7 +71,7 @@ func (p *parser) derivePairs(f *File) {
 
 // wireHalf reads Wire(x X) B, or the append form Wire(x X, into []byte)
 // []byte (appends): the named type X and B's type expression.
-func (p *parser) wireHalf(d *FuncDecl) (x *Ident, b Expr, appends, ok bool) {
+func wireHalf(src string, d *FuncDecl) (x *Ident, b Expr, appends, ok bool) {
 	t := d.Type
 	if d.Extern != nil || d.Recv != nil || d.TypeParams != nil || d.Body == nil || t == nil || t.Needs != nil || t.Params == nil {
 		return nil, nil, false, false
@@ -90,14 +90,14 @@ func (p *parser) wireHalf(d *FuncDecl) (x *Ident, b Expr, appends, ok bool) {
 	if _, isRow := b.(*ErrorRow); isRow || b == nil {
 		return nil, nil, false, false
 	}
-	if appends && (!p.byteSlice(params[1].Type) || !p.byteSlice(b)) {
+	if appends && (!byteSlice(src, params[1].Type) || !byteSlice(src, b)) {
 		return nil, nil, false, false
 	}
 	return x, b, appends, true
 }
 
 // byteSlice reports the type expression []byte.
-func (p *parser) byteSlice(t Expr) bool {
+func byteSlice(src string, t Expr) bool {
 	a, ok := t.(*ArrayType)
 	if !ok || a.Len != "" {
 		return false
@@ -108,7 +108,7 @@ func (p *parser) byteSlice(t Expr) bool {
 
 // parseHalf reports whether d is ParseX(b B) X: one parameter of B's text
 // and a result X.
-func (p *parser) parseHalf(d *FuncDecl, x string, b Expr) bool {
+func parseHalf(src string, d *FuncDecl, x string, b Expr) bool {
 	t := d.Type
 	if d.Extern != nil || d.Recv != nil || d.TypeParams != nil || t == nil || t.Needs != nil || t.Params == nil || len(t.Params.List) != 1 || len(t.Params.List[0].Names) > 1 {
 		return false
@@ -120,7 +120,7 @@ func (p *parser) parseHalf(d *FuncDecl, x string, b Expr) bool {
 		return false
 	}
 	pb := t.Params.List[0].Type
-	return pb != nil && p.src[pb.Pos():pb.End()] == p.src[b.Pos():b.End()]
+	return pb != nil && src[pb.Pos():pb.End()] == src[b.Pos():b.End()]
 }
 
 // parseFails reports whether ParseX writes a fails row.
