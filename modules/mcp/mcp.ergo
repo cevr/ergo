@@ -13,6 +13,7 @@
 // reads.
 
 import json
+import jsonschema
 
 // Transport carries the messages of a session: each message the client
 // sent, one at a time, and the answers the server sends.
@@ -68,6 +69,17 @@ let ParseError = -32700
 let InvalidRequest = -32600
 let MethodNotFound = -32601
 let InvalidParams = -32602
+
+// Conforms is whether v is an instance of schema, by std jsonschema (wf10
+// JS0); a schema that is no jsonschema.Schema (a read keyword of another
+// kind, a $ref out of the document) fits nothing.
+func Conforms(schema json.Value, v json.Value) bool {
+	let s = jsonschema.Of(schema) catch {
+	case jsonschema.Invalid:
+		return false
+	}
+	jsonschema.Conforms(s, v)
+}
 
 // valueCodec is the codec of an untyped JSON value.
 func valueCodec() json.Codec[json.Value] { json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0} }

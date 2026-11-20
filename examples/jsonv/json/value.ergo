@@ -1,8 +1,8 @@
 // Package json is jsonv's JSON layer over std json: Parse reads a text
 // into std's json.Value, which keeps member order, repeated keys and each
 // number's spelling, and two printers write a Value back, compact and
-// indented, in jq's layout. It is pure: no function needs a capability.
-// RFC 8259 is the grammar; jq 1.7 is the model of the printed layout.
+// indented. It is pure: no function needs a capability. RFC 8259 is
+// the grammar.
 
 import json
 

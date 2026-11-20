@@ -129,8 +129,8 @@ func (*exchangeV) opCall(in *interp, fr *frame, at syntax.Node, name string, arg
 	return nil, fr.unsupported(at, "a streamed http response (%s) over the simulated network yet", name)
 }
 
-func registerNativesnet() {
-	natives["http.ParseQuery"] = queryNative
+func registerNativesnet(t nativeTables) {
+	natives := t.std
 	natives["http.checkOrigin"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		if ab := in.charge(fr, at, 1+argWork(args[:1])); ab != nil {
 			return nil, ab
@@ -183,31 +183,6 @@ func registerNativesnet() {
 		}
 		return in.netSend(fr, at, fn, args)
 	}
-}
-
-// queryNative is std http.ParseQuery (std/http/query.ergo): Go's
-// url.ParseQuery, a pair with a malformed escape dropped, the fields in
-// key order and the values of one key in the order they came. It reads
-// the raw query once and allocates its fields.
-func queryNative(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
-	raw := args[0].(string)
-	if ab := in.charge(fr, at, 1+int64(len(raw))); ab != nil {
-		return nil, ab
-	}
-	values, _ := url.ParseQuery(raw)
-	keys := make([]string, 0, len(values))
-	for k := range values {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	var fields []netField
-	for _, k := range keys {
-		for _, v := range values[k] {
-			fields = append(fields, netField{k, v})
-		}
-	}
-	out := netFields(fn, fields)
-	return out, in.allocate(fr, at, valueSize(out))
 }
 
 // netFields is fields as a []http.Field.

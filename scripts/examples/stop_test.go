@@ -57,7 +57,7 @@ func TestEveryExitPathStopsTheGroup(t *testing.T) {
 		}, 1, "FAIL p: test"},
 		{"record", func(f *fixture, ticks string) []string {
 			f.program("p", "#!/bin/sh\necho port\n", "default\n", map[string]map[string]string{"basic": {"env": "TICKS=" + ticks + "\n", "expected.out": "stale\n"}},
-				map[string]string{"record.sh": tick + "echo orig\n", "origin": "a fixture original\n"})
+				map[string]string{"record.sh": tick + "echo orig\n"})
 			return []string{"-record", "p"}
 		}, 0, "recorded p/basic"},
 	}

@@ -170,6 +170,7 @@ var declared = map[string][]allowance{
 		[]allowance{{"runtime/v1/digest/*_test.go", files, "TestStdLawLedger reads the test files of the runner packages (runnerPackages): the leaf digest runs the hex, base64 and crc32 laws"}},
 		[]allowance{{"runtime/v1/exec/*_test.go", files, "TestStdLawLedger reads the test files of the runner packages (runnerPackages): the leaf exec runs the exec laws"}},
 		[]allowance{{"runtime/v1/http/*_test.go", files, "TestStdStrengthsTable reads the test files of the leaf http for the benchmark its table names"}},
+		[]allowance{{"runtime/v1/net/*_test.go", files, "TestStdStrengthsTable reads the test files of the leaf net for the benchmark its table names"}},
 		[]allowance{{"runtime/v1/rand/*_test.go", files, "TestStdLawLedger reads the test files of the runner packages (runnerPackages): the leaf rand runs the rand laws"}},
 	),
 	"internal/sketch/eval": {
@@ -294,7 +295,7 @@ var declared = map[string][]allowance{
 			{"modules", subtree, "TestRepoExamplesHoldTheirLaws: examples import the bundled modules (ergo.dev/domain, mcp, xml), which their ergo.mod replaces with modules/, and the loader reads each module's sources"},
 		},
 		exactly("an example's workload names its input generator and its hand-Go control by path, and reading the workload (internal/opcount) looks each up",
-			"cmd/ergo/testdata/onebrc/control", "cmd/ergo/testdata/onebrc/gen", "cmd/ergo/testdata/vt/control"),
+			"cmd/ergo/testdata/station-stats/control", "cmd/ergo/testdata/station-stats/gen", "cmd/ergo/testdata/vt/control"),
 	),
 	"scripts/gate": {
 		{".", subtree, "gate-speed2 owns scripts/gate (do not touch); its tests build in the module with VCS stamping and walk the tree (follow-up)"},
@@ -850,6 +851,13 @@ func TestEveryPackageRecordsOnlyItsClosure(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			// Each package's line as soon as it ends (under -v, go test
+			// prints a t.Log at once), so a sweep stopped before its end
+			// still shows the verdicts it reached: a stopped 6-hour
+			// whole-tree compare had printed none (HEAVY-COST-2 sweep4).
+			defer func() {
+				t.Logf("%s: done: %s", dir, verdictLine(results[i].took, results[i].err, len(results[i].outside)))
+			}()
 			name := strings.ReplaceAll(dir, "/", "_")
 			reuseNote := ""
 			if reuseBase != "" {
@@ -907,7 +915,6 @@ func TestEveryPackageRecordsOnlyItsClosure(t *testing.T) {
 
 	for i, dir := range targets {
 		r := results[i]
-		t.Logf("%s: %s", dir, r.took)
 		if r.err != nil {
 			t.Errorf("%s: %v", dir, r.err)
 			continue
@@ -937,6 +944,19 @@ func TestEveryPackageRecordsOnlyItsClosure(t *testing.T) {
 		}
 		t.Errorf("%s: %d recorded inputs lie outside its closure:\n%s", dir, len(r.outside), summary(r.outside))
 	}
+}
+
+// verdictLine is a swept package's line when it ends: how its runs went
+// (took), then failed with err, or how many recorded inputs lie outside
+// its closure.
+func verdictLine(took string, err error, outside int) string {
+	switch {
+	case err != nil:
+		return fmt.Sprintf("%s; failed: %v", took, err)
+	case outside > 0:
+		return fmt.Sprintf("%s; %d recorded inputs outside its closure", took, outside)
+	}
+	return took + "; every recorded input lies in its closure"
 }
 
 // unsweepable are the test packages the sweep does not run, by package

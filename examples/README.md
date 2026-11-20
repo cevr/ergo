@@ -22,7 +22,7 @@ A program folder holds:
 - `README.md`: what the program shows and how it works.
 - `tags`: one line of words from `default slow net cc tty gui ts mod`. `default` stands alone. The other tags keep a program out of the default gate: `slow` (a case uses more CPU time than the budget), `net` (it uses the network), `cc` (it needs a C compiler), `tty` (it needs a terminal), `gui` (it opens a window), `ts` (it has a TypeScript side; see "TypeScript leg") and `mod` (it imports packages of other Ergo modules; see "Module leg"). The `tty` and `gui` legs are not built yet, so selecting such a program is an error.
 - `cases/`: one folder per case, at least one.
-- `origin` and `record.sh`, both or neither: a port names its original program in the file `origin`, and `record.sh` runs that original (see "Record leg"). A port of a Foldkit example holds `origin/`, a folder, instead, with no `record.sh` (see "Ports of Foldkit examples").
+- `record.sh`, optional: a port runs its original with it (see "Record leg"). Provenance lives under `conformance/upstream`, never in the example (see "Ports"): an `origin` file or folder in a program is a layout error.
 - `expected-skips`, optional: the `skip law …` lines that the program's `ergo test` may print, one per line exactly as printed, with `#` lines for the reason. `ergo test` itself fails on any other skip line (runtime.md, Tests 4), so the test leg does.
 - `explored`, optional: the tests and laws whose schedules the explore leg searches, one per line, `PACKAGE NAME --explore dfs|pct|random [FLAG...]` (`PACKAGE` is the package folder relative to the program, `.` for a program of one folder), with `#` lines for the reason. The leg runs `ergo test PACKAGE --run NAME --explore …` ([stdlib](../docs/spec/stdlib.md#explored-schedules)); it fails when the search finds a failing schedule or when the run did not run NAME alone, and then it runs the replay command the failure printed and says whether the schedule replays to the same failure. A race an ordinary run meets only rarely is a failing schedule here.
 - `testdata/`, if the program reads fixture files.
@@ -34,7 +34,7 @@ A program of packages (196b; the Go layout of `AGENTS.md`) holds `ergo.mod` in p
 - `cmd/<program>/main.ergo`: the binary's package, named after the program folder. The runner builds it with `ergo build <dir>/cmd/<program> -o <temp>/<program>`, and its cases run it. Every other folder of `cmd/` is another binary, `cmd/<other>/main.ergo` (a server beside its CLI, as a Go module's `cmd/` holds several); the test leg checks and builds it as a package.
 - package folders: any other folder except `cases/` and `testdata/`. A package folder holds `.ergo` files and package folders only.
 - top-level `.ergo` files, if any: the module root's package.
-- `README.md`, `tags`, `cases/`, and optionally `origin` with `record.sh` (or the folder `origin/`), `expected-skips`, `explored`, `testdata/` and `ergo.laws`, as above.
+- `README.md`, `tags`, `cases/`, and optionally `record.sh`, `expected-skips`, `explored`, `testdata/` and `ergo.laws`, as above.
 - `workload`, optional: how `scripts/opcount` runs the program at two sizes for its counted receipt (see "Workload"). The runner reads it and does not run it; a line that does not read is a layout error, `examples/<name>: workload: line N: …`. When `workload` is a package folder (the program's `gen` documents), the file is `workload/workload` in it, and a workload package without it is a layout error, so `scripts/opcount` counts every program that has a workload.
 
 `ergo fmt --check` checks every `.ergo` file of its packages, and `ergo fix --check <package folder>` checks every package folder's clauses. A file that `ergo gen rpc` or `ergo gen cli` wrote (its first line says so, its second names the contract) is checked by `ergo gen KIND --check <package folder>.<OpType>`, once per contract, before the build: a stale file fails the program (`FAIL <program>: gen rpc <folder>.<OpType>`). The test leg runs `ergo test <package folder>` for every package folder, printing `ok <program>: test <folder>`. A package's test build runs the laws of every operation type it sees against every provider it sees, wherever each is declared, in the least package that sees them all (law-xpkg): the laws `kv.Store` declares run in package `memory` against `memory.Table`, and the std `fs.Writes` laws run there against `memory.Full`. A provider is built by its `New<P>` constructor when its package declares one, else generated.
@@ -76,7 +76,7 @@ A program's `workload` file tells `scripts/opcount` (docs/tooling.md, "Counted r
 - `control DIR`: the hand Go control, a Go main package `DIR` from the repository root, run with the same arguments and input; `opcount -control` measures it beside the program and requires the same output.
 - `floor DIR`: the Go-runtime floor, a Go main package `DIR` that does the same job at the least work the Go runtime allows (packed data, no interface call or allocation it can avoid), run with the same arguments and input; `opcount -control` measures it beside the program and the control, requires the same output, and prints the program's ratio to it beside the ratio to the control.
 
-`{n}` must appear in `args` or in the input's arguments. `lru`, `stackvm`, `onebrc`, `vt`, `toktree` and `tn1-lint` hold one; `flattree`, `jsonparse`, `mdhtml`, `tomlparse` and `twig` keep theirs in their `workload` package, as `workload/workload`. A package folder named `workload` (the DOD programs' document writers, as `twig`'s) is a package, not this file.
+`{n}` must appear in `args` or in the input's arguments. `lru`, `stackvm`, `station-stats`, `vt`, `toktree` and `tn1-lint` hold one; `flattree`, `jsonparse`, `mdhtml`, `tomlparse` and `twig` keep theirs in their `workload` package, as `workload/workload`. A package folder named `workload` (the DOD programs' document writers, as `twig`'s) is a package, not this file.
 
 ## TypeScript leg
 
@@ -106,41 +106,6 @@ A port's goldens come from the original program, never from the port. `go run ./
 
 An original program has no record leg: its goldens come from an independent model or are written by hand, and a review checks them.
 
-## Ports of Foldkit examples
+## Ports
 
-The `fk-` programs port Foldkit's examples (`conformance/upstream/foldkit-d21db423`, MIT) and `foldkit/foldkit-domains`. A port keeps the upstream behaviour and tests, not Foldkit's shapes: there is no Message union with completion variants, no Command or Subscription records, and no blocks.
-
-**The origin folder.** A port holds `origin/` where a CLI port holds an `origin` file and `record.sh`. Its original runs in a browser, so it has no record leg. The folder holds:
-
-- `README.md`: the upstream path, the commit and the license.
-- `source`: a line per vendored upstream folder, its path from the repository root (for example `conformance/upstream/foldkit-d21db423/examples/stopwatch`). A port of two examples names both (`fk-flow`).
-- `tests.txt`: one line per upstream story or scene test, `FILE: TITLE -> RESTATEMENT`. FILE is the test file's path under its folder (each `*story.test.ts` and `*scene.test.ts` in it); with more than one folder, it starts with the folder's last element and a slash (`canvas-art/src/story.test.ts`), and those last elements differ. TITLE is the test's title as written, with its spaces collapsed; an `.each` table is one test. RESTATEMENT names the Ergo test, law or script that restates the test, or says `not restated: REASON`. Lines that start with `#` are comments.
-- Anything else the port keeps of its original, such as measurements or recorded server answers.
-
-The layout check reads the titles from the vendored files (`test(`, `it(`, `it.effect(` and their `.each`, `.only` and `.skip` forms), so nothing is pinned. A title that `tests.txt` lacks, a title it has more often than upstream does, a line for a test that upstream does not have, and a line with no restatement are each a layout error.
-
-**How a Foldkit program maps** (corpus plan §18.1):
-
-| Foldkit | Ergo |
-| --- | --- |
-| `Model` and `Message` as Schema values and types | `type` records and unions, declared once. A status field becomes a union of modes |
-| `update` returning `{ model, commands }` | the machine's step returning a `Decision` |
-| `Command.define` | work that a state owns (`machines.Work`): the state is the command's data and the end of the entry cancels it. Or an `Emit` of a command union, run by the actor's sink |
-| `Subscription` | the state's timer (`after`), a Listen work, `actor.Feed`, or `ui.Tick` |
-| `ManagedResource` | a resource owned by the entry of the state that needs it: a Listen work acquires it, and the end of the entry releases it |
-| Submodel, `Got*Message`, OutMessage | a pure child whose step the parent calls, or `actor.Child`; the output arrives through `Emit`/`Done` and `toParent` |
-| `view`, `h.keyed`, a load the view asks for | a view with `needs ui.Slot[Signal]`, `ui.Each` with a typed key, `ui.Load` and `ui.Async` |
-| Routing | a route union with parse and print (a round-trip law), and `ui.Location` |
-| Story test | an Ergo `test` over the step, `machines.Run` or `RunTimed`, or a live actor on a `time.Manual`. `Command.resolve` is "feed the result signal" or "move the clock" |
-| Scene test | a `ui.Script` run on `ui.TestHost` |
-
-Three limits apply, and each port's ledger records where it meets them. L1: an `Emit` opens a new entry. L2: a state has one work. L3: children live in one entry. A port that finds a form around a limit says so in its README.
-
-**Lifetimes, per kind of work:**
-
-| Owner | What it owns, and when it ends |
-| --- | --- |
-| The program | the providers of `main`'s `with context`, released when `main` returns |
-| One entry of a machine state | its work, its timer, its children and the resources its work holds, all ended when the entry ends (an `Enter`, `Done`, or the actor's stop) |
-| One `ui.Load` epoch | its fetch, cancelled when a pass no longer writes the load, with a late answer dropped |
-| One mounted view instance | its `ui.State`, dropped when the instance leaves the tree |
+A port keeps the behaviour and the tests of the program it ports. Its provenance (the upstream path, the commit, the license, and the line per upstream test that says what restates it) lives under `conformance/upstream/<source>/ports/<name>/`, never in the example; the layout check reads it there (`checkPorts`, `scripts/examples/origin.go`). A port of a program that runs here also holds `record.sh` (see "Record leg").

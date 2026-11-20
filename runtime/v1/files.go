@@ -404,14 +404,15 @@ const Path = runtimefiles.Module + "/runtime/v1"
 // Leaves are the leaf packages of runtime/v1, by name: the package Path/LEAF
 // in the directory runtime/v1/LEAF (binsize BS1). A leaf holds the bodies
 // whose Go packages no other body needs (crypto/sha256, encoding/csv,
-// os/exec, math/rand/v2, net/http, encoding/json, log/slog; fmt and reflect
-// for a test build's rewrite shadow): the Go linker keeps the init task of every
+// os/exec, math/rand/v2, net/http, encoding/json, log/slog, database/sql;
+// fmt and reflect for a test build's rewrite shadow): the Go linker keeps
+// the init task of every
 // imported package, so a program imports a leaf only when it calls one of
 // its bodies, and a program that calls none links none of those packages.
 // A leaf may import runtime/v1; runtime/v1 imports no leaf. A name is
 // unique across runtime/v1 and its leaves (sourceDecls), so a body is named
 // by its Go name alone, as before, and PackageOf finds its package.
-var Leaves = []string{"csv", "digest", "exec", "http", "rand", "redacted", "rpc", "shadow"}
+var Leaves = []string{"csv", "digest", "exec", "http", "net", "rand", "redacted", "rpc", "shadow", "sql"}
 
 // HostText is the import path of the gofmt leaf, which makes fmt the
 // runtime's text of a value the core cannot write without it (rt.Text,

@@ -179,6 +179,25 @@ var hostWords = []string{"linux", "darwin", "unix", "windows", "amd64", "arm64",
 // module (scripts/mutants nestedModule; batch-18 r4 M2). An id the runner cannot resolve makes it refuse the whole run
 // (fu-mutants-xpkg: 45 rows named v1:, main:, sched:, tsproj: … and were
 // never run).
+// ergoKillerMissing judges a killer of an Ergo package with no Go test
+// (scripts/mutants runs it with scripts/ergotests, ST-0): Name is an Ergo
+// test of the package, law:L (law:T.L) a law it declares (LAW-KILLER).
+func ergoKillerMissing(dir, test string, files []string) string {
+	decl := regexp.MustCompile(`(?m)^test ` + regexp.QuoteMeta(test) + `\s*\{`)
+	if law, ok := strings.CutPrefix(test, "law:"); ok {
+		if _, member, ok := strings.Cut(law, "."); ok {
+			law = member
+		}
+		decl = regexp.MustCompile(`(?m)^\s*law ` + regexp.QuoteMeta(law) + `\b`)
+	}
+	for _, f := range files {
+		if text, err := os.ReadFile(f); err == nil && decl.Match(text) {
+			return ""
+		}
+	}
+	return "no Ergo test or law " + test + " in " + dir
+}
+
 func killerMissing(root, id string, cache map[string][]testFile) string {
 	suite, rest, ok := strings.Cut(id, ":")
 	if !ok {
@@ -228,7 +247,10 @@ func killerMissing(root, id string, cache map[string][]testFile) string {
 		cache[dir] = files
 	}
 	if len(files) == 0 {
-		return "no test package " + dir + " (want DIR:Test, DIR[TAG]:Test, an ergo suite, or examples:PROGRAM)"
+		if ergo, _ := filepath.Glob(filepath.Join(root, filepath.FromSlash(dir), "*.ergo")); len(ergo) > 0 && tag == "" {
+			return ergoKillerMissing(dir, test, ergo)
+		}
+		return "no test package " + dir + " (want DIR:Test, DIR[TAG]:Test, DIR:ErgoTest, DIR:law:L, an ergo suite, or examples:PROGRAM)"
 	}
 	// A family split into parts (TestXPart0 …) is run as all its parts
 	// (scripts/mutants Suite.Families): a row names the family, so a split

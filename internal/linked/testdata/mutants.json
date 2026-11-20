@@ -1,0 +1,23 @@
+{
+  "about": "internal/linked's stamp (generated.sum): it vouches for the checked-in generated Go only for the generation it records, so TestLinkedGoIsFresh can skip the regeneration in the fast tier without passing a stale file.",
+  "mutants": [
+    {
+      "name": "linked-fresh-inputs-ignored",
+      "origin": "wf10 LINKED-FRESH-FAST",
+      "file": "internal/linked/stamp.go",
+      "from": "\tif len(lines) < 2 || lines[0] != inputs {\n",
+      "to": "\tif len(lines) < 2 {\n",
+      "rule": "A stamp vouches only while the generation's inputs digest is the stamped one.",
+      "killers": ["internal/linked:TestStampVouchesOnlyForItsGeneration"]
+    },
+    {
+      "name": "linked-fresh-hash-ignored",
+      "origin": "wf10 LINKED-FRESH-FAST",
+      "file": "internal/linked/stamp.go",
+      "from": "\t\tif hex.EncodeToString(sum[:]) != want {\n",
+      "to": "\t\tif false && hex.EncodeToString(sum[:]) != want {\n",
+      "rule": "A stamp vouches only for files whose bytes hash as stamped (a hand edit of a generated file is a miss).",
+      "killers": ["internal/linked:TestStampVouchesOnlyForItsGeneration"]
+    }
+  ]
+}

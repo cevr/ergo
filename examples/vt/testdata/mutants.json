@@ -51,7 +51,7 @@
       "file": "examples/vt/vt/state.ergo",
       "from": "\t\tcase Digit, Colon, Semi:\n\t\t\tto(CsiParam, ParamByte)",
       "to": "\t\tcase Digit, Semi:\n\t\t\tto(CsiParam, ParamByte)\n\t\tcase Colon:\n\t\t\tto(CsiIgnore, NoAct)",
-      "rule": "In csi_param a colon is a parameter byte (Ghostty's change to vt100.net, which sends it to csi_ignore), for SGR sub-parameters. Killed by law ghostty.StepMatchesTable.",
+      "rule": "In csi_param a colon is a parameter byte (a change to vt100.net, which sends it to csi_ignore), for SGR sub-parameters. Killed by law reference.StepMatchesTable.",
       "killers": [
         "examples:vt"
       ]
@@ -62,7 +62,7 @@
       "file": "examples/vt/vt/state.ergo",
       "from": "\t\tcase 0x18, 0x1a:\n\t\t\tCanSub",
       "to": "\t\tcase 0x18:\n\t\t\tCanSub",
-      "rule": "SUB (0x1a) cancels a sequence from any state, as CAN does. Killed by law ghostty.StepMatchesTable.",
+      "rule": "SUB (0x1a) cancels a sequence from any state, as CAN does. Killed by law reference.StepMatchesTable.",
       "killers": [
         "examples:vt"
       ]
@@ -84,7 +84,7 @@
       "file": "examples/vt/vt/machine.ergo",
       "from": "let MaxParams = 24",
       "to": "let MaxParams = 23",
-      "rule": "The parser keeps Ghostty's 24 parameters (Kakoune sends 17 in one SGR). Killed by law Parser.ParamsReachTheLimit, and by the cases.",
+      "rule": "The parser keeps 24 parameters (an editor may send 17 in one SGR). Killed by law Parser.ParamsReachTheLimit, and by the cases.",
       "killers": [
         "examples:vt"
       ]
@@ -95,7 +95,7 @@
       "file": "examples/vt/vt/machine.ergo",
       "from": "Inter: if k.Inter < MaxIntermediates { k.Inter + 1 } else { k.Inter }",
       "to": "Inter: if k.Inter < 3 { k.Inter + 1 } else { k.Inter }",
-      "rule": "The parser keeps 4 intermediates, as Ghostty does. Killed by law Parser.IntermediatesReachTheLimit, and by case vt/events-sequences.",
+      "rule": "The parser keeps 4 intermediates. Killed by law Parser.IntermediatesReachTheLimit, and by case vt/events-sequences.",
       "killers": [
         "examples:vt"
       ]
@@ -150,7 +150,7 @@
       "file": "examples/vt/vt/stream.ergo",
       "from": "\t\t\tp.acc = if v > MaxParam { MaxParam } else { v }",
       "to": "\t\t\tp.acc = v",
-      "rule": "A parameter saturates at 65535, as Ghostty's u16 does. Killed by case vt/events-sequences (CSI 99999 C).",
+      "rule": "A parameter saturates at 65535, a u16. Killed by case vt/events-sequences (CSI 99999 C).",
       "killers": [
         "examples:vt"
       ]
@@ -172,7 +172,7 @@
       "file": "examples/vt/vt/stream.ergo",
       "from": "if b != 'm' && p.colons != 0 {",
       "to": "if false && p.colons != 0 {",
-      "rule": "Only SGR takes colon sub-parameters; another CSI with one is dropped, as in Ghostty. Killed by case vt/events-sequences (CSI 4:3 H).",
+      "rule": "Only SGR takes colon sub-parameters; another CSI with one is dropped. Killed by case vt/events-sequences (CSI 4:3 H).",
       "killers": [
         "examples:vt"
       ]
@@ -249,7 +249,7 @@
       "file": "examples/vt/screen/screen.ergo",
       "from": "if ri >= len(s.flags) {",
       "to": "if ri >= 0 {",
-      "rule": "Once the ring is full, a line feed makes no cell: the oldest page is used again (Ghostty's leak, as a counted growth guard). Killed by law screen.ScrollbackIsBounded.",
+      "rule": "Once the ring is full, a line feed makes no cell: the oldest page is used again (a leak there shows as a counted growth guard). Killed by law screen.ScrollbackIsBounded.",
       "killers": [
         "examples:vt"
       ]

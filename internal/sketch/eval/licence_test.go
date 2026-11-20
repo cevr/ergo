@@ -210,21 +210,22 @@ func (l licenceLaw) model() (string, string) {
 //
 // ERGO_LICENCE_SEED=N replays one seed.
 func TestLicenceRunFindsEdgeFalsehoods(t *testing.T) {
-	loadNatives()
-	lower, upper := goNatives()["strings.ToLower"], goNatives()["strings.ToUpper"]
+	lower, upper := loadedNatives().goLib["strings.ToLower"], loadedNatives().goLib["strings.ToUpper"]
 	if lower == nil || upper == nil {
 		t.Fatal("no native of strings.ToLower or strings.ToUpper")
 	}
-	goNatives()["strings.ToLower"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+	loadedNatives().goLib["strings.ToLower"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		if in.ambient.zone != ambients[0].zone {
 			return args[0].(string) + "@", nil
 		}
 		return args[0], nil
 	}
-	goNatives()["strings.ToUpper"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+	loadedNatives().goLib["strings.ToUpper"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return nil, fr.unsupported(at, "the fixture's Skip")
 	}
-	t.Cleanup(func() { goNatives()["strings.ToLower"], goNatives()["strings.ToUpper"] = lower, upper })
+	t.Cleanup(func() {
+		loadedNatives().goLib["strings.ToLower"], loadedNatives().goLib["strings.ToUpper"] = lower, upper
+	})
 	seeds := []uint64{}
 	if s := os.Getenv("ERGO_LICENCE_SEED"); s != "" {
 		n, err := strconv.ParseUint(s, 10, 64)

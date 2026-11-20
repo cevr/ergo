@@ -1,0 +1,6 @@
+> what files are here?
+< I will run it.
+→ shell {"command":"ls"}
+= a.txt
+  b.txt
+< There are two files.

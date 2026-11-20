@@ -7,6 +7,7 @@
 
 import rand
 import strings
+import tomlparse/toml
 
 let words = []string{"alpha", "beta", "gamma", "tab\\there", "quote \\\"q\\\"", "snow ☃", "\\u00e9t\\u00e9", "\\U0001F600 face", "back\\\\slash"}
 
@@ -17,6 +18,16 @@ func Document(seed int, n int) string {
 	with context { Random: rand.Seeded(uint64(seed)) } {
 		write(n)
 	}
+}
+
+// DocumentIsTOML: the workload of every seed is TOML, so the receipts
+// time the parse of a document and not a failure at its first value.
+law DocumentIsTOML(seed int) {
+	let _ = toml.Parse(Document(seed, 40)) catch {
+	case toml.Malformed, toml.Duplicate, toml.Clash:
+		return false
+	}
+	true
 }
 
 func pick(xs []string) string needs Random { xs[Random.IntN(len(xs))] }

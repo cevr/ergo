@@ -5,7 +5,7 @@
 // ResolvesAsTable: Registry resolves as Table does.
 
 import deps/resolve
-import deps/semver
+import semver
 
 test KeepsTheIndexLaws(entries []resolve.Entry, n int) {
 	let r = NewRegistry(resolve.TableOf(entries).Releases)

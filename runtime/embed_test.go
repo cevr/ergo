@@ -14,7 +14,7 @@ import (
 )
 
 // TestPackagesMatchTheirDirectories: each runtime package's list of files is
-// every non-test Go file and .bin asset of its directory except runtime/v1/files.go and its
+// every non-test Go file, .s assembly file and .bin asset of its directory except runtime/v1/files.go and its
 // generated table files_gen.go, which
 // serves only the compiler; each embedded file has the bytes on disk; and
 // every runtime package a file imports is in the package's declared
@@ -29,7 +29,7 @@ func TestPackagesMatchTheirDirectories(t *testing.T) {
 		var onDisk []string
 		for _, e := range entries {
 			name := e.Name()
-			if e.IsDir() || !strings.HasSuffix(name, ".go") && !strings.HasSuffix(name, ".bin") || strings.HasSuffix(name, "_test.go") || path+"/"+name == "runtime/v1/files.go" || path+"/"+name == "runtime/v1/files_gen.go" {
+			if e.IsDir() || !strings.HasSuffix(name, ".go") && !strings.HasSuffix(name, ".bin") && !strings.HasSuffix(name, ".s") || strings.HasSuffix(name, "_test.go") || path+"/"+name == "runtime/v1/files.go" || path+"/"+name == "runtime/v1/files_gen.go" {
 				continue
 			}
 			onDisk = append(onDisk, name)
@@ -47,7 +47,7 @@ func TestPackagesMatchTheirDirectories(t *testing.T) {
 				t.Errorf("%s/%s: the embedded bytes differ from the file (%v)", path, name, err)
 			}
 			if !strings.HasSuffix(name, ".go") {
-				continue // an asset a file of the package embeds (runtime/tzdata/zones.bin)
+				continue // an asset a file of the package embeds (runtime/tzdata/zones.bin), or an assembly file (runtime/v1/exchange_darwin.s, the renamex_np trampoline)
 			}
 			file, err := parser.ParseFile(token.NewFileSet(), filepath.Join(dir, name), disk, parser.ImportsOnly)
 			if err != nil {
