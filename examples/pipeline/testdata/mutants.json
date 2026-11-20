@@ -20,7 +20,7 @@
     {
       "name": "px1-board-two-columns", "origin": "wf10/domain PX1",
       "file": "examples/pipeline/board/board.ergo",
-      "from": "Failing: without(v.Failing, id),",
+      "from": "Failing: slices.Filter(v.Failing, other),",
       "to": "Failing: v.Failing,",
       "rule": "A run that moves leaves its old column: BoardIsFoldOfEvents.",
       "anchor": {"tests": ["examples:pipeline"]}, "killers": ["examples:pipeline"]

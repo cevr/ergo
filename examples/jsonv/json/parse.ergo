@@ -17,6 +17,16 @@ func Parse(text string) json.Value fails json.Malformed {
 	}
 }
 
+// FailuresPointIntoTheText: a text that does not parse fails at an
+// offset inside it or at its end.
+law FailuresPointIntoTheText(text string) {
+	let _ = Parse(text) catch {
+	case json.Malformed as m:
+		return m.Offset >= 0 && m.Offset <= len(text)
+	}
+	true
+}
+
 // Position is a line and a column of a text, both from 1; the column
 // counts bytes.
 type Position { Line int, Col int }

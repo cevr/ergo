@@ -5,6 +5,7 @@
 // AppendRune until their import go form counts within 1.02 of the body
 // (std-go-share.txt names why).
 
+import go unicode
 import go unicode/utf8
 
 // RuneCount is the number of runes in s. Each byte of an invalid sequence
@@ -42,6 +43,19 @@ func ValidRune(r rune) bool { utf8.ValidRune(r) }
 // RuneLen is the number of bytes of the UTF-8 text of r, or -1 when r is
 // not valid.
 func RuneLen(r rune) int { utf8.RuneLen(r) }
+
+// IsDigit reports whether r is a decimal digit (Unicode class Nd), as
+// Go's unicode.IsDigit: "٣" is a digit too.
+func IsDigit(r rune) bool { unicode.IsDigit(r) }
+
+// IsLetter reports whether r is a letter (Unicode category L), as Go's
+// unicode.IsLetter.
+func IsLetter(r rune) bool { unicode.IsLetter(r) }
+
+// IsSpace reports whether r is white space as Go's unicode.IsSpace
+// defines it: '\t', '\n', '\v', '\f', '\r', ' ', U+0085, U+00A0, and
+// the Unicode class Z beyond Latin-1.
+func IsSpace(r rune) bool { unicode.IsSpace(r) }
 
 // RuneCountAtMostLen: a rune takes at least one byte.
 law RuneCountAtMostLen(s string) { RuneCount(s) <= len(s) && RuneCount(s) >= 0 }

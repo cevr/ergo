@@ -77,6 +77,61 @@ func Summarize(xs []float64) Summary fails Empty {
 	Summary{Count: len(xs), Min: lo, Max: hi, Mean: mean, StdDev: math.Sqrt(m2 / n), GeoMean: geo}
 }
 
+// MeanIsBetween: the mean lies between the least and the greatest value,
+// and the deviation is not negative.
+law MeanIsBetween(xs []int, extra int) {
+	let s = Summarize(small(xs, extra)) catch {
+	case Empty:
+		return false
+	}
+	s.Min <= s.Mean+1e-9 && s.Mean <= s.Max+1e-9 && s.StdDev >= 0
+}
+
+// small is xs as float64 values in -500 to 499, with one more value from
+// extra, so the list is never empty.
+func small(xs []int, extra int) []float64 {
+	let mut out = []float64{float64(extra % 500)}
+	for x in xs {
+		out = out.Append(float64(x % 500))
+	}
+	out
+}
+
+// ShiftKeepsSpread: adding c to every value adds c to the mean and keeps
+// the deviation.
+law ShiftKeepsSpread(xs []int, extra int, c int) {
+	let base = small(xs, extra)
+	let shift = float64(c % 1000)
+	let mut moved = []float64{}
+	for x in base {
+		moved = moved.Append(x + shift)
+	}
+	let a = Summarize(base) catch {
+	case Empty:
+		return false
+	}
+	let b = Summarize(moved) catch {
+	case Empty:
+		return false
+	}
+	Near(b.Mean, a.Mean+shift) && math.Abs(b.StdDev-a.StdDev) <= 1e-6
+}
+
+// GeoMeanAtMostMean: for positive values the geometric mean is at most
+// the mean (AM-GM), and it is absent when a value is not positive.
+law GeoMeanAtMostMean(xs []int, extra int) {
+	let s = Summarize(small(xs, extra)) catch {
+	case Empty:
+		return false
+	}
+	match s.GeoMean {
+	case Some[float64] as g:
+		s.Min > 0 && g.Value <= s.Mean*(1+1e-9)
+	case None:
+		s.Min <= 0
+	}
+}
+
 // Near reports whether a and b agree to a relative 1e-9.
 func Near(a float64, b float64) bool {
 	math.Abs(a-b) <= 1e-9*(1+math.Abs(a)+math.Abs(b))

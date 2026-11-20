@@ -3,6 +3,7 @@
 
 import machines
 import strings
+import time
 
 func told(es []Event) string {
 	let mut out = []string{}
@@ -33,9 +34,9 @@ test DisplayRun {
 		at(50s, Finish),
 		at(60s, Touch),
 		at(61s, CornerTap),
-		at(ms(61500), CornerTap),
+		at(time.Times(1ms, 61500), CornerTap),
 		at(62s, CornerTap),
-		at(ms(62500), CornerTap),
+		at(time.Times(1ms, 62500), CornerTap),
 		at(63s, CornerTap),
 		at(300s, Touch),
 	}

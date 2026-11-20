@@ -1,0 +1,12 @@
+# scripts/opcount (from the repository root, NAME ../benchmarks/apifirst/session/ergo):
+# `sessionbench session` runs a script of N lines on standard input
+# through api.Session and the generated command line of counter.Counter
+# (AF3); the cost of one line is the slope between the two sizes. The
+# input is `sessionbench gen N`. The control is the CLI control's
+# `session`: a hand word splitter and the hand command line of spec §3's
+# CLI row, in one loop over standard input.
+unit line
+sizes 20000 220000
+input self gen {n}
+args session
+control benchmarks/apifirst/cli/control

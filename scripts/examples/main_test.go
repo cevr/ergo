@@ -576,9 +576,9 @@ func TestRecordLegWritesGoldensFromTheOriginal(t *testing.T) {
 	port := f.program("porter", original("orig"), "default\n", map[string]map[string]string{
 		"r1": {"args": "a\n"},
 		"r2": {"args": "quiet\n", "expected.out": "stale\n", "expected.err": "stale\n", "expected.status": "9\n"},
-	}, map[string]string{"record.sh": original("orig"), "origin": "a fixture original\n"})
+	}, map[string]string{"record.sh": original("orig")})
 	drift := f.program("drifter", original("port"), "default\n", map[string]map[string]string{"r1": {"args": "a\n"}},
-		map[string]string{"record.sh": original("orig"), "origin": "a fixture original\n"})
+		map[string]string{"record.sh": original("orig")})
 	code, out := f.run("-record", "porter", "drifter")
 	if code != 0 || !strings.Contains(out, "recorded porter/r1\n") {
 		t.Fatalf("-record: exit %d\n%s", code, out)
@@ -643,7 +643,7 @@ func TestRecordLegWritesNothingWhenTheOriginalCannotStart(t *testing.T) {
 			files["stdin"] = "input\n"
 		}
 		dir := f.program("port", "#!/bin/sh\necho port\n", "default\n", map[string]map[string]string{"basic": files},
-			map[string]string{"record.sh": "echo original out; echo original err >&2; exit 3\n", "origin": "a fixture original\n"})
+			map[string]string{"record.sh": "echo original out; echo original err >&2; exit 3\n"})
 		return f, filepath.Join(dir, "cases", "basic")
 	}
 	check := func(t *testing.T, f *fixture, caseDir string) {

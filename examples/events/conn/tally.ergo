@@ -1,5 +1,7 @@
 // Tally is what a log of events adds up to: how many of each kind, the
 // bytes sent, and the connections still open at its end.
+
+import slices
 type Tally { Opened int, Sent int, Bytes int, Closed int, Failed int }
 
 // Empty is the tally of no events.
@@ -44,13 +46,5 @@ law AddCountsEach(es []Event) {
 
 // AddIsOrderFree: a tally does not depend on the order of the events.
 law AddIsOrderFree(a []Event, b []Event) {
-	Of(join(a, b)) == Of(join(b, a))
-}
-
-func join(a []Event, b []Event) []Event {
-	let mut out = a
-	for e in b {
-		out = out.Append(e)
-	}
-	out
+	Of(slices.Concat(a, b)) == Of(slices.Concat(b, a))
 }

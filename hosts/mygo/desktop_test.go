@@ -22,7 +22,10 @@ import (
 // cache (internal/sketch/build.DefaultRoot), and a caller's cache would
 // make a verdict depend on what an earlier run left there. The commands
 // build with the go command on PATH, as check.sh's gate does, so the fresh
-// cache never installs ergo's pinned Go (ERGO_GO).
+// cache never installs ergo's pinned Go (ERGO_GO). That go is the pinned
+// one: go.mod's toolchain line is the root's (internal/residue
+// TestGoModulesAgreeOnTheToolchain), and `go test` puts its GOROOT/bin
+// first on the test's PATH.
 func TestMain(m *testing.M) {
 	flag.Parse()
 	cache, err := os.MkdirTemp("", "hostsmygo-cache-")

@@ -4,6 +4,7 @@
 //	stackvm dis      assemble standard input, print it back in canonical form
 //	stackvm code     assemble standard input, print its bytecode
 //	stackvm bench N  run a counting loop of N rounds, print its result
+//	stackvm fib N    run fib(15) by recursion N times, print the sum
 //
 // This binary is the only place that chooses the providers: the host's
 // standard input and arguments.
@@ -16,7 +17,7 @@ import strconv
 import strings
 
 // Usage is the text of a usage failure.
-let Usage = "usage: stackvm run | dis | code | bench N"
+let Usage = "usage: stackvm run | dis | code | bench N | fib N"
 
 // Fuel is the most instructions `run` lets a program take.
 let Fuel = 10000000
@@ -30,7 +31,7 @@ let Unlimited = 4611686018427387904
 let Loop = "        push 0      ; n sum\nloop:   over\n        jifnot done\n        over\n        dup\n        mul\n        push 7\n        mod\n        add\n        swap\n        push 1\n        sub\n        swap\n        jmp loop\ndone:   print\n        pop\n"
 
 // Command is what the arguments ask for.
-type Command = Exec{} | Dis{} | Code{} | Bench{Rounds int}
+type Command = Exec{} | Dis{} | Code{} | Bench{Rounds int} | Fib{Rounds int}
 
 // Parse is the command of args.
 func Parse(args []string) Command fails os.Exit {
@@ -42,13 +43,19 @@ func Parse(args []string) Command fails os.Exit {
 	case ("code", 1):
 		Code
 	case ("bench", 2):
-		let n = strconv.Atoi(args[1]) catch {
-		case strconv.Malformed, strconv.OutOfRange:
-			return os.Exit{Code: 2, Message: "stackvm: \(strconv.Quote(args[1])) is not a count\n\(Usage)"}
-		}
-		Bench{Rounds: n}
+		Bench{Rounds: try Count(args[1])}
+	case ("fib", 2):
+		Fib{Rounds: try Count(args[1])}
 	case (_, _):
 		os.Exit{Code: 2, Message: Usage}
+	}
+}
+
+// Count is the round count text.
+func Count(text string) int fails os.Exit {
+	strconv.Atoi(text) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return os.Exit{Code: 2, Message: "stackvm: \(strconv.Quote(text)) is not a count\n\(Usage)"}
 	}
 }
 
@@ -105,6 +112,18 @@ func BenchProgram(rounds int) []vm.Instr {
 	program
 }
 
+// FibProgram sums fib(15) rounds times, each by the doubly recursive
+// subroutine of cases/fib, and prints the sum: the recursive workload
+// (testdata/fib/workload), which runs on vm.Exec's call loop.
+func FibProgram(rounds int) []vm.Instr {
+	[]vm.Instr{
+		vm.Push{N: 0}, vm.Push{N: rounds},
+		vm.Dup, vm.JumpIfNot{To: 12}, vm.Swap, vm.Push{N: 15}, vm.Call{To: 15}, vm.Add, vm.Swap, vm.Push{N: 1}, vm.Sub, vm.Jump{To: 2},
+		vm.Pop, vm.Print, vm.Halt,
+		vm.Dup, vm.Push{N: 2}, vm.Less, vm.JumpIf{To: 28}, vm.Dup, vm.Push{N: 1}, vm.Sub, vm.Call{To: 15}, vm.Swap, vm.Push{N: 2}, vm.Sub, vm.Call{To: 15}, vm.Add, vm.Ret,
+	}
+}
+
 // main does what the arguments ask, on the host's arguments and input.
 func main() fails os.Exit needs Console | Ambient {
 	with context { os.Process: os.NewHost(), io.Stdin: io.NewStdin() } {
@@ -117,6 +136,8 @@ func main() fails os.Exit needs Console | Ambient {
 			Console.Println(strings.Join(Texts(vm.Encode(try Assembled())), " "))
 		case Bench as b:
 			try Execute(BenchProgram(b.Rounds), Unlimited)
+		case Fib as f:
+			try Execute(FibProgram(f.Rounds), Unlimited)
 		}
 	}
 }

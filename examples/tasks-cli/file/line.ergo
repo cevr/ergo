@@ -16,6 +16,9 @@ func Encode(t tasks.Task) string {
 	"\(t.ID)\t" + tasks.StateName(t.State) + "\t" + tasks.PriorityName(t.Priority) + "\t" + strconv.Quote(t.Title)
 }
 
+// OneLine: the line of an item holds no line feed, whatever its title.
+law OneLine(t tasks.Task) { !strings.Contains(Encode(t), "\n") }
+
 // Decode is the item of text, line n of a file. Its ID must be n.
 func Decode(text string, n int) tasks.Task fails Corrupt {
 	let bad = Corrupt{Line: n, Text: text}
@@ -49,6 +52,18 @@ func Decode(text string, n int) tasks.Task fails Corrupt {
 		return bad
 	}
 	tasks.Task{ID: id, Title: title, Priority: priority, State: state}
+}
+
+// RoundTrip: the line of an item decodes to the item, at the line of its
+// ID.
+law RoundTrip(t tasks.Task) {
+	let item = positive(t)
+	try Decode(Encode(item), item.ID) == item
+}
+
+// positive is t with an ID of 1 or more, as a Board numbers them.
+func positive(t tasks.Task) tasks.Task {
+	tasks.Task{..t, ID: 1 + (if t.ID < 0 { -(t.ID + 1) } else { t.ID })%1000000}
 }
 
 // DecodeAll is the items of a file's text, one per line.

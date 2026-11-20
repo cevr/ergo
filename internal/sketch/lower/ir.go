@@ -294,6 +294,9 @@ func lowerIRModule(u Unit, tests *testLowering, formsOff bool) ([]File, map[stri
 	if err := irNoForms(&l.ir.out); err != nil { // ir_forms_erase.go
 		return nil, nil, irModule{}, nil, err
 	}
+	if err := irPlaced(&l.ir.out); err != nil { // ir_placed.go
+		return nil, nil, irModule{}, nil, err
+	}
 	sort.Slice(l.ir.out.Funcs, func(i, j int) bool { return l.ir.out.Funcs[i].Name < l.ir.out.Funcs[j].Name })
 	l.ir.out.V = 1
 	for _, decl := range slices.Sorted(maps.Keys(l.ir.keep)) {
@@ -761,9 +764,9 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	b.part(b.ownVisited)                                            // ir_own.go
 	b.fn.Body = b.withEntry(b.fn.Body, n)                           // ir_hoist.go
 	b.fn.Body = append(b.fn.Body, b.bodyEnd(b.fn.Body, b.fn.End)...)
-	b.part(func() { b.fn.Body = b.closeMasked(f, b.fn.Body) }) // ir_own.go
-	b.fn.Body = b.deferExits(b.fn.Body)                        // ir_exits.go (STATIC-EXIT2)
-	b.fn.Body = irScopesIncrease(irUseLocals(b.fn.Body))       // ir_end.go
+	b.part(func() { b.fn.Body = b.closeMasked(f, b.fn.Body) })     // ir_own.go
+	b.fn.Body = b.deferExits(b.fn.Body)                            // ir_exits.go (STATIC-EXIT2)
+	b.fn.Body = irScopesIncrease(irUseLocals(b.fn.Body), b.fn.Pos) // ir_end.go
 	if st.census != nil {
 		return false
 	}

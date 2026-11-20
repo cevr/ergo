@@ -1,5 +1,12 @@
 // Runner is the external system that runs one stage of a run.
 
+import github.com/cevr/ergo/modules/domain
+import testing
+import time
+import github.com/cevr/ergo/modules/domain/memory
+import pipeline/retry
+import pipeline/run
+
 // Offline: the runner did not answer. The pipeline counts it as a
 // failed try.
 type Offline { Why string }
@@ -22,4 +29,47 @@ type Runner {
 		}
 		again == first
 	},
+}
+
+// CommandKeepsTheWait: a command for another run, taken while the desk
+// waits out a failed try's backoff, keeps the desk's entry (domain.Keep),
+// so the next try comes when the backoff from the failure ends, not a
+// backoff after the command (runtime.md, Machines and actors 9.2).
+law CommandKeepsTheWait(at int) {
+	let s = testing.Script[Runner]{}
+	s.Run.Answer(func(id string, stage int, attempt int) bool fails Offline { attempt > 1 })
+	let clock = time.NewManual(0)
+	with context { Scheduler: clock, Runner: s } { keepsTheWait(at, clock) } catch {
+	case domain.Conflict, domain.Reused, domain.Unkept, Unavailable:
+		false
+	}
+}
+
+// keepsTheWait submits a run whose first try fails, submits another
+// part of the backoff later, lets the rest of the backoff pass, and is
+// whether the first run then passed.
+func keepsTheWait(at int, clock time.Manual) bool fails domain.Conflict | domain.Reused | domain.Unkept | Unavailable needs Runner | Scheduler {
+	let m = try Open(memory.New[Entry]())
+	let wait = retry.Delay(retry.Standard, 1)
+	let part = duration(int64(1+((at%999)+999)%999) * int64(wait) / 1000)
+	for i, id in []string{"build", "docs"} {
+		let _ = send(m, Envelope{ID: "c\(i)", Run: id, Command: run.Submit{Stages: 1}}) catch {
+		case run.WrongState, run.WrongStage, run.Closed, run.BadLength, NoSuchRun, Unavailable:
+			Stop(m)
+			return false
+		}
+		let _ = try Settle(m)
+		if i == 0 {
+			clock.Advance(part)
+		}
+	}
+	clock.Advance(wait - part)
+	let d = try Settle(m)
+	Stop(m)
+	match RunIn(BookOf(d), "build") {
+	case run.Done:
+		true
+	case run.Unsubmitted, run.Queued, run.Running, run.Failing:
+		false
+	}
 }

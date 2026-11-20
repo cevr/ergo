@@ -1,6 +1,7 @@
 // The domain's tests: examples of each form and failure and a whole
 // build over a fixed Source (the laws run in laws.ergo).
 
+import maps
 import slices
 import strings
 
@@ -113,11 +114,11 @@ test MarkupEscapesAndBlocks {
 // files is a Source of fixed pages and templates, sorted by path.
 type files { pages Map[string, string], templates Map[string, string] } implements Source
 
-func Pages(f files) []string { sortedKeys(f.pages) }
+func Pages(f files) []string { slices.Sorted(maps.Keys(f.pages)) }
 
 func ReadPage(f files, path string) string fails Unreadable { try read(f.pages, path) }
 
-func TemplateNames(f files) []string { sortedKeys(f.templates) }
+func TemplateNames(f files) []string { slices.Sorted(maps.Keys(f.templates)) }
 
 func ReadTemplate(f files, name string) string fails Unreadable { try read(f.templates, name) }
 
@@ -128,14 +129,6 @@ func read(m Map[string, string], key string) string fails Unreadable {
 	case None:
 		Unreadable{Path: key, Reason: "no such file"}
 	}
-}
-
-func sortedKeys(m Map[string, string]) []string {
-	let mut out = []string{}
-	for k, _ in m {
-		out = out.Append(k)
-	}
-	slices.Sort(out)
 }
 
 let blog = files{
@@ -179,6 +172,6 @@ test FilesKeepTheSourceLaws(path string) {
 }
 
 test SpiceReachesEveryMarkupByte {
-	assert Spice("abz_-") == "<>&\"'"
+	assert spice("abz_-") == "<>&\"'"
 	assert !Inert("<") && !Inert("a & b") && Inert("&lt;&amp;") && Inert("")
 }

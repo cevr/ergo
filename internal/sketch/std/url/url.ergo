@@ -1,0 +1,830 @@
+// Package url is URLs as Go's net/url reads and writes them (STD-SURVEY
+// SM2; docs/spec/stdlib.md, url): Parse, Text and Resolve, the escapes,
+// and the query codec std http and ui share (ParseQuery, EncodeQuery).
+// Parse and Text give Go's url.Parse and URL.String for every input, held
+// by lower TestStdURLMatchesGo against Go's own package. A URL is a value
+// whose fields are pieces of the text Parse read: a part with no escape
+// is that span of the input, so Parse makes no copy and allocates nothing
+// when the text has no %XX escape. Effect's Url module wraps the platform
+// URL class (WHATWG); this package follows Go's RFC 3986 reading instead,
+// the one std http serves by.
+
+import strconv
+import strings
+import utf8
+
+// Userinfo is a URL's user: a name and, when HasPassword, a password,
+// both unescaped.
+type Userinfo { Username string, Password string, HasPassword bool }
+
+// URL is Go's url.URL as a value. Path, Fragment and the user are
+// unescaped; RawPath and RawFragment hold the text as written when it is
+// not the default escaping of Path or Fragment (EscapedPath, Text), and
+// "" otherwise. RawQuery is the query as written, without the '?'.
+// ForceQuery is a '?' with no query after it. OmitHost is a scheme
+// followed by a path with no "//" (Text writes no empty authority).
+type URL {
+	Scheme      string,
+	Opaque      string,
+	User        Option[Userinfo],
+	Host        string,
+	Path        string,
+	RawPath     string,
+	RawQuery    string,
+	Fragment    string,
+	RawFragment string,
+	ForceQuery  bool,
+	OmitHost    bool,
+}
+
+// Malformed is a text Parse refuses: Text is Go's *url.Error text,
+// `parse "URL": reason`.
+type Malformed { URL string, Reason string }
+
+// MalformedText is the text of m, as Go's url.Error prints it.
+func MalformedText(m Malformed) string { "parse " + strconv.Quote(m.URL) + ": " + m.Reason }
+
+// bad is a parse step's refusal, its reason as Go words it.
+type bad { Reason string }
+
+// The escape modes of Go's net/url (encoding_table.go): bit k of a byte's
+// mask says that the byte stands for itself in mode k; the top bit says it
+// is a hex digit.
+let pathMode = 1
+let segmentMode = 2
+let hostMode = 4
+let zoneMode = 8
+let userMode = 16
+let queryMode = 32
+let fragmentMode = 64
+let hexBit = 128
+
+// masks is Go's table, one byte per byte value (generated from Go 1.27's
+// net/url encoding_table.go).
+let masks = []byte{
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0x00, 0x4c, 0x0c, 0x00, 0x5f, 0x00, 0x5f, 0x0c, 0x4c, 0x4c, 0x4c, 0x5f, 0x5d, 0x7f, 0x7f, 0x41,
+	0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x4f, 0x5d, 0x0c, 0x5f, 0x0c, 0x40,
+	0x43, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f,
+	0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x0c, 0x00, 0x0c, 0x00, 0x7f,
+	0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f,
+	0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x00, 0x00, 0x00, 0x7f, 0x00,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+}
+
+func mask(c byte) int { int(masks[int(c)]) }
+
+func ishex(c byte) bool { mask(c)&hexBit != 0 }
+
+func unhex(c byte) byte { 9*(c>>6) + (c & 15) }
+
+func shouldEscape(c byte, mode int) bool { mask(c)&mode == 0 }
+
+// unescape is Go's unescape(s, mode): each %XX its byte, a '+' a space in
+// a query, and s itself, no copy, when it holds neither.
+func unescape(s string, mode int) string fails bad {
+	let mut n = 0
+	let mut plus = false
+	let mut i = 0
+	for i < len(s) {
+		let c = s[i]
+		if c == '%' {
+			n = n + 1
+			if i+2 >= len(s) || !ishex(s[i+1]) || !ishex(s[i+2]) {
+				let rest = s[i:len(s)]
+				return bad{Reason: "invalid URL escape " + strconv.Quote(if len(rest) > 3 { rest[0:3] } else { rest })}
+			}
+			if mode == hostMode && unhex(s[i+1]) < 8 && s[i:i+3] != "%25" {
+				return bad{Reason: "invalid URL escape " + strconv.Quote(s[i:i+3])}
+			}
+			if mode == zoneMode {
+				let v = unhex(s[i+1])<<4 | unhex(s[i+2])
+				if s[i:i+3] != "%25" && v != ' ' && shouldEscape(v, hostMode) {
+					return bad{Reason: "invalid URL escape " + strconv.Quote(s[i:i+3])}
+				}
+			}
+			i = i + 3
+		} else if c == '+' {
+			plus = mode == queryMode
+			i = i + 1
+		} else {
+			if (mode == hostMode || mode == zoneMode) && c < 0x80 && shouldEscape(c, mode) {
+				return bad{Reason: "invalid character " + strconv.Quote(s[i:i+1]) + " in host name"}
+			}
+			i = i + 1
+		}
+	}
+	if n == 0 && !plus {
+		return s
+	}
+	let space = if mode == queryMode { byte(32) } else { byte(43) }
+	let mut b = strings.NewBuilder()
+	let mut j = 0
+	for j < len(s) {
+		let c = s[j]
+		if c == '%' {
+			b.WriteByte(unhex(s[j+1])<<4 | unhex(s[j+2]))
+			j = j + 3
+		} else if c == '+' {
+			b.WriteByte(space)
+			j = j + 1
+		} else {
+			b.WriteByte(c)
+			j = j + 1
+		}
+	}
+	b.String()
+}
+
+// escape is Go's escape(s, mode): each byte that does not stand for
+// itself in mode as %XX (upper case), a space as '+' in a query, and s
+// itself, no copy, when every byte stands for itself.
+func escape(s string, mode int) string {
+	let mut spaces = 0
+	let mut hexes = 0
+	for i in 0..len(s) {
+		let c = s[i]
+		if shouldEscape(c, mode) {
+			if c == ' ' && mode == queryMode {
+				spaces = spaces + 1
+			} else {
+				hexes = hexes + 1
+			}
+		}
+	}
+	if spaces == 0 && hexes == 0 {
+		return s
+	}
+	let digits = "0123456789ABCDEF"
+	let mut b = strings.NewBuilder()
+	for i in 0..len(s) {
+		let c = s[i]
+		if c == ' ' && mode == queryMode {
+			b.WriteByte('+')
+		} else if shouldEscape(c, mode) {
+			b.WriteByte('%')
+			b.WriteByte(digits[int(c>>4)])
+			b.WriteByte(digits[int(c&15)])
+		} else {
+			b.WriteByte(c)
+		}
+	}
+	b.String()
+}
+
+// QueryEscape is s escaped for a query component, as Go's
+// url.QueryEscape: a space is '+'.
+func QueryEscape(s string) string { escape(s, queryMode) }
+
+// PathEscape is s escaped for one path segment, as Go's url.PathEscape.
+func PathEscape(s string) string { escape(s, segmentMode) }
+
+// QueryUnescape is Go's url.QueryUnescape: '+' is a space.
+func QueryUnescape(s string) string fails Malformed {
+	unescape(s, queryMode) catch {
+	case bad as b:
+		return Malformed{URL: s, Reason: b.Reason}
+	}
+}
+
+// PathUnescape is Go's url.PathUnescape: '+' stays '+'.
+func PathUnescape(s string) string fails Malformed {
+	unescape(s, segmentMode) catch {
+	case bad as b:
+		return Malformed{URL: s, Reason: b.Reason}
+	}
+}
+
+// Parse is Go's url.Parse(s): a scheme, an authority after "//", a path,
+// a query after '?' and a fragment after '#', each unescaped where Go
+// unescapes it, or Malformed with Go's reason.
+func Parse(s string) URL fails Malformed {
+	let h = strings.IndexByte(s, '#')
+	let head = if h < 0 { s } else { s[0:h] }
+	let u = parse(head) catch {
+	case bad as b:
+		return Malformed{URL: head, Reason: b.Reason}
+	}
+	if h < 0 || h == len(s)-1 {
+		return u
+	}
+	let raw = s[h+1:len(s)]
+	let f = unescape(raw, fragmentMode) catch {
+	case bad as b:
+		return Malformed{URL: s, Reason: b.Reason}
+	}
+	URL{..u, Fragment: f, RawFragment: if escape(f, fragmentMode) == raw { "" } else { raw }}
+}
+
+// noURL is the URL with every part empty.
+let noURL = URL{Scheme: "", Opaque: "", User: None, Host: "", Path: "", RawPath: "", RawQuery: "", Fragment: "", RawFragment: "", ForceQuery: false, OmitHost: false}
+
+// parse is Go's parse(raw, false): every part but the fragment.
+func parse(raw string) URL fails bad {
+	for i in 0..len(raw) {
+		if raw[i] < ' ' || raw[i] == 0x7f {
+			return bad{Reason: "net/url: invalid control character in URL"}
+		}
+	}
+	if raw == "*" {
+		return URL{..noURL, Path: "*"}
+	}
+	let mut scheme = ""
+	let mut rest = raw
+	let colon = try schemeEnd(raw)
+	if colon > 0 {
+		scheme = strings.ToLower(raw[0:colon])
+		rest = raw[colon+1:len(raw)]
+	}
+	let mut query = ""
+	let mut force = false
+	let q = strings.IndexByte(rest, '?')
+	if q >= 0 && q == len(rest)-1 {
+		force = true
+		rest = rest[0:q]
+	} else if q >= 0 {
+		query = rest[q+1:len(rest)]
+		rest = rest[0:q]
+	}
+	if !strings.HasPrefix(rest, "/") {
+		if scheme != "" {
+			return URL{..noURL, Scheme: scheme, Opaque: rest, RawQuery: query, ForceQuery: force}
+		}
+		let slash = strings.IndexByte(rest, '/')
+		let first = if slash < 0 { rest } else { rest[0:slash] }
+		if strings.IndexByte(first, ':') >= 0 {
+			return bad{Reason: "first path segment in URL cannot contain colon"}
+		}
+	}
+	let mut user Option[Userinfo] = None
+	let mut host = ""
+	let mut omit = false
+	if (scheme != "" || !strings.HasPrefix(rest, "///")) && strings.HasPrefix(rest, "//") {
+		let mut authority = rest[2:len(rest)]
+		rest = ""
+		let slash = strings.IndexByte(authority, '/')
+		if slash >= 0 {
+			rest = authority[slash:len(authority)]
+			authority = authority[0:slash]
+		}
+		let at = strings.LastIndex(authority, "@")
+		host = try parseHost(scheme, if at < 0 { authority } else { authority[at+1:len(authority)] })
+		if at >= 0 {
+			user = Some{try parseUser(authority[0:at])}
+		}
+	} else if scheme != "" && strings.HasPrefix(rest, "/") {
+		omit = true
+	}
+	let path = try unescape(rest, pathMode)
+	URL{..noURL, Scheme: scheme, User: user, Host: host, Path: path, RawPath: if escape(path, pathMode) == rest { "" } else { rest }, RawQuery: query, ForceQuery: force, OmitHost: omit}
+}
+
+// schemeEnd is the index of the colon that ends raw's scheme (Go's
+// getScheme), or -1 when raw has none.
+func schemeEnd(raw string) int fails bad {
+	for i in 0..len(raw) {
+		let c = raw[i]
+		if c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' {
+			continue
+		}
+		if c >= '0' && c <= '9' || c == '+' || c == '-' || c == '.' {
+			if i == 0 {
+				return -1
+			}
+			continue
+		}
+		if c == ':' {
+			if i == 0 {
+				return bad{Reason: "missing protocol scheme"}
+			}
+			return i
+		}
+		return -1
+	}
+	-1
+}
+
+// parseUser is the user of an authority's userinfo (before its last '@').
+func parseUser(info string) Userinfo fails bad {
+	for i in 0..len(info) {
+		let c = info[i]
+		let plain = c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9'
+		if !plain && strings.IndexByte("-._:~!$&'()*+,;=%@", c) < 0 {
+			return bad{Reason: "net/url: invalid userinfo"}
+		}
+	}
+	let colon = strings.IndexByte(info, ':')
+	if colon < 0 {
+		return Userinfo{Username: try unescape(info, userMode), Password: "", HasPassword: false}
+	}
+	let name = try unescape(info[0:colon], userMode)
+	Userinfo{Username: name, Password: try unescape(info[colon+1:len(info)], userMode), HasPassword: true}
+}
+
+// validPort is Go's validOptionalPort: "" or ':' then digits.
+func validPort(port string) bool {
+	if port == "" {
+		return true
+	}
+	if port[0] != ':' {
+		return false
+	}
+	for i in 1..len(port) {
+		if port[i] < '0' || port[i] > '9' {
+			return false
+		}
+	}
+	true
+}
+
+// parseHost is Go's parseHost: a bracketed IPv6 literal, with an
+// optional zone and port, or a name with an optional port, unescaped.
+func parseHost(scheme string, host string) string fails bad {
+	let open = strings.LastIndex(host, "[")
+	if open > 0 {
+		return bad{Reason: "invalid IP-literal"}
+	}
+	if open == 0 {
+		let close = strings.LastIndex(host, "]")
+		if close < 0 {
+			return bad{Reason: "missing ']' in host"}
+		}
+		let colonPort = host[close+1:len(host)]
+		if !validPort(colonPort) {
+			return bad{Reason: "invalid port " + strconv.Quote(colonPort) + " after host"}
+		}
+		let port = try unescape(colonPort, hostMode)
+		let name = host[1:close]
+		let z = strings.Index(name, "%25")
+		let mut literal = ""
+		if z >= 0 {
+			let left = try unescape(name[0:z], hostMode)
+			literal = left + try unescape(name[z:len(name)], zoneMode)
+		} else {
+			literal = try unescape(name, hostMode)
+		}
+		if try addrKind(literal) == 4 {
+			return bad{Reason: "invalid IP-literal"}
+		}
+		return "[" + literal + "]" + port
+	}
+	let first = strings.IndexByte(host, ':')
+	if first >= 0 {
+		let last = strings.LastIndex(host, ":")
+		// Go's urlstrictcolons default: an http or https host keeps its
+		// first colon, so "a:1:2" has the port ":1:2", which is refused.
+		let i = if last != first && scheme != "http" && scheme != "https" { last } else { first }
+		let colonPort = host[i:len(host)]
+		if !validPort(colonPort) {
+			return bad{Reason: "invalid port " + strconv.Quote(colonPort) + " after host"}
+		}
+	}
+	try unescape(host, hostMode)
+}
+
+// addrText is the text of Go's netip parse error for addr, behind url's
+// "invalid host: ".
+func addrText(addr string, msg string, at string) string {
+	let head = "invalid host: ParseAddr(" + strconv.Quote(addr) + "): " + msg
+	if at == "" { head } else { head + " (at " + strconv.Quote(at) + ")" }
+}
+
+// addrKind is 4 or 6 for an address netip.ParseAddr reads, or its error.
+func addrKind(s string) int fails bad {
+	for i in 0..len(s) {
+		let c = s[i]
+		if c == '.' {
+			try ipv4Fields(s, 0, len(s))
+			return 4
+		}
+		if c == ':' {
+			try ipv6(s)
+			return 6
+		}
+		if c == '%' {
+			return bad{Reason: addrText(s, "missing IPv6 address", "")}
+		}
+	}
+	bad{Reason: addrText(s, "unable to parse IP", "")}
+}
+
+// ipv4Fields is netip's parseIPv4Fields over addr[off:end]: four decimal
+// octets with no leading zero.
+func ipv4Fields(addr string, off int, end int) fails bad {
+	let s = addr[off:end]
+	let mut val = 0
+	let mut pos = 0
+	let mut digits = 0
+	for i in 0..len(s) {
+		let c = s[i]
+		if c >= '0' && c <= '9' {
+			if digits == 1 && val == 0 {
+				return bad{Reason: addrText(addr, "IPv4 field has octet with leading zero", "")}
+			}
+			val = val*10 + int(c-'0')
+			digits = digits + 1
+			if val > 255 {
+				return bad{Reason: addrText(addr, "IPv4 field has value >255", "")}
+			}
+		} else if c == '.' {
+			if i == 0 || i == len(s)-1 || s[i-1] == '.' {
+				return bad{Reason: addrText(addr, "IPv4 field must have at least one digit", s[i:len(s)])}
+			}
+			if pos == 3 {
+				return bad{Reason: addrText(addr, "IPv4 address too long", "")}
+			}
+			pos = pos + 1
+			val = 0
+			digits = 0
+		} else {
+			return bad{Reason: addrText(addr, "unexpected character", s[i:len(s)])}
+		}
+	}
+	if pos < 3 {
+		return bad{Reason: addrText(addr, "IPv4 address too short", "")}
+	}
+}
+
+// hexValue is a hex digit's value, -1 for another byte.
+func hexValue(c byte) int {
+	if c >= '0' && c <= '9' {
+		return int(c - '0')
+	}
+	if c >= 'a' && c <= 'f' {
+		return int(c-'a') + 10
+	}
+	if c >= 'A' && c <= 'F' {
+		return int(c-'A') + 10
+	}
+	-1
+}
+
+// ipv6 is netip's parseIPv6: eight groups of up to four hex digits, one
+// "::" for a run of zero groups, an IPv4 address in the last two, and a
+// zone after '%'.
+func ipv6(addr string) fails bad {
+	let mut s = addr
+	let mut zone = ""
+	let pc = strings.IndexByte(s, '%')
+	if pc >= 0 {
+		zone = s[pc+1:len(s)]
+		s = s[0:pc]
+		if zone == "" {
+			return bad{Reason: addrText(addr, "zone must be a non-empty string", "")}
+		}
+	}
+	let mut ellipsis = -1
+	if len(s) >= 2 && s[0] == ':' && s[1] == ':' {
+		ellipsis = 0
+		s = s[2:len(s)]
+		if len(s) == 0 {
+			return
+		}
+	}
+	let mut i = 0
+	let mut done = false
+	for i < 16 && !done {
+		let mut off = 0
+		let mut acc = 0
+		let mut more = true
+		for off < len(s) && more {
+			let d = hexValue(s[off])
+			if d < 0 {
+				more = false
+			} else {
+				acc = acc*16 + d
+				if off > 3 {
+					return bad{Reason: addrText(addr, "each group must have 4 or less digits", s)}
+				}
+				if acc > 65535 {
+					return bad{Reason: addrText(addr, "IPv6 field has value >=2^16", s)}
+				}
+				off = off + 1
+			}
+		}
+		if off == 0 {
+			return bad{Reason: addrText(addr, "each colon-separated field must have at least one digit", s)}
+		}
+		if off < len(s) && s[off] == '.' {
+			if ellipsis < 0 && i != 12 {
+				return bad{Reason: addrText(addr, "embedded IPv4 address must replace the final 2 fields of the address", s)}
+			}
+			if i+4 > 16 {
+				return bad{Reason: addrText(addr, "too many hex fields to fit an embedded IPv4 at the end of the address", s)}
+			}
+			let end = if len(zone) > 0 { len(addr) - len(zone) - 1 } else { len(addr) }
+			try ipv4Fields(addr, end-len(s), end)
+			s = ""
+			i = i + 4
+			done = true
+		} else {
+			i = i + 2
+			s = s[off:len(s)]
+			if len(s) == 0 {
+				done = true
+			} else {
+				if s[0] != ':' {
+					return bad{Reason: addrText(addr, "unexpected character, want colon", s)}
+				}
+				if len(s) == 1 {
+					return bad{Reason: addrText(addr, "colon must be followed by more characters", s)}
+				}
+				s = s[1:len(s)]
+				if s[0] == ':' {
+					if ellipsis >= 0 {
+						return bad{Reason: addrText(addr, "multiple :: in address", s)}
+					}
+					ellipsis = i
+					s = s[1:len(s)]
+					if len(s) == 0 {
+						done = true
+					}
+				}
+			}
+		}
+	}
+	if len(s) != 0 {
+		return bad{Reason: addrText(addr, "trailing garbage after address", s)}
+	}
+	if i < 16 && ellipsis < 0 {
+		return bad{Reason: addrText(addr, "address string too short", "")}
+	}
+	if i >= 16 && ellipsis >= 0 {
+		return bad{Reason: addrText(addr, "the :: must expand to at least one field of zeros", "")}
+	}
+}
+
+// validEncoded is Go's validEncoded: s holds only bytes that need no
+// escape in mode, the sub-delimiters, brackets and '%'.
+func validEncoded(s string, mode int) bool {
+	for i in 0..len(s) {
+		let c = s[i]
+		if strings.IndexByte("!$&'()*+,;=:@[]%", c) < 0 && shouldEscape(c, mode) {
+			return false
+		}
+	}
+	true
+}
+
+// unescaped is unescape(s, mode), or None when it refuses s.
+func unescaped(s string, mode int) Option[string] {
+	let v = unescape(s, mode) catch {
+	case bad:
+		return None
+	}
+	Some{v}
+}
+
+// EscapedPath is u's path as Text writes it (Go's URL.EscapedPath): its
+// RawPath when that is a valid spelling of Path, else Path escaped.
+func EscapedPath(u URL) string {
+	if u.RawPath != "" && validEncoded(u.RawPath, pathMode) && unescaped(u.RawPath, pathMode) == (Some{u.Path}) {
+		return u.RawPath
+	}
+	if u.Path == "*" {
+		return "*"
+	}
+	escape(u.Path, pathMode)
+}
+
+// EscapedFragment is u's fragment as Text writes it (Go's
+// URL.EscapedFragment).
+func EscapedFragment(u URL) string {
+	if u.RawFragment != "" && validEncoded(u.RawFragment, fragmentMode) && unescaped(u.RawFragment, fragmentMode) == (Some{u.Fragment}) {
+		return u.RawFragment
+	}
+	escape(u.Fragment, fragmentMode)
+}
+
+// userText is a user as an authority writes it.
+func userText(x Userinfo) string {
+	let name = escape(x.Username, userMode)
+	if x.HasPassword { name + ":" + escape(x.Password, userMode) } else { name }
+}
+
+// Text is u as Go's URL.String writes it, in one allocation.
+func Text(u URL) string {
+	let has = u.User != None
+	let path0 = EscapedPath(u)
+	let mut b = strings.NewBuilder()
+	b.Grow(len(u.Scheme) + len(u.Opaque) + len(u.Host) + len(path0) + len(u.RawQuery) + len(u.Fragment) + len(u.RawFragment) + 16)
+	if u.Scheme != "" {
+		b.WriteString(u.Scheme)
+		b.WriteByte(':')
+	}
+	if u.Opaque != "" {
+		b.WriteString(u.Opaque)
+	} else {
+		if (u.Scheme != "" || u.Host != "" || has) && !(u.OmitHost && u.Host == "" && !has) {
+			if u.Host != "" || u.Path != "" || has {
+				b.WriteString("//")
+			}
+			match u.User {
+			case Some[Userinfo] as x:
+				b.WriteString(userText(x.Value))
+				b.WriteByte('@')
+			case None:
+			}
+			if u.Host != "" {
+				b.WriteString(escape(u.Host, hostMode))
+			}
+		}
+		let mut path = path0
+		if u.OmitHost && u.Host == "" && !has && strings.HasPrefix(path, "//") {
+			b.WriteString("%2F")
+			path = path[1:len(path)]
+		}
+		if path != "" && path[0] != '/' && u.Host != "" {
+			b.WriteByte('/')
+		}
+		if b.Len() == 0 {
+			let slash = strings.IndexByte(path, '/')
+			let first = if slash < 0 { path } else { path[0:slash] }
+			if strings.IndexByte(first, ':') >= 0 {
+				b.WriteString("./")
+			}
+		}
+		b.WriteString(path)
+	}
+	if u.ForceQuery || u.RawQuery != "" {
+		b.WriteByte('?')
+		b.WriteString(u.RawQuery)
+	}
+	if u.Fragment != "" {
+		b.WriteByte('#')
+		b.WriteString(EscapedFragment(u))
+	}
+	b.String()
+}
+
+// Hostname is u's host without its port and brackets (Go's
+// URL.Hostname).
+func Hostname(u URL) string {
+	let c = strings.LastIndex(u.Host, ":")
+	let host = if c >= 0 && validPort(u.Host[c:len(u.Host)]) { u.Host[0:c] } else { u.Host }
+	if strings.HasPrefix(host, "[") && strings.HasSuffix(host, "]") { host[1:len(host)-1] } else { host }
+}
+
+// Port is u's port without its colon, "" when it has none (Go's
+// URL.Port).
+func Port(u URL) string {
+	let c = strings.LastIndex(u.Host, ":")
+	if c >= 0 && validPort(u.Host[c:len(u.Host)]) { u.Host[c+1:len(u.Host)] } else { "" }
+}
+
+// withPath is Go's setPath(p) on u, which a resolution ignores the
+// failure of: u unchanged when p has a bad escape.
+func withPath(u URL, p string) URL {
+	match unescaped(p, pathMode) {
+	case Some[string] as path:
+		URL{..u, Path: path.Value, RawPath: if escape(path.Value, pathMode) == p { "" } else { p }}
+	case None:
+		u
+	}
+}
+
+// resolvePath is Go's resolvePath: ref against base's directory, with
+// each "." and ".." segment removed (RFC 3986 5.2).
+func resolvePath(base string, ref string) string {
+	let full = if ref == "" { base } else if ref[0] != '/' { base[0:strings.LastIndex(base, "/")+1] + ref } else { ref }
+	if full == "" {
+		return ""
+	}
+	let mut dst = []byte{'/'}
+	let mut elem = ""
+	let mut remaining = full
+	let mut found = true
+	let mut first = true
+	for found {
+		let k = strings.IndexByte(remaining, '/')
+		if k < 0 {
+			elem = remaining
+			remaining = ""
+			found = false
+		} else {
+			elem = remaining[0:k]
+			remaining = remaining[k+1:len(remaining)]
+		}
+		if elem == "." {
+			first = false
+		} else if elem == ".." {
+			let mut j = len(dst) - 1
+			for j >= 1 && dst[j] != '/' {
+				j = j - 1
+			}
+			dst = dst[0:if j >= 1 { j } else { 1 }]
+			first = len(dst) == 1
+		} else {
+			if !first {
+				dst = dst.Append('/')
+			}
+			for i in 0..len(elem) {
+				dst = dst.Append(elem[i])
+			}
+			first = false
+		}
+	}
+	if elem == "." || elem == ".." {
+		dst = dst.Append('/')
+	}
+	if len(dst) > 1 && dst[1] == '/' {
+		return utf8.String(dst[1:len(dst)])
+	}
+	utf8.String(dst)
+}
+
+// Resolve is ref resolved against base, as Go's URL.ResolveReference
+// (RFC 3986 5.2): a ref with a scheme or an authority is itself, its
+// dots removed; otherwise it takes base's scheme and authority, base's
+// query when it has no path or query, and its path against base's.
+func Resolve(base URL, ref URL) URL {
+	let url = if ref.Scheme == "" { URL{..ref, Scheme: base.Scheme} } else { ref }
+	if ref.Scheme != "" || ref.Host != "" || ref.User != None {
+		return withPath(url, resolvePath(EscapedPath(ref), ""))
+	}
+	if ref.Opaque != "" {
+		return URL{..url, User: None, Host: "", Path: ""}
+	}
+	let mut next = url
+	if ref.Path == "" && !ref.ForceQuery && ref.RawQuery == "" {
+		next = URL{..next, RawQuery: base.RawQuery}
+		if ref.Fragment == "" {
+			next = URL{..next, Fragment: base.Fragment, RawFragment: base.RawFragment}
+		}
+	}
+	if ref.Path == "" && base.Opaque != "" {
+		return URL{..next, Opaque: base.Opaque, User: None, Host: "", Path: ""}
+	}
+	withPath(URL{..next, Host: base.Host, User: base.User}, resolvePath(EscapedPath(base), EscapedPath(ref)))
+}
+
+// Pair is one name and value of a query, both unescaped.
+type Pair { Name string, Value string }
+
+// ParseQuery is the pairs of a raw query, in the order the text gives
+// them, read as Go's url.ParseQuery reads them: pairs split at '&', name
+// and value at the first '=', each QueryUnescape'd. A pair that holds a
+// ';' or has a bad escape is dropped, as Go drops it from its map, and an
+// empty pair is skipped. A query of more than 10000 pairs is none, as Go
+// refuses it.
+func ParseQuery(raw string) []Pair {
+	let mut out = []Pair{}
+	if strings.Count(raw, "&")+1 > 10000 {
+		return out
+	}
+	let mut rest = raw
+	for rest != "" {
+		let amp = strings.IndexByte(rest, '&')
+		let key = if amp < 0 { rest } else { rest[0:amp] }
+		rest = if amp < 0 { "" } else { rest[amp+1:len(rest)] }
+		if key == "" || strings.IndexByte(key, ';') >= 0 {
+			continue
+		}
+		let eq = strings.IndexByte(key, '=')
+		let name = unescaped(if eq < 0 { key } else { key[0:eq] }, queryMode)
+		let value = unescaped(if eq < 0 { "" } else { key[eq+1:len(key)] }, queryMode)
+		match name {
+		case Some[string] as n:
+			match value {
+			case Some[string] as v:
+				out = out.Append(Pair{Name: n.Value, Value: v.Value})
+			case None:
+			}
+		case None:
+		}
+	}
+	out
+}
+
+// EncodeQuery is pairs as a raw query, in their order: name=value joined
+// by '&', each QueryEscape'd. ParseQuery reads it back as the same pairs.
+func EncodeQuery(pairs []Pair) string {
+	let mut b = strings.NewBuilder()
+	for i, p in pairs {
+		if i > 0 {
+			b.WriteByte('&')
+		}
+		b.WriteString(escape(p.Name, queryMode))
+		b.WriteByte('=')
+		b.WriteString(escape(p.Value, queryMode))
+	}
+	b.String()
+}
+
+// QueryRoundTrips: a query EncodeQuery writes parses back as its pairs,
+// in order, an empty name and value too (written "=").
+law QueryRoundTrips(names []string, values []string) {
+	let mut pairs = []Pair{}
+	for i, n in names {
+		pairs = pairs.Append(Pair{Name: n, Value: if i < len(values) { values[i] } else { "" }})
+	}
+	ParseQuery(EncodeQuery(pairs)) == pairs
+}

@@ -1,0 +1,39 @@
+// The focus order: Tab and Shift+Tab move the focus through the focusable
+// nodes in tree order, wrapping.
+
+// Cycle is the index the focus moves to among n focusable nodes from at
+// (an index, or less than 0 for none): the next with Tab, the one before
+// with Shift+Tab (back). From none, Tab takes the first and Shift+Tab the
+// last; with none focusable it is -1.
+func Cycle(n int, at int, back bool) int {
+	if n <= 0 {
+		return -1
+	}
+	if at < 0 || at >= n {
+		return if back { n - 1 } else { 0 }
+	}
+	if back { (at + n - 1) % n } else { (at + 1) % n }
+}
+
+// TabCyclesAll: n Tabs over n focusable nodes visit each once and come
+// back to where they started; Shift+Tab undoes Tab.
+law TabCyclesAll(count int, start int) {
+	let n = (count%40+40)%40 + 1
+	let s = (start%n + n) % n
+	let mut seen = []bool{}
+	for _ in 0..n {
+		seen = seen.Append(false)
+	}
+	let mut at = s
+	for _ in 0..n {
+		at = Cycle(n, at, false)
+		if seen[at] {
+			return false
+		}
+		seen[at] = true
+		if Cycle(n, at, true) != (at+n-1)%n || Cycle(n, Cycle(n, at, true), false) != at {
+			return false
+		}
+	}
+	at == s && Cycle(n, -1, false) == 0 && Cycle(n, -1, true) == n-1
+}

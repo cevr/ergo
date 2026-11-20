@@ -14,13 +14,14 @@
 // before the first delta) and yielded/agent (budgets and settlement, in
 // llm/agent). docs/spec/stdlib.md, "llm", says which idea came from where.
 
+import jsonschema
 import strings
 import sync
 
 // ToolSpec is a tool the model may call: its name, what it does, and the
-// JSON schema of its arguments as text. (The schema becomes std
-// jsonschema's Schema when that package lands, unit JS0.)
-type ToolSpec { Name string, Description string, Input string }
+// JSON schema of its arguments, checked and with its text written once
+// (jsonschema.Encode), so a provider splices the text into each request.
+type ToolSpec { Name string, Description string, Input jsonschema.Encoded }
 
 // Choice is which tools the model may call in this turn: it decides
 // (Auto), none (NoTools), at least one (AnyTool), or the one named.

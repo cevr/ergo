@@ -1,0 +1,362 @@
+// The game's systems, each a function from the world to the next world,
+// and the two schedules that run them in ritmo's order. A system's
+// signature is its access: no system needs Random or a clock, so none
+// can read one (ritmo's lint rules, checked here by the rows).
+
+import machines
+import rand
+import ritmo/ecs
+
+// Setup spawns the player, the walls and the pickups (ritmo's
+// setupWorldSchedule: SetupWorld, then applyDeferred).
+func Setup(w World) World {
+	let mut q = w.Queue.Append(ecs.Spawn[Draft]{Draft: Start})
+	for d in WallLayout {
+		q = q.Append(ecs.Spawn[Draft]{Draft: d})
+	}
+	for d in PickupLayout {
+		q = q.Append(ecs.Spawn[Draft]{Draft: d})
+	}
+	Apply(World{..w, Queue: q})
+}
+
+// Update is one fixed step on input c (ritmo's simulationSchedule):
+// capture the input, plan and make the player's move, focus and collect
+// a pickup, signal the machines, then apply the queued commands and
+// commit the machines.
+func Update(w World, c Controls) World {
+	let captured = World{..w, Tick: w.Tick + 1, Input: c}
+	Commit(Apply(Signal(Collect(Aim(Move(Plan(captured)))))))
+}
+
+// Plan sets the player's velocity from the input: Speed along an axis,
+// Diagonal along each of two (ritmo's PlanPlayerVelocity).
+func Plan(w World) World {
+	match PlayerOf(w) {
+	case None:
+		w
+	case Some[ecs.Entity] as p:
+		let c = w.Input
+		let along = if c.DX != 0 && c.DY != 0 { Diagonal } else { Speed }
+		World{..w, Vel: w.Vel.Set(p.Value, Vec{X: c.DX * along, Y: c.DY * along})}
+	}
+}
+
+// Move moves the player one step of its velocity, one axis at a time,
+// stopping at each wall it would enter (ritmo's MovePlayer).
+func Move(w World) World {
+	match PlayerOf(w) {
+	case None:
+		w
+	case Some[ecs.Entity] as p:
+		let v = VelocityOf(w, p.Value)
+		if v.X == 0 && v.Y == 0 {
+			return w
+		}
+		let at = PositionOf(w, p.Value)
+		let box = BoxOf(w, p.Value)
+		let walls = WallsOf(w)
+		let x = Across(at, v.X/Hz, box, walls)
+		let y = Along(Vec{X: x, Y: at.Y}, v.Y/Hz, box, walls)
+		World{..w, Pos: w.Pos.Set(p.Value, Vec{X: x, Y: y})}
+	}
+}
+
+// Aim focuses the nearest pickup in its reach, or none (ritmo's
+// UpdateFocusedCollectable). Of two at one distance the first spawned
+// wins.
+func Aim(w World) World {
+	match PlayerOf(w) {
+	case None:
+		w
+	case Some[ecs.Entity] as p:
+		let at = PositionOf(w, p.Value)
+		let mut focus Focus = Nothing
+		let mut best = -1
+		for i, e in w.Pickups.Ents {
+			let it = w.Pickups.Vals[i]
+			let there = PositionOf(w, e)
+			let dx = there.X - at.X
+			let dy = there.Y - at.Y
+			let d2 = dx*dx + dy*dy
+			if d2 > it.Radius*it.Radius || (best >= 0 && d2 >= best) {
+				continue
+			}
+			best = d2
+			focus = Near{E: e, Label: it.Label, Distance: Root(d2) / Unit}
+		}
+		World{..w, Focus: focus}
+	}
+}
+
+// Collect collects the focused pickup when interact went down: it
+// queues the pickup's despawn and counts it (ritmo's
+// CollectFocusedCollectable). A focus on a pickup already gone is only
+// cleared.
+func Collect(w World) World {
+	if !w.Input.Interact {
+		return w
+	}
+	match w.Focus {
+	case Nothing:
+		w
+	case Near as n:
+		if !w.Pickups.Has(n.E) {
+			return World{..w, Focus: Nothing}
+		}
+		World{..w, Queue: w.Queue.Append(ecs.Despawn{E: n.E}), Collected: w.Collected + 1, Focus: Nothing}
+	}
+}
+
+// Signal queues the facing and the gait signals of the player's
+// velocity (ritmo's ResolveFacing and ResolveLocomotion).
+func Signal(w World) World {
+	match PlayerOf(w) {
+	case None:
+		w
+	case Some[ecs.Entity] as p:
+		let v = VelocityOf(w, p.Value)
+		World{..w, TurnQueued: Some[Turn]{Value: TurnOf(v)}, StepQueued: Some[Stride]{Value: StrideOf(v)}}
+	}
+}
+
+// Apply makes the queued commands, in the order they were queued
+// (ritmo's applyDeferred).
+func Apply(w World) World {
+	let mut at = World{..w, Queue: []ecs.Command[Draft]{}}
+	for c in w.Queue {
+		at = match c {
+		case ecs.Spawn[Draft] as s:
+			Spawn(at, s.Draft)
+		case ecs.Despawn as d:
+			Despawn(at, d.E)
+		}
+	}
+	at
+}
+
+// Commit steps each machine on its queued signal (ritmo's
+// applyStateTransitions).
+func Commit(w World) World {
+	let facing = match w.TurnQueued {
+	case Some[Turn] as t:
+		machines.Next(w.Facing, Face(w.Facing, t.Value))
+	case None:
+		w.Facing
+	}
+	let gait = match w.StepQueued {
+	case Some[Stride] as s:
+		machines.Next(w.Gait, Walk(w.Gait, s.Value))
+	case None:
+		w.Gait
+	}
+	World{..w, Facing: facing, Gait: gait, TurnQueued: None, StepQueued: None}
+}
+
+// Block is a wall's box: its centre and size.
+type Block { At Vec, Box Size }
+
+// WallsOf is every wall's box, in spawn order.
+func WallsOf(w World) []Block {
+	let mut out = []Block{}
+	for e in w.Walls.Ents {
+		out = out.Append(Block{At: PositionOf(w, e), Box: BoxOf(w, e)})
+	}
+	out
+}
+
+// Overlaps reports whether two centred boxes overlap; touching edges do
+// not (ritmo's intersects).
+func Overlaps(a Vec, s Size, b Vec, t Size) bool {
+	abs(a.X-b.X)*2 < s.W+t.W && abs(a.Y-b.Y)*2 < s.H+t.H
+}
+
+// Across is the x the box at at reaches moving dx: inside the room, and
+// against the near side of each wall it would enter (ritmo's
+// resolveHorizontalMovement).
+func Across(at Vec, dx int, box Size, walls []Block) int {
+	if dx == 0 {
+		return at.X
+	}
+	let half = box.W / 2
+	let mut x = clamp(at.X+dx, half, WorldWidth-half)
+	for b in walls {
+		if !Overlaps(Vec{X: x, Y: at.Y}, box, b.At, b.Box) {
+			continue
+		}
+		x = if dx > 0 { b.At.X - b.Box.W/2 - half } else { b.At.X + b.Box.W/2 + half }
+	}
+	clamp(x, half, WorldWidth-half)
+}
+
+// Along is Across for y (ritmo's resolveVerticalMovement).
+func Along(at Vec, dy int, box Size, walls []Block) int {
+	if dy == 0 {
+		return at.Y
+	}
+	let half = box.H / 2
+	let mut y = clamp(at.Y+dy, half, WorldHeight-half)
+	for b in walls {
+		if !Overlaps(Vec{X: at.X, Y: y}, box, b.At, b.Box) {
+			continue
+		}
+		y = if dy > 0 { b.At.Y - b.Box.H/2 - half } else { b.At.Y + b.Box.H/2 + half }
+	}
+	clamp(y, half, WorldHeight-half)
+}
+
+func clamp(n int, lo int, hi int) int {
+	if n < lo { lo } else if n > hi { hi } else { n }
+}
+
+// Root is the square root of n rounded down, for n of 0 or more.
+func Root(n int) int {
+	if n < 2 {
+		return n
+	}
+	let mut x = n
+	let mut y = (x + 1) / 2
+	for _ in 0..64 {
+		if y >= x {
+			break
+		}
+		x = y
+		y = (x + n/x) / 2
+	}
+	x
+}
+
+// ritmo's invariants (integration/top-down/invariants.ts) and its fuzzer
+// (fuzz.ts) as laws: each plays 400 ticks of input drawn from a seeded
+// Random and checks every world on the way. ergo test runs each over
+// many seeds and prints a failing seed's replay.
+
+// Fuzz is n ticks of input drawn from Random: a direction on each axis
+// and, one tick in four, interact. An input is held for 1 to 30 ticks,
+// as a person holds a key, so the walk reaches the walls and the
+// pickups.
+func Fuzz(n int) []Controls needs Random {
+	let mut out = []Controls{}
+	for _ in 0..n {
+		if len(out) >= n {
+			break
+		}
+		let c = Controls{DX: Random.IntN(3) - 1, DY: Random.IntN(3) - 1, Interact: Random.IntN(4) == 0}
+		for _ in 0..(1 + Random.IntN(30)) {
+			out = out.Append(c)
+		}
+	}
+	out[0:n]
+}
+
+// Play is the world after each tick of inputs, from the start.
+func Play(inputs []Controls) []World {
+	let mut w = Setup(Empty())
+	let mut out = []World{w}
+	for c in inputs {
+		w = Update(w, c)
+		out = out.Append(w)
+	}
+	out
+}
+
+// Run is the worlds of 400 ticks of fuzzed input from seed.
+func Run(seed int) []World {
+	with context { Random: rand.Seeded(uint64(seed)) } {
+		Play(Fuzz(400))
+	}
+}
+
+// PlayerStaysInTheWorld: the player's box is inside the room after
+// every tick (ritmo's PlayerInsideWorld, which checks the centre).
+law PlayerStaysInTheWorld(seed int) {
+	for w in Run(seed) {
+		match PlayerOf(w) {
+		case None:
+			return false
+		case Some[ecs.Entity] as p:
+			let at = PositionOf(w, p.Value)
+			let half = PlayerSide / 2
+			if at.X < half || at.Y < half || at.X > WorldWidth-half || at.Y > WorldHeight-half {
+				return false
+			}
+		}
+	}
+	true
+}
+
+// NeverInsideAWall: no tick leaves the player's box overlapping a
+// wall's.
+law NeverInsideAWall(seed int) {
+	for w in Run(seed) {
+		match PlayerOf(w) {
+		case None:
+			return false
+		case Some[ecs.Entity] as p:
+			let at = PositionOf(w, p.Value)
+			let box = BoxOf(w, p.Value)
+			for b in WallsOf(w) {
+				if Overlaps(at, box, b.At, b.Box) {
+					return false
+				}
+			}
+		}
+	}
+	true
+}
+
+// CollectedMatchesTheRoom: the count of collected pickups is the
+// pickups gone from the room, never more than there were (ritmo's
+// CollectedAtMostTotal, made exact).
+law CollectedMatchesTheRoom(seed int) {
+	for w in Run(seed) {
+		if w.Collected > w.Total || w.Collected+w.Pickups.Size() != w.Total {
+			return false
+		}
+	}
+	true
+}
+
+// FocusIsInReach: a focused pickup is in the room and within its reach.
+law FocusIsInReach(seed int) {
+	for w in Run(seed) {
+		match w.Focus {
+		case Nothing:
+		case Near as n:
+			if !w.Pickups.Has(n.E) || n.Distance*Unit > Reach {
+				return false
+			}
+		}
+	}
+	true
+}
+
+// MachinesFollowTheWalk: after a tick, the gait walks exactly when the
+// player has a velocity, and a tick that moves along one axis more than
+// the other faces that way.
+law MachinesFollowTheWalk(seed int) {
+	for w in Run(seed) {
+		match PlayerOf(w) {
+		case None:
+		case Some[ecs.Entity] as p:
+			let v = VelocityOf(w, p.Value)
+			let walking = match w.Gait {
+			case Walking:
+				true
+			case Standing:
+				false
+			}
+			if walking != (v.X != 0 || v.Y != 0) {
+				return false
+			}
+			match TurnOf(v) {
+			case Steady:
+			case Turned as t:
+				if t.To != w.Facing {
+					return false
+				}
+			}
+		}
+	}
+	true
+}

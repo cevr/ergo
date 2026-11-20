@@ -43,6 +43,12 @@ func Blocked(p Pos) bool {
 	return ground[p.Y][p.X] == '#'
 }
 
+law BlockedIsRejected(w Walk, m Move) { !Blocked(target(w.At, m)) || rejected(Step(Playing{W: w}, m)) }
+
+func rejected(d Decision[Game, Never]) bool {
+	return Word(d) == "reject"
+}
+
 // Height is the height of the sand of a cell that is not blocked.
 func Height(p Pos) int {
 	return int(ground[p.Y][p.X] - '0')

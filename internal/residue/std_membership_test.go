@@ -575,7 +575,6 @@ var stdPrivilegesBaseline = []string{
 	"internal/sketch/check/durable.go:checker.durableStep",
 	"internal/sketch/check/durable.go:checker.recordDurable",
 	"internal/sketch/check/entry.go:IsStdEvery",
-	"internal/sketch/check/export_user.go:NewUserExport",
 	"internal/sketch/check/lintfacts.go:IsSchedulerSleep",
 	"internal/sketch/check/lintfacts.go:IsTimeoutPackage",
 	"internal/sketch/check/lintfacts.go:ProgramType",
@@ -669,7 +668,7 @@ var stdPrivilegesBaseline = []string{
 	"internal/sketchfront/rewrite.go:FreshStdLedger",
 	"internal/tsproj/http.go:httpFailureStatuses",
 	"internal/tsproj/http.go:httpTables",
-	"internal/tsproj/project.go:stdJSON",
+	"internal/rpcgen/hub.go:StdJSON", // was internal/tsproj/project.go:stdJSON (moved, not new)
 }
 
 // stringConsts are the lowering's package-level constants whose value is

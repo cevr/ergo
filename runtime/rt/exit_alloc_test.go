@@ -13,7 +13,9 @@ import (
 //
 // Mutants it kills (testdata/mutants.json): gx5-exit-builds-cause (the
 // interruption-only exit through the general Cause path) and
-// gx5-live-timer-fresh (a new host timer for each live sleep).
+// gx5-live-timer-fresh (a new host timer for each live sleep), and
+// c5-poll-hook-allocates (the hook bound with WithValue, not in its
+// PollHook).
 func TestQuietExitsAllocateNothing(t *testing.T) {
 	stopped := Root("stopped")
 	stopped.Interrupt()
@@ -38,5 +40,24 @@ func TestQuietExitsAllocateNothing(t *testing.T) {
 	}
 	if sleeps != 0 {
 		t.Fatalf("a live sleep allocates %v times, want 0", sleeps)
+	}
+	// The HTTP engine arms a poll hook for every request and ends it
+	// (HTTP-FAST-c5): a hook armed and ended, and one that a Check runs,
+	// allocate nothing.
+	var h PollHook
+	fired := 0
+	hook := func() { fired++ }
+	polls := testing.AllocsPerRun(100, func() {
+		WhenPolled(running, &h, hook).End()
+		p := WhenPolled(running, &h, hook)
+		running.Check()
+		running.Check()
+		p.End()
+	})
+	if fired != 101 { // AllocsPerRun runs the function once more to warm up
+		t.Fatalf("the Checked hook ran %d times in 101 runs, want once each", fired)
+	}
+	if polls != 0 {
+		t.Fatalf("arming and ending a poll hook allocates %v times, want 0", polls)
 	}
 }
