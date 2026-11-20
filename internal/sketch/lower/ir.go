@@ -120,6 +120,10 @@ type IRReport struct {
 	// for their variant-literal argument in a copy, so the failure is
 	// built in place (INLINE-FAILARG, ir_forms_inline.go).
 	FailArgs int `json:"-"`
+	// FailThrough counts the failures built in place that a copy's try
+	// passes on as they are, not through its error local
+	// (INLINE-FAILARG, ir_forms_failjump.go failThrough).
+	FailThrough int `json:"-"`
 	// CatchTreeDefects counts the full catches with patterns whose tree's
 	// exit panics with the unreachable defect (FAIL-ELIDE-PAT, ir_fail.go).
 	CatchTreeDefects int `json:"-"`
