@@ -644,10 +644,11 @@ type CodecFields_Var struct {
 	F_byValue     *syntax.Expr
 	F_undiagnosed *bool
 	F_refused     *bool
+	F_freshRef    *bool
 }
 
 func CodecFieldsOf_Var(v *Var) CodecFields_Var {
-	return CodecFields_Var{F_id: &v.id, F_used: &v.used, F_param: &v.param, F_pkg: &v.pkg, F_group: &v.group, F_bindRow: &v.bindRow, F_let: &v.let, F_mut: &v.mut, F_reassigned: &v.reassigned, F_byValue: &v.byValue, F_undiagnosed: &v.undiagnosed, F_refused: &v.refused}
+	return CodecFields_Var{F_id: &v.id, F_used: &v.used, F_param: &v.param, F_pkg: &v.pkg, F_group: &v.group, F_bindRow: &v.bindRow, F_let: &v.let, F_mut: &v.mut, F_reassigned: &v.reassigned, F_byValue: &v.byValue, F_undiagnosed: &v.undiagnosed, F_refused: &v.refused, F_freshRef: &v.freshRef}
 }
 
 type CodecFields_argList struct {
