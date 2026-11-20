@@ -144,6 +144,23 @@ func Print(t Value) string {
 	b.String()
 }
 
+// PrintParsesBack: a tree printed as TOML reads back as the tree: for the
+// samples of seed, Tagged(Parse(Print(v))) is Tagged(v). A printer that
+// quotes a key or escapes a byte the parser reads as another, or a parser
+// that puts a member in the wrong table, breaks it.
+law PrintParsesBack(seed int) {
+	for v in Samples(seed) {
+		let back = Parse(Print(v)) catch {
+		case Malformed, Duplicate, Clash:
+			return false
+		}
+		if Tagged(back) != Tagged(v) {
+			return false
+		}
+	}
+	true
+}
+
 // sections says whether v prints as sections of its own: a table, or a
 // non-empty array whose items are all tables.
 func sections(v Value) bool {

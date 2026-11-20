@@ -10,7 +10,7 @@ func Compact(t Tree, id dense.ID[Node]) string {
 	b.String()
 }
 
-// Indent is the text of the value at id in jq's layout, as tree.Indent
+// Indent is the text of the value at id in the indented layout, as tree.Indent
 // prints the same value.
 func Indent(t Tree, id dense.ID[Node]) string {
 	let mut b = strings.NewBuilder()

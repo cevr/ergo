@@ -3,7 +3,7 @@
 // changed cells in a row after one cursor move, each pen change once, and
 // it is one synchronized update: the terminal shows none of it until all
 // of it has come (the synchronized-output mode, DEC private mode 2026,
-// which Ghostty, kitty, WezTerm, foot and iTerm2 keep; a terminal without
+// which most current terminals keep; a terminal without
 // it ignores the marks and draws as the bytes come).
 
 import strconv

@@ -7,6 +7,7 @@
 
 import rand
 import strings
+import mdhtml/markdown
 
 let words = []string{"alpha", "beta", "gamma", "delta", "parse", "block", "inline", "Ergo", "Go", "snow ☃", "café", "naïve", "x_y_z", "2*3*4", "a&b", "<tag>"}
 
@@ -19,6 +20,20 @@ func Document(seed int, n int) string {
 		}
 		b.String()
 	}
+}
+
+// DocumentHasEveryBlock: the workload of every seed, read, holds each
+// kind of block and span the reader makes, so the receipts time the whole
+// grammar and not one path of it.
+law DocumentHasEveryBlock(seed int) {
+	let out = with context { markdown.Highlighter: markdown.NoColor } {
+		markdown.Render(Document(seed, 40), markdown.Unsafe)
+	}
+	let mut every = true
+	for tag in []string{"<h2>", "<p>", "<ul>", "<ol>", "<li>", "<blockquote>", "<pre><code class=\"language-go\">", "<pre><code>", "<hr />", "<em>", "<strong>", "<code>", "<a href=\"https://example.com/ref/", "<a href=\"https://example.com/auto/", "<img ", "<br />", "<div class=\"box\">", "<span class=\"s\">", "©"} {
+		every = every && strings.Contains(out, tag)
+	}
+	every
 }
 
 func pick(xs []string) string needs Random { xs[Random.IntN(len(xs))] }

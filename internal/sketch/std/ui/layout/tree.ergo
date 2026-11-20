@@ -33,6 +33,7 @@
 // arena.Stale.
 
 import arena
+import strings
 
 // Length is a size along one axis: automatic (from the content or the
 // container), a number of DIPs, or a percentage of the container's size,
@@ -57,6 +58,73 @@ type Position = Flow{} | Absolute{Left float32, Top float32}
 // size, which makes it a leaf as large as Measure says (its children, if
 // it has any, are not laid out).
 type Content = Boxes{} | Text{Value string, Size float32}
+
+law TextTakesItsMeasure(word string, copies int, size int, width int) {
+	let text = strings.Repeat(word+" ", (copies%12+12)%12+1)
+	let s = float32(size%32 + 32)
+	let w = float32(width%500 + 500)
+	let mut t = New()
+	let root = Add(&t, Default())
+	let stretched = Add(&t, textStyle(text, s))
+	let mut halfStyle = textStyle(text, s)
+	halfStyle.Width = Px{Value: w / 2}
+	let half = Add(&t, halfStyle)
+	let mut rowStyle = Default()
+	rowStyle.Direction = Row
+	rowStyle.Items = Start
+	let row = Add(&t, rowStyle)
+	let fitted = Add(&t, textStyle(text, s))
+	let ws = lawMeasure.Widths(text, s)
+	let fit = fmax(ws.Min, fmin(ws.Max, w))
+	with context { Measure: lawMeasure } {
+		Append(&t, root, stretched) catch {
+		case arena.Stale:
+			return false
+		}
+		Append(&t, root, half) catch {
+		case arena.Stale:
+			return false
+		}
+		Append(&t, root, row) catch {
+		case arena.Stale:
+			return false
+		}
+		Append(&t, row, fitted) catch {
+		case arena.Stale:
+			return false
+		}
+		Layout(&t, root, w, inf) catch {
+		case arena.Stale:
+			return false
+		}
+	}
+	let a = BoxOf(&t, stretched) catch {
+	case arena.Stale:
+		return false
+	}
+	let b = BoxOf(&t, fitted) catch {
+	case arena.Stale:
+		return false
+	}
+	let c = BoxOf(&t, half) catch {
+	case arena.Stale:
+		return false
+	}
+	a.W == w && a.H == lawMeasure.Height(text, s, w) && c.W == w/2 && c.H == lawMeasure.Height(text, s, w/2) && near(b.W, fit) && near(b.H, lawMeasure.Height(text, s, b.W))
+}
+
+// lawMeasure is the Measure of the laws.
+let lawMeasure = Monospace
+
+// textStyle is the style of a leaf of text at size.
+func textStyle(text string, size float32) Style {
+	let mut s = Default()
+	s.Content = Text{Value: text, Size: size}
+	s
+}
+
+// near is whether a and b are within 0.01 of each other.
+func near(a float32, b float32) bool { a-b <= 0.01 && b-a <= 0.01 }
 
 // Style is how one box lays out. Edges ([4]float32) are top, right,
 // bottom and left.
@@ -160,6 +228,37 @@ func New() Tree {
 		heights:  Map[heightKey, float32]{},
 		measured: 0,
 	}
+}
+
+law MeasuresOnceAtAWidth(text string, width int) {
+	let w = float32(width%500 + 500)
+	let mut t = New()
+	let root = Add(&t, Default())
+	let a = Add(&t, textStyle(text, 16))
+	let b = Add(&t, textStyle(text, 16))
+	with context { Measure: lawMeasure } {
+		Append(&t, root, a) catch {
+		case arena.Stale:
+			return false
+		}
+		Append(&t, root, b) catch {
+		case arena.Stale:
+			return false
+		}
+		Layout(&t, root, w, inf) catch {
+		case arena.Stale:
+			return false
+		}
+		SetStyle(&t, root, Default()) catch {
+		case arena.Stale:
+			return false
+		}
+		Layout(&t, root, w, inf) catch {
+		case arena.Stale:
+			return false
+		}
+	}
+	Measured(t) == 1
 }
 
 // Add makes a node of style s, with no parent and no children.

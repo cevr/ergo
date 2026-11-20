@@ -17,6 +17,13 @@ type Program { insts []Inst, start int }
 // Len is the number of instructions of p.
 func Len(p Program) int { len(p.insts) }
 
+// ProgramIsLinear: a program has at most one instruction per node of
+// its pattern, and Accept.
+law ProgramIsLinear(seed int) {
+	let p = syntax.Sample(seed)
+	Build(p).Len() <= syntax.Size(p)+1
+}
+
 // builder is a program while it is compiled.
 type builder { insts []Inst }
 

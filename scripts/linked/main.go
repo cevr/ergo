@@ -74,6 +74,7 @@ func run() error {
 }
 
 func generate(root string) error {
+	all := map[string][]byte{}
 	for _, p := range linked.Packages {
 		files, err := linked.Generate(root, p)
 		if err != nil {
@@ -87,9 +88,20 @@ func generate(root string) error {
 			if err := os.WriteFile(full, files[rel], 0o644); err != nil {
 				return err
 			}
+			all[rel] = files[rel]
 			fmt.Println(rel)
 		}
 	}
+	// The stamp last: its inputs digest covers the generated command
+	// lines just written into the modules.
+	inputs, err := linked.InputsDigest(root)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(root, filepath.FromSlash(linked.StampFile)), linked.Stamp(inputs, all), 0o644); err != nil {
+		return err
+	}
+	fmt.Println(linked.StampFile)
 	return nil
 }
 

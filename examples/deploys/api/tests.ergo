@@ -68,8 +68,8 @@ test EveryRequestHasAStatusHolds(m int, p int, b int, body string) {
 	let store = memory.NewTable()
 	// Create one deploy first, so the paths of dep-1 reach a deploy.
 	let _ = with context { deploys.Store: store } { call("POST", "/deploys", pick(bodies, 3)) }
-	assert EveryRequestHasAStatusHolds(store, pick(Methods, m), pick(paths, p), pick(bodies, b))
-	assert EveryRequestHasAStatusHolds(store, pick(Methods, m), pick(paths, p), body)
+	assert everyRequestHasAStatusHolds(store, pick(Methods, m), pick(paths, p), pick(bodies, b))
+	assert everyRequestHasAStatusHolds(store, pick(Methods, m), pick(paths, p), body)
 }
 
 // A generated draft is mostly invalid (an empty service, replicas out
@@ -81,6 +81,6 @@ test CreateThenShowHoldsForValidDrafts(d deploys.Draft, n int) {
 	}
 	let valid = deploys.Draft{Service: "c" + d.Service, Units: units}
 	let store = memory.NewTable()
-	assert CreateThenShowHolds(store, valid)
+	assert createThenShowHolds(store, valid)
 	assert with context { deploys.Store: store } { deploys.Store.Count() } == 1
 }

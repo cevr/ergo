@@ -3,9 +3,9 @@
 A JSON parser written in Ergo: RFC 8259 text to a tree of values, and the tree back to text. A text that is not JSON fails at its first byte that is not, with the line and column.
 
 ```sh
-jsonparse fmt FILE            # FILE in jq's layout
+jsonparse fmt FILE            # FILE indented
 jsonparse min FILE            # FILE on one line
-jsonparse get POINTER FILE    # the value at POINTER (RFC 6901), in jq's layout
+jsonparse get POINTER FILE    # the value at POINTER (RFC 6901), indented
 jsonparse check FILE          # how many values FILE holds and how deep they nest
 jsonparse gen -seed S -n N    # write the workload: an array of N records for seed S
 ```
@@ -23,7 +23,7 @@ jsonparse: malformed.json:3:19: expected a value, found ","
 - **A number keeps its text.** `1.0e0` prints as `1.0e0` and `123456789012345678901234567890` loses no digit; nothing converts it to a float.
 - **A string is its decoded bytes**, decoded as encoding/json decodes them: a byte that is not UTF-8 reads as U+FFFD, and so does a `\u` escape of a surrogate that is not half of a pair. A string with no escape and only ASCII is a slice of the text, not a copy.
 - **A key may repeat.** An object keeps its members in order, both of a repeated key's; a pointer names the last, as a reader that keeps one value per key does.
-- **Printing** escapes `"`, `\`, the control bytes and DEL (`\n`, `\t`, `\r`, `\b`, `\f`, else `\u00XX`) and writes every other byte as it is. `fmt` is jq's layout: two spaces per level, `[]` and `{}` for empty containers.
+- **Printing** escapes `"`, `\`, the control bytes and DEL (`\n`, `\t`, `\r`, `\b`, `\f`, else `\u00XX`) and writes every other byte as it is. `fmt` indents two spaces per level, a space after each colon, `[]` and `{}` for empty containers.
 - **Failures** are `jsonparse: FILE:LINE:COL: reason`, status 1; the column counts bytes. A usage failure is status 2.
 
 ## What it shows

@@ -1,6 +1,7 @@
 import strconv
 import strings
 import taskscli/tasks
+import cells text
 import utf8
 
 // Line is the text line of t: its number, priority, state and title in
@@ -54,5 +55,29 @@ func Quote(s string) string {
 	out + "\""
 }
 
-// pad is text with spaces after it to width, and one space at least.
-func pad(text string, width int) string { strings.PadRight(text, width-1, ' ') + " " }
+// QuoteIsOneJSONString: a quoted title holds no control byte and no
+// unescaped quote, so it is one JSON string on one line. Each text is
+// checked as it is and with a quote, a backslash, a line feed and a tab
+// after it, so every case meets each escape.
+law QuoteIsOneJSONString(s string) { oneJSONString(Quote(s)) && oneJSONString(Quote(s+"\"\\\n\t")) }
+
+// oneJSONString reports whether q is one JSON string: quoted, with no
+// control byte and no unescaped quote inside.
+func oneJSONString(q string) bool {
+	if len(q) < 2 || q[0] != '"' || q[len(q)-1] != '"' {
+		return false
+	}
+	let mut escaped = false
+	for i in 1..len(q)-1 {
+		let c = q[i]
+		if c < 32 || (c == '"' && !escaped) {
+			return false
+		}
+		escaped = !escaped && c == '\\'
+	}
+	!escaped
+}
+
+// pad is s with spaces after it to width terminal cells, and one space at
+// least: a wide title or state keeps the columns aligned (std text.Cells).
+func pad(s string, width int) string { cells.Pad(s, width-1) + " " }

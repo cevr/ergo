@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"ergo.local/prototype/internal/sketch/check"
+	"ergo.local/prototype/internal/sketch/check/snapshot"
 	"ergo.local/prototype/internal/sketch/fingerprint"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
@@ -16,7 +17,7 @@ import (
 // taken when its files' bytes, its environment and the interface
 // fingerprints of its imports are what they were: its check would be the
 // same. Its export segment is then decoded against the current check of
-// its imports, whose objects it names by object path (check.UserExport),
+// its imports, whose objects it names by object path (snapshot.UserExport),
 // so an importer is reused while an import it reaches is checked again
 // with an unchanged interface.
 //
@@ -31,7 +32,7 @@ import (
 // positions move to a side table (plan §5.3).
 type CheckCache struct {
 	mu      sync.Mutex
-	u       *check.UserExport
+	u       *snapshot.UserExport
 	entries map[string]cacheEntry // by key
 }
 
@@ -119,7 +120,7 @@ func (c *CheckCache) store(l *loader, p *loadedPackage, key string, pkg *check.P
 		return // the export does not carry a derive record
 	}
 	if c.u == nil {
-		u, err := check.NewUserExport(l)
+		u, err := snapshot.NewUserExport(l)
 		if err != nil {
 			return
 		}

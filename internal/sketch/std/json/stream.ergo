@@ -128,6 +128,12 @@ func NewSequenceStream(src io.Source, maxBytes int, maxDepth int) Stream { newSt
 // cut by its edge, never the text (ElementsHoldOneWindow).
 func Window(r Stream) int { r.st.Get().rare.peak }
 
+// ElementsHoldOneWindow: reading a sequence of n values from chunks of
+// one size holds at most that size and the token cut by its edge (no
+// longer than one value), however many values the text holds (the growth
+// guard: the window counts the bytes the Stream keeps).
+law ElementsHoldOneWindow(v up, n int, size int) { holdsOneWindow(v, n, size) }
+
 // broke is whether r's text broke, and sequence whether r reads a
 // sequence: read with Modify, not Get, since a Get marks the state
 // shared and the next operation would copy it.
@@ -1404,6 +1410,31 @@ func Skip(r Stream) {
 		}
 		refill(r)
 	}
+}
+
+// StreamSkipKeepsPlace: Skip passes one element of a list, wherever the
+// chunk edges fall in it, so a shape failure after the skipped elements
+// names the element it is at.
+law StreamSkipKeepsPlace(vs []up, cuts []int) { skipKeepsPlace(vs, cuts) }
+
+func skipKeepsPlace(vs []up, cuts []int) bool {
+	let mut text = "["
+	for v in vs {
+		text = text + Encode(Codec[up]{MaxBytes: 0, MaxDepth: 0}, v) + ","
+	}
+	let r = NewStream(chunks(text+"true]", cuts), 0, 0)
+	r.BeginList() catch {
+	case _:
+		return false
+	}
+	for _ in vs {
+		r.Skip()
+	}
+	let _ = r.Int() catch {
+	case WireWrongKind as w:
+		return w.Path == "[" + strconv.Itoa(len(vs)) + "]"
+	}
+	false
 }
 
 func End(r Stream) {

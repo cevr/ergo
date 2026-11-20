@@ -1,0 +1,199 @@
+import machines
+import strings
+
+// Lookup is the state: the zip code typed so far, and what the panel
+// shows. The draft is not a mode, so it is a field beside the panel.
+type Lookup { Draft string, Panel Panel }
+
+// EditOnlyChangesTheDraft: an edit in any state changes the draft and
+// nothing else, and keeps the entry (Stay), so a fetch under way is not
+// restarted by typing.
+law EditOnlyChangesTheDraft(l Lookup, text string) {
+	Step(l, Edited{Text: text}) == Stay[Lookup]{Next: Lookup{..l, Draft: text}}
+}
+
+// Panel is what the lookup shows: nothing yet, a fetch of Zip under way,
+// the report of the last ask, or why the last ask has no report.
+type Panel = Blank{} | Loading{Zip string} | Ready{Report Report} | Failed{Why Why}
+
+// Why is the reason a panel shows no report: the draft held no zip, the
+// forecast knows no place for it, or the forecast could not answer.
+type Why = NoZip{} | NotFound | Unavailable
+
+// Signal is what the lookup takes: an edit of the draft and a submit from
+// the form, and the answer of Loading's fetch. NotFound and Unavailable
+// are the fetch's failures and also signals, so the work needs no map of
+// its failures.
+type Signal = Edited{Text string} | Submitted{} | Got{Report Report} | NotFound | Unavailable
+
+// Never is the output of a lookup: it never ends and emits nothing, so no
+// value of Never is made.
+type Never {}
+
+// Initial is a lookup with an empty draft and nothing shown.
+func Initial() Lookup { Lookup{Draft: "", Panel: Blank} }
+
+// ReadyShowsLatestAsk: over generated edits, submits and answers, the
+// lookup shows what a model with no machine says: a submit while a fetch
+// is under way changes nothing, a submit of an empty draft fails at once,
+// any other submit asks the trimmed draft, and only the answer to that
+// ask is shown; an answer when no fetch is under way changes nothing.
+// "Resolve" feeds the answer that answer gives for the asked zip, as a
+// story's Command.resolve does: a fold runs no work.
+law ReadyShowsLatestAsk(moves []int, words []int) {
+	let mut l = Initial()
+	let mut draft = ""
+	let mut loading = false
+	let mut zip = ""
+	let mut shown Panel = Blank
+	for i, m in moves {
+		let w = if i < len(words) { words[i] } else { 0 }
+		let s = match pick(m, 4) {
+		case 0:
+			let text = draftOf(w)
+			draft = text
+			Edited{Text: text}
+		case 1:
+			if !loading {
+				if Empty(draft) {
+					shown = Failed{Why: NoZip}
+				} else {
+					loading = true
+					zip = strings.TrimSpace(draft)
+					shown = Loading{Zip: zip}
+				}
+			}
+			Submitted
+		case 2:
+			if loading {
+				loading = false
+				let a = answer(zip)
+				shown = panelOf(a)
+				a
+			} else {
+				answer(draftOf(w))
+			}
+		case _:
+			// An answer that no ask is waiting for. While a fetch is under
+			// way the runner sends only that fetch's answer, so the model
+			// sends none then.
+			if loading {
+				continue
+			}
+			answer(draftOf(w))
+		}
+		l = machines.Next(l, Step(l, s))
+	}
+	l == Lookup{Draft: draft, Panel: shown}
+}
+
+// beverly is the fixture's report.
+let beverly = Report{Zip: "90210", Temperature: 72, Description: "Clear sky", Humidity: 45, WindSpeed: 10, Location: "Beverly Hills", Region: "California"}
+
+// draftOf is a draft from a number: a zip the model knows, one it does
+// not, one with spaces around it, and two with no zip.
+func draftOf(n int) string {
+	let drafts = []string{"90210", "00000", " 10001 ", "", "   "}
+	drafts[pick(n, len(drafts))]
+}
+
+// answer is the model's forecast: what a fetch of zip answers. NotFound
+// and Unavailable are error types, so a value of one is a Signal only
+// through a typed let.
+func answer(zip string) Signal {
+	let v Signal = match zip {
+	case "90210":
+		Got{Report: beverly}
+	case "00000":
+		NotFound{Zip: zip}
+	case _:
+		Unavailable{Reason: "no station"}
+	}
+	v
+}
+
+// panelOf is what the panel shows for an answer.
+func panelOf(s Signal) Panel {
+	match s {
+	case Got as g:
+		Ready{Report: g.Report}
+	case NotFound as m:
+		Failed{Why: m}
+	case Unavailable as u:
+		Failed{Why: u}
+	case Edited, Submitted:
+		Blank
+	}
+}
+
+// Step is the transition. An edit changes the draft and keeps the entry,
+// so a fetch under way goes on. A submit while a fetch is under way is
+// ignored; else a draft with no zip fails at once, with no fetch, and any
+// other draft enters Loading, whose entry fetches the trimmed draft. The
+// fetch's answer shows; an answer outside Loading is ignored (the runner
+// never sends one, and the step does not trust that).
+func Step(l Lookup, s Signal) Decision[Lookup, Never] {
+	match (l.Panel, s) {
+	case (_, Edited as e):
+		Stay[Lookup]{Next: Lookup{..l, Draft: e.Text}}
+	case (Loading, Submitted):
+		Ignore
+	case (_, Submitted):
+		if Empty(l.Draft) {
+			show(l, Failed{Why: NoZip})
+		} else {
+			show(l, Loading{Zip: strings.TrimSpace(l.Draft)})
+		}
+	case (Loading, Got as g):
+		show(l, Ready{Report: g.Report})
+	case (Loading, NotFound as m):
+		show(l, Failed{Why: m})
+	case (Loading, Unavailable as u):
+		show(l, Failed{Why: u})
+	case (_, Got), (_, NotFound), (_, Unavailable):
+		Ignore
+	}
+}
+
+func show(l Lookup, p Panel) Decision[Lookup, Never] { Enter[Lookup]{Next: Lookup{..l, Panel: p}} }
+
+// fetch is the work of each state: Loading fetches its zip from the
+// Forecast. The runner starts it when the entry opens and interrupts it
+// when the entry ends, and drops an answer of an ended entry, so an
+// answer only ever reaches the ask that started it.
+func fetch(l Lookup) Option[machines.Work[Signal, Forecast]] {
+	match l.Panel {
+	case Loading as q:
+		Some{machines.Attempt(func() Report fails NotFound | Unavailable needs Forecast { try Forecast.Fetch(q.Zip) }, func(r Report) Signal { Got{Report: r} }, func(failure) {
+			let failed Signal = failure
+			failed
+		})}
+	case Blank, Ready, Failed:
+		None
+	}
+}
+
+// Weather is the lookup as a machine: its work is the fetch.
+type Weather machine[Lookup, Signal] { initial: Initial(), step: Step, work: fetch }
+
+// Busy reports whether l waits for a fetch.
+func Busy(l Lookup) bool {
+	match l.Panel {
+	case Loading:
+		true
+	case Blank, Ready, Failed:
+		false
+	}
+}
+
+// Said is the text of a reason.
+func Said(w Why) string {
+	match w {
+	case NoZip:
+		"Zip code required"
+	case NotFound:
+		"Location not found"
+	case Unavailable:
+		"Failed to fetch weather data"
+	}
+}

@@ -12,7 +12,26 @@ func Print(stmts []Stmt) string {
 	b.String()
 }
 
-func indent(b mut strings.Builder, depth int) {
+// PrintParsesBack: the text of a program reads back as the program: for
+// the samples of seed, Print(Parse(Print(p))) is Print(p). Print writes
+// the fewest parentheses, so a parser that binds an operator too tight,
+// too loose or to the wrong side reads another tree, which prints as
+// another text.
+law PrintParsesBack(seed int) {
+	for p in Samples(seed) {
+		let text = Print(p)
+		let back = Parse(text) catch {
+		case Failure:
+			return false
+		}
+		if Print(back) != text {
+			return false
+		}
+	}
+	true
+}
+
+func indent(b *strings.Builder, depth int) {
 	for _ in 0..depth {
 		b.WriteByte('\t')
 	}

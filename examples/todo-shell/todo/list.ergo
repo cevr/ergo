@@ -28,6 +28,16 @@ func Of(texts []string) List {
 // Add is l with an open item of text at the end.
 func Add(l List, text string) List { l.AddNote(text, "") }
 
+// AddCountsOne: an added item is one more item, open, at the end.
+law AddCountsOne(texts []string, text string) {
+	let l = Of(texts).Add(text)
+	let last = l.At(l.Count()) catch {
+	case NoSuchItem:
+		return false
+	}
+	l.Count() == len(texts)+1 && last.Text == text && !last.Done
+}
+
 // AddNote is l with an open item of text and note at the end.
 func AddNote(l List, text string, note string) List {
 	let mut items = []Item{}
@@ -40,8 +50,36 @@ func AddNote(l List, text string, note string) List {
 // Complete is l with item at done. An item already done stays done.
 func Complete(l List, at int) List fails NoSuchItem { try l.mark(at, true) }
 
+// CompleteIsIdempotent: completing an item twice is completing it once.
+law CompleteIsIdempotent(texts []string, at int) {
+	let once = Of(texts).Complete(at) catch {
+	case NoSuchItem:
+		return at < 1 || at > len(texts)
+	}
+	let twice = once.Complete(at) catch {
+	case NoSuchItem:
+		return false
+	}
+	once == twice
+}
+
 // Reopen is l with item at open again.
 func Reopen(l List, at int) List fails NoSuchItem { try l.mark(at, false) }
+
+// ReopenUndoesComplete: reopening an open item that was completed gives
+// the list back.
+law ReopenUndoesComplete(texts []string, at int) {
+	let l = Of(texts)
+	let back = Complete(l, at) catch {
+	case NoSuchItem:
+		return true
+	}
+	let again = back.Reopen(at) catch {
+	case NoSuchItem:
+		return false
+	}
+	again == l
+}
 
 // mark is l with the item at set to done.
 func mark(l List, at int, done bool) List fails NoSuchItem {
@@ -63,6 +101,21 @@ func Drop(l List, at int) List fails NoSuchItem {
 		}
 	}
 	List{items: items}
+}
+
+// DropRemovesOne: dropping an item keeps every other item, in order.
+law DropRemovesOne(texts []string, at int) {
+	let l = Of(texts).Drop(at) catch {
+	case NoSuchItem:
+		return at < 1 || at > len(texts)
+	}
+	let mut kept = []string{}
+	for i, t in texts {
+		if i+1 != at {
+			kept = kept.Append(t)
+		}
+	}
+	l == Of(kept)
 }
 
 // At is the item at, from 1.
@@ -94,4 +147,13 @@ func Open(l List) int {
 		}
 	}
 	n
+}
+
+// OpenAtMostCount: a list never has more open items than items.
+law OpenAtMostCount(texts []string, at int) {
+	let l = Of(texts).Complete(at) catch {
+	case NoSuchItem:
+		return Of(texts).Open() == len(texts)
+	}
+	l.Open() == l.Count()-1 && l.Open() >= 0
 }

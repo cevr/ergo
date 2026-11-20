@@ -4,7 +4,7 @@
 // case prints its moves; Disagreement(NewTable(), moves) gives the
 // requests so far and both answers.
 
-import jobs/memory
+import jobsapp/memory
 import time
 
 // Fresh is the store a replay of a refuted case starts from.

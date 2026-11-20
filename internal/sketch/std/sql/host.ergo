@@ -1,0 +1,234 @@
+// The host's provider: a pool over Go's database/sql (runtime/v1/sql).
+// Open lists Ambient in its row, as every host constructor does, so only
+// the program's entry chooses the database; a test binds sqltest.Script.
+
+import time
+
+// Host is the host's DB: a database/sql pool, and the Dialect that reads
+// its driver's errors. Only Open makes one.
+// law-exempt: the host's database; Transaction's laws hold over sqltest.Script, and runtime/v1/sql TestHostSendsTheTransaction holds this provider's calls against a fake driver.
+type Host { p pool, dialect Dialect } implements DB
+
+// Open is the pool of the database/sql driver named driver at dsn, its
+// errors read by dialect. It pings the database once, so a database that
+// cannot be reached fails here. The program links the driver: a name no
+// linked driver registered is Other.
+func Open(driver string, dsn string, dialect Dialect) Host fails Unique | Serialization | Deadlock | Timeout | Closed | Other needs Ambient {
+	let p = hostOpen(driver, dsn) catch {
+	case hostFailure as e:
+		try raise[pool](read(dialect, e))
+	}
+	Host{p: p, dialect: dialect}
+}
+
+func Exec(h Host, stmt string, args []Value) Result fails Unique | Serialization | Deadlock | Timeout | Closed | Other {
+	let r = hostExec(h.p, stmt, toHost(args)) catch {
+	case hostFailure as e:
+		try raise[hostResult](read(h.dialect, e))
+	}
+	Result{Affected: r.Affected}
+}
+
+func Query(h Host, stmt string, args []Value) []Row fails Unique | Serialization | Deadlock | Timeout | Closed | Other {
+	let r = hostQuery(h.p, stmt, toHost(args)) catch {
+	case hostFailure as e:
+		try raise[hostResult](read(h.dialect, e))
+	}
+	fromHost(r)
+}
+
+func Begin(h Host) Conn fails Serialization | Deadlock | Timeout | Closed | Other {
+	let id = hostBegin(h.p) catch {
+	case hostFailure as e:
+		try control[int64](read(h.dialect, e))
+	}
+	hostTx{Host: h, Id: id}
+}
+
+// hostTx is a transaction of the host's pool, on one connection, by its
+// id in the pool. A stop
+// of the task that began it rolls it back (database/sql cancels it with
+// the task's Go context).
+type hostTx { Host Host, Id int64 } implements Conn
+
+func Exec(t hostTx, stmt string, args []Value) Result fails Unique | Serialization | Deadlock | Timeout | Closed | Other {
+	let r = hostTxExec(t.Host.p, t.Id, stmt, toHost(args)) catch {
+	case hostFailure as e:
+		try raise[hostResult](read(t.Host.dialect, e))
+	}
+	Result{Affected: r.Affected}
+}
+
+func Query(t hostTx, stmt string, args []Value) []Row fails Unique | Serialization | Deadlock | Timeout | Closed | Other {
+	let r = hostTxQuery(t.Host.p, t.Id, stmt, toHost(args)) catch {
+	case hostFailure as e:
+		try raise[hostResult](read(t.Host.dialect, e))
+	}
+	fromHost(r)
+}
+
+func Commit(t hostTx) fails Unique | Serialization | Deadlock | Timeout | Closed | Other {
+	hostCommit(t.Host.p, t.Id) catch {
+	case hostFailure as e:
+		let _ = try raise[bool](read(t.Host.dialect, e))
+	}
+}
+
+func Rollback(t hostTx) { hostRollback(t.Host.p, t.Id) }
+
+func Savepoint(t hostTx, name string) fails Timeout | Closed | Other { try savepointLine(t, "SAVEPOINT "+name) }
+
+func Release(t hostTx, name string) fails Timeout | Closed | Other { try savepointLine(t, "RELEASE SAVEPOINT "+name) }
+
+func RollbackTo(t hostTx, name string) fails Timeout | Closed | Other { try savepointLine(t, "ROLLBACK TO SAVEPOINT "+name) }
+
+// savepointLine runs a savepoint statement on t's connection.
+func savepointLine(t hostTx, stmt string) fails Timeout | Closed | Other {
+	let _ = hostTxExec(t.Host.p, t.Id, stmt, []hostArg{}) catch {
+	case hostFailure as e:
+		try control[hostResult](read(t.Host.dialect, e))
+	}
+}
+
+// read is e as a failure: Closed when the handle had ended, else the
+// dialect's reading of it.
+func read(d Dialect, e hostFailure) Failure {
+	if e.Closed {
+		return Closed{Message: e.Message}
+	}
+	d.Classify(HostError{Code: e.Code, Constraint: e.Constraint, Message: e.Message})
+}
+
+// raise fails with f, within a statement's failures. NoRows, which a
+// statement does not give, is Other.
+func raise[T](f Failure) T fails Unique | Serialization | Deadlock | Timeout | Closed | Other {
+	match f {
+	case Unique as x:
+		x
+	case Serialization as x:
+		x
+	case Deadlock as x:
+		x
+	case Timeout as x:
+		x
+	case Closed as x:
+		x
+	case Other as x:
+		x
+	case NoRows as n:
+		Other{Code: "", Message: "no rows: " + n.Statement}
+	}
+}
+
+// control fails with f, within the failures of a transaction's control.
+func control[T](f Failure) T fails Timeout | Closed | Other {
+	match f {
+	case Timeout as x:
+		x
+	case Closed as x:
+		x
+	case Other as x:
+		x
+	case Unique as x:
+		Other{Code: "23505", Message: x.Constraint}
+	case Serialization as x:
+		Other{Code: "40001", Message: x.Message}
+	case Deadlock as x:
+		Other{Code: "40P01", Message: x.Message}
+	case NoRows as n:
+		Other{Code: "", Message: "no rows: " + n.Statement}
+	}
+}
+
+// toHost is args as the host's records.
+func toHost(args []Value) []hostArg {
+	let mut out = []hostArg{}
+	for a in args {
+		let mut h = hostArg{Kind: 0, N: 0, F: 0.0, B: false, S: "", Data: []byte{}, Sec: 0, Nsec: 0}
+		match a {
+		case Null:
+		case Int as v:
+			h = hostArg{..h, Kind: 1, N: v.N}
+		case Float as v:
+			h = hostArg{..h, Kind: 2, F: v.F}
+		case Bool as v:
+			h = hostArg{..h, Kind: 3, B: v.B}
+		case Text as v:
+			h = hostArg{..h, Kind: 4, S: v.S}
+		case Bytes as v:
+			h = hostArg{..h, Kind: 5, Data: v.B}
+		case Stamp as v:
+			h = hostArg{..h, Kind: 6, Sec: v.At.UnixSeconds(), Nsec: v.At.Nanosecond()}
+		}
+		out = out.Append(h)
+	}
+	out
+}
+
+// fromHost is the rows of r.
+func fromHost(r hostResult) []Row {
+	let width = len(r.Columns)
+	let mut rows = []Row{}
+	if width == 0 {
+		return rows
+	}
+	let mut values = []Value{}
+	for h in r.Cells {
+		values = values.Append(value(h))
+		if len(values) == width {
+			rows = rows.Append(Row{Columns: r.Columns, Values: values})
+			values = []Value{}
+		}
+	}
+	rows
+}
+
+// value is h as a Value.
+func value(h hostArg) Value {
+	match h.Kind {
+	case 1:
+		Int{N: h.N}
+	case 2:
+		Float{F: h.F}
+	case 3:
+		Bool{B: h.B}
+	case 4:
+		Text{S: h.S}
+	case 5:
+		Bytes{B: h.Data}
+	case 6:
+		Stamp{At: time.Unix(h.Sec, h.Nsec)}
+	case _:
+		Null
+	}
+}
+
+// The host's records and handles (runtime/v1/sql).
+
+extern go ergo.local/prototype/runtime/v1/sql.SQLArg type hostArg { Kind int, N int64, F float64, B bool, S string, Data []byte, Sec int64, Nsec int64 }
+
+extern go ergo.local/prototype/runtime/v1/sql.SQLResult type hostResult { Columns []string, Cells []hostArg, Affected int64 }
+
+extern go ergo.local/prototype/runtime/v1/sql.SQLHostError type hostFailure { Code string, Constraint string, Message string, Closed bool }
+
+// pool is a database/sql pool.
+// law-exempt: the host's handle; Host's laws are Transaction's.
+extern go ergo.local/prototype/runtime/v1/sql.SQLPool type pool {
+	hostPool(),
+}
+
+extern go ergo.local/prototype/runtime/v1/sql.SQLOpen func hostOpen(driver string, dsn string) pool fails hostFailure needs Ambient
+
+extern go ergo.local/prototype/runtime/v1/sql.SQLExec func hostExec(p pool, stmt string, args []hostArg) hostResult fails hostFailure
+
+extern go ergo.local/prototype/runtime/v1/sql.SQLQuery func hostQuery(p pool, stmt string, args []hostArg) hostResult fails hostFailure
+
+extern go ergo.local/prototype/runtime/v1/sql.SQLBegin func hostBegin(p pool) int64 fails hostFailure
+
+extern go ergo.local/prototype/runtime/v1/sql.SQLTxExec func hostTxExec(p pool, id int64, stmt string, args []hostArg) hostResult fails hostFailure
+
+extern go ergo.local/prototype/runtime/v1/sql.SQLTxQuery func hostTxQuery(p pool, id int64, stmt string, args []hostArg) hostResult fails hostFailure
+
+extern go ergo.local/prototype/runtime/v1/sql.SQLCommit func hostCommit(p pool, id int64) fails hostFailure
+
+extern go ergo.local/prototype/runtime/v1/sql.SQLRollback func hostRollback(p pool, id int64)

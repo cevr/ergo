@@ -87,6 +87,18 @@ func Literal(text string) Node {
 	Cat{Parts: parts}
 }
 
+// LiteralRoundTrip: the literal of any text, metas included, prints and
+// parses back to itself.
+law LiteralRoundTrip(text string) {
+	for t in []string{text, Scramble(text)} {
+		let n = Literal(t)
+		if try Parse(Print(n)) != n {
+			return false
+		}
+	}
+	true
+}
+
 // Search is the pattern that matches every text that holds a match of n:
 // .*n.* in the syntax.
 func Search(n Node) Node { Cat{Parts: []Node{Star{Of: Any}, n, Star{Of: Any}}} }

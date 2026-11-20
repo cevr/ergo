@@ -1,0 +1,227 @@
+// Package script plays a script of clicks on the screen of the list of
+// counters (stage b), on std ui's test host, and shows the screen after
+// each click.
+
+import actor
+import counterlist/rows
+import counterlist/screen
+import io
+import machines
+import strconv
+import strings
+import time
+import ui
+
+// BadLine is a line the script cannot read.
+type BadLine { Line int, Why string }
+
+// Line is one line of a script: a list to start from, a click, or a count
+// of the click before it.
+type Line = Given{Counts []int} | Click{Act ui.Act, Says string} | Stats
+
+// Stats is the line `stats`.
+type Stats {}
+
+// Read reads the lines of a script. A line is one of:
+//   - `given C...`: start again from rows with the counts C, keys 0 up, as
+//     a scene's given; with no given first, the script starts from the
+//     machine's initial list;
+//   - `add`: click the add button;
+//   - `inc K`, `dec K`, `remove K`: click +, - or Remove within the row
+//     named counter-K;
+//   - `press LABEL`: click the one button named LABEL, and `press first
+//     LABEL` the first of them, in screen order;
+//   - `stats`: print the work of the click before it.
+//
+// A blank line or a line that starts with # is skipped.
+func Read(lines []string) []Line fails BadLine {
+	let mut out = []Line{}
+	for i, line in lines {
+		let n = i + 1
+		let text = strings.TrimSpace(line)
+		let words = strings.Fields(text)
+		if len(words) == 0 || strings.HasPrefix(text, "#") {
+			continue
+		}
+		let rest = words[1:]
+		match words[0] {
+		case "given":
+			let mut counts = []int{}
+			for w in rest {
+				counts = counts.Append(try intOf(n, w))
+			}
+			out = out.Append(Given{Counts: counts})
+		case "add":
+			if len(rest) != 0 {
+				return BadLine{Line: n, Why: "add takes no row"}
+			}
+			out = out.Append(click(button(screen.AddLabel), "add"))
+		case "inc", "dec", "remove":
+			if len(rest) != 1 {
+				return BadLine{Line: n, Why: "\(words[0]) takes one row number"}
+			}
+			let key = try intOf(n, rest[0])
+			let label = match words[0] {
+			case "inc":
+				"+"
+			case "dec":
+				"-"
+			case _:
+				screen.RemoveLabel
+			}
+			let at = ui.Within{In: ui.WithRole{Role: ui.Group, Name: rows.Name(key)}, At: button(label)}
+			out = out.Append(click(at, text))
+		case "press":
+			if len(rest) == 0 {
+				return BadLine{Line: n, Why: "press takes a label"}
+			}
+			if rest[0] == "first" && len(rest) > 1 {
+				out = out.Append(click(ui.First{At: button(strings.Join(rest[1:], " "))}, text))
+			} else {
+				out = out.Append(click(button(strings.Join(rest, " ")), text))
+			}
+		case "stats":
+			out = out.Append(Stats)
+		case _:
+			return BadLine{Line: n, Why: "unknown word \(words[0])"}
+		}
+	}
+	out
+}
+
+func intOf(n int, word string) int fails BadLine {
+	strconv.Atoi(word) catch {
+	case strconv.Malformed:
+		return BadLine{Line: n, Why: "\(word) is not a number"}
+	case strconv.OutOfRange:
+		return BadLine{Line: n, Why: "\(word) is out of range"}
+	}
+}
+
+func button(label string) ui.Locator { ui.WithRole{Role: ui.Button, Name: label} }
+
+func click(at ui.Locator, says string) Line { Click{Act: ui.ClickOn{At: at}, Says: says} }
+
+// Host is the list on the test host.
+type Host = ui.TestHost[rows.Rows, rows.Signal, Decision[rows.Rows, Never]]
+
+// App is the list's actor.
+type App = actor.Actor[rows.Rows, rows.Signal, Decision[rows.Rows, Never]]
+
+// Run reads the script from io.Stdin and plays it on the screen, on std
+// ui's test host over clock. It shows the screen first and after each
+// click: `> LINE` and then the screen in a line. A click whose locator
+// finds no node, or more than one, clicks nothing and says so, as a scene
+// that names no button or an ambiguous one fails. It returns the exit
+// status: 0, or 1 when the script is refused or the screen fails.
+func Run(clock time.Manual) int needs Console | io.Stdin | Scheduler {
+	let mut lines = []string{}
+	for line in io.Stdin.Lines() {
+		lines = lines.Append(line)
+	}
+	let script = Read(lines) catch {
+	case BadLine as b:
+		Console.Println("? line \(b.Line): \(b.Why)")
+		return 1
+	}
+	play(clock, script) catch {
+	case actor.Stopped:
+		Console.Println("? the list stopped")
+		1
+	case ui.BadPatch as p:
+		Console.Println("? a patch is refused: \(p.Why)")
+		1
+	}
+}
+
+func play(clock time.Manual, script []Line) int fails actor.Stopped | ui.BadPatch needs Console | Scheduler {
+	let mut given Option[[]int] = None
+	if len(script) > 0 {
+		match script[0] {
+		case Given as g:
+			given = Some{Value: g.Counts}
+		case _:
+		}
+	}
+	let mut app = start(given)
+	let mut h = try ui.NewTestHost(app, screen.Screen, clock, 16)
+	Console.Println(Shown(&h))
+	for i, x in script {
+		match x {
+		case Given as g:
+			if i == 0 {
+				continue
+			}
+			app.Stop()
+			app = start(Some{Value: g.Counts})
+			h = try ui.NewTestHost(app, screen.Screen, clock, 16)
+			Console.Println("> given \(strings.Join(slicesOf(g.Counts), " "))")
+			Console.Println(Shown(&h))
+		case Click as c:
+			Console.Println("> \(c.Says)")
+			ui.Play(&h, []ui.Act{c.Act, ui.SettleAll}) catch {
+			case ui.NoNode as no:
+				Console.Println("? no node: \(no.Label)")
+				continue
+			case ui.Ambiguous as a:
+				Console.Println("? \(a.Count) nodes: \(a.At)")
+				continue
+			case ui.Mismatch:
+				continue
+			case actor.Stopped as s:
+				app.Stop()
+				return s
+			case ui.BadPatch as p:
+				app.Stop()
+				return p
+			}
+			Console.Println(Shown(&h))
+		case Stats:
+			Console.Println("> stats: \(ui.CountsLine(ui.Counts(&h)))")
+		}
+	}
+	app.Stop()
+	0
+}
+
+// start starts the list's actor: from the given counts, or from the
+// machine's initial list.
+func start(given Option[[]int]) App needs Scheduler {
+	match given {
+	case Some[[]int] as g:
+		actor.StartMachine(machines.Start(rows.CountersFrom{}, g.Value), 16, func(o Never) {})
+	case None:
+		actor.StartMachine(rows.Counters{}, 16, func(o Never) {})
+	}
+}
+
+func slicesOf(counts []int) []string {
+	let mut out = []string{}
+	for n in counts {
+		out = out.Append("\(n)")
+	}
+	out
+}
+
+// Shown is the screen in a line, in screen order: each text, each button
+// as [LABEL], and each named group as NAME{...}.
+func Shown(h mut Host) string { strings.Join(tokens(ui.Screen(h)), " ") }
+
+func tokens(shapes []ui.Shape[rows.Signal]) []string {
+	let mut out = []string{}
+	for s in shapes {
+		match s.Node {
+		case ui.TextNode as t:
+			out = out.Append(t.Value)
+		case ui.PressableNode as p:
+			out = out.Append("[\(p.Label)]")
+		case ui.SemanticNode as g:
+			out = out.Append("\(g.Access.Name){\(strings.Join(tokens(s.Kids), " "))}")
+		case _:
+			for t in tokens(s.Kids) {
+				out = out.Append(t)
+			}
+		}
+	}
+	out
+}

@@ -21,6 +21,8 @@
 package linked
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
 	"go/format"
 	"path"
@@ -144,7 +146,11 @@ func Generate(root string, p Package) (map[string][]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	src, err := format.Source(text)
+	// gofmt to its fixed point: one pass leaves a /*line*/ comment before
+	// a union's marker method on the method's line, and a second pass
+	// moves it, so the gate's gofmt step and the checked-in file would
+	// disagree (the 36 lines of codego-stale.md, SELFHOST-MERGE).
+	src, err := gofmtFixpoint(text)
 	if err != nil {
 		return nil, fmt.Errorf("linked %s: gofmt: %w", p.Name, err)
 	}
@@ -186,6 +192,21 @@ func libraryText(a sketchfront.Analysis, p Package) ([]byte, error) {
 		}
 	}
 	return nil, fmt.Errorf("linked %s: the lowering wrote no %s.go", p.Name, p.Name)
+}
+
+// gofmtFixpoint formats src until gofmt leaves it unchanged.
+func gofmtFixpoint(src []byte) ([]byte, error) {
+	for range 4 {
+		next, err := format.Source(src)
+		if err != nil {
+			return nil, err
+		}
+		if bytes.Equal(next, src) {
+			return src, nil
+		}
+		src = next
+	}
+	return nil, errors.New("gofmt does not reach a fixed point in 4 passes")
 }
 
 // moduleName is the module line's path of the module's ergo.mod.

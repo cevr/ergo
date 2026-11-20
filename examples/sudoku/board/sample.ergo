@@ -115,3 +115,8 @@ func Broken(seed int, blanks int) Grid {
 	}
 	p
 }
+
+// BrokenIsInconsistent: a broken puzzle holds a digit twice in a unit.
+law BrokenIsInconsistent(seed int, blanks int) {
+	!Consistent(Broken(seed, 1+(if blanks < 0 { -(blanks + 1) } else { blanks })%80))
+}

@@ -1,0 +1,170 @@
+// Package route is the program's routes and their paths: Parse reads a
+// path (with its query) into a Route, and Print writes a Route's path.
+
+import strconv
+import strings
+
+// Route is a screen of the program. People may carry a search; Person
+// names a person by number; Files names a file or a directory by its
+// path under /files; an unknown path is NotFound, which keeps the path.
+type Route = Home{} | Nested{} | People{Search Option[string]} | Person{ID int} | FilesIndex{} | Files{Path []string} | NotFound{Path string}
+
+// UnknownPathIsNotFound: a path whose first segment no route has is
+// NotFound, and keeps the whole path, query included.
+law UnknownPathIsNotFound(first string, rest []int, query int) {
+	let word = if first == "" { "x" } else { first }
+	match word {
+	case "people", "files", "nested":
+		return true
+	case _:
+	}
+	let full = "/" + Escape(word) + pathOf(rest, query, false)
+	Parse(full) == NotFound{Path: full}
+}
+
+// NestedPath is the Nested route's path.
+let NestedPath = "/nested/route/is/very/nested"
+
+// Print is r's path. A segment and the search are escaped (Escape), so
+// Parse reads them back.
+func Print(r Route) string {
+	match r {
+	case Home:
+		"/"
+	case Nested:
+		NestedPath
+	case People as p:
+		match p.Search {
+		case Some[string] as s:
+			"/people?searchText=" + Escape(s.Value)
+		case None:
+			"/people"
+		}
+	case Person as p:
+		"/people/" + strconv.Itoa(p.ID)
+	case FilesIndex:
+		"/files"
+	case Files as f:
+		let mut out = "/files"
+		for s in f.Path {
+			out = out + "/" + Escape(s)
+		}
+		out
+	case NotFound as n:
+		n.Path
+	}
+}
+
+// PrintParseRoundTrips: a parsed path printed again parses to the same
+// route, for generated paths: Print writes each route's one path.
+law PrintParseRoundTrips(segs []int, query int, trailing bool) {
+	let r = Parse(pathOf(segs, query, trailing))
+	Parse(Print(r)) == r
+}
+
+// pieces are the segments a generated path is made of: the routes'
+// words, a number, escapes, and words no route has.
+let pieces = []string{"people", "files", "nested", "route", "is", "very", "3", "-7", "x", "", "%41", "a+b", "%zz", "docs"}
+
+func pathOf(segs []int, query int, trailing bool) string {
+	let mut parts = []string{}
+	for k in segs {
+		parts = parts.Append(pieces[((k%len(pieces))+len(pieces))%len(pieces)])
+	}
+	let tail = if trailing { "/" } else { "" }
+	let q = match ((query % 4) + 4) % 4 {
+	case 0:
+		""
+	case 1:
+		"?searchText=a%20b+c"
+	case 2:
+		"?page=2&searchText=x"
+	case _:
+		"?searchText="
+	}
+	"/" + strings.Join(parts, "/") + tail + q
+}
+
+// Parse is the route of path, a URL's path with its query. A trailing
+// slash is dropped, and empty segments are skipped. The only query that
+// counts is People's searchText; any other query is ignored.
+func Parse(path string) Route {
+	let mut rest = path
+	let mut query = ""
+	match strings.Cut(path, "?") {
+	case Some[strings.Halves] as h:
+		rest = h.Value.Before
+		query = h.Value.After
+	case None:
+	}
+	let mut segs = []string{}
+	for s in strings.Split(rest, "/") {
+		if s != "" {
+			segs = segs.Append(Unescape(s))
+		}
+	}
+	if len(segs) == 0 {
+		return Home
+	}
+	if Print(Nested) == "/"+strings.Join(segs, "/") {
+		return Nested
+	}
+	match segs[0] {
+	case "people":
+		if len(segs) == 1 {
+			return People{Search: searchOf(query)}
+		}
+		if len(segs) == 2 {
+			let id = strconv.Atoi(segs[1]) catch {
+			case strconv.Malformed, strconv.OutOfRange:
+				return NotFound{Path: path}
+			}
+			return Person{ID: id}
+		}
+		NotFound{Path: path}
+	case "files":
+		if len(segs) == 1 {
+			return FilesIndex
+		}
+		Files{Path: segs[1:]}
+	case _:
+		NotFound{Path: path}
+	}
+}
+
+// ParsePrintRoundTrips: Parse reads back every route Print writes. The
+// exceptions are NotFound, whose path is whatever was typed
+// (UnknownPathIsNotFound), and a Files path that is empty or has an
+// empty segment, which no path writes.
+law ParsePrintRoundTrips(r Route) {
+	match r {
+	case NotFound:
+		return true
+	case Files as f:
+		if len(f.Path) == 0 {
+			return true
+		}
+		for s in f.Path {
+			if s == "" {
+				return true
+			}
+		}
+	case Home, Nested, People, Person, FilesIndex:
+	}
+	Parse(Print(r)) == r
+}
+
+// searchOf is the searchText of a query: the first one, unescaped, with
+// + read as a space as a browser's form does.
+func searchOf(query string) Option[string] {
+	for pair in strings.Split(query, "&") {
+		match strings.Cut(pair, "=") {
+		case Some[strings.Halves] as h:
+			if h.Value.Before == "searchText" {
+				return Some[string]{Value: Unescape(strings.ReplaceAll(h.Value.After, "+", " "))}
+			}
+		case None:
+		}
+	}
+	None
+}
