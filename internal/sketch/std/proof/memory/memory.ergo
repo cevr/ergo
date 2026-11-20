@@ -20,6 +20,10 @@ type Store { state sync.Ref[proof.State] } implements proof.Store
 // New is an empty store.
 func New() Store { Store{state: sync.NewRef(proof.Empty())} }
 
+// fresh is the context proof.Store's laws run Store under (types.md,
+// Laws 10): each case starts from an empty store.
+let fresh = context { proof.Store: New() }
+
 // apply runs op as one step of the Ref.
 func apply(s Store, op proof.Op) proof.Outcome {
 	sync.Modify(s.state, func(st proof.State) (proof.Outcome, proof.State) {

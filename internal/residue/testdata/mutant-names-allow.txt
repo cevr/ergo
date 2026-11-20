@@ -74,7 +74,6 @@ scripts/mutants/runner_test.go	string-literal
 cmd/ergo/own_growth_linux_test.go	hand-over
 cmd/ergo/own_growth_linux_test.go	own-consume
 cmd/ergo/own_growth_linux_test.go	own-lineage
-internal/experimental/irspike/text_test.go	ir-text-not-what-compiled
 internal/residue/ledger_test.go	top-level
 internal/sketch/check/orpattern_messages_test.go	top-level
 internal/sketch/check/orpattern_test.go	or-pattern

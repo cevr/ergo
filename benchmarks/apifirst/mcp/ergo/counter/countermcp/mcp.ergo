@@ -9,7 +9,7 @@
 import api
 import json
 import rpc
-import github.com/cevr/ergo/modules/mcp
+import mcp
 import mcpbench/counter
 import mcpbench/counter/counterapi
 
