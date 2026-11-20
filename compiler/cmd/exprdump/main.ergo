@@ -33,6 +33,7 @@
 import compiler/check/bind
 import compiler/check/diag
 import compiler/check/expr
+import compiler/check/facts
 import compiler/check/infer
 import compiler/check/load
 import compiler/check/rows
@@ -116,6 +117,23 @@ func writeOutside(b mut strings.Builder, u load.Unit, d load.Typed, prefix strin
 		let p = u.Files[f].Parsed
 		let id = syntax.NodeAt(p.Tree, row)
 		b.WriteString("\(prefix)\(u.Files[f].Name) \(syntax.NodePos(p, id)) \(syntax.NodeEnd(p, id))\n")
+	}
+}
+
+// writeRefinements prints each refined type declaration's refinement
+// (compiler/check/facts), "FILE OFFSET NAME it|len LO..HI…" after prefix,
+// or "FILE OFFSET NAME -" where it has none; OFFSET is the name's.
+func writeRefinements(b mut strings.Builder, u load.Unit, d load.Typed, prefix string) {
+	let mut s = d.S
+	for r in facts.Refinements(&s, d.K) {
+		let p = d.K.Parsed[r.File]
+		let text = match r.R {
+		case Some{Value: f}:
+			facts.Text(f)
+		case None:
+			"-"
+		}
+		b.WriteString("\(prefix)\(u.Files[r.File].Name) \(syntax.NodePos(p, r.Name)) \(types.NameText(p, r.Name)) \(text)\n")
 	}
 }
 
@@ -365,8 +383,9 @@ func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 		// its tables and files. Each package's lines are "E …" (types),
 		// "C …" (calls), "D …" (diagnostics), "O …" (own marks), "U …"
 		// (untyped calls by cause, writeCauses), "W …" (the ownership
-		// flow), "L …" (package lets) and "X …" (values outside the run)
-		// after its "@pkg I" line.
+		// flow), "L …" (package lets), "X …" (values outside the run) and
+		// "R …" (refined types, compiler/check/facts) after its "@pkg I"
+		// line.
 		let mut units = []load.Unit{}
 		for line in strings.Split(try read(argv[1]), "\n") {
 			let g = strings.Fields(line)
@@ -378,7 +397,7 @@ func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 		}
 		// Each package is written as it is typed (compiler/check/load), so
 		// the run holds one package's typing at a time.
-		let p = load.LoadAll(units, load.Outside(units, std))
+		let p = load.LoadAll(units, load.Outside(units, std), 4)
 		for i in 0..len(p.Loaded) {
 			let u = units[p.Units[i]]
 			let d = load.TypeAt(p, i)
@@ -392,6 +411,7 @@ func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 			writeRows(&b, u, d, "R ")
 			writeLets(&b, u, d, "L ")
 			writeOutside(&b, u, d, "X ")
+			writeRefinements(&b, u, d, "R ")
 		}
 		io.Stdout.Print(b.String())
 		return
@@ -413,7 +433,7 @@ func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 	for g in groups {
 		units = units.Append(try unitOf(g))
 	}
-	let p = load.LoadAll(units, load.Outside(units, std))
+	let p = load.LoadAll(units, load.Outside(units, std), 4)
 	let d = load.TypeAt(p, 0)
 	write(&b, units[p.Units[0]], d, calls, "")
 	if !calls {

@@ -1,0 +1,139 @@
+// tailbench is INLINE-RETURN's receipt probe: a chain of fallible
+// functions, each returning the next one's call, its failures caught in a
+// loop, against the same functions in hand Go in ../../testdata/control
+// (go run ./scripts/opcount -control -rounds 5 benchmarks/tailcall/chain).
+//
+//	tailbench bench chain N
+//
+// One unit is one call of the chain's top. The results are summed, so a
+// call whose result went unread cannot be dropped.
+
+import os
+import strconv
+
+type Gone { At int }
+
+type Bad { Why int }
+
+func c0(x int) int fails Gone | Bad {
+	if x % 7 == 0 {
+		return Gone{At: x}
+	}
+	if x % 11 == 1 {
+		return Bad{Why: x}
+	}
+	x * 3
+}
+
+func c1(x int) int fails Gone | Bad {
+	if x > 100000 {
+		return x
+	}
+	c0(x + 1)
+}
+
+func c2(x int) int fails Gone | Bad {
+	if x % 5 == 2 {
+		return c1(x + 2)
+	}
+	c1(x - 1)
+}
+
+func c3(x int) int fails Gone | Bad {
+	c2(x * 2)
+}
+
+func chain(n int) int {
+	let mut t = 0
+	for i in 0..n {
+		t = t + (c3(i & 4095) catch {
+		case Gone as g:
+			g.At & 1
+		case Bad as b:
+			b.Why & 3
+		})
+	}
+	t
+}
+
+// tryLet passes c0's failure on through a try (INLINE-FAIL-LOCAL: its
+// failure is a local of type error).
+func tryLet(x int) int fails Gone | Bad {
+	let v = try c0(x)
+	v + 1
+}
+
+func tryLets(n int) int {
+	let mut t = 0
+	for i in 0..n {
+		t = t + (tryLet(i & 4095) catch {
+		case Gone as g:
+			g.At & 1
+		case Bad as b:
+			b.Why & 3
+		})
+	}
+	t
+}
+
+// orFail is a user's OrFail: its failure is its parameter f.
+func orFail[T, F](o Option[T], f F) T fails F {
+	match o {
+	case Some[T] as s:
+		s.Value
+	case None:
+		return f
+	}
+}
+
+func look(m Map[int, int], k int) int fails Gone {
+	let v = try orFail(m.Get(k), Gone{At: k})
+	v
+}
+
+func table() Map[int, int] {
+	let mut m = Map[int, int]{}
+	for i in 0..1024 {
+		m = m.Put(i * 2, i)
+	}
+	m
+}
+
+func orFails(n int) int {
+	let m = table()
+	let mut t = 0
+	for i in 0..n {
+		t = t + (look(m, i & 2047) catch {
+		case Gone as g:
+			g.At & 1
+		})
+	}
+	t
+}
+
+func bench(kind string, n int) int {
+	if kind == "chain" {
+		return chain(n)
+	}
+	if kind == "trylet" {
+		return tryLets(n)
+	}
+	if kind == "orfail" {
+		return orFails(n)
+	}
+	0
+}
+
+func main() fails os.Exit needs Console | Ambient {
+	with context { os.Process: os.NewHost() } {
+		let args = os.Process.Args()
+		if len(args) != 3 {
+			return os.Exit{Code: 2, Message: "usage: tailbench bench KIND N"}
+		}
+		let n = strconv.Atoi(args[2]) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return os.Exit{Code: 2, Message: "tailbench: N is not a count"}
+		}
+		Console.Println("\(bench(args[1], n))")
+	}
+}

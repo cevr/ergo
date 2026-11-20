@@ -6,8 +6,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -18,10 +20,11 @@ import (
 	"ergo.local/prototype/internal/testwait"
 )
 
-func testBudget(t *testing.T, cores, share int) *Budget {
+func testBudget(t *testing.T, cores, share int, more ...string) *Budget {
 	t.Helper()
 	cfg := filepath.Join(t.TempDir(), "budget.conf")
-	if err := os.WriteFile(cfg, []byte("cores "+strconv.Itoa(cores)+"\nshare "+strconv.Itoa(share)+"\n"), 0o644); err != nil {
+	text := "cores " + strconv.Itoa(cores) + "\nshare " + strconv.Itoa(share) + "\n" + strings.Join(more, "\n") + "\n"
+	if err := os.WriteFile(cfg, []byte(text), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	c, err := LoadConfig(cfg)
@@ -115,7 +118,7 @@ func TestFullBudgetQueues(t *testing.T) {
 // waiters is the count of waiters in b's saved state.
 func waiters(t *testing.T, b *Budget) int {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(b.cfg.State, "state.json"))
+	data, err := os.ReadFile(filepath.Join(b.state, "state.json"))
 	if err != nil {
 		return 0
 	}
@@ -126,41 +129,162 @@ func waiters(t *testing.T, b *Budget) int {
 	return len(s.Waiters)
 }
 
-// TestCritPassesAGatedLaneHead: the live case of 2026-11-20. With the load
-// over the gate, a lane waiter at the head of the queue waits, and a crit
-// take behind it, with cores free, is admitted at once: its context is
-// already done, so a crit take that queued returns its error. Mutant:
-// budget-gated-head-blocks.
-func TestCritPassesAGatedLaneHead(t *testing.T) {
-	b := testBudget(t, 16, 8)
-	b.cfg.GateLoad = 44
-	b.load = func() float64 { return 54 }
+// TestConfigEditWakesAWaiter: an edit of the budget's file (replaced by a
+// rename, as the owner edits it) takes effect at once: a waiter that did
+// not fit in 2 cores takes when the file says 3, with no entry ending to
+// wake it. Mutants: budget-conf-not-reread, budget-conf-edit-no-wake.
+func TestConfigEditWakesAWaiter(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("the file watch is Linux's inotify")
+	}
+	b := testBudget(t, 2, 0)
 	ctx, cancel := testwait.Context(t, context.Background())
 	defer cancel()
-	holder, err := b.Take(ctx, Request{Width: 4, Crit: true, Lane: "crit-holder"})
+	holder, err := b.Take(ctx, Request{Width: 2, Lane: "holder"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer holder.Release()
-	laneCtx, stopLane := context.WithCancel(ctx)
-	laneDone := make(chan struct{})
+	got := make(chan error, 1)
 	go func() {
-		defer close(laneDone)
-		if g, err := b.Take(laneCtx, Request{Width: 4, Lane: "gated-lane"}); err == nil {
+		g, err := b.Take(ctx, Request{Width: 1, Lane: "waiter"})
+		if err == nil {
 			g.Release()
 		}
+		got <- err
 	}()
-	defer func() { stopLane(); <-laneDone }()
 	if !testwait.Until(t, func() bool { return waiters(t, b) == 1 }) {
-		t.Fatal("the lane take never queued")
+		t.Fatal("the waiter never queued")
+	}
+	tmp := b.cfg.Path + ".new"
+	if err := os.WriteFile(tmp, []byte("cores 3\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(tmp, b.cfg.Path); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-got; err != nil {
+		t.Fatalf("the waiter after the budget grew to 3 cores: %v", err)
+	}
+}
+
+// TestMemoryQueues: a take that fits in cores but not in memory waits
+// (WithinMemory): with 8 of 10 reserved, a command never measured
+// (reserved the default, 8) queues; its context is already done, so a
+// take that queued returns its error. Mutant: budget-admit-by-cores.
+func TestMemoryQueues(t *testing.T) {
+	b := testBudget(t, 4, 0, "memory 10", "default-memory 8")
+	ctx, cancel := testwait.Context(t, context.Background())
+	defer cancel()
+	g, err := b.Take(ctx, Request{Width: 1, Lane: "holder"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer g.Release()
+	if g.Memory() != 8 {
+		t.Fatalf("an unmeasured command reserves %d, want the default 8", g.Memory())
 	}
 	done, stop := context.WithCancel(ctx)
 	stop()
-	g, err := b.Take(done, Request{Width: 4, Crit: true, Lane: "crit-behind"})
-	if err != nil {
-		t.Fatalf("a crit take behind a gated lane head, 12 of 16 cores free: %v", err)
+	if w, err := b.Take(done, Request{Width: 1, Lane: "over"}); err == nil {
+		w.Release()
+		t.Fatal("a take of 8 was admitted with 8 of 10 reserved")
 	}
-	g.Release()
+}
+
+// TestPeakRaisesTheReservation: a command's next take reserves the largest
+// peak it reached, and a later smaller peak does not shrink it (mem.ergo's
+// LastPeak). Mutant: budget-last-peak.
+func TestPeakRaisesTheReservation(t *testing.T) {
+	b := testBudget(t, 4, 0, "memory 100", "default-memory 8")
+	ctx, cancel := testwait.Context(t, context.Background())
+	defer cancel()
+	// Reserved: the default, then the largest peak and a quarter.
+	for i, c := range []struct{ peak, want int64 }{{40, 8}, {10, 50}, {0, 50}} {
+		g, err := b.Take(ctx, Request{Width: 1, Lane: "run", Key: "go test ./x"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if g.Memory() != c.want {
+			t.Fatalf("run %d reserves %d, want %d", i+1, g.Memory(), c.want)
+		}
+		g.Finish(0, c.peak)
+		g.Release()
+	}
+}
+
+// TestRunCapsAtTheReservation: with memory budgeted, a command runs capped
+// at its reservation in a scope of its own: one that allocates past it is
+// killed (SIGKILL), and its next take reserves twice the cap. Mutant:
+// budget-no-cap.
+func TestRunCapsAtTheReservation(t *testing.T) {
+	if !scopes() {
+		t.Skip("needs the user's systemd for a scope")
+	}
+	b := testBudget(t, 2, 0, "memory 1G", "default-memory 1G")
+	ctx, cancel := testwait.Context(t, context.Background())
+	defer cancel()
+	// dd's buffer is its block size: 200M allocated, against a 64M cap.
+	argv := []string{"dd", "if=/dev/zero", "of=/dev/null", "bs=200M", "count=1"}
+	code, err := Run(ctx, b, Request{Width: 1, Lane: "over", Memory: 64 << 20, Key: "dd"}, argv, nil, io.Discard, io.Discard)
+	if err != nil || code != 137 {
+		t.Fatalf("a command over its 64M cap: code %d, err %v; want 137 (killed)", code, err)
+	}
+	if got := b.peak("dd"); got != 128<<20 {
+		t.Fatalf("the peak kept after a kill at 64M: %d, want %d (twice the cap)", got, 128<<20)
+	}
+	// Killed inside a shell, which exits 1: the scope's kill count, not
+	// the code, says the cap killed (2026-11-20). Mutant:
+	// budget-kill-by-code.
+	sh := []string{"sh", "-c", "dd if=/dev/zero of=/dev/null bs=200M count=1 || exit 1"}
+	code, err = Run(ctx, b, Request{Width: 1, Lane: "over", Memory: 64 << 20, Key: "dd-sh"}, sh, nil, io.Discard, io.Discard)
+	if err != nil || code != 1 {
+		t.Fatalf("a shell whose dd is over its 64M cap: code %d, err %v; want 1", code, err)
+	}
+	if got := b.peak("dd-sh"); got != 128<<20 {
+		t.Fatalf("the peak kept after a kill at 64M inside a shell: %d, want %d (twice the cap)", got, 128<<20)
+	}
+}
+
+// TestUnknownCommandIsNotKilled: a command never measured is charged the
+// default (64M here) but not capped at it: one that needs 200M runs to
+// its end, and its peak is recorded, so its next take reserves it (the
+// orchestrator's ruling of 2026-11-20; mem.ergo UnknownNotCapped). Mutant:
+// budget-cap-unknown.
+func TestUnknownCommandIsNotKilled(t *testing.T) {
+	if !scopes() {
+		t.Skip("needs the user's systemd for a scope")
+	}
+	b := testBudget(t, 2, 0, "memory 1G", "default-memory 64M")
+	ctx, cancel := testwait.Context(t, context.Background())
+	defer cancel()
+	argv := []string{"dd", "if=/dev/zero", "of=/dev/null", "bs=200M", "count=1"}
+	code, err := Run(ctx, b, Request{Width: 1, Lane: "unknown", Key: "dd-unknown"}, argv, nil, io.Discard, io.Discard)
+	if err != nil || code != 0 {
+		t.Fatalf("a never-measured command that needs 200M, charged 64M: code %d, err %v; want 0", code, err)
+	}
+	if got := b.peak("dd-unknown"); got < 200<<20 {
+		t.Fatalf("the peak recorded: %d, want at least 200M", got)
+	}
+}
+
+// TestSliceCapsTheBudget: the budget's commands together are capped at
+// the budget's memory, so a never-measured command that needs more than
+// the whole budget (200M of 128M) is killed by the slice, not the host,
+// and its real peak so far is recorded (mem.ergo RealWithinMemory).
+// Mutant: budget-no-slice-cap.
+func TestSliceCapsTheBudget(t *testing.T) {
+	if !scopes() {
+		t.Skip("needs the user's systemd for a scope")
+	}
+	b := testBudget(t, 2, 0, "memory 128M", "default-memory 64M")
+	ctx, cancel := testwait.Context(t, context.Background())
+	defer cancel()
+	argv := []string{"dd", "if=/dev/zero", "of=/dev/null", "bs=200M", "count=1"}
+	code, err := Run(ctx, b, Request{Width: 1, Lane: "over-budget", Key: "dd-over"}, argv, nil, io.Discard, io.Discard)
+	if err != nil || code != 137 {
+		t.Fatalf("a command past the 128M budget: code %d, err %v; want 137 (killed by the slice)", code, err)
+	}
 }
 
 // TestCrashFreesTheCores: a holder that dies without Release (its entry's
