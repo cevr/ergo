@@ -4,6 +4,7 @@ package lower
 
 import (
 	"go/constant"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -449,7 +450,7 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 				}
 				irNo("literal of a defined %T", tt.Underlying())
 			}
-			if len(x.Elts) != len(s.Fields) {
+			if len(x.Elts) > len(s.Fields) {
 				irNo("record literal without every field")
 			}
 			var values []syntax.Expr
@@ -500,6 +501,21 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 				}
 				lit.Elems[i] = b.intoSlot(td, t, names[i], values[i], lit.Elems[i]) // ir_field.go (OPC-ADAPT2)
 				plain = plain && lit.Elems[i] == e
+			}
+			// A field the literal leaves out takes its default (Defaults:
+			// Go's zero value, or an empty Map), which the decoder's every-field
+			// literal states (defaultOf, ir_letpat.go).
+			for _, f := range s.Fields {
+				if slices.Contains(names, f.Name) {
+					continue
+				}
+				goName, ok := td.fieldName[f.Name]
+				if !ok {
+					irNo("record literal without every field")
+				}
+				lit.Keys = append(lit.Keys, goName)
+				lit.Elems = append(lit.Elems, b.defaultOf(f.Type, x, p))
+				fts = append(fts, f.Type)
 			}
 			if plain {
 				lit.FT = b.recordFieldTypes(fts, x) // ir_forms_store.go
