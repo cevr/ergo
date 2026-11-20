@@ -484,6 +484,15 @@
       "killers": ["internal/sketch/eval:TestJSONAgreesWithRuntime"]
     },
     {
+      "name": "jsoncursor-stringbytes-drops",
+      "origin": "wf10 B24-ERGOTESTS r2",
+      "file": "internal/sketch/eval/nativesjson.go",
+      "from": "\t\treturn appendString(nil, args[0], s), nil\n",
+      "to": "\t\treturn args[0], nil\n",
+      "rule": "std json's Cursor.StringBytes in the evaluator adds the next string's bytes to into, as String reads them (GX12).",
+      "killers": ["internal/sketch/std/json:law:StringBytesReadsString"]
+    },
+    {
       "name": "oracle-o18-json-pair-split",
       "origin": "wf10 ORACLE O18",
       "file": "internal/sketch/eval/nativesjson.go",
