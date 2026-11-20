@@ -45,12 +45,17 @@ var kindsNames = []string{"VFunc", "VTest", "VLit", "law VLaw", "law Holder.VMem
 func kindsProgram(seed uint64) string {
 	r := rand.New(rand.NewPCG(seed, 0x6b696e64)) // "kind"
 	a := 1 + r.IntN(40)
-	type write struct{ stmt, fact string }
+	// Each write moves the copy's model: the first element's increment,
+	// the slice's and the Map's lengths.
+	type write struct {
+		stmt             string
+		add, slice, keys int
+	}
 	writes := []write{
-		{"y.S[0] = y.S[0] + 7", "y.S[0] == a + 7"},
-		{"y.bump(7)", "y.S[0] == a + 7"},
-		{"y.M = y.M.Put(\"z\", 1)", "len(y.M) == 2"},
-		{"y.S = y.S.Append(9)", "len(y.S) == 3"},
+		{stmt: "y.S[0] = y.S[0] + 7", add: 7},
+		{stmt: "y.bump(5)", add: 5},
+		{stmt: "y.M = y.M.Put(\"z\", 1)", keys: 1},
+		{stmt: "y.S = y.S.Append(9)", slice: 1},
 	}
 	r.Shuffle(len(writes), func(i, j int) { writes[i], writes[j] = writes[j], writes[i] })
 	ws := writes[:1+r.IntN(len(writes))]
@@ -61,12 +66,12 @@ func kindsProgram(seed uint64) string {
 	var body strings.Builder
 	fmt.Fprintf(&body, "\tlet %s\n", strings.Replace(src, ":=", "=", 1))
 	body.WriteString("\tlet mut y = x\n")
-	var facts []string
+	add, slice, keys := 0, 2, 1
 	for _, w := range ws {
 		fmt.Fprintf(&body, "\t%s\n", w.stmt)
-		facts = append(facts, w.fact)
+		add, slice, keys = add+w.add, slice+w.slice, keys+w.keys
 	}
-	check := "x.S[0] == a && len(x.S) == 2 && len(x.M) == 1 && " + strings.Join(facts, " && ")
+	check := fmt.Sprintf("x.S[0] == a && len(x.S) == 2 && len(x.M) == 1 && y.S[0] == a + %d && len(y.S) == %d && len(y.M) == %d", add, slice, keys)
 	var b strings.Builder
 	b.WriteString("type Bag { S []int, M Map[string, int] }\n\n")
 	b.WriteString("func mk(a int) Bag { Bag{S: []int{a, 1}, M: Map[string, int]{\"k\": a}} }\n\n")
