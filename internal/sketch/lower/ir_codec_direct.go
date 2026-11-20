@@ -89,3 +89,39 @@ func (b *irBuilder) directEncode(x *syntax.CallExpr, c *check.Call, via int, p i
 	}
 	return append(pre, &irStmt{K: "store", Pos: p, X: cell(), Y: write}), nil, true
 }
+
+// directDecode is decode[T](r) on direct reader via (wirereader.go): the
+// reader's own value, not the Reader adapter its operations conversion
+// would build, goes to T's decode function on that reader, as the
+// emitter's wireCall writes it on tc.reading(via):
+//
+//	v, err := read0T(env, r)
+//	v, err := wT.Read0(env, r) // T a type parameter
+//
+// Prior art: serde_json's derive is monomorphised over its own
+// Deserializer, and Go's encoding/json decodes through one concrete
+// decodeState: neither reads a token through an interface.
+func (b *irBuilder) directDecode(x *syntax.CallExpr, c *check.Call, via int, p irPos) ([]*irStmt, *irExpr, bool) {
+	var pre []*irStmt
+	if b.fc.frame.polls {
+		pre = append(pre, b.poll(x))
+	}
+	saved := b.raw
+	b.raw = x.Args[0] // the reader as it is (implicit, ir_union.go)
+	argPre, args := b.operands(x.Args)
+	b.raw = saved
+	pre = append(pre, argPre...)
+	env := &irExpr{K: "local", Pos: p, I: b.env}
+	if tp, isParam := c.Type.(*check.TypeParam); isParam {
+		fn := &irExpr{K: "field", Pos: p, Name: readField(via), X: b.codecWitness(tp, p)}
+		return pre, &irExpr{K: "vcall", Pos: p, X: fn, Args: []*irExpr{env, args[0]}}, true
+	}
+	lead := []*irExpr{env}
+	var targs []string
+	for _, tp := range freeTypeParams(c.Type) {
+		lead = append(lead, b.codecWitness(tp, p))
+		targs = append(targs, b.goType(tp, x))
+	}
+	name := b.l.wireFunc(readDir(via), c.Type, x)
+	return pre, &irExpr{K: "call", Pos: p, Name: name, T: strings.Join(targs, ", "), Args: append(lead, args[0])}, true
+}

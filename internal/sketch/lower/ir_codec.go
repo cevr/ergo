@@ -38,8 +38,8 @@ func (b *irBuilder) codecCall(x *syntax.CallExpr, c *check.Call, p irPos) ([]*ir
 		}
 	} else if !failsHere(c) {
 		irNo("fallible call with an empty row at its site")
-	} else if _, direct := b.l.directReaderIndex(b.l.info, x.Args[0]); direct {
-		irNo("decode on a direct reader")
+	} else if via, direct := b.l.directReaderIndex(b.l.info, x.Args[0]); direct {
+		return b.directDecode(x, c, via, p) // ir_codec_direct.go
 	}
 	if _, cell := b.l.cellOf(referenceEvents); cell {
 		irNo("codec on a cell writer")
