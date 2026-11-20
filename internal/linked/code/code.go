@@ -35919,14 +35919,11 @@ type front struct {
 /*line codecli/cli.ergo:472:1*/
 func (front) of0(v asked_1) front { return front{tag: 0, p0: v.R, p1: v.JSON, p2: v.Yes} }
 
-/*line codecli/cli.ergo:472:1*/
-func (u front) as0() asked_1 { return asked_1{R: u.p0, JSON: u.p1, Yes: u.p2} }
+/*line codecli/cli.ergo:472:1*/ func (u front) as0() asked_1 { return asked_1{R: u.p0, JSON: u.p1, Yes: u.p2} }
 
-/*line codecli/cli.ergo:472:1*/
-func (front) of1(v ended) front { return front{tag: 1, p3: v.O} }
+/*line codecli/cli.ergo:472:1*/ func (front) of1(v ended) front { return front{tag: 1, p3: v.O} }
 
-/*line codecli/cli.ergo:472:1*/
-func (u front) as1() ended { return ended{O: u.p3} }
+/*line codecli/cli.ergo:472:1*/ func (u front) as1() ended { return ended{O: u.p3} }
 
 /*line codecli/cli.ergo:472:1*/
 func (x front) ErgoVariant() string { return [...]string{"asked", "ended"}[x.tag] }
@@ -36677,26 +36674,19 @@ type Op struct {
 /*line codeapi/api.ergo:17:104*/
 func (Op) of0(_ DescribeOp) Op { return Op{tag: 0} }
 
-/*line codeapi/api.ergo:17:104*/
-func (Op) of1(_ SymbolsOp) Op { return Op{tag: 1} }
+/*line codeapi/api.ergo:17:104*/ func (Op) of1(_ SymbolsOp) Op { return Op{tag: 1} }
 
-/*line codeapi/api.ergo:17:104*/
-func (Op) of2(_ SymbolOp) Op { return Op{tag: 2} }
+/*line codeapi/api.ergo:17:104*/ func (Op) of2(_ SymbolOp) Op { return Op{tag: 2} }
 
-/*line codeapi/api.ergo:17:104*/
-func (Op) of3(_ ReferencesOp) Op { return Op{tag: 3} }
+/*line codeapi/api.ergo:17:104*/ func (Op) of3(_ ReferencesOp) Op { return Op{tag: 3} }
 
-/*line codeapi/api.ergo:17:104*/
-func (Op) of4(_ CallsOp) Op { return Op{tag: 4} }
+/*line codeapi/api.ergo:17:104*/ func (Op) of4(_ CallsOp) Op { return Op{tag: 4} }
 
-/*line codeapi/api.ergo:17:104*/
-func (Op) of5(_ ApiOp) Op { return Op{tag: 5} }
+/*line codeapi/api.ergo:17:104*/ func (Op) of5(_ ApiOp) Op { return Op{tag: 5} }
 
-/*line codeapi/api.ergo:17:104*/
-func (Op) of6(_ ReachOp) Op { return Op{tag: 6} }
+/*line codeapi/api.ergo:17:104*/ func (Op) of6(_ ReachOp) Op { return Op{tag: 6} }
 
-/*line codeapi/api.ergo:17:104*/
-func (Op) of7(_ MachineOfOp) Op { return Op{tag: 7} }
+/*line codeapi/api.ergo:17:104*/ func (Op) of7(_ MachineOfOp) Op { return Op{tag: 7} }
 
 /*line codeapi/api.ergo:17:104*/
 func (x Op) ErgoVariant() string {
