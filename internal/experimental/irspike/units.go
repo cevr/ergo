@@ -37,7 +37,7 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"let of a default *", "G1"}, // F7 letpat (ir_letpat.go)
 	{"expression *syntax.SliceExpr", "G1"},
 	{"type *check.Array", "G1"},
-	{"literal of *check.Array", "G1"}, // lane B's wf10/f7b-conv builds it (ir_defined.go)
+	{"literal of an array whose default holds a Map", "G1"}, // INDEX-NONSLICE: the emitter's default, built in a loop
 	{"index of a non-slice", "G1"},
 	{"index form", "G1"},
 	{"len of a non-slice", "G1"},
@@ -208,7 +208,6 @@ var reasonUnits = []struct{ prefix, unit string }{
 	// leaf's generic function named by a generic body's type parameters.
 	{"record field of a converted value", "G4"},
 	{"runtime leaf's generic function in a generic body", "G4"},
-	{"literal of *check.Array", "G1"}, // as "type *check.Array": F7's arrays have no literal yet
 	{"type *check.Map", "G4"},
 	{"type *check.Union", "G4"}, // an anonymous union as a type argument (IRG4b instances)
 	// IRG4b r2: operation-type values and their calls, std operations.
@@ -282,6 +281,10 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"encode on a direct writer", "G6"},
 	// JVD-DIRECT: the IR declines a direct reader's decode as it declines the direct writer's encode.
 	{"decode on a direct reader", "G6"},
+	// XML-ATTR: the IR's check wants a codec's reader or writer as the
+	// prelude's own type; another operation interface waits for IR's
+	// interface-to-interface conversion.
+	{"operation interface to another interface", "IFACE-CONV"},
 	{"call kind 12", "G6"}, // CallEmbed
 	{"call kind 13", "G6"}, // CallPattern: a refinement's matches(it, `…`)
 	{"call kind 9", "G6"},  // CallGoError
