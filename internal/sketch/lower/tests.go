@@ -92,6 +92,16 @@ type testLowering struct {
 	importLaws []check.LawRun
 }
 
+// fresh is a record for a lowering that starts again (a round of
+// lowerIRRounds, flatunion.go lowerAgain): the unit's inputs t was made
+// with, and nothing a lowering emitted or set; nil for nil.
+func (t *testLowering) fresh() *testLowering {
+	if t == nil {
+		return nil
+	}
+	return &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}, instances: t.instances, posts: t.posts, importLaws: t.importLaws}
+}
+
 // LowerTests lowers the checked unit to the Go module of its test binary:
 // the package as Lower lowers it, each test as a Go function, and a main
 // that runs the tests (see Test mode). It takes the unit Lower takes.
