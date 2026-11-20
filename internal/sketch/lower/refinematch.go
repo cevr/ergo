@@ -62,6 +62,18 @@ func (fc *funcCtx) patternCall(x *syntax.CallExpr, c *check.Call) operand {
 	return operand{val: fc.l.patternMatcher(c.Pattern) + "(" + arg + ")"}
 }
 
+// patternCall is the IR of the pattern call x, as the emitter's
+// patternCall writes it: the package's matcher (written once, into the
+// generated part) called on its first argument as a string. It reads
+// nothing but its argument, so it is pure.
+func (b *irBuilder) patternCall(x *syntax.CallExpr, c *check.Call, p irPos) ([]*irStmt, *irExpr, bool) {
+	pre, v := b.value(x.Args[0])
+	if !isPlainString(b.l.info.Types[x.Args[0]]) {
+		v = &irExpr{K: "conv", Pos: p, T: "string", X: v}
+	}
+	return pre, &irExpr{K: "call", Pos: p, Name: b.l.patternMatcher(c.Pattern), Args: []*irExpr{v}}, false
+}
+
 // isPlainString reports the predeclared string type.
 func isPlainString(t check.Type) bool {
 	b, ok := t.(*check.Basic)
