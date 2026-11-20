@@ -99,6 +99,14 @@ type IRReport struct {
 	// FailJumps counts the inlined failures that jump to their catch arm
 	// (FAIL-INLINE, ir_forms_failjump.go).
 	FailJumps int `json:"-"`
+	// InlinedReturns counts the inlined calls in return position, whose
+	// copy's returns and failures are the caller's own (INLINE-RETURN,
+	// ir_forms_inline.go); Inlined counts them too.
+	InlinedReturns int `json:"-"`
+	// TailPairs counts the returns of a fallible call's value and error
+	// in an inlined fallible body, bound at the site's value and error
+	// (INLINE-RETURN, ir_forms_inline.go irRets).
+	TailPairs int `json:"-"`
 	// CatchTreeDefects counts the full catches with patterns whose tree's
 	// exit panics with the unreachable defect (FAIL-ELIDE-PAT, ir_fail.go).
 	CatchTreeDefects int `json:"-"`
@@ -506,6 +514,10 @@ type irStmt struct {
 	// memory only (ir_forms_variant.go); an arm's Bind is only whether
 	// its case's body starts with the binding.
 	Was *irMatch `json:"-"`
+	// Pair marks a "ret" of a fallible Ergo call's value and error as
+	// they are (ir_fail.go retOf), in memory only: an inlined copy binds
+	// both at its site (ir_forms_inline.go irRets).
+	Pair bool `json:"-"`
 }
 
 type irExpr struct {

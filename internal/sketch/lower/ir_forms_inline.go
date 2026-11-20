@@ -17,7 +17,7 @@ package lower
 //     parameter (IRF-3b places a known function argument), the site in
 //     the program's sources (its call is in the call table); a callee
 //     with a failure row only where its call binds a value and an error
-//     (def2);
+//     (def2) or is returned as it is;
 //   - the pass (inlineBodies) replaces each marked call that is a whole
 //     statement (`x := f(…)`, `x = f(…)`, `x, err := f(…)`, `f(…)`) with
 //     a copy of the callee's IR body in a block: each parameter bound to
@@ -26,7 +26,15 @@ package lower
 //     apart, its type parameters replaced by the call's type arguments,
 //     each return an assignment and a goto past the block (the block's
 //     last return falls through), each failure an assignment of the
-//     site's error and the same goto. The copy's own marked calls are
+//     site's error and the same goto; a return of a fallible call's
+//     value and error as they are (`return f(…)`, marked Pair) binds
+//     both to temporaries the site's value and error then take. A call
+//     that is itself returned (`return f(…)`, outside a function
+//     literal) is replaced the same way, but the copy's returns and
+//     failures stay the frame's own: no assignment, no goto
+//     (INLINE-RETURN). Copied into a def2 site, such a copy's failures
+//     become the site's and so still jump to its catch arm, through a
+//     chain of tail calls. The copy's own marked calls are
 //     inlined in it, at most inlineDepth deep and inlineGrowth body nodes
 //     per function, as the text path's growth rule allows;
 //   - a value lands in place, as the text path yields a call's value to
@@ -48,7 +56,9 @@ package lower
 //
 // The reference is irInlineLowering "off"
 // (-ldflags=-X=ergo.local/prototype/internal/sketch/lower.irInlineLowering=off):
-// every call stays a call.
+// every call stays a call. irInlineReturnLowering "off" keeps only the
+// INLINE-RETURN cases calls: a call in return position, and a fallible
+// body that returns a fallible call's pair.
 //
 // Prior art: OCaml's flambda and GHC inline by size on their own IR before
 // the backend; ReScript inlines small functions across modules before it
@@ -67,6 +77,24 @@ var irInlineLowering string
 
 // IRInlineOn reports that the IR inlines (the property's reach check).
 func IRInlineOn() bool { return irInlineLowering != "off" }
+
+// irInlineReturnLowering is "off" for the reference (INLINE-RETURN): a
+// call in return position stays a call, and a fallible body that returns
+// a fallible call's value and error as they are is not copied.
+var irInlineReturnLowering string
+
+// IRInlineReturnOn reports that calls in return position are inlined
+// (the property's reach check).
+func IRInlineReturnOn() bool { return irInlineReturnLowering != "off" }
+
+// SetInlineReturnLoweringForTest sets irInlineReturnLowering ("" or
+// "off") and returns the previous mode, for a property that lowers the
+// same program both ways in one process.
+func SetInlineReturnLoweringForTest(mode string) string {
+	prev := irInlineReturnLowering
+	irInlineReturnLowering = mode
+	return prev
+}
 
 // irInline is the pass's state: the marked calls and every built body's
 // parameters.
@@ -317,6 +345,7 @@ type irPath struct {
 	parent, depth int
 	loop, cold    bool
 	spent         int
+	lit           bool // in a function literal's body: its return is the literal's
 }
 
 // stmts inlines the marked whole-statement calls of list, on the path p
@@ -352,8 +381,10 @@ func (in *irInliner) nested(s *irStmt, p irPath) {
 	for _, c := range s.Cases {
 		c.Body = in.stmts(c.Body, p)
 	}
+	lit := p
+	lit.lit = true
 	irLiterals(s, func(e *irExpr) {
-		e.Body = in.stmts(e.Body, p)
+		e.Body = in.stmts(e.Body, lit)
 	})
 }
 
@@ -364,14 +395,18 @@ func (in *irInliner) splice(s *irStmt, p *irPath) []*irStmt {
 		return nil
 	}
 	mode := s.K
-	if mode != "def" && mode != "set" && mode != "expr" && (mode != "def2" || s.Val == nil) {
+	// A call in return position (INLINE-RETURN): the copy's returns and
+	// failures are the frame's own, so they stay as they are; not in a
+	// function literal, whose frame has its own return convention.
+	ret := mode == "ret" && irInlineReturnLowering != "off" && !p.lit
+	if mode != "def" && mode != "set" && mode != "expr" && (mode != "def2" || s.Val == nil) && !ret {
 		return nil
 	}
 	site := in.st.inl.sites[s.X]
-	if site != nil && site.fallible != (mode == "def2") {
+	if site != nil && !ret && site.fallible != (mode == "def2") {
 		return nil
 	}
-	if site == nil || !site.pays(site.loop || p.loop) || p.spent+site.size > inlineGrowth {
+	if site == nil || !site.pays(site.loop || p.loop) || p.spent+site.size > inlineGrowth || ret && site.fallible != s.Pair {
 		return nil
 	}
 	callee, frame := in.orig[site.key], in.st.inl.bodies[site.key]
@@ -389,6 +424,9 @@ func (in *irInliner) splice(s *irStmt, p *irPath) []*irStmt {
 	}
 	if mode != "expr" && len(site.f.Sig.Results) != 1 {
 		return nil
+	}
+	if mode == "def2" && irInlineReturnLowering != "off" && in.localType(s.Local) == "" {
+		return nil // a returned pair's temporary takes the site's type (irRets)
 	}
 	n := len(in.l.inlineSites)
 	id, parent := strconv.Itoa(n), n+1 // the copy's names; the site its lines are in
@@ -443,6 +481,9 @@ func (in *irInliner) splice(s *irStmt, p *irPath) []*irStmt {
 	}
 	p.spent += site.size
 	in.count++
+	if ret {
+		in.st.report.InlinedReturns++
+	}
 	ren := map[int]int{}
 	for i, a := range args {
 		if subst[i] != nil {
@@ -474,7 +515,7 @@ func (in *irInliner) splice(s *irStmt, p *irPath) []*irStmt {
 	body := in.clone(callee.Body, cp)
 	body = in.stmts(body, irPath{parent: parent, depth: p.depth + 1, loop: p.loop || site.loop, spent: p.spent})
 	end := "inl" + id
-	r := &irRets{mode: mode, local: s.Local, label: end}
+	r := &irRets{in: in, mode: mode, local: s.Local, label: end}
 	if s.Val != nil {
 		r.err = *s.Val
 	}
@@ -757,8 +798,11 @@ func irInlinable(body []*irStmt, result, fallible bool) bool {
 			ok = false // a failure of a type the IR does not spell
 		case s.K == "ret" && !lit:
 			ret = true
-			if fallible && s.X != nil && (s.X.K == "call" || s.X.K == "mcall" || s.X.K == "pcall" || s.X.K == "vcall") {
-				ok = false // return f(…): a pair or an error, by a type the IR does not spell
+			if fallible && s.X != nil && (s.X.K == "call" || s.X.K == "mcall" || s.X.K == "pcall" || s.X.K == "vcall") && (!s.Pair || irInlineReturnLowering == "off") {
+				// return f(…): a pair or an error, by a type the IR does
+				// not spell; but a fallible Ergo call's value and error
+				// (Pair) bind at the site (irRets, INLINE-RETURN).
+				ok = false
 			}
 		}
 	}, func(e *irExpr, _ bool) {
@@ -1028,6 +1072,7 @@ func irIdentStart(c byte) bool {
 // set) or dropped (expr), then a goto past the block; the copy's last
 // top-level return falls through.
 type irRets struct {
+	in    *irInliner
 	mode  string
 	local int
 	err   int // the error local of a def2
@@ -1037,8 +1082,32 @@ type irRets struct {
 }
 
 func (r *irRets) stmts(list []*irStmt, top bool) []*irStmt {
+	if r.mode == "ret" {
+		// A call in return position: the copy's returns and failures
+		// are the frame's own (INLINE-RETURN).
+		return list
+	}
 	var out []*irStmt
 	for i, s := range list {
+		if s.K == "ret" && s.Pair && r.mode == "def2" {
+			// `return f(…)` of a fallible call: its value and error,
+			// bound to temporaries of the site's types, are the site's
+			// (INLINE-RETURN). A failure set this way is no variant
+			// built in place, so failJumps leaves the site's check.
+			p := s.Pos
+			v := r.in.newLocal("tv"+strconv.Itoa(len(r.in.extra)), r.in.localType(r.local), p)
+			e := r.in.newLocal("te"+strconv.Itoa(len(r.in.extra)), "error", p)
+			out = append(out,
+				&irStmt{K: "def2", Pos: p, Local: v, Val: &e, X: s.X},
+				&irStmt{K: "set", Pos: p, Local: r.local, X: &irExpr{K: "local", Pos: p, I: v}},
+				&irStmt{K: "set", Pos: p, Local: r.err, X: &irExpr{K: "local", Pos: p, I: e}})
+			r.in.st.report.TailPairs++
+			if !top || i != len(list)-1 {
+				r.gotos++
+				out = append(out, &irStmt{K: "goto", Pos: p, Label: r.label})
+			}
+			continue
+		}
 		if s.K == "fail" && r.mode == "def2" {
 			out = append(out, &irStmt{K: "set", Pos: s.Pos, Local: r.err, X: irFailValue(s.X)})
 			if !top || i != len(list)-1 {
