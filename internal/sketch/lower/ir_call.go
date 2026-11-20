@@ -7,8 +7,11 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-func (b *irBuilder) poll(site syntax.Node) *irStmt {
-	p := b.pos(site, site.Pos())
+func (b *irBuilder) poll(site syntax.Node) *irStmt { return b.pollAt(site, site.Pos()) }
+
+// pollAt is the poll at position at of site.
+func (b *irBuilder) pollAt(site syntax.Node, at syntax.Pos) *irStmt {
+	p := b.pos(site, at)
 	task := &irExpr{K: "field", Pos: p, Name: envTask, X: &irExpr{K: "local", Pos: p, I: b.env}}
 	return &irStmt{K: "expr", Pos: p, X: &irExpr{K: "mcall", Pos: p, Name: "Check", X: task}}
 }
