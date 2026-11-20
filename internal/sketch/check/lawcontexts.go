@@ -36,7 +36,7 @@ type LawContext struct {
 // only such contexts here. It runs after the ownership pass, so the
 // acquisitions and Closes are known.
 func (c *checker) planLawContexts() {
-	c.lawProviderFixes()
+	defer c.reportUnfedProviders()
 	if len(c.pkg.Contexts) == 0 {
 		return
 	}
@@ -70,6 +70,14 @@ func (c *checker) planLawContexts() {
 			}
 			if len(under) == 0 {
 				continue
+			}
+			for _, lc := range under {
+				if lc.Unrun == "" {
+					e := lc.With.Entries[0]
+					if info := providerInfo(c.contextOwners.of[e]); info != nil && e.Provider != nil {
+						c.pkg.fed = append(c.pkg.fed, fedBinding{law: law, provider: info.Types[e.Provider]})
+					}
+				}
 			}
 			if i, ok := runs[law]; ok {
 				r := &c.pkg.LawRuns[i]
@@ -162,6 +170,14 @@ func (c *checker) lawContext(law *Law, w *Context) (LawContext, bool) {
 		for i, p := range law.Params {
 			if why := c.ungeneratableFrom(params[i], law.Pkg); why != "" {
 				lc.Unrun = "its parameter " + p.Name + " has no generator at " + cap.String() + ": " + why
+				// The context binds the instance, and no case of the law
+				// can be fed under it (LAW-UNFED).
+				if w.file != nil && w.Decl != nil {
+					saved := c.cur
+					c.cur = w.file
+					c.errorf(w.Decl.Name, CodeType, "law %s cannot run under context %s: %s (types.md, Laws 10)", law.Title(c.pkg), w.Name, lc.Unrun)
+					c.cur = saved
+				}
 				break
 			}
 		}

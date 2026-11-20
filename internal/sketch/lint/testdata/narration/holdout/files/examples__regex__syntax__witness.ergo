@@ -42,7 +42,7 @@ func Clash(seed int) Clashing {
 }
 
 // ctree is a checked tree of at most depth levels.
-func ctree(l *labeler, depth int) Node {
+func ctree(l mut labeler, depth int) Node {
 	if depth <= 1 {
 		return l.g.leaf()
 	}
@@ -79,7 +79,7 @@ func ctree(l *labeler, depth int) Node {
 // at most one group that no other of its groups holds, so it can be the
 // operand of any repeat: two such groups go inside a new one, as in
 // (?<g4>(?<g2>a)(?<g3>b))*.
-func solid(l *labeler, depth int) Node {
+func solid(l mut labeler, depth int) Node {
 	let mut t = l.ctree(depth)
 	if Nullable(t) {
 		t = Cat{Parts: []Node{t, l.g.leaf()}}
@@ -147,7 +147,7 @@ func Witness(n Node, seed int) string {
 }
 
 // word is a text that n matches.
-func word(g *source, n Node) string {
+func word(g mut source, n Node) string {
 	match n {
 	case Empty:
 		""
@@ -180,7 +180,7 @@ func word(g *source, n Node) string {
 }
 
 // copies is k texts that of matches, one after another.
-func copies(g *source, of Node, k int) string {
+func copies(g mut source, of Node, k int) string {
 	let mut out = ""
 	for _ in 0..k {
 		out = out + g.word(of)
@@ -190,7 +190,7 @@ func copies(g *source, of Node, k int) string {
 
 // classMember is a byte that k matches, as text: one of the alphabet when
 // k has one, else the first byte it has. k matches some byte.
-func classMember(g *source, k Class) string {
+func classMember(g mut source, k Class) string {
 	let start = g.next(len(alphabet))
 	for d in 0..len(alphabet) {
 		// Store len alphabet in start

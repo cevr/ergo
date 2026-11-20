@@ -159,8 +159,8 @@ func (b *irBuilder) withOperand(x *syntax.CallExpr, i int, w *check.With, ret bo
 // for a value of the program whose type's functions provide the
 // operations, &A{v: e} for a sealed std value, as the operation type.
 // The emitter declares the adapter; the IR builds its literal. A value
-// whose type is already an interface is itself; a script's, a type
-// parameter's, a generic adapter's and one with witnesses stay the
+// whose type is already an interface is itself; a Script's is &A{v: e}.
+// A type parameter's, a generic adapter's and one with witnesses stay the
 // emitter's.
 func (b *irBuilder) opsConv(conv check.Conversion, e *irExpr, x syntax.Expr) *irExpr {
 	l := b.l
@@ -179,7 +179,16 @@ func (b *irBuilder) opsConv(conv check.Conversion, e *irExpr, x syntax.Expr) *ir
 		return &irExpr{K: "toiface", Pos: e.Pos, T: t, X: e}
 	}
 	if check.ScriptOf(conv.From) != nil {
-		irNo("operations conversion of a script")
+		// A Script's adapter holds the Script alone (the emitter's
+		// scriptOperations): &A{v: e}, as the operation type.
+		b.fc.operations(conv, "_", x)
+		key, _, ok := l.adapterName(conv)
+		name := l.adapters[key]
+		if !ok || name == "" {
+			irNo("operations conversion of a script")
+		}
+		lit := &irExpr{K: "lit", Pos: e.Pos, T: name, Keys: []string{"v"}, Elems: []*irExpr{e}}
+		return &irExpr{K: "toiface", Pos: e.Pos, T: b.goType(conv.To, x), X: &irExpr{K: "addr", Pos: e.Pos, X: lit}}
 	}
 	from, _ := conv.From.(*check.Named)
 	sealed := from != nil && l.runtimeNamed(from, x)
