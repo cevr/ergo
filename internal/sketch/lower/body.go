@@ -842,6 +842,9 @@ func (fc *funcCtx) lawResult(x syntax.Expr, val, err string) string {
 	if err != "nil" {
 		cond = err + " == nil && " + cond
 	}
+	if fc.l.tests.law.Admits != nil {
+		return held // an admission's false only skips its case (lawnear.go)
+	}
 	fc.line("if " + cond + " { " + fc.l.helper("Refuted") + "(" + fc.resultSite(x) + ", " + strconv.Quote(fc.l.siteText(fc.l.tests.law.Decl)) + ") }")
 	return held
 }

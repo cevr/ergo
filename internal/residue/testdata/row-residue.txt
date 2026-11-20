@@ -61,6 +61,7 @@ internal/sketch/std/ui/testhost.ergo	needs R, clock time.Manual
 internal/sketch/std/ui/zone.ergo	needs R, at CallSite
 internal/sketch/std/ui/presence.ergo	needs R, at CallSite
 internal/sketch/std/ui/focus.ergo	needs R, at CallSite
+internal/sketch/std/ui/layer.ergo	needs R, at CallSite
 internal/sketch/lower/testdata/mutants.json	needs R, s S
 internal/sketch/lower/testdata/mutants.json	needs R, clock time.Manual
 internal/sketch/lower/testdata/mutants.json	needs R, at CallSite
