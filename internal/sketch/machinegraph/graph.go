@@ -422,6 +422,17 @@ func patternVariants(p *check.Pattern) ([]string, bool) {
 	case check.PatWildcard, check.PatBind:
 		return nil, false
 	case check.PatTypeTest:
+		if n, ok := p.Type.(*check.Named); ok {
+			if u, ok := n.Underlying().(*check.Union); ok {
+				// A sub-union's test, `case A as a`, takes each of A's
+				// variants (types.md, Unions 1).
+				names := make([]string, len(u.Variants))
+				for i, v := range u.Variants {
+					names[i] = Name(v)
+				}
+				return names, false
+			}
+		}
 		return []string{Name(p.Type)}, false
 	case check.PatRecord:
 		partial := false

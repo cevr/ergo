@@ -1146,7 +1146,10 @@ func (c *checker) defParams(ft *syntax.FuncType, sig *Signature) {
 
 func (c *checker) unionType(n *Named, spec *syntax.InterfaceType, ctx *typeCtx) Type {
 	u := &Union{}
-	seen := map[int32]bool{}
+	// seen holds the variants so far; written, those written in this
+	// declaration. A variant reached through a listed union and again is
+	// one variant (a union is a set); one written twice is S108.
+	seen, written := map[int32]bool{}, map[int32]bool{}
 	for _, x := range spec.Union {
 		t := c.typExpr(x, ctx)
 		if isInvalid(t) {
@@ -1160,18 +1163,31 @@ func (c *checker) unionType(n *Named, spec *syntax.InterfaceType, ctx *typeCtx) 
 			continue
 		}
 		if p := vn.origin().Obj.Pkg; p != c.pkg {
-			if isUnion(t) {
-				c.errorf(x, CodeType, "a union variant is a record declared in this package, not %s (types.md, Unions 1)", t)
-				u.Bad = true
-				continue
-			}
 			// A union's variants are records of its package (196b Q8, a
 			// permanent rule): a union's marker is a function of the
 			// variant's type, and a type's functions live in the package
-			// that declares it (196m). An error row still names a foreign
-			// error type directly.
+			// that declares it (196m). So another package's union, as its
+			// record, is wrapped. An error row still names a foreign error
+			// type directly.
 			c.errorf(x, CodeType, "a union's variants are records of its package; wrap %s: type %s = … | %s{ Cause %s }", t, n.Obj.Name, vn.origin().Obj.Name, t)
 			u.Bad = true
+			continue
+		}
+		if listed, ok := c.listedUnion(n, vn, x); ok {
+			// A union of this package listed in a union means its
+			// variants, in its order (types.md, Unions 1; DECL-VALUES
+			// Design B (b)).
+			if listed == nil {
+				u.Bad = true
+				continue
+			}
+			u.Bad = u.Bad || listed.Bad
+			for _, v := range listed.Variants {
+				if key := c.types.id(v); !seen[key] {
+					seen[key] = true
+					u.Variants = append(u.Variants, v)
+				}
+			}
 			continue
 		}
 		// The variant's kind comes from its declaration, so a variant that is
@@ -1186,8 +1202,12 @@ func (c *checker) unionType(n *Named, spec *syntax.InterfaceType, ctx *typeCtx) 
 			continue
 		}
 		key := c.types.id(t)
-		if seen[key] {
+		if written[key] {
 			c.errorf(x, CodeType, "variant %s is listed twice", t)
+			continue
+		}
+		written[key] = true
+		if seen[key] {
 			continue
 		}
 		seen[key] = true
@@ -1200,6 +1220,28 @@ func (c *checker) unionType(n *Named, spec *syntax.InterfaceType, ctx *typeCtx) 
 		return invalid
 	}
 	return u
+}
+
+// listedUnion is the union vn, of this package, that the declaration of n
+// lists at x: ok when vn is declared as a union of two or more entries
+// (one entry is an alias, which resolves to its target), and nil when it
+// has no variants to give: refused at its own declaration, or a listing
+// cycle, reported here (S108, as an alias cycle is).
+func (c *checker) listedUnion(n, vn *Named, x syntax.Expr) (*Union, bool) {
+	o := vn.origin()
+	decl := o.Obj.Decl
+	if decl == nil {
+		return nil, false
+	}
+	if it, isUnion := decl.Spec.(*syntax.InterfaceType); !isUnion || len(it.Union) == 0 || aliasTarget(decl) != nil {
+		return nil, false
+	}
+	if o.state == 1 {
+		c.errorf(x, CodeType, "%s lists %s, which lists %s: a union that lists itself has no variants (types.md, Unions 1)", n.Obj.Name, o.Obj.Name, n.Obj.Name)
+		return nil, true
+	}
+	c.resolveNamed(o)
+	return asUnion(vn), true
 }
 
 // ---------------------------------------------------------------- type expressions

@@ -3405,6 +3405,39 @@
     {"name":"np4furl-fresh-not-go-call","origin":"wf10 NP4f-URL (NS lane)","file":"internal/sketch/check/gofresh.go","from":"\tif call == nil || !c.goCall(call) {\n","to":"\tif call == nil {\n","rule":"interop.md Checking 4: a go.Ref an Ergo function returns is no fresh handle; only a pure-tier Go call's result is.","anchor":{"tests":["check:TestGoFreshRefFields"]},"killers":["check:TestGoFreshRefFields"]},
     {"name":"np4furl-fresh-foreign-call","origin":"wf10 NP4f-URL (NS lane)","file":"internal/sketch/check/gofresh.go","from":"\tif sig == nil || !sig.Uses.Empty() {\n","to":"\tif sig == nil {\n","rule":"interop.md Checking 4: a go.Ref a Go call that needs go.Foreign returns is no fresh handle.","anchor":{"tests":["check:TestGoFreshRefFields"]},"killers":["check:TestGoFreshRefFields"]},
     {"name":"np4furl-fresh-captured","origin":"wf10 NP4f-URL (NS lane)","file":"internal/sketch/check/gofresh.go","from":"\t\t\t\tif id, is := m.(*syntax.Ident); is && id.Name == name {\n\t\t\t\t\tok = false\n","to":"\t\t\t\tif id, is := m.(*syntax.Ident); is && id.Name == name && false {\n\t\t\t\t\tok = false\n","rule":"interop.md Checking 4: a go.Ref a function literal captures is no fresh handle.","anchor":{"tests":["check:TestGoFreshRefFields"]},"killers":["check:TestGoFreshRefFields"]},
-    {"name":"np4furl-fresh-never","origin":"wf10 NP4f-URL (NS lane)","file":"internal/sketch/check/gobinding.go","from":"\t\t\tif shared && !c.freshOperand(x.X) {\n","to":"\t\t\tif shared {\n","rule":"interop.md Checking 4: a field read through a fresh handle charges nothing.","anchor":{"tests":["check:TestGoFreshRefFields"]},"killers":["check:TestGoFreshRefFields"]}
+    {"name":"np4furl-fresh-never","origin":"wf10 NP4f-URL (NS lane)","file":"internal/sketch/check/gobinding.go","from":"\t\t\tif shared && !c.freshOperand(x.X) {\n","to":"\t\t\tif shared {\n","rule":"interop.md Checking 4: a field read through a fresh handle charges nothing.","anchor":{"tests":["check:TestGoFreshRefFields"]},"killers":["check:TestGoFreshRefFields"]},
+    {
+      "name": "uflat-other-pkg",
+      "origin": "wf10 UNION-FLAT (DECL-VALUES §6 unit 1)",
+      "file": "internal/sketch/check/decl.go",
+      "from": "\t\tif p := vn.origin().Obj.Pkg; p != c.pkg {\n\t\t\t// A union's variants are records of its package (196b Q8, a",
+      "to": "\t\tif p := vn.origin().Obj.Pkg; p != c.pkg && !isUnion(t) {\n\t\t\t// A union's variants are records of its package (196b Q8, a",
+      "rule": "types.md Unions 1: only a union of this package may be listed; another package's union is S108 with the wrap text.",
+      "killers": [
+        "cmd/ergo:TestCheckerFixtures"
+      ]
+    },
+    {
+      "name": "uflat-narrow-total",
+      "origin": "wf10 UNION-FLAT (DECL-VALUES §6 unit 1)",
+      "file": "internal/sketch/check/switchunion.go",
+      "from": "\t\t\treturn variantSet, set, t\n",
+      "to": "\t\t\treturn variantSet, append(set, (set[len(set)-1]+1)%u.len()), t\n",
+      "rule": "types.md Unions 4: case A as a covers exactly A's variants, never one outside A.",
+      "killers": [
+        "cmd/ergo:TestCheckerFixtures"
+      ]
+    },
+    {
+      "name": "uflat-dup-variant",
+      "origin": "wf10 UNION-FLAT (DECL-VALUES §6 unit 1)",
+      "file": "internal/sketch/check/decl.go",
+      "from": "\t\t\t\tif key := c.types.id(v); !seen[key] {\n",
+      "to": "\t\t\t\tif key := c.types.id(v); true {\n",
+      "rule": "types.md Unions 1: a variant reached twice, through a listed union and again, is one variant.",
+      "killers": [
+        "cmd/ergo:TestCheckerFixtures"
+      ]
+    }
   ]
 }
