@@ -203,6 +203,23 @@ law DrainReleasesLeft(n int) {
 // is a defect.
 extern go ergo.local/prototype/runtime/v1.New func New[T own](capacity int) Queue[T]
 
+// SlidingKeepsTheNewest: Slide into a queue of capacity c never waits and
+// leaves the last c values sent, in order.
+law SlidingKeepsTheNewest(xs []int, c int) {
+	let capacity = 1 + (c%4+4)%4
+	let q = New[int](capacity)
+	for x in xs {
+		try q.Slide(x)
+	}
+	q.End()
+	let from = if len(xs) > capacity { len(xs) - capacity } else { 0 }
+	let mut ok = q.Len() == len(xs)-from
+	for i in from..len(xs) {
+		ok = ok && try q.Pop() == xs[i]
+	}
+	ok
+}
+
 // DroppingKeepsTheOldest: Offer into a queue of capacity c keeps the first
 // c values and fails Full on each later one; Pop then gives the kept
 // values in order.
