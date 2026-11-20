@@ -313,11 +313,11 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		if sp := b.copyCall(x, c); sp != "" {
 			// The copy for the known record or provider: one instance
 			// (ir_known.go), a provider's adapter at its parameter.
-			at := 0
-			if !fd.envFree {
-				at = 1
+			env := 1
+			if fd.envFree {
+				env = 0
 			}
-			return pre, mark(&irExpr{K: "call", Pos: p, Name: sp, Args: b.provArg(x, c, irArgs, at)}), !fd.envFree
+			return pre, mark(&irExpr{K: "call", Pos: p, Name: sp, Args: b.provArg(x, c, irArgs, env)}), !fd.envFree
 		}
 		return pre, b.droppedCall(x, c, fd, b.inlineMark(x, c, fd, mark(&irExpr{K: "call", Pos: p, Name: b.ownedCallName(x, f, fd.name), T: b.typeArgs(c, x), Args: irArgs}))), !fd.envFree // ir_forms_inline.go, ir_forms_drop.go
 	case check.CallOp:

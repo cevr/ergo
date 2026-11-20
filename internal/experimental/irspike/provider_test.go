@@ -16,7 +16,7 @@ import (
 // these programs only a copy's adapter parameter would be one (provRead),
 // and every use of it in a copy is an operation call's receiver or an
 // argument at a copy's parameter, which take the adapter's pointer.
-var ifaceLocal = regexp.MustCompile(`"k":"toiface","pos":\{[^{}]*\},"t":"[^"]*","x":\{"k":"local"`)
+var ifaceLocal = regexp.MustCompile(`"k":"toiface","pos":\[[^\]]*\],"t":"[^"]*","x":\{"k":"local"`)
 
 // TestIRProvidersMatchSource is the agreement property of the copies for
 // known providers on IR (PORT-INSTCOPY; lower/ir_known.go): each program
