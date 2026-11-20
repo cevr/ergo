@@ -594,14 +594,14 @@ func mouse[E comparable, S, D, F](d mut Driver[S, E, D, F], input screen.Input) 
 		case Some[ui.Id[E]] as a:
 			try point(d, a.Value, input, ui.Down)
 		case None:
-			match hit {
-			case Some[ui.Id[E]] as id:
-				if isArea(nodeOf(d, id.Value)) {
-					d.captured = hit
-					try point(d, id.Value, input, ui.Down)
-				}
-			case None:
+			// Every Down goes to the node under the pointer, whatever its
+			// kind, so the session's hover and its Areas' crossings follow
+			// the pointer (OT-PHASES); an Area also holds it.
+			let to = under(d, hit)
+			if isArea(nodeOf(d, to)) {
+				d.captured = hit
 			}
+			try point(d, to, input, ui.Down)
 		}
 	} else if input.Action == screen.Up {
 		match Captured(d) {
@@ -609,13 +609,7 @@ func mouse[E comparable, S, D, F](d mut Driver[S, E, D, F], input screen.Input) 
 			d.captured = None
 			try point(d, a.Value, input, ui.Up)
 		case None:
-			match targetAt(d, input.X, input.Y) {
-			case Some[ui.Id[E]] as id:
-				if isArea(nodeOf(d, id.Value)) {
-					try point(d, id.Value, input, ui.Up)
-				}
-			case None:
-			}
+			try point(d, under(d, targetAt(d, input.X, input.Y)), input, ui.Up)
 		}
 		let was = d.pressed
 		d.pressed = None
@@ -626,6 +620,18 @@ func mouse[E comparable, S, D, F](d mut Driver[S, E, D, F], input screen.Input) 
 			}
 		case None:
 		}
+	}
+}
+
+// under is the node a pointer event goes to: the target hit, or the root
+// where no node takes input, as TestHost's click or move nowhere points
+// at the root (the hover then leaves every node).
+func under[S, E, D, F](d mut Driver[S, E, D, F], hit Option[ui.Id[E]]) ui.Id[E] {
+	match hit {
+	case Some[ui.Id[E]] as id:
+		id.Value
+	case None:
+		d.root
 	}
 }
 

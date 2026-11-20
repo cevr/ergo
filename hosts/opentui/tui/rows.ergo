@@ -194,8 +194,9 @@ func wheel[E comparable, S, D, F](d mut Driver[S, E, D, F], input screen.Input) 
 	}
 }
 
-// point sends a pointer event to the Area id: the input's cell in DIPs
-// from the Area's box, over the topmost Zone under the pointer in it.
+// point sends a pointer event to the node id (an Area, another node that
+// takes input, or the root): the input's cell in DIPs from its box, over
+// the topmost Zone under the pointer in it when it is an Area.
 func point[E comparable, S, D, F](d mut Driver[S, E, D, F], id ui.Id[E], input screen.Input, phase ui.Phase) fails actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
 	let c = d.options.Cell
 	let b = d.s.BoxOf(numOf(d, id))
@@ -246,12 +247,9 @@ func moved[E comparable, S, D, F](d mut Driver[S, E, D, F], input screen.Input) 
 	case Some[ui.Id[E]] as a:
 		try point(d, a.Value, input, ui.Moved)
 	case None:
-		match targetAt(d, input.X, input.Y) {
-		case Some[ui.Id[E]] as t:
-			if isArea(nodeOf(d, t.Value)) {
-				try point(d, t.Value, input, ui.Moved)
-			}
-		case None:
-		}
+		// A move goes to the node under the pointer whatever its kind
+		// (OT-PHASES): the session moves its hover there and crosses the
+		// Areas that hold it.
+		try point(d, under(d, targetAt(d, input.X, input.Y)), input, ui.Moved)
 	}
 }
