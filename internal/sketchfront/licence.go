@@ -73,8 +73,12 @@ func (a Analysis) AdviseLicences(e *report.Evaluation, fsys FS, path string) err
 // over the module's own Go bodies calls them through their driver
 // (LAWFFI LF2m; gobodydriver.go), built with tc at the first law that
 // runs; a zero tc builds none, and such a law is skipped.
-func licenceEntries(pkg *check.Package, names lower.LedgerNames, old map[string]lower.LedgerEntry, keys lower.ForeignKeys, w io.Writer, cases corpus, tc build.Toolchain) ([]lower.LedgerEntry, error) {
-	var out []lower.LedgerEntry
+//
+// A skipped run is never a verdict (AC10, LICENCE-ADT): each is in
+// skipped, with its reason and the fix, and the caller fails on it
+// (LicenceSkippedError). A current skipped entry runs again, so its
+// reason is this run's.
+func licenceEntries(pkg *check.Package, names lower.LedgerNames, old map[string]lower.LedgerEntry, keys lower.ForeignKeys, w io.Writer, cases corpus, tc build.Toolchain) (out []lower.LedgerEntry, skipped []SkippedLicence, err error) {
 	var driver *goBodyDriver
 	started := false
 	defer func() { driver.Close() }()
@@ -83,7 +87,7 @@ func licenceEntries(pkg *check.Package, names lower.LedgerNames, old map[string]
 			continue
 		}
 		stub := lower.FuncLawEntry(law, names, "", keys)
-		if prev, ok := old[stub.Key()]; ok && prev.Digest == stub.Digest {
+		if prev, ok := old[stub.Key()]; ok && prev.Digest == stub.Digest && prev.Verdict != "skipped" {
 			out = append(out, prev)
 			continue
 		}
@@ -91,7 +95,7 @@ func licenceEntries(pkg *check.Package, names lower.LedgerNames, old map[string]
 			started = true
 			d, err := startGoBodies(pkg, tc, w)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			driver = d
 		}
@@ -101,7 +105,7 @@ func licenceEntries(pkg *check.Package, names lower.LedgerNames, old map[string]
 		}
 		l, err := eval.LicenceRun(pkg, law, eval.LicenceBudget(), cases[stub.Key()], goBodies)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if w != nil {
 			fmt.Fprintf(w, "%s (%s)\n", l.Line(), pkg.Path)
@@ -109,9 +113,56 @@ func licenceEntries(pkg *check.Package, names lower.LedgerNames, old map[string]
 		if l.Verdict == "refuted" && l.Case != "" && cases != nil && !slices.Contains(cases[stub.Key()], l.Case) {
 			cases[stub.Key()] = append(cases[stub.Key()], l.Case)
 		}
+		if l.Verdict == "skipped" {
+			skipped = append(skipped, SkippedLicence{Law: stub.Law, Package: pkg.Path, Reason: l.Reason})
+		}
 		out = append(out, lower.FuncLawEntry(law, names, l.Verdict, keys))
 	}
-	return out, nil
+	return out, skipped, nil
+}
+
+// SkippedLicence is a rewrite law whose licence run did not run (AC10):
+// a rewrite law in scope must have a verdict, so its test fails.
+type SkippedLicence struct {
+	Law, Package, Reason string
+}
+
+// Line is the failure line ergo test prints for it: the law, the run's
+// reason, and the fix that reason names.
+func (s SkippedLicence) Line() string {
+	line := "FAIL licence law " + s.Law + ": skipped: " + s.Reason
+	if fix := licenceFix(s.Reason); fix != "" {
+		line += "; " + fix
+	}
+	return line
+}
+
+// licenceFix is the fix for a licence run's skip reason: what the run
+// lacks, and how the law or its module provides it (types.md, Laws 14).
+func licenceFix(reason string) string {
+	switch {
+	case strings.Contains(reason, "no family of pure functions"):
+		return "state the law over functions whose parameters and result are int or bool, the families the run draws"
+	case strings.Contains(reason, "a generator for") || strings.Contains(reason, "no generator"):
+		return "declare a constructor New<T> for the type the run cannot draw, or state the law at a type it draws"
+	case strings.Contains(reason, "a Go function"):
+		return "the run calls Go bodies only through the go tool: ergo test of a binary that imports the package builds them"
+	}
+	return ""
+}
+
+// LicenceSkippedError is a ledger write that left a rewrite law with no
+// verdict (AC10): the ledger is written, and the test fails.
+type LicenceSkippedError struct {
+	Skipped []SkippedLicence
+}
+
+func (e *LicenceSkippedError) Error() string {
+	lines := make([]string, len(e.Skipped))
+	for i, s := range e.Skipped {
+		lines[i] = s.Line()
+	}
+	return strings.Join(lines, "\n")
 }
 
 // CorpusFile is the licence runs' corpus, beside ergo.laws: one line

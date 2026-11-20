@@ -1045,6 +1045,14 @@ func (l *lowerer) lawRuns(b *strings.Builder, lr check.LawRun, scope *namer, env
 	law := lr.Law
 	fmtPkg := l.helper("fmt")
 	title := l.lawTitle(law)
+	if law.Unrun != "" && law.TopRewrite() != nil {
+		// A rewrite law in scope that its cases cannot draw (a function
+		// parameter) is decided by its licence run, which ergo test runs
+		// as it writes the ledger and which fails the test when skipped
+		// (AC10, LICENCE-ADT): a note, never a skip.
+		b.WriteString("\t" + fmtPkg + ".Println(" + strconv.Quote("law "+title+" runs as its licence run (ergo.laws): "+law.Unrun) + ")\n")
+		return
+	}
 	if law.Unrun != "" {
 		b.WriteString("\t" + fmtPkg + ".Println(" + strconv.Quote("skip law "+title+": "+law.Unrun) + ")\n")
 		b.WriteString("\t" + l.helper("Record") + "(" + strconv.Quote("law "+title) + ", nil, " + strconv.Quote(law.Unrun) + ")\n")
