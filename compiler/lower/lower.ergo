@@ -1281,7 +1281,15 @@ func value(st fnb, b mut ir.Builder, x dense.ID[syntax.Node]) uint32 fails Unpor
 		let op = syntax.TokText(p, be.Op)
 		let l = try value(st, b, be.X)
 		let r = try value(st, b, be.Y)
-		try ir.Row(b, ir.KindCode(ir.TExpr, "bin"), pos(st, syntax.TokPos(p, be.Op)), []uint32{ir.Text(b, op), l, r})
+		let opAt = pos(st, syntax.TokPos(p, be.Op))
+		let e = try ir.Row(b, ir.KindCode(ir.TExpr, "bin"), opAt, []uint32{ir.Text(b, op), l, r})
+		// A float product that is no constant rounds under T(a * b), so Go
+		// cannot fuse it into a multiply-add (lower's rounded, FLOAT-STRICT).
+		let t = basicGo(st, try typeOf(st, x, "BinaryExpr"))
+		if op == "*" && (t == "float64" || t == "float32") {
+			return try ir.Row(b, ir.KindCode(ir.TExpr, "conv"), opAt, []uint32{ir.Text(b, t), e})
+		}
+		e
 	case syntax.CallExpr as ce:
 		// lower's call: the Go function by its name, the operands in order
 		// (each a value with no statements before it), no type arguments;
