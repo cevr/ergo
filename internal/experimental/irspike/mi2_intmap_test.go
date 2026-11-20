@@ -19,7 +19,7 @@ import (
 // lowering that fell back to Go's map. Each of intMapCallFuncs passes an
 // int-keyed Map to a generic function (std maps.*, a user generic) or to
 // Go's maps package and has an IR body with that Map Go's map
-// (INTMAP-CALL; mutants mi2-generic-call-ignored, mi2-host-call-ignored). A failing seed prints the Ergo
+// (INTMAP-CALL; mutant mi2-generic-call-ignored). A failing seed prints the Ergo
 // source, both outcomes and its replay command.
 //
 // It builds Go because the table's entries, lengths and copies show only
