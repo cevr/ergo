@@ -1,8 +1,9 @@
 package irspike
 
 import (
+	"bytes"
 	"fmt"
-	"os"
+	"go/format"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -13,26 +14,28 @@ import (
 	"ergo.local/prototype/internal/sketch/lower"
 )
 
-// irText checks the Go text view of the IR bodies (plan-tier §2, TXT) on
-// every example binary and test build that has IR bodies, split by target
+// irText checks the Go text of the IR bodies (plan-tier §2, TXT;
+// lower.IRGoText, what `ergo build -go-text` writes) on every example
+// binary and test build that has IR bodies, split by target
 // (TestIRTextChecksPart0 …; TestSplitsCoverTheirDomain checks that the
 // parts run every target once):
-// GoText builds it through IR with the derivative printing those bodies,
-// then
-//   - the printed module builds with the derivative without -ergoir, so
-//     Go's own parser and types2 check the IR bodies, independently of the
-//     IR decoder's checks;
-//   - go vet finds nothing in the printed module (the IR bodies and the
-//     source emitter's bodies around them);
-//   - each IR function's structure as compiled from the text
-//     (-ergoirshape) equals its structure as compiled from the IR: the
-//     text is what was compiled, not only Go that checks (mutant
-//     ir-text-not-what-compiled).
+//   - the text builds with the derivative without -ergoir to the IR
+//     build's program: the compiler's typed tree of each function (-W,
+//     before and after walk) is the IR build's, positions aside (mutants
+//     gotext-bin-operands-swapped, gotext-nil-converted,
+//     gotext-shift-count-untyped, gotext-def-nil-converted,
+//     ir-unreachable-kept, ir-text-not-overlaid). Positions
+//     aside because the text gives each statement its .ergo position,
+//     where the decoder gives each node one, and SSA orders its values
+//     by position: the machine code may differ in its schedule only;
+//   - the text is gofmt's output of itself, and go vet finds nothing in
+//     it (the IR bodies and the source emitter's bodies around them;
+//     mutants gotext-format-one-pass, gotext-header-literal-bare,
+//     ir-locals-mapget-unread).
 //
-// The functions compared must be every IR body of the target. These tests
-// build Go because the question is what the patched compiler compiled,
-// and types2 and vet of its printed text; no in-process check reaches the
-// derivative's trees.
+// These tests build Go because the question is what the patched compiler
+// makes of the IR and of the text, and vet of the text; no in-process
+// check reaches the derivative's tree.
 var irText = newSplit(split[exampleTarget]{
 	name:  "TestIRTextChecks",
 	parts: textParts,
@@ -77,15 +80,16 @@ func textCheckOn(t *testing.T, target exampleTarget) {
 //     match it takes apart opened a scope before the match's end, an
 //     internal compiler error in gc (mutant ir-scope-positions-unordered);
 //   - printed (IRFIX-TEXT): a tuple result's body went inside its
-//     multi-line struct result type, a tuple value printed as
-//     (struct{…}){…}, and the structures differed in a function type's
-//     parameter names and a method value's receiver (derivative mutants
-//     MT1-MT4, the ledger's about).
+//     multi-line struct result type, and a tuple value printed as
+//     (struct{…}){…} (mutants gotext-signature-end, gotext-lit-paren);
+//   - seqloop (PORT-FORIN): a Seq loop ranges over a func with one
+//     variable, which the text spelled k, _ (mutant
+//     gotext-range-func-two-vars).
 //
 // It builds Go for the reason TestIRTextChecks does.
 func TestIRTextRepros(t *testing.T) {
 	src, ir := needsBuild(t)
-	for _, r := range []struct{ name, fn string }{{"duplocals", "two"}, {"shadow", "shadow"}, {"pollend", "firstOf"}, {"negfloat", "near"}, {"scopes", "drive"}, {"printed", "split"}} {
+	for _, r := range []struct{ name, fn string }{{"duplocals", "two"}, {"shadow", "shadow"}, {"pollend", "firstOf"}, {"negfloat", "near"}, {"scopes", "drive"}, {"printed", "split"}, {"seqloop", "total"}} {
 		t.Run(r.name, func(t *testing.T) {
 			u, err := Load(filepath.Join("testdata", r.name+".ergo"))
 			if err != nil {
@@ -104,8 +108,7 @@ func TestIRTextRepros(t *testing.T) {
 }
 
 // textCheck checks the Go text of the IR bodies of one lowered module
-// (what names it): it builds, vets and compiles to what was compiled,
-// for every IR function of rep.
+// (what names it): it is the IR build's program, gofmt's and vet-clean.
 func textCheck(t *testing.T, src, ir Toolchain, what string, files []lower.File, rep lower.IRReport) {
 	t.Helper()
 	if len(rep.IR) == 0 {
@@ -114,39 +117,124 @@ func textCheck(t *testing.T, src, ir Toolchain, what string, files []lower.File,
 	}
 	replay := fmt.Sprintf("replay: go test -run '%s' ./internal/experimental/irspike", t.Name())
 	work := t.TempDir()
-	text := filepath.Join(work, "text")
-	irShape, textShape := filepath.Join(work, "ir.shape"), filepath.Join(work, "text.shape")
-	if err := goText(files, ir, filepath.Join(work, "ir.bin"), text, irShape, nil); err != nil {
+	mod, textDir := filepath.Join(work, "ir"), filepath.Join(work, "text")
+	if err := writeModule(mod, files); err != nil {
+		t.Fatal(err)
+	}
+	var irTree, textTree bytes.Buffer
+	if _, err := Build(ir, IR, mod, filepath.Join(work, "ir.bin"), BuildOptions{GCFlags: []string{"-W"}, Stderr: &irTree}); err != nil {
+		t.Fatalf("%s: the IR build: %v\n%s", what, err, replay)
+	}
+	text, err := printText(ir, mod, files)
+	if err != nil {
 		t.Fatalf("%s: %v\n%s", what, err, replay)
 	}
-	if _, err := Build(ir, Text, text, filepath.Join(work, "text.bin"), BuildOptions{GCFlags: []string{"-ergoirshape=" + textShape}}); err != nil {
-		t.Fatalf("%s: the printed Go text does not build (%s): %v\n%s", what, errorClasses(err.Error()), err, replay)
+	source := map[string][]byte{}
+	for _, f := range files {
+		source[f.Path] = f.Data
 	}
-	vet := exec.Command(filepath.Join(src.GOROOT, "bin", "go"), "vet", "-mod=readonly", ".")
-	vet.Dir, vet.Env = text, goEnv(src.GOROOT, src.GOCACHE)
+	printed := 0
+	for _, f := range text {
+		if !strings.HasSuffix(f.Path, ".go") || bytes.Equal(f.Data, source[f.Path]) {
+			continue
+		}
+		printed++
+		if formatted, err := format.Source(f.Data); err != nil || !bytes.Equal(formatted, f.Data) {
+			t.Errorf("%s: %s: the text is not gofmt's output of itself (%v)\n%s\n%s", what, f.Path, err,
+				treeDifference(strings.Split(string(f.Data), "\n"), strings.Split(string(formatted), "\n")), replay)
+		}
+	}
+	if printed == 0 {
+		t.Fatalf("%s: no file holds a printed IR body\n%s", what, replay)
+	}
+	if err := writeModule(textDir, text); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Build(ir, Text, textDir, filepath.Join(work, "text.bin"), BuildOptions{GCFlags: []string{"-W"}, Stderr: &textTree}); err != nil {
+		t.Fatalf("%s: the printed Go text does not build (%s): %v\n%s\n%s", what, errorClasses(textTree.String()), err, compilerErrors(textTree.String()), replay)
+	}
+	compiled, built := typedTrees(irTree.String()), typedTrees(textTree.String())
+	var differ []string
+	for fn, tree := range compiled {
+		if !slices.Equal(tree, built[fn]) {
+			differ = append(differ, fn)
+		}
+	}
+	for fn := range built {
+		if _, ok := compiled[fn]; !ok {
+			differ = append(differ, fn)
+		}
+	}
+	slices.Sort(differ)
+	if len(differ) > 0 {
+		t.Fatalf("%s: %d of %d function trees differ between the IR and the printed text: %s\n%s\n%s",
+			what, len(differ), len(compiled), strings.Join(differ[:min(len(differ), 10)], ", "), treeDifference(compiled[differ[0]], built[differ[0]]), replay)
+	}
+	vet := exec.Command(filepath.Join(src.GOROOT, "bin", "go"), "vet", "-mod=readonly", "./...")
+	vet.Dir, vet.Env = textDir, goEnv(src.GOROOT, src.GOCACHE)
 	var out strings.Builder
 	vet.Stdout, vet.Stderr = &out, &out
 	if _, err := Measure(vet); err != nil {
 		t.Fatalf("%s: go vet of the printed Go text: %v\n%s\n%s", what, err, out.String(), replay)
 	}
-	compiled, printed := readShapes(t, irShape), readShapes(t, textShape)
-	funcs := 0
-	for _, fn := range rep.IR {
-		a, ok := compiled[fn]
-		if !ok {
-			t.Errorf("%s: %s: the IR build wrote no structure for it\n%s", what, fn, replay)
+	t.Logf("%s: %d IR functions in %d files: the text is the IR build's program (%d trees), gofmt's and vet-clean", what, len(rep.IR), printed, len(compiled))
+}
+
+// typedTrees is the compiler's -W output by section ("before walk F",
+// "after walk F"), each line without its positions, and with byte and
+// rune spelled as the types they alias (the text names a byte, the IR
+// its uint8).
+func typedTrees(w string) map[string][]string {
+	trees := map[string][]string{}
+	name := ""
+	for _, l := range strings.Split(w, "\n") {
+		if strings.HasPrefix(l, "before walk ") || strings.HasPrefix(l, "after walk ") {
+			name = l
+			for n := 2; trees[name] != nil; n++ {
+				name = fmt.Sprintf("%s #%d", l, n)
+			}
+			trees[name] = []string{}
 			continue
 		}
-		if b := printed[fn]; a != b {
-			t.Errorf("%s: %s: the printed text is not what was compiled\n%s\n%s", what, fn, firstDifference(a, b), replay)
+		if name == "" || l == "" {
 			continue
 		}
-		funcs++
+		l = treePositions.ReplaceAllString(l, "")
+		l = treeDict.ReplaceAllString(l, "dict")
+		if list := trees[name]; len(list) > 0 && strings.Contains(list[len(list)-1], "..dict ") {
+			// The index of a dictionary entry (an INDEX of the dictionary).
+			l = treeDictEntry.ReplaceAllString(l, "LITERAL-dict int")
+		}
+		trees[name] = append(trees[name], treeAliases.ReplaceAllStringFunc(l, func(a string) string {
+			if a == "byte" {
+				return "uint8"
+			}
+			return "int32"
+		}))
 	}
-	if funcs != len(rep.IR) {
-		t.Fatalf("%s: checked %d of %d IR functions", what, funcs, len(rep.IR))
+	return trees
+}
+
+var (
+	treePositions = regexp.MustCompile(` # [^ ]+:[0-9]+(:[0-9]+)?( [^ ]+:[0-9]+(:[0-9]+)?)*$`)
+	treeAliases   = regexp.MustCompile(`\b(byte|rune)\b`)
+	// treeDict and treeDictEntry are a generic body's dictionary layout:
+	// its size and the index of an entry. The IR build's dictionaries
+	// hold more entries than the text build's (the trees are equal but
+	// for the indices; a follow-up of the derivative's).
+	treeDict      = regexp.MustCompile(`DictIndex:[0-9]+|\[[0-9]+\]uintptr`)
+	treeDictEntry = regexp.MustCompile(`LITERAL-[0-9]+ int`)
+)
+
+// treeDifference shows two trees from their first differing line.
+func treeDifference(compiled, printed []string) string {
+	i := 0
+	for i < len(compiled) && i < len(printed) && compiled[i] == printed[i] {
+		i++
 	}
-	t.Logf("%s: %d IR functions: their Go text builds, vets and compiles to what was compiled", what, funcs)
+	from := max(0, i-3)
+	return fmt.Sprintf("from the IR (from line %d):\n%s\nfrom the text:\n%s", from+1,
+		strings.Join(compiled[from:min(len(compiled), i+4)], "\n"), strings.Join(printed[from:min(len(printed), i+4)], "\n"))
 }
 
 // errorClasses names the classes of a failed build's compiler errors:
@@ -179,38 +267,16 @@ func errorClasses(out string) string {
 	return strings.Join(classes, "; ")
 }
 
-// compilerError is a compiler error line: a position, then the message.
-var compilerError = regexp.MustCompile(`^\S+:\d+(?::\d+)?: (.+)$`)
-
-// readShapes reads an -ergoirshape file: function name -> its structure.
-func readShapes(t *testing.T, file string) map[string]string {
-	t.Helper()
-	data, err := os.ReadFile(file)
-	if err != nil {
-		t.Fatal(err)
-	}
-	out := map[string]string{}
-	name, body := "", []string(nil)
-	for _, l := range strings.Split(string(data), "\n") {
-		switch {
-		case strings.HasPrefix(l, "func "):
-			name, body = strings.TrimPrefix(l, "func "), nil
-		case l == "end":
-			out[name] = strings.Join(body, "\n")
-		default:
-			body = append(body, l)
+// compilerErrors is out's compiler error lines, the first ten.
+func compilerErrors(out string) string {
+	var lines []string
+	for _, l := range strings.Split(out, "\n") {
+		if compilerError.MatchString(strings.TrimSpace(l)) && len(lines) < 10 {
+			lines = append(lines, l)
 		}
 	}
-	return out
+	return strings.Join(lines, "\n")
 }
 
-// firstDifference shows two structures from their first differing line.
-func firstDifference(compiled, printed string) string {
-	a, b := strings.Split(compiled, "\n"), strings.Split(printed, "\n")
-	i := 0
-	for i < len(a) && i < len(b) && a[i] == b[i] {
-		i++
-	}
-	from := max(0, i-3)
-	return fmt.Sprintf("compiled (from line %d):\n%s\nprinted text compiles to:\n%s", from+1, strings.Join(a[from:min(len(a), i+4)], "\n"), strings.Join(b[from:min(len(b), i+4)], "\n"))
-}
+// compilerError is a compiler error line: a position, then the message.
+var compilerError = regexp.MustCompile(`^\S+:\d+(?::\d+)?: (.+)$`)
