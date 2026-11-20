@@ -65,7 +65,7 @@ func TestEvalEffectsAgreeWithModel(t *testing.T) {
 		for _, res := range rep.Results {
 			names[res.Name] = true
 		}
-		for _, want := range []string{"Effects", "law Store.DeleteAfterPut for Table", "law Store.DeleteAfterPut under Doubled", "law Store.DeleteAfterPut under Keyed", "law prelude.Random.IntNInRange under Keyed"} {
+		for _, want := range []string{"Effects", "law Store.DeleteAfterPut for Table", "law Store.DeleteAfterPut under Doubled", "law Store.DeleteAfterPut under Keyed", "law Random.IntNInRange under Keyed"} {
 			if !names[want] {
 				t.Fatalf("seed %d: no obligation %s in %+v", seed, want, rep.Results)
 			}

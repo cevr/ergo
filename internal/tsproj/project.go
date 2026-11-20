@@ -260,6 +260,12 @@ func (g *emitter) schema(t check.Type) string {
 		}
 		return "$Schema.Tuple([" + strings.Join(xs, ", ") + "])"
 	case *check.Named:
+		if check.IsProviderMap(u) {
+			// CONSTRAINTS C5: the projection of a Map with a provider
+			// (its stored keys, decoded through the provider) is a
+			// follow-up; the table's record is not its wire form.
+			return g.fail(t, "a Map with a provider has no projection yet (S109; types.md, Maps 7)")
+		}
 		if u.Obj.Pkg != nil && u.Obj.Pkg.Path == stdlib.PreludePath && u.Obj.Name == "Option" && len(u.TArgs) == 1 {
 			return "$Schema.Option(" + g.schema(u.TArgs[0]) + ")"
 		}
