@@ -55,7 +55,16 @@ func TestIRFailuresMatchSource(t *testing.T) {
 		}
 		irKinds(t, filepath.Join(dir, "ir", lower.IRFileName), seen)
 		polled += backEdgePolls(t, filepath.Join(dir, "ir", lower.IRFileName))
-		flat.add(t, filepath.Join(dir, "ir", lower.IRFileName))
+		// Each program reaches the flat convention (IRF-2) on its own: a
+		// function with a worker, a catch that reads a worker's failure
+		// and a wrapper's call (gate's, gateCalls), whatever the seed
+		// count. A program without one is a generator error.
+		var own flatReach
+		own.add(t, filepath.Join(dir, "ir", lower.IRFileName))
+		if lower.FlatOn() && (own.workers == 0 || own.caught == 0 || own.wrapped == 0) {
+			t.Fatalf("seed %d: the program did not reach the flat convention (IRF-2): workers %d, catches that read a worker's failure %d, wrappers called %d\n%s", seed, own.workers, own.caught, own.wrapped, text)
+		}
+		flat.chained += own.chained
 		for _, name := range rep.IR {
 			if strings.Contains(text, "func "+name+"(") && fallibleHead(text, name) {
 				fallibleIR++
@@ -78,16 +87,17 @@ func TestIRFailuresMatchSource(t *testing.T) {
 	if len(missing) > 0 || fallibleIR == 0 || defects == 0 || polled == 0 || tailIR == 0 {
 		t.Fatalf("the run did not reach: kinds %v, fallible IR bodies %d, failing seeds %d, loops ending in their poll %d, IR bodies with no value ending in an error value %d", missing, fallibleIR, defects, polled, tailIR)
 	}
-	if lower.FlatOn() && (flat.chained == 0 || flat.caught == 0 || flat.wrapped == 0) {
-		t.Fatalf("the run did not reach the flat convention (IRF-2): workers that try a worker %d, catches that read a worker's failure %d, wrappers called %d", flat.chained, flat.caught, flat.wrapped)
+	if lower.FlatOn() && flat.chained == 0 {
+		t.Fatalf("the run did not reach the flat convention (IRF-2): no worker tries a worker")
 	}
 }
 
 // flatReach counts, in an IR file, the flat convention's forms (IR-FORMS
 // IRF-2): a worker whose body tries another worker (a failure through two
 // tries), a catch that binds a worker's failure to read it, and a call of
-// a wrapper (a flat function called with Go's error).
-type flatReach struct{ chained, caught, wrapped int }
+// a wrapper (a flat function called with Go's error); workers counts the
+// functions that have a worker.
+type flatReach struct{ workers, chained, caught, wrapped int }
 
 func (r *flatReach) add(t *testing.T, file string) {
 	t.Helper()
@@ -110,6 +120,7 @@ func (r *flatReach) add(t *testing.T, file string) {
 			workers[f.Name] = true
 		}
 	}
+	r.workers += len(workers)
 	isWorker := func(x any) bool {
 		c, _ := x.(map[string]any)
 		name, _ := c["name"].(string)

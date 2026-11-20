@@ -439,9 +439,10 @@ func (g *fgen) main() {
 	g.b.WriteString("\nfunc gate(n int) int fails E1 {\n\tif n % 2 == 0 {\n\t\treturn E1{Code: n}\n\t}\n\tn + 7\n}\n")
 }
 
-// gateCalls are main's calls of gate through a function value: at k = 0
+// gateCalls are main's calls of gate, directly (a catch that reads its
+// worker's failure) and through a function value (its wrapper): at k = 0
 // with 0, which fails (gateFailed), and at k = 1 with 3, which gives 10.
-const gateCalls = "\t\tfor k in 0..2 {\n\t\t\tlet hg = gate\n\t\t\tlet qg = hg(k * 3) catch {\n\t\t\tcase E1 as x:\n\t\t\t\tConsole.Println(\"gate E1 \\(x.Code)\")\n\t\t\t\t0\n\t\t\t}\n\t\t\tConsole.Println(\"gate by value \\(qg)\")\n\t\t}\n"
+const gateCalls = "\t\tfor k in 0..2 {\n\t\t\tlet dg = gate(k * 3) catch {\n\t\t\tcase E1 as x:\n\t\t\t\tConsole.Println(\"gate direct E1 \\(x.Code)\")\n\t\t\t\t0\n\t\t\t}\n\t\t\tConsole.Println(\"gate direct \\(dg)\")\n\t\t\tlet hg = gate\n\t\t\tlet qg = hg(k * 3) catch {\n\t\t\tcase E1 as x:\n\t\t\t\tConsole.Println(\"gate E1 \\(x.Code)\")\n\t\t\t\t0\n\t\t\t}\n\t\t\tConsole.Println(\"gate by value \\(qg)\")\n\t\t}\n"
 
 // gateFailed is the line main prints when gate's wrapper failed with its
 // worker's failure (gateCalls): a run without it did not reach the wrapper's
