@@ -15,14 +15,18 @@ import (
 type PackageTarget struct {
 	Path string // module import path, for reports
 	Dir  string // absolute folder, for the existing package command
+	Root string // absolute folder of the module that holds it
 }
 
 // DiscoverPackages selects the packages below dir in its nearest module,
-// dependencies first. It reuses the loader's module, package and import rules
-// but never checks a body or runs user code. A syntax error or import cycle
-// is left for the selected command, so formatting stays syntax-only.
-// Nested modules, testdata and hidden/underscore directories are excluded;
-// directory symlinks are not followed. Imports outside dir may supply ordering
+// dependencies first; at a workspace root (IsWorkspaceRoot: an ergo.work,
+// or no module holds dir), the packages of every member, each member once,
+// a member after the members it resolves locally (Workspace.Order). It
+// reuses the loader's module, package and import rules but never checks a
+// body or runs user code. A syntax error or import cycle is left for the
+// selected command, so formatting stays syntax-only. Nested modules and
+// the folders admitFolder refuses (testdata, hidden, underscored,
+// node_modules, vendor) are excluded; directory symlinks are not followed. Imports outside dir may supply ordering
 // edges, but do not enlarge the set of selected packages.
 func DiscoverPackages(dir string) ([]PackageTarget, error) { return DiscoverPackagesThrough(nil, dir) }
 
@@ -41,6 +45,57 @@ func DiscoverPackagesThrough(fsys FS, dir string) ([]PackageTarget, error) {
 	if err != nil {
 		return nil, err
 	}
+	if root, err := IsWorkspaceRoot(fsys, abs); err != nil {
+		return nil, err
+	} else if root {
+		return discoverWorkspacePackages(fsys, dir, abs)
+	}
+	return discoverModulePackages(fsys, dir, abs)
+}
+
+// discoverWorkspacePackages is DiscoverPackages at the workspace root abs:
+// each member's packages (discoverModulePackages), members in
+// Workspace.Order. A member with no package of its own adds none; a
+// member whose ergo.mod does not read fails the selection, as one module
+// does.
+func discoverWorkspacePackages(fsys FS, dir, abs string) ([]PackageTarget, error) {
+	ws, err := DiscoverWorkspace(fsys, abs)
+	if err != nil {
+		return nil, err
+	}
+	if len(ws.Members) == 0 {
+		return nil, fmt.Errorf("%s: no %s below this directory: recursive packages need a module or a workspace of modules", dir, ModFile)
+	}
+	var out []PackageTarget
+	for _, i := range ws.Order() {
+		m := ws.Members[i]
+		if m.Problem != "" {
+			return nil, errors.New(m.Problem)
+		}
+		pkgs, err := discoverModulePackages(fsys, m.Dir, m.Dir)
+		if errors.Is(err, errNoPackages) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, pkgs...)
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("%s: no Ergo packages below this directory", dir)
+	}
+	return out, nil
+}
+
+// errNoPackages is a module's selection with no package in it.
+var errNoPackages = errors.New("no Ergo packages below this directory")
+
+// discoverModulePackages is DiscoverPackages in the module that holds abs
+// (dir as the command named it); a nil fsys reads the host.
+func discoverModulePackages(fsys FS, dir, abs string) ([]PackageTarget, error) {
+	if fsys == nil {
+		fsys = hostFS{}
+	}
 	l := newLoader(fsys, gobind.Platform{}, abs, "")
 	l.localOnly = true
 	found, err := l.findModule(abs)
@@ -58,8 +113,7 @@ func DiscoverPackagesThrough(fsys FS, dir string) ([]PackageTarget, error) {
 	var walk func(path string) error
 	walk = func(path string) error {
 		if path != abs {
-			name := filepath.Base(path)
-			if strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") || name == "testdata" {
+			if !admitFolder(filepath.Base(path)) {
 				return nil
 			}
 			_, modErr := fsys.Stat(filepath.Join(path, ModFile))
@@ -104,7 +158,7 @@ func DiscoverPackagesThrough(fsys FS, dir string) ([]PackageTarget, error) {
 		return nil, err
 	}
 	if len(roots) == 0 {
-		return nil, fmt.Errorf("%s: no Ergo packages below this directory", dir)
+		return nil, fmt.Errorf("%s: %w", dir, errNoPackages)
 	}
 	for _, p := range roots {
 		if l.state[p] == unvisited {
@@ -116,7 +170,7 @@ func DiscoverPackagesThrough(fsys FS, dir string) ([]PackageTarget, error) {
 	var out []PackageTarget
 	for _, p := range l.order {
 		if selected[p] {
-			out = append(out, PackageTarget{Path: p.path, Dir: p.dir})
+			out = append(out, PackageTarget{Path: p.path, Dir: p.dir, Root: l.root})
 		}
 	}
 	return out, nil

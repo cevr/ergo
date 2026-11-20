@@ -1,0 +1,10 @@
+// The mcp.Transport law on stdio's Transport, over a text in memory and a
+// Recorder (io.InOver, io.HostOver): no host is read or written, so the
+// context needs no authority.
+
+import github.com/cevr/ergo/modules/mcp
+import io
+
+let overText = context {
+	mcp.Transport: Transport{input: io.InOver("{\"id\":1}\n{\"id\":2}\n{\"id\":3}\n"), out: io.HostOver(io.NewRecorder())},
+}

@@ -142,16 +142,26 @@ func Load(path string) (lower.Unit, error) {
 }
 
 // Emit lowers u by path p and writes the Go module into dir, which must
-// not exist yet.
+// not exist yet. The IR path lowers with the build-time fold off (CF1),
+// so a call of constants stays a call and the program runs the body it
+// compares (vacuous.go); EmitFold lowers it with the fold.
 func Emit(u lower.Unit, p Path, dir string) (lower.IRReport, error) {
-	var files []lower.File
-	var rep lower.IRReport
-	var err error
 	if p == IR {
-		files, rep, err = lower.LowerIR(u)
-	} else {
-		files, err = lower.Lower(u)
+		return EmitFold(u, dir, "off")
 	}
+	files, err := lower.Lower(u)
+	if err != nil {
+		return lower.IRReport{}, err
+	}
+	return lower.IRReport{}, writeModule(dir, files)
+}
+
+// EmitFold is Emit's IR path with the fold set to mode: "" folds, "off"
+// keeps every call (lower.SetConstFoldLoweringForTest).
+func EmitFold(u lower.Unit, dir, mode string) (lower.IRReport, error) {
+	prev := lower.SetConstFoldLoweringForTest(mode)
+	files, rep, err := lower.LowerIR(u)
+	lower.SetConstFoldLoweringForTest(prev)
 	if err != nil {
 		return rep, err
 	}
