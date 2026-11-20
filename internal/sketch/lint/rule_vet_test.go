@@ -164,7 +164,7 @@ func TestSelfAssignmentAgreesWithReference(t *testing.T) {
 		}
 		for n := range 1 + r.IntN(6) {
 			a := selfAssigns[r.IntN(len(selfAssigns))]
-			p.write(fmt.Sprintf("\nfunc s%d(r0 Rec, ys []int) int {\n\tlet mut x = 0\n\tlet mut r = r0\n\tlet mut xs = ys\n\t%s\n\tx = x + 1\n\tr.M = r.N + 1\n\txs[1] = x\n\tx + r.M + xs[0]\n}", n, a.text), a.fires && !generated, 4)
+			p.write(fmt.Sprintf("\nfunc s%d(r0 Rec, ys []int) int {\n\tlet mut x = 0\n\tlet mut r = r0\n\tlet mut xs = ys\n\t%s\n\tx = x + 1\n\tr.M = r.N + 1\n\txs[1] = x\n\tx + r.M + xs[0]\n}", n, a.text), a.fires && !generated, 5)
 		}
 		p.write("\nfunc main() {\n}", false, 0)
 		checks(t, p)
