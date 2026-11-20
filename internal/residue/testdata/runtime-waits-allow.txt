@@ -53,6 +53,7 @@ runtime/v1/http/http_client.go	httpRefusedStatus	host: the next event of a refus
 runtime/v1/rpc/rpc.go	rpcRun.end	host: the handle of a call that ended; it has ended, so the wait returns
 runtime/v1/rpc/rpc.go	rpcRun.start	handshake: a call task waits until its spawner set its handle, then hands its end to the serve loop
 runtime/v1/host.go	lineReader.readAll	host: the next read of standard input, or the reader's stop
+runtime/v1/term.go	lineReader.peek	host: the next read of standard input, a resize signal, or the task's stop (UC1: a key read in raw mode)
 runtime/v1/exec/exec_spawn.go	ExecKill	host: the detached group's end within the grace, which no event reports
 runtime/v1/http/http_client.go	httpStreamVia	host: the next event of a streamed response (a local one's comes from the in-memory server's goroutines, which need no clock)
 runtime/v1/exec/exec_sandbox_linux.go	execHelperFor	host: another command of the same case waits for its helper's start (TH1c)
