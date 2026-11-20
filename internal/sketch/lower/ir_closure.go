@@ -33,6 +33,16 @@ func (b *irBuilder) sigType(s *check.Signature, site syntax.Node) string {
 
 // hasSig reports a slice type whose elements are, at some depth, function
 // values: its spelling is built from its parts (goType).
+// litParam is the local of a function literal's parameter: v's, written
+// id, or for a parameter named _ (v nil) a fresh local of its type t that
+// no statement reads, as the emitter's _p (funcLitClosure).
+func (b *irBuilder) litParam(v *check.Var, id *syntax.Ident, t check.Type, site syntax.Node, p irPos) int {
+	if v == nil {
+		return b.temp("p", b.goType(t, site), p)
+	}
+	return b.local(v, id)
+}
+
 func hasSig(t check.Type) bool {
 	for {
 		switch u := t.(type) {
@@ -82,8 +92,13 @@ func (b *irBuilder) closureLit(x *syntax.FuncLit, site *syntax.CallExpr) *irExpr
 	if ft != nil && ft.Params != nil {
 		for _, field := range ft.Params.List {
 			for _, id := range field.Names {
+				// A parameter named _ has no variable: a local of its own
+				// that nothing reads (litParam), the emitter's _p.
 				v, _ := l.info.Defs[id].(*check.Var)
-				if v == nil || id.Name == "_" {
+				switch {
+				case id.Name == "_":
+					v = nil
+				case v == nil:
 					irNo("function literal with an unnamed parameter")
 				}
 				params, ids = append(params, v), append(ids, id)
@@ -121,7 +136,7 @@ func (b *irBuilder) closureLit(x *syntax.FuncLit, site *syntax.CallExpr) *irExpr
 	envLocal := b.temp("env", "*"+l.env(), p)
 	lit := &irExpr{K: "func", Pos: p, T: typ, Params: []int{envLocal}}
 	for i, v := range params {
-		lit.Params = append(lit.Params, b.local(v, ids[i]))
+		lit.Params = append(lit.Params, b.litParam(v, ids[i], sig.Params[i].Type, n, p))
 	}
 	b.fc, b.env, b.result, b.loops, b.tries, b.switches, b.label, b.law = inner, envLocal, result, 0, 0, 0, "", nil
 	if frameFootprint(l.info, n).EntryPoll && inner.frame.polls {
