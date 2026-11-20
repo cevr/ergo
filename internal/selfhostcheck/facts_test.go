@@ -231,13 +231,18 @@ func drawLiteral(r *rand.Rand) string {
 	case 3:
 		v = strconv.Itoa(r.IntN(40) - 20)
 	}
+	if strings.HasPrefix(v, "-") {
+		// Ergo has no --: a second sign is written in parentheses.
+		if r.IntN(3) == 0 {
+			v = "-(" + v + ")"
+		}
+		return v
+	}
 	switch r.IntN(4) {
 	case 0:
 		v = "-" + v
 	case 1:
-		if !strings.HasPrefix(v, "-") {
-			v = "+" + v
-		}
+		v = "+" + v
 	}
 	return v
 }
