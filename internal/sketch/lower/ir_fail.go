@@ -110,7 +110,7 @@ func (b *irBuilder) retOf(x syntax.Expr, p irPos) []*irStmt {
 			return out
 		}
 		pre, e := b.rawCall(call)
-		return append(pre, &irStmt{K: "ret", Pos: p, X: e})
+		return append(pre, &irStmt{K: "ret", Pos: p, X: e, Pair: true})
 	}
 	if b.isFailure(x) {
 		pre, e := b.value(x)
