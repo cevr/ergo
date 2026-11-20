@@ -425,7 +425,7 @@ func main() {
 type Mine {}
 
 func TakeNull(_ Mine) bool              { false }
-func Peek(_ Mine) WireKind              { WireNull{} }
+func Peek(_ Mine) WireKind              { WireNull }
 func Number(_ Mine) string              { "" }
 func Path(_ Mine) string                { "" }
 func Bool(_ Mine) bool                  { false }

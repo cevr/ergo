@@ -195,6 +195,10 @@ test XmlAttributesAreInTheStartTag(id string, lang string) {
 	let head = strings.Slice(text, 0, strings.Index(text, ">"))
 	assert strings.HasPrefix(head, "<entry id=\"") && strings.Contains(head, "\" lang=\"") && !strings.Contains(text, "<id>")
 }
+
+test XmlAttributeRoundTrips(x xml.Attribute) {
+	assert xml.ParseAttribute(x.Wire()) == x
+}
 `
 
 // stdXmlLawStatements is the statement of each law the probe restates,
@@ -206,6 +210,7 @@ var stdXmlLawStatements = map[string]string{
 	"xml TruncationIsRejectedInsideTheText":   `TruncationIsRejectedInsideTheText(v fleet, cut int) { let text = Encode(codecOf(), heldFleet(v)) let k = if cut < 0 { -(cut % len(text)) } else { cut % len(text) } let part = strings.Slice(text, 0, k) match Check(part, 0) catch { case Malformed as m: return m.Offset <= k && pointsAt(m, part, m.Offset) } { case _: false } }`,
 	"xml AttributesRoundTrip":                 `AttributesRoundTrip(id string, lang string, title string, parts []string, note Option[string]) { let e = entryOf(id, lang, title, parts, note) let back = Decode(entryCodec(), Encode(entryCodec(), e)) catch { case _: return false } back == e }`,
 	"xml AttributesAreInTheStartTag":          `AttributesAreInTheStartTag(id string, lang string) { let e = entryOf(id, lang, "", []string{}, None) let text = Encode(entryCodec(), e) let head = strings.Slice(text, 0, strings.Index(text, ">")) strings.HasPrefix(head, "<entry id=\"") && strings.Contains(head, "\" lang=\"") && !strings.Contains(text, "<id>") }`,
+	"xml AttributeRoundTrips":                 `AttributeRoundTrips(x Attribute) { ParseAttribute(x.Wire()) == x }`,
 }
 
 // stdXmlLawTestName is the probe's test of a ledger key: the last
