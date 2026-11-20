@@ -592,6 +592,38 @@
       "killers": [
         "examples:gent"
       ]
+    },
+    {
+      "name": "harness-e4b-spin-off-the-clock",
+      "origin": "wf10/gent-e4b",
+      "file": "examples/gent/screen/frame.ergo",
+      "from": "int(int64(d) / int64(Turn))",
+      "to": "int(int64(d) / int64(100ms))",
+      "rule": "The spinner shows a mark per Turn of the time since the work began (law SpinIsTheClock).",
+      "anchor": {
+        "tests": [
+          "examples:gent"
+        ]
+      },
+      "killers": [
+        "examples:gent"
+      ]
+    },
+    {
+      "name": "harness-e4b-began-restarts-each-state",
+      "origin": "wf10/gent-e4b",
+      "file": "examples/gent/cmd/gent/chat.ergo",
+      "from": "if working(st) && !working(v.State) { now }",
+      "to": "if working(st) { now }",
+      "rule": "A new state of the same work keeps the work's start, so the spinner turns on (test SpinnerFollowsTheClock).",
+      "anchor": {
+        "tests": [
+          "examples:gent"
+        ]
+      },
+      "killers": [
+        "examples:gent"
+      ]
     }
   ]
 }
