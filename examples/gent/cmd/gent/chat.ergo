@@ -1,6 +1,6 @@
-// The chat at a terminal: one loop draws. Three tasks feed it events, one
-// reading keys, one following the agent's states and one turning the
-// spinner; the loop takes one event at a time, edits the composer,
+// The chat at a terminal: one loop draws. Two tasks feed it events, one
+// reading keys and one following the agent's states (the spinner turns
+// in them: agent.Spinner); the loop takes one event at a time, edits the composer,
 // scrolls, or sends the agent a signal, and paints the lines of the frame
 // that changed. Nothing else writes to standard output.
 
@@ -19,20 +19,15 @@ import term
 import testing
 import time
 
-// Event is what the loop takes: a key, a state the agent committed, or
-// the spinner's turn.
-type Event = Pressed{Key term.Key} | Changed{State agent.State} | Ticked{}
-
-// turn is how often the spinner turns while the agent works.
-let turn = 120ms
+// Event is what the loop takes: a key, or a state the agent committed.
+type Event = Pressed{Key term.Key} | Changed{State agent.State}
 
 // Chat runs the session s at the terminal until it ends, and stops it.
 func Chat(s agent.Session) needs io.Stdout | term.Terminal | Scheduler {
 	let events = queue.New[Event](64)
 	let keys = task.Go() { readKeys(events) }
 	let states = task.Go() { follow(s, events) }
-	let ticks = task.Go() { tick(events) }
-	let mut view = screen.View{State: s.Agent.State(), Line: screen.Line{Text: "", At: 0}, Scroll: screen.Stuck(), Detail: false, Tick: 0}
+	let mut view = screen.View{State: s.Agent.State(), Line: screen.Line{Text: "", At: 0}, Scroll: screen.Stuck(), Detail: false}
 	let mut shown = Shown{Window: size(), Lines: []string{}}
 	shown = paint(shown, view)
 	for {
@@ -62,11 +57,6 @@ func Chat(s agent.Session) needs io.Stdout | term.Terminal | Scheduler {
 			}
 		case Changed as c:
 			view = screen.View{..view, State: c.State}
-		case Ticked:
-			if screen.Spin(view.State, 0) == "" {
-				continue
-			}
-			view = screen.View{..view, Tick: view.Tick + 1}
 		}
 		shown = paint(shown, view)
 		if view.State.Phase == agent.Ended {
@@ -76,7 +66,6 @@ func Chat(s agent.Session) needs io.Stdout | term.Terminal | Scheduler {
 	events.End()
 	keys.Stop()
 	states.Stop()
-	ticks.Stop()
 	s.Agent.Stop()
 }
 
@@ -109,17 +98,6 @@ func follow(s agent.Session, events queue.Queue[Event]) {
 	}
 }
 
-// tick puts a Ticked in events every turn, until they end.
-func tick(events queue.Queue[Event]) needs Scheduler {
-	for {
-		Scheduler.Sleep(turn)
-		events.Push(Ticked) catch {
-		case queue.Closed:
-			return
-		}
-	}
-}
-
 // DrawsOnlyStatesThatExisted is the draw loop's model: keys and the
 // model's deltas reach the one loop in either order, and under every
 // schedule (the explore leg searches them: explored) each frame painted
@@ -142,9 +120,7 @@ test DrawsOnlyStatesThatExisted {
 	for k in 0..(len(record.Signals) + 1) {
 		let st = agent.Replay(agent.Recorded{Limits: record.Limits, Signals: record.Signals[0:k]})
 		for line in lines {
-			for spin in 0..4 {
-				seen = seen.Append(strings.Join(screen.Frame(screen.View{State: st, Line: line, Scroll: screen.Stuck(), Detail: false, Tick: spin}, w), "\n"))
-			}
+			seen = seen.Append(strings.Join(screen.Frame(screen.View{State: st, Line: line, Scroll: screen.Stuck(), Detail: false}, w), "\n"))
 		}
 	}
 	let paints = strings.Split(out.Text(), "\x1b[H")
@@ -156,7 +132,7 @@ test DrawsOnlyStatesThatExisted {
 	}
 	let end = agent.Replay(record)
 	let last = strings.Join(at, "\n")
-	assert last == strings.Join(screen.Frame(screen.View{State: end, Line: lines[0], Scroll: screen.Stuck(), Detail: false, Tick: 0}, w), "\n") || last == strings.Join(screen.Frame(screen.View{State: end, Line: lines[2], Scroll: screen.Stuck(), Detail: false, Tick: 0}, w), "\n")
+	assert last == strings.Join(screen.Frame(screen.View{State: end, Line: lines[0], Scroll: screen.Stuck(), Detail: false}, w), "\n") || last == strings.Join(screen.Frame(screen.View{State: end, Line: lines[2], Scroll: screen.Stuck(), Detail: false}, w), "\n")
 }
 
 // painted is the screen of rows lines that a shows after the bytes p of

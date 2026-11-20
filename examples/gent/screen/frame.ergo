@@ -11,10 +11,9 @@ import term
 import utf8
 
 // View is what a frame shows: the agent's state, the composer's line,
-// where the transcript is scrolled to, whether finished calls show their
-// detail, and the spinner's turn (Tick, which the draw loop's timer
-// advances: screen reads no clock).
-type View { State agent.State, Line Line, Scroll Scroll, Detail bool, Tick int }
+// where the transcript is scrolled to, and whether finished calls show
+// their detail.
+type View { State agent.State, Line Line, Scroll Scroll, Detail bool }
 
 // Scroll is where the transcript is scrolled to: stuck to its end, so new
 // output shows as it comes, or with the line Top of the wrapped body at
@@ -49,7 +48,7 @@ func Frame(v View, w term.Window) []string {
 	for line in body[from:to] {
 		out = out.Append(Clip(line, cols))
 	}
-	out.Append(Clip(Spin(v.State, v.Tick)+Status(v.State), cols)).Append(composer)
+	out.Append(Clip(Spin(v.State)+Status(v.State), cols)).Append(composer)
 }
 
 // Top is the first line of a body of n lines that a view shows in room
@@ -114,14 +113,14 @@ func Wrap(text string, cols int) []string {
 	out.Append(rest)
 }
 
-// Spin is the spinner before the status line while the agent works: one
-// of four marks, turned by tick.
-func Spin(s agent.State, tick int) string {
+// Spin is the spinner before the status line while the agent works:
+// one of four marks, by the turns of the agent's Spinner (s.Turn).
+func Spin(s agent.State) string {
 	match s.Phase {
-	case agent.Asking, agent.Waiting, agent.Running:
+	case agent.Asking, agent.Running:
 		let marks = []string{"- ", "\\ ", "| ", "/ "}
-		marks[((tick%4)+4)%4]
-	case agent.Idle, agent.Approving, agent.Ended:
+		marks[((s.Turn%4)+4)%4]
+	case agent.Idle, agent.Waiting, agent.Approving, agent.Ended:
 		""
 	}
 }

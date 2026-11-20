@@ -64,6 +64,29 @@ law ReplayIsTheRun(s Scripted, t Tree, texts []string, allow bool) {
 	agent.Replay(record) == live
 }
 
+// SpinnerTurnsWhileAToolRuns: while a read the model asked for is held,
+// the agent stays Running and the Spinner of that entry turns more than
+// once (each turn restarts its timer): 1s of a virtual clock.
+test SpinnerTurnsWhileAToolRuns {
+	let tools = testing.Script[agent.Tools]{}
+	tools.Read.Hold()
+	let read = agent.Call{Id: "c1", Name: "read", Arguments: "{\"path\":\"a.txt\"}"}
+	let world = Scripted{Replies: []Entry{Says{Pieces: []string{"Let me read."}, Calls: []agent.Call{read}, End: agent.ToolUse}, Says{Pieces: []string{"Done."}, Calls: []agent.Call{}, End: agent.Finished}}}
+	let c = testing.NewVirtualClock(0)
+	let during = with context { agent.Model: world, agent.Tools: tools, exec.Runner: exec.Script{Results: Map[string, exec.Result]{}}, Scheduler: c, time.Clock: c } {
+		let s = agent.Open(agent.Limits{MaxSteps: 2, MaxRetries: 0})
+		s.Agent.Send(agent.Submit{Text: "read a.txt"}) catch {
+		case _:
+		}
+		Scheduler.Sleep(1s)
+		let now = s.Agent.State()
+		tools.Read.Release(func(path string) string fails agent.NotFound | agent.Denied | agent.Escapes | agent.Unreadable { "hello" })
+		s.Agent.Stop()
+		now
+	}
+	assert during.Phase != agent.Idle && during.Turn >= 2
+}
+
 // entry is the entry that answers p, or the failure of a script that has
 // run out.
 func entry(s Scripted, p agent.Prompt) Entry {
