@@ -790,6 +790,25 @@ func (c *Cursor) Skip() {
 	c.skip()
 }
 
+// SkipText is Skip, giving the text of the value it passed, as the input
+// spells it (a substring: no copy); "" at the end of a list or object.
+//
+//ergo:wait none
+func (c *Cursor) SkipText() string {
+	c.at()
+	c.ws()
+	start := c.i
+	if c.check {
+		c.skipChecked()
+	} else {
+		c.skip()
+	}
+	if c.bad || c.i <= start {
+		return ""
+	}
+	return c.s[start:c.i]
+}
+
 func (c *Cursor) skip() {
 	c.ws()
 	if c.i >= len(c.s) {

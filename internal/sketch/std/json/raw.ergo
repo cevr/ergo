@@ -1,0 +1,128 @@
+import strings
+
+// Raw is the text of one JSON value, kept as it was read and not built:
+// a field a program passes on or reads later (a JSON-RPC id, a tool's
+// arguments), as Go's json.RawMessage is. A decode on a json Reader
+// takes the value's text whole, white space inside it as written
+// (WireRead); an encode on a json Text writes it back as it is
+// (WireWrite). Every other format sees its Value (its by-name pair, Wire
+// and ParseRaw).
+//
+// Ownership: a Raw borrows the text it was read from. It is a substring
+// of the input, with no copy; Ergo's strings never change, so that is
+// safe. The cost is retention: a Raw keeps the whole input alive. A Raw
+// that outlives a large input is copied with strings.Clone(r.String()).
+type Raw { text string }
+
+// RawOf is the Raw text spells: one JSON value, white space around it
+// cut; a text that is not one is Malformed, as Open fails it.
+func RawOf(text string) Raw fails Malformed {
+	let r = Reader{c: try open(text, 0, 0)}
+	Raw{text: r.c.SkipText()}
+}
+
+// String is the value's text.
+func String(x Raw) string { x.text }
+
+// ParseRaw is the Raw of v's text: Wire's other half.
+func ParseRaw(v Value) Raw { Raw{text: Encode(c[Value](), v)} }
+
+// WireRead reads the value r is at as its text (types.md, Codecs 11):
+// the cursor passes the value once and hands back the span it passed.
+func WireRead(x mut Raw, r Reader) fails WireWrongKind {
+	if r.c.Kind() == 6 {
+		return WireWrongKind{Path: r.c.Path(), Want: "a value"}
+	}
+	x.text = r.c.SkipText()
+}
+
+// WireWrite writes x's text as it is (types.md, Codecs 10). A string in
+// it keeps its spelling, but U+2028 and U+2029 are escaped, as a string
+// Text writes has them, and in an HTML Text <, > and &, which a valid
+// JSON text holds only inside strings.
+func WireWrite(x Raw, t mut text) {
+	t.sep()
+	t.raw(rawEscaped(x.text, t.html))
+	t.setComma(true)
+}
+
+// rawEscaped is s with the characters a Text escapes in a string
+// escaped; s itself when it has none (the common case, no copy).
+func rawEscaped(s string, html bool) string {
+	let chars = if html { "\u2028\u2029<>&" } else { "\u2028\u2029" }
+	if strings.IndexAny(s, chars) < 0 {
+		return s
+	}
+	let mut out = strings.ReplaceAll(strings.ReplaceAll(s, "\u2028", "\\u2028"), "\u2029", "\\u2029")
+	if html {
+		out = strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(out, "<", "\\u003c"), ">", "\\u003e"), "&", "\\u0026")
+	}
+	out
+}
+
+// RawReadsOneValue: a Raw between two sentinels reads back with both
+// (types.md, Codecs 11): its WireRead takes the one value and nothing
+// after it. A drawn Raw that spells no value is no Raw a program can
+// hold (only RawOf, ParseRaw and a decode make one), so it is passed.
+law RawReadsOneValue(x Raw) {
+	let v = RawOf(x.text) catch {
+	case _:
+		return true
+	}
+	let r = Reader{c: open("[7," + v.text + ",7]", 0, 0) catch {
+	case _:
+		return false
+	}}
+	let (a, y, b) = decode[(int, Raw, int)](r) catch {
+	case _:
+		return false
+	}
+	a == 7 && y == v && b == 7
+}
+
+// RawRoundTrips: a record holding a Raw field, decoded and encoded again,
+// is the text it was read from, the Raw's white space included.
+law RawRoundTrips(d doc, sp int) { rawRoundTrips(d, sp) }
+
+type rawHeld { ID Raw, N int }
+
+func rawRoundTrips(d doc, sp int) bool {
+	let text = "{\"ID\":" + spell(d, spaces(sp)) + ",\"N\":1}"
+	let h = Decode(c[rawHeld](), text) catch {
+	case _:
+		return false
+	}
+	Encode(c[rawHeld](), h) == text
+}
+
+// RawIsValue: a Raw read from a text is the Value the text spells, by its
+// own read and by its ordinary form (Wire), and its text is that value's
+// text with the white space the input had.
+law RawIsValue(d doc, sp int) { rawIsValue(d, sp) }
+
+func rawIsValue(d doc, sp int) bool {
+	let text = spell(d, spaces(sp))
+	let x = Decode(c[Raw](), text) catch {
+	case _:
+		return false
+	}
+	let v = Decode(c[Value](), text) catch {
+	case _:
+		return false
+	}
+	Encode(c[Value](), Wire(x)) == Encode(c[Value](), v) && x.text == strings.TrimSpace(text) && ParseRaw(v).text == spell(d, "")
+}
+
+// spaces is white space between tokens: none, or a run drawn from sp.
+func spaces(sp int) string {
+	let k = ((sp % 4) + 4) % 4
+	if k == 0 {
+		""
+	} else if k == 1 {
+		" "
+	} else if k == 2 {
+		"\n\t"
+	} else {
+		" \r\n "
+	}
+}

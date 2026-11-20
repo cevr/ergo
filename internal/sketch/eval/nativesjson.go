@@ -231,6 +231,7 @@ type jsonNode struct {
 	kind  int
 	text  string
 	raw   string // a string's spelling, quotes and escapes as written
+	span  string // the value's text as written (json.Cursor SkipText)
 	keys  []string
 	elems []*jsonNode
 }
@@ -279,7 +280,17 @@ func jsonParse(text string, maxBytes, maxDepth int64) (*jsonNode, int, string) {
 	return n, 0, ""
 }
 
+// value parses one value and keeps its text as its span.
 func (p *jsonParser) value(depth int64) *jsonNode {
+	start := p.i
+	n := p.valueAt(depth)
+	if n != nil {
+		n.span = p.s[start:p.i]
+	}
+	return n
+}
+
+func (p *jsonParser) valueAt(depth int64) *jsonNode {
 	if p.i >= len(p.s) {
 		return p.fail("the text ends before a value")
 	}
@@ -714,6 +725,15 @@ func (c *jsonCursor) opCall(in *interp, fr *frame, at syntax.Node, name string, 
 			c.take()
 		}
 		return unit{}, nil
+	case "SkipText":
+		// Skip, giving the text it passed: the value's span, "" at the end.
+		// A substring of the input, as the built Cursor's: no allocation.
+		c.at()
+		if n := c.peek(); n != nil {
+			c.take()
+			return n.span, nil
+		}
+		return "", nil
 	case "End":
 		for c.more() {
 			c.take()

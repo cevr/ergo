@@ -1,0 +1,11 @@
+// Wire is the Value x spells: Raw's ordinary form, for every format but
+// this one's (ParseRaw, raw.ergo, is its other half). A Raw holds one JSON
+// value, so the decode cannot fail. The halves are in two files, so the
+// parser derives no pair law: a drawn Raw need not spell a value, and
+// RawRoundTrips and RawIsValue hold the Raws a decode gives.
+func Wire(x Raw) Value {
+	Decode(c[Value](), x.text) catch {
+	case _:
+		Null{}
+	}
+}
