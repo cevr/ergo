@@ -887,7 +887,7 @@
       "name": "oracle-o33-plain-skips-conversion",
       "origin": "wf10 ORACLE O33",
       "file": "internal/sketch/eval/facts.go",
-      "from": "\t\t(!f.hasConv || f.conv.Kind == check.ConvVariant || f.conv.Kind == check.ConvRow || f.conv.Kind == check.ConvNarrow)",
+      "from": "\t\t(!f.hasConv || f.conv.Kind == check.ConvVariant || f.conv.Kind == check.ConvRow || f.conv.Kind == check.ConvNarrow || f.conv.Kind == check.ConvWiden)",
       "to": "\t\ttrue",
       "rule": "A value the checker converts where it is used (a provider into an operation type) is converted however its expression is dispatched.",
       "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
@@ -1330,8 +1330,8 @@
       "name": "oracle-o16-stable-sort-reversed",
       "origin": "wf10 ORACLE O16",
       "file": "internal/sketch/eval/nativesmore.go",
-      "from": "\t\t\treturn cmp.Compare(v.(int64), 0)\n\t\t})\n\t\tif stop != nil {\n\t\t\treturn nil, stop\n\t\t}\n\t\treturn newSlice(out), nil\n\t}\n\tnatives[\"arena.grow\"]",
-      "to": "\t\t\treturn cmp.Compare(0, v.(int64))\n\t\t})\n\t\tif stop != nil {\n\t\t\treturn nil, stop\n\t\t}\n\t\treturn newSlice(out), nil\n\t}\n\tnatives[\"arena.grow\"]",
+      "from": "\t\t\treturn cmp.Compare(v.(int64), 0)\n\t\t})\n\t\tif stop != nil {\n\t\t\treturn nil, stop\n\t\t}\n\t\treturn newSlice(out), nil\n\t}\n\tt.reads[\"arena.grow\"] = \"sliceV T\"\n\tnatives[\"arena.grow\"]",
+      "to": "\t\t\treturn cmp.Compare(0, v.(int64))\n\t\t})\n\t\tif stop != nil {\n\t\t\treturn nil, stop\n\t\t}\n\t\treturn newSlice(out), nil\n\t}\n\tt.reads[\"arena.grow\"] = \"sliceV T\"\n\tnatives[\"arena.grow\"]",
       "rule": "std slices.SortStableFunc sorts a copy by compare, as Go's slices.SortStableFunc (std slices).",
       "killers": ["internal/sketch/eval:TestNativesAgreeWithRuntime"]
     },
@@ -2177,6 +2177,8 @@
     {"name":"sched-fault-stack-dropped","origin":"wf10 EVAL-RAWPATH","file":"internal/sketch/eval/sched.go","from":"\t\treturn taskPanic{fault: f, stack: debug.Stack()}\n","to":"\t\treturn taskPanic{fault: f, stack: debug.Stack()[:0]}\n","rule":"A runtime fault on a task's goroutine, raised again by the root, names the site where it happened (fallout flip-g4).","anchor":{"tests":["internal/sketch/eval:TestTaskFaultKeepsItsStack"]},"killers":["internal/sketch/eval:TestTaskFaultKeepsItsStack"]},
     {"name":"sq5-native-lastindexany-first","origin":"wf10 SQ5 natives (NS lane)","file":"internal/sketch/eval/nativesgo.go","from":"goNatives[\"strings.LastIndexAny\"] = index(strings.LastIndexAny)","to":"goNatives[\"strings.LastIndexAny\"] = index(strings.IndexAny)","rule":"The evaluator's strings.LastIndexAny is Go's last match, not the first (ORACLE O20).","killers":["internal/sketch/eval:TestFuncNativesMatchGo"]},
     {"name":"sq5-native-isspace-letter","origin":"wf10 SQ5 natives (NS lane)","file":"internal/sketch/eval/nativesgo.go","from":"\"unicode.IsSpace\":   goRune(unicode.IsSpace),","to":"\"unicode.IsSpace\":   goRune(unicode.IsLetter),","rule":"The evaluator's unicode.IsSpace is Go's (ORACLE O20).","killers":["internal/sketch/eval:TestFuncNativesMatchGo"]},
+    {"name":"arity-serve-handler-short","origin":"wf10 NATIVES-ARITY (NS lane)","file":"internal/sketch/std/http/http.ergo","from":"[]Field, string, bool, string) Response needs R)","to":"[]Field, string, bool) Response needs R)","rule":"Every evaluator native reads the arguments its std declaration gives, by count and kind, and calls a callback with the declared arity (EVAL-RAWPATH: serve called an 8-parameter handler with 9).","killers":["internal/sketch/eval:TestEveryNativeReadsItsDeclaration"]},
+    {"name":"arity-send-moved","origin":"wf10 NATIVES-ARITY (NS lane)","file":"internal/sketch/std/http/client.ergo","from":"header []Field, body string) Response fails SendFailed","to":"body string, header []Field) Response fails SendFailed","rule":"Every evaluator native reads the arguments its std declaration gives, by count and kind: a parameter moved under an unchanged native fails the fast tier.","killers":["internal/sketch/eval:TestEveryNativeReadsItsDeclaration"]},
     {"name":"wr-eval-ordinary","origin":"wf10 NG WIRE-READ","file":"internal/sketch/eval/codecwalk.go","from":"\thook, ok := check.WireReadOf(r.t)\n\tif !ok {\n\t\treturn nil, false, nil\n\t}\n","to":"\thook, ok := check.WireReadOf(r.t)\n\tif true || !ok {\n\t\treturn nil, false, nil\n\t}\n","rule":"The evaluator reads X by its own WireRead on R, as the lowering does.","killers":["lower:TestCellReaderAgrees"]},
     {"name":"cv-method-value-eval-borrow","origin":"wf10 CV1 (CAP-VALUE A2)","file":"internal/sketch/eval/expr.go","from":"\t\t\trecv, ab := in.receiver(fr, x.X, f)\n","to":"\t\t\trecv, ab := in.expr(fr, x.X)\n","rule":"types.md Methods 2: a method value through a borrow binds the borrowed value, as a dot call's receiver is passed","killers":["internal/sketch/eval:TestMethodValueAgrees"]}
   ]

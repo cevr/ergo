@@ -1,0 +1,38 @@
+// S102: a capability a function declaration's body charges and its
+// capability row does not hold: a call of a function whose signature
+// needs it, or an operation of a capability named as the receiver; the
+// clause to write after a written row or as a new clause, after the
+// fails clause.
+
+type Bad {}
+
+type Console { Println(s string) }
+
+type Store { Get() int }
+
+func show(s string) needs Console { Console.Println(s) }
+
+func read() int needs Store { Store.Get() }
+
+func both() int needs Console | Store {
+	show("x")
+	read()
+}
+
+func direct(s string) {
+	Console.Println(s) //want: rows
+}
+
+func viaCall(s string) {
+	show(s) //want: rows
+}
+
+func extra() int needs Console {
+	show("y")
+	read() //want: rows
+}
+
+func many() int fails Bad {
+	show("z") //want: rows
+	both() //want: rows
+}

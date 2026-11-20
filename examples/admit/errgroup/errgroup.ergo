@@ -1,14 +1,13 @@
-// Package errgroup is the provider of jobs.Checker over Go's
-// golang.org/x/sync/errgroup: each payload is checked by a callback that
-// the group runs on a goroutine of its own, at most limit at once, and
-// Wait returns the first error. Which callback fails first depends on the
-// goroutines, so a failed group names its job through jobs.FirstBad, the
-// contract's reference. Its binding is ergo.bind/golang.org/x/sync/errgroup.
+// Package errgroup is the provider of jobs.Checker in Go's errgroup
+// shape, written on std tasks.Transform: each payload is checked on a task
+// of its own, at most limit at once, and the first check to fail stops
+// the rest (Go's errgroup.Group with SetLimit, Effect's forEach with
+// concurrency). Which check fails first depends on the tasks, so a failed
+// run names its job through jobs.FirstBad, the contract's reference, and
+// the law NamesFirstBad holds on every schedule.
 
 import admit/jobs
-import go golang.org/x/sync/errgroup
-import go strconv
-import go strings
+import tasks
 
 // Checker is a jobs.Checker that checks payloads limit at a time.
 type Checker { limit int } implements jobs.Checker
@@ -21,43 +20,32 @@ func New(limit int) Checker {
 	Checker{limit: limit}
 }
 
-// numbers fails with Go's error when a field of payload is no number of
-// at least 0. It runs on the group's goroutine: it calls only the
-// reviewed pure Go of strconv and strings.
-func numbers(payload string) fails go.Error {
-	for f in strings.Split(payload, ",") {
-		let v = try strconv.Atoi(f)
-		if v < 0 {
-			return go.Error{Text: "\(f) is negative"}
-		}
+// checkOne fails with the job when its payload has a problem
+// (jobs.Problem).
+func checkOne(j jobs.Job) bool fails jobs.BadPayload {
+	match jobs.Problem(j.Payload) {
+	case Some[string] as p:
+		return jobs.BadPayload{Name: j.Name, Reason: p.Value}
+	case None:
+		true
 	}
 }
 
-// Check runs numbers on each payload in a group and waits for them all.
-func Check(c Checker, js []jobs.Job) fails jobs.BadPayload needs go.Foreign {
-	let (g, _) = errgroup.WithContext()
-	match g {
-	case Some[go.Ref[errgroup.Group]] as gr:
-		// A Checker the law cases generate may hold any limit; Go's
-		// errgroup takes none at 0, which would leave every Go waiting.
-		let mut limit = c.limit
-		if limit < 1 {
-			limit = 1
+// Check runs checkOne on each job, at most limit at once. A Checker the
+// law cases generate may hold any limit, and tasks.Transform takes none
+// below 1, so it runs at least one.
+func Check(c Checker, js []jobs.Job) fails jobs.BadPayload {
+	let mut limit = c.limit
+	if limit < 1 {
+		limit = 1
+	}
+	let _ = tasks.Transform(js, limit, checkOne) catch {
+	case jobs.BadPayload as b:
+		match jobs.FirstBad(js) {
+		case Some[jobs.BadPayload] as first:
+			return first.Value
+		case None:
+			return b
 		}
-		gr.Value.SetLimit(limit)
-		for j in js {
-			let p = j.Payload
-			gr.Value.Go(func() fails go.Error { try numbers(p) })
-		}
-		gr.Value.Wait() catch {
-		case go.Error as e:
-			match jobs.FirstBad(js) {
-			case Some[jobs.BadPayload] as b:
-				return b.Value
-			case None:
-				return jobs.BadPayload{Name: "?", Reason: e.Text}
-			}
-		}
-	case None:
 	}
 }

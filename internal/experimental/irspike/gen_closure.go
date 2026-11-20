@@ -8,7 +8,7 @@ import (
 
 // closureFuncs are GenerateClosure's functions: each gets an IR body in
 // every seed (G6).
-var closureFuncs = []string{"apply", "applyT", "pair", "twice", "adder", "useAdder", "local", "loud", "each", "checked", "guarded", "caught", "chain"}
+var closureFuncs = []string{"apply", "applyT", "pair", "twice", "adder", "useAdder", "local", "loud", "each", "checked", "guarded", "caught", "chain", "unused", "relayed", "relay"}
 
 // GenerateClosure is a program of function values (G6): function literals
 // bound to a let, passed as an argument and returned; a trailing block as
@@ -37,10 +37,19 @@ func GenerateClosure(seed uint64) string {
 	b.WriteString("func guarded(x int) fails Bad {\n\tlet g = func(a int) fails Bad {\n\t\tif a > 5 {\n\t\t\treturn Bad{N: a}\n\t\t}\n\t}\n\ttry g(x)\n\ttry g(x - 3)\n}\n\n")
 	b.WriteString("func caught(x int) int {\n\tlet v = checked(x) catch {\n\tcase Bad as e:\n\t\t0 - e.N\n\t}\n\tlet mut w = 0\n\tguarded(x) catch {\n\tcase Bad as e:\n\t\tw = e.N * 100\n\t}\n\tv + w\n}\n\n")
 	fmt.Fprintf(&b, "func chain(x int) int {\n\tlet f = adder(x)\n\tlet g = func(a int) int {\n\t\tlet h = adder(a)\n\t\tlet t = h(%d)\n\t\tf(t)\n\t}\n\tlet v = g(x)\n\tv\n}\n\n", k)
+	// A literal's parameter named _ (G6): bound, and passed as a callback
+	// in each position; the named ones are read, so a parameter bound to
+	// the wrong place changes the result.
+	fmt.Fprintf(&b, "func unused(x int, y int) int {\n\tlet f = func(_ int, c int) int { c * %d + x }\n\tlet g = pair(func(a int, _ int) int { a - x * 2 }, y, x)\n\tf(y, x + 1) * 100 + g * 10 + apply(func(_ int) int { %d }, x)\n}\n\n", k, k+1)
+	// A literal with no value that returns a fallible call's failure
+	// (G6): the tail call and an early `return guarded(…)`; relay reads
+	// which failure left, so a failure lost or a wrong one changes it.
+	b.WriteString("func relayed(x int) fails Bad {\n\tlet h = func(a int) fails Bad {\n\t\tif a < 0 {\n\t\t\treturn guarded(a * -2)\n\t\t}\n\t\tguarded(a + 1)\n\t}\n\ttry h(x)\n}\n\n")
+	b.WriteString("func relay(x int) int {\n\trelayed(x) catch {\n\tcase Bad as e:\n\t\treturn e.N\n\t}\n\t-1\n}\n\n")
 	b.WriteString("func main() needs Console {\n")
 	for i := 0; i < 5; i++ {
 		x, y := r.IntN(15)-4, r.IntN(12)
-		fmt.Fprintf(&b, "\tConsole.Println(\"%d \\(useAdder(%d)) \\(local(%d, %d)) \\(each(%d)) \\(caught(%d)) \\(chain(%d))\")\n", i, x, x, y, x, x, x)
+		fmt.Fprintf(&b, "\tConsole.Println(\"%d \\(useAdder(%d)) \\(local(%d, %d)) \\(each(%d)) \\(caught(%d)) \\(chain(%d)) \\(unused(%d, %d)) \\(relay(%d))\")\n", i, x, x, y, x, x, x, x, y, x)
 		fmt.Fprintf(&b, "\tloud(%d)\n", y)
 	}
 	b.WriteString("}\n")
