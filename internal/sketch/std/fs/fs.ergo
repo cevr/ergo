@@ -420,7 +420,7 @@ func Stat(h Host, path string) Info fails NotFound | Denied | Failed {
 
 // Lstat is Stat of path itself: a symbolic link is not followed.
 func Lstat(h Host, path string) Info fails NotFound | Denied | Failed {
-	try hostLstat(try at(h, path))
+	try hostLstat(try atLast(h, path))
 }
 
 // WriteFile makes the file at path hold text, by a new file in its
@@ -463,12 +463,12 @@ func Chmod(h Host, path string, mode Mode) fails NotFound | Denied | Failed {
 
 // Rename moves the file at from to to.
 func Rename(h Host, from string, to string) fails NotFound | Denied | Failed {
-	try hostRename(try at(h, from), try at(h, to))
+	try hostRename(try atLast(h, from), try atLast(h, to))
 }
 
 // Remove removes the file, or the empty directory, at path.
 func Remove(h Host, path string) fails NotFound | Denied | Failed {
-	try hostRemove(try at(h, path))
+	try hostRemove(try atLast(h, path))
 }
 
 // Exchange makes the files at a and b trade places in one host call, so

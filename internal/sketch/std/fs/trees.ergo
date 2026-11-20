@@ -14,20 +14,35 @@ import strings
 // A symbolic link is listed and not followed (Lstat), so a walk ends on a
 // tree with a cycle of links. A file is itself alone.
 func Walk(path string) []string fails NotFound | Denied | Failed needs Files {
-	try walkInto(path, []string{})
-}
-
-// walkInto is out with path's walk after it.
-func walkInto(path string, out []string) []string fails NotFound | Denied | Failed needs Files {
-	let mut o = out.Append(path)
-	let info = try Files.Lstat(path)
-	if !info.Dir {
-		return o
+	let mut out = []string{}
+	// pending is a stack of the paths still to visit, its first n live: a
+	// directory's entries go on in reverse, so they come off in order.
+	// Locals and no slice argument, so each path is appended once (a
+	// recursive walk that passed its list copied it at every call).
+	let mut pending = []string{path}
+	let mut n = 1
+	for n > 0 {
+		n = n - 1
+		let p = pending[n]
+		out = out.Append(p)
+		let info = try Files.Lstat(p)
+		if !info.Dir {
+			continue
+		}
+		let names = try Files.ReadDir(p)
+		let mut i = len(names) - 1
+		for i >= 0 {
+			let q = filepath.Join([]string{p, names[i]})
+			if n < len(pending) {
+				pending[n] = q
+			} else {
+				pending = pending.Append(q)
+			}
+			n = n + 1
+			i = i - 1
+		}
 	}
-	for name in try Files.ReadDir(path) {
-		o = try walkInto(filepath.Join([]string{path, name}), o)
-	}
-	o
+	out
 }
 
 // RemoveAll removes path and everything below it, as Go's os.RemoveAll:
@@ -148,12 +163,12 @@ func Close(s own Scratch) {
 
 // IsLink reports whether path itself, not followed, is a symbolic link.
 func IsLink(h Host, path string) bool fails NotFound | Denied | Failed {
-	try hostIsLink(try at(h, path))
+	try hostIsLink(try atLast(h, path))
 }
 
 // Readlink is the target of the symbolic link at path, as it was written.
 func Readlink(h Host, path string) string fails NotFound | Denied | Failed {
-	try hostReadlink(try at(h, path))
+	try hostReadlink(try atLast(h, path))
 }
 
 // Symlink makes a symbolic link at path whose target is target, as given;
@@ -162,7 +177,7 @@ func Readlink(h Host, path string) string fails NotFound | Denied | Failed {
 // when the link is followed, and a followed link that leads out is Denied
 // there.
 func Symlink(h Host, target string, path string) fails NotFound | Denied | Failed {
-	try hostSymlink(target, try at(h, path))
+	try hostSymlink(target, try atLast(h, path))
 }
 
 // Resolve is path with every symbolic link in it replaced by its target,
