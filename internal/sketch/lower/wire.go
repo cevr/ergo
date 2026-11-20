@@ -632,7 +632,9 @@ func (l *lowerer) wireFunc(dir string, t check.Type, site syntax.Node) string {
 	zero := "*new(" + goType + ")"
 	l.wireDecodeBody(tc, &body, t, env, task, r, zero, scope)
 	if l.ir != nil {
-		l.ir.codecText(name, "codec reader") // no IR builder takes a decoder yet
+		// No IR builder takes a decoder yet (PORT-WIRE-READERS): the
+		// census counts it by its form.
+		l.ir.codecText(name, "codec reader: "+l.wireReadForm(t))
 	}
 	l.gen.WriteString("func " + name + tlist + "(" + lead + ", " + r + " " + reader + ") (" + goType + ", error) {\n" + body.String() + "}\n\n")
 	return name
@@ -777,6 +779,50 @@ func (l *lowerer) wireEncodeBody(em wireEvents, tc *typeCtx, b *strings.Builder,
 }
 
 // wireDecodeBody writes the statements of t's decode function.
+// wireReadForm names the form of t's decoder function, as wireDecodeBody
+// decides it, for the census reason "codec reader: <form>" that counts the
+// decoders still written as text (PORT-WIRE-READERS step 0).
+func (l *lowerer) wireReadForm(t check.Type) string {
+	if len(freeTypeParams(t)) > 0 {
+		return "generic"
+	}
+	switch check.WireFormOf(t) {
+	case check.WireNullable:
+		return "nullable"
+	case check.WireBare:
+		return "bare"
+	case check.WireNumberText:
+		return "number text"
+	case check.WireMembers:
+		return "members"
+	}
+	if p := l.info.WirePairOf(t); p != nil {
+		if p.Append {
+			return "append pair"
+		}
+		return "pair"
+	}
+	if check.RefinedParse(t) != nil {
+		return "refined"
+	}
+	if l.wireInline(t) {
+		return "basic"
+	}
+	switch wireUnder(t).(type) {
+	case *check.Slice:
+		return "list"
+	case *check.Map:
+		return "map"
+	case *check.Tuple:
+		return "tuple"
+	case *check.Struct:
+		return "record"
+	case *check.Union:
+		return "union"
+	}
+	return "other"
+}
+
 func (l *lowerer) wireDecodeBody(tc *typeCtx, b *strings.Builder, t check.Type, env, task, r, zero string, scope *namer) {
 	if l.wireOwnRead(tc, b, t, env, r, zero, scope) {
 		return // R's own read of t (wireread.go)
