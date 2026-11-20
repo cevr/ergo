@@ -327,6 +327,8 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		return b.conversion(x, c, p) // ir_pkg.go
 	case check.CallEncode, check.CallDecode:
 		return b.codecCall(x, c, p) // ir_codec.go
+	case check.CallPattern:
+		return b.patternCall(x, c, p) // refinematch.go
 	case check.CallProviderOp, check.CallLawOp:
 		switch {
 		case b.env < 0 || c.Op == nil:

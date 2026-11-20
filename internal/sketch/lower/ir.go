@@ -57,9 +57,12 @@ type IRReport struct {
 	Folds FoldCounts `json:"folds"`
 	// CodecText counts the codec functions that keep their text body,
 	// by "name\treason": a cell writer the IR builder refused
-	// (ir_wire.go), an encoder on the reference Writer and a decoder,
-	// which no IR builder takes yet (the text emitter's). In memory only.
+	// (ir_wire.go), an encoder on the reference Writer and a decoder of
+	// a form no IR builder takes yet (the text emitter's). In memory only.
 	CodecText map[string]int `json:"-"`
+	// CodecRead names the decoders the IR builds (ir_wire_read.go). In
+	// memory only.
+	CodecRead []string `json:"-"`
 	// Forms counts the IR forms the bodies held before erasure, by
 	// kind and layout ("match/flat"; ir_forms.go): in memory only.
 	Forms map[string]int `json:"-"`
