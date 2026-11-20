@@ -24,6 +24,14 @@
       "to": "\t\t[]Member{m.Key}\n",
       "rule": "Prune keeps a map's value target: PruneKeepsClosure; the member list also feeds WriteReadRoundTrips through Refusals' walk.",
       "anchor": {"tests": ["examples:modules/clientgen"]}, "killers": ["examples:modules/clientgen"]
+    },
+    {
+      "name": "smithy-drop-misses-member", "origin": "wf10 GEN-MODEL (orchestrator q11)",
+      "file": "modules/clientgen/smithy/prune.ergo",
+      "from": "\tMember{Name: m.Name, Target: m.Target, Traits: strippedTraits(m.Traits, drop)}\n",
+      "to": "\tm\n",
+      "rule": "A dropped trait appears nowhere in the slice, members included: PruneKeepsClosure (drawn members carry the droppable traits).",
+      "anchor": {"tests": ["examples:modules/clientgen"]}, "killers": ["examples:modules/clientgen"]
     }
   ]
 }

@@ -4,7 +4,6 @@
 // holds only what its own drivers use).
 
 import json
-import strings
 
 // Prune is m with only the operations keep names and the shapes they
 // reach: input, output and errors, member targets, list and map members,
@@ -14,7 +13,116 @@ import strings
 // shapes. Shapes keep their traits as written and the order of m, so a
 // slice diffs cleanly when the model is synced again. An id of keep that
 // is not an operation of m fails Unknown.
-func Prune(m Model, keep []string) Model fails Unknown {
+//
+// drop names trait ids to leave out of the slice (test data or a derived
+// form nothing generated reads, such as smithy.rules#endpointTests); with
+// none, every trait is kept as written. A dropped id appears nowhere in
+// the result: not on a shape, not on a member. It does not reach into an
+// Unsupported shape's text, which keeps what it held.
+func Prune(m Model, keep []string, drop []string) Model fails Unknown {
+	let cut = try pruned(m, keep)
+	if len(drop) == 0 {
+		return cut
+	}
+	let mut out = []Shape{}
+	for s in cut.Shapes {
+		out = out.Append(stripped(s, drop))
+	}
+	Model{Version: cut.Version, Metadata: cut.Metadata, Shapes: out}
+}
+
+// stripped is s without the traits drop names, on the shape and on each
+// member.
+func stripped(s Shape, drop []string) Shape {
+	let k = match s.Kind {
+	case Enum as e:
+		Enum{Members: strippedMembers(e.Members, drop)}
+	case IntEnum as e:
+		IntEnum{Members: strippedMembers(e.Members, drop)}
+	case Structure as e:
+		Structure{Members: strippedMembers(e.Members, drop)}
+	case Union as e:
+		Union{Members: strippedMembers(e.Members, drop)}
+	case List as l:
+		List{Member: strippedMember(l.Member, drop)}
+	case Map as mm:
+		Map{Key: strippedMember(mm.Key, drop), Value: strippedMember(mm.Value, drop)}
+	case Simple, Operation, Service, Resource, Unsupported:
+		s.Kind
+	}
+	Shape{Id: s.Id, Kind: k, Traits: strippedTraits(s.Traits, drop), Keys: s.Keys}
+}
+
+func strippedMembers(ms []Member, drop []string) []Member {
+	let mut out = []Member{}
+	for m in ms {
+		out = out.Append(strippedMember(m, drop))
+	}
+	out
+}
+
+func strippedMember(m Member, drop []string) Member {
+	Member{Name: m.Name, Target: m.Target, Traits: strippedTraits(m.Traits, drop)}
+}
+
+func strippedTraits(ts []Trait, drop []string) []Trait {
+	let mut out = []Trait{}
+	for t in ts {
+		if !has(drop, traitId(t)) {
+			out = out.Append(t)
+		}
+	}
+	out
+}
+
+func traitId(t Trait) string {
+	match t {
+	case Known as k:
+		k.Id
+	case Refused as r:
+		r.Id
+	}
+}
+
+// Provenance is where a slice came from: the source's address (with its
+// commit or tag), the sha256 of the source text, the operations kept, the
+// trait ids dropped, and a note (where to fetch what was dropped, if a law
+// needs it). WithProvenance writes it into the slice's metadata, under
+// "clientgen.provenance", so the slice carries it.
+type Provenance { Source string, Sha256 string, Kept []string, Dropped []string, Note string }
+
+func WithProvenance(m Model, p Provenance) Model {
+	let entry = json.Member{Key: "clientgen.provenance", Value: jobj([]json.Member{
+		json.Member{Key: "source", Value: jstr(p.Source)},
+		json.Member{Key: "sha256", Value: jstr(p.Sha256)},
+		json.Member{Key: "kept", Value: strs(p.Kept)},
+		json.Member{Key: "dropped", Value: strs(p.Dropped)},
+		json.Member{Key: "note", Value: jstr(p.Note)},
+	})}
+	let mut ms = []json.Member{}
+	match m.Metadata {
+	case json.Object as o:
+		for x in o.Members {
+			if x.Key != "clientgen.provenance" {
+				ms = ms.Append(x)
+			}
+		}
+	case json.Null, json.Boolean, json.Num, json.Str, json.Array:
+	}
+	Model{Version: m.Version, Metadata: jobj(ms.Append(entry)), Shapes: m.Shapes}
+}
+
+func strs(xs []string) json.Value {
+	let mut items = []json.Value{}
+	for x in xs {
+		items = items.Append(jstr(x))
+	}
+	let v json.Value = json.Array{Items: items}
+	v
+}
+
+// pruned is Prune with no trait dropped.
+func pruned(m Model, keep []string) Model fails Unknown {
 	let index = indexOf(m)
 	for k in keep {
 		match index.Get(k) {
@@ -173,8 +281,15 @@ func closure(m Model, id string) []Shape {
 // reaches the same shapes, traits and all, in the pruned model as in the
 // whole one, and the pruned model holds no shape outside those closures
 // and the trimmed service's errors.
-law PruneKeepsClosure(kinds []int, refs []int, keepBits []int) {
-	let m = drawnModel(kinds, refs, false)
+law PruneKeepsClosure(kinds []int, refs []int, keepBits []int, dropDocs bool, dropUnread bool) {
+	let m = drawnModel(kinds, refs, true)
+	let mut drop = []string{}
+	if dropDocs {
+		drop = drop.Append("smithy.api#documentation")
+	}
+	if dropUnread {
+		drop = drop.Append("x.test#unread")
+	}
 	let mut keep = []string{}
 	let mut k = 0
 	for s in m.Shapes {
@@ -187,27 +302,44 @@ law PruneKeepsClosure(kinds []int, refs []int, keepBits []int) {
 		case Simple, Enum, IntEnum, List, Map, Structure, Union, Service, Resource, Unsupported:
 		}
 	}
-	let p = Prune(m, keep) catch {
+	let p = Prune(m, keep, drop) catch {
 	case Unknown:
 		return false
 	}
 	let mut allowed = Map[string, bool]{}
 	for op in keep {
-		if closure(p, op) != closure(m, op) {
-			return false
-		}
+		let mut want = []Shape{}
 		for s in closure(m, op) {
+			want = want.Append(stripped(s, drop))
 			allowed[s.Id] = true
 		}
+		if closure(p, op) != want {
+			return false
+		}
 	}
-	for s in closure(m, "t#Svc") {
-		match s.Kind {
-		case Service:
-		case Simple, Enum, IntEnum, List, Map, Structure, Union, Operation, Resource, Unsupported:
-			if strings.HasPrefix(s.Id, "t#E") {
-				allowed[s.Id] = true
+	if len(keep) > 0 {
+		allowed["t#E0"] = true
+	}
+	for s in p.Shapes {
+		for t in s.Traits {
+			if has(drop, traitId(t)) {
+				return false
 			}
 		}
+		for mem in membersOf(s.Kind) {
+			for t in mem.Traits {
+				if has(drop, traitId(t)) {
+					return false
+				}
+			}
+		}
+	}
+	let back = Read(Write(p)) catch {
+	case _:
+		return false
+	}
+	if back != p {
+		return false
 	}
 	for s in p.Shapes {
 		match s.Kind {
@@ -244,16 +376,17 @@ func drawnModel(kinds []int, refs []int, noisy bool) Model {
 			"t#S\(((r%n)+n)%n)"
 		}
 		let id = "t#S\(i)"
+		let mt = if noisy { []Trait{Known{Id: "smithy.api#documentation", Value: jstr("member of \(i)")}, Refused{Id: "x.test#unread", Value: jstr("m"), Why: "a trait the reader does not read yet"}} } else { []Trait{} }
 		let c = ((kinds[i] % 6) + 6) % 6
 		let mut kind Kind = Simple{Of: StringType{}}
 		if c == 1 {
-			kind = Structure{Members: []Member{Member{Name: "a", Target: pick(), Traits: []Trait{}}, Member{Name: "b", Target: pick(), Traits: []Trait{}}}}
+			kind = Structure{Members: []Member{Member{Name: "a", Target: pick(), Traits: mt}, Member{Name: "b", Target: pick(), Traits: mt}}}
 		} else if c == 2 {
-			kind = List{Member: Member{Name: "member", Target: pick(), Traits: []Trait{}}}
+			kind = List{Member: Member{Name: "member", Target: pick(), Traits: mt}}
 		} else if c == 3 {
-			kind = Map{Key: Member{Name: "key", Target: "smithy.api#String", Traits: []Trait{}}, Value: Member{Name: "value", Target: pick(), Traits: []Trait{}}}
+			kind = Map{Key: Member{Name: "key", Target: "smithy.api#String", Traits: mt}, Value: Member{Name: "value", Target: pick(), Traits: mt}}
 		} else if c == 4 {
-			kind = Union{Members: []Member{Member{Name: "x", Target: pick(), Traits: []Trait{}}}}
+			kind = Union{Members: []Member{Member{Name: "x", Target: pick(), Traits: mt}}}
 		} else if c == 5 {
 			kind = Operation{Input: Some[string]{Value: pick()}, Output: Some[string]{Value: pick()}, Errors: []string{pick()}}
 			ops = ops.Append(id)
