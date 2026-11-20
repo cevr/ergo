@@ -677,13 +677,13 @@ func peekMethod(s mut Store, i int, v int) string {
 	show(b)
 }
 
-func bump(s *Store, i int, v int) {
+func bump(s mut Store, i int, v int) {
 	s.bags[i].N = s.bags[i].N + v
 }
 
 // The borrow passed on writes only a scalar field (storeread_pass.go,
 // own-read-pass): the let needs no copy.
-func peekBump(s *Store, i int, v int) string {
+func peekBump(s mut Store, i int, v int) string {
 	let b = s.bags[i]
 	bump(s, i, v)
 	show(b)
@@ -698,12 +698,12 @@ func view(b Bag, w int) string {
 	show(b)
 }
 
-func bumpN(s *Store, i int, v int) int {
+func bumpN(s mut Store, i int, v int) int {
 	s.bags[i].N = s.bags[i].N + v
 	0
 }
 
-func pokeN(s *Store, i int, v int) int {
+func pokeN(s mut Store, i int, v int) int {
 	if len(s.bags[i].Items) > 0 {
 		s.bags[i].Items[0] = v
 	}
@@ -712,19 +712,19 @@ func pokeN(s *Store, i int, v int) int {
 
 // The read operand is unkept; the next operand passes the borrow on and
 // writes only a scalar field (keeps.go, own-call-pass): no copy.
-func peekCallBump(s *Store, i int, v int) string {
+func peekCallBump(s mut Store, i int, v int) string {
 	view(s.bags[i], bumpN(s, i, v))
 }
 
 // The next operand writes the element's slice: the read copies.
-func peekCallPoke(s *Store, i int, v int) string {
+func peekCallPoke(s mut Store, i int, v int) string {
 	view(s.bags[i], pokeN(s, i, v))
 }
 
 // A let of the element's field after the let of the element (storeread.go,
 // letKeepsNothing); the borrow passed on writes only a scalar field: no
 // copy.
-func peekChain(s *Store, i int, v int) string {
+func peekChain(s mut Store, i int, v int) string {
 	let b = s.bags[i]
 	let it = b.Items
 	bump(s, i, v)
@@ -733,19 +733,19 @@ func peekChain(s *Store, i int, v int) string {
 
 // items returns a part of its borrow (borrowret.go, own-borrow-return):
 // its callers copy the result only when they keep it past a write.
-func items(s *Store, i int) []int {
+func items(s mut Store, i int) []int {
 	s.bags[i].Items
 }
 
 // A let of it that keeps nothing, then a scalar write: no copy.
-func peekRet(s *Store, i int, v int) string {
+func peekRet(s mut Store, i int, v int) string {
 	let it = items(s, i)
 	bump(s, i, v)
 	"\(dig(it)),\(s.bags[i].N - v)"
 }
 
 // The borrow then writes the slice: the caller copies.
-func peekRetPoke(s *Store, i int, v int) string {
+func peekRetPoke(s mut Store, i int, v int) string {
 	let it = items(s, i)
 	poke(s, i, v)
 	"\(dig(it)),\(s.bags[i].N)"
@@ -756,7 +756,7 @@ func peekRetPoke(s *Store, i int, v int) string {
 // it shared.
 type Walk { bags []Bag, n []int }
 
-func tally(w *Walk, v int) {
+func tally(w mut Walk, v int) {
 	w.n = w.n.Append(v)
 }
 
@@ -766,7 +766,7 @@ func enterBump(bags []Bag, i int, v int) string {
 	"\(dig(w.bags[i].Items)),\(len(w.n))"
 }
 
-func scribble(w *Walk, i int, v int) {
+func scribble(w mut Walk, i int, v int) {
 	if len(w.bags[i].Items) > 0 {
 		w.bags[i].Items[0] = v
 	}
@@ -785,7 +785,7 @@ func enterPoke(bags []Bag, i int, v int) string {
 // (own-enter-field): the items enter it shared.
 type Tray { items []int, n []int }
 
-func count(t *Tray, v int) {
+func count(t mut Tray, v int) {
 	t.n = t.n.Append(v)
 }
 
@@ -796,7 +796,7 @@ func enterPath(bags []Bag, i int, v int) string {
 	"\(dig(t.items)),\(len(t.n))"
 }
 
-func stamp(t *Tray, v int) {
+func stamp(t mut Tray, v int) {
 	if len(t.items) > 0 {
 		t.items[0] = v
 	}
@@ -812,7 +812,7 @@ func enterPathPoke(bags []Bag, i int, v int) string {
 
 // pokeA writes the element's slice; pokeB only passes the borrow back to
 // pokeA: through the recursion, both write it.
-func pokeA(s *Store, i int, v int, d int) {
+func pokeA(s mut Store, i int, v int, d int) {
 	if d > 0 {
 		pokeB(s, i, v, d - 1)
 	} else if len(s.bags[i].Items) > 0 {
@@ -820,19 +820,19 @@ func pokeA(s *Store, i int, v int, d int) {
 	}
 }
 
-func pokeB(s *Store, i int, v int, d int) {
+func pokeB(s mut Store, i int, v int, d int) {
 	pokeA(s, i, v, d)
 }
 
 // The borrow passed into the recursion writes the element's slice.
-func peekCycleA(s *Store, i int, v int) string {
+func peekCycleA(s mut Store, i int, v int) string {
 	let b = s.bags[i]
 	pokeA(s, i, v, 1)
 	show(b)
 }
 
 // The same, entered through the function that writes nothing itself.
-func peekCycleB(s *Store, i int, v int) string {
+func peekCycleB(s mut Store, i int, v int) string {
 	let b = s.bags[i]
 	pokeB(s, i, v, 1)
 	show(b)
