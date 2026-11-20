@@ -233,6 +233,17 @@ func TestRunCapsAtTheReservation(t *testing.T) {
 	if got := b.peak("dd"); got != 128<<20 {
 		t.Fatalf("the peak kept after a kill at 64M: %d, want %d (twice the cap)", got, 128<<20)
 	}
+	// Killed inside a shell, which exits 1: the scope's kill count, not
+	// the code, says the cap killed (2026-11-20). Mutant:
+	// budget-kill-by-code.
+	sh := []string{"sh", "-c", "dd if=/dev/zero of=/dev/null bs=200M count=1 || exit 1"}
+	code, err = Run(ctx, b, Request{Width: 1, Lane: "over", Memory: 64 << 20, Key: "dd-sh"}, sh, nil, io.Discard, io.Discard)
+	if err != nil || code != 1 {
+		t.Fatalf("a shell whose dd is over its 64M cap: code %d, err %v; want 1", code, err)
+	}
+	if got := b.peak("dd-sh"); got != 128<<20 {
+		t.Fatalf("the peak kept after a kill at 64M inside a shell: %d, want %d (twice the cap)", got, 128<<20)
+	}
 }
 
 // TestUnknownCommandIsNotKilled: a command never measured is charged the

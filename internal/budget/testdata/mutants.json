@@ -110,6 +110,24 @@
       "killers": ["internal/budget:TestReservationIsTheLargestPeak", "internal/budget:TestRunCapsAtTheReservation"]
     },
     {
+      "name": "budget-kill-by-code",
+      "origin": "wf10 WS4c (2026-11-20: a capped chain killed at its mutants exited 1)",
+      "file": "internal/budget/run_unix.go",
+      "from": "\tcase killed && own > 0 && peak >= own:\n",
+      "to": "\tcase code == 128+int(syscall.SIGKILL) && own > 0 && peak >= own:\n",
+      "rule": "The scope's OOM kill count, not the exit code, says the cap killed a run.",
+      "killers": ["internal/budget:TestReservationIsTheLargestPeak", "internal/budget:TestRunCapsAtTheReservation"]
+    },
+    {
+      "name": "budget-failed-run-keeps-peak",
+      "origin": "wf10 WS4c (2026-11-20: a chain that failed at its test capped its next run)",
+      "file": "internal/budget/run_unix.go",
+      "from": "\tcase killed || code == 0:\n\t\treturn peak\n\t}\n\treturn 0\n",
+      "to": "\tcase killed || code == 0:\n\t\treturn peak\n\t}\n\treturn peak\n",
+      "rule": "A run that failed, unkilled, leaves no peak: it may have stopped short of its work's peak.",
+      "killers": ["internal/budget:TestReservationIsTheLargestPeak"]
+    },
+    {
       "name": "budget-cap-unknown",
       "origin": "wf10 WS4c (model CapUnknown; c012b9af5's rule)",
       "file": "internal/budget/decide.go",

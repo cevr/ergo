@@ -125,10 +125,15 @@ func TestReservationIsTheLargestPeak(t *testing.T) {
 			t.Errorf("Reservation(asked %d, peak %d, default %d) = %d, capped %v; want %d, capped %v", c.asked, c.peak, c.dflt, got, capped, c.want, c.capped)
 		}
 	}
-	if got := KeptPeak(8, 137, 8); got != 16 {
-		t.Errorf("a run killed at its own cap of 8 leaves %d, want 16", got)
+	if got := KeptPeak(8, 1, true, 8); got != 16 {
+		t.Errorf("a run killed at its own cap of 8 (its shell exiting 1) leaves %d, want 16", got)
 	}
-	if got := KeptPeak(0, 137, 20); got != 20 {
+	if got := KeptPeak(0, 137, true, 20); got != 20 {
 		t.Errorf("an uncapped run killed at a peak of 20 leaves %d, want 20", got)
+	}
+	// Mutant budget-failed-run-keeps-peak: a run that failed short of its
+	// work's peak must not cap the next.
+	if got := KeptPeak(0, 1, false, 3); got != 0 {
+		t.Errorf("a run that failed, unkilled, at a peak of 3 leaves %d, want none", got)
 	}
 }

@@ -116,15 +116,16 @@ func Run(ctx context.Context, b *Budget, req Request, argv []string, stdin io.Re
 	case werr != nil:
 		return 1, werr
 	}
-	peak := readPeak(peakFile)
+	peak, killed := readPeak(peakFile)
 	if peak == 0 && cmd.ProcessState != nil {
 		peak = maxRSS(cmd.ProcessState)
+		killed = code == 128+int(syscall.SIGKILL)
 	}
 	own := int64(0)
 	if g.capped {
 		own = g.Memory()
 	}
-	g.Finish(code, KeptPeak(own, code, peak))
+	g.Finish(code, KeptPeak(own, code, killed, peak))
 	return code, nil
 }
 
@@ -136,37 +137,57 @@ func sliceName(state string) string {
 }
 
 // peakScript runs in the command's scope: it runs the command, then writes
-// the scope's memory peak to the file $1 names, and exits with the
-// command's code (128 plus the signal for one a signal ended, as Run's).
-const peakScript = `p=$1; shift; "$@"; rc=$?; cat "/sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup)/memory.peak" > "$p" 2>/dev/null; exit $rc`
+// the scope's memory peak and its count of OOM kills to the file $1 names,
+// one a line, and exits with the command's code (128 plus the signal for
+// one a signal ended, as Run's). The kill count, not the exit code, says
+// whether the cap killed: a shell that runs the killed process exits 1.
+const peakScript = `p=$1; shift; "$@"; rc=$?; c="/sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup)"; { cat "$c/memory.peak"; awk '$1 == "oom_kill" { print $2 }' "$c/memory.events"; } > "$p" 2>/dev/null; exit $rc`
 
-// KeptPeak is the peak a run leaves for its command's next take; own is
-// the run's own cap, 0 for an uncapped run. An uncapped run's peak is its
-// real one. A run killed at its own cap (SIGKILL, its peak at the cap)
-// needed more than the cap, by an amount no one measured: it leaves twice
-// the cap. Only a command that grew past its own recorded peak (and a
-// quarter) is so killed (mem.ergo KilledPastOwnPeak), once per doubling
-// of its growth.
-func KeptPeak(own int64, code int, peak int64) int64 {
-	if own > 0 && code == 128+int(syscall.SIGKILL) && peak >= own {
+// KeptPeak is the peak a run leaves for its command's next take, 0 for
+// none; own is the run's own cap, 0 for an uncapped run, and killed says
+// an OOM kill ended a process of the run.
+//   - A run killed at its own cap needed more than the cap, by an amount
+//     no one measured: it leaves twice the cap. Only a command that grew
+//     past its own recorded peak (and a quarter) is so killed (mem.ergo
+//     KilledPastOwnPeak), once per doubling of its growth.
+//   - A run that ends at 0, or one the slice killed, leaves its real peak.
+//   - A run that failed otherwise leaves none: it may have stopped before
+//     its work's peak (2026-11-20: a vet, test and mutants chain that
+//     failed at its test left 112M, and its next run was capped at 140M,
+//     and its mutants killed there).
+func KeptPeak(own int64, code int, killed bool, peak int64) int64 {
+	switch {
+	case killed && own > 0 && peak >= own:
 		return max(peak, 2*own)
+	case killed || code == 0:
+		return peak
 	}
-	return peak
+	return 0
 }
 
-func readPeak(path string) int64 {
+// readPeak reads the file peakScript wrote: the scope's peak, and whether
+// an OOM kill ended a process in it.
+func readPeak(path string) (int64, bool) {
 	if path == "" {
-		return 0
+		return 0, false
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return 0
+		return 0, false
 	}
-	v, err := strconv.ParseInt(strings.TrimSpace(string(data)), 10, 64)
+	lines := strings.Fields(string(data))
+	if len(lines) == 0 {
+		return 0, false
+	}
+	v, err := strconv.ParseInt(lines[0], 10, 64)
 	if err != nil {
-		return 0
+		return 0, false
 	}
-	return v
+	kills := int64(0)
+	if len(lines) > 1 {
+		kills, _ = strconv.ParseInt(lines[1], 10, 64)
+	}
+	return v, kills > 0
 }
 
 // scopes reports whether a command can run in a transient scope of the
