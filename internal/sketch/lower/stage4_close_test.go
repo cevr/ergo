@@ -32,7 +32,7 @@ func Close[T](g G[T]) needs Console { Console.Println("close G") }
 
 type P {} implements A, Closer
 func Use(_ P) string { "use P" }
-func Close(_ *P) needs Console { Console.Println("close P") }
+func Close(_ mut P) needs Console { Console.Println("close P") }
 
 func main() needs Console {
 	let q = queue.New[string](4)
@@ -82,7 +82,7 @@ func Close[T](g G[T]) needs Console { Console.Println("close G") }
 
 type P {} implements A, Closer
 func Use(_ P) string { "use P" }
-func Close(_ *P) needs Console { Console.Println("close P") }
+func Close(_ mut P) needs Console { Console.Println("close P") }
 
 let Base = context { A: P }
 let Swapped = context {

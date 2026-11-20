@@ -262,7 +262,7 @@ law MeasuresOnceAtAWidth(text string, width int) {
 }
 
 // Add makes a node of style s, with no parent and no children.
-func Add(t *Tree, s Style) Id {
+func Add(t mut Tree, s Style) Id {
 	let mut i = len(t.nodes)
 	if len(t.free) > 0 {
 		i = t.free[len(t.free)-1]
@@ -299,11 +299,11 @@ func Add(t *Tree, s Style) Id {
 }
 
 // at is the index of id's node.
-func at(t *Tree, id Id) int fails arena.Stale { try t.ids.Get(id.ref) }
+func at(t mut Tree, id Id) int fails arena.Stale { try t.ids.Get(id.ref) }
 
 // Append makes child the last child of parent, taking it from the parent
 // it had.
-func Append(t *Tree, parent Id, child Id) fails arena.Stale {
+func Append(t mut Tree, parent Id, child Id) fails arena.Stale {
 	let p = try at(t, parent)
 	let c = try at(t, child)
 	detach(t, c)
@@ -321,7 +321,7 @@ func Append(t *Tree, parent Id, child Id) fails arena.Stale {
 }
 
 // detach takes node c out of its parent's children.
-func detach(t *Tree, c int) {
+func detach(t mut Tree, c int) {
 	let p = t.nodes[c].parent
 	if p == none {
 		return
@@ -346,7 +346,7 @@ func detach(t *Tree, c int) {
 
 // Remove takes id's node out of the tree with all its descendants, whose
 // Ids are stale from then on.
-func Remove(t *Tree, id Id) fails arena.Stale {
+func Remove(t mut Tree, id Id) fails arena.Stale {
 	let c = try at(t, id)
 	detach(t, c)
 	let mut stack = []int{c}
@@ -364,21 +364,21 @@ func Remove(t *Tree, id Id) fails arena.Stale {
 }
 
 // SetStyle gives id's node the style s.
-func SetStyle(t *Tree, id Id, s Style) fails arena.Stale {
+func SetStyle(t mut Tree, id Id, s Style) fails arena.Stale {
 	let i = try at(t, id)
 	t.nodes[i].style = s
 	forget(t, i)
 }
 
 // StyleOf is the style of id's node.
-func StyleOf(t *Tree, id Id) Style fails arena.Stale {
+func StyleOf(t mut Tree, id Id) Style fails arena.Stale {
 	let i = try at(t, id)
 	t.nodes[i].style
 }
 
 // forget clears what node i and every node around it computed, up to the
 // root: a change of i changes their content.
-func forget(t *Tree, i int) {
+func forget(t mut Tree, i int) {
 	let mut k = i
 	for k != none {
 		t.nodes[k].laid = false
@@ -390,7 +390,7 @@ func forget(t *Tree, i int) {
 
 // Layout lays out the tree under root in a w×h DIP window: root takes
 // exactly that size, at the window's top left.
-func Layout(t *Tree, root Id, w float32, h float32) fails arena.Stale needs Measure {
+func Layout(t mut Tree, root Id, w float32, h float32) fails arena.Stale needs Measure {
 	let r = try at(t, root)
 	t.work = 0
 	t.nodes[r].x = 0
@@ -399,7 +399,7 @@ func Layout(t *Tree, root Id, w float32, h float32) fails arena.Stale needs Meas
 }
 
 // BoxOf is id's border box after the last Layout of its root.
-func BoxOf(t *Tree, id Id) Box fails arena.Stale {
+func BoxOf(t mut Tree, id Id) Box fails arena.Stale {
 	let i = try at(t, id)
 	let mut x = t.nodes[i].x
 	let mut y = t.nodes[i].y

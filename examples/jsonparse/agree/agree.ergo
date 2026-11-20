@@ -1,0 +1,155 @@
+// Package agree holds the two trees of jsonparse to what the generator
+// built: the pointer tree's and the flat tree's readings of generated
+// documents, with whitespace (a return among it), bytes that are not
+// UTF-8, a control byte and an unknown escape inside a string, and
+// pointers one index past an array's end. Package deep holds what the
+// check-time evaluator cannot reach (its call depth is 1024): the
+// JSONTestSuite files and the depth limit. Together they replace cmd/ergo's
+// TestJSONParseAgreesWithControl (wf10 TP-BUILT) and kill its mutants
+// (testdata/mutants.json, killer examples:jsonparse).
+
+import jsonparse/flat
+import jsonparse/json
+import rand
+import strconv
+import strings
+
+// TreeReading is text read into a pointer tree: "ok " and its compact
+// form, or "fail " and the offset of the first byte that is not JSON.
+func TreeReading(text string) string {
+	let v = json.Parse(text) catch {
+	case json.Malformed as m:
+		return "fail \(m.Offset)"
+	}
+	"ok " + json.Compact(v)
+}
+
+// FlatReading is TreeReading over the flat tree.
+func FlatReading(text string) string {
+	let t = flat.Parse(text) catch {
+	case json.Malformed as m:
+		return "fail \(m.Offset)"
+	}
+	"ok " + flat.Compact(t, t.Root)
+}
+
+// space is whitespace between tokens: none two times in three, else one
+// to three bytes of space, tab, newline and return.
+func space() string needs Random {
+	if Random.IntN(3) != 0 {
+		return ""
+	}
+	let ws = " \t\n\r"
+	let mut b = strings.NewBuilder()
+	for _ in 0..(1 + Random.IntN(3)) {
+		b.WriteByte(ws[Random.IntN(4)])
+	}
+	b.String()
+}
+
+// spaced is v's text with drawn whitespace around every token.
+func spaced(v json.Value) string needs Random {
+	match v {
+	case json.Array as a:
+		let mut b = strings.NewBuilder()
+		b.WriteString("[" + space())
+		for i in 0..len(a.Items) {
+			if i > 0 {
+				b.WriteString("," + space())
+			}
+			b.WriteString(spaced(a.Items[i]) + space())
+		}
+		b.WriteString("]")
+		b.String()
+	case json.Object as o:
+		let mut b = strings.NewBuilder()
+		b.WriteString("{" + space())
+		for i in 0..len(o.Members) {
+			if i > 0 {
+				b.WriteString("," + space())
+			}
+			let m = o.Members[i]
+			b.WriteString(json.Quoted(m.Key) + space() + ":" + space() + spaced(m.Val) + space())
+		}
+		b.WriteString("}")
+		b.String()
+	case json.Null, json.Bool, json.Number, json.Str:
+		json.Compact(v)
+	}
+}
+
+// getsNothing reports that ptr names no value of v.
+func getsNothing(v json.Value, ptr string) bool {
+	let _ = json.Get(v, ptr) catch {
+	case json.NoValue:
+		return true
+	case json.BadPointer:
+		return false
+	}
+	false
+}
+
+// flatGetsNothing is getsNothing over the flat tree of text.
+func flatGetsNothing(text string, ptr string) bool {
+	let t = flat.Parse(text) catch {
+	case json.Malformed:
+		return false
+	}
+	let _ = flat.Get(t, ptr) catch {
+	case json.NoValue:
+		return true
+	case json.BadPointer:
+		return false
+	}
+	false
+}
+
+// both is "" when the pointer tree and the flat tree read text as want,
+// else what each read.
+func both(what string, text string, want string) string {
+	let tree = TreeReading(text)
+	let flatRead = FlatReading(text)
+	if tree == want && flatRead == want {
+		return ""
+	}
+	what + ": " + strconv.Quote(text) + ": tree " + strconv.Quote(tree) + ", flat " + strconv.Quote(flatRead) + ", want " + strconv.Quote(want) + "\n"
+}
+
+// broken is the readings of the documents of seed that are not what the
+// generator built, one line each.
+func broken(seed int) string needs Random {
+	let mut bad = strings.NewBuilder()
+	for v in json.Samples(seed) {
+		let c = json.Compact(v)
+		bad.WriteString(both("spaced", spaced(v), "ok "+c))
+		// A byte that is not UTF-8 reads as U+FFFD.
+		bad.WriteString(both("not UTF-8", "["+c+",\"x\xffy\"]", "ok ["+c+",\"x\ufffdy\"]"))
+		// A control byte inside a string is the first byte that is not JSON.
+		let ctl = if Random.IntN(2) == 0 { "\n" } else { "\x1f" }
+		bad.WriteString(both("control byte", "["+c+",\"a"+ctl+"b\"]", "fail \(len(c) + 4)"))
+		// After a backslash, the byte that is no escape.
+		bad.WriteString(both("unknown escape", "["+c+",\"a\\qb\"]", "fail \(len(c) + 5)"))
+		// An index one past an array's end names nothing.
+		for p in json.Places(v) {
+			match p.At {
+			case json.Array as a:
+				let ptr = p.Pointer + "/\(len(a.Items))"
+				if !getsNothing(v, ptr) || !flatGetsNothing(c, ptr) {
+					bad.WriteString("index past the end: " + strconv.Quote(c) + " " + ptr + "\n")
+				}
+			case _:
+			}
+		}
+	}
+	bad.String()
+}
+
+// GeneratedDocumentsReadAsBuilt: the documents of every drawn seed read,
+// into both trees, as the generator built them, and fail where the first
+// byte that is not JSON stands.
+test GeneratedDocumentsReadAsBuilt(seed int) {
+	let bad = with context { Random: rand.Seeded(uint64(seed)) } {
+		broken(seed)
+	}
+	assert bad == ""
+}

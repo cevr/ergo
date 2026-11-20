@@ -115,7 +115,7 @@ var externPlaceRows = map[string]externPlaceRow{
 	"MapType.Value":        {guardType, "func f(m Map[int, @Upper]) {}\n"},
 	"NeedsClause.Names":    {guardType, "func f() needs @Upper {}\n"},
 	"ProvidesClause.Names": {guardType, "type C { M() }\ntype P {} implements C\nfunc M(_ P) {}\nfunc f() { with context provides @Upper { C: P } { C.M() } }\n"},
-	"StarExpr.X":           {guardType, "func f(p *@Upper) {}\n"},
+	"StarExpr.X":           {guardType, "func f(p mut @Upper) {}\n"},
 	"TypeDecl.Spec":        {guardType, "type T = @Upper\n"},
 	"TypeDecl.Implements":  {guardType, "type T {} implements @Upper\n"},
 	// A where reads only its subject and literals (refine.go): an extern
