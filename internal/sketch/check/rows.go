@@ -1066,10 +1066,11 @@ func (c *checker) checkFuncBody(f *Func) bool {
 	defer func() { c.fn = prev }()
 	seen := map[string]bool{}
 	for _, p := range sig.Params {
-		if !c.paramBinder(f, p, seen) { // the extern's rules too (extern.go)
+		bind, refused := c.paramBinder(f, p, seen) // the extern's rules too (extern.go)
+		if !bind {
 			continue
 		}
-		v := &Var{Name: p.Name, Type: p.Type, Pos: p.Pos, id: p.id, param: true, used: true}
+		v := &Var{Name: p.Name, Type: p.Type, Pos: p.Pos, id: p.id, param: true, used: true, refused: refused}
 		c.def(p.id, v)
 		frame.insert(p.Name, v)
 	}

@@ -274,6 +274,7 @@ func (w *refWalker) binder(id *syntax.Ident, b *localBinding) {
 	if w.binders != nil {
 		w.binders[id] = true
 	}
+	b.refused = w.c.isPreludeName(id.Name) // D-D3 refuses it; it still binds
 	w.bindAs(id.Name, b)
 }
 

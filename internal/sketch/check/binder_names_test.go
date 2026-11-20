@@ -28,17 +28,18 @@ type binderKind int
 
 const (
 	// A parameter, a name of a multi-name let or an as name: always a
-	// binder. A local may reuse a package-level name or a prelude name
-	// (D-D2; grammar.md Reserved names 2, owner q244).
+	// binder. A local may reuse a package-level name other than a prelude
+	// name (D-D2, diagnostics.md); a prelude name is S108 at the binder,
+	// which still binds (D-D3).
 	plainBinder binderKind = iota
 	// A let's or a for's pattern name in a body (rows.md Totality 6,
 	// types.md Scope 1): a constant is a pattern; a package type, function
-	// or context name binds (D-D2; L5), and so does a prelude name (q244).
+	// or context name binds (D-D2; L5); a prelude name binds with D-D3's
+	// S108.
 	letForPattern
 	// A match pattern name (rows.md Totality 1): a type or constant is that
-	// pattern; a package function name is S108 and binds a placeholder; a
-	// prelude function's name binds and hides it (q244); any other name
-	// binds. A name inside a catch arm's record pattern follows the
+	// pattern; a function name is S108 and binds a placeholder; any other
+	// name binds. A name inside a catch arm's record pattern follows the
 	// same rule: the arms are match arms over the failure (rows.md Catch 7),
 	// and rule 1's function and package-value S108 applies to catch arms
 	// (Totality 6).
@@ -215,11 +216,17 @@ func binderRule(k binderKind, c nameClass) binderVerdict {
 	}
 	switch k {
 	case plainBinder:
-		return binds() // D-D2, q244: a local may reuse a package-level or prelude name
+		if c.prelude() {
+			return binds("S108") // D-D3: the refused binder still binds
+		}
+		return binds() // D-D2: a local may reuse a package-level name
 	case letForPattern:
+		switch {
+		case c.prelude():
+			return binds("S108") // D-D3: a prelude type or constant there is a binder
+		}
 		// Totality 6: binds over a package function, value or type, a
-		// refused one included (types.md, Scope 1; L5), and over a prelude
-		// name (q244).
+		// refused one included (types.md, Scope 1; L5).
 		return binds()
 	case matchPattern:
 		switch c {
@@ -231,10 +238,8 @@ func binderRule(k binderKind, c nameClass) binderVerdict {
 			return binderVerdict{meaning: "names", other: []string{"S108"}}
 		case preludeConst:
 			return names("S108") // Totality 1: a bool constant typed by an int subject
-		case packageFunc, packageValue:
+		case packageFunc, packageValue, preludeFunc:
 			return binds("S108") // Totality 1: a function or package value name is S108 and binds a placeholder
-		case preludeFunc:
-			return binds() // q244: the binder hides the prelude function
 		}
 	case catchRest:
 		switch c {
@@ -244,10 +249,8 @@ func binderRule(k binderKind, c nameClass) binderVerdict {
 			return binderVerdict{meaning: "names", at: []string{"S108"}, other: []string{"S103"}}
 		case preludeConst:
 			return names("S108") // Totality 1: a constant is a pattern, never a failure
-		case packageFunc, packageValue:
+		case packageFunc, packageValue, preludeFunc:
 			return binds("S108") // Totality 1 (rows.md Totality 6: applies to catch arms)
-		case preludeFunc:
-			return binds() // q244: the binder hides the prelude function
 		}
 	}
 	panic("binderRule: no rule")

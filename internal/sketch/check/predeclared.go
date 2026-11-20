@@ -26,36 +26,6 @@ func IsPredeclared(name string) bool {
 	return predeclaredAbove(name, prelude().scope)
 }
 
-// PredeclaredNames are the names IsPredeclared reports, sorted: the
-// universe's and the prelude scope's, and predeclaredNames.
-func PredeclaredNames() []string {
-	seen := map[string]bool{}
-	for name := range predeclaredNames {
-		seen[name] = true
-	}
-	for sc := prelude().scope; sc != nil; sc = sc.parent {
-		for name := range sc.names {
-			if IsPredeclared(name) {
-				seen[name] = true
-			}
-		}
-	}
-	return sortedKeys(seen)
-}
-
-// IsPredeclaredType reports a predeclared name that names a type: a type of
-// the universe or the prelude, or `Map`, which the syntax spells. In a
-// pattern such a name tests the value's type (Patterns), where any other
-// name binds.
-func IsPredeclaredType(name string) bool {
-	if predeclaredNames[name] {
-		return true
-	}
-	o, _ := prelude().scope.lookup(name)
-	_, ok := o.(*TypeName)
-	return ok && IsPredeclared(name)
-}
-
 // predeclaredAbove reports whether name is predeclared for a package whose
 // scope's parent is above: the universe for the prelude itself, the
 // prelude scope for every other package.

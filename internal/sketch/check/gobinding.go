@@ -117,7 +117,7 @@ func (c *checker) importGo(fi *fileInfo, spec *syntax.ImportSpec, path string) {
 		c.errorf(spec, CodeType, "%s is imported twice", name)
 		return
 	}
-	if spec.Name != nil {
+	if spec.Name != nil && !c.preludeName(spec.Name) {
 		c.aliases = append(c.aliases, importAlias{fi, spec, path})
 	}
 	if name == "_" {
