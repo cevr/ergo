@@ -16,11 +16,12 @@ import (
 // startInitBytes bounds what the module's own packages allocate before
 // main runs: package-level values only, every table a command needs built
 // on its first use (docs/tooling.md, "Process start"). Their inits make
-// about 13 KiB today, once the package-level maps are built on first use
-// (ERGO-STARTUP-2: 61,624 B before), against 1.1 MiB before the start
-// receipt (docs/receipts/compile-speed.md, "Process start"); the std
-// binding catalog alone, built eagerly, adds 41 KiB.
-const startInitBytes = 16 << 10
+// 14,464 B today with package main (ERGO-STARTUP-2: 61,624 B before the
+// maps were built on first use; the limit is that plus a 2 KiB margin,
+// rounded up to a KiB), against 1.1 MiB before the start receipt
+// (docs/receipts/compile-speed.md, "Process start"); the std binding
+// catalog alone, built eagerly, adds 41 KiB.
+const startInitBytes = 17 << 10
 
 // TestStartBuildsNoTables: `ergo version` starts with the module's
 // packages allocating at most startInitBytes in their inits (Go's
