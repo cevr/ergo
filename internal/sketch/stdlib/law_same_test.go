@@ -151,9 +151,29 @@ func TestLawledgerSameIsTheFormatters(t *testing.T) {
 			m := pick(at)
 			edits = append(edits, statement[:m[2]]+swap[statement[m[2]:m[3]]]+statement[m[3]:])
 		}
-		if at := literal.FindAllStringIndex(statement, -1); len(at) > 0 {
-			m := pick(at)
-			edits = append(edits, statement[:m[0]+1]+" "+statement[m[0]+1:])
+		// A space inside a string where it has no white space beside it:
+		// a run's length is the ledger's to drop (lawStatement collapses
+		// each run, inside literals too), a new space is not.
+		// An interpolation's code is tokens, so a space in it is no edit.
+		var gaps []int
+		for _, m := range literal.FindAllStringIndex(statement, -1) {
+			depth := 0
+			for p := m[0] + 1; p < m[1]-1; p++ {
+				switch {
+				case depth == 0 && statement[p-1] == '\\' && statement[p] == '(':
+					depth = 1
+				case depth > 0 && statement[p] == '(':
+					depth++
+				case depth > 0 && statement[p] == ')':
+					depth--
+				case depth == 0 && statement[p-1] != ' ' && statement[p] != ' ':
+					gaps = append(gaps, p)
+				}
+			}
+		}
+		if len(gaps) > 0 {
+			p := gaps[r.IntN(len(gaps))]
+			edits = append(edits, statement[:p]+" "+statement[p:])
 		}
 		for _, e := range edits {
 			if lawledger.Same(statement, e) {
