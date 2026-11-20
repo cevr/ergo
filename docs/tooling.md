@@ -592,6 +592,27 @@ The `ergo` binary carries the checked prelude and std as a snapshot (`internal/s
 - `ERGO_STD_SNAPSHOT=off` selects the reference: std is checked from source, or read from the disk cache. `TestStdSnapshotAgrees` compares the reference with both the embedded snapshot and a snapshot this process exports, over the examples, seeded programs and the checker's corpus.
 - How the bytes stay the same: the checker's finishInfo visits its node-keyed maps in source order (the one pass whose map order reached the type table's ids in std); the snapshot carries no memo of the type table (they are keyed by object identity, and a decoded checker rebuilds them on use); and the generated codecs write a map's entries in rank order (an id already given, a node's tree-order id, else the type and fields). `TestExportIsDeterministic` checks two checks from source and an export with tied keys reversed.
 
+## ergo budget
+
+`ergo budget [--config FILE] [--width N] [--class crit|lane] [--lane NAME] -- COMMAND [ARGS...]` (`cmd/ergo/budget.go`, `internal/budget`, unit WS4a) runs COMMAND once the host's budget has `--width` cores free for it, and gives the cores back when COMMAND ends. Every `ergo budget` on the host shares one budget, so ten workspaces cannot each take every core. Its design is the model `models/gatebudget`, checked by `ergo test ./models/gatebudget`.
+
+- **The budget file.** The host's owner writes it, because the host may be shared. It is named by `--config` or `$ERGO_BUDGET`, with one `key value` per line:
+  - `cores N`, the budget, required;
+  - `share N`, the lane class's share of the budget;
+  - `gate-load N`, the interim load gate;
+  - `state DIR`, the folder of the budget's state, by default `FILE.state`;
+  - `log FILE`, which gets a `queue`, `take` and `end` line per command.
+- **Cores, not runs.** A take names its width, and the widths held never sum past `cores`. A wide take (a heavy run) waits in the same queue as a narrow one.
+- **Order.** One queue, served in order with no backfill: a narrow newcomer never passes a wide older waiter.
+  - The next waiter is the oldest lane waiter while the lane class holds less than its share, else the oldest crit waiter, else the oldest lane waiter.
+  - A release hands the cores on at once. Waiters sleep on the holders' locks, so a release and a crash wake them.
+- **Crashes.** Each waiter and holder owns a file under the state folder, flocked for its lifetime, so the kernel frees a dead runner's cores. The lock is never inherited by COMMAND.
+- **Children.** COMMAND runs with `GOMAXPROCS` set to the width and the grant lent in `$ERGO_BUDGET_GRANT`. An `ergo budget` inside it, of at most that width, runs in the grant and takes nothing, so a holder never waits on its own child.
+  - COMMAND runs in its own process group, which is killed when COMMAND ends.
+  - On Linux, COMMAND also dies with `ergo budget`.
+- **The interim load gate.** With `gate-load N`, the lane class takes nothing while the 1-minute load is over N, and the load is read again every 15 seconds. Crit is never gated. The memory-admission unit (WS4c) replaces the gate.
+- **Exit.** COMMAND's exit code (128 plus the signal for a signal); 2 for an invalid invocation; 1 when the budget cannot be read.
+
 ## ergo dev
 
 `ergo dev [DIR] [--idle DURATION]` (`cmd/ergo/dev.go`, issue #203) is one daemon for each workspace (DIR, by default the working directory) and Ergo release. It answers a warm `ergo check` with no process start. Its lifecycle is the model `models/dev`, checked by `ergo test models/dev`. The model holds three invariants: at most one daemon per workspace and release; a request is answered by a daemon of the client's release, or in process; no request is lost at idle exit or at a crash.
