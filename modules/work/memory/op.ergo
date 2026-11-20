@@ -26,6 +26,7 @@ type Op =
 	| BaseOp{}
 	| CrashOp{Name int, Cloned bool}
 	| GcOp{Older int, Idle int}
+	| GcIdOp{Name int}
 	| WaitOp{Seconds int}
 
 // Expected is the reference's record of one name. Kept is whether its
@@ -530,7 +531,7 @@ law ToolAgreesWithTheReference(ops []Op, sharing bool, tree Map[string, string])
 			let name = pick(o.Name)
 			if !named(want, name) {
 				let path = work.Home(theBase, "") + "/" + work.FolderOf(name)
-				w.registry.Put(work.Workspace{Name: name, Path: path, Parent: theBase, Branch: "", Cloner: "", State: work.Creating, Since: at, Base: "", Latest: "", Deps: "", Id: "crash-" + name, Token: "", Moving: "", Pinned: false, Until: 0}) catch {
+				w.registry.Put(work.Workspace{Name: name, Path: path, Parent: theBase, Branch: "", Cloner: "", State: work.Creating, Since: at, Base: "", Latest: "", Deps: "", Id: crashId(name), Token: "", Moving: "", Pinned: false, Until: 0}) catch {
 				case work.Unkept:
 				}
 				// Cut short before the clone (a folder with no checkout), or
@@ -541,6 +542,29 @@ law ToolAgreesWithTheReference(ops []Op, sharing bool, tree Map[string, string])
 					Plant(w.trees, path, Map[string, string]{"half": "a clone cut short"})
 				}
 				want = want.Append(Expected{Name: name, State: "creating", Parent: theBase, Kept: false, Sure: true, Since: at, Path: path, Cloned: cloned})
+			}
+		case GcIdOp as o:
+			// gc -id of a reservation whose maker died (workrift's call on
+			// a stale record): it is purged, folder and all, exactly when
+			// its folder holds no checkout.
+			let name = pick(o.Name)
+			match find(want, name) {
+			case Some[Expected] as e:
+				if e.Value.State == "creating" {
+					let out = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: some(crashId(name)), Archive: false}) catch {
+					case _:
+						return false
+					}
+					let wanted = if e.Value.Cloned { []string{} } else { []string{name} }
+					if out.Purged != wanted {
+						return false
+					}
+					if !e.Value.Cloned {
+						want = slices.Filter(want, func(x Expected) bool { x.Name != name })
+						gone = gone.Append(e.Value.Path)
+					}
+				}
+			case None:
 			}
 		case GcOp as o:
 			let older = small(o.Older, 7200)
@@ -1079,6 +1103,10 @@ func agrees(w World, want []Expected, gone []string) bool {
 	}
 	true
 }
+
+// crashId is the id of name's crashed reservation, a slash a dash as in
+// its folder (an id is one path segment of a trash folder's name).
+func crashId(name string) string { "crash-" + work.FolderOf(name) }
 
 // cloneWithWork clones the base to path, as a maker that died before its
 // marker left it, and writes a draft there, an agent's unsaved work.
