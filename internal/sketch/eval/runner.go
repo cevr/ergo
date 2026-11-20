@@ -148,9 +148,11 @@ func (a *actorV) describe() string { return "an actor.Actor" }
 
 func registerRunner(t nativeTables) {
 	natives := t.std
+	t.reads["actor.start"] = "T func/0 int64 func/2 func/2 func/1 func/1 func/1 func/2 func/1 func/1 func/1 func/2 func/1 int64"
 	natives["actor.start"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return in.actorStart(fr, at, fn, args)
 	}
+	t.reads["actor.noTimer"] = ""
 	natives["actor.noTimer"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return int64(math.MinInt64), nil
 	}
@@ -161,18 +163,23 @@ func registerRunner(t nativeTables) {
 		}
 		return a
 	}
+	t.reads["actor.Restarts"] = "host:actor.Actor"
 	natives["actor.Restarts"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return actorOf(args[0]).restarts, nil
 	}
+	t.reads["actor.hasLatest"] = "host:actor.Actor"
 	natives["actor.hasLatest"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return actorOf(args[0]).hasLatest, nil
 	}
+	t.reads["actor.latest"] = "host:actor.Actor"
 	natives["actor.latest"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return actorOf(args[0]).latest, nil
 	}
+	t.reads["actor.final"] = "host:actor.Actor"
 	natives["actor.final"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return actorOf(args[0]).final, nil
 	}
+	t.reads["actor.failure"] = "host:actor.Actor"
 	natives["actor.failure"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		a := actorOf(args[0])
 		if a.fail == nil {
@@ -180,6 +187,7 @@ func registerRunner(t nativeTables) {
 		}
 		return nil, fr.abrupt(ctlFail, at, a.fail.val, "")
 	}
+	t.reads["actor.exitKind"] = "host:actor.Actor"
 	natives["actor.exitKind"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		a := actorOf(args[0])
 		if ab := in.block(fr, at, "an actor to end", func() bool { return a.ended }); ab != nil {
@@ -195,6 +203,7 @@ func registerRunner(t nativeTables) {
 		}
 		return int64(1), nil
 	}
+	t.reads["actor.live"] = "host:actor.Actor"
 	natives["actor.live"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		a := actorOf(args[0])
 		r, ab := a.ask(in, fr, at, &envelope{kind: envState})
@@ -206,6 +215,7 @@ func registerRunner(t nativeTables) {
 		}
 		return r.s, nil
 	}
+	t.reads["actor.changesOf"] = "host:actor.Actor int64 func/1 func/1"
 	natives["actor.changesOf"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		room, ok := args[1].(int64)
 		if !ok {
@@ -213,6 +223,7 @@ func registerRunner(t nativeTables) {
 		}
 		return &changesSeq{a: actorOf(args[0]), room: int(max(room, 1)), changed: args[2], overflowed: args[3]}, nil
 	}
+	t.reads["actor.feed"] = "host:actor.Actor func/1"
 	natives["actor.feed"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		a := actorOf(args[0])
 		if ab := in.charge(fr, at, 1); ab != nil {
