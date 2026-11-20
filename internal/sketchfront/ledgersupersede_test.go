@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"ergo.local/prototype/internal/build"
 	"ergo.local/prototype/internal/gobind"
+	"ergo.local/prototype/internal/sketch/build"
 	"ergo.local/prototype/internal/sketch/lower"
 )
 
@@ -24,8 +24,9 @@ func needsBuild(t testing.TB) {
 // TestUpdateLedgerDropsSuperseded (LEDGER-SUPERSEDE): when an edit changes
 // the form of a law's key, ergo test writes the new entry and drops the
 // one it supersedes, so no stale line is left for a hand edit. Here kern's
-// darwin file stops differing from the linux one: the entry under this
-// platform becomes one shared entry.
+// linux and darwin files give way to one kern.go (a closure key names
+// each declaration's file, so two files never agree): the entry under
+// this platform becomes one shared entry.
 //
 // It builds Go because the drop happens only in UpdateLedger, after the
 // law run that builds and runs the law's Go; lower's
@@ -83,7 +84,13 @@ func main() needs Console {
 	if got := run(); !strings.Contains(got, keyed) {
 		t.Fatalf("ergo.laws:\n%s\nwant a line %q: kern's Index is another file on another platform", got, keyed)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "kern/kern_darwin.go"), []byte(fmt.Sprintf(body, "")), 0o644); err != nil {
+	// One kern.go replaces the pair: every platform compiles one file.
+	for _, f := range []string{"kern/kern_linux.go", "kern/kern_darwin.go"} {
+		if err := os.Remove(filepath.Join(dir, f)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "kern/kern.go"), []byte(fmt.Sprintf(body, "")), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	got := run()
