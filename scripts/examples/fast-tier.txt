@@ -13,6 +13,7 @@ counter-gui
 cron
 csvreport
 dash-gui
+deploys
 download
 draw-gui
 editor-gui
@@ -70,3 +71,4 @@ twig
 vt
 wire-config
 work
+stackvm
