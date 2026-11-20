@@ -525,6 +525,12 @@ func objKey(info *check.Info, o check.Object, id *syntax.Ident, parent map[synta
 			if n := namedOf(info.Types[sel.X]); n != nil {
 				return methodKey{n.Obj, o.Name}, true
 			}
+			// An operation called through a type parameter is its
+			// constraint's (vt's Apply[S Screen](s mut S): s.Print is
+			// Screen.Print), as the table keys it by the declaring method.
+			if n := constraintOf(info.Types[sel.X]); n != nil {
+				return methodKey{n.Obj, o.Name}, true
+			}
 		}
 		if owner := enclosingType(info, parent, id); owner != nil {
 			return methodKey{owner, o.Name}, true
@@ -661,6 +667,18 @@ func namedOf(t check.Type) *check.Named {
 		n = n.Orig
 	}
 	return n
+}
+
+// constraintOf is the operation type that constrains the type parameter t
+// (through a pointer), or nil.
+func constraintOf(t check.Type) *check.Named {
+	if p, ok := t.(*check.Pointer); ok {
+		t = p.Elem
+	}
+	if tp, ok := t.(*check.TypeParam); ok {
+		return namedOf(tp.Constraint)
+	}
+	return nil
 }
 
 func fieldOf(t check.Type, name string) *check.Field {
