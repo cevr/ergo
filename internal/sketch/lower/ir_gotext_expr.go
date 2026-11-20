@@ -218,11 +218,19 @@ func (p *irPrinter) stmt(s *irStmt, depth int) {
 		i := p.name(s.Local)
 		p.loop(s, depth, "for "+i+" := "+p.header(s.X, false).s+"; "+i+" < "+p.header(s.Y, true).s+"; "+i+"++ ")
 	case "range":
-		x := p.header(s.X, false).s
+		hx := p.header(s.X, false)
+		x := hx.s
+		overFunc := false
+		if hx.t != nil {
+			_, overFunc = hx.t.Underlying().(*types.Signature)
+		}
 		head := "for "
-		if s.Key != nil && s.Val == nil {
+		if s.Key != nil && s.Val == nil && overFunc {
 			// One variable: Go allows no second one over a func (a Seq
-			// loop, ir_seq.go), and k, _ means k over any other domain.
+			// loop, ir_seq.go). Over any other domain the decoder binds
+			// the value to _, so the text spells k, _ too: Go's tree of
+			// for k := range x has no value at all, and the two trees
+			// would differ (vt's Keys).
 			head += p.name(*s.Key) + " := "
 		} else if s.Key != nil || s.Val != nil {
 			lhs := []string{"_", "_"}
