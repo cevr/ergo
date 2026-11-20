@@ -46,6 +46,12 @@ extern go ergo.local/prototype/runtime/v1.Bool type Bool {
 extern go ergo.local/prototype/runtime/v1.NewInt64 func NewInt64(value int64) Int64
 extern go ergo.local/prototype/runtime/v1.NewBool func NewBool(value bool) Bool
 
+// zero and unset are the contexts Int64's and Bool's laws run under
+// (types.md, Laws 10): each case takes a fresh cell.
+let zero = context { Int64: NewInt64(0) }
+
+let unset = context { Bool: NewBool(false) }
+
 law InitialValues(value int64, flag bool) {
 	NewInt64(value).Load() == value && NewBool(flag).Load() == flag
 }

@@ -26,7 +26,7 @@ const mcpSeedVariable = "ERGO_MCP_SEED"
 // package checks, and its two laws hold over the Requests the laws'
 // generator draws (100 cases a contract): Call reads what Arguments
 // writes as the same Request (ArgumentsRoundTrip), and those arguments
-// fit the JSON schema the tool lists, by module mcp's Conforms
+// fit the JSON schema the tool lists, by std mcp's Conforms
 // (ArgumentsFitTheSchema). For each operation, Answer of a Request against
 // a provider that answers a fixed value or failure is the value's JSON,
 // or a ToolError with the failure's tagged JSON. A schema that marks an
@@ -48,22 +48,18 @@ func TestMcpArgumentsRoundTrip(t *testing.T) {
 		}
 		seeds = []uint64{n}
 	}
-	module, err := filepath.Abs(filepath.Join("..", "..", "modules", "mcp"))
-	if err != nil {
-		t.Fatal(err)
-	}
 	cache := t.TempDir()
 	for _, seed := range seeds {
-		t.Run(fmt.Sprint(seed), func(t *testing.T) { mcpRoundTrip(t, seed, cache, module) })
+		t.Run(fmt.Sprint(seed), func(t *testing.T) { mcpRoundTrip(t, seed, cache) })
 	}
 }
 
-func mcpRoundTrip(t *testing.T, seed uint64, cache, module string) {
+func mcpRoundTrip(t *testing.T, seed uint64, cache string) {
 	p := newProgramOf(seed, true)
 	dir := t.TempDir()
 	files := p.files()
 	files["probe/probe.ergo"] = p.mcpProbeSource()
-	files["go.mod"] = fmt.Sprintf("module loop\n\ngo 1.27\n\nrequire %s v0.0.0\n\nreplace %s => %s\n", mcpgen.ModulePath, mcpgen.ModulePath, module)
+	files["go.mod"] = "module loop\n\ngo 1.27\n"
 	for name, src := range files {
 		writeFile(t, filepath.Join(dir, name), src)
 	}
@@ -146,7 +142,7 @@ func (p *program) mcpProbeSource() string {
 	for _, c := range p.contracts {
 		fmt.Fprintf(&b, "import loop/%s\nimport loop/%s/%sapi\n", c.pkg(), c.pkg(), c.pkg())
 	}
-	b.WriteString("import api\nimport json\nimport rpc\nimport github.com/cevr/ergo/modules/mcp\n")
+	b.WriteString("import api\nimport json\nimport rpc\nimport " + mcpgen.ModulePath + "\n")
 	for _, c := range p.contracts {
 		m := c.pkg() + "mcp"
 		q := c.pkg() + "."

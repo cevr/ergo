@@ -1,0 +1,9 @@
+# scripts/opcount: `askbench bench strict N` reads a model's strict JSON
+# reply N times with llm.Parse (wf10 L6); the cost of one read is the slope
+# between the two sizes. The control is hand Go: encoding/json into the
+# record's struct. Against ../decode (json.Decode of the same text), the
+# bar is 1.10x: Parse's strict path is Decode's one pass.
+unit reply
+sizes 20000 120000
+args bench strict {n}
+control benchmarks/llmask/testdata/control

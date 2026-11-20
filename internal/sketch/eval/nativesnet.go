@@ -63,12 +63,14 @@ type netExchange struct {
 
 // netRequest is a request as Go's server gave it to the handler.
 type netRequest struct {
-	method, path  string
-	query, header []netField
-	body          string
-	tooLarge      bool
-	readError     string
-	reply         chan *netResponse
+	// path is the decoded path and rawPath the escaped one, as it came
+	// (Go's URL.EscapedPath), as runtime/v1's HTTPServe gives them.
+	method, path, rawPath string
+	query, header         []netField
+	body                  string
+	tooLarge              bool
+	readError             string
+	reply                 chan *netResponse
 }
 
 type netField struct{ name, value string }
@@ -154,7 +156,7 @@ func registerNativesnet(t nativeTables) {
 			x := l.pending[0]
 			l.pending = l.pending[1:]
 			r := x.req
-			v, ab := in.callValue(fr, at, args[2], []Value{&exchangeV{}, r.method, r.path, netFields(fn, r.query), netFields(fn, r.header), r.body, r.tooLarge, r.readError})
+			v, ab := in.callValue(fr, at, args[2], []Value{&exchangeV{}, r.method, r.path, r.rawPath, netFields(fn, r.query), netFields(fn, r.header), r.body, r.tooLarge, r.readError})
 			if ab != nil {
 				return nil, ab
 			}
@@ -291,8 +293,8 @@ type clientResult struct {
 // runtime/v1's HTTPDo sends it.
 func (in *interp) netSend(fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 	origin, limits := args[0].(string), args[1].(*record)
-	method, p := args[2].(string), args[3].(string)
-	query, header, body := fieldsOf(args[4]), fieldsOf(args[5]), args[6].(string)
+	method, p, rawPath := args[2].(string), args[3].(string), args[4].(string)
+	query, header, body := fieldsOf(args[5]), fieldsOf(args[6]), args[7].(string)
 	failed := func(kind int, reason string, limit int64) *abrupt {
 		return httpFail(fn, fr, at, "SendFailed", map[string]Value{"Kind": int64(kind), "Reason": reason, "Limit": limit})
 	}
@@ -326,7 +328,9 @@ func (in *interp) netSend(fr *frame, at syntax.Node, fn *check.Func, args []Valu
 	for _, q := range query {
 		vals = append(vals, url.QueryEscape(q.name)+"="+url.QueryEscape(q.value))
 	}
-	u.Path, u.RawQuery = p, strings.Join(vals, "&")
+	// Go sends rawPath when it is an encoding of p (url.URL.EscapedPath),
+	// and p escaped by its own rule otherwise (runtime/v1 httpRequestURL).
+	u.Path, u.RawPath, u.RawQuery = p, rawPath, strings.Join(vals, "&")
 	maxBody := limits.fields[fieldIndex(limits.t, "MaxBodyBytes")].(int64)
 	maxHeader := limits.fields[fieldIndex(limits.t, "MaxHeaderBytes")].(int64)
 	h := in.host
@@ -359,7 +363,7 @@ func (in *interp) netSend(fr *frame, at syntax.Node, fn *check.Func, args []Valu
 		ErrorLog:       log.New(io.Discard, "", 0),
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			values, _ := url.ParseQuery(r.URL.RawQuery)
-			nr := &netRequest{method: r.Method, path: r.URL.Path, header: sortedFields(r.Header), query: sortedFields(values), reply: make(chan *netResponse, 1)}
+			nr := &netRequest{method: r.Method, path: r.URL.Path, rawPath: r.URL.EscapedPath(), header: sortedFields(r.Header), query: sortedFields(values), reply: make(chan *netResponse, 1)}
 			data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, srvBody))
 			if err != nil {
 				var tooLarge *http.MaxBytesError

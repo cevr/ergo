@@ -48,8 +48,9 @@ func TestLawEntryNamesItsBuild(t *testing.T) {
 		"gohost/stock.go":  "//go:build !goexperiment.simd\n\n" + strings.Replace(buildKeyKernel, "%s", stockLoop, 1),
 		"gohost/vector.go": "//go:build goexperiment.simd\n\n" + strings.Replace(buildKeyKernel, "%s", vectorLoop, 1),
 		"main.ergo":        lawPureMain,
-		// A law whose Go code is the same in every build keeps one
-		// entry with no build in its key.
+		// A law whose Go code is the same in every build still keeps an
+		// entry per experiment set (LEDGER-EXP-KEY): a stock one with no
+		// build in its key and one under goexperiment.simd.
 		"plain/plain.go": "package plain\n\nfunc Twice(n int) int { return n + n }\n",
 		"plain.ergo":     "extern go example.com/app/plain.Twice func twice(n int) int\n\nfunc twiceRef(n int) int { n * 2 }\n\nlaw TwiceIsRef(n int) { twiceRef(n) } == { twice(n) }\n",
 	})
@@ -79,8 +80,8 @@ func TestLawEntryNamesItsBuild(t *testing.T) {
 			t.Errorf("ergo.laws after a stock and a GOEXPERIMENT=simd ergo test:\n%s\nwant a line %q", data, want)
 		}
 	}
-	if strings.Contains(string(data), "app.TwiceIsRef under") || !strings.Contains(string(data), "law app.TwiceIsRef validated ") {
-		t.Errorf("ergo.laws:\n%s\nwant law app.TwiceIsRef validated once, with no build: its Go code is the same in both builds", data)
+	if !strings.Contains(string(data), "law app.TwiceIsRef validated ") || !strings.Contains(string(data), "law app.TwiceIsRef under goexperiment.simd validated ") {
+		t.Errorf("ergo.laws:\n%s\nwant law app.TwiceIsRef validated once per experiment set: a build with experiments never shares an entry with the stock build (LEDGER-EXP-KEY)", data)
 	}
 	for _, experiment := range []string{"", "simd"} {
 		a := check(experiment)

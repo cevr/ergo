@@ -44,7 +44,7 @@ func GenerateFnName(seed uint64) map[string]string {
 	fmt.Fprintf(&m, "func say(x int) needs Console {\n\tConsole.Println(\"say \\(x * %d)\")\n}\n\n", 1+n(5))
 	fmt.Fprintf(&m, "func odd(x int) fails lib.Odd {\n\tif x %% 2 != 0 {\n\t\treturn lib.Odd{N: x + %d}\n\t}\n}\n\n", n(9))
 	fmt.Fprintf(&m, "func smaller(a lib.Box, b lib.Box) int {\n\tb.W - a.W * %d\n}\n\n", 2+n(3))
-	fmt.Fprintf(&m, "func bump(c *Cell, d int) int {\n\tc.V = c.V + d * %d\n\tc.V\n}\n\n", 1+n(4))
+	fmt.Fprintf(&m, "func bump(c mut Cell, d int) int {\n\tc.V = c.V + d * %d\n\tc.V\n}\n\n", 1+n(4))
 	m.WriteString("func values(x int) int {\n\tlet a = apply(triple, x)\n\tlet b = apply(lib.Double, x)\n\ta * 1000 + b\n}\n\n")
 	m.WriteString("func halves(x int) int {\n\tlet v = tryApply(lib.Half, x) catch {\n\tcase lib.Odd as e:\n\t\t0 - e.N\n\t}\n\tv\n}\n\n")
 	m.WriteString("func says(x int) needs Console {\n\trun(x, say)\n}\n\n")

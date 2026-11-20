@@ -128,6 +128,12 @@ type program struct {
 	// heavy are the package folders of a library's full-tier file, which
 	// only a -full-tier run tests; tests holds none of them.
 	heavy []string
+	// goFiles are a library's .go files by absolute folder, as the layout
+	// scan found them; goPackages are the folders moduleGoProblems
+	// admitted, the Go packages the module's own externs bind, whose
+	// tests the module's go leg runs.
+	goFiles    map[string][]string
+	goPackages []string
 }
 
 func (p *program) tagged(tag string) bool { return slices.Contains(p.tags, tag) }
@@ -526,7 +532,7 @@ func loadModuleProgram(p *program, entries []os.DirEntry, record bool) (*program
 			if !entry.Type().IsRegular() {
 				problem("%s is not a regular file", file)
 			}
-		case file == "ergo.mod" || file == "ergo.laws" || file == "README.md" || file == "tags" || file == "record.sh" || file == expectedSkipsFile || file == exploredFile || strings.HasSuffix(file, ".ergo"):
+		case moduleRootFile(file) || file == "tags" || file == "record.sh" || file == exploredFile:
 			if !entry.Type().IsRegular() {
 				problem("%s is not a regular file", file)
 				continue
@@ -727,6 +733,16 @@ func packageAssetSources(p *program, dir, label string, assets map[string]bool) 
 		case strings.HasSuffix(name, ".ergo") && entry.Type().IsRegular():
 			p.sources = append(p.sources, filepath.Join(dir, name))
 		case assets[filepath.Join(dir, name)] && entry.Type().IsRegular():
+		case p.library && strings.HasSuffix(name, ".go") && entry.Type().IsRegular():
+			// A module's own Go (docs/spec/interop.md, Trusted Go 3):
+			// moduleGoProblems admits the folder only when an extern go
+			// of the module binds its package.
+			if p.goFiles == nil {
+				p.goFiles = map[string][]string{}
+			}
+			p.goFiles[dir] = append(p.goFiles[dir], name)
+		case p.library && strings.HasSuffix(name, ".s"):
+			problems = append(problems, fmt.Sprintf("%s/%s is assembly; a module's own Go body is written in Go (docs/spec/interop.md, Trusted Go 3)", label, name))
 		default:
 			problems = append(problems, fmt.Sprintf("unexpected %s/%s; a package folder holds .ergo files and package folders", label, name))
 		}
