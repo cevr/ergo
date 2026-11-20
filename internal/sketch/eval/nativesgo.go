@@ -33,11 +33,11 @@ func goNatives() map[string]native {
 		"math.Float64frombits": goBits(math.Float64frombits),
 		"math.Float32bits":     goBits(math.Float32bits),
 		"math.Float32frombits": goBits(math.Float32frombits),
-		// compiler/syntax's scanner calls these through import go (TP-DIAG):
-		// an Ergo rune is an int32.
-		"unicode.IsLetter": goRune(unicode.IsLetter),
-		"unicode.IsDigit":  goRune(unicode.IsDigit),
-		// std utf8's IsSpace binds it (SQ5).
+		// compiler/syntax's scanner calls these through import go (TP-DIAG),
+		// and std utf8's IsSpace binds unicode.IsSpace (SQ5): an Ergo rune
+		// is an int32.
+		"unicode.IsLetter":  goRune(unicode.IsLetter),
+		"unicode.IsDigit":   goRune(unicode.IsDigit),
 		"unicode.IsSpace":   goRune(unicode.IsSpace),
 		"strconv.QuoteRune": goText(func(a []Value) string { return strconv.QuoteRune(rune(a[0].(int32))) }),
 	}
