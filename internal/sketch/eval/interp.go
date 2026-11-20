@@ -43,6 +43,8 @@ type interp struct {
 	params map[*check.Func][]*check.Var
 	owners map[unsafe.Pointer]check.FactOwner
 	plans  map[*check.Func]*funcPlan // plan.go
+	// reads are the packages the obligation in progress entered (reads.go).
+	reads readSet
 	// walk turns compiled forms off for this request (compile.go).
 	walk  bool
 	files map[syntax.Decl]*syntax.File
@@ -329,6 +331,7 @@ func (in *interp) casesBudget(count int) {
 // begin gives the obligation that starts now the whole budget, of one
 // case until its plan says how many it runs (casesBudget).
 func (in *interp) begin() {
+	in.readsBegin()
 	in.stepsAt, in.bytesAt, in.perCase = in.steps, in.bytes, 0
 	in.stepsEnd = in.stepsAt + in.budget.Steps
 }
@@ -413,6 +416,7 @@ func (in *interp) callWitnessed(fr *frame, at *syntax.CallExpr, fn *check.Func, 
 // callPlanned is callResolved with the callee's plan (plan.go).
 func (in *interp) callPlanned(fr *frame, at *syntax.CallExpr, p *funcPlan, targs []rtype, wits map[*check.TypeParam]*witnessV, args []Value) (Value, *abrupt) {
 	fn := p.fn
+	in.enterPlan(p)
 	if p.appendsString {
 		if ab := in.charge(fr, at, 1); ab != nil {
 			return nil, ab

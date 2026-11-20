@@ -70,6 +70,14 @@ var treeEdits = []treeEdit{
 		// Outside the sub-folder request, which reaches it.
 		f[pkgFile(dep)] = strings.Replace(f[pkgFile(dep)], "\t\treturn Rect{W: it.Weight, H: ", "\t\treturn Rect{W: it.Weight + 2, H: ", 1)
 	}},
+	{name: "defect", apply: func(r *rand.Rand, f map[string]string, p genprogram.Program, dep int) {
+		// A body every verdict that enters it sees: Sum0 divides by
+		// zero, so each test whose run reaches it is a defect, and a
+		// verdict replayed past it (a read the cutoff did not record)
+		// prints passed where the normal path prints the defect.
+		i := r.IntN(len(p.Packages) - 1)
+		f[pkgFile(i)] = strings.Replace(f[pkgFile(i)], "func Sum0(items []Item) int {\n\tlet mut total = 0\n", "func Sum0(items []Item) int {\n\tlet mut total = 1 / (len(items) - len(items))\n", 1)
+	}},
 	{name: "test", apply: func(r *rand.Rand, f map[string]string, p genprogram.Program, dep int) {
 		name := genprogram.Name(r.IntN(len(p.Packages)-1)) + "/tests.ergo"
 		f[name] += "\ntest Added {\n\tassert Sum0(Make0(2)) >= 0\n}\n"
@@ -178,7 +186,7 @@ func TestCheckTreeAnswersByTokens(t *testing.T) {
 		dir := t.TempDir()
 		writeFiles(t, dir, p.Files)
 		patterns := []string{filepath.Join(dir, "..."), filepath.Join(dir, genprogram.Name(sub), "...")}
-		hits, misses := 0, 0
+		hits, misses, narrowed := 0, 0, 0
 		for _, edit := range treeEdits {
 			for _, pattern := range patterns {
 				// The base, kept: a run that stores verdicts keeps nothing,
@@ -226,11 +234,15 @@ func TestCheckTreeAnswersByTokens(t *testing.T) {
 						same = false
 					}
 				}
-				// The normal path twice: its first run stores the verdicts
-				// the edit made new, so its second prints what every later
-				// run prints ("cached").
+				// The normal path twice, with the store emptied (q14: the
+				// cutoff gives the verdicts a run that keeps nothing gives):
+				// its first run stores every verdict, so its second prints
+				// what every later run prints ("cached").
+				store := os.Getenv("ERGO_CACHE")
+				t.Setenv("ERGO_CACHE", t.TempDir())
 				runCheckTree(t, pattern, true)
 				want := runCheckTree(t, pattern, true)
+				t.Setenv("ERGO_CACHE", store)
 				after := treeFingerprints(t, pattern)
 				reran := map[string]bool{}
 				treeRerun = func(path string) { reran[path] = true }
@@ -253,20 +265,36 @@ func TestCheckTreeAnswersByTokens(t *testing.T) {
 				if kept && same != (work == 0) || !kept && work == 0 {
 					fail("no token or comment changed: %v, but the run parsed %d files and evaluated %d obligations in %d steps", same, got.counts["files_parsed"], got.counts["obligations_evaluated"], got.counts["eval_steps"])
 				}
-				// The cutoff (WS0b, checkcut.go): a package is evaluated
-				// again exactly when its base was not kept, it has a
-				// diagnostic, its source changed, an import's interface
-				// changed, or it holds an obligation and an import's
-				// implementation changed. The fingerprints are the
-				// reference loads' (CS5a, TestIncrementalCheckDecides).
-				if want, ok := treeWantRerun(before, after, cutKept); !ok {
+				// The cutoff (WS0b, WS0c; checkcut.go): a package is
+				// evaluated again when its base was not kept, it has a
+				// diagnostic, its source changed or an interface of the
+				// program changed (must); and only when that holds or it has
+				// an obligation and an import's implementation changed (may):
+				// within that, its verdicts' reads decide, and the answer
+				// above being the emptied store's is what proves them. The
+				// fingerprints are the reference loads' (CS5a,
+				// TestIncrementalCheckDecides).
+				if must, may, ok := treeWantRerun(before, after, cutKept); !ok {
 					fail("the reference loads do not share a load")
 				} else if kept && same {
 					if len(reran) > 0 {
 						fail("nothing changed, but the run evaluated %v", slices.Sorted(maps.Keys(reran)))
 					}
-				} else if !maps.Equal(want, reran) {
-					fail("the cutoff evaluated %v, want %v (kept at the base: %v)", slices.Sorted(maps.Keys(reran)), slices.Sorted(maps.Keys(want)), cutKept)
+				} else {
+					for path := range must {
+						if !reran[path] {
+							fail("the cutoff kept %s, which it must evaluate (evaluated %v)", path, slices.Sorted(maps.Keys(reran)))
+						}
+					}
+					for path := range reran {
+						if !may[path] {
+							fail("the cutoff evaluated %s, which nothing it reads changed (kept at the base: %v)", path, cutKept)
+						}
+						delete(may, path)
+					}
+					// What the implementation rule would run and the reads
+					// kept: the read set at work.
+					narrowed += len(may)
 				}
 				if len(reran) < len(after) {
 					hits++
@@ -281,6 +309,11 @@ func TestCheckTreeAnswersByTokens(t *testing.T) {
 		// assert a hit, and hid a layout edit that missed).
 		if hits == 0 || misses == 0 {
 			t.Fatalf("seed %d is vacuous: %d runs took a kept evaluation, %d evaluated again", seed, hits, misses)
+		}
+		// A seed where every changed implementation was read proved
+		// nothing of the read set (WS0c).
+		if narrowed == 0 {
+			t.Fatalf("seed %d is vacuous: no package with an obligation was kept across an edit of an import it does not read", seed)
 		}
 	}
 }
@@ -312,34 +345,37 @@ func treeFingerprints(t *testing.T, pattern string) map[string]treeFP {
 		}
 		root := fps[len(fps)-1]
 		e := treeFP{source: root.Source, diags: len(l.analysis.Diagnostics) > 0, ifaces: map[string]string{}, impls: map[string]string{}}
+		for _, fp := range fps[:len(fps)-1] {
+			e.ifaces[fp.Path] = fp.Interface
+		}
 		for _, imp := range root.Imports {
-			e.ifaces[imp], e.impls[imp] = by[imp].Interface, by[imp].Implementation
+			e.impls[imp] = by[imp].Implementation
 		}
 		out[l.analysis.Root().Path] = e
 	}
 	return out
 }
 
-// treeWantRerun are the packages the cutoff evaluates after the base
+// treeWantRerun are the packages the cutoff must evaluate after the base
 // (before, with cutKept, the packages whose evaluation the base kept and
-// whether each holds an obligation) is edited to after.
-func treeWantRerun(before, after map[string]treeFP, cutKept map[string]bool) (map[string]bool, bool) {
+// whether each holds an obligation) is edited to after, and those it may:
+// the must, and each with an obligation whose import's implementation
+// changed (its verdicts' reads decide which; WS0c).
+func treeWantRerun(before, after map[string]treeFP, cutKept map[string]bool) (must, may map[string]bool, ok bool) {
 	if before == nil || after == nil {
-		return nil, false
+		return nil, nil, false
 	}
-	want := map[string]bool{}
+	must, may = map[string]bool{}, map[string]bool{}
 	for path, a := range after {
 		b, ok := before[path]
 		obligations, kept := cutKept[path]
-		rerun := !ok || !kept || a.diags || a.source != b.source || !maps.Equal(a.ifaces, b.ifaces)
-		if obligations && !maps.Equal(a.impls, b.impls) {
-			rerun = true
-		}
-		if rerun {
-			want[path] = true
+		if !ok || !kept || a.diags || a.source != b.source || !maps.Equal(a.ifaces, b.ifaces) {
+			must[path], may[path] = true, true
+		} else if obligations && !maps.Equal(a.impls, b.impls) {
+			may[path] = true
 		}
 	}
-	return want, true
+	return must, may, true
 }
 
 // treeReach are the folders (relative, slash-separated) a request

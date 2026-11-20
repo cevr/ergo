@@ -1222,6 +1222,7 @@ func (in *interp) callLiteral(fr *frame, at *syntax.CallExpr, lit *syntax.FuncLi
 // callClosure runs c's body as a frame of its own that reads and writes
 // the slots of the frame that made it, with c's parameters bound to args.
 func (in *interp) callClosure(fr *frame, at *syntax.CallExpr, c *closure, args []Value) (Value, *abrupt) {
+	in.enter(c.home.pkg)
 	outer := c.home
 	if c.outer != nil {
 		outer = c.outer

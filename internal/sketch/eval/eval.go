@@ -104,6 +104,11 @@ type Verdict struct {
 	Cases, TotalCases int
 	Reason            string
 	Machine           *MachineSearch
+	// Reads are the packages the run read (Result.Reads); a cached one
+	// whose store did not keep them has ReadsUnknown. A store keeps them
+	// beside the verdict's text, never in it.
+	Reads        []string `json:"-"`
+	ReadsUnknown bool     `json:"-"`
 }
 
 // DefaultBudget is the editor budget the plan proposes (section 5): one
@@ -198,6 +203,12 @@ type Result struct {
 	// are then the smaller case's, as the native runner's FAIL line shows
 	// them before "shrunk from:" (TESTSPEED FT1).
 	Drawn []Argument
+	// Reads are the paths of the packages whose bodies the verdict read
+	// (reads.go), sorted: the evaluation's, or a cached verdict's as it
+	// was stored. ReadsUnknown marks a cached verdict whose store did not
+	// say (a test binary's): only every package's implementation keys it.
+	Reads        []string
+	ReadsUnknown bool
 	// Message is a refuted or defective result's report as the native
 	// runner prints it after "): " on its FAIL line: "assert failed at
 	// main.ergo:9:2: x < 3: left 4, right 3", "law refuted at …: the law is
@@ -278,6 +289,14 @@ func Run(pkg *check.Package, b Budget) (rep Report, err error) {
 		return rep, err
 	}
 	for i := range rep.Results {
+		// The verdict is both orders': it read what either read.
+		if i < len(other.Results) {
+			r, o := &rep.Results[i], other.Results[i]
+			r.Reads, r.ReadsUnknown = unionPaths(r.Reads, o.Reads), r.ReadsUnknown || o.ReadsUnknown
+		} else {
+			rep.Results[i].Reads = readsSoFar(&other, rep.Results[i].Reads)
+			rep.Results[i].ReadsUnknown = rep.Results[i].ReadsUnknown || unknownSoFar(&other)
+		}
 		if i >= len(other.Results) || !sameResult(rep.Results[i], other.Results[i]) {
 			r := &rep.Results[i]
 			r.Status, r.Reason, r.Case, r.Arguments = Skipped, orderNote, 0, nil
@@ -320,6 +339,14 @@ func runOrdered(pkg *check.Package, b Budget, order mapOrder) (rep Report, range
 		if stopped != "" {
 			res = Result{Name: res.Name, Status: NotRun, Reason: stopped, Site: res.Site}
 		}
+		switch {
+		case stopped != "" || initFail != nil:
+			// Not run, or decided by the initializers: what the run read
+			// up to the obligation that stopped it.
+			res.Reads, res.ReadsUnknown = readsSoFar(&rep, in.readPaths()), unknownSoFar(&rep)
+		case !res.Cached:
+			res.Reads = in.readPaths()
+		}
 		rep.Results = append(rep.Results, res)
 		if h := obligationEnded; h != nil {
 			h(res) // a receipt's per-obligation work (export_test.go)
@@ -341,7 +368,7 @@ func runOrdered(pkg *check.Package, b Budget, order mapOrder) (rep Report, range
 		}
 		if b.Tests != nil {
 			if v, ok := b.Tests.Cached(t); ok {
-				add(Result{Name: t.Name, Site: in.site(pkg, t.Decl, t.Decl.Pos()), Status: Passed, Evidence: v.Evidence, Seed: b.Seed, Cases: v.Cases, TotalCases: v.TotalCases, Cached: true, form: formOf(v.Evidence)})
+				add(Result{Name: t.Name, Site: in.site(pkg, t.Decl, t.Decl.Pos()), Status: Passed, Evidence: v.Evidence, Seed: b.Seed, Cases: v.Cases, TotalCases: v.TotalCases, Cached: true, form: formOf(v.Evidence), Reads: v.Reads, ReadsUnknown: v.ReadsUnknown})
 				continue
 			}
 		}
@@ -354,7 +381,7 @@ func runOrdered(pkg *check.Package, b Budget, order mapOrder) (rep Report, range
 		ranged := in.mapRanged
 		in.mapRanged = before || ranged
 		if b.Tests != nil && !ranged && out.Status == Passed && formOf(out.Evidence) != formNone {
-			b.Tests.Held(t, Verdict{Evidence: out.Evidence, Cases: out.Cases, TotalCases: out.TotalCases})
+			b.Tests.Held(t, Verdict{Evidence: out.Evidence, Cases: out.Cases, TotalCases: out.TotalCases, Reads: in.readPaths()})
 		}
 		add(out)
 	}
@@ -371,6 +398,7 @@ func runOrdered(pkg *check.Package, b Budget, order mapOrder) (rep Report, range
 				if v, ok := b.Verdicts.Cached(run.Law, target.binding); ok {
 					res.Status, res.Evidence, res.Seed, res.Cached = Passed, v.Evidence, b.Seed, true
 					res.Cases, res.TotalCases, res.Reason, res.Machine = v.Cases, v.TotalCases, v.Reason, v.Machine
+					res.Reads, res.ReadsUnknown = v.Reads, v.ReadsUnknown
 					if v.Machine == nil {
 						res.form = formOf(v.Evidence)
 					}
@@ -381,7 +409,7 @@ func runOrdered(pkg *check.Package, b Budget, order mapOrder) (rep Report, range
 			in.begin()
 			out := in.runLawTarget(run.Law, target, res)
 			if keyed && out.Status == Passed && (out.Evidence == "proved" || out.Evidence == "tested") {
-				b.Verdicts.Held(run.Law, target.binding, Verdict{Evidence: out.Evidence, Cases: out.Cases, TotalCases: out.TotalCases, Reason: out.Reason, Machine: out.Machine})
+				b.Verdicts.Held(run.Law, target.binding, Verdict{Evidence: out.Evidence, Cases: out.Cases, TotalCases: out.TotalCases, Reason: out.Reason, Machine: out.Machine, Reads: in.readPaths()})
 			}
 			add(out)
 		}

@@ -118,6 +118,9 @@ type checkTree struct {
 	freshness map[string]bool
 	// cutPuts are the cutoff's own Puts, which are no law verdict.
 	cutPuts int
+	// cutFallbacks count the cached verdicts whose store did not keep
+	// their reads, so their answers are keyed by implementation (checkcut.go).
+	cutFallbacks int
 }
 
 type treeKept struct {

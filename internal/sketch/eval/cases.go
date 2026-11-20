@@ -167,6 +167,7 @@ func (in *interp) runLawTarget(law *check.Law, tg lawTarget, res Result) (out Re
 			out.Declaration = &site
 		}
 	}()
+	in.enter(law.Pkg)
 	why := tg.why
 	if law.Unrun != "" {
 		why = law.Unrun

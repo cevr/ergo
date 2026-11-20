@@ -71,6 +71,8 @@ func (in *interp) initialize(pkg *check.Package) *initFailure {
 			return f
 		}
 	}
+	// Every obligation reads the world the initializers made.
+	in.readsWorld()
 	return nil
 }
 
@@ -95,6 +97,7 @@ func (in *interp) initPackage(p *check.Package) *initFailure {
 	if len(p.Info.InitOrder) == 0 {
 		return nil
 	}
+	in.enter(p)
 	specs := map[syntax.Expr]*syntax.VarSpec{}
 	decls := map[*syntax.VarSpec]*syntax.VarDecl{}
 	for _, f := range p.Files() {

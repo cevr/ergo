@@ -226,6 +226,10 @@ func sharedCheckCommand(opts fileOptions) (shared bool, err error) {
 		}
 		failed = failed || fail
 	}
+	if opts.affected.why && tree != nil && tree.cutFallbacks > 0 {
+		// The gap is counted, not silent (GB-WS0C, q14).
+		fmt.Fprintf(os.Stderr, "check: %d cached law verdicts kept no reads (a test binary's): their packages are kept by every import's implementation\n", tree.cutFallbacks)
+	}
 	if failed {
 		return true, exitStatusError{code: 1, handled: true}
 	}
@@ -257,7 +261,7 @@ func checkShared(opts fileOptions, l loaded, tree *checkTree, sources map[string
 		return err
 	}
 	tree.add(l.analysis, out, exit)
-	tree.keepCut(l.analysis, sources, out, exit, puts)
+	tree.keepCut(l.analysis, sources, out, exit, puts, l.result.Evaluation())
 	return exit
 }
 

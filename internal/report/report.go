@@ -148,6 +148,12 @@ type Evaluation struct {
 	Status        string       `json:"status"`
 	Steps         int64        `json:"steps"`
 	StepsLimit    int64        `json:"stepsLimit"`
+	// Reads are the paths of the packages whose bodies the obligations'
+	// verdicts read, sorted; ReadsUnknown counts the cached verdicts whose
+	// store did not keep theirs (a test binary's). Neither is printed: a
+	// cache keys the evaluation by them (GB-WS0C).
+	Reads        []string `json:"-"`
+	ReadsUnknown int      `json:"-"`
 }
 
 // Obligation is one test or law run of an evaluation, in the order ergo

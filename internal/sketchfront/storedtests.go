@@ -63,8 +63,14 @@ func (v *testVerdicts) Cached(t *check.Test) (eval.Verdict, bool) {
 	if !ok {
 		return eval.Verdict{}, false
 	}
+	// The format's version is in its tag: a test verdict of the older
+	// "test" one says nothing of its reads, so its test runs once.
 	parts := strings.Split(text, "\t")
-	if len(parts) != 4 || parts[0] != "test" {
+	if len(parts) != 5 || parts[0] != "test2" {
+		return eval.Verdict{}, false
+	}
+	reads, err := strconv.Unquote(parts[4])
+	if err != nil {
 		return eval.Verdict{}, false
 	}
 	cases, err1 := strconv.Atoi(parts[2])
@@ -77,11 +83,16 @@ func (v *testVerdicts) Cached(t *check.Test) (eval.Verdict, bool) {
 	default:
 		return eval.Verdict{}, false
 	}
-	return eval.Verdict{Evidence: parts[1], Cases: cases, TotalCases: total}, true
+	out := eval.Verdict{Evidence: parts[1], Cases: cases, TotalCases: total}
+	if reads != "" {
+		out.Reads = strings.Split(reads, "\n")
+	}
+	return out, true
 }
 
 func (v *testVerdicts) Held(t *check.Test, held eval.Verdict) {
-	v.store.Put(v.key(t), "test\t"+held.Evidence+"\t"+strconv.Itoa(held.Cases)+"\t"+strconv.Itoa(held.TotalCases))
+	reads := strconv.Quote(strings.Join(held.Reads, "\n"))
+	v.store.Put(v.key(t), "test2\t"+held.Evidence+"\t"+strconv.Itoa(held.Cases)+"\t"+strconv.Itoa(held.TotalCases)+"\t"+reads)
 }
 
 // routes are the route-note keys of a package's obligations at a seed and
