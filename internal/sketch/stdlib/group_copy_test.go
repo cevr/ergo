@@ -12,15 +12,15 @@ const groupCaller = `import ui
 
 type Item { n int, on bool }
 
-func head(f *ui.Frame[int]) {
+func head(f mut ui.Frame[int]) {
 	ui.Text(f, "head")
 }
 
-func card(f *ui.Frame[int], it Item) {
+func card(f mut ui.Frame[int], it Item) {
 	ui.Text(f, "n \(it.n)")
 }
 
-func view(f *ui.Frame[int], it Item) {
+func view(f mut ui.Frame[int], it Item) {
 	head(f)
 	card(f, it)
 }
@@ -41,7 +41,8 @@ func main() {
 // frame package's own function (ui.Text) is never a group.
 //
 // Only view's Go is compared: the inlined bodies of ui's primitives differ
-// between std and a copy by the flat-union lowering (std-copy.txt, ui).
+// between std and a copy by the flat-union lowering (TestStdCopyAgrees
+// holds ui's copy the same).
 func TestGroupProtocolCopyAgrees(t *testing.T) {
 	const law = "law GroupSkipsEqualArguments("
 	const group = "group_#0[" // copyCanonicalNames

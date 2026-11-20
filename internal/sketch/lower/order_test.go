@@ -512,7 +512,7 @@ func sub(a int, b int) int { return a - b }
 
 func Second(b Box, n int) int { return b.B + n }
 
-func Bump(b *Box, n int) { b.A = b.A + n }
+func Bump(b mut Box, n int) { b.A = b.A + n }
 `
 
 // program is a program of n cases and its expected output.

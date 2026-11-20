@@ -27,6 +27,8 @@ extern go github.com/cevr/ergo/modules/simd/kernel.IndexOutside func kernelIndex
 
 extern go github.com/cevr/ergo/modules/simd/kernel.CountByte func kernelCountByte(s []byte, c byte) int
 
+extern go github.com/cevr/ergo/modules/simd/kernel.IndexNeedsEscape func kernelIndexNeedsEscape(s []byte, html bool) int
+
 // IndexByte is the first index of c in s, or -1.
 func IndexByte(s []byte, c byte) int { indexByte(s, c) }
 
@@ -127,6 +129,51 @@ law CountByteIsTheKernel(s []byte, c byte) { CountByte(s, c) } == { kernelCountB
 law CountByteKernelIsTheReference(pad int, a string, c byte, b string) {
 	let s = padded(pad, c, a, c, b)
 	kernelCountByte(s, c) == countByte(s, c)
+}
+
+// IndexNeedsEscape is the first index of a byte a JSON string cannot
+// write as itself, or -1: a control byte (below 0x20), '"', '\\', a byte
+// of a multi-byte UTF-8 sequence (0x80 and above, which a quoter reads as
+// a rune), and, when html, '<', '>' and '&'. A quoter copies the bytes
+// before it as one run (SIMD-JSON-QUOTE).
+func IndexNeedsEscape(s []byte, html bool) int { indexNeedsEscape(s, html) }
+
+// indexNeedsEscape is IndexNeedsEscape's reference.
+func indexNeedsEscape(s []byte, html bool) int {
+	let mut i = 0
+	for i < len(s) {
+		if needsEscape(s[i], html) {
+			return i
+		}
+		i = i + 1
+	}
+	-1
+}
+
+// needsEscape reports whether a JSON string writes c other than as itself.
+func needsEscape(c byte, html bool) bool {
+	c < 0x20 || c >= 0x80 || c == '"' || c == '\\' || html && (c == '<' || c == '>' || c == '&')
+}
+
+// QuoteScanIsScalar licenses the kernel for IndexNeedsEscape.
+law QuoteScanIsScalar(s []byte, html bool) { IndexNeedsEscape(s, html) } == { kernelIndexNeedsEscape(s, html) }
+
+// QuoteScanKernelIsTheReference: after a run of 0 to 127 plain bytes
+// ('a'), so the byte c lands at every offset of the vector loop and of
+// its tail, the kernel is the reference, in both modes. c is one of the
+// bytes at the edges of the escaped set, by k, so each edge is drawn
+// often, not once in 256.
+law QuoteScanKernelIsTheReference(pad int, k int, b string, html bool) {
+	let s = padded(pad, 'a', "", edge(k), b)
+	kernelIndexNeedsEscape(s, html) == indexNeedsEscape(s, html)
+}
+
+// edge is the k-th of the bytes at the edges of the escaped set, k taken
+// modulo their count: 0x00, 0x1f, ' ', '!', '"', '#', '%', '&', '\'',
+// ';', '<', '=', '>', '?', '[', '\\', ']', 0x7f, 0x80, 0xff.
+func edge(k int) byte {
+	let edges = []byte{0x00, 0x1f, 0x20, 0x21, 0x22, 0x23, 0x25, 0x26, 0x27, 0x3b, 0x3c, 0x3d, 0x3e, 0x3f, 0x5b, 0x5c, 0x5d, 0x7f, 0x80, 0xff}
+	edges[((k % len(edges)) + len(edges)) % len(edges)]
 }
 
 // padded is a run of fill, 0 to 127 bytes long by pad, then a, the

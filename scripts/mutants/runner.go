@@ -463,7 +463,20 @@ func (e *engine) copyTree(dst string) error {
 // rules run git ls-files) then see the checkout's file list in the copy and
 // can kill a mutant; without it they fail on every tree. The commit also
 // keeps go build's VCS stamp working. The user's Git configuration is left
-// out: a signing or hook setting must not reach the copy.
+// out: a signing or hook setting must not reach the copy. The copy's own
+// configuration turns Git's automatic maintenance off (noMaintenance), so
+// no git a test runs in it starts a repack: one ran 13 and 40 minutes on a
+// nearly full disk (wf10, 2026-11-19).
+// noMaintenance turns Git's automatic gc and maintenance off through the
+// environment, for the gits the runner and its children run. The runner's
+// own gits elsewhere (log, status, rev-parse, ls-files) are reads that
+// start no maintenance.
+var noMaintenance = []string{
+	"GIT_CONFIG_COUNT=2",
+	"GIT_CONFIG_KEY_0=gc.auto", "GIT_CONFIG_VALUE_0=0",
+	"GIT_CONFIG_KEY_1=maintenance.auto", "GIT_CONFIG_VALUE_1=false",
+}
+
 func commitCopy(dst string, files []treeFile) error {
 	var names bytes.Buffer
 	for _, f := range files {
@@ -472,6 +485,8 @@ func commitCopy(dst string, files []treeFile) error {
 	}
 	steps := [][]string{
 		{"init", "-q"},
+		{"config", "gc.auto", "0"},
+		{"config", "maintenance.auto", "false"},
 		{"add", "-f", "--pathspec-from-file=-", "--pathspec-file-nul"},
 		{"-c", "user.name=mutants", "-c", "user.email=mutants@invalid", "commit", "-q", "--no-verify", "-m", "mutants copy"},
 	}
@@ -479,6 +494,7 @@ func commitCopy(dst string, files []treeFile) error {
 		cmd := exec.Command("git", append([]string{"--no-optional-locks"}, args...)...)
 		cmd.Dir = dst
 		cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
+		cmd.Env = append(cmd.Env, noMaintenance...)
 		if args[0] == "add" {
 			cmd.Stdin = bytes.NewReader(names.Bytes())
 		}
@@ -539,6 +555,7 @@ func (e *engine) env(extra ...string) []string {
 	}
 	procs := strconv.Itoa(e.cfg.Procs)
 	out = append(out, "GOMAXPROCS="+procs, "GOWORK=off")
+	out = append(out, noMaintenance...)
 	return append(out, extra...)
 }
 
@@ -879,10 +896,21 @@ func (e *engine) buildSuite(ctx context.Context, root, bin string, s *Suite, cov
 // TestReapEndedLeavesTheHelperAndRunningChildren) fails at once without
 // it, so it judged nothing (MUT-names r2). Its own timeout also names the
 // stuck test before the runner stops the run.
+// ergoCacheVariable is the ergo CLI's emission cache root (build.RootVariable).
+const ergoCacheVariable = "ERGO_CACHE"
+
 func (e *engine) argv(s *Suite, root, bin, test string, deadline time.Duration) ([]string, string, []string) {
 	var env []string
 	for _, kv := range s.Env {
 		env = append(env, expand(kv, bin, root, test))
+	}
+	// A test of the checkout's module gets an emission cache of its own
+	// from internal/testinputs; one of a nested module (hosts/mygo) has no
+	// such harness, and the ergo it starts refuses the user's cache under
+	// a Go test. The runner gives each such test a cache under its work
+	// directory, unless the ledger's env names one (MUT-MODULES).
+	if s.Module != "" && s.Package != "" && !slices.ContainsFunc(env, func(kv string) bool { return strings.HasPrefix(kv, ergoCacheVariable+"=") }) {
+		env = append(env, ergoCacheVariable+"="+filepath.Join(bin, "ergo-cache", filepath.FromSlash(s.Name), test))
 	}
 	if s.Package != "" {
 		run := "^" + regexp.QuoteMeta(test) + "$"

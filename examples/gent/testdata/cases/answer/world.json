@@ -1,0 +1,18 @@
+{
+ "replies": [
+  {
+   "_tag": "Says",
+   "pieces": [
+    "Hello",
+    ", I am a ",
+    "scripted model."
+   ],
+   "calls": [],
+   "end": {
+    "_tag": "Finished"
+   }
+  }
+ ],
+ "files": {},
+ "shell": {}
+}

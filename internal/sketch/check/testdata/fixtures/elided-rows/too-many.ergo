@@ -1,0 +1,9 @@
+type Bad {}
+
+type Command[C, E] { Name string, Build func() C fails E }
+
+func one() int { 1 }
+
+func bad() int fails Bad { Bad }
+
+func f(c Command[int, Bad, Bad]) {} // want S108

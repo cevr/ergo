@@ -31,7 +31,7 @@ type Missing { V int }
 
 type rng { x int }
 
-func draw(r *rng, n int) int {
+func draw(r mut rng, n int) int {
 	r.x = (r.x*1103515245 + 12345) % 2147483648
 	(r.x / 65536) % n
 }
@@ -40,7 +40,7 @@ func seeded(seed int) rng { rng{x: (seed%2147483648 + 2147483648) % 2147483648} 
 
 let slots = 6
 
-func genProg(r *rng, depth int, bounded bool) prog {
+func genProg(r mut rng, depth int, bounded bool) prog {
 	let kind = draw(r, 12)
 	if kind == 9 && bounded {
 		return pRead{slot: draw(r, slots)}
@@ -81,7 +81,7 @@ func genProg(r *rng, depth int, bounded bool) prog {
 	}
 }
 
-func genState(r *rng) []int {
+func genState(r mut rng) []int {
 	let mut s = []int{}
 	for _ in 0..slots {
 		s = s.Append(draw(r, 64))
@@ -113,7 +113,7 @@ func described(v int) string {
 	""
 }
 
-func swap(f *ui.Frame[int], v int, at CallSite) {
+func swap(f mut ui.Frame[int], v int, at CallSite) {
 	if v%2 == 0 {
 		ui.Text(f, "even \(v)", at)
 	} else {
@@ -121,7 +121,7 @@ func swap(f *ui.Frame[int], v int, at CallSite) {
 	}
 }
 
-func render(f *ui.Frame[int], p prog, s []int, row int) fails Missing | ui.Pending {
+func render(f mut ui.Frame[int], p prog, s []int, row int) fails Missing | ui.Pending {
 	match p {
 	case pText as x:
 		ui.Text(f, "t\(s[x.slot] + row)")
@@ -227,7 +227,7 @@ func render(f *ui.Frame[int], p prog, s []int, row int) fails Missing | ui.Pendi
 	}
 }
 
-func sameBody(f *ui.Frame[int], kids []prog, s []int, row int, dig int) fails Missing | ui.Pending {
+func sameBody(f mut ui.Frame[int], kids []prog, s []int, row int, dig int) fails Missing | ui.Pending {
 	ui.OnKey(f, func(k ui.KeyPress) Option[int] { Some{Value: dig} })
 	let fl = ui.NewFlag(f, false)
 	ui.Toggle(f, fl, "same")
@@ -523,8 +523,8 @@ func boundRows(x pBound, s []int, row int) []int {
 
 func leaf(n ui.Node[int]) ui.Shape[int] { ui.Shape[int]{Node: n, Kids: []ui.Shape[int]{}} }
 
-func pass(f *ui.Frame[int], ps []prog, s []int) []ui.Op[int] {
-	ui.Render(f, func(g *ui.Frame[int], st []int) {
+func pass(f mut ui.Frame[int], ps []prog, s []int) []ui.Op[int] {
+	ui.Render(f, func(g mut ui.Frame[int], st []int) {
 		for p in ps {
 			render(g, p, st, 0) catch {
 			case Missing:
@@ -536,7 +536,7 @@ func pass(f *ui.Frame[int], ps []prog, s []int) []ui.Op[int] {
 	}, s)
 }
 
-func genRoot(r *rng) []prog {
+func genRoot(r mut rng) []prog {
 	let mut ps = []prog{}
 	for _ in 0..draw(r, 4)+1 {
 		ps = ps.Append(genProg(r, 3, false))
@@ -554,7 +554,7 @@ func nodes(shapes []ui.Shape[int]) int {
 
 
 
-func shuffled(xs []int, r *rng) []int {
+func shuffled(xs []int, r mut rng) []int {
 	let mut out = xs
 	for i in 0..len(out) {
 		let j = i + draw(r, len(out)-i)
@@ -565,7 +565,7 @@ func shuffled(xs []int, r *rng) []int {
 	out
 }
 
-func keyedRows(f *ui.Frame[int], xs []int) {
+func keyedRows(f mut ui.Frame[int], xs []int) {
 	ui.Column(f, ui.Plain()) {
 		ui.Each(f, xs, func(x int) ui.Key { ui.ByInt(x) }) func(x int) {
 			ui.Text(f, "row \(x)")
@@ -577,7 +577,7 @@ func keyedRows(f *ui.Frame[int], xs []int) {
 	}
 }
 
-func rowIds(f *ui.Frame[int], xs []int) Map[int, (ui.Id[int], ui.Id[int])] {
+func rowIds(f mut ui.Frame[int], xs []int) Map[int, (ui.Id[int], ui.Id[int])] {
 	let mut out = Map[int, (ui.Id[int], ui.Id[int])]{}
 	let col = ui.Kids(f, ui.Root(f))
 	if len(col) != 1 {
@@ -594,7 +594,7 @@ func rowIds(f *ui.Frame[int], xs []int) Map[int, (ui.Id[int], ui.Id[int])] {
 	out
 }
 
-func keyedLines(f *ui.Frame[int], xs []int) {
+func keyedLines(f mut ui.Frame[int], xs []int) {
 	ui.Column(f, ui.Plain()) {
 		ui.Each(f, xs, func(x int) ui.Key { ui.ByInt(x) }) func(x int) {
 			ui.Text(f, "line \(x)")
@@ -631,7 +631,7 @@ func sent(o Option[int]) int {
 	}
 }
 
-func signalsAgree(f *ui.Frame[int], id ui.Id[int], off bool) bool {
+func signalsAgree(f mut ui.Frame[int], id ui.Id[int], off bool) bool {
 	let mut ok = true
 	let mut under = off
 	let pressed = sent(ui.Handle(f, ui.Press[int]{Id: id}).Signal)
@@ -769,7 +769,7 @@ func wants(loc ui.Locator, x seen) bool {
 	}
 }
 
-func matches(m *ui.Mirror[int], loc ui.Locator, is ui.Matcher) bool {
+func matches(m mut ui.Mirror[int], loc ui.Locator, is ui.Matcher) bool {
 	ui.ExpectIn(m, loc, is) catch {
 	case ui.Mismatch:
 		return false
@@ -777,7 +777,7 @@ func matches(m *ui.Mirror[int], loc ui.Locator, is ui.Matcher) bool {
 	true
 }
 
-func extras(f *ui.Frame[int], v int) {
+func extras(f mut ui.Frame[int], v int) {
 	ui.Fieldset(f, v%2 == 1, "x\(v)") {
 		let on = ui.NewFlag(f, true)
 		ui.Toggle(f, on, "tg\(v % 3)")
@@ -785,7 +785,7 @@ func extras(f *ui.Frame[int], v int) {
 		ui.Area(f, "area\(v % 2)", ui.Plain(), func(p ui.PointerEvent) Option[int] { None }) {
 			ui.Text(f, "in area")
 		}
-		ui.Canvas(f, "c\(v % 4)", 4, 4) func(p *ui.Paint) {}
+		ui.Canvas(f, "c\(v % 4)", 4, 4) func(p mut ui.Paint) {}
 		ui.Rows(f, "rows", 0, 10, func(i int) ui.Key { ui.ByInt(i) }) func(i int) {}
 	}
 }
@@ -820,7 +820,7 @@ func opsEqual(a []ui.Op[int], b []ui.Op[int]) bool {
 	true
 }
 
-func signalsMatch(f *ui.Frame[int], g *ui.Frame[int], a ui.Id[int], b ui.Id[int]) bool {
+func signalsMatch(f mut ui.Frame[int], g mut ui.Frame[int], a ui.Id[int], b ui.Id[int]) bool {
 	if ui.NodeOf(f, a) != ui.NodeOf(g, b) {
 		return false
 	}
@@ -852,7 +852,7 @@ func signalsMatch(f *ui.Frame[int], g *ui.Frame[int], a ui.Id[int], b ui.Id[int]
 	true
 }
 
-func toggles(f *ui.Frame[int], id ui.Id[int], out []ui.Id[int]) []ui.Id[int] {
+func toggles(f mut ui.Frame[int], id ui.Id[int], out []ui.Id[int]) []ui.Id[int] {
 	let mut all = out
 	match ui.NodeOf(f, id) {
 	case Some[ui.Node[int]] as n:
@@ -897,7 +897,7 @@ func shelfMachine() Machine[shelf, int, int] {
 	Machine[shelf, int, int]{Initial: shelf{rows: []int{}, next: 1}, Step: shelfStep, After: shelfTimer, Work: shelfWork, Exit: shelfExit}
 }
 
-func shelfView(f *ui.Frame[int], s shelf) {
+func shelfView(f mut ui.Frame[int], s shelf) {
 	ui.Column(f, ui.Plain()) {
 		ui.Text(f, "\(len(s.rows)) rows")
 		ui.Pressable(f, "add", 0) {
@@ -914,7 +914,7 @@ func shelfView(f *ui.Frame[int], s shelf) {
 	}
 }
 
-func freshShape[S](view func(f *ui.Frame[int], s S), s S) []ui.Shape[int] {
+func freshShape[S](view func(f mut ui.Frame[int], s S), s S) []ui.Shape[int] {
 	let mut g = ui.NewFrame[int]()
 	let _ = ui.Render(&g, view, s)
 	ui.FrameShape(&g)
@@ -1009,7 +1009,7 @@ func lawCancelledFetchStops(steps int) bool {
 func cancelStops(steps int, m time.Manual) bool needs Scheduler {
 	let started = queue.New[int](64)
 	let ended = queue.New[int](64)
-	let view = func(f *ui.Frame[int], s chosen) {
+	let view = func(f mut ui.Frame[int], s chosen) {
 		let k = s.key
 		ui.Text(f, "key \(k) ready \(s.ready)")
 		ui.Pressable(f, "next", k+1+k%3) {
@@ -1117,7 +1117,7 @@ func offClock(steps int, m time.Manual) bool needs Scheduler {
 		time.Sleep(m, 1h)
 		true
 	}
-	let view = func(f *ui.Frame[int], s chosen) {
+	let view = func(f mut ui.Frame[int], s chosen) {
 		let k = s.key
 		ui.Text(f, "key \(k) ready \(s.ready)")
 		ui.Pressable(f, "next", k+1) {
@@ -1174,7 +1174,7 @@ func lawVersionedNeverRunsAhead(n int) bool {
 func versionedHolds(n int, m time.Manual) bool needs Scheduler {
 	let landed = 1000 + (n%1000+1000)%1000
 	let a = actor.StartMachine(dialMachine(), 4, func(o int) {})
-	let view = func(f *ui.Frame[int], s int) {
+	let view = func(f mut ui.Frame[int], s int) {
 		ui.Text(f, "n \(s)")
 		ui.Pressable(f, "set", s+1) {
 			ui.Text(f, "set")
@@ -1222,7 +1222,7 @@ func spinMachine() Machine[spin, int, int] {
 	Machine[spin, int, int]{Initial: spin{left: 0, at: -1}, Step: spinStep, After: spinTimer, Work: spinWork, Exit: spinExit}
 }
 
-func spinView(f *ui.Frame[int], s spin) {
+func spinView(f mut ui.Frame[int], s spin) {
 	ui.Text(f, "left \(s.left) at \(s.at)")
 	for n in 0..4 {
 		ui.Pressable(f, "go\(n)", n) {
@@ -1325,7 +1325,7 @@ func advanceTakes(n int, m time.Manual) bool needs Scheduler {
 			return false
 		}
 	}
-	ui.Posted(&h) <= 1 && ui.Frames(&h) == frames
+	ui.Posted(&h) <= 1 && h.Frames() == frames
 }
 
 type pad { open bool, last int, n int }
@@ -1363,7 +1363,7 @@ func onPad(s pad, p ui.PointerEvent) Option[int] {
 	}
 }
 
-func padView(f *ui.Frame[int], s pad) {
+func padView(f mut ui.Frame[int], s pad) {
 	ui.Text(f, "last \(s.last) of \(s.n)")
 	if s.open {
 		ui.OnKey(f, func(k ui.KeyPress) Option[int] {
@@ -1459,7 +1459,7 @@ func inputFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 
 type pp = ppFill{k int} | ppStroke{k int} | ppRect{k int} | ppMove{k int, kids []pp} | ppClip{k int, kids []pp}
 
-func genPaint(r *rng, depth int) []pp {
+func genPaint(r mut rng, depth int) []pp {
 	let mut out = []pp{}
 	for _ in 0..draw(r, 4) {
 		let k = draw(r, 50)
@@ -1490,7 +1490,7 @@ func tri(s int, k int) ui.Path {
 	ui.Path{Segs: []ui.Seg{ui.MoveTo{X: num(s, k, 0), Y: num(s, k, 1)}, ui.LineTo{X: num(s, k, 2), Y: num(s, k, 3)}, ui.QuadTo{CX: num(s, k, 4), CY: num(s, k, 5), X: num(s, k, 6), Y: num(s, k, 7)}, ui.CubicTo{C1X: num(s, k, 8), C1Y: num(s, k, 9), C2X: num(s, k, 10), C2Y: num(s, k, 11), X: num(s, k, 12), Y: num(s, k, 13)}, ui.ClosePath}}
 }
 
-func paintProg(p *ui.Paint, prog []pp, s int) {
+func paintProg(p mut ui.Paint, prog []pp, s int) {
 	for op in prog {
 		match op {
 		case ppFill as x:
@@ -1578,17 +1578,17 @@ func lawPaintMatchesList(seed int, steps int) bool {
 func paintFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 	let mut r = seeded(seed)
 	let prog = genPaint(&r, 2)
-	let view = func(f *ui.Frame[int], s int) {
+	let view = func(f mut ui.Frame[int], s int) {
 		ui.Text(f, "at \(s)")
 		ui.Pressable(f, "next", (s*5+3)%11) {
 			ui.Text(f, "next")
 		}
-		ui.Canvas(f, "board", 120, 80) func(p *ui.Paint) {
+		ui.Canvas(f, "board", 120, 80) func(p mut ui.Paint) {
 			paintProg(p, prog, s)
 		}
-		ui.Canvas(f, "rest", 120, 80) func(p *ui.Paint) {
+		ui.Canvas(f, "rest", 120, 80) func(p mut ui.Paint) {
 			paintProg(p, prog, s+1)
-			ui.Canvas(f, "inner", 40, 40) func(q *ui.Paint) {
+			ui.Canvas(f, "inner", 40, 40) func(q mut ui.Paint) {
 				paintProg(q, prog, s+2)
 			}
 		}
@@ -1673,7 +1673,7 @@ func rowsFollow(seed int, steps int, m time.Manual) bool needs Scheduler {
 	let sizes = []int{0, 3, 50, 1000}
 	let n = sizes[draw(&r, len(sizes))]
 	let rh = float64(draw(&r, 40) + 10)
-	let view = func(f *ui.Frame[int], s roster) {
+	let view = func(f mut ui.Frame[int], s roster) {
 		ui.Pressable(f, "add", 0) {
 			ui.Text(f, "+")
 		}
@@ -1772,7 +1772,7 @@ func routeMachine() Machine[int, int, int] {
 
 func home(u ui.URL) Option[int] { Some{Value: 0} }
 
-func routeView(f *ui.Frame[int], s int) {
+func routeView(f mut ui.Frame[int], s int) {
 	ui.OnURL(f, placeOf)
 	ui.OnURL(f, home)
 	ui.Text(f, "at \(places[s])")
@@ -1914,7 +1914,7 @@ func fetchBC() int needs capB | capC { 10*capB.tagB() + 100*capC.tagC() }
 
 func fetchABC() int needs capA | capB | capC { capA.tagA() + 10*capB.tagB() + 100*capC.tagC() }
 
-func loadFor(f *ui.Frame[int], i int, set int) needs capA | capB | capC {
+func loadFor(f mut ui.Frame[int], i int, set int) needs capA | capB | capC {
 	let base = 1000 * (i + 1)
 	match set {
 	case 1:
@@ -1936,7 +1936,7 @@ func loadFor(f *ui.Frame[int], i int, set int) needs capA | capB | capC {
 	}
 }
 
-func boundView(f *ui.Frame[int], plan []boundLoad, outer []int) needs capA | capB | capC {
+func boundView(f mut ui.Frame[int], plan []boundLoad, outer []int) needs capA | capB | capC {
 	for i, l in plan {
 		ui.Box(f, ui.Plain()) {
 			if l.inner {
@@ -1993,7 +1993,7 @@ func loadsBound(seed int, m time.Manual) bool needs Scheduler {
 	}
 	with context { capA: aIs{v: outer[0]}, capB: bIs{v: outer[1]}, capC: cIs{v: outer[2]} } {
 		let a = actor.StartMachine(logMachine(), 4, func(o int) {})
-		let mut h = ui.NewTestHost(a, func(f *ui.Frame[int], s []int) needs capA | capB | capC { boundView(f, plan, outer) }, m, 8) catch {
+		let mut h = ui.NewTestHost(a, func(f mut ui.Frame[int], s []int) needs capA | capB | capC { boundView(f, plan, outer) }, m, 8) catch {
 		case ui.BadPatch:
 			return false
 		}
@@ -2059,7 +2059,7 @@ func cursorKept(seed int, steps int, m time.Manual) bool needs Scheduler {
 	let sizes = []int{0, 3, 50, 1000}
 	let n = sizes[draw(&r, len(sizes))]
 	let rh = float64(draw(&r, 40) + 10)
-	let view = func(f *ui.Frame[int], s int) {
+	let view = func(f mut ui.Frame[int], s int) {
 		ui.OnKey(f, func(k ui.KeyPress) Option[int] {
 			for i in 0..n+1 {
 				if k.Name == "\(i)" {
@@ -2229,7 +2229,7 @@ func replyMachine(gate queue.Queue[int], last int) Machine[int, int, int] {
 	Machine[int, int, int]{Initial: 0, Step: replyStep, After: replyTimer, Work: replyWork(gate, last), Exit: replyExit}
 }
 
-func replyView(f *ui.Frame[int], s int) { ui.Text(f, "at \(s)") }
+func replyView(f mut ui.Frame[int], s int) { ui.Text(f, "at \(s)") }
 
 func lawWorkReplyIsShown(n int) bool {
 	let m = time.NewManual(0)
@@ -2399,7 +2399,7 @@ func crashMachine() Machine[int, int, int, Boom] {
 	Machine[int, int, int, Boom]{Initial: 0, Step: crashStep, After: crashTimer, Work: crashWork, Exit: crashExit}
 }
 
-func crashAppView(f *ui.Frame[int], s int) {
+func crashAppView(f mut ui.Frame[int], s int) {
 	ui.Text(f, "count \(s)")
 	ui.Pressable(f, "add", 0) {
 		ui.Text(f, "+")
@@ -2426,7 +2426,7 @@ func crashText(c ui.Crash[int, int, Boom]) string {
 	}
 }
 
-func crashOwnView(f *ui.Frame[int], c ui.Crash[int, int, Boom]) {
+func crashOwnView(f mut ui.Frame[int], c ui.Crash[int, int, Boom]) {
 	ui.Text(f, crashText(c))
 	ui.Pressable(f, "reload", 3) {
 		ui.Text(f, "reload")
@@ -2586,7 +2586,7 @@ func workCrashWork(gate queue.Queue[int]) func(s int) Option[func(send func(e in
 	}
 }
 
-func keyView(f *ui.Frame[int], s int) {
+func keyView(f mut ui.Frame[int], s int) {
 	ui.OnKey(f, func(k ui.KeyPress) Option[int] {
 		if k.Name == "1" {
 			return Some{Value: 1}
@@ -2599,7 +2599,7 @@ func keyView(f *ui.Frame[int], s int) {
 	ui.Text(f, "at \(s)")
 }
 
-func keyCrashView(f *ui.Frame[int], c ui.Crash[int, int, Boom]) {
+func keyCrashView(f mut ui.Frame[int], c ui.Crash[int, int, Boom]) {
 	ui.OnKey(f, func(k ui.KeyPress) Option[int] { Some{Value: 0} })
 	ui.Text(f, "crashed")
 }
@@ -2608,7 +2608,7 @@ func key(name string) ui.Event[int] {
 	ui.KeyDown{Press: ui.KeyPress{Name: name, Mods: ui.Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}}
 }
 
-func endedOf(session *ui.Session[int, int, Decision[int, int], Boom], posted queue.Queue[ui.Event[int]], run int) Option[[]ui.Op[int]] {
+func endedOf(session mut ui.Session[int, int, Decision[int, int], Boom], posted queue.Queue[ui.Event[int]], run int) Option[[]ui.Op[int]] {
 	for {
 		let ev = posted.Pop() catch {
 		case queue.Closed:
@@ -2702,7 +2702,7 @@ func crashFollows() bool needs Scheduler {
 	shown && len(cs) == 3 && sameCrash(Some{Value: cs[0]}, Some{Value: step}) && sameCrash(Some{Value: cs[1]}, Some{Value: step}) && sameCrash(Some{Value: cs[2]}, Some{Value: work})
 }
 
-func endsQuiet(session *ui.Session[int, int, Decision[int, int], Boom], posted queue.Queue[ui.Event[int]], run int) bool {
+func endsQuiet(session mut ui.Session[int, int, Decision[int, int], Boom], posted queue.Queue[ui.Event[int]], run int) bool {
 	match endedOf(session, posted, run) {
 	case Some[[]ui.Op[int]] as ops:
 		len(ops.Value) == 0
@@ -2727,8 +2727,8 @@ func statsMachine() Machine[int, int, int] {
 	Machine[int, int, int]{Initial: 0, Step: statsStep, After: replyTimer, Work: replyWork(queue.New[int](1), 0), Exit: replyExit}
 }
 
-func statsView(apps []statsApp) func(f *ui.Frame[int], s int) {
-	func(f *ui.Frame[int], s int) {
+func statsView(apps []statsApp) func(f mut ui.Frame[int], s int) {
+	func(f mut ui.Frame[int], s int) {
 		let st = apps[s]
 		ui.OnKey(f, func(k ui.KeyPress) Option[int] {
 			for i in 0..len(apps) {
@@ -2743,7 +2743,7 @@ func statsView(apps []statsApp) func(f *ui.Frame[int], s int) {
 				ui.Text(f, "t\(j)")
 			}
 			if st.canvas {
-				ui.Canvas(f, "c", 40, 40) func(p *ui.Paint) {
+				ui.Canvas(f, "c", 40, 40) func(p mut ui.Paint) {
 					for j in 0..st.paints {
 						ui.Fill(p, ui.RectPath(float64(j), 0.0, 1.0, 1.0), tone(j, j))
 					}
@@ -2880,7 +2880,7 @@ func lawSlowAboveTheBudget(seed int, bound int) bool {
 
 func slowFollow(seed int, bound int) bool needs Scheduler {
 	let mut r = seeded(seed)
-	let view = func(f *ui.Frame[slowSignal], s slowLog) {
+	let view = func(f mut ui.Frame[slowSignal], s slowLog) {
 		// Every third pass asks for nothing: an ui.OnSlow holds for its pass.
 		if s.texts%3 != 0 {
 			ui.OnSlow(f, ui.Budget{Signals: 0, Written: bound, Committed: 0, Ops: 0, Painted: 0, Fetches: 0}, func(x ui.Slow) slowSignal { WasSlow{S: x} })
@@ -2998,7 +2998,7 @@ func sameHit(a Option[ui.ZoneHit], b Option[ui.ZoneHit]) bool {
 	}
 }
 
-func foundId[S, D, F](h *ui.TestHost[S, int, D, F], label string) ui.Id[int] {
+func foundId[S, D, F](h mut ui.TestHost[S, int, D, F], label string) ui.Id[int] {
 	match ui.Find(h, label) {
 	case Some[ui.Id[int]] as id:
 		id.Value
@@ -3034,7 +3034,7 @@ func zoneFollows(seed int, n int, m time.Manual) bool needs Scheduler {
 		cards = cards.Append(draw(&r, 3) + 1)
 	}
 	let got = sync.NewRef[Option[ui.ZoneHit]](None)
-	let view = func(f *ui.Frame[int], s int) {
+	let view = func(f mut ui.Frame[int], s int) {
 		ui.Pressable(f, "drop", 1) {
 			ui.Text(f, "drop")
 		}
@@ -3165,7 +3165,7 @@ func phaseCode(p ui.Phase) int {
 
 func captureFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 	let mut r = seeded(seed)
-	let view = func(f *ui.Frame[int], s int) {
+	let view = func(f mut ui.Frame[int], s int) {
 		ui.OnKey(f, func(k ui.KeyPress) Option[int] { if k.Name == "h" { Some{Value: 99} } else { None } })
 		ui.Pressable(f, "tap", 98) {
 			ui.Text(f, "tap")
@@ -3279,7 +3279,7 @@ func announceFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 		texts = texts.Append(words[draw(&r, 4)])
 	}
 	let shift = sync.NewRef(0)
-	let view = func(f *ui.Frame[int], s int) {
+	let view = func(f mut ui.Frame[int], s int) {
 		let shown = (s + shift.Get()) % 6
 		ui.OnKey(f, func(k ui.KeyPress) Option[int] {
 			for i in 0..6 {
@@ -3377,6 +3377,99 @@ func lawEdgeScrollStaysInRange(o int, hh int, c int, yy int, e int, st int) bool
 	next == at
 }
 
+func lawEdgeScrollRunsEachFrame(seed int) bool {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		edgeFrames(seed, m)
+	}
+}
+
+// edgeFrames is EdgeScrollRunsEachFrame at seed. (a law's helper)
+func edgeFrames(seed int, m time.Manual) bool needs Scheduler {
+	let mut r = seeded(seed)
+	let n = draw(&r, 40) + 1
+	let rh = ui.Length(float64(draw(&r, 20) + 4))
+	let height = ui.Length(float64(draw(&r, 200) + 40))
+	let content = ui.Length(float64(n)) * rh
+	let most = if content > height { content - height } else { ui.Length(0.0) }
+	let start = ui.Length(float64(draw(&r, int(float64(most)) + 1)))
+	let band = draw(&r, 3)
+	let y = if band == 0 { float64(draw(&r, 32)) } else if band == 1 { float64(height) - float64(draw(&r, 32)) } else { float64(height) / 2.0 }
+	let view = func(f *ui.Frame[int], s int) {
+		ui.Area(f, "a", ui.Plain(), func(p ui.PointerEvent) Option[int] { None }) {
+			ui.Rows(f, "list", n, rh, func(i int) ui.Key { ui.ByInt(i) }, func(i int) {
+				ui.Text(f, "row \(i)")
+			})
+		}
+	}
+	let a = actor.StartMachine(zoneMachine(), 1, func(o int) {})
+	let mut h = ui.NewTestHost(a, view, m, 4) catch {
+	case ui.BadPatch:
+		return false
+	}
+	let list = ui.Locate(&h, ui.WithLabel{Label: "list"})
+	let area = ui.Locate(&h, ui.WithLabel{Label: "a"})
+	if len(list) != 1 || len(area) != 1 {
+		return false
+	}
+	ui.ScrollTo(&h, list[0], start, height) catch {
+	case _:
+		return false
+	}
+	ui.PointAt(&h, area[0], ui.PointerEvent{Phase: ui.Down, X: 1.0, Y: y, Zone: None}) catch {
+	case _:
+		return false
+	}
+	let mut want = start
+	for _ in 0..draw(&r, 8) {
+		ui.Advance(&h, 16ms) catch {
+		case _:
+			return false
+		}
+		want = ui.EdgeScroll(want, height, content, ui.Length(y), ui.EdgeBand, ui.EdgeStep)
+		if listOffset(ui.Screen(&h)) != want {
+			return false
+		}
+	}
+	ui.Advance(&h, 1600ms) catch {
+	case _:
+		return false
+	}
+	for _ in 0..100 {
+		want = ui.EdgeScroll(want, height, content, ui.Length(y), ui.EdgeBand, ui.EdgeStep)
+	}
+	if listOffset(ui.Screen(&h)) != want {
+		return false
+	}
+	ui.PointAt(&h, area[0], ui.PointerEvent{Phase: ui.Up, X: 1.0, Y: y, Zone: None}) catch {
+	case _:
+		return false
+	}
+	ui.ScrollTo(&h, list[0], start, height) catch {
+	case _:
+		return false
+	}
+	ui.Advance(&h, 160ms) catch {
+	case _:
+		return false
+	}
+	listOffset(ui.Screen(&h)) == start
+}
+
+// listOffset is the offset of the list in the screen of edgeFrames: the
+// first child of its Area. (a law's helper)
+func listOffset(screen []ui.Shape[int]) ui.Length {
+	if len(screen) != 1 || len(screen[0].Kids) != 1 {
+		return ui.Length(-1.0)
+	}
+	match screen[0].Kids[0].Node {
+	case ui.RowsNode as x:
+		x.Offset
+	case _:
+		ui.Length(-1.0)
+	}
+}
+
 func orderStep(s int, e int) Decision[int, int] {
 	if e == 3 {
 		return Ignore
@@ -3394,7 +3487,7 @@ func lawPostedOrderKeepsTheCounts(seed int) bool {
 func postedOrder(seed int, m time.Manual) bool needs Scheduler {
 	let mut r = seeded(seed)
 	let n = draw(&r, 4) + 3
-	let view = func(f *ui.Frame[int], s int) {
+	let view = func(f mut ui.Frame[int], s int) {
 		ui.OnSlow(f, ui.Budget{Signals: 0, Written: 0, Committed: 0, Ops: 0, Painted: 0, Fetches: 2}, func(x ui.Slow) int { 2 })
 		ui.OnKey(f, func(k ui.KeyPress) Option[int] { if s == 0 { Some{Value: 1} } else { None } })
 		ui.Text(f, "s\(s)")
@@ -3464,7 +3557,7 @@ func lawTransitionEndsAtLayout(seed int, steps int) bool {
 	let m = time.NewManual(0)
 	with context { Scheduler: m } {
 		let lists = presenceLists(seed)
-		let view = func(f *ui.Frame[int], s int) {
+		let view = func(f mut ui.Frame[int], s int) {
 			ui.OnKey(f, func(k ui.KeyPress) Option[int] {
 				for i in 0..8 {
 					if k.Name == "\(i)" {
@@ -3512,7 +3605,7 @@ func lawTransitionEndsAtLayout(seed int, steps int) bool {
 			}
 		}
 		let mut g = ui.NewFrame[int]()
-		let want = ui.Render(&g, func(f *ui.Frame[int], xs []int) {
+		let want = ui.Render(&g, func(f mut ui.Frame[int], xs []int) {
 			ui.Column(f, ui.Plain()) {
 				ui.Each(f, xs, func(r int) ui.Key { ui.ByInt(r) }) func(r int) {
 					ui.Box(f, ui.Plain()) {
@@ -3530,7 +3623,7 @@ func lawPresenceKeepsTheList(seed int, steps int) bool {
 	let m = time.NewManual(0)
 	with context { Scheduler: m } {
 		let lists = presenceLists(seed)
-		let view = func(f *ui.Frame[int], s int) {
+		let view = func(f mut ui.Frame[int], s int) {
 			ui.OnKey(f, func(k ui.KeyPress) Option[int] {
 				for i in 0..8 {
 					if k.Name == "\(i)" {
@@ -3650,7 +3743,7 @@ func lawExitTakesItsDuration(n int) bool {
 	with context { Scheduler: m } {
 		let k = (n%10+10)%10 + 1
 		let lists = [][]int{[]int{0}, []int{0, 1}, []int{0}}
-		let view = func(f *ui.Frame[int], s int) {
+		let view = func(f mut ui.Frame[int], s int) {
 			ui.OnKey(f, func(kp ui.KeyPress) Option[int] {
 				for i in 0..3 {
 					if kp.Name == "\(i)" {
@@ -3729,7 +3822,7 @@ func lawNoTickWhenRowsSettle(seed int, wait int) bool {
 	let m = time.NewManual(0)
 	with context { Scheduler: m } {
 		let lists = presenceLists(seed)
-		let view = func(f *ui.Frame[int], s int) {
+		let view = func(f mut ui.Frame[int], s int) {
 			ui.OnKey(f, func(k ui.KeyPress) Option[int] {
 				for i in 0..8 {
 					if k.Name == "\(i)" {
@@ -3771,12 +3864,12 @@ func lawNoTickWhenRowsSettle(seed int, wait int) bool {
 			if ui.WantsFrames(&h) {
 				return false
 			}
-			let before = ui.Frames(&h)
+			let before = h.Frames()
 			ui.Advance(&h, duration(int64((wait%50+50)%50+1)*int64(10ms))) catch {
 			case _:
 				return false
 			}
-			if ui.Frames(&h) != before {
+			if h.Frames() != before {
 				return false
 			}
 		}
@@ -3965,7 +4058,7 @@ func lawAmbiguousActFails(seed int) bool {
 	let m = time.NewManual(0)
 	with context { Scheduler: m } {
 		let k = (seed%4+4)%4 + 2
-		let view = func(f *ui.Frame[int], s int) {
+		let view = func(f mut ui.Frame[int], s int) {
 			ui.Column(f, ui.Plain()) {
 				ui.Text(f, "at \(s)")
 				for i in 0..k {
@@ -4030,7 +4123,7 @@ func lawTypeIntoNamesTheField(seed int, count int) bool {
 	with context { Scheduler: m } {
 		let n = (count%4+4)%4 + 2
 		let s = (seed%64 + 64) % 64
-		let view = func(f *ui.Frame[int], st int) {
+		let view = func(f mut ui.Frame[int], st int) {
 			ui.Column(f, ui.Plain()) {
 				for i in 0..n {
 					ui.LabelledInput(f, ui.FieldLabel{Text: typedLabel(s, i), Description: "", Invalid: false}, "", "ph\(i)", func(t string) int { i*1000 + len(t) })
@@ -4104,7 +4197,7 @@ func chainWork(s chain) Option[func(send func(e int))] {
 	}}
 }
 
-func chainView(f *ui.Frame[int], s chain) {
+func chainView(f mut ui.Frame[int], s chain) {
 	ui.OnKey(f, func(k ui.KeyPress) Option[int] {
 		if k.Name == "go" {
 			return Some{Value: 1}
@@ -4130,7 +4223,7 @@ func tallyWork(s []int) Option[func(send func(e int))] {
 	None
 }
 
-func tallyView(f *ui.Frame[int], s []int) {
+func tallyView(f mut ui.Frame[int], s []int) {
 	ui.Column(f, ui.Plain()) {
 		let mut idx = []int{}
 		for i in 0..len(s) {
@@ -4203,14 +4296,14 @@ func typedLabel(seed int, i int) string {
 // lookColor, lookLength, lookDraw, looksDraw, lookChange, looksChange,
 // lookedView, lookNested and lookUnpainted restate look.ergo's law helpers
 // (UG1).
-func lookColor(r *rng) ui.Color {
+func lookColor(r mut rng) ui.Color {
 	let alphas = []uint8{255, 255, 128, 0}
 	ui.Color{R: uint8(draw(r, 256)), G: uint8(draw(r, 256)), B: uint8(draw(r, 256)), A: alphas[draw(r, 4)]}
 }
 
-func lookLength(r *rng, n int) ui.Length { ui.Length(float64(draw(r, n))) }
+func lookLength(r mut rng, n int) ui.Length { ui.Length(float64(draw(r, n))) }
 
-func lookDraw(r *rng) ui.Look {
+func lookDraw(r mut rng) ui.Look {
 	let mut l = ui.Bare()
 	l.Fill = lookColor(r)
 	l.Border = ui.Border{Width: lookLength(r, 4), Color: lookColor(r)}
@@ -4227,7 +4320,7 @@ func lookDraw(r *rng) ui.Look {
 	l
 }
 
-func looksDraw(r *rng) ui.Looks {
+func looksDraw(r mut rng) ui.Looks {
 	let rest = lookDraw(r)
 	let other = func() ui.Look {
 		if draw(r, 2) == 0 {
@@ -4272,7 +4365,7 @@ func looksChange(ls ui.Looks, state int, part int) ui.Looks {
 	out
 }
 
-func lookedView(f *ui.Frame[int], looks []ui.Looks) {
+func lookedView(f mut ui.Frame[int], looks []ui.Looks) {
 	let st = func(i int) ui.Style {
 		let mut s = ui.Plain()
 		s.Look = ui.LookFor(f, looks[i])
@@ -4323,7 +4416,7 @@ func lawPaintIsWhatWasGiven(seed int, state int, part int) bool {
 		for i, ls in before {
 			after = after.Append(if i == k { changed } else { ls })
 		}
-		let view = func(f *ui.Frame[int], s int) {
+		let view = func(f mut ui.Frame[int], s int) {
 			if s == 0 {
 				lookedView(f, before)
 			} else {
@@ -4369,7 +4462,7 @@ func lawPaintIsWhatWasGiven(seed int, state int, part int) bool {
 	}
 }
 
-func lookNested(f *ui.Frame[int], ls ui.Looks, kinds []int, depth int) {
+func lookNested(f mut ui.Frame[int], ls ui.Looks, kinds []int, depth int) {
 	if depth >= len(kinds) {
 		ui.Text(f, "leaf")
 		return
@@ -4419,7 +4512,7 @@ func lookNested(f *ui.Frame[int], ls ui.Looks, kinds []int, depth int) {
 // lookDefaults restates look.ergo's defaultTable.
 func lookDefaults() []ui.Looks { []ui.Looks{ui.Steady(ui.Bare()), ui.Steady(ui.PressLook())} }
 
-func lookUnpainted[S, D, F](h *ui.TestHost[S, int, D, F], shapes []ui.Shape[int], odd bool) bool {
+func lookUnpainted[S, D, F](h mut ui.TestHost[S, int, D, F], shapes []ui.Shape[int], odd bool) bool {
 	for s in shapes {
 		if odd && ui.LooksOf(h, s.Node) != ui.LooksIn(lookDefaults(), ui.DefaultLooks(s.Node)) {
 			return false
@@ -4440,7 +4533,7 @@ func lawPaintIsNotInherited(seed int) bool {
 		for _ in 0..draw(&r, 4)+1 {
 			kinds = kinds.Append(draw(&r, 4))
 		}
-		let view = func(f *ui.Frame[int], s int) { lookNested(f, ls, kinds, 0) }
+		let view = func(f mut ui.Frame[int], s int) { lookNested(f, ls, kinds, 0) }
 		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})
 		let mut h = ui.NewTestHost(a, view, m, 4) catch {
 		case ui.BadPatch:
@@ -4467,7 +4560,7 @@ func lawPaintTableGrowsWithDistinctPaints(seed int, count int) bool {
 		for i in 0..size {
 			picks = picks.Append(if i < k { i } else { draw(&r, k) })
 		}
-		let view = func(f *ui.Frame[int], xs []int) {
+		let view = func(f mut ui.Frame[int], xs []int) {
 			ui.Column(f, ui.Plain()) {
 				for x in xs {
 					let mut s = ui.Plain()
@@ -4493,7 +4586,7 @@ func lawPaintTableGrowsWithDistinctPaints(seed int, count int) bool {
 	ok
 }
 
-func lookRejected(m *ui.Mirror[int], patch []ui.Op[int], shown []ui.Shape[int]) bool {
+func lookRejected(m mut ui.Mirror[int], patch []ui.Op[int], shown []ui.Shape[int]) bool {
 	ui.Apply(m, patch) catch {
 	case ui.BadPatch:
 		return ui.SameShapes(ui.MirrorShape(m), shown) && ui.MirrorLookCount(m) == len(lookDefaults())
@@ -4505,7 +4598,7 @@ func lawMirrorRejectsUnheldLooks(seed int) bool {
 	let mut r = seeded(seed)
 	let mut l = lookDraw(&r)
 	l.Border = ui.Border{Width: 1, Color: ui.Rgb(0x000000)}
-	let view = func(f *ui.Frame[int], s int) {
+	let view = func(f mut ui.Frame[int], s int) {
 		let mut st = ui.Plain()
 		if s == 1 {
 			st.Look = ui.LookFor(f, ui.Steady(l))
@@ -4568,7 +4661,7 @@ func relKeyOf(r ui.Rel) ui.Key {
 	}
 }
 
-func relScreen(f *ui.Frame[int], keyed []bool, rels [][]ui.Rel, gone []bool) {
+func relScreen(f mut ui.Frame[int], keyed []bool, rels [][]ui.Rel, gone []bool) {
 	ui.Column(f, ui.Plain()) {
 		for i, k in keyed {
 			if !gone[i] {
@@ -4607,7 +4700,7 @@ func lawRelationsNameHeldNodes(seed int) bool {
 			}
 			rels = rels.Append(rs)
 		}
-		let view = func(f *ui.Frame[int], s int) {
+		let view = func(f mut ui.Frame[int], s int) {
 			relScreen(f, keyed, rels, if s == 0 { none } else { gone })
 		}
 		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})
@@ -4684,7 +4777,7 @@ func stateLooks(i int) ui.Looks {
 
 // hoverScreen is n Pressables "h0" to "h<n-1>", each with its
 // stateLooks. (a law's helper)
-func hoverScreen(f *ui.Frame[int], s int, n int) {
+func hoverScreen(f mut ui.Frame[int], s int, n int) {
 	ui.Column(f, ui.Plain()) {
 		for i in 0..n {
 			let mut st = ui.PressStyle()
@@ -4706,7 +4799,7 @@ func lawHoverCostsNoPass(seed int) bool {
 	with context { Scheduler: m } {
 		let mut r = seeded(seed)
 		let n = draw(&r, 6) + 2
-		let view = func(f *ui.Frame[int], s int) { hoverScreen(f, s, n) }
+		let view = func(f mut ui.Frame[int], s int) { hoverScreen(f, s, n) }
 		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})
 		let mut h = ui.NewTestHost(a, view, m, 4) catch {
 		case ui.BadPatch:
@@ -4761,7 +4854,7 @@ func crossWork(s string) Option[func(send func(e int))] {
 
 // crossScreen is n Areas "a0" to "a<n-1>"; Area i gives 10i+1 on the
 // pointer's enter, 10i+2 on its leave, and nothing else. (a law's helper)
-func crossScreen(f *ui.Frame[int], n int) {
+func crossScreen(f mut ui.Frame[int], n int) {
 	ui.Column(f, ui.Plain()) {
 		for i in 0..n {
 			ui.Area(f, "a\(i)", ui.Plain(), func(p ui.PointerEvent) Option[int] {
@@ -4790,7 +4883,7 @@ func lawPointerCrossesOnce(seed int) bool {
 	with context { Scheduler: m } {
 		let mut r = seeded(seed)
 		let n = draw(&r, 4) + 2
-		let view = func(f *ui.Frame[int], s string) { crossScreen(f, n) }
+		let view = func(f mut ui.Frame[int], s string) { crossScreen(f, n) }
 		let a = actor.StartMachine(Machine[string, int, int]{Initial: "", Step: crossStep, After: crossTimer, Work: crossWork, Exit: func(at string) Option[func()] { None }}, 1, func(o int) {})
 		let mut h = ui.NewTestHost(a, view, m, 4) catch {
 		case ui.BadPatch:
@@ -4832,7 +4925,7 @@ func lawPointerCrossesOnce(seed int) bool {
 // ringScreen writes the drawn items in a Column: 0 a Text "n<i>", 1 a
 // Pressable "p<i>", 2 a Pressable "d<i>" under a disabled Fieldset, 3 a
 // Roving group of sizes[i] Pressables "g<i>m<j>". (a law's helper)
-func ringScreen(f *ui.Frame[int], s int, kinds []int, sizes []int) {
+func ringScreen(f mut ui.Frame[int], s int, kinds []int, sizes []int) {
 	ui.Column(f, ui.Plain()) {
 		for i, k in kinds {
 			if k == 0 {
@@ -4867,7 +4960,7 @@ func keyIn(name string, shift bool) ui.Act {
 
 // focusName is the name of the node the focus is on, "" for none. (a
 // law's helper)
-func focusName[S, D, F](h *ui.TestHost[S, int, D, F]) string {
+func focusName[S, D, F](h mut ui.TestHost[S, int, D, F]) string {
 	match ui.FocusOf(h) {
 	case Some[ui.Id[int]] as id:
 		ui.AccessAt(h, id.Value).Name
@@ -4917,7 +5010,7 @@ func lawFocusFollowsTheRing(seed int, steps int) bool {
 		}
 		let ks = kinds
 		let ss = sizes
-		let view = func(f *ui.Frame[int], s int) { ringScreen(f, s, ks, ss) }
+		let view = func(f mut ui.Frame[int], s int) { ringScreen(f, s, ks, ss) }
 		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})
 		let mut h = ui.NewTestHost(a, view, m, 4) catch {
 		case ui.BadPatch:
@@ -5013,7 +5106,7 @@ func lawFocusFollowsTheRing(seed int, steps int) bool {
 // and while s is 1 a FocusScope of Pressables "s0" to "s<ins-1>", each
 // sending 1, and "close", sending 0, the last; Escape sends 0 from
 // anywhere. (a law's helper)
-func scopeScreen(f *ui.Frame[int], s int, outs int, ins int) {
+func scopeScreen(f mut ui.Frame[int], s int, outs int, ins int) {
 	ui.OnKey(f, func(k ui.KeyPress) Option[int] {
 		if k.Name == "Escape" { Some{Value: 0} } else { None }
 	})
@@ -5049,7 +5142,7 @@ func lawFocusStaysInScope(seed int, steps int) bool {
 	with context { Scheduler: m } {
 		let outs = draw(&r, 4) + 1
 		let ins = draw(&r, 4) + 1
-		let view = func(f *ui.Frame[int], s int) { scopeScreen(f, s, outs, ins) }
+		let view = func(f mut ui.Frame[int], s int) { scopeScreen(f, s, outs, ins) }
 		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})
 		let mut h = ui.NewTestHost(a, view, m, 4) catch {
 		case ui.BadPatch:
@@ -5099,7 +5192,7 @@ func lawFocusReturnsOnEnd(seed int) bool {
 	with context { Scheduler: m } {
 		let outs = draw(&r, 4) + 1
 		let ins = draw(&r, 3) + 1
-		let view = func(f *ui.Frame[int], s int) { scopeScreen(f, s, outs, ins) }
+		let view = func(f mut ui.Frame[int], s int) { scopeScreen(f, s, outs, ins) }
 		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})
 		let mut h = ui.NewTestHost(a, view, m, 4) catch {
 		case ui.BadPatch:
@@ -5143,7 +5236,7 @@ func lawFocusReturnsOnEnd(seed int) bool {
 // askScreen is "next", sending s+1, and n Semantic groups keyed 0 to
 // n-1, group i holding a Pressable "t<i>"; the pass asks for the focus
 // on key (s/2)%n. (a law's helper)
-func askScreen(f *ui.Frame[int], s int, n int) {
+func askScreen(f mut ui.Frame[int], s int, n int) {
 	ui.Focus(f, ui.ByInt((s/2)%n))
 	ui.Column(f, ui.Plain()) {
 		ui.Pressable(f, "next", s+1) {
@@ -5172,7 +5265,7 @@ func lawFocusGoesWhereAsked(seed int) bool {
 	let m = time.NewManual(0)
 	with context { Scheduler: m } {
 		let n = draw(&r, 4) + 2
-		let view = func(f *ui.Frame[int], s int) { askScreen(f, s, n) }
+		let view = func(f mut ui.Frame[int], s int) { askScreen(f, s, n) }
 		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})
 		let mut h = ui.NewTestHost(a, view, m, 4) catch {
 		case ui.BadPatch:
@@ -5214,7 +5307,7 @@ func lawAccessIsWhatWasDeclared(seed int, count int) bool {
 	let m = time.NewManual(0)
 	with context { Scheduler: m } {
 		let n = (count%6+6)%6 + 2
-		let view = func(f *ui.Frame[int], s int) {
+		let view = func(f mut ui.Frame[int], s int) {
 			let ds = semDecls(seed+s*7919, n)
 			ui.Column(f, ui.Plain()) {
 				for i, d in ds {
@@ -5295,7 +5388,7 @@ func lawWithinFindsUnder(seed int) bool {
 		let decl = func(role ui.Role, name string, level Option[int]) ui.Access {
 			ui.Access{Role: role, Name: name, Disabled: false, Description: "", Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: level, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: ui.NoKey, Rels: []ui.Rel{}}
 		}
-		let view = func(f *ui.Frame[int], s int) {
+		let view = func(f mut ui.Frame[int], s int) {
 			ui.Column(f, ui.Plain()) {
 				for i, col in board {
 					ui.Semantic(f, decl(ui.Region, "col \(i)", None), none, ui.Plain()) {
@@ -5368,7 +5461,7 @@ func semRoles() []ui.Role {
 	[]ui.Role{ui.Button, ui.Checkbox, ui.Switch, ui.TextBox, ui.Static, ui.Group, ui.Region, ui.Image, ui.List, ui.Status, ui.Generic, ui.Tab, ui.TabList, ui.TabPanel, ui.Dialog, ui.Menu, ui.MenuItem, ui.Tree, ui.TreeItem, ui.Heading, ui.Alert, ui.Link, ui.Table, ui.TableRow, ui.TableCell, ui.RadioGroup, ui.Radio, ui.ListBox, ui.ListOption, ui.Slider, ui.SpinButton, ui.SearchBox, ui.MenuItemCheckbox, ui.ComboBox, ui.Grid, ui.GridCell, ui.ColumnHeader, ui.RowHeader, ui.Navigation, ui.ListItem, ui.Separator, ui.Tooltip}
 }
 
-func semMaybe(r *rng) Option[bool] {
+func semMaybe(r mut rng) Option[bool] {
 	let k = draw(r, 3)
 	if k == 0 {
 		return None
@@ -5377,7 +5470,7 @@ func semMaybe(r *rng) Option[bool] {
 }
 
 // relDraw restates relate.ergo's drawRel (UG2).
-func relDraw(r *rng, keys int) ui.Rel {
+func relDraw(r mut rng, keys int) ui.Rel {
 	let k = ui.ByInt(draw(r, keys))
 	match draw(r, 5) {
 	case 0:
@@ -5431,7 +5524,7 @@ func semDecls(seed int, n int) []ui.Access {
 	out
 }
 
-func semHolds[D, F](h *ui.TestHost[int, int, D, F], name string, is ui.Matcher) bool {
+func semHolds[D, F](h mut ui.TestHost[int, int, D, F], name string, is ui.Matcher) bool {
 	ui.Expect(h, ui.WithLabel{Label: name}, is) catch {
 	case ui.Mismatch:
 		return false
@@ -5462,7 +5555,7 @@ func lawChoiceIsAnnouncedAndReachable(n int, from int, to int, radio bool) bool 
 		let options = choiceOptions(k)
 		let start = (from%k + k) % k
 		let target = (to%k + k) % k
-		let view = func(f *ui.Frame[int], s int) {
+		let view = func(f mut ui.Frame[int], s int) {
 			let on = func(v string) int { choiceIndex(options, v) }
 			if radio {
 				ui.Radios(f, "pick", options, options[s], on)
@@ -5526,7 +5619,7 @@ func lawChoicesTakeKeysWhenFocused(seed int, steps int) bool {
 		let rb = draw(&r, 2) == 0
 		let mut a = draw(&r, len(oa))
 		let mut b = draw(&r, len(ob))
-		let view = func(f *ui.Frame[int], s int) { twoChoices(f, s, oa, ob, ra, rb) }
+		let view = func(f mut ui.Frame[int], s int) { twoChoices(f, s, oa, ob, ra, rb) }
 		let start = a*10 + b
 		let app = actor.StartMachine(Machine[int, int, int]{Initial: start, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})
 		let mut h = ui.NewTestHost(app, view, m, 4) catch {
@@ -5598,7 +5691,7 @@ func choiceIndex(options []string, v string) int {
 	-1
 }
 
-func choiceShown[S, D, F](h *ui.TestHost[S, int, D, F], n int, sel int, radio bool) bool {
+func choiceShown[S, D, F](h mut ui.TestHost[S, int, D, F], n int, sel int, radio bool) bool {
 	let options = choiceOptions(n)
 	let group = if radio { ui.RadioGroup } else { ui.ListBox }
 	let item = if radio { ui.Radio } else { ui.ListOption }
@@ -5626,7 +5719,7 @@ func choiceShown[S, D, F](h *ui.TestHost[S, int, D, F], n int, sel int, radio bo
 	true
 }
 
-func choiceKey[S, D, F](h *ui.TestHost[S, int, D, F], name string) bool {
+func choiceKey[S, D, F](h mut ui.TestHost[S, int, D, F], name string) bool {
 	ui.PressKey(h, ui.KeyPress{Name: name, Mods: ui.Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}) catch {
 	case actor.Stopped:
 		return false
@@ -5636,7 +5729,7 @@ func choiceKey[S, D, F](h *ui.TestHost[S, int, D, F], name string) bool {
 	true
 }
 
-func choiceWalk[D, F](h *ui.TestHost[int, int, D, F], key string, steps int, by int) bool {
+func choiceWalk[D, F](h mut ui.TestHost[int, int, D, F], key string, steps int, by int) bool {
 	for _ in 0..steps {
 		let was = ui.StateOf(h)
 		if !choiceKey(h, key) || ui.StateOf(h) != was+by {
@@ -5654,7 +5747,7 @@ func namedOptions(p string, n int) []string {
 	out
 }
 
-func twoChoices(f *ui.Frame[int], s int, oa []string, ob []string, ra bool, rb bool) {
+func twoChoices(f mut ui.Frame[int], s int, oa []string, ob []string, ra bool, rb bool) {
 	let a = s / 10
 	let b = s % 10
 	ui.Column(f, ui.Plain()) {
@@ -5710,7 +5803,7 @@ func lawTabWalksTheFocusables(seed int, steps int) bool {
 			}
 		}
 		let ks = kinds
-		let view = func(f *ui.Frame[int], s int) { tabScreen(f, s, ks) }
+		let view = func(f mut ui.Frame[int], s int) { tabScreen(f, s, ks) }
 		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})
 		let mut h = ui.NewTestHost(a, view, m, 4) catch {
 		case ui.BadPatch:
@@ -5751,7 +5844,7 @@ func lawTabWalksTheFocusables(seed int, steps int) bool {
 	}
 }
 
-func tabScreen(f *ui.Frame[int], s int, kinds []int) {
+func tabScreen(f mut ui.Frame[int], s int, kinds []int) {
 	ui.Column(f, ui.Plain()) {
 		for i, k in kinds {
 			if k == 0 {
@@ -5783,7 +5876,7 @@ func tabScreen(f *ui.Frame[int], s int, kinds []int) {
 	}
 }
 
-func tabKey[S, D, F](h *ui.TestHost[S, int, D, F], back bool) bool {
+func tabKey[S, D, F](h mut ui.TestHost[S, int, D, F], back bool) bool {
 	ui.PressKey(h, ui.KeyPress{Name: "Tab", Mods: ui.Mods{Shift: back, Ctrl: false, Alt: false, Meta: false}}) catch {
 	case _:
 		return false
@@ -5830,29 +5923,36 @@ test UiRunPacesEachEvent(n int) {
 type dragHost { target sync.Ref[Option[ui.Id[int]]], codes sync.Ref[[]int] } implements ui.Host[int]
 
 func Show(h dragHost, ops []ui.Op[int]) {
-	if len(ops) > 0 {
-		let id = dragOpId(ops[0])
-		h.target.Update(func(t Option[ui.Id[int]]) Option[ui.Id[int]] {
-			match t {
-			case Some[ui.Id[int]]:
-				t
-			case None:
-				Some{Value: id}
-			}
-		})
+	for op in ops {
+		match dragOpId(op) {
+		case Some[ui.Id[int]] as id:
+			h.target.Update(func(t Option[ui.Id[int]]) Option[ui.Id[int]] {
+				match t {
+				case Some[ui.Id[int]]:
+					t
+				case None:
+					Some{Value: id.Value}
+				}
+			})
+			return
+		case None:
+		}
 	}
 }
 
-func dragOpId(op ui.Op[int]) ui.Id[int] {
+// dragOpId is the node an op is about; a Define (a look) is about none.
+func dragOpId(op ui.Op[int]) Option[ui.Id[int]] {
 	match op {
 	case ui.Insert[int] as i:
-		i.Id
+		Some{Value: i.Id}
 	case ui.Move[int] as m:
-		m.Id
+		Some{Value: m.Id}
 	case ui.Remove[int] as r:
-		r.Id
+		Some{Value: r.Id}
 	case ui.Set[int] as s:
-		s.Id
+		Some{Value: s.Id}
+	case ui.Define:
+		None
 	}
 }
 
@@ -6037,6 +6137,10 @@ test UiEdgeScrollStaysInRange(o int, hh int, c int, yy int, e int, st int) {
 	assert lawEdgeScrollStaysInRange(o, hh, c, yy, e, st)
 }
 
+test UiEdgeScrollRunsEachFrame(seed int) {
+	assert lawEdgeScrollRunsEachFrame(seed)
+}
+
 test UiPostedOrderKeepsTheCounts(seed int) {
 	assert lawPostedOrderKeepsTheCounts(seed)
 }
@@ -6209,11 +6313,12 @@ var stdUIHostStatements = map[string]string{
 	"ui CaptureKeepsThePointer":            `CaptureKeepsThePointer(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { captureFollows(seed, steps, m) } }`,
 	"ui AnnounceSaysEachNewText":           `AnnounceSaysEachNewText(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { announceFollows(seed, steps, m) } }`,
 	"ui EdgeScrollStaysInRange":            `EdgeScrollStaysInRange(o int, hh int, c int, yy int, e int, st int) { let height = Length(float64(posMod(hh, 500) + 1)) let content = Length(float64(posMod(c, 2000))) let offset = Length(float64(posMod(o, 2500))) let y = Length(float64(posMod(yy, 700) - 100)) let edge = Length(float64(posMod(e, 60))) let step = Length(float64(posMod(st, 40) + 1)) let most = if content > height { content - height } else { Length(0.0) } let at = if offset > most { most } else { offset } let next = EdgeScroll(offset, height, content, y, edge, step) if next < Length(0.0) || next > most { return false } if edge > Length(0.0) && y < edge { return next < at || at == Length(0.0) } if edge > Length(0.0) && y > height-edge { return next > at || at == most } next == at }`,
+	"ui EdgeScrollRunsEachFrame":           `EdgeScrollRunsEachFrame(seed int) { let m = time.NewManual(0) with context { Scheduler: m } { edgeFrames(seed, m) } }`,
 	"ui PostedOrderKeepsTheCounts":         `PostedOrderKeepsTheCounts(seed int) { let m = time.NewManual(0) with context { Scheduler: m } { postedOrder(seed, m) } }`,
 	"ui TransitionEndsAtLayout":            `TransitionEndsAtLayout(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { let lists = presenceLists(seed) let view = func(f *Frame[int], s int) { OnKey(f, func(k KeyPress) Option[int] { for i in 0..8 { if k.Name == "\(i)" { return Some{Value: i} } } None }) Column(f, Plain()) { Presence(f, lists[s], func(r int) Key { ByInt(r) }, 100ms) func(r int, p Progress) { Text(f, "row \(r)") } } } let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: presenceListStep, After: presenceTimer, Work: presenceWork, Exit: func(s int) Option[func()] { None }}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } FrameEvery(&h, 10ms) let mut x = seed for _ in 0..(steps%10+10)%10+1 { x = (x*1103515245 + 12345) % 2147483648 if x < 0 { x = -x } PressKey(&h, KeyPress{Name: "\(x % 8)", Mods: Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}) catch { case _: return false } Advance(&h, duration(int64(x%15)*int64(10ms))) catch { case _: return false } } Advance(&h, 2s) catch { case _: return false } let s = StateOf(&h) for k in presenceKeys(Screen(&h)) { let (_, motion, t) = k if motion != Present || t != 1.0 { return false } } let mut g = NewFrame[int]() let want = Render(&g, func(f *Frame[int], xs []int) { Column(f, Plain()) { Each(f, xs, func(r int) Key { ByInt(r) }) func(r int) { Box(f, Plain()) { Text(f, "row \(r)") } } } }, lists[s]) let _ = want !WantsFrames(&h) && SameShapes(presenceStripped(Screen(&h)), FrameShape(&g)) } }`,
 	"ui PresenceKeepsTheList":              `PresenceKeepsTheList(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { let lists = presenceLists(seed) let view = func(f *Frame[int], s int) { OnKey(f, func(k KeyPress) Option[int] { for i in 0..8 { if k.Name == "\(i)" { return Some{Value: i} } } None }) Presence(f, lists[s], func(r int) Key { ByInt(r) }, 50ms) func(r int, p Progress) { Text(f, "row \(r)") } } let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: presenceListStep, After: presenceTimer, Work: presenceWork, Exit: func(s int) Option[func()] { None }}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } FrameEvery(&h, 10ms) let mut x = seed + 7 for _ in 0..(steps%14+14)%14+1 { let before = presenceKeys(Screen(&h)) x = (x*1103515245 + 12345) % 2147483648 if x < 0 { x = -x } let i = x % 8 PressKey(&h, KeyPress{Name: "\(i)", Mods: Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}) catch { case _: return false } let after = presenceKeys(Screen(&h)) let list = lists[StateOf(&h)] // The rows not exiting are the list. let mut staying = []int{} let mut moving = false for k in after { let (key, motion, t) = k if t < 0.0 || t > 1.0 || (motion == Present && t != 1.0) { return false } if motion != Exiting { staying = staying.Append(key) } if motion != Present { moving = true } let mut shown = false for b in before { let (bk, _, _) = b shown = shown || bk == key } let mut listed = false for y in list { listed = listed || y == key } if !shown && (motion != Entering || t != 0.0) { return false } if !listed && motion != Exiting { return false } } if staying != list || WantsFrames(&h) != moving { return false } // A lost row comes right after the row before it, or first. for j, b in before { let (bk, _, _) = b let mut listed = false for y in list { listed = listed || y == bk } if listed { continue } let mut at = -1 for q, k in after { let (key, _, _) = k if key == bk { at = q } } if at < 0 { // gone at once only when it was exiting already, or // had not come in at all (T 0) let (_, bm, bt) = b if bm != Exiting && bt != 0.0 { return false } continue } if j > 0 && at > 0 { let (prev, _, _) = before[j-1] let (got, _, _) = after[at-1] let mut prevListed = false for y in list { prevListed = prevListed || y == prev } if prevListed && got != prev { return false } } } if x%2 == 0 { Advance(&h, 10ms) catch { case _: return false } } } true } }`,
 	"ui ExitTakesItsDuration":              `ExitTakesItsDuration(n int) { let m = time.NewManual(0) with context { Scheduler: m } { let k = (n%10+10)%10 + 1 let lists = [][]int{[]int{0}, []int{0, 1}, []int{0}} let view = func(f *Frame[int], s int) { OnKey(f, func(kp KeyPress) Option[int] { for i in 0..3 { if kp.Name == "\(i)" { return Some{Value: i} } } None }) Presence(f, lists[s], func(r int) Key { ByInt(r) }, 100ms) func(r int, p Progress) { Text(f, "row \(r)") } } let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: presenceListStep, After: presenceTimer, Work: presenceWork, Exit: func(s int) Option[func()] { None }}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } FrameEvery(&h, 10ms) let first = presenceKeys(Screen(&h)) if len(first) != 1 || !near(first[0], rowAt(0, Present, 1.0)) { return false } PressKey(&h, KeyPress{Name: "1", Mods: Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}) catch { case _: return false } // The entry starts at the first frame after the press: k+1 frames // bring it k tenths in. for _ in 0..k+1 { Advance(&h, 10ms) catch { case _: return false } } let reached = presenceKeys(Screen(&h)) let mut t = 1.0 if k < 10 { t = float64(k) / 10.0 } let mut want = rowAt(1, Present, 1.0) if k < 10 { want = rowAt(1, Entering, t) } if len(reached) != 2 || !near(reached[1], want) { return false } PressKey(&h, KeyPress{Name: "2", Mods: Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}) catch { case _: return false } let removed = presenceKeys(Screen(&h)) if len(removed) != 2 || !near(removed[1], rowAt(1, Exiting, t)) { return false } // The exit starts at the next frame and loses a tenth per frame. for j in 1..k+2 { Advance(&h, 10ms) catch { case _: return false } let shown = presenceKeys(Screen(&h)) let left = t - float64(j-1)/10.0 if left <= 0.000001 { if len(shown) != 1 { return false } } else if len(shown) != 2 || !near(shown[1], rowAt(1, Exiting, left)) { return false } } len(presenceKeys(Screen(&h))) == 1 && !WantsFrames(&h) } }`,
-	"ui NoTickWhenRowsSettle":              `NoTickWhenRowsSettle(seed int, wait int) { let m = time.NewManual(0) with context { Scheduler: m } { let lists = presenceLists(seed) let view = func(f *Frame[int], s int) { OnKey(f, func(k KeyPress) Option[int] { for i in 0..8 { if k.Name == "\(i)" { return Some{Value: i} } } None }) Presence(f, lists[s], func(r int) Key { ByInt(r) }, 30ms) func(r int, p Progress) { Text(f, "row \(r)") } } let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: presenceListStep, After: presenceTimer, Work: presenceWork, Exit: func(s int) Option[func()] { None }}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } FrameEvery(&h, 10ms) let mut x = seed + 3 for _ in 0..4 { x = (x*1103515245 + 12345) % 2147483648 if x < 0 { x = -x } PressKey(&h, KeyPress{Name: "\(x % 8)", Mods: Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}) catch { case _: return false } Advance(&h, 1s) catch { case _: return false } for k in presenceKeys(Screen(&h)) { let (_, motion, _) = k if motion != Present { return false } } if WantsFrames(&h) { return false } let before = Frames(&h) Advance(&h, duration(int64((wait%50+50)%50+1)*int64(10ms))) catch { case _: return false } if Frames(&h) != before { return false } } true } }`,
+	"ui NoTickWhenRowsSettle":              `NoTickWhenRowsSettle(seed int, wait int) { let m = time.NewManual(0) with context { Scheduler: m } { let lists = presenceLists(seed) let view = func(f *Frame[int], s int) { OnKey(f, func(k KeyPress) Option[int] { for i in 0..8 { if k.Name == "\(i)" { return Some{Value: i} } } None }) Presence(f, lists[s], func(r int) Key { ByInt(r) }, 30ms) func(r int, p Progress) { Text(f, "row \(r)") } } let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: presenceListStep, After: presenceTimer, Work: presenceWork, Exit: func(s int) Option[func()] { None }}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } FrameEvery(&h, 10ms) let mut x = seed + 3 for _ in 0..4 { x = (x*1103515245 + 12345) % 2147483648 if x < 0 { x = -x } PressKey(&h, KeyPress{Name: "\(x % 8)", Mods: Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}) catch { case _: return false } Advance(&h, 1s) catch { case _: return false } for k in presenceKeys(Screen(&h)) { let (_, motion, _) = k if motion != Present { return false } } if WantsFrames(&h) { return false } let before = h.Frames() Advance(&h, duration(int64((wait%50+50)%50+1)*int64(10ms))) catch { case _: return false } if h.Frames() != before { return false } } true } }`,
 	"ui SettleRunsTheWork":                 `SettleRunsTheWork(n int) { let m = time.NewManual(0) with context { Scheduler: m } { let last = (n%8+8)%8 + 1 let a = actor.StartMachine(Machine[chain, int, int]{Initial: chain{at: 0, last: last}, Step: chainStep, After: chainTimer, Work: chainWork, Exit: func(s chain) Option[func()] { None }}, 1, func(o int) {}) let mut h = NewTestHost(a, chainView, m, 4) catch { case BadPatch: return false } let before = m.Now() PressKey(&h, KeyPress{Name: "go", Mods: Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}) catch { case _: return false } Settle(&h) catch { case _: return false } let mut shown = false for s in Screen(&h) { shown = shown || s.Node == (TextNode{Value: "at \(last)", Style: Plain()}) } StateOf(&h).at == last && shown && m.Now() == before } }`,
 	"ui PressIsOnePass":                    `PressIsOnePass(n int, at int) { let m = time.NewManual(0) with context { Scheduler: m } { let small = (n%8+8)%8 + 2 let row = (at%small + small) % small match (pressCounts(small, row, m), pressCounts(4*small, row, m)) { case (Some[(StepCounts, StepCounts)] as x, Some[(StepCounts, StepCounts)] as y): let (p1, r1) = x.Value let (p4, r4) = y.Value p1.GroupsRan == 1 && p4.GroupsRan == 1 && p4.Ran-p1.Ran == (r4.Ran-p4.Ran)-(r1.Ran-p1.Ran) && p4.Ran > p1.Ran case _: false } } }`,
 	"ui CountsAreTheStep":                  `CountsAreTheStep(n int) { let m = time.NewManual(0) with context { Scheduler: m } { let a = actor.StartMachine(Machine[chain, int, int]{Initial: chain{at: 0, last: 1}, Step: chainStep, After: chainTimer, Work: chainWork, Exit: func(s chain) Option[func()] { None }}, 1, func(o int) {}) let mut h = NewTestHost(a, chainView, m, 4) catch { case BadPatch: return false } let mods = Mods{Shift: false, Ctrl: false, Alt: false, Meta: false} PressKey(&h, KeyPress{Name: "go", Mods: mods}) catch { case _: return false } let pressed = Counts(&h) Settle(&h) catch { case _: return false } let settled = Counts(&h) // Each Redraw adds its one pass of one node; a Settle, none. for _ in 0..(n%3+3)%3+1 { let ran = Counts(&h).Ran Redraw(&h) catch { case _: return false } Settle(&h) catch { case _: return false } if Counts(&h).Ran != ran+1 { return false } } PressKey(&h, KeyPress{Name: "noop", Mods: mods}) catch { case _: return false } if Counts(&h) != NoCounts() { return false } // PlayTrace prints that step as its line. let trace = PlayTrace(&h, []Act{KeyIn{Press: KeyPress{Name: "noop", Mods: mods}}}) catch { case _: return false } let line = "step 1 KeyIn \"noop\": no ops; ran 0 nodes, kept 0; groups ran 0, kept 0; visits 0" pressed.Set == 1 && pressed.Ran == 1 && settled == pressed && trace == []string{line} } }`,

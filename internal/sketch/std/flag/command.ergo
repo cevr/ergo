@@ -1,4 +1,6 @@
+import slices
 import strings
+import strconv
 
 // Command is one subcommand of a program whose commands are the union C
 // (@effect/cli Command.withSubcommands): its name, its usage line, its
@@ -18,6 +20,83 @@ type Command[C, E] {
 	Set      Set,
 	Build    func(v Values) C fails E | Help | Unknown | NeedsValue | Invalid | Missing | Extra | UnknownCommand,
 	Commands []Command[C, E],
+}
+
+// EachCommandReaches: each command's name runs that command's Build.
+law EachCommandReaches(i int) {
+	let commands = lawCommands()
+	if i < 0 || i >= len(commands) {
+		return true
+	}
+	commandName(try ParseCommand("law", "", commands, []string{commands[i].Name})) == commands[i].Name
+}
+
+// lawCommand is the union of the commands of EachCommandReaches.
+type lawCommand = lawList{} | lawShow{}
+
+// lawCommands are two commands that each build their own variant. Their
+// Build fails nothing of its own, so the row E is left out (types.md,
+// Generics 7).
+func lawCommands() []Command[lawCommand] {
+	[]Command[lawCommand]{
+		Command[lawCommand]{Name: "list", Usage: "list", Set: lawSet(), Build: buildList, Commands: []Command[lawCommand]{}},
+		Command[lawCommand]{Name: "show", Usage: "show", Set: lawSet(), Build: buildShow, Commands: []Command[lawCommand]{}},
+	}
+}
+
+// buildList is the list command's Build.
+func buildList(_ Values) lawCommand { lawList }
+
+// buildShow is the show command's Build.
+func buildShow(_ Values) lawCommand { lawShow }
+
+// commandName is the name of the command that built c.
+func commandName(c lawCommand) string {
+	match c {
+	case lawList:
+		"list"
+	case lawShow:
+		"show"
+	}
+}
+
+// BuildFailureReaches: a Build's own failure reaches the caller of
+// ParseCommand as it is, with its value.
+law BuildFailureReaches(text string) {
+	let commands = []Command[lawCommand, lawRefused]{Command[lawCommand, lawRefused]{Name: "refuse", Usage: "refuse", Set: lawSet(), Build: buildRefuse, Commands: []Command[lawCommand, lawRefused]{}}}
+	ParseCommand("law", "", commands, []string{"refuse", "-s=" + text}) catch {
+	case lawRefused as r:
+		return r.Text == text
+	case _:
+		return false
+	}
+	false
+}
+
+// lawRefused is the own failure of BuildFailureReaches's command.
+type lawRefused { Text string }
+
+// buildRefuse is a Build that fails with its own failure, carrying the
+// value of -s.
+func buildRefuse(v Values) lawCommand fails lawRefused {
+	return lawRefused{Text: lawText.Get(v)}
+}
+
+// HelpNamesEveryCommand: a level's help lists every descendant path, each
+// level's own leaf at the level's path among them.
+law HelpNamesEveryCommand(n int) {
+	let depth = treeDepth(n)
+	let help = CommandUsage("tree", "", treeCommands(depth))
+	let own = "\n    \tthe level's own\n"
+	if !strings.Contains(help, "\n  tree"+own) { return false }
+	let mut prefix = ""
+	for _ in 0..depth {
+		if !strings.Contains(help, "\n  "+prefix+"read\n") { return false }
+		prefix = prefix + "group"
+		if !strings.Contains(help, "\n  "+prefix+own) { return false }
+		prefix = prefix + " "
+	}
+	strings.Contains(help, "\n  "+prefix+"read\n")
 }
 
 // Group declares a command level. Flags belong to leaves; a group consumes
@@ -72,16 +151,70 @@ func ParseCommand[C, E](name string, usage string, commands []Command[C, E], arg
 	try parseLevel[C, E](name, usage, []string{}, commands, args)
 }
 
+// RenderParseTreeRoundTrip includes the path and all cardinalities, to a
+// named leaf or to a level's own leaf. Each generated line parses, so the
+// law does not discard invalid test inputs.
+law RenderParseTreeRoundTrip(n int, text string, num int, items []string, rest []string) {
+	let depth = treeDepth(n)
+	let commands = treeCommands(depth)
+	let path = treePath(depth, treeOwn(n))
+	let mut args = path
+	args = args.Append("--text=" + text).Append("--number=" + strconv.Itoa(num))
+	for item in items { args = args.Append("--item=" + item) }
+	args = args.Append("--")
+	for r in rest { args = args.Append(r) }
+	let v = try ParseCommand("tree", "", commands, args)
+	let again = try ParseCommand("tree", "", commands, RenderCommand(path, v))
+	Equal(v, again) && treeText.Get(again) == Some[string]{Value: text} && treeNumber.Get(again) == Some[int]{Value: num} && sameStrings(treeItems.Get(again), items) && sameStrings(Rest(again), rest)
+}
+
+let treeText = OptionalString("text", "optional text").WithAlias("t")
+
+let treeNumber = OptionalInt("number", "optional number").WithAlias("n")
+
+let treeItems = String("item", "", "an item").Repeated().WithAlias("i")
+
+func treeSet() Set {
+	Set{Name: "leaf", Usage: "a leaf", Flags: []Flag{treeText, treeNumber, treeItems}, Args: []ArgSpec{Remaining("rest", "remaining arguments")}}
+}
+
+func treeBuild(v Values) Values { v }
+
+// treeCommands generates both branching and nesting. Depth is bounded by
+// the law's input normalization, not by the parser. Each level has its
+// own leaf, the child named "" (gap-group), beside a leaf "read" and,
+// below the last level, a group.
+func treeCommands(depth int) []Command[Values] {
+	let leaf = Command[Values]{Name: "read", Usage: "read", Set: treeSet(), Build: treeBuild, Commands: []Command[Values]{}}
+	let own = Command[Values]{Name: "", Usage: "the level's own", Set: treeSet(), Build: treeBuild, Commands: []Command[Values]{}}
+	if depth == 0 { return []Command[Values]{leaf, own} }
+	[]Command[Values]{leaf, own, Group("group", "a group", treeCommands(depth-1))}
+}
+
+func treeDepth(n int) int {
+	let r = n % 3
+	if r < 0 { -r } else { r }
+}
+
+// treeOwn draws, from n, whether the law's path ends at a level's own leaf.
+func treeOwn(n int) bool { (n/3)%2 != 0 }
+
+func treeGroupPath(depth int) []string {
+	let mut path = []string{}
+	for _ in 0..depth { path = path.Append("group") }
+	path
+}
+
+func treePath(depth int, own bool) []string {
+	if own { return treeGroupPath(depth) }
+	treeGroupPath(depth).Append("read")
+}
+
 // parseLevel is ParseCommand at one level of the tree: groups is the path
 // of group names from the root to this level.
 func parseLevel[C, E](name string, usage string, groups []string, commands []Command[C, E], args []string) C fails E | Help | Unknown | NeedsValue | Invalid | Missing | Extra | UnknownCommand {
 	let first = if len(args) > 0 { args[0] } else { "" }
-	let mut rest = []string{}
-	for i, a in args {
-		if i > 0 {
-			rest = rest.Append(a)
-		}
-	}
+	let rest = if len(args) > 0 { slices.Slice(args, 1, len(args)) } else { args }
 	if len(args) > 0 {
 		for c in commands {
 			if c.Name != "" && c.Name == first {

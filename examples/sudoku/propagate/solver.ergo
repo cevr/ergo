@@ -8,9 +8,19 @@
 
 import bits
 import sudoku/board
+import sudoku/naive
 
 // Solver is the propagating solver.
 type Solver {} implements board.Solver
+
+// AgreesWithNaive: on every sampled puzzle, propagate and naive agree on
+// whether it has a solution. (Their first solutions differ when it has
+// several: they search in different orders.)
+law AgreesWithNaive(seed int, blanks int, broken bool) {
+	let n = board.BlanksOf(blanks)
+	let p = if broken { board.Broken(seed, n+1) } else { board.Puzzle(seed, n) }
+	board.Solvable(Solver, p) == board.Solvable(naive.Solver, p)
+}
 
 // Contradiction is a cell with no digit left, or a digit with no place
 // left in a unit: the choices made so far have no solution.
@@ -81,8 +91,27 @@ func Solve(_ Solver, puzzle board.Grid) board.Grid fails board.Unsolvable {
 	}
 }
 
+// FirstChoiceIsLowest: erasing 1 and 9 leaves two candidates at every
+// blank, in every unit. The first blank must get 1. Other solver laws
+// allow either solution and do not check the documented search order.
+law FirstChoiceIsLowest(seed int) {
+	let mut p = board.Solution(seed)
+	let mut first = -1
+	for i in 0..81 {
+		let v = p.At(i)
+		if v == 1 || v == 9 {
+			if first < 0 {
+				first = i
+			}
+			p = p.With(i, 0)
+		}
+	}
+	let s = try Solver.Solve(p)
+	s.At(first) == 1
+}
+
 // assign leaves cell i with the digit d alone.
-func assign(s *state, i int, d int) fails Contradiction {
+func assign(s mut state, i int, d int) fails Contradiction {
 	let others = s.cand[i] &^ (uint16(1) << d)
 	for e in 1..10 {
 		if others&(uint16(1)<<e) != 0 {
@@ -92,7 +121,7 @@ func assign(s *state, i int, d int) fails Contradiction {
 }
 
 // eliminate removes d from cell i and propagates.
-func eliminate(s *state, i int, d int) fails Contradiction {
+func eliminate(s mut state, i int, d int) fails Contradiction {
 	let bit = uint16(1) << d
 	if s.cand[i]&bit == 0 {
 		return

@@ -1,0 +1,12 @@
+# scripts/opcount: `schemabench bench conforms N` checks one decoded value
+# N times against its type's generated schema with jsonschema.Conforms
+# (wf10 JS0); the cost of one check is the slope between the two sizes.
+# The control is hand Go: the same value decoded by encoding/json into
+# map[string]any, walked by a function written for that one schema. The
+# floor is the typed value's own check: its union's tag compared to its
+# variants' (a decoded record has every other property already).
+unit check
+sizes 100000 600000
+args bench conforms {n}
+control benchmarks/jsonschema/testdata/control
+floor benchmarks/jsonschema/testdata/floor

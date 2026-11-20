@@ -139,6 +139,24 @@
       "type": "int32_t",
       "value": "-3",
       "expr": "FX_STALE_HANDLE"
+    },
+    {
+      "name": "FX_SHAPE_NONE",
+      "type": "uint32_t",
+      "value": "0",
+      "expr": "UINT32_C(0)"
+    },
+    {
+      "name": "FX_SHAPE_DOT",
+      "type": "uint32_t",
+      "value": "1",
+      "expr": "UINT32_C(1)"
+    },
+    {
+      "name": "FX_SHAPE_RECT",
+      "type": "uint32_t",
+      "value": "2",
+      "expr": "UINT32_C(2)"
     }
   ],
   "types": [
@@ -543,6 +561,112 @@
           "type": "uint32_t"
         }
       ]
+    },
+    {
+      "kind": "struct",
+      "name": "fx_shape_header",
+      "tag": "fx_shape_header",
+      "fields": [
+        {
+          "name": "struct_size",
+          "type": "uint32_t",
+          "offset": 0,
+          "size": 4,
+          "align": 4
+        },
+        {
+          "name": "abi_version",
+          "type": "uint32_t",
+          "offset": 4,
+          "size": 4,
+          "align": 4
+        },
+        {
+          "name": "kind",
+          "type": "uint32_t",
+          "offset": 8,
+          "size": 4,
+          "align": 4
+        }
+      ],
+      "size": 12,
+      "align": 4
+    },
+    {
+      "kind": "struct",
+      "name": "fx_shape_dot",
+      "tag": "fx_shape_dot",
+      "fields": [
+        {
+          "name": "header",
+          "type": "fx_shape_header",
+          "offset": 0,
+          "size": 12,
+          "align": 4
+        },
+        {
+          "name": "weight",
+          "type": "int32_t",
+          "offset": 12,
+          "size": 4,
+          "align": 4
+        }
+      ],
+      "size": 16,
+      "align": 4
+    },
+    {
+      "kind": "struct",
+      "name": "fx_shape_rect",
+      "tag": "fx_shape_rect",
+      "fields": [
+        {
+          "name": "header",
+          "type": "fx_shape_header",
+          "offset": 0,
+          "size": 12,
+          "align": 4
+        },
+        {
+          "name": "width",
+          "type": "uint32_t",
+          "offset": 12,
+          "size": 4,
+          "align": 4
+        },
+        {
+          "name": "height",
+          "type": "uint32_t",
+          "offset": 16,
+          "size": 4,
+          "align": 4
+        }
+      ],
+      "size": 20,
+      "align": 4
+    },
+    {
+      "kind": "struct",
+      "name": "fx_shape_label",
+      "tag": "fx_shape_label",
+      "fields": [
+        {
+          "name": "header",
+          "type": "fx_shape_header",
+          "offset": 0,
+          "size": 12,
+          "align": 4
+        },
+        {
+          "name": "text",
+          "type": "const uint8_t *",
+          "offset": 16,
+          "size": 8,
+          "align": 8
+        }
+      ],
+      "size": 24,
+      "align": 8
     },
     {
       "kind": "struct",
@@ -1014,6 +1138,40 @@
         {
           "name": "callback",
           "type": "fx_unbound_callback"
+        }
+      ]
+    },
+    {
+      "name": "fx_shape_area",
+      "result": "fx_status",
+      "params": [
+        {
+          "type": "fx_context *"
+        },
+        {
+          "name": "shape",
+          "type": "const fx_shape_header *"
+        },
+        {
+          "name": "out_area",
+          "type": "int64_t *"
+        }
+      ]
+    },
+    {
+      "name": "fx_box_z",
+      "result": "fx_status",
+      "params": [
+        {
+          "type": "fx_context *"
+        },
+        {
+          "name": "clip",
+          "type": "const fx_box *"
+        },
+        {
+          "name": "out_z",
+          "type": "int64_t *"
         }
       ]
     }

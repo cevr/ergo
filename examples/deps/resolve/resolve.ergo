@@ -1,5 +1,5 @@
 import deps/graph
-import deps/semver
+import semver
 import maps
 import slices
 
@@ -12,11 +12,30 @@ type Plan { Pins []Pin, Needs graph.Graph[string] }
 
 // Want is one constraint on a package and who wrote it: the project
 // ("") or a pinned release.
-type Want { By string, Want semver.Constraint }
+type Want { By string, Want Constraint }
 
 // NoVersion is a package that no version of keeps every want on it, at
 // the first dead end of the search where that is so.
 type NoVersion { Name string, Wants []Want }
+
+// NoVersionIsHonest: when no version of a package keeps its wants, no
+// version of it in the registry keeps them all.
+law NoVersionIsHonest(entries []Entry, root []Need) {
+	let t = TableOf(entries)
+	with context { Index: t } {
+		let _ = Resolve(RootOf(root)) catch {
+		case NoVersion as n:
+			let vs = t.Versions(n.Name) catch {
+			case UnknownPackage:
+				return false
+			}
+			return slices.IndexFunc(vs, func(v semver.Version) bool { keepsAll(n.Wants, v) }) < 0
+		case _:
+			return true
+		}
+		true
+	}
+}
 
 // NoPlan is a search that tried every version of every package and found
 // no choice that keeps every want, with no single package to blame: each
@@ -64,7 +83,7 @@ func Resolve(root []Requirement) Plan fails NoVersion | NoPlan | TooHard | Circu
 
 // solve extends pins until every wanted package is pinned, or is None
 // when no extension keeps every want.
-func solve(s *search, root []Requirement, pins Map[string, semver.Version]) Option[Map[string, semver.Version]] fails TooHard | UnknownPackage | UnknownVersion needs Index {
+func solve(s mut search, root []Requirement, pins Map[string, semver.Version]) Option[Map[string, semver.Version]] fails TooHard | UnknownPackage | UnknownVersion needs Index {
 	s.steps = s.steps + 1
 	if s.steps > MaxSteps {
 		return TooHard{Steps: MaxSteps}
@@ -108,7 +127,7 @@ func solve(s *search, root []Requirement, pins Map[string, semver.Version]) Opti
 
 // note keeps the clash of name and wants, when it is the first and no
 // version of name keeps every want.
-func note(s *search, name string, wants []Want) fails UnknownPackage needs Index {
+func note(s mut search, name string, wants []Want) fails UnknownPackage needs Index {
 	match s.clash {
 	case Some[Clash]:
 		return
@@ -163,7 +182,7 @@ func wantsOf(wants Map[string, []Want], name string) []Want { maps.GetOr(wants, 
 
 func keepsAll(wants []Want, v semver.Version) bool {
 	for w in wants {
-		if !semver.Satisfies(w.Want, v) {
+		if !Allows(w.Want, v) {
 			return false
 		}
 	}
@@ -191,7 +210,7 @@ func versionOf(pins Map[string, semver.Version], name string) semver.Version {
 	case Some[semver.Version] as v:
 		v.Value
 	case None:
-		semver.Version{Major: 0, Minor: 0, Patch: 0}
+		semver.Version{Major: 0, Minor: 0, Patch: 0, Pre: []string{}, Build: []string{}}
 	}
 }
 

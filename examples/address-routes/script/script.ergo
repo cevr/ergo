@@ -1,0 +1,323 @@
+// Package script is the host of stage b: it runs the program as an actor
+// on a manual clock, shows its screen on std ui's test host, whose
+// history is the browser's, plays a script of the user's acts, and shows
+// after each what changed: the address and the screen. A line is one of:
+//
+//	start PATH    open the program at PATH (the first line only)
+//	visit PATH    type PATH in the address bar
+//	link LABEL    click the link named LABEL
+//	click LABEL   click the button named LABEL
+//	type TEXT     type TEXT in the search field (the rest of the line)
+//	key KEYS      a shortcut: GH, GP, GF or GN
+//	back          the browser's Back
+//	wait MS       let MS milliseconds pass
+//	stats         print the work of the act before it
+//
+// A blank line or one that starts with # is skipped. The program asks to
+// navigate (app.Go) when a link, a shortcut or Search is clicked; the host
+// follows it as a browser follows a link: a push of the history, then the
+// address change, which the screen's OnURL gives the program as
+// app.Navigated. The shortcuts are the host's, as key bindings
+// are a subscription, not the view's: a key sends app.Pressed.
+
+import actor
+import addressroutes/app
+import addressroutes/route
+import addressroutes/screen
+import io
+import machines
+import queue
+import strconv
+import strings
+import time
+import ui
+
+// Program is the running program.
+type Program = actor.Actor[app.App, app.Signal, Decision[app.App, app.Go]]
+
+// Host is the program on the test host.
+type Host = ui.TestHost[app.App, app.Signal, Decision[app.App, app.Go]]
+
+// Bad is a script line the host cannot read.
+type Bad { Why string }
+
+// Run plays the script on standard input, with the program's timer on
+// clock, which only a wait moves. It returns the exit status: 0, or 1 for
+// a line it cannot read or a screen that fails.
+func Run(clock time.Manual) int needs Console | io.Stdin | Scheduler {
+	let mut lines = []string{}
+	for raw in io.Stdin.Lines() {
+		lines = lines.Append(raw)
+	}
+	let mut start = "/"
+	let mut first = 0
+	for i, raw in lines {
+		let line = strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.HasPrefix(line, "start ") {
+			start = strings.TrimSpace(strings.TrimPrefix(line, "start "))
+			first = i + 1
+		}
+		break
+	}
+	let gone = queue.New[app.Go](64)
+	let p = actor.StartMachine(machines.Start(app.Router{}, start), 16, func(g app.Go) {
+		gone.Push(g) catch {
+		case queue.Closed:
+		}
+	})
+	let status = play(p, gone, clock, start, lines, first) catch {
+	case actor.Stopped:
+		Console.Println("? the program stopped")
+		1
+	case ui.BadPatch as b:
+		Console.Println("? a patch is refused: \(b.Why)")
+		1
+	}
+	p.Stop()
+	if status == 0 {
+		Console.Println("> stop")
+	}
+	status
+}
+
+func play(p Program, gone queue.Queue[app.Go], clock time.Manual, start string, lines []string, first int) int fails actor.Stopped | ui.BadPatch needs Console | Scheduler {
+	let mut h = try ui.NewTestHost(p, screen.Screen, clock, 16)
+	ui.OpenAt(&h, start)
+	Console.Println("> start \(start)")
+	let mut shown = show([]string{}, view(&h))
+	for i in first..len(lines) {
+		let line = strings.TrimSpace(lines[i])
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		Console.Println("> " + line)
+		let ok = act(p, &h, line) catch {
+		case Bad as b:
+			Console.Println("? line \(i + 1): \(b.Why)")
+			return 1
+		case actor.Stopped as s:
+			return s
+		case ui.BadPatch as x:
+			return x
+		}
+		if !ok {
+			continue
+		}
+		try follow(&h, gone)
+		shown = show(shown, view(&h))
+	}
+	0
+}
+
+// follow is the host following each navigation the program asked for:
+// a push of the history, then the address change.
+func follow(h mut Host, gone queue.Queue[app.Go]) fails actor.Stopped | ui.BadPatch {
+	for {
+		match gone.Poll() {
+		case Some[app.Go] as g:
+			try ui.Navigate(h, g.Value.Path)
+			try ui.Settle(h)
+		case None:
+			return
+		}
+	}
+}
+
+// navs are the navigation's links, by label, and their paths.
+let navs = []string{"Home", "People", "Files", "Nested"}
+
+let places = []string{"/", "/people?searchText=dev", "/people/3", "/files/photos", "/nested/route/is/very/nested", "/nowhere"}
+
+// BackRestoresRoute: over generated walks of typed addresses, links
+// followed in the navigation and Backs, on the test host, the history is
+// a stack of the routes shown: after each step the program shows the
+// route of the address it is at, and a Back shows again the route shown
+// there before.
+law BackRestoresRoute(picks []int) {
+	let clock = time.NewManual(0)
+	with context { Scheduler: clock } {
+		let gone = queue.New[app.Go](64)
+		let p = actor.StartMachine(machines.Start(app.Router{}, "/"), 16, func(g app.Go) {
+			gone.Push(g) catch {
+			case queue.Closed:
+			}
+		})
+		let ok = backs(p, gone, clock, picks) catch {
+		case _:
+			false
+		}
+		p.Stop()
+		ok
+	}
+}
+
+func backs(p Program, gone queue.Queue[app.Go], clock time.Manual, picks []int) bool fails actor.Stopped | ui.BadPatch needs Scheduler {
+	let mut h = try ui.NewTestHost(p, screen.Screen, clock, 16)
+	// The tab opens at "/", where the program starts.
+	ui.OpenAt(&h, "/")
+	let mut seen = []route.Route{route.Home}
+	for k in picks {
+		let n = ((k % 3) + 3) % 3
+		let i = ((k/3)%len(places) + len(places)) % len(places)
+		let mut a ui.Act = ui.GoBack
+		if n == 0 && len(seen) > 1 {
+			seen = seen[0 : len(seen)-1]
+		} else if n == 1 {
+			a = ui.NavigateTo{Href: places[i]}
+			seen = seen.Append(route.Parse(places[i]))
+		} else {
+			let label = navs[i%len(navs)]
+			a = ui.ClickOn{At: ui.Within{In: ui.WithRole{Role: ui.List, Name: "Navigation"}, At: ui.WithRole{Role: ui.Link, Name: label}}}
+			seen = seen.Append(navRoute(label))
+		}
+		ui.Play(&h, []ui.Act{a, ui.SettleAll}) catch {
+		case ui.NoNode, ui.Ambiguous, ui.Mismatch:
+			return false
+		case actor.Stopped as s:
+			return s
+		case ui.BadPatch as b:
+			return b
+		}
+		try follow(&h, gone)
+		let top = seen[len(seen)-1]
+		if p.State().Route != top || route.Parse(ui.Href(ui.Current(ui.History(&h)))) != top || ui.Depth(ui.History(&h)) != len(seen)-1 {
+			return false
+		}
+	}
+	true
+}
+
+func navRoute(label string) route.Route {
+	match label {
+	case "Home":
+		route.Home
+	case "People":
+		route.People{Search: None}
+	case "Files":
+		route.FilesIndex
+	case _:
+		route.Nested
+	}
+}
+
+// act does one line's act, and is false when it shows nothing new (a
+// control that is not on the screen, a Back at the start, stats).
+func act(p Program, h mut Host, line string) bool fails Bad | actor.Stopped | ui.BadPatch needs Console | Scheduler {
+	let words = strings.Fields(line)
+	let rest = strings.TrimSpace(strings.TrimPrefix(line, words[0]))
+	let a ui.Act = match words[0] {
+	case "visit":
+		ui.NavigateTo{Href: rest}
+	case "link":
+		ui.ClickOn{At: ui.WithRole{Role: ui.Link, Name: rest}}
+	case "click":
+		ui.ClickOn{At: ui.WithRole{Role: ui.Button, Name: rest}}
+	case "type":
+		ui.FillIn{At: ui.WithPlaceholder{Text: screen.SearchPlaceholder}, Text: rest}
+	case "back":
+		if ui.Depth(ui.History(h)) == 0 {
+			Console.Println("  no page behind")
+			return false
+		}
+		ui.GoBack
+	case "wait":
+		let ms = strconv.Atoi(rest) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return Bad{Why: "wait takes a number of milliseconds"}
+		}
+		ui.AdvanceBy{By: time.Times(1ms, ms)}
+	case "key":
+		let k = match rest {
+		case "GH":
+			app.GH
+		case "GP":
+			app.GP
+		case "GF":
+			app.GF
+		case "GN":
+			app.GN
+		case _:
+			return Bad{Why: "a key is GH, GP, GF or GN"}
+		}
+		let _ = try p.Ask(app.Pressed{Key: k})
+		ui.SettleAll
+	case "stats":
+		Console.Println("  stats: \(ui.CountsLine(ui.Counts(h)))")
+		return false
+	case "start":
+		return Bad{Why: "start is the first line only"}
+	case _:
+		return Bad{Why: "unknown word \(words[0])"}
+	}
+	ui.Play(h, []ui.Act{a, ui.SettleAll}) catch {
+	case ui.NoNode as no:
+		Console.Println("  ? no node: \(no.Label)")
+		return false
+	case ui.Ambiguous as m:
+		Console.Println("  ? \(m.Count) nodes: \(m.At)")
+		return false
+	case ui.Mismatch:
+		return false
+	case actor.Stopped as s:
+		return s
+	case ui.BadPatch as b:
+		return b
+	}
+	true
+}
+
+// show prints the lines of now that differ from shown, and is now.
+func show(shown []string, now []string) []string needs Console {
+	for k, l in now {
+		if k >= len(shown) || shown[k] != l {
+			Console.Println("  " + l)
+		}
+	}
+	now
+}
+
+// view is what the host shows, a line per part: the address and its
+// depth, the navigation, and the page.
+func view(h mut Host) []string {
+	let all = tokens(ui.Screen(h))
+	let mut nav = []string{}
+	let mut page = []string{}
+	for k, t in all {
+		if k < 4 { nav = nav.Append(t) } else { page = page.Append(t) }
+	}
+	[]string{"address: \(ui.Href(ui.Current(ui.History(h)))) (\(ui.Depth(ui.History(h))) behind)", "nav: " + strings.Join(nav, " "), "page: " + strings.Join(page, " | ")}
+}
+
+// tokens is the screen in screen order: a heading as # NAME, a link as
+// <NAME>, a button as [LABEL], the search field as ?TEXT?, and each text.
+func tokens(shapes []ui.Shape[app.Signal]) []string {
+	let mut out = []string{}
+	for s in shapes {
+		match s.Node {
+		case ui.TextNode as t:
+			out = out.Append(t.Value)
+		case ui.PressableNode as p:
+			out = out.Append("[\(p.Label)]")
+		case ui.InputNode as i:
+			out = out.Append("?\(i.Value)?")
+		case ui.SemanticNode as g:
+			if g.Access.Role == ui.Heading {
+				out = out.Append("# \(g.Access.Name)")
+			} else if g.Access.Role == ui.Link {
+				out = out.Append("<\(g.Access.Name)>")
+			} else {
+				for t in tokens(s.Kids) {
+					out = out.Append(t)
+				}
+			}
+		case _:
+			for t in tokens(s.Kids) {
+				out = out.Append(t)
+			}
+		}
+	}
+	out
+}

@@ -4,6 +4,7 @@ package v1
 
 import (
 	"os"
+	"os/signal"
 	"sync"
 	"syscall"
 	"unsafe"
@@ -137,3 +138,12 @@ func fileIsTerminal(f *os.File) bool {
 	}
 	return ok
 }
+
+// termResizes is the channel a change of the window's size (SIGWINCH)
+// sends on, made at the first call. Its buffer of one keeps a change that
+// came while no peek waited, so the next peek returns at once.
+var termResizes = sync.OnceValue(func() <-chan os.Signal {
+	ch := make(chan os.Signal, 1)
+	signal.Notify(ch, syscall.SIGWINCH)
+	return ch
+})

@@ -142,6 +142,10 @@ func (p *preflight) body(fr *frame, key syntax.Node, body *syntax.BlockStmt, own
 				why = p.function(fr, fn)
 			case check.CallProviderOp, check.CallWith:
 				// The provider is the nearest with's, known at the run.
+			case check.CallGoError:
+				if c.Name != "go.New" && c.Name != "go.Zero" {
+					why = c.Name + " of a Go error chain"
+				}
 			default:
 				why = fmt.Sprintf("an unsupported call (kind %d)", c.Kind)
 			}

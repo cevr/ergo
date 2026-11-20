@@ -7,6 +7,7 @@
 
 import rand
 import strings
+import mdhtml/markdown
 
 let words = []string{"alpha", "beta", "gamma", "delta", "parse", "block", "inline", "Ergo", "Go", "snow ☃", "café", "naïve", "x_y_z", "2*3*4", "a&b", "<tag>"}
 
@@ -19,6 +20,20 @@ func Document(seed int, n int) string {
 		}
 		b.String()
 	}
+}
+
+// DocumentHasEveryBlock: the workload of every seed, read, holds each
+// kind of block and span the reader makes, so the receipts time the whole
+// grammar and not one path of it.
+law DocumentHasEveryBlock(seed int) {
+	let out = with context { markdown.Highlighter: markdown.NoColor } {
+		markdown.Render(Document(seed, 40), markdown.Unsafe)
+	}
+	let mut every = true
+	for tag in []string{"<h2>", "<p>", "<ul>", "<ol>", "<li>", "<blockquote>", "<pre><code class=\"language-go\">", "<pre><code>", "<hr />", "<em>", "<strong>", "<code>", "<a href=\"https://example.com/ref/", "<a href=\"https://example.com/auto/", "<img ", "<br />", "<div class=\"box\">", "<span class=\"s\">", "©"} {
+		every = every && strings.Contains(out, tag)
+	}
+	every
 }
 
 func pick(xs []string) string needs Random { xs[Random.IntN(len(xs))] }
@@ -67,7 +82,7 @@ func line(i int) string needs Random {
 	strings.Join(parts, " ")
 }
 
-func paragraph(b *strings.Builder, i int) needs Random {
+func paragraph(b mut strings.Builder, i int) needs Random {
 	for k in 0..1+Random.IntN(3) {
 		b.WriteString(line(i))
 		b.WriteString(if k%2 == 1 { "  \n" } else { "\n" })
@@ -75,7 +90,7 @@ func paragraph(b *strings.Builder, i int) needs Random {
 	b.WriteString("\n")
 }
 
-func list(b *strings.Builder, i int) needs Random {
+func list(b mut strings.Builder, i int) needs Random {
 	let numbered = Random.IntN(2) == 0
 	let loose = Random.IntN(3) == 0
 	for k in 0..2+Random.IntN(4) {
@@ -93,7 +108,7 @@ func list(b *strings.Builder, i int) needs Random {
 	b.WriteString("\n")
 }
 
-func section(b *strings.Builder, i int) needs Random {
+func section(b mut strings.Builder, i int) needs Random {
 	if Random.IntN(2) == 0 {
 		b.WriteString("## Section \(i) *\(word())*\n\n")
 	} else {

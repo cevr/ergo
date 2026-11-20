@@ -9,14 +9,15 @@
 # debt: any other; the unit names who removes it. Debt only shrinks.
 
 seam	internal/sketch/check/check.go:StdFixture	a test fixture checked as std (no Ergo source reaches it)	-
+seam	internal/sketch/check/check.go:installPrelude	installs a snapshot's decoded prelude and marks it std, as prelude marks the checked one	-
 seam	internal/sketch/check/check.go:prelude	loads the embedded prelude and marks it std	-
+seam	internal/sketch/check/check.go:stdImporter.decoded	marks a package decoded from a std segment std, as load marks one it checks; a module segment's stays unmarked	-
+seam	internal/sketch/check/check.go:stdImporter.importAll	finds every embedded std package (stdlib.Packages), so a snapshot of std has them all	-
 seam	internal/sketch/check/check.go:stdImporter.load	loads an embedded std package and marks it std	-
 seam	internal/sketch/check/check.go:stdImporter.testOf	finds the std package a std test package tests	-
 seam	internal/sketch/check/decl.go:checker.importSpec	a std path always names std (no shadowing)	-
 seam	internal/sketch/check/decl.go:checker.run	the second check of a package keeps its std mark	-
-seam	internal/sketch/check/export.go:ExportSnapshot	writes the checked snapshot of std and of required modules' packages; a module segment is never a std package	-
-seam	internal/sketch/check/export_gen.go:decoder.decFieldsPackage	reads a package's std mark from the snapshot	-
-seam	internal/sketch/check/export_gen.go:encoder.encFieldsPackage	writes a package's std mark into the snapshot	-
+seam	internal/sketch/check/snapshot/snapshot.go:ExportSnapshot	writes the checked snapshot of std and of required modules' packages; a module segment is never a std package	-
 seam	internal/sketch/check/info.go:Package.Std	the accessor of the std mark	-
 seam	internal/sketch/lower/lower.go:Unit.Validate	a std package has no unit: its sources ship in the compiler	-
 seam	internal/sketch/lower/naming.go:lowerer.nameAll	names a std package's lets and context builders, which have no unit	-
@@ -34,6 +35,7 @@ language	internal/sketch/check/authority.go:authorityText	a prelude constructor 
 language	internal/sketch/check/authority.go:isAmbient	Ambient, the host authority	-
 language	internal/sketch/check/authority.go:isTestAmbient	TestAmbient, the test's host authority	-
 language	internal/sketch/check/call.go:checker.preludeOp	a prelude operation reached by the dot form	-
+language	internal/sketch/check/decl.go:checker.resolveNamed	Option and Some, language types whose T admits a resource with no own mark (types.md, Generics 9)	-
 language	internal/sketch/check/call.go:isUnreachable	Unreachable	-
 language	internal/sketch/check/implements.go:checker.implementsClause	a prelude type that a package's own type of its name hides	-
 language	internal/sketch/check/implements.go:checker.preludeContract	Closer and Keeping, the prelude's contracts	-
@@ -42,12 +44,7 @@ language	internal/sketch/check/implements.go:isGoCloser	io.Closer, Go's release 
 language	internal/sketch/check/contextvalues.go:contextRow	Context, the predeclared row value	-
 language	internal/sketch/check/durable.go:pureSeer.step	Machine, a machine literal whose Step a pure parameter sees	-
 language	internal/sketch/check/durable.go:pureSeer.stepValue	Machine's Step	-
-debt	internal/sketch/check/entry.go:IsStdEvery	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
-debt	internal/sketch/check/mappedtext.go:IsMappedText	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
-debt	internal/sketch/check/mappedtext.go:checker.textPlacement	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
-debt	internal/sketch/check/mappedtext.go:escWalk.endsBeforeReturn	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
 debt	internal/sketch/check/mappedtext.go:escWalk.textOwner	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
-debt	internal/sketch/check/mappedtext.go:isMapped	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
 debt	internal/sketch/check/mappedtext.go:ownWalk.textRootOf	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
 debt	internal/sketch/check/mappedtext.go:textTemporary	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
 debt	internal/sketch/check/never.go:IsNever	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
@@ -82,7 +79,6 @@ language	internal/sketch/check/ownership.go:checker.checkOwnership	Close, the re
 language	internal/sketch/check/releaseneeds.go:checker.releaseWider	Close, the release operation	-
 language	internal/sketch/check/stmt.go:checker.isErrorValue	go.Error of the Go boundary	-
 language	internal/sketch/derive/eval.go:evaluator.callee	Of, the derive plan's constructor	-
-language	internal/sketch/eval/arguments.go:interp.argumentType	prelude types are the program's	-
 language	internal/sketch/eval/machine.go:interp.machineStep	Enter, Stay, Emit, Done and Next of a machine	-
 language	internal/sketch/lower/builders.go:lowerer.builtText	a prelude constructor is written unqualified	-
 language	internal/sketch/lower/calls.go:funcCtx.callee	a prelude function is written unqualified in the call table	-
@@ -107,10 +103,8 @@ debt	internal/sketchfront/inspect.go:ergoBody	inspect skips std	NP5
 debt	internal/sketchfront/rewrite.go:FreshStdLedger	std's ledger is written by a std-only path	NP5
 debt	internal/tsproj/http.go:httpFailureStatuses	http.FailureStatus by name	NP7
 debt	internal/tsproj/http.go:httpTables	http.Route by name	NP7
-debt	internal/tsproj/project.go:stdJSON	json's wire forms by name	NP7
+debt	internal/rpcgen/hub.go:StdJSON	json's wire forms by name (moved from tsproj/project.go:stdJSON, one function for the hub's and tsproj's schemas)	NP7
 debt	internal/sketch/check/call.go:IsInForce	decides by std membership or a std name; came with a batch-21 unit developed beside the rule (batch 21 integration)	B21-NP
-seam	internal/sketch/check/export.go:stdSnapshotNow	finds, ships or names std (a seam file); it decides nothing (batch 21 integration)	-
-debt	internal/sketch/check/export_user.go:NewUserExport	decides by std membership or a std name; came with a batch-21 unit developed beside the rule (batch 21 integration)	B21-NP
 debt	internal/sketch/lower/gobody.go:viewExtern	decides by std membership or a std name; came with a batch-21 unit developed beside the rule (batch 21 integration)	B21-NP
 debt	internal/sketch/lower/ir_assert.go:irState.lawBody	decides by std membership or a std name; came with a batch-21 unit developed beside the rule (batch 21 integration)	B21-NP
 debt	internal/sketch/lower/pkgsplit.go:lowerer.stdOrigins	decides by std membership or a std name; came with a batch-21 unit developed beside the rule (batch 21 integration)	B21-NP
@@ -122,4 +116,3 @@ debt	internal/sketch/check/lintfacts.go:isStdObj	decides by std membership or a 
 debt	internal/sketch/check/lintfacts.go:stdRoles	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
 debt	internal/sketch/lint/facts.go:extractor.unit	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
 debt	internal/sketch/lint/rule_foreign_where_std.go:checkForeignWhereStd	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
-debt	internal/sketch/lower/std.go:lowerer.runtimeType	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP

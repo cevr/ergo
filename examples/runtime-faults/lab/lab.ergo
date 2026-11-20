@@ -1,0 +1,351 @@
+// Package lab is the slow-warnings lab: four
+// buttons that each make one phase of a pass do more counted work than
+// its budget allows, and a log of the warnings the session sends back
+// (ui.OnSlow). No phase is timed: every phase's work is counted (ui.Stats), so a
+// warning is the same on every run and every host.
+
+import slices
+import ui
+import machines
+import time
+import actor
+
+// Phase is the part of a pass a workload loads: the step (the signals of
+// one pass), the view (the nodes it writes), the patch (its ops) and the
+// subscriptions' dependencies (the fetches one pass starts).
+type Phase = UpdatePhase{} | ViewPhase{} | PatchPhase{} | DependencyPhase{}
+
+// Workload is what the lab is running: nothing, or one phase's work until
+// its warning comes back.
+type Workload = Idle{} | Busy{Phase Phase}
+
+// Warning is one slow pass: its phase, the count and the bound of the
+// phase's counter, what triggered it and what the work was.
+type Warning { ID int, Phase Phase, Count int, Bound int, Trigger string, Details string }
+
+// Lab is the model: the workload running, the next warning's id, the
+// warnings (newest first, at most MaxWarnings), and the patch surface's
+// rows and how many times it was mounted.
+type Lab { Active Workload, NextID int, Warnings []Warning, PatchRows int, PatchRun int }
+
+// Signal is a button (run a phase's work, clear the log), a warning the
+// session sent (ui.OnSlow), and the two signals the work itself makes: a
+// Burn per animation of the update work, a Derived per fetch of the
+// dependency work.
+type Signal = Run{Phase Phase} | Clear{} | Recorded{Slow ui.Slow} | Burn{} | Derived{}
+
+// MaxWarnings is how many warnings the log keeps.
+let MaxWarnings = 8
+
+// PatchRowCount is how many keyed rows the patch work mounts.
+let PatchRowCount = 4000
+
+// Initial is the lab before any press.
+func Initial() Lab { Lab{Active: Idle, NextID: 1, Warnings: []Warning{}, PatchRows: 0, PatchRun: 0} }
+
+// Step is the transition. A run marks its phase busy (the patch work also
+// mounts the rows afresh); a clear stops the workload and empties the
+// log, and keeps the patch surface; a warning of a phase's counter is
+// logged first, with the next id, and stops the workload. The work's own
+// signals change nothing: they are the work.
+func Step(s Lab, e Signal) Decision[Lab, Never] {
+	match e {
+	case Run as r:
+		match r.Phase {
+		case PatchPhase:
+			Enter[Lab]{Next: Lab{..s, Active: Busy{Phase: r.Phase}, PatchRows: PatchRowCount, PatchRun: s.PatchRun + 1}}
+		case UpdatePhase, ViewPhase, DependencyPhase:
+			Enter[Lab]{Next: Lab{..s, Active: Busy{Phase: r.Phase}}}
+		}
+	case Clear:
+		Enter[Lab]{Next: Lab{..s, Active: Idle, Warnings: []Warning{}}}
+	case Recorded as x:
+		match PhaseOf(x.Slow.Counter) {
+		case Some[Phase] as p:
+			let w = Warning{ID: s.NextID, Phase: p.Value, Count: x.Slow.Count, Bound: x.Slow.Bound, Trigger: Trigger(s.Active), Details: Details(p.Value)}
+			Enter[Lab]{Next: Lab{..s, Active: Idle, NextID: s.NextID + 1, Warnings: Newest(w, s.Warnings)}}
+		case None:
+			Ignore
+		}
+	case Burn, Derived:
+		Ignore
+	}
+}
+
+// StepFollowsTheModel: over drawn runs, clears, warnings of any counter
+// and the work's own signals, the lab is the model's after every step: a
+// run makes its phase busy and a patch run mounts the rows afresh; a
+// clear stops the workload and empties the log, and keeps the rows; a
+// warning of a phase's counter is logged first with the next id, its
+// count, its bound and the busy workload's button as its trigger, the log
+// cut to the newest MaxWarnings, and stops the workload; a warning of
+// another counter, a Burn and a Derived change nothing.
+law StepFollowsTheModel(seed int, steps int) {
+	let mut r = seeded(seed)
+	let mut s = Initial()
+	let mut active Workload = Idle
+	let mut log = []noted{}
+	let mut next = 1
+	let mut rows = 0
+	let mut run = 0
+	for _ in 0..(steps%40+40)%40+1 {
+		let k = draw(&r, 6)
+		let mut e Signal = Burn
+		let mut fresh Option[Warning] = None
+		if k == 0 {
+			let p = phaseOf(draw(&r, 4))
+			e = Run{Phase: p}
+			active = Busy{Phase: p}
+			if p == PatchPhase {
+				rows = PatchRowCount
+				run = run + 1
+			}
+		} else if k == 1 {
+			e = Clear
+			active = Idle
+			log = []noted{}
+		} else if k == 2 || k == 3 {
+			let c = draw(&r, len(counters))
+			e = Recorded{Slow: ui.Slow{Counter: counters[c], Count: 10 + c, Bound: c}}
+			if c < 4 {
+				let p = phaseOf(c)
+				fresh = Some{Warning{ID: next, Phase: p, Count: 10 + c, Bound: c, Trigger: Trigger(active), Details: Details(p)}}
+				log = newest(noted{id: next, phase: p}, log)
+				next = next + 1
+				active = Idle
+			}
+		} else if k == 4 {
+			e = Derived
+		}
+		s = machines.Next(s, Step(s, e))
+		if s.Active != active || s.NextID != next || s.PatchRows != rows || s.PatchRun != run || len(s.Warnings) != len(log) {
+			return false
+		}
+		for i, w in s.Warnings {
+			if w.ID != log[i].id || w.Phase != log[i].phase {
+				return false
+			}
+		}
+		match fresh {
+		case Some[Warning] as w:
+			if s.Warnings[0] != w.Value {
+				return false
+			}
+		case None:
+		}
+	}
+	true
+}
+
+// rng is a seeded stream for the laws' draws.
+type rng { x int }
+
+func seeded(seed int) rng { rng{x: (seed%2147483648 + 2147483648) % 2147483648} }
+
+func draw(r mut rng, n int) int {
+	r.x = (r.x*1103515245 + 12345) % 2147483648
+	(r.x / 65536) % n
+}
+
+func phaseOf(k int) Phase {
+	match k % 4 {
+	case 0:
+		UpdatePhase
+	case 1:
+		ViewPhase
+	case 2:
+		PatchPhase
+	case _:
+		DependencyPhase
+	}
+}
+
+// counters are the Slow counters a warning may carry: the four
+// phases', in phaseOf's order, and two the lab sets no bound for.
+let counters = []ui.Counter{ui.SignalsCounter, ui.WrittenCounter, ui.OpsCounter, ui.FetchesCounter, ui.CommittedCounter, ui.PaintedCounter}
+
+// noted is a model's log entry: a warning's id and phase.
+type noted { id int, phase Phase }
+
+// newest is log with n first, cut to MaxWarnings.
+func newest(n noted, log []noted) []noted {
+	let mut out = []noted{n}
+	for x in log {
+		if len(out) < MaxWarnings {
+			out = out.Append(x)
+		}
+	}
+	out
+}
+
+// Newest is the log with w first, cut to MaxWarnings.
+func Newest(w Warning, log []Warning) []Warning {
+	let out = slices.Concat([]Warning{w}, log)
+	if len(out) > MaxWarnings {
+		return out[0:MaxWarnings]
+	}
+	out
+}
+
+// PhaseOf is the phase of a Slow pass's counter (ui.Slow.Counter). The
+// match names every counter, so a counter ui adds is a case to place here
+// (FK13-g4).
+func PhaseOf(counter ui.Counter) Option[Phase] {
+	match counter {
+	case ui.SignalsCounter:
+		Some{UpdatePhase}
+	case ui.WrittenCounter:
+		Some{ViewPhase}
+	case ui.OpsCounter:
+		Some{PatchPhase}
+	case ui.FetchesCounter:
+		Some{DependencyPhase}
+	case ui.CommittedCounter, ui.PaintedCounter:
+		None
+	}
+}
+
+// Trigger is the button whose work a warning came from.
+func Trigger(w Workload) string {
+	match w {
+	case Busy as b:
+		Button(b.Phase)
+	case Idle:
+		"no workload"
+	}
+}
+
+// Button is the label of a phase's button.
+func Button(p Phase) string {
+	match p {
+	case UpdatePhase:
+		"Run update work"
+	case ViewPhase:
+		"Run view work"
+	case PatchPhase:
+		"Run patch work"
+	case DependencyPhase:
+		"Run dependency extraction"
+	}
+}
+
+// Label is how a phase shows.
+func Label(p Phase) string {
+	match p {
+	case UpdatePhase:
+		"Update"
+	case ViewPhase:
+		"View"
+	case PatchPhase:
+		"Patch"
+	case DependencyPhase:
+		"Subscription dependencies"
+	}
+}
+
+// Unit is what a phase's counter counts.
+func Unit(p Phase) string {
+	match p {
+	case UpdatePhase:
+		"signals"
+	case ViewPhase:
+		"nodes written"
+	case PatchPhase:
+		"patch ops"
+	case DependencyPhase:
+		"fetches"
+	}
+}
+
+// Details is what a phase's work was.
+func Details(p Phase) string {
+	match p {
+	case UpdatePhase:
+		"One frame stepped a burst of signals before the pass could show the next state."
+	case ViewPhase:
+		"The view wrote thousands of nodes that a stopped group dropped."
+	case PatchPhase:
+		"The patch inserted thousands of keyed rows."
+	case DependencyPhase:
+		"One pass started a fetch per derived dependency."
+	}
+}
+
+// Bench is the lab as a machine. It starts with no workload and no
+// warning.
+type Bench machine[Lab, Signal] {
+	initial: Initial(),
+	step:    Step,
+}
+
+// EachWorkloadWarnsItsPhase: on the test host, under drawn presses of the
+// four workloads and of Clear, each workload's run is warned once, of its
+// own phase only, over its bound, triggered by its button: the update
+// work once its frame steps the burst, the others in the pass of the
+// press. The log is the model's, newest first, and the screen shows each
+// warning's title; a Clear empties it, and the screen says so; the patch
+// rows show from the first patch run on.
+law EachWorkloadWarnsItsPhase(seed int, steps int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		warnsItsPhase(seed, steps, m)
+	}
+}
+
+func warnsItsPhase(seed int, steps int, m time.Manual) bool needs Scheduler {
+	let a = actor.StartMachine(Bench{}, 16, func(o Never) {})
+	let ok = hostFollows(a, seed, steps, m)
+	a.Stop()
+	ok
+}
+
+func hostFollows(a actor.Actor[Lab, Signal, Decision[Lab, Never]], seed int, steps int, m time.Manual) bool needs Scheduler {
+	let mut r = seeded(seed)
+	let mut h = ui.NewTestHost(a, Screen, m, 64) catch {
+	case ui.BadPatch:
+		return false
+	}
+	let mut log = []noted{}
+	let mut next = 1
+	let mut mounted = false
+	for _ in 0..(steps%4+4)%4+1 {
+		let k = draw(&r, 5)
+		let mut script = []ui.Act{}
+		if k == 4 {
+			script = []ui.Act{ui.TapOn{Label: "Clear"}, ui.SettleAll}
+			log = []noted{}
+		} else {
+			let p = phaseOf(k)
+			script = []ui.Act{ui.TapOn{Label: Button(p)}}
+			if p == UpdatePhase {
+				script = script.Append(ui.AdvanceBy{By: 16ms})
+			}
+			script = script.Append(ui.SettleAll)
+			log = newest(noted{id: next, phase: p}, log)
+			next = next + 1
+			mounted = mounted || p == PatchPhase
+		}
+		ui.Play(&h, script) catch {
+		case _:
+			return false
+		}
+		let shown = ui.StateOf(&h).Warnings
+		if len(shown) != len(log) {
+			return false
+		}
+		for i, w in shown {
+			if w.ID != log[i].id || w.Phase != log[i].phase || w.Bound != Bound(w.Phase) || w.Count <= w.Bound || w.Trigger != Button(w.Phase) {
+				return false
+			}
+			if len(ui.Locate(&h, ui.WithText{Text: Title(w)})) == 0 {
+				return false
+			}
+		}
+		let empty = len(ui.Locate(&h, ui.WithText{Text: "Run a workload to record a warning."})) == 1
+		let rows = len(ui.Locate(&h, ui.WithText{Text: "Patch row 1"})) == 1
+		if empty != (len(log) == 0) || rows != mounted {
+			return false
+		}
+	}
+	true
+}

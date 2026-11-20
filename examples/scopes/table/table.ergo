@@ -13,11 +13,87 @@ func New() Table {
 	Table{scopes: Map[int, Map[string, int]]{0: Map[string, int]{}}, parents: Map[int, int]{0: 0}}
 }
 
+// InnerShadows: a name declared in an inner scope hides the outer one,
+// and the outer scope still sees its own.
+law InnerShadows(a int, b int) {
+	let mut t = New()
+	let _ = OpenScope(&t, 1, 0)
+	let _ = Declare(&t, 0, "x", a)
+	let _ = Declare(&t, 1, "x", b)
+	let inner = match Resolve(&t, 1, "x") {
+	case Bound as r:
+		r.Value == b && r.Out == 0
+	case Unbound:
+		false
+	}
+	let outer = match Resolve(&t, 0, "x") {
+	case Bound as r:
+		r.Value == a && r.Out == 0
+	case Unbound:
+		false
+	}
+	inner && outer
+}
+
+// FoundOutward: a name bound only at the root is found k scopes out from
+// a chain k deep, and a name bound nowhere is unbound.
+law FoundOutward(n int, v int) {
+	let k = small(n)
+	let mut t = New()
+	let _ = Declare(&t, 0, "root", v)
+	for i in 1..k+1 {
+		let _ = OpenScope(&t, i, i-1)
+	}
+	let found = match Resolve(&t, k, "root") {
+	case Bound as r:
+		r.Value == v && r.Out == k
+	case Unbound:
+		false
+	}
+	let missing = match Resolve(&t, k, "nowhere") {
+	case Bound:
+		false
+	case Unbound:
+		true
+	}
+	found && missing
+}
+
+func small(n int) int { (if n < 0 { -(n + 1) } else { n }) % 8 }
+
 // Opened is the outcome of opening a scope.
 type Opened = Open{} | Taken{} | NoScope{}
 
+// OpenOnce: a scope opens once, and only inside an open scope.
+law OpenOnce(n int) {
+	let s = 1 + small(n)
+	let mut t = New()
+	let first = OpenScope(&t, s, 0)
+	let again = OpenScope(&t, s, 0)
+	let orphan = OpenScope(&t, s+10, s+20)
+	let firstOK = match first {
+	case Open:
+		true
+	case Taken, NoScope:
+		false
+	}
+	let againOK = match again {
+	case Taken:
+		true
+	case Open, NoScope:
+		false
+	}
+	let orphanOK = match orphan {
+	case NoScope:
+		true
+	case Open, Taken:
+		false
+	}
+	firstOK && againOK && orphanOK
+}
+
 // OpenScope opens scope s inside scope parent.
-func OpenScope(t *Table, s int, parent int) Opened {
+func OpenScope(t mut Table, s int, parent int) Opened {
 	if t.scopes.Get(s) != None {
 		return Taken
 	}
@@ -31,7 +107,7 @@ func OpenScope(t *Table, s int, parent int) Opened {
 
 // Declare binds name to value in scope s; it reports false when s is not
 // open.
-func Declare(t *Table, s int, name string, value int) bool {
+func Declare(t mut Table, s int, name string, value int) bool {
 	match t.scopes.Get(s) {
 	case Some[Map[string, int]] as m:
 		let mut names = m.Value
@@ -48,7 +124,7 @@ func Declare(t *Table, s int, name string, value int) bool {
 type Resolved = Bound{Value int, Out int} | Unbound{}
 
 // Resolve looks name up in scope s, then in each enclosing scope.
-func Resolve(t *Table, s int, name string) Resolved {
+func Resolve(t mut Table, s int, name string) Resolved {
 	let mut at = s
 	for out in 0..len(t.parents)+1 {
 		match t.scopes.Get(at) {

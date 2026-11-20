@@ -42,7 +42,7 @@ New gaps (`gaps-ex-f.md`):
 - G-ex-f-2: a generic operation type cannot be a capability (`needs Source[K, V]`), so std's cache takes its lookup as a function and the law that makes caching sound (`Registry.Stable`) lives in the domain, not in the cache.
 - G-ex-f-3: a std extern (`strings.ToUpper`) is not a function value, and the message says it is "called directly".
 - G-ex-f-4: a type parameter has no zero value, so a removed entry's value cannot be cleared for the garbage collector (std `arena.Free` has the same limit).
-- G-ex-f-5: a non-generic function on an instance (`Apply(c *Cache[int, int], …)`) is not a dot call, and the message does not say why.
+- G-ex-f-5: a non-generic function on an instance (`Apply(c mut Cache[int, int], …)`) is not a dot call, and the message does not say why.
 - G-ex-f-6: `match m.Get(k)` builds an `Option` interface and a type switch where Go writes comma-ok, and a function that reads a Map takes the environment and polls the task.
 
 Closed in batch 12: G-ex-b-3 (`Table` counts lookups in a `sync.Ref`; the old Map counter wrote through a copy under the value rule and counted nothing), G-ex-d-10 (`main` holds the commands and returns from inside its `with`). Also hit: G-ex-b-18 (closed by q26, rechecked in L9), G-ex-c-11 (`number` is a prelude name), G-ex-d-13 (laws at `int`), G-exup-1.

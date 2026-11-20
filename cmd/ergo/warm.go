@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"os"
 	"os/exec"
@@ -75,7 +76,24 @@ func prepareWarm(opts fileOptions, tc *build.Toolchain, extra ...string) (*warm,
 		if !ok {
 			return nil, nil
 		}
-		parts = append(parts, stamp, tc.Root, tc.GOOS+"/"+tc.GOARCH, tc.GOFLAGS, strings.Join(tc.Tags, ","), strconv.FormatBool(tc.GoBuild)+" "+strconv.FormatBool(tc.Strip)+" "+string(tc.Profile))
+		// A CPU level --platform states (build.Toolchain.Level) chooses
+		// the executable's instructions, so another level is another
+		// request; the environment's GOAMD64 or GOARM64 is in WarmKey's
+		// GO* variables already, and no level leaves the key as it was.
+		target := tc.GOOS + "/" + tc.GOARCH
+		if tc.Level != "" {
+			target += "/" + tc.Level
+		}
+		if tc.PGO != "" {
+			// A release build's profile is an input of every compile:
+			// its bytes key the request (U4 PGO-RELEASE).
+			data, err := os.ReadFile(tc.PGO)
+			if err != nil {
+				return nil, nil
+			}
+			target += " pgo=" + fmt.Sprintf("%x", sha256.Sum256(data))
+		}
+		parts = append(parts, stamp, tc.Root, target, tc.GOFLAGS, strings.Join(tc.Tags, ","), strconv.FormatBool(tc.GoBuild)+" "+strconv.FormatBool(tc.Strip)+" "+string(tc.Profile))
 	}
 	key := sketchfront.WarmKey(append(slices.Clone(parts), extra...)...)
 	if key == "" {
@@ -111,8 +129,14 @@ func warmToolchain(opts fileOptions) *build.Toolchain {
 // warmOptions are the options that change a build's, a check's or a
 // test's answer.
 func warmOptions(opts fileOptions) string {
-	return fmt.Sprintf("%q", []string{opts.target, opts.platform.String(), strconv.FormatBool(opts.locked), strconv.FormatBool(opts.json), strconv.FormatBool(opts.debug),
-		opts.seed, opts.evalSteps, opts.evalBytes, opts.states, opts.law, opts.skipLaw, opts.run, strconv.FormatBool(opts.native), strconv.FormatBool(opts.noViews), strconv.FormatBool(opts.noFallback || os.Getenv("ERGO_FALLBACK") == "off"), opts.rewrites, strconv.FormatBool(opts.goTrace), opts.phone.String(), strconv.FormatBool(opts.trace), fmt.Sprintf("%q", opts.more)})
+	options := []string{opts.target, opts.platform.String(), strconv.FormatBool(opts.locked), strconv.FormatBool(opts.json), strconv.FormatBool(opts.debug),
+		opts.seed, opts.evalSteps, opts.evalBytes, opts.states, opts.law, opts.skipLaw, opts.run, strconv.FormatBool(opts.native), strconv.FormatBool(opts.noViews), strconv.FormatBool(opts.noFallback || os.Getenv("ERGO_FALLBACK") == "off"), opts.rewrites, strconv.FormatBool(opts.goTrace), opts.phone.String(), strconv.FormatBool(opts.trace), fmt.Sprintf("%q", opts.more)}
+	if opts.strict {
+		// check --strict: its exit judges the answer; added only when set,
+		// so the keys of every other request stay as they were.
+		options = append(options, "strict")
+	}
+	return fmt.Sprintf("%q", options)
 }
 
 // goStamp names the go command: its resolved path, size and modification

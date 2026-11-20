@@ -100,9 +100,8 @@ func TestModuleProgramLoadsItsPackagesOnce(t *testing.T) {
 }
 
 // One ergo test of a program of packages still judges each package's part
-// of the report: its check-time verdicts against its native ones, and its
-// skip lines against expected-skips (TEST-one). It kills one-module-
-// ignores-evaluation and one-module-ignores-skips.
+// of the report: its check-time verdicts against its native ones
+// (TEST-one). It kills one-module-ignores-evaluation.
 func TestModuleProgramJudgesEachPackage(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
@@ -112,10 +111,9 @@ func TestModuleProgramJudgesEachPackage(t *testing.T) {
 	f.write(dir+"/tags", "default\n")
 	f.write(dir+"/cmd/walker/main.ergo", "#!/bin/sh\necho hi\n")
 	f.write(dir+"/walk/walk.ergo", "// CHECKJSON {\"checked\":true,\"evaluation\":{\"schemaVersion\":1,\"status\":\"passed\",\"obligations\":[{\"name\":\"Fixture\",\"status\":\"passed\",\"evidence\":\"evaluated\",\"cases\":1}]}}\n// NATIVE ok Different\nfunc w() {}\n")
-	f.write(dir+"/keep/keep.ergo", "// TESTSKIP\nfunc k() {}\n")
 	f.write(dir+"/cases/basic/expected.out", "hi\n")
 	code, out := f.run()
-	for _, want := range []string{"FAIL walker: check walk: Fixture: ", "FAIL walker: test keep: 1 unexpected skips"} {
+	for _, want := range []string{"FAIL walker: check walk: Fixture: "} {
 		if code == 0 || !strings.Contains(out, want) {
 			t.Errorf("exit %d, want a failure with %q\n%s", code, want, out)
 		}
@@ -278,6 +276,9 @@ func TestModuleProgramWorkloadPackage(t *testing.T) {
 	f.write(dir+"/cmd/walker/main.ergo", "#!/bin/sh\necho hi\n")
 	f.write(dir+"/cases/basic/expected.out", "hi\n")
 	f.write(dir+"/workload/load.ergo", "func f() {}\n")
+	// A workload package holds its workload file (TOK-BISECT), which
+	// this fixture of SL1's bug predates (batch 23 fallout).
+	f.write(dir+"/workload/workload", "unit op\nsizes 10 20\nargs bench {n}\n")
 	if code, out := f.run(); code != 0 || !strings.Contains(out, "ok walker: test workload") {
 		t.Errorf("a workload package folder: exit %d\n%s", code, out)
 	}

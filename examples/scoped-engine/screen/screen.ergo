@@ -1,0 +1,84 @@
+// Package screen is the panel on a screen (stage b): the heading;
+// the engine's status; Start engine while it is off or
+// failed, Stop engine while it boots or is ready; Compute next square,
+// disabled unless the engine is ready; and the last result.
+
+import scopedengine/engine
+import ui
+
+// Title is the heading.
+let Title = "Compute Engine"
+
+// StartLabel, StopLabel and ComputeLabel are the buttons.
+let StartLabel = "Start engine"
+
+let StopLabel = "Stop engine"
+
+let ComputeLabel = "Compute next square"
+
+// Screen is the panel.
+func Screen(f mut ui.Frame[engine.Signal], m engine.Mode) {
+	ui.Column(f, ui.Plain()) {
+		ui.Semantic(f, named(ui.Heading, Title, Some{Value: 1}), None, ui.Plain()) {
+			ui.Text(f, Title)
+		}
+		ui.Text(f, Status(m))
+		let ready = match m {
+		case engine.Ready:
+			true
+		case engine.Off, engine.Booting, engine.Failed:
+			false
+		}
+		match m {
+		case engine.Off, engine.Failed:
+			button(f, StartLabel, engine.Start)
+		case engine.Booting, engine.Ready:
+			button(f, StopLabel, engine.Stop)
+		}
+		ui.Fieldset(f, !ready, "") {
+			button(f, ComputeLabel, engine.Compute)
+		}
+		ui.Text(f, Result(m))
+	}
+}
+
+// Status is the engine's status line.
+func Status(m engine.Mode) string {
+	match m {
+	case engine.Off:
+		"Engine is off."
+	case engine.Booting:
+		"Booting engine..."
+	case engine.Ready as r:
+		"Engine ready: \(r.Engine.ID)"
+	case engine.Failed as x:
+		"Engine failed: \(x.Why)"
+	}
+}
+
+// Result is the last result line: a result belongs to the engine that
+// computed it, so only Ready has one (see the README).
+func Result(m engine.Mode) string {
+	match m {
+	case engine.Ready as r:
+		match r.Last {
+		case Some[int] as v:
+			"Square result: \(v.Value)"
+		case None:
+			"No result yet."
+		}
+	case engine.Off, engine.Booting, engine.Failed:
+		"No result yet."
+	}
+}
+
+func button(f mut ui.Frame[engine.Signal], label string, on engine.Signal) {
+	ui.Pressable(f, label, on) {
+		ui.Text(f, label)
+	}
+}
+
+// named is the access of a container with a role and a name.
+func named(role ui.Role, name string, level Option[int]) ui.Access {
+	ui.Access{Role: role, Name: name, Disabled: false, Description: "", Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: level, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: ui.NoKey, Rels: []ui.Rel{}}
+}

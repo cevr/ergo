@@ -47,9 +47,9 @@ const toolingReason = "semantic tooling returns on the new front end"
 // commands is the command table. Dispatch, the general help and the stubs
 // read only this table.
 var commands = []cliCommand{
-	{name: "check", usage: "check FILE|DIR|DIR/... [FILE|DIR|DIR/...]... [--seed N] [--eval-steps N] [--eval-bytes N] [--target go]", run: checkCommand},
+	{name: "check", usage: "check FILE|DIR|DIR/... [FILE|DIR|DIR/...]... [--seed N] [--eval-steps N] [--eval-bytes N] [--strict] [--target go] | check --want FIXTURE|DIR...", run: checkCommand},
 	{name: "diagnostics", usage: "diagnostics FILE|DIR [--lint-config FILE] [--rules MANIFEST]... [--strict] [--json] [--target go]", help: diagnosticsHelp, run: diagnosticsCommand},
-	{name: "build", usage: "build FILE|DIR [-o PATH] [-work] [--emitted] [--locked] [-rewrites=on|proved|off|canary[=N]] [--debug] [--go-trace] [--platform OS/ARCH] [--target go]", run: buildCommand},
+	{name: "build", usage: "build FILE|DIR [-o PATH] [-work] [--emitted] [--locked] [-rewrites=on|proved|off|canary[=N]] [--debug] [--go-trace] [--release] [--platform OS/ARCH[/LEVEL]] [--target go]", run: buildCommand},
 	{name: "run", usage: "run FILE|DIR [--] [ARGS...]", help: runHelp, run: runCommand},
 	{name: "fix", usage: "fix [--check|--dry-run] [--json] [--std DIR] [--go] PATH...", help: fixHelp, run: fixCommand},
 	{name: "fmt", usage: "fmt FILE...|DIR/... [--check] [--json] | fmt --stdin", help: fmtHelp, run: formatCommand},
@@ -59,10 +59,12 @@ var commands = []cliCommand{
 	{name: "lib", usage: "lib FILE|DIR -o DIR", help: libHelp, run: libCommand},
 	{name: "gen", usage: "gen rpc|cli [--check] DIR.OPTYPE", help: genHelp, run: genCommand},
 	{name: "dev", usage: "dev [DIR] [--idle DURATION]", help: devHelp, run: devCommand},
+	{name: "budget", usage: "budget [--config FILE] [--width N] [--class crit|lane] [--lane NAME] -- COMMAND [ARGS...]", help: budgetHelp, run: budgetCommand},
 	{name: "work", usage: "work COMMAND [ARGS...]", help: workHelp, run: workCommand},
 	{name: "code", usage: "code [--in DIR] [--json] COMMAND [ARGS...]", help: codeHelp, run: codeCommand},
 	{name: "graph", usage: "graph [--in DIR|DIR/...] export|cycles|why|affected|hidden|chains|fan|layers [--json]", help: graphHelp, run: graphCommand},
 	{name: "version", usage: "version [--json]", help: versionHelp, run: versionCommand},
+	{name: "conform", usage: conformUsage, help: conformHelp, run: conformCommand},
 	{name: "tsmap", usage: "tsmap [--emit-js FILE.ergo]", help: tsmapHelp, run: tsmapCommand},
 	{name: "edition", fate: removed, reason: "there is one language and no editions", ticket: ticketEditions},
 	{name: "lint", usage: "lint FILE|DIR [--preset P]... [--lint-config FILE] [--rules MANIFEST]... [--strict] [--json] [--target go]", help: lintHelp, run: lintCommand},

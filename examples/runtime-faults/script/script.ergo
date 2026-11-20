@@ -1,0 +1,239 @@
+// Package script plays a scene script on one of the two apps, on the test
+// host (ui.TestHost): the same session a window runs, driven by presses,
+// frames and settles on a manual clock, with what the screen shows read
+// back after each line that asks.
+
+import actor
+import runtimefaults/crash
+import runtimefaults/lab
+import io
+import slices
+import strings
+import time
+import ui
+
+// App is the app a script plays: the crash app or the lab.
+type App = CrashApp{} | LabApp{}
+
+// Cmd is one line of a script after its first:
+//   - tap LABEL: press the node labelled LABEL (the rest of the line);
+//   - frame: move the clock one frame (16ms), which ticks an animation;
+//   - settle: take every fetch's result and show the latest state;
+//   - screen: print the screen, one node a line;
+//   - find TEXT: print whether a text node shows TEXT;
+//   - stats: print the last pass's counted work (ui.StatsOf);
+//   - reports, crashed: the crash app's report log and its crash;
+//   - warnings: the lab's warning log, newest first.
+type Cmd = Tap{Label string} | Frame{} | Settle{} | Show{} | Find{Text string} | Stats{} | Reports{} | Crashed{} | Warnings{}
+
+// Line is a command and its line in the script, as written.
+type Line { N int, Text string, Cmd Cmd }
+
+// Script is the app and its lines.
+type Script { App App, Lines []Line }
+
+// BadLine is a line the script cannot read or play.
+type BadLine { Line int, Why string }
+
+// Read reads a script: its first line is `app crash` or `app lab`, each
+// other line a Cmd. A blank line or a line that starts with # is skipped.
+func Read(text []string) Script fails BadLine {
+	let mut app Option[App] = None
+	let mut lines = []Line{}
+	for i, raw in text {
+		let n = i + 1
+		let t = strings.TrimSpace(raw)
+		if t == "" || strings.HasPrefix(t, "#") {
+			continue
+		}
+		let words = strings.Fields(t)
+		match app {
+		case None:
+			app = match t {
+			case "app crash":
+				Some{CrashApp}
+			case "app lab":
+				Some{LabApp}
+			case _:
+				return BadLine{Line: n, Why: "the first line is app crash or app lab"}
+			}
+			continue
+		case Some[App]:
+		}
+		let rest = strings.TrimSpace(strings.TrimPrefix(t, words[0]))
+		let cmd = match words[0] {
+		case "tap":
+			Tap{Label: try argument(n, rest)}
+		case "find":
+			Find{Text: try argument(n, rest)}
+		case "frame":
+			try bare(n, words, Frame)
+		case "settle":
+			try bare(n, words, Settle)
+		case "screen":
+			try bare(n, words, Show)
+		case "stats":
+			try bare(n, words, Stats)
+		case "reports":
+			try bare(n, words, Reports)
+		case "crashed":
+			try bare(n, words, Crashed)
+		case "warnings":
+			try bare(n, words, Warnings)
+		case _:
+			return BadLine{Line: n, Why: "unknown word \(words[0])"}
+		}
+		lines = lines.Append(Line{N: n, Text: t, Cmd: cmd})
+	}
+	match app {
+	case Some[App] as a:
+		Script{App: a.Value, Lines: lines}
+	case None:
+		BadLine{Line: len(text) + 1, Why: "the script names no app"}
+	}
+}
+
+func argument(n int, rest string) string fails BadLine {
+	if rest == "" {
+		return BadLine{Line: n, Why: "the word needs a text after it"}
+	}
+	rest
+}
+
+func bare(n int, words []string, c Cmd) Cmd fails BadLine {
+	if len(words) != 1 {
+		return BadLine{Line: n, Why: "\(words[0]) takes nothing after it"}
+	}
+	c
+}
+
+// Run reads the script from io.Stdin and plays it: each line as `> LINE`,
+// then what it prints, indented. It returns the exit status: 0, or 1 when
+// the script is refused or a line cannot be played.
+func Run(clock time.Manual) int needs Console | io.Stdin | Scheduler {
+	let mut text = []string{}
+	for line in io.Stdin.Lines() {
+		text = text.Append(line)
+	}
+	let out = play(text, clock) catch {
+	case BadLine as b:
+		Console.Println("? line \(b.Line): \(b.Why)")
+		return 1
+	}
+	for l in out {
+		Console.Println(l)
+	}
+	0
+}
+
+// play reads text and plays it on its app, and is what it prints.
+func play(text []string, clock time.Manual) []string fails BadLine needs Scheduler {
+	let s = try Read(text)
+	match s.App {
+	case CrashApp:
+		try playCrash(s.Lines, clock)
+	case LabApp:
+		try playLab(s.Lines, clock)
+	}
+}
+
+// playCrash plays lines on the crash app, with its crash view and report.
+func playCrash(lines []Line, clock time.Manual) []string fails BadLine needs Scheduler {
+	let reports = crash.NewReports()
+	let mut h = ui.NewAppTestHost(crash.App{}, 4, crash.View, crash.Crashes(reports), clock, 16) catch {
+	case ui.BadPatch:
+		return BadLine{Line: 1, Why: "the first screen's patch is refused"}
+	}
+	let mut out = []string{}
+	for l in lines {
+		out = out.Append("> \(l.Text)")
+		match l.Cmd {
+		case Reports:
+			for r in crash.Logged(reports) {
+				out = out.Append("  \(r)")
+			}
+		case Crashed:
+			out = out.Append("  \(crash.State(ui.CrashOf(&h)))")
+		case Warnings:
+			return BadLine{Line: l.N, Why: "the crash app has no warnings"}
+		case _:
+			out = slices.Concat(out, try common(&h, l))
+		}
+	}
+	out
+}
+
+// playLab plays lines on the lab.
+func playLab(lines []Line, clock time.Manual) []string fails BadLine needs Scheduler {
+	let a = actor.StartMachine(lab.Bench{}, 16, func(o Never) {})
+	let mut h = ui.NewTestHost(a, lab.Screen, clock, 64) catch {
+	case ui.BadPatch:
+		return BadLine{Line: 1, Why: "the first screen's patch is refused"}
+	}
+	let mut out = []string{}
+	for l in lines {
+		out = out.Append("> \(l.Text)")
+		match l.Cmd {
+		case Warnings:
+			let log = ui.StateOf(&h).Warnings
+			if len(log) == 0 {
+				out = out.Append("  none")
+			}
+			for w in log {
+				out = out.Append("  #\(w.ID) \(lab.Title(w)): \(w.Count); trigger \(w.Trigger)")
+			}
+		case Reports, Crashed:
+			return BadLine{Line: l.N, Why: "the lab has no crash view"}
+		case _:
+			out = slices.Concat(out, try common(&h, l))
+		}
+	}
+	a.Stop()
+	out
+}
+
+// common plays a line either app has, and is what it prints.
+func common[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], l Line) []string fails BadLine {
+	let done = run(h, l.Cmd) catch {
+	case ui.NoNode as x:
+		return BadLine{Line: l.N, Why: "no node is labelled \(x.Label)"}
+	case actor.Stopped:
+		return BadLine{Line: l.N, Why: "the app stopped"}
+	case ui.BadPatch:
+		return BadLine{Line: l.N, Why: "a patch is refused"}
+	}
+	done
+}
+
+func run[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], c Cmd) []string fails ui.NoNode | actor.Stopped | ui.BadPatch {
+	match c {
+	case Tap as t:
+		match ui.Find(h, t.Label) {
+		case Some[ui.Id[E]] as id:
+			try ui.Tap(h, id.Value)
+		case None:
+			return ui.NoNode{Label: t.Label}
+		}
+		[]string{}
+	case Frame:
+		try ui.Advance(h, 16ms)
+		[]string{}
+	case Settle:
+		try ui.Settle(h)
+		[]string{}
+	case Show:
+		let mut out = []string{}
+		for line in strings.Split(strings.TrimSuffix(ui.Screenshot(h), "\n"), "\n") {
+			out = out.Append("  \(line)")
+		}
+		out
+	case Find as x:
+		let n = len(ui.Locate(h, ui.WithText{Text: x.Text}))
+		[]string{if n > 0 { "  found" } else { "  absent" }}
+	case Stats:
+		let s = ui.StatsOf(h)
+		[]string{"  signals \(s.Signals), written \(s.Written), committed \(s.Committed), ops \(s.Inserted + s.Moved + s.Removed + s.Set), fetches \(s.Fetches)"}
+	case Reports, Crashed, Warnings:
+		[]string{}
+	}
+}

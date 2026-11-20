@@ -1,0 +1,597 @@
+// Keys (UC1): the bytes a terminal sends for a key, cut into one key's
+// bytes (Cut) and named (Decode). They are the only splitter and namer:
+// the host's ReadKey peeks at standard input's buffer and takes the bytes
+// of one key (TermPeek, TermDrop), so the bytes after it stay for the next
+// read, a line read's included; Feed cuts a chunk any other source gives
+// (a pty, a recording, a test).
+//
+// What a terminal sends: xterm's CSI sequences (ESC [ params final), with
+// a modifier parameter on an arrow, Home, End, Insert, Delete, a page key
+// and the function keys (ESC [ 1 ; m A, ESC [ 5 ; m ~); SS3 (ESC O A,
+// ESC O P); kitty's keyboard protocol (ESC [ code ; m u); bracketed paste
+// (ESC [ 200 ~ text ESC [ 201 ~); SGR mouse reports (ESC [ < b ; x ; y M),
+// of which the wheel is named; a control byte for Ctrl and a letter; and
+// ESC before a key for Alt. A terminal writes one key's sequence in one
+// write, so an ESC that ends the bytes read is the Escape key.
+//
+// Prior art: crossterm's and termwiz's input parsers (Rust), Bubble Tea's
+// key.go (Go), and Textual's _xterm_parser (Python) read the same tables;
+// each keeps the parser in the library, not the host, as this does.
+
+import strings
+import utf8
+
+// Mods is the modifiers held with a Chord's key, as ui.Mods names them.
+type Mods { Shift bool, Ctrl bool, Alt bool, Meta bool }
+
+// keyMods is the modifiers of an xterm or kitty modifier parameter m:
+// m - 1 is a bit set of Shift (1), Alt (2), Ctrl (4) and Meta (8); m under
+// 2 is none.
+func keyMods(m int) Mods {
+	let b = if m < 2 { 0 } else { m - 1 }
+	Mods{Shift: b&1 != 0, Alt: b&2 != 0, Ctrl: b&4 != 0, Meta: b&8 != 0}
+}
+
+// noMods is a key's modifiers when it has none.
+let noMods = Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}
+
+// pasteStart and pasteEnd bracket a paste (xterm mode 2004).
+let pasteStart = "\x1b[200~"
+let pasteEnd = "\x1b[201~"
+
+// Cut is the length of the first key at the front of b, or -1 when b
+// holds only the start of one and more may come (end is false): one
+// byte, one UTF-8 rune, an escape sequence (CSI: ESC [, parameter bytes
+// and a final byte in 0x40-0x7e; SS3: ESC O and one byte), a paste with
+// both brackets, or ESC and the key after it (Alt). An ESC alone at the
+// end of b is the Escape key. At the end of the input (end) the rest of b
+// is one key. It is 0 only for an empty b at the end.
+func Cut(b string, end bool) int {
+	if len(b) == 0 {
+		return if end { 0 } else { -1 }
+	}
+	let c = b[0]
+	if c == 0x1b {
+		return cutEscape(b, end)
+	}
+	if c < 0x80 {
+		return 1
+	}
+	let n = if c >= 0xf0 && c < 0xf8 { 4 } else if c >= 0xe0 { 3 } else if c >= 0xc0 { 2 } else { 1 }
+	if n > len(b) {
+		return if end { len(b) } else { -1 }
+	}
+	n
+}
+
+// cutEscape is Cut of a b that starts with ESC.
+func cutEscape(b string, end bool) int {
+	if len(b) == 1 {
+		return 1
+	}
+	let c = b[1]
+	if c == '[' {
+		if strings.HasPrefix(b, pasteStart) {
+			let i = strings.Index(b[len(pasteStart):], pasteEnd)
+			if i >= 0 {
+				return len(pasteStart) + i + len(pasteEnd)
+			}
+			return if end { len(b) } else { -1 }
+		}
+		for i in 2..len(b) {
+			if b[i] >= 0x40 && b[i] <= 0x7e {
+				return i + 1
+			}
+		}
+		return if end { len(b) } else { -1 }
+	}
+	if c == 'O' {
+		if len(b) >= 3 {
+			return 3
+		}
+		return if end { len(b) } else { -1 }
+	}
+	// Alt and the key after it.
+	let rest = Cut(b[1:], end)
+	if rest < 0 { -1 } else { 1 + rest }
+}
+
+// Decoder cuts and names the keys of chunks of a terminal's bytes, as
+// they come: it holds the start of a key a chunk ends in until the next.
+type Decoder { pending string }
+
+// NewDecoder is a Decoder that holds nothing.
+func NewDecoder() Decoder { Decoder{pending: ""} }
+
+// Feed is the keys of chunk, after what d held. An ESC that ends the
+// chunk is the Escape key, as Cut has it; the start of any other
+// sequence or rune waits for the next chunk.
+func Feed(d mut Decoder, chunk string) []Key {
+	let b = d.pending + chunk
+	let mut keys = []Key{}
+	let mut at = 0
+	for at < len(b) {
+		let n = Cut(b[at:], false)
+		if n < 0 {
+			break
+		}
+		keys = keys.Append(Decode(b[at : at+n]))
+		at = at + n
+	}
+	d.pending = b[at:]
+	keys
+}
+
+// Flush is the keys of what d holds, at the end of the input: the rest is
+// one key, as Cut has it at the end.
+func Flush(d mut Decoder) []Key {
+	let b = d.pending
+	d.pending = ""
+	let mut keys = []Key{}
+	let mut at = 0
+	for at < len(b) {
+		let n = Cut(b[at:], true)
+		keys = keys.Append(Decode(b[at : at+n]))
+		at = at + n
+	}
+	keys
+}
+
+// Decode is the key of a token, the bytes of one key (Cut): "" and Ctrl-D
+// are EndOfInput; a carriage return or a line feed is Return; delete and
+// Ctrl-H are Backspace; a named sequence is its key, a Chord when it
+// carries a modifier; a control byte for a letter is that letter's Ctrl
+// Chord; ESC and a key is that key with Alt; a paste is Paste, a wheel
+// report Wheel; a token that starts with a printable byte is a Char; any
+// other token is Other.
+func Decode(token string) Key {
+	if len(token) == 0 {
+		return EndOfInput
+	}
+	let c = token[0]
+	if len(token) == 1 {
+		return byteKey(c, token)
+	}
+	if c != 0x1b {
+		return if c < 0x20 { Other{Bytes: token} } else { Char{Text: token} }
+	}
+	let d = token[1]
+	if d == '[' {
+		return csiKey(token)
+	}
+	if d == 'O' && len(token) == 3 {
+		return ss3Key(token)
+	}
+	withAlt(Decode(token[1:]), token)
+}
+
+// DecodeNamesControls: a token that starts with a control byte is never a
+// Char, and a token that does not is a Char unless it is the delete byte.
+law DecodeNamesControls(token string) {
+	match Decode(token) {
+	case Char as c:
+		c.Text == token && token >= " " && token != "\x7f"
+	case _:
+		token < " " || token == "\x7f" || token == ""
+	}
+}
+
+// byteKey is the key of the one byte c (token).
+func byteKey(c byte, token string) Key {
+	if c == 0x04 {
+		EndOfInput
+	} else if c == '\r' || c == '\n' {
+		Return
+	} else if c == 0x7f || c == 0x08 {
+		Backspace
+	} else if c == '\t' {
+		Tab
+	} else if c == 0x1b {
+		Escape
+	} else if c == 0x03 {
+		Interrupt
+	} else if c == 0 {
+		Chord{Mods: ctrl(), Name: " "}
+	} else if c < 0x1b {
+		Chord{Mods: ctrl(), Name: letters[int(c)-1 : int(c)]}
+	} else if c < 0x20 {
+		Other{Bytes: token}
+	} else {
+		Char{Text: token}
+	}
+}
+
+// letters are the letters Ctrl and a letter sends as the bytes 1 to 26.
+let letters = "abcdefghijklmnopqrstuvwxyz"
+
+// ctrl is the modifiers of Ctrl alone.
+func ctrl() Mods { Mods{Shift: false, Ctrl: true, Alt: false, Meta: false} }
+
+// ss3Key is the key of ESC O and one byte: an arrow, Home, End or F1-F4.
+func ss3Key(token string) Key {
+	named(token[2], 1, noMods, token)
+}
+
+// csiKey is the key of a CSI sequence or a paste.
+func csiKey(token string) Key {
+	if len(token) < 3 {
+		return Other{Bytes: token}
+	}
+	if strings.HasPrefix(token, pasteStart) {
+		let body = token[len(pasteStart):]
+		let text = if strings.HasSuffix(body, pasteEnd) { body[0 : len(body)-len(pasteEnd)] } else { body }
+		return Paste{Text: text}
+	}
+	let last = token[len(token)-1]
+	if last < 0x40 || last > 0x7e {
+		return Other{Bytes: token}
+	}
+	let params = token[2 : len(token)-1]
+	if len(params) > 0 && params[0] == '<' {
+		return mouseKey(params[1:], last, token)
+	}
+	let ps = numbers(params)
+	if len(ps) == 0 {
+		return Other{Bytes: token}
+	}
+	let mods = keyMods(if len(ps) > 1 { ps[1] } else { 1 })
+	if last == '~' {
+		return tildeKey(ps[0], mods, token)
+	}
+	if last == 'u' {
+		return kittyKey(ps[0], mods, token)
+	}
+	if last == 'Z' {
+		return Chord{Mods: Mods{Shift: true, Ctrl: mods.Ctrl, Alt: mods.Alt, Meta: mods.Meta}, Name: "Tab"}
+	}
+	named(last, ps[0], mods, token)
+}
+
+// numbers is the parameters of a CSI sequence: numbers split by ';', the
+// part of each before a ':' (kitty's alternates), an empty one 1. It is
+// none when a parameter holds another byte.
+func numbers(params string) []int {
+	let mut out = []int{}
+	let mut n = 0
+	let mut digits = 0
+	let mut skip = false
+	for i in 0..len(params)+1 {
+		let c = if i < len(params) { params[i] } else { ';' }
+		if c == ';' {
+			out = out.Append(if digits == 0 { 1 } else { n })
+			n = 0
+			digits = 0
+			skip = false
+		} else if c == ':' {
+			skip = true
+		} else if c >= '0' && c <= '9' {
+			if !skip && digits < 9 {
+				n = n*10 + int(c-'0')
+				digits = digits + 1
+			}
+		} else {
+			return []int{}
+		}
+	}
+	out
+}
+
+// named is the key a final byte names (an arrow, Home, End, F1-F4 as
+// SS3 and CSI 1 ; m P-S send them), with mods; first is the first
+// parameter, which must be 1 for these.
+func named(final byte, first int, mods Mods, token string) Key {
+	let base = if first != 1 {
+		Other{Bytes: token}
+	} else if final == 'A' {
+		Up
+	} else if final == 'B' {
+		Down
+	} else if final == 'C' {
+		Right
+	} else if final == 'D' {
+		Left
+	} else if final == 'H' {
+		Home
+	} else if final == 'F' {
+		End
+	} else if final >= 'P' && final <= 'S' {
+		F{N: int(final-'P') + 1}
+	} else {
+		Other{Bytes: token}
+	}
+	withMods(base, mods, token)
+}
+
+// tildeKey is the key of CSI n ; m ~.
+func tildeKey(n int, mods Mods, token string) Key {
+	let base = if n == 1 || n == 7 {
+		Home
+	} else if n == 4 || n == 8 {
+		End
+	} else if n == 2 {
+		Insert
+	} else if n == 3 {
+		Delete
+	} else if n == 5 {
+		PageUp
+	} else if n == 6 {
+		PageDown
+	} else if n >= 11 && n <= 15 {
+		F{N: n - 10}
+	} else if n >= 17 && n <= 21 {
+		F{N: n - 11}
+	} else if n == 23 || n == 24 {
+		F{N: n - 12}
+	} else {
+		Other{Bytes: token}
+	}
+	withMods(base, mods, token)
+}
+
+// kittyKey is the key of kitty's CSI code ; m u: code is a Unicode code
+// point, or one of the keys kitty names by their control code.
+func kittyKey(code int, mods Mods, token string) Key {
+	let base = if code == 13 {
+		Return
+	} else if code == 9 {
+		Tab
+	} else if code == 27 {
+		Escape
+	} else if code == 127 || code == 8 {
+		Backspace
+	} else if code >= 0x20 && code < 0x110000 && !(code >= 0xd800 && code < 0xe000) && code != 0x7f {
+		Char{Text: utf8.RuneText(rune(code))}
+	} else {
+		Other{Bytes: token}
+	}
+	withMods(base, mods, token)
+}
+
+// mouseKey is the key of an SGR mouse report b ; x ; y and its final byte
+// (M press, m release): button 64 is the wheel up, 65 down, whatever
+// modifier bits (4, 8, 16) it carries; any other report is Other.
+func mouseKey(params string, final byte, token string) Key {
+	let ps = numbers(params)
+	if len(ps) != 3 || final != 'M' {
+		return Other{Bytes: token}
+	}
+	let b = ps[0] - (ps[0] & 28)
+	if b == 64 || b == 65 {
+		return Wheel{Up: b == 64, Col: ps[1], Row: ps[2]}
+	}
+	Other{Bytes: token}
+}
+
+// withMods is base with mods held: base itself with none, else the Chord
+// of base's name; a key with no name stays Other.
+func withMods(base Key, mods Mods, token string) Key {
+	if mods == noMods {
+		return base
+	}
+	match KeyName(base) {
+	case Some[string] as n:
+		Chord{Mods: mods, Name: n.Value}
+	case None:
+		Other{Bytes: token}
+	}
+}
+
+// withAlt is k with Alt held (ESC before it): a Chord with Alt added, or
+// Other when k has no name.
+func withAlt(k Key, token string) Key {
+	match k {
+	case Chord as c:
+		Chord{Mods: Mods{Shift: c.Mods.Shift, Ctrl: c.Mods.Ctrl, Alt: true, Meta: c.Mods.Meta}, Name: c.Name}
+	case _:
+		match KeyName(k) {
+		case Some[string] as n:
+			Chord{Mods: Mods{Shift: false, Ctrl: false, Alt: true, Meta: false}, Name: n.Value}
+		case None:
+			Other{Bytes: token}
+		}
+	}
+}
+
+// KeyName is a key's name as ui.KeyPress names it (the web's
+// KeyboardEvent.key): a Char's text, "Enter", "Tab", "Escape",
+// "Backspace", "ArrowUp", "Home", "Delete", "PageUp", "F5" and the rest; a
+// Chord's name. Interrupt is Ctrl's "c" and EndOfInput Ctrl's "d" in a
+// Chord's name only; alone, they, Other, Paste, Wheel and Resized have no
+// name.
+func KeyName(k Key) Option[string] {
+	match k {
+	case Char as c:
+		Some{Value: c.Text}
+	case Return:
+		Some{Value: "Enter"}
+	case Backspace:
+		Some{Value: "Backspace"}
+	case Tab:
+		Some{Value: "Tab"}
+	case Escape:
+		Some{Value: "Escape"}
+	case Up:
+		Some{Value: "ArrowUp"}
+	case Down:
+		Some{Value: "ArrowDown"}
+	case Left:
+		Some{Value: "ArrowLeft"}
+	case Right:
+		Some{Value: "ArrowRight"}
+	case Home:
+		Some{Value: "Home"}
+	case End:
+		Some{Value: "End"}
+	case Insert:
+		Some{Value: "Insert"}
+	case Delete:
+		Some{Value: "Delete"}
+	case PageUp:
+		Some{Value: "PageUp"}
+	case PageDown:
+		Some{Value: "PageDown"}
+	case F as f:
+		Some{Value: "F\(f.N)"}
+	case Chord as c:
+		Some{Value: c.Name}
+	case Interrupt, EndOfInput, Other, Paste, Wheel, Resized:
+		None
+	}
+}
+
+// The laws of the key table (UC1, keys.ergo): the bytes terminals send
+// for a key, recorded from xterm, kitty and the Linux console, decode to
+// the key, whole and when the bytes come in any chunks.
+
+// recorded is one key's bytes as a terminal sends them and its key. (a
+// law's helper)
+type recorded { bytes string, key Key }
+
+// mods is a Chord's modifiers: Shift, Alt, Ctrl. (a law's helper)
+func mods(shift bool, alt bool, ctl bool) Mods { Mods{Shift: shift, Ctrl: ctl, Alt: alt, Meta: false} }
+
+// keyTable is the recorded keys. (a law's helper)
+let keyTable = []recorded{
+	recorded{bytes: "a", key: Char{Text: "a"}},
+	recorded{bytes: "~", key: Char{Text: "~"}},
+	recorded{bytes: "é", key: Char{Text: "é"}},
+	recorded{bytes: "界", key: Char{Text: "界"}},
+	recorded{bytes: "🙂", key: Char{Text: "🙂"}},
+	recorded{bytes: "\r", key: Return},
+	recorded{bytes: "\n", key: Return},
+	recorded{bytes: "\x7f", key: Backspace},
+	recorded{bytes: "\x08", key: Backspace},
+	recorded{bytes: "\t", key: Tab},
+	recorded{bytes: "\x1b", key: Escape},
+	recorded{bytes: "\x03", key: Interrupt},
+	recorded{bytes: "\x04", key: EndOfInput},
+	recorded{bytes: "\x01", key: Chord{Mods: mods(false, false, true), Name: "a"}},
+	recorded{bytes: "\x1a", key: Chord{Mods: mods(false, false, true), Name: "z"}},
+	recorded{bytes: "\x00", key: Chord{Mods: mods(false, false, true), Name: " "}},
+	recorded{bytes: "\x1b[A", key: Up},
+	recorded{bytes: "\x1b[B", key: Down},
+	recorded{bytes: "\x1b[C", key: Right},
+	recorded{bytes: "\x1b[D", key: Left},
+	recorded{bytes: "\x1bOA", key: Up},
+	recorded{bytes: "\x1bOD", key: Left},
+	recorded{bytes: "\x1b[H", key: Home},
+	recorded{bytes: "\x1b[F", key: End},
+	recorded{bytes: "\x1bOH", key: Home},
+	recorded{bytes: "\x1bOF", key: End},
+	recorded{bytes: "\x1b[1~", key: Home},
+	recorded{bytes: "\x1b[4~", key: End},
+	recorded{bytes: "\x1b[2~", key: Insert},
+	recorded{bytes: "\x1b[3~", key: Delete},
+	recorded{bytes: "\x1b[5~", key: PageUp},
+	recorded{bytes: "\x1b[6~", key: PageDown},
+	recorded{bytes: "\x1bOP", key: F{N: 1}},
+	recorded{bytes: "\x1bOS", key: F{N: 4}},
+	recorded{bytes: "\x1b[15~", key: F{N: 5}},
+	recorded{bytes: "\x1b[17~", key: F{N: 6}},
+	recorded{bytes: "\x1b[21~", key: F{N: 10}},
+	recorded{bytes: "\x1b[24~", key: F{N: 12}},
+	recorded{bytes: "\x1b[1;5A", key: Chord{Mods: mods(false, false, true), Name: "ArrowUp"}},
+	recorded{bytes: "\x1b[1;2D", key: Chord{Mods: mods(true, false, false), Name: "ArrowLeft"}},
+	recorded{bytes: "\x1b[1;3C", key: Chord{Mods: mods(false, true, false), Name: "ArrowRight"}},
+	recorded{bytes: "\x1b[1;6H", key: Chord{Mods: mods(true, false, true), Name: "Home"}},
+	recorded{bytes: "\x1b[3;5~", key: Chord{Mods: mods(false, false, true), Name: "Delete"}},
+	recorded{bytes: "\x1b[5;2~", key: Chord{Mods: mods(true, false, false), Name: "PageUp"}},
+	recorded{bytes: "\x1b[1;2P", key: Chord{Mods: mods(true, false, false), Name: "F1"}},
+	recorded{bytes: "\x1b[15;5~", key: Chord{Mods: mods(false, false, true), Name: "F5"}},
+	recorded{bytes: "\x1b[Z", key: Chord{Mods: mods(true, false, false), Name: "Tab"}},
+	recorded{bytes: "\x1bx", key: Chord{Mods: mods(false, true, false), Name: "x"}},
+	recorded{bytes: "\x1b\x7f", key: Chord{Mods: mods(false, true, false), Name: "Backspace"}},
+	recorded{bytes: "\x1b\x01", key: Chord{Mods: mods(false, true, true), Name: "a"}},
+	recorded{bytes: "\x1b\x1b[A", key: Chord{Mods: mods(false, true, false), Name: "ArrowUp"}},
+	recorded{bytes: "\x1b[97;5u", key: Chord{Mods: mods(false, false, true), Name: "a"}},
+	recorded{bytes: "\x1b[13;2u", key: Chord{Mods: mods(true, false, false), Name: "Enter"}},
+	recorded{bytes: "\x1b[27u", key: Escape},
+	recorded{bytes: "\x1b[127;3u", key: Chord{Mods: mods(false, true, false), Name: "Backspace"}},
+	recorded{bytes: "\x1b[1089::99;5u", key: Chord{Mods: mods(false, false, true), Name: "с"}},
+	recorded{bytes: "\x1b[200~hello\r\nworld\x1b[201~", key: Paste{Text: "hello\r\nworld"}},
+	recorded{bytes: "\x1b[200~\x1b[201~", key: Paste{Text: ""}},
+	recorded{bytes: "\x1b[<64;10;5M", key: Wheel{Up: true, Col: 10, Row: 5}},
+	recorded{bytes: "\x1b[<65;1;24M", key: Wheel{Up: false, Col: 1, Row: 24}},
+	recorded{bytes: "\x1b[<80;3;3M", key: Wheel{Up: true, Col: 3, Row: 3}},
+	recorded{bytes: "\x1b[<0;3;3M", key: Other{Bytes: "\x1b[<0;3;3M"}},
+	recorded{bytes: "\x1b[99X", key: Other{Bytes: "\x1b[99X"}},
+	recorded{bytes: "\x1c", key: Other{Bytes: "\x1c"}},
+}
+
+// DecodeIsTheTable: over drawn runs of recorded keys sent in drawn
+// chunks, Feed and then Flush give the run's keys in order, and each
+// recorded key's bytes are one key (Cut) that Decode names. A chunk never
+// ends right after an ESC with more of its key to come, and always ends
+// after an Escape key alone, since a terminal writes each key in one
+// write: that is the one rule that tells Escape and then a key from Alt
+// and the key.
+law DecodeIsTheTable(seed int, length int) {
+	let mut r = seeded(seed)
+	let n = (length%24+24)%24 + 1
+	let mut want = []Key{}
+	let mut chunks = []string{}
+	let mut chunk = ""
+	for _ in 0..n {
+		let e = keyTable[draw(&r, len(keyTable))]
+		if Cut(e.bytes, false) != len(e.bytes) || Decode(e.bytes) != e.key {
+			return false
+		}
+		want = want.Append(e.key)
+		for i in 0..len(e.bytes) {
+			chunk = chunk + e.bytes[i:i+1]
+			let startsLonger = e.bytes[i] == 0x1b && i+1 < len(e.bytes)
+			if !startsLonger && draw(&r, 3) == 0 {
+				chunks = chunks.Append(chunk)
+				chunk = ""
+			}
+		}
+		if e.bytes == "\x1b" && chunk != "" {
+			chunks = chunks.Append(chunk)
+			chunk = ""
+		}
+	}
+	chunks = chunks.Append(chunk)
+	let mut d = NewDecoder()
+	let mut got = []Key{}
+	for c in chunks {
+		for k in Feed(&d, c) {
+			got = got.Append(k)
+		}
+	}
+	for k in Flush(&d) {
+		got = got.Append(k)
+	}
+	got == want
+}
+
+// CutTakesOneKey: over drawn bytes, Cut at the end of the input takes
+// between one byte and all of them from a nonempty b, and Cut before the
+// end takes no more than at the end, or waits. (a property against no
+// table: a cut never runs past its bytes or loops on none)
+law CutTakesOneKey(seed int, size int) {
+	let mut r = seeded(seed)
+	let mut b = ""
+	let alphabet = "\x1b[O;<0123456789~uAHPMZ\x01\x7fa\xc3\xa9\xe7\x95\x8c"
+	for _ in 0..(size%12+12)%12 {
+		let i = draw(&r, len(alphabet))
+		b = b + alphabet[i:i+1]
+	}
+	let atEnd = Cut(b, true)
+	let before = Cut(b, false)
+	if len(b) == 0 {
+		return atEnd == 0 && before == -1
+	}
+	atEnd >= 1 && atEnd <= len(b) && (before == -1 || (before >= 1 && before <= atEnd))
+}
+
+// rng is a law's seeded generator. (a law's helper)
+type rng { x int }
+
+// draw is a number in [0, n) from r. (a law's helper)
+func draw(r mut rng, n int) int {
+	r.x = (r.x*1103515245 + 12345) % 2147483648
+	(r.x / 65536) % n
+}
+
+// seeded is the generator of seed. (a law's helper)
+func seeded(seed int) rng { rng{x: (seed%2147483648 + 2147483648) % 2147483648} }

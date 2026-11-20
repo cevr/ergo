@@ -1,0 +1,103 @@
+// Package screen is the subscription form on a screen (stage b): the
+// heading; the three fields, each named by its label
+// and described by what its check says; the submit button, disabled until
+// the form may be sent and labelled for a submit under way; and the
+// answer, a status for a taken subscription or an alert for a refused one.
+// Enter in the form submits it whatever the button shows, as a form's
+// implicit submission does, and the step refuses a form that is not ready.
+
+import signupform/subscribe
+import ui
+
+// Title is the heading.
+let Title = "Get the Release Notes"
+
+// NameLabel, EmailLabel and NoteLabel name the fields (a ui.Input is
+// named by its placeholder).
+let NameLabel = "Name"
+
+let EmailLabel = "Email"
+
+let NoteLabel = "Anything you'd like to share with us?"
+
+// SubmitLabel and SendingLabel are the button's label: idle, and while a
+// submit is under way.
+let SubmitLabel = "Subscribe"
+
+let SendingLabel = "Subscribing..."
+
+// CheckingText describes the email while the list checks it.
+let CheckingText = "Checking..."
+
+// RefusedText is the alert of a refused subscription.
+let RefusedText = "Sorry, the list could not take the subscription. Please try again."
+
+// Screen is the form.
+func Screen(f mut ui.Frame[subscribe.Signal], s subscribe.Form) {
+	let sending = s.Stage == subscribe.Sending
+	ui.OnKey(f, func(k ui.KeyPress) Option[subscribe.Signal] {
+		if k.Name == "Enter" { Some{Value: subscribe.Submitted} } else { None }
+	})
+	ui.Column(f, ui.Plain()) {
+		ui.Semantic(f, named(ui.Heading, Title, Some{Value: 1}), None, ui.Plain()) {
+			ui.Text(f, Title)
+		}
+		field(f, NameLabel, s.Name.Text, NameSaid(s.Name.Verdict), func(t string) subscribe.Signal { subscribe.NameEdited{Text: t} })
+		field(f, EmailLabel, s.Email.Text, EmailSaid(s.Email.Verdict), func(t string) subscribe.Signal { subscribe.EmailEdited{Text: t} })
+		field(f, NoteLabel, s.Note, "", func(t string) subscribe.Signal { subscribe.NoteEdited{Text: t} })
+		let label = if sending { SendingLabel } else { SubmitLabel }
+		ui.Fieldset(f, sending || !subscribe.Ready(s), "") {
+			ui.Pressable(f, label, subscribe.Submitted) {
+				ui.Text(f, label)
+			}
+		}
+		match s.Stage {
+		case subscribe.Sent as t:
+			ui.Semantic(f, named(ui.Status, "", None), None, ui.Plain()) {
+				ui.Text(f, t.Text)
+			}
+		case subscribe.Refused:
+			ui.Semantic(f, named(ui.Alert, "", None), None, ui.Plain()) {
+				ui.Text(f, RefusedText)
+			}
+		case subscribe.Editing, subscribe.Sending:
+		}
+	}
+}
+
+// field is a text field named label with text, described by said (none
+// when empty); a text typed in it sends edit(text).
+func field(f mut ui.Frame[subscribe.Signal], label string, text string, said string, edit own func(t string) subscribe.Signal) {
+	ui.Fieldset(f, false, said) {
+		ui.Input(f, text, label, edit)
+	}
+}
+
+// NameSaid and EmailSaid are a field's description: what its check says,
+// or nothing while it has nothing to say.
+func NameSaid(v subscribe.Verdict[subscribe.Name, subscribe.TooShort]) string {
+	match v {
+	case subscribe.Invalid[subscribe.TooShort] as i:
+		subscribe.NameSaid(i.Why)
+	case subscribe.Checking[subscribe.Name]:
+		CheckingText
+	case subscribe.Unchecked, subscribe.Valid[subscribe.Name]:
+		""
+	}
+}
+
+func EmailSaid(v subscribe.Verdict[subscribe.Email, subscribe.EmailWhy]) string {
+	match v {
+	case subscribe.Invalid[subscribe.EmailWhy] as i:
+		subscribe.EmailSaid(i.Why)
+	case subscribe.Checking[subscribe.Email]:
+		CheckingText
+	case subscribe.Unchecked, subscribe.Valid[subscribe.Email]:
+		""
+	}
+}
+
+// named is the access of a container with a role and a name.
+func named(role ui.Role, name string, level Option[int]) ui.Access {
+	ui.Access{Role: role, Name: name, Disabled: false, Description: "", Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: level, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: ui.NoKey, Rels: []ui.Rel{}}
+}

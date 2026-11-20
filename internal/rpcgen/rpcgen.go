@@ -27,8 +27,8 @@ import (
 	"sort"
 	"strings"
 
+	format "ergo.local/prototype/internal/hostsyntax"
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/format"
 	"ergo.local/prototype/internal/sketch/stdlib"
 )
 
@@ -204,6 +204,8 @@ func Generate(pkg *check.Package, path, opName, apiPath string) (Files, error) {
 	}
 	g.api = lastElem(apiPath)
 	g.imports[apiPath] = g.api
+	g.stdAPI = StdAPIName(g.imports)
+	g.imports["api"] = g.stdAPI
 	if err := g.checkNames(ops); err != nil {
 		return Files{}, err
 	}
@@ -253,6 +255,8 @@ type gen struct {
 	// imports are every package a generated file may name, by path, with
 	// the name source uses for it.
 	imports map[string]string
+	// stdAPI is the name of std api.
+	stdAPI string
 	// wide holds, by type text, whether a type reaches an int the wire
 	// cannot carry exactly.
 	wide map[string]bool
@@ -699,6 +703,15 @@ func failTags(t check.Type) []string {
 	return nil
 }
 
+// FailTags are the "_tag"s failure type t's wire form can have: a
+// record's name, or each variant's name of a union. A transport's reader
+// picks the failure by them.
+func FailTags(t check.Type) []string { return failTags(t) }
+
+// IsUnion reports a failure type that is a union, whose own encoding has
+// its "_tag".
+func IsUnion(t check.Type) bool { return isUnion(t) }
+
 // isUnion reports a failure type that is a union: its own encoding has
 // "_tag", so it is sent as it is; a record gets its tag from rpc.Tagged.
 func isUnion(t check.Type) bool {
@@ -734,7 +747,11 @@ func (g *gen) importBlock(text string) string {
 	})
 	var b strings.Builder
 	for _, p := range paths {
-		fmt.Fprintf(&b, "import %s\n", p)
+		if name := g.imports[p]; name != lastElem(p) {
+			fmt.Fprintf(&b, "import %s %s\n", name, p)
+		} else {
+			fmt.Fprintf(&b, "import %s\n", p)
+		}
 	}
 	return b.String()
 }
@@ -806,8 +823,10 @@ func (g *gen) walkerName(t check.Type) string {
 func (g *gen) serverFile(ops []Op) fileText {
 	capName := g.importOf(g.pkg) + "." + g.op
 	var b strings.Builder
-	fmt.Fprintf(&b, "// Handle runs one call of %s on the provider the caller binds: tag\n// names the operation and payload is its Request's JSON. Its value is the\n// result's JSON; a typed failure is Failed with the failure's tagged JSON.\n// A request the contract does not hold and an int the wire cannot carry\n// are defects, which the server answers as Die.\n", capName)
-	fmt.Fprintf(&b, "func Handle(tag string, payload string) string fails rpc.Failed needs %s {\n", capName)
+	fmt.Fprintf(&b, "// Handle runs one call of %s on the provider the caller binds,\n// through the hub's Call: tag names the operation and payload is its\n// Request's JSON. Its value is the result's JSON; a typed failure is\n// Failed with the failure's tagged JSON. A request the contract does not\n// hold and an int the wire cannot carry are defects, which the server\n// answers as Die.\n", capName)
+	fmt.Fprintf(&b, "func Handle(tag string, payload string) string fails rpc.Failed needs %s {\ntry handle(tag, payload, %s.Call)\n}\n\n", capName, g.api)
+	b.WriteString("// handle is Handle with the Request answered by answer.\n")
+	fmt.Fprintf(&b, "func handle[R](tag string, payload string, answer func(r Request) %s.Outcome needs R) string fails rpc.Failed needs R {\n", g.api)
 	b.WriteString("let req = rpc.Decode[Request](\"request\", rpc.Tagged(tag + \"Request\", payload)) catch {\ncase rpc.Transport as t:\nreturn rpc.Die[string](\"RpcError\", t.Reason)\n}\n")
 	// The arguments' int check, for the operations that carry one.
 	checked := 0
@@ -829,8 +848,9 @@ func (g *gen) serverFile(ops []Op) fileText {
 		}
 		b.WriteString("}\n")
 	}
-	// The one dispatch, the hub's Call; then its Outcome on the wire.
-	fmt.Fprintf(&b, "match %s.Call(req) {\ncase %s.Done as done:\nmatch done.Reply {\n", g.api, g.api)
+	// The one dispatch (Handle's is the hub's Call); then its Outcome on
+	// the wire.
+	fmt.Fprintf(&b, "match answer(req) {\ncase %s.Done as done:\nmatch done.Reply {\n", g.api)
 	for _, op := range ops {
 		reply := g.api + "." + op.Name + "Reply"
 		if op.Result == nil {
@@ -856,6 +876,55 @@ func (g *gen) serverFile(ops []Op) fileText {
 		fmt.Fprintf(&b, "case %s.NoFailure:\nrpc.Die[string](\"RpcError\", \"the hub answered NoFailure, which no operation fails\")\n", g.api)
 	}
 	b.WriteString("}\n}\n}\n")
+
+	// The transport: carry, Wire and its law.
+	fmt.Fprintf(&b, "\n// carry is c over Effect RPC's wire: the hub's Call on the Client of a\n// server in this process (rpc.Loopback) whose handle answers with\n// answer, so the call crosses the Client's encoding, the server's\n// envelopes and Handle's reading, and its outcome comes back the same way.\nfunc carry(c Request, answer own func(c Request) %s.Outcome) %s.Outcome {\n", g.api, g.api)
+	fmt.Fprintf(&b, "let client = NewClient(rpc.Loopback(func(tag string, payload string) string fails rpc.Failed {\ntry handle(tag, payload, answer)\n}))\nwith context { %s: client } { %s.Call(c) }\n}\n", capName, g.api)
+	fmt.Fprintf(&b, "\n// Wire is Effect RPC as a transport of the hub's calls.\ntype Wire {} implements %s.Transport[Request, %s.Outcome]\n", g.stdAPI, g.api)
+	fmt.Fprintf(&b, "\n// Carry is carry.\nfunc Carry(w Wire, c Request, answer own func(c Request) %s.Outcome) %s.Outcome { carry(c, answer) }\n", g.api, g.api)
+	// Fits: the wire's int rule (rpc.md 5) is the only loss Agrees admits.
+	fmt.Fprintf(&b, "\n// Fits reports whether r and o hold only ints the wire carries exactly\n// (an int beyond 2^53-1 is Unrepresentable, a defect on either side).\nfunc Fits(r Request, o %s.Outcome) bool {\n", g.api)
+	reqChecks := 0
+	for _, op := range ops {
+		if g.requests[op.Name] != "" {
+			reqChecks++
+		}
+	}
+	if reqChecks > 0 {
+		b.WriteString("match r {\n")
+		for _, op := range ops {
+			if w := g.requests[op.Name]; w != "" {
+				fmt.Fprintf(&b, "case %s.%s as x:\n%s(x) catch {\ncase rpc.Unrepresentable:\nreturn false\n}\n", g.api, requestName(op.Name), w)
+			}
+		}
+		if reqChecks < len(ops) {
+			b.WriteString("case _:\n")
+		}
+		b.WriteString("}\n")
+	}
+	fmt.Fprintf(&b, "match o {\ncase %s.Done as done:\nmatch done.Reply {\n", g.api)
+	for _, op := range ops {
+		reply := g.api + "." + op.Name + "Reply"
+		if w := g.resultWalker(op); w != "" {
+			fmt.Fprintf(&b, "case %s as reply:\n%s(reply.Value) catch {\ncase rpc.Unrepresentable:\nreturn false\n}\n", reply, w)
+		} else {
+			fmt.Fprintf(&b, "case %s:\n", reply)
+		}
+	}
+	fmt.Fprintf(&b, "}\ncase %s.Rejected as rejected:\nmatch rejected.Failure {\n", g.api)
+	for _, f := range fails {
+		variant := g.api + "." + FailureVariant(ops, f)
+		if w := g.walkerName(f); w != "" {
+			fmt.Fprintf(&b, "case %s as failure:\n%s(failure.E) catch {\ncase rpc.Unrepresentable:\nreturn false\n}\n", variant, w)
+		} else {
+			fmt.Fprintf(&b, "case %s:\n", variant)
+		}
+	}
+	if len(fails) == 0 {
+		fmt.Fprintf(&b, "case %s.NoFailure:\n", g.api)
+	}
+	b.WriteString("}\n}\ntrue\n}\n")
+	fmt.Fprintf(&b, "\n// Agrees: the wire carries every call and every outcome the call can\n// have unchanged, when they hold only ints it carries exactly (Fits).\nlaw Agrees(r Request, g %s.Given) {\nlet o = %s.OutcomeOf(r, g)\n!Fits(r, o) || %s.Agrees(Wire, r, o)\n}\n", g.api, g.api, g.stdAPI)
 	return fileText{text: b.String()}
 }
 
@@ -927,9 +996,9 @@ func (g *gen) clientFile(ops []Op) fileText {
 		fmt.Fprintf(&b, "\n// %s calls %s's %s on the server; the wire's failures are\n// typed failures.\n%s {\n", checked, capName, op.Name, head(checked, wireFails))
 		rn := requestName(op.Name)
 		if len(op.Params) == 0 {
-			fmt.Fprintf(&b, "let p = %s\n", rn)
+			fmt.Fprintf(&b, "let p = %s.%s\n", g.api, rn)
 		} else {
-			fmt.Fprintf(&b, "let p = %s{%s}\n", rn, strings.Join(fields, ", "))
+			fmt.Fprintf(&b, "let p = %s.%s{%s}\n", g.api, rn, strings.Join(fields, ", "))
 			if w := g.requests[op.Name]; w != "" {
 				fmt.Fprintf(&b, "try %s(p)\n", w)
 			}
@@ -989,4 +1058,12 @@ func (g *gen) clientFile(ops []Op) fileText {
 		fmt.Fprintf(&b, "case rpc.Transport as t:\n%srpc.Lost[%s](t)\n}\n}\n", ret, res)
 	}
 	return fileText{text: b.String()}
+}
+
+// resultWalker is the walker of op's value, "" for none or no value.
+func (g *gen) resultWalker(op Op) string {
+	if op.Result == nil {
+		return ""
+	}
+	return g.walkerName(op.Result)
 }

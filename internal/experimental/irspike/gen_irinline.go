@@ -25,7 +25,10 @@ import (
 //     changes its copy of a slice field (a package call, slices.Clone,
 //     whose type arguments name the callee's type parameter);
 //   - a fallible helper (fails Gone) whose catch the loop takes, so a
-//     copy's failure sets the site's error and jumps past its block;
+//     copy's failure jumps to the arm that takes it (FAIL-INLINE); and a
+//     fallible leaf (parity, which Go would inline) whose arm binds the
+//     failure, so the IR copies it for its failure's jump and the arm's
+//     binding is the variant itself;
 //   - a match on an inlined helper that returns an Option (one binding
 //     Some, one with a wildcard arm), so each return jumps to its arm
 //     with no Option built (IR-GETMATCH); and one whose tail is a match
@@ -66,6 +69,7 @@ func GenerateInline(seed uint64) string {
 	b.WriteString("func take[T](ar *arena.Of[Slot[T]], r arena.Ref[Slot[T]]) Slot[T] {\n\tlet v = ar.Free(r) catch {\n\tcase arena.Stale:\n\t\tUnreachable(\"take of a freed ref\")\n\t}\n\tv\n}\n\n")
 	fmt.Fprintf(&b, "func cycle[T](ar *arena.Of[Slot[T]], h *Holder[T], x T, i int) Slot[T] {\n\tlet old = take(ar, h.r)\n\th.r = ar.Put(Slot[T]{v: x, w: old.v, n: old.n + i - %d})\n\told\n}\n\n", 1+n(9))
 	fmt.Fprintf(&b, "func fetch[T](a *Acc[T], i int) T fails Gone {\n\tif i >= len(a.items) {\n\t\treturn Gone{At: i}\n\t}\n\ta.hits = a.hits + %d\n\ta.items[i]\n}\n\n", 1+n(3))
+	fmt.Fprintf(&b, "func parity(i int) int fails Gone {\n\tif i %% %d == 0 {\n\t\treturn Gone{At: i}\n\t}\n\ti * 2\n}\n\n", 2+n(3))
 	fmt.Fprintf(&b, "func at[T](a *Acc[T], i int) T {\n\ta.hits = a.hits + 1\n\ta.items[i %% len(a.items)]\n}\n\n")
 	b.WriteString("func sumTo(a *Acc[int], n int) int {\n\tlet mut t = 0\n\tfor i in 0..n {\n\t\tt = t + a.items[i % len(a.items)]\n\t}\n\ta.hits = a.hits + 1\n\tt\n}\n\n")
 	b.WriteString("func peek[T](a *Acc[T], i int) Option[T] {\n\tmatch a.idx.Get(i) {\n\tcase Some[int] as v:\n\t\ta.hits = a.hits + 1\n\t\tSome{Value: a.items[v.Value % len(a.items)]}\n\tcase None:\n\t\tNone\n\t}\n}\n\n")
@@ -110,6 +114,7 @@ func GenerateInline(seed uint64) string {
 	b.WriteString("\t\tlet mut w = a.at(i + 1)\n\t\tlet z = w\n\t\tw = w + 1\n\t\ttotal = total + z * 2 + w\n")
 	b.WriteString("\t\tlet got = a.fetch(i % (len(a.items) + 2)) catch {\n\t\tcase Gone:\n\t\t\t-1\n\t\t}\n")
 	b.WriteString("\t\ttotal = total + got\n")
+	b.WriteString("\t\tlet par = parity(i) catch {\n\t\tcase Gone as g:\n\t\t\tg.At + 1\n\t\t}\n\t\ttotal = total + par\n")
 	b.WriteString("\t\ttotal = total + shift(p, i) + p.a\n")
 	b.WriteString("\t\tlet _ = cycle(&ar, &h, i, i)\n\t\tlet o = cycle(&ar, &h, total % 11, i)\n\t\ttotal = total + o.v + o.w - o.n\n")
 	b.WriteString("\t}\n")

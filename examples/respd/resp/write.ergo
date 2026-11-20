@@ -1,0 +1,121 @@
+import strconv
+import strings
+
+// Append is out with v written in the protocol p. RESP2 writes Down(v).
+// A simple string and an error are one line as sent, so a CR or an LF
+// in their text is written as a space: Append writes Clean(v).
+func Append(out []byte, v Value, p Protocol) []byte {
+	match p {
+	case Resp2:
+		put(out, Down(v), true)
+	case Resp3:
+		put(out, v, false)
+	}
+}
+
+// put is out with v written; resp2 writes Null as RESP2's null bulk
+// string. v holds only RESP2's types when resp2 is set (Down).
+func put(out []byte, v Value, resp2 bool) []byte {
+	match v {
+	case Simple as s:
+		line(appendString(out, "+"), s.Text)
+	case Fault as f:
+		line(appendString(out, "-"), f.Text)
+	case Integer as i:
+		appendString(strconv.AppendInt(appendString(out, ":"), i.N, 10), "\r\n")
+	case Bulk as b:
+		let head = header(out, "$", len(b.Data))
+		appendString(appendString(head, b.Data), "\r\n")
+	case Null:
+		if resp2 {
+			return appendString(out, "$-1\r\n")
+		}
+		appendString(out, "_\r\n")
+	case Array as a:
+		putAll(header(out, "*", len(a.Items)), a.Items, resp2)
+	case Boolean as b:
+		if b.Truth {
+			return appendString(out, "#t\r\n")
+		}
+		appendString(out, "#f\r\n")
+	case Dict as d:
+		let mut o = header(out, "%", len(d.Pairs))
+		for p in d.Pairs {
+			o = put(o, p.Key, resp2)
+			o = put(o, p.Value, resp2)
+		}
+		o
+	case Set as s:
+		putAll(header(out, "~", len(s.Items)), s.Items, resp2)
+	}
+}
+
+// putAll is out with each item written.
+func putAll(out []byte, items []Value, resp2 bool) []byte {
+	let mut o = out
+	for x in items {
+		o = put(o, x, resp2)
+	}
+	o
+}
+
+// header is out with a type byte and a count or a length, and its CRLF.
+func header(out []byte, kind string, n int) []byte {
+	appendString(strconv.AppendInt(appendString(out, kind), int64(n), 10), "\r\n")
+}
+
+// line is out with text as one line: a CR or an LF in it is a space.
+func line(out []byte, text string) []byte {
+	appendString(appendString(out, oneLine(text)), "\r\n")
+}
+
+// oneLine is text with each CR and LF replaced by a space.
+func oneLine(text string) string {
+	if strings.IndexByte(text, '\r') < 0 && strings.IndexByte(text, '\n') < 0 {
+		return text
+	}
+	strings.ReplaceAll(strings.ReplaceAll(text, "\r", " "), "\n", " ")
+}
+
+// Clean is v as Append writes it: the text of each simple string and
+// error made one line (oneLine).
+func Clean(v Value) Value {
+	match v {
+	case Simple as s:
+		Simple{Text: oneLine(s.Text)}
+	case Fault as f:
+		Fault{Text: oneLine(f.Text)}
+	case Array as a:
+		Array{Items: cleanAll(a.Items)}
+	case Set as s:
+		Set{Items: cleanAll(s.Items)}
+	case Dict as d:
+		let mut pairs = []Pair{}
+		for p in d.Pairs {
+			pairs = pairs.Append(Pair{Key: Clean(p.Key), Value: Clean(p.Value)})
+		}
+		Dict{Pairs: pairs}
+	case Integer:
+		v
+	case Bulk:
+		v
+	case Null:
+		v
+	case Boolean:
+		v
+	}
+}
+
+// cleanAll is Clean of each item.
+func cleanAll(items []Value) []Value {
+	let mut out = []Value{}
+	for x in items {
+		out = out.Append(Clean(x))
+	}
+	out
+}
+
+// Encode is v written alone, in p.
+func Encode(v Value, p Protocol) []byte { Append([]byte{}, v, p) }
+
+extern go append func appendString(out []byte, s string) []byte

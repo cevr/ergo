@@ -23,7 +23,7 @@ type memoRun[E] {
 // stopped) or under a node that comes back runs. The law
 // SameEqualsRecompute checks that a skipped Same gives the patches,
 // signals and key functions that running it gives.
-func Same[E, F, R](f *Frame[E], key Key, body func() fails F needs R, at CallSite) fails F needs R {
+func Same[E, F, R](f mut Frame[E], key Key, body func() fails F needs R, at CallSite) fails F needs R {
 	let m = markOf(f)
 	let i = put(f, BoxNode{Style: Plain()}, None, None, at)
 	f.sames = f.sames + 1
@@ -46,16 +46,200 @@ func Same[E, F, R](f *Frame[E], key Key, body func() fails F needs R, at CallSit
 	f.parent = m.parent
 }
 
+law SameEqualsRecompute(seed int, steps int) {
+	let mut r = seeded(seed)
+	// revived: a Same in a Box in a boundary whose read, of a slot the
+	// Same's key does not hold, fails and passes in turn, so the Box is
+	// parked and comes back while the Same's key stays.
+	let revived = pBound{form: 0, slot: 0, kids: []prog{pBox{slot: 1, kids: []prog{pSame{kids: []prog{pText{slot: 2}}, memo: true}}}, pRead{slot: 3}}}
+	let ps = genRoot(&r).Append(revived)
+	let qs = unmemo(ps)
+	let mut f = NewFrame[int]()
+	let mut g = NewFrame[int]()
+	let mut s = genState(&r)
+	let mut again = false
+	let key = KeyDown{Press: KeyPress{Name: "k", Mods: Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}}
+	for _ in 0..(steps%8+8)%8+2 {
+		let a = pass(&f, ps, s)
+		let b = pass(&g, qs, s)
+		if !opsEqual(a, b) || !SameShapes(FrameShape(&f), FrameShape(&g)) || !SameShapes(TreeShape(&f), TreeShape(&g)) {
+			return false
+		}
+		if again && Skips(&f) != sameCount(ps, s, 0) {
+			return false
+		}
+		if sent(Handle(&f, key).Signal) != sent(Handle(&g, key).Signal) {
+			return false
+		}
+		let ka = Kids(&f, Root(&f))
+		let kb = Kids(&g, Root(&g))
+		if len(ka) != len(kb) {
+			return false
+		}
+		for i in 0..len(ka) {
+			if !signalsMatch(&f, &g, ka[i], kb[i]) {
+				return false
+			}
+		}
+		again = false
+		let pick = draw(&r, 4)
+		if pick == 0 {
+			again = true
+		} else if pick == 1 {
+			let ta = toggles(&f, Root(&f), []Id[int]{})
+			let tb = toggles(&g, Root(&g), []Id[int]{})
+			if len(ta) != len(tb) {
+				return false
+			}
+			if len(ta) > 0 {
+				let i = draw(&r, len(ta))
+				if Handle(&f, Press[int]{Id: ta[i]}) != Handle(&g, Press[int]{Id: tb[i]}) {
+					return false
+				}
+			}
+		} else if pick == 2 {
+			s[draw(&r, slots)] = draw(&r, 64)
+		} else {
+			s[3] = draw(&r, 3)
+		}
+	}
+	true
+}
+
+// unmemo is ps with every pSame run every pass.
+func unmemo(ps []prog) []prog {
+	let mut out = []prog{}
+	for p in ps {
+		let q = match p {
+		case pBox as x:
+			pBox{slot: x.slot, kids: unmemo(x.kids)}
+		case pRow as x:
+			pRow{kids: unmemo(x.kids)}
+		case pPress as x:
+			pPress{slot: x.slot, kids: unmemo(x.kids)}
+		case pEach as x:
+			pEach{slot: x.slot, kids: unmemo(x.kids)}
+		case pBound as x:
+			pBound{form: x.form, slot: x.slot, kids: unmemo(x.kids)}
+		case pFieldset as x:
+			pFieldset{slot: x.slot, kids: unmemo(x.kids)}
+		case pSame as x:
+			pSame{kids: unmemo(x.kids), memo: false}
+		case _:
+			p
+		}
+		out = out.Append(q)
+	}
+	out
+}
+
+// sameCount is the number of outermost pSames ps writes at s outside a
+// group that fails: the Sames a second pass at s keeps without running.
+// One a failing group wrote is cut and parked, so the next pass runs it.
+func sameCount(ps []prog, s []int, row int) int {
+	let mut n = 0
+	for p in ps {
+		n = n + match p {
+		case pSame:
+			1
+		case pBox as x:
+			sameCount(x.kids, s, row)
+		case pRow as x:
+			sameCount(x.kids, s, row)
+		case pPress as x:
+			sameCount(x.kids, s, row)
+		case pFieldset as x:
+			sameCount(x.kids, s, row)
+		case pEach as x:
+			let mut c = 0
+			for k in items(s[x.slot]) {
+				c = c + sameCount(x.kids, s, k)
+			}
+			c
+		case pBound as x:
+			boundCount(x, s, row)
+		case _:
+			0
+		}
+	}
+	n
+}
+
+// boundCount is sameCount of a pBound: none when its body fails in a row.
+func boundCount(x pBound, s []int, row int) int {
+	let mut c = 0
+	for k in boundRows(x, s, row) {
+		if outcomes(x.kids, s, k).fail != 0 {
+			return 0
+		}
+		c = c + sameCount(x.kids, s, k)
+	}
+	c
+}
+
+// signalsMatch is whether a press and a text on each node of f under id
+// send what they send on the node of g at the same place, and the trees
+// have one shape. A Toggle is not pressed: its press writes its flag.
+func signalsMatch(f mut Frame[int], g mut Frame[int], a Id[int], b Id[int]) bool {
+	if NodeOf(f, a) != NodeOf(g, b) {
+		return false
+	}
+	match NodeOf(f, a) {
+	case Some[Node[int]] as n:
+		match n.Value {
+		case ToggleNode:
+		case _:
+			if sent(Handle(f, Press[int]{Id: a}).Signal) != sent(Handle(g, Press[int]{Id: b}).Signal) {
+				return false
+			}
+		}
+	case None:
+		return false
+	}
+	if sent(Handle(f, Type[int]{Id: a, Text: "abc"}).Signal) != sent(Handle(g, Type[int]{Id: b, Text: "abc"}).Signal) {
+		return false
+	}
+	let ka = Kids(f, a)
+	let kb = Kids(g, b)
+	if len(ka) != len(kb) {
+		return false
+	}
+	for i in 0..len(ka) {
+		if !signalsMatch(f, g, ka[i], kb[i]) {
+			return false
+		}
+	}
+	true
+}
+
+// toggles is the Toggles under id, in tree order.
+func toggles(f mut Frame[int], id Id[int], out []Id[int]) []Id[int] {
+	let mut all = out
+	match NodeOf(f, id) {
+	case Some[Node[int]] as n:
+		match n.Value {
+		case ToggleNode:
+			all = all.Append(id)
+		case _:
+		}
+	case None:
+	}
+	for k in Kids(f, id) {
+		all = toggles(f, k, all)
+	}
+	all
+}
+
 // skippable is the last run of the Same at spec i when the pass may keep
 // its subtree: its node is in the host's tree under a kept parent, it ran
 // for key, no cell under it changed since, and its disabled state stays.
-func skippable[E](f *Frame[E], i int, key Key) Option[memoRun[E]] {
+func skippable[E](f mut Frame[E], i int, key Key) Option[memoRun[E]] {
 	let sp = f.specs[i]
 	if !sp.live {
 		return None
 	}
 	let mut out Option[memoRun[E]] = None
-	change(f, sp.prev, func(n *node[E]) {
+	change(f, sp.prev, func(n mut node[E]) {
 		if n.dirty || n.off != sp.off {
 			return
 		}
@@ -72,7 +256,7 @@ func skippable[E](f *Frame[E], i int, key Key) Option[memoRun[E]] {
 
 // replay makes the key, address and frame functions of a skipped run
 // again, at the place the run made them.
-func replay[E](f *Frame[E], run memoRun[E]) {
+func replay[E](f mut Frame[E], run memoRun[E]) {
 	for k in run.keys {
 		OnKey(f, k)
 	}
@@ -94,17 +278,17 @@ func since[T](xs []T, from int, to int) []T {
 }
 
 // Skips is the number of Sames the last pass kept without running.
-func Skips[E](f *Frame[E]) int { f.skips }
+func Skips[E](f mut Frame[E]) int { f.skips }
 
 // touched marks each Same around the node r names as needing a run: a
 // cell r owns changed. memo is the nearest Same at or above r, and up the
 // next one above a Same.
-func touched[E](f *Frame[E], r arena.Ref[node[E]]) {
+func touched[E](f mut Frame[E], r arena.Ref[node[E]]) {
 	let mut at = arena.Null[node[E]]()
-	change(f, r, func(n *node[E]) { at = n.memo })
+	change(f, r, func(n mut node[E]) { at = n.memo })
 	for arena.Has(f.nodes, at) {
 		let mut next = arena.Null[node[E]]()
-		change(f, at, func(n *node[E]) {
+		change(f, at, func(n mut node[E]) {
 			n.dirty = true
 			next = n.up
 		})

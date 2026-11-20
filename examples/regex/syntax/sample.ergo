@@ -13,7 +13,7 @@ let alphabet = "ab*"
 type source { state uint64 }
 
 // next is a number in 0..n-1. n is above 0.
-func next(g *source, n int) int {
+func next(g mut source, n int) int {
 	g.state = g.state*6364136223846793005 + 1442695040888963407
 	int((g.state >> 33) % uint64(n))
 }
@@ -28,8 +28,14 @@ func Sample(seed int) Node {
 	g.tree(4)
 }
 
+// RoundTrip: a sampled tree prints to a text that parses back to it.
+law RoundTrip(seed int) {
+	let n = Sample(seed)
+	try Parse(Print(n)) == n
+}
+
 // tree is a tree of at most depth levels.
-func tree(g *source, depth int) Node {
+func tree(g mut source, depth int) Node {
 	if depth <= 1 {
 		return g.leaf()
 	}
@@ -59,20 +65,20 @@ func tree(g *source, depth int) Node {
 
 // counted is of counted: at least 0 to 2 times, and at most 0 or 1
 // times more, or with no bound.
-func counted(g *source, of Node) Node {
+func counted(g mut source, of Node) Node {
 	let min = g.next(3)
 	let max = if g.next(3) == 0 { -1 } else { min + g.next(2) }
 	Count{Of: of, Min: min, Max: max, As: Counted(of, min, max)}
 }
 
 // name is a group name of three: the laws see names repeat in a tree.
-func name(g *source) string { groupNames[g.next(3)] }
+func name(g mut source) string { groupNames[g.next(3)] }
 
 // groupNames are the names that sampled groups take.
 let groupNames = []string{"X", "y", "_z1"}
 
 // parts is two or three trees of at most depth levels.
-func parts(g *source, depth int) []Node {
+func parts(g mut source, depth int) []Node {
 	let mut out = []Node{g.tree(depth), g.tree(depth)}
 	if g.next(2) == 0 {
 		out = out.Append(g.tree(depth))
@@ -81,7 +87,7 @@ func parts(g *source, depth int) []Node {
 }
 
 // leaf is a tree of one node: a literal of the alphabet, Any, or a class.
-func leaf(g *source) Node {
+func leaf(g mut source) Node {
 	match g.next(7) {
 	case 0:
 		Lit{C: alphabet[0]}
@@ -113,6 +119,54 @@ func Scramble(text string) string {
 		out = out + if k < 0 { text[i : i+1] } else { to[k : k+1] }
 	}
 	out
+}
+
+// ParsedIsCanonical: whatever text parses, its tree prints to a text
+// that parses back to the same tree. The texts are text, its scramble,
+// and 20 printed samples with one byte cut out, which parse to many
+// shapes or fail.
+law ParsedIsCanonical(text string, seed int) {
+	if !canonical(text) || !canonical(Scramble(text)) {
+		return false
+	}
+	for k in 0..20 {
+		let src = Print(Sample(seed*20 + k))
+		if len(src) > 0 {
+			let cut = (seed + k) % len(src)
+			let at = if cut < 0 { cut + len(src) } else { cut }
+			if !canonical(src[:at] + src[at+1:]) {
+				return false
+			}
+		}
+	}
+	true
+}
+
+// canonical reports whether text fails to parse, or parses to a tree
+// that prints and parses back to itself.
+func canonical(text string) bool {
+	let n = Parse(text) catch {
+	case _:
+		return true
+	}
+	let back = Parse(Print(n)) catch {
+	case _:
+		return false
+	}
+	back == n
+}
+
+// FailureIsInside: a failure of Parse names an offset inside the text.
+law FailureIsInside(text string) { inside(text) && inside(Scramble(text)) }
+
+// inside reports whether Parse(text) succeeds or fails inside text.
+func inside(text string) bool {
+	let _ = Parse(text) catch {
+	case err:
+		let at = Offset(err)
+		return 0 <= at && at < len(text)
+	}
+	true
 }
 
 // SampleText is a text of seed over the alphabet, of 0 to 7 bytes.

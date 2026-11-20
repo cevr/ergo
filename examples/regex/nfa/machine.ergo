@@ -6,6 +6,7 @@ import machines
 import regex/engine
 import regex/syntax
 import slices
+import regex/backtrack
 
 // Signal is what the machine reads: a byte of the text, or its end.
 type Signal = Read{C byte} | End{}
@@ -91,7 +92,7 @@ func closure(p Program, from []int) []int {
 }
 
 // include adds pc and what it reaches to v.
-func include(v *visit, p Program, pc int) {
+func include(v mut visit, p Program, pc int) {
 	if v.marked[pc] {
 		return
 	}
@@ -112,6 +113,19 @@ type Engine {} implements engine.Engine
 
 // Compile is the Matcher of pattern: its program, run by the machine.
 func Compile(_ Engine, pattern syntax.Node) engine.Matcher { NewCompiled(pattern) }
+
+// AgreesWithBacktrack: on every sampled pattern and text, the NFA and
+// the backtracking engine give the same answer. The texts are text, the
+// empty text, and two sampled texts, which the pattern often matches.
+law AgreesWithBacktrack(seed int, text string) {
+	let p = syntax.Sample(seed)
+	for t in []string{text, "", syntax.SampleText(seed), syntax.SampleText(seed + 1)} {
+		if Compile(Engine, p).Matches(t) != backtrack.Compile(backtrack.Engine, p).Matches(t) {
+			return false
+		}
+	}
+	true
+}
 
 // Compiled is a pattern's program. Only Build makes a program the machine
 // runs, so NewCompiled builds every Compiled, and ergo test builds each

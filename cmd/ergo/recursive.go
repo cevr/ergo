@@ -129,9 +129,10 @@ func (module moduleTestOptions) select_(one *fileOptions, l loaded) (bool, error
 	return true, nil
 }
 
-// loadShared loads the packages below opts.file with one load of their
-// module (sketchfront.CheckPackages): each package as loadFolder loads it
-// alone, the same source, snapshot, analysis and result. ok is false when
+// loadShared loads the packages below opts.file with one load of each
+// module (sketchfront.CheckPackages; at a workspace root, one per member,
+// in selection order): each package as loadFolder loads it alone, the
+// same source, snapshot, analysis and result. ok is false when
 // they cannot share a load or a package does not check; the caller then
 // loads each package alone, which reports it as before.
 func loadShared(opts fileOptions, platform gobind.Platform) ([]sketchfront.PackageTarget, []loaded, bool) {
@@ -147,9 +148,18 @@ func loadShared(opts fileOptions, platform gobind.Platform) ([]sketchfront.Packa
 		}
 		dirs[i] = sources[i].Admitted()
 	}
-	analyses, err := sketchfront.CheckPackages(dirs, platform)
-	if err != nil {
-		return nil, nil, false
+	var analyses []sketchfront.Analysis
+	for start := 0; start < len(dirs); {
+		end := start + 1
+		for end < len(dirs) && packages[end].Root == packages[start].Root {
+			end++
+		}
+		as, err := sketchfront.CheckPackages(dirs[start:end], platform)
+		if err != nil {
+			return nil, nil, false
+		}
+		analyses = append(analyses, as...)
+		start = end
 	}
 	loads := make([]loaded, len(analyses))
 	for i, a := range analyses {
@@ -363,6 +373,7 @@ func replayModuleVerdict(opts fileOptions, data []byte) error {
 	if err := json.Unmarshal(data, &verdicts); err != nil {
 		return fmt.Errorf("test result cache: %w", err)
 	}
+	failed := false
 	for _, v := range verdicts {
 		fmt.Fprintf(os.Stdout, "package %s\n", v.Path)
 		if v.Result == nil {
@@ -371,9 +382,16 @@ func replayModuleVerdict(opts fileOptions, data []byte) error {
 			}
 			continue
 		}
-		if err := replayTestResult(v.Result, os.Stdout, os.Stderr); err != nil {
-			return err
+		// An unexpected skip fails its package and the run, as a live
+		// run's does (packageOutcome); the other packages still replay.
+		stop, fail := packageOutcome(v.Path, replayTestResult(v.Result, opts.file, os.Stdout, os.Stderr))
+		if stop != nil {
+			return stop
 		}
+		failed = failed || fail
+	}
+	if failed {
+		return exitStatusError{code: 1, handled: true}
 	}
 	return nil
 }

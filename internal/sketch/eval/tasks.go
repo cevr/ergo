@@ -19,7 +19,8 @@ import (
 // value no Wait took.
 type drainer interface{ drain() []Value }
 
-func registerTasks() {
+func registerTasks(t nativeTables) {
+	natives := t.std
 	natives["task.Go"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		c, ok := args[0].(*closure)
 		if !ok {
@@ -65,21 +66,6 @@ func registerTasks() {
 	}
 	// The pure duration helpers of std time, from Go's time package and
 	// the saturation rules their doc comments state.
-	natives["time.subMono"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
-		a, b := args[0].(int64), args[1].(int64)
-		d := a - b
-		switch {
-		case d < 0 && a > b:
-			d = math.MaxInt64
-		case d > 0 && a < b:
-			d = math.MinInt64
-		}
-		return d, nil
-	}
-	natives["time.subWall"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
-		a := time.Unix(args[0].(int64), args[1].(int64))
-		return int64(a.Sub(time.Unix(args[2].(int64), args[3].(int64)))), nil
-	}
 	quotient := func(what string) native {
 		return func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 			d, n := args[0].(int64), args[1].(int64)
@@ -421,6 +407,29 @@ func (q *queueV) opCall(in *interp, fr *frame, at syntax.Node, name string, args
 		}
 		q.buf = append(q.buf, args[0])
 		return unit{}, nil
+	case "Slide":
+		// Slide never waits: the oldest value leaves and v enters in one
+		// step, so v enters exactly once (Queues, Offer and Cap; q5). A
+		// Push still waiting for room keeps waiting.
+		switch {
+		case q.capacity == 0:
+			return nil, fr.defect(at, "queue.Slide: a queue of capacity 0 has no room to slide into")
+		case q.ended:
+			return nil, q.closedFailure(fr, at)
+		}
+		var old Value
+		evicted := int64(len(q.buf)) >= q.capacity
+		if evicted {
+			old = q.buf[0]
+			q.buf = q.buf[1:]
+		}
+		q.buf = append(q.buf, args[0])
+		call, isCall := at.(*syntax.CallExpr)
+		if !isCall {
+			ice("a Slide with no call")
+		}
+		// The evicted value goes back to the caller, who owns it (R42).
+		return in.option(fr, call, old, evicted)
 	case "Cap":
 		return q.capacity, nil
 	case "Poll":

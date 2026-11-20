@@ -1,0 +1,163 @@
+// The keys: the composer as a machine, what each key means in each
+// phase, and the status line that names the way out.
+
+import gent/agent
+import machines
+import strings
+import term
+
+// Line is the composer's text.
+type Line { Text string }
+
+// Edit is the composer's step: a character is typed at the end and
+// Backspace takes the last one away; any other key changes nothing.
+func Edit(l Line, k term.Key) Decision[Line, Never] {
+	match k {
+	case term.Char as c:
+		Stay[Line]{Next: Line{Text: l.Text + c.Text}}
+	case term.Backspace:
+		if l.Text == "" {
+			return Ignore
+		}
+		Stay[Line]{Next: Line{Text: dropLast(l.Text)}}
+	case term.Return, term.Tab, term.Escape, term.Up, term.Down, term.Left, term.Right, term.Interrupt, term.EndOfInput, term.Other:
+		Ignore
+	case term.Home, term.End, term.Insert, term.Delete, term.PageUp, term.PageDown, term.F, term.Chord, term.Paste, term.Wheel, term.Resized:
+		Ignore
+	}
+}
+
+// Composer is the input line as a machine.
+type Composer machine[Line, term.Key] {
+	initial: Line{Text: ""},
+	step:    Edit,
+}
+
+// dropLast is text without its last rune.
+func dropLast(text string) string {
+	let mut last = 0
+	for i, _ in text {
+		last = i
+	}
+	strings.Slice(text, 0, last)
+}
+
+// Action is what a key does: edit the composer, send the agent a signal,
+// send the composer's line, or nothing.
+type Action = Type{Key term.Key} | Send{Signal agent.Signal} | SendLine{} | Nothing{}
+
+// Intent is what k does in phase p. Ctrl-C quits when idle and stops the
+// turn otherwise; Esc stops the turn; Enter sends the line when idle; y
+// and n answer an ask; the end of the input quits. Typing goes to the
+// composer in every phase, so a person may write the next message while
+// a turn runs.
+func Intent(k term.Key, p agent.Phase) Action {
+	match (p, k) {
+	case (agent.Ended, _):
+		Nothing
+	case (_, term.EndOfInput):
+		Send{Signal: agent.Quit}
+	case (agent.Idle, term.Interrupt):
+		Send{Signal: agent.Quit}
+	case (_, term.Interrupt):
+		Send{Signal: agent.Interrupt}
+	case (agent.Idle, term.Escape):
+		Nothing
+	case (_, term.Escape):
+		Send{Signal: agent.Interrupt}
+	case (agent.Idle, term.Return):
+		SendLine
+	case (agent.Approving, term.Char as c):
+		match c.Text {
+		case "y":
+			Send{Signal: agent.Approve}
+		case "n":
+			Send{Signal: agent.Decline}
+		case _:
+			Type{Key: k}
+		}
+	case (_, term.Char), (_, term.Backspace):
+		Type{Key: k}
+	case (_, term.Return), (_, term.Tab), (_, term.Up), (_, term.Down), (_, term.Left), (_, term.Right), (_, term.Other):
+		Nothing
+	case (_, term.Home), (_, term.End), (_, term.Insert), (_, term.Delete), (_, term.PageUp), (_, term.PageDown), (_, term.F), (_, term.Chord), (_, term.Paste), (_, term.Wheel), (_, term.Resized):
+		Nothing
+	}
+}
+
+// Exit is the key that leaves phase p: Ctrl-C quits when idle, Esc stops
+// a turn, and n refuses an ask. Ended has none: the program has left.
+func Exit(p agent.Phase) Option[term.Key] {
+	match p {
+	case agent.Idle:
+		Some[term.Key]{Value: term.Interrupt}
+	case agent.Asking, agent.Waiting, agent.Running:
+		Some[term.Key]{Value: term.Escape}
+	case agent.Approving:
+		Some[term.Key]{Value: term.Char{Text: "n"}}
+	case agent.Ended:
+		None
+	}
+}
+
+// Name is how the status line names k.
+func Name(k term.Key) string {
+	match k {
+	case term.Interrupt:
+		"ctrl-c"
+	case term.Escape:
+		"esc"
+	case term.Return:
+		"enter"
+	case term.Char as c:
+		c.Text
+	case term.Backspace, term.Tab, term.Up, term.Down, term.Left, term.Right, term.EndOfInput, term.Other:
+		"?"
+	case term.Home, term.End, term.Insert, term.Delete, term.PageUp, term.PageDown, term.F, term.Chord, term.Paste, term.Wheel, term.Resized:
+		"?"
+	}
+}
+
+// Status is the status line of s: what the agent is doing, the steps of
+// the turn, and the keys that act, its Exit first.
+func Status(s agent.State) string {
+	let steps = "step \(s.Steps)/\(s.Limits.MaxSteps)"
+	match s.Phase {
+	case agent.Idle:
+		"ready · enter send · ctrl-c quit"
+	case agent.Asking:
+		"thinking · " + steps + " · esc stop"
+	case agent.Waiting as w:
+		"retry \(w.Try) in \(w.In) · " + steps + " · esc stop"
+	case agent.Approving as a:
+		"run " + a.Call.Name + "? · " + steps + " · n no · y yes · esc stop"
+	case agent.Running as r:
+		"running " + r.Call.Name + " · " + steps + " · esc stop"
+	case agent.Ended:
+		"ended"
+	}
+}
+
+// EveryStateShowsItsExit: in every phase but Ended, the status line names
+// a key whose intent is a signal the agent takes there.
+law EveryStateShowsItsExit(s agent.State) {
+	match Exit(s.Phase) {
+	case None:
+		match s.Phase {
+		case agent.Ended:
+			true
+		case agent.Idle, agent.Asking, agent.Waiting, agent.Approving, agent.Running:
+			false
+		}
+	case Some[term.Key] as k:
+		if !strings.Contains(Status(s), Name(k.Value)) {
+			return false
+		}
+		match Intent(k.Value, s.Phase) {
+		case Send as send:
+			machines.Can(agent.Step, s, send.Signal)
+		case Type, SendLine, Nothing:
+			false
+		}
+	}
+}

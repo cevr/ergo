@@ -70,7 +70,8 @@ func newEmbedFS(n *check.Named) *embedFS {
 	return tree
 }
 
-func registerNativesembed() {
+func registerNativesembed(t nativeTables) {
+	natives := t.std
 	natives["embed.NewEmpty"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		if ab := in.charge(fr, at, 1); ab != nil {
 			return nil, ab

@@ -64,7 +64,9 @@ MAX=${MAX:-0}
 case "$S" in /tmp/opencode/?*|/workspaces/.scratch/?*) ;; *) echo "S must be under /tmp/opencode or /workspaces/.scratch" >&2; exit 2 ;; esac
 [ ! -e "$S" ] || { echo "$S exists" >&2; exit 2; }
 [ -d "$REPO/.git" ] || [ -f "$REPO/HEAD" ] || { echo "$REPO is no Git repository" >&2; exit 2; }
-mkdir -p "$S/base" "$S/cases"
+mkdir -p "$S/base" "$S/cases" "$S/home" "$S/xdg"
+# work's data (the list of bases) stays in S, not in the user's home.
+export HOME="$S/home" XDG_DATA_HOME="$S/xdg"
 
 # The work base: a repository whose work.toml names the plugin, trusted.
 (

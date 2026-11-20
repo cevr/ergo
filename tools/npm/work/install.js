@@ -1,4 +1,4 @@
-// postinstall of @cevr/work: put the platform package's native binary at
+// postinstall of @cvr/work: put the platform package's native binary at
 // bin/work, in place of the shell fallback, so the bin npm links runs the
 // binary itself (esbuild's pattern). A failure keeps the fallback, which
 // finds the same binary at each run.
@@ -7,9 +7,9 @@ const fs = require("fs");
 const path = require("path");
 
 const platforms = {
-  "linux-x64": "@cevr/work-linux-x64",
-  "linux-arm64": "@cevr/work-linux-arm64",
-  "darwin-arm64": "@cevr/work-darwin-arm64",
+  "linux-x64": "@cvr/work-linux-x64",
+  "linux-arm64": "@cvr/work-linux-arm64",
+  "darwin-arm64": "@cvr/work-darwin-arm64",
 };
 
 function main() {

@@ -6,25 +6,120 @@ import strings
 // at the end, so printing is linear in the output.
 type writer { parts []string }
 
-func put(w *writer, s string) { w.parts = w.parts.Append(s) }
+func put(w mut writer, s string) { w.parts = w.parts.Append(s) }
 
-// Compact is v with no white space: jq -c's layout.
+// Compact is v with no white space.
 func Compact(v json.Value) string {
 	let mut w = writer{parts: []string{}}
 	compact(&w, v)
 	strings.Join(w.parts, "")
 }
 
+// CompactRoundTrips: the compact text of a value parses back to it.
+law CompactRoundTrips(t Tree) {
+	let w = try Lawful(t)
+	try Parse(Compact(w)) == w
+}
+
+// Tree is the shape of a JSON value as a law draws it. A number is drawn
+// as an int64 or as parts that spell only valid numbers: a lead, a
+// fraction, an exponent and, when Long, more digits than an int64 holds.
+type Tree =
+	| TreeNull{}
+	| TreeBool{V bool}
+	| TreeInt{V int64}
+	| TreeDigits{Lead int, Frac int, Exp int, Long bool}
+	| TreeText{V string}
+	| TreeArray{Items []Tree}
+	| TreeObject{Members []TreeMember}
+
+// TreeMember is one key and its value in a drawn object.
+type TreeMember { Key string, V Tree }
+
+// magnitude is n's digits without a sign; the least int has no positive
+// twin, so the sign is cut from the text, not from the number.
+func magnitude(n int) string { strings.TrimPrefix(strconv.Itoa(n), "-") }
+
+// spelled is the number text the parts of d spell.
+func spelled(d TreeDigits) string {
+	let mut s = strconv.Itoa(d.Lead)
+	if d.Long && d.Lead != 0 {
+		s = s + "12345678901234567890123456789"
+	}
+	if d.Frac != 0 {
+		s = s + ".0" + magnitude(d.Frac)
+	}
+	if d.Exp > 0 {
+		s = s + "e+" + strconv.Itoa(d.Exp)
+	}
+	if d.Exp < 0 {
+		s = s + "E" + strconv.Itoa(d.Exp)
+	}
+	s
+}
+
+// Lawful is the std Value t spells, with each string made valid UTF-8:
+// the printers write invalid UTF-8 as U+FFFD, so only a valid
+// string prints back to itself. ParseNum fails only if spelled makes a
+// text that is not a number; the failure then refutes the law that drew t.
+func Lawful(t Tree) json.Value fails json.Malformed {
+	match t {
+	case TreeNull:
+		json.Null
+	case TreeBool as b:
+		json.Boolean{Value: b.V}
+	case TreeInt as n:
+		json.IntNumber(n.V)
+	case TreeDigits as d:
+		try json.ParseNum(spelled(d))
+	case TreeText as s:
+		json.Str{Value: strings.ToValidUTF8(s.V, "\ufffd")}
+	case TreeArray as a:
+		let mut items = []json.Value{}
+		for item in a.Items {
+			items = items.Append(try Lawful(item))
+		}
+		json.Array{Items: items}
+	case TreeObject as o:
+		let mut members = []json.Member{}
+		for m in o.Members {
+			members = members.Append(json.Member{Key: strings.ToValidUTF8(m.Key, "\ufffd"), Value: try Lawful(m.V)})
+		}
+		json.Object{Members: members}
+	}
+}
+
+// CompactIgnoresLayout: the compact text does not depend on the layout
+// of the text it was parsed from.
+law CompactIgnoresLayout(t Tree) {
+	let w = try Lawful(t)
+	Compact(try Parse(Indent(w, "  "))) == Compact(w)
+}
+
 // Indent is v with one member or item per line, each level indented by
-// one more indent, and an empty array or object as [] or {}: jq's layout
-// with indent "  ". The text has no final line feed.
+// one more indent, and an empty array or object as [] or {}, with
+// indent "  ". The text has no final line feed.
 func Indent(v json.Value, indent string) string {
 	let mut w = writer{parts: []string{}}
 	pretty(&w, v, indent, "\n")
 	strings.Join(w.parts, "")
 }
 
-func compact(w *writer, v json.Value) {
+// IndentRoundTrips: the indented text parses back to the value, whatever
+// the indent of spaces and tabs.
+law IndentRoundTrips(t Tree, tabs bool) {
+	let w = try Lawful(t)
+	let indent = if tabs { "\t" } else { "  " }
+	try Parse(Indent(w, indent)) == w
+}
+
+// IndentIsIdempotent: indenting an indented text again changes nothing.
+law IndentIsIdempotent(t Tree) {
+	let once = Indent(try Lawful(t), "  ")
+	Indent(try Parse(once), "  ") == once
+}
+
+func compact(w mut writer, v json.Value) {
 	match v {
 	case json.Array as a:
 		put(w, "[")
@@ -53,7 +148,7 @@ func compact(w *writer, v json.Value) {
 
 // pretty prints v; newline is a line feed and the indent of the level v
 // is at.
-func pretty(w *writer, v json.Value, indent string, newline string) {
+func pretty(w mut writer, v json.Value, indent string, newline string) {
 	let inner = newline + indent
 	match v {
 	case json.Array as a:
@@ -85,7 +180,7 @@ func pretty(w *writer, v json.Value, indent string, newline string) {
 	}
 }
 
-func scalar(w *writer, v json.Value) {
+func scalar(w mut writer, v json.Value) {
 	match v {
 	case json.Null:
 		put(w, "null")
@@ -102,11 +197,11 @@ func scalar(w *writer, v json.Value) {
 	}
 }
 
-// quote writes s as a JSON string, as jq writes it: ", \ and the bytes
+// quote writes s as a JSON string: ", \ and the bytes
 // below 0x20 and 0x7f are escaped, with \b, \f, \n, \r and \t where JSON
 // has them; any other byte is written as it is. Invalid UTF-8 is written
 // as U+FFFD, as Go's encoding/json writes it.
-func quote(w *writer, raw string) {
+func quote(w mut writer, raw string) {
 	let s = strings.ToValidUTF8(raw, "\ufffd")
 	put(w, "\"")
 	let mut run = 0

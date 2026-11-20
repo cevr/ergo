@@ -109,64 +109,64 @@ func scanned(i int, k uint64, n int) string {
 	"\(c) \(bit) \(both) \(fits) \(narrow) \(slot) \(z) \(scanRoom)"
 }
 
-func at[T](b *Box[T], i int) T fails Missing {
+func at[T](b mut Box[T], i int) T fails Missing {
 	if i < 0 || i >= len(b.items) {
 		return Missing{At: i}
 	}
 	b.items[i]
 }
 
-func must[T](b *Box[T], i int) T {
+func must[T](b mut Box[T], i int) T {
 	at(b, i) catch {
 	case Missing:
 		Unreachable("no item \(i)")
 	}
 }
 
-func orFirst[T](b *Box[T], i int) T {
+func orFirst[T](b mut Box[T], i int) T {
 	at(b, i) catch {
 	case Missing:
 		return b.items[0]
 	}
 }
 
-func viaLet[T](b *Box[T], i int) T {
+func viaLet[T](b mut Box[T], i int) T {
 	let r = must(b, i)
 	r
 }
 
-func bumped[T](b *Box[T], i int, f func(r *T)) T {
+func bumped[T](b mut Box[T], i int, f func(r mut T)) T {
 	let r = must(b, i)
 	f(&b.items[i])
 	r
 }
 
-func mixed(b *Box[Rec], i int, k int) Rec {
+func mixed(b mut Box[Rec], i int, k int) Rec {
 	let mut r = must(b, i)
 	r.c = r.c + k
 	r
 }
 
-func soft[T](b *Box[T], i int, d T) T {
+func soft[T](b mut Box[T], i int, d T) T {
 	at(b, i) catch {
 	case Missing:
 		d
 	}
 }
 
-func later(b *Box[Rec], i int) func() int {
+func later(b mut Box[Rec], i int) func() int {
 	let r = must(b, i)
 	func() int { r.a + r.c }
 }
 
-func keyed[T](b *Box[T], i int) int {
+func keyed[T](b mut Box[T], i int) int {
 	let a = i * 3 + b.n
 	let r = Rec{a: a, b: "k", c: 1, d: 0, e: 0}
 	b.n = r.a - a
 	a
 }
 
-func counted[T](b *Box[T], i int) int {
+func counted[T](b mut Box[T], i int) int {
 	let n = i * 5 + b.n
 	b.n = b.n * 1
 	n
@@ -174,7 +174,7 @@ func counted[T](b *Box[T], i int) int {
 
 type Gone {}
 
-func pick2(b *Box[Rec], i int) int fails Missing | Gone {
+func pick2(b mut Box[Rec], i int) int fails Missing | Gone {
 	if i == 5 {
 		return Gone
 	}
@@ -182,13 +182,13 @@ func pick2(b *Box[Rec], i int) int fails Missing | Gone {
 	r.a
 }
 
-func loud(b *Box[Rec], i int) int fails Missing needs Console {
+func loud(b mut Box[Rec], i int) int fails Missing needs Console {
 	Console.Println("loud")
 	let r = try at(b, i)
 	r.a
 }
 
-func quiet(b *Box[Rec]) int needs Console {
+func quiet(b mut Box[Rec]) int needs Console {
 	loud(b, 0) catch {
 	case Missing:
 		-1
@@ -197,14 +197,14 @@ func quiet(b *Box[Rec]) int needs Console {
 
 type Index { by Map[int, int], alt Map[int, int], hits int }
 
-func drop(x *Index, k int) {
+func drop(x mut Index, k int) {
 	x.by = x.by.Delete(k)
 	x.hits = x.hits + 1
 }
 
 func show(r Rec) string { "\(r.a) \(r.b) \(r.c) \(r.d) \(r.e)" }
 
-func stash(b *Box[Rec], i int, k int) Rec {
+func stash(b mut Box[Rec], i int, k int) Rec {
 	let r = must(b, i)
 	for j in 0..k {
 		b.items[i].e = b.items[i].e + j
@@ -215,7 +215,7 @@ func stash(b *Box[Rec], i int, k int) Rec {
 	b.items[i]
 }
 
-func noisy(b *Box[Rec], i int) int needs Console {
+func noisy(b mut Box[Rec], i int) int needs Console {
 	Console.Println("noisy \(i)")
 	for j in 0..2 {
 		b.items[i].d = b.items[i].d + j + 1
@@ -234,7 +234,7 @@ func tally(xs []int, k int) int {
 
 type Hook { f func() int }
 
-func hooked(b *Box[Rec], h *Hook, i int) Rec {
+func hooked(b mut Box[Rec], h mut Hook, i int) Rec {
 	let r = must(b, i)
 	h.f = func() int { r.a }
 	r
@@ -246,13 +246,13 @@ type Shape = Sq | Ci
 
 func sq(n int) Sq { Sq{a: n, w: n} }
 
-func shapeVar[T](b *Box[T], n int) Shape {
+func shapeVar[T](b mut Box[T], n int) Shape {
 	let mut s = Sq{a: n, w: 1}
 	s.w = s.w + n
 	s
 }
 
-func shapeDef[T](b *Box[T], n int) Shape {
+func shapeDef[T](b mut Box[T], n int) Shape {
 	let s = sq(n)
 	if s.a > 100 {
 		return Ci{a: s.w}
@@ -349,7 +349,7 @@ func (g *formGen) stmt() {
 		// The callback writes the record the let read: the let keeps the
 		// value it had.
 		i, v, k := g.valid(), g.name("r"), g.r.IntN(9)+1
-		g.line(fmt.Sprintf("let %s = bumped(&b, %d, func(r *Rec) { r.d = r.d + %d })", v, i, k))
+		g.line(fmt.Sprintf("let %s = bumped(&b, %d, func(r mut Rec) { r.d = r.d + %d })", v, i, k))
 		g.line(fmt.Sprintf("Console.Println(show(%s) + \" \" + show(b.items[%d]))", v, i))
 		old := g.items[i]
 		g.items[i].d += k
@@ -617,7 +617,7 @@ func formProgramEdges(seed uint64, reached map[string]bool) (src, want string, e
 		g.line("Console.Println(show(must(&b, 9)))")
 		g.reached["end-unreachable"] = true
 	}
-	digest := "\nfunc digest(b *Box[Rec]) string {\n\tlet mut parts = []string{}\n\tfor r in b.items {\n\t\tparts = parts.Append(show(r))\n\t}\n\tstrings.Join(parts, \";\")\n}\n"
+	digest := "\nfunc digest(b mut Box[Rec]) string {\n\tlet mut parts = []string{}\n\tfor r in b.items {\n\t\tparts = parts.Append(show(r))\n\t}\n\tstrings.Join(parts, \";\")\n}\n"
 	return "import strings\n\n" + formPrelude + digest + "func main() fails Missing | Gone needs Console {\n" + g.b.String() + "}\n", g.want.String(), edges
 }
 

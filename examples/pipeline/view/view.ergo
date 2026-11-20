@@ -4,38 +4,45 @@
 // and the page hosts later (PX3b, PX4).
 
 import pipeline/pipeline
-import pipeline/pipeline/pipelinerpc
+import pipeline/pipeline/pipelineapi
 import pipeline/run
 import pipeline/screen
 import ui
+import strings
+import testing
+import actor
+import github.com/cevr/ergo/modules/domain
+import github.com/cevr/ergo/modules/domain/memory
+import time
+import pipeline/board
 
 // SubmitOf, CancelOf, RetryOf and ShowOf are the requests of the form: what
 // the buttons "submit", "cancel", "retry" and "show" ask.
 func SubmitOf(f screen.Form) screen.Request {
-	pipelinerpc.SubmitRequest{C: pipeline.SubmitRun{ID: f.ID, Run: f.Run, Stages: screen.Number(f)}}
+	pipelineapi.SubmitRequest{C: pipeline.SubmitRun{ID: f.ID, Run: f.Run, Stages: screen.Number(f)}}
 }
 
 func CancelOf(f screen.Form) screen.Request {
-	pipelinerpc.CancelRequest{C: pipeline.CancelRun{ID: f.ID, Run: f.Run, Why: f.Why}}
+	pipelineapi.CancelRequest{C: pipeline.CancelRun{ID: f.ID, Run: f.Run, Why: f.Why}}
 }
 
 func RetryOf(f screen.Form) screen.Request {
-	pipelinerpc.RetryRequest{C: pipeline.RetryRun{ID: f.ID, Run: f.Run, Stage: screen.Number(f)}}
+	pipelineapi.RetryRequest{C: pipeline.RetryRun{ID: f.ID, Run: f.Run, Stage: screen.Number(f)}}
 }
 
-func ShowOf(f screen.Form) screen.Request { pipelinerpc.RunOfRequest{Id: f.Run} }
+func ShowOf(f screen.Form) screen.Request { pipelineapi.RunOfRequest{Id: f.Run} }
 
 // Call is the reply of api to the command r. A read is not a command: its
 // reply is Unavailable (the step never sends one).
 func Call(api pipeline.Pipeline, r screen.Request) screen.Reply {
 	let receipt = match r {
-	case pipelinerpc.SubmitRequest as x:
+	case pipelineapi.SubmitRequest as x:
 		api.Submit(x.C)
-	case pipelinerpc.CancelRequest as x:
+	case pipelineapi.CancelRequest as x:
 		api.Cancel(x.C)
-	case pipelinerpc.RetryRequest as x:
+	case pipelineapi.RetryRequest as x:
 		api.Retry(x.C)
-	case pipelinerpc.BoardRequest, pipelinerpc.RunOfRequest:
+	case pipelineapi.BoardRequest, pipelineapi.RunOfRequest:
 		return screen.Refused{Why: screen.Unavailable{Cause: pipeline.Unavailable}}
 	} catch {
 	case run.WrongState as e:
@@ -89,13 +96,13 @@ func rejection(r screen.Rejection) string {
 // Sending is the line the screen shows while the command r is in flight.
 func Sending(r screen.Request) string {
 	match r {
-	case pipelinerpc.SubmitRequest as x:
+	case pipelineapi.SubmitRequest as x:
 		"sending submit \(x.C.ID)"
-	case pipelinerpc.CancelRequest as x:
+	case pipelineapi.CancelRequest as x:
 		"sending cancel \(x.C.ID)"
-	case pipelinerpc.RetryRequest as x:
+	case pipelineapi.RetryRequest as x:
 		"sending retry \(x.C.ID)"
-	case pipelinerpc.BoardRequest, pipelinerpc.RunOfRequest:
+	case pipelineapi.BoardRequest, pipelineapi.RunOfRequest:
 		"reading"
 	}
 }
@@ -140,8 +147,131 @@ func runText(r run.Run) string {
 }
 
 // View is the view of the screen whose Api is api: the view a host shows.
-func View(api pipeline.Pipeline) func(f *ui.Frame[screen.Signal], s screen.Screen) {
-	func(f *ui.Frame[screen.Signal], s screen.Screen) { Board(f, s, api) }
+func View(api pipeline.Pipeline) func(f mut ui.Frame[screen.Signal], s screen.Screen) {
+	func(f mut ui.Frame[screen.Signal], s screen.Screen) { Board(f, s, api) }
+}
+
+// ReplyIsShown: the view of a screen whose last command got reply shows a
+// line that says so: "took ID at POSITION" for a receipt, "refused: " and
+// the reason for a rejection.
+law ReplyIsShown(reply screen.Reply) {
+	let api = testing.Script[pipeline.Pipeline]{}
+	let s = screen.Showing{Shown: screen.Shown{..screen.ShownOf(screen.Fresh), Notice: screen.Said{Reply: reply}}}
+	let mut f = ui.NewFrame[screen.Signal]()
+	let _ = ui.Render(&f, View(api), s)
+	for line in texts(ui.FrameShape(&f)) {
+		match reply {
+		case screen.Took as t:
+			if line == "took \(t.Receipt.Command) at \(t.Receipt.Position)" {
+				return true
+			}
+		case screen.Refused:
+			if strings.HasPrefix(line, "refused: ") && len(line) > len("refused: ") {
+				return true
+			}
+		}
+	}
+	false
+}
+
+// texts are the values of the text nodes of shapes, in tree order.
+func texts(shapes []ui.Shape[screen.Signal]) []string {
+	let mut out = []string{}
+	for s in shapes {
+		match s.Node {
+		case ui.TextNode as t:
+			out = out.Append(t.Value)
+		case _:
+		}
+		for t in texts(s.Kids) {
+			out = out.Append(t)
+		}
+	}
+	out
+}
+
+// HeldTryShowsRunningThenPassed: the screen of the in-process context
+// whose runner holds its try submits a run of one stage; the board shows
+// the run running (the busy state) while the try is held. Once a Release
+// passes the try and the context settles, a refresh shows it passed.
+law HeldTryShowsRunningThenPassed(pick int) {
+	let name = pipeline.Names[((pick%3)+3)%3]
+	let runner = testing.Script[pipeline.Runner]{}
+	runner.Run.Hold()
+	let clock = time.NewManual(0)
+	with context { Scheduler: clock, pipeline.Runner: runner } {
+		let m = pipeline.Open(memory.New[pipeline.Entry]()) catch {
+		case domain.Conflict, domain.Reused, domain.Unkept:
+			return false
+		}
+		let a = actor.StartMachine(screen.Life{}, 8, func(r screen.Reply) {})
+		let mut h = ui.NewTestHost(a, View(m), clock, 8) catch {
+		case ui.BadPatch:
+			return false
+		}
+		ui.Play(&h, []ui.Act{ui.SettleAll, ui.TypeInto{Label: "id", Text: "c1"}, ui.TypeInto{Label: "run", Text: name}, ui.TypeInto{Label: "number", Text: "1"}, ui.TapOn{Label: "submit"}, ui.SettleAll}) catch {
+		case _:
+			return false
+		}
+		let busy = shows(&h, "took c1 at 1") && shows(&h, "running: "+name) && !shows(&h, "passed: "+name)
+		runner.Run.Release(func(id string, stage int, attempt int) bool fails pipeline.Offline { true })
+		let _ = pipeline.Settle(m) catch {
+		case pipeline.Unavailable:
+			return false
+		}
+		ui.Play(&h, []ui.Act{ui.TapOn{Label: "refresh"}, ui.SettleAll}) catch {
+		case _:
+			return false
+		}
+		let done = shows(&h, "passed: "+name) && !shows(&h, "running: "+name)
+		stop(a)
+		pipeline.Stop(m)
+		busy && done && testing.Unanswered() == ""
+	}
+}
+
+// shows is whether the screen of h shows the line.
+func shows[D, F](h mut ui.TestHost[screen.Screen, screen.Signal, D, F], line string) bool { ui.Find(h, line) != None }
+
+// stop stops the screen's actor.
+func stop[S, E, D, F](a actor.Actor[S, E, D, F]) {
+	a.Stop() catch {
+	case _:
+	}
+}
+
+// HeldAskShowsSendingThenReceipt: while the Api holds the screen's submit,
+// the screen shows it sending; once a Release answers it, the screen
+// shows the receipt, and the Api got the command the form says.
+law HeldAskShowsSendingThenReceipt(id string, at int) {
+	let api = testing.Script[pipeline.Pipeline]{}
+	api.Board.Answer(func() board.View { board.Empty })
+	api.Submit.Hold()
+	let clock = time.NewManual(0)
+	with context { Scheduler: clock } {
+		let a = actor.StartMachine(screen.Life{}, 8, func(r screen.Reply) {})
+		let mut h = ui.NewTestHost(a, View(api), clock, 8) catch {
+		case ui.BadPatch:
+			return false
+		}
+		ui.Play(&h, []ui.Act{ui.SettleAll, ui.TypeInto{Label: "id", Text: id}, ui.TypeInto{Label: "run", Text: "build"}, ui.TypeInto{Label: "number", Text: "2"}, ui.TapOn{Label: "submit"}}) catch {
+		case _:
+			return false
+		}
+		let sending = shows(&h, "sending submit \(id)")
+		api.Submit.Release(func(c pipeline.SubmitRun) pipeline.Receipt fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | pipeline.NoSuchRun | pipeline.Unavailable {
+			pipeline.Receipt{Command: c.ID, Position: at}
+		})
+		ui.Play(&h, []ui.Act{ui.SettleAll}) catch {
+		case _:
+			return false
+		}
+		let took = shows(&h, "took \(id) at \(at)")
+		let sent = api.Submit.Calls() == []pipeline.SubmitRun{pipeline.SubmitRun{ID: id, Run: "build", Stages: 2}}
+		let _ = api.Board.Calls()
+		stop(a)
+		sending && took && sent && testing.Unanswered() == ""
+	}
 }
 
 // Board shows s: the form and its buttons, the notice (or the command in
@@ -149,7 +279,7 @@ func View(api pipeline.Pipeline) func(f *ui.Frame[screen.Signal], s screen.Scree
 // version, so an answer or a refresh fetches it again; the picked run is
 // one keyed by its name and the version; a command in flight is a load
 // whose fetch calls the Api, keyed by the version it was sent at.
-func Board(f *ui.Frame[screen.Signal], s screen.Screen, api pipeline.Pipeline) {
+func Board(f mut ui.Frame[screen.Signal], s screen.Screen, api pipeline.Pipeline) {
 	let sh = screen.ShownOf(s)
 	ui.Load(f, ui.ByInt(sh.Version), func() screen.Signal { screen.Loaded{Board: screen.LinesOf(api.Board())} })
 	match sh.Picked {
@@ -185,7 +315,7 @@ func Board(f *ui.Frame[screen.Signal], s screen.Screen, api pipeline.Pipeline) {
 			button(f, "cancel", CancelOf(form))
 			button(f, "retry", RetryOf(form))
 			button(f, "show", ShowOf(form))
-			button(f, "refresh", pipelinerpc.BoardRequest)
+			button(f, "refresh", pipelineapi.BoardRequest)
 		}
 		ui.Text(f, status)
 		match sh.Board {
@@ -207,7 +337,7 @@ func Board(f *ui.Frame[screen.Signal], s screen.Screen, api pipeline.Pipeline) {
 }
 
 // button is a button labelled label that asks r.
-func button(f *ui.Frame[screen.Signal], label string, r screen.Request) {
+func button(f mut ui.Frame[screen.Signal], label string, r screen.Request) {
 	ui.Pressable(f, label, screen.Ask{Req: r}) {
 		ui.Text(f, label)
 	}

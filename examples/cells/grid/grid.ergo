@@ -2,10 +2,6 @@
 // of cells, each one rune and a pen, and the frame that turns one grid
 // into the next on a terminal (frame.ergo). It knows nothing of ui: the
 // host draws into a Grid, and a test reads one back.
-//
-// Prior art: Ghostty and every terminal keep a page of cells; ratatui and
-// notcurses draw a frame into a buffer and write the difference from the
-// last one, as Frame does.
 
 import strings
 import utf8
@@ -48,7 +44,7 @@ func At(g Grid, c int, r int) Cell {
 }
 
 // Put sets the cell at column c, row r; off the grid it does nothing.
-func Put(g *Grid, c int, r int, cell Cell) {
+func Put(g mut Grid, c int, r int, cell Cell) {
 	if inside(*g, c, r) {
 		g.Cells[r*g.Cols+c] = cell
 	}

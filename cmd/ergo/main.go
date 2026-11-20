@@ -155,6 +155,12 @@ type fileOptions struct {
 	// debug is build's, run's and test's --debug: the link keeps the symbol
 	// table and DWARF, which it leaves out by default (compile-speed CS7).
 	debug bool
+	// release is build's --release: the build compiles with the
+	// program's CPU profile, default.pgo beside its source (go build
+	// -pgo; U4 PGO-RELEASE). profile is that file's absolute path, set by
+	// buildCommand (releaseProfile).
+	release bool
+	profile string
 	// goTrace is build's, run's and test's --go-trace: the program links
 	// runtime/obs (the ergogotrace tag), and ERGO_GO_TRACE then shows its
 	// task tree to Go's tracer and pprof (RT-OBS).
@@ -204,6 +210,11 @@ type fileOptions struct {
 	args []string
 	// platform is the GOOS/GOARCH the command checks for (platformOf).
 	platform gobind.Platform
+	// level is build's CPU level, the third part of --platform
+	// OS/ARCH/LEVEL (linux/amd64/v3, darwin/arm64/v8.2): GOAMD64 or
+	// GOARM64 of the build (build.Toolchain.Level); empty is the
+	// environment's, else Go's default.
+	level string
 	// phone is the phone platform a build is for (gobind.Phones), whose
 	// bindings are platform's; zero for any other platform. A phone build
 	// writes the module and stops before the link (buildPhone).
@@ -388,6 +399,8 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 			opts.emitted = true
 		case "--debug":
 			opts.debug = true
+		case "--release":
+			opts.release = true
 		case "--native":
 			opts.native = true
 		case "--go-trace":
@@ -411,8 +424,8 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 	switch {
 	case len(positional) == 0:
 		return opts, fmt.Errorf("source file required")
-	case opts.strict && command != "diagnostics" && command != "lint":
-		return opts, fmt.Errorf("--strict is only supported by diagnostics and lint")
+	case opts.strict && command != "diagnostics" && command != "lint" && command != "check":
+		return opts, fmt.Errorf("--strict is only supported by diagnostics, lint and check")
 	case opts.json && command != "diagnostics" && command != "lint" && command != "run" && command != "test" && command != "inspect machine":
 		return opts, fmt.Errorf("--json is only supported by diagnostics, lint, run, test and inspect machine")
 	case opts.output != "" && command != "build":
@@ -439,6 +452,8 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 		return opts, fmt.Errorf("--emitted is only supported by build and test")
 	case opts.debug && command != "build" && command != "run" && command != "test":
 		return opts, fmt.Errorf("--debug is only supported by build, run and test")
+	case opts.release && command != "build":
+		return opts, fmt.Errorf("--release is only supported by build")
 	case opts.native && command != "test":
 		return opts, fmt.Errorf("--native is only supported by test")
 	case opts.goTrace && command != "build" && command != "run" && command != "test":
@@ -491,6 +506,9 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 		opts.more = positional[1:]
 	}
 	var err error
+	if platformed {
+		platform, opts.level = cutLevel(platform)
+	}
 	if opts.platform, opts.phone, err = targetPlatforms(platform, platformed, os.Getenv("GOOS"), os.Getenv("GOARCH")); err != nil {
 		return opts, err
 	}
@@ -499,13 +517,20 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 		// can run it.
 		return opts, fmt.Errorf("%s does not run a program for %s, a phone platform; ergo build writes its module", command, opts.phone)
 	}
+	if opts.phone != (gobind.Platform{}) && opts.level != "" {
+		// The packager links a phone module for the phone's own levels.
+		return opts, fmt.Errorf("--platform: %s is a phone platform and takes no CPU level; drop /%s", opts.phone, opts.level)
+	}
+	if err := checkLevel(opts.platform.GOARCH, opts.level); err != nil {
+		return opts, err
+	}
 	opts.file = positional[0]
 	opts.uncached = counted
 	if opts.search.mode != "" {
 		// --schedule alone replays: it needs the explored build too.
 		opts.explore = true
 	}
-	if recursivePattern(opts.file) && (command == "check" || command == "test") {
+	if recursivePattern(opts.file) && (command == "check" || command == "test" || command == "lint") {
 		return opts, nil
 	}
 	if isPackageFolder(opts.file) {
@@ -646,6 +671,9 @@ func refuseUnchecked(l loaded, opts fileOptions) error {
 // --eval-bytes and --seed, and the envelope carries the evaluation; the
 // exit status is then evaluationExit's.
 func checkCommand(args []string) error {
+	if len(args) > 0 && args[0] == "--want" {
+		return checkWant(os.Stdout, args[1:])
+	}
 	opts, err := parseFileOptions("check", args)
 	if err != nil {
 		return err
@@ -744,11 +772,20 @@ func checkEnvelope(opts fileOptions, l loaded, fsys sketchfront.FS) (out []byte,
 	}
 	var buf bytes.Buffer
 	if !l.result.Checked {
-		if err := json.NewEncoder(&buf).Encode(l.result.CheckEnvelope()); err != nil {
+		if err := json.NewEncoder(&buf).Encode(featuredEnvelope(l.result)); err != nil {
 			return nil, nil, err
 		}
 		return buf.Bytes(), fmt.Errorf("check failed"), nil
 	}
+	return evaluatedEnvelope(opts, l, id, fsys)
+}
+
+// evaluatedEnvelope is the check envelope of a loaded package that
+// checks, with its evaluation, and check's exit status; id is the
+// producer identity the envelope was qualified with, and fsys the file
+// system the ledger is read through (a warm request's Recorder; nil reads
+// the host).
+func evaluatedEnvelope(opts fileOptions, l loaded, id producer.Identity, fsys sketchfront.FS) (out []byte, exit, err error) {
 	// Only a source that checks is evaluated (L7): in process, with no Go
 	// build and no child.
 	budget := evalBudget(opts)
@@ -773,10 +810,23 @@ func checkEnvelope(opts fileOptions, l loaded, fsys sketchfront.FS) (out []byte,
 		return nil, nil, err
 	}
 	l.result.SetEvaluation(evaluation)
-	if err := json.NewEncoder(&buf).Encode(l.result.CheckEnvelope()); err != nil {
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(featuredEnvelope(l.result)); err != nil {
 		return nil, nil, err
 	}
-	return buf.Bytes(), evaluationExit(evaluation), nil
+	exit = evaluationExit(evaluation)
+	if exit == nil && opts.strict {
+		exit = undecidedExit(evaluation.Obligations)
+	}
+	return buf.Bytes(), exit, nil
+}
+
+// featuredEnvelope is what check prints: the result's envelope with this
+// ergo's features (versionFeatures).
+func featuredEnvelope(r *report.Result) report.CheckEnvelope {
+	env := r.CheckEnvelope()
+	env.Features = versionFeatures
+	return env
 }
 
 // evalBudget is check's evaluation budget: the editor default
@@ -809,6 +859,30 @@ func evaluationExit(e report.Evaluation) error {
 		return exitStatusError{code: 1, message: "check: an obligation was refuted"}
 	}
 	return nil
+}
+
+// undecidedExit is check --strict's exit after an evaluation that
+// evaluationExit passed: 1 when an obligation was skipped, stopped or not
+// run, naming each with its reason, since a law that was not decided is
+// not a pass (MODELCHECK T3b: an ergo whose check skipped every law exited
+// 0, and orrery read that as proved). Plain check keeps exit 0 for them:
+// ergo test decides what check time skips.
+func undecidedExit(obligations []report.Obligation) error {
+	var undecided []string
+	for _, o := range obligations {
+		if o.Status != "passed" {
+			undecided = append(undecided, fmt.Sprintf("%s (%s: %s)", o.Name, o.Status, o.Reason))
+		} else if o.Machine != nil && o.Evidence != "proved" {
+			// A machine law that passed on sampled runs only (its graph
+			// could not be listed): no run broke it, which proves nothing
+			// (batch-mc1 T3b O1).
+			undecided = append(undecided, fmt.Sprintf("%s (%s, not proved: %s)", o.Name, o.Evidence, o.Reason))
+		}
+	}
+	if len(undecided) == 0 {
+		return nil
+	}
+	return exitStatusError{code: 1, message: "check --strict: not decided: " + strings.Join(undecided, "; ")}
 }
 
 // validCount reports whether s is a positive decimal int64 with no sign.

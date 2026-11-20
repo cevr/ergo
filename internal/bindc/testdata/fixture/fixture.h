@@ -134,6 +134,36 @@ typedef void (*fx_wide_callback)(void *user_data, uint64_t a, uint64_t b, uint64
     uint64_t e, uint64_t f);
 typedef void (*fx_unbound_callback)(void *user_data, uint32_t value);
 
+/* Records of one header (the shape of OpenTUI's ot_buffer_draw): a function
+ * takes `const fx_shape_header *` and reads the whole record that kind
+ * names; struct_size is the size of that record, not of the header. */
+#define FX_SHAPE_NONE UINT32_C(0)
+#define FX_SHAPE_DOT UINT32_C(1)
+#define FX_SHAPE_RECT UINT32_C(2)
+
+typedef struct fx_shape_header {
+    uint32_t struct_size;
+    uint32_t abi_version;
+    uint32_t kind;
+} fx_shape_header;
+
+typedef struct fx_shape_dot {
+    fx_shape_header header;
+    int32_t weight;
+} fx_shape_dot;
+
+typedef struct fx_shape_rect {
+    fx_shape_header header;
+    uint32_t width;
+    uint32_t height;
+} fx_shape_rect;
+
+/* It starts with the header but holds a pointer: no record kind. */
+typedef struct fx_shape_label {
+    fx_shape_header header;
+    const uint8_t *text;
+} fx_shape_label;
+
 /* The callback invocations of a context: started, and returned to C; the
  * sum of the results C got from its write callbacks; and the measure
  * invocations after which C found its out array unwritten (still NaN). */
@@ -188,6 +218,15 @@ fx_status fx_context_float(fx_context *, void *user_data, fx_float_callback call
 fx_status fx_context_point(fx_context *, void *user_data, fx_point_callback callback);
 fx_status fx_context_wide(fx_context *, void *user_data, fx_wide_callback callback);
 fx_status fx_context_unbound(fx_context *, void *user_data, fx_unbound_callback callback);
+/* out_area is 0 for NONE, weight for DOT and width * height for RECT.
+ * FX_UNSUPPORTED_VERSION when struct_size is not the size of the record
+ * kind names or abi_version is not FX_ABI_VERSION; FX_INVALID_ARGUMENT for
+ * NULL or another kind. */
+fx_status fx_shape_area(fx_context *, const fx_shape_header *shape, int64_t *out_area);
+/* A value C reads as absent when NULL (the shape of OpenTUI's frame, NULL
+ * for an offscreen buffer): out_z is -1 for a NULL clip, else clip->z.
+ * FX_UNSUPPORTED_VERSION when clip's struct_size or abi_version is wrong. */
+fx_status fx_box_z(fx_context *, const fx_box *clip, int64_t *out_z);
 
 #ifdef __cplusplus
 }

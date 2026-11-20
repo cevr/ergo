@@ -3,7 +3,7 @@
 // changed cells in a row after one cursor move, each pen change once, and
 // it is one synchronized update: the terminal shows none of it until all
 // of it has come (the synchronized-output mode, DEC private mode 2026,
-// which Ghostty, kitty, WezTerm, foot and iTerm2 keep; a terminal without
+// which most current terminals keep; a terminal without
 // it ignores the marks and draws as the bytes come).
 
 import strconv
@@ -154,7 +154,7 @@ func numbers(params string) []int {
 // rng is a small generator for the laws' grids.
 type rng { s int }
 
-func next(r *rng, n int) int {
+func next(r mut rng, n int) int {
 	r.s = (r.s*1103515245 + 12345) % 2147483648
 	if r.s < 0 {
 		r.s = -r.s
@@ -169,7 +169,7 @@ let texts = []string{" ", "a", "b", "z", "[", "]", "▾", "·", "é", "x"}
 
 // drawn is a grid of cols by rows whose cells change with odds of one in
 // odds from base (a blank grid, or one drawn the same way).
-func drawn(r *rng, base Grid, odds int) Grid {
+func drawn(r mut rng, base Grid, odds int) Grid {
 	let mut g = base
 	for i in 0..len(g.Cells) {
 		if next(r, odds) == 0 {

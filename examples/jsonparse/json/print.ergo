@@ -9,8 +9,8 @@ func Compact(v Value) string {
 }
 
 // Indent is the text of v with each element on a line of its own, two
-// spaces deeper than its container, and a space after each colon: jq's
-// layout, the form `fmt` prints. An empty array or object is [] or {}.
+// spaces deeper than its container, and a space after each colon: the
+// indented layout `fmt` prints. An empty array or object is [] or {}.
 func Indent(v Value) string {
 	let mut b = strings.NewBuilder()
 	indent(&b, v, 0)
@@ -27,11 +27,11 @@ func Quoted(s string) string {
 }
 
 // WriteQuoted writes s to b as Quoted gives it.
-func WriteQuoted(b *strings.Builder, s string) { quote(b, s) }
+func WriteQuoted(b mut strings.Builder, s string) { quote(b, s) }
 
 let hexDigits = "0123456789abcdef"
 
-func quote(b *strings.Builder, s string) {
+func quote(b mut strings.Builder, s string) {
 	b.WriteByte('"')
 	let mut from = 0
 	for i in 0..len(s) {
@@ -66,7 +66,7 @@ func quote(b *strings.Builder, s string) {
 	b.WriteByte('"')
 }
 
-func compact(b *strings.Builder, v Value) {
+func compact(b mut strings.Builder, v Value) {
 	match v {
 	case Null:
 		b.WriteString("null")
@@ -99,14 +99,14 @@ func compact(b *strings.Builder, v Value) {
 	}
 }
 
-func newline(b *strings.Builder, depth int) {
+func newline(b mut strings.Builder, depth int) {
 	b.WriteByte('\n')
 	for _ in 0..depth {
 		b.WriteString("  ")
 	}
 }
 
-func indent(b *strings.Builder, v Value, depth int) {
+func indent(b mut strings.Builder, v Value, depth int) {
 	match v {
 	case Array as a:
 		if len(a.Items) == 0 {

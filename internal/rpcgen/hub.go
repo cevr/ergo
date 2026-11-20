@@ -14,7 +14,7 @@
 //   - OpOf, Name (the kebab name every transport uses), Doc (the doc
 //     comment, else the signature) and Schema (the JSON schema of the
 //     arguments);
-//   - Call(r) Outcome needs P, the one dispatch: total, its row is empty;
+//   - Call(r) Outcome needs P: the one dispatch, total, its row empty;
 //   - Client, a provider of P over any send(Request) Outcome; an Outcome
 //     that is not the operation's is a defect;
 //   - the laws CallIsTheOperation and ClientIsCall, which run at check time
@@ -33,9 +33,8 @@ import (
 	"strings"
 	"sync"
 
+	format "ergo.local/prototype/internal/hostsyntax"
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/format"
-	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -122,6 +121,18 @@ func Kebab(s string) string {
 		b.WriteByte(c)
 	}
 	return b.String()
+}
+
+// StdAPIName is the name a generated transport package imports std api
+// by: api, or ergoapi when a package it imports (by path, with its name)
+// is named api already, such as a contract package named api.
+func StdAPIName(imports map[string]string) string {
+	for path, name := range imports {
+		if name == "api" && path != "api" {
+			return "ergoapi"
+		}
+	}
+	return "api"
 }
 
 // RequestName, ReplyName and OpName are the hub's variants of operation op.
@@ -219,7 +230,7 @@ func (g *hubGen) failures(ops []Op) {
 }
 
 // hubFixed are the hub's own declarations.
-var hubFixed = []string{"Request", "Op", "Reply", "Failure", "Outcome", "Done", "Rejected", "Values", "Client", "NewClient", "OpOf", "Name", "Doc", "Schema", "Call", "CallIsTheOperation", "ClientIsCall", "inRow", "answerOf", "scripted", "valueOf", NoFailure}
+var hubFixed = []string{"Request", "Op", "Reply", "Failure", "Outcome", "Done", "Rejected", "Values", "Given", "OutcomeOf", "Client", "NewClient", "OpOf", "Name", "Doc", "Schema", "Call", "CallIsTheOperation", "ClientIsCall", "inRow", "scripted", "valueOf", NoFailure}
 
 // hubLocals are the names a Client function uses beside the operation's
 // parameters (the only place they are in scope): a parameter of one of
@@ -265,20 +276,10 @@ func (g *hubGen) checkNames(ops []Op) {
 // variant is the Failure variant of the failure type f.
 func (g *hubGen) variant(f check.Type) string { return FailureVariant(g.ops, f) }
 
-// importOf records p's import and is the name source uses for it.
+// importOf records p's import and is the name source uses for it, as
+// the transports' gen.importOf does (the one reader of the prelude's path).
 func (g *hubGen) importOf(p *check.Package) string {
-	if p == nil || p.Path == stdlib.PreludePath {
-		return ""
-	}
-	if p == g.pkg {
-		// The contract's package: checked as a root, the checker names it
-		// main; source imports it by its path.
-		name := lastElem(g.path)
-		g.imports[g.path] = name
-		return name
-	}
-	g.imports[p.Path] = p.Name
-	return p.Name
+	return (&gen{pkg: g.pkg, path: g.path, imports: g.imports}).importOf(p)
 }
 
 // expr is t written in source of the generated package.
@@ -595,11 +596,12 @@ func (g *hubGen) laws(b *strings.Builder, capName string, ops []Op) {
 	}
 	b.WriteString("}\n}\n\n")
 
-	b.WriteString("// answerOf is the Outcome of r's operation: f when failing and f is in\n// its row, else its value from v.\nfunc answerOf(r Request, v Values, f Failure, failing bool) Outcome {\nif failing && inRow(OpOf(r), f) {\nreturn Rejected{Failure: f}\n}\nmatch r {\n")
+	b.WriteString("// Given is what a law gives a call: a value of each operation's value\n// type, a failure, and whether the call fails with it.\ntype Given { Values Values, Failure Failure, Failing bool }\n\n")
+	b.WriteString("// OutcomeOf is the Outcome g gives r: its failure when g fails and the\n// failure is in the row of r's operation, else the operation's value\n// from g. It is always an Outcome r's operation can have.\nfunc OutcomeOf(r Request, g Given) Outcome {\nif g.Failing && inRow(OpOf(r), g.Failure) {\nreturn Rejected{Failure: g.Failure}\n}\nmatch r {\n")
 	for _, op := range ops {
 		fmt.Fprintf(b, "case %s:\n", RequestName(op.Name))
 		if op.Result != nil {
-			fmt.Fprintf(b, "Done{Reply: %s{Value: v.%s}}\n", ReplyName(op.Name), op.Name)
+			fmt.Fprintf(b, "Done{Reply: %s{Value: g.Values.%s}}\n", ReplyName(op.Name), op.Name)
 		} else {
 			fmt.Fprintf(b, "Done{Reply: %s}\n", ReplyName(op.Name))
 		}
@@ -608,8 +610,8 @@ func (g *hubGen) laws(b *strings.Builder, capName string, ops []Op) {
 
 	fmt.Fprintf(b, "// scripted is a %s that keeps each Request it is sent and answers\n// want.\nfunc scripted(want Outcome, sent sync.Ref[[]Request]) Client {\nNewClient(func(q Request) Outcome {\nsent.Update(func(rs []Request) []Request { rs.Append(q) })\nwant\n})\n}\n\n", capName)
 
-	fmt.Fprintf(b, "// CallIsTheOperation: Call(r) calls r's operation once, with r's\n// arguments, and answers its value or failure as r's own Outcome.\nlaw CallIsTheOperation(r Request, v Values, f Failure, failing bool) {\nlet want = answerOf(r, v, f, failing)\nlet sent = sync.NewRef[[]Request]([]Request{})\nlet got = with context { %s: scripted(want, sent) } { Call(r) }\ngot == want && sent.Get() == []Request{r}\n}\n\n", capName)
-	fmt.Fprintf(b, "// ClientIsCall: a Client whose send is Call answers each call as the\n// provider Call is bound to does.\nlaw ClientIsCall(r Request, v Values, f Failure, failing bool) {\nlet want = answerOf(r, v, f, failing)\nlet sent = sync.NewRef[[]Request]([]Request{})\nlet inner = scripted(want, sent)\nlet outer = NewClient(func(q Request) Outcome {\nwith context { %s: inner } { Call(q) }\n})\nlet got = with context { %s: outer } { Call(r) }\ngot == want && sent.Get() == []Request{r}\n}\n", capName, capName)
+	fmt.Fprintf(b, "// CallIsTheOperation: Call(r) calls r's operation once, with r's\n// arguments, and answers its value or failure as r's own Outcome.\nlaw CallIsTheOperation(r Request, g Given) {\nlet want = OutcomeOf(r, g)\nlet sent = sync.NewRef[[]Request]([]Request{})\nlet got = with context { %s: scripted(want, sent) } { Call(r) }\ngot == want && sent.Get() == []Request{r}\n}\n\n", capName)
+	fmt.Fprintf(b, "// ClientIsCall: a Client whose send is Call answers each call as the\n// provider Call is bound to does.\nlaw ClientIsCall(r Request, g Given) {\nlet want = OutcomeOf(r, g)\nlet sent = sync.NewRef[[]Request]([]Request{})\nlet inner = scripted(want, sent)\nlet outer = NewClient(func(q Request) Outcome {\nwith context { %s: inner } { Call(q) }\n})\nlet got = with context { %s: outer } { Call(r) }\ngot == want && sent.Get() == []Request{r}\n}\n", capName, capName)
 }
 
 // importBlock imports each package the declarations text names.
@@ -694,31 +696,19 @@ func object(props, required []string) string {
 // recordOf is t's struct when t is a declared record (not a union).
 func recordOf(t check.Type) (*check.Struct, bool) {
 	n, ok := unalias(t).(*check.Named)
-	if !ok || schemaPair(n) != nil || check.RefinementOf(n) != nil {
+	if !ok || pairOf(n) != nil || check.RefinementOf(n) != nil {
 		return nil, false
 	}
 	s, ok := n.Underlying().(*check.Struct)
 	return s, ok
 }
 
-// stdJSON is t's type arguments when t is std json's type name.
-func stdJSON(t check.Type, name string) (*check.Named, bool) {
-	n, ok := unalias(t).(*check.Named)
-	if ok && n.Obj != nil && n.Obj.Pkg != nil && n.Obj.Pkg.Std() && n.Obj.Pkg.Path == "json" && n.Obj.Name == name {
-		return n, true
-	}
-	return nil, false
-}
-
-// pairOf is the Wire function of t's by-name pair, or nil.
-func schemaPair(n *check.Named) *check.Func {
-	if n.Obj == nil || n.Obj.Pkg == nil || len(n.TArgs) > 0 {
-		return nil
-	}
-	for _, f := range n.Obj.Pkg.Funcs {
-		if (f.Name == "Wire" || f.Name == "wire") && f.Sig != nil && len(f.Sig.Params) == 1 && len(f.Sig.Results) == 1 && f.Sig.Params[0].Type.String() == n.String() {
-			return f
-		}
+// StdJSON is t when it is std json's type name with args type arguments:
+// json's wire forms by name (debt NP7), for the hub's schemas and tsproj's.
+func StdJSON(t check.Type, name string, args int) *check.Named {
+	n, ok := t.(*check.Named)
+	if ok && n.Obj != nil && n.Obj.Pkg != nil && n.Obj.Pkg.Std() && n.Obj.Pkg.Path == "json" && n.Obj.Name == name && len(n.TArgs) == args {
+		return n
 	}
 	return nil
 }
@@ -759,16 +749,16 @@ func (g *hubGen) schema(t check.Type, seen map[*check.Named]bool, where string) 
 }
 
 func (g *hubGen) named(n *check.Named, seen map[*check.Named]bool, where string) string {
-	if _, ok := stdJSON(n, "Value"); ok {
+	if StdJSON(n, "Value", 0) != nil {
 		return `{}`
 	}
-	if _, ok := stdJSON(n, "Num"); ok {
+	if StdJSON(n, "Num", 0) != nil {
 		return `{"type":"number"}`
 	}
-	if nn, ok := stdJSON(n, "Nullable"); ok && len(nn.TArgs) == 1 {
+	if nn := StdJSON(n, "Nullable", 1); nn != nil {
 		return `{"anyOf":[` + g.schema(nn.TArgs[0], seen, where) + `,{"type":"null"}]}`
 	}
-	if f := schemaPair(n); f != nil {
+	if f := pairOf(n); f != nil {
 		return g.schema(f.Sig.Results[0], seen, where)
 	}
 	if check.RefinementOf(n) != nil {
@@ -818,7 +808,7 @@ func (g *hubGen) record(s *check.Struct, tag string, seen map[*check.Named]bool,
 	}
 	for _, f := range s.Fields {
 		key := check.WireFieldName(f)
-		if opt, ok := stdJSON(f.Type, "Optional"); ok && len(opt.TArgs) == 1 {
+		if opt := StdJSON(unalias(f.Type), "Optional", 1); opt != nil {
 			props = append(props, jsonQuote(key)+":"+g.schema(opt.TArgs[0], seen, where))
 			continue
 		}
