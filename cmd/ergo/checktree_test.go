@@ -178,6 +178,7 @@ func TestCheckTreeAnswersByTokens(t *testing.T) {
 		dir := t.TempDir()
 		writeFiles(t, dir, p.Files)
 		patterns := []string{filepath.Join(dir, "..."), filepath.Join(dir, genprogram.Name(sub), "...")}
+		hits, misses := 0, 0
 		for _, edit := range treeEdits {
 			for _, pattern := range patterns {
 				// The base, kept: a run that stores verdicts keeps nothing,
@@ -267,7 +268,19 @@ func TestCheckTreeAnswersByTokens(t *testing.T) {
 				} else if !maps.Equal(want, reran) {
 					fail("the cutoff evaluated %v, want %v (kept at the base: %v)", slices.Sorted(maps.Keys(reran)), slices.Sorted(maps.Keys(want)), cutKept)
 				}
+				if len(reran) < len(after) {
+					hits++
+				}
+				if len(reran) > 0 {
+					misses++
+				}
 			}
+		}
+		// A seed whose edits took no answer from the store, or evaluated
+		// nothing again, proved nothing of the store (WS0's seed 2 did not
+		// assert a hit, and hid a layout edit that missed).
+		if hits == 0 || misses == 0 {
+			t.Fatalf("seed %d is vacuous: %d runs took a kept evaluation, %d evaluated again", seed, hits, misses)
 		}
 	}
 }
