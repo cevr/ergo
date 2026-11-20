@@ -177,7 +177,7 @@ func TestSeedModulesRefusesUnverifiedRequirements(t *testing.T) {
 	}
 	for _, goMod := range []string{
 		"module example.com/a\n\ngo 1.21\n",
-		"module example.com/a\n\ngo 1.27\n\nrequire ergo.dev/xml v0.0.0\n\nreplace ergo.dev/xml => ../../modules/xml\n",
+		"module example.com/a\n\ngo 1.27\n\nrequire github.com/cevr/ergo/modules/web v0.0.0\n\nreplace github.com/cevr/ergo/modules/web => ../../modules/web\n",
 		"module example.com/a\n\ngo 1.27\n\nrequire (\n\texample.com/b v0.0.0 // indirect\n\t\"example.com/c\" v0.0.0\n)\n\nreplace (\n\texample.com/b v0.0.0 => ./b\n\texample.com/c => /abs/c\n)\n",
 	} {
 		source, head := moduleCommit(t, map[string]string{"nested/go.mod": goMod})

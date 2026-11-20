@@ -105,7 +105,7 @@ func isOperationType(tn *check.TypeName) bool {
 }
 
 // onlyIncludes reports an operation type that adds no operation to the
-// ones its members `..I` include but seal (modules/xml's Cursor, the
+// ones its members `..I` include but seal (std xml's Cursor, the
 // prelude's Reader sealed): it states no contract of its own, and the
 // included types' laws are its.
 func onlyIncludes(it *check.Interface) bool {

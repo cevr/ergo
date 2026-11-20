@@ -2,6 +2,10 @@
 
 This file is the dated log of the owner's decisions for Ergo, newest first. A decision applies the principles to one feature, construct, stage or tool; [NORTH_STAR.md](../NORTH_STAR.md) holds the principles: what Ergo is for, the pillars, the north stars, the tiebreaks, the owner rules and the rejected directions. Each entry keeps the owner's words, the decision, and its tickets and links as NORTH_STAR.md recorded them; only relative link targets changed, so that they resolve from `docs/`. An entry with two or more dates sorts by its latest date, and entries with the same date keep their order from NORTH_STAR.md. Entries with no date are in the [Undated](#undated) group at the end. Where a moved passage says "above" or "below" and the new order changes what it means, a bracketed note names the entry.
 
+## Owner direction, 2026-11-20
+
+- **XML is a std package again (2026-11-20).** The owner: "Let's move XML back into the standard library." This reverses the 2026-11-12 decision that XML is an installable package, not std ([2026-11-12](#owner-direction-2026-11-12)). The no-privilege decision of that day stands unchanged: "Though ideally, even our standard library should not be able to get any special treatment". So the move adds no rule keyed on `xml` or on std membership. `modules/xml` (module `ergo.dev/xml`) became `internal/sketch/std/xml`, imported as `import xml`. The module is deleted, and its importers `examples/catalog` and `examples/fieldnotes` moved in the same change (unit XML-STD). xml still plugs into derived codecs only through the open codec mechanism (types.md, Codecs 10).
+
 ## Owner direction, 2026-11-19
 
 - **Any declaration may shadow a prelude name (2026-11-19, owner q244).** The owner: "Allow shadowing". User declarations may shadow built-in and prelude names at any level, as in Go; don't rename to dodge a built-in name. This replaces the eighth round's item 3 (D-D3, "a prelude name cannot be redeclared") and widens q30 (L6), which allowed only a package type. Decided:

@@ -15,7 +15,7 @@ The second paragraph.
 
 The head is `key: value` lines up to the first blank line. `title` and `day` (YYYY-MM-DD) are required, and `related` names other entries by slug. A file's name is its entry's slug: lower-case letters, digits and `-`.
 
-Tag: `default`. It is an original program, not a port. Its goldens were made by running the program and checked by hand against the notes in `testdata/`. It requires two modules of this repository, `modules/web` and `modules/xml` (`go.mod`, with a `replace` to each folder).
+Tag: `default`. It is an original program, not a port. Its goldens were made by running the program and checked by hand against the notes in `testdata/`. It requires one module of this repository, `modules/web` (`go.mod`, with a `replace` to its folder), and std's `xml`.
 
 ## Layout
 

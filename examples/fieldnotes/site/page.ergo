@@ -1,4 +1,4 @@
-import ergo.dev/xml
+import xml
 import fieldnotes/journal
 import fieldnotes/memory
 import github.com/cevr/ergo/modules/web
