@@ -1498,6 +1498,14 @@
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     },
     {
+      "name": "b24-fake-answers-unmodelled-script", "origin": "wf10 WORK-B24-FALLOUT",
+      "file": "modules/work/memory/hooks.ergo",
+      "from": "\tstrings.HasPrefix(lines[len(lines)-1], \"exit \")\n",
+      "to": "\tfalse && strings.HasPrefix(lines[len(lines)-1], \"exit \")\n",
+      "rule": "A memory fake that does not model a script stating its own status answers exec.NotFound, never status 0: exec.Runner.ShellRunsAsWritten for Runner, Serving and PackageManager.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
       "name": "m2-stale-remote-trusted", "origin": "wf10/semws verify r2 M2",
       "file": "modules/work/work/remove.ergo",
       "from": "let IdleOnDefault = true\n",
