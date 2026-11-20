@@ -6,7 +6,7 @@
 // the drop: traits left out, and writes the slice with its provenance in
 // the metadata: the source address, the sha256 of the model text, the
 // operations kept, the traits dropped and the note. The corpus under
-// modules/clientgen/smithy/testdata is made by this binary (a module is a
+// modules/clientgen/testdata/models is made by this binary (a module is a
 // library with no cmd/, so the binary lives here) and no other
 // tool (orchestrator, q11: one path).
 
@@ -55,7 +55,7 @@ func run(args []string) fails os.Exit needs io.Stdout | fs.Files | fs.Writes {
 	case _:
 		return os.Exit{Code: 1, Message: "modelslice: cannot write \(args[1])"}
 	}
-	io.Stdout.Println("\(args[1]): \(len(cut.Shapes)) of \(len(m.Shapes)) shapes, \(len(out)) bytes")
+	io.Stdout.Println("\(args[1]): \(len(cut.Shapes)) of \(len(m.Shapes)) shapes")
 }
 
 func main() fails os.Exit needs Ambient {
@@ -89,7 +89,7 @@ func ran(args []string) (string, string) fails fs.NotFound | fs.Denied | fs.Fail
 
 test SliceKeepsTheClosureAndRecordsWhere {
 	let (said, written) = try ran([]string{"m.json", "s.json", "src@1", "a note", "drop:x.test#tests", "t#Get"})
-	assert said == "s.json: 2 of 3 shapes, \(len(written) - 1) bytes\n"
+	assert said == "s.json: 2 of 3 shapes\n"
 	assert strings.Contains(written, "\"clientgen.provenance\":{\"source\":\"src@1\",\"sha256\":\"" + hex.Encode(sha256.Sum(tiny)) + "\",\"kept\":[\"t#Get\"],\"dropped\":[\"x.test#tests\"],\"note\":\"a note\"}")
 	assert !strings.Contains(written, "x.test#tests\":{}")
 	assert !strings.Contains(written, "t#Other")

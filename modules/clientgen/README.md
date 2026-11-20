@@ -6,7 +6,7 @@ An Ergo module of this repository (`modules/`). It generates provider clients fr
 | --- | --- |
 | `clientgen/smithy` | `Read` a model into typed records (`Model`, `Shape`, `Kind`, `Member`, `Trait`); `Prune` it to named operations and the shapes they reach, leaving out a named list of trait ids; `Write` it back as JSON; `WithProvenance` records where a slice came from in its metadata; `Refusals` lists the trait ids and shape keys it does not read. |
 
-The committed slices (`smithy/testdata`: S3, R2, DNS) are cut by `examples/modelslice` (`modelslice <model.json> <out.json> <source> <note> [drop:<trait id>]... <operation id>...`), the one tool for it; a module is a library and has no `cmd/`.
+The committed slices (`testdata/models`: S3, R2, DNS) are cut by `examples/modelslice` (`modelslice <model.json> <out.json> <source> <note> [drop:<trait id>]... <operation id>...`), the one tool for it; a module is a library and has no `cmd/`.
 
 Only pruned model slices for ergo's own infra drivers are committed (owner, 2026-11-20). Each carries its provenance under `metadata["clientgen.provenance"]`: source address and commit, the sha256 of the whole model, the operations kept, the traits dropped, and a note.
 
