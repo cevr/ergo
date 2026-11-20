@@ -263,14 +263,75 @@ func refsOf(k Kind) []string {
 	}
 }
 
-// closure is the shapes of m reachable from id, in m's order.
+// closure is the shapes of m reachable from id, in m's order: the law's
+// reference, a fixed point over named (each kind's references spelled out
+// by hand), sharing nothing with Prune's reach, refsOf or membersOf.
 func closure(m Model, id string) []Shape {
-	let reached = reach(m, indexOf(m), []string{id})
+	let mut reached = Map[string, bool]{}
+	reached[id] = true
+	let mut changed = true
+	for changed {
+		changed = false
+		for s in m.Shapes {
+			if isIn(reached, s.Id) {
+				for t in named(s.Kind) {
+					if !isIn(reached, t) {
+						reached[t] = true
+						changed = true
+					}
+				}
+			}
+		}
+	}
 	let mut out = []Shape{}
 	for s in m.Shapes {
 		if isIn(reached, s.Id) {
 			out = out.Append(s)
 		}
+	}
+	out
+}
+
+// named is every shape id k names, by the Smithy JSON AST's rules: an
+// operation's input, output and errors; the members of an aggregate; a
+// list's member; a map's key and value. A service's and resource's names
+// are left out, as Prune trims them.
+func named(k Kind) []string {
+	match k {
+	case Operation as o:
+		let mut out = []string{}
+		match o.Input {
+		case Some[string] as t:
+			out = out.Append(t.Value)
+		case None:
+		}
+		match o.Output {
+		case Some[string] as t:
+			out = out.Append(t.Value)
+		case None:
+		}
+		out.Concat(o.Errors)
+	case Structure as s:
+		targetsOf(s.Members)
+	case Union as u:
+		targetsOf(u.Members)
+	case Enum as e:
+		targetsOf(e.Members)
+	case IntEnum as e:
+		targetsOf(e.Members)
+	case List as l:
+		[]string{l.Member.Target}
+	case Mapping as mm:
+		[]string{mm.Key.Target, mm.Value.Target}
+	case Simple, Service, Resource, Unsupported:
+		[]string{}
+	}
+}
+
+func targetsOf(ms []Member) []string {
+	let mut out = []string{}
+	for m in ms {
+		out = out.Append(m.Target)
 	}
 	out
 }
