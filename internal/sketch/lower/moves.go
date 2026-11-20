@@ -57,7 +57,17 @@ func (w *valueWalk) decideMoves() {
 			if o.kind != occEscape {
 				continue
 			}
-			if w.takeOf(vv, o) || w.reslices(o.path, vv) {
+			if w.takeOf(vv, o) || w.reslices(o.path, vv) || w.lateTake(vv, o, nil) {
+				w.vf.moved[o.path] = true
+				w.l.stats.Moves++
+			}
+		}
+	}
+	// A late take of a field of an owned parameter, which its bind takes
+	// into a let mut whole (ownedBind, fieldflow.go).
+	for _, b := range w.ownedBinds() {
+		for _, o := range b.param.occs {
+			if o.kind == occEscape && o.path != b.bind && w.lateTake(b.into, o, b.param) {
 				w.vf.moved[o.path] = true
 				w.l.stats.Moves++
 			}

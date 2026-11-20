@@ -227,6 +227,10 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 		switch op {
 		case "!", "-", "+", "^":
 		case "&":
+			if b.l.info.Relends[x] {
+				// &x of a mut parameter passes its pointer on (Info.Relends).
+				return b.expr(x.X)
+			}
 			b.goType(t, x)
 			return &irExpr{K: "addr", Pos: p, X: b.place(x.X)}
 		default:

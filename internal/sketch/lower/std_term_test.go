@@ -590,7 +590,7 @@ func lawScriptResizes(cols int, rows int) bool {
 type rng { x int }
 
 // draw is a number in [0, n) from r. (a law's helper)
-func draw(r *rng, n int) int {
+func draw(r mut rng, n int) int {
 	r.x = (r.x*1103515245 + 12345) % 2147483648
 	(r.x / 65536) % n
 }

@@ -11,7 +11,7 @@ import ui/layout
 
 // semantic adds the Semantic node id, shown at b, to the accessibility
 // tree with what std ui reads of it.
-func semantic[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], n ui.Node[E], b layout.Box, focus bool) needs go.Foreign {
+func semantic[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], n ui.Node[E], b layout.Box, focus bool) needs go.Foreign {
 	let a = ui.AccessOf(&d.mirror, id)
 	let value = match a.Value {
 	case Some[string] as v:
@@ -101,15 +101,15 @@ func statesOf(a ui.Access) []string {
 
 // Semantics are the Semantic nodes the last paint put in the
 // accessibility tree, in paint order.
-func Semantics[S, E, D, F](d *Driver[S, E, D, F]) []ui.Id[E] { d.semantics }
+func Semantics[S, E, D, F](d mut Driver[S, E, D, F]) []ui.Id[E] { d.semantics }
 
 // AccessName is the id of the node id in the window's accessibility tree,
 // None for a node never painted.
-func AccessName[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) Option[int] { d.names.Get(id) }
+func AccessName[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) Option[int] { d.names.Get(id) }
 
 // AccessAt is the node id names as std ui reads it on the window's mirror.
-func AccessAt[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) ui.Access { ui.AccessOf(&d.mirror, id) }
+func AccessAt[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) ui.Access { ui.AccessOf(&d.mirror, id) }
 
 // RelationsAt is the relations of the node id names on the window's
 // mirror, each with the node it names.
-func RelationsAt[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) []ui.Related[E] { ui.RelationsIn(&d.mirror, id) }
+func RelationsAt[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) []ui.Related[E] { ui.RelationsIn(&d.mirror, id) }
