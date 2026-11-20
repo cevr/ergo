@@ -131,6 +131,12 @@ func (c *checker) variantType(vs *syntax.VariantSpec, ctx *typeCtx) Type {
 		if arg == nil {
 			return invalid
 		}
+		if tp.Kind != KindType {
+			// A row parameter's argument is a row (instantiateExprs), so
+			// the union's variant is the instance a case writes, Run[F].
+			targs[i] = &RowArg{Row: c.types.row(arg)}
+			continue
+		}
 		targs[i] = arg
 	}
 	return c.instantiate(n, targs)
