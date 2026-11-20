@@ -1,0 +1,11 @@
+# scripts/opcount: NR1's receipt (NAMED-ROWS): `namedrowbench bench named N`
+# makes N calls that fail a named row of six (sql's Lost) six times in
+# seven, catches the failure as the row value and matches it by the name
+# (Go's error since NR1); the cost of one call is the slope between the two
+# sizes. The control maps each failure with an errors.As chain, as hand Go
+# does. The sealed form is this workload's program built with
+# -ldflags=-X=ergo.local/prototype/internal/sketch/lower.namedRowLowering=sealed.
+unit call
+sizes 409600 2457600
+args bench named {n}
+control benchmarks/namedrow/testdata/control
