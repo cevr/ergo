@@ -3,6 +3,7 @@ package fix
 import (
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -76,12 +77,18 @@ func MutFragment(text string, closes bool) (out string, n int) {
 		if goSource(shaped + close) {
 			return text, 0
 		}
-		var eds []mutEdit
+		var all []mutEdit
 		for _, at := range borrowStars(f) {
-			if int(at) < len(text) {
-				eds = append(eds, mutEdit{at: int(at), del: 1, ins: "mut "})
+			all = append(all, mutEdit{at: int(at), del: 1, ins: "mut "})
+		}
+		all = append(all, lentEdits(f)...) // [T lent] as Mut deletes it
+		var eds []mutEdit
+		for _, e := range all {
+			if e.at+e.del <= len(text) {
+				eds = append(eds, e)
 			}
 		}
+		sort.Slice(eds, func(i, j int) bool { return eds[i].at < eds[j].at })
 		if len(eds) == 0 {
 			return text, 0
 		}

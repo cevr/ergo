@@ -51,7 +51,8 @@ func TestMutGoRespellsFragments(t *testing.T) {
 // signature whose body the next literal writes. Each is respelled in
 // place; a piece that names a Go package's type is Go and stays.
 // Mutants (fix ledger): mutfrag-no-close (no closing brace is tried),
-// mutfrag-verbs-kept (the verbs stay, so a format does not parse).
+// mutfrag-verbs-kept (the verbs stay, so a format does not parse),
+// mutfrag-lent-kept (a piece's [T lent] is not deleted, as Mut deletes it).
 func TestMutFragmentRespellsGeneratorPieces(t *testing.T) {
 	for _, c := range []struct{ in, want string }{
 		{"func pl%d(r *Rec, k int) int {\n\tlet mut loc = k\n", "func pl%d(r mut Rec, k int) int {\n\tlet mut loc = k\n"},
@@ -60,6 +61,7 @@ func TestMutFragmentRespellsGeneratorPieces(t *testing.T) {
 		{"func f(t *testing.T) {\n", "func f(t *testing.T) {\n"},
 		{"\tlet v = *p\n", "\tlet v = *p\n"},
 		{"func HostAlarms() *AlarmClock { return hostAlarms }", "func HostAlarms() *AlarmClock { return hostAlarms }"},
+		{"func lends[T lent](x T) int {\n", "func lends[T](x T) int {\n"},
 	} {
 		got, _ := MutFragment(c.in, true)
 		if got != c.want {
