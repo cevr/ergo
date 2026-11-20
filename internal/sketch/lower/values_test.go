@@ -540,7 +540,7 @@ func TestValueRuleElides(t *testing.T) {
 	// audit takes t whole with no copy, s keeps t.S, which no write
 	// through at reaches, and best takes at.Best, which nothing reads
 	// before Tally{..at, Best: best} replaces it (moves.go, a late take).
-	if body := goFuncBody(t, code, "auditOwned"); strings.Contains(body, "Clone") {
+	if body := goFuncBody(t, code, goHelper("auditOwned")); strings.Contains(body, "Clone") {
 		t.Errorf("audit copies the Tally it owns:\n%s", body)
 	}
 	// And where a use reaches the field, the let copies it: keepBest's b
@@ -552,11 +552,11 @@ func TestValueRuleElides(t *testing.T) {
 	// again before the update. liveAfter reads t after at's write, so t
 	// is not owned.
 	for _, fn := range []string{"keepBestOwned", "handBestOwned", "peekTakeOwned", "handTakeOwned", "handViaOwned", "peekLateOwned", "loopTakeOwned"} {
-		if body := goFuncBody(t, code, fn); !strings.Contains(body, "maps.Clone(") {
+		if body := goFuncBody(t, code, goHelper(fn)); !strings.Contains(body, "maps.Clone(") {
 			t.Errorf("%s shares a field a use of the record reaches:\n%s", fn, body)
 		}
 	}
-	if strings.Contains(code, "liveAfterOwned") {
+	if strings.Contains(code, goHelper("liveAfterOwned")) {
 		t.Errorf("liveAfter owns a parameter it reads after its bind's write")
 	}
 	// m = maps.Update(m, k, bump) is inlined at its site (inline.go):
