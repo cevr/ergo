@@ -38,7 +38,7 @@ package lower
 //     call's own local, with no caught copy (ir_fail.go).
 //
 // Defects stay exact (runtime.md, Exit causes 6): the copy's positions
-// name the callee's file with the inline site's tag (path#ergo-inline-N),
+// name the callee's file with the inline site's tag (path#ergo-inline-K, K the site's key),
 // and the site joins the program's inline table (v1.RegisterInlines), as
 // the text path's //line directives tag them, so the report writes the
 // frames the calls would have had. A scope's open and close in the copy
