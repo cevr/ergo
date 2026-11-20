@@ -354,9 +354,6 @@ runs on `ui.TestHost` only.
 - `TestMirrorsInternal` checks the mirror on this host's build and on the
   phones' (android/arm64, ios/arm64, from source with cgo faked), so a file
   constrained to a phone (the Android EGL window) is mirrored too.
-- **On a MyGo bump:** `screen/pango_linux.go` reaches MyGo's private Pango function table (`internal/text.pangoLib`) by `go:linkname` and rebinds the shaping path's calls to allocation-free SyscallN calls (PUREGO-CALL; MyGo's RegisterFunc binding allocates on every call).
-  - `pangoTable` mirrors that table field for field, and `TestPangoTableMirrorsMyGo` fails on any drift. When it fails, copy the new declaration, and check each rebound call's C signature against MyGo's.
-  - `screen.PangoCalls` counts the layouts shaped while MyGo's own binding is back in the table (the slow count). It is 0 when the fast binding holds; the dash-gui receipt reports it a frame.
 - `./check.sh` is the module's gate step: both modules' tests, uncached,
   and `go vet` for linux, darwin, windows and js/wasm, and for
   android/arm64 and ios/arm64 where their C compiler is (`CC_ANDROID`,

@@ -190,9 +190,7 @@ type stroke struct {
 var maskSeed = maphash.MakeSeed()
 
 func newWindow(width, height float64) *Window {
-	w := &Window{wake: make(chan struct{}, 1), start: time.Now(), width: width, height: height, sys: text.Shared(), segs: map[int]seg{}, prev: map[int]seg{}, opacity: 1}
-	fastPango(func() { w.sys.Metrics(text.Style{Size: 13}) })
-	return w
+	return &Window{wake: make(chan struct{}, 1), start: time.Now(), width: width, height: height, sys: text.Shared(), segs: map[int]seg{}, prev: map[int]seg{}, opacity: 1}
 }
 
 // Open opens a desktop window of the size, titled title, once MyGo's app
@@ -886,7 +884,6 @@ func (w *Window) layout(s string, size float32) *text.Layout {
 	}
 	l, ok := w.lastLaid[k]
 	if !ok {
-		shaping()
 		l = w.sys.Shape(text.Params{Text: s, Style: text.Style{Size: size}, NoWrap: true, KeepSpaces: true})
 	}
 	if w.laid == nil {

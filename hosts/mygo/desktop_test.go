@@ -4,7 +4,6 @@ import (
 	"flag"
 	"fmt"
 	"go/ast"
-	"go/build"
 	"go/importer"
 	"go/parser"
 	"go/token"
@@ -205,9 +204,6 @@ func TestMyGoHostPrimitivesOnly(t *testing.T) {
 		for _, e := range entries {
 			if !strings.HasSuffix(e.Name(), ".go") || strings.HasSuffix(e.Name(), "_test.go") {
 				continue
-			}
-			if ok, err := build.Default.MatchFile(dir, e.Name()); err != nil || !ok {
-				continue // the files of this platform, as go build reads them
 			}
 			f, err := parser.ParseFile(fset, filepath.Join(dir, e.Name()), nil, 0)
 			if err != nil {
