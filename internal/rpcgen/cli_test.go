@@ -602,13 +602,9 @@ func (p *program) probeSource() string {
 	var b strings.Builder
 	b.WriteString("// Package probe runs the generated cli packages' round trip and Run.\n\nimport api\nimport flag\nimport io\nimport rpc\nimport strings\nimport term\n")
 	for _, c := range p.contracts {
-		fmt.Fprintf(&b, "import loop/%s\nimport loop/%s/%scli\n", c.pkg(), c.pkg(), c.pkg())
-		// The Request variants come from the rpc package when there is one
-		// (it names them), else from the hub.
+		fmt.Fprintf(&b, "import loop/%s\nimport loop/%s/%sapi\nimport loop/%s/%scli\n", c.pkg(), c.pkg(), c.pkg(), c.pkg(), c.pkg())
 		if c.withRPC {
 			fmt.Fprintf(&b, "import loop/%s/%srpc\n", c.pkg(), c.pkg())
-		} else {
-			fmt.Fprintf(&b, "import loop/%s/%sapi\n", c.pkg(), c.pkg())
 		}
 	}
 	for _, c := range p.contracts {
