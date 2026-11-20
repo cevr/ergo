@@ -47,6 +47,7 @@ extern go image/png.EncoderBufferPool type EncoderBufferPool {
 extern go image/png.FormatError type FormatError string
 
 // ergo:go func (FormatError).Error() string
+// ergo:total
 extern go image/png.FormatError.Error func (e FormatError) Error() string needs go.Foreign
 
 // ergo:go const NoCompression CompressionLevel
@@ -56,4 +57,5 @@ extern go image/png.NoCompression let NoCompression CompressionLevel
 extern go image/png.UnsupportedError type UnsupportedError string
 
 // ergo:go func (UnsupportedError).Error() string
+// ergo:total
 extern go image/png.UnsupportedError.Error func (e UnsupportedError) Error() string needs go.Foreign

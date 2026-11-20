@@ -1,0 +1,32 @@
+{
+ "replies": [
+  {
+   "_tag": "Says",
+   "pieces": [
+    "Let me count."
+   ],
+   "calls": [
+    {
+     "id": "c1",
+     "name": "shell",
+     "arguments": "{\"command\":\"i=0; while [ $i -lt 1000 ]; do echo \\\"line $i\\\"; i=$((i+1)); done; sleep 30\"}"
+    }
+   ],
+   "end": {
+    "_tag": "ToolUse"
+   }
+  },
+  {
+   "_tag": "Says",
+   "pieces": [
+    "The output was cut."
+   ],
+   "calls": [],
+   "end": {
+    "_tag": "Finished"
+   }
+  }
+ ],
+ "files": {},
+ "shell": {}
+}

@@ -1,0 +1,168 @@
+// Package kv keeps text values under text keys (docs/spec/stdlib.md, kv).
+// Store is the contract; the providers live in packages named after where
+// they keep the entries: kv/memory keeps them in the process, and kv/file
+// in a file of the host, so they outlive it. A provider over a shared
+// store (Redis, a database) is a module that runs the same laws. Of views
+// a Store as values of one wire type, each kept as its JSON text.
+//
+// Effect: KeyValueStore (effect/unstable/persistence), whose get, set,
+// remove and has keep strings under string keys, with an in-memory and a
+// file-system layer, and whose forSchema views a store as values of one
+// Schema. Here forSchema is Of over T's derived JSON codec. Go: a map
+// under a mutex, and an append-only log replayed at start.
+
+import json
+import strings
+
+// Failed is a store that could not read or keep its entries: Reason is
+// the provider's text, such as the host's error.
+type Failed { Reason string }
+
+// Entry is one key and the value it holds.
+type Entry { Key string, Value string }
+
+// Store keeps one value per key. A key and a value are any text.
+type Store {
+	// Get is the value key holds, or None when it holds none.
+	Get(key string) Option[string] fails Failed,
+	// Put makes key hold value. Once it returns, Get(key) gives value.
+	Put(key string, value string) fails Failed,
+	// Delete makes key hold no value. It is whether key held one.
+	Delete(key string) bool fails Failed,
+	// Scan is the entries whose key starts with prefix, by key in byte
+	// order, each key once. It yields the entries as they are when the
+	// Seq is run, not when Scan is called.
+	Scan(prefix string) Seq[Entry] fails Failed,
+
+	// GetAfterPut: a value put under a key is the value the key gets, and
+	// the last put of the key wins.
+	law GetAfterPut(key string, first string, second string) {
+		try Put(key, first)
+		let one = try Get(key)
+		try Put(key, second)
+		one == Some[string]{Value: first} && try Get(key) == Some[string]{Value: second}
+	},
+
+	// PutKeepsOthers: a put or a delete of one key changes no other key.
+	law PutKeepsOthers(key string, other string, a string, b string) {
+		if key == other {
+			return true
+		}
+		try Put(other, a)
+		try Put(key, b)
+		let kept = try Get(other)
+		let _ = try Delete(key)
+		kept == Some[string]{Value: a} && try Get(other) == Some[string]{Value: a}
+	},
+
+	// DeleteIsAbsent: after a delete of a key that holds a value, Get gives
+	// None, Scan yields no entry of it, and a second delete finds nothing.
+	law DeleteIsAbsent(key string, value string) {
+		try Put(key, value)
+		let held = try Delete(key)
+		if !held || try Get(key) != None {
+			return false
+		}
+		let mut seen = false
+		let s = try Scan(key)
+		s(func(e Entry) bool {
+			if e.Key == key {
+				seen = true
+			}
+			true
+		})
+		!seen && !try Delete(key)
+	},
+
+	// ScanIsSorted: Scan(prefix) yields, in strictly ascending key order,
+	// only keys that start with prefix, each with the value Get gives it,
+	// and every key put with that prefix. The prefix is the first cut bytes
+	// of the first key, so it is often a prefix of several.
+	law ScanIsSorted(keys []string, cut int) {
+		for k in keys {
+			try Put(k, "v " + k)
+		}
+		let first = if len(keys) == 0 { "" } else { keys[0] }
+		let span = len(first) + 1
+		let prefix = strings.Slice(first, 0, ((cut%span)+span)%span)
+		let mut got = []Entry{}
+		let s = try Scan(prefix)
+		s(func(e Entry) bool {
+			got = got.Append(e)
+			true
+		})
+		for i, e in got {
+			if !strings.HasPrefix(e.Key, prefix) || (i > 0 && got[i-1].Key >= e.Key) {
+				return false
+			}
+			if try Get(e.Key) != (Some[string]{Value: e.Value}) {
+				return false
+			}
+		}
+		for k in keys {
+			if strings.HasPrefix(k, prefix) {
+				let mut found = false
+				for e in got {
+					if e.Key == k {
+						found = true
+					}
+				}
+				if !found {
+					return false
+				}
+			}
+		}
+		true
+	},
+
+	// ScanStops: Scan is a Seq that stops (stdlib.md, Std laws 5). With n
+	// entries under prefix, a yield that returns false at its k-th call
+	// (k of 1 or more) is called min(k, n) times.
+	law ScanStops(keys []string, prefix string, k int) {
+		if k < 1 {
+			return true
+		}
+		for key in keys {
+			try Put(prefix + key, key)
+		}
+		let mut n = 0
+		let all = try Scan(prefix)
+		all(func(e Entry) bool {
+			n = n + 1
+			true
+		})
+		let mut calls = 0
+		let s = try Scan(prefix)
+		s(func(e Entry) bool {
+			calls = calls + 1
+			calls < k
+		})
+		calls == if k < n { k } else { n }
+	},
+}
+
+// Values is a Store seen as values of T, each kept as its JSON text
+// (Effect's KeyValueStore.forSchema). Of makes one.
+type Values[T wire] { store Store }
+
+// Of is s seen as values of T.
+func Of[T wire](s Store) Values[T] { Values[T]{store: s} }
+
+// Get is the value of T key holds, or None. It fails as T's JSON decode
+// fails when the text key holds is not a T's.
+func Get[T wire](v Values[T], key string) Option[T] fails Failed | json.Malformed | wired[T] needs wired[T] {
+	match try v.store.Get(key) {
+	case Some[string] as s:
+		Some[T]{Value: try json.Decode(json.Codec[T]{MaxBytes: 0, MaxDepth: 0}, s.Value)}
+	case None:
+		None
+	}
+}
+
+// Put makes key hold the JSON text of value.
+func Put[T wire](v Values[T], key string, value T) fails Failed needs wired[T] {
+	try v.store.Put(key, json.Encode(json.Codec[T]{MaxBytes: 0, MaxDepth: 0}, value))
+}
+
+// Delete makes key hold no value. It is whether key held one.
+func Delete[T wire](v Values[T], key string) bool fails Failed { try v.store.Delete(key) }

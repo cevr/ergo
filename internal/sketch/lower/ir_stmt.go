@@ -448,7 +448,7 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 	case *syntax.SwitchStmt, *syntax.TypeSwitchStmt:
 		return b.matchStmt(s, false, nil) // ir_match.go
 	case *syntax.ForStmt:
-		return b.memoLoop(s, func() []*irStmt { return b.whileStmt(s) }) // ir_order.go, ir_memo.go
+		return b.memoLoop(b.next, func() []*irStmt { return b.whileStmt(s) }) // ir_order.go, ir_memo.go
 	case *syntax.BranchStmt:
 		if b.loops == 0 {
 			irNo("break or continue outside a loop")
@@ -473,7 +473,7 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 	case *syntax.RangeStmt:
 		lp := b.l.info.Loops[s]
 		if lp != nil && lp.Domain == check.LoopRange {
-			return b.memoLoop(s, func() []*irStmt { return b.countLoop(s, lp) }) // ir_pkg.go, ir_memo.go
+			return b.memoLoop(b.next, func() []*irStmt { return b.countLoop(s, lp) }) // ir_pkg.go, ir_memo.go
 		}
 		seq := b.seqLoop(s)                           // ir_seq.go
 		if lp == nil || !goRange(lp.Domain) && !seq { // ir_pkg.go
@@ -485,6 +485,7 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 			bind, x = b.seqRange(s, lp, x) // ir_seq.go
 			pre = append(pre, bind...)
 		}
+		first := b.next               // before the key and value: ir_memo.go
 		st := &irStmt{K: "range", Pos: b.pos(s, s.Pos()), X: x, End: b.pos(s.Body, s.Body.Rbrace)}
 		bind := func(e syntax.Expr) *int {
 			if !bound(e) {
@@ -513,7 +514,7 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 			// range's first (ir_seq.go).
 			st.Key, st.Val = st.Val, nil
 		}
-		loop := b.memoLoop(s, func() []*irStmt { // ir_memo.go
+		loop := b.memoLoop(first, func() []*irStmt { // ir_memo.go
 			b.loopBody(st, s, s.Body)
 			return []*irStmt{st}
 		})

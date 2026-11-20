@@ -1,0 +1,207 @@
+// Package gallery is the site of route transitions: its
+// routes, its paintings, and the machine Site, whose step reads what a
+// navigation means (an entry, a stay, an exit) from the route before and
+// the route after, with no transition helper.
+
+import strconv
+import strings
+import sync
+import actor
+import time
+
+// Route is a page of the site: the home page, the gallery, one painting
+// by its id, the studio, or a path the site does not have.
+type Route = Home{} | Gallery{} | Painting{ID int} | Studio{} | NotFound{Path string}
+
+// LeavingStudioAlwaysSaves: the site runs as an actor on one manual
+// clock, and is sent drawn keys typed, URLs arrived at, links clicked
+// and clock moves (which answer its jobs), then stopped. The drafts it
+// saved are, in order, the draft as last typed at each leave of the
+// studio with a draft, then the draft it ends with if it ends in the
+// studio; no other step saves (a key, a click, a stay in the studio, an
+// answer).
+law LeavingStudioAlwaysSaves(ops []int) {
+	saved(ops) == leaves(ops)
+}
+
+// kept is a Drafts that keeps every draft saved, in order, for the law.
+type kept { saved sync.Ref[[]string] } implements Drafts
+
+func Save(k kept, draft string) {
+	k.saved.Update(func(v []string) []string { v.Append(draft) })
+}
+
+func Last(k kept) Option[string] {
+	let v = k.saved.Get()
+	if len(v) == 0 {
+		return None
+	}
+	Some[string]{Value: v[len(v)-1]}
+}
+
+// drawn is the law's op: a key typed, a URL arrived at, a link of the
+// site clicked, or (None) a clock move. Half the arrivals are at the
+// studio, so a stay in the studio with a draft is drawn often.
+func drawn(o int) Option[Signal] {
+	let texts = []string{"", "a", "half-finished thought"}
+	let op = if o < 0 { -(o / 2) } else { o }
+	match op % 4 {
+	case 0:
+		Some[Signal]{Value: Drafted{Text: texts[(op/4)%3]}}
+	case 1:
+		let to = if (op/4)%2 == 0 { Studio } else { routeOf(op/8, 1+op%5) }
+		Some[Signal]{Value: Arrived{URL: Print(to)}}
+	case 2:
+		Some[Signal]{Value: Clicked{Link: Internal{URL: Print(routeOf(op/4, 1+op%5))}}}
+	case _:
+		None
+	}
+}
+
+// saved runs the site as an actor on one manual clock over ops (a clock
+// move answers the jobs due by then), stops it, and gives the drafts its
+// exit actions saved, in order.
+func saved(ops []int) []string {
+	let clock = time.NewManual(0)
+	let store = kept{saved: sync.NewRef[[]string]([]string{})}
+	with context { time.Clock: clock, Scheduler: clock, Drafts: store } {
+		let site = actor.StartMachine(Gallerist{}, 16, func(cs []Command) {})
+		for i, o in ops {
+			match drawn(o) {
+			case Some[Signal] as s:
+				site.Send(s.Value) catch {
+				case actor.Stopped:
+					return []string{"? stopped"}
+				}
+			case None:
+				clock.Advance(time.Times(100ms, i%8))
+			}
+		}
+		let _ = site.State()
+		site.Stop()
+	}
+	store.saved.Get()
+}
+
+// leaves is the reference model of the saves: the route and the draft
+// only. Each arrival that leaves the studio with a draft saves it, and so
+// does the end in the studio with a draft.
+func leaves(ops []int) []string {
+	let mut inStudio = false
+	let mut draft = ""
+	let mut want = []string{}
+	for o in ops {
+		match drawn(o) {
+		case Some[Signal] as s:
+			match s.Value {
+			case Drafted as d:
+				draft = d.Text
+			case Arrived as a:
+				let next = Parse(a.URL) == Studio
+				if inStudio && !next && draft != "" {
+					want = want.Append(draft)
+				}
+				inStudio = next
+			case Clicked, CatalogLoaded, PaintingLoaded, Recalled, Dated, Answered:
+			}
+		case None:
+		}
+	}
+	if inStudio && draft != "" {
+		want = want.Append(draft)
+	}
+	want
+}
+
+// Parse is the route of a URL ("http://localhost/gallery/3") or of its
+// path ("/gallery/3"). The scheme and host, a query and a fragment are
+// ignored, as are empty segments; a painting's id is a whole number. Any
+// other path is NotFound with the path.
+func Parse(url string) Route {
+	let mut path = url
+	match strings.Cut(path, "://") {
+	case Some as h:
+		path = match strings.Cut(h.Value.After, "/") {
+		case Some as p:
+			"/" + p.Value.After
+		case None:
+			"/"
+		}
+	case None:
+	}
+	match strings.Cut(path, "#") {
+	case Some as h:
+		path = h.Value.Before
+	case None:
+	}
+	match strings.Cut(path, "?") {
+	case Some as h:
+		path = h.Value.Before
+	case None:
+	}
+	let mut parts = []string{}
+	for p in strings.Split(path, "/") {
+		if p != "" {
+			parts = parts.Append(p)
+		}
+	}
+	if len(parts) == 0 {
+		return Home
+	}
+	if len(parts) == 1 && parts[0] == "gallery" {
+		return Gallery
+	}
+	if len(parts) == 1 && parts[0] == "studio" {
+		return Studio
+	}
+	if len(parts) == 2 && parts[0] == "gallery" {
+		let id = strconv.Atoi(parts[1]) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return NotFound{Path: path}
+		}
+		if "\(id)" == parts[1] {
+			return Painting{ID: id}
+		}
+	}
+	NotFound{Path: path}
+}
+
+// RoutesRoundTrip: every route of the site prints to a path that parses
+// back to it.
+law RoutesRoundTrip(k int where 0 <= k && k <= 3, id int where 0 <= id && id <= 1000000) {
+	let r = routeOf(k, id)
+	Parse(Print(r)) == r
+}
+
+// Print is the path of r: Parse(Print(r)) is r for every route but a
+// NotFound whose path is one of the site's.
+func Print(r Route) string {
+	match r {
+	case Home:
+		"/"
+	case Gallery:
+		"/gallery"
+	case Painting as p:
+		"/gallery/\(p.ID)"
+	case Studio:
+		"/studio"
+	case NotFound as n:
+		n.Path
+	}
+}
+
+// Label is how a route shows in the log.
+func Label(r Route) string {
+	match r {
+	case Home:
+		"Home"
+	case Gallery:
+		"Gallery"
+	case Painting as p:
+		"Painting \(p.ID)"
+	case Studio:
+		"Studio"
+	case NotFound:
+		"Not found"
+	}
+}

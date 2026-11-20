@@ -29,9 +29,9 @@ import (
 // (Q5, option b): the IR spells it PATH.Name, a call of it is a pcall, and
 // for some program PATH is a package of the split that declares Name and
 // that the body's package imports, where the patched compile resolves it.
-// fk-stopwatch names a renamed generic of std/machines (armed_1). A
+// stopwatch names a renamed generic of std/machines (armed_1). A
 // package let of another package is copied into the package (sudoku's
-// Units): Ergo has no mutable package state. fk-diag and fk-routes wait
+// Units): Ergo has no mutable package state. runtime-faults and address-routes wait
 // for FLIP red #9 (an IR file naming a generic instance twice).
 // It checks the lowered files in process; the CLI builds a
 // split IR program with the patched compile in cmd/ergo's
@@ -43,7 +43,7 @@ import (
 // package refused (q5b-foreign-let-refused).
 func TestIRFilePerPackage(t *testing.T) {
 	twoPackages, foreign, generic := false, false, false
-	for _, name := range []string{"particles", "okra-keys", "forge", "todo-shell", "calc", "sudoku", "fk-stopwatch"} {
+	for _, name := range []string{"particles", "forge", "todo-shell", "calc", "sudoku", "stopwatch"} {
 		dir, err := filepath.Abs(filepath.Join("..", "..", "examples", name, "cmd", name))
 		if err != nil {
 			t.Fatal(err)

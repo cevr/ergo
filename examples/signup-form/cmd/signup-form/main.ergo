@@ -1,0 +1,32 @@
+// signup-form is a form program (stage b: the view on std
+// ui's test host), re-themed as a subscription for a project's release
+// notes. It plays a script of form events (type in a field, submit, wait)
+// on the form's screen and shows the screen after each one. Package
+// subscribe is the machine, whose states own the email check and the
+// submit; package screen is the view; package script plays the script;
+// memory is the list of subscribers. This binary is the only place that
+// chooses them: memory's list, slowed on the script's manual clock, which
+// is also the test host's clock and the actor's Scheduler.
+
+import signupform/memory
+import signupform/script
+import signupform/subscribe
+import io
+import os
+import time
+
+// Subscribers is memory's list, under which the contract's laws also run.
+let Subscribers = context { subscribe.Subscribers: memory.List }
+
+// Delay is how long the list takes to answer on the script's clock: a
+// script shows a check or a submit under way until it waits this long.
+let Delay = 300ms
+
+func main() fails os.Exit needs Console | Ambient {
+	let c = time.NewManual(0)
+	let slow = memory.Slow{Wait: func() { time.Sleep(c, Delay) }}
+	let status = with context { io.Stdin: io.NewStdin(), Scheduler: c, subscribe.Subscribers: slow } { script.Run(c) }
+	if status != 0 {
+		return os.Exit{Code: 1, Message: "signup-form: the script did not run"}
+	}
+}

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"ergo.local/prototype/internal/sketch/check"
+	"ergo.local/prototype/internal/sketch/check/snapshot"
 )
 
 // TestPathsRoundTrip (CS5b-2, CS5b-4, compile-speed/cs5b.md §3, §7): every
@@ -24,12 +25,12 @@ import (
 // resolve in whichever check of its import is current, and every segment
 // decodes.
 //
-// The export is CHK1b's encoder (check.UserExport), each user segment
+// The export is CHK1b's encoder (snapshot.UserExport), each user segment
 // written right after its package's check, as CS5b-3 writes it.
 // ERGO_CENSUS_ONLY=<name> runs the examples whose name has it.
 //
 // Then each user segment is decoded against the fresh check of its
-// imports (check.UserExport.Decode), and its interface is the interface of
+// imports (snapshot.UserExport.Decode), and its interface is the interface of
 // the package it was written from.
 //
 // Mutants (sketchfront ledger): the walk does not follow an interface
@@ -59,7 +60,7 @@ func TestPathsRoundTrip(t *testing.T) {
 		if only := os.Getenv("ERGO_CENSUS_ONLY"); only != "" && !strings.Contains(dir.name, only) {
 			continue
 		}
-		var u *check.UserExport
+		var u *snapshot.UserExport
 		var exportErr error
 		var order []string
 		var loader check.Importer
@@ -72,7 +73,7 @@ func TestPathsRoundTrip(t *testing.T) {
 			order = append(order, pkg.Path)
 			first[pkg.Path] = pkg
 			if u == nil {
-				if u, exportErr = check.NewUserExport(imp); exportErr != nil {
+				if u, exportErr = snapshot.NewUserExport(imp); exportErr != nil {
 					return
 				}
 				u.Record = true
@@ -135,9 +136,9 @@ func TestPathsRoundTrip(t *testing.T) {
 					continue
 				}
 				total["node "+reflect.TypeOf(r.Node).String()]++
-				if x, ok := check.ResolveNodePath(first[r.To], r.Path); !ok || x != r.Node {
+				if x, ok := snapshot.ResolveNodePath(first[r.To], r.Path); !ok || x != r.Node {
 					report("%s -> %s: %s resolves to %s in its own check", r.From, r.To, describeObj(r.Node), describeObj(x))
-				} else if y, ok := check.ResolveNodePath(second[r.To], r.Path); !ok || describeObj(y) != describeObj(r.Node) {
+				} else if y, ok := snapshot.ResolveNodePath(second[r.To], r.Path); !ok || describeObj(y) != describeObj(r.Node) {
 					report("%s -> %s: %s names %s in the fresh check", r.From, r.To, describeObj(r.Node), describeObj(y))
 				}
 				continue

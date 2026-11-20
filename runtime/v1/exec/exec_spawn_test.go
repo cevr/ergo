@@ -103,6 +103,39 @@ func TestExecSpawnRefusesToCaller(t *testing.T) {
 	}
 }
 
+// TestExecSpawnToStdout: a spawned program whose standard error is
+// ToStdout writes it to standard output's file, in the order written (a
+// burst of lines to the two streams in turn, with no wait); a standard
+// output of ToStdout is Failed and starts nothing. Mutants
+// g5-spawn-tostdout-ignored (standard error goes to the null device) and
+// g5-spawn-stdout-to-itself (the refusal dropped).
+func TestExecSpawnToStdout(t *testing.T) {
+	task := rt.Root("spawn tostdout")
+	out := filepath.Join(t.TempDir(), "out")
+	script := `k=0; while [ $k -lt 200 ]; do echo o$k; echo e$k >&2; k=$((k+1)); done`
+	var want strings.Builder
+	for k := range 200 {
+		fmt.Fprintf(&want, "o%d\ne%d\n", k, k)
+	}
+	d, err := ExecSpawn(task, "sh", []string{"-c", script}, nil, "", "", execToFile, out, false, execToStdout, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The program ends by itself; it is this test's to end if it does not.
+	t.Cleanup(func() { ExecKill(rt.Root("spawn tostdout kill"), d.Pid, d.Start, 0) })
+	testwait.Until(t, func() bool {
+		data, _ := os.ReadFile(out)
+		if len(data) > want.Len() || !strings.HasPrefix(want.String(), string(data)) {
+			t.Fatalf("%s holds %d bytes that are not a prefix of the %d written in order", out, len(data), want.Len())
+		}
+		return string(data) == want.String()
+	})
+	_, err = ExecSpawn(task, "true", nil, nil, "", "", execToStdout, "", false, execDiscard, "", false)
+	if err != execToItself("true") {
+		t.Fatalf("ExecSpawn with a standard output of ToStdout failed %#v, want %#v", err, execToItself("true"))
+	}
+}
+
 // TestExecStartTimeReadsTheHost: the host gives this process a start time
 // that is not 0, a program started later one no earlier, and the reads of
 // one process agree. A start time that is always 0 (a layout read at the

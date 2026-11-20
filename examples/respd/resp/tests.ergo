@@ -1,0 +1,11 @@
+// What the laws cannot tell apart: RESP2's own bytes. A RESP2 writer that
+// wrote RESP3's null (_) would read back as the same value
+// (ParseInvertsAppend), but a RESP2 client cannot read it
+// (testdata/mutants.json: resp2-writes-resp3-null).
+
+import strings
+
+test Resp2WritesOnlyItsOwnTypes {
+	let text = strings.FromBytes(Encode(Array{Items: []Value{Null, Boolean{Truth: true}, Dict{Pairs: []Pair{Pair{Key: Bulk{Data: "k"}, Value: Set{Items: []Value{Integer{N: 2}}}}}}}}, Resp2))
+	assert text == "*3\r\n$-1\r\n:1\r\n*2\r\n$1\r\nk\r\n*1\r\n:2\r\n"
+}

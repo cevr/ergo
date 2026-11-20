@@ -580,6 +580,43 @@ func (t RunTarget) Digest(pkg *check.Package) string {
 	return TargetDigest(pkg, t.Law, t.Binding)
 }
 
+// DigestWith is Digest with the foreign key of each Go package whose
+// function an `extern go` the walk reached names, as LawDigest takes them:
+// the store's key of a run's verdict (lawcache) changes when the Go code
+// behind it does, a module's own body included, and with the file go
+// build compiles for the target (U1 SIMD-SCAN: a vector kernel's verdict
+// is not its stock twin's). It is Digest when keys is nil or the walk
+// reached no `extern go`.
+func (t RunTarget) DigestWith(pkg *check.Package, keys ForeignKeys) string {
+	var d *digester
+	var digest string
+	if t.Context != nil {
+		d, digest = contextDigest(pkg, t.Law, *t.Context)
+	} else {
+		d, digest = targetDigest(pkg, t.Law, t.Binding)
+	}
+	return d.withForeign(digest, keys)
+}
+
+// TestDigestWith is TestDigest with the foreign keys DigestWith takes.
+func TestDigestWith(pkg *check.Package, t *check.Test, keys ForeignKeys) string {
+	d := newDigester()
+	d.decl("test "+pkg.Path+"."+t.Name, pkg, t.Decl)
+	return d.withForeign(d.sum(pkg, nil), keys)
+}
+
+// withForeign is digest and the foreign keys of the Go packages the walk
+// reached, or digest alone when there are none or keys is nil.
+func (d *digester) withForeign(digest string, keys ForeignKeys) string {
+	if keys == nil || len(d.foreign) == 0 {
+		return digest
+	}
+	h := sha256.New()
+	fmt.Fprintf(h, "%d:%s", len(digest), digest)
+	d.foreignKeys(h, keys)
+	return "h1:" + base64.StdEncoding.EncodeToString(h.Sum(nil))
+}
+
 // RunTargets are the targets of pkg's law runs, in run order. Two runs
 // with one label are no target: a line names one run.
 func RunTargets(pkg *check.Package) []RunTarget {

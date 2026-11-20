@@ -1,0 +1,43 @@
+tick 0 at 640.000,260.000 facing Down Idle collected 0/5, nothing in reach
+######################
+#....................#
+#.*...@..........*...#
+#.######.............#
+#.######.............#
+#.......#########....#
+#.......#########....#
+#.......##...........#
+#.......##.....##....#
+#.......##.....##....#
+#...*...##.....##....#
+#...#######....##....#
+#...#############....#
+#.........#######.*..#
+#..........*.........#
+######################
+tick 0 at 640.000,260.000 facing Down Idle collected 0/5, nothing in reach
+tick 80 at 266.720,260.000 facing Left Walking collected 0/5, Map Fragment 33 away
+tick 81 at 266.720,260.000 facing Left Idle collected 1/5, nothing in reach
+######################
+#....................#
+#.@..............*...#
+#.######.............#
+#.######.............#
+#.......#########....#
+#.......#########....#
+#.......##...........#
+#.......##.....##....#
+#.......##.....##....#
+#...*...##.....##....#
+#...#######....##....#
+#...#############....#
+#.........#######.*..#
+#..........*.........#
+######################
+tick 81 at 266.720,260.000 facing Left Idle collected 1/5, nothing in reach
+tick 82 at 266.720,260.000 facing Left Idle collected 1/5, nothing in reach
+rewound 2
+tick 80 at 266.720,260.000 facing Left Walking collected 0/5, Map Fragment 33 away
+tick 90 at 313.380,260.000 facing Right Walking collected 0/5, nothing in reach
+tick 95 at 329.875,243.505 facing Right Walking collected 0/5, nothing in reach
+tick 125 at 329.875,342.000 facing Down Walking collected 0/5, nothing in reach

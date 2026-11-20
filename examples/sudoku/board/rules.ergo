@@ -83,6 +83,9 @@ func Solves(s Grid, puzzle Grid) bool {
 	true
 }
 
+// SampleIsSolved: every sampled solution keeps the rules.
+law SampleIsSolved(seed int) { Solves(Solution(seed), Solution(seed)) }
+
 // Unsolvable is a puzzle with no solution.
 type Unsolvable { Givens int }
 

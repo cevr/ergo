@@ -460,6 +460,15 @@ func (l *lowerer) libraryPackages() []*check.Package {
 		}
 	}
 	visit(l.pkg)
+	if l.tests != nil {
+		// A test build's generators call functions no fact of the program
+		// names: an operation type's builder (fstest.NewMemory for an
+		// fs.Files field) and a record's or provider's constructor. Their
+		// packages are reached as the generated code reaches them, though
+		// the program reaches them through no import, or only through std
+		// imports whose facts the program does not read (LAW-GEN-NAMING).
+		l.genPackages(add)
+	}
 	if l.ir != nil {
 		for _, f := range l.ir.reach { // CensusStd only (ir.go)
 			add(f.Pkg)
@@ -470,6 +479,40 @@ func (l *lowerer) libraryPackages() []*check.Package {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
 	return out
+}
+
+// genPackages adds the package of every function a generator of the test
+// build calls: each generated named type's, its builder's and its
+// constructor's, and each law binding's provider constructor's.
+func (l *lowerer) genPackages(add func(*check.Package)) {
+	for _, r := range l.runLaws() {
+		if !lawLowered(r) {
+			continue
+		}
+		for _, b := range r.Bindings {
+			if bindingUnrun(b) != "" {
+				continue
+			}
+			for _, p := range b {
+				if p.Ctor != nil {
+					add(p.Ctor.Pkg)
+				}
+			}
+		}
+	}
+	seen := map[check.Type]bool{}
+	l.genRoots(func(t check.Type) {
+		l.genNamed(t, seen, func(n *check.Named) {
+			add(n.Obj.Pkg)
+			if isOps(n) {
+				if b := l.pkg.Builder(n); b != nil {
+					add(b.Func.Pkg)
+				}
+			} else if c := genConstructor(n); c != nil {
+				add(c.Pkg)
+			}
+		})
+	})
 }
 
 // contextPackages adds the package of w and of each context w embeds,

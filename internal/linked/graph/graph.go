@@ -2318,16 +2318,30 @@ func Decode_1[T any](env *Env, wT struct {
 	}
 }, c_1 Codec[T], text_1 string) (T, error) {
 	env.task.Check()
-	v, err := Open(env, text_1, c_1.MaxBytes, c_1.MaxDepth)
+	v, err := ergo.JSONOpenChecked(text_1, c_1.MaxBytes, c_1.MaxDepth)
 	if err != nil {
 		return *new(T), err
 	}
+	var r Reader = Reader{c: v}
 	env.task.Check()
-	v_1, err_1 := wT.Dec(env, &opsReaderAsReader{v: v, env: env})
+	v_1, err_1 := wT.Dec(env, &opsReaderAsReader{v: r, env: env})
+	var v_2 T
 	if err_1 != nil {
-		return *new(T), err_1
+		err_2 := err_1
+		err_3 := ergo.JSONSettle(r.c)
+		if err_3 != nil {
+			return *new(T), err_3
+		}
+		return *new(T), err_2
+	} else {
+		v_2 = v_1
 	}
-	return v_1, nil
+	var v_3 T = v_2
+	err_4 := ergo.JSONSettle(r.c)
+	if err_4 != nil {
+		return *new(T), err_4
+	}
+	return v_3, nil
 }
 
 func DecodeMono_i1(env *Env, wT struct {
@@ -2343,16 +2357,30 @@ func DecodeMono_i1(env *Env, wT struct {
 	}
 }, c_1 Codec[Rows], text_1 string) (Rows, error) {
 	env.task.Check()
-	v, err := Open(env, text_1, c_1.MaxBytes, c_1.MaxDepth)
+	v, err := ergo.JSONOpenChecked(text_1, c_1.MaxBytes, c_1.MaxDepth)
 	if err != nil {
 		return *new(Rows), err
 	}
+	var r Reader = Reader{c: v}
 	env.task.Check()
-	v_1, err_1 := wT.Dec(env, &opsReaderAsReader{v: v, env: env})
+	v_1, err_1 := wT.Dec(env, &opsReaderAsReader{v: r, env: env})
+	var v_2 Rows
 	if err_1 != nil {
-		return *new(Rows), err_1
+		err_2 := err_1
+		err_3 := ergo.JSONSettle(r.c)
+		if err_3 != nil {
+			return *new(Rows), err_3
+		}
+		return *new(Rows), err_2
+	} else {
+		v_2 = v_1
 	}
-	return v_1, nil
+	var v_3 Rows = v_2
+	err_4 := ergo.JSONSettle(r.c)
+	if err_4 != nil {
+		return *new(Rows), err_4
+	}
+	return v_3, nil
 }
 
 func textBadRows(v BadRows) string {
@@ -3049,15 +3077,6 @@ func layerOf(layers_1 []string, path_1 string) int {
 
 type Reader struct {
 	c *ergo.Cursor
-}
-
-func Open(env *Env, text_1 string, maxBytes int, maxDepth int) (Reader, error) {
-	env.task.Check()
-	v, err := ergo.JSONOpen(text_1, maxBytes, maxDepth)
-	if err != nil {
-		return *new(Reader), err
-	}
-	return Reader{c: v}, nil
 }
 
 func (r Reader) TakeNull(env *Env) bool {
