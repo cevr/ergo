@@ -1,0 +1,127 @@
+// A union lists a union of its package, meaning that union's variants; a
+// union converts to each union of its package that holds every one of its
+// variants; `case A as a` takes A's variants and binds them as an A
+// (types.md, Unions 1; DECL-VALUES Design B (b)).
+
+type Answer { Question int, Choice int }
+type Settled = Asking{Question int, Answers []Answer} | Showing{Answers []Answer}
+type Quiz = Calculating{Next int, Answers []Answer} | Settled
+
+func settle(q Quiz) Settled {
+	match q {
+	case Calculating as c:
+		Showing{Answers: c.Answers}
+	case Settled as s:
+		s
+	}
+}
+
+// A Settled is a Quiz: no rebuild.
+func back(s Settled) Quiz { s }
+
+// Every variant of a listed union is a variant of the larger one.
+type A = A1{} | A2{}
+type B = B1{} | B2{}
+type AB = A | B
+
+func each(x AB) int {
+	match x {
+	case A1:
+		1
+	case A2:
+		2
+	case B1:
+		3
+	case B2:
+		4
+	}
+}
+
+func halves(x AB) int {
+	match x {
+	case A as a:
+		inA(a)
+	case B:
+		0
+	}
+}
+
+func inA(a A) int {
+	match a {
+	case A1:
+		1
+	case A2:
+		2
+	}
+}
+
+// A variant reached twice is one variant: a union is a set.
+type AB1 = A | A1 | B
+
+func twice(x AB1) int {
+	match x {
+	case A1:
+		1
+	case A2:
+		2
+	case B as b:
+		halves(b)
+	}
+}
+
+// A variant written before the union that lists it is still one variant.
+type AB2 = A1 | A
+
+func before(x AB2) int {
+	match x {
+	case A1:
+		1
+	case A2:
+		2
+	}
+}
+
+// Widening is by subset, listed or not.
+type C1 {}
+type C2 {}
+type D1 {}
+type C = C1 | C2
+type CD = C1 | C2 | D1
+
+func widen(c C) CD { c }
+
+// A failure union nests in a union declaration as it does in a row.
+type Lost {}
+type Garbled { Why string }
+type Late {}
+type Broken = Lost | Garbled
+type Fail = Broken | Late
+
+func failing(n int) int fails Fail {
+	if n == 0 {
+		return Late
+	}
+	if n == 1 {
+		return Lost
+	}
+	n
+}
+
+func rows(n int) int fails Broken | Late { try failing(n) }
+
+// A generic union lists a failure union: a Lost is a Got[T].
+type Got[T] = Have{V T} | Broken
+
+func got[T](v T) Got[T] { Have[T]{V: v} }
+func lost[T]() Got[T] { Lost }
+
+func value(g Got[int]) int {
+	match g {
+	case Have[int] as h:
+		h.V
+	case Broken:
+		0
+	}
+}
+
+func main() {}
