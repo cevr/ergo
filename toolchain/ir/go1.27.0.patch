@@ -780,10 +780,10 @@ index 0000000..2995f1c
 +}
 diff --git a/src/cmd/compile/internal/ergoir/ergoir_expr.go b/src/cmd/compile/internal/ergoir/ergoir_expr.go
 new file mode 100644
-index 0000000..f053c01
+index 0000000..7e1112d
 --- /dev/null
 +++ b/src/cmd/compile/internal/ergoir/ergoir_expr.go
-@@ -0,0 +1,499 @@
+@@ -0,0 +1,521 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -797,6 +797,7 @@ index 0000000..f053c01
 +	"go/token"
 +	"strconv"
 +	"strings"
++	"sync"
 +
 +	"cmd/compile/internal/syntax"
 +	"cmd/compile/internal/types2"
@@ -1271,7 +1272,7 @@ index 0000000..f053c01
 +		}
 +		return types2.Typ[types2.Bool]
 +	case syntax.Lss, syntax.Leq, syntax.Gtr, syntax.Geq:
-+		if !ergoIsNumeric(lt) && !ergoIsString(lt) {
++		if !ergoOrdered(lt) {
 +			return bad()
 +		}
 +		return types2.Typ[types2.Bool]
@@ -1283,6 +1284,27 @@ index 0000000..f053c01
 +	}
 +	return bad()
 +}
++
++// ergoOrdered reports whether Go's < applies to t: a basic number or
++// string, or a type parameter whose type set holds only those (an Ergo
++// ordered parameter, GP-ORDER). types2 judges the type parameter: it
++// satisfies cmp.Ordered's type set, so a constraint with no type terms
++// is not ordered.
++func ergoOrdered(t types2.Type) bool {
++	if _, ok := t.(*types2.TypeParam); !ok {
++		return ergoIsNumeric(t) || ergoIsString(t)
++	}
++	return types2.Satisfies(t, ergoOrderedSet())
++}
++
++// ergoOrderedSet is cmp.Ordered: ~int | … | ~float64 | ~string.
++var ergoOrderedSet = sync.OnceValue(func() *types2.Interface {
++	var terms []*types2.Term
++	for _, k := range []types2.BasicKind{types2.Int, types2.Int8, types2.Int16, types2.Int32, types2.Int64, types2.Uint, types2.Uint8, types2.Uint16, types2.Uint32, types2.Uint64, types2.Uintptr, types2.Float32, types2.Float64, types2.String} {
++		terms = append(terms, types2.NewTerm(true, types2.Typ[k]))
++	}
++	return types2.NewInterfaceType(nil, []types2.Type{types2.NewUnion(terms)})
++})
 diff --git a/src/cmd/compile/internal/ergoir/ergoir_f7.go b/src/cmd/compile/internal/ergoir/ergoir_f7.go
 new file mode 100644
 index 0000000..5fa594c
