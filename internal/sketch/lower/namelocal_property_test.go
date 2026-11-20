@@ -23,14 +23,17 @@ var nameLocalPool = []string{"x", "count", "total", "item", "acc", "step", "live
 
 // nameLocalDefault is lib's fixed part. D's let of Reg takes a generated
 // default (types.md, Zero values 3) and its call of id a monomorphic copy
-// (mono.go); H calls a Go package (a host import); G, which only the reach
-// form calls, takes another copy of id. nameLocalHelperNames are the
+// (mono.go); E's call of id is an inline site on the IR as well as in the
+// text (D's default holding a Map keeps D off the IR); H calls a Go
+// package (a host import); G, which only the reach form calls, takes
+// another copy of id and inlines it before E does. nameLocalHelperNames are the
 // spellings of D's default without rule 3's ergo__ and alias, and the host
 // import's: every added declaration set holds them, so a helper or an
 // import spelled outside "__" meets one.
 const nameLocalDefault = "import go strings\n\ntype Reg (int, Map[int, int])\n\nfunc id[T](v T) T { v }\n\n" +
 	"func G(k int) int {\n\tlet s = id(\"x\")\n\tlen(s) + k\n}\n\n" +
-	"func D(k int) int {\n\tlet r Reg\n\tlet (_, m) = r\n\tlet mut w = m\n\tw[id(k)] = 5\n\tlen(w)\n}\n\n" +
+	"func E(k int) int {\n\tlet q = id(k)\n\tq + 1\n}\n\n" +
+	"func D(k int) int {\n\tlet r Reg\n\tlet (_, m) = r\n\tlet mut w = m\n\tlet q = id(k)\n\tw[q] = 5\n\tlen(w)\n}\n\n" +
 	"func H(s string) int needs go.Foreign { strings.Count(s, \"a\") }\n\n"
 
 var nameLocalHelperNames = []string{"DefaultReg", "ergoDefaultReg", "strings"}
@@ -116,7 +119,7 @@ func nameLocalUse(form int) string {
 	if form == nameLocalReach {
 		g = "lib.G(k) + "
 	}
-	return "\nfunc use(k int) int needs go.Foreign { " + g + "lib.F(k) + lib.D(k) + lib.H(\"aa\") }\n"
+	return "\nfunc use(k int) int needs go.Foreign { " + g + "lib.F(k) + lib.D(k) + lib.E(k) + lib.H(\"aa\") }\n"
 }
 
 func (p nameLocalProgram) main(form int) string {
