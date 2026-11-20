@@ -153,10 +153,13 @@ type IRCensus struct {
 // IRCensusFunc is one lowered body. Reasons are distinct, in the order the
 // builder met them; none means the builder lowers it.
 type IRCensusFunc struct {
-	Pkg     string   `json:"pkg"`
-	Name    string   `json:"name"`
-	File    string   `json:"file,omitempty"` // the source file, for a sourced body
-	Std     bool     `json:"std,omitempty"`
+	Pkg  string `json:"pkg"`
+	Name string `json:"name"`
+	File string `json:"file,omitempty"` // the source file, for a sourced body
+	Std  bool   `json:"std,omitempty"`
+	// Codec marks a codec function that keeps its text body (codecText):
+	// no Ergo body, Name its Go name.
+	Codec   bool     `json:"codec,omitempty"`
 	Reasons []string `json:"reasons,omitempty"`
 }
 

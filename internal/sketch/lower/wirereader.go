@@ -54,31 +54,14 @@ func directReaderOf(info *check.Info, x syntax.Expr) (directReader, bool) {
 		return directReader{}, false
 	}
 	n, ok := info.Types[x].(*check.Named)
-	if !ok || len(n.TArgs) > 0 || conv.From == nil {
+	if !ok || conv.From == nil {
 		return directReader{}, false
 	}
-	if _, isIface := n.Underlying().(*check.Interface); isIface {
+	if !sameDecl(conv.To, check.PreludeType(check.WireReaderName)) {
 		return directReader{}, false
 	}
-	rt := check.PreludeType(check.WireReaderName)
-	iface, ok := rt.Underlying().(*check.Interface)
-	if !ok || !sameDecl(conv.To, rt) {
+	if !check.DirectReaderShape(n, func(op string) *check.Func { return conv.Table[op] }) {
 		return directReader{}, false
-	}
-	for _, op := range iface.Methods {
-		f := conv.Table[op.Name]
-		if f == nil || f.Sig == nil || len(f.Sig.TParams) > 0 {
-			return directReader{}, false
-		}
-		if len(f.Sig.Params) != len(op.Sig.Params)+1 || len(f.Sig.Results) != len(op.Sig.Results) {
-			return directReader{}, false
-		}
-		if (len(rowElems(f.Sig.Errors)) > 0) != (len(rowElems(op.Sig.Errors)) > 0) {
-			return directReader{}, false
-		}
-		if !sameDecl(f.Sig.Params[0].Type, n) {
-			return directReader{}, false // a provider function on *R
-		}
 	}
 	return directReader{t: n, conv: conv}, true
 }

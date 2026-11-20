@@ -133,9 +133,11 @@ const EvaluationSchemaVersion = 1
 // Revision is the source the evaluation ran on. Status sums the
 // obligations up, worst first: "defect", "refuted", "incomplete" (a budget
 // ran out, so some obligation did not finish), "skipped" (some obligation
-// cannot run at check time), "passed" (every one ran and held), and "none"
-// (there is no obligation). A skipped or incomplete obligation is never
-// passed. Steps and Bytes are the work and value bytes used, of their
+// cannot run at check time), "passed" (every one ran and held, or is
+// native: a law over a Go-backed provider that only ergo test runs,
+// types.md Laws 10), and "none" (there is no obligation). A skipped or
+// incomplete obligation is never passed, and a native one is never
+// counted as passed: its own status stays "native". Steps and Bytes are the work and value bytes used, of their
 // limits.
 type Evaluation struct {
 	Bytes         int64        `json:"bytes"`
@@ -150,7 +152,8 @@ type Evaluation struct {
 
 // Obligation is one test or law run of an evaluation, in the order ergo
 // test runs them. Status is "passed", "refuted", "defect", "skipped",
-// "incomplete" or "not run"; Reason says why for each but passed. Evidence
+// "native" (only ergo test runs it: Replay is that command), "incomplete"
+// or "not run"; Reason says why for each but passed. Evidence
 // is "evaluated" (an example), "tested" (sampled cases) or "proved" (a
 // whole finite domain, or an exhausted machine graph). Case is the first
 // bad case and Arguments its values; Replay is the native command that
@@ -208,7 +211,7 @@ type MachineSearch struct {
 
 // EvaluationStatus sums obligation statuses up, worst first (Evaluation).
 func EvaluationStatus(statuses []string) string {
-	rank := map[string]int{"passed": 1, "skipped": 2, "incomplete": 3, "not run": 3, "refuted": 4, "defect": 5}
+	rank := map[string]int{"passed": 1, "native": 1, "skipped": 2, "incomplete": 3, "not run": 3, "refuted": 4, "defect": 5}
 	names := []string{"none", "passed", "skipped", "incomplete", "refuted", "defect"}
 	worst := 0
 	for _, s := range statuses {

@@ -136,7 +136,13 @@ func (module moduleTestOptions) select_(one *fileOptions, l loaded) (bool, error
 // they cannot share a load or a package does not check; the caller then
 // loads each package alone, which reports it as before.
 func loadShared(opts fileOptions, platform gobind.Platform) ([]sketchfront.PackageTarget, []loaded, bool) {
-	packages, err := sketchfront.DiscoverPackages(filepath.Dir(filepath.Clean(opts.file)))
+	return loadSharedFS(opts, platform, nil)
+}
+
+// loadSharedFS is loadShared reading discovery and the load through fsys
+// (a warm request's Recorder); nil reads the host.
+func loadSharedFS(opts fileOptions, platform gobind.Platform, fsys sketchfront.FS) ([]sketchfront.PackageTarget, []loaded, bool) {
+	packages, err := sketchfront.DiscoverPackagesThrough(fsys, filepath.Dir(filepath.Clean(opts.file)))
 	if err != nil {
 		return nil, nil, false
 	}
@@ -154,7 +160,13 @@ func loadShared(opts fileOptions, platform gobind.Platform) ([]sketchfront.Packa
 		for end < len(dirs) && packages[end].Root == packages[start].Root {
 			end++
 		}
-		as, err := sketchfront.CheckPackages(dirs[start:end], platform)
+		var as []sketchfront.Analysis
+		var err error
+		if fsys == nil {
+			as, err = sketchfront.CheckPackages(dirs[start:end], platform)
+		} else {
+			as, err = sketchfront.CheckPackagesFS(fsys, dirs[start:end], platform)
+		}
 		if err != nil {
 			return nil, nil, false
 		}
@@ -187,7 +199,16 @@ func loadShared(opts fileOptions, platform gobind.Platform) ([]sketchfront.Packa
 // status rules of recursiveCommand. shared is false when the packages
 // cannot share a load; then each package is checked alone.
 func sharedCheckCommand(opts fileOptions) (shared bool, err error) {
-	packages, loads, ok := loadShared(opts, opts.platform)
+	tree := startTree(opts)
+	if outs, ok := tree.lookup(); ok {
+		for _, out := range outs {
+			if _, err := os.Stdout.Write(out); err != nil {
+				return true, err
+			}
+		}
+		return true, nil
+	}
+	packages, loads, ok := loadSharedFS(opts, opts.platform, tree.fsys())
 	if !ok {
 		return false, nil
 	}
@@ -195,7 +216,7 @@ func sharedCheckCommand(opts fileOptions) (shared bool, err error) {
 	for i, l := range loads {
 		one := opts
 		one.file = packages[i].Dir
-		stop, fail := packageOutcome(packages[i].Path, checkLoaded(one, l, nil))
+		stop, fail := packageOutcome(packages[i].Path, checkShared(one, l, tree))
 		if stop != nil {
 			return true, stop
 		}
@@ -204,7 +225,22 @@ func sharedCheckCommand(opts fileOptions) (shared bool, err error) {
 	if failed {
 		return true, exitStatusError{code: 1, handled: true}
 	}
+	tree.record()
 	return true, nil
+}
+
+// checkShared is checkLoaded of one package of a shared load, keeping
+// its answer in tree.
+func checkShared(opts fileOptions, l loaded, tree *checkTree) error {
+	out, exit, err := checkEnvelope(opts, l, tree.fsys())
+	if err != nil {
+		return err
+	}
+	if _, err := os.Stdout.Write(out); err != nil {
+		return err
+	}
+	tree.add(l.analysis, out, exit)
+	return exit
 }
 
 // sharedTestCommand runs `ergo test DIR/...` with one load of the module
