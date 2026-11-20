@@ -27,6 +27,25 @@ func Parse(src string) ast.Expr fails Failure {
 	}
 }
 
+// RoundTrip: the text of an expression reads back as the expression,
+// when its names are variable names: for e and the samples of seed,
+// whose names are.
+law RoundTrip(e ast.Expr, seed int) {
+	for x in ast.Samples(e, seed) {
+		if !ast.Valid(x) {
+			continue
+		}
+		let back = Parse(ast.Print(x)) catch {
+		case Failure:
+			return false
+		}
+		if back != x {
+			return false
+		}
+	}
+	true
+}
+
 func peek(p *parser) Token { p.toks[p.pos] }
 
 // next is the token at the position, and moves past it. EndTok is never

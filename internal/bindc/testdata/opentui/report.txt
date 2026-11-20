@@ -51,7 +51,7 @@ typed functions (242):
   ot_scene_get_cursor_state: func SceneGetCursorState(context *Context, session Handle) (SceneCursorState, error)
   ot_scene_frame_copy_buffer: func SceneFrameCopyBuffer(context *Context, session Handle, sceneFrameRequest SceneFrameRequest, target Handle) error
   ot_scene_measure_layout: func SceneMeasureLayout(context *Context, session Handle, root Handle) error
-  ot_session_render_split: func SessionRenderSplit(context *Context, session Handle, sceneFrameRequest SceneFrameRequest, splitSnapshot []SplitSnapshot, pinnedRenderOffset uint32, force uint32) (uint32, error)
+  ot_session_render_split: func SessionRenderSplit(context *Context, session Handle, sceneFrameRequest *SceneFrameRequest, splitSnapshot []SplitSnapshot, pinnedRenderOffset uint32, force uint32) (uint32, error)
   ot_session_split_control: func SessionSplitControl(context *Context, session Handle, splitControl SplitControl) (uint32, error)
   ot_session_set_screen: func SessionSetScreen(context *Context, session Handle, alternate uint32, width uint32, height uint32, trailingOutput []byte) error
   ot_session_sync_detached: func SessionSyncDetached(context *Context, session Handle, parent Handle) error
@@ -143,7 +143,7 @@ typed functions (242):
   ot_video_set_max_fps: func VideoSetMaxFps(context *Context, node Handle, fps uint32) error
   ot_video_get_state: func VideoGetState(context *Context, node Handle) (VideoState, error)
   ot_video_get_error: func VideoGetError(context *Context, node Handle, bytes []byte) (uint32, error)
-  ot_buffer_draw_image: func BufferDrawImage(context *Context, target Handle, frame SceneFrameRequest, image Handle, imageDrawOptions ImageDrawOptions) (uint32, error)
+  ot_buffer_draw_image: func BufferDrawImage(context *Context, target Handle, frame *SceneFrameRequest, image Handle, imageDrawOptions ImageDrawOptions) (uint32, error)
   ot_session_set_image_resolution: func SessionSetImageResolution(context *Context, session Handle, terminalWidth uint32, terminalHeight uint32, pixelWidth uint32, pixelHeight uint32) error
   ot_session_set_kitty_image_transport: func SessionSetKittyImageTransport(context *Context, session Handle, mode uint32) error
   ot_session_get_kitty_image_transport: func SessionGetKittyImageTransport(context *Context, session Handle) (SessionKittyImageTransport, error)
@@ -177,9 +177,9 @@ typed functions (242):
   ot_text_buffer_view_measure: func TextBufferViewMeasure(context *Context, handle Handle, width uint32, height uint32) (EditorMeasure, error)
   ot_scene_set_text_view: func SceneSetTextView(context *Context, node Handle, view Handle) error
   ot_scene_set_text_view_paint: func SceneSetTextViewPaint(context *Context, node Handle, enabled uint32) error
-  ot_buffer_draw_text_view: func BufferDrawTextView(context *Context, target Handle, sceneFrameRequest SceneFrameRequest, view Handle, x int32, y int32) error
-  ot_buffer_draw_editor_view: func BufferDrawEditorView(context *Context, target Handle, sceneFrameRequest SceneFrameRequest, view Handle, x int32, y int32) error
-  ot_buffer_draw_scene_body: func BufferDrawSceneBody(context *Context, target Handle, sceneFrameRequest SceneFrameRequest, node Handle, x int32, y int32) error
+  ot_buffer_draw_text_view: func BufferDrawTextView(context *Context, target Handle, sceneFrameRequest *SceneFrameRequest, view Handle, x int32, y int32) error
+  ot_buffer_draw_editor_view: func BufferDrawEditorView(context *Context, target Handle, sceneFrameRequest *SceneFrameRequest, view Handle, x int32, y int32) error
+  ot_buffer_draw_scene_body: func BufferDrawSceneBody(context *Context, target Handle, sceneFrameRequest *SceneFrameRequest, node Handle, x int32, y int32) error
   ot_scene_frame_acquire_buffer_lease: func SceneFrameAcquireBufferLease(context *Context, session Handle, frameRequest SceneFrameRequest, which uint32) (BufferLeaseSnapshot, error)
   ot_scene_frame_commit: func SceneFrameCommit(context *Context, session Handle, frameRequest SceneFrameRequest, force uint32) (uint32, error)
   ot_context_abi_version: func ContextAbiVersion() (uint32, error)
@@ -190,10 +190,10 @@ typed functions (242):
   ot_buffer_create: func BufferCreate(context *Context, options BufferOptions) (Handle, error)
   ot_buffer_destroy: func BufferDestroy(context *Context, buffer Handle) error
   ot_buffer_resize: func BufferResize(context *Context, buffer Handle, width uint32, height uint32) error
-  ot_buffer_draw: func BufferDraw(context *Context, target Handle, frame SceneFrameRequest, options BufferDrawHeaderRecord, source Handle, text []byte, bottomTitle []byte) error
-  ot_buffer_draw_grid: func BufferDrawGrid(context *Context, target Handle, frame SceneFrameRequest, options BufferGridOptions, columns []int32, rows []int32) error
-  ot_buffer_draw_packed: func BufferDrawPacked(context *Context, handle Handle, sceneFrameRequest SceneFrameRequest, data []byte, x int32, y int32, width uint32, height uint32) error
-  ot_buffer_draw_supersample: func BufferDrawSupersample(context *Context, handle Handle, sceneFrameRequest SceneFrameRequest, data []byte, x int32, y int32, format uint32, stride uint32) error
+  ot_buffer_draw: func BufferDraw(context *Context, target Handle, frame *SceneFrameRequest, options BufferDrawHeaderRecord, source Handle, text []byte, bottomTitle []byte) error
+  ot_buffer_draw_grid: func BufferDrawGrid(context *Context, target Handle, frame *SceneFrameRequest, options BufferGridOptions, columns []int32, rows []int32) error
+  ot_buffer_draw_packed: func BufferDrawPacked(context *Context, handle Handle, sceneFrameRequest *SceneFrameRequest, data []byte, x int32, y int32, width uint32, height uint32) error
+  ot_buffer_draw_supersample: func BufferDrawSupersample(context *Context, handle Handle, sceneFrameRequest *SceneFrameRequest, data []byte, x int32, y int32, format uint32, stride uint32) error
   ot_buffer_acquire_lease: func BufferAcquireLease(context *Context, buffer Handle) (BufferLeaseSnapshot, error)
   ot_session_create: func SessionCreate(context *Context, options SessionOptions) (Handle, error)
   ot_session_attach_renderer: func SessionAttachRenderer(context *Context, session Handle, options SessionRendererOptions) error
@@ -279,10 +279,10 @@ pointer fields (0):
 
 counts:
   functions 259: typed 242, raw-only 17, skipped 0
-  pointer positions 806 (parameters and results 806, fields 0): handle 257, value 316, out 99, in_buffer 58, out_buffer 23, out_count 23, callback 2, key 1, raw 27
+  pointer positions 806 (parameters and results 806, fields 0): handle 257, value 304, optional 12, out 99, in_buffer 58, out_buffer 23, out_count 23, callback 2, key 1, raw 27
   constants 701, status codes 37
 
-exceptions (9):
+exceptions (21):
   ot_session_drain_stdout session: value: max_bytes after session limits the drained output; it is not the length of session
   ot_session_drain_output session: value: max_bytes after session limits the drained output; it is not the length of session
   ot_scene_measure_callback out_size: out_array of 2: "The result is two floats (width, height)"
@@ -292,5 +292,17 @@ exceptions (9):
   ot_text_buffer_view_get_info #2: out: unnamed out-parameter: the call writes one ot_editor_view_info
   ot_text_buffer_view_measure #4: out: unnamed out-parameter: the call writes one ot_editor_measure
   ot_text_buffer_replace_styled_batch out: out: named out without the out_ prefix: the call writes one ot_text_buffer_replacement_info
+  ot_buffer_draw frame: optional: "frame must be NULL for an owned buffer and non-NULL for a Session"
+  ot_buffer_stack frame: optional: "the same target/frame authority as ot_buffer_draw"
+  ot_buffer_draw_grid frame: optional: "the same target/frame authority as ot_buffer_draw"
+  ot_buffer_draw_packed #2: optional: "Pixel drawing uses the same target/frame authority as ot_buffer_draw"
+  ot_buffer_draw_supersample #2: optional: "Pixel drawing uses the same target/frame authority as ot_buffer_draw"
+  ot_buffer_draw_grayscale #2: optional: "Pixel drawing uses the same target/frame authority as ot_buffer_draw"
+  ot_buffer_color_matrix #2: optional: "Target/frame authority is the same as ot_buffer_draw"
+  ot_buffer_draw_image frame: optional: "Offscreen buffers require NULL frame"
+  ot_buffer_draw_text_view #2: optional: "NULL frame selects an owned offscreen buffer"
+  ot_buffer_draw_editor_view #2: optional: "Same destination rules as ot_buffer_draw_text_view"
+  ot_buffer_draw_scene_body #2: optional: "Same destination rules as ot_buffer_draw_text_view" (the comment covers the pair after it)
+  ot_session_render_split #2: optional: "A null frame submits snapshots only"
 
 skips (0):

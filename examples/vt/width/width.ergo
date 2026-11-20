@@ -3,7 +3,7 @@
 // for every other character. A two-stage table answers it, built at start
 // from a list of ranges.
 //
-// The ranges are those of Markus Kuhn's mk_wcwidth (2007), which marks the
+// The ranges are those of the 2007 reference wcwidth, which marks the
 // East Asian Wide and Fullwidth blocks, plus the two emoji blocks that
 // terminals draw wide. Grapheme clusters, combining marks of no width and
 // ambiguous-width characters are out of scope: each is one column.

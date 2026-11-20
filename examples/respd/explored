@@ -1,0 +1,4 @@
+# The explore leg searches these tests' schedules (scripts/examples, explored.go).
+# Two tasks Incr one key at once: every schedule of one preemption counts each
+# Incr once (testdata/mutants.json: memory-incr-reads-then-writes).
+memory IncrIsAtomic --explore dfs --preempt 1

@@ -1,0 +1,142 @@
+// Package resp is the RESP protocol of a key-value server: RESP2, and
+// the RESP3 types a server answers with (null, boolean, map, set). A
+// Reader frames values out of the bytes a connection gives it, in chunks
+// of any size; Append writes a value in the protocol a connection speaks.
+// Both work on flat bytes: the reader keeps one buffer and parses in
+// place, the writer appends to the caller's buffer.
+
+import strings
+
+// Value is one RESP frame. A bulk string holds any bytes, so Bulk's Data
+// is a string of bytes, not of text. Null is RESP3's null, and RESP2's
+// null bulk string ($-1) and null array (*-1) both read as it.
+type Value = Simple{Text string} | Fault{Text string} | Integer{N int64} | Bulk{Data string} | Null{} | Array{Items []Value} | Boolean{Truth bool} | Dict{Pairs []Pair} | Set{Items []Value}
+
+// BulkTakesItsLength: a bulk string is the count of bytes its header
+// says, followed by CRLF. Data of another length is never read as a bulk
+// string of that data: it is Incomplete while the declared bytes may yet
+// arrive, and Malformed when the CRLF is not where the length puts it.
+law BulkTakesItsLength(seed int) {
+	for v in Samples(seed) {
+		let data = strings.FromBytes(Encode(v, Resp3))
+		for n in []int{0, len(data) / 2, len(data) + 1, len(data) + 5} {
+			if n == len(data) {
+				continue
+			}
+			let enc = strings.Bytes("$\(n)\r\n" + data + "\r\n")
+			let f = Parse(enc) catch {
+			case Incomplete, Malformed:
+				continue
+			}
+			match f.Value {
+			case Bulk as b:
+				if b.Data == data || len(b.Data) != n {
+					return false
+				}
+			case _:
+				return false
+			}
+		}
+	}
+	true
+}
+
+// Pair is one entry of a Dict: RESP3 writes a map as its pairs one after another,
+// and so does Dict.
+type Pair { Key Value, Value Value }
+
+// Protocol is the version of RESP a connection speaks: RESP2 until a
+// client asks for RESP3 (HELLO 3).
+type Protocol = Resp2{} | Resp3{}
+
+// Down is v as RESP2 writes it: RESP2 has no boolean, map or set, so a
+// boolean is the integer 1 or 0, a map the array of its keys and values
+// in turn, and a set the array of its items. What Append writes in RESP2
+// reads back as Down(v) (law ParseInvertsAppend).
+func Down(v Value) Value {
+	match v {
+	case Boolean as b:
+		if b.Truth {
+			return Integer{N: 1}
+		}
+		Integer{N: 0}
+	case Dict as d:
+		let mut items = []Value{}
+		for p in d.Pairs {
+			items = items.Append(Down(p.Key))
+			items = items.Append(Down(p.Value))
+		}
+		Array{Items: items}
+	case Set as s:
+		Array{Items: downAll(s.Items)}
+	case Array as a:
+		Array{Items: downAll(a.Items)}
+	case Simple:
+		v
+	case Fault:
+		v
+	case Integer:
+		v
+	case Bulk:
+		v
+	case Null:
+		v
+	}
+}
+
+// Equal is whether a and b are the same value: the same variant, and the
+// same parts in the same places.
+func Equal(a Value, b Value) bool {
+	match (a, b) {
+	case (Simple as x, Simple as y):
+		x.Text == y.Text
+	case (Fault as x, Fault as y):
+		x.Text == y.Text
+	case (Integer as x, Integer as y):
+		x.N == y.N
+	case (Bulk as x, Bulk as y):
+		x.Data == y.Data
+	case (Null, Null):
+		true
+	case (Boolean as x, Boolean as y):
+		x.Truth == y.Truth
+	case (Array as x, Array as y):
+		allEqual(x.Items, y.Items)
+	case (Set as x, Set as y):
+		allEqual(x.Items, y.Items)
+	case (Dict as x, Dict as y):
+		if len(x.Pairs) != len(y.Pairs) {
+			return false
+		}
+		for i, p in x.Pairs {
+			if !Equal(p.Key, y.Pairs[i].Key) || !Equal(p.Value, y.Pairs[i].Value) {
+				return false
+			}
+		}
+		true
+	case _:
+		false
+	}
+}
+
+// allEqual is whether xs and ys are equal item by item.
+func allEqual(xs []Value, ys []Value) bool {
+	if len(xs) != len(ys) {
+		return false
+	}
+	for i, x in xs {
+		if !Equal(x, ys[i]) {
+			return false
+		}
+	}
+	true
+}
+
+// downAll is Down of each item.
+func downAll(items []Value) []Value {
+	let mut out = []Value{}
+	for x in items {
+		out = out.Append(Down(x))
+	}
+	out
+}

@@ -12,6 +12,52 @@ type Shell = Bash{} | Zsh{} | Fish{}
 // Cmd is one command line of tasks.
 type Cmd = List{Which tasks.Which, Min tasks.Priority, JSON bool} | Create{Title string, Priority tasks.Priority, JSON bool} | Close{ID int, Yes bool, JSON bool} | Completion{Shell Shell}
 
+// ArgsRoundTrip: the command line Args writes parses back to the command.
+law ArgsRoundTrip(c Cmd) {
+	let s = Sane(c)
+	try Parse(Args(s)) == s
+}
+
+// Args is a command line that parses to c.
+func Args(c Cmd) []string {
+	match c {
+	case List as l:
+		let state = match l.Which {
+		case tasks.OpenOnly:
+			"open"
+		case tasks.ClosedOnly:
+			"closed"
+		case tasks.Every:
+			"all"
+		}
+		[]string{"list", "--state=" + state, "--min=" + tasks.PriorityName(l.Min), "--json=\(l.JSON)"}
+	case Create as n:
+		[]string{"create", "--priority", tasks.PriorityName(n.Priority), "--json=\(n.JSON)", "--", n.Title}
+	case Close as d:
+		[]string{"close", "--yes=\(d.Yes)", "--json=\(d.JSON)", "--", strconv.Itoa(d.ID)}
+	case Completion as m:
+		match m.Shell {
+		case Bash:
+			[]string{"completion", "bash"}
+		case Zsh:
+			[]string{"completion", "zsh"}
+		case Fish:
+			[]string{"completion", "fish"}
+		}
+	}
+}
+
+// Sane is c as a command line can carry it: a title of words with single
+// spaces, and not empty.
+func Sane(c Cmd) Cmd {
+	match c {
+	case Create as n:
+		Create{..n, Title: strings.Join(strings.Fields("t "+n.Title), " ")}
+	case List, Close, Completion:
+		c
+	}
+}
+
 let jsonFlag = flag.Bool("json", false, "print JSON")
 let stateFlag = flag.Choice("state", "open", []string{"open", "closed", "all"}, "which tasks to list")
 let minFlag = flag.Choice("min", "low", []string{"low", "medium", "high", "urgent"}, "the least priority to list")

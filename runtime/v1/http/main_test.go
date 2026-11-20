@@ -4,12 +4,50 @@
 package http
 
 import (
+	"flag"
 	"os"
 	"testing"
 
 	"ergo.local/prototype/internal/testinputs"
 )
 
+// fastWriterFlag chooses the engine's writer for every test:
+// -http.fastwriter=false writes every answer through the port of net/http's
+// writer, the reference of fastAnswer.
+var fastWriterFlag = flag.Bool("http.fastwriter", true, "the engine writes a common buffered answer in one write (false: the port of net/http's writer)")
+
+// lazyWatchFlag chooses when the engine starts its background read:
+// -http.lazywatch=false starts it before every handler, as net/http does,
+// the reference of the start at the handler's first wait.
+var lazyWatchFlag = flag.Bool("http.lazywatch", true, "the engine watches a connection from the handler's first wait (false: before the handler, as net/http)")
+
+// watcherFlag chooses how the engine sees a client leave: -http.watcher=false
+// watches every connection with net/http's background read, the reference
+// of the server's peer-close watcher (HTTP-FAST-c6).
+var watcherFlag = flag.Bool("http.watcher", true, "the engine sees a client leave through one peer-close watcher per server (false: net/http's background read)")
+
+// sniffHeadFlag chooses how fastAnswer sniffs a body's type:
+// -http.sniffhead=false runs net/http's DetectContentType on the whole
+// 512 bytes, the reference of the sniff from the head (HTTP-FAST-c7).
+var sniffHeadFlag = flag.Bool("http.sniffhead", true, "fastAnswer sniffs a body's head and checks the rest is text (false: net/http's sniff of 512 bytes)")
+
 // TestMain runs the tests under observation, so the files and variables
 // any process they start reads are inputs of Go's test cache.
-func TestMain(m *testing.M) { os.Exit(testinputs.Main(m)) }
+func TestMain(m *testing.M) {
+	flag.Parse()
+	// Only a flag given chooses: by default the tests run on the default
+	// writer, so a changed default is under test (c2-path-never).
+	flag.Visit(func(f *flag.Flag) {
+		switch f.Name {
+		case "http.fastwriter":
+			engineFastWriter = *fastWriterFlag
+		case "http.lazywatch":
+			engineLazyWatch = *lazyWatchFlag
+		case "http.watcher":
+			engineWatcher = *watcherFlag
+		case "http.sniffhead":
+			engineSniffHead = *sniffHeadFlag
+		}
+	})
+	os.Exit(testinputs.Main(m))
+}

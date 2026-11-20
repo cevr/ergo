@@ -35,5 +35,6 @@
  "files": {
   "notes.txt": "water the plants\n",
   "src/main.go": "package main\n"
- }
+ },
+ "shell": {}
 }

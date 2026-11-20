@@ -130,7 +130,7 @@ extern go html/template.Template type Template {
 extern go html/template.Template.AddParseTree func (t *Template) AddParseTree(name string, tree own *parse.Tree) go.Ref[Template] fails go.Error needs go.Foreign
 
 // ergo:go func (*Template).Clone() (*Template, error)
-extern go html/template.Template.Clone func (t *Template) Clone() go.Ref[Template] fails go.Error needs go.Foreign
+extern go html/template.Template.Clone func (t *Template) Clone() Option[go.Ref[Template]] fails go.Error needs go.Foreign
 
 // ergo:go func (*Template).DefinedTemplates() string
 extern go html/template.Template.DefinedTemplates func (t *Template) DefinedTemplates() string needs go.Foreign

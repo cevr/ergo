@@ -17,6 +17,35 @@ type Job =
 	| RollingBack{Parts []Part, Refs []Ref, Why string}
 	| Summary{Parts []Part, Refs []Ref}
 
+// SummaryTouchRestarts: a touch re-enters the summary (its timer starts
+// again), and its timer's signal closes.
+law SummaryTouchRestarts(partSizes []int, id string) {
+	let r = Summary{Parts: partsOf(partSizes), Refs: []Ref{Ref{ID: id, Size: 1}}}
+	let reentered = match Step(r, Touch) {
+	case Enter[Job]:
+		true
+	case _:
+		false
+	}
+	let closes = match timer(r) {
+	case Some[Timeout[Signal]] as t:
+		match Step(r, t.Value.Signal) {
+		case Done[Result] as d:
+			match d.Output {
+			case Stored as s:
+				s.Total == Total(r.Parts) && t.Value.In == SummaryWait()
+			case Cancelled:
+				false
+			}
+		case _:
+			false
+		}
+	case None:
+		false
+	}
+	reentered && closes
+}
+
 // Signal is what the write takes: the operator's touches, and the outputs of
 // its phases' children and work.
 type Signal =
@@ -28,6 +57,11 @@ type Signal =
 	| SharesLost{Refs []Ref, Why string}
 	| Erased{}
 	| Idle{}
+
+// NoCancelWhileWriting: a cancel while writes run is refused.
+law NoCancelWhileWriting(partSizes []int, shareSizes []int) {
+	refused(Step(Writing{Parts: partsOf(partSizes), Shares: sharesOf(shareSizes)}, Cancel))
+}
 
 // Result is how a write ends.
 type Result = Stored{Total int, Refs []Ref} | Cancelled{}
@@ -51,6 +85,95 @@ func Total(parts []Part) int {
 		n = n + l.Size
 	}
 	n
+}
+
+// SharesCoverExactly: Place starts a write exactly when the shares sum to
+// the staging's total, each positive; otherwise it is refused.
+law SharesCoverExactly(partSizes []int, shareSizes []int, exact bool) {
+	let parts = partsOf(partSizes)
+	let shares = if exact && len(parts) > 0 { split(Total(parts), shareSizes) } else { sharesOf(shareSizes) }
+	let d = Step(Staging{Parts: parts, Note: ""}, Place{Shares: shares})
+	match moved(d) {
+	case Some[Job] as s:
+		match s.Value {
+		case Writing as p:
+			Sum(p.Shares) == Total(parts) && len(parts) > 0
+		case _:
+			false
+		}
+	case None:
+		refused(d) && !placeable(parts, shares)
+	}
+}
+
+// hundredths is n cut to 0..9999 (also for the least int, whose negation is
+// itself).
+func hundredths(n int) int {
+	let c = n % 10000
+	if c < 0 { -c } else { c }
+}
+
+func partsOf(partSizes []int) []Part {
+	let mut out = []Part{}
+	for p in partSizes {
+		out = out.Append(Part{Name: "part", Size: hundredths(p) + 1})
+	}
+	out
+}
+
+// sharesOf is a share per size, disks and tapes by turns.
+func sharesOf(shareSizes []int) []Share {
+	let mut out = []Share{}
+	for i, a in shareSizes {
+		if i%2 == 0 {
+			out = out.Append(Disk{Device: "1\(i)", Size: a})
+		} else {
+			out = out.Append(Tape{Label: "V\(i)", Size: a})
+		}
+	}
+	out
+}
+
+// split is shares that cover total exactly: the shareSizes, cut to total, and
+// the rest in a last disk.
+func split(total int, shareSizes []int) []Share {
+	let mut left = total
+	let mut parts = []int{}
+	for a in shareSizes {
+		let c = hundredths(a) % (left + 1)
+		if c > 0 && c < left {
+			parts = parts.Append(c)
+			left = left - c
+		}
+	}
+	sharesOf(parts.Append(left))
+}
+
+// moved is the state a decision enters or stays in, if any.
+func moved(d Decision[Job, Result]) Option[Job] {
+	match d {
+	case Enter[Job] as x:
+		Some{x.Next}
+	case Stay[Job] as x:
+		Some{x.Next}
+	case Emit[Job, Result] as x:
+		Some{x.Next}
+	case Ignore, Tell[Job, Result]:
+		None
+	case Reject:
+		None
+	case Done[Result]:
+		None
+	}
+}
+
+func refused(d Decision[Job, Result]) bool {
+	match d {
+	case Reject:
+		true
+	case _:
+		false
+	}
 }
 
 // placeable reports whether the shares cover the staging exactly, each with
@@ -106,6 +229,72 @@ func Step(s Job, e Signal) Decision[Job, Result] {
 		Done[Result]{Output: Stored{Total: Total(r.Parts), Refs: r.Refs}}
 	case (Summary, _):
 		Ignore
+	}
+}
+
+// SummaryOnlyAfterWritten: the summary opens only when the runner reports
+// every share taken, or again on a touch of the summary.
+law SummaryOnlyAfterWritten(n int, m int, partSizes []int, shareSizes []int, text string) {
+	let s = sample(n, partSizes, shareSizes, text)
+	let e = signalOf(m, shareSizes, text)
+	match moved(Step(s, e)) {
+	case Some[Job] as next:
+		match next.Value {
+		case Summary:
+			match (s, e) {
+			case (Writing, SharesWritten):
+				true
+			case (Summary, Touch):
+				true
+			case (_, _):
+				false
+			}
+		case _:
+			true
+		}
+	case None:
+		true
+	}
+}
+
+// sample is a write state of every variant, picked by n.
+func sample(n int, partSizes []int, shareSizes []int, text string) Job {
+	let parts = partsOf(partSizes)
+	let shares = sharesOf(shareSizes)
+	let refs = []Ref{Ref{ID: text, Size: Total(parts)}}
+	let k = if n < 0 { -n } else { n }
+	match k % 4 {
+	case 0:
+		Staging{Parts: parts, Note: text}
+	case 1:
+		Writing{Parts: parts, Shares: shares}
+	case 2:
+		RollingBack{Parts: parts, Refs: refs, Why: text}
+	case _:
+		Summary{Parts: parts, Refs: refs}
+	}
+}
+
+// signalOf is a write signal of every variant, picked by n.
+func signalOf(n int, shareSizes []int, text string) Signal {
+	let k = if n < 0 { -n } else { n }
+	match k % 8 {
+	case 0:
+		Add{Name: text, Size: k % 500}
+	case 1:
+		Place{Shares: sharesOf(shareSizes)}
+	case 2:
+		Cancel
+	case 3:
+		Touch
+	case 4:
+		SharesWritten{Refs: []Ref{Ref{ID: text, Size: 1}}}
+	case 5:
+		SharesLost{Refs: []Ref{}, Why: text}
+	case 6:
+		Erased
+	case _:
+		Idle
 	}
 }
 

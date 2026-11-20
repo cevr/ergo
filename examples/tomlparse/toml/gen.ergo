@@ -92,3 +92,35 @@ func Samples(seed int) []Value {
 		out
 	}
 }
+
+// RedefinedKeysFail: a key of the root table given a value once more,
+// before the text that defines it, fails at that text with the key: as a
+// Duplicate when the text gives it a value, as a Clash when a header
+// makes it a table or adds to it as an array of tables.
+law RedefinedKeysFail(seed int) {
+	for v in Samples(seed) {
+		match v {
+		case Table as t:
+			for m in t.Members {
+				let text = Shown(m.Key) + " = 1\n" + Print(v)
+				let _ = Parse(text) catch {
+				case Duplicate as d:
+					if sections(m.Val) || d.Key != Shown(m.Key) {
+						return false
+					}
+					continue
+				case Clash as c:
+					if !sections(m.Val) || c.Key != Shown(m.Key) {
+						return false
+					}
+					continue
+				case Malformed:
+					return false
+				}
+				return false
+			}
+		case Str, Int, Float, Bool, Moment, Array:
+		}
+	}
+	true
+}

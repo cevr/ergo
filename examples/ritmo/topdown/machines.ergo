@@ -1,0 +1,125 @@
+// The game's two state machines (ritmo's Game.StateMachine): which way
+// the player faces, and whether it walks. A system queues a signal for
+// each; the schedule's Commit step commits it (ritmo's nextState and
+// applyStateTransitions), so every system of one tick reads the state the
+// last tick committed.
+
+import machines
+
+// Dir is a way the player can face.
+type Dir = Down{} | Left{} | Right{} | Up{}
+
+// Turn is what a tick's velocity says of the facing: a way, or nothing
+// (standing, or as far along one axis as along the other).
+type Turn = Turned{To Dir} | Steady{}
+
+// Face is the facing's step. A turn to the way it faces already is
+// ignored, as ritmo's setIfChanged queues nothing.
+func Face(d Dir, t Turn) Decision[Dir, Never] {
+	match t {
+	case Steady:
+		Ignore
+	case Turned as n:
+		if n.To == d { Ignore } else { Enter[Dir]{Next: n.To} }
+	}
+}
+
+// Facing is the facing as a machine. Its states and signals can be
+// listed, so ergo test decides its laws on the whole graph.
+type Facing machine[Dir, Turn] {
+	initial: Down,
+	step:    Face,
+
+	// FacesUp: some run of turns faces up.
+	law FacesUp sometimes isUp,
+}
+
+func isUp(d Dir) bool {
+	match d {
+	case Up:
+		true
+	case Down, Left, Right:
+		false
+	}
+}
+
+// Gait is whether the player walks.
+type Gait = Standing{} | Walking{}
+
+// Stride is what a tick's velocity says of the gait.
+type Stride = Moving{} | Stopped{}
+
+// Walk is the gait's step: moving walks, stopping stands.
+func Walk(g Gait, s Stride) Decision[Gait, Never] {
+	match (g, s) {
+	case (Standing, Moving):
+		Enter[Gait]{Next: Walking}
+	case (Walking, Stopped):
+		Enter[Gait]{Next: Standing}
+	case (Standing, Stopped), (Walking, Moving):
+		Ignore
+	}
+}
+
+// Locomotion is the gait as a machine.
+type Locomotion machine[Gait, Stride] {
+	initial: Standing,
+	step:    Walk,
+
+	// StandsAgain: a walking player can always stop.
+	law StandsAgain always standable,
+}
+
+// standable reports whether a Stopped from g stands.
+func standable(g Gait) bool {
+	match machines.Next(g, Walk(g, Stopped)) {
+	case Standing:
+		true
+	case Walking:
+		false
+	}
+}
+
+// TurnOf is the facing signal of velocity v: the way along the axis it
+// moves along more, or Steady when it moves along neither more.
+func TurnOf(v Vec) Turn {
+	let ax = abs(v.X)
+	let ay = abs(v.Y)
+	if ax > ay {
+		return Turned{To: if v.X < 0 { Left } else { Right }}
+	}
+	if ay > ax {
+		return Turned{To: if v.Y < 0 { Up } else { Down }}
+	}
+	Steady
+}
+
+// StrideOf is the gait signal of velocity v.
+func StrideOf(v Vec) Stride {
+	if v.X == 0 && v.Y == 0 { Stopped } else { Moving }
+}
+
+// DirName and GaitName are the names ritmo's tags print.
+func DirName(d Dir) string {
+	match d {
+	case Down:
+		"Down"
+	case Left:
+		"Left"
+	case Right:
+		"Right"
+	case Up:
+		"Up"
+	}
+}
+
+func GaitName(g Gait) string {
+	match g {
+	case Standing:
+		"Idle"
+	case Walking:
+		"Walking"
+	}
+}
+
+func abs(n int) int { if n < 0 { -n } else { n } }

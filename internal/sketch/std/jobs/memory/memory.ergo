@@ -1,0 +1,79 @@
+// Package memory is a jobs.Queue that keeps its jobs in the process's
+// memory (docs/spec/stdlib.md, jobs). Every copy of a Queue is the same
+// queue: the state is in a sync.Ref, so workers that reserve at once each
+// get another job, and each operation is one atomic jobs.Apply. Its jobs
+// end with the process; jobs/file keeps them in a log.
+//
+// Effect: PersistedQueue's memory store. Go control: a ring of ready
+// jobs and a map of leases under a mutex.
+
+import jobs
+import sync
+import time
+
+// Queue is the memory queue of jobs of type J. New makes one.
+type Queue[J] { policy jobs.Policy, state sync.Ref[jobs.State[J]] } implements jobs.Queue[J]
+
+// New is an empty queue with policy p. It fails BadPolicy when p's lease
+// is not above zero.
+func New[J](p jobs.Policy) Queue[J] fails jobs.BadPolicy {
+	Queue[J]{policy: try jobs.Check(p), state: sync.NewRef(jobs.Empty[J]())}
+}
+
+// apply runs op as one step of the Ref.
+func apply[J](q Queue[J], op jobs.Op[J]) jobs.Outcome[J] {
+	let p = q.policy
+	sync.Modify(q.state, func(s jobs.State[J]) (jobs.Outcome[J], jobs.State[J]) {
+		let (o, next, _) = jobs.Apply(p, s, op)
+		(o, next)
+	})
+}
+
+// EnqueueAt adds job, ready at at.
+func EnqueueAt[J](q Queue[J], job J, at time.Time) int fails jobs.Failed {
+	match apply(q, jobs.Enqueue[J]{Job: job, At: at}) {
+	case jobs.Enqueued as e:
+		e.ID
+	case _:
+		Unreachable("an enqueue is Enqueued")
+	}
+}
+
+// ReserveAt leases the earliest ready job.
+func ReserveAt[J](q Queue[J], now time.Time) Option[jobs.Lease[J]] fails jobs.Failed {
+	match apply(q, jobs.Reserve{Now: now}) {
+	case jobs.Reserved[J] as r:
+		r.Lease
+	case _:
+		Unreachable("a reserve is Reserved")
+	}
+}
+
+// AckAt ends the lease of t as done.
+func AckAt[J](q Queue[J], t jobs.Ticket, now time.Time) fails jobs.Unknown | jobs.Failed {
+	settle(apply(q, jobs.Ack{Ticket: t, Now: now}))
+}
+
+// FailAt ends the lease of t as a failure.
+func FailAt[J](q Queue[J], t jobs.Ticket, why string, now time.Time) fails jobs.Unknown | jobs.Failed {
+	settle(apply(q, jobs.Fail{Ticket: t, Why: why, Now: now}))
+}
+
+// settle is the failure of an ack's or a fail's outcome.
+func settle[J](o jobs.Outcome[J]) fails jobs.Unknown {
+	match o {
+	case jobs.NotLeased as n:
+		return jobs.Unknown{Ticket: n.Ticket}
+	case _:
+	}
+}
+
+// DeadLetters is the dead letters.
+func DeadLetters[J](q Queue[J]) []jobs.Dead[J] fails jobs.Failed {
+	sync.Modify(q.state, func(s jobs.State[J]) ([]jobs.Dead[J], jobs.State[J]) { (jobs.DeadOf(s), s) })
+}
+
+// Count is how many jobs are in each state.
+func Count[J](q Queue[J]) jobs.Counts fails jobs.Failed {
+	sync.Modify(q.state, func(s jobs.State[J]) (jobs.Counts, jobs.State[J]) { (jobs.CountOf(s), s) })
+}

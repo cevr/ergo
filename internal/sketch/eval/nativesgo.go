@@ -18,22 +18,28 @@ import (
 // go), so its Ergo body runs here and calls the same entry. Only the
 // functions listed here run; any other Go function stays a skip. Each
 // takes and gives basic values, a []byte or a [N]byte (goBytes).
-var goNatives = map[string]native{
-	"math.Log":          goFloat(math.Log),
-	"math.Exp":          goFloat(math.Exp),
-	"strings.TrimLeft":  goStrings(strings.TrimLeft),
-	"strings.TrimRight": goStrings(strings.TrimRight),
-	// The bit conversions reinterpret, as Go's do (cborpack, MX-EVMATHBITS).
-	"math.Float64bits":     goBits(math.Float64bits),
-	"math.Float64frombits": goBits(math.Float64frombits),
-	"math.Float32bits":     goBits(math.Float32bits),
-	"math.Float32frombits": goBits(math.Float32frombits),
+// registerNativesgo adds the rest to these.
+func goNatives() map[string]native {
+	return map[string]native{
+		"math.Log":          goFloat(math.Log),
+		"math.Exp":          goFloat(math.Exp),
+		"strings.TrimLeft":  goStrings(strings.TrimLeft),
+		"strings.TrimRight": goStrings(strings.TrimRight),
+		// The bit conversions reinterpret, as Go's do (cborpack, MX-EVMATHBITS).
+		"math.Float64bits":     goBits(math.Float64bits),
+		"math.Float64frombits": goBits(math.Float64frombits),
+		"math.Float32bits":     goBits(math.Float32bits),
+		"math.Float32frombits": goBits(math.Float32frombits),
+	}
 }
 
 // Go's math for float64, which std/math/math.ergo binds through import go,
 // and strings.IndexByte, which std strings binds.
-func registerNativesgo() {
-	for name, f := range map[string]func(float64) float64{"Abs": math.Abs, "Ceil": math.Ceil, "Floor": math.Floor, "Round": math.Round, "Sqrt": math.Sqrt, "Trunc": math.Trunc} {
+func registerNativesgo(t nativeTables) {
+	natives := t.std
+	goNatives := t.goLib
+	for name, f := range map[string]func(float64) float64{"Abs": math.Abs, "Ceil": math.Ceil, "Floor": math.Floor, "Round": math.Round, "Sqrt": math.Sqrt, "Trunc": math.Trunc,
+		"Sin": math.Sin, "Cos": math.Cos, "Tan": math.Tan, "Asin": math.Asin, "Acos": math.Acos, "Atan": math.Atan, "Cbrt": math.Cbrt, "Log2": math.Log2, "Log10": math.Log10} {
 		goNatives["math."+name] = goFloat(f)
 	}
 	// math.Float64bits, which std explore's key binds through import go
@@ -72,6 +78,8 @@ func registerNativesgo() {
 	}
 	goNatives["math.Pow"] = two(math.Pow)
 	goNatives["math.Mod"] = two(math.Mod)
+	goNatives["math.Atan2"] = two(math.Atan2)
+	goNatives["math.Hypot"] = two(math.Hypot)
 	goNatives["math.FMA"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return math.FMA(args[0].(float64), args[1].(float64), args[2].(float64)), in.charge(fr, at, 1)
 	}
@@ -96,12 +104,8 @@ func goNativeOf(fn *check.Func) native {
 	if fn.Decl == nil || fn.Decl.Extern == nil || fn.Decl.Extern.Target == nil || fn.Pkg == nil || fn.Pkg.Std() {
 		return nil
 	}
-	// The table fills once, with every native (registerNativesgo); before
-	// this a user package's call reached here before any std call had
-	// filled it, and an entry registered there read as missing.
-	loadNatives()
 	path, name := fn.Decl.Extern.Split()
-	return goNatives[path+"."+name]
+	return loadedNatives().goLib[path+"."+name]
 }
 
 // goBits is a one-argument conversion of basic values, one step.

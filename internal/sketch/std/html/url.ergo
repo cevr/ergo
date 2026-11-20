@@ -97,3 +97,12 @@ law LinksRefuseScripts(pick int, s string) {
 	let near = URLText(LocalURL(strings.Slice("\t//\\/", k%3, 5) + s))
 	refused(bad+s) && URLText(kept) == good+"x"+s && Scheme(local) == "" && strings.HasPrefix(local, "/") && !strings.HasPrefix(local, "//") && !strings.HasPrefix(local, "/\\") && !strings.HasPrefix(near, "//") && !strings.HasPrefix(near, "/\\")
 }
+
+// refused is whether ParseURL refuses s. (a law's helper)
+func refused(s string) bool {
+	let _ = ParseURL(s) catch {
+	case UnsafeURL:
+		return true
+	}
+	false
+}
