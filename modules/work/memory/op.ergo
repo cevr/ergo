@@ -901,6 +901,71 @@ law NoTrashDeletesForGood(viaGc bool, unsaved bool) {
 	removed && trash == "" && kept && !left && !w.trees.Has(a.Path) && !w.trees.Has(work.TrashOf(a.Path, at, a.Id))
 }
 
+// TheHostSettingDecidesTrash: the base's Git setting work.trash (unset,
+// or one of Git's boolean words in any case and spacing, or no boolean)
+// decides whether rm keeps a workspace in the trash, over work.toml's
+// [work] trash (absent, true or false), over the default, true; doctor
+// says the value and its source; a setting that is no boolean fails rm
+// and doctor BadConfig, never read as either.
+law TheHostSettingDecidesTrash(toml int, local int) {
+	let w = world(true)
+	let a = w.tool.New("a", fresh(false)) catch {
+	case _:
+		return false
+	}
+	let tomlLines = []string{"", "[work]\ntrash = true\n", "[work]\ntrash = false\n"}
+	let words = []string{"", "false", "TRUE", " no\n", "maybe"}
+	let t = small(toml, 3)
+	let l = small(local, 5)
+	if t > 0 {
+		w.disk.WriteFile(theBase+"/"+work.ConfigFile, tomlLines[t]) catch {
+		case _:
+			return false
+		}
+	}
+	if l > 0 {
+		Configure(w.vcs, theBase, "work.trash", words[l]) catch {
+		case work.VcsFailed:
+			return false
+		}
+	}
+	// The reference, written apart from LocalTrash.
+	let (want, from) = if l == 1 || l == 3 {
+		(false, "git config work.trash")
+	} else if l == 2 {
+		(true, "git config work.trash")
+	} else if t == 1 {
+		(true, "work.toml")
+	} else if t == 2 {
+		(false, "work.toml")
+	} else {
+		(true, "default")
+	}
+	let bad = l == 4
+	let report = w.tool.Doctor(work.DoctorOptions{Rift: false, Registry: None, Unguard: false, Fix: false}) catch {
+	case work.BadConfig:
+		return bad && removedBadly(w, a.Id)
+	case _:
+		return false
+	}
+	let out = w.tool.Rm("a", work.RmOptions{Abandon: false, Expect: Some[string]{Value: a.Id}, Tree: false}) catch {
+	case _:
+		return false
+	}
+	!bad && slices.Contains(report.Notes, "trash: \(want) (\(from))") && len(out) == 1 && (out[0].Trash != "") == want && !w.trees.Has(a.Path)
+}
+
+// removedBadly reports whether rm of a fails BadConfig and leaves it.
+func removedBadly(w World, id string) bool {
+	let _ = w.tool.Rm("a", work.RmOptions{Abandon: false, Expect: Some[string]{Value: id}, Tree: false}) catch {
+	case work.BadConfig:
+		return w.trees.Has(work.Home(theBase, "") + "/a")
+	case _:
+		return false
+	}
+	false
+}
+
 // StackRecordsItsParent: a workspace made -on another records that
 // workspace's folder as its parent, on any tree (the model property
 // reaches a stack only now and then; this law always does).

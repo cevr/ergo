@@ -262,8 +262,10 @@ func (b *irBuilder) inlineMark(x *syntax.CallExpr, c *check.Call, fd *funcDecl, 
 		}
 		tsub[tp] = b.goArg(tp, c.TypeArgs[i], x)
 	}
+	// The body's name: a method's is its type's and its own; a
+	// monomorphic copy of a method is a plain function (ir.go body).
 	key := e.Name
-	if fd.method != nil {
+	if fd.method != nil && e.K == "mcall" {
 		key = fd.method.name + "." + e.Name
 	}
 	src := -1 // a call in a library body has no identity

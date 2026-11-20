@@ -189,8 +189,7 @@ func writeFlow(b mut strings.Builder, u load.Unit, d load.Typed, prefix string) 
 // "FILE OFFSET LENGTH CODE MESSAGE" after prefix, in the Go checker's
 // order (S3-ROWS).
 func writeRows(b mut strings.Builder, u load.Unit, d load.Typed, prefix string) {
-	let mut s = d.S
-	for g in rows.Rows(&s, d.K, d.T) {
+	for g in rows.Rows(d.S, d.K, d.T) {
 		b.WriteString("\(prefix)\(u.Files[g.File].Name) \(g.Offset) \(g.Length) \(g.Code) \(g.Message)\n")
 	}
 }
