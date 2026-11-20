@@ -227,10 +227,11 @@ func (fc *funcCtx) tabAt(c *check.Call, vals []string) (string, bool) {
 }
 
 // tabRead is a tabulated call's table: the Go names of its flags, its
-// values and its fill function, and the function's domain.
+// values, its fill function and its read function, and the function's
+// domain.
 type tabRead struct {
-	flags, vals, fill string
-	info              *tabInfo
+	flags, vals, fill, read string
+	info                    *tabInfo
 }
 
 // tabTable is the table the call c of n arguments reads, writing the
@@ -263,21 +264,25 @@ func (fc *funcCtx) tabTable(c *check.Call, n int) *tabRead {
 	if !ok {
 		return nil
 	}
-	vs, fill := l.pkgNames[pkgKey{"tabV", c.Func}], l.pkgNames[pkgKey{"tabFill", c.Func}]
+	vs, fill, read := l.pkgNames[pkgKey{"tabV", c.Func}], l.pkgNames[pkgKey{"tabFill", c.Func}], l.pkgNames[pkgKey{"tabRead", c.Func}]
 	if l.tabEmitted == nil {
 		l.tabEmitted = map[*check.Func]bool{}
 	}
 	if !l.tabEmitted[c.Func] {
 		l.tabEmitted[c.Func] = true
 		l.stats.Tabulated++
-		l.gen.WriteString(fc.tabDecl(flags, vs, fill, l.funcDecl(c.Func).name, c.Func, ti))
+		l.gen.WriteString(fc.tabDecl(flags, vs, fill, read, l.funcDecl(c.Func).name, c.Func, ti))
 	}
-	return &tabRead{flags: flags, vals: vs, fill: fill, info: ti}
+	return &tabRead{flags: flags, vals: vs, fill: fill, read: read, info: ti}
 }
 
-// tabDecl is the table of f (Go name fname): its flags, its values and
-// the function that fills an entry.
-func (fc *funcCtx) tabDecl(flags, vals, fill, fname string, f *check.Func, ti *tabInfo) string {
+// tabDecl is the table of f (Go name fname): its flags, its values, the
+// function that fills an entry, and the function that reads one (read:
+// the entry when it is ready, else its fill). The IR reads through read
+// (ir_tab.go): a package split (pkgsplit_ir.go) gives an IR body of
+// another package a variable declared with no value through a getter,
+// whose result is no place, but a function through a forwarder.
+func (fc *funcCtx) tabDecl(flags, vals, fill, read, fname string, f *check.Func, ti *tabInfo) string {
 	var params, args []string
 	for k, p := range ti.params {
 		a := "a" + strconv.Itoa(k)
@@ -294,6 +299,8 @@ func (fc *funcCtx) tabDecl(flags, vals, fill, fname string, f *check.Func, ti *t
 	b.WriteString("func " + fill + "(i int, " + strings.Join(params, ", ") + ") " + res + " {\n")
 	b.WriteString("\tv := " + fname + "(" + call + ")\n")
 	b.WriteString("\tif " + flags + "[i].Claim() {\n\t\t" + vals + "[i] = v\n\t\t" + flags + "[i].Done()\n\t}\n\treturn v\n}\n\n")
+	b.WriteString("func " + read + "(i int, " + strings.Join(params, ", ") + ") " + res + " {\n")
+	b.WriteString("\tif " + flags + "[i].Ready() {\n\t\treturn " + vals + "[i]\n\t}\n\treturn " + fill + "(i, " + call + ")\n}\n\n")
 	return b.String()
 }
 
@@ -309,6 +316,7 @@ func (l *lowerer) reserveTabs(pkgs []*check.Package) {
 				l.pkgName(pkgKey{"tabK", f}, "tab"+f.Name+"K")
 				l.pkgName(pkgKey{"tabV", f}, "tab"+f.Name+"V")
 				l.pkgName(pkgKey{"tabFill", f}, "tab"+f.Name+"Fill")
+				l.pkgName(pkgKey{"tabRead", f}, "tab"+f.Name+"Read")
 			}
 		}
 	}

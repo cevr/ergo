@@ -215,6 +215,17 @@ func Program(seed uint64, reached map[string]bool) (src string, eligible []bool,
 				fmt.Fprintf(&m, "%slet v%d = %s\n%sacc%d = (acc%d * 31 + %s) %% 1000003\n", ind, rep, call, ind, j, j, tabCode(g.results[j], fmt.Sprintf("v%d", rep)))
 			}
 		}
+		// The call as a record literal's field and inside an
+		// interpolation (the 20e3b4fbe fallout's shape: lzpack's
+		// os.Exit{Message: "…\(lz.Explain(e.Reason))"}).
+		switch g.results[j] {
+		case "int":
+			fmt.Fprintf(&m, "%slet w = R{e: V0x0, n: %s, s: \"<\\(%s)>\"}\n%sacc%d = (acc%d * 31 + w.n + len(w.s)) %% 1000003\n", ind, call, call, ind, j, j)
+			g.reached["call in a record literal and an interpolation"] = true
+		case "str":
+			fmt.Fprintf(&m, "%slet w = R{e: V0x0, n: 1, s: \"<\\(%s)>\"}\n%sacc%d = (acc%d * 31 + len(w.s)) %% 1000003\n", ind, call, ind, j, j)
+			g.reached["call in a record literal and an interpolation"] = true
+		}
 		for range ps {
 			ind = ind[1:]
 			fmt.Fprintf(&m, "%s}\n", ind)
