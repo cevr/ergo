@@ -1,0 +1,5 @@
+extract: no receipt in the reply (items[0].count: not an integer):
+```json
+{"merchant":"Elm Street Hardware","items":[{"name":"Hinge, brass","count":"four","cents":210},{"name":"Wood glue","count":1,"cents":695}],"total":1535,"paid":{"_tag":"Cash"}}
+```
+

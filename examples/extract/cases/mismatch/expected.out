@@ -1,0 +1,7 @@
+merchant: Corner Grocer
+item: 2 x Oat milk at 3.49
+item: 1 x Rye bread at 4.25
+item: 3 x Apples at 0.80
+total: 13.36
+paid: card ending 4242
+problem: the total 13.36 is not the items' sum 13.63
