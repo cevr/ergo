@@ -83,6 +83,35 @@ func (b *irBuilder) defaultOf(t check.Type, site syntax.Node, p irPos) *irExpr {
 	return nil
 }
 
+// defaultable reports whether defaultOf states t's default: it holds no
+// Map, or it is a Map, or a record (not a Go error or a machine) whose
+// fields each are.
+func (b *irBuilder) defaultable(t check.Type, site syntax.Node) bool {
+	if !b.l.holdsMap(t) {
+		return true
+	}
+	switch u := t.(type) {
+	case *check.Map:
+		return true
+	case *check.Named:
+		s, ok := u.Underlying().(*check.Struct)
+		if !ok {
+			return false
+		}
+		td := b.l.typeDecl(u.Obj, site)
+		if td.goError || td.kind == kindMachine {
+			return false
+		}
+		for _, f := range s.Fields {
+			if _, ok := td.fieldName[f.Name]; !ok || !b.defaultable(f.Type, site) {
+				return false
+			}
+		}
+		return true
+	}
+	return false
+}
+
 // zeroOf is the default of t when it is Go's zero value.
 func (b *irBuilder) zeroOf(t check.Type, site syntax.Expr, p irPos) *irExpr {
 	if b.l.holdsMap(t) {

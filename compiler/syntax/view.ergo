@@ -108,7 +108,7 @@ type View =
 	| CatchExpr{X dense.ID[Node], Catch int, Arms List, Rbrace int}
 	| ContextLit{Context int, Provides dense.Opt[Node], Fails dense.Opt[Node], Needs dense.Opt[Node], Body dense.ID[Node]}
 	| ArrayType{Lbrack int, Len int, Elt dense.ID[Node]}
-	| MapType{X dense.ID[Node], Lbrack int, Key dense.ID[Node], Value dense.ID[Node], Rbrack int}
+	| MapType{X dense.ID[Node], Lbrack int, Key dense.ID[Node], Value dense.ID[Node], Hashing dense.Opt[Node], Rbrack int}
 	| FuncType{
 		Escaping int,
 		Entry    int,
@@ -495,6 +495,10 @@ func Put(t mut Tree, v View) dense.ID[Node] {
 	case MapType as x:
 		pushW(t, wid(x.Key))
 		pushW(t, wid(x.Value))
+		let h = wopt(x.Hashing)
+		if h != uint32(0) {
+			pushW(t, h-uint32(1))
+		}
 		mkIndex(t, m, KMapType, wid(x.X), x.Lbrack, x.Rbrack)
 	case FuncType as x:
 		mkFuncType(t, m, wtok(x.Escaping), wtok(x.Entry), wtok(x.Func), wid(x.Params), wopt(x.Results), wopt(x.Needs), wopt(x.Takes))

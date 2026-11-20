@@ -401,6 +401,13 @@ func (b *irBuilder) opCall(x *syntax.CallExpr, c *check.Call, p irPos) ([]*irStm
 		return b.boundOpCall(x, c, n, p)
 	}
 	pre, vals := b.operands(append([]syntax.Expr{c.Recv}, x.Args...))
+	if id, ok := unparen(c.Recv).(*syntax.Ident); ok && vals[0].K == "toiface" {
+		if v, ok := b.l.info.Uses[id].(*check.Var); ok && b.fc.provs[v] != nil {
+			// The parameter of a copy for a known provider: the
+			// adapter's method, a static call (ir_known.go).
+			vals[0] = vals[0].X
+		}
+	}
 	env := &irExpr{K: "local", Pos: p, I: b.env}
 	args := append([]*irExpr{{K: "field", Pos: p, Name: envTask, X: env}}, vals[1:]...)
 	return pre, b.opResult(c, &irExpr{K: "mcall", Pos: p, Name: memberName(c.Op.Name), X: vals[0], Args: args}), true // ir_call.go
