@@ -1,6 +1,16 @@
-// The rows the laws cannot state: the form Encode writes, the tokens of a
-// document with every kind of markup, and the text and place of each kind
-// of malformed document.
+package lower
+
+import (
+	"strings"
+	"testing"
+)
+
+// stdXmlRowsProbe holds the rows of std xml no law states: the form
+// Encode writes, the tokens of a document with every kind of markup, the
+// text and place of each kind of malformed document, the largest uint and
+// the path of each shape failure. They were std xml's own tests, which no
+// step runs (TestStdLawLedger), so they run here, built.
+const stdXmlRowsProbe = `import xml
 
 type item { Name string, Count int, Note Option[string] }
 type box { Label string, Items []item, Kind kind, Tags Map[string, string] }
@@ -8,47 +18,47 @@ type round {}
 type square { Side float64 }
 type kind = round | square
 
-func boxCodec() Codec[box] { Codec[box]{Root: "box", MaxBytes: 0, MaxDepth: 0} }
+func boxCodec() xml.Codec[box] { xml.Codec[box]{Root: "box", MaxBytes: 0, MaxDepth: 0} }
 
 test EncodeWritesTheForm {
 	let b = box{Label: "a<b&c", Items: []item{item{Name: "x", Count: 2, Note: None}, item{Name: "y", Count: -1, Note: Some[string]{Value: "\r"}}}, Kind: square{Side: 1.5}, Tags: Map[string, string]{"k": "v", "two words": "w"}}
-	assert Encode(boxCodec(), b) == "<box><label>a&lt;b&amp;c</label><items><item><name>x</name><count>2</count><note><_tag>None</_tag></note></item><item><name>y</name><count>-1</count><note><_tag>Some</_tag><value>&#xD;</value></note></item></items><kind><_tag>square</_tag><side>1.5</side></kind><tags><k>v</k><_ key=\"two words\">w</_></tags></box>"
+	assert xml.Encode(boxCodec(), b) == "<box><label>a&lt;b&amp;c</label><items><item><name>x</name><count>2</count><note><_tag>None</_tag></note></item><item><name>y</name><count>-1</count><note><_tag>Some</_tag><value>&#xD;</value></note></item></items><kind><_tag>square</_tag><side>1.5</side></kind><tags><k>v</k><_ key=\"two words\">w</_></tags></box>"
 }
 
 // shown is a token as a test reads it.
-func shown(t Token) string {
+func shown(t xml.Token) string {
 	match t {
-	case StartElement as s:
+	case xml.StartElement as s:
 		let mut out = "<" + s.Name
 		for a in s.Attrs {
 			out = out + " " + a.Name + "=[" + a.Value + "]"
 		}
 		out + ">"
-	case EndElement as e:
+	case xml.EndElement as e:
 		"</" + e.Name + ">"
-	case CharData as c:
+	case xml.CharData as c:
 		"[" + c.Text + "]"
-	case Comment as c:
+	case xml.Comment as c:
 		"<!--" + c.Text + "-->"
-	case ProcInst as p:
+	case xml.ProcInst as p:
 		"<?" + p.Target + " " + p.Inst + "?>"
-	case EndDocument:
+	case xml.EndDocument:
 		"end"
 	}
 }
 
 // tokens is every token of text, shown, or the failure's place and text.
 func tokens(text string) string {
-	let mut p = NewParser(text, 0)
+	let mut p = xml.NewParser(text, 0)
 	let mut out = ""
 	for {
 		let t = p.Next() catch {
-		case Malformed as m:
+		case xml.Malformed as m:
 			return out + "error \(m.Line):\(m.Column) \(m.Reason)"
 		}
 		out = out + shown(t)
 		match t {
-		case EndDocument:
+		case xml.EndDocument:
 			return out
 		case _:
 		}
@@ -59,10 +69,10 @@ test ParserGivesEachToken {
 	assert tokens("<?xml version=\"1.0\"?>\n<a x='1 &amp; 2' y=\"&#x41;\">t&lt;&#65;<!--c--><b/><![CDATA[<raw>]]>\r\n<?pi do?></a>") == "<?xml version=\"1.0\"?>[\n]<a x=[1 & 2] y=[A]>[t<A]<!--c--><b></b>[<raw>][\n]<?pi do?></a>end"
 }
 
-// failure is where Check stops on text, and why.
+// failure is where xml.Check stops on text, and why.
 func failure(text string) string {
-	let _ = Check(text, 0) catch {
-	case Malformed as m:
+	let _ = xml.Check(text, 0) catch {
+	case xml.Malformed as m:
 		return "\(m.Line):\(m.Column) \(m.Reason)"
 	}
 	"well formed"
@@ -92,8 +102,8 @@ test DocumentTypeIsRefused {
 }
 
 test DepthIsLimited {
-	let _ = Check("<a><b><c/></b></a>", 2) catch {
-	case Malformed as m:
+	let _ = xml.Check("<a><b><c/></b></a>", 2) catch {
+	case xml.Malformed as m:
 		assert m.Column == 7 && m.Reason == "elements are nested deeper than the limit"
 		return
 	}
@@ -102,9 +112,9 @@ test DepthIsLimited {
 
 type big { N uint64 }
 
-// bigOf is the N that Decode reads from text, or what it failed with.
+// bigOf is the N that xml.Decode reads from text, or what it failed with.
 func bigOf(text string) string {
-	let b = Decode(Codec[big]{Root: "big", MaxBytes: 0, MaxDepth: 0}, "<big><n>"+text+"</n></big>") catch {
+	let b = xml.Decode(xml.Codec[big]{Root: "big", MaxBytes: 0, MaxDepth: 0}, "<big><n>"+text+"</n></big>") catch {
 	case WireWrongKind as w:
 		return "want " + w.Want
 	case _:
@@ -126,10 +136,10 @@ test UintStopsAtTheLargest {
 	assert bigOf("+1") == "want uint"
 }
 
-// decodeFailure is the shape failure of Decode on text, shown.
+// decodeFailure is the shape failure of xml.Decode on text, shown.
 func decodeFailure(text string) string {
-	let _ = Decode(boxCodec(), text) catch {
-	case Malformed as m:
+	let _ = xml.Decode(boxCodec(), text) catch {
+	case xml.Malformed as m:
 		return "malformed " + m.Reason
 	case WireWrongKind as w:
 		return "want " + w.Want + " at " + w.Path
@@ -149,4 +159,30 @@ test DecodeNamesTheShape {
 	assert decodeFailure("<box><label><x/></label><items/><kind><_tag>round</_tag></kind><tags/></box>") == "want string at /box[0]/label[0]"
 	assert decodeFailure("<crate/>") == "malformed the root element is <crate>, not <box>"
 	assert decodeFailure("<box>\n <label>l</label>\n <!-- ignored -->\n <extra><x/></extra>\n <items>\n  <item><name>n</name><count> 3 </count><note><_tag>Some</_tag><value>hi</value></note></item>\n </items>\n <kind><_tag>round</_tag></kind>\n <tags/>\n</box>") == "decoded"
+}
+`
+
+// stdXmlRows are the probe's tests.
+var stdXmlRows = []string{"EncodeWritesTheForm", "ParserGivesEachToken", "MalformedIsPlaced", "DocumentTypeIsRefused", "DepthIsLimited", "UintStopsAtTheLargest", "DecodeNamesTheShape"}
+
+// TestStdXmlRowsRun runs the probe's tests and holds that each one ran
+// and passed. It catches xml-item-element-renamed,
+// xml-cdata-keeps-bracket, xml-repeated-attribute-passes,
+// xml-doctype-not-named, xml-depth-limit-off-by-one,
+// xml-path-index-from-one and xmd-uint-overflow-wraps in the package
+// ledger.
+//
+// It builds Go because the rows run in the built test binary (ergo test),
+// the only place a std package's code runs as the program's.
+func TestStdXmlRowsRun(t *testing.T) {
+	needsBuild(t)
+	stdout, stderr, code := runExeArgs(t, tableExe(t, "stdxmlrows"), "--seed", "1")
+	if code != 0 {
+		t.Errorf("the rows of stdxmlrows failed: exit %d\n%s\n%s", code, stdout, firstLines(stderr, 20))
+	}
+	for _, name := range stdXmlRows {
+		if !strings.Contains(stdout, "ok "+name) {
+			t.Errorf("the probe did not pass %s:\n%s", name, stdout)
+		}
+	}
 }

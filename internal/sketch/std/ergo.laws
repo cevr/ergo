@@ -242,3 +242,4 @@ law strconv.UnquoteInvertsQuote validated by eval with go1.27.4,runtime/v1@5fb9c
 law strings.ToLowerIsIdempotent validated by eval with go1.27.4 h1:SwNS0TqA+rVM04K+mQ6TpySFyuuTrTppM92cQ0RAFwQ=
 law strings.TrimSpaceIsIdempotent validated by eval with go1.27.4 h1:3n3tqIqPhea6/6dpeSVkNsL7lTZhKw/NOOgp6Hiisjs=
 law time.DurationTextRoundTrips validated by eval with runtime/v1@345215a1f356 h1:xmbXB3djARvS4zbqfLiN+LBkC+6XrgAubtcRT1yA9cA=
+law xml.Text.RawJoins for xml.text proved by native with go1.27.4,runtime/v1@281a645b4623 h1:BNMsviQXQWs+jph0tTgqOgz9JxZspQgF5B5SpvmGm+A=
