@@ -1728,6 +1728,62 @@
       "to": "\t\tif false {\n\t\t\tout = out.Append",
       "rule": "A candidate's check is a command work trust allows: a changed check asks again (law CandidateCommandsAreTrusted).",
       "anchor": {"tests": ["examples: modules/work"]}
+    },
+    {
+      "name": "m2-comment-edit-in-change-set", "origin": "wf10/semws M2",
+      "file": "modules/work/work/record.ergo",
+      "from": "\tUnitChanges(file, b, a, Some[[]Change]{Value: indexed})\n",
+      "to": "\tUnitChanges(file, b, a, None)\n",
+      "rule": "A comment edit is in no change set: the record takes the language Indexer's changes (memory's ReadyWritesTheRecord: a comment added to unit A is no change).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "m2-format-edit-is-a-change", "origin": "wf10/semws M2",
+      "file": "modules/work/work/record.ergo",
+      "from": "\tstrings.Slice(hex.Encode(sha256.Sum(strings.Join(strings.Fields(free), \" \"))), 0, 16)\n",
+      "to": "\tstrings.Slice(hex.Encode(sha256.Sum(free)), 0, 16)\n",
+      "rule": "A layout edit is no change: a fingerprint drops white space runs (RecordIsTheDiff with layout; ReadyWritesTheRecord's rewrap and row layout).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "m2-rename-as-remove-and-add", "origin": "wf10/semws M2",
+      "file": "modules/work/work/record.ergo",
+      "from": "a.File == r.File && a.After == r.Before {",
+      "to": "a.File == r.File && false {",
+      "rule": "A rename is one Renamed change from the old key (RenameIsOneChange; ReadyWritesTheRecord).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "m2-on-not-computed", "origin": "wf10/semws M2",
+      "file": "modules/work/work/record.ergo",
+      "from": "\ttry Recorded(w.Name, branch, tip, w.Base, UnlandedOn(tip, head, lanes, holds), changes, request)\n",
+      "to": "\ttry Recorded(w.Name, branch, tip, w.Base, []OnTip{}, changes, request)\n",
+      "rule": "On is computed from ancestry, never typed or left empty: a workspace stacked on another names it (ReadyWritesTheRecord).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "m2-unlanded-keeps-landed", "origin": "wf10/semws M2",
+      "file": "modules/work/work/record.ergo",
+      "from": "holds(tip, l.Tip) && !holds(head, l.Tip) {",
+      "to": "holds(tip, l.Tip) {",
+      "rule": "A lane the base's head holds has landed and is not in On (OnIsTheUnlandedAncestry).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "m2-record-on-the-branch-name", "origin": "wf10/semws M2",
+      "file": "modules/work/work/api.ergo",
+      "from": "\ttry t.vcs.SetNote(w.Parent, held, record)\n",
+      "to": "\ttry t.vcs.SetNote(w.Parent, \"refs/heads/\" + branch, record)\n",
+      "rule": "The record is the note of the tip commit, not of the branch name (ReadyWritesTheRecord reads it by the tip).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "m2-digest-of-the-wrong-text", "origin": "wf10/semws M2",
+      "file": "modules/work/work/record.ergo",
+      "from": "Sha256: hex.Encode(sha256.Sum(req.Text))",
+      "to": "Sha256: hex.Encode(sha256.Sum(req.Path))",
+      "rule": "The request's digest is the sha256 of its own text (RequestWithoutABlockIsItsFirstLine; ReadyWritesTheRecord).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     }
   ]
 }

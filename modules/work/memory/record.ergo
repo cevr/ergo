@@ -84,7 +84,7 @@ test ReadyWritesTheRecord {
 	for c in r.Changes {
 		seen = seen.Append("\(c.Kind) \(c.Unit) \(c.From) \(c.Why)")
 	}
-	assert seen == []string{"Renamed renamedB b ", "Added c  c is needed", "Added doc.md#Title > Added  ", "Added row:mutants/m3  ", "BodyChanged x.txt  "}
+	assert seen == []string{"Added c  c is needed", "Renamed renamedB b ", "Added doc.md#Title > Added  ", "Added row:mutants/m3  ", "BodyChanged x.txt  "}
 	let v = try tool.New("v", work.NewOptions{Copy: false, From: None, Branch: None, On: Some[string]{Value: "w"}, Token: None})
 	assert Write(trees, v.Path, "x.txt", "z\n")
 	assert Commit(vcs, v.Path, "c2")
