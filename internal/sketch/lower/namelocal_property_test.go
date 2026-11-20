@@ -174,7 +174,9 @@ func nameLocalFuncs(t *testing.T, p nameLocalProgram, form int, name string) (ir
 				}
 				fn = irPathsOf(fn, doc.Files)
 				m := fn.(map[string]any)
-				key := fmt.Sprint(m["pos"])
+				// A generic function's copies share its position, so
+				// the copy's name is part of the key.
+				key := fmt.Sprint(m["pos"], " ", m["name"])
 				data, _ := json.Marshal(fn)
 				ir[key] = string(data)
 			}
