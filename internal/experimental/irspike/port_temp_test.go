@@ -38,7 +38,7 @@ func TestIRStoreIndexesHaveBodies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, f := range []string{"keyed", "indexed", "slotted", "both", "Grid.gridded", "stepped", "added", "scaledOwned", "Box.moved", "Outer.bumped"} {
+	for _, f := range []string{"keyed", "indexed", "slotted", "both", "Grid.gridded", "stepped", "added", lower.HelperSpelling("", "scaledOwned"), "Box.moved", "Outer.bumped"} {
 		if !slices.Contains(rep.IR, f) {
 			t.Errorf("%s has no IR body (IR bodies: %v; fallbacks: %v)", f, rep.IR, rep.Fallback)
 		}

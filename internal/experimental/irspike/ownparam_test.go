@@ -40,7 +40,7 @@ func main() needs Console {
 // call calls the wrapper.
 func TestIROwnedCallsCallOwnedBody(t *testing.T) {
 	got := irCalls(t, ownedCallSrc, "grow", "call")
-	if !got["putOwned"] {
+	if !got[lower.HelperSpelling("", "putOwned")] {
 		t.Fatalf("grow's IR does not call put's owned body (its calls: %v)\n%s", got, ownedCallSrc)
 	}
 }

@@ -692,8 +692,12 @@ var mapCopyOps = regexp.MustCompile(`\bmaps\.Clone\(|\b` + goHelper("ergoCloneMa
 func goFuncsOf(t *testing.T, mainGo, name string) string {
 	t.Helper()
 	text := goFuncBody(t, mainGo, name)
-	if regexp.MustCompile(`(?m)^func (\([^)]*\) )?` + name + `Owned\(`).MatchString(mainGo) {
-		text += goFuncBody(t, mainGo, name+"Owned")
+	// A function's owned form is a generated function (goHelper); a
+	// method's keeps its receiver's method set (StringOwned).
+	for _, owned := range []string{goHelper(name + "Owned"), name + "Owned"} {
+		if regexp.MustCompile(`(?m)^func (\([^)]*\) )?` + owned + `\(`).MatchString(mainGo) {
+			return text + goFuncBody(t, mainGo, owned)
+		}
 	}
 	return text
 }
