@@ -1,0 +1,57 @@
+// The type-set member of an operation type (CONSTRAINTS C1) and a Map's
+// third type argument, its Hashing provider (C5), as this package parses
+// them: one test per boundary of grammar.md, Declarations 4, read from the
+// kinds of the rows the parse writes. They run in process through
+// internal/sketch/syntax's TestCompilerSyntaxTestsPass, which reads this
+// source, so they kill the parser's mutants that the linked Go never sees.
+
+// rowsOf counts the rows of kind k that the parse p wrote.
+func rowsOf(p Parsed, k uint8) int {
+	let mut n = 0
+	for i in 0..p.Tree.n {
+		if uint8(p.Tree.kind[i]) == k {
+			n = n + 1
+		}
+	}
+	n
+}
+
+test TypeSetTildeTerms {
+	let p = Parse("type Count { ~int | ~int64 }\n")
+	assert !p.Failed
+	assert rowsOf(p, KInterfaceType) == 1 && rowsOf(p, KUnaryExpr) == 2
+}
+
+test TypeSetBareTermsBesideAnOperation {
+	let p = Parse("type K { int | pkg.T, Label() string }\n")
+	assert !p.Failed
+	assert rowsOf(p, KInterfaceType) == 1 && rowsOf(p, KStructType) == 0 && rowsOf(p, KUnaryExpr) == 0
+}
+
+// `T, Name()` is a one-term set and an operation, not a field group.
+test TypeSetBeforeAnOperation {
+	let p = Parse("type K { comparable, Label() string }\n")
+	assert !p.Failed
+	assert rowsOf(p, KInterfaceType) == 1 && rowsOf(p, KStructType) == 0
+}
+
+// `X, Y (A, B)` stays a group of two tuple fields.
+test TupleFieldGroupIsNoTypeSet {
+	let p = Parse("type S { X, Y (int64, int64) }\n")
+	assert !p.Failed
+	assert rowsOf(p, KStructType) == 1 && rowsOf(p, KInterfaceType) == 0
+}
+
+test OneTypeSetMember {
+	assert lexOutcome("type Two { ~int, ~string }\n", true) == "S001 17 an operation type has one type-set member; join the terms with |"
+}
+
+test VariantHoldsNoTypeSet {
+	assert lexOutcome("type V = A{~int} | B\n", true) == "S001 11 a variant holds fields only"
+}
+
+test MapTakesItsHashing {
+	let p = Parse("type H { m Map[string, int, Fnv] }\n")
+	assert !p.Failed
+	assert rowsOf(p, KMapType) == 1 && rowsOf(p, KIndexExpr) == 0
+}

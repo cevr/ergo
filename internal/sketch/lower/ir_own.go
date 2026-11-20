@@ -143,15 +143,7 @@ func (b *irBuilder) openOwn(f *check.Func, params []*check.Var) []*irStmt {
 // temporary where it is bound (ownable, releaseAt). A plain frame (owned
 // values only) opens v1.NewOwnerScope.
 func (b *irBuilder) openScope(f *check.Func, params []*check.Var) []*irStmt {
-	plain, takes := b.fc.frame.plain, b.l.ownsParams(params)
-	if (plain || takes) && frameListLowering == "off" {
-		irNo("owned local") // owned values in a frame scope: the list form
-	}
-	if b.env < 0 {
-		irNo("body that needs a frame") // the checker gives a frame a task
-	}
 	p := b.pos(f.Decl, f.Decl.Pos())
-	task := &irExpr{K: "field", Pos: p, Name: envTask, X: &irExpr{K: "local", Pos: p, I: b.env}}
 	errArg := &irExpr{K: "zero", Pos: p, T: "*error"}
 	if b.fc.frame.fallible {
 		// The frame's named error result, last (namedResults).
@@ -161,7 +153,25 @@ func (b *irBuilder) openScope(f *check.Func, params []*check.Var) []*irStmt {
 		}
 		errArg = &irExpr{K: "addr", Pos: p, X: &irExpr{K: "result", Pos: p, I: last}}
 	}
-	if !plain && !takes && b.l.staticExits(f.Decl.Body.List) {
+	return b.openScopeOf(f.Decl.Body, f.Decl, f.Decl.Name, params, errArg, true)
+}
+
+// openScopeOf is openScope's frame of body, whose node is site (a
+// declaration or a function literal) and whose parameters are params:
+// errArg is the address its End settles; exits admits the static exit
+// form, which a function literal's frame does not take (the emitter's
+// funcLitClosure opens a scope).
+func (b *irBuilder) openScopeOf(body *syntax.BlockStmt, site, name syntax.Node, params []*check.Var, errArg *irExpr, exits bool) []*irStmt {
+	plain, takes := b.fc.frame.plain, b.l.ownsParams(params)
+	if (plain || takes) && frameListLowering == "off" {
+		irNo("owned local") // owned values in a frame scope: the list form
+	}
+	if b.env < 0 {
+		irNo("body that needs a frame") // the checker gives a frame a task
+	}
+	p := b.pos(site, site.Pos())
+	task := &irExpr{K: "field", Pos: p, Name: envTask, X: &irExpr{K: "local", Pos: p, I: b.env}}
+	if exits && !plain && !takes && b.l.staticExits(body.List) {
 		return b.openExits(p, task, errArg) // ir_exits.go (STATIC-EXIT)
 	}
 	// A frame that opens its scope only for its owned values opens a
@@ -174,8 +184,8 @@ func (b *irBuilder) openScope(f *check.Func, params []*check.Var) []*irStmt {
 	fs := b.temp("fs", b.spelling(b.l.rt()+".Scope"), p)
 	b.frame = fs + 1
 	b.keepImport("var _ = " + b.l.rt() + "." + ctor)
-	if (takes || b.ownsLocals(f.Decl.Body)) && frameListLowering != "off" {
-		b.openList(f, p)
+	if (takes || b.ownsLocals(body)) && frameListLowering != "off" {
+		b.openList(body, site, p)
 	}
 	out := []*irStmt{
 		{K: "var", Pos: p, Local: fs},
@@ -192,7 +202,7 @@ func (b *irBuilder) openScope(f *check.Func, params []*check.Var) []*irStmt {
 		if !ok {
 			irNo("owned parameters")
 		}
-		out = append(out, b.ownLet(v, i, f.Decl.Name, nil)...)
+		out = append(out, b.ownLet(v, i, name, nil)...)
 	}
 	return out
 }
@@ -227,15 +237,16 @@ func (b *irBuilder) ownsLocals(body *syntax.BlockStmt) bool {
 	return owns
 }
 
-// openList starts the list form of the frame scope of f's body (the
+// openList starts the list form of the frame scope of body, whose node is
+// site (a declaration or a function literal) (the
 // emitter's own, owning, handoff and releaseAt on a frame that is not in
 // the static form): the checks a static frame runs (ownBodyChecks), and
 // an assignment to an owned local stops it (R41 registers the new value
 // and releases the old, which this form does not write).
-func (b *irBuilder) openList(f *check.Func, p irPos) {
-	o := &irOwn{list: true, kept: -1, live: -1, handle: map[*check.Var]int{}, bit: map[*check.Var]int{}, site: f.Decl, p: p, keys: map[syntax.Node]bool{}, pending: map[*check.Var]bool{}}
-	b.ownBodyChecks(f.Decl.Body, o)
-	syntax.Inspect(f.Decl.Body, func(n syntax.Node) bool {
+func (b *irBuilder) openList(body *syntax.BlockStmt, site syntax.Node, p irPos) {
+	o := &irOwn{list: true, kept: -1, live: -1, handle: map[*check.Var]int{}, bit: map[*check.Var]int{}, site: site, p: p, keys: map[syntax.Node]bool{}, pending: map[*check.Var]bool{}}
+	b.ownBodyChecks(body, o)
+	syntax.Inspect(body, func(n syntax.Node) bool {
 		if _, lit := n.(*syntax.FuncLit); lit || n == nil {
 			return false
 		}
@@ -250,7 +261,7 @@ func (b *irBuilder) openList(f *check.Func, p irPos) {
 		}
 		return true
 	})
-	delete(o.keys, f.Decl.Body) // the body's own scope ends at the frame's End
+	delete(o.keys, body) // the body's own scope ends at the frame's End
 	b.own = o
 }
 
