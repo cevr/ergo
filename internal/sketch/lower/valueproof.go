@@ -244,7 +244,7 @@ func (l *lowerer) valueProof(b *strings.Builder, law *check.Law, label string, p
 	if search {
 		proofEach(b, ns, p.Ctor.Sig.Params, ctorLists, tc.goType, func(args []string) {
 			w(v + " := " + fc.rewriteCall(p.Ctor, "", args, law.Decl))
-			w(add + "(" + v + ", 0, " + strconv.Quote(p.Ctor.Name+"()") + ")")
+			w(add + "(" + v + ", 0, " + strconv.Quote(l.pkg.Qualified(p.Ctor.Pkg, p.Ctor.Name)+"()") + ")")
 		})
 	} else {
 		fields := p.Type.Underlying().(*check.Struct).Fields

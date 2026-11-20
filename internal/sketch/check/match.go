@@ -414,7 +414,9 @@ func reusableBinderName(o Object) bool {
 func preludeObject(o Object) bool {
 	switch o := o.(type) {
 	case *Func:
-		return o.Pkg == nil || o.Pkg.Path == stdlib.PreludePath
+		// The functions D-D2's exception does not cover: one rule, one
+		// identity test (reusableBinderName).
+		return !reusableBinderName(o)
 	case *Builtin:
 		return true
 	}

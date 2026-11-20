@@ -277,7 +277,7 @@ func (in *interp) cases(fr *frame, body *syntax.BlockStmt, law bool, params []*c
 					for j, param := range ctor.Sig.Params {
 						shown[j] = in.argument(cf, param.Type, vs[j])
 					}
-					return Argument{Name: input.Name, Value: ctor.Name + "(" + strings.Join(shown, ", ") + ")"}
+					return Argument{Name: input.Name, Value: in.root.Qualified(ctor.Pkg, ctor.Name) + "(" + strings.Join(shown, ", ") + ")"}
 				})
 			} else {
 				v = in.generate(cf, r, input.Type, testplan.Depth, input.Where)
