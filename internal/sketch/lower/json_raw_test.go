@@ -131,7 +131,7 @@ func TestJSONRawAgrees(t *testing.T) {
 		wants = append(wants, rawWant(v))
 	}
 	texts = append(texts, `{"m":"x"}`, `{"id":,"m":"x"}`)
-	wants = append(wants, "missing / id", "")
+	wants = append(wants, "missing  id", "")
 	var main strings.Builder
 	main.WriteString("\nfunc main() needs Console {\n")
 	for i, text := range texts {
@@ -202,11 +202,11 @@ func TestJSONRawAgrees(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command(ergoCLI(t), "test", "-run", "Raw", dir)
+	cmd := exec.Command(ergoCLI(t), "test", "--run", "Raw", dir)
 	cmd.Dir = t.TempDir()
 	lawOut, err := cmd.CombinedOutput()
 	if err != nil {
-		t.Errorf("ergo test -run Raw std json: %v\n%s", err, lawOut)
+		t.Errorf("ergo test --run Raw std json: %v\n%s", err, lawOut)
 	}
 	laws := map[string]lawledger.Law{}
 	for key, statement := range jsonRawLawStatements {
