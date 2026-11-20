@@ -778,6 +778,9 @@ func (l *lowerer) wireEncodeBody(em wireEvents, tc *typeCtx, b *strings.Builder,
 
 // wireDecodeBody writes the statements of t's decode function.
 func (l *lowerer) wireDecodeBody(tc *typeCtx, b *strings.Builder, t check.Type, env, task, r, zero string, scope *namer) {
+	if l.wireOwnRead(tc, b, t, env, r, zero, scope) {
+		return // R's own read of t (wireread.go)
+	}
 	if check.WireFormOf(t) == check.WireNullable {
 		l.wireNullableDecode(tc, b, t, env, task, r, zero, scope)
 		return
