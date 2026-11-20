@@ -479,7 +479,7 @@ index 0000000..9dbb397
 +}
 diff --git a/src/cmd/compile/internal/ergoir/ergoir_call.go b/src/cmd/compile/internal/ergoir/ergoir_call.go
 new file mode 100644
-index 0000000..be785d3
+index 0000000..2ef77a2
 --- /dev/null
 +++ b/src/cmd/compile/internal/ergoir/ergoir_call.go
 @@ -0,0 +1,76 @@
@@ -2291,7 +2291,7 @@ index 0000000..f90510c
 +}
 diff --git a/src/cmd/compile/internal/ergoir/ergoir_stmt.go b/src/cmd/compile/internal/ergoir/ergoir_stmt.go
 new file mode 100644
-index 0000000..a54bb61
+index 0000000..8c93145
 --- /dev/null
 +++ b/src/cmd/compile/internal/ergoir/ergoir_stmt.go
 @@ -0,0 +1,366 @@
@@ -3337,7 +3337,7 @@ index 0000000..a06fafe
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_hook.go b/src/cmd/compile/internal/noder/ergoir_hook.go
 new file mode 100644
-index 0000000..22a171b
+index 0000000..4953d06
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_hook.go
 @@ -0,0 +1,39 @@
