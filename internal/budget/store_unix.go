@@ -265,8 +265,10 @@ func (b *Budget) watch(id string, woke chan<- struct{}, done func()) {
 	}
 }
 
-// lent is the grant a parent lent (GrantEnv) when it is of this budget,
-// at least req's width, and its owner is alive.
+// lent is the grant a parent lent (GrantEnv) when it is of this budget and
+// its owner is alive. A child wider than the grant runs in it at the
+// grant's width: queueing it would make its parent, a holder, wait on the
+// queue (NoHolderWaitsOnQueue).
 func (b *Budget) lent(req Request) *Grant {
 	v := os.Getenv(GrantEnv)
 	if v == "" {
@@ -277,10 +279,10 @@ func (b *Budget) lent(req Request) *Grant {
 		return nil
 	}
 	w, err := strconv.Atoi(parts[2])
-	if err != nil || req.Width > w || !b.alive(parts[1]) {
+	if err != nil || w < 1 || !b.alive(parts[1]) {
 		return nil
 	}
-	return &Grant{b: b, id: parts[1], width: req.Width, lane: req.Lane, crit: req.Crit, lent: true}
+	return &Grant{b: b, id: parts[1], width: min(req.Width, w), lane: req.Lane, crit: req.Crit, lent: true}
 }
 
 func (b *Budget) logf(format string, args ...any) {

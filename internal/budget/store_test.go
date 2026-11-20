@@ -153,8 +153,8 @@ func TestCrashFreesTheCores(t *testing.T) {
 
 // TestLentGrantTakesNothing: a child that inherits a grant (GrantEnv)
 // runs in it, even when the budget is full, so a holder never waits on a
-// child queued for the budget (the model's NoHolderWaitsOnQueue). A child
-// wider than the grant is not lent. Mutant: budget-lend-ignored.
+// child queued for the budget (the model's NoHolderWaitsOnQueue). Mutant:
+// budget-lend-ignored.
 func TestLentGrantTakesNothing(t *testing.T) {
 	b := testBudget(t, 2, 0)
 	ctx, cancel := testwait.Context(t, context.Background())
@@ -172,6 +172,34 @@ func TestLentGrantTakesNothing(t *testing.T) {
 	}
 	if !c.Lent() {
 		t.Fatal("the child's grant is not lent")
+	}
+	c.Release()
+}
+
+// TestWiderChildRunsInTheGrant: a child wider than its parent's grant
+// (a heavy run of 2 cores calling light.sh's width 4) runs in the grant at
+// the grant's width; it never joins the queue, where its parent would wait
+// on it. The child's context is already done, so a child that queued
+// returns its error at once. Mutant: budget-lend-wider-queues.
+func TestWiderChildRunsInTheGrant(t *testing.T) {
+	b := testBudget(t, 3, 0)
+	ctx, cancel := testwait.Context(t, context.Background())
+	defer cancel()
+	g, err := b.Take(ctx, Request{Width: 1, Lane: "parent"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer g.Release()
+	name, value, _ := strings.Cut(g.Env(), "=")
+	t.Setenv(name, value)
+	done, stop := context.WithCancel(ctx)
+	stop()
+	c, err := b.Take(done, Request{Width: 3, Lane: "child"})
+	if err != nil {
+		t.Fatalf("a child wider than its parent's grant: %v", err)
+	}
+	if !c.Lent() || c.Width() != 1 {
+		t.Fatalf("the child's grant: lent %v, width %d; want lent, width 1", c.Lent(), c.Width())
 	}
 	c.Release()
 }

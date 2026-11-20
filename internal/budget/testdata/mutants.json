@@ -74,6 +74,15 @@
       "killers": ["internal/budget:TestLentGrantTakesNothing"]
     },
     {
+      "name": "budget-lend-wider-queues",
+      "origin": "wf10 WS4a (model ChildQueues, a child wider than its grant)",
+      "file": "internal/budget/store_unix.go",
+      "from": "\tif err != nil || w < 1 || !b.alive(parts[1]) {",
+      "to": "\tif err != nil || w < req.Width || !b.alive(parts[1]) {",
+      "rule": "A child wider than its parent's grant runs in the grant at the grant's width and never queues.",
+      "killers": ["internal/budget:TestWiderChildRunsInTheGrant"]
+    },
+    {
       "name": "budget-run-leaves-group",
       "origin": "wf10 WS4a (leaked process groups)",
       "file": "internal/budget/run_unix.go",

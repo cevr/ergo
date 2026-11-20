@@ -45,7 +45,7 @@ func Run(ctx context.Context, b *Budget, req Request, argv []string, stdin io.Re
 	if err != nil {
 		return 1, err
 	}
-	cmd.Env = append(os.Environ(), "GOMAXPROCS="+strconv.Itoa(req.Width), g.Env())
+	cmd.Env = append(os.Environ(), "GOMAXPROCS="+strconv.Itoa(g.Width()), g.Env())
 	cmd.SysProcAttr = groupAttr()
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
