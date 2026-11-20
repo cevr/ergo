@@ -31,9 +31,9 @@ import "ergo.local/prototype/internal/sketch/syntax"
 //     no with site provides it, so it is not charged there.
 //
 // A law case provides no capability from a with site, so a law does not
-// run under a context whose needs row is not empty, nor yet under one whose
-// fails row is not empty: a case whose build fails is CTX-ROWS-2b's
-// (lawcontexts.go).
+// run under a context whose needs row is not empty; under one whose fails
+// row is not empty it runs, and a case whose build fails is a failed case
+// (lower's lawContextRun; a rewrite law's run is a skip, lawcontexts.go).
 //
 // Prior art: Effect's Layer<ROut, E, RIn> and ZIO's ZLayer[RIn, E, ROut]:
 // providing a layer charges its RIn to the effect that provides it and adds
@@ -95,6 +95,17 @@ func (c *checker) buildFails(w *Context) *Row {
 		return nil
 	}
 	c.readContextHeader(w)
+	return w.fails
+}
+
+// BuildFails is the fails row of the named context w's header, which its
+// build may raise (rule 1): the lowering's builder returns it, and a with
+// of w propagates it. Empty for a context with none, and for an inline or
+// a local context, whose entries' failures escape in place.
+func (w *Context) BuildFails() *Row {
+	if w == nil || w.Local || w.Lit != nil {
+		return nil
+	}
 	return w.fails
 }
 

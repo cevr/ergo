@@ -24,7 +24,7 @@ import (
 // the runtime; #57 the actor library and its machine runner; #162 runs
 // laws; #49 owns derived text forms; #196 decides the syntax that the
 // checker admits and no rule defines yet (an indexed slice literal).
-var openOwners = []string{"196b", "#197", "#199", "#57", "#162", "#49", "#196", "CTX-ROWS-2b"}
+var openOwners = []string{"196b", "#197", "#199", "#57", "#162", "#49", "#196"}
 
 // closedOwner matches a text that names a stage or unit that has closed:
 // lower-v1 itself, a check-v1 stage, or "after check-v1".

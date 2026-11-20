@@ -1253,10 +1253,24 @@ func (fc *funcCtx) with(x *syntax.CallExpr, i int, w *check.With, d dest) {
 	if lit {
 		fc.l.localContext(w.Contexts[0], arg)
 		fc.buildProviders(w, "(&"+env+")", outer, ws)
-	} else if owning {
-		fc.line(build + "(&" + env + ", " + outer + ", " + ws + ")")
 	} else {
-		fc.line(build + "(&" + env + ")")
+		call := build + "(&" + env + ")"
+		if owning {
+			call = build + "(&" + env + ", " + outer + ", " + ws + ")"
+		}
+		if fallibleBuild(w) {
+			// with try W: the build's failure leaves the with before its
+			// block runs; the frame's scope ends the with's scope, which
+			// releases what the builder had built (rows.md, With 6).
+			err := fc.temp("err")
+			fc.line("if " + err + " := " + call + "; " + err + " != nil {")
+			fc.depth++
+			fc.fail(err)
+			fc.depth--
+			fc.line("}")
+		} else {
+			fc.line(call)
+		}
 	}
 	saved := fc.env
 	fc.env = "(&" + env + ")"
@@ -1340,7 +1354,6 @@ func (l *lowerer) acquiredSet(w *check.With) contextSet {
 // unreached provider never runs (Context 7), and an entry whose provider uses
 // a capability of this context is built after that capability's entry.
 func (l *lowerer) contextBuilder(w *check.With, site syntax.Node) string {
-	refuseFallibleContext(w.Contexts[0], site)
 	key := l.acquiredSet(w)
 	if name, ok := l.contexts[key]; ok {
 		return name
@@ -1357,30 +1370,14 @@ func (l *lowerer) context(w *check.Context, site syntax.Node) {
 	if w.Decl.Provides != nil {
 		refuse(w.Decl, "a context header with provides is checked by 196b")
 	}
-	refuseFallibleContext(w, site)
 }
 
-// refuseFallibleContext refuses w, or a named context it embeds at any
-// depth, whose header writes a fails row: its builder returns no error yet,
-// so a failed build has nowhere to go (CTX-ROWS-2b). The checker accepts
-// the program (check/contextneeds.go); the lowering refuses it, never
-// compiles it partly.
-func refuseFallibleContext(w *check.Context, site syntax.Node) {
-	seen := map[*check.Context]bool{}
-	var walk func(*check.Context)
-	walk = func(v *check.Context) {
-		if v == nil || seen[v] {
-			return
-		}
-		seen[v] = true
-		if v.Lit == nil && v.Decl != nil && v.Decl.Fails != nil {
-			refuse(site, "context %s can fail while it is built (its header's fails row); a builder that returns the failure is CTX-ROWS-2b's", v.Name)
-		}
-		for _, e := range v.Entries {
-			walk(e.Embedded)
-		}
-	}
-	walk(w)
+// fallibleBuild reports a with whose named context's build may fail: its
+// builder returns the failure (emitContext), which the caller propagates
+// (check/contextneeds.go, rule 3). An embedded context's failures are in
+// the header row of the context that embeds it (rule 1).
+func fallibleBuild(w *check.With) bool {
+	return len(w.Contexts) > 0 && !w.Contexts[0].BuildFails().Empty()
 }
 
 // emitContext writes the builder name for the with w. A with that owns a
@@ -1413,7 +1410,11 @@ func (l *lowerer) emitContext(with *check.With, name string, site syntax.Node) {
 	// env, the with site's copy, which holds the capabilities the checker
 	// charged there (check/contextneeds.go); its frame reads the context's
 	// footprint all the same.
-	fc.frame = newFrame(nil, false, framePolls(l.info, w.Decl))
+	// A context whose header writes a fails row returns its build's
+	// failure: an entry's try leaves the builder with it (fail), and the
+	// with that called it propagates it (check/contextneeds.go, rule 3).
+	fallible := !w.BuildFails().Empty()
+	fc.frame = newFrame(nil, fallible, framePolls(l.info, w.Decl))
 	fc.depth = 1
 	fc.env = fc.scope.alloc("env")
 	params := fc.env + " *" + l.env()
@@ -1426,6 +1427,9 @@ func (l *lowerer) emitContext(with *check.With, name string, site syntax.Node) {
 	l.analyzeValues(w.Decl, l.info)
 	fc.buildProviders(with, fc.env, outer, ws)
 	decl := "func " + name + "(" + params + ") {\n" + fc.out.String() + "}\n\n"
+	if fallible {
+		decl = "func " + name + "(" + params + ") error {\n" + fc.out.String() + "\treturn nil\n}\n\n"
+	}
 	if std {
 		l.gen.WriteString(decl)
 		return

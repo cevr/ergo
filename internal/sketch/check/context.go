@@ -345,7 +345,7 @@ func (c *checker) contextBody(body *syntax.ContextBody, w *Context) (*capSet, bo
 					// row bounds (contextneeds.go, rule 3).
 					c.escape(e.Key, fails)
 				default:
-					c.errorf(e.Key, CodeOutside, "an inline or a local context embeds context %s, which can fail with %s while it is built; that is CTX-ROWS-2b's: embed it in a named context whose header lists those failures, and with try that one", inner.Name, rowText(fails))
+					c.errorf(e.Key, CodeOutside, "an inline or a local context embeds context %s, which can fail with %s while it is built; that is CTX-ROWS-2c's: embed it in a named context whose header lists those failures, and with try that one", inner.Name, rowText(fails))
 				}
 			}
 			if inner != nil && c.silent == 0 {

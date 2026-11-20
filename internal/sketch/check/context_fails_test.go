@@ -59,7 +59,7 @@ func read() int {
 	let v Context[Store] = Live
 	with v { Store.Get() }
 }
-`, []string{"13:25 S109 a Context value of context Live, which can fail with {Missing} while it is built, is CTX-ROWS-2b's: with try Live builds it in a with"}},
+`, []string{"13:25 S109 a Context value of context Live, which can fail with {Missing} while it is built, is CTX-ROWS-2c's: with try Live builds it in a with"}},
 		{"a literal's fails clause stays refused", `func f() {
 	with context fails Missing {} {}
 }

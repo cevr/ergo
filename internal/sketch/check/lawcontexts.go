@@ -150,10 +150,12 @@ func (c *checker) lawContext(law *Law, w *Context) (LawContext, bool) {
 		// (contextneeds.go): only TestAmbient, the runner's.
 		lc.Unrun = "context " + w.Name + " needs " + rowText(w.needs) + " from the with site that builds it, which a law case does not provide"
 	}
-	if lc.Unrun == "" && !w.fails.Empty() {
+	if lc.Unrun == "" && !w.fails.Empty() && law.Decl.Rewrite != nil {
 		// A case whose build fails is a failed case (FALLIBLE-CONTEXT,
-		// Design 4), which the runner cannot report yet.
-		lc.Unrun = "context " + w.Name + " can fail with " + rowText(w.fails) + " while it is built; a law case whose build fails is CTX-ROWS-2b's"
+		// Design 4; lower's lawContextRun). A rewrite law compares two
+		// builds of the context, side by side, which have no failure path
+		// yet.
+		lc.Unrun = "context " + w.Name + " can fail with " + rowText(w.fails) + " while it is built, and a rewrite law's two builds of it have no failure path yet (CTX-ROWS-2c)"
 	}
 	if lc.Unrun == "" && params != nil {
 		// A non-generic law's parameters were judged when it was planned.
