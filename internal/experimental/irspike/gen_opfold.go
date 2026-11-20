@@ -24,7 +24,8 @@ import (
 //   - a float32 product that rounds differently from float64;
 //   - integer division and remainder of negative lets (truncation);
 //   - unsigned and narrow integers at their bounds; conversions between
-//     them; string concatenation; ! of a bool let.
+//     them; string concatenation; ! of a bool let; len of a string let
+//     and of a concatenation (Go's constant len).
 func GenerateOpFold(seed uint64) string {
 	r := rand.New(rand.NewPCG(seed, seed^0x6366666f6c645f6d))
 	n := func(k int) int { return r.IntN(k) }
@@ -44,6 +45,7 @@ func GenerateOpFold(seed uint64) string {
 		"int(Small) * 3",
 		"int(Top) + int(Wide % uint64(1000))",
 		"-A + +B",
+		"len(Name) * B + len(Name + \"xy\")",
 	}
 	ffolds := []string{
 		"float64(BigI) + 1.0 - float64(BigI)",
