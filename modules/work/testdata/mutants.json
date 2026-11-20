@@ -52,7 +52,7 @@
     {
       "name": "ws0-gc-keeps-cut-clones", "origin": "wf10/semws WS0",
       "file": "modules/work/work/remove.ergo",
-      "from": "\t\t\t} else if taken && strings.HasPrefix(w.Path, t.home+\"/\") {\n",
+      "from": "\t\t\t} else if taken && strings.HasPrefix(w.Path, t.home+\"/\") && !t.copier.Has(w.Path+\"/.git\") {\n",
       "to": "\t\t\t} else if false {\n",
       "rule": "A crash between the reservation and the clone leaves Creating, and gc removes its record and its tree once its maker is gone: memory's ToolAgreesWithTheReference (CrashOp, GcOp), StoppedWriterIsFinished.",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
