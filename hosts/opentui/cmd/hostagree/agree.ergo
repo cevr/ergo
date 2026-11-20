@@ -14,7 +14,7 @@ type result = Done{} | Missing{Label string} | Broke{Why string}
 // agree plays steps on both hosts and prints whether they agree after
 // each. The screen is 60 by 40 cells (480 by 640 DIPs, the window of
 // hosts/mygo's hostagree).
-func agree[E comparable, S](m Machine[S, E, int], view own func(f mut ui.Frame[E], s S), same func(a S, b S) bool, gap func(a S, b S) Option[string], steps []string) needs Console | Scheduler | go.Foreign {
+func agree[E comparable, S](m Machine[S, E, int], view own func(f mut ui.Frame[E], s S), same func(a S, b S) bool, steps []string) needs Console | Scheduler | go.Foreign {
 	let s = screen.Headless(60, 40) catch {
 	case go.Error as e:
 		Console.Println("differ 0: no screen: \(e.Text)")
@@ -77,13 +77,6 @@ func agree[E comparable, S](m Machine[S, E, int], view own func(f mut ui.Frame[E
 			Console.Println("differ \(n): \(line): \(why.Value)")
 		case None:
 			Console.Println("ok \(n)")
-			// A known gap of this host: printed and counted, not a
-			// difference (TestTuiHostAgreesWithTestHost logs the count).
-			match gap(ui.StateOf(&h), tui.StateOf(&d)) {
-			case Some[string] as why:
-				Console.Println("gap \(n): \(why.Value)")
-			case None:
-			}
 		}
 	}
 	s.Quit() catch {
@@ -430,6 +423,17 @@ func run[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut tui.Driver[
 			case None:
 				try ui.Play(h, []ui.Act{ui.PointOn{Label: f[0], Pointer: p}})
 			}
+		})
+		(a, b)
+	case "leave":
+		// The pointer moves where no node takes input (OT-PHASES): on
+		// TestHost a move nowhere, on the terminal a move with no button
+		// to the screen's last cell, which no app here draws on.
+		let b = played(func() fails ui.NoNode | ui.Ambiguous | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
+			try tui.Send(d, tui.Mouse(35, 59, 39, true))
+		})
+		let a = played(func() fails ui.NoNode | ui.Ambiguous | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
+			try ui.PointNowhere(h)
 		})
 		(a, b)
 	case "scroll":

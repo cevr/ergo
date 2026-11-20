@@ -41,27 +41,27 @@ func main() needs Console | Ambient | go.Foreign {
 		let steps = slices.Slice(lines, 1, len(lines))
 		match strings.TrimSpace(lines[0]) {
 		case "counter":
-			agree(counterMachine(), counterView, func(a int, b int) bool { a == b }, func(a int, b int) Option[string] { None }, steps)
+			agree(counterMachine(), counterView, func(a int, b int) bool { a == b }, steps)
 		case "shelf":
-			agree(shelfMachine(), shelfView, sameShelf, func(a shelf, b shelf) Option[string] { None }, steps)
+			agree(shelfMachine(), shelfView, sameShelf, steps)
 		case "form":
-			agree(formMachine(), formView, func(a form, b form) bool { a == b }, func(a form, b form) Option[string] { None }, steps)
+			agree(formMachine(), formView, func(a form, b form) bool { a == b }, steps)
 		case "load":
-			agree(loadMachine(), loadView, func(a chosen, b chosen) bool { a == b }, func(a chosen, b chosen) Option[string] { None }, steps)
+			agree(loadMachine(), loadView, func(a chosen, b chosen) bool { a == b }, steps)
 		case "lock":
-			agree(lockMachine(), lockView, func(a lock, b lock) bool { a == b }, func(a lock, b lock) Option[string] { None }, steps)
+			agree(lockMachine(), lockView, func(a lock, b lock) bool { a == b }, steps)
 		case "pad":
-			agree(padMachine(), padView, func(a pad, b pad) bool { a.last == b.last && a.n == b.n }, crossings, steps)
+			agree(padMachine(), padView, func(a pad, b pad) bool { a == b }, steps)
 		case "list":
-			agree(rowsMachine(), rowsView, func(a rowsApp, b rowsApp) bool { a == b }, func(a rowsApp, b rowsApp) Option[string] { None }, steps)
+			agree(rowsMachine(), rowsView, func(a rowsApp, b rowsApp) bool { a == b }, steps)
 		case "sketch":
-			agree(sketchMachine(), sketchView, func(a sketch, b sketch) bool { a == b }, func(a sketch, b sketch) Option[string] { None }, steps)
+			agree(sketchMachine(), sketchView, func(a sketch, b sketch) bool { a == b }, steps)
 		case "pane":
-			agree(paneMachine(), paneView, func(a pane, b pane) bool { a == b }, func(a pane, b pane) Option[string] { None }, steps)
+			agree(paneMachine(), paneView, func(a pane, b pane) bool { a == b }, steps)
 		case "drag":
-			agree(dragMachine(), dragView, func(a drag, b drag) bool { a == b }, func(a drag, b drag) Option[string] { None }, steps)
+			agree(dragMachine(), dragView, func(a drag, b drag) bool { a == b }, steps)
 		case "spin":
-			agree(spinMachine(), spinView, func(a spin, b spin) bool { a == b }, func(a spin, b spin) Option[string] { None }, steps)
+			agree(spinMachine(), spinView, func(a spin, b spin) bool { a == b }, steps)
 		case _:
 			Console.Println("differ 0: no app \(lines[0])")
 		}

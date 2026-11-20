@@ -168,7 +168,9 @@ func genScript(r *rand.Rand, app string) string {
 				step = fmt.Sprintf("point pad %s %d %d", pick(r, "down", "up", "move", "move"), x, 16*(2+r.IntN(5)))
 			}
 			if r.IntN(8) == 0 && !held {
-				step = "tap clear"
+				// over the pad's button (inside the Area: no crossing),
+				// a tap on it, or out of every Area (the pad's Leave)
+				step = pick(r, "tap clear", "tap clear", "point clear move 0 0", "leave")
 			}
 		case "drag":
 			// a press, moves and frames in the Area: y in its top band, in its
@@ -237,7 +239,7 @@ func TestTuiHostAgreesWithTestHost(t *testing.T) {
 			seeds = append(seeds, s)
 		}
 	}
-	steps, failed, gaps := 0, 0, map[string]int{}
+	steps, failed := 0, 0
 	for _, seed := range seeds {
 		app := agreeApps[seed%uint64(len(agreeApps))]
 		script := genScript(rand.New(rand.NewPCG(seed, 0x6167726565)), app)
@@ -248,13 +250,6 @@ func TestTuiHostAgreesWithTestHost(t *testing.T) {
 			case strings.HasPrefix(line, "ok "):
 				steps++
 			case line == "end", strings.HasPrefix(line, "cost "):
-			case strings.HasPrefix(line, "gap "):
-				// A known gap of this host, named by its unit
-				// ("gap N: OT-PHASES: ..."): counted and logged.
-				if _, after, ok := strings.Cut(line, ": "); ok {
-					name, _, _ := strings.Cut(after, ":")
-					gaps[name]++
-				}
 			default:
 				bad = append(bad, line)
 			}
@@ -270,9 +265,6 @@ func TestTuiHostAgreesWithTestHost(t *testing.T) {
 		t.Errorf("%d more seeds differ", failed-3)
 	}
 	t.Logf("%d seeds, %d steps agree", len(seeds), steps)
-	for name, n := range gaps {
-		t.Logf("known gap %s: %d steps", name, n)
-	}
 }
 
 // tuiExamples are the examples whose terminal binaries live in cmd/: the

@@ -6,32 +6,12 @@ import ui
 // pad: an Area whose pointer events become signals, over a Pressable
 // (the hit test takes the one painted last), with a Zone (key 7) below
 // it: a press over the Zone says where in the Zone it went down.
-//
-// The pad also counts the composer's crossings (PointerEnter and
-// PointerLeave, UG3) apart, unshown: the terminal moves a real pointer for
-// a tap, which crosses into the button and out of the Area, while
-// TestHost's TapOn moves none. Agreement compares last and n; a count of
-// crossings that differs is the gap OT-PHASES (crossings), printed.
-type pad { last int, n int, crossed int }
+type pad { last int, n int }
 
-func padStep(s pad, e int) Decision[pad, int] {
-	if e == 7000 || e == 7001 {
-		return Enter[pad]{Next: pad{..s, crossed: s.crossed + 1}}
-	}
-	Enter[pad]{Next: pad{last: e, n: s.n + 1, crossed: s.crossed}}
-}
-
-// crossings is the gap OT-PHASES when the two pads counted different
-// crossings, None when they agree.
-func crossings(a pad, b pad) Option[string] {
-	if a.crossed == b.crossed {
-		return None
-	}
-	Some{Value: "OT-PHASES: TestHost's pad crossed \(a.crossed) times, the terminal's \(b.crossed)"}
-}
+func padStep(s pad, e int) Decision[pad, int] { Enter[pad]{Next: pad{last: e, n: s.n + 1}} }
 
 func padMachine() Machine[pad, int, int] {
-	Machine[pad, int, int]{Initial: pad{last: 0, n: 0, crossed: 0}, Step: padStep, After: none[pad, int], Work: idle[pad, int], Exit: func(s pad) Option[func()] { None }}
+	Machine[pad, int, int]{Initial: pad{last: 0, n: 0}, Step: padStep, After: none[pad, int], Work: idle[pad, int], Exit: func(s pad) Option[func()] { None }}
 }
 
 func padView(f mut ui.Frame[int], s pad) {
@@ -54,7 +34,9 @@ func padView(f mut ui.Frame[int], s pad) {
 			Some{Value: 3000 + int(w.DY)}
 		case ui.Drag:
 			Some{Value: 4000 + int(p.Y)}
-			// The composer's crossings (UG3), counted apart (crossings).
+			// The composer's crossings (UG3), which follow the Areas that
+			// hold the node under the pointer: a host that sends them other
+			// than TestHost does differs in the pad's state (OT-PHASES).
 		case ui.PointerEnter:
 			Some{Value: 7000}
 		case ui.PointerLeave:
