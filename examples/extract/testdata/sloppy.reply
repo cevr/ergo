@@ -1,0 +1,10 @@
+{
+  // the store's name as printed
+  merchant: 'Elm Street Hardware',
+  items: [
+    {name: 'Hinge, brass', count: 4, cents: 210},
+    {name: 'Wood glue', count: 1, cents: 695},
+  ],
+  total: 1535, /* the receipt's total */
+  paid: {_tag: 'Cash'},
+}
