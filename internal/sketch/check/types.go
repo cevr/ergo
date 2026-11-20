@@ -132,12 +132,16 @@ func (f *Field) Origin() *Field {
 }
 
 // Interface is an interface: method signatures (an operation type when it
-// is named), or a predeclared constraint's type set (comparable, ordered,
-// number; 196g).
+// is named) and a type-set member, or a predeclared constraint (lent,
+// wire, comparable; 196g).
 type Interface struct {
 	Methods []*Method
 	index   map[string]*Method
 	Set     TypeSet // the predeclared constraint's type set; SetAll for a method set
+	// Terms is the type-set member `~int | ~int64` (typeset.go; types.md,
+	// Generics 2), nil when the operation type has none. An operation
+	// type with one is a constraint only.
+	Terms []*Term
 	// byName holds the methods sorted by name, once, when the type is
 	// resolved (go/types NewInterfaceType): identity reads it and never
 	// sorts (round 11 M3).
@@ -151,15 +155,14 @@ type Interface struct {
 	includes []*Named
 }
 
-// TypeSet is the type set of a predeclared constraint (types.md, Generics
-// 2). Each set lies within the one before it, so a larger value admits
-// fewer types and more operators: comparable admits == and !=; ordered
-// adds <, <=, >, >= and + over the integer, float, string and duration
-// types and the defined types over them; number adds -, *, / and unary -
-// over the integer and float types and the defined types over them. wire
-// (types.md, Codecs 1) stands apart from that chain: it admits the types
-// with a wire form and no operator, and it sorts below comparable, so
-// every `>= SetComparable` test leaves it out.
+// TypeSet is the predeclared constraint a universe name gives (types.md,
+// Generics 2): comparable admits the types with == that cannot panic, a
+// structural predicate with no finite set of terms, so it stays a
+// language name; lent admits every type and keeps none; wire (types.md,
+// Codecs 1) admits the types with a wire form. ordered and number are no
+// longer here: they are type-set members declared in the prelude, and
+// every operator a type parameter takes comes from its set's terms
+// (typeset.go), for std and user code alike.
 type TypeSet uint8
 
 // The type sets.
@@ -167,8 +170,6 @@ const (
 	SetAll        TypeSet = iota // every type: a method set or no constraint
 	SetWire                      // wire: the types with a wire form
 	SetComparable                // comparable
-	SetOrdered                   // ordered
-	SetNumber                    // number
 )
 
 func (s TypeSet) String() string {
@@ -177,10 +178,6 @@ func (s TypeSet) String() string {
 		return "wire"
 	case SetComparable:
 		return "comparable"
-	case SetOrdered:
-		return "ordered"
-	case SetNumber:
-		return "number"
 	}
 	return "any"
 }
@@ -439,6 +436,9 @@ var invalid = Typ[Invalid]
 
 func (t *Basic) String() string { return t.Name }
 func (t *Named) String() string {
+	if IsProviderMap(t) {
+		return mapTypeString(t) // mapprovider.go
+	}
 	name := t.Obj.Name
 	if t.Obj.Pkg != nil && t.Obj.Pkg.qualify {
 		name = t.Obj.Pkg.Name + "." + name
@@ -460,12 +460,15 @@ func (t *Struct) String() string {
 	return "{ " + strings.Join(parts, ", ") + " }"
 }
 func (t *Interface) String() string {
-	if t.Set != SetAll || len(t.Methods) == 0 {
+	if t.Set != SetAll || len(t.Methods) == 0 && t.Terms == nil {
 		return t.Set.String()
 	}
-	parts := make([]string, len(t.Methods))
-	for i, m := range t.Methods {
-		parts[i] = m.Name + strings.TrimPrefix(m.Sig.String(), "func")
+	var parts []string
+	if t.Terms != nil {
+		parts = append(parts, termsText(t.Terms))
+	}
+	for _, m := range t.Methods {
+		parts = append(parts, m.Name+strings.TrimPrefix(m.Sig.String(), "func"))
 	}
 	return "{ " + strings.Join(parts, ", ") + " }"
 }

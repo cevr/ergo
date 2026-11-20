@@ -63,10 +63,22 @@ type Footprint struct {
 	// function with known arguments joins each argument's footprint in
 	// their place instead.
 	Params []int
-	// OpaqueRest reports unknown code other than the arguments at Params:
-	// Opaque is OpaqueRest or a nonempty Params, or, for a function
-	// literal, a call of a parameter of the function it is written in.
+	// OpaqueRest reports unknown code other than the arguments at Params
+	// and the operations at TypeParams: Opaque is OpaqueRest or a nonempty
+	// Params or TypeParams, or, for a function literal, a call of a
+	// parameter of the function it is written in or of an operation of
+	// one of its type parameters.
 	OpaqueRest bool
+	// TypeParams are the positions of the function's type parameters
+	// whose operations it runs, each a rowless operation called on a
+	// value of the parameter: in its body, or in a known frame it runs
+	// with the parameter as that frame's type argument (C5d). Opaque
+	// counts them, so the generic frame read alone runs unknown code; a
+	// copy for an instance whose every such operation is a known function
+	// with an empty footprint is pure (rows.md, Footprints 3: "a call is
+	// pure only when the compiler specialises it to a known function with
+	// an empty footprint").
+	TypeParams []int
 }
 
 // Empty reports a pure frame: no capability, no task start and no opaque
@@ -90,12 +102,19 @@ type fpNode struct {
 	holes  map[*Var]bool
 	calls  []fpCall
 	params []*Var
+	// tholes are the type parameters whose operations this frame calls
+	// (TypeParams): its function's own, or, in a literal or block, those
+	// of the function it is written in. tparams are a function's type
+	// parameters, by position.
+	tholes  map[*TypeParam]bool
+	tparams []*TypeParam
 
 	index, low int // Tarjan's numbering; index 0 is unvisited
 	onStack    bool
 	comp       *fpNode // the component's root, once its component is final
 	final      Footprint
 	cur        map[*Var]bool // the holes while its component is solved, then final
+	tcur       map[*TypeParam]bool
 }
 
 // fpCall is a call of a known function (to) whose arguments at its
@@ -105,6 +124,18 @@ type fpNode struct {
 type fpCall struct {
 	to   *fpNode
 	args []*fpArg
+	// targs are the call's type arguments at the callee's type
+	// parameters, by position, where the callee may run their operations:
+	// nil where unknown.
+	targs []*fpTArg
+}
+
+// fpTArg is a type argument whose operations a call may run: a frame that
+// runs the functions that implement them (node), or a type parameter of
+// the caller (hole), which then becomes a type hole of the caller.
+type fpTArg struct {
+	node *fpNode
+	hole *TypeParam
 }
 
 // fpArg is a known argument: the frame of a literal, a trailing block or
@@ -167,6 +198,9 @@ func (c *checker) footprints() {
 		if f.Decl != nil && f.Decl.Extern == nil && f.Decl.Body != nil {
 			n := fp.node(f.Decl)
 			n.params = declParams(info, f.Decl)
+			if f.Sig != nil {
+				n.tparams = f.Sig.TParams
+			}
 			for _, v := range n.params {
 				if v != nil && fpParam(v.Type) {
 					fp.holeVars[v] = true
@@ -185,6 +219,13 @@ func (c *checker) footprints() {
 			continue // a machine's reachability law has no body (MU6)
 		}
 		bodies = append(bodies, body{fp.node(l.Decl), l.Decl.Body})
+		for _, adm := range l.Admit {
+			if adm != nil {
+				// A where over earlier parameters, a law of its own
+				// (lawwhere.go).
+				bodies = append(bodies, body{fp.node(adm.Decl), adm.Decl.Body})
+			}
+		}
 	}
 	for key := range info.Literals {
 		switch k := key.(type) {
@@ -593,7 +634,7 @@ func (fp *footprinter) call(n *fpNode, x *syntax.CallExpr, c *Call) {
 			// memory-only call is.
 			n.opaque = true
 		}
-	case CallConversion, CallLen, CallPrelude, CallEmbed, CallPattern:
+	case CallConversion, CallLen, CallPrelude, CallEmbed, CallPattern, CallHash:
 		// These calls add no footprint of their own. CallPrelude is
 		// retained compatibility metadata, never produced by the checker.
 	case CallProviderOp:
@@ -635,7 +676,20 @@ func (fp *footprinter) call(n *fpNode, x *syntax.CallExpr, c *Call) {
 			return
 		}
 		n.opaque = true
-	case CallOp, CallLawOp, CallEncode, CallDecode:
+	case CallOp:
+		// A rowless operation of a value of a type parameter runs the
+		// function its type argument implements it with: a type hole,
+		// which a copy for the instance fills (TypeParams). Any other
+		// operation is of an operation-type value: unknown code.
+		if tp, ok := fp.info.Types[c.Recv].(*TypeParam); ok && !fp.foreign && c.Op != nil && c.Op.Sig != nil && rowless(c.Op.Sig) {
+			if n.tholes == nil {
+				n.tholes = map[*TypeParam]bool{}
+			}
+			n.tholes[tp] = true
+			return
+		}
+		n.opaque = true
+	case CallLawOp, CallEncode, CallDecode:
 		// A law's operation has no body until #162 picks an implementation;
 		// encode and decode call the operations of a Writer or Reader value.
 		n.opaque = true
@@ -706,7 +760,7 @@ func (fp *footprinter) knownCall(n *fpNode, x *syntax.CallExpr, c *Call) bool {
 		to = fp.node(f.Decl)
 	case f.Pkg != nil && f.Pkg.Info != nil:
 		g, ok := f.Pkg.Info.Footprints[f.Decl]
-		if !ok || len(g.Params) == 0 {
+		if !ok || len(g.Params) == 0 && len(g.TypeParams) == 0 {
 			return false
 		}
 		to = fp.importedFunc(f, g)
@@ -731,11 +785,67 @@ func (fp *footprinter) knownCall(n *fpNode, x *syntax.CallExpr, c *Call) bool {
 			known = true
 		}
 	}
-	if !known {
+	targs := fp.typeArgs(x, f)
+	if !known && targs == nil {
 		return false
 	}
-	n.calls = append(n.calls, fpCall{to: to, args: args})
+	n.calls = append(n.calls, fpCall{to: to, args: args, targs: targs})
 	return true
+}
+
+// typeArgs are the type arguments of the call x of the generic f whose
+// operations f may run, by f's type-parameter position (fpCall.targs), or
+// nil when f has no type parameter whose operations a witness carries.
+// An argument whose every operation is a known function runs those
+// functions; one that is a type parameter of the caller whose operations
+// the witness takes from the caller's own is that type hole; any other
+// (an operation-type value's operations) is unknown.
+func (fp *footprinter) typeArgs(x *syntax.CallExpr, f *Func) []*fpTArg {
+	inst := fp.info.Instances[x]
+	if inst == nil || inst.Func != f || len(inst.Witnesses) == 0 {
+		return nil
+	}
+	out := make([]*fpTArg, len(f.Sig.TParams))
+	some := false
+	for _, w := range inst.Witnesses {
+		i := slices.Index(f.Sig.TParams, w.Param)
+		if i < 0 || len(w.Ops) == 0 {
+			continue
+		}
+		known, viaCaller := true, true
+		for _, op := range w.Ops {
+			known = known && op.Func != nil
+			viaCaller = viaCaller && op.Func == nil
+		}
+		tp, _ := w.Arg.(*TypeParam)
+		switch {
+		case known:
+			m := &fpNode{walked: true}
+			fp.list = append(fp.list, m)
+			for _, op := range w.Ops {
+				if op.Inst != nil && len(op.Inst.Witnesses) > 0 {
+					m.opaque = true // a generic implementation's own operations
+				}
+				fp.runs(m, op.Func, false)
+			}
+			out[i] = &fpTArg{node: m}
+		case viaCaller && tp != nil:
+			out[i] = &fpTArg{hole: tp}
+		default:
+			continue
+		}
+		some = true
+	}
+	if !some {
+		return nil
+	}
+	return out
+}
+
+// rowless reports an operation that declares no failure and needs no
+// capability: a call of it adds nothing but the code that implements it.
+func rowless(sig *Signature) bool {
+	return (sig.Errors == nil || sig.Errors.Empty()) && (sig.Uses == nil || sig.Uses.Empty())
 }
 
 // fpParam reports a parameter type whose argument a call can fill: a
@@ -762,6 +872,17 @@ func (fp *footprinter) importedFunc(f *Func, g Footprint) *fpNode {
 	for _, i := range g.Params {
 		if i < len(m.params) && m.params[i] != nil {
 			m.holes[m.params[i]] = true
+		} else {
+			m.opaque = true
+		}
+	}
+	if f.Sig != nil {
+		m.tparams = f.Sig.TParams
+	}
+	m.tholes = map[*TypeParam]bool{}
+	for _, i := range g.TypeParams {
+		if i < len(m.tparams) {
+			m.tholes[m.tparams[i]] = true
 		} else {
 			m.opaque = true
 		}
@@ -965,6 +1086,11 @@ func (fp *footprinter) solve() {
 					visit(a.node)
 				}
 			}
+			for _, a := range c.targs {
+				if a != nil && a.node != nil {
+					visit(a.node)
+				}
+			}
 		}
 		if v.low != v.index {
 			return
@@ -991,6 +1117,10 @@ func (fp *footprinter) solve() {
 			if w.cur == nil {
 				w.cur = map[*Var]bool{}
 			}
+			w.tcur = maps.Clone(w.tholes)
+			if w.tcur == nil {
+				w.tcur = map[*TypeParam]bool{}
+			}
 		}
 		// The members' holes grow to a fixpoint: a call within the
 		// component passes a hole on to its caller.
@@ -998,10 +1128,10 @@ func (fp *footprinter) solve() {
 			changed = false
 			for _, w := range comp {
 				for _, s := range w.edges {
-					changed = fillHoles(v, acc, w, s, nil) || changed
+					changed = fillHoles(v, acc, w, s, nil, nil) || changed
 				}
 				for _, c := range w.calls {
-					changed = fillHoles(v, acc, w, c.to, c.args) || changed
+					changed = fillHoles(v, acc, w, c.to, c.args, c.targs) || changed
 				}
 			}
 		}
@@ -1025,11 +1155,27 @@ func (fp *footprinter) solve() {
 		}
 		for _, w := range comp {
 			wf := f
-			wf.Opaque = f.OpaqueRest || len(w.cur) > 0
+			wf.Opaque = f.OpaqueRest || len(w.cur) > 0 || len(w.tcur) > 0
 			wf.Params = nil
 			for i, p := range w.params {
 				if p != nil && w.cur[p] {
 					wf.Params = append(wf.Params, i)
+				}
+			}
+			wf.TypeParams = nil
+			for i, tp := range w.tparams {
+				if w.tcur[tp] {
+					wf.TypeParams = append(wf.TypeParams, i)
+				}
+			}
+			if _, fn := w.key.(*syntax.FuncDecl); fn {
+				for tp := range w.tcur {
+					if !slices.Contains(w.tparams, tp) {
+						// A type parameter that is no type parameter of
+						// the function's own (a generic record's, read
+						// through a method): no copy fills it.
+						wf.OpaqueRest = true
+					}
 				}
 			}
 			wf.EntryPoll = !wf.Empty() && (recursive || wf.Opaque)
@@ -1052,12 +1198,42 @@ func (fp *footprinter) solve() {
 // unknown. Every other hole of t (a literal's call of a parameter of the
 // function it is written in) becomes a hole of w. It reports whether w
 // gained a hole.
-func fillHoles(root, acc, w, t *fpNode, args []*fpArg) bool {
+func fillHoles(root, acc, w, t *fpNode, args []*fpArg, targs []*fpTArg) bool {
 	changed := false
 	add := func(h *Var) {
 		if !w.cur[h] {
 			w.cur[h] = true
 			changed = true
+		}
+	}
+	addT := func(h *TypeParam) {
+		if !w.tcur[h] {
+			w.tcur[h] = true
+			changed = true
+		}
+	}
+	// Each type hole of t that is one of its type parameters runs the
+	// operations of the type argument there (fpTArg), as a parameter's
+	// hole runs its argument; any other (a literal's call of an operation
+	// of a type parameter of the function it is written in) becomes a
+	// type hole of w.
+	for h := range t.tcur {
+		i := slices.Index(t.tparams, h)
+		if i < 0 {
+			addT(h)
+			continue
+		}
+		var a *fpTArg
+		if i < len(targs) {
+			a = targs[i]
+		}
+		switch {
+		case a == nil:
+			acc.opaque = true
+		case a.hole != nil:
+			addT(a.hole)
+		default:
+			changed = fillHoles(root, acc, w, a.node, nil, nil) || changed
 		}
 	}
 	if t.comp != root {
@@ -1085,7 +1261,7 @@ func fillHoles(root, acc, w, t *fpNode, args []*fpArg) bool {
 		case a.hole != nil:
 			add(a.hole)
 		default:
-			changed = fillHoles(root, acc, w, a.node, nil) || changed
+			changed = fillHoles(root, acc, w, a.node, nil, nil) || changed
 		}
 	}
 	return changed

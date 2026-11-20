@@ -201,6 +201,8 @@ func builtinKind(b *Builtin) CallKind {
 		return CallDecode
 	case "embedded":
 		return CallEmbed
+	case "hash":
+		return CallHash
 	}
 	return CallLen
 }
