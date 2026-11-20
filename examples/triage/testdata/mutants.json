@@ -1,0 +1,45 @@
+{
+  "about": "triage's application mutants (wf10 CONSTRAINTS C4); each is judged by the example's laws and cases (scripts/examples), not by a compiler test.",
+  "mutants": [
+    {
+      "name": "triage-severity-no-tiebreak", "origin": "wf10 CONSTRAINTS C4",
+      "file": "examples/triage/entry/order.ergo",
+      "from": "cmp.Then(cmp.Compare(b.Severity, a.Severity), cmp.Then(cmp.Compare(a.Host, b.Host), cmp.Compare(a.Line, b.Line)))",
+      "to": "cmp.Then(cmp.Compare(b.Severity, a.Severity), cmp.Compare(a.Host, b.Host))",
+      "rule": "BySeverity breaks a tie of severity and host by the line (law LineBreaksTies; case ties: the quicksort is not stable).",
+      "anchor": {"tests": ["examples:triage"]}, "killers": ["examples:triage"]
+    },
+    {
+      "name": "triage-host-least-severe-first", "origin": "wf10 CONSTRAINTS C4",
+      "file": "examples/triage/entry/order.ergo",
+      "from": "cmp.Then(cmp.Compare(a.Host, b.Host), cmp.Then(cmp.Compare(b.Severity, a.Severity)",
+      "to": "cmp.Then(cmp.Compare(a.Host, b.Host), cmp.Then(cmp.Compare(a.Severity, b.Severity)",
+      "rule": "ByHost puts the most severe entry of a host first (case host).",
+      "anchor": {"tests": ["examples:triage"]}, "killers": ["examples:triage"]
+    },
+    {
+      "name": "triage-severity-ascending", "origin": "wf10 CONSTRAINTS C4",
+      "file": "examples/triage/entry/order.ergo",
+      "from": "func Compare(_ BySeverity, a Entry, b Entry) int {\n\tcmp.Then(cmp.Compare(b.Severity, a.Severity)",
+      "to": "func Compare(_ BySeverity, a Entry, b Entry) int {\n\tcmp.Then(cmp.Compare(a.Severity, b.Severity)",
+      "rule": "BySeverity puts the most severe entry first (law MoreSevereFirst; case severity).",
+      "anchor": {"tests": ["examples:triage"]}, "killers": ["examples:triage"]
+    },
+    {
+      "name": "triage-host-case-hash", "origin": "wf10 CONSTRAINTS C5b",
+      "file": "examples/triage/entry/host.ergo",
+      "from": "func Hash(_ HostCase, host string) uint64 { hash(strings.ToLower(host)) }",
+      "to": "func Hash(_ HostCase, host string) uint64 { hash(host) }",
+      "rule": "HostCase hashes the form its Equal compares (law Hashing.EqualKeysHashEqual; case count).",
+      "anchor": {"tests": ["examples:triage"]}, "killers": ["examples:triage"]
+    },
+    {
+      "name": "triage-host-case-sensitive", "origin": "wf10 CONSTRAINTS C5b",
+      "file": "examples/triage/entry/host.ergo",
+      "from": "func Equal(_ HostCase, a string, b string) bool { strings.ToLower(a) == strings.ToLower(b) }",
+      "to": "func Equal(_ HostCase, a string, b string) bool { a == b }",
+      "rule": "HostCase calls web-1 and WEB-1 one host (case count).",
+      "anchor": {"tests": ["examples:triage"]}, "killers": ["examples:triage"]
+    }
+  ]
+}
