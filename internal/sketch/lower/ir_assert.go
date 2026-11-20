@@ -24,8 +24,8 @@ func (st *irState) testBody(fc *funcCtx, d *syntax.TestDecl, name string, params
 	l := fc.l
 	b := st.newBuilder(fc, d)
 	defer st.finish(b, l.pkg.Path, name, d, false, &ok)
-	if needsFrame {
-		b.gate("body that needs a frame")
+	if needsFrame && !irFrame(fc) {
+		b.gate("body that needs a frame") // frameScopeLowering=off: the reference
 	}
 	// Go parameter order: the environment, then the parameters (testDecl).
 	b.env = b.next
@@ -39,6 +39,11 @@ func (st *irState) testBody(fc *funcCtx, d *syntax.TestDecl, name string, params
 	}
 	b.fn = &irFunc{Name: name, Pos: b.pos(d, d.Pos()), End: b.pos(d, d.Body.Rbrace)}
 	b.names = b.tempNames(d.Body) // ir_fail.go
+	if needsFrame {
+		// The test's frame scope, before the entry poll, as a function's
+		// (the emitter's testDecl: openFrame, then entryPoll).
+		b.part(func() { b.fn.Body = append(b.fn.Body, b.openScope(d, d.Name, d.Body, params, false)...) }) // ir_own.go
+	}
 	if frameFootprint(l.info, d).EntryPoll && fc.frame.polls {
 		b.fn.Body = append(b.fn.Body, b.poll(d))
 	}
@@ -62,8 +67,8 @@ func (st *irState) lawBody(fc *funcCtx, law *check.Law, name string, needsFrame 
 	b := st.newBuilder(fc, d)
 	b.result, b.law = fc.frame.result, law
 	defer st.finish(b, law.Pkg.Path, name, d, law.Pkg.Std(), &ok)
-	if needsFrame {
-		b.gate("body that needs a frame")
+	if needsFrame && !irFrame(fc) {
+		b.gate("body that needs a frame") // frameScopeLowering=off: the reference
 	}
 	if lawGenericOwner(law) != nil {
 		b.gate("law of a generic operation type")
@@ -79,6 +84,12 @@ func (st *irState) lawBody(fc *funcCtx, law *check.Law, name string, needsFrame 
 	}
 	b.fn = &irFunc{Name: name, Pos: b.pos(d, d.Pos()), End: b.pos(d, d.Body.Rbrace)}
 	b.names = b.tempNames(d.Body) // ir_fail.go
+	if needsFrame {
+		// The law's frame scope, before the entry poll, as a function's
+		// (the emitter's lawDecl: openFrame, then entryPoll); its End
+		// takes the error result, the second of (bool, error).
+		b.part(func() { b.fn.Body = append(b.fn.Body, b.openScope(d, d.Name, d.Body, law.Params, false)...) }) // ir_own.go
+	}
 	if frameFootprint(l.info, d).EntryPoll && fc.frame.polls {
 		b.fn.Body = append(b.fn.Body, b.poll(d))
 	}
