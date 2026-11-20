@@ -30,7 +30,7 @@ func (a Analysis) Evaluate(b eval.Budget) (eval.Report, error) {
 	defer func() { root.Name = name }()
 	rep, err := eval.Run(root, b)
 	for _, res := range rep.Results {
-		if res.Status != eval.Skipped && res.Status != eval.NotRun {
+		if res.Status != eval.Skipped && res.Status != eval.NotRun && res.Status != eval.Native {
 			stage.Add(stage.ObligationsEvaluated, 1)
 		}
 	}

@@ -689,9 +689,10 @@ func (c *checker) lawProvider(tn *TypeName, own *Named) (LawProvider, bool) {
 		slot = c.instantiate(own, targs)
 	}
 	// A provider whose operations call Go converts only where its build
-	// holds go.Foreign (README Gap 17), which no test does (rows.md, Entry
-	// 4): it provides the operation type, and its laws are reported as
-	// not run, never dropped in silence.
+	// holds go.Foreign (README Gap 17). No test does, but a law case of the
+	// test binary does (rows.md, Entry 4; owner q277): its binding runs
+	// natively, built by a constructor whose row may be go.Foreign alone
+	// (nativeConstructor) or by a generated value.
 	captured := false
 	c.capture = &captured
 	a, _ := c.providerAssignability(p, slot)
@@ -720,18 +721,48 @@ func (c *checker) lawProvider(tn *TypeName, own *Named) (LawProvider, bool) {
 		ptr = true
 	}
 	c.recordLegacy(p, slot, "law")
-	lp := LawProvider{Type: p, Conv: a.conv, Slot: slot, Ptr: ptr, Value: value}
-	if captured {
-		lp.Unrun = "building " + p.Obj.Name + " as " + slot.String() + " calls Go and requires go.Foreign, which only the program entry holds and a law case never does (README Gap 17)"
-		return lp, true
-	}
+	lp := LawProvider{Type: p, Conv: a.conv, Slot: slot, Ptr: ptr, Value: value, Native: captured}
 	if _, built := c.constructorWhy(p); built && p.Obj.ctor != nil {
 		lp.Ctor = p.Obj.ctor
+	} else if ctor := c.nativeConstructor(p, captured); ctor != nil {
+		lp.Ctor = ctor
 	} else if why := c.ungeneratableFrom(p, p.Obj.Pkg); why != "" {
 		lp.Unrun = "its values have no generator: " + why
 		lp.noGenerator = true
 	}
 	return lp, true
+}
+
+// nativeConstructor is the constructor a law case of the test binary
+// calls for p, a provider whose operations call Go (captured, README Gap
+// 17): the function New<P> of p's package that planConstructor would take
+// but for its capability row, which is go.Foreign alone. The case holds
+// go.Foreign (types.md, Laws 10; owner q277); nothing else may treat the
+// function as p's constructor, so tn.ctor stays unset.
+func (c *checker) nativeConstructor(p *Named, captured bool) *Func {
+	tn := p.Obj
+	if !captured || tn == nil || tn.Pkg == nil || p.Orig != nil || len(p.TArgs) > 0 || len(p.TParams) > 0 {
+		return nil
+	}
+	for _, f := range tn.Pkg.Funcs {
+		sig := f.Sig
+		if f.Name != syntax.ConstructorName(tn.Name) || sig == nil || len(sig.TParams) > 0 || len(sig.Results) != 1 || !c.identical(sig.Results[0], p) {
+			continue
+		}
+		if rowHolds(sig.Errors) || !goForeignRow(sig.Uses) {
+			continue
+		}
+		ok := true
+		for _, v := range sig.Params {
+			if isInvalid(v.Type) || c.ungeneratableFrom(v.Type, tn.Pkg) != "" {
+				ok = false
+			}
+		}
+		if ok {
+			return f
+		}
+	}
+	return nil
 }
 
 // lawProviderFixes adds to the skip of each provider with no generator

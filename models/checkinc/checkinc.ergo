@@ -1,0 +1,461 @@
+// The package checkinc is the design model of the incremental check
+// (capstone S3e; C0/plan.md §5, CAP-incr). Which declarations must
+// `ergo check` check again after an edit, so that the result equals a
+// check from scratch, while every other declaration keeps its cached
+// result? `ergo test <this folder>` checks it by a breadth-first search
+// of every state in the scope below, not by random traces.
+//
+// The world is three packages: a; b, which imports a when its import is
+// written; and c, which imports b. Each declaration has a slot here:
+//
+//	0 a.Double  exported. Its tokens are a signature, a row, a law and a
+//	            body. Its body reads a.Helper.
+//	1 a.Helper  unexported. Its signature is its tokens, and its body
+//	            reads a.Double: a cycle of reads inside one package.
+//	2 a.Map     generic, so its body is part of its interface.
+//	3 a.Triple  exported only after the edit NewExport.
+//	4 a.Extra   in the file a/extra.ergo, there only after NewFile.
+//	5 b.UseDouble  reads a.Double. Its error row is inferred from
+//	            Double's row, so its interface changes when Double's row
+//	            changes, though its own tokens do not.
+//	6 b.UseMap     reads a.Map.
+//	7 b.UseTriple  reads a.Triple. Before NewExport the name does not
+//	            resolve (a negative read).
+//	8 b.UseExtra   reads a.Extra.
+//	9 c.Top     reads b.UseDouble: invalidation passes through b, the
+//	            package in the middle.
+//
+// A check of one declaration is a pure function of its own tokens and of
+// the interface entry its read resolves to: that entry's fingerprint,
+// "missing" (-1) or "no import" (-2). The cache holds, per declaration,
+// its fingerprint fp, its result and its read: the entry its check saw,
+// as an interface fingerprint ifp or one of the two marks.
+//
+// The rule, applied after every edit: check a declaration again when it
+// has no cached row, when its fp changed, or when its read now sees
+// another entry. Take every other declaration's row from the cache.
+//
+// The laws of Design, checked at every state after every edit:
+//
+//   - AgreesWithScratch: every declaration's row equals the check from
+//     scratch.
+//   - WorkIsMinimal: the set checked again is exactly the set the rule
+//     names, computed from the true change: a declaration whose own
+//     tokens or read entry changed, or that is new. The count is the
+//     model's counter of declarations checked again, never a time.
+//
+// Mutants, each a machine whose law Breaks must hold:
+//   - OmitsSignature: ifp leaves out Double's signature.
+//   - OmitsGenericBody: ifp cuts Map's generic body.
+//   - ReadsPosition: fp counts a position, so a comment checks again.
+//   - DropsGenericRead: the read of Map is not recorded.
+//   - DropsNegativeRead: a read that did not resolve is not recorded,
+//     so b's user is not checked again when NewExport makes a.Triple
+//     resolve.
+//   - DropsLocalRead: reads inside one package are not recorded.
+//   - CutoffOnTokens: ifp is a print of the tokens only, so b's inferred
+//     row is not in it, and c stays stale when the row changes.
+//
+// Witnesses, each a machine whose law Exists must hold, so that the laws
+// are not vacuous:
+//   - BodyEditReused: a body edit in a.Double keeps b.UseDouble's row.
+//   - NegativeReadRechecks: NewExport checks b.UseTriple again.
+//   - CutoffHolds: an edit checks b.UseDouble again, and c.Top keeps its
+//     row.
+//   - CutoffPasses: an edit checks c.Top again through b.
+//
+// Scope: two values for each token and flag; any number of edits, so
+// every sequence that goes from A to B and back to A is in it. "Proved"
+// means proved in this scope.
+
+type Signal = Comment{} | Body{} | Sig{} | HelperSig{} | Row{} | Law{} | GenericBody{} | NewExport{} | RemoveExport{} | NewFile{} | RemoveFile{} | AddImport{} | RemoveImport{} | UseBody{}
+
+// World is the program's text. Comment moves positions only.
+type World {
+	Sig     int,
+	Row     int,
+	Law     int,
+	Body    int,
+	Helper  int,
+	Generic int,
+	Triple  int,
+	Extra   int,
+	Comment int,
+	Import  int,
+	Use     int,
+}
+
+// Cache is the incremental check's rows, one per declaration slot; -9
+// where there is none (an absent declaration, or a read not recorded).
+type Cache { Fp []int, Res []int, Read []int }
+
+type Live { W World, C Cache }
+
+// Disagrees and OffRule are the two laws broken; the rest are the
+// witnesses' states.
+type State = Running{L Live} | Disagrees{} | OffRule{} | Reused{} | NegativeHit{} | Cutoff{} | Passed{}
+
+let decls = 10
+
+let none = -9
+
+// The mutant numbers.
+let design = 0
+let omitsSignature = 1
+let omitsGenericBody = 2
+let readsPosition = 3
+let dropsGenericRead = 4
+let dropsNegativeRead = 5
+let dropsLocalRead = 6
+let cutoffOnTokens = 7
+
+// The witness numbers.
+let noWitness = 0
+let bodyEditReused = 1
+let negativeReadRechecks = 2
+let cutoffHolds = 3
+let cutoffPasses = 4
+
+func world0() World {
+	return World{Sig: 0, Row: 0, Law: 0, Body: 0, Helper: 0, Generic: 0, Triple: 0, Extra: 0, Comment: 0, Import: 1, Use: 0}
+}
+
+// pkg is a slot's package: 0 a, 1 b, 2 c.
+func pkg(i int) int {
+	if i <= 4 {
+		return 0
+	}
+	if i <= 8 {
+		return 1
+	}
+	return 2
+}
+
+// readOf is the slot that slot i's body reads, -1 for none.
+func readOf(i int) int {
+	if i == 0 {
+		return 1
+	}
+	if i == 1 {
+		return 0
+	}
+	if i == 5 {
+		return 0
+	}
+	if i >= 6 && i <= 8 {
+		return i - 4
+	}
+	if i == 9 {
+		return 5
+	}
+	return -1
+}
+
+func present(w World, i int) bool {
+	if i == 4 {
+		return w.Extra == 1
+	}
+	return true
+}
+
+func exported(w World, i int) bool {
+	if i == 1 {
+		return false
+	}
+	if i == 3 {
+		return w.Triple == 1
+	}
+	return true
+}
+
+// own is the print of slot i's own tokens: no position, no comment.
+func own(w World, i int) int {
+	if i == 0 {
+		return 1 + w.Sig + 2*w.Row + 4*w.Law + 8*w.Body
+	}
+	if i == 1 {
+		return 1 + w.Helper
+	}
+	if i == 2 {
+		return 1 + w.Generic
+	}
+	if i == 3 {
+		return 1 + w.Triple
+	}
+	if i == 5 {
+		return 1 + w.Use
+	}
+	return 1
+}
+
+// fp is slot i's fingerprint as the check computes it.
+func fp(w World, i int, mutant int) int {
+	if mutant == readsPosition && pkg(i) == 0 {
+		return own(w, i) + 100*w.Comment
+	}
+	return own(w, i)
+}
+
+// ifp is slot t's interface fingerprint, true when mutant is design:
+// what an importer, or a reader in its own package, sees of t.
+func ifp(w World, t int, mutant int) int {
+	if t == 0 {
+		let sig = if mutant == omitsSignature { 0 } else { w.Sig }
+		return 100 + sig + 2*w.Row + 4*w.Law
+	}
+	if t == 1 {
+		return 200 + w.Helper
+	}
+	if t == 2 {
+		return 300 + (if mutant == omitsGenericBody { 0 } else { w.Generic })
+	}
+	if t == 5 {
+		// The error row inferred from a.Double's row, when the read
+		// resolves.
+		let e = entry(w, 5, design)
+		let row = if mutant == cutoffOnTokens || e < 0 { 0 } else { 1 + w.Row }
+		return 600 + row
+	}
+	return 100 * (t + 1)
+}
+
+// entry is what slot i's read resolves to: an ifp, -1 when the name is
+// missing, -2 when b does not import a, none when i reads nothing.
+func entry(w World, i int, mutant int) int {
+	let t = readOf(i)
+	if t < 0 {
+		return none
+	}
+	if pkg(i) == 1 && w.Import == 0 {
+		return -2
+	}
+	if !present(w, t) {
+		return -1
+	}
+	if pkg(t) != pkg(i) && !exported(w, t) {
+		return -1
+	}
+	return ifp(w, t, mutant)
+}
+
+// recorded is the read the check of slot i writes into the cache.
+func recorded(w World, i int, mutant int) int {
+	let e = entry(w, i, mutant)
+	if mutant == dropsGenericRead && i == 6 {
+		return none
+	}
+	if mutant == dropsNegativeRead && e == -1 {
+		return none
+	}
+	if mutant == dropsLocalRead && readOf(i) >= 0 && pkg(readOf(i)) == pkg(i) {
+		return none
+	}
+	return e
+}
+
+// result is the check of slot i from scratch: its own tokens and the
+// true entry of its read.
+func result(w World, i int) int {
+	return 10000*own(w, i) + entry(w, i, design) + 10
+}
+
+// full is the cache of a check from scratch.
+func full(w World, mutant int) Cache {
+	let mut f = []int{}
+	let mut r = []int{}
+	let mut d = []int{}
+	for i in 0..decls {
+		if present(w, i) {
+			f = f.Append(fp(w, i, mutant))
+			r = r.Append(result(w, i))
+			d = d.Append(recorded(w, i, mutant))
+		} else {
+			f = f.Append(none)
+			r = r.Append(none)
+			d = d.Append(none)
+		}
+	}
+	return Cache{Fp: f, Res: r, Read: d}
+}
+
+func initial(mutant int) State {
+	let w = world0()
+	return Running{L: Live{W: w, C: full(w, mutant)}}
+}
+
+// edited is w after the edit, or none when the edit does not apply.
+func edited(w World, event Signal) Option[World] {
+	let mut n = w
+	match event {
+	case Comment:
+		n.Comment = 1 - w.Comment
+	case Body:
+		n.Body = 1 - w.Body
+	case Sig:
+		n.Sig = 1 - w.Sig
+	case HelperSig:
+		n.Helper = 1 - w.Helper
+	case Row:
+		n.Row = 1 - w.Row
+	case Law:
+		n.Law = 1 - w.Law
+	case GenericBody:
+		n.Generic = 1 - w.Generic
+	case NewExport:
+		if w.Triple == 1 {
+			return None
+		}
+		n.Triple = 1
+	case RemoveExport:
+		if w.Triple == 0 {
+			return None
+		}
+		n.Triple = 0
+	case NewFile:
+		if w.Extra == 1 {
+			return None
+		}
+		n.Extra = 1
+	case RemoveFile:
+		if w.Extra == 0 {
+			return None
+		}
+		n.Extra = 0
+	case AddImport:
+		if w.Import == 1 {
+			return None
+		}
+		n.Import = 1
+	case RemoveImport:
+		if w.Import == 0 {
+			return None
+		}
+		n.Import = 0
+	case UseBody:
+		n.Use = 1 - w.Use
+	}
+	return Some{Value: n}
+}
+
+// Work is one incremental check: the new cache and, per slot, whether it
+// was checked again.
+type Work { C Cache, Again []bool }
+
+// incremental applies the rule to the cache of the last check.
+func incremental(c Cache, w World, mutant int) Work {
+	let mut f = []int{}
+	let mut r = []int{}
+	let mut d = []int{}
+	let mut again = []bool{}
+	for i in 0..decls {
+		if !present(w, i) {
+			f = f.Append(none)
+			r = r.Append(none)
+			d = d.Append(none)
+			again = again.Append(false)
+			continue
+		}
+		let stale = c.Fp[i] == none || c.Fp[i] != fp(w, i, mutant) || (c.Read[i] != none && c.Read[i] != entry(w, i, mutant))
+		if stale {
+			f = f.Append(fp(w, i, mutant))
+			r = r.Append(result(w, i))
+			d = d.Append(recorded(w, i, mutant))
+		} else {
+			f = f.Append(c.Fp[i])
+			r = r.Append(c.Res[i])
+			d = d.Append(c.Read[i])
+		}
+		again = again.Append(stale)
+	}
+	return Work{C: Cache{Fp: f, Res: r, Read: d}, Again: again}
+}
+
+// named is the set the rule names, from the true change between the
+// worlds of two checks: a declaration that is new, or whose own tokens or
+// read entry changed.
+func named(old World, w World, i int) bool {
+	if !present(w, i) {
+		return false
+	}
+	if !present(old, i) {
+		return true
+	}
+	return own(old, i) != own(w, i) || entry(old, i, design) != entry(w, i, design)
+}
+
+// step is one edit and the incremental check after it.
+func step(s State, event Signal, mutant int, witness int) Decision[State, string] {
+	match s {
+	case Running as run:
+		let old = run.L.W
+		let mut w = old
+		match edited(old, event) {
+		case Some{Value: n}:
+			w = n
+		case None:
+			return Ignore
+		}
+		let done = incremental(run.L.C, w, mutant)
+		for i in 0..decls {
+			if present(w, i) && done.C.Res[i] != result(w, i) {
+				return Enter{Disagrees}
+			}
+			if done.Again[i] != named(old, w, i) {
+				return Enter{OffRule}
+			}
+		}
+		match event {
+		case Body:
+			if witness == bodyEditReused && !done.Again[5] {
+				return Enter{Reused}
+			}
+		case NewExport:
+			if witness == negativeReadRechecks && done.Again[7] {
+				return Enter{NegativeHit}
+			}
+		case _:
+		}
+		if witness == cutoffHolds && done.Again[5] && !done.Again[9] {
+			return Enter{Cutoff}
+		}
+		if witness == cutoffPasses && done.Again[9] {
+			return Enter{Passed}
+		}
+		return Enter{Running{L: Live{W: w, C: done.C}}}
+	case _:
+		return Ignore
+	}
+}
+
+func designStep(s State, sig Signal) Decision[State, string]    { return step(s, sig, design, noWitness) }
+func omitsSig(s State, sig Signal) Decision[State, string]      { return step(s, sig, omitsSignature, noWitness) }
+func omitsGeneric(s State, sig Signal) Decision[State, string]  { return step(s, sig, omitsGenericBody, noWitness) }
+func position(s State, sig Signal) Decision[State, string]      { return step(s, sig, readsPosition, noWitness) }
+func dropsGeneric(s State, sig Signal) Decision[State, string]  { return step(s, sig, dropsGenericRead, noWitness) }
+func dropsNegative(s State, sig Signal) Decision[State, string] { return step(s, sig, dropsNegativeRead, noWitness) }
+func dropsLocal(s State, sig Signal) Decision[State, string]    { return step(s, sig, dropsLocalRead, noWitness) }
+func tokensOnly(s State, sig Signal) Decision[State, string]    { return step(s, sig, cutoffOnTokens, noWitness) }
+func reused(s State, sig Signal) Decision[State, string]        { return step(s, sig, design, bodyEditReused) }
+func negativeHit(s State, sig Signal) Decision[State, string]   { return step(s, sig, design, negativeReadRechecks) }
+func cutoff(s State, sig Signal) Decision[State, string]        { return step(s, sig, design, cutoffHolds) }
+func passes(s State, sig Signal) Decision[State, string]        { return step(s, sig, design, cutoffPasses) }
+
+type Design machine[State, Signal] {
+	initial: initial(design),
+	step:    designStep,
+
+	law AgreesWithScratch never reaches Disagrees,
+	law WorkIsMinimal never reaches OffRule,
+}
+
+type OmitsSignature machine[State, Signal] { initial: initial(omitsSignature), step: omitsSig, law Breaks reaches Disagrees }
+type OmitsGenericBody machine[State, Signal] { initial: initial(omitsGenericBody), step: omitsGeneric, law Breaks reaches Disagrees }
+type ReadsPosition machine[State, Signal] { initial: initial(readsPosition), step: position, law Breaks reaches OffRule }
+type DropsGenericRead machine[State, Signal] { initial: initial(dropsGenericRead), step: dropsGeneric, law Breaks reaches Disagrees }
+type DropsNegativeRead machine[State, Signal] { initial: initial(dropsNegativeRead), step: dropsNegative, law Breaks reaches Disagrees }
+type DropsLocalRead machine[State, Signal] { initial: initial(dropsLocalRead), step: dropsLocal, law Breaks reaches Disagrees }
+type CutoffOnTokens machine[State, Signal] { initial: initial(cutoffOnTokens), step: tokensOnly, law Breaks reaches Disagrees }
+type BodyEditReused machine[State, Signal] { initial: initial(design), step: reused, law Exists reaches Reused }
+type NegativeReadRechecks machine[State, Signal] { initial: initial(design), step: negativeHit, law Exists reaches NegativeHit }
+type CutoffHolds machine[State, Signal] { initial: initial(design), step: cutoff, law Exists reaches Cutoff }
+type CutoffPasses machine[State, Signal] { initial: initial(design), step: passes, law Exists reaches Passed }
