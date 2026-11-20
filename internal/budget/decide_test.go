@@ -137,3 +137,17 @@ func TestReservationIsTheLargestPeak(t *testing.T) {
 		t.Errorf("a run that failed, unkilled, at a peak of 3 leaves %d, want none", got)
 	}
 }
+
+// TestPeakIsReadAtAdmission: the hand-on charges a waiter from its
+// command's peak as recorded at its admission: a waiter charged 50 and
+// capped at its join (a peak of 40) whose key was deleted while it waited
+// (the 2026-11-20 clean-up of poisoned peaks) is admitted at the default
+// charge, uncapped. Mutant: budget-charge-at-join.
+func TestPeakIsReadAtAdmission(t *testing.T) {
+	r := Rules{Cores: 1, Memory: 100, Peak: func(string) int64 { return 0 }, Default: 8}
+	s := State{Holders: []Entry{{ID: "a", Width: 1, Memory: 8}}, Waiters: []Entry{{ID: "b", Width: 1, Memory: 50, Capped: true, Key: "k"}}, NextTicket: 1}
+	s.Remove(r, "a")
+	if len(s.Holders) != 1 || s.Holders[0].Memory != 8 || s.Holders[0].Capped {
+		t.Fatalf("b admitted after its key was deleted: %+v; want charged 8, not capped", s.Holders)
+	}
+}

@@ -27,6 +27,12 @@ type Entry struct {
 	Crit   bool   `json:"crit"`
 	Ticket int64  `json:"ticket"`
 	Lane   string `json:"lane,omitempty"`
+	// Key is the entry's command (Request.Key) and Asked its --memory:
+	// what Reserve reads, at each decision, to charge a waiter. Capped
+	// says the holder runs capped at Memory (Reservation).
+	Key    string `json:"key,omitempty"`
+	Asked  int64  `json:"asked,omitempty"`
+	Capped bool   `json:"capped,omitempty"`
 }
 
 // State is the budget's state: who holds cores, who waits and in what
@@ -43,6 +49,16 @@ type Rules struct {
 	Cores  int
 	Memory int64
 	Share  int
+	// Peak answers the peak recorded for a command now, and Default the
+	// charge of a command never measured. With Peak set, the hand-on
+	// charges the next waiter from them before it checks the fit, so a
+	// waiter is admitted on its command's peak at its admission, not at
+	// its join: a peak recorded, or deleted, while it waits counts
+	// (mem.ergo: resOf at the hand-on; 2026-11-20, a key deleted while its
+	// rerun waited still capped the rerun). Without it an entry keeps the
+	// Memory it was given.
+	Peak    func(key string) int64
+	Default int64
 }
 
 // Used is the cores held.
@@ -133,6 +149,10 @@ func (s *State) Admit(r Rules) []string {
 	var moved []string
 	for {
 		i := s.Next(r)
+		if i != -1 && r.Peak != nil && r.Memory > 0 {
+			w := &s.Waiters[i]
+			w.Memory, w.Capped = Reservation(r, w.Asked, r.Peak(w.Key), r.Default)
+		}
 		if i == -1 || !s.Fits(r, s.Waiters[i]) {
 			return moved
 		}

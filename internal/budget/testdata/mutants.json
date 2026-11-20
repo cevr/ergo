@@ -128,6 +128,15 @@
       "killers": ["internal/budget:TestReservationIsTheLargestPeak"]
     },
     {
+      "name": "budget-charge-at-join",
+      "origin": "wf10 WS4c (2026-11-20: a key deleted while its rerun waited still capped the rerun)",
+      "file": "internal/budget/decide.go",
+      "from": "\t\tif i != -1 && r.Peak != nil && r.Memory > 0 {\n",
+      "to": "\t\tif i != -1 && r.Peak != nil && r.Memory > 0 && s.Waiters[i].Memory == 0 {\n",
+      "rule": "A waiter is charged from its command's peak at its admission, not once at its join.",
+      "killers": ["internal/budget:TestPeakIsReadAtAdmission"]
+    },
+    {
       "name": "budget-cap-unknown",
       "origin": "wf10 WS4c (model CapUnknown; c012b9af5's rule)",
       "file": "internal/budget/decide.go",

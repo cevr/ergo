@@ -144,11 +144,6 @@ func (b *Budget) Take(ctx context.Context, req Request) (*Grant, error) {
 	if g := b.lent(req); g != nil {
 		return g, nil
 	}
-	var res int64
-	capped := false
-	if cfg.Memory > 0 {
-		res, capped = Reservation(cfg.rules(), req.Memory, b.peak(req.Key), cfg.DefaultMemory)
-	}
 	id := fmt.Sprintf("%d-%d-%d", os.Getpid(), time.Now().UnixNano(), seq.Add(1))
 	f, err := os.OpenFile(b.entry(id), os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o644)
 	if err != nil {
@@ -158,8 +153,8 @@ func (b *Budget) Take(ctx context.Context, req Request) (*Grant, error) {
 		f.Close()
 		return nil, err
 	}
-	g := &Grant{b: b, id: id, width: req.Width, memory: res, capped: capped, slice: cfg.Memory, key: req.Key, lane: req.Lane, crit: req.Crit, file: f}
-	e := Entry{ID: id, Pid: os.Getpid(), Width: req.Width, Memory: res, Crit: req.Crit, Lane: req.Lane}
+	g := &Grant{b: b, id: id, width: req.Width, slice: cfg.Memory, key: req.Key, lane: req.Lane, crit: req.Crit, file: f}
+	e := Entry{ID: id, Pid: os.Getpid(), Width: req.Width, Crit: req.Crit, Lane: req.Lane, Key: req.Key, Asked: req.Memory}
 	b.logf("queue %s %d", req.Lane, os.Getpid())
 	woke := make(chan struct{}, 1)
 	defer watchConfig(cfg.Path, woke)()
@@ -170,7 +165,7 @@ func (b *Budget) Take(ctx context.Context, req Request) (*Grant, error) {
 	}
 	var mu sync.Mutex
 	armed := map[string]bool{}
-	for !held {
+	for held == nil {
 		mu.Lock()
 		for _, o := range others {
 			if !armed[o] {
@@ -191,7 +186,10 @@ func (b *Budget) Take(ctx context.Context, req Request) (*Grant, error) {
 			return nil, err
 		}
 	}
-	b.logf("take %s %s %d %d", req.Lane, class(req.Crit, req.Width), os.Getpid(), res)
+	// The charge and the cap are those the waiter was admitted with
+	// (Reserve), read from the peaks at its admission.
+	g.memory, g.capped = held.Memory, held.Capped
+	b.logf("take %s %s %d %d", req.Lane, class(req.Crit, req.Width), os.Getpid(), g.memory)
 	return g, nil
 }
 
@@ -229,27 +227,34 @@ func (g *Grant) drop() {
 
 // decide runs change under the state lock, after pruning the dead entries
 // and before the hand-on, with the budget's file read again, and saves the
-// state. It reports whether id holds cores after it, and the other
-// entries, for a waiter to sleep on.
-func (b *Budget) decide(id string, change func(*State, Rules)) (bool, []string, error) {
+// state. The waiters are charged from the peaks recorded now (Reserve). It
+// answers id's entry when id holds cores after it (nil while it waits),
+// and the other entries, for a waiter to sleep on.
+func (b *Budget) decide(id string, change func(*State, Rules)) (*Entry, []string, error) {
 	lock, err := os.OpenFile(filepath.Join(b.state, "state.lock"), os.O_RDWR|os.O_CREATE, 0o644)
 	if err != nil {
-		return false, nil, err
+		return nil, nil, err
 	}
 	defer lock.Close()
 	if err := flock(lock, syscall.LOCK_EX); err != nil {
-		return false, nil, err
+		return nil, nil, err
 	}
 	path := filepath.Join(b.state, "state.json")
 	var s State
 	if data, err := os.ReadFile(path); err == nil {
 		if err := json.Unmarshal(data, &s); err != nil {
-			return false, nil, fmt.Errorf("budget: %s: %w", path, err)
+			return nil, nil, fmt.Errorf("budget: %s: %w", path, err)
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
-		return false, nil, err
+		return nil, nil, err
 	}
-	r := b.config().rules()
+	cfg := b.config()
+	r := cfg.rules()
+	if cfg.Memory > 0 {
+		peaks := b.peaks()
+		r.Peak = func(key string) int64 { return peaks[key] }
+		r.Default = cfg.DefaultMemory
+	}
 	for _, e := range append(append([]Entry(nil), s.Holders...), s.Waiters...) {
 		if e.ID != id && !b.alive(e.ID) {
 			s.Remove(r, e.ID)
@@ -258,7 +263,7 @@ func (b *Budget) decide(id string, change func(*State, Rules)) (bool, []string, 
 	change(&s, r)
 	s.Admit(r)
 	if err := writeJSON(path, &s); err != nil {
-		return false, nil, err
+		return nil, nil, err
 	}
 	var others []string
 	for _, e := range append(append([]Entry(nil), s.Holders...), s.Waiters...) {
@@ -266,7 +271,12 @@ func (b *Budget) decide(id string, change func(*State, Rules)) (bool, []string, 
 			others = append(others, e.ID)
 		}
 	}
-	return s.Holds(id), others, nil
+	for i := range s.Holders {
+		if s.Holders[i].ID == id {
+			return &s.Holders[i], others, nil
+		}
+	}
+	return nil, others, nil
 }
 
 func writeJSON(path string, v any) error {
@@ -286,15 +296,20 @@ func (b *Budget) peak(key string) int64 {
 	if key == "" {
 		return 0
 	}
+	return b.peaks()[key]
+}
+
+// peaks is every command's largest peak kept; empty when none can be read.
+func (b *Budget) peaks() map[string]int64 {
 	data, err := os.ReadFile(filepath.Join(b.state, "peaks.json"))
 	if err != nil {
-		return 0
+		return nil
 	}
 	var peaks map[string]int64
 	if json.Unmarshal(data, &peaks) != nil {
-		return 0
+		return nil
 	}
-	return peaks[key]
+	return peaks
 }
 
 // record keeps peak for key when it is the largest seen.
