@@ -3165,10 +3165,10 @@ index 0000000..f32141c
 +}
 diff --git a/src/cmd/compile/internal/ergoir/ergoir_union.go b/src/cmd/compile/internal/ergoir/ergoir_union.go
 new file mode 100644
-index 0000000..a06fafe
+index 0000000..c486108
 --- /dev/null
 +++ b/src/cmd/compile/internal/ergoir/ergoir_union.go
-@@ -0,0 +1,140 @@
+@@ -0,0 +1,144 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -3287,14 +3287,18 @@ index 0000000..a06fafe
 +	pos := c.pos(x.Pos)
 +	switch x.K {
 +	case "toiface":
-+		// T(x): a variant x to the sealed interface T it implements.
++		// T(x): a variant x to the sealed interface T it implements, or
++		// an interface value x to an interface T its method set
++		// implements (an Ergo operation type lent as the prelude's
++		// Reader or Writer, IFACE-CONV): Go's conversion, which the
++		// compiler lowers to an itab lookup.
 +		t := c.typ(x.Pos, x.T)
 +		v, vt := c.expr(x.X)
 +		if t == nil || v == nil {
 +			return nil, nil, true
 +		}
 +		iface, isIface := t.Underlying().(*types2.Interface)
-+		if !isIface || vt == nil || types2.IsInterface(vt) || !types2.Implements(vt, iface) {
++		if !isIface || vt == nil || !types2.Implements(vt, iface) {
 +			c.errorf(x.Pos, "ergoir: conversion of %v to %v", vt, t)
 +			return nil, nil, true
 +		}
