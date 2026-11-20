@@ -176,7 +176,7 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 				irNo("len of a non-slice")
 			}
 		}
-		return nil, &irExpr{K: "len", Pos: p, X: b.expr(x.Args[0])}, false
+		return nil, b.foldConst(x, &irExpr{K: "len", Pos: p, X: b.expr(x.Args[0])}), false // ir_opfold.go: a constant's len
 	case check.CallFunc:
 		f := c.Func
 		switch {
