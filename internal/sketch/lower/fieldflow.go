@@ -107,7 +107,7 @@ func (l *lowerer) touchedOf(h *check.Func, i int) (map[string]bool, bool) {
 		if o.frame != w.root {
 			return nil, false
 		}
-		if f := w.firstField(o.id); f != "" {
+		if f := w.pathField(o.id); f != "" {
 			fields[f] = true
 			continue
 		}
@@ -118,9 +118,11 @@ func (l *lowerer) touchedOf(h *check.Func, i int) (map[string]bool, bool) {
 	return fields, true
 }
 
-// firstField is the field a use id of a record variable selects first
-// (id.f…), or "" when the use takes the variable whole.
-func (w *valueWalk) firstField(id *syntax.Ident) string {
+// pathField is the field a use id of a record variable selects first
+// (id.f…) as a field path, or "" when the use takes the variable whole.
+// storefield.go's firstField also reads through a dereference and does
+// not ask for a field path.
+func (w *valueWalk) pathField(id *syntax.Ident) string {
 	x := syntax.Expr(id)
 	for {
 		p, ok := w.parentOf(x).(*syntax.ParenExpr)
@@ -272,7 +274,7 @@ func (w *valueWalk) apartRead(vv *vvar, o *vocc) bool {
 	if o.kind != occEscape || !valueOwned() || !vv.mut || vv.ptr || o.frame != vv.frame || !w.readOnlyLet(o) {
 		return false
 	}
-	f := w.firstField(o.id)
+	f := w.pathField(o.id)
 	if f == "" {
 		return false
 	}
@@ -283,7 +285,7 @@ func (w *valueWalk) apartRead(vv *vvar, o *vocc) bool {
 		if u.frame != vv.frame {
 			return false
 		}
-		switch g := w.firstField(u.id); {
+		switch g := w.pathField(u.id); {
 		case g == f:
 			if !w.writesNothing(u) {
 				return false
@@ -317,7 +319,7 @@ func (w *valueWalk) lateTake(vv *vvar, o *vocc, alias *vvar) bool {
 		return false
 	}
 	sel, ok := unparen(o.path).(*syntax.SelectorExpr)
-	if !ok || unparen(sel.X) != syntax.Expr(o.id) || w.firstField(o.id) == "" {
+	if !ok || unparen(sel.X) != syntax.Expr(o.id) || w.pathField(o.id) == "" {
 		return false
 	}
 	f := sel.Sel.Name
@@ -366,12 +368,12 @@ func (w *valueWalk) lateTake(vv *vvar, o *vocc, alias *vvar) bool {
 			if u.pre > to && root == vv {
 				// The update itself: its base, its left side and the
 				// other fields it sets.
-				if g := w.firstField(u.id); g == f || g == "" && !w.isBaseOrLHS(over, lit, u.id) {
+				if g := w.pathField(u.id); g == f || g == "" && !w.isBaseOrLHS(over, lit, u.id) {
 					return false
 				}
 				continue
 			}
-			switch g := w.firstField(u.id); {
+			switch g := w.pathField(u.id); {
 			case g == f:
 				return false
 			case g != "":
