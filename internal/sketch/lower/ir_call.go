@@ -373,6 +373,12 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		pre = append(pre, argPre...)
 		env := &irExpr{K: "local", Pos: p, I: b.env}
 		args := append([]*irExpr{{K: "field", Pos: p, Name: envTask, X: env}}, irArgs...)
+		if c.Kind == check.CallLawOp && b.lawOwn > 0 {
+			// A law of a generic operation type calls the provider it
+			// takes, as a call on a value of the type does (calls.go).
+			own := &irExpr{K: "local", Pos: p, I: b.lawOwn}
+			return pre, b.opResult(c, &irExpr{K: "mcall", Pos: p, Name: memberName(c.Op.Name), X: own, Args: args}), true
+		}
 		capField := b.knownOp(x, named, &irExpr{K: "field", Pos: p, Name: b.l.envField(named), X: env}) // ir_forms_op.go
 		return pre, b.opResult(c, &irExpr{K: "mcall", Pos: p, Name: memberName(c.Op.Name), X: capField, Args: args}), true
 	case check.CallGoError:
