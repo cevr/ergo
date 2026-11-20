@@ -31,11 +31,9 @@ lower/decls.go:optionVariants	2	by name	SHAPE-BOUNDARY	a std body's or a Go func
 lower/flatunion.go:flatUnion.flatNarrow	1	by name	SHAPE-BOUNDARY	the pointer form's payload variant built with Some's field Value: the payload field's declared name
 lower/flatunion.go:flatUnion.flatValue	1	by name	SHAPE-BOUNDARY	the pointer form reads Some's field Value: the payload field's declared name
 lower/flatunion.go:funcCtx.optionSome	1	by name	SHAPE-BOUNDARY	Some built with its field Value (optionReturn's some): the payload field's declared name
-lower/flatunion.go:lowerer.flatUnionSet	1	by name	OPTION-SHAPE	Option's own flat form (optionShape, optionCycle): the general rule gives the same bytes
-lower/flatunion.go:lowerer.layoutOf	1	by name	OPTION-SHAPE	Option's own layout beside the general one
-lower/flatunion.go:lowerer.lowerAgain	1	by name	OPTION-SHAPE	counts Option bails apart from union bails (a statistic)
+lower/flatunion.go:lowerer.flatUnionSet	1	by name	SHAPE-BOUNDARY	the pointer niche (nicheAdmitted) is tried on Option alone: any union of the two-variant shape
 lower/flatunion.go:lowerer.nicheElem	1	by name	SHAPE-BOUNDARY	Option[go.Ref[S]] is the Go pointer *S: any union of the two-variant shape
-lower/genericunion.go:lowerer.genericUnions	1	by name	OPTION-SHAPE	every generic union but Option goes through the general rule
+lower/genericunion.go:lowerer.genericUnions	1	by name	SHAPE-BOUNDARY	the one exemption: Option stays flat where a Go extern names it (an adapter's Option); any union of the shape after SHAPE-BOUNDARY
 lower/getmatch.go:funcCtx.getArmsLower	2	by name	KNOWN-VARIANT	match m.Get(k) builds no Option, and writes Some's field Value: the known-variant jump gives it
 lower/getmatch.go:getPattern	4	by name	KNOWN-VARIANT	the arms of a comma-ok Get match: Some, None, Option and Some's field Value (was std-names.txt's abi row)
 lower/getmatch.go:preludeGet	1	by name	KNOWN-VARIANT	the Get whose result is Option (CollGet and Option)

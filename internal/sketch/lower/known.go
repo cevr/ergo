@@ -101,9 +101,9 @@ type knownStats struct {
 	// FlatOptions is the Option values the lowering puts into the flat
 	// Option by their tag (flatunion.go, flatValue).
 	FlatOptions int
-	// OptionBails is the times a lowering of the program bailed on the
-	// flat Option, so that it lowered the program again with Option an
-	// interface (lowerAgain).
+	// OptionBails is the times a lowering of the program bailed on a flat
+	// generic union, Option's or the pointer niche among them, so that it
+	// lowered the program again with that union an interface (lowerAgain).
 	OptionBails int
 	// FlatUnions is the values of the program's own unions the lowering
 	// puts into their flat union by their tag (flatunion.go, flatValue).

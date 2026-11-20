@@ -471,7 +471,9 @@ func optionSizes(t *testing.T, prog *lowered, head string) map[string][2]int64 {
 		}
 		var args []string
 		for i := range n.TypeArgs().Len() {
-			args = append(args, n.TypeArgs().At(i).String())
+			// Unqualified, and in the Option form's names, so the two
+			// forms' instances are keyed alike.
+			args = append(args, asOption(types.TypeString(n.TypeArgs().At(i), func(*types.Package) string { return "" })))
 		}
 		out[strings.Join(args, ",")] = [2]int64{sizes.Sizeof(n), sizes.Alignof(n)}
 	}

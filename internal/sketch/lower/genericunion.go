@@ -25,13 +25,18 @@ import (
 //
 // The rule (genericShape, genericCycles) is the flat rule's steps 1 and 2
 // for the declaration, with no size bound: Go spells one type for every
-// instance, as for Option, so an instance of a large type argument pays a
-// copy where the interface paid a box. The union stays an interface when
-// a variant is an error type (rows read failures by Go type), when two
-// variants are instances of one generic record (`V[T] | V[int]`: one Go
-// type at T = int), when a Go extern's signature names it, and when a
-// record of the program holds itself by value through it (genericCycles,
-// as optionCycle for Option). Each instance's helpers are the generic
+// instance, so an instance of a large type argument pays a copy where the
+// interface paid a box. The prelude's Option is one such union, with no
+// layout of its own (ADT-NOPRIV OPTION-SHAPE): its Some's one field is
+// its shared slot, `struct{tag uint8; p0 T}`, the bytes of its old
+// `struct{tag uint8; v0 Some[T]}`. The union stays an interface when
+// every variant is an error type (it may name a row, and rows read
+// failures by Go type: G6, as flatShape's MSB3 rule; the reference
+// msb3Lowering "off" keeps one with any error variant an interface), when
+// two variants are instances of one generic record (`V[T] | V[int]`: one
+// Go type at T = int), when a Go extern's signature names it (Option
+// aside, genericUnions), and when a record of the program holds itself by
+// value through it (genericCycle). Each instance's helpers are the generic
 // declaration's; flatUnionOf gives each instance its copy (instance).
 //
 // The reference is genericUnionLowering "interface", set by a test or by a
@@ -59,10 +64,17 @@ func (l *lowerer) genericShape(n *check.Named) *flatUnion {
 	}
 	fu := &flatUnion{tn: n.Obj, generic: true, canShare: unionLowering != "slots"}
 	origins := map[*check.TypeName]bool{}
+	errs := 0 // the variants that are error types
 	for _, v := range u.Variants {
 		vn, ok := v.(*check.Named)
-		if !ok || l.errorType(vn) {
+		if !ok {
 			return nil
+		}
+		if l.errorType(vn) {
+			if msb3Lowering == "off" {
+				return nil
+			}
+			errs++
 		}
 		o := vn.Obj
 		if vn.Orig != nil {
@@ -79,6 +91,14 @@ func (l *lowerer) genericShape(n *check.Named) *flatUnion {
 		fu.variants = append(fu.variants, vn)
 		fu.slot = append(fu.slot, len(st.Fields) > 0)
 	}
+	// G6, as flatShape's rule for a union that is not generic (MSB3): a
+	// union whose every variant is an error type may name a row, which
+	// catch and ConvRow test by Go type, so it stays an interface; one of
+	// which only some variants are error types names no row, and its error
+	// variants are records in its slots like any other.
+	if errs == len(fu.variants) {
+		return nil
+	}
 	if fu.canShare {
 		fu.shareSlots()
 		fu.shared = true
@@ -87,10 +107,19 @@ func (l *lowerer) genericShape(n *check.Named) *flatUnion {
 }
 
 // genericUnions adds to the flat set the generic unions of the program's
-// packages and of the prelude that the rule admits (Option aside, which
-// optionShape gives), skipping the unions skip names, and drops those a
-// record holds itself through.
-func (l *lowerer) genericUnions(skip func(*check.TypeName) bool) {
+// packages and of the prelude that the rule admits, the prelude's Option
+// among them (ADT-NOPRIV OPTION-SHAPE: Option has no layout of its own),
+// skipping the unions skip names and those a Go extern's signature names
+// (extern), and drops those a record holds itself through.
+//
+// The one site of the rule that names Option is here, until SHAPE-BOUNDARY
+// (prelude-unions.txt, its row): an extern that names an Option is an
+// adapter whose Option the lowering builds from Go's (v, ok), a nil or an
+// error (gocall.go: someWhen, goResult), so Option keeps its flat form
+// where an extern names it, as no other union of its shape does yet. And
+// under the reference optionLowering "own" Option takes its own form of
+// before, a slot per variant (optionShape).
+func (l *lowerer) genericUnions(skip func(*check.TypeName) bool, extern map[*check.TypeName]bool) {
 	pkgs := l.unionPkgs()
 	opt := check.PreludeType("Option")
 	if opt != nil {
@@ -105,7 +134,13 @@ func (l *lowerer) genericUnions(skip func(*check.TypeName) bool) {
 		seen[p] = true
 		for _, tn := range l.canon.types(p) {
 			n, ok := tn.Type.(*check.Named)
-			if !ok || opt != nil && tn == opt.Obj || skip(tn) {
+			option := opt != nil && tn == opt.Obj
+			if !ok || skip(tn) || extern[tn] && !option {
+				continue
+			}
+			if option && optionLowering == "own" {
+				l.flatSet[tn] = optionShape(n)
+				gens = append(gens, tn)
 				continue
 			}
 			if fu := l.genericShape(n); fu != nil {
@@ -126,8 +161,7 @@ func (l *lowerer) genericUnions(skip func(*check.TypeName) bool) {
 }
 
 // genericCycle reports whether a record of the program holds itself by
-// value through the generic union g (optionCycle's walk with g for
-// Option): the interface breaks the cycle with its box, the struct would
+// value through the generic union g: the interface breaks the cycle with its box, the struct would
 // be an invalid recursive Go type. The walk goes through the other generic
 // unions of the flat set as through records, so a cycle through two of
 // them drops one, and the next round sees it boxed.
@@ -149,8 +183,8 @@ func (l *lowerer) genericCycle(g *check.TypeName) bool {
 	return false
 }
 
-// genericLoop is optionLoop for the generic union g: t's Go value holds
-// itself, a record or defined type on the path met again inside a g
+// genericLoop reports whether, with the generic union g flat, t's Go
+// value holds itself: a record or defined type on the path met again inside a g
 // entered since. A variant of a generic flat union is no loop's record
 // (Some[T] in Option[Option[T]]).
 func (l *lowerer) genericLoop(t check.Type, g *check.TypeName, path map[*check.TypeName]int, opts, depth int) bool {
