@@ -1,8 +1,8 @@
 type Bang {}
 func mark() fails Bang { return Bang }
 type Runner {}
-func Each(_ *Runner, f func() fails Bang) fails Bang { return f() }
-func a(r *Runner) {
+func Each(_ mut Runner, f func() fails Bang) fails Bang { return f() }
+func a(r mut Runner) {
  try r.Each(func() { try a(r) })
  try mark()
 }

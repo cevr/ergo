@@ -17,7 +17,7 @@ func NewCounted[T comparable]() Counted[T] {
 // Add is the id of v: its id when v is in the set, else a free id, or a
 // new one, with no holder yet. A value added and never used stays in the
 // set until a Use and a Release of its id.
-func Add[T comparable](c *Counted[T], v T) ID[T] {
+func Add[T comparable](c mut Counted[T], v T) ID[T] {
 	match c.ids.Get(v) {
 	case Some[ID[T]] as id:
 		return id.Value
@@ -38,21 +38,21 @@ func Add[T comparable](c *Counted[T], v T) ID[T] {
 }
 
 // Use counts one more holder of id. An id past the end is a defect.
-func Use[T comparable](c *Counted[T], id ID[T]) { UseN(c, id, 1) }
+func Use[T comparable](c mut Counted[T], id ID[T]) { UseN(c, id, 1) }
 
 // UseN counts n more holders of id at once: a run of cells taking one
 // value is one UseN, not n Uses. An id past the end is a defect.
-func UseN[T comparable](c *Counted[T], id ID[T], n int) {
+func UseN[T comparable](c mut Counted[T], id ID[T], n int) {
 	c.counts[int(id.n)] = c.counts[int(id.n)] + uint32(n)
 }
 
 // Release counts one holder of id less; at 0 the value leaves the set and
 // id is free. A Release of an id with no holder is a defect.
-func Release[T comparable](c *Counted[T], id ID[T]) { ReleaseN(c, id, 1) }
+func Release[T comparable](c mut Counted[T], id ID[T]) { ReleaseN(c, id, 1) }
 
 // ReleaseN counts n holders of id less at once, as n Releases do. A
 // ReleaseN of more holders than id has is a defect.
-func ReleaseN[T comparable](c *Counted[T], id ID[T], n int) {
+func ReleaseN[T comparable](c mut Counted[T], id ID[T], n int) {
 	let i = int(id.n)
 	if int(c.counts[i]) < n {
 		Unreachable("dense: Release of an id that no holder holds")

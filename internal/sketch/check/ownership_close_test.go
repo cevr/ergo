@@ -72,15 +72,15 @@ func main() {}
 
 // TestGenericDropRefused is the text and position row of the refusal
 // that stands in for Gap 42 (#197 L8 B2): a generic body that drops a
-// value of its type parameter cannot release it, so the drop is a copy
-// site and an instance with a resource is S108; with plain data it is
-// admitted.
+// value of its own type parameter cannot release it, so the drop is S108
+// in the body (Generics 9); the calls, with plain data and with a
+// resource, are admitted by the mark.
 //
-// Mutant it catches that nothing else does: a dropped T recorded as no
-// copy site (the resource leaks silently).
+// Mutant it catches that nothing else does: a dropped own T admitted (the
+// resource leaks silently).
 func TestGenericDropRefused(t *testing.T) {
 	base := strings.Count(ofPrelude, "\n")
-	src := ofPrelude + `func drop[T](x own T) {}
+	src := ofPrelude + `func drop[T own](x own T) {}
 
 func main() {
 	drop(1)
@@ -88,9 +88,9 @@ func main() {
 }
 `
 	_, diags := checkFor(src)
-	want := "drop cannot take a Res: drop copies its T at " + strconv.Itoa(base+1) + ":14 (x is dropped at the end of its scope, and a generic body does not release a value of its type parameter yet (#197 Gap 42))"
-	if len(diags) != 1 || diags[0].Code != CodeType || diags[0].Line != base+5 || diags[0].Column != 2 || !strings.Contains(diags[0].Message, want) {
-		t.Errorf("got %+v, want one S108 at %d:2 containing %q", diags, base+5, want)
+	want := "x is dropped at the end of its scope, and a generic body does not release a value of its type parameter yet (#197 Gap 42), and T is marked own"
+	if len(diags) != 1 || diags[0].Code != CodeType || diags[0].Line != base+1 || diags[0].Column != 18 || !strings.Contains(diags[0].Message, want) {
+		t.Errorf("got %+v, want one S108 at %d:18 containing %q", diags, base+1, want)
 	}
 }
 
@@ -148,7 +148,7 @@ func TestArrayOwnership(t *testing.T) {
 // without the Keeping include); the repair that names no declaration.
 func TestNoReleaseRefused(t *testing.T) {
 	base := strings.Count(ofPrelude, "\n")
-	src := ofPrelude + `type Keeper[T] { Put(v own T), own drain() []T }
+	src := ofPrelude + `type Keeper[T own] { Put(v own T), own drain() []T }
 
 type Mem { n int } implements Keeper[Res]
 

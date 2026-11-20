@@ -36,7 +36,7 @@ type slot[T] { value stored[T], gen int, next int }
 // only a live Ref permits a read, and Free invalidates it before returning.
 extern go ergo.local/prototype/runtime/v1.ArenaValue type stored[T] { Value T }
 
-extern go ergo.local/prototype/runtime/v1.ArenaTake func takeValue[T](s *stored[T]) T
+extern go ergo.local/prototype/runtime/v1.ArenaTake func takeValue[T](s mut stored[T]) T
 
 // grow is Go's append (an extern of a Go builtin): Put's call is the builtin
 // itself, with no Go function between.
@@ -92,7 +92,7 @@ law ModelAgrees(seed int, count int) {
 				got = -i
 			case 3:
 				let mut seen = i
-				a.Update(r, func(v *int) {
+				a.Update(r, func(v mut int) {
 					seen = *v
 					*v = *v + i
 				}) catch {
@@ -160,7 +160,7 @@ law NullIsStale(xs []int) {
 
 // Put stores v and returns its Ref. It reuses the slot freed last, when
 // one is free, with a generation no earlier Ref of that slot has.
-func Put[T](a *Of[T], v T) Ref[T] {
+func Put[T](a mut Of[T], v T) Ref[T] {
 	a.live = a.live + 1
 	let at = a.free
 	if at == -1 {
@@ -175,7 +175,7 @@ func Put[T](a *Of[T], v T) Ref[T] {
 // returns the slot's free-list link. Put writes the slot through this one
 // borrow, so the lowered Go indexes the store once, as hand-written Go
 // does with a pointer to the slot.
-func reuse[T](s *slot[T], v own T) int {
+func reuse[T](s mut slot[T], v own T) int {
 	s.value = stored[T]{Value: v}
 	s.gen = s.gen + 1
 	s.next
@@ -199,7 +199,7 @@ func live[T](slots []slot[T], r Ref[T]) bool {
 // It takes a borrow, as Set does: a value argument read from a let mut
 // root is copied whole when T may hold a slice or Map (the value rule,
 // types.md, Bindings 2), which would make a Get cost the store.
-func Get[T](a *Of[T], r Ref[T]) T fails Stale {
+func Get[T](a mut Of[T], r Ref[T]) T fails Stale {
 	if !live(a.slots, r) {
 		return Stale
 	}
@@ -234,7 +234,7 @@ func filled(xs []int) (Of[int], []Ref[int]) {
 
 // Set replaces the value r names. It fails with Stale when r's value was
 // freed, and then changes nothing.
-func Set[T](a *Of[T], r Ref[T], v T) fails Stale {
+func Set[T](a mut Of[T], r Ref[T], v T) fails Stale {
 	if !live(a.slots, r) {
 		return Stale
 	}
@@ -244,7 +244,7 @@ func Set[T](a *Of[T], r Ref[T], v T) fails Stale {
 // Update changes the value r names in place: f gets a borrow of it. It
 // fails with Stale when r's value was freed, and then does not call f.
 // A write of one field is Go's write of that field, with no copy of T.
-func Update[T](a *Of[T], r Ref[T], f func(v *T)) fails Stale {
+func Update[T](a mut Of[T], r Ref[T], f func(v mut T)) fails Stale {
 	if !live(a.slots, r) {
 		return Stale
 	}
@@ -255,7 +255,7 @@ func Update[T](a *Of[T], r Ref[T], f func(v *T)) fails Stale {
 // from now on. It fails with Stale when the value was freed already, and
 // then changes nothing. The private host cell clears the removed storage,
 // so a freed pointerful value is no longer kept alive by the arena.
-func Free[T](a *Of[T], r Ref[T]) T fails Stale {
+func Free[T](a mut Of[T], r Ref[T]) T fails Stale {
 	if !live(a.slots, r) {
 		return Stale
 	}
@@ -308,7 +308,7 @@ func stale(a Of[int], r Ref[int]) bool {
 	case Stale:
 		failed = failed + 1
 	}
-	b.Update(r, func(v *int) { called = true }) catch {
+	b.Update(r, func(v mut int) { called = true }) catch {
 	case Stale:
 		failed = failed + 1
 	}
@@ -350,7 +350,7 @@ law FreeSlotNamesNothing(xs []int, k int, v int) {
 // vacate takes the value out of the live slot s, gives s the generation
 // gen (even: free) and links it to the free slot next. Free writes the slot through
 // this one borrow (see reuse).
-func vacate[T](s *slot[T], gen int, next int) T {
+func vacate[T](s mut slot[T], gen int, next int) T {
 	let v = takeValue(&s.value)
 	s.gen = gen
 	s.next = next

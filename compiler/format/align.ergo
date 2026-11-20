@@ -1,0 +1,200 @@
+// Rendering: the cells of each column block are aligned and the lines
+// joined, after the output's size is known.
+
+import cmp
+import math
+import slices
+import strings
+import utf8
+
+// OutputLimit is the refusal of an output larger than the caller's bound.
+// Built is the bytes of text built before the refusal: none, since the
+// size is known first (Steps reports it, so a test observes it).
+type OutputLimit { Limit int, Built int }
+
+// Rendered is the text of a layout and the bytes written to build it: a
+// refusal builds none.
+type Rendered { Text string, Built int }
+
+// Alignment sections follow go/printer's exprList heuristic on every
+// column: a cell whose width differs from the geometric mean of its
+// section's non-empty widths by a factor of alignRatio or more starts a new
+// section, unless both it and the previous non-empty cell are at most
+// alignSmall wide. An empty cell may share a section only while the
+// section's width is at most alignSmall, and a section that holds an empty
+// cell ends before a cell wider than alignSmall. In a section whose widest
+// cell is wider than alignSmall, every non-empty cell is wider than the
+// widest over alignRatio, so the output is linear in the input.
+let alignRatio = 2.5
+let alignSmall = 40
+
+// Grid is a finished layout's cells as Finish reads them: the text they
+// are ranges of, the width in runes of each cell but a line's last, and
+// the padded width of each cell but a line's last (0 is no padding).
+type Grid {
+	Text  string,
+	Width []int,
+	Pad   []int,
+}
+
+// Finish ends a layout: it aligns the cells of each column block and joins
+// the lines. A column block is a run of adjacent lines with the same
+// indentation that all have a cell in that column followed by another
+// cell; blocks of a column nest inside the blocks of the column before it.
+// Cells are padded with spaces to the block's widest cell plus one; a
+// block of empty cells takes no width. A positive limit bounds the output
+// in bytes: the size is computed before any text is built, and a larger
+// output is OutputLimit with no text. It closes l's open line.
+func Finish(l mut Layout, limit int) Rendered fails OutputLimit {
+	l.endLine()
+	let n = len(l.CellA)
+	let text = l.Buf.String()
+	// Only a cell that a cell follows on its line is padded, so only its
+	// width is read: a line's last cell keeps width 0.
+	let mut c = Grid{Text: text, Width: slices.Repeat([]int{0}, n), Pad: slices.Repeat([]int{0}, n)}
+	for i in 0..len(l.LineIndent) {
+		let a = l.LineFirst[i]
+		for k in a..a+l.LineN[i]-1 {
+			c.Width[k] = utf8.RuneCount(strings.Slice(text, l.CellA[k], l.CellB[k]))
+		}
+	}
+	c.align(l, 0, len(l.LineIndent), 0)
+	// Leading empty lines are dropped: no output starts with a blank line.
+	let mut first = 0
+	for first < len(l.LineIndent) && lineLen(l, c, first) == 0 {
+		first += 1
+	}
+	if limit > 0 && sizeOver(l, c, first, limit) {
+		return OutputLimit{Limit: limit, Built: 0}
+	}
+	let out = build(l, c, first)
+	Rendered{Text: out, Built: len(out)}
+}
+
+// sizeOver reports whether the text of l's lines from first is longer
+// than limit, from the cells and their padding alone; it stops at the
+// first line past the limit.
+func sizeOver(l mut Layout, c Grid, first int, limit int) bool {
+	let mut size = 0
+	for i in first..len(l.LineIndent) {
+		size += lineLen(l, c, i) + 1
+		if size > limit {
+			return true
+		}
+	}
+	false
+}
+
+// build is the text of l's lines from first: the indentation, and each
+// cell but the last padded to its width. The builder is grown to the
+// output's size first, as go/printer's is, so the text is written once.
+func build(l mut Layout, c Grid, first int) string {
+	let mut size = 0
+	for i in first..len(l.LineIndent) {
+		size += lineLen(l, c, i) + 1
+	}
+	let mut out = strings.NewBuilder()
+	out.Grow(size)
+	for i in first..len(l.LineIndent) {
+		for _ in 0..l.LineIndent[i] {
+			out.WriteByte('\t')
+		}
+		let a = l.LineFirst[i]
+		let b = a + l.LineN[i]
+		for k in a..b {
+			out.WriteString(strings.Slice(c.Text, l.CellA[k], l.CellB[k]))
+			if k < b-1 {
+				for _ in 0..c.Pad[k]-c.Width[k] {
+					out.WriteByte(' ')
+				}
+			}
+		}
+		out.WriteByte('\n')
+	}
+	out.String()
+}
+
+// lineLen is the length in bytes of line i with its padding, without its
+// line break.
+func lineLen(l mut Layout, c Grid, i int) int {
+	let mut n = cmp.Max(l.LineIndent[i], 0)
+	let a = l.LineFirst[i]
+	let b = a + l.LineN[i]
+	for k in a..b {
+		n += l.CellB[k] - l.CellA[k]
+		if k < b-1 && c.Pad[k] > 0 {
+			n += c.Pad[k] - c.Width[k]
+		}
+	}
+	n
+}
+
+// align sets the padded widths of column for lines from to to, and of the
+// columns after it within each block.
+func align(c mut Grid, l mut Layout, from int, to int, column int) {
+	let mut i = from
+	for i < to {
+		if l.LineN[i] <= column+1 {
+			i += 1
+			continue
+		}
+		let mut j = i + 1
+		let mut prev = c.Width[l.LineFirst[i]+column]
+		let mut widest = prev
+		let mut narrowest = prev
+		let mut hasEmpty = prev == 0
+		let mut lnsum = 0.0
+		let mut count = 0
+		if prev > 0 {
+			lnsum = math.Log(float64(prev))
+			count = 1
+		}
+		for j < to && l.LineN[j] > column+1 && l.LineIndent[j] == l.LineIndent[i] {
+			let s = c.Width[l.LineFirst[j]+column]
+			if s == 0 {
+				if widest > alignSmall {
+					break
+				}
+				hasEmpty = true
+				j += 1
+				continue
+			}
+			if hasEmpty && s > alignSmall {
+				break
+			}
+			if count > 0 && (s > alignSmall || prev > alignSmall) {
+				let ratio = float64(s) / math.Exp(lnsum/float64(count))
+				if ratio*alignRatio <= 1.0 || ratio >= alignRatio {
+					break
+				}
+			}
+			if count > 0 {
+				let hi = cmp.Max(widest, s)
+				let lo = cmp.Min(narrowest, s)
+				if hi > alignSmall && float64(hi) >= alignRatio*float64(lo) {
+					break
+				}
+				narrowest = lo
+			} else {
+				narrowest = s
+			}
+			lnsum += math.Log(float64(s))
+			count += 1
+			prev = s
+			widest = cmp.Max(widest, s)
+			j += 1
+		}
+		let mut width = 0
+		for k in i..j {
+			width = cmp.Max(width, c.Width[l.LineFirst[k]+column])
+		}
+		if width > 0 {
+			width += 1
+		}
+		for k in i..j {
+			c.Pad[l.LineFirst[k]+column] = width
+		}
+		c.align(l, i, j, column+1)
+		i = j
+	}
+}

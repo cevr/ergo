@@ -1,0 +1,198 @@
+// This file is S3t's half of a package's frozen interface (capstone
+// S3c2's import references): what an importer reads of the types of the
+// package an XRef names. A package task computes it once its imports'
+// are done, as S3c2's waves freeze stores.
+
+import compiler/check/store
+import compiler/syntax
+import dense
+import strings
+
+// IfaceDecl is one declaration of a package, by its index in the store:
+// its name, whether it is a type, the solved kinds of its bracket
+// parameters (none for a non-generic one), a union's variants (decl
+// indices; none for any other type), and, for an alias (types.md, Unions
+// 7), its target's text and sort key as its package resolves it. An
+// importer reads an alias as that text: its target may name a package
+// the importer does not import, which no XRef of the importer names.
+type IfaceDecl { Name string, Type bool, Kinds []int, Variants []int, Alias bool, Print string, Key string }
+
+// Iface is a package's types as its importers read them: its path, the
+// name its types print with (its path's last element), and its
+// declarations in the store's order.
+type Iface { Path string, Name string, Decls []IfaceDecl }
+
+// EmptyIface is the interface of an import the program does not hold.
+func EmptyIface(path string) Iface { Iface{Path: path, Name: lastOf(path), Decls: []IfaceDecl{}} }
+
+func lastOf(path string) string { path[strings.LastIndex(path, "/")+1 : len(path)] }
+
+// Interface is the interface of the package whose store bind.Collect
+// built from files, its kinds solved; ext, foreign and deps are what its
+// declarations resolve against (Env).
+func Interface(s store.Store, files []syntax.Parsed, kinds Kinds, ext []Ext, foreign []Foreign, deps []Iface) Iface {
+	let mut pool = s
+	let table = WithAliases(foreign, s, deps)
+	let names = Names{Params: []string{}, Foreign: table, Pkg: lastOf(store.PathOf(s)), Deps: deps}
+	let mut ds = []IfaceDecl{}
+	for i in 0..store.NumDecls(s) {
+		let d = store.DeclAt(s, i)
+		let name = store.DeclText(s, i)
+		let isType = store.KindName(int(store.DeclOf(s, d).Kind)) == "type"
+		let mut ks = []int{}
+		let mut vs = []int{}
+		let mut alias = false
+		let mut print = ""
+		let mut key = ""
+		if isType {
+			for j, n in kinds.Names {
+				if n == name {
+					ks = kinds.Of[j]
+				}
+			}
+			match aliasTarget(s, d, files) {
+			case Some[AliasOf] as a:
+				alias = true
+				let env = NewEnv(s, files, a.Value.p, []string{}, kinds, ext, table, deps)
+				let t = named(&pool, env, HLocal{Decl: d, Name: name})
+				print = Text(pool, names, t)
+				key = sortKey(pool, names, t)
+			case None:
+			}
+			vs = variantDecls(s, files, d)
+		}
+		ds = ds.Append(IfaceDecl{Name: name, Type: isType, Kinds: ks, Variants: vs, Alias: alias, Print: print, Key: key})
+	}
+	Iface{Path: store.PathOf(s), Name: lastOf(store.PathOf(s)), Decls: ds}
+}
+
+// variantDecls is the variants of the non-generic union d as decl
+// indices: an inline variant's, or a member written as a local type's
+// name. A member of any other form leaves the union unexpanded (none).
+func variantDecls(s store.Store, files []syntax.Parsed, d dense.ID[store.Decl]) []int {
+	let mut out = []int{}
+	match unionMembers(s, files, d) {
+	case Some[UnionOf] as u:
+		for m in u.Value.members {
+			let name = match syntax.ViewOf(u.Value.p.Tree, m) {
+			case syntax.VariantSpec as vs:
+				nameText(u.Value.p, vs.Name)
+			case syntax.Name:
+				nameText(u.Value.p, m)
+			case _:
+				return []int{}
+			}
+			match store.Lookup(s, name) {
+			case Some[dense.ID[store.Decl]] as v:
+				out = out.Append(dense.Index(v.Value))
+			case None:
+				return []int{}
+			}
+		}
+	case None:
+	}
+	out
+}
+
+// importDep is the interface the import q of s names, and its place in
+// s's import list plus one; none when q is no Ergo import of s.
+func importDep(s store.Store, deps []Iface, q string) Option[int] {
+	match store.Lookup(s, q) {
+	case Some[dense.ID[store.Decl]] as d:
+		if store.KindName(int(store.DeclOf(s, d.Value).Kind)) != "pkg" {
+			return None
+		}
+		let imp = store.ImportOf(s, d.Value)
+		if imp == 0 || imp > len(deps) { None } else { Some[int]{Value: imp} }
+	case None:
+		None
+	}
+}
+
+// declOf is the index of the exported type declaration name of dep, or
+// -1 (an XRef names no other; C0/plan.md §4).
+func declOf(dep Iface, name string) int {
+	if len(name) == 0 || name[0] < 65 || name[0] > 90 {
+		return -1
+	}
+	for i, d in dep.Decls {
+		if d.Name == name && d.Type {
+			return i
+		}
+	}
+	-1
+}
+
+// ImportRef is the reference s makes to the exported type name of its
+// import at path: the import's place in s's import list plus one, and
+// the type's index in its interface (deps, in that list's order). None
+// when path is no import of s, or name no exported type of it that is no
+// alias (an alias reads as its target's text, AliasEntries).
+func ImportRef(s store.Store, deps []Iface, path string, name string) Option[store.XRef] {
+	for j, p in store.ImportPaths(s) {
+		if p != path || j >= len(deps) {
+			continue
+		}
+		let i = declOf(deps[j], name)
+		if i < 0 || deps[j].Decls[i].Alias {
+			return None
+		}
+		return Some[store.XRef]{Value: store.XRef{Import: uint32(j + 1), Decl: uint32(i)}}
+	}
+	None
+}
+
+// AliasEntries is the foreign table's rows for the exported aliases of
+// s's Ergo imports, by the import's local name: each reads as its
+// target's text (IfaceDecl).
+func AliasEntries(s store.Store, deps []Iface) []Foreign {
+	let mut out = []Foreign{}
+	for i in 0..store.NumDecls(s) {
+		let d = store.DeclAt(s, i)
+		if store.KindName(int(store.DeclOf(s, d).Kind)) != "pkg" {
+			continue
+		}
+		let imp = store.ImportOf(s, d)
+		if imp == 0 || imp > len(deps) {
+			continue
+		}
+		let dep = deps[imp-1]
+		for x in dep.Decls {
+			if x.Alias && declOf(dep, x.Name) >= 0 {
+				out = out.Append(Foreign{Qual: store.DeclText(s, i), Name: x.Name, Arity: 0, Path: dep.Path, Print: x.Print, Key: x.Key, Variants: []int{}})
+			}
+		}
+	}
+	out
+}
+
+// WithAliases is foreign followed by AliasEntries(s, deps).
+func WithAliases(foreign []Foreign, s store.Store, deps []Iface) []Foreign {
+	let mut out = foreign
+	for x in AliasEntries(s, deps) {
+		out = out.Append(x)
+	}
+	out
+}
+
+// ExtOf is the kinds of the generic types s's Ergo imports declare, by
+// head as written (q.Name), for the kinds solve.
+func ExtOf(s store.Store, deps []Iface) []Ext {
+	let mut out = []Ext{}
+	for i in 0..store.NumDecls(s) {
+		let d = store.DeclAt(s, i)
+		if store.KindName(int(store.DeclOf(s, d).Kind)) != "pkg" {
+			continue
+		}
+		let imp = store.ImportOf(s, d)
+		if imp == 0 || imp > len(deps) {
+			continue
+		}
+		for x in deps[imp-1].Decls {
+			if x.Type && len(x.Kinds) > 0 && declOf(deps[imp-1], x.Name) >= 0 {
+				out = out.Append(Ext{Head: store.DeclText(s, i) + "." + x.Name, Kinds: x.Kinds})
+			}
+		}
+	}
+	out
+}
