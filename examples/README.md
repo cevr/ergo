@@ -100,6 +100,13 @@ Before each native test, the same runner runs `ergo check <target>` (which print
 
 The runner tests every package, as `go test ./...` does, whether or not it declares a test or a law: the compiler decides what its test build runs, which may be a std law against a provider it declares (fu6b, G-ma-1). For a program of one folder the runner runs `ergo test <dir>/main.ergo` after the build and prints `ok <program>: test (<time>)`, or `FAIL <program>: test` with the command's output. A failing test fails the program, and its cases still run. A test leg is never skipped: any reply other than a pass is a failure. A reply over the cap fails as `FAIL <program>: test: stdout over 1048576 bytes`, with the stream names of the cap rule above, and with no output printed.
 
+## Red by record
+
+A law a program declares or provides that no context can run yet is an error, S108, for every program, ours too (types.md, Laws 10). Until the unit that feeds it lands, the program is red by record: `scripts/examples/expected-findings` holds one line for each such error (`EXAMPLE PACKAGE CODE LAW PROVIDER UNIT`), and the runner prints it as `red by record (owed UNIT): …` instead of a layout error, and prints `red by record PROGRAM: not run until UNIT land` instead of running the program. Any other error is still a layout error, and so is a line the checker no longer reports, so the file empties itself as the units land. This is the ledger of owed units; a line names one of them:
+
+- **STD-TESTAMBIENT**: std's test constructors for `http.NewNet` and `fs.OpenRoot` under TestAmbient, so download's test context builds a `Remote`.
+- **PIPELINE-CLOSE**: pipeline's `Model implements Closer` (Close is Stop), a resource (resources.md R1, R22, R24), so a test context builds and closes a Model, and a Client over it, for each case.
+
 ## Record leg
 
 A port's goldens come from the original program, never from the port. `go run ./scripts/examples -record PROGRAM` runs `sh <program>/record.sh ARGS...` for each case, as the case leg runs a program (the same directory, environment, input and process group), and writes `expected.out`, `expected.err` (only when stderr is not empty) and `expected.status` (only when the status is not 0). It removes a stale `expected.err` or `expected.status`. An original that writes over the cap fails and records nothing. `record.sh` finds its original from its own path (`$0`). `-record -check` runs the original the same way and compares its output with the goldens, and writes nothing. A program without `record.sh` cannot be recorded.

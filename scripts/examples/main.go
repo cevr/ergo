@@ -134,6 +134,9 @@ type program struct {
 	// tests the module's go leg runs.
 	goFiles    map[string][]string
 	goPackages []string
+	// owed are the units of the expected findings (findings.go) the
+	// program is red by record for; it is not run while any remain.
+	owed []string
 }
 
 func (p *program) tagged(tag string) bool { return slices.Contains(p.tags, tag) }
@@ -164,7 +167,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if cfg.lawless {
 		return reportLawless(cfg.root, stdout)
 	}
-	programs, modules, problems := loadLayout(cfg.root, cfg.record)
+	programs, modules, problems, notes := loadLayoutNotes(cfg.root, cfg.record)
+	for _, note := range notes {
+		fmt.Fprintln(stdout, note)
+	}
 	if len(problems) > 0 {
 		for _, problem := range problems {
 			fmt.Fprintln(stderr, problem)
@@ -192,6 +198,15 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
+	selected = slices.DeleteFunc(selected, func(p *program) bool {
+		if len(p.owed) == 0 {
+			return false
+		}
+		// Red by record (findings.go): its check fails until the owed
+		// units land, so no leg of it can pass; it is reported, not run.
+		fmt.Fprintf(stdout, "red by record %s: not run until %s land\n", p.name, strings.Join(p.owed, ", "))
+		return true
+	})
 	if len(selected) == 0 {
 		fmt.Fprintf(stdout, "examples: no program selected (-tags %s); nothing to run\n", strings.Join(cfg.tags, ","))
 		return 0
@@ -386,23 +401,32 @@ const originMoved = "unexpected origin; a port's provenance lives in conformance
 // package folders' sources are absolute (packageAssetSources), and a
 // module's full-tier folders are compared with them.
 func loadLayout(root string, record bool) (programs, modules []*program, problems []string) {
-	root, err := filepath.Abs(root)
-	if err != nil {
-		return nil, nil, []string{err.Error()}
-	}
-	programs, problems = loadExamples(root, record)
-	modules, moduleProblems := loadModules(root)
-	return programs, modules, append(problems, moduleProblems...)
+	programs, modules, problems, _ = loadLayoutNotes(root, record)
+	return programs, modules, problems
 }
 
-func loadExamples(root string, record bool) ([]*program, []string) {
+// loadLayoutNotes is loadLayout with the expected findings (findings.go)
+// it excused, as the lines that report them red by record.
+func loadLayoutNotes(root string, record bool) (programs, modules []*program, problems, notes []string) {
+	root, err := filepath.Abs(root)
+	if err != nil {
+		return nil, nil, []string{err.Error()}, nil
+	}
+	expected, problems := readFindings(root)
+	programs, programProblems, programNotes := loadExamples(root, record, expected)
+	modules, moduleProblems, moduleNotes := loadModules(root, expected)
+	problems = append(append(append(problems, programProblems...), moduleProblems...), expected.stale()...)
+	return programs, modules, problems, append(programNotes, moduleNotes...)
+}
+
+func loadExamples(root string, record bool, expected *findings) ([]*program, []string, []string) {
 	examples := filepath.Join(root, "examples")
 	entries, err := os.ReadDir(examples)
 	if err != nil {
-		return nil, []string{fmt.Sprintf("examples: %v", err)}
+		return nil, []string{fmt.Sprintf("examples: %v", err)}, nil
 	}
 	var programs []*program
-	var problems []string
+	var problems, notes []string
 	for _, entry := range entries {
 		name := entry.Name()
 		label := "examples/" + name
@@ -418,14 +442,20 @@ func loadExamples(root string, record bool) ([]*program, []string) {
 			continue
 		}
 		p, found := loadProgram(filepath.Join(examples, name), name, record)
+		var labelled []string
 		for _, problem := range found {
-			problems = append(problems, label+": "+problem)
+			labelled = append(labelled, label+": "+problem)
 		}
-		if len(found) == 0 {
+		// An expected finding (findings.go) is a note, not a layout
+		// error: the program loads, red by record.
+		labelled, excused, owed := expected.applyOwed(labelled)
+		problems, notes = append(problems, labelled...), append(notes, excused...)
+		if len(labelled) == 0 {
+			p.owed = owed
 			programs = append(programs, p)
 		}
 	}
-	return programs, append(problems, checkPorts(root)...)
+	return programs, append(problems, checkPorts(root)...), notes
 }
 
 // checkPorts checks the provenance of every port: a folder
