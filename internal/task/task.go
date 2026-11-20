@@ -190,8 +190,17 @@ func decodeRecord(text string) (record, bool) {
 	return r, true
 }
 
-// lastKey is the store key of a node's last run.
-func lastKey(n Node) string { return lawcache.Key("task last", n.Name, n.Ident) }
+// lastKey is the store key of a node's last run in the tree at r.Root
+// (never the --check copy's). The store is shared by every checkout of
+// the host (one cache root), and the last run is a fact about one tree:
+// keyed without the root, a gen in another checkout overwrites it, and
+// this tree's next lookup reads that checkout's manifest and misses with
+// nothing changed here (TestGenTreesShareAStore; the likeliest cause of
+// the MONOREPO WT1b c10 miss). Entries stay keyed by content alone, so
+// trees still share results.
+func (r *Runner) lastKey(n Node) string {
+	return lawcache.Key("task last", r.Root, n.Name, n.Ident)
+}
 
 // sortedUnique sorts s and drops repeats.
 func sortedUnique(s []string) []string {

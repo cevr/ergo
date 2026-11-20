@@ -63,6 +63,15 @@
       "to": "\t\t\tif false {\n",
       "rule": "A miss names the first input whose digest moved since the last run.",
       "killers": ["internal/task:TestGenMissSaysWhy"]
+    },
+    {
+      "name": "task-last-unrooted",
+      "origin": "wf10 MONOREPO WT1b miss diagnosis",
+      "file": "internal/task/task.go",
+      "from": "\treturn lawcache.Key(\"task last\", r.Root, n.Name, n.Ident)\n",
+      "to": "\treturn lawcache.Key(\"task last\", n.Name, n.Ident)\n",
+      "rule": "A node's last run is keyed by the tree's root: a gen in another checkout sharing the store does not make this tree miss.",
+      "killers": ["internal/task:TestGenTreesShareAStore"]
     }
   ]
 }

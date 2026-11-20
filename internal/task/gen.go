@@ -33,7 +33,7 @@ func (r *Runner) Graph(nodes []Node) (Graph, error) {
 	recs := make([]*record, len(nodes))
 	g := Graph{Nodes: nodes, Known: make([]bool, len(nodes))}
 	for i, n := range nodes {
-		if text, ok := r.Store.Get(lastKey(n)); ok {
+		if text, ok := r.Store.Get(r.lastKey(n)); ok {
 			if rec, ok := decodeRecord(text); ok {
 				recs[i] = &rec
 				g.Known[i] = true
@@ -48,7 +48,7 @@ func (r *Runner) Graph(nodes []Node) (Graph, error) {
 // LastOutputs are the outputs of n's last run, as stored; none when n
 // has not run.
 func (r *Runner) LastOutputs(n Node) []string {
-	text, ok := r.Store.Get(lastKey(n))
+	text, ok := r.Store.Get(r.lastKey(n))
 	if !ok {
 		return nil
 	}
@@ -225,7 +225,7 @@ func contentKey(n Node, env string, in Inputs, root string, h *hasher) (key stri
 // last run, the stored entry gone, or an output that no longer hashes as
 // stored.
 func (r *Runner) lookup(n Node, env, root string, h *hasher) (outs []output, hit bool, why string, err error) {
-	text, ok := r.Store.Get(lastKey(n))
+	text, ok := r.Store.Get(r.lastKey(n))
 	if !ok {
 		return nil, false, "no stored last run", nil
 	}
@@ -311,7 +311,7 @@ func (r *Runner) run(ctx context.Context, n Node, env, root string, h *hasher) (
 	}
 	written := changed(before, after)
 	paths := slices.Clone(written)
-	if last, ok := r.Store.Get(lastKey(n)); ok {
+	if last, ok := r.Store.Get(r.lastKey(n)); ok {
 		if rec, ok := decodeRecord(last); ok {
 			for _, o := range rec.outs {
 				if _, ok := after[o.path]; ok {
@@ -340,7 +340,7 @@ func (r *Runner) run(ctx context.Context, n Node, env, root string, h *hasher) (
 		return nil, err
 	}
 	r.Store.Put(key, record{env: env, outs: outs}.encode())
-	r.Store.Put(lastKey(n), record{env: env, in: in, fileSums: fileSums, dirSums: dirSums, outs: outs}.encode())
+	r.Store.Put(r.lastKey(n), record{env: env, in: in, fileSums: fileSums, dirSums: dirSums, outs: outs}.encode())
 	return outs, nil
 }
 
