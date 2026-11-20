@@ -100,13 +100,16 @@ func Sum(t Two) int { t.l.L() + t.r.R() }
 
 // Imported is a two-package case program: Source, package main, imports
 // Lib, package LibPath, under the alias cl, as a name clash asks (main
-// declares lib). Each law is false on its first case, whose arguments are
-// built by Lib's constructor (Rack's field, testplan.ByConstructor) and by
-// Lib's builder of an operation type (Metered's g), so a case shows Lib's
-// names qualified as Source spells them: cl.NewCrate(…), cl.NewMeter(…).
+// declares lib). Each law is false on its first case, whose arguments show
+// Lib's names: Rack's field c is built by Lib's constructor
+// (testplan.ByConstructor), its field g by Lib's builder of an operation
+// type, and Metered's g by its provider's constructor. First is each law's
+// first refuting case and Shows the text its arguments hold: Lib's names as
+// Source spells them, cl.NewCrate(…), never lib.NewCrate(…) (ALIAS-CASE).
 type Imported struct {
 	LibPath, Lib, Source string
 	First                map[string]int
+	Shows                map[string][]string
 }
 
 // GenerateImported is the imported program. The seed changes the cases'
@@ -124,10 +127,14 @@ func NewCrate(n int) Crate { Crate{g: NewMeter(n)} }
 		Source: `import cl lib
 func lib() int { 0 }
 type Racks { Count() int, law Bare() { Count() < 0 } }
-type Rack { c cl.Crate } implements Racks
+type Rack { c cl.Crate, g cl.Gauge } implements Racks
 func Count(r Rack) int { lib() }
 law Metered(g cl.Gauge) { g.Level() * 0 == 1 }
 `,
-		First: map[string]int{"law Racks.Bare for Rack": 1, "law Metered": 1},
+		First:   map[string]int{"law Racks.Bare for Rack": 1, "law Metered with g = cl.Meter": 1},
+		Shows: map[string][]string{
+			"law Racks.Bare for Rack":       {"Rack{c: cl.NewCrate(…), g: cl.NewMeter(…)}"},
+			"law Metered with g = cl.Meter": {"g = cl.NewMeter("},
+		},
 	}
 }

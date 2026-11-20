@@ -3390,6 +3390,7 @@
         "internal/sketchfront:TestStdSnapshotIsCurrent"
       ]
     },
-    {"name":"inf-row-not-error-unnamed","origin":"wf10 CN INFER-IMPORT-ROW","file":"internal/sketch/check/unify.go","from":"\t\t\t\tin.notError = y\n\t\t\t\treturn false","to":"\t\t\t\treturn false","rule":"A free error row parameter that meets a type no error row of the package names says so (types.md, Error types 1; D6).","killers":["check:TestInferErrorRowNamesTheCause"]}
+    {"name":"inf-row-not-error-unnamed","origin":"wf10 CN INFER-IMPORT-ROW","file":"internal/sketch/check/unify.go","from":"\t\t\t\tin.notError = y\n\t\t\t\treturn false","to":"\t\t\t\treturn false","rule":"A free error row parameter that meets a type no error row of the package names says so (types.md, Error types 1; D6).","killers":["check:TestInferErrorRowNamesTheCause"]},
+    {"name":"alias-case-import-name-unaliased","origin":"wf10 ALIAS-CASE","file":"internal/sketch/check/lintfacts.go","from":"\t\t\tif !pn.broken && pn.Pkg == q && pn.spec.Name != nil {\n\t\t\t\treturn pn.Name\n","to":"\t\t\tif !pn.broken && pn.Pkg == q && pn.spec.Name != nil {\n\t\t\t\treturn q.Name\n","rule":"Case text names an imported package by the alias the source writes (Package.Qualified), as a reader pastes it back: cl.NewCrate(…), not lib.NewCrate(…).","killers":["lower:TestCasePlansAgreeWithGo"]}
   ]
 }

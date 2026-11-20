@@ -32,6 +32,7 @@ func TestCasePlansAgreeWithGo(t *testing.T) {
 	var builds []*lowered
 	seeds := map[string][]uint64{}
 	refuted := map[string]map[string]int{}
+	shows := map[string]map[string][]string{}
 	first, last := uint64(1), uint64(8)
 	if s := os.Getenv("ERGO_CASE_SEED"); s != "" {
 		n, err := strconv.ParseUint(s, 10, 64)
@@ -68,7 +69,7 @@ func TestCasePlansAgreeWithGo(t *testing.T) {
 		for seed := first; seed <= last; seed++ {
 			seeds[name] = append(seeds[name], seed)
 		}
-		refuted[name] = imported.First
+		refuted[name], shows[name] = imported.First, imported.Shows
 		builds = append(builds, prog)
 	}
 	exes := buildAll(t, builds, true)
@@ -77,15 +78,15 @@ func TestCasePlansAgreeWithGo(t *testing.T) {
 	}
 	for _, prog := range builds {
 		for _, seed := range seeds[prog.name] {
-			agreeAtSeed(t, prog, exes[prog.name], seed, refuted[prog.name])
+			agreeAtSeed(t, prog, exes[prog.name], seed, refuted[prog.name], shows[prog.name])
 		}
 	}
 }
 
 // agreeAtSeed runs prog's executable exe at seed and compares its verdicts
 // and arguments with the evaluator's report; each law of first must be
-// refuted at its case.
-func agreeAtSeed(t *testing.T, prog *lowered, exe string, seed uint64, first map[string]int) {
+// refuted at its case, its arguments holding each text shows gives it.
+func agreeAtSeed(t *testing.T, prog *lowered, exe string, seed uint64, first map[string]int, shows map[string][]string) {
 	t.Helper()
 	b := eval.DefaultBudget()
 	b.Seed = seed
@@ -146,6 +147,11 @@ func agreeAtSeed(t *testing.T, prog *lowered, exe string, seed uint64, first map
 			}
 			if !strings.Contains(line, ": "+want+"): ") {
 				fail("arguments differ: %+v", r)
+			}
+			for _, text := range shows[r.Name] {
+				if !strings.Contains(want, text) {
+					fail("the arguments %q do not show %q as the source spells it", want, text)
+				}
 			}
 		default:
 			fail("unevaluated result %+v", r)
