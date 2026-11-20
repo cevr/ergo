@@ -1,6 +1,10 @@
 package check
 
-import "fmt"
+import (
+	"fmt"
+
+	"ergo.local/prototype/internal/sketch/syntax"
+)
 
 // A format reads its own types (types.md, Codecs 11; WIRE-READ), the read
 // mirror of rule 10's WireWrite. The package of a record or union X that
@@ -121,7 +125,7 @@ func (c *checker) resolveMethods(n *Named) {
 
 // wireReadLaw is n's law <X>ReadsOneValue of the shape rule 11 requires:
 // one parameter of type n, and a body that names both n and the reader r
-// (its subjects, lawplace.go). The body's content is the package's; this
+// (the type names its body uses, Info.Uses). The body's content is the package's; this
 // is the cheap part of the shape the checker can see.
 func (c *checker) wireReadLaw(n, r *Named) bool {
 	name := n.Obj.Name + WireReadLawSuffix
@@ -132,10 +136,18 @@ func (c *checker) wireReadLaw(n, r *Named) bool {
 		if p, ok := law.Params[0].Type.(*Named); !ok || p.Obj != n.Obj {
 			continue
 		}
-		names := map[string]bool{}
-		for _, s := range law.Subjects {
-			names[s.Name] = true
+		if law.Decl == nil || law.Decl.Body == nil {
+			continue
 		}
+		names := map[string]bool{}
+		syntax.Inspect(law.Decl.Body, func(x syntax.Node) bool {
+			if id, ok := x.(*syntax.Ident); ok {
+				if tn, ok := c.pkg.Info.Uses[id].(*TypeName); ok && (tn == n.Obj || tn == r.Obj) {
+					names[tn.Name] = true
+				}
+			}
+			return true
+		})
 		if names[n.Obj.Name] && names[r.Obj.Name] {
 			return true
 		}
