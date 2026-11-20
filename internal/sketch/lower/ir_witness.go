@@ -253,7 +253,7 @@ func (b *irBuilder) witnessCopy(x *syntax.CallExpr, c *check.Call) string {
 }
 
 // witnessOpCall is the operation call x of c on a value of the type
-// parameter tp (a call through a pointer to one, ptr, keeps its gate):
+// parameter tp, or through a pointer to one (ptr: a mut T parameter):
 // the witness's field, called
 // with the environment, the value and the operands (witnessCall). The
 // result has the uniform shape, (value, error), as a function value's:
@@ -271,10 +271,13 @@ func (b *irBuilder) witnessOpCall(x *syntax.CallExpr, c *check.Call, tp *check.T
 	if b.env < 0 {
 		irNo("operation call from a pure function")
 	}
-	if ptr {
-		irNo("operation call through a pointer to a type parameter")
-	}
 	pre, vals := b.operands(append([]syntax.Expr{c.Recv}, x.Args...))
+	if ptr && !c.Op.Sig.MutSelf {
+		// A *T receiver: a mut operation's witness field takes the
+		// pointer and writes through it; any other takes the value it
+		// points to, as the emitter's opCall passes *(v).
+		vals[0] = &irExpr{K: "deref", Pos: p, X: vals[0]}
+	}
 	fn := &irExpr{K: "field", Pos: p, Name: memberName(c.Op.Name), X: &irExpr{K: "local", Pos: p, I: w}}
 	args := append([]*irExpr{{K: "local", Pos: p, I: b.env}}, vals...)
 	return pre, &irExpr{K: "vcall", Pos: p, X: fn, Args: args}, true

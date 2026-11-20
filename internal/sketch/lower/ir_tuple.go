@@ -133,6 +133,7 @@ func hostResults(f *check.Func) []check.Type {
 // that needs go.Foreign is an effect, which runs before its expression
 // (SP4).
 func (b *irBuilder) hostCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p irPos) ([]*irStmt, *irExpr, bool) {
+	b.l.intMapCall(x, c.Recv, f, true)             // intmap.go: the Go boundary sees Go's map
 	if pre, v, ok := b.hostBound(x, c, f, p); ok { // ir_golib.go: the task's context, an Option result
 		return pre, v, false
 	}

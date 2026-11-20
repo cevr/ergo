@@ -11,6 +11,10 @@ import (
 // that body calls the table's methods.
 var intMapFuncs = []string{"steps", "small", "flags", "boxed", "copied"}
 
+// intMapCallFuncs are GenerateIntMap's functions that pass an int-keyed
+// Map to a generic function: each has an IR body, with its Map Go's map.
+var intMapCallFuncs = []string{"seen", "throughStd", "throughUser"}
+
 // GenerateIntMap is a program over Maps with an integer key (MI-2): seeded
 // steps of Put (m[k] = v and m.Put), Delete and Get on a Map[int, int]
 // (steps), on a Map[int8, string] whose keys wrap (small) and on a
@@ -43,6 +47,7 @@ func GenerateIntMap(seed uint64) string {
 		return s.String()
 	}
 	m := func() string { return "m" }
+	b.WriteString("import maps\nimport slices\nimport go gomaps maps\n\n")
 	b.WriteString("type Box { index Map[int, int], name string }\n\n")
 	b.WriteString("func look(m Map[int, int], k int) int {\n\tmatch m.Get(k) {\n\tcase Some[int] as v:\n\t\tv.Value\n\tcase None:\n\t\t-7\n\t}\n}\n\n")
 	b.WriteString("func steps() int {\n\tlet mut m = Map[int, int]{}\n\tlet mut sum = 0\n")
@@ -78,6 +83,37 @@ func GenerateIntMap(seed uint64) string {
 	// the lowering's conflict makes Map[int64, int] Go's map in the whole
 	// program, and the output is an order-free sum.
 	b.WriteString("func walked(n int) int {\n\tlet mut m = Map[int64, int]{}\n\tfor i in 0..n {\n\t\tm[int64(i * 13 % 40)] = i\n\t}\n\tlet mut s = 0\n\tfor k, v in m {\n\t\ts += int(k) * v\n\t}\n\ts * 100 + len(m)\n}\n\n")
-	fmt.Fprintf(&b, "func main() needs Console {\n\tConsole.Println(\"\\(steps()) \\(small()) \\(flags(%d)) \\(boxed()) \\(copied()) \\(walked(%d))\")\n}\n", 50+r.IntN(400), 10+r.IntN(60))
+	// The through functions pass an int-keyed Map to a generic Ergo
+	// function, whose Go signature (and its monomorphic copy's) spells
+	// Go's map (INTMAP-CALL): seen's Map[int, bool] through std's
+	// maps.GetOr (modules/work memory/cloner.ergo), a Map[int32, int]
+	// through each std maps function, and a Map[uint32, int] through a
+	// user generic. Each Map type is Go's map in the whole program (the
+	// call's conflict), and each function keeps its IR body.
+	b.WriteString("func seen(xs []int) int {\n\tlet mut s = Map[int, bool]{}\n\tlet mut n = 0\n\tfor x in xs {\n\t\tif maps.GetOr(s, x, false) {\n\t\t\tcontinue\n\t\t}\n\t\ts[x] = true\n\t\tn += 1\n\t}\n\tn * 1000 + len(s)\n}\n\n")
+	b.WriteString("func throughStd(n int) int {\n\tlet mut m = Map[int32, int]{}\n\tfor i in 0..n {\n\t\tm[int32(i * 7 % 23)] = i\n\t}\n")
+	b.WriteString("\tlet c = maps.Clone(m)\n")
+	b.WriteString("\tlet u = maps.Update(c, int32(5), func(old Option[int]) int {\n\t\tmatch old {\n\t\tcase Some[int] as v:\n\t\t\tv.Value + 1\n\t\tcase None:\n\t\t\t100\n\t\t}\n\t})\n")
+	b.WriteString("\tlet f = maps.Filter(u, func(k int32, v int) bool { v % 2 == 0 })\n")
+	b.WriteString("\tlet t = maps.TransformValues(f, func(v int) int { v * 3 })\n")
+	b.WriteString("\tlet g = maps.Merge(t, m)\n")
+	b.WriteString("\tlet mut s = maps.GetOr(g, int32(5), -1) * 1000 + len(c) + len(u) * 10 + len(f) * 100 + len(t) + len(g)\n")
+	b.WriteString("\tfor k in slices.Sorted(maps.Keys(g)) {\n\t\ts = s * 31 + int(k) + maps.GetOr(g, k, 0)\n\t}\n\ts\n}\n\n")
+	b.WriteString("func sizeOf[K comparable, V](m Map[K, V], k K) int {\n\tmatch m.Get(k) {\n\tcase Some[V]:\n\t\tlen(m) * 2 + 1\n\tcase None:\n\t\tlen(m) * 2\n\t}\n}\n\n")
+	b.WriteString("func throughUser(n int) int {\n\tlet mut m = Map[uint32, int]{}\n\tlet mut s = 0\n\tfor i in 0..n {\n\t\tm[uint32(i * 5 % 17)] = i\n\t\ts = s * 7 + sizeOf(m, uint32(i % 9))\n\t}\n\ts\n}\n\n")
+	// throughGo passes a Map[uint8, int] to Go's own maps package, a
+	// function of a Go package: both paths must print the same. Its body
+	// has no IR yet ("call of a Go package function": hostCall refuses
+	// maps.Clone), so it is not in intMapCallFuncs and hostCall's
+	// intMapCall has no killing row until it does (INTMAP-CALL-2).
+	b.WriteString("func throughGo(n int) int needs go.Foreign {\n\tlet mut m = Map[uint8, int]{}\n\tfor i in 0..n {\n\t\tm[uint8(i * 3 % 50)] = i\n\t}\n")
+	b.WriteString("\tlet mut c = gomaps.Clone(m)\n\tc[uint8(1)] = 999\n")
+	b.WriteString("\tlet mut s = len(c)\n\tfor k in 0..50 {\n\t\tmatch c.Get(uint8(k)) {\n\t\tcase Some[int] as v:\n\t\t\ts = s * 31 + v.Value\n\t\tcase None:\n\t\t\ts = s * 7 + 1\n\t\t}\n\t}\n")
+	b.WriteString("\ts\n}\n\n")
+	xs := make([]string, 5+r.IntN(20))
+	for i := range xs {
+		xs[i] = fmt.Sprint(r.IntN(12))
+	}
+	fmt.Fprintf(&b, "func main() needs Console | go.Foreign {\n\tConsole.Println(\"\\(steps()) \\(small()) \\(flags(%d)) \\(boxed()) \\(copied()) \\(walked(%d)) \\(seen([]int{%s})) \\(throughStd(%d)) \\(throughUser(%d)) \\(throughGo(%d))\")\n}\n", 50+r.IntN(400), 10+r.IntN(60), strings.Join(xs, ", "), 5+r.IntN(40), 5+r.IntN(40), 5+r.IntN(60))
 	return b.String()
 }

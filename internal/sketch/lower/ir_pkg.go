@@ -100,7 +100,10 @@ func (b *irBuilder) spelling(s string) string {
 			if strings.Contains(s, "[") && strings.HasPrefix(s[i:j], b.l.rt()+".") {
 				b.keepImport("var _ " + b.l.rt() + ".Site")
 			} else {
-				b.keepImport("var _ " + s)
+				// A host instance over a generic body's type parameter
+				// (config's *Redacted[T]) is kept at int, as valueSource
+				// keeps a generic body's element (ir_loops.go).
+				b.keepImport("var _ " + b.typeParamsAt(s, "int"))
 			}
 		}
 		out.WriteString(q)
@@ -129,6 +132,34 @@ func (b *irBuilder) namesTypeParam(s string) bool {
 		i = j
 	}
 	return false
+}
+
+// typeParamsAt is the Go type spelling s with each type parameter of the
+// function the builder lowers spelled as at: a type main.go's top level
+// can name.
+func (b *irBuilder) typeParamsAt(s, at string) string {
+	out := strings.Builder{}
+	for i := 0; i < len(s); {
+		j := i
+		for j < len(s) && isSpellingName(s[j]) {
+			j++
+		}
+		if j == i {
+			out.WriteByte(s[i])
+			i++
+			continue
+		}
+		name := s[i:j]
+		for tp, p := range b.fc.params {
+			if name == p && b.rwBound[tp] == nil {
+				name = at
+				break
+			}
+		}
+		out.WriteString(name)
+		i = j
+	}
+	return out.String()
 }
 
 func isSpellingName(c byte) bool {
@@ -169,15 +200,21 @@ func (b *irBuilder) admitArgs(t *check.Named, depth int) {
 // parameter has no Go type parameter). "" for a call of a function that
 // is not generic.
 func (b *irBuilder) typeArgs(c *check.Call, site syntax.Node) string {
+	return b.sigTypeArgs(c.Func.Sig, c.TypeArgs, site)
+}
+
+// sigTypeArgs is typeArgs for the type arguments targs of a function of
+// signature sig: a call's, or an instance's named as a value (funcName).
+func (b *irBuilder) sigTypeArgs(sig *check.Signature, targs []check.Type, site syntax.Node) string {
 	var out []string
-	for i, tp := range c.Func.Sig.TParams {
+	for i, tp := range sig.TParams {
 		if !b.l.goParam(tp) {
 			continue
 		}
-		if i >= len(c.TypeArgs) {
+		if i >= len(targs) {
 			irNo("generic call without its type arguments")
 		}
-		out = append(out, b.goArg(tp, c.TypeArgs[i], site))
+		out = append(out, b.goArg(tp, targs[i], site))
 	}
 	return strings.Join(out, ", ")
 }
@@ -571,16 +608,22 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 		if goFallible(body) || len(tuple.Types) < 2 || len(body.Results) != len(tuple.Types) {
 			irNo("std call with an adapted result")
 		}
-		for i, r := range body.Results {
-			if !b.sameGo(tuple.Types[i], r) {
-				irNo("std call with a converted result")
-			}
-		}
 	}
 	// A generic body's instance (F1): each Go type parameter takes the
 	// call's type argument for the Ergo type parameter of its name, as the
 	// emitter's stdTypeArgs writes it; the body's Go types read with them.
 	targs, subst := b.stdTypeArgs(body, c, x)
+	if isTuple {
+		// Each result is the element's Go type, read as a single result
+		// is (below): spelled alike, or the runtime's at the instance
+		// (TakeAt's (T, []T), actor's shown (S, int), keyState's []byte
+		// as []uint8; CONV-RESULT).
+		for i, r := range body.Results {
+			if !b.sameGo(tuple.Types[i], r) && !b.sameRT(tuple.Types[i], r, subst, body.Package) {
+				irNo("std call with a converted result")
+			}
+		}
+	}
 	// The decoder takes an argument and a result of the runtime's Go type
 	// itself (types2.Identical), where Go text would also assign a
 	// defined type to its underlying one: each must be spelled alike.

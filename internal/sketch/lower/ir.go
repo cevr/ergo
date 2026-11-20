@@ -109,6 +109,13 @@ type IRReport struct {
 	// in an inlined fallible body, bound at the site's value and error
 	// (INLINE-RETURN, ir_forms_inline.go irRets).
 	TailPairs int `json:"-"`
+	// FailLocalErrors and FailLocalValues count the failures of inlined
+	// fallible bodies that are a local or a parameter, set as the site's
+	// error: one of type error as it is (a try's error passed on), one of
+	// a failure type converted (INLINE-FAIL-LOCAL, ir_forms_inline.go
+	// irRets.failValue).
+	FailLocalErrors int `json:"-"`
+	FailLocalValues int `json:"-"`
 	// CatchTreeDefects counts the full catches with patterns whose tree's
 	// exit panics with the unreachable defect (FAIL-ELIDE-PAT, ir_fail.go).
 	CatchTreeDefects int `json:"-"`
@@ -142,10 +149,13 @@ type IRCensus struct {
 // IRCensusFunc is one lowered body. Reasons are distinct, in the order the
 // builder met them; none means the builder lowers it.
 type IRCensusFunc struct {
-	Pkg     string   `json:"pkg"`
-	Name    string   `json:"name"`
-	File    string   `json:"file,omitempty"` // the source file, for a sourced body
-	Std     bool     `json:"std,omitempty"`
+	Pkg  string `json:"pkg"`
+	Name string `json:"name"`
+	File string `json:"file,omitempty"` // the source file, for a sourced body
+	Std  bool   `json:"std,omitempty"`
+	// Codec marks a codec function that keeps its text body (codecText):
+	// no Ergo body, Name its Go name.
+	Codec   bool     `json:"codec,omitempty"`
 	Reasons []string `json:"reasons,omitempty"`
 }
 
