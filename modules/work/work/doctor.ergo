@@ -123,7 +123,7 @@ func Doctor(t Tool, o DoctorOptions) Report fails NoBase | BadConfig | Unkept | 
 	let oneCall = kind == "btrfs" && strings.Contains(","+opts+",", ",user_subvol_rm_allowed,")
 	let stale = try t.vcs.StatDirty(t.base)
 	let ok = trusted(t, c)
-	let mut notes = []string{}
+	let mut notes = []string{TrashNote(c)}
 	if kind == "btrfs" && !oneCall {
 		notes = notes.Append("a purge deletes each file: mount \(kind) with user_subvol_rm_allowed to make it one call")
 	}

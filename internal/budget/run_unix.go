@@ -42,8 +42,9 @@ func Run(ctx context.Context, b *Budget, req Request, argv []string, stdin io.Re
 	// the scope's memory.peak after the command (mem.ergo).
 	//   - The slice is capped at the budget, so the real use of all the
 	//     budget's commands never passes it (RealWithinMemory).
-	//   - A command with a recorded peak, or one that asked, is capped at its
-	//     reservation too: a run past it is killed alone (KilledPastOwnPeak).
+	//   - A command that asked is capped at what it asked, and one with a
+	//     recorded peak at its reservation or the default, the larger: a run
+	//     past it is killed alone (KilledPastOwnPeak, NotKilledBelowDefault).
 	//     A command never measured is not (UnknownNotCapped): it runs, and
 	//     its peak is recorded for its next take.
 	// Elsewhere the peak is the largest process's (rusage), with no cap.
@@ -59,8 +60,8 @@ func Run(ctx context.Context, b *Budget, req Request, argv []string, stdin io.Re
 		slice := sliceName(b.state)
 		exec.Command("systemctl", "--user", "set-property", "--runtime", slice, "MemoryMax="+strconv.FormatInt(g.slice, 10), "MemorySwapMax=0").Run()
 		scope := []string{"systemd-run", "--user", "--scope", "--quiet", "--collect", "--slice=" + slice, "-p", "OOMPolicy=continue"}
-		if g.capped {
-			scope = append(scope, "-p", "MemoryMax="+strconv.FormatInt(g.Memory(), 10), "-p", "MemorySwapMax=0")
+		if g.capAt > 0 {
+			scope = append(scope, "-p", "MemoryMax="+strconv.FormatInt(g.capAt, 10), "-p", "MemorySwapMax=0")
 		}
 		run = append(append(scope, "sh", "-c", peakScript, "sh", peakFile), argv...)
 	}
@@ -121,11 +122,7 @@ func Run(ctx context.Context, b *Budget, req Request, argv []string, stdin io.Re
 		peak = maxRSS(cmd.ProcessState)
 		killed = code == 128+int(syscall.SIGKILL)
 	}
-	own := int64(0)
-	if g.capped {
-		own = g.Memory()
-	}
-	g.Finish(code, KeptPeak(own, code, killed, peak))
+	g.Finish(code, KeptPeak(g.capAt, code, killed, peak))
 	return code, nil
 }
 
