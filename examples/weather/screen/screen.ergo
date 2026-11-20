@@ -44,7 +44,7 @@ func Panel(f mut ui.Frame[weather.Signal], p weather.Panel) {
 	case None:
 	case Some[ui.Async[weather.Report, Refused]] as a:
 		ui.Boundary(f) {
-			report(f, try ui.Await[weather.Report, Refused](a.Value))
+			report(f, try ui.Await(a.Value))
 		} catch {
 		case ui.Pending:
 			ui.Text(f, LoadingText)

@@ -140,7 +140,7 @@ func zoneFollows(seed int, n int, m time.Manual) bool needs Scheduler {
 		}
 		let box = Rect{X: Length(float64(draw(&r, 50))), Y: Length(float64(draw(&r, 50))), W: 40, H: 20}
 		// A host sends a Zone of its own, which the composer replaces.
-		let p = PointerEvent{Phase: Moved, X: float64(draw(&r, 100)), Y: float64(draw(&r, 100)), Zone: Some{Value: ZoneHit{Path: []Key{ByInt(-2)}, Box: box, X: 0.0, Y: 0.0}}}
+		let p = PointerEvent{Pointer: MousePointer, Phase: Moved, X: float64(draw(&r, 100)), Y: float64(draw(&r, 100)), Zone: Some{Value: ZoneHit{Path: []Key{ByInt(-2)}, Box: box, X: 0.0, Y: 0.0}}}
 		let c = draw(&r, ncols)
 		let k = draw(&r, cards[c])
 		let hit = Some{Value: ZoneHit{Path: []Key{}, Box: box, X: p.X - float64(box.X), Y: p.Y - float64(box.Y)}}

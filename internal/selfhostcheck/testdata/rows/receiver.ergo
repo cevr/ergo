@@ -1,0 +1,17 @@
+// A capability named only as a call's receiver: no signature of the
+// package names it, so its row is printed from the charge alone (the
+// message's row text must not need the row interned first).
+
+type Store { Get() string }
+
+type Clock { Now() int }
+
+func Read() string {
+	return Store.Get() //want: rows
+}
+
+func Stamp() int {
+	Clock.Now() //want: rows
+}
+
+func main() {}

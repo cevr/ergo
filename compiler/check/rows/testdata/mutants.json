@@ -1,0 +1,6 @@
+{
+  "about": "Mutants of compiler/check/rows, the self-hosted checker's row pass (capstone S3, tip 5b S3-ROWS). The agreement with the Go checker over testdata/rows (TestCompilerRowsAgreeWithChecker) kills each.",
+  "mutants": [
+    {"name":"rows-capability-receiver-free","origin":"wf10 S3-ROWS ROWTEXT","file":"compiler/check/rows/rows.ergo","from":"\t\t\tcharge(w, s, x, cap.Value)\n","to":"\t\t\tw.tries = w.tries\n","rule":"An operation called on a capability named as the receiver charges that capability (call.go modeCapFn), and its S102 prints the capability with no signature naming it (testdata/rows/receiver.ergo).","killers":["internal/selfhostcheck:TestCompilerRowsAgreeWithChecker"],"anchor":{"tests":["internal/selfhostcheck:TestCompilerRowsAgreeWithChecker"]},"regenerate":{"dir":".","argv":["go","run","./scripts/linked"]}}
+  ]
+}

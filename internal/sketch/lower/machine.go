@@ -153,7 +153,10 @@ func (l *lowerer) machinePlan(b *strings.Builder, td *typeDecl) {
 		if fd.fallible {
 			results = "(" + result + ", error)"
 		}
-		b.WriteString("func (" + td.name + ") Step(" + env + " *" + l.env() + ", " + s + " " + state + ", " + e + " " + signal + ") " + results + " {\n\treturn " + call([]string{env}) + "\n}\n\n")
+		// The Step takes the environment (the runner passes one to a step
+		// that fails or reads it); a failing step that reads none takes
+		// none (ENV-FREE-FALLIBLE), so it is passed only to one that does.
+		b.WriteString("func (" + td.name + ") Step(" + env + " *" + l.env() + ", " + s + " " + state + ", " + e + " " + signal + ") " + results + " {\n\treturn " + call(fd.envLead(env)) + "\n}\n\n")
 	})
 	if m.start == nil {
 		l.machineInit(td, initial)
