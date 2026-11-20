@@ -72,15 +72,17 @@ var unformat = strings.NewReplacer(
 // not a second definition of "the same law", but the formatter's, as far
 // as a statement can be compared without importing the formatter (which
 // runtime/v1's runners could not: hostsyntax imports runtime/v1). Over
-// every std law with source text, respaced as above: the formatter
-// prints the respaced law as it prints the source, and Same holds the
-// source's statement the same as the respaced law and as the formatter's
-// output. Over seeded single-token edits of each statement (a name, an
+// every std law with source text: Same holds the source's statement the
+// same as the formatter's text of the law; and, respaced as above where
+// the formatter prints the respaced law as it prints the source (it keeps
+// a list's layout, which the respacing may change), the same as the
+// respaced law; at least half the laws are compared so. A member rewrite
+// law, which the formatter cannot take alone, is skipped. Over seeded single-token edits of each statement (a name, an
 // operator, a number, a space inside a string) Same holds them different.
 // A failing law prints its key and the edit; the seed is fixed (1).
 //
-// Mutant only it kills (internal/lawledger/testdata/mutants.json):
-// same-paren-in-word.
+// Mutants only it kills (internal/lawledger/testdata/mutants.json):
+// same-paren-in-word, same-interpolation-as-text.
 func TestLawledgerSameIsTheFormatters(t *testing.T) {
 	sources := stdLawSources(t)
 	if len(sources) == 0 {
@@ -91,33 +93,38 @@ func TestLawledgerSameIsTheFormatters(t *testing.T) {
 	number := regexp.MustCompile(`\b[0-9]+\b`)
 	operator := regexp.MustCompile(` (==|!=|&&|\|\||\+|<|>) `)
 	swap := map[string]string{"==": "!=", "!=": "==", "&&": "||", "||": "&&", "+": "-", "<": ">", ">": "<"}
+	alone, layout, respacedSame := 0, 0, 0
 	for _, key := range sortedKeys(sources) {
 		src := sources[key]
 		statement := lawledger.Normalize(src)
 		respaced := outsideLiterals(src, unformat.Replace)
-		format := func(text string) (string, bool) {
+		format := func(text string) (string, error) {
 			out, err := hostsyntax.Source("law " + text + "\n")
-			if err != nil {
-				t.Errorf("%s: the formatter refuses the law %q: %v", key, text, err)
-				return "", false
-			}
-			return lawledger.Normalize(strings.TrimPrefix(out, "law ")), true
+			return lawledger.Normalize(strings.TrimPrefix(out, "law ")), err
 		}
-		fromSource, ok1 := format(src)
-		fromRespaced, ok2 := format(respaced)
-		if !ok1 || !ok2 {
+		fromSource, err := format(src)
+		if err != nil {
+			// A member rewrite law ({ a; b } == { c }) is no top-level
+			// declaration, so the formatter cannot take it alone.
+			alone++
 			continue
 		}
-		if fromSource != fromRespaced {
-			t.Errorf("%s: the respacing is not the formatter's to undo:\n\t%s\n\t%s", key, fromSource, fromRespaced)
-			continue
+		// The formatter's text of the law is the law; so it is to Same.
+		if !lawledger.Same(statement, fromSource) {
+			t.Errorf("%s: Same refuses the formatter's text of the law:\n\t%s\n\t%s", key, statement, fromSource)
 		}
-		// The formatter equates the source, the respaced law and its
-		// output; so must Same.
-		for _, text := range []string{respaced, fromSource} {
-			if !lawledger.Same(statement, text) {
-				t.Errorf("%s: Same refuses a text the formatter equates with the law:\n\t%s\n\t%s", key, statement, lawledger.Normalize(text))
-			}
+		fromRespaced, err := format(respaced)
+		switch {
+		case err != nil:
+			t.Errorf("%s: the formatter refuses the respaced law %q: %v", key, respaced, err)
+		case fromRespaced != fromSource:
+			// The formatter keeps a list's layout (one element a line), which
+			// the respacing can change: no claim about this law.
+			layout++
+		case !lawledger.Same(statement, respaced):
+			t.Errorf("%s: Same refuses a respacing the formatter undoes:\n\t%s\n\t%s", key, statement, lawledger.Normalize(respaced))
+		default:
+			respacedSame++
 		}
 		pick := func(at [][]int) []int { return at[r.IntN(len(at))] }
 		var edits []string
@@ -143,6 +150,10 @@ func TestLawledgerSameIsTheFormatters(t *testing.T) {
 				t.Errorf("%s: Same holds a changed law the same:\n\t%s\n\t%s", key, statement, e)
 			}
 		}
+	}
+	t.Logf("%d laws: %d respaced and held the same, %d kept in the formatter's layout, %d not formattable alone", len(sources), respacedSame, layout, alone)
+	if respacedSame*2 < len(sources) {
+		t.Errorf("only %d of %d laws were respaced and compared", respacedSame, len(sources))
 	}
 }
 

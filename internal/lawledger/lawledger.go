@@ -135,27 +135,41 @@ var operators = []string{
 
 // tokens is s as Same reads it.
 func tokens(s string) []string {
+	out, _ := scan(s, 0, false)
+	return out
+}
+
+// scan is the tokens of s from i. A semicolon is a line break, so white
+// space. In an interpolation (inner), it ends after the ) that closes it,
+// and gives the index after that.
+func scan(s string, i int, inner bool) ([]string, int) {
 	var out []string
-	for i := 0; i < len(s); {
+	depth := 0
+	for i < len(s) {
 		c := s[i]
 		n := 1
 		switch {
-		case c == ' ' || c == '\t' || c == '\n' || c == '\r':
+		case c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == ';':
 			i++
 			continue
 		case c == '"' || c == '\'' || c == '`':
-			for n < len(s)-i && s[i+n] != c {
-				if s[i+n] == '\\' && c != '`' {
-					n++
-				}
-				n++
-			}
-			n = min(n+1, len(s)-i)
+			var lit []string
+			lit, i = literal(s, i)
+			out = append(out, lit...)
+			continue
 		case isWord(c):
 			for n < len(s)-i && isWord(s[i+n]) {
 				n++
 			}
 		default:
+			if inner && c == ')' && depth == 0 {
+				return out, i + 1
+			}
+			if c == '(' {
+				depth++
+			} else if c == ')' {
+				depth--
+			}
 			for _, op := range operators {
 				if strings.HasPrefix(s[i:], op) {
 					n = len(op)
@@ -166,7 +180,47 @@ func tokens(s string) []string {
 		out = append(out, s[i:i+n])
 		i += n
 	}
-	return out
+	return out, i
+}
+
+// literal is the tokens of the literal that opens at s[i], and the index
+// after it: its text with each run of white space made one space, as the
+// ledger writes a statement, split at each interpolation \( … ) of a
+// string, whose code is tokens (the formatter formats it).
+func literal(s string, i int) ([]string, int) {
+	q := s[i]
+	var out []string
+	var b strings.Builder
+	b.WriteByte(q)
+	i++
+	space := false
+	for i < len(s) {
+		c := s[i]
+		switch {
+		case q == '"' && c == '\\' && i+1 < len(s) && s[i+1] == '(':
+			code, next := scan(s, i+2, true)
+			out = append(append(append(out, b.String(), "\\("), code...), ")")
+			b.Reset()
+			i, space = next, false
+			continue
+		case c == '\\' && q != '`' && i+1 < len(s):
+			b.WriteString(s[i : i+2])
+			i, space = i+2, false
+			continue
+		case c == ' ' || c == '\t' || c == '\n' || c == '\r':
+			if !space {
+				b.WriteByte(' ')
+			}
+			i, space = i+1, true
+			continue
+		}
+		b.WriteByte(c)
+		i, space = i+1, false
+		if c == q {
+			break
+		}
+	}
+	return append(out, b.String()), i
 }
 
 // isWord reports a byte of a word: a letter, a digit, _ or a byte of a
