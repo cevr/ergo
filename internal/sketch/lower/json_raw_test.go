@@ -213,6 +213,6 @@ func TestJSONRawAgrees(t *testing.T) {
 // jsonRawLawStatements is each Raw law's ledger statement.
 var jsonRawLawStatements = map[string]string{
 	"json RawReadsOneValue": `RawReadsOneValue(x Raw) { let v = RawOf(x.text) catch { case _: return true } let r = Reader{c: open("[7," + v.text + ",7]", 0, 0) catch { case _: return false }} let (a, y, b) = decode[(int, Raw, int)](r) catch { case _: return false } a == 7 && y == v && b == 7 }`,
-	"json RawRoundTrips": `RawRoundTrips(d doc, sp int) { rawRoundTrips(d, sp) }`,
-	"json RawIsValue": `RawIsValue(d doc, sp int) { rawIsValue(d, sp) }`,
+	"json RawRoundTrips":    `RawRoundTrips(d doc, sp int) { rawRoundTrips(d, sp) }`,
+	"json RawIsValue":       `RawIsValue(d doc, sp int) { rawIsValue(d, sp) }`,
 }

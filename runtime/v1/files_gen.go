@@ -117,6 +117,7 @@ var bodyTable = []bodyRow{
 	{"Cursor.Number", bodyFact{body: Body{Results: []string{"string"}, Wait: "none", Package: Path}}},
 	{"Cursor.Path", bodyFact{body: Body{Results: []string{"string"}, Wait: "none", Package: Path}}},
 	{"Cursor.Skip", bodyFact{body: Body{Wait: "none", Package: Path}}},
+	{"Cursor.SkipText", bodyFact{body: Body{Results: []string{"string"}, Wait: "none", Package: Path}}},
 	{"Cursor.String", bodyFact{body: Body{Results: []string{"string"}, Wait: "none", Package: Path}}},
 	{"Cursor.StringBytes", bodyFact{body: Body{Params: []Param{{Type: "[]byte"}}, Results: []string{"[]byte"}, Wait: "none", Package: Path}}},
 	{"Cursor.Tag", bodyFact{body: Body{Results: []string{"string"}, Wait: "none", Package: Path}}},
