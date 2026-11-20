@@ -2333,9 +2333,10 @@ The exempt types and their reasons are in their doc comments: `Console`, `Ambien
 | `scope` | `ActionsRunLastFirst` | `ActionsRunLastFirst() { let mut order = "" let f = func() { OnExit() { order = order + "a" } OnExit() { order = order + "b" } } f() order == "ba" }` | `TestStdLawsRun` | tested |
 | `sha1` | `SumIs20Bytes` | `SumIs20Bytes(s string) { len(Sum(s)) == 20 }` | `TestStdDigestLaws` | tested |
 | `sha256` | `SumIs32Bytes` | `SumIs32Bytes(s string) { len(Sum(s)) == 32 }` | `TestStdDigestLaws` | tested |
-| `sha256` | `PartsAreTheWhole` | `PartsAreTheWhole(s string, cuts []int) { let mut h = New() let mut at = 0 for c in cuts { let end = at + (c%(len(s)+1)+len(s)+1)%(len(s)+1) let stop = if end > len(s) { len(s) } else { end } h.Write(s[at:stop]) at = stop } h.Write(s[at:len(s)]) h.Digest() == Sum(s) }` | `TestStdDigestLaws` | tested |
-| `sha256` | `NothingIsSumOfEmpty` | `NothingIsSumOfEmpty() { New().Digest() == Sum("") }` | `TestStdDigestLaws` | tested |
-| `sha256` | `DigestKeepsTheHasher` | `DigestKeepsTheHasher(a string, b string) { let mut h = New() h.Write(a) let _ = h.Digest() h.Write(b) h.Digest() == Sum(a + b) }` | `TestStdDigestLaws` | tested |
+| `sha256` | `PartsAreTheWhole` | `PartsAreTheWhole(s string, cuts []int) { let h = New() let mut at = 0 for c in cuts { let end = at + (c%(len(s)+1)+len(s)+1)%(len(s)+1) let stop = if end > len(s) { len(s) } else { end } h.Write(s[at:stop]) at = stop } h.Write(s[at:len(s)]) h.Digest() == Sum(s) }` | `TestStdDigestLaws` | tested |
+| `sha256` | `NothingIsSumOfEmpty` | `NothingIsSumOfEmpty() { let h = New() h.Digest() == Sum("") }` | `TestStdDigestLaws` | tested |
+| `sha256` | `DigestKeepsTheHasher` | `DigestKeepsTheHasher(a string, b string) { let h = New() h.Write(a) let _ = h.Digest() h.Write(b) h.Digest() == Sum(a + b) }` | `TestStdDigestLaws` | tested |
+| `sha256` | `CloneForks` | `CloneForks(a string, b string, c string) { let h = New() h.Write(a) let k = h.Clone() h.Write(b) k.Write(c) h.Digest() == Sum(a + b) && k.Digest() == Sum(a + c) }` | `TestStdDigestLaws` | tested |
 | `sha512` | `SumIs64Bytes` | `SumIs64Bytes(s string) { len(Sum(s)) == 64 }` | `TestStdDigestLaws` | tested |
 | `signal` | `RaisedInOrder` | `RaisedInOrder(picks []int) { let mut raised = []Stop{} for p in picks { raised = raised.Append(stopOf((p%3+3)%3 + 1)) } let s = NewScript(raised) for k in raised { if s.Next() != k { return false } } s.Poll() == None }` | `TestStdLawsRun` | tested |
 | `signal` | `PollTakesOnce` | `PollTakesOnce(pick int) { let k = stopOf((pick%3+3)%3 + 1) let s = NewScript([]Stop{k}) s.Poll() == Some[Stop]{Value: k} && s.Poll() == None }` | `TestStdLawsRun` | tested |

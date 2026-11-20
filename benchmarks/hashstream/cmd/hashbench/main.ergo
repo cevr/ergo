@@ -1,0 +1,48 @@
+// hashbench holds std sha256's streaming Hasher's counted probe (CAP-HASH),
+// with a hand Go twin in ../../testdata/control; the workload is
+// ../../stream (go run ./scripts/opcount -control -rounds 5
+// benchmarks/hashstream/stream).
+//
+//	hashbench bench N
+//
+// N writes of one 4 KiB part to one sha256.Hasher, then its digest; one
+// unit is one write. It prints the digest's first byte, so the twin's
+// output is checked against it.
+
+import os
+import sha256
+import strconv
+import strings
+
+// part is 4 KiB of every byte value, in turn.
+func part() string {
+	let mut b = strings.NewBuilder()
+	for i in 0..4096 {
+		b.WriteByte(byte(i % 256))
+	}
+	b.String()
+}
+
+// bench hashes n parts and gives the digest's first byte.
+func bench(n int) int {
+	let p = part()
+	let h = sha256.New()
+	for _ in 0..n {
+		h.Write(p)
+	}
+	int(h.Digest()[0])
+}
+
+func main() fails os.Exit needs Console | Ambient {
+	with context { os.Process: os.NewHost() } {
+		let args = os.Process.Args()
+		if len(args) != 2 || args[0] != "bench" {
+			return os.Exit{Code: 2, Message: "usage: hashbench bench N"}
+		}
+		let n = strconv.Atoi(args[1]) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return os.Exit{Code: 2, Message: "hashbench: N is not a count"}
+		}
+		Console.Println("\(bench(n))")
+	}
+}
