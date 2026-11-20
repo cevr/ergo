@@ -780,6 +780,10 @@ const (
 	// is true when it matches the whole of its first argument (types.md,
 	// Refinements 11). Added in FKre.
 	CallPattern
+	// CallHash is the hash built-in, hash(k): the uint64 hash of a value
+	// of a comparable type, generated from its declared type as == is
+	// (types.md, Maps; CONSTRAINTS C5).
+	CallHash
 	// CallKindCount bounds the call kinds. Keep it last: exhaustive
 	// consumers must account for a newly admitted kind.
 	CallKindCount
@@ -1094,6 +1098,10 @@ type Test struct {
 	Name   string
 	Decl   *syntax.TestDecl
 	Params []*Var
+	// Ties are, for each parameter, the earlier parameters of an
+	// identical type whose drawn value a generated case may repeat
+	// (Law.Ties; runtime.md, Tests).
+	Ties [][]int
 
 	file *fileInfo // the declaring file, selected while the test is checked
 }
@@ -1145,6 +1153,24 @@ type Law struct {
 	// Where holds the refinement of each parameter that takes a where
 	// (refine.go), at its index in Params; nil without any.
 	Where []*Refinement
+	// Ties are, for each parameter, the earlier parameters of an
+	// identical type, neither with a where, whose drawn value a generated
+	// case may repeat, so that a run reaches equal arguments (the tie
+	// rule; runtime.md, Tests; CONSTRAINTS C2). A parameter of a generic
+	// owner's type parameter ties with another of the same parameter.
+	Ties [][]int
+	// Admit holds, at the index of each parameter whose where names an
+	// earlier parameter or an operation of the law's type (CONSTRAINTS
+	// C5; lawwhere.go), the admission law of that where: a law over the
+	// parameters up to it whose body is the where. A case is admitted
+	// when every admission holds. nil without any.
+	Admit []*Law
+	// Near holds, at the same index, the earlier parameter of an
+	// identical type that the where names, whose near variants the run
+	// searches for the parameter's value, or -1.
+	Near []int
+	// Admits is the law an admission law belongs to (Admit), or nil.
+	Admits *Law
 	// Rewrite is the checked form of a rewrite law (Decl.Rewrite; types.md,
 	// Laws 14), nil for any other law or one whose shape was refused.
 	Rewrite *Rewrite
@@ -1221,6 +1247,10 @@ type LawProvider struct {
 	Slot   *Named
 	Params []Type
 	Ptr    bool
+	// Witnesses are, for a law of a generic operation type whose type
+	// parameter operations constrain, the witness of each such parameter
+	// at the provider's instance (lawWitnesses), in order.
+	Witnesses []Witness
 
 	// noGenerator marks an Unrun that says the values have no generator;
 	// lawRuns adds the fix the law's shape admits (lawProviderFix).

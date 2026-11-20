@@ -55,3 +55,93 @@ law MaxMinSplit(a int, b int) { Max(a, b) == Max(b, a) && Min(a, b) == Min(b, a)
 
 // LessIsCompareBelowZero: Less is Compare's -1.
 law LessIsCompareBelowZero(a string, b string) { Less(a, b) == (Compare(a, b) < 0) }
+
+// Order is an order on T as a provider (#211; CONSTRAINTS C3; Effect's
+// Order<A>, the compare of Go's slices.SortFunc). Compare is negative
+// when a is before b, positive when a is after b, and 0 when neither is.
+// A type may have many orders (ByPriority, ByName), an order may hold
+// fields, and a program may order a type it does not own. A call names
+// its order: slices.SortBy(xs, ByPriority). Nothing is looked up. Each
+// type that implements Order runs its three laws, which make Compare a
+// total preorder: what a sort needs.
+type Order[T] {
+	Compare(a T, b T) int,
+
+	// Reflexive: a value is neither before nor after itself.
+	law Reflexive(a T) { Compare(a, a) == 0 },
+
+	// Antisymmetric: a is before b exactly when b is after a, and they
+	// tie both ways or not at all.
+	law Antisymmetric(a T, b T) { (Compare(a, b) < 0) == (Compare(b, a) > 0) && (Compare(a, b) == 0) == (Compare(b, a) == 0) },
+
+	// Transitive: a not after b, and b not after c, gives a not after c.
+	law Transitive(a T, b T, c T) {
+		if Compare(a, b) <= 0 && Compare(b, c) <= 0 {
+			return Compare(a, c) <= 0
+		}
+		true
+	},
+}
+
+// Natural is the order of Compare on an ordered type, as a provider:
+// slices.SortBy(xs, cmp.Natural[int]) sorts as slices.Sort does, a NaN
+// first.
+type Natural[T ordered] {} implements Order[T]
+
+// Compare is Natural's order: the package's Compare.
+func Compare[T ordered](_ Natural[T], a T, b T) int { Compare(a, b) }
+
+// Reverse is the order Of, backwards: b before a where Of puts a before b.
+type Reverse[T any, O Order[T]] { Of O } implements Order[T]
+
+// Compare is Reverse's order: Of's with the arguments swapped.
+func Compare[T any, O Order[T]](r Reverse[T, O], a T, b T) int { r.Of.Compare(b, a) }
+
+// Then is first unless it is 0, and next when it is: the order of a record
+// by its fields, the first field first.
+//
+//	cmp.Then(cmp.Compare(a.Priority, b.Priority), cmp.Compare(a.Name, b.Name))
+//
+// It is Rust's Ordering::then, Gleam's order.break_tie, Go's cmp.Or and
+// Effect's Order.combine on results. Its laws make it a monoid with
+// identity 0, so a chain of any length over orders is an order.
+func Then(first int, next int) int {
+	if first != 0 {
+		return first
+	}
+	next
+}
+
+// isOrder reports whether o meets Order's three laws at a, b and c: the
+// member laws, stated at an instance that a generic provider cannot run.
+func isOrder[T any, O Order[T]](o O, a T, b T, c T) bool {
+	let reflexive = o.Compare(a, a) == 0
+	let antisymmetric = (o.Compare(a, b) < 0) == (o.Compare(b, a) > 0) && (o.Compare(a, b) == 0) == (o.Compare(b, a) == 0)
+	let transitive = !(o.Compare(a, b) <= 0 && o.Compare(b, c) <= 0) || o.Compare(a, c) <= 0
+	reflexive && antisymmetric && transitive
+}
+
+// NaturalIntIsAnOrder: Natural[int] meets Order's laws.
+law NaturalIntIsAnOrder(a int, b int, c int) { isOrder(Natural[int], a, b, c) }
+
+// NaturalStringIsAnOrder: Natural[string] meets Order's laws.
+law NaturalStringIsAnOrder(a string, b string, c string) { isOrder(Natural[string], a, b, c) }
+
+// NaturalFloatIsAnOrder: Natural[float64] meets Order's laws, a NaN
+// included, which is equal to a NaN and before every other value.
+law NaturalFloatIsAnOrder(a float64, b float64, c float64) { isOrder(Natural[float64], a, b, c) }
+
+// ReverseOfNaturalIsAnOrder: Reverse of an order meets Order's laws.
+law ReverseOfNaturalIsAnOrder(a int, b int, c int) { isOrder(Reverse[int, Natural[int]]{Of: Natural[int]}, a, b, c) }
+
+// ReverseTwiceIsTheOrder: Reverse of Reverse of an order is the order.
+law ReverseTwiceIsTheOrder(a int, b int) { Reverse[int, Reverse[int, Natural[int]]]{Of: Reverse[int, Natural[int]]{Of: Natural[int]}}.Compare(a, b) == Compare(a, b) }
+
+// ThenIsAssociative: a chain gives one result however it is grouped.
+law ThenIsAssociative(a int, b int, c int) { Then(Then(a, b), c) == Then(a, Then(b, c)) }
+
+// ThenOfZeroIsNext: 0 first gives next.
+law ThenOfZeroIsNext(b int) { Then(0, b) == b }
+
+// ThenWithZeroIsFirst: 0 next gives first.
+law ThenWithZeroIsFirst(a int) { Then(a, 0) == a }

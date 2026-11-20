@@ -29,6 +29,9 @@ type LawContext struct {
 	With    *With
 	Unrun   string
 	Params  []Type
+	// Witnesses are the generic owner's witnesses at the instance the
+	// context binds (lawWitnesses; LawProvider.Witnesses).
+	Witnesses []Witness
 }
 
 // planLawContexts adds to each law run the named contexts of this package
@@ -180,6 +183,9 @@ func (c *checker) lawContext(law *Law, w *Context) (LawContext, bool) {
 				}
 				break
 			}
+		}
+		if lc.Unrun == "" {
+			lc.Witnesses, lc.Unrun = c.lawWitnesses(own, cap.(*Named).TArgs)
 		}
 	}
 	if lc.Unrun == "" && law.Decl.Rewrite != nil && !freshEntry(w, node.entry) {

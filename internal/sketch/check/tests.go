@@ -238,6 +238,7 @@ func (c *checker) checkTest(test *Test) {
 			}
 		}
 	}
+	test.Ties = c.ties(test.Params, nil)
 	c.functionBody(d.Body, name)
 	c.reportGoCopyWrites(d.Body)
 	c.reportUnused(fc)

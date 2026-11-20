@@ -347,8 +347,11 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 		// A pure function takes no environment (pure.go): no Task result
 		// and no witness either, so its call passes its operands alone.
 		lead := fc.witnessArgs(c.Func, fc.l.info.Instances[x], x)
-		if sp != nil && sp.wit != nil && !known {
-			lead = nil // the copy for a known witness takes none (witspec.go)
+		if sp != nil && sp.wit != nil && !known || mono != nil && mono.wits != nil {
+			// The copy for a known witness takes none (witspec.go), nor
+			// does a copy for an instance whose witnesses are known
+			// (mono.go monoWitnesses).
+			lead = nil
 		}
 		if !fd.envFree {
 			lead = append(fc.taskDestArgs(x, c, c.Func.Sig), lead...)
@@ -1059,7 +1062,7 @@ func (fc *funcCtx) declaredValue(f *check.Func, fd *funcDecl, sig *check.Signatu
 		}
 		// An instance's witnesses, from its operations (witness.go): a
 		// struct value passed on each call of the value.
-		lead = append(lead, fc.witnessArgs(f, inst, site)...)
+		wits := fc.witnessArgs(f, inst, site)
 		var head string
 		switch {
 		case fd.method != nil:
@@ -1068,11 +1071,14 @@ func (fc *funcCtx) declaredValue(f *check.Func, fd *funcDecl, sig *check.Signatu
 			head = fd.name + fc.typeArgs(f.Sig, inst.TypeArgs, site)
 			if mono := fc.monoAt(nil, nil, f, inst.TypeArgs); mono != nil {
 				head = mono.name // the instance's plain copy (mono.go)
+				if fc.monoWitnesses(mono, inst); mono.wits != nil {
+					wits = nil // its witnesses are known: it takes none
+				}
 			}
 		default:
 			head = fd.name
 		}
-		args = append(lead, args...)
+		args = append(append(lead, wits...), args...)
 		call := head + "(" + strings.Join(args, ", ") + ")"
 		var result check.Type
 		if len(sig.Results) == 1 {

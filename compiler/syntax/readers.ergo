@@ -225,7 +225,8 @@ func IndexExprOf(t Tree, id dense.ID[Node]) IndexExpr {
 func MapTypeOf(t Tree, id dense.ID[Node]) MapType {
 	let i = uint32(dense.Index(id))
 	let tok = t.tok[int(i)]
-	MapType{X: nid(t, fixed(t, i, 2, 0)), Lbrack: int(tok), Key: nid(t, item(t, i, 0)), Value: nid(t, item(t, i, 1)), Rbrack: int(fixed(t, i, 2, 1))}
+	let hashing = if items(t, i, 2) == 3 { onid(t, item(t, i, 2)+uint32(1)) } else { dense.NoID[Node]() }
+	MapType{X: nid(t, fixed(t, i, 2, 0)), Lbrack: int(tok), Key: nid(t, item(t, i, 0)), Value: nid(t, item(t, i, 1)), Hashing: hashing, Rbrack: int(fixed(t, i, 2, 1))}
 }
 
 // SliceExprOf reads a row of kind KSliceExpr.
