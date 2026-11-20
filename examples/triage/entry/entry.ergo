@@ -1,0 +1,66 @@
+// Package entry is a log entry and the orders a triage sorts entries by.
+//
+// An order is a provider of cmp.Order[Entry]: a record with no fields
+// whose Compare is the field comparisons chained by cmp.Then, the first
+// field first. The package's test build runs cmp.Order's laws (Reflexive,
+// Antisymmetric, Transitive) against each order, and the laws below state
+// what each order puts first.
+
+import strconv
+import strings
+
+// Entry is one line of a log: how severe it is (its rank in Severities,
+// debug 0 to error 3), the host that wrote it, and its line number in the
+// log.
+type Entry { Severity int, Host string, Line int }
+
+// Severities are the severity names, by rank.
+let Severities = []string{"debug", "info", "warn", "error"}
+
+// Bad is a line of the log that is not `SEVERITY HOST`.
+type Bad { Line int, Text string }
+
+// Parse is the entry the n-th line of a log, text, holds: a severity name
+// and a host, separated by spaces.
+func Parse(text string, n int) Entry fails Bad {
+	let fields = strings.Fields(text)
+	if len(fields) != 2 {
+		return Bad{Line: n, Text: text}
+	}
+	let severity = rank(fields[0])
+	if severity < 0 {
+		return Bad{Line: n, Text: text}
+	}
+	Entry{Severity: severity, Host: fields[1], Line: n}
+}
+
+// rank is the rank of the severity name, or -1 when it names none.
+func rank(name string) int {
+	for i in 0..len(Severities) {
+		if Severities[i] == name {
+			return i
+		}
+	}
+	-1
+}
+
+// Format is the line a triage prints for e: its severity, its host and
+// its line number.
+func Format(e Entry) string {
+	Severities[e.Severity] + " " + e.Host + " " + strconv.Itoa(e.Line)
+}
+
+// Generate is a log of n entries, the same for the same n: severities and
+// hosts drawn by a linear congruential generator.
+func Generate(n int) string {
+	let mut b = strings.NewBuilder()
+	let mut x = 7
+	for _ in 0..n {
+		x = (x*1103515245 + 12345) % 2147483648
+		let severity = x / 65536 % 4
+		x = (x*1103515245 + 12345) % 2147483648
+		let host = x / 65536 % 37
+		b.WriteString(Severities[severity] + " host-" + strconv.Itoa(host) + "\n")
+	}
+	b.String()
+}

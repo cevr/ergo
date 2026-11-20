@@ -1,0 +1,12 @@
+# scripts/opcount: sort N generated entries, the most severe first; the
+# cost of one entry is the slope between the two sizes, so reading and
+# start-up cancel only in part: both sizes read, sort and print. The
+# control is the hand Go program with the same parse, the same sort (the
+# same median-of-three quicksort with an insertion tail, the same range
+# stack and scan guards) and a concrete compare written lazily, and the
+# same print (CONSTRAINTS C4).
+unit entry
+sizes 20000 200000
+input self -gen {n}
+args -by severity
+control examples/triage/testdata/control

@@ -168,14 +168,34 @@ func speak(c Cat) string { return "meow" }
 
 func speak(c Cat) string { return "purr" }
 `, want: []selfWant{{"S108", "speak is already declared in this package", 7}}},
-		{name: "first parameter not a local type", src: `
+		// One plain function may share the name (CONSTRAINTS C3:
+		// cmp.Compare beside Natural's Compare): a plain call names it,
+		// x.speak() the member. Mutants it alone catches
+		// (testdata/mutants.json): c3-plain-beside-members-refused,
+		// c3-plain-not-in-scope.
+		{name: "one plain function beside a member", src: `
 
 type Cat { name string }
 
 func speak(c Cat) string { return "meow" }
 
 func speak(n int) string { return "n" }
-`, want: []selfWant{{"S108", "speak is already declared in this package", 7}}},
+
+func F() string {
+	let c = Cat{name: "a"}
+	return c.speak() + speak(1)
+}
+`},
+		{name: "two plain functions", src: `
+
+type Cat { name string }
+
+func speak(c Cat) string { return "meow" }
+
+func speak(n int) string { return "n" }
+
+func speak(s string) string { return s }
+`, want: []selfWant{{"S108", "speak is already declared in this package", 7}, {"S108", "speak is already declared in this package", 9}}},
 		{name: "a type and a function that is no member", src: `
 
 type Cat { name string }

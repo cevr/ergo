@@ -74,6 +74,10 @@ func TestDiagnosticsSmokePositions(t *testing.T) {
 		{"cr-code.ergo", "func main() {}\rfunc g() {}\n", []diagnosticsSmokeFinding{{"S001", "func g", 4}}},
 		{"checker.ergo", "func main() needs Console {\n\tConsole.Println(\"𐐀é\" + nope)\n}\n", []diagnosticsSmokeFinding{{"S104", "nope", 4}}},
 		{"clean-crlf.ergo", strings.ReplaceAll(sketchCleanSource, "\n", "\r\n"), nil},
+		// A constraint the argument does not satisfy (CONSTRAINTS C2,
+		// decision 6): the checker makes the text and span once, and
+		// both surfaces carry them.
+		{"constraint.ergo", "type Ranked[T Ranked[T]] {\n\tCompare(other T) int,\n}\n\nfunc Top[T Ranked[T]](a T, b T) T {\n\tif a.Compare(b) < 0 {\n\t\treturn b\n\t}\n\ta\n}\n\nfunc main() needs Console {\n\tlet n = Top(7, 8)\n\tConsole.Println(\"\\(n)\")\n}\n", []diagnosticsSmokeFinding{{"S108", "Top(7, 8)", 9}}},
 	} {
 		t.Run(fixture.name, func(t *testing.T) {
 			t.Parallel()
@@ -115,6 +119,9 @@ func TestDiagnosticsSmokePositions(t *testing.T) {
 				}
 				if !reflect.DeepEqual(listed[index].(map[string]any)["span"], span) {
 					t.Fatalf("check span %v, report span %v", listed[index], span)
+				}
+				if m := listed[index].(map[string]any)["message"]; m != finding["message"] {
+					t.Fatalf("check message %q, report message %q", m, finding["message"])
 				}
 				lsp, _ := finding["lsp"].(map[string]any)
 				wantRange := map[string]any{

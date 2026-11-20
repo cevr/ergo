@@ -125,7 +125,7 @@ var lawNoBinder = map[string]string{
 	"UnaryExpr.X": lawUse, "VarSpec.Values": lawUse,
 	"AssignStmt.Lhs": "an assignment writes a let mut already bound; Ergo has no :=",
 	"ArrayType.Elt":  lawType, "CompositeLit.Type": lawType, "ErrorRow.Types": lawType, "Field.Type": lawType,
-	"InterfaceType.Union": lawType, "MapType.Key": lawType, "MapType.Value": lawType, "NeedsClause.Names": lawType,
+	"InterfaceType.Union": lawType, "TypeTerm.Type": lawType, "MapType.Key": lawType, "MapType.Value": lawType, "MapType.Hashing": lawType, "NeedsClause.Names": lawType,
 	"ProvidesClause.Names": lawType, "MachineType.Signal": lawType, "MachineType.State": lawType, "LawReach.Targets": lawType,
 	"TypeDecl.Where": lawWhere, "Field.Where": lawWhere,
 	"TypeDecl.Derive": "a derive's plan is evaluated at check time from constants and plan functions (patterns.md); no law body holds it",

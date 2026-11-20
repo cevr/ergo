@@ -25,3 +25,10 @@ internal/sketch/check/never.go	c.pkg.Path == stdlib.PreludePath	Never, the prelu
 internal/sketch/check/never.go	n.Obj.Pkg.Path != stdlib.PreludePath	Never, the prelude's empty union (FKG2); predeclared language type
 internal/sketch/check/withown.go	n.Obj.Pkg.Path == c.pkg.Path	with release seed: this package's types are named again in the second check, not a std identity
 internal/sketch/check/withown.go	oa.Pkg.Path != ob.Pkg.Path	with release seed: a type of the second check is the first's, by declaration, not a std identity
+internal/sketch/check/entry.go	o.Pkg.Path == stdlib.PreludePath	Machine and InputMachine, predeclared language types, read by declaration: the prelude's own check unifies them before prelude() returns (CONSTRAINTS C5)
+internal/sketch/check/expr.go	c.pkg.Path != stdlib.PreludePath	the prelude writes its Map table as the record it is; no other package can name hashTable (CONSTRAINTS C5, types.md Maps 5)
+internal/sketch/check/laws.go	law.Pkg.Path != stdlib.PreludePath	a prelude law is named bare, as every prelude name is written (CONSTRAINTS C5)
+internal/sketch/check/mapprovider.go	c.pkg.Path == stdlib.PreludePath	the prelude's own check reads its Map types from its scope (CONSTRAINTS C5)
+internal/sketch/check/mapprovider.go	o.Pkg.Path != stdlib.PreludePath	hashTable, the predeclared Map's provider form (types.md Maps 5, 6; CONSTRAINTS C5b)
+internal/sketch/check/mapshape.go	c.pkg.Path == stdlib.PreludePath	the prelude's own providers get no derived normal form (types.md Maps 6; CONSTRAINTS C5b)
+internal/sketch/check/mapprovider.go	o.Pkg.Path == stdlib.PreludePath	Structural and hashTable, the predeclared Map's provider forms (types.md Maps 1, 5; CONSTRAINTS C5)

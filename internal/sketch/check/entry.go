@@ -1,6 +1,7 @@
 package check
 
 import (
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 	"slices"
 	"strconv"
@@ -738,8 +739,14 @@ func (c *checker) machineAfter(t Type) *Func {
 // Machine.
 func isPreludeMachine(t Type) bool {
 	n, ok := t.(*Named)
-	m := preludeType("Machine")
-	return ok && m != nil && n.origin() == m
+	if !ok {
+		return false
+	}
+	// By its declaration, not preludeType: the prelude's own check
+	// unifies its generic types here, before prelude() returns (a
+	// re-entrant prelude() waits on itself).
+	o := n.origin().Obj
+	return o != nil && o.Name == "Machine" && o.Pkg != nil && o.Pkg.Path == stdlib.PreludePath
 }
 
 // machineValue is the prelude Machine[S, E, O, F, R, W] that a value of
@@ -824,7 +831,11 @@ func (c *checker) machineValue(t Type) (*Named, *Func) {
 // converts to.
 func isPreludeMachineValue(t Type) bool {
 	n, ok := t.(*Named)
-	return ok && (isPreludeMachine(t) || preludeType("InputMachine") != nil && n.origin() == preludeType("InputMachine"))
+	if !ok {
+		return false
+	}
+	o := n.origin().Obj // by declaration, as isPreludeMachine
+	return o != nil && (o.Name == "Machine" || o.Name == "InputMachine") && o.Pkg != nil && o.Pkg.Path == stdlib.PreludePath
 }
 
 // checkEntry checks main (rows.md, Capability rows 4; README Gaps 4 and 5):

@@ -17196,8 +17196,8 @@ func ApiDiff_2(env *Env, old []Contract, new_1 []Contract) []ApiChange {
 	for _, v_6 := range v_5 {
 		var n string = v_6
 		{
-			v_7 := Get_13[string, Contract](before, n)
-			v_8 := Get_13[string, Contract](after_1, n)
+			v_7 := Get_14[string, Contract](before, n)
+			v_8 := Get_14[string, Contract](after_1, n)
 			if ergoEqualOption_2(v_7, v_8) {
 				goto next
 			}
@@ -17416,7 +17416,7 @@ func (v MachineView) MachineText(env *Env) string {
 	}
 	v_15 := ergo.SlicesSortFunc[Timer](v_12, func(p Timer, p_1 Timer) int {
 		r, _ := func(env_2 *Env, x Timer, y Timer) (int, error) {
-			v_14 := Compare_1(x.State, y.State)
+			v_14 := Compare_3(x.State, y.State)
 			return v_14, nil
 		}(env, p, p_1)
 		return r
@@ -17438,7 +17438,7 @@ func (v MachineView) MachineText(env *Env) string {
 	}
 	v_21 := ergo.SlicesSortFunc[Place](v_18, func(p_2 Place, p_3 Place) int {
 		r_1, _ := func(env_3 *Env, x_1 Place, y_1 Place) (int, error) {
-			v_20 := Compare_1(x_1.What, y_1.What)
+			v_20 := Compare_3(x_1.What, y_1.What)
 			return v_20, nil
 		}(env, p_2, p_3)
 		return r_1
@@ -17459,7 +17459,7 @@ func (v MachineView) MachineText(env *Env) string {
 	}
 	v_27 := ergo.SlicesSortFunc[Place](v_24, func(p_4 Place, p_5 Place) int {
 		r_2, _ := func(env_4 *Env, x_2 Place, y_2 Place) (int, error) {
-			v_26 := Compare_1(x_2.What, y_2.What)
+			v_26 := Compare_3(x_2.What, y_2.What)
 			return v_26, nil
 		}(env, p_4, p_5)
 		return r_2
@@ -19553,7 +19553,7 @@ func (t Tables) apiOf(env *Env, q ApiQuery) (ApiView, error) {
 			t_2 := p_1.Path
 			v_3 := ergo.SlicesSortFunc[Contract](p_1.Contracts, func(p_2 Contract, p_3 Contract) int {
 				r, _ := func(env_1 *Env, a Contract, b Contract) (int, error) {
-					v_2 := Compare_1(a.Name, b.Name)
+					v_2 := Compare_3(a.Name, b.Name)
 					return v_2, nil
 				}(env, p_2, p_3)
 				return r
@@ -19720,7 +19720,7 @@ func textNoPackage(v NoPackage) string {
 	return "{" + "Package:" + v.Package + "}"
 }
 
-// ergoOrdered is Ergo's ordered: the integer, float, string and duration types and the types defined over them.
+// ergoOrdered is the type set of ordered.
 type ergoOrdered interface {
 	~int | ~int8 | ~int16 | ~int32 | ~int64 | ~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64 | ~uintptr | ~float32 | ~float64 | ~string
 }
@@ -19771,7 +19771,7 @@ func KeysMono_i1(m map[string]bool) Seq[string] {
 	})
 }
 
-func Get_13[K comparable, V any](m map[K]V, k K) Option[V] {
+func Get_14[K comparable, V any](m map[K]V, k K) Option[V] {
 	if v, ok := m[k]; ok {
 		return (Option[V]{}).of0(Some[V]{Value: v})
 	}
@@ -19812,12 +19812,12 @@ func (p Place) placeText() string {
 	return (p.File + ":" + string(strconv.AppendInt(make([]byte, 0, 20), int64(p.Line), 10)))
 }
 
-func Clone_4[T any](xs []T) []T {
+func Clone_5[T any](xs []T) []T {
 	v := ergo.SlicesClone[T](slices.Clip(xs))
 	return v
 }
 
-func Compare_1(a string, b string) int {
+func Compare_3(a string, b string) int {
 	r := strings.Compare(a, b)
 	return r
 }
@@ -26555,7 +26555,7 @@ func (report Report) rowsOf(env *Env, moved map[string]string, to string, shifts
 		out = ergo.Reserve(out, len(p.Decls))
 		for _, v_10 := range p.Decls {
 			var d Decl = v_10
-			v_11 := Get_13[string, string](moved, d.Handle)
+			v_11 := Get_14[string, string](moved, d.Handle)
 			var renamedHere bool = (v_11 != (Option[string]{tag: 1}))
 			var v_12 string
 			if renamedHere {

@@ -105,6 +105,14 @@ func (b *irBuilder) scalarBasic(t check.Type) *check.Basic {
 		switch u := t.(type) {
 		case *check.Basic:
 			return u
+		case *check.TypeParam:
+			// In a copy for an instance (ir_instance.go) a type parameter
+			// is its type argument: `<` on int is the machine compare.
+			if !b.fc.mono || b.fc.bound[u] == nil {
+				return nil
+			}
+			t = b.fc.bound[u]
+			continue
 		case *check.Named:
 			if u.Obj.Decl == nil || len(u.TArgs) > 0 {
 				return nil

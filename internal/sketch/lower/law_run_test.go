@@ -947,8 +947,18 @@ func genLawRunProgram(r *rand.Rand, i int) lawRunProgram {
 		failed++
 	}
 	b.WriteString("func Sum(a int, b int) int { a + b }\n\n")
-	b.WriteString("func main() {}\n")
 	total := providers + 1
+	if i%2 == 0 {
+		// A law broken only at equal arguments (CONSTRAINTS C2): two
+		// drawn Pairs are rarely equal, so only the tie rule refutes it.
+		// It is decided by the program's number, not drawn, so the other
+		// draws of the seed stay as they were.
+		b.WriteString("type Pair { X int, S string }\n\nlaw Distinct(a Pair, b Pair) { a != b }\n\n")
+		want = append(want, "FAIL law Distinct (case ")
+		failed++
+		total++
+	}
+	b.WriteString("func main() {}\n")
 	exit := 0
 	if failed > 0 {
 		exit = 1
@@ -963,7 +973,9 @@ func genLawRunProgram(r *rand.Rand, i int) lawRunProgram {
 // operation types with 1-3 providers, one of them broken at random (or
 // none), exactly the broken provider fails, with its name and the seed, and
 // the top-level law runs as well. A failure prints the program's source.
-// ERGO_LAWRUN_SEED replays another seed.
+// ERGO_LAWRUN_SEED replays another seed. An even program also has a law
+// false only at equal arguments (CONSTRAINTS C2), which the test build's
+// tie rule must refute: mutant c2-build-tie-dropped.
 func TestLawRunFindsTheBrokenProvider(t *testing.T) {
 	needsBuild(t)
 	seed := int64(162)

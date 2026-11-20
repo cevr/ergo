@@ -165,12 +165,62 @@ func (b *irBuilder) passedWitnesses(f *check.Func, inst *check.Instance, params 
 	for i, tp := range params {
 		own, isParam := instArg(f, inst, tp, f.Decl).(*check.TypeParam)
 		l, has := b.wits[own]
-		if !isParam || !has || b.fc.witnessType(tp, own) != b.fc.witnessType(own, own) {
+		if !isParam || !has || !b.sameWitness(f, inst, tp, own) {
 			irNo("call that passes the caller's witness")
 		}
 		out[i] = &irExpr{K: "local", Pos: p, I: l}
 	}
 	return out
+}
+
+// sameWitness reports that the witness the callee f takes for tp at inst
+// is the caller's own witness for its type parameter own: the same Go
+// struct. A constraint that names only its own parameter compares by its
+// witness type. One that names other parameters of the callee
+// (`O Ord[T]`) compares by its operation type and its type arguments at
+// inst, each a type of the caller: in a copy for an instance a Go type,
+// and in a generic caller its own type parameters too (the callee's T is
+// read at inst, never written in the caller).
+func (b *irBuilder) sameWitness(f *check.Func, inst *check.Instance, tp, own *check.TypeParam) bool {
+	if witnessClosed(tp) {
+		return b.fc.witnessType(tp, own) == b.fc.witnessType(own, own)
+	}
+	cn, ok := tp.Constraint.(*check.Named)
+	on, ok2 := own.Constraint.(*check.Named)
+	if !ok || !ok2 || cn.Obj != on.Obj || len(cn.TArgs) != len(on.TArgs) {
+		return false
+	}
+	for i, a := range cn.TArgs {
+		if p, isParam := a.(*check.TypeParam); isParam {
+			a = instArg(f, inst, p, f.Decl)
+		} else if mentionsTypeParam(a) {
+			return false // a type of the callee's parameters, no Go type here
+		}
+		if b.fc.goType(a) != b.fc.goType(on.TArgs[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+// witnessClosed reports a constraint of tp whose operations name no type
+// parameter but tp: its witness type, written in the caller, names no
+// type parameter of the callee. Ord[T] of `O Ord[T]` names the callee's
+// T, which is no Go type in the caller (CONSTRAINTS C4: spread calling
+// below with its own T and O stopped the lowering).
+func witnessClosed(tp *check.TypeParam) bool {
+	it := constraintOf(tp)
+	if it == nil {
+		return false
+	}
+	for _, m := range it.Methods {
+		for _, p := range freeTypeParams(m.Sig) {
+			if p != tp {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // witnessGate stops a body with witness parameters when the callee side
@@ -259,6 +309,9 @@ func (b *irBuilder) witnessCopy(x *syntax.CallExpr, c *check.Call) string {
 // result has the uniform shape, (value, error), as a function value's:
 // call and try bind it so (ir_call.go, ir_fail.go).
 func (b *irBuilder) witnessOpCall(x *syntax.CallExpr, c *check.Call, tp *check.TypeParam, ptr bool, p irPos) ([]*irStmt, *irExpr, bool) {
+	if pre, e, effect, ok := b.directOp(x, c, tp, ptr, p); ok {
+		return pre, e, effect // a copy for an instance (ir_instance.go)
+	}
 	if b.fc.static[tp] != nil {
 		// knownWitnessOp made every call it admits a direct call before
 		// this (callParts); the rest keep the emitter's copy.

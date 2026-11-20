@@ -90,6 +90,7 @@ var skipFields = map[string]string{
 	"check.checker.elidedAs":     "set only while an elided literal is checked",
 	"check.checker.nodeOrder":    "a memo of the source order, rebuilt on use",
 	"check.checker.neverOrigins": "a memo per union origin (never.go), rebuilt on use",
+	"check.checker.slotBounds":   "a memo per generic type (slotbound.go), rebuilt on use",
 	"check.cellSite.of":          "read only by checkCells, which ran before the export (cells.go, GB-RACE)",
 	// A module package's importer serves its check alone (check/snapshothook.go,
 	// ModuleImporter); the decoded wrapper imports nothing.

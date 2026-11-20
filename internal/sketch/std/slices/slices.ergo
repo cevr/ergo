@@ -86,6 +86,126 @@ extern go ergo.local/prototype/runtime/v1.SlicesSortFunc func SortFunc[T](xs []T
 // xs.
 extern go ergo.local/prototype/runtime/v1.SlicesSortStableFunc func SortStableFunc[T](xs []T, compare func(a T, b T) int) []T
 
+// SortBy is a copy of xs sorted by the order by: a before b where
+// by.Compare(a, b) < 0 (#211; CONSTRAINTS C3). It is Go's
+// slices.SortFunc(xs, cmp) with the compare a provider of cmp.Order, so a
+// call names its order, slices.SortBy(entries, ByPriority), and a copy of
+// SortBy for the provider calls its Compare directly. The order of equal
+// elements is not kept. It is a median-of-three quicksort with an
+// insertion sort under 13 elements. An order that breaks cmp.Order's laws
+// gives some order of the same elements: it never loses one, never reads
+// outside xs and always ends.
+func SortBy[T any, O cmp.Order[T]](xs []T, by O) []T {
+	let mut out = Clone(xs)
+	if len(out) < 2 {
+		return out
+	}
+	// The ranges still to sort, as lo, hi pairs below top: the larger part
+	// of each split waits here, so it holds at most 2·log2(len(xs))
+	// entries. A pop moves top and keeps the storage, so the stack
+	// allocates only when it grows past its deepest point so far.
+	let mut todo = []int{0, len(out)}
+	let mut top = 2
+	for top > 0 {
+		let mut hi = todo[top-1]
+		let mut lo = todo[top-2]
+		top = top - 2
+		for hi-lo > 12 {
+			let m = lo + (hi-lo)/2
+			let last = hi - 1
+			if by.Compare(out[m], out[lo]) < 0 {
+				let t = out[m]
+				out[m] = out[lo]
+				out[lo] = t
+			}
+			if by.Compare(out[last], out[lo]) < 0 {
+				let t = out[last]
+				out[last] = out[lo]
+				out[lo] = t
+			}
+			if by.Compare(out[last], out[m]) < 0 {
+				let t = out[last]
+				out[last] = out[m]
+				out[m] = t
+			}
+			let p = out[m]
+			let mut i = lo
+			let mut j = last
+			for i <= j {
+				for i < last && by.Compare(out[i], p) < 0 {
+					i = i + 1
+				}
+				for j > lo && by.Compare(p, out[j]) < 0 {
+					j = j - 1
+				}
+				if i <= j {
+					let t = out[i]
+					out[i] = out[j]
+					out[j] = t
+					i = i + 1
+					j = j - 1
+				}
+			}
+			// lo..j+1 and i..hi are each shorter than lo..hi: sort the
+			// shorter now and keep the longer for later.
+			let mut wlo = lo
+			let mut whi = j + 1
+			if j+1-lo < hi-i {
+				wlo = i
+				whi = hi
+				hi = j + 1
+			} else {
+				lo = i
+			}
+			if top == len(todo) {
+				todo = todo.Append(wlo).Append(whi)
+			} else {
+				todo[top] = wlo
+				todo[top+1] = whi
+			}
+			top = top + 2
+		}
+		for i in lo+1..hi {
+			let mut j = i
+			for j > lo && by.Compare(out[j], out[j-1]) < 0 {
+				let t = out[j]
+				out[j] = out[j-1]
+				out[j-1] = t
+				j = j - 1
+			}
+		}
+	}
+	out
+}
+
+// IsSortedBy reports whether xs is in order by by: no element is before
+// the one ahead of it.
+func IsSortedBy[T any, O cmp.Order[T]](xs []T, by O) bool {
+	for i in 1..len(xs) {
+		if by.Compare(xs[i], xs[i-1]) < 0 {
+			return false
+		}
+	}
+	true
+}
+
+// SortByIsSorted: SortBy's result is sorted by its order.
+law SortByIsSorted(xs []int) { IsSortedBy(SortBy(xs, cmp.Natural[int]), cmp.Natural[int]) }
+
+// SortByIsAPermutation: SortBy's result holds the elements of xs, each as
+// often, under any order, a backward one too.
+law SortByIsAPermutation(xs []int) {
+	let sorted = SortBy(xs, cmp.Reverse[int, cmp.Natural[int]]{Of: cmp.Natural[int]})
+	let mut same = len(sorted) == len(xs)
+	for x in xs {
+		same = same && count(sorted, x) == count(xs, x)
+	}
+	same
+}
+
+// SortByOfNaturalIsSort: SortBy by Natural is Sort.
+law SortByOfNaturalIsSort(xs []int) { Equal(SortBy(xs, cmp.Natural[int]), Sort(xs)) }
+
 // SortStableKeepsTies: of two elements whose keys are equal,
 // SortStableFunc keeps first the one that is first in xs. The key is
 // x % 3, so ties are common.
