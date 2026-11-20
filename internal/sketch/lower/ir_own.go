@@ -400,7 +400,8 @@ func (b *irBuilder) releaseFuncs(name, helper string, params []string) bool {
 	local := func(i int) *irExpr { return &irExpr{K: "local", Pos: p, I: i} }
 	deref := func(i int) *irExpr { return &irExpr{K: "deref", Pos: p, X: local(i)} }
 	// The deferred release: env, live, kept, err, then the slots.
-	h := &irBuilder{fc: b.fc, l: l, st: b.st, locals: map[*check.Var]int{}, env: 0, names: b.names, own: o}
+	h := b.st.newBuilder(b.fc, nil) // a helper of b's analyzed body
+	h.env, h.names, h.own = 0, b.names, o
 	h.fn = &irFunc{Name: helper, Pos: p, End: p}
 	liveL, keptL, errL := 1, -1, -1
 	h.next = 2
@@ -462,7 +463,8 @@ func (b *irBuilder) releaseFuncs(name, helper string, params []string) bool {
 		if s.helper == "" {
 			continue
 		}
-		f := &irBuilder{fc: b.fc, l: l, st: b.st, locals: map[*check.Var]int{}, env: 0, names: b.names, next: 2, own: o}
+		f := b.st.newBuilder(b.fc, nil) // a helper of b's analyzed body
+		f.env, f.names, f.next, f.own = 0, b.names, 2, o
 		c, _ := f.closeCall(s, 0, 1, p)
 		f.fn = &irFunc{Name: s.helper, Pos: p, End: p, Body: []*irStmt{{K: "expr", Pos: p, X: c}}}
 		b.st.out.Funcs = append(b.st.out.Funcs, *f.fn)
@@ -867,7 +869,8 @@ func (st *irState) ownedWrapper(fc *funcCtx, fd *funcDecl, head, params, results
 		return false // a census counts bodies; a wrapper is not one
 	}
 	f := fd.fn
-	b := &irBuilder{fc: fc, l: fc.l, st: st, locals: map[*check.Var]int{}, env: -1, fn: &irFunc{}}
+	b := st.newBuilder(fc, nil) // a wrapper: no source statements
+	b.fn = &irFunc{}
 	keep := st.keep
 	defer func() {
 		if r := recover(); r != nil {

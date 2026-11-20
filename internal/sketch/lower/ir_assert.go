@@ -22,7 +22,7 @@ import (
 // it did, and the test's declaration is then written without one.
 func (st *irState) testBody(fc *funcCtx, d *syntax.TestDecl, name string, params []*check.Var, needsFrame bool) (ok bool) {
 	l := fc.l
-	b := &irBuilder{fc: fc, l: l, st: st, locals: map[*check.Var]int{}, env: -1}
+	b := st.newBuilder(fc, d)
 	defer st.finish(b, l.pkg.Path, name, d, false, &ok)
 	if needsFrame {
 		b.gate("body that needs a frame")
@@ -59,7 +59,8 @@ func (st *irState) testBody(fc *funcCtx, d *syntax.TestDecl, name string, params
 // type stays the emitter's.
 func (st *irState) lawBody(fc *funcCtx, law *check.Law, name string, needsFrame bool) (ok bool) {
 	l, d := fc.l, law.Decl
-	b := &irBuilder{fc: fc, l: l, st: st, locals: map[*check.Var]int{}, env: -1, result: fc.frame.result, law: law}
+	b := st.newBuilder(fc, d)
+	b.result, b.law = fc.frame.result, law
 	defer st.finish(b, law.Pkg.Path, name, d, law.Pkg.Std(), &ok)
 	if needsFrame {
 		b.gate("body that needs a frame")

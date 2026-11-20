@@ -549,6 +549,26 @@ type irUnsupported struct{ reason string }
 
 func irNo(format string, args ...any) { panic(irUnsupported{fmt.Sprintf(format, args...)}) }
 
+// newBuilder is the one way to start an IR body. root is the declaration
+// whose source statements the body lowers (a function, a test, a law),
+// and the value rule must have analyzed it first (analyzeValues): the
+// builder reads the rule's copies as facts (valueCopy, copyOf), and a body
+// built before them shares what the rule copies, silently (KMEANS-LAW: a
+// law's IR body was built before its analysis, so `let mut y = x` shared
+// x and a write through y reached x). A body built from an unanalyzed root
+// stops the lowering here, so no path can get the order wrong. root is nil
+// only for a body with no source statements of its own: a machine value's
+// adapter, a codec cell, an owned wrapper and the release helpers of an
+// analyzed body.
+func (st *irState) newBuilder(fc *funcCtx, root syntax.Node) *irBuilder {
+	if root != nil && !isNilNode(root) {
+		if _, ok := fc.l.valueFacts().roots[root]; !ok {
+			unreachable(root, ruleValuesFirst, "the IR body of %T built before the value rule analyzed it", root)
+		}
+	}
+	return &irBuilder{fc: fc, l: fc.l, st: st, locals: map[*check.Var]int{}, env: -1}
+}
+
 // irBuilder builds one function's IR body.
 type irBuilder struct {
 	fc     *funcCtx
@@ -744,7 +764,12 @@ func (b *irBuilder) part(f func()) {
 // name (a gate keeps it a Go body).
 func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []string, drop bool) (ok bool) {
 	f := fd.fn
-	b := &irBuilder{fc: fc, l: fc.l, st: st, locals: map[*check.Var]int{}, env: -1, result: fc.frame.result}
+	var root syntax.Node
+	if f != nil && f.Decl != nil {
+		root = f.Decl
+	}
+	b := st.newBuilder(fc, root)
+	b.result = fc.frame.result
 	b.factLocals() // ir_bounds.go
 	// A body that falls back is the emitter's, whose walk starts with no
 	// facts: none of this walk's stays (deferred first, so it runs after
