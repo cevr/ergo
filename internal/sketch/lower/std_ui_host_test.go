@@ -3395,7 +3395,7 @@ func edgeFrames(seed int, m time.Manual) bool needs Scheduler {
 	let start = ui.Length(float64(draw(&r, int(float64(most)) + 1)))
 	let band = draw(&r, 3)
 	let y = if band == 0 { float64(draw(&r, 32)) } else if band == 1 { float64(height) - float64(draw(&r, 32)) } else { float64(height) / 2.0 }
-	let view = func(f *ui.Frame[int], s int) {
+	let view = func(f mut ui.Frame[int], s int) {
 		ui.Area(f, "a", ui.Plain(), func(p ui.PointerEvent) Option[int] { None }) {
 			ui.Rows(f, "list", n, rh, func(i int) ui.Key { ui.ByInt(i) }, func(i int) {
 				ui.Text(f, "row \(i)")

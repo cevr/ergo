@@ -398,7 +398,7 @@
       "to": "case file == \"no \"+opcount.WorkloadFile && !entry.IsDir():",
       "rule": "A program of packages may hold a workload file (scripts/opcount).",
       "killers": [
-        "scripts/examples:TestRepoExamplesHoldTheirLaws",
+        "scripts/examples:TestRepoLayoutIsClean",
         "scripts/examples:TestModuleProgramWorkload"
       ]
     },
@@ -427,7 +427,7 @@
       "from": "map[string]bool{spec: true}",
       "to": "map[string]bool{spec: false}",
       "rule": "A workload package may hold its workload file beside its .ergo files.",
-      "killers": ["scripts/examples:TestModuleProgramWorkload", "scripts/examples:TestRepoExamplesHoldTheirLaws"]
+      "killers": ["scripts/examples:TestModuleProgramWorkload", "scripts/examples:TestRepoLayoutIsClean"]
     },
     {
       "name": "md2-mod-cold-skipped",
@@ -533,6 +533,10 @@
     {"name":"gs31b-main-build-unchecked","origin":"wf10 GS31b","file":"scripts/examples/cache.go","from":"\t\tbuilt = built || l.Package == main && l.Build != \"\"\n","to":"\t\tbuilt = true\n","rule":"A key whose main package has no build digest is refused (fail closed).","killers":["scripts/examples:TestPatternKeyCoversEveryTarget"]},
     {"name":"gs31b-json-lawcache-on","origin":"wf10 GS31b","file":"scripts/examples/main.go","from":"(args[0] == \"check\" || args[0] == \"test\" && slices.Contains(args, \"--json\"))","to":"args[0] == \"check\"","rule":"The key call checks with the law-verdict store off, as every check does.","killers":["scripts/examples:TestPatternKeyIsOneCall"]},
     {"name":"gs31a-hang-not-failed","origin":"wf10 GS31a","file":"internal/cases/exec.go","from":"\t\t\to.TimedOut = true\n","to":"\n","rule":"A case or leg that hangs past its safety net is stopped, fails, and the failure names the hang.","killers":["scripts/examples:TestCaseProcessGroupIsStopped"]},
-    {"name":"gs31a-folders-unshared","origin":"wf10 GS31a","file":"scripts/examples/main.go","from":"\tp.checked = loadPackageFolders(p.dir, entries)\n","to":"\tp.checked = nil\n","rule":"A program of packages is read with one load of its package folders; the asset scan and the law rule share it.","killers":["scripts/examples:TestModuleProgramLoadsItsPackagesOnce"]}
+    {"name":"gs31a-folders-unshared","origin":"wf10 GS31a","file":"scripts/examples/main.go","from":"\tp.checked = loadPackageFolders(p.dir, entries)\n","to":"\tp.checked = nil\n","rule":"A program of packages is read with one load of its package folders; the asset scan and the law rule share it.","killers":["scripts/examples:TestModuleProgramLoadsItsPackagesOnce"]},
+    {"name":"examples-layout-modules-skipped","origin":"wf10 LAYOUT-RED","file":"scripts/examples/main.go","from":"\treturn programs, modules, append(problems, moduleProblems...)\n","to":"\t_ = moduleProblems\n\treturn programs, modules, problems\n","rule":"A layout error of a module stops the runner and fails the fast tier.","killers":["scripts/examples:TestRepoLayoutIsClean"]},
+    {"name":"examples-layout-programs-skipped","origin":"wf10 LAYOUT-RED","file":"scripts/examples/main.go","from":"\tprograms, problems = loadExamples(root, record)\n","to":"\tprograms, _ = loadExamples(root, record)\n","rule":"A layout error of a program or a port stops the runner and fails the fast tier.","killers":["scripts/examples:TestRepoLayoutIsClean"]},
+    {"name":"examples-layout-go-unclaimed","origin":"wf10 LAYOUT-SIMD","file":"scripts/examples/modules.go","from":"\t\tcase goModule == \"\" || !claimed[importPath]:\n","to":"\t\tcase goModule == \"\":\n","rule":"A module holds only the Go packages its own extern go declarations bind (interop.md, Trusted Go 3).","killers":["scripts/examples:TestRepoLayoutIsClean"]},
+    {"name":"examples-layout-ledger-anywhere","origin":"wf10 LAYOUT-SIMD","file":"scripts/examples/main.go","from":"\t\tcase assets[filepath.Join(dir, name)] && entry.Type().IsRegular():\n","to":"\t\tcase (assets[filepath.Join(dir, name)] || name == \"ergo.laws\") && entry.Type().IsRegular():\n","rule":"A module's law ledger sits beside ergo.mod (facts.md 3), never in a package folder.","killers":["scripts/examples:TestRepoLayoutIsClean"]}
   ]
 }
