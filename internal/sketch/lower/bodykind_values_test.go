@@ -107,6 +107,12 @@ func kindsVerdicts(out string) map[string]string {
 		got[name] = "no verdict"
 		for _, l := range lines(out) {
 			switch {
+			case (l == "ok "+name || strings.HasPrefix(l, "ok "+name+" ")) && strings.Contains(l, "(evaluated)"):
+				// The evaluator decided it, so the IR never ran it: ergo
+				// test evaluates a package whose native build it does not
+				// make (KMEANS-LAW: with intMapFields off, VGeneric's
+				// build fails and the run passed evaluated).
+				got[name] = "evaluated, not run natively"
 			case l == "ok "+name || strings.HasPrefix(l, "ok "+name+" "):
 				got[name] = "passed"
 			case strings.HasPrefix(l, "FAIL "+name+" ") || strings.HasPrefix(l, "FAIL "+name+":"):
@@ -189,7 +195,7 @@ func TestValueRuleEveryBodyKind(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(dir, "kinds.ergo"), []byte(src), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		cmd := exec.Command(ergoCLI(t), "test", dir)
+		cmd := exec.Command(ergoCLI(t), "test", dir, "--native", "--count", "1")
 		cmd.Dir = dir
 		irOut, _ := cmd.CombinedOutput()
 		for _, run := range []struct{ name, out string }{{"the text path", text}, {"ergo test (the IR)", string(withoutBuildNote(irOut))}} {
