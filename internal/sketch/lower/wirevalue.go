@@ -26,7 +26,7 @@ func (l *lowerer) wireNumEncode(em wireEvents, tc *typeCtx, b *strings.Builder, 
 func (l *lowerer) wireNumDecode(tc *typeCtx, b *strings.Builder, t check.Type, env, task, r, zero string, scope *namer) {
 	p := l.info.WirePairOf(t)
 	x, err := scope.alloc("number"), scope.alloc("err")
-	b.WriteString(x + ", " + err + " := " + r + ".Number(" + task + ")\nif " + err + " != nil {\nreturn " + zero + ", " + err + "\n}\n")
+	b.WriteString(x + ", " + err + " := " + tc.readOp(env, r, "Number") + "\nif " + err + " != nil {\nreturn " + zero + ", " + err + "\n}\n")
 	b.WriteString(l.wireParseReturn(p.Parse, env, tc.site, tc.goType(p.Base)+"("+x+")"))
 }
 
@@ -73,9 +73,9 @@ func (l *lowerer) wireValueDecode(tc *typeCtx, b *strings.Builder, t check.Type,
 	// is on its tag (Q9, batch 22).
 	kinds := l.flatUnionOf(check.PreludeType("WireKind"))
 	if kinds != nil {
-		b.WriteString(kinds.head(tc, r+".Peek("+task+")") + "\n")
+		b.WriteString(kinds.head(tc, tc.readOp(env, r, "Peek")) + "\n")
 	} else {
-		b.WriteString("switch " + r + ".Peek(" + task + ").(type) {\n")
+		b.WriteString("switch " + tc.readOp(env, r, "Peek") + ".(type) {\n")
 	}
 	for _, variant := range wireUnder(t).(*check.Union).Variants {
 		kind := check.WireVariantKind(variant)
@@ -85,7 +85,7 @@ func (l *lowerer) wireValueDecode(tc *typeCtx, b *strings.Builder, t check.Type,
 			b.WriteString("case " + tc.goType(check.PreludeType(kind)) + ":\n")
 		}
 		if kind == "WireNull" {
-			b.WriteString(r + ".TakeNull(" + task + ")\nreturn " + tc.goType(variant) + "{}, nil\n")
+			b.WriteString(tc.readOp(env, r, "TakeNull") + "\nreturn " + tc.goType(variant) + "{}, nil\n")
 			continue
 		}
 		x := scope.alloc("x")
@@ -123,10 +123,10 @@ func (l *lowerer) wireMembersEncode(em wireEvents, tc *typeCtx, b *strings.Build
 func (l *lowerer) wireMembersDecode(tc *typeCtx, b *strings.Builder, t check.Type, env, task, r, zero string, scope *namer) {
 	outer, list, entry, td := tc.memberParts(t)
 	e, out, key, x := scope.alloc("err"), scope.alloc("members"), scope.alloc("key"), scope.alloc("value")
-	b.WriteString("if " + e + " := " + r + ".BeginObject(" + task + "); " + e + " != nil {\nreturn " + zero + ", " + e + "\n}\n")
-	b.WriteString(out + " := " + tc.goType(outer.Type) + "{}\nfor " + r + ".More(" + task + ") {\n")
-	b.WriteString(key + " := " + r + ".Key(" + task + ")\n")
+	b.WriteString("if " + e + " := " + tc.readOp(env, r, "BeginObject") + "; " + e + " != nil {\nreturn " + zero + ", " + e + "\n}\n")
+	b.WriteString(out + " := " + tc.goType(outer.Type) + "{}\nfor " + tc.readOp(env, r, "More") + " {\n")
+	b.WriteString(key + " := " + tc.readOp(env, r, "Key") + "\n")
 	b.WriteString(tc.wireDecode(entry.Fields[1].Type, env, r, x, zero, scope))
-	b.WriteString(out + " = append(" + out + ", " + tc.goType(list.Elem) + "{" + td.fieldName[entry.Fields[0].Name] + ": " + tc.goType(entry.Fields[0].Type) + "(" + key + "), " + td.fieldName[entry.Fields[1].Name] + ": " + x + "})\n}\n" + r + ".End(" + task + ")\n")
+	b.WriteString(out + " = append(" + out + ", " + tc.goType(list.Elem) + "{" + td.fieldName[entry.Fields[0].Name] + ": " + tc.goType(entry.Fields[0].Type) + "(" + key + "), " + td.fieldName[entry.Fields[1].Name] + ": " + x + "})\n}\n" + tc.readOp(env, r, "End") + "\n")
 	b.WriteString("return " + tc.wrapperValue(t, outer, out) + ", nil\n")
 }

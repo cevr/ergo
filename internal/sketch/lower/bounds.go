@@ -358,7 +358,7 @@ func (fc *funcCtx) stable(v *check.Var) bool {
 	if v == nil {
 		return false
 	}
-	if _, local := fc.locals[v]; !local {
+	if _, local := fc.locals[v]; !local && (fc.factLocal == nil || !fc.factLocal(v)) {
 		return false
 	}
 	return !v.Mut() || !fc.l.unstableVars()[v]

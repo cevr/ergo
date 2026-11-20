@@ -39,7 +39,31 @@ func TestIRUnaryOperandsMatchSource(t *testing.T) {
 //   - byteindex (red #31, NP4f-15's http query.ergo): the decoder refused
 //     a string or slice indexed by a byte, and a slice expression's byte
 //     bound (two derivative edits of the fork patch, which the irspike
-//     ledger's note names: red #31).
+//     ledger's note names: red #31);
+//   - gocalls (IR-GOCALLS): Go calls over go.Any, with a go.Ref result
+//     and with two results, and go.New, go.Zero, go.Is and go.As kept
+//     their source bodies; the IR's form of each must print what the
+//     source body prints (mutant irgc-any-elems-unconverted, whose IR the
+//     decoder refuses).
+//     IR-GOCALLS-2 adds kept (a Go result copied, mutant
+//     irgc2-result-copy-dropped) and eof (Go package variables).
+//   - gonil (IR-GOCALLS-4): a go.Ref result Go returns as nil (a user's
+//     extern go of flag.Lookup) is the same GoNilDefect on both paths
+//     (mutant irgc-nil-check-dropped).
+//   - sleeper (PORT-CALLS-2): a std body's hidden scheduler, the
+//     runtime's v1.Sleeper, from the program's Scheduler interface
+//     (timeout.PopWithin; mutant pc2-scheduler-unasserted);
+//   - substr (PORT-SLICE): a substring of a string and of a named type over
+//     one, its bounds checked (mutant ps-string-slice-refused);
+//   - update (PORT-UPDATE): a record update of a computed base, the base
+//     run once before the field values (mutant pu-computed-base-refused);
+//   - appender (SB-FLOOR): a []byte appender called on its receiver, its
+//     operand clipped unless the call writes it in place (the value rule,
+//     V3; mutant sb-std-value-rule-dropped).
+//   - mapkey (FLIP F7 PORT-TEMP, pipeline's failing): a Map key or a
+//     slice index whose calls run statements runs them after the map or
+//     slice and before the value's, and the element is fixed before the
+//     value's (mutants port-temp-key-after-value, port-temp-elem-unbound).
 //
 // It builds Go for the reason TestIRUnaryOperandsMatchSource does.
 func TestIRReprosMatchSource(t *testing.T) {
@@ -47,7 +71,7 @@ func TestIRReprosMatchSource(t *testing.T) {
 	for _, r := range []struct {
 		name string
 		fns  []string
-	}{{"notand", []string{"pick"}}, {"rowslot", []string{"held", "run"}}, {"byteindex", []string{"hex", "pick", "tail"}}} {
+	}{{"notand", []string{"pick"}}, {"rowslot", []string{"held", "run"}}, {"byteindex", []string{"hex", "pick", "tail"}}, {"gocalls", []string{"show", "pattern", "host", "stored", "split", "zone", "classify", "kept", "eof", "params", "cookie", "limited"}}, {"gonil", []string{"name"}}, {"sleeper", []string{"pop"}}, {"substr", []string{"tail", "cut", "head"}}, {"update", []string{"bump", "Store.moved"}}, {"appender", []string{"shared"}}, {"mapkey", []string{"keyed", "indexed", "slotted", "both", "Grid.gridded", "stepped", "added", "scaledOwned", "Box.moved", "Outer.bumped"}}} {
 		t.Run(r.name, func(t *testing.T) {
 			text, err := os.ReadFile(filepath.Join("testdata", r.name+".ergo"))
 			if err != nil {

@@ -50,6 +50,9 @@ func (b *irBuilder) goBuiltinCall(x *syntax.CallExpr, c *check.Call, f *check.Fu
 			args[i] = &irExpr{K: "deref", Pos: args[i].Pos, X: args[i]}
 		}
 	}
+	if pre, e, effect, ok := b.intMapBuiltin(x, name, list, pre, args, p, stmt); ok { // ir_intmap.go
+		return pre, e, effect
+	}
 	switch name {
 	case "append":
 		if len(args) != 2 {
