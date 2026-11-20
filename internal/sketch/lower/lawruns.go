@@ -17,7 +17,7 @@ import (
 // reached states (its ok line names the prefixes).
 var (
 	runLabel     = regexp.MustCompile(`CachedRun\("((?:[^"\\]|\\.)*)"\)`)
-	runInstance  = regexp.MustCompile(`\.instances = append\([^,]+, "((?:[^"\\]|\\.)*)"\)`)
+	runInstance  = regexp.MustCompile(`\.X?instances = append\([^,]+, "((?:[^"\\]|\\.)*)"\)`) // X: a split package's exported field
 	runPostLabel = regexp.MustCompile(`"ok ((?:[^"\\]|\\.)*) \(\d+ cases, prefixes up to "`)
 )
 
