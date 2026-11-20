@@ -361,7 +361,7 @@ func model(p prog, s []int, row int) outcome {
 	case pText as x:
 		done([]ui.Shape[int]{leaf(ui.TextNode{Value: "t\(s[x.slot] + row)", Style: ui.Plain()})})
 	case pInput as x:
-		done([]ui.Shape[int]{leaf(ui.InputNode{Value: "v\(s[x.slot] + row)", Placeholder: "type", Label: "", Description: "", Invalid: false})})
+		done([]ui.Shape[int]{leaf(ui.InputNode{Value: "v\(s[x.slot] + row)", Placeholder: "type", Label: "", Description: "", Invalid: false, Hints: ui.PlainHints, Lines: 1, Caret: len("v\(s[x.slot] + row)"), Anchor: len("v\(s[x.slot] + row)")})})
 	case pCheck as x:
 		done([]ui.Shape[int]{leaf(ui.CheckNode{Label: "c", Checked: s[x.slot]%2 == 0, On: s[x.slot] + row})})
 	case pSwap as x:
@@ -791,7 +791,7 @@ func extraLabel(v int) ui.FieldLabel {
 
 func extraShapes(v int) []ui.Shape[int] {
 	let l = extraLabel(v)
-	let kids = []ui.Shape[int]{leaf(ui.ToggleNode{Label: "tg\(v % 3)", On: true}), leaf(ui.InputNode{Value: "val", Placeholder: "ph\(v % 2)", Label: l.Text, Description: l.Description, Invalid: l.Invalid}), ui.Shape[int]{Node: ui.AreaNode{Label: "area\(v % 2)", Style: ui.Plain()}, Kids: []ui.Shape[int]{leaf(ui.TextNode{Value: "in area", Style: ui.Plain()})}}, leaf(ui.CanvasNode{Label: "c\(v % 4)", Width: 4, Height: 4, Paint: []ui.PaintOp{}}), leaf(ui.RowsNode{Label: "rows", Count: 0, RowHeight: 10, First: 0, Offset: 0})}
+	let kids = []ui.Shape[int]{leaf(ui.ToggleNode{Label: "tg\(v % 3)", On: true}), leaf(ui.InputNode{Value: "val", Placeholder: "ph\(v % 2)", Label: l.Text, Description: l.Description, Invalid: l.Invalid, Hints: ui.PlainHints, Lines: 1, Caret: len("val"), Anchor: len("val")}), ui.Shape[int]{Node: ui.AreaNode{Label: "area\(v % 2)", Style: ui.Plain()}, Kids: []ui.Shape[int]{leaf(ui.TextNode{Value: "in area", Style: ui.Plain()})}}, leaf(ui.CanvasNode{Label: "c\(v % 4)", Width: 4, Height: 4, Paint: []ui.PaintOp{}}), leaf(ui.RowsNode{Label: "rows", Count: 0, RowHeight: 10, First: 0, Offset: 0})}
 	[]ui.Shape[int]{ui.Shape[int]{Node: ui.FieldsetNode{Disabled: v%2 == 1, Description: "x\(v)"}, Kids: kids}}
 }
 
@@ -891,9 +891,9 @@ func cellShape(keys []int, rows Map[int, row]) []ui.Shape[int] {
 	let mut kids = []ui.Shape[int]{}
 	for k in keys {
 		let r = rowOf(rows, k)
-		kids = kids.Append(leaf(ui.InputNode{Value: r.a, Placeholder: "a", Label: "", Description: "", Invalid: false}))
+		kids = kids.Append(leaf(ui.InputNode{Value: r.a, Placeholder: "a", Label: "", Description: "", Invalid: false, Hints: ui.PlainHints, Lines: 1, Caret: len(r.a), Anchor: len(r.a)}))
 		kids = kids.Append(leaf(ui.TextNode{Value: r.a, Style: ui.Plain()}))
-		kids = kids.Append(ui.Shape[int]{Node: ui.RowNode{Style: ui.Plain()}, Kids: []ui.Shape[int]{leaf(ui.InputNode{Value: r.b, Placeholder: "b", Label: "", Description: "", Invalid: false})}})
+		kids = kids.Append(ui.Shape[int]{Node: ui.RowNode{Style: ui.Plain()}, Kids: []ui.Shape[int]{leaf(ui.InputNode{Value: r.b, Placeholder: "b", Label: "", Description: "", Invalid: false, Hints: ui.PlainHints, Lines: 1, Caret: len(r.b), Anchor: len(r.b)})}})
 		kids = kids.Append(leaf(ui.ToggleNode{Label: "t", On: r.on}))
 		kids = kids.Append(ui.Shape[int]{Node: ui.PressableNode{Label: "send", On: k, Style: ui.PressStyle()}, Kids: []ui.Shape[int]{leaf(ui.TextNode{Value: "send", Style: ui.Plain()})}})
 	}
@@ -955,7 +955,7 @@ func cellsFollowModel(seed int, steps int, unmount bool) bool {
 			let k = keys[at]
 			let old = rowOf(rows, k)
 			let mut now = old
-			let mut done = ui.Handled[int]{Signal: None, Changed: false}
+			let mut done = ui.Handled[int]{Signal: None, Changed: false, Ops: []ui.Op[int]{}}
 			match what {
 			case 1:
 				now.a = "s\(i % 3)"
@@ -1219,7 +1219,7 @@ func draft(vals Map[string, string], n string) string {
 }
 
 func input(vals Map[string, string], n string, placeholder string) ui.Shape[int] {
-	leaf(ui.InputNode{Value: draft(vals, n), Placeholder: placeholder, Label: "", Description: "", Invalid: false})
+	leaf(ui.InputNode{Value: draft(vals, n), Placeholder: placeholder, Label: "", Description: "", Invalid: false, Hints: ui.PlainHints, Lines: 1, Caret: len(draft(vals, n)), Anchor: len(draft(vals, n))})
 }
 
 func bshape(s bstate, vals Map[string, string]) []ui.Shape[int] {

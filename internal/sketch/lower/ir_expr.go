@@ -229,7 +229,7 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 				return &c
 			}
 			if i, known := b.locals[o]; known {
-				return b.handoff(x, &irExpr{K: "local", Pos: p, I: i}) // ir_own.go
+				return b.provRead(o, b.handoff(x, &irExpr{K: "local", Pos: p, I: i}), x) // ir_own.go, ir_known.go
 			}
 			if i, built := b.strBufs[o]; built {
 				return b.strCall("StrGet", i, p) // strbuf.go

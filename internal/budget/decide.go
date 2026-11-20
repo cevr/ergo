@@ -28,11 +28,11 @@ type Entry struct {
 	Ticket int64  `json:"ticket"`
 	Lane   string `json:"lane,omitempty"`
 	// Key is the entry's command (Request.Key) and Asked its --memory:
-	// what Reserve reads, at each decision, to charge a waiter. Capped
-	// says the holder runs capped at Memory (Reservation).
-	Key    string `json:"key,omitempty"`
-	Asked  int64  `json:"asked,omitempty"`
-	Capped bool   `json:"capped,omitempty"`
+	// what Reserve reads, at each decision, to charge a waiter. Cap is
+	// the memory the holder runs capped at, 0 for none (Reservation).
+	Key   string `json:"key,omitempty"`
+	Asked int64  `json:"asked,omitempty"`
+	Cap   int64  `json:"cap,omitempty"`
 }
 
 // State is the budget's state: who holds cores, who waits and in what
@@ -151,7 +151,7 @@ func (s *State) Admit(r Rules) []string {
 		i := s.Next(r)
 		if i != -1 && r.Peak != nil && r.Memory > 0 {
 			w := &s.Waiters[i]
-			w.Memory, w.Capped = Reservation(r, w.Asked, r.Peak(w.Key), r.Default)
+			w.Memory, w.Cap = Reservation(r, w.Asked, r.Peak(w.Key), r.Default)
 		}
 		if i == -1 || !s.Fits(r, s.Waiters[i]) {
 			return moved
@@ -168,27 +168,34 @@ func (s *State) Holds(id string) bool {
 	return slices.ContainsFunc(s.Holders, func(e Entry) bool { return e.ID == id })
 }
 
-// Reservation is the memory a take is charged, and whether its command is
-// capped at it (mem.ergo). A take that asks is charged and capped at what
-// it asks. A command with a recorded peak (the largest it reached; the
-// model's mutant LastPeak keeps the last) is charged and capped at that
-// peak and a quarter more, so a run is killed only past its own peak. A
-// command never measured is charged the default and not capped on its
-// own: it runs, its peak is recorded, and only the budget's slice can
-// kill it (the model's mutant CapUnknown caps it at the default, which
-// killed a 20G command twice before it fitted). A charge is never more
-// than the whole budget, which no take could then fit.
-func Reservation(r Rules, asked, peak, dflt int64) (res int64, capped bool) {
+// Reservation is the memory a take is charged, and the memory its command
+// is capped at, 0 for none (mem.ergo).
+//   - A take that asks is charged and capped at what it asks.
+//   - A command with a recorded peak (the largest it reached; the model's
+//     mutant LastPeak keeps the last) is charged that peak and a quarter
+//     more, so a run is killed only past its own peak. Its cap is never
+//     below the default (the model's mutant CapAtPeak): a short run's low
+//     peak lowers the charge, never the kill (2026-11-20, a run that failed
+//     fast, exit 0, at 1.1G capped its full rerun at 1.4G, which the cap
+//     killed in its compile).
+//   - A command never measured is charged the default and not capped on
+//     its own: it runs, its peak is recorded, and only the budget's slice
+//     can kill it (the model's mutant CapUnknown caps it at the default,
+//     which killed a 20G command twice before it fitted).
+//
+// Neither is ever more than the whole budget, which no take could fit.
+func Reservation(r Rules, asked, peak, dflt int64) (res, capAt int64) {
 	switch {
 	case asked > 0:
-		res, capped = asked, true
+		res, capAt = asked, asked
 	case peak > 0:
-		res, capped = peak+peak/4, true
+		res = peak + peak/4
+		capAt = max(res, dflt)
 	default:
 		res = dflt
 	}
-	if r.Memory > 0 && res > r.Memory {
-		res = r.Memory
+	if r.Memory > 0 {
+		res, capAt = min(res, r.Memory), min(capAt, r.Memory)
 	}
-	return res, capped
+	return res, capAt
 }

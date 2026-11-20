@@ -39,10 +39,35 @@ type PointerEnter {}
 type PointerLeave {}
 
 // PointerEvent is a pointer's phase and its position in the node's box,
-// in device-independent pixels from the box's top left corner, and the
-// zone under it (H5g): the composer fills Zone from the host's hit test
-// (Point.Over), so a host sends None.
-type PointerEvent { Phase Phase, X float64, Y float64, Zone Option[ZoneHit] }
+// in device-independent pixels from the box's top left corner, the zone
+// under it (H5g): the composer fills Zone from the host's hit test
+// (Point.Over), so a host sends None; and the pointer that did it
+// (MB4): several fingers on a screen are several pointers, told apart by
+// their Id.
+type PointerEvent { Pointer Pointer, Phase Phase, X float64, Y float64, Zone Option[ZoneHit] }
+
+// Pointer is the device of a pointer event (MB4, as Pointer Events'
+// pointerId and pointerType): a mouse, a finger or a pen, and its Id,
+// which a host keeps for a finger from its touch to its lift and gives no
+// other finger touching meanwhile. A mouse is one pointer, Id 0.
+type Pointer { Id int, Kind PointerKind }
+
+// PointerKind is what a pointer is. A finger is coarse: a host hits the
+// nearest control within the reach margin around it (Reach, MB4), and it
+// does not hover.
+type PointerKind = Mouse | Finger | Pen
+
+// Mouse is a mouse, or a touchpad that moves a pointer as one does.
+type Mouse {}
+
+// Finger is a finger on a touchscreen.
+type Finger {}
+
+// Pen is a pen on a tablet or a screen.
+type Pen {}
+
+// MousePointer is the mouse: a desktop's one pointer.
+let MousePointer = Pointer{Id: 0, Kind: Mouse}
 
 // Mods are the modifier keys held with a key.
 type Mods { Shift bool, Ctrl bool, Alt bool, Meta bool }
