@@ -246,7 +246,7 @@ func CatchExprOf(t Tree, id dense.ID[Node]) CatchExpr {
 func ContextLitOf(t Tree, id dense.ID[Node]) ContextLit {
 	let i = uint32(dense.Index(id))
 	let tok = t.tok[int(i)]
-	ContextLit{Context: int(tok), Provides: onid(t, fixed(t, i, 3, 0)), Needs: onid(t, fixed(t, i, 3, 1)), Body: nid(t, fixed(t, i, 3, 2))}
+	ContextLit{Context: int(tok), Provides: onid(t, fixed(t, i, 4, 0)), Fails: onid(t, fixed(t, i, 4, 1)), Needs: onid(t, fixed(t, i, 4, 2)), Body: nid(t, fixed(t, i, 4, 3))}
 }
 
 // ArrayTypeOf reads a row of kind KArrayType.
@@ -472,7 +472,7 @@ func FuncDeclOf(t Tree, id dense.ID[Node]) FuncDecl {
 func ContextDeclOf(t Tree, id dense.ID[Node]) ContextDecl {
 	let i = uint32(dense.Index(id))
 	let tok = t.tok[int(i)]
-	ContextDecl{Doc: otok(fixed(t, i, 6, 0)), Let: int(tok), Context: int(fixed(t, i, 6, 1)), Name: nid(t, fixed(t, i, 6, 2)), Provides: onid(t, fixed(t, i, 6, 3)), Needs: onid(t, fixed(t, i, 6, 4)), Body: nid(t, fixed(t, i, 6, 5))}
+	ContextDecl{Doc: otok(fixed(t, i, 7, 0)), Let: int(tok), Context: int(fixed(t, i, 7, 1)), Name: nid(t, fixed(t, i, 7, 2)), Provides: onid(t, fixed(t, i, 7, 3)), Fails: onid(t, fixed(t, i, 7, 4)), Needs: onid(t, fixed(t, i, 7, 5)), Body: nid(t, fixed(t, i, 7, 6))}
 }
 
 // TestDeclOf reads a row of kind KTestDecl.
