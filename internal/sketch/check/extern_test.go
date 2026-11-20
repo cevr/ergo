@@ -906,6 +906,20 @@ func main() {
 	use(Mine)
 }
 `,
+	// std ansi (UC2): open; a program may decide colour its own way, as
+	// Always, Never and Detect's provider do.
+	"ansi.Colors": `import ansi
+
+type Mine {} implements ansi.Colors
+
+func On(_ Mine) bool { true }
+
+func use(_ ansi.Colors) {}
+
+func main() {
+	use(Mine)
+}
+`,
 	// std exec (S3c): open, as no std extern's result names it (stdlib.md,
 	// exec). exec.Script is the std's test provider of it.
 	"exec.Runner": `import exec
@@ -1438,6 +1452,7 @@ var openStd = map[string]bool{
 	"io.Source":         true,
 	"bench.Meter":       true,
 	"pace.Pacing":       true,
+	"ansi.Colors":       true,
 	"code.Reader":       true,
 	"code.Files":        true,
 	"code.Checker":      true,
