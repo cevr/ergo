@@ -596,8 +596,8 @@ func (b *irBuilder) stdCloseCall(cl *check.Close, s irSlot, slot int, p irPos) (
 	return &irExpr{K: "mcall", Pos: p, Name: memberName(cl.Op.Name), X: &irExpr{K: "deref", Pos: p, X: &irExpr{K: "local", Pos: p, I: slot}}}, true
 }
 
-// ownBodyChecks stops a static frame this form does not build: a try's
-// release (TryReleases), an owned temporary or arm value, a record
+// ownBodyChecks stops a static frame this form does not build: an owned
+// temporary or arm value, a record
 // update's replaced fields, a taking receiver passed by its address, a
 // match pattern that owns. It records in o the places with planned
 // releases (Info.Releases), which the builder must each reach.
@@ -613,11 +613,11 @@ func (b *irBuilder) ownBodyChecks(body *syntax.BlockStmt, o *irOwn) {
 		if len(info.Releases[n]) > 0 {
 			o.keys[n] = true
 		}
+		// A try's failure edge (Info.TryReleases) writes nothing here: it
+		// leaves the frame through its deferred release, which releases
+		// what the frame holds then (the live bits, or the scope's list),
+		// as the source path's does (OWNED-LOCAL-2).
 		switch n := n.(type) {
-		case *syntax.TryExpr:
-			if len(info.TryReleases[n]) > 0 {
-				irNo("statement that releases owned values")
-			}
 		case *syntax.CaseClause:
 			if po, ok := info.PatternOwners[n]; ok && (len(po.Sources) > 0 || len(po.Bindings) > 0) {
 				irNo("owned local") // patternOwners registers them
