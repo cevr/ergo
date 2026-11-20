@@ -1,0 +1,161 @@
+// Held is a Model whose stream the test lets through delta by delta
+// (wf10 LLM-HELD, for GE's E4b): a test that checks what a caller does
+// while a reply is still arriving (a cancel, a timeout on a virtual clock,
+// a second ask) releases the reply's deltas one at a time and looks in
+// between. No clock is read and nothing sleeps, so a test on a virtual
+// clock decides every step.
+//
+// Prior art: the Vercel AI SDK's simulateReadableStream (chunks with a
+// delay, driven by fake timers) and Effect's TestClock-driven streams;
+// here the gate is the test's own Release, so no timer is involved.
+
+import llm
+import queue
+import strings
+import task
+
+// Held plays one Reply as Scripted does, except that Stream waits for a
+// release before it gives each delta: a Release of n lets the next n
+// through, and Open lets the rest through and every later one. Generate
+// gives no delta, so it does not wait. Each Held is one gate: copies share
+// it.
+type Held { Reply Reply, gate queue.Queue[int] } implements llm.Model
+
+// Hold is the Held that plays reply, with no delta released.
+func Hold(reply Reply) Held {
+	Held{Reply: reply, gate: queue.New[int](heldDeltas(reply) + 1)}
+}
+
+// heldDeltas is the number of deltas reply streams: the most a test
+// releases.
+func heldDeltas(reply Reply) int {
+	match reply {
+	case Says as y:
+		len(y.Deltas)
+	case Cuts as y:
+		len(y.Deltas)
+	case Breaks as y:
+		len(y.Deltas)
+	case Fails:
+		1
+	}
+}
+
+// Release lets the next n deltas through; on an open Held it does nothing.
+func Release(h Held, n int) {
+	for _ in 0..n {
+		h.gate.Push(1) catch {
+		case queue.Closed:
+			return
+		}
+	}
+}
+
+// Open lets every delta through from now on.
+func Open(h Held) { h.gate.End() }
+
+// pass waits until the next delta is released, or the Held is open.
+func pass(h Held) {
+	let _ = h.gate.Pop() catch {
+	case queue.Closed:
+		0
+	}
+}
+
+func Generate(h Held, r llm.Request) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema {
+	try generated(h.Reply)
+}
+
+func Stream(h Held, r llm.Request, put func(d llm.Delta) fails llm.SinkFailed) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema | llm.SinkFailed {
+	try streamed(h.Reply, func(d llm.Delta) fails llm.SinkFailed {
+		pass(h)
+		try put(d)
+	})
+}
+
+// ReleasedArriveInOrder: a held reply's deltas reach the sink in the
+// reply's order, and none arrives before its release. Once k are released
+// and k have arrived, none waits in the sink; after the rest are released
+// the rest arrive, and the stream ends with the reply's turn.
+law ReleasedArriveInOrder(texts []string, k int) {
+	let n = len(texts)
+	let early = (k%(n+1) + n + 1) % (n + 1)
+	let mut ds = []llm.Delta{}
+	for s in texts {
+		ds = ds.Append(llm.Text{Text: s})
+	}
+	let h = Hold(Says{Deltas: ds, Stop: llm.Ended, Usage: none()})
+	let got = queue.New[string](n + 1)
+	let t = task.Go() { streamInto(h, got) }
+	h.Release(early)
+	let mut fine = arrived(got, texts[:early])
+	match got.Poll() {
+	case Some[string]:
+		fine = false
+	case None:
+	}
+	h.Release(n - early)
+	fine = fine && arrived(got, texts[early:])
+	fine && t.Wait() == strings.Join(texts, "")
+}
+
+// streamInto streams h into got, each text delta's text in turn, and is
+// the turn's text, or "!" when the stream fails.
+func streamInto(h Held, got queue.Queue[string]) string {
+	let done = h.Stream(plain("q"), func(d llm.Delta) fails llm.SinkFailed {
+		match d {
+		case llm.Text as x:
+			got.Push(x.Text) catch {
+			case queue.Closed:
+				return llm.SinkFailed
+			}
+		case llm.Reasoning, llm.CallStart, llm.CallArgs, llm.CallEnd:
+		}
+	}) catch {
+	case _:
+		return "!"
+	}
+	done.Text
+}
+
+// arrived is whether the next values of got are want, in order.
+func arrived(got queue.Queue[string], want []string) bool {
+	for w in want {
+		let s = got.Pop() catch {
+		case queue.Closed:
+			return false
+		}
+		if s != w {
+			return false
+		}
+	}
+	true
+}
+
+// OpenLetsAllThrough: an open Held streams as Scripted does, with no
+// release: the same deltas, and the same turn or failure.
+law OpenLetsAllThrough(first []string, tools []string, cut bool) {
+	let s = NewScripted(first, tools, cut, []Reply{})
+	let h = Hold(s.Replies[0])
+	h.Open()
+	let r = plain("q")
+	heardOf(h, r) == heardOf(s, r)
+}
+
+// heard is what Stream of a request gave: how many deltas and their fold's
+// text, then the turn's text or the failure.
+type heard = heardTurn{deltas int, text string, turn string} | heardFailure{deltas int, text string, failure llm.Failure} | heardSink{}
+
+func heardOf(m llm.Model, r llm.Request) heard {
+	let mut ds = []llm.Delta{}
+	let t = m.Stream(r, func(d llm.Delta) fails llm.SinkFailed {
+		ds = ds.Append(d)
+	}) catch {
+	case llm.SinkFailed:
+		return heardSink
+	case f:
+		let failure llm.Failure = f
+		return heardFailure{deltas: len(ds), text: llm.Fold(ds).Text, failure: failure}
+	}
+	heardTurn{deltas: len(ds), text: llm.Fold(ds).Text, turn: t.Text}
+}
