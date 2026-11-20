@@ -33,6 +33,25 @@ func (b *irBuilder) sigType(s *check.Signature, site syntax.Node) string {
 
 // hasSig reports a slice type whose elements are, at some depth, function
 // values: its spelling is built from its parts (goType).
+// frameSigType is sigType with its results named, as the emitter's
+// funcLitClosure writes a frame literal's (namedResults): `(_ R, err
+// error)`, struct{} for R with no value, so the frame's deferred End sets
+// the literal's error result after its return ("result" 1).
+func (b *irBuilder) frameSigType(s *check.Signature, site syntax.Node) string {
+	if len(s.Results) > 1 {
+		irNo("function type with several results")
+	}
+	parts := []string{"*" + b.l.env()}
+	for _, p := range s.Params {
+		parts = append(parts, b.goType(p.Type, site))
+	}
+	r := "struct{}" // the emitter's unit shape
+	if len(s.Results) == 1 {
+		r = b.goType(s.Results[0], site)
+	}
+	return "func(" + strings.Join(parts, ", ") + ") (_ " + r + ", ergoFrameErr error)"
+}
+
 // litParam is the local of a function literal's parameter: v's, written
 // id, or for a parameter named _ (v nil) a fresh local of its type t that
 // no statement reads, as the emitter's _p (funcLitClosure).
@@ -108,14 +127,21 @@ func (b *irBuilder) closureLit(x *syntax.FuncLit, site *syntax.CallExpr) *irExpr
 	if len(params) != len(sig.Params) {
 		irNo("function literal with an unnamed parameter")
 	}
-	if l.bodyNeedsFrame(list) || l.ownsParams(params) {
-		irNo("function literal that is a frame")
-	}
+	// A literal that is a frame of its own (stage D3b, Rule 2: an owned
+	// parameter, a body that needs a frame) opens its scope first, and
+	// its Go results are named for the scope's End (frameSigType).
+	framed := l.bodyNeedsFrame(list) || l.ownsParams(params)
 	if x != nil && b.fc.plainLits[x] {
+		if framed {
+			irNo("function literal that is a frame")
+		}
 		return b.plainLitIR(x, sig, params, ids, list, end) // a known callback (ir_kcb.go)
 	}
 	p := b.pos(n, n.Pos())
 	typ := b.sigType(sig, n)
+	if framed {
+		typ = b.frameSigType(sig, n)
+	}
 	var result check.Type
 	if len(sig.Results) == 1 {
 		result = sig.Results[0]
@@ -126,9 +152,14 @@ func (b *irBuilder) closureLit(x *syntax.FuncLit, site *syntax.CallExpr) *irExpr
 	inner.env = "env"
 	inner.frame = newFrame(result, true, framePolls(l.info, n))
 	inner.frame.unit = result == nil
+	if framed {
+		inner.frame.plain = !l.bodyNeedsScope(list) // the emitter's funcLitClosure
+	}
 	fc, env, res, loops, tries, switches, label, law, memos := b.fc, b.env, b.result, b.loops, b.tries, b.switches, b.label, b.law, b.memos
+	own, frame, exits, exitsFC := b.own, b.frame, b.exits, b.exitsFC
 	defer func() {
 		b.fc, b.env, b.result, b.loops, b.tries, b.switches, b.label, b.law, b.memos = fc, env, res, loops, tries, switches, label, law, memos
+		b.own, b.frame, b.exits, b.exitsFC = own, frame, exits, exitsFC
 	}()
 	// The literal's body is a frame of its own: no loop of the maker's
 	// memoizes a call of it (ir_memo.go).
@@ -139,6 +170,20 @@ func (b *irBuilder) closureLit(x *syntax.FuncLit, site *syntax.CallExpr) *irExpr
 		lit.Params = append(lit.Params, b.litParam(v, ids[i], sig.Params[i].Type, n, p))
 	}
 	b.fc, b.env, b.result, b.loops, b.tries, b.switches, b.label, b.law = inner, envLocal, result, 0, 0, 0, "", nil
+	if framed {
+		// The literal's own frame scope, its End on the named error
+		// result (frameSigType's second), then its taken parameters
+		// (the emitter's openFrame and ownVar), before the entry poll.
+		b.own, b.frame, b.exits, b.exitsFC = nil, 0, false, nil
+		var body *syntax.BlockStmt
+		if x != nil {
+			body = x.Body
+		} else {
+			body = site.Trailing
+		}
+		errArg := &irExpr{K: "addr", Pos: p, X: &irExpr{K: "result", Pos: p, I: 1}}
+		lit.Body = append(lit.Body, b.openScopeOf(body, n, n, params, errArg, false)...) // ir_own.go
+	}
 	if frameFootprint(l.info, n).EntryPoll && inner.frame.polls {
 		lit.Body = append(lit.Body, b.poll(n))
 	}

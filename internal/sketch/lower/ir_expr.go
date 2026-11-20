@@ -4,6 +4,7 @@ package lower
 
 import (
 	"go/constant"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -189,8 +190,9 @@ func orderedParam(op string, t check.Type) bool {
 	if !ok || tp.Slot || tp.Constraint == nil {
 		return false
 	}
-	it := constraintOf(tp)
-	return it != nil && it.Set == check.SetOrdered
+	// ordered is a prelude type set (CONSTRAINTS C1): a parameter orders
+	// when every term of its set does, whatever the set's name.
+	return check.Ordered(tp)
 }
 
 // expr is x after its implicit conversion (implicit, ir_union.go).
@@ -227,7 +229,7 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 				return &c
 			}
 			if i, known := b.locals[o]; known {
-				return b.handoff(x, &irExpr{K: "local", Pos: p, I: i}) // ir_own.go
+				return b.provRead(o, b.handoff(x, &irExpr{K: "local", Pos: p, I: i}), x) // ir_own.go, ir_known.go
 			}
 			if i, built := b.strBufs[o]; built {
 				return b.strCall("StrGet", i, p) // strbuf.go
@@ -449,9 +451,6 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 				}
 				irNo("literal of a defined %T", tt.Underlying())
 			}
-			if len(x.Elts) != len(s.Fields) {
-				irNo("record literal without every field")
-			}
 			var values []syntax.Expr
 			var fts []check.Type
 			var names []string
@@ -503,6 +502,9 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 			}
 			if plain {
 				lit.FT = b.recordFieldTypes(fts, x) // ir_forms_store.go
+			}
+			if len(names) != len(s.Fields) {
+				b.omittedFields(lit, td, s, names, x, p)
 			}
 		default:
 			irNo("literal of %T", t)
@@ -590,4 +592,34 @@ func (b *irBuilder) listElems(x *syntax.CompositeLit, elem check.Type) []*irExpr
 		}
 	}
 	return elems
+}
+
+// omittedFields gives the record literal lit of td (the record s) each
+// field its elements do not set, the emitter's fieldDefaults: a field
+// whose default is Go's zero value gets that zero (the IR toolchain wants
+// every field keyed once), and a Map field is an empty Go map. The checker writes such a literal for a
+// Map with a provider, Map[K, V, H]{} (check/mapprovider.go); a program's
+// literal sets every field. Any other default that holds a Map (built by a
+// function) keeps the emitter's body.
+func (b *irBuilder) omittedFields(lit *irExpr, td *typeDecl, s *check.Struct, set []string, x *syntax.CompositeLit, p irPos) {
+	for _, f := range s.Fields {
+		if slices.Contains(set, f.Name) {
+			continue
+		}
+		name, ok := td.fieldName[f.Name]
+		if !ok {
+			irNo("record literal without a field of its record")
+		}
+		// The IR lists every field once (the toolchain's "lit"): a Map
+		// field is an empty map, every other omitted field its zero.
+		e := &irExpr{K: "zero", Pos: p, T: b.goType(f.Type, x)}
+		if b.l.holdsMap(f.Type) {
+			if _, ok := f.Type.(*check.Map); !ok {
+				irNo("record literal without a field whose default holds a Map")
+			}
+			e = &irExpr{K: "lit", Pos: p, T: e.T}
+		}
+		lit.Keys = append(lit.Keys, name)
+		lit.Elems = append(lit.Elems, e)
+	}
 }
