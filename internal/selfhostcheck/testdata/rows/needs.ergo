@@ -36,3 +36,8 @@ func many() int fails Bad {
 	show("z") //want: rows
 	both() //want: rows
 }
+
+func reversed() {
+	let n = read() //want: rows
+	show("\(n)") //want: rows
+}
