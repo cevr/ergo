@@ -55,7 +55,7 @@ func goCopySeeds() []uint64 {
 type goCopyKind struct {
 	name, typ string
 	lit       func(v int) string
-	write     func(j string) string
+	write     func(e string) string
 	show      func(x string) string
 	model     func(v int, written bool) string
 }
@@ -63,12 +63,12 @@ type goCopyKind struct {
 var goCopyKinds = []goCopyKind{
 	{"int", "int",
 		func(v int) string { return fmt.Sprint(v) },
-		func(j string) string { return "d[" + j + "] = d[" + j + "] + 100" },
+		func(e string) string { return e + " = " + e + " + 100" },
 		func(x string) string { return `\(` + x + `)` },
 		func(v int, w bool) string { return fmt.Sprint(v + bump(w, 100)) }},
 	{"string", "string",
 		func(v int) string { return fmt.Sprintf("%q", fmt.Sprint("s", v)) },
-		func(j string) string { return `d[` + j + `] = d[` + j + `] + "x"` },
+		func(e string) string { return e + " = " + e + ` + "x"` },
 		func(x string) string { return `\(` + x + `)` },
 		func(v int, w bool) string {
 			if w {
@@ -78,12 +78,12 @@ var goCopyKinds = []goCopyKind{
 		}},
 	{"slice", "[]int",
 		func(v int) string { return fmt.Sprintf("[]int{%d, %d}", v, v+1) },
-		func(j string) string { return "d[" + j + "][0] = d[" + j + "][0] + 100" },
+		func(e string) string { return e + "[0] = " + e + "[0] + 100" },
 		func(x string) string { return `\(` + x + `[0]) \(` + x + `[1])` },
 		func(v int, w bool) string { return fmt.Sprint(v+bump(w, 100), " ", v+1) }},
 	{"box", "GcBox",
 		func(v int) string { return fmt.Sprintf("GcBox{V: %d, S: []int{%d}}", v, v+2) },
-		func(j string) string { return "d[" + j + "].S[0] = d[" + j + "].S[0] + 100\n\td[" + j + "].V = 7" },
+		func(e string) string { return e + ".S[0] = " + e + ".S[0] + 100\n\t" + e + ".V = 7" },
 		func(x string) string { return `\(` + x + `.V) \(` + x + `.S[0])` },
 		func(v int, w bool) string {
 			if w {
@@ -93,7 +93,7 @@ var goCopyKinds = []goCopyKind{
 		}},
 	{"map", "Map[string, int]",
 		func(v int) string { return fmt.Sprintf(`Map[string, int]{"a": %d}`, v) },
-		func(j string) string { return `d[` + j + `] = d[` + j + `].Put("z", 9)` },
+		func(e string) string { return e + ` = ` + e + `.Put("z", 9)` },
 		func(x string) string { return `\(len(` + x + `))` },
 		func(v int, w bool) string { return fmt.Sprint(1 + bump(w, 1)) }},
 }
@@ -124,16 +124,15 @@ func goCopyProgram(seed uint64) (string, string) {
 		if r.IntN(2) == 0 {
 			// The copy in a function that borrows its source.
 			fmt.Fprintf(&b, "func dup%d(xs []%s) []%s {\n\tlet mut ys = MakeSlice[%s](len(xs))[0:len(xs)]\n\tlet _ = copyInto(&ys, xs)\n\tys\n}\n\n", k, kind.typ, kind.typ, kind.typ)
-			fmt.Fprintf(&body, "\t{\n\tlet mut d = dup%d(%s)\n", k, src)
+			fmt.Fprintf(&body, "\tlet mut d%d = dup%d(%s)\n", k, k, src)
 		} else {
-			fmt.Fprintf(&body, "\t{\n\tlet mut d = MakeSlice[%s](len(%s))[0:len(%s)]\n\tlet _ = copyInto(&d, %s)\n", kind.typ, src, src, src)
+			fmt.Fprintf(&body, "\tlet mut d%d = MakeSlice[%s](len(%s))[0:len(%s)]\n\tlet _ = copyInto(&d%d, %s)\n", k, kind.typ, src, src, k, src)
 		}
-		fmt.Fprintf(&body, "\t%s\n", kind.write(fmt.Sprint(j)))
+		fmt.Fprintf(&body, "\t%s\n", kind.write(fmt.Sprintf("d%d[%d]", k, j)))
 		for i := range n {
-			fmt.Fprintf(&body, "\tConsole.Println(\"%s src %d %s dup %s\")\n", kind.name, i, kind.show(fmt.Sprintf("%s[%d]", src, i)), kind.show(fmt.Sprintf("d[%d]", i)))
+			fmt.Fprintf(&body, "\tConsole.Println(\"%s src %d %s dup %s\")\n", kind.name, i, kind.show(fmt.Sprintf("%s[%d]", src, i)), kind.show(fmt.Sprintf("d%d[%d]", k, i)))
 			fmt.Fprintf(&want, "%s src %d %s dup %s\n", kind.name, i, kind.model(ints[i], false), kind.model(ints[i], i == j))
 		}
-		body.WriteString("\t}\n")
 	}
 	b.WriteString("func main() needs Console {\n" + body.String() + "}\n")
 	return b.String(), want.String()
