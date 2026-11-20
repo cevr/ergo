@@ -46,7 +46,7 @@ func sent(o Option[int]) int {
 	}
 }
 
-func signalsAgree(f *Frame[int], id Id[int], off bool) bool {
+func signalsAgree(f mut Frame[int], id Id[int], off bool) bool {
 	let mut ok = true
 	let mut under = off
 	let pressed = sent(Handle(f, Press[int]{Id: id}).Signal)

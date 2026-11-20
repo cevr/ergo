@@ -85,7 +85,7 @@ func tri(s int, k int) Path {
 }
 
 // paintProg paints prog at s through the package's painting functions.
-func paintProg(p *Paint, prog []pp, s int) {
+func paintProg(p mut Paint, prog []pp, s int) {
 	for op in prog {
 		match op {
 		case ppFill as x:
@@ -159,17 +159,17 @@ func canvasOf(shapes []Shape[int], label string) ([]PaintOp, bool) {
 func paintFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 	let mut r = seeded(seed)
 	let prog = genPaint(&r, 2)
-	let view = func(f *Frame[int], s int) {
+	let view = func(f mut Frame[int], s int) {
 		Text(f, "at \(s)")
 		Pressable(f, "next", (s*5+3)%11) {
 			Text(f, "next")
 		}
-		Canvas(f, "board", 120, 80) func(p *Paint) {
+		Canvas(f, "board", 120, 80) func(p mut Paint) {
 			paintProg(p, prog, s)
 		}
-		Canvas(f, "rest", 120, 80) func(p *Paint) {
+		Canvas(f, "rest", 120, 80) func(p mut Paint) {
 			paintProg(p, prog, s+1)
-			Canvas(f, "inner", 40, 40) func(q *Paint) {
+			Canvas(f, "inner", 40, 40) func(q mut Paint) {
 				paintProg(q, prog, s+2)
 			}
 		}

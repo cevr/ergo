@@ -92,7 +92,7 @@ law ModelAgrees(seed int, count int) {
 				got = -i
 			case 3:
 				let mut seen = i
-				a.Update(r, func(v *int) {
+				a.Update(r, func(v mut int) {
 					seen = *v
 					*v = *v + i
 				}) catch {
@@ -308,7 +308,7 @@ func stale(a Of[int], r Ref[int]) bool {
 	case Stale:
 		failed = failed + 1
 	}
-	b.Update(r, func(v *int) { called = true }) catch {
+	b.Update(r, func(v mut int) { called = true }) catch {
 	case Stale:
 		failed = failed + 1
 	}

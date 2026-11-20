@@ -128,7 +128,7 @@ func rowsFollow(seed int, steps int, m time.Manual) bool needs Scheduler {
 	let sizes = []int{0, 3, 50, 1000}
 	let n = sizes[draw(&r, len(sizes))]
 	let rh = float64(draw(&r, 40) + 10)
-	let view = func(f *Frame[int], s roster) {
+	let view = func(f mut Frame[int], s roster) {
 		Pressable(f, "add", 0) {
 			Text(f, "+")
 		}

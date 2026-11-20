@@ -180,7 +180,7 @@ func boundCount(x pBound, s []int, row int) int {
 // signalsMatch is whether a press and a text on each node of f under id
 // send what they send on the node of g at the same place, and the trees
 // have one shape. A Toggle is not pressed: its press writes its flag.
-func signalsMatch(f *Frame[int], g *Frame[int], a Id[int], b Id[int]) bool {
+func signalsMatch(f mut Frame[int], g mut Frame[int], a Id[int], b Id[int]) bool {
 	if NodeOf(f, a) != NodeOf(g, b) {
 		return false
 	}
@@ -213,7 +213,7 @@ func signalsMatch(f *Frame[int], g *Frame[int], a Id[int], b Id[int]) bool {
 }
 
 // toggles is the Toggles under id, in tree order.
-func toggles(f *Frame[int], id Id[int], out []Id[int]) []Id[int] {
+func toggles(f mut Frame[int], id Id[int], out []Id[int]) []Id[int] {
 	let mut all = out
 	match NodeOf(f, id) {
 	case Some[Node[int]] as n:

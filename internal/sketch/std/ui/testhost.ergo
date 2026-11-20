@@ -106,7 +106,7 @@ func shelfMachine() Machine[shelf, int, int] {
 // shelfView shows the count, an add button, and each row with a delete
 // button: every row's button has the label "del", so a press of the
 // first row's names it by First (NS7).
-func shelfView(f *Frame[int], s shelf) {
+func shelfView(f mut Frame[int], s shelf) {
 	Column(f, Plain()) {
 		Text(f, "\(len(s.rows)) rows")
 		Pressable(f, "add", 0) {
@@ -124,7 +124,7 @@ func shelfView(f *Frame[int], s shelf) {
 }
 
 // freshShape is what view means at s: one pass of a new frame.
-func freshShape[S](view func(f *Frame[int], s S), s S) []Shape[int] {
+func freshShape[S](view func(f mut Frame[int], s S), s S) []Shape[int] {
 	let mut g = NewFrame[int]()
 	let _ = Render(&g, view, s)
 	FrameShape(&g)
@@ -220,7 +220,7 @@ func spinMachine() Machine[spin, int, int] {
 
 // spinView animates while frames are left; "go0" to "go3" ask for that
 // many.
-func spinView(f *Frame[int], s spin) {
+func spinView(f mut Frame[int], s spin) {
 	Text(f, "left \(s.left) at \(s.at)")
 	for n in 0..4 {
 		Pressable(f, "go\(n)", n) {
@@ -351,7 +351,7 @@ func onPad(s pad, p PointerEvent) Option[int] {
 // padView: while the dialog is open, its OnKey comes first and takes
 // Escape (closing it); the page's OnKey takes any key with Ctrl (opening
 // the dialog) and gives the pad a 4000 plus the name's length for Enter.
-func padView(f *Frame[int], s pad) {
+func padView(f mut Frame[int], s pad) {
 	Text(f, "last \(s.last) of \(s.n)")
 	if s.open {
 		OnKey(f, func(k KeyPress) Option[int] {
@@ -492,7 +492,7 @@ func routeMachine() Machine[int, int, int] {
 func home(u URL) Option[int] { Some{Value: 0} }
 
 // routeView shows the place at s.
-func routeView(f *Frame[int], s int) {
+func routeView(f mut Frame[int], s int) {
 	OnURL(f, placeOf)
 	OnURL(f, home)
 	Text(f, "at \(places[s])")
@@ -624,7 +624,7 @@ func replyMachine(gate queue.Queue[int], last int) Machine[int, int, int] {
 }
 
 // replyView shows the reply app's state.
-func replyView(f *Frame[int], s int) { Text(f, "at \(s)") }
+func replyView(f mut Frame[int], s int) { Text(f, "at \(s)") }
 
 func replyShown(n int, m time.Manual) bool needs Scheduler {
 	let last = (n%3+3)%3 + 1
@@ -676,7 +676,7 @@ func apply[E comparable, S, D, F](h mut TestHost[S, E, D, F], ev Event[E]) fails
 
 // stepShown steps one event and shows its patch, its passes counted in
 // the step under way.
-func stepShown[E comparable, S, D, F](h *TestHost[S, E, D, F], ev Event[E]) fails actor.Stopped | BadPatch {
+func stepShown[E comparable, S, D, F](h mut TestHost[S, E, D, F], ev Event[E]) fails actor.Stopped | BadPatch {
 	let passes = h.session.frame.passes
 	let ops = try Step(&h.session, ev)
 	try show(h, ops)
@@ -853,7 +853,7 @@ func Redraw[E comparable, S, D, F](h mut TestHost[S, E, D, F]) fails BadPatch {
 // the step under way, before the frame's Tick. Frames run while the list
 // still moves, so the scroll stops at the end of its range (law
 // EdgeScrollRunsEachFrame).
-func Advance[E comparable, S, D, F](h *TestHost[S, E, D, F], d duration) fails actor.Stopped | BadPatch {
+func Advance[E comparable, S, D, F](h mut TestHost[S, E, D, F], d duration) fails actor.Stopped | BadPatch {
 	let mut left = d
 	for (Animating(&h.session.frame) || edgeMoves(h)) && left >= h.period-h.owed {
 		let due = h.period - h.owed
@@ -938,7 +938,7 @@ func edgeFrames(seed int, m time.Manual) bool needs Scheduler {
 	let start = Length(float64(draw(&r, int(float64(most)) + 1)))
 	let band = draw(&r, 3)
 	let y = if band == 0 { float64(draw(&r, 32)) } else if band == 1 { float64(height) - float64(draw(&r, 32)) } else { float64(height) / 2.0 }
-	let view = func(f *Frame[int], s int) {
+	let view = func(f mut Frame[int], s int) {
 		Area(f, "a", Plain(), func(p PointerEvent) Option[int] { None }) {
 			Rows(f, "list", n, rh, func(i int) Key { ByInt(i) }, func(i int) {
 				Text(f, "row \(i)")
@@ -1016,7 +1016,7 @@ func listOffset(screen []Shape[int]) Length {
 // edgeNext is the list the Area holding the pointer edge-scrolls and the
 // offset EdgeScroll moves it to this frame; None when no Area holds the
 // pointer or it holds no list with a viewport.
-func edgeNext[S, E, D, F](h *TestHost[S, E, D, F]) Option[(edgeList[E], Length)] {
+func edgeNext[S, E, D, F](h mut TestHost[S, E, D, F]) Option[(edgeList[E], Length)] {
 	match Captured(h) {
 	case Some[Id[E]] as c:
 		match edgeListIn(&h.session.frame, c.Value) {
@@ -1032,7 +1032,7 @@ func edgeNext[S, E, D, F](h *TestHost[S, E, D, F]) Option[(edgeList[E], Length)]
 }
 
 // edgeMoves is whether this frame's edge scroll moves a list.
-func edgeMoves[S, E, D, F](h *TestHost[S, E, D, F]) bool {
+func edgeMoves[S, E, D, F](h mut TestHost[S, E, D, F]) bool {
 	match edgeNext(h) {
 	case Some[(edgeList[E], Length)] as x:
 		let (l, next) = x.Value
@@ -1044,7 +1044,7 @@ func edgeMoves[S, E, D, F](h *TestHost[S, E, D, F]) bool {
 
 // edgeFrame scrolls the list the held pointer is at an edge of by one
 // frame's EdgeScroll, when that moves it.
-func edgeFrame[E comparable, S, D, F](h *TestHost[S, E, D, F]) fails actor.Stopped | BadPatch {
+func edgeFrame[E comparable, S, D, F](h mut TestHost[S, E, D, F]) fails actor.Stopped | BadPatch {
 	match edgeNext(h) {
 	case Some[(edgeList[E], Length)] as x:
 		let (l, next) = x.Value

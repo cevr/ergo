@@ -291,4 +291,4 @@ func Compared[E](f mut Frame[E]) int { f.compared }
 
 // GroupsKept is how many groups f keeps for its next pass, and so how many
 // argument slots it holds: the memo's size.
-func GroupsKept[E](f *Frame[E]) int { argsHeld(f.args) }
+func GroupsKept[E](f mut Frame[E]) int { argsHeld(f.args) }

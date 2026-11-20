@@ -81,7 +81,7 @@ func workCrashWork(gate queue.Queue[int]) func(s int) Option[func(send func(e in
 
 // keyView is the session law's view: its key presses are its signals, by
 // the key's name ("1", "5"), and it shows the state.
-func keyView(f *Frame[int], s int) {
+func keyView(f mut Frame[int], s int) {
 	OnKey(f, func(k KeyPress) Option[int] {
 		if k.Name == "1" {
 			return Some{Value: 1}
@@ -95,7 +95,7 @@ func keyView(f *Frame[int], s int) {
 }
 
 // keyCrashView is its crash view: any key reloads.
-func keyCrashView(f *Frame[int], c Crash[int, int, Boom]) {
+func keyCrashView(f mut Frame[int], c Crash[int, int, Boom]) {
 	OnKey(f, func(k KeyPress) Option[int] { Some{Value: 0} })
 	Text(f, "crashed")
 }
@@ -106,7 +106,7 @@ func key(name string) Event[int] {
 
 // endedOf takes the posted events up to the Ended of run, stepping the
 // others, and is that Ended's patch.
-func endedOf(session *Session[int, int, Decision[int, int], Boom], posted queue.Queue[Event[int]], run int) Option[[]Op[int]] {
+func endedOf(session mut Session[int, int, Decision[int, int], Boom], posted queue.Queue[Event[int]], run int) Option[[]Op[int]] {
 	for {
 		let ev = posted.Pop() catch {
 		case queue.Closed:
@@ -195,7 +195,7 @@ func crashFollows() bool needs Scheduler {
 
 // endsQuiet is whether the Ended of run, when the loop takes it, changes
 // nothing on the screen.
-func endsQuiet(session *Session[int, int, Decision[int, int], Boom], posted queue.Queue[Event[int]], run int) bool {
+func endsQuiet(session mut Session[int, int, Decision[int, int], Boom], posted queue.Queue[Event[int]], run int) bool {
 	match endedOf(session, posted, run) {
 	case Some[[]Op[int]] as ops:
 		len(ops.Value) == 0

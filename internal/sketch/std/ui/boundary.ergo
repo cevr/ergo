@@ -245,7 +245,7 @@ func failMissing(b bool) fails Missing {
 // does the arm after a cut, at the same spec index and under the same
 // parent: their identities differ only by the boundary's site and the
 // counts the cut gives back.
-func labelled(f *Frame[int], name string) {
+func labelled(f mut Frame[int], name string) {
 	Row(f, Plain()) {
 		let d = NewDraft(f, name)
 		Field(f, d, name)
@@ -256,7 +256,7 @@ func labelShape(vals Map[string, string], n string) Shape[int] {
 	Shape[int]{Node: RowNode{Style: Plain()}, Kids: []Shape[int]{input(vals, n, n)}}
 }
 
-func bview(f *Frame[int], s bstate) {
+func bview(f mut Frame[int], s bstate) {
 	Column(f, Plain()) {
 		let side = NewDraft(f, "side")
 		Field(f, side, "side")

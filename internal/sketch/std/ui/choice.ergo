@@ -402,7 +402,7 @@ type prog = pText{slot int} | pInput{slot int} | pCheck{slot int} | pSwap{slot i
 // rng is the laws' generator (a linear congruence).
 type rng { x int }
 
-func draw(r *rng, n int) int {
+func draw(r mut rng, n int) int {
 	r.x = (r.x*1103515245 + 12345) % 2147483648
 	(r.x / 65536) % n
 }
@@ -411,7 +411,7 @@ func seeded(seed int) rng { rng{x: (seed%2147483648 + 2147483648) % 2147483648} 
 
 let slots = 6
 
-func genProg(r *rng, depth int, bounded bool) prog {
+func genProg(r mut rng, depth int, bounded bool) prog {
 	let kind = draw(r, 12)
 	if kind == 9 && bounded {
 		return pRead{slot: draw(r, slots)}
@@ -452,7 +452,7 @@ func genProg(r *rng, depth int, bounded bool) prog {
 	}
 }
 
-func genState(r *rng) []int {
+func genState(r mut rng) []int {
 	let mut s = []int{}
 	for _ in 0..slots {
 		s = s.Append(draw(r, 64))
@@ -695,7 +695,7 @@ func boundRows(x pBound, s []int, row int) []int {
 
 func leaf(n Node[int]) Shape[int] { Shape[int]{Node: n, Kids: []Shape[int]{}} }
 
-func genRoot(r *rng) []prog {
+func genRoot(r mut rng) []prog {
 	let mut ps = []prog{}
 	for _ in 0..draw(r, 4)+1 {
 		ps = ps.Append(genProg(r, 3, false))
@@ -703,7 +703,7 @@ func genRoot(r *rng) []prog {
 	ps
 }
 
-func shuffled(xs []int, r *rng) []int {
+func shuffled(xs []int, r mut rng) []int {
 	let mut out = xs
 	for i in 0..len(out) {
 		let j = i + draw(r, len(out)-i)
@@ -719,7 +719,7 @@ func shuffled(xs []int, r *rng) []int {
 // paints reads the state, so a new state repaints.
 type pp = ppFill{k int} | ppStroke{k int} | ppRect{k int} | ppMove{k int, kids []pp} | ppClip{k int, kids []pp}
 
-func genPaint(r *rng, depth int) []pp {
+func genPaint(r mut rng, depth int) []pp {
 	let mut out = []pp{}
 	for _ in 0..draw(r, 4) {
 		let k = draw(r, 50)
@@ -745,7 +745,7 @@ func genPaint(r *rng, depth int) []pp {
 // pick is a subset of the keys 0 to 5 in a drawn order; all of them when
 // keepAll. A quarter of the other picks are empty, so a pass leaves every
 // row out and the column that held their cells holds none.
-func pick(r *rng, keepAll bool) []int {
+func pick(r mut rng, keepAll bool) []int {
 	let mut keys = []int{}
 	if !keepAll && draw(r, 4) == 0 {
 		return keys

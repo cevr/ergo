@@ -195,7 +195,7 @@ law LocatorAgreesWithAccessTree(seed int) {
 	let mut m = NewMirror[int](Root(&f))
 	for _ in 0..3 {
 		let s = genState(&r)
-		let ops = Render(&f, func(g *Frame[int], st []int) {
+		let ops = Render(&f, func(g mut Frame[int], st []int) {
 			for p in ps {
 				render(g, p, st, 0) catch {
 				case Missing:
@@ -397,7 +397,7 @@ func wants(loc Locator, x seen) bool {
 	}
 }
 
-func matches(m *Mirror[int], loc Locator, is Matcher) bool {
+func matches(m mut Mirror[int], loc Locator, is Matcher) bool {
 	ExpectIn(m, loc, is) catch {
 	case Mismatch:
 		return false
@@ -410,7 +410,7 @@ func matches(m *Mirror[int], loc Locator, is Matcher) bool {
 // labelled Input (FK3-g5, FK5-g3), with labels, a description and an
 // invalid state read from the state, inside a disabled Fieldset for an
 // odd state value.
-func extras(f *Frame[int], v int) {
+func extras(f mut Frame[int], v int) {
 	Fieldset(f, v%2 == 1, "x\(v)") {
 		let on = NewFlag(f, true)
 		Toggle(f, on, "tg\(v % 3)")
@@ -418,7 +418,7 @@ func extras(f *Frame[int], v int) {
 		Area(f, "area\(v % 2)", Plain(), func(p PointerEvent) Option[int] { None }) {
 			Text(f, "in area")
 		}
-		Canvas(f, "c\(v % 4)", 4, 4) func(p *Paint) {}
+		Canvas(f, "c\(v % 4)", 4, 4) func(p mut Paint) {}
 		Rows(f, "rows", 0, 10, func(i int) Key { ByInt(i) }) func(i int) {}
 		Semantic(f, extraSem(v), None, Plain()) {
 			Text(f, "in sem")

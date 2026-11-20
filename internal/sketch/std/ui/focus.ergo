@@ -43,7 +43,7 @@ law HoverCostsNoPass(seed int) {
 	with context { Scheduler: m } {
 		let mut r = seeded(seed)
 		let n = draw(&r, 6) + 2
-		let view = func(f *Frame[int], s int) { hoverScreen(f, s, n) }
+		let view = func(f mut Frame[int], s int) { hoverScreen(f, s, n) }
 		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})
 		let mut h = NewTestHost(a, view, m, 4) catch {
 		case BadPatch:
@@ -98,7 +98,7 @@ func stateLooks(i int) Looks {
 
 // hoverScreen is n Pressables "h0" to "h<n-1>", each with its
 // stateLooks. (a law's helper)
-func hoverScreen(f *Frame[int], s int, n int) {
+func hoverScreen(f mut Frame[int], s int, n int) {
 	Column(f, Plain()) {
 		for i in 0..n {
 			let mut st = PressStyle()
@@ -183,7 +183,7 @@ law FocusGoesWhereAsked(seed int) {
 	let m = time.NewManual(0)
 	with context { Scheduler: m } {
 		let n = draw(&r, 4) + 2
-		let view = func(f *Frame[int], s int) { askScreen(f, s, n) }
+		let view = func(f mut Frame[int], s int) { askScreen(f, s, n) }
 		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})
 		let mut h = NewTestHost(a, view, m, 4) catch {
 		case BadPatch:
@@ -224,7 +224,7 @@ law FocusGoesWhereAsked(seed int) {
 // askScreen is "next", sending s+1, and n Semantic groups keyed 0 to
 // n-1, group i holding a Pressable "t<i>"; the pass asks for the focus
 // on key (s/2)%n. (a law's helper)
-func askScreen(f *Frame[int], s int, n int) {
+func askScreen(f mut Frame[int], s int, n int) {
 	Focus(f, ByInt((s/2)%n))
 	Column(f, Plain()) {
 		Pressable(f, "next", s+1) {

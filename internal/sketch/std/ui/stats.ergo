@@ -77,8 +77,8 @@ func statsMachine() Machine[int, int, int] {
 }
 
 // statsView shows the app of apps[s]; the key "i" signals i.
-func statsView(apps []statsApp) func(f *Frame[int], s int) {
-	func(f *Frame[int], s int) {
+func statsView(apps []statsApp) func(f mut Frame[int], s int) {
+	func(f mut Frame[int], s int) {
 		let st = apps[s]
 		OnKey(f, func(k KeyPress) Option[int] {
 			for i in 0..len(apps) {
@@ -93,7 +93,7 @@ func statsView(apps []statsApp) func(f *Frame[int], s int) {
 				Text(f, "t\(j)")
 			}
 			if st.canvas {
-				Canvas(f, "c", 40, 40) func(p *Paint) {
+				Canvas(f, "c", 40, 40) func(p mut Paint) {
 					for j in 0..st.paints {
 						Fill(p, RectPath(float64(j), 0.0, 1.0, 1.0), tone(j, j))
 					}
@@ -313,7 +313,7 @@ func slowExit(s slowLog) Option[func()] { None }
 
 func slowFollow(seed int, bound int) bool needs Scheduler {
 	let mut r = seeded(seed)
-	let view = func(f *Frame[slowSignal], s slowLog) {
+	let view = func(f mut Frame[slowSignal], s slowLog) {
 		// Every third pass asks for nothing: an OnSlow holds for its pass.
 		if s.texts%3 != 0 {
 			OnSlow(f, Budget{Signals: 0, Written: bound, Committed: 0, Ops: 0, Painted: 0, Fetches: 0}, func(x Slow) slowSignal { WasSlow{S: x} })

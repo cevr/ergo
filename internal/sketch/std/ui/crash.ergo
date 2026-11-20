@@ -80,7 +80,7 @@ func crashMachine() Machine[int, int, int, Boom] {
 
 // crashAppView shows the count, a button per signal, and a check box whose
 // flag is view-local state.
-func crashAppView(f *Frame[int], s int) {
+func crashAppView(f mut Frame[int], s int) {
 	Text(f, "count \(s)")
 	Pressable(f, "add", 0) {
 		Text(f, "+")
@@ -109,7 +109,7 @@ func crashText(c Crash[int, int, Boom]) string {
 }
 
 // crashOwnView is the crash app's crash view: what crashed, and a reload.
-func crashOwnView(f *Frame[int], c Crash[int, int, Boom]) {
+func crashOwnView(f mut Frame[int], c Crash[int, int, Boom]) {
 	Text(f, crashText(c))
 	Pressable(f, "reload", 3) {
 		Text(f, "reload")

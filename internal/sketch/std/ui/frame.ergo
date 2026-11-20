@@ -150,7 +150,7 @@ type Frame[E] {
 law KeyedReorderKeepsRows(seed int, steps int) {
 	let orders = reorders(seed, steps)
 	let mut r = seeded(steps)
-	let view = func(f *Frame[int], k int) {
+	let view = func(f mut Frame[int], k int) {
 		reorderTable(f, seed, steps, k)
 	}
 	let mut f = NewFrame[int]()
@@ -216,7 +216,7 @@ func reorders(seed int, steps int) [][]int {
 
 // reorderTable is the k-th order's rows, each a Same keyed by its row
 // over the component reorderRow: a component itself. (a law's helper)
-func reorderTable(f *Frame[int], seed int, steps int, k int) {
+func reorderTable(f mut Frame[int], seed int, steps int, k int) {
 	Column(f, Plain()) {
 		Each(f, reorders(seed, steps)[k], func(x int) Key { ByInt(x) }) func(x int) {
 			Same(f, ByInt(x)) {
@@ -227,7 +227,7 @@ func reorderTable(f *Frame[int], seed int, steps int, k int) {
 }
 
 // reorderRow is row x. (a law's helper)
-func reorderRow(f *Frame[int], x int) {
+func reorderRow(f mut Frame[int], x int) {
 	Text(f, "row \(x)")
 }
 
@@ -241,7 +241,7 @@ law PointerCrossesOnce(seed int) {
 	with context { Scheduler: m } {
 		let mut r = seeded(seed)
 		let n = draw(&r, 4) + 2
-		let view = func(f *Frame[int], s string) { crossScreen(f, n) }
+		let view = func(f mut Frame[int], s string) { crossScreen(f, n) }
 		let a = actor.StartMachine(Machine[string, int, int]{Initial: "", Step: crossStep, After: crossTimer, Work: crossWork, Exit: func(at string) Option[func()] { None }}, 1, func(o int) {})
 		let mut h = NewTestHost(a, view, m, 4) catch {
 		case BadPatch:
@@ -295,7 +295,7 @@ func crossWork(s string) Option[func(send func(e int))] {
 
 // crossScreen is n Areas "a0" to "a<n-1>"; Area i gives 10i+1 on the
 // pointer's enter, 10i+2 on its leave, and nothing else. (a law's helper)
-func crossScreen(f *Frame[int], n int) {
+func crossScreen(f mut Frame[int], n int) {
 	Column(f, Plain()) {
 		for i in 0..n {
 			Area(f, "a\(i)", Plain(), func(p PointerEvent) Option[int] {
@@ -349,7 +349,7 @@ law FocusFollowsTheRing(seed int, steps int) {
 		}
 		let ks = kinds
 		let ss = sizes
-		let view = func(f *Frame[int], s int) { ringScreen(f, s, ks, ss) }
+		let view = func(f mut Frame[int], s int) { ringScreen(f, s, ks, ss) }
 		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})
 		let mut h = NewTestHost(a, view, m, 4) catch {
 		case BadPatch:
@@ -444,7 +444,7 @@ law FocusFollowsTheRing(seed int, steps int) {
 // ringScreen writes the drawn items in a Column: 0 a Text "n<i>", 1 a
 // Pressable "p<i>", 2 a Pressable "d<i>" under a disabled Fieldset, 3 a
 // Roving group of sizes[i] Pressables "g<i>m<j>". (a law's helper)
-func ringScreen(f *Frame[int], s int, kinds []int, sizes []int) {
+func ringScreen(f mut Frame[int], s int, kinds []int, sizes []int) {
 	Column(f, Plain()) {
 		for i, k in kinds {
 			if k == 0 {
@@ -479,7 +479,7 @@ func keyIn(name string, shift bool) Act {
 
 // focusName is the name of the node the focus is on, "" for none. (a
 // law's helper)
-func focusName[S, D, F](h *TestHost[S, int, D, F]) string {
+func focusName[S, D, F](h mut TestHost[S, int, D, F]) string {
 	match FocusOf(h) {
 	case Some[Id[int]] as id:
 		AccessAt(h, id.Value).Name
@@ -505,7 +505,7 @@ law FocusStaysInScope(seed int, steps int) {
 	with context { Scheduler: m } {
 		let outs = draw(&r, 4) + 1
 		let ins = draw(&r, 4) + 1
-		let view = func(f *Frame[int], s int) { scopeScreen(f, s, outs, ins) }
+		let view = func(f mut Frame[int], s int) { scopeScreen(f, s, outs, ins) }
 		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})
 		let mut h = NewTestHost(a, view, m, 4) catch {
 		case BadPatch:
@@ -547,7 +547,7 @@ law FocusStaysInScope(seed int, steps int) {
 // and while s is 1 a FocusScope of Pressables "s0" to "s<ins-1>", each
 // sending 1, and "close", sending 0, the last; Escape sends 0 from
 // anywhere. (a law's helper)
-func scopeScreen(f *Frame[int], s int, outs int, ins int) {
+func scopeScreen(f mut Frame[int], s int, outs int, ins int) {
 	OnKey(f, func(k KeyPress) Option[int] {
 		if k.Name == "Escape" { Some{Value: 0} } else { None }
 	})
@@ -584,7 +584,7 @@ law FocusReturnsOnEnd(seed int) {
 	with context { Scheduler: m } {
 		let outs = draw(&r, 4) + 1
 		let ins = draw(&r, 3) + 1
-		let view = func(f *Frame[int], s int) { scopeScreen(f, s, outs, ins) }
+		let view = func(f mut Frame[int], s int) { scopeScreen(f, s, outs, ins) }
 		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})
 		let mut h = NewTestHost(a, view, m, 4) catch {
 		case BadPatch:
@@ -670,7 +670,7 @@ func valueOf(k int) int { k*10 + 7 }
 func cancelStops(steps int, m time.Manual) bool needs Scheduler {
 	let started = queue.New[int](64)
 	let ended = queue.New[int](64)
-	let view = func(f *Frame[int], s chosen) {
+	let view = func(f mut Frame[int], s chosen) {
 		let k = s.key
 		Text(f, "key \(k) ready \(s.ready)")
 		Pressable(f, "next", k+1+k%3) {
@@ -790,7 +790,7 @@ func offClock(steps int, m time.Manual) bool needs Scheduler {
 		time.Sleep(m, 1h)
 		true
 	}
-	let view = func(f *Frame[int], s chosen) {
+	let view = func(f mut Frame[int], s chosen) {
 		let k = s.key
 		Text(f, "key \(k) ready \(s.ready)")
 		Pressable(f, "next", k+1) {
@@ -854,7 +854,7 @@ law VersionedNeverRunsAhead(n int) {
 func versionedHolds(n int, m time.Manual) bool needs Scheduler {
 	let landed = 1000 + (n%1000+1000)%1000
 	let a = actor.StartMachine(dialMachine(), 4, func(o int) {})
-	let view = func(f *Frame[int], s int) {
+	let view = func(f mut Frame[int], s int) {
 		Text(f, "n \(s)")
 		Pressable(f, "set", s+1) {
 			Text(f, "set")
@@ -947,7 +947,7 @@ func cursorKept(seed int, steps int, m time.Manual) bool needs Scheduler {
 	let sizes = []int{0, 3, 50, 1000}
 	let n = sizes[draw(&r, len(sizes))]
 	let rh = float64(draw(&r, 40) + 10)
-	let view = func(f *Frame[int], s int) {
+	let view = func(f mut Frame[int], s int) {
 		OnKey(f, func(k KeyPress) Option[int] {
 			for i in 0..n+1 {
 				if k.Name == "\(i)" {
@@ -1050,7 +1050,7 @@ func phaseCode(p Phase) int {
 
 func captureFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 	let mut r = seeded(seed)
-	let view = func(f *Frame[int], s int) {
+	let view = func(f mut Frame[int], s int) {
 		OnKey(f, func(k KeyPress) Option[int] { if k.Name == "h" { Some{Value: 99} } else { None } })
 		Pressable(f, "tap", 98) {
 			Text(f, "tap")
@@ -1176,7 +1176,7 @@ func orderStep(s int, e int) Decision[int, int] {
 func postedOrder(seed int, m time.Manual) bool needs Scheduler {
 	let mut r = seeded(seed)
 	let n = draw(&r, 4) + 3
-	let view = func(f *Frame[int], s int) {
+	let view = func(f mut Frame[int], s int) {
 		OnSlow(f, Budget{Signals: 0, Written: 0, Committed: 0, Ops: 0, Painted: 0, Fetches: 2}, func(x Slow) int { 2 })
 		OnKey(f, func(k KeyPress) Option[int] { if s == 0 { Some{Value: 1} } else { None } })
 		Text(f, "s\(s)")
@@ -1395,7 +1395,7 @@ law IncrementalEqualsFresh(seed int, steps int) {
 type Missing { V int }
 
 // swap writes a Text or a Check at its caller's site.
-func swap(f *Frame[int], v int, at CallSite) {
+func swap(f mut Frame[int], v int, at CallSite) {
 	if v%2 == 0 {
 		Text(f, "even \(v)", at)
 	} else {
@@ -1403,7 +1403,7 @@ func swap(f *Frame[int], v int, at CallSite) {
 	}
 }
 
-func render(f *Frame[int], p prog, s []int, row int) fails Missing | Pending {
+func render(f mut Frame[int], p prog, s []int, row int) fails Missing | Pending {
 	match p {
 	case pText as x:
 		Text(f, "t\(s[x.slot] + row)")
@@ -1512,7 +1512,7 @@ func render(f *Frame[int], p prog, s []int, row int) fails Missing | Pending {
 // sameBody is what a pSame writes: an OnKey whose signal is its key, a
 // Toggle of its own, a Box with a Toggle (a cell its Same does not own),
 // and its kids.
-func sameBody(f *Frame[int], kids []prog, s []int, row int, dig int) fails Missing | Pending {
+func sameBody(f mut Frame[int], kids []prog, s []int, row int, dig int) fails Missing | Pending {
 	OnKey(f, func(k KeyPress) Option[int] { Some{Value: dig} })
 	let fl = NewFlag(f, false)
 	Toggle(f, fl, "same")
@@ -1550,8 +1550,8 @@ func digest(kids []prog, s []int, row int) int {
 func models(ps []prog, s []int, row int) []Shape[int] { outcomes(ps, s, row).shapes }
 
 // pass renders the programs ps at state s as one pass of f.
-func pass(f *Frame[int], ps []prog, s []int) []Op[int] {
-	Render(f, func(g *Frame[int], st []int) {
+func pass(f mut Frame[int], ps []prog, s []int) []Op[int] {
+	Render(f, func(g mut Frame[int], st []int) {
 		for p in ps {
 			render(g, p, st, 0) catch {
 			case Missing:
@@ -1618,7 +1618,7 @@ law KeyedMovesFewest(seed int, count int) {
 
 // keyedLines is keyed rows of one node each, so two rows that swap are
 // two neighbours whose old positions differ by one.
-func keyedLines(f *Frame[int], xs []int) {
+func keyedLines(f mut Frame[int], xs []int) {
 	Column(f, Plain()) {
 		Each(f, xs, func(x int) Key { ByInt(x) }) func(x int) {
 			Text(f, "line \(x)")
@@ -1690,7 +1690,7 @@ law KeyedIdentity(seed int, count int) {
 	true
 }
 
-func keyedRows(f *Frame[int], xs []int) {
+func keyedRows(f mut Frame[int], xs []int) {
 	Column(f, Plain()) {
 		Each(f, xs, func(x int) Key { ByInt(x) }) func(x int) {
 			Text(f, "row \(x)")
@@ -1704,7 +1704,7 @@ func keyedRows(f *Frame[int], xs []int) {
 
 // rowIds is the Ids of each key's two nodes, by key, in the column the
 // view writes.
-func rowIds(f *Frame[int], xs []int) Map[int, (Id[int], Id[int])] {
+func rowIds(f mut Frame[int], xs []int) Map[int, (Id[int], Id[int])] {
 	let mut out = Map[int, (Id[int], Id[int])]{}
 	let col = Kids(f, Root(f))
 	if len(col) != 1 {
@@ -1773,7 +1773,7 @@ law GroupByKeepsAfterCheapEqual(seed int, steps int) {
 // them), and the next pass compares only those, running the group either
 // way, so a slice it shares with the program is never read. A view that
 // stops changing runs its group once more, then skips (P-ui-flow).
-func groupBy[E comparable, A](f *Frame[E], args A, same func(a A, b A) bool, cheap func(a A, b A) bool, keep func(a A) A, body func(), at CallSite) {
+func groupBy[E comparable, A](f mut Frame[E], args A, same func(a A, b A) bool, cheap func(a A, b A) bool, keep func(a A) A, body func(), at CallSite) {
 	let id = groupIdent(f, at)
 	let key = groupKey[E]{owner: owner(f, f.parent), id: id}
 	let outer = f.group
@@ -1819,7 +1819,7 @@ func heldOf[A](args A, deep bool, keep func(a A) A) heldArgs[A] {
 // runGroup runs body as the group whose arguments' slot is slot, entry
 // the kept group its key found (-1 none), and records whether it may be
 // kept.
-func runGroup[E comparable](f *Frame[E], id ident, outer int, start int, slot int, entry int, body func()) {
+func runGroup[E comparable](f mut Frame[E], id ident, outer int, start int, slot int, entry int, body func()) {
 	let r = record(f, groupRec[E]{parent: f.parent, id: id, slot: slot, start: start, end: start, outer: outer, pure: true, again: -1, entry: entry, fresh: entry < 0, sames: 0})
 	let before = f.sames
 	let cells = f.ncells
@@ -1843,7 +1843,7 @@ func runGroup[E comparable](f *Frame[E], id ident, outer int, start int, slot in
 
 // keptAgain records g, a group written again: the Sames inside it are
 // written, and kept without running.
-func keptAgain[E](f *Frame[E], g groupRec[E]) {
+func keptAgain[E](f mut Frame[E], g groupRec[E]) {
 	f.sames = f.sames + g.sames
 	f.keptSames = f.keptSames + g.sames
 	let _ = record(f, g)
@@ -1851,7 +1851,7 @@ func keptAgain[E](f *Frame[E], g groupRec[E]) {
 
 // record stores g as the pass's next group, in the storage of the last
 // pass's, and returns its index.
-func record[E](f *Frame[E], g groupRec[E]) int {
+func record[E](f mut Frame[E], g groupRec[E]) int {
 	let r = f.ngroups
 	if r < len(f.groups) {
 		f.groups[r] = g
@@ -1864,7 +1864,7 @@ func record[E](f *Frame[E], g groupRec[E]) int {
 
 // groupCount is how many group identities of s this pass took, which it
 // then moves by d (count, frame.ergo).
-func groupCount[E](f *Frame[E], s slotOf, d int) int {
+func groupCount[E](f mut Frame[E], s slotOf, d int) int {
 	let k = slotKey(s)
 	if k >= 0 {
 		let n = thisPass(f.groupSeen.Get(k), f.pass)
@@ -1880,7 +1880,7 @@ func groupCount[E](f *Frame[E], s slotOf, d int) int {
 // apart from the nodes' (identify): a node keeps the identity it has when
 // the call is no group, so cells and matching see the same nodes under
 // either lowering.
-func groupIdent[E](f *Frame[E], at CallSite) ident {
+func groupIdent[E](f mut Frame[E], at CallSite) ident {
 	let s = slotOf{parent: f.parent, b: base{site: at, each: f.each, key: f.key}}
 	let n = groupCount(f, s, 1)
 	ident{site: at, each: f.each, key: f.key, n: n}
@@ -1894,7 +1894,7 @@ func groupIdent[E](f *Frame[E], at CallSite) ident {
 // cut (cut drops the groups it takes back), so its top nodes are the
 // children of its owner in the host's tree, never parked, and its owner,
 // which this pass matched, is no node that comes back from being parked.
-func writeAgain[E](f *Frame[E], i int) bool {
+func writeAgain[E](f mut Frame[E], i int) bool {
 	let p = f.parent
 	let up = p >= 0 && f.specs[p].off
 	let t = len(f.keptList[i].tops)
@@ -1939,7 +1939,7 @@ func writeAgain[E](f *Frame[E], i int) bool {
 // as one block spec: one spec for any number of tops, which Commit keeps
 // in place (fix 5: a spec a top cost a list holder of 800 rows most of
 // its pass). A group with no top writes no spec.
-func putTops[E](f *Frame[E], i int, p int) {
+func putTops[E](f mut Frame[E], i int, p int) {
 	if len(f.keptList[i].tops) == 0 {
 		return
 	}
@@ -1951,7 +1951,7 @@ func putTops[E](f *Frame[E], i int, p int) {
 // four, counted, not looked up) all have a row site other than each: then
 // none shares an identity's base with a top of a group whose tops share
 // row site each.
-func clearBefore[E](f *Frame[E], p int, each CallSite) bool {
+func clearBefore[E](f mut Frame[E], p int, each CallSite) bool {
 	if kidsWritten(f, p) > 4 {
 		return false
 	}
@@ -1970,7 +1970,7 @@ func clearBefore[E](f *Frame[E], p int, each CallSite) bool {
 }
 
 // unsee gives back the last n identity counts the pass took.
-func unsee[E](f *Frame[E], n int) {
+func unsee[E](f mut Frame[E], n int) {
 	for _ in 0..n {
 		f.nseen = f.nseen - 1
 		count(f, f.seenLog[f.nseen], -1)
@@ -2024,14 +2024,14 @@ func gbKeep(a gbArgs) gbArgs {
 	gbArgs{n: a.n, xs: ys}
 }
 
-func gbBody(f *Frame[int], a gbArgs) {
+func gbBody(f mut Frame[int], a gbArgs) {
 	Text(f, "n \(a.n)")
 	for x in a.xs {
 		Text(f, "x \(x)")
 	}
 }
 
-func gbGrouped(f *Frame[int], a gbArgs) {
+func gbGrouped(f mut Frame[int], a gbArgs) {
 	groupBy(f, a, gbSame, gbCheap, gbKeep, func() { gbBody(f, a) })
 }
 
@@ -2069,7 +2069,7 @@ law GroupSkipsEqualArguments(seed int, steps int) {
 // group writes body's nodes as one group (the compiler's form of a
 // component call, never written by a program): the nodes of the last
 // pass's group when it is kept with arguments equal to args, else body's.
-func group[E comparable, A comparable](f *Frame[E], args A, body func(), at CallSite) {
+func group[E comparable, A comparable](f mut Frame[E], args A, body func(), at CallSite) {
 	let id = groupIdent(f, at)
 	let key = groupKey[E]{owner: owner(f, f.parent), id: id}
 	let outer = f.group
@@ -2100,7 +2100,7 @@ func group[E comparable, A comparable](f *Frame[E], args A, body func(), at Call
 // value its body reads.
 type grArgs { n int, on bool }
 
-func grBody(f *Frame[int], a grArgs) {
+func grBody(f mut Frame[int], a grArgs) {
 	Text(f, "n \(a.n)")
 	if a.on {
 		Box(f, Plain()) {
@@ -2111,7 +2111,7 @@ func grBody(f *Frame[int], a grArgs) {
 
 // grGrouped writes grBody through group, as the compiler writes a
 // component call.
-func grGrouped(f *Frame[int], a grArgs) {
+func grGrouped(f mut Frame[int], a grArgs) {
 	group(f, a, func() { grBody(f, a) })
 }
 
@@ -2130,7 +2130,7 @@ type row { a string, b string, on bool }
 // a Submit that sends the key and empties a. Draft a and the flag are read
 // directly under the Each, so their cells are keyed by the row's key; draft
 // b is read inside the Row, so its cell lives in that row's node.
-func cellRows(f *Frame[int], keys []int) {
+func cellRows(f mut Frame[int], keys []int) {
 	Column(f, Plain()) {
 		Each(f, keys, rowKey) func(k int) {
 			let a = NewDraft(f, "")
@@ -2185,7 +2185,7 @@ func rowOf(rows Map[int, row], k int) row {
 
 // part is the node at position i (0 to 4) of the row at position at, and
 // for i == 2 the Field inside its Row.
-func part(f *Frame[int], at int, i int) Id[int] {
+func part(f mut Frame[int], at int, i int) Id[int] {
 	let col = Kids(f, Root(f))[0]
 	let id = Kids(f, col)[5*at+i]
 	if i == 2 {
@@ -2362,7 +2362,7 @@ func see[E](f mut Frame[E], s slotOf) int {
 
 // count is how many identities of s this pass took, which it then moves
 // by d: one map lookup and one write, on the packed key when s packs.
-func count[E](f *Frame[E], s slotOf, d int) int {
+func count[E](f mut Frame[E], s slotOf, d int) int {
 	let k = slotKey(s)
 	if k >= 0 {
 		let n = thisPass(f.seen.Get(k), f.pass)
