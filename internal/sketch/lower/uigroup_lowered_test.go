@@ -17,7 +17,7 @@ const groupedRows = `import ui
 
 type state { rows []int, tick int }
 
-func row(f *ui.Frame[int], x int) {
+func row(f mut ui.Frame[int], x int) {
 	ui.Row(f, ui.Plain()) {
 		ui.Text(f, "row \(x)")
 		ui.Pressable(f, "go", x) {
@@ -26,17 +26,17 @@ func row(f *ui.Frame[int], x int) {
 	}
 }
 
-func list(f *ui.Frame[int], s state) {
+func list(f mut ui.Frame[int], s state) {
 	ui.Each(f, s.rows, func(x int) ui.Key { ui.ByInt(x) }) func(x int) {
 		row(f, x)
 	}
 }
 
-func card(f *ui.Frame[int], s state) {
+func card(f mut ui.Frame[int], s state) {
 	ui.Text(f, "tick \(s.tick)")
 }
 
-func view(f *ui.Frame[int], s state) {
+func view(f mut ui.Frame[int], s state) {
 	ui.Column(f, ui.Plain()) {
 		list(f, s)
 		card(f, s)
