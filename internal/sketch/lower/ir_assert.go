@@ -171,7 +171,19 @@ func (b *irBuilder) assert(s *syntax.AssertStmt) []*irStmt {
 		// stays inline): the comparison and the failure text read them.
 		b.plain(x)
 		op := x.Op.String()
-		b.operator(op, l.info.Types[x.X], x)
+		// == and != on a type that is not basic compare as binaryOther
+		// does (ir_equal.go), as the emitter's assertCompare calls
+		// binaryOf; each operand is shown as its own type, so one that
+		// converts first keeps the source body.
+		eq := b.equalOther(x)
+		if eq == nil {
+			b.operator(op, l.info.Types[x.X], x)
+		}
+		for _, e := range []syntax.Expr{x.X, x.Y} {
+			if conv, ok := l.info.Implicit[e]; ok && conv.Kind != 0 && eq != nil {
+				irNo("operator %s on operands of two types", op)
+			}
+		}
 		var vals []*irExpr
 		// A try that starts the assert covers the whole comparison: its
 		// operands are built under it (the emitter's assert, q105).
@@ -191,7 +203,11 @@ func (b *irBuilder) assert(s *syntax.AssertStmt) []*irStmt {
 			pre = append(pre, &irStmt{K: "def", Pos: vals[k].Pos, Local: t, X: vals[k]})
 			vals[k] = &irExpr{K: "local", Pos: vals[k].Pos, I: t}
 		}
-		cond = &irExpr{K: "bin", Pos: b.pos(x, x.OpPos), Op: op, X: vals[0], Y: vals[1]}
+		if eq != nil {
+			cond = b.equalOf(x, eq, func() (*irExpr, *irExpr) { return vals[0], vals[1] })
+		} else {
+			cond = &irExpr{K: "bin", Pos: b.pos(x, x.OpPos), Op: op, X: vals[0], Y: vals[1]}
+		}
 		show := &irExpr{K: "call", Pos: p, Name: l.assertShowFunc(s, lt, rt, x), Args: vals}
 		text = &irExpr{K: "bin", Pos: p, Op: "+", X: text, Y: show}
 	} else {

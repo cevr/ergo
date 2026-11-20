@@ -27,6 +27,20 @@ import (
 // type is known to be a primitive. Here the type is always known, so the
 // call is the per-type function, as Rust's derive(PartialEq) is.
 func (b *irBuilder) binaryOther(x *syntax.BinaryExpr, p irPos) *irExpr {
+	t := b.equalOther(x)
+	if t == nil {
+		return nil
+	}
+	return b.equalOf(x, t, func() (*irExpr, *irExpr) {
+		return b.expr(x.X), b.expr(x.Y) // each with its implicit conversion
+	})
+}
+
+// equalOther is the type x compares when x is == or != on operands of a
+// type that is not basic (binaryOther), else nil. It checks the operands
+// before they are built: each, after its implicit conversion, is of the
+// compared type's Go type, and the type has an equality.
+func (b *irBuilder) equalOther(x *syntax.BinaryExpr) check.Type {
 	op := x.Op.String()
 	if op != "==" && op != "!=" {
 		return nil
@@ -37,29 +51,39 @@ func (b *irBuilder) binaryOther(x *syntax.BinaryExpr, p irPos) *irExpr {
 	}
 	t := b.fc.equalType(x)
 	gt := b.goType(t, x)
-	operand := func(e syntax.Expr, et check.Type) *irExpr {
-		v := b.expr(e) // with its implicit conversion
+	for _, e := range []syntax.Expr{x.X, x.Y} {
+		et := b.l.info.Types[e]
 		if conv, ok := b.l.info.Implicit[e]; ok && conv.Kind == check.ConvVariant {
 			et = conv.To
 		}
 		if b.goType(et, x) != gt {
 			irNo("operator %s on operands of two types", op)
 		}
-		return v
 	}
+	if !needsEqual(t) && !check.Comparable(t) {
+		irNo("operator %s on a type with no equality", op)
+	}
+	return t
+}
+
+// equalOf is x, == or != on t (equalOther), of the operands that operands
+// builds, x.X's then x.Y's: Go's == when Go compares t, else the call of
+// t's equality function, negated for !=. A shown assert passes the
+// operands it has already spilled (ir_assert.go).
+func (b *irBuilder) equalOf(x *syntax.BinaryExpr, t check.Type, operands func() (*irExpr, *irExpr)) *irExpr {
+	op := x.Op.String()
 	pos := b.pos(x, x.OpPos)
 	if !needsEqual(t) {
-		if !check.Comparable(t) {
-			irNo("operator %s on a type with no equality", op)
-		}
-		return &irExpr{K: "bin", Pos: pos, Op: op, X: operand(x.X, lt), Y: operand(x.Y, rt)}
+		l, r := operands()
+		return &irExpr{K: "bin", Pos: pos, Op: op, X: l, Y: r}
 	}
 	name, free := b.l.equalFunc(t, x)
 	args := make([]string, len(free))
 	for i, tp := range free {
 		args[i] = b.goType(tp, x)
 	}
-	call := &irExpr{K: "call", Pos: pos, Name: name, T: strings.Join(args, ", "), Args: []*irExpr{operand(x.X, lt), operand(x.Y, rt)}}
+	l, r := operands()
+	call := &irExpr{K: "call", Pos: pos, Name: name, T: strings.Join(args, ", "), Args: []*irExpr{l, r}}
 	if op == "!=" {
 		return &irExpr{K: "un", Pos: pos, Op: "!", X: call}
 	}

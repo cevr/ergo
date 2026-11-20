@@ -100,10 +100,17 @@ func (b *irBuilder) valueOf(x syntax.Expr) ([]*irStmt, *irExpr) {
 		}
 		b.plain(y)
 		b.goType(b.l.info.Types[y], y)
-		b.operator(op, b.l.info.Types[y.X], y)
+		eq := b.equalOther(y) // ir_equal.go: == or != on a type that is not basic
+		if eq == nil {
+			b.operator(op, b.l.info.Types[y.X], y)
+		}
 		var vals []*irExpr
 		pre, vals = b.operands([]syntax.Expr{y.X, y.Y}) // ir_fail.go
-		e = &irExpr{K: "bin", Pos: b.pos(y, y.OpPos), Op: op, X: vals[0], Y: vals[1]}
+		if eq != nil {
+			e = b.equalOf(y, eq, func() (*irExpr, *irExpr) { return vals[0], vals[1] })
+		} else {
+			e = &irExpr{K: "bin", Pos: b.pos(y, y.OpPos), Op: op, X: vals[0], Y: vals[1]}
+		}
 	default:
 		return nil, b.expr(x) // expr converts
 	}
