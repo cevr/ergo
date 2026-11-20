@@ -17,6 +17,7 @@ import (
 // that holds one is a skip.
 func registerNativestimeout(t nativeTables) {
 	natives := t.std
+	t.reads["timeout.After"] = "int64 func/0"
 	natives["timeout.After"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		if in.sched == nil {
 			return nil, fr.unsupported(at, "a timeout outside a run's tasks")

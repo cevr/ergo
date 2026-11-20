@@ -12,7 +12,7 @@ import pipeline/pipeline
 import pipeline/run
 
 // Request is one call of pipeline.Pipeline: a variant per operation, whose fields
-// are the operation's parameters. It is the wire's request.
+// are the operation's parameters. It is the request every transport carries.
 type Request = SubmitRequest{C pipeline.SubmitRun} | CancelRequest{C pipeline.CancelRun} | RetryRequest{C pipeline.RetryRun} | BoardRequest{} | RunOfRequest{Id string}
 
 // Op is an operation of pipeline.Pipeline: what a policy matches on.
@@ -22,7 +22,7 @@ type Op = SubmitOp{} | CancelOp{} | RetryOp{} | BoardOp{} | RunOfOp{}
 type Reply = SubmitReply{Value pipeline.Receipt} | CancelReply{Value pipeline.Receipt} | RetryReply{Value pipeline.Receipt} | BoardReply{Value board.View} | RunOfReply{Value run.Run}
 
 // Failure is a failure of an operation: a variant per failure type of
-// any row, named like the type (its tag on the wire).
+// any row, named like the type (its JSON tag).
 type Failure = WrongState{E run.WrongState} | WrongStage{E run.WrongStage} | Closed{E run.Closed} | BadLength{E run.BadLength} | NoSuchRun{E pipeline.NoSuchRun} | Unavailable{E pipeline.Unavailable}
 
 // Outcome is what one call ends in: its operation's value or one of
@@ -86,7 +86,7 @@ func valueOf(text string) json.Value {
 }
 
 // Schema is the JSON schema of op's arguments: an object whose keys are
-// its parameters' wire keys, or the fields of its one record parameter.
+// its parameters' JSON keys, or the fields of its one record parameter.
 func Schema(op Op) json.Value {
 	match op {
 	case SubmitOp:

@@ -102,7 +102,7 @@ func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 			units = units.Append(u)
 		}
 	}
-	let p = load.LoadAll(units, load.Outside(units, std))
+	let p = load.LoadAll(units, load.Outside(units, std), 4)
 	let mut b = strings.NewBuilder()
 	for i in 0..len(p.Loaded) {
 		let ui = p.Units[i]

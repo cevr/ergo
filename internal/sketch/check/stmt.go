@@ -412,6 +412,9 @@ func (c *checker) assignStmt(s *syntax.AssignStmt) {
 			return
 		}
 		lop := c.lhs(l)
+		if !lop.invalid() {
+			c.providerStore(s) // mapprovider.go
+		}
 		var hint Type
 		if !lop.invalid() {
 			hint = lop.typ
