@@ -172,15 +172,16 @@ func TestAncestryWalkedOnce(t *testing.T) {
 // into one buffer with plain system calls, never through an *os.File,
 // whose poller registration, finalizer and fcntl were most of the walk's
 // cost at every ergo start (ERGO-STARTUP-2). It counts allocations, not
-// time: a read of a short file allocates its buffer only. Mutant: the read
+// time: a read of a short file allocates its buffer and the system call's copy of
+// the path, where os.ReadFile also allocates the file and its stat. Mutant: the read
 // through os.ReadFile (start-proc-read-through-file).
 func TestProcReadAllocatesItsBuffer(t *testing.T) {
 	path := "/proc/" + strconv.Itoa(os.Getpid()) + "/stat"
 	if _, err := readProc(path); err != nil {
 		t.Skipf("no /proc: %v", err)
 	}
-	if n := testing.AllocsPerRun(20, func() { _, _ = readProc(path) }); n > 1 {
-		t.Errorf("a read of %s allocates %.0f times; want its buffer only", path, n)
+	if n := testing.AllocsPerRun(20, func() { _, _ = readProc(path) }); n > 2 {
+		t.Errorf("a read of %s allocates %.0f times; want its buffer and the path's copy only", path, n)
 	}
 }
 

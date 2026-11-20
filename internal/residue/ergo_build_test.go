@@ -27,7 +27,7 @@ import (
 // CGO_ENABLED=0. Mutant: a build site that names the go command itself
 // (start-ergo-build-bypasses-setting).
 func TestErgoBuildsReadOneSetting(t *testing.T) {
-	root, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
+	root, err := exec.Command("git", "--no-optional-locks", "rev-parse", "--show-toplevel").Output()
 	if err != nil {
 		t.Fatalf("git rev-parse: %v", err)
 	}
@@ -167,7 +167,7 @@ func TestErgoDocsBuildAsTheToolSays(t *testing.T) {
 	if install := ergoversion.InstallCommand("v1.2.3"); !strings.HasPrefix(install, prefix) {
 		t.Errorf("ergo prints %q to install itself; it should start with %q (internal/ergobuild)", install, prefix)
 	}
-	root, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
+	root, err := exec.Command("git", "--no-optional-locks", "rev-parse", "--show-toplevel").Output()
 	if err != nil {
 		t.Fatalf("git rev-parse: %v", err)
 	}

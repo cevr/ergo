@@ -141,7 +141,7 @@ func parentOf(dir string) int {
 // readProc reads the /proc file at path with plain system calls: no
 // *os.File, so no poller registration, finalizer or fcntl, which were most
 // of the walk's 0.125 M of `ergo version`'s instructions (ERGO-STARTUP-2,
-// measured, sampled). It allocates the returned buffer and nothing else
+// measured, sampled). It allocates the returned buffer and the path's NUL-terminated copy
 // (TestProcReadAllocatesItsBuffer).
 func readProc(path string) ([]byte, error) {
 	fd, err := syscall.Open(path, syscall.O_RDONLY|syscall.O_CLOEXEC, 0)
