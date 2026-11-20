@@ -10,7 +10,7 @@ import sync
 import clibench/counter
 
 // Request is one call of counter.Counter: a variant per operation, whose fields
-// are the operation's parameters. It is the wire's request.
+// are the operation's parameters. It is the request every transport carries.
 type Request = AddRequest{Entry counter.Entry} | GetRequest{Key string}
 
 // Op is an operation of counter.Counter: what a policy matches on.
@@ -20,7 +20,7 @@ type Op = AddOp{} | GetOp{}
 type Reply = AddReply{Value int} | GetReply{Value int}
 
 // Failure is a failure of an operation: a variant per failure type of
-// any row, named like the type (its tag on the wire).
+// any row, named like the type (its JSON tag).
 type Failure = Negative{E counter.Negative} | Unknown{E counter.Unknown}
 
 // Outcome is what one call ends in: its operation's value or one of
@@ -66,7 +66,7 @@ func valueOf(text string) json.Value {
 }
 
 // Schema is the JSON schema of op's arguments: an object whose keys are
-// its parameters' wire keys, or the fields of its one record parameter.
+// its parameters' JSON keys, or the fields of its one record parameter.
 func Schema(op Op) json.Value {
 	match op {
 	case AddOp:
