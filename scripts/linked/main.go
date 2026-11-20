@@ -15,25 +15,25 @@
 // layout is one behind this tree's (syntax.PreviousColumnsVersion, which
 // the decoder still reads), or it refuses a line of the std or compiler
 // sources the linked packages read (new syntax on the same layout, such
-// as a new token). Stage 1 regenerates with the linked parser that reads
-// the tree best: of the one on disk and the ones the parent commits hold
-// (a merge's two sides: HEAD^1 and HEAD^2, or HEAD and MERGE_HEAD while
-// the merge is uncommitted),
-// the one of a layout the decoder reads that refuses the fewest lines.
-// After a merge of a syntax port with a layout change, neither side's
-// parser reads the whole tree, and a line held back can take a
+// as a new token). Stage 1 regenerates with a parser that reads the tree:
+// the disk's when it does; else the newest committed one that does, of
+// the commits that wrote the linked compiler (across every parent, so a
+// syntax port merged several merges back is found) whose tree holds the
+// disk parser's first refused line. A line held back can take a
 // declaration std needs with it (a prelude type set held back leaves std
-// cmp without ordered), so the side that carries the syntax is the one
-// stage 1 must use. Each line that parser still refuses is held back:
-// commented out on disk, and put back when stage 1 ends. Stage 2 then
-// regenerates with the parser stage 1 wrote. -bootstrap on a tree the
+// cmp without ordered), so a committed parser that reads the syntax is
+// always preferred. Only when no such commit holds the line (the tree's
+// own syntax change, newer than every linked parser) does stage 1 use the
+// disk's parser with the lines it refuses held back: commented out on
+// disk, and put back when stage 1 ends. A walk that finds no parser fails,
+// naming each it tried (walk.go). Stage 2 then regenerates with the
+// parser stage 1 wrote, which must read the whole tree. -bootstrap on a tree the
 // linked parser reads regenerates once. Without -bootstrap, a tree that
 // needs two stages is refused with this instruction: never decoded at the
 // wrong width, never regenerated without its new syntax.
 package main
 
 import (
-	"bytes"
 	"errors"
 	"flag"
 	"fmt"
@@ -79,7 +79,7 @@ func run() error {
 	behind := layout == syntax.PreviousColumnsVersion
 	if *probe || *hold {
 		if layout != syntax.ColumnsVersion && !behind {
-			fmt.Printf("layout %d refused -1\n", layout)
+			printProbe(layout, nil, -1)
 			return nil
 		}
 		held, err := refused(root)
@@ -94,7 +94,7 @@ func run() error {
 				fmt.Fprintln(os.Stderr, "linked: stage 1 holds back lines of", path)
 			}
 		}
-		fmt.Printf("layout %d refused %d\n", layout, refusedLines(held))
+		printProbe(layout, heldLines(root, held), refusedLines(held))
 		return nil
 	}
 	if layout != syntax.ColumnsVersion && !behind && !*bootstrap {
@@ -130,32 +130,6 @@ func refusedLines(held map[string]heldFile) int {
 		n += strings.Count(h.src, heldMark) - strings.Count(h.orig, heldMark)
 	}
 	return n
-}
-
-// probed is a candidate linked parser's answer to -probe: the layout it
-// writes, and the lines of the tree it refuses (-1 when it writes a layout
-// the decoder does not read, or the probe failed).
-type probed struct {
-	from    string
-	layout  uint32
-	refused int
-}
-
-// choose is the candidate stage 1 regenerates with: of those that write a
-// layout the decoder reads (this tree's or the one before), the one that
-// refuses the fewest lines, the earliest on a tie (the parser on disk
-// first). It is -1 when none does.
-func choose(ps []probed) int {
-	best := -1
-	for i, p := range ps {
-		if p.refused < 0 || p.layout != syntax.ColumnsVersion && p.layout != syntax.PreviousColumnsVersion {
-			continue
-		}
-		if best < 0 || p.refused < ps[best].refused {
-			best = i
-		}
-	}
-	return best
 }
 
 // stages reports whether a run regenerates in two stages: when the linked
@@ -207,101 +181,6 @@ func generate(root string) error {
 	}
 	fmt.Println(linked.StampFile)
 	return nil
-}
-
-// compilerFile is the linked compiler's Go, whose parser ParseRows runs.
-const compilerFile = "internal/linked/compiler/compiler.go"
-
-// twoStages puts on disk the linked compiler stage 1 regenerates with
-// (choose, over the one on disk and the parents'), holds back what that
-// parser still refuses (-hold, a build with that parser), runs stage 1 as
-// a fresh build (std is embedded, so the held sources must be compiled
-// in), puts the sources back, and runs stage 2 with the parser stage 1
-// wrote. A failed stage 1 puts the compiler on disk back too.
-func twoStages(root string) error {
-	path := filepath.Join(root, filepath.FromSlash(compilerFile))
-	disk, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	srcs := [][]byte{disk}
-	from := []string{"the disk"}
-	for _, rev := range []string{"HEAD", "MERGE_HEAD", "HEAD^1", "HEAD^2"} {
-		out, err := exec.Command("git", "-C", root, "show", rev+":"+compilerFile).Output()
-		if err != nil || slices.ContainsFunc(srcs, func(b []byte) bool { return bytes.Equal(b, out) }) {
-			continue
-		}
-		srcs, from = append(srcs, out), append(from, rev)
-	}
-	putBack := func() {
-		if err := os.WriteFile(path, disk, 0o644); err != nil {
-			fmt.Fprintln(os.Stderr, "linked: put back", path, err)
-		}
-	}
-	var ps []probed
-	for i, src := range srcs {
-		ps = append(ps, probeWith(root, path, from[i], src, "-probe"))
-		fmt.Fprintf(os.Stderr, "linked: the linked parser of %s: layout %d, refuses %d lines\n", from[i], ps[i].layout, ps[i].refused)
-	}
-	pick := choose(ps)
-	if pick < 0 {
-		putBack()
-		return fmt.Errorf("no linked parser of the disk or a parent commit writes a layout this decoder reads (%d or %d)", syntax.PreviousColumnsVersion, syntax.ColumnsVersion)
-	}
-	fmt.Fprintf(os.Stderr, "linked: stage 1 regenerates with the linked parser of %s\n", from[pick])
-	orig, err := sources(root)
-	if err != nil {
-		putBack()
-		return err
-	}
-	restore := func() {
-		now, err := sources(root)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "linked: put back the held sources:", err)
-			return
-		}
-		for p, src := range orig {
-			if now[p] != src {
-				if err := os.WriteFile(p, []byte(src), 0o644); err != nil {
-					fmt.Fprintln(os.Stderr, "linked: put back", p, err)
-				}
-			}
-		}
-	}
-	if p := probeWith(root, path, from[pick], srcs[pick], "-hold"); p.refused < 0 {
-		restore()
-		putBack()
-		return fmt.Errorf("stage 1: the linked parser of %s did not hold back what it refuses", from[pick])
-	}
-	err = goRun(root, "-stage1")
-	restore()
-	if err != nil {
-		putBack()
-		return fmt.Errorf("stage 1 (the linked parser of %s): %w", from[pick], err)
-	}
-	if err := goRun(root); err != nil {
-		return fmt.Errorf("stage 2: %w", err)
-	}
-	return nil
-}
-
-// probeWith runs scripts/linked with flag (-probe or -hold) with src as
-// the linked compiler on disk, and reads its answer.
-func probeWith(root, path, from string, src []byte, flag string) probed {
-	p := probed{from: from, refused: -1}
-	if err := os.WriteFile(path, src, 0o644); err != nil {
-		return p
-	}
-	cmd := exec.Command("go", "run", "./scripts/linked", flag)
-	cmd.Dir, cmd.Stderr = root, os.Stderr
-	out, err := cmd.Output()
-	if err != nil {
-		return p
-	}
-	if _, err := fmt.Sscanf(strings.TrimSpace(string(out)), "layout %d refused %d", &p.layout, &p.refused); err != nil {
-		p.refused = -1
-	}
-	return p
 }
 
 // sources are the Ergo sources a hold-back may change, by path: std's and
