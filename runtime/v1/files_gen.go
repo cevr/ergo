@@ -415,6 +415,7 @@ var bodyTable = []bodyRow{
 	{"Queue.Poll", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "any"}}, Results: []string{"T", "bool"}, Wait: "none", Package: Path}}},
 	{"Queue.Pop", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "any"}}, Hidden: []Hidden{"task"}, Results: []string{"T", "error"}, Wait: "caller", Package: Path}}},
 	{"Queue.Push", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "any"}}, Hidden: []Hidden{"task"}, Params: []Param{{Type: "T"}}, Results: []string{"error"}, Wait: "caller", Package: Path}}},
+	{"Queue.Slide", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "any"}}, Params: []Param{{Type: "T"}}, Results: []string{"T", "bool", "error"}, Wait: "none", Package: Path}}},
 	{"Queue.Values", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "any"}}, Hidden: []Hidden{"task"}, Results: []string{"iter.Seq[T]"}, Wait: "caller", Package: Path}}},
 	{"RPCCall", bodyFact{body: Body{Hidden: []Hidden{"task"}, Params: []Param{{Type: "string"}, {Type: "string"}, {Type: "string"}}, Results: []string{"string", "error"}, Host: true, Wait: "caller", Package: Path + "/rpc"}}},
 	{"RPCDie", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "any"}}, Params: []Param{{Type: "string"}, {Type: "string"}}, Results: []string{"T"}, Wait: "none", Package: Path + "/rpc"}}},
