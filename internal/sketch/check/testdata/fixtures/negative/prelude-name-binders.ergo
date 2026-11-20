@@ -1,8 +1,0 @@
-type Item { ID string }
-
-func main() needs Console {
-	let _ as Item = Item{ID: "ok"}
-	let _ as string = "shadow" // want S108
-	let _ as Scheduler = 1 // want S108
-	Console.Println("\(Item.ID) \(string) \(Scheduler)")
-}

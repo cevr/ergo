@@ -1,0 +1,21 @@
+// PORT-SLICE: a substring, s[lo:hi] of a string or of a named type over
+// one, is Go's own slice expression on the IR (mutant
+// ps-string-slice-refused keeps the source body, which the fns list
+// catches). Its bounds are checked at the expression: the last cut is out
+// of range on both paths alike.
+
+type Code string
+
+func tail(s string) string { s[1:] }
+
+func cut(s string, a int, b int) string { s[a:b] }
+
+func head(c Code) Code { c[:2] }
+
+func main() needs Console {
+	Console.Println(tail("abc"))
+	Console.Println(cut("abcdef", 1, 4))
+	Console.Println(cut("abc", 3, 3) + "|")
+	Console.Println(string(head(Code("xyz"))))
+	Console.Println(cut("abc", 2, 5))
+}

@@ -1,0 +1,168 @@
+{
+  "about": "module simd's mutants (U1 SIMD-SCAN); each is judged by the module's laws (examples:modules/simd). The kernels run only in a vector build, so env sets GOEXPERIMENT=simd for every run of this ledger's suite; the stock build's kernels are the scalar loop, held by the same laws without it. The law that kills each is named in its rule.",
+  "env": [
+    "GOEXPERIMENT=simd"
+  ],
+  "mutants": [
+    {
+      "name": "simd-tail-dropped",
+      "origin": "wf10 U1 SIMD-SCAN",
+      "file": "modules/simd/kernel/vector_amd64.go",
+      "from": "\tfor ; i < len(s); i++ {\n\t\tif s[i] == c {\n\t\t\treturn i\n",
+      "to": "\tfor ; false; i++ {\n\t\tif s[i] == c {\n\t\t\treturn i\n",
+      "rule": "The scalar tail after the last whole vector is scanned: scan.IndexByteKernelIsTheReference (needle after 0 to 127 filler bytes).",
+      "anchor": {
+        "tests": [
+          "examples:modules/simd"
+        ]
+      },
+      "killers": [
+        "examples:modules/simd"
+      ]
+    },
+    {
+      "name": "simd-mask-order-reversed",
+      "origin": "wf10 U1 SIMD-SCAN",
+      "file": "modules/simd/kernel/vector_amd64.go",
+      "from": "\t\t\tif m := archsimd.LoadUint8x32(s[i : i+32]).Equal(n).ToBits(); m != 0 {\n\t\t\t\treturn i + bits.TrailingZeros32(m)",
+      "to": "\t\t\tif m := archsimd.LoadUint8x32(s[i : i+32]).Equal(n).ToBits(); m != 0 {\n\t\t\t\treturn i + 31 - bits.LeadingZeros32(m)",
+      "rule": "Mask bit k is byte k, so the first match is the lowest bit: scan.IndexByteKernelIsTheReference.",
+      "anchor": {
+        "tests": [
+          "examples:modules/simd"
+        ]
+      },
+      "killers": [
+        "examples:modules/simd"
+      ]
+    },
+    {
+      "name": "simd-any2-second-dropped",
+      "origin": "wf10 U1 SIMD-SCAN",
+      "file": "modules/simd/kernel/vector_amd64.go",
+      "from": "v.Equal(na).Or(v.Equal(nb))",
+      "to": "v.Equal(na).Or(v.Equal(na).And(v.Equal(nb)))",
+      "rule": "Either needle ends the scan: scan.IndexAny2KernelIsTheReference.",
+      "anchor": {
+        "tests": [
+          "examples:modules/simd"
+        ]
+      },
+      "killers": [
+        "examples:modules/simd"
+      ]
+    },
+    {
+      "name": "simd-outside-hi-dropped",
+      "origin": "wf10 U1 SIMD-SCAN",
+      "file": "modules/simd/kernel/vector_amd64.go",
+      "from": "v.Less(nl).Or(v.Greater(nh))",
+      "to": "v.Less(nl).Or(v.Greater(nh).And(v.Less(nl)))",
+      "rule": "A byte above hi is outside: scan.IndexOutsideKernelIsTheReference.",
+      "anchor": {
+        "tests": [
+          "examples:modules/simd"
+        ]
+      },
+      "killers": [
+        "examples:modules/simd"
+      ]
+    },
+    {
+      "name": "simd-count-tail-dropped",
+      "origin": "wf10 U1 SIMD-SCAN",
+      "file": "modules/simd/kernel/vector_amd64.go",
+      "from": "\tfor ; i < len(s); i++ {\n\t\tif s[i] == c {\n\t\t\tcount++",
+      "to": "\tfor ; false; i++ {\n\t\tif s[i] == c {\n\t\t\tcount++",
+      "rule": "The tail's bytes are counted: scan.CountByteKernelIsTheReference.",
+      "anchor": {
+        "tests": [
+          "examples:modules/simd"
+        ]
+      },
+      "killers": [
+        "examples:modules/simd"
+      ]
+    },
+    {
+      "name": "simd-reads-one-past",
+      "origin": "wf10 U1 SIMD-SCAN",
+      "file": "modules/simd/kernel/vector_amd64.go",
+      "from": "\t\tfor ; i+32 <= len(s); i += 32 {\n\t\t\tif m := archsimd.LoadUint8x32(s[i : i+32]).Equal(n).ToBits(); m != 0 {",
+      "to": "\t\tfor ; i+32 <= len(s)+1; i += 32 {\n\t\t\tif m := archsimd.LoadUint8x32(s[i : i+32]).Equal(n).ToBits(); m != 0 {",
+      "rule": "A kernel reads no byte after its slice's length: a slice whose capacity runs on into an unreadable page faults on a read one past the end.",
+      "anchor": {
+        "tests": [
+          "modules/simd/kernel:TestNoReadPastTheEnd"
+        ]
+      },
+      "killers": [
+        "modules/simd/kernel:TestNoReadPastTheEnd"
+      ]
+    },
+    {
+      "name": "quote-tail-misses-control",
+      "origin": "wf10 SIMD-JSON-QUOTE",
+      "file": "modules/simd/kernel/escape_amd64.go",
+      "from": "\t\tif c < 0x20 || c >= 0x80 || c == '\"'",
+      "to": "\t\tif c >= 0x80 || c == '\"'",
+      "rule": "A control byte in the last partial block needs escape: scan.QuoteScanKernelIsTheReference.",
+      "anchor": {
+        "tests": [
+          "examples:modules/simd"
+        ]
+      },
+      "killers": [
+        "examples:modules/simd"
+      ]
+    },
+    {
+      "name": "quote-vector-misses-control",
+      "origin": "wf10 SIMD-JSON-QUOTE",
+      "file": "modules/simd/kernel/escape_amd64.go",
+      "from": "m := v.Less(ctl).Or(",
+      "to": "m := v.Equal(ctl).Or(",
+      "rule": "Every control byte is caught in a whole block: scan.QuoteScanKernelIsTheReference.",
+      "anchor": {
+        "tests": [
+          "examples:modules/simd"
+        ]
+      },
+      "killers": [
+        "examples:modules/simd"
+      ]
+    },
+    {
+      "name": "quote-html-dropped",
+      "origin": "wf10 SIMD-JSON-QUOTE",
+      "file": "modules/simd/kernel/escape_amd64.go",
+      "from": "\t\t\tif html {\n\t\t\t\tm = m.Or(",
+      "to": "\t\t\tif !html && html {\n\t\t\t\tm = m.Or(",
+      "rule": "With html, '<', '>' and '&' end the safe run in a whole block: scan.QuoteScanKernelIsTheReference.",
+      "anchor": {
+        "tests": [
+          "examples:modules/simd"
+        ]
+      },
+      "killers": [
+        "examples:modules/simd"
+      ]
+    },
+    {
+      "name": "quote-reads-one-past",
+      "origin": "wf10 SIMD-JSON-QUOTE",
+      "file": "modules/simd/kernel/escape_amd64.go",
+      "from": "\t\tfor ; i+32 <= len(s); i += 32 {\n\t\t\tv := archsimd.LoadUint8x32(s[i : i+32])\n\t\t\tm :=",
+      "to": "\t\tfor ; i+32 <= len(s)+1; i += 32 {\n\t\t\tv := archsimd.LoadUint8x32(s[i : i+32])\n\t\t\tm :=",
+      "rule": "The quote scan reads no byte after its slice's length.",
+      "anchor": {
+        "tests": [
+          "modules/simd/kernel:TestNoReadPastTheEnd"
+        ]
+      },
+      "killers": [
+        "modules/simd/kernel:TestNoReadPastTheEnd"
+      ]
+    }
+  ]
+}

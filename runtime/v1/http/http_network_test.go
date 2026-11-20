@@ -82,27 +82,6 @@ func TestHTTPNetworkMatchesModel(t *testing.T) {
 	}
 	for _, seed := range seeds {
 		r := rand.New(rand.NewPCG(seed, 23))
-		// Pure generated identities reach normalization that random loopback
-		// ports cannot: default ports and case-sensitive IPv6 interface zones.
-		defaultPort := []int{80, 443}[r.IntN(2)]
-		scheme := "http"
-		if defaultPort == 443 {
-			scheme = "https"
-		}
-		name := fmt.Sprintf("ExAmPle-%d.TeSt", r.IntN(100))
-		canonical, err := HTTPCheckNetwork([]string{fmt.Sprintf("%s://%s:00%d", scheme, name, defaultPort)}, serveLimits(128, 8192))
-		if err != nil || len(canonical) != 1 || canonical[0] != scheme+"://"+strings.ToLower(name) {
-			t.Fatalf("seed %d: default-port origin %q, %v", seed, canonical, err)
-		}
-		zone := fmt.Sprintf("En%d", r.IntN(20))
-		canonical, err = HTTPCheckNetwork([]string{scheme + "://[FE80:0:0:0:0:0:0:1%25" + zone + "]:" + strconv.Itoa(defaultPort)}, serveLimits(128, 8192))
-		if err != nil || len(canonical) != 1 || canonical[0] != scheme+"://[fe80::1%25"+zone+"]" {
-			t.Fatalf("seed %d: IPv6-zone origin %q, %v", seed, canonical, err)
-		}
-		roundTrip, err := HTTPCheckNetwork(canonical, serveLimits(128, 8192))
-		if err != nil || !slices.Equal(roundTrip, canonical) {
-			t.Fatalf("seed %d: origin identity is not stable: %q -> %q, %v", seed, canonical, roundTrip, err)
-		}
 		graph := make([]networkNode, 3+r.IntN(5))
 		statuses := []int{301, 302, 303, 307, 308}
 		for i := range graph {

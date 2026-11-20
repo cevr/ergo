@@ -313,9 +313,13 @@ func (t *treeIR) node(n *mnode, end irPos) *irStmt {
 				ic.Vals = []*irExpr{{K: "const", Pos: p, T: "uint8", V: strconv.Itoa(k)}}
 				bound = b.narrow(fu, col.I, k, p, t.s)
 			} else {
-				ic.Types = []string{c.label}
+				// The case's Go type as the IR spells it (goType): a
+				// runtime type's by its import path (PORT-WITNESS: a
+				// catch of json.Malformed beside `case _`).
+				gt := b.goType(vt, t.s)
+				ic.Types = []string{gt}
 				arm.Tags = []int{unionTag(ct, vt)}
-				bound = &irExpr{K: "assert", Pos: p, T: c.label, X: col}
+				bound = &irExpr{K: "assert", Pos: p, T: gt, X: col}
 			}
 			l := b.temp(n.bound, b.goType(vt, t.s), p)
 			arm.Bind = &irStmt{K: "def", Pos: p, Local: l, X: bound}

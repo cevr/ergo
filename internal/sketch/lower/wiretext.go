@@ -575,7 +575,7 @@ func newShippedEvidence(pkg *check.Package) *shippedEvidence {
 	e := &shippedEvidence{entries: entries, rules: map[string]rwRule{}, digests: map[string]string{}}
 	for prov, rules := range newRewriter(pkg, nil).rules {
 		for _, r := range rules {
-			e.rules[ledgerKey(LedgerNames(nil).law(r.law), LedgerNames(nil).provider(prov), "")] = r
+			e.rules[ledgerKey(LedgerNames(nil).law(r.law), LedgerNames(nil).provider(prov), "", "")] = r
 		}
 	}
 	return e
@@ -586,7 +586,7 @@ func newShippedEvidence(pkg *check.Package) *shippedEvidence {
 // validated law holds at every instance, so in's constants are not looked
 // up.
 func (e *shippedEvidence) Admit(law *check.Law, prov *check.Named, in RewriteInstance) (bool, string) {
-	key := ledgerKey(LedgerNames(nil).law(law), LedgerNames(nil).provider(prov), "")
+	key := ledgerKey(LedgerNames(nil).law(law), LedgerNames(nil).provider(prov), "", "")
 	entry, found := e.entries[key]
 	if !found {
 		return false, "the std law ledger has no " + key
@@ -594,7 +594,7 @@ func (e *shippedEvidence) Admit(law *check.Law, prov *check.Named, in RewriteIns
 	d, ok := e.digests[key]
 	if !ok {
 		r := e.rules[key]
-		d, _ = LawDigest(law, prov, r.conv, r.ctor, "", ShippedForeignKeys)
+		d, _, _ = LawDigest(law, prov, r.conv, r.ctor, "", ShippedForeignKeys)
 		e.digests[key] = d
 	}
 	if d != entry.Digest {
