@@ -53,7 +53,7 @@ func checkWithinBy(t *testing.T, src string, run func(string) (*check.Package, [
 // the one function of R: typing, not the name, picks it (round 6 review
 // M1); inferred rows, like any unexported function) and exported functions
 // (closed rows). A body refers to another by a call or by a bare reference
-// (_ = f; never to a self function, which has no method value), and may
+// (_ = f, or _ = x.m, a self function's method value, CV1), and may
 // call C.M itself. The oracle is independent of the checker:
 //   - the initialization graph is every reference; a var in a cyclic
 //     strongly connected component of it is on an initialization cycle:
@@ -77,7 +77,7 @@ func TestRowGraphDomain(t *testing.T) {
 		kMethod
 		kExported
 	)
-	cycles, groups, shadowed, hidden := 0, 0, 0, 0
+	cycles, groups, shadowed, hidden, values := 0, 0, 0, 0, 0
 	shadows := rand.New(rand.NewSource(1964))
 	// A call of a self function names its receiver one of three ways: a
 	// composite literal (its type is written), a call's result, or a
@@ -111,9 +111,9 @@ func TestRowGraphDomain(t *testing.T) {
 				if kind[j] == kExported || rng.Intn(4) != 0 {
 					continue
 				}
-				// A method is always called: the decided language has no
-				// method values (196m).
-				edges[i] = append(edges[i], edge{to: j, call: rng.Intn(4) != 0 || kind[j] == kMethod})
+				// A method not called is its method value (types.md,
+				// Methods 2): a value use, as _ = f is.
+				edges[i] = append(edges[i], edge{to: j, call: rng.Intn(4) != 0})
 			}
 		}
 		name := func(j int) string {
@@ -145,12 +145,18 @@ func TestRowGraphDomain(t *testing.T) {
 				fmt.Fprintf(&b, "func P%d() {\n", i)
 			}
 			for k, e := range edges[i] {
-				if e.call && kind[e.to] == kMethod && forms.Intn(3) != 0 {
+				// A use is a call statement, or a method value's _ =.
+				use, end := "", "()"
+				if !e.call && kind[e.to] == kMethod {
+					values++
+					use, end = "_ = ", ""
+				}
+				if kind[e.to] == kMethod && forms.Intn(3) != 0 {
 					hidden++
 					if forms.Intn(2) == 0 {
-						fmt.Fprintf(&b, "\tMkR%d().m%d()\n", e.to, e.to%2)
+						fmt.Fprintf(&b, "\t%sMkR%d().m%d%s\n", use, e.to, e.to%2, end)
 					} else {
-						fmt.Fprintf(&b, "\tlet x%d = MkR%d()\n\tx%d.m%d()\n", k, e.to, k, e.to%2)
+						fmt.Fprintf(&b, "\tlet x%d = MkR%d()\n\t%sx%d.m%d%s\n", k, e.to, use, k, e.to%2, end)
 					}
 				} else if e.call {
 					fmt.Fprintf(&b, "\t%s()\n", name(e.to))
@@ -267,7 +273,7 @@ func TestRowGraphDomain(t *testing.T) {
 		pinned := make([]bool, n)
 		for i := range n {
 			for _, e := range edges[i] {
-				if !e.call && kind[e.to] == kFunc && bcomp[i] == bcomp[e.to] && !poisoned[i] {
+				if !e.call && (kind[e.to] == kFunc || kind[e.to] == kMethod) && bcomp[i] == bcomp[e.to] && !poisoned[i] {
 					pinned[e.to] = true
 				}
 			}
@@ -365,7 +371,10 @@ func TestRowGraphDomain(t *testing.T) {
 	if hidden < 500 {
 		t.Fatalf("only %d calls on a receiver whose type is not written; the generator misses typed self-call edges", hidden)
 	}
-	t.Logf("%d initialization-cycle trials, %d class G trials, %d shadowing statements, %d calls on a hidden receiver", cycles, groups, shadowed, hidden)
+	if values < 200 {
+		t.Fatalf("only %d method values; the generator misses x.f as a value (types.md, Methods 2)", values)
+	}
+	t.Logf("%d initialization-cycle trials, %d class G trials, %d shadowing statements, %d calls on a hidden receiver, %d method values", cycles, groups, shadowed, hidden, values)
 }
 
 // bodyComponents numbers the strongly connected components of the graph

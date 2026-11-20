@@ -2155,6 +2155,7 @@
       "anchor": {"tests":["internal/sketch/eval:TestHTTPPolicyAgreesWithRuntime"]},
       "killers": ["internal/sketch/eval:TestHTTPPolicyAgreesWithRuntime"]
     },
-    {"name":"init-steps-obligation","origin":"wf10 LITERAL-LET","file":"internal/sketch/eval/init.go","from":"\tin.budget.Steps = max(steps, initSteps)","to":"\tin.budget.Steps = steps","rule":"a run's package initializers run once under a bound of their own, not one obligation's budget (LITERAL-LET)","killers":["internal/sketch/eval:TestRunInitializesUnderItsOwnBound"]}
+    {"name":"init-steps-obligation","origin":"wf10 LITERAL-LET","file":"internal/sketch/eval/init.go","from":"\tin.budget.Steps = max(steps, initSteps)","to":"\tin.budget.Steps = steps","rule":"a run's package initializers run once under a bound of their own, not one obligation's budget (LITERAL-LET)","killers":["internal/sketch/eval:TestRunInitializesUnderItsOwnBound"]},
+    {"name":"cv-method-value-eval-borrow","origin":"wf10 CV1 (CAP-VALUE A2)","file":"internal/sketch/eval/expr.go","from":"\t\t\trecv, ab := in.receiver(fr, x.X, f)\n","to":"\t\t\trecv, ab := in.expr(fr, x.X)\n","rule":"types.md Methods 2: a method value through a borrow binds the borrowed value, as a dot call's receiver is passed","killers":["internal/sketch/eval:TestMethodValueAgrees"]}
   ]
 }

@@ -349,6 +349,9 @@ func (in *interp) callValue(fr *frame, at syntax.Node, f Value, args []Value) (V
 		if call == nil && (f.fn.Decl == nil || f.fn.Decl.Body == nil || f.fn.Decl.Extern != nil || f.fn.Pkg.Host()) && nativeOf(f.fn) == nil && goNativeOf(f.fn) == nil {
 			return nil, fr.unsupported(at, "a Go function (%s), even a pure one", f.fn.Name)
 		}
+		if f.bound {
+			args = append([]Value{f.recv}, args...)
+		}
 		return in.callResolved(fr, call, f.fn, f.targs, args)
 	case *nativeFunc:
 		return f.call(in, fr, at, args)
@@ -401,6 +404,11 @@ func (in *interp) memberOf(p *check.Package, name string) check.Object {
 type funcRef struct {
 	fn    *check.Func
 	targs []rtype
+	// recv is a method value's receiver (types.md, Methods 2), bound when
+	// x.f was evaluated and passed as fn's first argument; bound reports
+	// one.
+	recv  Value
+	bound bool
 }
 
 // funcValue is the value of a name that resolves to the function fn: at

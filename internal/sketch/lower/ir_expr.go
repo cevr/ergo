@@ -239,6 +239,9 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 		b.goType(t, x)
 		return &irExpr{K: "deref", Pos: p, X: b.expr(x.X)}
 	case *syntax.SelectorExpr:
+		if b.l.info.MethodValues[x] != nil {
+			irNo("method value of a function on a type") // the emitter's closure (calls.go methodValue196)
+		}
 		switch o := check.QualifiedMember(b.l.info, x).(type) {
 		case *check.Func:
 			return b.funcName(o, t, x, p) // pkg.F as a value (ir_fnname.go)
