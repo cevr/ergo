@@ -6,6 +6,6 @@
 func Wire(x Raw) Value {
 	Decode(c[Value](), x.text) catch {
 	case _:
-		Null{}
+		Null
 	}
 }
