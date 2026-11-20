@@ -2261,6 +2261,9 @@ The exempt types and their reasons are in their doc comments: `Console`, `Ambien
 | `os` | `Process.GetenvIsStable` | `GetenvIsStable(key string) { Getenv(key) == Getenv(key) }` | `TestStdHostLawsHold` | tested |
 | `os` | `CodeWhere` | `CodeWhere(v Code) { let it = int(v) ((1 <= it && it <= 125) || (129 <= it && it <= 192)) && try ParseCode(it) == v }` | `TestStdLawsRun` | tested |
 | `os` | `Process.GetwdIsAbsolute` | `GetwdIsAbsolute() { let dir = Getwd() catch { case NoWorkdir: return true } filepath.IsAbs(dir) }` | `TestStdHostLawsHold` | tested |
+| `os` | `Self.EnvironIsSortedOnce` | `EnvironIsSortedOnce() { let vars = Environ() let mut last = "" for i, kv in vars { let name = nameOf(kv) if i > 0 && name <= last { return false } last = name } true }` | `TestStdHostLawsHold` | tested |
+| `os` | `Self.PidIsPositive` | `PidIsPositive() { Pid() > 0 }` | `TestStdHostLawsHold` | tested |
+| `os` | `Self.DirsAreAbsolute` | `DirsAreAbsolute() { let home = HomeDir() catch { case NoDir: "/" } let cache = CacheDir() catch { case NoDir: "/" } let config = ConfigDir() catch { case NoDir: "/" } let exe = Executable() catch { case NoDir: "/" } filepath.IsAbs(home) && filepath.IsAbs(cache) && filepath.IsAbs(config) && filepath.IsAbs(exe) }` | `TestStdHostLawsHold` | tested |
 | `os` | `Process.GetwdIsStable` | `GetwdIsStable() { let first = Getwd() catch { case NoWorkdir: let _ = Getwd() catch { case NoWorkdir: return true } return false } let second = Getwd() catch { case NoWorkdir: return false } first == second }` | `TestStdHostLawsHold` | tested |
 | `prelude` | `AppendIsLast` | `AppendIsLast(xs []int, x int) { let ys = xs.Append(x) len(ys) == len(xs) + 1 && ys[len(xs)] == x }` | `TestCollLaws` | tested |
 | `prelude` | `CloneIsEqual` | `CloneIsEqual(m Map[int, int], k int) { let c = m.Clone() len(c) == len(m) && sameEntry(c.Get(k), m.Get(k)) }` | `TestCollLaws` | tested |

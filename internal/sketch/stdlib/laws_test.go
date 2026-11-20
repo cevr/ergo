@@ -548,7 +548,8 @@ func callsLedgerRun(fn *ast.FuncDecl) bool {
 // calls FSReadFile, FSMkdirAll, FSWriteFile, FSRemove and FSRename), over
 // seeded cases. It is the ledger's runner for os.Process.GetenvIsStable,
 // GetwdIsStable (in a directory, and in one removed under the process)
-// and GetwdIsAbsolute;
+// and GetwdIsAbsolute, and os.Self's EnvironIsSortedOnce, PidIsPositive
+// and DirsAreAbsolute over the Go bodies os.Host's Self calls;
 // it runs fs.Files.ReadIsRepeatable, fs.Writes.MkdirAllIsIdempotent,
 // fs.Writes.RemoveThenNotFound and fs.Writes.RenameMoves on the host's
 // edge cases as plain subtests.
@@ -627,6 +628,43 @@ func TestStdHostLawsHold(t *testing.T) {
 			got, err := v1.OSGetwd()
 			if err != nil || !filepath.IsAbs(got) {
 				t.Errorf("GetwdIsAbsolute: %q, %v", got, err)
+			}
+		}},
+		// The host's environment with a name set twice in os.Environ's
+		// order and one set to the empty string.
+		"os Self.EnvironIsSortedOnce": {Statement: `EnvironIsSortedOnce() { let vars = Environ() let mut last = "" for i, kv in vars { let name = nameOf(kv) if i > 0 && name <= last { return false } last = name } true }`, Check: func(t *testing.T) {
+			t.Setenv("ERGO_LAW_B", "2")
+			t.Setenv("ERGO_LAW_A", "")
+			vars := v1.OSEnviron("")
+			for i := 1; i < len(vars); i++ {
+				prev, _, _ := strings.Cut(vars[i-1], "=")
+				name, _, _ := strings.Cut(vars[i], "=")
+				if name <= prev {
+					t.Errorf("EnvironIsSortedOnce: %q after %q", name, prev)
+				}
+			}
+		}},
+		"os Self.PidIsPositive": {Statement: `PidIsPositive() { Pid() > 0 }`, Check: func(t *testing.T) {
+			if v1.OSPid() <= 0 {
+				t.Errorf("PidIsPositive: %d", v1.OSPid())
+			}
+		}},
+		// With the host's variables, and with each directory's variable
+		// unset, relative and empty, so the NoDir paths run too.
+		"os Self.DirsAreAbsolute": {Statement: `DirsAreAbsolute() { let home = HomeDir() catch { case NoDir: "/" } let cache = CacheDir() catch { case NoDir: "/" } let config = ConfigDir() catch { case NoDir: "/" } let exe = Executable() catch { case NoDir: "/" } filepath.IsAbs(home) && filepath.IsAbs(cache) && filepath.IsAbs(config) && filepath.IsAbs(exe) }`, Check: func(t *testing.T) {
+			check := func(env string) {
+				for name, dir := range map[string]func() (string, error){"HomeDir": v1.OSHomeDir, "CacheDir": v1.OSCacheDir, "ConfigDir": v1.OSConfigDir, "Executable": v1.OSExecutable} {
+					if d, err := dir(); err == nil && !filepath.IsAbs(d) {
+						t.Errorf("DirsAreAbsolute (%s): %s is %q", env, name, d)
+					}
+				}
+			}
+			check("host")
+			for _, v := range []string{"", "relative/dir"} {
+				t.Setenv("XDG_CACHE_HOME", v)
+				t.Setenv("XDG_CONFIG_HOME", v)
+				t.Setenv("HOME", v)
+				check("HOME=" + v)
 			}
 		}},
 		// With no writer, two reads agree in value and in failure.
