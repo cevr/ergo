@@ -221,7 +221,7 @@ func (c *checker) caseVariant(e syntax.Expr, u *switchUnion, subj Type, b *looku
 		return i, nil, nil
 	}
 	if j := c.leftOutRowsVariant(e, t, u, b); j >= 0 || j == variantOver {
-		return j
+		return j, nil, nil
 	}
 	if !u.bad() {
 		what := t.String()
