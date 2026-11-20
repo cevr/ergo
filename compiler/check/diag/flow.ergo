@@ -1684,9 +1684,15 @@ func providers(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, cl synt
 						continue
 					}
 					// A package let has no owner: the with does not own
-					// it (R11).
-					let unowned = syntax.KindOf(p.Tree, un(w, ws, wk, wt, v.Value)) == syntax.KIdent && slotOf(w, ws, wk, wt, un(w, ws, wk, wt, v.Value)) < 0
-					if trackedAt(w, ws, wk, wt, v.Value) && !unowned {
+					// it, and a resource provider that names one is
+					// refused at the provider (R11; withown.go).
+					let root = pkgLetRoot(w, ws, wk, wt, v.Value)
+					let resource = trackedAt(w, ws, wk, wt, v.Value)
+					if resource && root != "" {
+						reportAt(w, ws, wk, wt, v.Value, "this resource provider names the package let \(root), which has no owner to hand it to the with; a with owns and releases the providers it builds (resources R11); make the value in the provider", 0)
+					}
+					let unowned = root != "" || syntax.KindOf(p.Tree, un(w, ws, wk, wt, v.Value)) == syntax.KIdent && slotOf(w, ws, wk, wt, un(w, ws, wk, wt, v.Value)) < 0
+					if resource && !unowned {
 						eval(w, ws, wk, wt, v.Value, mMove, handAt(at(w, ws, wk, wt, v.Value), "the with owns it"))
 					} else {
 						eval(w, ws, wk, wt, v.Value, mLend, noHand())
@@ -1698,6 +1704,35 @@ func providers(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, cl synt
 		}
 	case _:
 	}
+}
+
+// pkgLetRoot is the name of the package let that the expression x reads
+// through its tries, selectors and indexes (`shared`, `shared.conn`,
+// `shared[0]`), or "" when x reads none (withown.go packageRoot). A let
+// counts when it holds a resource (letsHolding), the only provider R11
+// refuses.
+func pkgLetRoot(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.ID[syntax.Node]) string {
+	let t = wk.Parsed[w.file].Tree
+	let mut y = un(w, ws, wk, wt, x)
+	for {
+		let kind = syntax.KindOf(t, y)
+		if kind == syntax.KTryExpr {
+			y = un(w, ws, wk, wt, syntax.TryExprOf(t, y).X)
+		} else if kind == syntax.KSelectorExpr {
+			y = un(w, ws, wk, wt, syntax.SelectorExprOf(t, y).X)
+		} else if kind == syntax.KIndexExpr {
+			y = un(w, ws, wk, wt, syntax.IndexExprOf(t, y).X)
+		} else if kind == syntax.KIdent {
+			let d = declOf(w, ws, wk, wt, y)
+			if d >= 0 && slotOf(w, ws, wk, wt, y) < 0 && slices.Contains(w.pkgLets, d) {
+				return textAt(wk.Parsed[w.file], y)
+			}
+			return ""
+		} else {
+			return ""
+		}
+	}
+	""
 }
 
 // namesCap is whether the node x of p names the capability key as a
