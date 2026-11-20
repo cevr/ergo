@@ -384,6 +384,71 @@ func main() {
 	use(Mine)
 }
 `,
+	// std xml (XML-STD): Text is sealed by its private parts (raw, open,
+	// close, enter, finish), so its one provider, text, is a cell that
+	// encode writes by direct calls.
+	"xml.Text": `import xml
+
+type Mine {}
+
+func Null(_ Mine)                 {}
+func Number(_ Mine, text string)  {}
+func Bool(_ Mine, b bool)         {}
+func Int(_ Mine, n int64)         {}
+func Uint(_ Mine, n uint64)       {}
+func Float(_ Mine, f float64)     {}
+func String(_ Mine, s string)     {}
+func StringBytes(_ Mine, b []byte) {}
+func BeginList(_ Mine, n int)     {}
+func EndList(_ Mine)              {}
+func BeginObject(_ Mine, n int)   {}
+func Tag(_ Mine, name string)     {}
+func Key(_ Mine, k string)        {}
+func EndObject(_ Mine)            {}
+func Written(_ Mine) string       { "" }
+func raw(_ Mine, s string)        {}
+func open(_ Mine, name string)    {}
+func close(_ Mine)                {}
+func enter(_ Mine)                {}
+func finish(_ Mine, hint int) string { "" }
+
+func use(t xml.Text) { t.EndList() }
+
+func main() {
+	use(Mine)
+}
+`,
+	// std xml (XML-STD): Cursor is the prelude's Reader sealed (seal), so
+	// its one provider, reader, is a cell decode[T] may borrow.
+	"xml.Cursor": `import xml
+
+type Mine {}
+
+func TakeNull(_ Mine) bool              { false }
+func Peek(_ Mine) WireKind              { WireNull }
+func Number(_ Mine) string              { "" }
+func Path(_ Mine) string                { "" }
+func Bool(_ Mine) bool                  { false }
+func Int(_ Mine) int64                  { 0 }
+func Uint(_ Mine) uint64                { 0 }
+func Float(_ Mine) float64              { 0.0 }
+func String(_ Mine) string              { "" }
+func StringBytes(_ Mine, into []byte) []byte { into }
+func BeginList(_ Mine)                  {}
+func BeginObject(_ Mine)                {}
+func Tag(_ Mine) string                 { "" }
+func More(_ Mine) bool                  { false }
+func Key(_ Mine) string                 { "" }
+func Skip(_ Mine)                       {}
+func End(_ Mine)                        {}
+func seal(_ Mine)                       {}
+
+func use(c xml.Cursor) { c.End() }
+
+func main() {
+	use(Mine)
+}
+`,
 	"json.Cursor": `import json
 
 type Mine {}
@@ -1560,6 +1625,7 @@ var unexportedStd = map[string]string{
 	"fs.HostRoot":         "hostRooted is an unexported operation of fs.HostRoot, so only a type of package fs implements it",
 	"http.BodyFile":       "partOnly is an unexported operation of http.BodyFile, so only a type of package http implements it",
 	"json.Text":           "raw is an unexported operation of json.Text, so only a type of package json implements it",
+	"xml.Text":            "raw is an unexported operation of xml.Text, so only a type of package xml implements it",
 	"explore.Hasher":      "size is an unexported operation of explore.Hasher, so only a type of package explore implements it",
 }
 

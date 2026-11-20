@@ -1203,7 +1203,7 @@ func i1CheckIRPolls(t *testing.T, o *lowered, c i1Case) {
 		tl = &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}}
 	}
 	u := Unit{Package: o.pkg, Files: []*syntax.File{o.file}, Sources: []Source{{Path: testSourcePath, Text: c.src}}}
-	_, _, mod, _, err := lowerIRModule(u, tl, false)
+	_, _, mod, _, err := lowerIRModule(u, tl, false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
