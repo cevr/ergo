@@ -291,9 +291,9 @@ var declared = map[string][]allowance{
 	"scripts/examples": declare(
 		[]allowance{
 			{"conformance/upstream", subtree, "checkOrigin walks each vendored upstream folder that an example's origin/source names, for its test titles (FKsrc)"},
-			{"examples", subtree, "TestRepoExamplesHoldTheirLaws loads every program folder of the repository's examples/ (loadExamples lists it and walks each program, packages and cmd/ included), so an added or changed example reruns it"},
+			{"examples", subtree, "TestRepoLayoutIsClean loads every program folder of the repository's examples/ and every module of modules/ (loadLayout lists them and walks each program, packages and cmd/ included), so an added or changed example reruns it"},
 			{"docs/domain.md", file, "TestDomainDocQuotesResolve holds each code block of the domain modeling page to the examples/ declarations it quotes (DK1)"},
-			{"modules", subtree, "TestRepoExamplesHoldTheirLaws: examples import the bundled modules (ergo.dev/domain, mcp, xml), which their ergo.mod replaces with modules/, and the loader reads each module's sources"},
+			{"modules", subtree, "TestRepoLayoutIsClean: examples import the bundled modules (ergo.dev/domain, mcp, xml), which their ergo.mod replaces with modules/, and the loader reads each module's sources"},
 		},
 		exactly("an example's workload names its input generator and its hand-Go control by path, and reading the workload (internal/opcount) looks each up",
 			"cmd/ergo/testdata/station-stats/control", "cmd/ergo/testdata/station-stats/gen", "cmd/ergo/testdata/vt/control"),
