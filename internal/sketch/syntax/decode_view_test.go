@@ -319,6 +319,7 @@ func (d *dumper) node(depth int, n Node) {
 		d.line(depth, "MapType %s Map=%d Lbrack=%d Rbrack=%d", at, x.Map, x.Lbrack, x.Rbrack)
 		d.node(c, x.Key)
 		d.node(c, x.Value)
+		d.node(c, x.Hashing)
 	case *FuncType:
 		entry := NoPos
 		if x.Entry {
@@ -338,6 +339,11 @@ func (d *dumper) node(depth int, n Node) {
 		d.list(c, exprs(x.Methods))
 		d.list(c, exprs(x.Laws))
 		d.list(c, exprs(x.Union))
+		d.line(c, "list %d", len(x.Terms))
+		for _, t := range x.Terms {
+			d.line(c+1, "TypeTerm %d %d Tilde=%d", t.Pos(), t.End(), t.Tilde)
+			d.node(c+2, t.Type)
+		}
 	case *ErrorRow:
 		d.line(depth, "ErrorRow %s Error=%d", at, x.Error)
 		d.list(c, exprs(x.Types))
