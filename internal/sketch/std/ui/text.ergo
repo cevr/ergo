@@ -65,6 +65,69 @@ type Caret { X Length, Top Length, Height Length }
 // Rect is a box at X, Y of W by H.
 type Rect { X Length, Y Length, W Length, H Length }
 
+// LayerStaysInViewAndTouches (UG4): over drawn views, anchors in them,
+// layer sizes no larger than the view, sides, alignments and gaps,
+// PlaceLayer's box has the layer's size and lies in the view; when its
+// side has room it touches the anchor's edge on that side, a gap away,
+// and else, when the other side has room, the anchor's other edge; along
+// the side it is at its alignment's place when that place is in the
+// view. With no anchor it is centred in the view.
+law LayerStaysInViewAndTouches(seed int) {
+	let mut r = seeded(seed)
+	let view = Rect{X: dip(draw(&r, 50)), Y: dip(draw(&r, 50)), W: dip(draw(&r, 500) + 100), H: dip(draw(&r, 500) + 100)}
+	let aw = dip(draw(&r, whole(view.W)) + 1)
+	let ah = dip(draw(&r, whole(view.H)) + 1)
+	let a = Rect{X: view.X + dip(draw(&r, whole(view.W-aw)+1)), Y: view.Y + dip(draw(&r, whole(view.H-ah)+1)), W: aw, H: ah}
+	let w = dip(draw(&r, whole(view.W)) + 1)
+	let h = dip(draw(&r, whole(view.H)) + 1)
+	let side = draw(&r, 4)
+	let align = draw(&r, 4)
+	let p = Place{Side: sideOf(side), Align: alignOf(align), Gap: dip(draw(&r, 9))}
+	let b = PlaceLayer(Some{Value: a}, w, h, view, p)
+	if b.W != w || b.H != h || b.X < view.X || b.Y < view.Y || b.X+b.W > view.X+view.W || b.Y+b.H > view.Y+view.H {
+		return false
+	}
+	let vertical = side < 2
+	// The main axis.
+	let (lo, hi, at, span, size, got) = if vertical { (view.Y, view.Y + view.H, a.Y, a.H, h, b.Y) } else { (view.X, view.X + view.W, a.X, a.W, w, b.X) }
+	let before = side == 0 || side == 2
+	let beforeAt = at - p.Gap - size
+	let afterAt = at + span + p.Gap
+	let roomBefore = beforeAt >= lo
+	let roomAfter = afterAt+size <= hi
+	let (mine, other, mineAt, otherAt) = if before { (roomBefore, roomAfter, beforeAt, afterAt) } else { (roomAfter, roomBefore, afterAt, beforeAt) }
+	if mine && got != mineAt {
+		return false
+	}
+	if !mine && other && got != otherAt {
+		return false
+	}
+	// The cross axis.
+	let (clo, chi, cat, cspan, csize, cgot) = if vertical { (view.X, view.X + view.W, a.X, a.W, w, b.X) } else { (view.Y, view.Y + view.H, a.Y, a.H, h, b.Y) }
+	let want = if align == 1 { cat + (cspan-csize)/2 } else if align == 2 { cat + cspan - csize } else { cat }
+	if want >= clo && want+csize <= chi && cgot != want {
+		return false
+	}
+	let c = PlaceLayer(None, w, h, view, p)
+	c.X == view.X+(view.W-w)/2 && c.Y == view.Y+(view.H-h)/2 && c.W == w && c.H == h
+}
+
+// dip is n DIPs. (a law's helper)
+func dip(n int) Length { Length(float64(n)) }
+
+// whole is l's whole DIPs. (a law's helper)
+func whole(l Length) int { int(float64(l)) }
+
+// sideOf is side k of four. (a law's helper)
+func sideOf(k int) Side {
+	if k == 0 { SideTop } else if k == 1 { SideBottom } else if k == 2 { SideLeft } else { SideRight }
+}
+
+// alignOf is alignment k of four. (a law's helper)
+func alignOf(k int) Align {
+	if k == 0 { AlignStart } else if k == 1 { AlignCenter } else if k == 2 { AlignEnd } else { AlignStretch }
+}
+
 // LayoutText breaks text into lines no wider than width: at each newline,
 // and else after the last run of spaces that keeps the line within width
 // (the spaces stay at the end of the line and take no width). A word wider
@@ -431,3 +494,87 @@ func Read(c MemoryClipboard) string { c.text.Get() }
 
 // Write replaces the text.
 func Write(c MemoryClipboard, text string) { c.text.Set(text) }
+
+// Hints are what a text field tells a phone's keyboard (MB5): which keys
+// it shows, what its return key says, what it capitalises and whether it
+// corrects words. A desktop shows its keyboard whatever they say; a
+// password field's text is not read back by the keyboard's suggestions.
+type Hints { Keyboard Keyboard, Return ReturnKey, Capitalize Capitalize, Autocorrect bool }
+
+// PlainHints are a field's hints when it states none: text keys, a return
+// key that says Done, sentences capitalised, words corrected.
+let PlainHints = Hints{Keyboard: TextKeys, Return: ReturnDone, Capitalize: CapSentences, Autocorrect: true}
+
+// Keyboard is the keys a field asks for, as HTML's inputmode and input
+// types name them.
+type Keyboard = TextKeys | EmailKeys | NumberKeys | PhoneKeys | URLKeys | PasswordKeys
+
+// TextKeys are a keyboard's letters.
+type TextKeys {}
+
+// EmailKeys are letters with @ and . at hand.
+type EmailKeys {}
+
+// NumberKeys are digits, a decimal point and a sign.
+type NumberKeys {}
+
+// PhoneKeys are a phone's dial pad.
+type PhoneKeys {}
+
+// URLKeys are letters with / and . at hand.
+type URLKeys {}
+
+// PasswordKeys are letters with no suggestions and the text hidden.
+type PasswordKeys {}
+
+// ReturnKey is what a field's return key says, as HTML's enterkeyhint
+// names it.
+type ReturnKey = ReturnDone | ReturnNext | ReturnSearch | ReturnSend
+
+// ReturnDone ends the editing.
+type ReturnDone {}
+
+// ReturnNext goes to the next field.
+type ReturnNext {}
+
+// ReturnSearch searches for the text.
+type ReturnSearch {}
+
+// ReturnSend sends the text.
+type ReturnSend {}
+
+// Capitalize is what the keyboard capitalises, as HTML's autocapitalize
+// names it.
+type Capitalize = CapNone | CapWords | CapSentences | CapAll
+
+// CapNone capitalises nothing.
+type CapNone {}
+
+// CapWords capitalises each word's first letter.
+type CapWords {}
+
+// CapSentences capitalises each sentence's first letter.
+type CapSentences {}
+
+// CapAll capitalises every letter.
+type CapAll {}
+
+// KeyboardName is k as HTML's inputmode or input type names it: "text",
+// "email", "numeric", "tel", "url" or "password". A host hands it to
+// the platform's text input.
+func KeyboardName(k Keyboard) string {
+	match k {
+	case TextKeys:
+		"text"
+	case EmailKeys:
+		"email"
+	case NumberKeys:
+		"numeric"
+	case PhoneKeys:
+		"tel"
+	case URLKeys:
+		"url"
+	case PasswordKeys:
+		"password"
+	}
+}

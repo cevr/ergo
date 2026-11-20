@@ -327,7 +327,7 @@ func draft(vals Map[string, string], n string) string {
 }
 
 func input(vals Map[string, string], n string, placeholder string) Shape[int] {
-	leaf(InputNode{Value: draft(vals, n), Placeholder: placeholder, Label: "", Description: "", Invalid: false})
+	leaf(InputNode{Value: draft(vals, n), Placeholder: placeholder, Label: "", Description: "", Invalid: false, Hints: PlainHints, Lines: 1, Caret: len(draft(vals, n)), Anchor: len(draft(vals, n))})
 }
 
 // bshape is what bview means at s for the model drafts.
