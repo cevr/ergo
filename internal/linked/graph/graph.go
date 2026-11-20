@@ -2794,7 +2794,7 @@ func (old Rows) Changed(new_1 Rows) []int {
 			}
 		inl_1:
 			_ = 0
-			v_6 := Get_1[string, bool](t_1, (v_4 + " " + n_2.Digest))
+			v_6 := Get[string, bool](t_1, (v_4 + " " + n_2.Digest))
 			b = (v_6 == (Option[bool]{}).of1((None{})))
 		}
 		if b {
@@ -3838,7 +3838,7 @@ func (r Rows) Hidden() []HiddenUse {
 		v_4 := (r).packageOf(e_1.To)
 		b := (((v_3 >= int(0)) && (v_4 >= int(0))) && (v_3 != v_4))
 		if b {
-			v_5 := Get_1[int, bool](imported, ((v_3 * width) + v_4))
+			v_5 := Get[int, bool](imported, ((v_3 * width) + v_4))
 			b = (v_5 == (Option[bool]{}).of1((None{})))
 		}
 		if b {
@@ -3850,7 +3850,7 @@ func (r Rows) Hidden() []HiddenUse {
 			v_8 := (r).packageOf(t_1.Value)
 			b_1 := (((v_3 >= int(0)) && (v_8 >= int(0))) && (v_3 != v_8))
 			if b_1 {
-				v_9 := Get_1[int, bool](imported, ((v_3 * width) + v_8))
+				v_9 := Get[int, bool](imported, ((v_3 * width) + v_8))
 				b_1 = (v_9 == (Option[bool]{}).of1((None{})))
 			}
 			if b_1 {
@@ -4195,7 +4195,7 @@ func textBadRows(v BadRows) string {
 	return "{" + "Reason:" + v.Reason + "}"
 }
 
-func Get_1[K comparable, V any](m map[K]V, k K) Option[V] {
+func Get[K comparable, V any](m map[K]V, k K) Option[V] {
 	if v, ok_1 := m[k]; ok_1 {
 		return (Option[V]{}).of0(Some[V]{Value: v})
 	}
@@ -4255,7 +4255,7 @@ func (r Rows) LevelOf(level Level, tests bool) LevelGraph {
 		a, b = v_6.F0, v_6.F1
 		b_1 := (((a < int(0)) || (b < int(0))) || ((a == b) && (kind_1 != "decl")))
 		if !b_1 {
-			v_7 := Get_1[int, bool](seen, ((a * len(r.Nodes)) + b))
+			v_7 := Get[int, bool](seen, ((a * len(r.Nodes)) + b))
 			b_1 = (v_7 != (Option[bool]{}).of1((None{})))
 		}
 		if b_1 {

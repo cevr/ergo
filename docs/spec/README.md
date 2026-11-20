@@ -118,61 +118,61 @@ The size of the language, counted from the parser and this specification by `scr
 | Planned words (specified, not built) | 3 | `given`, `gives`, `keeps` |
 | Productions (grammar.md) | 87 |  |
 | Signature clause kinds | 4 | `fails`, `needs`, `provides`, `takes` |
-| Diagnostic rule bullets (diagnostics.md) | 76 |  |
-| Spec words (docs/spec) | 372655 |  |
+| Diagnostic rule bullets (diagnostics.md) | 77 |  |
+| Spec words (docs/spec) | 378990 |  |
 
-Uses count tokens, so neither a comment nor a string, in the 1539 `.ergo` files under `examples/`, `internal/sketch/std/` and `modules/` (testdata left out; 0 that do not parse are not counted). A contextual word the syntax tree keeps as a name counts under Names, not as a use. A built form under 10 uses at two counts in a row is for the owner: delete or teach.
+Uses count tokens, so neither a comment nor a string, in the 1552 `.ergo` files under `examples/`, `internal/sketch/std/` and `modules/` (testdata left out; 0 that do not parse are not counted). A contextual word the syntax tree keeps as a name counts under Names, not as a use. A built form under 10 uses at two counts in a row is for the owner: delete or teach.
 
 | Form | Kind | Uses | Names | Previous | Note |
 | --- | --- | --- | --- | --- | --- |
-| `break` | keyword | 170 |  | 115 |  |
-| `case` | keyword | 20595 |  | 15307 |  |
-| `continue` | keyword | 553 |  | 420 |  |
-| `else` | keyword | 3267 |  | 2266 |  |
-| `for` | keyword | 5956 |  | 4388 |  |
-| `func` | keyword | 18304 |  | 14703 |  |
-| `if` | keyword | 11581 |  | 8339 |  |
-| `import` | keyword | 4239 |  | 3496 |  |
-| `return` | keyword | 10146 |  | 7668 |  |
-| `type` | keyword | 5305 |  | 4387 |  |
-| `try` | keyword | 4143 |  | 3236 |  |
-| `catch` | keyword | 3399 |  | 2527 |  |
-| `needs` | keyword | 5957 |  | 5533 |  |
+| `break` | keyword | 171 |  | 170 |  |
+| `case` | keyword | 20805 |  | 20595 |  |
+| `continue` | keyword | 568 |  | 553 |  |
+| `else` | keyword | 3294 |  | 3267 |  |
+| `for` | keyword | 6030 |  | 5956 |  |
+| `func` | keyword | 18435 |  | 18304 |  |
+| `if` | keyword | 11691 |  | 11581 |  |
+| `import` | keyword | 4298 |  | 4239 |  |
+| `return` | keyword | 10260 |  | 10146 |  |
+| `type` | keyword | 5338 |  | 5305 |  |
+| `try` | keyword | 4190 |  | 4143 |  |
+| `catch` | keyword | 3456 |  | 3399 |  |
+| `needs` | keyword | 5968 |  | 5957 |  |
 | `provides` | keyword | 0 |  | 0 | for the owner: delete or teach |
-| `context` | keyword | 673 |  | 526 |  |
-| `machine` | keyword | 106 |  | 94 |  |
-| `let` | keyword | 26847 |  | 20784 |  |
-| `mut` | keyword | 7876 |  | 4549 |  |
-| `in` | keyword | 5255 |  | 3862 |  |
-| `match` | keyword | 4788 |  | 3596 |  |
+| `context` | keyword | 696 |  | 673 |  |
+| `machine` | keyword | 106 |  | 106 |  |
+| `let` | keyword | 27169 |  | 26847 |  |
+| `mut` | keyword | 7952 |  | 7876 |  |
+| `in` | keyword | 5315 |  | 5255 |  |
+| `match` | keyword | 4833 |  | 4788 |  |
 | `escaping` | keyword | 0 |  | 0 | for the owner: delete or teach |
-| `fails` | keyword | 4451 |  | 3707 |  |
-| `test` | keyword | 605 |  | 595 |  |
-| `law` | keyword | 2042 |  | 1575 |  |
-| `assert` | keyword | 1704 |  | 1699 |  |
-| `extern` | keyword | 9730 |  | 9466 |  |
-| `with` | keyword | 681 |  | 537 |  |
+| `fails` | keyword | 4484 |  | 4451 |  |
+| `test` | keyword | 609 |  | 605 |  |
+| `law` | keyword | 2082 |  | 2042 |  |
+| `assert` | keyword | 1721 |  | 1704 |  |
+| `extern` | keyword | 9730 |  | 9730 |  |
+| `with` | keyword | 689 |  | 681 |  |
 | `takes` | keyword | 0 |  | 0 | for the owner: delete or teach |
-| `as` | keyword | 8134 |  | 6128 |  |
-| `after` | word | 21 | 427 | 19 |  |
-| `always` | word | 7 | 9 | 5 | for the owner: delete or teach |
+| `as` | keyword | 8217 |  | 8134 |  |
+| `after` | word | 21 | 454 | 21 |  |
+| `always` | word | 7 | 9 | 7 | for the owner: delete or teach |
 | `derive` | word | 2 | 0 | 2 | for the owner: delete or teach |
-| `entry` | word | 18 | 201 | 13 |  |
-| `exit` | word | 2 | 51 |  |  |
-| `implements` | word | 367 | 0 | 287 |  |
-| `initial` | word | 106 | 20 | 94 |  |
+| `entry` | word | 18 | 212 | 18 |  |
+| `exit` | word | 2 | 51 | 2 | for the owner: delete or teach |
+| `implements` | word | 373 | 0 | 367 |  |
+| `initial` | word | 106 | 20 | 106 |  |
 | `never` | word | 1 | 4 | 1 | for the owner: delete or teach |
-| `own` | word | 1464 | 46 | 3843 |  |
-| `path` | word | 14 | 1752 | 14 |  |
+| `own` | word | 1464 | 46 | 1464 |  |
+| `path` | word | 14 | 1763 | 14 |  |
 | `pure` | word | 3 | 6 | 3 | for the owner: delete or teach |
-| `reaches` | word | 7 | 16 | 7 | for the owner: delete or teach |
+| `reaches` | word | 7 | 19 | 7 | for the owner: delete or teach |
 | `replace` | word | 2 | 4 | 2 | for the owner: delete or teach |
-| `skip` | word | 0 | 70 |  |  |
-| `sometimes` | word | 7 | 0 | 5 | for the owner: delete or teach |
-| `step` | word | 106 | 215 | 94 |  |
+| `skip` | word | 0 | 70 | 0 | for the owner: delete or teach |
+| `sometimes` | word | 7 | 0 | 7 | for the owner: delete or teach |
+| `step` | word | 106 | 215 | 106 |  |
 | `when` | word | 0 | 17 | 0 | for the owner: delete or teach |
-| `where` | word | 89 | 42 | 88 |  |
-| `work` | word | 20 | 1851 | 16 |  |
+| `where` | word | 96 | 42 | 89 |  |
+| `work` | word | 20 | 1921 | 20 |  |
 | `given` | planned | 0 |  | 0 | specified, not built |
 | `gives` | planned | 0 |  | 0 | specified, not built |
 | `keeps` | planned | 0 |  | 0 | specified, not built |

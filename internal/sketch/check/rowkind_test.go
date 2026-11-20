@@ -43,6 +43,10 @@ func TestRowKindThroughUse(t *testing.T) {
 	}{
 		{"AC5 a type that is no error type is refused at the argument", "import ui\n\nfunc main() {\n\tlet a ui.Async[int, string] = ui.Loading\n\tlet _ = a\n}\n", "S104 4:22 "},
 		{"AC3 a written row argument names an error type", oops + await, ""},
+		// No catch arm names Oops here, so only the row argument makes it
+		// an error type: a catch arm's type is one too (INFER-CATCH), which
+		// hid mutant row-arg-names-no-error-type in the rows around it.
+		{"AC3 a row argument no catch arm names makes an error type", oops + "func main() {\n\tlet a ui.Async[int, Oops] = ui.Loading\n\tlet _ = a\n}\n", ""},
 		{"AC3 a row argument in a parameter's type names an error type", oops + "func show(a ui.Async[int, Oops]) int {\n\tui.Await(a) catch {\n\tcase Oops as o: o.code\n\tcase ui.Pending: 0\n\t}\n}\n\nfunc main() {}\n", ""},
 	} {
 		pkg, ds := check.Check("main", []*syntax.File{parse(t, row.src)}, check.Std)

@@ -17196,8 +17196,8 @@ func ApiDiff_2(env *Env, old []Contract, new_1 []Contract) []ApiChange {
 	for _, v_6 := range v_5 {
 		var n string = v_6
 		{
-			v_7 := Get_14[string, Contract](before, n)
-			v_8 := Get_14[string, Contract](after_1, n)
+			v_7 := Get_13[string, Contract](before, n)
+			v_8 := Get_13[string, Contract](after_1, n)
 			if ergoEqualOption_2(v_7, v_8) {
 				goto next
 			}
@@ -19771,7 +19771,7 @@ func KeysMono_i1(m map[string]bool) Seq[string] {
 	})
 }
 
-func Get_14[K comparable, V any](m map[K]V, k K) Option[V] {
+func Get_13[K comparable, V any](m map[K]V, k K) Option[V] {
 	if v, ok := m[k]; ok {
 		return (Option[V]{}).of0(Some[V]{Value: v})
 	}
@@ -26555,7 +26555,7 @@ func (report Report) rowsOf(env *Env, moved map[string]string, to string, shifts
 		out = ergo.Reserve(out, len(p.Decls))
 		for _, v_10 := range p.Decls {
 			var d Decl = v_10
-			v_11 := Get_14[string, string](moved, d.Handle)
+			v_11 := Get_13[string, string](moved, d.Handle)
 			var renamedHere bool = (v_11 != (Option[string]{tag: 1}))
 			var v_12 string
 			if renamedHere {
