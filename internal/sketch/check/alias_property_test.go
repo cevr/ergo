@@ -206,7 +206,7 @@ func TestAliasRefusals(t *testing.T) {
 		{"self", "type A = A\n", "S108@1:10 the alias A names itself (types.md, Unions 7)"},
 		{"pair", "type A = B\n\ntype B = A\n", "S108@3:10 the alias A names itself (types.md, Unions 7)"},
 		{"generic", "type R[T] { V T }\n\ntype A[T] = R[T]\n", "S108@3:7 A is an alias of its one variant, an existing type, and an alias takes no type parameters yet; write the type where it is used (types.md, Unions 7)"},
-		{"same-type", "type B { N int }\n\ntype A = B\n\nfunc Show(a A) int { a.N }\n\nfunc Show(b B) int { b.N }\n", "S108@7:6 Show is already declared in this package; functions share a name only when each one's first parameter is a distinct named type declared in this package (types.md, Methods 3)"},
+		{"same-type", "type B { N int }\n\ntype A = B\n\nfunc Show(a A) int { a.N }\n\nfunc Show(b B) int { b.N }\n", "S108@7:6 Show is already declared in this package; functions share a name only when each one's first parameter is a distinct named type declared in this package, and one other may be a plain function (types.md, Methods 3)"},
 		{"in-place", "type W = R{ N int }\n\nfunc f(w W) R { w }\n", "S108@3:17"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
