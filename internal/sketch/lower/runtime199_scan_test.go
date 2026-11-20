@@ -209,7 +209,7 @@ func TestRuntime199EnvTypeReaders(t *testing.T) {
 		"irBuilder.sigType":        "the IR's function type, typeCtx.funcType's uniform shape: no body (ir_closure.go, IRG6 r2)",
 		"irBuilder.closureLit":     "the IR's function literal: its *Env parameter, a local of the IR body; the derivative writes the closure (ir_closure.go, IRG6 r2)",
 		"irBuilder.machineFunc":    "the IR's function literal of a machine value's field: its *Env parameter, a local of the IR body; the derivative writes the closure (ir_machine.go, MACHINE-IR)",
-		"irBuilder.funcName":       "the IR's closure of a declared function used as a value: its *Env parameter, a local of the IR body; the derivative writes the closure (ir_fnname.go, FLIP F7 CS)",
+		"irBuilder.declaredLit":    "the IR's closure of a declared function used as a value (funcName) or of a method value with its receiver (ir_methodvalue.go): its *Env parameter, a local of the IR body; the derivative writes the closure (ir_fnname.go, FLIP F7 CS, CV1)",
 		"lowerer.envCopier":        "the copier interface and join of a held row: method headers copyEnv(d *Env, s Env), no closure (inforce.go)",
 		"lowerer.capsType":         "a capability set's copier type: a method header copyEnv(d *Env, s Env), no closure (inforce.go)",
 		"irBuilder.ownDone":        "an IR static frame's release helper: a declared header func xRelease(env *Env, live *uint64, ...) (ir_own.go, FLIP F7 FORK)",
