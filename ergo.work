@@ -1,0 +1,31 @@
+version 2
+
+// The generated files of this repository (docs/spec/build.md, Generators):
+// `ergo task gen` runs these in the order their inputs and outputs give,
+// and `ergo task gen --check` says whether the checked-in files are what a
+// fresh regeneration writes (landings: --check --fresh). A gen's inputs are
+// its Go build (go list -deps) and its reads lines: the files it reads
+// that its build does not hold. A reads line left out is a stale hit, so
+// --fresh checks them; the class of every hit is "vouched: declared reads".
+
+// The IR compiler patch, from its source tree (toolchain/ir/ports.md).
+gen irport go run ./scripts/irport -write
+reads irport toolchain/ir/_go toolchain/ir/lock
+
+// The export codecs, from the source of package check and of what it
+// imports (go/importer's source importer reads them).
+gen codecs go run ./scripts/exportgen
+reads codecs internal/sketch/check internal/sketch/syntax internal/sketch/types internal/gobind internal/gofacts
+
+// runtime/v1's body table, from runtime/v1's Go sources.
+gen bodies go test -count=1 -run=^TestBodyTableIsCurrent$ ./runtime/v1 -update-bodies
+
+// The embedded std snapshot, from std (embedded) and the checker.
+gen snapshot go test -count=1 -run=^TestStdSnapshotIsCurrent$ ./internal/sketchfront -update-std-snapshot
+
+// The std law ledger, from a fresh run of std's rewrite laws.
+gen stdlaws go run ./scripts/stdlaws
+
+// The Go of the Ergo packages the ergo binary links, from their modules.
+gen linked go run ./scripts/linked
+reads linked compiler internal/linked/code/ergo internal/linked/graph/ergo
