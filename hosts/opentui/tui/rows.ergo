@@ -174,7 +174,8 @@ func wheel[E comparable, S, D, F](d mut Driver[S, E, D, F], input screen.Input) 
 			if list == None {
 				list = Some{Value: at}
 			}
-		case _:
+		case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.TextNode, ui.PressableNode[E], ui.CheckNode[E], ui.InputNode, ui.ToggleNode, ui.CanvasNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode, ui.TransitionNode, ui.SemanticNode[E], ui.ReadoutNode, ui.LayerNode[E], ui.TrackNode:
+			// Takes no wheel: the turn goes on to the nodes around.
 		}
 		at = parentOf(d, at)
 	}

@@ -215,7 +215,8 @@ func create[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) needs go.Foreign 
 		content(d, id, x.Count, x.RowHeight)
 	case ui.CanvasNode as x:
 		drawCanvas(d, n, x)
-	case _:
+	case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.TextNode, ui.PressableNode[E], ui.CheckNode[E], ui.InputNode, ui.ToggleNode, ui.AreaNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode, ui.TransitionNode, ui.SemanticNode[E], ui.ReadoutNode, ui.LayerNode[E], ui.TrackNode:
+		// No content beyond the scene node's own kind, text and look.
 	}
 	relook(d, id)
 	relabel(d, id)
@@ -275,7 +276,8 @@ func reset[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], node ui.Node[E]) n
 		content(d, id, x.Count, x.RowHeight)
 	case ui.CanvasNode as x:
 		drawCanvas(d, n, x)
-	case _:
+	case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.TextNode, ui.PressableNode[E], ui.CheckNode[E], ui.InputNode, ui.ToggleNode, ui.AreaNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode, ui.TransitionNode, ui.SemanticNode[E], ui.ReadoutNode, ui.LayerNode[E], ui.TrackNode:
+		// No content beyond the scene node's own kind, text and look.
 	}
 	relabel(d, id)
 	match labelText(node) {
@@ -735,7 +737,12 @@ func pressable[E](n ui.Node[E]) bool {
 	match n {
 	case ui.PressableNode[E], ui.CheckNode[E], ui.ToggleNode:
 		true
-	case _:
+	case ui.SemanticNode[E]:
+		// Degraded: a Semantic that sends a signal (a radio, an option, a
+		// link) is focusable and pressable in std ui (ui.Focusable), not
+		// on the terminal yet (OT-SEMANTIC).
+		false
+	case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.TextNode, ui.InputNode, ui.AreaNode, ui.CanvasNode, ui.RowsNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode, ui.TransitionNode, ui.ReadoutNode, ui.LayerNode[E], ui.TrackNode:
 		false
 	}
 }
@@ -745,7 +752,10 @@ func focusable[E](n ui.Node[E]) bool {
 	match n {
 	case ui.PressableNode[E], ui.CheckNode[E], ui.ToggleNode, ui.InputNode:
 		true
-	case _:
+	case ui.SemanticNode[E]:
+		// Degraded: see pressable (OT-SEMANTIC).
+		false
+	case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.TextNode, ui.AreaNode, ui.CanvasNode, ui.RowsNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode, ui.TransitionNode, ui.ReadoutNode, ui.LayerNode[E], ui.TrackNode:
 		false
 	}
 }

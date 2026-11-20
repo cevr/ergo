@@ -107,6 +107,11 @@ func compare[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut tui.Dri
 		return why
 	case None:
 	}
+	match degraded(ui.Screen(h)) {
+	case Some[string] as why:
+		return why
+	case None:
+	}
 	follow(h, d, tui.Screen(d))
 	if !ui.SameShapes(ui.Screen(h), tui.Screen(d)) {
 		return Some{Value: "trees differ:\n\(ui.Screenshot(h))terminal:\n\(shot(tui.Screen(d), ""))"}
@@ -192,6 +197,63 @@ func looked[E](shapes []ui.Shape[E]) Option[string] {
 		}
 	}
 	None
+}
+
+// degraded names a node of TestHost's tree of a kind the terminal shows
+// degraded (OT-TOTAL: tui's matches name each kind and say what the
+// terminal does instead), so a script that reaches one fails loudly as
+// the gap it is; None when none is in the tree. Every kind is named, so a
+// new ui node kind is a check error here as in tui.
+func degraded[E](shapes []ui.Shape[E]) Option[string] {
+	for sh in shapes {
+		let why Option[string] = match sh.Node {
+		case ui.TransitionNode:
+			Some{Value: "gap OT-TOTAL: a Transition, whose motion the terminal does not run (its body shows at rest)"}
+		case ui.ReadoutNode:
+			Some{Value: "gap OT-READOUT: a Readout, whose published text the terminal does not show (its box keeps its place)"}
+		case ui.LayerNode[E]:
+			Some{Value: "gap OT-TOTAL: a Layer, which the terminal lays in flow (no Z, anchor, placement or scrim)"}
+		case ui.TrackNode:
+			Some{Value: "gap OT-TRACKS: a Track, whose motion the terminal does not run (no offset, no fade)"}
+		case ui.SemanticNode[E]:
+			if ui.Focusable(sh.Node) {
+				Some{Value: "gap OT-SEMANTIC: a Semantic that sends a signal, which the terminal neither focuses nor presses"}
+			} else {
+				None
+			}
+		case ui.CanvasNode as x:
+			if hasImage(x.Paint) {
+				Some{Value: "gap OT-IMAGE: a canvas image, which the terminal does not paint"}
+			} else {
+				None
+			}
+		case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.TextNode, ui.PressableNode[E], ui.CheckNode[E], ui.InputNode, ui.ToggleNode, ui.AreaNode, ui.RowsNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode:
+			None
+		}
+		match why {
+		case Some[string] as w:
+			return w
+		case None:
+		}
+		match degraded[E](sh.Kids) {
+		case Some[string] as w:
+			return w
+		case None:
+		}
+	}
+	None
+}
+
+// hasImage is whether a canvas's paint draws an image.
+func hasImage(ops []ui.PaintOp) bool {
+	for op in ops {
+		match op {
+		case ui.ImageOp:
+			return true
+		case ui.FillOp, ui.StrokeOp, ui.PushTransform, ui.PushClip, ui.PopPaint:
+		}
+	}
+	false
 }
 
 // cellH is the DIPs of a cell's height (the driver's default Cell).
@@ -588,7 +650,10 @@ func focusOrder[E](shapes []ui.Shape[E], into []Option[string]) []Option[string]
 			}
 		case ui.PressableNode[E], ui.CheckNode[E], ui.ToggleNode, ui.InputNode:
 			out = out.Append(labelOfNode(sh.Node))
-		case _:
+		case ui.SemanticNode[E]:
+			// ui.Focusable takes a Semantic that sends; the terminal does
+			// not yet, and degraded fails the step loudly (OT-SEMANTIC).
+		case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.TextNode, ui.AreaNode, ui.CanvasNode, ui.RowsNode, ui.ZoneNode, ui.LiveNode, ui.TransitionNode, ui.ReadoutNode, ui.LayerNode[E], ui.TrackNode:
 		}
 		out = focusOrder[E](sh.Kids, out)
 	}
@@ -623,7 +688,7 @@ func labelOfNode[E](n ui.Node[E]) Option[string] {
 		Some{Value: x.Label}
 	case ui.InputNode as x:
 		Some{Value: x.Placeholder}
-	case _:
+	case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.TextNode, ui.AreaNode, ui.CanvasNode, ui.RowsNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode, ui.TransitionNode, ui.SemanticNode[E], ui.ReadoutNode, ui.LayerNode[E], ui.TrackNode:
 		None
 	}
 }

@@ -68,7 +68,8 @@ func labelOf[E](n ui.Node[E]) Option[string] {
 		Some{Value: x.Value}
 	case ui.InputNode as x:
 		Some{Value: x.Placeholder}
-	case _:
+	case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode, ui.TransitionNode, ui.SemanticNode[E], ui.ReadoutNode, ui.LayerNode[E], ui.TrackNode:
+		// No label: ui.Find names none of these either.
 		None
 	}
 }
