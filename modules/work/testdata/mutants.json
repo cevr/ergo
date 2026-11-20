@@ -1733,7 +1733,7 @@
       "name": "m2-comment-edit-in-change-set", "origin": "wf10/semws M2",
       "file": "modules/work/work/record.ergo",
       "from": "\tUnitChanges(file, b, a, Some[[]Change]{Value: indexed})\n",
-      "to": "\tUnitChanges(file, b, a, None)\n",
+      "to": "\tlet _ = indexed\n\tUnitChanges(file, b, a, None)\n",
       "rule": "A comment edit is in no change set: the record takes the language Indexer's changes (memory's ReadyWritesTheRecord: a comment added to unit A is no change).",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     },
@@ -1757,7 +1757,7 @@
       "name": "m2-on-not-computed", "origin": "wf10/semws M2",
       "file": "modules/work/work/record.ergo",
       "from": "\ttry Recorded(w.Name, branch, tip, w.Base, UnlandedOn(tip, head, lanes, holds), changes, request)\n",
-      "to": "\ttry Recorded(w.Name, branch, tip, w.Base, []OnTip{}, changes, request)\n",
+      "to": "\ttry Recorded(w.Name, branch, tip, w.Base, UnlandedOn(tip, head, lanes, func(a string, b string) bool { holds(a, b) && false }), changes, request)\n",
       "rule": "On is computed from ancestry, never typed or left empty: a workspace stacked on another names it (ReadyWritesTheRecord).",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     },

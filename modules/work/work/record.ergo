@@ -793,21 +793,49 @@ func recordOf(t Tool, w Workspace, branch string, tip string, request Option[Req
 	try Recorded(w.Name, branch, tip, w.Base, UnlandedOn(tip, head, lanes, holds), changes, request)
 }
 
-// Record reads the note of tip in the workspace the working folder is in
-// (else the base).
+// Record reads the note of tip: in the workspace the working folder is
+// in, then the base, then each active workspace (a stacked lane's tip
+// is in its parent workspace until that one hands it on). The first
+// repository that knows the tip and has its note answers.
 func Record(t Tool, tip string) LaneRecord fails NoBase | NoRevision | NoRecord | BadRecord | Unkept | VcsFailed {
 	try initialized(t)
+	let mut roots = []string{}
 	let here = chosen(t, None) catch {
 	case NotHere, NoWorkspace, Unkept:
-		Workspace{Name: "", Id: "", Path: t.base, Parent: "", Branch: "", Cloner: "", State: Active, Since: 0, Base: "", Latest: "", Deps: "", Token: "", Moving: "", Pinned: false, Until: 0}
+		Workspace{Name: "", Id: "", Path: "", Parent: "", Branch: "", Cloner: "", State: Active, Since: 0, Base: "", Latest: "", Deps: "", Token: "", Moving: "", Pinned: false, Until: 0}
 	}
-	let root = here.Path
-	let commit = try t.vcs.Resolve(root, tip)
-	let note = try t.vcs.Note(root, commit)
-	if note == "" {
-		return NoRecord{Tip: commit}
+	if here.Path != "" {
+		roots = roots.Append(here.Path)
 	}
-	try DecodeRecord(commit, note)
+	roots = roots.Append(t.base)
+	for w in try t.registry.All() {
+		if w.State == Active && w.Path != here.Path {
+			roots = roots.Append(w.Path)
+		}
+	}
+	let mut known = ""
+	for root in roots {
+		// A workspace whose checkout does not read is passed over: the
+		// tip is asked of the others.
+		let commit = t.vcs.Resolve(root, tip) catch {
+		case NoRevision, VcsFailed:
+			continue
+		}
+		if known == "" {
+			known = commit
+		}
+		let note = t.vcs.Note(root, commit) catch {
+		case VcsFailed:
+			continue
+		}
+		if note != "" {
+			return try DecodeRecord(commit, note)
+		}
+	}
+	if known == "" {
+		return NoRevision{Rev: tip}
+	}
+	NoRecord{Tip: known}
 }
 
 func optional[T](o json.Optional[T], otherwise T) T {
