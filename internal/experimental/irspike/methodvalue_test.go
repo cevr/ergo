@@ -20,8 +20,8 @@ import (
 // local, so the IR's build-time fold computes none of them and each runs
 // its IR body. It is the killer of cv-mv-ir-late-binding in lower's
 // ledger (the IR's receiver not spilled): with constant arguments the
-// fold computed every case and the mutant looked equivalent (CV1
-// fork-answer.md).
+// fold computed every case and the mutant looked equivalent, as FORK
+// found for CV1.
 // A failing seed prints the Ergo source, the outcomes and its replay. It
 // builds Go for the reason needsBuild gives.
 func TestIRMethodValuesMatchSource(t *testing.T) {
