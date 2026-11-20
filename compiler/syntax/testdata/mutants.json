@@ -522,6 +522,60 @@
       "rule": "The parser stops at EOF: next never moves past it, so a failed parse unwinds (the mutant parses on forever, growing its rows: under the runner's memory bound, RLIMIT_DATA, the test dies out of memory, which counts as killed)."
     },
     {
+      "name": "diag-string-open-offset",
+      "origin": "wf10 TPROBE (diagnostics)",
+      "file": "compiler/syntax/scan.ergo",
+      "from": "fail(s, s.quotes[s.open-1], 1, \"string literal not terminated\")",
+      "to": "fail(s, n, 1, \"string literal not terminated\")",
+      "killers": ["internal/sketch/syntax:TestLexicalErrorInLookahead"],
+      "rule": "A string left open at the end of the source, its interpolation too, is reported at its opening quote, not at the end."
+    },
+    {
+      "name": "diag-newline-is-unterminated",
+      "origin": "wf10 TPROBE (diagnostics)",
+      "file": "compiler/syntax/scan.ergo",
+      "from": "fail(s, s.quotes[s.open-1], 1, \"newline in string\")",
+      "to": "fail(s, s.quotes[s.open-1], 1, \"string literal not terminated\")",
+      "killers": ["internal/sketch/syntax:TestLexicalErrorInLookahead"],
+      "rule": "A newline inside an open interpolation's string is \"newline in string\", not an unterminated string."
+    },
+    {
+      "name": "diag-utf8-byte-value",
+      "origin": "wf10 TPROBE (diagnostics)",
+      "file": "compiler/syntax/scan.ergo",
+      "from": "hexByte(src[start])",
+      "to": "hexByte(src[0])",
+      "killers": ["internal/sketch/syntax:TestLexicalErrorInLookahead"],
+      "rule": "An invalid UTF-8 byte is named by its own value."
+    },
+    {
+      "name": "diag-nbsp-as-char",
+      "origin": "wf10 TPROBE (diagnostics)",
+      "file": "compiler/syntax/scan.ergo",
+      "from": "uPlus(d.Rune)+\" \"+strconv.QuoteRune(d.Rune)",
+      "to": "strconv.QuoteRune(d.Rune)",
+      "killers": ["internal/sketch/syntax:TestLexicalErrorInLookahead"],
+      "rule": "An unexpected character outside ASCII is named by its code point (U+00A0) before its quoted form."
+    },
+    {
+      "name": "diag-raw-string-open-offset",
+      "origin": "wf10 TPROBE (diagnostics)",
+      "file": "compiler/syntax/scan.ergo",
+      "from": "fail(s, start, 1, \"raw string literal not terminated\")",
+      "to": "fail(s, len(s.src), 1, \"raw string literal not terminated\")",
+      "killers": ["internal/sketch/syntax:TestLexicalErrorInLookahead"],
+      "rule": "A raw string left open is reported at its opening backquote, not at the end of the source."
+    },
+    {
+      "name": "diag-parser-error-at-scan-offset-wins",
+      "origin": "wf10 TPROBE (diagnostics)",
+      "file": "compiler/syntax/parse.ergo",
+      "from": "if p.scanFailed && at >= p.scanOffset {",
+      "to": "if p.scanFailed && at > p.scanOffset {",
+      "killers": ["internal/sketch/syntax:TestLexicalErrorInLookahead"],
+      "rule": "A parser error at the lexical error's own offset reports the lexical error: the token there is the scanner's ILLEGAL, not the source's."
+    },
+    {
       "name": "g1-exit-set-twice",
       "origin": "wf10 FK9-g1c",
       "file": "compiler/syntax/parse_decl.ergo",
