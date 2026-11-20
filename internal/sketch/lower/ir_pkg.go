@@ -420,6 +420,10 @@ func (b *irBuilder) conversion(x *syntax.CallExpr, c *check.Call, p irPos) ([]*i
 	if len(x.Args) != 1 {
 		irNo("conversion form")
 	}
+	if b.funcConversion(x, c) { // ir_defined.go
+		pre, v := b.value(x.Args[0])
+		return pre, &irExpr{K: "conv", Pos: p, T: b.goType(c.Type, x), X: v}, false
+	}
 	from, to := b.scalarBasic(b.l.info.Types[x.Args[0]]), b.scalarBasic(c.Type)
 	if from == nil || to == nil {
 		irNo("conversion of a non-scalar")
