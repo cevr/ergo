@@ -44,6 +44,10 @@ func Generate(seed uint64) Program {
 	// Box has no constructor, so it is drawn field by field, and its field
 	// is an operation type that its builder NewHeld draws (MX-EVLAW).
 	h := target("law Cell.Kept for Box", 1)
+	// Slow holds a func() with no rows, whose generator is the one
+	// function that returns: it draws nothing, so a case draws Slow's N
+	// alone, and the law calls Wait before it reads N (LAW-GEN-FUNC).
+	w := target("law Waits.After for Slow", 1)
 	// Shelf is drawn field by field too; its field Wrap is built by its
 	// constructor, whose record holds an operation type, so a case shows
 	// the constructor's call (testplan.ByConstructor; CASEFIX2). Its law
@@ -67,7 +71,6 @@ func NewP(n int) P { P{N: n} }
 func Read(p P) int { p.N }
 law Slot(r Reader, x bool) { r.Read() != %d }
 test Nested(xs []int8, m Map[string, int16], pair (bool, int), f float32, s string) { assert len(xs) == 0 }
-law Skips(f func() bool) { Holds(f()) }
 type Mirror[T comparable] { Echo(v T) T, law Same(v T) { Echo(v) == v } }
 type BoolEcho { B bool } implements Mirror[bool]
 func Echo(p BoolEcho, v bool) bool { v }
@@ -94,7 +97,13 @@ func R(t Twin) int { t.N + 1 }
 type Pair { Sum() int, law Apart() { Sum() == 1 } }
 type Two { l Left, r Right } implements Pair
 func Sum(t Two) int { t.l.L() + t.r.R() }
-`, n, cap, p, s, h)
+type Waits { Ready() int, law After() { Ready() != %d } }
+type Slow { Wait func(), N int } implements Waits
+func Ready(s Slow) int {
+	s.Wait()
+	s.N
+}
+`, n, cap, p, s, h, w)
 	return Program{Source: strings.TrimSpace(src) + "\n", First: first}
 }
 

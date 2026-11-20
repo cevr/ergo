@@ -6,6 +6,7 @@ import fs
 import fstest
 import github.com/cevr/ergo/modules/work/classes
 import github.com/cevr/ergo/modules/work/work
+import github.com/cevr/ergo/modules/work/work/workapi
 import maps
 import slices
 import strings
@@ -48,6 +49,15 @@ func small(n int, limit int) int { ((n % limit) + limit) % limit }
 let theBase = "/w/base"
 // World is a Tool over memory providers and the handles the driver uses.
 type World { tool work.Tool, trees Cloner, vcs Vcs, registry work.Registry, clock time.Manual, disk fstest.Memory, hooks Hooks, lock Lock, runner Runner }
+
+// viaHub is the hub client of inner (workapi.Client): each Request is a
+// Call with inner bound, so the Api's laws hold for it exactly when they
+// hold for inner and Call answers as inner does.
+func viaHub(inner work.Api) workapi.Client {
+	workapi.NewClient(func(r workapi.Request) workapi.Outcome {
+		with context { work.Api: inner } { workapi.Call(r) }
+	})
+}
 
 // world is a fresh World: the base committed as c0, initialized; the
 // sharing Cloner refuses every clone when sharing is false.

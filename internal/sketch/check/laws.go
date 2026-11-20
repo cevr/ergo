@@ -3,6 +3,7 @@ package check
 import (
 	"slices"
 	"sort"
+	"strings"
 
 	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -263,6 +264,7 @@ func (c *checker) planMachineLaw(law *Law) {
 	}{{"state", m.State}, {"signal", m.Signal}} {
 		if why := c.ungeneratable(part.t); why != "" {
 			law.Unrun = "its " + part.what + " type has no generator: " + why
+			c.reportUnfedLaw(law, law.Decl.Name)
 			return
 		}
 	}
@@ -270,6 +272,7 @@ func (c *checker) planMachineLaw(law *Law) {
 		for _, p := range start.Sig.Params {
 			if why := c.ungeneratable(p.Type); why != "" {
 				law.Unrun = "its start's input " + p.Name + " has no generator: " + why
+				c.reportUnfedLaw(law, law.Decl.Name)
 				return
 			}
 		}
@@ -359,13 +362,16 @@ func constraintMethods(tp *TypeParam) bool {
 // its providers and, when it does not run, why. A duplicate law is
 // refused (S108), so its plan is never read.
 func (c *checker) planLaws() {
+	saved := c.cur
 	for _, law := range c.pkg.Laws {
+		c.cur = law.file
 		if law.Decl.Reach != nil {
 			c.planMachineLaw(law)
 			continue
 		}
 		c.planLaw(law)
 	}
+	c.cur = saved
 	c.pkg.LawRuns = c.lawRuns()
 	for _, r := range c.pkg.LawRuns {
 		if r.Law.Decl.Rewrite == nil {
@@ -442,6 +448,7 @@ func (c *checker) planLaw(law *Law) {
 		}
 		if why := c.ungeneratable(v.Type); why != "" {
 			law.Unrun = "its parameter " + v.Name + " has no generator: " + why
+			c.reportUnfedLaw(law, lawParamNode(law, i))
 			return
 		}
 		if law.Decl.Pair != nil {
@@ -626,6 +633,7 @@ func (c *checker) lawInstance(law *Law, b []LawProvider) []LawProvider {
 		}
 		if why := c.ungeneratableFrom(p.Params[i], law.Pkg); why != "" {
 			p.Unrun = "its parameter " + v.Name + " has no generator at " + p.Slot.String() + ": " + why
+			p.noGenerator = true
 		}
 	}
 	b[0] = p
@@ -765,20 +773,155 @@ func (c *checker) nativeConstructor(p *Named, captured bool) *Func {
 	return nil
 }
 
-// lawProviderFixes adds to the skip of each provider with no generator
-// the fix the law's shape admits (lawProviderFix). It runs with the law
-// contexts.
-func (c *checker) lawProviderFixes() {
+// reportUnfedProviders reports each law binding whose provider, or whose
+// parameter at the provider's instance, has no generator (LAW-UNFED): a
+// law no case can feed is an error, not a skip (types.md, Laws 10). It
+// runs after the law contexts, so a provider a named context of this
+// package builds is fed by that context and its binding is gone
+// (builtByContext). The error sits at the provider's implements entry
+// when this package declares the provider, else at the law when this
+// package declares it, with the fix the law's shape admits
+// (lawProviderFix); a binding of two other packages keeps its skip, with
+// that fix, since this package can change neither. In a package of a
+// module (std is one) the error is left to the module, and the binding
+// leaves the package's runs (lawmodule.go).
+func (c *checker) reportUnfedProviders() {
+	saved := c.cur
+	defer func() { c.cur = saved }()
+	seen := map[[2]any]bool{}
+	drop := map[[2]any]bool{}
 	for _, r := range c.pkg.LawRuns {
 		for _, b := range r.Bindings {
 			for k := range b {
-				if b[k].noGenerator {
-					b[k].Unrun += c.lawProviderFix(r.Law, b[k])
-					b[k].noGenerator = false
+				p := &b[k]
+				if !p.noGenerator {
+					continue
 				}
+				p.noGenerator = false
+				fix := ""
+				if strings.HasPrefix(p.Unrun, "its values") {
+					fix = c.lawProviderFix(r.Law, *p)
+				}
+				key := [2]any{r.Law, p.Type.Obj}
+				if seen[key] {
+					p.Unrun += fix
+					continue
+				}
+				seen[key] = true
+				tn := p.Type.Obj
+				var at syntax.Node
+				name := p.Type.String()
+				law := r.Law.Title(c.pkg)
+				switch {
+				case tn.Pkg == c.pkg && tn.file != nil && tn.Decl != nil:
+					// The pair provider × law is unfed, and its fix is
+					// made at the provider: the error is there, and names
+					// where the law is declared.
+					c.cur = tn.file
+					at, name = implementsEntry(p.Type, p.Slot, tn), tn.Name
+					law += ", declared at " + c.lawSite(r.Law) + ","
+				case r.Law.Pkg == c.pkg && r.Law.file != nil:
+					c.cur = r.Law.file
+					at = r.Law.Decl.Name
+				}
+				if at == nil {
+					// A binding of two other packages keeps its skip,
+					// with its fix: this package can change neither.
+					p.Unrun += fix
+					continue
+				}
+				if c.unfedModule() == "" {
+					// A package of no module is a program of its own,
+					// which no other package imports: its contexts are
+					// the only ones that could feed the binding.
+					c.errorf(at, CodeType, "law %s cannot run at %s: %s%s (types.md, Laws 10)", law, name, p.Unrun, fix)
+					continue
+				}
+				// A package of the module that imports this one may feed
+				// it, and this check cannot see one (lawmodule.go): the
+				// binding leaves the package's runs, neither run nor a
+				// skip here, and the module's judgment reports the error
+				// prepared here when no package of the module feeds it.
+				u := unfedBinding{law: r.Law, provider: p.Type}
+				u.diag = c.prepared(func() {
+					c.errorf(at, CodeType, "law %s cannot run at %s: %s%s; no named context of a package of module %s builds one (types.md, Laws 10)", law, name, p.Unrun, fix, c.unfedModule())
+				})
+				c.pkg.unfed = append(c.pkg.unfed, u)
+				drop[key] = true
 			}
 		}
 	}
+	for i := range c.pkg.LawRuns {
+		r := &c.pkg.LawRuns[i]
+		r.Bindings = slices.DeleteFunc(r.Bindings, func(b []LawProvider) bool {
+			return slices.ContainsFunc(b, func(p LawProvider) bool { return p.Type != nil && drop[[2]any{r.Law, p.Type.Obj}] })
+		})
+	}
+	c.prepareUnprovided()
+}
+
+// prepareUnprovided prepares, for each member law this package declares
+// that no run of it holds, the error its module reports when no package
+// of the module provides the law's operation type either (ReportUnfed):
+// a law no case runs is an unfed law, not a printed line. A law of a
+// generic operation type is not run yet (Laws 10), so it has none; a
+// package of no module keeps the line, "runs where T has a provider".
+func (c *checker) prepareUnprovided() {
+	module := c.unfedModule()
+	if module == "" {
+		return
+	}
+	saved := c.cur
+	defer func() { c.cur = saved }()
+	for _, law := range c.pkg.Laws {
+		if law.Owner == nil || law.Unrun != "" || law.file == nil || law.Decl == nil || len(law.Slots) != 1 || law.Slots[0].Param >= 0 || len(law.Slots[0].Type.TParams) > 0 {
+			continue
+		}
+		// A Go host type's law (atomic.Int64, time.Timeline) is under the
+		// rule too (orchestrator ruling, LAW-UNFED r3): its provider is the
+		// bound Go type, so a named context of the module that builds one
+		// feeds it, and no context is an unfed law.
+		c.cur = law.file
+		u := unfedBinding{law: law}
+		u.diag = c.prepared(func() {
+			c.errorf(law.Decl.Name, CodeType, "law %s cannot run: no package of module %s provides %s, so no case runs it; implement it in a package of the module, or bind a provider in a named context (types.md, Laws 10)", law.Title(c.pkg), module, law.Owner.Name)
+		})
+		c.pkg.unprovided = append(c.pkg.unprovided, u)
+	}
+}
+
+// implementsEntry is the entry of n's implements clause that names slot's
+// operation type, else the declaration's name.
+func implementsEntry(n *Named, slot *Named, tn *TypeName) syntax.Node {
+	for i, op := range n.impls {
+		if i < len(n.implExprs) && op.origin() == slot.origin() {
+			return n.implExprs[i]
+		}
+	}
+	return tn.Decl.Name
+}
+
+// reportUnfedLaw reports law, whose own parameter, state, signal or start
+// input has no generator (law.Unrun), at at: no binding of it can run, so
+// it is an error where it is declared (LAW-UNFED).
+func (c *checker) reportUnfedLaw(law *Law, at syntax.Node) {
+	c.errorf(at, CodeType, "law %s cannot run: %s (types.md, Laws 10)", law.Title(c.pkg), law.Unrun)
+}
+
+// lawParamNode is the type of law's i-th parameter as written.
+func lawParamNode(law *Law, i int) syntax.Node {
+	k := 0
+	for _, field := range law.Decl.Params.List {
+		n := max(len(field.Names), 1)
+		if i < k+n {
+			if len(field.Names) > 0 {
+				return field.Names[i-k]
+			}
+			return field.Type
+		}
+		k += n
+	}
+	return law.Decl.Name
 }
 
 // lawProviderFix is the fix the skip of p, a provider with no generator
